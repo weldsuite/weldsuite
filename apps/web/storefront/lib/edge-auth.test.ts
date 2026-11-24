@@ -2,12 +2,15 @@ import { describe, expect, it } from 'vitest';
 import * as nodeCheck from '../node/edge-auth.mjs';
 import { isEdgeSecret, isOpenPath, refusal } from './edge-auth';
 
-const SECRET = 'renderer-secret-0123456789';
+// Made at run time: the tests depend on no fixed secret. NEAR_MISS differs
+// from it in the last character only.
+const SECRET = `renderer-${crypto.randomUUID()}`;
+const NEAR_MISS = `${SECRET.slice(0, -1)}${SECRET.endsWith('0') ? '1' : '0'}`;
 
 describe('edge check (app middleware)', () => {
   it('accepts the secret and nothing else', async () => {
     expect(await isEdgeSecret(SECRET, SECRET)).toBe(true);
-    expect(await isEdgeSecret('renderer-secret-0123456788', SECRET)).toBe(false);
+    expect(await isEdgeSecret(NEAR_MISS, SECRET)).toBe(false);
     expect(await isEdgeSecret(`${SECRET}x`, SECRET)).toBe(false);
     expect(await isEdgeSecret('', SECRET)).toBe(false);
     expect(await isEdgeSecret(null, SECRET)).toBe(false);

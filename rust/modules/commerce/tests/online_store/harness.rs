@@ -3,8 +3,8 @@
 //! the renderer's routes, the edge and the storefront API over the same
 //! databases and one shared cache.
 
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, OnceLock};
 
 use axum::Router;
 use axum::body::{Body, to_bytes};
@@ -25,7 +25,12 @@ use weldsuite_ports::{DynCache, DynEventBus, MemoryCache, RecordingEventBus};
 
 pub(crate) const WORKSPACE: &str = "ws_online_store_test";
 pub(crate) const USER: &str = "user_online_store_test";
-pub(crate) const SECRET: &str = "renderer-secret-for-tests";
+/// The renderer's secret, made at run time from random bytes: the tests
+/// depend on no fixed secret.
+pub(crate) fn secret() -> &'static str {
+    static SECRET: OnceLock<String> = OnceLock::new();
+    SECRET.get_or_init(|| weldsuite_kit::portal::tokens::random_token(32))
+}
 
 pub(crate) const ALL: &[&str] = &[
     "commerce_channels:read",
@@ -138,7 +143,7 @@ impl Env {
         OnlineStoreConfig {
             base_domain: Some(self.base.clone()),
             scheme: "https".to_owned(),
-            secret: Some(SECRET.to_owned()),
+            secret: Some(secret().to_owned()),
             cache: Some(Arc::clone(&self.cache)),
             ..OnlineStoreConfig::default()
         }

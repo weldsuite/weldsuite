@@ -83,13 +83,15 @@ describe('prerendered pages', () => {
 
 describe('build-time fetch', () => {
   it('sends the shop’s origin with every catalogue request', async () => {
+    // Made at run time: the test depends on no fixed key.
+    const key = `wcp_${crypto.randomUUID()}`;
     let seen: Headers | undefined;
     const fetch = withOrigin('https://shop.example.com', async (_url, init) => {
       seen = new Headers(init.headers);
       return new Response('{}');
     });
-    await fetch('https://api.example.com/storefront/v1/products', { headers: { Authorization: 'Bearer wcp_x' } });
+    await fetch('https://api.example.com/storefront/v1/products', { headers: { Authorization: `Bearer ${key}` } });
     expect(seen?.get('origin')).toBe('https://shop.example.com');
-    expect(seen?.get('authorization')).toBe('Bearer wcp_x');
+    expect(seen?.get('authorization')).toBe(`Bearer ${key}`);
   });
 });

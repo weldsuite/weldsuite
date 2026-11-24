@@ -21,11 +21,13 @@ function site(versionId: string, preview = false) {
 }
 
 describe('site loading', () => {
+  // Made at run time: the tests depend on no fixed secret.
+  const SECRET = `s_${crypto.randomUUID()}`;
   const fetchMock = vi.fn<typeof fetch>();
   beforeEach(() => {
     clearSiteCache();
     vi.stubEnv('STOREFRONT_API_URL', 'http://api.test/');
-    vi.stubEnv('STOREFRONT_RENDERER_SECRET', 's3cret');
+    vi.stubEnv('STOREFRONT_RENDERER_SECRET', SECRET);
     vi.stubGlobal('fetch', fetchMock);
     fetchMock.mockReset();
   });
@@ -41,7 +43,7 @@ describe('site loading', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, init] = fetchMock.mock.calls[0]!;
     expect(url).toBe('http://api.test/public/storefront/site?host=shop.example.com');
-    expect(new Headers(init?.headers).get('authorization')).toBe('Bearer s3cret');
+    expect(new Headers(init?.headers).get('authorization')).toBe(`Bearer ${SECRET}`);
     expect(second).toBe(first);
     // Missing templates and groups come from the theme's defaults.
     expect(first.version.document.templates.product.length).toBeGreaterThan(0);

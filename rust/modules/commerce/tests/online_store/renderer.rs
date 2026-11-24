@@ -10,7 +10,7 @@ use weldsuite_commerce::online_store::renderer::{RendererState, router};
 use weldsuite_commerce::storefront::{StorefrontState, storefront_router};
 use weldsuite_events::{EntityEventPublisher, TaskTracker};
 
-use crate::harness::{ALL, Env, SECRET, env, send};
+use crate::harness::{ALL, Env, env, secret, send};
 
 fn renderer(env: &Env) -> axum::Router {
     router(RendererState {
@@ -43,9 +43,9 @@ async fn the_renderer_reads_the_live_version_or_with_a_preview_token_the_draft()
 
     let (status, _) = site(&env, &host, "wrong", None).await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);
-    let (status, unknown) = site(&env, "nobody.example.com", SECRET, None).await;
+    let (status, unknown) = site(&env, "nobody.example.com", secret(), None).await;
     assert_eq!(status, StatusCode::NOT_FOUND, "{unknown}");
-    let (status, unpublished) = site(&env, &host, SECRET, None).await;
+    let (status, unpublished) = site(&env, &host, secret(), None).await;
     assert_eq!(status, StatusCode::NOT_FOUND, "{unpublished}");
     assert_eq!(unpublished["error"]["code"], "NOT_PUBLISHED");
 
@@ -63,7 +63,7 @@ async fn the_renderer_reads_the_live_version_or_with_a_preview_token_the_draft()
         "{url}"
     );
     let token = url.split("token=").nth(1).unwrap();
-    let (status, draft) = site(&env, &host, SECRET, Some(token)).await;
+    let (status, draft) = site(&env, &host, secret(), Some(token)).await;
     assert_eq!(status, StatusCode::OK, "{draft}");
     assert_eq!(draft["data"]["preview"], true);
     assert_eq!(draft["data"]["version"]["id"], "draft");
@@ -77,7 +77,7 @@ async fn the_renderer_reads_the_live_version_or_with_a_preview_token_the_draft()
         )
         .await;
     assert_eq!(status, StatusCode::CREATED);
-    let (status, live) = site(&env, &host, SECRET, None).await;
+    let (status, live) = site(&env, &host, secret(), None).await;
     assert_eq!(status, StatusCode::OK, "{live}");
     assert_eq!(live["data"]["version"]["number"], 1);
     assert_eq!(live["data"]["primaryOrigin"], format!("https://{host}"));
@@ -109,12 +109,12 @@ async fn the_hosted_principal_shops_as_the_hosts_channel() {
             .body(Body::empty())
             .unwrap()
     };
-    let reply = send(&api, call(SECRET, &host)).await;
+    let reply = send(&api, call(secret(), &host)).await;
     assert_eq!(reply.status, StatusCode::OK, "{}", reply.body);
     assert_eq!(reply.body["data"]["id"], channel.as_str());
     let refused = send(&api, call("not-the-secret", &host)).await;
     assert_eq!(refused.status, StatusCode::UNAUTHORIZED);
-    let unknown = send(&api, call(SECRET, "nobody.example.com")).await;
+    let unknown = send(&api, call(secret(), "nobody.example.com")).await;
     assert_eq!(unknown.status, StatusCode::UNAUTHORIZED);
 }
 

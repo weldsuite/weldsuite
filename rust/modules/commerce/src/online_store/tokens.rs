@@ -120,31 +120,39 @@ pub(crate) fn verify_pass(secret: &str, host: &str, stored: &str, pass: &str) ->
 mod tests {
     use super::*;
 
+    /// A key made at run time from random bytes: the tests depend on no
+    /// fixed secret.
+    fn key() -> String {
+        weldsuite_kit::portal::tokens::random_token(32)
+    }
+
     #[test]
     fn preview_tokens_round_trip_and_refuse_tampering() {
-        let (token, expires) = preview_token("s3cret", "sfs_1", "ws_1").expect("token");
+        let (secret, other) = (key(), key());
+        let (token, expires) = preview_token(&secret, "sfs_1", "ws_1").expect("token");
         assert!(expires > now());
         assert_eq!(
-            verify_preview("s3cret", &token),
+            verify_preview(&secret, &token),
             Some(("sfs_1".to_owned(), "ws_1".to_owned()))
         );
-        assert_eq!(verify_preview("other", &token), None);
+        assert_eq!(verify_preview(&other, &token), None);
         let tampered = token.replace("sfs_1", "sfs_2");
-        assert_eq!(verify_preview("s3cret", &tampered), None);
-        assert_eq!(verify_preview("s3cret", "garbage"), None);
+        assert_eq!(verify_preview(&secret, &tampered), None);
+        assert_eq!(verify_preview(&secret, "garbage"), None);
     }
 
     #[test]
     fn passwords_and_passes() {
-        let stored = hash_password("s3cret", "open sesame").expect("hash");
-        assert!(check_password("s3cret", &stored, "open sesame"));
-        assert!(!check_password("s3cret", &stored, "open sesam"));
-        assert!(!check_password("other", &stored, "open sesame"));
-        let pass = visitor_pass("s3cret", "shop.example.com", &stored).expect("pass");
-        assert!(verify_pass("s3cret", "shop.example.com", &stored, &pass));
-        assert!(!verify_pass("s3cret", "other.example.com", &stored, &pass));
-        let changed = hash_password("s3cret", "new").expect("hash");
-        assert!(!verify_pass("s3cret", "shop.example.com", &changed, &pass));
+        let (secret, other) = (key(), key());
+        let stored = hash_password(&secret, "open sesame").expect("hash");
+        assert!(check_password(&secret, &stored, "open sesame"));
+        assert!(!check_password(&secret, &stored, "open sesam"));
+        assert!(!check_password(&other, &stored, "open sesame"));
+        let pass = visitor_pass(&secret, "shop.example.com", &stored).expect("pass");
+        assert!(verify_pass(&secret, "shop.example.com", &stored, &pass));
+        assert!(!verify_pass(&secret, "other.example.com", &stored, &pass));
+        let changed = hash_password(&secret, "new").expect("hash");
+        assert!(!verify_pass(&secret, "shop.example.com", &changed, &pass));
     }
 
     #[test]
