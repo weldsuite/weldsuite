@@ -13,19 +13,26 @@ use axum::routing::{get, put};
 use futures_util::future::try_join_all;
 use http::HeaderMap;
 use regex::Regex;
+use sea_orm::ActiveValue::Set;
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ColumnTrait, DatabaseConnection, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect,
+};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events::{
     ENRICH_FIELD_CREATED, ENRICH_FIELD_DELETED, ENRICH_FIELD_UPDATED,
 };
 use weldsuite_catalogs::permission_keys as perm;
 use weldsuite_crm_domain::validation::compute_changes;
-use weldsuite_db::{PgPool, js_row};
+use weldsuite_db::{orm, utc_now};
 use weldsuite_kit::id::generate_id;
 use weldsuite_kit::validation::{Field, Issues, Presence};
 use weldsuite_kit::{ApiError, Created, Data};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::enrich_field_definitions::{self, Column as Definition};
 
-use crate::{Caller, DataState, internal, now, validate, validate_query};
+use crate::service::{int4, js, js_rows};
+use crate::{Caller, DataState, internal, validate, validate_query};
 
 pub(crate) fn routes<Q: PermissionQueries + 'static>(
     gate: &Arc<PermissionGate<Q>>,
@@ -56,16 +63,18 @@ async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
         Ok(entity_type) => entity_type,
         Err(bad) => return *bad,
     };
-    let found: Result<Vec<Value>, sqlx::Error> = sqlx::query_scalar(
-        "select to_jsonb(t) from enrich_field_definitions t
-         where t.deleted_at is null and ($1::text is null or t.entity_type = $1)
-         order by t.sort_order asc, t.created_at asc",
-    )
-    .bind(entity_type.filter(|e| !e.is_empty()))
-    .fetch_all(&caller.db)
-    .await;
-    match found {
-        Ok(rows) => Data(rows.into_iter().map(js_row).collect::<Vec<_>>()).into_response(),
+    let mut found =
+        enrich_field_definitions::Entity::find().filter(Definition::DeletedAt.is_null());
+    if let Some(entity_type) = entity_type.filter(|e| !e.is_empty()) {
+        found = found.filter(Definition::EntityType.eq(entity_type));
+    }
+    let found = found
+        .order_by_asc(Definition::SortOrder)
+        .order_by_asc(Definition::CreatedAt)
+        .all(&orm(&caller.db))
+        .await;
+    match found.and_then(js_rows) {
+        Ok(rows) => Data(rows).into_response(),
         Err(error) => internal(&error, "Failed to list enrich field definitions"),
     }
 }
@@ -94,16 +103,19 @@ async fn reorder(caller: Caller, headers: HeaderMap, body: Bytes) -> Response {
         Ok(None) => return ApiError::internal().into_response(),
         Err(bad) => return *bad,
     };
-    let at = now();
+    let at = utc_now();
+    let db = orm(&caller.db);
     let updates = items.iter().map(|(id, order)| {
-        sqlx::query(
-            "update enrich_field_definitions set sort_order = $2::int, updated_at = $3::timestamp
-             where id = $1 and deleted_at is null",
-        )
-        .bind(id)
-        .bind(order)
-        .bind(&at)
-        .execute(&caller.db)
+        let db = &db;
+        async move {
+            enrich_field_definitions::Entity::update_many()
+                .col_expr(Definition::SortOrder, Expr::value(int4(*order)?))
+                .col_expr(Definition::UpdatedAt, Expr::value(at))
+                .filter(Definition::Id.eq(id.as_str()))
+                .filter(Definition::DeletedAt.is_null())
+                .exec(db)
+                .await
+        }
     });
     match try_join_all(updates).await {
         Ok(_) => Data(json!({ "reordered": items.len() })).into_response(),
@@ -156,24 +168,19 @@ fn read_settings(issues: &mut Issues, body: &Map<String, Value>, data: &mut Map<
     }
 }
 
-async fn live_definition(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from enrich_field_definitions t where t.id = $1 and t.deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(js_row))
+async fn live_definition(db: &DatabaseConnection, id: &str) -> Result<Option<Value>, DbErr> {
+    let row = enrich_field_definitions::Entity::find_by_id(id)
+        .filter(Definition::DeletedAt.is_null())
+        .one(db)
+        .await?;
+    row.map(js).transpose()
 }
 
-async fn definition(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from enrich_field_definitions t where t.id = $1 limit 1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(js_row))
+async fn definition(db: &DatabaseConnection, id: &str) -> Result<Option<Value>, DbErr> {
+    let row = enrich_field_definitions::Entity::find_by_id(id)
+        .one(db)
+        .await?;
+    row.map(js).transpose()
 }
 
 fn text<'a>(data: &'a Map<String, Value>, key: &str) -> &'a str {
@@ -191,7 +198,7 @@ async fn create(
         Ok(data) => data,
         Err(bad) => return *bad,
     };
-    match insert(&caller.db, &data).await {
+    match insert(&orm(&caller.db), &data).await {
         Ok(Ok((id, created))) => {
             let mut event = data;
             event.insert("id".into(), json!(id));
@@ -205,23 +212,24 @@ async fn create(
 
 /// The insert, or the 409 when the definition exists.
 async fn insert(
-    db: &PgPool,
+    db: &DatabaseConnection,
     data: &Map<String, Value>,
-) -> Result<Result<(String, Value), Response>, sqlx::Error> {
+) -> Result<Result<(String, Value), Response>, DbErr> {
     let (provider, operation, entity_type) = (
         text(data, "provider"),
         text(data, "operation"),
         text(data, "entityType"),
     );
-    let existing: Option<String> = sqlx::query_scalar(
-        "select id from enrich_field_definitions
-         where provider = $1 and operation = $2 and entity_type = $3 and deleted_at is null limit 1",
-    )
-    .bind(provider)
-    .bind(operation)
-    .bind(entity_type)
-    .fetch_optional(db)
-    .await?;
+    let existing: Option<String> = enrich_field_definitions::Entity::find()
+        .select_only()
+        .column(Definition::Id)
+        .filter(Definition::Provider.eq(provider))
+        .filter(Definition::Operation.eq(operation))
+        .filter(Definition::EntityType.eq(entity_type))
+        .filter(Definition::DeletedAt.is_null())
+        .into_tuple()
+        .one(db)
+        .await?;
     if existing.is_some() {
         return Ok(Err(ApiError::conflict(format!(
             "An enrich field for {provider}/{operation} on {entity_type} already exists"
@@ -229,23 +237,24 @@ async fn insert(
         .into_response()));
     }
     let id = generate_id("efd");
-    let at = now();
-    sqlx::query(
-        "insert into enrich_field_definitions
-           (id, provider, operation, entity_type, name, slug, enabled, sort_order, config, created_at, updated_at)
-         values ($1, $2, $3, $4, $5, $6, $7, $8::int, $9, $10::timestamp, $10::timestamp)",
-    )
-    .bind(&id)
-    .bind(provider)
-    .bind(operation)
-    .bind(entity_type)
-    .bind(text(data, "name"))
-    .bind(text(data, "slug"))
-    .bind(data.get("enabled").and_then(Value::as_bool).unwrap_or(true))
-    .bind(data.get("sortOrder").and_then(Value::as_i64).unwrap_or(0))
-    .bind(data.get("config"))
-    .bind(&at)
-    .execute(db)
+    let at = utc_now();
+    enrich_field_definitions::Entity::insert(enrich_field_definitions::ActiveModel {
+        id: Set(id.clone()),
+        provider: Set(provider.to_owned()),
+        operation: Set(operation.to_owned()),
+        entity_type: Set(entity_type.to_owned()),
+        name: Set(text(data, "name").to_owned()),
+        slug: Set(text(data, "slug").to_owned()),
+        enabled: Set(data.get("enabled").and_then(Value::as_bool).unwrap_or(true)),
+        sort_order: Set(int4(
+            data.get("sortOrder").and_then(Value::as_i64).unwrap_or(0),
+        )?),
+        config: Set(data.get("config").cloned()),
+        created_at: Set(at),
+        updated_at: Set(at),
+        ..Default::default()
+    })
+    .exec_without_returning(db)
     .await?;
     let created = definition(db, &id).await?.unwrap_or(Value::Null);
     Ok(Ok((id, created)))
@@ -271,35 +280,19 @@ async fn update(
         Ok(data) => data,
         Err(bad) => return *bad,
     };
-    let failed = |error: &sqlx::Error| internal(error, "Failed to update enrich field definition");
-    let existing = match live_definition(&caller.db, &id).await {
+    let failed = |error: &DbErr| internal(error, "Failed to update enrich field definition");
+    let db = orm(&caller.db);
+    let existing = match live_definition(&db, &id).await {
         Ok(Some(existing)) => existing,
         Ok(None) => {
             return ApiError::not_found("Enrich field definition", Some(&id)).into_response();
         }
         Err(error) => return failed(&error),
     };
-    let written = sqlx::query(
-        "update enrich_field_definitions set updated_at = $2::timestamp,
-                name = coalesce($3, name),
-                enabled = coalesce($4, enabled),
-                sort_order = coalesce($5::int, sort_order),
-                config = case when $6::boolean then $7 else config end
-         where id = $1",
-    )
-    .bind(&id)
-    .bind(now())
-    .bind(data.get("name").and_then(Value::as_str))
-    .bind(data.get("enabled").and_then(Value::as_bool))
-    .bind(data.get("sortOrder").and_then(Value::as_i64))
-    .bind(data.contains_key("config"))
-    .bind(data.get("config"))
-    .execute(&caller.db)
-    .await;
-    if let Err(error) = written {
+    if let Err(error) = write_update(&db, &id, &data).await {
         return failed(&error);
     }
-    let updated = match definition(&caller.db, &id).await {
+    let updated = match definition(&db, &id).await {
         Ok(updated) => updated.unwrap_or(Value::Null),
         Err(error) => return failed(&error),
     };
@@ -318,28 +311,52 @@ async fn update(
     Data(updated).into_response()
 }
 
+/// The update's statement: `updatedAt` and the fields given.
+async fn write_update(
+    db: &DatabaseConnection,
+    id: &str,
+    data: &Map<String, Value>,
+) -> Result<(), DbErr> {
+    let mut update = enrich_field_definitions::Entity::update_many()
+        .col_expr(Definition::UpdatedAt, Expr::value(utc_now()));
+    if let Some(name) = data.get("name").and_then(Value::as_str) {
+        update = update.col_expr(Definition::Name, Expr::value(name));
+    }
+    if let Some(enabled) = data.get("enabled").and_then(Value::as_bool) {
+        update = update.col_expr(Definition::Enabled, Expr::value(enabled));
+    }
+    if let Some(order) = data.get("sortOrder").and_then(Value::as_i64) {
+        update = update.col_expr(Definition::SortOrder, Expr::value(int4(order)?));
+    }
+    if let Some(config) = data.get("config") {
+        update = update.col_expr(Definition::Config, Expr::value(config.clone()));
+    }
+    update.filter(Definition::Id.eq(id)).exec(db).await?;
+    Ok(())
+}
+
 /// `DELETE /:id`: soft.
 async fn remove(
     State(state): State<DataState>,
     caller: Caller,
     Path(id): Path<String>,
 ) -> Response {
-    let failed = |error: &sqlx::Error| internal(error, "Failed to delete enrich field definition");
-    match live_definition(&caller.db, &id).await {
+    let failed = |error: &DbErr| internal(error, "Failed to delete enrich field definition");
+    let db = orm(&caller.db);
+    match live_definition(&db, &id).await {
         Ok(Some(_)) => {}
         Ok(None) => {
             return ApiError::not_found("Enrich field definition", Some(&id)).into_response();
         }
         Err(error) => return failed(&error),
     }
-    let at = now();
-    let written = sqlx::query(
-        "update enrich_field_definitions set deleted_at = $2::timestamp, updated_at = $2::timestamp where id = $1",
-    )
-    .bind(&id)
-    .bind(&at)
-    .execute(&caller.db)
-    .await;
+    let at = utc_now();
+    let written = enrich_field_definitions::Entity::update_many()
+        .col_expr(Definition::DeletedAt, Expr::value(at))
+        .col_expr(Definition::UpdatedAt, Expr::value(at))
+        .filter(Definition::Id.eq(id.as_str()))
+        .exec(&db)
+        .await;
     if let Err(error) = written {
         return failed(&error);
     }

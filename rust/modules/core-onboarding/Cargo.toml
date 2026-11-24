@@ -23,6 +23,8 @@ time = { workspace = true }
 tokio = { workspace = true, features = ["time"] }
 tracing = { workspace = true }
 unicode-normalization = { workspace = true }
+sea-orm = { workspace = true }
+weldsuite-schema = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt", "rt-multi-thread"] }

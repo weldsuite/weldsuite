@@ -7,15 +7,19 @@ use axum::body::Bytes;
 use axum::response::IntoResponse;
 use axum::routing::{get, put};
 use http::HeaderMap;
+use sea_orm::sea_query::Expr;
+use sea_orm::{ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, QueryFilter};
 use serde_json::{Value, json};
 use weldsuite_catalogs::permission_keys::{EMPLOYEES_MANAGE, EMPLOYEES_READ};
-use weldsuite_db::{PgPool, js_row};
+use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_kit::validation::{Field, Presence};
 use weldsuite_kit::{Data, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::hr_settings;
 
 use crate::fields::change;
-use crate::{Caller, HrError, HrResult, HrState, hr_json, now};
+use crate::shared::row_json;
+use crate::{Caller, HrError, HrResult, HrState, hr_json};
 
 /// The routes, relative to `/api/weldhr`.
 pub(crate) fn routes<Q>(gate: &Arc<PermissionGate<Q>>) -> Router<HrState>
@@ -36,19 +40,17 @@ where
 /// `loadHrSettings(db)`: the singleton row, created with the defaults on
 /// first read.
 pub(crate) async fn load_hr_settings(db: &PgPool) -> Result<Value, HrError> {
-    let row: Option<Value> = sqlx::query_scalar("select to_jsonb(s) from hr_settings s limit 1")
-        .fetch_optional(db)
-        .await?;
-    if let Some(row) = row {
-        return Ok(js_row(row));
+    let db = orm(db);
+    if let Some(row) = hr_settings::Entity::find().one(&db).await? {
+        return Ok(row_json(row)?);
     }
-    let created: Value = sqlx::query_scalar(
-        "insert into hr_settings (id) values ($1) returning to_jsonb(hr_settings)",
-    )
-    .bind(generate_id("hrset"))
-    .fetch_one(db)
+    let created = hr_settings::Entity::insert(hr_settings::ActiveModel {
+        id: Set(generate_id("hrset")),
+        ..Default::default()
+    })
+    .exec_with_returning(&db)
     .await?;
-    Ok(js_row(created))
+    Ok(row_json(created)?)
 }
 
 async fn read(caller: Caller) -> HrResult {
@@ -70,28 +72,26 @@ async fn update(caller: Caller, headers: HeaderMap, body: Bytes) -> HrResult {
     })?;
     let current = load_hr_settings(&caller.db).await?;
     let id = current["id"].as_str().unwrap_or_default().to_owned();
-    let [self_clock, location, leave, declarations] = [0, 1, 2, 3].map(|i| change(&input[i]));
-    let row: Value = sqlx::query_scalar(
-        "update hr_settings set
-             employee_self_clock_in = case when $2 then $3 else employee_self_clock_in end,
-             clock_in_requires_location = case when $4 then $5 else clock_in_requires_location end,
-             employee_leave_requests = case when $6 then $7 else employee_leave_requests end,
-             employee_declarations = case when $8 then $9 else employee_declarations end,
-             updated_at = $10::timestamp
-         where id = $1 returning to_jsonb(hr_settings)",
-    )
-    .bind(&id)
-    .bind(self_clock.0)
-    .bind(self_clock.1)
-    .bind(location.0)
-    .bind(location.1)
-    .bind(leave.0)
-    .bind(leave.1)
-    .bind(declarations.0)
-    .bind(declarations.1)
-    .bind(now())
-    .fetch_one(&caller.db)
-    .await?;
+    let columns = [
+        hr_settings::Column::EmployeeSelfClockIn,
+        hr_settings::Column::ClockInRequiresLocation,
+        hr_settings::Column::EmployeeLeaveRequests,
+        hr_settings::Column::EmployeeDeclarations,
+    ];
+    let mut update = hr_settings::Entity::update_many();
+    for (column, field) in columns.into_iter().zip(&input) {
+        if let (true, value) = change(field) {
+            update = update.col_expr(column, Expr::value(value));
+        }
+    }
+    let row = update
+        .col_expr(hr_settings::Column::UpdatedAt, Expr::value(utc_now()))
+        .filter(hr_settings::Column::Id.eq(id))
+        .exec_with_returning(&orm(&caller.db))
+        .await?
+        .into_iter()
+        .next()
+        .ok_or_else(|| DbErr::RecordNotFound("hr_settings".to_owned()))?;
     let fields: Vec<&str> = KEYS
         .iter()
         .zip(&input)
@@ -101,7 +101,7 @@ async fn update(caller: Caller, headers: HeaderMap, body: Bytes) -> HrResult {
     caller
         .audit("settings.updated", None, json!({ "fields": fields }))
         .await?;
-    Ok(Data(js_row(row)).into_response())
+    Ok(Data(row_json(row)?).into_response())
 }
 
 /// The switches `/me` reads (`features(c)` in me.ts).

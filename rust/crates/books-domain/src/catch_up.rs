@@ -14,11 +14,21 @@
 //! reported. A dry run builds every posting and checks every lock without
 //! writing. Running it twice is safe.
 
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{
+    ColumnTrait, Condition, DbErr, EntityTrait, JoinType, QueryFilter, QueryOrder, QuerySelect,
+    RelationDef,
+};
 use serde_json::{Map, Value, json};
-use sqlx::PgPool;
+use weldsuite_db::{OrmConn, PgPool, orm};
 use weldsuite_kit::generate_id;
 use weldsuite_ports::OutboundHttp;
+use weldsuite_schema::tenant::{
+    accounts, bank_transactions, bill_items, bills, invoice_items, invoices, journal_entries,
+    journal_lines, payments, tax_lines, tax_rates,
+};
 
+use crate::db_values::to_json_rows;
 use crate::document_posting::{
     PaymentAllocationInput, PaymentPostingInput, PostInvoiceOptions, amount_of, build_bill_posting,
     build_invoice_posting, build_payment_posting, filled, owned, post_bill, post_invoice, text,
@@ -32,10 +42,7 @@ use crate::posting::{
     PostError, PostJournalEntryInput, PostingTaxLine, ReverseArgs, post_journal_entry,
     reverse_journal_entry,
 };
-use crate::tables::{
-    BANK_TRANSACTIONS, BILL_ITEMS, BILLS, INVOICE_ITEMS, INVOICES, JOURNAL_ENTRIES, JOURNAL_LINES,
-    PAYMENT_ALLOCATIONS, PAYMENTS, TAX_LINES, TAX_RATES,
-};
+use crate::tables::{PAYMENT_ALLOCATIONS, PAYMENTS, TAX_LINES};
 
 const UNPOSTED_INVOICE_STATUSES: [&str; 6] = [
     "sent",
@@ -190,70 +197,78 @@ fn tax_rows_for(
         .collect()
 }
 
-async fn insert_tax_rows(db: &PgPool, rows: &[Map<String, Value>]) -> Result<(), sqlx::Error> {
+async fn insert_tax_rows(db: &PgPool, rows: &[Map<String, Value>]) -> Result<(), PostError> {
     let rows = rows.to_vec();
-    weldsuite_db::atomically_with::<_, (), sqlx::Error, _>(db, move |conn| {
+    weldsuite_db::atomically_with(db, move |conn| {
         Box::pin(async move {
+            let tx = OrmConn::new(conn);
             for row in &rows {
-                TAX_LINES
-                    .insert_raw(&mut *conn, TAX_LINES.values(row))
-                    .await?;
+                TAX_LINES.insert_raw_on(&tx, TAX_LINES.values(row)).await?;
             }
-            Ok(())
+            Ok::<_, PostError>(())
         })
     })
     .await
 }
 
-async fn journal_entries_with_tax_lines(
-    db: &PgPool,
-    ids: &[String],
-) -> Result<Vec<String>, sqlx::Error> {
+async fn journal_entries_with_tax_lines(db: &PgPool, ids: &[String]) -> Result<Vec<String>, DbErr> {
     if ids.is_empty() {
         return Ok(Vec::new());
     }
-    sqlx::query_scalar(
-        "select distinct journal_entry_id from tax_lines where journal_entry_id = any($1)",
-    )
-    .bind(ids)
-    .fetch_all(db)
-    .await
+    tax_lines::Entity::find()
+        .select_only()
+        .column(tax_lines::Column::JournalEntryId)
+        .distinct()
+        .filter(tax_lines::Column::JournalEntryId.is_in(ids.to_vec()))
+        .into_tuple()
+        .all(&orm(db))
+        .await
 }
 
-async fn items_of(db: &PgPool, invoice: bool, id: &str) -> Result<Vec<Value>, sqlx::Error> {
+async fn items_of(db: &PgPool, invoice: bool, id: &str) -> Result<Vec<Value>, DbErr> {
     if invoice {
-        let rows: Vec<Value> = sqlx::query_scalar(concat!(
-            "select ",
-            crate::books_row!(invoice_items),
-            " from invoice_items t where t.invoice_id = $1 and t.deleted_at is null"
-        ))
-        .bind(id)
-        .fetch_all(db)
-        .await?;
-        Ok(INVOICE_ITEMS.js_rows(rows))
+        let rows = invoice_items::Entity::find()
+            .filter(invoice_items::Column::InvoiceId.eq(id))
+            .filter(invoice_items::Column::DeletedAt.is_null())
+            .all(&orm(db))
+            .await?;
+        to_json_rows(rows)
     } else {
-        let rows: Vec<Value> = sqlx::query_scalar(concat!(
-            "select ",
-            crate::books_row!(bill_items),
-            " from bill_items t where t.bill_id = $1 and t.deleted_at is null"
-        ))
-        .bind(id)
-        .fetch_all(db)
-        .await?;
-        Ok(BILL_ITEMS.js_rows(rows))
+        let rows = bill_items::Entity::find()
+            .filter(bill_items::Column::BillId.eq(id))
+            .filter(bill_items::Column::DeletedAt.is_null())
+            .all(&orm(db))
+            .await?;
+        to_json_rows(rows)
     }
 }
 
+/// `inner join accounts a on jl.account_id = a.id`.
+fn line_account() -> RelationDef {
+    journal_lines::Entity::belongs_to(accounts::Entity)
+        .from(journal_lines::Column::AccountId)
+        .to(accounts::Column::Id)
+        .into()
+}
+
+/// `column::text`: a `numeric` as Postgres prints it.
+fn text_of(column: impl sea_orm::sea_query::IntoColumnRef) -> Expr {
+    sea_orm::ExprTrait::cast_as(Expr::col(column), "text")
+}
+
 /// Was this credit note posted like an invoice (receivable debited)?
-async fn credit_note_has_invoice_sign(
-    db: &PgPool,
-    journal_entry_id: &str,
-) -> Result<bool, sqlx::Error> {
-    let entry: Option<(Option<String>, Option<String>)> =
-        sqlx::query_as("select status, posting_key from journal_entries where id = $1 limit 1")
-            .bind(journal_entry_id)
-            .fetch_optional(db)
-            .await?;
+async fn credit_note_has_invoice_sign(db: &PgPool, journal_entry_id: &str) -> Result<bool, DbErr> {
+    let db = orm(db);
+    let entry: Option<(Option<String>, Option<String>)> = journal_entries::Entity::find()
+        .select_only()
+        .columns([
+            journal_entries::Column::Status,
+            journal_entries::Column::PostingKey,
+        ])
+        .filter(journal_entries::Column::Id.eq(journal_entry_id))
+        .into_tuple()
+        .one(&db)
+        .await?;
     // Entries from the posting service carry a key and the right sign.
     let Some((status, posting_key)) = entry else {
         return Ok(false);
@@ -261,13 +276,16 @@ async fn credit_note_has_invoice_sign(
     if posting_key.is_some_and(|k| !k.is_empty()) || status.as_deref() != Some("posted") {
         return Ok(false);
     }
-    let lines: Vec<(Option<String>, Option<Value>, Option<String>)> = sqlx::query_as(
-        "select jl.debit::text, a.metadata, a.code from journal_lines jl \
-         inner join accounts a on jl.account_id = a.id where jl.journal_entry_id = $1",
-    )
-    .bind(journal_entry_id)
-    .fetch_all(db)
-    .await?;
+    let lines: Vec<(Option<String>, Option<Value>, Option<String>)> = journal_lines::Entity::find()
+        .select_only()
+        .column_as(text_of(journal_lines::Column::Debit), "debit")
+        .column_as(accounts::Column::Metadata, "metadata")
+        .column_as(accounts::Column::Code, "code")
+        .join(JoinType::InnerJoin, line_account())
+        .filter(journal_lines::Column::JournalEntryId.eq(journal_entry_id))
+        .into_tuple()
+        .all(&db)
+        .await?;
     Ok(lines.iter().any(|(debit, metadata, code)| {
         let debit = debit.as_deref().map_or(0.0, |d| numeric(&json!(d)));
         let role = metadata
@@ -290,16 +308,14 @@ fn day_of(row: &Value, key: &str) -> String {
 #[allow(clippy::too_many_lines)] // the worker's steps, in its order
 async fn catch_up_posted_invoices(ctx: &mut Ctx<'_>) -> Result<(), PostError> {
     let db = ctx.db;
-    let rows: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        crate::books_row!(invoices),
-        " from invoices t where t.entity_id = $1 and t.deleted_at is null \
-          and t.journal_entry_id is not null order by t.issue_date asc"
-    ))
-    .bind(ctx.entity_id)
-    .fetch_all(db)
-    .await?;
-    let posted = INVOICES.js_rows(rows);
+    let rows = invoices::Entity::find()
+        .filter(invoices::Column::EntityId.eq(ctx.entity_id))
+        .filter(invoices::Column::DeletedAt.is_null())
+        .filter(invoices::Column::JournalEntryId.is_not_null())
+        .order_by_asc(invoices::Column::IssueDate)
+        .all(&orm(db))
+        .await?;
+    let posted = to_json_rows(rows)?;
     let entry_ids: Vec<String> = posted
         .iter()
         .filter_map(|i| owned(i, "journalEntryId"))
@@ -398,29 +414,28 @@ async fn catch_up_posted_invoices(ctx: &mut Ctx<'_>) -> Result<(), PostError> {
 #[allow(clippy::too_many_lines)] // the worker's steps, in its order
 async fn catch_up_manual_entries(ctx: &mut Ctx<'_>) -> Result<(), PostError> {
     let db = ctx.db;
-    let rows: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        crate::books_row!(journal_entries),
-        " from journal_entries t where t.entity_id = $1 and t.deleted_at is null \
-          and t.status in ('posted', 'reversed') and t.posting_key is null \
-          and coalesce(t.source_type, 'manual') = 'manual' order by t.date asc"
-    ))
-    .bind(ctx.entity_id)
-    .fetch_all(db)
-    .await?;
-    let entries = JOURNAL_ENTRIES.js_rows(rows);
+    let source_type = Func::coalesce([
+        Expr::col(journal_entries::Column::SourceType),
+        Expr::val("manual"),
+    ]);
+    let rows = journal_entries::Entity::find()
+        .filter(journal_entries::Column::EntityId.eq(ctx.entity_id))
+        .filter(journal_entries::Column::DeletedAt.is_null())
+        .filter(journal_entries::Column::Status.is_in(["posted", "reversed"]))
+        .filter(journal_entries::Column::PostingKey.is_null())
+        .filter(sea_orm::ExprTrait::eq(source_type, "manual"))
+        .order_by_asc(journal_entries::Column::Date)
+        .all(&orm(db))
+        .await?;
+    let entries = to_json_rows(rows)?;
     let ids: Vec<String> = entries.iter().filter_map(|e| owned(e, "id")).collect();
     let with_tax = journal_entries_with_tax_lines(db, &ids).await?;
 
-    let rate_rows: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        crate::books_row!(tax_rates),
-        " from tax_rates t where t.entity_id = $1"
-    ))
-    .bind(ctx.entity_id)
-    .fetch_all(db)
-    .await?;
-    let rates = TAX_RATES.js_rows(rate_rows);
+    let rate_rows = tax_rates::Entity::find()
+        .filter(tax_rates::Column::EntityId.eq(ctx.entity_id))
+        .all(&orm(db))
+        .await?;
+    let rates = to_json_rows(rate_rows)?;
     let mut rows_by_entry: Vec<(String, Vec<Map<String, Value>>)> = Vec::new();
 
     for entry in entries {
@@ -454,16 +469,13 @@ async fn catch_up_manual_entries(ctx: &mut Ctx<'_>) -> Result<(), PostError> {
                 })
                 .collect()
         } else {
-            let line_rows: Vec<Value> = sqlx::query_scalar(concat!(
-                "select ",
-                crate::books_row!(journal_lines),
-                " from journal_lines t where t.journal_entry_id = $1 and t.deleted_at is null"
-            ))
-            .bind(&id)
-            .fetch_all(db)
-            .await?;
+            let line_rows = journal_lines::Entity::find()
+                .filter(journal_lines::Column::JournalEntryId.eq(&id))
+                .filter(journal_lines::Column::DeletedAt.is_null())
+                .all(&orm(db))
+                .await?;
             let mut tax_lines = Vec::new();
-            for line in JOURNAL_LINES.js_rows(line_rows) {
+            for line in to_json_rows(line_rows)? {
                 let Some(rate) = filled(&line, "taxRateId")
                     .and_then(|rate_id| rates.iter().find(|r| text(r, "id") == Some(rate_id)))
                 else {
@@ -507,18 +519,16 @@ async fn catch_up_manual_entries(ctx: &mut Ctx<'_>) -> Result<(), PostError> {
 /// 3: invoices sent or paid without being finalized.
 async fn catch_up_unposted_invoices(ctx: &mut Ctx<'_>) -> Result<(), PostError> {
     let db = ctx.db;
-    let rows: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        crate::books_row!(invoices),
-        " from invoices t where t.entity_id = $1 and t.deleted_at is null \
-          and t.journal_entry_id is null and t.status = any($2) and t.type not in ('proforma') \
-          order by t.issue_date asc"
-    ))
-    .bind(ctx.entity_id)
-    .bind(&UNPOSTED_INVOICE_STATUSES[..])
-    .fetch_all(db)
-    .await?;
-    for invoice in INVOICES.js_rows(rows) {
+    let rows = invoices::Entity::find()
+        .filter(invoices::Column::EntityId.eq(ctx.entity_id))
+        .filter(invoices::Column::DeletedAt.is_null())
+        .filter(invoices::Column::JournalEntryId.is_null())
+        .filter(invoices::Column::Status.is_in(UNPOSTED_INVOICE_STATUSES))
+        .filter(invoices::Column::Type.is_not_in(["proforma"]))
+        .order_by_asc(invoices::Column::IssueDate)
+        .all(&orm(db))
+        .await?;
+    for invoice in to_json_rows(rows)? {
         let id = text(&invoice, "id").unwrap_or_default().to_owned();
         let booked = async {
             let items = items_of(db, true, &id).await?;
@@ -562,17 +572,15 @@ async fn catch_up_unposted_invoices(ctx: &mut Ctx<'_>) -> Result<(), PostError> 
 /// 3: bills approved or paid without being posted.
 async fn catch_up_unposted_bills(ctx: &mut Ctx<'_>) -> Result<(), PostError> {
     let db = ctx.db;
-    let rows: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        crate::books_row!(bills),
-        " from bills t where t.entity_id = $1 and t.deleted_at is null \
-          and t.journal_entry_id is null and t.status = any($2) order by t.issue_date asc"
-    ))
-    .bind(ctx.entity_id)
-    .bind(&UNPOSTED_BILL_STATUSES[..])
-    .fetch_all(db)
-    .await?;
-    for bill in BILLS.js_rows(rows) {
+    let rows = bills::Entity::find()
+        .filter(bills::Column::EntityId.eq(ctx.entity_id))
+        .filter(bills::Column::DeletedAt.is_null())
+        .filter(bills::Column::JournalEntryId.is_null())
+        .filter(bills::Column::Status.is_in(UNPOSTED_BILL_STATUSES))
+        .order_by_asc(bills::Column::IssueDate)
+        .all(&orm(db))
+        .await?;
+    for bill in to_json_rows(rows)? {
         let id = text(&bill, "id").unwrap_or_default().to_owned();
         let booked = async {
             let items = items_of(db, false, &id).await?;
@@ -599,16 +607,14 @@ async fn catch_up_unposted_bills(ctx: &mut Ctx<'_>) -> Result<(), PostError> {
 #[allow(clippy::too_many_lines)] // the worker's steps, in its order
 async fn catch_up_unposted_payments(ctx: &mut Ctx<'_>) -> Result<(), PostError> {
     let db = ctx.db;
-    let rows: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        crate::books_row!(payments),
-        " from payments t where t.entity_id = $1 and t.deleted_at is null \
-          and t.journal_entry_id is null order by t.date asc"
-    ))
-    .bind(ctx.entity_id)
-    .fetch_all(db)
-    .await?;
-    for payment in PAYMENTS.js_rows(rows) {
+    let rows = payments::Entity::find()
+        .filter(payments::Column::EntityId.eq(ctx.entity_id))
+        .filter(payments::Column::DeletedAt.is_null())
+        .filter(payments::Column::JournalEntryId.is_null())
+        .order_by_asc(payments::Column::Date)
+        .all(&orm(db))
+        .await?;
+    for payment in to_json_rows(rows)? {
         let id = text(&payment, "id").unwrap_or_default().to_owned();
         let booked = async {
             let received = text(&payment, "type") != Some("sent");
@@ -728,19 +734,23 @@ async fn catch_up_unposted_payments(ctx: &mut Ctx<'_>) -> Result<(), PostError> 
 
 /// 5: bank lines matched to a document before a match recorded a payment.
 async fn catch_up_matched_bank_lines(ctx: &mut Ctx<'_>) -> Result<(), PostError> {
+    use bank_transactions::Column;
     let db = ctx.db;
-    let rows: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        crate::books_row!(bank_transactions),
-        " from bank_transactions t where t.entity_id = $1 and t.deleted_at is null \
-          and t.status = 'reconciled' and t.reconciled_payment_id is null and t.journal_entry_id is null \
-          and (t.reconciled_invoice_id is not null or t.reconciled_bill_id is not null) \
-          order by t.date asc"
-    ))
-    .bind(ctx.entity_id)
-    .fetch_all(db)
-    .await?;
-    for txn in BANK_TRANSACTIONS.js_rows(rows) {
+    let rows = bank_transactions::Entity::find()
+        .filter(Column::EntityId.eq(ctx.entity_id))
+        .filter(Column::DeletedAt.is_null())
+        .filter(Column::Status.eq("reconciled"))
+        .filter(Column::ReconciledPaymentId.is_null())
+        .filter(Column::JournalEntryId.is_null())
+        .filter(
+            Condition::any()
+                .add(Column::ReconciledInvoiceId.is_not_null())
+                .add(Column::ReconciledBillId.is_not_null()),
+        )
+        .order_by_asc(Column::Date)
+        .all(&orm(db))
+        .await?;
+    for txn in to_json_rows(rows)? {
         let id = text(&txn, "id").unwrap_or_default().to_owned();
         let invoice = filled(&txn, "reconciledInvoiceId").is_some();
         let document_id = owned(&txn, "reconciledInvoiceId")
@@ -748,17 +758,24 @@ async fn catch_up_matched_bank_lines(ctx: &mut Ctx<'_>) -> Result<(), PostError>
             .unwrap_or_default();
         let booked = async {
             let doc: Option<(String, Option<String>, Option<String>)> = if invoice {
-                sqlx::query_as(
-                    "select id, contact_id, balance_due::text from invoices where id = $1 limit 1",
-                )
+                invoices::Entity::find()
+                    .select_only()
+                    .columns([invoices::Column::Id, invoices::Column::ContactId])
+                    .column_as(text_of(invoices::Column::BalanceDue), "balance_due")
+                    .filter(invoices::Column::Id.eq(&document_id))
+                    .into_tuple()
+                    .one(&orm(db))
+                    .await?
             } else {
-                sqlx::query_as(
-                    "select id, contact_id, balance_due::text from bills where id = $1 limit 1",
-                )
-            }
-            .bind(&document_id)
-            .fetch_optional(db)
-            .await?;
+                bills::Entity::find()
+                    .select_only()
+                    .columns([bills::Column::Id, bills::Column::ContactId])
+                    .column_as(text_of(bills::Column::BalanceDue), "balance_due")
+                    .filter(bills::Column::Id.eq(&document_id))
+                    .into_tuple()
+                    .one(&orm(db))
+                    .await?
+            };
             let open = doc
                 .as_ref()
                 .and_then(|(_, _, balance)| balance.as_deref())

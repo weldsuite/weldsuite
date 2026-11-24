@@ -10,24 +10,35 @@
 //! compensating the balance when a concurrent call won the key. The same
 //! statements run here.
 
+use sea_orm::sea_query::{Expr, OnConflict};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, Condition, DatabaseConnection, DbErr, EntityTrait, QueryFilter,
+    QuerySelect, RuntimeErr, TryInsertResult,
+};
 use serde_json::Value;
 use time::{Month, OffsetDateTime};
-use weldsuite_db::PgPool;
-use weldsuite_events::iso_timestamp;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::generate_id;
+use weldsuite_schema::master::{credit_transactions, workspace_credits, workspaces};
 
 /// Why a credits call failed.
 #[derive(Debug)]
 pub enum CreditsError {
     /// The arguments were refused (`[credits] amount must be …`).
     Invalid(String),
-    Database(sqlx::Error),
+    Database(DbErr),
 }
 
 impl std::fmt::Display for CreditsError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Invalid(message) => f.write_str(message),
+            // The statement's own error, as sqlx wrote it.
+            Self::Database(
+                DbErr::Conn(RuntimeErr::SqlxError(error))
+                | DbErr::Exec(RuntimeErr::SqlxError(error))
+                | DbErr::Query(RuntimeErr::SqlxError(error)),
+            ) => error.fmt(f),
             Self::Database(error) => error.fmt(f),
         }
     }
@@ -35,8 +46,8 @@ impl std::fmt::Display for CreditsError {
 
 impl std::error::Error for CreditsError {}
 
-impl From<sqlx::Error> for CreditsError {
-    fn from(error: sqlx::Error) -> Self {
+impl From<DbErr> for CreditsError {
+    fn from(error: DbErr) -> Self {
         Self::Database(error)
     }
 }
@@ -46,27 +57,50 @@ impl From<sqlx::Error> for CreditsError {
 pub async fn resolve_internal_workspace_id(
     master: &PgPool,
     reference: &str,
-) -> Result<Option<String>, sqlx::Error> {
-    sqlx::query_scalar("select id from workspaces where id = $1 or clerk_org_id = $1 limit 1")
-        .bind(reference)
-        .fetch_optional(master)
+) -> Result<Option<String>, DbErr> {
+    workspaces::Entity::find()
+        .select_only()
+        .column(workspaces::Column::Id)
+        .filter(
+            Condition::any()
+                .add(workspaces::Column::Id.eq(reference))
+                .add(workspaces::Column::ClerkOrgId.eq(reference)),
+        )
+        .into_tuple()
+        .one(&orm(master))
         .await
 }
 
 async fn find_by_idempotency_key(
-    master: &PgPool,
+    db: &DatabaseConnection,
     key: &str,
-) -> Result<Option<(String, i32)>, sqlx::Error> {
-    sqlx::query_as(
-        "select id, balance_after from credit_transactions where idempotency_key = $1 limit 1",
-    )
-    .bind(key)
-    .fetch_optional(master)
-    .await
+) -> Result<Option<(String, i32)>, DbErr> {
+    credit_transactions::Entity::find()
+        .select_only()
+        .columns([
+            credit_transactions::Column::Id,
+            credit_transactions::Column::BalanceAfter,
+        ])
+        .filter(credit_transactions::Column::IdempotencyKey.eq(key))
+        .into_tuple()
+        .one(db)
+        .await
+}
+
+/// `$n::int` of an amount: Postgres refuses one outside `integer`'s range.
+fn int(amount: i64) -> Result<i32, DbErr> {
+    i32::try_from(amount).map_err(|_| DbErr::Custom("integer out of range".to_owned()))
+}
+
+/// `new Date()` as the TypeScript writes it to a `timestamptz` column: to
+/// the millisecond.
+fn now() -> OffsetDateTime {
+    let now = OffsetDateTime::now_utc();
+    now.replace_millisecond(now.millisecond()).unwrap_or(now)
 }
 
 /// The first day of `month` (and the one after) at midnight UTC.
-fn period(now: OffsetDateTime) -> (String, String) {
+fn period(now: OffsetDateTime) -> (OffsetDateTime, OffsetDateTime) {
     let start = time::Date::from_calendar_date(now.year(), now.month(), 1)
         .unwrap_or(now.date())
         .midnight()
@@ -80,43 +114,47 @@ fn period(now: OffsetDateTime) -> (String, String) {
         .unwrap_or(now.date())
         .midnight()
         .assume_utc();
-    (iso_timestamp(start), iso_timestamp(end))
+    (start, end)
+}
+
+async fn current_balance(
+    db: &DatabaseConnection,
+    workspace_id: &str,
+) -> Result<Option<i32>, DbErr> {
+    workspace_credits::Entity::find()
+        .select_only()
+        .column(workspace_credits::Column::CurrentBalance)
+        .filter(workspace_credits::Column::WorkspaceId.eq(workspace_id))
+        .into_tuple()
+        .one(db)
+        .await
 }
 
 /// `getOrCreateWorkspaceCredits`: the wallet's balance, creating the row
 /// (empty, this month's period) on first use.
-async fn wallet_balance(master: &PgPool, workspace_id: &str) -> Result<i32, sqlx::Error> {
-    let existing: Option<i32> = sqlx::query_scalar(
-        "select current_balance from workspace_credits where workspace_id = $1 limit 1",
-    )
-    .bind(workspace_id)
-    .fetch_optional(master)
-    .await?;
-    if let Some(balance) = existing {
+async fn wallet_balance(db: &DatabaseConnection, workspace_id: &str) -> Result<i32, DbErr> {
+    if let Some(balance) = current_balance(db, workspace_id).await? {
         return Ok(balance);
     }
     let (start, end) = period(OffsetDateTime::now_utc());
-    sqlx::query(
-        "insert into workspace_credits
-             (id, workspace_id, current_balance, plan_credits, subscribed_credits,
-              monthly_allocation, rolled_over_credits, rollover_cap, period_start, period_end,
-              last_reset_at)
-         values ($1, $2, 0, 0, 0, 0, 0, null, $3::timestamptz, $4::timestamptz, null)
-         on conflict do nothing",
-    )
-    .bind(generate_id("wcr"))
-    .bind(workspace_id)
-    .bind(&start)
-    .bind(&end)
-    .execute(master)
+    workspace_credits::Entity::insert(workspace_credits::ActiveModel {
+        id: Set(generate_id("wcr")),
+        workspace_id: Set(workspace_id.to_owned()),
+        current_balance: Set(0),
+        plan_credits: Set(0),
+        subscribed_credits: Set(0),
+        monthly_allocation: Set(0),
+        rolled_over_credits: Set(0),
+        rollover_cap: Set(None),
+        period_start: Set(start),
+        period_end: Set(end),
+        last_reset_at: Set(None),
+        ..Default::default()
+    })
+    .on_conflict(OnConflict::new().do_nothing().to_owned())
+    .exec_without_returning(db)
     .await?;
-    let balance: Option<i32> = sqlx::query_scalar(
-        "select current_balance from workspace_credits where workspace_id = $1 limit 1",
-    )
-    .bind(workspace_id)
-    .fetch_optional(master)
-    .await?;
-    Ok(balance.unwrap_or(0))
+    Ok(current_balance(db, workspace_id).await?.unwrap_or(0))
 }
 
 /// One ledger change.
@@ -190,50 +228,81 @@ impl GrantKind {
 
 /// The ledger row; `None` when a concurrent call won the idempotency key.
 async fn insert_transaction(
-    master: &PgPool,
+    db: &DatabaseConnection,
     entry: &LedgerEntry<'_>,
     kind: &str,
     amount: i64,
     balance_after: i32,
     description: &str,
     user_id: Option<&str>,
-) -> Result<Option<String>, sqlx::Error> {
-    sqlx::query_scalar(
-        "insert into credit_transactions
-             (id, workspace_id, type, amount, balance_after, service_type, reference_id,
-              reference_type, idempotency_key, description, metadata, user_id)
-         values ($1, $2, $3, $4::int, $5, $6, $7, $8, $9, $10, $11::jsonb, $12)
-         on conflict (idempotency_key) do nothing
-         returning id",
+) -> Result<Option<String>, DbErr> {
+    let inserted = credit_transactions::Entity::insert(credit_transactions::ActiveModel {
+        id: Set(generate_id("ctx")),
+        workspace_id: Set(entry.workspace_id.to_owned()),
+        type_: Set(kind.to_owned()),
+        amount: Set(int(amount)?),
+        balance_after: Set(balance_after),
+        service_type: Set(entry.service_type.map(str::to_owned)),
+        reference_id: Set(entry.reference_id.map(str::to_owned)),
+        reference_type: Set(entry.reference_type.map(str::to_owned)),
+        idempotency_key: Set(entry.idempotency_key.clone()),
+        description: Set(Some(description.to_owned())),
+        metadata: Set(entry.metadata.clone()),
+        user_id: Set(user_id.map(str::to_owned)),
+        ..Default::default()
+    })
+    .on_conflict(
+        OnConflict::column(credit_transactions::Column::IdempotencyKey)
+            .do_nothing()
+            .to_owned(),
     )
-    .bind(generate_id("ctx"))
-    .bind(entry.workspace_id)
-    .bind(kind)
-    .bind(amount)
-    .bind(balance_after)
-    .bind(entry.service_type)
-    .bind(entry.reference_id)
-    .bind(entry.reference_type)
-    .bind(entry.idempotency_key.as_deref())
-    .bind(description)
-    .bind(entry.metadata.as_ref())
-    .bind(user_id)
-    .fetch_optional(master)
-    .await
+    .try_insert()
+    .exec(db)
+    .await?;
+    Ok(match inserted {
+        TryInsertResult::Inserted(result) => Some(result.last_insert_id),
+        TryInsertResult::Conflicted | TryInsertResult::Empty => None,
+    })
+}
+
+/// `current_balance + delta`, stamped now, on the wallet whose balance
+/// passes `guard` (one statement, so a concurrent consumption can't overdraw
+/// between the check and the change): the new balance, or `None` when no
+/// wallet matched.
+async fn change_balance(
+    db: &DatabaseConnection,
+    workspace_id: &str,
+    delta: i32,
+    guard: Option<i32>,
+) -> Result<Option<i32>, DbErr> {
+    use sea_orm::ExprTrait as _;
+
+    let balance = workspace_credits::Column::CurrentBalance;
+    let mut condition =
+        Condition::all().add(workspace_credits::Column::WorkspaceId.eq(workspace_id));
+    if let Some(at_least) = guard {
+        condition = condition.add(balance.gte(at_least));
+    }
+    let updated = workspace_credits::Entity::update_many()
+        .col_expr(balance, Expr::col(balance).add(delta))
+        .col_expr(workspace_credits::Column::UpdatedAt, Expr::value(now()))
+        .filter(condition)
+        .exec_with_returning(db)
+        .await?;
+    Ok(updated.first().map(|wallet| wallet.current_balance))
 }
 
 /// Undo a balance change after losing the idempotency race.
-async fn compensate(master: &PgPool, workspace_id: &str, delta: i64) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "update workspace_credits set current_balance = current_balance + $2::int,
-             updated_at = $3::timestamptz
-         where workspace_id = $1",
-    )
-    .bind(workspace_id)
-    .bind(delta)
-    .bind(iso_timestamp(OffsetDateTime::now_utc()))
-    .execute(master)
-    .await?;
+async fn compensate(db: &DatabaseConnection, workspace_id: &str, delta: i64) -> Result<(), DbErr> {
+    use sea_orm::ExprTrait as _;
+
+    let balance = workspace_credits::Column::CurrentBalance;
+    workspace_credits::Entity::update_many()
+        .col_expr(balance, Expr::col(balance).add(int(delta)?))
+        .col_expr(workspace_credits::Column::UpdatedAt, Expr::value(now()))
+        .filter(workspace_credits::Column::WorkspaceId.eq(workspace_id))
+        .exec(db)
+        .await?;
     Ok(())
 }
 
@@ -249,7 +318,7 @@ pub async fn check_credits(
             "[credits] amount must be a positive integer, got {amount}"
         )));
     }
-    let balance = wallet_balance(master, workspace_id).await?;
+    let balance = wallet_balance(&orm(master), workspace_id).await?;
     Ok(CreditCheck::of(i64::from(balance), amount))
 }
 
@@ -274,23 +343,16 @@ pub async fn consume_credits_by(
             entry.amount
         )));
     }
+    let db = orm(master);
     if let Some(key) = &entry.idempotency_key
-        && let Some((id, _)) = find_by_idempotency_key(master, key).await?
+        && let Some((id, _)) = find_by_idempotency_key(&db, key).await?
     {
         return Ok(Consumed::Ok { transaction_id: id });
     }
-    let balance = wallet_balance(master, entry.workspace_id).await?;
-    let updated: Option<i32> = sqlx::query_scalar(
-        "update workspace_credits set current_balance = current_balance - $2::int,
-             updated_at = $3::timestamptz
-         where workspace_id = $1 and current_balance >= $2::int
-         returning current_balance",
-    )
-    .bind(entry.workspace_id)
-    .bind(entry.amount)
-    .bind(iso_timestamp(OffsetDateTime::now_utc()))
-    .fetch_optional(master)
-    .await?;
+    let balance = wallet_balance(&db, entry.workspace_id).await?;
+    // `current_balance - amount where current_balance >= amount`.
+    let amount = int(entry.amount)?;
+    let updated = change_balance(&db, entry.workspace_id, -amount, Some(amount)).await?;
     let Some(new_balance) = updated else {
         return Ok(Consumed::Insufficient {
             current_balance: i64::from(balance),
@@ -302,7 +364,7 @@ pub async fn consume_credits_by(
         .clone()
         .unwrap_or_else(|| format!("{} consumption", entry.service_type.unwrap_or("undefined")));
     let inserted = insert_transaction(
-        master,
+        &db,
         entry,
         "consumption",
         -entry.amount,
@@ -314,8 +376,8 @@ pub async fn consume_credits_by(
     match (inserted, &entry.idempotency_key) {
         (Some(id), _) => Ok(Consumed::Ok { transaction_id: id }),
         (None, Some(key)) => {
-            compensate(master, entry.workspace_id, entry.amount).await?;
-            let winner = find_by_idempotency_key(master, key).await?;
+            compensate(&db, entry.workspace_id, entry.amount).await?;
+            let winner = find_by_idempotency_key(&db, key).await?;
             Ok(Consumed::Ok {
                 transaction_id: winner.map(|(id, _)| id).unwrap_or_default(),
             })
@@ -347,23 +409,14 @@ pub async fn grant_credits(
             kind.as_str()
         )));
     }
+    let db = orm(master);
     if let Some(key) = &entry.idempotency_key
-        && let Some((id, _)) = find_by_idempotency_key(master, key).await?
+        && let Some((id, _)) = find_by_idempotency_key(&db, key).await?
     {
         return Ok(id);
     }
-    wallet_balance(master, entry.workspace_id).await?;
-    let updated: Option<i32> = sqlx::query_scalar(
-        "update workspace_credits set current_balance = current_balance + $2::int,
-             updated_at = $3::timestamptz
-         where workspace_id = $1
-         returning current_balance",
-    )
-    .bind(entry.workspace_id)
-    .bind(entry.amount)
-    .bind(iso_timestamp(OffsetDateTime::now_utc()))
-    .fetch_optional(master)
-    .await?;
+    wallet_balance(&db, entry.workspace_id).await?;
+    let updated = change_balance(&db, entry.workspace_id, int(entry.amount)?, None).await?;
     let Some(new_balance) = updated else {
         return Err(CreditsError::Invalid(format!(
             "[credits] workspace_credits row missing for workspace {}",
@@ -375,7 +428,7 @@ pub async fn grant_credits(
         .clone()
         .unwrap_or_else(|| format!("{} of {} credits", kind.as_str(), entry.amount));
     let inserted = insert_transaction(
-        master,
+        &db,
         entry,
         kind.as_str(),
         entry.amount,
@@ -387,8 +440,8 @@ pub async fn grant_credits(
     match (inserted, &entry.idempotency_key) {
         (Some(id), _) => Ok(id),
         (None, Some(key)) => {
-            compensate(master, entry.workspace_id, -entry.amount).await?;
-            let winner = find_by_idempotency_key(master, key).await?;
+            compensate(&db, entry.workspace_id, -entry.amount).await?;
+            let winner = find_by_idempotency_key(&db, key).await?;
             Ok(winner.map(|(id, _)| id).unwrap_or_default())
         }
         (None, None) => Ok(String::new()),
@@ -406,6 +459,8 @@ pub async fn refund_credits(
 
 #[cfg(test)]
 mod tests {
+    use weldsuite_events::iso_timestamp;
+
     use super::*;
 
     #[test]
@@ -437,8 +492,8 @@ mod tests {
             .midnight()
             .assume_utc();
         let (start, end) = period(december);
-        assert_eq!(start, "2026-12-01T00:00:00.000Z");
-        assert_eq!(end, "2027-01-01T00:00:00.000Z");
+        assert_eq!(iso_timestamp(start), "2026-12-01T00:00:00.000Z");
+        assert_eq!(iso_timestamp(end), "2027-01-01T00:00:00.000Z");
     }
 
     #[test]

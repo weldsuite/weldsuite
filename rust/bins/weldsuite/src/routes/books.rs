@@ -13,8 +13,11 @@ use axum::Router;
 use axum::extract::Request;
 use axum::middleware::Next;
 use axum::response::Response;
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use weldsuite_books_domain::http::BooksState;
-use weldsuite_db::{PgPool, Tenant};
+use weldsuite_db::{PgPool, Tenant, orm};
+use weldsuite_schema::tenant::{entities, invoices, recurring_invoices};
 
 use crate::server::AppState;
 
@@ -140,37 +143,37 @@ pub(crate) async fn sweep_tenant(
     tenant: &Tenant,
     books: &BooksState,
     now: time::OffsetDateTime,
-) -> Result<TenantSweep, sqlx::Error> {
+) -> Result<TenantSweep, DbErr> {
     let db = &tenant.db;
     let mut result = TenantSweep::default();
     let at = weldsuite_events::iso_timestamp(now);
-    let overdue: Vec<String> = sqlx::query_scalar(
-        "update invoices set status = 'overdue', updated_at = $1::timestamp \
-         where status in ('sent', 'finalized', 'partial') and deleted_at is null and due_date < $1::timestamp \
-         and coalesce(balance_due, '0')::numeric > 0 and type in ('standard', 'correction') \
-         returning id",
-    )
-    .bind(&at)
-    .fetch_all(db)
-    .await?;
-    result.overdue = overdue.len();
+    let stamp = weldsuite_db::utc_timestamp(now);
+    let overdue = invoices::Entity::update_many()
+        .col_expr(invoices::Column::Status, Expr::value("overdue"))
+        .col_expr(invoices::Column::UpdatedAt, Expr::value(stamp))
+        .filter(invoices::Column::Status.is_in(["sent", "finalized", "partial"]))
+        .filter(invoices::Column::DeletedAt.is_null())
+        .filter(invoices::Column::DueDate.lt(stamp))
+        // `coalesce(balance_due, '0')::numeric > 0`: a null balance is not due.
+        .filter(invoices::Column::BalanceDue.gt(0))
+        .filter(invoices::Column::Type.is_in(["standard", "correction"]))
+        .exec(&orm(db))
+        .await?;
+    result.overdue = usize::try_from(overdue.rows_affected).unwrap_or(usize::MAX);
 
-    let due: Vec<serde_json::Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(recurring_invoices),
-        " from recurring_invoices t where t.status = 'active' and t.deleted_at is null \
-         and t.next_issue_date <= $1::timestamp"
-    ))
-    .bind(&at)
-    .fetch_all(db)
-    .await?;
+    let due = recurring_invoices::Entity::find()
+        .filter(recurring_invoices::Column::Status.eq("active"))
+        .filter(recurring_invoices::Column::DeletedAt.is_null())
+        .filter(recurring_invoices::Column::NextIssueDate.lte(stamp))
+        .all(&orm(db))
+        .await?;
     let runtime = weldsuite_books_domain::sales_tax::document_tax::Runtime {
         keyring: books.keyring.clone(),
         http: books.http.clone(),
     };
     for rec in due {
-        let rec = weldsuite_books_domain::tables::RECURRING_INVOICES.js(rec);
-        let id = rec["id"].as_str().unwrap_or_default().to_owned();
+        let id = rec.id.clone();
+        let rec = serde_json::to_value(rec).map_err(|error| DbErr::Json(error.to_string()))?;
         match weldsuite_books_sales::generate_recurring_invoice_as_system(db, &runtime, &rec).await
         {
             Ok(generated) => {
@@ -192,10 +195,13 @@ pub(crate) async fn sweep_tenant(
         }
     }
 
-    let any_entity: Option<String> =
-        sqlx::query_scalar("select id from entities where deleted_at is null limit 1")
-            .fetch_optional(db)
-            .await?;
+    let any_entity: Option<String> = entities::Entity::find()
+        .select_only()
+        .column(entities::Column::Id)
+        .filter(entities::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     if any_entity.is_some() {
         let today: String = at.chars().take(10).collect();
         match weldsuite_books_domain::currency::persist_daily_ecb_rates(

@@ -9,6 +9,7 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
 
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use sqlx::PgPool;
@@ -18,6 +19,7 @@ use weldsuite_books_domain::payroll::{PayrollError, PostPayrollArgs, post_payrol
 use weldsuite_books_domain::posting::{
     EntityAccounts, PostError, PostingLine, load_entity_accounts,
 };
+use weldsuite_schema::tenant::accounts;
 
 use super::csv::{ParsedCsv, column_index, parse_csv, parse_date, parse_money};
 use super::journal::{
@@ -41,6 +43,12 @@ impl From<PostError> for ImportError {
 
 impl From<sqlx::Error> for ImportError {
     fn from(error: sqlx::Error) -> Self {
+        Self::Post(PostError::from(error))
+    }
+}
+
+impl From<sea_orm::DbErr> for ImportError {
+    fn from(error: sea_orm::DbErr) -> Self {
         Self::Post(PostError::Database(error))
     }
 }
@@ -413,11 +421,14 @@ pub(crate) async fn import_payroll_csv(
         return Err(payroll_error("The CSV is empty").into());
     }
     let accounts = load_entity_accounts(db, args.entity_id).await?;
-    let account_rows: Vec<(String, String)> =
-        sqlx::query_as("select id, name from accounts where entity_id = $1 and deleted_at is null")
-            .bind(args.entity_id)
-            .fetch_all(db)
-            .await?;
+    let account_rows: Vec<(String, String)> = accounts::Entity::find()
+        .select_only()
+        .columns([accounts::Column::Id, accounts::Column::Name])
+        .filter(accounts::Column::EntityId.eq(args.entity_id))
+        .filter(accounts::Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&weldsuite_db::orm(db))
+        .await?;
     let names: HashMap<String, String> = account_rows
         .into_iter()
         .map(|(id, name)| (js_trim(&name).to_lowercase(), id))

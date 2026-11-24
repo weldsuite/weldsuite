@@ -10,10 +10,14 @@
 
 use std::time::Duration;
 
+use sea_orm::{EntityTrait, QuerySelect};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use weldsuite_db::orm;
+use weldsuite_schema::master::workspaces;
+use weldsuite_schema::tenant::{form_settings, form_versions};
 
-use crate::common::{Ctx, FormsResult, Svc, int, month_of, opt_text, text};
+use crate::common::{Ctx, FormsResult, Svc, int, month_of, opt_text, row_json, text};
 use crate::model::{FormSettings, parsed_definition, parsed_theme};
 use crate::usage::load_usage;
 
@@ -94,26 +98,26 @@ pub(crate) async fn build_public_entry(
     now_ms: i64,
 ) -> FormsResult<PublicCacheEntry> {
     let version = match opt_text(form, "publishedVersionId") {
-        Some(version_id) => {
-            crate::common::one(
-                &ctx.db,
-                sqlx::query_scalar("select to_jsonb(v) from form_versions v where id = $1 limit 1")
-                    .bind(version_id),
-            )
+        Some(version_id) => form_versions::Entity::find_by_id(version_id)
+            .one(&orm(&ctx.db))
             .await?
-        }
+            .map(row_json)
+            .transpose()?,
         None => None,
     };
     let settings = FormSettings::parse(&form["settings"]);
-    let workspace_name: Option<String> =
-        sqlx::query_scalar("select name from workspaces where id = $1 limit 1")
-            .bind(&ctx.workspace_id)
-            .fetch_optional(ctx.master()?)
-            .await?;
-    let show_badge_row: Option<bool> =
-        sqlx::query_scalar("select show_badge from form_settings limit 1")
-            .fetch_optional(&ctx.db)
-            .await?;
+    let workspace_name: Option<String> = workspaces::Entity::find_by_id(ctx.workspace_id.as_str())
+        .select_only()
+        .column(workspaces::Column::Name)
+        .into_tuple()
+        .one(&orm(ctx.master()?))
+        .await?;
+    let show_badge_row: Option<bool> = form_settings::Entity::find()
+        .select_only()
+        .column(form_settings::Column::ShowBadge)
+        .into_tuple()
+        .one(&orm(&ctx.db))
+        .await?;
     let usage = load_usage(ctx, now_ms).await?;
     let theme = parsed_theme(version.as_ref().map_or(&Value::Null, |v| &v["theme"]));
     // The badge is only switchable off on plans that allow removing branding.

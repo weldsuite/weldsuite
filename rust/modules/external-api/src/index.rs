@@ -4,7 +4,10 @@
 use axum::Json;
 use axum::extract::Request;
 use axum::response::{IntoResponse, Response};
+use sea_orm::ConnectionTrait;
+use sea_orm::sea_query::{Expr, Query};
 use serde_json::json;
+use weldsuite_db::orm;
 use weldsuite_events::iso_timestamp;
 use weldsuite_kit::ApiError;
 
@@ -121,7 +124,8 @@ pub(crate) async fn describe(request: Request) -> Response {
 
 /// `GET /v1/health/db`: `select 1` on the tenant database.
 pub(crate) async fn health_db(key: Key) -> Result<Response, ApiError> {
-    if sqlx::query("select 1").execute(&key.db).await.is_err() {
+    let select_one = Query::select().expr(Expr::val(1)).to_owned();
+    if orm(&key.db).execute(&select_one).await.is_err() {
         return Err(internal_with("Database connection failed"));
     }
     Ok(Json(json!({

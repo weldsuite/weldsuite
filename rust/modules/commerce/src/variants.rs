@@ -27,14 +27,20 @@ use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, patch, post};
 use http::HeaderMap;
+use sea_orm::sea_query::{Asterisk, Expr, Func, NullOrdering, Order, Query};
+use sea_orm::{
+    ColumnTrait, ConnectionTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect,
+};
 use serde_json::{Map, Value, json};
-use sqlx::{Postgres, Transaction};
 use weldsuite_catalogs::entity_events::PRODUCT_UPDATED;
 use weldsuite_catalogs::permission_keys::{PRODUCTS_READ, PRODUCTS_UPDATE};
+use weldsuite_db::{OrmConn, utc_now};
 use weldsuite_kit::validation::{Field, Issues, Presence, Text, js_trim};
 use weldsuite_kit::{ApiError, Created, Data, NoContent, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::{product_variants, products};
 
+use crate::args::{advisory_lock, select_bool};
 use crate::tables::{PRODUCT_VARIANTS, PRODUCTS};
 use crate::{Caller, CommerceState, Refusal, internal, now, validate};
 
@@ -45,7 +51,7 @@ pub(crate) const MAX_COMBINATIONS: usize = 100;
 
 /// The advisory lock every variant write takes before it checks SKUs,
 /// barcodes and combinations, so two writes cannot both pass the check.
-const CODES_LOCK: &str = "select pg_advisory_xact_lock(hashtext('weldcommerce:catalogue-codes'))";
+const CODES_LOCK: &str = "weldcommerce:catalogue-codes";
 
 pub(crate) fn routes<Q>(gate: &Arc<PermissionGate<Q>>) -> Router<CommerceState>
 where
@@ -268,8 +274,7 @@ pub(crate) fn cartesian(options: &[ProductOption]) -> Vec<Combination> {
 
 /// A variant row as the API answers it: Drizzle's row, with `optionValues`
 /// as `{ name: value }`.
-fn present(row: Value) -> Value {
-    let mut row = PRODUCT_VARIANTS.js(row);
+fn present(mut row: Value) -> Value {
     let options: Map<String, Value> = stored_combination(&row["optionValues"])
         .into_iter()
         .map(|(name, value)| (name, Value::String(value)))
@@ -497,82 +502,85 @@ fn read_generate(issues: &mut Issues, fields: &Map<String, Value>) -> Vec<Produc
 
 // ── statements ──────────────────────────────────────────────────────────────
 
-const PRODUCT_FOR_UPDATE_SQL: &str = concat!(
-    "select ",
-    row_of!(products),
-    " from products t where t.id = $1 and t.deleted_at is null for update"
-);
-
-const VARIANTS_SQL: &str = concat!(
-    "select ",
-    row_of!(product_variants),
-    " from product_variants t where t.product_id = $1 and t.deleted_at is null \
-     order by t.position asc nulls last, t.created_at asc, t.id asc"
-);
-
-const VARIANT_SQL: &str = concat!(
-    "select ",
-    row_of!(product_variants),
-    " from product_variants t where t.id = $1 and t.product_id = $2 and t.deleted_at is null limit 1"
-);
-
-/// `$1` the product, `$2` its options (null keeps them), `$3` now: the
-/// variant counts recounted.
-const RECOUNT_SQL: &str = concat!(
-    "update products t set options = coalesce($2::jsonb, t.options), \
-       has_variants = c.n > 0, variant_count = c.n, updated_at = $3::timestamp \
-     from (select count(*)::int as n from product_variants v \
-           where v.product_id = $1 and v.deleted_at is null) c \
-     where t.id = $1 returning ",
-    row_of!(products)
-);
-
-/// Whether `code` is a live product's or another live variant's `column`.
-const SKU_TAKEN_SQL: &str = "select exists (select 1 from products where deleted_at is null and sku = $1) \
-     or exists (select 1 from product_variants where deleted_at is null and sku = $1 and id <> $2)";
-const BARCODE_TAKEN_SQL: &str = "select exists (select 1 from products where deleted_at is null and barcode = $1) \
-     or exists (select 1 from product_variants where deleted_at is null and barcode = $1 and id <> $2)";
-
-async fn live_product(tx: &mut Transaction<'_, Postgres>, id: &str) -> Result<Value, Refusal> {
-    let row: Option<Value> = sqlx::query_scalar(PRODUCT_FOR_UPDATE_SQL)
-        .bind(id)
-        .fetch_optional(&mut **tx)
+/// The live product, locked (`for update`) until the transaction ends.
+async fn live_product<C: ConnectionTrait>(db: &C, id: &str) -> Result<Value, Refusal> {
+    let row = products::Entity::find_by_id(id)
+        .filter(products::Column::DeletedAt.is_null())
+        .lock_exclusive()
+        .one(db)
         .await?;
-    row.map(|row| PRODUCTS.js(row))
-        .ok_or_else(|| Refusal::not_found("Product", id))
+    match row {
+        Some(row) => Ok(PRODUCTS.model(&row)?),
+        None => Err(Refusal::not_found("Product", id)),
+    }
 }
 
-async fn live_variants(
-    tx: &mut Transaction<'_, Postgres>,
-    product_id: &str,
-) -> Result<Vec<Value>, sqlx::Error> {
-    let rows: Vec<Value> = sqlx::query_scalar(VARIANTS_SQL)
-        .bind(product_id)
-        .fetch_all(&mut **tx)
-        .await?;
-    Ok(rows
-        .into_iter()
-        .map(|row| PRODUCT_VARIANTS.js(row))
-        .collect())
+/// The product's live variants by `position` (none last), then age.
+async fn live_variants<C: ConnectionTrait>(db: &C, product_id: &str) -> Result<Vec<Value>, DbErr> {
+    product_variants::Entity::find()
+        .filter(product_variants::Column::ProductId.eq(product_id))
+        .filter(product_variants::Column::DeletedAt.is_null())
+        .order_by_with_nulls(
+            product_variants::Column::Position,
+            Order::Asc,
+            NullOrdering::Last,
+        )
+        .order_by_asc(product_variants::Column::CreatedAt)
+        .order_by_asc(product_variants::Column::Id)
+        .all(db)
+        .await?
+        .iter()
+        .map(|row| PRODUCT_VARIANTS.model(row))
+        .collect()
 }
 
-/// 409 when `code` is taken (`field` is `sku` or `barcode`).
-async fn check_code(
-    tx: &mut Transaction<'_, Postgres>,
+/// Whether the live product `id` is there.
+async fn product_exists(db: &weldsuite_db::PgPool, id: &str) -> Result<bool, DbErr> {
+    let found: Option<String> = products::Entity::find_by_id(id)
+        .filter(products::Column::DeletedAt.is_null())
+        .select_only()
+        .column(products::Column::Id)
+        .into_tuple()
+        .one(&weldsuite_db::orm(db))
+        .await?;
+    Ok(found.is_some())
+}
+
+/// 409 when `code` is taken (`field` is `sku` or `barcode`): a live
+/// product's, or another live variant's.
+async fn check_code<C: ConnectionTrait>(
+    db: &C,
     field: &str,
     code: &str,
     variant_id: &str,
 ) -> Result<(), Refusal> {
-    let (sql, label) = if field == "sku" {
-        (SKU_TAKEN_SQL, "SKU")
+    let (product_column, variant_column, label) = if field == "sku" {
+        (products::Column::Sku, product_variants::Column::Sku, "SKU")
     } else {
-        (BARCODE_TAKEN_SQL, "Barcode")
+        (
+            products::Column::Barcode,
+            product_variants::Column::Barcode,
+            "Barcode",
+        )
     };
-    let taken: bool = sqlx::query_scalar(sql)
-        .bind(code)
-        .bind(variant_id)
-        .fetch_one(&mut **tx)
-        .await?;
+    let product = Query::select()
+        .expr(Expr::val(1))
+        .from(products::Entity)
+        .and_where(products::Column::DeletedAt.is_null())
+        .and_where(product_column.eq(code))
+        .to_owned();
+    let variant = Query::select()
+        .expr(Expr::val(1))
+        .from(product_variants::Entity)
+        .and_where(product_variants::Column::DeletedAt.is_null())
+        .and_where(variant_column.eq(code))
+        .and_where(product_variants::Column::Id.ne(variant_id))
+        .to_owned();
+    let taken = select_bool(
+        db,
+        sea_orm::ExprTrait::or(Expr::exists(product), Expr::exists(variant)),
+    )
+    .await?;
     if taken {
         return Err(ApiError::conflict(format!(
             "{label} \"{code}\" is already used by another product or variant"
@@ -604,19 +612,41 @@ fn check_combination(
 }
 
 /// Recount the product's variants (and store `options` when given); the
-/// product as it is now.
-async fn recount(
-    tx: &mut Transaction<'_, Postgres>,
+/// product as it is now. One statement: `has_variants` and `variant_count`
+/// from the live variants' `count(*)::int`.
+async fn recount<C: ConnectionTrait>(
+    db: &C,
     product_id: &str,
     options: Option<&[ProductOption]>,
-) -> Result<Value, sqlx::Error> {
-    let row: Value = sqlx::query_scalar(RECOUNT_SQL)
-        .bind(product_id)
-        .bind(options.map(options_json))
-        .bind(now())
-        .fetch_one(&mut **tx)
-        .await?;
-    Ok(PRODUCTS.js(row))
+) -> Result<Value, DbErr> {
+    let live = || {
+        Expr::from(
+            Query::select()
+                .expr(Func::cast_as(Func::count(Expr::col(Asterisk)), "int"))
+                .from(product_variants::Entity)
+                .and_where(product_variants::Column::ProductId.eq(product_id))
+                .and_where(product_variants::Column::DeletedAt.is_null())
+                .to_owned(),
+        )
+    };
+    let mut update = products::Entity::update_many();
+    if let Some(options) = options {
+        update = update.col_expr(products::Column::Options, Expr::val(options_json(options)));
+    }
+    let row = update
+        .col_expr(
+            products::Column::HasVariants,
+            sea_orm::ExprTrait::gt(live(), 0),
+        )
+        .col_expr(products::Column::VariantCount, live())
+        .col_expr(products::Column::UpdatedAt, Expr::val(utc_now()))
+        .filter(products::Column::Id.eq(product_id))
+        .exec_with_returning(db)
+        .await?
+        .into_iter()
+        .next()
+        .ok_or_else(|| DbErr::RecordNotFound(format!("product {product_id}")))?;
+    PRODUCTS.model(&row)
 }
 
 /// The event every variant write publishes: `product.updated` for the
@@ -676,22 +706,12 @@ fn next_position(variants: &[Value]) -> i64 {
 /// `GET /:id/variants`: the live variants by `position`, then age.
 async fn list(caller: Caller, Path(id): Path<String>) -> Response {
     const FAILED: &str = "Failed to list variants";
-    let exists: Result<bool, sqlx::Error> = sqlx::query_scalar(
-        "select exists (select 1 from products where id = $1 and deleted_at is null)",
-    )
-    .bind(&id)
-    .fetch_one(&caller.db)
-    .await;
-    match exists {
+    match product_exists(&caller.db, &id).await {
         Ok(true) => {}
         Ok(false) => return Refusal::not_found("Product", &id).respond(FAILED),
         Err(error) => return internal(&error, FAILED),
     }
-    let rows: Result<Vec<Value>, sqlx::Error> = sqlx::query_scalar(VARIANTS_SQL)
-        .bind(&id)
-        .fetch_all(&caller.db)
-        .await;
-    match rows {
+    match live_variants(&weldsuite_db::orm(&caller.db), &id).await {
         Ok(rows) => Data(rows.into_iter().map(present).collect::<Vec<_>>()).into_response(),
         Err(error) => internal(&error, FAILED),
     }
@@ -727,53 +747,57 @@ async fn create_variant(
     body: VariantBody,
 ) -> Result<(String, Value), Refusal> {
     let mut tx = caller.db.begin().await?;
-    sqlx::query(CODES_LOCK).execute(&mut *tx).await?;
-    let product = live_product(&mut tx, product_id).await?;
-    let variants = live_variants(&mut tx, product_id).await?;
-    let mut options = product_options(&product);
-    let (combination, changed) = place(&body.option_values.unwrap_or_default(), &mut options);
-    if options.len() > MAX_OPTIONS {
-        return Err(
-            ApiError::bad_request(format!("A product has at most {MAX_OPTIONS} options"))
-                .with_details(json!({ "field": "optionValues" }))
-                .into(),
-        );
-    }
-    check_combination(&variants, &combination, None)?;
-    let now = now();
-    let mut values = new_variant(
-        caller,
-        &product,
-        &combination,
-        body.position.unwrap_or_else(|| next_position(&variants)),
-        &now,
-    );
-    let variant_id = values
-        .get("id")
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .to_owned();
-    for (field, code) in [("sku", &body.sku), ("barcode", &body.barcode)] {
-        if let Field::Set(code) = code {
-            check_code(&mut tx, field, code, &variant_id).await?;
-            PRODUCT_VARIANTS.set(&mut values, field, json!(code));
+    let made = {
+        let db = OrmConn::new(&mut tx);
+        advisory_lock(&db, CODES_LOCK).await?;
+        let product = live_product(&db, product_id).await?;
+        let variants = live_variants(&db, product_id).await?;
+        let mut options = product_options(&product);
+        let (combination, changed) = place(&body.option_values.unwrap_or_default(), &mut options);
+        if options.len() > MAX_OPTIONS {
+            return Err(ApiError::bad_request(format!(
+                "A product has at most {MAX_OPTIONS} options"
+            ))
+            .with_details(json!({ "field": "optionValues" }))
+            .into());
         }
-    }
-    if let Some(price) = written(body.price) {
-        PRODUCT_VARIANTS.set(&mut values, "price", price);
-    }
-    if let Field::Set(category) = &body.vat_category {
-        PRODUCT_VARIANTS.set(&mut values, "vatCategory", json!(category));
-    }
-    if let Some(status) = body.status {
-        PRODUCT_VARIANTS.set(&mut values, "status", json!(status));
-    }
-    PRODUCT_VARIANTS
-        .insert(&mut *tx, values, &["createdAt", "updatedAt"])
-        .await?;
-    let product = recount(&mut tx, product_id, changed.then_some(options.as_slice())).await?;
+        check_combination(&variants, &combination, None)?;
+        let now = now();
+        let mut values = new_variant(
+            caller,
+            &product,
+            &combination,
+            body.position.unwrap_or_else(|| next_position(&variants)),
+            &now,
+        );
+        let variant_id = values
+            .get("id")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_owned();
+        for (field, code) in [("sku", &body.sku), ("barcode", &body.barcode)] {
+            if let Field::Set(code) = code {
+                check_code(&db, field, code, &variant_id).await?;
+                PRODUCT_VARIANTS.set(&mut values, field, json!(code));
+            }
+        }
+        if let Some(price) = written(body.price) {
+            PRODUCT_VARIANTS.set(&mut values, "price", price);
+        }
+        if let Field::Set(category) = &body.vat_category {
+            PRODUCT_VARIANTS.set(&mut values, "vatCategory", json!(category));
+        }
+        if let Some(status) = body.status {
+            PRODUCT_VARIANTS.set(&mut values, "status", json!(status));
+        }
+        PRODUCT_VARIANTS
+            .insert_on(&db, values, &["createdAt", "updatedAt"])
+            .await?;
+        let product = recount(&db, product_id, changed.then_some(options.as_slice())).await?;
+        (variant_id, product)
+    };
     tx.commit().await?;
-    Ok((variant_id, product))
+    Ok(made)
 }
 
 /// `POST /:id/variants/generate`: the missing combinations of `options`.
@@ -809,39 +833,40 @@ async fn generate_variants(
     options: &[ProductOption],
 ) -> Result<(usize, usize, Value, Vec<Value>), Refusal> {
     let mut tx = caller.db.begin().await?;
-    sqlx::query(CODES_LOCK).execute(&mut *tx).await?;
-    let product = live_product(&mut tx, product_id).await?;
-    let existing = live_variants(&mut tx, product_id).await?;
-    let options = respell(options, &product_options(&product));
-    let mut matched: Vec<&str> = Vec::new();
-    let mut position = next_position(&existing);
-    let now = now();
-    let (mut created, mut kept) = (0, 0);
-    for combination in cartesian(&options) {
-        let found = existing.iter().find(|variant| {
-            let id = variant["id"].as_str().unwrap_or_default();
-            !matched.contains(&id)
-                && same_combination(&stored_combination(&variant["optionValues"]), &combination)
-        });
-        if let Some(variant) = found {
-            matched.push(variant["id"].as_str().unwrap_or_default());
-            kept += 1;
-            continue;
+    let generated = {
+        let db = OrmConn::new(&mut tx);
+        advisory_lock(&db, CODES_LOCK).await?;
+        let product = live_product(&db, product_id).await?;
+        let existing = live_variants(&db, product_id).await?;
+        let options = respell(options, &product_options(&product));
+        let mut matched: Vec<&str> = Vec::new();
+        let mut position = next_position(&existing);
+        let now = now();
+        let (mut created, mut kept) = (0, 0);
+        for combination in cartesian(&options) {
+            let found = existing.iter().find(|variant| {
+                let id = variant["id"].as_str().unwrap_or_default();
+                !matched.contains(&id)
+                    && same_combination(&stored_combination(&variant["optionValues"]), &combination)
+            });
+            if let Some(variant) = found {
+                matched.push(variant["id"].as_str().unwrap_or_default());
+                kept += 1;
+                continue;
+            }
+            let values = new_variant(caller, &product, &combination, position, &now);
+            PRODUCT_VARIANTS
+                .insert_on(&db, values, &["createdAt", "updatedAt"])
+                .await?;
+            position += 1;
+            created += 1;
         }
-        let values = new_variant(caller, &product, &combination, position, &now);
-        PRODUCT_VARIANTS
-            .insert(&mut *tx, values, &["createdAt", "updatedAt"])
-            .await?;
-        position += 1;
-        created += 1;
-    }
-    let product = recount(&mut tx, product_id, Some(&options)).await?;
-    let variants: Vec<Value> = sqlx::query_scalar(VARIANTS_SQL)
-        .bind(product_id)
-        .fetch_all(&mut *tx)
-        .await?;
+        let product = recount(&db, product_id, Some(&options)).await?;
+        let variants = live_variants(&db, product_id).await?;
+        (created, kept, product, variants)
+    };
     tx.commit().await?;
-    Ok((created, kept, product, variants))
+    Ok(generated)
 }
 
 /// `PATCH /:id/variants/:variantId`.
@@ -868,6 +893,21 @@ async fn update(
     }
 }
 
+/// The live variant `variant_id` of the product.
+async fn live_variant<C: ConnectionTrait>(
+    db: &C,
+    product_id: &str,
+    variant_id: &str,
+) -> Result<Option<Value>, DbErr> {
+    product_variants::Entity::find_by_id(variant_id)
+        .filter(product_variants::Column::ProductId.eq(product_id))
+        .filter(product_variants::Column::DeletedAt.is_null())
+        .one(db)
+        .await?
+        .map(|row| PRODUCT_VARIANTS.model(&row))
+        .transpose()
+}
+
 async fn update_variant(
     caller: &Caller,
     product_id: &str,
@@ -875,70 +915,68 @@ async fn update_variant(
     body: VariantBody,
 ) -> Result<Value, Refusal> {
     let mut tx = caller.db.begin().await?;
-    sqlx::query(CODES_LOCK).execute(&mut *tx).await?;
-    let product = live_product(&mut tx, product_id).await?;
-    let variant: Option<Value> = sqlx::query_scalar(VARIANT_SQL)
-        .bind(variant_id)
-        .bind(product_id)
-        .fetch_optional(&mut *tx)
-        .await?;
-    let Some(variant) = variant.map(|row| PRODUCT_VARIANTS.js(row)) else {
-        return Err(Refusal::not_found("Variant", variant_id));
-    };
-    let t = &PRODUCT_VARIANTS;
-    let mut values = Map::new();
-    t.set(&mut values, "updatedAt", json!(now()));
-    let mut options = product_options(&product);
-    let mut options_changed = false;
-    if let Some(wanted) = &body.option_values {
-        let (combination, changed) = place(wanted, &mut options);
-        if options.len() > MAX_OPTIONS {
-            return Err(ApiError::bad_request(format!(
-                "A product has at most {MAX_OPTIONS} options"
-            ))
-            .with_details(json!({ "field": "optionValues" }))
-            .into());
-        }
-        let variants = live_variants(&mut tx, product_id).await?;
-        check_combination(&variants, &combination, Some(variant_id))?;
-        t.set(&mut values, "optionValues", combination_json(&combination));
-        t.set(&mut values, "name", json!(variant_name(&combination)));
-        options_changed = changed;
-    }
-    for (field, code) in [("sku", &body.sku), ("barcode", &body.barcode)] {
-        match code {
-            Field::Set(code) => {
-                if variant[field].as_str() != Some(code.as_str()) {
-                    check_code(&mut tx, field, code, variant_id).await?;
-                }
-                t.set(&mut values, field, json!(code));
+    let product = {
+        let db = OrmConn::new(&mut tx);
+        advisory_lock(&db, CODES_LOCK).await?;
+        let product = live_product(&db, product_id).await?;
+        let Some(variant) = live_variant(&db, product_id, variant_id).await? else {
+            return Err(Refusal::not_found("Variant", variant_id));
+        };
+        let t = &PRODUCT_VARIANTS;
+        let mut values = Map::new();
+        t.set(&mut values, "updatedAt", json!(now()));
+        let mut options = product_options(&product);
+        let mut options_changed = false;
+        if let Some(wanted) = &body.option_values {
+            let (combination, changed) = place(wanted, &mut options);
+            if options.len() > MAX_OPTIONS {
+                return Err(ApiError::bad_request(format!(
+                    "A product has at most {MAX_OPTIONS} options"
+                ))
+                .with_details(json!({ "field": "optionValues" }))
+                .into());
             }
-            Field::Null => t.set(&mut values, field, Value::Null),
+            let variants = live_variants(&db, product_id).await?;
+            check_combination(&variants, &combination, Some(variant_id))?;
+            t.set(&mut values, "optionValues", combination_json(&combination));
+            t.set(&mut values, "name", json!(variant_name(&combination)));
+            options_changed = changed;
+        }
+        for (field, code) in [("sku", &body.sku), ("barcode", &body.barcode)] {
+            match code {
+                Field::Set(code) => {
+                    if variant[field].as_str() != Some(code.as_str()) {
+                        check_code(&db, field, code, variant_id).await?;
+                    }
+                    t.set(&mut values, field, json!(code));
+                }
+                Field::Null => t.set(&mut values, field, Value::Null),
+                Field::Absent => {}
+            }
+        }
+        if let Some(price) = written(body.price) {
+            t.set(&mut values, "price", price);
+        }
+        match &body.vat_category {
+            Field::Set(category) => t.set(&mut values, "vatCategory", json!(category)),
+            Field::Null => t.set(&mut values, "vatCategory", Value::Null),
             Field::Absent => {}
         }
-    }
-    if let Some(price) = written(body.price) {
-        t.set(&mut values, "price", price);
-    }
-    match &body.vat_category {
-        Field::Set(category) => t.set(&mut values, "vatCategory", json!(category)),
-        Field::Null => t.set(&mut values, "vatCategory", Value::Null),
-        Field::Absent => {}
-    }
-    if let Some(status) = body.status {
-        t.set(&mut values, "status", json!(status));
-    }
-    if let Some(position) = body.position {
-        t.set(&mut values, "position", json!(position));
-    }
-    t.patch(&mut *tx, variant_id, values, true, &["updatedAt"])
-        .await?;
-    let product = recount(
-        &mut tx,
-        product_id,
-        options_changed.then_some(options.as_slice()),
-    )
-    .await?;
+        if let Some(status) = body.status {
+            t.set(&mut values, "status", json!(status));
+        }
+        if let Some(position) = body.position {
+            t.set(&mut values, "position", json!(position));
+        }
+        t.patch_on(&db, variant_id, values, true, &["updatedAt"])
+            .await?;
+        recount(
+            &db,
+            product_id,
+            options_changed.then_some(options.as_slice()),
+        )
+        .await?
+    };
     tx.commit().await?;
     Ok(product)
 }
@@ -965,21 +1003,23 @@ async fn remove_variant(
     variant_id: &str,
 ) -> Result<Value, Refusal> {
     let mut tx = caller.db.begin().await?;
-    live_product(&mut tx, product_id).await?;
-    let now = now();
-    let removed = sqlx::query(
-        "update product_variants set deleted_at = $3::timestamp, updated_at = $3::timestamp \
-         where id = $1 and product_id = $2 and deleted_at is null",
-    )
-    .bind(variant_id)
-    .bind(product_id)
-    .bind(&now)
-    .execute(&mut *tx)
-    .await?;
-    if removed.rows_affected() == 0 {
-        return Err(Refusal::not_found("Variant", variant_id));
-    }
-    let product = recount(&mut tx, product_id, None).await?;
+    let product = {
+        let db = OrmConn::new(&mut tx);
+        live_product(&db, product_id).await?;
+        let now = utc_now();
+        let removed = product_variants::Entity::update_many()
+            .col_expr(product_variants::Column::DeletedAt, Expr::val(now))
+            .col_expr(product_variants::Column::UpdatedAt, Expr::val(now))
+            .filter(product_variants::Column::Id.eq(variant_id))
+            .filter(product_variants::Column::ProductId.eq(product_id))
+            .filter(product_variants::Column::DeletedAt.is_null())
+            .exec(&db)
+            .await?;
+        if removed.rows_affected == 0 {
+            return Err(Refusal::not_found("Variant", variant_id));
+        }
+        recount(&db, product_id, None).await?
+    };
     tx.commit().await?;
     Ok(product)
 }

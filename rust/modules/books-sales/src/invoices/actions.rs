@@ -6,6 +6,9 @@ use axum::body::Bytes;
 use axum::extract::{Path, State};
 use axum::response::Response;
 use http::HeaderMap;
+use sea_orm::prelude::BigDecimal;
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
 use weldsuite_books_domain::bad_debt::write_off_invoice;
 use weldsuite_books_domain::contacts::document_contact_fields;
@@ -25,11 +28,13 @@ use weldsuite_books_domain::tax::{TaxArgs, calculate_document_tax};
 use weldsuite_catalogs::entity_events::{
     INVOICE_CREATED, INVOICE_UPDATED, JOURNAL_ENTRY_CREATED, PAYMENT_CREATED,
 };
+use weldsuite_db::{orm, utc_now};
 use weldsuite_kit::generate_id;
 use weldsuite_kit::validation::Presence;
 use weldsuite_legal_entities::EntityTable;
+use weldsuite_schema::tenant::invoices;
 
-use super::{event_data, fields_of, js_date, total_or_zero};
+use super::{event_data, fields_of, js_date, now_stamped, numeric_text, row_json, total_or_zero};
 use crate::body::read_record_payment;
 use crate::credit_notes::{CreditApplication, apply_credit_note};
 use crate::errors::SalesError;
@@ -131,22 +136,23 @@ async fn send_invoice(
     if current == "cancelled" {
         return Err(Refusal::bad_request("A cancelled invoice cannot be sent").into());
     }
-    let at = now();
+    let (at, stamp) = now_stamped();
     let mut journal_entry_id = invoice["journalEntryId"].clone();
     if current == "draft" {
         let rt = runtime(caller, state);
         let finalized = finalize_invoice(db, id, finalize_options(caller, &rt, true)).await?;
         journal_entry_id = json!(finalized.journal_entry_id);
     } else {
-        sqlx::query(
-            "update invoices set sent_at = $1::timestamp, \
-             status = case when $2 then 'sent' else status end, updated_at = $1::timestamp where id = $3",
-        )
-        .bind(&at)
-        .bind(current == "finalized")
-        .bind(id)
-        .execute(db)
-        .await?;
+        // A finalized invoice becomes sent; any other keeps its status.
+        let mut sent =
+            invoices::Entity::update_many().col_expr(invoices::Column::SentAt, Expr::value(stamp));
+        if current == "finalized" {
+            sent = sent.col_expr(invoices::Column::Status, Expr::value("sent"));
+        }
+        sent.col_expr(invoices::Column::UpdatedAt, Expr::value(stamp))
+            .filter(invoices::Column::Id.eq(id))
+            .exec(&orm(db))
+            .await?;
     }
     let status = if current == "draft" || current == "finalized" {
         "sent".to_owned()
@@ -262,13 +268,12 @@ async fn change_status(
     let mut journal_entry_id: Option<String> = None;
     let mut vat_relief = 0.0;
     if wanted == "cancelled" {
-        sqlx::query(
-            "update invoices set status = 'cancelled', updated_at = $1::timestamp where id = $2",
-        )
-        .bind(now())
-        .bind(id)
-        .execute(db)
-        .await?;
+        invoices::Entity::update_many()
+            .col_expr(invoices::Column::Status, Expr::value("cancelled"))
+            .col_expr(invoices::Column::UpdatedAt, Expr::value(utc_now()))
+            .filter(invoices::Column::Id.eq(id))
+            .exec(&orm(db))
+            .await?;
     } else {
         let (posted, relief) =
             write_off_invoice(db, &invoice, caller.user().map(str::to_owned), None).await?;
@@ -493,15 +498,15 @@ async fn insert_document(
     db: &weldsuite_db::PgPool,
     row: &Map<String, Value>,
     items: &[Value],
-) -> Result<(), sqlx::Error> {
-    let mut tx = db.begin().await?;
+) -> Result<(), sea_orm::DbErr> {
+    let mut tx = db.begin().await.map_err(weldsuite_db::orm_error)?;
     INVOICES.insert_raw(&mut *tx, INVOICES.values(row)).await?;
     for item in items {
         INVOICE_ITEMS
             .insert_raw(&mut *tx, INVOICE_ITEMS.values(&fields_of(item)))
             .await?;
     }
-    tx.commit().await
+    tx.commit().await.map_err(weldsuite_db::orm_error)
 }
 
 #[allow(
@@ -770,6 +775,7 @@ pub(crate) async fn create_credit_note(
 
 // ── POST /:id/record-payment ────────────────────────────────────────────────
 
+#[allow(clippy::too_many_lines)] // the route's steps, in its order
 pub(crate) async fn record_payment_route(
     caller: Caller,
     State(state): State<BooksState>,
@@ -804,7 +810,11 @@ pub(crate) async fn record_payment_route(
                     date: paid_on,
                     payment_method: data.payment_method.clone(),
                     check_number: data.check_number.clone(),
-                    deposit_to: if refund { None } else { data.deposit_to.clone() },
+                    deposit_to: if refund {
+                        None
+                    } else {
+                        data.deposit_to.clone()
+                    },
                     reference: data.reference.clone(),
                     notes: data.notes.clone(),
                     contact_id: owned(&invoice, "contactId"),
@@ -819,19 +829,33 @@ pub(crate) async fn record_payment_route(
                 },
             )
             .await?;
-            let updated: Option<(Option<String>, Option<String>, String)> = sqlx::query_as(
-                "select amount_paid::text, balance_due::text, status from invoices where id = $1 limit 1",
-            )
-            .bind(&id)
-            .fetch_optional(db)
-            .await?;
+            let updated: Option<(Option<BigDecimal>, Option<BigDecimal>, String)> =
+                invoices::Entity::find_by_id(id.clone())
+                    .select_only()
+                    .column(invoices::Column::AmountPaid)
+                    .column(invoices::Column::BalanceDue)
+                    .column(invoices::Column::Status)
+                    .into_tuple()
+                    .one(&orm(db))
+                    .await?;
+            // `amount_paid::text`, `balance_due::text`: the stored amounts' text.
             let (paid, balance, status) = match updated {
-                Some((paid, balance, status)) => (json!(paid), json!(balance), json!(status)),
+                Some((paid, balance, status)) => (
+                    json!(paid.as_ref().map(numeric_text::<2>)),
+                    json!(balance.as_ref().map(numeric_text::<2>)),
+                    json!(status),
+                ),
                 None => (Value::Null, Value::Null, Value::Null),
             };
             let mut changes = Map::new();
-            changes.insert("amountPaid".into(), change(invoice["amountPaid"].clone(), paid.clone()));
-            changes.insert("status".into(), change(invoice["status"].clone(), status.clone()));
+            changes.insert(
+                "amountPaid".into(),
+                change(invoice["amountPaid"].clone(), paid.clone()),
+            );
+            changes.insert(
+                "status".into(),
+                change(invoice["status"].clone(), status.clone()),
+            );
             write_accounting_audit(
                 &caller,
                 db,
@@ -839,7 +863,11 @@ pub(crate) async fn record_payment_route(
                     accounting_entity_id: text(&invoice, "entityId"),
                     entity_type: "invoice",
                     entity_id: &id,
-                    action: if refund { "refund_recorded" } else { "payment_recorded" },
+                    action: if refund {
+                        "refund_recorded"
+                    } else {
+                        "payment_recorded"
+                    },
                     changes: Some(changes),
                 },
             )
@@ -919,15 +947,13 @@ async fn apply_credit_route(
         )
         .into());
     };
-    let rows: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(invoices),
-        " from invoices t where t.id = any($1)"
-    ))
-    .bind(vec![id.to_owned(), applied.invoice_id.clone()])
-    .fetch_all(db)
-    .await?;
-    let rows = INVOICES.js_rows(rows);
+    let rows: Vec<Value> = invoices::Entity::find()
+        .filter(invoices::Column::Id.is_in([id.to_owned(), applied.invoice_id.clone()]))
+        .all(&orm(db))
+        .await?
+        .into_iter()
+        .map(row_json)
+        .collect::<Result<_, _>>()?;
     let note = rows
         .iter()
         .find(|r| r["id"] == id)

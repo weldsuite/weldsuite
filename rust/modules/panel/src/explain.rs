@@ -16,8 +16,10 @@ use axum::body::Bytes;
 use axum::extract::State;
 use axum::response::{IntoResponse, Response};
 use http::HeaderMap;
+use sea_orm::{ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder};
 use serde_json::{Map, Value, json};
 use weldsuite_ai::Tier;
+use weldsuite_db::orm;
 use weldsuite_kit::{ApiError, Data};
 use weldsuite_panel_domain::js;
 use weldsuite_panel_domain::query::explain::{
@@ -30,6 +32,7 @@ use weldsuite_panel_domain::schemas::{
     ExplainPanelChange, PanelBreakdown, PanelQuerySpec, TrendsSpec,
 };
 use weldsuite_ports::Cache;
+use weldsuite_schema::tenant::panel_ai_summaries as summaries;
 
 use crate::domain::with_setting_defaults;
 use crate::keys::sha256_hex;
@@ -249,17 +252,18 @@ async fn cached_narrative(
     project_id: &str,
     filter_hash: &str,
     now: i64,
-) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(s) from panel_ai_summaries s
-         where s.project_id = $1 and s.scope = 'set' and s.filter_hash = $2
-         order by s.created_at desc limit 1",
-    )
-    .bind(project_id)
-    .bind(filter_hash)
-    .fetch_optional(&caller.db)
-    .await?;
-    let Some(row) = row.map(weldsuite_db::js_row) else {
+) -> Result<Option<Value>, DbErr> {
+    let row = summaries::Entity::find()
+        .filter(summaries::Column::ProjectId.eq(project_id))
+        .filter(summaries::Column::Scope.eq("set"))
+        .filter(summaries::Column::FilterHash.eq(filter_hash))
+        .order_by_desc(summaries::Column::CreatedAt)
+        .one(&orm(&caller.db))
+        .await?;
+    let Some(row) = row
+        .map(|row| serde_json::to_value(row).map_err(|error| DbErr::Json(error.to_string())))
+        .transpose()?
+    else {
         return Ok(None);
     };
     let fresh = row["createdAt"]
@@ -297,29 +301,27 @@ async fn write_narrative(
     )
     .await?;
     let text = text_within(object.get("narrative"), 1, 1500).ok_or(AiFailure::BadAnswer)?;
-    sqlx::query(
-        "insert into panel_ai_summaries
-           (id, project_id, scope, filter_hash, summary, model_id, credits_charged, created_by_user_id)
-         values ($1, $2, 'set', $3, $4, $5, $6, $7)",
-    )
-    .bind(&id)
-    .bind(project_id)
-    .bind(filter_hash)
-    .bind(json!({ "kind": "explain", "text": text }))
-    .bind(&answer.served.model)
-    .bind(i32::try_from(answer.credits).unwrap_or(i32::MAX))
-    .bind(&caller.user_id)
-    .execute(&caller.db)
+    let db = orm(&caller.db);
+    summaries::Entity::insert(summaries::ActiveModel {
+        id: Set(id.clone()),
+        project_id: Set(project_id.to_owned()),
+        scope: Set("set".to_owned()),
+        filter_hash: Set(Some(filter_hash.to_owned())),
+        summary: Set(json!({ "kind": "explain", "text": text })),
+        model_id: Set(answer.served.model.clone()),
+        credits_charged: Set(i32::try_from(answer.credits).unwrap_or(i32::MAX)),
+        created_by_user_id: Set(caller.user_id.clone()),
+        ..Default::default()
+    })
+    .exec_without_returning(&db)
     .await?;
-    sqlx::query(
-        "delete from panel_ai_summaries
-         where project_id = $1 and scope = 'set' and filter_hash = $2 and id <> $3",
-    )
-    .bind(project_id)
-    .bind(filter_hash)
-    .bind(&id)
-    .execute(&caller.db)
-    .await?;
+    summaries::Entity::delete_many()
+        .filter(summaries::Column::ProjectId.eq(project_id))
+        .filter(summaries::Column::Scope.eq("set"))
+        .filter(summaries::Column::FilterHash.eq(filter_hash))
+        .filter(summaries::Column::Id.ne(&id))
+        .exec(&db)
+        .await?;
     Ok(json!({
         "text": text,
         "modelId": answer.served.model,

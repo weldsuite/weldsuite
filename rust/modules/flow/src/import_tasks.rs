@@ -8,16 +8,21 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
+use sea_orm::sea_query::{Expr, Func, Query};
+use sea_orm::{ColumnTrait, ConnectionTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use weldsuite_db::PgPool;
+use time::PrimitiveDateTime;
+use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_flow_domain::numbering::allocate_task_numbers;
 use weldsuite_flow_domain::stage::{TASK_STATUSES, normalize_task_status};
 use weldsuite_kit::generate_id;
 use weldsuite_ports::{BoxFuture, DynFileStore, Job, JobContext, JobError, StepRetry, step};
+use weldsuite_schema::tenant::{
+    project_pipeline_stages, task_import_jobs, tasks, workspace_members,
+};
 
 use crate::js::{Js, as_text, js_date, js_string};
-use crate::now;
 
 /// The job's name.
 pub const IMPORT_TASKS_JOB: &str = "flow.import-tasks";
@@ -184,17 +189,19 @@ impl ImportTasksJob {
         let total = rows.len();
 
         step(ctx, "mark-running", StepRetry::default(), || async {
+            use task_import_jobs::Column;
             let db = self.database(params).await?;
-            sqlx::query(
-                "update task_import_jobs set status = 'running', total = $2, updated_at = $3::timestamp
-                 where id = $1",
-            )
-            .bind(&params.job_id)
-            .bind(i32::try_from(total).unwrap_or(i32::MAX))
-            .bind(now())
-            .execute(&db)
-            .await
-            .map_err(JobError::failed)?;
+            task_import_jobs::Entity::update_many()
+                .col_expr(Column::Status, Expr::value("running"))
+                .col_expr(
+                    Column::Total,
+                    Expr::value(i32::try_from(total).unwrap_or(i32::MAX)),
+                )
+                .col_expr(Column::UpdatedAt, Expr::value(utc_now()))
+                .filter(Column::Id.eq(params.job_id.as_str()))
+                .exec(&orm(&db))
+                .await
+                .map_err(|error| job_failed(&error))?;
             Ok(())
         })
         .await?;
@@ -207,7 +214,7 @@ impl ImportTasksJob {
                 let db = self.database(params).await?;
                 load_setup(&db, &params.project_id)
                     .await
-                    .map_err(JobError::failed)
+                    .map_err(|error| job_failed(&error))
             },
         )
         .await?;
@@ -238,26 +245,10 @@ impl ImportTasksJob {
                     let db = self.database(params).await?;
                     let result = process_batch(&db, &batch, offset, params, &maps, &next_position)
                         .await
-                        .map_err(JobError::failed)?;
-                    let errors: Vec<Value> = result.errors.iter().take(50).cloned().collect();
-                    sqlx::query(
-                        "update task_import_jobs set
-                             processed = processed + $2, imported = imported + $3,
-                             updated = updated + $4, failed = failed + $5,
-                             errors = coalesce(errors, '[]'::jsonb) || $6::jsonb,
-                             updated_at = $7::timestamp
-                         where id = $1",
-                    )
-                    .bind(&params.job_id)
-                    .bind(i32::try_from(batch_len).unwrap_or(i32::MAX))
-                    .bind(i32::try_from(result.imported).unwrap_or(i32::MAX))
-                    .bind(i32::try_from(result.updated).unwrap_or(i32::MAX))
-                    .bind(i32::try_from(result.failed).unwrap_or(i32::MAX))
-                    .bind(Value::Array(errors))
-                    .bind(now())
-                    .execute(&db)
-                    .await
-                    .map_err(JobError::failed)?;
+                        .map_err(|error| job_failed(&error))?;
+                    record_batch(&db, &params.job_id, batch_len, &result)
+                        .await
+                        .map_err(|error| job_failed(&error))?;
                     Ok(())
                 },
             )
@@ -266,18 +257,17 @@ impl ImportTasksJob {
         }
 
         step(ctx, "finalize", StepRetry::default(), || async {
+            use task_import_jobs::Column;
             let db = self.database(params).await?;
-            let at = now();
-            sqlx::query(
-                "update task_import_jobs set status = 'completed', completed_at = $2::timestamp,
-                        updated_at = $2::timestamp
-                 where id = $1",
-            )
-            .bind(&params.job_id)
-            .bind(&at)
-            .execute(&db)
-            .await
-            .map_err(JobError::failed)?;
+            let at = utc_now();
+            task_import_jobs::Entity::update_many()
+                .col_expr(Column::Status, Expr::value("completed"))
+                .col_expr(Column::CompletedAt, Expr::value(at))
+                .col_expr(Column::UpdatedAt, Expr::value(at))
+                .filter(Column::Id.eq(params.job_id.as_str()))
+                .exec(&orm(&db))
+                .await
+                .map_err(|error| job_failed(&error))?;
             if let Some(storage) = self.storage_for(params) {
                 let _ = storage.delete_boxed(&params.r2_key).await;
             }
@@ -287,24 +277,104 @@ impl ImportTasksJob {
     }
 }
 
-async fn load_setup(db: &PgPool, project_id: &str) -> Result<Setup, sqlx::Error> {
-    let stages: Vec<(String, String, Option<String>)> = sqlx::query_as(
-        "select id, name, system_status from project_pipeline_stages
-         where project_id = $1 and deleted_at is null",
-    )
-    .bind(project_id)
-    .fetch_all(db)
-    .await?;
-    let members: Vec<(String, Option<String>)> =
-        sqlx::query_as("select user_id, email from workspace_members where deleted_at is null")
-            .fetch_all(db)
-            .await?;
-    let max: i32 = sqlx::query_scalar(
-        "select coalesce(max(position), 0)::int from tasks where project_id = $1 and deleted_at is null",
-    )
-    .bind(project_id)
-    .fetch_one(db)
-    .await?;
+/// The batch's counts and its first 50 errors added to the job row:
+/// `processed = processed + n, …, errors = coalesce(errors, '[]') || $errors`.
+async fn record_batch(
+    db: &PgPool,
+    job_id: &str,
+    batch_len: usize,
+    result: &BatchResult,
+) -> Result<(), DbErr> {
+    use task_import_jobs::Column;
+    let errors: Vec<Value> = result.errors.iter().take(50).cloned().collect();
+    let plus = |column: Column, n: i32| {
+        sea_orm::ExprTrait::add(Expr::col((task_import_jobs::Entity, column)), n)
+    };
+    let count = |n: i64| i32::try_from(n).unwrap_or(i32::MAX);
+    let all_errors = sea_orm::sea_query::extension::postgres::PgExpr::concat(
+        Expr::from(Func::coalesce([
+            Expr::col((task_import_jobs::Entity, Column::Errors)),
+            Expr::val(json!([])),
+        ])),
+        Expr::val(Value::Array(errors)),
+    );
+    task_import_jobs::Entity::update_many()
+        .col_expr(
+            Column::Processed,
+            plus(
+                Column::Processed,
+                i32::try_from(batch_len).unwrap_or(i32::MAX),
+            ),
+        )
+        .col_expr(
+            Column::Imported,
+            plus(Column::Imported, count(result.imported)),
+        )
+        .col_expr(
+            Column::Updated,
+            plus(Column::Updated, count(result.updated)),
+        )
+        .col_expr(Column::Failed, plus(Column::Failed, count(result.failed)))
+        .col_expr(Column::Errors, all_errors)
+        .col_expr(Column::UpdatedAt, Expr::value(utc_now()))
+        .filter(Column::Id.eq(job_id))
+        .exec(&orm(db))
+        .await?;
+    Ok(())
+}
+
+/// A failed step, with the database's text as sqlx wrote it.
+fn job_failed(error: &DbErr) -> JobError {
+    JobError::failed(db_text(error))
+}
+
+/// The `sqlx::Error` inside a SeaORM error, when it holds one.
+fn sqlx_of(error: &DbErr) -> Option<&sqlx::Error> {
+    match error {
+        DbErr::Conn(sea_orm::RuntimeErr::SqlxError(inner))
+        | DbErr::Exec(sea_orm::RuntimeErr::SqlxError(inner))
+        | DbErr::Query(sea_orm::RuntimeErr::SqlxError(inner)) => Some(inner.as_ref()),
+        _ => None,
+    }
+}
+
+/// The error's text: sqlx's own when the statement failed in sqlx.
+fn db_text(error: &DbErr) -> String {
+    sqlx_of(error).map_or_else(|| error.to_string(), ToString::to_string)
+}
+
+async fn load_setup(db: &PgPool, project_id: &str) -> Result<Setup, DbErr> {
+    let stages: Vec<(String, String, Option<String>)> = {
+        use project_pipeline_stages::Column;
+        project_pipeline_stages::Entity::find()
+            .select_only()
+            .columns([Column::Id, Column::Name, Column::SystemStatus])
+            .filter(Column::ProjectId.eq(project_id))
+            .filter(Column::DeletedAt.is_null())
+            .into_tuple()
+            .all(&orm(db))
+            .await?
+    };
+    let members: Vec<(String, Option<String>)> = workspace_members::Entity::find()
+        .select_only()
+        .columns([
+            workspace_members::Column::UserId,
+            workspace_members::Column::Email,
+        ])
+        .filter(workspace_members::Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
+    // `coalesce(max(position), 0)`.
+    let max: Option<Option<i32>> = tasks::Entity::find()
+        .select_only()
+        .column_as(tasks::Column::Position.max(), "max")
+        .filter(tasks::Column::ProjectId.eq(project_id))
+        .filter(tasks::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
+    let max = max.flatten().unwrap_or(0);
     Ok(Setup {
         stages: stages
             .into_iter()
@@ -453,10 +523,11 @@ fn js_lower_trim(value: Option<&Value>) -> String {
 }
 
 /// The database's own message for a failed statement (`err.message`).
-fn db_message(error: &sqlx::Error) -> String {
-    match error {
-        sqlx::Error::Database(db) => db.message().to_owned(),
-        other => other.to_string(),
+fn db_message(error: &DbErr) -> String {
+    match sqlx_of(error) {
+        Some(sqlx::Error::Database(db)) => db.message().to_owned(),
+        Some(other) => other.to_string(),
+        None => error.to_string(),
     }
 }
 
@@ -468,8 +539,8 @@ async fn process_batch(
     params: &ImportParams,
     maps: &Maps,
     next_position: &Mutex<i64>,
-) -> Result<BatchResult, sqlx::Error> {
-    let now = now();
+) -> Result<BatchResult, DbErr> {
+    let now = utc_now();
     let mut result = BatchResult::default();
     let mut upserts: Vec<(&Value, usize, String, String)> = Vec::new();
     let mut inserts: Vec<(&Value, usize, String)> = Vec::new();
@@ -498,13 +569,15 @@ async fn process_batch(
 
     if !upserts.is_empty() {
         let keys: Vec<String> = upserts.iter().map(|u| u.3.clone()).collect();
-        let existing: Vec<(String, Option<String>)> = sqlx::query_as(
-            "select id, key from tasks where project_id = $1 and key = any($2) and deleted_at is null",
-        )
-        .bind(&params.project_id)
-        .bind(&keys)
-        .fetch_all(db)
-        .await?;
+        let existing: Vec<(String, Option<String>)> = tasks::Entity::find()
+            .select_only()
+            .columns([tasks::Column::Id, tasks::Column::Key])
+            .filter(tasks::Column::ProjectId.eq(params.project_id.as_str()))
+            .filter(tasks::Column::Key.is_in(keys))
+            .filter(tasks::Column::DeletedAt.is_null())
+            .into_tuple()
+            .all(&orm(db))
+            .await?;
         let by_key: HashMap<String, String> = existing
             .into_iter()
             .filter_map(|(id, key)| key.map(|k| (k, id)))
@@ -513,18 +586,13 @@ async fn process_batch(
             .iter()
             .filter(|u| !by_key.contains_key(&u.3))
             .count();
-        let numbers = allocate_task_numbers(db, i64::try_from(new_count).unwrap_or(0)).await?;
+        let numbers =
+            allocate_task_numbers(&orm(db), i64::try_from(new_count).unwrap_or(0)).await?;
         let mut cursor = 0;
         for (row, row_num, title, key) in &upserts {
             let values = normalize_task(row, maps);
             let outcome = if let Some(id) = by_key.get(key) {
-                sqlx::query(UPDATE_TASK)
-                    .bind(id)
-                    .bind(&values)
-                    .bind(&now)
-                    .execute(db)
-                    .await
-                    .map(|_| true)
+                update_task(db, id, &values, now).await.map(|()| true)
             } else {
                 let mut record = values.clone();
                 record["id"] = json!(generate_id("task"));
@@ -532,7 +600,7 @@ async fn process_batch(
                 cursor += 1;
                 record["key"] = json!(key);
                 record["position"] = json!(take_position());
-                insert_rows(db, &[record], params, &now)
+                insert_rows(db, &[record], params, now)
                     .await
                     .map(|()| false)
             };
@@ -550,7 +618,8 @@ async fn process_batch(
     }
 
     if !inserts.is_empty() {
-        let numbers = allocate_task_numbers(db, i64::try_from(inserts.len()).unwrap_or(0)).await?;
+        let numbers =
+            allocate_task_numbers(&orm(db), i64::try_from(inserts.len()).unwrap_or(0)).await?;
         let records: Vec<Value> = inserts
             .iter()
             .enumerate()
@@ -564,12 +633,12 @@ async fn process_batch(
             })
             .collect();
         for chunk in records.chunks(100) {
-            if insert_rows(db, chunk, params, &now).await.is_ok() {
+            if insert_rows(db, chunk, params, now).await.is_ok() {
                 result.imported += i64::try_from(chunk.len()).unwrap_or(0);
                 continue;
             }
             for record in chunk {
-                match insert_rows(db, std::slice::from_ref(record), params, &now).await {
+                match insert_rows(db, std::slice::from_ref(record), params, now).await {
                     Ok(()) => result.imported += 1,
                     Err(error) => {
                         let title = record["title"]
@@ -588,69 +657,133 @@ async fn process_batch(
     Ok(result)
 }
 
-const UPDATE_TASK: &str = "update tasks set
-        title = $2::jsonb->>'title', description = $2::jsonb->>'description',
-        status = $2::jsonb->>'status', stage_id = $2::jsonb->>'stageId',
-        priority = $2::jsonb->>'priority', type = $2::jsonb->>'type',
-        assignee_id = $2::jsonb->>'assigneeId',
-        assignee_ids = nullif($2::jsonb->'assigneeIds', 'null'::jsonb),
-        start_date = ($2::jsonb->>'startDate')::timestamp,
-        due_date = ($2::jsonb->>'dueDate')::timestamp,
-        estimated_hours = ($2::jsonb->>'estimatedHours')::numeric,
-        tags = nullif($2::jsonb->'tags', 'null'::jsonb),
-        labels = nullif($2::jsonb->'labels', 'null'::jsonb),
-        updated_at = $3::timestamp
-    where id = $1";
+/// A field of the normalised task as `$values::jsonb->>'key'` reads it (the
+/// values are strings or `null`).
+fn text_of_value(values: &Value, key: &str) -> Option<String> {
+    values.get(key).and_then(Value::as_str).map(str::to_owned)
+}
 
-/// One multi-row insert (Drizzle's `insert(tasks).values(chunk)`).
+/// `nullif($values::jsonb->'key', 'null')`: a list field, `None` for `null`.
+fn json_of_value(values: &Value, key: &str) -> Option<Value> {
+    values.get(key).filter(|v| !v.is_null()).cloned()
+}
+
+/// A text value cast to the column's type in the statement (`::timestamp`,
+/// `::numeric`), so Postgres reads it (and refuses it) as it did.
+fn cast(text: Option<String>, to: &'static str) -> Expr {
+    sea_orm::ExprTrait::cast_as(Expr::value(text), to)
+}
+
+/// The import's update of a task matched by its key.
+async fn update_task(
+    db: &PgPool,
+    id: &str,
+    values: &Value,
+    now: PrimitiveDateTime,
+) -> Result<(), DbErr> {
+    use tasks::Column;
+    let text = |key: &str| Expr::value(text_of_value(values, key));
+    let list = |key: &str| Expr::value(json_of_value(values, key));
+    tasks::Entity::update_many()
+        .col_expr(Column::Title, text("title"))
+        .col_expr(Column::Description, text("description"))
+        .col_expr(Column::Status, text("status"))
+        .col_expr(Column::StageId, text("stageId"))
+        .col_expr(Column::Priority, text("priority"))
+        .col_expr(Column::Type, text("type"))
+        .col_expr(Column::AssigneeId, text("assigneeId"))
+        .col_expr(Column::AssigneeIds, list("assigneeIds"))
+        .col_expr(
+            Column::StartDate,
+            cast(text_of_value(values, "startDate"), "timestamp"),
+        )
+        .col_expr(
+            Column::DueDate,
+            cast(text_of_value(values, "dueDate"), "timestamp"),
+        )
+        .col_expr(
+            Column::EstimatedHours,
+            cast(text_of_value(values, "estimatedHours"), "numeric"),
+        )
+        .col_expr(Column::Tags, list("tags"))
+        .col_expr(Column::Labels, list("labels"))
+        .col_expr(Column::UpdatedAt, Expr::value(now))
+        .filter(Column::Id.eq(id))
+        .exec(&orm(db))
+        .await?;
+    Ok(())
+}
+
+/// One multi-row insert (Drizzle's `insert(tasks).values(chunk)`); the dates
+/// and hours are cast from their text, the number and position to `int`, as
+/// `jsonb_to_recordset` read them.
 async fn insert_rows(
     db: &PgPool,
     records: &[Value],
     params: &ImportParams,
-    now: &str,
-) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "insert into tasks
-             (id, number, project_id, key, title, description, status, stage_id, priority, type,
-              assignee_id, assignee_ids, start_date, due_date, estimated_hours, tags, labels,
-              reporter_id, is_billable, position, progress, created_at, updated_at)
-         select r.id, r.number, $2, r.key, r.title, r.description, r.status, r.stage_id,
-                r.priority, r.type, r.assignee_id, r.assignee_ids, r.start_date, r.due_date,
-                r.estimated_hours, r.tags, r.labels, $3, true, r.position, '0',
-                $4::timestamp, $4::timestamp
-         from jsonb_to_recordset($1::jsonb) as r(
-             id text, number int, key text, title text, description text, status text,
-             stage_id text, priority text, type text, assignee_id text, assignee_ids jsonb,
-             start_date timestamp, due_date timestamp, estimated_hours numeric, tags jsonb,
-             labels jsonb, position int)",
-    )
-    .bind(Value::Array(
-        records
-            .iter()
-            .map(|r| {
-                let mut r = r.clone();
-                if let Value::Object(map) = &mut r {
-                    for (from, to) in [
-                        ("stageId", "stage_id"),
-                        ("assigneeId", "assignee_id"),
-                        ("assigneeIds", "assignee_ids"),
-                        ("startDate", "start_date"),
-                        ("dueDate", "due_date"),
-                        ("estimatedHours", "estimated_hours"),
-                    ] {
-                        if let Some(value) = map.remove(from) {
-                            map.insert(to.to_owned(), value);
-                        }
-                    }
-                }
-                r
-            })
-            .collect(),
-    ))
-    .bind(&params.project_id)
-    .bind(&params.user_id)
-    .bind(now)
-    .execute(db)
-    .await?;
+    now: PrimitiveDateTime,
+) -> Result<(), DbErr> {
+    use tasks::Column;
+    let mut insert = Query::insert();
+    insert.into_table(tasks::Entity).columns([
+        Column::Id,
+        Column::Number,
+        Column::ProjectId,
+        Column::Key,
+        Column::Title,
+        Column::Description,
+        Column::Status,
+        Column::StageId,
+        Column::Priority,
+        Column::Type,
+        Column::AssigneeId,
+        Column::AssigneeIds,
+        Column::StartDate,
+        Column::DueDate,
+        Column::EstimatedHours,
+        Column::Tags,
+        Column::Labels,
+        Column::ReporterId,
+        Column::IsBillable,
+        Column::Position,
+        Column::Progress,
+        Column::CreatedAt,
+        Column::UpdatedAt,
+    ]);
+    for r in records {
+        let text = |key: &str| Expr::value(text_of_value(r, key));
+        let list = |key: &str| Expr::value(json_of_value(r, key));
+        let int = |key: &str| {
+            sea_orm::ExprTrait::cast_as(Expr::value(r.get(key).and_then(Value::as_i64)), "int")
+        };
+        insert
+            .values([
+                text("id"),
+                int("number"),
+                Expr::value(params.project_id.as_str()),
+                text("key"),
+                text("title"),
+                text("description"),
+                text("status"),
+                text("stageId"),
+                text("priority"),
+                text("type"),
+                text("assigneeId"),
+                list("assigneeIds"),
+                cast(text_of_value(r, "startDate"), "timestamp"),
+                cast(text_of_value(r, "dueDate"), "timestamp"),
+                cast(text_of_value(r, "estimatedHours"), "numeric"),
+                list("tags"),
+                list("labels"),
+                Expr::value(params.user_id.as_str()),
+                Expr::value(true),
+                int("position"),
+                cast(Some("0".to_owned()), "numeric"),
+                Expr::value(now),
+                Expr::value(now),
+            ])
+            .map_err(|error| DbErr::Custom(error.to_string()))?;
+    }
+    orm(db).execute(&insert).await?;
     Ok(())
 }

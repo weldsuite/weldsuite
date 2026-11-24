@@ -10,6 +10,9 @@ use axum::Router;
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use http::header::{CONTENT_DISPOSITION, CONTENT_TYPE};
+use sea_orm::{
+    ColumnTrait, EntityTrait, JoinType, QueryFilter, QueryOrder, QuerySelect, RelationDef,
+};
 use serde_json::Value;
 use weldsuite_books_domain::address::normalize_postal_address;
 use weldsuite_books_domain::entity_context::resolve_entity_id;
@@ -17,11 +20,14 @@ use weldsuite_books_domain::guards::{AuditInput, write_accounting_audit};
 use weldsuite_books_domain::http::{BooksState, Caller, Refusal, Reply, reply};
 use weldsuite_books_domain::js::{days_from_civil, number_text, parse_int, to_fixed};
 use weldsuite_books_domain::jurisdictions::{is_js_space, js_trim};
-use weldsuite_books_domain::reports_basis::{iso, iso_day};
-use weldsuite_books_domain::tables::{
-    ACCOUNTS, ENTITIES, JOURNAL_ENTRIES, JOURNAL_LINES, TAX_RATES,
-};
+use weldsuite_books_domain::reports_basis::iso_day;
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::{
+    accounts, bills, companies, entities, invoices, journal_entries, journal_lines, parties,
+    payments, tax_rates,
+};
+
+use crate::rows::{js, js_rows, timestamp_of_millis};
 
 pub(crate) fn router<S, Q>(state: BooksState, gate: &Arc<PermissionGate<Q>>) -> Router<S>
 where
@@ -469,6 +475,14 @@ fn generate_xaf(input: &XafInput<'_>) -> String {
     )
 }
 
+/// `leftJoin(companies, eq(parties.companyId, companies.id))`.
+fn party_company() -> RelationDef {
+    parties::Entity::belongs_to(companies::Entity)
+        .from(parties::Column::CompanyId)
+        .to(companies::Column::Id)
+        .into()
+}
+
 /// id, display name, role, billing address and the company VAT number of a party.
 type PartyRow = (
     String,
@@ -503,19 +517,15 @@ async fn xaf(caller: Caller) -> Response {
 
 #[allow(clippy::too_many_lines)] // the route's one handler
 async fn export_xaf(caller: &Caller, fiscal_year: i64) -> Reply {
-    let db = &caller.db;
+    let orm = weldsuite_db::orm(&caller.db);
     let Some(entity_id) = resolve_entity_id(caller).await? else {
         return Err(Refusal::bad_request("No accounting entity resolved"));
     };
-    let entity: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(entities),
-        " from entities t where t.id = $1 and t.deleted_at is null limit 1"
-    ))
-    .bind(&entity_id)
-    .fetch_optional(db)
-    .await?;
-    let Some(entity) = entity.map(|row| ENTITIES.js(row)) else {
+    let entity = entities::Entity::find_by_id(entity_id.clone())
+        .filter(entities::Column::DeletedAt.is_null())
+        .one(&orm)
+        .await?;
+    let Some(entity) = entity.map(|row| js!(row)).transpose()? else {
         return Err(Refusal::not_found("Entity", &entity_id));
     };
 
@@ -537,16 +547,41 @@ async fn export_xaf(caller: &Caller, fiscal_year: i64) -> Reply {
     // The relations of this entity: customers and suppliers on one of its
     // invoices, bills, payments or journal lines.
     let mut contact_ids: Vec<String> = Vec::new();
-    for sql in [
-        "select contact_id from invoices where entity_id = $1 and deleted_at is null",
-        "select contact_id from bills where entity_id = $1 and deleted_at is null",
-        "select contact_id from payments where entity_id = $1 and deleted_at is null",
-        "select contact_id from journal_lines where entity_id = $1 and deleted_at is null",
-    ] {
-        let ids: Vec<Option<String>> = sqlx::query_scalar(sql)
-            .bind(&entity_id)
-            .fetch_all(db)
-            .await?;
+    let relations: [Vec<Option<String>>; 4] = [
+        invoices::Entity::find()
+            .select_only()
+            .column(invoices::Column::ContactId)
+            .filter(invoices::Column::EntityId.eq(&entity_id))
+            .filter(invoices::Column::DeletedAt.is_null())
+            .into_tuple()
+            .all(&orm)
+            .await?,
+        bills::Entity::find()
+            .select_only()
+            .column(bills::Column::ContactId)
+            .filter(bills::Column::EntityId.eq(&entity_id))
+            .filter(bills::Column::DeletedAt.is_null())
+            .into_tuple()
+            .all(&orm)
+            .await?,
+        payments::Entity::find()
+            .select_only()
+            .column(payments::Column::ContactId)
+            .filter(payments::Column::EntityId.eq(&entity_id))
+            .filter(payments::Column::DeletedAt.is_null())
+            .into_tuple()
+            .all(&orm)
+            .await?,
+        journal_lines::Entity::find()
+            .select_only()
+            .column(journal_lines::Column::ContactId)
+            .filter(journal_lines::Column::EntityId.eq(&entity_id))
+            .filter(journal_lines::Column::DeletedAt.is_null())
+            .into_tuple()
+            .all(&orm)
+            .await?,
+    ];
+    for ids in relations {
         for id in ids.into_iter().flatten().filter(|id| !id.is_empty()) {
             if !contact_ids.contains(&id) {
                 contact_ids.push(id);
@@ -554,49 +589,49 @@ async fn export_xaf(caller: &Caller, fiscal_year: i64) -> Reply {
         }
     }
 
-    let accounts: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(accounts),
-        " from accounts t where t.entity_id = $1 and t.deleted_at is null order by t.code asc"
-    ))
-    .bind(&entity_id)
-    .fetch_all(db)
-    .await?;
-    let accounts = ACCOUNTS.js_rows(accounts);
+    let accounts = accounts::Entity::find()
+        .filter(accounts::Column::EntityId.eq(&entity_id))
+        .filter(accounts::Column::DeletedAt.is_null())
+        .order_by_asc(accounts::Column::Code)
+        .all(&orm)
+        .await?;
+    let accounts = js_rows!(accounts)?;
     let parties: Vec<PartyRow> = if contact_ids.is_empty() {
         Vec::new()
     } else {
         // Only what the auditfile prints: the party row also holds ciphertext.
-        sqlx::query_as(
-            "select p.id, p.display_name, p.role, p.billing_address, c.vat_number \
-             from parties p left join companies c on p.company_id = c.id \
-             where p.id = any($1::text[]) and p.deleted_at is null order by p.display_name asc",
-        )
-        .bind(&contact_ids)
-        .fetch_all(db)
-        .await?
+        parties::Entity::find()
+            .select_only()
+            .columns([
+                parties::Column::Id,
+                parties::Column::DisplayName,
+                parties::Column::Role,
+                parties::Column::BillingAddress,
+            ])
+            .column(companies::Column::VatNumber)
+            .join(JoinType::LeftJoin, party_company())
+            .filter(parties::Column::Id.is_in(contact_ids.iter().cloned()))
+            .filter(parties::Column::DeletedAt.is_null())
+            .order_by_asc(parties::Column::DisplayName)
+            .into_tuple()
+            .all(&orm)
+            .await?
     };
-    let tax_rates: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(tax_rates),
-        " from tax_rates t where t.entity_id = $1 and t.deleted_at is null"
-    ))
-    .bind(&entity_id)
-    .fetch_all(db)
-    .await?;
-    let tax_rates = TAX_RATES.js_rows(tax_rates);
-    let entries: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(journal_entries),
-        " from journal_entries t where t.entity_id = $1 and t.status in ('posted', 'reversed') \
-         and t.deleted_at is null and t.date >= $2::timestamp and t.date <= $3::timestamp \
-         order by t.date asc"
-    ))
-    .bind(&entity_id)
-    .bind(iso(start))
-    .bind(iso(end))
-    .fetch_all(db)
-    .await?;
+    let tax_rates = tax_rates::Entity::find()
+        .filter(tax_rates::Column::EntityId.eq(&entity_id))
+        .filter(tax_rates::Column::DeletedAt.is_null())
+        .all(&orm)
+        .await?;
+    let tax_rates = js_rows!(tax_rates)?;
+    let entries = journal_entries::Entity::find()
+        .filter(journal_entries::Column::EntityId.eq(&entity_id))
+        .filter(journal_entries::Column::Status.is_in(["posted", "reversed"]))
+        .filter(journal_entries::Column::DeletedAt.is_null())
+        .filter(journal_entries::Column::Date.gte(timestamp_of_millis(start)?))
+        .filter(journal_entries::Column::Date.lte(timestamp_of_millis(end)?))
+        .order_by_asc(journal_entries::Column::Date)
+        .all(&orm)
+        .await?;
 
     let code_by_id: HashMap<String, String> = accounts
         .iter()
@@ -604,17 +639,14 @@ async fn export_xaf(caller: &Caller, fiscal_year: i64) -> Reply {
         .collect();
     let mut transactions = Vec::with_capacity(entries.len());
     for entry in entries {
-        let entry = JOURNAL_ENTRIES.js(entry);
+        let entry = js!(entry)?;
         let entry_id = entry["id"].as_str().unwrap_or_default().to_owned();
-        let lines: Vec<Value> = sqlx::query_scalar(concat!(
-            "select ",
-            weldsuite_books_domain::books_row!(journal_lines),
-            " from journal_lines t where t.journal_entry_id = $1 and t.deleted_at is null \
-             order by t.sort_order asc"
-        ))
-        .bind(&entry_id)
-        .fetch_all(db)
-        .await?;
+        let lines = journal_lines::Entity::find()
+            .filter(journal_lines::Column::JournalEntryId.eq(&entry_id))
+            .filter(journal_lines::Column::DeletedAt.is_null())
+            .order_by_asc(journal_lines::Column::SortOrder)
+            .all(&orm)
+            .await?;
         let text = |row: &Value, key: &str| row.get(key).and_then(Value::as_str).map(str::to_owned);
         transactions.push(XafTransaction {
             entry_number: text(&entry, "entryNumber").unwrap_or_else(|| entry_id.clone()),
@@ -623,8 +655,7 @@ async fn export_xaf(caller: &Caller, fiscal_year: i64) -> Reply {
                 .map(|d| d.chars().take(10).collect())
                 .unwrap_or_default(),
             description: text(&entry, "description"),
-            lines: JOURNAL_LINES
-                .js_rows(lines)
+            lines: js_rows!(lines)?
                 .iter()
                 .map(|line| {
                     let account_id = text(line, "accountId").unwrap_or_default();
@@ -683,7 +714,7 @@ async fn export_xaf(caller: &Caller, fiscal_year: i64) -> Reply {
 
     write_accounting_audit(
         caller,
-        db,
+        &caller.db,
         AuditInput {
             accounting_entity_id: Some(&entity_id),
             entity_type: "accounting_export",

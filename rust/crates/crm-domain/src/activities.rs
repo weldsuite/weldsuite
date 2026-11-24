@@ -5,11 +5,12 @@
 //! publish the same `activity:created` payload.
 
 use serde_json::{Map, Value, json};
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::generate_id;
+use weldsuite_schema::tenant::crm_activities;
 
-use crate::tables::CRM_ACTIVITIES;
-use crate::{DomainError, DomainResult, insert_sql, now, to_iso};
+use crate::tables::{CRM_ACTIVITIES, insert_row};
+use crate::{DomainError, DomainResult, now, to_iso};
 
 /// What `createActivity` answers.
 #[derive(Debug, Clone)]
@@ -107,10 +108,7 @@ pub async fn create_activity(
     }
     values.insert("createdAt".into(), json!(now));
     values.insert("updatedAt".into(), json!(now));
-    sqlx::query(insert_sql!(crm_activities))
-        .bind(CRM_ACTIVITIES.values(&values))
-        .execute(db)
-        .await?;
+    insert_row::<crm_activities::Entity>(&orm(db), &CRM_ACTIVITIES, &values).await?;
     let mut event = Map::new();
     event.insert("id".into(), json!(id));
     for (to, from) in [

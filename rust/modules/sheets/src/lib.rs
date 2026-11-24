@@ -18,11 +18,6 @@
 //! conformance suite (`rust/conformance/suites.json`). `/internal/agent/*`
 //! (the `SheetsInternal` entrypoint the WeldAgent tools call) is not here.
 
-#![allow(
-    clippy::disallowed_methods,
-    reason = "not converted to the ORM yet (ADR DATA-019)"
-)]
-
 mod agent;
 mod data_sources;
 mod records;
@@ -326,12 +321,19 @@ pub(crate) enum Refusal {
     /// A refusal as an [`ApiError`], so a caller that is not a route (the
     /// agent tools) can read its message.
     Api(ApiError),
-    Database(sqlx::Error),
+    Database(sea_orm::DbErr),
 }
 
+impl From<sea_orm::DbErr> for Refusal {
+    fn from(error: sea_orm::DbErr) -> Self {
+        Self::Database(error)
+    }
+}
+
+/// A call into a crate not converted to the ORM yet.
 impl From<sqlx::Error> for Refusal {
     fn from(error: sqlx::Error) -> Self {
-        Self::Database(error)
+        Self::Database(weldsuite_db::orm_error(error))
     }
 }
 

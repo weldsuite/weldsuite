@@ -7,12 +7,17 @@
 //! thread) and the customer-mail transport, and a refusal fails the step as
 //! `internalApiFailure` reads the route's answer.
 
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
+use weldsuite_db::orm;
 use weldsuite_mail_domain::outbound::{
     CheckOutboundInput, DenialCode, DenialDetails, GuardedSendError, OutboundDenied, OutboundKind,
     SendEmailParams, SubjectInput, TransmitError, bare_address, guarded_send,
     send_email as transmit,
 };
+use weldsuite_schema::tenant::enums::MailAccountStatus;
+use weldsuite_schema::tenant::mail_accounts;
 
 use super::providers::validated;
 use super::records::internal_api_failure;
@@ -120,29 +125,38 @@ pub(super) async fn send_email(inputs: &Map<String, Value>, ctx: &ActionCtx<'_>)
         return Err(ActionError::fatal("Email subject is required"));
     }
 
-    let accounts: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(a) from mail_accounts a
-         where a.status = 'active' and a.deleted_at is null limit 5",
-    )
-    .fetch_all(ctx.db)
-    .await
-    .map_err(|e| ActionError::plain(&e.to_string()))?;
+    // `id, email, display_name, is_default` of the first five live mailboxes.
+    let accounts: Vec<(String, String, Option<String>, Option<bool>)> =
+        mail_accounts::Entity::find()
+            .select_only()
+            .columns([
+                mail_accounts::Column::Id,
+                mail_accounts::Column::Email,
+                mail_accounts::Column::DisplayName,
+                mail_accounts::Column::IsDefault,
+            ])
+            .filter(mail_accounts::Column::Status.eq(MailAccountStatus::Active))
+            .filter(mail_accounts::Column::DeletedAt.is_null())
+            .limit(5)
+            .into_tuple()
+            .all(&orm(ctx.db))
+            .await
+            .map_err(|e| ActionError::database(&e))?;
     let account = match inputs.get("from") {
-        Some(Value::String(from)) if !from.is_empty() => accounts.iter().find(|a| {
-            a.get("email").and_then(Value::as_str) == Some(from)
-                || a.get("id").and_then(Value::as_str) == Some(from)
-        }),
+        Some(Value::String(from)) if !from.is_empty() => accounts
+            .iter()
+            .find(|(id, email, ..)| email == from || id == from),
         _ => accounts
             .iter()
-            .find(|a| a.get("is_default") == Some(&Value::Bool(true)))
+            .find(|(.., is_default)| *is_default == Some(true))
             .or_else(|| accounts.first()),
     };
-    let Some(account) = account else {
+    let Some((_, email, display_name, _)) = account else {
         return Err(ActionError::fatal("No email account configured"));
     };
-    let email = js_string(account.get("email"));
-    let from = match account.get("display_name") {
-        Some(name) if truthy(name) => format!("{} <{email}>", as_text(Some(name))),
+    let email = email.clone();
+    let from = match display_name {
+        Some(name) if !name.is_empty() => format!("{name} <{email}>"),
         _ => email.clone(),
     };
     let raw_body = first_text(&[inputs.get("body"), inputs.get("html")]);
@@ -192,14 +206,19 @@ pub(super) async fn send_email(inputs: &Map<String, Value>, ctx: &ActionCtx<'_>)
 
     // `sendWorkflowEmail`: the sender must be one of the workspace's mailboxes.
     let sender = bare_address(&from);
-    let owned: Option<String> = sqlx::query_scalar(
-        "select id from mail_accounts where lower(email) = $1 and status = 'active'
-           and deleted_at is null limit 1",
-    )
-    .bind(&sender)
-    .fetch_optional(ctx.db)
-    .await
-    .map_err(|e| ActionError::plain(&e.to_string()))?;
+    let owned: Option<String> = mail_accounts::Entity::find()
+        .select_only()
+        .column(mail_accounts::Column::Id)
+        .filter(sea_orm::ExprTrait::eq(
+            Func::lower(Expr::col(mail_accounts::Column::Email)),
+            sender.as_str(),
+        ))
+        .filter(mail_accounts::Column::Status.eq(MailAccountStatus::Active))
+        .filter(mail_accounts::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(ctx.db))
+        .await
+        .map_err(|e| ActionError::database(&e))?;
     let bindings = &ctx.deps.outbound;
     let guard = bindings.guard(ctx.deps.master.clone(), None);
     let mut input = CheckOutboundInput::new(

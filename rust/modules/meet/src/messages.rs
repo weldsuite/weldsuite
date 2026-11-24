@@ -10,17 +10,26 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, patch, post};
 use http::{HeaderMap, StatusCode};
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder,
+    QuerySelect,
+};
 use serde_json::{Map, Value, json};
+use time::PrimitiveDateTime;
 use weldsuite_catalogs::entity_events::{
     MEETING_MESSAGE_CREATED, MEETING_MESSAGE_DELETED, MEETING_MESSAGE_UPDATED,
 };
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::validation::{Issues, Number, Presence, Text};
 use weldsuite_kit::{ApiError, Created, Data, NoContent, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::meeting_messages::{self, Column as Message};
+use weldsuite_schema::tenant::{meetings, workspace_members};
 
-use crate::js::{js_limit, query_param, sql_limit, text};
-use crate::sessions::page_of;
+use crate::js::{js_limit, query_param, text};
+use crate::sessions::{before, limit_of, page_and_count, page_of};
+use crate::table::{js_instant, now_both, row_json};
 use crate::tables::MEETING_MESSAGES;
 use crate::{Caller, MeetState, internal, now, publish, validate};
 
@@ -47,8 +56,31 @@ where
         )
 }
 
-fn js_row(row: Value) -> Value {
-    MEETING_MESSAGES.js(row)
+/// Messages as Drizzle's `select()` returned them.
+fn js_rows(rows: Vec<meeting_messages::Model>) -> Result<Vec<Value>, DbErr> {
+    rows.into_iter().map(row_json).collect()
+}
+
+/// The `createdAt` of message `id` as JavaScript read it, and its id.
+async fn created_at(db: &PgPool, id: &str) -> Result<Option<(PrimitiveDateTime, String)>, DbErr> {
+    let row: Option<(PrimitiveDateTime, String)> = meeting_messages::Entity::find()
+        .select_only()
+        .columns([Message::CreatedAt, Message::Id])
+        .filter(Message::Id.eq(id))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
+    Ok(row.map(|(at, id)| (js_instant(at), id)))
+}
+
+/// `and(eq(id, $id), [eq(meetingId, $meeting) when given])`.
+fn message_in(id: &str, meeting: &str) -> sea_orm::Condition {
+    let condition = sea_orm::Condition::all().add(Message::Id.eq(id));
+    if meeting.is_empty() {
+        condition
+    } else {
+        condition.add(Message::MeetingId.eq(meeting))
+    }
 }
 
 // ── GET / ──────────────────────────────────────────────────────────────────
@@ -73,37 +105,25 @@ async fn meeting_chat(
     meeting: &str,
     before: Option<&str>,
     limit: f64,
-) -> Result<Value, sqlx::Error> {
-    let cursor: Option<String> = match before {
-        Some(before) => {
-            let row: Option<Option<String>> = sqlx::query_scalar(
-                "select to_jsonb(t.created_at)#>>'{}' from meeting_messages t where t.id = $1 limit 1",
-            )
-            .bind(before)
-            .fetch_optional(db)
-            .await?;
-            row.map(|stamp| {
-                stamp
-                    .and_then(|s| weldsuite_db::js_timestamp(&s))
-                    .unwrap_or_default()
-            })
-        }
+) -> Result<Value, DbErr> {
+    let cursor = match before {
+        Some(before) => created_at(db, before).await?.map(|(at, _)| at),
         None => None,
     };
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from meeting_messages t
-         where t.meeting_id = $1 and t.deleted_at is null
-           and ($2::text is null or t.created_at < $2::timestamp)
-         order by t.created_at desc limit $3",
-    )
-    .bind(meeting)
-    .bind(cursor)
-    .bind(sql_limit(limit + 1.0))
-    .fetch_all(db)
-    .await?;
+    let mut page = meeting_messages::Entity::find()
+        .filter(Message::MeetingId.eq(meeting))
+        .filter(Message::DeletedAt.is_null());
+    if let Some(at) = cursor {
+        page = page.filter(Message::CreatedAt.lt(at));
+    }
+    let rows = page
+        .order_by_desc(Message::CreatedAt)
+        .limit(limit_of(limit + 1.0))
+        .all(&orm(db))
+        .await?;
     #[allow(clippy::cast_precision_loss)]
     let has_more = (rows.len() as f64) > limit;
-    let rows: Vec<Value> = rows.into_iter().map(js_row).collect();
+    let rows = js_rows(rows)?;
     let data = if has_more {
         #[allow(clippy::cast_possible_truncation)]
         crate::js::js_slice(rows, limit as i64)
@@ -131,73 +151,48 @@ async fn meeting_chat(
     Ok(json!({ "messages": messages, "hasMore": has_more, "nextCursor": next }))
 }
 
-const LIST_SQL: &str = "select to_jsonb(t) from meeting_messages t
-     where ($1::boolean or t.deleted_at is null) and ($2::boolean or t.author_id = $3)
-       and ($4::boolean or t.created_at < $5::timestamp or (t.created_at = $5::timestamp and t.id < $6))
-     order by t.created_at desc, t.id desc limit $7";
-const COUNT_SQL: &str = "select count(*) from meeting_messages t
-     where ($1::boolean or t.deleted_at is null) and ($2::boolean or t.author_id = $3)
-       and ($4::boolean or t.created_at < $5::timestamp or (t.created_at = $5::timestamp and t.id < $6))";
-
 /// `listAllMessages(c, q)`: newest first, an optional author, a keyset cursor.
 async fn list_all(caller: &Caller, query: Option<&str>) -> Response {
     let db = &caller.db;
     let limit = js_limit(query_param(query, "limit").as_deref(), 25.0, 100.0);
     let author = query_param(query, "authorId").filter(|a| !a.is_empty());
     let cursor = query_param(query, "cursor").filter(|c| !c.is_empty());
-    let cursor_row: Option<(String, String)> = match &cursor {
-        Some(cursor) => {
-            let row: Result<Option<(Option<String>, String)>, sqlx::Error> = sqlx::query_as(
-                "select to_jsonb(t.created_at)#>>'{}', t.id from meeting_messages t where t.id = $1 limit 1",
-            )
-            .bind(cursor)
-            .fetch_optional(db)
-            .await;
-            match row {
-                Ok(row) => row.and_then(|(at, id)| {
-                    at.and_then(|s| weldsuite_db::js_timestamp(&s))
-                        .map(|at| (at, id))
-                }),
-                Err(error) => {
-                    tracing::error!(%error, "meet: cursor lookup failed");
-                    return ApiError::internal().into_response();
-                }
+    let cursor_row = match &cursor {
+        Some(cursor) => match created_at(db, cursor).await {
+            Ok(row) => row,
+            Err(error) => {
+                tracing::error!(%error, "meet: cursor lookup failed");
+                return ApiError::internal().into_response();
             }
-        }
+        },
         None => None,
     };
     // Conditions: live, author, cursor; a `?cursor=` makes the count drop the last.
-    let active = [true, author.is_some(), cursor_row.is_some()];
-    let page: Vec<bool> = active.iter().map(|a| !a).collect();
-    let mut count = page.clone();
-    if cursor.is_some()
-        && let Some(last) = count.iter().rposition(|skip| !skip)
-    {
-        count[last] = true;
-    }
-    let at = cursor_row.as_ref().map(|(at, _)| at.clone());
-    let id = cursor_row.as_ref().map(|(_, id)| id.clone());
-    let rows: Result<Vec<Value>, sqlx::Error> = sqlx::query_scalar(LIST_SQL)
-        .bind(page[0])
-        .bind(page[1])
-        .bind(author.clone())
-        .bind(page[2])
-        .bind(at.clone())
-        .bind(id.clone())
-        .bind(sql_limit(limit + 1.0))
-        .fetch_all(db)
-        .await;
-    let total: Result<i64, sqlx::Error> = sqlx::query_scalar(COUNT_SQL)
-        .bind(count[0])
-        .bind(count[1])
-        .bind(author)
-        .bind(count[2])
-        .bind(at)
-        .bind(id)
-        .fetch_one(db)
+    let (page, count) = page_and_count(
+        vec![
+            Some(sea_orm::Condition::all().add(Message::DeletedAt.is_null())),
+            author.map(|author| sea_orm::Condition::all().add(Message::AuthorId.eq(author))),
+            cursor_row
+                .as_ref()
+                .map(|row| before(Message::CreatedAt, Message::Id, row)),
+        ],
+        cursor.is_some(),
+    );
+    let db = &orm(db);
+    let rows = meeting_messages::Entity::find()
+        .filter(page)
+        .order_by_desc(Message::CreatedAt)
+        .order_by_desc(Message::Id)
+        .limit(limit_of(limit + 1.0))
+        .all(db)
+        .await
+        .and_then(js_rows);
+    let total = meeting_messages::Entity::find()
+        .filter(count)
+        .count(db)
         .await;
     match (rows, total) {
-        (Ok(rows), Ok(total)) => page_of(rows.into_iter().map(js_row).collect(), limit, total),
+        (Ok(rows), Ok(total)) => page_of(rows, limit, i64::try_from(total).unwrap_or(i64::MAX)),
         (Err(error), _) | (_, Err(error)) => internal(&error, "Failed to list meeting messages"),
     }
 }
@@ -208,19 +203,17 @@ async fn pinned(caller: Caller, RawQuery(query): RawQuery) -> Response {
     let Some(meeting) = query_param(query.as_deref(), "meetingId").filter(|m| !m.is_empty()) else {
         return ApiError::bad_request("meetingId query parameter is required").into_response();
     };
-    let rows: Result<Vec<Value>, sqlx::Error> = sqlx::query_scalar(
-        "select to_jsonb(t) from meeting_messages t
-         where t.meeting_id = $1 and t.deleted_at is null and t.pinned_at is not null
-         order by t.pinned_at desc limit 50",
-    )
-    .bind(&meeting)
-    .fetch_all(&caller.db)
-    .await;
+    let rows = meeting_messages::Entity::find()
+        .filter(Message::MeetingId.eq(&meeting))
+        .filter(Message::DeletedAt.is_null())
+        .filter(Message::PinnedAt.is_not_null())
+        .order_by_desc(Message::PinnedAt)
+        .limit(50)
+        .all(&orm(&caller.db))
+        .await
+        .and_then(js_rows);
     match rows {
-        Ok(rows) => {
-            let messages: Vec<Value> = rows.into_iter().map(js_row).collect();
-            Data(json!({ "messages": messages })).into_response()
-        }
+        Ok(messages) => Data(json!({ "messages": messages })).into_response(),
         Err(error) => internal(&error, "Failed to fetch pinned messages"),
     }
 }
@@ -342,51 +335,55 @@ async fn send_message(
     state: &MeetState,
     caller: &Caller,
     body: SendBody,
-) -> Result<Response, sqlx::Error> {
-    let db = &caller.db;
-    let meeting: Option<String> =
-        sqlx::query_scalar("select id from meetings where id = $1 limit 1")
-            .bind(&body.meeting_id)
-            .fetch_optional(db)
-            .await?;
+) -> Result<Response, DbErr> {
+    let db = &orm(&caller.db);
+    let meeting: Option<String> = meetings::Entity::find()
+        .select_only()
+        .column(meetings::Column::Id)
+        .filter(meetings::Column::Id.eq(&body.meeting_id))
+        .into_tuple()
+        .one(db)
+        .await?;
     if meeting.is_none() {
         return Ok(ApiError::not_found("Meeting", Some(&body.meeting_id)).into_response());
     }
-    let name: Option<Option<String>> =
-        sqlx::query_scalar("select name from workspace_members where user_id = $1 limit 1")
-            .bind(&caller.user_id)
-            .fetch_optional(db)
-            .await?;
+    let name: Option<Option<String>> = workspace_members::Entity::find()
+        .select_only()
+        .column(workspace_members::Column::Name)
+        .filter(workspace_members::Column::UserId.eq(&caller.user_id))
+        .into_tuple()
+        .one(db)
+        .await?;
     let name = name.flatten();
     // The avatar is the account picture, not the member row's copy.
     let picture =
         weldsuite_db::load_account_picture(caller.request_master(), &caller.user_id).await;
     let author_name = name.unwrap_or_else(|| "Unknown".to_owned());
     let id = generate_id("mmsg");
-    let now = now();
+    let (now, stamp) = now_both();
     let has_attachments = body.attachments.as_ref().is_some_and(|a| !a.is_empty());
     let metadata = body
         .html
         .as_ref()
         .filter(|h| !h.is_empty())
         .map(|html| json!({ "htmlContent": html }));
-    sqlx::query(
-        "insert into meeting_messages (id, meeting_id, author_id, author_name, author_avatar, content,
-             attachments, has_attachments, metadata, created_at, updated_at)
-         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::timestamp, $10::timestamp)",
-    )
-    .bind(&id)
-    .bind(&body.meeting_id)
-    .bind(&caller.user_id)
-    .bind(&author_name)
-    .bind(&picture)
-    .bind(&body.content)
-    .bind(body.attachments.clone().map(Value::Array))
-    .bind(has_attachments)
-    .bind(&metadata)
-    .bind(&now)
-    .execute(db)
-    .await?;
+    let message = meeting_messages::ActiveModel {
+        id: Set(id.clone()),
+        meeting_id: Set(body.meeting_id.clone()),
+        author_id: Set(caller.user_id.clone()),
+        author_name: Set(author_name.clone()),
+        author_avatar: Set(picture.clone()),
+        content: Set(body.content.clone()),
+        attachments: Set(body.attachments.clone().map(Value::Array)),
+        has_attachments: Set(has_attachments),
+        metadata: Set(metadata.clone()),
+        created_at: Set(stamp),
+        updated_at: Set(stamp),
+        ..Default::default()
+    };
+    meeting_messages::Entity::insert(message)
+        .exec_without_returning(db)
+        .await?;
     let message = json!({
         "id": id,
         "meetingId": body.meeting_id,
@@ -443,27 +440,27 @@ async fn send_message(
 
 async fn pin(caller: Caller, Path(id): Path<String>, RawQuery(query): RawQuery) -> Response {
     let meeting = query_param(query.as_deref(), "meetingId").unwrap_or_default();
-    let result: Result<Response, sqlx::Error> = async {
-        let found: Option<String> = sqlx::query_scalar(
-            "select id from meeting_messages where id = $1 and deleted_at is null
-               and ($2 = '' or meeting_id = $2) limit 1",
-        )
-        .bind(&id)
-        .bind(&meeting)
-        .fetch_optional(&caller.db)
-        .await?;
+    let result: Result<Response, DbErr> = async {
+        let db = &orm(&caller.db);
+        let found: Option<String> = meeting_messages::Entity::find()
+            .select_only()
+            .column(Message::Id)
+            .filter(message_in(&id, &meeting))
+            .filter(Message::DeletedAt.is_null())
+            .into_tuple()
+            .one(db)
+            .await?;
         if found.is_none() {
             return Ok(ApiError::not_found("Message", Some(&id)).into_response());
         }
-        let now = now();
-        sqlx::query(
-            "update meeting_messages set pinned_at = $2::timestamp, pinned_by = $3, updated_at = $2::timestamp where id = $1",
-        )
-        .bind(&id)
-        .bind(&now)
-        .bind(&caller.user_id)
-        .execute(&caller.db)
-        .await?;
+        let now = weldsuite_db::utc_now();
+        meeting_messages::Entity::update_many()
+            .col_expr(Message::PinnedAt, Expr::value(now))
+            .col_expr(Message::PinnedBy, Expr::value(caller.user_id.clone()))
+            .col_expr(Message::UpdatedAt, Expr::value(now))
+            .filter(Message::Id.eq(&id))
+            .exec(db)
+            .await?;
         Ok(Data(json!({ "pinned": true })).into_response())
     }
     .await;
@@ -472,15 +469,16 @@ async fn pin(caller: Caller, Path(id): Path<String>, RawQuery(query): RawQuery) 
 
 async fn unpin(caller: Caller, Path(id): Path<String>, RawQuery(query): RawQuery) -> Response {
     let meeting = query_param(query.as_deref(), "meetingId").unwrap_or_default();
-    let result = sqlx::query(
-        "update meeting_messages set pinned_at = null, pinned_by = null, updated_at = $3::timestamp
-         where id = $1 and ($2 = '' or meeting_id = $2)",
-    )
-    .bind(&id)
-    .bind(&meeting)
-    .bind(now())
-    .execute(&caller.db)
-    .await;
+    let result = meeting_messages::Entity::update_many()
+        .col_expr(
+            Message::PinnedAt,
+            Expr::value(Option::<PrimitiveDateTime>::None),
+        )
+        .col_expr(Message::PinnedBy, Expr::value(Option::<String>::None))
+        .col_expr(Message::UpdatedAt, Expr::value(weldsuite_db::utc_now()))
+        .filter(message_in(&id, &meeting))
+        .exec(&orm(&caller.db))
+        .await;
     match result {
         Ok(_) => Data(json!({ "pinned": false })).into_response(),
         Err(error) => internal(&error, "Failed to unpin message"),
@@ -497,15 +495,15 @@ async fn remove(
         return ApiError::org_required().into_response();
     }
     let meeting = query_param(query.as_deref(), "meetingId").unwrap_or_default();
-    let result: Result<Response, sqlx::Error> = async {
-        let found: Option<(String, String)> = sqlx::query_as(
-            "select author_id, meeting_id from meeting_messages where id = $1 and deleted_at is null
-               and ($2 = '' or meeting_id = $2) limit 1",
-        )
-        .bind(&id)
-        .bind(&meeting)
-        .fetch_optional(&caller.db)
-        .await?;
+    let result: Result<Response, DbErr> = async {
+        let found: Option<(String, String)> = meeting_messages::Entity::find()
+            .select_only()
+            .columns([Message::AuthorId, Message::MeetingId])
+            .filter(message_in(&id, &meeting))
+            .filter(Message::DeletedAt.is_null())
+            .into_tuple()
+            .one(&orm(&caller.db))
+            .await?;
         let Some((author, meeting_id)) = found else {
             return Ok(ApiError::not_found("Message", Some(&id)).into_response());
         };
@@ -514,12 +512,7 @@ async fn remove(
                 .with_message("You can only delete your own messages")
                 .into_response());
         }
-        let now = now();
-        sqlx::query("update meeting_messages set deleted_at = $2::timestamp, updated_at = $2::timestamp where id = $1")
-            .bind(&id)
-            .bind(&now)
-            .execute(&caller.db)
-            .await?;
+        soft_delete(&caller.db, &id).await?;
         publish::chat_message_deleted(&state, &meeting_id, &id).await;
         caller.publish(&state, MEETING_MESSAGE_DELETED, &id, &json!({ "id": id }));
         Ok(StatusCode::NO_CONTENT.into_response())
@@ -528,16 +521,27 @@ async fn remove(
     result.unwrap_or_else(|error| internal(&error, "Failed to delete message"))
 }
 
+/// `deletedAt` and `updatedAt` now on message `id`.
+async fn soft_delete(db: &PgPool, id: &str) -> Result<(), DbErr> {
+    let now = weldsuite_db::utc_now();
+    meeting_messages::Entity::update_many()
+        .col_expr(Message::DeletedAt, Expr::value(now))
+        .col_expr(Message::UpdatedAt, Expr::value(now))
+        .filter(Message::Id.eq(id))
+        .exec(&orm(db))
+        .await?;
+    Ok(())
+}
+
 // ── generic ────────────────────────────────────────────────────────────────
 
-async fn live_row(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from meeting_messages t where t.id = $1 and t.deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(js_row))
+async fn live_row(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
+    meeting_messages::Entity::find_by_id(id.to_owned())
+        .filter(Message::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?
+        .map(row_json)
+        .transpose()
 }
 
 async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
@@ -604,16 +608,11 @@ async fn remove_generic(
     caller: Caller,
     Path(id): Path<String>,
 ) -> Response {
-    let result: Result<Response, sqlx::Error> = async {
+    let result: Result<Response, DbErr> = async {
         if live_row(&caller.db, &id).await?.is_none() {
             return Ok(ApiError::not_found("Meeting message", Some(&id)).into_response());
         }
-        let now = now();
-        sqlx::query("update meeting_messages set deleted_at = $2::timestamp, updated_at = $2::timestamp where id = $1")
-            .bind(&id)
-            .bind(&now)
-            .execute(&caller.db)
-            .await?;
+        soft_delete(&caller.db, &id).await?;
         caller.publish(&state, MEETING_MESSAGE_DELETED, &id, &json!({ "id": id }));
         Ok(NoContent.into_response())
     }

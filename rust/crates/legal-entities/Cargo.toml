@@ -23,6 +23,8 @@ sqlx = { workspace = true }
 time = { workspace = true, features = ["formatting", "macros"] }
 tower = { workspace = true }
 tracing = { workspace = true }
+sea-orm = { workspace = true }
+weldsuite-schema = { workspace = true }
 
 [dev-dependencies]
 axum = { workspace = true, features = ["json"] }

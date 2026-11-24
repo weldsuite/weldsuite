@@ -6,15 +6,20 @@ use axum::body::Bytes;
 use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Response};
 use http::HeaderMap;
+use sea_orm::sea_query::Expr;
+use sea_orm::{ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, QueryFilter};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events::{
     COMPANY_UPDATED, CONTACT_LINK_CREATED, CONTACT_LINK_DELETED, PERSON_UPDATED,
 };
-use weldsuite_crm_domain::{date_or_null, drizzle_row};
+use weldsuite_crm_domain::date_or_null;
+use weldsuite_db::{orm, utc_now};
 use weldsuite_kit::{ApiError, Created, Data, NoContent, generate_id};
+use weldsuite_schema::tenant::person_companies::{self as links, Column};
 
+use crate::orm_rows::{json, timestamp_of};
 use crate::schema::{Kind, OPT, REQ, Spec, partial, pick, s};
-use crate::{Caller, CrmState, answer, now, validate_specs};
+use crate::{Caller, CrmState, answer, validate_specs};
 
 const LOG: &str = "person-companies";
 
@@ -44,13 +49,28 @@ fn publish_both_sides(caller: &Caller, state: &CrmState, person_id: &str, compan
     );
 }
 
-async fn link(caller: &Caller, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> =
-        sqlx::query_scalar("select to_jsonb(t) from person_companies t where id = $1 limit 1")
-            .bind(id)
-            .fetch_optional(&caller.db)
-            .await?;
-    Ok(row.map(drizzle_row))
+async fn link(caller: &Caller, id: &str) -> Result<Option<Value>, DbErr> {
+    let row = links::Entity::find_by_id(id.to_owned())
+        .one(&orm(&caller.db))
+        .await?;
+    row.map(|row| json(serde_json::to_value(row))).transpose()
+}
+
+/// `date ? new Date(date) : null` as the `timestamp` Drizzle writes.
+fn timestamp_or_null(date: &Value) -> Result<Option<time::PrimitiveDateTime>, DbErr> {
+    date.as_str().map(timestamp_of).transpose()
+}
+
+/// The person's other links stop being their primary one.
+async fn unset_other_primaries(caller: &Caller, person_id: &str, id: &str) -> Result<(), DbErr> {
+    links::Entity::update_many()
+        .col_expr(Column::IsPrimary, Expr::value(false))
+        .col_expr(Column::UpdatedAt, Expr::value(utc_now()))
+        .filter(Column::PersonId.eq(person_id))
+        .filter(Column::Id.ne(id))
+        .exec(&orm(&caller.db))
+        .await?;
+    Ok(())
 }
 
 fn text<'a>(data: &'a Map<String, Value>, key: &str) -> Option<&'a str> {
@@ -69,37 +89,36 @@ pub(crate) async fn create(
     };
     let result = async {
         let id = generate_id("pc");
-        let now = now();
+        let now = utc_now();
         let person_id = text(&data, "personId").unwrap_or_default();
         let company_id = text(&data, "companyId").unwrap_or_default();
-        let is_primary = data.get("isPrimary").and_then(Value::as_bool).unwrap_or(false);
+        let is_primary = data
+            .get("isPrimary")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
         let started = date_or_null(data.get("startedAt"))?;
         let ended = date_or_null(data.get("endedAt"))?;
-        sqlx::query(
-            "insert into person_companies
-                 (id, created_at, updated_at, person_id, company_id, role, is_primary, started_at, ended_at)
-             values ($1, $2::timestamp, $2::timestamp, $3, $4, $5, $6, $7::timestamp, $8::timestamp)",
-        )
-        .bind(&id)
-        .bind(&now)
-        .bind(person_id)
-        .bind(company_id)
-        .bind(text(&data, "role"))
-        .bind(is_primary)
-        .bind(started.as_str())
-        .bind(ended.as_str())
-        .execute(&caller.db)
+        links::Entity::insert(links::ActiveModel {
+            id: Set(id.clone()),
+            created_at: Set(now),
+            updated_at: Set(now),
+            person_id: Set(person_id.to_owned()),
+            company_id: Set(company_id.to_owned()),
+            role: Set(text(&data, "role").map(str::to_owned)),
+            is_primary: Set(is_primary),
+            started_at: Set(timestamp_or_null(&started)?),
+            ended_at: Set(timestamp_or_null(&ended)?),
+        })
+        .exec_without_returning(&orm(&caller.db))
         .await?;
         if is_primary {
-            sqlx::query(
-                "update person_companies set is_primary = false, updated_at = $3::timestamp
-                 where person_id = $1 and id <> $2",
-            )
-            .bind(person_id)
-            .bind(&id)
-            .bind(&now)
-            .execute(&caller.db)
-            .await?;
+            links::Entity::update_many()
+                .col_expr(Column::IsPrimary, Expr::value(false))
+                .col_expr(Column::UpdatedAt, Expr::value(now))
+                .filter(Column::PersonId.eq(person_id))
+                .filter(Column::Id.ne(id.as_str()))
+                .exec(&orm(&caller.db))
+                .await?;
         }
         let row = link(&caller, &id).await?;
         caller.publish(
@@ -134,33 +153,37 @@ pub(crate) async fn update(
         let Some(existing) = link(&caller, &id).await? else {
             return Ok(ApiError::not_found("PersonCompany", Some(&id)).into_response());
         };
-        let started = date_or_null(data.get("startedAt"))?;
-        let ended = date_or_null(data.get("endedAt"))?;
-        sqlx::query(
-            "update person_companies set
-                 updated_at = $2::timestamp,
-                 role = case when $3 then $4 else role end,
-                 is_primary = case when $5 then $6 else is_primary end,
-                 started_at = case when $7 then $8::timestamp else started_at end,
-                 ended_at = case when $9 then $10::timestamp else ended_at end
-             where id = $1",
-        )
-        .bind(&id)
-        .bind(now())
-        .bind(data.contains_key("role"))
-        .bind(text(&data, "role"))
-        .bind(data.contains_key("isPrimary"))
-        .bind(
-            data.get("isPrimary")
-                .and_then(Value::as_bool)
-                .unwrap_or(false),
-        )
-        .bind(data.contains_key("startedAt"))
-        .bind(started.as_str())
-        .bind(data.contains_key("endedAt"))
-        .bind(ended.as_str())
-        .execute(&caller.db)
-        .await?;
+        let started = timestamp_or_null(&date_or_null(data.get("startedAt"))?)?;
+        let ended = timestamp_or_null(&date_or_null(data.get("endedAt"))?)?;
+        // Only the fields the body sent change.
+        let mut update =
+            links::Entity::update_many().col_expr(Column::UpdatedAt, Expr::value(utc_now()));
+        if data.contains_key("role") {
+            update = update.col_expr(
+                Column::Role,
+                Expr::value(text(&data, "role").map(str::to_owned)),
+            );
+        }
+        if data.contains_key("isPrimary") {
+            update = update.col_expr(
+                Column::IsPrimary,
+                Expr::value(
+                    data.get("isPrimary")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false),
+                ),
+            );
+        }
+        if data.contains_key("startedAt") {
+            update = update.col_expr(Column::StartedAt, Expr::value(started));
+        }
+        if data.contains_key("endedAt") {
+            update = update.col_expr(Column::EndedAt, Expr::value(ended));
+        }
+        update
+            .filter(Column::Id.eq(id.as_str()))
+            .exec(&orm(&caller.db))
+            .await?;
         let person_id = existing
             .get("personId")
             .and_then(Value::as_str)
@@ -170,15 +193,7 @@ pub(crate) async fn update(
             .and_then(Value::as_str)
             .unwrap_or_default();
         if data.get("isPrimary") == Some(&Value::Bool(true)) {
-            sqlx::query(
-                "update person_companies set is_primary = false, updated_at = $3::timestamp
-                 where person_id = $1 and id <> $2",
-            )
-            .bind(person_id)
-            .bind(&id)
-            .bind(now())
-            .execute(&caller.db)
-            .await?;
+            unset_other_primaries(&caller, person_id, &id).await?;
         }
         let updated = link(&caller, &id).await?;
         publish_both_sides(&caller, &state, person_id, company_id);
@@ -197,9 +212,9 @@ pub(crate) async fn remove(
         let Some(existing) = link(&caller, &id).await? else {
             return Ok(ApiError::not_found("PersonCompany", Some(&id)).into_response());
         };
-        sqlx::query("delete from person_companies where id = $1")
-            .bind(&id)
-            .execute(&caller.db)
+        links::Entity::delete_many()
+            .filter(Column::Id.eq(id.as_str()))
+            .exec(&orm(&caller.db))
             .await?;
         let person_id = existing
             .get("personId")

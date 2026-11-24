@@ -15,10 +15,16 @@
 
 use std::collections::{HashMap, HashSet};
 
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
+use serde::Serialize;
 use serde_json::{Map, Value, json};
-use weldsuite_db::{Keyring, PgPool, decrypt_field, js_row};
+use weldsuite_db::{Keyring, PgPool, decrypt_field, orm};
 use weldsuite_legal_entities::LegalEntityApp;
+use weldsuite_schema::tenant::{
+    bank_accounts, entities, hr_payroll_employers, legal_entity_registrations,
+};
 
+use super::employees::jsonb_row;
 use crate::{HrError, js_trim};
 
 /// The key of the merged row that holds the linked core bank account's
@@ -167,21 +173,16 @@ fn bank_from_account(account: &Value, row: &Value, keyring: &Keyring) -> Value {
     Value::Object(out)
 }
 
-/// The live rows of `table` with these ids, by id.
-async fn rows_by_id(
-    db: &PgPool,
-    sql: &'static str,
-    ids: &[String],
-) -> Result<HashMap<String, Value>, HrError> {
-    if ids.is_empty() {
-        return Ok(HashMap::new());
+/// Rows (`to_jsonb`-shaped, from the entity) by id.
+fn by_id<T: Serialize>(models: Vec<T>) -> Result<HashMap<String, Value>, HrError> {
+    let mut out = HashMap::with_capacity(models.len());
+    for model in models {
+        let row = jsonb_row(model)?;
+        if let Some(id) = id_of(&row, "id") {
+            out.insert(id, row);
+        }
     }
-    let rows: Vec<Value> = sqlx::query_scalar(sql).bind(ids).fetch_all(db).await?;
-    Ok(rows
-        .into_iter()
-        .map(js_row)
-        .filter_map(|row| id_of(&row, "id").map(|id| (id, row)))
-        .collect())
+    Ok(out)
 }
 
 /// `{ ...settings, [key]: number }`.
@@ -205,26 +206,43 @@ pub(crate) async fn resolve_employers(
     if rows.is_empty() {
         return Ok(Vec::new());
     }
+    let orm = orm(db);
     let entity_ids = unique(&rows, "legalEntityId");
-    let entities = rows_by_id(
-        db,
-        "select to_jsonb(t) from entities t where t.id = any($1) and t.deleted_at is null",
-        &entity_ids,
-    )
-    .await?;
-    let registrations = rows_by_id(
-        db,
-        "select to_jsonb(t) from legal_entity_registrations t
-         where t.id = any($1) and t.deleted_at is null",
-        &unique(&rows, "registrationId"),
-    )
-    .await?;
-    let banks = rows_by_id(
-        db,
-        "select to_jsonb(t) from bank_accounts t where t.id = any($1) and t.deleted_at is null",
-        &unique(&rows, "bankAccountId"),
-    )
-    .await?;
+    let entities = if entity_ids.is_empty() {
+        HashMap::new()
+    } else {
+        by_id(
+            entities::Entity::find()
+                .filter(entities::Column::Id.is_in(&entity_ids))
+                .filter(entities::Column::DeletedAt.is_null())
+                .all(&orm)
+                .await?,
+        )?
+    };
+    let registration_ids = unique(&rows, "registrationId");
+    let registrations = if registration_ids.is_empty() {
+        HashMap::new()
+    } else {
+        by_id(
+            legal_entity_registrations::Entity::find()
+                .filter(legal_entity_registrations::Column::Id.is_in(&registration_ids))
+                .filter(legal_entity_registrations::Column::DeletedAt.is_null())
+                .all(&orm)
+                .await?,
+        )?
+    };
+    let bank_ids = unique(&rows, "bankAccountId");
+    let banks = if bank_ids.is_empty() {
+        HashMap::new()
+    } else {
+        by_id(
+            bank_accounts::Entity::find()
+                .filter(bank_accounts::Column::Id.is_in(&bank_ids))
+                .filter(bank_accounts::Column::DeletedAt.is_null())
+                .all(&orm)
+                .await?,
+        )?
+    };
     let books = if entity_ids.is_empty() {
         HashSet::new()
     } else {
@@ -329,13 +347,10 @@ pub(crate) async fn find_employer_for_payroll(
     employer_id: &str,
     keyring: &Keyring,
 ) -> Result<Option<PayrollEmployer>, HrError> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from hr_payroll_employers t where t.id = $1 limit 1",
-    )
-    .bind(employer_id)
-    .fetch_optional(db)
-    .await?;
-    let Some(row) = row.map(js_row) else {
+    let row = hr_payroll_employers::Entity::find_by_id(employer_id)
+        .one(&orm(db))
+        .await?;
+    let Some(row) = row.map(jsonb_row).transpose()? else {
         return Ok(None);
     };
     Ok(resolve_employers(db, vec![row], keyring).await?.pop())

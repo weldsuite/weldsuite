@@ -2,15 +2,19 @@
 //! agency's payable in the general ledger against what the tax ledger says is
 //! owed, and the return's net sales against the income of the period.
 
+use sea_orm::prelude::BigDecimal;
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, FromQueryResult, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
 use weldsuite_books_domain::js::{locale_compare, to_fixed};
 use weldsuite_books_domain::posting::{BOOKED_STATUSES, account_for_role, load_entity_accounts};
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm, orm_error};
+use weldsuite_schema::tenant::{invoice_items, invoices, journal_entries, tax_lines};
 
 use super::calculate::{CalculationInput, calculate_return};
 use super::common::{
-    FILED_STATUSES, is_filed, n, next_day, num, num_at, round2, s, start_of_day, state_of_address,
-    sum_money,
+    FILED_STATUSES, day_start, day_text, decimal_num, is_filed, n, next_day, num, num_at,
+    parse_day, round2, s, start_of_day, state_of_address, sum_money,
 };
 use super::documents::anchor_indexes;
 use super::payment::{owed_by_filed_return, settled_against_payable};
@@ -57,6 +61,104 @@ fn text_value(value: Option<&String>) -> Value {
     value.map_or(Value::Null, |v| json!(v))
 }
 
+/// The payable accounts' net (credit − debit) per booked journal entry dated
+/// before `before`.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "a general-ledger money aggregate (credit minus debit summed per journal entry over journal_lines joined to journal_entries), kept as the SQL it was"
+)]
+async fn payable_nets(
+    db: &PgPool,
+    entity_id: &str,
+    account_ids: &[String],
+    statuses: &[String],
+    before: &str,
+) -> Result<Vec<GlRow>, DbErr> {
+    sqlx::query_as(
+        "select je.id as journal_entry_id, je.entry_number, to_char(je.date, 'YYYY-MM-DD') as date, \
+         je.description, je.source_type, je.source_id, \
+         sum(coalesce(jl.credit, 0) - coalesce(jl.debit, 0))::text as net \
+         from journal_lines jl inner join journal_entries je on je.id = jl.journal_entry_id \
+         where jl.entity_id = $1 and jl.account_id = any($2) and jl.deleted_at is null \
+         and je.deleted_at is null and je.status = any($3) and je.date < $4::timestamp \
+         group by je.id, je.entry_number, je.date, je.description, je.source_type, je.source_id",
+    )
+    .bind(entity_id)
+    .bind(account_ids)
+    .bind(statuses)
+    .bind(before)
+    .fetch_all(db)
+    .await
+    .map_err(orm_error)
+}
+
+/// The agency's sales and use tax before `before`, summed per journal entry.
+async fn tax_by_journal_entry(
+    db: &PgPool,
+    entity_id: &str,
+    agency_id: &str,
+    before: &str,
+) -> Result<Vec<(String, Option<BigDecimal>)>, DbErr> {
+    use tax_lines::Column;
+    tax_lines::Entity::find()
+        .select_only()
+        .column(Column::JournalEntryId)
+        .column_as(Column::TaxAmount.sum(), "tax")
+        .filter(Column::EntityId.eq(entity_id))
+        .filter(Column::AgencyId.eq(agency_id))
+        .filter(Column::Direction.is_in(["sales", "use"]))
+        .filter(Column::TaxDate.lt(parse_day(before)?))
+        .group_by(Column::JournalEntryId)
+        .into_tuple()
+        .all(&orm(db))
+        .await
+}
+
+/// `id, entry_number, date, description, source_type, source_id` of a
+/// journal entry.
+type EntryHead = (
+    String,
+    Option<String>,
+    time::PrimitiveDateTime,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+);
+
+/// Number, day, description and source of journal entries (`net` null).
+async fn entries_by_ids(db: &PgPool, ids: &[String]) -> Result<Vec<GlRow>, DbErr> {
+    use journal_entries::Column;
+    let rows: Vec<EntryHead> = journal_entries::Entity::find()
+        .select_only()
+        .columns([
+            Column::Id,
+            Column::EntryNumber,
+            Column::Date,
+            Column::Description,
+            Column::SourceType,
+            Column::SourceId,
+        ])
+        .filter(Column::Id.is_in(ids.iter().map(String::as_str)))
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
+    Ok(rows
+        .into_iter()
+        .map(
+            |(journal_entry_id, entry_number, date, description, source_type, source_id)| GlRow {
+                journal_entry_id,
+                entry_number,
+                // `to_char(date, 'YYYY-MM-DD')`.
+                date: Some(day_text(date.date())),
+                description,
+                source_type,
+                source_id,
+                net: None,
+            },
+        )
+        .collect())
+}
+
 /// `agencyLiability(db, { entityId, agency, asOf, withItems, returns })`.
 #[allow(
     clippy::too_many_lines,
@@ -69,7 +171,7 @@ pub(crate) async fn agency_liability(
     as_of: &str,
     with_items: bool,
     returns: &[Value],
-) -> Result<AgencyLiability, sqlx::Error> {
+) -> Result<AgencyLiability, DbErr> {
     let accounts = load_entity_accounts(db, entity_id).await?;
     let own: Vec<&Value> = [
         accounts.by_id(text(agency, "liabilityAccountId")),
@@ -98,38 +200,17 @@ pub(crate) async fn agency_liability(
     let gl_rows: Vec<GlRow> = if account_ids.is_empty() {
         Vec::new()
     } else {
-        sqlx::query_as(
-            "select je.id as journal_entry_id, je.entry_number, to_char(je.date, 'YYYY-MM-DD') as date, \
-             je.description, je.source_type, je.source_id, \
-             sum(coalesce(jl.credit, 0) - coalesce(jl.debit, 0))::text as net \
-             from journal_lines jl inner join journal_entries je on je.id = jl.journal_entry_id \
-             where jl.entity_id = $1 and jl.account_id = any($2) and jl.deleted_at is null \
-             and je.deleted_at is null and je.status = any($3) and je.date < $4::timestamp \
-             group by je.id, je.entry_number, je.date, je.description, je.source_type, je.source_id",
-        )
-        .bind(entity_id)
-        .bind(&account_ids)
-        .bind(&statuses)
-        .bind(&before)
-        .fetch_all(db)
-        .await?
+        payable_nets(db, entity_id, &account_ids, &statuses, &before).await?
     };
     let net_of = |r: &GlRow| num(&r.net.clone().map_or(Value::Null, Value::String));
     let gl_balance = sum_money(gl_rows.iter().map(net_of));
 
-    let ledger_rows: Vec<(String, Option<String>)> = sqlx::query_as(
-        "select journal_entry_id, sum(tax_amount)::text from tax_lines \
-         where entity_id = $1 and agency_id = $2 and direction in ('sales', 'use') \
-         and tax_date < $3::date group by journal_entry_id",
-    )
-    .bind(entity_id)
-    .bind(s(agency, "id"))
-    .bind(next_day(as_of))
-    .fetch_all(db)
-    .await?;
+    let ledger_rows =
+        tax_by_journal_entry(db, entity_id, s(agency, "id"), &next_day(as_of)).await?;
     let mut tax_by_entry: Vec<(String, f64)> = Vec::new();
     for (id, tax) in ledger_rows {
-        let tax = num(&tax.map_or(Value::Null, Value::String));
+        // `sum(tax_amount)::text`, read as a number.
+        let tax = decimal_num(tax.as_ref());
         match tax_by_entry.iter_mut().find(|(k, _)| *k == id) {
             Some(entry) => entry.1 += tax,
             None => tax_by_entry.push((id, tax)),
@@ -233,15 +314,7 @@ pub(crate) async fn agency_liability(
             .filter_map(|i| i["journalEntryId"].as_str().map(str::to_owned))
             .collect();
         if !undated.is_empty() {
-            let found: Vec<GlRow> = sqlx::query_as(
-                "select id as journal_entry_id, entry_number, to_char(date, 'YYYY-MM-DD') as date, \
-                 description, source_type, source_id, null::text as net \
-                 from journal_entries where id = any($1)",
-            )
-            .bind(&undated)
-            .fetch_all(db)
-            .await?;
-            for f in found {
+            for f in entries_by_ids(db, &undated).await? {
                 if let Some(item) = items
                     .iter_mut()
                     .find(|i| i["journalEntryId"].as_str() == Some(f.journal_entry_id.as_str()))
@@ -320,36 +393,100 @@ impl InvoiceFacts {
     }
 }
 
+/// A posted invoice of the period as the pre-file check reads it.
+#[derive(Debug, FromQueryResult)]
+struct PeriodInvoice {
+    id: String,
+    number: Option<String>,
+    kind: String,
+    issue_date: time::PrimitiveDateTime,
+    contact_name: Option<String>,
+    shipping: Option<Value>,
+    billing: Option<Value>,
+}
+
+impl PeriodInvoice {
+    /// The row as `jsonb_build_object` built it (`date` as
+    /// `to_char(issue_date, 'YYYY-MM-DD')`).
+    fn to_json(&self) -> Value {
+        json!({
+            "id": self.id,
+            "number": self.number,
+            "type": self.kind,
+            "date": day_text(self.issue_date.date()),
+            "contactName": self.contact_name,
+            "shipping": self.shipping,
+            "billing": self.billing,
+        })
+    }
+}
+
+/// The entity's posted invoices, credit notes and corrections issued from
+/// `start` through `end`.
+async fn posted_in_period(
+    db: &PgPool,
+    entity_id: &str,
+    start: &str,
+    end: &str,
+) -> Result<Vec<Value>, DbErr> {
+    use invoices::Column;
+    let rows = invoices::Entity::find()
+        .select_only()
+        .column(Column::Id)
+        .column_as(Column::InvoiceNumber, "number")
+        .column_as(Column::Type, "kind")
+        .columns([Column::IssueDate, Column::ContactName])
+        .column_as(Column::ShippingAddress, "shipping")
+        .column_as(Column::BillingAddress, "billing")
+        .filter(Column::EntityId.eq(entity_id))
+        .filter(Column::DeletedAt.is_null())
+        .filter(Column::Type.is_in(["standard", "correction", "credit_note"]))
+        .filter(Column::JournalEntryId.is_not_null())
+        .filter(Column::IssueDate.gte(day_start(start)?))
+        .filter(Column::IssueDate.lt(day_start(&next_day(end))?))
+        .into_model::<PeriodInvoice>()
+        .all(&orm(db))
+        .await?;
+    Ok(rows.iter().map(PeriodInvoice::to_json).collect())
+}
+
+/// `sum(coalesce(line_total, 0))` of the live lines of each invoice in `ids`.
+async fn line_totals(
+    db: &PgPool,
+    ids: &[String],
+) -> Result<Vec<(String, Option<BigDecimal>)>, DbErr> {
+    use invoice_items::Column;
+    invoice_items::Entity::find()
+        .select_only()
+        .column(Column::InvoiceId)
+        .column_as(
+            Expr::from(Func::sum(Func::coalesce([
+                Expr::col(Column::LineTotal),
+                Expr::val(0),
+            ]))),
+            "total",
+        )
+        .filter(Column::InvoiceId.is_in(ids.iter().map(String::as_str)))
+        .filter(Column::DeletedAt.is_null())
+        .group_by(Column::InvoiceId)
+        .into_tuple()
+        .all(&orm(db))
+        .await
+}
+
 async fn period_invoices(
     db: &PgPool,
     entity_id: &str,
     start: &str,
     end: &str,
-) -> Result<Vec<InvoiceFacts>, sqlx::Error> {
-    let invoices: Vec<Value> = sqlx::query_scalar(
-        "select jsonb_build_object('id', id, 'number', invoice_number, 'type', type, \
-         'date', to_char(issue_date, 'YYYY-MM-DD'), 'contactName', contact_name, \
-         'shipping', shipping_address, 'billing', billing_address) from invoices \
-         where entity_id = $1 and deleted_at is null and type in ('standard', 'correction', 'credit_note') \
-         and journal_entry_id is not null and issue_date >= $2::timestamp and issue_date < $3::timestamp",
-    )
-    .bind(entity_id)
-    .bind(start_of_day(start))
-    .bind(start_of_day(&next_day(end)))
-    .fetch_all(db)
-    .await?;
+) -> Result<Vec<InvoiceFacts>, DbErr> {
+    let invoices = posted_in_period(db, entity_id, start, end).await?;
     let ids: Vec<String> = invoices.iter().map(|i| s(i, "id").to_owned()).collect();
     let mut income: Vec<(String, f64)> = Vec::new();
     for part in ids.chunks(2000) {
-        let rows: Vec<(String, Option<String>)> = sqlx::query_as(
-            "select invoice_id, sum(coalesce(line_total, 0))::text from invoice_items \
-             where invoice_id = any($1) and deleted_at is null group by invoice_id",
-        )
-        .bind(part)
-        .fetch_all(db)
-        .await?;
-        for (id, total) in rows {
-            income.push((id, num(&total.map_or(Value::Null, Value::String))));
+        for (id, total) in line_totals(db, part).await? {
+            // `sum(…)::text`, read as a number.
+            income.push((id, decimal_num(total.as_ref())));
         }
     }
     Ok(invoices
@@ -406,6 +543,76 @@ struct EntryAmount {
     amount: Option<String>,
 }
 
+/// Booked journal entries of the period that moved revenue accounts and wrote
+/// no tax-ledger rows, with their net (credit − debit) revenue.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "a general-ledger money aggregate (revenue summed per journal entry over a three-table join, with a having and a not exists), kept as the SQL it was"
+)]
+async fn revenue_without_tax_data(
+    db: &PgPool,
+    entity_id: &str,
+    statuses: &[String],
+    (period_start, period_after): (&str, &str),
+) -> Result<Vec<EntryAmount>, DbErr> {
+    sqlx::query_as(
+        "select je.id, je.entry_number, to_char(je.date, 'YYYY-MM-DD') as date, je.description, \
+         je.source_type, je.source_id, sum(coalesce(jl.credit, 0) - coalesce(jl.debit, 0))::text as amount \
+         from journal_lines jl inner join journal_entries je on je.id = jl.journal_entry_id \
+         inner join accounts a on a.id = jl.account_id \
+         where jl.entity_id = $1 and jl.deleted_at is null and je.deleted_at is null \
+         and je.status = any($2) and a.type = 'revenue' \
+         and je.date >= $3::timestamp and je.date < $4::timestamp \
+         and not exists (select 1 from tax_lines t where t.journal_entry_id = je.id) \
+         group by je.id, je.entry_number, je.date, je.description, je.source_type, je.source_id \
+         having sum(coalesce(jl.credit, 0) - coalesce(jl.debit, 0)) <> 0",
+    )
+    .bind(entity_id)
+    .bind(statuses)
+    .bind(period_start)
+    .bind(period_after)
+    .fetch_all(db)
+    .await
+    .map_err(orm_error)
+}
+
+/// Booked journal entries of the period (not a return's payment) that moved
+/// the agency's payable accounts without tax-ledger rows of the agency, with
+/// their net (credit − debit).
+#[allow(
+    clippy::disallowed_methods,
+    reason = "a general-ledger money aggregate (the payable's net summed per journal entry over a join, with a not exists), kept as the SQL it was"
+)]
+async fn direct_payable_entries(
+    db: &PgPool,
+    entity_id: &str,
+    agency_id: &str,
+    (payable_ids, statuses): (&[String], &[String]),
+    (period_start, period_after): (&str, &str),
+) -> Result<Vec<EntryAmount>, DbErr> {
+    sqlx::query_as(
+        "select je.id, je.entry_number, to_char(je.date, 'YYYY-MM-DD') as date, je.description, \
+         null::text as source_type, null::text as source_id, \
+         sum(coalesce(jl.credit, 0) - coalesce(jl.debit, 0))::text as amount \
+         from journal_lines jl inner join journal_entries je on je.id = jl.journal_entry_id \
+         where jl.entity_id = $1 and jl.account_id = any($2) and jl.deleted_at is null \
+         and je.deleted_at is null and je.status = any($3) \
+         and je.date >= $4::timestamp and je.date < $5::timestamp \
+         and je.source_type is distinct from 'tax_return' \
+         and not exists (select 1 from tax_lines t where t.journal_entry_id = je.id and t.agency_id = $6) \
+         group by je.id, je.entry_number, je.date, je.description",
+    )
+    .bind(entity_id)
+    .bind(payable_ids)
+    .bind(statuses)
+    .bind(period_start)
+    .bind(period_after)
+    .bind(agency_id)
+    .fetch_all(db)
+    .await
+    .map_err(orm_error)
+}
+
 /// `preFileCheck(db, { entity, agency, ret })`.
 #[allow(clippy::too_many_lines, reason = "mirrors checks.ts's preFileCheck()")]
 pub(crate) async fn pre_file_check(
@@ -415,7 +622,7 @@ pub(crate) async fn pre_file_check(
     ret: &Value,
     now: &str,
     today: &str,
-) -> Result<Value, sqlx::Error> {
+) -> Result<Value, DbErr> {
     let entity_id = s(entity, "id");
     let mut document_gross: Vec<(String, f64)> = Vec::new();
     let counted = !is_filed(ret);
@@ -548,24 +755,8 @@ pub(crate) async fn pre_file_check(
     let period_start = start_of_day(s(ret, "periodStart"));
     let period_after = start_of_day(&next_day(s(ret, "periodEnd")));
     let statuses: Vec<String> = BOOKED_STATUSES.iter().map(|s| (*s).to_owned()).collect();
-    let revenue: Vec<EntryAmount> = sqlx::query_as(
-        "select je.id, je.entry_number, to_char(je.date, 'YYYY-MM-DD') as date, je.description, \
-         je.source_type, je.source_id, sum(coalesce(jl.credit, 0) - coalesce(jl.debit, 0))::text as amount \
-         from journal_lines jl inner join journal_entries je on je.id = jl.journal_entry_id \
-         inner join accounts a on a.id = jl.account_id \
-         where jl.entity_id = $1 and jl.deleted_at is null and je.deleted_at is null \
-         and je.status = any($2) and a.type = 'revenue' \
-         and je.date >= $3::timestamp and je.date < $4::timestamp \
-         and not exists (select 1 from tax_lines t where t.journal_entry_id = je.id) \
-         group by je.id, je.entry_number, je.date, je.description, je.source_type, je.source_id \
-         having sum(coalesce(jl.credit, 0) - coalesce(jl.debit, 0)) <> 0",
-    )
-    .bind(entity_id)
-    .bind(&statuses)
-    .bind(&period_start)
-    .bind(&period_after)
-    .fetch_all(db)
-    .await?;
+    let revenue =
+        revenue_without_tax_data(db, entity_id, &statuses, (&period_start, &period_after)).await?;
     let amount_of =
         |r: &EntryAmount| round2(num(&r.amount.clone().map_or(Value::Null, Value::String)));
     if !revenue.is_empty() {
@@ -640,25 +831,13 @@ pub(crate) async fn pre_file_check(
             "payable_direct_entries: the agency has no payable account of its own".to_owned(),
         );
     } else {
-        let direct: Vec<EntryAmount> = sqlx::query_as(
-            "select je.id, je.entry_number, to_char(je.date, 'YYYY-MM-DD') as date, je.description, \
-             null::text as source_type, null::text as source_id, \
-             sum(coalesce(jl.credit, 0) - coalesce(jl.debit, 0))::text as amount \
-             from journal_lines jl inner join journal_entries je on je.id = jl.journal_entry_id \
-             where jl.entity_id = $1 and jl.account_id = any($2) and jl.deleted_at is null \
-             and je.deleted_at is null and je.status = any($3) \
-             and je.date >= $4::timestamp and je.date < $5::timestamp \
-             and je.source_type is distinct from 'tax_return' \
-             and not exists (select 1 from tax_lines t where t.journal_entry_id = je.id and t.agency_id = $6) \
-             group by je.id, je.entry_number, je.date, je.description",
+        let direct = direct_payable_entries(
+            db,
+            entity_id,
+            s(agency, "id"),
+            (&payable_ids, &statuses),
+            (&period_start, &period_after),
         )
-        .bind(entity_id)
-        .bind(&payable_ids)
-        .bind(&statuses)
-        .bind(&period_start)
-        .bind(&period_after)
-        .bind(s(agency, "id"))
-        .fetch_all(db)
         .await?;
         if !direct.is_empty() {
             let docs: Vec<Value> = direct

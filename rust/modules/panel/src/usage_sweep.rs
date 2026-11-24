@@ -36,12 +36,15 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use futures_util::StreamExt;
+use sea_orm::{ColumnTrait, Condition, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 use serde::{Deserialize, Serialize};
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_panel_domain::js;
 use weldsuite_ports::{BoxFuture, Cache, DynCache, PortError};
+use weldsuite_schema::master::panel_project_registry::{self as registry, Column};
 
 use crate::domain::{parse_quota_state, quota_key};
+use crate::saved::instant;
 use crate::usage_mail::NoticeSender;
 use crate::usage_settlement::{
     Settlement, SettlementInput, UsageNotice, month_of, month_start, settle_usage,
@@ -244,16 +247,21 @@ impl SweepReport {
 /// The workspaces the collector may have counted for since the start of the
 /// month before: every one with a project in the master registry, live or
 /// deleted since then.
-pub async fn counted_workspaces(master: &PgPool, now: i64) -> Result<Vec<String>, sqlx::Error> {
+pub async fn counted_workspaces(master: &PgPool, now: i64) -> Result<Vec<String>, DbErr> {
     let since = month_start(&month_of(now), -1).unwrap_or(now);
-    sqlx::query_scalar(
-        "select distinct workspace_id from panel_project_registry
-         where deleted_at is null or deleted_at >= $1::timestamptz
-         order by workspace_id",
-    )
-    .bind(js::iso_string(since))
-    .fetch_all(master)
-    .await
+    registry::Entity::find()
+        .select_only()
+        .column(Column::WorkspaceId)
+        .distinct()
+        .filter(
+            Condition::any()
+                .add(Column::DeletedAt.is_null())
+                .add(Column::DeletedAt.gte(instant(since))),
+        )
+        .order_by_asc(Column::WorkspaceId)
+        .into_tuple()
+        .all(&orm(master))
+        .await
 }
 
 /// Settles what is due of every workspace in `workspaces`, a few at a time.

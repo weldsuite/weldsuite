@@ -20,36 +20,98 @@ use axum::extract::{Path, RawQuery, Request};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{MethodRouter, get};
+use sea_orm::{
+    ColumnTrait, Condition, ConnectionTrait, DbErr, EntityTrait, FromQueryResult, QueryFilter,
+    QueryOrder, QuerySelect, QueryTrait,
+};
+use serde::Serialize;
 use serde_json::{Map, Value, json};
-use weldsuite_db::{PgPool, js_row};
+use time::PrimitiveDateTime;
+use weldsuite_db::record::count_statement;
+use weldsuite_db::{PgPool, orm};
+use weldsuite_kit::ApiError;
 use weldsuite_kit::validation::Issues;
+use weldsuite_schema::tenant::{bank_accounts, entities, legal_entity_registrations};
 
 use crate::ExternalApiState;
 use crate::crud::{Answer, Caller, ok};
-use crate::list::{ListQuery, list_rows, list_sql};
-use crate::session::{ApiSession, not_found, unauthorized};
+use crate::list::{ListQuery, Page, page_statement};
+use crate::session::{ApiSession, database_error, not_found, unauthorized};
 use crate::simple::scoped;
 
 const READ_SCOPE: &str = "legal_entities:read";
 
 /// The columns an entity is answered from: never the ciphertext ones.
-macro_rules! entity_row {
-    () => {
-        "jsonb_build_object('id', t.id, 'name', t.name, 'legal_name', t.legal_name, 'dba', t.dba, \
-         'entity_type', t.entity_type, 'jurisdiction_code', t.jurisdiction_code, \
-         'base_currency', t.base_currency, 'locale', t.locale, 'timezone', t.timezone, \
-         'address', t.address, 'contact', t.contact, 'branding', t.branding, \
-         'fiscal_year_start', t.fiscal_year_start, 'is_default', t.is_default, \
-         'is_active', t.is_active, 'created_at', t.created_at, 'updated_at', t.updated_at)"
-    };
+#[derive(Debug, FromQueryResult, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct EntityRow {
+    id: String,
+    name: String,
+    legal_name: Option<String>,
+    dba: Option<String>,
+    entity_type: Option<String>,
+    jurisdiction_code: String,
+    base_currency: String,
+    locale: String,
+    timezone: Option<String>,
+    address: Option<Value>,
+    contact: Option<Value>,
+    branding: Option<Value>,
+    fiscal_year_start: Option<i32>,
+    is_default: Option<bool>,
+    is_active: Option<bool>,
+    #[serde(with = "weldsuite_schema::js::timestamp")]
+    created_at: PrimitiveDateTime,
+    #[serde(with = "weldsuite_schema::js::timestamp")]
+    updated_at: PrimitiveDateTime,
 }
 
-/// The page of ids; the rows are read with [`entity_row!`] after.
-const LIST: (&str, &str) = list_sql!(
-    "entities",
-    "jsonb_build_object('id', t.id)",
-    "t.deleted_at is null"
-);
+/// `select <the answered columns> from entities`.
+fn entity_rows() -> sea_orm::Select<entities::Entity> {
+    use entities::Column;
+    entities::Entity::find().select_only().columns([
+        Column::Id,
+        Column::Name,
+        Column::LegalName,
+        Column::Dba,
+        Column::EntityType,
+        Column::JurisdictionCode,
+        Column::BaseCurrency,
+        Column::Locale,
+        Column::Timezone,
+        Column::Address,
+        Column::Contact,
+        Column::Branding,
+        Column::FiscalYearStart,
+        Column::IsDefault,
+        Column::IsActive,
+        Column::CreatedAt,
+        Column::UpdatedAt,
+    ])
+}
+
+/// A bank account's answered columns: the account number (encrypted or
+/// not) is never selected.
+#[derive(Debug, FromQueryResult, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AccountRow {
+    id: String,
+    entity_id: String,
+    name: String,
+    account_holder_name: Option<String>,
+    iban: Option<String>,
+    bic: Option<String>,
+    bank_name: Option<String>,
+    currency: Option<String>,
+    account_type: Option<String>,
+    is_default: Option<bool>,
+    is_active: Option<bool>,
+}
+
+/// A row as the JSON the answer is built from.
+fn to_json<T: Serialize>(row: T) -> Result<Value, DbErr> {
+    serde_json::to_value(row).map_err(|error| DbErr::Json(error.to_string()))
+}
 
 /// The worker's routes.
 pub(crate) fn routes(router: Router<ExternalApiState>) -> Router<ExternalApiState> {
@@ -117,7 +179,7 @@ struct Children {
     bank_accounts: HashMap<String, Vec<Value>>,
 }
 
-async fn load_children(db: &PgPool, ids: &[String]) -> Result<Children, sqlx::Error> {
+async fn load_children(db: &PgPool, ids: &[String]) -> Result<Children, DbErr> {
     let mut children = Children {
         registrations: HashMap::new(),
         bank_accounts: HashMap::new(),
@@ -125,19 +187,15 @@ async fn load_children(db: &PgPool, ids: &[String]) -> Result<Children, sqlx::Er
     if ids.is_empty() {
         return Ok(children);
     }
-    let registrations: Vec<Value> = sqlx::query_scalar(
-        "select jsonb_build_object('id', t.id, 'entity_id', t.entity_id, 'type', t.type,
-                'number', t.number, 'country', t.country, 'region', t.region, 'label', t.label,
-                'valid_from', t.valid_from, 'valid_to', t.valid_to, 'is_primary', t.is_primary)
-         from legal_entity_registrations t
-         where t.entity_id = any($1) and t.deleted_at is null
-         order by t.created_at asc",
-    )
-    .bind(ids)
-    .fetch_all(db)
-    .await?;
+    let db = orm(db);
+    let registrations = legal_entity_registrations::Entity::find()
+        .filter(legal_entity_registrations::Column::EntityId.is_in(ids.iter().cloned()))
+        .filter(legal_entity_registrations::Column::DeletedAt.is_null())
+        .order_by_asc(legal_entity_registrations::Column::CreatedAt)
+        .all(&db)
+        .await?;
     for row in registrations {
-        let Value::Object(row) = js_row(row) else {
+        let Value::Object(row) = to_json(row)? else {
             continue;
         };
         let entity_id = row
@@ -164,20 +222,32 @@ async fn load_children(db: &PgPool, ids: &[String]) -> Result<Children, sqlx::Er
     }
 
     // Explicit columns: the account number (encrypted or not) is never selected.
-    let accounts: Vec<Value> = sqlx::query_scalar(
-        "select jsonb_build_object('id', t.id, 'entity_id', t.entity_id, 'name', t.name,
-                'account_holder_name', t.account_holder_name, 'iban', t.iban, 'bic', t.bic,
-                'bank_name', t.bank_name, 'currency', t.currency, 'account_type', t.account_type,
-                'is_default', t.is_default, 'is_active', t.is_active)
-         from bank_accounts t
-         where t.entity_id = any($1) and t.deleted_at is null
-         order by t.created_at asc",
-    )
-    .bind(ids)
-    .fetch_all(db)
-    .await?;
+    let accounts: Vec<AccountRow> = {
+        use bank_accounts::Column;
+        bank_accounts::Entity::find()
+            .select_only()
+            .columns([
+                Column::Id,
+                Column::EntityId,
+                Column::Name,
+                Column::AccountHolderName,
+                Column::Iban,
+                Column::Bic,
+                Column::BankName,
+                Column::Currency,
+                Column::AccountType,
+                Column::IsDefault,
+                Column::IsActive,
+            ])
+            .filter(Column::EntityId.is_in(ids.iter().cloned()))
+            .filter(Column::DeletedAt.is_null())
+            .order_by_asc(Column::CreatedAt)
+            .into_model()
+            .all(&db)
+            .await?
+    };
     for row in accounts {
-        let Value::Object(row) = js_row(row) else {
+        let Value::Object(row) = to_json(row)? else {
             continue;
         };
         let entity_id = row
@@ -264,7 +334,7 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Answer {
     if let Err(invalid) = issues.finish() {
         return Ok(invalid.into_response());
     }
-    let mut page = list_rows(&caller.db, LIST, &query, &json!({})).await?;
+    let mut page = page_of_ids(&caller.db, &query).await?;
     let ids = row_ids(&page.rows);
     let rows = load_entities(&caller.db, &ids).await?;
     let children = load_children(&caller.db, &ids).await?;
@@ -276,37 +346,61 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Answer {
     Ok(page.respond())
 }
 
+/// One page of the live entities' ids, newest first, and their count.
+async fn page_of_ids(db: &PgPool, query: &ListQuery) -> Result<Page, ApiError> {
+    let read = async {
+        let db = orm(db);
+        let ids = entities::Entity::find()
+            .select_only()
+            .column(entities::Column::Id)
+            .into_query();
+        let live = Condition::all().add(entities::Column::DeletedAt.is_null());
+        let page = page_statement(ids.clone(), "entities", live.clone(), query);
+        let rows: Vec<Value> = db
+            .query_all(&page)
+            .await?
+            .iter()
+            .map(|row| {
+                row.try_get::<String>("", "id")
+                    .map(|id| json!({ "id": id }))
+            })
+            .collect::<Result<_, _>>()?;
+        let mut counted = ids;
+        counted.cond_where(live);
+        let total: i64 = db
+            .query_one_raw(count_statement(&counted))
+            .await?
+            .ok_or_else(|| DbErr::RecordNotFound("count".to_owned()))?
+            .try_get("", "count")?;
+        Ok::<_, DbErr>(Page::of(rows, total, query.limit))
+    };
+    read.await.map_err(|error| database_error(&error))
+}
+
 /// The entities of a page, by id, as Drizzle reads their columns.
-async fn load_entities(db: &PgPool, ids: &[String]) -> Result<HashMap<String, Value>, sqlx::Error> {
+async fn load_entities(db: &PgPool, ids: &[String]) -> Result<HashMap<String, Value>, DbErr> {
     if ids.is_empty() {
         return Ok(HashMap::new());
     }
-    let rows: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        entity_row!(),
-        " from entities t where t.id = any($1)"
-    ))
-    .bind(ids)
-    .fetch_all(db)
-    .await?;
-    Ok(rows
-        .into_iter()
-        .map(js_row)
-        .filter_map(|row| Some((row.get("id")?.as_str()?.to_owned(), row)))
-        .collect())
+    let rows: Vec<EntityRow> = entity_rows()
+        .filter(entities::Column::Id.is_in(ids.iter().cloned()))
+        .into_model()
+        .all(&orm(db))
+        .await?;
+    rows.into_iter()
+        .map(|row| Ok((row.id.clone(), to_json(row)?)))
+        .collect()
 }
 
 /// `GET /:id`: a live entity.
 async fn detail(caller: Caller, Path(id): Path<String>) -> Answer {
-    let row: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        entity_row!(),
-        " from entities t where t.id = $1 and t.deleted_at is null limit 1"
-    ))
-    .bind(&id)
-    .fetch_optional(&caller.db)
-    .await?;
-    let Some(row) = row.map(js_row) else {
+    let row: Option<EntityRow> = entity_rows()
+        .filter(entities::Column::Id.eq(id.as_str()))
+        .filter(entities::Column::DeletedAt.is_null())
+        .into_model()
+        .one(&orm(&caller.db))
+        .await?;
+    let Some(row) = row.map(to_json).transpose()? else {
         return Err(not_found("Legal entity", &id).into());
     };
     let children = load_children(&caller.db, &row_ids(std::slice::from_ref(&row))).await?;

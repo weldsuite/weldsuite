@@ -13,6 +13,9 @@ use axum::body::Bytes;
 use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Response};
 use http::HeaderMap;
+use sea_orm::ActiveValue::Set;
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 use weldsuite_connect_domain::clients::{
@@ -21,12 +24,18 @@ use weldsuite_connect_domain::clients::{
 };
 use weldsuite_connect_domain::connections::get_connection;
 use weldsuite_connect_domain::js::number_value;
-use weldsuite_db::PgPool;
+use weldsuite_db::record::JsonTable;
+use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_kit::validation::{Number, Presence};
 use weldsuite_kit::{ApiError, Data};
 use weldsuite_ports::OutboundHttp;
+use weldsuite_schema::tenant::integration_entity_mappings::{self as mappings, Column as Mapped};
+use weldsuite_schema::tenant::{
+    order_items, orders, people, purchase_order_items, purchase_orders, returns, suppliers,
+    warehouses,
+};
 
-use crate::{Caller, ConnectState, now, validate};
+use crate::{Caller, ConnectState, validate};
 
 /// `picqerPushSchema`'s entities.
 const ENTITIES: &[&str] = &[
@@ -43,7 +52,7 @@ const ENTITIES: &[&str] = &[
 /// statement that failed.
 enum PushError {
     Connector(ConnectorError),
-    Database(sqlx::Error),
+    Database(DbErr),
 }
 
 impl From<ConnectorError> for PushError {
@@ -52,8 +61,8 @@ impl From<ConnectorError> for PushError {
     }
 }
 
-impl From<sqlx::Error> for PushError {
-    fn from(error: sqlx::Error) -> Self {
+impl From<DbErr> for PushError {
+    fn from(error: DbErr) -> Self {
         Self::Database(error)
     }
 }
@@ -174,17 +183,17 @@ async fn find_mapping(
     connection_id: &str,
     external_type: &str,
     internal_id: &str,
-) -> Result<Option<Mapping>, sqlx::Error> {
-    let row: Option<(String, String, Option<String>)> = sqlx::query_as(
-        "select id, external_entity_id, sync_checksum from integration_entity_mappings
-         where connection_id = $1 and external_entity_type = $2 and internal_entity_id = $3
-         limit 1",
-    )
-    .bind(connection_id)
-    .bind(external_type)
-    .bind(internal_id)
-    .fetch_optional(db)
-    .await?;
+) -> Result<Option<Mapping>, DbErr> {
+    let row: Option<(String, String, Option<String>)> = mappings::Entity::find()
+        .select_only()
+        .columns([Mapped::Id, Mapped::ExternalEntityId, Mapped::SyncChecksum])
+        .filter(Mapped::ConnectionId.eq(connection_id))
+        .filter(Mapped::ExternalEntityType.eq(external_type))
+        .filter(Mapped::InternalEntityId.eq(internal_id))
+        .limit(1)
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     Ok(row.map(|(id, external_id, checksum)| Mapping {
         id,
         external_id,
@@ -198,7 +207,7 @@ async fn mapped_id(
     connection_id: &str,
     external_type: &str,
     internal_id: Option<&str>,
-) -> Result<Option<Value>, sqlx::Error> {
+) -> Result<Option<Value>, DbErr> {
     let Some(internal_id) = internal_id.filter(|id| !id.is_empty()) else {
         return Ok(None);
     };
@@ -223,36 +232,32 @@ async fn upsert_mapping(
     external_id: &str,
     checksum: &str,
     existing: Option<&Mapping>,
-) -> Result<(), sqlx::Error> {
-    let now = now();
+) -> Result<(), DbErr> {
+    let now = utc_now();
+    let db = orm(db);
     if let Some(existing) = existing {
-        sqlx::query(
-            "update integration_entity_mappings set sync_checksum = $2, last_synced_at = $3::timestamp,
-               updated_at = $3::timestamp, external_entity_id = $4
-             where id = $1",
-        )
-        .bind(&existing.id)
-        .bind(checksum)
-        .bind(&now)
-        .bind(external_id)
-        .execute(db)
-        .await?;
+        mappings::Entity::update_many()
+            .col_expr(Mapped::SyncChecksum, Expr::value(checksum))
+            .col_expr(Mapped::LastSyncedAt, Expr::value(now))
+            .col_expr(Mapped::UpdatedAt, Expr::value(now))
+            .col_expr(Mapped::ExternalEntityId, Expr::value(external_id))
+            .filter(Mapped::Id.eq(&existing.id))
+            .exec(&db)
+            .await?;
         return Ok(());
     }
-    sqlx::query(
-        "insert into integration_entity_mappings (id, connection_id, external_entity_type,
-           external_entity_id, internal_entity_type, internal_entity_id, sync_checksum, last_synced_at)
-         values ($1, $2, $3, $4, $5, $6, $7, $8::timestamp)",
-    )
-    .bind(weldsuite_kit::generate_id("iem"))
-    .bind(connection_id)
-    .bind(pushed.external_type)
-    .bind(external_id)
-    .bind(pushed.internal_type)
-    .bind(pushed.internal_id)
-    .bind(checksum)
-    .bind(&now)
-    .execute(db)
+    mappings::Entity::insert(mappings::ActiveModel {
+        id: Set(weldsuite_kit::generate_id("iem")),
+        connection_id: Set(connection_id.to_owned()),
+        external_entity_type: Set(pushed.external_type.to_owned()),
+        external_entity_id: Set(external_id.to_owned()),
+        internal_entity_type: Set(pushed.internal_type.to_owned()),
+        internal_entity_id: Set(pushed.internal_id.to_owned()),
+        sync_checksum: Set(Some(checksum.to_owned())),
+        last_synced_at: Set(Some(now)),
+        ..Default::default()
+    })
+    .exec_without_returning(&db)
     .await?;
     Ok(())
 }
@@ -284,6 +289,20 @@ enum Table {
     Warehouses,
     PurchaseOrders,
     Returns,
+}
+
+impl Table {
+    /// The table's entity, its rows read as Drizzle returns them.
+    fn entity(self) -> JsonTable {
+        match self {
+            Self::People => JsonTable::of::<people::Entity>(),
+            Self::Orders => JsonTable::of::<orders::Entity>(),
+            Self::Suppliers => JsonTable::of::<suppliers::Entity>(),
+            Self::Warehouses => JsonTable::of::<warehouses::Entity>(),
+            Self::PurchaseOrders => JsonTable::of::<purchase_orders::Entity>(),
+            Self::Returns => JsonTable::of::<returns::Entity>(),
+        }
+    }
 }
 
 /// The connection, its Picqer client and the HTTP it goes out on.
@@ -341,32 +360,10 @@ impl Target<'_> {
         ))
     }
 
-    /// The live row of `table` (`select * … where id and deleted_at is null`).
+    /// The live row of `table` (`select * … where id and deleted_at is null`),
+    /// as Drizzle returns it.
     async fn row(&self, table: Table, id: &str, missing: &str) -> Result<Value, PushError> {
-        let sql = match table {
-            Table::People => {
-                "select to_jsonb(t) from people t where t.id = $1 and t.deleted_at is null limit 1"
-            }
-            Table::Orders => {
-                "select to_jsonb(t) from orders t where t.id = $1 and t.deleted_at is null limit 1"
-            }
-            Table::Suppliers => {
-                "select to_jsonb(t) from suppliers t where t.id = $1 and t.deleted_at is null limit 1"
-            }
-            Table::Warehouses => {
-                "select to_jsonb(t) from warehouses t where t.id = $1 and t.deleted_at is null limit 1"
-            }
-            Table::PurchaseOrders => {
-                "select to_jsonb(t) from purchase_orders t where t.id = $1 and t.deleted_at is null limit 1"
-            }
-            Table::Returns => {
-                "select to_jsonb(t) from returns t where t.id = $1 and t.deleted_at is null limit 1"
-            }
-        };
-        let row: Option<Value> = sqlx::query_scalar(sql)
-            .bind(id)
-            .fetch_optional(self.db)
-            .await?;
+        let row = table.entity().find(&orm(self.db), id, true).await?;
         row.ok_or_else(|| permanent(missing, 404))
     }
 
@@ -431,18 +428,17 @@ impl Target<'_> {
         let person = self
             .row(Table::People, person_id, "Person not found")
             .await?;
-        let names: Vec<&str> = ["first_name", "last_name"]
+        let names: Vec<&str> = ["firstName", "lastName"]
             .iter()
             .filter_map(|key| person[*key].as_str().filter(|n| !n.is_empty()))
             .collect();
         let joined = names.join(" ");
-        let name =
-            first_of(&person, &["full_name", "display_name"]).unwrap_or_else(|| json!(joined));
+        let name = first_of(&person, &["fullName", "displayName"]).unwrap_or_else(|| json!(joined));
         let body = Ordered::default()
             .set("name", Some(name))
             .set("contactname", (!joined.is_empty()).then(|| json!(joined)))
             .set("emailaddress", or_undefined(&person, "email"))
-            .set("telephone", or_undefined(&person, "direct_phone"));
+            .set("telephone", or_undefined(&person, "directPhone"));
         let pushed = Pushed {
             external_type: "picqer_customer",
             internal_type: "person",
@@ -462,14 +458,16 @@ impl Target<'_> {
     async fn order(&self, order_id: &str) -> Result<String, PushError> {
         self.assert_outbound("orders")?;
         let order = self.row(Table::Orders, order_id, "Order not found").await?;
-        let items: Vec<Value> =
-            sqlx::query_scalar("select to_jsonb(t) from order_items t where t.order_id = $1")
-                .bind(order_id)
-                .fetch_all(self.db)
-                .await?;
+        let items: Vec<Value> = order_items::Entity::find()
+            .filter(order_items::Column::OrderId.eq(order_id))
+            .all(&orm(self.db))
+            .await?
+            .into_iter()
+            .map(|item| serde_json::to_value(item).unwrap_or(Value::Null))
+            .collect();
 
         let mut customer: Option<Value> = None;
-        if let Some(person_id) = order["person_id"].as_str().filter(|p| !p.is_empty()) {
+        if let Some(person_id) = order["personId"].as_str().filter(|p| !p.is_empty()) {
             customer = Some(
                 match find_mapping(self.db, self.connection_id, "picqer_customer", person_id)
                     .await?
@@ -485,10 +483,10 @@ impl Target<'_> {
                 self.db,
                 self.connection_id,
                 "picqer_product",
-                item["product_id"].as_str(),
+                item["productId"].as_str(),
             )
             .await?;
-            let price = js_number(&item["unit_price"]);
+            let price = js_number(&item["unitPrice"]);
             products.push(
                 Ordered::default()
                     .set("idproduct", product)
@@ -504,12 +502,12 @@ impl Target<'_> {
         let body = Ordered::default()
             .set(
                 "reference",
-                first_of(&order, &["order_number", "external_order_id", "id"]),
+                first_of(&order, &["orderNumber", "externalOrderId", "id"]),
             )
-            .set("emailaddress", or_undefined(&order, "customer_email"))
-            .set("telephone", or_undefined(&order, "customer_phone"))
-            .set("deliveryname", or_undefined(&order, "customer_name"))
-            .set("remarks", or_undefined(&order, "customer_note"))
+            .set("emailaddress", or_undefined(&order, "customerEmail"))
+            .set("telephone", or_undefined(&order, "customerPhone"))
+            .set("deliveryname", or_undefined(&order, "customerName"))
+            .set("remarks", or_undefined(&order, "customerNote"))
             .set("idcustomer", customer)
             .raw("products", list(&products));
         let pushed = Pushed {
@@ -529,12 +527,12 @@ impl Target<'_> {
             .await?;
         let body = Ordered::default()
             .set("name", Some(supplier["name"].clone()))
-            .set("contactname", or_undefined(&supplier, "contact_name"))
+            .set("contactname", or_undefined(&supplier, "contactName"))
             .set("emailaddress", or_undefined(&supplier, "email"))
             .set("telephone", or_undefined(&supplier, "phone"))
-            .set("address", or_undefined(&supplier, "address_line_1"))
+            .set("address", or_undefined(&supplier, "addressLine1"))
             .set("city", or_undefined(&supplier, "city"))
-            .set("zipcode", or_undefined(&supplier, "postal_code"))
+            .set("zipcode", or_undefined(&supplier, "postalCode"))
             .set("country", or_undefined(&supplier, "country"))
             .set("remarks", or_undefined(&supplier, "notes"));
         let pushed = Pushed {
@@ -562,7 +560,7 @@ impl Target<'_> {
             .set("name", Some(warehouse["name"].clone()))
             .set(
                 "accepts_orders",
-                Some(json!(warehouse["is_active"] != Value::Bool(false))),
+                Some(json!(warehouse["isActive"] != Value::Bool(false))),
             );
         let pushed = Pushed {
             external_type: "picqer_warehouse",
@@ -625,24 +623,25 @@ impl Target<'_> {
                 "Purchase order not found",
             )
             .await?;
-        let items: Vec<Value> = sqlx::query_scalar(
-            "select to_jsonb(t) from purchase_order_items t where t.purchase_order_id = $1",
-        )
-        .bind(purchase_order_id)
-        .fetch_all(self.db)
-        .await?;
+        let items: Vec<Value> = purchase_order_items::Entity::find()
+            .filter(purchase_order_items::Column::PurchaseOrderId.eq(purchase_order_id))
+            .all(&orm(self.db))
+            .await?
+            .into_iter()
+            .map(|item| serde_json::to_value(item).unwrap_or(Value::Null))
+            .collect();
         let supplier = mapped_id(
             self.db,
             self.connection_id,
             "picqer_supplier",
-            po["supplier_id"].as_str(),
+            po["supplierId"].as_str(),
         )
         .await?;
         let warehouse = mapped_id(
             self.db,
             self.connection_id,
             "picqer_warehouse",
-            po["warehouse_id"].as_str(),
+            po["warehouseId"].as_str(),
         )
         .await?;
         let mut products = Vec::new();
@@ -651,14 +650,14 @@ impl Target<'_> {
                 self.db,
                 self.connection_id,
                 "picqer_product",
-                item["product_id"].as_str(),
+                item["productId"].as_str(),
             )
             .await?;
-            let amount = match &item["quantity_ordered"] {
+            let amount = match &item["quantityOrdered"] {
                 Value::Null => json!(1),
                 other => other.clone(),
             };
-            let price = match &item["unit_price"] {
+            let price = match &item["unitPrice"] {
                 Value::Null => 0.0,
                 other => js_number(other),
             };
@@ -670,16 +669,16 @@ impl Target<'_> {
                     .set("price", price),
             );
         }
-        let delivery = po["expected_date"]
+        let delivery = po["expectedDate"]
             .as_str()
             .map(|date| json!(date.chars().take(10).collect::<String>()));
         let body = Ordered::default()
             .set("idsupplier", supplier)
             .set("idwarehouse", warehouse)
-            .set("supplier_name", or_undefined(&po, "supplier_name"))
+            .set("supplier_name", or_undefined(&po, "supplierName"))
             .set(
                 "remarks",
-                first_of(&po, &["internal_notes", "supplier_notes"]),
+                first_of(&po, &["internalNotes", "supplierNotes"]),
             )
             .set("delivery_date", delivery)
             .raw("products", list(&products));
@@ -708,7 +707,7 @@ impl Target<'_> {
             self.db,
             self.connection_id,
             "picqer_order",
-            ret["original_order_id"].as_str(),
+            ret["originalOrderId"].as_str(),
         )
         .await?;
         let items = match &ret["items"] {
@@ -727,10 +726,10 @@ impl Target<'_> {
             .collect();
         let body = Ordered::default()
             .set("idorder", order)
-            .set("name", or_undefined(&ret, "customer_name"))
-            .set("emailaddress", or_undefined(&ret, "customer_email"))
-            .set("telephone", or_undefined(&ret, "customer_phone"))
-            .set("remarks", first_of(&ret, &["reason_details", "reason"]))
+            .set("name", or_undefined(&ret, "customerName"))
+            .set("emailaddress", or_undefined(&ret, "customerEmail"))
+            .set("telephone", or_undefined(&ret, "customerPhone"))
+            .set("remarks", first_of(&ret, &["reasonDetails", "reason"]))
             .raw("products", list(&products));
         let pushed = Pushed {
             external_type: "picqer_return",

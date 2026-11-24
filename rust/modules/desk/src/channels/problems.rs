@@ -18,14 +18,17 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, patch, post, put};
 use http::HeaderMap;
+use sea_orm::{EntityTrait, QuerySelect};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events as ev;
 use weldsuite_catalogs::permission_keys as perm;
+use weldsuite_db::orm;
 use weldsuite_desk_domain::attributes::PRIORITIES;
 use weldsuite_desk_domain::problems::{self, ProblemError, STATUSES};
 use weldsuite_kit::validation::{Field, Issues, Number, Presence, Text, js_trim};
 use weldsuite_kit::{ApiError, Created, Data, List, NoContent, Pagination};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::{desk_conversations, helpdesk_articles};
 
 use super::Ctx;
 use super::inbox::{self, read_query};
@@ -513,11 +516,12 @@ async fn article(State(state): State<DeskState>, ctx: Ctx, Path(id): Path<String
         Err(error) => return Refusal::from(error).respond(failure),
     };
     if let Some(article_id) = problem["articleId"].as_str().filter(|id| !id.is_empty()) {
-        let existing: Result<Option<String>, sqlx::Error> =
-            sqlx::query_scalar("select id from helpdesk_articles where id = $1 limit 1")
-                .bind(article_id)
-                .fetch_optional(db)
-                .await;
+        let existing: Result<Option<String>, _> = helpdesk_articles::Entity::find_by_id(article_id)
+            .select_only()
+            .column(helpdesk_articles::Column::Id)
+            .into_tuple()
+            .one(&orm(db))
+            .await;
         match existing {
             Ok(Some(existing)) => {
                 return ApiError::conflict("This problem already has an article")
@@ -588,11 +592,12 @@ async fn article(State(state): State<DeskState>, ctx: Ctx, Path(id): Path<String
 async fn read_problem(ctx: Ctx, Path(id): Path<String>) -> Response {
     let failure = "Failed to load the problem";
     let db = &ctx.caller.db;
-    let conversation: Result<Option<String>, sqlx::Error> =
-        sqlx::query_scalar("select id from desk_conversations where id = $1 limit 1")
-            .bind(&id)
-            .fetch_optional(db)
-            .await;
+    let conversation: Result<Option<String>, _> = desk_conversations::Entity::find_by_id(&id)
+        .select_only()
+        .column(desk_conversations::Column::Id)
+        .into_tuple()
+        .one(&orm(db))
+        .await;
     match conversation {
         Ok(Some(_)) => {}
         Ok(None) => return ApiError::not_found("Conversation", Some(&id)).into_response(),

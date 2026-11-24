@@ -14,12 +14,14 @@
 
 use std::sync::Arc;
 
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter};
 use serde_json::Value;
-use sqlx::PgPool;
+use time::OffsetDateTime;
 use weldsuite_catalogs::entity_events::{
     PROJECT_DECISION_DECIDED, PROJECT_DELIVERABLE_ACCEPTED, PROJECT_DELIVERABLE_UPDATED,
 };
-use weldsuite_db::js_row;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_flow_domain::approvals::{
     ApprovalFuture, ApprovalResolutionContext, ApprovalRow, ApprovalSubjectHandler,
     ResolvedApprovalOutcome, register_approval_subject,
@@ -29,38 +31,21 @@ use weldsuite_flow_domain::deliverables::{
     DeliverableResolution, SignoffRow, deliverable_code, deliverable_event_data,
     deliverable_resolution,
 };
-use weldsuite_flow_domain::js::iso_from_millis;
+use weldsuite_schema::tenant::{
+    project_decisions as decisions, project_deliverables as deliverables,
+};
 
 use crate::approvals::announce::{
     AftermathFuture, AftermathInfo, SubjectLabel, announce_approvals_requested, register_aftermath,
 };
 use crate::approvals::store::project_names;
+use crate::governance_store::{find_decision, find_deliverable};
 use crate::{Caller, FlowState};
 
-fn iso(millis: i64) -> String {
-    iso_from_millis(millis).unwrap_or_default()
-}
-
-/// A live decision row by id, as Drizzle reads it.
-async fn decision_row(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(d) from project_decisions d where d.id = $1 and d.deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(js_row))
-}
-
-/// A live deliverable row by id, as Drizzle reads it.
-async fn deliverable_row(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(d) from project_deliverables d where d.id = $1 and d.deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(js_row))
+/// A moment in epoch milliseconds, as the `timestamptz` it is written as.
+fn at(millis: i64) -> Result<OffsetDateTime, DbErr> {
+    OffsetDateTime::from_unix_timestamp_nanos(i128::from(millis) * 1_000_000)
+        .map_err(|error| DbErr::Type(error.to_string()))
 }
 
 /// The `decision` subject: a named decider's approval makes the decision
@@ -76,37 +61,52 @@ impl ApprovalSubjectHandler for DecisionHandler {
         subject_id: &'a str,
         outcome: ResolvedApprovalOutcome,
         context: &'a ApprovalResolutionContext,
-    ) -> ApprovalFuture<'a, Result<(), sqlx::Error>> {
-        Box::pin(async move {
-            let Some(row) = decision_row(db, subject_id).await? else {
-                return Ok(());
-            };
-            if row["status"] != "proposed" {
-                return Ok(());
-            }
-            let resolution = decision_resolution(
-                outcome == ResolvedApprovalOutcome::Approved,
-                context.actor.as_ref().map(|actor| actor.id.as_str()),
-                row["deciderId"].as_str(),
-                context.now_ms,
-            );
-            let Some(resolution) = resolution else {
-                return Ok(());
-            };
-            sqlx::query(
-                "update project_decisions set status = 'decided', decided_by = $2,
-                        decided_at = $3::timestamptz, updated_at = $4::timestamptz
-                 where id = $1 and status = 'proposed' and deleted_at is null",
-            )
-            .bind(subject_id)
-            .bind(resolution.decided_by)
-            .bind(iso(resolution.decided_at_ms))
-            .bind(iso(context.now_ms))
-            .execute(db)
-            .await?;
-            Ok(())
-        })
+    ) -> ApprovalFuture<'a, Result<(), DbErr>> {
+        Box::pin(async move { settle_decision(db, subject_id, outcome, context).await })
     }
+}
+
+async fn settle_decision(
+    db: &PgPool,
+    subject_id: &str,
+    outcome: ResolvedApprovalOutcome,
+    context: &ApprovalResolutionContext,
+) -> Result<(), DbErr> {
+    let Some(row) = find_decision(db, subject_id).await? else {
+        return Ok(());
+    };
+    if row["status"] != "proposed" {
+        return Ok(());
+    }
+    let resolution = decision_resolution(
+        outcome == ResolvedApprovalOutcome::Approved,
+        context.actor.as_ref().map(|actor| actor.id.as_str()),
+        row["deciderId"].as_str(),
+        context.now_ms,
+    );
+    let Some(resolution) = resolution else {
+        return Ok(());
+    };
+    decisions::Entity::update_many()
+        .col_expr(decisions::Column::Status, Expr::value("decided"))
+        .col_expr(
+            decisions::Column::DecidedBy,
+            Expr::value(resolution.decided_by),
+        )
+        .col_expr(
+            decisions::Column::DecidedAt,
+            Expr::value(at(resolution.decided_at_ms)?),
+        )
+        .col_expr(
+            decisions::Column::UpdatedAt,
+            Expr::value(at(context.now_ms)?),
+        )
+        .filter(decisions::Column::Id.eq(subject_id))
+        .filter(decisions::Column::Status.eq("proposed"))
+        .filter(decisions::Column::DeletedAt.is_null())
+        .exec(&orm(db))
+        .await?;
+    Ok(())
 }
 
 /// The `deliverable` subject: a full sign-off accepts the deliverable, a
@@ -120,63 +120,73 @@ impl ApprovalSubjectHandler for DeliverableHandler {
         subject_id: &'a str,
         outcome: ResolvedApprovalOutcome,
         context: &'a ApprovalResolutionContext,
-    ) -> ApprovalFuture<'a, Result<(), sqlx::Error>> {
-        Box::pin(async move {
-            let Some(row) = deliverable_row(db, subject_id).await? else {
-                return Ok(());
-            };
-            if row["status"] == "accepted" {
-                return Ok(());
-            }
-            let rows: Vec<SignoffRow<'_>> = context
-                .rows
-                .iter()
-                .map(|row| SignoffRow {
-                    decided_by: row.decided_by.as_deref(),
-                    decision: row.decision.as_str(),
-                    step: row.step,
-                })
-                .collect();
-            let resolution = deliverable_resolution(
-                outcome == ResolvedApprovalOutcome::Approved,
-                context.actor.as_ref().map(|actor| actor.id.as_str()),
-                &rows,
-                context.now_ms,
-            );
-            match resolution {
-                DeliverableResolution::Accepted {
-                    accepted_by,
-                    accepted_at_ms,
-                } => {
-                    sqlx::query(
-                        "update project_deliverables set status = 'accepted', accepted_by = $2,
-                                accepted_at = $3::timestamptz, updated_at = $4::timestamptz
-                         where id = $1 and status <> 'accepted' and deleted_at is null",
-                    )
-                    .bind(subject_id)
-                    .bind(accepted_by)
-                    .bind(iso(accepted_at_ms))
-                    .bind(iso(context.now_ms))
-                    .execute(db)
-                    .await?;
-                }
-                DeliverableResolution::Rejected => {
-                    if row["status"] != "rejected" {
-                        sqlx::query(
-                            "update project_deliverables set status = 'rejected',
-                                    updated_at = $2::timestamptz
-                             where id = $1 and status <> 'accepted' and deleted_at is null",
-                        )
-                        .bind(subject_id)
-                        .bind(iso(context.now_ms))
-                        .execute(db)
-                        .await?;
-                    }
-                }
-            }
-            Ok(())
-        })
+    ) -> ApprovalFuture<'a, Result<(), DbErr>> {
+        Box::pin(async move { settle_deliverable(db, subject_id, outcome, context).await })
     }
+}
+
+async fn settle_deliverable(
+    db: &PgPool,
+    subject_id: &str,
+    outcome: ResolvedApprovalOutcome,
+    context: &ApprovalResolutionContext,
+) -> Result<(), DbErr> {
+    let Some(row) = find_deliverable(db, subject_id).await? else {
+        return Ok(());
+    };
+    if row["status"] == "accepted" {
+        return Ok(());
+    }
+    let rows: Vec<SignoffRow<'_>> = context
+        .rows
+        .iter()
+        .map(|row| SignoffRow {
+            decided_by: row.decided_by.as_deref(),
+            decision: row.decision.as_str(),
+            step: row.step,
+        })
+        .collect();
+    let resolution = deliverable_resolution(
+        outcome == ResolvedApprovalOutcome::Approved,
+        context.actor.as_ref().map(|actor| actor.id.as_str()),
+        &rows,
+        context.now_ms,
+    );
+    let live = deliverables::Entity::update_many()
+        .filter(deliverables::Column::Id.eq(subject_id))
+        .filter(deliverables::Column::Status.ne("accepted"))
+        .filter(deliverables::Column::DeletedAt.is_null());
+    match resolution {
+        DeliverableResolution::Accepted {
+            accepted_by,
+            accepted_at_ms,
+        } => {
+            live.col_expr(deliverables::Column::Status, Expr::value("accepted"))
+                .col_expr(deliverables::Column::AcceptedBy, Expr::value(accepted_by))
+                .col_expr(
+                    deliverables::Column::AcceptedAt,
+                    Expr::value(at(accepted_at_ms)?),
+                )
+                .col_expr(
+                    deliverables::Column::UpdatedAt,
+                    Expr::value(at(context.now_ms)?),
+                )
+                .exec(&orm(db))
+                .await?;
+        }
+        DeliverableResolution::Rejected => {
+            if row["status"] != "rejected" {
+                live.col_expr(deliverables::Column::Status, Expr::value("rejected"))
+                    .col_expr(
+                        deliverables::Column::UpdatedAt,
+                        Expr::value(at(context.now_ms)?),
+                    )
+                    .exec(&orm(db))
+                    .await?;
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Plug the governance subjects into the approvals registry (handler and
@@ -211,7 +221,7 @@ pub(crate) async fn announce_decision_asked(
     caller: &Caller,
     row: &Value,
     rows: &[ApprovalRow],
-) -> Result<(), sqlx::Error> {
+) -> Result<(), DbErr> {
     let code = decision_code(row["number"].as_i64().unwrap_or_default());
     announce_asked(state, caller, row, rows, code).await
 }
@@ -222,7 +232,7 @@ pub(crate) async fn announce_deliverable_asked(
     caller: &Caller,
     row: &Value,
     rows: &[ApprovalRow],
-) -> Result<(), sqlx::Error> {
+) -> Result<(), DbErr> {
     let code = deliverable_code(row["number"].as_i64().unwrap_or_default());
     announce_asked(state, caller, row, rows, code).await
 }
@@ -233,7 +243,7 @@ async fn announce_asked(
     row: &Value,
     rows: &[ApprovalRow],
     code: String,
-) -> Result<(), sqlx::Error> {
+) -> Result<(), DbErr> {
     if rows.is_empty() {
         return Ok(());
     }
@@ -260,9 +270,9 @@ async fn publish_approval_subject_resolved(
     caller: &Caller,
     subject_type: &str,
     subject_id: &str,
-) -> Result<(), sqlx::Error> {
+) -> Result<(), DbErr> {
     if subject_type == "decision" {
-        if let Some(row) = decision_row(&caller.db, subject_id).await?
+        if let Some(row) = find_decision(&caller.db, subject_id).await?
             && row["status"] == "decided"
         {
             caller.publish(
@@ -273,7 +283,7 @@ async fn publish_approval_subject_resolved(
             );
         }
     } else if subject_type == "deliverable"
-        && let Some(row) = deliverable_row(&caller.db, subject_id).await?
+        && let Some(row) = find_deliverable(&caller.db, subject_id).await?
     {
         let event = match row["status"].as_str() {
             Some("accepted") => Some(PROJECT_DELIVERABLE_ACCEPTED),

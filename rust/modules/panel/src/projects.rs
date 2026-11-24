@@ -11,21 +11,28 @@ use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Response};
 use http::HeaderMap;
 use regex::Regex;
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect,
+    UpdateMany,
+};
 use serde_json::{Map, Value, json};
 use time::OffsetDateTime;
 use weldsuite_catalogs::entity_events::{
     PANEL_PROJECT_CREATED, PANEL_PROJECT_DELETED, PANEL_PROJECT_UPDATED,
 };
-use weldsuite_events::iso_timestamp;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::validation::{Field, Issues, Presence, Text, js_date_iso};
 use weldsuite_kit::{ApiError, Created, Data, List, NoContent, Pagination};
 use weldsuite_ports::{Cache, DynCache};
+use weldsuite_schema::tenant::panel_projects::{self as projects, Column};
 
 use crate::domain::{
     DEFAULT_HOST, default_settings, generate_project_token, install_snippet, seen_key,
     trim_trailing_slashes, with_setting_defaults,
 };
 use crate::registry::Registry;
+use crate::saved::{instant, js_row, js_rows};
 use crate::{Caller, PanelState, unexpected, validate};
 
 /// A project with an event this recent shows as `receiving`.
@@ -94,31 +101,75 @@ fn unique(values: Vec<String>) -> Vec<String> {
         .collect()
 }
 
-pub(crate) async fn live_project(caller: &Caller, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(p) from panel_projects p
-         where p.id = $1 and p.deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(&caller.db)
-    .await?;
-    Ok(row.map(weldsuite_db::js_row))
+pub(crate) async fn live_project(caller: &Caller, id: &str) -> Result<Option<Value>, DbErr> {
+    projects::Entity::find_by_id(id)
+        .filter(Column::DeletedAt.is_null())
+        .one(&orm(&caller.db))
+        .await?
+        .map(js_row)
+        .transpose()
+}
+
+/// `id` and `name` of the projects that are not deleted, oldest first.
+pub(crate) async fn live_project_names(db: &PgPool) -> Result<Vec<(String, String)>, DbErr> {
+    projects::Entity::find()
+        .select_only()
+        .columns([Column::Id, Column::Name])
+        .filter(Column::DeletedAt.is_null())
+        .order_by_asc(Column::CreatedAt)
+        .order_by_asc(Column::Id)
+        .into_tuple()
+        .all(&orm(db))
+        .await
+}
+
+/// An update of a live project, `updatedAt` moved on (`touch`).
+fn live_update(id: &str) -> UpdateMany<projects::Entity> {
+    projects::Entity::update_many()
+        .col_expr(Column::UpdatedAt, bumped_updated_at())
+        .filter(Column::Id.eq(id))
+        .filter(Column::DeletedAt.is_null())
+}
+
+/// `greatest(now(), updated_at + interval '1 millisecond')`: every change
+/// is later than the one before, which the registry orders changes by.
+fn bumped_updated_at() -> Expr {
+    Func::greatest([
+        Expr::current_timestamp(),
+        sea_orm::ExprTrait::add(
+            Expr::col(Column::UpdatedAt),
+            sea_orm::ExprTrait::cast_as(Expr::val("1 millisecond"), "interval"),
+        ),
+    ])
+    .into()
+}
+
+/// The row an update returned (`returning`), as Drizzle reads it.
+async fn updated(
+    update: UpdateMany<projects::Entity>,
+    db: &PgPool,
+) -> Result<Option<Value>, DbErr> {
+    update
+        .exec_with_returning(&orm(db))
+        .await?
+        .into_iter()
+        .next()
+        .map(js_row)
+        .transpose()
 }
 
 /// `GET /`: the projects that are not deleted, oldest first.
 pub(crate) async fn list(caller: Caller) -> Response {
-    let rows: Result<Vec<Value>, sqlx::Error> = sqlx::query_scalar(
-        "select to_jsonb(p) from panel_projects p
-         where p.deleted_at is null order by p.created_at asc, p.id asc",
-    )
-    .fetch_all(&caller.db)
-    .await;
+    let rows = projects::Entity::find()
+        .filter(Column::DeletedAt.is_null())
+        .order_by_asc(Column::CreatedAt)
+        .order_by_asc(Column::Id)
+        .all(&orm(&caller.db))
+        .await
+        .and_then(js_rows);
     match rows {
         Ok(rows) => {
-            let projects: Vec<Value> = rows
-                .into_iter()
-                .map(|row| dto(&weldsuite_db::js_row(row)))
-                .collect();
+            let projects: Vec<Value> = rows.iter().map(dto).collect();
             let count = projects.len() as u64;
             List::new(projects, Pagination::new(count, false, None)).into_response()
         }
@@ -207,33 +258,31 @@ pub(crate) async fn create(
             .map(|(key, value)| (key.to_owned(), value))
             .collect(),
     );
-    let inserted: Result<Value, sqlx::Error> = sqlx::query_scalar(
-        "insert into panel_projects as p
-           (id, name, kind, status, token, allowed_domains, settings, created_by_user_id)
-         values ($1, $2, $3, 'active', $4, $5, $6, $7)
-         returning to_jsonb(p)",
-    )
-    .bind(weldsuite_kit::generate_id("pnp"))
-    .bind(&input.name)
-    .bind(&input.kind)
-    .bind(generate_project_token())
-    .bind(json!(unique(input.allowed_domains)))
-    .bind(&settings)
-    .bind(&caller.user_id)
-    .fetch_one(&caller.db)
-    .await;
+    let inserted = projects::Entity::insert(projects::ActiveModel {
+        id: Set(weldsuite_kit::generate_id("pnp")),
+        name: Set(input.name),
+        kind: Set(input.kind),
+        status: Set("active".to_owned()),
+        token: Set(generate_project_token()),
+        allowed_domains: Set(json!(unique(input.allowed_domains))),
+        settings: Set(settings),
+        created_by_user_id: Set(caller.user_id.clone()),
+        ..Default::default()
+    })
+    .exec_with_returning(&orm(&caller.db))
+    .await
+    .and_then(js_row);
     let project = match inserted {
-        Ok(row) => weldsuite_db::js_row(row),
+        Ok(row) => row,
         Err(error) => return unexpected(&error, "create project"),
     };
 
     if let Err(error) = registry.sync(&project, None).await {
         // Nobody has its token yet, so take it back out of both.
+        let tenant = orm(&caller.db);
         let (removed, deleted) = futures_util::join!(
             registry.remove(&project),
-            sqlx::query("delete from panel_projects where id = $1")
-                .bind(text(&project, "id"))
-                .execute(&caller.db),
+            projects::Entity::delete_by_id(text(&project, "id")).exec(&tenant),
         );
         if let Err(cleanup) = removed {
             tracing::error!(error = %cleanup, "[panel-api] cleanup after a failed project registration");
@@ -323,24 +372,18 @@ pub(crate) async fn update(
         Err(response) => return *response,
     };
     let (name, kind, allowed) = patch;
-    let updated: Result<Option<Value>, sqlx::Error> = sqlx::query_scalar(
-        "update panel_projects as p set
-           name = coalesce($2, p.name),
-           kind = coalesce($3, p.kind),
-           allowed_domains = coalesce($4, p.allowed_domains),
-           updated_at = greatest(now(), p.updated_at + interval '1 millisecond')
-         where p.id = $1 and p.deleted_at is null
-         returning to_jsonb(p)",
-    )
-    .bind(&id)
-    .bind(name)
-    .bind(kind)
-    .bind(allowed.map(|domains| json!(unique(domains))))
-    .fetch_optional(&caller.db)
-    .await;
-    match updated {
-        Ok(Some(row)) => {
-            let project = weldsuite_db::js_row(row);
+    let mut update = live_update(&id);
+    if let Some(name) = name {
+        update = update.col_expr(Column::Name, Expr::value(name));
+    }
+    if let Some(kind) = kind {
+        update = update.col_expr(Column::Kind, Expr::value(kind));
+    }
+    if let Some(domains) = allowed {
+        update = update.col_expr(Column::AllowedDomains, Expr::value(json!(unique(domains))));
+    }
+    match updated(update, &caller.db).await {
+        Ok(Some(project)) => {
             synced(&state, &caller, &registry, project, None, "update project").await
         }
         Ok(None) => ApiError::not_found("Project", Some(&id)).into_response(),
@@ -444,22 +487,22 @@ pub(crate) async fn update_settings(
     };
     let (status, settings) = patch;
     let status_changes = status.is_some();
-    let updated: Result<Option<Value>, sqlx::Error> = sqlx::query_scalar(
-        "update panel_projects as p set
-           status = coalesce($2, p.status),
-           settings = case when $3::jsonb is null then p.settings else p.settings || $3::jsonb end,
-           updated_at = greatest(now(), p.updated_at + interval '1 millisecond')
-         where p.id = $1 and p.deleted_at is null
-         returning to_jsonb(p)",
-    )
-    .bind(&id)
-    .bind(status)
-    .bind(settings.map(Value::Object))
-    .fetch_optional(&caller.db)
-    .await;
-    match updated {
-        Ok(Some(row)) => {
-            let project = weldsuite_db::js_row(row);
+    let mut update = live_update(&id);
+    if let Some(status) = status {
+        update = update.col_expr(Column::Status, Expr::value(status));
+    }
+    if let Some(settings) = settings {
+        // Merged in the database: `settings || $patch`.
+        update = update.col_expr(
+            Column::Settings,
+            sea_orm::sea_query::extension::postgres::PgExpr::concat(
+                Expr::col(Column::Settings),
+                Expr::value(Value::Object(settings)),
+            ),
+        );
+    }
+    match updated(update, &caller.db).await {
+        Ok(Some(project)) => {
             if let Err(error) = registry.sync(&project, None).await {
                 return unexpected(&error, "update project settings");
             }
@@ -494,30 +537,20 @@ pub(crate) async fn remove(
         Ok(registry) => registry,
         Err(response) => return *response,
     };
-    let deleted: Result<Option<Value>, sqlx::Error> = sqlx::query_scalar(
-        "update panel_projects as p set
-           deleted_at = $2::timestamptz,
-           updated_at = greatest(now(), p.updated_at + interval '1 millisecond')
-         where p.id = $1 and p.deleted_at is null
-         returning to_jsonb(p)",
-    )
-    .bind(&id)
-    .bind(iso_timestamp(OffsetDateTime::now_utc()))
-    .fetch_optional(&caller.db)
-    .await;
-    let project = match deleted {
-        Ok(Some(row)) => weldsuite_db::js_row(row),
+    let deleted = live_update(&id).col_expr(
+        Column::DeletedAt,
+        Expr::value(instant(weldsuite_panel_domain::js::now_millis())),
+    );
+    let project = match updated(deleted, &caller.db).await {
+        Ok(Some(row)) => row,
         Ok(None) => {
-            let earlier: Result<Option<Value>, sqlx::Error> = sqlx::query_scalar(
-                "select to_jsonb(p) from panel_projects p
-                 where p.id = $1 and p.deleted_at is not null limit 1",
-            )
-            .bind(&id)
-            .fetch_optional(&caller.db)
-            .await;
+            let earlier = projects::Entity::find_by_id(&id)
+                .filter(Column::DeletedAt.is_not_null())
+                .one(&orm(&caller.db))
+                .await
+                .and_then(|row| row.map(js_row).transpose());
             return match earlier {
-                Ok(Some(row)) => {
-                    let earlier = weldsuite_db::js_row(row);
+                Ok(Some(earlier)) => {
                     let removed = match registry.remove(&earlier).await {
                         Ok(()) => crate::keys::sync_key_records(&registry, &earlier, true).await,
                         Err(error) => Err(error),
@@ -566,21 +599,11 @@ pub(crate) async fn rotate_token(
         Err(error) => return unexpected(&error, "rotate token"),
     };
     let current_token = text(&current, "token").to_owned();
-    let rotated: Result<Option<Value>, sqlx::Error> = sqlx::query_scalar(
-        "update panel_projects as p set
-           token = $3,
-           updated_at = greatest(now(), p.updated_at + interval '1 millisecond')
-         where p.id = $1 and p.token = $2 and p.deleted_at is null
-         returning to_jsonb(p)",
-    )
-    .bind(&id)
-    .bind(&current_token)
-    .bind(generate_project_token())
-    .fetch_optional(&caller.db)
-    .await;
-    match rotated {
-        Ok(Some(row)) => {
-            let project = weldsuite_db::js_row(row);
+    let rotate = live_update(&id)
+        .col_expr(Column::Token, Expr::value(generate_project_token()))
+        .filter(Column::Token.eq(&current_token));
+    match updated(rotate, &caller.db).await {
+        Ok(Some(project)) => {
             synced(
                 &state,
                 &caller,

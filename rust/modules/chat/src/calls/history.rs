@@ -10,11 +10,24 @@ use std::collections::HashMap;
 
 use axum::extract::RawQuery;
 use axum::response::Response;
+use sea_orm::sea_query::extension::postgres as pg;
+use sea_orm::sea_query::{Alias, Expr, Query};
+use sea_orm::{
+    ColumnTrait, Condition, DbErr, EntityTrait, FromQueryResult, JoinType, PaginatorTrait,
+    QueryFilter, QueryOrder, QuerySelect, RelationDef,
+};
+use serde::Serialize;
 use serde_json::{Value, json};
+use time::PrimitiveDateTime;
 use weldsuite_chat_domain::calls::{text, truthy, was_answered};
+use weldsuite_db::orm;
 use weldsuite_kit::validation::{Number, Presence};
+use weldsuite_schema::tenant::{
+    chat_calls, chat_channel_members as members, chat_channels, workspace_members,
+};
 
 use crate::access::{Caller, ChatResult, answer, validate_query};
+use crate::groups::channels::{js, member_profile};
 use crate::util::list_response;
 
 const DEFAULT_LIMIT: i64 = 30;
@@ -115,15 +128,83 @@ fn counterpart(
     others.first().map_or(Value::Null, Person::json)
 }
 
-/// The rows of the viewer's history (see the module docs), `$1` the viewer
-/// and `$2` their participant needle.
-macro_rules! visible {
-    () => {
-        "ch.deleted_at is null and (
-       (ch.type = 'dm' and c.channel_id in (select m.channel_id from chat_channel_members m where m.user_id = $1))
-       or c.initiator_id = $1
-       or c.participants @> $2::jsonb)"
-    };
+/// A call of the history with its channel's type and name, as the
+/// TypeScript reads it (`to_jsonb` of the row).
+#[derive(Debug, FromQueryResult, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct HistoryRow {
+    id: String,
+    channel_id: String,
+    call_type: String,
+    status: String,
+    initiator_id: String,
+    initiator_name: String,
+    participants: Option<Value>,
+    metadata: Option<Value>,
+    #[serde(with = "weldsuite_schema::js::timestamp::option")]
+    started_at: Option<PrimitiveDateTime>,
+    #[serde(with = "weldsuite_schema::js::timestamp::option")]
+    ended_at: Option<PrimitiveDateTime>,
+    duration: Option<i32>,
+    #[serde(with = "weldsuite_schema::js::timestamp")]
+    created_at: PrimitiveDateTime,
+    channel_type: String,
+    channel_name: String,
+}
+
+/// `chat_calls c inner join chat_channels ch on ch.id = c.channel_id`, the
+/// viewer's calls (see the module docs): every call of a live DM they
+/// belong to, and the calls they started or are a participant of.
+fn visible(viewer: &str) -> sea_orm::Select<chat_calls::Entity> {
+    let channel: RelationDef = chat_calls::Entity::belongs_to(chat_channels::Entity)
+        .from(chat_calls::Column::ChannelId)
+        .to(chat_channels::Column::Id)
+        .into();
+    let their_channels = Query::select()
+        .column((members::Entity, members::Column::ChannelId))
+        .from(members::Entity)
+        .and_where(members::Column::UserId.eq(viewer))
+        .to_owned();
+    // `c.participants @> '[{"userId": viewer}]'`.
+    let participant = pg::PgExpr::contains(
+        Expr::col((chat_calls::Entity, chat_calls::Column::Participants)),
+        Expr::val(json!([{ "userId": viewer }])),
+    );
+    chat_calls::Entity::find()
+        .join(JoinType::InnerJoin, channel)
+        .filter(chat_channels::Column::DeletedAt.is_null())
+        .filter(
+            Condition::any()
+                .add(
+                    Condition::all()
+                        .add(chat_channels::Column::Type.eq("dm"))
+                        .add(chat_calls::Column::ChannelId.in_subquery(their_channels)),
+                )
+                .add(chat_calls::Column::InitiatorId.eq(viewer))
+                .add(participant),
+        )
+}
+
+/// `(c.created_at, c.id) < (select cur.created_at, cur.id from chat_calls cur
+/// where cur.id = $cursor)`: none at all when the cursor's call is gone.
+fn before_call(cursor: &str) -> Expr {
+    let cur = Alias::new("cur");
+    let at_cursor = Query::select()
+        .column((cur.clone(), chat_calls::Column::CreatedAt))
+        .column((cur.clone(), chat_calls::Column::Id))
+        .from_as(chat_calls::Entity, cur.clone())
+        .and_where(sea_orm::ExprTrait::eq(
+            Expr::col((cur, chat_calls::Column::Id)),
+            cursor,
+        ))
+        .to_owned();
+    sea_orm::ExprTrait::lt(
+        Expr::tuple([
+            Expr::col((chat_calls::Entity, chat_calls::Column::CreatedAt)),
+            Expr::col((chat_calls::Entity, chat_calls::Column::Id)),
+        ]),
+        Expr::SubQuery(None, Box::new(at_cursor.into())),
+    )
 }
 
 /// `listCallHistory(db, viewerId, { limit, cursor })` behind `GET /history`.
@@ -168,38 +249,39 @@ async fn history(
         .map_or(DEFAULT_LIMIT, |limit| limit as i64)
         .clamp(1, MAX_LIMIT);
     let viewer = caller.user_id.as_str();
-    let needle = json!([{ "userId": viewer }]).to_string();
-    let rows: Vec<Value> = sqlx::query_scalar(concat!(
-        "select to_jsonb(r) from (
-           select c.id, c.channel_id, c.call_type, c.status, c.initiator_id, c.initiator_name,
-                  c.participants, c.metadata, c.started_at, c.ended_at, c.duration, c.created_at,
-                  ch.type as channel_type, ch.name as channel_name
-           from chat_calls c inner join chat_channels ch on ch.id = c.channel_id
-           where ",
-        visible!(),
-        " and ($3::text is null
-                  or (c.created_at, c.id) < (select cur.created_at, cur.id from chat_calls cur where cur.id = $3))
-           order by c.created_at desc, c.id desc
-           limit $4
-         ) r"
-    ))
-    .bind(viewer)
-    .bind(&needle)
-    .bind(&cursor)
-    .bind(limit + 1)
-    .fetch_all(&caller.db)
-    .await?;
-    let total: i64 = sqlx::query_scalar(concat!(
-        "select count(*) from chat_calls c inner join chat_channels ch on ch.id = c.channel_id
-         where ",
-        visible!()
-    ))
-    .bind(viewer)
-    .bind(&needle)
-    .fetch_one(&caller.db)
-    .await?;
+    let db = orm(&caller.db);
+    let mut page = visible(viewer)
+        .select_only()
+        .columns([
+            chat_calls::Column::Id,
+            chat_calls::Column::ChannelId,
+            chat_calls::Column::CallType,
+            chat_calls::Column::Status,
+            chat_calls::Column::InitiatorId,
+            chat_calls::Column::InitiatorName,
+            chat_calls::Column::Participants,
+            chat_calls::Column::Metadata,
+            chat_calls::Column::StartedAt,
+            chat_calls::Column::EndedAt,
+            chat_calls::Column::Duration,
+            chat_calls::Column::CreatedAt,
+        ])
+        .column_as(chat_channels::Column::Type, "channel_type")
+        .column_as(chat_channels::Column::Name, "channel_name");
+    if let Some(cursor) = &cursor {
+        page = page.filter(before_call(cursor));
+    }
+    let rows = page
+        .order_by_desc(chat_calls::Column::CreatedAt)
+        .order_by_desc(chat_calls::Column::Id)
+        .limit(u64::try_from(limit + 1).unwrap_or(0))
+        .into_model::<HistoryRow>()
+        .all(&db)
+        .await?;
+    let total = visible(viewer).count(&db).await?;
+    let total = i64::try_from(total).unwrap_or(i64::MAX);
 
-    let mut rows: Vec<Value> = rows.into_iter().map(weldsuite_db::js_row).collect();
+    let mut rows: Vec<Value> = rows.into_iter().map(js).collect::<Result<_, _>>()?;
     let page_size = usize::try_from(limit).unwrap_or(0);
     let has_more = rows.len() > page_size;
     rows.truncate(page_size);
@@ -278,23 +360,24 @@ async fn load_dm_people(
         HashMap<String, Vec<Person>>,
         HashMap<String, (Option<String>, Option<String>)>,
     ),
-    sqlx::Error,
+    DbErr,
 > {
     let mut by_channel: HashMap<String, Vec<Person>> = HashMap::new();
     let mut people: HashMap<String, (Option<String>, Option<String>)> = HashMap::new();
     if dm_channels.is_empty() {
         return Ok((by_channel, people));
     }
-    let rows: Vec<(String, String, Option<String>)> = sqlx::query_as(
-        "select m.channel_id, m.user_id, wm.name
-         from chat_channel_members m
-         left join workspace_members wm on wm.user_id = m.user_id
-         where m.channel_id = any($1) and m.user_id <> $2",
-    )
-    .bind(dm_channels)
-    .bind(viewer)
-    .fetch_all(&caller.db)
-    .await?;
+    let db = orm(&caller.db);
+    let rows: Vec<(String, String, Option<String>)> = members::Entity::find()
+        .select_only()
+        .columns([members::Column::ChannelId, members::Column::UserId])
+        .column(workspace_members::Column::Name)
+        .join(JoinType::LeftJoin, member_profile())
+        .filter(members::Column::ChannelId.is_in(dm_channels.iter().map(String::as_str)))
+        .filter(members::Column::UserId.ne(viewer))
+        .into_tuple()
+        .all(&db)
+        .await?;
     for (channel, user, name) in rows {
         people.insert(user.clone(), (name.clone(), None));
         let list = by_channel.entry(channel).or_default();
@@ -322,11 +405,16 @@ async fn load_dm_people(
         }
     }
     if !missing.is_empty() {
-        let extra: Vec<(String, Option<String>)> =
-            sqlx::query_as("select user_id, name from workspace_members where user_id = any($1)")
-                .bind(&missing)
-                .fetch_all(&caller.db)
-                .await?;
+        let extra: Vec<(String, Option<String>)> = workspace_members::Entity::find()
+            .select_only()
+            .columns([
+                workspace_members::Column::UserId,
+                workspace_members::Column::Name,
+            ])
+            .filter(workspace_members::Column::UserId.is_in(missing.iter().map(String::as_str)))
+            .into_tuple()
+            .all(&db)
+            .await?;
         for (user, name) in extra {
             people.insert(user, (name, None));
         }

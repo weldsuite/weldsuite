@@ -31,10 +31,6 @@
 //!   resolved through the master `merge_provider_index`, the delivery handed
 //!   to WeldMerge's provider-event intake.
 
-#![allow(
-    clippy::disallowed_methods,
-    reason = "not converted to the ORM yet (ADR DATA-019)"
-)]
 // The workers' handlers and Workflows are ported step for step, so some are
 // long and take what the TypeScript function took.
 #![allow(clippy::too_many_lines, clippy::too_many_arguments)]

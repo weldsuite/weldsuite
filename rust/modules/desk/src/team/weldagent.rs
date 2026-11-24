@@ -18,13 +18,22 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use http::{HeaderMap, StatusCode};
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ColumnTrait, Condition, DbErr, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder,
+    QuerySelect,
+};
 use serde_json::{Map, Value, json};
+use time::{OffsetDateTime, PrimitiveDateTime};
 use weldsuite_catalogs::entity_events as ev;
 use weldsuite_catalogs::permission_keys as perm;
+use weldsuite_db::orm;
 use weldsuite_desk_domain::notify::EntityKind;
 use weldsuite_kit::validation::{Format, Issues, Number, Presence, Text, js_number};
 use weldsuite_kit::{ApiError, Created, Data, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::helpdesk_conversation_messages;
+use weldsuite_schema::tenant::helpdesk_conversations::{self, Column as Conversation};
 
 use super::{js_number as json_number, js_number_text, js_substring};
 use crate::crud::write_failed;
@@ -37,6 +46,16 @@ use crate::{Caller, DeskState, Refusal, now, validate};
 
 const CONV: &Table = &HELPDESK_CONVERSATIONS;
 const MESSAGES: &Table = &HELPDESK_CONVERSATION_MESSAGES;
+
+/// `new Date()` as the route writes it: the text ([`now`]) and the
+/// `timestamp` it stores, the same instant.
+fn now_both() -> (String, PrimitiveDateTime) {
+    let at = OffsetDateTime::now_utc();
+    (
+        weldsuite_events::iso_timestamp(at),
+        weldsuite_db::utc_timestamp(at),
+    )
+}
 
 pub(super) fn routes<Q>(gate: &Arc<PermissionGate<Q>>) -> Router<DeskState>
 where
@@ -251,27 +270,49 @@ async fn create(
 
 // ── lists ───────────────────────────────────────────────────────────────────
 
-/// `$1` the search term (or null), `$2` LIMIT, `$3` OFFSET (null for none;
-/// text, as the driver sends a JavaScript number).
-const ACTIVE: (&str, &str) = (
-    "select count(*)::int from helpdesk_conversations t
-     where t.deleted_at is null and t.assignee_id = 'ai-agent' and t.status in ('active', 'pending')
-       and ($1::text is null or (t.subject ilike $1 or t.customer_name ilike $1 or t.customer_email ilike $1))",
-    "select to_jsonb(t) from helpdesk_conversations t
-     where t.deleted_at is null and t.assignee_id = 'ai-agent' and t.status in ('active', 'pending')
-       and ($1::text is null or (t.subject ilike $1 or t.customer_name ilike $1 or t.customer_email ilike $1))
-     order by t.updated_at desc limit $2::text::bigint offset $3::text::bigint",
-);
+/// The statuses of `/ai-active` and of `/ai-resolved`.
+const ACTIVE: [&str; 2] = ["active", "pending"];
+const RESOLVED: [&str; 2] = ["resolved", "closed"];
 
-const RESOLVED: (&str, &str) = (
-    "select count(*)::int from helpdesk_conversations t
-     where t.deleted_at is null and t.assignee_id = 'ai-agent' and t.status in ('resolved', 'closed')
-       and ($1::text is null or (t.subject ilike $1 or t.customer_name ilike $1 or t.customer_email ilike $1))",
-    "select to_jsonb(t) from helpdesk_conversations t
-     where t.deleted_at is null and t.assignee_id = 'ai-agent' and t.status in ('resolved', 'closed')
-       and ($1::text is null or (t.subject ilike $1 or t.customer_name ilike $1 or t.customer_email ilike $1))
-     order by t.updated_at desc limit $2::text::bigint offset $3::text::bigint",
-);
+/// `and(isNull(t.deletedAt), eq(t.assigneeId, 'ai-agent'), inArray(t.status,
+/// statuses), search ? or(ilike(t.subject, search), ilike(t.customerName,
+/// search), ilike(t.customerEmail, search)) : undefined)`.
+fn ai_conversations(statuses: [&str; 2], search: Option<&str>) -> Condition {
+    let mut all = Condition::all()
+        .add(Conversation::DeletedAt.is_null())
+        .add(Conversation::AssigneeId.eq("ai-agent"))
+        .add(Conversation::Status.is_in(statuses));
+    if let Some(search) = search {
+        all = all.add(
+            Condition::any()
+                .add(Conversation::Subject.ilike(search))
+                .add(Conversation::CustomerName.ilike(search))
+                .add(Conversation::CustomerEmail.ilike(search)),
+        );
+    }
+    all
+}
+
+/// `limit` and `offset` as the driver sent them, as text Postgres reads as a
+/// `bigint`: one that is not a whole number, or is negative, fails the
+/// statement (the route's 500).
+fn bounds(limit: Option<&str>, offset: Option<&str>) -> Result<(Option<u64>, Option<u64>), DbErr> {
+    let whole = |text: &str, what: &str| {
+        let value: i64 = text.parse().map_err(|_| {
+            DbErr::Custom(format!("invalid input syntax for type bigint: \"{text}\""))
+        })?;
+        u64::try_from(value).map_err(|_| DbErr::Custom(format!("{what} must not be negative")))
+    };
+    Ok((
+        limit.map(|limit| whole(limit, "LIMIT")).transpose()?,
+        offset.map(|offset| whole(offset, "OFFSET")).transpose()?,
+    ))
+}
+
+/// A conversation as Drizzle's `select()` returns it.
+fn conversation_json(row: impl serde::Serialize) -> Result<Value, DbErr> {
+    serde_json::to_value(row).map_err(|error| DbErr::Json(error.to_string()))
+}
 
 /// `((conv.tags as string[]) ?? []).includes('escalated')`.
 fn escalated(row: &Value) -> bool {
@@ -285,7 +326,7 @@ fn escalated(row: &Value) -> bool {
 async fn page(
     caller: &Caller,
     query: Option<&str>,
-    sql: (&'static str, &'static str),
+    statuses: [&str; 2],
     drop_escalated: bool,
     message: &str,
 ) -> Response {
@@ -308,30 +349,43 @@ async fn page(
     let offset_value = (page - 1.0) * size;
     let offset =
         (offset_value != 0.0 && !offset_value.is_nan()).then(|| js_number_text(offset_value));
-    let total: i32 = match sqlx::query_scalar(sql.0)
-        .bind(search.as_deref())
-        .fetch_one(&caller.db)
+    let db = orm(&caller.db);
+    let total = match helpdesk_conversations::Entity::find()
+        .filter(ai_conversations(statuses, search.as_deref()))
+        .count(&db)
         .await
     {
         Ok(total) => total,
         Err(error) => return Refusal::from(error).respond(message),
     };
-    let rows: Vec<Value> = match sqlx::query_scalar(sql.1)
-        .bind(search.as_deref())
-        .bind(limit)
-        .bind(offset)
-        .fetch_all(&caller.db)
-        .await
-    {
+    let rows = async {
+        let (limit, offset) = bounds(limit.as_deref(), offset.as_deref())?;
+        let mut select = helpdesk_conversations::Entity::find()
+            .filter(ai_conversations(statuses, search.as_deref()))
+            .order_by_desc(Conversation::UpdatedAt);
+        if let Some(limit) = limit {
+            select = select.limit(limit);
+        }
+        if let Some(offset) = offset {
+            select = select.offset(offset);
+        }
+        select
+            .all(&db)
+            .await?
+            .into_iter()
+            .map(conversation_json)
+            .collect::<Result<Vec<Value>, DbErr>>()
+    };
+    let rows: Vec<Value> = match rows.await {
         Ok(rows) => rows,
         Err(error) => return Refusal::from(error).respond(message),
     };
     let rows: Vec<Value> = rows
         .into_iter()
-        .map(|row| CONV.js(row))
         .filter(|row| !(drop_escalated && escalated(row)))
         .collect();
-    let total = f64::from(total);
+    // `count(*)::int`.
+    let total = f64::from(i32::try_from(total).unwrap_or(i32::MAX));
     Data(json!({
         "conversations": rows,
         "pagination": {
@@ -367,21 +421,21 @@ async fn ai_resolved(caller: Caller, RawQuery(query): RawQuery) -> Response {
 }
 
 async fn pending(caller: Caller) -> Response {
-    let rows: Result<Vec<Value>, _> = sqlx::query_scalar(
-        "select to_jsonb(t) from helpdesk_conversations t
-         where t.status = 'pending' and t.deleted_at is null
-         order by t.updated_at desc",
-    )
-    .fetch_all(&caller.db)
-    .await;
-    match rows {
-        Ok(rows) => Data(Value::Array(
-            rows.into_iter()
-                .map(|row| CONV.js(row))
-                .filter(escalated)
-                .collect(),
-        ))
-        .into_response(),
+    let rows = async {
+        helpdesk_conversations::Entity::find()
+            .filter(Conversation::Status.eq("pending"))
+            .filter(Conversation::DeletedAt.is_null())
+            .order_by_desc(Conversation::UpdatedAt)
+            .all(&orm(&caller.db))
+            .await?
+            .into_iter()
+            .map(conversation_json)
+            .collect::<Result<Vec<Value>, DbErr>>()
+    };
+    match rows.await {
+        Ok(rows) => {
+            Data(Value::Array(rows.into_iter().filter(escalated).collect())).into_response()
+        }
         Err(error) => Refusal::from(error).respond("Failed to fetch pending escalations"),
     }
 }
@@ -404,16 +458,20 @@ async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
         Ok(row) => row,
         Err(response) => return response,
     };
-    let messages: Result<Vec<Value>, _> = sqlx::query_scalar(
-        "select to_jsonb(m) from helpdesk_conversation_messages m
-         where m.conversation_id = $1 and m.deleted_at is null
-         order by m.created_at",
-    )
-    .bind(&id)
-    .fetch_all(&caller.db)
-    .await;
-    let messages = match messages {
-        Ok(rows) => rows.into_iter().map(|row| MESSAGES.js(row)).collect(),
+    let messages = async {
+        use helpdesk_conversation_messages::Column as Message;
+        helpdesk_conversation_messages::Entity::find()
+            .filter(Message::ConversationId.eq(&id))
+            .filter(Message::DeletedAt.is_null())
+            .order_by_asc(Message::CreatedAt)
+            .all(&orm(&caller.db))
+            .await?
+            .into_iter()
+            .map(conversation_json)
+            .collect::<Result<Vec<Value>, DbErr>>()
+    };
+    let messages = match messages.await {
+        Ok(rows) => rows,
         Err(error) => return Refusal::from(error).respond(MESSAGE),
     };
     let mut out = match conversation {
@@ -466,7 +524,7 @@ async fn send_message(
     if let Err(response) = existing(&caller, &id, MESSAGE).await {
         return response;
     }
-    let now = now();
+    let (now, stamp) = now_both();
     let message_id = generate_id("msg");
     let user = role == "user";
     let author_type = if user { "customer" } else { "agent" };
@@ -491,18 +549,24 @@ async fn send_message(
     if let Err(error) = insert_message(&caller, &fields).await {
         return write_failed(&error, MESSAGE);
     }
-    let bumped = sqlx::query(
-        "update helpdesk_conversations set last_message = $2, preview = $3,
-             last_message_at = $4::timestamp, message_count = message_count + 1,
-             updated_at = $4::timestamp
-         where id = $1",
-    )
-    .bind(&id)
-    .bind(js_substring(&content, 500))
-    .bind(js_substring(&content, 200))
-    .bind(&now)
-    .execute(&caller.db)
-    .await;
+    let bumped = helpdesk_conversations::Entity::update_many()
+        .col_expr(
+            Conversation::LastMessage,
+            Expr::value(js_substring(&content, 500)),
+        )
+        .col_expr(
+            Conversation::Preview,
+            Expr::value(js_substring(&content, 200)),
+        )
+        .col_expr(Conversation::LastMessageAt, Expr::value(stamp))
+        .col_expr(
+            Conversation::MessageCount,
+            sea_orm::ExprTrait::add(Expr::col(Conversation::MessageCount), 1),
+        )
+        .col_expr(Conversation::UpdatedAt, Expr::value(stamp))
+        .filter(Conversation::Id.eq(&id))
+        .exec(&orm(&caller.db))
+        .await;
     if let Err(error) = bumped {
         return Refusal::from(error).respond(MESSAGE);
     }
@@ -564,18 +628,15 @@ async fn transfer(
     } else {
         "high"
     };
-    let now = now();
-    let updated = sqlx::query(
-        "update helpdesk_conversations set status = 'pending', priority = $2, tags = $3,
-             updated_at = $4::timestamp
-         where id = $1",
-    )
-    .bind(&id)
-    .bind(priority)
-    .bind(Value::Array(tags))
-    .bind(&now)
-    .execute(&caller.db)
-    .await;
+    let (now, stamp) = now_both();
+    let updated = helpdesk_conversations::Entity::update_many()
+        .col_expr(Conversation::Status, Expr::value("pending"))
+        .col_expr(Conversation::Priority, Expr::value(priority))
+        .col_expr(Conversation::Tags, Expr::value(Value::Array(tags)))
+        .col_expr(Conversation::UpdatedAt, Expr::value(stamp))
+        .filter(Conversation::Id.eq(&id))
+        .exec(&orm(&caller.db))
+        .await;
     if let Err(error) = updated {
         return Refusal::from(error).respond(MESSAGE);
     }
@@ -633,17 +694,14 @@ async fn accept(
         Ok(row) => row,
         Err(response) => return response,
     };
-    let now = now();
-    let updated = sqlx::query(
-        "update helpdesk_conversations set assignee_id = $2, status = 'active',
-             updated_at = $3::timestamp
-         where id = $1",
-    )
-    .bind(&id)
-    .bind(&agent_id)
-    .bind(&now)
-    .execute(&caller.db)
-    .await;
+    let (now, stamp) = now_both();
+    let updated = helpdesk_conversations::Entity::update_many()
+        .col_expr(Conversation::AssigneeId, Expr::value(&agent_id))
+        .col_expr(Conversation::Status, Expr::value("active"))
+        .col_expr(Conversation::UpdatedAt, Expr::value(stamp))
+        .filter(Conversation::Id.eq(&id))
+        .exec(&orm(&caller.db))
+        .await;
     if let Err(error) = updated {
         return Refusal::from(error).respond(MESSAGE);
     }
@@ -708,7 +766,7 @@ async fn convert(
     };
     let ticket_id = generate_id("tkt");
     let ticket_number = format!("TKT-{}", base36_now());
-    let now = now();
+    let (now, stamp) = now_both();
     let priority = priority.unwrap_or_else(|| "medium".to_owned());
     // `data.description ?? conversation.lastMessage ?? ''`.
     let description = description
@@ -738,13 +796,12 @@ async fn convert(
     {
         return write_failed(&error, MESSAGE);
     }
-    let closed = sqlx::query(
-        "update helpdesk_conversations set status = 'closed', updated_at = $2::timestamp where id = $1",
-    )
-    .bind(&id)
-    .bind(&now)
-    .execute(&caller.db)
-    .await;
+    let closed = helpdesk_conversations::Entity::update_many()
+        .col_expr(Conversation::Status, Expr::value("closed"))
+        .col_expr(Conversation::UpdatedAt, Expr::value(stamp))
+        .filter(Conversation::Id.eq(&id))
+        .exec(&orm(&caller.db))
+        .await;
     if let Err(error) = closed {
         return Refusal::from(error).respond(MESSAGE);
     }

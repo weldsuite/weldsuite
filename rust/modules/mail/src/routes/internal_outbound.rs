@@ -19,11 +19,14 @@ use axum::extract::{Query, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use http::{HeaderMap, StatusCode};
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
+use weldsuite_db::orm;
 use weldsuite_kit::validation::{Format, Issues, Presence, Text, json_body};
 use weldsuite_kit::{ApiError, Data};
 use weldsuite_mail_domain::outbound::LedgerSubject;
+use weldsuite_schema::master::workspaces;
 
 use crate::MailState;
 use crate::caller::{Bindings, Outside};
@@ -129,15 +132,17 @@ async fn workspace_subject(
     let Some(master) = bindings.master(state) else {
         return Err(ApiError::internal().into_response());
     };
-    let row: Option<(String, Option<String>)> =
-        sqlx::query_as("select id, clerk_org_id from workspaces where id = $1 limit 1")
-            .bind(workspace_id)
-            .fetch_optional(&master)
-            .await
-            .map_err(|error| {
-                tracing::error!(%error, "[internal-outbound] workspace lookup failed");
-                ApiError::internal().into_response()
-            })?;
+    let row: Option<(String, Option<String>)> = workspaces::Entity::find()
+        .select_only()
+        .columns([workspaces::Column::Id, workspaces::Column::ClerkOrgId])
+        .filter(workspaces::Column::Id.eq(workspace_id))
+        .into_tuple()
+        .one(&orm(&master))
+        .await
+        .map_err(|error| {
+            tracing::error!(%error, "[internal-outbound] workspace lookup failed");
+            ApiError::internal().into_response()
+        })?;
     Ok(row.map(|(id, clerk_org_id)| LedgerSubject::Workspace {
         workspace_id: id,
         clerk_org_id,

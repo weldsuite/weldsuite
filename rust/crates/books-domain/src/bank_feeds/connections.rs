@@ -3,26 +3,30 @@
 //! disconnecting and deleting, pending transactions. Tokens are encrypted at
 //! rest and never returned.
 
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 use serde_json::{Map, Value, json};
-use sqlx::PgPool;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::generate_id;
+use weldsuite_schema::tenant::{
+    accounts, bank_accounts, bank_connections, bank_feed_pending_transactions as pending,
+};
 
 use super::normalize::{connection_status, normalize_iban};
 use super::providers::{arr, rec};
 use super::{
     DEFAULT_HISTORY_DAYS, FeedContext, INACTIVE_STATUSES, LinkInput, ServiceError,
-    StoredConnection, service,
+    StoredConnection, js, now_both, service,
 };
-use crate::http::now;
 use crate::js::{iso_from_millis, millis_of, slice_utf16};
-use crate::tables::{BANK_ACCOUNTS, BANK_CONNECTIONS, BANK_FEED_PENDING_TRANSACTIONS};
+use crate::tables::{BANK_ACCOUNTS, BANK_CONNECTIONS};
 
 fn text<'a>(row: &'a Value, key: &str) -> Option<&'a str> {
     row.get(key).and_then(Value::as_str)
 }
 
 /// `loadConnection(db, id)`: the live connection.
-pub async fn load_connection(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
+pub async fn load_connection(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
     BANK_CONNECTIONS.find_live(db, id).await
 }
 
@@ -120,13 +124,25 @@ fn iso_of(row: &Value, key: &str) -> Value {
     row.get(key).cloned().unwrap_or(Value::Null)
 }
 
+/// Live bank accounts matching `condition`, as Drizzle returns them.
+async fn live_bank_accounts(db: &PgPool, condition: Expr) -> Result<Vec<Value>, DbErr> {
+    bank_accounts::Entity::find()
+        .filter(condition)
+        .filter(bank_accounts::Column::DeletedAt.is_null())
+        .all(&orm(db))
+        .await?
+        .into_iter()
+        .map(js)
+        .collect()
+}
+
 /// `connectionViews(ctx, rows, { suggestions })`.
 #[allow(clippy::too_many_lines)] // the worker's view, field by field
 pub async fn connection_views(
     ctx: &FeedContext,
     rows: &[Value],
     suggestions: bool,
-) -> Result<Vec<Value>, sqlx::Error> {
+) -> Result<Vec<Value>, DbErr> {
     if rows.is_empty() {
         return Ok(Vec::new());
     }
@@ -134,15 +150,8 @@ pub async fn connection_views(
         .iter()
         .filter_map(|r| text(r, "id").map(str::to_owned))
         .collect();
-    let accounts: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        crate::books_row!(bank_accounts),
-        " from bank_accounts t where t.feed_connection_id = any($1) and t.deleted_at is null"
-    ))
-    .bind(&ids)
-    .fetch_all(&ctx.db)
-    .await?;
-    let accounts = BANK_ACCOUNTS.js_rows(accounts);
+    let accounts =
+        live_bank_accounts(&ctx.db, bank_accounts::Column::FeedConnectionId.is_in(ids)).await?;
     let mut views = Vec::new();
     for row in rows {
         let id = text(row, "id").unwrap_or_default();
@@ -162,16 +171,12 @@ pub async fn connection_views(
         };
         let mut candidates: Vec<Value> = Vec::new();
         if suggestions && feed_accounts.iter().any(|fa| is_mapped(fa).is_none()) {
-            let all: Vec<Value> = sqlx::query_scalar(concat!(
-                "select ",
-                crate::books_row!(bank_accounts),
-                " from bank_accounts t where t.entity_id = $1 and t.deleted_at is null"
-            ))
-            .bind(text(row, "entityId"))
-            .fetch_all(&ctx.db)
+            let all = live_bank_accounts(
+                &ctx.db,
+                bank_accounts::Column::EntityId.eq(text(row, "entityId")),
+            )
             .await?;
-            candidates = BANK_ACCOUNTS
-                .js_rows(all)
+            candidates = all
                 .into_iter()
                 .filter(|ba| {
                     text(ba, "feedConnectionId").is_none_or(str::is_empty)
@@ -254,16 +259,17 @@ pub(crate) fn stored_warnings(row: &Value) -> Vec<Value> {
 }
 
 /// `listConnectionViews(ctx, entityId)`.
-pub async fn list_views(ctx: &FeedContext, entity_id: &str) -> Result<Vec<Value>, sqlx::Error> {
-    let rows: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        crate::books_row!(bank_connections),
-        " from bank_connections t where t.entity_id = $1 and t.deleted_at is null order by t.created_at desc"
-    ))
-    .bind(entity_id)
-    .fetch_all(&ctx.db)
-    .await?;
-    connection_views(ctx, &BANK_CONNECTIONS.js_rows(rows), false).await
+pub async fn list_views(ctx: &FeedContext, entity_id: &str) -> Result<Vec<Value>, DbErr> {
+    let rows = bank_connections::Entity::find()
+        .filter(bank_connections::Column::EntityId.eq(entity_id))
+        .filter(bank_connections::Column::DeletedAt.is_null())
+        .order_by_desc(bank_connections::Column::CreatedAt)
+        .all(&orm(&ctx.db))
+        .await?
+        .into_iter()
+        .map(js)
+        .collect::<Result<Vec<_>, _>>()?;
+    connection_views(ctx, &rows, false).await
 }
 
 /// `connectionViewById(ctx, id, { suggestions })`.
@@ -408,16 +414,17 @@ pub async fn complete_link(
     let (connection, accounts) = provider.complete_link(&Value::Object(client)).await?;
 
     if existing.is_none() {
-        let duplicate: Option<Value> = sqlx::query_scalar(concat!(
-            "select ",
-            crate::books_row!(bank_connections),
-            " from bank_connections t where t.provider = $1 and t.provider_connection_id = $2 and t.deleted_at is null limit 1"
-        ))
-        .bind(provider.id)
-        .bind(&connection.provider_connection_id)
-        .fetch_optional(&ctx.db)
-        .await?;
-        let duplicate = duplicate.map(|row| BANK_CONNECTIONS.js(row));
+        let duplicate = bank_connections::Entity::find()
+            .filter(bank_connections::Column::Provider.eq(provider.id))
+            .filter(
+                bank_connections::Column::ProviderConnectionId
+                    .eq(connection.provider_connection_id.as_str()),
+            )
+            .filter(bank_connections::Column::DeletedAt.is_null())
+            .one(&orm(&ctx.db))
+            .await?
+            .map(js)
+            .transpose()?;
         if let Some(duplicate) = &duplicate
             && text(duplicate, "entityId") != Some(entity_id)
         {
@@ -429,7 +436,7 @@ pub async fn complete_link(
         existing = duplicate;
     }
 
-    let stamp = now();
+    let (stamp, at) = now_both();
     let incoming: Vec<Value> = accounts.iter().map(super::FeedAccount::stored).collect();
     let feed_accounts = match &existing {
         Some(row) => merge_feed_accounts(stored_feed_accounts(row), &incoming),
@@ -499,27 +506,30 @@ pub async fn complete_link(
         BANK_CONNECTIONS
             .patch_raw(&ctx.db, &id, BANK_CONNECTIONS.values(&set), false)
             .await?;
-        let attached: Vec<Value> = sqlx::query_scalar(concat!(
-            "select ",
-            crate::books_row!(bank_accounts),
-            " from bank_accounts t where t.feed_connection_id = $1 and t.deleted_at is null"
-        ))
-        .bind(&id)
-        .fetch_all(&ctx.db)
+        let attached = live_bank_accounts(
+            &ctx.db,
+            bank_accounts::Column::FeedConnectionId.eq(id.as_str()),
+        )
         .await?;
-        for ba in BANK_ACCOUNTS.js_rows(attached) {
+        for ba in attached {
             let Some(found) = incoming
                 .iter()
                 .find(|a| a.get("fingerprint") == ba.get("feedAccountFingerprint"))
             else {
                 continue;
             };
-            sqlx::query("update bank_accounts set feed_account_id = $2, feed_status = $3, updated_at = $4::timestamp where id = $1")
-                .bind(text(&ba, "id"))
-                .bind(text(found, "providerAccountId"))
-                .bind(text(found, "status").unwrap_or("active"))
-                .bind(&stamp)
-                .execute(&ctx.db)
+            bank_accounts::Entity::update_many()
+                .col_expr(
+                    bank_accounts::Column::FeedAccountId,
+                    Expr::val(text(found, "providerAccountId")),
+                )
+                .col_expr(
+                    bank_accounts::Column::FeedStatus,
+                    Expr::val(text(found, "status").unwrap_or("active")),
+                )
+                .col_expr(bank_accounts::Column::UpdatedAt, Expr::val(at))
+                .filter(bank_accounts::Column::Id.eq(text(&ba, "id")))
+                .exec(&orm(&ctx.db))
                 .await?;
         }
         id
@@ -644,7 +654,7 @@ pub async fn map_accounts(
     let row_id = text(&row, "id").unwrap_or_default().to_owned();
     let row_entity = text(&row, "entityId").unwrap_or_default().to_owned();
     let feed_accounts = stored_feed_accounts(&row);
-    let stamp = now();
+    let (stamp, at) = now_both();
     let mut seen_feed: Vec<String> = Vec::new();
     let mut seen_bank: Vec<String> = Vec::new();
     let mut results = Vec::new();
@@ -711,16 +721,15 @@ pub async fn map_accounts(
                 ));
             }
             seen_bank.push(bank_id.to_owned());
-            let bank: Option<Value> = sqlx::query_scalar(concat!(
-                "select ",
-                crate::books_row!(bank_accounts),
-                " from bank_accounts t where t.id = $1 and t.entity_id = $2 and t.deleted_at is null limit 1"
-            ))
-            .bind(bank_id)
-            .bind(&row_entity)
-            .fetch_optional(&ctx.db)
-            .await?;
-            let Some(bank) = bank.map(|r| BANK_ACCOUNTS.js(r)) else {
+            let bank = bank_accounts::Entity::find()
+                .filter(bank_accounts::Column::Id.eq(bank_id))
+                .filter(bank_accounts::Column::EntityId.eq(row_entity.as_str()))
+                .filter(bank_accounts::Column::DeletedAt.is_null())
+                .one(&orm(&ctx.db))
+                .await?
+                .map(js)
+                .transpose()?;
+            let Some(bank) = bank else {
                 return Err(service(
                     "not_found",
                     format!("Bank account '{bank_id}' not found"),
@@ -788,13 +797,15 @@ pub async fn map_accounts(
             .clone()
             .unwrap_or_else(|| default_account_type(feed).to_owned());
         if let Some(ledger) = ledger.as_deref().filter(|l| !l.is_empty()) {
-            let found: Option<String> = sqlx::query_scalar(
-                "select id from accounts where id = $1 and entity_id = $2 and deleted_at is null limit 1",
-            )
-            .bind(ledger)
-            .bind(&row_entity)
-            .fetch_optional(&ctx.db)
-            .await?;
+            let found: Option<String> = accounts::Entity::find()
+                .select_only()
+                .column(accounts::Column::Id)
+                .filter(accounts::Column::Id.eq(ledger))
+                .filter(accounts::Column::EntityId.eq(row_entity.as_str()))
+                .filter(accounts::Column::DeletedAt.is_null())
+                .into_tuple()
+                .one(&orm(&ctx.db))
+                .await?;
             if found.is_none() {
                 return Err(service(
                     "bad_request",
@@ -817,12 +828,15 @@ pub async fn map_accounts(
             }
         };
         let id = generate_id("ba");
-        let default: Option<String> = sqlx::query_scalar(
-            "select id from bank_accounts where entity_id = $1 and is_default = true and deleted_at is null limit 1",
-        )
-        .bind(&row_entity)
-        .fetch_optional(&ctx.db)
-        .await?;
+        let default: Option<String> = bank_accounts::Entity::find()
+            .select_only()
+            .column(bank_accounts::Column::Id)
+            .filter(bank_accounts::Column::EntityId.eq(row_entity.as_str()))
+            .filter(bank_accounts::Column::IsDefault.eq(true))
+            .filter(bank_accounts::Column::DeletedAt.is_null())
+            .into_tuple()
+            .one(&orm(&ctx.db))
+            .await?;
         let mut values = Map::new();
         for (key, value) in [
             ("id", json!(id)),
@@ -859,15 +873,23 @@ pub async fn map_accounts(
         newly += 1;
     }
     if newly > 0 {
-        sqlx::query(
-            "update bank_connections set sync_cursor = null, \
-             metadata = coalesce(metadata, '{}'::jsonb) || jsonb_build_object('resyncAt', $2::text), \
-             updated_at = $2::timestamp where id = $1",
-        )
-        .bind(&row_id)
-        .bind(&stamp)
-        .execute(&ctx.db)
-        .await?;
+        let metadata = sea_orm::sea_query::extension::postgres::PgExpr::concat(
+            Expr::expr(Func::coalesce([
+                Expr::col(bank_connections::Column::Metadata),
+                Expr::val(json!({})),
+            ])),
+            Expr::val(json!({ "resyncAt": stamp })),
+        );
+        bank_connections::Entity::update_many()
+            .col_expr(
+                bank_connections::Column::SyncCursor,
+                Expr::val(Option::<Value>::None),
+            )
+            .col_expr(bank_connections::Column::Metadata, metadata)
+            .col_expr(bank_connections::Column::UpdatedAt, Expr::val(at))
+            .filter(bank_connections::Column::Id.eq(row_id.as_str()))
+            .exec(&orm(&ctx.db))
+            .await?;
     }
     Ok(Mapped {
         view: view_by_id(ctx, &row_id, false).await?,
@@ -911,7 +933,7 @@ pub async fn disconnect(
 ) -> Result<Value, ServiceError> {
     let row = require_connection(&ctx.db, connection_id, entity_id).await?;
     revoke(ctx, &row).await?;
-    let stamp = now();
+    let (_, at) = now_both();
     let id = text(&row, "id").unwrap_or_default().to_owned();
     let feed_accounts: Vec<Value> = stored_feed_accounts(&row)
         .into_iter()
@@ -922,23 +944,32 @@ pub async fn disconnect(
         .collect();
     let mut metadata = rec(row.get("metadata"));
     metadata.insert("feedAccounts".to_owned(), Value::Array(feed_accounts));
-    sqlx::query(
-        "update bank_connections set status = 'disconnected', credentials_encrypted = null, last_error = null, \
-         metadata = $2, updated_at = $3::timestamp where id = $1",
-    )
-    .bind(&id)
-    .bind(Value::Object(metadata))
-    .bind(&stamp)
-    .execute(&ctx.db)
-    .await?;
-    sqlx::query(
-        "update bank_accounts set feed_status = 'disconnected', updated_at = $2::timestamp \
-         where feed_connection_id = $1 and deleted_at is null",
-    )
-    .bind(&id)
-    .bind(&stamp)
-    .execute(&ctx.db)
-    .await?;
+    let db = &orm(&ctx.db);
+    bank_connections::Entity::update_many()
+        .col_expr(bank_connections::Column::Status, Expr::val("disconnected"))
+        .col_expr(
+            bank_connections::Column::CredentialsEncrypted,
+            Expr::val(Option::<String>::None),
+        )
+        .col_expr(
+            bank_connections::Column::LastError,
+            Expr::val(Option::<String>::None),
+        )
+        .col_expr(
+            bank_connections::Column::Metadata,
+            Expr::val(Value::Object(metadata)),
+        )
+        .col_expr(bank_connections::Column::UpdatedAt, Expr::val(at))
+        .filter(bank_connections::Column::Id.eq(id.as_str()))
+        .exec(db)
+        .await?;
+    bank_accounts::Entity::update_many()
+        .col_expr(bank_accounts::Column::FeedStatus, Expr::val("disconnected"))
+        .col_expr(bank_accounts::Column::UpdatedAt, Expr::val(at))
+        .filter(bank_accounts::Column::FeedConnectionId.eq(id.as_str()))
+        .filter(bank_accounts::Column::DeletedAt.is_null())
+        .exec(db)
+        .await?;
     ctx.index_remove(&id).await?;
     view_by_id(ctx, &id, false).await
 }
@@ -952,24 +983,27 @@ pub async fn delete(
 ) -> Result<Value, ServiceError> {
     let row = require_connection(&ctx.db, connection_id, entity_id).await?;
     revoke(ctx, &row).await?;
-    let stamp = now();
+    let (_, at) = now_both();
     let id = text(&row, "id").unwrap_or_default().to_owned();
-    sqlx::query(
-        "update bank_accounts set feed_connection_id = null, feed_account_id = null, feed_status = null, \
-         updated_at = $2::timestamp where feed_connection_id = $1 and deleted_at is null",
-    )
-    .bind(&id)
-    .bind(&stamp)
-    .execute(&ctx.db)
-    .await?;
-    sqlx::query(
-        "update bank_connections set status = 'disconnected', credentials_encrypted = null, deleted_at = $2::timestamp, \
-         updated_at = $2::timestamp where id = $1",
-    )
-    .bind(&id)
-    .bind(&stamp)
-    .execute(&ctx.db)
-    .await?;
+    let db = &orm(&ctx.db);
+    let none = || Expr::val(Option::<String>::None);
+    bank_accounts::Entity::update_many()
+        .col_expr(bank_accounts::Column::FeedConnectionId, none())
+        .col_expr(bank_accounts::Column::FeedAccountId, none())
+        .col_expr(bank_accounts::Column::FeedStatus, none())
+        .col_expr(bank_accounts::Column::UpdatedAt, Expr::val(at))
+        .filter(bank_accounts::Column::FeedConnectionId.eq(id.as_str()))
+        .filter(bank_accounts::Column::DeletedAt.is_null())
+        .exec(db)
+        .await?;
+    bank_connections::Entity::update_many()
+        .col_expr(bank_connections::Column::Status, Expr::val("disconnected"))
+        .col_expr(bank_connections::Column::CredentialsEncrypted, none())
+        .col_expr(bank_connections::Column::DeletedAt, Expr::val(at))
+        .col_expr(bank_connections::Column::UpdatedAt, Expr::val(at))
+        .filter(bank_connections::Column::Id.eq(id.as_str()))
+        .exec(db)
+        .await?;
     ctx.index_remove(&id).await?;
     Ok(row)
 }
@@ -979,19 +1013,22 @@ pub async fn list_pending(
     db: &PgPool,
     connection_id: &str,
     bank_account_id: Option<&str>,
-) -> Result<Vec<Value>, sqlx::Error> {
-    let rows: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        crate::books_row!(bank_feed_pending_transactions),
-        " from bank_feed_pending_transactions t where t.connection_id = $1 and t.voided_at is null \
-         and ($2::text is null or t.bank_account_id = $2) order by t.date desc limit 500"
-    ))
-    .bind(connection_id)
-    .bind(bank_account_id.filter(|b| !b.is_empty()))
-    .fetch_all(db)
-    .await?;
-    Ok(BANK_FEED_PENDING_TRANSACTIONS
-        .js_rows(rows)
+) -> Result<Vec<Value>, DbErr> {
+    let mut query = pending::Entity::find()
+        .filter(pending::Column::ConnectionId.eq(connection_id))
+        .filter(pending::Column::VoidedAt.is_null());
+    if let Some(bank_account_id) = bank_account_id.filter(|b| !b.is_empty()) {
+        query = query.filter(pending::Column::BankAccountId.eq(bank_account_id));
+    }
+    let rows = query
+        .order_by_desc(pending::Column::Date)
+        .limit(500)
+        .all(&orm(db))
+        .await?
+        .into_iter()
+        .map(js)
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(rows
         .into_iter()
         .map(|r| {
             json!({

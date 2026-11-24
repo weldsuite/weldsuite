@@ -49,15 +49,21 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, post, put};
 use axum::{Extension, Router};
 use http::{HeaderMap, StatusCode};
+use sea_orm::sea_query::{Expr, OnConflict};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, Condition, DatabaseConnection, DbErr, EntityTrait, QueryFilter,
+    QuerySelect,
+};
 use serde_json::{Value, json};
 use weldsuite_catalogs::entity_events::WORKSPACE_SETTINGS_UPDATED;
-use weldsuite_db::{PgPool, is_unique_violation, js_row};
+use weldsuite_db::{PgPool, is_unique_violation, orm, utc_now};
 use weldsuite_kit::validation::{Format, Issues, Presence, Text, js_trim};
 use weldsuite_kit::{ApiError, Data, generate_id, random_string};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 use weldsuite_ports::BoxFuture;
+use weldsuite_schema::master::{plans, workspace_sso, workspaces};
 
-use crate::{Caller, CorePlatformState, PlatformError, PlatformResult, answer, now, validate};
+use crate::{Caller, CorePlatformState, PlatformError, PlatformResult, answer, validate};
 
 pub(crate) fn router<Q>(gate: &Arc<PermissionGate<Q>>) -> Router<CorePlatformState>
 where
@@ -535,38 +541,61 @@ impl Context {
 type WorkspaceRow = (String, Option<String>, Option<String>, bool, bool);
 
 /// `planIncludesSso`: `plans.features.sso` of the workspace's plan.
-async fn plan_includes_sso(master: &PgPool, plan_id: Option<&str>) -> Result<bool, sqlx::Error> {
+async fn plan_includes_sso(master: &PgPool, plan_id: Option<&str>) -> Result<bool, DbErr> {
     let Some(plan_id) = plan_id.filter(|plan| !plan.is_empty()) else {
         return Ok(false);
     };
-    let features: Option<Option<Value>> =
-        sqlx::query_scalar("select features from plans where id = $1 limit 1")
-            .bind(plan_id)
-            .fetch_optional(master)
-            .await?;
+    let features: Option<Option<Value>> = plans::Entity::find()
+        .select_only()
+        .column(plans::Column::Features)
+        .filter(plans::Column::Id.eq(plan_id))
+        .into_tuple()
+        .one(&orm(master))
+        .await?;
     Ok(features
         .flatten()
         .is_some_and(|features| features.get("sso") == Some(&Value::Bool(true))))
 }
 
-/// `loadSsoContext(db, { clerkOrgId })`: `None` without a workspace.
-async fn load_context(master: &PgPool, clerk_org_id: &str) -> Result<Option<Context>, sqlx::Error> {
-    let workspace: Option<WorkspaceRow> = sqlx::query_as(
-        "select id, clerk_org_id, plan_id, is_active, deleted_at is not null
-         from workspaces where clerk_org_id = $1 limit 1",
-    )
-    .bind(clerk_org_id)
-    .fetch_optional(master)
-    .await?;
-    let Some((id, clerk_org_id, plan_id, is_active, deleted)) = workspace else {
+/// `select id, clerk_org_id, plan_id, is_active, deleted_at is not null from
+/// workspaces where …`: the workspace `loadSsoContext` reads.
+async fn workspace_row(
+    master: &DatabaseConnection,
+    filter: Condition,
+) -> Result<Option<WorkspaceRow>, DbErr> {
+    use workspaces::Column as W;
+    workspaces::Entity::find()
+        .select_only()
+        .columns([W::Id, W::ClerkOrgId, W::PlanId, W::IsActive])
+        .expr(sea_orm::ExprTrait::is_not_null(Expr::col(W::DeletedAt)))
+        .filter(filter)
+        .into_tuple()
+        .one(master)
+        .await
+}
+
+/// The workspace's `workspace_sso` row, as the routes read it.
+async fn sso_row(master: &DatabaseConnection, workspace_id: &str) -> Result<Option<SsoRow>, DbErr> {
+    let row = workspace_sso::Entity::find()
+        .filter(workspace_sso::Column::WorkspaceId.eq(workspace_id))
+        .one(master)
+        .await?;
+    row.map(|row| {
+        serde_json::to_value(row)
+            .map(|row| SsoRow::from_row(&row))
+            .map_err(|error| DbErr::Json(error.to_string()))
+    })
+    .transpose()
+}
+
+/// `loadSsoContext` for the workspace `filter` finds: `None` without one.
+async fn context_where(master: &PgPool, filter: Condition) -> Result<Option<Context>, DbErr> {
+    let db = orm(master);
+    let Some((id, clerk_org_id, plan_id, is_active, deleted)) = workspace_row(&db, filter).await?
+    else {
         return Ok(None);
     };
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(s) from workspace_sso s where workspace_id = $1 limit 1",
-    )
-    .bind(&id)
-    .fetch_optional(master)
-    .await?;
+    let row = sso_row(&db, &id).await?;
     let plan_includes_sso = plan_includes_sso(master, plan_id.as_deref()).await?;
     Ok(Some(Context {
         workspace: Workspace {
@@ -575,9 +604,45 @@ async fn load_context(master: &PgPool, clerk_org_id: &str) -> Result<Option<Cont
             is_active,
             deleted,
         },
-        row: row.map(|row| SsoRow::from_row(&js_row(row))),
+        row,
         plan_includes_sso,
     }))
+}
+
+/// `loadSsoContext(db, { clerkOrgId })`: `None` without a workspace.
+async fn load_context(master: &PgPool, clerk_org_id: &str) -> Result<Option<Context>, DbErr> {
+    context_where(
+        master,
+        Condition::all().add(workspaces::Column::ClerkOrgId.eq(clerk_org_id)),
+    )
+    .await
+}
+
+/// `update workspace_sso set …, connection_updated_by, connection_updated_at
+/// = updated_at = now where id = … and <condition>`: whether a row matched
+/// (the old `returning id`).
+async fn update_row(
+    master: &PgPool,
+    id: &str,
+    condition: Condition,
+    actor: &str,
+    values: Vec<(workspace_sso::Column, Expr)>,
+) -> Result<bool, DbErr> {
+    use workspace_sso::Column as S;
+    let at = utc_now().assume_utc();
+    let mut update = workspace_sso::Entity::update_many();
+    for (column, value) in values {
+        update = update.col_expr(column, value);
+    }
+    let done = update
+        .col_expr(S::ConnectionUpdatedBy, Expr::value(actor.to_owned()))
+        .col_expr(S::ConnectionUpdatedAt, Expr::value(at))
+        .col_expr(S::UpdatedAt, Expr::value(at))
+        .filter(S::Id.eq(id))
+        .filter(condition)
+        .exec(&orm(master))
+        .await?;
+    Ok(done.rows_affected > 0)
 }
 
 // ── Refusals ────────────────────────────────────────────────────────────────
@@ -790,15 +855,16 @@ async fn assert_domain_free(
     domain: &str,
     workspace_id: &str,
 ) -> PlatformResult<()> {
-    let taken: Option<String> = sqlx::query_scalar(
-        "select id from workspace_sso
-         where domain = $1 and domain_verified_at is not null and workspace_id <> $2
-         limit 1",
-    )
-    .bind(domain)
-    .bind(workspace_id)
-    .fetch_optional(master)
-    .await?;
+    use workspace_sso::Column as S;
+    let taken: Option<String> = workspace_sso::Entity::find()
+        .select_only()
+        .column(S::Id)
+        .filter(S::Domain.eq(domain))
+        .filter(S::DomainVerifiedAt.is_not_null())
+        .filter(S::WorkspaceId.ne(workspace_id))
+        .into_tuple()
+        .one(&orm(master))
+        .await?;
     if taken.is_some() {
         return Err(domain_in_use());
     }
@@ -813,32 +879,32 @@ async fn ensure_row(master: &PgPool, workspace: &Workspace) -> PlatformResult<Ss
             format!("Workspace {} has no Clerk organization", workspace.id),
         ));
     };
-    sqlx::query(
-        "insert into workspace_sso (id, workspace_id, clerk_org_id) values ($1, $2, $3)
-         on conflict (workspace_id) do nothing",
-    )
-    .bind(generate_id("wsso"))
-    .bind(&workspace.id)
-    .bind(clerk_org_id)
-    .execute(master)
-    .await?;
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(s) from workspace_sso s where workspace_id = $1 limit 1",
-    )
-    .bind(&workspace.id)
-    .fetch_optional(master)
-    .await?;
-    row.map(|row| SsoRow::from_row(&js_row(row)))
-        .ok_or_else(|| {
-            PlatformError::internal(
-                "Internal server error",
-                format!("Could not create the SSO row of workspace {}", workspace.id),
-            )
-        })
+    let db = orm(master);
+    let row = workspace_sso::ActiveModel {
+        id: Set(generate_id("wsso")),
+        workspace_id: Set(workspace.id.clone()),
+        clerk_org_id: Set(clerk_org_id.to_owned()),
+        ..Default::default()
+    };
+    workspace_sso::Entity::insert(row)
+        .on_conflict(
+            OnConflict::column(workspace_sso::Column::WorkspaceId)
+                .do_nothing()
+                .to_owned(),
+        )
+        .exec_without_returning(&db)
+        .await?;
+    sso_row(&db, &workspace.id).await?.ok_or_else(|| {
+        PlatformError::internal(
+            "Internal server error",
+            format!("Could not create the SSO row of workspace {}", workspace.id),
+        )
+    })
 }
 
 /// `setSsoDomain`: the same domain again keeps its token; another starts over.
 async fn set_domain(master: &PgPool, ctx: Context, input: &str, actor: &str) -> PlatformResult<()> {
+    use workspace_sso::Column as S;
     let Some(domain) = normalize_sso_domain(input) else {
         return Err(refusal(
             StatusCode::BAD_REQUEST,
@@ -870,27 +936,27 @@ async fn set_domain(master: &PgPool, ctx: Context, input: &str, actor: &str) -> 
     }
     assert_domain_free(master, &domain, &ctx.workspace.id).await?;
 
-    let at = now();
-    let saved: Option<String> = sqlx::query_scalar(
-        "update workspace_sso
-         set domain = $2, domain_verification_token = $3, domain_verified_at = null,
-             connection_updated_by = $4, connection_updated_at = $5::timestamptz,
-             updated_at = $5::timestamptz
-         where id = $1 and clerk_connection_id is null
-         returning id",
+    let saved = update_row(
+        master,
+        &row.id,
+        Condition::all().add(S::ClerkConnectionId.is_null()),
+        actor,
+        vec![
+            (S::Domain, Expr::value(domain)),
+            (
+                S::DomainVerificationToken,
+                Expr::value(random_string(32, "0123456789abcdef")),
+            ),
+            (S::DomainVerifiedAt, Expr::null()),
+        ],
     )
-    .bind(&row.id)
-    .bind(&domain)
-    .bind(random_string(32, "0123456789abcdef"))
-    .bind(actor)
-    .bind(&at)
-    .fetch_optional(master)
     .await?;
-    saved.map(|_| ()).ok_or_else(changed_meanwhile)
+    saved.then_some(()).ok_or_else(changed_meanwhile)
 }
 
 /// `DELETE /domain`.
 async fn remove_domain(State(state): State<CorePlatformState>, caller: Caller) -> Response {
+    use workspace_sso::Column as S;
     if let Some(directory) = state.sso.clone() {
         return answer(weldid::remove_domain(&state, &caller, &*directory, None).await);
     }
@@ -906,21 +972,19 @@ async fn remove_domain(State(state): State<CorePlatformState>, caller: Caller) -
                         "Remove the identity provider connection before removing the domain.",
                     ));
                 }
-                let at = now();
-                let saved: Option<String> = sqlx::query_scalar(
-                    "update workspace_sso
-                     set domain = null, domain_verification_token = null, domain_verified_at = null,
-                         connection_updated_by = $2, connection_updated_at = $3::timestamptz,
-                         updated_at = $3::timestamptz
-                     where id = $1 and clerk_connection_id is null
-                     returning id",
+                let saved = update_row(
+                    &master,
+                    &row.id,
+                    Condition::all().add(S::ClerkConnectionId.is_null()),
+                    &caller.user_id,
+                    vec![
+                        (S::Domain, Expr::null()),
+                        (S::DomainVerificationToken, Expr::null()),
+                        (S::DomainVerifiedAt, Expr::null()),
+                    ],
                 )
-                .bind(&row.id)
-                .bind(&caller.user_id)
-                .bind(&at)
-                .fetch_optional(&master)
                 .await?;
-                if saved.is_none() {
+                if !saved {
                     return Err(changed_meanwhile());
                 }
             }
@@ -960,6 +1024,7 @@ async fn verify(
     dns: &dyn DnsTransport,
     actor: &str,
 ) -> PlatformResult<()> {
+    use workspace_sso::Column as S;
     let claim = ctx.row.as_ref().and_then(|row| {
         let domain = truthy(row.domain.as_ref())?;
         let token = truthy(row.token.as_ref())?;
@@ -998,24 +1063,20 @@ async fn verify(
     assert_domain_free(master, domain, &ctx.workspace.id).await?;
     // Only the claim whose record was looked up: the token is new on every
     // claim, so a domain changed during the lookup no longer matches.
-    let at = now();
-    let verified: Result<Option<String>, sqlx::Error> = sqlx::query_scalar(
-        "update workspace_sso
-         set domain_verified_at = $4::timestamptz, connection_updated_by = $5,
-             connection_updated_at = $4::timestamptz, updated_at = $4::timestamptz
-         where id = $1 and domain = $2 and domain_verification_token = $3
-         returning id",
-    )
-    .bind(&row.id)
-    .bind(domain)
-    .bind(token)
-    .bind(&at)
-    .bind(actor)
-    .fetch_optional(master)
-    .await;
+    let at = utc_now().assume_utc();
+    let verified = workspace_sso::Entity::update_many()
+        .col_expr(S::DomainVerifiedAt, Expr::value(at))
+        .col_expr(S::ConnectionUpdatedBy, Expr::value(actor.to_owned()))
+        .col_expr(S::ConnectionUpdatedAt, Expr::value(at))
+        .col_expr(S::UpdatedAt, Expr::value(at))
+        .filter(S::Id.eq(&row.id))
+        .filter(S::Domain.eq(domain))
+        .filter(S::DomainVerificationToken.eq(token))
+        .exec(&orm(master))
+        .await;
     match verified {
-        Ok(Some(_)) => Ok(()),
-        Ok(None) => Err(changed_meanwhile()),
+        Ok(done) if done.rows_affected > 0 => Ok(()),
+        Ok(_) => Err(changed_meanwhile()),
         // Another workspace verified the same domain a moment earlier.
         Err(error) if is_unique_violation(&error) => Err(domain_in_use()),
         Err(error) => Err(error.into()),
@@ -1211,35 +1272,36 @@ async fn set_enabled(
         return Err(provider_unreachable("getSamlConnection"));
     }
 
-    let at = now();
-    let saved: Option<bool> = sqlx::query_scalar(
-        "update workspace_sso
-         set enabled = false, connection_updated_by = $3,
-             connection_updated_at = $4::timestamptz, updated_at = $4::timestamptz
-         where id = $1 and clerk_connection_id = $2
-         returning clerk_active",
-    )
-    .bind(&row.id)
-    .bind(connection_id)
-    .bind(&caller.user_id)
-    .bind(&at)
-    .fetch_optional(&master)
-    .await?;
-    let Some(clerk_active) = saved else {
+    let at = utc_now().assume_utc();
+    let db = orm(&master);
+    let saved = workspace_sso::Entity::update_many()
+        .col_expr(workspace_sso::Column::Enabled, Expr::value(false))
+        .col_expr(
+            workspace_sso::Column::ConnectionUpdatedBy,
+            Expr::value(caller.user_id.clone()),
+        )
+        .col_expr(workspace_sso::Column::ConnectionUpdatedAt, Expr::value(at))
+        .col_expr(workspace_sso::Column::UpdatedAt, Expr::value(at))
+        .filter(workspace_sso::Column::Id.eq(&row.id))
+        .filter(workspace_sso::Column::ClerkConnectionId.eq(connection_id))
+        .exec_with_returning(&db)
+        .await?;
+    let Some(clerk_active) = saved.into_iter().next().map(|row| row.clerk_active) else {
         return Err(changed_meanwhile());
     };
     // Switched off, Clerk should not be active: nothing to do unless it is.
     if clerk_active {
         // `updateSamlConnection(id, { active: false })` fails: put the switch
         // back so the page does not claim a state Clerk is not in.
-        sqlx::query(
-            "update workspace_sso set enabled = $2, updated_at = $3::timestamptz where id = $1",
-        )
-        .bind(&row.id)
-        .bind(row.enabled)
-        .bind(now())
-        .execute(&master)
-        .await?;
+        workspace_sso::Entity::update_many()
+            .col_expr(workspace_sso::Column::Enabled, Expr::value(row.enabled))
+            .col_expr(
+                workspace_sso::Column::UpdatedAt,
+                Expr::value(utc_now().assume_utc()),
+            )
+            .filter(workspace_sso::Column::Id.eq(&row.id))
+            .exec(&db)
+            .await?;
         return Err(provider_unreachable("updateSamlConnection"));
     }
     changed(state, caller, &master, "disabled").await

@@ -6,6 +6,7 @@
 //! conversation auto-assigned like any other. The events the inbox emits carry
 //! `triggeredByAgentId`, so an agent never wakes itself.
 
+use sea_orm::{ColumnTrait, Condition, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
 use weldsuite_desk_domain::assignment::Picker;
 use weldsuite_desk_domain::attributes::Update;
@@ -17,6 +18,7 @@ use weldsuite_desk_domain::list::{ListQuery, list};
 use weldsuite_events::{EntityEvent, EventType};
 use weldsuite_kit::validation::Field;
 use weldsuite_ports::BoxFuture;
+use weldsuite_schema::master::workspaces;
 
 use super::{ToolContext, ToolError, ToolSpec};
 
@@ -121,13 +123,18 @@ impl InboxEmitter for AgentEmitter<'_> {
 /// may be what the run carries).
 async fn workspace_ids(ctx: &ToolContext) -> (String, String) {
     if let Some(master) = &ctx.master {
-        let row: Option<(String, Option<String>)> = sqlx::query_as(
-            "select id, clerk_org_id from workspaces where id = $1 or clerk_org_id = $1 limit 1",
-        )
-        .bind(&ctx.workspace_id)
-        .fetch_optional(master)
-        .await
-        .unwrap_or(None);
+        let row: Option<(String, Option<String>)> = workspaces::Entity::find()
+            .select_only()
+            .columns([workspaces::Column::Id, workspaces::Column::ClerkOrgId])
+            .filter(
+                Condition::any()
+                    .add(workspaces::Column::Id.eq(&ctx.workspace_id))
+                    .add(workspaces::Column::ClerkOrgId.eq(&ctx.workspace_id)),
+            )
+            .into_tuple()
+            .one(&weldsuite_db::orm(master))
+            .await
+            .unwrap_or(None);
         if let Some((id, org)) = row {
             return (id, org.unwrap_or_else(|| ctx.workspace_id.clone()));
         }

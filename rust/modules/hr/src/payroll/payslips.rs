@@ -2,8 +2,15 @@
 //! printable view, the PDF (stored in R2 once final, rendered on the fly
 //! with a watermark while draft) and the employee's own list.
 
+use sea_orm::prelude::BigDecimal;
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ColumnTrait, EntityTrait, FromQueryResult, JoinType, QueryFilter, QueryOrder, QuerySelect,
+};
+use serde::Serialize;
 use serde_json::{Value, json};
-use weldsuite_db::{Keyring, PgPool, js_row};
+use time::{Date, PrimitiveDateTime};
+use weldsuite_db::{Keyring, PgPool, orm, utc_now};
 use weldsuite_payroll_domain::documents::Lang;
 use weldsuite_payroll_domain::ordered::OrderedMap;
 use weldsuite_payroll_domain::payslip_pdf::{
@@ -11,6 +18,10 @@ use weldsuite_payroll_domain::payslip_pdf::{
 };
 use weldsuite_payroll_domain::types::PayslipLine;
 use weldsuite_ports::PutOptions;
+use weldsuite_schema::js;
+use weldsuite_schema::tenant::{
+    hr_employees, hr_payroll_employers, hr_payroll_profiles, hr_payslips,
+};
 
 use super::Deps;
 use super::common::{address_lines, mask_iban, mask_national_id, sort_issues, truthy_str};
@@ -18,10 +29,11 @@ use super::corrections::{Totals, row_totals};
 use super::employees::decrypt_sensitive;
 use super::employer_context::find_employer_for_payroll;
 use super::notifier::language_of;
-use super::runs::{int_of, payslip_sql, s};
+use super::runs::{int_of, payslip_row, payslip_rows, s};
 use super::ytd::approved_before;
 use crate::HrError;
-use crate::employees::display_name_of;
+use crate::employees::{display_name, display_name_of};
+use crate::shared::row_json;
 
 /// `requirePayslip(db, id, onlyEmployeeId?)`: someone else's (or a draft)
 /// reads as missing.
@@ -30,11 +42,12 @@ pub(crate) async fn require_payslip(
     id: &str,
     only_employee_id: Option<&str>,
 ) -> Result<Value, HrError> {
-    let row: Option<Value> = sqlx::query_scalar(payslip_sql("s.id = $1 limit 1"))
-        .bind(id)
-        .fetch_optional(db)
-        .await?;
-    match row.map(js_row) {
+    let row = payslip_row(
+        &orm(db),
+        hr_payslips::Entity::find().filter(hr_payslips::Column::Id.eq(id)),
+    )
+    .await?;
+    match row {
         Some(row)
             if only_employee_id
                 .is_none_or(|only| row["employeeId"] == only && row["status"] == "final") =>
@@ -45,21 +58,18 @@ pub(crate) async fn require_payslip(
     }
 }
 
-async fn row_by_id(db: &PgPool, table: &'static str, id: &str) -> Result<Option<Value>, HrError> {
-    let sql = match table {
-        "employer" => "select to_jsonb(t) from hr_payroll_employers t where t.id = $1 limit 1",
-        _ => "select to_jsonb(t) from hr_employees t where t.id = $1 limit 1",
-    };
-    let row: Option<Value> = sqlx::query_scalar(sql).bind(id).fetch_optional(db).await?;
-    Ok(row.map(js_row))
-}
-
 pub(crate) async fn employer_by_id(db: &PgPool, id: &str) -> Result<Option<Value>, HrError> {
-    row_by_id(db, "employer", id).await
+    let row = hr_payroll_employers::Entity::find_by_id(id.to_owned())
+        .one(&orm(db))
+        .await?;
+    Ok(row.map(row_json).transpose()?)
 }
 
 pub(crate) async fn employee_by_id(db: &PgPool, id: &str) -> Result<Option<Value>, HrError> {
-    row_by_id(db, "employee", id).await
+    let row = hr_employees::Entity::find_by_id(id.to_owned())
+        .one(&orm(db))
+        .await?;
+    Ok(row.map(row_json).transpose()?)
 }
 
 fn issues_of(row: &Value) -> Vec<Value> {
@@ -92,15 +102,16 @@ pub(crate) async fn list_employee_payslips(
     db: &PgPool,
     employee_id: &str,
 ) -> Result<Vec<Value>, HrError> {
-    let rows: Vec<Value> = sqlx::query_scalar(payslip_sql(
-        "s.employee_id = $1 and s.status = 'final' order by s.pay_date desc, s.created_at desc limit 200",
-    ))
-    .bind(employee_id)
-    .fetch_all(db)
-    .await?
-    .into_iter()
-    .map(js_row)
-    .collect();
+    let rows = payslip_rows(
+        &orm(db),
+        hr_payslips::Entity::find()
+            .filter(hr_payslips::Column::EmployeeId.eq(employee_id))
+            .filter(hr_payslips::Column::Status.eq("final"))
+            .order_by_desc(hr_payslips::Column::PayDate)
+            .order_by_desc(hr_payslips::Column::CreatedAt)
+            .limit(200),
+    )
+    .await?;
     let Some(employee) = employee_by_id(db, employee_id).await? else {
         return Err(HrError::not_found("Employee", employee_id));
     };
@@ -122,30 +133,77 @@ pub(crate) async fn list_employee_payslips(
         .collect())
 }
 
+/// A row of the employee's own payslip list (`myPayslips`).
+#[derive(FromQueryResult, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct MyPayslip {
+    id: String,
+    number: Option<String>,
+    employer_name: String,
+    currency: String,
+    #[serde(with = "js::date")]
+    period_start: Date,
+    #[serde(with = "js::date")]
+    period_end: Date,
+    #[serde(with = "js::date")]
+    pay_date: Date,
+    #[serde(serialize_with = "js::Numeric::<2>::serialize")]
+    gross_pay: BigDecimal,
+    #[serde(serialize_with = "js::Numeric::<2>::serialize")]
+    net_pay: BigDecimal,
+    #[serde(with = "js::timestamp::option")]
+    viewed_at: Option<PrimitiveDateTime>,
+}
+
 /// `myPayslips(db, employeeId)`: the employee's own final payslips.
 pub(crate) async fn my_payslips(db: &PgPool, employee_id: &str) -> Result<Vec<Value>, HrError> {
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select jsonb_build_object('id', s.id, 'number', s.number, 'employerName', e.name, 'currency', s.currency,
-           'periodStart', s.period_start, 'periodEnd', s.period_end, 'payDate', s.pay_date, 'grossPay', s.gross_pay::text,
-           'netPay', s.net_pay::text, 'viewedAt', s.employee_viewed_at)
-         from hr_payslips s join hr_payroll_employers e on e.id = s.employer_id
-         where s.employee_id = $1 and s.status = 'final'
-         order by s.pay_date desc, s.created_at desc limit 240",
-    )
-    .bind(employee_id)
-    .fetch_all(db)
-    .await?;
-    Ok(rows.into_iter().map(js_row).collect())
+    use hr_payslips::Column;
+    let rows: Vec<MyPayslip> = hr_payslips::Entity::find()
+        .select_only()
+        .columns([
+            Column::Id,
+            Column::Number,
+            Column::Currency,
+            Column::PeriodStart,
+            Column::PeriodEnd,
+            Column::PayDate,
+            Column::GrossPay,
+            Column::NetPay,
+        ])
+        .column_as(hr_payroll_employers::Column::Name, "employer_name")
+        .column_as(Column::EmployeeViewedAt, "viewed_at")
+        .join(
+            JoinType::InnerJoin,
+            hr_payslips::Entity::belongs_to(hr_payroll_employers::Entity)
+                .from(Column::EmployerId)
+                .to(hr_payroll_employers::Column::Id)
+                .into(),
+        )
+        .filter(Column::EmployeeId.eq(employee_id))
+        .filter(Column::Status.eq("final"))
+        .order_by_desc(Column::PayDate)
+        .order_by_desc(Column::CreatedAt)
+        .limit(240)
+        .into_model()
+        .all(&orm(db))
+        .await?;
+    Ok(rows
+        .into_iter()
+        .map(row_json)
+        .collect::<Result<Vec<_>, _>>()?)
 }
 
 /// `markPayslipViewed(db, id, at)`: the first time the employee opened it.
 pub(crate) async fn mark_payslip_viewed(db: &PgPool, id: &str) -> Result<(), HrError> {
     let row = require_payslip(db, id, None).await?;
     if row["employeeViewedAt"].is_null() {
-        sqlx::query("update hr_payslips set employee_viewed_at = $2::timestamp where id = $1")
-            .bind(id)
-            .bind(crate::now())
-            .execute(db)
+        hr_payslips::Entity::update_many()
+            .col_expr(
+                hr_payslips::Column::EmployeeViewedAt,
+                Expr::value(utc_now()),
+            )
+            .filter(hr_payslips::Column::Id.eq(id))
+            .exec(&orm(db))
             .await?;
     }
     Ok(())
@@ -170,17 +228,16 @@ fn totals_view(t: Totals) -> Value {
 /// `ytdViewOf(db, row)`: the year's final payslips approved before it,
 /// plus itself.
 async fn ytd_view_of(db: &PgPool, row: &Value) -> Result<PayslipYtdView, HrError> {
-    let others: Vec<Value> = sqlx::query_scalar(payslip_sql(
-        "s.employee_id = $1 and s.employer_id = $2 and s.tax_year = $3 and s.status = 'final'",
-    ))
-    .bind(s(row, "employeeId"))
-    .bind(s(row, "employerId"))
-    .bind(i32::try_from(int_of(row, "taxYear")).unwrap_or_default())
-    .fetch_all(db)
-    .await?
-    .into_iter()
-    .map(js_row)
-    .collect();
+    use hr_payslips::Column;
+    let others = payslip_rows(
+        &orm(db),
+        hr_payslips::Entity::find()
+            .filter(Column::EmployeeId.eq(s(row, "employeeId")))
+            .filter(Column::EmployerId.eq(s(row, "employerId")))
+            .filter(Column::TaxYear.eq(i32::try_from(int_of(row, "taxYear")).unwrap_or_default()))
+            .filter(Column::Status.eq("final")),
+    )
+    .await?;
     let id = s(row, "id");
     let earlier: Vec<Value> = match row["number"].as_str() {
         Some(number) => approved_before(&others, Some(number)),
@@ -220,24 +277,25 @@ pub(crate) async fn build_payslip_view(
     let (Some(employer), Some(employee)) = (employer, employee) else {
         return Err(HrError::not_found("Payslip", s(row, "id")));
     };
-    let profile: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from hr_payroll_profiles t where t.employee_id = $1 limit 1",
-    )
-    .bind(s(row, "employeeId"))
-    .fetch_optional(db)
-    .await?;
-    let profile = profile.map(js_row);
+    let profile = hr_payroll_profiles::Entity::find()
+        .filter(hr_payroll_profiles::Column::EmployeeId.eq(s(row, "employeeId")))
+        .one(&orm(db))
+        .await?
+        .map(row_json)
+        .transpose()?;
     let sensitive = decrypt_sensitive(&employee, keyring)?;
     let lang = language_of(&employer);
     let country = s(&employer, "country").to_owned();
     let nl = country == "NL";
     let correction = match row["correctsPayslipId"].as_str().filter(|v| !v.is_empty()) {
         Some(original) => {
-            let number: Option<Option<String>> =
-                sqlx::query_scalar("select number from hr_payslips where id = $1 limit 1")
-                    .bind(original)
-                    .fetch_optional(db)
-                    .await?;
+            let number: Option<Option<String>> = hr_payslips::Entity::find()
+                .select_only()
+                .column(hr_payslips::Column::Number)
+                .filter(hr_payslips::Column::Id.eq(original))
+                .into_tuple()
+                .one(&orm(db))
+                .await?;
             json!({ "originalNumber": number.flatten() })
         }
         None => Value::Null,
@@ -353,10 +411,10 @@ pub(crate) async fn render_and_store_payslip(
             .await;
         match stored {
             Ok(_) => {
-                sqlx::query("update hr_payslips set file_key = $2 where id = $1")
-                    .bind(s(row, "id"))
-                    .bind(&key)
-                    .execute(db)
+                hr_payslips::Entity::update_many()
+                    .col_expr(hr_payslips::Column::FileKey, Expr::value(key))
+                    .filter(hr_payslips::Column::Id.eq(s(row, "id")))
+                    .exec(&orm(db))
                     .await?;
             }
             Err(error) => tracing::error!(%error, "[payroll] could not store the payslip PDF"),
@@ -392,24 +450,30 @@ pub(crate) async fn employees_to_notify(
     db: &PgPool,
     employee_ids: &[String],
 ) -> Result<Vec<(String, String, String)>, HrError> {
+    use hr_employees::Column;
     if employee_ids.is_empty() {
         return Ok(vec![]);
     }
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(e) from hr_employees e where e.id = any($1) and e.deleted_at is null and e.user_id is not null",
-    )
-    .bind(employee_ids)
-    .fetch_all(db)
-    .await?;
+    let rows: Vec<(String, String, String, String, Option<String>)> = hr_employees::Entity::find()
+        .select_only()
+        .columns([
+            Column::Id,
+            Column::Email,
+            Column::FirstName,
+            Column::LastName,
+            Column::PreferredName,
+        ])
+        .filter(Column::Id.is_in(employee_ids.iter().map(String::as_str)))
+        .filter(Column::DeletedAt.is_null())
+        .filter(Column::UserId.is_not_null())
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     Ok(rows
         .into_iter()
-        .map(js_row)
-        .map(|e| {
-            (
-                s(&e, "id").to_owned(),
-                s(&e, "email").to_owned(),
-                display_name_of(&e),
-            )
+        .map(|(id, email, first, last, preferred)| {
+            let name = display_name(&first, &last, preferred.as_deref());
+            (id, email, name)
         })
         .collect())
 }

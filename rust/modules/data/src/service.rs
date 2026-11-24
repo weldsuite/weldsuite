@@ -2,20 +2,29 @@
 //! lists of saved leads, converting leads into CRM people and companies,
 //! enrichment columns and cells. No HTTP here.
 
-use std::fmt::Write as _;
-
+use sea_orm::ActiveValue::Set;
+use sea_orm::sea_query::{Expr, Func, OnConflict};
+use sea_orm::{
+    ColumnTrait, Condition, DatabaseConnection, DbErr, EntityTrait, PaginatorTrait, QueryFilter,
+    QueryOrder, QuerySelect,
+};
 use serde_json::{Map, Value, json};
+use time::PrimitiveDateTime;
 use weldsuite_crm_domain::DomainError;
-use weldsuite_db::{PgPool, js_row};
+use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_kit::id::generate_id;
+use weldsuite_schema::tenant::welddata_cells::{self, Column as Cell};
+use weldsuite_schema::tenant::welddata_columns::{self, Column as Col};
+use weldsuite_schema::tenant::welddata_leads::{self, Column as Lead};
+use weldsuite_schema::tenant::welddata_lists::{self, Column as List};
+use weldsuite_schema::tenant::{companies, list_members, lists};
 
 use crate::js::{is_js_space, js_lowercase, js_trim, text, truthy};
-use crate::now;
 
 /// What a service call fails with.
 #[derive(Debug)]
 pub(crate) enum ServiceError {
-    Db(sqlx::Error),
+    Db(DbErr),
     /// A CRM write refused or failed (`InvalidMemberIdError`,
     /// `PersonDuplicateEmailError`, …).
     Crm(DomainError),
@@ -33,8 +42,8 @@ impl std::fmt::Display for ServiceError {
     }
 }
 
-impl From<sqlx::Error> for ServiceError {
-    fn from(error: sqlx::Error) -> Self {
+impl From<DbErr> for ServiceError {
+    fn from(error: DbErr) -> Self {
         Self::Db(error)
     }
 }
@@ -46,6 +55,60 @@ impl From<DomainError> for ServiceError {
 }
 
 pub(crate) type ServiceResult<T> = Result<T, ServiceError>;
+
+// ── Rows through the entities ───────────────────────────────────────────────
+
+/// A row as the routes return it: Drizzle's JSON shape, decided by the
+/// entity.
+pub(crate) fn js<M: serde::Serialize>(model: M) -> Result<Value, DbErr> {
+    serde_json::to_value(model).map_err(|error| DbErr::Json(error.to_string()))
+}
+
+/// [`js`] of every row.
+pub(crate) fn js_rows<M: serde::Serialize>(models: Vec<M>) -> Result<Vec<Value>, DbErr> {
+    models.into_iter().map(js).collect()
+}
+
+/// `$n::int` of a JavaScript integer: Postgres refuses one out of range.
+pub(crate) fn int4(value: i64) -> Result<i32, DbErr> {
+    i32::try_from(value).map_err(|_| DbErr::Custom("integer out of range".to_owned()))
+}
+
+/// A keyset page's cursor: the cursor row's `createdAt` as a `Date` holds
+/// it (milliseconds), and its id.
+pub(crate) type CursorRow = (PrimitiveDateTime, String);
+
+/// The keyset of the cursor row `id` of a table, when the row is there.
+pub(crate) async fn cursor_row<E: EntityTrait>(
+    db: &DatabaseConnection,
+    created_at: E::Column,
+    id_column: E::Column,
+    id: &str,
+) -> Result<Option<CursorRow>, DbErr> {
+    let created: Option<PrimitiveDateTime> = E::find()
+        .select_only()
+        .column(created_at)
+        .filter(id_column.eq(id))
+        .into_tuple()
+        .one(db)
+        .await?;
+    Ok(created.map(|at| (weldsuite_db::utc_timestamp(at.assume_utc()), id.to_owned())))
+}
+
+/// `created_at < cursor or (created_at = cursor and id < cursorId)`: past
+/// the cursor, newest first.
+pub(crate) fn before<C: ColumnTrait>(created_at: C, id: C, (at, cursor): &CursorRow) -> Condition {
+    Condition::any().add(created_at.lt(*at)).add(
+        Condition::all()
+            .add(created_at.eq(*at))
+            .add(id.lt(cursor.as_str())),
+    )
+}
+
+/// A `count(*)` as the page's `totalCount`.
+fn count_of(total: u64) -> i64 {
+    i64::try_from(total).unwrap_or(i64::MAX)
+}
 
 /// One page of a list: the rows, the count, whether there is more, the
 /// next cursor.
@@ -92,34 +155,6 @@ fn paged(mut rows: Vec<Value>, limit: i64, total_count: i64) -> Page {
     }
 }
 
-/// The keyset of a cursor row of `table` (`createdAt` as a `Date`
-/// holds it, the id), when the row is there.
-async fn cursor_of(
-    db: &PgPool,
-    table: &str,
-    id: Option<&str>,
-) -> ServiceResult<Option<(String, String)>> {
-    let Some(id) = id else {
-        return Ok(None);
-    };
-    let row: Option<Value> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-        "select to_jsonb(t.created_at) from {table} t where t.id = $1 limit 1"
-    )))
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.and_then(|created| {
-        js_row(json!({ "createdAt": created }))
-            .get("createdAt")
-            .and_then(Value::as_str)
-            .map(|created| (created.to_owned(), id.to_owned()))
-    }))
-}
-
-fn rows(values: Vec<Value>) -> Vec<Value> {
-    values.into_iter().map(js_row).collect()
-}
-
 // ── Lists ───────────────────────────────────────────────────────────────────
 
 /// `listLists(db, params)`: the page, each list with its live lead count.
@@ -131,45 +166,54 @@ pub(crate) async fn list_lists(
 ) -> ServiceResult<Page> {
     let limit = limit.min(100.0);
     let take = page_limit(limit)?;
+    let db = orm(db);
     let pattern = search.filter(|s| !s.is_empty()).map(|s| format!("%{s}%"));
-    let keyset = cursor_of(db, "welddata_lists", cursor.filter(|c| !c.is_empty())).await?;
-    let (created, id) = keyset.clone().unzip();
-    let found: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from welddata_lists t
-         where t.deleted_at is null and ($1::text is null or t.name ilike $1)
-           and ($2::timestamp is null or t.created_at < $2::timestamp
-                or (t.created_at = $2::timestamp and t.id < $3))
-         order by t.created_at desc, t.id desc limit $4",
-    )
-    .bind(&pattern)
-    .bind(&created)
-    .bind(&id)
-    .bind(take)
-    .fetch_all(db)
-    .await?;
-    let total: i64 = sqlx::query_scalar(
-        "select count(*) from welddata_lists t
-         where t.deleted_at is null and ($1::text is null or t.name ilike $1)",
-    )
-    .bind(&pattern)
-    .fetch_one(db)
-    .await?;
-    let mut page = paged(rows(found), take - 1, total);
+    let keyset = match cursor.filter(|c| !c.is_empty()) {
+        Some(id) => {
+            cursor_row::<welddata_lists::Entity>(&db, List::CreatedAt, List::Id, id).await?
+        }
+        None => None,
+    };
+    let live = || {
+        let mut live = Condition::all().add(List::DeletedAt.is_null());
+        if let Some(pattern) = &pattern {
+            live = live.add(List::Name.ilike(pattern.as_str()));
+        }
+        live
+    };
+    let mut found = welddata_lists::Entity::find().filter(live());
+    if let Some(keyset) = &keyset {
+        found = found.filter(before(List::CreatedAt, List::Id, keyset));
+    }
+    let found = found
+        .order_by_desc(List::CreatedAt)
+        .order_by_desc(List::Id)
+        .limit(u64::try_from(take).unwrap_or_default())
+        .all(&db)
+        .await?;
+    let total = welddata_lists::Entity::find()
+        .filter(live())
+        .count(&db)
+        .await?;
+    let mut page = paged(js_rows(found)?, take - 1, count_of(total));
     let ids: Vec<String> = page
         .rows
         .iter()
         .filter_map(|row| text(row, "id").map(str::to_owned))
         .collect();
-    let counts: Vec<(String, i32)> = if ids.is_empty() {
+    let counts: Vec<(String, i64)> = if ids.is_empty() {
         Vec::new()
     } else {
-        sqlx::query_as(
-            "select list_id, count(*)::int from welddata_leads
-             where list_id = any($1) and deleted_at is null group by list_id",
-        )
-        .bind(&ids)
-        .fetch_all(db)
-        .await?
+        welddata_leads::Entity::find()
+            .select_only()
+            .column(Lead::ListId)
+            .column_as(Lead::Id.count(), "count")
+            .filter(Lead::ListId.is_in(ids))
+            .filter(Lead::DeletedAt.is_null())
+            .group_by(Lead::ListId)
+            .into_tuple()
+            .all(&db)
+            .await?
     };
     for row in &mut page.rows {
         let count = text(row, "id")
@@ -182,33 +226,27 @@ pub(crate) async fn list_lists(
 
 /// `getList(db, id)`: a live list with its lead count.
 pub(crate) async fn get_list(db: &PgPool, id: &str) -> ServiceResult<Option<Value>> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from welddata_lists t where t.id = $1 and t.deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
+    let db = orm(db);
+    let row = welddata_lists::Entity::find_by_id(id)
+        .filter(List::DeletedAt.is_null())
+        .one(&db)
+        .await?;
     let Some(row) = row else {
         return Ok(None);
     };
-    let count: i32 = sqlx::query_scalar(
-        "select count(*)::int from welddata_leads where list_id = $1 and deleted_at is null",
-    )
-    .bind(id)
-    .fetch_one(db)
-    .await?;
-    let mut row = js_row(row);
+    let count = welddata_leads::Entity::find()
+        .filter(Lead::ListId.eq(id))
+        .filter(Lead::DeletedAt.is_null())
+        .count(&db)
+        .await?;
+    let mut row = js(row)?;
     row["leadCount"] = json!(count);
     Ok(Some(row))
 }
 
-async fn list_row(db: &PgPool, id: &str) -> ServiceResult<Option<Value>> {
-    let row: Option<Value> =
-        sqlx::query_scalar("select to_jsonb(t) from welddata_lists t where t.id = $1 limit 1")
-            .bind(id)
-            .fetch_optional(db)
-            .await?;
-    Ok(row.map(js_row))
+async fn list_row(db: &DatabaseConnection, id: &str) -> ServiceResult<Option<Value>> {
+    let row = welddata_lists::Entity::find_by_id(id).one(db).await?;
+    Ok(row.map(js).transpose()?)
 }
 
 /// A new list's fields, as the schema read them.
@@ -226,34 +264,37 @@ pub(crate) async fn create_list(
     input: NewList,
     created_by: &str,
 ) -> ServiceResult<Value> {
+    let db = orm(db);
     let id = generate_id("wdlist");
-    let at = now();
-    sqlx::query(
-        "insert into welddata_lists (id, created_at, updated_at, kind, name, description, color, icon, created_by)
-         values ($1, $2::timestamp, $2::timestamp, $3, $4, $5, $6, $7, $8)",
-    )
-    .bind(&id)
-    .bind(&at)
-    .bind(&input.kind)
-    .bind(&input.name)
-    .bind(&input.description)
-    .bind(input.color.as_deref().unwrap_or("bg-blue-500"))
-    .bind(input.icon.as_deref().unwrap_or("Database"))
-    .bind(created_by)
-    .execute(db)
+    let at = utc_now();
+    welddata_lists::Entity::insert(welddata_lists::ActiveModel {
+        id: Set(id.clone()),
+        created_at: Set(at),
+        updated_at: Set(at),
+        kind: Set(input.kind),
+        name: Set(input.name),
+        description: Set(input.description),
+        color: Set(input.color.unwrap_or_else(|| "bg-blue-500".to_owned())),
+        icon: Set(input.icon.unwrap_or_else(|| "Database".to_owned())),
+        created_by: Set(Some(created_by.to_owned())),
+        ..Default::default()
+    })
+    .exec_without_returning(&db)
     .await?;
-    list_row(db, &id)
+    list_row(&db, &id)
         .await?
         .ok_or_else(|| ServiceError::Other("List disappeared after insert".to_owned()))
 }
 
-async fn live_list_kind(db: &PgPool, id: &str) -> ServiceResult<Option<String>> {
-    Ok(sqlx::query_scalar(
-        "select kind from welddata_lists where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await?)
+async fn live_list_kind(db: &DatabaseConnection, id: &str) -> ServiceResult<Option<String>> {
+    Ok(welddata_lists::Entity::find()
+        .select_only()
+        .column(List::Kind)
+        .filter(List::Id.eq(id))
+        .filter(List::DeletedAt.is_null())
+        .into_tuple()
+        .one(db)
+        .await?)
 }
 
 /// `updateList(db, id, input)`: the fields given (`name`, `description`,
@@ -263,60 +304,87 @@ pub(crate) async fn update_list(
     id: &str,
     fields: &[(&'static str, String)],
 ) -> ServiceResult<Option<Value>> {
-    if live_list_kind(db, id).await?.is_none() {
+    let db = orm(db);
+    if live_list_kind(&db, id).await?.is_none() {
         return Ok(None);
     }
-    let mut sql = String::from("update welddata_lists set updated_at = $2::timestamp");
-    for (index, (column, _)) in fields.iter().enumerate() {
-        let _ = write!(sql, ", {column} = ${}", index + 3);
+    let mut update =
+        welddata_lists::Entity::update_many().col_expr(List::UpdatedAt, Expr::value(utc_now()));
+    for (column, value) in fields {
+        let column = match *column {
+            "name" => List::Name,
+            "description" => List::Description,
+            "color" => List::Color,
+            "icon" => List::Icon,
+            other => {
+                return Err(ServiceError::Other(format!(
+                    "column \"{other}\" of relation \"welddata_lists\" does not exist"
+                )));
+            }
+        };
+        update = update.col_expr(column, Expr::value(value.as_str()));
     }
-    sql.push_str(" where id = $1");
-    let mut query = sqlx::query(sqlx::AssertSqlSafe(sql)).bind(id).bind(now());
-    for (_, value) in fields {
-        query = query.bind(value);
-    }
-    query.execute(db).await?;
-    list_row(db, id).await
+    update.filter(List::Id.eq(id)).exec(&db).await?;
+    list_row(&db, id).await
 }
 
 /// `deleteList(db, id)`: the list and its leads, soft.
 pub(crate) async fn delete_list(db: &PgPool, id: &str) -> ServiceResult<bool> {
-    if live_list_kind(db, id).await?.is_none() {
+    let db = orm(db);
+    if live_list_kind(&db, id).await?.is_none() {
         return Ok(false);
     }
-    let at = now();
-    sqlx::query("update welddata_lists set deleted_at = $2::timestamp, updated_at = $2::timestamp where id = $1")
-        .bind(id)
-        .bind(&at)
-        .execute(db)
+    let at = utc_now();
+    welddata_lists::Entity::update_many()
+        .col_expr(List::DeletedAt, Expr::value(at))
+        .col_expr(List::UpdatedAt, Expr::value(at))
+        .filter(List::Id.eq(id))
+        .exec(&db)
         .await?;
-    sqlx::query(
-        "update welddata_leads set deleted_at = $2::timestamp, updated_at = $2::timestamp
-         where list_id = $1 and deleted_at is null",
-    )
-    .bind(id)
-    .bind(&at)
-    .execute(db)
-    .await?;
+    welddata_leads::Entity::update_many()
+        .col_expr(Lead::DeletedAt, Expr::value(at))
+        .col_expr(Lead::UpdatedAt, Expr::value(at))
+        .filter(Lead::ListId.eq(id))
+        .filter(Lead::DeletedAt.is_null())
+        .exec(&db)
+        .await?;
     Ok(true)
 }
 
 // ── Saved leads ─────────────────────────────────────────────────────────────
 
-/// The lead fields a saved lead takes from its input, `(input, column)`.
-const LEAD_TEXT_FIELDS: [(&str, &str); 11] = [
-    ("lemlistId", "lemlist_id"),
-    ("name", "name"),
-    ("email", "email"),
-    ("title", "title"),
-    ("companyName", "company_name"),
-    ("domain", "domain"),
-    ("industry", "industry"),
-    ("location", "location"),
-    ("country", "country"),
-    ("companySize", "company_size"),
-    ("linkedinUrl", "linkedin_url"),
-];
+/// A saved lead's row from its input (the fields given, the rest `null`).
+fn lead_model(
+    lead: &Map<String, Value>,
+    list_id: &str,
+    kind: &str,
+    added_by: &str,
+    at: PrimitiveDateTime,
+) -> welddata_leads::ActiveModel {
+    let text = |key: &str| lead.get(key).and_then(Value::as_str).map(str::to_owned);
+    welddata_leads::ActiveModel {
+        id: Set(generate_id("wdlead")),
+        created_at: Set(at),
+        updated_at: Set(at),
+        list_id: Set(list_id.to_owned()),
+        added_by: Set(Some(added_by.to_owned())),
+        kind: Set(kind.to_owned()),
+        lemlist_id: Set(text("lemlistId")),
+        data: Set(lead.get("data").filter(|data| !data.is_null()).cloned()),
+        name: Set(text("name")),
+        email: Set(text("email")),
+        title: Set(text("title")),
+        company_name: Set(text("companyName")),
+        domain: Set(text("domain")),
+        industry: Set(text("industry")),
+        location: Set(text("location")),
+        country: Set(text("country")),
+        company_size: Set(text("companySize")),
+        linkedin_url: Set(text("linkedinUrl")),
+        converted_status: Set("pending".to_owned()),
+        ..Default::default()
+    }
+}
 
 /// `addLeads(db, listId, input, addedBy)`: `(added, skipped)`, or `None`
 /// when the list isn't there. Leads of the other kind are skipped, and so
@@ -327,7 +395,8 @@ pub(crate) async fn add_leads(
     leads: &[Map<String, Value>],
     added_by: &str,
 ) -> ServiceResult<Option<(usize, usize)>> {
-    let Some(kind) = live_list_kind(db, list_id).await? else {
+    let db = orm(db);
+    let Some(kind) = live_list_kind(&db, list_id).await? else {
         return Ok(None);
     };
     let matching: Vec<&Map<String, Value>> = leads
@@ -338,48 +407,18 @@ pub(crate) async fn add_leads(
     if matching.is_empty() {
         return Ok(Some((0, leads.len())));
     }
-    let at = now();
-    let records: Vec<Value> = matching
+    let at = utc_now();
+    let records = matching
         .iter()
-        .map(|lead| {
-            let mut record = Map::new();
-            record.insert("id".into(), json!(generate_id("wdlead")));
-            record.insert("created_at".into(), json!(at));
-            record.insert("updated_at".into(), json!(at));
-            record.insert("list_id".into(), json!(list_id));
-            record.insert("added_by".into(), json!(added_by));
-            record.insert(
-                "kind".into(),
-                lead.get("kind").cloned().unwrap_or(Value::Null),
-            );
-            for (field, column) in LEAD_TEXT_FIELDS {
-                record.insert(
-                    column.into(),
-                    lead.get(field).cloned().unwrap_or(Value::Null),
-                );
-            }
-            record.insert(
-                "data".into(),
-                lead.get("data").cloned().unwrap_or(Value::Null),
-            );
-            record.insert("converted_status".into(), json!("pending"));
-            Value::Object(record)
-        })
-        .collect();
-    let inserted: Vec<String> = sqlx::query_scalar(
-        "insert into welddata_leads (id, created_at, updated_at, list_id, added_by, kind, lemlist_id, data,
-                                     name, email, title, company_name, domain, industry, location, country,
-                                     company_size, linkedin_url, converted_status)
-         select id, created_at, updated_at, list_id, added_by, kind, lemlist_id, data,
-                name, email, title, company_name, domain, industry, location, country,
-                company_size, linkedin_url, converted_status
-         from jsonb_populate_recordset(null::welddata_leads, $1)
-         on conflict (list_id, kind, lemlist_id) do nothing
-         returning id",
-    )
-    .bind(Value::Array(records))
-    .fetch_all(db)
-    .await?;
+        .map(|lead| lead_model(lead, list_id, &kind, added_by, at));
+    let inserted: Vec<String> = welddata_leads::Entity::insert_many(records)
+        .on_conflict(
+            OnConflict::columns([Lead::ListId, Lead::Kind, Lead::LemlistId])
+                .do_nothing()
+                .to_owned(),
+        )
+        .exec_with_returning_keys(&db)
+        .await?;
     Ok(Some((
         inserted.len(),
         matching.len() - inserted.len() + mismatched,
@@ -395,6 +434,28 @@ pub(crate) struct LeadQuery {
     pub(crate) converted_status: Option<String>,
 }
 
+/// The live leads of the list that match the listing's filters.
+fn lead_filters(list_id: &str, query: &LeadQuery, pattern: Option<&str>) -> Condition {
+    let mut filters = Condition::all()
+        .add(Lead::ListId.eq(list_id))
+        .add(Lead::DeletedAt.is_null());
+    if let Some(kind) = query.kind.as_deref().filter(|s| !s.is_empty()) {
+        filters = filters.add(Lead::Kind.eq(kind));
+    }
+    if let Some(status) = query.converted_status.as_deref().filter(|s| !s.is_empty()) {
+        filters = filters.add(Lead::ConvertedStatus.eq(status));
+    }
+    if let Some(pattern) = pattern {
+        filters = filters.add(
+            Condition::any()
+                .add(Lead::Name.ilike(pattern))
+                .add(Lead::Email.ilike(pattern))
+                .add(Lead::CompanyName.ilike(pattern)),
+        );
+    }
+    filters
+}
+
 /// `listLeads(db, listId, params)`: the page, or `None` when the list
 /// isn't there.
 pub(crate) async fn list_leads(
@@ -402,7 +463,8 @@ pub(crate) async fn list_leads(
     list_id: &str,
     query: &LeadQuery,
 ) -> ServiceResult<Option<Page>> {
-    if live_list_kind(db, list_id).await?.is_none() {
+    let db = orm(db);
+    if live_list_kind(&db, list_id).await?.is_none() {
         return Ok(None);
     }
     let take = page_limit(query.limit.min(100.0))?;
@@ -411,53 +473,37 @@ pub(crate) async fn list_leads(
         .as_deref()
         .filter(|s| !s.is_empty())
         .map(|s| format!("%{s}%"));
-    let keyset = cursor_of(
-        db,
-        "welddata_leads",
-        query.cursor.as_deref().filter(|c| !c.is_empty()),
-    )
-    .await?;
-    let (created, id) = keyset.unzip();
-    let filters = "t.list_id = $1 and t.deleted_at is null
-           and ($2::text is null or t.kind = $2)
-           and ($3::text is null or t.converted_status = $3)
-           and ($4::text is null or t.name ilike $4 or t.email ilike $4 or t.company_name ilike $4)";
-    let found: Vec<Value> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-        "select to_jsonb(t) from welddata_leads t where {filters}
-           and ($5::timestamp is null or t.created_at < $5::timestamp
-                or (t.created_at = $5::timestamp and t.id < $6))
-         order by t.created_at desc, t.id desc limit $7"
-    )))
-    .bind(list_id)
-    .bind(query.kind.as_deref().filter(|s| !s.is_empty()))
-    .bind(query.converted_status.as_deref().filter(|s| !s.is_empty()))
-    .bind(&pattern)
-    .bind(&created)
-    .bind(&id)
-    .bind(take)
-    .fetch_all(db)
-    .await?;
-    let total: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-        "select count(*) from welddata_leads t where {filters}"
-    )))
-    .bind(list_id)
-    .bind(query.kind.as_deref().filter(|s| !s.is_empty()))
-    .bind(query.converted_status.as_deref().filter(|s| !s.is_empty()))
-    .bind(&pattern)
-    .fetch_one(db)
-    .await?;
-    Ok(Some(paged(rows(found), take - 1, total)))
+    let keyset = match query.cursor.as_deref().filter(|c| !c.is_empty()) {
+        Some(id) => {
+            cursor_row::<welddata_leads::Entity>(&db, Lead::CreatedAt, Lead::Id, id).await?
+        }
+        None => None,
+    };
+    let mut found =
+        welddata_leads::Entity::find().filter(lead_filters(list_id, query, pattern.as_deref()));
+    if let Some(keyset) = &keyset {
+        found = found.filter(before(Lead::CreatedAt, Lead::Id, keyset));
+    }
+    let found = found
+        .order_by_desc(Lead::CreatedAt)
+        .order_by_desc(Lead::Id)
+        .limit(u64::try_from(take).unwrap_or_default())
+        .all(&db)
+        .await?;
+    let total = welddata_leads::Entity::find()
+        .filter(lead_filters(list_id, query, pattern.as_deref()))
+        .count(&db)
+        .await?;
+    Ok(Some(paged(js_rows(found)?, take - 1, count_of(total))))
 }
 
 /// `getLead(db, id)`: a live saved lead.
 pub(crate) async fn get_lead(db: &PgPool, id: &str) -> ServiceResult<Option<Value>> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from welddata_leads t where t.id = $1 and t.deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(js_row))
+    let row = welddata_leads::Entity::find_by_id(id)
+        .filter(Lead::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?;
+    Ok(row.map(js).transpose()?)
 }
 
 /// `removeLead(db, id)`: soft.
@@ -465,11 +511,12 @@ pub(crate) async fn remove_lead(db: &PgPool, id: &str) -> ServiceResult<bool> {
     if get_lead(db, id).await?.is_none() {
         return Ok(false);
     }
-    let at = now();
-    sqlx::query("update welddata_leads set deleted_at = $2::timestamp, updated_at = $2::timestamp where id = $1")
-        .bind(id)
-        .bind(&at)
-        .execute(db)
+    let at = utc_now();
+    welddata_leads::Entity::update_many()
+        .col_expr(Lead::DeletedAt, Expr::value(at))
+        .col_expr(Lead::UpdatedAt, Expr::value(at))
+        .filter(Lead::Id.eq(id))
+        .exec(&orm(db))
         .await?;
     Ok(true)
 }
@@ -488,13 +535,15 @@ pub(crate) async fn saved_lemlist_ids(
     if ids.is_empty() {
         return Ok(Vec::new());
     }
-    let saved: Vec<String> = sqlx::query_scalar(
-        "select lemlist_id from welddata_leads
-         where list_id = any($1) and lemlist_id is not null and deleted_at is null",
-    )
-    .bind(&ids)
-    .fetch_all(db)
-    .await?;
+    let saved: Vec<String> = welddata_leads::Entity::find()
+        .select_only()
+        .column(Lead::LemlistId)
+        .filter(Lead::ListId.is_in(ids))
+        .filter(Lead::LemlistId.is_not_null())
+        .filter(Lead::DeletedAt.is_null())
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     Ok(saved.into_iter().filter(|id| !id.is_empty()).collect())
 }
 
@@ -534,12 +583,18 @@ async fn find_or_create_company(
     extra: &[(&str, Option<&str>)],
     owner_id: &str,
 ) -> ServiceResult<(String, bool)> {
-    let existing: Option<String> = sqlx::query_scalar(
-        "select id from companies where lower(name) = $1 and deleted_at is null limit 1",
-    )
-    .bind(js_lowercase(name))
-    .fetch_optional(db)
-    .await?;
+    let same_name = sea_orm::ExprTrait::eq(
+        Func::lower(Expr::col((companies::Entity, companies::Column::Name))),
+        js_lowercase(name),
+    );
+    let existing: Option<String> = companies::Entity::find()
+        .select_only()
+        .column(companies::Column::Id)
+        .filter(same_name)
+        .filter(companies::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     if let Some(id) = existing {
         return Ok((id, false));
     }
@@ -657,18 +712,19 @@ pub(crate) async fn convert_lead(
         });
     }
     let made = convert_search_lead(db, lead, create_company, owner_id).await?;
-    let at = now();
-    sqlx::query(
-        "update welddata_leads set converted_status = 'converted', converted_at = $2::timestamp,
-                converted_person_id = $3, converted_company_id = $4, updated_at = $2::timestamp
-         where id = $1",
-    )
-    .bind(id)
-    .bind(&at)
-    .bind(&made.person_id)
-    .bind(&made.company_id)
-    .execute(db)
-    .await?;
+    let at = utc_now();
+    welddata_leads::Entity::update_many()
+        .col_expr(Lead::ConvertedStatus, Expr::value("converted"))
+        .col_expr(Lead::ConvertedAt, Expr::value(at))
+        .col_expr(Lead::ConvertedPersonId, Expr::value(made.person_id.clone()))
+        .col_expr(
+            Lead::ConvertedCompanyId,
+            Expr::value(made.company_id.clone()),
+        )
+        .col_expr(Lead::UpdatedAt, Expr::value(at))
+        .filter(Lead::Id.eq(id))
+        .exec(&orm(db))
+        .await?;
     Ok(Converted {
         made,
         already: false,
@@ -677,12 +733,14 @@ pub(crate) async fn convert_lead(
 
 /// `getCrmList(db, id)`: a live CRM list's kind.
 pub(crate) async fn crm_list_kind(db: &PgPool, id: &str) -> ServiceResult<Option<String>> {
-    Ok(
-        sqlx::query_scalar("select kind from lists where id = $1 and deleted_at is null limit 1")
-            .bind(id)
-            .fetch_optional(db)
-            .await?,
-    )
+    Ok(lists::Entity::find()
+        .select_only()
+        .column(lists::Column::Kind)
+        .filter(lists::Column::Id.eq(id))
+        .filter(lists::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?)
 }
 
 /// `addCrmListMembers(db, listId, entityIds)`: the members added (those
@@ -701,13 +759,15 @@ pub(crate) async fn add_crm_list_members(
     if deduped.is_empty() {
         return Ok(0);
     }
-    let existing: Vec<String> = sqlx::query_scalar(
-        "select entity_id from list_members where list_id = $1 and entity_id = any($2)",
-    )
-    .bind(list_id)
-    .bind(&deduped)
-    .fetch_all(db)
-    .await?;
+    let db = orm(db);
+    let existing: Vec<String> = list_members::Entity::find()
+        .select_only()
+        .column(list_members::Column::EntityId)
+        .filter(list_members::Column::ListId.eq(list_id))
+        .filter(list_members::Column::EntityId.is_in(deduped.iter().map(String::as_str)))
+        .into_tuple()
+        .all(&db)
+        .await?;
     let to_add: Vec<String> = deduped
         .into_iter()
         .filter(|id| !existing.contains(id))
@@ -715,18 +775,17 @@ pub(crate) async fn add_crm_list_members(
     if to_add.is_empty() {
         return Ok(0);
     }
-    let ids: Vec<String> = to_add.iter().map(|_| generate_id("lm")).collect();
-    sqlx::query(
-        "insert into list_members (id, list_id, entity_id, added_at)
-         select member.id, $2, member.entity_id, $4::timestamp
-         from unnest($1::text[], $3::text[]) as member(id, entity_id)",
-    )
-    .bind(&ids)
-    .bind(list_id)
-    .bind(&to_add)
-    .bind(now())
-    .execute(db)
-    .await?;
+    let at = utc_now();
+    let members = to_add.iter().map(|entity_id| list_members::ActiveModel {
+        id: Set(generate_id("lm")),
+        list_id: Set(list_id.to_owned()),
+        entity_id: Set(entity_id.clone()),
+        added_at: Set(at),
+        ..Default::default()
+    });
+    list_members::Entity::insert_many(members)
+        .exec_without_returning(&db)
+        .await?;
     Ok(to_add.len())
 }
 
@@ -734,25 +793,42 @@ pub(crate) async fn add_crm_list_members(
 
 /// `listColumns(db, listId)`.
 pub(crate) async fn list_columns(db: &PgPool, list_id: &str) -> ServiceResult<Vec<Value>> {
-    let found: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from welddata_columns t
-         where t.list_id = $1 and t.deleted_at is null order by t.sort_order, t.created_at",
-    )
-    .bind(list_id)
-    .fetch_all(db)
-    .await?;
-    Ok(rows(found))
+    let found = welddata_columns::Entity::find()
+        .filter(Col::ListId.eq(list_id))
+        .filter(Col::DeletedAt.is_null())
+        .order_by_asc(Col::SortOrder)
+        .order_by_asc(Col::CreatedAt)
+        .all(&orm(db))
+        .await?;
+    Ok(js_rows(found)?)
+}
+
+async fn column_row(db: &DatabaseConnection, id: &str) -> ServiceResult<Option<Value>> {
+    let row = welddata_columns::Entity::find_by_id(id)
+        .filter(Col::DeletedAt.is_null())
+        .one(db)
+        .await?;
+    Ok(row.map(js).transpose()?)
 }
 
 /// `getColumn(db, id)`: a live column.
 pub(crate) async fn get_column(db: &PgPool, id: &str) -> ServiceResult<Option<Value>> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from welddata_columns t where t.id = $1 and t.deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(js_row))
+    column_row(&orm(db), id).await
+}
+
+/// The column type a config names (`config.type`, which the schema
+/// requires); the column is NOT NULL.
+fn config_type(config: &Value) -> ServiceResult<String> {
+    config
+        .get("type")
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+        .ok_or_else(|| {
+            ServiceError::Other(
+                "null value in column \"type\" of relation \"welddata_columns\" violates not-null constraint"
+                    .to_owned(),
+            )
+        })
 }
 
 /// `createColumn(db, listId, input, createdBy)`: at the end of the list's
@@ -764,32 +840,36 @@ pub(crate) async fn create_column(
     config: &Value,
     created_by: &str,
 ) -> ServiceResult<Option<Value>> {
-    if live_list_kind(db, list_id).await?.is_none() {
+    let db = orm(db);
+    if live_list_kind(&db, list_id).await?.is_none() {
         return Ok(None);
     }
-    let max: i32 = sqlx::query_scalar(
-        "select coalesce(max(sort_order), -1) from welddata_columns where list_id = $1 and deleted_at is null",
-    )
-    .bind(list_id)
-    .fetch_one(db)
-    .await?;
+    let max: Option<Option<i32>> = welddata_columns::Entity::find()
+        .select_only()
+        .column_as(Col::SortOrder.max(), "max")
+        .filter(Col::ListId.eq(list_id))
+        .filter(Col::DeletedAt.is_null())
+        .into_tuple()
+        .one(&db)
+        .await?;
+    let max = max.flatten().unwrap_or(-1);
     let id = generate_id("wdcol");
-    let at = now();
-    sqlx::query(
-        "insert into welddata_columns (id, created_at, updated_at, list_id, name, type, config, sort_order, created_by)
-         values ($1, $2::timestamp, $2::timestamp, $3, $4, $5, $6, $7, $8)",
-    )
-    .bind(&id)
-    .bind(&at)
-    .bind(list_id)
-    .bind(name)
-    .bind(config.get("type").and_then(Value::as_str))
-    .bind(config)
-    .bind(max + 1)
-    .bind(created_by)
-    .execute(db)
+    let at = utc_now();
+    welddata_columns::Entity::insert(welddata_columns::ActiveModel {
+        id: Set(id.clone()),
+        created_at: Set(at),
+        updated_at: Set(at),
+        list_id: Set(list_id.to_owned()),
+        name: Set(name.to_owned()),
+        type_: Set(config_type(config)?),
+        config: Set(Some(config.clone())),
+        sort_order: Set(max + 1),
+        created_by: Set(Some(created_by.to_owned())),
+        ..Default::default()
+    })
+    .exec_without_returning(&db)
     .await?;
-    get_column(db, &id).await
+    column_row(&db, &id).await
 }
 
 /// `updateColumn(db, id, input)`: `None` when the column isn't there.
@@ -800,43 +880,43 @@ pub(crate) async fn update_column(
     sort_order: Option<i64>,
     config: Option<&Value>,
 ) -> ServiceResult<Option<Value>> {
-    if get_column(db, id).await?.is_none() {
+    let db = orm(db);
+    if column_row(&db, id).await?.is_none() {
         return Ok(None);
     }
-    sqlx::query(
-        "update welddata_columns set updated_at = $2::timestamp,
-                name = coalesce($3, name),
-                sort_order = coalesce($4::int, sort_order),
-                config = case when $5::boolean then $6 else config end,
-                type = case when $5::boolean then $7 else type end
-         where id = $1",
-    )
-    .bind(id)
-    .bind(now())
-    .bind(name)
-    .bind(sort_order)
-    .bind(config.is_some())
-    .bind(config)
-    .bind(config.and_then(|c| c.get("type")).and_then(Value::as_str))
-    .execute(db)
-    .await?;
-    get_column(db, id).await
+    let mut update =
+        welddata_columns::Entity::update_many().col_expr(Col::UpdatedAt, Expr::value(utc_now()));
+    if let Some(name) = name {
+        update = update.col_expr(Col::Name, Expr::value(name));
+    }
+    if let Some(order) = sort_order {
+        update = update.col_expr(Col::SortOrder, Expr::value(int4(order)?));
+    }
+    if let Some(config) = config {
+        update = update
+            .col_expr(Col::Config, Expr::value(config.clone()))
+            .col_expr(Col::Type, Expr::value(config_type(config)?));
+    }
+    update.filter(Col::Id.eq(id)).exec(&db).await?;
+    column_row(&db, id).await
 }
 
 /// `deleteColumn(db, id)`: the column soft, its cells for good.
 pub(crate) async fn delete_column(db: &PgPool, id: &str) -> ServiceResult<bool> {
-    if get_column(db, id).await?.is_none() {
+    let db = orm(db);
+    if column_row(&db, id).await?.is_none() {
         return Ok(false);
     }
-    let at = now();
-    sqlx::query("update welddata_columns set deleted_at = $2::timestamp, updated_at = $2::timestamp where id = $1")
-        .bind(id)
-        .bind(&at)
-        .execute(db)
+    let at = utc_now();
+    welddata_columns::Entity::update_many()
+        .col_expr(Col::DeletedAt, Expr::value(at))
+        .col_expr(Col::UpdatedAt, Expr::value(at))
+        .filter(Col::Id.eq(id))
+        .exec(&db)
         .await?;
-    sqlx::query("delete from welddata_cells where column_id = $1")
-        .bind(id)
-        .execute(db)
+    welddata_cells::Entity::delete_many()
+        .filter(Cell::ColumnId.eq(id))
+        .exec(&db)
         .await?;
     Ok(true)
 }
@@ -845,53 +925,55 @@ pub(crate) async fn delete_column(db: &PgPool, id: &str) -> ServiceResult<bool> 
 /// update is an orphan of a run that died.
 const STUCK_RUNNING_MS: i64 = 10 * 60 * 1000;
 
-async fn live_column_ids(db: &PgPool, list_id: &str) -> ServiceResult<Vec<String>> {
-    Ok(sqlx::query_scalar(
-        "select id from welddata_columns where list_id = $1 and deleted_at is null",
-    )
-    .bind(list_id)
-    .fetch_all(db)
-    .await?)
+async fn live_column_ids(db: &DatabaseConnection, list_id: &str) -> ServiceResult<Vec<String>> {
+    Ok(welddata_columns::Entity::find()
+        .select_only()
+        .column(Col::Id)
+        .filter(Col::ListId.eq(list_id))
+        .filter(Col::DeletedAt.is_null())
+        .into_tuple()
+        .all(db)
+        .await?)
 }
 
 /// `reclaimStuckRunningCells(db, { listId })`: orphaned running cells of
 /// the list become errors, re-runnable.
-async fn reclaim_stuck_running_cells(db: &PgPool, list_id: &str) -> ServiceResult<()> {
+async fn reclaim_stuck_running_cells(db: &DatabaseConnection, list_id: &str) -> ServiceResult<()> {
     let columns = live_column_ids(db, list_id).await?;
     if columns.is_empty() {
         return Ok(());
     }
-    let cutoff = weldsuite_events::iso_timestamp(
+    let cutoff = weldsuite_db::utc_timestamp(
         time::OffsetDateTime::now_utc() - time::Duration::milliseconds(STUCK_RUNNING_MS),
     );
-    sqlx::query(
-        "update welddata_cells set status = 'error', error = 'Timed out — please re-run.', updated_at = $3::timestamp
-         where status = 'running' and updated_at < $2::timestamp and column_id = any($1)",
-    )
-    .bind(&columns)
-    .bind(&cutoff)
-    .bind(now())
-    .execute(db)
-    .await?;
+    welddata_cells::Entity::update_many()
+        .col_expr(Cell::Status, Expr::value("error"))
+        .col_expr(Cell::Error, Expr::value("Timed out — please re-run."))
+        .col_expr(Cell::UpdatedAt, Expr::value(utc_now()))
+        .filter(Cell::Status.eq("running"))
+        .filter(Cell::UpdatedAt.lt(cutoff))
+        .filter(Cell::ColumnId.is_in(columns))
+        .exec(db)
+        .await?;
     Ok(())
 }
 
 /// `listCells(db, listId)`: every cell of the list's live columns, after
 /// timing out the stuck ones (best effort).
 pub(crate) async fn list_cells(db: &PgPool, list_id: &str) -> ServiceResult<Vec<Value>> {
-    if let Err(error) = reclaim_stuck_running_cells(db, list_id).await {
+    let db = orm(db);
+    if let Err(error) = reclaim_stuck_running_cells(&db, list_id).await {
         tracing::warn!(%error, "welddata: reclaiming stuck cells failed");
     }
-    let columns = live_column_ids(db, list_id).await?;
+    let columns = live_column_ids(&db, list_id).await?;
     if columns.is_empty() {
         return Ok(Vec::new());
     }
-    let found: Vec<Value> =
-        sqlx::query_scalar("select to_jsonb(t) from welddata_cells t where t.column_id = any($1)")
-            .bind(&columns)
-            .fetch_all(db)
-            .await?;
-    Ok(rows(found))
+    let found = welddata_cells::Entity::find()
+        .filter(Cell::ColumnId.is_in(columns))
+        .all(&db)
+        .await?;
+    Ok(js_rows(found)?)
 }
 
 /// `resolveTargetLeadIds(db, listId, columnId, opts)`: the leads given,
@@ -904,24 +986,29 @@ pub(crate) async fn resolve_target_lead_ids(
     lead_ids: Option<Vec<String>>,
     only_missing: bool,
 ) -> ServiceResult<Vec<String>> {
+    let db = orm(db);
     let mut ids = match lead_ids {
         Some(ids) if !ids.is_empty() => ids,
         _ => {
-            sqlx::query_scalar(
-                "select id from welddata_leads where list_id = $1 and deleted_at is null",
-            )
-            .bind(list_id)
-            .fetch_all(db)
-            .await?
+            welddata_leads::Entity::find()
+                .select_only()
+                .column(Lead::Id)
+                .filter(Lead::ListId.eq(list_id))
+                .filter(Lead::DeletedAt.is_null())
+                .into_tuple()
+                .all(&db)
+                .await?
         }
     };
     if only_missing && !ids.is_empty() {
-        let done: Vec<String> = sqlx::query_scalar(
-            "select lead_id from welddata_cells where column_id = $1 and status = 'done'",
-        )
-        .bind(column_id)
-        .fetch_all(db)
-        .await?;
+        let done: Vec<String> = welddata_cells::Entity::find()
+            .select_only()
+            .column(Cell::LeadId)
+            .filter(Cell::ColumnId.eq(column_id))
+            .filter(Cell::Status.eq("done"))
+            .into_tuple()
+            .all(&db)
+            .await?;
         ids.retain(|id| !done.contains(id));
     }
     Ok(ids)
@@ -933,22 +1020,28 @@ pub(crate) async fn mark_cells_pending(
     column_id: &str,
     lead_ids: &[String],
 ) -> ServiceResult<()> {
-    let at = now();
+    let db = orm(db);
+    let at = utc_now();
     for chunk in lead_ids.chunks(500) {
-        let ids: Vec<String> = chunk.iter().map(|_| generate_id("wdcell")).collect();
-        sqlx::query(
-            "insert into welddata_cells (id, created_at, updated_at, column_id, lead_id, status)
-             select cell.id, $2::timestamp, $2::timestamp, $3, cell.lead_id, 'pending'
-             from unnest($1::text[], $4::text[]) as cell(id, lead_id)
-             on conflict (column_id, lead_id)
-             do update set status = 'pending', error = null, updated_at = $2::timestamp",
-        )
-        .bind(&ids)
-        .bind(&at)
-        .bind(column_id)
-        .bind(chunk)
-        .execute(db)
-        .await?;
+        let cells = chunk.iter().map(|lead_id| welddata_cells::ActiveModel {
+            id: Set(generate_id("wdcell")),
+            created_at: Set(at),
+            updated_at: Set(at),
+            column_id: Set(column_id.to_owned()),
+            lead_id: Set(lead_id.clone()),
+            status: Set("pending".to_owned()),
+            ..Default::default()
+        });
+        welddata_cells::Entity::insert_many(cells)
+            .on_conflict(
+                OnConflict::columns([Cell::ColumnId, Cell::LeadId])
+                    .value(Cell::Status, Expr::value("pending"))
+                    .value(Cell::Error, Expr::value(Option::<String>::None))
+                    .value(Cell::UpdatedAt, Expr::value(at))
+                    .to_owned(),
+            )
+            .exec_without_returning(&db)
+            .await?;
     }
     Ok(())
 }

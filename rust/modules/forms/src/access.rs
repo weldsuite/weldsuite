@@ -5,15 +5,18 @@
 //! its access list and `forms:manage`. A restricted form a member cannot see
 //! is a 404, never a 403.
 
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Value, json};
 use sqlx::PgPool;
 use weldsuite_catalogs::permission_keys::{
     FORM_RESPONSES_DELETE, FORM_RESPONSES_EXPORT, FORM_RESPONSES_READ, FORMS_DELETE, FORMS_MANAGE,
     FORMS_PUBLISH, FORMS_READ, FORMS_SEND, FORMS_UPDATE,
 };
+use weldsuite_db::orm;
 use weldsuite_permissions::Permissions;
+use weldsuite_schema::tenant::{form_access, forms};
 
-use crate::common::{FormsResult, not_found, one, text};
+use crate::common::{FormsResult, not_found, row_json, text};
 
 /// `MemberGrants`: what the member's workspace permissions allow.
 #[allow(
@@ -172,11 +175,11 @@ fn role_of(role: &str) -> Option<Relation> {
 
 /// A form row by id, as Drizzle returns it.
 pub(crate) async fn form_row(db: &PgPool, id: &str) -> FormsResult<Option<Value>> {
-    one(
-        db,
-        sqlx::query_scalar("select to_jsonb(f) from forms f where id = $1 limit 1").bind(id),
-    )
-    .await
+    forms::Entity::find_by_id(id)
+        .one(&orm(db))
+        .await?
+        .map(row_json)
+        .transpose()
 }
 
 /// `loadAccessibleForm(db, formId, userId, grants)`: 404 when it does not
@@ -194,13 +197,14 @@ pub(crate) async fn load_accessible_form(
         && text(&form, "ownerUserId") != user_id
         && !grants.manage
     {
-        let role: Option<String> = sqlx::query_scalar(
-            "select role from form_access where form_id = $1 and user_id = $2 limit 1",
-        )
-        .bind(text(&form, "id"))
-        .bind(user_id)
-        .fetch_optional(db)
-        .await?;
+        let role: Option<String> = form_access::Entity::find()
+            .select_only()
+            .column(form_access::Column::Role)
+            .filter(form_access::Column::FormId.eq(text(&form, "id")))
+            .filter(form_access::Column::UserId.eq(user_id))
+            .into_tuple()
+            .one(&orm(db))
+            .await?;
         role.as_deref().and_then(role_of)
     } else {
         None

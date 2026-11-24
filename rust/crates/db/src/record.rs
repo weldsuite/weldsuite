@@ -15,9 +15,13 @@
 //! The statements are built from the entity's columns, and the row comes back
 //! as the entity's model, which serializes as Drizzle returned the row.
 //! [`JsonTable`] holds an entity's statements behind function pointers, so a
-//! `const` list of tables can name its entity.
+//! `const` list of tables can name its entity. Lists of such a table start from
+//! [`JsonTable::select`], add their conditions, order and limit, and read the
+//! rows back the same way.
 
-use sea_orm::sea_query::{Alias, Expr, ExprTrait, Func, IntoIden, Query, TableRef};
+use sea_orm::sea_query::{
+    Alias, Asterisk, Expr, ExprTrait, Func, IntoIden, Query, SelectStatement, TableRef,
+};
 use sea_orm::{
     ColumnTrait, ConnectionTrait, DbBackend, DbErr, EntityTrait, FromQueryResult, IdenStatic,
     Iterable, QueryFilter, QueryResult, QueryTrait, Statement,
@@ -60,14 +64,39 @@ pub fn columns<E: EntityTrait>() -> Vec<&'static str> {
     E::Column::iter().map(|column| column.as_str()).collect()
 }
 
+/// The entity's table name.
+fn table_name<E: EntityTrait>() -> &'static str {
+    E::default().table_name()
+}
+
+/// `select <every column> from t`.
+fn select_statement<E: EntityTrait>() -> SelectStatement {
+    E::find().into_query()
+}
+
+/// `select count(*) from t …` with the conditions of `select` (its columns,
+/// order, limit and offset dropped).
+pub fn count_statement(select: &SelectStatement) -> Statement {
+    let mut count = select.clone();
+    count
+        .clear_selects()
+        .clear_order_by()
+        .reset_limit()
+        .reset_offset()
+        .expr_as(Func::count(Expr::col(Asterisk)), Alias::new("count"));
+    DbBackend::Postgres.build(&count)
+}
+
 /// `insert into t (<columns sent>) select r.<column>, … from
-/// jsonb_populate_record(…) r returning <every column>`.
+/// jsonb_populate_record(…) r returning <every column>` (an enum column as
+/// text, as `E::find()` reads it, so the model decodes).
 pub fn insert_statement<E: EntityTrait>(values: Map<String, Value>) -> Result<Statement, DbErr> {
     let columns = sent::<E>(&values);
     let mut insert = Query::insert();
-    insert
-        .into_table(E::default().table_ref())
-        .returning(Query::returning().columns(E::Column::iter()));
+    insert.into_table(E::default().table_ref()).returning(
+        Query::returning()
+            .exprs(E::Column::iter().map(|column| column.select_as(Expr::col(column)))),
+    );
     if columns.is_empty() {
         insert.or_default_values();
     } else {
@@ -94,8 +123,9 @@ pub fn find_statement<E: EntityTrait>(id: &str, live_only: bool) -> Result<State
 }
 
 /// `update t set <column> = r.<column>, … from jsonb_populate_record(…) r
-/// where t.id = $id returning <every column>`; `live_only` as in
-/// [`find_statement`]. With nothing to set, the row as it is.
+/// where t.id = $id returning <every column>` (enums as text, as in
+/// [`insert_statement`]); `live_only` as in [`find_statement`]. With nothing
+/// to set, the row as it is.
 pub fn update_statement<E: EntityTrait>(
     values: Map<String, Value>,
     id: &str,
@@ -121,7 +151,10 @@ pub fn update_statement<E: EntityTrait>(
     if live_only && let Some(deleted_at) = column::<E>("deleted_at") {
         update.and_where(Expr::col((table, deleted_at)).is_null());
     }
-    update.returning(Query::returning().columns(E::Column::iter().map(|column| (table, column))));
+    update.returning(
+        Query::returning()
+            .exprs(E::Column::iter().map(|column| column.select_as(Expr::col((table, column))))),
+    );
     Ok(DbBackend::Postgres.build(&update))
 }
 
@@ -151,6 +184,8 @@ pub struct JsonTable {
     find: FindRow,
     json: fn(&QueryResult) -> Result<Value, DbErr>,
     columns: fn() -> Vec<&'static str>,
+    name: fn() -> &'static str,
+    select: fn() -> SelectStatement,
 }
 
 impl std::fmt::Debug for JsonTable {
@@ -174,6 +209,8 @@ impl JsonTable {
             find: find_statement::<E>,
             json: json::<E>,
             columns: columns::<E>,
+            name: table_name::<E>,
+            select: select_statement::<E>,
         }
     }
 
@@ -181,6 +218,54 @@ impl JsonTable {
     #[must_use]
     pub fn columns(&self) -> Vec<&'static str> {
         (self.columns)()
+    }
+
+    /// The entity's table name.
+    #[must_use]
+    pub fn table_name(&self) -> &'static str {
+        (self.name)()
+    }
+
+    /// `t.<name>`, for a condition or an order on the entity's column `name`
+    /// in a statement built on [`JsonTable::select`]; `None` when the entity
+    /// has no such column.
+    #[must_use]
+    pub fn column(&self, name: &str) -> Option<Expr> {
+        let name = self.columns().into_iter().find(|column| *column == name)?;
+        Some(Expr::col((Alias::new(self.table_name()), Alias::new(name))))
+    }
+
+    /// `select <every column> from t`: a list adds its conditions, order and
+    /// limit, and reads the rows with [`JsonTable::rows`] and their number
+    /// with [`JsonTable::count`].
+    #[must_use]
+    pub fn select(&self) -> SelectStatement {
+        (self.select)()
+    }
+
+    /// The rows of a statement built on [`JsonTable::select`], as Drizzle
+    /// returns them.
+    pub async fn rows<C: ConnectionTrait>(
+        &self,
+        db: &C,
+        select: &SelectStatement,
+    ) -> Result<Vec<Value>, DbErr> {
+        let rows = db.query_all_raw(DbBackend::Postgres.build(select)).await?;
+        rows.iter().map(self.json).collect()
+    }
+
+    /// `count(*)` of the rows a statement built on [`JsonTable::select`]
+    /// matches: its conditions, whatever its order and limit.
+    pub async fn count<C: ConnectionTrait>(
+        &self,
+        db: &C,
+        select: &SelectStatement,
+    ) -> Result<i64, DbErr> {
+        let row = db
+            .query_one_raw(count_statement(select))
+            .await?
+            .ok_or_else(|| DbErr::RecordNotFound("count".to_owned()))?;
+        row.try_get("", "count")
     }
 
     /// Insert `values` (`{ column: value }`): the new row.
@@ -246,6 +331,31 @@ mod tests {
         impl ActiveModelBehavior for ActiveModel {}
     }
 
+    #[allow(unreachable_pub)]
+    mod tasks {
+        use sea_orm::entity::prelude::*;
+
+        #[derive(Clone, Debug, PartialEq, Eq, EnumIter, DeriveActiveEnum, serde::Serialize)]
+        #[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "task_status")]
+        pub enum Status {
+            #[sea_orm(string_value = "open")]
+            Open,
+        }
+
+        #[derive(Clone, Debug, PartialEq, DeriveEntityModel, serde::Serialize)]
+        #[sea_orm(table_name = "tasks")]
+        pub struct Model {
+            #[sea_orm(primary_key, auto_increment = false)]
+            pub id: String,
+            pub status: Status,
+        }
+
+        #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+        pub enum Relation {}
+
+        impl ActiveModelBehavior for ActiveModel {}
+    }
+
     fn object(value: Value) -> Map<String, Value> {
         match value {
             Value::Object(map) => map,
@@ -262,6 +372,23 @@ mod tests {
         assert_eq!(
             statement.sql,
             r#"INSERT INTO "things" ("id", "title") SELECT "r"."id", "r"."title" FROM jsonb_populate_record(null::"things", CAST($1 AS jsonb)) AS "r" RETURNING "id", "title", "deleted_at""#
+        );
+    }
+
+    #[test]
+    fn writes_return_an_enum_as_text() {
+        let values = || object(serde_json::json!({ "id": "t1", "status": "open" }));
+        let insert =
+            insert_statement::<tasks::Entity>(values()).unwrap_or_else(|error| panic!("{error}"));
+        assert_eq!(
+            insert.sql,
+            r#"INSERT INTO "tasks" ("id", "status") SELECT "r"."id", "r"."status" FROM jsonb_populate_record(null::"tasks", CAST($1 AS jsonb)) AS "r" RETURNING "id", CAST("status" AS "text")"#
+        );
+        let update = update_statement::<tasks::Entity>(values(), "t1", true)
+            .unwrap_or_else(|error| panic!("{error}"));
+        assert_eq!(
+            update.sql,
+            r#"UPDATE "tasks" SET "status" = "r"."status" FROM jsonb_populate_record(null::"tasks", CAST($1 AS jsonb)) AS "r" WHERE "tasks"."id" = $2 RETURNING "tasks"."id", CAST("tasks"."status" AS "text")"#
         );
     }
 
@@ -287,6 +414,33 @@ mod tests {
             statement.sql,
             r#"UPDATE "things" SET "title" = "r"."title" FROM jsonb_populate_record(null::"things", CAST($1 AS jsonb)) AS "r" WHERE "things"."id" = $2 AND "things"."deleted_at" IS NULL RETURNING "things"."id", "things"."title", "things"."deleted_at""#
         );
+    }
+
+    #[test]
+    fn a_list_counts_its_conditions_only() {
+        let table = JsonTable::of::<things::Entity>();
+        let mut select = table.select();
+        select
+            .and_where(
+                table
+                    .column("deleted_at")
+                    .unwrap_or_else(|| panic!("deleted_at"))
+                    .is_null(),
+            )
+            .order_by(
+                (Alias::new("things"), Alias::new("id")),
+                sea_orm::Order::Desc,
+            )
+            .limit(26);
+        assert_eq!(
+            DbBackend::Postgres.build(&select).sql,
+            r#"SELECT "things"."id", "things"."title", "things"."deleted_at" FROM "things" WHERE "things"."deleted_at" IS NULL ORDER BY "things"."id" DESC LIMIT $1"#
+        );
+        assert_eq!(
+            count_statement(&select).sql,
+            r#"SELECT COUNT(*) AS "count" FROM "things" WHERE "things"."deleted_at" IS NULL"#
+        );
+        assert!(table.column("nope").is_none());
     }
 
     #[test]

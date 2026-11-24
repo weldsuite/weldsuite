@@ -12,13 +12,20 @@
 
 use std::collections::{BTreeMap, HashSet};
 
+use sea_orm::sea_query::{Expr, Query, SelectStatement};
+use sea_orm::{
+    ColumnTrait, Condition, DbErr, EntityTrait, FromQueryResult, QueryFilter, QueryOrder,
+    QuerySelect,
+};
 use sqlx::PgPool;
+use weldsuite_db::orm;
 use weldsuite_ports::{ImapConfig, ImapError, ImapSession, SpecialUse};
 use weldsuite_reach_domain::warmup::WARMUP_CLEANUP_AFTER_DAYS;
+use weldsuite_schema::master::{reach_warmup_mailboxes as pool, reach_warmup_messages as messages};
 
 use super::WarmupNetwork;
 use super::clock::DAY_MS;
-use super::db::{PoolMailbox, load_mailboxes, open_login, ts};
+use super::db::{PoolMailbox, at, load_mailboxes, open_login};
 use super::pool_state::{record_login_failure, record_login_success};
 
 pub const CLEANUP_MAX_MAILBOXES: usize = 30;
@@ -28,7 +35,7 @@ pub const CLEANUP_CANDIDATE_LIMIT: i64 = 500;
 pub const ROW_RETENTION_DAYS: i64 = 30;
 
 /// `CleanupCandidate`.
-#[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
+#[derive(Debug, Clone, PartialEq, Eq, FromQueryResult)]
 pub struct CleanupCandidate {
     pub id: String,
     pub from_mailbox_id: String,
@@ -204,39 +211,62 @@ pub struct CleanupResult {
 
 /// `settleRemovedMailboxes(...)`: old messages whose mailbox is gone cannot
 /// be cleaned; mark them done.
-async fn settle_removed_mailboxes(master: &PgPool, now: i64) -> sqlx::Result<()> {
-    sqlx::query(
-        "update reach_warmup_messages set cleaned_at = $1::timestamptz
-         where status in ('engaged', 'missing') and cleaned_at is null and sent_at < $2::timestamptz
-           and (from_mailbox_id in (select id from reach_warmup_mailboxes where status = 'removed')
-             or to_mailbox_id in (select id from reach_warmup_mailboxes where status = 'removed'))",
-    )
-    .bind(ts(now))
-    .bind(ts(now - WARMUP_CLEANUP_AFTER_DAYS * DAY_MS))
-    .execute(master)
-    .await?;
+/// `select id from reach_warmup_mailboxes where status in (…)`.
+fn pool_ids(statuses: &[&str]) -> SelectStatement {
+    Query::select()
+        .column(pool::Column::Id)
+        .from(pool::Entity)
+        .and_where(pool::Column::Status.is_in(statuses.iter().copied()))
+        .to_owned()
+}
+
+/// Engaged or missing, not cleaned, and sent before the cleanup age.
+fn due_for_cleanup(now: i64) -> Condition {
+    Condition::all()
+        .add(messages::Column::Status.is_in(["engaged", "missing"]))
+        .add(messages::Column::CleanedAt.is_null())
+        .add(messages::Column::SentAt.lt(at(now - WARMUP_CLEANUP_AFTER_DAYS * DAY_MS)))
+}
+
+async fn settle_removed_mailboxes(master: &PgPool, now: i64) -> Result<(), DbErr> {
+    messages::Entity::update_many()
+        .col_expr(messages::Column::CleanedAt, Expr::value(at(now)))
+        .filter(due_for_cleanup(now))
+        .filter(
+            Condition::any()
+                .add(messages::Column::FromMailboxId.in_subquery(pool_ids(&["removed"])))
+                .add(messages::Column::ToMailboxId.in_subquery(pool_ids(&["removed"]))),
+        )
+        .exec(&orm(master))
+        .await?;
     Ok(())
 }
 
 /// `loadCandidates(...)`: a mailbox in `error` cannot be logged in to
 /// until someone fixes it, so its messages are left out.
-async fn load_candidates(master: &PgPool, now: i64) -> sqlx::Result<Vec<CleanupCandidate>> {
-    sqlx::query_as(
-        "select id, from_mailbox_id, to_mailbox_id, message_id_header from reach_warmup_messages
-         where status in ('engaged', 'missing') and cleaned_at is null and sent_at < $1::timestamptz
-           and from_mailbox_id in (select id from reach_warmup_mailboxes where status in ('waiting', 'warming', 'maintaining', 'paused'))
-           and to_mailbox_id in (select id from reach_warmup_mailboxes where status in ('waiting', 'warming', 'maintaining', 'paused'))
-         order by sent_at asc limit $2",
-    )
-    .bind(ts(now - WARMUP_CLEANUP_AFTER_DAYS * DAY_MS))
-    .bind(CLEANUP_CANDIDATE_LIMIT)
-    .fetch_all(master)
-    .await
+async fn load_candidates(master: &PgPool, now: i64) -> Result<Vec<CleanupCandidate>, DbErr> {
+    const REACHABLE: [&str; 4] = ["waiting", "warming", "maintaining", "paused"];
+    messages::Entity::find()
+        .select_only()
+        .columns([
+            messages::Column::Id,
+            messages::Column::FromMailboxId,
+            messages::Column::ToMailboxId,
+            messages::Column::MessageIdHeader,
+        ])
+        .filter(due_for_cleanup(now))
+        .filter(messages::Column::FromMailboxId.in_subquery(pool_ids(&REACHABLE)))
+        .filter(messages::Column::ToMailboxId.in_subquery(pool_ids(&REACHABLE)))
+        .order_by_asc(messages::Column::SentAt)
+        .limit(u64::try_from(CLEANUP_CANDIDATE_LIMIT).unwrap_or_default())
+        .into_model::<CleanupCandidate>()
+        .all(&orm(master))
+        .await
 }
 
 /// `runCleanup(env, master, now)`. Mailboxes are cleaned one after the
 /// other (the Worker ran three at a time within its connection limit).
-pub async fn run_cleanup(net: &WarmupNetwork, now: i64) -> sqlx::Result<CleanupResult> {
+pub async fn run_cleanup(net: &WarmupNetwork, now: i64) -> Result<CleanupResult, DbErr> {
     let master = &net.master;
     settle_removed_mailboxes(master, now).await?;
     let plan = plan_cleanup(
@@ -264,22 +294,19 @@ pub async fn run_cleanup(net: &WarmupNetwork, now: i64) -> sqlx::Result<CleanupR
             .map(|m| m.id.clone())
             .collect();
         if !done.is_empty() {
-            sqlx::query(
-                "update reach_warmup_messages set cleaned_at = $1::timestamptz where id = any($2)",
-            )
-            .bind(ts(now))
-            .bind(&done)
-            .execute(master)
-            .await?;
+            messages::Entity::update_many()
+                .col_expr(messages::Column::CleanedAt, Expr::value(at(now)))
+                .filter(messages::Column::Id.is_in(&done))
+                .exec(&orm(master))
+                .await?;
         }
         cleaned = done.len();
     }
-    let rows_deleted =
-        sqlx::query("delete from reach_warmup_messages where created_at < $1::timestamptz")
-            .bind(ts(now - ROW_RETENTION_DAYS * DAY_MS))
-            .execute(master)
-            .await?
-            .rows_affected();
+    let rows_deleted = messages::Entity::delete_many()
+        .filter(messages::Column::CreatedAt.lt(at(now - ROW_RETENTION_DAYS * DAY_MS)))
+        .exec(&orm(master))
+        .await?
+        .rows_affected;
     Ok(CleanupResult {
         cleaned,
         mailboxes_visited: plan.work.len(),

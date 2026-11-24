@@ -5,10 +5,16 @@
 
 use std::collections::HashMap;
 
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, ConnectionTrait, DbErr, EntityTrait, QueryFilter, QuerySelect,
+};
 use serde_json::{Map, Value, json};
-use weldsuite_db::PgPool;
+use time::PrimitiveDateTime;
+use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_kit::generate_id;
 use weldsuite_kit::validation::js_number;
+use weldsuite_schema::tenant::{custom_field_definitions, custom_field_values};
 
 use crate::js::{Js, as_text, js_date, js_string, number_value, slice_utf16, whole_numbers};
 
@@ -70,18 +76,23 @@ type DefinitionRow = (
 
 /// The live definitions of an entity type, in the table's order
 /// (`getDefinitionsForEntityType` has no `order by`).
-pub(crate) async fn definitions(
-    db: &PgPool,
-    entity_type: &str,
-) -> Result<Vec<Definition>, sqlx::Error> {
-    let rows: Vec<DefinitionRow> = sqlx::query_as(
-        "select id, slug, field_type, options, required, sort_order
-           from custom_field_definitions
-          where entity_type = $1 and deleted_at is null",
-    )
-    .bind(entity_type)
-    .fetch_all(db)
-    .await?;
+pub(crate) async fn definitions(db: &PgPool, entity_type: &str) -> Result<Vec<Definition>, DbErr> {
+    use custom_field_definitions::Column;
+    let rows: Vec<DefinitionRow> = custom_field_definitions::Entity::find()
+        .select_only()
+        .columns([
+            Column::Id,
+            Column::Slug,
+            Column::FieldType,
+            Column::Options,
+            Column::Required,
+            Column::SortOrder,
+        ])
+        .filter(Column::EntityType.eq(entity_type))
+        .filter(Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     Ok(rows
         .into_iter()
         .map(
@@ -102,7 +113,7 @@ type ValueRow = (
     String,
     Option<String>,
     Option<f64>,
-    Option<String>,
+    Option<PrimitiveDateTime>,
     Option<bool>,
     Option<Value>,
     Option<String>,
@@ -115,22 +126,30 @@ pub(crate) async fn values_for(
     entity_type: &str,
     ids: &[String],
     definitions: &[Definition],
-) -> Result<HashMap<String, Map<String, Value>>, sqlx::Error> {
+) -> Result<HashMap<String, Map<String, Value>>, DbErr> {
+    use custom_field_values::Column as Cell;
     let mut out: HashMap<String, Map<String, Value>> =
         ids.iter().map(|id| (id.clone(), Map::new())).collect();
     if ids.is_empty() || definitions.is_empty() {
         return Ok(out);
     }
-    let rows: Vec<ValueRow> = sqlx::query_as(
-        "select entity_id, field_id, value_text, value_number, to_jsonb(value_date) #>> '{}',
-                value_bool, value_json, value_ref
-           from custom_field_values
-          where entity_type = $1 and entity_id = any($2)",
-    )
-    .bind(entity_type)
-    .bind(ids)
-    .fetch_all(db)
-    .await?;
+    let rows: Vec<ValueRow> = custom_field_values::Entity::find()
+        .select_only()
+        .columns([
+            Cell::EntityId,
+            Cell::FieldId,
+            Cell::ValueText,
+            Cell::ValueNumber,
+            Cell::ValueDate,
+            Cell::ValueBool,
+            Cell::ValueJson,
+            Cell::ValueRef,
+        ])
+        .filter(Cell::EntityType.eq(entity_type))
+        .filter(Cell::EntityId.is_in(ids.iter().map(String::as_str)))
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     let by_id: HashMap<&str, &Definition> =
         definitions.iter().map(|d| (d.id.as_str(), d)).collect();
     for (entity_id, field_id, text, number, date, flag, json, reference) in rows {
@@ -139,9 +158,7 @@ pub(crate) async fn values_for(
         };
         let value = match Column::of(&definition.field_type) {
             Column::Number => number.map_or(Value::Null, number_value),
-            Column::Date => date.map_or(Value::Null, |stamp| {
-                Value::String(weldsuite_db::js_timestamp(&stamp).unwrap_or(stamp))
-            }),
+            Column::Date => date.map_or(Value::Null, |at| Value::String(crate::iso(at))),
             Column::Bool => flag.map_or(Value::Null, Value::Bool),
             Column::Json => json.unwrap_or(Value::Null),
             Column::Ref => reference.map_or(Value::Null, Value::String),
@@ -263,11 +280,11 @@ fn validate_value(definition: &Definition, raw: Option<&Js>) -> Result<Option<St
 pub(crate) enum ValuesError {
     /// `CustomFieldValidationError`: the caller's value (400).
     Invalid(String),
-    Database(sqlx::Error),
+    Database(DbErr),
 }
 
-impl From<sqlx::Error> for ValuesError {
-    fn from(error: sqlx::Error) -> Self {
+impl From<DbErr> for ValuesError {
+    fn from(error: DbErr) -> Self {
         Self::Database(error)
     }
 }
@@ -300,15 +317,20 @@ pub(crate) async fn set_values(
     } else {
         definitions.iter().map(|d| d.slug.as_str()).collect()
     };
-    let now = crate::now();
+    let now = utc_now();
+    let db = &orm(db);
 
-    let existing: Vec<(String, String)> = sqlx::query_as(
-        "select field_id, id from custom_field_values where entity_type = $1 and entity_id = $2",
-    )
-    .bind(entity_type)
-    .bind(entity_id)
-    .fetch_all(db)
-    .await?;
+    let existing: Vec<(String, String)> = custom_field_values::Entity::find()
+        .select_only()
+        .columns([
+            custom_field_values::Column::FieldId,
+            custom_field_values::Column::Id,
+        ])
+        .filter(custom_field_values::Column::EntityType.eq(entity_type))
+        .filter(custom_field_values::Column::EntityId.eq(entity_id))
+        .into_tuple()
+        .all(db)
+        .await?;
     let prior: HashMap<String, String> = existing.into_iter().collect();
 
     let mut writes = Vec::new();
@@ -342,7 +364,7 @@ pub(crate) async fn set_values(
             definition,
             stored,
             prior.get(&definition.id),
-            &now,
+            now,
         )
         .await;
         if let Err(error) = result
@@ -356,19 +378,20 @@ pub(crate) async fn set_values(
 
 /// Delete, update or insert the value row of one field.
 async fn persist(
-    db: &PgPool,
+    db: &impl ConnectionTrait,
     entity_type: &str,
     entity_id: &str,
     definition: &Definition,
     stored: Option<Stored>,
     prior: Option<&String>,
-    now: &str,
-) -> Result<(), sqlx::Error> {
+    now: PrimitiveDateTime,
+) -> Result<(), DbErr> {
+    use custom_field_values::{ActiveModel, Column as Cell, Entity};
     let Some(stored) = stored else {
         if let Some(prior) = prior {
-            sqlx::query("delete from custom_field_values where id = $1")
-                .bind(prior)
-                .execute(db)
+            Entity::delete_many()
+                .filter(Cell::Id.eq(prior))
+                .exec(db)
                 .await?;
         }
         return Ok(());
@@ -378,48 +401,39 @@ async fn persist(
     match stored {
         Stored::Text(value) => text = Some(value),
         Stored::Number(value) => number = Some(value),
-        Stored::Date(value) => date = Some(value),
+        Stored::Date(value) => date = Some(crate::timestamp(&value)?),
         Stored::Bool(value) => flag = Some(value),
         Stored::Json(value) => json = Some(value),
         Stored::Ref(value) => reference = Some(value),
     }
     if let Some(prior) = prior {
-        sqlx::query(
-            "update custom_field_values set
-                 value_text = $2, value_number = $3, value_date = $4::timestamp, value_bool = $5,
-                 value_json = $6, value_ref = $7, updated_at = $8::timestamp
-             where id = $1",
-        )
-        .bind(prior)
-        .bind(text)
-        .bind(number)
-        .bind(date)
-        .bind(flag)
-        .bind(json)
-        .bind(reference)
-        .bind(now)
-        .execute(db)
-        .await?;
+        Entity::update_many()
+            .col_expr(Cell::ValueText, Expr::value(text))
+            .col_expr(Cell::ValueNumber, Expr::value(number))
+            .col_expr(Cell::ValueDate, Expr::value(date))
+            .col_expr(Cell::ValueBool, Expr::value(flag))
+            .col_expr(Cell::ValueJson, Expr::value(json))
+            .col_expr(Cell::ValueRef, Expr::value(reference))
+            .col_expr(Cell::UpdatedAt, Expr::value(now))
+            .filter(Cell::Id.eq(prior))
+            .exec(db)
+            .await?;
     } else {
-        sqlx::query(
-            "insert into custom_field_values
-                 (id, field_id, entity_type, entity_id, created_at, updated_at,
-                  value_text, value_number, value_date, value_bool, value_json, value_ref)
-             values ($1, $2, $3, $4, $5::timestamp, $5::timestamp,
-                     $6, $7, $8::timestamp, $9, $10, $11)",
-        )
-        .bind(generate_id("cfv"))
-        .bind(&definition.id)
-        .bind(entity_type)
-        .bind(entity_id)
-        .bind(now)
-        .bind(text)
-        .bind(number)
-        .bind(date)
-        .bind(flag)
-        .bind(json)
-        .bind(reference)
-        .execute(db)
+        Entity::insert(ActiveModel {
+            id: Set(generate_id("cfv")),
+            field_id: Set(definition.id.clone()),
+            entity_type: Set(entity_type.to_owned()),
+            entity_id: Set(entity_id.to_owned()),
+            created_at: Set(now),
+            updated_at: Set(now),
+            value_text: Set(text),
+            value_number: Set(number),
+            value_date: Set(date),
+            value_bool: Set(flag),
+            value_json: Set(json),
+            value_ref: Set(reference),
+        })
+        .exec_without_returning(db)
         .await?;
     }
     Ok(())

@@ -6,8 +6,11 @@
 
 use std::sync::Arc;
 
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter};
 use serde_json::Value;
-use weldsuite_db::{PgPool, js_row};
+use time::OffsetDateTime;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_flow_domain::approvals::{
     ApprovalFuture, ApprovalResolutionContext, ApprovalRow, ApprovalRowInput,
     ApprovalSubjectHandler, RequestApprovalsInput, RequestApprovalsResult, ResolvedApprovalOutcome,
@@ -15,68 +18,34 @@ use weldsuite_flow_domain::approvals::{
     register_approval_subject, request_approvals as core_request_approvals,
 };
 use weldsuite_flow_domain::intake::{Criterion, default_scoring_model, model_from_json};
-use weldsuite_flow_domain::js::iso_from_millis;
+use weldsuite_schema::tenant::{flow_workspace_settings, project_requests};
 
 use crate::approvals::announce::{Aftermath, register_aftermath};
+use crate::row_json;
 
-/// A `project_requests` row.
-macro_rules! request_json {
-    ($a:literal) => {
-        concat!(
-            "(to_jsonb(",
-            $a,
-            ") || jsonb_build_object('estimated_cost', ",
-            $a,
-            ".estimated_cost::text, 'estimated_value', ",
-            $a,
-            ".estimated_value::text, 'score', ",
-            $a,
-            ".score::text))"
-        )
-    };
+/// `new Date(millis)`, as the row stores it.
+pub(crate) fn instant(millis: i64) -> OffsetDateTime {
+    OffsetDateTime::from_unix_timestamp_nanos(i128::from(millis) * 1_000_000)
+        .unwrap_or(OffsetDateTime::UNIX_EPOCH)
 }
-
-/// A `flow_workspace_settings` row.
-macro_rules! settings_json {
-    ($a:literal) => {
-        concat!(
-            "(to_jsonb(",
-            $a,
-            ") || jsonb_build_object('expense_approval_limit', ",
-            $a,
-            ".expense_approval_limit::text))"
-        )
-    };
-}
-
-pub(crate) use request_json;
 
 /// `findProjectRequest(db, id)`: a live request.
-pub(crate) async fn find_project_request(
-    db: &PgPool,
-    id: &str,
-) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        request_json!("t"),
-        " from project_requests t where t.id = $1 and t.deleted_at is null limit 1"
-    ))
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(js_row))
+pub(crate) async fn find_project_request(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
+    project_requests::Entity::find_by_id(id)
+        .filter(project_requests::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?
+        .map(row_json)
+        .transpose()
 }
 
 /// `loadSettings(db)`: the workspace's intake settings, or `None` before it saves any.
-pub(crate) async fn load_settings(db: &PgPool) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        settings_json!("s"),
-        " from flow_workspace_settings s limit 1"
-    ))
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(js_row))
+pub(crate) async fn load_settings(db: &PgPool) -> Result<Option<Value>, DbErr> {
+    flow_workspace_settings::Entity::find()
+        .one(&orm(db))
+        .await?
+        .map(row_json)
+        .transpose()
 }
 
 /// `modelOf(settings)`: the scoring model in force, the workspace's or the default one.
@@ -104,7 +73,7 @@ pub(crate) fn board_of(settings: Option<&Value>) -> Vec<String> {
 pub(crate) async fn list_subject_approvals(
     db: &PgPool,
     subject_id: &str,
-) -> Result<Vec<ApprovalRow>, sqlx::Error> {
+) -> Result<Vec<ApprovalRow>, DbErr> {
     core_list_subject_approvals(db, "project_request", subject_id).await
 }
 
@@ -119,13 +88,10 @@ impl ApprovalSubjectHandler for RequestHandler {
         subject_id: &'a str,
         outcome: ResolvedApprovalOutcome,
         context: &'a ApprovalResolutionContext,
-    ) -> ApprovalFuture<'a, Result<(), sqlx::Error>> {
-        Box::pin(settle_project_request(
-            db,
-            subject_id,
-            outcome,
-            context.now_ms,
-        ))
+    ) -> ApprovalFuture<'a, Result<(), DbErr>> {
+        Box::pin(
+            async move { settle_project_request(db, subject_id, outcome, context.now_ms).await },
+        )
     }
 }
 
@@ -137,16 +103,16 @@ async fn settle_project_request(
     request_id: &str,
     outcome: ResolvedApprovalOutcome,
     now_ms: i64,
-) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "update project_requests set status = $2, updated_at = $3::timestamptz
-         where id = $1 and status = 'assessing' and deleted_at is null",
-    )
-    .bind(request_id)
-    .bind(outcome.as_str())
-    .bind(iso_from_millis(now_ms))
-    .execute(db)
-    .await?;
+) -> Result<(), DbErr> {
+    use project_requests::Column;
+    project_requests::Entity::update_many()
+        .col_expr(Column::Status, Expr::value(outcome.as_str()))
+        .col_expr(Column::UpdatedAt, Expr::value(instant(now_ms)))
+        .filter(Column::Id.eq(request_id))
+        .filter(Column::Status.eq("assessing"))
+        .filter(Column::DeletedAt.is_null())
+        .exec(&orm(db))
+        .await?;
     Ok(())
 }
 
@@ -166,7 +132,7 @@ pub(crate) async fn request_approvals(
     requested_by: &str,
     board: &[String],
     now_ms: i64,
-) -> Result<Vec<ApprovalRow>, sqlx::Error> {
+) -> Result<Vec<ApprovalRow>, DbErr> {
     let result = core_request_approvals(
         db,
         &RequestApprovalsInput {
@@ -188,15 +154,13 @@ pub(crate) async fn request_approvals(
     .await?;
     match result {
         RequestApprovalsResult::Requested(rows) => Ok(rows),
-        RequestApprovalsResult::Refused { message, .. } => {
-            Err(sqlx::Error::Protocol(message.to_owned()))
-        }
+        RequestApprovalsResult::Refused { message, .. } => Err(DbErr::Custom(message.to_owned())),
     }
 }
 
 /// `cancelPendingApprovals(db, { includeDecided: true })`: clear every live
 /// row of a subject (soft delete).
-pub(crate) async fn clear_approvals(db: &PgPool, subject_id: &str) -> Result<(), sqlx::Error> {
+pub(crate) async fn clear_approvals(db: &PgPool, subject_id: &str) -> Result<(), DbErr> {
     cancel_pending_approvals(db, "project_request", subject_id, true, crate::now_ms()).await?;
     Ok(())
 }

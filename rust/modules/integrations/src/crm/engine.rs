@@ -6,14 +6,25 @@
 
 use std::time::Duration;
 
+use sea_orm::ActiveValue::Set;
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ColumnTrait, DatabaseConnection, DbErr, EntityTrait, FromQueryResult, QueryFilter, QuerySelect,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
+use time::PrimitiveDateTime;
 use weldsuite_books_domain::table::{Table, WriteError};
 use weldsuite_core_domain::js::{Js, as_text};
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_events::iso_timestamp;
 use weldsuite_kit::generate_id;
 use weldsuite_ports::OutboundHttp;
+use weldsuite_schema::tenant::{
+    calendar_events, companies, crm_activities, crm_leads, crm_opportunities, crm_pipelines,
+    integration_connections, integration_entity_mappings as mappings,
+    integration_field_mappings as field_mappings, integration_sync_conflicts as conflicts, people,
+};
 
 use super::adapters::{Adapter, ExternalEntity, millis_of};
 use super::mapper::{FieldMapper, FieldMapping, resolve_conflict, truthy};
@@ -32,65 +43,127 @@ pub struct SyncEntityStats {
     pub conflicts: i64,
 }
 
+/// The entity a CRM table is read through.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Store {
+    Companies,
+    People,
+    CrmLeads,
+    CrmOpportunities,
+    CrmActivities,
+    CalendarEvents,
+    CrmPipelines,
+}
+
+/// A model as Drizzle's `select()` returns the row.
+fn js_row<M: Serialize>(model: Option<M>) -> Result<Option<Value>, DbErr> {
+    model
+        .map(serde_json::to_value)
+        .transpose()
+        .map_err(|error| DbErr::Json(error.to_string()))
+}
+
+impl Store {
+    /// `db.select().from(table).where(eq(table.id, id)).limit(1)`: the row,
+    /// deleted or not, as Drizzle returns it.
+    async fn select_any(self, db: &DatabaseConnection, id: &str) -> Result<Option<Value>, DbErr> {
+        let id = id.to_owned();
+        match self {
+            Self::Companies => js_row(companies::Entity::find_by_id(id).one(db).await?),
+            Self::People => js_row(people::Entity::find_by_id(id).one(db).await?),
+            Self::CrmLeads => js_row(crm_leads::Entity::find_by_id(id).one(db).await?),
+            Self::CrmOpportunities => {
+                js_row(crm_opportunities::Entity::find_by_id(id).one(db).await?)
+            }
+            Self::CrmActivities => js_row(crm_activities::Entity::find_by_id(id).one(db).await?),
+            Self::CalendarEvents => js_row(calendar_events::Entity::find_by_id(id).one(db).await?),
+            Self::CrmPipelines => js_row(crm_pipelines::Entity::find_by_id(id).one(db).await?),
+        }
+    }
+
+    /// Whether the table has an `email` property (`upsertByMapping`'s dedup).
+    fn has_email(self) -> bool {
+        matches!(self, Self::Companies | Self::People | Self::CrmLeads)
+    }
+
+    /// The live row with this `email`, on a table that has the property.
+    async fn live_id_by_email(
+        self,
+        db: &DatabaseConnection,
+        email: &str,
+    ) -> Result<Option<String>, DbErr> {
+        match self {
+            Self::Companies => {
+                companies::Entity::find()
+                    .select_only()
+                    .column(companies::Column::Id)
+                    .filter(companies::Column::Email.eq(email))
+                    .filter(companies::Column::DeletedAt.is_null())
+                    .into_tuple()
+                    .one(db)
+                    .await
+            }
+            Self::People => {
+                people::Entity::find()
+                    .select_only()
+                    .column(people::Column::Id)
+                    .filter(people::Column::Email.eq(email))
+                    .filter(people::Column::DeletedAt.is_null())
+                    .into_tuple()
+                    .one(db)
+                    .await
+            }
+            Self::CrmLeads => {
+                crm_leads::Entity::find()
+                    .select_only()
+                    .column(crm_leads::Column::Id)
+                    .filter(crm_leads::Column::Email.eq(email))
+                    .filter(crm_leads::Column::DeletedAt.is_null())
+                    .into_tuple()
+                    .one(db)
+                    .await
+            }
+            _ => Ok(None),
+        }
+    }
+}
+
 /// `getEntityTable(entityType)`.
 #[derive(Debug, Clone, Copy)]
 pub struct EntityTable {
     pub table: &'static Table,
-    pub select_any: &'static str,
-    pub by_email: Option<&'static str>,
+    pub store: Store,
     pub prefix: &'static str,
     pub internal_type: &'static str,
 }
 
 impl EntityTable {
     pub fn of(entity_type: &str) -> Result<Self, String> {
-        let (table, select_any, by_email, prefix, internal_type) = match entity_type {
-            "customer" => (
-                &tables::COMPANIES,
-                tables::COMPANIES_SELECT_ANY,
-                tables::COMPANIES_BY_EMAIL,
-                "company",
-                "company",
-            ),
-            "contact" => (
-                &tables::PEOPLE,
-                tables::PEOPLE_SELECT_ANY,
-                tables::PEOPLE_BY_EMAIL,
-                "person",
-                "person",
-            ),
-            "lead" => (
-                &tables::CRM_LEADS,
-                tables::CRM_LEADS_SELECT_ANY,
-                tables::CRM_LEADS_BY_EMAIL,
-                "lead",
-                "lead",
-            ),
+        let (table, store, prefix, internal_type) = match entity_type {
+            "customer" => (&tables::COMPANIES, Store::Companies, "company", "company"),
+            "contact" => (&tables::PEOPLE, Store::People, "person", "person"),
+            "lead" => (&tables::CRM_LEADS, Store::CrmLeads, "lead", "lead"),
             "opportunity" => (
                 &tables::CRM_OPPORTUNITIES,
-                tables::CRM_OPPORTUNITIES_SELECT_ANY,
-                tables::CRM_OPPORTUNITIES_BY_EMAIL,
+                Store::CrmOpportunities,
                 "opp",
                 "opportunity",
             ),
             "activity" => (
                 &tables::CRM_ACTIVITIES,
-                tables::CRM_ACTIVITIES_SELECT_ANY,
-                tables::CRM_ACTIVITIES_BY_EMAIL,
+                Store::CrmActivities,
                 "act",
                 "activity",
             ),
             "calendar_event" => (
                 &tables::CALENDAR_EVENTS,
-                tables::CALENDAR_EVENTS_SELECT_ANY,
-                tables::CALENDAR_EVENTS_BY_EMAIL,
+                Store::CalendarEvents,
                 "evt",
                 "calendar_event",
             ),
             "pipeline" => (
                 &tables::CRM_PIPELINES,
-                tables::CRM_PIPELINES_SELECT_ANY,
-                tables::CRM_PIPELINES_BY_EMAIL,
+                Store::CrmPipelines,
                 "pipe",
                 "pipeline",
             ),
@@ -98,8 +171,7 @@ impl EntityTable {
         };
         Ok(Self {
             table,
-            select_any,
-            by_email,
+            store,
             prefix,
             internal_type,
         })
@@ -127,6 +199,11 @@ impl EntityTable {
 /// `new Date()`, as a timestamp column takes it.
 pub(crate) fn now() -> String {
     iso_timestamp(time::OffsetDateTime::now_utc())
+}
+
+/// `new Date()`, as Drizzle writes it to a `timestamp` column.
+pub(crate) fn now_at() -> PrimitiveDateTime {
+    weldsuite_db::utc_now()
 }
 
 /// `{ ...values, updatedAt: new Date() }` written to `table` as Drizzle would.
@@ -201,7 +278,7 @@ pub(crate) async fn insert_row(
 }
 
 /// An `integration_entity_mappings` row the upserts read.
-#[derive(Debug, Clone, sqlx::FromRow)]
+#[derive(Debug, Clone, FromQueryResult)]
 pub(crate) struct EntityMapping {
     pub id: String,
     pub internal_entity_type: String,
@@ -216,18 +293,21 @@ pub(crate) async fn find_mapping(
     external_type: &str,
     external_id: &str,
 ) -> Result<Option<EntityMapping>, String> {
-    sqlx::query_as(
-        "select id, internal_entity_type, internal_entity_id, sync_checksum
-         from integration_entity_mappings
-         where connection_id = $1 and external_entity_type = $2 and external_entity_id = $3
-         limit 1",
-    )
-    .bind(connection_id)
-    .bind(external_type)
-    .bind(external_id)
-    .fetch_optional(db)
-    .await
-    .map_err(|e| db_message(&e))
+    mappings::Entity::find()
+        .select_only()
+        .columns([
+            mappings::Column::Id,
+            mappings::Column::InternalEntityType,
+            mappings::Column::InternalEntityId,
+            mappings::Column::SyncChecksum,
+        ])
+        .filter(mappings::Column::ConnectionId.eq(connection_id))
+        .filter(mappings::Column::ExternalEntityType.eq(external_type))
+        .filter(mappings::Column::ExternalEntityId.eq(external_id))
+        .into_model::<EntityMapping>()
+        .one(&orm(db))
+        .await
+        .map_err(|e| db_message(&e))
 }
 
 /// A new `integration_entity_mappings` row (`generateId('iem')`).
@@ -240,21 +320,18 @@ pub(crate) async fn insert_mapping(
     internal_id: &str,
     checksum: Option<&str>,
 ) -> Result<(), String> {
-    sqlx::query(
-        "insert into integration_entity_mappings
-            (id, connection_id, external_entity_type, external_entity_id, internal_entity_type,
-             internal_entity_id, last_synced_at, sync_checksum)
-         values ($1, $2, $3, $4, $5, $6, $7::timestamp, $8)",
-    )
-    .bind(generate_id("iem"))
-    .bind(connection_id)
-    .bind(external_type)
-    .bind(external_id)
-    .bind(internal_type)
-    .bind(internal_id)
-    .bind(now())
-    .bind(checksum)
-    .execute(db)
+    mappings::Entity::insert(mappings::ActiveModel {
+        id: Set(generate_id("iem")),
+        connection_id: Set(connection_id.to_owned()),
+        external_entity_type: Set(external_type.to_owned()),
+        external_entity_id: Set(external_id.to_owned()),
+        internal_entity_type: Set(internal_type.to_owned()),
+        internal_entity_id: Set(internal_id.to_owned()),
+        last_synced_at: Set(Some(now_at())),
+        sync_checksum: Set(checksum.map(str::to_owned)),
+        ..Default::default()
+    })
+    .exec_without_returning(&orm(db))
     .await
     .map(|_| ())
     .map_err(|e| db_message(&e))
@@ -262,19 +339,16 @@ pub(crate) async fn insert_mapping(
 
 /// `set({ syncChecksum, lastSyncedAt: new Date(), updatedAt: new Date() })` on a mapping.
 pub(crate) async fn touch_mapping(db: &PgPool, id: &str, checksum: &str) -> Result<(), String> {
-    let at = now();
-    sqlx::query(
-        "update integration_entity_mappings
-         set sync_checksum = $2, last_synced_at = $3::timestamp, updated_at = $3::timestamp
-         where id = $1",
-    )
-    .bind(id)
-    .bind(checksum)
-    .bind(at)
-    .execute(db)
-    .await
-    .map(|_| ())
-    .map_err(|e| db_message(&e))
+    let at = now_at();
+    mappings::Entity::update_many()
+        .col_expr(mappings::Column::SyncChecksum, Expr::value(checksum))
+        .col_expr(mappings::Column::LastSyncedAt, Expr::value(at))
+        .col_expr(mappings::Column::UpdatedAt, Expr::value(at))
+        .filter(mappings::Column::Id.eq(id))
+        .exec(&orm(db))
+        .await
+        .map(|_| ())
+        .map_err(|e| db_message(&e))
 }
 
 /// `upsertByMapping(args)`'s outcome.
@@ -317,13 +391,11 @@ pub(crate) async fn upsert_by_mapping(
 
     // 2. Dedup by email.
     let email = record.values.get("email");
-    if let Some(query) = entity.by_email
-        && truthy(email)
-    {
+    if entity.store.has_email() && truthy(email) {
         let email = as_text(&Js::from_jsonb(email.expect("truthy")));
-        let found: Option<String> = sqlx::query_scalar(query)
-            .bind(&email)
-            .fetch_optional(db)
+        let found = entity
+            .store
+            .live_id_by_email(&orm(db), &email)
             .await
             .map_err(|e| db_message(&e))?;
         if let Some(id) = found {
@@ -374,16 +446,23 @@ async fn load_field_mappings(
     entity_type: &str,
     adapter: Adapter,
 ) -> Result<Vec<FieldMapping>, String> {
-    let rows: Vec<(String, String, String, String, Option<Value>, bool)> = sqlx::query_as(
-        "select external_field_path, internal_field_path, direction, transform_type,
-                transform_config, is_required
-         from integration_field_mappings where connection_id = $1 and entity_type = $2",
-    )
-    .bind(connection_id)
-    .bind(entity_type)
-    .fetch_all(db)
-    .await
-    .map_err(|e| db_message(&e))?;
+    let rows: Vec<(String, String, String, String, Option<Value>, bool)> =
+        field_mappings::Entity::find()
+            .select_only()
+            .columns([
+                field_mappings::Column::ExternalFieldPath,
+                field_mappings::Column::InternalFieldPath,
+                field_mappings::Column::Direction,
+                field_mappings::Column::TransformType,
+                field_mappings::Column::TransformConfig,
+                field_mappings::Column::IsRequired,
+            ])
+            .filter(field_mappings::Column::ConnectionId.eq(connection_id))
+            .filter(field_mappings::Column::EntityType.eq(entity_type))
+            .into_tuple()
+            .all(&orm(db))
+            .await
+            .map_err(|e| db_message(&e))?;
     if rows.is_empty() {
         return Ok(adapter.default_field_mappings(entity_type));
     }
@@ -445,15 +524,15 @@ async fn resolve_bidirectional(
     if mapping.sync_checksum.as_deref() == Some(sum) {
         return Ok(Outcome::Proceed);
     }
-    let row: Option<Value> = sqlx::query_scalar(ctx.table.select_any)
-        .bind(&mapping.internal_entity_id)
-        .fetch_optional(ctx.db)
+    let row = ctx
+        .table
+        .store
+        .select_any(&orm(ctx.db), &mapping.internal_entity_id)
         .await
         .map_err(|e| db_message(&e))?;
-    let Some(row) = row else {
+    let Some(internal) = row else {
         return Ok(Outcome::Proceed);
     };
-    let internal = ctx.table.table.js(row);
     let internal = internal.as_object().cloned().unwrap_or_default();
     let fields = ctx
         .mapper
@@ -470,21 +549,19 @@ async fn resolve_bidirectional(
     );
     match action {
         "queue_manual" => {
-            sqlx::query(
-                "insert into integration_sync_conflicts
-                    (id, connection_id, entity_type, internal_entity_id, external_entity_id,
-                     conflict_type, internal_data, external_data, conflict_fields)
-                 values ($1, $2, $3, $4, $5, 'field_mismatch', $6, $7, $8)",
-            )
-            .bind(generate_id("cnfl"))
-            .bind(&ctx.connection.id)
-            .bind(ctx.entity_type)
-            .bind(&mapping.internal_entity_id)
-            .bind(&entity.id)
-            .bind(Value::Object(internal))
-            .bind(Value::Object(entity.data.values.clone()))
-            .bind(json!(fields))
-            .execute(ctx.db)
+            conflicts::Entity::insert(conflicts::ActiveModel {
+                id: Set(generate_id("cnfl")),
+                connection_id: Set(ctx.connection.id.clone()),
+                entity_type: Set(ctx.entity_type.to_owned()),
+                internal_entity_id: Set(mapping.internal_entity_id.clone()),
+                external_entity_id: Set(entity.id.clone()),
+                conflict_type: Set("field_mismatch".to_owned()),
+                internal_data: Set(Value::Object(internal)),
+                external_data: Set(Value::Object(entity.data.values.clone())),
+                conflict_fields: Set(Some(json!(fields))),
+                ..Default::default()
+            })
+            .exec_without_returning(&orm(ctx.db))
             .await
             .map_err(|e| db_message(&e))?;
             Ok(Outcome::Conflict)
@@ -622,15 +699,19 @@ pub async fn sync_entity_type(
         entity_type.to_owned(),
         Value::String(cursor.filter(|c| !c.is_empty()).unwrap_or_default()),
     );
-    sqlx::query(
-        "update integration_connections set sync_cursor = $2, updated_at = $3::timestamp where id = $1",
-    )
-    .bind(&connection.id)
-    .bind(Value::Object(updated))
-    .bind(now())
-    .execute(db)
-    .await
-    .map_err(|e| db_message(&e))?;
+    integration_connections::Entity::update_many()
+        .col_expr(
+            integration_connections::Column::SyncCursor,
+            Expr::value(Value::Object(updated)),
+        )
+        .col_expr(
+            integration_connections::Column::UpdatedAt,
+            Expr::value(now_at()),
+        )
+        .filter(integration_connections::Column::Id.eq(&connection.id))
+        .exec(&orm(db))
+        .await
+        .map_err(|e| db_message(&e))?;
     Ok(stats)
 }
 

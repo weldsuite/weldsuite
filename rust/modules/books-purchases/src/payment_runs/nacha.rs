@@ -6,8 +6,10 @@
 //! details changed after approval blocks the file, and the finished file is
 //! read back by the verifier before it is released.
 
+use sea_orm::prelude::BigDecimal;
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, EntityTrait, JoinType, QueryFilter, QueryOrder, QuerySelect};
 use serde_json::{Value, json};
-use sqlx::PgPool;
 use weldsuite_books_domain::bank_accounts::reveal_account_number;
 use weldsuite_books_domain::js::{millis_of, parse_float, to_fixed};
 use weldsuite_books_domain::nacha::{
@@ -16,9 +18,9 @@ use weldsuite_books_domain::nacha::{
     verify_nacha_file,
 };
 use weldsuite_books_domain::payments::payment_net_amount;
-use weldsuite_books_domain::tables::{PAYMENT_RUNS, PAYMENTS};
 use weldsuite_books_domain::vendor_tax::{SecretField, VendorTaxError, reveal_party_secret};
-use weldsuite_db::Keyring;
+use weldsuite_db::{Keyring, PgPool, orm, utc_now};
+use weldsuite_schema::tenant::{bills, payment_allocations, payment_runs, payments};
 
 use super::holds::{decode_holds, load_parties};
 use super::runs::{approvals_of, load_run, s, text};
@@ -26,6 +28,7 @@ use super::settings::{
     ach_missing, can_offset, effective_originator, load_entity, read_ach_settings,
 };
 use super::{RunError, load_bank_account, run_error};
+use crate::rows::{iso_of, js, js_rows, money_text, timestamp_of_millis};
 
 const FALLBACK_TIME_ZONE: &str = "America/New_York";
 
@@ -164,16 +167,15 @@ pub(crate) async fn generate_nacha_file(
         ));
     }
 
-    let rows: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(payments),
-        " from payments t where t.payment_run_id = $1 and t.type = 'sent' and t.deleted_at is null \
-         order by t.created_at, t.id"
-    ))
-    .bind(s(&run, "id"))
-    .fetch_all(db)
-    .await?;
-    let payments = PAYMENTS.js_rows(rows);
+    let rows = payments::Entity::find()
+        .filter(payments::Column::PaymentRunId.eq(s(&run, "id")))
+        .filter(payments::Column::Type.eq("sent"))
+        .filter(payments::Column::DeletedAt.is_null())
+        .order_by_asc(payments::Column::CreatedAt)
+        .order_by_asc(payments::Column::Id)
+        .all(&orm(db))
+        .await?;
+    let payments = js_rows!(rows)?;
     let prenote_holds: Vec<_> = decode_holds(run.get("holds"))
         .into_iter()
         .filter(|h| h.code == "prenote_required" && !h.is_released())
@@ -252,13 +254,23 @@ pub(crate) async fn generate_nacha_file(
     let allocations: Vec<(String, String, Option<String>)> = if payment_ids.is_empty() {
         Vec::new()
     } else {
-        sqlx::query_as(
-            "select pa.payment_id, pa.amount::text, b.bill_number from payment_allocations pa \
-             inner join bills b on b.id = pa.bill_id where pa.payment_id = any($1) and pa.deleted_at is null",
-        )
-        .bind(&payment_ids)
-        .fetch_all(db)
-        .await?
+        let rows: Vec<(String, BigDecimal, Option<String>)> = payment_allocations::Entity::find()
+            .select_only()
+            .columns([
+                payment_allocations::Column::PaymentId,
+                payment_allocations::Column::Amount,
+            ])
+            .column(bills::Column::BillNumber)
+            .join(JoinType::InnerJoin, allocation_bill())
+            .filter(payment_allocations::Column::PaymentId.is_in(&payment_ids))
+            .filter(payment_allocations::Column::DeletedAt.is_null())
+            .into_tuple()
+            .all(&orm(db))
+            .await?;
+        // `pa.amount::text`.
+        rows.into_iter()
+            .map(|(payment, amount, number)| (payment, money_text(&amount), number))
+            .collect()
     };
 
     let reveal = async |party: &Value| -> Result<String, RunError> {
@@ -427,17 +439,21 @@ pub(crate) async fn generate_nacha_file(
     let (file_date, file_time) = local_date_time(now, time_zone);
     let effective_entry_date =
         suggest_effective_entry_date(s(&run, "paymentDate"), &file_date, same_day);
-    let generated: Vec<Option<String>> = sqlx::query_scalar(
-        "select to_char(file_generated_at, 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"') from payment_runs \
-         where bank_account_id = $1 and method = 'ach' and id <> $2 and deleted_at is null and file_generated_at is not null",
-    )
-    .bind(&bank_id)
-    .bind(s(&run, "id"))
-    .fetch_all(db)
-    .await?;
+    // `to_char(file_generated_at, ISO)` of the account's other ACH files.
+    let generated: Vec<Option<time::PrimitiveDateTime>> = payment_runs::Entity::find()
+        .select_only()
+        .column(payment_runs::Column::FileGeneratedAt)
+        .filter(payment_runs::Column::BankAccountId.eq(bank_id.as_str()))
+        .filter(payment_runs::Column::Method.eq("ach"))
+        .filter(payment_runs::Column::Id.ne(s(&run, "id")))
+        .filter(payment_runs::Column::DeletedAt.is_null())
+        .filter(payment_runs::Column::FileGeneratedAt.is_not_null())
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     let same_day_count = generated
-        .iter()
-        .filter_map(|at| at.as_deref().and_then(millis_of))
+        .into_iter()
+        .filter_map(|at| millis_of(&iso_of(at?)))
         .filter(|at| local_date_time(*at, time_zone).0 == file_date)
         .count();
     let file_id_modifier = file_id_modifier_for(same_day_count);
@@ -508,19 +524,24 @@ pub(crate) async fn generate_nacha_file(
     }
 
     let file_name = format!("ach-{}-{}.ach", s(&run, "paymentDate"), s(&run, "id"));
-    let at = weldsuite_books_domain::js::iso_from_millis(now)
-        .unwrap_or_else(weldsuite_books_domain::http::now);
-    let row: Option<Value> = sqlx::query_scalar(concat!(
-        "update payment_runs t set status = 'exported', file_name = $2, file_generated_at = $3::timestamp, \
-         updated_at = $3::timestamp where t.id = $1 returning ",
-        weldsuite_books_domain::books_row!(payment_runs)
-    ))
-    .bind(s(&run, "id"))
-    .bind(&file_name)
-    .bind(&at)
-    .fetch_optional(db)
-    .await?;
-    let updated = row.map_or_else(|| run.clone(), |row| PAYMENT_RUNS.js(row));
+    let at = timestamp_of_millis(now).unwrap_or_else(utc_now);
+    let row = payment_runs::Entity::update_many()
+        .col_expr(payment_runs::Column::Status, Expr::value("exported"))
+        .col_expr(
+            payment_runs::Column::FileName,
+            Expr::value(file_name.as_str()),
+        )
+        .col_expr(payment_runs::Column::FileGeneratedAt, Expr::value(at))
+        .col_expr(payment_runs::Column::UpdatedAt, Expr::value(at))
+        .filter(payment_runs::Column::Id.eq(s(&run, "id")))
+        .exec_with_returning(&orm(db))
+        .await?
+        .into_iter()
+        .next();
+    let updated = match row {
+        Some(row) => js!(row)?,
+        None => run.clone(),
+    };
 
     let trace_of = |id: &str| {
         built
@@ -612,23 +633,32 @@ pub(crate) async fn complete_ach_run(
             Some(json!({ "status": s(&run, "status") })),
         ));
     }
-    let row: Option<Value> = sqlx::query_scalar(concat!(
-        "update payment_runs t set status = 'completed', updated_at = $2::timestamp \
-         where t.id = $1 and t.status = 'exported' returning ",
-        weldsuite_books_domain::books_row!(payment_runs)
+    let row = payment_runs::Entity::update_many()
+        .col_expr(payment_runs::Column::Status, Expr::value("completed"))
+        .col_expr(payment_runs::Column::UpdatedAt, Expr::value(utc_now()))
+        .filter(payment_runs::Column::Id.eq(s(&run, "id")))
+        .filter(payment_runs::Column::Status.eq("exported"))
+        .exec_with_returning(&orm(db))
+        .await?
+        .into_iter()
+        .next();
+    if let Some(row) = row {
+        return Ok(js!(row)?);
+    }
+    Err(run_error(
+        "INVALID_STATE",
+        "The run changed while you were completing it. Reload it and try again.".to_owned(),
+        409,
+        None,
     ))
-    .bind(s(&run, "id"))
-    .bind(weldsuite_books_domain::http::now())
-    .fetch_optional(db)
-    .await?;
-    row.map(|row| PAYMENT_RUNS.js(row)).ok_or_else(|| {
-        run_error(
-            "INVALID_STATE",
-            "The run changed while you were completing it. Reload it and try again.".to_owned(),
-            409,
-            None,
-        )
-    })
+}
+
+/// `innerJoin(bills, eq(bills.id, paymentAllocations.billId))`.
+fn allocation_bill() -> sea_orm::RelationDef {
+    payment_allocations::Entity::belongs_to(bills::Entity)
+        .from(payment_allocations::Column::BillId)
+        .to(bills::Column::Id)
+        .into()
 }
 
 #[cfg(test)]

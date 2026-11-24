@@ -7,16 +7,17 @@
 //! amount conditions compare the absolute amount, so a rule reads the same
 //! for money in and money out. Rules are tried highest priority first, and
 //! the first one that matches wins. Rows are `Value`s as Drizzle returns
-//! them (`RECONCILIATION_RULES.js(row)`).
+//! them (the `reconciliation_rules` entity, serialized).
 
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder};
 use serde_json::Value;
-use sqlx::PgPool;
+use weldsuite_db::{PgPool, orm, utc_now};
+use weldsuite_schema::tenant::reconciliation_rules as rules;
 
 use crate::document_posting::text;
-use crate::http::now;
 use crate::js::{number_text, parse_float};
 use crate::jurisdictions::{is_js_space, js_trim};
-use crate::tables::RECONCILIATION_RULES;
 
 fn conditions(rule: &Value) -> &[Value] {
     rule.get("conditions")
@@ -34,18 +35,17 @@ pub fn action<'a>(rule: &'a Value, key: &str) -> Option<&'a str> {
 /// `loadActiveRules(db, entityId)`: the entity's active rules, highest
 /// priority first, that can post a line (they name a category account and
 /// have a condition).
-pub async fn load_active_rules(db: &PgPool, entity_id: &str) -> Result<Vec<Value>, sqlx::Error> {
-    let rows: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        crate::books_row!(reconciliation_rules),
-        " from reconciliation_rules t where t.entity_id = $1 and t.is_active = true \
-         and t.deleted_at is null order by t.priority desc, t.created_at"
-    ))
-    .bind(entity_id)
-    .fetch_all(db)
-    .await?;
-    Ok(RECONCILIATION_RULES
-        .js_rows(rows)
+pub async fn load_active_rules(db: &PgPool, entity_id: &str) -> Result<Vec<Value>, DbErr> {
+    let rows = rules::Entity::find()
+        .filter(rules::Column::EntityId.eq(entity_id))
+        .filter(rules::Column::IsActive.eq(true))
+        .filter(rules::Column::DeletedAt.is_null())
+        .order_by_desc(rules::Column::Priority)
+        .order_by_asc(rules::Column::CreatedAt)
+        .all(&orm(db))
+        .await?;
+    let rows = rows.into_iter().map(js).collect::<Result<Vec<_>, _>>()?;
+    Ok(rows
         .into_iter()
         .filter(|rule| {
             action(rule, "categoryAccountId").is_some_and(|a| !a.is_empty())
@@ -60,32 +60,39 @@ pub async fn load_active_rule(
     db: &PgPool,
     rule_id: &str,
     entity_id: &str,
-) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        crate::books_row!(reconciliation_rules),
-        " from reconciliation_rules t where t.id = $1 and t.entity_id = $2 and t.is_active = true \
-         and t.deleted_at is null limit 1"
-    ))
-    .bind(rule_id)
-    .bind(entity_id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(|row| RECONCILIATION_RULES.js(row)))
+) -> Result<Option<Value>, DbErr> {
+    rules::Entity::find()
+        .filter(rules::Column::Id.eq(rule_id))
+        .filter(rules::Column::EntityId.eq(entity_id))
+        .filter(rules::Column::IsActive.eq(true))
+        .filter(rules::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?
+        .map(js)
+        .transpose()
 }
 
 /// `recordRuleMatch(db, ruleId)`: count a rule's use (`matchCount` and
 /// `lastMatchedAt` show on the Rules page).
-pub async fn record_rule_match(db: &PgPool, rule_id: &str) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "update reconciliation_rules set match_count = coalesce(match_count, 0) + 1, \
-         last_matched_at = $2::timestamp where id = $1",
-    )
-    .bind(rule_id)
-    .bind(now())
-    .execute(db)
-    .await?;
+pub async fn record_rule_match(db: &PgPool, rule_id: &str) -> Result<(), DbErr> {
+    use sea_orm::ExprTrait as _;
+    let count = Expr::expr(Func::coalesce([
+        Expr::col(rules::Column::MatchCount),
+        Expr::val(0),
+    ]))
+    .add(1);
+    rules::Entity::update_many()
+        .col_expr(rules::Column::MatchCount, count)
+        .col_expr(rules::Column::LastMatchedAt, Expr::value(utc_now()))
+        .filter(rules::Column::Id.eq(rule_id))
+        .exec(&orm(db))
+        .await?;
     Ok(())
+}
+
+/// A rule as Drizzle returns it.
+fn js(model: rules::Model) -> Result<Value, DbErr> {
+    serde_json::to_value(model).map_err(|error| DbErr::Json(error.to_string()))
 }
 
 /// `.replaceAll(/\s/g, '')`.

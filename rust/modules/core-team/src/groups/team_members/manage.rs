@@ -23,9 +23,13 @@ use axum::body::Bytes;
 use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, patch, post};
+use sea_orm::ActiveValue::Set;
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
+use time::OffsetDateTime;
 use weldsuite_catalogs::permissions;
-use weldsuite_db::{PgPool, js_row};
+use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_kit::validation::{Format, Issues, Presence, Text};
 use weldsuite_kit::{ApiError, Created, Data, NoContent, generate_id};
 use weldsuite_permissions::{
@@ -33,9 +37,11 @@ use weldsuite_permissions::{
     role_row_permissions,
 };
 use weldsuite_ports::{Identity, IdentityError, ListPage, NewInvitation, NewMembership};
+use weldsuite_schema::master::api_key_registry;
+use weldsuite_schema::tenant::{api_keys, roles, workspace_members as members};
 
 use crate::groups::seats::{self, SeatLimit, align_cap_with_plan, make_room_for_guest};
-use crate::{Caller, CoreTeamState, TeamError, TeamResult, answer, now};
+use crate::{Caller, CoreTeamState, TeamError, TeamResult, answer};
 
 pub(crate) fn router<Q>(gate: &Arc<PermissionGate<Q>>) -> Router<CoreTeamState>
 where
@@ -158,19 +164,28 @@ fn org_of(caller: &Caller) -> TeamResult<String> {
         .ok_or_else(|| TeamError::api(ApiError::org_required()))
 }
 
-/// A live member row by id, as Drizzle returns it.
-async fn live_member(db: &PgPool, id: &str) -> TeamResult<Option<Value>> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(m) from workspace_members m where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(js_row))
+/// `new Date()` as Drizzle writes it to a `timestamptz` column: UTC, to the
+/// millisecond.
+fn stamp() -> OffsetDateTime {
+    utc_now().assume_utc()
 }
 
-fn text<'a>(row: &'a Value, key: &str) -> &'a str {
-    row[key].as_str().unwrap_or_default()
+/// A live member row by id.
+async fn live_member(db: &PgPool, id: &str) -> TeamResult<Option<members::Model>> {
+    Ok(members::Entity::find_by_id(id)
+        .filter(members::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?)
+}
+
+/// An optional text column, `''` without a value.
+fn text(value: Option<&String>) -> &str {
+    value.map_or("", String::as_str)
+}
+
+/// A JSON column's strings (`permissions`, `permissionDenies`).
+fn json_strings(value: Option<&Value>) -> Vec<String> {
+    value.map(strings).unwrap_or_default()
 }
 
 fn strings(value: &Value) -> Vec<String> {
@@ -188,12 +203,13 @@ fn strings(value: &Value) -> Vec<String> {
 
 /// A non-deleted role's id and name.
 async fn lookup_role(db: &PgPool, role_id: &str) -> TeamResult<Option<String>> {
-    Ok(
-        sqlx::query_scalar("select name from roles where id = $1 and deleted_at is null limit 1")
-            .bind(role_id)
-            .fetch_optional(db)
-            .await?,
-    )
+    Ok(roles::Entity::find_by_id(role_id)
+        .select_only()
+        .column(roles::Column::Name)
+        .filter(roles::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?)
 }
 
 /// `rolePermissionsFor`: what assigning `tier` / custom role `role_id` grants.
@@ -209,12 +225,17 @@ async fn role_permissions_for(
             .map(|role| role.permissions.clone())
             .unwrap_or_default());
     };
-    let row: Option<(Option<Value>, bool, String)> = sqlx::query_as(
-        "select permissions, is_system, name from roles where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(role_id)
-    .fetch_optional(db)
-    .await?;
+    let row: Option<(Option<Value>, bool, String)> = roles::Entity::find_by_id(role_id)
+        .select_only()
+        .columns([
+            roles::Column::Permissions,
+            roles::Column::IsSystem,
+            roles::Column::Name,
+        ])
+        .filter(roles::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     Ok(row.map_or_else(Vec::new, |(stored, is_system, name)| {
         let stored = stored.as_ref().map(strings);
         role_row_permissions(is_system, &name, stored.as_deref())
@@ -261,43 +282,45 @@ fn refuse_unliftable_denies(
     }
 }
 
-/// `releaseRemovedMemberUserId`: free a `user_id` a removed row still holds.
-async fn release_removed_user_id(db: &PgPool, user_id: &str) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "update workspace_members set user_id = 'removed_' || id
-         where user_id = $1 and deleted_at is not null",
-    )
-    .bind(user_id)
-    .execute(db)
-    .await?;
+/// `releaseRemovedMemberUserId`: free a `user_id` a removed row still holds
+/// (`user_id = 'removed_' || id`).
+async fn release_removed_user_id(db: &PgPool, user_id: &str) -> Result<(), DbErr> {
+    let removed = sea_orm::sea_query::extension::postgres::PgExpr::concat(
+        Expr::val("removed_"),
+        Expr::col(members::Column::Id),
+    );
+    members::Entity::update_many()
+        .col_expr(members::Column::UserId, removed)
+        .filter(members::Column::UserId.eq(user_id))
+        .filter(members::Column::DeletedAt.is_not_null())
+        .exec(&orm(db))
+        .await?;
     Ok(())
 }
 
 /// `revokeRemovedMemberKeys`: a removed member's personal API keys, with
 /// their master registry entries. Best effort: logged, never surfaced.
 async fn revoke_member_keys(caller: &Caller, state: &CoreTeamState, user_id: &str) {
-    let stamp = now();
-    let revoked: Result<Vec<String>, sqlx::Error> = sqlx::query_scalar(
-        "update api_keys set deleted_at = $2::timestamptz, updated_at = $2::timestamptz
-         where user_id = $1 and deleted_at is null
-         returning id",
-    )
-    .bind(user_id)
-    .bind(&stamp)
-    .fetch_all(&caller.db)
-    .await;
+    let stamp = stamp();
+    let revoked = api_keys::Entity::update_many()
+        .col_expr(api_keys::Column::DeletedAt, Expr::value(stamp))
+        .col_expr(api_keys::Column::UpdatedAt, Expr::value(stamp))
+        .filter(api_keys::Column::UserId.eq(user_id))
+        .filter(api_keys::Column::DeletedAt.is_null())
+        .exec_with_returning(&orm(&caller.db))
+        .await;
     let revoked = match revoked {
-        Ok(ids) => ids,
+        Ok(keys) => keys,
         Err(error) => {
             tracing::error!(%error, "team members: failed to revoke API keys of a removed member");
             return;
         }
     };
-    let master = caller.master(state);
-    for id in revoked {
-        if let Err(error) = sqlx::query("delete from api_key_registry where tenant_key_id = $1")
-            .bind(&id)
-            .execute(&master)
+    let master = orm(&caller.master(state));
+    for key in revoked {
+        if let Err(error) = api_key_registry::Entity::delete_many()
+            .filter(api_key_registry::Column::TenantKeyId.eq(key.id))
+            .exec(&master)
             .await
         {
             tracing::error!(%error, "team members: failed to remove a key from the master registry");
@@ -334,33 +357,29 @@ async fn sync_team(state: &CoreTeamState, caller: &Caller) -> TeamResult<Respons
     };
     let membership_ids: Vec<String> = memberships.data.into_iter().map(|m| m.id).collect();
     let invitation_ids: Vec<String> = invitations.data.into_iter().map(|i| i.id).collect();
-    let result: Result<(), sqlx::Error> = async {
+    let db = orm(&caller.db);
+    let result: Result<(), DbErr> = async {
         if !membership_ids.is_empty() {
-            let stamp = now();
-            let departed: Vec<String> = sqlx::query_scalar(
-                "update workspace_members set deleted_at = $1::timestamptz, updated_at = $1::timestamptz
-                 where status = 'ACTIVE' and deleted_at is null and clerk_membership_id is not null
-                   and clerk_membership_id <> all($2)
-                 returning user_id",
-            )
-            .bind(&stamp)
-            .bind(&membership_ids)
-            .fetch_all(&caller.db)
-            .await?;
-            for user_id in departed {
-                revoke_member_keys(caller, state, &user_id).await;
+            let departed = soft_delete_members()
+                .filter(members::Column::Status.eq("ACTIVE"))
+                .filter(members::Column::DeletedAt.is_null())
+                .filter(members::Column::ClerkMembershipId.is_not_null())
+                .filter(members::Column::ClerkMembershipId.is_not_in(membership_ids))
+                .exec_with_returning(&db)
+                .await?;
+            for member in departed {
+                revoke_member_keys(caller, state, &member.user_id).await;
             }
         }
-        let stamp = now();
-        sqlx::query(
-            "update workspace_members set deleted_at = $1::timestamptz, updated_at = $1::timestamptz
-             where status = 'PENDING' and deleted_at is null and clerk_invitation_id is not null
-               and (cardinality($2::text[]) = 0 or clerk_invitation_id <> all($2))",
-        )
-        .bind(&stamp)
-        .bind(&invitation_ids)
-        .execute(&caller.db)
-        .await?;
+        let mut pending = soft_delete_members()
+            .filter(members::Column::Status.eq("PENDING"))
+            .filter(members::Column::DeletedAt.is_null())
+            .filter(members::Column::ClerkInvitationId.is_not_null());
+        // `cardinality(ids) = 0 or clerk_invitation_id <> all(ids)`.
+        if !invitation_ids.is_empty() {
+            pending = pending.filter(members::Column::ClerkInvitationId.is_not_in(invitation_ids));
+        }
+        pending.exec(&db).await?;
         Ok(())
     }
     .await;
@@ -368,6 +387,15 @@ async fn sync_team(state: &CoreTeamState, caller: &Caller) -> TeamResult<Respons
         Ok(()) => Ok(Data(json!({ "synced": true })).into_response()),
         Err(error) => Err(TeamError::internal("Failed to sync team from Clerk", error)),
     }
+}
+
+/// `set deleted_at = now, updated_at = now` on the member rows a filter
+/// picks.
+fn soft_delete_members() -> sea_orm::UpdateMany<members::Entity> {
+    let stamp = stamp();
+    members::Entity::update_many()
+        .col_expr(members::Column::DeletedAt, Expr::value(stamp))
+        .col_expr(members::Column::UpdatedAt, Expr::value(stamp))
 }
 
 // ── POST /invite ────────────────────────────────────────────────────────────
@@ -430,12 +458,14 @@ async fn resolve_invite_role(
 
 /// `getExistingMemberConflict`.
 async fn existing_member_conflict(db: &PgPool, email: &str) -> TeamResult<Option<&'static str>> {
-    let status: Option<String> = sqlx::query_scalar(
-        "select status from workspace_members where email = $1 and deleted_at is null limit 1",
-    )
-    .bind(email.to_lowercase())
-    .fetch_optional(db)
-    .await?;
+    let status: Option<String> = members::Entity::find()
+        .select_only()
+        .column(members::Column::Status)
+        .filter(members::Column::Email.eq(email.to_lowercase()))
+        .filter(members::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     Ok(match status.as_deref() {
         Some("ACTIVE") => Some("This email address is already a member of this workspace."),
         Some("PENDING") => Some("An invitation has already been sent to this email address."),
@@ -648,24 +678,28 @@ async fn add_existing_guest(
 
     let member_id = generate_id("mbr");
     release_removed_user_id(&caller.db, &user_id).await?;
-    let stamp = now();
-    sqlx::query(
-        "insert into workspace_members
-             (id, user_id, email, name, role, role_id, permissions, member_type, status,
-              clerk_membership_id, invited_by, invited_at, accepted_at, created_at, updated_at)
-         values ($1, $2, $3, $4, 'VIEWER', null, $5, 'EXTERNAL_GUEST', 'ACTIVE',
-                 $6, $7, $8::timestamptz, $8::timestamptz, $8::timestamptz, $8::timestamptz)",
-    )
-    .bind(&member_id)
-    .bind(&user_id)
-    .bind(body.email.to_lowercase())
-    .bind(&body.name)
-    .bind(json!(GUEST_DEFAULT_PERMISSIONS))
-    .bind(&membership.id)
-    .bind(&caller.user_id)
-    .bind(&stamp)
-    .execute(&caller.db)
-    .await?;
+    let stamp = stamp();
+    let row = members::ActiveModel {
+        id: Set(member_id.clone()),
+        user_id: Set(user_id),
+        email: Set(Some(body.email.to_lowercase())),
+        name: Set(Some(body.name.clone())),
+        role: Set("VIEWER".to_owned()),
+        role_id: Set(None),
+        permissions: Set(Some(json!(GUEST_DEFAULT_PERMISSIONS))),
+        member_type: Set("EXTERNAL_GUEST".to_owned()),
+        status: Set("ACTIVE".to_owned()),
+        clerk_membership_id: Set(Some(membership.id)),
+        invited_by: Set(Some(caller.user_id.clone())),
+        invited_at: Set(Some(stamp)),
+        accepted_at: Set(Some(stamp)),
+        created_at: Set(stamp),
+        updated_at: Set(stamp),
+        ..Default::default()
+    };
+    members::Entity::insert(row)
+        .exec_without_returning(&orm(&caller.db))
+        .await?;
     Ok(Some(
         Created(
             json!({ "memberId": member_id, "memberType": "EXTERNAL_GUEST", "activated": true }),
@@ -681,7 +715,7 @@ async fn insert_pending_member(
     role_name: &str,
     role_id: Option<&str>,
     invitation_id: &str,
-) -> Result<String, sqlx::Error> {
+) -> Result<String, DbErr> {
     let member_id = generate_id("mbr");
     let user_id = format!("invited_{}", body.email);
     release_removed_user_id(&caller.db, &user_id).await?;
@@ -695,29 +729,29 @@ async fn insert_pending_member(
     } else {
         json!([])
     };
-    let stamp = now();
+    let stamp = stamp();
     // A live row already on the placeholder fails the insert (the user id is
     // unique), and the caller takes the invitation back.
-    sqlx::query(
-        "insert into workspace_members
-             (id, user_id, email, name, role, role_id, permissions, member_type, status,
-              clerk_invitation_id, invited_by, invited_at, created_at, updated_at)
-         values ($1, $2, $3, $4, $5, $6, $7, $8, 'PENDING',
-                 $9, $10, $11::timestamptz, $11::timestamptz, $11::timestamptz)",
-    )
-    .bind(&member_id)
-    .bind(&user_id)
-    .bind(body.email.to_lowercase())
-    .bind(&body.name)
-    .bind(role)
-    .bind(role_id)
-    .bind(permissions)
-    .bind(&body.member_type)
-    .bind(invitation_id)
-    .bind(&caller.user_id)
-    .bind(&stamp)
-    .execute(&caller.db)
-    .await?;
+    let row = members::ActiveModel {
+        id: Set(member_id.clone()),
+        user_id: Set(user_id),
+        email: Set(Some(body.email.to_lowercase())),
+        name: Set(Some(body.name.clone())),
+        role: Set(role.to_owned()),
+        role_id: Set(role_id.map(str::to_owned)),
+        permissions: Set(Some(permissions)),
+        member_type: Set(body.member_type.clone()),
+        status: Set("PENDING".to_owned()),
+        clerk_invitation_id: Set(Some(invitation_id.to_owned())),
+        invited_by: Set(Some(caller.user_id.clone())),
+        invited_at: Set(Some(stamp)),
+        created_at: Set(stamp),
+        updated_at: Set(stamp),
+        ..Default::default()
+    };
+    members::Entity::insert(row)
+        .exec_without_returning(&orm(&caller.db))
+        .await?;
     Ok(member_id)
 }
 
@@ -797,10 +831,14 @@ async fn update_member(
         )));
     };
     if let Some(keys) = &body.permissions {
-        refuse_ungrantable(caller, keys, &strings(&member["permissions"]))?;
+        refuse_ungrantable(caller, keys, &json_strings(member.permissions.as_ref()))?;
     }
     if let Some(next) = &body.permission_denies {
-        refuse_unliftable_denies(caller, &strings(&member["permissionDenies"]), next)?;
+        refuse_unliftable_denies(
+            caller,
+            &json_strings(member.permission_denies.as_ref()),
+            next,
+        )?;
     }
 
     let role_id_set = body.role_id.as_deref().is_some_and(|id| !id.is_empty());
@@ -810,33 +848,33 @@ async fn update_member(
             Some(apply_role_change(state, caller, &org, &member, &body, role_id_set).await?);
     }
 
-    let (tier, role_id) = role_change.map_or((None, None), |(tier, id)| (Some(tier), Some(id)));
-    sqlx::query(
-        "update workspace_members set
-             updated_at = $2::timestamptz,
-             role = case when $3 then $4 else role end,
-             role_id = case when $3 then $5 else role_id end,
-             name = case when $6 then $7 else name end,
-             permissions = case when $8 then $9::jsonb else permissions end,
-             permission_denies = case when $10 then $11::jsonb else permission_denies end,
-             hours_per_week = case when $12 then $13::numeric else hours_per_week end
-         where id = $1",
-    )
-    .bind(member_id)
-    .bind(now())
-    .bind(tier.is_some())
-    .bind(&tier)
-    .bind(role_id.flatten())
-    .bind(body.name.is_some())
-    .bind(&body.name)
-    .bind(body.permissions.is_some())
-    .bind(body.permissions.as_ref().map(|keys| json!(keys)))
-    .bind(body.permission_denies.is_some())
-    .bind(body.permission_denies.as_ref().map(|keys| json!(keys)))
-    .bind(body.hours_per_week.is_some())
-    .bind(&body.hours_per_week)
-    .execute(&caller.db)
-    .await?;
+    let mut update =
+        members::Entity::update_many().col_expr(members::Column::UpdatedAt, Expr::value(stamp()));
+    if let Some((tier, role_id)) = role_change {
+        update = update
+            .col_expr(members::Column::Role, Expr::value(tier))
+            .col_expr(members::Column::RoleId, Expr::value(role_id));
+    }
+    if let Some(name) = &body.name {
+        update = update.col_expr(members::Column::Name, Expr::value(name.clone()));
+    }
+    if let Some(keys) = &body.permissions {
+        update = update.col_expr(members::Column::Permissions, Expr::value(json!(keys)));
+    }
+    if let Some(keys) = &body.permission_denies {
+        update = update.col_expr(members::Column::PermissionDenies, Expr::value(json!(keys)));
+    }
+    if let Some(hours) = &body.hours_per_week {
+        // The text as sent, converted by Postgres (`$n::numeric`).
+        update = update.col_expr(
+            members::Column::HoursPerWeek,
+            sea_orm::ExprTrait::cast_as(Expr::val(hours.clone()), "numeric"),
+        );
+    }
+    update
+        .filter(members::Column::Id.eq(member_id))
+        .exec(&orm(&caller.db))
+        .await?;
     Ok(Data(json!({ "id": member_id })).into_response())
 }
 
@@ -846,19 +884,19 @@ async fn apply_role_change(
     state: &CoreTeamState,
     caller: &Caller,
     org: &str,
-    member: &Value,
+    member: &members::Model,
     body: &UpdateBody,
     role_id_set: bool,
 ) -> TeamResult<(String, Option<String>)> {
-    if text(member, "role") == "OWNER" {
+    if member.role == "OWNER" {
         return Err(forbidden("Cannot change the role of the workspace owner."));
     }
-    if text(member, "status") != "ACTIVE" {
+    if member.status != "ACTIVE" {
         return Err(TeamError::api(ApiError::bad_request(
             "Can only update role of an active member.",
         )));
     }
-    if text(member, "memberType") == "EMPLOYEE" {
+    if member.member_type == "EMPLOYEE" {
         return Err(TeamError::api(ApiError::bad_request(
             "Employee members have fixed access and no role. Invite them as a team member to give them a role.",
         )));
@@ -881,10 +919,10 @@ async fn apply_role_change(
     let grants = role_permissions_for(&caller.db, &tier, role_id.as_deref()).await?;
     refuse_ungrantable(caller, &grants, &[])?;
 
-    if !text(member, "clerkMembershipId").is_empty() {
+    if !text(member.clerk_membership_id.as_ref()).is_empty() {
         let idp = seats::identity(caller, state);
         if let Err(error) = idp
-            .set_membership_role(org, text(member, "userId"), provider_role(&tier))
+            .set_membership_role(org, &member.user_id, provider_role(&tier))
             .await
         {
             tracing::error!(%error, "team members: role update in the identity provider failed");
@@ -916,21 +954,21 @@ async fn remove_member(
             Some(member_id),
         )));
     };
-    if text(&member, "role") == "OWNER" {
+    if member.role == "OWNER" {
         return Err(forbidden("Cannot remove the workspace owner."));
     }
-    let status = text(&member, "status");
+    let status = member.status.as_str();
     let idp = seats::identity(caller, state);
     // By user id: the provider addresses memberships that way.
     if status == "ACTIVE"
-        && !text(&member, "clerkMembershipId").is_empty()
-        && let Err(error) = idp.remove_membership(&org, text(&member, "userId")).await
+        && !text(member.clerk_membership_id.as_ref()).is_empty()
+        && let Err(error) = idp.remove_membership(&org, &member.user_id).await
         && !error.is_not_found()
     {
         tracing::error!(%error, "team members: membership delete failed");
         return Err(internal("Failed to remove member from Clerk organization"));
     }
-    let invitation = text(&member, "clerkInvitationId");
+    let invitation = text(member.clerk_invitation_id.as_ref());
     if status == "PENDING"
         && !invitation.is_empty()
         && let Err(error) = idp.revoke_invitation(&org, invitation).await
@@ -939,18 +977,13 @@ async fn remove_member(
         tracing::error!(%error, "team members: invitation revoke failed");
         return Err(internal("Failed to revoke invitation in Clerk"));
     }
-    let stamp = now();
-    sqlx::query(
-        "update workspace_members set deleted_at = $2::timestamptz, updated_at = $2::timestamptz
-         where id = $1",
-    )
-    .bind(member_id)
-    .bind(&stamp)
-    .execute(&caller.db)
-    .await?;
+    soft_delete_members()
+        .filter(members::Column::Id.eq(member_id))
+        .exec(&orm(&caller.db))
+        .await?;
     // A cancelled invitation never signed in: no keys to revoke.
     if status != "PENDING" {
-        revoke_member_keys(caller, state, text(&member, "userId")).await;
+        revoke_member_keys(caller, state, &member.user_id).await;
     }
     Ok(NoContent.into_response())
 }
@@ -973,19 +1006,19 @@ async fn resend(state: &CoreTeamState, caller: &Caller, member_id: &str) -> Team
             Some(member_id),
         )));
     };
-    if text(&member, "status") != "PENDING" {
+    if member.status != "PENDING" {
         return Err(TeamError::api(ApiError::bad_request(
             "Can only resend invite to a pending member.",
         )));
     }
-    let email = text(&member, "email");
+    let email = text(member.email.as_ref());
     if email.is_empty() {
         return Err(TeamError::api(ApiError::bad_request(
             "Pending member has no email address.",
         )));
     }
     let idp = seats::identity(caller, state);
-    let old = text(&member, "clerkInvitationId");
+    let old = text(member.clerk_invitation_id.as_ref());
     if !old.is_empty() {
         // Best effort, any failure ignored.
         let _ = idp.revoke_invitation(&org, old).await;
@@ -995,7 +1028,7 @@ async fn resend(state: &CoreTeamState, caller: &Caller, member_id: &str) -> Team
             &org,
             &NewInvitation {
                 email_address: email.to_owned(),
-                role: provider_role(text(&member, "role")).to_owned(),
+                role: provider_role(&member.role).to_owned(),
                 redirect_url: Some(invitation_redirect_url(caller, &org)),
                 public_metadata: None,
                 inviter_user_id: None,
@@ -1008,18 +1041,21 @@ async fn resend(state: &CoreTeamState, caller: &Caller, member_id: &str) -> Team
             internal("Failed to resend invitation via Clerk")
         })?;
     // `deleted_at = null` restores a row the revoke webhook may have removed meanwhile.
-    let stamp = now();
-    sqlx::query(
-        "update workspace_members
-         set clerk_invitation_id = $2, invited_at = $3::timestamptz, updated_at = $3::timestamptz,
-             deleted_at = null
-         where id = $1",
-    )
-    .bind(member_id)
-    .bind(&invitation.id)
-    .bind(&stamp)
-    .execute(&caller.db)
-    .await?;
+    let stamp = stamp();
+    members::Entity::update_many()
+        .col_expr(
+            members::Column::ClerkInvitationId,
+            Expr::value(invitation.id),
+        )
+        .col_expr(members::Column::InvitedAt, Expr::value(stamp))
+        .col_expr(members::Column::UpdatedAt, Expr::value(stamp))
+        .col_expr(
+            members::Column::DeletedAt,
+            Expr::value(Option::<OffsetDateTime>::None),
+        )
+        .filter(members::Column::Id.eq(member_id))
+        .exec(&orm(&caller.db))
+        .await?;
     Ok(Data(json!({ "success": true })).into_response())
 }
 

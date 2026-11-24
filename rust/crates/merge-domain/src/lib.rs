@@ -9,10 +9,5 @@
 //! - [`member_token`]: a member's linked GitHub token as stored (no
 //!   refresh), which WeldConnect proves an install with.
 
-#![allow(
-    clippy::disallowed_methods,
-    reason = "not converted to the ORM yet (ADR DATA-019)"
-)]
-
 pub mod installations;
 pub mod member_token;

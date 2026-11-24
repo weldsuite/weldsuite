@@ -17,25 +17,30 @@ use axum::body::Bytes;
 use axum::extract::State;
 use axum::response::IntoResponse;
 use http::HeaderMap;
+use sea_orm::ActiveValue::{Set, Unchanged};
+use sea_orm::{ActiveModelTrait, ColumnTrait, DbErr, QueryFilter};
 use serde_json::{Map, Value, json};
-use weldsuite_db::{PgPool, js_row};
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::validation::Presence;
 use weldsuite_kit::{ApiError, Data};
+use weldsuite_schema::tenant::{merge_pull_requests, merge_repositories};
 
 use crate::credentials::adapter_context;
-use crate::db::{Row, opt_text, rows_of, text};
+use crate::db::{Row, json_row, now_at, opt_text, text};
 use crate::github_events::{Intake, Outcome, applied, ignored};
 use crate::hooks::{HookContext, after_pull_request_synced};
 use crate::issue_sync::hooks::result_of;
 use crate::issue_sync::inbound::{InboundContext, apply_inbound_comment, apply_inbound_issue};
-use crate::issue_sync::targets::SyncTarget;
+use crate::issue_sync::targets::{SyncTarget, first_target, live_targets};
 use crate::mappers::{pull_request_event_data, repository_event_data};
-use crate::pr_sync::{UpsertStatus, upsert_mirror};
+use crate::pr_sync::{
+    UpsertStatus, mirror_by_number, open_mirrors_at, set_mirror_status, upsert_mirror,
+};
 use crate::providers::{self, AdapterContext, RepositoryRef, WebhookEvent};
 use crate::pull_requests::linked_issues;
 use crate::webhooks::{delete_webhook_index, master_of, webhook_secret_of};
 use crate::{
-    Answer, MergeError, MergeState, PendingEvent, Refusal, now, publish, system_events, validate,
+    Answer, MergeError, MergeState, PendingEvent, Refusal, publish, system_events, validate,
 };
 
 /// `MERGE_WEBHOOK_PROVIDERS`.
@@ -113,36 +118,14 @@ async fn find_by_webhook_key(
     db: &PgPool,
     provider: &str,
     key: &str,
-) -> Result<Option<SyncTarget>, sqlx::Error> {
-    let row: Option<(Value, Value)> = sqlx::query_as(
-        "select to_jsonb(r), to_jsonb(c) from merge_repositories r \
-         inner join merge_connections c on c.id = r.connection_id \
-         where r.provider = $1 and r.webhook_key = $2 and r.deleted_at is null and c.deleted_at is null \
-         limit 1",
+) -> Result<Option<SyncTarget>, DbErr> {
+    first_target(
+        db,
+        live_targets()
+            .filter(merge_repositories::Column::Provider.eq(provider))
+            .filter(merge_repositories::Column::WebhookKey.eq(key)),
     )
-    .bind(provider)
-    .bind(key)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(|(repository, connection)| SyncTarget {
-        repository: js_row(repository),
-        connection: js_row(connection),
-    }))
-}
-
-async fn pull_request_for(
-    db: &PgPool,
-    repository: &Row,
-    number: i64,
-) -> Result<Option<Row>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(p) from merge_pull_requests p where p.repository_id = $1 and p.number = $2 limit 1",
-    )
-    .bind(text(repository, "id"))
-    .bind(number)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(js_row))
+    .await
 }
 
 /// `updateEvent(db, pr)`: `merge_pull_request:updated` with its issues.
@@ -152,7 +135,7 @@ async fn update_event(
     field: &str,
     old: Value,
     new: Value,
-) -> Result<PendingEvent, sqlx::Error> {
+) -> Result<PendingEvent, DbErr> {
     let id = text(pr, "id").to_owned();
     let mut issues = linked_issues(db, std::slice::from_ref(&id)).await?;
     let issue_ids: Vec<String> = issues
@@ -221,7 +204,7 @@ async fn review_event(
     if !pr_sync_on(scope.repository()) {
         return Ok(ignored("pr_sync_off"));
     }
-    let Some(pr) = pull_request_for(scope.db, scope.repository(), number).await? else {
+    let Some(pr) = mirror_by_number(scope.db, text(scope.repository(), "id"), number).await? else {
         return Ok(ignored("unknown_pull_request"));
     };
     let decision = if decision.is_some() {
@@ -239,17 +222,13 @@ async fn review_event(
             Err(error) => return Err(error),
         }
     };
-    let now = now();
-    let updated: Value = sqlx::query_scalar(
-        "update merge_pull_requests set review_decision = $2, synced_at = $3::timestamptz, \
-           updated_at = $3::timestamptz where id = $1 returning to_jsonb(merge_pull_requests.*)",
+    let updated = set_mirror_status(
+        scope.db,
+        text(&pr, "id"),
+        merge_pull_requests::Column::ReviewDecision,
+        decision,
     )
-    .bind(text(&pr, "id"))
-    .bind(decision)
-    .bind(&now)
-    .fetch_one(scope.db)
     .await?;
-    let updated = js_row(updated);
     let event = update_event(
         scope.db,
         &updated,
@@ -272,23 +251,12 @@ async fn checks_event(
     if !pr_sync_on(scope.repository()) {
         return Ok(ignored("pr_sync_off"));
     }
-    let tracked = rows_of(
-        sqlx::query_scalar(
-            "select to_jsonb(p) from merge_pull_requests p \
-             where p.repository_id = $1 and p.head_sha = $2 and p.state = 'open' \
-               and (cardinality($3::int[]) = 0 or p.number = any($3::int[]))",
-        )
-        .bind(text(scope.repository(), "id"))
-        .bind(head_sha)
-        .bind(
-            numbers
-                .iter()
-                .map(|n| i32::try_from(*n).unwrap_or(i32::MAX))
-                .collect::<Vec<i32>>(),
-        )
-        .fetch_all(scope.db)
-        .await?,
-    );
+    let numbers: Vec<i32> = numbers
+        .iter()
+        .map(|n| i32::try_from(*n).unwrap_or(i32::MAX))
+        .collect();
+    let tracked =
+        open_mirrors_at(scope.db, text(scope.repository(), "id"), head_sha, &numbers).await?;
     if tracked.is_empty() {
         return Ok(ignored("unknown_pull_request"));
     }
@@ -310,17 +278,13 @@ async fn checks_event(
                 Err(error) => return Err(error),
             }
         };
-        let now = now();
-        let updated: Value = sqlx::query_scalar(
-            "update merge_pull_requests set checks_status = $2, synced_at = $3::timestamptz, \
-               updated_at = $3::timestamptz where id = $1 returning to_jsonb(merge_pull_requests.*)",
+        let updated = set_mirror_status(
+            scope.db,
+            text(pr, "id"),
+            merge_pull_requests::Column::ChecksStatus,
+            status,
         )
-        .bind(text(pr, "id"))
-        .bind(status)
-        .bind(&now)
-        .fetch_one(scope.db)
         .await?;
-        let updated = js_row(updated);
         let event = update_event(
             scope.db,
             &updated,
@@ -342,16 +306,17 @@ async fn checks_event(
 }
 
 async fn remove_repository(scope: &Scope<'_>) -> Result<Outcome, MergeError> {
-    let now = now();
-    let row: Value = sqlx::query_scalar(
-        "update merge_repositories set deleted_at = $2::timestamptz, updated_at = $2::timestamptz \
-         where id = $1 returning to_jsonb(merge_repositories.*)",
-    )
-    .bind(text(scope.repository(), "id"))
-    .bind(&now)
-    .fetch_one(scope.db)
-    .await?;
-    let row = js_row(row);
+    let (_, at) = now_at();
+    let row = json_row(serde_json::to_value(
+        merge_repositories::ActiveModel {
+            id: Unchanged(text(scope.repository(), "id").to_owned()),
+            deleted_at: Set(Some(at)),
+            updated_at: Set(at),
+            ..Default::default()
+        }
+        .update(&orm(scope.db))
+        .await?,
+    ))?;
     if let Some(key) = opt_text(scope.repository(), "webhookKey") {
         let removed = match master_of(&scope.hooks.state, &scope.hooks.overrides) {
             Ok(master) => delete_webhook_index(&master, text(scope.repository(), "provider"), &key)

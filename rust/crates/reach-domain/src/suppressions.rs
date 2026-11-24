@@ -5,14 +5,24 @@ use std::collections::HashMap;
 use std::sync::LazyLock;
 
 use regex::Regex;
+use sea_orm::sea_query::{Expr, OnConflict};
+use sea_orm::{
+    ColumnTrait, Condition, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Set,
+};
 use serde_json::{Value, json};
 use sqlx::PgPool;
+use time::OffsetDateTime;
+use weldsuite_db::orm;
 use weldsuite_kit::generate_id;
+use weldsuite_schema::tenant::{
+    reach_enrollments as enrollments, reach_prospects as prospects, reach_suppressions,
+};
 
 use crate::campaigns::complete_and_publish;
+use crate::lists::{before, cursor_row, probe};
 use crate::schemas::email_domain;
 use crate::validation::is_valid_email_syntax;
-use crate::{EventSink, ReachError, ReachResult, field, iso, js_rows, now};
+use crate::{EventSink, ReachError, ReachResult, field, js_all, now};
 
 /// `SuppressionHit`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -50,12 +60,20 @@ impl SuppressionIndex {
     }
 }
 
-/// The prospects an entry list matches: $1 emails, $2 domains, $3 the
-/// subdomain patterns (`prospectMatches`).
-macro_rules! prospect_match {
-    () => {
-        "((cardinality($1::varchar[]) > 0 and email = any($1)) or (cardinality($2::varchar[]) > 0 and company_domain = any($2)) or company_domain like any($3::text[]))"
-    };
+/// The prospects an entry list matches (`prospectMatches`): the emails, the
+/// domains, and the subdomain patterns. No entries match nothing.
+fn prospect_match(emails: &[String], domains: &[String], patterns: &[String]) -> Condition {
+    let mut matches = Condition::any();
+    if !emails.is_empty() {
+        matches = matches.add(prospects::Column::Email.is_in(emails));
+    }
+    if !domains.is_empty() {
+        matches = matches.add(prospects::Column::CompanyDomain.is_in(domains));
+    }
+    for pattern in patterns {
+        matches = matches.add(prospects::Column::CompanyDomain.like(pattern.as_str()));
+    }
+    matches
 }
 
 const LOOKUP_CHUNK: usize = 1000;
@@ -74,13 +92,17 @@ pub async fn load_index(db: &PgPool, emails: &[String]) -> ReachResult<Suppressi
         }
     }
     let mut index = SuppressionIndex::default();
+    let conn = orm(db);
     for chunk in wanted.chunks(LOOKUP_CHUNK) {
-        let rows: Vec<(String, String, String)> = sqlx::query_as(
-            "select value, type, reason from reach_suppressions where value = any($1)",
-        )
-        .bind(chunk)
-        .fetch_all(db)
-        .await?;
+        let rows: Vec<(String, String, String)> = reach_suppressions::Entity::find()
+            .select_only()
+            .column(reach_suppressions::Column::Value)
+            .column(reach_suppressions::Column::Type)
+            .column(reach_suppressions::Column::Reason)
+            .filter(reach_suppressions::Column::Value.is_in(chunk))
+            .into_tuple()
+            .all(&conn)
+            .await?;
         for (value, kind, reason) in rows {
             let hit = SuppressionHit {
                 value: value.clone(),
@@ -137,28 +159,33 @@ pub async fn add_suppressions(
         }
     }
     let mut added: Vec<(String, String)> = Vec::new();
+    let conn = orm(db);
     for chunk in unique.chunks(500) {
-        let ids: Vec<String> = chunk.iter().map(|_| generate_id("rsup")).collect();
-        let values: Vec<String> = chunk.iter().map(|(v, _)| v.clone()).collect();
-        let kinds: Vec<String> = chunk.iter().map(|(_, k)| (*k).to_owned()).collect();
-        let rows: Vec<(String, String)> = sqlx::query_as(
-            "insert into reach_suppressions (id, value, type, reason, source, created_by)
-             select id, value, kind, $4, $5, $6 from unnest($1::varchar[], $2::varchar[], $3::varchar[]) as v(id, value, kind)
-             on conflict (value) do nothing
-             returning value, type",
-        )
-        .bind(&ids)
-        .bind(&values)
-        .bind(&kinds)
-        .bind(reason)
-        .bind(source)
-        .bind(created_by)
-        .fetch_all(db)
+        let rows = reach_suppressions::Entity::insert_many(chunk.iter().map(|(value, kind)| {
+            reach_suppressions::ActiveModel {
+                id: Set(generate_id("rsup")),
+                value: Set(value.clone()),
+                type_: Set((*kind).to_owned()),
+                reason: Set(reason.to_owned()),
+                source: Set(source.map(str::to_owned)),
+                created_by: Set(created_by.map(str::to_owned)),
+                ..Default::default()
+            }
+        }))
+        .on_conflict(on_value_do_nothing())
+        .exec_with_returning(&conn)
         .await?;
-        added.extend(rows);
+        added.extend(rows.into_iter().map(|row| (row.value, row.type_)));
     }
     let skipped = raw_values.len() - added.len();
     Ok((added, skipped))
+}
+
+/// `onConflictDoNothing({ target: value })`.
+fn on_value_do_nothing() -> OnConflict {
+    OnConflict::column(reach_suppressions::Column::Value)
+        .do_nothing()
+        .to_owned()
 }
 
 /// `toSuppressionDto(row)`.
@@ -207,46 +234,45 @@ pub async fn apply_to_prospects(
         .map(|(v, _)| v.clone())
         .collect();
     let patterns: Vec<String> = domains.iter().map(|d| subdomain_pattern(d)).collect();
-    let at = iso(now());
-    sqlx::query(concat!(
-        "update reach_prospects set validation = 'suppressed', updated_at = $4::timestamptz where ",
-        prospect_match!(),
-        " and validation = 'valid' and deleted_at is null"
-    ))
-    .bind(&emails)
-    .bind(&domains)
-    .bind(&patterns)
-    .bind(&at)
-    .execute(db)
-    .await?;
-    let ids: Vec<String> = sqlx::query_scalar(concat!(
-        "select id from reach_prospects where ",
-        prospect_match!(),
-        " and deleted_at is null"
-    ))
-    .bind(&emails)
-    .bind(&domains)
-    .bind(&patterns)
-    .fetch_all(db)
-    .await?;
+    let at = now();
+    let conn = orm(db);
+    prospects::Entity::update_many()
+        .col_expr(prospects::Column::Validation, Expr::value("suppressed"))
+        .col_expr(prospects::Column::UpdatedAt, Expr::value(at))
+        .filter(prospect_match(&emails, &domains, &patterns))
+        .filter(prospects::Column::Validation.eq("valid"))
+        .filter(prospects::Column::DeletedAt.is_null())
+        .exec(&conn)
+        .await?;
+    let ids: Vec<String> = prospects::Entity::find()
+        .select_only()
+        .column(prospects::Column::Id)
+        .filter(prospect_match(&emails, &domains, &patterns))
+        .filter(prospects::Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&conn)
+        .await?;
     if ids.is_empty() {
         return Ok(Vec::new());
     }
     let mut campaigns: Vec<String> = Vec::new();
     let stopped_reason = format!("suppressed:{reason}");
+    let never: Option<OffsetDateTime> = None;
     for chunk in ids.chunks(LOOKUP_CHUNK) {
-        let rows: Vec<String> = sqlx::query_scalar(
-            "update reach_enrollments set status = 'unsubscribed', stopped_reason = $2, claimed_at = null,
-                 next_send_at = null, updated_at = $3::timestamptz
-             where prospect_id = any($1) and status in ('queued', 'active')
-             returning campaign_id",
-        )
-        .bind(chunk)
-        .bind(&stopped_reason)
-        .bind(&at)
-        .fetch_all(db)
-        .await?;
-        campaigns.extend(rows);
+        let rows = enrollments::Entity::update_many()
+            .col_expr(enrollments::Column::Status, Expr::value("unsubscribed"))
+            .col_expr(
+                enrollments::Column::StoppedReason,
+                Expr::value(stopped_reason.as_str()),
+            )
+            .col_expr(enrollments::Column::ClaimedAt, Expr::value(never))
+            .col_expr(enrollments::Column::NextSendAt, Expr::value(never))
+            .col_expr(enrollments::Column::UpdatedAt, Expr::value(at))
+            .filter(enrollments::Column::ProspectId.is_in(chunk))
+            .filter(enrollments::Column::Status.is_in(["queued", "active"]))
+            .exec_with_returning(&conn)
+            .await?;
+        campaigns.extend(rows.into_iter().map(|row| row.campaign_id));
     }
     Ok(crate::unique(&campaigns))
 }
@@ -259,18 +285,16 @@ pub async fn release_prospects(db: &PgPool, value: &str, kind: &str) -> ReachRes
         (vec![value.to_owned()], Vec::new())
     };
     let patterns: Vec<String> = domains.iter().map(|d| subdomain_pattern(d)).collect();
-    let candidates: Vec<(String, String)> = sqlx::query_as(
-        "select id, email from reach_prospects
-         where ((cardinality($1::varchar[]) > 0 and email = any($1))
-             or (cardinality($2::varchar[]) > 0 and company_domain = any($2))
-             or company_domain like any($3::text[]))
-           and validation = 'suppressed'",
-    )
-    .bind(&emails)
-    .bind(&domains)
-    .bind(&patterns)
-    .fetch_all(db)
-    .await?;
+    let conn = orm(db);
+    let candidates: Vec<(String, String)> = prospects::Entity::find()
+        .select_only()
+        .column(prospects::Column::Id)
+        .column(prospects::Column::Email)
+        .filter(prospect_match(&emails, &domains, &patterns))
+        .filter(prospects::Column::Validation.eq("suppressed"))
+        .into_tuple()
+        .all(&conn)
+        .await?;
     if candidates.is_empty() {
         return Ok(());
     }
@@ -288,10 +312,11 @@ pub async fn release_prospects(db: &PgPool, value: &str, kind: &str) -> ReachRes
         .map(|(id, _)| id)
         .collect();
     for chunk in free.chunks(LOOKUP_CHUNK) {
-        sqlx::query("update reach_prospects set validation = 'valid', updated_at = $2::timestamptz where id = any($1)")
-            .bind(chunk)
-            .bind(iso(now()))
-            .execute(db)
+        prospects::Entity::update_many()
+            .col_expr(prospects::Column::Validation, Expr::value("valid"))
+            .col_expr(prospects::Column::UpdatedAt, Expr::value(now()))
+            .filter(prospects::Column::Id.is_in(chunk))
+            .exec(&conn)
             .await?;
     }
     Ok(())
@@ -299,6 +324,7 @@ pub async fn release_prospects(db: &PgPool, value: &str, kind: &str) -> ReachRes
 
 /// `listSuppressions(db, q)`.
 pub async fn list(db: &PgPool, query: &crate::lists::PageQuery) -> ReachResult<crate::lists::Page> {
+    use reach_suppressions::Column;
     let limit = crate::lists::parse_limit(query.limit.as_deref());
     let search = query
         .search
@@ -306,30 +332,39 @@ pub async fn list(db: &PgPool, query: &crate::lists::PageQuery) -> ReachResult<c
         .map(crate::text::js_trim)
         .filter(|s| !s.is_empty())
         .map(|_| crate::lists::like_pattern(query.search.as_deref().unwrap_or_default()));
-    let cursor =
-        crate::lists::cursor_row(db, "reach_suppressions", query.cursor.as_deref()).await?;
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from reach_suppressions t
-         where ($1::text is null or t.value ilike $1)
-           and ($2::timestamptz is null or t.created_at < $2::timestamptz or (t.created_at = $2::timestamptz and t.id < $3))
-         order by t.created_at desc, t.id desc limit $4",
+    let cursor = cursor_row::<reach_suppressions::Entity>(
+        db,
+        Column::CreatedAt,
+        Column::Id,
+        query.cursor.as_deref(),
     )
-    .bind(&search)
-    .bind(cursor.as_ref().map(|c| c.0.clone()))
-    .bind(cursor.as_ref().map(|c| c.1.clone()))
-    .bind(limit + 1)
-    .fetch_all(db)
     .await?;
-    let total: i64 = sqlx::query_scalar(
-        "select count(*) from reach_suppressions t where ($1::text is null or t.value ilike $1)",
-    )
-    .bind(&search)
-    .fetch_one(db)
-    .await?;
+    let mut filters = Condition::all();
+    if let Some(search) = &search {
+        filters = filters.add(Column::Value.ilike(search.as_str()));
+    }
+    let page = match &cursor {
+        Some(cursor) => filters
+            .clone()
+            .add(before(Column::CreatedAt, Column::Id, cursor)),
+        None => filters.clone(),
+    };
+    let conn = orm(db);
+    let rows = reach_suppressions::Entity::find()
+        .filter(page)
+        .order_by_desc(Column::CreatedAt)
+        .order_by_desc(Column::Id)
+        .limit(probe(limit))
+        .all(&conn)
+        .await?;
+    let total = reach_suppressions::Entity::find()
+        .filter(filters)
+        .count(&conn)
+        .await?;
     Ok(crate::lists::page_result(
-        &js_rows(rows),
+        &js_all(rows.into_iter().map(serde_json::to_value))?,
         limit,
-        total,
+        i64::try_from(total).unwrap_or(i64::MAX),
         to_dto,
     ))
 }
@@ -350,11 +385,13 @@ pub async fn add_manual(
 
 /// `removeSuppression(db, id)`.
 pub async fn remove(db: &PgPool, id: &str) -> ReachResult<()> {
-    let row: Option<(String, String)> =
-        sqlx::query_as("delete from reach_suppressions where id = $1 returning value, type")
-            .bind(id)
-            .fetch_optional(db)
-            .await?;
+    let row = reach_suppressions::Entity::delete_many()
+        .filter(reach_suppressions::Column::Id.eq(id))
+        .exec_with_returning(&orm(db))
+        .await?
+        .into_iter()
+        .next()
+        .map(|row| (row.value, row.type_));
     let Some((value, kind)) = row else {
         return Err(ReachError::not_found("Suppression", Some(id)));
     };
@@ -369,16 +406,17 @@ pub async fn suppress_email(
     source: Option<&str>,
     created_by: Option<&str>,
 ) -> ReachResult<()> {
-    sqlx::query(
-        "insert into reach_suppressions (id, value, type, reason, source, created_by)
-         values ($1, $2, 'email', $3, $4, $5) on conflict (value) do nothing",
-    )
-    .bind(generate_id("rsup"))
-    .bind(email.to_lowercase())
-    .bind(reason)
-    .bind(source)
-    .bind(created_by)
-    .execute(db)
+    reach_suppressions::Entity::insert(reach_suppressions::ActiveModel {
+        id: Set(generate_id("rsup")),
+        value: Set(email.to_lowercase()),
+        type_: Set("email".to_owned()),
+        reason: Set(reason.to_owned()),
+        source: Set(source.map(str::to_owned)),
+        created_by: Set(created_by.map(str::to_owned)),
+        ..Default::default()
+    })
+    .on_conflict(on_value_do_nothing())
+    .exec_without_returning(&orm(db))
     .await?;
     Ok(())
 }

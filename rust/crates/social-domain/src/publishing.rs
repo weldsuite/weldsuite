@@ -7,12 +7,23 @@
 //! Every statement and every PostPeer call is the TypeScript service's, in
 //! its order; the conformance suite compares the calls and the answers.
 
+use sea_orm::ActiveValue::{NotSet, Set};
+use sea_orm::sea_query::{Expr, OnConflict};
+use sea_orm::{
+    ActiveEnum, ColumnTrait, Condition, DbErr, EntityTrait, FromQueryResult, QueryFilter,
+    QuerySelect, RuntimeErr,
+};
 use serde_json::{Map, Value, json};
-use time::OffsetDateTime;
-use weldsuite_db::{PgPool, js_timestamp};
+use time::{OffsetDateTime, PrimitiveDateTime};
+use weldsuite_db::{PgPool, orm, orm_error, utc_now, utc_timestamp};
 use weldsuite_events::iso_timestamp;
 use weldsuite_kit::generate_id;
 use weldsuite_ports::OutboundHttp;
+use weldsuite_schema::master::postpeer_post_index;
+use weldsuite_schema::tenant::enums::{
+    SocialAccountStatus, SocialMediaType, SocialPlatform, SocialPostStatus,
+};
+use weldsuite_schema::tenant::{social_accounts, social_media, social_posts, workspace_settings};
 
 use crate::credits::{
     Consumed, LedgerEntry, SOCIAL_POST_PER_PLATFORM, consume_credits, refund_credits,
@@ -41,7 +52,7 @@ pub enum PublishError {
     PostPeer(PostPeerError),
     /// Any other `Error`, by its message.
     Message(String),
-    Database(sqlx::Error),
+    Database(DbErr),
 }
 
 impl std::fmt::Display for PublishError {
@@ -61,13 +72,19 @@ impl std::fmt::Display for PublishError {
                 "Insufficient credits: publishing requires {required}, balance is {current_balance}"
             ),
             Self::PostPeer(error) => f.write_str(&error.message),
+            // The driver's own message, as before the ORM.
+            Self::Database(
+                DbErr::Conn(RuntimeErr::SqlxError(error))
+                | DbErr::Exec(RuntimeErr::SqlxError(error))
+                | DbErr::Query(RuntimeErr::SqlxError(error)),
+            ) => error.fmt(f),
             Self::Database(error) => error.fmt(f),
         }
     }
 }
 
-impl From<sqlx::Error> for PublishError {
-    fn from(error: sqlx::Error) -> Self {
+impl From<DbErr> for PublishError {
+    fn from(error: DbErr) -> Self {
         Self::Database(error)
     }
 }
@@ -106,6 +123,29 @@ impl Context {
 /// `new Date()`, as Drizzle writes it.
 pub fn now() -> String {
     iso_timestamp(OffsetDateTime::now_utc())
+}
+
+/// `$n::timestamp` of a `toISOString()`: Postgres reads its date and time
+/// and ignores the zone. A text Postgres can't read is the failed cast.
+fn timestamp_of(iso: &str) -> Result<PrimitiveDateTime, DbErr> {
+    let at = OffsetDateTime::parse(iso, &time::format_description::well_known::Rfc3339).map_err(
+        |_| {
+            DbErr::Type(format!(
+                "invalid input syntax for type timestamp: \"{iso}\""
+            ))
+        },
+    )?;
+    Ok(PrimitiveDateTime::new(at.date(), at.time()))
+}
+
+/// `$n::social_post_status` of a status the service read or chose.
+fn post_status(status: &str) -> Result<SocialPostStatus, DbErr> {
+    SocialPostStatus::try_from_value(&status.to_owned())
+}
+
+/// `$n::int` of a credit count.
+fn int_of(value: i64) -> Result<i32, DbErr> {
+    i32::try_from(value).map_err(|_| DbErr::Type("integer out of range".to_owned()))
 }
 
 /// A JSON value as the `||` and `??` of the service read it.
@@ -155,14 +195,16 @@ pub async fn ensure_workspace_profile(
     workspace_id: &str,
 ) -> Result<String, PublishError> {
     let client = ctx.require_client()?;
-    let settings: Option<(Option<Value>,)> =
-        sqlx::query_as("select custom_settings from workspace_settings where id = $1 limit 1")
-            .bind(workspace_id)
-            .fetch_optional(db)
-            .await?;
+    let settings: Option<Option<Value>> = workspace_settings::Entity::find()
+        .select_only()
+        .column(workspace_settings::Column::CustomSettings)
+        .filter(workspace_settings::Column::Id.eq(workspace_id))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     let custom = settings
         .as_ref()
-        .and_then(|(custom,)| custom.as_ref())
+        .and_then(Option::as_ref)
         .filter(|custom| !custom.is_null())
         .map(object)
         .unwrap_or_default();
@@ -194,30 +236,27 @@ pub async fn ensure_workspace_profile(
     }
     let mut custom = custom;
     custom.insert("social".to_owned(), Value::Object(social));
-    let now = now();
+    // `new Date()` into the `timestamptz` columns.
+    let now = utc_now().assume_utc();
     if settings.is_some() {
-        sqlx::query(
-            "update workspace_settings as t set custom_settings = $2::jsonb,
-                 updated_at = r.updated_at
-             from jsonb_populate_record(null::workspace_settings, jsonb_build_object('updated_at', $3::text)) r
-             where t.id = $1",
-        )
-        .bind(workspace_id)
-        .bind(Value::Object(custom))
-        .bind(&now)
-        .execute(db)
-        .await?;
+        workspace_settings::Entity::update_many()
+            .col_expr(
+                workspace_settings::Column::CustomSettings,
+                Expr::value(Value::Object(custom)),
+            )
+            .col_expr(workspace_settings::Column::UpdatedAt, Expr::value(now))
+            .filter(workspace_settings::Column::Id.eq(workspace_id))
+            .exec(&orm(db))
+            .await?;
     } else {
-        sqlx::query(
-            "insert into workspace_settings (id, custom_settings, created_at, updated_at)
-             select $1, $2::jsonb, r.created_at, r.updated_at
-             from jsonb_populate_record(null::workspace_settings,
-                 jsonb_build_object('created_at', $3::text, 'updated_at', $3::text)) r",
-        )
-        .bind(workspace_id)
-        .bind(Value::Object(custom))
-        .bind(&now)
-        .execute(db)
+        workspace_settings::Entity::insert(workspace_settings::ActiveModel {
+            id: Set(workspace_id.to_owned()),
+            custom_settings: Set(Some(Value::Object(custom))),
+            created_at: Set(now),
+            updated_at: Set(now),
+            ..Default::default()
+        })
+        .exec_without_returning(&orm(db))
         .await?;
     }
     Ok(id_text(&profile_id))
@@ -279,7 +318,7 @@ pub async fn sync_accounts(
         integrations.extend(client.list_integrations(profile_id).await?);
     }
     let mut account_ids: Vec<String> = Vec::new();
-    let now = now();
+    let now = utc_now();
     for integration in integrations {
         let Some(profile_id) = integration
             .get("profileId")
@@ -303,62 +342,87 @@ pub async fn sync_accounts(
             .filter(|v| !v.is_null())
             .map_or_else(|| integration_id.clone(), id_text);
         let text = |key: &str| integration.get(key).filter(|v| !v.is_null()).map(id_text);
-        let existing: Option<(String, String, Option<String>, Option<String>)> = sqlx::query_as(
-            "select id, name, username, avatar_url from social_accounts
-             where postpeer_integration_id = $1
-                or (platform = $2::social_platform and platform_account_id = $3)
-             limit 1",
-        )
-        .bind(&integration_id)
-        .bind(platform)
-        .bind(&platform_account_id)
-        .fetch_optional(db)
-        .await?;
+        let platform_value = SocialPlatform::try_from_value(&platform.to_owned())?;
+        let existing: Option<(String, String, Option<String>, Option<String>)> =
+            social_accounts::Entity::find()
+                .select_only()
+                .columns([
+                    social_accounts::Column::Id,
+                    social_accounts::Column::Name,
+                    social_accounts::Column::Username,
+                    social_accounts::Column::AvatarUrl,
+                ])
+                .filter(
+                    Condition::any()
+                        .add(social_accounts::Column::PostpeerIntegrationId.eq(&integration_id))
+                        .add(
+                            Condition::all()
+                                .add(social_accounts::Column::Platform.eq(platform_value))
+                                .add(
+                                    social_accounts::Column::PlatformAccountId
+                                        .eq(&platform_account_id),
+                                ),
+                        ),
+                )
+                .into_tuple()
+                .one(&orm(db))
+                .await?;
         if let Some((id, name, username, avatar_url)) = existing {
-            sqlx::query(
-                "update social_accounts set name = $2, username = $3, avatar_url = $4,
-                     postpeer_integration_id = $5, postpeer_profile_id = $6, status = 'active',
-                     last_sync_at = $7::timestamp, deleted_at = null, updated_at = $7::timestamp
-                 where id = $1",
-            )
-            .bind(&id)
-            .bind(text("name").or_else(|| text("username")).unwrap_or(name))
-            .bind(text("username").or(username))
-            .bind(text("avatarUrl").or(avatar_url))
-            .bind(&integration_id)
-            .bind(&profile_id)
-            .bind(&now)
-            .execute(db)
-            .await?;
+            social_accounts::Entity::update_many()
+                .set(social_accounts::ActiveModel {
+                    name: Set(text("name").or_else(|| text("username")).unwrap_or(name)),
+                    username: Set(text("username").or(username)),
+                    avatar_url: Set(text("avatarUrl").or(avatar_url)),
+                    postpeer_integration_id: Set(Some(integration_id.clone())),
+                    postpeer_profile_id: Set(Some(profile_id.clone())),
+                    status: Set(SocialAccountStatus::Active),
+                    last_sync_at: Set(Some(now)),
+                    deleted_at: Set(None),
+                    updated_at: Set(now),
+                    ..Default::default()
+                })
+                .filter(social_accounts::Column::Id.eq(&id))
+                .exec(&orm(db))
+                .await?;
             account_ids.push(id);
         } else {
             let id = generate_id("sac");
-            sqlx::query(
-                "insert into social_accounts
-                     (id, platform, platform_account_id, name, username, avatar_url,
-                      postpeer_integration_id, postpeer_profile_id, status, last_sync_at,
-                      connected_by_user_id, created_at, updated_at)
-                 values ($1, $2::social_platform, $3, $4, $5, $6, $7, $8, 'active', $9::timestamp,
-                         $10, $9::timestamp, $9::timestamp)
-                 on conflict (platform, platform_account_id) do update set
-                     postpeer_integration_id = $7, postpeer_profile_id = $8, status = 'active',
-                     last_sync_at = $9::timestamp, deleted_at = null, updated_at = $9::timestamp",
-            )
-            .bind(&id)
-            .bind(platform)
-            .bind(&platform_account_id)
-            .bind(
-                text("name")
+            // On a clash the row takes the same integration, profile, status
+            // and times, and is live again: `excluded` holds exactly those.
+            social_accounts::Entity::insert(social_accounts::ActiveModel {
+                id: Set(id.clone()),
+                platform: Set(platform_value),
+                platform_account_id: Set(platform_account_id.clone()),
+                name: Set(text("name")
                     .or_else(|| text("username"))
-                    .unwrap_or_else(|| format!("{platform} account")),
+                    .unwrap_or_else(|| format!("{platform} account"))),
+                username: Set(text("username")),
+                avatar_url: Set(text("avatarUrl")),
+                postpeer_integration_id: Set(Some(integration_id.clone())),
+                postpeer_profile_id: Set(Some(profile_id.clone())),
+                status: Set(SocialAccountStatus::Active),
+                last_sync_at: Set(Some(now)),
+                connected_by_user_id: Set(connected_by.to_owned()),
+                created_at: Set(now),
+                updated_at: Set(now),
+                ..Default::default()
+            })
+            .on_conflict(
+                OnConflict::columns([
+                    social_accounts::Column::Platform,
+                    social_accounts::Column::PlatformAccountId,
+                ])
+                .update_columns([
+                    social_accounts::Column::PostpeerIntegrationId,
+                    social_accounts::Column::PostpeerProfileId,
+                    social_accounts::Column::Status,
+                    social_accounts::Column::LastSyncAt,
+                    social_accounts::Column::DeletedAt,
+                    social_accounts::Column::UpdatedAt,
+                ])
+                .to_owned(),
             )
-            .bind(text("username"))
-            .bind(text("avatarUrl"))
-            .bind(&integration_id)
-            .bind(&profile_id)
-            .bind(&now)
-            .bind(connected_by)
-            .execute(db)
+            .exec_without_returning(&orm(db))
             .await?;
             account_ids.push(id);
         }
@@ -392,33 +456,55 @@ struct Post {
     last_publish_error: Option<String>,
 }
 
-async fn live_post(db: &PgPool, id: &str) -> Result<Option<Post>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select jsonb_build_object(
-             'id', id, 'content', content, 'status', status,
-             'targetAccountIds', target_account_ids, 'mediaIds', media_ids,
-             'postpeerPostId', postpeer_post_id, 'creditsConsumed', credits_consumed,
-             'creditTransactionId', credit_transaction_id, 'platformContent', platform_content,
-             'publishedAt', to_jsonb(published_at), 'lastPublishError', last_publish_error)
-         from social_posts where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
+/// The columns of a post the service reads.
+#[derive(FromQueryResult)]
+struct PostRow {
+    id: String,
+    content: String,
+    status: SocialPostStatus,
+    target_account_ids: Value,
+    media_ids: Option<Value>,
+    postpeer_post_id: Option<String>,
+    credits_consumed: Option<i32>,
+    credit_transaction_id: Option<String>,
+    platform_content: Option<Value>,
+    published_at: Option<PrimitiveDateTime>,
+    last_publish_error: Option<String>,
+}
+
+async fn live_post(db: &PgPool, id: &str) -> Result<Option<Post>, DbErr> {
+    let row = social_posts::Entity::find()
+        .select_only()
+        .columns([
+            social_posts::Column::Id,
+            social_posts::Column::Content,
+            social_posts::Column::Status,
+            social_posts::Column::TargetAccountIds,
+            social_posts::Column::MediaIds,
+            social_posts::Column::PostpeerPostId,
+            social_posts::Column::CreditsConsumed,
+            social_posts::Column::CreditTransactionId,
+            social_posts::Column::PlatformContent,
+            social_posts::Column::PublishedAt,
+            social_posts::Column::LastPublishError,
+        ])
+        .filter(social_posts::Column::Id.eq(id))
+        .filter(social_posts::Column::DeletedAt.is_null())
+        .into_model::<PostRow>()
+        .one(&orm(db))
+        .await?;
     Ok(row.map(|row| Post {
-        id: str_field(&row, "id").unwrap_or_default().to_owned(),
-        content: str_field(&row, "content").unwrap_or_default().to_owned(),
-        status: str_field(&row, "status").unwrap_or_default().to_owned(),
-        target_account_ids: row["targetAccountIds"].clone(),
-        media_ids: row["mediaIds"].clone(),
-        postpeer_post_id: str_field(&row, "postpeerPostId").map(str::to_owned),
-        credits_consumed: row["creditsConsumed"]
-            .as_i64()
-            .and_then(|n| i32::try_from(n).ok()),
-        credit_transaction_id: str_field(&row, "creditTransactionId").map(str::to_owned),
-        platform_content: row["platformContent"].clone(),
-        published_at: str_field(&row, "publishedAt").and_then(js_timestamp),
-        last_publish_error: str_field(&row, "lastPublishError").map(str::to_owned),
+        id: row.id,
+        content: row.content,
+        status: row.status.to_value(),
+        target_account_ids: row.target_account_ids,
+        media_ids: row.media_ids.unwrap_or(Value::Null),
+        postpeer_post_id: row.postpeer_post_id,
+        credits_consumed: row.credits_consumed,
+        credit_transaction_id: row.credit_transaction_id,
+        platform_content: row.platform_content.unwrap_or(Value::Null),
+        published_at: row.published_at.map(|at| iso_timestamp(at.assume_utc())),
+        last_publish_error: row.last_publish_error,
     }))
 }
 
@@ -445,13 +531,18 @@ async fn publish_targets(db: &PgPool, post: &Post) -> Result<Vec<Target>, Publis
             "Post has no target accounts".to_owned(),
         ));
     }
-    let rows: Vec<(String, String, Option<String>)> = sqlx::query_as(
-        "select id, platform::text, postpeer_integration_id from social_accounts
-         where id = any($1) and deleted_at is null",
-    )
-    .bind(&ids)
-    .fetch_all(db)
-    .await?;
+    let rows: Vec<(String, SocialPlatform, Option<String>)> = social_accounts::Entity::find()
+        .select_only()
+        .columns([
+            social_accounts::Column::Id,
+            social_accounts::Column::Platform,
+            social_accounts::Column::PostpeerIntegrationId,
+        ])
+        .filter(social_accounts::Column::Id.is_in(ids))
+        .filter(social_accounts::Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     let targets: Vec<Target> = rows
         .into_iter()
         .filter_map(|(id, platform, integration)| {
@@ -459,7 +550,7 @@ async fn publish_targets(db: &PgPool, post: &Post) -> Result<Vec<Target>, Publis
                 .filter(|i| !i.is_empty())
                 .map(|integration_id| Target {
                     id,
-                    platform,
+                    platform: platform.to_value(),
                     integration_id,
                 })
         })
@@ -473,22 +564,26 @@ async fn publish_targets(db: &PgPool, post: &Post) -> Result<Vec<Target>, Publis
 }
 
 /// `loadMediaItems`: `None` for a post without media.
-async fn media_items(db: &PgPool, post: &Post) -> Result<Option<Vec<Value>>, sqlx::Error> {
+async fn media_items(db: &PgPool, post: &Post) -> Result<Option<Vec<Value>>, DbErr> {
     let ids = string_list(&post.media_ids);
     if ids.is_empty() {
         return Ok(None);
     }
-    let rows: Vec<(Option<String>, Option<String>)> =
-        sqlx::query_as("select media_type::text, url from social_media where id = any($1)")
-            .bind(&ids)
-            .fetch_all(db)
-            .await?;
+    let rows: Vec<(String, Option<String>)> = social_media::Entity::find()
+        .select_only()
+        .columns([social_media::Column::MediaType, social_media::Column::Url])
+        .filter(social_media::Column::Id.is_in(ids))
+        .into_tuple::<(SocialMediaType, Option<String>)>()
+        .all(&orm(db))
+        .await?
+        .into_iter()
+        .map(|(kind, url)| (kind.to_value(), url))
+        .collect();
     Ok(Some(
         rows.into_iter()
             .filter_map(|(kind, url)| {
-                url.filter(|u| !u.is_empty()).map(
-                    |url| json!({ "type": kind.unwrap_or_else(|| "image".to_owned()), "url": url }),
-                )
+                url.filter(|u| !u.is_empty())
+                    .map(|url| json!({ "type": kind, "url": url }))
             })
             .collect(),
     ))
@@ -506,21 +601,40 @@ async fn claim_publish_slot(
     let timezone = schedule
         .and(options.timezone.as_deref())
         .filter(|tz| !tz.is_empty());
-    let now = now();
-    let claimed: Option<Option<i32>> = sqlx::query_scalar(
-        "update social_posts set status = 'publishing', last_publish_attempt_at = $2::timestamp,
-             publish_attempts = publish_attempts + 1, updated_at = $2::timestamp,
-             scheduled_at = case when $3::text is null then scheduled_at else $3::timestamp end,
-             timezone = coalesce($4, timezone)
-         where id = $1 and deleted_at is null and status not in ('publishing', 'published')
-         returning publish_attempts",
-    )
-    .bind(post_id)
-    .bind(&now)
-    .bind(schedule)
-    .bind(timezone)
-    .fetch_optional(db)
-    .await?;
+    let now = utc_now();
+    // One statement, so two publishes can't both claim the post.
+    let mut claim = social_posts::Entity::update_many()
+        .col_expr(
+            social_posts::Column::Status,
+            social_posts::Column::Status.save_as(Expr::val(SocialPostStatus::Publishing)),
+        )
+        .col_expr(social_posts::Column::LastPublishAttemptAt, Expr::value(now))
+        .col_expr(
+            social_posts::Column::PublishAttempts,
+            sea_orm::ExprTrait::add(Expr::col(social_posts::Column::PublishAttempts), 1),
+        )
+        .col_expr(social_posts::Column::UpdatedAt, Expr::value(now));
+    if let Some(at) = schedule {
+        claim = claim.col_expr(
+            social_posts::Column::ScheduledAt,
+            Expr::value(timestamp_of(at)?),
+        );
+    }
+    if let Some(timezone) = timezone {
+        claim = claim.col_expr(social_posts::Column::Timezone, Expr::value(timezone));
+    }
+    let claimed: Option<Option<i32>> = claim
+        .filter(social_posts::Column::Id.eq(post_id))
+        .filter(social_posts::Column::DeletedAt.is_null())
+        .filter(
+            social_posts::Column::Status
+                .is_not_in([SocialPostStatus::Publishing, SocialPostStatus::Published]),
+        )
+        .exec_with_returning(&orm(db))
+        .await?
+        .into_iter()
+        .next()
+        .map(|post| post.publish_attempts);
     match claimed {
         None => Err(PublishError::Conflict(
             "Post is already being published or has been published".to_owned(),
@@ -601,16 +715,19 @@ async fn charge_publish_credits(
             current_balance,
             required,
         } => {
-            sqlx::query(
-                "update social_posts set status = $2::social_post_status,
-                     last_publish_error = 'insufficient_credits', updated_at = $3::timestamp
-                 where id = $1",
-            )
-            .bind(&post.id)
-            .bind(&post.status)
-            .bind(now())
-            .execute(db)
-            .await?;
+            social_posts::Entity::update_many()
+                .col_expr(
+                    social_posts::Column::Status,
+                    social_posts::Column::Status.save_as(Expr::val(post_status(&post.status)?)),
+                )
+                .col_expr(
+                    social_posts::Column::LastPublishError,
+                    Expr::value("insufficient_credits"),
+                )
+                .col_expr(social_posts::Column::UpdatedAt, Expr::value(utc_now()))
+                .filter(social_posts::Column::Id.eq(&post.id))
+                .exec(&orm(db))
+                .await?;
             Err(PublishError::InsufficientCredits {
                 current_balance,
                 required,
@@ -780,16 +897,19 @@ pub async fn publish_post(
     let result = match client.create_post(&Value::Object(input)).await {
         Ok(result) => result,
         Err(error) => {
-            sqlx::query(
-                "update social_posts set status = 'failed', last_publish_error = $2,
-                     updated_at = $3::timestamp
-                 where id = $1",
-            )
-            .bind(post_id)
-            .bind(&error.message)
-            .bind(now())
-            .execute(db)
-            .await?;
+            social_posts::Entity::update_many()
+                .col_expr(
+                    social_posts::Column::Status,
+                    social_posts::Column::Status.save_as(Expr::val(SocialPostStatus::Failed)),
+                )
+                .col_expr(
+                    social_posts::Column::LastPublishError,
+                    Expr::value(error.message.clone()),
+                )
+                .col_expr(social_posts::Column::UpdatedAt, Expr::value(utc_now()))
+                .filter(social_posts::Column::Id.eq(post_id))
+                .exec(&orm(db))
+                .await?;
             if let (Some(metering), Some(transaction)) = (&metering, &transaction) {
                 refund(
                     metering,
@@ -868,29 +988,44 @@ pub async fn publish_post(
     } else {
         None
     };
-    let now = now();
-    sqlx::query(
-        "update social_posts set status = $2::social_post_status,
-             postpeer_post_id = case when $3::text is null then postpeer_post_id else $3 end,
-             platform_content = $4::jsonb,
-             published_at = case when $2 = 'published' then $5::timestamp else null end,
-             last_publish_error = $6, credits_consumed = $7::int, credit_transaction_id = $8,
-             updated_at = $5::timestamp
-         where id = $1",
+    let now = utc_now();
+    let mut done = social_posts::Entity::update_many().col_expr(
+        social_posts::Column::Status,
+        social_posts::Column::Status.save_as(Expr::val(post_status(status)?)),
+    );
+    if let Some(postpeer_id) = postpeer_post_id.as_ref().map(id_text) {
+        done = done.col_expr(
+            social_posts::Column::PostpeerPostId,
+            Expr::value(postpeer_id),
+        );
+    }
+    done.col_expr(
+        social_posts::Column::PlatformContent,
+        Expr::value(Value::Array(platform_content.clone())),
     )
-    .bind(post_id)
-    .bind(status)
-    .bind(postpeer_post_id.as_ref().map(id_text))
-    .bind(Value::Array(platform_content.clone()))
-    .bind(&now)
-    .bind(last_error)
-    .bind(if transaction.is_some() {
-        cost - refunded
-    } else {
-        0
-    })
-    .bind(transaction.as_deref())
-    .execute(db)
+    .col_expr(
+        social_posts::Column::PublishedAt,
+        Expr::value((status == "published").then_some(now)),
+    )
+    .col_expr(
+        social_posts::Column::LastPublishError,
+        Expr::value(last_error),
+    )
+    .col_expr(
+        social_posts::Column::CreditsConsumed,
+        Expr::value(int_of(if transaction.is_some() {
+            cost - refunded
+        } else {
+            0
+        })?),
+    )
+    .col_expr(
+        social_posts::Column::CreditTransactionId,
+        Expr::value(transaction.clone()),
+    )
+    .col_expr(social_posts::Column::UpdatedAt, Expr::value(now))
+    .filter(social_posts::Column::Id.eq(post_id))
+    .exec(&orm(db))
     .await?;
 
     // The delivery webhook finds the workspace through this index.
@@ -919,14 +1054,16 @@ async fn index_postpeer_post(
         );
         return;
     };
-    let result = sqlx::query(
-        "insert into postpeer_post_index (postpeer_post_id, clerk_org_id, social_post_id)
-         values ($1, $2, $3) on conflict do nothing",
-    )
-    .bind(postpeer_id)
-    .bind(org_id)
-    .bind(post_id)
-    .execute(master)
+    let result = postpeer_post_index::Entity::insert(postpeer_post_index::ActiveModel {
+        postpeer_post_id: Set(postpeer_id.to_owned()),
+        // Without an org the column is left out, and the insert fails on
+        // its not-null constraint as the `null` it was given did.
+        clerk_org_id: org_id.map_or(NotSet, |org| Set(org.to_owned())),
+        social_post_id: Set(post_id.to_owned()),
+        ..Default::default()
+    })
+    .on_conflict(OnConflict::new().do_nothing().to_owned())
+    .exec_without_returning(&orm(master))
     .await;
     if let Err(error) = result {
         tracing::error!(%error, "[social-publishing] failed to index PostPeer post {postpeer_id}");
@@ -976,20 +1113,40 @@ pub async fn cancel_post(
             }
         }
     }
-    let cancelled: Option<String> = sqlx::query_scalar(
-        "update social_posts set status = 'draft', scheduled_at = null, postpeer_post_id = null,
-             credits_consumed = 0, credit_transaction_id = null, updated_at = $3::timestamp
-         where id = $1 and deleted_at is null and status not in ('published', 'publishing')
-           and (case when $2::text is null then postpeer_post_id is null
-                     else postpeer_post_id = $2 end)
-         returning id",
-    )
-    .bind(post_id)
-    .bind(post.postpeer_post_id.as_deref().filter(|p| !p.is_empty()))
-    .bind(now())
-    .fetch_optional(db)
-    .await?;
-    if cancelled.is_none() {
+    // Only while the post still has the schedule it was read with.
+    let same_schedule = match post.postpeer_post_id.as_deref().filter(|p| !p.is_empty()) {
+        Some(upstream) => social_posts::Column::PostpeerPostId.eq(upstream),
+        None => social_posts::Column::PostpeerPostId.is_null(),
+    };
+    let cancelled = social_posts::Entity::update_many()
+        .col_expr(
+            social_posts::Column::Status,
+            social_posts::Column::Status.save_as(Expr::val(SocialPostStatus::Draft)),
+        )
+        .col_expr(
+            social_posts::Column::ScheduledAt,
+            Expr::value(Option::<PrimitiveDateTime>::None),
+        )
+        .col_expr(
+            social_posts::Column::PostpeerPostId,
+            Expr::value(Option::<String>::None),
+        )
+        .col_expr(social_posts::Column::CreditsConsumed, Expr::value(0))
+        .col_expr(
+            social_posts::Column::CreditTransactionId,
+            Expr::value(Option::<String>::None),
+        )
+        .col_expr(social_posts::Column::UpdatedAt, Expr::value(utc_now()))
+        .filter(social_posts::Column::Id.eq(post_id))
+        .filter(social_posts::Column::DeletedAt.is_null())
+        .filter(
+            social_posts::Column::Status
+                .is_not_in([SocialPostStatus::Published, SocialPostStatus::Publishing]),
+        )
+        .filter(same_schedule)
+        .exec(&orm(db))
+        .await?;
+    if cancelled.rows_affected == 0 {
         return Err(PublishError::Conflict(
             "Cannot cancel: the post was published, is publishing, or its schedule changed. Reload and try again."
                 .to_owned(),
@@ -1045,13 +1202,16 @@ pub async fn resolve_postpeer_post(
     postpeer_post_id: &str,
 ) -> Option<(String, String)> {
     let master = ctx.master.as_ref()?;
-    let row: Result<Option<(String, String)>, sqlx::Error> = sqlx::query_as(
-        "select clerk_org_id, social_post_id from postpeer_post_index
-         where postpeer_post_id = $1 limit 1",
-    )
-    .bind(postpeer_post_id)
-    .fetch_optional(master)
-    .await;
+    let row: Result<Option<(String, String)>, DbErr> = postpeer_post_index::Entity::find()
+        .select_only()
+        .columns([
+            postpeer_post_index::Column::ClerkOrgId,
+            postpeer_post_index::Column::SocialPostId,
+        ])
+        .filter(postpeer_post_index::Column::PostpeerPostId.eq(postpeer_post_id))
+        .into_tuple()
+        .one(&orm(master))
+        .await;
     match row {
         Ok(row) => row,
         Err(error) => {
@@ -1093,7 +1253,8 @@ pub async fn reconcile_from_webhook(
         .as_array()
         .cloned()
         .unwrap_or_default();
-    let now_iso = now();
+    let now_at = OffsetDateTime::now_utc();
+    let now_iso = iso_timestamp(now_at);
     let mut newly_failed: Vec<String> = Vec::new();
     let merged: Vec<Value> = existing
         .into_iter()
@@ -1202,21 +1363,32 @@ pub async fn reconcile_from_webhook(
     } else {
         post.last_publish_error.clone()
     };
-    sqlx::query(
-        "update social_posts set status = $2::social_post_status, platform_content = $3::jsonb,
-             published_at = $4::timestamp, last_publish_error = $5, credits_consumed = $6::int,
-             updated_at = $7::timestamp
-         where id = $1",
-    )
-    .bind(post_id)
-    .bind(&next_status)
-    .bind(Value::Array(merged))
-    .bind(published_at)
-    .bind(last_error)
-    .bind(consumed)
-    .bind(&now_iso)
-    .execute(db)
-    .await?;
+    let published_at = published_at.as_deref().map(timestamp_of).transpose()?;
+    social_posts::Entity::update_many()
+        .col_expr(
+            social_posts::Column::Status,
+            social_posts::Column::Status.save_as(Expr::val(post_status(&next_status)?)),
+        )
+        .col_expr(
+            social_posts::Column::PlatformContent,
+            Expr::value(Value::Array(merged)),
+        )
+        .col_expr(social_posts::Column::PublishedAt, Expr::value(published_at))
+        .col_expr(
+            social_posts::Column::LastPublishError,
+            Expr::value(last_error),
+        )
+        .col_expr(
+            social_posts::Column::CreditsConsumed,
+            Expr::value(int_of(consumed)?),
+        )
+        .col_expr(
+            social_posts::Column::UpdatedAt,
+            Expr::value(utc_timestamp(now_at)),
+        )
+        .filter(social_posts::Column::Id.eq(post_id))
+        .exec(&orm(db))
+        .await?;
     Ok(true)
 }
 
@@ -1242,13 +1414,18 @@ pub async fn sync_analytics(
     post_id: &str,
 ) -> Result<Value, PublishError> {
     let client = ctx.require_client()?;
-    let post: Option<(String, Option<String>, Value)> = sqlx::query_as(
-        "select id, postpeer_post_id, coalesce(target_account_ids, 'null'::jsonb)
-         from social_posts where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(post_id)
-    .fetch_optional(db)
-    .await?;
+    let post: Option<(String, Option<String>, Value)> = social_posts::Entity::find()
+        .select_only()
+        .columns([
+            social_posts::Column::Id,
+            social_posts::Column::PostpeerPostId,
+            social_posts::Column::TargetAccountIds,
+        ])
+        .filter(social_posts::Column::Id.eq(post_id))
+        .filter(social_posts::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     let Some((post_id, Some(postpeer_id), targets)) = post else {
         return Ok(json!({ "snapshots": 0 }));
     };
@@ -1259,9 +1436,15 @@ pub async fn sync_analytics(
     let accounts: Vec<(String, Option<String>)> = if ids.is_empty() {
         Vec::new()
     } else {
-        sqlx::query_as("select id, postpeer_integration_id from social_accounts where id = any($1)")
-            .bind(&ids)
-            .fetch_all(db)
+        social_accounts::Entity::find()
+            .select_only()
+            .columns([
+                social_accounts::Column::Id,
+                social_accounts::Column::PostpeerIntegrationId,
+            ])
+            .filter(social_accounts::Column::Id.is_in(ids))
+            .into_tuple()
+            .all(&orm(db))
             .await?
     };
     let by_integration = |integration: &str| {
@@ -1322,22 +1505,35 @@ pub async fn sync_analytics(
         }));
     }
     if !rows.is_empty() {
-        sqlx::query(
-            "insert into social_analytics
-                 (id, post_id, account_id, platform_post_id, snapshot_period, snapshot_at,
-                  impressions, reach, likes, comments, shares, saves, clicks, video_views,
-                  total_engagement, engagement_rate, raw_data, created_at, updated_at)
-             select r.id, r.post_id, r.account_id, r.platform_post_id, r.snapshot_period,
-                    r.snapshot_at, r.impressions, r.reach, r.likes, r.comments, r.shares, r.saves,
-                    r.clicks, r.video_views, r.total_engagement, r.engagement_rate, r.raw_data,
-                    r.created_at, r.updated_at
-             from jsonb_populate_recordset(null::social_analytics, $1::jsonb) r",
-        )
-        .bind(Value::Array(rows.clone()))
-        .execute(db)
-        .await?;
+        insert_snapshots(db, &rows).await?;
     }
     Ok(json!({ "snapshots": rows.len() }))
+}
+
+/// The snapshots in one statement, each value converted by Postgres to its
+/// column's type as `jsonb_populate_recordset` reads PostPeer's metrics
+/// (a count PostPeer sends as text, a rate as a float).
+#[allow(
+    clippy::disallowed_methods,
+    reason = "a bulk INSERT … SELECT from jsonb_populate_recordset: Postgres converts PostPeer's raw metric values to the columns' types, all rows in one statement"
+)]
+async fn insert_snapshots(db: &PgPool, rows: &[Value]) -> Result<(), DbErr> {
+    sqlx::query(
+        "insert into social_analytics
+             (id, post_id, account_id, platform_post_id, snapshot_period, snapshot_at,
+              impressions, reach, likes, comments, shares, saves, clicks, video_views,
+              total_engagement, engagement_rate, raw_data, created_at, updated_at)
+         select r.id, r.post_id, r.account_id, r.platform_post_id, r.snapshot_period,
+                r.snapshot_at, r.impressions, r.reach, r.likes, r.comments, r.shares, r.saves,
+                r.clicks, r.video_views, r.total_engagement, r.engagement_rate, r.raw_data,
+                r.created_at, r.updated_at
+         from jsonb_populate_recordset(null::social_analytics, $1::jsonb) r",
+    )
+    .bind(Value::Array(rows.to_vec()))
+    .execute(db)
+    .await
+    .map_err(orm_error)?;
+    Ok(())
 }
 
 /// A number as JavaScript writes it into JSON: whole values as integers.

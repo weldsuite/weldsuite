@@ -29,15 +29,25 @@ use axum::Router;
 use axum::body::Bytes;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
+use sea_orm::sea_query::{Asterisk, Expr, Func, IntoColumnRef, IntoCondition};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, Condition, DatabaseConnection, DbErr, EntityTrait, QueryFilter,
+    QueryOrder, QuerySelect,
+};
 use serde_json::{Map, Value, json};
-use time::{Duration, OffsetDateTime};
-use weldsuite_db::{PgPool, js_row};
-use weldsuite_events::iso_timestamp;
+use time::{Duration, OffsetDateTime, PrimitiveDateTime};
+use weldsuite_db::{PgPool, orm, utc_now, utc_timestamp};
 use weldsuite_kit::validation::{js_number, js_trim};
 use weldsuite_kit::{ApiError, Data, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::{
+    accounts, carriers, companies, crm_activities, crm_pipelines, domains, helpdesk_departments,
+    helpdesk_tickets, mail_accounts, mail_messages, orders, people, projects, roles,
+    social_accounts, tasks, user_app_assignments, warehouses, workspace_installed_apps,
+    workspace_members, workspace_settings,
+};
 
-use crate::{Caller, CorePlatformState, now};
+use crate::{Caller, CorePlatformState};
 
 pub(crate) fn router<Q>(gate: &Arc<PermissionGate<Q>>) -> Router<CorePlatformState>
 where
@@ -110,8 +120,37 @@ struct ChartPoint {
 /// `thirtyDaysAgo` (`setDate(getDate() - 30)`), bound as Drizzle binds a
 /// `Date`. The worker counts 30 days in its local time zone, which only
 /// differs across a daylight-saving change and only by that hour.
-fn thirty_days_ago() -> String {
-    iso_timestamp(OffsetDateTime::now_utc() - Duration::days(30))
+fn thirty_days_ago() -> PrimitiveDateTime {
+    utc_timestamp(OffsetDateTime::now_utc() - Duration::days(30))
+}
+
+/// `to_char(<column>, 'YYYY-MM-DD')`, the format written as a literal so
+/// the select, group and order expressions are the same expression.
+fn day_of(column: impl IntoColumnRef) -> Expr {
+    Func::cust("to_char")
+        .arg(Expr::col(column))
+        .arg(Expr::Constant("YYYY-MM-DD".into()))
+        .into()
+}
+
+/// `count(*)::int`.
+fn count_int() -> Expr {
+    sea_orm::ExprTrait::cast_as(Expr::from(Func::count(Expr::col(Asterisk))), "int")
+}
+
+/// `select count(*)::int from <table> where …`.
+async fn count_where<E: EntityTrait>(
+    db: &DatabaseConnection,
+    condition: impl IntoCondition,
+) -> Result<Option<i32>, DbErr> {
+    let count: Option<Option<i32>> = E::find()
+        .select_only()
+        .expr(count_int())
+        .filter(condition)
+        .into_tuple()
+        .one(db)
+        .await?;
+    Ok(count.flatten())
 }
 
 async fn chart(caller: Caller) -> Response {
@@ -138,21 +177,32 @@ async fn chart(caller: Caller) -> Response {
 
 /// The points keyed by date, which sorts them as the worker does
 /// (`localeCompare` on `YYYY-MM-DD`).
-async fn chart_points(caller: &Caller) -> Result<BTreeMap<String, ChartPoint>, sqlx::Error> {
+async fn chart_points(caller: &Caller) -> Result<BTreeMap<String, ChartPoint>, DbErr> {
     let since = thirty_days_ago();
+    let db = orm(&caller.db);
     let mut points = BTreeMap::new();
     if caller.can("orders:read") {
-        let rows: Vec<(String, i32, String)> = sqlx::query_as(
-            "select to_char(created_at, 'YYYY-MM-DD'), count(*)::int,
-                    coalesce(sum(total::numeric), 0)::numeric::text
-             from orders
-             where deleted_at is null and created_at >= $1::timestamp
-             group by to_char(created_at, 'YYYY-MM-DD')
-             order by to_char(created_at, 'YYYY-MM-DD')",
-        )
-        .bind(&since)
-        .fetch_all(&caller.db)
-        .await?;
+        use orders::Column as O;
+        // `coalesce(sum(total::numeric), 0)::numeric::text`.
+        let total = sea_orm::ExprTrait::cast_as(Expr::col(O::Total), "numeric");
+        let revenue = Expr::from(Func::coalesce([
+            Expr::from(Func::sum(total)),
+            Expr::value(0),
+        ]));
+        let revenue =
+            sea_orm::ExprTrait::cast_as(sea_orm::ExprTrait::cast_as(revenue, "numeric"), "text");
+        let rows: Vec<(String, i32, String)> = orders::Entity::find()
+            .select_only()
+            .expr(day_of(O::CreatedAt))
+            .expr(count_int())
+            .expr(revenue)
+            .filter(O::DeletedAt.is_null())
+            .filter(O::CreatedAt.gte(since))
+            .group_by(day_of(O::CreatedAt))
+            .order_by_asc(day_of(O::CreatedAt))
+            .into_tuple()
+            .all(&db)
+            .await?;
         for (date, orders, revenue) in rows {
             let point = ChartPoint {
                 orders,
@@ -164,15 +214,17 @@ async fn chart_points(caller: &Caller) -> Result<BTreeMap<String, ChartPoint>, s
     }
     // A failed ticket read leaves the ticket counts out (the worker's own catch).
     if caller.can("tickets:read") {
-        let tickets: Result<Vec<(String, i32)>, sqlx::Error> = sqlx::query_as(
-            "select to_char(created_at, 'YYYY-MM-DD'), count(*)::int
-             from helpdesk_tickets
-             where deleted_at is null and created_at >= $1::timestamp
-             group by to_char(created_at, 'YYYY-MM-DD')",
-        )
-        .bind(&since)
-        .fetch_all(&caller.db)
-        .await;
+        use helpdesk_tickets::Column as T;
+        let tickets: Result<Vec<(String, i32)>, DbErr> = helpdesk_tickets::Entity::find()
+            .select_only()
+            .expr(day_of(T::CreatedAt))
+            .expr(count_int())
+            .filter(T::DeletedAt.is_null())
+            .filter(T::CreatedAt.gte(since))
+            .group_by(day_of(T::CreatedAt))
+            .into_tuple()
+            .all(&db)
+            .await;
         match tickets {
             Ok(rows) => {
                 for (date, count) in rows {
@@ -218,21 +270,30 @@ async fn installed_apps(caller: Caller) -> Response {
 /// `listMemberAppCodes`: the installed apps (in rail order) an admin gets
 /// whole, an EMPLOYEE member gets WeldHR and WeldChat of, and anyone else
 /// gets where their role or an active assignment grants them.
-async fn list_member_app_codes(db: &PgPool, user_id: &str) -> Result<Vec<String>, sqlx::Error> {
-    let installed: Vec<String> = sqlx::query_scalar(
-        "select app_code from workspace_installed_apps
-         where is_active = true and deleted_at is null
-         order by display_order asc, created_at asc, app_code asc",
-    )
-    .fetch_all(db)
-    .await?;
-    let member: Option<(Option<String>, Option<String>, Option<String>)> = sqlx::query_as(
-        "select role, role_id, member_type::text from workspace_members
-         where user_id = $1 and deleted_at is null limit 1",
-    )
-    .bind(user_id)
-    .fetch_optional(db)
-    .await?;
+async fn list_member_app_codes(db: &PgPool, user_id: &str) -> Result<Vec<String>, DbErr> {
+    use workspace_installed_apps::Column as I;
+    use workspace_members::Column as M;
+    let db = orm(db);
+    let installed: Vec<String> = workspace_installed_apps::Entity::find()
+        .select_only()
+        .column(I::AppCode)
+        .filter(I::IsActive.eq(true))
+        .filter(I::DeletedAt.is_null())
+        .order_by_asc(I::DisplayOrder)
+        .order_by_asc(I::CreatedAt)
+        .order_by_asc(I::AppCode)
+        .into_tuple()
+        .all(&db)
+        .await?;
+    let member: Option<(Option<String>, Option<String>, Option<String>)> =
+        workspace_members::Entity::find()
+            .select_only()
+            .columns([M::Role, M::RoleId, M::MemberType])
+            .filter(M::UserId.eq(user_id))
+            .filter(M::DeletedAt.is_null())
+            .into_tuple()
+            .one(&db)
+            .await?;
     let (role, role_id, member_type) = member.unwrap_or_default();
     let role = role.map(|r| r.to_uppercase());
     if matches!(role.as_deref(), Some("OWNER" | "ADMIN")) {
@@ -249,12 +310,14 @@ async fn list_member_app_codes(db: &PgPool, user_id: &str) -> Result<Vec<String>
     }
     let mut effective = HashSet::new();
     if let Some(role_id) = role_id.filter(|id| !id.is_empty()) {
-        let apps: Option<Option<Value>> = sqlx::query_scalar(
-            "select apps from roles where id = $1 and deleted_at is null limit 1",
-        )
-        .bind(&role_id)
-        .fetch_optional(db)
-        .await?;
+        let apps: Option<Option<Value>> = roles::Entity::find()
+            .select_only()
+            .column(roles::Column::Apps)
+            .filter(roles::Column::Id.eq(&role_id))
+            .filter(roles::Column::DeletedAt.is_null())
+            .into_tuple()
+            .one(&db)
+            .await?;
         if let Some(Value::Array(apps)) = apps.flatten() {
             for code in apps.iter().filter_map(Value::as_str) {
                 if installed.iter().any(|i| i == code) {
@@ -263,14 +326,15 @@ async fn list_member_app_codes(db: &PgPool, user_id: &str) -> Result<Vec<String>
             }
         }
     }
-    let assigned: Vec<String> = sqlx::query_scalar(
-        "select app_code from user_app_assignments
-         where user_id = $1 and is_active = true and app_code = any($2)",
-    )
-    .bind(user_id)
-    .bind(&installed)
-    .fetch_all(db)
-    .await?;
+    let assigned: Vec<String> = user_app_assignments::Entity::find()
+        .select_only()
+        .column(user_app_assignments::Column::AppCode)
+        .filter(user_app_assignments::Column::UserId.eq(user_id))
+        .filter(user_app_assignments::Column::IsActive.eq(true))
+        .filter(user_app_assignments::Column::AppCode.is_in(installed.clone()))
+        .into_tuple()
+        .all(&db)
+        .await?;
     effective.extend(assigned);
     Ok(installed
         .into_iter()
@@ -284,16 +348,14 @@ async fn activity(caller: Caller) -> Response {
     if !caller.can("activities:read") {
         return Data(Vec::<Value>::new()).into_response();
     }
-    let rows: Result<Vec<Value>, sqlx::Error> = sqlx::query_scalar(
-        "select to_jsonb(a) from crm_activities a
-         where deleted_at is null
-         order by created_at desc
-         limit 20",
-    )
-    .fetch_all(&caller.db)
-    .await;
+    let rows = crm_activities::Entity::find()
+        .filter(crm_activities::Column::DeletedAt.is_null())
+        .order_by_desc(crm_activities::Column::CreatedAt)
+        .limit(20)
+        .all(&orm(&caller.db))
+        .await;
     match rows {
-        Ok(rows) => Data(rows.into_iter().map(js_row).collect::<Vec<_>>()).into_response(),
+        Ok(rows) => Data(rows).into_response(),
         Err(error) => {
             tracing::error!(%error, "dashboard: activity failed");
             Data(Vec::<Value>::new()).into_response()
@@ -304,7 +366,8 @@ async fn activity(caller: Caller) -> Response {
 // ── GET /sidebar-badges ─────────────────────────────────────────────────────
 
 async fn sidebar_badges(caller: Caller) -> Response {
-    let unread_messages = match unread_mail(&caller.db, &caller.user_id).await {
+    let db = orm(&caller.db);
+    let unread_messages = match unread_mail(&db, &caller.user_id).await {
         Ok(count) => count,
         Err(error) => {
             tracing::warn!(%error, "dashboard: unread mail badge failed");
@@ -313,20 +376,27 @@ async fn sidebar_badges(caller: Caller) -> Response {
     };
     let open_tickets = if caller.can("tickets:read") {
         count_or_zero(
-            &caller.db,
-            "select count(*)::int from helpdesk_tickets
-             where status = 'open' and deleted_at is null",
+            count_where::<helpdesk_tickets::Entity>(
+                &db,
+                Condition::all()
+                    .add(helpdesk_tickets::Column::Status.eq("open"))
+                    .add(helpdesk_tickets::Column::DeletedAt.is_null()),
+            )
+            .await,
         )
-        .await
     } else {
         0
     };
     let pending_orders = if caller.can("orders:read") {
         count_or_zero(
-            &caller.db,
-            "select count(*)::int from orders where status = 'pending' and deleted_at is null",
+            count_where::<orders::Entity>(
+                &db,
+                Condition::all()
+                    .add(orders::Column::Status.eq("pending"))
+                    .add(orders::Column::DeletedAt.is_null()),
+            )
+            .await,
         )
-        .await
     } else {
         0
     };
@@ -339,11 +409,8 @@ async fn sidebar_badges(caller: Caller) -> Response {
 }
 
 /// A badge count; 0 when the read fails (the worker's per-badge catch).
-async fn count_or_zero(db: &PgPool, sql: &'static str) -> i32 {
-    match sqlx::query_scalar::<_, Option<i32>>(sql)
-        .fetch_one(db)
-        .await
-    {
+fn count_or_zero(count: Result<Option<i32>, DbErr>) -> i32 {
+    match count {
         Ok(count) => count.unwrap_or(0),
         Err(error) => {
             tracing::warn!(%error, "dashboard: badge count failed");
@@ -352,22 +419,34 @@ async fn count_or_zero(db: &PgPool, sql: &'static str) -> i32 {
     }
 }
 
+/// `coalesce(<column>, '[]'::jsonb)`.
+fn json_list(column: impl IntoColumnRef) -> Expr {
+    Func::coalesce([Expr::col(column), Expr::value(json!([]))]).into()
+}
+
 /// Unread live mail in the mailboxes `user_id` may open, trash and spam
 /// left out (`inTrashOrSpamCondition`); 0 without any mailbox.
-async fn unread_mail(db: &PgPool, user_id: &str) -> Result<i32, sqlx::Error> {
+async fn unread_mail(db: &DatabaseConnection, user_id: &str) -> Result<i32, DbErr> {
+    use mail_messages::Column as M;
+    use sea_orm::sea_query::extension::postgres::PgExpr;
     let accounts = accessible_account_ids(db, user_id).await?;
     if accounts.is_empty() {
         return Ok(0);
     }
-    let count: Option<i32> = sqlx::query_scalar(
-        "select count(*)::int from mail_messages
-         where is_read = false and deleted_at is null and account_id = any($1)
-           and not (coalesce(labels, '[]'::jsonb) @> '[\"TRASH\"]'::jsonb
-                    or coalesce(labels, '[]'::jsonb) @> '[\"SPAM\"]'::jsonb
-                    or coalesce(is_trash, false) or coalesce(is_spam, false))",
+    let flag = |column: M| Expr::from(Func::coalesce([Expr::col(column), Expr::value(false)]));
+    let trash_or_spam = Condition::any()
+        .add(PgExpr::contains(json_list(M::Labels), json!(["TRASH"])))
+        .add(PgExpr::contains(json_list(M::Labels), json!(["SPAM"])))
+        .add(flag(M::IsTrash))
+        .add(flag(M::IsSpam));
+    let count = count_where::<mail_messages::Entity>(
+        db,
+        Condition::all()
+            .add(M::IsRead.eq(false))
+            .add(M::DeletedAt.is_null())
+            .add(M::AccountId.is_in(accounts))
+            .add(trash_or_spam.not()),
     )
-    .bind(&accounts)
-    .fetch_one(db)
     .await?;
     Ok(count.unwrap_or(0))
 }
@@ -375,28 +454,42 @@ async fn unread_mail(db: &PgPool, user_id: &str) -> Result<i32, sqlx::Error> {
 /// `listAccessibleAccountIds` (`@weldsuite/mail-domain/access`): the shared
 /// mailboxes, the private ones the user is assigned to, and for an admin or
 /// owner the private ones nobody is assigned to.
-async fn accessible_account_ids(db: &PgPool, user_id: &str) -> Result<Vec<String>, sqlx::Error> {
-    let role: Option<Option<String>> = sqlx::query_scalar(
-        "select role from workspace_members
-         where user_id = $1 and deleted_at is null limit 1",
-    )
-    .bind(user_id)
-    .fetch_optional(db)
-    .await?;
+async fn accessible_account_ids(
+    db: &DatabaseConnection,
+    user_id: &str,
+) -> Result<Vec<String>, DbErr> {
+    use mail_accounts::Column as A;
+    use sea_orm::sea_query::extension::postgres::PgExpr;
+    let role: Option<Option<String>> = workspace_members::Entity::find()
+        .select_only()
+        .column(workspace_members::Column::Role)
+        .filter(workspace_members::Column::UserId.eq(user_id))
+        .filter(workspace_members::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(db)
+        .await?;
     let role = role.flatten().map(|role| role.to_uppercase());
     let is_admin = matches!(role.as_deref(), Some("OWNER" | "ADMIN"));
-    let assigned = Value::Array(vec![Value::String(user_id.to_owned())]).to_string();
-    sqlx::query_scalar(
-        "select id from mail_accounts
-         where deleted_at is null
-           and (is_shared = true
-                or assigned_user_ids @> $1::jsonb
-                or ($2 and coalesce(assigned_user_ids, '[]'::jsonb) in ('[]'::jsonb, 'null'::jsonb)))",
-    )
-    .bind(&assigned)
-    .bind(is_admin)
-    .fetch_all(db)
-    .await
+    let mut visible = Condition::any()
+        .add(A::IsShared.eq(true))
+        .add(PgExpr::contains(
+            Expr::col(A::AssignedUserIds),
+            json!([user_id]),
+        ));
+    if is_admin {
+        visible = visible.add(sea_orm::ExprTrait::is_in(
+            json_list(A::AssignedUserIds),
+            [json!([]), Value::Null],
+        ));
+    }
+    mail_accounts::Entity::find()
+        .select_only()
+        .column(A::Id)
+        .filter(A::DeletedAt.is_null())
+        .filter(visible)
+        .into_tuple()
+        .all(db)
+        .await
 }
 
 // ── GET /onboarding-checklist ───────────────────────────────────────────────
@@ -404,77 +497,108 @@ async fn accessible_account_ids(db: &PgPool, user_id: &str) -> Result<Vec<String
 /// `customSettings` and `logoUrl` of the workspace settings.
 type SettingsRow = (Option<Value>, Option<String>);
 
-/// `hasRows(table, deletedAt, ...extra)` per checklist item, in the
-/// worker's order. Every table has `deleted_at`.
-const CHECKLIST_ITEMS: [(&str, &str); 14] = [
-    (
-        "crm_customer_created",
-        "select count(*)::int from companies where deleted_at is null limit 1",
-    ),
-    (
-        "crm_contact_created",
-        "select count(*)::int from people where deleted_at is null and in_crm = true limit 1",
-    ),
-    (
-        "crm_note_created",
-        "select count(*)::int from crm_activities where deleted_at is null and type = 'note' limit 1",
-    ),
-    (
-        "crm_task_created",
-        "select count(*)::int from tasks where deleted_at is null
-           and (customer_id is not null or person_id is not null or contact_id is not null) limit 1",
-    ),
-    (
-        "crm_pipeline_created",
-        "select count(*)::int from crm_pipelines where deleted_at is null limit 1",
-    ),
-    (
-        "helpdesk_department_created",
-        "select count(*)::int from helpdesk_departments where deleted_at is null limit 1",
-    ),
-    (
-        "mail_account_connected",
-        "select count(*)::int from mail_accounts where deleted_at is null limit 1",
-    ),
-    (
-        "project_created",
-        "select count(*)::int from projects where deleted_at is null limit 1",
-    ),
-    (
-        "task_created",
-        "select count(*)::int from tasks where deleted_at is null limit 1",
-    ),
-    (
-        "host_domain_added",
-        "select count(*)::int from domains where deleted_at is null limit 1",
-    ),
-    (
-        "parcel_carrier_configured",
-        "select count(*)::int from carriers where deleted_at is null limit 1",
-    ),
-    (
-        "wms_warehouse_added",
-        "select count(*)::int from warehouses where deleted_at is null limit 1",
-    ),
-    (
-        "accounting_chart_setup",
-        "select count(*)::int from accounts where deleted_at is null limit 1",
-    ),
-    (
-        "social_account_connected",
-        "select count(*)::int from social_accounts where deleted_at is null limit 1",
-    ),
+/// The checklist items, in the worker's order.
+const CHECKLIST_ITEMS: [&str; 14] = [
+    "crm_customer_created",
+    "crm_contact_created",
+    "crm_note_created",
+    "crm_task_created",
+    "crm_pipeline_created",
+    "helpdesk_department_created",
+    "mail_account_connected",
+    "project_created",
+    "task_created",
+    "host_domain_added",
+    "parcel_carrier_configured",
+    "wms_warehouse_added",
+    "accounting_chart_setup",
+    "social_account_connected",
 ];
+
+/// `hasRows(table, deletedAt, ...extra)` for a checklist item: `select
+/// count(*)::int from <table> where deleted_at is null …`. Every table has
+/// `deleted_at`.
+async fn checklist_count(db: &DatabaseConnection, item: &str) -> Result<Option<i32>, DbErr> {
+    match item {
+        "crm_customer_created" => {
+            count_where::<companies::Entity>(db, companies::Column::DeletedAt.is_null()).await
+        }
+        "crm_contact_created" => {
+            let live = Condition::all()
+                .add(people::Column::DeletedAt.is_null())
+                .add(people::Column::InCrm.eq(true));
+            count_where::<people::Entity>(db, live).await
+        }
+        "crm_note_created" => {
+            let notes = Condition::all()
+                .add(crm_activities::Column::DeletedAt.is_null())
+                .add(crm_activities::Column::Type.eq("note"));
+            count_where::<crm_activities::Entity>(db, notes).await
+        }
+        "crm_task_created" => {
+            let linked = Condition::any()
+                .add(tasks::Column::CustomerId.is_not_null())
+                .add(tasks::Column::PersonId.is_not_null())
+                .add(tasks::Column::ContactId.is_not_null());
+            let crm = Condition::all()
+                .add(tasks::Column::DeletedAt.is_null())
+                .add(linked);
+            count_where::<tasks::Entity>(db, crm).await
+        }
+        "crm_pipeline_created" => {
+            count_where::<crm_pipelines::Entity>(db, crm_pipelines::Column::DeletedAt.is_null())
+                .await
+        }
+        "helpdesk_department_created" => {
+            count_where::<helpdesk_departments::Entity>(
+                db,
+                helpdesk_departments::Column::DeletedAt.is_null(),
+            )
+            .await
+        }
+        "mail_account_connected" => {
+            count_where::<mail_accounts::Entity>(db, mail_accounts::Column::DeletedAt.is_null())
+                .await
+        }
+        "project_created" => {
+            count_where::<projects::Entity>(db, projects::Column::DeletedAt.is_null()).await
+        }
+        "task_created" => {
+            count_where::<tasks::Entity>(db, tasks::Column::DeletedAt.is_null()).await
+        }
+        "host_domain_added" => {
+            count_where::<domains::Entity>(db, domains::Column::DeletedAt.is_null()).await
+        }
+        "parcel_carrier_configured" => {
+            count_where::<carriers::Entity>(db, carriers::Column::DeletedAt.is_null()).await
+        }
+        "wms_warehouse_added" => {
+            count_where::<warehouses::Entity>(db, warehouses::Column::DeletedAt.is_null()).await
+        }
+        "accounting_chart_setup" => {
+            count_where::<accounts::Entity>(db, accounts::Column::DeletedAt.is_null()).await
+        }
+        _ => {
+            count_where::<social_accounts::Entity>(db, social_accounts::Column::DeletedAt.is_null())
+                .await
+        }
+    }
+}
 
 async fn onboarding_checklist(caller: Caller) -> Response {
     let mut dismissed_apps = json!([]);
     let mut has_logo = false;
-    let settings: Result<Option<SettingsRow>, sqlx::Error> = sqlx::query_as(
-        "select custom_settings, logo_url from workspace_settings
-         where deleted_at is null limit 1",
-    )
-    .fetch_optional(&caller.db)
-    .await;
+    let db = orm(&caller.db);
+    let settings: Result<Option<SettingsRow>, DbErr> = workspace_settings::Entity::find()
+        .select_only()
+        .columns([
+            workspace_settings::Column::CustomSettings,
+            workspace_settings::Column::LogoUrl,
+        ])
+        .filter(workspace_settings::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&db)
+        .await;
     match settings {
         Ok(Some((custom, logo))) => {
             dismissed_apps = dismissed_apps_of(custom.as_ref());
@@ -485,17 +609,19 @@ async fn onboarding_checklist(caller: Caller) -> Response {
     }
 
     let mut items = Map::new();
-    for (key, sql) in CHECKLIST_ITEMS {
+    for key in CHECKLIST_ITEMS {
         items.insert(
             key.to_owned(),
-            Value::Bool(count_or_zero(&caller.db, sql).await > 0),
+            Value::Bool(count_or_zero(checklist_count(&db, key).await) > 0),
         );
     }
     let members = count_or_zero(
-        &caller.db,
-        "select count(*)::int from workspace_members where deleted_at is null",
-    )
-    .await;
+        count_where::<workspace_members::Entity>(
+            &db,
+            workspace_members::Column::DeletedAt.is_null(),
+        )
+        .await,
+    );
     items.insert(
         "workspace_member_invited".to_owned(),
         Value::Bool(members > 1),
@@ -515,11 +641,11 @@ enum DismissFailure {
     Body,
     /// The stored list is not one `includes`/`push` work on.
     StoredList,
-    Database(sqlx::Error),
+    Database(DbErr),
 }
 
-impl From<sqlx::Error> for DismissFailure {
-    fn from(error: sqlx::Error) -> Self {
+impl From<DbErr> for DismissFailure {
+    fn from(error: DbErr) -> Self {
         Self::Database(error)
     }
 }
@@ -600,6 +726,7 @@ fn dismissed_with(stored: Value, app_code: &Value) -> Result<Value, DismissFailu
 }
 
 async fn dismiss_inner(caller: &Caller, body: &[u8]) -> Result<Response, DismissFailure> {
+    use workspace_settings::Column as S;
     // `const { appCode } = await c.req.json()`: `null` cannot be destructured.
     let parsed = request_json(body).ok_or(DismissFailure::Body)?;
     if parsed.is_null() {
@@ -610,38 +737,39 @@ async fn dismiss_inner(caller: &Caller, body: &[u8]) -> Result<Response, Dismiss
         return Ok(ApiError::bad_request("appCode is required").into_response());
     }
 
-    let existing: Option<(String, Option<Value>)> = sqlx::query_as(
-        "select id, custom_settings from workspace_settings
-         where deleted_at is null limit 1",
-    )
-    .fetch_optional(&caller.db)
-    .await?;
-    let stamp = now();
+    let db = orm(&caller.db);
+    let existing: Option<(String, Option<Value>)> = workspace_settings::Entity::find()
+        .select_only()
+        .columns([S::Id, S::CustomSettings])
+        .filter(S::DeletedAt.is_null())
+        .into_tuple()
+        .one(&db)
+        .await?;
+    let stamp = utc_now().assume_utc();
     if let Some((id, custom)) = existing {
         let custom = or_else(custom.as_ref(), json!({}));
         let dismissed = dismissed_with(dismissed_apps_of(Some(&custom)), &app_code)?;
         let mut settings = spread(&custom);
         settings.insert("onboardingChecklistDismissedApps".to_owned(), dismissed);
-        sqlx::query(
-            "update workspace_settings
-             set custom_settings = $2::jsonb, updated_at = $3::timestamptz
-             where id = $1",
-        )
-        .bind(&id)
-        .bind(Value::Object(settings))
-        .bind(&stamp)
-        .execute(&caller.db)
-        .await?;
+        workspace_settings::Entity::update_many()
+            .col_expr(S::CustomSettings, Expr::value(Value::Object(settings)))
+            .col_expr(S::UpdatedAt, Expr::value(stamp))
+            .filter(S::Id.eq(&id))
+            .exec(&db)
+            .await?;
     } else {
-        sqlx::query(
-            "insert into workspace_settings (id, custom_settings, created_at, updated_at)
-             values ($1, $2::jsonb, $3::timestamptz, $3::timestamptz)",
-        )
-        .bind(generate_id("ws"))
-        .bind(json!({ "onboardingChecklistDismissedApps": [app_code] }))
-        .bind(&stamp)
-        .execute(&caller.db)
-        .await?;
+        let settings = workspace_settings::ActiveModel {
+            id: Set(generate_id("ws")),
+            custom_settings: Set(Some(
+                json!({ "onboardingChecklistDismissedApps": [app_code] }),
+            )),
+            created_at: Set(stamp),
+            updated_at: Set(stamp),
+            ..Default::default()
+        };
+        workspace_settings::Entity::insert(settings)
+            .exec_without_returning(&db)
+            .await?;
     }
     Ok(Data(json!({ "success": true })).into_response())
 }

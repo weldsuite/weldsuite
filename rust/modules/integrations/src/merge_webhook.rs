@@ -25,7 +25,10 @@ use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::post;
 use http::{HeaderMap, StatusCode};
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
+use weldsuite_db::orm;
+use weldsuite_schema::master::merge_provider_index as provider_index;
 
 use crate::{IntegrationsState, PublicCtx};
 
@@ -182,15 +185,16 @@ async fn resolve_workspace(
     let master = ctx
         .master(state)
         .ok_or_else(|| "no master database".to_owned())?;
-    let workspace: Option<String> = sqlx::query_scalar(
-        "select workspace_id from merge_provider_index \
-         where provider = $1 and kind = 'webhook' and external_key = $2 limit 1",
-    )
-    .bind(provider)
-    .bind(key)
-    .fetch_optional(&master)
-    .await
-    .map_err(|error| error.to_string())?;
+    let workspace: Option<String> = provider_index::Entity::find()
+        .select_only()
+        .column(provider_index::Column::WorkspaceId)
+        .filter(provider_index::Column::Provider.eq(provider))
+        .filter(provider_index::Column::Kind.eq("webhook"))
+        .filter(provider_index::Column::ExternalKey.eq(key))
+        .into_tuple()
+        .one(&orm(&master))
+        .await
+        .map_err(|error| crate::crm::db_text(&error))?;
     let Some(workspace) = workspace else {
         return Ok(None);
     };

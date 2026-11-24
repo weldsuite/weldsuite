@@ -13,7 +13,9 @@ use axum::extract::{Path, RawQuery};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use http::HeaderMap;
+use sea_orm::DbErr;
 use serde_json::{Value, json};
+use weldsuite_db::{PgPool, orm_error};
 use weldsuite_kit::ApiError;
 use weldsuite_kit::cursor::decode_uri_component;
 use weldsuite_kit::validation::Presence;
@@ -41,7 +43,7 @@ const SCAN_WINDOW_DAYS: i64 = 180;
 const SCAN_MESSAGE_LIMIT: i64 = 2000;
 
 /// The mailbox check: an unknown mailbox is the route's 404.
-async fn mailbox(db: &weldsuite_db::PgPool, account: &str, mailbox: &str) -> Result<(), Failure> {
+async fn mailbox(db: &PgPool, account: &str, mailbox: &str) -> Result<(), Failure> {
     match require_account(db, account, mailbox).await {
         Ok(_) => Ok(()),
         Err(SendError::Mail { .. }) => {
@@ -75,21 +77,36 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
     let result = async {
         let db = caller.personal()?;
         mailbox(db, &account, &mailbox_id).await?;
-        let found: Vec<Value> = sqlx::query_scalar(
-            "select to_jsonb(s) from personal_mail_subscriptions s
-             where s.personal_account_id = $1 and s.account_id = $2
-               and ($3::text is null or s.status = $3)
-             order by s.last_received_at desc limit 1000",
-        )
-        .bind(&account)
-        .bind(&mailbox_id)
-        .bind(&status)
-        .fetch_all(db)
-        .await?;
+        let found = subscriptions(db, &account, &mailbox_id, status.as_deref()).await?;
         Ok(data(Value::Array(rows(found))))
     }
     .await;
     answer(result, "Failed to list subscriptions")
+}
+
+/// The mailbox's subscriptions (in one status), most recent first.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "the personal database has no entities: its schema is still Drizzle's and retires with the consumer product (ADR OPS-025)"
+)]
+async fn subscriptions(
+    db: &PgPool,
+    account: &str,
+    mailbox: &str,
+    status: Option<&str>,
+) -> Result<Vec<Value>, DbErr> {
+    sqlx::query_scalar(
+        "select to_jsonb(s) from personal_mail_subscriptions s
+         where s.personal_account_id = $1 and s.account_id = $2
+           and ($3::text is null or s.status = $3)
+         order by s.last_received_at desc limit 1000",
+    )
+    .bind(account)
+    .bind(mailbox)
+    .bind(status)
+    .fetch_all(db)
+    .await
+    .map_err(orm_error)
 }
 
 /// `parseRawHeaders(rawMessage)`: the header block, unfolded, names
@@ -186,27 +203,17 @@ async fn scan(caller: Caller, headers: HeaderMap, body: Bytes) -> Response {
         let db = caller.personal()?;
         mailbox(db, &account, &mailbox_id).await?;
         let since = iso(now_ms() - SCAN_WINDOW_DAYS * 24 * 60 * 60 * 1000);
-        let found: Vec<ScannedRow> = sqlx::query_as(
-            "select \"from\", subject, to_jsonb(received_date), to_jsonb(sent_date),
-                    substring(raw_message from 1 for 32000)
-             from personal_mail_messages
-             where personal_account_id = $1 and account_id = $2 and source = 'inbound'
-               and is_spam = false and deleted_at is null and raw_message is not null
-               and sent_date >= $3::timestamp
-             order by sent_date desc limit $4",
-        )
-        .bind(&account)
-        .bind(&mailbox_id)
-        .bind(&since)
-        .bind(SCAN_MESSAGE_LIMIT)
-        .fetch_all(db)
-        .await?;
+        let found = scanned(db, &account, &mailbox_id, &since).await?;
 
         // `aggregateSubscriptions(rows)`, newest first.
         let mut order: Vec<String> = Vec::new();
         let mut by_sender: HashMap<String, Aggregate> = HashMap::new();
         for (from, subject, received, sent, raw) in &found {
-            let Some(email) = from["email"].as_str().map(|e| js_trim(e).to_lowercase()).filter(|e| !e.is_empty()) else {
+            let Some(email) = from["email"]
+                .as_str()
+                .map(|e| js_trim(e).to_lowercase())
+                .filter(|e| !e.is_empty())
+            else {
                 continue;
             };
             let Some(raw) = raw.as_deref().filter(|r| !r.is_empty()) else {
@@ -225,8 +232,10 @@ async fn scan(caller: Caller, headers: HeaderMap, body: Bytes) -> Response {
                 aggregate.first_received_at = aggregate.first_received_at.min(received_at);
                 aggregate.last_received_at = aggregate.last_received_at.max(received_at);
             } else {
-                    order.push(email.clone());
-                    by_sender.insert(email.clone(), Aggregate {
+                order.push(email.clone());
+                by_sender.insert(
+                    email.clone(),
+                    Aggregate {
                         sender_name: from["name"]
                             .as_str()
                             .map(|n| utf16_prefix(n, 255))
@@ -241,7 +250,8 @@ async fn scan(caller: Caller, headers: HeaderMap, body: Bytes) -> Response {
                         last_subject: subject.as_deref().map(|s| utf16_prefix(s, 998)),
                         first_received_at: received_at,
                         last_received_at: received_at,
-                    });
+                    },
+                );
             }
         }
         let now = now_iso();
@@ -249,39 +259,89 @@ async fn scan(caller: Caller, headers: HeaderMap, body: Bytes) -> Response {
             let Some(aggregate) = by_sender.get(email) else {
                 continue;
             };
-            sqlx::query(
-                "insert into personal_mail_subscriptions as s
-                   (id, personal_account_id, account_id, sender_email, sender_name, sender_domain,
-                    list_id, unsubscribe_url, unsubscribe_mailto, one_click, message_count,
-                    last_subject, first_received_at, last_received_at)
-                 values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::timestamp, $14::timestamp)
-                 on conflict (account_id, sender_email) do update set
-                   message_count = greatest(s.message_count, $11),
-                   first_received_at = least(s.first_received_at, $13::timestamp),
-                   updated_at = $15::timestamp",
-            )
-            .bind(weldsuite_kit::generate_id("pmsub"))
-            .bind(&account)
-            .bind(&mailbox_id)
-            .bind(&aggregate.sender_email)
-            .bind(&aggregate.sender_name)
-            .bind(&aggregate.sender_domain)
-            .bind(&aggregate.list_id)
-            .bind(&aggregate.url)
-            .bind(&aggregate.mailto)
-            .bind(aggregate.one_click)
-            .bind(i32::try_from(aggregate.message_count).unwrap_or(i32::MAX))
-            .bind(&aggregate.last_subject)
-            .bind(iso(aggregate.first_received_at))
-            .bind(iso(aggregate.last_received_at))
-            .bind(&now)
-            .execute(db)
-            .await?;
+            upsert_subscription(db, &account, &mailbox_id, aggregate, &now).await?;
         }
-        Ok(data(json!({ "scanned": found.len(), "subscriptions": order.len() })))
+        Ok(data(
+            json!({ "scanned": found.len(), "subscriptions": order.len() }),
+        ))
     }
     .await;
     answer(result, "Failed to scan for subscriptions")
+}
+
+/// The mailbox's stored inbound mail since `since`, newest first, at most
+/// `SCAN_MESSAGE_LIMIT` messages.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "the personal database has no entities: its schema is still Drizzle's and retires with the consumer product (ADR OPS-025)"
+)]
+async fn scanned(
+    db: &PgPool,
+    account: &str,
+    mailbox: &str,
+    since: &str,
+) -> Result<Vec<ScannedRow>, DbErr> {
+    sqlx::query_as(
+        "select \"from\", subject, to_jsonb(received_date), to_jsonb(sent_date),
+                substring(raw_message from 1 for 32000)
+         from personal_mail_messages
+         where personal_account_id = $1 and account_id = $2 and source = 'inbound'
+           and is_spam = false and deleted_at is null and raw_message is not null
+           and sent_date >= $3::timestamp
+         order by sent_date desc limit $4",
+    )
+    .bind(account)
+    .bind(mailbox)
+    .bind(since)
+    .bind(SCAN_MESSAGE_LIMIT)
+    .fetch_all(db)
+    .await
+    .map_err(orm_error)
+}
+
+/// `upsertSubscription`: a new sender's row, or the count and first date
+/// merged into the existing one.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "the personal database has no entities: its schema is still Drizzle's and retires with the consumer product (ADR OPS-025)"
+)]
+async fn upsert_subscription(
+    db: &PgPool,
+    account: &str,
+    mailbox: &str,
+    aggregate: &Aggregate,
+    now: &str,
+) -> Result<(), DbErr> {
+    sqlx::query(
+        "insert into personal_mail_subscriptions as s
+           (id, personal_account_id, account_id, sender_email, sender_name, sender_domain,
+            list_id, unsubscribe_url, unsubscribe_mailto, one_click, message_count,
+            last_subject, first_received_at, last_received_at)
+         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::timestamp, $14::timestamp)
+         on conflict (account_id, sender_email) do update set
+           message_count = greatest(s.message_count, $11),
+           first_received_at = least(s.first_received_at, $13::timestamp),
+           updated_at = $15::timestamp",
+    )
+    .bind(weldsuite_kit::generate_id("pmsub"))
+    .bind(account)
+    .bind(mailbox)
+    .bind(&aggregate.sender_email)
+    .bind(&aggregate.sender_name)
+    .bind(&aggregate.sender_domain)
+    .bind(&aggregate.list_id)
+    .bind(&aggregate.url)
+    .bind(&aggregate.mailto)
+    .bind(aggregate.one_click)
+    .bind(i32::try_from(aggregate.message_count).unwrap_or(i32::MAX))
+    .bind(&aggregate.last_subject)
+    .bind(iso(aggregate.first_received_at))
+    .bind(iso(aggregate.last_received_at))
+    .bind(now)
+    .execute(db)
+    .await
+    .map_err(orm_error)?;
+    Ok(())
 }
 
 /// `isSafeUnsubscribeUrl(value)`: https, no credentials, a public host.
@@ -367,16 +427,12 @@ async fn unsubscribe(caller: Caller, Path(id): Path<String>) -> Response {
     };
     let result = async {
         let db = caller.personal()?;
-        let found: Option<Value> = sqlx::query_scalar(
-            "select to_jsonb(s) from personal_mail_subscriptions s
-             where s.id = $1 and s.personal_account_id = $2 limit 1",
-        )
-        .bind(&id)
-        .bind(&account)
-        .fetch_optional(db)
-        .await?;
+        let found = subscription_row(db, &account, &id).await?;
         let Some(subscription) = found.map(weldsuite_db::js_row) else {
-            return Err(Failure::from(ApiError::not_found("Subscription", Some(&id))));
+            return Err(Failure::from(ApiError::not_found(
+                "Subscription",
+                Some(&id),
+            )));
         };
         let url = subscription["unsubscribeUrl"]
             .as_str()
@@ -401,9 +457,12 @@ async fn unsubscribe(caller: Caller, Path(id): Path<String>) -> Response {
             };
             match caller.http.as_ref() {
                 Some(http) => match http.send(request).await {
-                    Ok(response) if (200..400).contains(&response.status) => method = Some("one_click"),
+                    Ok(response) if (200..400).contains(&response.status) => {
+                        method = Some("one_click");
+                    }
                     Ok(response) => {
-                        last_error = Some(format!("One-click POST returned HTTP {}", response.status));
+                        last_error =
+                            Some(format!("One-click POST returned HTTP {}", response.status));
                     }
                     Err(error) => last_error = Some(error.to_string()),
                 },
@@ -415,7 +474,10 @@ async fn unsubscribe(caller: Caller, Path(id): Path<String>) -> Response {
         {
             let ctx = SendContext::new(&caller, db, &account);
             let input = Compose {
-                account_id: subscription["accountId"].as_str().unwrap_or_default().to_owned(),
+                account_id: subscription["accountId"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .to_owned(),
                 to: vec![to.clone()],
                 subject: subject.clone(),
                 text_body: Some(body.clone()),
@@ -437,25 +499,56 @@ async fn unsubscribe(caller: Caller, Path(id): Path<String>) -> Response {
                 ));
             }
             (None, None, None) => {
-                return Err(ApiError::bad_request("This sender offers no way to unsubscribe").into());
+                return Err(
+                    ApiError::bad_request("This sender offers no way to unsubscribe").into(),
+                );
             }
         };
-        let now = now_iso();
-        let updated: Option<Value> = sqlx::query_scalar(
-            "update personal_mail_subscriptions s set status = 'unsubscribed', unsubscribe_method = $2,
-               unsubscribed_at = $3::timestamp, updated_at = $3::timestamp
-             where s.id = $1 returning to_jsonb(s)",
-        )
-        .bind(&id)
-        .bind(method)
-        .bind(&now)
-        .fetch_optional(db)
-        .await?;
+        let updated = mark_unsubscribed(db, &id, method).await?;
         let subscription = updated.map(weldsuite_db::js_row).unwrap_or(subscription);
-        Ok(data(json!({ "subscription": subscription, "method": method, "url": link })))
+        Ok(data(
+            json!({ "subscription": subscription, "method": method, "url": link }),
+        ))
     }
     .await;
     answer(result, "Failed to unsubscribe")
+}
+
+/// The account's subscription, as `to_jsonb` writes it.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "the personal database has no entities: its schema is still Drizzle's and retires with the consumer product (ADR OPS-025)"
+)]
+async fn subscription_row(db: &PgPool, account: &str, id: &str) -> Result<Option<Value>, DbErr> {
+    sqlx::query_scalar(
+        "select to_jsonb(s) from personal_mail_subscriptions s
+         where s.id = $1 and s.personal_account_id = $2 limit 1",
+    )
+    .bind(id)
+    .bind(account)
+    .fetch_optional(db)
+    .await
+    .map_err(orm_error)
+}
+
+/// The subscription unsubscribed now by `method`, as `to_jsonb` writes it.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "the personal database has no entities: its schema is still Drizzle's and retires with the consumer product (ADR OPS-025)"
+)]
+async fn mark_unsubscribed(db: &PgPool, id: &str, method: &str) -> Result<Option<Value>, DbErr> {
+    let now = now_iso();
+    sqlx::query_scalar(
+        "update personal_mail_subscriptions s set status = 'unsubscribed', unsubscribe_method = $2,
+           unsubscribed_at = $3::timestamp, updated_at = $3::timestamp
+         where s.id = $1 returning to_jsonb(s)",
+    )
+    .bind(id)
+    .bind(method)
+    .bind(&now)
+    .fetch_optional(db)
+    .await
+    .map_err(orm_error)
 }
 
 #[cfg(test)]

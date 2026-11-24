@@ -8,17 +8,27 @@ use axum::Router;
 use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
+use sea_orm::ActiveValue::Set;
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ColumnTrait, DbErr, EntityTrait, FromQueryResult, PaginatorTrait, QueryFilter, QueryOrder,
+    QuerySelect,
+};
+use serde::Serialize;
 use serde_json::{Map, Value, json};
+use time::PrimitiveDateTime;
 use weldsuite_catalogs::entity_events::WORKFLOW_UPDATED;
 use weldsuite_catalogs::permission_keys as perm;
-use weldsuite_db::{PgPool, js_row};
+use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_kit::{Data, List, Pagination, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::workflow_versions::{self, Column};
+use weldsuite_schema::tenant::workflows;
 
-use crate::js::{next_cursor, page, page_limit, query_truthy, total};
+use crate::js::{next_cursor, page, page_limit, query_truthy};
 use crate::sync::SyncContext;
 use crate::workflows::{get_workflow, reject_activation, update_workflow};
-use crate::{Caller, ConnectState, Refusal, internal, now};
+use crate::{Caller, ConnectState, Refusal, internal};
 
 pub(crate) fn routes<Q: PermissionQueries + 'static>(
     gate: &Arc<PermissionGate<Q>>,
@@ -54,40 +64,48 @@ fn or_default(value: Option<&Value>, fallback: Value) -> Value {
     }
 }
 
+/// A NOT NULL `varchar` the snapshot writes: a JSON string, else the insert
+/// fails as Postgres refuses the NULL Drizzle writes for `undefined`.
+fn text_column<'a>(value: &'a Value, column: &str) -> Result<&'a str, DbErr> {
+    value
+        .as_str()
+        .ok_or_else(|| DbErr::Custom(format!("workflow_versions.{column} is not a string")))
+}
+
 /// `snapshotWorkflowVersion(db, input)`: the new version's number.
-pub(crate) async fn snapshot(db: &PgPool, input: Snapshot<'_>) -> Result<i64, sqlx::Error> {
-    let max: i64 = sqlx::query_scalar(
-        "select coalesce(max(version), 0)::bigint from workflow_versions where workflow_id = $1",
-    )
-    .bind(input.workflow_id)
-    .fetch_one(db)
+pub(crate) async fn snapshot(db: &PgPool, input: Snapshot<'_>) -> Result<i64, DbErr> {
+    let db = orm(db);
+    // `coalesce(max(version), 0)`.
+    let max: Option<Option<i32>> = workflow_versions::Entity::find()
+        .select_only()
+        .column_as(Column::Version.max(), "max")
+        .filter(Column::WorkflowId.eq(input.workflow_id))
+        .into_tuple()
+        .one(&db)
+        .await?;
+    let version = i64::from(max.flatten().unwrap_or(0)) + 1;
+    let number = i32::try_from(version).unwrap_or(i32::MAX);
+    workflow_versions::Entity::insert(workflow_versions::ActiveModel {
+        id: Set(generate_id("wfv")),
+        workflow_id: Set(input.workflow_id.to_owned()),
+        version: Set(number),
+        name: Set(text_column(input.name, "name")?.to_owned()),
+        status: Set(text_column(input.status, "status")?.to_owned()),
+        triggers: Set(Some(or_default(input.triggers, json!([])))),
+        steps: Set(Some(or_default(input.steps, json!([])))),
+        settings: Set(Some(or_default(input.settings, json!({})))),
+        created_by: Set(input.created_by.map(str::to_owned)),
+        reason: Set(input.reason.to_owned()),
+        restored_from_version: Set(input.restored_from.and_then(|v| i32::try_from(v).ok())),
+        note: Set(input.note.map(str::to_owned)),
+        created_at: Set(utc_now()),
+    })
+    .exec_without_returning(&db)
     .await?;
-    let version = max + 1;
-    sqlx::query(
-        "insert into workflow_versions
-            (id, workflow_id, version, name, status, triggers, steps, settings, created_by, reason,
-             restored_from_version, note, created_at)
-         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::timestamp)",
-    )
-    .bind(generate_id("wfv"))
-    .bind(input.workflow_id)
-    .bind(i32::try_from(version).unwrap_or(i32::MAX))
-    .bind(input.name.as_str())
-    .bind(input.status.as_str())
-    .bind(or_default(input.triggers, json!([])))
-    .bind(or_default(input.steps, json!([])))
-    .bind(or_default(input.settings, json!({})))
-    .bind(input.created_by)
-    .bind(input.reason)
-    .bind(input.restored_from.and_then(|v| i32::try_from(v).ok()))
-    .bind(input.note)
-    .bind(now())
-    .execute(db)
-    .await?;
-    sqlx::query("update workflows set version = $2 where id = $1")
-        .bind(input.workflow_id)
-        .bind(i32::try_from(version).unwrap_or(i32::MAX))
-        .execute(db)
+    workflows::Entity::update_many()
+        .col_expr(workflows::Column::Version, Expr::value(number))
+        .filter(workflows::Column::Id.eq(input.workflow_id))
+        .exec(&db)
         .await?;
     Ok(version)
 }
@@ -99,10 +117,22 @@ pub(crate) async fn snapshot_quietly(db: &PgPool, input: Snapshot<'_>) {
     }
 }
 
-const LIST_ROW: &str =
-    "jsonb_build_object('id', v.id, 'workflowId', v.workflow_id, 'version', v.version,
-    'name', v.name, 'status', v.status, 'createdBy', v.created_by, 'createdAt', v.created_at,
-    'reason', v.reason, 'restoredFromVersion', v.restored_from_version, 'note', v.note)";
+/// A row of the history (`listWorkflowVersions`' columns).
+#[derive(FromQueryResult, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Summary {
+    id: String,
+    workflow_id: String,
+    version: i32,
+    name: String,
+    status: String,
+    created_by: Option<String>,
+    #[serde(with = "weldsuite_schema::js::timestamp")]
+    created_at: PrimitiveDateTime,
+    reason: String,
+    restored_from_version: Option<i32>,
+    note: Option<String>,
+}
 
 async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
     let query = query.as_deref();
@@ -111,39 +141,55 @@ async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
     let cursor = query_truthy(query, "cursor")
         .map(|c| weldsuite_kit::validation::js_number(&c))
         .filter(|n| n.is_finite());
-    let rows: Result<Vec<Value>, sqlx::Error> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-        "select {LIST_ROW} from workflow_versions v
-         where ($1::text is null or v.workflow_id = $1) and ($2::float8 is null or v.version < $2)
-         order by v.version desc limit $3"
-    )))
-    .bind(&workflow_id)
-    .bind(cursor)
-    .bind(limit + 1)
-    .fetch_all(&caller.db)
-    .await;
-    let count: Result<i64, sqlx::Error> = sqlx::query_scalar(
-        "select count(*) from workflow_versions v where ($1::text is null or v.workflow_id = $1)",
-    )
-    .bind(&workflow_id)
-    .fetch_one(&caller.db)
-    .await;
+    let db = orm(&caller.db);
+    let mut rows = workflow_versions::Entity::find().select_only().columns([
+        Column::Id,
+        Column::WorkflowId,
+        Column::Version,
+        Column::Name,
+        Column::Status,
+        Column::CreatedBy,
+        Column::CreatedAt,
+        Column::Reason,
+        Column::RestoredFromVersion,
+        Column::Note,
+    ]);
+    if let Some(workflow_id) = &workflow_id {
+        rows = rows.filter(Column::WorkflowId.eq(workflow_id));
+    }
+    if let Some(cursor) = cursor {
+        rows = rows.filter(Column::Version.lt(cursor));
+    }
+    let rows = rows
+        .order_by_desc(Column::Version)
+        .limit(u64::try_from(limit + 1).unwrap_or(0))
+        .into_model::<Summary>()
+        .all(&db)
+        .await;
+    let mut count = workflow_versions::Entity::find();
+    if let Some(workflow_id) = &workflow_id {
+        count = count.filter(Column::WorkflowId.eq(workflow_id));
+    }
+    let count = count.count(&db).await;
     match (rows, count) {
         (Ok(rows), Ok(count)) => {
-            let (data, has_more) = page(rows.into_iter().map(js_row).collect(), limit);
+            let rows = rows
+                .iter()
+                .map(|row| serde_json::to_value(row).unwrap_or(Value::Null))
+                .collect();
+            let (data, has_more) = page(rows, limit);
             let cursor = next_cursor(&data, has_more, "version");
-            List::new(data, Pagination::new(total(count), has_more, cursor)).into_response()
+            List::new(data, Pagination::new(count, has_more, cursor)).into_response()
         }
         (Err(error), _) | (_, Err(error)) => internal(&error, "Failed to list workflow versions"),
     }
 }
 
-async fn get_version(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> =
-        sqlx::query_scalar("select to_jsonb(v) from workflow_versions v where v.id = $1 limit 1")
-            .bind(id)
-            .fetch_optional(db)
-            .await?;
-    Ok(row.map(js_row))
+async fn get_version(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
+    let row = workflow_versions::Entity::find_by_id(id.to_owned())
+        .one(&orm(db))
+        .await?;
+    Ok(row.map(|row| serde_json::to_value(row).unwrap_or(Value::Null)))
 }
 
 async fn get_one(caller: Caller, Path(id): Path<String>) -> Response {

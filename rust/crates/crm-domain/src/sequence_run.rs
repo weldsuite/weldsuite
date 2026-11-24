@@ -19,11 +19,16 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use sea_orm::sea_query::{Expr, Func, Query};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, Condition, ConnectionTrait, DbErr, EntityTrait, QueryFilter,
+    QuerySelect,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
-use time::OffsetDateTime;
+use time::{OffsetDateTime, PrimitiveDateTime};
 use weldsuite_core_domain::js::{Js, as_text};
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_events::iso_timestamp;
 use weldsuite_kit::generate_id;
 use weldsuite_mail_domain::outbound::guard::{GuardedSendError, SubjectInput, guarded_send};
@@ -35,8 +40,14 @@ use weldsuite_ports::{
     BoxFuture, DynCache, DynRealtimePublisher, Job, JobContext, JobError, RealtimeMessage,
     StepRetry, step,
 };
+use weldsuite_schema::tenant::enums::MailAccountStatus;
+use weldsuite_schema::tenant::{
+    mail_accounts, sequence_enrollments as enrollments, workflow_error_logs,
+    workflow_execution_steps as steps, workflow_executions as executions, workflow_variables,
+    workflows,
+};
 
-use crate::drizzle_row;
+use crate::db_message;
 
 /// The job's name (the Workflow class, `EXECUTE_SEQUENCE`).
 pub const EXECUTE_SEQUENCE_JOB: &str = "crm.execute-sequence";
@@ -103,21 +114,26 @@ pub async fn read_run_gate(
     db: &PgPool,
     sequence_id: &str,
     enrollment_id: &str,
-) -> Result<RunGate, sqlx::Error> {
-    let sequence: Option<Option<String>> = sqlx::query_scalar(
-        "select status from workflows where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(sequence_id)
-    .fetch_optional(db)
-    .await?;
+) -> Result<RunGate, DbErr> {
+    let conn = orm(db);
+    let sequence: Option<Option<String>> = workflows::Entity::find()
+        .select_only()
+        .column(workflows::Column::Status)
+        .filter(workflows::Column::Id.eq(sequence_id))
+        .filter(workflows::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&conn)
+        .await?;
     let Some(sequence) = sequence else {
         return Ok(stop("Sequence not found"));
     };
-    let enrollment: Option<String> =
-        sqlx::query_scalar("select status from sequence_enrollments where id = $1 limit 1")
-            .bind(enrollment_id)
-            .fetch_optional(db)
-            .await?;
+    let enrollment: Option<String> = enrollments::Entity::find()
+        .select_only()
+        .column(enrollments::Column::Status)
+        .filter(enrollments::Column::Id.eq(enrollment_id))
+        .into_tuple()
+        .one(&conn)
+        .await?;
     let Some(enrollment) = enrollment else {
         return Ok(stop("Enrollment not found"));
     };
@@ -499,10 +515,26 @@ impl From<String> for ActionError {
     }
 }
 
-impl From<sqlx::Error> for ActionError {
-    fn from(error: sqlx::Error) -> Self {
-        Self::Failed(error.to_string())
+impl From<DbErr> for ActionError {
+    fn from(error: DbErr) -> Self {
+        Self::Failed(db_message(&error))
     }
+}
+
+/// The workspace's active mail accounts a sequence may send from (five at
+/// most, as Drizzle returns them).
+async fn sending_accounts(db: &PgPool) -> Result<Vec<Value>, ActionError> {
+    let accounts = mail_accounts::Entity::find()
+        .filter(mail_accounts::Column::Status.eq(MailAccountStatus::Active))
+        .filter(mail_accounts::Column::DeletedAt.is_null())
+        .limit(5)
+        .all(&orm(db))
+        .await?;
+    accounts
+        .into_iter()
+        .map(serde_json::to_value)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| ActionError::Failed(error.to_string()))
 }
 
 /// `handleDelay(inputs)`: the duration, which the run sleeps after the step.
@@ -679,13 +711,7 @@ impl ExecuteSequenceJob {
         if recipients.is_empty() {
             return Err("No valid recipients after parsing".to_owned().into());
         }
-        let accounts: Vec<Value> = sqlx::query_scalar(
-            "select to_jsonb(t) from mail_accounts t
-             where t.status = 'active' and t.deleted_at is null limit 5",
-        )
-        .fetch_all(db)
-        .await?;
-        let accounts: Vec<Value> = accounts.into_iter().map(drizzle_row).collect();
+        let accounts = sending_accounts(db).await?;
         let account = match inputs.get("from") {
             Some(from) if truthy(Some(from)) => accounts.iter().find(|a| {
                 strict_equal(a.get("email"), Some(from)) || strict_equal(a.get("id"), Some(from))
@@ -861,6 +887,46 @@ impl Run<'_> {
     }
 }
 
+/// The `workflow_execution_steps` row of a step that starts: `running`,
+/// with the step's id, name, type and inputs as the definition has them
+/// (`null` when it has none, which the id and type columns refuse).
+fn step_row(
+    step_execution_id: &str,
+    execution_id: &str,
+    wf_step: &Value,
+    step_index: usize,
+) -> sea_orm::sea_query::InsertStatement {
+    let now = utc_now();
+    let text = |key: &str| Expr::val(step_text(wf_step, key).map(str::to_owned));
+    Query::insert()
+        .into_table(steps::Entity)
+        .columns([
+            steps::Column::Id,
+            steps::Column::ExecutionId,
+            steps::Column::StepId,
+            steps::Column::StepName,
+            steps::Column::StepType,
+            steps::Column::StepIndex,
+            steps::Column::Status,
+            steps::Column::Input,
+            steps::Column::StartedAt,
+            steps::Column::CreatedAt,
+        ])
+        .values_panic([
+            Expr::val(step_execution_id),
+            Expr::val(execution_id),
+            text("id"),
+            text("name"),
+            text("type"),
+            Expr::val(int(step_index)),
+            Expr::val("running"),
+            Expr::val(json_column(wf_step.get("inputs"))),
+            Expr::val(now),
+            Expr::val(now),
+        ])
+        .to_owned()
+}
+
 fn now_iso() -> String {
     iso_timestamp(OffsetDateTime::now_utc())
 }
@@ -873,12 +939,32 @@ fn failed(error: impl std::fmt::Display) -> JobError {
     JobError::failed(error)
 }
 
-fn step_text<'v>(step: &'v Value, key: &str) -> Option<&'v str> {
-    step.get(key).and_then(Value::as_str)
+/// A database failure, as the driver words it.
+#[allow(clippy::needless_pass_by_value)] // a `map_err` target
+fn db_failed(error: DbErr) -> JobError {
+    JobError::failed(db_message(&error))
 }
 
-fn json_text(value: Option<&Value>) -> Option<String> {
-    value.filter(|v| !v.is_null()).map(Value::to_string)
+/// `new Date(ms)` as a `timestamp` column holds it.
+fn timestamp_at(ms: i64) -> PrimitiveDateTime {
+    weldsuite_db::utc_timestamp(
+        OffsetDateTime::from_unix_timestamp_nanos(i128::from(ms) * 1_000_000)
+            .unwrap_or(OffsetDateTime::UNIX_EPOCH),
+    )
+}
+
+/// A JSON input of a step as its `jsonb` column takes it; `null` is none.
+fn json_column(value: Option<&Value>) -> Option<Value> {
+    value.filter(|v| !v.is_null()).cloned()
+}
+
+/// `i32::try_from(n)`, saturating, for an `integer` column.
+fn int(n: usize) -> i32 {
+    i32::try_from(n).unwrap_or(i32::MAX)
+}
+
+fn step_text<'v>(step: &'v Value, key: &str) -> Option<&'v str> {
+    step.get(key).and_then(Value::as_str)
 }
 
 impl ExecuteSequenceJob {
@@ -893,7 +979,7 @@ impl ExecuteSequenceJob {
             let db = self.db(&params.workspace_id).await.map_err(failed)?;
             read_run_gate(&db, &params.sequence_id, &params.enrollment_id)
                 .await
-                .map_err(failed)
+                .map_err(db_failed)
         })
         .await
     }
@@ -930,15 +1016,17 @@ impl ExecuteSequenceJob {
 
     /// Step 2: `loadSequenceDefinition`.
     async fn load(&self, params: &ExecuteSequenceParams) -> Result<Loaded, JobError> {
-        let db = self.db(&params.workspace_id).await.map_err(failed)?;
-        let workflow: Option<Value> = sqlx::query_scalar(
-            "select to_jsonb(t) from workflows t where t.id = $1 and t.deleted_at is null limit 1",
-        )
-        .bind(&params.sequence_id)
-        .fetch_optional(&db)
-        .await
-        .map_err(failed)?;
-        let Some(workflow) = workflow.map(drizzle_row) else {
+        let db = orm(&self.db(&params.workspace_id).await.map_err(failed)?);
+        let workflow = workflows::Entity::find_by_id(params.sequence_id.clone())
+            .filter(workflows::Column::DeletedAt.is_null())
+            .one(&db)
+            .await
+            .map_err(db_failed)?;
+        let Some(workflow) = workflow
+            .map(serde_json::to_value)
+            .transpose()
+            .map_err(failed)?
+        else {
             return Err(failed(format!("Sequence {} not found", params.sequence_id)));
         };
         if workflow.get("status").and_then(Value::as_str) != Some("active") {
@@ -946,13 +1034,17 @@ impl ExecuteSequenceJob {
                 reason: "Sequence not active".to_owned(),
             });
         }
-        let enrollment: Option<(String, Option<Value>)> = sqlx::query_as(
-            "select status, customer_snapshot from sequence_enrollments where id = $1 limit 1",
-        )
-        .bind(&params.enrollment_id)
-        .fetch_optional(&db)
-        .await
-        .map_err(failed)?;
+        let enrollment: Option<(String, Option<Value>)> = enrollments::Entity::find()
+            .select_only()
+            .columns([
+                enrollments::Column::Status,
+                enrollments::Column::CustomerSnapshot,
+            ])
+            .filter(enrollments::Column::Id.eq(&params.enrollment_id))
+            .into_tuple()
+            .one(&db)
+            .await
+            .map_err(db_failed)?;
         let Some((status, snapshot)) = enrollment else {
             return Err(failed(format!(
                 "Enrollment {} not found",
@@ -964,14 +1056,22 @@ impl ExecuteSequenceJob {
                 reason: format!("Enrollment status is {status}"),
             });
         }
-        let records: Vec<(String, Option<Value>)> = sqlx::query_as(
-            "select name, value from workflow_variables
-             where (workflow_id = $1 or workflow_id is null) and deleted_at is null",
-        )
-        .bind(&params.sequence_id)
-        .fetch_all(&db)
-        .await
-        .map_err(failed)?;
+        let records: Vec<(String, Option<Value>)> = workflow_variables::Entity::find()
+            .select_only()
+            .columns([
+                workflow_variables::Column::Name,
+                workflow_variables::Column::Value,
+            ])
+            .filter(
+                Condition::any()
+                    .add(workflow_variables::Column::WorkflowId.eq(&params.sequence_id))
+                    .add(workflow_variables::Column::WorkflowId.is_null()),
+            )
+            .filter(workflow_variables::Column::DeletedAt.is_null())
+            .into_tuple()
+            .all(&db)
+            .await
+            .map_err(db_failed)?;
         let variables = records
             .into_iter()
             .map(|(name, value)| (name, value.unwrap_or(Value::Null)))
@@ -1001,34 +1101,34 @@ impl ExecuteSequenceJob {
         version: i64,
         step_count: usize,
     ) -> Result<String, JobError> {
-        let db = self.db(&params.workspace_id).await.map_err(failed)?;
+        let db = orm(&self.db(&params.workspace_id).await.map_err(failed)?);
         let id = generate_id("wex");
-        let now = now_iso();
+        let now = utc_now();
         let trigger = json!({
             "source": "sequence_enrollment",
             "enrollmentId": params.enrollment_id,
             "customerId": params.customer_id,
         });
-        let total = i32::try_from(step_count).unwrap_or(i32::MAX);
-        sqlx::query(
-            "insert into workflow_executions (id, workflow_id, workflow_version, workflow_name,
-               status, triggered_by, trigger_type, trigger_data, started_at, total_steps,
-               current_step_index, cf_workflow_instance_id, created_at, updated_at)
-             values ($1, $2, $3, $4, 'running', $5, 'manual', $6::jsonb, $7::timestamp, $8, 0,
-               $9, $7::timestamp, $7::timestamp)",
-        )
-        .bind(&id)
-        .bind(&params.sequence_id)
-        .bind(i32::try_from(version).unwrap_or(1))
-        .bind(name)
-        .bind(&params.user_id)
-        .bind(trigger.to_string())
-        .bind(&now)
-        .bind(total)
-        .bind(instance_id)
-        .execute(&db)
+        executions::Entity::insert(executions::ActiveModel {
+            id: Set(id.clone()),
+            workflow_id: Set(params.sequence_id.clone()),
+            workflow_version: Set(i32::try_from(version).unwrap_or(1)),
+            workflow_name: Set(Some(name.to_owned())),
+            status: Set("running".to_owned()),
+            triggered_by: Set(Some(params.user_id.clone())),
+            trigger_type: Set(Some("manual".to_owned())),
+            trigger_data: Set(Some(trigger)),
+            started_at: Set(Some(now)),
+            total_steps: Set(Some(int(step_count))),
+            current_step_index: Set(Some(0)),
+            cf_workflow_instance_id: Set(Some(instance_id.to_owned())),
+            created_at: Set(now),
+            updated_at: Set(now),
+            ..Default::default()
+        })
+        .exec_without_returning(&db)
         .await
-        .map_err(failed)?;
+        .map_err(db_failed)?;
         self.publish(
             &params.workspace_id,
             &id,
@@ -1055,8 +1155,8 @@ impl ExecuteSequenceJob {
         let params = run.params;
         let wf_step = &run.steps[index];
         let step_id = step_text(wf_step, "id").unwrap_or_default().to_owned();
-        let step_name = step_text(wf_step, "name");
         let db = self.db(&params.workspace_id).await.map_err(failed)?;
+        let conn = orm(&db);
         let step_execution_id = retry.map_or_else(
             || generate_id("wes"),
             |retry| retry.step_execution_id.clone(),
@@ -1074,35 +1174,29 @@ impl ExecuteSequenceJob {
                 }),
             )
             .await;
-            let now = now_iso();
-            sqlx::query(
-                "insert into workflow_execution_steps (id, execution_id, step_id, step_name,
-                   step_type, step_index, status, input, started_at, created_at)
-                 values ($1, $2, $3, $4, $5, $6, 'running', $7::jsonb, $8::timestamp, $8::timestamp)",
-            )
-            .bind(&step_execution_id)
-            .bind(&run.execution_id)
-            .bind(step_text(wf_step, "id"))
-            .bind(step_name)
-            .bind(step_text(wf_step, "type"))
-            .bind(i32::try_from(step_index).unwrap_or(i32::MAX))
-            .bind(json_text(wf_step.get("inputs")))
-            .bind(&now)
-            .execute(&db)
+            conn.execute(&step_row(
+                &step_execution_id,
+                &run.execution_id,
+                wf_step,
+                step_index,
+            ))
             .await
-            .map_err(failed)?;
+            .map_err(db_failed)?;
         }
-        sqlx::query(
-            "update workflow_executions set current_step_id = $2, current_step_index = $3,
-               updated_at = $4::timestamp where id = $1",
-        )
-        .bind(&run.execution_id)
-        .bind(step_text(wf_step, "id"))
-        .bind(i32::try_from(step_index).unwrap_or(i32::MAX))
-        .bind(now_iso())
-        .execute(&db)
-        .await
-        .map_err(failed)?;
+        executions::Entity::update_many()
+            .col_expr(
+                executions::Column::CurrentStepId,
+                Expr::value(step_text(wf_step, "id").map(str::to_owned)),
+            )
+            .col_expr(
+                executions::Column::CurrentStepIndex,
+                Expr::value(int(step_index)),
+            )
+            .col_expr(executions::Column::UpdatedAt, Expr::value(utc_now()))
+            .filter(executions::Column::Id.eq(&run.execution_id))
+            .exec(&conn)
+            .await
+            .map_err(db_failed)?;
 
         let attempted = self
             .attempt_step(&db, run, previous, index, &step_execution_id)
@@ -1167,16 +1261,16 @@ impl ExecuteSequenceJob {
         if let Some(condition) = wf_step.get("condition").filter(|c| truthy(Some(c)))
             && !evaluate_condition(condition, &sources)?
         {
-            sqlx::query(
-                "update workflow_execution_steps set status = 'skipped',
-                   completed_at = $2::timestamp,
-                   output = '{\"skipped\": true, \"reason\": \"Condition not met\"}'::jsonb
-                 where id = $1",
-            )
-            .bind(step_execution_id)
-            .bind(now_iso())
-            .execute(db)
-            .await?;
+            steps::Entity::update_many()
+                .col_expr(steps::Column::Status, Expr::value("skipped"))
+                .col_expr(steps::Column::CompletedAt, Expr::value(utc_now()))
+                .col_expr(
+                    steps::Column::Output,
+                    Expr::value(json!({ "skipped": true, "reason": "Condition not met" })),
+                )
+                .filter(steps::Column::Id.eq(step_execution_id))
+                .exec(&orm(db))
+                .await?;
             self.publish(
                 &params.workspace_id,
                 &run.execution_id,
@@ -1207,15 +1301,14 @@ impl ExecuteSequenceJob {
         let kind = step_text(wf_step, "type").unwrap_or_default();
         let result = self.execute_action(db, run, kind, inputs, previous).await?;
         let delay_ms = result.get("__delayMs").and_then(Value::as_f64);
-        sqlx::query(
-            "update workflow_execution_steps set status = 'completed',
-               completed_at = $2::timestamp, output = $3::jsonb where id = $1",
-        )
-        .bind(step_execution_id)
-        .bind(now_iso())
-        .bind(result.to_string())
-        .execute(db)
-        .await?;
+        let conn = orm(db);
+        steps::Entity::update_many()
+            .col_expr(steps::Column::Status, Expr::value("completed"))
+            .col_expr(steps::Column::CompletedAt, Expr::value(utc_now()))
+            .col_expr(steps::Column::Output, Expr::value(result.clone()))
+            .filter(steps::Column::Id.eq(step_execution_id))
+            .exec(&conn)
+            .await?;
         self.publish(
             &params.workspace_id,
             &run.execution_id,
@@ -1226,12 +1319,14 @@ impl ExecuteSequenceJob {
             }),
         )
         .await;
-        if let Err(error) =
-            sqlx::query("update sequence_enrollments set current_step_index = $2 where id = $1")
-                .bind(&params.enrollment_id)
-                .bind(i32::try_from(step_index).unwrap_or(i32::MAX))
-                .execute(db)
-                .await
+        if let Err(error) = enrollments::Entity::update_many()
+            .col_expr(
+                enrollments::Column::CurrentStepIndex,
+                Expr::value(int(step_index)),
+            )
+            .filter(enrollments::Column::Id.eq(&params.enrollment_id))
+            .exec(&conn)
+            .await
         {
             tracing::warn!(%error, "Failed to update enrollment progress");
         }
@@ -1261,16 +1356,15 @@ impl ExecuteSequenceJob {
             Some(code) => json!({ "message": message, "code": code }),
             None => json!({ "message": message }),
         };
-        sqlx::query(
-            "update workflow_execution_steps set status = 'failed',
-               completed_at = $2::timestamp, error = $3::jsonb where id = $1",
-        )
-        .bind(step_execution_id)
-        .bind(now_iso())
-        .bind(error.to_string())
-        .execute(db)
-        .await
-        .map_err(failed)?;
+        let conn = orm(db);
+        steps::Entity::update_many()
+            .col_expr(steps::Column::Status, Expr::value("failed"))
+            .col_expr(steps::Column::CompletedAt, Expr::value(utc_now()))
+            .col_expr(steps::Column::Error, Expr::value(error))
+            .filter(steps::Column::Id.eq(step_execution_id))
+            .exec(&conn)
+            .await
+            .map_err(db_failed)?;
         self.publish(
             &params.workspace_id,
             &run.execution_id,
@@ -1287,48 +1381,51 @@ impl ExecuteSequenceJob {
                 error: message.to_owned(),
             });
         }
-        let now = now_iso();
+        let now = utc_now();
         let execution_error = json!({ "message": message, "stepId": wf_step.get("id"), "stepName": wf_step.get("name") });
-        sqlx::query(
-            "update workflow_executions set status = 'failed', completed_at = $2::timestamp,
-               updated_at = $2::timestamp, error = $3::jsonb where id = $1",
-        )
-        .bind(&run.execution_id)
-        .bind(&now)
-        .bind(execution_error.to_string())
-        .execute(db)
+        executions::Entity::update_many()
+            .col_expr(executions::Column::Status, Expr::value("failed"))
+            .col_expr(executions::Column::CompletedAt, Expr::value(now))
+            .col_expr(executions::Column::UpdatedAt, Expr::value(now))
+            .col_expr(executions::Column::Error, Expr::value(execution_error))
+            .filter(executions::Column::Id.eq(&run.execution_id))
+            .exec(&conn)
+            .await
+            .map_err(db_failed)?;
+        workflow_error_logs::Entity::insert(workflow_error_logs::ActiveModel {
+            id: Set(generate_id("wel")),
+            workflow_id: Set(Some(params.sequence_id.clone())),
+            execution_id: Set(Some(run.execution_id.clone())),
+            error_message: Set(message.to_owned()),
+            step_id: Set(step_text(wf_step, "id").map(str::to_owned)),
+            step_name: Set(step_name.map(str::to_owned)),
+            severity: Set("error".to_owned()),
+            input: Set(json_column(wf_step.get("inputs"))),
+            created_at: Set(now),
+            occurred_at: Set(now),
+            ..Default::default()
+        })
+        .exec_without_returning(&conn)
         .await
-        .map_err(failed)?;
-        sqlx::query(
-            "insert into workflow_error_logs (id, workflow_id, execution_id, error_message,
-               step_id, step_name, severity, input, created_at, occurred_at)
-             values ($1, $2, $3, $4, $5, $6, 'error', $7::jsonb, $8::timestamp, $8::timestamp)",
-        )
-        .bind(generate_id("wel"))
-        .bind(&params.sequence_id)
-        .bind(&run.execution_id)
-        .bind(message)
-        .bind(step_text(wf_step, "id"))
-        .bind(step_name)
-        .bind(json_text(wf_step.get("inputs")))
-        .bind(&now)
-        .execute(db)
-        .await
-        .map_err(failed)?;
+        .map_err(db_failed)?;
         let enrollment_message = format!(
             "Step \"{}\" failed: {message}",
             text_of(wf_step.get("name"))
         );
-        if let Err(error) = sqlx::query(
-            "update sequence_enrollments set status = 'failed', failed_at = $2::timestamp,
-               error_message = $3, current_step_index = $4 where id = $1",
-        )
-        .bind(&params.enrollment_id)
-        .bind(&now)
-        .bind(enrollment_message)
-        .bind(i32::try_from(step_index).unwrap_or(i32::MAX))
-        .execute(db)
-        .await
+        if let Err(error) = enrollments::Entity::update_many()
+            .col_expr(enrollments::Column::Status, Expr::value("failed"))
+            .col_expr(enrollments::Column::FailedAt, Expr::value(now))
+            .col_expr(
+                enrollments::Column::ErrorMessage,
+                Expr::value(enrollment_message),
+            )
+            .col_expr(
+                enrollments::Column::CurrentStepIndex,
+                Expr::value(int(step_index)),
+            )
+            .filter(enrollments::Column::Id.eq(&params.enrollment_id))
+            .exec(&conn)
+            .await
         {
             tracing::warn!(%error, "Failed to update enrollment failure status");
         }
@@ -1367,17 +1464,20 @@ impl ExecuteSequenceJob {
             ),
             "data": data,
         }]);
-        sqlx::query(
-            "update workflow_execution_steps set retry_count = $2, max_retries = $3,
-               logs = $4::jsonb where id = $1",
-        )
-        .bind(step_execution_id)
-        .bind(i32::try_from(attempts + 1).unwrap_or(i32::MAX))
-        .bind(i32::try_from(SEND_DEFER_MAX_ATTEMPTS).unwrap_or(i32::MAX))
-        .bind(logs.to_string())
-        .execute(db)
-        .await
-        .map_err(failed)?;
+        steps::Entity::update_many()
+            .col_expr(
+                steps::Column::RetryCount,
+                Expr::value(i32::try_from(attempts + 1).unwrap_or(i32::MAX)),
+            )
+            .col_expr(
+                steps::Column::MaxRetries,
+                Expr::value(i32::try_from(SEND_DEFER_MAX_ATTEMPTS).unwrap_or(i32::MAX)),
+            )
+            .col_expr(steps::Column::Logs, Expr::value(logs))
+            .filter(steps::Column::Id.eq(step_execution_id))
+            .exec(&orm(db))
+            .await
+            .map_err(db_failed)?;
         Ok(StepOutcome::SendDeferred {
             step_id: step_id.to_owned(),
             step_execution_id: step_execution_id.to_owned(),
@@ -1394,30 +1494,27 @@ impl ExecuteSequenceJob {
         waiting_step: Option<&str>,
     ) -> Result<(), JobError> {
         step(ctx, "stop-run", StepRetry::default(), || async {
-            let db = self.db(&run.params.workspace_id).await.map_err(failed)?;
-            let now = now_iso();
-            let error = json!({ "message": format!("Stopped: {reason}") }).to_string();
-            sqlx::query(
-                "update workflow_executions set status = 'cancelled', completed_at = $2::timestamp,
-                   updated_at = $2::timestamp, error = $3::jsonb where id = $1",
-            )
-            .bind(&run.execution_id)
-            .bind(&now)
-            .bind(&error)
-            .execute(&db)
-            .await
-            .map_err(failed)?;
-            if let Some(waiting) = waiting_step {
-                sqlx::query(
-                    "update workflow_execution_steps set status = 'cancelled',
-                       completed_at = $2::timestamp, error = $3::jsonb where id = $1",
-                )
-                .bind(waiting)
-                .bind(&now)
-                .bind(&error)
-                .execute(&db)
+            let db = orm(&self.db(&run.params.workspace_id).await.map_err(failed)?);
+            let now = utc_now();
+            let error = json!({ "message": format!("Stopped: {reason}") });
+            executions::Entity::update_many()
+                .col_expr(executions::Column::Status, Expr::value("cancelled"))
+                .col_expr(executions::Column::CompletedAt, Expr::value(now))
+                .col_expr(executions::Column::UpdatedAt, Expr::value(now))
+                .col_expr(executions::Column::Error, Expr::value(error.clone()))
+                .filter(executions::Column::Id.eq(&run.execution_id))
+                .exec(&db)
                 .await
-                .map_err(failed)?;
+                .map_err(db_failed)?;
+            if let Some(waiting) = waiting_step {
+                steps::Entity::update_many()
+                    .col_expr(steps::Column::Status, Expr::value("cancelled"))
+                    .col_expr(steps::Column::CompletedAt, Expr::value(now))
+                    .col_expr(steps::Column::Error, Expr::value(error))
+                    .filter(steps::Column::Id.eq(waiting))
+                    .exec(&db)
+                    .await
+                    .map_err(db_failed)?;
             }
             Ok(())
         })
@@ -1476,15 +1573,22 @@ impl ExecuteSequenceJob {
 
     /// `updateSequenceStats(db, sequenceId)`.
     async fn update_stats(db: &PgPool, sequence_id: &str) {
-        let now = now_iso();
-        let result = sqlx::query(
-            "update workflows set execution_count = coalesce(execution_count, 0) + 1,
-               last_executed_at = $2::timestamp, updated_at = $2::timestamp where id = $1",
-        )
-        .bind(sequence_id)
-        .bind(now)
-        .execute(db)
-        .await;
+        use sea_orm::ExprTrait as _;
+        let now = utc_now();
+        let result = workflows::Entity::update_many()
+            .col_expr(
+                workflows::Column::ExecutionCount,
+                Expr::expr(Func::coalesce([
+                    workflows::Column::ExecutionCount.into_expr(),
+                    Expr::val(0),
+                ]))
+                .add(1),
+            )
+            .col_expr(workflows::Column::LastExecutedAt, Expr::value(now))
+            .col_expr(workflows::Column::UpdatedAt, Expr::value(now))
+            .filter(workflows::Column::Id.eq(sequence_id))
+            .exec(&orm(db))
+            .await;
         if let Err(error) = result {
             tracing::error!(%error, "Failed to update sequence stats");
         }
@@ -1498,29 +1602,36 @@ impl ExecuteSequenceJob {
         started_ms: i64,
     ) -> Result<(), JobError> {
         let db = self.db(&run.params.workspace_id).await.map_err(failed)?;
+        let conn = orm(&db);
         let end = now_ms();
-        let end_iso = weldsuite_mail_domain::outbound::clock::iso(end);
-        sqlx::query(
-            "update workflow_executions set status = 'completed', completed_at = $2::timestamp,
-               output = $3::jsonb, duration = $4, updated_at = $2::timestamp where id = $1",
-        )
-        .bind(&run.execution_id)
-        .bind(&end_iso)
-        .bind(Value::Object(results.clone()).to_string())
-        .bind(i32::try_from(end - started_ms).unwrap_or(i32::MAX))
-        .execute(&db)
-        .await
-        .map_err(failed)?;
+        let end_at = timestamp_at(end);
+        executions::Entity::update_many()
+            .col_expr(executions::Column::Status, Expr::value("completed"))
+            .col_expr(executions::Column::CompletedAt, Expr::value(end_at))
+            .col_expr(
+                executions::Column::Output,
+                Expr::value(Value::Object(results.clone())),
+            )
+            .col_expr(
+                executions::Column::Duration,
+                Expr::value(i32::try_from(end - started_ms).unwrap_or(i32::MAX)),
+            )
+            .col_expr(executions::Column::UpdatedAt, Expr::value(end_at))
+            .filter(executions::Column::Id.eq(&run.execution_id))
+            .exec(&conn)
+            .await
+            .map_err(db_failed)?;
         Self::update_stats(&db, &run.params.sequence_id).await;
-        if let Err(error) = sqlx::query(
-            "update sequence_enrollments set status = 'completed', completed_at = $2::timestamp,
-               current_step_index = $3 where id = $1",
-        )
-        .bind(&run.params.enrollment_id)
-        .bind(&end_iso)
-        .bind(i32::try_from(run.steps.len()).unwrap_or(i32::MAX))
-        .execute(&db)
-        .await
+        if let Err(error) = enrollments::Entity::update_many()
+            .col_expr(enrollments::Column::Status, Expr::value("completed"))
+            .col_expr(enrollments::Column::CompletedAt, Expr::value(end_at))
+            .col_expr(
+                enrollments::Column::CurrentStepIndex,
+                Expr::value(int(run.steps.len())),
+            )
+            .filter(enrollments::Column::Id.eq(&run.params.enrollment_id))
+            .exec(&conn)
+            .await
         {
             tracing::warn!(%error, "Failed to update enrollment completion status");
         }

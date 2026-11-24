@@ -4,12 +4,15 @@
 //! (or created) by email. Best effort: a failure resolves to nothing.
 
 use std::sync::Arc;
-use weldsuite_db::PgPool;
+
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, DatabaseConnection, DbErr, EntityTrait, QueryFilter, QuerySelect,
+};
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::generate_id;
-
 use weldsuite_ports::{DynFileStore, PutOptions};
-
-use crate::now;
+use weldsuite_schema::tenant::{people, workspace_members};
 
 /// `ResolvedParticipantLink`.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -39,6 +42,30 @@ pub(crate) struct AvatarStore {
 
 /// The member's row id, user id and name.
 type MemberRow = (String, String, Option<String>);
+
+/// `select id, user_id, name from workspace_members where <condition> limit 1`.
+async fn member_where(
+    db: &DatabaseConnection,
+    condition: Expr,
+) -> Result<Option<MemberRow>, DbErr> {
+    workspace_members::Entity::find()
+        .select_only()
+        .columns([
+            workspace_members::Column::Id,
+            workspace_members::Column::UserId,
+            workspace_members::Column::Name,
+        ])
+        .filter(condition)
+        .into_tuple()
+        .one(db)
+        .await
+}
+
+/// `lower(t.email) = $1`.
+fn lower_email_is(column: impl sea_orm::sea_query::IntoColumnRef, email: &str) -> Expr {
+    use sea_orm::ExprTrait as _;
+    Expr::expr(Func::lower(Expr::col(column))).eq(email)
+}
 
 /// A member's link: their avatar is the account picture, not the member
 /// row's copy.
@@ -72,29 +99,21 @@ async fn try_resolve(
     avatars: &AvatarStore,
     workspace_id: &str,
     input: Input<'_>,
-) -> Result<Link, sqlx::Error> {
+) -> Result<Link, DbErr> {
+    let db = &orm(db);
     let user_id = input.user_id.map(str::trim);
     let email = input.email.map(|e| e.trim().to_lowercase());
     let name = input.name.map(str::trim);
 
     if let Some(user_id) = user_id.filter(|u| !u.is_empty() && !u.starts_with("guest:")) {
-        let member: Option<MemberRow> = sqlx::query_as(
-            "select id, user_id, name from workspace_members where user_id = $1 limit 1",
-        )
-        .bind(user_id)
-        .fetch_optional(db)
-        .await?;
+        let member = member_where(db, workspace_members::Column::UserId.eq(user_id)).await?;
         if let Some(member) = member {
             return Ok(member_link(avatars, member).await);
         }
     }
     if let Some(email) = email.as_deref().filter(|e| !e.is_empty()) {
-        let member: Option<MemberRow> = sqlx::query_as(
-            "select id, user_id, name from workspace_members where lower(email) = $1 limit 1",
-        )
-        .bind(email)
-        .fetch_optional(db)
-        .await?;
+        let member =
+            member_where(db, lower_email_is(workspace_members::Column::Email, email)).await?;
         if let Some(member) = member {
             return Ok(member_link(avatars, member).await);
         }
@@ -108,12 +127,14 @@ async fn try_resolve(
 
     let mut avatar_url = None;
     if !person.created {
-        let existing: Option<Option<String>> = sqlx::query_scalar(
-            "select avatar_url from people where id = $1 and deleted_at is null limit 1",
-        )
-        .bind(&person.id)
-        .fetch_optional(db)
-        .await?;
+        let existing: Option<Option<String>> = people::Entity::find()
+            .select_only()
+            .column(people::Column::AvatarUrl)
+            .filter(people::Column::Id.eq(&person.id))
+            .filter(people::Column::DeletedAt.is_null())
+            .into_tuple()
+            .one(db)
+            .await?;
         avatar_url = existing.flatten();
     }
     // `resolved.displayName || name`.
@@ -146,15 +167,16 @@ async fn try_resolve(
         match files.put_boxed(&key, svg.into_bytes(), &options).await {
             Ok(_) => {
                 let url = format!("{public_url}/{key}");
-                if let Err(error) = sqlx::query(
-                    "update people set avatar_url = $2, updated_at = $3::timestamp
-                     where id = $1 and deleted_at is null",
-                )
-                .bind(&person.id)
-                .bind(&url)
-                .bind(now())
-                .execute(db)
-                .await
+                if let Err(error) = people::Entity::update_many()
+                    .col_expr(people::Column::AvatarUrl, Expr::value(url.clone()))
+                    .col_expr(
+                        people::Column::UpdatedAt,
+                        Expr::value(weldsuite_db::utc_now()),
+                    )
+                    .filter(people::Column::Id.eq(&person.id))
+                    .filter(people::Column::DeletedAt.is_null())
+                    .exec(db)
+                    .await
                 {
                     tracing::error!(%error, "[ParticipantResolver] avatar generation failed for workspace {workspace_id}");
                 }
@@ -205,21 +227,23 @@ fn derive_names(email: &str, display_name: Option<&str>) -> (String, String) {
 
 /// `findOrCreatePersonByEmail(db, { email, displayName }, generateId)`.
 async fn find_or_create_person(
-    db: &PgPool,
+    db: &DatabaseConnection,
     email: &str,
     display_name: Option<&str>,
-) -> Result<Option<Person>, sqlx::Error> {
+) -> Result<Option<Person>, DbErr> {
     // `normalizeEmail`.
     let email = email.trim().to_lowercase();
     if email.is_empty() || !email.contains('@') || email.encode_utf16().count() > 255 {
         return Ok(None);
     }
-    let existing: Option<(String, String)> = sqlx::query_as(
-        "select id, display_name from people where lower(email) = $1 and deleted_at is null limit 1",
-    )
-    .bind(&email)
-    .fetch_optional(db)
-    .await?;
+    let existing: Option<(String, String)> = people::Entity::find()
+        .select_only()
+        .columns([people::Column::Id, people::Column::DisplayName])
+        .filter(lower_email_is(people::Column::Email, &email))
+        .filter(people::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(db)
+        .await?;
     if let Some((id, display_name)) = existing {
         return Ok(Some(Person {
             id,
@@ -242,21 +266,24 @@ async fn find_or_create_person(
         email.clone()
     };
     let id = generate_id("person");
-    let now = now();
-    sqlx::query(
-        "insert into people (id, created_at, updated_at, version, first_name, last_name,
-             full_name, display_name, email, status, in_crm)
-         values ($1, $2::timestamp, $2::timestamp, 1, $3, $4, $5, $6, $7, 'active', false)",
-    )
-    .bind(&id)
-    .bind(&now)
-    .bind(Some(first).filter(|f| !f.is_empty()))
-    .bind(Some(last).filter(|l| !l.is_empty()))
-    .bind(Some(full_name).filter(|f| !f.is_empty()))
-    .bind(&display)
-    .bind(&email)
-    .execute(db)
-    .await?;
+    let now = weldsuite_db::utc_now();
+    let person = people::ActiveModel {
+        id: Set(id.clone()),
+        created_at: Set(now),
+        updated_at: Set(now),
+        version: Set(1),
+        first_name: Set(Some(first).filter(|f| !f.is_empty())),
+        last_name: Set(Some(last).filter(|l| !l.is_empty())),
+        full_name: Set(Some(full_name).filter(|f| !f.is_empty())),
+        display_name: Set(display.clone()),
+        email: Set(Some(email)),
+        status: Set("active".to_owned()),
+        in_crm: Set(false),
+        ..Default::default()
+    };
+    people::Entity::insert(person)
+        .exec_without_returning(db)
+        .await?;
     Ok(Some(Person {
         id,
         display_name: display,

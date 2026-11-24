@@ -44,6 +44,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, patch, post, put};
 use http::HeaderMap;
 use http::header::CONTENT_TYPE;
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QuerySelect};
 use serde::Serialize;
 use serde_json::{Value, json};
 use weldsuite_catalogs::entity_events::{
@@ -56,7 +57,7 @@ use weldsuite_catalogs::permission_keys::{
     LEGAL_ENTITIES_CREATE, LEGAL_ENTITIES_DELETE, LEGAL_ENTITIES_MANAGE, LEGAL_ENTITIES_READ,
     LEGAL_ENTITIES_REVEAL, LEGAL_ENTITIES_UPDATE,
 };
-use weldsuite_db::Keyring;
+use weldsuite_db::{Keyring, orm};
 use weldsuite_kit::validation::{Invalid, json_body};
 use weldsuite_kit::{ApiError, Created, Data, NoContent};
 use weldsuite_legal_entities::service::{
@@ -67,6 +68,7 @@ use weldsuite_permissions::{
     PermissionGate, PermissionQueries, ResolvedPermissions, check_permission_grants,
     role_row_permissions,
 };
+use weldsuite_schema::tenant::roles;
 
 use crate::{Caller, CoreTeamState, TeamError, TeamResult, answer};
 
@@ -757,12 +759,17 @@ async fn refuse_ungrantable_role(caller: &Caller, role_id: Option<&str>) -> Team
     let Some(role_id) = role_id.filter(|id| !id.is_empty()) else {
         return Ok(());
     };
-    let role: Option<(String, bool, Option<Value>)> = sqlx::query_as(
-        "select name, is_system, permissions from roles where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(role_id)
-    .fetch_optional(&caller.db)
-    .await?;
+    let role: Option<(String, bool, Option<Value>)> = roles::Entity::find_by_id(role_id)
+        .select_only()
+        .columns([
+            roles::Column::Name,
+            roles::Column::IsSystem,
+            roles::Column::Permissions,
+        ])
+        .filter(roles::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(&caller.db))
+        .await?;
     let Some((name, is_system, stored)) = role else {
         return Ok(());
     };

@@ -3,30 +3,94 @@
 //! derived from that document on every write, for lists and page matching.
 //! Callers resolve vault access first.
 
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ActiveValue::Unchanged, ColumnTrait, Condition, EntityTrait, FromQueryResult, QueryFilter,
+    QueryOrder, QuerySelect, Select, Set,
+};
+use serde::Serialize;
 use serde_json::Value;
-use sqlx::PgPool;
 use time::OffsetDateTime;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::generate_id;
+use weldsuite_schema::tenant::{weldpass_item_versions as versions, weldpass_items as items};
 
 use crate::envelope::{ItemLocation, Key, SealedItem, open_item, seal_item};
 use crate::schemas::{ItemDocument, host_of, parse_item};
 use crate::totp::{TotpCode, parse_totp, totp_code};
-use crate::{PassError, PassResult, dated, now};
+use crate::{PassError, PassResult, int4, millis, now, row_json};
 
-const LIST_LIMIT: i64 = 5000;
+use items::Column as I;
+
+const LIST_LIMIT: u64 = 5000;
 const INSERT_CHUNK: usize = 100;
 
-macro_rules! item_json {
-    () => {
-        "jsonb_build_object('id', i.id, 'vaultId', i.vault_id, 'type', i.type, 'title', i.title, \
-         'subtitle', i.subtitle, 'url', i.url, 'host', i.host, 'hasTotp', i.has_totp, \
-         'passwordChangedAt', i.password_changed_at, 'version', i.version, \
-         'createdBy', i.created_by, 'updatedBy', i.updated_by, 'createdAt', i.created_at, \
-         'updatedAt', i.updated_at)"
-    };
+/// `ItemSummary`'s columns: never the sealed document.
+#[derive(Debug, Clone, FromQueryResult, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ItemRow {
+    id: String,
+    vault_id: String,
+    #[sea_orm(from_alias = "type")]
+    #[serde(rename = "type")]
+    kind: String,
+    title: String,
+    subtitle: Option<String>,
+    url: Option<String>,
+    host: Option<String>,
+    has_totp: bool,
+    #[serde(with = "weldsuite_schema::js::timestamptz::option")]
+    password_changed_at: Option<OffsetDateTime>,
+    version: i32,
+    created_by: Option<String>,
+    updated_by: Option<String>,
+    #[serde(with = "weldsuite_schema::js::timestamptz")]
+    created_at: OffsetDateTime,
+    #[serde(with = "weldsuite_schema::js::timestamptz")]
+    updated_at: OffsetDateTime,
 }
 
-const TIMES: [&str; 3] = ["passwordChangedAt", "createdAt", "updatedAt"];
+impl ItemRow {
+    fn select() -> Select<items::Entity> {
+        items::Entity::find().select_only().columns([
+            I::Id,
+            I::VaultId,
+            I::Type,
+            I::Title,
+            I::Subtitle,
+            I::Url,
+            I::Host,
+            I::HasTotp,
+            I::PasswordChangedAt,
+            I::Version,
+            I::CreatedBy,
+            I::UpdatedBy,
+            I::CreatedAt,
+            I::UpdatedAt,
+        ])
+    }
+}
+
+impl From<items::Model> for ItemRow {
+    fn from(row: items::Model) -> Self {
+        Self {
+            id: row.id,
+            vault_id: row.vault_id,
+            kind: row.type_,
+            title: row.title,
+            subtitle: row.subtitle,
+            url: row.url,
+            host: row.host,
+            has_totp: row.has_totp,
+            password_changed_at: row.password_changed_at,
+            version: row.version,
+            created_by: row.created_by,
+            updated_by: row.updated_by,
+            created_at: row.created_at,
+            updated_at: row.updated_at,
+        }
+    }
+}
 
 /// `ItemSummary`: nothing in it is secret.
 #[derive(Debug, Clone)]
@@ -37,20 +101,27 @@ pub(crate) struct Item {
     pub(crate) title: String,
     pub(crate) version: i64,
     pub(crate) json: Value,
+    /// `passwordChangedAt` as the worker holds it, a `Date`.
+    changed_at: Option<OffsetDateTime>,
 }
 
 impl Item {
-    pub(crate) fn from_row(row: Value) -> Self {
-        let row = dated(row, &TIMES);
-        let text = |key: &str| row[key].as_str().unwrap_or_default().to_owned();
+    fn from_row(row: ItemRow) -> Self {
         Self {
-            id: text("id"),
-            vault_id: text("vaultId"),
-            kind: text("type"),
-            title: text("title"),
-            version: row["version"].as_i64().unwrap_or_default(),
-            json: row,
+            json: row_json(&row),
+            changed_at: row.password_changed_at.map(millis),
+            version: i64::from(row.version),
+            id: row.id,
+            vault_id: row.vault_id,
+            kind: row.kind,
+            title: row.title,
         }
+    }
+
+    /// The row with its sealed document.
+    fn sealed(row: items::Model) -> (Self, String, String) {
+        let (ciphertext, dek_wrapped) = (row.ciphertext.clone(), row.dek_wrapped.clone());
+        (Self::from_row(row.into()), ciphertext, dek_wrapped)
     }
 
     /// `passwordChangedAt` as `toISOString()`, when set.
@@ -140,21 +211,19 @@ pub(crate) async fn list_items(
     if vault_ids.is_empty() {
         return Ok(Vec::new());
     }
-    let rows: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        item_json!(),
-        " from weldpass_items i where i.vault_id = any($1) and i.deleted_at is null \
-         and ($2::text is null or i.type = $2) order by i.title asc limit $3"
-    ))
-    .bind(vault_ids)
-    .bind(kind)
-    .bind(LIST_LIMIT)
-    .fetch_all(db)
-    .await?;
-    Ok(rows
-        .into_iter()
-        .map(|row| Item::from_row(row).json)
-        .collect())
+    let mut select = ItemRow::select()
+        .filter(I::VaultId.is_in(vault_ids.iter().map(String::as_str)))
+        .filter(I::DeletedAt.is_null());
+    if let Some(kind) = kind {
+        select = select.filter(I::Type.eq(kind));
+    }
+    let rows = select
+        .order_by_asc(I::Title)
+        .limit(LIST_LIMIT)
+        .into_model::<ItemRow>()
+        .all(&orm(db))
+        .await?;
+    Ok(rows.iter().map(row_json).collect())
 }
 
 /// `matchLogins`: the same host, a parent of at least two labels, or a
@@ -183,35 +252,34 @@ pub(crate) async fn match_logins(
         escaped.push(c);
     }
     let pattern = format!("%.{escaped}");
-    let rows: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        item_json!(),
-        " from weldpass_items i where i.vault_id = any($1) and i.type = 'login' and i.deleted_at is null \
-         and (i.host = any($2) or ($3 and i.host like $4)) order by i.title asc limit 50"
-    ))
-    .bind(vault_ids)
-    .bind(&parents)
-    .bind(labels.len() >= 2)
-    .bind(&pattern)
-    .fetch_all(db)
-    .await?;
-    Ok(rows
-        .into_iter()
-        .map(|row| Item::from_row(row).json)
-        .collect())
+    let rows = ItemRow::select()
+        .filter(I::VaultId.is_in(vault_ids.iter().map(String::as_str)))
+        .filter(I::Type.eq("login"))
+        .filter(I::DeletedAt.is_null())
+        .filter(
+            Condition::any().add(I::Host.is_in(parents)).add(
+                Condition::all()
+                    .add(Expr::val(labels.len() >= 2))
+                    .add(I::Host.like(pattern)),
+            ),
+        )
+        .order_by_asc(I::Title)
+        .limit(50)
+        .into_model::<ItemRow>()
+        .all(&orm(db))
+        .await?;
+    Ok(rows.iter().map(row_json).collect())
 }
 
 /// `requireItem`.
 pub(crate) async fn require_item(db: &PgPool, vault_id: &str, item_id: &str) -> PassResult<Item> {
-    let row: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        item_json!(),
-        " from weldpass_items i where i.id = $1 and i.vault_id = $2 and i.deleted_at is null limit 1"
-    ))
-    .bind(item_id)
-    .bind(vault_id)
-    .fetch_optional(db)
-    .await?;
+    let row = ItemRow::select()
+        .filter(I::Id.eq(item_id))
+        .filter(I::VaultId.eq(vault_id))
+        .filter(I::DeletedAt.is_null())
+        .into_model::<ItemRow>()
+        .one(&orm(db))
+        .await?;
     row.map(Item::from_row)
         .ok_or_else(|| PassError::not_found("item", item_id))
 }
@@ -221,19 +289,14 @@ async fn require_sealed_item(
     vault_id: &str,
     item_id: &str,
 ) -> PassResult<(Item, String, String)> {
-    let row: Option<(Value, String, String)> = sqlx::query_as(concat!(
-        "select ",
-        item_json!(),
-        ", i.ciphertext, i.dek_wrapped from weldpass_items i \
-         where i.id = $1 and i.vault_id = $2 and i.deleted_at is null limit 1"
-    ))
-    .bind(item_id)
-    .bind(vault_id)
-    .fetch_optional(db)
-    .await?;
-    let (row, ciphertext, dek_wrapped) =
-        row.ok_or_else(|| PassError::not_found("item", item_id))?;
-    Ok((Item::from_row(row), ciphertext, dek_wrapped))
+    let row = items::Entity::find()
+        .filter(I::Id.eq(item_id))
+        .filter(I::VaultId.eq(vault_id))
+        .filter(I::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?
+        .ok_or_else(|| PassError::not_found("item", item_id))?;
+    Ok(Item::sealed(row))
 }
 
 /// `revealItem`: the item and its document.
@@ -287,7 +350,7 @@ pub(crate) async fn create_items(
         kind: &'static str,
         derived: Derived,
         sealed: SealedItem,
-        password_changed_at: Option<String>,
+        password_changed_at: Option<OffsetDateTime>,
     }
     let mut rows = Vec::with_capacity(documents.len());
     for document in documents {
@@ -301,67 +364,47 @@ pub(crate) async fn create_items(
             kind: document.kind(),
             derived: derive(document)?,
             sealed,
-            password_changed_at: (!document.password().is_empty()).then(|| now.clone()),
+            password_changed_at: (!document.password().is_empty()).then_some(now),
             id,
         });
     }
 
+    let db = orm(db);
     let mut created = Vec::with_capacity(rows.len());
     for chunk in rows.chunks(INSERT_CHUNK) {
-        let column = |f: fn(&Row) -> Option<String>| chunk.iter().map(f).collect::<Vec<_>>();
-        let ids = column(|r| Some(r.id.clone()));
-        let kinds = column(|r| Some(r.kind.to_owned()));
-        let titles = column(|r| Some(r.derived.title.clone()));
-        let subtitles = column(|r| r.derived.subtitle.clone());
-        let urls = column(|r| r.derived.url.clone());
-        let hosts = column(|r| r.derived.host.clone());
-        let totps: Vec<bool> = chunk.iter().map(|r| r.derived.has_totp).collect();
-        let ciphertexts = column(|r| Some(r.sealed.ciphertext.clone()));
-        let deks = column(|r| Some(r.sealed.dek_wrapped.clone()));
-        let changed = column(|r| r.password_changed_at.clone());
-        let inserted: Vec<Value> = sqlx::query_scalar(concat!(
-            "with i as (insert into weldpass_items (id, vault_id, type, title, subtitle, url, host, \
-             has_totp, ciphertext, dek_wrapped, password_changed_at, version, created_by, updated_by) \
-             select u.id, $2, u.type, u.title, u.subtitle, u.url, u.host, u.has_totp, u.ciphertext, \
-             u.dek_wrapped, u.changed::timestamptz, 1, $12, $12 \
-             from unnest($1::varchar[], $3::varchar[], $4::varchar[], $5::varchar[], $6::text[], \
-             $7::varchar[], $8::boolean[], $9::text[], $10::text[], $11::text[]) with ordinality \
-             as u(id, type, title, subtitle, url, host, has_totp, ciphertext, dek_wrapped, changed, n) \
-             order by u.n returning *) select ",
-            item_json!(),
-            " from i"
-        ))
-        .bind(&ids)
-        .bind(vault_id)
-        .bind(&kinds)
-        .bind(&titles)
-        .bind(&subtitles)
-        .bind(&urls)
-        .bind(&hosts)
-        .bind(&totps)
-        .bind(&ciphertexts)
-        .bind(&deks)
-        .bind(&changed)
-        .bind(actor_id)
-        .fetch_all(db)
+        let inserted = items::Entity::insert_many(chunk.iter().map(|row| items::ActiveModel {
+            id: Set(row.id.clone()),
+            vault_id: Set(vault_id.to_owned()),
+            type_: Set(row.kind.to_owned()),
+            title: Set(row.derived.title.clone()),
+            subtitle: Set(row.derived.subtitle.clone()),
+            url: Set(row.derived.url.clone()),
+            host: Set(row.derived.host.clone()),
+            has_totp: Set(row.derived.has_totp),
+            ciphertext: Set(row.sealed.ciphertext.clone()),
+            dek_wrapped: Set(row.sealed.dek_wrapped.clone()),
+            password_changed_at: Set(row.password_changed_at),
+            version: Set(1),
+            created_by: Set(Some(actor_id.to_owned())),
+            updated_by: Set(Some(actor_id.to_owned())),
+            ..Default::default()
+        }))
+        .exec_with_returning(&db)
         .await?;
-        created.extend(inserted.into_iter().map(Item::from_row));
+        created.extend(inserted.into_iter().map(|row| Item::from_row(row.into())));
 
-        let version_ids = column(|_| Some(generate_id("wph")));
-        sqlx::query(
-            "insert into weldpass_item_versions (id, item_id, vault_id, version, action, ciphertext, \
-             dek_wrapped, created_by) \
-             select u.id, u.item_id, $3, 1, 'created', u.ciphertext, u.dek_wrapped, $6 \
-             from unnest($1::varchar[], $2::varchar[], $4::text[], $5::text[]) with ordinality \
-             as u(id, item_id, ciphertext, dek_wrapped, n) order by u.n",
-        )
-        .bind(&version_ids)
-        .bind(&ids)
-        .bind(vault_id)
-        .bind(&ciphertexts)
-        .bind(&deks)
-        .bind(actor_id)
-        .execute(db)
+        versions::Entity::insert_many(chunk.iter().map(|row| versions::ActiveModel {
+            id: Set(generate_id("wph")),
+            item_id: Set(row.id.clone()),
+            vault_id: Set(vault_id.to_owned()),
+            version: Set(1),
+            action: Set("created".to_owned()),
+            ciphertext: Set(row.sealed.ciphertext.clone()),
+            dek_wrapped: Set(row.sealed.dek_wrapped.clone()),
+            created_by: Set(Some(actor_id.to_owned())),
+            ..Default::default()
+        }))
+        .exec_without_returning(&db)
         .await?;
     }
     Ok(created)
@@ -402,52 +445,47 @@ pub(crate) async fn update_item(
     }
     let password_changed = previous.password() != document.password();
     let sealed = seal_item(kek, &location, &document.to_json_string())?;
-    let next = existing.version + 1;
+    let next = int4(existing.version + 1)?;
     let now = now();
+    let db = orm(db);
     // History first: the other order could lose the only copy of a value.
-    sqlx::query(
-        "insert into weldpass_item_versions (id, item_id, vault_id, version, action, ciphertext, \
-         dek_wrapped, created_by) values ($1, $2, $3, $4::integer, $5, $6, $7, $8)",
-    )
-    .bind(generate_id("wph"))
-    .bind(item_id)
-    .bind(vault_id)
-    .bind(next)
-    .bind(action)
-    .bind(&sealed.ciphertext)
-    .bind(&sealed.dek_wrapped)
-    .bind(actor_id)
-    .execute(db)
+    versions::Entity::insert(versions::ActiveModel {
+        id: Set(generate_id("wph")),
+        item_id: Set(item_id.to_owned()),
+        vault_id: Set(vault_id.to_owned()),
+        version: Set(next),
+        action: Set(action.to_owned()),
+        ciphertext: Set(sealed.ciphertext.clone()),
+        dek_wrapped: Set(sealed.dek_wrapped.clone()),
+        created_by: Set(Some(actor_id.to_owned())),
+        ..Default::default()
+    })
+    .exec_without_returning(&db)
     .await?;
     let password_changed_at = if password_changed {
-        Some(now.clone())
+        Some(now)
     } else {
-        existing.password_changed_at().map(str::to_owned)
+        existing.changed_at
     };
-    let row: Value = sqlx::query_scalar(concat!(
-        "with i as (update weldpass_items set title = $2, subtitle = $3, url = $4, host = $5, \
-         has_totp = $6, ciphertext = $7, dek_wrapped = $8, password_changed_at = $9::timestamptz, \
-         version = $10::integer, updated_by = $11, updated_at = $12::timestamptz \
-         where id = $1 returning *) select ",
-        item_json!(),
-        " from i"
-    ))
-    .bind(item_id)
-    .bind(&derived.title)
-    .bind(derived.subtitle.as_deref())
-    .bind(derived.url.as_deref())
-    .bind(derived.host.as_deref())
-    .bind(derived.has_totp)
-    .bind(&sealed.ciphertext)
-    .bind(&sealed.dek_wrapped)
-    .bind(password_changed_at)
-    .bind(next)
-    .bind(actor_id)
-    .bind(&now)
-    .fetch_one(db)
+    let row = items::Entity::update(items::ActiveModel {
+        id: Unchanged(item_id.to_owned()),
+        title: Set(derived.title),
+        subtitle: Set(derived.subtitle),
+        url: Set(derived.url),
+        host: Set(derived.host),
+        has_totp: Set(derived.has_totp),
+        ciphertext: Set(sealed.ciphertext),
+        dek_wrapped: Set(sealed.dek_wrapped),
+        password_changed_at: Set(password_changed_at),
+        version: Set(next),
+        updated_by: Set(Some(actor_id.to_owned())),
+        updated_at: Set(now),
+        ..Default::default()
+    })
+    .exec(&db)
     .await?;
     Ok(Updated {
-        item: Item::from_row(row),
+        item: Item::from_row(row.into()),
         changed: true,
         password_changed,
     })
@@ -462,27 +500,26 @@ pub(crate) async fn delete_item(
 ) -> PassResult<Item> {
     let (item, ciphertext, dek_wrapped) = require_sealed_item(db, vault_id, item_id).await?;
     let now = now();
-    sqlx::query(
-        "update weldpass_items set deleted_at = $2::timestamptz, updated_at = $2::timestamptz, \
-         updated_by = $3 where id = $1",
-    )
-    .bind(item_id)
-    .bind(&now)
-    .bind(actor_id)
-    .execute(db)
-    .await?;
-    sqlx::query(
-        "insert into weldpass_item_versions (id, item_id, vault_id, version, action, ciphertext, \
-         dek_wrapped, created_by) values ($1, $2, $3, $4::integer, 'deleted', $5, $6, $7)",
-    )
-    .bind(generate_id("wph"))
-    .bind(item_id)
-    .bind(vault_id)
-    .bind(item.version + 1)
-    .bind(&ciphertext)
-    .bind(&dek_wrapped)
-    .bind(actor_id)
-    .execute(db)
+    let db = orm(db);
+    items::Entity::update_many()
+        .col_expr(I::DeletedAt, Expr::value(now))
+        .col_expr(I::UpdatedAt, Expr::value(now))
+        .col_expr(I::UpdatedBy, Expr::value(actor_id))
+        .filter(I::Id.eq(item_id))
+        .exec(&db)
+        .await?;
+    versions::Entity::insert(versions::ActiveModel {
+        id: Set(generate_id("wph")),
+        item_id: Set(item_id.to_owned()),
+        vault_id: Set(vault_id.to_owned()),
+        version: Set(int4(item.version + 1)?),
+        action: Set("deleted".to_owned()),
+        ciphertext: Set(ciphertext),
+        dek_wrapped: Set(dek_wrapped),
+        created_by: Set(Some(actor_id.to_owned())),
+        ..Default::default()
+    })
+    .exec_without_returning(&db)
     .await?;
     Ok(item)
 }
@@ -516,18 +553,29 @@ pub(crate) async fn move_item(
 
 /// `listItemVersions`: newest first, at most 50.
 pub(crate) async fn list_item_versions(db: &PgPool, item_id: &str) -> PassResult<Vec<Value>> {
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select jsonb_build_object('id', v.id, 'version', v.version, 'action', v.action, \
-         'createdBy', v.created_by, 'createdAt', v.created_at) from weldpass_item_versions v \
-         where v.item_id = $1 order by v.version desc limit 50",
-    )
-    .bind(item_id)
-    .fetch_all(db)
-    .await?;
-    Ok(rows
-        .into_iter()
-        .map(|row| dated(row, &["createdAt"]))
-        .collect())
+    use versions::Column as V;
+    let rows = versions::Entity::find()
+        .select_only()
+        .columns([V::Id, V::Version, V::Action, V::CreatedBy, V::CreatedAt])
+        .filter(V::ItemId.eq(item_id))
+        .order_by_desc(V::Version)
+        .limit(50)
+        .into_model::<VersionRow>()
+        .all(&orm(db))
+        .await?;
+    Ok(rows.iter().map(row_json).collect())
+}
+
+/// One entry of an item's history: never its sealed document.
+#[derive(Debug, FromQueryResult, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct VersionRow {
+    id: String,
+    version: i32,
+    action: String,
+    created_by: Option<String>,
+    #[serde(with = "weldsuite_schema::js::timestamptz")]
+    created_at: OffsetDateTime,
 }
 
 /// `restoreItemVersion`: the old document opened and saved again.
@@ -540,13 +588,14 @@ pub(crate) async fn restore_item_version(
     actor_id: &str,
 ) -> PassResult<Updated> {
     require_item(db, vault_id, item_id).await?;
-    let target: Option<(String, String)> = sqlx::query_as(
-        "select ciphertext, dek_wrapped from weldpass_item_versions where item_id = $1 and version = $2 limit 1",
-    )
-    .bind(item_id)
-    .bind(version)
-    .fetch_optional(db)
-    .await?;
+    let target: Option<(String, String)> = versions::Entity::find()
+        .select_only()
+        .columns([versions::Column::Ciphertext, versions::Column::DekWrapped])
+        .filter(versions::Column::ItemId.eq(item_id))
+        .filter(versions::Column::Version.eq(version))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     let (ciphertext, dek_wrapped) =
         target.ok_or_else(|| PassError::not_found("item", &format!("{item_id}@v{version}")))?;
     let document = open_document(
@@ -567,20 +616,17 @@ pub(crate) async fn open_logins(
     if keys.is_empty() {
         return Ok(Vec::new());
     }
-    let ids: Vec<String> = keys.iter().map(|(id, _)| id.clone()).collect();
-    let rows: Vec<(Value, String, String)> = sqlx::query_as(concat!(
-        "select ",
-        item_json!(),
-        ", i.ciphertext, i.dek_wrapped from weldpass_items i where i.vault_id = any($1) \
-         and i.type = 'login' and i.deleted_at is null order by i.title asc limit $2"
-    ))
-    .bind(&ids)
-    .bind(LIST_LIMIT)
-    .fetch_all(db)
-    .await?;
+    let rows = items::Entity::find()
+        .filter(I::VaultId.is_in(keys.iter().map(|(id, _)| id.as_str())))
+        .filter(I::Type.eq("login"))
+        .filter(I::DeletedAt.is_null())
+        .order_by_asc(I::Title)
+        .limit(LIST_LIMIT)
+        .all(&orm(db))
+        .await?;
     let mut opened = Vec::with_capacity(rows.len());
-    for (row, ciphertext, dek_wrapped) in rows {
-        let item = Item::from_row(row);
+    for row in rows {
+        let (item, ciphertext, dek_wrapped) = Item::sealed(row);
         let Some((_, kek)) = keys.iter().find(|(id, _)| *id == item.vault_id) else {
             continue;
         };

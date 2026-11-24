@@ -12,19 +12,26 @@ use axum::body::Bytes;
 use axum::extract::{RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use http::HeaderMap;
+use sea_orm::sea_query::{Expr, OnConflict};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect,
+};
 use serde_json::{Value, json};
 use weldsuite_catalogs::entity_events::{
     PANEL_EVENT_DEFINITION_CREATED, PANEL_EVENT_DEFINITION_UPDATED,
 };
+use weldsuite_db::orm;
 use weldsuite_kit::{ApiError, Data};
 use weldsuite_panel_domain::query::Runner;
 use weldsuite_panel_domain::query::activity::run_lexicon_scan;
 use weldsuite_panel_domain::schemas::PanelQuerySpec;
 use weldsuite_ports::Cache;
+use weldsuite_schema::tenant::panel_event_definitions as definitions;
 use weldsuite_zod::{Keys, S, Z};
 
 use crate::projects::live_project;
 use crate::query::{QueryDeps, QueryFailure};
+use crate::saved::js_row;
 use crate::schemas_gen::{PANEL_QUERY_SPEC, UPDATE_PANEL_LEXICON};
 use crate::{Caller, PanelState, unexpected};
 
@@ -148,15 +155,15 @@ fn event_data(definition: &Value) -> Value {
 }
 
 /// `listDefinitions`: the project's definitions by name.
-async fn list_definitions(caller: &Caller, project_id: &str) -> Result<Vec<Value>, sqlx::Error> {
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(d) from panel_event_definitions d
-         where d.project_id = $1 order by d.name asc",
-    )
-    .bind(project_id)
-    .fetch_all(&caller.db)
-    .await?;
-    Ok(rows.into_iter().map(weldsuite_db::js_row).collect())
+async fn list_definitions(caller: &Caller, project_id: &str) -> Result<Vec<Value>, DbErr> {
+    definitions::Entity::find()
+        .filter(definitions::Column::ProjectId.eq(project_id))
+        .order_by_asc(definitions::Column::Name)
+        .all(&orm(&caller.db))
+        .await?
+        .into_iter()
+        .map(js_row)
+        .collect()
 }
 
 /// The cached scan of the project, when there is one.
@@ -254,7 +261,7 @@ pub(crate) async fn list(
 async fn upsert(
     caller: &Caller,
     input: &serde_json::Map<String, Value>,
-) -> Result<(Value, bool), sqlx::Error> {
+) -> Result<(Value, bool), DbErr> {
     let project_id = input
         .get("projectId")
         .and_then(Value::as_str)
@@ -267,43 +274,53 @@ async fn upsert(
         .get("name")
         .and_then(Value::as_str)
         .unwrap_or_default();
-    let existing: Option<String> = sqlx::query_scalar(
-        "select id from panel_event_definitions
-         where project_id = $1 and kind = $2 and name = $3 limit 1",
-    )
-    .bind(project_id)
-    .bind(kind)
-    .bind(name)
-    .fetch_optional(&caller.db)
-    .await?;
+    let db = orm(&caller.db);
+    let existing: Option<String> = definitions::Entity::find()
+        .select_only()
+        .column(definitions::Column::Id)
+        .filter(definitions::Column::ProjectId.eq(project_id))
+        .filter(definitions::Column::Kind.eq(kind))
+        .filter(definitions::Column::Name.eq(name))
+        .into_tuple()
+        .one(&db)
+        .await?;
     // `description` may be given as null (cleared); left out, it stays.
     let description = input.get("description");
     let hidden = input.get("hidden").and_then(Value::as_bool);
     let verified = input.get("verified").and_then(Value::as_bool);
-    let row: Value = sqlx::query_scalar(
-        "insert into panel_event_definitions as d
-           (id, project_id, kind, name, description, hidden, verified, updated_by_user_id)
-         values ($1, $2, $3, $4, $5, coalesce($7, false), coalesce($8, false), $9)
-         on conflict (project_id, kind, name) do update set
-           description = case when $6 then excluded.description else d.description end,
-           hidden = coalesce($7, d.hidden),
-           verified = coalesce($8, d.verified),
-           updated_by_user_id = excluded.updated_by_user_id,
-           updated_at = now()
-         returning to_jsonb(d)",
-    )
-    .bind(weldsuite_kit::id::generate_id("pne"))
-    .bind(project_id)
-    .bind(kind)
-    .bind(name)
-    .bind(description.and_then(Value::as_str))
-    .bind(description.is_some())
-    .bind(hidden)
-    .bind(verified)
-    .bind(&caller.user_id)
-    .fetch_one(&caller.db)
+    // On the name's row: only the fields given change.
+    let mut on_conflict = OnConflict::columns([
+        definitions::Column::ProjectId,
+        definitions::Column::Kind,
+        definitions::Column::Name,
+    ]);
+    if description.is_some() {
+        on_conflict.update_column(definitions::Column::Description);
+    }
+    if hidden.is_some() {
+        on_conflict.update_column(definitions::Column::Hidden);
+    }
+    if verified.is_some() {
+        on_conflict.update_column(definitions::Column::Verified);
+    }
+    on_conflict
+        .update_column(definitions::Column::UpdatedByUserId)
+        .value(definitions::Column::UpdatedAt, Expr::current_timestamp());
+    let row = definitions::Entity::insert(definitions::ActiveModel {
+        id: Set(weldsuite_kit::id::generate_id("pne")),
+        project_id: Set(project_id.to_owned()),
+        kind: Set(kind.to_owned()),
+        name: Set(name.to_owned()),
+        description: Set(description.and_then(Value::as_str).map(str::to_owned)),
+        hidden: Set(hidden.unwrap_or(false)),
+        verified: Set(verified.unwrap_or(false)),
+        updated_by_user_id: Set(Some(caller.user_id.clone())),
+        ..Default::default()
+    })
+    .on_conflict(on_conflict)
+    .exec_with_returning(&db)
     .await?;
-    Ok((weldsuite_db::js_row(row), existing.is_none()))
+    Ok((js_row(row)?, existing.is_none()))
 }
 
 /// `PATCH /`.

@@ -15,9 +15,15 @@
 //! - `retry-now <workspace>`: charges a past-due workspace's open charge on
 //!   its mandate again.
 
+use sea_orm::sea_query::{Alias, Expr, Func, Query};
+use sea_orm::{
+    ColumnTrait, Condition, ConnectionTrait, DbErr, EntityTrait, QueryFilter, QuerySelect,
+};
 use serde_json::{Value, json};
 use sqlx::PgPool;
 use time::OffsetDateTime;
+use weldsuite_db::{OrmConn, orm, orm_error, utc_timestamp};
+use weldsuite_schema::master::{billing_accounts, billing_payments, plans, workspaces};
 use weldsuite_staff_domain::access::find_workspace;
 use weldsuite_staff_domain::audit::{AuditEntry, record_failure, record_success};
 use weldsuite_staff_domain::staff;
@@ -147,7 +153,22 @@ fn billing(master: &PgPool) -> StaffResult<weldsuite_core_billing::BillingState>
 }
 
 async fn summary(master: &PgPool, workspace_id: &str) -> StaffResult<Value> {
-    let state: Option<Value> = sqlx::query_scalar(
+    let state = summary_document(master, workspace_id)
+        .await
+        .map_err(orm_error)?;
+    state.ok_or_else(|| StaffError::Refused("No such workspace.".to_owned()))
+}
+
+/// The workspace's billing as one `jsonb` document: the workspace and its
+/// plan, its billing account (less its id) and its latest ten charges and
+/// invoices, printed as Postgres writes them.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "one jsonb report over four tables (nested `jsonb_agg` of the latest rows, a row \
+              less a key), printed with Postgres's own keys, key order and timestamp text"
+)]
+async fn summary_document(master: &PgPool, workspace_id: &str) -> sqlx::Result<Option<Value>> {
+    sqlx::query_scalar(
         "select jsonb_build_object(
              'workspace', jsonb_build_object('id', w.id, 'name', w.name, 'slug', w.slug,
                  'plan', p.slug, 'purchasedSeats', w.purchased_seats,
@@ -173,8 +194,75 @@ async fn summary(master: &PgPool, workspace_id: &str) -> StaffResult<Value> {
     )
     .bind(workspace_id)
     .fetch_optional(master)
-    .await?;
-    state.ok_or_else(|| StaffError::Refused("No such workspace.".to_owned()))
+    .await
+}
+
+/// `select exists (select 1 from billing_accounts where workspace_id = $1
+/// and next_charge_at is not null)`: whether the workspace pays for its plan
+/// through Mollie.
+async fn pays_through_mollie<C: ConnectionTrait>(
+    db: &C,
+    workspace_id: &str,
+) -> Result<bool, DbErr> {
+    use billing_accounts::{Column, Entity};
+    let account = Query::select()
+        .expr(Expr::val(1))
+        .from(Entity)
+        .cond_where(
+            Condition::all()
+                .add(Column::WorkspaceId.eq(workspace_id))
+                .add(Column::NextChargeAt.is_not_null()),
+        )
+        .to_owned();
+    let mut select = Query::select();
+    select.expr_as(Expr::exists(account), Alias::new("paying"));
+    let row = db
+        .query_one(&select)
+        .await?
+        .ok_or_else(|| DbErr::RecordNotFound("select exists".to_owned()))?;
+    row.try_get("", "paying")
+}
+
+/// The comp's writes to the workspace (`update workspaces set comp_… where
+/// id = $1`): a plan given moves the workspace to it, active.
+async fn grant_comp(
+    db: &OrmConn<'_>,
+    workspace_id: &str,
+    comp: (OffsetDateTime, Option<&str>, &str, &str),
+    plan_id: Option<&str>,
+    seats: Option<i64>,
+) -> Result<(), DbErr> {
+    use workspaces::{Column, Entity};
+    let (granted_at, ends, granted_by, reason) = comp;
+    // `comp_ends_at = $3::timestamp`: the end as the text the details show.
+    let ends = Func::cast_as(Expr::val(ends), Alias::new("timestamp"));
+    let mut update = Entity::update_many()
+        .col_expr(
+            Column::CompGrantedAt,
+            Expr::value(utc_timestamp(granted_at)),
+        )
+        .col_expr(Column::CompEndsAt, ends.into())
+        .col_expr(Column::CompGrantedBy, Expr::value(granted_by))
+        .col_expr(Column::CompReason, Expr::value(reason));
+    // `plan_id = coalesce($6, plan_id)`, with `subscription_status = 'active'`.
+    if let Some(plan_id) = plan_id {
+        update = update
+            .col_expr(Column::PlanId, Expr::value(plan_id))
+            .col_expr(Column::SubscriptionStatus, Expr::value("active"));
+    }
+    // `purchased_seats = coalesce($7, purchased_seats)`.
+    if let Some(seats) = seats {
+        update = update.col_expr(
+            Column::PurchasedSeats,
+            Expr::value(i32::try_from(seats).unwrap_or(i32::MAX)),
+        );
+    }
+    update
+        .col_expr(Column::UpdatedAt, Expr::current_timestamp())
+        .filter(Column::Id.eq(workspace_id))
+        .exec(db)
+        .await?;
+    Ok(())
 }
 
 fn pretty(value: &Value) -> String {
@@ -204,7 +292,6 @@ pub(crate) async fn execute(
         ));
     }
     let now = OffsetDateTime::now_utc();
-    let iso = |at: OffsetDateTime| weldsuite_events::iso_timestamp(at);
     match command {
         BillingCommand::Show { .. } => unreachable!("handled above"),
         BillingCommand::Comp {
@@ -216,13 +303,19 @@ pub(crate) async fn execute(
             let found = find_workspace(master, workspace).await?;
             let plan_id: Option<String> = match plan {
                 Some(plan) => Some(
-                    sqlx::query_scalar(
-                        "select id from plans where (id = $1 or slug = $1) and deleted_at is null limit 1",
-                    )
-                    .bind(plan)
-                    .fetch_optional(master)
-                    .await?
-                    .ok_or_else(|| StaffError::Refused(format!("No plan \"{plan}\".")))?,
+                    plans::Entity::find()
+                        .select_only()
+                        .column(plans::Column::Id)
+                        .filter(
+                            Condition::any()
+                                .add(plans::Column::Id.eq(plan))
+                                .add(plans::Column::Slug.eq(plan)),
+                        )
+                        .filter(plans::Column::DeletedAt.is_null())
+                        .into_tuple()
+                        .one(&orm(master))
+                        .await?
+                        .ok_or_else(|| StaffError::Refused(format!("No plan \"{plan}\".")))?,
                 ),
                 None => None,
             };
@@ -230,13 +323,7 @@ pub(crate) async fn execute(
             // comp (the renewal job then charges nothing until it ends), so
             // the comp can't change plan or seats: uncomp would resume billing
             // the comped plan at the paid plan's seat price.
-            let paying: bool = sqlx::query_scalar(
-                "select exists (select 1 from billing_accounts
-                                where workspace_id = $1 and next_charge_at is not null)",
-            )
-            .bind(&found.id)
-            .fetch_one(master)
-            .await?;
+            let paying = pays_through_mollie(&orm(master), &found.id).await?;
             if paying && (plan_id.is_some() || seats.is_some()) {
                 return Err(StaffError::Refused(format!(
                     "{} pays for its plan through Mollie. Comp it without --plan and --seats \
@@ -262,55 +349,66 @@ pub(crate) async fn execute(
                 details: Some(details.clone()),
             };
             let mut tx = master.begin().await?;
-            sqlx::query(
-                "update workspaces set comp_granted_at = $2::timestamp, comp_ends_at = $3::timestamp,
-                     comp_granted_by = $4, comp_reason = $5,
-                     plan_id = coalesce($6, plan_id),
-                     purchased_seats = coalesce($7, purchased_seats),
-                     subscription_status = case when $6::text is null then subscription_status else 'active' end,
-                     updated_at = now()
-                 where id = $1",
+            grant_comp(
+                &OrmConn::new(&mut tx),
+                &found.id,
+                (now, ends.as_deref(), &actor.email, reason),
+                plan_id.as_deref(),
+                *seats,
             )
-            .bind(&found.id)
-            .bind(iso(now))
-            .bind(ends.as_deref())
-            .bind(&actor.email)
-            .bind(reason)
-            .bind(plan_id.as_deref())
-            .bind(seats.map(|n| i32::try_from(n).unwrap_or(i32::MAX)))
-            .execute(&mut *tx)
             .await?;
             // A comped workspace's inboxes run, unbilled: resume any a past
             // plan's end paused.
             weldsuite_core_billing::addons::resume_inboxes(&mut tx, &found.id).await?;
+            let db = OrmConn::new(&mut tx);
             // A comp pays what is open: nothing stays past due under it.
-            sqlx::query(
-                "update billing_accounts set past_due_since = null, past_due_payment_id = null,
-                     dunning_reminded_at = null, updated_at = now()
-                 where workspace_id = $1",
-            )
-            .bind(&found.id)
-            .execute(&mut *tx)
-            .await?;
-            sqlx::query(
-                "update workspaces set subscription_status = 'active', updated_at = now()
-                 where id = $1 and subscription_status = 'past_due'",
-            )
-            .bind(&found.id)
-            .execute(&mut *tx)
-            .await?;
-            record_success(&mut *tx, &entry).await?;
+            billing_accounts::Entity::update_many()
+                .col_expr(
+                    billing_accounts::Column::PastDueSince,
+                    Expr::value(Option::<time::PrimitiveDateTime>::None),
+                )
+                .col_expr(
+                    billing_accounts::Column::PastDuePaymentId,
+                    Expr::value(Option::<String>::None),
+                )
+                .col_expr(
+                    billing_accounts::Column::DunningRemindedAt,
+                    Expr::value(Option::<time::PrimitiveDateTime>::None),
+                )
+                .col_expr(
+                    billing_accounts::Column::UpdatedAt,
+                    Expr::current_timestamp(),
+                )
+                .filter(billing_accounts::Column::WorkspaceId.eq(&found.id))
+                .exec(&db)
+                .await?;
+            workspaces::Entity::update_many()
+                .col_expr(
+                    workspaces::Column::SubscriptionStatus,
+                    Expr::value("active"),
+                )
+                .col_expr(workspaces::Column::UpdatedAt, Expr::current_timestamp())
+                .filter(workspaces::Column::Id.eq(&found.id))
+                .filter(workspaces::Column::SubscriptionStatus.eq("past_due"))
+                .exec(&db)
+                .await?;
+            record_success(&db, &entry).await?;
             tx.commit().await?;
             Ok(format!("Comped {} ({}): {details}\n", found.name, found.id))
         }
         BillingCommand::Uncomp { workspace } => {
             let found = find_workspace(master, workspace).await?;
-            let comped: bool = sqlx::query_scalar(
-                "select comp_granted_at is not null from workspaces where id = $1",
-            )
-            .bind(&found.id)
-            .fetch_one(master)
-            .await?;
+            let comped: bool = workspaces::Entity::find()
+                .select_only()
+                .expr_as(
+                    sea_orm::ExprTrait::is_not_null(Expr::col(workspaces::Column::CompGrantedAt)),
+                    "comped",
+                )
+                .filter(workspaces::Column::Id.eq(&found.id))
+                .into_tuple()
+                .one(&orm(master))
+                .await?
+                .ok_or_else(|| DbErr::RecordNotFound("workspaces".to_owned()))?;
             if !comped {
                 return Err(StaffError::Refused(format!(
                     "{} has no comp plan.",
@@ -333,22 +431,20 @@ pub(crate) async fn execute(
                 details: None,
             };
             let mut tx = master.begin().await?;
-            let paying: bool = sqlx::query_scalar(
-                "select exists (select 1 from billing_accounts
-                                where workspace_id = $1 and next_charge_at is not null)",
-            )
-            .bind(&found.id)
-            .fetch_one(&mut *tx)
-            .await?;
-            sqlx::query(
-                "update workspaces set comp_granted_at = null, comp_ends_at = null,
-                     comp_granted_by = null, comp_reason = null, updated_at = now()
-                 where id = $1",
-            )
-            .bind(&found.id)
-            .execute(&mut *tx)
-            .await?;
-            record_success(&mut *tx, &entry).await?;
+            let db = OrmConn::new(&mut tx);
+            let paying = pays_through_mollie(&db, &found.id).await?;
+            let no_time = || Expr::value(Option::<time::PrimitiveDateTime>::None);
+            let no_text = || Expr::value(Option::<String>::None);
+            workspaces::Entity::update_many()
+                .col_expr(workspaces::Column::CompGrantedAt, no_time())
+                .col_expr(workspaces::Column::CompEndsAt, no_time())
+                .col_expr(workspaces::Column::CompGrantedBy, no_text())
+                .col_expr(workspaces::Column::CompReason, no_text())
+                .col_expr(workspaces::Column::UpdatedAt, Expr::current_timestamp())
+                .filter(workspaces::Column::Id.eq(&found.id))
+                .exec(&db)
+                .await?;
+            record_success(&db, &entry).await?;
             tx.commit().await?;
             if paying {
                 return Ok(format!(
@@ -365,13 +461,23 @@ pub(crate) async fn execute(
                     found.name
                 ))
             } else {
-                sqlx::query(
-                        "update workspaces set plan_id = (select id from plans where slug = 'free' limit 1),
-                             purchased_seats = 0, subscription_status = 'canceled', updated_at = now()
-                         where id = $1",
+                // `plan_id = (select id from plans where slug = 'free' limit 1)`.
+                let free = Query::select()
+                    .column(plans::Column::Id)
+                    .from(plans::Entity)
+                    .and_where(plans::Column::Slug.eq("free"))
+                    .limit(1)
+                    .to_owned();
+                workspaces::Entity::update_many()
+                    .col_expr(workspaces::Column::PlanId, Expr::from(free))
+                    .col_expr(workspaces::Column::PurchasedSeats, Expr::value(0))
+                    .col_expr(
+                        workspaces::Column::SubscriptionStatus,
+                        Expr::value("canceled"),
                     )
-                    .bind(&found.id)
-                    .execute(master)
+                    .col_expr(workspaces::Column::UpdatedAt, Expr::current_timestamp())
+                    .filter(workspaces::Column::Id.eq(&found.id))
+                    .exec(&orm(master))
                     .await?;
                 Ok(format!(
                     "Ended the comp of {}; it is on Free now.\n",
@@ -380,15 +486,29 @@ pub(crate) async fn execute(
             }
         }
         BillingCommand::Refund { charge, amount } => {
-            let row: Option<ChargeRow> =
-                sqlx::query_as(
-                    "select id, workspace_id, provider_payment_id, amount, currency, refunded_amount, status
-                     from billing_payments
-                     where provider = 'mollie' and (id = $1 or provider_payment_id = $1) limit 1",
-                )
-                .bind(charge)
-                .fetch_optional(master)
-                .await?;
+            let row: Option<ChargeRow> = {
+                use billing_payments::{Column, Entity};
+                Entity::find()
+                    .select_only()
+                    .columns([
+                        Column::Id,
+                        Column::WorkspaceId,
+                        Column::ProviderPaymentId,
+                        Column::Amount,
+                        Column::Currency,
+                        Column::RefundedAmount,
+                        Column::Status,
+                    ])
+                    .filter(Column::Provider.eq("mollie"))
+                    .filter(
+                        Condition::any()
+                            .add(Column::Id.eq(charge))
+                            .add(Column::ProviderPaymentId.eq(charge)),
+                    )
+                    .into_tuple()
+                    .one(&orm(master))
+                    .await?
+            };
             let Some((row_id, workspace_id, payment_id, paid, currency, refunded, status)) = row
             else {
                 return Err(StaffError::Refused(format!(
@@ -449,14 +569,23 @@ pub(crate) async fn execute(
                 }
             };
             let mut tx = master.begin().await?;
-            sqlx::query(
-                "update billing_payments set refunded_amount = refunded_amount + $2, updated_at = now() where id = $1",
-            )
-            .bind(&row_id)
-            .bind(i32::try_from(amount).unwrap_or(i32::MAX))
-            .execute(&mut *tx)
-            .await?;
-            record_success(&mut *tx, &entry).await?;
+            let db = OrmConn::new(&mut tx);
+            billing_payments::Entity::update_many()
+                .col_expr(
+                    billing_payments::Column::RefundedAmount,
+                    sea_orm::ExprTrait::add(
+                        Expr::col(billing_payments::Column::RefundedAmount),
+                        i32::try_from(amount).unwrap_or(i32::MAX),
+                    ),
+                )
+                .col_expr(
+                    billing_payments::Column::UpdatedAt,
+                    Expr::current_timestamp(),
+                )
+                .filter(billing_payments::Column::Id.eq(&row_id))
+                .exec(&db)
+                .await?;
+            record_success(&db, &entry).await?;
             tx.commit().await?;
             Ok(format!(
                 "Refund {} ({}) started for {} cents of {payment_id}. Make the credit note in WeldBooks, in the issuer workspace.\n",
@@ -465,12 +594,13 @@ pub(crate) async fn execute(
         }
         BillingCommand::RetryNow { workspace } => {
             let found = find_workspace(master, workspace).await?;
-            let open: Option<Option<String>> = sqlx::query_scalar(
-                "select past_due_payment_id from billing_accounts where workspace_id = $1",
-            )
-            .bind(&found.id)
-            .fetch_optional(master)
-            .await?;
+            let open: Option<Option<String>> = billing_accounts::Entity::find()
+                .select_only()
+                .column(billing_accounts::Column::PastDuePaymentId)
+                .filter(billing_accounts::Column::WorkspaceId.eq(&found.id))
+                .into_tuple()
+                .one(&orm(master))
+                .await?;
             let Some(open) = open.flatten() else {
                 return Err(StaffError::Refused(format!(
                     "{} has nothing past due.",
@@ -494,7 +624,7 @@ pub(crate) async fn execute(
                 weldsuite_core_billing::renewals::retry_open_charge(&state, &found.id, &open, now)
                     .await
                     .map_err(|error| StaffError::Refused(format!("{error:?}")))?;
-            record_success(master, &entry).await?;
+            record_success(&orm(master), &entry).await?;
             Ok(if accepted {
                 format!(
                     "Mollie took the charge for {} on; the webhook settles it.\n",

@@ -27,13 +27,21 @@ use std::time::Duration;
 use axum::extract::{Request, State};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ColumnTrait, Condition, DbErr, EntityTrait, FromQueryResult, JoinType, QueryFilter, QuerySelect,
+};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use weldsuite_auth::AuthContext;
 use weldsuite_db::pg_errors::{MovedDatabaseFailure, classify_moved_database_error};
-use weldsuite_db::{ReadOnlyReason, Tenant};
+use weldsuite_db::{ReadOnlyReason, Tenant, orm};
 use weldsuite_kit::ApiError;
 use weldsuite_ports::DynCache;
+use weldsuite_schema::master::{
+    api_key_registry, plans, user_app_installs, user_app_tokens, user_apps, workspaces,
+};
+use weldsuite_schema::tenant::{api_keys, workspace_api_keys, workspace_members};
 
 use crate::ExternalApiState;
 use crate::session::{ApiSession, KeyType, unauthorized};
@@ -278,14 +286,22 @@ async fn workspace(state: &ExternalApiState, workspace_id: &str) -> Option<(Tena
     {
         slug
     } else {
-        let slug: Option<String> = sqlx::query_scalar(
-            "select p.slug from workspaces w left join plans p on p.id = w.plan_id where w.id = $1",
-        )
-        .bind(workspace_id)
-        .fetch_optional(&state.master)
-        .await
-        .ok()
-        .flatten();
+        let slug: Option<String> = workspaces::Entity::find_by_id(workspace_id.to_owned())
+            .join(
+                JoinType::LeftJoin,
+                workspaces::Entity::belongs_to(plans::Entity)
+                    .from(workspaces::Column::PlanId)
+                    .to(plans::Column::Id)
+                    .into(),
+            )
+            .select_only()
+            .column(plans::Column::Slug)
+            .into_tuple::<Option<String>>()
+            .one(&orm(&state.master))
+            .await
+            .ok()
+            .flatten()
+            .flatten();
         remember(state.cache.as_ref(), &cache_key, &slug, KEY_CACHE_TTL).await;
         slug
     };
@@ -317,16 +333,21 @@ async fn validate_api_key(
     {
         entry
     } else {
-        let row: Option<(String, String, String)> = sqlx::query_as(
-            "select workspace_id, key_type, tenant_key_id from api_key_registry where key_hash = $1 limit 1",
-        )
-        .bind(&hash)
-        .fetch_optional(&state.master)
-        .await
-        .map_err(|error| {
-            tracing::error!(%error, "external-api: registry lookup failed");
-            Refusal::Invalid
-        })?;
+        let row: Option<(String, String, String)> = api_key_registry::Entity::find()
+            .select_only()
+            .columns([
+                api_key_registry::Column::WorkspaceId,
+                api_key_registry::Column::KeyType,
+                api_key_registry::Column::TenantKeyId,
+            ])
+            .filter(api_key_registry::Column::KeyHash.eq(hash.as_str()))
+            .into_tuple()
+            .one(&orm(&state.master))
+            .await
+            .map_err(|error| {
+                tracing::error!(%error, "external-api: registry lookup failed");
+                Refusal::Invalid
+            })?;
         let Some((workspace_id, key_type, tenant_key_id)) = row else {
             return Err(Refusal::Invalid);
         };
@@ -405,15 +426,17 @@ fn scope_list(value: Option<serde_json::Value>) -> Vec<String> {
 async fn load_workspace_key(
     tenant: &Tenant,
     id: &str,
-) -> Result<Option<(String, Option<String>, Vec<String>)>, sqlx::Error> {
-    let row: Option<(String, Option<serde_json::Value>)> = sqlx::query_as(
-        "select id, scopes from workspace_api_keys
-          where id = $1 and deleted_at is null and (expires_at is null or expires_at > now())
-          limit 1",
-    )
-    .bind(id)
-    .fetch_optional(&tenant.db)
-    .await?;
+) -> Result<Option<(String, Option<String>, Vec<String>)>, DbErr> {
+    use workspace_api_keys::Column;
+    let row: Option<(String, Option<serde_json::Value>)> = workspace_api_keys::Entity::find()
+        .select_only()
+        .columns([Column::Id, Column::Scopes])
+        .filter(Column::Id.eq(id))
+        .filter(Column::DeletedAt.is_null())
+        .filter(not_expired(Column::ExpiresAt))
+        .into_tuple()
+        .one(&orm(&tenant.db))
+        .await?;
     Ok(row.map(|(id, scopes)| (id, None, scope_list(scopes))))
 }
 
@@ -422,31 +445,63 @@ async fn load_workspace_key(
 async fn load_personal_key(
     tenant: &Tenant,
     id: &str,
-) -> Result<Option<(String, Option<String>, Vec<String>)>, sqlx::Error> {
-    let row: Option<(String, String, Option<serde_json::Value>)> = sqlx::query_as(
-        "select k.id, k.user_id, k.scopes from api_keys k
-           join workspace_members m on m.user_id = k.user_id
-          where k.id = $1 and k.deleted_at is null and (k.expires_at is null or k.expires_at > now())
-            and m.deleted_at is null and m.status = 'ACTIVE'
-          limit 1",
-    )
-    .bind(id)
-    .fetch_optional(&tenant.db)
-    .await?;
+) -> Result<Option<(String, Option<String>, Vec<String>)>, DbErr> {
+    let row: Option<(String, String, Option<serde_json::Value>)> = api_keys::Entity::find()
+        .join(
+            JoinType::InnerJoin,
+            api_keys::Entity::belongs_to(workspace_members::Entity)
+                .from(api_keys::Column::UserId)
+                .to(workspace_members::Column::UserId)
+                .into(),
+        )
+        .select_only()
+        .columns([
+            api_keys::Column::Id,
+            api_keys::Column::UserId,
+            api_keys::Column::Scopes,
+        ])
+        .filter(api_keys::Column::Id.eq(id))
+        .filter(api_keys::Column::DeletedAt.is_null())
+        .filter(not_expired(api_keys::Column::ExpiresAt))
+        .filter(workspace_members::Column::DeletedAt.is_null())
+        .filter(workspace_members::Column::Status.eq("ACTIVE"))
+        .into_tuple()
+        .one(&orm(&tenant.db))
+        .await?;
     Ok(row.map(|(id, user_id, scopes)| (id, Some(user_id), scope_list(scopes))))
 }
 
-/// The fire-and-forget `lastUsedAt` update of a key row.
+/// `expires_at is null or expires_at > now()`.
+fn not_expired<C: ColumnTrait>(expires_at: C) -> Condition {
+    use sea_orm::ExprTrait as _;
+    Condition::any()
+        .add(expires_at.is_null())
+        .add(expires_at.into_expr().gt(Expr::current_timestamp()))
+}
+
+/// The fire-and-forget `lastUsedAt` update of a key row
+/// (`last_used_at = now()`).
 fn touch_tenant_key(state: &ExternalApiState, tenant: &Tenant, workspace_key: bool, id: &str) {
-    let db = tenant.db.clone();
+    let db = orm(&tenant.db);
     let id = id.to_owned();
     state.events.tracker().spawn(async move {
-        let statement = if workspace_key {
-            "update workspace_api_keys set last_used_at = now() where id = $1"
+        let touched = if workspace_key {
+            workspace_api_keys::Entity::update_many()
+                .col_expr(
+                    workspace_api_keys::Column::LastUsedAt,
+                    Expr::current_timestamp(),
+                )
+                .filter(workspace_api_keys::Column::Id.eq(id))
+                .exec(&db)
+                .await
         } else {
-            "update api_keys set last_used_at = now() where id = $1"
+            api_keys::Entity::update_many()
+                .col_expr(api_keys::Column::LastUsedAt, Expr::current_timestamp())
+                .filter(api_keys::Column::Id.eq(id))
+                .exec(&db)
+                .await
         };
-        if let Err(error) = sqlx::query(statement).bind(&id).execute(&db).await {
+        if let Err(error) = touched {
             tracing::warn!(%error, "external-api: lastUsedAt not updated");
         }
     });
@@ -466,28 +521,12 @@ async fn validate_app_token(
         }
         entry
     } else {
-        let row: Option<serde_json::Value> = sqlx::query_scalar(
-            "select jsonb_build_object(
-                      'tokenId', t.id, 'tokenType', t.token_type, 'scopes', coalesce(t.scopes, '[]'::jsonb),
-                      'expiresAt', to_char(t.expires_at at time zone 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"'),
-                      'installId', i.id, 'workspaceId', t.workspace_id, 'appId', a.id, 'appCode', a.code)
-               from user_app_tokens t
-               join user_app_installs i on i.id = t.install_id
-               join user_apps a on a.id = t.app_id
-              where t.token_hash = $1 and t.revoked_at is null
-                and (t.expires_at is null or t.expires_at > now())
-                and i.status = 'active' and a.is_active = true and a.deleted_at is null
-              limit 1",
-        )
-        .bind(&hash)
-        .fetch_optional(&state.master)
-        .await
-        .map_err(|error| {
+        let row = app_token_row(state, &hash).await.map_err(|error| {
             tracing::error!(%error, "external-api: app token lookup failed");
             Refusal::Invalid
         })?;
         let entry: AppToken = row
-            .and_then(|row| serde_json::from_value(row).ok())
+            .and_then(|row| serde_json::from_value(row.cached()).ok())
             .ok_or(Refusal::Invalid)?;
         remember(
             state.cache.as_ref(),
@@ -501,14 +540,17 @@ async fn validate_app_token(
     let (tenant, tier) = workspace(state, &entry.workspace_id)
         .await
         .ok_or(Refusal::Invalid)?;
-    let master = state.master.clone();
+    let master = orm(&state.master);
     let token_id = entry.token_id.clone();
     state.events.tracker().spawn(async move {
-        if let Err(error) =
-            sqlx::query("update user_app_tokens set last_used_at = now() where id = $1")
-                .bind(&token_id)
-                .execute(&master)
-                .await
+        if let Err(error) = user_app_tokens::Entity::update_many()
+            .col_expr(
+                user_app_tokens::Column::LastUsedAt,
+                Expr::current_timestamp(),
+            )
+            .filter(user_app_tokens::Column::Id.eq(token_id))
+            .exec(&master)
+            .await
         {
             tracing::warn!(%error, "external-api: app token lastUsedAt not updated");
         }
@@ -531,6 +573,75 @@ async fn validate_app_token(
     };
     restricted(&mut session, &tenant, tier);
     Ok((session, tenant))
+}
+
+/// A live token with its active install and app, as the lookup reads it.
+#[derive(Debug, FromQueryResult)]
+struct AppTokenRow {
+    token_id: String,
+    token_type: String,
+    scopes: Option<serde_json::Value>,
+    expires_at: Option<time::OffsetDateTime>,
+    install_id: String,
+    workspace_id: String,
+    app_id: String,
+    app_code: String,
+}
+
+impl AppTokenRow {
+    /// `CachedAppToken` as JSON: `scopes` `coalesce(t.scopes, '[]')`,
+    /// `expiresAt` as `toISOString()` (UTC, milliseconds).
+    fn cached(self) -> serde_json::Value {
+        serde_json::json!({
+            "tokenId": self.token_id,
+            "tokenType": self.token_type,
+            "scopes": self.scopes.unwrap_or_else(|| serde_json::json!([])),
+            "expiresAt": self.expires_at.map(weldsuite_events::iso_timestamp),
+            "installId": self.install_id,
+            "workspaceId": self.workspace_id,
+            "appId": self.app_id,
+            "appCode": self.app_code,
+        })
+    }
+}
+
+/// The token whose hash is `hash`: not revoked or expired, its install
+/// active, its app active and not deleted.
+async fn app_token_row(state: &ExternalApiState, hash: &str) -> Result<Option<AppTokenRow>, DbErr> {
+    use user_app_tokens::Column;
+    user_app_tokens::Entity::find()
+        .join(
+            JoinType::InnerJoin,
+            user_app_tokens::Entity::belongs_to(user_app_installs::Entity)
+                .from(Column::InstallId)
+                .to(user_app_installs::Column::Id)
+                .into(),
+        )
+        .join(
+            JoinType::InnerJoin,
+            user_app_tokens::Entity::belongs_to(user_apps::Entity)
+                .from(Column::AppId)
+                .to(user_apps::Column::Id)
+                .into(),
+        )
+        .select_only()
+        .column_as(Column::Id, "token_id")
+        .column(Column::TokenType)
+        .column(Column::Scopes)
+        .column(Column::ExpiresAt)
+        .column_as(user_app_installs::Column::Id, "install_id")
+        .column(Column::WorkspaceId)
+        .column_as(user_apps::Column::Id, "app_id")
+        .column_as(user_apps::Column::Code, "app_code")
+        .filter(Column::TokenHash.eq(hash))
+        .filter(Column::RevokedAt.is_null())
+        .filter(not_expired(Column::ExpiresAt))
+        .filter(user_app_installs::Column::Status.eq("active"))
+        .filter(user_apps::Column::IsActive.eq(true))
+        .filter(user_apps::Column::DeletedAt.is_null())
+        .into_model()
+        .one(&orm(&state.master))
+        .await
 }
 
 #[cfg(test)]

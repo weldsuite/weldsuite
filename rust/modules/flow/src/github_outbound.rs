@@ -9,8 +9,11 @@
 
 use std::sync::Arc;
 
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Value, json};
+use weldsuite_db::orm;
 use weldsuite_ports::BoxFuture;
+use weldsuite_schema::tenant::github_project_links as links;
 
 use crate::{Caller, FlowState};
 
@@ -60,13 +63,15 @@ pub(crate) fn dispatch(
     let db = caller.db.clone();
     let task_id = task_id.to_owned();
     state.events.tracker().spawn(async move {
-        let link: Result<Option<String>, sqlx::Error> = sqlx::query_scalar(
-            "select sync_direction from github_project_links
-             where project_id = $1 and sync_issues = true and deleted_at is null limit 1",
-        )
-        .bind(&project_id)
-        .fetch_optional(&db)
-        .await;
+        let link: Result<Option<String>, DbErr> = links::Entity::find()
+            .select_only()
+            .column(links::Column::SyncDirection)
+            .filter(links::Column::ProjectId.eq(&project_id))
+            .filter(links::Column::SyncIssues.eq(true))
+            .filter(links::Column::DeletedAt.is_null())
+            .into_tuple()
+            .one(&orm(&db))
+            .await;
         let direction = match link {
             Ok(Some(direction)) => direction,
             Ok(None) => return,

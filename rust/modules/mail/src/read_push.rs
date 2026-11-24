@@ -4,13 +4,16 @@
 //! mailbox get a silent push with the ids and their new inbox badge. Runs in
 //! the background (`waitUntil`); a failure is only logged.
 
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Value, json};
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_mail_domain::access::{AccountAccess, accessible_account_ids, has_access_to_account};
 use weldsuite_mail_domain::messages::message_stats;
 use weldsuite_ports::OutboundHttp;
+use weldsuite_schema::tenant::{device_tokens, mail_accounts, workspace_members};
 
-use crate::util::{now, strings};
+use crate::util::strings;
 use crate::{Caller, MailState};
 
 /// `IDS_PER_PUSH`.
@@ -99,42 +102,40 @@ async fn send_workspace_mail_read_push(
     email_ids: &[String],
 ) {
     let run = async {
-        let account: Option<(Option<bool>, Option<Value>)> = sqlx::query_as(
-            "select is_shared, assigned_user_ids from mail_accounts where id = $1 limit 1",
-        )
-        .bind(account_id)
-        .fetch_optional(db)
-        .await?;
+        let account: Option<(Option<bool>, Option<Value>)> = mail_accounts::Entity::find()
+            .select_only()
+            .columns([
+                mail_accounts::Column::IsShared,
+                mail_accounts::Column::AssignedUserIds,
+            ])
+            .filter(mail_accounts::Column::Id.eq(account_id))
+            .into_tuple()
+            .one(&orm(db))
+            .await?;
         let Some((is_shared, assigned)) = account else {
-            return Ok::<(), sqlx::Error>(());
+            return Ok::<(), DbErr>(());
         };
         let account = AccountAccess {
             is_shared: is_shared.unwrap_or(false),
             assigned_user_ids: assigned.as_ref().map(strings).unwrap_or_default(),
         };
-        let rows: Vec<(String, String)> = sqlx::query_as(
-            "select user_id, token from device_tokens where app_code = 'weldmail' and is_active is null",
-        )
-        .fetch_all(db)
-        .await?;
-        let mut by_user: Vec<(String, Vec<String>)> = Vec::new();
-        for (user, token) in rows {
-            match by_user.iter_mut().find(|(u, _)| *u == user) {
-                Some((_, tokens)) => tokens.push(token),
-                None => by_user.push((user, vec![token])),
-            }
-        }
+        let by_user = weldmail_tokens(db).await?;
         if by_user.is_empty() {
             return Ok(());
         }
         let users: Vec<String> = by_user.iter().map(|(u, _)| u.clone()).collect();
-        let members: Vec<(String, Option<String>)> = sqlx::query_as(
-            "select user_id, role from workspace_members
-             where user_id = any($1::text[]) and deleted_at is null and status = 'ACTIVE'",
-        )
-        .bind(&users)
-        .fetch_all(db)
-        .await?;
+        let members: Vec<(String, Option<String>)> = workspace_members::Entity::find()
+            .select_only()
+            .columns([
+                workspace_members::Column::UserId,
+                workspace_members::Column::Role,
+            ])
+            .filter(workspace_members::Column::UserId.is_in(users))
+            .filter(workspace_members::Column::DeletedAt.is_null())
+            .filter(workspace_members::Column::Status.eq("ACTIVE"))
+            .into_tuple()
+            .all(&orm(db))
+            .await?;
         let mut messages: Vec<Value> = Vec::new();
         for (user, tokens) in &by_user {
             // `new Map(rows)`: a later row wins.
@@ -172,12 +173,11 @@ async fn send_workspace_mail_read_push(
             }
         }
         for token in invalid {
-            if let Err(error) =
-                sqlx::query("update device_tokens set is_active = $2::timestamp where token = $1")
-                    .bind(&token)
-                    .bind(now())
-                    .execute(db)
-                    .await
+            if let Err(error) = device_tokens::Entity::update_many()
+                .col_expr(device_tokens::Column::IsActive, Expr::value(utc_now()))
+                .filter(device_tokens::Column::Token.eq(&token))
+                .exec(&orm(db))
+                .await
             {
                 tracing::error!(%error, "[MailReadPush] Failed to deactivate token");
             }
@@ -189,8 +189,28 @@ async fn send_workspace_mail_read_push(
     }
 }
 
+/// The active WeldMail device tokens, by user in first-seen order.
+async fn weldmail_tokens(db: &PgPool) -> Result<Vec<(String, Vec<String>)>, DbErr> {
+    let rows: Vec<(String, String)> = device_tokens::Entity::find()
+        .select_only()
+        .columns([device_tokens::Column::UserId, device_tokens::Column::Token])
+        .filter(device_tokens::Column::AppCode.eq("weldmail"))
+        .filter(device_tokens::Column::IsActive.is_null())
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
+    let mut by_user: Vec<(String, Vec<String>)> = Vec::new();
+    for (user, token) in rows {
+        match by_user.iter_mut().find(|(u, _)| *u == user) {
+            Some((_, tokens)) => tokens.push(token),
+            None => by_user.push((user, vec![token])),
+        }
+    }
+    Ok(by_user)
+}
+
 /// The member's unread inbox count across the mailboxes they may open.
-async fn inbox_unread(db: &PgPool, user_id: &str) -> Result<i64, sqlx::Error> {
+async fn inbox_unread(db: &PgPool, user_id: &str) -> Result<i64, DbErr> {
     let accounts = accessible_account_ids(db, user_id).await?;
     let stats = message_stats(db, &accounts).await?;
     Ok(stats["inboxUnread"].as_i64().unwrap_or(0))

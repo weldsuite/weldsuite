@@ -14,14 +14,20 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, patch, post};
 use http::HeaderMap;
+use sea_orm::sea_query::{Asterisk, Expr, Func};
+use sea_orm::{
+    ActiveEnum, ActiveValue::Set, ColumnTrait, Condition, DbErr, EntityTrait, PaginatorTrait,
+    QueryFilter, QueryOrder, QuerySelect,
+};
 use serde_json::{Map, Value, json};
+use time::{OffsetDateTime, PrimitiveDateTime};
 use weldsuite_catalogs::entity_events::{
     EMAIL_EMAIL_SENT, MAIL_ACCOUNT_CREATED, MAIL_ACCOUNT_DELETED, MAIL_ACCOUNT_UPDATED,
 };
 use weldsuite_catalogs::permission_keys::{
     ACCOUNTS_CREATE, ACCOUNTS_DELETE, ACCOUNTS_READ, ACCOUNTS_UPDATE, MESSAGES_CREATE,
 };
-use weldsuite_db::{PgPool, js_row};
+use weldsuite_db::{PgPool, orm, utc_now, utc_timestamp};
 use weldsuite_kit::validation::{Format, Issues, Number, Presence, Text, json_body};
 use weldsuite_kit::{ApiError, Created, Data, NoContent, generate_id};
 use weldsuite_mail_domain::access::{
@@ -31,13 +37,21 @@ use weldsuite_mail_domain::access::{
 use weldsuite_mail_domain::outbound::limits::{SHARED_WELDMAIL_APEXES, is_shared_weldmail_domain};
 use weldsuite_mail_domain::send::{SendInput, SendOptions, send_and_persist};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::master::{mail_account_registry as registry, workspaces};
+use weldsuite_schema::tenant::enums::{
+    MailAccountStatus, MailAuthType, MailDomainDnsStatus, MailProvider, MailSyncStatus,
+};
+use weldsuite_schema::tenant::{
+    domains, mail_accounts, mail_domains, mail_labels, workspace_members,
+};
 
+use crate::routes::mail_drafts::to_millis;
 use crate::send::{
     EMAIL, RequestDoh, SendContext, attachments, emails, optional_text, send_error_response,
 };
 use crate::util::{
-    MailError, MailResult, answer, bump_mailbox_directory, list_response, now, page, strings,
-    validate, validate_query,
+    MailError, MailResult, answer, bump_mailbox_directory, list_response, page, strings, validate,
+    validate_query,
 };
 use crate::{Caller, MailState};
 
@@ -95,16 +109,139 @@ where
 
 /// The columns safe to send to the browser (`publicAccountColumns`): every
 /// column but the credentials and `provider_config`.
-macro_rules! public_account {
-    () => {
-        "(to_jsonb(a) - 'access_token' - 'refresh_token' - 'api_key' - 'password_hash'
-           - 'provider_config')"
+fn public_account(account: mail_accounts::Model) -> Result<Value, DbErr> {
+    let mut row = serde_json::to_value(account).map_err(|error| DbErr::Json(error.to_string()))?;
+    if let Value::Object(fields) = &mut row {
+        for key in [
+            "accessToken",
+            "refreshToken",
+            "apiKey",
+            "passwordHash",
+            "providerConfig",
+        ] {
+            fields.remove(key);
+        }
+    }
+    Ok(row)
+}
+
+/// The mailboxes `user_id` may open (ADR MAIL-003): shared ones, those
+/// assigned to them, and for an admin the ones assigned to nobody
+/// (`coalesce(assigned_user_ids, '[]') in ('[]', 'null')`).
+fn visible_to(user_id: &str, admin: bool) -> Condition {
+    use sea_orm::ExprTrait as _;
+    let assigned = || Expr::col(mail_accounts::Column::AssignedUserIds);
+    let mut visible = Condition::any()
+        .add(mail_accounts::Column::IsShared.eq(true))
+        .add(sea_orm::sea_query::extension::postgres::PgExpr::contains(
+            assigned(),
+            Expr::value(json!([user_id])),
+        ));
+    if admin {
+        visible = visible.add(
+            Expr::from(Func::coalesce([assigned(), Expr::value(json!([]))]))
+                .is_in([json!([]), Value::Null]),
+        );
+    }
+    visible
+}
+
+/// The list's filters: the caller's mailboxes unless `scoped` is off,
+/// `search` in the name or address (`like`), `status`, `provider`.
+fn list_scope(
+    caller: &Caller,
+    scoped: bool,
+    admin: bool,
+    search: Option<&str>,
+    status: Option<&str>,
+    provider: Option<&str>,
+) -> Result<Condition, DbErr> {
+    let mut scope = Condition::all().add(mail_accounts::Column::DeletedAt.is_null());
+    if scoped {
+        scope = scope.add(visible_to(&caller.user_id, admin));
+    }
+    if let Some(search) = search {
+        scope = scope.add(
+            Condition::any()
+                .add(mail_accounts::Column::Name.like(search))
+                .add(mail_accounts::Column::Email.like(search)),
+        );
+    }
+    // Any text: one that is no status (or provider) fails as the cast did.
+    if let Some(status) = status {
+        let status = MailAccountStatus::try_from_value(&status.to_owned())?;
+        scope = scope.add(mail_accounts::Column::Status.eq(status));
+    }
+    if let Some(provider) = provider {
+        let provider = MailProvider::try_from_value(&provider.to_owned())?;
+        scope = scope.add(mail_accounts::Column::Provider.eq(provider));
+    }
+    Ok(scope)
+}
+
+/// `listMailAccounts`' page (`limit + 1` rows after the cursor) and total.
+async fn list_page(
+    caller: &Caller,
+    scope: Condition,
+    limit: i64,
+    cursor: Option<&str>,
+) -> Result<(Vec<Value>, i64), DbErr> {
+    let db = orm(&caller.db);
+    let cursor_row: Option<(PrimitiveDateTime, String)> = match cursor.filter(|c| !c.is_empty()) {
+        Some(cursor) => {
+            mail_accounts::Entity::find_by_id(cursor.to_owned())
+                .select_only()
+                .columns([mail_accounts::Column::CreatedAt, mail_accounts::Column::Id])
+                .into_tuple()
+                .one(&db)
+                .await?
+        }
+        None => None,
     };
+    let mut page_scope = scope.clone();
+    if let Some((at, id)) = cursor_row {
+        let at = to_millis(at);
+        page_scope = page_scope.add(
+            Condition::any()
+                .add(mail_accounts::Column::CreatedAt.lt(at))
+                .add(
+                    Condition::all()
+                        .add(mail_accounts::Column::CreatedAt.eq(at))
+                        .add(mail_accounts::Column::Id.lt(id)),
+                ),
+        );
+    }
+    let rows = mail_accounts::Entity::find()
+        .filter(page_scope)
+        .order_by_desc(mail_accounts::Column::CreatedAt)
+        .order_by_desc(mail_accounts::Column::Id)
+        .limit(u64::try_from(limit + 1).unwrap_or(0))
+        .all(&db)
+        .await?;
+    let total = mail_accounts::Entity::find()
+        .filter(scope)
+        .count(&db)
+        .await?;
+    let rows = rows
+        .into_iter()
+        .map(public_account)
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok((rows, i64::try_from(total).unwrap_or(i64::MAX)))
+}
+
+/// The live mailbox `id`, if there is one.
+async fn live_account_id(caller: &Caller, id: &str) -> Result<Option<String>, DbErr> {
+    mail_accounts::Entity::find_by_id(id.to_owned())
+        .select_only()
+        .column(mail_accounts::Column::Id)
+        .filter(mail_accounts::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(&caller.db))
+        .await
 }
 
 /// `GET /` (`listMailAccounts`): the mailboxes the caller may open, or
 /// every one for an admin's `scope=manage`.
-#[allow(clippy::too_many_lines)] // the query, the list and its count
 async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
     let filters = validate_query(raw.as_deref(), |issues, q| {
         let limit = issues.number(
@@ -144,70 +281,17 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
         let search = search.filter(|s| !s.is_empty()).map(|s| format!("%{s}%"));
         let status = status.filter(|s| !s.is_empty());
         let provider = provider.filter(|s| !s.is_empty());
-        let cursor_row: Option<(Option<String>, String)> =
-            match cursor.as_deref().filter(|c| !c.is_empty()) {
-                Some(cursor) => {
-                    sqlx::query_as(
-                        "select to_char(created_at, 'YYYY-MM-DD\"T\"HH24:MI:SS.MS'), id
-                         from mail_accounts where id = $1 limit 1",
-                    )
-                    .bind(cursor)
-                    .fetch_optional(&caller.db)
-                    .await?
-                }
-                None => None,
-            };
-        let (cursor_at, cursor_id) = cursor_row
-            .and_then(|(at, id)| at.map(|at| (at, id)))
-            .unzip();
-        let rows: Vec<Value> = sqlx::query_scalar(concat!(
-            "select ",
-            public_account!(),
-            " from mail_accounts a
-             where a.deleted_at is null
-               and (not $1 or (a.is_shared = true
-                    or a.assigned_user_ids @> jsonb_build_array($2::text)
-                    or ($3 and coalesce(a.assigned_user_ids, '[]'::jsonb) in ('[]'::jsonb, 'null'::jsonb))))
-               and ($4::text is null or (a.name like $4 or a.email like $4))
-               and ($5::text is null or a.status = $5::mail_account_status)
-               and ($6::text is null or a.provider = $6::mail_provider)
-               and ($7::timestamp is null or (a.created_at < $7::timestamp
-                    or (a.created_at = $7::timestamp and a.id < $8)))
-             order by a.created_at desc, a.id desc
-             limit $9"
-        ))
-        .bind(scoped)
-        .bind(&caller.user_id)
-        .bind(admin)
-        .bind(&search)
-        .bind(&status)
-        .bind(&provider)
-        .bind(&cursor_at)
-        .bind(&cursor_id)
-        .bind(limit + 1)
-        .fetch_all(&caller.db)
-        .await?;
-        let total: i32 = sqlx::query_scalar(
-            "select count(*)::int from mail_accounts a
-             where a.deleted_at is null
-               and (not $1 or (a.is_shared = true
-                    or a.assigned_user_ids @> jsonb_build_array($2::text)
-                    or ($3 and coalesce(a.assigned_user_ids, '[]'::jsonb) in ('[]'::jsonb, 'null'::jsonb))))
-               and ($4::text is null or (a.name like $4 or a.email like $4))
-               and ($5::text is null or a.status = $5::mail_account_status)
-               and ($6::text is null or a.provider = $6::mail_provider)",
-        )
-        .bind(scoped)
-        .bind(&caller.user_id)
-        .bind(admin)
-        .bind(&search)
-        .bind(&status)
-        .bind(&provider)
-        .fetch_one(&caller.db)
-        .await?;
-        let rows = rows.into_iter().map(js_row).collect();
+        let scope = list_scope(
+            &caller,
+            scoped,
+            admin,
+            search.as_deref(),
+            status.as_deref(),
+            provider.as_deref(),
+        )?;
+        let (rows, total) = list_page(&caller, scope, limit, cursor.as_deref()).await?;
         let (data, has_more, next) = page(rows, limit);
-        Ok(list_response(data, i64::from(total), has_more, next))
+        Ok(list_response(data, total, has_more, next))
     }
     .await;
     answer(result, "Failed to list mail accounts")
@@ -216,15 +300,24 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
 /// `GET /stats` (`getMailAccountStats`).
 async fn stats(caller: Caller) -> Response {
     let result = async {
-        let (total, active, inactive, error): (i32, i32, i32, i32) = sqlx::query_as(
-            "select count(*)::int,
-               count(*) filter (where status = 'active')::int,
-               count(*) filter (where status = 'inactive')::int,
-               count(*) filter (where status = 'error')::int
-             from mail_accounts where deleted_at is null",
-        )
-        .fetch_one(&caller.db)
-        .await?;
+        // `count(*) filter (where status = …)`: COUNT skips the CASE's nulls.
+        let with = |status: MailAccountStatus| {
+            Expr::from(Func::count(Expr::case(
+                mail_accounts::Column::Status.eq(status),
+                1,
+            )))
+        };
+        let counts: Option<(i64, i64, i64, i64)> = mail_accounts::Entity::find()
+            .select_only()
+            .column_as(Expr::from(Func::count(Expr::col(Asterisk))), "total")
+            .column_as(with(MailAccountStatus::Active), "active")
+            .column_as(with(MailAccountStatus::Inactive), "inactive")
+            .column_as(with(MailAccountStatus::Error), "error")
+            .filter(mail_accounts::Column::DeletedAt.is_null())
+            .into_tuple()
+            .one(&orm(&caller.db))
+            .await?;
+        let (total, active, inactive, error) = counts.unwrap_or_default();
         Ok(Data(json!({
             "total": total,
             "active": active,
@@ -263,21 +356,18 @@ async fn labels(caller: Caller, Path(id): Path<String>) -> Response {
         if !check_account_access(&caller.db, &id, &caller.user_id).await? {
             return Err(MailError::not_found("Mail account", Some(&id)));
         }
-        let account: Option<String> = sqlx::query_scalar(
-            "select id from mail_accounts where id = $1 and deleted_at is null limit 1",
-        )
-        .bind(&id)
-        .fetch_optional(&caller.db)
-        .await?;
-        if account.is_none() {
+        if live_account_id(&caller, &id).await?.is_none() {
             return Err(MailError::not_found("Mail account", Some(&id)));
         }
-        let rows: Vec<Value> =
-            sqlx::query_scalar("select to_jsonb(l) from mail_labels l where l.account_id = $1")
-                .bind(&id)
-                .fetch_all(&caller.db)
-                .await?;
-        Ok(Data(rows.into_iter().map(js_row).collect::<Vec<_>>()).into_response())
+        let rows = mail_labels::Entity::find()
+            .filter(mail_labels::Column::AccountId.eq(&id))
+            .all(&orm(&caller.db))
+            .await?;
+        let rows = rows
+            .into_iter()
+            .map(|row| serde_json::to_value(row).map_err(|error| DbErr::Json(error.to_string())))
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(Data(rows).into_response())
     }
     .await;
     answer(result, "Failed to fetch mail account labels")
@@ -286,15 +376,13 @@ async fn labels(caller: Caller, Path(id): Path<String>) -> Response {
 /// `GET /:id` (`getMailAccount`).
 async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
     let result = async {
-        let row: Option<Value> = sqlx::query_scalar(concat!(
-            "select ",
-            public_account!(),
-            " from mail_accounts a where a.id = $1 and a.deleted_at is null limit 1"
-        ))
-        .bind(&id)
-        .fetch_optional(&caller.db)
-        .await?;
-        let Some(row) = row.map(js_row) else {
+        let row = mail_accounts::Entity::find_by_id(id.clone())
+            .filter(mail_accounts::Column::DeletedAt.is_null())
+            .one(&orm(&caller.db))
+            .await?
+            .map(public_account)
+            .transpose()?;
+        let Some(row) = row else {
             return Err(MailError::not_found("Mail account", Some(&id)));
         };
         let admin = is_admin_or_owner(&caller.db, &caller.user_id).await?;
@@ -554,28 +642,25 @@ const SYSTEM_LABEL_SEEDS: [(&str, &str); 11] = [
 pub(crate) async fn seed_system_labels(
     db: &PgPool,
     account_id: &str,
-    at: &str,
-) -> Result<(), sqlx::Error> {
-    let label_ids: Vec<String> = SYSTEM_LABEL_SEEDS
+    at: PrimitiveDateTime,
+) -> Result<(), DbErr> {
+    let labels = SYSTEM_LABEL_SEEDS
         .iter()
-        .map(|_| generate_id("label"))
-        .collect();
-    let names: Vec<&str> = SYSTEM_LABEL_SEEDS.iter().map(|(n, _)| *n).collect();
-    let slugs: Vec<&str> = SYSTEM_LABEL_SEEDS.iter().map(|(_, s)| *s).collect();
-    sqlx::query(
-        "insert into mail_labels (id, account_id, name, slug, is_system, message_count,
-           created_at, updated_at)
-         select l.id, $2, l.name, l.slug, true, 0, $5::timestamp, $5::timestamp
-         from unnest($1::varchar[], $3::varchar[], $4::varchar[]) with ordinality as l(id, name, slug, ord)
-         order by l.ord",
-    )
-    .bind(&label_ids)
-    .bind(account_id)
-    .bind(&names)
-    .bind(&slugs)
-    .bind(at)
-    .execute(db)
-    .await?;
+        .map(|(name, slug)| mail_labels::ActiveModel {
+            id: Set(generate_id("label")),
+            account_id: Set(account_id.to_owned()),
+            name: Set((*name).to_owned()),
+            slug: Set(Some((*slug).to_owned())),
+            is_system: Set(Some(true)),
+            message_count: Set(0),
+            created_at: Set(at),
+            updated_at: Set(at),
+            ..Default::default()
+        });
+    // One statement, the rows in their order.
+    mail_labels::Entity::insert_many(labels)
+        .exec_without_returning(&orm(db))
+        .await?;
     Ok(())
 }
 
@@ -609,12 +694,7 @@ async fn assert_weldmail_domain_allowed(
             ApiError::internal().with_message("Failed to create mail account"),
         ));
     };
-    let slug: Option<String> = sqlx::query_scalar(
-        "select slug from workspaces where id = $1 or clerk_org_id = $1 limit 1",
-    )
-    .bind(org)
-    .fetch_optional(&master)
-    .await?;
+    let slug: Option<String> = workspace_of(&master, org, workspaces::Column::Slug).await?;
     let apex = caller
         .bindings
         .env_value(state, "WELDMAIL_DOMAIN")
@@ -629,6 +709,25 @@ async fn assert_weldmail_domain_allowed(
     Ok(())
 }
 
+/// A column of the master workspace `org` names (its id or Clerk org id).
+async fn workspace_of(
+    master: &PgPool,
+    org: &str,
+    column: workspaces::Column,
+) -> Result<Option<String>, DbErr> {
+    workspaces::Entity::find()
+        .select_only()
+        .column(column)
+        .filter(
+            Condition::any()
+                .add(workspaces::Column::Id.eq(org))
+                .add(workspaces::Column::ClerkOrgId.eq(org)),
+        )
+        .into_tuple()
+        .one(&orm(master))
+        .await
+}
+
 /// `ensureManagedDomain`: the domain must be a WeldMail mail domain already,
 /// or a WeldHost domain (then it is recorded as one). On Kubernetes there is
 /// no Cloudflare Email Routing to re-assert (MAIL-010). With a `MailDomains`
@@ -640,7 +739,7 @@ async fn ensure_managed_domain(
     state: &MailState,
     caller: &Caller,
     domain: &str,
-    at: &str,
+    at: OffsetDateTime,
 ) -> MailResult<()> {
     if let Some(adapter) = &state.domains {
         return super::mail_domains::ensure_provisioned(
@@ -652,37 +751,49 @@ async fn ensure_managed_domain(
         )
         .await;
     }
-    let managed: Option<String> = sqlx::query_scalar(
-        "select id from mail_domains where domain_name = $1 and deleted_at is null limit 1",
-    )
-    .bind(domain)
-    .fetch_optional(&caller.db)
-    .await?;
+    let managed: Option<String> = mail_domains::Entity::find()
+        .select_only()
+        .column(mail_domains::Column::Id)
+        .filter(mail_domains::Column::DomainName.eq(domain))
+        .filter(mail_domains::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(&caller.db))
+        .await?;
     if managed.is_some() {
         return Ok(());
     }
-    let host: Option<String> = sqlx::query_scalar(
-        "select id from domains where full_domain = $1 and deleted_at is null limit 1",
-    )
-    .bind(domain)
-    .fetch_optional(&caller.db)
-    .await?;
+    let host: Option<String> = domains::Entity::find()
+        .select_only()
+        .column(domains::Column::Id)
+        .filter(domains::Column::FullDomain.eq(domain))
+        .filter(domains::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(&caller.db))
+        .await?;
     if host.is_none() {
         return Err(bad_request(&format!(
             "Add {domain} in WeldHost › Domains before creating an email account on it."
         )));
     }
-    sqlx::query(
-        "insert into mail_domains (id, domain_name, is_active, is_primary, mail_provider,
-           send_provider, receive_provider, dns_status, cloudflare_routing_enabled,
-           max_email_accounts, current_email_accounts, created_at, updated_at)
-         values ($1, $2, true, false, 'cloudflare', 'cloudflare', 'cloudflare', 'verified', true,
-           100, 0, $3::timestamp, $3::timestamp)",
-    )
-    .bind(generate_id("mdom"))
-    .bind(domain)
-    .bind(at)
-    .execute(&caller.db)
+    let at = utc_timestamp(at);
+    let cloudflare = || Set(Some("cloudflare".to_owned()));
+    mail_domains::Entity::insert(mail_domains::ActiveModel {
+        id: Set(generate_id("mdom")),
+        domain_name: Set(domain.to_owned()),
+        is_active: Set(true),
+        is_primary: Set(Some(false)),
+        mail_provider: cloudflare(),
+        send_provider: cloudflare(),
+        receive_provider: cloudflare(),
+        dns_status: Set(Some(MailDomainDnsStatus::Verified)),
+        cloudflare_routing_enabled: Set(Some(true)),
+        max_email_accounts: Set(Some(100)),
+        current_email_accounts: Set(Some(0)),
+        created_at: Set(at),
+        updated_at: Set(at),
+        ..Default::default()
+    })
+    .exec_without_returning(&orm(&caller.db))
     .await?;
     Ok(())
 }
@@ -704,31 +815,19 @@ async fn register_in_master_registry(
         return;
     };
     let run = async {
-        let workspace: Option<String> = sqlx::query_scalar(
-            "select id from workspaces where id = $1 or clerk_org_id = $1 limit 1",
-        )
-        .bind(org)
-        .fetch_optional(&master)
-        .await?;
+        let workspace = workspace_of(&master, org, workspaces::Column::Id).await?;
         let Some(workspace) = workspace else {
             tracing::warn!("[mail-accounts] no workspace for orgId {org}; skipping registry");
-            return Ok::<(), sqlx::Error>(());
+            return Ok::<(), DbErr>(());
         };
-        sqlx::query(
-            "insert into mail_account_registry (id, email, tenant_kind, workspace_id, account_id, is_active)
-             values ($1, $2, 'workspace', $3, $4, true)
-             on conflict (email) do update set tenant_kind = 'workspace', workspace_id = $3,
-               personal_account_id = null, account_id = $4, is_active = true,
-               updated_at = $5::timestamp",
+        super::mail_domains::upsert_registry(
+            &master,
+            email.to_owned(),
+            &workspace,
+            account_id,
+            utc_now(),
         )
-        .bind(generate_id("reg"))
-        .bind(email)
-        .bind(&workspace)
-        .bind(account_id)
-        .bind(now())
-        .execute(&master)
-        .await?;
-        Ok(())
+        .await
     };
     if let Err(error) = run.await {
         tracing::error!(%error, "[mail-accounts] master registry upsert failed for {email}");
@@ -766,12 +865,14 @@ async fn create(
         };
         assert_weldmail_domain_allowed(&state, &caller, &org, &domain).await?;
 
-        let existing: Option<String> = sqlx::query_scalar(
-            "select id from mail_accounts where email = $1 and deleted_at is null limit 1",
-        )
-        .bind(&email)
-        .fetch_optional(&caller.db)
-        .await?;
+        let existing: Option<String> = mail_accounts::Entity::find()
+            .select_only()
+            .column(mail_accounts::Column::Id)
+            .filter(mail_accounts::Column::Email.eq(&email))
+            .filter(mail_accounts::Column::DeletedAt.is_null())
+            .into_tuple()
+            .one(&orm(&caller.db))
+            .await?;
         if let Some(existing) = existing {
             return Err(MailError::conflict(format!(
                 "An account for {email} already exists ({existing}). Delete it first or edit the existing account."
@@ -779,7 +880,7 @@ async fn create(
         }
 
         let id = generate_id("mail");
-        let at = now();
+        let at = OffsetDateTime::now_utc();
         let is_shared = data.flag("isShared").unwrap_or(true);
         let chosen: Option<Vec<String>> = data.json("assignedUserIds").map(|v| strings(&v));
         let assigned = if is_shared || caller.user_id.is_empty() {
@@ -798,46 +899,16 @@ async fn create(
             }
         };
 
-        ensure_managed_domain(&state, &caller, &domain, &at).await?;
+        ensure_managed_domain(&state, &caller, &domain, at).await?;
 
         if data.flag("isDefault") == Some(true) {
-            sqlx::query("update mail_accounts set is_default = false where deleted_at is null")
-                .execute(&caller.db)
-                .await?;
+            clear_default(&caller).await?;
         }
         let provider = data.text("provider").unwrap_or("imap").to_owned();
-        sqlx::query(
-            "insert into mail_accounts (id, name, email, display_name, provider, auth_type,
-               imap_host, imap_port, imap_secure, smtp_host, smtp_port, smtp_secure,
-               sync_enabled, sync_frequency, signature, daily_send_limit, is_default, is_shared,
-               assigned_user_ids, status, created_at, updated_at)
-             values ($1, $2, $3, $4, $5::mail_provider, $6::mail_auth_type, $7, $8, $9, $10, $11,
-               $12, $13, $14, $15, $16, $17, $18, $19, 'active', $20::timestamp, $20::timestamp)",
-        )
-        .bind(&id)
-        .bind(&name)
-        .bind(&email)
-        .bind(data.text("displayName"))
-        .bind(&provider)
-        .bind(data.text("authType").unwrap_or("password"))
-        .bind(data.text("imapHost"))
-        .bind(data.int("imapPort"))
-        .bind(data.flag("imapSecure").unwrap_or(true))
-        .bind(data.text("smtpHost"))
-        .bind(data.int("smtpPort"))
-        .bind(data.flag("smtpSecure").unwrap_or(true))
-        .bind(data.flag("syncEnabled").unwrap_or(true))
-        .bind(data.int("syncFrequency").unwrap_or(5))
-        .bind(data.text("signature"))
-        .bind(data.int("dailySendLimit").unwrap_or(500))
-        .bind(data.flag("isDefault").unwrap_or(false))
-        .bind(is_shared)
-        .bind(assigned.map(|ids| json!(ids)))
-        .bind(&at)
-        .execute(&caller.db)
-        .await?;
+        let at = utc_timestamp(at);
+        insert_account(&caller, &data, &id, &name, &email, is_shared, assigned, at).await?;
 
-        seed_system_labels(&caller.db, &id, &at).await?;
+        seed_system_labels(&caller.db, &id, at).await?;
 
         register_in_master_registry(&state, &caller, &org, &id, &email).await;
         bump_mailbox_directory(&caller, &state).await;
@@ -851,6 +922,149 @@ async fn create(
     }
     .await;
     answer(result, "Failed to create mail account")
+}
+
+/// `update(mailAccounts).set({ isDefault: false })` of every live mailbox.
+async fn clear_default(caller: &Caller) -> Result<(), DbErr> {
+    mail_accounts::Entity::update_many()
+        .col_expr(mail_accounts::Column::IsDefault, Expr::value(false))
+        .filter(mail_accounts::Column::DeletedAt.is_null())
+        .exec(&orm(&caller.db))
+        .await?;
+    Ok(())
+}
+
+/// An `integer` column's value: what Postgres refuses ("out of range")
+/// stays the route's 500.
+fn int_column(value: Option<i64>, column: &str) -> Result<Option<i32>, DbErr> {
+    value
+        .map(|value| {
+            i32::try_from(value)
+                .map_err(|_| DbErr::Custom(format!("{column}: integer out of range")))
+        })
+        .transpose()
+}
+
+/// `createMailAccount`'s insert: the body's fields with the schema's
+/// defaults, `active`.
+#[allow(clippy::too_many_arguments)] // the row's fields the route worked out
+async fn insert_account(
+    caller: &Caller,
+    data: &AccountInput,
+    id: &str,
+    name: &str,
+    email: &str,
+    is_shared: bool,
+    assigned: Option<Vec<String>>,
+    at: PrimitiveDateTime,
+) -> Result<(), DbErr> {
+    let text = |key: &str| data.text(key).map(str::to_owned);
+    mail_accounts::Entity::insert(mail_accounts::ActiveModel {
+        id: Set(id.to_owned()),
+        name: Set(name.to_owned()),
+        email: Set(email.to_owned()),
+        display_name: Set(text("displayName")),
+        provider: Set(MailProvider::try_from_value(
+            &data.text("provider").unwrap_or("imap").to_owned(),
+        )?),
+        auth_type: Set(MailAuthType::try_from_value(
+            &data.text("authType").unwrap_or("password").to_owned(),
+        )?),
+        imap_host: Set(text("imapHost")),
+        imap_port: Set(int_column(data.int("imapPort"), "imap_port")?),
+        imap_secure: Set(Some(data.flag("imapSecure").unwrap_or(true))),
+        smtp_host: Set(text("smtpHost")),
+        smtp_port: Set(int_column(data.int("smtpPort"), "smtp_port")?),
+        smtp_secure: Set(Some(data.flag("smtpSecure").unwrap_or(true))),
+        sync_enabled: Set(data.flag("syncEnabled").unwrap_or(true)),
+        sync_frequency: Set(int_column(
+            Some(data.int("syncFrequency").unwrap_or(5)),
+            "sync_frequency",
+        )?),
+        signature: Set(text("signature")),
+        daily_send_limit: Set(int_column(
+            Some(data.int("dailySendLimit").unwrap_or(500)),
+            "daily_send_limit",
+        )?),
+        is_default: Set(Some(data.flag("isDefault").unwrap_or(false))),
+        is_shared: Set(Some(is_shared)),
+        assigned_user_ids: Set(assigned.map(|ids| json!(ids))),
+        status: Set(MailAccountStatus::Active),
+        created_at: Set(at),
+        updated_at: Set(at),
+        ..Default::default()
+    })
+    .exec_without_returning(&orm(&caller.db))
+    .await?;
+    Ok(())
+}
+
+/// `updateMailAccount`'s write: the fields the body sent, and `updatedAt`,
+/// on the live mailbox.
+async fn write_update(caller: &Caller, id: &str, data: &AccountInput) -> Result<(), DbErr> {
+    let mut update = mail_accounts::Entity::update_many()
+        .col_expr(mail_accounts::Column::UpdatedAt, Expr::value(utc_now()));
+    for (key, column) in [
+        ("name", mail_accounts::Column::Name),
+        ("email", mail_accounts::Column::Email),
+        ("displayName", mail_accounts::Column::DisplayName),
+        ("imapHost", mail_accounts::Column::ImapHost),
+        ("smtpHost", mail_accounts::Column::SmtpHost),
+        ("signature", mail_accounts::Column::Signature),
+    ] {
+        if let Some(value) = data.text(key) {
+            update = update.col_expr(column, Expr::value(value.to_owned()));
+        }
+    }
+    if let Some(provider) = data.text("provider") {
+        let provider = MailProvider::try_from_value(&provider.to_owned())?;
+        update = update.col_expr(
+            mail_accounts::Column::Provider,
+            mail_accounts::Column::Provider.save_as(Expr::value(provider)),
+        );
+    }
+    if let Some(auth) = data.text("authType") {
+        let auth = MailAuthType::try_from_value(&auth.to_owned())?;
+        update = update.col_expr(
+            mail_accounts::Column::AuthType,
+            mail_accounts::Column::AuthType.save_as(Expr::value(auth)),
+        );
+    }
+    for (key, column) in [
+        ("imapPort", mail_accounts::Column::ImapPort),
+        ("smtpPort", mail_accounts::Column::SmtpPort),
+        ("syncFrequency", mail_accounts::Column::SyncFrequency),
+        ("dailySendLimit", mail_accounts::Column::DailySendLimit),
+    ] {
+        if let Some(value) = data.int(key) {
+            update = update.col_expr(column, Expr::value(value));
+        }
+    }
+    for (key, column) in [
+        ("imapSecure", mail_accounts::Column::ImapSecure),
+        ("smtpSecure", mail_accounts::Column::SmtpSecure),
+        ("syncEnabled", mail_accounts::Column::SyncEnabled),
+        ("isDefault", mail_accounts::Column::IsDefault),
+        ("isShared", mail_accounts::Column::IsShared),
+    ] {
+        if let Some(value) = data.flag(key) {
+            update = update.col_expr(column, Expr::value(value));
+        }
+    }
+    for (key, column) in [
+        ("assignedUserIds", mail_accounts::Column::AssignedUserIds),
+        ("aiSettings", mail_accounts::Column::AiSettings),
+    ] {
+        if let Some(value) = data.json(key) {
+            update = update.col_expr(column, Expr::value(value));
+        }
+    }
+    update
+        .filter(mail_accounts::Column::Id.eq(id))
+        .filter(mail_accounts::Column::DeletedAt.is_null())
+        .exec(&orm(&caller.db))
+        .await?;
+    Ok(())
 }
 
 /// `PUT|PATCH /:id` (`updateMailAccount`): the given fields; the answer is
@@ -874,73 +1088,22 @@ async fn update_account(
         Err(error) => return crate::util::unhandled(error.into()),
     }
     let result = async {
-        let before: Option<String> = sqlx::query_scalar(
-            "select id from mail_accounts where id = $1 and deleted_at is null limit 1",
-        )
-        .bind(&id)
-        .fetch_optional(&caller.db)
-        .await?;
-        if before.is_none() {
+        if live_account_id(&caller, &id).await?.is_none() {
             return Err(MailError::not_found("Mail account", Some(&id)));
         }
         if data.flag("isDefault") == Some(true) {
-            sqlx::query("update mail_accounts set is_default = false where deleted_at is null")
-                .execute(&caller.db)
-                .await?;
+            clear_default(&caller).await?;
         }
-        sqlx::query(
-            "update mail_accounts set updated_at = $2::timestamp,
-               name = coalesce($3, name), email = coalesce($4, email),
-               display_name = coalesce($5, display_name),
-               provider = coalesce($6::mail_provider, provider),
-               auth_type = coalesce($7::mail_auth_type, auth_type),
-               imap_host = coalesce($8, imap_host), imap_port = coalesce($9, imap_port),
-               imap_secure = coalesce($10, imap_secure), smtp_host = coalesce($11, smtp_host),
-               smtp_port = coalesce($12, smtp_port), smtp_secure = coalesce($13, smtp_secure),
-               sync_enabled = coalesce($14, sync_enabled),
-               sync_frequency = coalesce($15, sync_frequency),
-               signature = coalesce($16, signature),
-               daily_send_limit = coalesce($17, daily_send_limit),
-               is_default = coalesce($18, is_default), is_shared = coalesce($19, is_shared),
-               assigned_user_ids = coalesce($20::jsonb, assigned_user_ids),
-               ai_settings = coalesce($21::jsonb, ai_settings)
-             where id = $1 and deleted_at is null",
-        )
-        .bind(&id)
-        .bind(now())
-        .bind(data.text("name"))
-        .bind(data.text("email"))
-        .bind(data.text("displayName"))
-        .bind(data.text("provider"))
-        .bind(data.text("authType"))
-        .bind(data.text("imapHost"))
-        .bind(data.int("imapPort"))
-        .bind(data.flag("imapSecure"))
-        .bind(data.text("smtpHost"))
-        .bind(data.int("smtpPort"))
-        .bind(data.flag("smtpSecure"))
-        .bind(data.flag("syncEnabled"))
-        .bind(data.int("syncFrequency"))
-        .bind(data.text("signature"))
-        .bind(data.int("dailySendLimit"))
-        .bind(data.flag("isDefault"))
-        .bind(data.flag("isShared"))
-        .bind(data.json("assignedUserIds"))
-        .bind(data.json("aiSettings"))
-        .execute(&caller.db)
-        .await?;
-        let after: (String, String, String) = sqlx::query_as(
-            "select email, provider::text, status::text from mail_accounts where id = $1 limit 1",
-        )
-        .bind(&id)
-        .fetch_one(&caller.db)
-        .await?;
+        write_update(&caller, &id, &data).await?;
+        let (_, _, email, provider, status) = account_identity(&caller, &id, false)
+            .await?
+            .ok_or_else(|| DbErr::RecordNotFound(format!("mail account {id}")))?;
         bump_mailbox_directory(&caller, &state).await;
         caller.publish(
             &state,
             MAIL_ACCOUNT_UPDATED,
             &id,
-            &json!({ "id": id, "email": after.0, "provider": after.1, "status": after.2 }),
+            &json!({ "id": id, "email": email, "provider": provider, "status": status }),
         );
         let mut answer = Map::new();
         answer.insert("id".into(), Value::String(id.clone()));
@@ -958,13 +1121,17 @@ async fn trigger_sync(
     Path(id): Path<String>,
 ) -> Response {
     let result = async {
-        let row: Option<(Option<bool>, Option<Value>)> = sqlx::query_as(
-            "select is_shared, assigned_user_ids from mail_accounts
-             where id = $1 and deleted_at is null limit 1",
-        )
-        .bind(&id)
-        .fetch_optional(&caller.db)
-        .await?;
+        let row: Option<(Option<bool>, Option<Value>)> =
+            mail_accounts::Entity::find_by_id(id.clone())
+                .select_only()
+                .columns([
+                    mail_accounts::Column::IsShared,
+                    mail_accounts::Column::AssignedUserIds,
+                ])
+                .filter(mail_accounts::Column::DeletedAt.is_null())
+                .into_tuple()
+                .one(&orm(&caller.db))
+                .await?;
         let Some((is_shared, assigned)) = row else {
             return Err(MailError::not_found("Mail account", Some(&id)));
         };
@@ -976,13 +1143,15 @@ async fn trigger_sync(
         if !has_access_to_account(&account, &caller.user_id, admin) {
             return Err(MailError::not_found("Mail account", Some(&id)));
         }
-        sqlx::query(
-            "update mail_accounts set sync_status = 'syncing', updated_at = $2::timestamp where id = $1",
-        )
-        .bind(&id)
-        .bind(now())
-        .execute(&caller.db)
-        .await?;
+        mail_accounts::Entity::update_many()
+            .col_expr(
+                mail_accounts::Column::SyncStatus,
+                mail_accounts::Column::SyncStatus.save_as(Expr::value(MailSyncStatus::Syncing)),
+            )
+            .col_expr(mail_accounts::Column::UpdatedAt, Expr::value(utc_now()))
+            .filter(mail_accounts::Column::Id.eq(&id))
+            .exec(&orm(&caller.db))
+            .await?;
         bump_mailbox_directory(&caller, &state).await;
         Ok(Data(json!({ "id": id, "syncStatus": "syncing" })).into_response())
     }
@@ -1023,51 +1192,40 @@ async fn assign_users(
                 "Only admins and owners can manage account access",
             ));
         }
-        let found: Option<String> = sqlx::query_scalar(
-            "select id from mail_accounts where id = $1 and deleted_at is null limit 1",
-        )
-        .bind(&id)
-        .fetch_optional(&caller.db)
-        .await?;
-        if found.is_none() {
+        if live_account_id(&caller, &id).await?.is_none() {
             return Err(MailError::not_found("Mail account", None));
         }
         if !ids.is_empty() {
-            let members: Vec<String> = sqlx::query_scalar(
-                "select user_id from workspace_members where deleted_at is null",
-            )
-            .fetch_all(&caller.db)
-            .await?;
+            let members: Vec<String> = workspace_members::Entity::find()
+                .select_only()
+                .column(workspace_members::Column::UserId)
+                .filter(workspace_members::Column::DeletedAt.is_null())
+                .into_tuple()
+                .all(&orm(&caller.db))
+                .await?;
             let invalid: Vec<&String> = ids.iter().filter(|u| !members.contains(u)).collect();
             if !invalid.is_empty() {
                 let list: Vec<&str> = invalid.iter().map(|s| s.as_str()).collect();
-                return Err(bad_request(&format!("Invalid user IDs: {}", list.join(", "))));
+                return Err(bad_request(&format!(
+                    "Invalid user IDs: {}",
+                    list.join(", ")
+                )));
             }
         }
         let assigned = if is_shared { None } else { Some(json!(ids)) };
-        sqlx::query(
-            "update mail_accounts set is_shared = $2, assigned_user_ids = $3, updated_at = $4::timestamp
-             where id = $1",
-        )
-        .bind(&id)
-        .bind(is_shared)
-        .bind(assigned)
-        .bind(now())
-        .execute(&caller.db)
-        .await?;
-        let (shared, assigned, email, provider, status): (
-            Option<bool>,
-            Option<Value>,
-            String,
-            String,
-            String,
-        ) = sqlx::query_as(
-            "select is_shared, assigned_user_ids, email, provider::text, status::text
-             from mail_accounts where id = $1 limit 1",
-        )
-        .bind(&id)
-        .fetch_one(&caller.db)
-        .await?;
+        mail_accounts::Entity::update_many()
+            .col_expr(mail_accounts::Column::IsShared, Expr::value(is_shared))
+            .col_expr(
+                mail_accounts::Column::AssignedUserIds,
+                Expr::value(assigned),
+            )
+            .col_expr(mail_accounts::Column::UpdatedAt, Expr::value(utc_now()))
+            .filter(mail_accounts::Column::Id.eq(&id))
+            .exec(&orm(&caller.db))
+            .await?;
+        let (shared, assigned, email, provider, status) = account_identity(&caller, &id, false)
+            .await?
+            .ok_or_else(|| DbErr::RecordNotFound(format!("mail account {id}")))?;
         bump_mailbox_directory(&caller, &state).await;
         caller.publish(
             &state,
@@ -1089,6 +1247,44 @@ async fn assign_users(
 /// A mailbox's access fields with its email, provider and status.
 type AccountIdentity = (Option<bool>, Option<Value>, String, String, String);
 
+/// The mailbox `id`'s [`AccountIdentity`]; `live` keeps it to a live one.
+async fn account_identity(
+    caller: &Caller,
+    id: &str,
+    live: bool,
+) -> Result<Option<AccountIdentity>, DbErr> {
+    /// The columns as stored: the provider and status enums.
+    type Row = (
+        Option<bool>,
+        Option<Value>,
+        String,
+        MailProvider,
+        MailAccountStatus,
+    );
+    let mut find = mail_accounts::Entity::find_by_id(id.to_owned())
+        .select_only()
+        .columns([
+            mail_accounts::Column::IsShared,
+            mail_accounts::Column::AssignedUserIds,
+            mail_accounts::Column::Email,
+            mail_accounts::Column::Provider,
+            mail_accounts::Column::Status,
+        ]);
+    if live {
+        find = find.filter(mail_accounts::Column::DeletedAt.is_null());
+    }
+    let row: Option<Row> = find.into_tuple().one(&orm(&caller.db)).await?;
+    Ok(row.map(|(shared, assigned, email, provider, status)| {
+        (
+            shared,
+            assigned,
+            email,
+            provider.to_value(),
+            status.to_value(),
+        )
+    }))
+}
+
 /// `DELETE /:id` (`deleteMailAccount`): a soft delete by someone who may
 /// manage the mailbox; a catch-all pointing at it is switched off.
 async fn remove(
@@ -1097,13 +1293,7 @@ async fn remove(
     Path(id): Path<String>,
 ) -> Response {
     let result = async {
-        let row: Option<AccountIdentity> = sqlx::query_as(
-            "select is_shared, assigned_user_ids, email, provider::text, status::text
-             from mail_accounts where id = $1 and deleted_at is null limit 1",
-        )
-        .bind(&id)
-        .fetch_optional(&caller.db)
-        .await?;
+        let row = account_identity(&caller, &id, true).await?;
         let Some((is_shared, assigned, email, provider, status)) = row else {
             return Err(MailError::not_found("Mail account", Some(&id)));
         };
@@ -1115,14 +1305,13 @@ async fn remove(
         if !can_manage_account(&account, &caller.user_id, admin) {
             return Err(MailError::not_found("Mail account", Some(&id)));
         }
-        let at = now();
-        sqlx::query(
-            "update mail_accounts set deleted_at = $2::timestamp, updated_at = $2::timestamp where id = $1",
-        )
-        .bind(&id)
-        .bind(&at)
-        .execute(&caller.db)
-        .await?;
+        let at = utc_now();
+        mail_accounts::Entity::update_many()
+            .col_expr(mail_accounts::Column::DeletedAt, Expr::value(at))
+            .col_expr(mail_accounts::Column::UpdatedAt, Expr::value(at))
+            .filter(mail_accounts::Column::Id.eq(&id))
+            .exec(&orm(&caller.db))
+            .await?;
         clear_catch_all_for_account(&state, &caller, &id).await?;
         bump_mailbox_directory(&caller, &state).await;
         caller.publish(
@@ -1145,25 +1334,28 @@ pub(crate) async fn clear_catch_all_for_account(
     caller: &Caller,
     account_id: &str,
 ) -> MailResult<()> {
-    let domains: Vec<String> = sqlx::query_scalar(
-        "select domain_name from mail_domains where catch_all_account_id = $1 and deleted_at is null",
-    )
-    .bind(account_id)
-    .fetch_all(&caller.db)
-    .await?;
+    let domains: Vec<String> = mail_domains::Entity::find()
+        .select_only()
+        .column(mail_domains::Column::DomainName)
+        .filter(mail_domains::Column::CatchAllAccountId.eq(account_id))
+        .filter(mail_domains::Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&orm(&caller.db))
+        .await?;
     if domains.is_empty() {
         return Ok(());
     }
-    let at = now();
-    sqlx::query(
-        "update mail_domains set catch_all_enabled = false, catch_all_account_id = null,
-           updated_at = $2::timestamp
-         where catch_all_account_id = $1",
-    )
-    .bind(account_id)
-    .bind(&at)
-    .execute(&caller.db)
-    .await?;
+    let at = utc_now();
+    mail_domains::Entity::update_many()
+        .col_expr(mail_domains::Column::CatchAllEnabled, Expr::value(false))
+        .col_expr(
+            mail_domains::Column::CatchAllAccountId,
+            Expr::value(Option::<String>::None),
+        )
+        .col_expr(mail_domains::Column::UpdatedAt, Expr::value(at))
+        .filter(mail_domains::Column::CatchAllAccountId.eq(account_id))
+        .exec(&orm(&caller.db))
+        .await?;
     let Some(master) = caller.bindings.master(state) else {
         tracing::error!("[mail-domains] no master database to deactivate the catch-all sentinel");
         return Err(MailError::api(
@@ -1171,14 +1363,12 @@ pub(crate) async fn clear_catch_all_for_account(
         ));
     };
     for domain in domains {
-        sqlx::query(
-            "update mail_account_registry set is_active = false, updated_at = $2::timestamp
-             where email = $1",
-        )
-        .bind(format!("*@{}", domain.to_lowercase()))
-        .bind(&at)
-        .execute(&master)
-        .await?;
+        registry::Entity::update_many()
+            .col_expr(registry::Column::IsActive, Expr::value(false))
+            .col_expr(registry::Column::UpdatedAt, Expr::value(at))
+            .filter(registry::Column::Email.eq(format!("*@{}", domain.to_lowercase())))
+            .exec(&orm(&master))
+            .await?;
     }
     Ok(())
 }

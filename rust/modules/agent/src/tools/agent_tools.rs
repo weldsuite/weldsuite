@@ -4,9 +4,15 @@
 use std::sync::LazyLock;
 
 use regex::Regex;
+use sea_orm::sea_query::Expr;
+use sea_orm::{ActiveValue::Set, ColumnTrait, EntityTrait, QueryFilter, QueryOrder};
 use serde_json::{Value, json};
+use weldsuite_db::orm;
 use weldsuite_kit::generate_id;
 use weldsuite_permissions::Grants;
+use weldsuite_schema::tenant::{
+    weldagent_agent_skills, weldagent_memories, weldagent_routines, weldagent_skills,
+};
 
 use super::{ToolContext, ToolError, ToolSpec, not_editor};
 use crate::agents::{UpdateAgent, get_agent, update_agent};
@@ -325,16 +331,16 @@ fn ask_user(args: &Value) -> Value {
 }
 
 async fn list_routines(ctx: &ToolContext) -> Result<Value, ToolError> {
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(r) from weldagent_routines r where r.deleted_at is null and r.agent_id = $1
-         order by r.updated_at desc",
-    )
-    .bind(&ctx.agent_id)
-    .fetch_all(&ctx.db)
-    .await?;
+    use weldagent_routines::Column;
+    let rows = weldagent_routines::Entity::find()
+        .filter(Column::DeletedAt.is_null())
+        .filter(Column::AgentId.eq(&ctx.agent_id))
+        .order_by_desc(Column::UpdatedAt)
+        .all(&orm(&ctx.db))
+        .await?;
     Ok(Value::Array(
         rows.into_iter()
-            .map(weldsuite_db::js_row)
+            .map(crate::agents::js)
             .map(|r| {
                 json!({
                     "routineId": r["id"],
@@ -468,34 +474,40 @@ async fn save_skill(ctx: &ToolContext, args: &Value) -> Result<Value, ToolError>
         "active"
     };
     let name = text(args, "name").unwrap_or_default().trim().to_owned();
-    sqlx::query(
-        "insert into weldagent_skills (id, name, description, instructions, steps, status, created_by, source_agent_id)
-         values ($1, $2, $3, $4, '[]'::jsonb, $5, $6, $7)",
-    )
-    .bind(&skill_id)
-    .bind(&name)
-    .bind(text(args, "description"))
-    .bind(text(args, "instructions").unwrap_or_default().trim())
-    .bind(status)
-    .bind(&ctx.actor_user_id)
-    .bind(&ctx.agent_id)
-    .execute(&ctx.db)
+    let conn = orm(&ctx.db);
+    weldagent_skills::Entity::insert(weldagent_skills::ActiveModel {
+        id: Set(skill_id.clone()),
+        name: Set(name.clone()),
+        description: Set(text(args, "description").map(str::to_owned)),
+        instructions: Set(text(args, "instructions")
+            .unwrap_or_default()
+            .trim()
+            .to_owned()),
+        steps: Set(json!([])),
+        status: Set(status.to_owned()),
+        created_by: Set(Some(ctx.actor_user_id.clone())),
+        source_agent_id: Set(Some(ctx.agent_id.clone())),
+        ..Default::default()
+    })
+    .exec_without_returning(&conn)
     .await?;
     // enableSkillForAgent: an existing link is switched on, else created.
-    let relinked = sqlx::query(
-        "update weldagent_agent_skills set enabled = true where agent_id = $1 and skill_id = $2",
-    )
-    .bind(&ctx.agent_id)
-    .bind(&skill_id)
-    .execute(&ctx.db)
-    .await?;
-    if relinked.rows_affected() == 0 {
-        sqlx::query("insert into weldagent_agent_skills (id, agent_id, skill_id, enabled) values ($1, $2, $3, true)")
-            .bind(generate_id("asl"))
-            .bind(&ctx.agent_id)
-            .bind(&skill_id)
-            .execute(&ctx.db)
-            .await?;
+    let relinked = weldagent_agent_skills::Entity::update_many()
+        .col_expr(weldagent_agent_skills::Column::Enabled, Expr::value(true))
+        .filter(weldagent_agent_skills::Column::AgentId.eq(&ctx.agent_id))
+        .filter(weldagent_agent_skills::Column::SkillId.eq(&skill_id))
+        .exec(&conn)
+        .await?;
+    if relinked.rows_affected == 0 {
+        weldagent_agent_skills::Entity::insert(weldagent_agent_skills::ActiveModel {
+            id: Set(generate_id("asl")),
+            agent_id: Set(ctx.agent_id.clone()),
+            skill_id: Set(skill_id.clone()),
+            enabled: Set(true),
+            ..Default::default()
+        })
+        .exec_without_returning(&conn)
+        .await?;
     }
     Ok(json!({ "ok": true, "skillId": skill_id, "name": name, "status": status }))
 }
@@ -505,16 +517,16 @@ async fn remember(ctx: &ToolContext, args: &Value) -> Result<Value, ToolError> {
         return Ok(not_editor());
     }
     let memory_id = generate_id("mem");
-    sqlx::query(
-        "insert into weldagent_memories (id, agent_id, kind, content, source, created_by)
-         values ($1, $2, $3, $4, 'chat', $5)",
-    )
-    .bind(&memory_id)
-    .bind(&ctx.agent_id)
-    .bind(text(args, "kind").unwrap_or("preference"))
-    .bind(text(args, "content").unwrap_or_default().trim())
-    .bind(&ctx.actor_user_id)
-    .execute(&ctx.db)
+    weldagent_memories::Entity::insert(weldagent_memories::ActiveModel {
+        id: Set(memory_id.clone()),
+        agent_id: Set(ctx.agent_id.clone()),
+        kind: Set(text(args, "kind").unwrap_or("preference").to_owned()),
+        content: Set(text(args, "content").unwrap_or_default().trim().to_owned()),
+        source: Set(Some("chat".to_owned())),
+        created_by: Set(Some(ctx.actor_user_id.clone())),
+        ..Default::default()
+    })
+    .exec_without_returning(&orm(&ctx.db))
     .await?;
     Ok(json!({ "ok": true, "memoryId": memory_id }))
 }

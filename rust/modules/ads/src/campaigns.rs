@@ -5,12 +5,23 @@ use axum::body::Bytes;
 use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use http::HeaderMap;
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ActiveEnum, ColumnTrait, Condition, DatabaseConnection, DbErr, EntityTrait, FromQueryResult,
+    JoinType, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Set,
+};
 use serde_json::{Map, Value, json};
+use time::PrimitiveDateTime;
 use weldsuite_catalogs::entity_events::{AD_CAMPAIGN_CREATED, AD_CAMPAIGN_UPDATED};
+use weldsuite_db::orm;
+use weldsuite_events::iso_timestamp;
 use weldsuite_kit::validation::{Field, Issues, Number, Presence, Text, query_values};
 use weldsuite_kit::{ApiError, Created, Data, List, Pagination, generate_id};
+use weldsuite_schema::tenant::enums::AdCampaignSyncStatus;
+use weldsuite_schema::tenant::{ad_accounts, ad_campaigns};
 
-use crate::{AdsState, Caller, internal, query_param, rows, validate};
+use crate::orm_bridge::sqlx_message;
+use crate::{AdsState, Caller, internal, json_error, query_param, validate};
 
 const OBJECTIVES: [&str; 6] = [
     "OUTCOME_TRAFFIC",
@@ -96,27 +107,115 @@ pub(crate) async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response 
     }
 }
 
+/// A listed campaign with its account's name and Meta id.
+#[derive(FromQueryResult)]
+struct CampaignRow {
+    id: String,
+    ad_account_id: String,
+    platform_campaign_id: Option<String>,
+    name: String,
+    status: Option<String>,
+    objective: Option<String>,
+    daily_budget: Option<i32>,
+    lifetime_budget: Option<i32>,
+    currency: Option<String>,
+    metrics: Option<Value>,
+    metrics_synced_at: Option<PrimitiveDateTime>,
+    sync_status: AdCampaignSyncStatus,
+    sync_error: Option<String>,
+    last_synced_at: Option<PrimitiveDateTime>,
+    created_at: PrimitiveDateTime,
+    updated_at: PrimitiveDateTime,
+    account_name: String,
+    platform_account_id: String,
+}
+
+/// A `timestamp` as Drizzle's `Date` (`toISOString()`).
+fn iso(at: PrimitiveDateTime) -> String {
+    iso_timestamp(at.assume_utc())
+}
+
+impl CampaignRow {
+    /// The row as Drizzle's `select({ … })` returned it.
+    fn json(self) -> Value {
+        json!({
+            "id": self.id,
+            "adAccountId": self.ad_account_id,
+            "platformCampaignId": self.platform_campaign_id,
+            "name": self.name,
+            "status": self.status,
+            "objective": self.objective,
+            "dailyBudget": self.daily_budget,
+            "lifetimeBudget": self.lifetime_budget,
+            "currency": self.currency,
+            "metrics": self.metrics,
+            "metricsSyncedAt": self.metrics_synced_at.map(iso),
+            "syncStatus": self.sync_status.to_value(),
+            "syncError": self.sync_error,
+            "lastSyncedAt": self.last_synced_at.map(iso),
+            "createdAt": iso(self.created_at),
+            "updatedAt": iso(self.updated_at),
+            "accountName": self.account_name,
+            "platformAccountId": self.platform_account_id,
+        })
+    }
+}
+
+/// The keyset operands: the cursor campaign's `createdAt` as JavaScript read
+/// it (milliseconds) and its id.
+type Cursor = (PrimitiveDateTime, String);
+
+/// The filters the list and its count share; `live` is
+/// `isNull(adCampaigns.deletedAt)`.
+fn filtered(live: bool, [account, status, sync_status, search]: [Option<String>; 4]) -> Condition {
+    let mut all = Condition::all();
+    if live {
+        all = all.add(ad_campaigns::Column::DeletedAt.is_null());
+    }
+    if let Some(account) = account {
+        all = all.add(ad_campaigns::Column::AdAccountId.eq(account));
+    }
+    if let Some(status) = status {
+        all = all.add(ad_campaigns::Column::Status.eq(status));
+    }
+    if let Some(sync_status) = sync_status {
+        all = all.add(ad_campaigns::Column::SyncStatus.eq(sync_status));
+    }
+    if let Some(search) = search {
+        all = all.add(ad_campaigns::Column::Name.like(search));
+    }
+    all
+}
+
+/// `or(lt(createdAt, at), and(eq(createdAt, at), lt(id, id)))`.
+fn before((at, id): Cursor) -> Condition {
+    Condition::any()
+        .add(ad_campaigns::Column::CreatedAt.lt(at))
+        .add(
+            Condition::all()
+                .add(ad_campaigns::Column::CreatedAt.eq(at))
+                .add(ad_campaigns::Column::Id.lt(id)),
+        )
+}
+
 async fn list_page(
     caller: &Caller,
     limit: f64,
     [account, status, sync_status, search]: [Option<String>; 4],
     cursor_id: Option<String>,
-) -> Result<Response, sqlx::Error> {
-    let mut cursor: Option<(String, String)> = None;
+) -> Result<Response, DbErr> {
+    let db = orm(&caller.db);
+    let mut cursor: Option<Cursor> = None;
     if let Some(id) = &cursor_id {
-        let found: Option<(Option<Value>, String)> = sqlx::query_as(
-            "select to_jsonb(created_at), id from ad_campaigns where id = $1 limit 1",
-        )
-        .bind(id)
-        .fetch_optional(&caller.db)
-        .await?;
-        cursor = found.and_then(|(created_at, id)| {
-            let created_at = created_at
-                .as_ref()
-                .and_then(Value::as_str)
-                .and_then(weldsuite_db::js_timestamp)?;
-            Some((created_at, id))
-        });
+        let found: Option<(PrimitiveDateTime, String)> = ad_campaigns::Entity::find()
+            .select_only()
+            .columns([ad_campaigns::Column::CreatedAt, ad_campaigns::Column::Id])
+            .filter(ad_campaigns::Column::Id.eq(id))
+            .into_tuple()
+            .one(&db)
+            .await?;
+        cursor = found
+            .map(|(created_at, id)| (weldsuite_db::utc_timestamp(created_at.assume_utc()), id));
     }
 
     // The count takes the filters without the cursor's condition, which the
@@ -146,55 +245,40 @@ async fn list_page(
 
     // `limit + 1` rows; Drizzle leaves out a limit that is not a number >= 0.
     let probe = limit + 1.0;
-    #[allow(clippy::cast_possible_truncation)]
-    let sql_limit = (probe >= 0.0).then_some(probe as i64);
-    let found: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(x) from (
-             select c.id, c.ad_account_id, c.platform_campaign_id, c.name, c.status, c.objective,
-                    c.daily_budget, c.lifetime_budget, c.currency, c.metrics, c.metrics_synced_at,
-                    c.sync_status, c.sync_error, c.last_synced_at, c.created_at, c.updated_at,
-                    a.name as account_name, a.platform_account_id
-             from ad_campaigns c
-             inner join ad_accounts a on c.ad_account_id = a.id
-             where c.deleted_at is null
-               and ($1::text is null or c.ad_account_id = $1)
-               and ($2::text is null or c.status = $2)
-               and ($3::text is null or c.sync_status = $3::ad_campaign_sync_status)
-               and ($4::text is null or c.name like $4)
-               and ($5::text is null
-                    or c.created_at < $5::timestamp
-                    or (c.created_at = $5::timestamp and c.id < $6))
-             order by c.updated_at desc, c.id desc
-             limit $7
-         ) x",
-    )
-    .bind(&account)
-    .bind(&status)
-    .bind(&sync_status)
-    .bind(&search)
-    .bind(cursor.as_ref().map(|(created_at, _)| created_at.as_str()))
-    .bind(cursor.as_ref().map(|(_, id)| id.as_str()))
-    .bind(sql_limit)
-    .fetch_all(&caller.db)
-    .await?;
-    let total = count(
-        caller,
-        counted.contains(&Filter::Live),
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let sql_limit = (probe >= 0.0).then_some(probe as u64);
+    let mut conditions = filtered(
+        true,
         [
-            counts(Filter::Account, &account),
-            counts(Filter::Status, &status),
-            counts(Filter::SyncStatus, &sync_status),
-            counts(Filter::Search, &search),
+            account.clone(),
+            status.clone(),
+            sync_status.clone(),
+            search.clone(),
         ],
-    )
-    .await?;
+    );
+    if let Some(cursor) = cursor {
+        conditions = conditions.add(before(cursor));
+    }
+    let found = page(&db, conditions, sql_limit).await?;
+    let total = ad_campaigns::Entity::find()
+        .filter(filtered(
+            counted.contains(&Filter::Live),
+            [
+                counts(Filter::Account, &account),
+                counts(Filter::Status, &status),
+                counts(Filter::SyncStatus, &sync_status),
+                counts(Filter::Search, &search),
+            ],
+        ))
+        .count(&db)
+        .await?;
 
     #[allow(clippy::cast_precision_loss)]
     let has_more = (found.len() as f64) > limit;
     let data = if has_more {
-        js_slice_to(rows(found), limit)
+        js_slice_to(found, limit)
     } else {
-        rows(found)
+        found
     };
     let cursor = if has_more {
         data.last()
@@ -203,31 +287,56 @@ async fn list_page(
     } else {
         None
     };
-    let total = u64::try_from(total).unwrap_or_default();
     Ok(List::new(data, Pagination::new(total, has_more, cursor)).into_response())
 }
 
-/// The list's `count(*)` under the counted filters.
-async fn count(
-    caller: &Caller,
-    live: bool,
-    [account, status, sync_status, search]: [Option<String>; 4],
-) -> Result<i64, sqlx::Error> {
-    sqlx::query_scalar(
-        "select count(*)::bigint from ad_campaigns
-         where ($1::bool is not true or deleted_at is null)
-           and ($2::text is null or ad_account_id = $2)
-           and ($3::text is null or status = $3)
-           and ($4::text is null or sync_status = $4::ad_campaign_sync_status)
-           and ($5::text is null or name like $5)",
-    )
-    .bind(live)
-    .bind(account)
-    .bind(status)
-    .bind(sync_status)
-    .bind(search)
-    .fetch_one(&caller.db)
-    .await
+/// The page: the campaigns `conditions` keep, with their account, most
+/// recently updated first.
+async fn page(
+    db: &DatabaseConnection,
+    conditions: Condition,
+    limit: Option<u64>,
+) -> Result<Vec<Value>, DbErr> {
+    let rows = ad_campaigns::Entity::find()
+        .select_only()
+        .columns([
+            ad_campaigns::Column::Id,
+            ad_campaigns::Column::AdAccountId,
+            ad_campaigns::Column::PlatformCampaignId,
+            ad_campaigns::Column::Name,
+            ad_campaigns::Column::Status,
+            ad_campaigns::Column::Objective,
+            ad_campaigns::Column::DailyBudget,
+            ad_campaigns::Column::LifetimeBudget,
+            ad_campaigns::Column::Currency,
+            ad_campaigns::Column::Metrics,
+            ad_campaigns::Column::MetricsSyncedAt,
+            ad_campaigns::Column::SyncStatus,
+            ad_campaigns::Column::SyncError,
+            ad_campaigns::Column::LastSyncedAt,
+            ad_campaigns::Column::CreatedAt,
+            ad_campaigns::Column::UpdatedAt,
+        ])
+        .column_as(ad_accounts::Column::Name, "account_name")
+        .column_as(
+            ad_accounts::Column::PlatformAccountId,
+            "platform_account_id",
+        )
+        .join(
+            JoinType::InnerJoin,
+            ad_campaigns::Entity::belongs_to(ad_accounts::Entity)
+                .from(ad_campaigns::Column::AdAccountId)
+                .to(ad_accounts::Column::Id)
+                .into(),
+        )
+        .filter(conditions)
+        .order_by_desc(ad_campaigns::Column::UpdatedAt)
+        .order_by_desc(ad_campaigns::Column::Id)
+        .limit(limit)
+        .into_model::<CampaignRow>()
+        .all(db)
+        .await?;
+    Ok(rows.into_iter().map(CampaignRow::json).collect())
 }
 
 /// `GET /api/ad-campaigns/:id`.
@@ -239,14 +348,14 @@ pub(crate) async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
     }
 }
 
-async fn live_campaign(caller: &Caller, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(c) from ad_campaigns c where c.id = $1 and c.deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(&caller.db)
-    .await?;
-    Ok(row.map(weldsuite_db::js_row))
+async fn live_campaign(caller: &Caller, id: &str) -> Result<Option<Value>, DbErr> {
+    ad_campaigns::Entity::find()
+        .filter(ad_campaigns::Column::Id.eq(id))
+        .filter(ad_campaigns::Column::DeletedAt.is_null())
+        .one(&orm(&caller.db))
+        .await?
+        .map(|campaign| serde_json::to_value(campaign).map_err(json_error))
+        .transpose()
 }
 
 // ── validation ──────────────────────────────────────────────────────────────
@@ -396,32 +505,39 @@ fn patch_input(headers: &HeaderMap, body: &Bytes) -> Result<CampaignInput, Box<R
 /// What `createLocalCampaign` / `updateLocalCampaign` throw.
 enum WriteError {
     Message(&'static str),
-    Database(sqlx::Error),
+    Database(DbErr),
 }
 
-impl From<sqlx::Error> for WriteError {
-    fn from(error: sqlx::Error) -> Self {
+impl From<DbErr> for WriteError {
+    fn from(error: DbErr) -> Self {
         Self::Database(error)
     }
 }
 
 impl WriteError {
+    /// The thrown error's `message`: a failed statement's as the driver
+    /// gave it.
     fn message(&self) -> String {
         match self {
             Self::Message(message) => (*message).to_owned(),
-            Self::Database(error) => error.to_string(),
+            Self::Database(error) => sqlx_message(error),
         }
     }
 }
 
 /// `loadWritableAccount`: a live account chosen for sync; its currency.
 async fn writable_account(caller: &Caller, id: &str) -> Result<Option<String>, WriteError> {
-    let account: Option<(Option<String>, bool)> = sqlx::query_as(
-        "select currency, is_selected from ad_accounts where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(&caller.db)
-    .await?;
+    let account: Option<(Option<String>, bool)> = ad_accounts::Entity::find()
+        .select_only()
+        .columns([
+            ad_accounts::Column::Currency,
+            ad_accounts::Column::IsSelected,
+        ])
+        .filter(ad_accounts::Column::Id.eq(id))
+        .filter(ad_accounts::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(&caller.db))
+        .await?;
     let Some((currency, is_selected)) = account else {
         return Err(WriteError::Message("Ad account not found"));
     };
@@ -460,27 +576,40 @@ pub(crate) async fn create(
 async fn create_campaign(caller: &Caller, input: &CampaignInput) -> Result<Value, WriteError> {
     let account_id = input.ad_account_id.clone().unwrap_or_default();
     let currency = writable_account(caller, &account_id).await?;
-    let now = weldsuite_ads_domain::now();
-    let row: Value = sqlx::query_scalar(
-        "insert into ad_campaigns
-             (id, ad_account_id, platform_campaign_id, name, status, objective, daily_budget,
-              lifetime_budget, currency, sync_status, sync_error, created_at, updated_at)
-         values ($1, $2, null, $3, $4, $5, $6::int, $7::int, $8, 'pending_push', null,
-                 $9::timestamp, $9::timestamp)
-         returning to_jsonb(ad_campaigns)",
-    )
-    .bind(generate_id("adcp"))
-    .bind(&account_id)
-    .bind(input.name.as_deref().unwrap_or_default())
-    .bind(input.status.as_deref().unwrap_or("PAUSED"))
-    .bind(input.objective.as_deref())
-    .bind(input.daily_budget)
-    .bind(input.lifetime_budget)
-    .bind(currency)
-    .bind(&now)
-    .fetch_one(&caller.db)
+    let now = weldsuite_db::utc_now();
+    let row = ad_campaigns::Entity::insert(ad_campaigns::ActiveModel {
+        id: Set(generate_id("adcp")),
+        ad_account_id: Set(account_id),
+        platform_campaign_id: Set(None),
+        name: Set(input.name.clone().unwrap_or_default()),
+        status: Set(Some(
+            input.status.clone().unwrap_or_else(|| "PAUSED".to_owned()),
+        )),
+        objective: Set(input.objective.clone()),
+        daily_budget: Set(budget_int(input.daily_budget)?),
+        lifetime_budget: Set(budget_int(input.lifetime_budget)?),
+        currency: Set(currency),
+        sync_status: Set(AdCampaignSyncStatus::PendingPush),
+        sync_error: Set(None),
+        created_at: Set(now),
+        updated_at: Set(now),
+        ..Default::default()
+    })
+    .exec_with_returning(&orm(&caller.db))
     .await?;
-    Ok(weldsuite_db::js_row(row))
+    serde_json::to_value(row).map_err(|error| WriteError::Database(json_error(error)))
+}
+
+/// A budget as the `integer` column takes it (`$n::int`): one out of its
+/// range is the statement's error.
+fn budget_int(budget: Option<i64>) -> Result<Option<i32>, WriteError> {
+    budget
+        .map(|budget| {
+            i32::try_from(budget).map_err(|_| {
+                WriteError::Message("error returned from database: integer out of range")
+            })
+        })
+        .transpose()
 }
 
 /// `PATCH /api/ad-campaigns/:id`: the fields given, then pending a push.
@@ -519,38 +648,59 @@ async fn update_campaign(
     id: &str,
     input: &CampaignInput,
 ) -> Result<Value, WriteError> {
-    let account_id: Option<String> = sqlx::query_scalar(
-        "select ad_account_id from ad_campaigns where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(&caller.db)
-    .await?;
+    let account_id: Option<String> = ad_campaigns::Entity::find()
+        .select_only()
+        .column(ad_campaigns::Column::AdAccountId)
+        .filter(ad_campaigns::Column::Id.eq(id))
+        .filter(ad_campaigns::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(&caller.db))
+        .await?;
     let Some(account_id) = account_id else {
         return Err(WriteError::Message("Ad campaign not found"));
     };
     writable_account(caller, &account_id).await?;
-    let row: Option<Value> = sqlx::query_scalar(
-        "update ad_campaigns set
-             name = coalesce($2, name),
-             objective = coalesce($3, objective),
-             status = coalesce($4, status),
-             daily_budget = coalesce($5::int, daily_budget),
-             lifetime_budget = coalesce($6::int, lifetime_budget),
-             sync_status = 'pending_push',
-             sync_error = null,
-             updated_at = $7::timestamp
-         where id = $1
-         returning to_jsonb(ad_campaigns)",
-    )
-    .bind(id)
-    .bind(input.name.as_deref())
-    .bind(input.objective.as_deref())
-    .bind(input.status.as_deref())
-    .bind(input.daily_budget)
-    .bind(input.lifetime_budget)
-    .bind(weldsuite_ads_domain::now())
-    .fetch_optional(&caller.db)
-    .await?;
-    row.map(weldsuite_db::js_row)
-        .ok_or(WriteError::Message("Ad campaign not found"))
+    let daily_budget = budget_int(input.daily_budget)?;
+    let lifetime_budget = budget_int(input.lifetime_budget)?;
+    // `coalesce(new, column)`: a field the body leaves out keeps its value.
+    let mut update = ad_campaigns::Entity::update_many();
+    if let Some(name) = &input.name {
+        update = update.col_expr(ad_campaigns::Column::Name, Expr::val(name.as_str()));
+    }
+    if let Some(objective) = &input.objective {
+        update = update.col_expr(
+            ad_campaigns::Column::Objective,
+            Expr::val(objective.as_str()),
+        );
+    }
+    if let Some(status) = &input.status {
+        update = update.col_expr(ad_campaigns::Column::Status, Expr::val(status.as_str()));
+    }
+    if let Some(budget) = daily_budget {
+        update = update.col_expr(ad_campaigns::Column::DailyBudget, Expr::val(budget));
+    }
+    if let Some(budget) = lifetime_budget {
+        update = update.col_expr(ad_campaigns::Column::LifetimeBudget, Expr::val(budget));
+    }
+    let rows = update
+        .col_expr(
+            ad_campaigns::Column::SyncStatus,
+            ad_campaigns::Column::SyncStatus.save_as(Expr::val(AdCampaignSyncStatus::PendingPush)),
+        )
+        .col_expr(
+            ad_campaigns::Column::SyncError,
+            Expr::val(Option::<String>::None),
+        )
+        .col_expr(
+            ad_campaigns::Column::UpdatedAt,
+            Expr::val(weldsuite_db::utc_now()),
+        )
+        .filter(ad_campaigns::Column::Id.eq(id))
+        .exec_with_returning(&orm(&caller.db))
+        .await?;
+    let row = rows
+        .into_iter()
+        .next()
+        .ok_or(WriteError::Message("Ad campaign not found"))?;
+    serde_json::to_value(row).map_err(|error| WriteError::Database(json_error(error)))
 }

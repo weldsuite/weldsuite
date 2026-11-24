@@ -16,12 +16,15 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, Order, QueryFilter, QueryOrder, QuerySelect};
 use serde::Serialize;
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_ports::{DatabaseProvisioner, Identity};
+use weldsuite_schema::master::{workspace_database_moves as moves, workspaces};
 
 /// Workspaces handled per deletion run (`SWEEP_BATCH_LIMIT`).
-const SWEEP_BATCH_LIMIT: i64 = 50;
+const SWEEP_BATCH_LIMIT: u64 = 50;
 /// Teardowns retried per run (`TEARDOWN_BATCH_LIMIT`).
 pub const TEARDOWN_BATCH_LIMIT: i64 = 10;
 /// How long after `deleted_at` a teardown is retried (`TEARDOWN_RETRY_AFTER_MS`).
@@ -44,16 +47,18 @@ pub(crate) fn active_move_statuses() -> Vec<String> {
     .collect()
 }
 
-/// `hasActiveMove`.
-async fn has_active_move(master: &PgPool, workspace_id: &str) -> Result<bool, sqlx::Error> {
-    sqlx::query_scalar(
-        "select exists (select 1 from workspace_database_moves
-                         where workspace_id = $1 and status = any($2))",
-    )
-    .bind(workspace_id)
-    .bind(active_move_statuses())
-    .fetch_one(master)
-    .await
+/// `hasActiveMove`: a move of the workspace's database in one of
+/// [`active_move_statuses`].
+pub(crate) async fn has_active_move(master: &PgPool, workspace_id: &str) -> Result<bool, DbErr> {
+    let found: Option<String> = moves::Entity::find()
+        .select_only()
+        .column(moves::Column::Id)
+        .filter(moves::Column::WorkspaceId.eq(workspace_id))
+        .filter(moves::Column::Status.is_in(active_move_statuses()))
+        .into_tuple()
+        .one(&orm(master))
+        .await?;
+    Ok(found.is_some())
 }
 
 /// `DeletionSweepResult`.
@@ -69,16 +74,21 @@ pub struct DeletionSweepResult {
 pub async fn sweep_scheduled_deletions(
     master: &PgPool,
     identity: &Arc<dyn Identity>,
-) -> Result<DeletionSweepResult, sqlx::Error> {
-    let due: Vec<(String, Option<String>)> = sqlx::query_as(
-        "select id, clerk_org_id from workspaces
-          where deleted_at is null and scheduled_deletion_at is not null
-            and scheduled_deletion_at <= now()
-          limit $1",
-    )
-    .bind(SWEEP_BATCH_LIMIT)
-    .fetch_all(master)
-    .await?;
+) -> Result<DeletionSweepResult, DbErr> {
+    use sea_orm::ExprTrait as _;
+    let due: Vec<(String, Option<String>)> = workspaces::Entity::find()
+        .select_only()
+        .columns([workspaces::Column::Id, workspaces::Column::ClerkOrgId])
+        .filter(workspaces::Column::DeletedAt.is_null())
+        .filter(workspaces::Column::ScheduledDeletionAt.is_not_null())
+        .filter(
+            Expr::col((workspaces::Entity, workspaces::Column::ScheduledDeletionAt))
+                .lte(Expr::current_timestamp()),
+        )
+        .limit(SWEEP_BATCH_LIMIT)
+        .into_tuple()
+        .all(&orm(master))
+        .await?;
     let mut result = DeletionSweepResult {
         processed: due.len(),
         ..DeletionSweepResult::default()
@@ -119,12 +129,13 @@ async fn delete_one(
         Err(error) if error.is_not_found() => {}
         Err(error) => return Err(Box::new(error)),
     }
-    sqlx::query(
-        "update workspaces set deleted_at = now(), is_active = false, updated_at = now() where id = $1",
-    )
-    .bind(workspace_id)
-    .execute(master)
-    .await?;
+    workspaces::Entity::update_many()
+        .col_expr(workspaces::Column::DeletedAt, Expr::current_timestamp())
+        .col_expr(workspaces::Column::IsActive, Expr::value(false))
+        .col_expr(workspaces::Column::UpdatedAt, Expr::current_timestamp())
+        .filter(workspaces::Column::Id.eq(workspace_id))
+        .exec(&orm(master))
+        .await?;
     tracing::info!(
         workspace_id,
         org,
@@ -150,19 +161,7 @@ pub async fn sweep_unfinished_teardowns(
     retry_after: Duration,
 ) -> TeardownSweepResult {
     let mut result = TeardownSweepResult::default();
-    let seconds = i64::try_from(retry_after.as_secs()).unwrap_or(i64::MAX);
-    let due: Result<Vec<String>, sqlx::Error> = sqlx::query_scalar(
-        "select id from workspaces
-          where deleted_at is not null and deleted_at < now() - make_interval(secs => $1::bigint::double precision)
-            and is_active = false and neon_project_id is not null
-          order by updated_at asc, id asc
-          limit $2",
-    )
-    .bind(seconds)
-    .bind(TEARDOWN_BATCH_LIMIT)
-    .fetch_all(master)
-    .await;
-    let due = match due {
+    let due = match unfinished_teardowns(master, retry_after).await {
         Ok(due) => due,
         Err(error) => {
             tracing::error!(%error, "teardown sweep: failed");
@@ -194,11 +193,11 @@ pub async fn sweep_unfinished_teardowns(
             Err(error) => {
                 tracing::error!(%error, workspace_id, "teardown sweep: the teardown failed again");
                 result.failed += 1;
-                let requeued =
-                    sqlx::query("update workspaces set updated_at = now() where id = $1")
-                        .bind(&workspace_id)
-                        .execute(master)
-                        .await;
+                let requeued = workspaces::Entity::update_many()
+                    .col_expr(workspaces::Column::UpdatedAt, Expr::current_timestamp())
+                    .filter(workspaces::Column::Id.eq(&workspace_id))
+                    .exec(&orm(master))
+                    .await;
                 if let Err(error) = requeued {
                     tracing::error!(%error, workspace_id, "teardown sweep: could not requeue");
                 }
@@ -206,4 +205,37 @@ pub async fn sweep_unfinished_teardowns(
         }
     }
     result
+}
+
+/// Deleted workspaces that still hold a database, `deleted_at` older than
+/// `retry_after` (whole seconds, `now() - make_interval(secs => …)`), the
+/// longest untouched first.
+async fn unfinished_teardowns(
+    master: &PgPool,
+    retry_after: Duration,
+) -> Result<Vec<String>, DbErr> {
+    use sea_orm::ExprTrait as _;
+    let seconds = Duration::from_secs(retry_after.as_secs()).as_secs_f64();
+    let cutoff = Expr::current_timestamp().sub(Func::cust("make_interval").args([
+        Expr::val(0),
+        Expr::val(0),
+        Expr::val(0),
+        Expr::val(0),
+        Expr::val(0),
+        Expr::val(0),
+        Expr::val(seconds),
+    ]));
+    workspaces::Entity::find()
+        .select_only()
+        .column(workspaces::Column::Id)
+        .filter(workspaces::Column::DeletedAt.is_not_null())
+        .filter(Expr::col((workspaces::Entity, workspaces::Column::DeletedAt)).lt(cutoff))
+        .filter(workspaces::Column::IsActive.eq(false))
+        .filter(workspaces::Column::NeonProjectId.is_not_null())
+        .order_by(workspaces::Column::UpdatedAt, Order::Asc)
+        .order_by(workspaces::Column::Id, Order::Asc)
+        .limit(TEARDOWN_BATCH_LIMIT.unsigned_abs())
+        .into_tuple()
+        .all(&orm(master))
+        .await
 }

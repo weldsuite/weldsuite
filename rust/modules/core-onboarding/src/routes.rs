@@ -9,13 +9,21 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use http::header::CONTENT_TYPE;
 use http::{HeaderMap, StatusCode};
+use sea_orm::sea_query::{Expr, OnConflict};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, FromQueryResult, QueryFilter, QuerySelect,
+};
 use serde::Serialize;
 use serde_json::{Map, Value, json};
+use time::{OffsetDateTime, PrimitiveDateTime};
+use weldsuite_db::orm;
 use weldsuite_kit::validation::{Issues, Presence, Text, js_trim, json_body};
 use weldsuite_kit::{ApiError, Created, Data};
 use weldsuite_ports::{
     Identity, IdentityError, IdentityResult, NewInvitation, UserChanges, UserProfile, with_identity,
 };
+use weldsuite_schema::master::{app_catalog, workspaces};
+use weldsuite_schema::tenant::{user_app_assignments, workspace_installed_apps};
 
 use crate::caller::OnboardingCaller;
 use crate::territory::{
@@ -445,15 +453,16 @@ async fn status(State(state): State<OnboardingState>, caller: OnboardingCaller) 
     let (Some(_), Some(org)) = (&caller.user_id, &caller.org_id) else {
         return none();
     };
-    let completed: Result<Option<bool>, sqlx::Error> = sqlx::query_scalar(
-        "select onboarding_completed_at is not null from workspaces where clerk_org_id = $1 limit 1",
-    )
-    .bind(org)
-    .fetch_optional(&caller.master(&state))
-    .await;
+    let completed: Result<Option<Option<PrimitiveDateTime>>, DbErr> = workspaces::Entity::find()
+        .select_only()
+        .column(workspaces::Column::OnboardingCompletedAt)
+        .filter(workspaces::Column::ClerkOrgId.eq(org))
+        .into_tuple()
+        .one(&orm(&caller.master(&state)))
+        .await;
     match completed {
         Ok(completed) => ok(json!({
-            "completed": completed.unwrap_or(false),
+            "completed": completed.flatten().is_some(),
             "hasOrganization": true,
         })),
         Err(error) => {
@@ -465,6 +474,9 @@ async fn status(State(state): State<OnboardingState>, caller: OnboardingCaller) 
 
 // ── GET /database-status ────────────────────────────────────────────────────
 
+/// `neon_project_id, database_provisioned_at, provisioning_status`.
+type ProvisioningRow = (Option<String>, Option<PrimitiveDateTime>, Option<String>);
+
 async fn database_status(
     State(state): State<OnboardingState>,
     caller: OnboardingCaller,
@@ -475,17 +487,22 @@ async fn database_status(
     let Some(org) = &caller.org_id else {
         return pending();
     };
-    let row: Result<Option<(bool, bool, Option<String>)>, sqlx::Error> = sqlx::query_as(
-        "select neon_project_id is not null and neon_project_id <> '',
-                database_provisioned_at is not null, provisioning_status
-           from workspaces where clerk_org_id = $1 limit 1",
-    )
-    .bind(org)
-    .fetch_optional(&caller.master(&state))
-    .await;
+    let row: Result<Option<ProvisioningRow>, DbErr> = workspaces::Entity::find()
+        .select_only()
+        .columns([
+            workspaces::Column::NeonProjectId,
+            workspaces::Column::DatabaseProvisionedAt,
+            workspaces::Column::ProvisioningStatus,
+        ])
+        .filter(workspaces::Column::ClerkOrgId.eq(org))
+        .into_tuple()
+        .one(&orm(&caller.master(&state)))
+        .await;
     match row {
         Ok(Some((project, provisioned_at, status))) => {
-            let provisioned = project && provisioned_at;
+            // `neon_project_id is not null and neon_project_id <> ''`.
+            let project = project.is_some_and(|id| !id.is_empty());
+            let provisioned = project && provisioned_at.is_some();
             let failed = !provisioned && status.as_deref() == Some("failed");
             let status = if provisioned {
                 "ready".to_owned()
@@ -541,11 +558,13 @@ async fn user_info(State(state): State<OnboardingState>, caller: OnboardingCalle
     };
     let mut organization = Value::Null;
     if let Some(org) = &caller.org_id {
-        let name: Result<Option<String>, sqlx::Error> =
-            sqlx::query_scalar("select name from workspaces where clerk_org_id = $1 limit 1")
-                .bind(org)
-                .fetch_optional(&caller.master(&state))
-                .await;
+        let name: Result<Option<String>, DbErr> = workspaces::Entity::find()
+            .select_only()
+            .column(workspaces::Column::Name)
+            .filter(workspaces::Column::ClerkOrgId.eq(org))
+            .into_tuple()
+            .one(&orm(&caller.master(&state)))
+            .await;
         match name {
             Ok(Some(name)) => organization = json!({ "id": org, "name": name }),
             Ok(None) => {}
@@ -698,7 +717,7 @@ fn fallback_catalog(state: &OnboardingState) -> Vec<&'static FallbackApp> {
 }
 
 /// A published catalog row, mapped as the route maps it.
-#[derive(Serialize, sqlx::FromRow)]
+#[derive(Serialize, FromQueryResult)]
 #[serde(rename_all = "camelCase")]
 struct CatalogApp {
     code: String,
@@ -718,13 +737,27 @@ async fn available_apps(
     State(state): State<OnboardingState>,
     caller: OnboardingCaller,
 ) -> Response {
-    let rows: Result<Vec<CatalogApp>, sqlx::Error> = sqlx::query_as(
-        "select code, name, description, icon, category, path, overview, features,
-                how_it_works, version, provider
-           from app_catalog where is_active = true and is_published = true",
-    )
-    .fetch_all(&caller.master(&state))
-    .await;
+    use app_catalog::Column;
+    let rows: Result<Vec<CatalogApp>, DbErr> = app_catalog::Entity::find()
+        .select_only()
+        .columns([
+            Column::Code,
+            Column::Name,
+            Column::Description,
+            Column::Icon,
+            Column::Category,
+            Column::Path,
+            Column::Overview,
+            Column::Features,
+            Column::HowItWorks,
+            Column::Version,
+            Column::Provider,
+        ])
+        .filter(Column::IsActive.eq(true))
+        .filter(Column::IsPublished.eq(true))
+        .into_model()
+        .all(&orm(&caller.master(&state)))
+        .await;
     match rows {
         Ok(rows) if !rows.is_empty() => {
             let mapped: Vec<CatalogApp> = rows
@@ -1212,28 +1245,35 @@ async fn retry(State(state): State<OnboardingState>, caller: OnboardingCaller) -
         tracing::error!(%error, "onboarding: error in retry provisioning");
         internal("Failed to provision")
     };
-    let master = caller.master(&state);
-    let provisioned: Result<Option<bool>, sqlx::Error> = sqlx::query_scalar(
-        "select database_provisioned_at is not null from workspaces where clerk_org_id = $1 limit 1",
-    )
-    .bind(&org)
-    .fetch_optional(&master)
-    .await;
+    let master = orm(&caller.master(&state));
+    let provisioned: Result<Option<Option<PrimitiveDateTime>>, DbErr> = workspaces::Entity::find()
+        .select_only()
+        .column(workspaces::Column::DatabaseProvisionedAt)
+        .filter(workspaces::Column::ClerkOrgId.eq(&org))
+        .into_tuple()
+        .one(&master)
+        .await;
     match provisioned {
-        Ok(Some(true)) => return ok(json!({ "success": true })),
+        Ok(Some(Some(_))) => return ok(json!({ "success": true })),
         Ok(_) => {}
         Err(error) => return failed(&error),
     }
     let Some(service) = state.workspace_service.clone() else {
         return no_workspace_service();
     };
-    let reset = sqlx::query(
-        "update workspaces set provisioning_status = 'provisioning', provisioning_error = null,
-                updated_at = now() where clerk_org_id = $1",
-    )
-    .bind(&org)
-    .execute(&master)
-    .await;
+    let reset = workspaces::Entity::update_many()
+        .col_expr(
+            workspaces::Column::ProvisioningStatus,
+            Expr::value("provisioning"),
+        )
+        .col_expr(
+            workspaces::Column::ProvisioningError,
+            Expr::value(Option::<String>::None),
+        )
+        .col_expr(workspaces::Column::UpdatedAt, Expr::current_timestamp())
+        .filter(workspaces::Column::ClerkOrgId.eq(&org))
+        .exec(&master)
+        .await;
     if let Err(error) = reset {
         return failed(&error);
     }
@@ -1294,13 +1334,15 @@ async fn finalize(State(state): State<OnboardingState>, caller: OnboardingCaller
             Err(IdentityError::Rejected { .. }) => Vec::new(),
             Err(error) => return failed(&error),
         };
-    let marked = sqlx::query(
-        "update workspaces set onboarding_completed_at = now(), updated_at = now()
-          where clerk_org_id = $1",
-    )
-    .bind(&org)
-    .execute(&master)
-    .await;
+    let marked = workspaces::Entity::update_many()
+        .col_expr(
+            workspaces::Column::OnboardingCompletedAt,
+            Expr::current_timestamp(),
+        )
+        .col_expr(workspaces::Column::UpdatedAt, Expr::current_timestamp())
+        .filter(workspaces::Column::ClerkOrgId.eq(&org))
+        .exec(&orm(&master))
+        .await;
     if let Err(error) = marked {
         return failed(&error);
     }
@@ -1327,45 +1369,64 @@ async fn install_selected_apps(
             return;
         }
     };
-    let on_request: Vec<String> =
-        match sqlx::query_scalar("select code from app_catalog where requires_approval = true")
-            .fetch_all(master)
-            .await
-        {
-            Ok(codes) => codes,
-            Err(error) => {
-                tracing::error!(%error, "onboarding: could not read the apps on request");
-                return;
-            }
-        };
+    let on_request: Vec<String> = match app_catalog::Entity::find()
+        .select_only()
+        .column(app_catalog::Column::Code)
+        .filter(app_catalog::Column::RequiresApproval.eq(true))
+        .into_tuple()
+        .all(&orm(master))
+        .await
+    {
+        Ok(codes) => codes,
+        Err(error) => {
+            tracing::error!(%error, "onboarding: could not read the apps on request");
+            return;
+        }
+    };
+    let tenant = orm(&tenant);
     for app in apps.iter().filter(|app| !on_request.contains(app)) {
-        let installed = async {
-            sqlx::query(
-                "insert into workspace_installed_apps
-                   (id, app_code, installed_by, is_active, installed_at, created_at, updated_at)
-                 values ($1, $2, $3, true, now(), now(), now())
-                 on conflict do nothing",
-            )
-            .bind(weldsuite_kit::generate_id("wia"))
-            .bind(app)
-            .bind(user_id)
-            .execute(&tenant)
-            .await?;
-            sqlx::query(
-                "insert into user_app_assignments (id, user_id, app_code, is_active, created_at, updated_at)
-                 values ($1, $2, $3, true, now(), now())
-                 on conflict do nothing",
-            )
-            .bind(weldsuite_kit::generate_id("uaa"))
-            .bind(user_id)
-            .bind(app)
-            .execute(&tenant)
-            .await
-        };
-        if let Err(error) = installed.await {
+        if let Err(error) = install_app(&tenant, app, user_id).await {
             tracing::error!(%error, app, "onboarding: failed to install an app");
         }
     }
+}
+
+/// The app, then the installer's assignment to it; each insert skips a row
+/// that is already there (`on conflict do nothing`).
+async fn install_app(
+    tenant: &sea_orm::DatabaseConnection,
+    app: &str,
+    user_id: &str,
+) -> Result<(), DbErr> {
+    // `now()`: one instant per statement.
+    let now = OffsetDateTime::now_utc();
+    workspace_installed_apps::Entity::insert(workspace_installed_apps::ActiveModel {
+        id: Set(weldsuite_kit::generate_id("wia")),
+        app_code: Set(app.to_owned()),
+        installed_by: Set(Some(user_id.to_owned())),
+        is_active: Set(true),
+        installed_at: Set(Some(now)),
+        created_at: Set(now),
+        updated_at: Set(now),
+        ..Default::default()
+    })
+    .on_conflict(OnConflict::new().do_nothing().to_owned())
+    .exec_without_returning(tenant)
+    .await?;
+    let now = OffsetDateTime::now_utc();
+    user_app_assignments::Entity::insert(user_app_assignments::ActiveModel {
+        id: Set(weldsuite_kit::generate_id("uaa")),
+        user_id: Set(user_id.to_owned()),
+        app_code: Set(app.to_owned()),
+        is_active: Set(true),
+        created_at: Set(now),
+        updated_at: Set(now),
+        ..Default::default()
+    })
+    .on_conflict(OnConflict::new().do_nothing().to_owned())
+    .exec_without_returning(tenant)
+    .await
+    .map(drop)
 }
 
 #[cfg(test)]

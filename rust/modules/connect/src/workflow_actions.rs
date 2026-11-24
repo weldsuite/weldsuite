@@ -26,6 +26,9 @@ use axum::response::{IntoResponse, Response};
 use http::header::{AUTHORIZATION, CONTENT_TYPE};
 use http::request::Parts;
 use http::{HeaderMap, StatusCode};
+use sea_orm::ActiveValue::Set;
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect, RuntimeErr};
 use serde_json::{Map, Value, json};
 use time::OffsetDateTime;
 use weldsuite_catalogs::entity_events::{
@@ -35,16 +38,17 @@ use weldsuite_catalogs::entity_events::{
 use weldsuite_chat_domain::Realtime;
 use weldsuite_chat_domain::text::{js_len, js_prefix, mention_bodies};
 use weldsuite_crm_domain::DomainError;
-use weldsuite_db::{PgPool, Tenant, TenantPermissionQueries, js_row};
-use weldsuite_events::{
-    EntityEvent, EntityEventPublisher, EventContext, EventSource, EventType, iso_timestamp,
-};
+use weldsuite_db::{PgPool, Tenant, TenantPermissionQueries, orm, utc_now};
+use weldsuite_events::{EntityEvent, EntityEventPublisher, EventContext, EventSource, EventType};
 use weldsuite_kit::validation::{Format, Issues, Presence, Text, json_body};
 use weldsuite_kit::{RequestEnv, generate_id};
 use weldsuite_permissions::{
     AppCheckMode, ResolvedPermissions, check_app_permission, resolve_effective_permissions,
 };
 use weldsuite_ports::{DynRealtimePublisher, OutboundHttp};
+use weldsuite_schema::tenant::{
+    chat_channel_members, chat_channels, chat_messages, companies, people, tasks, workspace_members,
+};
 
 use crate::TenantDatabases;
 
@@ -155,10 +159,27 @@ enum Failure {
     Internal(String),
 }
 
+/// The crates not converted to the ORM yet.
 impl From<sqlx::Error> for Failure {
     fn from(error: sqlx::Error) -> Self {
         Self::Internal(error.to_string())
     }
+}
+
+/// The 500's message is the driver's, as it was before the ORM.
+impl From<DbErr> for Failure {
+    fn from(error: DbErr) -> Self {
+        Self::Internal(match &error {
+            DbErr::Query(RuntimeErr::SqlxError(sqlx))
+            | DbErr::Exec(RuntimeErr::SqlxError(sqlx)) => sqlx.to_string(),
+            other => other.to_string(),
+        })
+    }
+}
+
+/// A row as Drizzle returns it: the entity's JSON.
+fn js<M: serde::Serialize>(model: M) -> Result<Value, Failure> {
+    serde_json::to_value(model).map_err(|error| Failure::Internal(error.to_string()))
 }
 
 impl From<DomainError> for Failure {
@@ -815,18 +836,6 @@ fn person_fields(contact: &Map<String, Value>) -> Map<String, Value> {
     fields
 }
 
-async fn row_of(
-    db: &PgPool,
-    table_query: &'static str,
-    id: &str,
-) -> Result<Option<Value>, Failure> {
-    let row: Option<Value> = sqlx::query_scalar(sqlx::AssertSqlSafe(table_query))
-        .bind(id)
-        .fetch_optional(db)
-        .await?;
-    Ok(row.map(js_row))
-}
-
 async fn run(action: Action, parsed: Parsed, performer: &Performer<'_>) -> Answer {
     let result = match parsed {
         Parsed::Customer {
@@ -924,28 +933,31 @@ async fn create_customer(
     // `findCompanyByEmail`.
     let existing = match email.filter(|_| skip_if_email_exists) {
         Some(email) => {
-            sqlx::query_scalar::<_, Value>(
-                "select to_jsonb(c) from companies c
-                 where c.deleted_at is null and lower(c.email) = $1 limit 1",
-            )
-            .bind(email.to_lowercase())
-            .fetch_optional(db)
-            .await?
+            companies::Entity::find()
+                .filter(companies::Column::DeletedAt.is_null())
+                .filter(sea_orm::ExprTrait::eq(
+                    Expr::from(Func::lower(Expr::col(companies::Column::Email))),
+                    email.to_lowercase(),
+                ))
+                .one(&orm(db))
+                .await?
         }
         None => None,
     };
     let (created, company) = if let Some(row) = existing {
-        (false, js_row(row))
+        (false, js(row)?)
     } else {
         // `isValidWorkspaceMember`: a schedule run's `system`, or someone
         // who left, leaves the owner unset.
         let owner_id = if !acting.is_empty() && acting != "system" {
-            let member: Option<String> = sqlx::query_scalar(
-                "select user_id from workspace_members where user_id = $1 and deleted_at is null limit 1",
-            )
-            .bind(acting)
-            .fetch_optional(db)
-            .await?;
+            let member: Option<String> = workspace_members::Entity::find()
+                .select_only()
+                .column(workspace_members::Column::UserId)
+                .filter(workspace_members::Column::UserId.eq(acting))
+                .filter(workspace_members::Column::DeletedAt.is_null())
+                .into_tuple()
+                .one(&orm(db))
+                .await?;
             member.map(|_| acting.to_owned())
         } else {
             None
@@ -1070,14 +1082,11 @@ async fn create_contact(
                 existing_person_id,
                 message,
             }) => {
-                match row_of(
-                    db,
-                    "select to_jsonb(p) from people p where p.id = $1 limit 1",
-                    &existing_person_id,
-                )
-                .await?
+                match people::Entity::find_by_id(existing_person_id)
+                    .one(&orm(db))
+                    .await?
                 {
-                    Some(existing) => existing,
+                    Some(existing) => js(existing)?,
                     None => return Err(Failure::Internal(message)),
                 }
             }
@@ -1386,40 +1395,44 @@ async fn post_chat_message(
     let author_name = workflow_name.unwrap_or("Workflow");
 
     let id = generate_id("msg");
-    let now = iso_timestamp(OffsetDateTime::now_utc());
+    let now = utc_now();
     let all_mentions = extract_chat_mentions(content, mentions);
     let mentions_everyone = all_mentions.iter().any(|m| m == "everyone");
-    sqlx::query(
-        "insert into chat_messages (id, channel_id, author_id, author_name, author_type, content,
-           mentions, mentions_everyone, metadata, created_at, updated_at)
-         values ($1, $2, $3, $4, 'system', $5, $6, $7, '{\"postedByWorkflow\":true}'::jsonb,
-           $8::timestamp, $8::timestamp)",
-    )
-    .bind(&id)
-    .bind(channel_id)
-    .bind(&author_id)
-    .bind(author_name)
-    .bind(content)
-    .bind((!all_mentions.is_empty()).then(|| json!(all_mentions)))
-    .bind(mentions_everyone)
-    .bind(&now)
-    .execute(db)
+    chat_messages::Entity::insert(chat_messages::ActiveModel {
+        id: Set(id.clone()),
+        channel_id: Set(channel_id.to_owned()),
+        author_id: Set(author_id.clone()),
+        author_name: Set(author_name.to_owned()),
+        author_type: Set("system".to_owned()),
+        content: Set(content.to_owned()),
+        mentions: Set((!all_mentions.is_empty()).then(|| json!(all_mentions))),
+        mentions_everyone: Set(mentions_everyone),
+        metadata: Set(Some(json!({ "postedByWorkflow": true }))),
+        created_at: Set(now),
+        updated_at: Set(now),
+        ..Default::default()
+    })
+    .exec_without_returning(&orm(db))
     .await?;
     let preview = if js_len(content) > 100 {
         format!("{}...", js_prefix(content, 100))
     } else {
         content.to_owned()
     };
-    sqlx::query(
-        "update chat_channels set last_message_at = $2::timestamp, last_message_preview = $3,
-           message_count = message_count + 1, updated_at = $2::timestamp
-         where id = $1",
-    )
-    .bind(channel_id)
-    .bind(&now)
-    .bind(&preview)
-    .execute(db)
-    .await?;
+    chat_channels::Entity::update_many()
+        .col_expr(chat_channels::Column::LastMessageAt, Expr::value(Some(now)))
+        .col_expr(
+            chat_channels::Column::LastMessagePreview,
+            Expr::value(Some(preview.clone())),
+        )
+        .col_expr(
+            chat_channels::Column::MessageCount,
+            sea_orm::ExprTrait::add(Expr::col(chat_channels::Column::MessageCount), 1),
+        )
+        .col_expr(chat_channels::Column::UpdatedAt, Expr::value(now))
+        .filter(chat_channels::Column::Id.eq(channel_id))
+        .exec(&orm(db))
+        .await?;
 
     let realtime = Realtime::new(performer.realtime.clone());
     if realtime.is_on() {
@@ -1431,12 +1444,16 @@ async fn post_chat_message(
         message.insert("authorType".into(), json!("system"));
         realtime.message(channel_id, message).await;
         // `fanOutUnreadUpdates`: every human member.
-        match sqlx::query_as::<_, (String, Option<String>)>(
-            "select user_id, member_type from chat_channel_members where channel_id = $1",
-        )
-        .bind(channel_id)
-        .fetch_all(db)
-        .await
+        match chat_channel_members::Entity::find()
+            .select_only()
+            .columns([
+                chat_channel_members::Column::UserId,
+                chat_channel_members::Column::MemberType,
+            ])
+            .filter(chat_channel_members::Column::ChannelId.eq(channel_id))
+            .into_tuple::<(String, Option<String>)>()
+            .all(&orm(db))
+            .await
         {
             Ok(members) => {
                 for (user_id, member_type) in members {
@@ -1457,14 +1474,18 @@ async fn post_chat_message(
     // `notifyMentionedUsers`.
     let notifier = performer.notifier();
     for mentioned in all_mentions.iter().filter(|m| is_notifiable_mention(m)) {
-        if let Err(error) = sqlx::query(
-            "update chat_channel_members set unread_mention_count = unread_mention_count + 1
-             where channel_id = $1 and user_id = $2",
-        )
-        .bind(channel_id)
-        .bind(mentioned)
-        .execute(db)
-        .await
+        if let Err(error) = chat_channel_members::Entity::update_many()
+            .col_expr(
+                chat_channel_members::Column::UnreadMentionCount,
+                sea_orm::ExprTrait::add(
+                    Expr::col(chat_channel_members::Column::UnreadMentionCount),
+                    1,
+                ),
+            )
+            .filter(chat_channel_members::Column::ChannelId.eq(channel_id))
+            .filter(chat_channel_members::Column::UserId.eq(mentioned))
+            .exec(&orm(db))
+            .await
         {
             tracing::error!(%error, "[chat-domain] workflow mention count increment failed");
         }
@@ -1575,10 +1596,10 @@ async fn create_task(
     };
     match weldsuite_calendar_domain::create_calendar_event_for_task(db, &event).await {
         Ok(Some(event_id)) => {
-            if let Err(error) = sqlx::query("update tasks set calendar_event_id = $2 where id = $1")
-                .bind(&id)
-                .bind(&event_id)
-                .execute(db)
+            if let Err(error) = tasks::Entity::update_many()
+                .col_expr(tasks::Column::CalendarEventId, Expr::value(Some(event_id)))
+                .filter(tasks::Column::Id.eq(&id))
+                .exec(&orm(db))
                 .await
             {
                 tracing::error!(%error, "[connect-api] workflow create_task calendar auto-schedule failed");
@@ -1653,12 +1674,13 @@ async fn assignment_notifications(
         if assignee == owner {
             continue;
         }
-        let assigner: Option<Option<String>> = match sqlx::query_scalar(
-            "select name from workspace_members where user_id = $1 limit 1",
-        )
-        .bind(owner)
-        .fetch_optional(db)
-        .await
+        let assigner: Option<Option<String>> = match workspace_members::Entity::find()
+            .select_only()
+            .column(workspace_members::Column::Name)
+            .filter(workspace_members::Column::UserId.eq(owner))
+            .into_tuple()
+            .one(&orm(db))
+            .await
         {
             Ok(name) => name,
             Err(error) => {

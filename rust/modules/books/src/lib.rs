@@ -16,11 +16,6 @@
 //! routers whose records sit under `/:id` answer 404 for a record of an
 //! entity the request may not touch (`guardEntityRecords`).
 
-#![allow(
-    clippy::disallowed_methods,
-    reason = "not converted to the ORM yet (ADR DATA-019)"
-)]
-
 mod accounting_dimensions;
 mod accounting_entities;
 mod accounting_settings;
@@ -29,6 +24,7 @@ mod fiscal_periods;
 mod fx_rates;
 mod gl_accounts;
 mod journal_entries;
+mod orm_bridge;
 mod tax_rates;
 
 use std::sync::Arc;

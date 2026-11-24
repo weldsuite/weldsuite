@@ -18,12 +18,18 @@ use axum::{Extension, Router};
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use http::HeaderMap;
+use sea_orm::sea_query::Expr;
+use sea_orm::{ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, QueryFilter};
 use serde_json::{Map, Value, json};
+use time::OffsetDateTime;
 use weldsuite_catalogs::entity_events as ev;
-use weldsuite_db::{PgPool, Tenant};
+use weldsuite_db::{PgPool, Tenant, orm, orm_error, utc_now, utc_timestamp};
+use weldsuite_events::iso_timestamp;
 use weldsuite_kit::validation::{Field, Issues, Presence, Text};
 use weldsuite_kit::{ApiError, Created, Data, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::master::widget_registry;
+use weldsuite_schema::tenant::desk_widget_settings;
 
 use super::{lenient_json, master};
 use crate::crud::write_failed;
@@ -405,18 +411,18 @@ fn read_update(
 
 // ── routes ──────────────────────────────────────────────────────────────────
 
+/// A row as Drizzle's `select()` returns it, identity secret included.
+fn to_json(model: desk_widget_settings::Model) -> Result<Value, DbErr> {
+    serde_json::to_value(model).map_err(|error| DbErr::Json(error.to_string()))
+}
+
 async fn list(caller: Caller) -> Response {
-    let rows: Result<Vec<Value>, _> =
-        sqlx::query_scalar("select to_jsonb(t) from desk_widget_settings t")
-            .fetch_all(&caller.db)
-            .await;
+    let rows = desk_widget_settings::Entity::find()
+        .all(&orm(&caller.db))
+        .await
+        .and_then(|rows| rows.into_iter().map(to_json).collect::<Result<Vec<_>, _>>());
     match rows {
-        Ok(rows) => Data(Value::Array(
-            rows.into_iter()
-                .map(|row| public(WIDGETS.js(row)))
-                .collect(),
-        ))
-        .into_response(),
+        Ok(rows) => Data(Value::Array(rows.into_iter().map(public).collect())).into_response(),
         Err(error) => Refusal::from(error).respond("Failed to list widgets"),
     }
 }
@@ -435,7 +441,8 @@ async fn create(
     };
     let id = generate_id("dwgt");
     let widget_id = generate_id("widget");
-    let now = now();
+    let at = OffsetDateTime::now_utc();
+    let now = iso_timestamp(at);
     let name = data
         .get("widgetName")
         .and_then(Value::as_str)
@@ -477,16 +484,17 @@ async fn create(
         Err(error) => return write_failed(&error, message),
     };
     if let Some(master) = master(&caller, &state) {
-        let inserted = sqlx::query(
-            "insert into widget_registry (id, widget_id, workspace_id, widget_name, is_active, created_at, updated_at)
-             values ($1, $2, $3, $4, true, $5::timestamp, $5::timestamp)",
-        )
-        .bind(generate_id("wr"))
-        .bind(&widget_id)
-        .bind(&tenant.workspace_id)
-        .bind(&name)
-        .bind(&now)
-        .execute(&master)
+        let stamp = utc_timestamp(at);
+        let inserted = widget_registry::Entity::insert(widget_registry::ActiveModel {
+            id: Set(generate_id("wr")),
+            widget_id: Set(widget_id.clone()),
+            workspace_id: Set(tenant.workspace_id.clone()),
+            widget_name: Set(Some(name.clone())),
+            is_active: Set(true),
+            created_at: Set(stamp),
+            updated_at: Set(stamp),
+        })
+        .exec_without_returning(&orm(&master))
         .await;
         if let Err(error) = inserted {
             tracing::error!(%error, "[app-api/desk-widget] registry insert failed");
@@ -502,14 +510,13 @@ async fn create(
 }
 
 /// The row of `widget_id`, identity secret included.
-async fn by_widget_id(db: &PgPool, widget_id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from desk_widget_settings t where t.widget_id = $1 limit 1",
-    )
-    .bind(widget_id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(|row| WIDGETS.js(row)))
+async fn by_widget_id(db: &PgPool, widget_id: &str) -> Result<Option<Value>, DbErr> {
+    desk_widget_settings::Entity::find()
+        .filter(desk_widget_settings::Column::WidgetId.eq(widget_id))
+        .one(&orm(db))
+        .await?
+        .map(to_json)
+        .transpose()
 }
 
 async fn detail(caller: Caller, Path(widget_id): Path<String>) -> Response {
@@ -525,7 +532,11 @@ async fn detail(caller: Caller, Path(widget_id): Path<String>) -> Response {
 /// (`new Intl.DateTimeFormat('en-US', { timeZone })` doesn't throw): the
 /// IANA database Postgres carries, matched without case as ICU does, or a
 /// UTC offset. `None` when the body has no string zone.
-async fn zone_known(db: &PgPool, body: &Bytes) -> Result<Option<bool>, sqlx::Error> {
+#[allow(
+    clippy::disallowed_methods,
+    reason = "asks Postgres's own time zone catalogue (pg_timezone_names), a system view with no entity"
+)]
+async fn zone_known(db: &PgPool, body: &Bytes) -> Result<Option<bool>, DbErr> {
     let Some(Value::Object(fields)) = lenient_json(body) else {
         return Ok(None);
     };
@@ -540,7 +551,8 @@ async fn zone_known(db: &PgPool, body: &Bytes) -> Result<Option<bool>, sqlx::Err
     )
     .bind(zone)
     .fetch_one(db)
-    .await?;
+    .await
+    .map_err(orm_error)?;
     Ok(Some(known))
 }
 
@@ -612,21 +624,18 @@ async fn update(
     if (name.is_some() || enabled.is_some())
         && let Some(master) = master(&caller, &state)
     {
-        let changed = sqlx::query(
-            "update widget_registry set
-               widget_name = case when $2::boolean then $3::text else widget_name end,
-               is_active = case when $4::boolean then $5::boolean else is_active end,
-               updated_at = $6::timestamp
-             where widget_id = $1",
-        )
-        .bind(&widget_id)
-        .bind(name.is_some())
-        .bind(name)
-        .bind(enabled.is_some())
-        .bind(enabled)
-        .bind(now())
-        .execute(&master)
-        .await;
+        let mut registry = widget_registry::Entity::update_many();
+        if let Some(name) = name {
+            registry = registry.col_expr(widget_registry::Column::WidgetName, Expr::value(name));
+        }
+        if let Some(enabled) = enabled {
+            registry = registry.col_expr(widget_registry::Column::IsActive, Expr::value(enabled));
+        }
+        let changed = registry
+            .col_expr(widget_registry::Column::UpdatedAt, Expr::value(utc_now()))
+            .filter(widget_registry::Column::WidgetId.eq(&widget_id))
+            .exec(&orm(&master))
+            .await;
         if let Err(error) = changed {
             tracing::error!(%error, "[app-api/desk-widget] registry update failed");
         }
@@ -721,17 +730,17 @@ async fn remove(
         Err(error) => return Refusal::from(error).respond(message),
     };
     let id = existing["id"].as_str().unwrap_or_default().to_owned();
-    let deleted = sqlx::query("delete from desk_widget_settings where id = $1")
-        .bind(&id)
-        .execute(&caller.db)
+    let deleted = desk_widget_settings::Entity::delete_many()
+        .filter(desk_widget_settings::Column::Id.eq(&id))
+        .exec(&orm(&caller.db))
         .await;
     if let Err(error) = deleted {
         return Refusal::from(error).respond(message);
     }
     if let Some(master) = master(&caller, &state) {
-        let removed = sqlx::query("delete from widget_registry where widget_id = $1")
-            .bind(&widget_id)
-            .execute(&master)
+        let removed = widget_registry::Entity::delete_many()
+            .filter(widget_registry::Column::WidgetId.eq(&widget_id))
+            .exec(&orm(&master))
             .await;
         if let Err(error) = removed {
             tracing::error!(%error, "[app-api/desk-widget] registry delete failed");

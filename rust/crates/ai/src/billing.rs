@@ -12,12 +12,15 @@
 //! Fail-open, as the TypeScript twin: without a master database, or when the
 //! wallet can't be reached, the call still runs, unmetered.
 
+use sea_orm::sea_query::OnConflict;
+use sea_orm::{ActiveValue::Set, EntityTrait};
 use serde_json::{Value, json};
 use weldsuite_core_domain::credits::{
     self, Consumed, GrantKind, LedgerEntry, check_credits, consume_credits_by, grant_credits,
 };
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::generate_id;
+use weldsuite_schema::master::ai_provider_usage;
 
 use crate::AiCall;
 use crate::catalog::{self, KeySource};
@@ -141,8 +144,8 @@ pub fn nano_usd(usd: f64) -> i64 {
     nano
 }
 
-fn clamp_i32(value: i64) -> i64 {
-    value.clamp(0, i64::from(i32::MAX))
+fn clamp_i32(value: i64) -> i32 {
+    i32::try_from(value.max(0)).unwrap_or(i32::MAX)
 }
 
 /// What the wallet and the ops ledger record for one call.
@@ -266,30 +269,32 @@ impl Charge<'_> {
     async fn record(&self, master: &PgPool, credits_charged: i64) {
         let own = self.served.key_source == KeySource::Own;
         let cost = if own { 0 } else { nano_usd(self.cost_usd) };
-        let result = sqlx::query(
-            "insert into ai_provider_usage
-                 (id, gateway, model_id, workspace_id, op, input_tokens, output_tokens,
-                  provider_cost_nano_usd, covered_by_service_credit, credits_charged,
-                  reference_type, reference_id, key_source, feature, idempotency_key)
-             values ($1, 'direct', $2, $3, $4, $5::int, $6::int, $7, false, $8::int,
-                     $9, $10, $11, $12, $13)
-             on conflict (idempotency_key) do nothing",
-        )
-        .bind(generate_id("apu"))
-        .bind(&self.served.model)
-        .bind(self.workspace)
-        .bind(self.op())
-        .bind(clamp_i32(self.usage.input_tokens))
-        .bind(clamp_i32(self.usage.output_tokens))
-        .bind(cost)
-        .bind(clamp_i32(credits_charged))
-        .bind(self.reference_type())
-        .bind(self.reference())
-        .bind(self.served.key_source.as_str())
-        .bind(self.call.feature.as_str())
-        .bind(self.idempotency_key(":usage"))
-        .execute(master)
-        .await;
+        let row = ai_provider_usage::ActiveModel {
+            id: Set(generate_id("apu")),
+            gateway: Set("direct".to_owned()),
+            model_id: Set(self.served.model.clone()),
+            workspace_id: Set(Some(self.workspace.to_owned())),
+            op: Set(self.op()),
+            input_tokens: Set(clamp_i32(self.usage.input_tokens)),
+            output_tokens: Set(clamp_i32(self.usage.output_tokens)),
+            provider_cost_nano_usd: Set(cost),
+            covered_by_service_credit: Set(false),
+            credits_charged: Set(clamp_i32(credits_charged)),
+            reference_type: Set(Some(self.reference_type().to_owned())),
+            reference_id: Set(self.reference().map(str::to_owned)),
+            key_source: Set(self.served.key_source.as_str().to_owned()),
+            feature: Set(Some(self.call.feature.as_str().to_owned())),
+            idempotency_key: Set(self.idempotency_key(":usage")),
+            ..Default::default()
+        };
+        let result = ai_provider_usage::Entity::insert(row)
+            .on_conflict(
+                OnConflict::column(ai_provider_usage::Column::IdempotencyKey)
+                    .do_nothing()
+                    .to_owned(),
+            )
+            .exec_without_returning(&orm(master))
+            .await;
         if let Err(error) = result {
             tracing::error!(%error, "[weldsuite-ai] failed to record provider usage");
         }

@@ -6,15 +6,19 @@
 //! The statements are the worker's, text for text: every value is computed
 //! and rounded in SQL, and the only parameters are period timestamps, bound
 //! as text and cast with `::timestamp` like Drizzle does. Periods are whole
-//! UTC days, `start` inclusive and `end` exclusive.
+//! UTC days, `start` inclusive and `end` exclusive. They stay SQL (ADR
+//! DATA-019, "What stays SQL"): bucket series from `generate_series`,
+//! `percentile_cont`, filtered aggregates, run by [`rows`].
 
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QuerySelect};
 use serde_json::{Map, Value, json};
 use sqlx::Row;
 use sqlx::postgres::PgRow;
-use time::{Date, Month, OffsetDateTime};
-use weldsuite_db::PgPool;
+use time::{Date, Month, OffsetDateTime, PrimitiveDateTime};
+use weldsuite_db::{PgPool, orm, orm_error};
 use weldsuite_events::iso_timestamp;
 use weldsuite_kit::validation::js_number;
+use weldsuite_schema::tenant::desk_conversations;
 
 use crate::Caller;
 
@@ -298,13 +302,31 @@ fn label_of(unit: Unit, column: &str) -> String {
     format!("to_char({column}, '{}')", unit.label())
 }
 
-pub(super) async fn rows(db: &PgPool, sql: &str, binds: Binds) -> Result<Vec<PgRow>, sqlx::Error> {
+#[allow(
+    clippy::disallowed_methods,
+    reason = "the reports are SQL by nature: bucket series from generate_series, percentile_cont and filtered aggregates, built from the report files' whitelisted fragments with every value bound"
+)]
+pub(super) async fn rows(db: &PgPool, sql: &str, binds: Binds) -> Result<Vec<PgRow>, DbErr> {
     // Built only from the report files' whitelisted fragments; every value is a bind.
     let mut query = sqlx::query(sqlx::AssertSqlSafe(sql.to_owned()));
     for value in binds.0 {
         query = query.bind(value);
     }
-    query.fetch_all(db).await
+    query.fetch_all(db).await.map_err(orm_error)
+}
+
+/// `get(row, column)` of a report row, its error as the crate's.
+pub(super) fn get<'r, T>(row: &'r PgRow, column: &str) -> Result<T, DbErr>
+where
+    T: sqlx::Decode<'r, sqlx::Postgres> + sqlx::Type<sqlx::Postgres>,
+{
+    row.try_get(column).map_err(orm_error)
+}
+
+/// The worker's day of `to_char(at, 'YYYY-MM-DD')`, read back as a `Date`
+/// at midnight UTC: its time value in milliseconds.
+pub(super) fn day_of(at: PrimitiveDateTime) -> i64 {
+    at.date().midnight().assume_utc().unix_timestamp() * 1000
 }
 
 /// A number as JSON the way JavaScript prints it: integral values without a
@@ -326,29 +348,17 @@ pub(super) fn opt_int(value: Option<i32>) -> Value {
 }
 
 /// The day of the oldest conversation, for `all_time`.
-async fn first_activity(db: &PgPool) -> Result<Option<i64>, sqlx::Error> {
-    let first: Option<String> = sqlx::query_scalar(
-        "select to_char(min(created_at), 'YYYY-MM-DD') as first from desk_conversations",
-    )
-    .fetch_one(db)
-    .await?;
-    Ok(first.as_deref().and_then(day_start))
+async fn first_activity(db: &PgPool) -> Result<Option<i64>, DbErr> {
+    let first: Option<Option<PrimitiveDateTime>> = desk_conversations::Entity::find()
+        .select_only()
+        .column_as(desk_conversations::Column::CreatedAt.min(), "first")
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
+    Ok(first.flatten().map(day_of))
 }
 
-/// `new Date(`${day}T00:00:00.000Z`).getTime()` of a `YYYY-MM-DD` day.
-pub(super) fn day_start(day: &str) -> Option<i64> {
-    let mut parts = day.split('-').map(str::parse::<i32>);
-    let (year, month, date) = (
-        parts.next()?.ok()?,
-        parts.next()?.ok()?,
-        parts.next()?.ok()?,
-    );
-    let month = Month::try_from(u8::try_from(month).ok()?).ok()?;
-    let day = Date::from_calendar_date(year, month, u8::try_from(date).ok()?).ok()?;
-    Some(day.midnight().assume_utc().unix_timestamp() * 1000)
-}
-
-async fn resolve_period(db: &PgPool, range: Option<&str>, now: i64) -> Result<Period, sqlx::Error> {
+async fn resolve_period(db: &PgPool, range: Option<&str>, now: i64) -> Result<Period, DbErr> {
     let range = range_of(range);
     let first = if range == "all_time" {
         first_activity(db).await?
@@ -761,7 +771,7 @@ async fn series_data(
     spec: Spec,
     query: &ChartQuery,
     period: Period,
-) -> Result<Vec<Value>, sqlx::Error> {
+) -> Result<Vec<Value>, DbErr> {
     let unit = spec
         .unit
         .unwrap_or_else(|| unit_of(query.group_by.as_deref(), period));
@@ -787,9 +797,9 @@ async fn series_data(
     );
     let fill = count_like(spec.measure, aggregation);
     let mut points = Vec::new();
-    for row in rows(db, &sql, binds).await? {
-        let label: Option<String> = row.try_get("label")?;
-        let value: Option<f64> = row.try_get("value")?;
+    for row in &rows(db, &sql, binds).await? {
+        let label: Option<String> = get(row, "label")?;
+        let value: Option<f64> = get(row, "value")?;
         if fill || value.is_some() {
             points.push(point(label, value));
         }
@@ -812,7 +822,7 @@ async fn dimension_data(
     dim: Dim,
     query: &ChartQuery,
     period: Period,
-) -> Result<Vec<Value>, sqlx::Error> {
+) -> Result<Vec<Value>, DbErr> {
     let dimension = dimension(dim);
     let value = value_sql(spec.measure, query.aggregation.as_deref());
     let direction = if query.desc() { "desc" } else { "asc" };
@@ -840,9 +850,9 @@ async fn dimension_data(
         key = dimension.key,
     );
     let mut points = Vec::new();
-    for row in rows(db, &sql, binds).await? {
-        let label: Option<String> = row.try_get("label")?;
-        let value: Option<f64> = row.try_get("value")?;
+    for row in &rows(db, &sql, binds).await? {
+        let label: Option<String> = get(row, "label")?;
+        let value: Option<f64> = get(row, "value")?;
         points.push(point(label, value));
     }
     Ok(points)
@@ -854,7 +864,7 @@ pub(super) async fn chart_data(
     db: &PgPool,
     query: &ChartQuery,
     now: i64,
-) -> Result<Vec<Value>, sqlx::Error> {
+) -> Result<Vec<Value>, DbErr> {
     let Some(spec) = query.metric.as_deref().and_then(metric_spec) else {
         return Ok(Vec::new());
     };
@@ -911,7 +921,7 @@ enum Group {
     Team,
 }
 
-async fn people(db: &PgPool, period: Period, group: Group) -> Result<Vec<Value>, sqlx::Error> {
+async fn people(db: &PgPool, period: Period, group: Group) -> Result<Vec<Value>, DbErr> {
     let mut binds = Binds::default();
     let created = binds.in_period(CREATED, period);
     let resolved_in = binds.in_period(RESOLVED, period);
@@ -942,24 +952,24 @@ async fn people(db: &PgPool, period: Period, group: Group) -> Result<Vec<Value>,
         join = dimension.join.unwrap_or_default(),
     );
     let mut out = Vec::new();
-    for row in rows(db, &sql, binds).await? {
-        let id: Option<String> = row.try_get("id")?;
-        let name: Option<String> = row.try_get("name")?;
+    for row in &rows(db, &sql, binds).await? {
+        let id: Option<String> = get(row, "id")?;
+        let name: Option<String> = get(row, "name")?;
         out.push(json!({
             "id": id,
             "name": name.unwrap_or_default(),
-            "created": row.try_get::<Option<i32>, _>("created")?.unwrap_or_default(),
-            "resolved": row.try_get::<Option<i32>, _>("resolved")?.unwrap_or_default(),
-            "firstResponseAvg": opt_int(row.try_get("frt_avg")?),
-            "resolutionAvg": opt_int(row.try_get("res_avg")?),
-            "ratings": row.try_get::<Option<i32>, _>("ratings")?.unwrap_or_default(),
-            "csat": opt_num(row.try_get("csat")?),
+            "created": get::<Option<i32>>(row, "created")?.unwrap_or_default(),
+            "resolved": get::<Option<i32>>(row, "resolved")?.unwrap_or_default(),
+            "firstResponseAvg": opt_int(get(row, "frt_avg")?),
+            "resolutionAvg": opt_int(get(row, "res_avg")?),
+            "ratings": get::<Option<i32>>(row, "ratings")?.unwrap_or_default(),
+            "csat": opt_num(get(row, "csat")?),
         }));
     }
     Ok(out)
 }
 
-async fn counts_by(db: &PgPool, period: Period, column: &str) -> Result<Vec<Value>, sqlx::Error> {
+async fn counts_by(db: &PgPool, period: Period, column: &str) -> Result<Vec<Value>, DbErr> {
     let mut binds = Binds::default();
     let in_period = binds.in_period(CREATED, period);
     let sql = format!(
@@ -970,26 +980,26 @@ async fn counts_by(db: &PgPool, period: Period, column: &str) -> Result<Vec<Valu
       order by 2 desc, 1 asc"
     );
     let mut out = Vec::new();
-    for row in rows(db, &sql, binds).await? {
-        let key: Option<String> = row.try_get("key")?;
-        let count: Option<i32> = row.try_get("count")?;
+    for row in &rows(db, &sql, binds).await? {
+        let key: Option<String> = get(row, "key")?;
+        let count: Option<i32> = get(row, "count")?;
         out.push(json!({ "key": key.unwrap_or_default(), "count": count.unwrap_or_default() }));
     }
     Ok(out)
 }
 
-pub(super) fn int(row: Option<&PgRow>, column: &str) -> Result<i32, sqlx::Error> {
-    row.map_or(Ok(None), |row| row.try_get::<Option<i32>, _>(column))
+pub(super) fn int(row: Option<&PgRow>, column: &str) -> Result<i32, DbErr> {
+    row.map_or(Ok(None), |row| get::<Option<i32>>(row, column))
         .map(Option::unwrap_or_default)
 }
 
-pub(super) fn int_or_null(row: Option<&PgRow>, column: &str) -> Result<Value, sqlx::Error> {
-    row.map_or(Ok(None), |row| row.try_get::<Option<i32>, _>(column))
+pub(super) fn int_or_null(row: Option<&PgRow>, column: &str) -> Result<Value, DbErr> {
+    row.map_or(Ok(None), |row| get::<Option<i32>>(row, column))
         .map(opt_int)
 }
 
-pub(super) fn float_or_null(row: Option<&PgRow>, column: &str) -> Result<Value, sqlx::Error> {
-    row.map_or(Ok(None), |row| row.try_get::<Option<f64>, _>(column))
+pub(super) fn float_or_null(row: Option<&PgRow>, column: &str) -> Result<Value, DbErr> {
+    row.map_or(Ok(None), |row| get::<Option<f64>>(row, column))
         .map(opt_num)
 }
 
@@ -1002,11 +1012,7 @@ pub(super) fn pair(value: Value, previous: Value) -> Value {
 
 /// `deskReportsOverview`.
 #[allow(clippy::too_many_lines)] // one statement per block of the overview
-pub(super) async fn overview(
-    db: &PgPool,
-    range: Option<&str>,
-    now: i64,
-) -> Result<Value, sqlx::Error> {
+pub(super) async fn overview(db: &PgPool, range: Option<&str>, now: i64) -> Result<Value, DbErr> {
     let period = resolve_period(db, range, now).await?;
     let previous = previous_of(period);
     let unit = overview_unit(period);
@@ -1094,13 +1100,13 @@ pub(super) async fn overview(
     let sla = sla.first();
     let mut series = Vec::new();
     for row in &series_rows {
-        let label: Option<String> = row.try_get("label")?;
+        let label: Option<String> = get(row, "label")?;
         series.push(json!({
             "label": label.unwrap_or_default(),
-            "created": row.try_get::<Option<i32>, _>("created")?.unwrap_or_default(),
-            "resolved": row.try_get::<Option<i32>, _>("resolved")?.unwrap_or_default(),
-            "firstResponseAvg": opt_int(row.try_get("frt_avg")?),
-            "resolutionAvg": opt_int(row.try_get("res_avg")?),
+            "created": get::<Option<i32>>(row, "created")?.unwrap_or_default(),
+            "resolved": get::<Option<i32>>(row, "resolved")?.unwrap_or_default(),
+            "firstResponseAvg": opt_int(get(row, "frt_avg")?),
+            "resolutionAvg": opt_int(get(row, "res_avg")?),
         }));
     }
 

@@ -15,6 +15,12 @@ use axum::body::Bytes;
 use axum::extract::{FromRequest, Multipart, Path, RawQuery, Request, State};
 use axum::response::{IntoResponse, Response};
 use http::{HeaderMap, StatusCode};
+use sea_orm::ActiveValue::Set;
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ColumnTrait, DatabaseConnection, DbErr, EntityTrait, FromQueryResult, JoinType, PaginatorTrait,
+    QueryFilter, QueryOrder, QuerySelect, QueryTrait,
+};
 use serde_json::{Map, Value, json};
 use time::OffsetDateTime;
 use weldsuite_apps_domain::adopt::sweep_adopt_system_installs;
@@ -22,36 +28,41 @@ use weldsuite_apps_domain::schemas;
 use weldsuite_apps_domain::scopes::{
     is_allowed_dev_session_url, is_reserved, random_hex, sha256_hex,
 };
-use weldsuite_db::{PgPool, js_row};
-use weldsuite_events::iso_timestamp;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::ApiError;
 use weldsuite_kit::id::generate_id;
-use weldsuite_kit::validation::{Issues, json_body, query_values};
+use weldsuite_kit::validation::{Field, Issues, json_body, query_values};
 use weldsuite_ports::{DynFileStore, PutOptions, StorageBuckets};
+use weldsuite_schema::master::{
+    user_app_dev_sessions, user_app_installs, user_app_oauth_clients, user_app_tokens,
+    user_app_versions, user_apps,
+};
+use weldsuite_schema::tenant::workspace_installed_apps;
 
 use crate::session::{
     Key, KeyType, bad_request, conflict, database_error, forbidden, internal_with, not_found,
 };
 use crate::{ExternalApiState, master_db};
 
-/// A `user_apps` row as JSON, `price_monthly` as Drizzle reads `numeric`.
-macro_rules! app_json {
-    () => {
-        "to_jsonb(a) || jsonb_build_object('price_monthly', a.price_monthly::text)"
-    };
-}
-
 const MAX_BUNDLE_FILES: usize = 500;
 const MAX_BUNDLE_BYTES: usize = 50 * 1024 * 1024;
 /// `DEV_SESSION_TTL_MS`.
 const DEV_SESSION_TTL: time::Duration = time::Duration::minutes(5);
 
-fn now() -> String {
-    iso_timestamp(OffsetDateTime::now_utc())
+/// `new Date()` as a `timestamptz` column gets it from Drizzle: to the
+/// millisecond.
+fn now() -> OffsetDateTime {
+    weldsuite_db::utc_now().assume_utc()
 }
 
-fn db_error(error: &sqlx::Error) -> ApiError {
+fn db_error(error: &DbErr) -> ApiError {
     database_error(error)
+}
+
+/// A row as the routes answer it: the entity's model, as Drizzle returns
+/// it (`priceMonthly`, a `numeric`, as text).
+fn to_json<T: serde::Serialize>(model: T) -> Result<Value, ApiError> {
+    serde_json::to_value(model).map_err(|error| db_error(&DbErr::Json(error.to_string())))
 }
 
 /// `requireDeveloperKey`.
@@ -142,17 +153,13 @@ impl Developer {
 
     /// `getOwnedApp`: the workspace's own app, not deleted.
     async fn owned_app(&self, id: &str) -> Result<Value, ApiError> {
-        let row: Option<Value> = sqlx::query_scalar(concat!(
-            "select ",
-            app_json!(),
-            " from user_apps a where a.id = $1 and a.owner_workspace_id = $2 and a.deleted_at is null limit 1"
-        ))
-        .bind(id)
-        .bind(&self.key.session.workspace_id)
-        .fetch_optional(&self.master)
-        .await
-        .map_err(|error| db_error(&error))?;
-        row.map(js_row).ok_or_else(|| not_found("App", id))
+        let row = user_apps::Entity::find_by_id(id.to_owned())
+            .filter(user_apps::Column::OwnerWorkspaceId.eq(self.key.session.workspace_id.as_str()))
+            .filter(user_apps::Column::DeletedAt.is_null())
+            .one(&orm(&self.master))
+            .await
+            .map_err(|error| db_error(&error))?;
+        to_json(row.ok_or_else(|| not_found("App", id))?)
     }
 }
 
@@ -202,6 +209,15 @@ fn whole_list(rows: &[Value]) -> Response {
     .into_response()
 }
 
+/// `{ clientId, createdAt }` of an app's OAuth client.
+#[derive(Debug, FromQueryResult, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct OauthClient {
+    client_id: String,
+    #[serde(with = "weldsuite_schema::js::timestamptz")]
+    created_at: OffsetDateTime,
+}
+
 /// An install's app code, name, manifest and granted scopes.
 type ToolRow = (String, String, Option<Value>, Option<Value>);
 
@@ -214,17 +230,29 @@ pub(crate) async fn agent_tools(caller: Developer) -> Response {
     let app_id = (key.session.key_type == KeyType::App)
         .then(|| key.session.app_id.clone())
         .flatten();
-    let rows: Result<Vec<ToolRow>, sqlx::Error> = sqlx::query_as(
-        "select a.code, a.name, a.manifest, i.granted_scopes
-           from user_app_installs i
-           join user_apps a on a.id = i.app_id
-          where i.workspace_id = $1 and i.status = 'active' and a.is_active = true
-            and a.deleted_at is null and ($2::text is null or i.app_id = $2)",
-    )
-    .bind(&key.session.workspace_id)
-    .bind(app_id)
-    .fetch_all(&master)
-    .await;
+    let rows: Result<Vec<ToolRow>, DbErr> = user_app_installs::Entity::find()
+        .join(
+            JoinType::InnerJoin,
+            user_app_installs::Entity::belongs_to(user_apps::Entity)
+                .from(user_app_installs::Column::AppId)
+                .to(user_apps::Column::Id)
+                .into(),
+        )
+        .select_only()
+        .column(user_apps::Column::Code)
+        .column(user_apps::Column::Name)
+        .column(user_apps::Column::Manifest)
+        .column(user_app_installs::Column::GrantedScopes)
+        .filter(user_app_installs::Column::WorkspaceId.eq(key.session.workspace_id.as_str()))
+        .filter(user_app_installs::Column::Status.eq("active"))
+        .filter(user_apps::Column::IsActive.eq(true))
+        .filter(user_apps::Column::DeletedAt.is_null())
+        .apply_if(app_id, |select, app_id| {
+            select.filter(user_app_installs::Column::AppId.eq(app_id))
+        })
+        .into_tuple()
+        .all(&orm(&master))
+        .await;
     let rows = match rows {
         Ok(rows) => rows,
         Err(error) => return db_error(&error).into_response(),
@@ -276,44 +304,51 @@ pub(crate) async fn create(
             if is_reserved(&body.code) && !official {
                 return Err(conflict(format!("App code '{}' is reserved", body.code)));
             }
-            let taken: Option<String> = sqlx::query_scalar("select id from user_apps where code = $1 limit 1")
-                .bind(&body.code)
-                .fetch_optional(&developer.master)
+            let master = orm(&developer.master);
+            let taken: Option<String> = user_apps::Entity::find()
+                .select_only()
+                .column(user_apps::Column::Id)
+                .filter(user_apps::Column::Code.eq(body.code.as_str()))
+                .into_tuple()
+                .one(&master)
                 .await
                 .map_err(|error| db_error(&error))?;
             if taken.is_some() {
-                return Err(conflict(format!("App code '{}' is already taken", body.code)));
+                return Err(conflict(format!(
+                    "App code '{}' is already taken",
+                    body.code
+                )));
             }
             let truthy = |value: Option<String>| value.filter(|text| !text.is_empty());
             let now = now();
-            let row: Option<Value> = sqlx::query_scalar(concat!(
-                "insert into user_apps as a
-                   (id, code, name, description, icon, category, website_url, privacy_url, screenshots,
-                    webhook_url, owner_workspace_id, created_by, publisher_type, created_at, updated_at)
-                 values ($1, $2, $3, $4, coalesce($5, 'Puzzle'), coalesce($6, 'Productivity'), $7, $8,
-                         coalesce($9::jsonb, '[]'::jsonb), $10, $11, $12, $13, $14::timestamptz, $14::timestamptz)
-                 returning ",
-                app_json!()
-            ))
-            .bind(generate_id("uapp"))
-            .bind(&body.code)
-            .bind(&body.name)
-            .bind(body.description)
-            .bind(truthy(body.icon))
-            .bind(truthy(body.category))
-            .bind(truthy(body.website_url))
-            .bind(truthy(body.privacy_url))
-            .bind(body.screenshots.map(|shots| json!(shots)))
-            .bind(truthy(body.webhook_url))
-            .bind(&developer.key.session.workspace_id)
-            .bind(developer.actor())
-            .bind(if official { "weldsuite" } else { "community" })
-            .bind(&now)
-            .fetch_optional(&developer.master)
+            let row = user_apps::Entity::insert(user_apps::ActiveModel {
+                id: Set(generate_id("uapp")),
+                code: Set(body.code),
+                name: Set(body.name),
+                description: Set(body.description),
+                icon: Set(truthy(body.icon).unwrap_or_else(|| "Puzzle".to_owned())),
+                category: Set(truthy(body.category).unwrap_or_else(|| "Productivity".to_owned())),
+                website_url: Set(truthy(body.website_url)),
+                privacy_url: Set(truthy(body.privacy_url)),
+                screenshots: Set(Some(
+                    body.screenshots
+                        .map_or_else(|| json!([]), |shots| json!(shots)),
+                )),
+                webhook_url: Set(truthy(body.webhook_url)),
+                owner_workspace_id: Set(developer.key.session.workspace_id.clone()),
+                created_by: Set(developer.actor().to_owned()),
+                publisher_type: Set(if official { "weldsuite" } else { "community" }.to_owned()),
+                created_at: Set(now),
+                updated_at: Set(now),
+                ..Default::default()
+            })
+            .exec_with_returning(&master)
             .await
-            .map_err(|error| db_error(&error))?;
-            let row = row.ok_or_else(|| internal_with("Failed to create app"))?;
-            Ok((StatusCode::CREATED, Json(json!({ "data": js_row(row) }))).into_response())
+            .map_err(|error| match error {
+                DbErr::RecordNotInserted => internal_with("Failed to create app"),
+                error => db_error(&error),
+            })?;
+            Ok((StatusCode::CREATED, Json(json!({ "data": to_json(row)? }))).into_response())
         }
         .await,
     )
@@ -329,18 +364,25 @@ pub(crate) async fn list(developer: Developer) -> Response {
     respond(
         async {
             developer_gate(&developer)?;
-            let rows: Vec<Value> = sqlx::query_scalar(concat!(
-                "select ",
-                app_json!(),
-                " from user_apps a where a.owner_workspace_id = $1 and a.deleted_at is null
-                  order by a.created_at desc, a.id desc"
-            ))
-            .bind(&developer.key.session.workspace_id)
-            .fetch_all(&developer.master)
-            .await
-            .map_err(|error| db_error(&error))?;
+            let rows = user_apps::Entity::find()
+                .filter(
+                    user_apps::Column::OwnerWorkspaceId.eq(developer
+                        .key
+                        .session
+                        .workspace_id
+                        .as_str()),
+                )
+                .filter(user_apps::Column::DeletedAt.is_null())
+                .order_by_desc(user_apps::Column::CreatedAt)
+                .order_by_desc(user_apps::Column::Id)
+                .all(&orm(&developer.master))
+                .await
+                .map_err(|error| db_error(&error))?;
             Ok(whole_list(
-                &rows.into_iter().map(js_row).collect::<Vec<_>>(),
+                &rows
+                    .into_iter()
+                    .map(to_json)
+                    .collect::<Result<Vec<_>, _>>()?,
             ))
         }
         .await,
@@ -376,61 +418,45 @@ pub(crate) async fn update(
     respond(
         async {
             developer.owned_app(&id).await?;
-            let set = |field: &weldsuite_kit::validation::Field<String>| -> (bool, Option<String>) {
+            // `case when $set then $value else a.<column> end`: a column only
+            // when the body names it (`null` clears it).
+            let mut update = user_apps::Entity::update_many();
+            for (field, column) in [
+                (&body.name, user_apps::Column::Name),
+                (&body.description, user_apps::Column::Description),
+                (&body.icon, user_apps::Column::Icon),
+                (&body.category, user_apps::Column::Category),
+                (&body.website_url, user_apps::Column::WebsiteUrl),
+                (&body.privacy_url, user_apps::Column::PrivacyUrl),
+                (&body.webhook_url, user_apps::Column::WebhookUrl),
+            ] {
                 match field {
-                    weldsuite_kit::validation::Field::Absent => (false, None),
-                    weldsuite_kit::validation::Field::Null => (true, None),
-                    weldsuite_kit::validation::Field::Set(value) => (true, Some(value.clone())),
+                    Field::Absent => {}
+                    Field::Null => {
+                        update = update.col_expr(column, Expr::value(Option::<String>::None));
+                    }
+                    Field::Set(value) => {
+                        update = update.col_expr(column, Expr::value(value.clone()));
+                    }
                 }
-            };
-            let (name_set, name) = set(&body.name);
-            let (description_set, description) = set(&body.description);
-            let (icon_set, icon) = set(&body.icon);
-            let (category_set, category) = set(&body.category);
-            let (website_set, website) = set(&body.website_url);
-            let (privacy_set, privacy) = set(&body.privacy_url);
-            let (webhook_set, webhook) = set(&body.webhook_url);
-            let is_active = body.is_active.as_set().copied();
-            let screenshots = body.screenshots.as_set().map(|shots| json!(shots));
-            let row: Option<Value> = sqlx::query_scalar(concat!(
-                "update user_apps as a set
-                   name = case when $2 then $3 else a.name end,
-                   description = case when $4 then $5 else a.description end,
-                   icon = case when $6 then $7 else a.icon end,
-                   category = case when $8 then $9 else a.category end,
-                   is_active = coalesce($10, a.is_active),
-                   website_url = case when $11 then $12 else a.website_url end,
-                   privacy_url = case when $13 then $14 else a.privacy_url end,
-                   screenshots = case when $15::jsonb is null then a.screenshots else $15::jsonb end,
-                   webhook_url = case when $16 then $17 else a.webhook_url end,
-                   updated_at = $18::timestamptz
-                 where a.id = $1
-                 returning ",
-                app_json!()
-            ))
-            .bind(&id)
-            .bind(name_set)
-            .bind(name)
-            .bind(description_set)
-            .bind(description)
-            .bind(icon_set)
-            .bind(icon)
-            .bind(category_set)
-            .bind(category)
-            .bind(is_active)
-            .bind(website_set)
-            .bind(website)
-            .bind(privacy_set)
-            .bind(privacy)
-            .bind(screenshots)
-            .bind(webhook_set)
-            .bind(webhook)
-            .bind(now())
-            .fetch_optional(&developer.master)
-            .await
-            .map_err(|error| db_error(&error))?;
+            }
+            // `coalesce($isActive, a.is_active)`; screenshots only when sent.
+            if let Some(is_active) = body.is_active.as_set().copied() {
+                update = update.col_expr(user_apps::Column::IsActive, Expr::value(is_active));
+            }
+            if let Some(shots) = body.screenshots.as_set() {
+                update = update.col_expr(user_apps::Column::Screenshots, Expr::value(json!(shots)));
+            }
+            let row = update
+                .col_expr(user_apps::Column::UpdatedAt, Expr::value(now()))
+                .filter(user_apps::Column::Id.eq(id.as_str()))
+                .exec_with_returning(&orm(&developer.master))
+                .await
+                .map_err(|error| db_error(&error))?
+                .into_iter()
+                .next();
             let row = row.ok_or_else(|| internal_with("Failed to update app"))?;
-            Ok(Json(json!({ "data": js_row(row) })).into_response())
+            Ok(Json(json!({ "data": to_json(row)? })).into_response())
         }
         .await,
     )
@@ -444,47 +470,74 @@ pub(crate) async fn remove(developer: Developer, Path(id): Path<String>) -> Resp
         async {
             developer_gate(&developer)?;
             developer.owned_app(&id).await?;
-            let workspace_id = &developer.key.session.workspace_id;
-            let foreign: i64 = sqlx::query_scalar(
-                "select count(*) from user_app_installs
-                  where app_id = $1 and status = 'active' and workspace_id <> $2",
-            )
-            .bind(&id)
-            .bind(workspace_id)
-            .fetch_one(&developer.master)
-            .await
-            .map_err(|error| db_error(&error))?;
+            let workspace_id = developer.key.session.workspace_id.as_str();
+            let master = orm(&developer.master);
+            let foreign = user_app_installs::Entity::find()
+                .filter(user_app_installs::Column::AppId.eq(id.as_str()))
+                .filter(user_app_installs::Column::Status.eq("active"))
+                .filter(user_app_installs::Column::WorkspaceId.ne(workspace_id))
+                .count(&master)
+                .await
+                .map_err(|error| db_error(&error))?;
             if foreign > 0 {
                 return Err(conflict("App is still installed in other workspaces"));
             }
-            let now = now();
-            let master = &developer.master;
-            for statement in [
-                "update user_apps set deleted_at = $2::timestamptz, is_active = false, updated_at = $2::timestamptz where id = $1",
-                "update user_app_installs set status = 'revoked', revoked_at = $2::timestamptz, updated_at = $2::timestamptz
-                  where app_id = $1 and status = 'active'",
-                "update user_app_tokens set revoked_at = $2::timestamptz where app_id = $1 and revoked_at is null",
-            ] {
-                sqlx::query(statement)
-                    .bind(&id)
-                    .bind(&now)
-                    .execute(master)
-                    .await
-                    .map_err(|error| db_error(&error))?;
-            }
-            sqlx::query(
-                "update workspace_installed_apps set deleted_at = $2::timestamptz, is_active = false, updated_at = $2::timestamptz
-                  where user_app_id = $1 and deleted_at is null",
-            )
-            .bind(&id)
-            .bind(&now)
-            .execute(&developer.key.db)
-            .await
-            .map_err(|error| db_error(&error))?;
+            retire_app(&master, &orm(&developer.key.db), &id, now())
+                .await
+                .map_err(|error| db_error(&error))?;
             Ok(StatusCode::NO_CONTENT.into_response())
         }
         .await,
     )
+}
+
+/// Soft-delete the app, revoke its active installs and live tokens (master),
+/// and retire its sidebar entry in this workspace (`tenant`).
+async fn retire_app(
+    master: &DatabaseConnection,
+    tenant: &DatabaseConnection,
+    id: &str,
+    now: OffsetDateTime,
+) -> Result<(), DbErr> {
+    user_apps::Entity::update_many()
+        .col_expr(user_apps::Column::DeletedAt, Expr::value(now))
+        .col_expr(user_apps::Column::IsActive, Expr::value(false))
+        .col_expr(user_apps::Column::UpdatedAt, Expr::value(now))
+        .filter(user_apps::Column::Id.eq(id))
+        .exec(master)
+        .await?;
+    user_app_installs::Entity::update_many()
+        .col_expr(user_app_installs::Column::Status, Expr::value("revoked"))
+        .col_expr(user_app_installs::Column::RevokedAt, Expr::value(now))
+        .col_expr(user_app_installs::Column::UpdatedAt, Expr::value(now))
+        .filter(user_app_installs::Column::AppId.eq(id))
+        .filter(user_app_installs::Column::Status.eq("active"))
+        .exec(master)
+        .await?;
+    user_app_tokens::Entity::update_many()
+        .col_expr(user_app_tokens::Column::RevokedAt, Expr::value(now))
+        .filter(user_app_tokens::Column::AppId.eq(id))
+        .filter(user_app_tokens::Column::RevokedAt.is_null())
+        .exec(master)
+        .await?;
+    workspace_installed_apps::Entity::update_many()
+        .col_expr(
+            workspace_installed_apps::Column::DeletedAt,
+            Expr::value(now),
+        )
+        .col_expr(
+            workspace_installed_apps::Column::IsActive,
+            Expr::value(false),
+        )
+        .col_expr(
+            workspace_installed_apps::Column::UpdatedAt,
+            Expr::value(now),
+        )
+        .filter(workspace_installed_apps::Column::UserAppId.eq(id))
+        .filter(workspace_installed_apps::Column::DeletedAt.is_null())
+        .exec(tenant)
+        .await?;
+    Ok(())
 }
 
 // ── versions ─────────────────────────────────────────────────────────────────
@@ -495,16 +548,18 @@ pub(crate) async fn versions(developer: Developer, Path(id): Path<String>) -> Re
         async {
             developer_gate(&developer)?;
             developer.owned_app(&id).await?;
-            let rows: Vec<Value> = sqlx::query_scalar(
-                "select to_jsonb(v) from user_app_versions v where v.app_id = $1
-                  order by v.created_at desc, v.id desc",
-            )
-            .bind(&id)
-            .fetch_all(&developer.master)
-            .await
-            .map_err(|error| db_error(&error))?;
+            let rows = user_app_versions::Entity::find()
+                .filter(user_app_versions::Column::AppId.eq(id.as_str()))
+                .order_by_desc(user_app_versions::Column::CreatedAt)
+                .order_by_desc(user_app_versions::Column::Id)
+                .all(&orm(&developer.master))
+                .await
+                .map_err(|error| db_error(&error))?;
             Ok(whole_list(
-                &rows.into_iter().map(js_row).collect::<Vec<_>>(),
+                &rows
+                    .into_iter()
+                    .map(to_json)
+                    .collect::<Result<Vec<_>, _>>()?,
             ))
         }
         .await,
@@ -703,15 +758,16 @@ async fn upload(developer: Developer, id: String, request: Request) -> Result<Re
         .ok_or_else(|| internal_with("Bundle storage is not configured"))?;
     let upload = parse_upload(request, text(&app, "code")).await?;
     let version = text(&upload.manifest, "version").to_owned();
-    let master = &developer.master;
-    let dupe: Option<String> = sqlx::query_scalar(
-        "select id from user_app_versions where app_id = $1 and version = $2 limit 1",
-    )
-    .bind(&id)
-    .bind(&version)
-    .fetch_optional(master)
-    .await
-    .map_err(|error| db_error(&error))?;
+    let master = &orm(&developer.master);
+    let dupe: Option<String> = user_app_versions::Entity::find()
+        .select_only()
+        .column(user_app_versions::Column::Id)
+        .filter(user_app_versions::Column::AppId.eq(id.as_str()))
+        .filter(user_app_versions::Column::Version.eq(version.as_str()))
+        .into_tuple()
+        .one(master)
+        .await
+        .map_err(|error| db_error(&error))?;
     if dupe.is_some() {
         return Err(conflict(format!(
             "Version {version} already exists for this app"
@@ -747,65 +803,62 @@ async fn upload(developer: Developer, id: String, request: Request) -> Result<Re
         .and_then(Value::as_str)
         .unwrap_or("index.html")
         .to_owned();
-    let row: Option<Value> = sqlx::query_scalar(
-        "insert into user_app_versions as v
-           (id, app_id, version, manifest, requested_scopes, bundle_key, entrypoint, bundle_size,
-            file_count, status, changelog, created_by, published_at, created_at)
-         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::timestamptz, $14::timestamptz)
-         returning to_jsonb(v)",
-    )
-    .bind(&version_id)
-    .bind(&id)
-    .bind(&version)
-    .bind(manifest)
-    .bind(&scopes)
-    .bind(&bundle_key)
-    .bind(&entrypoint)
-    .bind(i64::try_from(upload.total_bytes).unwrap_or(i64::MAX))
-    .bind(i64::try_from(file_count).unwrap_or(i64::MAX))
-    .bind(if publish_now { "published" } else { "draft" })
-    .bind(upload.changelog)
-    .bind(developer.actor())
-    .bind(publish_now.then(|| now.clone()))
-    .bind(&now)
-    .fetch_optional(master)
+    let row = user_app_versions::Entity::insert(user_app_versions::ActiveModel {
+        id: Set(version_id.clone()),
+        app_id: Set(id.clone()),
+        version: Set(version),
+        manifest: Set(Some(manifest.clone())),
+        requested_scopes: Set(Some(scopes)),
+        bundle_key: Set(bundle_key),
+        entrypoint: Set(entrypoint),
+        bundle_size: Set(i32::try_from(upload.total_bytes).unwrap_or(i32::MAX)),
+        file_count: Set(i32::try_from(file_count).unwrap_or(i32::MAX)),
+        status: Set(if publish_now { "published" } else { "draft" }.to_owned()),
+        changelog: Set(upload.changelog),
+        created_by: Set(developer.actor().to_owned()),
+        published_at: Set(publish_now.then_some(now)),
+        created_at: Set(now),
+    })
+    .exec_with_returning(master)
     .await
-    .map_err(|error| db_error(&error))?;
-    let row = row.ok_or_else(|| internal_with("Failed to create version"))?;
+    .map_err(|error| match error {
+        DbErr::RecordNotInserted => internal_with("Failed to create version"),
+        error => db_error(&error),
+    })?;
     if publish_now {
-        publish_live(master, &app, manifest, &version_id, &now)
+        publish_live(master, &app, manifest, &version_id, now)
             .await
             .map_err(|error| db_error(&error))?;
     } else {
-        sqlx::query("update user_apps set review_status = 'submitted', updated_at = $2::timestamptz where id = $1")
-            .bind(&id)
-            .bind(&now)
-            .execute(master)
+        user_apps::Entity::update_many()
+            .col_expr(user_apps::Column::ReviewStatus, Expr::value("submitted"))
+            .col_expr(user_apps::Column::UpdatedAt, Expr::value(now))
+            .filter(user_apps::Column::Id.eq(id.as_str()))
+            .exec(master)
             .await
             .map_err(|error| db_error(&error))?;
     }
-    Ok((StatusCode::CREATED, Json(json!({ "data": js_row(row) }))).into_response())
+    Ok((StatusCode::CREATED, Json(json!({ "data": to_json(row)? }))).into_response())
 }
 
 /// `publishVersionLive`: supersede the other published versions, roll the
 /// app forward onto the manifest, and flag the new scopes on every active
 /// install for re-consent.
 async fn publish_live(
-    master: &PgPool,
+    master: &DatabaseConnection,
     app: &Value,
     manifest: &Value,
     version_id: &str,
-    now: &str,
-) -> Result<(), sqlx::Error> {
+    now: OffsetDateTime,
+) -> Result<(), DbErr> {
     let app_id = text(app, "id");
-    sqlx::query(
-        "update user_app_versions set status = 'superseded'
-          where app_id = $1 and status = 'published' and id <> $2",
-    )
-    .bind(app_id)
-    .bind(version_id)
-    .execute(master)
-    .await?;
+    user_app_versions::Entity::update_many()
+        .col_expr(user_app_versions::Column::Status, Expr::value("superseded"))
+        .filter(user_app_versions::Column::AppId.eq(app_id))
+        .filter(user_app_versions::Column::Status.eq("published"))
+        .filter(user_app_versions::Column::Id.ne(version_id))
+        .exec(master)
+        .await?;
     // `manifest.x ?? appRow.x`, and `icon`/`category` only when truthy.
     let or_app = |key: &str, column: &str| -> Value {
         manifest
@@ -823,36 +876,60 @@ async fn publish_live(
     };
     let as_text = |value: Value| value.as_str().map(str::to_owned);
     let scopes = manifest.get("scopes").cloned().unwrap_or_else(|| json!([]));
-    sqlx::query(
-        "update user_apps set
-           current_version_id = $2, manifest = $3, requested_scopes = $4, name = $5,
-           icon = coalesce($6, icon), category = coalesce($7, category),
-           description = $8, website_url = $9, privacy_url = $10, screenshots = $11::jsonb,
-           webhook_url = $12, updated_at = $13::timestamptz
-         where id = $1",
-    )
-    .bind(app_id)
-    .bind(version_id)
-    .bind(manifest)
-    .bind(&scopes)
-    .bind(text(manifest, "name"))
-    .bind(truthy("icon"))
-    .bind(truthy("category"))
-    .bind(as_text(or_app("description", "description")))
-    .bind(as_text(or_app("websiteUrl", "websiteUrl")))
-    .bind(as_text(or_app("privacyUrl", "privacyUrl")))
-    .bind(Some(or_app("screenshots", "screenshots")).filter(|value| !value.is_null()))
-    .bind(as_text(or_app("webhookUrl", "webhookUrl")))
-    .bind(now)
-    .execute(master)
-    .await?;
+    let mut update = user_apps::Entity::update_many()
+        .col_expr(user_apps::Column::CurrentVersionId, Expr::value(version_id))
+        .col_expr(user_apps::Column::Manifest, Expr::value(manifest.clone()))
+        .col_expr(
+            user_apps::Column::RequestedScopes,
+            Expr::value(scopes.clone()),
+        )
+        .col_expr(user_apps::Column::Name, Expr::value(text(manifest, "name")));
+    // `coalesce($icon, icon)`, `coalesce($category, category)`.
+    if let Some(icon) = truthy("icon") {
+        update = update.col_expr(user_apps::Column::Icon, Expr::value(icon));
+    }
+    if let Some(category) = truthy("category") {
+        update = update.col_expr(user_apps::Column::Category, Expr::value(category));
+    }
+    update
+        .col_expr(
+            user_apps::Column::Description,
+            Expr::value(as_text(or_app("description", "description"))),
+        )
+        .col_expr(
+            user_apps::Column::WebsiteUrl,
+            Expr::value(as_text(or_app("websiteUrl", "websiteUrl"))),
+        )
+        .col_expr(
+            user_apps::Column::PrivacyUrl,
+            Expr::value(as_text(or_app("privacyUrl", "privacyUrl"))),
+        )
+        .col_expr(
+            user_apps::Column::Screenshots,
+            Expr::value(
+                Some(or_app("screenshots", "screenshots")).filter(|value| !value.is_null()),
+            ),
+        )
+        .col_expr(
+            user_apps::Column::WebhookUrl,
+            Expr::value(as_text(or_app("webhookUrl", "webhookUrl"))),
+        )
+        .col_expr(user_apps::Column::UpdatedAt, Expr::value(now))
+        .filter(user_apps::Column::Id.eq(app_id))
+        .exec(master)
+        .await?;
     let requested = string_list(Some(&scopes));
-    let installs: Vec<(String, Option<Value>)> = sqlx::query_as(
-        "select id, granted_scopes from user_app_installs where app_id = $1 and status = 'active'",
-    )
-    .bind(app_id)
-    .fetch_all(master)
-    .await?;
+    let installs: Vec<(String, Option<Value>)> = user_app_installs::Entity::find()
+        .select_only()
+        .columns([
+            user_app_installs::Column::Id,
+            user_app_installs::Column::GrantedScopes,
+        ])
+        .filter(user_app_installs::Column::AppId.eq(app_id))
+        .filter(user_app_installs::Column::Status.eq("active"))
+        .into_tuple()
+        .all(master)
+        .await?;
     for (install_id, granted) in installs {
         let granted = string_list(granted.as_ref());
         let pending: Vec<&String> = requested
@@ -860,14 +937,15 @@ async fn publish_live(
             .filter(|scope| !granted.contains(scope))
             .collect();
         if !pending.is_empty() {
-            sqlx::query(
-                "update user_app_installs set pending_scopes = $2, updated_at = $3::timestamptz where id = $1",
-            )
-            .bind(&install_id)
-            .bind(json!(pending))
-            .bind(now)
-            .execute(master)
-            .await?;
+            user_app_installs::Entity::update_many()
+                .col_expr(
+                    user_app_installs::Column::PendingScopes,
+                    Expr::value(json!(pending)),
+                )
+                .col_expr(user_app_installs::Column::UpdatedAt, Expr::value(now))
+                .filter(user_app_installs::Column::Id.eq(install_id))
+                .exec(master)
+                .await?;
         }
     }
     Ok(())
@@ -892,44 +970,56 @@ pub(crate) async fn submit(
     respond(
         async {
             let app = developer.owned_app(&id).await?;
-            let version: Option<String> =
-                sqlx::query_scalar("select id from user_app_versions where app_id = $1 limit 1")
-                    .bind(&id)
-                    .fetch_optional(&developer.master)
-                    .await
-                    .map_err(|error| db_error(&error))?;
+            let master = orm(&developer.master);
+            let version: Option<String> = user_app_versions::Entity::find()
+                .select_only()
+                .column(user_app_versions::Column::Id)
+                .filter(user_app_versions::Column::AppId.eq(id.as_str()))
+                .into_tuple()
+                .one(&master)
+                .await
+                .map_err(|error| db_error(&error))?;
             if version.is_none() {
                 return Err(bad_request(
                     "Upload at least one version before submitting for review",
                 ));
             }
             let official = text(&app, "publisherType") == "weldsuite";
-            let notes_or_kept = notes
-                .clone()
-                .or_else(|| app.get("reviewNotes").and_then(Value::as_str).map(str::to_owned));
+            let notes_or_kept = notes.clone().or_else(|| {
+                app.get("reviewNotes")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+            });
             let notes_patch = notes.filter(|text| !text.is_empty());
-            let row: Option<Value> = sqlx::query_scalar(concat!(
-                "update user_apps as a set
-                   visibility = 'public',
-                   review_status = case when $2 then 'approved' else 'submitted' end,
-                   reviewed_by = case when $2 then $3 else a.reviewed_by end,
-                   reviewed_at = case when $2 then $4::timestamptz else a.reviewed_at end,
-                   review_notes = case when $2 then $5 when $6::text is not null then $6 else a.review_notes end,
-                   updated_at = $4::timestamptz
-                 where a.id = $1
-                 returning ",
-                app_json!()
-            ))
-            .bind(&id)
-            .bind(official)
-            .bind(developer.actor())
-            .bind(now())
-            .bind(notes_or_kept)
-            .bind(notes_patch)
-            .fetch_optional(&developer.master)
-            .await
-            .map_err(|error| db_error(&error))?;
-            let row = js_row(row.ok_or_else(|| internal_with("Failed to submit app"))?);
+            // An official app is approved at once, by the caller; another
+            // waits for review, keeping its notes unless the body has some.
+            let now = now();
+            let mut update = user_apps::Entity::update_many()
+                .col_expr(user_apps::Column::Visibility, Expr::value("public"))
+                .col_expr(
+                    user_apps::Column::ReviewStatus,
+                    Expr::value(if official { "approved" } else { "submitted" }),
+                );
+            if official {
+                update = update
+                    .col_expr(
+                        user_apps::Column::ReviewedBy,
+                        Expr::value(developer.actor()),
+                    )
+                    .col_expr(user_apps::Column::ReviewedAt, Expr::value(now))
+                    .col_expr(user_apps::Column::ReviewNotes, Expr::value(notes_or_kept));
+            } else if let Some(notes) = notes_patch {
+                update = update.col_expr(user_apps::Column::ReviewNotes, Expr::value(notes));
+            }
+            let row = update
+                .col_expr(user_apps::Column::UpdatedAt, Expr::value(now))
+                .filter(user_apps::Column::Id.eq(id.as_str()))
+                .exec_with_returning(&master)
+                .await
+                .map_err(|error| db_error(&error))?
+                .into_iter()
+                .next();
+            let row = to_json(row.ok_or_else(|| internal_with("Failed to submit app"))?)?;
             if official {
                 state.events.tracker().spawn(sweep_adopt_system_installs(
                     developer.master.clone(),
@@ -973,51 +1063,59 @@ pub(crate) async fn put_dev_session(
                     "Preview URL must be localhost, 127.0.0.1, a Cloudflare quick tunnel, ngrok, or pages.dev",
                 ));
             }
-            let now_at = OffsetDateTime::now_utc();
-            let now = iso_timestamp(now_at);
-            let expires_at = iso_timestamp(now_at + DEV_SESSION_TTL);
+            let now = now();
+            let expires_at = now + DEV_SESSION_TTL;
             let app_id = text(&app, "id");
-            let workspace_id = &developer.key.session.workspace_id;
-            let existing: Option<String> = sqlx::query_scalar(
-                "select id from user_app_dev_sessions where app_id = $1 and user_id = $2 and workspace_id = $3 limit 1",
-            )
-            .bind(app_id)
-            .bind(&user_id)
-            .bind(workspace_id)
-            .fetch_optional(&developer.master)
-            .await
-            .map_err(|error| db_error(&error))?;
-            let row: Option<Value> = match existing {
-                Some(existing) => sqlx::query_scalar(
-                    "update user_app_dev_sessions set url = $2, expires_at = $3::timestamptz, updated_at = $4::timestamptz
-                      where id = $1
-                     returning jsonb_build_object('url', url, 'expiresAt', expires_at)",
-                )
-                .bind(existing)
-                .bind(&url)
-                .bind(&expires_at)
-                .bind(&now)
-                .fetch_optional(&developer.master)
-                .await,
-                None => sqlx::query_scalar(
-                    "insert into user_app_dev_sessions
-                       (id, app_id, workspace_id, user_id, url, expires_at, created_at, updated_at)
-                     values ($1, $2, $3, $4, $5, $6::timestamptz, $7::timestamptz, $7::timestamptz)
-                     returning jsonb_build_object('url', url, 'expiresAt', expires_at)",
-                )
-                .bind(generate_id("uads"))
-                .bind(app_id)
-                .bind(workspace_id)
-                .bind(&user_id)
-                .bind(&url)
-                .bind(&expires_at)
-                .bind(&now)
-                .fetch_optional(&developer.master)
-                .await,
+            let workspace_id = developer.key.session.workspace_id.as_str();
+            let master = orm(&developer.master);
+            let existing: Option<String> = user_app_dev_sessions::Entity::find()
+                .select_only()
+                .column(user_app_dev_sessions::Column::Id)
+                .filter(user_app_dev_sessions::Column::AppId.eq(app_id))
+                .filter(user_app_dev_sessions::Column::UserId.eq(user_id.as_str()))
+                .filter(user_app_dev_sessions::Column::WorkspaceId.eq(workspace_id))
+                .into_tuple()
+                .one(&master)
+                .await
+                .map_err(|error| db_error(&error))?;
+            let row = match existing {
+                Some(existing) => user_app_dev_sessions::Entity::update_many()
+                    .col_expr(user_app_dev_sessions::Column::Url, Expr::value(url.as_str()))
+                    .col_expr(user_app_dev_sessions::Column::ExpiresAt, Expr::value(expires_at))
+                    .col_expr(user_app_dev_sessions::Column::UpdatedAt, Expr::value(now))
+                    .filter(user_app_dev_sessions::Column::Id.eq(existing))
+                    .exec_with_returning(&master)
+                    .await
+                    .map(|rows| rows.into_iter().next()),
+                None => user_app_dev_sessions::Entity::insert(user_app_dev_sessions::ActiveModel {
+                    id: Set(generate_id("uads")),
+                    app_id: Set(app_id.to_owned()),
+                    workspace_id: Set(workspace_id.to_owned()),
+                    user_id: Set(user_id),
+                    url: Set(url),
+                    expires_at: Set(expires_at),
+                    created_at: Set(now),
+                    updated_at: Set(now),
+                })
+                .exec_with_returning(&master)
+                .await
+                .map(Some)
+                .or_else(|error| match error {
+                    DbErr::RecordNotInserted => Ok(None),
+                    error => Err(error),
+                }),
             }
             .map_err(|error| db_error(&error))?;
+            // `returning jsonb_build_object('url', url, 'expiresAt', expires_at)`.
+            let row = row
+                .map(|session| {
+                    to_json(session).map(|session| {
+                        json!({ "url": session["url"], "expiresAt": session["expiresAt"] })
+                    })
+                })
+                .transpose()?;
             let row = row.ok_or_else(|| internal_with("Failed to save preview session"))?;
-            Ok(Json(json!({ "data": js_row(row) })).into_response())
+            Ok(Json(json!({ "data": row })).into_response())
         }
         .await,
     )
@@ -1043,7 +1141,9 @@ pub(crate) async fn delete_dev_session(
                 .or_else(|| {
                     query.get("userId").and_then(|value| match value {
                         Value::String(text) => Some(text.clone()),
-                        Value::Array(items) => items.first().and_then(Value::as_str).map(str::to_owned),
+                        Value::Array(items) => {
+                            items.first().and_then(Value::as_str).map(str::to_owned)
+                        }
                         _ => None,
                     })
                 })
@@ -1054,15 +1154,19 @@ pub(crate) async fn delete_dev_session(
                     "Pass userId as a query param when using a workspace API key",
                 ));
             };
-            sqlx::query(
-                "delete from user_app_dev_sessions where app_id = $1 and user_id = $2 and workspace_id = $3",
-            )
-            .bind(text(&app, "id"))
-            .bind(&user_id)
-            .bind(&developer.key.session.workspace_id)
-            .execute(&developer.master)
-            .await
-            .map_err(|error| db_error(&error))?;
+            user_app_dev_sessions::Entity::delete_many()
+                .filter(user_app_dev_sessions::Column::AppId.eq(text(&app, "id")))
+                .filter(user_app_dev_sessions::Column::UserId.eq(user_id.as_str()))
+                .filter(
+                    user_app_dev_sessions::Column::WorkspaceId.eq(developer
+                        .key
+                        .session
+                        .workspace_id
+                        .as_str()),
+                )
+                .exec(&orm(&developer.master))
+                .await
+                .map_err(|error| db_error(&error))?;
             Ok(StatusCode::NO_CONTENT.into_response())
         }
         .await,
@@ -1077,16 +1181,19 @@ pub(crate) async fn oauth_client(developer: Developer, Path(id): Path<String>) -
         async {
             developer_gate(&developer)?;
             developer.owned_app(&id).await?;
-            let row: Option<Value> = sqlx::query_scalar(
-                "select jsonb_build_object('clientId', client_id, 'createdAt', created_at)
-                   from user_app_oauth_clients where app_id = $1 limit 1",
-            )
-            .bind(&id)
-            .fetch_optional(&developer.master)
-            .await
-            .map_err(|error| db_error(&error))?;
+            let row: Option<OauthClient> = user_app_oauth_clients::Entity::find()
+                .select_only()
+                .columns([
+                    user_app_oauth_clients::Column::ClientId,
+                    user_app_oauth_clients::Column::CreatedAt,
+                ])
+                .filter(user_app_oauth_clients::Column::AppId.eq(id.as_str()))
+                .into_model()
+                .one(&orm(&developer.master))
+                .await
+                .map_err(|error| db_error(&error))?;
             let row = row.ok_or_else(|| not_found("OAuth client", &id))?;
-            Ok(Json(json!({ "data": js_row(row) })).into_response())
+            Ok(Json(json!({ "data": to_json(row)? })).into_response())
         }
         .await,
     )
@@ -1102,36 +1209,45 @@ pub(crate) async fn rotate_oauth_client(developer: Developer, Path(id): Path<Str
             let secret = format!("wacs_{}", random_hex(20));
             let hash = sha256_hex(&secret);
             let now = now();
-            let master = &developer.master;
-            let existing: Option<(String, String)> =
-                sqlx::query_as("select id, client_id from user_app_oauth_clients where app_id = $1 limit 1")
-                    .bind(&id)
-                    .fetch_optional(master)
-                    .await
-                    .map_err(|error| db_error(&error))?;
-            if let Some((row_id, client_id)) = existing {
-                sqlx::query(
-                    "update user_app_oauth_clients set client_secret_hash = $2, updated_at = $3::timestamptz where id = $1",
-                )
-                .bind(&row_id)
-                .bind(&hash)
-                .bind(&now)
-                .execute(master)
+            let master = &orm(&developer.master);
+            let existing: Option<(String, String)> = user_app_oauth_clients::Entity::find()
+                .select_only()
+                .columns([
+                    user_app_oauth_clients::Column::Id,
+                    user_app_oauth_clients::Column::ClientId,
+                ])
+                .filter(user_app_oauth_clients::Column::AppId.eq(id.as_str()))
+                .into_tuple()
+                .one(master)
                 .await
                 .map_err(|error| db_error(&error))?;
-                return Ok(Json(json!({ "data": { "clientId": client_id, "clientSecret": secret } })).into_response());
+            if let Some((row_id, client_id)) = existing {
+                user_app_oauth_clients::Entity::update_many()
+                    .col_expr(
+                        user_app_oauth_clients::Column::ClientSecretHash,
+                        Expr::value(hash.as_str()),
+                    )
+                    .col_expr(user_app_oauth_clients::Column::UpdatedAt, Expr::value(now))
+                    .filter(user_app_oauth_clients::Column::Id.eq(row_id))
+                    .exec(master)
+                    .await
+                    .map_err(|error| db_error(&error))?;
+                return Ok(Json(
+                    json!({ "data": { "clientId": client_id, "clientSecret": secret } }),
+                )
+                .into_response());
             }
             let client_id = format!("wac_{}", random_hex(12));
-            sqlx::query(
-                "insert into user_app_oauth_clients (id, app_id, client_id, client_secret_hash, created_at, updated_at)
-                 values ($1, $2, $3, $4, $5::timestamptz, $5::timestamptz)",
-            )
-            .bind(generate_id("uaoc"))
-            .bind(&id)
-            .bind(&client_id)
-            .bind(&hash)
-            .bind(&now)
-            .execute(master)
+            user_app_oauth_clients::Entity::insert(user_app_oauth_clients::ActiveModel {
+                id: Set(generate_id("uaoc")),
+                app_id: Set(id.clone()),
+                client_id: Set(client_id.clone()),
+                client_secret_hash: Set(hash),
+                created_at: Set(now),
+                updated_at: Set(now),
+                ..Default::default()
+            })
+            .exec_without_returning(master)
             .await
             .map_err(|error| db_error(&error))?;
             Ok((

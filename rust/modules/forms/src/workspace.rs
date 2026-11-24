@@ -1,12 +1,15 @@
 //! Workspace settings (one row), the member's own subscription to a form,
 //! and media uploads (`services/settings.ts`).
 
+use sea_orm::sea_query::Expr;
+use sea_orm::{ActiveValue::Set, ColumnTrait, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Value, json};
-use sqlx::{Postgres, QueryBuilder};
 use weldsuite_core_domain::plan_limits::load_workspace_plan;
+use weldsuite_db::{OrmConn, atomically_with, orm};
 use weldsuite_ports::PutOptions;
+use weldsuite_schema::tenant::{form_settings, form_subscriptions, form_themes, forms};
 
-use crate::common::{Ctx, FormsResult, all, forms_error, iso, not_found, one};
+use crate::common::{Ctx, FormsResult, forms_error, instant, not_found, row_json, rows_json};
 use crate::input::SettingsPatch;
 use crate::public_cache::refresh_public_cache;
 
@@ -30,11 +33,11 @@ fn settings_dto(row: Option<&Value>, can_hide_badge: bool) -> Value {
 }
 
 async fn settings_row(ctx: &Ctx) -> FormsResult<Option<Value>> {
-    one(
-        &ctx.db,
-        sqlx::query_scalar("select to_jsonb(s) from form_settings s limit 1"),
-    )
-    .await
+    form_settings::Entity::find()
+        .one(&orm(&ctx.db))
+        .await?
+        .map(row_json)
+        .transpose()
 }
 
 /// `getWorkspaceSettings(ctx)`.
@@ -61,63 +64,85 @@ pub(crate) async fn update_workspace_settings(
     if let Some(Some(theme)) = &input.default_theme_id
         && !theme.is_empty()
     {
-        let found: Option<String> =
-            sqlx::query_scalar("select id from form_themes where id = $1 limit 1")
-                .bind(theme)
-                .fetch_optional(&ctx.db)
-                .await?;
+        let found: Option<String> = form_themes::Entity::find()
+            .select_only()
+            .column(form_themes::Column::Id)
+            .filter(form_themes::Column::Id.eq(theme))
+            .into_tuple()
+            .one(&orm(&ctx.db))
+            .await?;
         if found.is_none() {
             return Err(not_found("Theme"));
         }
     }
     let existing = settings_row(ctx).await?;
-    let now = iso(ctx.now_ms());
+    let now = instant(ctx.now_ms());
     let id = match &existing {
         Some(row) => row["id"].as_str().unwrap_or_default().to_owned(),
         None => weldsuite_kit::generate_id("fst"),
     };
     let int = |value: Option<i64>| value.map(|v| i32::try_from(v).unwrap_or(i32::MAX));
-    let mut q = QueryBuilder::<Postgres>::new("update form_settings set updated_at = ");
-    q.push_bind(now.clone()).push("::timestamptz");
+    let mut update = form_settings::Entity::update_many()
+        .col_expr(form_settings::Column::UpdatedAt, Expr::value(now));
     if let Some(theme) = &input.default_theme_id {
-        q.push(", default_theme_id = ").push_bind(theme.clone());
+        update = update.col_expr(
+            form_settings::Column::DefaultThemeId,
+            Expr::value(theme.clone()),
+        );
     }
     if let Some(name) = &input.sender_name {
-        q.push(", sender_name = ").push_bind(name.clone());
+        update = update.col_expr(form_settings::Column::SenderName, Expr::value(name.clone()));
     }
     if let Some(days) = input.reminder_after_days {
-        q.push(", reminder_after_days = ").push_bind(int(days));
+        update = update.col_expr(
+            form_settings::Column::ReminderAfterDays,
+            Expr::value(int(days)),
+        );
     }
     if let Some(days) = input.reminder_every_days {
-        q.push(", reminder_every_days = ").push_bind(int(days));
+        update = update.col_expr(
+            form_settings::Column::ReminderEveryDays,
+            Expr::value(int(days)),
+        );
     }
     if let Some(count) = input.reminder_max_count {
-        q.push(", reminder_max_count = ")
-            .push_bind(int(Some(count)));
+        update = update.col_expr(
+            form_settings::Column::ReminderMaxCount,
+            Expr::value(int(Some(count))),
+        );
     }
     if let Some(show) = input.show_badge {
-        q.push(", show_badge = ").push_bind(show);
+        update = update.col_expr(form_settings::Column::ShowBadge, Expr::value(show));
     }
-    q.push(" where id = ").push_bind(id.clone());
+    let update = update.filter(form_settings::Column::Id.eq(id.clone()));
     // The single row: inserted with the column defaults, then set as an update would.
-    let mut tx = ctx.db.begin().await?;
-    if existing.is_none() {
-        sqlx::query("insert into form_settings (id, updated_at) values ($1, $2::timestamptz)")
-            .bind(&id)
-            .bind(&now)
-            .execute(&mut *tx)
-            .await?;
-    }
-    q.build().execute(&mut *tx).await?;
-    tx.commit().await?;
+    let missing = existing.is_none();
+    atomically_with(&ctx.db, |tx| {
+        Box::pin(async move {
+            let db = OrmConn::new(tx);
+            if missing {
+                form_settings::Entity::insert(form_settings::ActiveModel {
+                    id: Set(id),
+                    updated_at: Set(now),
+                    ..Default::default()
+                })
+                .exec_without_returning(&db)
+                .await?;
+            }
+            update.exec(&db).await?;
+            FormsResult::Ok(())
+        })
+    })
+    .await?;
     let row = settings_row(ctx).await?;
     // The badge is part of what respondents get from the cache.
     if input.show_badge.is_some() {
-        let live = all(
-            &ctx.db,
-            sqlx::query_scalar("select to_jsonb(f) from forms f where public_id is not null"),
-        )
-        .await?;
+        let live = rows_json(
+            forms::Entity::find()
+                .filter(forms::Column::PublicId.is_not_null())
+                .all(&orm(&ctx.db))
+                .await?,
+        )?;
         for form in &live {
             refresh_public_cache(ctx, form).await?;
         }
@@ -135,13 +160,14 @@ pub(crate) async fn get_subscription(
     form_id: &str,
     user_id: &str,
 ) -> FormsResult<Value> {
-    let mode: Option<String> = sqlx::query_scalar(
-        "select mode from form_subscriptions where form_id = $1 and user_id = $2 limit 1",
-    )
-    .bind(form_id)
-    .bind(user_id)
-    .fetch_optional(&ctx.db)
-    .await?;
+    let mode: Option<String> = form_subscriptions::Entity::find()
+        .select_only()
+        .column(form_subscriptions::Column::Mode)
+        .filter(form_subscriptions::Column::FormId.eq(form_id))
+        .filter(form_subscriptions::Column::UserId.eq(user_id))
+        .into_tuple()
+        .one(&orm(&ctx.db))
+        .await?;
     Ok(json!({ "mode": mode.unwrap_or_else(|| "off".to_owned()) }))
 }
 
@@ -152,30 +178,37 @@ pub(crate) async fn set_subscription(
     user_id: &str,
     mode: &str,
 ) -> FormsResult<Value> {
-    let existing: Option<String> = sqlx::query_scalar(
-        "select id from form_subscriptions where form_id = $1 and user_id = $2 limit 1",
-    )
-    .bind(form_id)
-    .bind(user_id)
-    .fetch_optional(&ctx.db)
-    .await?;
+    let db = orm(&ctx.db);
+    let existing: Option<String> = form_subscriptions::Entity::find()
+        .select_only()
+        .column(form_subscriptions::Column::Id)
+        .filter(form_subscriptions::Column::FormId.eq(form_id))
+        .filter(form_subscriptions::Column::UserId.eq(user_id))
+        .into_tuple()
+        .one(&db)
+        .await?;
     match existing {
         Some(id) => {
-            sqlx::query("update form_subscriptions set mode = $2, updated_at = $3::timestamptz where id = $1")
-                .bind(id)
-                .bind(mode)
-                .bind(iso(ctx.now_ms()))
-                .execute(&ctx.db)
+            form_subscriptions::Entity::update_many()
+                .col_expr(form_subscriptions::Column::Mode, Expr::value(mode))
+                .col_expr(
+                    form_subscriptions::Column::UpdatedAt,
+                    Expr::value(instant(ctx.now_ms())),
+                )
+                .filter(form_subscriptions::Column::Id.eq(id))
+                .exec(&db)
                 .await?;
         }
         None => {
-            sqlx::query("insert into form_subscriptions (id, form_id, user_id, mode) values ($1, $2, $3, $4)")
-                .bind(weldsuite_kit::generate_id("fsb"))
-                .bind(form_id)
-                .bind(user_id)
-                .bind(mode)
-                .execute(&ctx.db)
-                .await?;
+            form_subscriptions::Entity::insert(form_subscriptions::ActiveModel {
+                id: Set(weldsuite_kit::generate_id("fsb")),
+                form_id: Set(form_id.to_owned()),
+                user_id: Set(user_id.to_owned()),
+                mode: Set(mode.to_owned()),
+                ..Default::default()
+            })
+            .exec_without_returning(&db)
+            .await?;
         }
     }
     Ok(json!({ "mode": mode }))

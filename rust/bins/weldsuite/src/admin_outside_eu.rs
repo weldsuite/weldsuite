@@ -282,7 +282,7 @@ pub(crate) async fn execute(
                 match store::set(&db, &change).await {
                     Ok((before, after)) => {
                         if before != after {
-                            record_success(master, &entry).await?;
+                            record_success(&weldsuite_db::orm(master), &entry).await?;
                             changed.push(service.as_str());
                         }
                     }

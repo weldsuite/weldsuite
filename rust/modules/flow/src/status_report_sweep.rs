@@ -79,7 +79,7 @@ pub async fn sweep_status_reports(
         {
             continue;
         }
-        let outcome: Result<(), sqlx::Error> = async {
+        let outcome: Result<(), sea_orm::DbErr> = async {
             let period = period_for_slot(
                 &schedule.cadence,
                 last_slot_on_or_before(&schedule.cadence, schedule.weekday, now_ms),

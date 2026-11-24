@@ -7,6 +7,11 @@
 
 use std::collections::HashMap;
 
+use sea_orm::ActiveValue::Set;
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{
+    ColumnTrait, ConnectionTrait, DbErr, EntityTrait, JoinType, QueryFilter, QuerySelect,
+};
 use serde_json::{Map, Value, json};
 use sqlx::PgPool;
 use weldsuite_books_domain::currency::to_base_currency;
@@ -18,19 +23,33 @@ use weldsuite_books_domain::posting::{
     AlsoWrite, PostError, PostJournalEntryInput, PostingLine, account_for_role,
     load_entity_accounts, post_journal_entry,
 };
+use weldsuite_db::{OrmConn, orm, orm_error};
 use weldsuite_kit::generate_id;
+use weldsuite_schema::tenant::{
+    accounts, invoice_items, invoices, journal_entries, journal_lines, tax_lines, tax_rates,
+    tax_returns,
+};
+
+use crate::orm_bridge::{column_text, date_of, decimal_of, text_of, timestamp_of_iso};
 
 /// Why the worksheet can't be made (`BrApuracaoError`): a 400.
 #[derive(Debug)]
 pub(crate) enum ApuracaoError {
     User(String),
     Post(PostError),
-    Database(sqlx::Error),
+    Database(DbErr),
 }
 
+impl From<DbErr> for ApuracaoError {
+    fn from(error: DbErr) -> Self {
+        Self::Database(error)
+    }
+}
+
+/// A failure of `weldsuite-books-domain`, not converted to the ORM yet.
 impl From<sqlx::Error> for ApuracaoError {
     fn from(error: sqlx::Error) -> Self {
-        Self::Database(error)
+        Self::Database(orm_error(error))
     }
 }
 
@@ -992,7 +1011,7 @@ async fn revenue_lines(
     entity: &Value,
     from: &str,
     to: &str,
-) -> Result<(Vec<RevenueLine>, Vec<(String, f64)>), sqlx::Error> {
+) -> Result<(Vec<RevenueLine>, Vec<(String, f64)>), DbErr> {
     let entity_id = entity["id"].as_str().unwrap_or_default();
     let base_currency = entity["baseCurrency"].as_str();
     let default_anexo = entity
@@ -1010,21 +1029,38 @@ async fn revenue_lines(
         Option<String>,
         Option<String>,
     );
-    let rows: Vec<Row> = sqlx::query_as(
-        "select \"invoices\".\"id\", \"invoices\".\"type\", \"invoices\".\"currency\", \
-         \"invoices\".\"exchange_rate\"::text, \"invoices\".\"tax_breakdown\", \
-         \"invoice_items\".\"line_total\"::text, \"invoice_items\".\"tax_rate_id\" \
-         from \"invoice_items\" inner join \"invoices\" on \"invoice_items\".\"invoice_id\" = \"invoices\".\"id\" \
-         where (\"invoices\".\"entity_id\" = $1 and \"invoices\".\"deleted_at\" is null \
-         and \"invoice_items\".\"deleted_at\" is null and \"invoices\".\"issue_date\" >= $2::timestamp \
-         and \"invoices\".\"issue_date\" < $3::timestamp \
-         and \"invoices\".\"status\" not in ('draft', 'cancelled') and \"invoices\".\"type\" not in ('proforma'))",
-    )
-    .bind(entity_id)
-    .bind(from)
-    .bind(to)
-    .fetch_all(db)
-    .await?;
+    let rows: Vec<Row> = invoice_items::Entity::find()
+        .select_only()
+        .column(invoices::Column::Id)
+        .column(invoices::Column::Type)
+        .column(invoices::Column::Currency)
+        .column_as(
+            column_text((invoices::Entity, invoices::Column::ExchangeRate)),
+            "exchange_rate",
+        )
+        .column(invoices::Column::TaxBreakdown)
+        .column_as(
+            column_text((invoice_items::Entity, invoice_items::Column::LineTotal)),
+            "line_total",
+        )
+        .column(invoice_items::Column::TaxRateId)
+        .join(
+            JoinType::InnerJoin,
+            invoice_items::Entity::belongs_to(invoices::Entity)
+                .from(invoice_items::Column::InvoiceId)
+                .to(invoices::Column::Id)
+                .into(),
+        )
+        .filter(invoices::Column::EntityId.eq(entity_id))
+        .filter(invoices::Column::DeletedAt.is_null())
+        .filter(invoice_items::Column::DeletedAt.is_null())
+        .filter(invoices::Column::IssueDate.gte(timestamp_of_iso(from)?))
+        .filter(invoices::Column::IssueDate.lt(timestamp_of_iso(to)?))
+        .filter(invoices::Column::Status.is_not_in(["draft", "cancelled"]))
+        .filter(invoices::Column::Type.is_not_in(["proforma"]))
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
 
     let mut rate_ids: Vec<String> = Vec::new();
     for row in &rows {
@@ -1037,12 +1073,14 @@ async fn revenue_lines(
     let profiles: HashMap<String, Option<Value>> = if rate_ids.is_empty() {
         HashMap::new()
     } else {
-        let rates: Vec<(String, Option<Value>)> = sqlx::query_as(
-            "select \"id\", \"jurisdiction_metadata\" from \"tax_rates\" where \"tax_rates\".\"id\" = any($1)",
-        )
-        .bind(&rate_ids)
-        .fetch_all(db)
-        .await?;
+        let rates: Vec<(String, Option<Value>)> = tax_rates::Entity::find()
+            .select_only()
+            .column(tax_rates::Column::Id)
+            .column(tax_rates::Column::JurisdictionMetadata)
+            .filter(tax_rates::Column::Id.is_in(rate_ids.iter().map(String::as_str)))
+            .into_tuple()
+            .all(&orm(db))
+            .await?;
         rates
             .into_iter()
             .map(|(id, metadata)| (id, profile_of(metadata.as_ref()).cloned()))
@@ -1168,6 +1206,35 @@ fn simples_slices(lines: &[RevenueLine], iss_withheld: &[(String, f64)]) -> Vec<
     slices
 }
 
+/// `(coalesce(sum(coalesce(base_currency_debit, debit) -
+/// coalesce(base_currency_credit, credit)), 0))::text` of `journal_lines`:
+/// the ledger's net debit, summed by Postgres and read as its `numeric` text
+/// (what `Number.parseFloat` read).
+pub(crate) fn net_debit_text() -> Expr {
+    use sea_orm::ExprTrait as _;
+    let line = |column: journal_lines::Column| Expr::col((journal_lines::Entity, column));
+    let debit = Expr::from(Func::coalesce([
+        line(journal_lines::Column::BaseCurrencyDebit),
+        line(journal_lines::Column::Debit),
+    ]));
+    let credit = Expr::from(Func::coalesce([
+        line(journal_lines::Column::BaseCurrencyCredit),
+        line(journal_lines::Column::Credit),
+    ]));
+    text_of(Func::coalesce([
+        Expr::from(Func::sum(debit.sub(credit))),
+        Expr::value(0),
+    ]))
+}
+
+/// `journal_lines inner join journal_entries on journal_entry_id = id`.
+pub(crate) fn line_entry() -> sea_orm::RelationDef {
+    journal_lines::Entity::belongs_to(journal_entries::Entity)
+        .from(journal_lines::Column::JournalEntryId)
+        .to(journal_entries::Column::Id)
+        .into()
+}
+
 /// `accountMovement(db, entityId, accountIds, from, to)`: debit - credit.
 async fn account_movement(
     db: &PgPool,
@@ -1175,45 +1242,54 @@ async fn account_movement(
     account_ids: &[String],
     from: &str,
     to: &str,
-) -> Result<f64, sqlx::Error> {
+) -> Result<f64, DbErr> {
     if account_ids.is_empty() {
         return Ok(0.0);
     }
-    let net: Option<String> = sqlx::query_scalar(
-        "select (coalesce(sum(coalesce(\"journal_lines\".\"base_currency_debit\", \"journal_lines\".\"debit\") \
-         - coalesce(\"journal_lines\".\"base_currency_credit\", \"journal_lines\".\"credit\")), 0))::text \
-         from \"journal_lines\" inner join \"journal_entries\" on \"journal_lines\".\"journal_entry_id\" = \"journal_entries\".\"id\" \
-         where (\"journal_lines\".\"entity_id\" = $1 and \"journal_lines\".\"account_id\" = any($2) \
-         and \"journal_entries\".\"date\" >= $3::timestamp and \"journal_entries\".\"date\" < $4::timestamp \
-         and \"journal_entries\".\"status\" = 'posted')",
-    )
-    .bind(entity_id)
-    .bind(account_ids)
-    .bind(from)
-    .bind(to)
-    .fetch_optional(db)
-    .await?;
-    Ok(js::parse_float(net.as_deref().unwrap_or("0")))
+    let net: Option<Option<String>> = journal_lines::Entity::find()
+        .select_only()
+        .column_as(net_debit_text(), "net")
+        .join(JoinType::InnerJoin, line_entry())
+        .filter(journal_lines::Column::EntityId.eq(entity_id))
+        .filter(journal_lines::Column::AccountId.is_in(account_ids.iter().map(String::as_str)))
+        .filter(journal_entries::Column::Date.gte(timestamp_of_iso(from)?))
+        .filter(journal_entries::Column::Date.lt(timestamp_of_iso(to)?))
+        .filter(journal_entries::Column::Status.eq("posted"))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
+    Ok(js::parse_float(net.flatten().as_deref().unwrap_or("0")))
 }
 
-/// `taxLedger(db, entityId, start, end)`.
+/// `taxLedger(db, entityId, start, end)`: the period's amounts by component
+/// and direction, summed by Postgres and read as their `numeric` text.
 async fn tax_ledger(
     db: &PgPool,
     entity_id: &str,
     start: &str,
     end: &str,
-) -> Result<Vec<LedgerTotal>, sqlx::Error> {
-    let rows: Vec<(Option<String>, String, String, String)> = sqlx::query_as(
-        "select \"component\", \"direction\", (coalesce(sum(\"base_taxable_amount\"), 0))::text, \
-         (coalesce(sum(\"base_tax_amount\"), 0))::text from \"tax_lines\" \
-         where (\"tax_lines\".\"entity_id\" = $1 and \"tax_lines\".\"tax_date\" >= $2::date \
-         and \"tax_lines\".\"tax_date\" <= $3::date) group by \"tax_lines\".\"component\", \"tax_lines\".\"direction\"",
-    )
-    .bind(entity_id)
-    .bind(start)
-    .bind(end)
-    .fetch_all(db)
-    .await?;
+) -> Result<Vec<LedgerTotal>, DbErr> {
+    use tax_lines::Column;
+    let total = |column: Column| {
+        text_of(Func::coalesce([
+            Expr::from(Func::sum(Expr::col((tax_lines::Entity, column)))),
+            Expr::value(0),
+        ]))
+    };
+    let rows: Vec<(Option<String>, String, String, String)> = tax_lines::Entity::find()
+        .select_only()
+        .column(Column::Component)
+        .column(Column::Direction)
+        .column_as(total(Column::BaseTaxableAmount), "base_taxable_amount")
+        .column_as(total(Column::BaseTaxAmount), "base_tax_amount")
+        .filter(Column::EntityId.eq(entity_id))
+        .filter(Column::TaxDate.gte(date_of(start)?))
+        .filter(Column::TaxDate.lte(date_of(end)?))
+        .group_by(Column::Component)
+        .group_by(Column::Direction)
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     Ok(rows
         .into_iter()
         .filter_map(|(component, direction, taxable, tax)| {
@@ -1233,7 +1309,7 @@ async fn quarter_revenue(
     db: &PgPool,
     entity: &Value,
     period: &str,
-) -> Result<Option<QuarterRevenue>, sqlx::Error> {
+) -> Result<Option<QuarterRevenue>, DbErr> {
     let (year, month) = split_period(period);
     if month % 3 != 0 {
         return Ok(None);
@@ -1258,13 +1334,17 @@ async fn quarter_revenue(
     }
     let q_from = format!("{}T00:00:00.000Z", day_text(year, month - 2, 1));
     let q_to = add_months(&q_from, 3);
-    let accounts: Vec<(String, String, Option<String>, Option<Value>)> = sqlx::query_as(
-        "select \"id\", \"type\", \"subtype\", \"metadata\" from \"accounts\" \
-         where (\"accounts\".\"entity_id\" = $1 and \"accounts\".\"deleted_at\" is null)",
-    )
-    .bind(entity_id)
-    .fetch_all(db)
-    .await?;
+    let accounts: Vec<(String, String, Option<String>, Option<Value>)> = accounts::Entity::find()
+        .select_only()
+        .column(accounts::Column::Id)
+        .column(accounts::Column::Type)
+        .column(accounts::Column::Subtype)
+        .column(accounts::Column::Metadata)
+        .filter(accounts::Column::EntityId.eq(entity_id))
+        .filter(accounts::Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     let role_of = |metadata: &Option<Value>| {
         metadata
             .as_ref()
@@ -1297,7 +1377,7 @@ async fn quarter_revenue(
 
 /// `payroll12m(db, entity, from)`: salaries, pró-labore and charges of the
 /// 12 months before, else the settings' figure.
-async fn payroll_12m(db: &PgPool, entity: &Value, from: &str) -> Result<f64, sqlx::Error> {
+async fn payroll_12m(db: &PgPool, entity: &Value, from: &str) -> Result<f64, DbErr> {
     let entity_id = entity["id"].as_str().unwrap_or_default();
     let accounts = load_entity_accounts(db, entity_id).await?;
     let ids: Vec<String> = [
@@ -1442,15 +1522,17 @@ pub(crate) async fn stored_apuracao(
     let Some((_, _, start, _)) = month_range(period) else {
         return Err(ApuracaoError::User("period must be YYYY-MM".into()));
     };
-    let row: Option<(String, Option<Value>)> = sqlx::query_as(
-        "select \"id\", \"summary\" from \"tax_returns\" where (\"tax_returns\".\"entity_id\" = $1 \
-         and \"tax_returns\".\"jurisdiction_code\" = 'BR' and \"tax_returns\".\"period_start\" = $2::date \
-         and \"tax_returns\".\"deleted_at\" is null) limit 1",
-    )
-    .bind(entity_id)
-    .bind(&start)
-    .fetch_optional(db)
-    .await?;
+    let row: Option<(String, Option<Value>)> = tax_returns::Entity::find()
+        .select_only()
+        .column(tax_returns::Column::Id)
+        .column(tax_returns::Column::Summary)
+        .filter(tax_returns::Column::EntityId.eq(entity_id))
+        .filter(tax_returns::Column::JurisdictionCode.eq("BR"))
+        .filter(tax_returns::Column::PeriodStart.eq(date_of(&start)?))
+        .filter(tax_returns::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     Ok(match row {
         None => (
             Stored {
@@ -1603,7 +1685,7 @@ pub(crate) async fn book_apuracao(
 
     if lines.is_empty() {
         insert_return(
-            db,
+            &orm(db),
             &tax_return_id,
             &entity_id,
             &start,
@@ -1637,7 +1719,14 @@ pub(crate) async fn book_apuracao(
                     map.insert("journalEntryId".into(), json!(posted.journal_entry_id));
                 }
                 insert_return(
-                    &mut *conn, &id, &entity_id, &start, &end, &total_due, &summary, &now,
+                    &OrmConn::new(conn),
+                    &id,
+                    &entity_id,
+                    &start,
+                    &end,
+                    &total_due,
+                    &summary,
+                    &now,
                 )
                 .await
             })
@@ -1671,9 +1760,11 @@ pub(crate) async fn book_apuracao(
     })
 }
 
+/// The month's `tax_returns` row: `total_due` (`numeric(18, 2)`) as
+/// `toFixed(2)` wrote it, the days and the instant as the casts read them.
 #[allow(clippy::too_many_arguments)]
-async fn insert_return<'e>(
-    db: impl sqlx::PgExecutor<'e>,
+async fn insert_return<C: ConnectionTrait>(
+    db: &C,
     id: &str,
     entity_id: &str,
     start: &str,
@@ -1681,20 +1772,22 @@ async fn insert_return<'e>(
     total_due: &str,
     summary: &Value,
     now: &str,
-) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "insert into tax_returns (id, entity_id, jurisdiction_code, period_start, period_end, status, \
-         total_due, created_at, updated_at, summary) values ($1, $2, 'BR', $3::date, $4::date, 'calculated', \
-         $5::numeric, $6::timestamp, $6::timestamp, $7)",
-    )
-    .bind(id)
-    .bind(entity_id)
-    .bind(start)
-    .bind(end)
-    .bind(total_due)
-    .bind(now)
-    .bind(summary)
-    .execute(db)
+) -> Result<(), DbErr> {
+    let stamp = timestamp_of_iso(now)?;
+    tax_returns::Entity::insert(tax_returns::ActiveModel {
+        id: Set(id.to_owned()),
+        entity_id: Set(entity_id.to_owned()),
+        jurisdiction_code: Set("BR".to_owned()),
+        period_start: Set(date_of(start)?),
+        period_end: Set(date_of(end)?),
+        status: Set("calculated".to_owned()),
+        total_due: Set(Some(decimal_of(total_due)?)),
+        created_at: Set(stamp),
+        updated_at: Set(stamp),
+        summary: Set(Some(summary.clone())),
+        ..Default::default()
+    })
+    .exec_without_returning(db)
     .await?;
     Ok(())
 }

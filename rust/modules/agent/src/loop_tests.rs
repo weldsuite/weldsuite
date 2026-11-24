@@ -12,6 +12,8 @@
 //! `scripts/rust-test-db.ts` as CI does, so they run when
 //! `WELDSUITE_TEST_TENANT_URL` is set and return early otherwise.
 
+#![allow(clippy::disallowed_methods, reason = "test fixtures")]
+
 use serde_json::{Value, json};
 use sqlx::PgPool;
 use weldsuite_ai::config::Endpoint;

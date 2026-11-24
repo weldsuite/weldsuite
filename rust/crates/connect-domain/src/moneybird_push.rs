@@ -6,9 +6,19 @@
 //! Here so far: the settings as stored, what the settings form picks from
 //! ([`options`]) and how far the push is ([`status`]).
 
+use sea_orm::sea_query::{Alias, Expr, Func, OnConflict, Query, SelectStatement};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, Condition, DbErr, EntityTrait, JoinType, PaginatorTrait,
+    QueryFilter, QueryOrder, QuerySelect, Select,
+};
 use serde_json::{Map, Value, json};
-use weldsuite_db::{Keyring, PgPool, js_row};
+use time::{OffsetDateTime, PrimitiveDateTime};
+use weldsuite_db::{Keyring, PgPool, orm, utc_now, utc_timestamp};
 use weldsuite_ports::OutboundHttp;
+use weldsuite_schema::tenant::{
+    bank_transactions, companies, connector_connections as connections, connector_sync_runs,
+    integration_entity_mappings as mappings, invoice_items, invoices, parties, people,
+};
 
 use crate::clients::{ConnectorError, Kind, as_text, decrypt_credentials};
 use crate::js::{now_ms, string};
@@ -82,24 +92,23 @@ pub fn default_settings() -> Map<String, Value> {
 
 /// `listConnectionsByProvider(db, provider)`: live rows, newest first
 /// (`to_jsonb`, `snake_case`).
-pub async fn connections_by_provider(
-    db: &PgPool,
-    provider: &str,
-) -> Result<Vec<Value>, sqlx::Error> {
-    sqlx::query_scalar(
-        "select to_jsonb(c) from connector_connections c
-         where c.provider = $1 and c.deleted_at is null order by c.created_at desc",
-    )
-    .bind(provider)
-    .fetch_all(db)
-    .await
+pub async fn connections_by_provider(db: &PgPool, provider: &str) -> Result<Vec<Value>, DbErr> {
+    connections::Entity::find()
+        .filter(connections::Column::Provider.eq(provider))
+        .filter(connections::Column::DeletedAt.is_null())
+        .order_by_desc(connections::Column::CreatedAt)
+        .all(&orm(db))
+        .await?
+        .into_iter()
+        .map(crate::connections::connection_row)
+        .collect()
 }
 
 /// `sourceStripeConnectionIds(db, settings)`.
 pub async fn source_stripe_connection_ids(
     db: &PgPool,
     settings: &Map<String, Value>,
-) -> Result<Vec<String>, sqlx::Error> {
+) -> Result<Vec<String>, DbErr> {
     let ids: Vec<String> = connections_by_provider(db, "stripe")
         .await?
         .iter()
@@ -125,22 +134,72 @@ pub(crate) fn start_date(settings: &Map<String, Value>) -> Option<String> {
     weldsuite_kit::validation::js_date_iso(&format!("{start}T00:00:00Z"))
 }
 
-fn iso(millis: f64) -> String {
-    weldsuite_kit::validation::js_iso_from_millis(millis).unwrap_or_default()
+/// A JavaScript time (`Date.now()` milliseconds) as a `timestamp` column
+/// holds it.
+fn at_millis(millis: f64) -> PrimitiveDateTime {
+    #[allow(clippy::cast_possible_truncation)]
+    let nanos = (millis as i128) * 1_000_000;
+    utc_timestamp(
+        OffsetDateTime::from_unix_timestamp_nanos(nanos).unwrap_or(OffsetDateTime::UNIX_EPOCH),
+    )
+}
+
+/// A `timestamp` as `Date.parse` reads its text: UTC milliseconds.
+fn epoch_ms(at: PrimitiveDateTime) -> f64 {
+    let millis = at.assume_utc().unix_timestamp_nanos().div_euclid(1_000_000);
+    #[allow(clippy::cast_precision_loss)]
+    let millis = millis as f64;
+    millis
+}
+
+/// [`start_date`] as the `$n::timestamp` the pending queries compare with.
+fn start_at(settings: &Map<String, Value>) -> Option<PrimitiveDateTime> {
+    start_date(settings)
+        .as_deref()
+        .and_then(crate::js::date_parse)
+        .map(at_millis)
 }
 
 /// The cutoffs of `noBlockingRow`: a claim older than the stale cutoff, or
 /// a failure older than the retry cutoff, no longer blocks.
-pub(crate) fn cutoffs(force: bool) -> (String, String) {
+pub(crate) fn cutoffs(force: bool) -> (PrimitiveDateTime, PrimitiveDateTime) {
     let now = now_ms();
     (
-        iso(now - STALE_CLAIM_MS),
-        iso(if force {
+        at_millis(now - STALE_CLAIM_MS),
+        at_millis(if force {
             now
         } else {
             now - FAILED_RETRY_AFTER_MS
         }),
     )
+}
+
+/// `noBlockingRow`: the internal ids `kind` rows of the Moneybird connection
+/// block (pushed, or a claim or failure still fresh). `not exists (select 1
+/// from integration_entity_mappings p where … and p.internal_entity_id =
+/// x.id)` is `x.id not in (this)`: a mapped id is never null.
+fn blocking_rows(
+    connection_id: &str,
+    kind: &str,
+    (stale, retry): (PrimitiveDateTime, PrimitiveDateTime),
+) -> SelectStatement {
+    use sea_orm::ExprTrait as _;
+    let p = || Alias::new("p");
+    let external = || Expr::col((p(), mappings::Column::ExternalEntityId));
+    let updated = || Expr::col((p(), mappings::Column::UpdatedAt));
+    Query::select()
+        .column((p(), mappings::Column::InternalEntityId))
+        .from_as(mappings::Entity, p())
+        .and_where(Expr::col((p(), mappings::Column::ConnectionId)).eq(connection_id))
+        .and_where(Expr::col((p(), mappings::Column::ExternalEntityType)).eq(kind))
+        .and_where(
+            external()
+                .not_like("pending:%")
+                .and(external().not_like("failed:%"))
+                .or(external().like("pending:%").and(updated().gt(stale)))
+                .or(external().like("failed:%").and(updated().gt(retry))),
+        )
+        .to_owned()
 }
 
 /// What `pendingInvoiceConditions` / `pendingPayoutIds` read of a pass.
@@ -150,33 +209,46 @@ pub struct PendingScope<'a> {
     pub sources: &'a [String],
 }
 
+/// `pendingInvoiceConditions(state, force)`: the sources' Stripe invoices
+/// (their mappings joined to `invoices`) the Moneybird connection has not
+/// pushed.
+fn pending_invoices(scope: &PendingScope<'_>, force: bool) -> Select<mappings::Entity> {
+    let mut select = mappings::Entity::find()
+        .join(
+            JoinType::InnerJoin,
+            mappings::Entity::belongs_to(invoices::Entity)
+                .from(mappings::Column::InternalEntityId)
+                .to(invoices::Column::Id)
+                .into(),
+        )
+        .filter(mappings::Column::ConnectionId.is_in(scope.sources.iter().map(String::as_str)))
+        .filter(mappings::Column::ExternalEntityType.eq(STRIPE_INVOICE_TYPE))
+        .filter(mappings::Column::InternalEntityType.eq("invoice"))
+        .filter(invoices::Column::DeletedAt.is_null())
+        .filter(invoices::Column::Status.is_in(PUSHABLE_STATUSES))
+        .filter(invoices::Column::Id.not_in_subquery(blocking_rows(
+            scope.connection_id,
+            MB_INVOICE_TYPE,
+            cutoffs(force),
+        )));
+    if let Some(start) = start_at(scope.settings) {
+        select = select.filter(invoices::Column::IssueDate.gte(start));
+    }
+    select
+}
+
 /// `count(distinct invoices.id)` under `pendingInvoiceConditions(state, false)`.
-async fn pending_invoice_count(db: &PgPool, scope: &PendingScope<'_>) -> Result<i64, sqlx::Error> {
-    let (stale, retry) = cutoffs(false);
-    sqlx::query_scalar(
-        "select count(distinct i.id) from integration_entity_mappings m
-         inner join invoices i on i.id = m.internal_entity_id
-         where m.connection_id = any($1) and m.external_entity_type = $2
-           and m.internal_entity_type = 'invoice' and i.deleted_at is null
-           and i.status = any($3) and ($4::text is null or i.issue_date >= $4::timestamp)
-           and not exists (
-             select 1 from integration_entity_mappings p
-             where p.connection_id = $5 and p.external_entity_type = $6
-               and p.internal_entity_id = i.id
-               and ((p.external_entity_id not like 'pending:%' and p.external_entity_id not like 'failed:%')
-                 or (p.external_entity_id like 'pending:%' and p.updated_at > $7::timestamp)
-                 or (p.external_entity_id like 'failed:%' and p.updated_at > $8::timestamp)))",
-    )
-    .bind(scope.sources)
-    .bind(STRIPE_INVOICE_TYPE)
-    .bind(&PUSHABLE_STATUSES[..])
-    .bind(start_date(scope.settings))
-    .bind(scope.connection_id)
-    .bind(MB_INVOICE_TYPE)
-    .bind(stale)
-    .bind(retry)
-    .fetch_one(db)
-    .await
+async fn pending_invoice_count(db: &PgPool, scope: &PendingScope<'_>) -> Result<i64, DbErr> {
+    let count: Option<i64> = pending_invoices(scope, false)
+        .select_only()
+        .expr_as(
+            Func::count_distinct(Expr::col((invoices::Entity, invoices::Column::Id))),
+            "count",
+        )
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
+    Ok(count.unwrap_or(0))
 }
 
 /// `pendingPayoutIds(db, state, force, limit)`: payout lines of the sources
@@ -186,38 +258,51 @@ pub async fn pending_payout_ids(
     scope: &PendingScope<'_>,
     force: bool,
     limit: i64,
-) -> Result<Vec<String>, sqlx::Error> {
+) -> Result<Vec<String>, DbErr> {
+    use sea_orm::ExprTrait as _;
     if scope.sources.is_empty()
         || string(scope.settings.get("financialAccountId")).is_none_or(str::is_empty)
     {
         return Ok(Vec::new());
     }
-    let (stale, retry) = cutoffs(force);
-    sqlx::query_scalar(
-        "select bt.id from integration_entity_mappings m
-         inner join bank_transactions bt on bt.id = m.internal_entity_id
-         where m.connection_id = any($1) and m.external_entity_type = $2
-           and bt.deleted_at is null and bt.raw_data->>'stripeLine' = 'payout'
-           and ($3::text is null or bt.date >= $3::timestamp)
-           and not exists (
-             select 1 from integration_entity_mappings p
-             where p.connection_id = $4 and p.external_entity_type = $5
-               and p.internal_entity_id = bt.id
-               and ((p.external_entity_id not like 'pending:%' and p.external_entity_id not like 'failed:%')
-                 or (p.external_entity_id like 'pending:%' and p.updated_at > $6::timestamp)
-                 or (p.external_entity_id like 'failed:%' and p.updated_at > $7::timestamp)))
-         order by bt.date asc, bt.id asc limit $8",
-    )
-    .bind(scope.sources)
-    .bind(STRIPE_LINE_TYPE)
-    .bind(start_date(scope.settings))
-    .bind(scope.connection_id)
-    .bind(MB_STATEMENT_TYPE)
-    .bind(stale)
-    .bind(retry)
-    .bind(limit)
-    .fetch_all(db)
-    .await
+    let mut select = mappings::Entity::find()
+        .select_only()
+        .column(bank_transactions::Column::Id)
+        .join(
+            JoinType::InnerJoin,
+            mappings::Entity::belongs_to(bank_transactions::Entity)
+                .from(mappings::Column::InternalEntityId)
+                .to(bank_transactions::Column::Id)
+                .into(),
+        )
+        .filter(mappings::Column::ConnectionId.is_in(scope.sources.iter().map(String::as_str)))
+        .filter(mappings::Column::ExternalEntityType.eq(STRIPE_LINE_TYPE))
+        .filter(bank_transactions::Column::DeletedAt.is_null())
+        .filter(
+            sea_orm::sea_query::extension::postgres::PgExpr::cast_json_field(
+                Expr::col((
+                    bank_transactions::Entity,
+                    bank_transactions::Column::RawData,
+                )),
+                "stripeLine",
+            )
+            .eq("payout"),
+        )
+        .filter(bank_transactions::Column::Id.not_in_subquery(blocking_rows(
+            scope.connection_id,
+            MB_STATEMENT_TYPE,
+            cutoffs(force),
+        )));
+    if let Some(start) = start_at(scope.settings) {
+        select = select.filter(bank_transactions::Column::Date.gte(start));
+    }
+    select
+        .order_by_asc(bank_transactions::Column::Date)
+        .order_by_asc(bank_transactions::Column::Id)
+        .limit(u64::try_from(limit).unwrap_or(0))
+        .into_tuple()
+        .all(&orm(db))
+        .await
 }
 
 /// `countRows(db, connectionId, type, 'done' | 'failed')`.
@@ -226,22 +311,23 @@ async fn count_rows(
     connection_id: &str,
     kind: &str,
     failed: bool,
-) -> Result<i64, sqlx::Error> {
-    sqlx::query_scalar(
-        "select count(*) from integration_entity_mappings m
-         where m.connection_id = $1 and m.external_entity_type = $2
-           and case when $3 then m.external_entity_id like 'failed:%'
-                    else m.external_entity_id not like 'pending:%' and m.external_entity_id not like 'failed:%' end",
-    )
-    .bind(connection_id)
-    .bind(kind)
-    .bind(failed)
-    .fetch_one(db)
-    .await
+) -> Result<i64, DbErr> {
+    let mut select = mappings::Entity::find()
+        .filter(mappings::Column::ConnectionId.eq(connection_id))
+        .filter(mappings::Column::ExternalEntityType.eq(kind));
+    select = if failed {
+        select.filter(mappings::Column::ExternalEntityId.like("failed:%"))
+    } else {
+        select
+            .filter(mappings::Column::ExternalEntityId.not_like("pending:%"))
+            .filter(mappings::Column::ExternalEntityId.not_like("failed:%"))
+    };
+    let count = select.count(&orm(db)).await?;
+    Ok(i64::try_from(count).unwrap_or(i64::MAX))
 }
 
 /// `moneybirdPushStatus(db, connection)`.
-pub async fn status(db: &PgPool, connection: &Value) -> Result<Value, sqlx::Error> {
+pub async fn status(db: &PgPool, connection: &Value) -> Result<Value, DbErr> {
     let connection_id = connection["id"].as_str().unwrap_or_default();
     let stored = settings_of(connection);
     let sources = match &stored {
@@ -262,15 +348,15 @@ pub async fn status(db: &PgPool, connection: &Value) -> Result<Value, sqlx::Erro
             pending_payouts = pending_payout_ids(db, &scope, false, 500).await?.len();
         }
     }
-    let last: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(r) from connector_sync_runs r
-         where r.connection_id = $1 and r.sync_name = $2 order by r.created_at desc limit 1",
-    )
-    .bind(connection_id)
-    .bind(SYNC_NAME)
-    .fetch_optional(db)
-    .await?;
-    let last_run = last.map(js_row).map(|run| {
+    let last = connector_sync_runs::Entity::find()
+        .filter(connector_sync_runs::Column::ConnectionId.eq(connection_id))
+        .filter(connector_sync_runs::Column::SyncName.eq(SYNC_NAME))
+        .order_by_desc(connector_sync_runs::Column::CreatedAt)
+        .one(&orm(db))
+        .await?
+        .map(|run| serde_json::to_value(run).map_err(crate::connections::json_error))
+        .transpose()?;
+    let last_run = last.map(|run| {
         json!({
             "status": run["status"],
             "startedAt": run["startedAt"],
@@ -303,7 +389,7 @@ pub fn client_for(connection: &Value, keyring: &Keyring) -> Moneybird {
 /// Why [`options`] failed.
 pub enum OptionsError {
     Connector(ConnectorError),
-    Database(sqlx::Error),
+    Database(DbErr),
 }
 
 /// `moneybirdPushOptions(db, env, connection)`: the administration's
@@ -394,12 +480,10 @@ enum PushError {
     Other(String),
 }
 
-impl From<sqlx::Error> for PushError {
-    fn from(error: sqlx::Error) -> Self {
-        Self::Other(match &error {
-            sqlx::Error::Database(db) => db.message().to_owned(),
-            other => other.to_string(),
-        })
+/// The database's own message (no driver prefix), else the error's text.
+impl From<DbErr> for PushError {
+    fn from(error: DbErr) -> Self {
+        Self::Other(weldsuite_commerce_domain::db::message_of(&error))
     }
 }
 
@@ -529,25 +613,28 @@ async fn claim(
     internal_type: &str,
     internal_id: &str,
     force: bool,
-) -> Result<Option<String>, sqlx::Error> {
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select jsonb_build_object('id', m.id, 'externalEntityId', m.external_entity_id, 'updatedAt', m.updated_at)
-         from integration_entity_mappings m
-         where m.connection_id = $1 and m.external_entity_type = $2 and m.internal_entity_id = $3",
-    )
-    .bind(connection_id)
-    .bind(kind)
-    .bind(internal_id)
-    .fetch_all(db)
-    .await?;
+) -> Result<Option<String>, DbErr> {
+    let db = &orm(db);
+    let rows: Vec<(String, String, PrimitiveDateTime)> = mappings::Entity::find()
+        .select_only()
+        .columns([
+            mappings::Column::Id,
+            mappings::Column::ExternalEntityId,
+            mappings::Column::UpdatedAt,
+        ])
+        .filter(mappings::Column::ConnectionId.eq(connection_id))
+        .filter(mappings::Column::ExternalEntityType.eq(kind))
+        .filter(mappings::Column::InternalEntityId.eq(internal_id))
+        .into_tuple()
+        .all(db)
+        .await?;
     let now = crate::js::now_ms();
     let pending_id = format!("pending:{internal_id}");
-    let mut reusable: Option<(String, String)> = None;
-    for row in rows.into_iter().map(js_row) {
-        let updated = row["updatedAt"].as_str().unwrap_or_default().to_owned();
-        let age = now - crate::js::date_parse(&updated).unwrap_or(0.0);
-        let external = row["externalEntityId"].as_str().unwrap_or_default();
-        let id = row["id"].as_str().unwrap_or_default().to_owned();
+    let mut reusable: Option<(String, PrimitiveDateTime)> = None;
+    for (id, external, updated) in rows {
+        // `updatedAt` as JavaScript reads it: to the millisecond.
+        let updated = utc_timestamp(updated.assume_utc());
+        let age = now - epoch_ms(updated);
         if external.starts_with("pending:") {
             if age < STALE_CLAIM_MS {
                 return Ok(None);
@@ -564,33 +651,35 @@ async fn claim(
     }
     if let Some((id, updated)) = reusable {
         // Compare-and-set on updated_at, at the millisecond JavaScript reads.
-        return sqlx::query_scalar(
-            "update integration_entity_mappings set external_entity_id = $1, updated_at = $2::timestamp
-             where id = $3 and updated_at = $4::timestamp returning id",
-        )
-        .bind(&pending_id)
-        .bind(crate::js::now_iso())
-        .bind(&id)
-        .bind(&updated)
-        .fetch_optional(db)
-        .await;
+        let claimed = mappings::Entity::update_many()
+            .col_expr(
+                mappings::Column::ExternalEntityId,
+                Expr::value(pending_id.as_str()),
+            )
+            .col_expr(mappings::Column::UpdatedAt, Expr::value(utc_now()))
+            .filter(mappings::Column::Id.eq(id.as_str()))
+            .filter(mappings::Column::UpdatedAt.eq(updated))
+            .exec(db)
+            .await?;
+        return Ok((claimed.rows_affected > 0).then_some(id));
     }
-    let stamp = crate::js::now_iso();
-    sqlx::query_scalar(
-        "insert into integration_entity_mappings (id, created_at, updated_at, connection_id, external_entity_type,
-           external_entity_id, internal_entity_type, internal_entity_id)
-         values ($1, $2::timestamp, $2::timestamp, $3, $4, $5, $6, $7)
-         on conflict do nothing returning id",
-    )
-    .bind(weldsuite_kit::generate_id("iem"))
-    .bind(&stamp)
-    .bind(connection_id)
-    .bind(kind)
-    .bind(&pending_id)
-    .bind(internal_type)
-    .bind(internal_id)
-    .fetch_optional(db)
-    .await
+    let stamp = utc_now();
+    let id = weldsuite_kit::generate_id("iem");
+    let inserted = mappings::Entity::insert(mappings::ActiveModel {
+        id: Set(id.clone()),
+        created_at: Set(stamp),
+        updated_at: Set(stamp),
+        connection_id: Set(connection_id.to_owned()),
+        external_entity_type: Set(kind.to_owned()),
+        external_entity_id: Set(pending_id),
+        internal_entity_type: Set(internal_type.to_owned()),
+        internal_entity_id: Set(internal_id.to_owned()),
+        ..Default::default()
+    })
+    .on_conflict(OnConflict::new().do_nothing().to_owned())
+    .exec_without_returning(db)
+    .await?;
+    Ok((inserted > 0).then_some(id))
 }
 
 async fn complete_claim(
@@ -598,34 +687,39 @@ async fn complete_claim(
     row_id: &str,
     external_id: &str,
     checksum: &str,
-) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "update integration_entity_mappings set external_entity_id = $1, sync_checksum = $2,
-           last_synced_at = $3::timestamp, updated_at = $3::timestamp where id = $4",
-    )
-    .bind(external_id)
-    .bind(checksum)
-    .bind(crate::js::now_iso())
-    .bind(row_id)
-    .execute(db)
-    .await
-    .map(|_| ())
-}
-
-async fn fail_claim(db: &PgPool, row_id: &str, internal_id: &str) -> Result<(), sqlx::Error> {
-    sqlx::query("update integration_entity_mappings set external_entity_id = $1, updated_at = $2::timestamp where id = $3")
-        .bind(format!("failed:{internal_id}"))
-        .bind(crate::js::now_iso())
-        .bind(row_id)
-        .execute(db)
+) -> Result<(), DbErr> {
+    let now = utc_now();
+    mappings::Entity::update_many()
+        .set(mappings::ActiveModel {
+            external_entity_id: Set(external_id.to_owned()),
+            sync_checksum: Set(Some(checksum.to_owned())),
+            last_synced_at: Set(Some(now)),
+            updated_at: Set(now),
+            ..Default::default()
+        })
+        .filter(mappings::Column::Id.eq(row_id))
+        .exec(&orm(db))
         .await
         .map(|_| ())
 }
 
-async fn release_claim(db: &PgPool, row_id: &str) -> Result<(), sqlx::Error> {
-    sqlx::query("delete from integration_entity_mappings where id = $1")
-        .bind(row_id)
-        .execute(db)
+async fn fail_claim(db: &PgPool, row_id: &str, internal_id: &str) -> Result<(), DbErr> {
+    mappings::Entity::update_many()
+        .set(mappings::ActiveModel {
+            external_entity_id: Set(format!("failed:{internal_id}")),
+            updated_at: Set(utc_now()),
+            ..Default::default()
+        })
+        .filter(mappings::Column::Id.eq(row_id))
+        .exec(&orm(db))
+        .await
+        .map(|_| ())
+}
+
+async fn release_claim(db: &PgPool, row_id: &str) -> Result<(), DbErr> {
+    mappings::Entity::delete_many()
+        .filter(mappings::Column::Id.eq(row_id))
+        .exec(&orm(db))
         .await
         .map(|_| ())
 }
@@ -633,78 +727,117 @@ async fn release_claim(db: &PgPool, row_id: &str) -> Result<(), sqlx::Error> {
 // ── contacts ────────────────────────────────────────────────────────────────
 
 /// `loadContact(db, partyId)` as `buildMoneybirdContactPayload` reads it.
+/// A party's company: `(name, email, phone, vat number, primary address)`.
+type CompanyContact = (
+    String,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<Value>,
+);
+/// A party's person: `(first name, last name, email, phone, primary address)`.
+type PersonContact = (
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<Value>,
+);
+
 async fn contact_payload(
     db: &PgPool,
     party_id: &str,
-) -> Result<Option<(Option<String>, Value)>, sqlx::Error> {
-    let party: Option<Value> = sqlx::query_scalar(
-        "select jsonb_build_object('kind', p.kind, 'displayName', p.display_name, 'billingAddress', p.billing_address,
-           'companyId', p.company_id, 'personId', p.person_id) from parties p where p.id = $1 limit 1",
-    )
-    .bind(party_id)
-    .fetch_optional(db)
-    .await?;
-    let Some(party) = party else {
+) -> Result<Option<(Option<String>, Value)>, DbErr> {
+    let db = &orm(db);
+    #[allow(clippy::type_complexity)]
+    let party: Option<(
+        Option<String>,
+        Option<String>,
+        Option<Value>,
+        Option<String>,
+        Option<String>,
+    )> = parties::Entity::find()
+        .select_only()
+        .columns([
+            parties::Column::Kind,
+            parties::Column::DisplayName,
+            parties::Column::BillingAddress,
+            parties::Column::CompanyId,
+            parties::Column::PersonId,
+        ])
+        .filter(parties::Column::Id.eq(party_id))
+        .into_tuple()
+        .one(db)
+        .await?;
+    let Some((party_kind, display, billing, company_id, person_id)) = party else {
         return Ok(None);
     };
-    let display = string(party.get("displayName")).map(str::to_owned);
-    let billing = party
-        .get("billingAddress")
-        .filter(|v| !v.is_null())
-        .cloned();
-    let (kind, display_name, first, last, email, phone, vat, address) = if party["kind"]
-        == "company"
-        && !party["companyId"].is_null()
-    {
-        let company: Option<Value> = sqlx::query_scalar(
-            "select jsonb_build_object('name', c.name, 'email', c.email, 'phone', c.phone,
-                   'vatNumber', c.vat_number, 'primaryAddress', c.primary_address)
-                 from companies c where c.id = $1 limit 1",
-        )
-        .bind(party["companyId"].as_str())
-        .fetch_optional(db)
-        .await?;
-        let c = company.unwrap_or(Value::Null);
-        let s = |k: &str| string(c.get(k)).map(str::to_owned);
-        (
-            "company",
-            s("name")
-                .or(display)
-                .unwrap_or_else(|| "Customer".to_owned()),
-            None,
-            None,
-            s("email"),
-            s("phone"),
-            s("vatNumber"),
-            billing.or_else(|| c.get("primaryAddress").filter(|v| !v.is_null()).cloned()),
-        )
-    } else {
-        let person: Option<Value> = match party["personId"].as_str() {
+    // A JSON `null` in the column reads as no address, as `jsonb_build_object` did.
+    let billing = billing.filter(|v| !v.is_null());
+    let address_of = |address: Option<Value>| address.filter(|v| !v.is_null());
+    let (kind, display_name, first, last, email, phone, vat, address) =
+        if let (Some("company"), Some(company_id)) = (party_kind.as_deref(), company_id) {
+            let company: Option<CompanyContact> = companies::Entity::find()
+                .select_only()
+                .columns([
+                    companies::Column::Name,
+                    companies::Column::Email,
+                    companies::Column::Phone,
+                    companies::Column::VatNumber,
+                    companies::Column::PrimaryAddress,
+                ])
+                .filter(companies::Column::Id.eq(company_id))
+                .into_tuple()
+                .one(db)
+                .await?;
+            let (name, email, phone, vat, primary) = match company {
+                Some((name, email, phone, vat, primary)) => {
+                    (Some(name), email, phone, vat, primary)
+                }
+                None => (None, None, None, None, None),
+            };
+            (
+                "company",
+                name.or(display).unwrap_or_else(|| "Customer".to_owned()),
+                None,
+                None,
+                email,
+                phone,
+                vat,
+                billing.or_else(|| address_of(primary)),
+            )
+        } else {
+            let person: Option<PersonContact> = match person_id {
                 Some(id) => {
-                    sqlx::query_scalar(
-                        "select jsonb_build_object('firstName', p.first_name, 'lastName', p.last_name, 'email', p.email,
-                           'phone', p.direct_phone, 'primaryAddress', p.primary_address)
-                         from people p where p.id = $1 limit 1",
-                    )
-                    .bind(id)
-                    .fetch_optional(db)
-                    .await?
+                    people::Entity::find()
+                        .select_only()
+                        .columns([
+                            people::Column::FirstName,
+                            people::Column::LastName,
+                            people::Column::Email,
+                            people::Column::DirectPhone,
+                            people::Column::PrimaryAddress,
+                        ])
+                        .filter(people::Column::Id.eq(id))
+                        .into_tuple()
+                        .one(db)
+                        .await?
                 }
                 None => None,
             };
-        let p = person.unwrap_or(Value::Null);
-        let s = |k: &str| string(p.get(k)).map(str::to_owned);
-        (
-            "person",
-            display.unwrap_or_else(|| "Customer".to_owned()),
-            s("firstName"),
-            s("lastName"),
-            s("email"),
-            s("phone"),
-            None,
-            billing.or_else(|| p.get("primaryAddress").filter(|v| !v.is_null()).cloned()),
-        )
-    };
+            let (first, last, email, phone, primary) =
+                person.unwrap_or((None, None, None, None, None));
+            (
+                "person",
+                display.unwrap_or_else(|| "Customer".to_owned()),
+                first,
+                last,
+                email,
+                phone,
+                None,
+                billing.or_else(|| address_of(primary)),
+            )
+        };
     // `buildMoneybirdContactPayload(contact)`.
     let mut payload = Map::new();
     let is_person = kind == "person"
@@ -745,18 +878,18 @@ async fn contact_payload(
 
 /// `resolveMoneybirdContact(db, state, partyId)`: mapped, found by email, or created.
 async fn resolve_contact(pass: &mut Pass<'_>, party_id: &str) -> Step<String> {
-    let mapped: Option<String> = sqlx::query_scalar(
-        "select external_entity_id from integration_entity_mappings
-         where connection_id = $1 and external_entity_type = $2 and internal_entity_type = 'party'
-           and internal_entity_id = $3
-           and external_entity_id not like 'pending:%' and external_entity_id not like 'failed:%'
-         limit 1",
-    )
-    .bind(&pass.connection_id)
-    .bind(MB_CONTACT_TYPE)
-    .bind(party_id)
-    .fetch_optional(pass.db)
-    .await?;
+    let mapped: Option<String> = mappings::Entity::find()
+        .select_only()
+        .column(mappings::Column::ExternalEntityId)
+        .filter(mappings::Column::ConnectionId.eq(pass.connection_id.as_str()))
+        .filter(mappings::Column::ExternalEntityType.eq(MB_CONTACT_TYPE))
+        .filter(mappings::Column::InternalEntityType.eq("party"))
+        .filter(mappings::Column::InternalEntityId.eq(party_id))
+        .filter(mappings::Column::ExternalEntityId.not_like("pending:%"))
+        .filter(mappings::Column::ExternalEntityId.not_like("failed:%"))
+        .into_tuple()
+        .one(&orm(pass.db))
+        .await?;
     if let Some(mapped) = mapped {
         return Ok(mapped);
     }
@@ -787,18 +920,18 @@ async fn resolve_contact(pass: &mut Pass<'_>, party_id: &str) -> Step<String> {
             "Moneybird did not return a contact id".to_owned(),
         ));
     }
-    sqlx::query(
-        "insert into integration_entity_mappings (id, connection_id, external_entity_type, external_entity_id,
-           internal_entity_type, internal_entity_id, last_synced_at)
-         values ($1, $2, $3, $4, 'party', $5, $6::timestamp) on conflict do nothing",
-    )
-    .bind(weldsuite_kit::generate_id("iem"))
-    .bind(&pass.connection_id)
-    .bind(MB_CONTACT_TYPE)
-    .bind(&contact_id)
-    .bind(party_id)
-    .bind(crate::js::now_iso())
-    .execute(pass.db)
+    mappings::Entity::insert(mappings::ActiveModel {
+        id: Set(weldsuite_kit::generate_id("iem")),
+        connection_id: Set(pass.connection_id.clone()),
+        external_entity_type: Set(MB_CONTACT_TYPE.to_owned()),
+        external_entity_id: Set(contact_id.clone()),
+        internal_entity_type: Set("party".to_owned()),
+        internal_entity_id: Set(party_id.to_owned()),
+        last_synced_at: Set(Some(utc_now())),
+        ..Default::default()
+    })
+    .on_conflict(OnConflict::new().do_nothing().to_owned())
+    .exec_without_returning(&orm(pass.db))
     .await?;
     Ok(contact_id)
 }
@@ -821,37 +954,19 @@ async fn pending_invoice_ids(
     scope: &PendingScope<'_>,
     force: bool,
     limit: i64,
-) -> Result<Vec<String>, sqlx::Error> {
+) -> Result<Vec<String>, DbErr> {
     if scope.sources.is_empty() {
         return Ok(Vec::new());
     }
-    let (stale, retry) = cutoffs(force);
-    let rows: Vec<String> = sqlx::query_scalar(
-        "select i.id from integration_entity_mappings m
-         inner join invoices i on i.id = m.internal_entity_id
-         where m.connection_id = any($1) and m.external_entity_type = $2
-           and m.internal_entity_type = 'invoice' and i.deleted_at is null
-           and i.status = any($3) and ($4::text is null or i.issue_date >= $4::timestamp)
-           and not exists (
-             select 1 from integration_entity_mappings p
-             where p.connection_id = $5 and p.external_entity_type = $6
-               and p.internal_entity_id = i.id
-               and ((p.external_entity_id not like 'pending:%' and p.external_entity_id not like 'failed:%')
-                 or (p.external_entity_id like 'pending:%' and p.updated_at > $7::timestamp)
-                 or (p.external_entity_id like 'failed:%' and p.updated_at > $8::timestamp)))
-         order by i.issue_date asc, i.id asc limit $9",
-    )
-    .bind(scope.sources)
-    .bind(STRIPE_INVOICE_TYPE)
-    .bind(&PUSHABLE_STATUSES[..])
-    .bind(start_date(scope.settings))
-    .bind(scope.connection_id)
-    .bind(MB_INVOICE_TYPE)
-    .bind(stale)
-    .bind(retry)
-    .bind(limit)
-    .fetch_all(db)
-    .await?;
+    let rows: Vec<String> = pending_invoices(scope, force)
+        .select_only()
+        .column(invoices::Column::Id)
+        .order_by_asc(invoices::Column::IssueDate)
+        .order_by_asc(invoices::Column::Id)
+        .limit(u64::try_from(limit).unwrap_or(0))
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     let mut out: Vec<String> = Vec::new();
     for id in rows {
         if !out.contains(&id) {
@@ -1188,12 +1303,12 @@ async fn push_invoice(
     else {
         return Ok(());
     };
-    let invoice: Option<Value> =
-        sqlx::query_scalar("select to_jsonb(i) || jsonb_build_object('total', i.total::text) from invoices i where i.id = $1 limit 1")
-            .bind(invoice_id)
-            .fetch_optional(pass.db)
-            .await?;
-    let invoice = invoice.map(js_row);
+    // The row as Drizzle reads it (`total` as text, as `numeric` prints).
+    let invoice = invoices::Entity::find_by_id(invoice_id)
+        .one(&orm(pass.db))
+        .await?
+        .map(|row| serde_json::to_value(row).map_err(crate::connections::json_error))
+        .transpose()?;
     let label = invoice
         .as_ref()
         .and_then(|i| string(i.get("invoiceNumber")))
@@ -1205,15 +1320,16 @@ async fn push_invoice(
         let Some(revenue) = pass.setting("revenueLedgerAccountId") else {
             return Err(PushError::Other("Pick a revenue ledger account on the Moneybird connection".to_owned()));
         };
-        let items: Vec<Value> = sqlx::query_scalar(
-            "select to_jsonb(t) || jsonb_build_object('quantity', t.quantity::text, 'unit_price', t.unit_price::text,
-               'line_total', t.line_total::text, 'tax_rate', t.tax_rate::text)
-             from invoice_items t where t.invoice_id = $1 and t.deleted_at is null order by t.sort_order asc",
-        )
-        .bind(invoice_id)
-        .fetch_all(pass.db)
-        .await?;
-        let items: Vec<Value> = items.into_iter().map(js_row).collect();
+        // The amounts as text, as `numeric` prints them.
+        let items: Vec<Value> = invoice_items::Entity::find()
+            .filter(invoice_items::Column::InvoiceId.eq(invoice_id))
+            .filter(invoice_items::Column::DeletedAt.is_null())
+            .order_by_asc(invoice_items::Column::SortOrder)
+            .all(&orm(pass.db))
+            .await?
+            .into_iter()
+            .map(|item| serde_json::to_value(item).map_err(crate::connections::json_error))
+            .collect::<Result<_, _>>()?;
         let party = string(invoice.get("counterpartyId"))
             .or_else(|| string(invoice.get("contactId")))
             .unwrap_or_default()
@@ -1297,41 +1413,73 @@ async fn push_invoice(
     Ok(())
 }
 
+/// `exists (select 1 from integration_entity_mappings s where
+/// s.internal_entity_id = i.id and s.external_entity_type = 'stripe_invoice')`:
+/// the invoice came from Stripe. A WeldBooks invoice's payments follow one by
+/// one ([`two_way`]), so only a Stripe one is marked paid at once.
+fn stripe_invoice_mapping() -> SelectStatement {
+    use sea_orm::ExprTrait as _;
+    let s = || Alias::new("s");
+    Query::select()
+        .expr(Expr::val(1))
+        .from_as(mappings::Entity, s())
+        .and_where(
+            Expr::col((s(), mappings::Column::InternalEntityId))
+                .equals((invoices::Entity, invoices::Column::Id)),
+        )
+        .and_where(Expr::col((s(), mappings::Column::ExternalEntityType)).eq(STRIPE_INVOICE_TYPE))
+        .to_owned()
+}
+
 /// `followUpRows`: pushed invoices whose state moved on in WeldBooks.
 async fn follow_up_rows(
     db: &PgPool,
     scope: &PendingScope<'_>,
     limit: i64,
-) -> Result<Vec<Value>, sqlx::Error> {
+) -> Result<Vec<Value>, DbErr> {
     let with_account =
         string(scope.settings.get("financialAccountId")).is_some_and(|s| !s.is_empty());
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select jsonb_build_object('rowId', m.id, 'moneybirdId', m.external_entity_id, 'invoice',
-           to_jsonb(i) || jsonb_build_object('total', i.total::text))
-         from integration_entity_mappings m inner join invoices i on i.id = m.internal_entity_id
-         where m.connection_id = $1 and m.external_entity_type = $2 and m.sync_checksum = 'open'
-           and m.external_entity_id not like 'pending:%' and m.external_entity_id not like 'failed:%'
-           and (i.status = 'cancelled' or (not $3 and i.status = 'paid' and exists (
-             select 1 from integration_entity_mappings s
-             where s.internal_entity_id = i.id and s.external_entity_type = $5)))
-         limit $4",
-    )
-    .bind(scope.connection_id)
-    .bind(MB_INVOICE_TYPE)
-    .bind(with_account)
-    .bind(limit)
-    // A WeldBooks invoice's payments follow one by one (two_way), so only a
-    // Stripe one is marked paid at once.
-    .bind(STRIPE_INVOICE_TYPE)
-    .fetch_all(db)
-    .await?;
-    Ok(rows
-        .into_iter()
-        .map(|mut row| {
-            row["invoice"] = js_row(row["invoice"].take());
-            row
-        })
-        .collect())
+    // `i.status = 'cancelled' or (not $3 and i.status = 'paid' and exists (…))`.
+    let mut settled = Condition::any().add(invoices::Column::Status.eq("cancelled"));
+    if !with_account {
+        settled = settled.add(
+            Condition::all()
+                .add(invoices::Column::Status.eq("paid"))
+                .add(Expr::exists(stripe_invoice_mapping())),
+        );
+    }
+    let rows = mappings::Entity::find()
+        .select_also(invoices::Entity)
+        .join(
+            JoinType::InnerJoin,
+            mappings::Entity::belongs_to(invoices::Entity)
+                .from(mappings::Column::InternalEntityId)
+                .to(invoices::Column::Id)
+                .into(),
+        )
+        .filter(mappings::Column::ConnectionId.eq(scope.connection_id))
+        .filter(mappings::Column::ExternalEntityType.eq(MB_INVOICE_TYPE))
+        .filter(mappings::Column::SyncChecksum.eq("open"))
+        .filter(mappings::Column::ExternalEntityId.not_like("pending:%"))
+        .filter(mappings::Column::ExternalEntityId.not_like("failed:%"))
+        .filter(settled)
+        .limit(u64::try_from(limit).unwrap_or(0))
+        .all(&orm(db))
+        .await?;
+    let mut out = Vec::with_capacity(rows.len());
+    for (mapping, invoice) in rows {
+        // The row as Drizzle reads it (`total` as text, as `numeric` prints).
+        let invoice = invoice
+            .map(|row| serde_json::to_value(row).map_err(crate::connections::json_error))
+            .transpose()?
+            .unwrap_or(Value::Null);
+        out.push(json!({
+            "rowId": mapping.id,
+            "moneybirdId": mapping.external_entity_id,
+            "invoice": invoice,
+        }));
+    }
+    Ok(out)
 }
 
 async fn follow_up_invoices(pass: &mut Pass<'_>) -> Step<()> {
@@ -1413,45 +1561,47 @@ async fn pushed_invoice_for(
     pass: &Pass<'_>,
     source: &str,
     stripe_invoice: &str,
-) -> Result<(Option<String>, Option<String>, bool), sqlx::Error> {
-    let mapping: Option<String> = sqlx::query_scalar(
-        "select internal_entity_id from integration_entity_mappings
-         where connection_id = $1 and external_entity_type = $2 and external_entity_id = $3 limit 1",
-    )
-    .bind(source)
-    .bind(STRIPE_INVOICE_TYPE)
-    .bind(stripe_invoice)
-    .fetch_optional(pass.db)
-    .await?;
+) -> Result<(Option<String>, Option<String>, bool), DbErr> {
+    let db = &orm(pass.db);
+    let mapping: Option<String> = mappings::Entity::find()
+        .select_only()
+        .column(mappings::Column::InternalEntityId)
+        .filter(mappings::Column::ConnectionId.eq(source))
+        .filter(mappings::Column::ExternalEntityType.eq(STRIPE_INVOICE_TYPE))
+        .filter(mappings::Column::ExternalEntityId.eq(stripe_invoice))
+        .into_tuple()
+        .one(db)
+        .await?;
     let Some(invoice_id) = mapping else {
         return Ok((None, None, false));
     };
-    let invoice: Option<Value> = sqlx::query_scalar(
-        "select jsonb_build_object('invoiceNumber', i.invoice_number, 'status', i.status, 'issueDate', i.issue_date)
-         from invoices i where i.id = $1 limit 1",
-    )
-    .bind(&invoice_id)
-    .fetch_optional(pass.db)
-    .await?;
-    let pushed: Option<String> = sqlx::query_scalar(
-        "select external_entity_id from integration_entity_mappings
-         where connection_id = $1 and external_entity_type = $2 and internal_entity_id = $3 limit 1",
-    )
-    .bind(&pass.connection_id)
-    .bind(MB_INVOICE_TYPE)
-    .bind(&invoice_id)
-    .fetch_optional(pass.db)
-    .await?;
+    let invoice: Option<(Option<String>, String, PrimitiveDateTime)> = invoices::Entity::find()
+        .select_only()
+        .columns([
+            invoices::Column::InvoiceNumber,
+            invoices::Column::Status,
+            invoices::Column::IssueDate,
+        ])
+        .filter(invoices::Column::Id.eq(invoice_id.as_str()))
+        .into_tuple()
+        .one(db)
+        .await?;
+    let pushed: Option<String> = mappings::Entity::find()
+        .select_only()
+        .column(mappings::Column::ExternalEntityId)
+        .filter(mappings::Column::ConnectionId.eq(pass.connection_id.as_str()))
+        .filter(mappings::Column::ExternalEntityType.eq(MB_INVOICE_TYPE))
+        .filter(mappings::Column::InternalEntityId.eq(invoice_id.as_str()))
+        .into_tuple()
+        .one(db)
+        .await?;
     let done = pushed
         .as_deref()
         .is_some_and(|p| !p.starts_with("pending:") && !p.starts_with("failed:"));
     let start = start_date(&pass.settings);
-    let in_scope = invoice.as_ref().is_some_and(|i| {
-        let status = string(i.get("status")).unwrap_or_default();
-        let issued = string(i.get("issueDate"))
-            .and_then(crate::mappers::js_date_loose)
-            .unwrap_or(0.0);
-        PUSHABLE_STATUSES.contains(&status)
+    let in_scope = invoice.as_ref().is_some_and(|(_, status, issue_date)| {
+        let issued = epoch_ms(*issue_date);
+        PUSHABLE_STATUSES.contains(&status.as_str())
             && start
                 .as_deref()
                 .and_then(crate::js::date_parse)
@@ -1460,7 +1610,7 @@ async fn pushed_invoice_for(
     let failed = pushed.as_deref().is_some_and(|p| p.starts_with("failed:"));
     Ok((
         if done { pushed } else { None },
-        invoice.and_then(|i| raw_text(&i, "invoiceNumber")),
+        invoice.and_then(|(number, ..)| number.filter(|n| !n.is_empty())),
         in_scope && !done && !failed,
     ))
 }
@@ -1469,38 +1619,58 @@ async fn pushed_invoice_for(
 async fn load_payout_lines(
     pass: &Pass<'_>,
     payout_txn: &str,
-) -> Result<Option<(String, String, Vec<PayoutLine>, bool)>, sqlx::Error> {
-    let payout: Option<(Value, String)> = sqlx::query_as(
-        "select bt.raw_data, m.connection_id from bank_transactions bt
-         inner join integration_entity_mappings m on m.internal_entity_id = bt.id and m.external_entity_type = $2
-         where bt.id = $1 limit 1",
-    )
-    .bind(payout_txn)
-    .bind(STRIPE_LINE_TYPE)
-    .fetch_optional(pass.db)
-    .await?;
+) -> Result<Option<(String, String, Vec<PayoutLine>, bool)>, DbErr> {
+    use sea_orm::ExprTrait as _;
+    let db = &orm(pass.db);
+    let line_mapping = || {
+        bank_transactions::Entity::belongs_to(mappings::Entity)
+            .from(bank_transactions::Column::Id)
+            .to(mappings::Column::InternalEntityId)
+            .into()
+    };
+    let payout: Option<(Option<Value>, String)> = bank_transactions::Entity::find()
+        .select_only()
+        .column(bank_transactions::Column::RawData)
+        .column(mappings::Column::ConnectionId)
+        .join(JoinType::InnerJoin, line_mapping())
+        .filter(bank_transactions::Column::Id.eq(payout_txn))
+        .filter(mappings::Column::ExternalEntityType.eq(STRIPE_LINE_TYPE))
+        .into_tuple()
+        .one(db)
+        .await?;
     let Some((raw, source)) = payout else {
         return Ok(None);
     };
+    let raw = raw.unwrap_or(Value::Null);
     let Some(payout_id) = raw_text(&raw, "payoutId") else {
         return Ok(None);
     };
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select jsonb_build_object('id', bt.id, 'rawData', bt.raw_data, 'amount', bt.amount::text, 'date', bt.date,
-           'description', bt.description, 'counterpartyName', bt.counterparty_name)
-         from integration_entity_mappings m inner join bank_transactions bt on bt.id = m.internal_entity_id
-         where m.connection_id = $1 and m.external_entity_type = $2 and bt.deleted_at is null
-           and bt.raw_data->>'payoutId' = $3
-         order by bt.date asc, bt.id asc",
-    )
-    .bind(&source)
-    .bind(STRIPE_LINE_TYPE)
-    .bind(&payout_id)
-    .fetch_all(pass.db)
-    .await?;
+    // The lines as Drizzle reads them: `amount` as text, `date` as `toISOString()`.
+    let rows: Vec<Value> = bank_transactions::Entity::find()
+        .join(JoinType::InnerJoin, line_mapping())
+        .filter(mappings::Column::ConnectionId.eq(source.as_str()))
+        .filter(mappings::Column::ExternalEntityType.eq(STRIPE_LINE_TYPE))
+        .filter(bank_transactions::Column::DeletedAt.is_null())
+        .filter(
+            sea_orm::sea_query::extension::postgres::PgExpr::cast_json_field(
+                Expr::col((
+                    bank_transactions::Entity,
+                    bank_transactions::Column::RawData,
+                )),
+                "payoutId",
+            )
+            .eq(payout_id.as_str()),
+        )
+        .order_by_asc(bank_transactions::Column::Date)
+        .order_by_asc(bank_transactions::Column::Id)
+        .all(db)
+        .await?
+        .into_iter()
+        .map(|row| serde_json::to_value(row).map_err(crate::connections::json_error))
+        .collect::<Result<_, _>>()?;
     let mut waiting = false;
     let mut lines = Vec::new();
-    for row in rows.into_iter().map(js_row) {
+    for row in rows {
         let raw = row["rawData"].clone();
         let (moneybird, number, wait) = match raw_text(&raw, "invoiceId") {
             Some(stripe_invoice) => pushed_invoice_for(pass, &source, &stripe_invoice).await?,
@@ -1645,7 +1815,9 @@ async fn push_payout(pass: &mut Pass<'_>, payout_txn: &str, force: bool) -> Step
     };
     let mut label = payout_txn.to_owned();
     let step: Step<()> = async {
-        let Some((payout_id, currency, lines, waiting)) = load_payout_lines(pass, payout_txn).await? else {
+        let Some((payout_id, currency, lines, waiting)) =
+            load_payout_lines(pass, payout_txn).await?
+        else {
             return Err(PushError::Other("Payout lines not found".to_owned()));
         };
         label.clone_from(&payout_id);
@@ -1681,7 +1853,11 @@ async fn push_payout(pass: &mut Pass<'_>, payout_txn: &str, force: bool) -> Step
             )
             .await?;
         let statement_id = text_id(statement.get("id"));
-        let external = if statement_id.is_empty() { format!("statement:{payout_id}") } else { statement_id };
+        let external = if statement_id.is_empty() {
+            format!("statement:{payout_id}")
+        } else {
+            statement_id
+        };
         complete_claim(pass.db, &claim_id, &external, "posted").await?;
         pass.statements += 1;
         // `recordStatementLines`: one row per created line saying how to book it.
@@ -1698,36 +1874,39 @@ async fn push_payout(pass: &mut Pass<'_>, payout_txn: &str, force: bool) -> Step
                 continue;
             }
             if let Some(hit) = planned.iter().find(|p| {
-                message.contains(&format!("[{}]", p.token)) && !matched.iter().any(|(t, _)| *t == p.token)
+                message.contains(&format!("[{}]", p.token))
+                    && !matched.iter().any(|(t, _)| *t == p.token)
             }) {
                 matched.push((hit.token.clone(), id));
             }
         }
-        let now = crate::js::now_iso();
+        let now = utc_now();
         let mut recorded = 0;
         for line in &planned {
             let Some((_, mutation_id)) = matched.iter().find(|(t, _)| *t == line.token) else {
                 continue;
             };
-            sqlx::query(
-                "insert into integration_entity_mappings (id, created_at, updated_at, connection_id, external_entity_type,
-                   external_entity_id, internal_entity_type, internal_entity_id, sync_checksum, last_synced_at)
-                 values ($1, $2::timestamp, $2::timestamp, $3, $4, $5, 'bank_transaction', $6, $7, $2::timestamp)
-                 on conflict do nothing",
-            )
-            .bind(weldsuite_kit::generate_id("iem"))
-            .bind(&now)
-            .bind(&pass.connection_id)
-            .bind(MB_PUSHED_MUTATION_TYPE)
-            .bind(mutation_id)
-            .bind(&line.bank_transaction_id)
-            .bind(&line.checksum)
-            .execute(pass.db)
+            mappings::Entity::insert(mappings::ActiveModel {
+                id: Set(weldsuite_kit::generate_id("iem")),
+                created_at: Set(now),
+                updated_at: Set(now),
+                connection_id: Set(pass.connection_id.clone()),
+                external_entity_type: Set(MB_PUSHED_MUTATION_TYPE.to_owned()),
+                external_entity_id: Set(mutation_id.clone()),
+                internal_entity_type: Set("bank_transaction".to_owned()),
+                internal_entity_id: Set(line.bank_transaction_id.clone()),
+                sync_checksum: Set(Some(line.checksum.clone())),
+                last_synced_at: Set(Some(now)),
+            })
+            .on_conflict(OnConflict::new().do_nothing().to_owned())
+            .exec_without_returning(&orm(pass.db))
             .await?;
             recorded += 1;
         }
         if recorded < planned.len() {
-            let error = PushError::Other("Some statement lines could not be matched; book them in Moneybird".to_owned());
+            let error = PushError::Other(
+                "Some statement lines could not be matched; book them in Moneybird".to_owned(),
+            );
             pass.record(&payout_id, &error);
         }
         Ok(())
@@ -1738,12 +1917,13 @@ async fn push_payout(pass: &mut Pass<'_>, payout_txn: &str, force: bool) -> Step
             let _ = release_claim(pass.db, &claim_id).await;
             return Err(error);
         }
-        let row: Option<String> = sqlx::query_scalar(
-            "select external_entity_id from integration_entity_mappings where id = $1 limit 1",
-        )
-        .bind(&claim_id)
-        .fetch_optional(pass.db)
-        .await?;
+        let row: Option<String> = mappings::Entity::find()
+            .select_only()
+            .column(mappings::Column::ExternalEntityId)
+            .filter(mappings::Column::Id.eq(claim_id.as_str()))
+            .into_tuple()
+            .one(&orm(pass.db))
+            .await?;
         if row.as_deref().is_some_and(|r| r.starts_with("pending:")) {
             fail_claim(pass.db, &claim_id, payout_txn).await?;
         }
@@ -1767,12 +1947,18 @@ async fn book_line(
     if kind == "invoice" {
         let invoice = parts.get(2).copied().unwrap_or_default().to_owned();
         let amount = parts.get(3).copied().unwrap_or_default().to_owned();
-        let date: Option<String> = sqlx::query_scalar(
-            "select to_char(t.date, 'YYYY-MM-DD') from bank_transactions t where t.id = $1 limit 1",
-        )
-        .bind(bank_transaction_id)
-        .fetch_optional(pass.db)
-        .await?;
+        // `to_char(t.date, 'YYYY-MM-DD')`.
+        let date: Option<PrimitiveDateTime> = bank_transactions::Entity::find()
+            .select_only()
+            .column(bank_transactions::Column::Date)
+            .filter(bank_transactions::Column::Id.eq(bank_transaction_id))
+            .into_tuple()
+            .one(&orm(pass.db))
+            .await?;
+        let date = date.and_then(|at| {
+            at.format(time::macros::format_description!("[year]-[month]-[day]"))
+                .ok()
+        });
         pass.spend()?;
         pass.client
             .create_external_sales_invoice_payment(
@@ -1787,16 +1973,14 @@ async fn book_line(
                 }),
             )
             .await?;
-        sqlx::query(
-            "update integration_entity_mappings set sync_checksum = 'paid', updated_at = $1::timestamp
-             where connection_id = $2 and external_entity_type = $3 and external_entity_id = $4",
-        )
-        .bind(crate::js::now_iso())
-        .bind(&pass.connection_id)
-        .bind(MB_INVOICE_TYPE)
-        .bind(&invoice)
-        .execute(pass.db)
-        .await?;
+        mappings::Entity::update_many()
+            .col_expr(mappings::Column::SyncChecksum, Expr::value("paid"))
+            .col_expr(mappings::Column::UpdatedAt, Expr::value(utc_now()))
+            .filter(mappings::Column::ConnectionId.eq(pass.connection_id.as_str()))
+            .filter(mappings::Column::ExternalEntityType.eq(MB_INVOICE_TYPE))
+            .filter(mappings::Column::ExternalEntityId.eq(invoice.as_str()))
+            .exec(&orm(pass.db))
+            .await?;
         return Ok("linked");
     }
     let ledger = pass.setting(if kind == "fee" {
@@ -1826,29 +2010,41 @@ async fn book_line(
     Ok("linked")
 }
 
+/// `update integration_entity_mappings set sync_checksum = $1, updated_at = now where id = $2`.
+async fn set_checksum(db: &PgPool, row_id: &str, checksum: &str) -> Result<(), DbErr> {
+    mappings::Entity::update_many()
+        .col_expr(mappings::Column::SyncChecksum, Expr::value(checksum))
+        .col_expr(mappings::Column::UpdatedAt, Expr::value(utc_now()))
+        .filter(mappings::Column::Id.eq(row_id))
+        .exec(&orm(db))
+        .await
+        .map(|_| ())
+}
+
 async fn book_lines(pass: &mut Pass<'_>) -> Step<()> {
-    let rows: Vec<(String, String, Option<String>, String)> = sqlx::query_as(
-        "select id, external_entity_id, sync_checksum, internal_entity_id from integration_entity_mappings
-         where connection_id = $1 and external_entity_type = $2 and sync_checksum like 'todo:%'
-         order by created_at asc limit $3",
-    )
-    .bind(&pass.connection_id)
-    .bind(MB_PUSHED_MUTATION_TYPE)
-    .bind(MAX_LINKS_PER_PASS)
-    .fetch_all(pass.db)
-    .await?;
+    let rows: Vec<(String, String, Option<String>, String)> = mappings::Entity::find()
+        .select_only()
+        .columns([
+            mappings::Column::Id,
+            mappings::Column::ExternalEntityId,
+            mappings::Column::SyncChecksum,
+            mappings::Column::InternalEntityId,
+        ])
+        .filter(mappings::Column::ConnectionId.eq(pass.connection_id.as_str()))
+        .filter(mappings::Column::ExternalEntityType.eq(MB_PUSHED_MUTATION_TYPE))
+        .filter(mappings::Column::SyncChecksum.like("todo:%"))
+        .order_by_asc(mappings::Column::CreatedAt)
+        .limit(u64::try_from(MAX_LINKS_PER_PASS).unwrap_or(0))
+        .into_tuple()
+        .all(&orm(pass.db))
+        .await?;
     let count = rows.len();
     for (row_id, mutation_id, checksum, bank_transaction_id) in rows {
         let checksum = checksum.unwrap_or_default();
         let kind = checksum.split(':').nth(1).unwrap_or("line").to_owned();
         match book_line(pass, &mutation_id, &checksum, &bank_transaction_id).await {
             Ok(outcome) => {
-                sqlx::query("update integration_entity_mappings set sync_checksum = $1, updated_at = $2::timestamp where id = $3")
-                    .bind(outcome)
-                    .bind(crate::js::now_iso())
-                    .bind(&row_id)
-                    .execute(pass.db)
-                    .await?;
+                set_checksum(pass.db, &row_id, outcome).await?;
                 if outcome == "linked" {
                     pass.lines += 1;
                 }
@@ -1857,12 +2053,7 @@ async fn book_lines(pass: &mut Pass<'_>) -> Step<()> {
                 if error.ends_pass() {
                     return Err(error);
                 }
-                sqlx::query("update integration_entity_mappings set sync_checksum = $1, updated_at = $2::timestamp where id = $3")
-                    .bind(format!("failed:{kind}"))
-                    .bind(crate::js::now_iso())
-                    .bind(&row_id)
-                    .execute(pass.db)
-                    .await?;
+                set_checksum(pass.db, &row_id, &format!("failed:{kind}")).await?;
                 pass.record(&mutation_id, &error);
                 if error.is_auth() {
                     return Err(error);
@@ -1877,7 +2068,7 @@ async fn book_lines(pass: &mut Pass<'_>) -> Step<()> {
 }
 
 /// `hasWork(db, state, force)`.
-async fn has_work(db: &PgPool, scope: &PendingScope<'_>, force: bool) -> Result<bool, sqlx::Error> {
+async fn has_work(db: &PgPool, scope: &PendingScope<'_>, force: bool) -> Result<bool, DbErr> {
     if !pending_invoice_ids(db, scope, force, 1).await?.is_empty() {
         return Ok(true);
     }
@@ -1887,14 +2078,15 @@ async fn has_work(db: &PgPool, scope: &PendingScope<'_>, force: bool) -> Result<
     if !follow_up_rows(db, scope, 1).await?.is_empty() {
         return Ok(true);
     }
-    let todo: Option<String> = sqlx::query_scalar(
-        "select id from integration_entity_mappings
-         where connection_id = $1 and external_entity_type = $2 and sync_checksum like 'todo:%' limit 1",
-    )
-    .bind(scope.connection_id)
-    .bind(MB_PUSHED_MUTATION_TYPE)
-    .fetch_optional(db)
-    .await?;
+    let todo: Option<String> = mappings::Entity::find()
+        .select_only()
+        .column(mappings::Column::Id)
+        .filter(mappings::Column::ConnectionId.eq(scope.connection_id))
+        .filter(mappings::Column::ExternalEntityType.eq(MB_PUSHED_MUTATION_TYPE))
+        .filter(mappings::Column::SyncChecksum.like("todo:%"))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     Ok(todo.is_some())
 }
 
@@ -1906,7 +2098,7 @@ pub async fn push_to_moneybird(
     connection: &Value,
     trigger: &str,
     force: bool,
-) -> Result<PushResult, sqlx::Error> {
+) -> Result<PushResult, DbErr> {
     // The Stripe push (INT-011) is a setting; the two-way sync (INT-013)
     // follows the objects' directions. Either makes a pass.
     let stored = settings_of(connection);
@@ -2089,7 +2281,7 @@ pub async fn push_all(
     env: &crate::sync::SyncEnv,
     trigger: &str,
     stripe_connection_id: Option<&str>,
-) -> Result<bool, sqlx::Error> {
+) -> Result<bool, DbErr> {
     let targets: Vec<Value> = connections_by_provider(db, "moneybird")
         .await?
         .into_iter()

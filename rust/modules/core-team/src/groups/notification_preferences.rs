@@ -20,14 +20,23 @@ use axum::extract::{Path, RawQuery};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, patch, post, put};
 use http::HeaderMap;
+use sea_orm::ActiveValue::Set;
+use sea_orm::sea_query::{Expr, Func, OnConflict};
+use sea_orm::{
+    ColumnTrait, Condition, DbErr, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder,
+    QuerySelect,
+};
 use serde_json::{Map, Value, json};
+use time::OffsetDateTime;
 use weldsuite_catalogs::permission_keys::{GENERAL_READ, GENERAL_UPDATE};
-use weldsuite_db::{PgPool, js_row};
+use weldsuite_db::{PgPool, orm, utc_now, utc_timestamp};
 use weldsuite_kit::validation::{Field, Issues, Presence, query_values};
 use weldsuite_kit::{ApiError, Created, Data, List, NoContent, Pagination, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::notification_preferences as prefs;
 
-use crate::{Caller, CoreTeamState, TeamError, TeamResult, answer, now, validate};
+use crate::access::js;
+use crate::{Caller, CoreTeamState, TeamError, TeamResult, answer, validate};
 
 pub(crate) fn router<Q>(gate: &Arc<PermissionGate<Q>>) -> Router<CoreTeamState>
 where
@@ -112,21 +121,47 @@ fn read_patch(issues: &mut Issues, body: &Map<String, Value>) -> Patch {
     }
 }
 
-fn row_of(row: Value) -> Value {
-    js_row(row)
+impl Patch {
+    /// `coalesce($sent, column)` for each field: the sent ones as
+    /// `(column, value)`, in the schema's order.
+    fn sent(&self) -> Vec<(prefs::Column, sea_orm::Value)> {
+        let flags = [
+            (prefs::Column::DoNotDisturb, self.do_not_disturb),
+            (prefs::Column::SoundEnabled, self.sound_enabled),
+        ];
+        let defaults = [
+            (prefs::Column::DefaultInApp, self.default_in_app),
+            (prefs::Column::DefaultEmail, self.default_email),
+            (prefs::Column::DefaultPush, self.default_push),
+            (prefs::Column::DefaultDesktop, self.default_desktop),
+        ];
+        let flag = |(column, value): (prefs::Column, Option<bool>)| {
+            value.map(|value| (column, sea_orm::Value::from(value)))
+        };
+        let modules = self.module_preferences.clone().map(|value| {
+            (
+                prefs::Column::ModulePreferences,
+                sea_orm::Value::from(value),
+            )
+        });
+        flags
+            .into_iter()
+            .filter_map(flag)
+            .chain(modules)
+            .chain(defaults.into_iter().filter_map(flag))
+            .collect()
+    }
 }
 
 /// The caller's row with this id, if any.
-async fn own(db: &PgPool, id: &str, user_id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from notification_preferences t
-         where id = $1 and user_id = $2 limit 1",
-    )
-    .bind(id)
-    .bind(user_id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(row_of))
+async fn own(db: &PgPool, id: &str, user_id: &str) -> Result<Option<Value>, DbErr> {
+    prefs::Entity::find()
+        .filter(prefs::Column::Id.eq(id))
+        .filter(prefs::Column::UserId.eq(user_id))
+        .one(&orm(db))
+        .await?
+        .map(js)
+        .transpose()
 }
 
 // ── GET / ───────────────────────────────────────────────────────────────────
@@ -162,18 +197,19 @@ async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
     let limit = limit.map(|limit| limit.min(100));
     let cursor = first(&query, "cursor");
 
-    // The cursor row (any user's, as the route reads it).
-    let mut after: Option<(Value, String)> = None;
+    // The cursor row (any user's, as the route reads it), its `createdAt`
+    // to the millisecond as the route's `Date` holds it.
+    let mut after: Option<(OffsetDateTime, String)> = None;
     if let Some(cursor) = &cursor {
-        let found: Result<Option<(Value, String)>, sqlx::Error> = sqlx::query_as(
-            "select to_jsonb(date_trunc('milliseconds', created_at)), id
-             from notification_preferences where id = $1 limit 1",
-        )
-        .bind(cursor)
-        .fetch_optional(&caller.db)
-        .await;
+        let found: Result<Option<(OffsetDateTime, String)>, DbErr> = prefs::Entity::find()
+            .select_only()
+            .columns([prefs::Column::CreatedAt, prefs::Column::Id])
+            .filter(prefs::Column::Id.eq(cursor))
+            .into_tuple()
+            .one(&orm(&caller.db))
+            .await;
         match found {
-            Ok(found) => after = found,
+            Ok(found) => after = found.map(|(at, id)| (utc_timestamp(at).assume_utc(), id)),
             Err(error) => return TeamError::Database(error).respond(),
         }
     }
@@ -184,45 +220,48 @@ async fn page(
     caller: &Caller,
     limit: Option<i64>,
     has_cursor: bool,
-    after: Option<(Value, String)>,
+    after: Option<(OffsetDateTime, String)>,
 ) -> TeamResult<Response> {
     const FAILED: &str = "Failed to list notification preferences";
     // `limit(NaN)` or a negative limit fails in the database.
     let Some(limit) = limit.filter(|limit| limit + 1 >= 0) else {
         return Err(TeamError::internal(FAILED, "invalid limit"));
     };
-    let (after_at, after_id) = match &after {
-        Some((at, id)) => (at.as_str().map(str::to_owned), Some(id.clone())),
-        None => (None, None),
-    };
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from notification_preferences t
-         where user_id = $1
-           and ($2::timestamptz is null or created_at < $2::timestamptz
-                or (created_at = $2::timestamptz and id < $3))
-         order by created_at desc, id desc
-         limit $4",
-    )
-    .bind(&caller.user_id)
-    .bind(&after_at)
-    .bind(&after_id)
-    .bind(limit + 1)
-    .fetch_all(&caller.db)
-    .await
-    .map_err(|error| TeamError::internal(FAILED, error))?;
+    let db = orm(&caller.db);
     // The count drops the cursor condition, which is the last one: with an
     // unknown cursor that is the user condition itself.
     let count_all = has_cursor && after.is_none();
-    let total: i64 = sqlx::query_scalar(
-        "select count(*) from notification_preferences where $2 or user_id = $1",
-    )
-    .bind(&caller.user_id)
-    .bind(count_all)
-    .fetch_one(&caller.db)
-    .await
-    .map_err(|error| TeamError::internal(FAILED, error))?;
+    let mut select = prefs::Entity::find().filter(prefs::Column::UserId.eq(&caller.user_id));
+    if let Some((at, id)) = after {
+        select = select.filter(
+            Condition::any().add(prefs::Column::CreatedAt.lt(at)).add(
+                Condition::all()
+                    .add(prefs::Column::CreatedAt.eq(at))
+                    .add(prefs::Column::Id.lt(id)),
+            ),
+        );
+    }
+    let rows = select
+        .order_by_desc(prefs::Column::CreatedAt)
+        .order_by_desc(prefs::Column::Id)
+        .limit(u64::try_from(limit + 1).unwrap_or(0))
+        .all(&db)
+        .await
+        .map_err(|error| TeamError::internal(FAILED, error))?;
+    let mut count = prefs::Entity::find();
+    if !count_all {
+        count = count.filter(prefs::Column::UserId.eq(&caller.user_id));
+    }
+    let total = count
+        .count(&db)
+        .await
+        .map_err(|error| TeamError::internal(FAILED, error))?;
 
-    let mut rows: Vec<Value> = rows.into_iter().map(row_of).collect();
+    let mut rows: Vec<Value> = rows
+        .into_iter()
+        .map(js)
+        .collect::<Result<_, _>>()
+        .map_err(|error| TeamError::internal(FAILED, error))?;
     let keep = usize::try_from(limit).unwrap_or(0);
     let has_more = rows.len() > keep;
     rows.truncate(keep);
@@ -233,11 +272,7 @@ async fn page(
     } else {
         None
     };
-    Ok(List::new(
-        rows,
-        Pagination::new(u64::try_from(total).unwrap_or(0), has_more, cursor),
-    )
-    .into_response())
+    Ok(List::new(rows, Pagination::new(total, has_more, cursor)).into_response())
 }
 
 // ── GET /:id ────────────────────────────────────────────────────────────────
@@ -258,45 +293,54 @@ async fn upsert(caller: Caller, headers: HeaderMap, body: Bytes) -> Response {
     answer(
         async {
             let patch = validate(&headers, &body, read_patch)?;
-            let row: Value = sqlx::query_scalar(
-                "insert into notification_preferences as t
-                     (id, user_id, do_not_disturb, sound_enabled, module_preferences,
-                      default_in_app, default_email, default_push, default_desktop,
-                      created_at, updated_at)
-                 values ($1, $2, coalesce($3, false), coalesce($4, true),
-                         coalesce($5, '{}'::jsonb), coalesce($6, true), coalesce($7, false),
-                         coalesce($8, true), coalesce($9, true),
-                         $10::timestamptz, $10::timestamptz)
-                 on conflict (user_id) do update set
-                     do_not_disturb = coalesce($3, t.do_not_disturb),
-                     sound_enabled = coalesce($4, t.sound_enabled),
-                     module_preferences = coalesce($5, t.module_preferences),
-                     default_in_app = coalesce($6, t.default_in_app),
-                     default_email = coalesce($7, t.default_email),
-                     default_push = coalesce($8, t.default_push),
-                     default_desktop = coalesce($9, t.default_desktop),
-                     updated_at = $10::timestamptz
-                 returning to_jsonb(t)",
-            )
-            .bind(generate_id("npr"))
-            .bind(&caller.user_id)
-            .bind(patch.do_not_disturb)
-            .bind(patch.sound_enabled)
-            .bind(&patch.module_preferences)
-            .bind(patch.default_in_app)
-            .bind(patch.default_email)
-            .bind(patch.default_push)
-            .bind(patch.default_desktop)
-            .bind(now())
-            .fetch_one(&caller.db)
-            .await
-            .map_err(|error| {
+            let row = upsert_row(&caller, patch).await.map_err(|error| {
                 TeamError::internal("Failed to update notification preferences", error)
             })?;
-            Ok(Data(row_of(row)).into_response())
+            Ok(Data(row).into_response())
         }
         .await,
     )
+}
+
+/// The row with the defaults for what a first write leaves out
+/// (`coalesce($sent, default)`), the columns' own defaults otherwise.
+fn new_row(caller: &Caller, id: String, patch: &Patch, at: OffsetDateTime) -> prefs::ActiveModel {
+    prefs::ActiveModel {
+        id: Set(id),
+        user_id: Set(caller.user_id.clone()),
+        do_not_disturb: Set(patch.do_not_disturb.unwrap_or(false)),
+        sound_enabled: Set(patch.sound_enabled.unwrap_or(true)),
+        default_in_app: Set(patch.default_in_app.unwrap_or(true)),
+        default_email: Set(patch.default_email.unwrap_or(false)),
+        default_push: Set(patch.default_push.unwrap_or(true)),
+        default_desktop: Set(patch.default_desktop.unwrap_or(true)),
+        created_at: Set(at),
+        updated_at: Set(at),
+        ..Default::default()
+    }
+}
+
+/// Insert the caller's row, or (`on conflict (user_id)`) write only what the
+/// patch sent over the existing one.
+async fn upsert_row(caller: &Caller, patch: Patch) -> Result<Value, DbErr> {
+    let mut row = new_row(caller, generate_id("npr"), &patch, utc_now().assume_utc());
+    row.module_preferences = Set(Some(
+        patch
+            .module_preferences
+            .clone()
+            .unwrap_or_else(|| json!({})),
+    ));
+    let mut written: Vec<prefs::Column> = patch.sent().into_iter().map(|(c, _)| c).collect();
+    written.push(prefs::Column::UpdatedAt);
+    let row = prefs::Entity::insert(row)
+        .on_conflict(
+            OnConflict::column(prefs::Column::UserId)
+                .update_columns(written)
+                .to_owned(),
+        )
+        .exec_with_returning(&orm(&caller.db))
+        .await?;
+    js(row)
 }
 
 // ── PUT /module/:module ─────────────────────────────────────────────────────
@@ -325,26 +369,41 @@ async fn merge_module(
                 return Err(TeamError::api(ApiError::bad_request("Invalid module name")));
             }
             let patch = json!({ module: channels });
-            let row: Value = sqlx::query_scalar(
-                "insert into notification_preferences as t
-                     (id, user_id, module_preferences, created_at, updated_at)
-                 values ($1, $2, $3, $4::timestamptz, $4::timestamptz)
-                 on conflict (user_id) do update set
-                     module_preferences = coalesce(t.module_preferences, '{}'::jsonb) || $3,
-                     updated_at = $4::timestamptz
-                 returning to_jsonb(t)",
-            )
-            .bind(generate_id("npr"))
-            .bind(&caller.user_id)
-            .bind(&patch)
-            .bind(now())
-            .fetch_one(&caller.db)
-            .await
-            .map_err(|error| TeamError::internal("Failed to update module preferences", error))?;
-            Ok(Data(row_of(row)).into_response())
+            let row = merge_row(&caller, patch).await.map_err(|error| {
+                TeamError::internal("Failed to update module preferences", error)
+            })?;
+            Ok(Data(row).into_response())
         }
         .await,
     )
+}
+
+/// Insert the caller's row with this module's channels, or merge them into
+/// the existing `module_preferences` (`coalesce(…, '{}') || $patch`).
+async fn merge_row(caller: &Caller, patch: Value) -> Result<Value, DbErr> {
+    let at = utc_now().assume_utc();
+    let current = Expr::col((prefs::Entity, prefs::Column::ModulePreferences));
+    let merged = sea_orm::sea_query::extension::postgres::PgExpr::concat(
+        Expr::from(Func::coalesce([current, Expr::value(json!({}))])),
+        Expr::value(patch.clone()),
+    );
+    let row = prefs::Entity::insert(prefs::ActiveModel {
+        id: Set(generate_id("npr")),
+        user_id: Set(caller.user_id.clone()),
+        module_preferences: Set(Some(patch)),
+        created_at: Set(at),
+        updated_at: Set(at),
+        ..Default::default()
+    })
+    .on_conflict(
+        OnConflict::column(prefs::Column::UserId)
+            .value(prefs::Column::ModulePreferences, merged)
+            .update_column(prefs::Column::UpdatedAt)
+            .to_owned(),
+    )
+    .exec_with_returning(&orm(&caller.db))
+    .await?;
+    js(row)
 }
 
 // ── POST / ──────────────────────────────────────────────────────────────────
@@ -353,32 +412,16 @@ async fn create(caller: Caller, headers: HeaderMap, body: Bytes) -> Response {
     answer(
         async {
             let patch = validate(&headers, &body, read_patch)?;
-            let id = generate_id("npr");
             // What it leaves out takes the column defaults.
-            sqlx::query(
-                "insert into notification_preferences
-                     (id, user_id, do_not_disturb, sound_enabled, module_preferences,
-                      default_in_app, default_email, default_push, default_desktop,
-                      created_at, updated_at)
-                 values ($1, $2, coalesce($3, false), coalesce($4, true), $5,
-                         coalesce($6, true), coalesce($7, false), coalesce($8, true),
-                         coalesce($9, true), $10::timestamptz, $10::timestamptz)",
-            )
-            .bind(&id)
-            .bind(&caller.user_id)
-            .bind(patch.do_not_disturb)
-            .bind(patch.sound_enabled)
-            .bind(&patch.module_preferences)
-            .bind(patch.default_in_app)
-            .bind(patch.default_email)
-            .bind(patch.default_push)
-            .bind(patch.default_desktop)
-            .bind(now())
-            .execute(&caller.db)
-            .await
-            .map_err(|error| {
-                TeamError::internal("Failed to create notification preference", error)
-            })?;
+            let id = generate_id("npr");
+            let mut row = new_row(&caller, id.clone(), &patch, utc_now().assume_utc());
+            row.module_preferences = Set(patch.module_preferences);
+            prefs::Entity::insert(row)
+                .exec_without_returning(&orm(&caller.db))
+                .await
+                .map_err(|error| {
+                    TeamError::internal("Failed to create notification preference", error)
+                })?;
             Ok(Created(json!({ "id": id })).into_response())
         }
         .await,
@@ -403,31 +446,20 @@ async fn update(
             if existing.is_none() {
                 return Err(ApiError::not_found("Notification preference", Some(&id)).into());
             }
-            sqlx::query(
-                "update notification_preferences set
-                     do_not_disturb = coalesce($3, do_not_disturb),
-                     sound_enabled = coalesce($4, sound_enabled),
-                     module_preferences = coalesce($5, module_preferences),
-                     default_in_app = coalesce($6, default_in_app),
-                     default_email = coalesce($7, default_email),
-                     default_push = coalesce($8, default_push),
-                     default_desktop = coalesce($9, default_desktop),
-                     updated_at = $10::timestamptz
-                 where id = $1 and user_id = $2",
-            )
-            .bind(&id)
-            .bind(&caller.user_id)
-            .bind(patch.do_not_disturb)
-            .bind(patch.sound_enabled)
-            .bind(&patch.module_preferences)
-            .bind(patch.default_in_app)
-            .bind(patch.default_email)
-            .bind(patch.default_push)
-            .bind(patch.default_desktop)
-            .bind(now())
-            .execute(&caller.db)
-            .await
-            .map_err(|error| TeamError::internal(FAILED, error))?;
+            let mut write = prefs::Entity::update_many();
+            for (column, value) in patch.sent() {
+                write = write.col_expr(column, Expr::value(value));
+            }
+            write
+                .col_expr(
+                    prefs::Column::UpdatedAt,
+                    Expr::value(utc_now().assume_utc()),
+                )
+                .filter(prefs::Column::Id.eq(&id))
+                .filter(prefs::Column::UserId.eq(&caller.user_id))
+                .exec(&orm(&caller.db))
+                .await
+                .map_err(|error| TeamError::internal(FAILED, error))?;
             Ok(Data(json!({ "id": id })).into_response())
         }
         .await,
@@ -446,10 +478,10 @@ async fn remove(caller: Caller, Path(id): Path<String>) -> Response {
             if existing.is_none() {
                 return Err(ApiError::not_found("Notification preference", Some(&id)).into());
             }
-            sqlx::query("delete from notification_preferences where id = $1 and user_id = $2")
-                .bind(&id)
-                .bind(&caller.user_id)
-                .execute(&caller.db)
+            prefs::Entity::delete_many()
+                .filter(prefs::Column::Id.eq(&id))
+                .filter(prefs::Column::UserId.eq(&caller.user_id))
+                .exec(&orm(&caller.db))
                 .await
                 .map_err(|error| TeamError::internal(FAILED, error))?;
             Ok(NoContent.into_response())

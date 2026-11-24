@@ -9,11 +9,6 @@
 //! chat-api (`weldsuite-chat`) is built on all of it; meet, connect, agent
 //! and app-api read the access rules and the publishers when they are ported.
 
-#![allow(
-    clippy::disallowed_methods,
-    reason = "not converted to the ORM yet (ADR DATA-019)"
-)]
-
 pub mod access;
 pub mod agents;
 pub mod calls;
@@ -30,3 +25,28 @@ pub use access::{
     unreadable_record_chat_ids,
 };
 pub use publish::Realtime;
+
+use sea_orm::DbErr;
+use time::PrimitiveDateTime;
+
+/// A row the entity serialized (Drizzle's JSON) that would not serialize.
+#[allow(
+    clippy::needless_pass_by_value,
+    reason = "the `map_err` callback of `serde_json::to_value`"
+)]
+pub(crate) fn json_error(error: serde_json::Error) -> DbErr {
+    DbErr::Json(error.to_string())
+}
+
+/// `$n::timestamp` of a `toISOString()` the caller wrote: Postgres reads its
+/// date and time and ignores the zone. A text Postgres can't read is the
+/// failed cast.
+pub(crate) fn timestamp_of(iso: &str) -> Result<PrimitiveDateTime, DbErr> {
+    let at = time::OffsetDateTime::parse(iso, &time::format_description::well_known::Rfc3339)
+        .map_err(|_| {
+            DbErr::Type(format!(
+                "invalid input syntax for type timestamp: \"{iso}\""
+            ))
+        })?;
+    Ok(PrimitiveDateTime::new(at.date(), at.time()))
+}

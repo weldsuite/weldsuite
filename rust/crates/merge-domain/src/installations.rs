@@ -22,9 +22,14 @@
 //! `credentials` columns in them: never hand a row to a response or an
 //! event as it is ([`connection_event_data`] is what an event carries).
 
+use sea_orm::sea_query::{Expr, OnConflict};
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, Set};
 use serde_json::{Value, json};
-use weldsuite_db::{Keyring, PgPool, encrypt_field, js_row};
+use time::OffsetDateTime;
+use weldsuite_db::{Keyring, PgPool, encrypt_field, orm};
 use weldsuite_kit::generate_id;
+use weldsuite_schema::master::merge_provider_index;
+use weldsuite_schema::tenant::merge_connections;
 
 /// What [`record_github_installation`] records.
 #[derive(Debug, Clone)]
@@ -76,9 +81,15 @@ pub fn connection_event_data(row: &Value) -> Value {
     })
 }
 
-/// `new Date()` as Drizzle writes it: UTC with milliseconds.
-fn now() -> String {
-    weldsuite_events::iso_timestamp(time::OffsetDateTime::now_utc())
+/// `new Date()` as Drizzle writes it to a `timestamptz` column: UTC, to the
+/// millisecond.
+fn now() -> OffsetDateTime {
+    weldsuite_db::utc_now().assume_utc()
+}
+
+/// A `merge_connections` row as Drizzle returns it.
+fn connection_json(row: merge_connections::Model) -> Result<Value, DbErr> {
+    serde_json::to_value(row).map_err(|error| DbErr::Json(error.to_string()))
 }
 
 /// A fresh 64-hex webhook secret (`randomHex(32)`).
@@ -95,16 +106,42 @@ fn random_hex_secret() -> String {
 pub async fn find_github_connections(
     tenant: &PgPool,
     installation_id: &str,
-) -> Result<Vec<Value>, sqlx::Error> {
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(c) from merge_connections c where c.provider = 'github' \
-         and c.external_account_id = $1 and c.deleted_at is null \
-         order by c.created_at desc, c.id desc",
-    )
-    .bind(installation_id)
-    .fetch_all(tenant)
-    .await?;
-    Ok(rows.into_iter().map(js_row).collect())
+) -> Result<Vec<Value>, DbErr> {
+    use merge_connections::Column;
+    merge_connections::Entity::find()
+        .filter(Column::Provider.eq("github"))
+        .filter(Column::ExternalAccountId.eq(installation_id))
+        .filter(Column::DeletedAt.is_null())
+        .order_by_desc(Column::CreatedAt)
+        .order_by_desc(Column::Id)
+        .all(&orm(tenant))
+        .await?
+        .into_iter()
+        .map(connection_json)
+        .collect()
+}
+
+/// A new `installation` row of the master index (`github`), written at `now`.
+fn index_row(
+    installation_id: &str,
+    workspace_id: &str,
+    now: OffsetDateTime,
+) -> merge_provider_index::ActiveModel {
+    merge_provider_index::ActiveModel {
+        id: Set(generate_id("mpi")),
+        provider: Set("github".to_owned()),
+        kind: Set("installation".to_owned()),
+        external_key: Set(installation_id.to_owned()),
+        workspace_id: Set(workspace_id.to_owned()),
+        created_at: Set(now),
+        updated_at: Set(now),
+    }
+}
+
+/// `on conflict (provider, kind, external_key)`.
+fn on_index_key() -> OnConflict {
+    use merge_provider_index::Column;
+    OnConflict::columns([Column::Provider, Column::Kind, Column::ExternalKey])
 }
 
 /// `upsertGithubInstallationIndex(masterDb, installationId, workspaceId)`:
@@ -119,20 +156,16 @@ pub async fn upsert_github_installation_index(
     master: &PgPool,
     installation_id: &str,
     workspace_id: &str,
-) -> Result<(), sqlx::Error> {
-    let now = now();
-    sqlx::query(
-        "insert into merge_provider_index (id, provider, kind, external_key, workspace_id, created_at, updated_at) \
-         values ($1, 'github', 'installation', $2, $3, $4::timestamptz, $4::timestamptz) \
-         on conflict (provider, kind, external_key) do update set workspace_id = excluded.workspace_id, \
-           updated_at = excluded.updated_at",
-    )
-    .bind(generate_id("mpi"))
-    .bind(installation_id)
-    .bind(workspace_id)
-    .bind(&now)
-    .execute(master)
-    .await?;
+) -> Result<(), DbErr> {
+    use merge_provider_index::Column;
+    merge_provider_index::Entity::insert(index_row(installation_id, workspace_id, now()))
+        .on_conflict(
+            on_index_key()
+                .update_columns([Column::WorkspaceId, Column::UpdatedAt])
+                .to_owned(),
+        )
+        .exec_without_returning(&orm(master))
+        .await?;
     Ok(())
 }
 
@@ -147,22 +180,21 @@ pub async fn claim_github_installation_index(
     master: &PgPool,
     installation_id: &str,
     workspace_id: &str,
-) -> Result<bool, sqlx::Error> {
-    let now = now();
-    let claimed: Option<String> = sqlx::query_scalar(
-        "insert into merge_provider_index (id, provider, kind, external_key, workspace_id, created_at, updated_at) \
-         values ($1, 'github', 'installation', $2, $3, $4::timestamptz, $4::timestamptz) \
-         on conflict (provider, kind, external_key) do update set updated_at = excluded.updated_at \
-           where merge_provider_index.workspace_id = excluded.workspace_id \
-         returning id",
-    )
-    .bind(generate_id("mpi"))
-    .bind(installation_id)
-    .bind(workspace_id)
-    .bind(&now)
-    .fetch_optional(master)
-    .await?;
-    Ok(claimed.is_some())
+) -> Result<bool, DbErr> {
+    use merge_provider_index::Column;
+    // `do update … where merge_provider_index.workspace_id = excluded.workspace_id`:
+    // a row naming another workspace is neither inserted nor updated.
+    let claimed =
+        merge_provider_index::Entity::insert(index_row(installation_id, workspace_id, now()))
+            .on_conflict(
+                on_index_key()
+                    .update_column(Column::UpdatedAt)
+                    .action_and_where(Column::WorkspaceId.eq(workspace_id))
+                    .to_owned(),
+            )
+            .exec_without_returning(&orm(master))
+            .await?;
+    Ok(claimed > 0)
 }
 
 /// `releaseGithubInstallationIndex(masterDb, installationId, workspaceId)`:
@@ -176,15 +208,15 @@ pub async fn release_github_installation_index(
     master: &PgPool,
     installation_id: &str,
     workspace_id: &str,
-) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "delete from merge_provider_index where provider = 'github' and kind = 'installation' \
-         and external_key = $1 and workspace_id = $2",
-    )
-    .bind(installation_id)
-    .bind(workspace_id)
-    .execute(master)
-    .await?;
+) -> Result<(), DbErr> {
+    use merge_provider_index::Column;
+    merge_provider_index::Entity::delete_many()
+        .filter(Column::Provider.eq("github"))
+        .filter(Column::Kind.eq("installation"))
+        .filter(Column::ExternalKey.eq(installation_id))
+        .filter(Column::WorkspaceId.eq(workspace_id))
+        .exec(&orm(master))
+        .await?;
     Ok(())
 }
 
@@ -199,21 +231,21 @@ pub async fn release_github_installation_index(
 pub async fn remove_github_installation_index(
     master: &PgPool,
     installation_id: &str,
-) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "delete from merge_provider_index where provider = 'github' and kind = 'installation' \
-         and external_key = $1",
-    )
-    .bind(installation_id)
-    .execute(master)
-    .await?;
+) -> Result<(), DbErr> {
+    use merge_provider_index::Column;
+    merge_provider_index::Entity::delete_many()
+        .filter(Column::Provider.eq("github"))
+        .filter(Column::Kind.eq("installation"))
+        .filter(Column::ExternalKey.eq(installation_id))
+        .exec(&orm(master))
+        .await?;
     Ok(())
 }
 
 /// A failure of [`record_github_installation`].
 #[derive(Debug)]
 pub enum RecordError {
-    Db(sqlx::Error),
+    Db(DbErr),
     /// The keyring cannot seal the webhook secret.
     Seal(String),
     /// `GithubInstallationTakenError`: the installation's index row names
@@ -236,8 +268,8 @@ impl std::fmt::Display for RecordError {
 
 impl std::error::Error for RecordError {}
 
-impl From<sqlx::Error> for RecordError {
-    fn from(error: sqlx::Error) -> Self {
+impl From<DbErr> for RecordError {
+    fn from(error: DbErr) -> Self {
         Self::Db(error)
     }
 }
@@ -254,8 +286,9 @@ async fn refresh(
     existing: &Value,
     input: &GithubInstallation,
     keyring: &Keyring,
-    now: &str,
+    now: OffsetDateTime,
 ) -> Result<Value, RecordError> {
+    use merge_connections::Column;
     let secret = if existing
         .get("webhookSecret")
         .and_then(Value::as_str)
@@ -265,25 +298,48 @@ async fn refresh(
     } else {
         Some(seal_secret(keyring)?)
     };
-    let row: Value = sqlx::query_scalar(
-        "update merge_connections set app_slug = $2, account_login = $3, account_type = $4, status = $5, \
-           installed_at = $6::timestamptz, revoked_at = null, updated_at = $6::timestamptz, \
-           scopes = case when $7 then $8::jsonb else scopes end, \
-           webhook_secret = coalesce($9, webhook_secret) \
-         where id = $1 returning to_jsonb(merge_connections.*)",
-    )
-    .bind(existing.get("id").and_then(Value::as_str).unwrap_or_default())
-    .bind(&input.app_slug)
-    .bind(&input.account_login)
-    .bind(github_account_type(&input.account_type))
-    .bind(input.status.as_deref().unwrap_or("active"))
-    .bind(now)
-    .bind(input.scopes.is_some())
-    .bind(input.scopes.as_ref().map(|scopes| json!(scopes)))
-    .bind(secret)
-    .fetch_one(tenant)
-    .await?;
-    Ok(js_row(row))
+    let mut update = merge_connections::Entity::update_many()
+        .col_expr(Column::AppSlug, Expr::value(input.app_slug.clone()))
+        .col_expr(
+            Column::AccountLogin,
+            Expr::value(input.account_login.clone()),
+        )
+        .col_expr(
+            Column::AccountType,
+            Expr::value(github_account_type(&input.account_type)),
+        )
+        .col_expr(
+            Column::Status,
+            Expr::value(input.status.as_deref().unwrap_or("active")),
+        )
+        .col_expr(Column::InstalledAt, Expr::value(now))
+        .col_expr(
+            Column::RevokedAt,
+            Expr::value(Option::<OffsetDateTime>::None),
+        )
+        .col_expr(Column::UpdatedAt, Expr::value(now));
+    // `case when $scopesSent then $scopes else scopes end`.
+    if let Some(scopes) = &input.scopes {
+        update = update.col_expr(Column::Scopes, Expr::value(json!(scopes)));
+    }
+    // `coalesce($secret, webhook_secret)`.
+    if let Some(secret) = secret {
+        update = update.col_expr(Column::WebhookSecret, Expr::value(secret));
+    }
+    let row = update
+        .filter(
+            Column::Id.eq(existing
+                .get("id")
+                .and_then(Value::as_str)
+                .unwrap_or_default()),
+        )
+        .exec_with_returning(&orm(tenant))
+        .await?
+        .into_iter()
+        .next()
+        // `fetch_one`: the row went away in between.
+        .ok_or(DbErr::RecordNotUpdated)?;
+    Ok(connection_json(row)?)
 }
 
 /// `recordGithubInstallation(tenantDb, masterDb, input)`: claims the
@@ -312,32 +368,33 @@ pub async fn record_github_installation(
     let existing = find_github_connections(tenant, &input.installation_id).await?;
     let (connection, action) = if let Some(existing) = existing.first() {
         (
-            refresh(tenant, existing, input, keyring, &now).await?,
+            refresh(tenant, existing, input, keyring, now).await?,
             "updated",
         )
     } else {
-        let inserted: Result<Value, sqlx::Error> = sqlx::query_scalar(
-            "insert into merge_connections (id, provider, external_account_id, app_slug, account_login, \
-               account_type, status, installed_at, revoked_at, updated_at, scopes, webhook_secret, \
-               created_by_user_id, created_at) \
-             values ($1, 'github', $2, $3, $4, $5, $6, $7::timestamptz, null, $7::timestamptz, $8::jsonb, $9, \
-               $10, $7::timestamptz) \
-             returning to_jsonb(merge_connections.*)",
-        )
-        .bind(generate_id("mcn"))
-        .bind(&input.installation_id)
-        .bind(&input.app_slug)
-        .bind(&input.account_login)
-        .bind(github_account_type(&input.account_type))
-        .bind(input.status.as_deref().unwrap_or("active"))
-        .bind(&now)
-        .bind(input.scopes.as_ref().map(|scopes| json!(scopes)))
-        .bind(seal_secret(keyring)?)
-        .bind(&input.user_id)
-        .fetch_one(tenant)
+        let id = generate_id("mcn");
+        let secret = seal_secret(keyring)?;
+        let inserted = merge_connections::Entity::insert(merge_connections::ActiveModel {
+            id: Set(id),
+            provider: Set("github".to_owned()),
+            external_account_id: Set(input.installation_id.clone()),
+            app_slug: Set(Some(input.app_slug.clone())),
+            account_login: Set(Some(input.account_login.clone())),
+            account_type: Set(Some(github_account_type(&input.account_type).to_owned())),
+            status: Set(input.status.as_deref().unwrap_or("active").to_owned()),
+            installed_at: Set(Some(now)),
+            revoked_at: Set(None),
+            updated_at: Set(now),
+            scopes: Set(input.scopes.as_ref().map(|scopes| json!(scopes))),
+            webhook_secret: Set(Some(secret)),
+            created_by_user_id: Set(input.user_id.clone()),
+            created_at: Set(now),
+            ..Default::default()
+        })
+        .exec_with_returning(&orm(tenant))
         .await;
         match inserted {
-            Ok(row) => (js_row(row), "created"),
+            Ok(row) => (connection_json(row)?, "created"),
             Err(error) => {
                 // Two installs recorded at once: the other insert won, refresh its row.
                 let winner = find_github_connections(tenant, &input.installation_id).await?;
@@ -345,7 +402,7 @@ pub async fn record_github_installation(
                     return Err(error.into());
                 };
                 (
-                    refresh(tenant, winner, input, keyring, &now).await?,
+                    refresh(tenant, winner, input, keyring, now).await?,
                     "updated",
                 )
             }
@@ -366,21 +423,23 @@ pub async fn set_github_installation_status(
     tenant: &PgPool,
     installation_id: &str,
     status: &str,
-) -> Result<Vec<Value>, sqlx::Error> {
+) -> Result<Vec<Value>, DbErr> {
+    use merge_connections::Column;
     let now = now();
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "update merge_connections set status = $2, \
-           revoked_at = case when $2 = 'revoked' then $3::timestamptz else null end, \
-           updated_at = $3::timestamptz \
-         where provider = 'github' and external_account_id = $1 and deleted_at is null \
-         returning to_jsonb(merge_connections.*)",
-    )
-    .bind(installation_id)
-    .bind(status)
-    .bind(&now)
-    .fetch_all(tenant)
-    .await?;
-    Ok(rows.into_iter().map(js_row).collect())
+    // `case when $status = 'revoked' then now else null end`.
+    let revoked_at = (status == "revoked").then_some(now);
+    merge_connections::Entity::update_many()
+        .col_expr(Column::Status, Expr::value(status))
+        .col_expr(Column::RevokedAt, Expr::value(revoked_at))
+        .col_expr(Column::UpdatedAt, Expr::value(now))
+        .filter(Column::Provider.eq("github"))
+        .filter(Column::ExternalAccountId.eq(installation_id))
+        .filter(Column::DeletedAt.is_null())
+        .exec_with_returning(&orm(tenant))
+        .await?
+        .into_iter()
+        .map(connection_json)
+        .collect()
 }
 
 #[cfg(test)]

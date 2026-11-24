@@ -3,12 +3,14 @@
 //! the contact upsert, the hub `email:created` and each member's realtime
 //! `mail:new`, bell row and push.
 
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 use serde_json::{Value, json};
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_events::{EntityEvent, EventContext, EventSource, EventType};
 use weldsuite_mail_domain::contacts::{ContactAddress, upsert_mail_contacts};
 use weldsuite_notifications::{NewNotification, Notifier, channel_preferences, create_and_deliver};
 use weldsuite_ports::RealtimeMessage;
+use weldsuite_schema::tenant::{mail_labels, mail_rules};
 
 use crate::auto_label::{AiLabelCandidate, AutoLabel, run_auto_label};
 use crate::context::InboundContext;
@@ -38,7 +40,7 @@ pub async fn process_inbound_email(
     email: &ParsedEmail,
     attachments: &[ParsedAttachment],
     threats: &MessageThreats,
-) -> Result<Processed, sqlx::Error> {
+) -> Result<Processed, DbErr> {
     let recipient_emails = delivery_recipient_emails(email);
     let accounts = find_recipient_accounts(ctx, &recipient_emails).await?;
     if accounts.is_empty() {
@@ -128,13 +130,21 @@ pub async fn run_rules_with(
     labeller: Option<AutoLabel<'_>>,
 ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
     let db = db.clone();
-    let ai_labels: Vec<(String, String, Option<String>, Option<i32>)> = sqlx::query_as(
-        "select id, name, ai_description, ai_confidence from mail_labels
-         where account_id = $1 and ai_enabled = true and deleted_at is null",
-    )
-    .bind(account_id)
-    .fetch_all(&db)
-    .await?;
+    let conn = orm(&db);
+    let ai_labels: Vec<(String, String, Option<String>, Option<i32>)> = mail_labels::Entity::find()
+        .select_only()
+        .columns([
+            mail_labels::Column::Id,
+            mail_labels::Column::Name,
+            mail_labels::Column::AiDescription,
+            mail_labels::Column::AiConfidence,
+        ])
+        .filter(mail_labels::Column::AccountId.eq(account_id))
+        .filter(mail_labels::Column::AiEnabled.eq(true))
+        .filter(mail_labels::Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&conn)
+        .await?;
     let candidates: Vec<AiLabelCandidate> = ai_labels
         .into_iter()
         .filter_map(|(id, name, description, confidence)| {
@@ -173,15 +183,18 @@ pub async fn run_rules_with(
     }
     let mut marked_spam = false;
     let rules = async {
-        let rows: Vec<Value> = sqlx::query_scalar(
-            "select to_jsonb(r) from mail_rules r
-             where r.account_id = $1 and r.is_active = true and r.deleted_at is null
-             order by r.priority desc",
-        )
-        .bind(account_id)
-        .fetch_all(&db)
-        .await?;
-        let rules: Vec<Value> = rows.into_iter().map(weldsuite_db::js_row).collect();
+        let rows = mail_rules::Entity::find()
+            .filter(mail_rules::Column::AccountId.eq(account_id))
+            .filter(mail_rules::Column::IsActive.eq(true))
+            .filter(mail_rules::Column::DeletedAt.is_null())
+            .order_by_desc(mail_rules::Column::Priority)
+            .all(&conn)
+            .await?;
+        let rules = rows
+            .into_iter()
+            .map(serde_json::to_value)
+            .collect::<Result<Vec<Value>, _>>()
+            .map_err(|error| DbErr::Json(error.to_string()))?;
         apply_mail_rules(&db, &rules, email, message_id, &state).await
     };
     match rules.await {

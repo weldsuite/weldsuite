@@ -12,13 +12,13 @@ pub(crate) mod received;
 pub(crate) mod settings;
 pub(crate) mod webhooks;
 
+use sea_orm::DbErr;
 use serde_json::{Value, json};
 use sqlx::PgPool;
 use weldsuite_books_domain::http::Refusal;
-use weldsuite_books_domain::tables::ENTITIES;
 use weldsuite_kit::ApiError;
 
-use crate::vat_returns::has_feature;
+use crate::vat_returns::{entity_row, has_feature};
 use focus::ProviderError;
 use payload::PayloadError;
 
@@ -38,8 +38,8 @@ pub(crate) enum FiscalError {
     Refusal(Refusal),
 }
 
-impl From<sqlx::Error> for FiscalError {
-    fn from(error: sqlx::Error) -> Self {
+impl From<DbErr> for FiscalError {
+    fn from(error: DbErr) -> Self {
         Self::Refusal(Refusal::Database(error))
     }
 }
@@ -128,15 +128,7 @@ pub(crate) async fn require_fiscal_entity(
     db: &PgPool,
     entity_id: &str,
 ) -> Result<Value, FiscalError> {
-    let row: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(entities),
-        " from entities t where t.id = $1 and t.deleted_at is null limit 1"
-    ))
-    .bind(entity_id)
-    .fetch_optional(db)
-    .await?;
-    let Some(entity) = row.map(|row| ENTITIES.js(row)) else {
+    let Some(entity) = entity_row(db, entity_id, true).await? else {
         return Err(FiscalError::status(
             format!("Accounting entity {entity_id} not found"),
             404,

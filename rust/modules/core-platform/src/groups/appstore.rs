@@ -22,13 +22,16 @@ use axum::Router;
 use axum::extract::Path;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
-use serde_json::{Value, json};
+use sea_orm::sea_query::OnConflict;
+use sea_orm::{ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
+use serde_json::json;
 use weldsuite_catalogs::permission_keys::{GENERAL_READ, GENERAL_UPDATE};
-use weldsuite_db::{PgPool, js_row};
+use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_kit::{ApiError, Data, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::{user_app_assignments, workspace_installed_apps, workspace_members};
 
-use crate::{Caller, CorePlatformState, PlatformError, PlatformResult, answer, now};
+use crate::{Caller, CorePlatformState, PlatformError, PlatformResult, answer};
 
 pub(crate) fn router<Q>(gate: &Arc<PermissionGate<Q>>) -> Router<CorePlatformState>
 where
@@ -61,13 +64,15 @@ fn to_db_code(code: &str) -> String {
 }
 
 /// The caller's role on their member row (any, if there are several).
-async fn member_role(db: &PgPool, user_id: &str) -> Result<Option<String>, sqlx::Error> {
-    sqlx::query_scalar(
-        "select role from workspace_members where user_id = $1 and deleted_at is null limit 1",
-    )
-    .bind(user_id)
-    .fetch_optional(db)
-    .await
+async fn member_role(db: &PgPool, user_id: &str) -> Result<Option<String>, DbErr> {
+    workspace_members::Entity::find()
+        .select_only()
+        .column(workspace_members::Column::Role)
+        .filter(workspace_members::Column::UserId.eq(user_id))
+        .filter(workspace_members::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await
 }
 
 fn is_manager(role: Option<&str>) -> bool {
@@ -77,12 +82,14 @@ fn is_manager(role: Option<&str>) -> bool {
 // ── GET /my-apps ────────────────────────────────────────────────────────────
 
 async fn my_apps(caller: Caller) -> Response {
-    let codes: Result<Vec<String>, sqlx::Error> = sqlx::query_scalar(
-        "select app_code from user_app_assignments where user_id = $1 and is_active = true",
-    )
-    .bind(&caller.user_id)
-    .fetch_all(&caller.db)
-    .await;
+    let codes: Result<Vec<String>, DbErr> = user_app_assignments::Entity::find()
+        .select_only()
+        .column(user_app_assignments::Column::AppCode)
+        .filter(user_app_assignments::Column::UserId.eq(&caller.user_id))
+        .filter(user_app_assignments::Column::IsActive.eq(true))
+        .into_tuple()
+        .all(&orm(&caller.db))
+        .await;
     match codes {
         Ok(codes) => Data(codes).into_response(),
         Err(error) => PlatformError::internal("Failed to fetch apps", error).respond(),
@@ -92,14 +99,13 @@ async fn my_apps(caller: Caller) -> Response {
 // ── GET /installed-apps ─────────────────────────────────────────────────────
 
 async fn installed_apps(caller: Caller) -> Response {
-    let rows: Result<Vec<Value>, sqlx::Error> = sqlx::query_scalar(
-        "select to_jsonb(t) from workspace_installed_apps t
-         where is_active = true and deleted_at is null",
-    )
-    .fetch_all(&caller.db)
-    .await;
+    let rows = workspace_installed_apps::Entity::find()
+        .filter(workspace_installed_apps::Column::IsActive.eq(true))
+        .filter(workspace_installed_apps::Column::DeletedAt.is_null())
+        .all(&orm(&caller.db))
+        .await;
     match rows {
-        Ok(rows) => Data(rows.into_iter().map(js_row).collect::<Vec<_>>()).into_response(),
+        Ok(rows) => Data(rows).into_response(),
         Err(error) => PlatformError::internal("Failed to fetch installed apps", error).respond(),
     }
 }
@@ -126,7 +132,7 @@ async fn assign_all_members(caller: Caller, Path(app_code): Path<String>) -> Res
 
 async fn assign(caller: &Caller, app_code: &str) -> PlatformResult<Response> {
     const FAILED: &str = "Failed to assign app";
-    let failed = |error: sqlx::Error| PlatformError::internal(FAILED, error);
+    let failed = |error: DbErr| PlatformError::internal(FAILED, error);
     let role = member_role(&caller.db, &caller.user_id)
         .await
         .map_err(failed)?;
@@ -135,41 +141,51 @@ async fn assign(caller: &Caller, app_code: &str) -> PlatformResult<Response> {
             .with_message("Only workspace admins can assign apps")
             .into());
     }
-    let installed: Option<String> = sqlx::query_scalar(
-        "select id from workspace_installed_apps
-         where app_code = $1 and is_active = true and deleted_at is null limit 1",
-    )
-    .bind(app_code)
-    .fetch_optional(&caller.db)
-    .await
-    .map_err(failed)?;
+    let db = orm(&caller.db);
+    let installed: Option<String> = workspace_installed_apps::Entity::find()
+        .select_only()
+        .column(workspace_installed_apps::Column::Id)
+        .filter(workspace_installed_apps::Column::AppCode.eq(app_code))
+        .filter(workspace_installed_apps::Column::IsActive.eq(true))
+        .filter(workspace_installed_apps::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&db)
+        .await
+        .map_err(failed)?;
     if installed.is_none() {
         return Err(ApiError::not_found("Installed app", Some(app_code)).into());
     }
-    let eligible: Vec<String> = sqlx::query_scalar(
-        "select user_id from workspace_members
-         where status = 'ACTIVE' and deleted_at is null and role <> 'OWNER' and role <> 'ADMIN'",
-    )
-    .fetch_all(&caller.db)
-    .await
-    .map_err(failed)?;
-    if !eligible.is_empty() {
-        let ids: Vec<String> = eligible.iter().map(|_| generate_id("uaa")).collect();
-        sqlx::query(
-            "insert into user_app_assignments
-                 (id, user_id, app_code, is_active, granted_at, granted_by, created_at, updated_at)
-             select id, user_id, $3, true, $5::timestamptz, $4, $5::timestamptz, $5::timestamptz
-             from unnest($1::varchar[], $2::varchar[]) as m(id, user_id)
-             on conflict do nothing",
-        )
-        .bind(&ids)
-        .bind(&eligible)
-        .bind(app_code)
-        .bind(&caller.user_id)
-        .bind(now())
-        .execute(&caller.db)
+    let eligible: Vec<String> = workspace_members::Entity::find()
+        .select_only()
+        .column(workspace_members::Column::UserId)
+        .filter(workspace_members::Column::Status.eq("ACTIVE"))
+        .filter(workspace_members::Column::DeletedAt.is_null())
+        .filter(workspace_members::Column::Role.ne("OWNER"))
+        .filter(workspace_members::Column::Role.ne("ADMIN"))
+        .into_tuple()
+        .all(&db)
         .await
         .map_err(failed)?;
+    if !eligible.is_empty() {
+        let at = utc_now().assume_utc();
+        let rows = eligible
+            .iter()
+            .map(|user_id| user_app_assignments::ActiveModel {
+                id: Set(generate_id("uaa")),
+                user_id: Set(user_id.clone()),
+                app_code: Set(app_code.to_owned()),
+                is_active: Set(true),
+                granted_at: Set(Some(at)),
+                granted_by: Set(Some(caller.user_id.clone())),
+                created_at: Set(at),
+                updated_at: Set(at),
+                ..Default::default()
+            });
+        user_app_assignments::Entity::insert_many(rows)
+            .on_conflict(OnConflict::new().do_nothing().to_owned())
+            .exec_without_returning(&db)
+            .await
+            .map_err(failed)?;
     }
     Ok(Data(json!({ "appCode": app_code, "assignedCount": eligible.len() })).into_response())
 }

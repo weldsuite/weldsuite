@@ -14,13 +14,16 @@
 
 use std::sync::Arc;
 
+use sea_orm::ActiveValue::Set;
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
-use sqlx::PgPool;
-use time::OffsetDateTime;
-use weldsuite_db::js_row;
+use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_kit::generate_id;
 use weldsuite_ports::DynRealtimePublisher;
+use weldsuite_schema::tenant::{chat_channel_members as members, chat_channels, chat_messages};
 
+use crate::json_error;
 use crate::publish::Realtime;
 use crate::text::{js_len, js_prefix, mention_bodies};
 
@@ -96,20 +99,16 @@ fn is_notifiable_mention(id: &str) -> bool {
     id != "everyone" && id != "entity" && !id.starts_with("entity:") && !id.starts_with("agt_")
 }
 
-/// `new Date()` as Drizzle writes a `timestamp` column.
-fn now_iso() -> String {
-    weldsuite_events::iso_timestamp(OffsetDateTime::now_utc())
-}
-
 /// `postSystemChatMessage(ctx, input)`: the message row as Drizzle reads it.
 #[allow(clippy::too_many_lines)] // the steps of one post, in TypeScript's order
 pub async fn post_system_chat_message(
     ctx: &SystemMessageContext<'_>,
     input: &SystemMessageInput<'_>,
-) -> Result<Value, sqlx::Error> {
+) -> Result<Value, DbErr> {
     let db = ctx.db;
+    let orm_db = orm(db);
     let id = generate_id("msg");
-    let now = now_iso();
+    let now = utc_now();
     let all_mentions = extract_chat_mentions(input.content, input.mentions);
     let mentions_everyone = all_mentions.iter().any(|m| m == "everyone");
     let metadata = input
@@ -117,21 +116,21 @@ pub async fn post_system_chat_message(
         .clone()
         .unwrap_or_else(|| json!({ "postedByWorkflow": true }));
 
-    sqlx::query(
-        "insert into chat_messages (id, channel_id, author_id, author_name, author_type, content,
-           mentions, mentions_everyone, metadata, created_at, updated_at)
-         values ($1, $2, $3, $4, 'system', $5, $6, $7, $8, $9::timestamp, $9::timestamp)",
-    )
-    .bind(&id)
-    .bind(ctx.channel_id)
-    .bind(ctx.author_id)
-    .bind(ctx.author_name)
-    .bind(input.content)
-    .bind((!all_mentions.is_empty()).then(|| json!(all_mentions)))
-    .bind(mentions_everyone)
-    .bind(&metadata)
-    .bind(&now)
-    .execute(db)
+    chat_messages::Entity::insert(chat_messages::ActiveModel {
+        id: Set(id.clone()),
+        channel_id: Set(ctx.channel_id.to_owned()),
+        author_id: Set(ctx.author_id.to_owned()),
+        author_name: Set(ctx.author_name.to_owned()),
+        author_type: Set("system".to_owned()),
+        content: Set(input.content.to_owned()),
+        mentions: Set((!all_mentions.is_empty()).then(|| json!(all_mentions))),
+        mentions_everyone: Set(mentions_everyone),
+        metadata: Set(Some(metadata)),
+        created_at: Set(now),
+        updated_at: Set(now),
+        ..Default::default()
+    })
+    .exec_without_returning(&orm_db)
     .await?;
 
     let preview = if js_len(input.content) > 100 {
@@ -139,22 +138,27 @@ pub async fn post_system_chat_message(
     } else {
         input.content.to_owned()
     };
-    sqlx::query(
-        "update chat_channels set last_message_at = $2::timestamp, last_message_preview = $3,
-           message_count = message_count + 1, updated_at = $2::timestamp
-         where id = $1",
-    )
-    .bind(ctx.channel_id)
-    .bind(&now)
-    .bind(&preview)
-    .execute(db)
-    .await?;
+    chat_channels::Entity::update_many()
+        .col_expr(chat_channels::Column::LastMessageAt, Expr::value(now))
+        .col_expr(
+            chat_channels::Column::LastMessagePreview,
+            Expr::value(preview.clone()),
+        )
+        .col_expr(
+            chat_channels::Column::MessageCount,
+            sea_orm::ExprTrait::add(Expr::col(chat_channels::Column::MessageCount), 1),
+        )
+        .col_expr(chat_channels::Column::UpdatedAt, Expr::value(now))
+        .filter(chat_channels::Column::Id.eq(ctx.channel_id))
+        .exec(&orm_db)
+        .await?;
 
-    let message: Option<Value> =
-        sqlx::query_scalar("select to_jsonb(m) from chat_messages m where m.id = $1 limit 1")
-            .bind(&id)
-            .fetch_optional(db)
-            .await?;
+    let message = chat_messages::Entity::find_by_id(id.as_str())
+        .one(&orm_db)
+        .await?
+        .map(serde_json::to_value)
+        .transpose()
+        .map_err(json_error)?;
 
     let realtime = Realtime::new(ctx.realtime.clone());
     if realtime.is_on() {
@@ -166,16 +170,17 @@ pub async fn post_system_chat_message(
         payload.insert("authorType".into(), json!("system"));
         realtime.message(ctx.channel_id, payload).await;
         // `fanOutUnreadUpdates`: every human member.
-        match sqlx::query_as::<_, (String, Option<String>)>(
-            "select user_id, member_type from chat_channel_members where channel_id = $1",
-        )
-        .bind(ctx.channel_id)
-        .fetch_all(db)
-        .await
+        match members::Entity::find()
+            .select_only()
+            .columns([members::Column::UserId, members::Column::MemberType])
+            .filter(members::Column::ChannelId.eq(ctx.channel_id))
+            .into_tuple::<(String, String)>()
+            .all(&orm_db)
+            .await
         {
             Ok(members) => {
                 for (user_id, member_type) in members {
-                    if member_type.as_deref() == Some("agent") {
+                    if member_type == "agent" {
                         continue;
                     }
                     realtime
@@ -196,14 +201,15 @@ pub async fn post_system_chat_message(
         ..weldsuite_notifications::Notifier::default()
     };
     for mentioned in all_mentions.iter().filter(|m| is_notifiable_mention(m)) {
-        if let Err(error) = sqlx::query(
-            "update chat_channel_members set unread_mention_count = unread_mention_count + 1
-             where channel_id = $1 and user_id = $2",
-        )
-        .bind(ctx.channel_id)
-        .bind(mentioned)
-        .execute(db)
-        .await
+        if let Err(error) = members::Entity::update_many()
+            .col_expr(
+                members::Column::UnreadMentionCount,
+                sea_orm::ExprTrait::add(Expr::col(members::Column::UnreadMentionCount), 1),
+            )
+            .filter(members::Column::ChannelId.eq(ctx.channel_id))
+            .filter(members::Column::UserId.eq(mentioned))
+            .exec(&orm_db)
+            .await
         {
             tracing::error!(%error, "[chat-domain] workflow mention count increment failed");
         }
@@ -238,7 +244,7 @@ pub async fn post_system_chat_message(
         }
     }
 
-    Ok(message.map_or(Value::Null, js_row))
+    Ok(message.unwrap_or(Value::Null))
 }
 
 #[cfg(test)]

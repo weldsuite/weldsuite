@@ -15,14 +15,19 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 use serde::de::DeserializeOwned;
 use serde_json::Value;
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_panel_domain::query::PanelQueryContext;
 use weldsuite_panel_domain::query::plan_retention::event_retention_days;
 use weldsuite_panel_domain::query::refs::{custom_event_references, spec_references};
 use weldsuite_panel_domain::schemas::{
     CohortFilter, ComputedPropertyDefinition, CustomEventDefinition, PanelQuerySpec, PathRule,
+};
+use weldsuite_schema::tenant::{
+    panel_cohorts, panel_computed_properties, panel_custom_events, panel_group_types,
+    panel_heatmap_pages, panel_path_rules, panel_session_favorites,
 };
 use weldsuite_zod::Z;
 
@@ -59,43 +64,40 @@ fn parse_definition<T: DeserializeOwned>(schema: &Z, value: &Value, what: &str) 
 }
 
 /// `loadPlanSlug`: the workspace's plan, `None` without one.
-async fn plan_slug(
-    master: Option<&PgPool>,
-    workspace_id: &str,
-) -> Result<Option<String>, sqlx::Error> {
+async fn plan_slug(master: Option<&PgPool>, workspace_id: &str) -> Result<Option<String>, DbErr> {
     let Some(master) = master else {
         return Ok(None);
     };
-    let slug: Option<Option<String>> = sqlx::query_scalar(
-        "select p.slug from workspaces w left join plans p on p.id = w.plan_id
-         where w.id = $1 limit 1",
-    )
-    .bind(workspace_id)
-    .fetch_optional(master)
-    .await?;
-    Ok(slug.flatten())
+    crate::registry::plan_slug(master, workspace_id).await
+}
+
+/// The columns of a definitions table [`definitions`] reads: the id, the
+/// definition, the project and the soft delete.
+struct DefinitionColumns<C> {
+    id: C,
+    definition: C,
+    project_id: C,
+    deleted_at: C,
 }
 
 /// `(id, definition)` rows of a project's live definitions among `ids`.
-async fn definitions(
+async fn definitions<E: EntityTrait>(
     db: &PgPool,
-    table: &str,
-    column: &str,
+    columns: DefinitionColumns<E::Column>,
     project_id: &str,
     ids: &[String],
-) -> Result<Vec<(String, Value)>, sqlx::Error> {
+) -> Result<Vec<(String, Value)>, DbErr> {
     if ids.is_empty() {
         return Ok(Vec::new());
     }
-    // `table` and `column` are this module's constants, never input.
-    let sql = format!(
-        "select id, {column} from {table}
-         where project_id = $1 and id = any($2) and deleted_at is null"
-    );
-    sqlx::query_as(sqlx::AssertSqlSafe(sql))
-        .bind(project_id)
-        .bind(ids)
-        .fetch_all(db)
+    E::find()
+        .select_only()
+        .columns([columns.id, columns.definition])
+        .filter(columns.project_id.eq(project_id))
+        .filter(columns.id.is_in(ids.iter().map(String::as_str)))
+        .filter(columns.deleted_at.is_null())
+        .into_tuple()
+        .all(&orm(db))
         .await
 }
 
@@ -104,8 +106,15 @@ async fn cohort_filters(
     db: &PgPool,
     project_id: &str,
     ids: &[String],
-) -> Result<BTreeMap<String, CohortFilter>, sqlx::Error> {
-    let rows = definitions(db, "panel_cohorts", "filter", project_id, ids).await?;
+) -> Result<BTreeMap<String, CohortFilter>, DbErr> {
+    use panel_cohorts::Column;
+    let columns = DefinitionColumns {
+        id: Column::Id,
+        definition: Column::Filter,
+        project_id: Column::ProjectId,
+        deleted_at: Column::DeletedAt,
+    };
+    let rows = definitions::<panel_cohorts::Entity>(db, columns, project_id, ids).await?;
     Ok(rows
         .into_iter()
         .filter_map(|(id, filter)| {
@@ -128,16 +137,17 @@ async fn load_definitions(
     db: &PgPool,
     project_id: &str,
     spec: &PanelQuerySpec,
-) -> Result<Definitions, sqlx::Error> {
+) -> Result<Definitions, DbErr> {
     let refs = spec_references(spec);
-    let rows = definitions(
-        db,
-        "panel_custom_events",
-        "definition",
-        project_id,
-        &refs.custom_event_ids,
-    )
-    .await?;
+    let columns = DefinitionColumns {
+        id: panel_custom_events::Column::Id,
+        definition: panel_custom_events::Column::Definition,
+        project_id: panel_custom_events::Column::ProjectId,
+        deleted_at: panel_custom_events::Column::DeletedAt,
+    };
+    let rows =
+        definitions::<panel_custom_events::Entity>(db, columns, project_id, &refs.custom_event_ids)
+            .await?;
     // In row order, as `Object.values()` reads them.
     let custom_events: Vec<(String, CustomEventDefinition)> = rows
         .into_iter()
@@ -160,49 +170,55 @@ async fn load_definitions(
     }
     let uses_groups = !refs.group_types.is_empty() || !inner.group_types.is_empty();
 
-    let computed_properties = definitions(
-        db,
-        "panel_computed_properties",
-        "definition",
-        project_id,
-        &computed_ids,
-    )
-    .await?
-    .into_iter()
-    .filter_map(|(id, definition)| {
-        parse_definition(
-            &PANEL_COMPUTED_PROPERTY_DEFINITION,
-            &definition,
-            "computed property",
-        )
-        .map(|d| (id, d))
-    })
-    .collect();
+    let columns = DefinitionColumns {
+        id: panel_computed_properties::Column::Id,
+        definition: panel_computed_properties::Column::Definition,
+        project_id: panel_computed_properties::Column::ProjectId,
+        deleted_at: panel_computed_properties::Column::DeletedAt,
+    };
+    let computed_properties =
+        definitions::<panel_computed_properties::Entity>(db, columns, project_id, &computed_ids)
+            .await?
+            .into_iter()
+            .filter_map(|(id, definition)| {
+                parse_definition(
+                    &PANEL_COMPUTED_PROPERTY_DEFINITION,
+                    &definition,
+                    "computed property",
+                )
+                .map(|d| (id, d))
+            })
+            .collect();
     let path_rules = if refs.uses_path_rules {
-        sqlx::query_as::<_, (String, String)>(
-            "select pattern, replacement from panel_path_rules
-             where project_id = $1 order by position asc",
-        )
-        .bind(project_id)
-        .fetch_all(db)
-        .await?
-        .into_iter()
-        .map(|(pattern, replacement)| PathRule {
-            pattern,
-            replacement,
-        })
-        .collect()
+        panel_path_rules::Entity::find()
+            .select_only()
+            .columns([
+                panel_path_rules::Column::Pattern,
+                panel_path_rules::Column::Replacement,
+            ])
+            .filter(panel_path_rules::Column::ProjectId.eq(project_id))
+            .order_by_asc(panel_path_rules::Column::Position)
+            .into_tuple::<(String, String)>()
+            .all(&orm(db))
+            .await?
+            .into_iter()
+            .map(|(pattern, replacement)| PathRule {
+                pattern,
+                replacement,
+            })
+            .collect()
     } else {
         Vec::new()
     };
     let group_types = if uses_groups {
         Some(
-            sqlx::query_scalar::<_, String>(
-                "select group_type from panel_group_types where project_id = $1",
-            )
-            .bind(project_id)
-            .fetch_all(db)
-            .await?,
+            panel_group_types::Entity::find()
+                .select_only()
+                .column(panel_group_types::Column::GroupType)
+                .filter(panel_group_types::Column::ProjectId.eq(project_id))
+                .into_tuple::<String>()
+                .all(&orm(db))
+                .await?,
         )
     } else {
         None
@@ -253,26 +269,31 @@ pub(crate) async fn build_query_context(
     if let PanelQuerySpec::Heatmap(heatmap) = spec
         && let Some(page_group_id) = &heatmap.page_group_id
     {
-        let rows: Vec<(String, String)> = sqlx::query_as(
-            "select id, url_pattern from panel_heatmap_pages where project_id = $1 and id = $2",
-        )
-        .bind(project_id)
-        .bind(page_group_id)
-        .fetch_all(tenant)
-        .await
-        .map_err(QueryFailure::upstream)?;
+        let rows: Vec<(String, String)> = panel_heatmap_pages::Entity::find()
+            .select_only()
+            .columns([
+                panel_heatmap_pages::Column::Id,
+                panel_heatmap_pages::Column::UrlPattern,
+            ])
+            .filter(panel_heatmap_pages::Column::ProjectId.eq(project_id))
+            .filter(panel_heatmap_pages::Column::Id.eq(page_group_id.as_str()))
+            .into_tuple()
+            .all(&orm(tenant))
+            .await
+            .map_err(QueryFailure::upstream)?;
         page_groups.extend(rows);
     }
 
     let favourites: Vec<String> = match spec {
         PanelQuerySpec::Sessions(sessions) if sessions.favorites_only == Some(true) => {
-            sqlx::query_scalar(
-                "select session_id from panel_session_favorites where project_id = $1",
-            )
-            .bind(project_id)
-            .fetch_all(tenant)
-            .await
-            .map_err(QueryFailure::upstream)?
+            panel_session_favorites::Entity::find()
+                .select_only()
+                .column(panel_session_favorites::Column::SessionId)
+                .filter(panel_session_favorites::Column::ProjectId.eq(project_id))
+                .into_tuple()
+                .all(&orm(tenant))
+                .await
+                .map_err(QueryFailure::upstream)?
         }
         _ => Vec::new(),
     };

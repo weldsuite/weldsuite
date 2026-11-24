@@ -16,7 +16,7 @@ use sea_orm::{
     QueryOrder, QuerySelect,
 };
 use serde_json::{Value, json};
-use weldsuite_db::{PgPool, orm, orm_error};
+use weldsuite_db::{PgPool, orm};
 use weldsuite_schema::tenant::{enums, mail_accounts, mail_domains};
 
 use crate::access::{MailPrincipal, can_open_account, is_admin_or_owner};
@@ -118,7 +118,7 @@ async fn principal_condition(db: &PgPool, principal: &MailPrincipal) -> Result<C
         }
         MailPrincipal::User(user) => user,
     };
-    let admin = is_admin_or_owner(db, user).await.map_err(orm_error)?;
+    let admin = is_admin_or_owner(db, user).await?;
     let mut any = Condition::any()
         .add(mail_accounts::Column::IsShared.eq(true))
         .add(PgExpr::contains(
@@ -269,10 +269,7 @@ pub async fn get_public_mail_account(
     principal: &MailPrincipal,
     id: &str,
 ) -> Result<Option<Value>, DbErr> {
-    if !can_open_account(db, id, principal)
-        .await
-        .map_err(orm_error)?
-    {
+    if !can_open_account(db, id, principal).await? {
         return Ok(None);
     }
     let row: Option<PublicRow> = mail_accounts::Entity::find()

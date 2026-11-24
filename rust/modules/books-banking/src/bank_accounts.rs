@@ -6,6 +6,7 @@
 //! only reaches accounts that are in WeldBooks; one WeldHR pays salaries from
 //! keeps its core row and only leaves WeldBooks.
 
+use std::str::FromStr;
 use std::sync::Arc;
 
 use axum::Router;
@@ -14,6 +15,12 @@ use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, patch, post, put};
 use http::HeaderMap;
+use sea_orm::prelude::BigDecimal;
+use sea_orm::sea_query::{Expr, OnConflict};
+use sea_orm::{
+    ActiveValue, ColumnTrait, ConnectionTrait, DbErr, EntityTrait, QueryFilter, QueryOrder,
+    QuerySelect, QueryTrait,
+};
 use serde_json::{Map, Value, json};
 use weldsuite_books_domain::bank_accounts::{
     BANK_ACCOUNT_TYPES, BankLedgerPlan, assert_ledger_account_fits, insert_ledger_account,
@@ -27,14 +34,19 @@ use weldsuite_books_domain::http::{
     BooksState, Caller, Refusal, Reply, created, no_content, now, ok, reply, validate,
 };
 use weldsuite_books_domain::identifiers::invalid_iban_message;
-use weldsuite_books_domain::tables::{ACCOUNTS, BANK_ACCOUNTS};
+use weldsuite_books_domain::tables::BANK_ACCOUNTS;
 use weldsuite_catalogs::entity_events::{
     ACCOUNT_CREATED, BANK_ACCOUNT_CREATED, BANK_ACCOUNT_DELETED, BANK_ACCOUNT_UPDATED,
 };
+use weldsuite_db::{OrmConn, orm, utc_now};
 use weldsuite_kit::generate_id;
 use weldsuite_kit::validation::{Field, Issues, Number, Presence};
 use weldsuite_legal_entities::{EntityRecordGuard, EntityTable};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::{
+    accounting_bank_account_settings as books_settings, accounting_entity_settings, accounts,
+    bank_accounts, hr_payroll_employers,
+};
 
 use crate::common::{bank_account_refusal, changes, field, text};
 use crate::csv_format;
@@ -261,16 +273,13 @@ async fn load_ledger_account(
     ledger_account_id: &str,
     account_type: Option<&str>,
 ) -> Result<Value, Refusal> {
-    let ledger: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(accounts),
-        " from accounts t where t.id = $1 and t.entity_id = $2 and t.deleted_at is null limit 1"
-    ))
-    .bind(ledger_account_id)
-    .bind(entity_id)
-    .fetch_optional(&caller.db)
-    .await?;
-    let Some(ledger) = ledger.map(|row| ACCOUNTS.js(row)) else {
+    let ledger = accounts::Entity::find()
+        .filter(accounts::Column::Id.eq(ledger_account_id))
+        .filter(accounts::Column::EntityId.eq(entity_id))
+        .filter(accounts::Column::DeletedAt.is_null())
+        .one(&orm(&caller.db))
+        .await?;
+    let Some(ledger) = ledger.map(|row| serde_json::to_value(row).unwrap_or_default()) else {
         return Err(Refusal::bad_request(
             "Ledger account not found for this accounting entity",
         ));
@@ -318,38 +327,68 @@ impl BooksSettings {
     }
 
     /// `insert … values(settingsValues(account))`, with `upsert` the
-    /// `onConflictDoUpdate` of `upsertBankAccountSettings`.
-    async fn write<'e>(
-        &self,
-        db: impl sqlx::PgExecutor<'e>,
-        upsert: bool,
-    ) -> Result<(), sqlx::Error> {
-        const INSERT: &str = "insert into accounting_bank_account_settings \
-             (bank_account_id, entity_id, ledger_account_id, current_balance, auto_reconcile, \
-             next_check_number, import_settings) \
-             values ($1, $2, $3, $4::numeric, $5, $6::integer, $7)";
-        const UPSERT: &str = "insert into accounting_bank_account_settings \
-             (bank_account_id, entity_id, ledger_account_id, current_balance, auto_reconcile, \
-             next_check_number, import_settings) \
-             values ($1, $2, $3, $4::numeric, $5, $6::integer, $7) \
-             on conflict (bank_account_id) do update set entity_id = excluded.entity_id, \
-             ledger_account_id = excluded.ledger_account_id, \
-             current_balance = excluded.current_balance, \
-             auto_reconcile = excluded.auto_reconcile, \
-             next_check_number = excluded.next_check_number, \
-             import_settings = excluded.import_settings, updated_at = $8::timestamp";
-        let query = sqlx::query(if upsert { UPSERT } else { INSERT })
-            .bind(&self.bank_account_id)
-            .bind(&self.entity_id)
-            .bind(&self.ledger_account_id)
-            .bind(&self.current_balance)
-            .bind(self.auto_reconcile)
-            .bind(self.next_check_number)
-            .bind(&self.import_settings);
-        let query = if upsert { query.bind(now()) } else { query };
-        query.execute(db).await?;
+    /// `onConflictDoUpdate` of `upsertBankAccountSettings`. The balance is
+    /// written from its text, as `$n::numeric` read it; a key the account
+    /// lacks is left out (the column has no default, so the insert fails as
+    /// the null did).
+    async fn write(&self, db: &impl ConnectionTrait, upsert: bool) -> Result<(), DbErr> {
+        use books_settings::Column;
+        let current_balance = BigDecimal::from_str(&self.current_balance).map_err(|_| {
+            DbErr::Custom(format!(
+                "invalid input syntax for type numeric: \"{}\"",
+                self.current_balance
+            ))
+        })?;
+        // `$n::integer`
+        let next_check_number = self
+            .next_check_number
+            .map(i32::try_from)
+            .transpose()
+            .map_err(|_| DbErr::Custom("integer out of range".to_owned()))?;
+        let given =
+            |value: &Option<String>| value.clone().map_or(ActiveValue::NotSet, ActiveValue::Set);
+        let insert = books_settings::Entity::insert(books_settings::ActiveModel {
+            bank_account_id: given(&self.bank_account_id),
+            entity_id: given(&self.entity_id),
+            ledger_account_id: ActiveValue::Set(self.ledger_account_id.clone()),
+            current_balance: ActiveValue::Set(Some(current_balance)),
+            auto_reconcile: ActiveValue::Set(Some(self.auto_reconcile)),
+            next_check_number: ActiveValue::Set(next_check_number),
+            import_settings: ActiveValue::Set(self.import_settings.clone()),
+            ..Default::default()
+        });
+        let insert = if upsert {
+            insert.on_conflict(
+                OnConflict::column(Column::BankAccountId)
+                    .update_columns([
+                        Column::EntityId,
+                        Column::LedgerAccountId,
+                        Column::CurrentBalance,
+                        Column::AutoReconcile,
+                        Column::NextCheckNumber,
+                        Column::ImportSettings,
+                    ])
+                    .value(Column::UpdatedAt, Expr::value(utc_now()))
+                    .to_owned(),
+            )
+        } else {
+            insert
+        };
+        insert.exec_without_returning(db).await?;
         Ok(())
     }
+}
+
+/// Whether the core bank account `id` is in WeldBooks (it has its
+/// `accounting_bank_account_settings` row).
+async fn in_books(db: &impl ConnectionTrait, id: &str) -> Result<bool, DbErr> {
+    let row = books_settings::Entity::find_by_id(id.to_owned())
+        .select_only()
+        .column(books_settings::Column::BankAccountId)
+        .into_tuple::<String>()
+        .one(db)
+        .await?;
+    Ok(row.is_some())
 }
 
 // ── GET / ───────────────────────────────────────────────────────────────────
@@ -362,23 +401,21 @@ async fn list(caller: Caller) -> Response {
         let q = caller.query();
         let account_type = q.present("accountType");
         let is_active = q.get("isActive").map(|value| value == "true");
-        let rows: Vec<Value> = sqlx::query_scalar(concat!(
-            "select ",
-            weldsuite_books_domain::books_row!(bank_accounts),
-            " from bank_accounts t where t.deleted_at is null and t.entity_id = $1 \
-             and ($2::text is null or t.account_type = $2) \
-             and ($3::boolean is null or t.is_active = $3) order by t.name"
-        ))
-        .bind(&entity_id)
-        .bind(account_type)
-        .bind(is_active)
-        .fetch_all(&caller.db)
-        .await?;
+        let rows = bank_accounts::Entity::find()
+            .filter(bank_accounts::Column::DeletedAt.is_null())
+            .filter(bank_accounts::Column::EntityId.eq(entity_id.as_str()))
+            .apply_if(account_type, |q, kind| {
+                q.filter(bank_accounts::Column::AccountType.eq(kind))
+            })
+            .apply_if(is_active, |q, active| {
+                q.filter(bank_accounts::Column::IsActive.eq(active))
+            })
+            .order_by_asc(bank_accounts::Column::Name)
+            .all(&orm(&caller.db))
+            .await?;
         Ok(ok(Value::Array(
-            BANK_ACCOUNTS
-                .js_rows(rows)
-                .iter()
-                .map(public_bank_account)
+            rows.into_iter()
+                .map(|row| public_bank_account(&serde_json::to_value(row).unwrap_or_default()))
                 .collect(),
         )))
     }
@@ -505,14 +542,14 @@ async fn create_account(caller: &Caller, state: &BooksState, data: Body) -> Repl
 
     let mut tx = caller.db.begin().await?;
     if let Some(row) = &new_ledger {
-        insert_ledger_account(&mut *tx, row).await?;
+        insert_ledger_account(&OrmConn::new(&mut tx), row).await?;
     }
     BANK_ACCOUNTS
         .insert_raw(&mut *tx, BANK_ACCOUNTS.values(&account))
         .await?;
     // WeldBooks' side of the account (release 1 writes it next to the old columns).
     BooksSettings::of(&Value::Object(account.clone()))
-        .write(&mut *tx, false)
+        .write(&OrmConn::new(&mut tx), false)
         .await?;
     tx.commit().await?;
 
@@ -566,26 +603,17 @@ async fn bring_into_weldbooks(
     data: &Body,
     bank_account_id: &str,
 ) -> Reply {
-    let core: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(bank_accounts),
-        " from bank_accounts t where t.id = $1 and t.entity_id = $2 and t.deleted_at is null limit 1"
-    ))
-    .bind(bank_account_id)
-    .bind(entity_id)
-    .fetch_optional(&caller.db)
-    .await?;
-    let Some(core) = core.map(|row| BANK_ACCOUNTS.js(row)) else {
+    let db = orm(&caller.db);
+    let core = bank_accounts::Entity::find()
+        .filter(bank_accounts::Column::Id.eq(bank_account_id))
+        .filter(bank_accounts::Column::EntityId.eq(entity_id))
+        .filter(bank_accounts::Column::DeletedAt.is_null())
+        .one(&db)
+        .await?;
+    let Some(core) = core.map(|row| serde_json::to_value(row).unwrap_or_default()) else {
         return Err(Refusal::not_found("Bank account", bank_account_id));
     };
-    let in_books: Option<String> = sqlx::query_scalar(
-        "select bank_account_id from accounting_bank_account_settings \
-         where bank_account_id = $1 limit 1",
-    )
-    .bind(bank_account_id)
-    .fetch_optional(&caller.db)
-    .await?;
-    if in_books.is_some() {
+    if in_books(&db, bank_account_id).await? {
         return Err(Refusal::conflict(
             "This bank account is already in WeldBooks",
         ));
@@ -664,12 +692,14 @@ async fn bring_into_weldbooks(
     BANK_ACCOUNTS.set(&mut values, "updatedAt", json!(now()));
     let mut tx = caller.db.begin().await?;
     if let Some(row) = &new_ledger {
-        insert_ledger_account(&mut *tx, row).await?;
+        insert_ledger_account(&OrmConn::new(&mut tx), row).await?;
     }
     BANK_ACCOUNTS
         .patch_raw(&mut *tx, bank_account_id, values, false)
         .await?;
-    BooksSettings::of(&merged).write(&mut *tx, false).await?;
+    BooksSettings::of(&merged)
+        .write(&OrmConn::new(&mut tx), false)
+        .await?;
     tx.commit().await?;
 
     if let Some(row) = &new_ledger {
@@ -792,7 +822,9 @@ async fn update_account(caller: &Caller, state: &BooksState, id: &str, data: Bod
     }
     let updated = Value::Object(updated);
     // `upsertBankAccountSettings(db, { ...account, ...patch })`
-    BooksSettings::of(&updated).write(&caller.db, true).await?;
+    BooksSettings::of(&updated)
+        .write(&orm(&caller.db), true)
+        .await?;
     caller.publish(
         state,
         BANK_ACCOUNT_UPDATED,
@@ -892,41 +924,46 @@ async fn remove(
         let Some(account) = BANK_ACCOUNTS.find_live(&caller.db, &id).await? else {
             return Err(Refusal::not_found("Bank account", &id));
         };
-        let (in_books, pays_salaries): (bool, bool) = sqlx::query_as(
-            "select exists (select 1 from accounting_bank_account_settings where bank_account_id = $1), \
-                    exists (select 1 from hr_payroll_employers \
-                            where bank_account_id = $1 and deleted_at is null)",
-        )
-        .bind(&id)
-        .fetch_one(&caller.db)
-        .await?;
-        if !in_books {
+        let db = orm(&caller.db);
+        if !in_books(&db, &id).await? {
             return Err(Refusal::not_found("Bank account", &id));
         }
-        let stamp = now();
+        let pays_salaries = hr_payroll_employers::Entity::find()
+            .select_only()
+            .column(hr_payroll_employers::Column::Id)
+            .filter(hr_payroll_employers::Column::BankAccountId.eq(id.as_str()))
+            .filter(hr_payroll_employers::Column::DeletedAt.is_null())
+            .into_tuple::<String>()
+            .one(&db)
+            .await?
+            .is_some();
+        let stamp = utc_now();
         if !pays_salaries {
-            sqlx::query(
-                "update bank_accounts set deleted_at = $2::timestamp, updated_at = $2::timestamp where id = $1",
-            )
-            .bind(&id)
-            .bind(&stamp)
-            .execute(&caller.db)
-            .await?;
+            bank_accounts::Entity::update_many()
+                .col_expr(bank_accounts::Column::DeletedAt, Expr::value(stamp))
+                .col_expr(bank_accounts::Column::UpdatedAt, Expr::value(stamp))
+                .filter(bank_accounts::Column::Id.eq(id.as_str()))
+                .exec(&db)
+                .await?;
         }
         // The account leaves WeldBooks; an entity that printed it on invoices
         // falls back to bank_details.
-        sqlx::query("delete from accounting_bank_account_settings where bank_account_id = $1")
-            .bind(&id)
-            .execute(&caller.db)
+        books_settings::Entity::delete_many()
+            .filter(books_settings::Column::BankAccountId.eq(id.as_str()))
+            .exec(&db)
             .await?;
-        sqlx::query(
-            "update accounting_entity_settings set invoice_bank_account_id = null, \
-             updated_at = $2::timestamp where invoice_bank_account_id = $1",
-        )
-        .bind(&id)
-        .bind(&stamp)
-        .execute(&caller.db)
-        .await?;
+        accounting_entity_settings::Entity::update_many()
+            .col_expr(
+                accounting_entity_settings::Column::InvoiceBankAccountId,
+                Expr::value(Option::<String>::None),
+            )
+            .col_expr(
+                accounting_entity_settings::Column::UpdatedAt,
+                Expr::value(stamp),
+            )
+            .filter(accounting_entity_settings::Column::InvoiceBankAccountId.eq(id.as_str()))
+            .exec(&db)
+            .await?;
         // Kept for WeldHR, the core account only lost its WeldBooks part (as
         // bringing it in is an update).
         let event = if pays_salaries {

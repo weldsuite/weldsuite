@@ -11,11 +11,14 @@ use std::time::Duration;
 
 use base64::Engine;
 use hmac::{Hmac, KeyInit, Mac};
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter};
 use serde_json::{Map, Value, json};
 use sha2::Sha256;
 use weldsuite_db::PgPool;
 use weldsuite_events::{EntityEvent, EventContext, EventSource, EventType};
 use weldsuite_ports::DynCache;
+use weldsuite_schema::tenant::connector_connections;
 
 use crate::connections::{
     NewConnection, SettingsUpdate, encrypt_credentials, encrypt_webhook_secret,
@@ -86,12 +89,12 @@ fn refused(error: impl Into<String>, status: u16) -> Refused {
 #[derive(Debug)]
 pub enum AuthError {
     Refused(Refused),
-    Database(sqlx::Error),
+    Database(DbErr),
     Other(String),
 }
 
-impl From<sqlx::Error> for AuthError {
-    fn from(error: sqlx::Error) -> Self {
+impl From<DbErr> for AuthError {
+    fn from(error: DbErr) -> Self {
         Self::Database(error)
     }
 }
@@ -806,10 +809,17 @@ where
         },
     )
     .await?;
-    sqlx::query("update connector_connections set status = 'pending', updated_at = $1::timestamp where id = $2")
-        .bind(crate::js::now_iso())
-        .bind(&pending_id)
-        .execute(&tenant.db)
+    connector_connections::Entity::update_many()
+        .col_expr(
+            connector_connections::Column::Status,
+            Expr::value("pending"),
+        )
+        .col_expr(
+            connector_connections::Column::UpdatedAt,
+            Expr::value(weldsuite_db::utc_now()),
+        )
+        .filter(connector_connections::Column::Id.eq(pending_id.as_str()))
+        .exec(&weldsuite_db::orm(&tenant.db))
         .await?;
     let fresh = get_connection(&tenant.db, &pending_id)
         .await?

@@ -11,25 +11,40 @@ use axum::extract::{Path, State};
 use axum::response::IntoResponse;
 use axum::routing::{delete, get, patch, post};
 use http::HeaderMap;
+use sea_orm::sea_query::{Expr, OnConflict};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, EntityTrait, JoinType, PaginatorTrait, QueryFilter, QueryOrder,
+    QuerySelect,
+};
 use serde_json::{Value, json};
+use time::OffsetDateTime;
 use weldsuite_catalogs::entity_events::{
     HR_ANNOUNCEMENT_CREATED, HR_ANNOUNCEMENT_DELETED, HR_ANNOUNCEMENT_UPDATED,
 };
 use weldsuite_catalogs::permission_keys::{
     ANNOUNCEMENTS_CREATE, ANNOUNCEMENTS_DELETE, ANNOUNCEMENTS_READ, ANNOUNCEMENTS_UPDATE,
 };
-use weldsuite_db::{PgPool, js_row};
+use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_kit::validation::{Field, Issues, Presence, Text};
 use weldsuite_kit::{Created, Data, NoContent, generate_id};
 use weldsuite_notifications::{NewNotification, create_and_deliver};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::{
+    hr_announcement_reads as reads, hr_announcements as announcements, hr_departments,
+};
 
 use crate::departments::{department_lineage, employees_in_departments};
-use crate::employees::{display_name_of, require_employee};
+use crate::employees::{display_name_of, no_row, require_employee, to_json};
 use crate::fields::{Fields, short_text};
 use crate::{
     Caller, HrError, HrResult, HrState, hr_json, js_trim, locale_compare, member_names, now, text,
 };
+
+/// A `timestamptz` read as Drizzle hands a `Date` to `JSON.stringify`.
+fn js_timestamptz(at: OffsetDateTime) -> Value {
+    weldsuite_schema::js::timestamptz::serialize(&at, serde_json::value::Serializer)
+        .unwrap_or(Value::Null)
+}
 
 /// Recipients notified at once.
 const BATCH: usize = 10;
@@ -60,14 +75,12 @@ where
 
 /// `requireAnnouncement(db, id)`.
 async fn require_announcement(db: &PgPool, id: &str) -> Result<Value, HrError> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from hr_announcements t where t.id = $1 and t.deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    row.map(js_row)
-        .ok_or_else(|| HrError::not_found("Announcement", id))
+    let row = announcements::Entity::find()
+        .filter(announcements::Column::Id.eq(id))
+        .filter(announcements::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?;
+    to_json(row.ok_or_else(|| HrError::not_found("Announcement", id))?)
 }
 
 fn department_ids(row: &Value) -> Vec<String> {
@@ -106,13 +119,13 @@ fn audience_key(row: &Value) -> String {
 
 /// `listAnnouncements(db)`.
 async fn list_announcements(db: &PgPool) -> Result<Vec<Value>, HrError> {
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from hr_announcements t where t.deleted_at is null
-         order by t.published_at desc limit 500",
-    )
-    .fetch_all(db)
-    .await?;
-    let mut rows: Vec<Value> = rows.into_iter().map(js_row).collect();
+    let rows = announcements::Entity::find()
+        .filter(announcements::Column::DeletedAt.is_null())
+        .order_by_desc(announcements::Column::PublishedAt)
+        .limit(500)
+        .all(&orm(db))
+        .await?;
+    let mut rows: Vec<Value> = rows.into_iter().map(to_json).collect::<Result<_, _>>()?;
     sort_pinned_then_newest(&mut rows);
     if rows.is_empty() {
         return Ok(rows);
@@ -135,12 +148,13 @@ async fn list_announcements(db: &PgPool) -> Result<Vec<Value>, HrError> {
         );
     }
     let ids: Vec<String> = rows.iter().map(|r| text(r, "id").to_owned()).collect();
-    let reads: Vec<(String, String)> = sqlx::query_as(
-        "select announcement_id, employee_id from hr_announcement_reads where announcement_id = any($1)",
-    )
-    .bind(&ids)
-    .fetch_all(db)
-    .await?;
+    let reads: Vec<(String, String)> = reads::Entity::find()
+        .select_only()
+        .columns([reads::Column::AnnouncementId, reads::Column::EmployeeId])
+        .filter(reads::Column::AnnouncementId.is_in(ids.iter().map(String::as_str)))
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     let mut all_departments: Vec<String> = Vec::new();
     for row in &rows {
         for id in department_ids(row) {
@@ -152,14 +166,15 @@ async fn list_announcements(db: &PgPool) -> Result<Vec<Value>, HrError> {
     let departments: HashMap<String, String> = if all_departments.is_empty() {
         HashMap::new()
     } else {
-        sqlx::query_as::<_, (String, String)>(
-            "select id, name from hr_departments where id = any($1)",
-        )
-        .bind(&all_departments)
-        .fetch_all(db)
-        .await?
-        .into_iter()
-        .collect()
+        hr_departments::Entity::find()
+            .select_only()
+            .columns([hr_departments::Column::Id, hr_departments::Column::Name])
+            .filter(hr_departments::Column::Id.is_in(all_departments.iter().map(String::as_str)))
+            .into_tuple::<(String, String)>()
+            .all(&orm(db))
+            .await?
+            .into_iter()
+            .collect()
     };
     let authors_of: Vec<Option<&str>> = rows.iter().map(|r| r["createdBy"].as_str()).collect();
     let authors = member_names(db, &authors_of).await?;
@@ -215,12 +230,11 @@ async fn assert_departments(db: &PgPool, ids: &[String]) -> Result<(), HrError> 
     if ids.is_empty() {
         return Ok(());
     }
-    let found: i64 = sqlx::query_scalar(
-        "select count(*) from hr_departments where id = any($1) and deleted_at is null",
-    )
-    .bind(ids)
-    .fetch_one(db)
-    .await?;
+    let found = hr_departments::Entity::find()
+        .filter(hr_departments::Column::Id.is_in(ids.iter().map(String::as_str)))
+        .filter(hr_departments::Column::DeletedAt.is_null())
+        .count(&orm(db))
+        .await?;
     let unique: HashSet<&String> = ids.iter().collect();
     if usize::try_from(found).unwrap_or_default() != unique.len() {
         return Err(HrError::not_found("Department", &ids.join(",")));
@@ -290,19 +304,26 @@ async fn create(
     let db = &caller.db;
     let departments = dedupe(input.department_ids.into_option().unwrap_or_default());
     assert_departments(db, &departments).await?;
-    let row: Value = sqlx::query_scalar(
-        "insert into hr_announcements (id, title, body, pinned, department_ids, created_by)
-         values ($1, $2, $3, $4, $5, $6) returning to_jsonb(hr_announcements)",
-    )
-    .bind(generate_id("hrann"))
-    .bind(input.title.as_set().map(|t| js_trim(t)))
-    .bind(input.body.as_set().map(|b| js_trim(b)))
-    .bind(input.pinned.as_set().copied().unwrap_or(false))
-    .bind(json!(departments))
-    .bind(&caller.user_id)
-    .fetch_one(db)
+    let row = announcements::Entity::insert(announcements::ActiveModel {
+        id: Set(generate_id("hrann")),
+        title: Set(input
+            .title
+            .as_set()
+            .map(|t| js_trim(t).to_owned())
+            .unwrap_or_default()),
+        body: Set(input
+            .body
+            .as_set()
+            .map(|b| js_trim(b).to_owned())
+            .unwrap_or_default()),
+        pinned: Set(input.pinned.as_set().copied().unwrap_or(false)),
+        department_ids: Set(json!(departments)),
+        created_by: Set(Some(caller.user_id.clone())),
+        ..Default::default()
+    })
+    .exec_with_returning(&orm(db))
     .await?;
-    let row = js_row(row);
+    let row = to_json(row)?;
     let id = text(&row, "id").to_owned();
     caller.emit(&state, HR_ANNOUNCEMENT_CREATED, &id, &[]);
     if input.notify.as_set() == Some(&true) {
@@ -339,34 +360,43 @@ async fn update(
     if let Some(departments) = &departments {
         assert_departments(db, departments).await?;
     }
-    let row: Value = sqlx::query_scalar(
-        "update hr_announcements set
-             title = coalesce($2, title),
-             body = coalesce($3, body),
-             pinned = coalesce($4, pinned),
-             department_ids = coalesce($5, department_ids),
-             updated_at = $6::timestamp
-         where id = $1 returning to_jsonb(hr_announcements)",
-    )
-    .bind(&id)
-    .bind(input.title.as_set().map(|t| js_trim(t)))
-    .bind(input.body.as_set().map(|b| js_trim(b)))
-    .bind(input.pinned.as_set())
-    .bind(departments.map(|d| json!(d)))
-    .bind(now())
-    .fetch_one(db)
-    .await?;
-    let row = js_row(row);
+    // `coalesce($n, column)`: only what the body sent changes.
+    let mut update = announcements::Entity::update_many();
+    if let Some(title) = input.title.as_set() {
+        update = update.col_expr(announcements::Column::Title, Expr::value(js_trim(title)));
+    }
+    if let Some(body) = input.body.as_set() {
+        update = update.col_expr(announcements::Column::Body, Expr::value(js_trim(body)));
+    }
+    if let Some(pinned) = input.pinned.as_set() {
+        update = update.col_expr(announcements::Column::Pinned, Expr::value(*pinned));
+    }
+    if let Some(departments) = departments {
+        update = update.col_expr(
+            announcements::Column::DepartmentIds,
+            Expr::value(json!(departments)),
+        );
+    }
+    let row = update
+        .col_expr(announcements::Column::UpdatedAt, Expr::value(utc_now()))
+        .filter(announcements::Column::Id.eq(id.as_str()))
+        .exec_with_returning(&orm(db))
+        .await?
+        .pop()
+        .ok_or_else(|| no_row("hr_announcements"))?;
+    let row = to_json(row)?;
     caller.emit(&state, HR_ANNOUNCEMENT_UPDATED, text(&row, "id"), &[]);
     Ok(Data(announcement_with_details(db, &id).await?).into_response())
 }
 
 async fn remove(State(state): State<HrState>, caller: Caller, Path(id): Path<String>) -> HrResult {
     require_announcement(&caller.db, &id).await?;
-    sqlx::query("update hr_announcements set deleted_at = $2::timestamp, updated_at = $2::timestamp where id = $1")
-        .bind(&id)
-        .bind(now())
-        .execute(&caller.db)
+    let now = utc_now();
+    announcements::Entity::update_many()
+        .col_expr(announcements::Column::DeletedAt, Expr::value(now))
+        .col_expr(announcements::Column::UpdatedAt, Expr::value(now))
+        .filter(announcements::Column::Id.eq(id.as_str()))
+        .exec(&orm(&caller.db))
         .await?;
     caller.emit(&state, HR_ANNOUNCEMENT_DELETED, &id, &[]);
     Ok(NoContent.into_response())
@@ -376,15 +406,16 @@ async fn reads(caller: Caller, Path(id): Path<String>) -> HrResult {
     let db = &caller.db;
     let row = require_announcement(db, &id).await?;
     let audience = employees_in_departments(db, &department_ids(&row)).await?;
-    let reads: Vec<(String, Value)> = sqlx::query_as(
-        "select employee_id, to_jsonb(read_at) from hr_announcement_reads where announcement_id = $1",
-    )
-    .bind(&id)
-    .fetch_all(db)
-    .await?;
+    let reads: Vec<(String, OffsetDateTime)> = reads::Entity::find()
+        .select_only()
+        .columns([reads::Column::EmployeeId, reads::Column::ReadAt])
+        .filter(reads::Column::AnnouncementId.eq(id.as_str()))
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     let read_at: HashMap<String, Value> = reads
         .into_iter()
-        .map(|(employee, at)| (employee, crate::js_time(&at)))
+        .map(|(employee, at)| (employee, js_timestamptz(at)))
         .collect();
     let mut out: Vec<Value> = audience
         .iter()
@@ -465,10 +496,13 @@ async fn notify_announcement(
             }
         }
     }
-    sqlx::query("update hr_announcements set notified_at = $2::timestamptz where id = $1")
-        .bind(&id)
-        .bind(now())
-        .execute(db)
+    announcements::Entity::update_many()
+        .col_expr(
+            announcements::Column::NotifiedAt,
+            Expr::value(utc_now().assume_utc()),
+        )
+        .filter(announcements::Column::Id.eq(id.as_str()))
+        .exec(&orm(db))
         .await?;
     Ok(recipients.len())
 }
@@ -486,34 +520,36 @@ pub(crate) async fn announcements_for_employee(
 ) -> Result<Value, HrError> {
     let employee = require_employee(db, employee_id).await?;
     let lineage = department_lineage(db, employee["departmentId"].as_str()).await?;
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from hr_announcements t where t.deleted_at is null
-         order by t.published_at desc limit 200",
-    )
-    .fetch_all(db)
-    .await?;
+    let rows = announcements::Entity::find()
+        .filter(announcements::Column::DeletedAt.is_null())
+        .order_by_desc(announcements::Column::PublishedAt)
+        .limit(200)
+        .all(&orm(db))
+        .await?;
     let mut rows: Vec<Value> = rows
         .into_iter()
-        .map(js_row)
+        .map(to_json)
+        .collect::<Result<Vec<_>, _>>()?
+        .into_iter()
         .filter(|row| meant_for(row, &lineage))
         .collect();
     sort_pinned_then_newest(&mut rows);
     let ids: Vec<String> = rows.iter().map(|r| text(r, "id").to_owned()).collect();
-    let reads: Vec<(String, Value)> = if rows.is_empty() {
+    let reads: Vec<(String, OffsetDateTime)> = if rows.is_empty() {
         Vec::new()
     } else {
-        sqlx::query_as(
-            "select announcement_id, to_jsonb(read_at) from hr_announcement_reads
-             where employee_id = $1 and announcement_id = any($2)",
-        )
-        .bind(employee_id)
-        .bind(&ids)
-        .fetch_all(db)
-        .await?
+        reads::Entity::find()
+            .select_only()
+            .columns([reads::Column::AnnouncementId, reads::Column::ReadAt])
+            .filter(reads::Column::EmployeeId.eq(employee_id))
+            .filter(reads::Column::AnnouncementId.is_in(ids.iter().map(String::as_str)))
+            .into_tuple()
+            .all(&orm(db))
+            .await?
     };
     let read_at: HashMap<String, Value> = reads
         .into_iter()
-        .map(|(id, at)| (id, crate::js_time(&at)))
+        .map(|(id, at)| (id, js_timestamptz(at)))
         .collect();
     let authors_of: Vec<Option<&str>> = rows.iter().map(|r| r["createdBy"].as_str()).collect();
     let authors = member_names(db, &authors_of).await?;
@@ -546,16 +582,34 @@ pub(crate) async fn unread_announcement_count(
 ) -> Result<usize, HrError> {
     let employee = require_employee(db, employee_id).await?;
     let lineage = department_lineage(db, employee["departmentId"].as_str()).await?;
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select jsonb_build_object('departmentIds', an.department_ids) from hr_announcements an
-         left join hr_announcement_reads ar on ar.announcement_id = an.id and ar.employee_id = $1
-         where an.deleted_at is null and ar.id is null
-         limit 500",
-    )
-    .bind(employee_id)
-    .fetch_all(db)
-    .await?;
-    Ok(rows.iter().filter(|row| meant_for(row, &lineage)).count())
+    let employee = employee_id.to_owned();
+    let rows: Vec<Value> = announcements::Entity::find()
+        .select_only()
+        .column(announcements::Column::DepartmentIds)
+        .join(
+            JoinType::LeftJoin,
+            announcements::Entity::belongs_to(reads::Entity)
+                .from(announcements::Column::Id)
+                .to(reads::Column::AnnouncementId)
+                .on_condition(move |_, read| {
+                    sea_orm::ExprTrait::eq(
+                        Expr::col((read, reads::Column::EmployeeId)),
+                        employee.as_str(),
+                    )
+                    .into()
+                })
+                .into(),
+        )
+        .filter(announcements::Column::DeletedAt.is_null())
+        .filter(reads::Column::Id.is_null())
+        .limit(500)
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
+    Ok(rows
+        .into_iter()
+        .filter(|ids| meant_for(&json!({ "departmentIds": ids }), &lineage))
+        .count())
 }
 
 /// `markAnnouncementRead(db, id, employeeId)`.
@@ -570,22 +624,28 @@ pub(crate) async fn mark_announcement_read(
     if !meant_for(&row, &lineage) {
         return Err(HrError::not_found("Announcement", id));
     }
-    sqlx::query(
-        "insert into hr_announcement_reads (id, announcement_id, employee_id) values ($1, $2, $3)
-         on conflict (announcement_id, employee_id) do nothing",
+    let db = &orm(db);
+    reads::Entity::insert(reads::ActiveModel {
+        id: Set(generate_id("hranr")),
+        announcement_id: Set(id.to_owned()),
+        employee_id: Set(employee_id.to_owned()),
+        ..Default::default()
+    })
+    .on_conflict(
+        OnConflict::columns([reads::Column::AnnouncementId, reads::Column::EmployeeId])
+            .do_nothing()
+            .to_owned(),
     )
-    .bind(generate_id("hranr"))
-    .bind(id)
-    .bind(employee_id)
-    .execute(db)
+    .exec_without_returning(db)
     .await?;
-    let read: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(read_at) from hr_announcement_reads where announcement_id = $1 and employee_id = $2 limit 1",
-    )
-    .bind(id)
-    .bind(employee_id)
-    .fetch_optional(db)
-    .await?;
-    let read_at = read.map_or_else(|| json!(now()), |at| crate::js_time(&at));
+    let read: Option<OffsetDateTime> = reads::Entity::find()
+        .select_only()
+        .column(reads::Column::ReadAt)
+        .filter(reads::Column::AnnouncementId.eq(id))
+        .filter(reads::Column::EmployeeId.eq(employee_id))
+        .into_tuple()
+        .one(db)
+        .await?;
+    let read_at = read.map_or_else(|| json!(now()), js_timestamptz);
     Ok(json!({ "id": id, "readAt": read_at }))
 }

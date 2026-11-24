@@ -10,23 +10,50 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use http::HeaderMap;
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ColumnTrait, Condition, DbErr, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder,
+    QuerySelect,
+};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events::{
     PROJECT_MILESTONE_COMPLETED, PROJECT_MILESTONE_CREATED, PROJECT_MILESTONE_DELETED,
     PROJECT_MILESTONE_UPDATED,
 };
-use weldsuite_db::js_row;
+use weldsuite_db::record::JsonTable;
+use weldsuite_db::{orm, utc_now};
 use weldsuite_flow_domain::js::contains_pattern;
 use weldsuite_flow_domain::stats::{milestone_refs, milestone_stats, with_milestone_stats};
 use weldsuite_kit::validation::{Issues, Presence};
 use weldsuite_kit::{ApiError, Created, Data, NoContent, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::milestones;
 
 use crate::projects::{bindable, writable};
 use crate::{
-    Caller, FlowState, Query, Refusal, Reply, access_scope, forbidden, keyset_cursor, list_limit,
-    now, outside, page, paged, reply, validate,
+    Caller, FlowState, Query, Refusal, Reply, access_scope, fetch_limit, forbidden, in_accessible,
+    json_rows, keyset_before, keyset_cursor, list_limit, now, outside, page, paged, reply,
+    row_json, validate,
 };
+
+/// `milestones`, written from the picked body: Postgres converts each value
+/// to its column's type, as the jsonb casts did.
+const MILESTONES: JsonTable = JsonTable::of::<milestones::Entity>();
+
+/// The writable keys and their columns.
+const COLUMNS: [(&str, &str); 11] = [
+    ("name", "name"),
+    ("projectId", "project_id"),
+    ("description", "description"),
+    ("dueDate", "due_date"),
+    ("status", "status"),
+    ("deliverables", "deliverables"),
+    ("dependsOn", "depends_on"),
+    ("ownerId", "owner_id"),
+    ("responsible", "responsible"),
+    ("tags", "tags"),
+    ("isKeyMilestone", "is_key_milestone"),
+];
 
 const PROJECT_DENIED: &str = "You are not a member of this project";
 const PROJECT_WRITE_DENIED: &str = "You do not have write access to this project";
@@ -70,16 +97,29 @@ where
         .with_state(state)
 }
 
-async fn milestone_row(db: &weldsuite_db::PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        milestone_json!("m"),
-        " from milestones m where m.id = $1 and m.deleted_at is null limit 1"
-    ))
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(js_row))
+async fn milestone_row(db: &weldsuite_db::PgPool, id: &str) -> Result<Option<Value>, DbErr> {
+    milestones::Entity::find_by_id(id)
+        .filter(milestones::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?
+        .map(row_json)
+        .transpose()
+}
+
+/// The live milestone's `projectId`, `None` when there is no such milestone.
+async fn milestone_project(
+    db: &weldsuite_db::PgPool,
+    id: &str,
+) -> Result<Option<Option<String>>, DbErr> {
+    use milestones::Column;
+    let project: Option<String> = milestones::Entity::find_by_id(id)
+        .select_only()
+        .column(Column::ProjectId)
+        .filter(Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
+    Ok(project.map(Some))
 }
 
 // ── GET / ───────────────────────────────────────────────────────────────────
@@ -91,19 +131,39 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
 
 /// The list's `where` (`buildListFilters`), each condition behind its own
 /// flag so the count can leave out the last one, as TypeScript does when
-/// a cursor is given (`conditions.slice(0, -1)`).
-macro_rules! milestone_filters {
-    () => {
-        concat!(
-            "($1::bool is not true or m.deleted_at is null)",
-            " and ($2::text is null or m.project_id = $2)",
-            " and ($3::bool is not true or ",
-            in_accessible!("m.project_id", "$4", "$5"),
-            ")",
-            " and ($6::text is null or m.status = $6)",
-            " and ($7::text is null or m.name ilike $7)"
-        )
-    };
+/// a cursor is given (`conditions.slice(0, -1)`): deleted, project, scope,
+/// status, search.
+fn milestone_filters(
+    flags: [bool; 5],
+    project_id: Option<&str>,
+    scope: &(bool, Vec<String>),
+    status: Option<&str>,
+    search: Option<&str>,
+) -> Condition {
+    use milestones::Column;
+    let mut filters = Condition::all();
+    if flags[0] {
+        filters = filters.add(Column::DeletedAt.is_null());
+    }
+    if flags[1]
+        && let Some(project_id) = project_id
+    {
+        filters = filters.add(Column::ProjectId.eq(project_id));
+    }
+    if flags[2] {
+        filters = filters.add(in_accessible(Column::ProjectId, scope));
+    }
+    if flags[3]
+        && let Some(status) = status
+    {
+        filters = filters.add(Column::Status.eq(status));
+    }
+    if flags[4]
+        && let Some(search) = search
+    {
+        filters = filters.add(Column::Name.ilike(search));
+    }
+    filters
 }
 
 async fn list_milestones(caller: &Caller, q: &Query) -> Reply {
@@ -128,16 +188,13 @@ async fn list_milestones(caller: &Caller, q: &Query) -> Reply {
         status.is_some(),
         search.is_some(),
     ];
-    let cursor =
-        match q.present("cursor") {
-            Some(cursor) => keyset_cursor(
-                db,
-                "select id, to_jsonb(created_at) #>> '{}' from milestones where id = $1 limit 1",
-                cursor,
-            )
-            .await?,
-            None => None,
-        };
+    let cursor = match q.present("cursor") {
+        Some(cursor) => {
+            use milestones::Column;
+            keyset_cursor(db, Column::Id, Column::CreatedAt, cursor).await?
+        }
+        None => None,
+    };
     let fetch_flags = flags;
     // A cursor drops the last condition from the count: the cursor's own
     // when its row was found, else the last filter.
@@ -148,44 +205,36 @@ async fn list_milestones(caller: &Caller, q: &Query) -> Reply {
         flags[last] = false;
     }
     let result = async {
+        use milestones::Column;
         let Some(limit) = limit else {
             return Err(Refusal::Internal("limit is NaN".to_owned()));
         };
-        let rows: Vec<Value> = sqlx::query_scalar(concat!(
-            "select ",
-            milestone_json!("m"),
-            " from milestones m where ",
-            milestone_filters!(),
-            " and ($8::timestamp is null or m.created_at < $8::timestamp",
-            " or (m.created_at = $8::timestamp and m.id < $9))",
-            " order by m.created_at desc, m.id desc limit $10"
-        ))
-        .bind(fetch_flags[0])
-        .bind(project_id.as_deref().filter(|_| fetch_flags[1]))
-        .bind(fetch_flags[2])
-        .bind(all)
-        .bind(&ids)
-        .bind(status.as_deref().filter(|_| fetch_flags[3]))
-        .bind(search.as_deref().filter(|_| fetch_flags[4]))
-        .bind(cursor.as_ref().map(|c| c.0.as_str()))
-        .bind(cursor.as_ref().map(|c| c.1.as_str()))
-        .bind(limit + 1)
-        .fetch_all(db)
-        .await?;
-        let total: i64 = sqlx::query_scalar(concat!(
-            "select count(*) from milestones m where ",
-            milestone_filters!()
-        ))
-        .bind(flags[0])
-        .bind(project_id.as_deref().filter(|_| flags[1]))
-        .bind(flags[2])
-        .bind(all)
-        .bind(&ids)
-        .bind(status.as_deref().filter(|_| flags[3]))
-        .bind(search.as_deref().filter(|_| flags[4]))
-        .fetch_one(db)
-        .await?;
-        let (rows, has_more, cursor) = page(rows.into_iter().map(js_row).collect(), limit);
+        let scope = (all, ids);
+        let filters = |flags: [bool; 5]| {
+            milestone_filters(
+                flags,
+                project_id.as_deref(),
+                &scope,
+                status.as_deref(),
+                search.as_deref(),
+            )
+        };
+        let mut rows = milestones::Entity::find().filter(filters(fetch_flags));
+        if let Some(cursor) = &cursor {
+            rows = rows.filter(keyset_before(Column::Id, Column::CreatedAt, cursor));
+        }
+        let rows = rows
+            .order_by_desc(Column::CreatedAt)
+            .order_by_desc(Column::Id)
+            .limit(fetch_limit(limit)?)
+            .all(&orm(db))
+            .await?;
+        let total = milestones::Entity::find()
+            .filter(filters(flags))
+            .count(&orm(db))
+            .await?;
+        let total = i64::try_from(total).unwrap_or(i64::MAX);
+        let (rows, has_more, cursor) = page(json_rows(rows)?, limit);
         let counters = milestone_stats(db, &milestone_refs(&rows)).await?;
         Ok(paged(
             with_milestone_stats(rows, &counters),
@@ -294,39 +343,26 @@ async fn create_milestone(
     let id = generate_id("ms");
     let now = now();
     let completed = data.get("status").and_then(Value::as_str) == Some("completed");
-    sqlx::query(concat!(
-        "insert into milestones (id, created_at, updated_at, completed_at, name, project_id,",
-        " description, due_date, status, deliverables, depends_on, owner_id, responsible, tags,",
-        " is_key_milestone) values ($2, $3::timestamp, $3::timestamp, $4::timestamp, ",
-        val_text!("name", "null"),
-        ", ",
-        val_text!("projectId", "null"),
-        ", ",
-        val_text!("description", "null"),
-        ", ",
-        val_ts!("dueDate", "null"),
-        ", ",
-        val_text!("status", "'pending'"),
-        ", ",
-        val_json!("deliverables", "null"),
-        ", ",
-        val_json!("dependsOn", "null"),
-        ", ",
-        val_text!("ownerId", "null"),
-        ", ",
-        val_json!("responsible", "null"),
-        ", ",
-        val_json!("tags", "null"),
-        ", ",
-        val_bool!("isKeyMilestone", "false"),
-        ")"
-    ))
-    .bind(bindable(&data))
-    .bind(&id)
-    .bind(&now)
-    .bind(completed.then_some(now.as_str()))
-    .execute(&caller.db)
-    .await?;
+    // Every column named: a key the body sent (even as `null`), else the
+    // default the insert spelled out.
+    let Value::Object(body) = bindable(&data) else {
+        return Err(Refusal::Internal("body is not an object".to_owned()));
+    };
+    let mut row = Map::new();
+    row.insert("id".to_owned(), json!(id));
+    row.insert("created_at".to_owned(), json!(now));
+    row.insert("updated_at".to_owned(), json!(now));
+    row.insert("completed_at".to_owned(), json!(completed.then_some(&now)));
+    for (key, column) in COLUMNS {
+        let fallback = match key {
+            "status" => json!("pending"),
+            "isKeyMilestone" => json!(false),
+            _ => Value::Null,
+        };
+        let value = body.get(key).cloned().unwrap_or(fallback);
+        row.insert(column.to_owned(), value);
+    }
+    MILESTONES.insert(&orm(&caller.db), row).await?;
     let name = data.get("name").cloned().unwrap_or(Value::Null);
     let status = match data.get("status") {
         None | Some(Value::Null) => json!("pending"),
@@ -381,13 +417,19 @@ async fn update_milestone(
     data: Map<String, Value>,
 ) -> Reply {
     let db = &caller.db;
-    let existing: Option<(Option<String>, String, String)> = sqlx::query_as(
-        "select project_id, name, status from milestones where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    let Some((existing_project, existing_name, existing_status)) = existing else {
+    let existing: Option<(String, String, String)> = {
+        use milestones::Column;
+        milestones::Entity::find_by_id(id)
+            .select_only()
+            .columns([Column::ProjectId, Column::Name, Column::Status])
+            .filter(Column::DeletedAt.is_null())
+            .into_tuple()
+            .one(&orm(db))
+            .await?
+    };
+    let Some((existing_project, existing_name, existing_status)) =
+        existing.map(|(project, name, status)| (Some(project), name, status))
+    else {
         return Err(Refusal::not_found("Milestone", id));
     };
     if let Some(project) = existing_project.as_deref().filter(|p| !p.is_empty())
@@ -420,39 +462,21 @@ async fn update_milestone(
     } else {
         (false, None)
     };
-    sqlx::query(concat!(
-        "update milestones set ",
-        set_text!("name", "name"),
-        ", ",
-        set_text!("projectId", "project_id"),
-        ", ",
-        set_text!("description", "description"),
-        ", ",
-        set_ts!("dueDate", "due_date"),
-        ", ",
-        set_text!("status", "status"),
-        ", ",
-        set_json!("deliverables", "deliverables"),
-        ", ",
-        set_json!("dependsOn", "depends_on"),
-        ", ",
-        set_text!("ownerId", "owner_id"),
-        ", ",
-        set_json!("responsible", "responsible"),
-        ", ",
-        set_json!("tags", "tags"),
-        ", ",
-        set_bool!("isKeyMilestone", "is_key_milestone"),
-        ", completed_at = case when $4 then $5::timestamp else completed_at end",
-        ", updated_at = $3::timestamp where id = $2 and deleted_at is null"
-    ))
-    .bind(bindable(&data))
-    .bind(id)
-    .bind(&now)
-    .bind(set_completed)
-    .bind(completed_at)
-    .execute(db)
-    .await?;
+    // The keys the body sent (even as `null`); the others keep their column.
+    let Value::Object(body) = bindable(&data) else {
+        return Err(Refusal::Internal("body is not an object".to_owned()));
+    };
+    let mut row = Map::new();
+    for (key, column) in COLUMNS {
+        if let Some(value) = body.get(key) {
+            row.insert(column.to_owned(), value.clone());
+        }
+    }
+    if set_completed {
+        row.insert("completed_at".to_owned(), json!(completed_at));
+    }
+    row.insert("updated_at".to_owned(), json!(now));
+    MILESTONES.update(&orm(db), id, row, true).await?;
     let name = match data.get("name") {
         None | Some(Value::Null) => Value::String(existing_name),
         Some(name) => name.clone(),
@@ -474,13 +498,7 @@ async fn remove(
 ) -> Response {
     reply(
         async {
-            let project: Option<Option<String>> = sqlx::query_scalar(
-                "select project_id from milestones where id = $1 and deleted_at is null limit 1",
-            )
-            .bind(&id)
-            .fetch_optional(&caller.db)
-            .await?;
-            let Some(project) = project else {
+            let Some(project) = milestone_project(&caller.db, &id).await? else {
                 return Err(Refusal::not_found("Milestone", &id));
             };
             if let Some(project) = project.as_deref().filter(|p| !p.is_empty())
@@ -488,13 +506,13 @@ async fn remove(
             {
                 return Err(Refusal::forbidden(PROJECT_WRITE_DENIED));
             }
-            sqlx::query(
-                "update milestones set deleted_at = $2::timestamp, updated_at = $2::timestamp where id = $1",
-            )
-            .bind(&id)
-            .bind(now())
-            .execute(&caller.db)
-            .await?;
+            let now = utc_now();
+            milestones::Entity::update_many()
+                .col_expr(milestones::Column::DeletedAt, Expr::value(now))
+                .col_expr(milestones::Column::UpdatedAt, Expr::value(now))
+                .filter(milestones::Column::Id.eq(id.as_str()))
+                .exec(&orm(&caller.db))
+                .await?;
             caller.publish(&state, PROJECT_MILESTONE_DELETED, &id, &json!({ "id": id }));
             Ok(NoContent.into_response())
         }

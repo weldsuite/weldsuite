@@ -1242,13 +1242,15 @@ async fn product_suppliers_keep_one_preferred_supplier() {
 }
 
 /// Wait until a request is blocked on an item's product supplier lock
-/// another transaction holds; `false` if it never is.
+/// another transaction holds; `false` if it never is. The request takes the
+/// lock as SeaQuery writes it, the whole key bound as one parameter
+/// (`SELECT pg_advisory_xact_lock(hashtext($1))`).
 async fn blocked_on_item(db: &PgPool) -> bool {
     for _ in 0..5_000 {
         let waiting: i64 = sqlx::query_scalar(
             "select count(*) from pg_stat_activity where datname = current_database() \
              and wait_event_type = 'Lock' and wait_event = 'advisory' \
-             and query like '%hashtext(''product_suppliers:''%'",
+             and query like '%pg_advisory_xact_lock%hashtext%'",
         )
         .fetch_one(db)
         .await
@@ -1703,12 +1705,14 @@ async fn a_receive_that_fails_midway_leaves_nothing_and_the_retry_posts_once() {
 }
 
 /// Wait until a receive is blocked on an idempotency key another
-/// transaction holds; `false` if it never is.
+/// transaction holds; `false` if it never is. The receive claims the key
+/// with SeaORM's insert (`INSERT INTO "purchase_order_receipts" …`).
 async fn blocked_on_key(db: &PgPool) -> bool {
     for _ in 0..5_000 {
         let waiting: i64 = sqlx::query_scalar(
             "select count(*) from pg_stat_activity where datname = current_database() \
-             and wait_event_type = 'Lock' and query like 'insert into purchase_order_receipts%'",
+             and wait_event_type = 'Lock' \
+             and query ilike 'insert into%purchase_order_receipts%'",
         )
         .fetch_one(db)
         .await

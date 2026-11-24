@@ -17,6 +17,10 @@
 //!   cost nothing: no query is made.
 //! - [`records_in_entity`] (`recordsInEntity`) is the same check for ids that
 //!   arrive in a body or query.
+//!
+//! A record's entity is found with the query builder: by table and column
+//! names ([`EntityTable`], WeldBooks), or through the entities of the record
+//! and of the parent whose entity it takes ([`RecordLookup`], WeldHR).
 
 use std::convert::Infallible;
 use std::pin::Pin;
@@ -25,18 +29,23 @@ use std::task::{Context, Poll};
 
 use axum::extract::Request;
 use axum::response::{IntoResponse, Response};
-use sqlx::{AssertSqlSafe, PgPool};
+use sea_orm::sea_query::{Alias, Expr, Query, SelectStatement};
+use sea_orm::{
+    ColumnTrait, ConnectionTrait, DbErr, EntityTrait, JoinType, QueryFilter, QuerySelect,
+    QueryTrait,
+};
+use sqlx::PgPool;
 use tower::{Layer, Service};
 use weldsuite_auth::AuthContext;
-use weldsuite_db::Tenant;
+use weldsuite_db::{Tenant, orm};
 use weldsuite_kit::ApiError;
 
 use crate::extensions::LegalEntityApp;
 use crate::middleware::{RequestEntity, default_entity_id_for, record_in_request_entity};
 
 /// A table whose rows belong to one entity (`EntityScopedTable`): its name
-/// and its id and entity columns. The names are interpolated into SQL, so
-/// they must be constants of the code, never input.
+/// and its id and entity columns. The names go into the statement as quoted
+/// identifiers, so they must be constants of the code, never input.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct EntityTable {
     pub table: &'static str,
@@ -61,13 +70,29 @@ impl EntityTable {
         self
     }
 
-    fn lookup_sql(&self) -> String {
-        format!(
-            "select {entity} from {table} where {id} = any($1)",
-            entity = self.entity_column,
-            table = self.table,
-            id = self.id_column,
-        )
+    /// `select <entity column> from <table> where <id column> in (ids)`.
+    fn entities_of(&self, ids: Vec<String>) -> SelectStatement {
+        Query::select()
+            .column(Alias::new(self.entity_column))
+            .from(Alias::new(self.table))
+            .and_where(sea_orm::ExprTrait::is_in(
+                Expr::col(Alias::new(self.id_column)),
+                ids,
+            ))
+            .to_owned()
+    }
+
+    /// `select <entity column> from <table> where <id column> = $1 limit 1`.
+    fn entity_of(&self, id: &str) -> SelectStatement {
+        Query::select()
+            .column(Alias::new(self.entity_column))
+            .from(Alias::new(self.table))
+            .and_where(sea_orm::ExprTrait::eq(
+                Expr::col(Alias::new(self.id_column)),
+                id,
+            ))
+            .limit(1)
+            .to_owned()
     }
 }
 
@@ -79,7 +104,7 @@ pub async fn records_in_entity(
     request: &RequestEntity,
     table: &EntityTable,
     ids: &[&str],
-) -> Result<bool, sqlx::Error> {
+) -> Result<bool, DbErr> {
     let mut wanted: Vec<String> = Vec::new();
     for id in ids.iter().filter(|id| !id.is_empty()) {
         if !wanted.iter().any(|seen| seen == id) {
@@ -89,23 +114,84 @@ pub async fn records_in_entity(
     if wanted.is_empty() || request.access().uniform {
         return Ok(true);
     }
-    let rows: Vec<Option<String>> = sqlx::query_scalar(AssertSqlSafe(table.lookup_sql()))
-        .bind(&wanted)
-        .fetch_all(db)
-        .await?;
-    Ok(rows
+    let rows = orm(db).query_all(&table.entities_of(wanted)).await?;
+    let entities = rows
+        .iter()
+        .map(|row| row.try_get_by_index::<Option<String>>(0))
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(entities
         .iter()
         .all(|entity| record_in_request_entity(request, entity.as_deref())))
 }
 
-/// How a guard finds a record's entity.
-#[derive(Debug, Clone)]
-enum Lookup {
-    Table(EntityTable),
-    /// A query with the id as `$1`, answering one row whose first column is
-    /// the record's entity (null for none): hr-api's `viaEmployee` /
-    /// `viaEmployer` resolvers.
-    Query(&'static str),
+/// How a guard finds a record's entity: the statement, for a record id, whose
+/// one row's first column is the record's entity (null for none), and no row
+/// when no record has the id.
+#[derive(Clone)]
+pub struct RecordLookup(Arc<dyn Fn(&str) -> SelectStatement + Send + Sync>);
+
+impl RecordLookup {
+    /// A record whose row names its entity:
+    /// `select <entity> from <E> where <id> = $1 limit 1`.
+    pub fn column<E: EntityTrait>(id: E::Column, entity: E::Column) -> Self {
+        Self(Arc::new(move |record| {
+            E::find()
+                .select_only()
+                .column(entity)
+                .filter(id.eq(record))
+                .limit(1)
+                .into_query()
+        }))
+    }
+
+    /// A record whose entity is its parent's (hr-api's `viaEmployee` /
+    /// `viaEmployer`):
+    ///
+    /// ```text
+    /// select P.parent_entity from E join P on P.parent_id = E.key
+    /// where E.id = $1 limit 1
+    /// ```
+    pub fn via<E: EntityTrait, P: EntityTrait>(
+        id: E::Column,
+        key: E::Column,
+        parent_id: P::Column,
+        parent_entity: P::Column,
+    ) -> Self {
+        Self(Arc::new(move |record| {
+            E::find()
+                .select_only()
+                .column(parent_entity)
+                .join(
+                    JoinType::InnerJoin,
+                    E::belongs_to(P::default()).from(key).to(parent_id).into(),
+                )
+                .filter(id.eq(record))
+                .limit(1)
+                .into_query()
+        }))
+    }
+
+    /// A row of `table`.
+    fn table(table: EntityTable) -> Self {
+        Self(Arc::new(move |record| table.entity_of(record)))
+    }
+
+    /// The statement for the record `id`.
+    pub fn statement(&self, id: &str) -> SelectStatement {
+        (self.0)(id)
+    }
+}
+
+impl std::fmt::Debug for RecordLookup {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("RecordLookup")
+            .field(
+                &sea_orm::DbBackend::Postgres
+                    .build(&self.statement("$id"))
+                    .sql,
+            )
+            .finish()
+    }
 }
 
 /// What a record without an entity counts as.
@@ -135,7 +221,7 @@ enum Unassigned {
 /// ```
 #[derive(Debug, Clone)]
 pub struct EntityRecordGuard {
-    lookup: Lookup,
+    lookup: RecordLookup,
     prefix: &'static str,
     label: &'static str,
     unassigned: Unassigned,
@@ -145,21 +231,14 @@ impl EntityRecordGuard {
     /// Records of `table`; `label` names them in the 404 ("Invoice with ID
     /// 'x' not found"). A record without an entity passes.
     pub fn table(table: EntityTable, label: &'static str) -> Self {
-        Self {
-            lookup: Lookup::Table(table),
-            prefix: "",
-            label,
-            unassigned: Unassigned::Pass,
-        }
+        Self::lookup(RecordLookup::table(table), label)
     }
 
-    /// Records whose entity `sql` finds (the id is `$1`; the first column of
-    /// its row is the entity), e.g. through the record's employee:
-    /// `select e.legal_entity_id from hr_leave_requests t join hr_employees e
-    /// on e.id = t.employee_id where t.id = $1 limit 1`.
-    pub fn query(sql: &'static str, label: &'static str) -> Self {
+    /// Records whose entity `lookup` finds, e.g. through the record's
+    /// employee ([`RecordLookup::via`]).
+    pub fn lookup(lookup: RecordLookup, label: &'static str) -> Self {
         Self {
-            lookup: Lookup::Query(sql),
+            lookup,
             prefix: "",
             label,
             unassigned: Unassigned::Pass,
@@ -183,25 +262,10 @@ impl EntityRecordGuard {
 
     /// The record's entity: `None` when no record has this id, `Some(None)`
     /// when it has no entity.
-    async fn record_entity(
-        &self,
-        db: &PgPool,
-        id: &str,
-    ) -> Result<Option<Option<String>>, sqlx::Error> {
-        match &self.lookup {
-            Lookup::Table(table) => {
-                let sql = format!(
-                    "select {entity} from {table} where {id_column} = $1 limit 1",
-                    entity = table.entity_column,
-                    table = table.table,
-                    id_column = table.id_column,
-                );
-                sqlx::query_scalar(AssertSqlSafe(sql))
-                    .bind(id)
-                    .fetch_optional(db)
-                    .await
-            }
-            Lookup::Query(sql) => sqlx::query_scalar(*sql).bind(id).fetch_optional(db).await,
+    async fn record_entity(&self, db: &PgPool, id: &str) -> Result<Option<Option<String>>, DbErr> {
+        match orm(db).query_one(&self.lookup.statement(id)).await? {
+            Some(row) => Ok(Some(row.try_get_by_index(0)?)),
+            None => Ok(None),
         }
     }
 
@@ -212,7 +276,7 @@ impl EntityRecordGuard {
         db: &PgPool,
         request: &RequestEntity,
         id: &str,
-    ) -> Result<bool, sqlx::Error> {
+    ) -> Result<bool, DbErr> {
         if id.is_empty() || request.access().uniform {
             return Ok(true);
         }
@@ -433,10 +497,44 @@ mod tests {
 
     #[test]
     fn table_lookups_read_the_entity_column() {
+        use sea_orm::DbBackend;
         let employees = EntityTable::new("hr_employees").entity_column("legal_entity_id");
         assert_eq!(
-            employees.lookup_sql(),
-            "select legal_entity_id from hr_employees where id = any($1)"
+            DbBackend::Postgres
+                .build(&employees.entities_of(vec!["e1".to_owned(), "e2".to_owned()]))
+                .sql,
+            r#"SELECT "legal_entity_id" FROM "hr_employees" WHERE "id" IN ($1, $2)"#
+        );
+        assert_eq!(
+            format!("{:?}", RecordLookup::table(employees)),
+            r#"RecordLookup("SELECT \"legal_entity_id\" FROM \"hr_employees\" WHERE \"id\" = $1 LIMIT $2")"#
+        );
+    }
+
+    #[test]
+    fn lookups_join_the_parent_record() {
+        use weldsuite_schema::tenant::{hr_absences, hr_employees};
+        let via = RecordLookup::via::<hr_absences::Entity, hr_employees::Entity>(
+            hr_absences::Column::Id,
+            hr_absences::Column::EmployeeId,
+            hr_employees::Column::Id,
+            hr_employees::Column::LegalEntityId,
+        );
+        assert_eq!(
+            sea_orm::DbBackend::Postgres
+                .build(&via.statement("abs_1"))
+                .to_string(),
+            r#"SELECT "hr_employees"."legal_entity_id" FROM "hr_absences" INNER JOIN "hr_employees" ON "hr_absences"."employee_id" = "hr_employees"."id" WHERE "hr_absences"."id" = 'abs_1' LIMIT 1"#
+        );
+        let own = RecordLookup::column::<hr_employees::Entity>(
+            hr_employees::Column::Id,
+            hr_employees::Column::LegalEntityId,
+        );
+        assert_eq!(
+            sea_orm::DbBackend::Postgres
+                .build(&own.statement("emp_1"))
+                .to_string(),
+            r#"SELECT "hr_employees"."legal_entity_id" FROM "hr_employees" WHERE "hr_employees"."id" = 'emp_1' LIMIT 1"#
         );
     }
 }

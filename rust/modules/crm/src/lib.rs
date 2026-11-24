@@ -10,11 +10,6 @@
 //! TypeScript worker's; its tests run against this crate in the `crm`
 //! conformance suites (`rust/conformance/suites.json`).
 
-#![allow(
-    clippy::disallowed_methods,
-    reason = "not converted to the ORM yet (ADR DATA-019)"
-)]
-
 mod activities;
 mod companies;
 mod companies_more;
@@ -25,6 +20,7 @@ mod identity_schema;
 mod leads;
 mod lists;
 mod opportunities;
+mod orm_rows;
 mod people;
 mod person_companies;
 mod pipeline_stages;
@@ -684,8 +680,8 @@ impl From<ApiError> for Refusal {
     }
 }
 
-impl From<sqlx::Error> for Refusal {
-    fn from(error: sqlx::Error) -> Self {
+impl From<sea_orm::DbErr> for Refusal {
+    fn from(error: sea_orm::DbErr) -> Self {
         Self::Failed(error.to_string())
     }
 }

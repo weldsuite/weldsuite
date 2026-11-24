@@ -12,9 +12,13 @@
 
 use std::sync::Arc;
 
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde::Deserialize;
 use serde_json::{Value, json};
-use weldsuite_db::{PgPool, js_row};
+use time::format_description::well_known::Rfc3339;
+use time::{OffsetDateTime, PrimitiveDateTime};
+use weldsuite_db::{PgPool, orm, utc_now, utc_timestamp};
 use weldsuite_mail_domain::labels::{labels_of, labels_value, remove_labels};
 use weldsuite_mail_domain::messages::iso;
 use weldsuite_mail_domain::outbound::clock::{now_ms, parse_iso};
@@ -22,8 +26,10 @@ use weldsuite_mail_domain::send::{
     SendAttachmentInput, SendDeps, SendError, SendInput, SendOptions, SendResult, send_and_persist,
 };
 use weldsuite_ports::{BoxFuture, DynJobs, Job, JobContext, JobError, JobRequest, StepRetry};
+use weldsuite_schema::tenant::{mail_attachments, mail_messages};
 
 use crate::MailState;
+use crate::routes::mail_messages::message_json;
 use crate::send::SendContext;
 
 /// The delivery job's name (`SendScheduledEmailWorkflow`).
@@ -92,17 +98,14 @@ pub(crate) struct ScheduledRow {
 }
 
 /// A live message row (`loadScheduled`).
-pub(crate) async fn load_scheduled(
-    db: &PgPool,
-    id: &str,
-) -> Result<Option<ScheduledRow>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(m) - (case when m.threats is null then 'threats' else '' end) from mail_messages m where m.id = $1 and m.deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(js_row).map(|row| ScheduledRow {
+pub(crate) async fn load_scheduled(db: &PgPool, id: &str) -> Result<Option<ScheduledRow>, DbErr> {
+    let row = mail_messages::Entity::find_by_id(id)
+        .filter(mail_messages::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?
+        .map(message_json)
+        .transpose()?;
+    Ok(row.map(|row| ScheduledRow {
         id: row["id"].as_str().unwrap_or_default().to_owned(),
         account_id: row["accountId"].as_str().unwrap_or_default().to_owned(),
         send_status: row["sendStatus"].as_str().map(str::to_owned),
@@ -127,17 +130,27 @@ pub(crate) struct ScheduledPatch {
     pub(crate) delivery: Option<(&'static str, String)>,
 }
 
+/// An ISO time (`toISOString()`) as the `timestamp` column holds it, as
+/// `$n::timestamp` read it.
+fn timestamp(text: &str) -> Result<PrimitiveDateTime, DbErr> {
+    OffsetDateTime::parse(text, &Rfc3339)
+        .map(utc_timestamp)
+        .map_err(|error| DbErr::Type(format!("invalid timestamp {text:?}: {error}")))
+}
+
 pub(crate) async fn apply_scheduled_patch(
     db: &PgPool,
     id: &str,
     patch: ScheduledPatch,
-) -> Result<bool, sqlx::Error> {
-    let labels: Option<Option<Value>> = sqlx::query_scalar(
-        "select labels from mail_messages where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
+) -> Result<bool, DbErr> {
+    use mail_messages::Column;
+    let labels: Option<Option<Value>> = mail_messages::Entity::find_by_id(id)
+        .select_only()
+        .column(Column::Labels)
+        .filter(Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     let Some(labels) = labels else {
         return Ok(false);
     };
@@ -147,38 +160,45 @@ pub(crate) async fn apply_scheduled_patch(
             &["SCHEDULED".to_owned()],
         ))
     });
-    let now = iso(time::OffsetDateTime::now_utc());
-    let (delivery_status, delivery_detail) = patch.delivery.unzip();
-    sqlx::query(
-        "update mail_messages set updated_at = $2::timestamp,
-           send_status = coalesce($3, send_status),
-           scheduled_for = case when $4 then $5::timestamp else scheduled_for end,
-           trigger_run_id = case when $6 then $7 else trigger_run_id end,
-           sent_date = coalesce($8::timestamp, sent_date),
-           external_message_id = coalesce($9, external_message_id),
-           delivery_status = case when $10::text is null then delivery_status else $10 end,
-           delivery_detail = case when $10::text is null then delivery_detail else $11 end,
-           delivery_updated_at = case when $10::text is null then delivery_updated_at else $2::timestamp end,
-           labels = case when $12::jsonb is null then labels else $12 end,
-           deleted_at = case when $13 then $2::timestamp else deleted_at end
-         where id = $1",
-    )
-    .bind(id)
-    .bind(&now)
-    .bind(patch.send_status)
-    .bind(patch.scheduled_for.is_some())
-    .bind(patch.scheduled_for.flatten())
-    .bind(patch.trigger_run_id.is_some())
-    .bind(patch.trigger_run_id.flatten())
-    .bind(patch.sent_at)
-    .bind(patch.external_message_id)
-    .bind(delivery_status)
-    .bind(delivery_detail)
-    .bind(labels)
-    .bind(patch.soft_delete)
-    .execute(db)
-    .await?;
+    let now = utc_now();
+    let mut update =
+        mail_messages::Entity::update_many().col_expr(Column::UpdatedAt, Expr::value(now));
+    if let Some(status) = patch.send_status {
+        update = update.col_expr(Column::SendStatus, Expr::value(status));
+    }
+    if let Some(at) = patch.scheduled_for {
+        let at = at.as_deref().map(timestamp).transpose()?;
+        update = update.col_expr(Column::ScheduledFor, Expr::value(at));
+    }
+    if let Some(run) = patch.trigger_run_id {
+        update = update.col_expr(Column::TriggerRunId, Expr::value(run));
+    }
+    if let Some(sent_at) = patch.sent_at {
+        update = update.col_expr(Column::SentDate, Expr::value(timestamp(&sent_at)?));
+    }
+    if let Some(external) = patch.external_message_id {
+        update = update.col_expr(Column::ExternalMessageId, Expr::value(external));
+    }
+    if let Some((status, detail)) = patch.delivery {
+        update = update
+            .col_expr(Column::DeliveryStatus, Expr::value(status))
+            .col_expr(Column::DeliveryDetail, Expr::value(detail))
+            .col_expr(Column::DeliveryUpdatedAt, Expr::value(now));
+    }
+    if let Some(labels) = labels {
+        update = update.col_expr(Column::Labels, Expr::value(labels));
+    }
+    if patch.soft_delete {
+        update = update.col_expr(Column::DeletedAt, Expr::value(now));
+    }
+    update.filter(Column::Id.eq(id)).exec(&orm(db)).await?;
     Ok(true)
+}
+
+/// A database error in the send path: `sendAndPersist`'s internal error.
+#[allow(clippy::needless_pass_by_value)] // a `map_err` callback
+fn internal(error: DbErr) -> SendError {
+    SendError::Internal(error.to_string())
 }
 
 /// The addresses of a recipient column.
@@ -194,7 +214,36 @@ fn addresses(value: &Value) -> Vec<String> {
 }
 
 /// A stored attachment: file name, content type, size, storage path.
-type StoredFile = (String, Option<String>, Option<i64>, Option<String>);
+type StoredFile = (String, Option<String>, i32, Option<String>);
+
+/// The message's live attachments that are in storage, to send again.
+async fn stored_attachments(db: &PgPool, id: &str) -> Result<Vec<SendAttachmentInput>, DbErr> {
+    let rows: Vec<StoredFile> = mail_attachments::Entity::find()
+        .select_only()
+        .columns([
+            mail_attachments::Column::FileName,
+            mail_attachments::Column::ContentType,
+            mail_attachments::Column::Size,
+            mail_attachments::Column::StoragePath,
+        ])
+        .filter(mail_attachments::Column::MessageId.eq(id))
+        .filter(mail_attachments::Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
+    Ok(rows
+        .into_iter()
+        .filter_map(|(filename, content_type, size, path)| {
+            path.filter(|p| !p.is_empty())
+                .map(|file_key| SendAttachmentInput {
+                    filename,
+                    content_type,
+                    size: i64::from(size),
+                    file_key,
+                })
+        })
+        .collect())
+}
 
 /// `sendScheduledNow`'s send: the stored message through `sendAndPersist`,
 /// then the scheduled row becomes the sent copy. On a partial send the
@@ -206,25 +255,9 @@ pub(crate) async fn deliver(
     user_id: &str,
     message: &ScheduledRow,
 ) -> Result<SendResult, SendError> {
-    let rows: Vec<StoredFile> = sqlx::query_as(
-        "select file_name, content_type, size::bigint, storage_path from mail_attachments
-         where message_id = $1 and deleted_at is null",
-    )
-    .bind(&message.id)
-    .fetch_all(deps.db)
-    .await?;
-    let attachments: Vec<SendAttachmentInput> = rows
-        .into_iter()
-        .filter_map(|(filename, content_type, size, path)| {
-            path.filter(|p| !p.is_empty())
-                .map(|file_key| SendAttachmentInput {
-                    filename,
-                    content_type,
-                    size: size.unwrap_or(0),
-                    file_key,
-                })
-        })
-        .collect();
+    let attachments = stored_attachments(deps.db, &message.id)
+        .await
+        .map_err(internal)?;
     let row = &message.row;
     let cc = addresses(&row["cc"]);
     let bcc = addresses(&row["bcc"]);
@@ -255,29 +288,32 @@ pub(crate) async fn deliver(
         Ok(result) => {
             // The stored row stays the canonical sent copy: the second copy
             // sendAndPersist recorded goes.
-            sqlx::query("delete from mail_attachments where message_id = $1")
-                .bind(&result.message_id)
-                .execute(deps.db)
-                .await?;
-            sqlx::query("delete from mail_messages where id = $1 and account_id = $2")
-                .bind(&result.message_id)
-                .bind(&message.account_id)
-                .execute(deps.db)
-                .await?;
+            mail_attachments::Entity::delete_many()
+                .filter(mail_attachments::Column::MessageId.eq(&result.message_id))
+                .exec(&orm(deps.db))
+                .await
+                .map_err(internal)?;
+            mail_messages::Entity::delete_many()
+                .filter(mail_messages::Column::Id.eq(&result.message_id))
+                .filter(mail_messages::Column::AccountId.eq(&message.account_id))
+                .exec(&orm(deps.db))
+                .await
+                .map_err(internal)?;
             apply_scheduled_patch(
                 deps.db,
                 &message.id,
                 ScheduledPatch {
                     send_status: Some("sent"),
                     scheduled_for: Some(None),
-                    sent_at: Some(iso(time::OffsetDateTime::now_utc())),
+                    sent_at: Some(iso(OffsetDateTime::now_utc())),
                     external_message_id: Some(result.external_message_id.clone()),
                     trigger_run_id: Some(None),
                     drop_scheduled_label: true,
                     ..ScheduledPatch::default()
                 },
             )
-            .await?;
+            .await
+            .map_err(internal)?;
             Ok(result)
         }
         Err(error) => {
@@ -293,7 +329,8 @@ pub(crate) async fn deliver(
                         ..ScheduledPatch::default()
                     },
                 )
-                .await?;
+                .await
+                .map_err(internal)?;
             }
             Err(error)
         }
@@ -328,7 +365,7 @@ impl SendScheduledEmailJob {
         let db = (self.tenants)(params.workspace_id.clone())
             .await
             .map_err(JobError::Failed)?;
-        let fail = |error: sqlx::Error| JobError::Failed(error.to_string());
+        let fail = |error: DbErr| JobError::Failed(error.to_string());
         let Some(message) = load_scheduled(&db, &params.message_id)
             .await
             .map_err(fail)?

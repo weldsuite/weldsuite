@@ -10,9 +10,10 @@
 
 use axum::extract::{Path, State};
 use axum::response::Response;
+use sea_orm::prelude::BigDecimal;
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
 use weldsuite_books_domain::address::normalize_postal_address;
-use weldsuite_books_domain::books_row;
 use weldsuite_books_domain::entity_context::{
     SequenceType, next_entity_number, resolve_entity_base_currency, resolve_entity_id,
 };
@@ -25,7 +26,7 @@ use weldsuite_books_domain::sales_tax::document_tax::{
     DocumentContext, DocumentKind, IssueDate, load_sales_tax_entity, uses_sales_tax,
 };
 use weldsuite_books_domain::sales_tax::{allocate_cents, from_cents, to_cents};
-use weldsuite_books_domain::tables::{INVOICE_ITEMS, INVOICES, ORDER_ITEMS, ORDERS};
+use weldsuite_books_domain::tables::{INVOICE_ITEMS, INVOICES};
 use weldsuite_books_domain::tax::eu_vat::{
     EuTreatment, EuVatLine, EuVatResult, VatCategory, rates::is_eu_member,
 };
@@ -34,9 +35,12 @@ use weldsuite_books_domain::tax::{
     resolve_gst_supply,
 };
 use weldsuite_catalogs::entity_events::INVOICE_CREATED;
+use weldsuite_db::orm;
 use weldsuite_kit::generate_id;
+use weldsuite_schema::tenant::{entities, order_items, orders, parties, products, tax_rates};
 
 use super::write::{runtime, tax_address};
+use super::{numeric_text, row_json};
 use crate::errors::SalesError;
 use crate::persist::{
     calculate_draft_tax, engine_unavailable_warning, invoice_tax_columns, item_tax_columns, text,
@@ -91,7 +95,7 @@ async fn order_invoice_lines(
     db: &weldsuite_db::PgPool,
     order: &Value,
     items: &[Value],
-) -> Result<Vec<OrderLine>, sqlx::Error> {
+) -> Result<Vec<OrderLine>, DbErr> {
     let mut product_ids: Vec<String> = Vec::new();
     for item in items {
         if let Some(id) = text(item, "productId").filter(|id| !id.is_empty())
@@ -103,9 +107,14 @@ async fn order_invoice_lines(
     let products: Vec<(String, Option<bool>, Option<String>)> = if product_ids.is_empty() {
         Vec::new()
     } else {
-        sqlx::query_as("select id, taxable, tax_class from products where id = any($1)")
-            .bind(&product_ids)
-            .fetch_all(db)
+        products::Entity::find()
+            .select_only()
+            .column(products::Column::Id)
+            .column(products::Column::Taxable)
+            .column(products::Column::TaxClass)
+            .filter(products::Column::Id.is_in(product_ids))
+            .into_tuple()
+            .all(&orm(db))
             .await?
     };
     let mut from_order: Vec<(String, String)> = Vec::new();
@@ -479,15 +488,13 @@ pub(crate) async fn from_order(
     order_id: &str,
 ) -> Result<Value, SalesError> {
     let db = &caller.db;
-    let order: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        books_row!(orders),
-        " from orders t where t.id = $1 and t.deleted_at is null limit 1"
-    ))
-    .bind(order_id)
-    .fetch_optional(db)
-    .await?;
-    let Some(order) = order.map(|o| ORDERS.js(o)) else {
+    let order = orders::Entity::find_by_id(order_id.to_owned())
+        .filter(orders::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?
+        .map(row_json)
+        .transpose()?;
+    let Some(order) = order else {
         return Err(Refusal::not_found("Order", order_id).into());
     };
     let contact_id = text(&order, "counterpartyId")
@@ -500,15 +507,13 @@ pub(crate) async fn from_order(
     let Some(entity_id) = resolve_entity_id(caller).await? else {
         return Err(Refusal::bad_request("No accounting entity resolved — set X-Accounting-Entity-Id or configure a default entity.").into());
     };
-    let rows: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        books_row!(order_items),
-        " from order_items t where t.order_id = $1"
-    ))
-    .bind(order_id)
-    .fetch_all(db)
-    .await?;
-    let items = ORDER_ITEMS.js_rows(rows);
+    let items: Vec<Value> = order_items::Entity::find()
+        .filter(order_items::Column::OrderId.eq(order_id))
+        .all(&orm(db))
+        .await?
+        .into_iter()
+        .map(row_json)
+        .collect::<Result<_, _>>()?;
     if items.is_empty() {
         return Err(Refusal::bad_request("Order has no line items to invoice").into());
     }
@@ -604,12 +609,13 @@ pub(crate) async fn from_order(
     }
 
     // An order the EU VAT engine priced: invoice exactly what it says.
-    let seller_country: Option<String> = sqlx::query_scalar(
-        "select jurisdiction_code from entities where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(&entity_id)
-    .fetch_optional(db)
-    .await?;
+    let seller_country: Option<String> = entities::Entity::find_by_id(entity_id.clone())
+        .select_only()
+        .column(entities::Column::JurisdictionCode)
+        .filter(entities::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     if let Some(stored) = stored_eu_invoice(&order, &items, seller_country.as_deref().unwrap_or(""))
     {
         let number = next_entity_number(db, &entity_id, SequenceType::Invoice)
@@ -639,13 +645,22 @@ pub(crate) async fn from_order(
 
     lines = rebuilt_lines(&order, &items);
     // Link each derived percentage to the entity's own matching sales rate.
-    let rates: Vec<(String, String, String)> = sqlx::query_as(
-        "select id, rate::text, type from tax_rates \
-         where entity_id = $1 and deleted_at is null and is_active = true",
-    )
-    .bind(&entity_id)
-    .fetch_all(db)
-    .await?;
+    let rates: Vec<(String, BigDecimal, String)> = tax_rates::Entity::find()
+        .select_only()
+        .column(tax_rates::Column::Id)
+        .column(tax_rates::Column::Rate)
+        .column(tax_rates::Column::Type)
+        .filter(tax_rates::Column::EntityId.eq(entity_id.as_str()))
+        .filter(tax_rates::Column::DeletedAt.is_null())
+        .filter(tax_rates::Column::IsActive.eq(true))
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
+    // `rate::text`: the stored rate's text.
+    let rates: Vec<(String, String, String)> = rates
+        .into_iter()
+        .map(|(id, rate, kind)| (id, numeric_text::<4>(&rate), kind))
+        .collect();
     let rate_for = |percent: &str| {
         rates
             .iter()
@@ -722,15 +737,16 @@ pub(crate) async fn from_order(
 /// `30 days`); `None` without terms or in a form that is not one of those.
 async fn party_terms_days(db: &weldsuite_db::PgPool, order: &Value) -> Option<i64> {
     let party = text(order, "counterpartyId")?;
-    let terms: Option<String> = sqlx::query_scalar(
-        "select payment_terms from parties where id = $1 and deleted_at is null",
-    )
-    .bind(party)
-    .fetch_optional(db)
-    .await
-    .ok()
-    .flatten()
-    .flatten();
+    let terms: Option<String> = parties::Entity::find_by_id(party.to_owned())
+        .select_only()
+        .column(parties::Column::PaymentTerms)
+        .filter(parties::Column::DeletedAt.is_null())
+        .into_tuple::<Option<String>>()
+        .one(&orm(db))
+        .await
+        .ok()
+        .flatten()
+        .flatten();
     parse_terms_days(terms.as_deref()?)
 }
 

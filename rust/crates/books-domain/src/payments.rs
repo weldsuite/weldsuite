@@ -5,10 +5,14 @@
 //! reconciliation and its journal entry as one atomic posting; a realised FX
 //! difference posts separately. Voiding reverses all of that.
 
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, Condition, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
-use sqlx::PgPool;
+use time::{OffsetDateTime, PrimitiveDateTime};
+use weldsuite_db::{OrmConn, PgPool, orm, utc_timestamp};
 use weldsuite_kit::generate_id;
 use weldsuite_ports::OutboundHttp;
+use weldsuite_schema::tenant::{bank_transactions, bills, invoices, payment_allocations, payments};
 
 use crate::bad_debt::{
     find_recovery_entries, post_bad_debt_recovery, settle_written_off, written_off_balance,
@@ -23,13 +27,12 @@ use crate::fx::{
     RateQuery, format_rate, is_foreign_currency, missing_rate_message, parse_rate, resolve_rate,
 };
 use crate::guards::PostingLockKind;
-use crate::http::now;
 use crate::js::{millis_of, round_money, to_fixed};
 use crate::posting::{
     AlsoWrite, PostError, PostJournalEntryInput, PostingLine, ReverseArgs, account_for_role,
     load_entity_accounts, post_journal_entry, reverse_journal_entry,
 };
-use crate::tables::{BILLS, INVOICES, PAYMENT_ALLOCATIONS, PAYMENTS};
+use crate::tables::{PAYMENT_ALLOCATIONS, PAYMENTS};
 
 /// `PAYMENT_METHODS`.
 pub const PAYMENT_METHODS: [&str; 11] = [
@@ -48,6 +51,18 @@ pub const PAYMENT_METHODS: [&str; 11] = [
 
 fn posting(message: impl Into<String>) -> PostError {
     PostError::Posting(message.into())
+}
+
+/// A row as Drizzle returns it.
+fn js<M: serde::Serialize>(model: M) -> Result<Value, DbErr> {
+    serde_json::to_value(model).map_err(|error| DbErr::Json(error.to_string()))
+}
+
+/// `new Date()` once: as `toISOString()` (what the rows' JSON and Drizzle
+/// got), and as the `timestamp` columns hold it.
+fn now_both() -> (String, PrimitiveDateTime) {
+    let at = OffsetDateTime::now_utc();
+    (weldsuite_events::iso_timestamp(at), utc_timestamp(at))
 }
 
 /// `normalizePaymentMethod(method)`: the method list, older values mapped
@@ -183,37 +198,33 @@ async fn load_documents(
     db: &PgPool,
     invoice: bool,
     ids: &[String],
-) -> Result<Vec<(String, Document)>, sqlx::Error> {
+) -> Result<Vec<(String, Document)>, DbErr> {
     if ids.is_empty() {
         return Ok(Vec::new());
     }
+    let ids = ids.iter().map(String::as_str);
     let rows: Vec<Value> = if invoice {
-        sqlx::query_scalar(concat!(
-            "select ",
-            crate::books_row!(invoices),
-            " from invoices t where t.id = any($1) and t.deleted_at is null"
-        ))
-        .bind(ids)
-        .fetch_all(db)
-        .await?
+        invoices::Entity::find()
+            .filter(invoices::Column::Id.is_in(ids))
+            .filter(invoices::Column::DeletedAt.is_null())
+            .all(&orm(db))
+            .await?
+            .into_iter()
+            .map(js)
+            .collect::<Result<_, _>>()?
     } else {
-        sqlx::query_scalar(concat!(
-            "select ",
-            crate::books_row!(bills),
-            " from bills t where t.id = any($1) and t.deleted_at is null"
-        ))
-        .bind(ids)
-        .fetch_all(db)
-        .await?
+        bills::Entity::find()
+            .filter(bills::Column::Id.is_in(ids))
+            .filter(bills::Column::DeletedAt.is_null())
+            .all(&orm(db))
+            .await?
+            .into_iter()
+            .map(js)
+            .collect::<Result<_, _>>()?
     };
     Ok(rows
         .into_iter()
-        .map(|row| {
-            let mut row = if invoice {
-                INVOICES.js(row)
-            } else {
-                BILLS.js(row)
-            };
+        .map(|mut row| {
             let number = row
                 .get(if invoice {
                     "invoiceNumber"
@@ -263,15 +274,12 @@ async fn existing_payment(
     let Some(id) = input.id.as_deref().filter(|id| !id.is_empty()) else {
         return Ok(None);
     };
-    let existing: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        crate::books_row!(payments),
-        " from payments t where t.id = $1 limit 1"
-    ))
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    let Some(existing) = existing.map(|row| PAYMENTS.js(row)) else {
+    let existing = payments::Entity::find_by_id(id.to_owned())
+        .one(&orm(db))
+        .await?
+        .map(js)
+        .transpose()?;
+    let Some(existing) = existing else {
         return Ok(None);
     };
     if text(&existing, "entityId") != Some(input.entity_id.as_str())
@@ -279,12 +287,17 @@ async fn existing_payment(
     {
         return Err(posting(format!("Payment id {id} is already used")));
     }
-    let allocated: Vec<(Option<String>, Option<String>)> = sqlx::query_as(
-        "select invoice_id, bill_id from payment_allocations where payment_id = $1 and deleted_at is null",
-    )
-    .bind(id)
-    .fetch_all(db)
-    .await?;
+    let allocated: Vec<(Option<String>, Option<String>)> = payment_allocations::Entity::find()
+        .select_only()
+        .columns([
+            payment_allocations::Column::InvoiceId,
+            payment_allocations::Column::BillId,
+        ])
+        .filter(payment_allocations::Column::PaymentId.eq(id))
+        .filter(payment_allocations::Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     let currency = match owned(&existing, "currency") {
         Some(currency) => currency,
         None => resolve_entity_base_currency(db, &input.entity_id).await?,
@@ -507,11 +520,14 @@ async fn post_fx_differences(
     let id = payment_id.to_owned();
     let write: AlsoWrite = Box::new(move |conn, posted| {
         Box::pin(async move {
-            sqlx::query("update payments set exchange_difference_entry_id = $1, updated_at = $2::timestamp where id = $3")
-                .bind(&posted.journal_entry_id)
-                .bind(now())
-                .bind(&id)
-                .execute(&mut *conn)
+            payments::Entity::update_many()
+                .col_expr(
+                    payments::Column::ExchangeDifferenceEntryId,
+                    Expr::val(posted.journal_entry_id.as_str()),
+                )
+                .col_expr(payments::Column::UpdatedAt, Expr::val(now_both().1))
+                .filter(payments::Column::Id.eq(id.as_str()))
+                .exec(&OrmConn::new(conn))
                 .await?;
             Ok(())
         })
@@ -557,6 +573,8 @@ struct PaymentWrite {
     recovered: Vec<String>,
     fully_allocated: bool,
     now: String,
+    /// `now` as the `timestamp` columns hold it.
+    stamp: PrimitiveDateTime,
 }
 
 /// The payment, its allocations, the documents' new paid amounts and the
@@ -621,7 +639,7 @@ fn payment_statements(w: PaymentWrite) -> AlsoWrite {
                 row.insert(key.to_owned(), value);
             }
             PAYMENTS
-                .insert_raw(&mut *conn, PAYMENTS.values(&row))
+                .insert_raw_on(&OrmConn::new(&mut *conn), PAYMENTS.values(&row))
                 .await?;
             for a in &w.allocations {
                 let mut allocation = Map::new();
@@ -638,7 +656,10 @@ fn payment_statements(w: PaymentWrite) -> AlsoWrite {
                     allocation.insert(key.to_owned(), value);
                 }
                 PAYMENT_ALLOCATIONS
-                    .insert_raw(&mut *conn, PAYMENT_ALLOCATIONS.values(&allocation))
+                    .insert_raw_on(
+                        &OrmConn::new(&mut *conn),
+                        PAYMENT_ALLOCATIONS.values(&allocation),
+                    )
                     .await?;
             }
             for a in &w.allocations {
@@ -657,21 +678,28 @@ fn payment_statements(w: PaymentWrite) -> AlsoWrite {
                 .as_deref()
                 .filter(|id| !id.is_empty())
             {
-                sqlx::query(
-                    "update bank_transactions set status = 'reconciled', reconciliation_type = $1, \
-                     reconciled_payment_id = $2, reconciled_invoice_id = $3, reconciled_bill_id = $4, \
-                     journal_entry_id = $5, contact_id = $6, updated_at = $7::timestamp where id = $8",
-                )
-                .bind(input.reconciliation_type.as_deref().unwrap_or("manual"))
-                .bind(&w.payment_id)
-                .bind(single.and_then(|a| a.invoice_id.as_deref()))
-                .bind(single.and_then(|a| a.bill_id.as_deref()))
-                .bind(&entry_id)
-                .bind(&w.contact_id)
-                .bind(&w.now)
-                .bind(transaction)
-                .execute(&mut *conn)
-                .await?;
+                use bank_transactions::Column as Line;
+                bank_transactions::Entity::update_many()
+                    .col_expr(Line::Status, Expr::val("reconciled"))
+                    .col_expr(
+                        Line::ReconciliationType,
+                        Expr::val(input.reconciliation_type.as_deref().unwrap_or("manual")),
+                    )
+                    .col_expr(Line::ReconciledPaymentId, Expr::val(w.payment_id.as_str()))
+                    .col_expr(
+                        Line::ReconciledInvoiceId,
+                        Expr::val(single.and_then(|a| a.invoice_id.as_deref())),
+                    )
+                    .col_expr(
+                        Line::ReconciledBillId,
+                        Expr::val(single.and_then(|a| a.bill_id.as_deref())),
+                    )
+                    .col_expr(Line::JournalEntryId, Expr::val(entry_id.as_str()))
+                    .col_expr(Line::ContactId, Expr::val(w.contact_id.as_str()))
+                    .col_expr(Line::UpdatedAt, Expr::val(w.stamp))
+                    .filter(Line::Id.eq(transaction))
+                    .exec(&OrmConn::new(&mut *conn))
+                    .await?;
             }
             Ok(())
         })
@@ -905,7 +933,7 @@ pub async fn record_payment(
         .clone()
         .filter(|id| !id.is_empty())
         .unwrap_or_else(|| generate_id("pay"));
-    let at = now();
+    let (at, stamp) = now_both();
     // Written-off invoices: reinstate the receivable so the payment can settle it.
     let mut recoveries: Vec<(String, String)> = Vec::new();
     for a in &allocations {
@@ -915,15 +943,12 @@ pub async fn record_payment(
         if doc_of(invoice_id).is_none_or(|d| text(&d.row, "status") != Some("uncollectible")) {
             continue;
         }
-        let invoice: Option<Value> = sqlx::query_scalar(concat!(
-            "select ",
-            crate::books_row!(invoices),
-            " from invoices t where t.id = $1 limit 1"
-        ))
-        .bind(invoice_id)
-        .fetch_optional(db)
-        .await?;
-        let invoice = invoice.map_or(Value::Null, |row| INVOICES.js(row));
+        let invoice = invoices::Entity::find_by_id(invoice_id.to_owned())
+            .one(&orm(db))
+            .await?
+            .map(js)
+            .transpose()?
+            .unwrap_or(Value::Null);
         let (recovery, _) = post_bad_debt_recovery(
             db,
             &invoice,
@@ -966,6 +991,7 @@ pub async fn record_payment(
             .collect(),
         fully_allocated: !allocations.is_empty() && (allocated_total - input.amount).abs() < 0.005,
         now: at,
+        stamp,
     };
     let posted = post_journal_entry(
         db,
@@ -1034,6 +1060,30 @@ pub async fn record_payment(
     })
 }
 
+/// A payment's live allocations: invoice, bill, and the amount as Postgres
+/// prints it (`amount::text`).
+async fn allocation_amounts(
+    db: &PgPool,
+    payment_id: &str,
+) -> Result<Vec<(Option<String>, Option<String>, String)>, DbErr> {
+    use sea_orm::ExprTrait as _;
+    payment_allocations::Entity::find()
+        .select_only()
+        .columns([
+            payment_allocations::Column::InvoiceId,
+            payment_allocations::Column::BillId,
+        ])
+        .column_as(
+            Expr::col(payment_allocations::Column::Amount).cast_as("text"),
+            "amount",
+        )
+        .filter(payment_allocations::Column::PaymentId.eq(payment_id))
+        .filter(payment_allocations::Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&orm(db))
+        .await
+}
+
 /// `voidPayment(db, paymentId, opts)`: reverse its journal entry (and FX
 /// entry), put the paid amounts back, release the bank line, soft-delete the
 /// payment and its allocations. The payment as it was.
@@ -1044,15 +1094,13 @@ pub async fn void_payment(
     user_id: Option<String>,
     date: Option<String>,
 ) -> Result<Value, PostError> {
-    let payment: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        crate::books_row!(payments),
-        " from payments t where t.id = $1 and t.deleted_at is null limit 1"
-    ))
-    .bind(payment_id)
-    .fetch_optional(db)
-    .await?;
-    let Some(payment) = payment.map(|row| PAYMENTS.js(row)) else {
+    let payment = payments::Entity::find_by_id(payment_id.to_owned())
+        .filter(payments::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?
+        .map(js)
+        .transpose()?;
+    let Some(payment) = payment else {
         return Err(posting("Payment not found"));
     };
     if filled(&payment, "depositId").is_some() {
@@ -1060,12 +1108,7 @@ pub async fn void_payment(
             "This payment is part of a bank deposit. Void the deposit first, then void the payment.",
         ));
     }
-    let rows: Vec<(Option<String>, Option<String>, String)> = sqlx::query_as(
-        "select invoice_id, bill_id, amount::text from payment_allocations where payment_id = $1 and deleted_at is null",
-    )
-    .bind(payment_id)
-    .fetch_all(db)
-    .await?;
+    let rows = allocation_amounts(db, payment_id).await?;
     // Payments recorded before allocations existed settle one document with their full amount.
     let allocations: Vec<(Option<String>, Option<String>, f64)> = if !rows.is_empty() {
         rows.into_iter()
@@ -1080,7 +1123,7 @@ pub async fn void_payment(
     } else {
         Vec::new()
     };
-    let at = date.unwrap_or_else(now);
+    let at = date.unwrap_or_else(|| now_both().0);
     let invoice_ids: Vec<String> = allocations
         .iter()
         .filter_map(|(invoice, _, _)| invoice.clone().filter(|id| !id.is_empty()))
@@ -1096,18 +1139,22 @@ pub async fn void_payment(
     let undo_at = at.clone();
     let undo: AlsoWrite = Box::new(move |conn, _posted| {
         Box::pin(async move {
-            sqlx::query("update payments set deleted_at = $1::timestamp, updated_at = $1::timestamp where id = $2")
-                .bind(&undo_at)
-                .bind(&id)
-                .execute(&mut *conn)
+            use bank_transactions::Column as Line;
+            use sea_orm::ExprTrait as _;
+            // `$1::timestamp`: the void date as given (or now), read by Postgres.
+            let undo_stamp = || Expr::val(undo_at.as_str()).cast_as("timestamp");
+            payments::Entity::update_many()
+                .col_expr(payments::Column::DeletedAt, undo_stamp())
+                .col_expr(payments::Column::UpdatedAt, undo_stamp())
+                .filter(payments::Column::Id.eq(id.as_str()))
+                .exec(&OrmConn::new(&mut *conn))
                 .await?;
-            sqlx::query(
-                "update payment_allocations set deleted_at = $1::timestamp, updated_at = $1::timestamp where payment_id = $2",
-            )
-            .bind(&undo_at)
-            .bind(&id)
-            .execute(&mut *conn)
-            .await?;
+            payment_allocations::Entity::update_many()
+                .col_expr(payment_allocations::Column::DeletedAt, undo_stamp())
+                .col_expr(payment_allocations::Column::UpdatedAt, undo_stamp())
+                .filter(payment_allocations::Column::PaymentId.eq(id.as_str()))
+                .exec(&OrmConn::new(&mut *conn))
+                .await?;
             for (invoice, bill, amount) in &allocations {
                 if let Some(invoice) = invoice.as_deref().filter(|i| !i.is_empty()) {
                     if recovered.iter().any(|r| r == invoice) {
@@ -1119,17 +1166,22 @@ pub async fn void_payment(
                     settle(&mut *conn, false, bill, -amount).await?;
                 }
             }
-            sqlx::query(
-                "update bank_transactions set status = 'unreconciled', reconciliation_type = null, \
-                 reconciled_payment_id = null, reconciled_invoice_id = null, reconciled_bill_id = null, \
-                 journal_entry_id = null, updated_at = $1::timestamp \
-                 where reconciled_payment_id = $2 or ($3::text is not null and id = $3)",
-            )
-            .bind(&undo_at)
-            .bind(&id)
-            .bind(bank_transaction_id.as_deref())
-            .execute(&mut *conn)
-            .await?;
+            let mut released = Condition::any().add(Line::ReconciledPaymentId.eq(id.as_str()));
+            if let Some(line) = bank_transaction_id.as_deref() {
+                released = released.add(Line::Id.eq(line));
+            }
+            let none = || Expr::val(Option::<String>::None);
+            bank_transactions::Entity::update_many()
+                .col_expr(Line::Status, Expr::val("unreconciled"))
+                .col_expr(Line::ReconciliationType, none())
+                .col_expr(Line::ReconciledPaymentId, none())
+                .col_expr(Line::ReconciledInvoiceId, none())
+                .col_expr(Line::ReconciledBillId, none())
+                .col_expr(Line::JournalEntryId, none())
+                .col_expr(Line::UpdatedAt, undo_stamp())
+                .filter(released)
+                .exec(&OrmConn::new(&mut *conn))
+                .await?;
             Ok(())
         })
     });
@@ -1180,8 +1232,8 @@ pub async fn void_payment(
             journal_entry_id: String::new(),
             entry_number: String::new(),
         };
-        weldsuite_db::atomically_with::<_, (), sqlx::Error, _>(db, move |conn| {
-            Box::pin(async move { undo(conn, &posted).await })
+        weldsuite_db::atomically_with::<_, (), PostError, _>(db, move |conn| {
+            Box::pin(async move { Ok(undo(conn, &posted).await?) })
         })
         .await?;
     }

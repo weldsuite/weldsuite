@@ -9,14 +9,18 @@
 //! url is `null`, and a failed lookup is logged and answers `null` for
 //! everyone rather than failing the response it decorates.
 //!
-//! The lookup is one `select … where id = any($1)` on the master database per
+//! The lookup is one `select … where id in (…)` on the master database per
 //! call, so batch: collect the user ids of a whole response, then resolve them
 //! together.
 
 use std::collections::HashMap;
 
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::Value;
 use sqlx::PgPool;
+use weldsuite_schema::master::users;
+
+use crate::orm::orm;
 
 /// User id → account picture URL. Users without one are absent.
 #[derive(Debug, Clone, Default)]
@@ -52,13 +56,14 @@ impl AccountPictures {
             return Some(Self::default());
         }
         let master = master?;
-        match sqlx::query_as::<_, (String, Option<String>)>(
-            "select id, image_url from users where id = any($1)",
-        )
-        .bind(&ids)
-        .fetch_all(master)
-        .await
-        {
+        let rows: Result<Vec<(String, Option<String>)>, _> = users::Entity::find()
+            .select_only()
+            .columns([users::Column::Id, users::Column::ImageUrl])
+            .filter(users::Column::Id.is_in(ids))
+            .into_tuple()
+            .all(&orm(master))
+            .await;
+        match rows {
             Ok(rows) => Some(Self(
                 rows.into_iter()
                     .filter_map(|(id, url)| url.filter(|url| !url.is_empty()).map(|url| (id, url)))

@@ -3,9 +3,12 @@
 //! outcome, the reason and what changed. The table has no foreign key to
 //! `workspaces`, so the trail outlives a teardown (ADR SEC-009).
 
+use sea_orm::{ConnectionTrait, DbErr, EntityTrait, Set};
 use serde_json::Value;
 use sqlx::PgPool;
+use weldsuite_db::orm;
 use weldsuite_kit::generate_id;
+use weldsuite_schema::master::admin_audit_events;
 
 /// `actor_user_id` of a row written by `weldsuite admin`: the console writes
 /// the admin's Clerk user id there; a command has no session, so this marks
@@ -25,47 +28,44 @@ pub struct AuditEntry<'a> {
     pub details: Option<Value>,
 }
 
-/// Writes a `success` row; inside the write's transaction, so the change and
-/// its row commit together.
-pub async fn record_success<'e>(
-    db: impl sqlx::PgExecutor<'e>,
+/// Writes a `success` row; inside the write's transaction (its
+/// `weldsuite_db::OrmConn`), so the change and its row commit together.
+pub async fn record_success<C: ConnectionTrait>(
+    db: &C,
     entry: &AuditEntry<'_>,
-) -> Result<(), sqlx::Error> {
+) -> Result<(), DbErr> {
     insert(db, entry, "success", None).await
 }
 
 /// Writes a `failure` row for a write that was refused or failed after the
 /// actor was known. Never fails: the refusal is what the caller reports.
 pub async fn record_failure(master: &PgPool, entry: &AuditEntry<'_>, error: &str) {
-    if let Err(db_error) = insert(master, entry, "failure", Some(error)).await {
+    if let Err(db_error) = insert(&orm(master), entry, "failure", Some(error)).await {
         tracing::error!(%db_error, action = entry.action, "admin audit: recording a failure failed");
     }
 }
 
-async fn insert<'e>(
-    db: impl sqlx::PgExecutor<'e>,
+async fn insert<C: ConnectionTrait>(
+    db: &C,
     entry: &AuditEntry<'_>,
     outcome: &str,
     error: Option<&str>,
-) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "insert into admin_audit_events
-             (id, workspace_id, target_type, target_id, action, outcome,
-              actor_email, actor_user_id, reason, details, error)
-         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
-    )
-    .bind(generate_id("aae"))
-    .bind(entry.workspace_id)
-    .bind(entry.target_type)
-    .bind(entry.target_id)
-    .bind(entry.action)
-    .bind(outcome)
-    .bind(entry.actor_email)
-    .bind(CLI_ACTOR_ID)
-    .bind(entry.reason)
-    .bind(entry.details.clone())
-    .bind(error)
-    .execute(db)
+) -> Result<(), DbErr> {
+    admin_audit_events::Entity::insert(admin_audit_events::ActiveModel {
+        id: Set(generate_id("aae")),
+        workspace_id: Set(entry.workspace_id.map(str::to_owned)),
+        target_type: Set(entry.target_type.to_owned()),
+        target_id: Set(entry.target_id.to_owned()),
+        action: Set(entry.action.to_owned()),
+        outcome: Set(outcome.to_owned()),
+        actor_email: Set(entry.actor_email.to_owned()),
+        actor_user_id: Set(Some(CLI_ACTOR_ID.to_owned())),
+        reason: Set(entry.reason.map(str::to_owned)),
+        details: Set(entry.details.clone()),
+        error: Set(error.map(str::to_owned)),
+        ..Default::default()
+    })
+    .exec_without_returning(db)
     .await
     .map(|_| ())
 }

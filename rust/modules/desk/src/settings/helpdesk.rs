@@ -12,17 +12,21 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, patch, post, put};
 use axum::{Extension, Json, Router};
 use http::{HeaderMap, StatusCode};
+use sea_orm::sea_query::Expr;
+use sea_orm::{ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, PaginatorTrait, QueryFilter};
 use serde_json::{Map, Value, json};
+use time::PrimitiveDateTime;
 use weldsuite_catalogs::entity_events as ev;
-use weldsuite_db::{PgPool, Tenant};
+use weldsuite_db::{PgPool, Tenant, orm, utc_now};
 use weldsuite_kit::validation::Presence;
 use weldsuite_kit::{ApiError, Created, Data, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::master::widget_registry;
+use weldsuite_schema::tenant::{helpdesk_settings, helpdesk_widget_settings as widgets};
 
 use super::tables::HELPDESK_WIDGET_SETTINGS as WIDGETS;
-use super::{Opt, lenient_json, master, read_optional};
+use super::{Opt, lenient_json, master, read_optional, stamp};
 use crate::crud::write_failed;
-use crate::tables::HELPDESK_SETTINGS;
 use crate::{Caller, DeskState, Refusal, now, validate};
 
 pub(super) fn routes<Q>(gate: &Arc<PermissionGate<Q>>) -> Router<DeskState>
@@ -164,24 +168,29 @@ fn read_widget(headers: &HeaderMap, body: &Bytes) -> Result<Map<String, Value>, 
 
 // ── the singleton ───────────────────────────────────────────────────────────
 
+/// A row as Drizzle returns it.
+fn js<T: serde::Serialize>(row: Option<T>) -> Result<Option<Value>, DbErr> {
+    row.map(serde_json::to_value)
+        .transpose()
+        .map_err(|error| DbErr::Json(error.to_string()))
+}
+
 /// The live settings row: `select … where deleted_at is null limit 1`.
-async fn settings_row(db: &PgPool) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from helpdesk_settings t where t.deleted_at is null limit 1",
-    )
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(|row| HELPDESK_SETTINGS.js(row)))
+async fn settings_row(db: &PgPool) -> Result<Option<Value>, DbErr> {
+    let row = helpdesk_settings::Entity::find()
+        .filter(helpdesk_settings::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?;
+    js(row)
 }
 
 /// The first live legacy widget.
-async fn first_widget(db: &PgPool) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from helpdesk_widget_settings t where t.deleted_at is null limit 1",
-    )
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(|row| WIDGETS.js(row)))
+async fn first_widget(db: &PgPool) -> Result<Option<Value>, DbErr> {
+    let row = widgets::Entity::find()
+        .filter(widgets::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?;
+    js(row)
 }
 
 async fn overview(caller: Caller) -> Response {
@@ -207,9 +216,9 @@ async fn save_section(
     section: &str,
     value: impl FnOnce(Option<&Value>) -> Value,
     event_value: Value,
-) -> Result<(), sqlx::Error> {
+) -> Result<(), DbErr> {
     let existing = settings_row(&caller.db).await?;
-    let now = now();
+    let now = utc_now();
     let (id, section_value) = match &existing {
         Some(row) => (
             row["id"].as_str().unwrap_or_default().to_owned(),
@@ -217,14 +226,33 @@ async fn save_section(
         ),
         None => (generate_id("hds"), value(None)),
     };
-    let (update, insert) = statements(section);
-    let sql = if existing.is_some() { update } else { insert };
-    sqlx::query(sql)
-        .bind(&id)
-        .bind(&section_value)
-        .bind(&now)
-        .execute(&caller.db)
-        .await?;
+    let column = section_column(section);
+    let db = orm(&caller.db);
+    if existing.is_some() {
+        helpdesk_settings::Entity::update_many()
+            .col_expr(column, Expr::value(section_value))
+            .col_expr(helpdesk_settings::Column::UpdatedAt, Expr::value(now))
+            .filter(helpdesk_settings::Column::Id.eq(&id))
+            .exec(&db)
+            .await?;
+    } else {
+        let mut row = helpdesk_settings::ActiveModel {
+            id: Set(id.clone()),
+            created_at: Set(now),
+            updated_at: Set(now),
+            ..Default::default()
+        };
+        let section_value = Set(Some(section_value));
+        match column {
+            helpdesk_settings::Column::Notifications => row.notifications = section_value,
+            helpdesk_settings::Column::Automation => row.automation = section_value,
+            helpdesk_settings::Column::Tickets => row.tickets = section_value,
+            _ => row.satisfaction = section_value,
+        }
+        helpdesk_settings::Entity::insert(row)
+            .exec_without_returning(&db)
+            .await?;
+    }
     let mut data = Map::new();
     data.insert(section.to_owned(), event_value);
     caller.publish(
@@ -236,30 +264,13 @@ async fn save_section(
     Ok(())
 }
 
-/// The update and the insert of one section: `$1` id, `$2` the section,
-/// `$3` now.
-fn statements(section: &str) -> (&'static str, &'static str) {
+/// The column of one section.
+fn section_column(section: &str) -> helpdesk_settings::Column {
     match section {
-        "notifications" => (
-            "update helpdesk_settings set notifications = $2::jsonb, updated_at = $3::timestamp where id = $1",
-            "insert into helpdesk_settings (id, notifications, created_at, updated_at)
-             values ($1, $2::jsonb, $3::timestamp, $3::timestamp)",
-        ),
-        "automation" => (
-            "update helpdesk_settings set automation = $2::jsonb, updated_at = $3::timestamp where id = $1",
-            "insert into helpdesk_settings (id, automation, created_at, updated_at)
-             values ($1, $2::jsonb, $3::timestamp, $3::timestamp)",
-        ),
-        "tickets" => (
-            "update helpdesk_settings set tickets = $2::jsonb, updated_at = $3::timestamp where id = $1",
-            "insert into helpdesk_settings (id, tickets, created_at, updated_at)
-             values ($1, $2::jsonb, $3::timestamp, $3::timestamp)",
-        ),
-        _ => (
-            "update helpdesk_settings set satisfaction = $2::jsonb, updated_at = $3::timestamp where id = $1",
-            "insert into helpdesk_settings (id, satisfaction, created_at, updated_at)
-             values ($1, $2::jsonb, $3::timestamp, $3::timestamp)",
-        ),
+        "notifications" => helpdesk_settings::Column::Notifications,
+        "automation" => helpdesk_settings::Column::Automation,
+        "tickets" => helpdesk_settings::Column::Tickets,
+        _ => helpdesk_settings::Column::Satisfaction,
     }
 }
 
@@ -496,43 +507,44 @@ async fn register(
     workspace_id: &str,
     widget_id: &str,
     name: &str,
-    now: &str,
+    now: PrimitiveDateTime,
 ) {
     let Some(master) = master(caller, state) else {
         return;
     };
-    let inserted = sqlx::query(
-        "insert into widget_registry (id, widget_id, workspace_id, widget_name, is_active, created_at, updated_at)
-         values ($1, $2, $3, $4, true, $5::timestamp, $5::timestamp)",
-    )
-    .bind(generate_id("wr"))
-    .bind(widget_id)
-    .bind(workspace_id)
-    .bind(name)
-    .bind(now)
-    .execute(&master)
+    let inserted = widget_registry::Entity::insert(widget_registry::ActiveModel {
+        id: Set(generate_id("wr")),
+        widget_id: Set(widget_id.to_owned()),
+        workspace_id: Set(workspace_id.to_owned()),
+        widget_name: Set(Some(name.to_owned())),
+        is_active: Set(true),
+        created_at: Set(now),
+        updated_at: Set(now),
+    })
+    .exec_without_returning(&orm(&master))
     .await;
     if let Err(error) = inserted {
         tracing::warn!(%error, "[desk-api/helpdesk-settings] widget registry insert failed");
     }
 }
 
-/// A master `widget_registry` update by widget id; errors are swallowed.
+/// A master `widget_registry` update by widget id: `column` set to
+/// `value`; errors are swallowed.
 async fn update_registry(
     caller: &Caller,
     state: &DeskState,
-    sql: &'static str,
     widget_id: &str,
-    value: &Value,
+    column: widget_registry::Column,
+    value: Expr,
 ) {
     let Some(master) = master(caller, state) else {
         return;
     };
-    let updated = sqlx::query(sql)
-        .bind(widget_id)
-        .bind(value)
-        .bind(now())
-        .execute(&master)
+    let updated = widget_registry::Entity::update_many()
+        .col_expr(column, value)
+        .col_expr(widget_registry::Column::UpdatedAt, Expr::value(utc_now()))
+        .filter(widget_registry::Column::WidgetId.eq(widget_id))
+        .exec(&orm(&master))
         .await;
     if let Err(error) = updated {
         tracing::warn!(%error, "[desk-api/helpdesk-settings] widget registry update failed");
@@ -566,7 +578,7 @@ async fn primary_widget(
         None => {
             let id = generate_id("wgt");
             let widget_id = generate_id("widget");
-            let now = now();
+            let (now, at) = stamp();
             let mut values = Map::new();
             WIDGETS.set(&mut values, "id", json!(id));
             WIDGETS.set(&mut values, "widgetId", json!(widget_id));
@@ -591,7 +603,7 @@ async fn primary_widget(
                 &tenant.workspace_id,
                 &widget_id,
                 "Default Widget",
-                &now,
+                at,
             )
             .await;
             Data(created).into_response()
@@ -599,15 +611,13 @@ async fn primary_widget(
         Some(mut row) if row["widgetId"].as_str().is_none_or(str::is_empty) => {
             let id = row["id"].as_str().unwrap_or_default().to_owned();
             let widget_id = generate_id("widget");
-            let now = now();
-            let updated = sqlx::query(
-                "update helpdesk_widget_settings set widget_id = $2, updated_at = $3::timestamp where id = $1",
-            )
-            .bind(&id)
-            .bind(&widget_id)
-            .bind(&now)
-            .execute(&caller.db)
-            .await;
+            let now = utc_now();
+            let updated = widgets::Entity::update_many()
+                .col_expr(widgets::Column::WidgetId, Expr::value(&widget_id))
+                .col_expr(widgets::Column::UpdatedAt, Expr::value(now))
+                .filter(widgets::Column::Id.eq(&id))
+                .exec(&orm(&caller.db))
+                .await;
             if let Err(error) = updated {
                 return Refusal::from(error).respond(message);
             }
@@ -621,7 +631,7 @@ async fn primary_widget(
                 &tenant.workspace_id,
                 &widget_id,
                 &name,
-                &now,
+                now,
             )
             .await;
             // `{ ...widgetSettings, widgetId }`: the row as read, with the
@@ -660,7 +670,7 @@ async fn save_primary(
         Ok(row) => row,
         Err(error) => return Refusal::from(error).respond(message),
     };
-    let now = now();
+    let (now, at) = stamp();
     if let Some(existing) = existing {
         let id = existing["id"].as_str().unwrap_or_default().to_owned();
         let mut values = Map::new();
@@ -708,15 +718,7 @@ async fn save_primary(
     {
         return write_failed(&error, message);
     }
-    register(
-        &caller,
-        &state,
-        &tenant.workspace_id,
-        &widget_id,
-        &name,
-        &now,
-    )
-    .await;
+    register(&caller, &state, &tenant.workspace_id, &widget_id, &name, at).await;
     caller.publish(
         &state,
         ev::HELPDESK_SETTINGS_UPDATED,
@@ -808,16 +810,12 @@ async fn toggle_enabled(State(state): State<DeskState>, caller: Caller, body: By
 // ── the widgets ─────────────────────────────────────────────────────────────
 
 async fn list_widgets(caller: Caller) -> Response {
-    let rows: Result<Vec<Value>, _> = sqlx::query_scalar(
-        "select to_jsonb(t) from helpdesk_widget_settings t where t.deleted_at is null",
-    )
-    .fetch_all(&caller.db)
-    .await;
+    let rows = widgets::Entity::find()
+        .filter(widgets::Column::DeletedAt.is_null())
+        .all(&orm(&caller.db))
+        .await;
     match rows {
-        Ok(rows) => Data(Value::Array(
-            rows.into_iter().map(|row| WIDGETS.js(row)).collect(),
-        ))
-        .into_response(),
+        Ok(rows) => Data(json!(rows)).into_response(),
         Err(error) => Refusal::from(error).respond("Failed to list widgets"),
     }
 }
@@ -836,7 +834,7 @@ async fn create_widget(
     };
     let id = generate_id("wgt");
     let widget_id = generate_id("widget");
-    let now = now();
+    let (now, at) = stamp();
     let name = data
         .get("widgetName")
         .and_then(Value::as_str)
@@ -862,30 +860,20 @@ async fn create_widget(
     {
         return write_failed(&error, message);
     }
-    register(
-        &caller,
-        &state,
-        &tenant.workspace_id,
-        &widget_id,
-        &name,
-        &now,
-    )
-    .await;
+    register(&caller, &state, &tenant.workspace_id, &widget_id, &name, at).await;
     let created = json!({ "id": id, "widgetId": widget_id, "widgetName": name });
     caller.publish(&state, ev::HELPDESK_WIDGET_CREATED, &id, &created);
     Created(created).into_response()
 }
 
 /// The live widget with this widget id.
-async fn widget_by_widget_id(db: &PgPool, widget_id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from helpdesk_widget_settings t
-         where t.widget_id = $1 and t.deleted_at is null limit 1",
-    )
-    .bind(widget_id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(|row| WIDGETS.js(row)))
+async fn widget_by_widget_id(db: &PgPool, widget_id: &str) -> Result<Option<Value>, DbErr> {
+    let row = widgets::Entity::find()
+        .filter(widgets::Column::WidgetId.eq(widget_id))
+        .filter(widgets::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?;
+    js(row)
 }
 
 async fn widget_detail(caller: Caller, Path(widget_id): Path<String>) -> Response {
@@ -925,12 +913,18 @@ async fn update_widget(
         return write_failed(&error, message);
     }
     if let Some(name) = data.get("widgetName") {
+        // `widgetName: data.widgetName`: the schema lets only a string through.
+        let name = match name {
+            Value::String(name) => Some(name.clone()),
+            Value::Null => None,
+            other => Some(other.to_string()),
+        };
         update_registry(
             &caller,
             &state,
-            "update widget_registry set widget_name = $2::jsonb #>> '{}', updated_at = $3::timestamp where widget_id = $1",
             &widget_id,
-            name,
+            widget_registry::Column::WidgetName,
+            Expr::value(name),
         )
         .await;
     }
@@ -954,11 +948,10 @@ async fn delete_widget(
         Ok(None) => return Refusal::not_found("Widget", &widget_id).respond(message),
         Err(error) => return Refusal::from(error).respond(message),
     };
-    let count: Result<i32, _> = sqlx::query_scalar(
-        "select count(*)::int from helpdesk_widget_settings where deleted_at is null",
-    )
-    .fetch_one(&caller.db)
-    .await;
+    let count = widgets::Entity::find()
+        .filter(widgets::Column::DeletedAt.is_null())
+        .count(&orm(&caller.db))
+        .await;
     match count {
         Ok(count) if count <= 1 => {
             return (
@@ -971,23 +964,22 @@ async fn delete_widget(
         Err(error) => return Refusal::from(error).respond(message),
     }
     let id = existing["id"].as_str().unwrap_or_default().to_owned();
-    let now = now();
-    let deleted = sqlx::query(
-        "update helpdesk_widget_settings set deleted_at = $2::timestamp, updated_at = $2::timestamp where id = $1",
-    )
-    .bind(&id)
-    .bind(&now)
-    .execute(&caller.db)
-    .await;
+    let now = utc_now();
+    let deleted = widgets::Entity::update_many()
+        .col_expr(widgets::Column::DeletedAt, Expr::value(now))
+        .col_expr(widgets::Column::UpdatedAt, Expr::value(now))
+        .filter(widgets::Column::Id.eq(&id))
+        .exec(&orm(&caller.db))
+        .await;
     if let Err(error) = deleted {
         return Refusal::from(error).respond(message);
     }
     update_registry(
         &caller,
         &state,
-        "update widget_registry set is_active = ($2::jsonb)::boolean, updated_at = $3::timestamp where widget_id = $1",
         &widget_id,
-        &Value::Bool(false),
+        widget_registry::Column::IsActive,
+        Expr::value(false),
     )
     .await;
     caller.publish(

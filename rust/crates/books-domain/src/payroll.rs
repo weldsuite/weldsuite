@@ -9,10 +9,14 @@
 //! CSV and Gusto imports (the payroll routes) build their lines in the
 //! reports area and post through [`post_payroll_import`] too.
 
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
-use sqlx::PgPool;
+use weldsuite_db::{OrmConn, PgPool, orm, utc_now};
 use weldsuite_kit::generate_id;
+use weldsuite_schema::tenant::{entities, payroll_imports};
 
+use crate::db_values::to_json;
 use crate::guards::{AuditInput, PostingLockKind, write_audit};
 use crate::http::now;
 use crate::js::{math_round, to_fixed};
@@ -413,8 +417,8 @@ impl From<PostError> for PayrollError {
     }
 }
 
-impl From<sqlx::Error> for PayrollError {
-    fn from(error: sqlx::Error) -> Self {
+impl From<DbErr> for PayrollError {
+    fn from(error: DbErr) -> Self {
         Self::Post(PostError::Database(error))
     }
 }
@@ -454,18 +458,15 @@ pub async fn find_import_by_external_id(
     entity_id: &str,
     source: &str,
     external_id: &str,
-) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        crate::books_row!(payroll_imports),
-        " from payroll_imports t where t.entity_id = $1 and t.source = $2 and t.external_id = $3 limit 1"
-    ))
-    .bind(entity_id)
-    .bind(source)
-    .bind(external_id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(|row| PAYROLL_IMPORTS.js(row)))
+) -> Result<Option<Value>, DbErr> {
+    payroll_imports::Entity::find()
+        .filter(payroll_imports::Column::EntityId.eq(entity_id))
+        .filter(payroll_imports::Column::Source.eq(source))
+        .filter(payroll_imports::Column::ExternalId.eq(external_id))
+        .one(&orm(db))
+        .await?
+        .map(to_json)
+        .transpose()
 }
 
 fn duplicate_of(row: &Value) -> PayrollError {
@@ -476,7 +477,7 @@ fn duplicate_of(row: &Value) -> PayrollError {
 }
 
 fn is_unique_violation(error: &PostError) -> bool {
-    matches!(error, PostError::Database(sqlx::Error::Database(db)) if db.code().as_deref() == Some("23505"))
+    matches!(error, PostError::Database(failed) if weldsuite_db::is_unique_violation(failed))
 }
 
 /// `postPayrollImport(db, args)`: the entry and the import row, once.
@@ -573,15 +574,12 @@ pub async fn reverse_payroll_import(
     user_id: Option<String>,
     date: Option<String>,
 ) -> Result<Value, PostError> {
-    let row: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        crate::books_row!(payroll_imports),
-        " from payroll_imports t where t.id = $1 limit 1"
-    ))
-    .bind(import_id)
-    .fetch_optional(db)
-    .await?;
-    let Some(mut row) = row.map(|row| PAYROLL_IMPORTS.js(row)) else {
+    let row = payroll_imports::Entity::find_by_id(import_id.to_owned())
+        .one(&orm(db))
+        .await?
+        .map(to_json)
+        .transpose()?;
+    let Some(mut row) = row else {
         return Err(failure("Payroll import not found"));
     };
     if row["status"].as_str() == Some("reversed") {
@@ -601,10 +599,11 @@ pub async fn reverse_payroll_import(
     let id = import_id.to_owned();
     let write: AlsoWrite = Box::new(move |conn, _posted| {
         Box::pin(async move {
-            sqlx::query("update payroll_imports set status = 'reversed', updated_at = $1::timestamp where id = $2")
-                .bind(now())
-                .bind(&id)
-                .execute(&mut *conn)
+            payroll_imports::Entity::update_many()
+                .col_expr(payroll_imports::Column::Status, Expr::value("reversed"))
+                .col_expr(payroll_imports::Column::UpdatedAt, Expr::value(utc_now()))
+                .filter(payroll_imports::Column::Id.eq(&id))
+                .exec(&OrmConn::new(conn))
                 .await?;
             Ok(())
         })
@@ -676,12 +675,15 @@ pub async fn post_weldhr_import(
     db: &PgPool,
     input: WeldHrImport,
     audit_user: Option<&str>,
-) -> Result<WeldHrReply, sqlx::Error> {
-    let entity: Option<String> =
-        sqlx::query_scalar("select id from entities where id = $1 and deleted_at is null limit 1")
-            .bind(&input.entity_id)
-            .fetch_optional(db)
-            .await?;
+) -> Result<WeldHrReply, DbErr> {
+    let entity: Option<String> = entities::Entity::find()
+        .select_only()
+        .column(entities::Column::Id)
+        .filter(entities::Column::Id.eq(&input.entity_id))
+        .filter(entities::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     if entity.is_none() {
         return Ok(WeldHrReply::EntityNotFound);
     }
@@ -779,7 +781,7 @@ pub async fn post_weldhr_import(
 }
 
 /// `isPayrollFailure(err)` is a 400 with its message; anything else the 500.
-fn failure_reply(error: PostError) -> Result<WeldHrReply, sqlx::Error> {
+fn failure_reply(error: PostError) -> Result<WeldHrReply, DbErr> {
     match error {
         PostError::Database(error) => Err(error),
         other => Ok(WeldHrReply::BadRequest(

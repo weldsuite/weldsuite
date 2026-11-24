@@ -3,14 +3,18 @@
 //! progress, upload a file or a signature. Nothing is written to the tenant
 //! database until there is something to keep.
 
+use sea_orm::sea_query::{Expr, OnConflict};
+use sea_orm::{ActiveValue::Set, ColumnTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 use serde_json::{Map, Value, json};
-use sqlx::types::Json;
+use weldsuite_db::orm;
 use weldsuite_ports::PutOptions;
+use weldsuite_schema::master::form_invitation_registry;
+use weldsuite_schema::tenant::{form_invitations, form_response_files, form_responses};
 
 use crate::bot_check;
 use crate::common::{
-    Ctx, Fail, FormsResult, forms_error, forms_error_with, iso, js_slice, not_found, one, opt_text,
-    text,
+    Ctx, Fail, FormsResult, forms_error, forms_error_with, instant, iso, js_slice, not_found,
+    opt_text, row_json, text,
 };
 use crate::counters::{Counters, rate_limited};
 use crate::crypto::sha256_hex;
@@ -49,36 +53,29 @@ fn revoked() -> Fail {
 
 /// `resolveInvitation(ctx, link, token)`: 410 when revoked, 404 when unknown.
 async fn resolve_invitation(ctx: &Ctx, link: &Link, token: &str) -> FormsResult<Invitation> {
-    let entry = one(
-        ctx.master()?,
-        sqlx::query_scalar(
-            "select to_jsonb(r) from form_invitation_registry r where token_hash = $1 limit 1",
-        )
-        .bind(sha256_hex(token.as_bytes())),
-    )
-    .await?;
-    let Some(entry) = entry.filter(|e| {
-        text(e, "workspaceId") == link.workspace_id && text(e, "formId") == link.form_id
-    }) else {
+    let entry = form_invitation_registry::Entity::find()
+        .filter(form_invitation_registry::Column::TokenHash.eq(sha256_hex(token.as_bytes())))
+        .one(&orm(ctx.master()?))
+        .await?;
+    let Some(entry) =
+        entry.filter(|e| e.workspace_id == link.workspace_id && e.form_id == link.form_id)
+    else {
         return Err(not_found("Invitation"));
     };
-    if !entry["revokedAt"].is_null() {
+    if entry.revoked_at.is_some() {
         return Err(revoked());
     }
-    let row = one(
-        &ctx.db,
-        sqlx::query_scalar("select to_jsonb(i) from form_invitations i where id = $1 limit 1")
-            .bind(text(&entry, "invitationId")),
-    )
-    .await?
-    .ok_or_else(|| not_found("Invitation"))?;
-    if text(&row, "status") == "revoked" || !row["revokedAt"].is_null() {
+    let row = form_invitations::Entity::find_by_id(entry.invitation_id)
+        .one(&orm(&ctx.db))
+        .await?
+        .ok_or_else(|| not_found("Invitation"))?;
+    if row.status == "revoked" || row.revoked_at.is_some() {
         return Err(revoked());
     }
     Ok(Invitation {
-        id: text(&row, "id").to_owned(),
-        email: text(&row, "email").to_owned(),
-        status: text(&row, "status").to_owned(),
+        id: row.id,
+        email: row.email,
+        status: row.status,
     })
 }
 
@@ -98,13 +95,22 @@ pub(crate) struct StartArgs<'a> {
     pub(crate) now_ms: i64,
 }
 
+/// The form's response with `column = value`, the most recently updated
+/// first (`newest`).
 async fn latest_response(
     ctx: &Ctx,
-    sql: &'static str,
     form_id: &str,
+    column: form_responses::Column,
     value: &str,
+    newest: bool,
 ) -> FormsResult<Option<Value>> {
-    one(&ctx.db, sqlx::query_scalar(sql).bind(form_id).bind(value)).await
+    let mut find = form_responses::Entity::find()
+        .filter(form_responses::Column::FormId.eq(form_id))
+        .filter(column.eq(value));
+    if newest {
+        find = find.order_by_desc(form_responses::Column::UpdatedAt);
+    }
+    find.one(&orm(&ctx.db)).await?.map(row_json).transpose()
 }
 
 /// `startSession(args)`: the `StartSessionResult`.
@@ -194,9 +200,10 @@ where
     if let Some(resume) = &resume {
         existing = latest_response(
             &ctx,
-            "select to_jsonb(r) from form_responses r where form_id = $1 and id = $2 limit 1",
             &link.form_id,
+            form_responses::Column::Id,
             &resume.resp,
+            false,
         )
         .await?;
     }
@@ -205,10 +212,10 @@ where
     {
         existing = latest_response(
             &ctx,
-            "select to_jsonb(r) from form_responses r where form_id = $1 and invitation_id = $2 \
-             order by updated_at desc limit 1",
             &link.form_id,
+            form_responses::Column::InvitationId,
             &invitation.id,
+            true,
         )
         .await?;
     }
@@ -216,19 +223,19 @@ where
         if let Some(email) = &email {
             existing = latest_response(
                 &ctx,
-                "select to_jsonb(r) from form_responses r where form_id = $1 and respondent_email = $2 \
-                 order by updated_at desc limit 1",
                 &link.form_id,
+                form_responses::Column::RespondentEmail,
                 email,
+                true,
             )
             .await?;
         } else if let Some(hash) = &browser_hash {
             existing = latest_response(
                 &ctx,
-                "select to_jsonb(r) from form_responses r where form_id = $1 and respondent_hash = $2 \
-                 order by updated_at desc limit 1",
                 &link.form_id,
+                form_responses::Column::RespondentHash,
                 hash,
+                true,
             )
             .await?;
         }
@@ -287,15 +294,15 @@ where
         save_seed(svc, &response_id, &seed).await?;
     }
     if let Some(invitation) = invitation.as_ref().filter(|i| i.status == "sent") {
-        let now = iso(now_ms);
-        sqlx::query(
-            "update form_invitations set status = 'opened', opened_at = $2::timestamptz, \
-             updated_at = $2::timestamptz where id = $1 and status = 'sent'",
-        )
-        .bind(&invitation.id)
-        .bind(&now)
-        .execute(&ctx.db)
-        .await?;
+        let now = instant(now_ms);
+        form_invitations::Entity::update_many()
+            .col_expr(form_invitations::Column::Status, Expr::value("opened"))
+            .col_expr(form_invitations::Column::OpenedAt, Expr::value(now))
+            .col_expr(form_invitations::Column::UpdatedAt, Expr::value(now))
+            .filter(form_invitations::Column::Id.eq(&invitation.id))
+            .filter(form_invitations::Column::Status.eq("sent"))
+            .exec(&orm(&ctx.db))
+            .await?;
     }
 
     let session = RespondentSession {
@@ -368,13 +375,8 @@ pub(crate) async fn save_progress(
     entry: &PublicCacheEntry,
     input: &SaveProgress,
 ) -> FormsResult<()> {
-    let now = iso(ctx.now_ms());
-    let existing = one(
-        &ctx.db,
-        sqlx::query_scalar("select to_jsonb(r) from form_responses r where id = $1 limit 1")
-            .bind(&session.resp),
-    )
-    .await?;
+    let now = instant(ctx.now_ms());
+    let existing = response_row(ctx, &session.resp).await?;
     if existing
         .as_ref()
         .is_some_and(|e| text(e, "status") == "completed")
@@ -416,76 +418,116 @@ pub(crate) async fn save_progress(
         if !timings.is_empty() {
             metadata.insert("timings".to_owned(), Value::Object(timings.clone()));
         }
-        let started_at = seed
-            .as_ref()
-            .map_or_else(|| now.clone(), |s| iso(s.started_at));
+        let started_at = seed.as_ref().map_or(now, |s| instant(s.started_at));
         let answered = valid.as_ref().map_or(0, Map::len);
-        let inserted: Option<String> = sqlx::query_scalar(
-            "insert into form_responses (id, form_id, version_id, status, answers, hidden, respondent_email, \
-             respondent_hash, invitation_id, last_block_id, answered_count, metadata, ip_hash, started_at, updated_at) \
-             values ($1, $2, $3, 'in_progress', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::timestamptz, $14::timestamptz) \
-             on conflict (id) do nothing returning id",
+        let inserted = form_responses::Entity::insert(form_responses::ActiveModel {
+            id: Set(session.resp.clone()),
+            form_id: Set(session.form.clone()),
+            version_id: Set(session.ver.clone()),
+            status: Set("in_progress".to_owned()),
+            answers: Set(Value::Object(valid.clone().unwrap_or_default())),
+            hidden: Set(Value::Object(
+                seed.as_ref().map(|s| s.hidden.clone()).unwrap_or_default(),
+            )),
+            respondent_email: Set(session.email.clone()),
+            respondent_hash: Set(seed.as_ref().and_then(|s| s.browser_hash.clone())),
+            invitation_id: Set(session.inv.clone()),
+            last_block_id: Set(Some(input.last_block_id.clone())),
+            answered_count: Set(i32::try_from(answered).unwrap_or(i32::MAX)),
+            metadata: Set(Value::Object(metadata)),
+            ip_hash: Set(seed.as_ref().and_then(|s| s.ip_hash.clone())),
+            started_at: Set(started_at),
+            updated_at: Set(now),
+            ..Default::default()
+        })
+        .on_conflict(
+            OnConflict::column(form_responses::Column::Id)
+                .do_nothing()
+                .to_owned(),
         )
-        .bind(&session.resp)
-        .bind(&session.form)
-        .bind(&session.ver)
-        .bind(Json(Value::Object(valid.clone().unwrap_or_default())))
-        .bind(Json(Value::Object(seed.as_ref().map(|s| s.hidden.clone()).unwrap_or_default())))
-        .bind(&session.email)
-        .bind(seed.as_ref().and_then(|s| s.browser_hash.clone()))
-        .bind(&session.inv)
-        .bind(&input.last_block_id)
-        .bind(i32::try_from(answered).unwrap_or(i32::MAX))
-        .bind(Json(Value::Object(metadata)))
-        .bind(seed.as_ref().and_then(|s| s.ip_hash.clone()))
-        .bind(&started_at)
-        .bind(&now)
-        .fetch_optional(&ctx.db)
+        .exec_without_returning(&orm(&ctx.db))
         .await?;
-        if inserted.is_some() {
-            mark_invitation_started(ctx, session, &now).await?;
+        if inserted > 0 {
+            mark_invitation_started(ctx, session, now).await?;
             return Ok(());
         }
     }
-    let mut q =
-        sqlx::QueryBuilder::<sqlx::Postgres>::new("update form_responses set last_block_id = ");
-    q.push_bind(input.last_block_id.clone());
-    if let Some(valid) = &valid {
-        q.push(", answers = ")
-            .push_bind(Json(Value::Object(valid.clone())))
-            .push(", answered_count = ")
-            .push_bind(i32::try_from(valid.len()).unwrap_or(i32::MAX));
+    update_progress(
+        ctx,
+        &session.resp,
+        &input.last_block_id,
+        valid.as_ref(),
+        timings_patch,
+        now,
+    )
+    .await?;
+    mark_invitation_started(ctx, session, now).await
+}
+
+/// The progress of a response that is still in progress: where the
+/// respondent is, the valid answers when the form keeps them, the timings
+/// added to the metadata.
+async fn update_progress(
+    ctx: &Ctx,
+    response_id: &str,
+    last_block_id: &str,
+    valid: Option<&Map<String, Value>>,
+    timings_patch: Value,
+    now: time::OffsetDateTime,
+) -> FormsResult<()> {
+    let mut update = form_responses::Entity::update_many().col_expr(
+        form_responses::Column::LastBlockId,
+        Expr::value(last_block_id),
+    );
+    if let Some(valid) = valid {
+        update = update
+            .col_expr(
+                form_responses::Column::Answers,
+                Expr::value(Value::Object(valid.clone())),
+            )
+            .col_expr(
+                form_responses::Column::AnsweredCount,
+                Expr::value(i32::try_from(valid.len()).unwrap_or(i32::MAX)),
+            );
     }
     // A save still in flight when the submit commits must not overwrite the
     // completed answers.
-    q.push(", metadata = metadata || ")
-        .push_bind(Json(timings_patch))
-        .push(", updated_at = ")
-        .push_bind(now.clone())
-        .push("::timestamptz where id = ")
-        .push_bind(session.resp.clone())
-        .push(" and status = 'in_progress'");
-    q.build().execute(&ctx.db).await?;
-    mark_invitation_started(ctx, session, &now).await
+    update
+        .col_expr(
+            form_responses::Column::Metadata,
+            sea_orm::sea_query::extension::postgres::PgExpr::concat(
+                Expr::col(form_responses::Column::Metadata),
+                Expr::value(timings_patch),
+            ),
+        )
+        .col_expr(form_responses::Column::UpdatedAt, Expr::value(now))
+        .filter(form_responses::Column::Id.eq(response_id))
+        .filter(form_responses::Column::Status.eq("in_progress"))
+        .exec(&orm(&ctx.db))
+        .await?;
+    Ok(())
 }
 
 async fn mark_invitation_started(
     ctx: &Ctx,
     session: &RespondentSession,
-    now: &str,
+    now: time::OffsetDateTime,
 ) -> FormsResult<()> {
     let Some(invitation) = &session.inv else {
         return Ok(());
     };
-    sqlx::query(
-        "update form_invitations set status = 'started', started_at = $2::timestamptz, response_id = $3, \
-         updated_at = $2::timestamptz where id = $1 and status in ('sent', 'opened')",
-    )
-    .bind(invitation)
-    .bind(now)
-    .bind(&session.resp)
-    .execute(&ctx.db)
-    .await?;
+    form_invitations::Entity::update_many()
+        .col_expr(form_invitations::Column::Status, Expr::value("started"))
+        .col_expr(form_invitations::Column::StartedAt, Expr::value(now))
+        .col_expr(
+            form_invitations::Column::ResponseId,
+            Expr::value(session.resp.clone()),
+        )
+        .col_expr(form_invitations::Column::UpdatedAt, Expr::value(now))
+        .filter(form_invitations::Column::Id.eq(invitation))
+        .filter(form_invitations::Column::Status.is_in(["sent", "opened"]))
+        .exec(&orm(&ctx.db))
+        .await?;
     Ok(())
 }
 
@@ -542,11 +584,16 @@ pub(crate) struct UploadTarget<'a> {
 /// response is completed, unless the respondent may edit it, as the submit
 /// decides.
 async fn assert_takes_uploads(ctx: &Ctx, target: &UploadTarget<'_>) -> FormsResult<()> {
-    let response: Option<(String, Option<String>)> =
-        sqlx::query_as("select status, invitation_id from form_responses where id = $1 limit 1")
-            .bind(target.response)
-            .fetch_optional(&ctx.db)
-            .await?;
+    let response: Option<(String, Option<String>)> = form_responses::Entity::find()
+        .select_only()
+        .columns([
+            form_responses::Column::Status,
+            form_responses::Column::InvitationId,
+        ])
+        .filter(form_responses::Column::Id.eq(target.response))
+        .into_tuple()
+        .one(&orm(&ctx.db))
+        .await?;
     let Some((status, invitation_id)) = response else {
         return Ok(());
     };
@@ -672,22 +719,27 @@ pub(crate) async fn upload_file(
     // Only the files staged since the last submit count (`makeRoom`): an
     // edit's new files sit next to the submitted ones, which the submit drops
     // once the answers no longer name them.
-    let existing: Vec<(String, String)> = sqlx::query_as::<_, (String, String)>(
-        "select id, storage_key from form_response_files where response_id = $1 and block_id = $2",
-    )
-    .bind(target.response)
-    .bind(&field.id)
-    .fetch_all(&ctx.db)
-    .await?
-    .into_iter()
-    .filter(|(_, key)| key.starts_with(crate::submit::PENDING_PREFIX))
-    .collect();
+    let db = orm(&ctx.db);
+    let existing: Vec<(String, String)> = form_response_files::Entity::find()
+        .select_only()
+        .columns([
+            form_response_files::Column::Id,
+            form_response_files::Column::StorageKey,
+        ])
+        .filter(form_response_files::Column::ResponseId.eq(target.response))
+        .filter(form_response_files::Column::BlockId.eq(&field.id))
+        .into_tuple::<(String, String)>()
+        .all(&db)
+        .await?
+        .into_iter()
+        .filter(|(_, key)| key.starts_with(crate::submit::PENDING_PREFIX))
+        .collect();
     if is_signature {
         if !existing.is_empty() {
             let ids: Vec<String> = existing.iter().map(|(id, _)| id.clone()).collect();
-            sqlx::query("delete from form_response_files where id = any($1)")
-                .bind(&ids)
-                .execute(&ctx.db)
+            form_response_files::Entity::delete_many()
+                .filter(form_response_files::Column::Id.is_in(ids))
+                .exec(&db)
                 .await?;
             let keys: Vec<String> = existing.iter().map(|(_, key)| key.clone()).collect();
             files.private.delete_many_boxed(&keys).await?;
@@ -734,32 +786,30 @@ pub(crate) async fn upload_file(
             &PutOptions::content_type(content_type.clone()),
         )
         .await?;
-    sqlx::query(
-        "insert into form_response_files (id, response_id, form_id, block_id, kind, storage_key, name, content_type, size_bytes) \
-         values ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
-    )
-    .bind(&id)
-    .bind(target.response)
-    .bind(target.form)
-    .bind(&field.id)
-    .bind(if is_signature { "signature" } else { "upload" })
-    .bind(&storage_key)
-    .bind(&name)
-    .bind(&content_type)
-    .bind(i32::try_from(size_bytes).unwrap_or(i32::MAX))
-    .execute(&ctx.db)
+    form_response_files::Entity::insert(form_response_files::ActiveModel {
+        id: Set(id.clone()),
+        response_id: Set(target.response.to_owned()),
+        form_id: Set(target.form.to_owned()),
+        block_id: Set(field.id.clone()),
+        kind: Set(if is_signature { "signature" } else { "upload" }.to_owned()),
+        storage_key: Set(storage_key.clone()),
+        name: Set(name.clone()),
+        content_type: Set(content_type.clone()),
+        size_bytes: Set(i32::try_from(size_bytes).unwrap_or(i32::MAX)),
+        ..Default::default()
+    })
+    .exec_without_returning(&db)
     .await?;
     Ok(json!({ "fileId": id, "name": name, "size": size_bytes, "type": content_type }))
 }
 
 /// The `form_responses` row of a response, if there is one.
 pub(crate) async fn response_row(ctx: &Ctx, id: &str) -> FormsResult<Option<Value>> {
-    one(
-        &ctx.db,
-        sqlx::query_scalar("select to_jsonb(r) from form_responses r where id = $1 limit 1")
-            .bind(id),
-    )
-    .await
+    form_responses::Entity::find_by_id(id)
+        .one(&orm(&ctx.db))
+        .await?
+        .map(row_json)
+        .transpose()
 }
 
 /// `opt_text` re-exported for the routes.

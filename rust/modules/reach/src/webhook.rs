@@ -14,24 +14,32 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::post;
 use hmac::{KeyInit, Mac};
 use http::HeaderMap;
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QuerySelect};
 use serde::de::{self, Deserializer, MapAccess, SeqAccess, Visitor};
 use serde_json::{Value, json};
 use sha2::Sha256;
 use sqlx::PgPool;
+use time::OffsetDateTime;
 use weldsuite_catalogs::entity_events::{
     EventName, REACH_DOMAIN_UPDATED, REACH_MAILBOX_SUSPENDED, REACH_MAILBOX_UPDATED,
 };
-use weldsuite_db::{MasterDb, Tenant};
+use weldsuite_db::{MasterDb, Tenant, orm};
 use weldsuite_events::{EntityEvent, EventContext, EventSource};
 use weldsuite_kit::{ApiError, RequestEnv};
 use weldsuite_ports::OutboundHttp;
 use weldsuite_reach_domain::credentials::{open, seal};
 use weldsuite_reach_domain::mailboxes::without_credentials;
 use weldsuite_reach_domain::{ReachResult, iso, text, warmup_pool};
+use weldsuite_schema::master::reach_routes;
+use weldsuite_schema::tenant::{reach_domains, reach_mailboxes};
 
-use crate::mailboxes::{PoolDeps, pause_reasons, register_in_pool, resume_status_for};
+use crate::effects::to_ms;
+use crate::mailboxes::{
+    PoolDeps, patch_mailbox, pause_reasons, register_in_pool, resume_status_for,
+};
 use crate::mailpool::{Mailpool, imap_credentials_of, smtp_credentials_of};
-use crate::{ReachState, env_value};
+use crate::{ReachState, db_error, env_value, row_json};
 
 pub(crate) fn router<S>(state: ReachState) -> Router<S>
 where
@@ -419,49 +427,50 @@ async fn find_route(
     kind: &str,
     external_id: &str,
 ) -> ReachResult<Option<(String, String, String)>> {
-    Ok(sqlx::query_as(
-        "select workspace_id, clerk_org_id, tenant_entity_id from reach_routes
-         where kind = $1 and external_id = $2 and status = 'active' limit 1",
-    )
-    .bind(kind)
-    .bind(external_id)
-    .fetch_optional(master)
-    .await?)
+    reach_routes::Entity::find()
+        .select_only()
+        .columns([
+            reach_routes::Column::WorkspaceId,
+            reach_routes::Column::ClerkOrgId,
+            reach_routes::Column::TenantEntityId,
+        ])
+        .filter(reach_routes::Column::Kind.eq(kind))
+        .filter(reach_routes::Column::ExternalId.eq(external_id))
+        .filter(reach_routes::Column::Status.eq("active"))
+        .into_tuple()
+        .one(&orm(master))
+        .await
+        .map_err(db_error)
 }
 
+/// The webhook's columns of the mailbox (`status`, `pausedReason`,
+/// `lastError`, the logins, `warmupStartedAt`, `warmupStatus`).
 async fn update_mailbox(
     db: &PgPool,
     id: &str,
     patch: Value,
-    at: &str,
+    at: OffsetDateTime,
 ) -> ReachResult<Option<Value>> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "update reach_mailboxes m set
-             status = case when $2::jsonb ? 'status' then $2::jsonb->>'status' else m.status end,
-             paused_reason = case when $2::jsonb ? 'pausedReason' then $2::jsonb->>'pausedReason' else m.paused_reason end,
-             last_error = case when $2::jsonb ? 'lastError' then $2::jsonb->>'lastError' else m.last_error end,
-             smtp_credentials = case when $2::jsonb ? 'smtpCredentials' then $2::jsonb->>'smtpCredentials' else m.smtp_credentials end,
-             imap_credentials = case when $2::jsonb ? 'imapCredentials' then $2::jsonb->>'imapCredentials' else m.imap_credentials end,
-             warmup_started_at = case when $2::jsonb ? 'warmupStartedAt' then ($2::jsonb->>'warmupStartedAt')::timestamptz else m.warmup_started_at end,
-             warmup_status = case when $2::jsonb ? 'warmupStatus' then $2::jsonb->>'warmupStatus' else m.warmup_status end,
-             updated_at = $3::timestamptz
-         where m.id = $1 returning to_jsonb(m)",
-    )
-    .bind(id)
-    .bind(patch)
-    .bind(at)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(weldsuite_db::js_row))
+    let Value::Object(patch) = patch else {
+        return Ok(None);
+    };
+    patch_mailbox(db, id, &patch, at).await
 }
 
 async fn load_mailbox(db: &PgPool, id: &str) -> ReachResult<Option<Value>> {
-    let row: Option<Value> =
-        sqlx::query_scalar("select to_jsonb(t) from reach_mailboxes t where t.id = $1 limit 1")
-            .bind(id)
-            .fetch_optional(db)
-            .await?;
-    Ok(row.map(weldsuite_db::js_row))
+    reach_mailboxes::Entity::find_by_id(id.to_owned())
+        .one(&orm(db))
+        .await
+        .map_err(db_error)?
+        .map(row_json)
+        .transpose()
+}
+
+/// The webhook's clock (`CONFORMANCE_NOW` or now), as `toISOString()` keeps it.
+fn webhook_now(deps: &Deps) -> OffsetDateTime {
+    to_ms(weldsuite_reach_domain::now_or(
+        deps.env.as_ref().and_then(|e| e.get("CONFORMANCE_NOW")),
+    ))
 }
 
 const CONFIGURATION_ERROR_CODES: &[i64] = &[101, 201, 202, 301];
@@ -512,13 +521,11 @@ async fn on_mailbox_updated(deps: &Deps, data: &Value) -> ReachResult<Value> {
     else {
         return Ok(ignored("mailbox_gone"));
     };
-    let at = iso(weldsuite_reach_domain::now_or(
-        deps.env.as_ref().and_then(|e| e.get("CONFORMANCE_NOW")),
-    ));
+    let at = webhook_now(deps);
     match remote_status_of(data) {
-        Some("inactive") => suspend_inactive(deps, &db, &clerk_org_id, &mailbox, data, &at).await,
+        Some("inactive") => suspend_inactive(deps, &db, &clerk_org_id, &mailbox, data, at).await,
         Some("active") => {
-            apply_active(deps, &db, &clerk_org_id, &workspace_id, &mailbox, data, &at).await
+            apply_active(deps, &db, &clerk_org_id, &workspace_id, &mailbox, data, at).await
         }
         _ => Ok(handled(false)),
     }
@@ -530,7 +537,7 @@ async fn suspend_inactive(
     clerk_org_id: &str,
     mailbox: &Value,
     data: &Value,
-    at: &str,
+    at: OffsetDateTime,
 ) -> ReachResult<Value> {
     let (code, message) = error_of(data);
     let status = if code.is_some_and(|c| CONFIGURATION_ERROR_CODES.contains(&c)) {
@@ -598,7 +605,7 @@ async fn apply_active(
     workspace_id: &str,
     mailbox: &Value,
     data: &Value,
-    at: &str,
+    at: OffsetDateTime,
 ) -> ReachResult<Value> {
     let id = text(mailbox, "id").unwrap_or_default();
     let status = text(mailbox, "status").unwrap_or_default();
@@ -622,7 +629,7 @@ async fn apply_active(
         register_in_pool(&pool, mailbox, smtp.clone(), imap.clone(), None).await?;
         let mut patch = json!({
             "status": "warming",
-            "warmupStartedAt": text(mailbox, "warmupStartedAt").map_or_else(|| at.to_owned(), str::to_owned),
+            "warmupStartedAt": text(mailbox, "warmupStartedAt").map_or_else(|| iso(at), str::to_owned),
             "warmupStatus": "waiting",
             "pausedReason": null,
             "lastError": null,
@@ -704,9 +711,7 @@ async fn on_mailbox_deleted(deps: &Deps, data: &Value) -> ReachResult<Value> {
     else {
         return Ok(ignored("mailbox_gone"));
     };
-    let at = iso(weldsuite_reach_domain::now_or(
-        deps.env.as_ref().and_then(|e| e.get("CONFORMANCE_NOW")),
-    ));
+    let at = webhook_now(deps);
     let id = text(&mailbox, "id").unwrap_or_default();
     warmup_pool::pause(&deps.master, &clerk_org_id, id, pause_reasons::SUSPENDED).await?;
     let patch = json!({
@@ -714,7 +719,7 @@ async fn on_mailbox_deleted(deps: &Deps, data: &Value) -> ReachResult<Value> {
         "pausedReason": null,
         "lastError": "The mailbox was deleted at the mailbox provider. Delete it here to stop billing.",
     });
-    if let Some(updated) = update_mailbox(&db, id, patch, &at).await? {
+    if let Some(updated) = update_mailbox(&db, id, patch, at).await? {
         deps.emit(
             &clerk_org_id,
             REACH_MAILBOX_SUSPENDED,
@@ -738,23 +743,19 @@ async fn on_domain_updated(deps: &Deps, data: &Value) -> ReachResult<Value> {
         .open_tenant(&clerk_org_id)
         .await
         .map_err(|e| weldsuite_reach_domain::ReachError::unexpected(&e))?;
-    let domain: Option<Value> =
-        sqlx::query_scalar("select to_jsonb(t) from reach_domains t where t.id = $1 limit 1")
-            .bind(&entity_id)
-            .fetch_optional(&db)
-            .await?;
-    let Some(domain) = domain
-        .map(weldsuite_db::js_row)
-        .filter(|d| text(d, "status") != Some("disconnecting"))
-    else {
+    let domain = reach_domains::Entity::find_by_id(entity_id.clone())
+        .one(&orm(&db))
+        .await
+        .map_err(db_error)?
+        .map(row_json)
+        .transpose()?;
+    let Some(domain) = domain.filter(|d| text(d, "status") != Some("disconnecting")) else {
         return Ok(ignored("domain_gone"));
     };
     let Some(remote) = remote_status_of(data) else {
         return Ok(handled(false));
     };
-    let at = iso(weldsuite_reach_domain::now_or(
-        deps.env.as_ref().and_then(|e| e.get("CONFORMANCE_NOW")),
-    ));
+    let at = webhook_now(deps);
     let status = match remote {
         "active" => "active",
         "pending" => "connecting",
@@ -771,26 +772,32 @@ async fn on_domain_updated(deps: &Deps, data: &Value) -> ReachResult<Value> {
         return Ok(handled(false));
     }
     let domain_id = text(&domain, "id").unwrap_or_default().to_owned();
-    let updated: Option<Value> = sqlx::query_scalar(
-        "update reach_domains set status = $2, last_error = $3, updated_at = $4::timestamptz
-         where id = $1 returning to_jsonb(reach_domains)",
-    )
-    .bind(&domain_id)
-    .bind(status)
-    .bind(&last_error)
-    .bind(&at)
-    .fetch_optional(&db)
-    .await?;
-    if let Some(updated) = updated.map(weldsuite_db::js_row) {
+    let updated = reach_domains::Entity::update_many()
+        .col_expr(reach_domains::Column::Status, Expr::value(status))
+        .col_expr(reach_domains::Column::LastError, Expr::value(last_error))
+        .col_expr(reach_domains::Column::UpdatedAt, Expr::value(at))
+        .filter(reach_domains::Column::Id.eq(&domain_id))
+        .exec_with_returning(&orm(&db))
+        .await
+        .map_err(db_error)?
+        .into_iter()
+        .next()
+        .map(row_json)
+        .transpose()?;
+    if let Some(updated) = updated {
         deps.emit(&clerk_org_id, REACH_DOMAIN_UPDATED, &domain_id, updated);
     }
     if status == "error" {
-        let live: Vec<String> = sqlx::query_scalar(
-            "select id from reach_mailboxes where domain_id = $1 and deleted_at is null and status in ('warming', 'active')",
-        )
-        .bind(&domain_id)
-        .fetch_all(&db)
-        .await?;
+        let live: Vec<String> = reach_mailboxes::Entity::find()
+            .select_only()
+            .column(reach_mailboxes::Column::Id)
+            .filter(reach_mailboxes::Column::DomainId.eq(&domain_id))
+            .filter(reach_mailboxes::Column::DeletedAt.is_null())
+            .filter(reach_mailboxes::Column::Status.is_in(["warming", "active"]))
+            .into_tuple()
+            .all(&orm(&db))
+            .await
+            .map_err(db_error)?;
         for id in live {
             warmup_pool::pause(
                 &deps.master,
@@ -800,7 +807,7 @@ async fn on_domain_updated(deps: &Deps, data: &Value) -> ReachResult<Value> {
             )
             .await?;
             let patch = json!({ "status": "paused", "pausedReason": "domain_error" });
-            if let Some(paused) = update_mailbox(&db, &id, patch, &at).await? {
+            if let Some(paused) = update_mailbox(&db, &id, patch, at).await? {
                 deps.emit(
                     &clerk_org_id,
                     REACH_MAILBOX_UPDATED,
@@ -816,20 +823,21 @@ async fn on_domain_updated(deps: &Deps, data: &Value) -> ReachResult<Value> {
         // the domain's own status above never does.
         && !mailpool_off(&db, &clerk_org_id).await
     {
-        let parked = weldsuite_reach_domain::js_rows(
-            sqlx::query_scalar(
-                "select to_jsonb(t) from reach_mailboxes t
-                 where t.domain_id = $1 and t.status = 'paused' and t.paused_reason = 'domain_error'",
-            )
-            .bind(&domain_id)
-            .fetch_all(&db)
-            .await?,
-        );
+        let parked = reach_mailboxes::Entity::find()
+            .filter(reach_mailboxes::Column::DomainId.eq(&domain_id))
+            .filter(reach_mailboxes::Column::Status.eq("paused"))
+            .filter(reach_mailboxes::Column::PausedReason.eq("domain_error"))
+            .all(&orm(&db))
+            .await
+            .map_err(db_error)?
+            .into_iter()
+            .map(row_json)
+            .collect::<ReachResult<Vec<Value>>>()?;
         for mailbox in parked {
             let id = text(&mailbox, "id").unwrap_or_default();
             warmup_pool::resume(&deps.master, &clerk_org_id, id).await?;
             let patch = json!({ "status": resume_status_for(&mailbox), "pausedReason": null });
-            if let Some(resumed) = update_mailbox(&db, id, patch, &at).await? {
+            if let Some(resumed) = update_mailbox(&db, id, patch, at).await? {
                 deps.emit(
                     &clerk_org_id,
                     REACH_MAILBOX_UPDATED,

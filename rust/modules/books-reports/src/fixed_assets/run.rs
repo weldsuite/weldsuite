@@ -8,19 +8,27 @@
 
 use std::collections::{BTreeMap, HashMap};
 
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ColumnTrait, ConnectionTrait, DbErr, EntityTrait, JoinType, QueryFilter, QuerySelect,
+    RelationDef,
+};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use sqlx::PgPool;
 use weldsuite_books_domain::dates::{end_of_month, is_iso_date};
 use weldsuite_books_domain::guards::PostingLockKind;
-use weldsuite_books_domain::http::now;
 use weldsuite_books_domain::js::{locale_compare, number_value};
 use weldsuite_books_domain::posting::{
     AlsoWrite, PostError, PostJournalEntryInput, PostingLine, post_journal_entry,
 };
-use weldsuite_books_domain::tables::{FIXED_ASSET_BOOKS, FIXED_ASSET_DEPRECIATION, FIXED_ASSETS};
+use weldsuite_db::{OrmConn, orm};
+use weldsuite_schema::tenant::{
+    fixed_asset_books, fixed_asset_depreciation, fixed_assets, journal_lines,
+};
 
 use super::shared::{Fail, bad, from_cents, num, opt, present, text, to_cents};
+use crate::rows::{date_of, js};
 
 /// `PostedPeriod`.
 #[derive(Debug, Clone)]
@@ -82,12 +90,13 @@ impl RunResult {
     }
 }
 
-/// `PendingRow`: an unposted row with its asset and book.
+/// `PendingRow`: an unposted row with its asset, and its book's id (the
+/// one field of the book the run reads).
 #[derive(Debug, Clone)]
 pub(crate) struct Pending {
     pub(crate) row: Value,
     pub(crate) asset: Value,
-    pub(crate) book: Value,
+    pub(crate) book_id: String,
 }
 
 /// `lastCompletedMonthEnd(today)`: the end of last month.
@@ -114,35 +123,33 @@ pub(crate) async fn load_pending_rows(
     entity_id: &str,
     through: &str,
     asset_id: Option<&str>,
-) -> Result<Vec<Pending>, sqlx::Error> {
-    let rows: Vec<(Value, Value, Value)> = sqlx::query_as(concat!(
-        "select (select ",
-        weldsuite_books_domain::books_row!(fixed_asset_depreciation),
-        " from fixed_asset_depreciation t where t.id = d.id), (select ",
-        weldsuite_books_domain::books_row!(fixed_assets),
-        " from fixed_assets t where t.id = a.id), (select ",
-        weldsuite_books_domain::books_row!(fixed_asset_books),
-        " from fixed_asset_books t where t.id = b.id) \
-         from fixed_asset_depreciation d \
-         inner join fixed_asset_books b on d.book_id = b.id \
-         inner join fixed_assets a on d.asset_id = a.id \
-         where d.entity_id = $1 and d.journal_entry_id is null and d.period_end <= $2::date \
-         and b.posts_to_ledger = true and a.deleted_at is null and d.amount > 0 \
-         and ($3::text is null or d.asset_id = $3)"
-    ))
-    .bind(entity_id)
-    .bind(through)
-    .bind(asset_id)
-    .fetch_all(db)
-    .await?;
+) -> Result<Vec<Pending>, DbErr> {
+    let mut rows = fixed_asset_depreciation::Entity::find()
+        .join(JoinType::InnerJoin, depreciation_book())
+        .join(JoinType::InnerJoin, depreciation_asset())
+        .select_also(fixed_assets::Entity)
+        .filter(fixed_asset_depreciation::Column::EntityId.eq(entity_id))
+        .filter(fixed_asset_depreciation::Column::JournalEntryId.is_null())
+        .filter(fixed_asset_depreciation::Column::PeriodEnd.lte(date_of(through)?))
+        .filter(fixed_asset_books::Column::PostsToLedger.eq(true))
+        .filter(fixed_assets::Column::DeletedAt.is_null())
+        .filter(fixed_asset_depreciation::Column::Amount.gt(0));
+    if let Some(asset_id) = asset_id {
+        rows = rows.filter(fixed_asset_depreciation::Column::AssetId.eq(asset_id));
+    }
+    let rows = rows.all(&orm(db)).await?;
+    // The inner join always has the asset.
     let mut pending: Vec<Pending> = rows
         .into_iter()
-        .map(|(row, asset, book)| Pending {
-            row: FIXED_ASSET_DEPRECIATION.js(row),
-            asset: FIXED_ASSETS.js(asset),
-            book: FIXED_ASSET_BOOKS.js(book),
+        .filter_map(|(row, asset)| Some((row, asset?)))
+        .map(|(row, asset)| {
+            Ok(Pending {
+                book_id: row.book_id.clone(),
+                row: js!(row)?,
+                asset: js!(asset)?,
+            })
         })
-        .collect();
+        .collect::<Result<_, DbErr>>()?;
     let label = |p: &Pending| {
         present(&p.asset, "assetNumber")
             .or_else(|| opt(&p.asset, "assetNumber"))
@@ -155,6 +162,22 @@ pub(crate) async fn load_pending_rows(
             .then_with(|| locale_compare(text(&a.row, "id"), text(&b.row, "id")))
     });
     Ok(pending)
+}
+
+/// `innerJoin(fixedAssetBooks, eq(fixedAssetDepreciation.bookId, fixedAssetBooks.id))`.
+fn depreciation_book() -> RelationDef {
+    fixed_asset_depreciation::Entity::belongs_to(fixed_asset_books::Entity)
+        .from(fixed_asset_depreciation::Column::BookId)
+        .to(fixed_asset_books::Column::Id)
+        .into()
+}
+
+/// `innerJoin(fixedAssets, eq(fixedAssetDepreciation.assetId, fixedAssets.id))`.
+fn depreciation_asset() -> RelationDef {
+    fixed_asset_depreciation::Entity::belongs_to(fixed_assets::Entity)
+        .from(fixed_asset_depreciation::Column::AssetId)
+        .to(fixed_assets::Column::Id)
+        .into()
 }
 
 fn describe_period(period_start: &str, period_end: &str) -> String {
@@ -215,11 +238,11 @@ pub(crate) fn depreciation_lines(items: &[Pending]) -> (Vec<PostingLine>, Vec<Li
 
 /// `dimensionStatements(h, journalEntryId, dimensions)`: class and location
 /// on the entry's lines by position (`sort_order`), grouped by value.
-pub(crate) async fn write_dimensions(
-    conn: &mut sqlx::PgConnection,
+pub(crate) async fn write_dimensions<C: ConnectionTrait>(
+    db: &C,
     journal_entry_id: &str,
     dimensions: &[LineDimension],
-) -> Result<(), sqlx::Error> {
+) -> Result<(), DbErr> {
     let mut groups: Vec<(Option<String>, Option<String>, Vec<i32>)> = Vec::new();
     for dimension in dimensions {
         let index = i32::try_from(dimension.index).unwrap_or(i32::MAX);
@@ -239,16 +262,13 @@ pub(crate) async fn write_dimensions(
         }
     }
     for (class_id, location_id, indexes) in groups {
-        sqlx::query(
-            "update journal_lines set class_id = $1, location_id = $2 \
-             where journal_entry_id = $3 and sort_order = any($4)",
-        )
-        .bind(class_id)
-        .bind(location_id)
-        .bind(journal_entry_id)
-        .bind(indexes)
-        .execute(&mut *conn)
-        .await?;
+        journal_lines::Entity::update_many()
+            .col_expr(journal_lines::Column::ClassId, Expr::value(class_id))
+            .col_expr(journal_lines::Column::LocationId, Expr::value(location_id))
+            .filter(journal_lines::Column::JournalEntryId.eq(journal_entry_id))
+            .filter(journal_lines::Column::SortOrder.is_in(indexes))
+            .exec(db)
+            .await?;
     }
     Ok(())
 }
@@ -256,18 +276,65 @@ pub(crate) async fn write_dimensions(
 async fn last_period_end_by_book(
     db: &PgPool,
     book_ids: &[String],
-) -> Result<HashMap<String, String>, sqlx::Error> {
+) -> Result<HashMap<String, String>, DbErr> {
     if book_ids.is_empty() {
         return Ok(HashMap::new());
     }
-    let rows: Vec<(String, String)> = sqlx::query_as(
-        "select book_id, to_char(max(period_end), 'YYYY-MM-DD') from fixed_asset_depreciation \
-         where book_id = any($1) group by book_id",
-    )
-    .bind(book_ids)
-    .fetch_all(db)
-    .await?;
-    Ok(rows.into_iter().collect())
+    let rows: Vec<(String, time::Date)> = fixed_asset_depreciation::Entity::find()
+        .select_only()
+        .column(fixed_asset_depreciation::Column::BookId)
+        .column_as(fixed_asset_depreciation::Column::PeriodEnd.max(), "last")
+        .filter(fixed_asset_depreciation::Column::BookId.is_in(book_ids.iter().cloned()))
+        .group_by(fixed_asset_depreciation::Column::BookId)
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
+    // `to_char(max(period_end), 'YYYY-MM-DD')`.
+    let day = time::macros::format_description!("[year]-[month]-[day]");
+    Ok(rows
+        .into_iter()
+        .map(|(book_id, last)| (book_id, last.format(&day).unwrap_or_default()))
+        .collect())
+}
+
+/// Point the period's unposted rows at the entry that posted them.
+async fn link_rows<C: ConnectionTrait>(
+    db: &C,
+    journal_entry_id: &str,
+    row_ids: Vec<String>,
+) -> Result<(), DbErr> {
+    fixed_asset_depreciation::Entity::update_many()
+        .col_expr(
+            fixed_asset_depreciation::Column::JournalEntryId,
+            Expr::value(journal_entry_id),
+        )
+        .filter(fixed_asset_depreciation::Column::Id.is_in(row_ids))
+        .filter(fixed_asset_depreciation::Column::JournalEntryId.is_null())
+        .exec(db)
+        .await?;
+    Ok(())
+}
+
+/// Active assets whose last row was posted become `fully_depreciated`.
+async fn finish_assets<C: ConnectionTrait>(
+    db: &C,
+    asset_ids: Vec<String>,
+    at: time::PrimitiveDateTime,
+) -> Result<(), DbErr> {
+    if asset_ids.is_empty() {
+        return Ok(());
+    }
+    fixed_assets::Entity::update_many()
+        .col_expr(
+            fixed_assets::Column::Status,
+            Expr::value("fully_depreciated"),
+        )
+        .col_expr(fixed_assets::Column::UpdatedAt, Expr::value(at))
+        .filter(fixed_assets::Column::Id.is_in(asset_ids))
+        .filter(fixed_assets::Column::Status.eq("active"))
+        .exec(db)
+        .await?;
+    Ok(())
 }
 
 /// `RunArgs`.
@@ -299,7 +366,7 @@ pub(crate) async fn run_depreciation(db: &PgPool, args: &RunArgs) -> Result<RunR
     }
     let mut book_ids: Vec<String> = Vec::new();
     for item in &pending {
-        let id = text(&item.book, "id").to_owned();
+        let id = item.book_id.clone();
         if !book_ids.contains(&id) {
             book_ids.push(id);
         }
@@ -328,39 +395,25 @@ pub(crate) async fn run_depreciation(db: &PgPool, args: &RunArgs) -> Result<RunR
             items
                 .iter()
                 .filter(|p| {
-                    last_ends.get(text(&p.book, "id")).map(String::as_str)
-                        == Some(text(&p.row, "periodEnd"))
+                    last_ends.get(&p.book_id).map(String::as_str) == Some(text(&p.row, "periodEnd"))
                 })
                 .map(|p| text(&p.asset, "id").to_owned())
                 .collect()
         };
-        let at = now();
+        let at = weldsuite_db::utc_now();
 
         let write_rows = row_ids.clone();
         let write_finishing = finishing.clone();
-        let write_at = at.clone();
         let also: AlsoWrite = Box::new(move |conn, entry| {
             Box::pin(async move {
-                sqlx::query(
-                    "update fixed_asset_depreciation set journal_entry_id = $1 \
-                     where id = any($2) and journal_entry_id is null",
-                )
-                .bind(&entry.journal_entry_id)
-                .bind(&write_rows)
-                .execute(&mut *conn)
-                .await?;
-                write_dimensions(conn, &entry.journal_entry_id, &dimensions).await?;
-                if !write_finishing.is_empty() {
-                    sqlx::query(
-                        "update fixed_assets set status = 'fully_depreciated', updated_at = $1::timestamp \
-                         where id = any($2) and status = 'active'",
-                    )
-                    .bind(&write_at)
-                    .bind(&write_finishing)
-                    .execute(&mut *conn)
-                    .await?;
+                let tx = OrmConn::new(conn);
+                let written: Result<(), DbErr> = async {
+                    link_rows(&tx, &entry.journal_entry_id, write_rows).await?;
+                    write_dimensions(&tx, &entry.journal_entry_id, &dimensions).await?;
+                    finish_assets(&tx, write_finishing, at).await
                 }
-                Ok(())
+                .await;
+                written
             })
         });
         let posted = post_journal_entry(
@@ -385,7 +438,9 @@ pub(crate) async fn run_depreciation(db: &PgPool, args: &RunArgs) -> Result<RunR
         .await;
         let posted = match posted {
             Ok(posted) => posted,
-            Err(PostError::Database(error)) => return Err(Fail::Database(error)),
+            Err(PostError::Database(error)) => {
+                return Err(Fail::Database(error));
+            }
             Err(other) => {
                 result.skipped.push(SkippedPeriod {
                     period_end,
@@ -401,24 +456,9 @@ pub(crate) async fn run_depreciation(db: &PgPool, args: &RunArgs) -> Result<RunR
         };
         if posted.already_posted {
             // Another run (or an earlier attempt) wrote the entry; make sure its rows point at it.
-            sqlx::query(
-                "update fixed_asset_depreciation set journal_entry_id = $1 \
-                 where id = any($2) and journal_entry_id is null",
-            )
-            .bind(&journal_entry_id)
-            .bind(&row_ids)
-            .execute(db)
-            .await?;
-            if !finishing.is_empty() {
-                sqlx::query(
-                    "update fixed_assets set status = 'fully_depreciated', updated_at = $1::timestamp \
-                     where id = any($2) and status = 'active'",
-                )
-                .bind(&at)
-                .bind(&finishing)
-                .execute(db)
-                .await?;
-            }
+            let orm = orm(db);
+            link_rows(&orm, &journal_entry_id, row_ids).await?;
+            finish_assets(&orm, finishing, at).await?;
         } else {
             total_posted += total;
             result.fully_depreciated_asset_ids.extend(finishing);
@@ -454,14 +494,17 @@ pub async fn run_monthly_depreciation(
     let entity_ids: Vec<String> = if let Some(id) = entity_id {
         vec![id.to_owned()]
     } else {
-        let mut ids: Vec<String> = sqlx::query_scalar(
-            "select distinct entity_id from fixed_asset_depreciation \
-             where journal_entry_id is null and period_end <= $1::date",
-        )
-        .bind(through)
-        .fetch_all(db)
-        .await
-        .map_err(|error| error.to_string())?;
+        let through = date_of(through).map_err(|error| error.to_string())?;
+        let mut ids: Vec<String> = fixed_asset_depreciation::Entity::find()
+            .select_only()
+            .column(fixed_asset_depreciation::Column::EntityId)
+            .distinct()
+            .filter(fixed_asset_depreciation::Column::JournalEntryId.is_null())
+            .filter(fixed_asset_depreciation::Column::PeriodEnd.lte(through))
+            .into_tuple()
+            .all(&orm(db))
+            .await
+            .map_err(|error| error.to_string())?;
         ids.sort();
         ids
     };

@@ -10,10 +10,14 @@
 
 use std::fmt::Write as _;
 
+use sea_orm::{ColumnTrait, Condition, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::Value;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_emails::sign::{SignCompleted, SignRequest};
 use weldsuite_emails::{EmailBrand, EmailLocale, RenderedEmail, SystemEmail, send_system_email};
 use weldsuite_ports::MailAttachment;
+use weldsuite_schema::master::workspaces;
+use weldsuite_schema::tenant::sign_settings;
 
 use crate::outbound::{self, Reserve};
 use crate::{SendContext, SignResult, or_else, text};
@@ -113,21 +117,41 @@ pub(crate) fn js_trim(value: &str) -> &str {
     value.trim_matches(|c: char| c.is_whitespace() || c == '\u{feff}')
 }
 
+/// The WeldSign brand the workspace saved: name, colour and logo, each
+/// `None` when unset (or without settings).
+pub(crate) async fn settings_brand(
+    db: &PgPool,
+) -> SignResult<(Option<String>, Option<String>, Option<String>)> {
+    let settings: Option<(Option<String>, Option<String>, Option<String>)> =
+        sign_settings::Entity::find()
+            .select_only()
+            .columns([
+                sign_settings::Column::BrandName,
+                sign_settings::Column::BrandColor,
+                sign_settings::Column::BrandLogoUrl,
+            ])
+            .into_tuple()
+            .one(&orm(db))
+            .await?;
+    Ok(settings.unwrap_or_default())
+}
+
 /// The workspace's name (its WeldSign brand name when set), colour and logo
 /// (`workspaceBrand`).
 pub(crate) async fn workspace_brand(ctx: &SendContext) -> SignResult<(EmailBrand, String)> {
-    let settings: Option<(Option<String>, Option<String>, Option<String>)> =
-        sqlx::query_as("select brand_name, brand_color, brand_logo_url from sign_settings limit 1")
-            .fetch_optional(&ctx.db)
-            .await?;
-    let (mut name, color, logo) = settings.unwrap_or_default();
+    let (mut name, color, logo) = settings_brand(&ctx.db).await?;
     if name.is_none() {
-        let row: Result<Option<String>, sqlx::Error> = sqlx::query_scalar(
-            "select name from workspaces where id = $1 or clerk_org_id = $1 limit 1",
-        )
-        .bind(&ctx.clerk_org_id)
-        .fetch_optional(&ctx.master)
-        .await;
+        let row: Result<Option<String>, DbErr> = workspaces::Entity::find()
+            .select_only()
+            .column(workspaces::Column::Name)
+            .filter(
+                Condition::any()
+                    .add(workspaces::Column::Id.eq(ctx.clerk_org_id.as_str()))
+                    .add(workspaces::Column::ClerkOrgId.eq(ctx.clerk_org_id.as_str())),
+            )
+            .into_tuple()
+            .one(&orm(&ctx.master))
+            .await;
         match row {
             Ok(found) => name = found,
             Err(error) => {

@@ -14,54 +14,74 @@ use axum::body::Bytes;
 use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Response};
 use http::HeaderMap;
+use sea_orm::sea_query::{Asterisk, Expr, Func};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect,
+};
 use serde_json::{Value, json};
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, is_unique_violation, orm, utc_now};
 use weldsuite_kit::validation::{Field, Presence, Text};
 use weldsuite_kit::{Created, Data, NoContent, generate_id};
+use weldsuite_schema::tenant::{
+    merge_cycles, merge_issues, merge_labels, merge_repositories, merge_teams,
+};
 
-use crate::db::{Row, int, is_unique_violation, one_by_id, rows_of, text};
+use crate::db::{Row, int, json_row, text};
 use crate::mappers::team_dto;
 use crate::schemas::{color, nothing_to_update, team_key};
-use crate::{Answer, Caller, MergeState, PendingEvent, Refusal, all, now, publish, validate};
+use crate::{Answer, Caller, MergeState, PendingEvent, Refusal, all, publish, validate};
+
+/// The row a `.returning()` update answers with: none is the error
+/// `fetch_one` raised (the route's 500).
+fn returned(rows: Vec<merge_teams::Model>) -> Result<Row, DbErr> {
+    let team = rows
+        .into_iter()
+        .next()
+        .ok_or_else(|| DbErr::RecordNotFound("merge_teams".to_owned()))?;
+    json_row(serde_json::to_value(team))
+}
 
 /// Open (not done or canceled, not deleted) issue counts by team id.
 async fn open_issue_counts(
     db: &PgPool,
     team_ids: &[String],
-) -> Result<HashMap<String, i64>, sqlx::Error> {
+) -> Result<HashMap<String, i64>, DbErr> {
     if team_ids.is_empty() {
         return Ok(HashMap::new());
     }
-    let rows: Vec<(String, i32)> = sqlx::query_as(
-        "select team_id, count(*)::int from merge_issues \
-         where team_id = any($1) and deleted_at is null and status not in ('done', 'canceled') \
-         group by team_id",
-    )
-    .bind(team_ids)
-    .fetch_all(db)
-    .await?;
-    Ok(rows
-        .into_iter()
-        .map(|(id, count)| (id, i64::from(count)))
-        .collect())
+    let rows: Vec<(String, i64)> = merge_issues::Entity::find()
+        .select_only()
+        .column(merge_issues::Column::TeamId)
+        .column_as(Expr::from(Func::count(Expr::col(Asterisk))), "count")
+        .filter(merge_issues::Column::TeamId.is_in(team_ids.iter().cloned()))
+        .filter(merge_issues::Column::DeletedAt.is_null())
+        .filter(merge_issues::Column::Status.is_not_in(["done", "canceled"]))
+        .group_by(merge_issues::Column::TeamId)
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
+    Ok(rows.into_iter().collect())
 }
 
 /// `findTeam(db, id)`: a live team.
-pub(crate) async fn find_team(db: &PgPool, id: &str) -> Result<Option<Row>, sqlx::Error> {
-    one_by_id(
-        db,
-        "select to_jsonb(t) from merge_teams t where t.id = $1 and t.deleted_at is null limit 1",
-        id,
-    )
-    .await
+pub(crate) async fn find_team(db: &PgPool, id: &str) -> Result<Option<Row>, DbErr> {
+    merge_teams::Entity::find_by_id(id.to_owned())
+        .filter(merge_teams::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?
+        .map(|team| json_row(serde_json::to_value(team)))
+        .transpose()
 }
 
-async fn key_taken(db: &PgPool, key: &str, except: Option<&str>) -> Result<bool, sqlx::Error> {
-    let ids: Vec<String> =
-        sqlx::query_scalar("select id from merge_teams where key = $1 and deleted_at is null")
-            .bind(key)
-            .fetch_all(db)
-            .await?;
+async fn key_taken(db: &PgPool, key: &str, except: Option<&str>) -> Result<bool, DbErr> {
+    let ids: Vec<String> = merge_teams::Entity::find()
+        .select_only()
+        .column(merge_teams::Column::Id)
+        .filter(merge_teams::Column::Key.eq(key))
+        .filter(merge_teams::Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     Ok(ids.iter().any(|id| Some(id.as_str()) != except))
 }
 
@@ -74,7 +94,7 @@ fn team_event(row: &Row, action: &'static str) -> PendingEvent {
     )
 }
 
-async fn dto(db: &PgPool, row: &Row) -> Result<Value, sqlx::Error> {
+async fn dto(db: &PgPool, row: &Row) -> Result<Value, DbErr> {
     let id = text(row, "id").to_owned();
     let counts = open_issue_counts(db, std::slice::from_ref(&id)).await?;
     Ok(team_dto(row, counts.get(&id).copied().unwrap_or(0)))
@@ -83,14 +103,15 @@ async fn dto(db: &PgPool, row: &Row) -> Result<Value, sqlx::Error> {
 // ── GET / and GET /:id ──────────────────────────────────────────────────────
 
 pub(crate) async fn list(caller: Caller) -> Response {
-    let result: Result<Vec<Value>, sqlx::Error> = async {
-        let rows = rows_of(
-            sqlx::query_scalar(
-                "select to_jsonb(t) from merge_teams t where t.deleted_at is null order by t.key asc",
-            )
-            .fetch_all(&caller.db)
-            .await?,
-        );
+    let result: Result<Vec<Value>, DbErr> = async {
+        let rows = merge_teams::Entity::find()
+            .filter(merge_teams::Column::DeletedAt.is_null())
+            .order_by_asc(merge_teams::Column::Key)
+            .all(&orm(&caller.db))
+            .await?
+            .into_iter()
+            .map(|team| json_row(serde_json::to_value(team)))
+            .collect::<Result<Vec<Row>, DbErr>>()?;
         let ids: Vec<String> = rows.iter().map(|r| text(r, "id").to_owned()).collect();
         let counts = open_issue_counts(&caller.db, &ids).await?;
         Ok(rows
@@ -173,23 +194,22 @@ pub(crate) async fn create(
     if key_taken(&caller.db, &key, None).await? {
         return Err(Refusal::conflict("A team with this key already exists"));
     }
-    let now = now();
-    let inserted: Result<Value, sqlx::Error> = sqlx::query_scalar(
-        "insert into merge_teams (id, key, name, description, color, created_by_user_id, created_at, updated_at) \
-         values ($1, $2, $3, $4, $5, $6, $7::timestamptz, $7::timestamptz) \
-         returning to_jsonb(merge_teams.*)",
-    )
-    .bind(generate_id("mtm"))
-    .bind(&key)
-    .bind(input.name.into_option().unwrap_or_default())
-    .bind(input.description.into_option())
-    .bind(input.color.into_option())
-    .bind(&caller.user_id)
-    .bind(&now)
-    .fetch_one(&caller.db)
+    let at = utc_now().assume_utc();
+    let inserted = merge_teams::Entity::insert(merge_teams::ActiveModel {
+        id: Set(generate_id("mtm")),
+        key: Set(key),
+        name: Set(input.name.into_option().unwrap_or_default()),
+        description: Set(input.description.into_option()),
+        color: Set(input.color.into_option()),
+        created_by_user_id: Set(caller.user_id.clone()),
+        created_at: Set(at),
+        updated_at: Set(at),
+        ..Default::default()
+    })
+    .exec_with_returning(&orm(&caller.db))
     .await;
     let row = match inserted {
-        Ok(row) => weldsuite_db::js_row(row),
+        Ok(row) => json_row(serde_json::to_value(row))?,
         Err(error) if is_unique_violation(&error) => {
             return Err(Refusal::conflict("A team with this key already exists"));
         }
@@ -230,26 +250,28 @@ pub(crate) async fn update(
     };
     let (set_description, description) = patch_of(&input.description);
     let (set_color, color) = patch_of(&input.color);
-    let updated: Result<Value, sqlx::Error> = sqlx::query_scalar(
-        "update merge_teams set updated_at = $2::timestamptz, \
-           key = case when $3::text is null then key else $3 end, \
-           name = case when $4::text is null then name else $4 end, \
-           description = case when $5 then $6 else description end, \
-           color = case when $7 then $8 else color end \
-         where id = $1 returning to_jsonb(merge_teams.*)",
-    )
-    .bind(&id)
-    .bind(now())
-    .bind(new_key)
-    .bind(name)
-    .bind(set_description)
-    .bind(description)
-    .bind(set_color)
-    .bind(color)
-    .fetch_one(&caller.db)
-    .await;
+    let mut change = merge_teams::Entity::update_many().col_expr(
+        merge_teams::Column::UpdatedAt,
+        Expr::value(utc_now().assume_utc()),
+    );
+    if let Some(key) = new_key {
+        change = change.col_expr(merge_teams::Column::Key, Expr::value(key));
+    }
+    if let Some(name) = name {
+        change = change.col_expr(merge_teams::Column::Name, Expr::value(name));
+    }
+    if set_description {
+        change = change.col_expr(merge_teams::Column::Description, Expr::value(description));
+    }
+    if set_color {
+        change = change.col_expr(merge_teams::Column::Color, Expr::value(color));
+    }
+    let updated = change
+        .filter(merge_teams::Column::Id.eq(&id))
+        .exec_with_returning(&orm(&caller.db))
+        .await;
     let row = match updated {
-        Ok(row) => weldsuite_db::js_row(row),
+        Ok(rows) => returned(rows)?,
         Err(error) if is_unique_violation(&error) => {
             return Err(Refusal::conflict("A team with this key already exists"));
         }
@@ -273,48 +295,50 @@ pub(crate) async fn remove(
     if find_team(db, &id).await?.is_none() {
         return Err(Refusal::not_found("Team", Some(&id)));
     }
-    let live: Option<String> = sqlx::query_scalar(
-        "select id from merge_issues where team_id = $1 and deleted_at is null limit 1",
-    )
-    .bind(&id)
-    .fetch_optional(db)
-    .await?;
+    let orm = orm(db);
+    let live: Option<String> = merge_issues::Entity::find()
+        .select_only()
+        .column(merge_issues::Column::Id)
+        .filter(merge_issues::Column::TeamId.eq(&id))
+        .filter(merge_issues::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm)
+        .await?;
     if live.is_some() {
         return Err(Refusal::conflict(
             "The team still has issues. Move or delete them first",
         ));
     }
-    let now = now();
-    sqlx::query(
-        "update merge_cycles set deleted_at = $2::timestamptz where team_id = $1 and deleted_at is null",
-    )
-    .bind(&id)
-    .bind(&now)
-    .execute(db)
-    .await?;
-    sqlx::query(
-        "update merge_labels set deleted_at = $2::timestamptz where team_id = $1 and deleted_at is null",
-    )
-    .bind(&id)
-    .bind(&now)
-    .execute(db)
-    .await?;
-    sqlx::query(
-        "update merge_repositories set team_id = null, updated_at = $2::timestamptz where team_id = $1",
-    )
-    .bind(&id)
-    .bind(&now)
-    .execute(db)
-    .await?;
-    let row: Value = sqlx::query_scalar(
-        "update merge_teams set deleted_at = $2::timestamptz, updated_at = $2::timestamptz \
-         where id = $1 returning to_jsonb(merge_teams.*)",
-    )
-    .bind(&id)
-    .bind(&now)
-    .fetch_one(db)
-    .await?;
-    let row = weldsuite_db::js_row(row);
+    let at = utc_now().assume_utc();
+    merge_cycles::Entity::update_many()
+        .col_expr(merge_cycles::Column::DeletedAt, Expr::value(at))
+        .filter(merge_cycles::Column::TeamId.eq(&id))
+        .filter(merge_cycles::Column::DeletedAt.is_null())
+        .exec(&orm)
+        .await?;
+    merge_labels::Entity::update_many()
+        .col_expr(merge_labels::Column::DeletedAt, Expr::value(at))
+        .filter(merge_labels::Column::TeamId.eq(&id))
+        .filter(merge_labels::Column::DeletedAt.is_null())
+        .exec(&orm)
+        .await?;
+    merge_repositories::Entity::update_many()
+        .col_expr(
+            merge_repositories::Column::TeamId,
+            Expr::value(Option::<String>::None),
+        )
+        .col_expr(merge_repositories::Column::UpdatedAt, Expr::value(at))
+        .filter(merge_repositories::Column::TeamId.eq(&id))
+        .exec(&orm)
+        .await?;
+    let row = returned(
+        merge_teams::Entity::update_many()
+            .col_expr(merge_teams::Column::DeletedAt, Expr::value(at))
+            .col_expr(merge_teams::Column::UpdatedAt, Expr::value(at))
+            .filter(merge_teams::Column::Id.eq(&id))
+            .exec_with_returning(&orm)
+            .await?,
+    )?;
     publish(&state, &caller.events, vec![team_event(&row, "deleted")]);
     Ok(NoContent.into_response())
 }

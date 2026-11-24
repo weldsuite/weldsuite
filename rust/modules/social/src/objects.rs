@@ -6,11 +6,13 @@
 use std::sync::Arc;
 
 use axum::Router;
+use sea_orm::{ColumnTrait, Condition};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events as ev;
 use weldsuite_catalogs::permission_keys as perm;
 use weldsuite_kit::validation::{Issues, Number, Presence, Text};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::{social_campaigns, social_team_members};
 
 use crate::crud::{
     self, Crud, Filter, Gates, Messages, Partial, Standard, event, field, no_prepare, or_default,
@@ -68,10 +70,6 @@ pub(crate) const fn messages(
 }
 
 // ── campaigns ───────────────────────────────────────────────────────────────
-
-const CAMPAIGN_LIST: (&str, &str) = listing!("social_campaigns";
-    "($2::boolean or t.status = $3::social_campaign_status)", "($4::boolean or t.name like $5::text)";
-    6, 7, 8; "$9");
 
 fn campaign_schema(issues: &mut Issues, body: &Map<String, Value>, partial: Partial) {
     issues.text(body, "name", partial.required(), Some(1), Some(255));
@@ -157,9 +155,14 @@ static CAMPAIGNS: Crud = Crud {
         "Failed to delete social campaign",
     ),
     schema: campaign_schema,
-    filters: &[Filter::eq("status"), Filter::like("search")],
-    list_sql: CAMPAIGN_LIST.0,
-    count_sql: CAMPAIGN_LIST.1,
+    filters: &[
+        Filter::eq("status", |v| {
+            Condition::all().add(social_campaigns::Column::Status.eq(v))
+        }),
+        Filter::like("search", |v| {
+            Condition::all().add(social_campaigns::Column::Name.like(v))
+        }),
+    ],
     slice_count: true,
     hidden: &[],
     prepare: campaign_prepare,
@@ -186,10 +189,6 @@ pub(crate) fn campaigns<Q: PermissionQueries + 'static>(
 }
 
 // ── team members ────────────────────────────────────────────────────────────
-
-const TEAM_LIST: (&str, &str) = listing!("social_team_members";
-    "($2::boolean or t.user_id = $3::text)";
-    4, 5, 6; "$7");
 
 fn team_schema(issues: &mut Issues, body: &Map<String, Value>, partial: Partial) {
     string(issues, body, "userId", partial.required(), None);
@@ -229,9 +228,9 @@ static TEAM_MEMBERS: Crud = Crud {
         "Failed to delete social team member",
     ),
     schema: team_schema,
-    filters: &[Filter::eq("userId")],
-    list_sql: TEAM_LIST.0,
-    count_sql: TEAM_LIST.1,
+    filters: &[Filter::eq("userId", |v| {
+        Condition::all().add(social_team_members::Column::UserId.eq(v))
+    })],
     slice_count: true,
     hidden: &[],
     prepare: no_prepare,
@@ -258,8 +257,6 @@ pub(crate) fn team_members<Q: PermissionQueries + 'static>(
 }
 
 // ── media ───────────────────────────────────────────────────────────────────
-
-const MEDIA_LIST: (&str, &str) = listing!("social_media"; ; 2, 3, 4; "$5");
 
 fn media_schema(issues: &mut Issues, body: &Map<String, Value>, partial: Partial) {
     string(issues, body, "fileName", partial.required(), Some(500));
@@ -430,8 +427,6 @@ static MEDIA: Crud = Crud {
     ),
     schema: media_schema,
     filters: &[],
-    list_sql: MEDIA_LIST.0,
-    count_sql: MEDIA_LIST.1,
     slice_count: false,
     hidden: &[],
     prepare: media_prepare,

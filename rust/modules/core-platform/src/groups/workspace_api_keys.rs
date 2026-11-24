@@ -16,16 +16,19 @@ use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, post, put};
 use http::HeaderMap;
+use sea_orm::sea_query::{Expr, Query};
+use sea_orm::{ColumnTrait, ConnectionTrait, DbErr, EntityTrait, QueryFilter, QueryOrder};
 use serde_json::Value;
-use weldsuite_db::js_row;
+use weldsuite_db::{orm, utc_now};
 use weldsuite_kit::{ApiError, Data, NoContent, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::workspace_api_keys;
 
 use super::api_keys::{
-    created_key, generate_api_key, org_of, read_create, read_update, register_api_key, safe_key,
-    scopes_json, unregister_api_key,
+    CreateKey, GeneratedKey, created_key, expires_at, generate_api_key, key_json, org_of,
+    read_create, read_update, register_api_key, safe_key, scopes_json, unregister_api_key,
 };
-use crate::{Caller, CorePlatformState, PlatformError, answer, now, validate};
+use crate::{Caller, CorePlatformState, PlatformError, answer, validate};
 
 const RESOURCE: &str = "Workspace API key";
 const CREATE_FAILED: &str = "Failed to create workspace API key";
@@ -45,16 +48,56 @@ where
         .route("/{id}", delete(revoke).route_layer(need("apikeys:delete")))
 }
 
-/// A live key of the workspace, as `to_jsonb` through [`js_row`].
-async fn live_key(caller: &Caller, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(k) from workspace_api_keys k
-         where k.id = $1 and k.deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(&caller.db)
-    .await?;
-    Ok(row.map(js_row))
+/// A live key of the workspace, as `to_jsonb` through `js_row` read it.
+async fn live_key(caller: &Caller, id: &str) -> Result<Option<Value>, DbErr> {
+    let row = workspace_api_keys::Entity::find()
+        .filter(workspace_api_keys::Column::Id.eq(id))
+        .filter(workspace_api_keys::Column::DeletedAt.is_null())
+        .one(&orm(&caller.db))
+        .await?;
+    Ok(row.map(key_json))
+}
+
+/// `insert into workspace_api_keys …`: the minted key's row; `expiresAt` is
+/// read by Postgres as before.
+async fn insert_key(
+    caller: &Caller,
+    id: &str,
+    data: &CreateKey,
+    minted: &GeneratedKey,
+) -> Result<(), DbErr> {
+    use workspace_api_keys::Column;
+    let at = utc_now().assume_utc();
+    let mut insert = Query::insert();
+    insert
+        .into_table(workspace_api_keys::Entity)
+        .columns([
+            Column::Id,
+            Column::Name,
+            Column::Description,
+            Column::KeyHash,
+            Column::KeyPrefix,
+            Column::Scopes,
+            Column::ExpiresAt,
+            Column::CreatedBy,
+            Column::CreatedAt,
+            Column::UpdatedAt,
+        ])
+        .values([
+            Expr::value(id.to_owned()),
+            Expr::value(data.name.clone()),
+            Expr::value(data.description.clone()),
+            Expr::value(minted.hash.clone()),
+            Expr::value(minted.prefix.clone()),
+            Expr::value(scopes_json(&data.scopes)),
+            expires_at(data.expires_at.as_deref()),
+            Expr::value(caller.user_id.clone()),
+            Expr::value(at),
+            Expr::value(at),
+        ])
+        .map_err(|error| DbErr::Custom(error.to_string()))?;
+    orm(&caller.db).execute(&insert).await?;
+    Ok(())
 }
 
 /// `GET /`: the workspace's live keys, newest first. Not paginated.
@@ -62,17 +105,15 @@ async fn list(caller: Caller) -> Response {
     answer(
         async {
             org_of(&caller)?;
-            let rows: Vec<Value> = sqlx::query_scalar(
-                "select to_jsonb(k) from workspace_api_keys k
-                 where k.deleted_at is null
-                 order by k.created_at desc",
-            )
-            .fetch_all(&caller.db)
-            .await
-            .map_err(|e| PlatformError::internal("Failed to fetch workspace API keys", e))?;
+            let rows = workspace_api_keys::Entity::find()
+                .filter(workspace_api_keys::Column::DeletedAt.is_null())
+                .order_by_desc(workspace_api_keys::Column::CreatedAt)
+                .all(&orm(&caller.db))
+                .await
+                .map_err(|e| PlatformError::internal("Failed to fetch workspace API keys", e))?;
             let keys: Vec<Value> = rows
                 .into_iter()
-                .map(|row| safe_key(&js_row(row), true))
+                .map(|row| safe_key(&key_json(row), true))
                 .collect();
             Ok(Data(keys).into_response())
         }
@@ -111,26 +152,9 @@ async fn create(
             let minted = generate_api_key()
                 .ok_or_else(|| PlatformError::internal(CREATE_FAILED, "no random"))?;
             let id = generate_id("wak");
-            sqlx::query(
-                "insert into workspace_api_keys
-                   (id, name, description, key_hash, key_prefix, scopes, expires_at, created_by,
-                    created_at, updated_at)
-                 values ($1, $2, $3, $4, $5, $6::jsonb,
-                         date_trunc('milliseconds', $7::timestamptz), $8,
-                         $9::timestamptz, $9::timestamptz)",
-            )
-            .bind(&id)
-            .bind(&data.name)
-            .bind(&data.description)
-            .bind(&minted.hash)
-            .bind(&minted.prefix)
-            .bind(scopes_json(&data.scopes))
-            .bind(&data.expires_at)
-            .bind(&caller.user_id)
-            .bind(now())
-            .execute(&caller.db)
-            .await
-            .map_err(|e| PlatformError::internal(CREATE_FAILED, e))?;
+            insert_key(&caller, &id, &data, &minted)
+                .await
+                .map_err(|e| PlatformError::internal(CREATE_FAILED, e))?;
             register_api_key(&caller.master(&state), &org, &minted.hash, "workspace", &id).await;
             Ok(created_key(&id, &data, &minted))
         }
@@ -149,38 +173,42 @@ async fn update(
         async {
             let data = validate(&headers, &body, read_update)?;
             org_of(&caller)?;
-            let failed = |e: sqlx::Error| PlatformError::internal(UPDATE_FAILED, e);
+            let failed = |e: DbErr| PlatformError::internal(UPDATE_FAILED, e);
             if live_key(&caller, &id).await.map_err(failed)?.is_none() {
                 return Err(ApiError::not_found(RESOURCE, Some(&id)).into());
             }
-            sqlx::query(
-                "update workspace_api_keys set
-                   updated_at = $2::timestamptz,
-                   name = case when $3 then $4 else name end,
-                   description = case when $5 then $6 else description end,
-                   scopes = case when $7 then $8::jsonb else scopes end
-                 where id = $1",
-            )
-            .bind(&id)
-            .bind(now())
-            .bind(data.name.is_some())
-            .bind(&data.name)
-            .bind(data.description.is_some())
-            .bind(&data.description)
-            .bind(data.scopes.is_some())
-            .bind(data.scopes.as_deref().map(scopes_json))
-            .execute(&caller.db)
-            .await
-            .map_err(failed)?;
-            let updated: Option<Value> = sqlx::query_scalar(
-                "select to_jsonb(k) from workspace_api_keys k where k.id = $1 limit 1",
-            )
-            .bind(&id)
-            .fetch_optional(&caller.db)
-            .await
-            .map_err(failed)?;
+            let db = orm(&caller.db);
+            let mut update = workspace_api_keys::Entity::update_many().col_expr(
+                workspace_api_keys::Column::UpdatedAt,
+                Expr::value(utc_now().assume_utc()),
+            );
+            if let Some(name) = &data.name {
+                update =
+                    update.col_expr(workspace_api_keys::Column::Name, Expr::value(name.clone()));
+            }
+            if let Some(description) = &data.description {
+                update = update.col_expr(
+                    workspace_api_keys::Column::Description,
+                    Expr::value(description.clone()),
+                );
+            }
+            if let Some(scopes) = &data.scopes {
+                update = update.col_expr(
+                    workspace_api_keys::Column::Scopes,
+                    Expr::value(scopes_json(scopes)),
+                );
+            }
+            update
+                .filter(workspace_api_keys::Column::Id.eq(&id))
+                .exec(&db)
+                .await
+                .map_err(failed)?;
+            let updated = workspace_api_keys::Entity::find_by_id(id.clone())
+                .one(&db)
+                .await
+                .map_err(failed)?;
             let updated = updated.ok_or_else(|| PlatformError::internal(UPDATE_FAILED, "gone"))?;
-            Ok(Data(safe_key(&js_row(updated), true)).into_response())
+            Ok(Data(safe_key(&key_json(updated), true)).into_response())
         }
         .await,
     )
@@ -195,20 +223,18 @@ async fn revoke(
     answer(
         async {
             org_of(&caller)?;
-            let failed = |e: sqlx::Error| PlatformError::internal(REVOKE_FAILED, e);
+            let failed = |e: DbErr| PlatformError::internal(REVOKE_FAILED, e);
             if live_key(&caller, &id).await.map_err(failed)?.is_none() {
                 return Err(ApiError::not_found(RESOURCE, Some(&id)).into());
             }
-            sqlx::query(
-                "update workspace_api_keys
-                 set deleted_at = $2::timestamptz, updated_at = $2::timestamptz
-                 where id = $1",
-            )
-            .bind(&id)
-            .bind(now())
-            .execute(&caller.db)
-            .await
-            .map_err(failed)?;
+            let at = utc_now().assume_utc();
+            workspace_api_keys::Entity::update_many()
+                .col_expr(workspace_api_keys::Column::DeletedAt, Expr::value(at))
+                .col_expr(workspace_api_keys::Column::UpdatedAt, Expr::value(at))
+                .filter(workspace_api_keys::Column::Id.eq(&id))
+                .exec(&orm(&caller.db))
+                .await
+                .map_err(failed)?;
             unregister_api_key(&caller.master(&state), &id).await;
             Ok(NoContent.into_response())
         }

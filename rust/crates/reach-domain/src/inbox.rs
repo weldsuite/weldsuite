@@ -1,15 +1,25 @@
 //! `inbox.ts`: the reply inbox's threads, one thread's messages, and
 //! answering a reply.
 
+use sea_orm::sea_query::{Alias, Asterisk, Expr, Func, Query, SelectStatement};
+use sea_orm::{
+    ColumnTrait, Condition, ConnectionTrait, DbErr, EntityTrait, Order, QueryFilter, QueryOrder,
+    QuerySelect,
+};
 use serde_json::{Value, json};
 use sqlx::PgPool;
+use time::OffsetDateTime;
+use weldsuite_db::orm;
 use weldsuite_ports::BoxFuture;
+use weldsuite_schema::tenant::{
+    reach_campaigns, reach_mailboxes, reach_messages as messages, reach_prospects,
+};
 
 use crate::access::may_send;
 use crate::outbound::{OutboundDeps, SendInput, send_from_mailbox};
 use crate::suppressions::load_index;
 use crate::text::{html_to_text, reply_subject, strip_quoted_history};
-use crate::{ReachError, ReachResult, field, iso, js_rows, now, text};
+use crate::{ReachError, ReachResult, field, iso, js, js_all, now, text};
 
 /// `DEFAULT_PAGE_SIZE`.
 pub const DEFAULT_PAGE_SIZE: i64 = 25;
@@ -66,22 +76,84 @@ pub fn decode_cursor(cursor: Option<&str>) -> Option<(String, String)> {
     Some((iso(crate::from_epoch_ms(ms as i64)), id.to_owned()))
 }
 
-/// The latest inbound message per thread, as SQL (`latestInbound`).
-macro_rules! latest_inbound {
-    () => {
-        "(select distinct on (thread_key) id, thread_key, received_at, kind, label, read_at, handled_at, campaign_id, mailbox_id
-          from reach_messages where direction = 'in' and thread_key is not null
-          order by thread_key, received_at desc, id desc) latest"
-    };
+/// The alias of [`latest_inbound`] in the thread queries.
+fn latest() -> Alias {
+    Alias::new("latest")
 }
 
-macro_rules! inbox_filters {
-    () => {
-        " ($1::text is null or latest.label = $1) and ($2::text is null or latest.kind = $2)
-          and ($3::text is null or latest.campaign_id = $3) and ($4::text is null or latest.mailbox_id = $4)
-          and (case $5 when 'unread' then latest.read_at is null when 'open' then latest.handled_at is null
-               when 'handled' then latest.handled_at is not null else true end)"
-    };
+/// `latest.<column>`.
+fn latest_col(column: messages::Column) -> Expr {
+    Expr::col((latest(), column))
+}
+
+/// The latest inbound message per thread (`latestInbound`): `select distinct
+/// on (thread_key) … order by thread_key, received_at desc, id desc`.
+fn latest_inbound() -> SelectStatement {
+    use messages::Column;
+    Query::select()
+        .distinct_on([Column::ThreadKey])
+        .columns([
+            Column::Id,
+            Column::ThreadKey,
+            Column::ReceivedAt,
+            Column::Kind,
+            Column::Label,
+            Column::ReadAt,
+            Column::HandledAt,
+            Column::CampaignId,
+            Column::MailboxId,
+        ])
+        .from(messages::Entity)
+        .and_where(Column::Direction.eq("in"))
+        .and_where(Column::ThreadKey.is_not_null())
+        .order_by(Column::ThreadKey, Order::Asc)
+        .order_by(Column::ReceivedAt, Order::Desc)
+        .order_by(Column::Id, Order::Desc)
+        .to_owned()
+}
+
+/// `select … from (latestInbound) latest`.
+fn from_latest() -> SelectStatement {
+    Query::select()
+        .from_subquery(latest_inbound(), latest())
+        .to_owned()
+}
+
+/// The thread filters over [`latest_inbound`]; the state is `unread`, `open`
+/// or `handled` (anything else filters nothing).
+fn inbox_filters(filter: &InboxFilter, state: &str) -> Condition {
+    use messages::Column;
+    use sea_orm::ExprTrait as _;
+    let mut filters = Condition::all();
+    for (column, value) in [
+        (Column::Label, &filter.label),
+        (Column::Kind, &filter.kind),
+        (Column::CampaignId, &filter.campaign_id),
+        (Column::MailboxId, &filter.mailbox_id),
+    ] {
+        if let Some(value) = value {
+            filters = filters.add(latest_col(column).eq(value.as_str()));
+        }
+    }
+    match state {
+        "unread" => filters.add(latest_col(Column::ReadAt).is_null()),
+        "open" => filters.add(latest_col(Column::HandledAt).is_null()),
+        "handled" => filters.add(latest_col(Column::HandledAt).is_not_null()),
+        _ => filters,
+    }
+}
+
+/// `count(*)` of the threads `filters` keeps.
+async fn count_threads(db: &PgPool, filters: Condition) -> Result<i64, DbErr> {
+    let count = from_latest()
+        .expr_as(Func::count(Expr::col(Asterisk)), Alias::new("count"))
+        .cond_where(filters)
+        .to_owned();
+    let row = orm(db)
+        .query_one(&count)
+        .await?
+        .ok_or_else(|| DbErr::RecordNotFound("count".to_owned()))?;
+    row.try_get("", "count")
 }
 
 async fn summarize(db: &PgPool, latest_rows: &[Value]) -> ReachResult<Vec<Value>> {
@@ -110,34 +182,48 @@ async fn summarize(db: &PgPool, latest_rows: &[Value]) -> ReachResult<Vec<Value>
             .filter_map(|r| text(r, "mailboxId").map(str::to_owned))
             .collect::<Vec<_>>(),
     );
-    let counts: Vec<(Option<String>, i64)> =
-        sqlx::query_as("select thread_key, count(*) from reach_messages where thread_key = any($1) group by thread_key")
-            .bind(&thread_keys)
-            .fetch_all(db)
-            .await?;
+    let conn = orm(db);
+    let counts: Vec<(Option<String>, i64)> = messages::Entity::find()
+        .select_only()
+        .column(messages::Column::ThreadKey)
+        .expr(Func::count(Expr::col(Asterisk)))
+        .filter(messages::Column::ThreadKey.is_in(thread_keys))
+        .group_by(messages::Column::ThreadKey)
+        .into_tuple()
+        .all(&conn)
+        .await?;
     let prospects: Vec<Value> = if prospect_ids.is_empty() {
         Vec::new()
     } else {
-        js_rows(
-            sqlx::query_scalar("select to_jsonb(t) from reach_prospects t where t.id = any($1)")
-                .bind(&prospect_ids)
-                .fetch_all(db)
-                .await?,
-        )
+        js_all(
+            reach_prospects::Entity::find()
+                .filter(reach_prospects::Column::Id.is_in(prospect_ids))
+                .all(&conn)
+                .await?
+                .into_iter()
+                .map(serde_json::to_value),
+        )?
     };
     let campaigns: Vec<(String, String)> = if campaign_ids.is_empty() {
         Vec::new()
     } else {
-        sqlx::query_as("select id, name from reach_campaigns where id = any($1)")
-            .bind(&campaign_ids)
-            .fetch_all(db)
+        reach_campaigns::Entity::find()
+            .select_only()
+            .column(reach_campaigns::Column::Id)
+            .column(reach_campaigns::Column::Name)
+            .filter(reach_campaigns::Column::Id.is_in(campaign_ids))
+            .into_tuple()
+            .all(&conn)
             .await?
     };
-    let mailboxes: Vec<(String, String)> =
-        sqlx::query_as("select id, email from reach_mailboxes where id = any($1)")
-            .bind(&mailbox_ids)
-            .fetch_all(db)
-            .await?;
+    let mailboxes: Vec<(String, String)> = reach_mailboxes::Entity::find()
+        .select_only()
+        .column(reach_mailboxes::Column::Id)
+        .column(reach_mailboxes::Column::Email)
+        .filter(reach_mailboxes::Column::Id.is_in(mailbox_ids))
+        .into_tuple()
+        .all(&conn)
+        .await?;
     Ok(latest_rows
         .iter()
         .map(|row| {
@@ -192,50 +278,22 @@ pub async fn list_threads(db: &PgPool, filter: &InboxFilter) -> ReachResult<Thre
     let limit = filter.limit.unwrap_or(DEFAULT_PAGE_SIZE);
     let state = filter.state.clone().unwrap_or_else(|| "open".to_owned());
     let cursor = decode_cursor(filter.cursor.as_deref());
-    let rows: Vec<(String,)> = sqlx::query_as(concat!(
-        "select latest.id from ",
-        latest_inbound!(),
-        " where",
-        inbox_filters!(),
-        " and ($6::timestamptz is null or latest.received_at < $6::timestamptz
-               or (latest.received_at = $6::timestamptz and latest.id < $7))
-          order by latest.received_at desc, latest.id desc limit $8"
-    ))
-    .bind(&filter.label)
-    .bind(&filter.kind)
-    .bind(&filter.campaign_id)
-    .bind(&filter.mailbox_id)
-    .bind(&state)
-    .bind(cursor.as_ref().map(|c| c.0.clone()))
-    .bind(cursor.as_ref().map(|c| c.1.clone()))
-    .bind(limit + 1)
-    .fetch_all(db)
-    .await?;
-    let total: i64 = sqlx::query_scalar(concat!(
-        "select count(*) from ",
-        latest_inbound!(),
-        " where",
-        inbox_filters!()
-    ))
-    .bind(&filter.label)
-    .bind(&filter.kind)
-    .bind(&filter.campaign_id)
-    .bind(&filter.mailbox_id)
-    .bind(&state)
-    .fetch_one(db)
-    .await?;
+    let rows = thread_ids(db, filter, &state, cursor.as_ref(), limit).await?;
+    let total = count_threads(db, inbox_filters(filter, &state)).await?;
     let limit_usize = usize::try_from(limit).unwrap_or_default();
     let has_more = rows.len() > limit_usize;
-    let page_ids: Vec<String> = rows.into_iter().take(limit_usize).map(|(id,)| id).collect();
+    let page_ids: Vec<String> = rows.into_iter().take(limit_usize).collect();
     let messages: Vec<Value> = if page_ids.is_empty() {
         Vec::new()
     } else {
-        js_rows(
-            sqlx::query_scalar("select to_jsonb(t) from reach_messages t where t.id = any($1)")
-                .bind(&page_ids)
-                .fetch_all(db)
-                .await?,
-        )
+        js_all(
+            messages::Entity::find()
+                .filter(messages::Column::Id.is_in(page_ids.clone()))
+                .all(&orm(db))
+                .await?
+                .into_iter()
+                .map(serde_json::to_value),
+        )?
     };
     let ordered: Vec<Value> = page_ids
         .iter()
@@ -266,14 +324,52 @@ pub async fn list_threads(db: &PgPool, filter: &InboxFilter) -> ReachResult<Thre
     })
 }
 
+/// The ids of one page of threads' latest inbound messages, newest first,
+/// `limit + 1` of them.
+async fn thread_ids(
+    db: &PgPool,
+    filter: &InboxFilter,
+    state: &str,
+    cursor: Option<&(String, String)>,
+    limit: i64,
+) -> Result<Vec<String>, DbErr> {
+    use messages::Column;
+    use sea_orm::ExprTrait as _;
+    let mut filters = inbox_filters(filter, state);
+    if let Some((at, id)) = cursor {
+        let at: Option<OffsetDateTime> = crate::parse_iso(at);
+        filters = filters.add(
+            Condition::any()
+                .add(latest_col(Column::ReceivedAt).lt(at))
+                .add(
+                    Condition::all()
+                        .add(latest_col(Column::ReceivedAt).eq(at))
+                        .add(latest_col(Column::Id).lt(id.as_str())),
+                ),
+        );
+    }
+    let page = from_latest()
+        .expr(latest_col(Column::Id))
+        .cond_where(filters)
+        .order_by((latest(), Column::ReceivedAt), Order::Desc)
+        .order_by((latest(), Column::Id), Order::Desc)
+        .limit(crate::lists::probe(limit))
+        .to_owned();
+    orm(db)
+        .query_all(&page)
+        .await?
+        .iter()
+        .map(|row| row.try_get_by_index(0))
+        .collect()
+}
+
 /// `countUnreadThreads(db)`.
 pub async fn count_unread(db: &PgPool) -> ReachResult<i64> {
-    Ok(sqlx::query_scalar(concat!(
-        "select count(*) from ",
-        latest_inbound!(),
-        " where latest.read_at is null"
-    ))
-    .fetch_one(db)
+    use sea_orm::ExprTrait as _;
+    Ok(count_threads(
+        db,
+        Condition::all().add(latest_col(messages::Column::ReadAt).is_null()),
+    )
     .await?)
 }
 
@@ -288,22 +384,25 @@ pub struct ThreadContext {
     pub mailbox: Option<Value>,
 }
 
-async fn one(db: &PgPool, sql: &'static str, id: &str) -> ReachResult<Option<Value>> {
-    let row: Option<Value> = sqlx::query_scalar(sql).bind(id).fetch_optional(db).await?;
-    Ok(row.map(weldsuite_db::js_row))
-}
-
 /// `loadThread(db, threadKey)`: `None` without an inbound message.
 pub async fn load_thread(db: &PgPool, thread_key: &str) -> ReachResult<Option<ThreadContext>> {
-    let messages = js_rows(
-        sqlx::query_scalar(
-            "select to_jsonb(t) from reach_messages t where t.thread_key = $1
-             order by coalesce(t.sent_at, t.received_at, t.created_at) asc, t.created_at asc, t.id asc",
-        )
-        .bind(thread_key)
-        .fetch_all(db)
-        .await?,
-    );
+    use messages::Column;
+    let conn = orm(db);
+    let messages = js_all(
+        messages::Entity::find()
+            .filter(Column::ThreadKey.eq(thread_key))
+            .order_by_asc(Expr::from(Func::coalesce([
+                Expr::col((messages::Entity, Column::SentAt)),
+                Expr::col((messages::Entity, Column::ReceivedAt)),
+                Expr::col((messages::Entity, Column::CreatedAt)),
+            ])))
+            .order_by_asc(Column::CreatedAt)
+            .order_by_asc(Column::Id)
+            .all(&conn)
+            .await?
+            .into_iter()
+            .map(serde_json::to_value),
+    )?;
     let Some(latest) = messages
         .iter()
         .rev()
@@ -313,33 +412,30 @@ pub async fn load_thread(db: &PgPool, thread_key: &str) -> ReachResult<Option<Th
         return Ok(None);
     };
     let prospect = match text(&latest, "prospectId") {
-        Some(id) => {
-            one(
-                db,
-                "select to_jsonb(t) from reach_prospects t where t.id = $1 limit 1",
-                id,
-            )
+        Some(id) => reach_prospects::Entity::find_by_id(id)
+            .one(&conn)
             .await?
-        }
+            .map(serde_json::to_value)
+            .map(js)
+            .transpose()?,
         None => None,
     };
     let campaign = match text(&latest, "campaignId") {
-        Some(id) => {
-            one(
-                db,
-                "select to_jsonb(t) from reach_campaigns t where t.id = $1 limit 1",
-                id,
-            )
+        Some(id) => reach_campaigns::Entity::find_by_id(id)
+            .one(&conn)
             .await?
-        }
+            .map(serde_json::to_value)
+            .map(js)
+            .transpose()?,
         None => None,
     };
-    let mailbox = one(
-        db,
-        "select to_jsonb(t) from reach_mailboxes t where t.id = $1 limit 1",
-        text(&latest, "mailboxId").unwrap_or_default(),
-    )
-    .await?;
+    let mailbox =
+        reach_mailboxes::Entity::find_by_id(text(&latest, "mailboxId").unwrap_or_default())
+            .one(&conn)
+            .await?
+            .map(serde_json::to_value)
+            .map(js)
+            .transpose()?;
     Ok(Some(ThreadContext {
         thread_key: thread_key.to_owned(),
         messages,
@@ -555,15 +651,15 @@ pub async fn send_reply(
     if !result.ok {
         return Err(ReachError::bad_gateway(result.error));
     }
-    let at = iso(now());
-    sqlx::query(
-        "update reach_messages set read_at = $2::timestamptz, updated_at = $2::timestamptz
-         where thread_key = $1 and direction = 'in' and read_at is null",
-    )
-    .bind(&thread.thread_key)
-    .bind(&at)
-    .execute(db)
-    .await?;
+    let at = now();
+    messages::Entity::update_many()
+        .col_expr(messages::Column::ReadAt, Expr::value(at))
+        .col_expr(messages::Column::UpdatedAt, Expr::value(at))
+        .filter(messages::Column::ThreadKey.eq(thread.thread_key.as_str()))
+        .filter(messages::Column::Direction.eq("in"))
+        .filter(messages::Column::ReadAt.is_null())
+        .exec(&orm(db))
+        .await?;
     let message = result.message.unwrap_or(Value::Null);
     Ok(to_message_dto(&message, None))
 }

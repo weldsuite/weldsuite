@@ -20,6 +20,8 @@ use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, patch, post};
 use http::{HeaderMap, HeaderValue, StatusCode};
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter};
 use serde_json::{Map, Value, json};
 use weldsuite_books_domain::entity_context::resolve_entity_id;
 use weldsuite_books_domain::form_1099::{
@@ -37,6 +39,7 @@ use weldsuite_kit::ApiError;
 use weldsuite_kit::validation::{Field, Issues, Number, Presence, Text, js_number};
 use weldsuite_legal_entities::{EntityRecordGuard, EntityTable};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::form_1099_filings;
 
 use filings::LinePatch;
 
@@ -47,7 +50,7 @@ pub(crate) enum Fail {
     NotFound(String),
     Conflict(String, Option<Value>),
     Unavailable(String),
-    Database(sqlx::Error),
+    Database(DbErr),
     Internal(String),
 }
 
@@ -83,9 +86,16 @@ impl Fail {
     }
 }
 
+impl From<DbErr> for Fail {
+    fn from(error: DbErr) -> Self {
+        Self::Database(error)
+    }
+}
+
+/// A transaction's own `BEGIN` / `COMMIT`, through `weldsuite_db::orm_error`.
 impl From<sqlx::Error> for Fail {
     fn from(error: sqlx::Error) -> Self {
-        Self::Database(error)
+        Self::Database(weldsuite_db::orm_error(error))
     }
 }
 
@@ -526,14 +536,15 @@ async fn update_filing(
     let result = async {
         let entity_id = entity_or_400(&caller).await?;
         let before = filings::load_filing_detail(&caller.db, &entity_id, &id).await?;
-        sqlx::query(
-            "update form_1099_filings set notes = $1, updated_at = $2::timestamp where id = $3",
-        )
-        .bind(&notes)
-        .bind(weldsuite_books_domain::http::now())
-        .bind(&id)
-        .execute(&caller.db)
-        .await?;
+        form_1099_filings::Entity::update_many()
+            .col_expr(form_1099_filings::Column::Notes, Expr::value(notes.clone()))
+            .col_expr(
+                form_1099_filings::Column::UpdatedAt,
+                Expr::value(weldsuite_db::utc_now()),
+            )
+            .filter(form_1099_filings::Column::Id.eq(&id))
+            .exec(&weldsuite_db::orm(&caller.db))
+            .await?;
         let detail = filings::load_filing_detail(&caller.db, &entity_id, &id).await?;
         audit(
             &caller,

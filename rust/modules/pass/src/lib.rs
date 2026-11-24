@@ -20,11 +20,6 @@
 //! events: WeldPass writes its own trail (`weldpass_audit_events`,
 //! `weldpass_vault_events`), reveals and 2FA codes included.
 
-#![allow(
-    clippy::disallowed_methods,
-    reason = "not converted to the ORM yet (ADR DATA-019)"
-)]
-
 mod audit;
 #[cfg(test)]
 mod cases;
@@ -513,14 +508,30 @@ impl PassError {
     }
 }
 
-impl From<sqlx::Error> for PassError {
+impl From<sea_orm::DbErr> for PassError {
     /// The database's own message when it has one, as Drizzle's error
-    /// carries it (a push records it as the failed run's error).
+    /// carries it (a push records it as the failed run's error); else the
+    /// driver's error as it reads, else SeaORM's.
+    fn from(error: sea_orm::DbErr) -> Self {
+        use sea_orm::{DbErr, RuntimeErr};
+        let message = match &error {
+            DbErr::Query(RuntimeErr::SqlxError(sqlx))
+            | DbErr::Exec(RuntimeErr::SqlxError(sqlx))
+            | DbErr::Conn(RuntimeErr::SqlxError(sqlx)) => sqlx.as_database_error().map_or_else(
+                || sqlx.to_string(),
+                |database| database.message().to_owned(),
+            ),
+            _ => error.to_string(),
+        };
+        Self::Internal(message)
+    }
+}
+
+impl From<sqlx::Error> for PassError {
+    /// `atomically_with` and the crates not converted yet: through
+    /// [`weldsuite_db::orm_error`], as the ORM's own errors.
     fn from(error: sqlx::Error) -> Self {
-        Self::Internal(error.as_database_error().map_or_else(
-            || error.to_string(),
-            |database| database.message().to_owned(),
-        ))
+        Self::from(weldsuite_db::orm_error(error))
     }
 }
 
@@ -572,24 +583,29 @@ pub(crate) fn json_value(headers: &HeaderMap, body: &Bytes) -> PassResult<Value>
     json_body(content_type, body).map_err(|bad| PassError::Response(Box::new(bad.into_response())))
 }
 
-/// `new Date()` as Drizzle writes it: UTC with milliseconds, bound as text.
-pub(crate) fn now() -> String {
-    weldsuite_events::iso_timestamp(OffsetDateTime::now_utc())
+/// `new Date()` as Drizzle writes it to a `timestamptz` column: UTC, to the
+/// millisecond.
+pub(crate) fn now() -> OffsetDateTime {
+    millis(OffsetDateTime::now_utc())
 }
 
-/// A row built with `jsonb_build_object`, with its timestamp keys as
-/// `toISOString()` prints them.
-pub(crate) fn dated(mut row: Value, keys: &[&str]) -> Value {
-    if let Value::Object(fields) = &mut row {
-        for key in keys {
-            if let Some(Value::String(text)) = fields.get(*key)
-                && let Some(stamp) = weldsuite_db::js_timestamp(text)
-            {
-                fields.insert((*key).to_owned(), Value::String(stamp));
-            }
-        }
-    }
-    row
+/// A moment as a JS `Date` holds it: UTC, to the millisecond (a column read
+/// and written back, as the worker round-trips it through a `Date`).
+pub(crate) fn millis(at: OffsetDateTime) -> OffsetDateTime {
+    weldsuite_db::utc_timestamp(at).assume_utc()
+}
+
+/// A row as the routes return it, as `jsonb_build_object` built it: the
+/// partial-row struct's camelCase keys, its timestamps as `toISOString()`
+/// prints them (`weldsuite_schema::js`).
+pub(crate) fn row_json(row: &impl serde::Serialize) -> Value {
+    // Strings, numbers, booleans, JSON and timestamps: it always serializes.
+    serde_json::to_value(row).unwrap_or_default()
+}
+
+/// A number bound as `$n::integer`: Postgres's own refusal past `int4`.
+pub(crate) fn int4(value: i64) -> PassResult<i32> {
+    i32::try_from(value).map_err(|_| PassError::Internal("integer out of range".to_owned()))
 }
 
 /// `{ data }` with status 200.

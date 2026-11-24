@@ -11,8 +11,9 @@
 
 use std::sync::Arc;
 
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::Value;
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_emails::desk::{
     DeskReport, DeskReportAgent, DeskReportBacklog, DeskReportChart, DeskReportKpi,
     DeskReportPoint, KpiKey, overview_period_label, short_date,
@@ -25,6 +26,7 @@ use weldsuite_mail_domain::outbound::{
     SubjectInput, check_outbound, commit_outbound, release_outbound, send_email,
 };
 use weldsuite_ports::MailTransport;
+use weldsuite_schema::tenant::workspace_members;
 
 use super::export::{
     SavedReport, load_saved_report, overview_csv, overview_csv_filename, report_csv_filename,
@@ -228,15 +230,17 @@ fn saved_report_content(
 }
 
 /// `memberName(db, userId)`: the member's name, when they have one.
-async fn member_name(db: &PgPool, user_id: Option<&str>) -> Result<Option<String>, sqlx::Error> {
+async fn member_name(db: &PgPool, user_id: Option<&str>) -> Result<Option<String>, DbErr> {
     let Some(user_id) = user_id.filter(|id| !id.is_empty()) else {
         return Ok(None);
     };
-    let name: Option<Option<String>> =
-        sqlx::query_scalar("select name from workspace_members where user_id = $1 limit 1")
-            .bind(user_id)
-            .fetch_optional(db)
-            .await?;
+    let name: Option<Option<String>> = workspace_members::Entity::find()
+        .select_only()
+        .column(workspace_members::Column::Name)
+        .filter(workspace_members::Column::UserId.eq(user_id))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     Ok(name
         .flatten()
         .map(|name| js_trim(&name).to_owned())

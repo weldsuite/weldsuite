@@ -1,14 +1,19 @@
 //! Built-in entities a custom object may link to, and how their records
 //! resolve to a title and a link (`services/custom-object-targets.ts`).
 //!
-//! An allow-list: each entry names its table and title columns in literal
-//! SQL, so a link's `targetEntityKey` (user input) never becomes a table
-//! name. Adding a linkable entity is one entry here plus one in
+//! An allow-list: each entry names its table and title columns through the
+//! table's entity, so a link's `targetEntityKey` (user input) never becomes
+//! a table name. Adding a linkable entity is one entry here plus one in
 //! `LINKABLE_BUILTIN_ENTITY_TYPES` and the TypeScript registry.
 
 use std::collections::HashMap;
 
-use weldsuite_db::PgPool;
+use sea_orm::{ColumnTrait, DatabaseConnection, DbErr, EntityTrait, QueryFilter, QuerySelect};
+use weldsuite_db::{PgPool, orm};
+use weldsuite_schema::tenant::{
+    companies, crm_leads, crm_opportunities, crm_quotes, desk_conversations, helpdesk_tickets,
+    invoices, orders, people, products, projects, tasks,
+};
 
 /// One linkable built-in entity type.
 pub(crate) struct Target {
@@ -17,8 +22,25 @@ pub(crate) struct Target {
     /// Needed to see records of this type: linking reads the target.
     pub(crate) read_permission: &'static str,
     href: &'static str,
-    /// `id, title, fallback` of the live rows whose id is in `$1`.
-    sql: &'static str,
+    /// Where its records, their title and its fallback are read.
+    table: Table,
+}
+
+/// The table of a linkable built-in entity type.
+#[derive(Debug, Clone, Copy)]
+enum Table {
+    Companies,
+    People,
+    Leads,
+    Opportunities,
+    Quotes,
+    Tickets,
+    Conversations,
+    Projects,
+    Tasks,
+    Products,
+    Orders,
+    Invoices,
 }
 
 /// In the TypeScript registry's order.
@@ -28,84 +50,84 @@ pub(crate) const TARGETS: [Target; 12] = [
         label: "Company",
         read_permission: "companies:read",
         href: "/crm/companies/",
-        sql: "select id, name, display_name from companies where id = any($1) and deleted_at is null",
+        table: Table::Companies,
     },
     Target {
         entity_type: "person",
         label: "Person",
         read_permission: "people:read",
         href: "/crm/people/",
-        sql: "select id, full_name, display_name from people where id = any($1) and deleted_at is null",
+        table: Table::People,
     },
     Target {
         entity_type: "lead",
         label: "Lead",
         read_permission: "leads:read",
         href: "/crm/leads/",
-        sql: "select id, full_name, email from crm_leads where id = any($1) and deleted_at is null",
+        table: Table::Leads,
     },
     Target {
         entity_type: "opportunity",
         label: "Deal",
         read_permission: "opportunities:read",
         href: "/crm/opportunities/",
-        sql: "select id, name, null::text from crm_opportunities where id = any($1) and deleted_at is null",
+        table: Table::Opportunities,
     },
     Target {
         entity_type: "quote",
         label: "Quote",
         read_permission: "quotes:read",
         href: "/crm/quotes/",
-        sql: "select id, name, quote_number from crm_quotes where id = any($1) and deleted_at is null",
+        table: Table::Quotes,
     },
     Target {
         entity_type: "ticket",
         label: "Ticket",
         read_permission: "tickets:read",
         href: "/welddesk/tickets/",
-        sql: "select id, subject, null::text from helpdesk_tickets where id = any($1) and deleted_at is null",
+        table: Table::Tickets,
     },
     Target {
         entity_type: "conversation",
         label: "Conversation",
         read_permission: "conversations:read",
         href: "/welddesk/inbox/",
-        sql: "select id, title, null::text from desk_conversations where id = any($1)",
+        table: Table::Conversations,
     },
     Target {
         entity_type: "project",
         label: "Project",
         read_permission: "projects:read",
         href: "/weldflow/projects/",
-        sql: "select id, name, null::text from projects where id = any($1) and deleted_at is null",
+        table: Table::Projects,
     },
     Target {
         entity_type: "task",
         label: "Task",
         read_permission: "tasks:read",
         href: "/weldflow/task/",
-        sql: "select id, title, null::text from tasks where id = any($1) and deleted_at is null",
+        table: Table::Tasks,
     },
     Target {
         entity_type: "product",
         label: "Product",
         read_permission: "products:read",
         href: "/commerce/products/",
-        sql: "select id, name, null::text from products where id = any($1) and deleted_at is null",
+        table: Table::Products,
     },
     Target {
         entity_type: "order",
         label: "Order",
         read_permission: "orders:read",
         href: "/commerce/orders/",
-        sql: "select id, order_number, null::text from orders where id = any($1) and deleted_at is null",
+        table: Table::Orders,
     },
     Target {
         entity_type: "invoice",
         label: "Invoice",
         read_permission: "invoices:read",
         href: "/weldbooks/invoices/",
-        sql: "select id, invoice_number, null::text from invoices where id = any($1) and deleted_at is null",
+        table: Table::Invoices,
     },
 ];
 
@@ -142,7 +164,7 @@ pub(crate) async fn resolve_builtin(
     db: &PgPool,
     entity_type: &str,
     ids: &[String],
-) -> Result<HashMap<String, Resolved>, sqlx::Error> {
+) -> Result<HashMap<String, Resolved>, DbErr> {
     let mut out = HashMap::new();
     let Some(target) = builtin(entity_type) else {
         return Ok(out);
@@ -150,8 +172,7 @@ pub(crate) async fn resolve_builtin(
     if ids.is_empty() {
         return Ok(out);
     }
-    let rows: Vec<(String, Option<String>, Option<String>)> =
-        sqlx::query_as(target.sql).bind(ids).fetch_all(db).await?;
+    let rows = titles_of(&orm(db), target.table, ids).await?;
     for (id, title, fallback) in rows {
         // `row.title || row.fallback || row.id`: empty strings fall through.
         let title = title
@@ -169,4 +190,89 @@ pub(crate) async fn resolve_builtin(
         );
     }
     Ok(out)
+}
+
+/// `id, title, fallback` of a record.
+type Titled = (String, Option<String>, Option<String>);
+
+/// `id, title, fallback` of the rows of `table` whose id is in `ids` (not
+/// empty), live ones only where the table soft-deletes.
+async fn titles_of(
+    db: &DatabaseConnection,
+    table: Table,
+    ids: &[String],
+) -> Result<Vec<Titled>, DbErr> {
+    // `id, <title>, <fallback>` of the table's live rows (`deleted_at is null`).
+    macro_rules! live {
+        ($table:ident, $title:ident, $fallback:ident) => {{
+            use $table::{Column, Entity};
+            titled::<Entity>(
+                db,
+                ids,
+                Column::Id,
+                Column::$title,
+                Some(Column::$fallback),
+                Some(Column::DeletedAt),
+            )
+            .await
+        }};
+        ($table:ident, $title:ident) => {{
+            use $table::{Column, Entity};
+            titled::<Entity>(
+                db,
+                ids,
+                Column::Id,
+                Column::$title,
+                None,
+                Some(Column::DeletedAt),
+            )
+            .await
+        }};
+    }
+    match table {
+        Table::Companies => live!(companies, Name, DisplayName),
+        Table::People => live!(people, FullName, DisplayName),
+        Table::Leads => live!(crm_leads, FullName, Email),
+        Table::Opportunities => live!(crm_opportunities, Name),
+        Table::Quotes => live!(crm_quotes, Name, QuoteNumber),
+        Table::Tickets => live!(helpdesk_tickets, Subject),
+        // Conversations are not soft-deleted: every row counts.
+        Table::Conversations => {
+            use desk_conversations::{Column, Entity};
+            titled::<Entity>(db, ids, Column::Id, Column::Title, None, None).await
+        }
+        Table::Projects => live!(projects, Name),
+        Table::Tasks => live!(tasks, Title),
+        Table::Products => live!(products, Name),
+        Table::Orders => live!(orders, OrderNumber),
+        Table::Invoices => live!(invoices, InvoiceNumber),
+    }
+}
+
+/// `select id, title, fallback from … where id = any(ids) [and deleted_at
+/// is null]`; a table without a fallback reads it as `null`.
+async fn titled<E: EntityTrait>(
+    db: &DatabaseConnection,
+    ids: &[String],
+    id: E::Column,
+    title: E::Column,
+    fallback: Option<E::Column>,
+    deleted_at: Option<E::Column>,
+) -> Result<Vec<Titled>, DbErr> {
+    let mut query = E::find()
+        .select_only()
+        .column(id)
+        .column(title)
+        .filter(id.is_in(ids.iter().map(String::as_str)));
+    if let Some(deleted_at) = deleted_at {
+        query = query.filter(deleted_at.is_null());
+    }
+    if let Some(fallback) = fallback {
+        return query.column(fallback).into_tuple().all(db).await;
+    }
+    let rows: Vec<(String, Option<String>)> = query.into_tuple().all(db).await?;
+    Ok(rows
+        .into_iter()
+        .map(|(id, title)| (id, title, None))
+        .collect())
 }

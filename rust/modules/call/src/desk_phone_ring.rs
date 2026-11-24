@@ -18,20 +18,28 @@
 //! rung one after the other, in the same order, which dials and tells them
 //! in the order the worker does.
 
+use sea_orm::sea_query::{Expr, Func, OnConflict};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, EntityTrait, Order, PaginatorTrait, QueryFilter, QueryOrder,
+    QuerySelect,
+};
 use serde_json::{Value, json};
-use time::OffsetDateTime;
-use weldsuite_db::PgPool;
+use time::{OffsetDateTime, PrimitiveDateTime};
+use weldsuite_db::{PgPool, orm, utc_now, utc_timestamp};
 use weldsuite_desk_domain::assignment;
-use weldsuite_events::iso_timestamp;
 use weldsuite_kit::RequestEnv;
 use weldsuite_kit::validation::js_trim;
 use weldsuite_ports::PresenceReader;
+use weldsuite_schema::tenant::{
+    desk_conversations, desk_phone_agents, desk_phone_call_legs as legs, voip_calls,
+    workspace_members,
+};
 
 use crate::desk_phone_options;
 use crate::desk_phone_realtime::{online_user_ids, send_inbox_event, waiting_calls};
 use crate::js::{self, Ordered};
 use crate::telnyx::{Dial, Telnyx, encode_client_state};
-use crate::{CallState, crm, env_value, now};
+use crate::{CallState, crm, env_value};
 
 /// `PhoneCtx` (`{ env, db, workspaceId }`): what the phone flows work with.
 #[derive(Clone, Copy)]
@@ -91,9 +99,19 @@ pub(crate) struct Call {
 }
 
 impl Call {
+    /// A `voip_calls` row.
+    pub(crate) fn from_model(model: voip_calls::Model) -> Self {
+        Self::from_js(&serde_json::to_value(model).unwrap_or_default())
+    }
+
     /// A `to_jsonb(voip_calls)` row.
-    pub(crate) fn from_row(row: Value) -> Self {
-        let row = weldsuite_db::js_row(row);
+    #[cfg(test)]
+    fn from_row(row: Value) -> Self {
+        Self::from_js(&weldsuite_db::js_row(row))
+    }
+
+    /// The row as Drizzle returns it.
+    fn from_js(row: &Value) -> Self {
         let text = |key: &str| row[key].as_str().map(str::to_owned);
         let queued = &row["queueEnteredAt"];
         Self {
@@ -133,28 +151,31 @@ impl Call {
 
 /// `loadCall(db, callId)`.
 pub(crate) async fn load_call(db: &PgPool, call_id: &str) -> Result<Option<Call>, String> {
-    let row: Option<Value> =
-        sqlx::query_scalar("select to_jsonb(c) from voip_calls c where c.id = $1 limit 1")
-            .bind(call_id)
-            .fetch_optional(db)
-            .await
-            .map_err(|error| error.to_string())?;
-    Ok(row.map(Call::from_row))
+    let row = voip_calls::Entity::find()
+        .filter(voip_calls::Column::Id.eq(call_id))
+        .one(&orm(db))
+        .await
+        .map_err(|error| error.to_string())?;
+    Ok(row.map(Call::from_model))
 }
 
 /// `loadWaitingCall(db, callId)`: the call, when it is still waiting for an
 /// agent.
 pub(crate) async fn load_waiting_call(db: &PgPool, call_id: &str) -> Result<Option<Call>, String> {
-    let row: Option<Value> = sqlx::query_scalar(concat!(
-        "select to_jsonb(c) from voip_calls c where c.id = $1 and ",
-        waiting_calls!(),
-        " limit 1"
-    ))
-    .bind(call_id)
-    .fetch_optional(db)
-    .await
-    .map_err(|error| error.to_string())?;
-    Ok(row.map(Call::from_row))
+    let row = voip_calls::Entity::find()
+        .filter(voip_calls::Column::Id.eq(call_id))
+        .filter(waiting_calls())
+        .one(&orm(db))
+        .await
+        .map_err(|error| error.to_string())?;
+    Ok(row.map(Call::from_model))
+}
+
+/// `floor(extract(epoch from at) * 1000)`: a `timestamp` (UTC) in
+/// milliseconds since the epoch.
+pub(crate) fn epoch_ms(at: PrimitiveDateTime) -> i64 {
+    let nanos = at.assume_utc().unix_timestamp_nanos().div_euclid(1_000_000);
+    i64::try_from(nanos).unwrap_or(i64::MAX)
 }
 
 /// `StaffedAgent`: a member who could be rung, and their SIP username.
@@ -172,13 +193,18 @@ pub(crate) async fn staffed_agents(
     db: &PgPool,
     department_id: Option<&str>,
 ) -> Result<Vec<StaffedAgent>, String> {
-    let rows: Vec<(String, Option<String>)> = sqlx::query_as(
-        "select user_id, sip_username from desk_phone_agents
-         where available = true and sip_username is not null",
-    )
-    .fetch_all(db)
-    .await
-    .map_err(|error| error.to_string())?;
+    let rows: Vec<(String, Option<String>)> = desk_phone_agents::Entity::find()
+        .select_only()
+        .columns([
+            desk_phone_agents::Column::UserId,
+            desk_phone_agents::Column::SipUsername,
+        ])
+        .filter(desk_phone_agents::Column::Available.eq(true))
+        .filter(desk_phone_agents::Column::SipUsername.is_not_null())
+        .into_tuple()
+        .all(&orm(db))
+        .await
+        .map_err(|error| error.to_string())?;
     let with_sip: Vec<StaffedAgent> = rows
         .into_iter()
         .filter_map(|(user_id, sip_username)| {
@@ -212,15 +238,24 @@ pub(crate) async fn staffed_agents(
         return Ok(Vec::new());
     }
     let ids: Vec<String> = wanted.iter().map(|agent| agent.user_id.clone()).collect();
-    let active: Vec<String> = sqlx::query_scalar(
-        "select user_id from workspace_members
-         where user_id = any($1) and deleted_at is null
-           and upper(status) = 'ACTIVE' and upper(member_type) = 'INTERNAL'",
-    )
-    .bind(&ids)
-    .fetch_all(db)
-    .await
-    .map_err(|error| error.to_string())?;
+    let upper = |column: workspace_members::Column| Expr::from(Func::upper(Expr::col(column)));
+    let active: Vec<String> = workspace_members::Entity::find()
+        .select_only()
+        .column(workspace_members::Column::UserId)
+        .filter(workspace_members::Column::UserId.is_in(ids))
+        .filter(workspace_members::Column::DeletedAt.is_null())
+        .filter(sea_orm::ExprTrait::eq(
+            upper(workspace_members::Column::Status),
+            "ACTIVE",
+        ))
+        .filter(sea_orm::ExprTrait::eq(
+            upper(workspace_members::Column::MemberType),
+            "INTERNAL",
+        ))
+        .into_tuple()
+        .all(&orm(db))
+        .await
+        .map_err(|error| error.to_string())?;
     Ok(wanted
         .into_iter()
         .filter(|agent| active.contains(&agent.user_id))
@@ -239,30 +274,39 @@ async fn busy_user_ids(
     if user_ids.is_empty() {
         return Ok(Vec::new());
     }
-    let cutoff = iso_timestamp(OffsetDateTime::now_utc() - BUSY_WINDOW);
-    let mut busy: Vec<String> = sqlx::query_scalar(
-        "select user_id from desk_phone_call_legs
-         where user_id = any($1) and status in ('ringing', 'answered')
-           and created_at > $2::timestamp",
-    )
-    .bind(user_ids)
-    .bind(&cutoff)
-    .fetch_all(db)
-    .await
-    .map_err(|error| error.to_string())?;
-    let except: Vec<String> = except_call_ids.iter().map(|id| (*id).to_owned()).collect();
-    let on_calls: Vec<String> = sqlx::query_scalar(
-        "select user_id from voip_calls
-         where user_id = any($1) and ended_at is null and initiated_at > $2::timestamp
-           and id <> all($3)
-           and (queue_entered_at is null or agent_answered_at is not null)",
-    )
-    .bind(user_ids)
-    .bind(&cutoff)
-    .bind(&except)
-    .fetch_all(db)
-    .await
-    .map_err(|error| error.to_string())?;
+    let cutoff = utc_timestamp(OffsetDateTime::now_utc() - BUSY_WINDOW);
+    let orm = orm(db);
+    let mut busy: Vec<String> = legs::Entity::find()
+        .select_only()
+        .column(legs::Column::UserId)
+        .filter(legs::Column::UserId.is_in(user_ids.iter().cloned()))
+        .filter(legs::Column::Status.is_in(["ringing", "answered"]))
+        .filter(legs::Column::CreatedAt.gt(cutoff))
+        .into_tuple()
+        .all(&orm)
+        .await
+        .map_err(|error| error.to_string())?;
+    let mut on_calls = voip_calls::Entity::find()
+        .select_only()
+        .column(voip_calls::Column::UserId)
+        .filter(voip_calls::Column::UserId.is_in(user_ids.iter().cloned()))
+        .filter(voip_calls::Column::EndedAt.is_null())
+        .filter(voip_calls::Column::InitiatedAt.gt(cutoff));
+    // `id <> all('{}')` holds for every call.
+    if !except_call_ids.is_empty() {
+        on_calls =
+            on_calls.filter(voip_calls::Column::Id.is_not_in(except_call_ids.iter().copied()));
+    }
+    let on_calls: Vec<String> = on_calls
+        .filter(
+            sea_orm::Condition::any()
+                .add(voip_calls::Column::QueueEnteredAt.is_null())
+                .add(voip_calls::Column::AgentAnsweredAt.is_not_null()),
+        )
+        .into_tuple()
+        .all(&orm)
+        .await
+        .map_err(|error| error.to_string())?;
     busy.extend(on_calls);
     Ok(busy)
 }
@@ -274,20 +318,24 @@ async fn by_idle_time(db: &PgPool, agents: Vec<StaffedAgent>) -> Result<Vec<Staf
         return Ok(agents);
     }
     let ids: Vec<String> = agents.iter().map(|agent| agent.user_id.clone()).collect();
-    let last: Vec<(Option<String>, Option<i64>)> = sqlx::query_as(
-        "select answered_by_user_id,
-                floor(extract(epoch from max(agent_answered_at)) * 1000)::int8
-         from voip_calls where answered_by_user_id = any($1) group by answered_by_user_id",
-    )
-    .bind(&ids)
-    .fetch_all(db)
-    .await
-    .map_err(|error| error.to_string())?;
+    let last: Vec<(Option<String>, Option<PrimitiveDateTime>)> = voip_calls::Entity::find()
+        .select_only()
+        .column(voip_calls::Column::AnsweredByUserId)
+        .column_as(
+            voip_calls::Column::AgentAnsweredAt.max(),
+            "last_answered_at",
+        )
+        .filter(voip_calls::Column::AnsweredByUserId.is_in(ids))
+        .group_by(voip_calls::Column::AnsweredByUserId)
+        .into_tuple()
+        .all(&orm(db))
+        .await
+        .map_err(|error| error.to_string())?;
     let last_answer = |agent: &StaffedAgent| {
         last.iter()
             .find(|(user, _)| user.as_deref() == Some(agent.user_id.as_str()))
             .and_then(|(_, at)| *at)
-            .unwrap_or(0)
+            .map_or(0, epoch_ms)
     };
     let mut sorted = agents;
     sorted.sort_by(|x, y| {
@@ -315,12 +363,15 @@ async fn describe_caller(
     let mut caller_name = None;
     let mut customer_name = None;
     if let Some(conversation) = call.conversation() {
-        let name: Option<Option<String>> =
-            sqlx::query_scalar("select name from desk_conversations where id = $1 limit 1")
-                .bind(conversation)
-                .fetch_optional(db)
-                .await
-                .map_err(|error| error.to_string())?;
+        let name: Option<Option<String>> = desk_conversations::Entity::find()
+            .select_only()
+            .column(desk_conversations::Column::Name)
+            .filter(desk_conversations::Column::Id.eq(conversation))
+            .limit(1)
+            .into_tuple()
+            .one(&orm(db))
+            .await
+            .map_err(|error| error.to_string())?;
         caller_name = conversation_caller_name(name.flatten().as_deref(), &call.from_number);
     }
     match crm::match_caller(db, &call.from_number).await {
@@ -351,16 +402,15 @@ async fn incoming_event(phone: &Phone<'_>, call: &Call) -> Result<Value, String>
 /// `endLeg(db, legId)`: mark a leg ended; true when this call did it (a
 /// duplicate or a later event finds it ended already).
 pub(crate) async fn end_leg(db: &PgPool, leg_id: &str) -> Result<bool, String> {
-    let claimed: Option<String> = sqlx::query_scalar(
-        "update desk_phone_call_legs set status = 'ended', ended_at = $2::timestamp
-         where id = $1 and status <> 'ended' returning id",
-    )
-    .bind(leg_id)
-    .bind(now())
-    .fetch_optional(db)
-    .await
-    .map_err(|error| error.to_string())?;
-    Ok(claimed.is_some())
+    let ended = legs::Entity::update_many()
+        .col_expr(legs::Column::Status, Expr::value("ended"))
+        .col_expr(legs::Column::EndedAt, Expr::value(utc_now()))
+        .filter(legs::Column::Id.eq(leg_id))
+        .filter(legs::Column::Status.ne("ended"))
+        .exec(&orm(db))
+        .await
+        .map_err(|error| error.to_string())?;
+    Ok(ended.rows_affected > 0)
 }
 
 /// `hangupBestEffort(env, callControlId)`: hang up a Telnyx leg; a leg that
@@ -397,19 +447,20 @@ async fn ring_leg(
     let leg_id = weldsuite_kit::generate_id("dleg");
     // The insert is the guard: a leg of this member already ringing for the
     // call refuses it, and then nothing is dialled and nobody is told.
-    let inserted: Option<String> = sqlx::query_scalar(
-        "insert into desk_phone_call_legs (id, call_id, user_id, status)
-         values ($1, $2, $3, 'ringing')
-         on conflict (call_id, user_id) where status = 'ringing' do nothing
-         returning id",
-    )
-    .bind(&leg_id)
-    .bind(&call.id)
-    .bind(&agent.user_id)
-    .fetch_optional(phone.db)
+    // `on conflict (call_id, user_id) where status = 'ringing' do nothing`:
+    // the leg's id is new, so only that index can refuse it.
+    let inserted = legs::Entity::insert(legs::ActiveModel {
+        id: Set(leg_id.clone()),
+        call_id: Set(call.id.clone()),
+        user_id: Set(agent.user_id.clone()),
+        status: Set("ringing".to_owned()),
+        ..Default::default()
+    })
+    .on_conflict(OnConflict::new().do_nothing().to_owned())
+    .exec_without_returning(&orm(phone.db))
     .await
     .map_err(|error| error.to_string())?;
-    if inserted.is_none() {
+    if inserted == 0 {
         return Ok(MemberRing::Already);
     }
     let Some(connection_id) = phone.env("TELNYX_CONNECTION_ID") else {
@@ -436,15 +487,9 @@ async fn ring_leg(
             .await
             .map_err(|error| error.to_string())?;
         if js::truthy(&control) {
-            sqlx::query(
-                "update desk_phone_call_legs set provider_call_id = $2
-                 where id = $1 and provider_call_id is null",
-            )
-            .bind(&leg_id)
-            .bind(js::string(&control))
-            .execute(phone.db)
-            .await
-            .map_err(|error| error.to_string())?;
+            set_leg_control(phone.db, &leg_id, &js::string(&control))
+                .await
+                .map_err(|error| error.to_string())?;
         }
         Ok::<_, String>(())
     }
@@ -456,6 +501,40 @@ async fn ring_leg(
     }
     send_inbox_event(phone, &agent.user_id, "phone.incoming", incoming.clone()).await;
     Ok(MemberRing::Ringing)
+}
+
+/// A leg's `call_control_id`, once: a leg that has one keeps it.
+pub(crate) async fn set_leg_control(
+    db: &PgPool,
+    leg_id: &str,
+    control: &str,
+) -> Result<(), sea_orm::DbErr> {
+    legs::Entity::update_many()
+        .col_expr(legs::Column::ProviderCallId, Expr::value(control))
+        .filter(legs::Column::Id.eq(leg_id))
+        .filter(legs::Column::ProviderCallId.is_null())
+        .exec(&orm(db))
+        .await?;
+    Ok(())
+}
+
+/// The legs of a call, `ringing` ones only when asked.
+async fn count_legs(db: &PgPool, call_id: &str, ringing_only: bool) -> Result<i64, String> {
+    let mut found = legs::Entity::find().filter(legs::Column::CallId.eq(call_id));
+    if ringing_only {
+        found = found.filter(legs::Column::Status.eq("ringing"));
+    }
+    let count = found
+        .count(&orm(db))
+        .await
+        .map_err(|error| error.to_string())?;
+    Ok(i64::try_from(count).unwrap_or(i64::MAX))
+}
+
+/// `select count(*) … where call_id = $1 and status = 'ringing'`: the legs
+/// of a call still ringing.
+pub(crate) async fn ringing_legs(db: &PgPool, call_id: &str) -> Result<i64, String> {
+    count_legs(db, call_id, true).await
 }
 
 /// `RingResult`.
@@ -503,12 +582,7 @@ pub(crate) async fn ring_agents(
         .into_iter()
         .filter(|agent| !busy.contains(&agent.user_id))
         .collect();
-    let leg_count: i64 =
-        sqlx::query_scalar("select count(*) from desk_phone_call_legs where call_id = $1")
-            .bind(&call.id)
-            .fetch_one(phone.db)
-            .await
-            .map_err(|error| error.to_string())?;
+    let leg_count = count_legs(phone.db, &call.id, false).await?;
     let room = usize::try_from((MAX_LEGS_PER_CALL - leg_count).max(0)).unwrap_or(0);
     let mut chosen = by_idle_time(phone.db, free).await?;
     chosen.truncate(MAX_LEGS_PER_ROUND.min(room));
@@ -556,17 +630,25 @@ pub(crate) async fn end_ringing_legs(
     call_id: &str,
     except_leg_id: Option<&str>,
 ) -> Result<Vec<String>, String> {
-    let legs: Vec<(String, String, Option<String>)> = sqlx::query_as(
-        "select id, user_id, provider_call_id from desk_phone_call_legs
-         where call_id = $1 and status = 'ringing' and ($2::text is null or id <> $2)",
-    )
-    .bind(call_id)
-    .bind(except_leg_id)
-    .fetch_all(phone.db)
-    .await
-    .map_err(|error| error.to_string())?;
+    let mut ringing = legs::Entity::find()
+        .select_only()
+        .columns([
+            legs::Column::Id,
+            legs::Column::UserId,
+            legs::Column::ProviderCallId,
+        ])
+        .filter(legs::Column::CallId.eq(call_id))
+        .filter(legs::Column::Status.eq("ringing"));
+    if let Some(except) = except_leg_id {
+        ringing = ringing.filter(legs::Column::Id.ne(except));
+    }
+    let ringing: Vec<(String, String, Option<String>)> = ringing
+        .into_tuple()
+        .all(&orm(phone.db))
+        .await
+        .map_err(|error| error.to_string())?;
     let mut ended = Vec::new();
-    for (leg_id, user_id, provider_call_id) in legs {
+    for (leg_id, user_id, provider_call_id) in ringing {
         if !end_leg(phone.db, &leg_id).await? {
             continue;
         }
@@ -619,43 +701,36 @@ async fn try_ring_waiting_calls(
     finished_call_id: Option<&str>,
 ) -> Result<(), String> {
     let db = phone.db;
-    let rows: Vec<Value> = sqlx::query_scalar(concat!(
-        "select to_jsonb(c) from voip_calls c where ",
-        waiting_calls!(),
-        " order by c.queue_entered_at asc, c.id asc limit 10"
-    ))
-    .fetch_all(db)
-    .await
-    .map_err(|error| error.to_string())?;
+    let rows = voip_calls::Entity::find()
+        .filter(waiting_calls())
+        .order_by(voip_calls::Column::QueueEnteredAt, Order::Asc)
+        .order_by(voip_calls::Column::Id, Order::Asc)
+        .limit(10)
+        .all(&orm(db))
+        .await
+        .map_err(|error| error.to_string())?;
     let ignore: Vec<&str> = finished_call_id.into_iter().collect();
-    for call in rows.into_iter().map(Call::from_row) {
+    for call in rows.into_iter().map(Call::from_model) {
         if call.control().is_none() {
             continue;
         }
-        let ringing: i64 = sqlx::query_scalar(
-            "select count(*) from desk_phone_call_legs where call_id = $1 and status = 'ringing'",
-        )
-        .bind(&call.id)
-        .fetch_one(db)
-        .await
-        .map_err(|error| error.to_string())?;
-        if ringing > 0 {
+        if ringing_legs(db, &call.id).await? > 0 {
             continue;
         }
         // How long the newest leg rang, when it has ended.
-        let newest: Option<Option<i64>> = sqlx::query_scalar(
-            "select floor(extract(epoch from ended_at) * 1000)::int8
-                    - floor(extract(epoch from created_at) * 1000)::int8
-             from desk_phone_call_legs where call_id = $1 order by created_at desc limit 1",
-        )
-        .bind(&call.id)
-        .fetch_optional(db)
-        .await
-        .map_err(|error| error.to_string())?;
-        if newest
-            .flatten()
-            .is_some_and(|rang| rang < MIN_RING_MS_FOR_NEXT_ROUND)
-        {
+        let newest: Option<(PrimitiveDateTime, Option<PrimitiveDateTime>)> = legs::Entity::find()
+            .select_only()
+            .columns([legs::Column::CreatedAt, legs::Column::EndedAt])
+            .filter(legs::Column::CallId.eq(&call.id))
+            .order_by(legs::Column::CreatedAt, Order::Desc)
+            .limit(1)
+            .into_tuple()
+            .one(&orm(db))
+            .await
+            .map_err(|error| error.to_string())?;
+        let rang = newest
+            .and_then(|(created, ended)| ended.map(|ended| epoch_ms(ended) - epoch_ms(created)));
+        if rang.is_some_and(|rang| rang < MIN_RING_MS_FOR_NEXT_ROUND) {
             continue;
         }
         let options = desk_phone_options::for_number(db, &call.to_number)

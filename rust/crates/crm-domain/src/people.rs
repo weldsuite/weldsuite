@@ -5,19 +5,30 @@
 
 use std::collections::HashMap;
 
-use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
+use sea_orm::sea_query::{Expr, Func, NullOrdering};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, Condition, EntityTrait, FromQueryResult, JoinType,
+    PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Select,
+};
+use serde::Serialize;
 use serde_json::{Map, Value, json, to_value};
+use time::PrimitiveDateTime;
 use weldsuite_core_domain::custom_field_values as cfv;
-use weldsuite_db::{PgPool, orm};
+use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_kit::generate_id;
 use weldsuite_kit::validation::js_trim;
-use weldsuite_schema::tenant::{crm_activities, helpdesk_tickets, people};
-
-use crate::tables::{PARTIES, PEOPLE};
-use crate::validation::{
-    assert_valid_member_fields, compute_changes, decode_list_cursor, encode_list_cursor,
+use weldsuite_schema::tenant::{
+    companies, crm_activities, helpdesk_tickets, list_members, lists, parties, people,
+    person_companies,
 };
-use crate::{DomainError, DomainResult, drizzle_row, insert_sql, now, to_iso, update_sql};
+
+use crate::companies::{BulkFields, list_kind, list_member_ids};
+use crate::tables::{PARTIES, PEOPLE, insert_row, update_rows};
+use crate::validation::{
+    assert_valid_member_fields, before_row, compute_changes, count, decode_list_cursor,
+    encode_list_cursor, probe_limit, search_match, sort_order, sort_value,
+};
+use crate::{DomainError, DomainResult, js_date, now, to_iso};
 
 /// `PersonDuplicateEmailError`'s message.
 pub const DUPLICATE_EMAIL: &str = "A person with this email already exists.";
@@ -82,12 +93,17 @@ fn with_supplier_role(role: Option<&str>) -> &'static str {
 /// creating it when the person is first flagged a supplier.
 async fn ensure_wrapping_party(db: &PgPool, person: &Value) -> DomainResult<()> {
     let id = id_of(person);
-    let existing: Option<(String, Option<String>, Option<Value>)> = sqlx::query_as(
-        "select id, role, billing_address from parties where person_id = $1 limit 1",
-    )
-    .bind(&id)
-    .fetch_optional(db)
-    .await?;
+    let existing: Option<(String, Option<String>, Option<Value>)> = parties::Entity::find()
+        .select_only()
+        .columns([
+            parties::Column::Id,
+            parties::Column::Role,
+            parties::Column::BillingAddress,
+        ])
+        .filter(parties::Column::PersonId.eq(id.as_str()))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     let supplier = person.get("isSupplier") == Some(&json!(true));
     let field = |key: &str| person.get(key).cloned().unwrap_or(Value::Null);
     if let Some((party_id, role, billing)) = existing {
@@ -102,11 +118,13 @@ async fn ensure_wrapping_party(db: &PgPool, person: &Value) -> DomainResult<()> 
             }
         }
         set.insert("updatedAt".into(), json!(now()));
-        sqlx::query(update_sql!(parties, "where t.id = $1"))
-            .bind(&party_id)
-            .bind(PARTIES.set(&set))
-            .execute(db)
-            .await?;
+        update_rows::<parties::Entity>(
+            &orm(db),
+            &PARTIES,
+            &set,
+            Condition::all().add(parties::Column::Id.eq(party_id)),
+        )
+        .await?;
         return Ok(());
     }
     if !supplier {
@@ -124,10 +142,7 @@ async fn ensure_wrapping_party(db: &PgPool, person: &Value) -> DomainResult<()> 
     values.insert("archivedAt".into(), field("archivedAt"));
     values.insert("createdAt".into(), json!(now));
     values.insert("updatedAt".into(), json!(now));
-    sqlx::query(insert_sql!(parties))
-        .bind(PARTIES.values(&values))
-        .execute(db)
-        .await?;
+    insert_row::<parties::Entity>(&orm(db), &PARTIES, &values).await?;
     Ok(())
 }
 
@@ -159,32 +174,24 @@ struct Resolved {
 async fn resolve_filter(db: &PgPool, filter: &PeopleFilter) -> DomainResult<Option<Resolved>> {
     let mut resolved = Resolved::default();
     if let Some(company_id) = filter.company_id.as_deref().filter(|c| !c.is_empty()) {
-        let linked: Vec<String> = sqlx::query_scalar(
-            "select person_id from person_companies where company_id = $1 and ended_at is null",
-        )
-        .bind(company_id)
-        .fetch_all(db)
-        .await?;
+        let linked: Vec<String> = person_companies::Entity::find()
+            .select_only()
+            .column(person_companies::Column::PersonId)
+            .filter(person_companies::Column::CompanyId.eq(company_id))
+            .filter(person_companies::Column::EndedAt.is_null())
+            .into_tuple()
+            .all(&orm(db))
+            .await?;
         if linked.is_empty() {
             return Ok(None);
         }
         resolved.linked = Some(linked);
     }
     if let Some(list_id) = filter.list_id.as_deref().filter(|l| !l.is_empty()) {
-        let kind: Option<String> = sqlx::query_scalar(
-            "select kind from lists where id = $1 and deleted_at is null limit 1",
-        )
-        .bind(list_id)
-        .fetch_optional(db)
-        .await?;
-        if kind.as_deref() != Some("person") {
+        if list_kind(db, list_id).await?.as_deref() != Some("person") {
             return Ok(None);
         }
-        let members: Vec<String> =
-            sqlx::query_scalar("select entity_id from list_members where list_id = $1")
-                .bind(list_id)
-                .fetch_all(db)
-                .await?;
+        let members = list_member_ids(db, list_id).await?;
         if members.is_empty() {
             return Ok(None);
         }
@@ -193,48 +200,75 @@ async fn resolve_filter(db: &PgPool, filter: &PeopleFilter) -> DomainResult<Opti
     Ok(Some(resolved))
 }
 
-/// The `where` of a people list or export: `$1` owner scope, `$2` search
-/// pattern, `$3`–`$8` the column filters, `$9` the company's people, `$10`
-/// the list's members.
-macro_rules! person_where {
-    () => {
-        "t.deleted_at is null
-           and ($1::text is null or t.owner_id = $1)
-           and ($2::text is null or (coalesce(t.display_name, '') || E'\\n' || coalesce(t.full_name, '')
-                || E'\\n' || coalesce(t.first_name, '') || E'\\n' || coalesce(t.last_name, '')
-                || E'\\n' || coalesce(t.email, '')) ilike $2)
-           and ($3::text is null or t.status = $3)
-           and ($4::text is null or t.owner_id = $4)
-           and ($5::bool is null or t.is_supplier = $5)
-           and ($6::bool is null or t.is_lead = $6)
-           and ($7::bool is null or t.in_crm = $7)
-           and ($8::bool is null or $8 = (coalesce(nullif(trim(t.direct_phone), ''), nullif(trim(t.mobile_phone), '')) is not null))
-           and ($9::text[] is null or t.id = any($9))
-           and ($10::text[] is null or t.id = any($10))"
-    };
+/// `buildPeopleConditions`'s `where` of a people list or export: live,
+/// within the owner scope, the search and column filters, the company's
+/// people and the list's members.
+fn person_condition(scope: Option<&str>, filter: &PeopleFilter, resolved: &Resolved) -> Condition {
+    use people::Column as P;
+    let given = |value: &Option<String>| value.clone().filter(|v| !v.is_empty());
+    let mut condition = Condition::all().add(P::DeletedAt.is_null());
+    if let Some(owner) = scope {
+        condition = condition.add(P::OwnerId.eq(owner));
+    }
+    if let Some(search) = given(&filter.search) {
+        condition = condition.add(search_match(
+            &[
+                P::DisplayName,
+                P::FullName,
+                P::FirstName,
+                P::LastName,
+                P::Email,
+            ],
+            &crate::validation::contains_pattern(&search),
+        ));
+    }
+    if let Some(status) = given(&filter.status) {
+        condition = condition.add(P::Status.eq(status));
+    }
+    if let Some(owner) = given(&filter.owner_id) {
+        condition = condition.add(P::OwnerId.eq(owner));
+    }
+    if let Some(supplier) = filter.is_supplier {
+        condition = condition.add(P::IsSupplier.eq(supplier));
+    }
+    if let Some(lead) = filter.is_lead {
+        condition = condition.add(P::IsLead.eq(lead));
+    }
+    if let Some(in_crm) = filter.in_crm {
+        condition = condition.add(P::InCrm.eq(in_crm));
+    }
+    if let Some(has_phone) = filter.has_phone {
+        condition = condition.add(has_phone_is(has_phone));
+    }
+    if let Some(linked) = &resolved.linked {
+        condition = condition.add(P::Id.is_in(linked.clone()));
+    }
+    if let Some(members) = &resolved.members {
+        condition = condition.add(P::Id.is_in(members.clone()));
+    }
+    condition
 }
 
-/// Bind the ten parameters of [`person_where`].
-macro_rules! bind_person_filter {
-    ($query:expr, $scope:expr, $filter:expr, $resolved:expr) => {{
-        $query
-            .bind($scope)
-            .bind(
-                $filter
-                    .search
-                    .as_deref()
-                    .filter(|s| !s.is_empty())
-                    .map($crate::validation::contains_pattern),
-            )
-            .bind($filter.status.as_deref().filter(|s| !s.is_empty()))
-            .bind($filter.owner_id.as_deref().filter(|s| !s.is_empty()))
-            .bind($filter.is_supplier)
-            .bind($filter.is_lead)
-            .bind($filter.in_crm)
-            .bind($filter.has_phone)
-            .bind($resolved.linked.as_ref())
-            .bind($resolved.members.as_ref())
-    }};
+/// The `hasPhone` filter: with `has_phone`, a direct or mobile number that
+/// isn't blank once trimmed (`coalesce(nullif(trim(…), ''), …)` is not
+/// null); without, neither.
+fn has_phone_is(has_phone: bool) -> Expr {
+    use sea_orm::ExprTrait as _;
+    let number = |column: people::Column| {
+        Expr::expr(Func::cust("nullif").args([
+            Expr::expr(Func::cust("trim").arg(column.into_expr())),
+            Expr::val(""),
+        ]))
+    };
+    let phone = Expr::expr(Func::coalesce([
+        number(people::Column::DirectPhone),
+        number(people::Column::MobilePhone),
+    ]));
+    if has_phone {
+        phone.is_not_null()
+    } else {
+        phone.is_null()
+    }
 }
 
 /// `resolveBuiltInPersonSort`: grid key → sort family (`text` sorts
@@ -261,6 +295,35 @@ pub const PERSON_SORTS: [(&str, &str); 20] = [
     ("nextFollowUpDate", "time"),
     ("createdAt", "time"),
 ];
+
+/// What a built-in person sort orders by ([`PERSON_SORTS`]).
+fn person_sort_value(key: &str, family: &str) -> Option<Expr> {
+    use people::Column as P;
+    let column = match key {
+        "name" => P::DisplayName,
+        "title" => P::Title,
+        "department" => P::Department,
+        "email" => P::Email,
+        "directPhone" => P::DirectPhone,
+        "mobilePhone" => P::MobilePhone,
+        "status" => P::Status,
+        "role" => P::Role,
+        "isSupplier" => P::IsSupplier,
+        "isLead" => P::IsLead,
+        "isDecisionMaker" => P::IsDecisionMaker,
+        "isBillingContact" => P::IsBillingContact,
+        "lifecycleStage" => P::LifecycleStage,
+        "source" => P::Source,
+        "leadScore" => P::LeadScore,
+        "preferredLanguage" => P::PreferredLanguage,
+        "ownerId" => P::OwnerId,
+        "lastContactedAt" => P::LastContactedAt,
+        "nextFollowUpDate" => P::NextFollowUpDate,
+        "createdAt" => P::CreatedAt,
+        _ => return None,
+    };
+    Some(sort_value(column, family))
+}
 
 /// One page of people (`ListResult`).
 #[derive(Debug, Clone)]
@@ -313,66 +376,46 @@ pub async fn list_people(
     } else {
         cursor.as_ref().map(|c| c.position.clone())
     };
-    let (sort_key, family) =
-        builtin.map_or((None, None), |(key, family)| (Some(*key), Some(*family)));
-    let dir = options.sort_dir.clone().unwrap_or_else(|| "asc".to_owned());
-    let query = sqlx::query_scalar::<_, Value>(concat!(
-        "select to_jsonb(t) from people t where ",
-        person_where!(),
-        " and ($11::text is null or (t.created_at, t.id) < (select c.created_at, c.id from people c where c.id = $11))
-         order by
-           case when $12 = 'text' and $14 = 'asc' then lower((case $13
-               when 'name' then t.display_name when 'title' then t.title when 'department' then t.department
-               when 'email' then t.email when 'directPhone' then t.direct_phone when 'mobilePhone' then t.mobile_phone
-               when 'status' then t.status when 'role' then t.role when 'lifecycleStage' then t.lifecycle_stage
-               when 'source' then t.source when 'preferredLanguage' then t.preferred_language
-               when 'ownerId' then t.owner_id end)::text) end asc nulls last,
-           case when $12 = 'text' and $14 = 'desc' then lower((case $13
-               when 'name' then t.display_name when 'title' then t.title when 'department' then t.department
-               when 'email' then t.email when 'directPhone' then t.direct_phone when 'mobilePhone' then t.mobile_phone
-               when 'status' then t.status when 'role' then t.role when 'lifecycleStage' then t.lifecycle_stage
-               when 'source' then t.source when 'preferredLanguage' then t.preferred_language
-               when 'ownerId' then t.owner_id end)::text) end desc nulls last,
-           case when $12 = 'bool' and $14 = 'asc' then (case $13 when 'isSupplier' then t.is_supplier
-               when 'isLead' then t.is_lead when 'isDecisionMaker' then t.is_decision_maker
-               when 'isBillingContact' then t.is_billing_contact end) end asc nulls last,
-           case when $12 = 'bool' and $14 = 'desc' then (case $13 when 'isSupplier' then t.is_supplier
-               when 'isLead' then t.is_lead when 'isDecisionMaker' then t.is_decision_maker
-               when 'isBillingContact' then t.is_billing_contact end) end desc nulls last,
-           case when $12 = 'int' and $14 = 'asc' then t.lead_score end asc nulls last,
-           case when $12 = 'int' and $14 = 'desc' then t.lead_score end desc nulls last,
-           case when $12 = 'time' and $14 = 'asc' then (case $13 when 'lastContactedAt' then t.last_contacted_at
-               when 'nextFollowUpDate' then t.next_follow_up_date when 'createdAt' then t.created_at end) end asc nulls last,
-           case when $12 = 'time' and $14 = 'desc' then (case $13 when 'lastContactedAt' then t.last_contacted_at
-               when 'nextFollowUpDate' then t.next_follow_up_date when 'createdAt' then t.created_at end) end desc nulls last,
-           case when $12 is not null and $14 = 'asc' then t.id end asc,
-           case when $12 is not null and $14 = 'desc' then t.id end desc,
-           t.created_at desc, t.id desc
-         limit $15 offset $16"
-    ));
-    let rows: Vec<Value> = bind_person_filter!(query, scope, filter, resolved)
-        .bind(&keyset)
-        .bind(family)
-        .bind(sort_key)
-        .bind(&dir)
-        .bind(limit + 1)
-        .bind(offset)
-        .fetch_all(db)
+    let order = sort_order(options.sort_dir.as_deref().unwrap_or("asc"));
+    let mut select = people::Entity::find().filter(person_condition(scope, filter, &resolved));
+    if let Some(keyset) = &keyset {
+        select = select.filter(before_row::<people::Entity>(
+            people::Column::CreatedAt,
+            people::Column::Id,
+            keyset,
+        ));
+    }
+    if let (Some((key, family)), Some(order)) = (builtin, order) {
+        if let Some(value) = person_sort_value(key, family) {
+            select = select.order_by_with_nulls(value, order.clone(), NullOrdering::Last);
+        }
+        // The tie-break, in the sort's own direction.
+        select = select.order_by(people::Column::Id, order);
+    }
+    let conn = orm(db);
+    let rows = select
+        .order_by_desc(people::Column::CreatedAt)
+        .order_by_desc(people::Column::Id)
+        .limit(probe_limit(limit)?)
+        .offset(u64::try_from(offset).unwrap_or(0))
+        .all(&conn)
         .await?;
     let total_count = if let Some(total) = cursor.as_ref().and_then(|c| c.total_count) {
         total
     } else {
-        let query = sqlx::query_scalar::<_, i64>(concat!(
-            "select count(*) from people t where ",
-            person_where!()
-        ));
-        bind_person_filter!(query, scope, filter, resolved)
-            .fetch_one(db)
-            .await?
+        count(
+            people::Entity::find()
+                .filter(person_condition(scope, filter, &resolved))
+                .count(&conn)
+                .await?,
+        )
     };
     let definitions = cfv::definitions(db, "person").await?;
     let has_more = usize::try_from(limit).is_ok_and(|limit| rows.len() > limit);
-    let mut page: Vec<Value> = rows.into_iter().map(drizzle_row).collect();
+    let mut page = rows
+        .into_iter()
+        .map(to_value)
+        .collect::<Result<Vec<_>, _>>()?;
     page.truncate(usize::try_from(limit).unwrap_or(0));
     let data = cfv::hydrate(db, "person", page, Some(&definitions)).await?;
     let position = if builtin.is_some() {
@@ -407,21 +450,18 @@ pub async fn export_people(
     let Some(resolved) = resolve_filter(db, filter).await? else {
         return Ok(Vec::new());
     };
-    let query = sqlx::query_scalar::<_, Value>(concat!(
-        "select to_jsonb(t) from people t where ",
-        person_where!(),
-        " order by t.created_at desc, t.id desc limit 50000"
-    ));
-    let rows: Vec<Value> = bind_person_filter!(query, scope, filter, resolved)
-        .fetch_all(db)
+    let rows = people::Entity::find()
+        .filter(person_condition(scope, filter, &resolved))
+        .order_by_desc(people::Column::CreatedAt)
+        .order_by_desc(people::Column::Id)
+        .limit(50_000)
+        .all(&orm(db))
         .await?;
-    Ok(cfv::hydrate(
-        db,
-        "person",
-        rows.into_iter().map(drizzle_row).collect(),
-        None,
-    )
-    .await?)
+    let rows = rows
+        .into_iter()
+        .map(to_value)
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(cfv::hydrate(db, "person", rows, None).await?)
 }
 
 // ── Reads ───────────────────────────────────────────────────────────────────
@@ -575,13 +615,15 @@ async fn insert_person_row(db: &PgPool, input: &Map<String, Value>) -> DomainRes
     for key in TAIL {
         values.insert(key.into(), or_default(input, key, Value::Null));
     }
-    sqlx::query(insert_sql!(people))
-        .bind(PEOPLE.values(&values))
-        .execute(db)
-        .await?;
+    insert_row::<people::Entity>(&orm(db), &PEOPLE, &values).await?;
     let created = reread(db, &id, "Person disappeared after insert").await?;
     ensure_wrapping_party(db, &created).await?;
     Ok(created)
+}
+
+/// `lower(email)`.
+fn lower_email() -> Expr {
+    Expr::expr(Func::lower(people::Column::Email.into_expr()))
 }
 
 /// Non-deleted people whose email equals `email` (case-insensitive),
@@ -591,14 +633,16 @@ async fn find_people_by_email(
     email: &str,
     exclude: Option<&str>,
 ) -> DomainResult<Vec<(String, bool)>> {
-    Ok(sqlx::query_as(
-        "select id, in_crm from people
-         where lower(email) = $1 and deleted_at is null and ($2::text is null or id <> $2)",
-    )
-    .bind(email.to_lowercase())
-    .bind(exclude)
-    .fetch_all(db)
-    .await?)
+    use sea_orm::ExprTrait as _;
+    let mut query = people::Entity::find()
+        .select_only()
+        .columns([people::Column::Id, people::Column::InCrm])
+        .filter(lower_email().eq(email.to_lowercase()))
+        .filter(people::Column::DeletedAt.is_null());
+    if let Some(exclude) = exclude {
+        query = query.filter(people::Column::Id.ne(exclude));
+    }
+    Ok(query.into_tuple().all(&orm(db)).await?)
 }
 
 /// Link a person to companies, `isPrimary` on `primary`.
@@ -608,18 +652,19 @@ async fn link_companies(
     company_ids: &[String],
     primary: Option<&str>,
 ) -> DomainResult<()> {
-    let now = now();
+    let now = utc_now();
+    let conn = orm(db);
     for company_id in company_ids {
-        sqlx::query(
-            "insert into person_companies (id, created_at, updated_at, person_id, company_id, is_primary)
-             values ($1, $2::timestamp, $2::timestamp, $3, $4, $5)",
-        )
-        .bind(generate_id("pc"))
-        .bind(&now)
-        .bind(person_id)
-        .bind(company_id)
-        .bind(primary == Some(company_id.as_str()))
-        .execute(db)
+        person_companies::Entity::insert(person_companies::ActiveModel {
+            id: Set(generate_id("pc")),
+            created_at: Set(now),
+            updated_at: Set(now),
+            person_id: Set(person_id.to_owned()),
+            company_id: Set(company_id.clone()),
+            is_primary: Set(primary == Some(company_id.as_str())),
+            ..Default::default()
+        })
+        .exec_without_returning(&conn)
         .await?;
     }
     Ok(())
@@ -634,6 +679,21 @@ fn company_ids(input: &Map<String, Value>) -> Vec<String> {
             .collect(),
         _ => Vec::new(),
     }
+}
+
+/// `update people set in_crm = true, owner_id = owner, updated_at = now()`.
+async fn add_to_crm(db: &PgPool, id: &str, owner: Option<&str>) -> DomainResult<()> {
+    people::Entity::update_many()
+        .col_expr(people::Column::InCrm, Expr::value(true))
+        .col_expr(
+            people::Column::OwnerId,
+            Expr::value(owner.map(str::to_owned)),
+        )
+        .col_expr(people::Column::UpdatedAt, Expr::value(utc_now()))
+        .filter(people::Column::Id.eq(id))
+        .exec(&orm(db))
+        .await?;
+    Ok(())
 }
 
 /// `promoteHiddenPerson(db, existingId, input)`.
@@ -663,21 +723,16 @@ async fn promote_hidden_person(
         .or_else(|| input.get("ownerId").filter(|v| !v.is_null()))
         .cloned()
         .unwrap_or(Value::Null);
-    sqlx::query(
-        "update people set in_crm = true, owner_id = $2, updated_at = $3::timestamp where id = $1",
-    )
-    .bind(existing_id)
-    .bind(owner.as_str())
-    .bind(now())
-    .execute(db)
-    .await?;
+    add_to_crm(db, existing_id, owner.as_str()).await?;
     let ids = company_ids(input);
     if !ids.is_empty() {
-        let linked: Vec<String> =
-            sqlx::query_scalar("select company_id from person_companies where person_id = $1")
-                .bind(existing_id)
-                .fetch_all(db)
-                .await?;
+        let linked: Vec<String> = person_companies::Entity::find()
+            .select_only()
+            .column(person_companies::Column::CompanyId)
+            .filter(person_companies::Column::PersonId.eq(existing_id))
+            .into_tuple()
+            .all(&orm(db))
+            .await?;
         let missing: Vec<String> = ids.into_iter().filter(|id| !linked.contains(id)).collect();
         link_companies(db, existing_id, &missing, text(input, "primaryCompanyId")).await?;
     }
@@ -834,15 +889,12 @@ pub async fn update_person(
             )),
         );
     }
-    let written: Vec<String> = sqlx::query_scalar(update_sql!(
-        people,
-        "where t.id = $1 and ($3::int is null or t.version = $3) returning t.id"
-    ))
-    .bind(id)
-    .bind(PEOPLE.set(&updates))
-    .bind(expected.map(|_| i32::try_from(version).unwrap_or(i32::MAX)))
-    .fetch_all(db)
-    .await?;
+    let mut written = Condition::all().add(people::Column::Id.eq(id));
+    if expected.is_some() {
+        written =
+            written.add(people::Column::Version.eq(i32::try_from(version).unwrap_or(i32::MAX)));
+    }
+    let written = update_rows::<people::Entity>(&orm(db), &PEOPLE, &updates, written).await?;
     if written.is_empty() {
         if expected.is_some() {
             return Err(DomainError::VersionConflict(VERSION_CONFLICT.to_owned()));
@@ -926,14 +978,15 @@ async fn load_lookups(db: &PgPool, records: &[Map<String, Value>]) -> DomainResu
         }
     }
     let mut lookups = Lookups::default();
+    let conn = orm(db);
     if !codes.is_empty() {
-        let rows: Vec<Value> = sqlx::query_scalar(
-            "select to_jsonb(t) from people t where deleted_at is null and party_code = any($1)",
-        )
-        .bind(&codes)
-        .fetch_all(db)
-        .await?;
-        for row in rows.into_iter().map(drizzle_row) {
+        let rows = people::Entity::find()
+            .filter(people::Column::DeletedAt.is_null())
+            .filter(people::Column::PartyCode.is_in(codes))
+            .all(&conn)
+            .await?;
+        for row in rows.into_iter().map(to_value) {
+            let row = row?;
             if let Some(code) = row
                 .get("partyCode")
                 .and_then(Value::as_str)
@@ -944,13 +997,13 @@ async fn load_lookups(db: &PgPool, records: &[Map<String, Value>]) -> DomainResu
         }
     }
     if !emails.is_empty() {
-        let rows: Vec<Value> = sqlx::query_scalar(
-            "select to_jsonb(t) from people t where deleted_at is null and lower(email) = any($1)",
-        )
-        .bind(&emails)
-        .fetch_all(db)
-        .await?;
-        for row in rows.into_iter().map(drizzle_row) {
+        let rows = people::Entity::find()
+            .filter(people::Column::DeletedAt.is_null())
+            .filter(sea_orm::ExprTrait::is_in(lower_email(), emails))
+            .all(&conn)
+            .await?;
+        for row in rows.into_iter().map(to_value) {
+            let row = row?;
             if let Some(email) = row
                 .get("email")
                 .and_then(Value::as_str)
@@ -1073,13 +1126,13 @@ pub async fn delete_person(db: &PgPool, id: &str, scope: Option<&str>) -> Domain
     if raw_person(db, id, scope).await?.is_none() {
         return Ok(false);
     }
-    sqlx::query(
-        "update people set deleted_at = $2::timestamp, updated_at = $2::timestamp where id = $1",
-    )
-    .bind(id)
-    .bind(now())
-    .execute(db)
-    .await?;
+    let now = utc_now();
+    people::Entity::update_many()
+        .col_expr(people::Column::DeletedAt, Expr::value(now))
+        .col_expr(people::Column::UpdatedAt, Expr::value(now))
+        .filter(people::Column::Id.eq(id))
+        .exec(&orm(db))
+        .await?;
     Ok(true)
 }
 
@@ -1093,16 +1146,16 @@ pub async fn set_archived(
     if raw_person(db, id, scope).await?.is_none() {
         return Ok(None);
     }
-    sqlx::query(
-        "update people set archived_at = case when $3 then $2::timestamp else null end,
-             updated_at = $2::timestamp
-         where id = $1",
-    )
-    .bind(id)
-    .bind(now())
-    .bind(archived)
-    .execute(db)
-    .await?;
+    let now = utc_now();
+    people::Entity::update_many()
+        .col_expr(
+            people::Column::ArchivedAt,
+            Expr::value(archived.then_some(now)),
+        )
+        .col_expr(people::Column::UpdatedAt, Expr::value(now))
+        .filter(people::Column::Id.eq(id))
+        .exec(&orm(db))
+        .await?;
     let updated = get_person(db, id, None).await?;
     if let Some(updated) = &updated {
         ensure_wrapping_party(db, updated).await?;
@@ -1119,26 +1172,23 @@ pub async fn add_person_to_crm(
     acting_user: Option<&str>,
     scope: Option<&str>,
 ) -> DomainResult<Option<Value>> {
-    let existing: Option<(String, Option<String>)> = sqlx::query_as(
-        "select id, owner_id from people
-         where id = $1 and deleted_at is null and ($2::text is null or owner_id = $2 or owner_id is null)
-         limit 1",
-    )
-    .bind(id)
-    .bind(scope)
-    .fetch_optional(db)
-    .await?;
+    let mut query = people::Entity::find()
+        .select_only()
+        .columns([people::Column::Id, people::Column::OwnerId])
+        .filter(people::Column::Id.eq(id))
+        .filter(people::Column::DeletedAt.is_null());
+    if let Some(owner) = scope {
+        query = query.filter(
+            Condition::any()
+                .add(people::Column::OwnerId.eq(owner))
+                .add(people::Column::OwnerId.is_null()),
+        );
+    }
+    let existing: Option<(String, Option<String>)> = query.into_tuple().one(&orm(db)).await?;
     let Some((_, owner)) = existing else {
         return Ok(None);
     };
-    sqlx::query(
-        "update people set in_crm = true, owner_id = $2, updated_at = $3::timestamp where id = $1",
-    )
-    .bind(id)
-    .bind(owner.as_deref().or(acting_user))
-    .bind(now())
-    .execute(db)
-    .await?;
+    add_to_crm(db, id, owner.as_deref().or(acting_user)).await?;
     let updated = get_person(db, id, None).await?;
     if let Some(updated) = &updated {
         ensure_wrapping_party(db, updated).await?;
@@ -1148,6 +1198,48 @@ pub async fn add_person_to_crm(
 
 // ── Companies, detail, navigation ───────────────────────────────────────────
 
+/// A `person_companies` link with the live company's card.
+#[derive(Debug, FromQueryResult)]
+struct PersonCompany {
+    id: String,
+    created_at: PrimitiveDateTime,
+    updated_at: PrimitiveDateTime,
+    person_id: String,
+    company_id: String,
+    role: Option<String>,
+    is_primary: bool,
+    started_at: Option<PrimitiveDateTime>,
+    ended_at: Option<PrimitiveDateTime>,
+    display_name: Option<String>,
+    name: Option<String>,
+    industry: Option<String>,
+    avatar_url: Option<String>,
+}
+
+impl PersonCompany {
+    /// The link as Drizzle returns it, with its `company`.
+    fn json(self) -> Value {
+        json!({
+            "id": self.id,
+            "createdAt": js_date(self.created_at),
+            "updatedAt": js_date(self.updated_at),
+            "personId": self.person_id,
+            "companyId": self.company_id,
+            "role": self.role,
+            "isPrimary": self.is_primary,
+            "startedAt": self.started_at.map(js_date),
+            "endedAt": self.ended_at.map(js_date),
+            "company": {
+                "id": self.company_id,
+                "displayName": self.display_name,
+                "name": self.name,
+                "industry": self.industry,
+                "avatarUrl": self.avatar_url,
+            },
+        })
+    }
+}
+
 /// `listPersonCompanies(db, personId, ownerScope)`: the person's company
 /// links with the live company's card, primary first.
 pub async fn list_person_companies(
@@ -1155,25 +1247,48 @@ pub async fn list_person_companies(
     person_id: &str,
     scope: Option<&str>,
 ) -> DomainResult<Vec<Value>> {
+    use person_companies::Column as Pc;
     if scope.is_some() && get_person(db, person_id, scope).await?.is_none() {
         return Ok(Vec::new());
     }
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select jsonb_build_object(
-                 'id', pc.id, 'created_at', pc.created_at, 'updated_at', pc.updated_at,
-                 'person_id', pc.person_id, 'company_id', pc.company_id, 'role', pc.role,
-                 'is_primary', pc.is_primary, 'started_at', pc.started_at, 'ended_at', pc.ended_at,
-                 'company', jsonb_build_object('id', pc.company_id, 'displayName', c.display_name,
-                     'name', c.name, 'industry', c.industry, 'avatarUrl', c.avatar_url))
-         from person_companies pc
-         left join companies c on c.id = pc.company_id and c.deleted_at is null
-         where pc.person_id = $1 and c.display_name is not null
-         order by pc.is_primary desc, pc.created_at desc",
-    )
-    .bind(person_id)
-    .fetch_all(db)
-    .await?;
-    Ok(rows.into_iter().map(drizzle_row).collect())
+    let rows: Vec<PersonCompany> = person_companies::Entity::find()
+        .select_only()
+        .columns([
+            Pc::Id,
+            Pc::CreatedAt,
+            Pc::UpdatedAt,
+            Pc::PersonId,
+            Pc::CompanyId,
+            Pc::Role,
+            Pc::IsPrimary,
+            Pc::StartedAt,
+            Pc::EndedAt,
+        ])
+        .column_as(companies::Column::DisplayName, "display_name")
+        .column_as(companies::Column::Name, "name")
+        .column_as(companies::Column::Industry, "industry")
+        .column_as(companies::Column::AvatarUrl, "avatar_url")
+        .join(
+            JoinType::LeftJoin,
+            person_companies::Entity::belongs_to(companies::Entity)
+                .from(Pc::CompanyId)
+                .to(companies::Column::Id)
+                .on_condition(|_, company| {
+                    Condition::all().add(sea_orm::ExprTrait::is_null(Expr::col((
+                        company,
+                        companies::Column::DeletedAt,
+                    ))))
+                })
+                .into(),
+        )
+        .filter(Pc::PersonId.eq(person_id))
+        .filter(companies::Column::DisplayName.is_not_null())
+        .order_by_desc(Pc::IsPrimary)
+        .order_by_desc(Pc::CreatedAt)
+        .into_model()
+        .all(&orm(db))
+        .await?;
+    Ok(rows.into_iter().map(PersonCompany::json).collect())
 }
 
 /// The limits of the detail read (`PersonDetailOptions`).
@@ -1212,17 +1327,33 @@ pub async fn get_person_detail(
         .limit(u64::try_from(limits.tickets.min(50)).unwrap_or(0))
         .all(&db_orm)
         .await?;
-    let counts: (i64, i64, i64, i64, i64) = sqlx::query_as(
-        "select
-           (select count(*) from person_companies where person_id = $1),
-           (select count(*) from crm_activities where person_id = $1 and deleted_at is null),
-           (select count(*) from helpdesk_tickets where person_id = $1 and deleted_at is null),
-           (select count(*) from crm_activities where person_id = $1 and type = 'note' and deleted_at is null),
-           (select count(*) from crm_activities where person_id = $1 and type = 'task' and deleted_at is null)",
-    )
-    .bind(person_id)
-    .fetch_one(db)
-    .await?;
+    let person_activities = |kind: Option<&str>| {
+        let query = crm_activities::Entity::find()
+            .filter(crm_activities::Column::PersonId.eq(person_id))
+            .filter(crm_activities::Column::DeletedAt.is_null());
+        match kind {
+            Some(kind) => query.filter(crm_activities::Column::Type.eq(kind)),
+            None => query,
+        }
+    };
+    let counts = (
+        count(
+            person_companies::Entity::find()
+                .filter(person_companies::Column::PersonId.eq(person_id))
+                .count(&db_orm)
+                .await?,
+        ),
+        count(person_activities(None).count(&db_orm).await?),
+        count(
+            helpdesk_tickets::Entity::find()
+                .filter(helpdesk_tickets::Column::PersonId.eq(person_id))
+                .filter(helpdesk_tickets::Column::DeletedAt.is_null())
+                .count(&db_orm)
+                .await?,
+        ),
+        count(person_activities(Some("note")).count(&db_orm).await?),
+        count(person_activities(Some("task")).count(&db_orm).await?),
+    );
     let activities = activities
         .into_iter()
         .map(to_value)
@@ -1260,23 +1391,37 @@ pub async fn get_person_navigation(
     list_id: Option<&str>,
     scope: Option<&str>,
 ) -> DomainResult<Option<Value>> {
+    let conn = orm(db);
     if let Some(list_id) = list_id {
-        let name: Option<String> = sqlx::query_scalar(
-            "select name from lists where id = $1 and deleted_at is null limit 1",
-        )
-        .bind(list_id)
-        .fetch_optional(db)
-        .await?;
+        let name: Option<String> = lists::Entity::find()
+            .select_only()
+            .column(lists::Column::Name)
+            .filter(lists::Column::Id.eq(list_id))
+            .filter(lists::Column::DeletedAt.is_null())
+            .into_tuple()
+            .one(&conn)
+            .await?;
         let context = name.unwrap_or_else(|| "People List".to_owned());
-        let members: Vec<String> = sqlx::query_scalar(
-            "select lm.entity_id from list_members lm inner join people p on p.id = lm.entity_id
-             where lm.list_id = $1 and p.deleted_at is null and ($2::text is null or p.owner_id = $2)
-             order by lm.added_at desc",
-        )
-        .bind(list_id)
-        .bind(scope)
-        .fetch_all(db)
-        .await?;
+        let mut members = list_members::Entity::find()
+            .select_only()
+            .column(list_members::Column::EntityId)
+            .join(
+                JoinType::InnerJoin,
+                list_members::Entity::belongs_to(people::Entity)
+                    .from(list_members::Column::EntityId)
+                    .to(people::Column::Id)
+                    .into(),
+            )
+            .filter(list_members::Column::ListId.eq(list_id))
+            .filter(people::Column::DeletedAt.is_null());
+        if let Some(owner) = scope {
+            members = members.filter(people::Column::OwnerId.eq(owner));
+        }
+        let members: Vec<String> = members
+            .order_by_desc(list_members::Column::AddedAt)
+            .into_tuple()
+            .all(&conn)
+            .await?;
         let total = members.len();
         return Ok(Some(match members.iter().position(|m| m == person_id) {
             None => {
@@ -1291,31 +1436,48 @@ pub async fn get_person_navigation(
             }),
         }));
     }
-    let created: Option<String> = sqlx::query_scalar(
-        "select to_char(date_trunc('milliseconds', created_at), 'YYYY-MM-DD\"T\"HH24:MI:SS.MS')
-         from people where id = $1 and deleted_at is null and ($2::text is null or owner_id = $2) limit 1",
-    )
-    .bind(person_id)
-    .bind(scope)
-    .fetch_optional(db)
-    .await?;
+    let live = || {
+        let query = people::Entity::find().filter(people::Column::DeletedAt.is_null());
+        match scope {
+            Some(owner) => query.filter(people::Column::OwnerId.eq(owner)),
+            None => query,
+        }
+    };
+    let created: Option<PrimitiveDateTime> = live()
+        .select_only()
+        .column(people::Column::CreatedAt)
+        .filter(people::Column::Id.eq(person_id))
+        .into_tuple()
+        .one(&conn)
+        .await?;
     let Some(created) = created else {
         return Ok(None);
     };
-    let (total, previous, next, after): (i64, Option<String>, Option<String>, i64) = sqlx::query_as(
-        "select
-           (select count(*) from people where deleted_at is null and ($1::text is null or owner_id = $1)),
-           (select id from people where deleted_at is null and ($1::text is null or owner_id = $1)
-              and created_at > $2::timestamp order by created_at limit 1),
-           (select id from people where deleted_at is null and ($1::text is null or owner_id = $1)
-              and created_at < $2::timestamp order by created_at desc limit 1),
-           (select count(*) from people where deleted_at is null and ($1::text is null or owner_id = $1)
-              and created_at > $2::timestamp)",
-    )
-    .bind(scope)
-    .bind(&created)
-    .fetch_one(db)
-    .await?;
+    // The person's `createdAt` as the route reads it back: to the millisecond.
+    let created = weldsuite_db::utc_timestamp(created.assume_utc());
+    let total = count(live().count(&conn).await?);
+    let previous: Option<String> = live()
+        .select_only()
+        .column(people::Column::Id)
+        .filter(people::Column::CreatedAt.gt(created))
+        .order_by_asc(people::Column::CreatedAt)
+        .into_tuple()
+        .one(&conn)
+        .await?;
+    let next: Option<String> = live()
+        .select_only()
+        .column(people::Column::Id)
+        .filter(people::Column::CreatedAt.lt(created))
+        .order_by_desc(people::Column::CreatedAt)
+        .into_tuple()
+        .one(&conn)
+        .await?;
+    let after = count(
+        live()
+            .filter(people::Column::CreatedAt.gt(created))
+            .count(&conn)
+            .await?,
+    );
     Ok(Some(json!({
         "currentIndex": after + 1,
         "totalCount": total,
@@ -1327,12 +1489,36 @@ pub async fn get_person_navigation(
 
 // ── Mail recipient resolvers ────────────────────────────────────────────────
 
-/// `PersonSummary`'s columns.
-macro_rules! summary {
-    () => {
-        "select jsonb_build_object('id', id, 'displayName', display_name, 'firstName', first_name,
-             'lastName', last_name, 'email', email, 'avatarUrl', avatar_url) from people "
-    };
+/// `PersonSummary`: the card a mail recipient picker shows.
+#[derive(Debug, FromQueryResult, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PersonSummary {
+    id: String,
+    display_name: String,
+    first_name: Option<String>,
+    last_name: Option<String>,
+    email: Option<String>,
+    avatar_url: Option<String>,
+}
+
+/// `select id, display_name, … from people`, as [`PersonSummary`]s.
+fn summaries() -> Select<people::Entity> {
+    people::Entity::find().select_only().columns([
+        people::Column::Id,
+        people::Column::DisplayName,
+        people::Column::FirstName,
+        people::Column::LastName,
+        people::Column::Email,
+        people::Column::AvatarUrl,
+    ])
+}
+
+/// The summaries as JSON.
+fn summary_json(rows: Vec<PersonSummary>) -> DomainResult<Vec<Value>> {
+    Ok(rows
+        .into_iter()
+        .map(to_value)
+        .collect::<Result<Vec<_>, _>>()?)
 }
 
 /// `resolveByEmails(db, emails)`: the live people with one of the addresses
@@ -1348,13 +1534,13 @@ pub async fn resolve_by_emails(db: &PgPool, emails: &[String]) -> DomainResult<V
             normalised.push(email);
         }
     }
-    Ok(sqlx::query_scalar(concat!(
-        summary!(),
-        "where deleted_at is null and lower(email) = any($1)"
-    ))
-    .bind(&normalised)
-    .fetch_all(db)
-    .await?)
+    let rows: Vec<PersonSummary> = summaries()
+        .filter(people::Column::DeletedAt.is_null())
+        .filter(sea_orm::ExprTrait::is_in(lower_email(), normalised))
+        .into_model()
+        .all(&orm(db))
+        .await?;
+    summary_json(rows)
 }
 
 /// `listRecentCorrespondents(db, { emails, limit })`: recently touched,
@@ -1368,16 +1554,22 @@ pub async fn list_recent_correspondents(
     if emails.is_some_and(<[String]>::is_empty) {
         return Ok(Vec::new());
     }
-    Ok(sqlx::query_scalar(concat!(
-        summary!(),
-        "where deleted_at is null and archived_at is null
-           and ($1::text[] is null or lower(email) = any($1))
-         order by updated_at desc limit $2"
-    ))
-    .bind(emails)
-    .bind(limit)
-    .fetch_all(db)
-    .await?)
+    let mut query = summaries()
+        .filter(people::Column::DeletedAt.is_null())
+        .filter(people::Column::ArchivedAt.is_null());
+    if let Some(emails) = emails {
+        query = query.filter(sea_orm::ExprTrait::is_in(lower_email(), emails.to_vec()));
+    }
+    let rows: Vec<PersonSummary> = query
+        .order_by_desc(people::Column::UpdatedAt)
+        .limit(
+            u64::try_from(limit)
+                .map_err(|_| sea_orm::DbErr::Custom("LIMIT must not be negative".to_owned()))?,
+        )
+        .into_model()
+        .all(&orm(db))
+        .await?;
+    summary_json(rows)
 }
 
 // ── Bulk update ─────────────────────────────────────────────────────────────
@@ -1414,15 +1606,31 @@ pub async fn bulk_update_people(
         return Ok((0, failed, Vec::new()));
     }
     assert_valid_member_fields(db, set_fields).await?;
-    let before: Vec<Value> = sqlx::query_scalar(
-        "select jsonb_build_object('id', id, 'ownerId', owner_id, 'accountManagerId', account_manager_id,
-                 'status', status, 'lifecycleStage', lifecycle_stage)
-         from people where deleted_at is null and ($1::text is null or owner_id = $1)",
-    )
-    .bind(scope)
-    .fetch_all(db)
-    .await?;
-    let before: HashMap<String, Value> = before.into_iter().map(|row| (id_of(&row), row)).collect();
+    let conn = orm(db);
+    let mut live = Condition::all().add(people::Column::DeletedAt.is_null());
+    if let Some(owner) = scope {
+        live = live.add(people::Column::OwnerId.eq(owner));
+    }
+    let before: Vec<BulkFields> = people::Entity::find()
+        .select_only()
+        .columns([
+            people::Column::Id,
+            people::Column::OwnerId,
+            people::Column::AccountManagerId,
+            people::Column::Status,
+            people::Column::LifecycleStage,
+        ])
+        .filter(live.clone())
+        .into_model()
+        .all(&conn)
+        .await?;
+    let before: HashMap<String, Value> = before
+        .into_iter()
+        .map(|row| {
+            let row = row.json();
+            (id_of(&row), row)
+        })
+        .collect();
     let mut updates = Map::new();
     updates.insert("updatedAt".into(), json!(now()));
     for field in BULK_FIELDS {
@@ -1430,14 +1638,12 @@ pub async fn bulk_update_people(
             updates.insert(field.into(), value.clone());
         }
     }
-    let written: Vec<String> = sqlx::query_scalar(update_sql!(
-        people,
-        "where t.id = any($1) and t.deleted_at is null and ($3::text is null or t.owner_id = $3) returning t.id"
-    ))
-    .bind(&ids)
-    .bind(PEOPLE.set(&updates))
-    .bind(scope)
-    .fetch_all(db)
+    let written = update_rows::<people::Entity>(
+        &conn,
+        &PEOPLE,
+        &updates,
+        live.add(people::Column::Id.is_in(ids.clone())),
+    )
     .await?;
     let failed = ids
         .iter()

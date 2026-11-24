@@ -13,16 +13,22 @@ use axum::body::Bytes;
 use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use http::HeaderMap;
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect,
+};
 use serde_json::{Value, json};
 use weldsuite_catalogs::entity_events::{
     EventName, PANEL_METRIC_TREE_CREATED, PANEL_METRIC_TREE_DELETED, PANEL_METRIC_TREE_UPDATED,
 };
+use weldsuite_db::orm;
 use weldsuite_kit::{ApiError, Created, Data, List, NoContent, Pagination};
 use weldsuite_permissions::Permissions;
+use weldsuite_schema::tenant::panel_metric_trees as trees;
 use weldsuite_zod::{Keys, Z};
 
 use crate::saved::{
-    Actor, PROJECT_ID, SCOPES, can_change, can_see, field, project_exists, reports_by_id, rows,
+    Actor, PROJECT_ID, SCOPES, can_change, can_see, field, js_row, project_exists, reports_by_id,
     text,
 };
 use crate::schemas_gen::{
@@ -85,7 +91,7 @@ async fn nodes_problem(
     project_id: &str,
     nodes: &[Value],
     actor: &Actor,
-) -> Result<Option<String>, sqlx::Error> {
+) -> Result<Option<String>, DbErr> {
     for node in nodes {
         if let Some(spec) = node.get("metric").and_then(|metric| metric.get("spec"))
             && spec.get("projectId").and_then(Value::as_str) != Some(project_id)
@@ -125,14 +131,13 @@ async fn nodes_problem(
     Ok(None)
 }
 
-async fn get_tree(caller: &Caller, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from panel_metric_trees t where t.id = $1 and t.deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(&caller.db)
-    .await?;
-    Ok(row.map(weldsuite_db::js_row))
+async fn get_tree(caller: &Caller, id: &str) -> Result<Option<Value>, DbErr> {
+    trees::Entity::find_by_id(id)
+        .filter(trees::Column::DeletedAt.is_null())
+        .one(&orm(&caller.db))
+        .await?
+        .map(js_row)
+        .transpose()
 }
 
 /// `editable(c)`: a tree the caller may change, or the answer instead.
@@ -167,22 +172,25 @@ pub(crate) async fn list(
         Err(response) => return response,
     };
     let actor = Actor::of(&caller, &permissions);
-    let found: Result<Vec<Value>, sqlx::Error> = sqlx::query_scalar(
-        "select to_jsonb(t) from panel_metric_trees t
-         where t.deleted_at is null
-           and ($2 <> 'mine' or t.owner_user_id = $1)
-           and ($2 <> 'shared' or t.visibility = 'workspace')
-           and ($3::text is null or t.project_id = $3)
-         order by t.updated_at desc limit 500",
-    )
-    .bind(&actor.user_id)
-    .bind(query.text("scope").unwrap_or("all"))
-    .bind(query.text("projectId"))
-    .fetch_all(&caller.db)
-    .await;
+    let mut find = trees::Entity::find().filter(trees::Column::DeletedAt.is_null());
+    // `all` narrows nothing here: what the caller may not see is left out below.
+    match query.text("scope").unwrap_or("all") {
+        "mine" => find = find.filter(trees::Column::OwnerUserId.eq(&actor.user_id)),
+        "shared" => find = find.filter(trees::Column::Visibility.eq("workspace")),
+        _ => {}
+    }
+    if let Some(project_id) = query.text("projectId") {
+        find = find.filter(trees::Column::ProjectId.eq(project_id));
+    }
+    let found = find
+        .order_by_desc(trees::Column::UpdatedAt)
+        .limit(500)
+        .all(&orm(&caller.db))
+        .await
+        .and_then(|found| found.into_iter().map(js_row).collect::<Result<Vec<_>, _>>());
     match found {
         Ok(found) => {
-            let trees: Vec<Value> = rows(found)
+            let trees: Vec<Value> = found
                 .iter()
                 .filter(|tree| can_see(tree, &actor))
                 .map(dto)
@@ -229,24 +237,24 @@ pub(crate) async fn create(
         Ok(Some(problem)) => return ApiError::bad_request(problem).into_response(),
         Err(error) => return unexpected(&error, "create metric tree"),
     }
-    let created: Result<Value, sqlx::Error> = sqlx::query_scalar(
-        "insert into panel_metric_trees as t
-           (id, project_id, name, description, nodes, owner_user_id, visibility)
-         values ($1, $2, $3, $4, $5, $6, $7)
-         returning to_jsonb(t)",
-    )
-    .bind(weldsuite_kit::id::generate_id("pnmt"))
-    .bind(&project_id)
-    .bind(input.text("name"))
-    .bind(input.get("description").and_then(Value::as_str))
-    .bind(parse_nodes(&nodes).unwrap_or(nodes))
-    .bind(&caller.user_id)
-    .bind(input.text("visibility").unwrap_or("private"))
-    .fetch_one(&caller.db)
-    .await;
+    let created = trees::Entity::insert(trees::ActiveModel {
+        id: Set(weldsuite_kit::id::generate_id("pnmt")),
+        project_id: Set(project_id.clone()),
+        name: Set(input.text("name").unwrap_or_default().to_owned()),
+        description: Set(input
+            .get("description")
+            .and_then(Value::as_str)
+            .map(str::to_owned)),
+        nodes: Set(parse_nodes(&nodes).unwrap_or(nodes)),
+        owner_user_id: Set(caller.user_id.clone()),
+        visibility: Set(input.text("visibility").unwrap_or("private").to_owned()),
+        ..Default::default()
+    })
+    .exec_with_returning(&orm(&caller.db))
+    .await
+    .and_then(js_row);
     match created {
-        Ok(row) => {
-            let tree = weldsuite_db::js_row(row);
+        Ok(tree) => {
             publish(&caller, &state, &tree, PANEL_METRIC_TREE_CREATED);
             Created(dto(&tree)).into_response()
         }
@@ -294,27 +302,32 @@ pub(crate) async fn update(
             Err(error) => return unexpected(&error, "update metric tree"),
         }
     }
-    let updated: Result<Option<Value>, sqlx::Error> = sqlx::query_scalar(
-        "update panel_metric_trees as t set
-           name = coalesce($2, t.name),
-           description = case when $3 then $4 else t.description end,
-           visibility = coalesce($5, t.visibility),
-           nodes = coalesce($6, t.nodes),
-           updated_at = now()
-         where t.id = $1 and t.deleted_at is null
-         returning to_jsonb(t)",
-    )
-    .bind(text(&found, "id"))
-    .bind(input.get("name").and_then(Value::as_str))
-    .bind(input.get("description").is_some())
-    .bind(input.get("description").and_then(Value::as_str))
-    .bind(input.get("visibility").and_then(Value::as_str))
-    .bind(nodes.map(|nodes| parse_nodes(&nodes).unwrap_or(nodes)))
-    .fetch_optional(&caller.db)
-    .await;
+    let mut update = trees::Entity::update_many();
+    if let Some(name) = input.get("name").and_then(Value::as_str) {
+        update = update.col_expr(trees::Column::Name, Expr::value(name));
+    }
+    if let Some(description) = input.get("description") {
+        update = update.col_expr(
+            trees::Column::Description,
+            Expr::value(description.as_str().map(str::to_owned)),
+        );
+    }
+    if let Some(visibility) = input.get("visibility").and_then(Value::as_str) {
+        update = update.col_expr(trees::Column::Visibility, Expr::value(visibility));
+    }
+    if let Some(nodes) = nodes {
+        let nodes = parse_nodes(&nodes).unwrap_or(nodes);
+        update = update.col_expr(trees::Column::Nodes, Expr::value(nodes));
+    }
+    let updated = update
+        .col_expr(trees::Column::UpdatedAt, Expr::current_timestamp())
+        .filter(trees::Column::Id.eq(text(&found, "id")))
+        .filter(trees::Column::DeletedAt.is_null())
+        .exec_with_returning(&orm(&caller.db))
+        .await
+        .and_then(|rows| rows.into_iter().next().map(js_row).transpose());
     match updated {
-        Ok(Some(row)) => {
-            let tree = weldsuite_db::js_row(row);
+        Ok(Some(tree)) => {
             publish(&caller, &state, &tree, PANEL_METRIC_TREE_UPDATED);
             Data(dto(&tree)).into_response()
         }
@@ -335,17 +348,16 @@ pub(crate) async fn remove(
         Ok(found) => found,
         Err(response) => return *response,
     };
-    let deleted: Result<Option<Value>, sqlx::Error> = sqlx::query_scalar(
-        "update panel_metric_trees as t set deleted_at = now(), updated_at = now()
-         where t.id = $1 and t.deleted_at is null
-         returning to_jsonb(t)",
-    )
-    .bind(text(&found, "id"))
-    .fetch_optional(&caller.db)
-    .await;
+    let deleted = trees::Entity::update_many()
+        .col_expr(trees::Column::DeletedAt, Expr::current_timestamp())
+        .col_expr(trees::Column::UpdatedAt, Expr::current_timestamp())
+        .filter(trees::Column::Id.eq(text(&found, "id")))
+        .filter(trees::Column::DeletedAt.is_null())
+        .exec_with_returning(&orm(&caller.db))
+        .await
+        .and_then(|rows| rows.into_iter().next().map(js_row).transpose());
     match deleted {
-        Ok(Some(row)) => {
-            let tree = weldsuite_db::js_row(row);
+        Ok(Some(tree)) => {
             publish(&caller, &state, &tree, PANEL_METRIC_TREE_DELETED);
             NoContent.into_response()
         }

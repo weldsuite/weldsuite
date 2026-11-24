@@ -87,18 +87,6 @@ pub(crate) fn page(mut rows: Vec<Value>, limit: i64) -> (Vec<Value>, bool, Optio
     (rows, has_more, cursor)
 }
 
-/// A row's `createdAt` as Drizzle hands it back (milliseconds), for a
-/// keyset cursor: the value the TypeScript route binds.
-pub(crate) fn ms_timestamp(text: &str) -> String {
-    // `::text` writes a space between date and time; `to_jsonb` a `T`.
-    let iso = if text.as_bytes().get(10) == Some(&b' ') {
-        format!("{}T{}", &text[..10], &text[11..])
-    } else {
-        text.to_owned()
-    };
-    weldsuite_db::js_timestamp(&iso).unwrap_or(iso)
-}
-
 /// `consumeChatRateLimit(env, key, max)`: a fixed one-minute window in the
 /// workspace cache. No cache, or a cache that fails, allows the request.
 #[allow(clippy::cast_precision_loss)]

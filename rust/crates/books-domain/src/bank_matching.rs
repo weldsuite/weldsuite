@@ -7,16 +7,24 @@
 //!
 //! The banking routes and the bank feeds (a sync runs the matcher over the
 //! lines it brought in) share it. Rows are `Value`s as Drizzle returns them
-//! (`<TABLE>.js(row)`); floating-point sums run in the worker's order, so the
-//! confidences come out bit for bit.
+//! (the entities, serialized); floating-point sums run in the worker's order,
+//! so the confidences come out bit for bit.
 
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{
+    ColumnTrait, Condition, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect, Select,
+};
 use serde_json::{Map, Value, json};
-use sqlx::PgPool;
+use time::{OffsetDateTime, PrimitiveDateTime};
+use weldsuite_db::{OrmConn, PgPool, orm, utc_timestamp};
 use weldsuite_ports::OutboundHttp;
+use weldsuite_schema::tenant::{
+    bank_accounts, bank_deposits, bank_transactions, bills, invoices, journal_lines, parties,
+    payments,
+};
 
 use crate::bank_categorize::{Categorize, categorize};
 use crate::document_posting::{owned, text, update_with_entry};
-use crate::http::now;
 use crate::js::{
     js_date_millis, math_round, millis_of, number_text, parse_float, round_money, to_fixed,
 };
@@ -27,7 +35,7 @@ use crate::posting::{PostError, ReverseArgs, reverse_journal_entry};
 use crate::reconciliation_rules::{
     action, find_matching_rule, load_active_rules, record_rule_match,
 };
-use crate::tables::{BANK_DEPOSITS, BANK_TRANSACTIONS, BILLS, INVOICES, PAYMENTS};
+use crate::tables::BANK_TRANSACTIONS;
 
 /// `reconciliation_type` of a line linked to a payment recorded earlier.
 pub const PAYMENT_LINK: &str = "payment_link";
@@ -36,6 +44,52 @@ pub const DEPOSIT_LINK: &str = "deposit";
 
 fn posting(message: impl Into<String>) -> PostError {
     PostError::Posting(message.into())
+}
+
+/// The rows of `select`, as Drizzle returns them.
+async fn rows<E>(db: &PgPool, select: Select<E>) -> Result<Vec<Value>, DbErr>
+where
+    E: EntityTrait,
+    E::Model: serde::Serialize,
+{
+    select
+        .all(&orm(db))
+        .await?
+        .into_iter()
+        .map(|model| serde_json::to_value(model).map_err(|error| DbErr::Json(error.to_string())))
+        .collect()
+}
+
+/// The first row of `select`, as Drizzle returns it.
+async fn row<E>(db: &PgPool, select: Select<E>) -> Result<Option<Value>, DbErr>
+where
+    E: EntityTrait,
+    E::Model: serde::Serialize,
+{
+    select
+        .one(&orm(db))
+        .await?
+        .map(|model| serde_json::to_value(model).map_err(|error| DbErr::Json(error.to_string())))
+        .transpose()
+}
+
+/// `new Date()` once: as `toISOString()` (the reset row, the void date), and
+/// as the `timestamp` columns hold it.
+fn now_both() -> (String, PrimitiveDateTime) {
+    let at = OffsetDateTime::now_utc();
+    (weldsuite_events::iso_timestamp(at), utc_timestamp(at))
+}
+
+/// `column::numeric between $low::numeric and $high::numeric`, or nothing
+/// without bounds.
+fn near(column: Expr, bounds: Option<(&str, &str)>) -> Option<Expr> {
+    use sea_orm::ExprTrait as _;
+    bounds.map(|(low, high)| {
+        column.cast_as("numeric").between(
+            Expr::val(low).cast_as("numeric"),
+            Expr::val(high).cast_as("numeric"),
+        )
+    })
 }
 
 // ── Names ───────────────────────────────────────────────────────────────────
@@ -281,71 +335,93 @@ pub async fn load_candidates(
     bank_account_id: Option<&str>,
     amount: Option<f64>,
     check_number: Option<&str>,
-) -> Result<Candidates, sqlx::Error> {
-    let limit: i64 = 5000;
+) -> Result<Candidates, DbErr> {
+    let limit: u64 = 5000;
     let (low, high) = amount.map(amount_bounds).unzip();
+    let bounds = low.as_deref().zip(high.as_deref());
     let entity_id = entity_id.filter(|id| !id.is_empty());
-    let invoices: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        crate::books_row!(invoices),
-        " from invoices t where t.status = any(array['sent','finalized','partial','overdue']) \
-         and t.deleted_at is null and ($1::text is null or t.entity_id = $1) \
-         and ($2::text is null or t.balance_due::numeric between $2::numeric and $3::numeric) limit $4"
-    ))
-    .bind(entity_id)
-    .bind(low.as_deref())
-    .bind(high.as_deref())
-    .bind(limit)
-    .fetch_all(db)
+    let invoices = rows(
+        db,
+        invoices::Entity::find()
+            .filter(
+                Condition::all()
+                    .add(invoices::Column::Status.is_in([
+                        "sent",
+                        "finalized",
+                        "partial",
+                        "overdue",
+                    ]))
+                    .add(invoices::Column::DeletedAt.is_null())
+                    .add_option(entity_id.map(|entity| invoices::Column::EntityId.eq(entity)))
+                    .add_option(near(Expr::col(invoices::Column::BalanceDue), bounds)),
+            )
+            .limit(limit),
+    )
     .await?;
-    let bills: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        crate::books_row!(bills),
-        " from bills t where t.status = any(array['approved','partial','overdue']) \
-         and t.deleted_at is null and ($1::text is null or t.entity_id = $1) \
-         and ($2::text is null or t.balance_due::numeric between $2::numeric and $3::numeric) limit $4"
-    ))
-    .bind(entity_id)
-    .bind(low.as_deref())
-    .bind(high.as_deref())
-    .bind(limit)
-    .fetch_all(db)
+    let bills = rows(
+        db,
+        bills::Entity::find()
+            .filter(
+                Condition::all()
+                    .add(bills::Column::Status.is_in(["approved", "partial", "overdue"]))
+                    .add(bills::Column::DeletedAt.is_null())
+                    .add_option(entity_id.map(|entity| bills::Column::EntityId.eq(entity)))
+                    .add_option(near(Expr::col(bills::Column::BalanceDue), bounds)),
+            )
+            .limit(limit),
+    )
     .await?;
-    let payments: Vec<Value> = match entity_id {
+    let payments = match entity_id {
         Some(entity) => {
-            sqlx::query_scalar(concat!(
-                "select ",
-                crate::books_row!(payments),
-                " from payments t where t.entity_id = $1 and t.deleted_at is null \
-                 and t.bank_transaction_id is null and t.deposit_id is null \
-                 and ($2::text is null or (t.amount::numeric - coalesce(t.backup_withholding_amount::numeric, 0)) \
-                 between $2::numeric and $3::numeric or ($4::text is not null and t.check_number = $4)) limit $5"
-            ))
-            .bind(entity)
-            .bind(low.as_deref())
-            .bind(high.as_deref())
-            .bind(check_number.filter(|c| !c.is_empty()).filter(|_| low.is_some()))
-            .bind(limit)
-            .fetch_all(db)
+            use sea_orm::ExprTrait as _;
+            // `amount::numeric - coalesce(backup_withholding_amount::numeric, 0)`
+            let net = Expr::col(payments::Column::Amount)
+                .cast_as("numeric")
+                .sub(Func::coalesce([
+                    Expr::col(payments::Column::BackupWithholdingAmount).cast_as("numeric"),
+                    Expr::val(0),
+                ]));
+            let check = check_number
+                .filter(|c| !c.is_empty())
+                .filter(|_| low.is_some());
+            let near_or_check = near(net, bounds).map(|near| {
+                Condition::any()
+                    .add(near)
+                    .add_option(check.map(|check| payments::Column::CheckNumber.eq(check)))
+            });
+            rows(
+                db,
+                payments::Entity::find()
+                    .filter(
+                        Condition::all()
+                            .add(payments::Column::EntityId.eq(entity))
+                            .add(payments::Column::DeletedAt.is_null())
+                            .add(payments::Column::BankTransactionId.is_null())
+                            .add(payments::Column::DepositId.is_null())
+                            .add_option(near_or_check),
+                    )
+                    .limit(limit),
+            )
             .await?
         }
         None => Vec::new(),
     };
-    let deposits: Vec<Value> = match (entity_id, bank_account_id.filter(|id| !id.is_empty())) {
+    let deposits = match (entity_id, bank_account_id.filter(|id| !id.is_empty())) {
         (Some(entity), Some(account)) => {
-            sqlx::query_scalar(concat!(
-                "select ",
-                crate::books_row!(bank_deposits),
-                " from bank_deposits t where t.entity_id = $1 and t.bank_account_id = $2 \
-                 and t.status = 'posted' and t.deleted_at is null and t.bank_transaction_id is null \
-                 and ($3::text is null or t.amount::numeric between $3::numeric and $4::numeric) limit $5"
-            ))
-            .bind(entity)
-            .bind(account)
-            .bind(low.as_deref())
-            .bind(high.as_deref())
-            .bind(limit)
-            .fetch_all(db)
+            rows(
+                db,
+                bank_deposits::Entity::find()
+                    .filter(
+                        Condition::all()
+                            .add(bank_deposits::Column::EntityId.eq(entity))
+                            .add(bank_deposits::Column::BankAccountId.eq(account))
+                            .add(bank_deposits::Column::Status.eq("posted"))
+                            .add(bank_deposits::Column::DeletedAt.is_null())
+                            .add(bank_deposits::Column::BankTransactionId.is_null())
+                            .add_option(near(Expr::col(bank_deposits::Column::Amount), bounds)),
+                    )
+                    .limit(limit),
+            )
             .await?
         }
         _ => Vec::new(),
@@ -354,10 +430,6 @@ pub async fn load_candidates(
         Some(entity) => load_active_rules(db, entity).await?,
         None => Vec::new(),
     };
-    let invoices = INVOICES.js_rows(invoices);
-    let bills = BILLS.js_rows(bills);
-    let payments = PAYMENTS.js_rows(payments);
-    let deposits = BANK_DEPOSITS.js_rows(deposits);
 
     let mut contact_ids: Vec<String> = Vec::new();
     for row in invoices.iter().chain(&bills).chain(&payments) {
@@ -370,9 +442,16 @@ pub async fn load_candidates(
     let contacts: Vec<(String, Option<String>, Option<String>)> = if contact_ids.is_empty() {
         Vec::new()
     } else {
-        sqlx::query_as("select id, display_name, iban from parties where id = any($1)")
-            .bind(&contact_ids)
-            .fetch_all(db)
+        parties::Entity::find()
+            .select_only()
+            .columns([
+                parties::Column::Id,
+                parties::Column::DisplayName,
+                parties::Column::Iban,
+            ])
+            .filter(parties::Column::Id.is_in(contact_ids))
+            .into_tuple()
+            .all(&orm(db))
             .await?
     };
     Ok(Candidates {
@@ -757,7 +836,7 @@ pub async fn find_matches(
     db: &PgPool,
     line: &Value,
     pool: Option<&Candidates>,
-) -> Result<Vec<Suggestion>, sqlx::Error> {
+) -> Result<Vec<Suggestion>, DbErr> {
     let line = Line(line);
     let amount = parse_float(line.filled("amount").unwrap_or("0"));
     if amount == 0.0 || amount.is_nan() {
@@ -806,8 +885,50 @@ pub struct Matched {
     pub journal_entry_id: Option<String>,
 }
 
-/// A document lookup: id, entity, contact, open balance.
+/// A document lookup: id, entity, contact, open balance (as Postgres prints
+/// it, `balance_due::text`).
 type DocumentRow = (String, Option<String>, Option<String>, Option<String>);
+
+/// The live invoice (or bill) `id` as a [`DocumentRow`].
+async fn document_row(db: &PgPool, invoice: bool, id: &str) -> Result<Option<DocumentRow>, DbErr> {
+    use sea_orm::ExprTrait as _;
+    let db = &orm(db);
+    if invoice {
+        invoices::Entity::find()
+            .select_only()
+            .columns([
+                invoices::Column::Id,
+                invoices::Column::EntityId,
+                invoices::Column::ContactId,
+            ])
+            .column_as(
+                Expr::col(invoices::Column::BalanceDue).cast_as("text"),
+                "balance_due",
+            )
+            .filter(invoices::Column::Id.eq(id))
+            .filter(invoices::Column::DeletedAt.is_null())
+            .into_tuple()
+            .one(db)
+            .await
+    } else {
+        bills::Entity::find()
+            .select_only()
+            .columns([
+                bills::Column::Id,
+                bills::Column::EntityId,
+                bills::Column::ContactId,
+            ])
+            .column_as(
+                Expr::col(bills::Column::BalanceDue).cast_as("text"),
+                "balance_due",
+            )
+            .filter(bills::Column::Id.eq(id))
+            .filter(bills::Column::DeletedAt.is_null())
+            .into_tuple()
+            .one(db)
+            .await
+    }
+}
 
 /// The oldest payment of the document not yet tied to a bank line or deposit
 /// that moved `paid` through the bank (the net of any backup withholding).
@@ -816,13 +937,17 @@ type DocumentRow = (String, Option<String>, Option<String>, Option<String>);
 async fn line_bank(
     db: &PgPool,
     txn: &Value,
-) -> Result<(Option<Option<String>>, Option<String>), sqlx::Error> {
-    let bank: Option<(Option<String>, Option<String>)> = sqlx::query_as(
-        "select currency, ledger_account_id from bank_accounts where id = $1 limit 1",
-    )
-    .bind(text(txn, "bankAccountId"))
-    .fetch_optional(db)
-    .await?;
+) -> Result<(Option<Option<String>>, Option<String>), DbErr> {
+    let bank: Option<(Option<String>, Option<String>)> = bank_accounts::Entity::find()
+        .select_only()
+        .columns([
+            bank_accounts::Column::Currency,
+            bank_accounts::Column::LedgerAccountId,
+        ])
+        .filter(bank_accounts::Column::Id.eq(text(txn, "bankAccountId")))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     Ok(match bank {
         Some((currency, ledger)) => (Some(currency), ledger),
         None => (None, None),
@@ -844,41 +969,54 @@ async fn unlinked_payment_for(
     document_id: &str,
     paid: f64,
     ledger_account_id: Option<&str>,
-) -> Result<Option<String>, sqlx::Error> {
+) -> Result<Option<String>, DbErr> {
     let Some(ledger_account_id) = ledger_account_id else {
         return Ok(None);
     };
-    let candidates: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        crate::books_row!(payments),
-        " from payments t where t.entity_id = $1 and t.bank_account_id = $4 \
-         and t.deleted_at is null \
-         and t.bank_transaction_id is null and t.deposit_id is null and t.type = $2 \
-         and (case when $2 = 'received' then t.invoice_id else t.bill_id end) = $3 \
-         and (t.check_status is null or t.check_status <> 'voided') \
-         order by t.date, t.created_at"
-    ))
-    .bind(text(txn, "entityId"))
-    .bind(if invoice { "received" } else { "sent" })
-    .bind(document_id)
-    .bind(text(txn, "bankAccountId"))
-    .fetch_all(db)
+    // `(case when type = 'received' then invoice_id else bill_id end) = $3`
+    let document = if invoice {
+        payments::Column::InvoiceId.eq(document_id)
+    } else {
+        payments::Column::BillId.eq(document_id)
+    };
+    let candidates = rows(
+        db,
+        payments::Entity::find()
+            .filter(
+                Condition::all()
+                    .add(payments::Column::EntityId.eq(text(txn, "entityId")))
+                    .add(payments::Column::BankAccountId.eq(text(txn, "bankAccountId")))
+                    .add(payments::Column::DeletedAt.is_null())
+                    .add(payments::Column::BankTransactionId.is_null())
+                    .add(payments::Column::DepositId.is_null())
+                    .add(payments::Column::Type.eq(if invoice { "received" } else { "sent" }))
+                    .add(document)
+                    .add(
+                        Condition::any()
+                            .add(payments::Column::CheckStatus.is_null())
+                            .add(payments::Column::CheckStatus.ne("voided")),
+                    ),
+            )
+            .order_by_asc(payments::Column::Date)
+            .order_by_asc(payments::Column::CreatedAt),
+    )
     .await?;
-    for payment in candidates.into_iter().map(|row| PAYMENTS.js(row)) {
+    for payment in candidates {
         if (payment_net_amount(&payment) - paid).abs() >= 0.005 {
             continue;
         }
         let Some(entry_id) = text(&payment, "journalEntryId") else {
             continue;
         };
-        let bank_line: Option<String> = sqlx::query_scalar(
-            "select id from journal_lines where journal_entry_id = $1 and account_id = $2 \
-             and deleted_at is null limit 1",
-        )
-        .bind(entry_id)
-        .bind(ledger_account_id)
-        .fetch_optional(db)
-        .await?;
+        let bank_line: Option<String> = journal_lines::Entity::find()
+            .select_only()
+            .column(journal_lines::Column::Id)
+            .filter(journal_lines::Column::JournalEntryId.eq(entry_id))
+            .filter(journal_lines::Column::AccountId.eq(ledger_account_id))
+            .filter(journal_lines::Column::DeletedAt.is_null())
+            .into_tuple()
+            .one(&orm(db))
+            .await?;
         if bank_line.is_some() {
             return Ok(text(&payment, "id").map(str::to_owned));
         }
@@ -909,18 +1047,7 @@ pub async fn reconcile_to_document(
     if !invoice && !(amount < 0.0) {
         return Err(posting("Only money going out can be matched to a bill"));
     }
-    let doc: Option<DocumentRow> = if invoice {
-        sqlx::query_as(
-            "select id, entity_id, contact_id, balance_due::text from invoices where id = $1 and deleted_at is null limit 1",
-        )
-    } else {
-        sqlx::query_as(
-            "select id, entity_id, contact_id, balance_due::text from bills where id = $1 and deleted_at is null limit 1",
-        )
-    }
-    .bind(document_id)
-    .fetch_optional(db)
-    .await?;
+    let doc = document_row(db, invoice, document_id).await?;
     let Some((doc_id, doc_entity, contact_id, balance_due)) = doc else {
         return Err(posting(if invoice {
             "Invoice not found"
@@ -1004,6 +1131,7 @@ pub async fn reconcile_to_document(
 /// `reconcileBankTransactionToPayment`: tie a line to a payment recorded
 /// before it arrived; only links (a printed check becomes cleared).
 #[allow(clippy::neg_cmp_op_on_partial_ord)]
+#[allow(clippy::too_many_lines)]
 pub async fn reconcile_to_payment(
     db: &PgPool,
     txn: &Value,
@@ -1012,15 +1140,13 @@ pub async fn reconcile_to_payment(
     if text(txn, "status") != Some("unreconciled") {
         return Err(posting("Transaction is already reconciled or excluded"));
     }
-    let payment: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        crate::books_row!(payments),
-        " from payments t where t.id = $1 and t.deleted_at is null limit 1"
-    ))
-    .bind(payment_id)
-    .fetch_optional(db)
+    let payment = row(
+        db,
+        payments::Entity::find_by_id(payment_id.to_owned())
+            .filter(payments::Column::DeletedAt.is_null()),
+    )
     .await?;
-    let Some(payment) = payment.map(|row| PAYMENTS.js(row)) else {
+    let Some(payment) = payment else {
         return Err(posting("Payment not found"));
     };
     if text(&payment, "entityId") != text(txn, "entityId") {
@@ -1069,37 +1195,46 @@ pub async fn reconcile_to_payment(
             )
         }));
     }
-    let stamp = now();
+    let (_, stamp) = now_both();
     let clears_check = text(&payment, "paymentMethod") == Some("check")
         && text(&payment, "checkStatus") == Some("printed");
     let mut tx = db.begin().await?;
-    sqlx::query(
-        "update bank_transactions set status = 'reconciled', reconciliation_type = $2, \
-         reconciled_payment_id = $3, reconciled_invoice_id = $4, reconciled_bill_id = $5, \
-         journal_entry_id = $6, contact_id = $7, updated_at = $8::timestamp \
-         where id = $1 and status = 'unreconciled'",
-    )
-    .bind(text(txn, "id"))
-    .bind(PAYMENT_LINK)
-    .bind(text(&payment, "id"))
-    .bind(text(&payment, "invoiceId"))
-    .bind(text(&payment, "billId"))
-    .bind(text(&payment, "journalEntryId"))
-    .bind(text(&payment, "contactId"))
-    .bind(&stamp)
-    .execute(&mut *tx)
-    .await?;
-    sqlx::query(
-        "update payments set bank_transaction_id = $2, \
-         check_status = case when $3 then 'cleared' else check_status end, updated_at = $4::timestamp \
-         where id = $1 and bank_transaction_id is null",
-    )
-    .bind(text(&payment, "id"))
-    .bind(text(txn, "id"))
-    .bind(clears_check)
-    .bind(&stamp)
-    .execute(&mut *tx)
-    .await?;
+    {
+        use bank_transactions::Column as Line;
+        let conn = OrmConn::new(&mut tx);
+        bank_transactions::Entity::update_many()
+            .col_expr(Line::Status, Expr::val("reconciled"))
+            .col_expr(Line::ReconciliationType, Expr::val(PAYMENT_LINK))
+            .col_expr(Line::ReconciledPaymentId, Expr::val(text(&payment, "id")))
+            .col_expr(
+                Line::ReconciledInvoiceId,
+                Expr::val(text(&payment, "invoiceId")),
+            )
+            .col_expr(Line::ReconciledBillId, Expr::val(text(&payment, "billId")))
+            .col_expr(
+                Line::JournalEntryId,
+                Expr::val(text(&payment, "journalEntryId")),
+            )
+            .col_expr(Line::ContactId, Expr::val(text(&payment, "contactId")))
+            .col_expr(Line::UpdatedAt, Expr::val(stamp))
+            .filter(Line::Id.eq(text(txn, "id")))
+            .filter(Line::Status.eq("unreconciled"))
+            .exec(&conn)
+            .await?;
+        let mut linked = payments::Entity::update_many().col_expr(
+            payments::Column::BankTransactionId,
+            Expr::val(text(txn, "id")),
+        );
+        if clears_check {
+            linked = linked.col_expr(payments::Column::CheckStatus, Expr::val("cleared"));
+        }
+        linked
+            .col_expr(payments::Column::UpdatedAt, Expr::val(stamp))
+            .filter(payments::Column::Id.eq(text(&payment, "id")))
+            .filter(payments::Column::BankTransactionId.is_null())
+            .exec(&conn)
+            .await?;
+    }
     tx.commit().await?;
     Ok(Matched {
         id: text(&payment, "id").unwrap_or_default().to_owned(),
@@ -1122,15 +1257,13 @@ pub async fn reconcile_to_deposit(
     if !(amount > 0.0) {
         return Err(posting("Only money coming in can be matched to a deposit"));
     }
-    let deposit: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        crate::books_row!(bank_deposits),
-        " from bank_deposits t where t.id = $1 and t.deleted_at is null limit 1"
-    ))
-    .bind(deposit_id)
-    .fetch_optional(db)
+    let deposit = row(
+        db,
+        bank_deposits::Entity::find_by_id(deposit_id.to_owned())
+            .filter(bank_deposits::Column::DeletedAt.is_null()),
+    )
     .await?;
-    let Some(deposit) = deposit.map(|row| BANK_DEPOSITS.js(row)) else {
+    let Some(deposit) = deposit else {
         return Err(posting("Deposit not found"));
     };
     if text(&deposit, "entityId") != text(txn, "entityId") {
@@ -1157,28 +1290,35 @@ pub async fn reconcile_to_deposit(
             to_fixed(amount, 2)
         )));
     }
-    let stamp = now();
+    let (_, stamp) = now_both();
     let mut tx = db.begin().await?;
-    sqlx::query(
-        "update bank_transactions set status = 'reconciled', reconciliation_type = $2, deposit_id = $3, \
-         journal_entry_id = $4, updated_at = $5::timestamp where id = $1 and status = 'unreconciled'",
-    )
-    .bind(text(txn, "id"))
-    .bind(DEPOSIT_LINK)
-    .bind(text(&deposit, "id"))
-    .bind(text(&deposit, "journalEntryId"))
-    .bind(&stamp)
-    .execute(&mut *tx)
-    .await?;
-    sqlx::query(
-        "update bank_deposits set bank_transaction_id = $2, updated_at = $3::timestamp \
-         where id = $1 and bank_transaction_id is null",
-    )
-    .bind(text(&deposit, "id"))
-    .bind(text(txn, "id"))
-    .bind(&stamp)
-    .execute(&mut *tx)
-    .await?;
+    {
+        use bank_transactions::Column as Line;
+        let conn = OrmConn::new(&mut tx);
+        bank_transactions::Entity::update_many()
+            .col_expr(Line::Status, Expr::val("reconciled"))
+            .col_expr(Line::ReconciliationType, Expr::val(DEPOSIT_LINK))
+            .col_expr(Line::DepositId, Expr::val(text(&deposit, "id")))
+            .col_expr(
+                Line::JournalEntryId,
+                Expr::val(text(&deposit, "journalEntryId")),
+            )
+            .col_expr(Line::UpdatedAt, Expr::val(stamp))
+            .filter(Line::Id.eq(text(txn, "id")))
+            .filter(Line::Status.eq("unreconciled"))
+            .exec(&conn)
+            .await?;
+        bank_deposits::Entity::update_many()
+            .col_expr(
+                bank_deposits::Column::BankTransactionId,
+                Expr::val(text(txn, "id")),
+            )
+            .col_expr(bank_deposits::Column::UpdatedAt, Expr::val(stamp))
+            .filter(bank_deposits::Column::Id.eq(text(&deposit, "id")))
+            .filter(bank_deposits::Column::BankTransactionId.is_null())
+            .exec(&conn)
+            .await?;
+    }
     tx.commit().await?;
     Ok(Matched {
         id: text(&deposit, "id").unwrap_or_default().to_owned(),
@@ -1215,7 +1355,7 @@ pub async fn unreconcile(
     if text(txn, "status") == Some("unreconciled") {
         return Err(posting("Transaction is not reconciled"));
     }
-    let stamp = now();
+    let (stamp, at) = now_both();
     let id = text(txn, "id").unwrap_or_default().to_owned();
     let reset = reset_values(&stamp);
     let kind = text(txn, "reconciliationType");
@@ -1224,28 +1364,40 @@ pub async fn unreconcile(
     if kind == Some(PAYMENT_LINK)
         && let Some(payment_id) = filled("reconciledPaymentId")
     {
-        let payment: Option<(String, Option<String>, Option<String>)> = sqlx::query_as(
-            "select id, payment_method, check_status from payments where id = $1 limit 1",
-        )
-        .bind(payment_id)
-        .fetch_optional(db)
-        .await?;
+        let payment: Option<(String, Option<String>, Option<String>)> = payments::Entity::find()
+            .select_only()
+            .columns([
+                payments::Column::Id,
+                payments::Column::PaymentMethod,
+                payments::Column::CheckStatus,
+            ])
+            .filter(payments::Column::Id.eq(payment_id))
+            .into_tuple()
+            .one(&orm(db))
+            .await?;
         let mut tx = db.begin().await?;
-        BANK_TRANSACTIONS
-            .patch_raw(&mut *tx, &id, BANK_TRANSACTIONS.values(&reset), false)
-            .await?;
-        if let Some((payment, method, status)) = payment {
-            let unclear =
-                method.as_deref() == Some("check") && status.as_deref() == Some("cleared");
-            sqlx::query(
-                "update payments set bank_transaction_id = null, \
-                 check_status = case when $2 then 'printed' else check_status end, updated_at = $3::timestamp where id = $1",
-            )
-            .bind(&payment)
-            .bind(unclear)
-            .bind(&stamp)
-            .execute(&mut *tx)
-            .await?;
+        {
+            let conn = OrmConn::new(&mut tx);
+            BANK_TRANSACTIONS
+                .patch_raw_on(&conn, &id, BANK_TRANSACTIONS.values(&reset), false)
+                .await?;
+            if let Some((payment, method, status)) = payment {
+                let unclear =
+                    method.as_deref() == Some("check") && status.as_deref() == Some("cleared");
+                let mut unlinked = payments::Entity::update_many().col_expr(
+                    payments::Column::BankTransactionId,
+                    Expr::val(Option::<String>::None),
+                );
+                if unclear {
+                    unlinked =
+                        unlinked.col_expr(payments::Column::CheckStatus, Expr::val("printed"));
+                }
+                unlinked
+                    .col_expr(payments::Column::UpdatedAt, Expr::val(at))
+                    .filter(payments::Column::Id.eq(payment.as_str()))
+                    .exec(&conn)
+                    .await?;
+            }
         }
         tx.commit().await?;
         return Ok(());
@@ -1254,14 +1406,21 @@ pub async fn unreconcile(
         && let Some(deposit_id) = filled("depositId")
     {
         let mut tx = db.begin().await?;
-        BANK_TRANSACTIONS
-            .patch_raw(&mut *tx, &id, BANK_TRANSACTIONS.values(&reset), false)
-            .await?;
-        sqlx::query("update bank_deposits set bank_transaction_id = null, updated_at = $2::timestamp where id = $1")
-            .bind(deposit_id)
-            .bind(&stamp)
-            .execute(&mut *tx)
-            .await?;
+        {
+            let conn = OrmConn::new(&mut tx);
+            BANK_TRANSACTIONS
+                .patch_raw_on(&conn, &id, BANK_TRANSACTIONS.values(&reset), false)
+                .await?;
+            bank_deposits::Entity::update_many()
+                .col_expr(
+                    bank_deposits::Column::BankTransactionId,
+                    Expr::val(Option::<String>::None),
+                )
+                .col_expr(bank_deposits::Column::UpdatedAt, Expr::val(at))
+                .filter(bank_deposits::Column::Id.eq(deposit_id))
+                .exec(&conn)
+                .await?;
+        }
         tx.commit().await?;
         return Ok(());
     }
@@ -1420,17 +1579,16 @@ pub async fn auto_reconcile_batch(
     http: Option<&OutboundHttp>,
     bank_account_id: &str,
     user_id: Option<&str>,
-) -> Result<(usize, Vec<AutoResult>), sqlx::Error> {
-    let lines: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        crate::books_row!(bank_transactions),
-        " from bank_transactions t where t.bank_account_id = $1 and t.status = 'unreconciled' \
-         and t.deleted_at is null limit 200"
-    ))
-    .bind(bank_account_id)
-    .fetch_all(db)
+) -> Result<(usize, Vec<AutoResult>), DbErr> {
+    let lines = rows(
+        db,
+        bank_transactions::Entity::find()
+            .filter(bank_transactions::Column::BankAccountId.eq(bank_account_id))
+            .filter(bank_transactions::Column::Status.eq("unreconciled"))
+            .filter(bank_transactions::Column::DeletedAt.is_null())
+            .limit(200),
+    )
     .await?;
-    let lines = BANK_TRANSACTIONS.js_rows(lines);
     let mut results = Vec::new();
     let mut count = 0;
     let Some(first) = lines.first() else {

@@ -5,8 +5,10 @@
 
 use std::collections::HashMap;
 
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Value, json};
-use weldsuite_db::AccountPictures;
+use weldsuite_db::{AccountPictures, orm};
+use weldsuite_schema::tenant::workspace_members;
 
 use crate::common::{Ctx, FormsResult};
 
@@ -32,13 +34,18 @@ pub(crate) async fn member_refs(
     }
     let mut refs = HashMap::new();
     if !ids.is_empty() {
-        let rows: Vec<MemberRow> = sqlx::query_as(
-            "select user_id, name, email from workspace_members \
-             where user_id = any($1) and deleted_at is null",
-        )
-        .bind(&ids)
-        .fetch_all(&ctx.db)
-        .await?;
+        let rows: Vec<MemberRow> = workspace_members::Entity::find()
+            .select_only()
+            .columns([
+                workspace_members::Column::UserId,
+                workspace_members::Column::Name,
+                workspace_members::Column::Email,
+            ])
+            .filter(workspace_members::Column::UserId.is_in(ids.iter().map(String::as_str)))
+            .filter(workspace_members::Column::DeletedAt.is_null())
+            .into_tuple()
+            .all(&orm(&ctx.db))
+            .await?;
         let pictures = AccountPictures::load(ctx.master.as_ref(), &ids).await;
         for (user_id, name, email) in rows {
             // `row.name || row.email || null`

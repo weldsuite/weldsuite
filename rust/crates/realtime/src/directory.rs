@@ -6,8 +6,13 @@
 use std::fmt;
 use std::sync::Arc;
 
-use weldsuite_db::{WorkspaceError, Workspaces};
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
+use weldsuite_db::{WorkspaceError, Workspaces, orm};
 use weldsuite_ports::BoxFuture;
+use weldsuite_schema::tenant::{
+    chat_channel_members, chat_channels, desk_conversations, helpdesk_conversations,
+    workspace_members,
+};
 
 /// A signed-in member of a workspace.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -108,7 +113,7 @@ impl DbDirectory {
     }
 }
 
-fn failed(error: &sqlx::Error) -> DirectoryError {
+fn failed(error: &DbErr) -> DirectoryError {
     DirectoryError::Failed(error.to_string())
 }
 
@@ -120,15 +125,18 @@ impl Directory for DbDirectory {
     ) -> BoxFuture<'a, Result<Option<Member>, DirectoryError>> {
         Box::pin(async move {
             let tenant = self.tenant(org).await?;
-            let row: Option<(String, Option<String>)> = sqlx::query_as(
-                "select role, name from workspace_members
-                 where user_id = $1 and deleted_at is null and status = 'ACTIVE'
-                 limit 1",
-            )
-            .bind(user)
-            .fetch_optional(&tenant.db)
-            .await
-            .map_err(|error| failed(&error))?;
+            let row: Option<(String, Option<String>)> = workspace_members::Entity::find()
+                .select_only()
+                .column(workspace_members::Column::Role)
+                .column(workspace_members::Column::Name)
+                .filter(workspace_members::Column::UserId.eq(user))
+                .filter(workspace_members::Column::DeletedAt.is_null())
+                .filter(workspace_members::Column::Status.eq("ACTIVE"))
+                .limit(1)
+                .into_tuple()
+                .one(&orm(&tenant.db))
+                .await
+                .map_err(|error| failed(&error))?;
             Ok(row.map(|(role, name)| Member {
                 org: org.to_owned(),
                 hub: tenant
@@ -150,27 +158,33 @@ impl Directory for DbDirectory {
     ) -> BoxFuture<'a, Result<ChatAccess, DirectoryError>> {
         Box::pin(async move {
             let tenant = self.tenant(&member.org).await?;
-            let kind: Option<Option<String>> = sqlx::query_scalar(
-                "select type from chat_channels where id = $1 and deleted_at is null limit 1",
-            )
-            .bind(channel)
-            .fetch_optional(&tenant.db)
-            .await
-            .map_err(|error| failed(&error))?;
+            let db = orm(&tenant.db);
+            let kind: Option<Option<String>> = chat_channels::Entity::find()
+                .select_only()
+                .column(chat_channels::Column::Type)
+                .filter(chat_channels::Column::Id.eq(channel))
+                .filter(chat_channels::Column::DeletedAt.is_null())
+                .limit(1)
+                .into_tuple()
+                .one(&db)
+                .await
+                .map_err(|error| failed(&error))?;
             let Some(kind) = kind else {
                 return Ok(ChatAccess::ChannelNotFound);
             };
             if kind.as_deref() == Some("public") {
                 return Ok(ChatAccess::Allowed);
             }
-            let membership: Option<String> = sqlx::query_scalar(
-                "select id from chat_channel_members where channel_id = $1 and user_id = $2 limit 1",
-            )
-            .bind(channel)
-            .bind(user)
-            .fetch_optional(&tenant.db)
-            .await
-            .map_err(|error| failed(&error))?;
+            let membership: Option<String> = chat_channel_members::Entity::find()
+                .select_only()
+                .column(chat_channel_members::Column::Id)
+                .filter(chat_channel_members::Column::ChannelId.eq(channel))
+                .filter(chat_channel_members::Column::UserId.eq(user))
+                .limit(1)
+                .into_tuple()
+                .one(&db)
+                .await
+                .map_err(|error| failed(&error))?;
             Ok(if membership.is_some() {
                 ChatAccess::Allowed
             } else {
@@ -186,20 +200,29 @@ impl Directory for DbDirectory {
     ) -> BoxFuture<'a, Result<bool, DirectoryError>> {
         Box::pin(async move {
             let tenant = self.tenant(&member.org).await?;
-            for sql in [
-                "select id from desk_conversations where id = $1 limit 1",
-                "select id from helpdesk_conversations where id = $1 limit 1",
-            ] {
-                let found: Option<String> = sqlx::query_scalar(sql)
-                    .bind(conversation)
-                    .fetch_optional(&tenant.db)
-                    .await
-                    .map_err(|error| failed(&error))?;
-                if found.is_some() {
-                    return Ok(true);
-                }
+            let db = orm(&tenant.db);
+            let desk: Option<String> = desk_conversations::Entity::find()
+                .select_only()
+                .column(desk_conversations::Column::Id)
+                .filter(desk_conversations::Column::Id.eq(conversation))
+                .limit(1)
+                .into_tuple()
+                .one(&db)
+                .await
+                .map_err(|error| failed(&error))?;
+            if desk.is_some() {
+                return Ok(true);
             }
-            Ok(false)
+            let helpdesk: Option<String> = helpdesk_conversations::Entity::find()
+                .select_only()
+                .column(helpdesk_conversations::Column::Id)
+                .filter(helpdesk_conversations::Column::Id.eq(conversation))
+                .limit(1)
+                .into_tuple()
+                .one(&db)
+                .await
+                .map_err(|error| failed(&error))?;
+            Ok(helpdesk.is_some())
         })
     }
 

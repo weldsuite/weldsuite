@@ -13,15 +13,25 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
+use sea_orm::ActiveValue::Set;
+use sea_orm::sea_query::{Expr, Func, OnConflict};
+use sea_orm::{ColumnTrait, Condition, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Value, json};
-use weldsuite_db::PgPool;
+use time::OffsetDateTime;
+use weldsuite_db::{PgPool, orm, utc_now, utc_timestamp};
 use weldsuite_kit::generate_id;
 use weldsuite_ports::{
     BoxFuture, Identity, IdentityError, IdentityResult, Invitation, ListPage, Listing, Membership,
     NewInvitation, NewMembership, Organization, OrganizationChanges, User,
 };
+use weldsuite_schema::master::enums::MembershipStatus;
+use weldsuite_schema::master::{
+    billing_accounts, partners, plans, user_workspaces, users, workspace_licences as licences,
+    workspaces,
+};
+use weldsuite_schema::tenant::workspace_members as members;
 
-use crate::{Caller, CoreTeamState, now};
+use crate::{Caller, CoreTeamState};
 
 /// `SeatLimit`: `limit` null is unlimited.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -207,15 +217,25 @@ pub(crate) async fn workspace_seat_limit(
     caller: &Caller,
     state: &CoreTeamState,
     org_ref: &str,
-) -> Result<Option<SeatLimit>, sqlx::Error> {
-    let master = caller.master(state);
-    let workspace: Option<WorkspaceRow> = sqlx::query_as(
-        "select id, plan_id, purchased_seats, billing_mode, partner_id from workspaces
-         where id = $1 or clerk_org_id = $1",
-    )
-    .bind(org_ref)
-    .fetch_optional(&master)
-    .await?;
+) -> Result<Option<SeatLimit>, DbErr> {
+    let master = orm(&caller.master(state));
+    let workspace: Option<WorkspaceRow> = workspaces::Entity::find()
+        .select_only()
+        .columns([
+            workspaces::Column::Id,
+            workspaces::Column::PlanId,
+            workspaces::Column::PurchasedSeats,
+            workspaces::Column::BillingMode,
+            workspaces::Column::PartnerId,
+        ])
+        .filter(
+            Condition::any()
+                .add(workspaces::Column::Id.eq(org_ref))
+                .add(workspaces::Column::ClerkOrgId.eq(org_ref)),
+        )
+        .into_tuple()
+        .one(&master)
+        .await?;
     let Some((workspace_id, plan_id, purchased_seats, billing_mode, partner_id)) = workspace else {
         return Ok(None);
     };
@@ -224,26 +244,36 @@ pub(crate) async fn workspace_seat_limit(
     let mut plan_name = "Free".to_owned();
     let mut managed_by = None;
     if billing_mode == "partner" {
-        let licence: Option<Option<i32>> =
-            sqlx::query_scalar("select max_seats from workspace_licences where workspace_id = $1")
-                .bind(&workspace_id)
-                .fetch_optional(&master)
-                .await?;
+        let licence: Option<Option<i32>> = licences::Entity::find()
+            .select_only()
+            .column(licences::Column::MaxSeats)
+            .filter(licences::Column::WorkspaceId.eq(&workspace_id))
+            .into_tuple()
+            .one(&master)
+            .await?;
         limit = licence.flatten().map(i64::from);
         "Licence".clone_into(&mut plan_name);
         if let Some(partner_id) = partner_id.filter(|id| !id.is_empty()) {
-            managed_by = sqlx::query_scalar("select name from partners where id = $1")
-                .bind(partner_id)
-                .fetch_optional(&master)
+            managed_by = partners::Entity::find_by_id(partner_id)
+                .select_only()
+                .column(partners::Column::Name)
+                .into_tuple()
+                .one(&master)
                 .await?;
         }
     } else if let Some(plan_id) = plan_id.filter(|id| !id.is_empty()) {
-        let plan: Option<PlanRow> = sqlx::query_as(
-            "select name, max_users, price_per_user::text, included_users from plans where id = $1",
-        )
-        .bind(plan_id)
-        .fetch_optional(&master)
-        .await?;
+        let plan: Option<PlanRow> = plans::Entity::find_by_id(plan_id)
+            .select_only()
+            .column(plans::Column::Name)
+            .column(plans::Column::MaxUsers)
+            .column_as(
+                sea_orm::ExprTrait::cast_as(Expr::col(plans::Column::PricePerUser), "text"),
+                "price_per_user",
+            )
+            .column(plans::Column::IncludedUsers)
+            .into_tuple()
+            .one(&master)
+            .await?;
         if let Some((name, max_users, price_per_user, included_users)) = plan {
             plan_name = name;
             // Without billing on this install (an EU or self-hosted install
@@ -287,14 +317,19 @@ pub(crate) async fn workspace_seat_limit(
 
 /// Whether the workspace's plan is billed through Mollie: a billing account
 /// with a charge to come (`weldsuite-core-billing`).
-async fn billed_through_mollie(master: &PgPool, workspace_id: &str) -> Result<bool, sqlx::Error> {
-    sqlx::query_scalar(
-        "select exists (select 1 from billing_accounts
-                        where workspace_id = $1 and next_charge_at is not null)",
-    )
-    .bind(workspace_id)
-    .fetch_one(master)
-    .await
+async fn billed_through_mollie(
+    master: &sea_orm::DatabaseConnection,
+    workspace_id: &str,
+) -> Result<bool, DbErr> {
+    let account: Option<String> = billing_accounts::Entity::find()
+        .select_only()
+        .column(billing_accounts::Column::Id)
+        .filter(billing_accounts::Column::WorkspaceId.eq(workspace_id))
+        .filter(billing_accounts::Column::NextChargeAt.is_not_null())
+        .into_tuple()
+        .one(master)
+        .await?;
+    Ok(account.is_some())
 }
 
 /// A `user_workspaces` row, as the member count and its re-sync read it.
@@ -302,7 +337,7 @@ async fn billed_through_mollie(master: &PgPool, workspace_id: &str) -> Result<bo
 struct SeatRow {
     id: String,
     user_id: String,
-    status: String,
+    status: MembershipStatus,
 }
 
 /// `getAccurateMemberCount`: the provider's count without members WeldSuite
@@ -313,14 +348,19 @@ pub(crate) async fn accurate_member_count(
     idp: &dyn Identity,
     org: &str,
     workspace_id: &str,
-) -> Result<i64, sqlx::Error> {
+) -> Result<i64, DbErr> {
     let master = caller.master(state);
-    let rows: Vec<(String, String, String)> = sqlx::query_as(
-        "select id, user_id, status::text from user_workspaces where workspace_id = $1",
-    )
-    .bind(workspace_id)
-    .fetch_all(&master)
-    .await?;
+    let rows: Vec<(String, String, MembershipStatus)> = user_workspaces::Entity::find()
+        .select_only()
+        .columns([
+            user_workspaces::Column::Id,
+            user_workspaces::Column::UserId,
+            user_workspaces::Column::Status,
+        ])
+        .filter(user_workspaces::Column::WorkspaceId.eq(workspace_id))
+        .into_tuple()
+        .all(&orm(&master))
+        .await?;
     let rows: Vec<SeatRow> = rows
         .into_iter()
         .map(|(id, user_id, status)| SeatRow {
@@ -331,7 +371,12 @@ pub(crate) async fn accurate_member_count(
         .collect();
     let db_count = count_i64(
         rows.iter()
-            .filter(|r| r.status == "ACTIVE" || r.status == "PENDING")
+            .filter(|r| {
+                matches!(
+                    r.status,
+                    MembershipStatus::ACTIVE | MembershipStatus::PENDING
+                )
+            })
             .count(),
     );
 
@@ -367,6 +412,10 @@ fn count_i64(n: usize) -> i64 {
     i64::try_from(n).unwrap_or(i64::MAX)
 }
 
+/// A member row as the membership check reads it: `user_id`, `email`,
+/// `deleted_at`.
+type MemberRef = (String, Option<String>, Option<OffsetDateTime>);
+
 /// `dropRemovedMemberships`: memberships of people with a removed member row
 /// and no live one (by user id or email) are not seats; they are removed
 /// from the provider, best effort. When the tenant DB can't be read, every
@@ -386,14 +435,25 @@ async fn drop_removed_memberships(
         .map(|m| m.user.identifier.to_lowercase())
         .filter(|email| !email.is_empty())
         .collect();
-    let refs: Result<Vec<(String, Option<String>, bool)>, sqlx::Error> = sqlx::query_as(
-        "select user_id, email, deleted_at is not null from workspace_members
-         where user_id = any($1) or (cardinality($2::text[]) > 0 and lower(email) = any($2))",
-    )
-    .bind(&user_ids)
-    .bind(&emails)
-    .fetch_all(&caller.db)
-    .await;
+    // `user_id = any(ids) or (emails sent and lower(email) = any(emails))`.
+    let mut matching = Condition::any().add(members::Column::UserId.is_in(user_ids));
+    if !emails.is_empty() {
+        matching = matching.add(sea_orm::ExprTrait::is_in(
+            Expr::from(Func::lower(Expr::col(members::Column::Email))),
+            emails,
+        ));
+    }
+    let refs: Result<Vec<MemberRef>, DbErr> = members::Entity::find()
+        .select_only()
+        .columns([
+            members::Column::UserId,
+            members::Column::Email,
+            members::Column::DeletedAt,
+        ])
+        .filter(matching)
+        .into_tuple()
+        .all(&orm(&caller.db))
+        .await;
     let refs = match refs {
         Ok(refs) => refs,
         Err(error) => {
@@ -404,8 +464,8 @@ async fn drop_removed_memberships(
     let mut live_users = HashSet::new();
     let mut live_emails = HashSet::new();
     let mut removed_users = HashSet::new();
-    for (user_id, email, deleted) in refs {
-        if deleted {
+    for (user_id, email, deleted_at) in refs {
+        if deleted_at.is_some() {
             removed_users.insert(user_id);
         } else {
             live_users.insert(user_id);
@@ -445,7 +505,8 @@ async fn sync_user_workspaces(
     workspace_id: &str,
     rows: &[SeatRow],
     memberships: &[Membership],
-) -> Result<(), sqlx::Error> {
+) -> Result<(), DbErr> {
+    let master = orm(master);
     let existing: HashMap<&str, &SeatRow> = rows.iter().map(|r| (r.user_id.as_str(), r)).collect();
     let mut provider_users = HashSet::new();
     for membership in memberships {
@@ -453,57 +514,62 @@ async fn sync_user_workspaces(
         provider_users.insert(user_id);
         match existing.get(user_id) {
             None => {
-                sqlx::query(
-                    "insert into users (id, email, first_name, last_name) values ($1, $2, $3, $4)
-                     on conflict do nothing",
-                )
-                .bind(user_id)
-                .bind(&membership.user.identifier)
-                .bind(&membership.user.first_name)
-                .bind(&membership.user.last_name)
-                .execute(master)
+                users::Entity::insert(users::ActiveModel {
+                    id: Set(user_id.to_owned()),
+                    email: Set(membership.user.identifier.clone()),
+                    first_name: Set(membership.user.first_name.clone()),
+                    last_name: Set(membership.user.last_name.clone()),
+                    ..Default::default()
+                })
+                .on_conflict(OnConflict::new().do_nothing().to_owned())
+                .exec_without_returning(&master)
                 .await?;
                 // `new Date(created_at)`; without one Drizzle throws here.
                 let Some(joined) = membership.created_at.and_then(|ms| {
-                    time::OffsetDateTime::from_unix_timestamp_nanos(i128::from(ms) * 1_000_000).ok()
+                    OffsetDateTime::from_unix_timestamp_nanos(i128::from(ms) * 1_000_000).ok()
                 }) else {
                     return Ok(());
                 };
-                sqlx::query(
-                    "insert into user_workspaces
-                         (id, user_id, workspace_id, clerk_membership_id, role, status, joined_at)
-                     values ($1, $2, $3, $4, $5, 'ACTIVE', $6::timestamp)
-                     on conflict do nothing",
-                )
-                .bind(generate_id("uw"))
-                .bind(user_id)
-                .bind(workspace_id)
-                .bind(&membership.id)
-                .bind(&membership.role)
-                .bind(weldsuite_events::iso_timestamp(joined))
-                .execute(master)
+                user_workspaces::Entity::insert(user_workspaces::ActiveModel {
+                    id: Set(generate_id("uw")),
+                    user_id: Set(user_id.to_owned()),
+                    workspace_id: Set(workspace_id.to_owned()),
+                    clerk_membership_id: Set(Some(membership.id.clone())),
+                    role: Set(membership.role.clone()),
+                    status: Set(MembershipStatus::ACTIVE),
+                    joined_at: Set(Some(utc_timestamp(joined))),
+                    ..Default::default()
+                })
+                .on_conflict(OnConflict::new().do_nothing().to_owned())
+                .exec_without_returning(&master)
                 .await?;
             }
-            Some(row) if row.status != "ACTIVE" => {
-                sqlx::query(
-                    "update user_workspaces
-                     set status = 'ACTIVE', clerk_membership_id = $2, updated_at = $3::timestamp
-                     where id = $1",
-                )
-                .bind(&row.id)
-                .bind(&membership.id)
-                .bind(now())
-                .execute(master)
-                .await?;
+            Some(row) if row.status != MembershipStatus::ACTIVE => {
+                user_workspaces::Entity::update_many()
+                    .col_expr(
+                        user_workspaces::Column::Status,
+                        // The value as the `membership_status` enum.
+                        user_workspaces::Column::Status
+                            .save_as(Expr::value(MembershipStatus::ACTIVE)),
+                    )
+                    .col_expr(
+                        user_workspaces::Column::ClerkMembershipId,
+                        Expr::value(&membership.id),
+                    )
+                    .col_expr(user_workspaces::Column::UpdatedAt, Expr::value(utc_now()))
+                    .filter(user_workspaces::Column::Id.eq(&row.id))
+                    .exec(&master)
+                    .await?;
             }
             Some(_) => {}
         }
     }
     for row in rows {
-        if row.status == "ACTIVE" && !provider_users.contains(row.user_id.as_str()) {
-            sqlx::query("delete from user_workspaces where id = $1")
-                .bind(&row.id)
-                .execute(master)
+        if row.status == MembershipStatus::ACTIVE && !provider_users.contains(row.user_id.as_str())
+        {
+            user_workspaces::Entity::delete_many()
+                .filter(user_workspaces::Column::Id.eq(&row.id))
+                .exec(&master)
                 .await?;
         }
     }

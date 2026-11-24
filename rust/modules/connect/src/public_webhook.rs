@@ -16,10 +16,13 @@ use axum::extract::{Path, Request, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use hmac::{Hmac, KeyInit, Mac};
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 use serde_json::{Map, Value, json};
 use sha2::Sha256;
-use weldsuite_db::{PgPool, Tenant, js_row};
+use weldsuite_db::{PgPool, Tenant, orm, utc_now};
 use weldsuite_kit::ApiError;
+use weldsuite_schema::tenant::workflow_webhooks::{self, Column};
 
 use crate::executions::{StartRun, start_run};
 use crate::sync::resolve_owner;
@@ -72,21 +75,29 @@ fn source_ip(headers: &http::HeaderMap, trusted: usize) -> String {
 }
 
 async fn update_stats(db: &PgPool, webhook_id: &str, success: bool, source_ip: &str) {
-    let updated = sqlx::query(
-        "update workflow_webhooks set total_calls = coalesce(total_calls, 0) + 1,
-            successful_calls = case when $2 then coalesce(successful_calls, 0) + 1 else successful_calls end,
-            failed_calls = case when $2 then failed_calls else coalesce(failed_calls, 0) + 1 end,
-            last_called_at = $3::timestamp, last_call_status = $4, last_call_ip = $5,
-            updated_at = $3::timestamp
-         where id = $1",
-    )
-    .bind(webhook_id)
-    .bind(success)
-    .bind(now())
-    .bind(if success { "success" } else { "failed" })
-    .bind(source_ip)
-    .execute(db)
-    .await;
+    // `coalesce(column, 0) + 1`.
+    let plus_one = |column: Column| {
+        sea_orm::ExprTrait::add(Func::coalesce([Expr::col(column), Expr::val(0)]), 1)
+    };
+    let stamp = utc_now();
+    let counted = if success {
+        Column::SuccessfulCalls
+    } else {
+        Column::FailedCalls
+    };
+    let updated = workflow_webhooks::Entity::update_many()
+        .col_expr(Column::TotalCalls, plus_one(Column::TotalCalls))
+        .col_expr(counted, plus_one(counted))
+        .col_expr(Column::LastCalledAt, Expr::value(stamp))
+        .col_expr(
+            Column::LastCallStatus,
+            Expr::value(if success { "success" } else { "failed" }),
+        )
+        .col_expr(Column::LastCallIp, Expr::value(source_ip))
+        .col_expr(Column::UpdatedAt, Expr::value(stamp))
+        .filter(Column::Id.eq(webhook_id))
+        .exec(&orm(db))
+        .await;
     if let Err(error) = updated {
         tracing::error!(%error, "[WebhookReceiver] Failed to update stats");
     }
@@ -171,15 +182,13 @@ pub(crate) async fn receive(
         }
     };
 
-    let webhook: Option<Value> = match sqlx::query_scalar(
-        "select to_jsonb(t) from workflow_webhooks t
-         where t.id = $1 and t.is_enabled = true and t.deleted_at is null limit 1",
-    )
-    .bind(&webhook_id)
-    .fetch_optional(&db)
-    .await
-    {
-        Ok(row) => row.map(js_row),
+    let webhook = workflow_webhooks::Entity::find_by_id(webhook_id.clone())
+        .filter(Column::IsEnabled.eq(true))
+        .filter(Column::DeletedAt.is_null())
+        .one(&orm(&db))
+        .await;
+    let webhook: Option<Value> = match webhook {
+        Ok(row) => row.map(|row| serde_json::to_value(row).unwrap_or(Value::Null)),
         Err(error) => {
             tracing::error!(%error, "[WebhookReceiver] webhook lookup failed");
             return ApiError::internal().into_response();

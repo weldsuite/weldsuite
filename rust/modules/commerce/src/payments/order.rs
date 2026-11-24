@@ -13,14 +13,17 @@ use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use http::{HeaderMap, StatusCode};
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Value, json};
-use sqlx::PgPool;
 use weldsuite_catalogs::permission_keys::{ORDERS_READ, ORDERS_UPDATE};
 use weldsuite_commerce_domain::payments::books::{self, Actor};
 use weldsuite_commerce_domain::payments::service::{self, NewOrderPayment, NewRefund};
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::validation::{Presence, Text};
 use weldsuite_kit::{ApiError, Created, Data};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::orders;
 
 use super::settle::{Settle, settle_after_apply, settle_created, settle_refund};
 use super::{http, present_payment, present_refund, refuse};
@@ -46,11 +49,13 @@ where
 }
 
 async fn order_exists(db: &PgPool, id: &str) -> Result<(), Refusal> {
-    let found: Option<String> =
-        sqlx::query_scalar("select id from orders where id = $1 and deleted_at is null")
-            .bind(id)
-            .fetch_optional(db)
-            .await?;
+    let found: Option<String> = orders::Entity::find_by_id(id)
+        .select_only()
+        .column(orders::Column::Id)
+        .filter(orders::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     found
         .map(|_| ())
         .ok_or_else(|| Refusal::not_found("Order", id))
@@ -225,13 +230,26 @@ async fn invoice(
 ) -> Response {
     const FAILED: &str = "Failed to create the invoice";
     let result = async {
-        let row: Option<(String, String)> = sqlx::query_as(
-            "select coalesce(payment_status, 'pending'), coalesce(approval_status, 'not_required') \
-             from orders where id = $1 and deleted_at is null",
-        )
-        .bind(&id)
-        .fetch_optional(&caller.db)
-        .await?;
+        let or = |column: orders::Column, fallback: &str| {
+            Expr::from(Func::coalesce([
+                Expr::col((orders::Entity, column)),
+                Expr::val(fallback),
+            ]))
+        };
+        let row: Option<(String, String)> = orders::Entity::find_by_id(id.as_str())
+            .select_only()
+            .column_as(
+                or(orders::Column::PaymentStatus, "pending"),
+                "payment_status",
+            )
+            .column_as(
+                or(orders::Column::ApprovalStatus, "not_required"),
+                "approval_status",
+            )
+            .filter(orders::Column::DeletedAt.is_null())
+            .into_tuple()
+            .one(&orm(&caller.db))
+            .await?;
         let (status, approval) = row.ok_or_else(|| Refusal::not_found("Order", &id))?;
         // An order waiting for approval is held from invoicing (as from
         // WeldStash); a rejected one was cancelled.

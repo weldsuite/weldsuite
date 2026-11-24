@@ -10,9 +10,14 @@
 //! write-off stays gross ([`post_invoice_write_off`]). The split is read back
 //! from the tax ledger (`write_off` / `write_off_recovery` rows).
 
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Value, json};
-use sqlx::{PgConnection, PgPool};
+use sqlx::PgConnection;
+use weldsuite_db::{OrmConn, PgPool, orm, utc_now};
+use weldsuite_schema::tenant::{invoices, journal_entries, tax_lines};
 
+use crate::db_values::{decimal_of, to_json_rows};
 use crate::document_posting::{
     Meta, TaxArgs, ToBase, amount_of, base_converter, breakdown_to_tax_line, fallback, filled,
     label, load_entity, load_tax_rates, mark_uncollectible, number, owned, post_invoice_write_off,
@@ -26,7 +31,6 @@ use crate::posting::{
     EntityAccounts, PostError, PostJournalEntryInput, PostedEntry, PostingLine, PostingTaxLine,
     account_for_role, load_entity_accounts, post_journal_entry,
 };
-use crate::tables::TAX_LINES;
 
 /// Tax-ledger source types of a write-off and of the recoveries that take it back.
 const WRITE_OFF_SOURCES: [&str; 2] = ["write_off", "write_off_recovery"];
@@ -224,20 +228,15 @@ pub struct ReliefGroup {
 
 /// `outstandingRelief(db, invoice)`: write-off rows (negative) net of
 /// earlier recoveries, per rate, as positive amounts to give back.
-async fn outstanding_relief(db: &PgPool, invoice: &Value) -> Result<Vec<ReliefGroup>, sqlx::Error> {
-    let rows: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        crate::books_row!(tax_lines),
-        " from tax_lines t where t.entity_id = $1 and t.source_id = $2 and t.source_type = any($3)"
-    ))
-    .bind(text(invoice, "entityId"))
-    .bind(text(invoice, "id"))
-    .bind(&WRITE_OFF_SOURCES[..])
-    .fetch_all(db)
-    .await?;
+async fn outstanding_relief(db: &PgPool, invoice: &Value) -> Result<Vec<ReliefGroup>, DbErr> {
+    let rows = tax_lines::Entity::find()
+        .filter(tax_lines::Column::EntityId.eq(text(invoice, "entityId")))
+        .filter(tax_lines::Column::SourceId.eq(text(invoice, "id")))
+        .filter(tax_lines::Column::SourceType.is_in(WRITE_OFF_SOURCES))
+        .all(&orm(db))
+        .await?;
     let mut groups: Vec<(String, ReliefGroup)> = Vec::new();
-    for row in rows {
-        let row = TAX_LINES.js(row);
+    for row in to_json_rows(rows)? {
         let key = format!(
             "{}|{}|{}|{}",
             text(&row, "taxRateId").unwrap_or_default(),
@@ -466,7 +465,7 @@ pub async fn find_recovery_entries(
     db: &PgPool,
     payment_id: &str,
     invoice_ids: &[String],
-) -> Result<Vec<(String, String)>, sqlx::Error> {
+) -> Result<Vec<(String, String)>, DbErr> {
     if invoice_ids.is_empty() {
         return Ok(Vec::new());
     }
@@ -474,12 +473,17 @@ pub async fn find_recovery_entries(
         .iter()
         .map(|id| recovery_posting_key(id, payment_id))
         .collect();
-    let rows: Vec<(String, Option<String>, Option<String>)> = sqlx::query_as(
-        "select id, posting_key, status from journal_entries where posting_key = any($1)",
-    )
-    .bind(&keys)
-    .fetch_all(db)
-    .await?;
+    let rows: Vec<(String, Option<String>, Option<String>)> = journal_entries::Entity::find()
+        .select_only()
+        .columns([
+            journal_entries::Column::Id,
+            journal_entries::Column::PostingKey,
+            journal_entries::Column::Status,
+        ])
+        .filter(journal_entries::Column::PostingKey.is_in(keys))
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     let mut result: Vec<(String, String)> = Vec::new();
     for (entry_id, posting_key, status) in rows {
         if status.as_deref() != Some("posted") {
@@ -506,22 +510,36 @@ pub async fn settle_written_off(
     conn: &mut PgConnection,
     id: &str,
     delta: f64,
-) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "update invoices set \
-         amount_paid = (coalesce(amount_paid, '0')::numeric + $1::numeric), \
-         balance_due = 0, \
-         status = case when (coalesce(total, '0')::numeric - (coalesce(amount_paid, '0')::numeric + $1::numeric)) <= 0.005 \
-           then 'paid' else 'uncollectible' end, \
-         paid_at = case when (coalesce(total, '0')::numeric - (coalesce(amount_paid, '0')::numeric + $1::numeric)) <= 0.005 \
-           then now() else null end, \
-         updated_at = $2::timestamp where id = $3",
-    )
-    .bind(to_fixed(delta, 2))
-    .bind(now())
-    .bind(id)
-    .execute(conn)
-    .await?;
+) -> Result<(), DbErr> {
+    use invoices::Column;
+    use sea_orm::ExprTrait as _;
+    let delta = decimal_of(&to_fixed(delta, 2))?;
+    let half_cent = decimal_of("0.005")?;
+    let paid = || Func::coalesce([Expr::col(Column::AmountPaid), Expr::val(0)]).add(delta.clone());
+    let settled = || {
+        Func::coalesce([Expr::col(Column::Total), Expr::val(0)])
+            .sub(paid())
+            .lte(half_cent.clone())
+    };
+    invoices::Entity::update_many()
+        .col_expr(Column::AmountPaid, paid())
+        .col_expr(Column::BalanceDue, Expr::val(0))
+        .col_expr(
+            Column::Status,
+            Expr::case(settled(), "paid")
+                .finally("uncollectible")
+                .into(),
+        )
+        .col_expr(
+            Column::PaidAt,
+            Expr::case(settled(), Expr::current_timestamp())
+                .finally(Expr::null())
+                .into(),
+        )
+        .col_expr(Column::UpdatedAt, Expr::value(utc_now()))
+        .filter(Column::Id.eq(id))
+        .exec(&OrmConn::new(conn))
+        .await?;
     Ok(())
 }
 

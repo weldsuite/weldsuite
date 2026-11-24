@@ -28,9 +28,12 @@
 //! starts marks the workspace due when that connection is next due, as
 //! Global's connect-api upserts the index row.
 
-use serde_json::Value;
-use time::OffsetDateTime;
-use weldsuite_db::PgPool;
+use sea_orm::{ColumnTrait, Condition, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
+use serde_json::{Value, json};
+use time::{OffsetDateTime, PrimitiveDateTime};
+use weldsuite_db::{PgPool, orm};
+use weldsuite_schema::master::workspaces;
+use weldsuite_schema::tenant::connector_connections as connections;
 
 use crate::catalog::get_connector;
 use crate::clients::{ConnectorError, Kind};
@@ -110,8 +113,14 @@ pub struct DueConnection {
     pub row: Value,
 }
 
-/// `(row, last sync, last error, connected)`, the times in milliseconds.
-type ConnectionRow = (Value, Option<f64>, Option<f64>, Option<f64>);
+/// `(extract(epoch from at) * 1000)::float8`: a `timestamp` as UTC
+/// milliseconds, the microseconds kept as the fraction.
+fn epoch_ms(at: PrimitiveDateTime) -> f64 {
+    let micros = at.assume_utc().unix_timestamp_nanos() / 1000;
+    #[allow(clippy::cast_precision_loss)]
+    let micros = micros as f64;
+    micros / 1000.0
+}
 
 /// When a connection is next due: its back-off after a failure newer than
 /// its last sync, else its interval after its last sync (or connection).
@@ -138,42 +147,45 @@ pub fn due_at(
 
 /// The workspace's connections the catch-up looks after, with when each is
 /// next due.
-pub async fn due_connections(db: &PgPool) -> Result<Vec<DueConnection>, sqlx::Error> {
-    let rows: Vec<ConnectionRow> = sqlx::query_as(
-        "select to_jsonb(c),
-                (extract(epoch from c.last_sync_at) * 1000)::float8,
-                (extract(epoch from c.last_error_at) * 1000)::float8,
-                (extract(epoch from coalesce(c.connected_at, c.created_at)) * 1000)::float8
-         from connector_connections c
-         where c.deleted_at is null and c.status not in ('paused', 'pending')
-           and c.credentials is not null and c.credentials <> '{}'::jsonb
-         order by c.id",
-    )
-    .fetch_all(db)
-    .await?;
-    Ok(rows
-        .into_iter()
-        .filter_map(|(row, last_sync, last_error, connected)| {
-            let id = row["id"].as_str()?.to_owned();
-            let provider = row["provider"].as_str()?.to_owned();
-            get_connector(&provider)?;
-            let status = row["status"].as_str().unwrap_or_default();
-            let due_at = due_at(
-                &provider,
-                status,
-                last_sync.map(|ms| ms as i64),
-                last_error.map(|ms| ms as i64),
-                connected.map_or(0, |ms| ms as i64),
-            );
-            Some(DueConnection {
-                interval_minutes: interval_minutes(&provider),
-                id,
-                provider,
-                due_at,
-                row,
-            })
-        })
-        .collect())
+pub async fn due_connections(db: &PgPool) -> Result<Vec<DueConnection>, DbErr> {
+    let rows = connections::Entity::find()
+        .filter(connections::Column::DeletedAt.is_null())
+        .filter(connections::Column::Status.is_not_in(["paused", "pending"]))
+        .filter(connections::Column::Credentials.is_not_null())
+        .filter(connections::Column::Credentials.ne(json!({})))
+        .order_by_asc(connections::Column::Id)
+        .all(&orm(db))
+        .await?;
+    let mut due = Vec::with_capacity(rows.len());
+    for model in rows {
+        let last_sync = model.last_sync_at.map(epoch_ms);
+        let last_error = model.last_error_at.map(epoch_ms);
+        let connected = epoch_ms(model.connected_at.unwrap_or(model.created_at));
+        let row = crate::connections::connection_row(model)?;
+        let (Some(id), Some(provider)) = (row["id"].as_str(), row["provider"].as_str()) else {
+            continue;
+        };
+        let (id, provider) = (id.to_owned(), provider.to_owned());
+        if get_connector(&provider).is_none() {
+            continue;
+        }
+        let status = row["status"].as_str().unwrap_or_default();
+        let due_at = due_at(
+            &provider,
+            status,
+            last_sync.map(|ms| ms as i64),
+            last_error.map(|ms| ms as i64),
+            connected as i64,
+        );
+        due.push(DueConnection {
+            interval_minutes: interval_minutes(&provider),
+            id,
+            provider,
+            due_at,
+            row,
+        });
+    }
+    Ok(due)
 }
 
 /// `watermarkFor(watermarks, provider, resource)`: the sync's model
@@ -243,12 +255,17 @@ pub async fn schedule(env: &SyncEnv, workspace: &str, connection: &Value, succee
         return;
     }
     let workspace_id = if due.workspace_id.is_empty() {
-        let found: Result<Option<String>, sqlx::Error> = sqlx::query_scalar(
-            "select id from workspaces where id = $1 or clerk_org_id = $1 limit 1",
-        )
-        .bind(workspace)
-        .fetch_optional(&due.master)
-        .await;
+        let found: Result<Option<String>, DbErr> = workspaces::Entity::find()
+            .select_only()
+            .column(workspaces::Column::Id)
+            .filter(
+                Condition::any()
+                    .add(workspaces::Column::Id.eq(workspace))
+                    .add(workspaces::Column::ClerkOrgId.eq(workspace)),
+            )
+            .into_tuple()
+            .one(&orm(&due.master))
+            .await;
         match found {
             Ok(Some(id)) => id,
             Ok(None) => return,

@@ -10,6 +10,8 @@
 
 use std::sync::Arc;
 
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 use serde_json::{Value, json};
 use weldsuite_catalogs::entity_events::CHAT_CALL_LEFT;
 use weldsuite_chat_domain::calls::{
@@ -18,6 +20,7 @@ use weldsuite_chat_domain::calls::{
 use weldsuite_chat_domain::publish::Realtime;
 use weldsuite_db::PgPool;
 use weldsuite_notifications::{ApnsConfig, Notifier};
+use weldsuite_schema::tenant::chat_calls;
 
 use crate::webhook::{LeftIds, find_leaving};
 use crate::{MeetState, RequestParts, publish_system};
@@ -159,19 +162,20 @@ pub(crate) async fn participant_left(
     let Some(index) = find_leaving_call_participant(&participants, ids) else {
         return Ok(());
     };
-    let now = crate::now();
+    let (now, stamp) = crate::table::now_both();
     if let Some(entry) = participants[index].as_object_mut() {
         entry.insert("leftAt".into(), json!(now));
     }
-    sqlx::query(
-        "update chat_calls set participants = $2, updated_at = $3::timestamp where id = $1",
-    )
-    .bind(call_id)
-    .bind(Value::Array(participants.clone()))
-    .bind(&now)
-    .execute(db)
-    .await
-    .map_err(|e| e.to_string())?;
+    chat_calls::Entity::update_many()
+        .col_expr(
+            chat_calls::Column::Participants,
+            Expr::value(Value::Array(participants.clone())),
+        )
+        .col_expr(chat_calls::Column::UpdatedAt, Expr::value(stamp))
+        .filter(chat_calls::Column::Id.eq(call_id))
+        .exec(&weldsuite_db::orm(db))
+        .await
+        .map_err(|e| e.to_string())?;
     let mut data = call;
     data["participants"] = Value::Array(participants);
     publish_system(state, org_id, "system", CHAT_CALL_LEFT, call_id, data);

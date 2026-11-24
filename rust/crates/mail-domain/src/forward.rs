@@ -100,17 +100,6 @@ fn format_forward_date(millis: i64, time_zone: Option<&str>) -> String {
     format!("{weekday}, {month} {}, {}, {time}", date.day(), date.year())
 }
 
-/// A stored attachment: id, file name, content type, inline, storage path,
-/// scan status.
-type StoredAttachment = (
-    String,
-    String,
-    Option<String>,
-    Option<bool>,
-    Option<String>,
-    Option<String>,
-);
-
 /// The original's own files minus the removed ones
 /// (`loadOriginalAttachments`), and minus what the virus scan locked
 /// (`scan_status` `infected` or `pending`, EU and self-hosted only): a
@@ -122,24 +111,17 @@ pub async fn original_files(
     message_id: &str,
     exclude: &[String],
 ) -> Result<Vec<ExtraAttachment>, SendError> {
-    // `scan_status` through `to_jsonb`: the conformance suite's database
-    // has the frozen Drizzle schema, without the column.
-    let rows: Vec<StoredAttachment> = sqlx::query_as(
-        "select id, file_name, content_type, is_inline, storage_path,
-                to_jsonb(a) ->> 'scan_status'
-         from mail_attachments a
-         where message_id = $1 and deleted_at is null",
-    )
-    .bind(message_id)
-    .fetch_all(db)
-    .await?;
+    // The message's live files, `scan_status` read through `to_jsonb`: the
+    // conformance suite's database has the frozen Drizzle schema, without
+    // the column.
+    let rows = crate::attachments::list_for_message(db, message_id).await?;
     let wanted: Vec<_> = rows
         .into_iter()
-        .filter(|(id, _, _, inline, path, scan)| {
-            !inline.unwrap_or(false)
-                && path.as_deref().is_some_and(|p| !p.is_empty())
-                && !exclude.contains(id)
-                && !matches!(scan.as_deref(), Some("infected" | "pending"))
+        .filter(|row| {
+            !row.is_inline.unwrap_or(false)
+                && row.storage_path.as_deref().is_some_and(|p| !p.is_empty())
+                && !exclude.contains(&row.id)
+                && !matches!(row.scan_status.as_deref(), Some("infected" | "pending"))
         })
         .collect();
     if wanted.is_empty() {
@@ -152,11 +134,13 @@ pub async fn original_files(
         ));
     };
     let mut loaded = Vec::new();
-    for (_, file_name, content_type, _, path, _) in wanted {
+    for row in wanted {
+        let file_name = row.file_name;
+        let content_type = row.content_type;
         let object = get_stored(
             files.private.as_ref(),
             files.public.as_deref(),
-            path.as_deref().unwrap_or_default(),
+            row.storage_path.as_deref().unwrap_or_default(),
         )
         .await
         .map_err(|error| SendError::Internal(error.to_string()))?;

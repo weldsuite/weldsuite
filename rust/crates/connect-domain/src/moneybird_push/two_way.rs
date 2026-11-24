@@ -26,8 +26,20 @@
 //! - Payments allocated to a synced document follow it; a voided payment is
 //!   removed.
 
+use sea_orm::prelude::BigDecimal;
+use sea_orm::sea_query::{Alias, BinOper, Expr, Func, OnConflict, Order, Query, SelectStatement};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, Condition, DbBackend, DbErr, EntityTrait, FromQueryResult,
+    JoinType, QueryFilter, QueryOrder, QuerySelect, RelationDef,
+};
 use serde_json::{Map, Value, json};
-use weldsuite_db::{PgPool, js_row};
+use time::PrimitiveDateTime;
+use weldsuite_db::{PgPool, orm, utc_now};
+use weldsuite_schema::tenant::{
+    bill_items, bills, companies, integration_entity_mappings as mappings,
+    integration_sync_conflicts as conflicts, invoice_items, invoices, parties, payment_allocations,
+    payments, people, products,
+};
 
 use super::{
     MB_CONTACT_TYPE, MB_INVOICE_TYPE, Pass, PushError, STALE_CLAIM_MS, STRIPE_INVOICE_TYPE, Step,
@@ -172,7 +184,7 @@ pub fn settings_with_since(connection: &Value) -> Option<Value> {
 }
 
 /// [`settings_with_since`] saved; the connection as it is now.
-pub async fn stamp_since(db: &PgPool, connection: &Value) -> Result<Value, sqlx::Error> {
+pub async fn stamp_since(db: &PgPool, connection: &Value) -> Result<Value, DbErr> {
     let Some(settings) = settings_with_since(connection) else {
         return Ok(connection.clone());
     };
@@ -237,29 +249,38 @@ async fn write_baseline(
     external_id: &str,
     internal_id: &str,
     hashed: &Hashed,
-) -> Result<(), sqlx::Error> {
+) -> Result<(), DbErr> {
     let Some(kind) = baseline_type(inbound) else {
         return Ok(());
     };
-    sqlx::query(
-        "insert into integration_entity_mappings (id, created_at, updated_at, connection_id,
-           external_entity_type, external_entity_id, internal_entity_type, internal_entity_id,
-           last_synced_at, sync_checksum)
-         values ($1, $2::timestamp, $2::timestamp, $3, $4, $5, $6, $7, $8::timestamp, $9)
-         on conflict (connection_id, external_entity_type, external_entity_id) do update set
-           internal_entity_id = excluded.internal_entity_id, sync_checksum = excluded.sync_checksum,
-           last_synced_at = excluded.last_synced_at, updated_at = excluded.updated_at",
+    let now = utc_now();
+    mappings::Entity::insert(mappings::ActiveModel {
+        id: Set(weldsuite_kit::generate_id("iem")),
+        created_at: Set(now),
+        updated_at: Set(now),
+        connection_id: Set(connection_id.to_owned()),
+        external_entity_type: Set(kind),
+        external_entity_id: Set(external_id.to_owned()),
+        internal_entity_type: Set(internal_type(inbound).to_owned()),
+        internal_entity_id: Set(internal_id.to_owned()),
+        last_synced_at: Set(Some(stamp_at(&hashed.changed_at)?)),
+        sync_checksum: Set(Some(hashed.hash.clone())),
+    })
+    .on_conflict(
+        OnConflict::columns([
+            mappings::Column::ConnectionId,
+            mappings::Column::ExternalEntityType,
+            mappings::Column::ExternalEntityId,
+        ])
+        .update_columns([
+            mappings::Column::InternalEntityId,
+            mappings::Column::SyncChecksum,
+            mappings::Column::LastSyncedAt,
+            mappings::Column::UpdatedAt,
+        ])
+        .to_owned(),
     )
-    .bind(weldsuite_kit::generate_id("iem"))
-    .bind(now_iso())
-    .bind(connection_id)
-    .bind(kind)
-    .bind(external_id)
-    .bind(internal_type(inbound))
-    .bind(internal_id)
-    .bind(&hashed.changed_at)
-    .bind(&hashed.hash)
-    .execute(db)
+    .exec_without_returning(&orm(db))
     .await
     .map(|_| ())
 }
@@ -270,20 +291,17 @@ pub async fn drop_baseline(
     connection_id: &str,
     inbound: &str,
     external_id: &str,
-) -> Result<(), sqlx::Error> {
+) -> Result<(), DbErr> {
     let Some(kind) = baseline_type(inbound) else {
         return Ok(());
     };
-    sqlx::query(
-        "delete from integration_entity_mappings
-         where connection_id = $1 and external_entity_type = $2 and external_entity_id = $3",
-    )
-    .bind(connection_id)
-    .bind(kind)
-    .bind(external_id)
-    .execute(db)
-    .await
-    .map(|_| ())
+    mappings::Entity::delete_many()
+        .filter(mappings::Column::ConnectionId.eq(connection_id))
+        .filter(mappings::Column::ExternalEntityType.eq(kind))
+        .filter(mappings::Column::ExternalEntityId.eq(external_id))
+        .exec(&orm(db))
+        .await
+        .map(|_| ())
 }
 
 /// The import's hook: the record as WeldBooks has it now is what Moneybird
@@ -294,7 +312,7 @@ pub async fn refresh_baseline(
     inbound: &str,
     external_id: &str,
     internal_id: &str,
-) -> Result<(), sqlx::Error> {
+) -> Result<(), DbErr> {
     if baseline_type(inbound).is_none() {
         return Ok(());
     }
@@ -312,11 +330,7 @@ pub async fn refresh_baseline(
     .await
 }
 
-async fn hash_of(
-    db: &PgPool,
-    inbound: &str,
-    internal_id: &str,
-) -> Result<Option<Hashed>, sqlx::Error> {
+async fn hash_of(db: &PgPool, inbound: &str, internal_id: &str) -> Result<Option<Hashed>, DbErr> {
     Ok(match inbound {
         MB_CONTACT_TYPE => contact_state(db, internal_id).await?.map(|s| s.hashed()),
         PRODUCT_TYPE => product_state(db, internal_id).await?.map(|s| s.hashed()),
@@ -336,27 +350,51 @@ pub async fn create_in_flight(
     db: &PgPool,
     connection_id: &str,
     inbound: &str,
-) -> Result<bool, sqlx::Error> {
-    let cutoff =
-        weldsuite_kit::validation::js_iso_from_millis(crate::js::now_ms() - STALE_CLAIM_MS)
-            .unwrap_or_default();
-    let found: Option<i32> = sqlx::query_scalar(
-        "select 1 from integration_entity_mappings
-         where connection_id = $1 and external_entity_type = $2
-           and external_entity_id like 'pending:%' and updated_at > $3::timestamp limit 1",
-    )
-    .bind(connection_id)
-    .bind(inbound)
-    .bind(cutoff)
-    .fetch_optional(db)
-    .await?;
+) -> Result<bool, DbErr> {
+    let cutoff = super::at_millis(crate::js::now_ms() - STALE_CLAIM_MS);
+    let found: Option<String> = mappings::Entity::find()
+        .select_only()
+        .column(mappings::Column::Id)
+        .filter(mappings::Column::ConnectionId.eq(connection_id))
+        .filter(mappings::Column::ExternalEntityType.eq(inbound))
+        .filter(mappings::Column::ExternalEntityId.like("pending:%"))
+        .filter(mappings::Column::UpdatedAt.gt(cutoff))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     Ok(found.is_some())
 }
 
 // ── the WeldBooks side, as Moneybird would get it ───────────────────────────
 
-/// The `to_char` format that keeps a timestamp's microseconds.
-const STAMP: &str = "YYYY-MM-DD HH24:MI:SS.US";
+/// `to_char(at, 'YYYY-MM-DD HH24:MI:SS.US')`: a change time as a baseline
+/// keeps it, to the microsecond.
+fn stamp(at: PrimitiveDateTime) -> String {
+    at.format(time::macros::format_description!(
+        "[year]-[month]-[day] [hour]:[minute]:[second].[subsecond digits:6]"
+    ))
+    .unwrap_or_default()
+}
+
+/// A [`stamp`] as `$n::timestamp` reads it back.
+fn stamp_at(text: &str) -> Result<PrimitiveDateTime, DbErr> {
+    PrimitiveDateTime::parse(
+        text,
+        time::macros::format_description!(
+            "[year]-[month]-[day] [hour]:[minute]:[second].[subsecond digits:6]"
+        ),
+    )
+    .map_err(|_| {
+        DbErr::Type(format!(
+            "invalid input syntax for type timestamp: \"{text}\""
+        ))
+    })
+}
+
+/// `greatest(at, …)`: the latest of the times that are set.
+fn latest(at: PrimitiveDateTime, others: &[Option<PrimitiveDateTime>]) -> PrimitiveDateTime {
+    others.iter().flatten().fold(at, |a, b| a.max(*b))
+}
 
 /// A database stamp (`YYYY-MM-DD HH:MM:SS.ffffff` or with a `T`, UTC) in
 /// milliseconds.
@@ -395,19 +433,57 @@ impl ContactState {
     }
 }
 
-async fn contact_state(db: &PgPool, party_id: &str) -> Result<Option<ContactState>, sqlx::Error> {
-    let flags: Option<(bool, bool, String)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
-        "select p.deleted_at is not null, p.archived_at is not null,
-           to_char(greatest(p.updated_at, p.deleted_at, p.archived_at, c.updated_at, pe.updated_at), '{STAMP}')
-         from parties p left join companies c on c.id = p.company_id left join people pe on pe.id = p.person_id
-         where p.id = $1 limit 1"
-    )))
-    .bind(party_id)
-    .fetch_optional(db)
-    .await?;
-    let Some((deleted, archived, changed_at)) = flags else {
+/// `left join companies c on c.id = p.company_id`.
+fn party_company() -> RelationDef {
+    parties::Entity::belongs_to(companies::Entity)
+        .from(parties::Column::CompanyId)
+        .to(companies::Column::Id)
+        .into()
+}
+
+/// `left join people pe on pe.id = p.person_id`.
+fn party_person() -> RelationDef {
+    parties::Entity::belongs_to(people::Entity)
+        .from(parties::Column::PersonId)
+        .to(people::Column::Id)
+        .into()
+}
+
+/// A party's flags and the change times of it, its company and its person.
+type PartyTimes = (
+    Option<PrimitiveDateTime>,
+    Option<PrimitiveDateTime>,
+    PrimitiveDateTime,
+    Option<PrimitiveDateTime>,
+    Option<PrimitiveDateTime>,
+);
+
+async fn contact_state(db: &PgPool, party_id: &str) -> Result<Option<ContactState>, DbErr> {
+    // `p.deleted_at`, `p.archived_at`, and `greatest(p.updated_at,
+    // p.deleted_at, p.archived_at, c.updated_at, pe.updated_at)` from them.
+    let times: Option<PartyTimes> = parties::Entity::find()
+        .select_only()
+        .columns([
+            parties::Column::DeletedAt,
+            parties::Column::ArchivedAt,
+            parties::Column::UpdatedAt,
+        ])
+        .column_as(companies::Column::UpdatedAt, "company_updated_at")
+        .column_as(people::Column::UpdatedAt, "person_updated_at")
+        .join(JoinType::LeftJoin, party_company())
+        .join(JoinType::LeftJoin, party_person())
+        .filter(parties::Column::Id.eq(party_id))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
+    let Some((deleted_at, archived_at, updated_at, company_at, person_at)) = times else {
         return Ok(None);
     };
+    let (deleted, archived) = (deleted_at.is_some(), archived_at.is_some());
+    let changed_at = stamp(latest(
+        updated_at,
+        &[deleted_at, archived_at, company_at, person_at],
+    ));
     let Some((_, create)) = contact_payload(db, party_id).await? else {
         return Ok(None);
     };
@@ -442,44 +518,65 @@ impl ProductState {
     }
 }
 
-async fn product_state(db: &PgPool, id: &str) -> Result<Option<ProductState>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-        "select jsonb_build_object('name', p.name, 'description', p.description, 'sku', p.sku,
-           'price', p.price::text, 'currency', p.currency, 'deleted', p.deleted_at is not null,
-           'changedAt', to_char(greatest(p.updated_at, p.deleted_at), '{STAMP}'),
-           'vatCategory', p.vat_category, 'taxable', coalesce(p.taxable, true))
-         from products p where p.id = $1 limit 1"
-    )))
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
+/// The product columns Moneybird's product is made of.
+#[derive(FromQueryResult)]
+struct ProductRow {
+    name: String,
+    description: Option<String>,
+    sku: Option<String>,
+    price: BigDecimal,
+    currency: Option<String>,
+    deleted_at: Option<PrimitiveDateTime>,
+    updated_at: PrimitiveDateTime,
+    vat_category: String,
+    taxable: Option<bool>,
+}
+
+async fn product_state(db: &PgPool, id: &str) -> Result<Option<ProductState>, DbErr> {
+    let row = products::Entity::find_by_id(id.to_owned())
+        .select_only()
+        .columns([
+            products::Column::Name,
+            products::Column::Description,
+            products::Column::Sku,
+            products::Column::Price,
+            products::Column::Currency,
+            products::Column::DeletedAt,
+            products::Column::UpdatedAt,
+            products::Column::VatCategory,
+            products::Column::Taxable,
+        ])
+        .into_model::<ProductRow>()
+        .one(&orm(db))
+        .await?;
     let Some(row) = row else {
         return Ok(None);
     };
-    let name = string(row.get("name")).unwrap_or_default().to_owned();
+    let name = row.name;
     let mut body = Map::new();
     body.insert("title".to_owned(), json!(slice_units(&name, 255)));
-    let description = string(row.get("description"))
+    let description = row
+        .description
+        .as_deref()
         .filter(|d| !d.trim().is_empty())
         .unwrap_or(name.as_str());
     body.insert(
         "description".to_owned(),
         json!(slice_units(description, 4096)),
     );
-    if let Some(sku) = string(row.get("sku")).filter(|s| !s.trim().is_empty()) {
+    if let Some(sku) = row.sku.as_deref().filter(|s| !s.trim().is_empty()) {
         body.insert("identifier".to_owned(), json!(sku.trim()));
     }
+    // `price::text`, read as a number.
     body.insert(
         "price".to_owned(),
-        json!(crate::js::to_fixed(
-            string(row.get("price")).map_or(0.0, num),
-            2
-        )),
+        json!(crate::js::to_fixed(num(&row.price.to_plain_string()), 2)),
     );
     body.insert(
         "currency".to_owned(),
         json!(
-            string(row.get("currency"))
+            row.currency
+                .as_deref()
                 .filter(|c| !c.is_empty())
                 .unwrap_or("EUR")
                 .to_uppercase()
@@ -487,12 +584,10 @@ async fn product_state(db: &PgPool, id: &str) -> Result<Option<ProductState>, sq
     );
     Ok(Some(ProductState {
         body: Value::Object(body),
-        deleted: row["deleted"].as_bool().unwrap_or(false),
-        changed_at: string(row.get("changedAt")).unwrap_or_default().to_owned(),
-        vat_category: string(row.get("vatCategory"))
-            .unwrap_or("standard")
-            .to_owned(),
-        taxable: row["taxable"].as_bool().unwrap_or(true),
+        deleted: row.deleted_at.is_some(),
+        changed_at: stamp(latest(row.updated_at, &[row.deleted_at])),
+        vat_category: row.vat_category,
+        taxable: row.taxable.unwrap_or(true),
     }))
 }
 
@@ -603,53 +698,96 @@ impl DocState {
     }
 }
 
-async fn doc_state(db: &PgPool, invoice: bool, id: &str) -> Result<Option<DocState>, sqlx::Error> {
-    let (table, items, parent) = if invoice {
-        ("invoices", "invoice_items", "invoice_id")
+/// A document line's columns: description, quantity, unit price, VAT
+/// percentage, line total and service period.
+type ItemRow = (
+    String,
+    Option<BigDecimal>,
+    BigDecimal,
+    Option<BigDecimal>,
+    Option<BigDecimal>,
+    Option<Value>,
+);
+
+/// `n::text` of a `numeric(p, scale)` column: exactly `scale` decimals.
+fn numeric_text(n: &BigDecimal, scale: i64) -> String {
+    n.with_scale(scale).to_plain_string()
+}
+
+async fn doc_state(db: &PgPool, invoice: bool, id: &str) -> Result<Option<DocState>, DbErr> {
+    let db = &orm(db);
+    // The row as Drizzle reads it (`total` as text, as `numeric` prints), its
+    // change time `greatest(updated_at, deleted_at)`, and its live lines in
+    // `sort_order`.
+    let (row, deleted_at, updated_at, items): (Value, _, _, Vec<ItemRow>) = if invoice {
+        let Some(row) = invoices::Entity::find_by_id(id.to_owned()).one(db).await? else {
+            return Ok(None);
+        };
+        let items = invoice_items::Entity::find()
+            .select_only()
+            .columns([
+                invoice_items::Column::Description,
+                invoice_items::Column::Quantity,
+                invoice_items::Column::UnitPrice,
+                invoice_items::Column::TaxRate,
+                invoice_items::Column::LineTotal,
+                invoice_items::Column::Period,
+            ])
+            .filter(invoice_items::Column::InvoiceId.eq(id))
+            .filter(invoice_items::Column::DeletedAt.is_null())
+            .order_by_asc(invoice_items::Column::SortOrder)
+            .into_tuple()
+            .all(db)
+            .await?;
+        let (deleted_at, updated_at) = (row.deleted_at, row.updated_at);
+        let row = serde_json::to_value(row).map_err(crate::connections::json_error)?;
+        (row, deleted_at, updated_at, items)
     } else {
-        ("bills", "bill_items", "bill_id")
+        let Some(row) = bills::Entity::find_by_id(id.to_owned()).one(db).await? else {
+            return Ok(None);
+        };
+        let items = bill_items::Entity::find()
+            .select_only()
+            .columns([
+                bill_items::Column::Description,
+                bill_items::Column::Quantity,
+                bill_items::Column::UnitPrice,
+                bill_items::Column::TaxRate,
+                bill_items::Column::LineTotal,
+                bill_items::Column::Period,
+            ])
+            .filter(bill_items::Column::BillId.eq(id))
+            .filter(bill_items::Column::DeletedAt.is_null())
+            .order_by_asc(bill_items::Column::SortOrder)
+            .into_tuple()
+            .all(db)
+            .await?;
+        let (deleted_at, updated_at) = (row.deleted_at, row.updated_at);
+        let row = serde_json::to_value(row).map_err(crate::connections::json_error)?;
+        (row, deleted_at, updated_at, items)
     };
-    let row: Option<Value> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-        "select to_jsonb(t) || jsonb_build_object('total', t.total::text,
-           'changedStamp', to_char(greatest(t.updated_at, t.deleted_at), '{STAMP}'))
-         from {table} t where t.id = $1 limit 1"
-    )))
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    let Some(row) = row.map(js_row) else {
-        return Ok(None);
-    };
-    let rows: Vec<Value> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-        "select to_jsonb(t) || jsonb_build_object('quantity', t.quantity::text, 'unit_price', t.unit_price::text,
-           'line_total', t.line_total::text, 'tax_rate', t.tax_rate::text)
-         from {items} t where t.{parent} = $1 and t.deleted_at is null order by t.sort_order asc"
-    )))
-    .bind(id)
-    .fetch_all(db)
-    .await?;
-    let lines = rows
+    let changed_at = stamp(latest(updated_at, &[deleted_at]));
+    let mut row = row;
+    row["changedStamp"] = json!(changed_at);
+    // Each column as `::text` prints it (`numeric(10, 4)`, `numeric(18, 4)`,
+    // `numeric(7, 4)`, `numeric(18, 2)`).
+    let lines = items
         .into_iter()
-        .map(js_row)
-        .map(|item| Line {
-            description: string(item.get("description"))
-                .unwrap_or_default()
-                .to_owned(),
-            quantity: string(item.get("quantity")).unwrap_or("1").to_owned(),
-            unit_price: string(item.get("unitPrice")).unwrap_or("0").to_owned(),
-            tax_rate: string(item.get("taxRate"))
-                .filter(|r| !r.is_empty())
-                .map(str::to_owned),
-            total: string(item.get("lineTotal")).map(str::to_owned),
-            period: item.get("period").filter(|p| !p.is_null()).cloned(),
-        })
+        .map(
+            |(description, quantity, unit_price, tax_rate, total, period)| Line {
+                description,
+                quantity: quantity.map_or_else(|| "1".to_owned(), |q| numeric_text(&q, 4)),
+                unit_price: numeric_text(&unit_price, 4),
+                tax_rate: tax_rate.map(|r| numeric_text(&r, 4)),
+                total: total.map(|t| numeric_text(&t, 2)),
+                period: period.filter(|p| !p.is_null()),
+            },
+        )
         .collect();
     Ok(Some(DocState {
         invoice,
-        deleted: !row["deletedAt"].is_null(),
-        changed_at: string(row.get("changedStamp"))
-            .unwrap_or_default()
-            .to_owned(),
+        deleted: deleted_at.is_some(),
+        changed_at,
         row,
         lines,
     }))
@@ -668,19 +806,144 @@ struct Candidate {
     baseline: String,
 }
 
-/// How a mapped record of this type is read: its table (as `t`), the joins
-/// its change time needs, and that change time.
-fn changed_sql(inbound: &str) -> (&'static str, &'static str, &'static str) {
+/// A mapped record's table joined (as `t`, on `t.id =
+/// m.internal_entity_id`): its change time and its `deleted_at`.
+struct Joined {
+    changed: Expr,
+    deleted_at: Expr,
+}
+
+/// How a mapped record of this type is read: its table (as `t`) and the
+/// joins its change time needs, added to `select`.
+fn join_record(select: &mut SelectStatement, inbound: &str) -> Joined {
+    use sea_orm::ExprTrait as _;
     match inbound {
-        MB_CONTACT_TYPE => (
-            "parties t",
-            "left join companies c on c.id = t.company_id left join people pe on pe.id = t.person_id",
-            "greatest(t.updated_at, t.deleted_at, t.archived_at, c.updated_at, pe.updated_at)",
+        MB_CONTACT_TYPE => {
+            let (t, c, pe) = (|| Alias::new("t"), || Alias::new("c"), || Alias::new("pe"));
+            let col = |column: parties::Column| Expr::col((t(), column));
+            select
+                .join_as(
+                    JoinType::InnerJoin,
+                    parties::Entity,
+                    t(),
+                    col(parties::Column::Id)
+                        .equals((Alias::new("m"), mappings::Column::InternalEntityId)),
+                )
+                .join_as(
+                    JoinType::LeftJoin,
+                    companies::Entity,
+                    c(),
+                    Expr::col((c(), companies::Column::Id)).eq(col(parties::Column::CompanyId)),
+                )
+                .join_as(
+                    JoinType::LeftJoin,
+                    people::Entity,
+                    pe(),
+                    Expr::col((pe(), people::Column::Id)).eq(col(parties::Column::PersonId)),
+                );
+            Joined {
+                changed: Func::greatest([
+                    col(parties::Column::UpdatedAt),
+                    col(parties::Column::DeletedAt),
+                    col(parties::Column::ArchivedAt),
+                    Expr::col((c(), companies::Column::UpdatedAt)),
+                    Expr::col((pe(), people::Column::UpdatedAt)),
+                ])
+                .into(),
+                deleted_at: col(parties::Column::DeletedAt),
+            }
+        }
+        PRODUCT_TYPE => join_plain(
+            select,
+            products::Entity,
+            [
+                products::Column::Id,
+                products::Column::UpdatedAt,
+                products::Column::DeletedAt,
+            ],
         ),
-        PRODUCT_TYPE => ("products t", "", "greatest(t.updated_at, t.deleted_at)"),
-        SALES_INVOICE_TYPE => ("invoices t", "", "greatest(t.updated_at, t.deleted_at)"),
-        _ => ("bills t", "", "greatest(t.updated_at, t.deleted_at)"),
+        SALES_INVOICE_TYPE => join_plain(
+            select,
+            invoices::Entity,
+            [
+                invoices::Column::Id,
+                invoices::Column::UpdatedAt,
+                invoices::Column::DeletedAt,
+            ],
+        ),
+        _ => join_plain(
+            select,
+            bills::Entity,
+            [
+                bills::Column::Id,
+                bills::Column::UpdatedAt,
+                bills::Column::DeletedAt,
+            ],
+        ),
     }
+}
+
+/// [`join_record`] of a product, invoice or bill (its `id`, `updated_at`
+/// and `deleted_at`): changed at `greatest(t.updated_at, t.deleted_at)`.
+fn join_plain<E: EntityTrait>(
+    select: &mut SelectStatement,
+    entity: E,
+    [id, updated_at, deleted_at]: [E::Column; 3],
+) -> Joined {
+    use sea_orm::ExprTrait as _;
+    let t = || Alias::new("t");
+    select.join_as(
+        JoinType::InnerJoin,
+        entity,
+        t(),
+        Expr::col((t(), id)).equals((Alias::new("m"), mappings::Column::InternalEntityId)),
+    );
+    Joined {
+        changed: Func::greatest([Expr::col((t(), updated_at)), Expr::col((t(), deleted_at))])
+            .into(),
+        deleted_at: Expr::col((t(), deleted_at)),
+    }
+}
+
+/// `m.connection_id = $1 and m.external_entity_type = $2 and
+/// m.external_entity_id not like 'pending:%' and … not like 'failed:%'`: the
+/// done mappings of this type on the connection, as `m`.
+fn done_mappings(connection_id: &str, inbound: &str) -> Condition {
+    use sea_orm::ExprTrait as _;
+    let col = |column: mappings::Column| Expr::col((Alias::new("m"), column));
+    Condition::all()
+        .add(col(mappings::Column::ConnectionId).eq(connection_id))
+        .add(col(mappings::Column::ExternalEntityType).eq(inbound))
+        .add(col(mappings::Column::ExternalEntityId).not_like("pending:%"))
+        .add(col(mappings::Column::ExternalEntityId).not_like("failed:%"))
+}
+
+/// `b.connection_id = m.connection_id and b.external_entity_type = $3 and
+/// b.external_entity_id = m.external_entity_id`: the mapping's baseline, as
+/// `b`.
+fn baseline_of_mapping(baseline: &str) -> Condition {
+    use sea_orm::ExprTrait as _;
+    let (m, b) = (|| Alias::new("m"), || Alias::new("b"));
+    Condition::all()
+        .add(
+            Expr::col((b(), mappings::Column::ConnectionId))
+                .equals((m(), mappings::Column::ConnectionId)),
+        )
+        .add(Expr::col((b(), mappings::Column::ExternalEntityType)).eq(baseline))
+        .add(
+            Expr::col((b(), mappings::Column::ExternalEntityId))
+                .equals((m(), mappings::Column::ExternalEntityId)),
+        )
+}
+
+/// What [`changed_candidates`] reads of a mapping and its baseline.
+#[derive(FromQueryResult)]
+struct CandidateRow {
+    external_id: String,
+    internal_id: String,
+    checksum: Option<String>,
+    synced_at: Option<PrimitiveDateTime>,
+    baseline: Option<String>,
 }
 
 async fn changed_candidates(
@@ -688,40 +951,89 @@ async fn changed_candidates(
     connection_id: &str,
     inbound: &str,
     limit: i64,
-) -> Result<Vec<Candidate>, sqlx::Error> {
+) -> Result<Vec<Candidate>, DbErr> {
     let Some(baseline) = baseline_type(inbound) else {
         return Ok(Vec::new());
     };
-    let (table, joins, changed) = changed_sql(inbound);
-    let rows: Vec<Value> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-        "select jsonb_build_object('externalId', m.external_entity_id, 'internalId', m.internal_entity_id,
-           'checksum', m.sync_checksum, 'syncedAt', m.last_synced_at, 'baseline', b.sync_checksum)
-         from integration_entity_mappings m
-         join {table} on t.id = m.internal_entity_id {joins}
-         join integration_entity_mappings b on b.connection_id = m.connection_id
-           and b.external_entity_type = $3 and b.external_entity_id = m.external_entity_id
-         where m.connection_id = $1 and m.external_entity_type = $2
-           and m.external_entity_id not like 'pending:%' and m.external_entity_id not like 'failed:%'
-           and {changed} > b.last_synced_at
-         order by {changed} asc limit $4"
-    )))
-    .bind(connection_id)
-    .bind(inbound)
-    .bind(&baseline)
-    .bind(limit)
-    .fetch_all(db)
-    .await?;
+    let select = changed_query(connection_id, inbound, &baseline, limit);
+    let rows = CandidateRow::find_by_statement(DbBackend::Postgres.build(&select))
+        .all(&orm(db))
+        .await?;
     Ok(rows
         .into_iter()
-        .map(js_row)
         .map(|row| Candidate {
-            external_id: string(row.get("externalId")).unwrap_or_default().to_owned(),
-            internal_id: string(row.get("internalId")).unwrap_or_default().to_owned(),
-            inbound_checksum: string(row.get("checksum")).map(str::to_owned),
-            inbound_synced_at: string(row.get("syncedAt")).map(str::to_owned),
-            baseline: string(row.get("baseline")).unwrap_or_default().to_owned(),
+            external_id: row.external_id,
+            internal_id: row.internal_id,
+            inbound_checksum: row.checksum,
+            // As `to_jsonb` and `js_row` handed it on: `toISOString()`.
+            inbound_synced_at: row
+                .synced_at
+                .map(|at| weldsuite_events::iso_timestamp(at.assume_utc())),
+            baseline: row.baseline.unwrap_or_default(),
         })
         .collect())
+}
+
+/// [`changed_candidates`]' statement: the done mappings `m` of this type
+/// whose record `t` changed after their baseline `b` was taken, oldest
+/// change first.
+fn changed_query(
+    connection_id: &str,
+    inbound: &str,
+    baseline: &str,
+    limit: i64,
+) -> SelectStatement {
+    use sea_orm::ExprTrait as _;
+    let (m, b) = (|| Alias::new("m"), || Alias::new("b"));
+    let mut select = Query::select();
+    select
+        .expr_as(
+            Expr::col((m(), mappings::Column::ExternalEntityId)),
+            Alias::new("external_id"),
+        )
+        .expr_as(
+            Expr::col((m(), mappings::Column::InternalEntityId)),
+            Alias::new("internal_id"),
+        )
+        .expr_as(
+            Expr::col((m(), mappings::Column::SyncChecksum)),
+            Alias::new("checksum"),
+        )
+        .expr_as(
+            Expr::col((m(), mappings::Column::LastSyncedAt)),
+            Alias::new("synced_at"),
+        )
+        .expr_as(
+            Expr::col((b(), mappings::Column::SyncChecksum)),
+            Alias::new("baseline"),
+        )
+        .from_as(mappings::Entity, m());
+    let record = join_record(&mut select, inbound);
+    select
+        .join_as(
+            JoinType::InnerJoin,
+            mappings::Entity,
+            b(),
+            baseline_of_mapping(baseline),
+        )
+        .cond_where(
+            done_mappings(connection_id, inbound).add(
+                record
+                    .changed
+                    .clone()
+                    .gt(Expr::col((b(), mappings::Column::LastSyncedAt))),
+            ),
+        )
+        .order_by_expr(record.changed, Order::Asc)
+        .limit(u64::try_from(limit).unwrap_or(0));
+    select
+}
+
+/// What [`unbaselined`] reads of a mapping.
+#[derive(FromQueryResult)]
+struct MappedRow {
+    external_id: String,
+    internal_id: String,
 }
 
 /// Synced records without a baseline yet (imported before two-way, or
@@ -731,48 +1043,91 @@ async fn unbaselined(
     connection_id: &str,
     inbound: &str,
     limit: i64,
-) -> Result<Vec<(String, String)>, sqlx::Error> {
+) -> Result<Vec<(String, String)>, DbErr> {
     let Some(baseline) = baseline_type(inbound) else {
         return Ok(Vec::new());
     };
-    let (table, _, _) = changed_sql(inbound);
-    sqlx::query_as(sqlx::AssertSqlSafe(format!(
-        "select m.external_entity_id, m.internal_entity_id
-         from integration_entity_mappings m join {table} on t.id = m.internal_entity_id
-         where m.connection_id = $1 and m.external_entity_type = $2
-           and m.external_entity_id not like 'pending:%' and m.external_entity_id not like 'failed:%'
-           and t.deleted_at is null
-           and not exists (select 1 from integration_entity_mappings b where b.connection_id = m.connection_id
-             and b.external_entity_type = $3 and b.external_entity_id = m.external_entity_id)
-         limit $4"
-    )))
-    .bind(connection_id)
-    .bind(inbound)
-    .bind(&baseline)
-    .bind(limit)
-    .fetch_all(db)
-    .await
+    let select = unbaselined_query(connection_id, inbound, &baseline, limit);
+    Ok(
+        MappedRow::find_by_statement(DbBackend::Postgres.build(&select))
+            .all(&orm(db))
+            .await?
+            .into_iter()
+            .map(|row| (row.external_id, row.internal_id))
+            .collect(),
+    )
 }
 
-/// The `not exists` that keeps a WeldBooks record from being created twice:
-/// a mapping of this type that is done, a claim in flight, or a failure
-/// waiting for its retry. `$1` the connection, `$2` the type, `$3` / `$4`
-/// the claim cutoffs.
-const NOT_CLAIMED: &str = "not exists (
-    select 1 from integration_entity_mappings p
-    where p.connection_id = $1 and p.external_entity_type = $2 and p.internal_entity_id = t.id
-      and ((p.external_entity_id not like 'pending:%' and p.external_entity_id not like 'failed:%')
-        or (p.external_entity_id like 'pending:%' and p.updated_at > $3::timestamp)
-        or (p.external_entity_id like 'failed:%' and p.updated_at > $4::timestamp)))";
+/// [`unbaselined`]'s statement: the done mappings `m` of this type whose
+/// live record `t` has no baseline `b`.
+fn unbaselined_query(
+    connection_id: &str,
+    inbound: &str,
+    baseline: &str,
+    limit: i64,
+) -> SelectStatement {
+    use sea_orm::ExprTrait as _;
+    let (m, b) = (|| Alias::new("m"), || Alias::new("b"));
+    let mut select = Query::select();
+    select
+        .expr_as(
+            Expr::col((m(), mappings::Column::ExternalEntityId)),
+            Alias::new("external_id"),
+        )
+        .expr_as(
+            Expr::col((m(), mappings::Column::InternalEntityId)),
+            Alias::new("internal_id"),
+        )
+        .from_as(mappings::Entity, m());
+    let record = join_record(&mut select, inbound);
+    let has_baseline = Query::select()
+        .expr(Expr::val(1))
+        .from_as(mappings::Entity, b())
+        .cond_where(baseline_of_mapping(baseline))
+        .to_owned();
+    select
+        .cond_where(
+            done_mappings(connection_id, inbound)
+                .add(record.deleted_at.is_null())
+                .add(Expr::exists(has_baseline).not()),
+        )
+        .limit(u64::try_from(limit).unwrap_or(0));
+    select
+}
 
-/// A bill imported from any connector stays that connector's.
-const NOT_IMPORTED: &str = "not exists (
-    select 1 from integration_entity_mappings x
-    where x.internal_entity_id = t.id and x.connection_id <> $1
-      and x.external_entity_type not like 'moneybird_baseline_%')";
+/// `$n::timestamp` of `moneybirdTwoWay.since` (an ISO time), as Postgres
+/// casts it.
+fn since_at(since: &str) -> Result<PrimitiveDateTime, DbErr> {
+    crate::js::date_parse(since)
+        .map(super::at_millis)
+        .ok_or_else(|| {
+            DbErr::Type(format!(
+                "invalid input syntax for type timestamp: \"{since}\""
+            ))
+        })
+}
+
+/// A bill imported from any connector stays that connector's: `not exists
+/// (select 1 from integration_entity_mappings x where x.internal_entity_id =
+/// t.id and x.connection_id <> $1 and x.external_entity_type not like
+/// 'moneybird_baseline_%')`, as `t.id not in (this)`.
+fn imported_elsewhere(connection_id: &str) -> SelectStatement {
+    use sea_orm::ExprTrait as _;
+    let x = || Alias::new("x");
+    Query::select()
+        .column((x(), mappings::Column::InternalEntityId))
+        .from_as(mappings::Entity, x())
+        .and_where(Expr::col((x(), mappings::Column::ConnectionId)).ne(connection_id))
+        .and_where(
+            Expr::col((x(), mappings::Column::ExternalEntityType)).not_like("moneybird_baseline_%"),
+        )
+        .to_owned()
+}
 
 /// WeldBooks records made after `since` that Moneybird doesn't have yet:
-/// accounting contacts, products, and bills once approved.
+/// accounting contacts, products, and bills once approved. None of them
+/// mapped to this type on the connection, claimed, or failed and waiting
+/// for its retry ([`super::blocking_rows`]).
 async fn new_records(
     db: &PgPool,
     connection_id: &str,
@@ -780,62 +1135,101 @@ async fn new_records(
     since: &str,
     force: bool,
     limit: i64,
-) -> Result<Vec<String>, sqlx::Error> {
-    let (stale, retry) = cutoffs(force);
-    let filter = match inbound {
-        MB_CONTACT_TYPE => "parties t where t.deleted_at is null and t.archived_at is null
-            and t.role in ('customer', 'supplier', 'both')"
-            .to_owned(),
-        PRODUCT_TYPE => "products t where t.deleted_at is null".to_owned(),
-        _ => {
-            format!("bills t where t.deleted_at is null and t.status = any($7) and {NOT_IMPORTED}")
+) -> Result<Vec<String>, DbErr> {
+    let since = since_at(since)?;
+    let claimed = super::blocking_rows(connection_id, inbound, cutoffs(force));
+    let limit = u64::try_from(limit).unwrap_or(0);
+    let db = &orm(db);
+    match inbound {
+        MB_CONTACT_TYPE => {
+            parties::Entity::find()
+                .select_only()
+                .column(parties::Column::Id)
+                .filter(parties::Column::DeletedAt.is_null())
+                .filter(parties::Column::ArchivedAt.is_null())
+                .filter(parties::Column::Role.is_in(["customer", "supplier", "both"]))
+                .filter(parties::Column::CreatedAt.gte(since))
+                .filter(parties::Column::Id.not_in_subquery(claimed))
+                .order_by_asc(parties::Column::CreatedAt)
+                .limit(limit)
+                .into_tuple()
+                .all(db)
+                .await
         }
-    };
-    let sql = format!(
-        "select t.id from {filter} and t.created_at >= $5::timestamp and {NOT_CLAIMED}
-         order by t.created_at asc limit $6"
-    );
-    let mut query = sqlx::query_scalar(sqlx::AssertSqlSafe(sql))
-        .bind(connection_id)
-        .bind(inbound)
-        .bind(stale)
-        .bind(retry)
-        .bind(since)
-        .bind(limit);
-    if inbound == PURCHASE_INVOICE_TYPE {
-        query = query.bind(&BILL_PUSHABLE[..]);
+        PRODUCT_TYPE => {
+            products::Entity::find()
+                .select_only()
+                .column(products::Column::Id)
+                .filter(products::Column::DeletedAt.is_null())
+                .filter(products::Column::CreatedAt.gte(since))
+                .filter(products::Column::Id.not_in_subquery(claimed))
+                .order_by_asc(products::Column::CreatedAt)
+                .limit(limit)
+                .into_tuple()
+                .all(db)
+                .await
+        }
+        _ => {
+            bills::Entity::find()
+                .select_only()
+                .column(bills::Column::Id)
+                .filter(bills::Column::DeletedAt.is_null())
+                .filter(bills::Column::Status.is_in(BILL_PUSHABLE))
+                .filter(bills::Column::Id.not_in_subquery(imported_elsewhere(connection_id)))
+                .filter(bills::Column::CreatedAt.gte(since))
+                .filter(bills::Column::Id.not_in_subquery(claimed))
+                .order_by_asc(bills::Column::CreatedAt)
+                .limit(limit)
+                .into_tuple()
+                .all(db)
+                .await
+        }
     }
-    query.fetch_all(db).await
 }
 
 /// WeldBooks invoices made after `since` and sent, for the parent's
-/// `push_invoice` (Moneybird external sales invoices).
+/// `push_invoice` (Moneybird external sales invoices): not claimed as one
+/// yet, and not mapped to anything else (`not exists (select 1 from
+/// integration_entity_mappings x where x.internal_entity_id = t.id and
+/// x.internal_entity_type = 'invoice' and x.external_entity_type <> $2 and
+/// x.external_entity_type not like 'moneybird_baseline_%')`).
 pub(super) async fn new_invoice_ids(
     db: &PgPool,
     connection_id: &str,
     since: &str,
     force: bool,
     limit: i64,
-) -> Result<Vec<String>, sqlx::Error> {
-    let (stale, retry) = cutoffs(force);
-    sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-        "select t.id from invoices t
-         where t.deleted_at is null and t.type = 'standard' and t.status = any($7)
-           and t.created_at >= $5::timestamp and {NOT_CLAIMED}
-           and not exists (select 1 from integration_entity_mappings x
-             where x.internal_entity_id = t.id and x.internal_entity_type = 'invoice'
-               and x.external_entity_type <> $2 and x.external_entity_type not like 'moneybird_baseline_%')
-         order by t.created_at asc limit $6"
-    )))
-    .bind(connection_id)
-    .bind(MB_INVOICE_TYPE)
-    .bind(stale)
-    .bind(retry)
-    .bind(since)
-    .bind(limit)
-    .bind(&super::PUSHABLE_STATUSES[..])
-    .fetch_all(db)
-    .await
+) -> Result<Vec<String>, DbErr> {
+    use sea_orm::ExprTrait as _;
+    let since = since_at(since)?;
+    let x = || Alias::new("x");
+    let mapped_elsewhere = Query::select()
+        .column((x(), mappings::Column::InternalEntityId))
+        .from_as(mappings::Entity, x())
+        .and_where(Expr::col((x(), mappings::Column::InternalEntityType)).eq("invoice"))
+        .and_where(Expr::col((x(), mappings::Column::ExternalEntityType)).ne(MB_INVOICE_TYPE))
+        .and_where(
+            Expr::col((x(), mappings::Column::ExternalEntityType)).not_like("moneybird_baseline_%"),
+        )
+        .to_owned();
+    invoices::Entity::find()
+        .select_only()
+        .column(invoices::Column::Id)
+        .filter(invoices::Column::DeletedAt.is_null())
+        .filter(invoices::Column::Type.eq("standard"))
+        .filter(invoices::Column::Status.is_in(super::PUSHABLE_STATUSES))
+        .filter(invoices::Column::CreatedAt.gte(since))
+        .filter(invoices::Column::Id.not_in_subquery(super::blocking_rows(
+            connection_id,
+            MB_INVOICE_TYPE,
+            cutoffs(force),
+        )))
+        .filter(invoices::Column::Id.not_in_subquery(mapped_elsewhere))
+        .order_by_asc(invoices::Column::CreatedAt)
+        .limit(u64::try_from(limit).unwrap_or(0))
+        .into_tuple()
+        .all(&orm(db))
+        .await
 }
 
 /// A WeldBooks payment allocated to a document Moneybird has.
@@ -857,6 +1251,22 @@ fn base_of(kind: &str) -> Option<&'static str> {
         .map(|(_, base)| *base)
 }
 
+/// What [`new_payments`] reads of a payment and its document.
+#[derive(FromQueryResult)]
+struct NewPaymentRow {
+    payment_id: String,
+    amount: String,
+    date: PrimitiveDateTime,
+    bank_transaction_id: Option<String>,
+    document: String,
+    kind: String,
+}
+
+/// WeldBooks payments made after `since`, allocated to (or on) a document
+/// Moneybird has: `payments p left join payment_allocations a` (live
+/// allocations), joined to the document's mapping `d`. Not a Stripe
+/// invoice's (its payments travel with the Stripe push), and not sent to
+/// that document yet, claimed, or failed and waiting for its retry.
 async fn new_payments(
     db: &PgPool,
     connection_id: &str,
@@ -864,55 +1274,184 @@ async fn new_payments(
     since: &str,
     force: bool,
     limit: i64,
-) -> Result<Vec<PaymentRow>, sqlx::Error> {
-    let (stale, retry) = cutoffs(force);
-    let types: Vec<String> = types.iter().map(|t| (*t).to_owned()).collect();
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select jsonb_build_object('paymentId', p.id, 'amount', coalesce(a.amount, p.amount)::text,
-           'date', p.date, 'bankTransactionId', p.bank_transaction_id,
-           'document', d.external_entity_id, 'kind', d.external_entity_type)
-         from payments p
-         left join payment_allocations a on a.payment_id = p.id and a.deleted_at is null
-         join integration_entity_mappings d on d.connection_id = $1
-           and d.internal_entity_id = coalesce(a.invoice_id, a.bill_id, p.invoice_id, p.bill_id)
-           and d.external_entity_type = any($2)
-           and d.external_entity_id not like 'pending:%' and d.external_entity_id not like 'failed:%'
-         where p.deleted_at is null and p.created_at >= $3::timestamp
-           and not exists (select 1 from integration_entity_mappings s
-             where s.internal_entity_id = d.internal_entity_id and s.external_entity_type = $8)
-           and not exists (select 1 from integration_entity_mappings x
-             where x.connection_id = $1 and x.external_entity_type = $4 and x.internal_entity_id = p.id
-               and (x.external_entity_id like d.external_entity_id || ':%'
-                 or (x.external_entity_id like 'pending:' || d.external_entity_id || ':%' and x.updated_at > $5::timestamp)
-                 or (x.external_entity_id like 'failed:' || d.external_entity_id || ':%' and x.updated_at > $6::timestamp)))
-         order by p.created_at asc limit $7",
-    )
-    .bind(connection_id)
-    .bind(&types)
-    .bind(since)
-    .bind(PAYMENT_TYPE)
-    .bind(stale)
-    .bind(retry)
-    .bind(limit)
-    .bind(STRIPE_INVOICE_TYPE)
-    .fetch_all(db)
-    .await?;
+) -> Result<Vec<PaymentRow>, DbErr> {
+    let select = new_payments_query(
+        connection_id,
+        types,
+        since_at(since)?,
+        cutoffs(force),
+        limit,
+    );
+    let rows = NewPaymentRow::find_by_statement(DbBackend::Postgres.build(&select))
+        .all(&orm(db))
+        .await?;
     Ok(rows
         .into_iter()
-        .map(js_row)
         .filter_map(|row| {
             Some(PaymentRow {
-                payment_id: string(row.get("paymentId"))?.to_owned(),
-                amount: string(row.get("amount")).unwrap_or("0").to_owned(),
-                date: string(row.get("date")).map(str::to_owned),
-                bank_transaction_id: string(row.get("bankTransactionId"))
-                    .filter(|b| !b.is_empty())
-                    .map(str::to_owned),
-                document: string(row.get("document"))?.to_owned(),
-                base: base_of(string(row.get("kind"))?)?,
+                base: base_of(&row.kind)?,
+                payment_id: row.payment_id,
+                amount: row.amount,
+                // As `to_jsonb` and `js_row` handed it on: `toISOString()`.
+                date: Some(weldsuite_events::iso_timestamp(row.date.assume_utc())),
+                bank_transaction_id: row.bank_transaction_id.filter(|b| !b.is_empty()),
+                document: row.document,
             })
         })
         .collect())
+}
+
+/// [`new_payments`]' statement.
+fn new_payments_query(
+    connection_id: &str,
+    types: &[&str],
+    since: PrimitiveDateTime,
+    (stale, retry): (PrimitiveDateTime, PrimitiveDateTime),
+    limit: i64,
+) -> SelectStatement {
+    use sea_orm::ExprTrait as _;
+    let (pay, alloc, doc) = (|| Alias::new("p"), || Alias::new("a"), || Alias::new("d"));
+    let (stripe, sent) = (|| Alias::new("s"), || Alias::new("x"));
+    let document = || Expr::col((doc(), mappings::Column::ExternalEntityId));
+    let pushed = Query::select()
+        .expr(Expr::val(1))
+        .from_as(mappings::Entity, sent())
+        .cond_where(
+            Condition::all()
+                .add(Expr::col((sent(), mappings::Column::ConnectionId)).eq(connection_id))
+                .add(Expr::col((sent(), mappings::Column::ExternalEntityType)).eq(PAYMENT_TYPE))
+                .add(
+                    Expr::col((sent(), mappings::Column::InternalEntityId))
+                        .equals((pay(), payments::Column::Id)),
+                )
+                .add(payment_claim(&sent(), &document(), stale, retry)),
+        )
+        .to_owned();
+    let from_stripe = Query::select()
+        .expr(Expr::val(1))
+        .from_as(mappings::Entity, stripe())
+        .and_where(
+            Expr::col((stripe(), mappings::Column::InternalEntityId))
+                .equals((doc(), mappings::Column::InternalEntityId)),
+        )
+        .and_where(
+            Expr::col((stripe(), mappings::Column::ExternalEntityType)).eq(STRIPE_INVOICE_TYPE),
+        )
+        .to_owned();
+    let mut select = Query::select();
+    select
+        .expr_as(
+            Expr::col((pay(), payments::Column::Id)),
+            Alias::new("payment_id"),
+        )
+        .expr_as(
+            Expr::from(Func::coalesce([
+                Expr::col((alloc(), payment_allocations::Column::Amount)),
+                Expr::col((pay(), payments::Column::Amount)),
+            ]))
+            .cast_as(Alias::new("text")),
+            Alias::new("amount"),
+        )
+        .expr_as(
+            Expr::col((pay(), payments::Column::Date)),
+            Alias::new("date"),
+        )
+        .expr_as(
+            Expr::col((pay(), payments::Column::BankTransactionId)),
+            Alias::new("bank_transaction_id"),
+        )
+        .expr_as(document(), Alias::new("document"))
+        .expr_as(
+            Expr::col((doc(), mappings::Column::ExternalEntityType)),
+            Alias::new("kind"),
+        )
+        .from_as(payments::Entity, pay())
+        .join_as(
+            JoinType::LeftJoin,
+            payment_allocations::Entity,
+            alloc(),
+            Condition::all()
+                .add(
+                    Expr::col((alloc(), payment_allocations::Column::PaymentId))
+                        .equals((pay(), payments::Column::Id)),
+                )
+                .add(Expr::col((alloc(), payment_allocations::Column::DeletedAt)).is_null()),
+        )
+        .join_as(
+            JoinType::InnerJoin,
+            mappings::Entity,
+            doc(),
+            Condition::all()
+                .add(Expr::col((doc(), mappings::Column::ConnectionId)).eq(connection_id))
+                .add(
+                    Expr::col((doc(), mappings::Column::InternalEntityId)).eq(Func::coalesce([
+                        Expr::col((alloc(), payment_allocations::Column::InvoiceId)),
+                        Expr::col((alloc(), payment_allocations::Column::BillId)),
+                        Expr::col((pay(), payments::Column::InvoiceId)),
+                        Expr::col((pay(), payments::Column::BillId)),
+                    ])),
+                )
+                .add(
+                    Expr::col((doc(), mappings::Column::ExternalEntityType))
+                        .is_in(types.iter().copied()),
+                )
+                .add(document().not_like("pending:%"))
+                .add(document().not_like("failed:%")),
+        )
+        .cond_where(
+            Condition::all()
+                .add(Expr::col((pay(), payments::Column::DeletedAt)).is_null())
+                .add(Expr::col((pay(), payments::Column::CreatedAt)).gte(since))
+                .add(Expr::exists(from_stripe).not())
+                .add(Expr::exists(pushed).not()),
+        )
+        .order_by((pay(), payments::Column::CreatedAt), Order::Asc)
+        .limit(u64::try_from(limit).unwrap_or(0));
+    select
+}
+
+/// The payment mapping `x` holds `document`'s payment: `x.external_entity_id
+/// like d.external_entity_id || ':%'`, or a claim (`pending:<document>:…`)
+/// newer than `stale`, or a failure (`failed:<document>:…`) newer than
+/// `retry`.
+fn payment_claim(
+    x: &Alias,
+    document: &Expr,
+    stale: PrimitiveDateTime,
+    retry: PrimitiveDateTime,
+) -> Condition {
+    use sea_orm::ExprTrait as _;
+    use sea_orm::sea_query::extension::postgres::PgExpr as _;
+    let external = || Expr::col((x.clone(), mappings::Column::ExternalEntityId));
+    let updated = || Expr::col((x.clone(), mappings::Column::UpdatedAt));
+    let pattern = |prefix: &str| {
+        let head = if prefix.is_empty() {
+            document.clone()
+        } else {
+            Expr::val(prefix).concat(document.clone())
+        };
+        head.concat(":%")
+    };
+    Condition::any()
+        .add(external().binary(BinOper::Like, pattern("")))
+        .add(
+            Condition::all()
+                .add(external().binary(BinOper::Like, pattern("pending:")))
+                .add(updated().gt(stale)),
+        )
+        .add(
+            Condition::all()
+                .add(external().binary(BinOper::Like, pattern("failed:")))
+                .add(updated().gt(retry)),
+        )
+}
+
+/// What [`voided_payments`] reads of a pushed payment.
+#[derive(FromQueryResult)]
+struct VoidedRow {
+    id: String,
+    external_id: String,
+    kind: String,
 }
 
 /// Pushed payments whose WeldBooks payment was voided: (mapping row id,
@@ -922,38 +1461,79 @@ async fn voided_payments(
     connection_id: &str,
     types: &[&str],
     limit: i64,
-) -> Result<Vec<(String, String, String, &'static str)>, sqlx::Error> {
-    let types: Vec<String> = types.iter().map(|t| (*t).to_owned()).collect();
-    let rows: Vec<(String, String, String)> = sqlx::query_as(
-        "select x.id, x.external_entity_id, d.external_entity_type
-         from integration_entity_mappings x
-         join payments p on p.id = x.internal_entity_id
-         join integration_entity_mappings d on d.connection_id = x.connection_id
-           and d.external_entity_id = split_part(x.external_entity_id, ':', 1)
-           and d.external_entity_type = any($3)
-         where x.connection_id = $1 and x.external_entity_type = $2
-           and x.external_entity_id not like 'pending:%' and x.external_entity_id not like 'failed:%'
-           and p.deleted_at is not null
-         limit $4",
-    )
-    .bind(connection_id)
-    .bind(PAYMENT_TYPE)
-    .bind(&types)
-    .bind(limit)
-    .fetch_all(db)
-    .await?;
+) -> Result<Vec<(String, String, String, &'static str)>, DbErr> {
+    let select = voided_query(connection_id, types, limit);
+    let rows = VoidedRow::find_by_statement(DbBackend::Postgres.build(&select))
+        .all(&orm(db))
+        .await?;
     Ok(rows
         .into_iter()
-        .filter_map(|(row, external, kind)| {
-            let (document, payment) = external.split_once(':')?;
+        .filter_map(|row| {
+            let (document, payment) = row.external_id.split_once(':')?;
             Some((
-                row,
+                row.id,
                 document.to_owned(),
                 payment.to_owned(),
-                base_of(&kind)?,
+                base_of(&row.kind)?,
             ))
         })
         .collect())
+}
+
+/// [`voided_payments`]' statement.
+fn voided_query(connection_id: &str, types: &[&str], limit: i64) -> SelectStatement {
+    use sea_orm::ExprTrait as _;
+    let (x, p, d) = (|| Alias::new("x"), || Alias::new("p"), || Alias::new("d"));
+    let external = || Expr::col((x(), mappings::Column::ExternalEntityId));
+    let mut select = Query::select();
+    select
+        .expr_as(Expr::col((x(), mappings::Column::Id)), Alias::new("id"))
+        .expr_as(external(), Alias::new("external_id"))
+        .expr_as(
+            Expr::col((d(), mappings::Column::ExternalEntityType)),
+            Alias::new("kind"),
+        )
+        .from_as(mappings::Entity, x())
+        .join_as(
+            JoinType::InnerJoin,
+            payments::Entity,
+            p(),
+            Expr::col((p(), payments::Column::Id))
+                .equals((x(), mappings::Column::InternalEntityId)),
+        )
+        .join_as(
+            JoinType::InnerJoin,
+            mappings::Entity,
+            d(),
+            Condition::all()
+                .add(
+                    Expr::col((d(), mappings::Column::ConnectionId))
+                        .equals((x(), mappings::Column::ConnectionId)),
+                )
+                // `split_part(x.external_entity_id, ':', 1)`: the document.
+                .add(
+                    Expr::col((d(), mappings::Column::ExternalEntityId)).eq(Func::cust(
+                        "split_part",
+                    )
+                    .arg(external())
+                    .arg(":")
+                    .arg(1)),
+                )
+                .add(
+                    Expr::col((d(), mappings::Column::ExternalEntityType))
+                        .is_in(types.iter().copied()),
+                ),
+        )
+        .cond_where(
+            Condition::all()
+                .add(Expr::col((x(), mappings::Column::ConnectionId)).eq(connection_id))
+                .add(Expr::col((x(), mappings::Column::ExternalEntityType)).eq(PAYMENT_TYPE))
+                .add(external().not_like("pending:%"))
+                .add(external().not_like("failed:%"))
+                .add(Expr::col((p(), payments::Column::DeletedAt)).is_not_null()),
+        )
+        .limit(u64::try_from(limit).unwrap_or(0));
+    select
 }
 
 fn mapped_types(key: &str) -> &'static [&'static str] {
@@ -974,11 +1554,7 @@ fn payment_types(key: &str) -> &'static [&'static str] {
 }
 
 /// Whether a pass has two-way work: SQL only, nothing asked of Moneybird.
-pub(super) async fn has_work(
-    db: &PgPool,
-    connection: &Value,
-    force: bool,
-) -> Result<bool, sqlx::Error> {
+pub(super) async fn has_work(db: &PgPool, connection: &Value, force: bool) -> Result<bool, DbErr> {
     let id = connection["id"].as_str().unwrap_or_default();
     for key in outbound_objects(connection) {
         for inbound in mapped_types(key) {
@@ -1149,22 +1725,29 @@ fn refused(error: &PushError) -> bool {
 /// Parks a change Moneybird refused: its baseline keeps the old hash but
 /// counts as seen now, so the record waits for its next edit instead of
 /// being sent (and refused) on every pass.
-async fn park(pass: &Pass<'_>, inbound: &str, candidate: &Candidate) -> Result<(), sqlx::Error> {
+async fn park(pass: &Pass<'_>, inbound: &str, candidate: &Candidate) -> Result<(), DbErr> {
     let Some(kind) = baseline_type(inbound) else {
         return Ok(());
     };
-    sqlx::query(
-        "update integration_entity_mappings
-         set last_synced_at = greatest(now() at time zone 'utc', last_synced_at),
-           updated_at = now() at time zone 'utc'
-         where connection_id = $1 and external_entity_type = $2 and external_entity_id = $3",
-    )
-    .bind(&pass.connection_id)
-    .bind(kind)
-    .bind(&candidate.external_id)
-    .execute(pass.db)
-    .await
-    .map(|_| ())
+    // `now() at time zone 'utc'`, the database's clock.
+    let now = || -> Expr {
+        Func::cust("timezone")
+            .arg("utc")
+            .arg(Expr::current_timestamp())
+            .into()
+    };
+    mappings::Entity::update_many()
+        .col_expr(
+            mappings::Column::LastSyncedAt,
+            Func::greatest([now(), Expr::col(mappings::Column::LastSyncedAt)]).into(),
+        )
+        .col_expr(mappings::Column::UpdatedAt, now())
+        .filter(mappings::Column::ConnectionId.eq(pass.connection_id.as_str()))
+        .filter(mappings::Column::ExternalEntityType.eq(kind))
+        .filter(mappings::Column::ExternalEntityId.eq(candidate.external_id.as_str()))
+        .exec(&orm(pass.db))
+        .await
+        .map(|_| ())
 }
 
 /// A record's step done: a failure is sampled on the run and the pass goes
@@ -1257,25 +1840,26 @@ async fn record_conflict(
     weldbooks: &Value,
     remote: &Value,
     winner: Winner,
-) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "insert into integration_sync_conflicts (id, connection_id, entity_type, internal_entity_id,
-           external_entity_id, conflict_type, internal_data, external_data, resolution, resolved_at, resolved_by)
-         values ($1, $2, $3, $4, $5, 'concurrent_edit', $6, $7, $8, $9::timestamp, 'system')",
-    )
-    .bind(weldsuite_kit::generate_id("cnfl"))
-    .bind(&pass.connection_id)
-    .bind(entity_type)
-    .bind(&candidate.internal_id)
-    .bind(&candidate.external_id)
-    .bind(weldbooks)
-    .bind(remote)
-    .bind(match winner {
-        Winner::WeldBooks => "keep_internal",
-        Winner::Moneybird => "keep_external",
+) -> Result<(), DbErr> {
+    conflicts::Entity::insert(conflicts::ActiveModel {
+        id: Set(weldsuite_kit::generate_id("cnfl")),
+        connection_id: Set(pass.connection_id.clone()),
+        entity_type: Set(entity_type.to_owned()),
+        internal_entity_id: Set(candidate.internal_id.clone()),
+        external_entity_id: Set(candidate.external_id.clone()),
+        conflict_type: Set("concurrent_edit".to_owned()),
+        internal_data: Set(weldbooks.clone()),
+        external_data: Set(remote.clone()),
+        resolution: Set(match winner {
+            Winner::WeldBooks => "keep_internal",
+            Winner::Moneybird => "keep_external",
+        }
+        .to_owned()),
+        resolved_at: Set(Some(utc_now())),
+        resolved_by: Set(Some("system".to_owned())),
+        ..Default::default()
     })
-    .bind(now_iso())
-    .execute(pass.db)
+    .exec_without_returning(&orm(pass.db))
     .await
     .map(|_| ())
 }
@@ -1379,23 +1963,24 @@ async fn note_written(
     inbound: &str,
     external_id: &str,
     written: &Value,
-) -> Result<(), sqlx::Error> {
+) -> Result<(), DbErr> {
     if !written.is_object() {
         return Ok(());
     }
-    sqlx::query(
-        "update integration_entity_mappings set sync_checksum = $1, last_synced_at = $2::timestamp,
-           updated_at = $2::timestamp
-         where connection_id = $3 and external_entity_type = $4 and external_entity_id = $5",
-    )
-    .bind(record_checksum(written))
-    .bind(now_iso())
-    .bind(&pass.connection_id)
-    .bind(inbound)
-    .bind(external_id)
-    .execute(pass.db)
-    .await
-    .map(|_| ())
+    let now = utc_now();
+    mappings::Entity::update_many()
+        .set(mappings::ActiveModel {
+            sync_checksum: Set(Some(record_checksum(written))),
+            last_synced_at: Set(Some(now)),
+            updated_at: Set(now),
+            ..Default::default()
+        })
+        .filter(mappings::Column::ConnectionId.eq(pass.connection_id.as_str()))
+        .filter(mappings::Column::ExternalEntityType.eq(inbound))
+        .filter(mappings::Column::ExternalEntityId.eq(external_id))
+        .exec(&orm(pass.db))
+        .await
+        .map(|_| ())
 }
 
 // ── contacts ────────────────────────────────────────────────────────────────
@@ -1971,16 +2556,16 @@ fn editable_document(remote: &Value) -> bool {
     matches!(remote["state"].as_str(), Some("new" | "saved" | "draft"))
 }
 
-async fn pushed_by_weldbooks(pass: &Pass<'_>, bill_id: &str) -> Result<bool, sqlx::Error> {
-    let found: Option<i32> = sqlx::query_scalar(
-        "select 1 from integration_entity_mappings
-         where connection_id = $1 and external_entity_type = $2 and internal_entity_id = $3 limit 1",
-    )
-    .bind(&pass.connection_id)
-    .bind(PUSHED_BILL_TYPE)
-    .bind(bill_id)
-    .fetch_optional(pass.db)
-    .await?;
+async fn pushed_by_weldbooks(pass: &Pass<'_>, bill_id: &str) -> Result<bool, DbErr> {
+    let found: Option<String> = mappings::Entity::find()
+        .select_only()
+        .column(mappings::Column::Id)
+        .filter(mappings::Column::ConnectionId.eq(pass.connection_id.as_str()))
+        .filter(mappings::Column::ExternalEntityType.eq(PUSHED_BILL_TYPE))
+        .filter(mappings::Column::InternalEntityId.eq(bill_id))
+        .into_tuple()
+        .one(&orm(pass.db))
+        .await?;
     Ok(found.is_some())
 }
 
@@ -2170,18 +2755,18 @@ async fn create_bill(pass: &mut Pass<'_>, bill_id: &str, force: bool) -> Step<()
     )
     .await?;
     if let Some(external_id) = external_id.filter(|id| !id.is_empty()) {
-        sqlx::query(
-            "insert into integration_entity_mappings (id, connection_id, external_entity_type, external_entity_id,
-               internal_entity_type, internal_entity_id, last_synced_at)
-             values ($1, $2, $3, $4, 'bill', $5, $6::timestamp) on conflict do nothing",
-        )
-        .bind(weldsuite_kit::generate_id("iem"))
-        .bind(&pass.connection_id)
-        .bind(PUSHED_BILL_TYPE)
-        .bind(&external_id)
-        .bind(bill_id)
-        .bind(now_iso())
-        .execute(pass.db)
+        mappings::Entity::insert(mappings::ActiveModel {
+            id: Set(weldsuite_kit::generate_id("iem")),
+            connection_id: Set(pass.connection_id.clone()),
+            external_entity_type: Set(PUSHED_BILL_TYPE.to_owned()),
+            external_entity_id: Set(external_id),
+            internal_entity_type: Set("bill".to_owned()),
+            internal_entity_id: Set(bill_id.to_owned()),
+            last_synced_at: Set(Some(utc_now())),
+            ..Default::default()
+        })
+        .on_conflict(OnConflict::new().do_nothing().to_owned())
+        .exec_without_returning(&orm(pass.db))
         .await?;
     }
     Ok(())
@@ -2192,48 +2777,58 @@ async fn create_bill(pass: &mut Pass<'_>, bill_id: &str, force: bool) -> Step<()
 async fn financial_mutation_id(
     pass: &Pass<'_>,
     bank_transaction_id: &str,
-) -> Result<Option<String>, sqlx::Error> {
-    sqlx::query_scalar(
-        "select external_entity_id from integration_entity_mappings
-         where connection_id = $1 and external_entity_type = 'moneybird_financial_mutation'
-           and internal_entity_id = $2 limit 1",
-    )
-    .bind(&pass.connection_id)
-    .bind(bank_transaction_id)
-    .fetch_optional(pass.db)
-    .await
+) -> Result<Option<String>, DbErr> {
+    mappings::Entity::find()
+        .select_only()
+        .column(mappings::Column::ExternalEntityId)
+        .filter(mappings::Column::ConnectionId.eq(pass.connection_id.as_str()))
+        .filter(mappings::Column::ExternalEntityType.eq("moneybird_financial_mutation"))
+        .filter(mappings::Column::InternalEntityId.eq(bank_transaction_id))
+        .into_tuple()
+        .one(&orm(pass.db))
+        .await
 }
 
 async fn create_payment(pass: &mut Pass<'_>, payment: &PaymentRow) -> Step<()> {
     let pending = format!("pending:{}:{}", payment.document, payment.payment_id);
+    let db = &orm(pass.db);
     // A failed or stale claim for this payment and document is retried.
-    sqlx::query(
-        "delete from integration_entity_mappings
-         where connection_id = $1 and external_entity_type = $2 and internal_entity_id = $3
-           and (external_entity_id like 'pending:' || $4 || ':%' or external_entity_id like 'failed:' || $4 || ':%')",
-    )
-    .bind(&pass.connection_id)
-    .bind(PAYMENT_TYPE)
-    .bind(&payment.payment_id)
-    .bind(&payment.document)
-    .execute(pass.db)
+    mappings::Entity::delete_many()
+        .filter(mappings::Column::ConnectionId.eq(pass.connection_id.as_str()))
+        .filter(mappings::Column::ExternalEntityType.eq(PAYMENT_TYPE))
+        .filter(mappings::Column::InternalEntityId.eq(payment.payment_id.as_str()))
+        .filter(
+            Condition::any()
+                .add(
+                    mappings::Column::ExternalEntityId
+                        .like(format!("pending:{}:%", payment.document)),
+                )
+                .add(
+                    mappings::Column::ExternalEntityId
+                        .like(format!("failed:{}:%", payment.document)),
+                ),
+        )
+        .exec(db)
+        .await?;
+    let stamp = utc_now();
+    let row = weldsuite_kit::generate_id("iem");
+    let inserted = mappings::Entity::insert(mappings::ActiveModel {
+        id: Set(row.clone()),
+        created_at: Set(stamp),
+        updated_at: Set(stamp),
+        connection_id: Set(pass.connection_id.clone()),
+        external_entity_type: Set(PAYMENT_TYPE.to_owned()),
+        external_entity_id: Set(pending),
+        internal_entity_type: Set("payment".to_owned()),
+        internal_entity_id: Set(payment.payment_id.clone()),
+        ..Default::default()
+    })
+    .on_conflict(OnConflict::new().do_nothing().to_owned())
+    .exec_without_returning(db)
     .await?;
-    let row: Option<String> = sqlx::query_scalar(
-        "insert into integration_entity_mappings (id, created_at, updated_at, connection_id, external_entity_type,
-           external_entity_id, internal_entity_type, internal_entity_id)
-         values ($1, $2::timestamp, $2::timestamp, $3, $4, $5, 'payment', $6) on conflict do nothing returning id",
-    )
-    .bind(weldsuite_kit::generate_id("iem"))
-    .bind(now_iso())
-    .bind(&pass.connection_id)
-    .bind(PAYMENT_TYPE)
-    .bind(&pending)
-    .bind(&payment.payment_id)
-    .fetch_optional(pass.db)
-    .await?;
-    let Some(row) = row else {
+    if inserted == 0 {
         return Ok(());
-    };
+    }
     let created: Step<Value> = async {
         let mut body = Map::new();
         body.insert(
@@ -2280,15 +2875,17 @@ async fn create_payment(pass: &mut Pass<'_>, payment: &PaymentRow) -> Step<()> {
             } else {
                 format!("{}:{id}", payment.document)
             };
-            sqlx::query(
-                "update integration_entity_mappings set external_entity_id = $1, last_synced_at = $2::timestamp,
-                   updated_at = $2::timestamp where id = $3",
-            )
-            .bind(external)
-            .bind(now_iso())
-            .bind(&row)
-            .execute(pass.db)
-            .await?;
+            let now = utc_now();
+            mappings::Entity::update_many()
+                .set(mappings::ActiveModel {
+                    external_entity_id: Set(external),
+                    last_synced_at: Set(Some(now)),
+                    updated_at: Set(now),
+                    ..Default::default()
+                })
+                .filter(mappings::Column::Id.eq(row.as_str()))
+                .exec(db)
+                .await?;
             pass.updated += 1;
             Ok(())
         }
@@ -2296,11 +2893,17 @@ async fn create_payment(pass: &mut Pass<'_>, payment: &PaymentRow) -> Step<()> {
             if error.ends_pass() {
                 release_claim(pass.db, &row).await?;
             } else {
-                sqlx::query("update integration_entity_mappings set external_entity_id = $1, updated_at = $2::timestamp where id = $3")
-                    .bind(format!("failed:{}:{}", payment.document, payment.payment_id))
-                    .bind(now_iso())
-                    .bind(&row)
-                    .execute(pass.db)
+                mappings::Entity::update_many()
+                    .set(mappings::ActiveModel {
+                        external_entity_id: Set(format!(
+                            "failed:{}:{}",
+                            payment.document, payment.payment_id
+                        )),
+                        updated_at: Set(utc_now()),
+                        ..Default::default()
+                    })
+                    .filter(mappings::Column::Id.eq(row.as_str()))
+                    .exec(db)
                     .await?;
             }
             Err(error)

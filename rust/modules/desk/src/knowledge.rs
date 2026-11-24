@@ -15,9 +15,11 @@ use axum::Router;
 use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events as ev;
 use weldsuite_catalogs::permission_keys as perm;
+use weldsuite_db::orm;
 use weldsuite_desk_domain::articles::{
     Search, article_slug, article_url, help_center_base_url, matches_sql, rank_sql, related_search,
     typed_search,
@@ -25,6 +27,7 @@ use weldsuite_desk_domain::articles::{
 use weldsuite_kit::validation::{Issues, Number, Presence, Text, js_trim, query_values};
 use weldsuite_kit::{Created, Data, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::{desk_conversations, desk_messages};
 
 use crate::crud::write_failed;
 use crate::table::WriteError;
@@ -32,9 +35,9 @@ use crate::tables::HELPDESK_ARTICLES;
 use crate::{Caller, DeskState, Refusal, now};
 
 /// The customer's messages a suggestion reads, newest first.
-const RELATED_MESSAGES: i64 = 3;
+const RELATED_MESSAGES: u64 = 3;
 /// Messages a draft article reads, oldest first.
-const DRAFT_MESSAGES: i64 = 200;
+const DRAFT_MESSAGES: u64 = 200;
 
 /// The routes, relative to `/api`, each with its `requirePermission`s.
 pub(crate) fn routes<Q>(gate: &Arc<PermissionGate<Q>>) -> Router<DeskState>
@@ -91,12 +94,16 @@ fn suggestions_query(query: Option<&str>) -> Result<(Option<String>, Option<f64>
 
 /// `suggestDeskArticles(db, search, limit, baseUrl)`: a version counts only
 /// while its original is published and shareable too.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "full-text search ranked by ts_rank, with the match and rank SQL the help-center routes share"
+)]
 async fn suggest(
     db: &weldsuite_db::PgPool,
     search: &Search,
     limit: i64,
     base: Option<&str>,
-) -> Result<Vec<Value>, sqlx::Error> {
+) -> Result<Vec<Value>, DbErr> {
     let matches = matches_sql("t", 1, 2);
     let rank = rank_sql("t", 1, 2);
     #[allow(clippy::type_complexity)] // the suggestion's columns
@@ -121,7 +128,8 @@ async fn suggest(
     .bind(&search.tsquery)
     .bind(limit)
     .fetch_all(db)
-    .await?;
+    .await
+    .map_err(weldsuite_db::orm_error)?;
     Ok(rows
         .into_iter()
         .map(|(id, title, slug, excerpt, visibility, locale)| {
@@ -145,30 +153,34 @@ async fn suggestions(
         Err(response) => return *response,
     };
     let db = &caller.db;
-    let conversation: Option<Option<String>> =
-        match sqlx::query_scalar("select title from desk_conversations where id = $1 limit 1")
-            .bind(&id)
-            .fetch_optional(db)
-            .await
-        {
-            Ok(found) => found,
-            Err(error) => return Refusal::from(error).respond(MESSAGE),
-        };
+    let conversation: Option<Option<String>> = match desk_conversations::Entity::find_by_id(&id)
+        .select_only()
+        .column(desk_conversations::Column::Title)
+        .into_tuple()
+        .one(&orm(db))
+        .await
+    {
+        Ok(found) => found,
+        Err(error) => return Refusal::from(error).respond(MESSAGE),
+    };
     let Some(title) = conversation else {
         return Refusal::not_found("Conversation", &id).respond(MESSAGE);
     };
 
     let query_text = q.unwrap_or_default();
     let search = if query_text.is_empty() {
-        let recent: Vec<Option<String>> = match sqlx::query_scalar(
-            "select body from desk_messages
-             where conversation_id = $1 and kind = 'message' and author_type = 'visitor'
-             order by created_at desc, id desc limit $2",
-        )
-        .bind(&id)
-        .bind(RELATED_MESSAGES)
-        .fetch_all(db)
-        .await
+        let recent: Vec<Option<String>> = match desk_messages::Entity::find()
+            .select_only()
+            .column(desk_messages::Column::Body)
+            .filter(desk_messages::Column::ConversationId.eq(&id))
+            .filter(desk_messages::Column::Kind.eq("message"))
+            .filter(desk_messages::Column::AuthorType.eq("visitor"))
+            .order_by_desc(desk_messages::Column::CreatedAt)
+            .order_by_desc(desk_messages::Column::Id)
+            .limit(RELATED_MESSAGES)
+            .into_tuple()
+            .all(&orm(db))
+            .await
         {
             Ok(recent) => recent,
             Err(error) => return Refusal::from(error).respond(MESSAGE),
@@ -354,27 +366,33 @@ async fn draft_article(
 ) -> Response {
     const MESSAGE: &str = "Failed to create the draft article";
     let db = &caller.db;
-    let conversation: Option<(Option<String>, i32)> = match sqlx::query_as(
-        "select title, conversation_number from desk_conversations where id = $1 limit 1",
-    )
-    .bind(&id)
-    .fetch_optional(db)
-    .await
-    {
-        Ok(found) => found,
-        Err(error) => return Refusal::from(error).respond(MESSAGE),
-    };
+    let conversation: Option<(Option<String>, i32)> =
+        match desk_conversations::Entity::find_by_id(&id)
+            .select_only()
+            .column(desk_conversations::Column::Title)
+            .column(desk_conversations::Column::ConversationNumber)
+            .into_tuple()
+            .one(&orm(db))
+            .await
+        {
+            Ok(found) => found,
+            Err(error) => return Refusal::from(error).respond(MESSAGE),
+        };
     let Some((title, number)) = conversation else {
         return Refusal::not_found("Conversation", &id).respond(MESSAGE);
     };
-    let timeline: Vec<TimelineRow> = match sqlx::query_as(
-        "select kind, author_type, body from desk_messages
-         where conversation_id = $1 order by created_at asc, id asc limit $2",
-    )
-    .bind(&id)
-    .bind(DRAFT_MESSAGES)
-    .fetch_all(db)
-    .await
+    let timeline: Vec<TimelineRow> = match desk_messages::Entity::find()
+        .select_only()
+        .column(desk_messages::Column::Kind)
+        .column(desk_messages::Column::AuthorType)
+        .column(desk_messages::Column::Body)
+        .filter(desk_messages::Column::ConversationId.eq(&id))
+        .order_by_asc(desk_messages::Column::CreatedAt)
+        .order_by_asc(desk_messages::Column::Id)
+        .limit(DRAFT_MESSAGES)
+        .into_tuple()
+        .all(&orm(db))
+        .await
     {
         Ok(rows) => rows,
         Err(error) => return Refusal::from(error).respond(MESSAGE),

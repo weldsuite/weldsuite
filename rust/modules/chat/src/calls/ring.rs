@@ -11,6 +11,8 @@ use std::time::Duration;
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use hmac::{Hmac, KeyInit, Mac};
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
 use sha2::Sha256;
 use weldsuite_chat_domain::Realtime;
@@ -19,7 +21,7 @@ use weldsuite_chat_domain::calls::{
     dm_call_recipients, insert_call_notice, iso_of_ms, now_ms, parse_ms, participants_of,
     ring_timed_out, room_of, teardown_room, text, truthy, was_answered,
 };
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::generate_id;
 use weldsuite_notifications::{
     CallCancelReason, Notifier, cancel_incoming_call_push, chat as notify, create_and_deliver,
@@ -29,7 +31,9 @@ use weldsuite_ports::{
     BoxFuture, DynCache, DynJobs, DynRealtimePublisher, Job, JobContext, JobError, JobRequest,
     StepRetry, step,
 };
+use weldsuite_schema::tenant::{chat_calls, chat_channel_members as members, workspace_members};
 
+use crate::groups::channels::timestamp_of;
 use crate::pins::TenantDatabases;
 
 /// How long a ring token works (`CALL_RING_TOKEN_TTL_MS`): the phone's ring
@@ -174,11 +178,13 @@ pub(crate) async fn ring_member(db: &PgPool, ports: &CallPorts, ring: &Ring, mem
 
 /// Every DM member but the caller, rung one after another.
 pub(crate) async fn ring_dm_members(db: &PgPool, ports: &CallPorts, ring: &Ring) {
-    let members: Result<Vec<String>, sqlx::Error> =
-        sqlx::query_scalar("select user_id from chat_channel_members where channel_id = $1")
-            .bind(&ring.channel_id)
-            .fetch_all(db)
-            .await;
+    let members: Result<Vec<String>, DbErr> = members::Entity::find()
+        .select_only()
+        .column(members::Column::UserId)
+        .filter(members::Column::ChannelId.eq(&ring.channel_id))
+        .into_tuple()
+        .all(&orm(db))
+        .await;
     match members {
         Ok(members) => {
             for member in members.iter().filter(|m| **m != ring.caller_id) {
@@ -290,7 +296,7 @@ pub(crate) async fn decline_ringing_call(
     org_id: &str,
     call: &Value,
     decliner_id: &str,
-) -> Result<bool, sqlx::Error> {
+) -> Result<bool, DbErr> {
     if !is_ringing(call) {
         return Ok(false);
     }
@@ -308,16 +314,18 @@ pub(crate) async fn decline_ringing_call(
         .cloned()
         .unwrap_or_default();
     metadata.insert("declinedBy".into(), json!(decliner_id));
-    sqlx::query(
-        "update chat_calls set status = 'declined', ended_at = $2::timestamp,
-             updated_at = $2::timestamp, metadata = $3
-         where id = $1",
-    )
-    .bind(call_id)
-    .bind(&now)
-    .bind(Value::Object(metadata))
-    .execute(db)
-    .await?;
+    let stamp = timestamp_of(&now)?;
+    chat_calls::Entity::update_many()
+        .col_expr(chat_calls::Column::Status, Expr::value("declined"))
+        .col_expr(chat_calls::Column::EndedAt, Expr::value(stamp))
+        .col_expr(chat_calls::Column::UpdatedAt, Expr::value(stamp))
+        .col_expr(
+            chat_calls::Column::Metadata,
+            Expr::value(Value::Object(metadata)),
+        )
+        .filter(chat_calls::Column::Id.eq(call_id))
+        .exec(&orm(db))
+        .await?;
 
     if let Some(room) = room_of(call) {
         teardown_room(
@@ -345,10 +353,10 @@ pub(crate) async fn decline_ringing_call(
         &now,
     )
     .await?;
-    sqlx::query("update chat_calls set end_message_id = $2 where id = $1")
-        .bind(call_id)
-        .bind(&message_id)
-        .execute(db)
+    chat_calls::Entity::update_many()
+        .col_expr(chat_calls::Column::EndMessageId, Expr::value(message_id))
+        .filter(chat_calls::Column::Id.eq(call_id))
+        .exec(&orm(db))
         .await?;
 
     ports
@@ -381,11 +389,13 @@ pub(crate) async fn decline_ringing_call(
     .await;
 
     if decliner_id != initiator_id {
-        let name: Result<Option<Option<String>>, sqlx::Error> =
-            sqlx::query_scalar("select name from workspace_members where user_id = $1 limit 1")
-                .bind(initiator_id)
-                .fetch_optional(db)
-                .await;
+        let name: Result<Option<Option<String>>, DbErr> = workspace_members::Entity::find()
+            .select_only()
+            .column(workspace_members::Column::Name)
+            .filter(workspace_members::Column::UserId.eq(initiator_id))
+            .into_tuple()
+            .one(&orm(db))
+            .await;
         match name {
             Ok(name) => {
                 let caller_name = name.flatten().unwrap_or_else(|| initiator_name.to_owned());
@@ -450,7 +460,7 @@ pub(crate) async fn cancel_ring_on_answer(
 }
 
 /// The latest the database can tell (`call_row`), for the public decline.
-pub(crate) async fn load_call(db: &PgPool, call_id: &str) -> Result<Option<Value>, sqlx::Error> {
+pub(crate) async fn load_call(db: &PgPool, call_id: &str) -> Result<Option<Value>, DbErr> {
     call_row(db, call_id).await
 }
 

@@ -2,8 +2,12 @@
 //! one row per workspace and ad connection, telling the metrics sweep which
 //! connections to pull and when.
 
-use weldsuite_db::PgPool;
+use sea_orm::sea_query::{Expr, Query};
+use sea_orm::{ColumnTrait, ConnectionTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
+use time::OffsetDateTime;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::generate_id;
+use weldsuite_schema::master::ad_sync_index;
 
 use crate::{AdsError, hours_from_now, now};
 
@@ -25,7 +29,7 @@ pub struct SyncIndexEntry<'a> {
     pub metrics_interval_hours: Option<i64>,
     /// `webhookSubscribedAt`: `None` keeps an existing row's value and
     /// writes null into a new one.
-    pub webhook_subscribed_at: Option<String>,
+    pub webhook_subscribed_at: Option<OffsetDateTime>,
 }
 
 /// `upsertAdSyncIndex(env, input)`: update the workspace's row for the
@@ -35,59 +39,71 @@ pub async fn upsert_ad_sync_index(
     db: Option<&PgPool>,
     entry: &SyncIndexEntry<'_>,
 ) -> Result<(), AdsError> {
-    let db = master(db)?;
+    use ad_sync_index::Column;
+    use sea_orm::ExprTrait as _;
+    let db = orm(master(db)?);
     let now = now();
     let interval = entry
         .metrics_interval_hours
         .unwrap_or(DEFAULT_METRICS_INTERVAL_HOURS);
     let next_metrics_sync_at = entry.is_enabled.then(|| hours_from_now(interval));
-    let existing: Option<String> = sqlx::query_scalar(
-        "select id from ad_sync_index where workspace_id = $1 and connection_id = $2 limit 1",
-    )
-    .bind(entry.workspace_id)
-    .bind(entry.connection_id)
-    .fetch_optional(db)
-    .await?;
-    if let Some(id) = existing {
-        sqlx::query(
-            "update ad_sync_index set
-                 clerk_org_id = $2,
-                 is_enabled = $3,
-                 metrics_interval_hours = $4::int,
-                 next_metrics_sync_at = $5::timestamptz,
-                 webhook_subscribed_at = case when $6::text is null then webhook_subscribed_at
-                                              else $6::timestamptz end,
-                 updated_at = $7::timestamptz
-             where id = $1",
-        )
-        .bind(&id)
-        .bind(entry.clerk_org_id)
-        .bind(entry.is_enabled)
-        .bind(interval)
-        .bind(next_metrics_sync_at)
-        .bind(entry.webhook_subscribed_at.as_deref())
-        .bind(&now)
-        .execute(db)
+    // `$n::int` of the hours, as before.
+    let interval_hours = || Expr::val(interval).cast_as("int");
+    let existing: Option<String> = ad_sync_index::Entity::find()
+        .select_only()
+        .column(Column::Id)
+        .filter(Column::WorkspaceId.eq(entry.workspace_id))
+        .filter(Column::ConnectionId.eq(entry.connection_id))
+        .into_tuple()
+        .one(&db)
         .await?;
+    if let Some(id) = existing {
+        let mut update = ad_sync_index::Entity::update_many()
+            .col_expr(
+                Column::ClerkOrgId,
+                Expr::value(entry.clerk_org_id.to_owned()),
+            )
+            .col_expr(Column::IsEnabled, Expr::value(entry.is_enabled))
+            .col_expr(Column::MetricsIntervalHours, interval_hours())
+            .col_expr(Column::NextMetricsSyncAt, Expr::value(next_metrics_sync_at));
+        // `case when $n is null then webhook_subscribed_at else $n end`
+        if let Some(subscribed_at) = entry.webhook_subscribed_at {
+            update = update.col_expr(Column::WebhookSubscribedAt, Expr::value(subscribed_at));
+        }
+        update
+            .col_expr(Column::UpdatedAt, Expr::value(now))
+            .filter(Column::Id.eq(id))
+            .exec(&db)
+            .await?;
         return Ok(());
     }
-    sqlx::query(
-        "insert into ad_sync_index
-             (id, workspace_id, connection_id, clerk_org_id, is_enabled, metrics_interval_hours,
-              next_metrics_sync_at, webhook_subscribed_at, updated_at)
-         values ($1, $2, $3, $4, $5, $6::int, $7::timestamptz, $8::timestamptz, $9::timestamptz)",
-    )
-    .bind(generate_id("adsx"))
-    .bind(entry.workspace_id)
-    .bind(entry.connection_id)
-    .bind(entry.clerk_org_id)
-    .bind(entry.is_enabled)
-    .bind(interval)
-    .bind(next_metrics_sync_at)
-    .bind(entry.webhook_subscribed_at.as_deref())
-    .bind(&now)
-    .execute(db)
-    .await?;
+    let insert = Query::insert()
+        .into_table(ad_sync_index::Entity)
+        .columns([
+            Column::Id,
+            Column::WorkspaceId,
+            Column::ConnectionId,
+            Column::ClerkOrgId,
+            Column::IsEnabled,
+            Column::MetricsIntervalHours,
+            Column::NextMetricsSyncAt,
+            Column::WebhookSubscribedAt,
+            Column::UpdatedAt,
+        ])
+        .values([
+            Expr::value(generate_id("adsx")),
+            Expr::value(entry.workspace_id.to_owned()),
+            Expr::value(entry.connection_id.to_owned()),
+            Expr::value(entry.clerk_org_id.to_owned()),
+            Expr::value(entry.is_enabled),
+            interval_hours(),
+            Expr::value(next_metrics_sync_at),
+            Expr::value(entry.webhook_subscribed_at),
+            Expr::value(now),
+        ])
+        .map_err(|error| DbErr::Custom(error.to_string()))?
+        .to_owned();
+    db.execute(&insert).await?;
     Ok(())
 }
 
@@ -97,10 +113,10 @@ pub async fn delete_ad_sync_index(
     workspace_id: &str,
     connection_id: &str,
 ) -> Result<(), AdsError> {
-    sqlx::query("delete from ad_sync_index where workspace_id = $1 and connection_id = $2")
-        .bind(workspace_id)
-        .bind(connection_id)
-        .execute(master(db)?)
+    ad_sync_index::Entity::delete_many()
+        .filter(ad_sync_index::Column::WorkspaceId.eq(workspace_id))
+        .filter(ad_sync_index::Column::ConnectionId.eq(connection_id))
+        .exec(&orm(master(db)?))
         .await?;
     Ok(())
 }
@@ -112,15 +128,16 @@ pub async fn touch_ad_sync_index_after_metrics_sync(
     workspace_id: &str,
     connection_id: &str,
 ) -> Result<(), AdsError> {
-    sqlx::query(
-        "update ad_sync_index set next_metrics_sync_at = $3::timestamptz, updated_at = $4::timestamptz
-         where workspace_id = $1 and connection_id = $2",
-    )
-    .bind(workspace_id)
-    .bind(connection_id)
-    .bind(hours_from_now(DEFAULT_METRICS_INTERVAL_HOURS))
-    .bind(now())
-    .execute(master(db)?)
-    .await?;
+    use ad_sync_index::Column;
+    ad_sync_index::Entity::update_many()
+        .col_expr(
+            Column::NextMetricsSyncAt,
+            Expr::value(hours_from_now(DEFAULT_METRICS_INTERVAL_HOURS)),
+        )
+        .col_expr(Column::UpdatedAt, Expr::value(now()))
+        .filter(Column::WorkspaceId.eq(workspace_id))
+        .filter(Column::ConnectionId.eq(connection_id))
+        .exec(&orm(master(db)?))
+        .await?;
     Ok(())
 }

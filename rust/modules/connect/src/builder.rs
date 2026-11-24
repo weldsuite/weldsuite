@@ -13,16 +13,19 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use http::HeaderMap;
+use sea_orm::sea_query::Expr;
+use sea_orm::{ActiveValue::Set, ColumnTrait, EntityTrait, QueryFilter};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events::{WORKFLOW_CREATED, WORKFLOW_UPDATED};
 use weldsuite_catalogs::permission_keys as perm;
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_kit::validation::{Presence, Text};
 use weldsuite_kit::{ApiError, Created, Data, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::workflows;
 
 use crate::workflows::get_workflow;
-use crate::{Caller, ConnectState, Refusal, internal, now, validate};
+use crate::{Caller, ConnectState, Refusal, internal, validate};
 
 pub(crate) fn routes<Q: PermissionQueries + 'static>(
     gate: &Arc<PermissionGate<Q>>,
@@ -140,19 +143,28 @@ async fn create(
     }
     let result = async {
         let id = generate_id("wf");
-        let stamp = now();
-        sqlx::query(
-            "insert into workflows
-                (id, name, description, status, triggers, steps, settings, tags, created_by, version,
-                 execution_count, success_count, failure_count, created_at, updated_at)
-             values ($1, 'Untitled AI workflow', null, 'draft', '[]'::jsonb, '[]'::jsonb, $2, '[\"ai-builder\"]'::jsonb,
-                     $3, 1, 0, 0, 0, $4::timestamp, $4::timestamp)",
-        )
-        .bind(&id)
-        .bind(json!({ "builderState": { "isBuilderDraft": true, "chatHistory": [], "finalized": false } }))
-        .bind(&caller.user_id)
-        .bind(&stamp)
-        .execute(&caller.db)
+        let stamp = utc_now();
+        workflows::Entity::insert(workflows::ActiveModel {
+            id: Set(id.clone()),
+            name: Set("Untitled AI workflow".to_owned()),
+            description: Set(None),
+            status: Set("draft".to_owned()),
+            triggers: Set(Some(json!([]))),
+            steps: Set(Some(json!([]))),
+            settings: Set(Some(json!({
+                "builderState": { "isBuilderDraft": true, "chatHistory": [], "finalized": false }
+            }))),
+            tags: Set(Some(json!(["ai-builder"]))),
+            created_by: Set(Some(caller.user_id.clone())),
+            version: Set(1),
+            execution_count: Set(Some(0)),
+            success_count: Set(Some(0)),
+            failure_count: Set(Some(0)),
+            created_at: Set(stamp),
+            updated_at: Set(stamp),
+            ..Default::default()
+        })
+        .exec_without_returning(&orm(&caller.db))
         .await?;
         let row = get_workflow(&caller.db, &id).await?.unwrap_or(Value::Null);
         let draft = draft(&row);
@@ -162,11 +174,11 @@ async fn create(
             &id,
             &json!({ "id": id, "name": draft["name"], "status": draft["status"] }),
         );
-        Ok::<_, sqlx::Error>(Created(draft).into_response())
+        Ok::<_, Refusal>(Created(draft).into_response())
     };
     result
         .await
-        .unwrap_or_else(|error| internal(&error, "Failed to create builder draft"))
+        .unwrap_or_else(|refusal| refusal.respond("Failed to create builder draft"))
 }
 
 async fn get_one(caller: Caller, Path(id): Path<String>) -> Response {
@@ -195,7 +207,7 @@ async fn finalize_draft(
     id: &str,
     name: Option<String>,
     description: Option<String>,
-) -> Result<Option<Value>, sqlx::Error> {
+) -> Result<Option<Value>, Refusal> {
     let Some(row) = get_workflow(db, id).await? else {
         return Ok(None);
     };
@@ -213,20 +225,22 @@ async fn finalize_draft(
         }),
     );
     let name = name.filter(|n| !n.is_empty());
-    sqlx::query(
-        "update workflows set settings = $2, updated_at = $3::timestamp,
-            name = case when $4::text is not null then $4 else name end,
-            description = case when $5 then $6 else description end
-         where id = $1",
-    )
-    .bind(id)
-    .bind(Value::Object(settings))
-    .bind(now())
-    .bind(&name)
-    .bind(description.is_some())
-    .bind(&description)
-    .execute(db)
-    .await?;
+    let mut update = workflows::Entity::update_many()
+        .col_expr(
+            workflows::Column::Settings,
+            Expr::value(Value::Object(settings)),
+        )
+        .col_expr(workflows::Column::UpdatedAt, Expr::value(utc_now()));
+    if let Some(name) = name {
+        update = update.col_expr(workflows::Column::Name, Expr::value(name));
+    }
+    if let Some(description) = description {
+        update = update.col_expr(workflows::Column::Description, Expr::value(description));
+    }
+    update
+        .filter(workflows::Column::Id.eq(id))
+        .exec(&orm(db))
+        .await?;
     Ok(get_workflow(db, id).await?.map(|row| draft(&row)))
 }
 

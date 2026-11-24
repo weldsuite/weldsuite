@@ -10,8 +10,16 @@
 //! only at Telnyx.
 
 use http::StatusCode;
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, DatabaseConnection, DbErr, EntityTrait, QueryFilter, QueryOrder,
+    QuerySelect,
+};
 use serde_json::{Map, Value, json};
-use weldsuite_db::PgPool;
+use time::PrimitiveDateTime;
+use weldsuite_db::{PgPool, orm, utc_now};
+use weldsuite_schema::master::phone_number_registry as registry_rows;
+use weldsuite_schema::tenant::{voip_phone_numbers as voip_numbers, voip_sip_trunks as trunks};
 
 use crate::registry::{self, OwnRow};
 use crate::sip_trunk_number::{country_of_e164, to_trunk_e164};
@@ -23,7 +31,7 @@ use crate::telnyx_connections::{
     ConnectionBase, ConnectionPatch, DEFAULT_SIP_HOST, SIGNALING_IPS, SIP_HOSTS, SIP_PORT_PLAIN,
     SIP_PORT_TLS,
 };
-use crate::{CallState, Caller, js, now};
+use crate::{CallState, Caller, js};
 
 /// `DESK_SIP_TRUNK_MAX_IP_ADDRESSES`.
 pub(crate) const MAX_IP_ADDRESSES: usize = 10;
@@ -57,10 +65,28 @@ pub(crate) enum Failure {
     Internal(String),
 }
 
-impl From<sqlx::Error> for Failure {
-    fn from(error: sqlx::Error) -> Self {
+impl From<DbErr> for Failure {
+    fn from(error: DbErr) -> Self {
         Self::Internal(error.to_string())
     }
+}
+
+/// A trunk's row as Drizzle returned it: the entity serializes to its JSON.
+fn trunk_row(model: trunks::Model) -> Value {
+    serde_json::to_value(model).unwrap_or(Value::Null)
+}
+
+/// A number's row as Drizzle returned it.
+fn number_row(model: voip_numbers::Model) -> Value {
+    serde_json::to_value(model).unwrap_or(Value::Null)
+}
+
+/// `update … returning *` that expected its row (`fetch_one`): no row is
+/// the query's error.
+fn the_row<T>(rows: Vec<T>) -> Result<T, DbErr> {
+    rows.into_iter()
+        .next()
+        .ok_or_else(|| DbErr::RecordNotFound("no rows returned by the update".to_owned()))
 }
 
 fn refusal(status: StatusCode, code: &'static str, message: impl Into<String>) -> Failure {
@@ -138,7 +164,7 @@ fn best_effort(label: &str, result: Result<(), TelnyxError>) {
 
 // ── JSON ────────────────────────────────────────────────────────────────────
 
-/// `toNumberJson(row)` of a `js_row` number.
+/// `toNumberJson(row)` of a number's row (its entity's JSON).
 pub(crate) fn number_json(row: &Value) -> Value {
     json!({
         "id": row["id"],
@@ -179,7 +205,7 @@ fn connection_details(sip_host: Option<&str>, trunk: &Value) -> Value {
     })
 }
 
-/// `toTrunkJson(env, trunk, numbers)` of `js_row` rows.
+/// `toTrunkJson(env, trunk, numbers)` of the rows' JSON.
 fn trunk_json(sip_host: Option<&str>, trunk: &Value, numbers: &[Value]) -> Value {
     let ip_addresses: Vec<Value> = stored_addresses(trunk)
         .iter()
@@ -420,8 +446,8 @@ impl<'a> Trunks<'a> {
         }
     }
 
-    fn db(&self) -> &PgPool {
-        &self.caller.db
+    fn db(&self) -> DatabaseConnection {
+        orm(&self.caller.db)
     }
 
     fn sip_host(&self) -> Option<String> {
@@ -444,43 +470,36 @@ impl<'a> Trunks<'a> {
 
     /// `loadNumbers(db, trunkIds)`: the live numbers of these trunks, oldest
     /// first.
-    async fn load_numbers(&self, trunk_ids: &[String]) -> Result<Vec<Value>, sqlx::Error> {
+    async fn load_numbers(&self, trunk_ids: &[String]) -> Result<Vec<Value>, DbErr> {
         if trunk_ids.is_empty() {
             return Ok(Vec::new());
         }
-        let rows: Vec<Value> = sqlx::query_scalar(
-            "select to_jsonb(n) from voip_phone_numbers n
-             where n.sip_trunk_id = any($1) and n.deleted_at is null
-             order by n.created_at asc, n.id asc",
-        )
-        .bind(trunk_ids)
-        .fetch_all(self.db())
-        .await?;
-        Ok(crate::rows(rows))
+        let rows = voip_numbers::Entity::find()
+            .filter(voip_numbers::Column::SipTrunkId.is_in(trunk_ids))
+            .filter(voip_numbers::Column::DeletedAt.is_null())
+            .order_by_asc(voip_numbers::Column::CreatedAt)
+            .order_by_asc(voip_numbers::Column::Id)
+            .all(&self.db())
+            .await?;
+        Ok(rows.into_iter().map(number_row).collect())
     }
 
     /// `loadTrunk(db, id)`.
     async fn load_trunk(&self, id: &str) -> Result<Value, Failure> {
-        let row: Option<Value> =
-            sqlx::query_scalar("select to_jsonb(t) from voip_sip_trunks t where t.id = $1 limit 1")
-                .bind(id)
-                .fetch_optional(self.db())
-                .await?;
-        row.map(weldsuite_db::js_row)
+        let row = trunks::Entity::find_by_id(id).one(&self.db()).await?;
+        row.map(trunk_row)
             .ok_or_else(|| not_found(format!("Phone system '{id}' not found")))
     }
 
     /// `loadTrunkNumber(db, trunkId, numberId)`: a live number of this trunk.
     async fn load_trunk_number(&self, trunk_id: &str, number_id: &str) -> Result<Value, Failure> {
-        let row: Option<Value> = sqlx::query_scalar(
-            "select to_jsonb(n) from voip_phone_numbers n
-             where n.id = $1 and n.sip_trunk_id = $2 and n.deleted_at is null limit 1",
-        )
-        .bind(number_id)
-        .bind(trunk_id)
-        .fetch_optional(self.db())
-        .await?;
-        row.map(weldsuite_db::js_row).ok_or_else(|| {
+        let row = voip_numbers::Entity::find()
+            .filter(voip_numbers::Column::Id.eq(number_id))
+            .filter(voip_numbers::Column::SipTrunkId.eq(trunk_id))
+            .filter(voip_numbers::Column::DeletedAt.is_null())
+            .one(&self.db())
+            .await?;
+        row.map(number_row).ok_or_else(|| {
             not_found(format!(
                 "Number '{number_id}' not found on this phone system"
             ))
@@ -490,12 +509,14 @@ impl<'a> Trunks<'a> {
     /// `listSipTrunks(ctx)`: every trunk with its numbers and connection
     /// details, oldest first.
     pub(crate) async fn list(&self) -> Result<Vec<Value>, Failure> {
-        let trunks: Vec<Value> = sqlx::query_scalar(
-            "select to_jsonb(t) from voip_sip_trunks t order by t.created_at asc, t.id asc",
-        )
-        .fetch_all(self.db())
-        .await?;
-        let trunks = crate::rows(trunks);
+        let trunks: Vec<Value> = trunks::Entity::find()
+            .order_by_asc(trunks::Column::CreatedAt)
+            .order_by_asc(trunks::Column::Id)
+            .all(&self.db())
+            .await?
+            .into_iter()
+            .map(trunk_row)
+            .collect();
         let ids: Vec<String> = trunks
             .iter()
             .map(|trunk| js::string(&trunk["id"]))
@@ -591,27 +612,27 @@ impl<'a> Trunks<'a> {
             return Err(telnyx_failure("Creating the connection", &error));
         }
 
-        let inserted: Result<Value, sqlx::Error> = sqlx::query_scalar(
-            "insert into voip_sip_trunks (id, created_at, updated_at, name, provider, auth_mode,
-                 ip_addresses, sip_username, transport, provider_connection_id, status, created_by_id)
-             values ($1, $2::timestamp, $2::timestamp, $3, $4, $5, $6, $7, $8, $9, 'active', $10)
-             returning to_jsonb(voip_sip_trunks)",
-        )
-        .bind(&id)
-        .bind(now())
-        .bind(&input.name)
-        .bind(&input.provider)
-        .bind(&input.auth_mode)
-        .bind(Value::Array(ip_addresses))
-        .bind(credentials.as_ref().map(|login| login.username.as_str()))
-        .bind(transport)
-        .bind(&connection_id)
-        .bind(&self.caller.user_id)
-        .fetch_one(self.db())
+        let now = utc_now();
+        let inserted = trunks::Entity::insert(trunks::ActiveModel {
+            id: Set(id),
+            created_at: Set(now),
+            updated_at: Set(now),
+            name: Set(input.name.clone()),
+            provider: Set(input.provider.clone()),
+            auth_mode: Set(input.auth_mode.clone()),
+            ip_addresses: Set(Value::Array(ip_addresses)),
+            sip_username: Set(credentials.as_ref().map(|login| login.username.clone())),
+            transport: Set(transport.to_owned()),
+            provider_connection_id: Set(connection_id.clone()),
+            status: Set("active".to_owned()),
+            created_by_id: Set(Some(self.caller.user_id.clone())),
+            ..Default::default()
+        })
+        .exec_with_returning(&self.db())
         .await;
         match inserted {
             Ok(row) => {
-                let row = weldsuite_db::js_row(row);
+                let row = trunk_row(row);
                 Ok(CreatedTrunk {
                     trunk: trunk_json(self.sip_host().as_deref(), &row, &[]),
                     row,
@@ -776,34 +797,35 @@ impl<'a> Trunks<'a> {
         }
 
         // A failed step keeps the trunk's own fields as they were.
-        let field = |value: &Option<String>| {
-            if failure.is_some() {
-                None
-            } else {
-                value.clone()
+        let mut write = trunks::Entity::update_many()
+            .col_expr(
+                trunks::Column::IpAddresses,
+                Expr::value(Value::Array(addresses)),
+            )
+            .col_expr(trunks::Column::UpdatedAt, Expr::value(utc_now()));
+        if failure.is_none() {
+            for (column, value) in [
+                (trunks::Column::Name, &input.name),
+                (trunks::Column::Provider, &input.provider),
+                (trunks::Column::Status, &input.status),
+                (trunks::Column::Transport, &input.transport),
+            ] {
+                if let Some(value) = value {
+                    write = write.col_expr(column, Expr::value(value));
+                }
             }
-        };
-        let row: Option<Value> = sqlx::query_scalar(
-            "update voip_sip_trunks set ip_addresses = $2, updated_at = $3::timestamp,
-                 name = coalesce($4, name), provider = coalesce($5, provider),
-                 status = coalesce($6, status), transport = coalesce($7, transport)
-             where id = $1
-             returning to_jsonb(voip_sip_trunks)",
-        )
-        .bind(id)
-        .bind(Value::Array(addresses))
-        .bind(now())
-        .bind(field(&input.name))
-        .bind(field(&input.provider))
-        .bind(field(&input.status))
-        .bind(field(&input.transport))
-        .fetch_optional(self.db())
-        .await?;
+        }
+        let row = write
+            .filter(trunks::Column::Id.eq(id))
+            .exec_with_returning(&self.db())
+            .await?
+            .into_iter()
+            .next();
         if let Some(failure) = failure {
             return Err(failure);
         }
         let row = row
-            .map(weldsuite_db::js_row)
+            .map(trunk_row)
             .ok_or_else(|| Failure::Internal("the phone system is gone".to_owned()))?;
         let numbers = self.load_numbers(&[id.to_owned()]).await?;
         Ok((trunk_json(self.sip_host().as_deref(), &row, &numbers), row))
@@ -834,10 +856,10 @@ impl<'a> Trunks<'a> {
             )
             .await
             .map_err(|error| telnyx_failure("Changing the password", &error))?;
-        sqlx::query("update voip_sip_trunks set updated_at = $2::timestamp where id = $1")
-            .bind(id)
-            .bind(now())
-            .execute(self.db())
+        trunks::Entity::update_many()
+            .col_expr(trunks::Column::UpdatedAt, Expr::value(utc_now()))
+            .filter(trunks::Column::Id.eq(id))
+            .exec(&self.db())
             .await?;
         let credentials = Credentials {
             username: username.to_owned(),
@@ -874,15 +896,14 @@ impl<'a> Trunks<'a> {
     /// `retireNumber(ctx, number)`: soft-delete one number of a trunk and
     /// free it in the registry (and at Telnyx when it was verified).
     async fn retire_number(&self, number: &Value) -> Result<(), Failure> {
-        sqlx::query(
-            "update voip_phone_numbers set deleted_at = $2::timestamp, updated_at = $2::timestamp,
-                 status = 'inactive'
-             where id = $1",
-        )
-        .bind(js::string(&number["id"]))
-        .bind(now())
-        .execute(self.db())
-        .await?;
+        let now = utc_now();
+        voip_numbers::Entity::update_many()
+            .col_expr(voip_numbers::Column::DeletedAt, Expr::value(now))
+            .col_expr(voip_numbers::Column::UpdatedAt, Expr::value(now))
+            .col_expr(voip_numbers::Column::Status, Expr::value("inactive"))
+            .filter(voip_numbers::Column::Id.eq(js::string(&number["id"])))
+            .exec(&self.db())
+            .await?;
         self.release_number(number).await;
         Ok(())
     }
@@ -908,20 +929,20 @@ impl<'a> Trunks<'a> {
             ignore_not_found(deleted)
                 .map_err(|error| telnyx_failure("Deleting the connection", &error))?;
         }
-        sqlx::query("delete from voip_sip_trunks where id = $1")
-            .bind(id)
-            .execute(self.db())
+        trunks::Entity::delete_many()
+            .filter(trunks::Column::Id.eq(id))
+            .exec(&self.db())
             .await?;
         let numbers = self.load_numbers(&[id.to_owned()]).await?;
-        sqlx::query(
-            "update voip_phone_numbers set deleted_at = $2::timestamp, updated_at = $2::timestamp,
-                 status = 'inactive'
-             where sip_trunk_id = $1 and deleted_at is null",
-        )
-        .bind(id)
-        .bind(now())
-        .execute(self.db())
-        .await?;
+        let now = utc_now();
+        voip_numbers::Entity::update_many()
+            .col_expr(voip_numbers::Column::DeletedAt, Expr::value(now))
+            .col_expr(voip_numbers::Column::UpdatedAt, Expr::value(now))
+            .col_expr(voip_numbers::Column::Status, Expr::value("inactive"))
+            .filter(voip_numbers::Column::SipTrunkId.eq(id))
+            .filter(voip_numbers::Column::DeletedAt.is_null())
+            .exec(&self.db())
+            .await?;
         for number in &numbers {
             self.release_number(number).await;
         }
@@ -939,53 +960,49 @@ impl<'a> Trunks<'a> {
         e164: &str,
         trunk: &Value,
         display_name: Option<&str>,
-    ) -> Result<Value, sqlx::Error> {
-        let connection_id = trunk["providerConnectionId"].as_str();
-        let trunk_id = trunk["id"].as_str();
-        let now = now();
-        let row: Value = if let Some(existing) = existing {
-            sqlx::query_scalar(
-                "update voip_phone_numbers set provider = 'sip_trunk', phone_number = $2,
-                     formatted_number = $2, country_code = $3, number_type = 'local',
-                     provider_phone_number_id = null, provider_connection_id = $4, status = 'active',
-                     assigned_user_id = null, assigned_at = null, is_default = false,
-                     allow_inbound = true, allow_outbound = false, enable_recording = true,
-                     display_name = $5, sip_trunk_id = $6, caller_id_verified_at = null,
-                     deleted_at = null, updated_at = $7::timestamp
-                 where id = $1
-                 returning to_jsonb(voip_phone_numbers)",
-            )
-            .bind(existing)
-            .bind(e164)
-            .bind(country_of_e164(e164))
-            .bind(connection_id)
-            .bind(display_name)
-            .bind(trunk_id)
-            .bind(&now)
-            .fetch_one(self.db())
-            .await?
+    ) -> Result<Value, DbErr> {
+        let now = utc_now();
+        // Every column the worker writes, in both cases.
+        let values = voip_numbers::ActiveModel {
+            provider: Set(TRUNK_PROVIDER.to_owned()),
+            phone_number: Set(e164.to_owned()),
+            formatted_number: Set(Some(e164.to_owned())),
+            country_code: Set(country_of_e164(e164).to_owned()),
+            number_type: Set(Some("local".to_owned())),
+            provider_phone_number_id: Set(None),
+            provider_connection_id: Set(trunk["providerConnectionId"].as_str().map(str::to_owned)),
+            status: Set("active".to_owned()),
+            assigned_user_id: Set(None),
+            assigned_at: Set(None),
+            is_default: Set(Some(false)),
+            allow_inbound: Set(Some(true)),
+            allow_outbound: Set(Some(false)),
+            enable_recording: Set(Some(true)),
+            display_name: Set(display_name.map(str::to_owned)),
+            sip_trunk_id: Set(trunk["id"].as_str().map(str::to_owned)),
+            caller_id_verified_at: Set(None),
+            deleted_at: Set(None),
+            updated_at: Set(now),
+            ..Default::default()
+        };
+        let row = if let Some(existing) = existing {
+            the_row(
+                voip_numbers::Entity::update_many()
+                    .set(values)
+                    .filter(voip_numbers::Column::Id.eq(existing))
+                    .exec_with_returning(&self.db())
+                    .await?,
+            )?
         } else {
-            sqlx::query_scalar(
-                "insert into voip_phone_numbers (id, created_at, provider, phone_number,
-                     formatted_number, country_code, number_type, provider_phone_number_id,
-                     provider_connection_id, status, assigned_user_id, assigned_at, is_default,
-                     allow_inbound, allow_outbound, enable_recording, display_name, sip_trunk_id,
-                     caller_id_verified_at, deleted_at, updated_at)
-                 values ($1, $7::timestamp, 'sip_trunk', $2, $2, $3, 'local', null, $4, 'active',
-                     null, null, false, true, false, true, $5, $6, null, null, $7::timestamp)
-                 returning to_jsonb(voip_phone_numbers)",
-            )
-            .bind(weldsuite_kit::generate_id("vpn"))
-            .bind(e164)
-            .bind(country_of_e164(e164))
-            .bind(connection_id)
-            .bind(display_name)
-            .bind(trunk_id)
-            .bind(&now)
-            .fetch_one(self.db())
+            voip_numbers::Entity::insert(voip_numbers::ActiveModel {
+                id: Set(weldsuite_kit::generate_id("vpn")),
+                created_at: Set(now),
+                ..values
+            })
+            .exec_with_returning(&self.db())
             .await?
         };
-        Ok(weldsuite_db::js_row(row))
+        Ok(number_row(row))
     }
 
     /// `reclaimableRegistryIds(ctx, e164, ownRowId)`: the registry entries
@@ -1001,13 +1018,16 @@ impl<'a> Trunks<'a> {
         e164: &str,
         own_row_id: Option<&str>,
     ) -> Result<Vec<String>, Failure> {
-        let registered: Option<(String, String)> = sqlx::query_as(
-            "select clerk_org_id, voip_phone_number_id from phone_number_registry
-             where phone_number = $1 limit 1",
-        )
-        .bind(e164)
-        .fetch_optional(master)
-        .await?;
+        let registered: Option<(String, String)> = registry_rows::Entity::find()
+            .select_only()
+            .columns([
+                registry_rows::Column::ClerkOrgId,
+                registry_rows::Column::VoipPhoneNumberId,
+            ])
+            .filter(registry_rows::Column::PhoneNumber.eq(e164))
+            .into_tuple()
+            .one(&orm(master))
+            .await?;
         let Some((org, row_id)) = registered else {
             return Ok(Vec::new());
         };
@@ -1017,13 +1037,14 @@ impl<'a> Trunks<'a> {
         if Some(row_id.as_str()) == own_row_id {
             return Ok(Vec::new());
         }
-        let named: Option<bool> = sqlx::query_scalar(
-            "select deleted_at is null from voip_phone_numbers where id = $1 limit 1",
-        )
-        .bind(&row_id)
-        .fetch_optional(self.db())
-        .await?;
-        if named == Some(true) {
+        // `deleted_at is null` of the row the entry names, if it is there.
+        let named: Option<Option<PrimitiveDateTime>> = voip_numbers::Entity::find_by_id(&row_id)
+            .select_only()
+            .column(voip_numbers::Column::DeletedAt)
+            .into_tuple()
+            .one(&self.db())
+            .await?;
+        if named.is_some_and(|deleted_at| deleted_at.is_none()) {
             return Err(number_taken());
         }
         Ok(vec![row_id])
@@ -1031,15 +1052,13 @@ impl<'a> Trunks<'a> {
 
     /// `shelveNumber(db, numberId)`: take back a number's row whose claim did
     /// not go through.
-    async fn shelve_number(&self, number_id: &str) -> Result<(), sqlx::Error> {
-        sqlx::query(
-            "update voip_phone_numbers set deleted_at = $2::timestamp, status = 'inactive'
-             where id = $1",
-        )
-        .bind(number_id)
-        .bind(crate::now())
-        .execute(self.db())
-        .await?;
+    async fn shelve_number(&self, number_id: &str) -> Result<(), DbErr> {
+        voip_numbers::Entity::update_many()
+            .col_expr(voip_numbers::Column::DeletedAt, Expr::value(utc_now()))
+            .col_expr(voip_numbers::Column::Status, Expr::value("inactive"))
+            .filter(voip_numbers::Column::Id.eq(number_id))
+            .exec(&self.db())
+            .await?;
         Ok(())
     }
 
@@ -1094,12 +1113,15 @@ impl<'a> Trunks<'a> {
             ));
         };
 
-        let existing: Option<(String, bool)> = sqlx::query_as(
-            "select id, deleted_at is null from voip_phone_numbers where phone_number = $1 limit 1",
-        )
-        .bind(&e164)
-        .fetch_optional(self.db())
-        .await?;
+        // `(id, deleted_at is null)` of the number's row, if there is one.
+        let existing: Option<(String, bool)> = voip_numbers::Entity::find()
+            .select_only()
+            .columns([voip_numbers::Column::Id, voip_numbers::Column::DeletedAt])
+            .filter(voip_numbers::Column::PhoneNumber.eq(&e164))
+            .into_tuple::<(String, Option<PrimitiveDateTime>)>()
+            .one(&self.db())
+            .await?
+            .map(|(id, deleted_at)| (id, deleted_at.is_none()));
         if matches!(existing, Some((_, true))) {
             return Err(number_taken());
         }
@@ -1130,11 +1152,12 @@ impl<'a> Trunks<'a> {
         // The trunk may have been deleted while this ran. Its delete takes the
         // numbers it finds after the trunk's row is gone; one written too late
         // for that is taken back here.
-        let still: Option<String> =
-            sqlx::query_scalar("select id from voip_sip_trunks where id = $1 limit 1")
-                .bind(js::string(&trunk["id"]))
-                .fetch_optional(self.db())
-                .await?;
+        let still: Option<String> = trunks::Entity::find_by_id(js::string(&trunk["id"]))
+            .select_only()
+            .column(trunks::Column::Id)
+            .into_tuple()
+            .one(&self.db())
+            .await?;
         if still.is_none() {
             self.retire_number(&row).await?;
             return Err(not_found(format!("Phone system '{trunk_id}' not found")));
@@ -1238,17 +1261,15 @@ impl<'a> Trunks<'a> {
                 None => telnyx_failure("Checking the code", &error),
             });
         }
-        let row: Value = sqlx::query_scalar(
-            "update voip_phone_numbers set caller_id_verified_at = $2::timestamp,
-                 allow_outbound = true, updated_at = $2::timestamp
-             where id = $1
-             returning to_jsonb(voip_phone_numbers)",
-        )
-        .bind(js::string(&number["id"]))
-        .bind(now())
-        .fetch_one(self.db())
-        .await?;
-        Ok(weldsuite_db::js_row(row))
+        let now = utc_now();
+        let row = voip_numbers::Entity::update_many()
+            .col_expr(voip_numbers::Column::CallerIdVerifiedAt, Expr::value(now))
+            .col_expr(voip_numbers::Column::AllowOutbound, Expr::value(true))
+            .col_expr(voip_numbers::Column::UpdatedAt, Expr::value(now))
+            .filter(voip_numbers::Column::Id.eq(js::string(&number["id"])))
+            .exec_with_returning(&self.db())
+            .await?;
+        Ok(number_row(the_row(row)?))
     }
 }
 

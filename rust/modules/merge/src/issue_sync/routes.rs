@@ -99,7 +99,7 @@ async fn external_change_event(
     issue: &Row,
     old: Value,
     new: Value,
-) -> Result<PendingEvent, sqlx::Error> {
+) -> Result<PendingEvent, sea_orm::DbErr> {
     let team_key = team_key_of(&caller.db, text(issue, "teamId")).await?;
     let mut changes = Map::new();
     changes.insert("external".to_owned(), json!({ "old": old, "new": new }));

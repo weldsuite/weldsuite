@@ -25,19 +25,26 @@ use axum::body::Bytes;
 use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Response};
 use http::{HeaderMap, StatusCode};
+use sea_orm::sea_query::{Expr, OnConflict};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, Condition, DbErr, EntityTrait, QueryFilter, QueryOrder,
+    QuerySelect,
+};
 use serde_json::{Value, json};
 use sqlx::PgPool;
 use weldsuite_catalogs::entity_events::{
     EventName, PANEL_CUSTOM_DOMAIN_CREATED, PANEL_CUSTOM_DOMAIN_DELETED,
     PANEL_CUSTOM_DOMAIN_UPDATED,
 };
+use weldsuite_db::orm;
 use weldsuite_kit::{ApiError, Created, Data, List, NoContent, Pagination};
 use weldsuite_panel_domain::js;
 use weldsuite_ports::{BoxFuture, HttpRequest, OutboundHttp};
+use weldsuite_schema::master::panel_custom_domains as custom_domains;
 
 use super::schemas::CREATE_DOMAIN;
 use super::{MonitorState, master_of};
-use crate::saved::{field, text};
+use crate::saved::{field, instant, js_row, text};
 use crate::{Caller, unexpected};
 
 /// Most custom host names one project may have.
@@ -440,25 +447,26 @@ pub(crate) fn event_data(row: &Value) -> Value {
     })
 }
 
-fn rows(found: Vec<Value>) -> Vec<Value> {
-    found.into_iter().map(weldsuite_db::js_row).collect()
+/// The first row a `returning` statement gave, as Drizzle returns it.
+fn first_row(rows: Vec<custom_domains::Model>) -> Result<Option<Value>, DbErr> {
+    rows.into_iter().next().map(js_row).transpose()
 }
 
 async fn list_domains(
     master: &PgPool,
     workspace_id: &str,
     project_id: &str,
-) -> Result<Vec<Value>, sqlx::Error> {
-    let found: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(d) from panel_custom_domains d
-         where d.workspace_id = $1 and d.project_id = $2 and d.deleted_at is null
-         order by d.created_at asc",
-    )
-    .bind(workspace_id)
-    .bind(project_id)
-    .fetch_all(master)
-    .await?;
-    Ok(rows(found))
+) -> Result<Vec<Value>, DbErr> {
+    custom_domains::Entity::find()
+        .filter(custom_domains::Column::WorkspaceId.eq(workspace_id))
+        .filter(custom_domains::Column::ProjectId.eq(project_id))
+        .filter(custom_domains::Column::DeletedAt.is_null())
+        .order_by_asc(custom_domains::Column::CreatedAt)
+        .all(&orm(master))
+        .await?
+        .into_iter()
+        .map(js_row)
+        .collect()
 }
 
 async fn get_domain(
@@ -466,17 +474,15 @@ async fn get_domain(
     workspace_id: &str,
     project_id: &str,
     id: &str,
-) -> Result<Option<Value>, sqlx::Error> {
-    let found: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(d) from panel_custom_domains d
-         where d.id = $1 and d.workspace_id = $2 and d.project_id = $3 and d.deleted_at is null limit 1",
-    )
-    .bind(id)
-    .bind(workspace_id)
-    .bind(project_id)
-    .fetch_optional(master)
-    .await?;
-    Ok(found.map(weldsuite_db::js_row))
+) -> Result<Option<Value>, DbErr> {
+    custom_domains::Entity::find_by_id(id)
+        .filter(custom_domains::Column::WorkspaceId.eq(workspace_id))
+        .filter(custom_domains::Column::ProjectId.eq(project_id))
+        .filter(custom_domains::Column::DeletedAt.is_null())
+        .one(&orm(master))
+        .await?
+        .map(js_row)
+        .transpose()
 }
 
 fn error_text(error: &DomainError) -> String {
@@ -491,24 +497,38 @@ async fn store_state(
     hostname: &str,
     state: &HostnameState,
     now: i64,
-) -> Result<Option<Value>, sqlx::Error> {
+) -> Result<Option<Value>, DbErr> {
     let last_error =
         (!state.errors.is_empty()).then(|| js::slice_utf16(&state.errors.join("; "), 0, 500));
-    let row: Option<Value> = sqlx::query_scalar(
-        "update panel_custom_domains d set cf_custom_hostname_id = $2, status = $3, ssl_status = $4,
-           verification = $5, last_error = $6, last_checked_at = $7::timestamptz, updated_at = $7::timestamptz
-         where d.id = $1 returning to_jsonb(d)",
-    )
-    .bind(id)
-    .bind(&state.id)
-    .bind(domain_status_of(state))
-    .bind(state.ssl_status.as_deref())
-    .bind(verification_records(hostname, domains.cname_target(), Some(state)))
-    .bind(last_error)
-    .bind(js::iso_string(now))
-    .fetch_optional(master)
-    .await?;
-    Ok(row.map(weldsuite_db::js_row))
+    let now = instant(now);
+    custom_domains::Entity::update_many()
+        .col_expr(
+            custom_domains::Column::CfCustomHostnameId,
+            Expr::value(state.id.as_str()),
+        )
+        .col_expr(
+            custom_domains::Column::Status,
+            Expr::value(domain_status_of(state)),
+        )
+        .col_expr(
+            custom_domains::Column::SslStatus,
+            Expr::value(state.ssl_status.clone()),
+        )
+        .col_expr(
+            custom_domains::Column::Verification,
+            Expr::value(verification_records(
+                hostname,
+                domains.cname_target(),
+                Some(state),
+            )),
+        )
+        .col_expr(custom_domains::Column::LastError, Expr::value(last_error))
+        .col_expr(custom_domains::Column::LastCheckedAt, Expr::value(now))
+        .col_expr(custom_domains::Column::UpdatedAt, Expr::value(now))
+        .filter(custom_domains::Column::Id.eq(id))
+        .exec_with_returning(&orm(master))
+        .await
+        .and_then(first_row)
 }
 
 /// Why a host name was not registered (`CreateDomainResult`'s refusal).
@@ -529,7 +549,7 @@ async fn create_domain(
     hostname: &str,
     user_id: &str,
     now: i64,
-) -> Result<Result<Value, CreateRefusal>, sqlx::Error> {
+) -> Result<Result<Value, CreateRefusal>, DbErr> {
     if i64::try_from(list_domains(master, workspace_id, project_id).await?.len())
         .unwrap_or(i64::MAX)
         >= MAX_DOMAINS_PER_PROJECT
@@ -539,20 +559,24 @@ async fn create_domain(
         ))));
     }
     let id = weldsuite_kit::generate_id("pncd");
-    let claimed: Option<String> = sqlx::query_scalar(
-        "insert into panel_custom_domains (id, workspace_id, project_id, hostname, status, verification, created_by_user_id)
-         values ($1, $2, $3, $4, 'pending', $5, $6)
-         on conflict (hostname) do nothing returning id",
+    let claimed = custom_domains::Entity::insert(custom_domains::ActiveModel {
+        id: Set(id.clone()),
+        workspace_id: Set(workspace_id.to_owned()),
+        project_id: Set(project_id.to_owned()),
+        hostname: Set(hostname.to_owned()),
+        status: Set("pending".to_owned()),
+        verification: Set(verification_records(hostname, domains.cname_target(), None)),
+        created_by_user_id: Set(user_id.to_owned()),
+        ..Default::default()
+    })
+    .on_conflict(
+        OnConflict::column(custom_domains::Column::Hostname)
+            .do_nothing()
+            .to_owned(),
     )
-    .bind(&id)
-    .bind(workspace_id)
-    .bind(project_id)
-    .bind(hostname)
-    .bind(verification_records(hostname, domains.cname_target(), None))
-    .bind(user_id)
-    .fetch_optional(master)
+    .exec_without_returning(&orm(master))
     .await?;
-    if claimed.is_none() {
+    if claimed == 0 {
         return Ok(Err(CreateRefusal::Conflict(
             "This host name is already in use".to_owned(),
         )));
@@ -565,9 +589,8 @@ async fn create_domain(
     let state = match domains.create(hostname, &metadata).await {
         Ok(state) => state,
         Err(error) => {
-            sqlx::query("delete from panel_custom_domains where id = $1")
-                .bind(&id)
-                .execute(master)
+            custom_domains::Entity::delete_by_id(id.as_str())
+                .exec(&orm(master))
                 .await?;
             return Ok(Err(CreateRefusal::Provider(error_text(&error))));
         }
@@ -585,7 +608,7 @@ pub(crate) async fn refresh_domain(
     domains: &dyn CollectorDomains,
     domain: &Value,
     now: i64,
-) -> Result<Value, sqlx::Error> {
+) -> Result<Value, DbErr> {
     let Some(provider_id) = domain
         .get("cfCustomHostnameId")
         .and_then(Value::as_str)
@@ -619,19 +642,20 @@ async fn set_error(
     status: Option<&str>,
     error: &str,
     now: i64,
-) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "update panel_custom_domains d set status = coalesce($2, d.status), last_error = $3,
-           last_checked_at = $4::timestamptz, updated_at = $4::timestamptz
-         where d.id = $1 returning to_jsonb(d)",
-    )
-    .bind(id)
-    .bind(status)
-    .bind(error)
-    .bind(js::iso_string(now))
-    .fetch_optional(master)
-    .await?;
-    Ok(row.map(weldsuite_db::js_row))
+) -> Result<Option<Value>, DbErr> {
+    let now = instant(now);
+    let mut update = custom_domains::Entity::update_many();
+    if let Some(status) = status {
+        update = update.col_expr(custom_domains::Column::Status, Expr::value(status));
+    }
+    update
+        .col_expr(custom_domains::Column::LastError, Expr::value(error))
+        .col_expr(custom_domains::Column::LastCheckedAt, Expr::value(now))
+        .col_expr(custom_domains::Column::UpdatedAt, Expr::value(now))
+        .filter(custom_domains::Column::Id.eq(id))
+        .exec_with_returning(&orm(master))
+        .await
+        .and_then(first_row)
 }
 
 /// `removeDomain(masterDb, cfg, domain, now)`: removed at the provider, then
@@ -641,7 +665,7 @@ pub(crate) async fn remove_domain(
     domains: &dyn CollectorDomains,
     domain: &Value,
     now: i64,
-) -> Result<(bool, Value), sqlx::Error> {
+) -> Result<(bool, Value), DbErr> {
     let id = text(domain, "id");
     if let Some(provider_id) = domain
         .get("cfCustomHostnameId")
@@ -652,9 +676,8 @@ pub(crate) async fn remove_domain(
         let row = set_error(master, id, Some("deleting"), &error_text(&error), now).await?;
         return Ok((false, row.unwrap_or_else(|| domain.clone())));
     }
-    sqlx::query("delete from panel_custom_domains where id = $1")
-        .bind(id)
-        .execute(master)
+    custom_domains::Entity::delete_by_id(id)
+        .exec(&orm(master))
         .await?;
     let mut gone = domain.clone();
     if let Some(obj) = gone.as_object_mut() {
@@ -669,18 +692,22 @@ pub(crate) async fn domains_to_poll(
     master: &PgPool,
     now: i64,
     limit: i64,
-) -> Result<Vec<Value>, sqlx::Error> {
-    let found: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(d) from panel_custom_domains d
-         where d.status in ('pending', 'deleting') and d.deleted_at is null
-           and (d.last_checked_at is null or d.last_checked_at < $1::timestamptz)
-         order by d.last_checked_at asc limit $2",
-    )
-    .bind(js::iso_string(now - 5 * 60_000))
-    .bind(limit)
-    .fetch_all(master)
-    .await?;
-    Ok(rows(found))
+) -> Result<Vec<Value>, DbErr> {
+    custom_domains::Entity::find()
+        .filter(custom_domains::Column::Status.is_in(["pending", "deleting"]))
+        .filter(custom_domains::Column::DeletedAt.is_null())
+        .filter(
+            Condition::any()
+                .add(custom_domains::Column::LastCheckedAt.is_null())
+                .add(custom_domains::Column::LastCheckedAt.lt(instant(now - 5 * 60_000))),
+        )
+        .order_by_asc(custom_domains::Column::LastCheckedAt)
+        .limit(u64::try_from(limit).unwrap_or_default())
+        .all(&orm(master))
+        .await?
+        .into_iter()
+        .map(js_row)
+        .collect()
 }
 
 // ---------------------------------------------------------------------------

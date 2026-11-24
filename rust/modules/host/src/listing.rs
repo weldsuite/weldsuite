@@ -4,87 +4,82 @@
 //! was given (the cursor's own condition, or, when the cursor row is gone,
 //! the last filter), as the services count.
 
+use sea_orm::{
+    ColumnTrait, Condition, DbErr, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder,
+    QuerySelect,
+};
 use serde_json::Value;
-use weldsuite_db::{PgPool, js_row, js_timestamp};
-
-/// One list's statements. Parameters: `$1` skips the live-only condition,
-/// each filter `(skip, value)`, the cursor `(skip, createdAt, id)`; the page
-/// takes the limit last.
-pub(crate) struct ListSql {
-    /// `select to_jsonb(t.created_at)#>>'{}', t.id … where t.id = $1`.
-    pub(crate) cursor: &'static str,
-    pub(crate) page: &'static str,
-    pub(crate) count: &'static str,
-    /// Whether the first condition is `deleted_at is null`.
-    pub(crate) live: bool,
-}
+use time::PrimitiveDateTime;
+use weldsuite_db::{PgPool, orm, utc_timestamp};
 
 /// One page: rows, total, whether there is more, and the next cursor.
 pub(crate) struct Page {
     pub(crate) rows: Vec<Value>,
-    pub(crate) total: i64,
+    pub(crate) total: u64,
     pub(crate) has_more: bool,
     pub(crate) cursor: Option<String>,
 }
 
-pub(crate) async fn list(
+/// One list of `E`, paged by its `created_at` and `id` columns, each row
+/// as `to_json` writes it. `conditions` are the service's, in its order (the
+/// live-only condition first where the table has one), `None` where a
+/// filter wasn't given.
+pub(crate) async fn list<E>(
     db: &PgPool,
-    sql: &ListSql,
-    filters: &[Option<String>],
+    (created_at, id): (E::Column, E::Column),
+    conditions: Vec<Option<Condition>>,
     cursor: Option<&str>,
     limit: i64,
-) -> Result<Page, sqlx::Error> {
+    to_json: impl Fn(E::Model) -> Result<Value, DbErr>,
+) -> Result<Page, DbErr>
+where
+    E: EntityTrait,
+    E::Model: Sync,
+{
+    let db = orm(db);
     let at = match cursor {
         Some(cursor) => {
-            let row: Option<(Option<String>, String)> = sqlx::query_as(sql.cursor)
-                .bind(cursor)
-                .fetch_optional(db)
+            let row: Option<(PrimitiveDateTime, String)> = E::find()
+                .select_only()
+                .column(created_at)
+                .column(id)
+                .filter(id.eq(cursor))
+                .into_tuple()
+                .one(&db)
                 .await?;
-            row.and_then(|(created, id)| {
-                created
-                    .and_then(|stamp| js_timestamp(&stamp))
-                    .map(|stamp| (stamp, id))
-            })
+            // The cursor row's `createdAt` as Drizzle read it: milliseconds.
+            row.map(|(created, id)| (utc_timestamp(created.assume_utc()), id))
         }
         None => None,
     };
-    // Which conditions are present: live, each filter, the cursor.
-    let mut present = vec![sql.live];
-    present.extend(filters.iter().map(Option::is_some));
-    present.push(at.is_some());
-    let mut counted = present.clone();
-    if cursor.is_some()
-        && let Some(last) = counted.iter().rposition(|p| *p)
-    {
-        counted[last] = false;
+    let mut present: Vec<Condition> = conditions.into_iter().flatten().collect();
+    if let Some((created, cursor_id)) = &at {
+        present.push(
+            Condition::any().add(created_at.lt(*created)).add(
+                Condition::all()
+                    .add(created_at.eq(*created))
+                    .add(id.lt(cursor_id.as_str())),
+            ),
+        );
     }
-    let (created, id) = at.unwrap_or_default();
-    let page = {
-        let mut query = sqlx::query_scalar::<_, Value>(sql.page).bind(!present[0]);
-        for (index, filter) in filters.iter().enumerate() {
-            query = query.bind(!present[index + 1]).bind(filter.clone());
-        }
-        query
-            .bind(!present[filters.len() + 1])
-            .bind(created.clone())
-            .bind(id.clone())
-            .bind(limit + 1)
-            .fetch_all(db)
-            .await?
+    let mut counted = present.clone();
+    if cursor.is_some() {
+        counted.pop();
+    }
+    let all = |conditions: Vec<Condition>| {
+        conditions
+            .into_iter()
+            .fold(Condition::all(), Condition::add)
     };
-    let total = {
-        let mut query = sqlx::query_scalar::<_, i32>(sql.count).bind(!counted[0]);
-        for (index, filter) in filters.iter().enumerate() {
-            query = query.bind(!counted[index + 1]).bind(filter.clone());
-        }
-        query
-            .bind(!counted[filters.len() + 1])
-            .bind(created)
-            .bind(id)
-            .fetch_one(db)
-            .await?
-    };
-    let mut rows: Vec<Value> = page.into_iter().map(js_row).collect();
+    let page = E::find()
+        .filter(all(present))
+        .order_by_desc(created_at)
+        .order_by_desc(id)
+        .limit(u64::try_from(limit.saturating_add(1)).unwrap_or(0))
+        .all(&db)
+        .await?;
+    let total = E::find().filter(all(counted)).count(&db).await?;
+    let mut rows: Vec<Value> = page.into_iter().map(to_json).collect::<Result<_, _>>()?;
     let has_more = i64::try_from(rows.len()).unwrap_or(i64::MAX) > limit;
     rows.truncate(usize::try_from(limit).unwrap_or(0));
     let cursor = if has_more {
@@ -96,26 +91,8 @@ pub(crate) async fn list(
     };
     Ok(Page {
         rows,
-        total: i64::from(total),
+        total,
         has_more,
         cursor,
     })
 }
-
-/// `?cursor` keyset condition at `$a` (skip), `$b` (createdAt), `$c` (id).
-macro_rules! keyset {
-    ($a:literal, $b:literal, $c:literal) => {
-        concat!(
-            "($",
-            $a,
-            "::boolean or (t.created_at < $",
-            $b,
-            "::timestamp or (t.created_at = $",
-            $b,
-            "::timestamp and t.id < $",
-            $c,
-            "::text)))"
-        )
-    };
-}
-pub(crate) use keyset;

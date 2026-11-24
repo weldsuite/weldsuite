@@ -7,8 +7,10 @@ use std::collections::HashMap;
 use std::sync::LazyLock;
 
 use regex::Regex;
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Value, json};
-use sqlx::PgPool;
+use weldsuite_db::{PgPool, orm};
+use weldsuite_schema::tenant::{weldagent_agents, workspace_members};
 
 /// `String.prototype.trim()`.
 pub fn js_trim(text: &str) -> &str {
@@ -116,7 +118,7 @@ pub fn format_message_preview(content: &str, names: &HashMap<String, String>) ->
 pub async fn resolve_mention_names(
     db: &PgPool,
     content: &str,
-) -> Result<HashMap<String, String>, sqlx::Error> {
+) -> Result<HashMap<String, String>, DbErr> {
     let mut names = HashMap::new();
     let ids = bare_mention_ids(content);
     if ids.is_empty() {
@@ -127,22 +129,29 @@ pub async fn resolve_mention_names(
     let mut rows: Vec<(String, Option<String>)> = Vec::new();
     if !user_ids.is_empty() {
         rows.extend(
-            sqlx::query_as::<_, (String, Option<String>)>(
-                "select user_id, name from workspace_members where user_id = any($1)",
-            )
-            .bind(&user_ids)
-            .fetch_all(db)
-            .await?,
+            workspace_members::Entity::find()
+                .select_only()
+                .columns([
+                    workspace_members::Column::UserId,
+                    workspace_members::Column::Name,
+                ])
+                .filter(
+                    workspace_members::Column::UserId.is_in(user_ids.iter().map(String::as_str)),
+                )
+                .into_tuple::<(String, Option<String>)>()
+                .all(&orm(db))
+                .await?,
         );
     }
     if !agent_ids.is_empty() {
         rows.extend(
-            sqlx::query_as::<_, (String, Option<String>)>(
-                "select id, name from weldagent_agents where id = any($1)",
-            )
-            .bind(&agent_ids)
-            .fetch_all(db)
-            .await?,
+            weldagent_agents::Entity::find()
+                .select_only()
+                .columns([weldagent_agents::Column::Id, weldagent_agents::Column::Name])
+                .filter(weldagent_agents::Column::Id.is_in(agent_ids.iter().map(String::as_str)))
+                .into_tuple::<(String, Option<String>)>()
+                .all(&orm(db))
+                .await?,
         );
     }
     for (id, name) in rows {

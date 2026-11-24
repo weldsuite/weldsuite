@@ -11,7 +11,14 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::IntoResponse;
 use axum::routing::{delete, get, patch, post, put};
 use http::HeaderMap;
+use sea_orm::ActiveValue::Set;
+use sea_orm::sea_query::{Asterisk, Expr, Func, OnConflict};
+use sea_orm::{
+    ColumnTrait, Condition, DbErr, EntityTrait, FromQueryResult, JoinType, PaginatorTrait,
+    QueryFilter, QueryOrder, QuerySelect, RelationDef, Select,
+};
 use serde_json::{Map, Value, json};
+use time::{Date, OffsetDateTime, PrimitiveDateTime};
 use weldsuite_catalogs::entity_events::{
     HR_ATTENDANCE_APPROVED, HR_ATTENDANCE_CREATED, HR_ATTENDANCE_DELETED, HR_ATTENDANCE_UPDATED,
     HR_LEAVE_REQUEST_APPROVED, HR_LEAVE_REQUEST_CREATED, HR_LEAVE_REQUEST_DELETED,
@@ -22,12 +29,18 @@ use weldsuite_catalogs::permission_keys::{
     EMPLOYEES_MANAGE, EMPLOYEES_READ, LEAVE_APPROVE, LEAVE_CREATE, LEAVE_DELETE, LEAVE_READ,
     LEAVE_UPDATE,
 };
-use weldsuite_db::{PgPool, js_row};
+use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_kit::validation::{Field, Issues, Presence, Text};
 use weldsuite_kit::{Created, Data, List, NoContent, Pagination, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::hr_attendance_records::{self, Column as Attendance};
+use weldsuite_schema::tenant::hr_employees::{self, Column as Employee};
+use weldsuite_schema::tenant::hr_leave_allowances::{self, Column as Allowance};
+use weldsuite_schema::tenant::hr_leave_requests::{self, Column as LeaveRequest};
+use weldsuite_schema::tenant::hr_leave_types::{self, Column as LeaveType};
+use weldsuite_schema::tenant::hr_shifts::{self, Column as Shift};
 
-use crate::employees::{display_name_of, require_employee};
+use crate::employees::{display_name, no_row, pg_date, pg_date_opt, require_employee, to_json};
 use crate::entity_scope::{Scope, guard, via_employee};
 use crate::fields::{
     Fields, change, color, id, int, iso_date, iso_date_time, number, short_text, text_max,
@@ -35,9 +48,8 @@ use crate::fields::{
 use crate::work_locations::{ClockPlace, work_location_names};
 use crate::{
     Caller, HrError, HrResult, HrState, add_days, assert_date_order, company_names,
-    employed_share_of_year, hr_json, js_number, js_round, member_names, now, number_text,
-    query_date, query_param, query_text, query_values, text, today_iso, working_days_between,
-    year_of,
+    employed_share_of_year, hr_json, js_number, js_round, member_names, number_text, query_date,
+    query_param, query_text, query_values, text, today_iso, working_days_between, year_of,
 };
 
 const LATE_GRACE_MINUTES: f64 = 5.0;
@@ -139,16 +151,16 @@ where
             "/leave-requests/{id}",
             delete(delete_leave_route).route_layer(gate.require([LEAVE_DELETE])),
         )
-        .route_layer(guard("/shifts", "Shift", via_employee!("hr_shifts")))
+        .route_layer(guard("/shifts", "Shift", via_employee!(hr_shifts)))
         .route_layer(guard(
             "/attendance",
             "Attendance record",
-            via_employee!("hr_attendance_records"),
+            via_employee!(hr_attendance_records),
         ))
         .route_layer(guard(
             "/leave-requests",
             "Leave request",
-            via_employee!("hr_leave_requests"),
+            via_employee!(hr_leave_requests),
         ))
 }
 
@@ -219,13 +231,123 @@ pub(crate) fn row_instant(row: &Value, key: &str) -> Option<i64> {
     row[key].as_str().and_then(instant)
 }
 
-/// `employeeName(row)` over `employeeFirstName`/`LastName`/`PreferredName`.
-fn employee_name_of(row: &Value) -> String {
-    display_name_of(&json!({
-        "firstName": row["employeeFirstName"],
-        "lastName": row["employeeLastName"],
-        "preferredName": row["employeePreferredName"],
-    }))
+/// `new Date(ms)` as a `timestamptz` the statements write or compare with.
+/// Drizzle sends `toISOString()`, which Postgres refuses outside the years
+/// 1–9999: the statement fails (the router's 500).
+fn pg_instant(ms: i64) -> Result<OffsetDateTime, HrError> {
+    let at = OffsetDateTime::UNIX_EPOCH + time::Duration::milliseconds(ms);
+    if (1..=9999).contains(&at.year()) {
+        Ok(at)
+    } else {
+        Err(HrError::Database(DbErr::Custom(format!(
+            "date/time field value out of range: \"{}\"",
+            iso(ms)
+        ))))
+    }
+}
+
+/// `${date}T00:00:00Z` as a `timestamptz` (a day that doesn't exist fails
+/// the statement, as Postgres refuses it).
+fn day_start(date: &str) -> Result<OffsetDateTime, HrError> {
+    Ok(pg_date(date)?.midnight().assume_utc())
+}
+
+/// `${date}T23:59:59Z` as a `timestamptz`.
+fn day_end(date: &str) -> Result<OffsetDateTime, HrError> {
+    Ok(pg_date(date)?
+        .with_time(time::macros::time!(23:59:59))
+        .assume_utc())
+}
+
+/// The employee's name columns a list reads with its rows
+/// (`employeeFirstName`, `employeeLastName`, `employeePreferredName`).
+#[derive(Debug, FromQueryResult)]
+struct EmployeeName {
+    #[sea_orm(from_alias = "employee_first_name")]
+    first: String,
+    #[sea_orm(from_alias = "employee_last_name")]
+    last: String,
+    #[sea_orm(from_alias = "employee_preferred_name")]
+    preferred: Option<String>,
+}
+
+impl EmployeeName {
+    /// `query` inner-joined to its employee (`relation`), with the name
+    /// columns.
+    fn join<E: EntityTrait>(query: Select<E>, relation: RelationDef) -> Select<E> {
+        query
+            .column_as(Employee::FirstName, "employee_first_name")
+            .column_as(Employee::LastName, "employee_last_name")
+            .column_as(Employee::PreferredName, "employee_preferred_name")
+            .join(JoinType::InnerJoin, relation)
+    }
+
+    /// `employeeName(row)`.
+    fn name(&self) -> String {
+        display_name(&self.first, &self.last, self.preferred.as_deref())
+    }
+}
+
+/// `join(hrEmployees, eq(hrEmployees.id, hrShifts.employeeId))`.
+fn shift_employee() -> RelationDef {
+    hr_shifts::Entity::belongs_to(hr_employees::Entity)
+        .from(Shift::EmployeeId)
+        .to(Employee::Id)
+        .into()
+}
+
+/// `join(hrEmployees, eq(hrEmployees.id, hrAttendanceRecords.employeeId))`.
+fn attendance_employee() -> RelationDef {
+    hr_attendance_records::Entity::belongs_to(hr_employees::Entity)
+        .from(Attendance::EmployeeId)
+        .to(Employee::Id)
+        .into()
+}
+
+/// `join(hrEmployees, eq(hrEmployees.id, hrLeaveRequests.employeeId))`.
+fn request_employee() -> RelationDef {
+    hr_leave_requests::Entity::belongs_to(hr_employees::Entity)
+        .from(LeaveRequest::EmployeeId)
+        .to(Employee::Id)
+        .into()
+}
+
+/// `leftJoin(hrLeaveTypes, eq(hrLeaveTypes.id, hrLeaveRequests.leaveTypeId))`.
+fn request_leave_type() -> RelationDef {
+    hr_leave_requests::Entity::belongs_to(hr_leave_types::Entity)
+        .from(LeaveRequest::LeaveTypeId)
+        .to(LeaveType::Id)
+        .into()
+}
+
+/// A shift with its employee's name.
+#[derive(Debug, FromQueryResult)]
+struct ShiftRow {
+    #[sea_orm(nested)]
+    shift: hr_shifts::Model,
+    #[sea_orm(nested)]
+    employee: EmployeeName,
+}
+
+/// An attendance record with its employee's name.
+#[derive(Debug, FromQueryResult)]
+struct AttendanceRow {
+    #[sea_orm(nested)]
+    record: hr_attendance_records::Model,
+    #[sea_orm(nested)]
+    employee: EmployeeName,
+}
+
+/// A leave request with its employee's name and its leave type's name and
+/// color.
+#[derive(Debug, FromQueryResult)]
+struct LeaveRequestRow {
+    #[sea_orm(nested)]
+    request: hr_leave_requests::Model,
+    #[sea_orm(nested)]
+    employee: EmployeeName,
+    leave_type_name: Option<String>,
+    leave_type_color: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -241,56 +363,51 @@ pub(crate) async fn list_shifts(
     company_id: Option<&str>,
     scope: &Scope,
 ) -> Result<Vec<Value>, HrError> {
-    let rows: Vec<(Value, Value)> = sqlx::query_as(
-        "select to_jsonb(s), jsonb_build_object('employeeFirstName', e.first_name,
-             'employeeLastName', e.last_name, 'employeePreferredName', e.preferred_name)
-         from hr_shifts s join hr_employees e on e.id = s.employee_id
-         where s.starts_at >= $1::timestamptz and s.starts_at <= $2::timestamptz and e.deleted_at is null
-           and ($3::text is null or s.employee_id = $3)
-           and ($4::text is null or s.company_id = $4)
-           and ($5::text[] is null or e.legal_entity_id = any($5)
-                or ($6::boolean and e.legal_entity_id is null))
-         order by s.starts_at asc
-         limit 2000",
-    )
-    .bind(format!("{from}T00:00:00Z"))
-    .bind(format!("{to}T23:59:59Z"))
-    .bind(employee_id)
-    .bind(company_id)
-    .bind(scope.ids())
-    .bind(scope.unassigned())
-    .fetch_all(db)
-    .await?;
-    let companies: Vec<Option<&str>> = rows.iter().map(|(s, _)| s["company_id"].as_str()).collect();
+    let rows: Vec<ShiftRow> = EmployeeName::join(hr_shifts::Entity::find(), shift_employee())
+        .filter(Shift::StartsAt.gte(day_start(from)?))
+        .filter(Shift::StartsAt.lte(day_end(to)?))
+        .filter(Employee::DeletedAt.is_null())
+        .filter(
+            Condition::all()
+                .add_option(employee_id.map(|id| Shift::EmployeeId.eq(id)))
+                .add_option(company_id.map(|id| Shift::CompanyId.eq(id))),
+        )
+        .filter(scope.condition(Employee::LegalEntityId))
+        .order_by_asc(Shift::StartsAt)
+        .limit(2000)
+        .into_model()
+        .all(&orm(db))
+        .await?;
+    let companies: Vec<Option<&str>> = rows
+        .iter()
+        .map(|row| row.shift.company_id.as_deref())
+        .collect();
     let names = company_names(db, &companies).await?;
-    Ok(rows
-        .into_iter()
-        .map(|(shift, names_row)| {
-            let mut shift = js_row(shift);
-            let company = shift["companyId"]
-                .as_str()
+    rows.into_iter()
+        .map(|row| {
+            let company = row
+                .shift
+                .company_id
+                .as_deref()
                 .filter(|c| !c.is_empty())
                 .and_then(|c| names.get(c).cloned());
+            let employee_name = row.employee.name();
+            let mut shift = to_json(row.shift)?;
             if let Some(map) = shift.as_object_mut() {
-                map.insert(
-                    "employeeName".to_owned(),
-                    json!(employee_name_of(&names_row)),
-                );
+                map.insert("employeeName".to_owned(), json!(employee_name));
                 map.insert("companyName".to_owned(), json!(company));
             }
-            shift
+            Ok(shift)
         })
-        .collect())
+        .collect()
 }
 
 async fn require_shift(db: &PgPool, id: &str) -> Result<Value, HrError> {
-    let row: Option<Value> =
-        sqlx::query_scalar("select to_jsonb(t) from hr_shifts t where t.id = $1 limit 1")
-            .bind(id)
-            .fetch_optional(db)
-            .await?;
-    row.map(js_row)
-        .ok_or_else(|| HrError::not_found("Shift", id))
+    let row = hr_shifts::Entity::find()
+        .filter(Shift::Id.eq(id))
+        .one(&orm(db))
+        .await?;
+    to_json(row.ok_or_else(|| HrError::not_found("Shift", id))?)
 }
 
 /// `assertShiftWindow(startsAt, endsAt)`.
@@ -315,16 +432,16 @@ pub(crate) async fn assert_no_overlapping_shift(
     except_id: Option<&str>,
     message: Option<&str>,
 ) -> Result<(), HrError> {
-    let clash: Option<String> = sqlx::query_scalar(
-        "select id from hr_shifts where employee_id = $1 and starts_at < $2::timestamptz
-           and ends_at > $3::timestamptz and ($4::text is null or id <> $4) limit 1",
-    )
-    .bind(employee_id)
-    .bind(iso(ends))
-    .bind(iso(starts))
-    .bind(except_id)
-    .fetch_optional(db)
-    .await?;
+    let mut query = hr_shifts::Entity::find()
+        .select_only()
+        .column(Shift::Id)
+        .filter(Shift::EmployeeId.eq(employee_id))
+        .filter(Shift::StartsAt.lt(pg_instant(ends)?))
+        .filter(Shift::EndsAt.gt(pg_instant(starts)?));
+    if let Some(except_id) = except_id {
+        query = query.filter(Shift::Id.ne(except_id));
+    }
+    let clash: Option<String> = query.into_tuple().one(&orm(db)).await?;
     if clash.is_some() {
         return Err(HrError::conflict(
             message.unwrap_or("This shift overlaps another shift of this employee"),
@@ -433,25 +550,22 @@ pub(crate) async fn create_shift(
     let be = resolve_instant(&details.break_ends, None);
     assert_shift_break(starts, ends, bs, be)?;
     assert_no_overlapping_shift(db, employee_id, starts, ends, None, None).await?;
-    let row: Value = sqlx::query_scalar(
-        "insert into hr_shifts (id, employee_id, company_id, starts_at, ends_at, work_type,
-             break_starts_at, break_ends_at, notes, created_by)
-         values ($1, $2, $3, $4::timestamptz, $5::timestamptz, $6, $7::timestamptz, $8::timestamptz, $9, $10)
-         returning to_jsonb(hr_shifts)",
-    )
-    .bind(generate_id("hrshf"))
-    .bind(employee_id)
-    .bind(details.company_id)
-    .bind(iso(starts))
-    .bind(iso(ends))
-    .bind(&details.work_type)
-    .bind(bs.map(iso))
-    .bind(be.map(iso))
-    .bind(details.notes)
-    .bind(created_by)
-    .fetch_one(db)
+    let row = hr_shifts::Entity::insert(hr_shifts::ActiveModel {
+        id: Set(generate_id("hrshf")),
+        employee_id: Set(employee_id.to_owned()),
+        company_id: Set(details.company_id.map(str::to_owned)),
+        starts_at: Set(pg_instant(starts)?),
+        ends_at: Set(pg_instant(ends)?),
+        work_type: Set(details.work_type.clone()),
+        break_starts_at: Set(bs.map(pg_instant).transpose()?),
+        break_ends_at: Set(be.map(pg_instant).transpose()?),
+        notes: Set(details.notes.map(str::to_owned)),
+        created_by: Set(Some(created_by.to_owned())),
+        ..Default::default()
+    })
+    .exec_with_returning(&orm(db))
     .await?;
-    Ok(js_row(row))
+    to_json(row)
 }
 
 async fn list_shifts_route(caller: Caller, RawQuery(query): RawQuery) -> HrResult {
@@ -539,38 +653,46 @@ async fn update_shift_route(
     let (set_company, company) = change(&input.company_id);
     let set_work = !input.work_type.is_absent();
     let (set_notes, notes) = change(&input.notes);
-    let row: Value = sqlx::query_scalar(
-        "update hr_shifts set
-             company_id = case when $2 then $3 else company_id end,
-             work_type = case when $4 then $5 else work_type end,
-             notes = case when $6 then $7 else notes end,
-             starts_at = $8::timestamptz, ends_at = $9::timestamptz,
-             break_starts_at = $10::timestamptz, break_ends_at = $11::timestamptz,
-             updated_at = $12::timestamp
-         where id = $1 returning to_jsonb(hr_shifts)",
-    )
-    .bind(&id)
-    .bind(set_company)
-    .bind(company)
-    .bind(set_work)
-    .bind(work_type_value(&input.work_type))
-    .bind(set_notes)
-    .bind(notes)
-    .bind(iso(starts))
-    .bind(iso(ends))
-    .bind(bs.map(iso))
-    .bind(be.map(iso))
-    .bind(now())
-    .fetch_one(db)
-    .await?;
-    Ok(Data(js_row(row)).into_response())
+    // The times are always written; the rest only when the body sent them.
+    let mut update = hr_shifts::Entity::update_many();
+    if set_company {
+        update = update.col_expr(Shift::CompanyId, Expr::value(company));
+    }
+    if set_work {
+        update = update.col_expr(
+            Shift::WorkType,
+            Expr::value(work_type_value(&input.work_type)),
+        );
+    }
+    if set_notes {
+        update = update.col_expr(Shift::Notes, Expr::value(notes));
+    }
+    let row = update
+        .col_expr(Shift::StartsAt, Expr::value(pg_instant(starts)?))
+        .col_expr(Shift::EndsAt, Expr::value(pg_instant(ends)?))
+        .col_expr(
+            Shift::BreakStartsAt,
+            Expr::value(bs.map(pg_instant).transpose()?),
+        )
+        .col_expr(
+            Shift::BreakEndsAt,
+            Expr::value(be.map(pg_instant).transpose()?),
+        )
+        .col_expr(Shift::UpdatedAt, Expr::value(utc_now()))
+        .filter(Shift::Id.eq(id.as_str()))
+        .exec_with_returning(&orm(db))
+        .await?
+        .into_iter()
+        .next()
+        .ok_or_else(|| no_row("hr_shifts"))?;
+    Ok(Data(to_json(row)?).into_response())
 }
 
 async fn delete_shift_route(caller: Caller, Path(id): Path<String>) -> HrResult {
     require_shift(&caller.db, &id).await?;
-    sqlx::query("delete from hr_shifts where id = $1")
-        .bind(&id)
-        .execute(&caller.db)
+    hr_shifts::Entity::delete_many()
+        .filter(Shift::Id.eq(id.as_str()))
+        .exec(&orm(&caller.db))
         .await?;
     Ok(NoContent.into_response())
 }
@@ -582,32 +704,28 @@ async fn shift_for(
     date: &str,
     shift_id: Option<&str>,
 ) -> Result<Option<Value>, HrError> {
+    let (start, end) = (day_start(date)?, day_end(date)?);
+    let db = &orm(db);
     if let Some(shift_id) = shift_id.filter(|s| !s.is_empty()) {
-        let own: Option<Value> = sqlx::query_scalar(
-            "select to_jsonb(s) from hr_shifts s where s.id = $1 and s.employee_id = $2
-               and s.starts_at <= $3::timestamptz and s.ends_at > $4::timestamptz limit 1",
-        )
-        .bind(shift_id)
-        .bind(employee_id)
-        .bind(format!("{date}T23:59:59Z"))
-        .bind(format!("{date}T00:00:00Z"))
-        .fetch_optional(db)
-        .await?;
+        let own = hr_shifts::Entity::find()
+            .filter(Shift::Id.eq(shift_id))
+            .filter(Shift::EmployeeId.eq(employee_id))
+            .filter(Shift::StartsAt.lte(end))
+            .filter(Shift::EndsAt.gt(start))
+            .one(db)
+            .await?;
         if let Some(own) = own {
-            return Ok(Some(js_row(own)));
+            return to_json(own).map(Some);
         }
     }
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(s) from hr_shifts s where s.employee_id = $1
-           and s.starts_at >= $2::timestamptz and s.starts_at <= $3::timestamptz
-         order by s.starts_at asc limit 1",
-    )
-    .bind(employee_id)
-    .bind(format!("{date}T00:00:00Z"))
-    .bind(format!("{date}T23:59:59Z"))
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(js_row))
+    let row = hr_shifts::Entity::find()
+        .filter(Shift::EmployeeId.eq(employee_id))
+        .filter(Shift::StartsAt.gte(start))
+        .filter(Shift::StartsAt.lte(end))
+        .order_by_asc(Shift::StartsAt)
+        .one(db)
+        .await?;
+    row.map(to_json).transpose()
 }
 
 // ---------------------------------------------------------------------------
@@ -716,14 +834,11 @@ async fn derive(
 
 /// `requireAttendance(db, id)`.
 pub(crate) async fn require_attendance(db: &PgPool, id: &str) -> Result<Value, HrError> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from hr_attendance_records t where t.id = $1 limit 1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    row.map(js_row)
-        .ok_or_else(|| HrError::not_found("Attendance record", id))
+    let row = hr_attendance_records::Entity::find()
+        .filter(Attendance::Id.eq(id))
+        .one(&orm(db))
+        .await?;
+    to_json(row.ok_or_else(|| HrError::not_found("Attendance record", id))?)
 }
 
 /// `AttendanceFilters`.
@@ -753,82 +868,62 @@ pub(crate) async fn list_attendance(
         .as_deref()
         .filter(|s| !s.is_empty())
         .map(|s| s.split(',').map(str::to_owned).collect());
-    let cursor: Option<(String, String)> = match filters.cursor.as_deref().filter(|c| !c.is_empty())
-    {
+    let conn = orm(db);
+    let cursor: Option<(Date, String)> = match filters.cursor.as_deref().filter(|c| !c.is_empty()) {
         Some(cursor) => {
-            sqlx::query_as("select date::text, id from hr_attendance_records where id = $1 limit 1")
-                .bind(cursor)
-                .fetch_optional(db)
+            hr_attendance_records::Entity::find()
+                .select_only()
+                .columns([Attendance::Date, Attendance::Id])
+                .filter(Attendance::Id.eq(cursor))
+                .into_tuple()
+                .one(&conn)
                 .await?
         }
         None => None,
     };
-    let rows: Vec<(Value, Value)> = sqlx::query_as(
-        "select to_jsonb(a), jsonb_build_object('employeeFirstName', e.first_name,
-             'employeeLastName', e.last_name, 'employeePreferredName', e.preferred_name)
-         from hr_attendance_records a join hr_employees e on e.id = a.employee_id
-         where e.deleted_at is null
-           and ($1::text is null or a.employee_id = $1)
-           and ($2::text is null or a.company_id = $2)
-           and ($3::text is null or a.date >= $3::date)
-           and ($4::text is null or a.date <= $4::date)
-           and ($5::text[] is null or a.status = any($5))
-           and (not $6 or a.approved_at is null)
-           and ($7::text is null or (a.date, a.id) < ($7::date, $8))
-           and ($10::text[] is null or e.legal_entity_id = any($10)
-                or ($11::boolean and e.legal_entity_id is null))
-         order by a.date desc, a.id desc
-         limit $9",
-    )
-    .bind(&filters.employee_id)
-    .bind(&filters.company_id)
-    .bind(&filters.from)
-    .bind(&filters.to)
-    .bind(&statuses)
-    .bind(filters.unapproved)
-    .bind(cursor.as_ref().map(|c| c.0.clone()))
-    .bind(cursor.as_ref().map(|c| c.1.clone()))
-    .bind(limit + 1)
-    .bind(filters.entity.ids())
-    .bind(filters.entity.unassigned())
-    .fetch_all(db)
-    .await?;
-    let total: i64 = sqlx::query_scalar(
-        "select count(*) from hr_attendance_records a join hr_employees e on e.id = a.employee_id
-         where e.deleted_at is null
-           and ($1::text is null or a.employee_id = $1)
-           and ($2::text is null or a.company_id = $2)
-           and ($3::text is null or a.date >= $3::date)
-           and ($4::text is null or a.date <= $4::date)
-           and ($5::text[] is null or a.status = any($5))
-           and (not $6 or a.approved_at is null)
-           and ($7::text[] is null or e.legal_entity_id = any($7)
-                or ($8::boolean and e.legal_entity_id is null))",
-    )
-    .bind(&filters.employee_id)
-    .bind(&filters.company_id)
-    .bind(&filters.from)
-    .bind(&filters.to)
-    .bind(&statuses)
-    .bind(filters.unapproved)
-    .bind(filters.entity.ids())
-    .bind(filters.entity.unassigned())
-    .fetch_one(db)
-    .await?;
+    let condition = attendance_condition(filters, statuses.as_deref())?;
+    let mut page = EmployeeName::join(hr_attendance_records::Entity::find(), attendance_employee())
+        .filter(condition.clone());
+    if let Some((date, id)) = &cursor {
+        let column = |column: Attendance| Expr::col((hr_attendance_records::Entity, column));
+        page = page.filter(sea_orm::ExprTrait::lt(
+            Expr::tuple([column(Attendance::Date), column(Attendance::Id)]),
+            Expr::tuple([Expr::val(*date), Expr::val(id.as_str())]),
+        ));
+    }
+    // A negative `limit` is Postgres's error, as the TypeScript route's.
+    let fetch = u64::try_from(limit + 1)
+        .map_err(|_| HrError::Database(DbErr::Custom("LIMIT must not be negative".to_owned())))?;
+    let rows: Vec<AttendanceRow> = page
+        .order_by_desc(Attendance::Date)
+        .order_by_desc(Attendance::Id)
+        .limit(fetch)
+        .into_model()
+        .all(&conn)
+        .await?;
+    let total = hr_attendance_records::Entity::find()
+        .join(JoinType::InnerJoin, attendance_employee())
+        .filter(condition)
+        .count(&conn)
+        .await?;
+    let total = i64::try_from(total).unwrap_or(i64::MAX);
     let page_size = usize::try_from(limit).unwrap_or(0);
     let has_more = rows.len() > page_size;
-    let page: Vec<(Value, Value)> = rows.into_iter().take(page_size).collect();
-    let companies: Vec<Option<&str>> = page.iter().map(|(r, _)| r["company_id"].as_str()).collect();
+    let page: Vec<AttendanceRow> = rows.into_iter().take(page_size).collect();
+    let companies: Vec<Option<&str>> = page
+        .iter()
+        .map(|r| r.record.company_id.as_deref())
+        .collect();
     let approvers: Vec<Option<&str>> = page
         .iter()
-        .map(|(r, _)| r["approved_by"].as_str())
+        .map(|r| r.record.approved_by.as_deref())
         .collect();
     let places: Vec<Option<&str>> = page
         .iter()
-        .flat_map(|(r, _)| {
+        .flat_map(|r| {
             [
-                r["clock_in_location_id"].as_str(),
-                r["clock_out_location_id"].as_str(),
+                r.record.clock_in_location_id.as_deref(),
+                r.record.clock_out_location_id.as_deref(),
             ]
         })
         .collect();
@@ -836,40 +931,64 @@ pub(crate) async fn list_attendance(
     let approver_name = member_names(db, &approvers).await?;
     let place_name = work_location_names(db, &places).await?;
     let cursor_out = if has_more {
-        page.last().map(|(r, _)| text(r, "id").to_owned())
+        page.last().map(|r| r.record.id.clone())
     } else {
         None
     };
-    let lookup = |map: &HashMap<String, String>, row: &Value, key: &str| -> Value {
+    let lookup = |map: &HashMap<String, String>, key: Option<&str>| -> Value {
         json!(
-            row[key]
-                .as_str()
-                .filter(|v| !v.is_empty())
+            key.filter(|v| !v.is_empty())
                 .and_then(|v| map.get(v).cloned())
         )
     };
     let data = page
         .into_iter()
-        .map(|(record, names_row)| {
-            let mut record = js_row(record);
-            let company = lookup(&company_name, &record, "companyId");
-            let approver = lookup(&approver_name, &record, "approvedBy");
-            let clock_in_place = lookup(&place_name, &record, "clockInLocationId");
-            let clock_out_place = lookup(&place_name, &record, "clockOutLocationId");
+        .map(|row| {
+            let company = lookup(&company_name, row.record.company_id.as_deref());
+            let approver = lookup(&approver_name, row.record.approved_by.as_deref());
+            let clock_in_place = lookup(&place_name, row.record.clock_in_location_id.as_deref());
+            let clock_out_place = lookup(&place_name, row.record.clock_out_location_id.as_deref());
+            let employee_name = row.employee.name();
+            let mut record = to_json(row.record)?;
             if let Some(map) = record.as_object_mut() {
-                map.insert(
-                    "employeeName".to_owned(),
-                    json!(employee_name_of(&names_row)),
-                );
+                map.insert("employeeName".to_owned(), json!(employee_name));
                 map.insert("companyName".to_owned(), company);
                 map.insert("approvedByName".to_owned(), approver);
                 map.insert("clockInLocationName".to_owned(), clock_in_place);
                 map.insert("clockOutLocationName".to_owned(), clock_out_place);
             }
-            record
+            Ok(record)
         })
-        .collect();
+        .collect::<Result<_, HrError>>()?;
     Ok((data, total, has_more, cursor_out))
+}
+
+/// The filters `listAttendance` pages and counts with (the employee joined).
+fn attendance_condition(
+    filters: &AttendanceFilters,
+    statuses: Option<&[String]>,
+) -> Result<Condition, HrError> {
+    Ok(Condition::all()
+        .add(Employee::DeletedAt.is_null())
+        .add_option(
+            filters
+                .employee_id
+                .as_deref()
+                .map(|id| Attendance::EmployeeId.eq(id)),
+        )
+        .add_option(
+            filters
+                .company_id
+                .as_deref()
+                .map(|id| Attendance::CompanyId.eq(id)),
+        )
+        .add_option(pg_date_opt(filters.from.as_deref())?.map(|from| Attendance::Date.gte(from)))
+        .add_option(pg_date_opt(filters.to.as_deref())?.map(|to| Attendance::Date.lte(to)))
+        .add_option(
+            statuses.map(|statuses| Attendance::Status.is_in(statuses.iter().map(String::as_str))),
+        )
+        .add_option(filters.unapproved.then(|| Attendance::ApprovedAt.is_null()))
+        .add(filters.entity.condition(Employee::LegalEntityId)))
 }
 
 /// What an attendance write sets (`AttendanceWrite`).
@@ -935,34 +1054,29 @@ pub(crate) async fn create_attendance(
         .cloned()
         .or(derived.company_id.clone());
     let place = origin.place;
-    let row: Value = sqlx::query_scalar(
-        "insert into hr_attendance_records (id, employee_id, company_id, shift_id, date, clock_in, clock_out,
-             break_minutes, worked_minutes, late_minutes, status, source, notes, clock_in_location_id,
-             clock_in_latitude, clock_in_longitude, created_by)
-         values ($1, $2, $3, $4, $5::date, $6::timestamptz, $7::timestamptz, $8::int, $9::int, $10::int,
-                 $11, $12, $13, $14, $15, $16, $17)
-         returning to_jsonb(hr_attendance_records)",
-    )
-    .bind(generate_id("hratt"))
-    .bind(employee_id)
-    .bind(company)
-    .bind(&derived.shift_id)
-    .bind(date)
-    .bind(clock_in.map(iso))
-    .bind(clock_out.map(iso))
-    .bind(int_of(break_minutes))
-    .bind(derived.worked.map(int_of))
-    .bind(int_of(derived.late))
-    .bind(&derived.status)
-    .bind(origin.source.unwrap_or("manual"))
-    .bind(input.notes.as_set())
-    .bind(place.and_then(|p| p.location_id.clone()))
-    .bind(place.and_then(|p| p.latitude))
-    .bind(place.and_then(|p| p.longitude))
-    .bind(created_by)
-    .fetch_one(db)
+    let row = hr_attendance_records::Entity::insert(hr_attendance_records::ActiveModel {
+        id: Set(generate_id("hratt")),
+        employee_id: Set(employee_id.to_owned()),
+        company_id: Set(company),
+        shift_id: Set(derived.shift_id),
+        date: Set(pg_date(date)?),
+        clock_in: Set(clock_in.map(pg_instant).transpose()?),
+        clock_out: Set(clock_out.map(pg_instant).transpose()?),
+        break_minutes: Set(int_of(break_minutes)),
+        worked_minutes: Set(derived.worked.map(int_of)),
+        late_minutes: Set(int_of(derived.late)),
+        status: Set(derived.status),
+        source: Set(origin.source.unwrap_or("manual").to_owned()),
+        notes: Set(input.notes.as_set().cloned()),
+        clock_in_location_id: Set(place.and_then(|p| p.location_id.clone())),
+        clock_in_latitude: Set(place.and_then(|p| p.latitude)),
+        clock_in_longitude: Set(place.and_then(|p| p.longitude)),
+        created_by: Set(Some(created_by.to_owned())),
+        ..Default::default()
+    })
+    .exec_with_returning(&orm(db))
     .await?;
-    Ok(js_row(row))
+    to_json(row)
 }
 
 #[allow(clippy::cast_possible_truncation)]
@@ -1018,35 +1132,53 @@ pub(crate) async fn update_attendance(
         Field::Null => None,
         Field::Set(value) => Some(value.clone()),
     };
-    let row: Value = sqlx::query_scalar(
-        "update hr_attendance_records set company_id = $2, date = $3::date, clock_in = $4::timestamptz,
-             clock_out = $5::timestamptz, break_minutes = $6::int, notes = $7, shift_id = $8,
-             worked_minutes = $9::int, late_minutes = $10::int, status = $11,
-             clock_out_location_id = case when $12 then $13 else clock_out_location_id end,
-             clock_out_latitude = case when $12 then $14 else clock_out_latitude end,
-             clock_out_longitude = case when $12 then $15 else clock_out_longitude end,
-             approved_at = null, approved_by = null, updated_at = $16::timestamp
-         where id = $1 returning to_jsonb(hr_attendance_records)",
-    )
-    .bind(id)
-    .bind(keep(&input.company_id, "companyId"))
-    .bind(&date)
-    .bind(clock_in.map(iso))
-    .bind(clock_out.map(iso))
-    .bind(int_of(break_minutes))
-    .bind(keep(&input.notes, "notes"))
-    .bind(&derived.shift_id)
-    .bind(derived.worked.map(int_of))
-    .bind(int_of(derived.late))
-    .bind(&derived.status)
-    .bind(clock_out_place.is_some())
-    .bind(clock_out_place.and_then(|p| p.location_id.clone()))
-    .bind(clock_out_place.and_then(|p| p.latitude))
-    .bind(clock_out_place.and_then(|p| p.longitude))
-    .bind(now())
-    .fetch_one(db)
-    .await?;
-    Ok(js_row(row))
+    let mut update = hr_attendance_records::Entity::update_many()
+        .col_expr(
+            Attendance::CompanyId,
+            Expr::value(keep(&input.company_id, "companyId")),
+        )
+        .col_expr(Attendance::Date, Expr::value(pg_date(&date)?))
+        .col_expr(
+            Attendance::ClockIn,
+            Expr::value(clock_in.map(pg_instant).transpose()?),
+        )
+        .col_expr(
+            Attendance::ClockOut,
+            Expr::value(clock_out.map(pg_instant).transpose()?),
+        )
+        .col_expr(Attendance::BreakMinutes, Expr::value(int_of(break_minutes)))
+        .col_expr(Attendance::Notes, Expr::value(keep(&input.notes, "notes")))
+        .col_expr(Attendance::ShiftId, Expr::value(derived.shift_id))
+        .col_expr(
+            Attendance::WorkedMinutes,
+            Expr::value(derived.worked.map(int_of)),
+        )
+        .col_expr(Attendance::LateMinutes, Expr::value(int_of(derived.late)))
+        .col_expr(Attendance::Status, Expr::value(derived.status));
+    // Where the clock-out happened, only when this write is one.
+    if let Some(place) = clock_out_place {
+        update = update
+            .col_expr(
+                Attendance::ClockOutLocationId,
+                Expr::value(place.location_id.clone()),
+            )
+            .col_expr(Attendance::ClockOutLatitude, Expr::value(place.latitude))
+            .col_expr(Attendance::ClockOutLongitude, Expr::value(place.longitude));
+    }
+    let row = update
+        .col_expr(
+            Attendance::ApprovedAt,
+            Expr::value(Option::<PrimitiveDateTime>::None),
+        )
+        .col_expr(Attendance::ApprovedBy, Expr::value(Option::<String>::None))
+        .col_expr(Attendance::UpdatedAt, Expr::value(utc_now()))
+        .filter(Attendance::Id.eq(id))
+        .exec_with_returning(&orm(db))
+        .await?
+        .into_iter()
+        .next()
+        .ok_or_else(|| no_row("hr_attendance_records"))?;
+    to_json(row)
 }
 
 fn attendance_write(issues: &mut Issues, fields: &Fields, partial: bool) -> AttendanceWrite {
@@ -1129,25 +1261,37 @@ pub(crate) async fn attendance_summary(
             json!({ "records": 0, "workedMinutes": 0, "lateMinutes": 0, "byStatus": {}, "attendanceRate": null }),
         );
     }
-    let rows: Vec<(String, i64, i64, i64)> = sqlx::query_as(
-        "select status, count(*), coalesce(sum(worked_minutes), 0)::bigint, coalesce(sum(late_minutes), 0)::bigint
-         from hr_attendance_records
-         where date >= $1::date and date <= $2::date
-           and ($3::text[] is null or employee_id = any($3))
-           and ($4::text is null or company_id = $4)
-           and ($5::text[] is null or employee_id in (select scope_e.id from hr_employees scope_e
-                where scope_e.legal_entity_id = any($5)
-                   or ($6::boolean and scope_e.legal_entity_id is null)))
-         group by status",
-    )
-    .bind(from)
-    .bind(to)
-    .bind(employee_ids.map(<[String]>::to_vec))
-    .bind(company_id)
-    .bind(scope.ids())
-    .bind(scope.unassigned())
-    .fetch_all(db)
-    .await?;
+    // `coalesce(sum(minutes), 0)`: `sum` of an integer column is a bigint.
+    let total = |column: Attendance| {
+        Expr::from(Func::coalesce([
+            Expr::from(Func::sum(Expr::col((
+                hr_attendance_records::Entity,
+                column,
+            )))),
+            Expr::val(0i64),
+        ]))
+    };
+    let rows: Vec<(String, i64, i64, i64)> = hr_attendance_records::Entity::find()
+        .select_only()
+        .column(Attendance::Status)
+        .column_as(Expr::from(Func::count(Expr::col(Asterisk))), "records")
+        .column_as(total(Attendance::WorkedMinutes), "worked_minutes")
+        .column_as(total(Attendance::LateMinutes), "late_minutes")
+        .filter(Attendance::Date.gte(pg_date(from)?))
+        .filter(Attendance::Date.lte(pg_date(to)?))
+        .filter(
+            Condition::all()
+                .add_option(
+                    employee_ids
+                        .map(|ids| Attendance::EmployeeId.is_in(ids.iter().map(String::as_str))),
+                )
+                .add_option(company_id.map(|id| Attendance::CompanyId.eq(id))),
+        )
+        .filter(scope.employee_id_in(Attendance::EmployeeId))
+        .group_by(Attendance::Status)
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     let mut by_status = Map::new();
     let (mut records, mut worked, mut late) = (0i64, 0i64, 0i64);
     for (status, count, w, l) in &rows {
@@ -1235,9 +1379,9 @@ async fn delete_attendance_route(
 ) -> HrResult {
     let row = require_attendance(&caller.db, &id).await?;
     require_attendance(&caller.db, &id).await?;
-    sqlx::query("delete from hr_attendance_records where id = $1")
-        .bind(&id)
-        .execute(&caller.db)
+    hr_attendance_records::Entity::delete_many()
+        .filter(Attendance::Id.eq(id.as_str()))
+        .exec(&orm(&caller.db))
         .await?;
     caller.emit(
         &state,
@@ -1270,21 +1414,19 @@ async fn approve_route(
     let approved: Vec<(String, String)> = if ids.is_empty() {
         Vec::new()
     } else {
-        sqlx::query_as(
-            "update hr_attendance_records set approved_at = $3::timestamp, approved_by = $2, updated_at = $3::timestamp
-             where id = any($1) and approved_at is null
-           and ($4::text[] is null or employee_id in (select scope_e.id from hr_employees scope_e
-                where scope_e.legal_entity_id = any($4)
-                   or ($5::boolean and scope_e.legal_entity_id is null)))
-             returning id, employee_id",
-        )
-        .bind(&ids)
-        .bind(&caller.user_id)
-        .bind(now())
-        .bind(scope.ids())
-        .bind(scope.unassigned())
-        .fetch_all(&caller.db)
-        .await?
+        let at = utc_now();
+        hr_attendance_records::Entity::update_many()
+            .col_expr(Attendance::ApprovedAt, Expr::value(at))
+            .col_expr(Attendance::ApprovedBy, Expr::value(caller.user_id.as_str()))
+            .col_expr(Attendance::UpdatedAt, Expr::value(at))
+            .filter(Attendance::Id.is_in(ids.iter().map(String::as_str)))
+            .filter(Attendance::ApprovedAt.is_null())
+            .filter(scope.employee_id_in(Attendance::EmployeeId))
+            .exec_with_returning(&orm(&caller.db))
+            .await?
+            .into_iter()
+            .map(|row| (row.id, row.employee_id))
+            .collect()
     };
     for (id, employee) in &approved {
         caller.emit(
@@ -1315,18 +1457,23 @@ pub(crate) async fn resolve_employee_refs(
         return Ok(out);
     }
     let lowered: Vec<String> = unique.iter().map(|r| r.to_lowercase()).collect();
-    let rows: Vec<(String, String, Option<String>)> = sqlx::query_as(
-        "select id, email, employee_number from hr_employees
-         where deleted_at is null and (lower(email) = any($1) or employee_number = any($2))
-           and ($3::text[] is null or legal_entity_id = any($3)
-                or ($4::boolean and legal_entity_id is null))",
-    )
-    .bind(&lowered)
-    .bind(&unique)
-    .bind(scope.ids())
-    .bind(scope.unassigned())
-    .fetch_all(db)
-    .await?;
+    let email = Func::lower(Expr::col((hr_employees::Entity, Employee::Email)));
+    let rows: Vec<(String, String, Option<String>)> = hr_employees::Entity::find()
+        .select_only()
+        .columns([Employee::Id, Employee::Email, Employee::EmployeeNumber])
+        .filter(Employee::DeletedAt.is_null())
+        .filter(
+            Condition::any()
+                .add(sea_orm::ExprTrait::is_in(
+                    email,
+                    lowered.iter().map(String::as_str),
+                ))
+                .add(Employee::EmployeeNumber.is_in(unique.iter().map(String::as_str))),
+        )
+        .filter(scope.condition(Employee::LegalEntityId))
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     for (id, email, number) in rows {
         out.insert(email.to_lowercase(), id.clone());
         if let Some(number) = number.filter(|n| !n.is_empty()) {
@@ -1399,13 +1546,15 @@ async fn import_attendance_row(
     created_by: &str,
     dry_run: bool,
 ) -> Result<bool, HrError> {
-    let existing: Option<String> = sqlx::query_scalar(
-        "select id from hr_attendance_records where employee_id = $1 and date = $2::date and source = 'import' limit 1",
-    )
-    .bind(employee_id)
-    .bind(&row.date)
-    .fetch_optional(db)
-    .await?;
+    let existing: Option<String> = hr_attendance_records::Entity::find()
+        .select_only()
+        .column(Attendance::Id)
+        .filter(Attendance::EmployeeId.eq(employee_id))
+        .filter(Attendance::Date.eq(pg_date(&row.date)?))
+        .filter(Attendance::Source.eq("import"))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     if dry_run {
         assert_attendance_times(
             instant_of(&row.clock_in),
@@ -1486,14 +1635,12 @@ async fn clockable_shift(
     shift_id: &str,
     now_ms: i64,
 ) -> Result<Value, HrError> {
-    let shift: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(s) from hr_shifts s where s.id = $1 and s.employee_id = $2 limit 1",
-    )
-    .bind(shift_id)
-    .bind(employee_id)
-    .fetch_optional(db)
-    .await?;
-    let Some(shift) = shift.map(js_row) else {
+    let shift = hr_shifts::Entity::find()
+        .filter(Shift::Id.eq(shift_id))
+        .filter(Shift::EmployeeId.eq(employee_id))
+        .one(&orm(db))
+        .await?;
+    let Some(shift) = shift.map(to_json).transpose()? else {
         return Err(HrError::not_found("Shift", shift_id));
     };
     if row_instant(&shift, "endsAt").unwrap_or(0) <= now_ms {
@@ -1511,16 +1658,14 @@ async fn current_shift(
     employee_id: &str,
     now_ms: i64,
 ) -> Result<Option<Value>, HrError> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(s) from hr_shifts s where s.employee_id = $1 and s.ends_at > $2::timestamptz
-           and s.starts_at <= $3::timestamptz order by s.starts_at asc limit 1",
-    )
-    .bind(employee_id)
-    .bind(iso(now_ms))
-    .bind(format!("{}T23:59:59Z", date_of(now_ms)))
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(js_row))
+    let row = hr_shifts::Entity::find()
+        .filter(Shift::EmployeeId.eq(employee_id))
+        .filter(Shift::EndsAt.gt(pg_instant(now_ms)?))
+        .filter(Shift::StartsAt.lte(day_end(&date_of(now_ms))?))
+        .order_by_asc(Shift::StartsAt)
+        .one(&orm(db))
+        .await?;
+    row.map(to_json).transpose()
 }
 
 /// `openClockRecord(db, employeeId)`.
@@ -1528,14 +1673,14 @@ pub(crate) async fn open_clock_record(
     db: &PgPool,
     employee_id: &str,
 ) -> Result<Option<Value>, HrError> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(a) from hr_attendance_records a where a.employee_id = $1 and a.clock_out is null
-           and a.clock_in is not null order by a.clock_in desc limit 1",
-    )
-    .bind(employee_id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(js_row))
+    let row = hr_attendance_records::Entity::find()
+        .filter(Attendance::EmployeeId.eq(employee_id))
+        .filter(Attendance::ClockOut.is_null())
+        .filter(Attendance::ClockIn.is_not_null())
+        .order_by_desc(Attendance::ClockIn)
+        .one(&orm(db))
+        .await?;
+    row.map(to_json).transpose()
 }
 
 /// The current instant in milliseconds.
@@ -1642,41 +1787,84 @@ pub(crate) async fn list_leave_types(
     db: &PgPool,
     include_inactive: bool,
 ) -> Result<Vec<Value>, HrError> {
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from hr_leave_types t where ($1 or t.is_active = true) order by t.name asc",
-    )
-    .bind(include_inactive)
-    .fetch_all(db)
-    .await?;
-    Ok(rows.into_iter().map(js_row).collect())
+    let mut query = hr_leave_types::Entity::find();
+    if !include_inactive {
+        query = query.filter(LeaveType::IsActive.eq(true));
+    }
+    query
+        .order_by_asc(LeaveType::Name)
+        .all(&orm(db))
+        .await?
+        .into_iter()
+        .map(to_json)
+        .collect()
 }
 
 async fn require_leave_type(db: &PgPool, id: &str) -> Result<Value, HrError> {
-    let row: Option<Value> =
-        sqlx::query_scalar("select to_jsonb(t) from hr_leave_types t where t.id = $1 limit 1")
-            .bind(id)
-            .fetch_optional(db)
-            .await?;
-    row.map(js_row)
-        .ok_or_else(|| HrError::not_found("Leave type", id))
+    let row = hr_leave_types::Entity::find()
+        .filter(LeaveType::Id.eq(id))
+        .one(&orm(db))
+        .await?;
+    to_json(row.ok_or_else(|| HrError::not_found("Leave type", id))?)
+}
+
+/// One of the starter leave types (`DEFAULT_LEAVE_TYPES`).
+fn default_leave_type(
+    id: &str,
+    name: &str,
+    color: &str,
+    paid_and_approved: (bool, bool),
+    default_allowance_days: Option<f64>,
+) -> hr_leave_types::ActiveModel {
+    let (is_paid, requires_approval) = paid_and_approved;
+    hr_leave_types::ActiveModel {
+        id: Set(id.to_owned()),
+        name: Set(name.to_owned()),
+        color: Set(Some(color.to_owned())),
+        is_paid: Set(is_paid),
+        requires_approval: Set(requires_approval),
+        default_allowance_days: Set(default_allowance_days),
+        ..Default::default()
+    }
 }
 
 /// `ensureDefaultLeaveTypes(db)`: annual, sick and unpaid leave.
 pub(crate) async fn ensure_default_leave_types(db: &PgPool) -> Result<(), HrError> {
-    let existing: Option<String> = sqlx::query_scalar("select id from hr_leave_types limit 1")
-        .fetch_optional(db)
+    let db = &orm(db);
+    let existing: Option<String> = hr_leave_types::Entity::find()
+        .select_only()
+        .column(LeaveType::Id)
+        .into_tuple()
+        .one(db)
         .await?;
     if existing.is_some() {
         return Ok(());
     }
-    sqlx::query(
-        "insert into hr_leave_types (id, name, color, is_paid, requires_approval, default_allowance_days) values
-             ('hrlvt_default_annual', 'Annual leave', '#3b82f6', true, true, 20),
-             ('hrlvt_default_sick', 'Sick leave', '#ef4444', true, false, null),
-             ('hrlvt_default_unpaid', 'Unpaid leave', '#6b7280', false, true, null)
-         on conflict do nothing",
-    )
-    .execute(db)
+    hr_leave_types::Entity::insert_many([
+        default_leave_type(
+            "hrlvt_default_annual",
+            "Annual leave",
+            "#3b82f6",
+            (true, true),
+            Some(20.0),
+        ),
+        default_leave_type(
+            "hrlvt_default_sick",
+            "Sick leave",
+            "#ef4444",
+            (true, false),
+            None,
+        ),
+        default_leave_type(
+            "hrlvt_default_unpaid",
+            "Unpaid leave",
+            "#6b7280",
+            (false, true),
+            None,
+        ),
+    ])
+    .on_conflict(OnConflict::new().do_nothing().to_owned())
+    .exec_without_returning(db)
     .await?;
     Ok(())
 }
@@ -1736,23 +1924,25 @@ async fn create_leave_type_route(caller: Caller, headers: HeaderMap, body: Bytes
     let input = hr_json(&headers, &body, |issues, fields| {
         leave_type_input(issues, fields, false)
     })?;
-    let row: Value = sqlx::query_scalar(
-        "insert into hr_leave_types (id, name, color, is_paid, requires_approval, default_allowance_days,
-             over_allowance, is_active)
-         values ($1, $2, $3, coalesce($4, true), coalesce($5, true), $6, coalesce($7, 'allow'), coalesce($8, true))
-         returning to_jsonb(hr_leave_types)",
-    )
-    .bind(generate_id("hrlvt"))
-    .bind(input.name.as_set())
-    .bind(input.color.as_set())
-    .bind(input.is_paid.as_set())
-    .bind(input.requires_approval.as_set())
-    .bind(input.default_allowance_days.as_set())
-    .bind(input.over_allowance.as_set())
-    .bind(input.is_active.as_set())
-    .fetch_one(&caller.db)
+    // The schema requires the name on a create.
+    let row = hr_leave_types::Entity::insert(hr_leave_types::ActiveModel {
+        id: Set(generate_id("hrlvt")),
+        name: Set(input.name.as_set().cloned().unwrap_or_default()),
+        color: Set(input.color.as_set().cloned()),
+        is_paid: Set(input.is_paid.as_set().copied().unwrap_or(true)),
+        requires_approval: Set(input.requires_approval.as_set().copied().unwrap_or(true)),
+        default_allowance_days: Set(input.default_allowance_days.as_set().copied()),
+        over_allowance: Set(input
+            .over_allowance
+            .as_set()
+            .cloned()
+            .unwrap_or_else(|| "allow".to_owned())),
+        is_active: Set(input.is_active.as_set().copied().unwrap_or(true)),
+        ..Default::default()
+    })
+    .exec_with_returning(&orm(&caller.db))
     .await?;
-    Ok(Created(js_row(row)).into_response())
+    Ok(Created(to_json(row)?).into_response())
 }
 
 async fn update_leave_type_route(
@@ -1772,64 +1962,66 @@ async fn update_leave_type_route(
     let (set_default, default) = change(&input.default_allowance_days);
     let (set_over, over) = change(&input.over_allowance);
     let (set_active, active) = change(&input.is_active);
-    let row: Value = sqlx::query_scalar(
-        "update hr_leave_types set
-             name = case when $2 then $3 else name end,
-             color = case when $4 then $5 else color end,
-             is_paid = case when $6 then $7 else is_paid end,
-             requires_approval = case when $8 then $9 else requires_approval end,
-             default_allowance_days = case when $10 then $11 else default_allowance_days end,
-             over_allowance = case when $12 then $13 else over_allowance end,
-             is_active = case when $14 then $15 else is_active end,
-             updated_at = $16::timestamp
-         where id = $1 returning to_jsonb(hr_leave_types)",
-    )
-    .bind(&id)
-    .bind(set_name)
-    .bind(name)
-    .bind(set_color)
-    .bind(color)
-    .bind(set_paid)
-    .bind(paid)
-    .bind(set_approval)
-    .bind(approval)
-    .bind(set_default)
-    .bind(default)
-    .bind(set_over)
-    .bind(over)
-    .bind(set_active)
-    .bind(active)
-    .bind(now())
-    .fetch_one(&caller.db)
-    .await?;
-    Ok(Data(js_row(row)).into_response())
+    // Only the fields the body sent change (`.set({ ...input })`).
+    let mut update = hr_leave_types::Entity::update_many();
+    if set_name {
+        update = update.col_expr(LeaveType::Name, Expr::value(name));
+    }
+    if set_color {
+        update = update.col_expr(LeaveType::Color, Expr::value(color));
+    }
+    if set_paid {
+        update = update.col_expr(LeaveType::IsPaid, Expr::value(paid));
+    }
+    if set_approval {
+        update = update.col_expr(LeaveType::RequiresApproval, Expr::value(approval));
+    }
+    if set_default {
+        update = update.col_expr(LeaveType::DefaultAllowanceDays, Expr::value(default));
+    }
+    if set_over {
+        update = update.col_expr(LeaveType::OverAllowance, Expr::value(over));
+    }
+    if set_active {
+        update = update.col_expr(LeaveType::IsActive, Expr::value(active));
+    }
+    let row = update
+        .col_expr(LeaveType::UpdatedAt, Expr::value(utc_now()))
+        .filter(LeaveType::Id.eq(id.as_str()))
+        .exec_with_returning(&orm(&caller.db))
+        .await?
+        .into_iter()
+        .next()
+        .ok_or_else(|| no_row("hr_leave_types"))?;
+    Ok(Data(to_json(row)?).into_response())
 }
 
 async fn delete_leave_type_route(caller: Caller, Path(id): Path<String>) -> HrResult {
-    let db = &caller.db;
-    require_leave_type(db, &id).await?;
-    let used: Option<String> =
-        sqlx::query_scalar("select id from hr_leave_requests where leave_type_id = $1 limit 1")
-            .bind(&id)
-            .fetch_optional(db)
-            .await?;
-    if used.is_some() {
-        sqlx::query(
-            "update hr_leave_types set is_active = false, updated_at = $2::timestamp where id = $1",
-        )
-        .bind(&id)
-        .bind(now())
-        .execute(db)
+    require_leave_type(&caller.db, &id).await?;
+    let db = &orm(&caller.db);
+    let used: Option<String> = hr_leave_requests::Entity::find()
+        .select_only()
+        .column(LeaveRequest::Id)
+        .filter(LeaveRequest::LeaveTypeId.eq(id.as_str()))
+        .into_tuple()
+        .one(db)
         .await?;
+    if used.is_some() {
+        hr_leave_types::Entity::update_many()
+            .col_expr(LeaveType::IsActive, Expr::value(false))
+            .col_expr(LeaveType::UpdatedAt, Expr::value(utc_now()))
+            .filter(LeaveType::Id.eq(id.as_str()))
+            .exec(db)
+            .await?;
         return Ok(Data(json!({ "archived": true })).into_response());
     }
-    sqlx::query("delete from hr_leave_allowances where leave_type_id = $1")
-        .bind(&id)
-        .execute(db)
+    hr_leave_allowances::Entity::delete_many()
+        .filter(Allowance::LeaveTypeId.eq(id.as_str()))
+        .exec(db)
         .await?;
-    sqlx::query("delete from hr_leave_types where id = $1")
-        .bind(&id)
-        .execute(db)
+    hr_leave_types::Entity::delete_many()
+        .filter(LeaveType::Id.eq(id.as_str()))
+        .exec(db)
         .await?;
     Ok(Data(json!({ "archived": false })).into_response())
 }
@@ -1865,38 +2057,50 @@ async fn set_allowance_route(caller: Caller, headers: HeaderMap, body: Bytes) ->
     let days = days.into_option().unwrap_or_default();
     require_employee(db, &employee).await?;
     require_leave_type(db, &leave_type).await?;
-    let existing: Option<String> = sqlx::query_scalar(
-        "select id from hr_leave_allowances where employee_id = $1 and leave_type_id = $2 and year = $3 limit 1",
-    )
-    .bind(&employee)
-    .bind(&leave_type)
-    .bind(year)
-    .fetch_optional(db)
-    .await?;
-    let row: Value = if let Some(existing) = existing {
-        sqlx::query_scalar(
-            "update hr_leave_allowances set days = $2, updated_at = $3::timestamp where id = $1
-             returning to_jsonb(hr_leave_allowances)",
-        )
-        .bind(&existing)
-        .bind(days)
-        .bind(now())
-        .fetch_one(db)
-        .await?
+    let db = &orm(db);
+    let existing: Option<String> = hr_leave_allowances::Entity::find()
+        .select_only()
+        .column(Allowance::Id)
+        .filter(Allowance::EmployeeId.eq(employee.as_str()))
+        .filter(Allowance::LeaveTypeId.eq(leave_type.as_str()))
+        .filter(Allowance::Year.eq(year))
+        .into_tuple()
+        .one(db)
+        .await?;
+    let row = if let Some(existing) = existing {
+        hr_leave_allowances::Entity::update_many()
+            .col_expr(Allowance::Days, Expr::value(days))
+            .col_expr(Allowance::UpdatedAt, Expr::value(utc_now()))
+            .filter(Allowance::Id.eq(existing.as_str()))
+            .exec_with_returning(db)
+            .await?
+            .into_iter()
+            .next()
+            .ok_or_else(|| no_row("hr_leave_allowances"))?
     } else {
-        sqlx::query_scalar(
-            "insert into hr_leave_allowances (id, employee_id, leave_type_id, year, days)
-             values ($1, $2, $3, $4, $5) returning to_jsonb(hr_leave_allowances)",
-        )
-        .bind(generate_id("hrlva"))
-        .bind(&employee)
-        .bind(&leave_type)
-        .bind(year)
-        .bind(days)
-        .fetch_one(db)
+        hr_leave_allowances::Entity::insert(hr_leave_allowances::ActiveModel {
+            id: Set(generate_id("hrlva")),
+            employee_id: Set(employee),
+            leave_type_id: Set(leave_type),
+            year: Set(year),
+            days: Set(days),
+            ..Default::default()
+        })
+        .exec_with_returning(db)
         .await?
     };
-    Ok(Data(js_row(row)).into_response())
+    Ok(Data(to_json(row)?).into_response())
+}
+
+/// The first and last day of `year`; `None` outside the years 1–9999.
+fn year_span(year: i32) -> Option<(Date, Date)> {
+    if !(1..=9999).contains(&year) {
+        return None;
+    }
+    Some((
+        Date::from_calendar_date(year, time::Month::January, 1).ok()?,
+        Date::from_calendar_date(year, time::Month::December, 31).ok()?,
+    ))
 }
 
 /// `leaveBalances(db, employeeId, year)`.
@@ -1912,23 +2116,45 @@ pub(crate) async fn leave_balances(
         employee["endDate"].as_str(),
     );
     let types = list_leave_types(db, false).await?;
-    let allowances: Vec<(String, f64)> = sqlx::query_as(
-        "select leave_type_id, days from hr_leave_allowances where employee_id = $1 and year = $2",
-    )
-    .bind(employee_id)
-    .bind(year)
-    .fetch_all(db)
-    .await?;
-    let usage: Vec<(String, String, f64)> = sqlx::query_as(
-        "select leave_type_id, status, coalesce(sum(days), 0)::float8 from hr_leave_requests
-         where employee_id = $1 and status in ('approved', 'pending')
-           and extract(year from start_date) = $2
-         group by leave_type_id, status",
-    )
-    .bind(employee_id)
-    .bind(year)
-    .fetch_all(db)
-    .await?;
+    let db = &orm(db);
+    let allowances: Vec<(String, f64)> = hr_leave_allowances::Entity::find()
+        .select_only()
+        .columns([Allowance::LeaveTypeId, Allowance::Days])
+        .filter(Allowance::EmployeeId.eq(employee_id))
+        .filter(Allowance::Year.eq(year))
+        .into_tuple()
+        .all(db)
+        .await?;
+    // `extract(year from start_date) = year`: the days of that year. A
+    // request's dates are `YYYY-MM-DD`, so none falls outside the years
+    // 1–9999.
+    let usage: Vec<(String, String, f64)> = match year_span(year) {
+        Some((first, last)) => {
+            hr_leave_requests::Entity::find()
+                .select_only()
+                .columns([LeaveRequest::LeaveTypeId, LeaveRequest::Status])
+                .column_as(
+                    Expr::from(Func::coalesce([
+                        Expr::from(Func::sum(Expr::col((
+                            hr_leave_requests::Entity,
+                            LeaveRequest::Days,
+                        )))),
+                        Expr::val(0.0f64),
+                    ])),
+                    "days",
+                )
+                .filter(LeaveRequest::EmployeeId.eq(employee_id))
+                .filter(LeaveRequest::Status.is_in(["approved", "pending"]))
+                .filter(LeaveRequest::StartDate.gte(first))
+                .filter(LeaveRequest::StartDate.lte(last))
+                .group_by(LeaveRequest::LeaveTypeId)
+                .group_by(LeaveRequest::Status)
+                .into_tuple()
+                .all(db)
+                .await?
+        }
+        None => Vec::new(),
+    };
     let overrides: HashMap<String, f64> = allowances.into_iter().collect();
     Ok(types
         .iter()
@@ -2022,13 +2248,11 @@ async fn assert_within_allowance(
 
 /// `requireLeaveRequest(db, id)`.
 pub(crate) async fn require_leave_request(db: &PgPool, id: &str) -> Result<Value, HrError> {
-    let row: Option<Value> =
-        sqlx::query_scalar("select to_jsonb(t) from hr_leave_requests t where t.id = $1 limit 1")
-            .bind(id)
-            .fetch_optional(db)
-            .await?;
-    row.map(js_row)
-        .ok_or_else(|| HrError::not_found("Leave request", id))
+    let row = hr_leave_requests::Entity::find()
+        .filter(LeaveRequest::Id.eq(id))
+        .one(&orm(db))
+        .await?;
+    to_json(row.ok_or_else(|| HrError::not_found("Leave request", id))?)
 }
 
 /// `listLeaveRequests(db, filters)`.
@@ -2043,52 +2267,52 @@ pub(crate) async fn list_leave_requests(
     let statuses: Option<Vec<String>> = status
         .filter(|s| !s.is_empty())
         .map(|s| s.split(',').map(str::to_owned).collect());
-    let rows: Vec<(Value, Value)> = sqlx::query_as(
-        "select to_jsonb(r), jsonb_build_object('employeeFirstName', e.first_name,
-             'employeeLastName', e.last_name, 'employeePreferredName', e.preferred_name,
-             'leaveTypeName', t.name, 'leaveTypeColor', t.color)
-         from hr_leave_requests r join hr_employees e on e.id = r.employee_id
-         left join hr_leave_types t on t.id = r.leave_type_id
-         where e.deleted_at is null
-           and ($1::text is null or r.employee_id = $1)
-           and ($2::text[] is null or r.status = any($2))
-           and ($3::text is null or r.end_date >= $3::date)
-           and ($4::text is null or r.start_date <= $4::date)
-           and ($5::text[] is null or e.legal_entity_id = any($5)
-                or ($6::boolean and e.legal_entity_id is null))
-         order by r.start_date desc
-         limit 1000",
-    )
-    .bind(employee_id)
-    .bind(&statuses)
-    .bind(from)
-    .bind(to)
-    .bind(scope.ids())
-    .bind(scope.unassigned())
-    .fetch_all(db)
-    .await?;
+    let condition = Condition::all()
+        .add(Employee::DeletedAt.is_null())
+        .add_option(employee_id.map(|id| LeaveRequest::EmployeeId.eq(id)))
+        .add_option(
+            statuses
+                .as_ref()
+                .map(|statuses| LeaveRequest::Status.is_in(statuses.iter().map(String::as_str))),
+        )
+        .add_option(pg_date_opt(from)?.map(|from| LeaveRequest::EndDate.gte(from)))
+        .add_option(pg_date_opt(to)?.map(|to| LeaveRequest::StartDate.lte(to)))
+        .add(scope.condition(Employee::LegalEntityId));
+    let rows: Vec<LeaveRequestRow> =
+        EmployeeName::join(hr_leave_requests::Entity::find(), request_employee())
+            .column_as(LeaveType::Name, "leave_type_name")
+            .column_as(LeaveType::Color, "leave_type_color")
+            .join(JoinType::LeftJoin, request_leave_type())
+            .filter(condition)
+            .order_by_desc(LeaveRequest::StartDate)
+            .limit(1000)
+            .into_model()
+            .all(&orm(db))
+            .await?;
     let reviewers: Vec<Option<&str>> = rows
         .iter()
-        .map(|(r, _)| r["reviewed_by"].as_str())
+        .map(|row| row.request.reviewed_by.as_deref())
         .collect();
     let names = member_names(db, &reviewers).await?;
-    Ok(rows
-        .into_iter()
-        .map(|(request, extra)| {
-            let mut request = js_row(request);
-            let reviewer = request["reviewedBy"]
-                .as_str()
+    rows.into_iter()
+        .map(|row| {
+            let reviewer = row
+                .request
+                .reviewed_by
+                .as_deref()
                 .filter(|r| !r.is_empty())
                 .and_then(|r| names.get(r).cloned());
+            let employee_name = row.employee.name();
+            let mut request = to_json(row.request)?;
             if let Some(map) = request.as_object_mut() {
-                map.insert("employeeName".to_owned(), json!(employee_name_of(&extra)));
-                map.insert("leaveTypeName".to_owned(), extra["leaveTypeName"].clone());
-                map.insert("leaveTypeColor".to_owned(), extra["leaveTypeColor"].clone());
+                map.insert("employeeName".to_owned(), json!(employee_name));
+                map.insert("leaveTypeName".to_owned(), json!(row.leave_type_name));
+                map.insert("leaveTypeColor".to_owned(), json!(row.leave_type_color));
                 map.insert("reviewedByName".to_owned(), json!(reviewer));
             }
-            request
+            Ok(request)
         })
-        .collect())
+        .collect()
 }
 
 async fn list_leave_requests_route(caller: Caller, RawQuery(query): RawQuery) -> HrResult {
@@ -2134,15 +2358,17 @@ pub(crate) async fn create_leave_request(
             "This leave type is no longer available",
         ));
     }
-    let overlap: Option<String> = sqlx::query_scalar(
-        "select id from hr_leave_requests where employee_id = $1 and status in ('pending', 'approved')
-           and start_date <= $2::date and end_date >= $3::date limit 1",
-    )
-    .bind(input.employee_id)
-    .bind(input.end_date)
-    .bind(input.start_date)
-    .fetch_optional(db)
-    .await?;
+    let (start_date, end_date) = (pg_date(input.start_date)?, pg_date(input.end_date)?);
+    let overlap: Option<String> = hr_leave_requests::Entity::find()
+        .select_only()
+        .column(LeaveRequest::Id)
+        .filter(LeaveRequest::EmployeeId.eq(input.employee_id))
+        .filter(LeaveRequest::Status.is_in(["pending", "approved"]))
+        .filter(LeaveRequest::StartDate.lte(end_date))
+        .filter(LeaveRequest::EndDate.gte(start_date))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     if overlap.is_some() {
         return Err(HrError::conflict("This overlaps another leave request"));
     }
@@ -2165,25 +2391,22 @@ pub(crate) async fn create_leave_request(
     )
     .await?;
     let auto_approve = leave_type["requiresApproval"] != true;
-    let row: Value = sqlx::query_scalar(
-        "insert into hr_leave_requests (id, employee_id, leave_type_id, start_date, end_date, days, reason,
-             status, requested_by, reviewed_at)
-         values ($1, $2, $3, $4::date, $5::date, $6, $7, $8, $9, $10::timestamp)
-         returning to_jsonb(hr_leave_requests)",
-    )
-    .bind(generate_id("hrlvr"))
-    .bind(input.employee_id)
-    .bind(input.leave_type_id)
-    .bind(input.start_date)
-    .bind(input.end_date)
-    .bind(days)
-    .bind(input.reason)
-    .bind(if auto_approve { "approved" } else { "pending" })
-    .bind(requested_by)
-    .bind(auto_approve.then(now))
-    .fetch_one(db)
+    let row = hr_leave_requests::Entity::insert(hr_leave_requests::ActiveModel {
+        id: Set(generate_id("hrlvr")),
+        employee_id: Set(input.employee_id.to_owned()),
+        leave_type_id: Set(input.leave_type_id.to_owned()),
+        start_date: Set(start_date),
+        end_date: Set(end_date),
+        days: Set(days),
+        reason: Set(input.reason.map(str::to_owned)),
+        status: Set(if auto_approve { "approved" } else { "pending" }.to_owned()),
+        requested_by: Set(Some(requested_by.to_owned())),
+        reviewed_at: Set(auto_approve.then(utc_now)),
+        ..Default::default()
+    })
+    .exec_with_returning(&orm(db))
     .await?;
-    Ok(js_row(row))
+    to_json(row)
 }
 
 /// The `hr_leave_request` event of a create (approved straight away, or
@@ -2287,19 +2510,26 @@ async fn review_leave_route(
         )
         .await?;
     }
-    let row: Value = sqlx::query_scalar(
-        "update hr_leave_requests set status = $2, review_note = $3, reviewed_by = $4,
-             reviewed_at = $5::timestamp, updated_at = $5::timestamp
-         where id = $1 returning to_jsonb(hr_leave_requests)",
-    )
-    .bind(&id)
-    .bind(&decision)
-    .bind(note.as_set())
-    .bind(&caller.user_id)
-    .bind(now())
-    .fetch_one(db)
-    .await?;
-    let row = js_row(row);
+    let at = utc_now();
+    let row = hr_leave_requests::Entity::update_many()
+        .col_expr(LeaveRequest::Status, Expr::value(decision.as_str()))
+        .col_expr(
+            LeaveRequest::ReviewNote,
+            Expr::value(note.as_set().cloned()),
+        )
+        .col_expr(
+            LeaveRequest::ReviewedBy,
+            Expr::value(caller.user_id.as_str()),
+        )
+        .col_expr(LeaveRequest::ReviewedAt, Expr::value(at))
+        .col_expr(LeaveRequest::UpdatedAt, Expr::value(at))
+        .filter(LeaveRequest::Id.eq(id.as_str()))
+        .exec_with_returning(&orm(db))
+        .await?
+        .into_iter()
+        .next()
+        .ok_or_else(|| no_row("hr_leave_requests"))?;
+    let row = to_json(row)?;
     let event = if row["status"] == "approved" {
         HR_LEAVE_REQUEST_APPROVED
     } else {
@@ -2341,15 +2571,16 @@ pub(crate) async fn cancel_leave_request(
             "Leave that has started can only be cancelled by HR",
         ));
     }
-    let row: Value = sqlx::query_scalar(
-        "update hr_leave_requests set status = 'cancelled', updated_at = $2::timestamp where id = $1
-         returning to_jsonb(hr_leave_requests)",
-    )
-    .bind(id)
-    .bind(now())
-    .fetch_one(db)
-    .await?;
-    Ok(js_row(row))
+    let row = hr_leave_requests::Entity::update_many()
+        .col_expr(LeaveRequest::Status, Expr::value("cancelled"))
+        .col_expr(LeaveRequest::UpdatedAt, Expr::value(utc_now()))
+        .filter(LeaveRequest::Id.eq(id))
+        .exec_with_returning(&orm(db))
+        .await?
+        .into_iter()
+        .next()
+        .ok_or_else(|| no_row("hr_leave_requests"))?;
+    to_json(row)
 }
 
 async fn cancel_leave_route(
@@ -2369,9 +2600,9 @@ async fn delete_leave_route(
 ) -> HrResult {
     let row = require_leave_request(&caller.db, &id).await?;
     require_leave_request(&caller.db, &id).await?;
-    sqlx::query("delete from hr_leave_requests where id = $1")
-        .bind(&id)
-        .execute(&caller.db)
+    hr_leave_requests::Entity::delete_many()
+        .filter(LeaveRequest::Id.eq(id.as_str()))
+        .exec(&orm(&caller.db))
         .await?;
     caller.emit(
         &state,
@@ -2388,33 +2619,41 @@ pub(crate) async fn on_leave_on(
     date: &str,
     scope: &Scope,
 ) -> Result<Vec<Value>, HrError> {
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select jsonb_build_object('employeeId', lr.employee_id, 'firstName', e.first_name,
-             'lastName', e.last_name, 'preferredName', e.preferred_name,
-             'leaveTypeName', lt.name, 'endDate', lr.end_date)
-         from hr_leave_requests lr
-         join hr_employees e on e.id = lr.employee_id
-         left join hr_leave_types lt on lt.id = lr.leave_type_id
-         where lr.status = 'approved' and lr.start_date <= $1::date and lr.end_date >= $1::date
-           and e.deleted_at is null and e.status <> 'terminated'
-           and ($2::text[] is null or e.legal_entity_id = any($2)
-                or ($3::boolean and e.legal_entity_id is null))",
-    )
-    .bind(date)
-    .bind(scope.ids())
-    .bind(scope.unassigned())
-    .fetch_all(db)
-    .await?;
+    let day = pg_date(date)?;
+    let rows: Vec<(String, String, String, Option<String>, Option<String>, Date)> =
+        hr_leave_requests::Entity::find()
+            .select_only()
+            .column(LeaveRequest::EmployeeId)
+            .columns([
+                Employee::FirstName,
+                Employee::LastName,
+                Employee::PreferredName,
+            ])
+            .column(LeaveType::Name)
+            .column(LeaveRequest::EndDate)
+            .join(JoinType::InnerJoin, request_employee())
+            .join(JoinType::LeftJoin, request_leave_type())
+            .filter(LeaveRequest::Status.eq("approved"))
+            .filter(LeaveRequest::StartDate.lte(day))
+            .filter(LeaveRequest::EndDate.gte(day))
+            .filter(Employee::DeletedAt.is_null())
+            .filter(Employee::Status.ne("terminated"))
+            .filter(scope.condition(Employee::LegalEntityId))
+            .into_tuple()
+            .all(&orm(db))
+            .await?;
     Ok(rows
-        .iter()
-        .map(|row| {
-            json!({
-                "employeeId": row["employeeId"],
-                "employeeName": display_name_of(row),
-                "leaveTypeName": row["leaveTypeName"],
-                "endDate": row["endDate"],
-            })
-        })
+        .into_iter()
+        .map(
+            |(employee_id, first, last, preferred, leave_type_name, end_date)| {
+                json!({
+                    "employeeId": employee_id,
+                    "employeeName": display_name(&first, &last, preferred.as_deref()),
+                    "leaveTypeName": leave_type_name,
+                    "endDate": crate::shared::iso_date(end_date),
+                })
+            },
+        )
         .collect())
 }
 

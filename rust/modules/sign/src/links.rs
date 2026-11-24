@@ -7,11 +7,15 @@
 use aws_lc_rs::digest;
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use sqlx::PgPool;
+use sea_orm::ActiveValue::Set;
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QuerySelect};
 use time::OffsetDateTime;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::generate_id;
+use weldsuite_schema::master::sign_link_registry;
 
-use crate::{SignResult, now};
+use crate::{SignResult, millis, now};
 
 /// How long a link keeps working after the request completes, to download
 /// the signed PDF.
@@ -44,27 +48,26 @@ pub(crate) struct LinkTarget<'a> {
     pub(crate) clerk_org_id: &'a str,
     pub(crate) envelope_id: &'a str,
     pub(crate) recipient_id: &'a str,
-    /// ISO timestamp, as the envelope row holds it.
-    pub(crate) expires_at: Option<&'a str>,
+    /// When the link stops working (to the millisecond, as a JavaScript
+    /// `Date` holds it).
+    pub(crate) expires_at: Option<OffsetDateTime>,
 }
 
 /// Create a link for one recipient; the token, shown once in the email
 /// (`createLink`).
 pub(crate) async fn create_link(master: &PgPool, target: &LinkTarget<'_>) -> SignResult<String> {
     let token = new_link_token();
-    sqlx::query(
-        "insert into sign_link_registry
-             (id, token_hash, workspace_id, clerk_org_id, envelope_id, recipient_id, expires_at)
-         values ($1, $2, $3, $4, $5, $6, $7::timestamptz)",
-    )
-    .bind(generate_id("sgl"))
-    .bind(sha256_hex(token.as_bytes()))
-    .bind(target.workspace_id)
-    .bind(target.clerk_org_id)
-    .bind(target.envelope_id)
-    .bind(target.recipient_id)
-    .bind(target.expires_at)
-    .execute(master)
+    sign_link_registry::Entity::insert(sign_link_registry::ActiveModel {
+        id: Set(generate_id("sgl")),
+        token_hash: Set(sha256_hex(token.as_bytes())),
+        workspace_id: Set(target.workspace_id.to_owned()),
+        clerk_org_id: Set(target.clerk_org_id.to_owned()),
+        envelope_id: Set(target.envelope_id.to_owned()),
+        recipient_id: Set(target.recipient_id.to_owned()),
+        expires_at: Set(target.expires_at.map(millis)),
+        ..Default::default()
+    })
+    .exec_without_returning(&orm(master))
     .await?;
     Ok(token)
 }
@@ -85,18 +88,24 @@ pub(crate) async fn resolve_link_by_hash(
     token_hash: &str,
     at: OffsetDateTime,
 ) -> SignResult<Option<ResolvedLink>> {
-    let row: Option<(String, String, String, bool)> = sqlx::query_as(
-        "select clerk_org_id, envelope_id, recipient_id,
-                expires_at is not null and expires_at < $2::timestamptz
-         from sign_link_registry
-         where token_hash = $1 and revoked_at is null limit 1",
-    )
-    .bind(token_hash)
-    .bind(weldsuite_events::iso_timestamp(at))
-    .fetch_optional(master)
-    .await?;
+    let row: Option<(String, String, String, Option<OffsetDateTime>)> =
+        sign_link_registry::Entity::find()
+            .select_only()
+            .columns([
+                sign_link_registry::Column::ClerkOrgId,
+                sign_link_registry::Column::EnvelopeId,
+                sign_link_registry::Column::RecipientId,
+                sign_link_registry::Column::ExpiresAt,
+            ])
+            .filter(sign_link_registry::Column::TokenHash.eq(token_hash))
+            .filter(sign_link_registry::Column::RevokedAt.is_null())
+            .into_tuple()
+            .one(&orm(master))
+            .await?;
+    let at = millis(at);
     Ok(
-        row.and_then(|(clerk_org_id, envelope_id, recipient_id, expired)| {
+        row.and_then(|(clerk_org_id, envelope_id, recipient_id, expires_at)| {
+            let expired = expires_at.is_some_and(|expires_at| expires_at < at);
             (!expired).then(|| ResolvedLink {
                 token_hash: token_hash.to_owned(),
                 clerk_org_id,
@@ -123,15 +132,13 @@ pub(crate) async fn revoke_envelope_links(
     workspace_id: &str,
     envelope_id: &str,
 ) -> SignResult<()> {
-    sqlx::query(
-        "update sign_link_registry set revoked_at = $3::timestamptz
-         where workspace_id = $1 and envelope_id = $2 and revoked_at is null",
-    )
-    .bind(workspace_id)
-    .bind(envelope_id)
-    .bind(now())
-    .execute(master)
-    .await?;
+    sign_link_registry::Entity::update_many()
+        .col_expr(sign_link_registry::Column::RevokedAt, Expr::value(now()))
+        .filter(sign_link_registry::Column::WorkspaceId.eq(workspace_id))
+        .filter(sign_link_registry::Column::EnvelopeId.eq(envelope_id))
+        .filter(sign_link_registry::Column::RevokedAt.is_null())
+        .exec(&orm(master))
+        .await?;
     Ok(())
 }
 
@@ -144,19 +151,16 @@ pub(crate) async fn revoke_recipient_links(
     recipient_id: &str,
     keep_token: Option<&str>,
 ) -> SignResult<()> {
-    let keep = keep_token.map(|t| sha256_hex(t.as_bytes()));
-    sqlx::query(
-        "update sign_link_registry set revoked_at = $5::timestamptz
-         where workspace_id = $1 and envelope_id = $2 and recipient_id = $3
-           and revoked_at is null and ($4::text is null or token_hash <> $4)",
-    )
-    .bind(workspace_id)
-    .bind(envelope_id)
-    .bind(recipient_id)
-    .bind(keep)
-    .bind(now())
-    .execute(master)
-    .await?;
+    let mut revoke = sign_link_registry::Entity::update_many()
+        .col_expr(sign_link_registry::Column::RevokedAt, Expr::value(now()))
+        .filter(sign_link_registry::Column::WorkspaceId.eq(workspace_id))
+        .filter(sign_link_registry::Column::EnvelopeId.eq(envelope_id))
+        .filter(sign_link_registry::Column::RecipientId.eq(recipient_id))
+        .filter(sign_link_registry::Column::RevokedAt.is_null());
+    if let Some(keep) = keep_token.map(|t| sha256_hex(t.as_bytes())) {
+        revoke = revoke.filter(sign_link_registry::Column::TokenHash.ne(keep));
+    }
+    revoke.exec(&orm(master)).await?;
     Ok(())
 }
 
@@ -167,13 +171,11 @@ pub(crate) async fn revoke_tokens(master: &PgPool, tokens: &[String]) -> SignRes
         return Ok(());
     }
     let hashes: Vec<String> = tokens.iter().map(|t| sha256_hex(t.as_bytes())).collect();
-    sqlx::query(
-        "update sign_link_registry set revoked_at = $2::timestamptz where token_hash = any($1)",
-    )
-    .bind(&hashes)
-    .bind(now())
-    .execute(master)
-    .await?;
+    sign_link_registry::Entity::update_many()
+        .col_expr(sign_link_registry::Column::RevokedAt, Expr::value(now()))
+        .filter(sign_link_registry::Column::TokenHash.is_in(hashes))
+        .exec(&orm(master))
+        .await?;
     Ok(())
 }
 
@@ -185,16 +187,14 @@ pub(crate) async fn limit_links_to_download(
     envelope_id: &str,
     completed_at: OffsetDateTime,
 ) -> SignResult<()> {
-    let until = completed_at + time::Duration::days(DOWNLOAD_WINDOW_DAYS);
-    sqlx::query(
-        "update sign_link_registry set expires_at = $3::timestamptz
-         where workspace_id = $1 and envelope_id = $2 and revoked_at is null",
-    )
-    .bind(workspace_id)
-    .bind(envelope_id)
-    .bind(weldsuite_events::iso_timestamp(until))
-    .execute(master)
-    .await?;
+    let until = millis(completed_at + time::Duration::days(DOWNLOAD_WINDOW_DAYS));
+    sign_link_registry::Entity::update_many()
+        .col_expr(sign_link_registry::Column::ExpiresAt, Expr::value(until))
+        .filter(sign_link_registry::Column::WorkspaceId.eq(workspace_id))
+        .filter(sign_link_registry::Column::EnvelopeId.eq(envelope_id))
+        .filter(sign_link_registry::Column::RevokedAt.is_null())
+        .exec(&orm(master))
+        .await?;
     Ok(())
 }
 

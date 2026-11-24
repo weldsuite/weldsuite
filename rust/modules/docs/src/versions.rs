@@ -19,7 +19,7 @@ use crate::records::{
     version_key_for,
 };
 use crate::routes::{VIEW_ONLY, find_doc};
-use crate::{Caller, DocsState, Refusal, answer, now, validate, validate_query};
+use crate::{Caller, DocsState, Refusal, answer, validate, validate_query};
 
 const DEFAULT_LIMIT: i64 = 50;
 
@@ -143,7 +143,7 @@ pub(crate) async fn create(
                     size: &saved["size"],
                     created_by_id: &caller.user_id,
                 },
-                &now(),
+                weldsuite_db::utc_now(),
             )
             .await?;
             caller.publish(

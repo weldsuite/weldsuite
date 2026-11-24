@@ -17,11 +17,14 @@
 
 use std::collections::HashMap;
 
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, JoinType, QueryFilter, QuerySelect};
 use serde::Serialize;
 use sqlx::PgPool;
 use weldsuite_catalogs::permission_keys;
-use weldsuite_db::TenantPermissionQueries;
+use weldsuite_db::{TenantPermissionQueries, orm};
 use weldsuite_permissions::{PermissionQueries, ResolvedPermissions, check_app_permission};
+use weldsuite_schema::tenant::{entities, legal_entity_members};
 
 /// The permission that sees every entity and manages who sees which.
 pub const LEGAL_ENTITIES_MANAGE: &str = permission_keys::LEGAL_ENTITIES_MANAGE;
@@ -235,16 +238,37 @@ pub async fn load_entity_access(
     db: &PgPool,
     user_id: &str,
     workspace_permissions: ResolvedPermissions,
-) -> Result<EntityAccess, sqlx::Error> {
-    let rows: Vec<(String, bool, bool, Option<String>)> = sqlx::query_as(
-        "select e.id, e.access_restricted, m.id is not null, m.role_id
-         from entities e
-         left join legal_entity_members m on m.entity_id = e.id and m.user_id = $1
-         where e.deleted_at is null",
-    )
-    .bind(user_id)
-    .fetch_all(db)
-    .await?;
+) -> Result<EntityAccess, DbErr> {
+    let member = user_id.to_owned();
+    let rows: Vec<(String, bool, bool, Option<String>)> = entities::Entity::find()
+        .select_only()
+        .columns([entities::Column::Id, entities::Column::AccessRestricted])
+        .column_as(
+            sea_orm::ExprTrait::is_not_null(Expr::col((
+                legal_entity_members::Entity,
+                legal_entity_members::Column::Id,
+            ))),
+            "is_member",
+        )
+        .column(legal_entity_members::Column::RoleId)
+        .join(
+            JoinType::LeftJoin,
+            entities::Entity::belongs_to(legal_entity_members::Entity)
+                .from(entities::Column::Id)
+                .to(legal_entity_members::Column::EntityId)
+                .on_condition(move |_, row| {
+                    sea_orm::ExprTrait::eq(
+                        Expr::col((row, legal_entity_members::Column::UserId)),
+                        member.as_str(),
+                    )
+                    .into()
+                })
+                .into(),
+        )
+        .filter(entities::Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     Ok(build_entity_access(
         user_id,
         workspace_permissions,
@@ -268,7 +292,7 @@ pub async fn resolve_permissions_with_role(
     db: &PgPool,
     user_id: &str,
     role_id: &str,
-) -> Result<ResolvedPermissions, sqlx::Error> {
+) -> Result<ResolvedPermissions, DbErr> {
     weldsuite_permissions::resolve_permissions_with_role(
         &TenantPermissionQueries::new(db.clone()),
         user_id,
@@ -283,7 +307,7 @@ pub async fn permissions_in_entity(
     db: &PgPool,
     access: &EntityAccess,
     entity_id: &str,
-) -> Result<ResolvedPermissions, sqlx::Error> {
+) -> Result<ResolvedPermissions, DbErr> {
     permissions_in_entity_with(&TenantPermissionQueries::new(db.clone()), access, entity_id).await
 }
 

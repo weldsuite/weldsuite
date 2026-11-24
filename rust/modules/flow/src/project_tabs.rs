@@ -13,10 +13,14 @@ use std::collections::HashSet;
 use axum::body::Bytes;
 use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Response};
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 use serde_json::{Value, json};
 use weldsuite_catalogs::entity_events::PROJECT_UPDATED;
+use weldsuite_db::{orm, utc_now};
 use weldsuite_kit::Data;
 use weldsuite_kit::validation::{Issues, Presence, Text};
+use weldsuite_schema::tenant::projects;
 
 use crate::project_schedule::{PROJECT_MANAGE_DENIED, find_live_project};
 use crate::raid_body::{Body, IDENTIFIER, Reader, parse_body};
@@ -141,6 +145,18 @@ pub(crate) async fn put_tabs(
     )
 }
 
+/// `coalesce(settings, '{}'::jsonb) || $keys::jsonb`: the keys of `keys`
+/// written over the stored settings, the others kept.
+pub(crate) fn merged_settings(keys: Value) -> Expr {
+    sea_orm::sea_query::extension::postgres::PgExpr::concat(
+        Expr::from(Func::coalesce([
+            Expr::col(projects::Column::Settings),
+            sea_orm::ExprTrait::cast_as(Expr::val(json!({})), "jsonb"),
+        ])),
+        sea_orm::ExprTrait::cast_as(Expr::val(keys), "jsonb"),
+    )
+}
+
 async fn write_tabs(
     state: &FlowState,
     caller: &Caller,
@@ -150,17 +166,15 @@ async fn write_tabs(
 ) -> Reply {
     let next = normalize(input);
     // A merge of this key only: the other settings keys are other features'.
-    sqlx::query(
-        "update projects set
-             settings = coalesce(settings, '{}'::jsonb) || jsonb_build_object('tabs', $2::jsonb),
-             updated_at = $3::timestamp
-         where id = $1",
-    )
-    .bind(project_id)
-    .bind(next.clone())
-    .bind(crate::now())
-    .execute(&caller.db)
-    .await?;
+    projects::Entity::update_many()
+        .col_expr(
+            projects::Column::Settings,
+            merged_settings(json!({ "tabs": next.clone() })),
+        )
+        .col_expr(projects::Column::UpdatedAt, Expr::value(utc_now()))
+        .filter(projects::Column::Id.eq(project_id))
+        .exec(&orm(&caller.db))
+        .await?;
     if let Value::Object(map) = project {
         caller.publish(
             state,

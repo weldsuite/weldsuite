@@ -10,11 +10,11 @@ use std::pin::Pin;
 use std::sync::{OnceLock, RwLock};
 
 use serde_json::{Value, json};
-use sqlx::PgPool;
 use time::OffsetDateTime;
 use weldsuite_catalogs::entity_events::{
     EventName, FLOW_APPROVAL_CANCELLED, FLOW_APPROVAL_DECIDED, FLOW_APPROVAL_REQUESTED,
 };
+use weldsuite_db::PgPool;
 use weldsuite_flow_domain::approval_views::approval_event_data;
 use weldsuite_flow_domain::approvals::{
     ApprovalActor, ApprovalRow, ResolvedApprovalOutcome, is_step_active,
@@ -289,7 +289,7 @@ pub(crate) struct AftermathInfo {
 }
 
 pub(crate) type AftermathFuture<'a> =
-    Pin<Box<dyn Future<Output = Result<(), sqlx::Error>> + Send + 'a>>;
+    Pin<Box<dyn Future<Output = Result<(), sea_orm::DbErr>> + Send + 'a>>;
 
 /// A hook: publish the subject's own entity events (and anything else that needs the request).
 pub(crate) type Aftermath =

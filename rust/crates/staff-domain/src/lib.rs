@@ -17,11 +17,6 @@
 //! master transaction together with its audit row, and can be planned
 //! without writing (`dry_run`).
 
-#![allow(
-    clippy::disallowed_methods,
-    reason = "not converted to the ORM yet (ADR DATA-019)"
-)]
-
 pub mod access;
 pub mod audit;
 pub mod staff;
@@ -34,7 +29,7 @@ pub enum StaffError {
     /// Refused by the rules, or about something that doesn't exist. The text
     /// is for the person at the terminal, as the console shows it in a toast.
     Refused(String),
-    Database(sqlx::Error),
+    Database(sea_orm::DbErr),
 }
 
 impl StaffError {
@@ -61,9 +56,17 @@ impl std::error::Error for StaffError {
     }
 }
 
+impl From<sea_orm::DbErr> for StaffError {
+    fn from(error: sea_orm::DbErr) -> Self {
+        Self::Database(error)
+    }
+}
+
+/// A transaction's `begin` and `commit`, and SQL in the callers not converted
+/// yet, report through the same error.
 impl From<sqlx::Error> for StaffError {
     fn from(error: sqlx::Error) -> Self {
-        Self::Database(error)
+        Self::Database(weldsuite_db::orm_error(error))
     }
 }
 

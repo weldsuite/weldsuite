@@ -18,16 +18,24 @@ use axum::extract::{DefaultBodyLimit, FromRequest, Multipart, Path, State};
 use axum::response::{IntoResponse, Response};
 use http::header::{CONTENT_DISPOSITION, CONTENT_TYPE};
 use http::{HeaderMap, StatusCode};
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, Order, QueryFilter, QueryOrder, QuerySelect,
+};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events::{
     EventName, VOIP_PORTING_ORDER_CREATED, VOIP_PORTING_ORDER_DELETED, VOIP_PORTING_ORDER_UPDATED,
 };
+use weldsuite_db::{orm, utc_now};
 use weldsuite_kit::validation::{Format, Issues, Presence, Text};
 use weldsuite_kit::{ApiError, Created, Data};
 use weldsuite_ports::PutOptions;
+use weldsuite_schema::master::telephony_number_pricing as pricing;
+use weldsuite_schema::tenant::voip_porting_orders as orders;
 
+use crate::calls::timestamp_of;
 use crate::telnyx::{Body, PortingBody, PortingCode, PortingError, Telnyx};
-use crate::{CallState, Caller, internal, js, now, validate};
+use crate::{CallState, Caller, internal, js, validate};
 
 /// Uploads up to 32 MiB reach the handler, which refuses more than 10 MB
 /// itself (413) as the worker does.
@@ -165,24 +173,48 @@ fn publish(
     );
 }
 
-/// A live order row, as `to_jsonb` reads it.
-async fn live_order(caller: &Caller, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    sqlx::query_scalar(
-        "select to_jsonb(t) from voip_porting_orders t where t.id = $1 and t.deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(&caller.db)
-    .await
+/// An order row as Drizzle reads it.
+fn order_json(order: orders::Model) -> Result<Value, DbErr> {
+    serde_json::to_value(order).map_err(|error| DbErr::Json(error.to_string()))
+}
+
+/// A live order row, as Drizzle reads it.
+async fn live_order(caller: &Caller, id: &str) -> Result<Option<Value>, DbErr> {
+    orders::Entity::find()
+        .filter(orders::Column::Id.eq(id))
+        .filter(orders::Column::DeletedAt.is_null())
+        .one(&orm(&caller.db))
+        .await?
+        .map(order_json)
+        .transpose()
 }
 
 /// Any order row, as Drizzle reads it.
-async fn order_row(caller: &Caller, id: &str) -> Result<Value, sqlx::Error> {
-    let row: Option<Value> =
-        sqlx::query_scalar("select to_jsonb(t) from voip_porting_orders t where t.id = $1 limit 1")
-            .bind(id)
-            .fetch_optional(&caller.db)
-            .await?;
-    Ok(row.map_or(Value::Null, weldsuite_db::js_row))
+async fn order_row(caller: &Caller, id: &str) -> Result<Value, DbErr> {
+    let row = orders::Entity::find()
+        .filter(orders::Column::Id.eq(id))
+        .one(&orm(&caller.db))
+        .await?;
+    Ok(row.map(order_json).transpose()?.unwrap_or(Value::Null))
+}
+
+/// `db.update(voipPortingOrders).set(…)` of one order: the columns given,
+/// and `updatedAt`.
+async fn update_order(
+    caller: &Caller,
+    id: &str,
+    columns: Vec<(orders::Column, Expr)>,
+) -> Result<(), DbErr> {
+    let mut update = orders::Entity::update_many();
+    for (column, value) in columns {
+        update = update.col_expr(column, value);
+    }
+    update
+        .col_expr(orders::Column::UpdatedAt, Expr::value(utc_now()))
+        .filter(orders::Column::Id.eq(id))
+        .exec(&orm(&caller.db))
+        .await?;
+    Ok(())
 }
 
 /// `/^\+\d+$/`.
@@ -317,13 +349,16 @@ pub(crate) async fn create(
         Ok(data) => data,
         Err(response) => return *response,
     };
-    let existing: Option<String> = match sqlx::query_scalar(
-        "select status from voip_porting_orders where phone_number = $1 and deleted_at is null limit 1",
-    )
-    .bind(&phone)
-    .fetch_optional(&caller.db)
-    .await
-    {
+    let existing: Result<Option<String>, DbErr> = orders::Entity::find()
+        .select_only()
+        .column(orders::Column::Status)
+        .filter(orders::Column::PhoneNumber.eq(&phone))
+        .filter(orders::Column::DeletedAt.is_null())
+        .limit(1)
+        .into_tuple()
+        .one(&orm(&caller.db))
+        .await;
+    let existing = match existing {
         Ok(found) => found,
         Err(error) => return internal(&error, "Internal server error"),
     };
@@ -337,18 +372,17 @@ pub(crate) async fn create(
             .into_response();
     }
     let id = weldsuite_kit::generate_id("vpo");
-    if let Err(error) = sqlx::query(
-        "insert into voip_porting_orders (id, created_by_user_id, phone_number, formatted_number,
-             country_code, number_type, status)
-         values ($1, $2, $3, $4, $5, $6, 'draft')",
-    )
-    .bind(&id)
-    .bind(&caller.user_id)
-    .bind(&phone)
-    .bind(formatted.as_deref().unwrap_or(&phone))
-    .bind(country.to_uppercase())
-    .bind(&kind)
-    .execute(&caller.db)
+    if let Err(error) = orders::Entity::insert(orders::ActiveModel {
+        id: Set(id.clone()),
+        created_by_user_id: Set(caller.user_id.clone()),
+        phone_number: Set(phone.clone()),
+        formatted_number: Set(Some(formatted.as_deref().unwrap_or(&phone).to_owned())),
+        country_code: Set(country.to_uppercase()),
+        number_type: Set(kind.clone()),
+        status: Set("draft".to_owned()),
+        ..Default::default()
+    })
+    .exec_without_returning(&orm(&caller.db))
     .await
     {
         return internal(&error, "Failed to create port order");
@@ -372,16 +406,21 @@ pub(crate) async fn create(
                 "Cannot read properties of undefined (reading 'id')".to_owned(),
             ));
         }
-        sqlx::query(
-            "update voip_porting_orders set telnyx_porting_order_id = $2,
-                 status = 'awaiting_documents', substatus = $3, updated_at = $4::timestamp
-             where id = $1",
+        update_order(
+            &caller,
+            &id,
+            vec![
+                (
+                    orders::Column::TelnyxPortingOrderId,
+                    Expr::value(data["id"].as_str()),
+                ),
+                (orders::Column::Status, Expr::value("awaiting_documents")),
+                (
+                    orders::Column::Substatus,
+                    Expr::value(data["sub_status"].as_str()),
+                ),
+            ],
         )
-        .bind(&id)
-        .bind(data["id"].as_str())
-        .bind(data["sub_status"].as_str())
-        .bind(now())
-        .execute(&caller.db)
         .await
         .map_err(|error| PortingError::Other(error.to_string()))?;
         Ok(())
@@ -393,20 +432,20 @@ pub(crate) async fn create(
             PortingError::Other(_) => "unknown",
         };
         let message = error.to_string();
-        let _ = sqlx::query(
-            "update voip_porting_orders set status = 'preflight_failed', last_error_code = $2,
-                 last_error_message = $3, updated_at = $4::timestamp
-             where id = $1",
-        )
-        .bind(&id)
-        .bind(code)
-        .bind(if message.is_empty() {
+        let message = if message.is_empty() {
             "Unknown error"
         } else {
             &message
-        })
-        .bind(now())
-        .execute(&caller.db)
+        };
+        let _ = update_order(
+            &caller,
+            &id,
+            vec![
+                (orders::Column::Status, Expr::value("preflight_failed")),
+                (orders::Column::LastErrorCode, Expr::value(code)),
+                (orders::Column::LastErrorMessage, Expr::value(message)),
+            ],
+        )
         .await;
         return telnyx_failure(&error, "Failed to create Telnyx porting order");
     }
@@ -635,7 +674,7 @@ pub(crate) async fn update(
         ))
         .into_response();
     }
-    let Some(telnyx_id) = draft["telnyx_porting_order_id"]
+    let Some(telnyx_id) = draft["telnyxPortingOrderId"]
         .as_str()
         .filter(|t| !t.is_empty())
         .map(str::to_owned)
@@ -666,29 +705,33 @@ pub(crate) async fn update(
         .clone()
         .map_or((false, None), |p| (true, p));
     let result = async {
-        sqlx::query(
-            "update voip_porting_orders set updated_at = $2::timestamp,
-                 authorized_name = coalesce($3, authorized_name),
-                 business_name = coalesce($4, business_name),
-                 service_address = coalesce($5::jsonb, service_address),
-                 current_carrier = coalesce($6, current_carrier),
-                 current_account_number = coalesce($7, current_account_number),
-                 current_pin = case when $8 then $9 else current_pin end,
-                 requested_foc_at = coalesce($10::timestamp, requested_foc_at)
-             where id = $1",
-        )
-        .bind(&id)
-        .bind(now())
-        .bind(&details.authorized_name)
-        .bind(&details.business_name)
-        .bind(&details.service_address)
-        .bind(&details.current_carrier)
-        .bind(&details.current_account_number)
-        .bind(pin_set)
-        .bind(pin)
-        .bind(foc)
-        .execute(&caller.db)
-        .await?;
+        // `coalesce($n, column)`: a column changes when the body sent it.
+        let mut columns = Vec::new();
+        let texts = [
+            (orders::Column::AuthorizedName, &details.authorized_name),
+            (orders::Column::BusinessName, &details.business_name),
+            (orders::Column::CurrentCarrier, &details.current_carrier),
+            (
+                orders::Column::CurrentAccountNumber,
+                &details.current_account_number,
+            ),
+        ];
+        for (column, value) in texts {
+            if let Some(value) = value {
+                columns.push((column, Expr::value(value.clone())));
+            }
+        }
+        if let Some(address) = &details.service_address {
+            columns.push((orders::Column::ServiceAddress, Expr::value(address.clone())));
+        }
+        if pin_set {
+            columns.push((orders::Column::CurrentPin, Expr::value(pin)));
+        }
+        if let Some(foc) = &foc {
+            let at = timestamp_of(foc).ok_or_else(|| DbErr::Custom("invalid date".to_owned()))?;
+            columns.push((orders::Column::RequestedFocAt, Expr::value(at)));
+        }
+        update_order(&caller, &id, columns).await?;
         order_row(&caller, &id).await
     }
     .await;
@@ -699,7 +742,7 @@ pub(crate) async fn update(
                 &state,
                 VOIP_PORTING_ORDER_UPDATED,
                 &id,
-                &draft["phone_number"],
+                &draft["phoneNumber"],
                 &refreshed["status"],
             );
             Data(json!({ "order": refreshed })).into_response()
@@ -719,7 +762,7 @@ pub(crate) async fn loa_template(
         Ok(None) => return ApiError::not_found("Porting order", Some(&id)).into_response(),
         Err(error) => return internal(&error, "Internal server error"),
     };
-    let Some(telnyx_id) = draft["telnyx_porting_order_id"]
+    let Some(telnyx_id) = draft["telnyxPortingOrderId"]
         .as_str()
         .filter(|t| !t.is_empty())
     else {
@@ -814,7 +857,7 @@ async fn upload(
         ))
         .into_response();
     }
-    let Some(telnyx_id) = draft["telnyx_porting_order_id"]
+    let Some(telnyx_id) = draft["telnyxPortingOrderId"]
         .as_str()
         .filter(|t| !t.is_empty())
         .map(str::to_owned)
@@ -914,18 +957,12 @@ async fn upload(
             },
         );
     }
-    let column_update = if kind == "loa" {
-        "update voip_porting_orders set loa_storage_key = $2, updated_at = $3::timestamp where id = $1"
+    let column = if kind == "loa" {
+        orders::Column::LoaStorageKey
     } else {
-        "update voip_porting_orders set bill_copy_storage_key = $2, updated_at = $3::timestamp where id = $1"
+        orders::Column::BillCopyStorageKey
     };
-    if let Err(error) = sqlx::query(column_update)
-        .bind(&id)
-        .bind(&key)
-        .bind(now())
-        .execute(&caller.db)
-        .await
-    {
+    if let Err(error) = update_order(&caller, &id, vec![(column, Expr::value(&key))]).await {
         return internal(&error, "Internal server error");
     }
     publish(
@@ -933,21 +970,22 @@ async fn upload(
         &state,
         VOIP_PORTING_ORDER_UPDATED,
         &id,
-        &draft["phone_number"],
+        &draft["phoneNumber"],
         &draft["status"],
     );
     Data(json!({ "storageKey": key })).into_response()
 }
 
-/// `REQUIRED_SUBMIT_FIELDS`: column and the label reported when missing.
+/// `REQUIRED_SUBMIT_FIELDS`: the row's field and the label reported when
+/// missing.
 const REQUIRED_SUBMIT_FIELDS: [(&str, &str); 7] = [
-    ("authorized_name", "authorizedName"),
-    ("business_name", "businessName"),
-    ("service_address", "serviceAddress"),
-    ("current_carrier", "currentCarrier"),
-    ("current_account_number", "currentAccountNumber"),
-    ("loa_storage_key", "loa"),
-    ("bill_copy_storage_key", "billCopy"),
+    ("authorizedName", "authorizedName"),
+    ("businessName", "businessName"),
+    ("serviceAddress", "serviceAddress"),
+    ("currentCarrier", "currentCarrier"),
+    ("currentAccountNumber", "currentAccountNumber"),
+    ("loaStorageKey", "loa"),
+    ("billCopyStorageKey", "billCopy"),
 ];
 
 /// `POST /api/porting/:id/submit`: on Global, the number's billing then the
@@ -970,7 +1008,7 @@ pub(crate) async fn submit(
     if status != "awaiting_documents" {
         return ApiError::conflict(format!("Cannot submit from status '{status}'")).into_response();
     }
-    if draft["telnyx_porting_order_id"]
+    if draft["telnyxPortingOrderId"]
         .as_str()
         .is_none_or(str::is_empty)
     {
@@ -992,22 +1030,24 @@ pub(crate) async fn submit(
     let Some(master) = caller.master(&state) else {
         return internal(&"no master database", "Internal server error");
     };
-    let country = draft["country_code"]
+    let country = draft["countryCode"]
         .as_str()
         .unwrap_or_default()
         .to_uppercase();
-    let kind = draft["number_type"]
+    let kind = draft["numberType"]
         .as_str()
         .unwrap_or_default()
         .to_lowercase();
-    let price: Result<Option<Option<String>>, sqlx::Error> = sqlx::query_scalar(
-        "select stripe_price_id from telephony_number_pricing
-         where country_code = $1 and number_type = $2 and is_active = true limit 1",
-    )
-    .bind(&country)
-    .bind(&kind)
-    .fetch_optional(&master)
-    .await;
+    let price: Result<Option<Option<String>>, DbErr> = pricing::Entity::find()
+        .select_only()
+        .column(pricing::Column::StripePriceId)
+        .filter(pricing::Column::CountryCode.eq(&country))
+        .filter(pricing::Column::NumberType.eq(&kind))
+        .filter(pricing::Column::IsActive.eq(true))
+        .limit(1)
+        .into_tuple()
+        .one(&orm(&master))
+        .await;
     let price = match price {
         Ok(price) => price.flatten().filter(|p| !p.is_empty()),
         Err(error) => return internal(&error, "Internal server error"),
@@ -1018,8 +1058,8 @@ pub(crate) async fn submit(
             "UNPROCESSABLE_ENTITY",
             format!(
                 "No active pricing configured for {}/{} — cannot bill, port refused",
-                js::string(&draft["country_code"]),
-                js::string(&draft["number_type"])
+                js::string(&draft["countryCode"]),
+                js::string(&draft["numberType"])
             ),
         )
         .into_response();
@@ -1032,14 +1072,20 @@ pub(crate) async fn submit(
 
 /// `GET /api/porting`: the live orders, newest first (100 at most).
 pub(crate) async fn list(caller: Caller) -> Response {
-    let found: Result<Vec<Value>, sqlx::Error> = sqlx::query_scalar(
-        "select to_jsonb(t) from voip_porting_orders t where t.deleted_at is null
-         order by t.created_at desc limit 100",
-    )
-    .fetch_all(&caller.db)
-    .await;
+    let found = orders::Entity::find()
+        .filter(orders::Column::DeletedAt.is_null())
+        .order_by(orders::Column::CreatedAt, Order::Desc)
+        .limit(100)
+        .all(&orm(&caller.db))
+        .await
+        .and_then(|found| {
+            found
+                .into_iter()
+                .map(order_json)
+                .collect::<Result<Vec<_>, _>>()
+        });
     match found {
-        Ok(found) => Data(json!({ "orders": crate::rows(found) })).into_response(),
+        Ok(found) => Data(json!({ "orders": found })).into_response(),
         Err(error) => internal(&error, "Internal server error"),
     }
 }
@@ -1047,7 +1093,7 @@ pub(crate) async fn list(caller: Caller) -> Response {
 /// `GET /api/porting/:id`.
 pub(crate) async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
     match live_order(&caller, &id).await {
-        Ok(Some(order)) => Data(json!({ "order": weldsuite_db::js_row(order) })).into_response(),
+        Ok(Some(order)) => Data(json!({ "order": order })).into_response(),
         Ok(None) => ApiError::not_found("Porting order", Some(&id)).into_response(),
         Err(error) => internal(&error, "Internal server error"),
     }
@@ -1065,7 +1111,7 @@ pub(crate) async fn refresh(
         Ok(None) => return ApiError::not_found("Porting order", Some(&id)).into_response(),
         Err(error) => return internal(&error, "Internal server error"),
     };
-    let Some(telnyx_id) = draft["telnyx_porting_order_id"]
+    let Some(telnyx_id) = draft["telnyxPortingOrderId"]
         .as_str()
         .filter(|t| !t.is_empty())
         .map(str::to_owned)
@@ -1089,18 +1135,16 @@ pub(crate) async fn refresh(
                     None => return internal(&"invalid date", "Refresh failed"),
                 },
             };
-            sqlx::query(
-                "update voip_porting_orders set substatus = $2,
-                     actual_foc_at = coalesce($3::timestamp, actual_foc_at),
-                     updated_at = $4::timestamp
-                 where id = $1",
-            )
-            .bind(&id)
-            .bind(data["sub_status"].as_str())
-            .bind(foc)
-            .bind(now())
-            .execute(&caller.db)
-            .await
+            let mut columns = vec![(
+                orders::Column::Substatus,
+                Expr::value(data["sub_status"].as_str()),
+            )];
+            match foc.as_deref().map(timestamp_of) {
+                None => {}
+                Some(Some(at)) => columns.push((orders::Column::ActualFocAt, Expr::value(at))),
+                Some(None) => return internal(&"invalid date", "Refresh failed"),
+            }
+            update_order(&caller, &id, columns).await
         }
         Err(error) => {
             if let PortingError::Telnyx {
@@ -1108,16 +1152,21 @@ pub(crate) async fn refresh(
                 ..
             } = &error
             {
-                let _ = sqlx::query(
-                    "update voip_porting_orders set status = 'exception',
-                         last_error_code = 'telnyx_not_found',
-                         last_error_message = 'Telnyx no longer recognizes this order',
-                         updated_at = $2::timestamp
-                     where id = $1",
+                let _ = update_order(
+                    &caller,
+                    &id,
+                    vec![
+                        (orders::Column::Status, Expr::value("exception")),
+                        (
+                            orders::Column::LastErrorCode,
+                            Expr::value("telnyx_not_found"),
+                        ),
+                        (
+                            orders::Column::LastErrorMessage,
+                            Expr::value("Telnyx no longer recognizes this order"),
+                        ),
+                    ],
                 )
-                .bind(&id)
-                .bind(now())
-                .execute(&caller.db)
                 .await;
             }
             return telnyx_failure(&error, "Refresh failed");
@@ -1150,7 +1199,7 @@ pub(crate) async fn cancel(
         )
         .into_response();
     }
-    if let Some(telnyx_id) = draft["telnyx_porting_order_id"]
+    if let Some(telnyx_id) = draft["telnyxPortingOrderId"]
         .as_str()
         .filter(|t| !t.is_empty())
     {
@@ -1174,16 +1223,14 @@ pub(crate) async fn cancel(
             let _ = storage.delete_boxed(&doc_key(org, &id, kind)).await;
         }
     }
-    let now = now();
-    if let Err(error) = sqlx::query(
-        "update voip_porting_orders set status = 'cancelled', deleted_at = $2::timestamp,
-             updated_at = $2::timestamp
-         where id = $1",
-    )
-    .bind(&id)
-    .bind(&now)
-    .execute(&caller.db)
-    .await
+    let now = utc_now();
+    if let Err(error) = orders::Entity::update_many()
+        .col_expr(orders::Column::Status, Expr::value("cancelled"))
+        .col_expr(orders::Column::DeletedAt, Expr::value(now))
+        .col_expr(orders::Column::UpdatedAt, Expr::value(now))
+        .filter(orders::Column::Id.eq(&id))
+        .exec(&orm(&caller.db))
+        .await
     {
         return internal(&error, "Internal server error");
     }
@@ -1192,7 +1239,7 @@ pub(crate) async fn cancel(
         &state,
         VOIP_PORTING_ORDER_DELETED,
         &id,
-        &draft["phone_number"],
+        &draft["phoneNumber"],
         &json!("cancelled"),
     );
     Data(json!({ "success": true })).into_response()

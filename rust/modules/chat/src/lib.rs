@@ -19,10 +19,6 @@
 //! provider port (`RealtimeKit` on Global and in conformance, `LiveKit` on
 //! the Kubernetes editions).
 
-#![allow(
-    clippy::disallowed_methods,
-    reason = "not converted to the ORM yet (ADR DATA-019)"
-)]
 #![allow(clippy::too_many_lines, clippy::type_complexity)]
 
 mod access;

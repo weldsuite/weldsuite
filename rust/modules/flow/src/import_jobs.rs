@@ -7,14 +7,25 @@ use axum::body::Bytes;
 use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Response};
 use http::HeaderMap;
+use sea_orm::sea_query::Expr;
+use sea_orm::{ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Value, json};
-use weldsuite_db::js_row;
+use weldsuite_db::{orm, utc_now};
 use weldsuite_kit::validation::Presence;
 use weldsuite_kit::{ApiError, Created, Data, generate_id};
 use weldsuite_ports::{JobRequest, PutOptions};
+use weldsuite_schema::tenant::{projects, task_import_jobs as jobs_table};
 
 use crate::import_tasks::{IMPORT_TASKS_JOB, ImportParams};
-use crate::{Caller, FlowState, Refusal, Reply, now, outside, validate};
+use crate::{Caller, FlowState, Refusal, Reply, outside, row_json, validate};
+
+/// The database's own message (what the route's `catch` prints).
+fn db_message(error: &DbErr) -> String {
+    match error {
+        DbErr::Conn(inner) | DbErr::Exec(inner) | DbErr::Query(inner) => inner.to_string(),
+        other => other.to_string(),
+    }
+}
 
 /// `importTasksSchema`: 1 to 50,000 objects.
 fn read_rows(headers: &HeaderMap, body: &Bytes) -> Result<Vec<Value>, Refusal> {
@@ -71,11 +82,15 @@ pub(crate) async fn start(
             .with_message("Import workflow binding not available")
             .into_response();
     };
-    let exists: Result<Option<String>, sqlx::Error> =
-        sqlx::query_scalar("select id from projects where id = $1 and deleted_at is null limit 1")
-            .bind(&project_id)
-            .fetch_optional(&caller.db)
-            .await;
+    let db = orm(&caller.db);
+    let exists: Result<Option<String>, DbErr> = projects::Entity::find()
+        .select_only()
+        .column(projects::Column::Id)
+        .filter(projects::Column::Id.eq(&project_id))
+        .filter(projects::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&db)
+        .await;
     match exists {
         Ok(Some(_)) => {}
         Ok(None) => return ApiError::not_found("Project", Some(&project_id)).into_response(),
@@ -90,21 +105,24 @@ pub(crate) async fn start(
             .put_boxed(&key, payload, &PutOptions::content_type("application/json"))
             .await
             .map_err(|e| e.to_string())?;
-        sqlx::query(
-            "insert into task_import_jobs
-                 (id, workspace_id, user_id, project_id, r2_key, status, total, processed,
-                  imported, updated, failed, errors)
-             values ($1, $2, $3, $4, $5, 'queued', $6, 0, 0, 0, 0, '[]'::jsonb)",
-        )
-        .bind(&job_id)
-        .bind(&clerk_org_id)
-        .bind(&caller.user_id)
-        .bind(&project_id)
-        .bind(&key)
-        .bind(i32::try_from(total).unwrap_or(i32::MAX))
-        .execute(&caller.db)
+        jobs_table::Entity::insert(jobs_table::ActiveModel {
+            id: Set(job_id.clone()),
+            workspace_id: Set(clerk_org_id.clone()),
+            user_id: Set(caller.user_id.clone()),
+            project_id: Set(project_id.clone()),
+            r2_key: Set(key.clone()),
+            status: Set("queued".to_owned()),
+            total: Set(i32::try_from(total).unwrap_or(i32::MAX)),
+            processed: Set(0),
+            imported: Set(0),
+            updated: Set(0),
+            failed: Set(0),
+            errors: Set(Some(json!([]))),
+            ..Default::default()
+        })
+        .exec_without_returning(&db)
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| db_message(&e))?;
         let params = ImportParams {
             job_id: job_id.clone(),
             workspace_id: clerk_org_id.clone(),
@@ -116,16 +134,13 @@ pub(crate) async fn start(
             .map_err(|e| e.to_string())?;
         crate::import_tasks::remember_request(&job_id, &caller.db, &storage);
         jobs.start_boxed(request).await.map_err(|e| e.to_string())?;
-        sqlx::query(
-            "update task_import_jobs set workflow_instance_id = $2, updated_at = $3::timestamp
-             where id = $1",
-        )
-        .bind(&job_id)
-        .bind(&job_id)
-        .bind(now())
-        .execute(&caller.db)
-        .await
-        .map_err(|e| e.to_string())?;
+        jobs_table::Entity::update_many()
+            .col_expr(jobs_table::Column::WorkflowInstanceId, Expr::value(&job_id))
+            .col_expr(jobs_table::Column::UpdatedAt, Expr::value(utc_now()))
+            .filter(jobs_table::Column::Id.eq(&job_id))
+            .exec(&db)
+            .await
+            .map_err(|e| db_message(&e))?;
         Ok(())
     }
     .await;
@@ -135,16 +150,13 @@ pub(crate) async fn start(
         }
         Err(message) => {
             tracing::error!(message, "[flow-api/projects] failed to start task import");
-            let _ = sqlx::query(
-                "update task_import_jobs set status = 'failed', error_message = $2,
-                        updated_at = $3::timestamp
-                 where id = $1",
-            )
-            .bind(&job_id)
-            .bind(&message)
-            .bind(now())
-            .execute(&caller.db)
-            .await;
+            let _ = jobs_table::Entity::update_many()
+                .col_expr(jobs_table::Column::Status, Expr::value("failed"))
+                .col_expr(jobs_table::Column::ErrorMessage, Expr::value(&message))
+                .col_expr(jobs_table::Column::UpdatedAt, Expr::value(utc_now()))
+                .filter(jobs_table::Column::Id.eq(&job_id))
+                .exec(&db)
+                .await;
             ApiError::internal()
                 .with_message(format!("Failed to start import: {message}"))
                 .into_response()
@@ -166,16 +178,13 @@ async fn job_status(caller: &Caller, clerk_org_id: &str, project_id: &str, job_i
     if !caller.can_access(project_id).await? {
         return Err(Refusal::forbidden("You are not a member of this project"));
     }
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(j) from task_import_jobs j
-         where j.id = $1 and j.workspace_id = $2 and j.project_id = $3 limit 1",
-    )
-    .bind(job_id)
-    .bind(clerk_org_id)
-    .bind(project_id)
-    .fetch_optional(&caller.db)
-    .await?;
-    let Some(job) = row.map(js_row) else {
+    let row = jobs_table::Entity::find()
+        .filter(jobs_table::Column::Id.eq(job_id))
+        .filter(jobs_table::Column::WorkspaceId.eq(clerk_org_id))
+        .filter(jobs_table::Column::ProjectId.eq(project_id))
+        .one(&orm(&caller.db))
+        .await?;
+    let Some(job) = row.map(row_json).transpose()? else {
         return Err(Refusal::not_found("Import job", job_id));
     };
     let errors: Vec<Value> = job["errors"]

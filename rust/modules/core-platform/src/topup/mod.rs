@@ -43,10 +43,13 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::post;
 use http::StatusCode;
 use http::request::Parts;
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Value, json};
-use weldsuite_db::{MasterDb, PgPool};
+use weldsuite_db::{MasterDb, PgPool, orm};
 use weldsuite_kit::{ApiError, generate_id};
 use weldsuite_ports::{BoxFuture, DynCache, OutboundHttp};
+use weldsuite_schema::master::credit_packages;
 
 use crate::{CorePlatformState, PlatformError, PlatformResult};
 use ledger::{Applied, Purchase, Reversed};
@@ -345,7 +348,7 @@ pub enum Settled {
 
 /// Applies a payment's state to the wallet ([`settlement`]): idempotent, so
 /// the webhook and the return page may both call it for the same payment.
-pub async fn settle(master: &PgPool, payment: &Payment) -> Result<Settled, sqlx::Error> {
+pub async fn settle(master: &PgPool, payment: &Payment) -> Result<Settled, DbErr> {
     match settlement(payment) {
         Settlement::Grant(purchase) => Ok(Settled::Granted(
             ledger::grant_purchase(master, &purchase).await?,
@@ -414,14 +417,20 @@ impl TopUp {
         })
     }
 
-    async fn package(master: &PgPool, id: &str) -> Result<Option<Package>, sqlx::Error> {
-        let row: Option<(String, String, i32, String, String)> = sqlx::query_as(
-            "select id, name, credits, price::text, currency from credit_packages
-             where id = $1 and is_active = 1 limit 1",
-        )
-        .bind(id)
-        .fetch_optional(master)
-        .await?;
+    async fn package(master: &PgPool, id: &str) -> Result<Option<Package>, DbErr> {
+        use credit_packages::Column;
+        // `price::text`: the numeric as Postgres writes it.
+        let price = sea_orm::ExprTrait::cast_as(Expr::col(Column::Price), "text");
+        let row: Option<(String, String, i32, String, String)> = credit_packages::Entity::find()
+            .select_only()
+            .columns([Column::Id, Column::Name, Column::Credits])
+            .expr_as(price, "price")
+            .column(Column::Currency)
+            .filter(Column::Id.eq(id))
+            .filter(Column::IsActive.eq(1))
+            .into_tuple()
+            .one(&orm(master))
+            .await?;
         Ok(row.map(|(id, name, credits, price, currency)| Package {
             id,
             name,

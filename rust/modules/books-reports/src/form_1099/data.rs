@@ -6,6 +6,7 @@
 
 use std::collections::HashMap;
 
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 use serde_json::{Map, Value, json};
 use sqlx::PgPool;
 use weldsuite_books_domain::address::normalize_postal_address;
@@ -18,12 +19,15 @@ use weldsuite_books_domain::form_1099::{
 };
 use weldsuite_books_domain::js::{locale_compare, math_round, number_value};
 use weldsuite_books_domain::jurisdictions::us::mask_tin;
-use weldsuite_books_domain::tables::{
-    BANK_TRANSACTIONS, BILL_ITEMS, BILLS, ENTITIES, PARTIES, PAYMENT_ALLOCATIONS, PAYMENTS,
-};
 use weldsuite_books_domain::vendor_tax::is_tin_type;
+use weldsuite_db::orm;
+use weldsuite_schema::tenant::{
+    accounts, bank_accounts, bank_transactions, bill_items, bills, entities, parties,
+    payment_allocations, payments,
+};
 
 use super::Fail;
+use crate::rows::{js, js_rows, money_text, timestamp_of_iso};
 
 /// `TIN_MATCH_PROBLEMS`.
 pub(crate) const TIN_MATCH_PROBLEMS: [&str; 3] = ["mismatch", "not_issued", "invalid"];
@@ -130,16 +134,16 @@ impl Loaded {
 
 /// `loadEntityOrThrow(db, entityId)`.
 pub(crate) async fn load_entity(db: &PgPool, entity_id: &str) -> Result<Value, Fail> {
-    let row: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(entities),
-        " from entities t where t.id = $1 and t.deleted_at is null limit 1"
-    ))
-    .bind(entity_id)
-    .fetch_optional(db)
-    .await?;
-    row.map(|r| ENTITIES.js(r))
-        .ok_or_else(|| Fail::not_found(format!("Accounting entity {entity_id} not found")))
+    let row = entities::Entity::find_by_id(entity_id.to_owned())
+        .filter(entities::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?;
+    match row {
+        Some(row) => Ok(js!(row)?),
+        None => Err(Fail::not_found(format!(
+            "Accounting entity {entity_id} not found"
+        ))),
+    }
 }
 
 fn line_amount(item: &Value) -> f64 {
@@ -165,52 +169,57 @@ pub(crate) async fn load_1099_input(
     adjustments: Vec<Adjustment>,
 ) -> Result<Loaded, Fail> {
     let entity = load_entity(db, entity_id).await?;
+    let orm = orm(db);
     let (start, end) = year_bounds(tax_year);
+    let (start, end) = (timestamp_of_iso(&start)?, timestamp_of_iso(&end)?);
     let only: Option<Vec<String>> = only.filter(|o| !o.is_empty()).map(<[String]>::to_vec);
 
-    let payment_rows: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(payments),
-        " from payments t where t.entity_id = $1 and t.type = 'sent' and t.deleted_at is null \
-         and t.date >= $2::timestamp and t.date < $3::timestamp \
-         and ($4::text[] is null or t.contact_id = any($4))"
-    ))
-    .bind(entity_id)
-    .bind(&start)
-    .bind(&end)
-    .bind(&only)
-    .fetch_all(db)
-    .await?;
-    let payment_rows = PAYMENTS.js_rows(payment_rows);
+    let mut payment_rows = payments::Entity::find()
+        .filter(payments::Column::EntityId.eq(entity_id))
+        .filter(payments::Column::Type.eq("sent"))
+        .filter(payments::Column::DeletedAt.is_null())
+        .filter(payments::Column::Date.gte(start))
+        .filter(payments::Column::Date.lt(end));
+    if let Some(only) = &only {
+        payment_rows = payment_rows.filter(payments::Column::ContactId.is_in(only.iter().cloned()));
+    }
+    let payment_rows = payment_rows.all(&orm).await?;
+    let payment_rows = js_rows!(payment_rows)?;
 
-    let bank_accounts: Vec<(String, Option<String>)> =
-        sqlx::query_as("select id, account_type from bank_accounts where entity_id = $1")
-            .bind(entity_id)
-            .fetch_all(db)
-            .await?;
+    let bank_accounts: Vec<(String, Option<String>)> = bank_accounts::Entity::find()
+        .select_only()
+        .columns([
+            bank_accounts::Column::Id,
+            bank_accounts::Column::AccountType,
+        ])
+        .filter(bank_accounts::Column::EntityId.eq(entity_id))
+        .into_tuple()
+        .all(&orm)
+        .await?;
     let credit_cards: Vec<String> = bank_accounts
         .into_iter()
         .filter(|(_, kind)| kind.as_deref() == Some("credit_card"))
         .map(|(id, _)| id)
         .collect();
 
-    let bank_rows: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(bank_transactions),
-        " from bank_transactions t where t.entity_id = $1 and t.deleted_at is null \
-         and t.status = 'reconciled' and t.date >= $2::timestamp and t.date < $3::timestamp \
-         and t.contact_id is not null and t.category_account_id is not null \
-         and t.reconciled_payment_id is null and t.reconciled_bill_id is null \
-         and t.reconciled_invoice_id is null and t.amount < 0 \
-         and ($4::text[] is null or t.contact_id = any($4))"
-    ))
-    .bind(entity_id)
-    .bind(&start)
-    .bind(&end)
-    .bind(&only)
-    .fetch_all(db)
-    .await?;
-    let bank_rows = BANK_TRANSACTIONS.js_rows(bank_rows);
+    let mut bank_rows = bank_transactions::Entity::find()
+        .filter(bank_transactions::Column::EntityId.eq(entity_id))
+        .filter(bank_transactions::Column::DeletedAt.is_null())
+        .filter(bank_transactions::Column::Status.eq("reconciled"))
+        .filter(bank_transactions::Column::Date.gte(start))
+        .filter(bank_transactions::Column::Date.lt(end))
+        .filter(bank_transactions::Column::ContactId.is_not_null())
+        .filter(bank_transactions::Column::CategoryAccountId.is_not_null())
+        .filter(bank_transactions::Column::ReconciledPaymentId.is_null())
+        .filter(bank_transactions::Column::ReconciledBillId.is_null())
+        .filter(bank_transactions::Column::ReconciledInvoiceId.is_null())
+        .filter(bank_transactions::Column::Amount.lt(0));
+    if let Some(only) = &only {
+        bank_rows =
+            bank_rows.filter(bank_transactions::Column::ContactId.is_in(only.iter().cloned()));
+    }
+    let bank_rows = bank_rows.all(&orm).await?;
+    let bank_rows = js_rows!(bank_rows)?;
 
     let payment_ids: Vec<String> = payment_rows
         .iter()
@@ -219,16 +228,13 @@ pub(crate) async fn load_1099_input(
     let allocation_rows: Vec<Value> = if payment_ids.is_empty() {
         Vec::new()
     } else {
-        let rows: Vec<Value> = sqlx::query_scalar(concat!(
-            "select ",
-            weldsuite_books_domain::books_row!(payment_allocations),
-            " from payment_allocations t where t.payment_id = any($1) and t.deleted_at is null \
-             and t.bill_id is not null"
-        ))
-        .bind(&payment_ids)
-        .fetch_all(db)
-        .await?;
-        PAYMENT_ALLOCATIONS.js_rows(rows)
+        let rows = payment_allocations::Entity::find()
+            .filter(payment_allocations::Column::PaymentId.is_in(payment_ids))
+            .filter(payment_allocations::Column::DeletedAt.is_null())
+            .filter(payment_allocations::Column::BillId.is_not_null())
+            .all(&orm)
+            .await?;
+        js_rows!(rows)?
     };
     let mut bill_ids: Vec<String> = Vec::new();
     for allocation in &allocation_rows {
@@ -240,30 +246,31 @@ pub(crate) async fn load_1099_input(
     let (bill_rows, item_rows) = if bill_ids.is_empty() {
         (Vec::new(), Vec::new())
     } else {
-        let bills: Vec<Value> = sqlx::query_scalar(concat!(
-            "select ",
-            weldsuite_books_domain::books_row!(bills),
-            " from bills t where t.id = any($1)"
-        ))
-        .bind(&bill_ids)
-        .fetch_all(db)
-        .await?;
-        let items: Vec<Value> = sqlx::query_scalar(concat!(
-            "select ",
-            weldsuite_books_domain::books_row!(bill_items),
-            " from bill_items t where t.bill_id = any($1) and t.deleted_at is null order by t.sort_order"
-        ))
-        .bind(&bill_ids)
-        .fetch_all(db)
-        .await?;
-        (BILLS.js_rows(bills), BILL_ITEMS.js_rows(items))
+        let bills = bills::Entity::find()
+            .filter(bills::Column::Id.is_in(bill_ids.iter().cloned()))
+            .all(&orm)
+            .await?;
+        let items = bill_items::Entity::find()
+            .filter(bill_items::Column::BillId.is_in(bill_ids.iter().cloned()))
+            .filter(bill_items::Column::DeletedAt.is_null())
+            .order_by_asc(bill_items::Column::SortOrder)
+            .all(&orm)
+            .await?;
+        (js_rows!(bills)?, js_rows!(items)?)
     };
 
-    let account_rows: Vec<(String, String, String, Option<String>)> =
-        sqlx::query_as("select id, code, name, form_1099_box from accounts where entity_id = $1")
-            .bind(entity_id)
-            .fetch_all(db)
-            .await?;
+    let account_rows: Vec<(String, String, String, Option<String>)> = accounts::Entity::find()
+        .select_only()
+        .columns([
+            accounts::Column::Id,
+            accounts::Column::Code,
+            accounts::Column::Name,
+            accounts::Column::Form1099Box,
+        ])
+        .filter(accounts::Column::EntityId.eq(entity_id))
+        .into_tuple()
+        .all(&orm)
+        .await?;
 
     // Vendors: everyone paid in the year, plus every 1099 vendor.
     let mut paid: Vec<String> = Vec::new();
@@ -276,28 +283,22 @@ pub(crate) async fn load_1099_input(
     }
     let mut parties: Vec<(String, Value)> = Vec::new();
     if !paid.is_empty() {
-        let rows: Vec<Value> = sqlx::query_scalar(concat!(
-            "select ",
-            weldsuite_books_domain::books_row!(parties),
-            " from parties t where t.id = any($1)"
-        ))
-        .bind(&paid)
-        .fetch_all(db)
-        .await?;
-        for row in PARTIES.js_rows(rows) {
+        let rows = parties::Entity::find()
+            .filter(parties::Column::Id.is_in(paid.iter().cloned()))
+            .all(&orm)
+            .await?;
+        for row in js_rows!(rows)? {
             parties.push((text(&row, "id").to_owned(), row));
         }
     }
-    let flagged: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(parties),
-        " from parties t where t.is_1099_vendor = true and t.deleted_at is null \
-         and ($1::text[] is null or t.id = any($1))"
-    ))
-    .bind(&only)
-    .fetch_all(db)
-    .await?;
-    for row in PARTIES.js_rows(flagged) {
+    let mut flagged = parties::Entity::find()
+        .filter(parties::Column::Is1099Vendor.eq(true))
+        .filter(parties::Column::DeletedAt.is_null());
+    if let Some(only) = &only {
+        flagged = flagged.filter(parties::Column::Id.is_in(only.iter().cloned()));
+    }
+    let flagged = flagged.all(&orm).await?;
+    for row in js_rows!(flagged)? {
         let id = text(&row, "id").to_owned();
         if let Some(slot) = parties.iter_mut().find(|(p, _)| *p == id) {
             slot.1 = row;
@@ -773,8 +774,14 @@ pub(crate) async fn vendor_drill_down(
     })))
 }
 
-/// A payment with backup withholding: id, party, day, amount, check status.
-type Withheld = (String, String, String, Option<String>, Option<String>);
+/// A payment with backup withholding: id, party, date, amount, check status.
+type Withheld = (
+    String,
+    String,
+    time::PrimitiveDateTime,
+    Option<sea_orm::prelude::BigDecimal>,
+    Option<String>,
+);
 
 /// `backupWithholdingFor945(db, entityId, taxYear)`.
 pub(crate) async fn backup_withholding_for_945(
@@ -782,25 +789,38 @@ pub(crate) async fn backup_withholding_for_945(
     entity_id: &str,
     tax_year: i64,
 ) -> Result<Value, Fail> {
+    let orm = orm(db);
     let (start, end) = year_bounds(tax_year);
-    let rows: Vec<Withheld> = sqlx::query_as(
-        "select id, contact_id, to_char(date, 'YYYY-MM-DD'), backup_withholding_amount::text, check_status \
-         from payments where entity_id = $1 and deleted_at is null and date >= $2::timestamp \
-         and date < $3::timestamp and coalesce(backup_withholding_amount, 0) > 0",
-    )
-    .bind(entity_id)
-    .bind(&start)
-    .bind(&end)
-    .fetch_all(db)
-    .await?;
+    let rows: Vec<Withheld> = payments::Entity::find()
+        .select_only()
+        .columns([
+            payments::Column::Id,
+            payments::Column::ContactId,
+            payments::Column::Date,
+            payments::Column::BackupWithholdingAmount,
+            payments::Column::CheckStatus,
+        ])
+        .filter(payments::Column::EntityId.eq(entity_id))
+        .filter(payments::Column::DeletedAt.is_null())
+        .filter(payments::Column::Date.gte(timestamp_of_iso(&start)?))
+        .filter(payments::Column::Date.lt(timestamp_of_iso(&end)?))
+        // `coalesce(backup_withholding_amount, 0) > 0`: a null amount is not withheld.
+        .filter(payments::Column::BackupWithholdingAmount.gt(0))
+        .into_tuple()
+        .all(&orm)
+        .await?;
+    // `to_char(date, 'YYYY-MM-DD')`.
+    let day = time::macros::format_description!("[year]-[month]-[day]");
     let payments: Vec<Form945Payment> = rows
         .into_iter()
         .map(|(id, party_id, date, amount, status)| Form945Payment {
             id,
             party_id,
-            date,
-            backup_withholding_amount: amount
-                .map_or(0.0, |a| weldsuite_books_domain::js::numeric(&json!(a))),
+            date: date.format(&day).unwrap_or_default(),
+            // `backup_withholding_amount::text`, read as a number.
+            backup_withholding_amount: amount.map_or(0.0, |a| {
+                weldsuite_books_domain::js::numeric(&json!(money_text(&a)))
+            }),
             voided: status.as_deref() == Some("voided"),
         })
         .collect();
@@ -815,11 +835,13 @@ pub(crate) async fn backup_withholding_for_945(
         .unwrap_or_default();
     let mut names: HashMap<String, String> = HashMap::new();
     if !party_ids.is_empty() {
-        let rows: Vec<(String, Option<String>)> =
-            sqlx::query_as("select id, display_name from parties where id = any($1)")
-                .bind(&party_ids)
-                .fetch_all(db)
-                .await?;
+        let rows: Vec<(String, Option<String>)> = parties::Entity::find()
+            .select_only()
+            .columns([parties::Column::Id, parties::Column::DisplayName])
+            .filter(parties::Column::Id.is_in(party_ids))
+            .into_tuple()
+            .all(&orm)
+            .await?;
         for (id, name) in rows {
             names.insert(id, name.unwrap_or_default());
         }

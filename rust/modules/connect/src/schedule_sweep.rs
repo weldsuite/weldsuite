@@ -13,12 +13,19 @@
 
 use std::sync::Arc;
 
+use sea_orm::sea_query::{Expr, Func, NullOrdering};
+use sea_orm::{
+    ColumnTrait, Condition, DbErr, EntityTrait, Order, QueryFilter, QueryOrder, QuerySelect,
+};
 use serde_json::{Value, json};
-use time::OffsetDateTime;
-use weldsuite_db::PgPool;
+use time::{OffsetDateTime, PrimitiveDateTime};
 use weldsuite_db::due_index::{SweepResult, run_sweep};
+use weldsuite_db::{PgPool, orm, utc_timestamp};
 use weldsuite_ports::BoxFuture;
+use weldsuite_schema::tenant::workflow_schedules::{self, Column};
+use weldsuite_schema::tenant::workflows;
 
+use crate::Refusal;
 use crate::cron::{compute_next_run_at, iso};
 use crate::executions::{Skipped, at_concurrency_limit, insert_skipped};
 use crate::runs::WorkflowRuns;
@@ -50,16 +57,27 @@ struct ScheduleRow {
     last_run_at: Option<i64>,
 }
 
-fn ms(value: Option<f64>) -> Option<i64> {
-    #[allow(clippy::cast_possible_truncation)]
-    value.map(|v| v.round() as i64)
+/// `extract(epoch from column) * 1000`, rounded: a `timestamp` (UTC) as
+/// epoch milliseconds.
+fn millis(at: PrimitiveDateTime) -> i64 {
+    let micros = at.assume_utc().unix_timestamp_nanos() / 1_000;
+    let half = if micros < 0 { -500 } else { 500 };
+    i64::try_from((micros + half) / 1_000).unwrap_or_default()
 }
 
 fn at(ms: i64) -> String {
     iso(ms).unwrap_or_default()
 }
 
-async fn due_rows(db: &PgPool, now_ms: i64) -> Result<Vec<ScheduleRow>, sqlx::Error> {
+/// Epoch milliseconds as the `timestamp` column stores them (`at(ms)` cast
+/// with `::timestamp`, which refuses a time out of range).
+fn stamp(ms: i64) -> Result<PrimitiveDateTime, DbErr> {
+    OffsetDateTime::from_unix_timestamp_nanos(i128::from(ms) * 1_000_000)
+        .map(utc_timestamp)
+        .map_err(|error| DbErr::Custom(format!("invalid timestamp {ms}: {error}")))
+}
+
+async fn due_rows(db: &PgPool, now_ms: i64) -> Result<Vec<ScheduleRow>, DbErr> {
     type Row = (
         String,
         String,
@@ -67,25 +85,38 @@ async fn due_rows(db: &PgPool, now_ms: i64) -> Result<Vec<ScheduleRow>, sqlx::Er
         Option<String>,
         Option<String>,
         Option<String>,
-        Option<f64>,
-        Option<f64>,
-        Option<f64>,
-        Option<f64>,
-        Option<f64>,
+        Option<PrimitiveDateTime>,
+        Option<PrimitiveDateTime>,
+        Option<PrimitiveDateTime>,
+        Option<PrimitiveDateTime>,
+        Option<PrimitiveDateTime>,
     );
-    let rows: Vec<Row> = sqlx::query_as(
-        "select id, workflow_id, trigger_id, schedule_type, cron_expression, timezone,
-                extract(epoch from start_date)::float8 * 1000, extract(epoch from end_date)::float8 * 1000,
-                extract(epoch from execute_at)::float8 * 1000, extract(epoch from next_run_at)::float8 * 1000,
-                extract(epoch from last_run_at)::float8 * 1000
-         from workflow_schedules
-         where is_enabled = true and deleted_at is null
-           and (next_run_at is null or next_run_at <= $1::timestamp)
-         order by next_run_at asc nulls first",
-    )
-    .bind(at(now_ms))
-    .fetch_all(db)
-    .await?;
+    let rows: Vec<Row> = workflow_schedules::Entity::find()
+        .select_only()
+        .columns([
+            Column::Id,
+            Column::WorkflowId,
+            Column::TriggerId,
+            Column::ScheduleType,
+            Column::CronExpression,
+            Column::Timezone,
+            Column::StartDate,
+            Column::EndDate,
+            Column::ExecuteAt,
+            Column::NextRunAt,
+            Column::LastRunAt,
+        ])
+        .filter(Column::IsEnabled.eq(true))
+        .filter(Column::DeletedAt.is_null())
+        .filter(
+            Condition::any()
+                .add(Column::NextRunAt.is_null())
+                .add(Column::NextRunAt.lte(stamp(now_ms)?)),
+        )
+        .order_by_with_nulls(Column::NextRunAt, Order::Asc, NullOrdering::First)
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     Ok(rows
         .into_iter()
         .map(|r| ScheduleRow {
@@ -98,11 +129,11 @@ async fn due_rows(db: &PgPool, now_ms: i64) -> Result<Vec<ScheduleRow>, sqlx::Er
                 .5
                 .filter(|t| !t.is_empty())
                 .unwrap_or_else(|| "UTC".into()),
-            start_date: ms(r.6),
-            end_date: ms(r.7),
-            execute_at: ms(r.8),
-            next_run_at: ms(r.9),
-            last_run_at: ms(r.10),
+            start_date: r.6.map(millis),
+            end_date: r.7.map(millis),
+            execute_at: r.8.map(millis),
+            next_run_at: r.9.map(millis),
+            last_run_at: r.10.map(millis),
         })
         .collect())
 }
@@ -120,15 +151,17 @@ fn next_run(row: &ScheduleRow, now_ms: i64) -> Option<i64> {
     )
 }
 
-async fn disable(db: &PgPool, id: &str, now_ms: i64) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "update workflow_schedules set is_enabled = false, next_run_at = null, updated_at = $2::timestamp
-         where id = $1",
-    )
-    .bind(id)
-    .bind(at(now_ms))
-    .execute(db)
-    .await?;
+async fn disable(db: &PgPool, id: &str, now_ms: i64) -> Result<(), DbErr> {
+    workflow_schedules::Entity::update_many()
+        .col_expr(Column::IsEnabled, Expr::value(false))
+        .col_expr(
+            Column::NextRunAt,
+            Expr::value(Option::<PrimitiveDateTime>::None),
+        )
+        .col_expr(Column::UpdatedAt, Expr::value(stamp(now_ms)?))
+        .filter(Column::Id.eq(id))
+        .exec(&orm(db))
+        .await?;
     Ok(())
 }
 
@@ -136,11 +169,18 @@ async fn disable(db: &PgPool, id: &str, now_ms: i64) -> Result<(), sqlx::Error> 
 /// `skipped` row says why. A failed check lets the run start.
 async fn concurrency_allows(db: &PgPool, row: &ScheduleRow, now_ms: i64) -> bool {
     let check = async {
-        let workflow: Option<(String, Option<i32>, Option<Value>)> =
-            sqlx::query_as("select name, version, settings from workflows where id = $1 limit 1")
-                .bind(&row.workflow_id)
-                .fetch_optional(db)
-                .await?;
+        let workflow: Option<(String, Option<i32>, Option<Value>)> = workflows::Entity::find()
+            .select_only()
+            .columns([
+                workflows::Column::Name,
+                workflows::Column::Version,
+                workflows::Column::Settings,
+            ])
+            .filter(workflows::Column::Id.eq(&row.workflow_id))
+            .limit(1)
+            .into_tuple()
+            .one(&orm(db))
+            .await?;
         let Some((name, version, settings)) = workflow else {
             return Ok(true);
         };
@@ -166,10 +206,12 @@ async fn concurrency_allows(db: &PgPool, row: &ScheduleRow, now_ms: i64) -> bool
             },
         )
         .await?;
-        Ok::<_, sqlx::Error>(false)
+        Ok::<_, Refusal>(false)
     };
-    check.await.unwrap_or_else(|error| {
-        tracing::warn!(%error, "[ScheduleSweep] Concurrency check failed for schedule {}, allowing", row.id);
+    check.await.unwrap_or_else(|refusal| {
+        if let Refusal::Database(error) = refusal {
+            tracing::warn!(%error, "[ScheduleSweep] Concurrency check failed for schedule {}, allowing", row.id);
+        }
         true
     })
 }
@@ -181,24 +223,34 @@ async fn record_run(
     ok: bool,
     next: Option<i64>,
     now_ms: i64,
-) -> Result<(), sqlx::Error> {
-    let one_time = row.schedule_type == "one_time";
-    sqlx::query(
-        "update workflow_schedules
-         set last_run_at = $2::timestamp, last_run_status = $3, next_run_at = $4::timestamp,
-             is_enabled = case when $5 then false else is_enabled end,
-             total_runs = case when $6 then coalesce(total_runs, 0) + 1 else total_runs end,
-             updated_at = $2::timestamp
-         where id = $1",
-    )
-    .bind(&row.id)
-    .bind(at(now_ms))
-    .bind(if ok { "completed" } else { "failed" })
-    .bind(next.map(at))
-    .bind(one_time)
-    .bind(ok)
-    .execute(db)
-    .await?;
+) -> Result<(), DbErr> {
+    let now = stamp(now_ms)?;
+    let next = next.map(stamp).transpose()?;
+    let mut update = workflow_schedules::Entity::update_many()
+        .col_expr(Column::LastRunAt, Expr::value(now))
+        .col_expr(
+            Column::LastRunStatus,
+            Expr::value(if ok { "completed" } else { "failed" }),
+        )
+        .col_expr(Column::NextRunAt, Expr::value(next));
+    if row.schedule_type == "one_time" {
+        update = update.col_expr(Column::IsEnabled, Expr::value(false));
+    }
+    if ok {
+        // `coalesce(total_runs, 0) + 1`.
+        update = update.col_expr(
+            Column::TotalRuns,
+            sea_orm::ExprTrait::add(
+                Func::coalesce([Expr::col(Column::TotalRuns), Expr::val(0)]),
+                1,
+            ),
+        );
+    }
+    update
+        .col_expr(Column::UpdatedAt, Expr::value(now))
+        .filter(Column::Id.eq(&row.id))
+        .exec(&orm(db))
+        .await?;
     Ok(())
 }
 
@@ -208,7 +260,7 @@ async fn sweep_workspace(
     reference: &str,
     runs: Option<&dyn WorkflowRuns>,
     now_ms: i64,
-) -> Result<Option<OffsetDateTime>, sqlx::Error> {
+) -> Result<Option<OffsetDateTime>, DbErr> {
     for row in due_rows(db, now_ms).await? {
         let Some(slot) = row.next_run_at else {
             // `computeMissingNextRun`.
@@ -220,15 +272,12 @@ async fn sweep_workspace(
             match next {
                 None => disable(db, &row.id, now_ms).await?,
                 Some(next) => {
-                    sqlx::query(
-                        "update workflow_schedules set next_run_at = $2::timestamp, updated_at = $3::timestamp
-                         where id = $1",
-                    )
-                    .bind(&row.id)
-                    .bind(at(next))
-                    .bind(at(now_ms))
-                    .execute(db)
-                    .await?;
+                    workflow_schedules::Entity::update_many()
+                        .col_expr(Column::NextRunAt, Expr::value(stamp(next)?))
+                        .col_expr(Column::UpdatedAt, Expr::value(stamp(now_ms)?))
+                        .filter(Column::Id.eq(&row.id))
+                        .exec(&orm(db))
+                        .await?;
                 }
             }
             continue;
@@ -290,14 +339,24 @@ async fn sweep_workspace(
             disable(db, &row.id, now_ms).await?;
         }
     }
-    let earliest: Option<f64> = sqlx::query_scalar(
-        "select extract(epoch from min(coalesce(next_run_at, $1::timestamp)))::float8 * 1000
-         from workflow_schedules where is_enabled = true and deleted_at is null",
-    )
-    .bind(at(now_ms))
-    .fetch_one(db)
-    .await?;
-    Ok(ms(earliest)
+    // `min(coalesce(next_run_at, now))`.
+    let earliest: Option<Option<PrimitiveDateTime>> = workflow_schedules::Entity::find()
+        .select_only()
+        .column_as(
+            Expr::from(Func::min(Func::coalesce([
+                Expr::col(Column::NextRunAt),
+                Expr::val(stamp(now_ms)?),
+            ]))),
+            "earliest",
+        )
+        .filter(Column::IsEnabled.eq(true))
+        .filter(Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
+    Ok(earliest
+        .flatten()
+        .map(millis)
         .and_then(|ms| OffsetDateTime::from_unix_timestamp_nanos(i128::from(ms) * 1_000_000).ok()))
 }
 

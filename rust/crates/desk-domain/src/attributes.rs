@@ -20,7 +20,7 @@ use sea_orm::{ColumnTrait, Condition, DbErr, EntityTrait, QueryFilter, QuerySele
 use serde_json::{Map, Value, json};
 use weldsuite_core_domain::custom_field_values::{self as values, Definition, ValuesError};
 use weldsuite_core_domain::js::{Js, as_text, js_date, slice_utf16};
-use weldsuite_db::{PgPool, orm, orm_error, utc_now};
+use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_kit::validation::{Field, js_trim};
 use weldsuite_schema::tenant::{
     custom_field_definitions, desk_conversations, helpdesk_departments, helpdesk_ticket_types,
@@ -91,7 +91,7 @@ async fn read_values(
     db: &PgPool,
     id: &str,
     definitions: &[(Definition, String)],
-) -> Result<Map<String, Value>, sqlx::Error> {
+) -> Result<Map<String, Value>, DbErr> {
     if definitions.is_empty() {
         return Ok(Map::new());
     }
@@ -106,7 +106,7 @@ async fn read_values(
 pub async fn custom_fields(db: &PgPool, conversation: &Value) -> Result<Map<String, Value>, DbErr> {
     let definitions = ticket_field_definitions(db, conversation["ticketTypeId"].as_str()).await?;
     let id = conversation["id"].as_str().unwrap_or_default();
-    read_values(db, id, &definitions).await.map_err(orm_error)
+    read_values(db, id, &definitions).await
 }
 
 // ── the update ────────────────────────────────────────────────────────────────

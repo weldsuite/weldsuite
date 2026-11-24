@@ -3,11 +3,13 @@
 
 use std::collections::HashMap;
 
+use sea_orm::{ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::Value;
 use time::{Date, Month, OffsetDateTime};
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_events::iso_timestamp;
 use weldsuite_kit::generate_id;
+use weldsuite_schema::tenant::{companies, hr_audit_events, workspace_members};
 
 use crate::HrError;
 
@@ -77,6 +79,14 @@ pub(crate) fn js_to_fixed(x: f64, digits: usize) -> String {
 /// `todayIso()`: today as `YYYY-MM-DD` in UTC.
 pub(crate) fn today_iso() -> String {
     iso_date(OffsetDateTime::now_utc().date())
+}
+
+/// `$n::date` of a `YYYY-MM-DD` text (the routes check the shape): a day that
+/// doesn't exist fails the statement, as Postgres refused it.
+pub(crate) fn sql_date(text: &str) -> Result<Date, DbErr> {
+    parse_date(text)
+        .filter(|day| day.year() >= 1)
+        .ok_or_else(|| DbErr::Type(format!("invalid input syntax for type date: \"{text}\"")))
 }
 
 /// `YYYY-MM-DD`.
@@ -243,12 +253,17 @@ pub(crate) async fn member_names(
     if ids.is_empty() {
         return Ok(out);
     }
-    let rows: Vec<(String, Option<String>, Option<String>)> = sqlx::query_as(
-        "select user_id, name, email from workspace_members where user_id = any($1)",
-    )
-    .bind(&ids)
-    .fetch_all(db)
-    .await?;
+    let rows: Vec<(String, Option<String>, Option<String>)> = workspace_members::Entity::find()
+        .select_only()
+        .columns([
+            workspace_members::Column::UserId,
+            workspace_members::Column::Name,
+            workspace_members::Column::Email,
+        ])
+        .filter(workspace_members::Column::UserId.is_in(ids))
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     for (user_id, name, email) in rows {
         let label = name
             .filter(|name| !name.is_empty())
@@ -274,11 +289,13 @@ pub(crate) async fn company_names(
     if ids.is_empty() {
         return Ok(out);
     }
-    let rows: Vec<(String, String)> =
-        sqlx::query_as("select id, display_name from companies where id = any($1)")
-            .bind(&ids)
-            .fetch_all(db)
-            .await?;
+    let rows: Vec<(String, String)> = companies::Entity::find()
+        .select_only()
+        .columns([companies::Column::Id, companies::Column::DisplayName])
+        .filter(companies::Column::Id.is_in(ids))
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     out.extend(rows);
     Ok(out)
 }
@@ -297,19 +314,24 @@ pub(crate) async fn record_hr_audit(
     metadata: Value,
     ip: Option<&str>,
 ) -> Result<(), HrError> {
-    sqlx::query(
-        "insert into hr_audit_events (id, actor_id, action, employee_id, metadata, ip)
-         values ($1, $2, $3, $4, $5, $6)",
-    )
-    .bind(generate_id("hraud"))
-    .bind(actor_id)
-    .bind(action)
-    .bind(employee_id)
-    .bind(metadata)
-    .bind(ip)
-    .execute(db)
+    hr_audit_events::Entity::insert(hr_audit_events::ActiveModel {
+        id: Set(generate_id("hraud")),
+        actor_id: Set(actor_id.to_owned()),
+        action: Set(action.to_owned()),
+        employee_id: Set(employee_id.map(str::to_owned)),
+        metadata: Set(metadata),
+        ip: Set(ip.map(str::to_owned)),
+        ..Default::default()
+    })
+    .exec_without_returning(&orm(db))
     .await?;
     Ok(())
+}
+
+/// A row (an entity's model or a partial row) as the API returns it: the
+/// JSON Drizzle returned for it.
+pub(crate) fn row_json<T: serde::Serialize>(row: T) -> Result<Value, DbErr> {
+    serde_json::to_value(row).map_err(|error| DbErr::Json(error.to_string()))
 }
 
 /// `a.localeCompare(b)`: ICU's root collation, as Node's default locale sorts.
@@ -369,15 +391,6 @@ pub(crate) fn js_number(x: f64) -> Value {
 /// `Number(text)`.
 pub(crate) fn js_number_of(text: &str) -> f64 {
     weldsuite_kit::validation::js_number(text)
-}
-
-/// A `to_jsonb` timestamp as Drizzle hands a `Date` to `JSON.stringify`;
-/// `null` for none.
-pub(crate) fn js_time(value: &Value) -> Value {
-    value
-        .as_str()
-        .and_then(weldsuite_db::js_timestamp)
-        .map_or(Value::Null, Value::String)
 }
 
 #[cfg(test)]

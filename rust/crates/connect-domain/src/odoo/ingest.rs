@@ -1,15 +1,23 @@
-//! The Odoo syncs' writes: literal SQL into the WeldStash tables, linked to
-//! Odoo through `integration_entity_mappings` (`odoo_warehouse`,
+//! The Odoo syncs' writes into the WeldStash tables, linked to Odoo through `integration_entity_mappings` (`odoo_warehouse`,
 //! `odoo_product`, `odoo_product_template`, `odoo_supplier`,
 //! `odoo_supplierinfo`, `odoo_purchase_order`). A record whose mapping
 //! carries the same checksum is skipped, as the generic ingest does.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
+use sea_orm::sea_query::{Alias, Asterisk, Expr, Func, OnConflict, Order, Query};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, ConnectionTrait, DbErr, EntityTrait, JoinType, QueryFilter,
+    QueryOrder, QuerySelect,
+};
 use serde_json::{Value, json};
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_events::{EntityEvent, EventContext, EventSource, EventType};
 use weldsuite_kit::generate_id;
+use weldsuite_schema::tenant::{
+    integration_entity_mappings as mappings, product_suppliers, product_variants, products,
+    purchase_order_items, purchase_orders, stash_sales_history, suppliers, warehouses,
+};
 
 use super::mappers::{
     PoLineValues, ProductValues, SupplierInfoValues, SupplierValues, WarehouseValues,
@@ -47,16 +55,20 @@ pub(crate) async fn find_mapping(
     connection_id: &str,
     external_type: &str,
     external_id: i64,
-) -> Result<Option<Mapping>, sqlx::Error> {
-    let row: Option<(String, String, Option<String>)> = sqlx::query_as(
-        "select internal_entity_type, internal_entity_id, sync_checksum from integration_entity_mappings
-         where connection_id = $1 and external_entity_type = $2 and external_entity_id = $3 limit 1",
-    )
-    .bind(connection_id)
-    .bind(external_type)
-    .bind(external_id.to_string())
-    .fetch_optional(db)
-    .await?;
+) -> Result<Option<Mapping>, DbErr> {
+    let row: Option<(String, String, Option<String>)> = mappings::Entity::find()
+        .select_only()
+        .columns([
+            mappings::Column::InternalEntityType,
+            mappings::Column::InternalEntityId,
+            mappings::Column::SyncChecksum,
+        ])
+        .filter(mappings::Column::ConnectionId.eq(connection_id))
+        .filter(mappings::Column::ExternalEntityType.eq(external_type))
+        .filter(mappings::Column::ExternalEntityId.eq(external_id.to_string()))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     Ok(row.map(|(internal_type, internal_id, checksum)| Mapping {
         internal_type,
         internal_id,
@@ -73,28 +85,36 @@ pub(crate) async fn save_mapping(
     internal_type: &str,
     internal_id: &str,
     checksum: Option<&str>,
-) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "insert into integration_entity_mappings
-           (id, connection_id, external_entity_type, external_entity_id, internal_entity_type,
-            internal_entity_id, last_synced_at, sync_checksum)
-         values ($1, $2, $3, $4, $5, $6, $7::timestamp, $8)
-         on conflict (connection_id, external_entity_type, external_entity_id) do update set
-           internal_entity_type = excluded.internal_entity_type,
-           internal_entity_id = excluded.internal_entity_id,
-           sync_checksum = excluded.sync_checksum,
-           last_synced_at = excluded.last_synced_at,
-           updated_at = excluded.last_synced_at",
+) -> Result<(), DbErr> {
+    let now = utc_now();
+    mappings::Entity::insert(mappings::ActiveModel {
+        id: Set(generate_id("iem")),
+        connection_id: Set(connection_id.to_owned()),
+        external_entity_type: Set(external_type.to_owned()),
+        external_entity_id: Set(external_id.to_string()),
+        internal_entity_type: Set(internal_type.to_owned()),
+        internal_entity_id: Set(internal_id.to_owned()),
+        last_synced_at: Set(Some(now)),
+        sync_checksum: Set(checksum.map(str::to_owned)),
+        ..Default::default()
+    })
+    .on_conflict(
+        OnConflict::columns([
+            mappings::Column::ConnectionId,
+            mappings::Column::ExternalEntityType,
+            mappings::Column::ExternalEntityId,
+        ])
+        .update_columns([
+            mappings::Column::InternalEntityType,
+            mappings::Column::InternalEntityId,
+            mappings::Column::SyncChecksum,
+            mappings::Column::LastSyncedAt,
+        ])
+        // `updated_at = excluded.last_synced_at`.
+        .value(mappings::Column::UpdatedAt, Expr::value(now))
+        .to_owned(),
     )
-    .bind(generate_id("iem"))
-    .bind(connection_id)
-    .bind(external_type)
-    .bind(external_id.to_string())
-    .bind(internal_type)
-    .bind(internal_id)
-    .bind(now_iso())
-    .bind(checksum)
-    .execute(db)
+    .exec_without_returning(&orm(db))
     .await
     .map(|_| ())
 }
@@ -104,17 +124,14 @@ async fn delete_mapping(
     connection_id: &str,
     external_type: &str,
     external_id: i64,
-) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "delete from integration_entity_mappings
-         where connection_id = $1 and external_entity_type = $2 and external_entity_id = $3",
-    )
-    .bind(connection_id)
-    .bind(external_type)
-    .bind(external_id.to_string())
-    .execute(db)
-    .await
-    .map(|_| ())
+) -> Result<(), DbErr> {
+    mappings::Entity::delete_many()
+        .filter(mappings::Column::ConnectionId.eq(connection_id))
+        .filter(mappings::Column::ExternalEntityType.eq(external_type))
+        .filter(mappings::Column::ExternalEntityId.eq(external_id.to_string()))
+        .exec(&orm(db))
+        .await
+        .map(|_| ())
 }
 
 /// Every mapping of one external type: Odoo id → (internal type, id).
@@ -122,15 +139,19 @@ pub(crate) async fn mappings_of(
     db: &PgPool,
     connection_id: &str,
     external_type: &str,
-) -> Result<HashMap<i64, (String, String)>, sqlx::Error> {
-    let rows: Vec<(String, String, String)> = sqlx::query_as(
-        "select external_entity_id, internal_entity_type, internal_entity_id
-         from integration_entity_mappings where connection_id = $1 and external_entity_type = $2",
-    )
-    .bind(connection_id)
-    .bind(external_type)
-    .fetch_all(db)
-    .await?;
+) -> Result<HashMap<i64, (String, String)>, DbErr> {
+    let rows: Vec<(String, String, String)> = mappings::Entity::find()
+        .select_only()
+        .columns([
+            mappings::Column::ExternalEntityId,
+            mappings::Column::InternalEntityType,
+            mappings::Column::InternalEntityId,
+        ])
+        .filter(mappings::Column::ConnectionId.eq(connection_id))
+        .filter(mappings::Column::ExternalEntityType.eq(external_type))
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     Ok(rows
         .into_iter()
         .filter_map(|(external, kind, internal)| {
@@ -146,31 +167,40 @@ pub(crate) async fn mappings_of(
 pub(crate) type Item = (String, Option<String>);
 
 /// Every `odoo_product` mapping as the item it names (a variant mapping
-/// resolved to its product).
+/// resolved to its product; one whose variant is gone is left out).
 pub(crate) async fn product_items(
     db: &PgPool,
     connection_id: &str,
-) -> Result<HashMap<i64, Item>, sqlx::Error> {
-    let rows: Vec<(String, String, Option<String>)> = sqlx::query_as(
-        "select m.external_entity_id,
-                case when m.internal_entity_type = 'product_variant' then v.product_id else m.internal_entity_id end,
-                case when m.internal_entity_type = 'product_variant' then m.internal_entity_id end
-         from integration_entity_mappings m
-         left join product_variants v on m.internal_entity_type = 'product_variant' and v.id = m.internal_entity_id
-         where m.connection_id = $1 and m.external_entity_type = $2
-           and (m.internal_entity_type <> 'product_variant' or v.id is not null)",
-    )
-    .bind(connection_id)
-    .bind(PRODUCT)
-    .fetch_all(db)
-    .await?;
+) -> Result<HashMap<i64, Item>, DbErr> {
+    let rows: Vec<(String, String, String, Option<String>)> = mappings::Entity::find()
+        .select_only()
+        .columns([
+            mappings::Column::ExternalEntityId,
+            mappings::Column::InternalEntityType,
+            mappings::Column::InternalEntityId,
+        ])
+        .column(product_variants::Column::ProductId)
+        .join(
+            JoinType::LeftJoin,
+            mappings::Entity::belongs_to(product_variants::Entity)
+                .from(mappings::Column::InternalEntityId)
+                .to(product_variants::Column::Id)
+                .into(),
+        )
+        .filter(mappings::Column::ConnectionId.eq(connection_id))
+        .filter(mappings::Column::ExternalEntityType.eq(PRODUCT))
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     Ok(rows
         .into_iter()
-        .filter_map(|(external, product, variant)| {
-            external
-                .parse::<i64>()
-                .ok()
-                .map(|id| (id, (product, variant)))
+        .filter_map(|(external, kind, internal, parent)| {
+            let item = if kind == "product_variant" {
+                (parent?, Some(internal))
+            } else {
+                (internal, None)
+            };
+            external.parse::<i64>().ok().map(|id| (id, item))
         })
         .collect())
 }
@@ -204,6 +234,69 @@ fn created_by(ctx: &Ctx<'_>) -> Option<String> {
     Some(ctx.owner_id.to_owned()).filter(|o| !o.is_empty())
 }
 
+/// `$n::numeric` of a JavaScript number: Postgres converts it, as it did.
+fn numeric(value: Option<f64>) -> Expr {
+    sea_orm::ExprTrait::cast_as(Expr::val(value), "numeric")
+}
+
+/// `$n::timestamp` of Odoo's datetime text: Postgres reads it, as it did.
+fn timestamp(text: Option<&str>) -> Expr {
+    sea_orm::ExprTrait::cast_as(Expr::val(text), "timestamp")
+}
+
+/// `coalesce(column, '{}'::jsonb) || patch`.
+fn merged(column: Expr, patch: Value) -> Expr {
+    sea_orm::sea_query::extension::postgres::PgExpr::concat(
+        Expr::from(Func::coalesce([column, Expr::val(json!({}))])),
+        Expr::val(patch),
+    )
+}
+
+/// `not exists (select 1 from integration_entity_mappings m where
+/// m.connection_id = $c and m.external_entity_type = $t [and
+/// m.internal_entity_type = $k] and m.internal_entity_id = x.id)`, as `x.id
+/// not in (this)`: a mapped id is never null.
+fn mapped_ids(
+    connection_id: &str,
+    external_type: &str,
+    internal_type: Option<&str>,
+) -> sea_orm::sea_query::SelectStatement {
+    let mut select = Query::select();
+    select
+        .column(mappings::Column::InternalEntityId)
+        .from(mappings::Entity)
+        .and_where(mappings::Column::ConnectionId.eq(connection_id))
+        .and_where(mappings::Column::ExternalEntityType.eq(external_type));
+    if let Some(kind) = internal_type {
+        select.and_where(mappings::Column::InternalEntityType.eq(kind));
+    }
+    select
+}
+
+/// An insert the entity's `ActiveModel` can't express (values Postgres
+/// converts), run as built.
+async fn run_insert<C: ConnectionTrait>(
+    db: &C,
+    insert: &sea_orm::sea_query::InsertStatement,
+) -> Result<u64, DbErr> {
+    Ok(db.execute(insert).await?.rows_affected())
+}
+
+/// The columns and values of an insert, in step.
+fn insert_into<T: sea_orm::sea_query::IntoIden>(
+    table: T,
+    values: Vec<(impl sea_orm::sea_query::IntoIden, Expr)>,
+) -> Result<sea_orm::sea_query::InsertStatement, DbErr> {
+    let (columns, exprs): (Vec<_>, Vec<_>) = values.into_iter().unzip();
+    let mut insert = Query::insert();
+    insert
+        .into_table(table)
+        .columns(columns)
+        .values(exprs)
+        .map_err(|error| DbErr::Custom(error.to_string()))?;
+    Ok(insert)
+}
+
 // ── warehouses ───────────────────────────────────────────────────────────────
 
 /// A synced warehouse: managed by the connection (its stock is Odoo's).
@@ -214,29 +307,34 @@ pub(crate) async fn upsert_warehouse(
     ctx: &Ctx<'_>,
     values: &WarehouseValues,
     checksum: &str,
-) -> Result<(Action, String), sqlx::Error> {
-    let now = now_iso();
+) -> Result<(Action, String), DbErr> {
+    let now = utc_now();
     if let Some(mapping) =
         find_mapping(ctx.db, ctx.connection_id, WAREHOUSE, values.odoo_id).await?
     {
         if mapping.checksum.as_deref() == Some(checksum) {
             return Ok((Action::Skipped, mapping.internal_id));
         }
-        let updated = sqlx::query(
-            "update warehouses set name = $2, code = $3, is_active = $4, managed_by_connection_id = $5,
-               metadata = coalesce(metadata, '{}'::jsonb) || $6::jsonb, updated_at = $7::timestamp
-             where id = $1",
-        )
-        .bind(&mapping.internal_id)
-        .bind(&values.name)
-        .bind(&values.code)
-        .bind(values.active)
-        .bind(ctx.connection_id)
-        .bind(&values.metadata)
-        .bind(&now)
-        .execute(ctx.db)
-        .await?;
-        if updated.rows_affected() > 0 {
+        let updated = warehouses::Entity::update_many()
+            .col_expr(warehouses::Column::Name, Expr::value(values.name.as_str()))
+            .col_expr(warehouses::Column::Code, Expr::value(values.code.clone()))
+            .col_expr(warehouses::Column::IsActive, Expr::value(values.active))
+            .col_expr(
+                warehouses::Column::ManagedByConnectionId,
+                Expr::value(ctx.connection_id),
+            )
+            .col_expr(
+                warehouses::Column::Metadata,
+                merged(
+                    Expr::col(warehouses::Column::Metadata),
+                    values.metadata.clone(),
+                ),
+            )
+            .col_expr(warehouses::Column::UpdatedAt, Expr::value(now))
+            .filter(warehouses::Column::Id.eq(mapping.internal_id.as_str()))
+            .exec(&orm(ctx.db))
+            .await?;
+        if updated.rows_affected > 0 {
             save_mapping(
                 ctx.db,
                 ctx.connection_id,
@@ -251,17 +349,17 @@ pub(crate) async fn upsert_warehouse(
         }
     }
     let id = generate_id("wh");
-    sqlx::query(
-        "insert into warehouses (id, name, code, is_active, is_default, managed_by_connection_id, metadata)
-         values ($1, $2, $3, $4, false, $5, $6)",
-    )
-    .bind(&id)
-    .bind(&values.name)
-    .bind(&values.code)
-    .bind(values.active)
-    .bind(ctx.connection_id)
-    .bind(&values.metadata)
-    .execute(ctx.db)
+    warehouses::Entity::insert(warehouses::ActiveModel {
+        id: Set(id.clone()),
+        name: Set(values.name.clone()),
+        code: Set(values.code.clone()),
+        is_active: Set(Some(values.active)),
+        is_default: Set(Some(false)),
+        managed_by_connection_id: Set(Some(ctx.connection_id.to_owned())),
+        metadata: Set(Some(values.metadata.clone())),
+        ..Default::default()
+    })
+    .exec_without_returning(&orm(ctx.db))
     .await?;
     save_mapping(
         ctx.db,
@@ -286,32 +384,37 @@ fn variant_status(active: bool) -> &'static str {
     if active { "active" } else { "inactive" }
 }
 
-async fn live_product(db: &PgPool, id: &str) -> Result<bool, sqlx::Error> {
-    let found: Option<String> =
-        sqlx::query_scalar("select id from products where id = $1 and deleted_at is null")
-            .bind(id)
-            .fetch_optional(db)
-            .await?;
+async fn live_product(db: &PgPool, id: &str) -> Result<bool, DbErr> {
+    let found: Option<String> = products::Entity::find()
+        .select_only()
+        .column(products::Column::Id)
+        .filter(products::Column::Id.eq(id))
+        .filter(products::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     Ok(found.is_some())
 }
 
 /// A live product with this SKU that no other Odoo product of the
 /// connection is mapped to.
-async fn product_by_sku(ctx: &Ctx<'_>, sku: Option<&str>) -> Result<Option<String>, sqlx::Error> {
+async fn product_by_sku(ctx: &Ctx<'_>, sku: Option<&str>) -> Result<Option<String>, DbErr> {
     let Some(sku) = sku else { return Ok(None) };
-    sqlx::query_scalar(
-        "select p.id from products p
-         where p.sku = $1 and p.deleted_at is null
-           and not exists (select 1 from integration_entity_mappings m
-             where m.connection_id = $2 and m.external_entity_type = $3
-               and m.internal_entity_type = 'product' and m.internal_entity_id = p.id)
-         order by p.created_at, p.id limit 1",
-    )
-    .bind(sku)
-    .bind(ctx.connection_id)
-    .bind(PRODUCT)
-    .fetch_optional(ctx.db)
-    .await
+    products::Entity::find()
+        .select_only()
+        .column(products::Column::Id)
+        .filter(products::Column::Sku.eq(sku))
+        .filter(products::Column::DeletedAt.is_null())
+        .filter(products::Column::Id.not_in_subquery(mapped_ids(
+            ctx.connection_id,
+            PRODUCT,
+            Some("product"),
+        )))
+        .order_by_asc(products::Column::CreatedAt)
+        .order_by_asc(products::Column::Id)
+        .into_tuple()
+        .one(&orm(ctx.db))
+        .await
 }
 
 /// A live variant with this SKU (under `parent` first) that no other Odoo
@@ -320,23 +423,44 @@ async fn variant_by_sku(
     ctx: &Ctx<'_>,
     sku: Option<&str>,
     parent: Option<&str>,
-) -> Result<Option<(String, String)>, sqlx::Error> {
+) -> Result<Option<(String, String)>, DbErr> {
+    use sea_orm::ExprTrait as _;
     let Some(sku) = sku else { return Ok(None) };
-    sqlx::query_as(
-        "select v.id, v.product_id from product_variants v
-         join products p on p.id = v.product_id and p.deleted_at is null
-         where v.sku = $1 and v.deleted_at is null
-           and not exists (select 1 from integration_entity_mappings m
-             where m.connection_id = $2 and m.external_entity_type = $3
-               and m.internal_entity_type = 'product_variant' and m.internal_entity_id = v.id)
-         order by (v.product_id = $4) desc, v.created_at, v.id limit 1",
-    )
-    .bind(sku)
-    .bind(ctx.connection_id)
-    .bind(PRODUCT)
-    .bind(parent.unwrap_or_default())
-    .fetch_optional(ctx.db)
-    .await
+    product_variants::Entity::find()
+        .select_only()
+        .columns([
+            product_variants::Column::Id,
+            product_variants::Column::ProductId,
+        ])
+        .join(
+            JoinType::InnerJoin,
+            product_variants::Entity::belongs_to(products::Entity)
+                .from(product_variants::Column::ProductId)
+                .to(products::Column::Id)
+                .into(),
+        )
+        .filter(products::Column::DeletedAt.is_null())
+        .filter(product_variants::Column::Sku.eq(sku))
+        .filter(product_variants::Column::DeletedAt.is_null())
+        .filter(product_variants::Column::Id.not_in_subquery(mapped_ids(
+            ctx.connection_id,
+            PRODUCT,
+            Some("product_variant"),
+        )))
+        // `order by (v.product_id = $4) desc, v.created_at, v.id`.
+        .order_by(
+            Expr::col((
+                product_variants::Entity,
+                product_variants::Column::ProductId,
+            ))
+            .eq(parent.unwrap_or_default()),
+            Order::Desc,
+        )
+        .order_by_asc(product_variants::Column::CreatedAt)
+        .order_by_asc(product_variants::Column::Id)
+        .into_tuple()
+        .one(&orm(ctx.db))
+        .await
 }
 
 async fn insert_product(
@@ -344,29 +468,47 @@ async fn insert_product(
     values: &ProductValues,
     sku: Option<&str>,
     has_variants: bool,
-) -> Result<String, sqlx::Error> {
+) -> Result<String, DbErr> {
+    use products::Column;
     let id = generate_id("prod");
     let slug = Some(crate::mappers::slugify(&values.name))
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| id.clone());
-    sqlx::query(
-        "insert into products (id, name, slug, sku, barcode, cost_price, price, weight, status,
-           track_inventory, has_variants, created_by)
-         values ($1, $2, $3, $4, $5, $6::numeric, coalesce($7::numeric, 0), $8::numeric, $9, true, $10, $11)",
-    )
-    .bind(&id)
-    .bind(&values.name)
-    .bind(slug)
-    .bind(sku)
-    .bind(if has_variants { None } else { values.barcode.as_deref() })
-    .bind(if has_variants { None } else { values.cost })
-    .bind(values.price)
-    .bind(if has_variants { None } else { values.weight })
-    .bind(product_status(values.active))
-    .bind(has_variants)
-    .bind(created_by(ctx))
-    .execute(ctx.db)
-    .await?;
+    let insert = insert_into(
+        products::Entity,
+        vec![
+            (Column::Id, Expr::val(id.as_str())),
+            (Column::Name, Expr::val(values.name.as_str())),
+            (Column::Slug, Expr::val(slug)),
+            (Column::Sku, Expr::val(sku)),
+            (
+                Column::Barcode,
+                Expr::val(if has_variants {
+                    None
+                } else {
+                    values.barcode.as_deref()
+                }),
+            ),
+            (
+                Column::CostPrice,
+                numeric(if has_variants { None } else { values.cost }),
+            ),
+            // `coalesce($7::numeric, 0)`.
+            (
+                Column::Price,
+                Func::coalesce([numeric(values.price), Expr::val(0)]).into(),
+            ),
+            (
+                Column::Weight,
+                numeric(if has_variants { None } else { values.weight }),
+            ),
+            (Column::Status, Expr::val(product_status(values.active))),
+            (Column::TrackInventory, Expr::val(true)),
+            (Column::HasVariants, Expr::val(has_variants)),
+            (Column::CreatedBy, Expr::val(created_by(ctx))),
+        ],
+    )?;
+    run_insert(&orm(ctx.db), &insert).await?;
     Ok(id)
 }
 
@@ -374,25 +516,32 @@ async fn update_single_product(
     ctx: &Ctx<'_>,
     id: &str,
     values: &ProductValues,
-) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "update products set name = $2, sku = $3, barcode = $4, cost_price = $5::numeric,
-           price = coalesce($6::numeric, price), weight = coalesce($7::numeric, weight),
-           status = $8, updated_at = $9::timestamp
-         where id = $1",
-    )
-    .bind(id)
-    .bind(&values.name)
-    .bind(&values.sku)
-    .bind(&values.barcode)
-    .bind(values.cost)
-    .bind(values.price)
-    .bind(values.weight)
-    .bind(product_status(values.active))
-    .bind(now_iso())
-    .execute(ctx.db)
-    .await
-    .map(|_| ())
+) -> Result<(), DbErr> {
+    let mut update = products::Entity::update_many()
+        .col_expr(products::Column::Name, Expr::value(values.name.as_str()))
+        .col_expr(products::Column::Sku, Expr::value(values.sku.clone()))
+        .col_expr(
+            products::Column::Barcode,
+            Expr::value(values.barcode.clone()),
+        )
+        .col_expr(products::Column::CostPrice, numeric(values.cost))
+        .col_expr(
+            products::Column::Status,
+            Expr::value(product_status(values.active)),
+        )
+        .col_expr(products::Column::UpdatedAt, Expr::value(utc_now()));
+    // `price = coalesce($6::numeric, price)`, `weight` likewise.
+    if values.price.is_some() {
+        update = update.col_expr(products::Column::Price, numeric(values.price));
+    }
+    if values.weight.is_some() {
+        update = update.col_expr(products::Column::Weight, numeric(values.weight));
+    }
+    update
+        .filter(products::Column::Id.eq(id))
+        .exec(&orm(ctx.db))
+        .await
+        .map(|_| ())
 }
 
 async fn upsert_variant(
@@ -400,47 +549,49 @@ async fn upsert_variant(
     existing: Option<&str>,
     parent: &str,
     values: &ProductValues,
-) -> Result<(String, bool), sqlx::Error> {
+) -> Result<(String, bool), DbErr> {
+    use product_variants::Column;
     if let Some(id) = existing {
-        let updated = sqlx::query(
-            "update product_variants set name = $2, sku = $3, barcode = $4, cost_price = $5::numeric,
-               price = coalesce($6::numeric, price), weight = coalesce($7::numeric, weight),
-               status = $8, updated_at = $9::timestamp
-             where id = $1 and deleted_at is null",
-        )
-        .bind(id)
-        .bind(&values.variant_name)
-        .bind(&values.sku)
-        .bind(&values.barcode)
-        .bind(values.cost)
-        .bind(values.price)
-        .bind(values.weight)
-        .bind(variant_status(values.active))
-        .bind(now_iso())
-        .execute(ctx.db)
-        .await?;
-        if updated.rows_affected() > 0 {
+        let mut update = product_variants::Entity::update_many()
+            .col_expr(Column::Name, Expr::value(values.variant_name.as_str()))
+            .col_expr(Column::Sku, Expr::value(values.sku.clone()))
+            .col_expr(Column::Barcode, Expr::value(values.barcode.clone()))
+            .col_expr(Column::CostPrice, numeric(values.cost))
+            .col_expr(Column::Status, Expr::value(variant_status(values.active)))
+            .col_expr(Column::UpdatedAt, Expr::value(utc_now()));
+        // `price = coalesce($6::numeric, price)`, `weight` likewise.
+        if values.price.is_some() {
+            update = update.col_expr(Column::Price, numeric(values.price));
+        }
+        if values.weight.is_some() {
+            update = update.col_expr(Column::Weight, numeric(values.weight));
+        }
+        let updated = update
+            .filter(Column::Id.eq(id))
+            .filter(Column::DeletedAt.is_null())
+            .exec(&orm(ctx.db))
+            .await?;
+        if updated.rows_affected > 0 {
             return Ok((id.to_owned(), false));
         }
     }
     let id = generate_id("pvr");
-    sqlx::query(
-        "insert into product_variants (id, product_id, name, sku, barcode, cost_price, price, weight,
-           status, created_by)
-         values ($1, $2, $3, $4, $5, $6::numeric, $7::numeric, $8::numeric, $9, $10)",
-    )
-    .bind(&id)
-    .bind(parent)
-    .bind(&values.variant_name)
-    .bind(&values.sku)
-    .bind(&values.barcode)
-    .bind(values.cost)
-    .bind(values.price)
-    .bind(values.weight)
-    .bind(variant_status(values.active))
-    .bind(created_by(ctx))
-    .execute(ctx.db)
-    .await?;
+    let insert = insert_into(
+        product_variants::Entity,
+        vec![
+            (Column::Id, Expr::val(id.as_str())),
+            (Column::ProductId, Expr::val(parent)),
+            (Column::Name, Expr::val(values.variant_name.as_str())),
+            (Column::Sku, Expr::val(values.sku.as_deref())),
+            (Column::Barcode, Expr::val(values.barcode.as_deref())),
+            (Column::CostPrice, numeric(values.cost)),
+            (Column::Price, numeric(values.price)),
+            (Column::Weight, numeric(values.weight)),
+            (Column::Status, Expr::val(variant_status(values.active))),
+            (Column::CreatedBy, Expr::val(created_by(ctx))),
+        ],
+    )?;
+    run_insert(&orm(ctx.db), &insert).await?;
     Ok((id, true))
 }
 
@@ -459,7 +610,7 @@ pub(crate) async fn upsert_product(
     ctx: &Ctx<'_>,
     values: &ProductValues,
     checksum: &str,
-) -> Result<(Action, String), sqlx::Error> {
+) -> Result<(Action, String), DbErr> {
     let mapping = find_mapping(ctx.db, ctx.connection_id, PRODUCT, values.odoo_id).await?;
     if let Some(m) = &mapping
         && m.checksum.as_deref() == Some(checksum)
@@ -472,11 +623,13 @@ pub(crate) async fn upsert_product(
         {
             // The template went back to one variant: keep updating the
             // variant row it already is.
-            let parent: Option<String> =
-                sqlx::query_scalar("select product_id from product_variants where id = $1")
-                    .bind(&m.internal_id)
-                    .fetch_optional(ctx.db)
-                    .await?;
+            let parent: Option<String> = product_variants::Entity::find()
+                .select_only()
+                .column(product_variants::Column::ProductId)
+                .filter(product_variants::Column::Id.eq(m.internal_id.as_str()))
+                .into_tuple()
+                .one(&orm(ctx.db))
+                .await?;
             if let Some(parent) = parent {
                 upsert_variant(ctx, Some(&m.internal_id), &parent, values).await?;
                 save_mapping(
@@ -575,9 +728,14 @@ pub(crate) async fn upsert_product(
     if promoted_from_product {
         // The product was this variant alone: its own SKU and barcode move
         // to the variant.
-        sqlx::query("update products set sku = null, barcode = null where id = $1")
-            .bind(&parent)
-            .execute(ctx.db)
+        products::Entity::update_many()
+            .col_expr(products::Column::Sku, Expr::value(Option::<String>::None))
+            .col_expr(
+                products::Column::Barcode,
+                Expr::value(Option::<String>::None),
+            )
+            .filter(products::Column::Id.eq(parent.as_str()))
+            .exec(&orm(ctx.db))
             .await?;
     }
     let (variant, _) = upsert_variant(ctx, variant_id.as_deref(), &parent, values).await?;
@@ -603,18 +761,27 @@ pub(crate) async fn upsert_product(
         )
         .await?;
     }
-    sqlx::query(
-        "update products p set name = $2, has_variants = true, status = case when $3 then 'active' else p.status end,
-           variant_count = (select count(*) from product_variants v where v.product_id = p.id and v.deleted_at is null),
-           updated_at = $4::timestamp
-         where p.id = $1",
-    )
-    .bind(&parent)
-    .bind(&values.name)
-    .bind(values.active)
-    .bind(now_iso())
-    .execute(ctx.db)
-    .await?;
+    // `variant_count = (select count(*) from product_variants v where
+    // v.product_id = p.id and v.deleted_at is null)`, `p.id` being the parent.
+    let variant_count = Query::select()
+        .expr(Func::count(Expr::col(Asterisk)))
+        .from(product_variants::Entity)
+        .and_where(product_variants::Column::ProductId.eq(parent.as_str()))
+        .and_where(product_variants::Column::DeletedAt.is_null())
+        .to_owned();
+    let mut update = products::Entity::update_many()
+        .col_expr(products::Column::Name, Expr::value(values.name.as_str()))
+        .col_expr(products::Column::HasVariants, Expr::value(true))
+        .col_expr(products::Column::VariantCount, Expr::from(variant_count))
+        .col_expr(products::Column::UpdatedAt, Expr::value(utc_now()));
+    // `status = case when $3 then 'active' else p.status end`.
+    if values.active {
+        update = update.col_expr(products::Column::Status, Expr::value("active"));
+    }
+    update
+        .filter(products::Column::Id.eq(parent.as_str()))
+        .exec(&orm(ctx.db))
+        .await?;
     Ok((
         if parent_created {
             Action::Created
@@ -634,18 +801,25 @@ pub(crate) async fn upsert_supplier(
     ctx: &Ctx<'_>,
     values: &SupplierValues,
     checksum: &str,
-) -> Result<(Action, String), sqlx::Error> {
+) -> Result<(Action, String), DbErr> {
+    use sea_orm::ExprTrait as _;
+    use suppliers::Column;
     let mapping = find_mapping(ctx.db, ctx.connection_id, SUPPLIER, values.odoo_id).await?;
     if let Some(m) = &mapping
         && m.checksum.as_deref() == Some(checksum)
     {
         return Ok((Action::Skipped, m.internal_id.clone()));
     }
+    let db = &orm(ctx.db);
     let mapped: Option<String> = match &mapping {
         Some(m) => {
-            sqlx::query_scalar("select id from suppliers where id = $1 and deleted_at is null")
-                .bind(&m.internal_id)
-                .fetch_optional(ctx.db)
+            suppliers::Entity::find()
+                .select_only()
+                .column(Column::Id)
+                .filter(Column::Id.eq(m.internal_id.as_str()))
+                .filter(Column::DeletedAt.is_null())
+                .into_tuple()
+                .one(db)
                 .await?
         }
         None => None,
@@ -653,79 +827,92 @@ pub(crate) async fn upsert_supplier(
     let existing = match mapped {
         Some(id) => Some(id),
         None => {
-            sqlx::query_scalar(
-                "select s.id from suppliers s
-                 where s.deleted_at is null
-                   and (case when $1::text is not null then s.code = $1 else lower(s.name) = lower($2) end)
-                   and not exists (select 1 from integration_entity_mappings m
-                     where m.connection_id = $3 and m.external_entity_type = $4 and m.internal_entity_id = s.id)
-                 order by s.created_at, s.id limit 1",
-            )
-            .bind(&values.code)
-            .bind(&values.name)
-            .bind(ctx.connection_id)
-            .bind(SUPPLIER)
-            .fetch_optional(ctx.db)
-            .await?
+            // `case when $1::text is not null then s.code = $1 else
+            // lower(s.name) = lower($2) end`.
+            let same = match &values.code {
+                Some(code) => Column::Code.eq(code.as_str()),
+                None => Expr::expr(Func::lower(Expr::col((suppliers::Entity, Column::Name))))
+                    .eq(Func::lower(Expr::val(values.name.as_str()))),
+            };
+            suppliers::Entity::find()
+                .select_only()
+                .column(Column::Id)
+                .filter(Column::DeletedAt.is_null())
+                .filter(same)
+                .filter(Column::Id.not_in_subquery(mapped_ids(ctx.connection_id, SUPPLIER, None)))
+                .order_by_asc(Column::CreatedAt)
+                .order_by_asc(Column::Id)
+                .into_tuple()
+                .one(db)
+                .await?
         }
     };
+    let status = if values.active { "active" } else { "inactive" };
     let (id, action) = if let Some(id) = existing {
-        sqlx::query(
-            "update suppliers set name = $2, code = coalesce($3, code), email = $4, phone = $5, website = $6,
-               address_line_1 = $7, address_line_2 = $8, city = $9, state = $10, postal_code = $11,
-               country = $12, tax_id = $13, payment_terms = coalesce($14, payment_terms),
-               currency = coalesce($15, currency), is_active = $16,
-               status = case when $16 then 'active' else 'inactive' end,
-               metadata = coalesce(metadata, '{}'::jsonb) || $17::jsonb, updated_at = $18::timestamp
-             where id = $1",
-        )
-        .bind(&id)
-        .bind(&values.name)
-        .bind(&values.code)
-        .bind(&values.email)
-        .bind(&values.phone)
-        .bind(&values.website)
-        .bind(&values.address_line_1)
-        .bind(&values.address_line_2)
-        .bind(&values.city)
-        .bind(&values.state)
-        .bind(&values.postal_code)
-        .bind(&values.country)
-        .bind(&values.tax_id)
-        .bind(&values.payment_terms)
-        .bind(&values.currency)
-        .bind(values.active)
-        .bind(&values.metadata)
-        .bind(now_iso())
-        .execute(ctx.db)
-        .await?;
+        let mut update = suppliers::Entity::update_many()
+            .col_expr(Column::Name, Expr::value(values.name.as_str()))
+            .col_expr(Column::Email, Expr::value(values.email.clone()))
+            .col_expr(Column::Phone, Expr::value(values.phone.clone()))
+            .col_expr(Column::Website, Expr::value(values.website.clone()))
+            .col_expr(
+                Column::AddressLine1,
+                Expr::value(values.address_line_1.clone()),
+            )
+            .col_expr(
+                Column::AddressLine2,
+                Expr::value(values.address_line_2.clone()),
+            )
+            .col_expr(Column::City, Expr::value(values.city.clone()))
+            .col_expr(Column::State, Expr::value(values.state.clone()))
+            .col_expr(Column::PostalCode, Expr::value(values.postal_code.clone()))
+            .col_expr(Column::Country, Expr::value(values.country.clone()))
+            .col_expr(Column::TaxId, Expr::value(values.tax_id.clone()))
+            .col_expr(Column::IsActive, Expr::value(values.active))
+            .col_expr(Column::Status, Expr::value(status))
+            .col_expr(
+                Column::Metadata,
+                merged(Expr::col(Column::Metadata), values.metadata.clone()),
+            )
+            .col_expr(Column::UpdatedAt, Expr::value(utc_now()));
+        // `code = coalesce($3, code)`, `payment_terms` and `currency` likewise.
+        if let Some(code) = &values.code {
+            update = update.col_expr(Column::Code, Expr::value(code.as_str()));
+        }
+        if let Some(terms) = &values.payment_terms {
+            update = update.col_expr(Column::PaymentTerms, Expr::value(terms.as_str()));
+        }
+        if let Some(currency) = &values.currency {
+            update = update.col_expr(Column::Currency, Expr::value(currency.as_str()));
+        }
+        update.filter(Column::Id.eq(id.as_str())).exec(db).await?;
         (id, Action::Updated)
     } else {
         let id = generate_id("sup");
-        sqlx::query(
-            "insert into suppliers (id, name, code, email, phone, website, address_line_1, address_line_2,
-               city, state, postal_code, country, tax_id, payment_terms, currency, is_active, status, metadata)
-             values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, coalesce($15, 'USD'), $16,
-               case when $16 then 'active' else 'inactive' end, $17)",
-        )
-        .bind(&id)
-        .bind(&values.name)
-        .bind(&values.code)
-        .bind(&values.email)
-        .bind(&values.phone)
-        .bind(&values.website)
-        .bind(&values.address_line_1)
-        .bind(&values.address_line_2)
-        .bind(&values.city)
-        .bind(&values.state)
-        .bind(&values.postal_code)
-        .bind(&values.country)
-        .bind(&values.tax_id)
-        .bind(&values.payment_terms)
-        .bind(&values.currency)
-        .bind(values.active)
-        .bind(&values.metadata)
-        .execute(ctx.db)
+        suppliers::Entity::insert(suppliers::ActiveModel {
+            id: Set(id.clone()),
+            name: Set(values.name.clone()),
+            code: Set(values.code.clone()),
+            email: Set(values.email.clone()),
+            phone: Set(values.phone.clone()),
+            website: Set(values.website.clone()),
+            address_line_1: Set(values.address_line_1.clone()),
+            address_line_2: Set(values.address_line_2.clone()),
+            city: Set(values.city.clone()),
+            state: Set(values.state.clone()),
+            postal_code: Set(values.postal_code.clone()),
+            country: Set(values.country.clone()),
+            tax_id: Set(values.tax_id.clone()),
+            payment_terms: Set(values.payment_terms.clone()),
+            // `coalesce($15, 'USD')`.
+            currency: Set(Some(
+                values.currency.clone().unwrap_or_else(|| "USD".to_owned()),
+            )),
+            is_active: Set(Some(values.active)),
+            status: Set(Some(status.to_owned())),
+            metadata: Set(Some(values.metadata.clone())),
+            ..Default::default()
+        })
+        .exec_without_returning(db)
         .await?;
         (id, Action::Created)
     };
@@ -756,13 +943,59 @@ pub(crate) struct ProductSupplierInput<'a> {
     pub(crate) min_order_qty: Option<i64>,
 }
 
-async fn live_product_supplier(db: &PgPool, id: &str) -> Result<bool, sqlx::Error> {
-    let found: Option<String> =
-        sqlx::query_scalar("select id from product_suppliers where id = $1 and deleted_at is null")
-            .bind(id)
-            .fetch_optional(db)
-            .await?;
+async fn live_product_supplier(db: &PgPool, id: &str) -> Result<bool, DbErr> {
+    let found: Option<String> = product_suppliers::Entity::find()
+        .select_only()
+        .column(product_suppliers::Column::Id)
+        .filter(product_suppliers::Column::Id.eq(id))
+        .filter(product_suppliers::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     Ok(found.is_some())
+}
+
+/// `metadata->'odoo'`.
+fn odoo_meta() -> Expr {
+    sea_orm::sea_query::extension::postgres::PgExpr::get_json_field(
+        Expr::col((
+            product_suppliers::Entity,
+            product_suppliers::Column::Metadata,
+        )),
+        "odoo",
+    )
+}
+
+/// Soft-deletes the row `id` while the vendor line `odoo_id` owns it
+/// (`metadata->'odoo'->>'id'`): whether it did.
+async fn release_owned_row(db: &PgPool, id: &str, odoo_id: i64) -> Result<bool, DbErr> {
+    use sea_orm::ExprTrait as _;
+    let now = utc_now();
+    let released = product_suppliers::Entity::update_many()
+        .col_expr(product_suppliers::Column::DeletedAt, Expr::value(now))
+        .col_expr(product_suppliers::Column::UpdatedAt, Expr::value(now))
+        .filter(product_suppliers::Column::Id.eq(id))
+        .filter(product_suppliers::Column::DeletedAt.is_null())
+        .filter(
+            sea_orm::sea_query::extension::postgres::PgExpr::cast_json_field(odoo_meta(), "id")
+                .eq(odoo_id.to_string()),
+        )
+        .exec(&orm(db))
+        .await?;
+    Ok(released.rows_affected > 0)
+}
+
+/// `coalesce(variant_id, '') = coalesce($v, '')`.
+fn same_variant(variant_id: Option<&str>) -> Expr {
+    use sea_orm::ExprTrait as _;
+    Expr::from(Func::coalesce([
+        Expr::col((
+            product_suppliers::Entity,
+            product_suppliers::Column::VariantId,
+        )),
+        Expr::val(""),
+    ]))
+    .eq(variant_id.unwrap_or_default())
 }
 
 fn owner_rank(odoo: &Value) -> Option<(i64, (i64, i64, i64))> {
@@ -780,21 +1013,14 @@ fn owner_rank(odoo: &Value) -> Option<(i64, (i64, i64, i64))> {
 pub(crate) async fn remove_supplierinfo(
     ctx: &Ctx<'_>,
     odoo_id: i64,
-) -> Result<Option<String>, sqlx::Error> {
+) -> Result<Option<String>, DbErr> {
     let Some(mapping) = find_mapping(ctx.db, ctx.connection_id, SUPPLIER_INFO, odoo_id).await?
     else {
         return Ok(None);
     };
-    let removed: Option<String> = sqlx::query_scalar(
-        "update product_suppliers set deleted_at = $2::timestamp, updated_at = $2::timestamp
-         where id = $1 and deleted_at is null and (metadata->'odoo'->>'id') = $3
-         returning id",
-    )
-    .bind(&mapping.internal_id)
-    .bind(now_iso())
-    .bind(odoo_id.to_string())
-    .fetch_optional(ctx.db)
-    .await?;
+    let removed = release_owned_row(ctx.db, &mapping.internal_id, odoo_id)
+        .await?
+        .then(|| mapping.internal_id.clone());
     delete_mapping(ctx.db, ctx.connection_id, SUPPLIER_INFO, odoo_id).await?;
     Ok(removed)
 }
@@ -807,7 +1033,8 @@ pub(crate) async fn upsert_product_supplier(
     ctx: &Ctx<'_>,
     input: &ProductSupplierInput<'_>,
     checksum: &str,
-) -> Result<(Action, String), sqlx::Error> {
+) -> Result<(Action, String), DbErr> {
+    use product_suppliers::Column;
     let info = input.info;
     let mapping = find_mapping(ctx.db, ctx.connection_id, SUPPLIER_INFO, info.odoo_id).await?;
     // Unchanged, unless the row it maps to was released (by the line that
@@ -823,30 +1050,22 @@ pub(crate) async fn upsert_product_supplier(
         "sequence": info.sequence,
         "minQty": info.min_qty,
     });
-    let row: Option<(String, Option<Value>)> = sqlx::query_as(
-        "select id, metadata->'odoo' from product_suppliers
-         where product_id = $1 and coalesce(variant_id, '') = coalesce($2, '') and supplier_id = $3
-           and deleted_at is null
-         limit 1",
-    )
-    .bind(input.product_id)
-    .bind(input.variant_id)
-    .bind(input.supplier_id)
-    .fetch_optional(ctx.db)
-    .await?;
+    let row: Option<(String, Option<Value>)> = product_suppliers::Entity::find()
+        .select_only()
+        .column(Column::Id)
+        .expr(odoo_meta())
+        .filter(Column::ProductId.eq(input.product_id))
+        .filter(same_variant(input.variant_id))
+        .filter(Column::SupplierId.eq(input.supplier_id))
+        .filter(Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(ctx.db))
+        .await?;
     // The line moved (another product or vendor in Odoo): release the row it owned.
     if let Some(m) = &mapping
         && row.as_ref().is_none_or(|(id, _)| *id != m.internal_id)
     {
-        sqlx::query(
-            "update product_suppliers set deleted_at = $2::timestamp, updated_at = $2::timestamp
-             where id = $1 and deleted_at is null and (metadata->'odoo'->>'id') = $3",
-        )
-        .bind(&m.internal_id)
-        .bind(now_iso())
-        .bind(info.odoo_id.to_string())
-        .execute(ctx.db)
-        .await?;
+        release_owned_row(ctx.db, &m.internal_id, info.odoo_id).await?;
     }
     let mine = supplierinfo_rank(info.sequence, info.min_qty, info.odoo_id);
     let (id, action) = match row {
@@ -869,50 +1088,81 @@ pub(crate) async fn upsert_product_supplier(
                 .await?;
                 return Ok((Action::Skipped, id));
             }
-            sqlx::query(
-                "update product_suppliers set supplier_sku = $2, supplier_product_name = $3,
-                   unit_cost = $4::numeric, currency = coalesce($5, currency), lead_time_days = $6,
-                   min_order_qty = $7,
-                   metadata = coalesce(metadata, '{}'::jsonb) || jsonb_build_object('odoo', $8::jsonb),
-                   updated_at = $9::timestamp
-                 where id = $1",
-            )
-            .bind(&id)
-            .bind(&info.supplier_sku)
-            .bind(&info.supplier_product_name)
-            .bind(input.unit_cost)
-            .bind(&info.currency)
-            .bind(info.delay.and_then(|d| i32::try_from(d).ok()))
-            .bind(input.min_order_qty.and_then(|q| i32::try_from(q).ok()))
-            .bind(&odoo)
-            .bind(now_iso())
-            .execute(ctx.db)
-            .await?;
+            let mut update = product_suppliers::Entity::update_many()
+                .col_expr(Column::SupplierSku, Expr::value(info.supplier_sku.clone()))
+                .col_expr(
+                    Column::SupplierProductName,
+                    Expr::value(info.supplier_product_name.clone()),
+                )
+                .col_expr(Column::UnitCost, numeric(input.unit_cost))
+                .col_expr(
+                    Column::LeadTimeDays,
+                    Expr::value(info.delay.and_then(|d| i32::try_from(d).ok())),
+                )
+                .col_expr(
+                    Column::MinOrderQty,
+                    Expr::value(input.min_order_qty.and_then(|q| i32::try_from(q).ok())),
+                )
+                .col_expr(
+                    Column::Metadata,
+                    merged(Expr::col(Column::Metadata), json!({ "odoo": odoo })),
+                )
+                .col_expr(Column::UpdatedAt, Expr::value(utc_now()));
+            // `currency = coalesce($5, currency)`.
+            if let Some(currency) = &info.currency {
+                update = update.col_expr(Column::Currency, Expr::value(currency.as_str()));
+            }
+            update
+                .filter(Column::Id.eq(id.as_str()))
+                .exec(&orm(ctx.db))
+                .await?;
             (id, Action::Updated)
         }
         None => {
             let id = generate_id("psup");
-            sqlx::query(
-                "insert into product_suppliers (id, product_id, variant_id, supplier_id, supplier_sku,
-                   supplier_product_name, unit_cost, currency, lead_time_days, min_order_qty, is_preferred, metadata)
-                 values ($1, $2, $3, $4, $5, $6, $7::numeric, $8, $9, $10,
-                   not exists (select 1 from product_suppliers o where o.product_id = $2
-                     and coalesce(o.variant_id, '') = coalesce($3, '') and o.is_preferred and o.deleted_at is null),
-                   jsonb_build_object('source', 'odoo', 'odoo', $11::jsonb))",
-            )
-            .bind(&id)
-            .bind(input.product_id)
-            .bind(input.variant_id)
-            .bind(input.supplier_id)
-            .bind(&info.supplier_sku)
-            .bind(&info.supplier_product_name)
-            .bind(input.unit_cost)
-            .bind(&info.currency)
-            .bind(info.delay.and_then(|d| i32::try_from(d).ok()))
-            .bind(input.min_order_qty.and_then(|q| i32::try_from(q).ok()))
-            .bind(&odoo)
-            .execute(ctx.db)
-            .await?;
+            // Preferred when the item has no live preferred supplier yet,
+            // decided in the insert itself.
+            let preferred = Query::select()
+                .expr(Expr::val(1))
+                .from(product_suppliers::Entity)
+                .and_where(Column::ProductId.eq(input.product_id))
+                .and_where(same_variant(input.variant_id))
+                .and_where(Column::IsPreferred.eq(true))
+                .and_where(Column::DeletedAt.is_null())
+                .to_owned();
+            let insert = insert_into(
+                product_suppliers::Entity,
+                vec![
+                    (Column::Id, Expr::val(id.as_str())),
+                    (Column::ProductId, Expr::val(input.product_id)),
+                    (Column::VariantId, Expr::val(input.variant_id)),
+                    (Column::SupplierId, Expr::val(input.supplier_id)),
+                    (Column::SupplierSku, Expr::val(info.supplier_sku.as_deref())),
+                    (
+                        Column::SupplierProductName,
+                        Expr::val(info.supplier_product_name.as_deref()),
+                    ),
+                    (Column::UnitCost, numeric(input.unit_cost)),
+                    (Column::Currency, Expr::val(info.currency.as_deref())),
+                    (
+                        Column::LeadTimeDays,
+                        Expr::val(info.delay.and_then(|d| i32::try_from(d).ok())),
+                    ),
+                    (
+                        Column::MinOrderQty,
+                        Expr::val(input.min_order_qty.and_then(|q| i32::try_from(q).ok())),
+                    ),
+                    (
+                        Column::IsPreferred,
+                        sea_orm::ExprTrait::not(Expr::exists(preferred)),
+                    ),
+                    (
+                        Column::Metadata,
+                        Expr::val(json!({ "source": "odoo", "odoo": odoo })),
+                    ),
+                ],
+            )?;
+            run_insert(&orm(ctx.db), &insert).await?;
             (id, Action::Created)
         }
     };
@@ -950,13 +1200,16 @@ pub(crate) struct StockChanges {
 }
 
 /// The managed warehouses of the connection.
-pub(crate) async fn managed_warehouses(ctx: &Ctx<'_>) -> Result<Vec<String>, sqlx::Error> {
-    sqlx::query_scalar(
-        "select id from warehouses where managed_by_connection_id = $1 and deleted_at is null order by id",
-    )
-    .bind(ctx.connection_id)
-    .fetch_all(ctx.db)
-    .await
+pub(crate) async fn managed_warehouses(ctx: &Ctx<'_>) -> Result<Vec<String>, DbErr> {
+    warehouses::Entity::find()
+        .select_only()
+        .column(warehouses::Column::Id)
+        .filter(warehouses::Column::ManagedByConnectionId.eq(ctx.connection_id))
+        .filter(warehouses::Column::DeletedAt.is_null())
+        .order_by_asc(warehouses::Column::Id)
+        .into_tuple()
+        .all(&orm(ctx.db))
+        .await
 }
 
 /// Writes the snapshot (`on hand`, `allocated` per bucket) into
@@ -966,11 +1219,15 @@ pub(crate) async fn managed_warehouses(ctx: &Ctx<'_>) -> Result<Vec<String>, sql
 /// warehouses that holds stock goes to zero. Then the products' and
 /// variants' `inventory_quantity` roll-ups, as the stash ledger computes
 /// them.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "set-based over the whole snapshot, bound as arrays (more buckets than a statement takes parameters): a bulk upsert that merges on a partial unique index and tells inserts from updates by xmax, the zeroing of the rest, and the roll-ups of what changed"
+)]
 pub(crate) async fn refresh_stock(
     ctx: &Ctx<'_>,
     snapshot: &BTreeMap<BucketKey, (i64, i64)>,
     managed: &[String],
-) -> Result<StockChanges, sqlx::Error> {
+) -> Result<StockChanges, DbErr> {
     let now = now_iso();
     let mut ids = Vec::new();
     let mut products = Vec::new();
@@ -1021,7 +1278,8 @@ pub(crate) async fn refresh_stock(
     .bind(&allocated)
     .bind(&now)
     .fetch_all(ctx.db)
-    .await?;
+    .await
+    .map_err(weldsuite_db::orm_error)?;
     let zeroed: Vec<String> = sqlx::query_scalar(
         "update inventory i set quantity_on_hand = 0, quantity_allocated = 0, quantity_available = 0,
            updated_at = $3::timestamp
@@ -1036,7 +1294,8 @@ pub(crate) async fn refresh_stock(
     .bind(&keys)
     .bind(&now)
     .fetch_all(ctx.db)
-    .await?;
+    .await
+    .map_err(weldsuite_db::orm_error)?;
     let mut changes = StockChanges::default();
     for (id, inserted) in written {
         if inserted {
@@ -1065,7 +1324,8 @@ pub(crate) async fn refresh_stock(
         .bind(&touched)
         .bind(&now)
         .execute(ctx.db)
-        .await?;
+        .await
+        .map_err(weldsuite_db::orm_error)?;
         sqlx::query(
             "update product_variants v set inventory_quantity = (select coalesce(sum(i.quantity_on_hand), 0)
                from inventory i where i.variant_id = v.id and i.deleted_at is null),
@@ -1075,7 +1335,8 @@ pub(crate) async fn refresh_stock(
         .bind(&touched)
         .bind(&now)
         .execute(ctx.db)
-        .await?;
+        .await
+        .map_err(weldsuite_db::orm_error)?;
     }
     Ok(changes)
 }
@@ -1109,8 +1370,9 @@ pub(crate) async fn upsert_purchase_order(
     ctx: &Ctx<'_>,
     input: &PurchaseOrderInput<'_>,
     checksum: &str,
-) -> Result<(Action, String), sqlx::Error> {
-    let now = now_iso();
+) -> Result<(Action, String), DbErr> {
+    use purchase_orders::Column;
+    let now = utc_now();
     let mapping = find_mapping(ctx.db, ctx.connection_id, PURCHASE_ORDER, input.odoo_id).await?;
     if let Some(m) = &mapping
         && m.checksum.as_deref() == Some(checksum)
@@ -1121,85 +1383,141 @@ pub(crate) async fn upsert_purchase_order(
     let received: i64 = input.lines.iter().map(|(l, ..)| l.received).sum();
     let count = i64::try_from(input.lines.len()).unwrap_or(i64::MAX);
     let odoo = json!({ "id": input.odoo_id, "name": input.name });
+    let db = &orm(ctx.db);
     let existing: Option<String> = match &mapping {
         Some(m) => {
-            sqlx::query_scalar(
-                "select id from purchase_orders where id = $1 and deleted_at is null",
-            )
-            .bind(&m.internal_id)
-            .fetch_optional(ctx.db)
-            .await?
+            purchase_orders::Entity::find()
+                .select_only()
+                .column(Column::Id)
+                .filter(Column::Id.eq(m.internal_id.as_str()))
+                .filter(Column::DeletedAt.is_null())
+                .into_tuple()
+                .one(db)
+                .await?
         }
         None => None,
     };
+    let received_now = input.status == "received";
     let (id, action) = if let Some(id) = existing {
-        sqlx::query(
-            "update purchase_orders set supplier_id = coalesce($2, supplier_id),
-               supplier_name = coalesce($3, supplier_name), warehouse_id = coalesce($4, warehouse_id),
-               warehouse_name = coalesce($5, warehouse_name), status = $6,
-               order_date = $7::timestamp, expected_date = $8::timestamp,
-               received_date = case when $6 = 'received' then coalesce(received_date, $16::timestamp) else received_date end,
-               currency = coalesce($9, currency), subtotal = $10::numeric, tax_total = $11::numeric,
-               total = $12::numeric, item_count = $13, total_quantity_ordered = $14,
-               total_quantity_received = $15,
-               metadata = coalesce(metadata, '{}'::jsonb)
-                 || jsonb_build_object('odoo', coalesce(metadata->'odoo', '{}'::jsonb) || $17::jsonb),
-               updated_at = $16::timestamp
-             where id = $1",
-        )
-        .bind(&id)
-        .bind(&input.supplier_id)
-        .bind(&input.supplier_name)
-        .bind(&input.warehouse_id)
-        .bind(&input.warehouse_name)
-        .bind(input.status)
-        .bind(&input.order_date)
-        .bind(&input.expected_date)
-        .bind(&input.currency)
-        .bind(input.subtotal)
-        .bind(input.tax_total)
-        .bind(input.total)
-        .bind(i32::try_from(count).unwrap_or(i32::MAX))
-        .bind(i32::try_from(ordered).unwrap_or(i32::MAX))
-        .bind(i32::try_from(received).unwrap_or(i32::MAX))
-        .bind(&now)
-        .bind(&odoo)
-        .execute(ctx.db)
-        .await?;
+        let mut update = purchase_orders::Entity::update_many()
+            .col_expr(Column::Status, Expr::value(input.status))
+            .col_expr(Column::OrderDate, timestamp(input.order_date.as_deref()))
+            .col_expr(
+                Column::ExpectedDate,
+                timestamp(input.expected_date.as_deref()),
+            )
+            .col_expr(Column::Subtotal, numeric(Some(input.subtotal)))
+            .col_expr(Column::TaxTotal, numeric(Some(input.tax_total)))
+            .col_expr(Column::Total, numeric(Some(input.total)))
+            .col_expr(
+                Column::ItemCount,
+                Expr::value(i32::try_from(count).unwrap_or(i32::MAX)),
+            )
+            .col_expr(
+                Column::TotalQuantityOrdered,
+                Expr::value(i32::try_from(ordered).unwrap_or(i32::MAX)),
+            )
+            .col_expr(
+                Column::TotalQuantityReceived,
+                Expr::value(i32::try_from(received).unwrap_or(i32::MAX)),
+            )
+            // `metadata || jsonb_build_object('odoo', coalesce(metadata->'odoo', '{}') || $odoo)`.
+            .col_expr(
+                Column::Metadata,
+                sea_orm::sea_query::extension::postgres::PgExpr::concat(
+                    Expr::from(Func::coalesce([
+                        Expr::col(Column::Metadata),
+                        Expr::val(json!({})),
+                    ])),
+                    Expr::from(Func::cust("jsonb_build_object").arg(Expr::val("odoo")).arg(
+                        merged(
+                            sea_orm::sea_query::extension::postgres::PgExpr::get_json_field(
+                                Expr::col(Column::Metadata),
+                                "odoo",
+                            ),
+                            odoo,
+                        ),
+                    )),
+                ),
+            )
+            .col_expr(Column::UpdatedAt, Expr::value(now));
+        // `supplier_id = coalesce($2, supplier_id)`, and the same for the
+        // supplier's and warehouse's names and ids and the currency.
+        for (column, value) in [
+            (Column::SupplierId, &input.supplier_id),
+            (Column::SupplierName, &input.supplier_name),
+            (Column::WarehouseId, &input.warehouse_id),
+            (Column::WarehouseName, &input.warehouse_name),
+            (Column::Currency, &input.currency),
+        ] {
+            if let Some(value) = value {
+                update = update.col_expr(column, Expr::value(value.as_str()));
+            }
+        }
+        // `received_date = case when $6 = 'received' then
+        // coalesce(received_date, now) else received_date end`.
+        if received_now {
+            update = update.col_expr(
+                Column::ReceivedDate,
+                Func::coalesce([Expr::col(Column::ReceivedDate), Expr::value(now)]).into(),
+            );
+        }
+        update.filter(Column::Id.eq(id.as_str())).exec(db).await?;
         (id, Action::Updated)
     } else {
         let id = generate_id("po");
-        sqlx::query(
-            "insert into purchase_orders (id, po_number, supplier_id, supplier_name, warehouse_id,
-               warehouse_name, status, order_date, expected_date, received_date, currency, subtotal,
-               tax_total, total, item_count, total_quantity_ordered, total_quantity_received,
-               created_by, metadata)
-             values ($1, $2, $3, $4, $5, $6, $7, $8::timestamp, $9::timestamp,
-               case when $7 = 'received' then $17::timestamp end, coalesce($10, 'USD'),
-               $11::numeric, $12::numeric, $13::numeric, $14, $15, $16, $18,
-               jsonb_build_object('source', 'odoo', 'odoo', $19::jsonb))",
-        )
-        .bind(&id)
-        .bind(input.name)
-        .bind(&input.supplier_id)
-        .bind(&input.supplier_name)
-        .bind(&input.warehouse_id)
-        .bind(&input.warehouse_name)
-        .bind(input.status)
-        .bind(&input.order_date)
-        .bind(&input.expected_date)
-        .bind(&input.currency)
-        .bind(input.subtotal)
-        .bind(input.tax_total)
-        .bind(input.total)
-        .bind(i32::try_from(count).unwrap_or(i32::MAX))
-        .bind(i32::try_from(ordered).unwrap_or(i32::MAX))
-        .bind(i32::try_from(received).unwrap_or(i32::MAX))
-        .bind(&now)
-        .bind(created_by(ctx))
-        .bind(&odoo)
-        .execute(ctx.db)
-        .await?;
+        let insert = insert_into(
+            purchase_orders::Entity,
+            vec![
+                (Column::Id, Expr::val(id.as_str())),
+                (Column::PoNumber, Expr::val(input.name)),
+                (Column::SupplierId, Expr::val(input.supplier_id.as_deref())),
+                (
+                    Column::SupplierName,
+                    Expr::val(input.supplier_name.as_deref()),
+                ),
+                (
+                    Column::WarehouseId,
+                    Expr::val(input.warehouse_id.as_deref()),
+                ),
+                (
+                    Column::WarehouseName,
+                    Expr::val(input.warehouse_name.as_deref()),
+                ),
+                (Column::Status, Expr::val(input.status)),
+                (Column::OrderDate, timestamp(input.order_date.as_deref())),
+                (
+                    Column::ExpectedDate,
+                    timestamp(input.expected_date.as_deref()),
+                ),
+                (Column::ReceivedDate, Expr::val(received_now.then_some(now))),
+                (
+                    Column::Currency,
+                    Expr::val(input.currency.as_deref().unwrap_or("USD")),
+                ),
+                (Column::Subtotal, numeric(Some(input.subtotal))),
+                (Column::TaxTotal, numeric(Some(input.tax_total))),
+                (Column::Total, numeric(Some(input.total))),
+                (
+                    Column::ItemCount,
+                    Expr::val(i32::try_from(count).unwrap_or(i32::MAX)),
+                ),
+                (
+                    Column::TotalQuantityOrdered,
+                    Expr::val(i32::try_from(ordered).unwrap_or(i32::MAX)),
+                ),
+                (
+                    Column::TotalQuantityReceived,
+                    Expr::val(i32::try_from(received).unwrap_or(i32::MAX)),
+                ),
+                (Column::CreatedBy, Expr::val(created_by(ctx))),
+                (
+                    Column::Metadata,
+                    Expr::val(json!({ "source": "odoo", "odoo": odoo })),
+                ),
+            ],
+        )?;
+        run_insert(db, &insert).await?;
         (id, Action::Created)
     };
     // A received or cancelled order expects nothing more, short or not.
@@ -1223,18 +1541,29 @@ async fn replace_po_lines(
     po_id: &str,
     lines: &[(PoLineValues, Option<Item>, Option<String>)],
     settled: bool,
-) -> Result<(), sqlx::Error> {
-    let now = now_iso();
-    let existing: Vec<(String, Option<String>)> = sqlx::query_as(
-        "select id, metadata->>'odooLineId' from purchase_order_items where purchase_order_id = $1",
-    )
-    .bind(po_id)
-    .fetch_all(ctx.db)
-    .await?;
+) -> Result<(), DbErr> {
+    use purchase_order_items::Column;
+    let now = utc_now();
+    let db = &orm(ctx.db);
+    let existing: Vec<(String, Option<String>)> = purchase_order_items::Entity::find()
+        .select_only()
+        .column(Column::Id)
+        .expr(
+            sea_orm::sea_query::extension::postgres::PgExpr::cast_json_field(
+                Expr::col((purchase_order_items::Entity, Column::Metadata)),
+                "odooLineId",
+            ),
+        )
+        .filter(Column::PurchaseOrderId.eq(po_id))
+        .into_tuple()
+        .all(db)
+        .await?;
     let by_line: HashMap<String, String> = existing
         .iter()
         .filter_map(|(id, line)| line.clone().map(|l| (l, id.clone())))
         .collect();
+    let table = || Expr::col((purchase_order_items::Entity, Column::Metadata));
+    let excluded = |column: Column| Expr::col((Alias::new("excluded"), column));
     let mut kept: HashSet<String> = HashSet::new();
     for (line, item, sku) in lines {
         let (product_id, variant_id) = match item {
@@ -1251,38 +1580,72 @@ async fn replace_po_lines(
             .get(&line.odoo_id.to_string())
             .cloned()
             .unwrap_or_else(|| generate_id("poi"));
-        sqlx::query(
-            "insert into purchase_order_items (id, purchase_order_id, product_id, variant_id, sku, name,
-               quantity_ordered, quantity_received, quantity_pending, quantity_rejected, unit_price,
-               discount_percent, tax_amount, total, metadata)
-             values ($1, $2, $3, $4, $5, $6, $7, $8, $9, 0, $10::numeric, $11::numeric, $12::numeric,
-               $13::numeric, $14)
-             on conflict (id) do update set product_id = excluded.product_id, variant_id = excluded.variant_id,
-               sku = coalesce(excluded.sku, purchase_order_items.sku), name = excluded.name,
-               quantity_ordered = excluded.quantity_ordered, quantity_received = excluded.quantity_received,
-               quantity_pending = excluded.quantity_pending, unit_price = excluded.unit_price,
-               discount_percent = excluded.discount_percent, tax_amount = excluded.tax_amount,
-               total = excluded.total,
-               metadata = coalesce(purchase_order_items.metadata, '{}'::jsonb) || excluded.metadata,
-               updated_at = $15::timestamp",
-        )
-        .bind(&id)
-        .bind(po_id)
-        .bind(&product_id)
-        .bind(&variant_id)
-        .bind(sku)
-        .bind(&line.name)
-        .bind(i32::try_from(line.ordered).unwrap_or(i32::MAX))
-        .bind(i32::try_from(line.received).unwrap_or(i32::MAX))
-        .bind(i32::try_from(pending).unwrap_or(i32::MAX))
-        .bind(line.unit_price)
-        .bind(line.discount_percent)
-        .bind(line.tax_amount)
-        .bind(line.total)
-        .bind(&metadata)
-        .bind(&now)
-        .execute(ctx.db)
-        .await?;
+        let mut insert = insert_into(
+            purchase_order_items::Entity,
+            vec![
+                (Column::Id, Expr::val(id.as_str())),
+                (Column::PurchaseOrderId, Expr::val(po_id)),
+                (Column::ProductId, Expr::val(product_id)),
+                (Column::VariantId, Expr::val(variant_id)),
+                (Column::Sku, Expr::val(sku.as_deref())),
+                (Column::Name, Expr::val(line.name.as_str())),
+                (
+                    Column::QuantityOrdered,
+                    Expr::val(i32::try_from(line.ordered).unwrap_or(i32::MAX)),
+                ),
+                (
+                    Column::QuantityReceived,
+                    Expr::val(i32::try_from(line.received).unwrap_or(i32::MAX)),
+                ),
+                (
+                    Column::QuantityPending,
+                    Expr::val(i32::try_from(pending).unwrap_or(i32::MAX)),
+                ),
+                (Column::QuantityRejected, Expr::val(0)),
+                (Column::UnitPrice, numeric(Some(line.unit_price))),
+                (
+                    Column::DiscountPercent,
+                    numeric(Some(line.discount_percent)),
+                ),
+                (Column::TaxAmount, numeric(Some(line.tax_amount))),
+                (Column::Total, numeric(Some(line.total))),
+                (Column::Metadata, Expr::val(metadata)),
+            ],
+        )?;
+        insert.on_conflict(
+            OnConflict::column(Column::Id)
+                .update_columns([
+                    Column::ProductId,
+                    Column::VariantId,
+                    Column::Name,
+                    Column::QuantityOrdered,
+                    Column::QuantityReceived,
+                    Column::QuantityPending,
+                    Column::UnitPrice,
+                    Column::DiscountPercent,
+                    Column::TaxAmount,
+                    Column::Total,
+                ])
+                // `sku = coalesce(excluded.sku, purchase_order_items.sku)`.
+                .value(
+                    Column::Sku,
+                    Func::coalesce([
+                        excluded(Column::Sku),
+                        Expr::col((purchase_order_items::Entity, Column::Sku)),
+                    ]),
+                )
+                // `metadata = coalesce(metadata, '{}') || excluded.metadata`.
+                .value(
+                    Column::Metadata,
+                    sea_orm::sea_query::extension::postgres::PgExpr::concat(
+                        Expr::from(Func::coalesce([table(), Expr::val(json!({}))])),
+                        excluded(Column::Metadata),
+                    ),
+                )
+                .value(Column::UpdatedAt, Expr::value(now))
+                .to_owned(),
+        );
+        run_insert(db, &insert).await?;
         kept.insert(id);
     }
     let stale: Vec<String> = existing
@@ -1291,9 +1654,9 @@ async fn replace_po_lines(
         .filter(|id| !kept.contains(id))
         .collect();
     if !stale.is_empty() {
-        sqlx::query("delete from purchase_order_items where id = any($1)")
-            .bind(&stale)
-            .execute(ctx.db)
+        purchase_order_items::Entity::delete_many()
+            .filter(Column::Id.is_in(stale))
+            .exec(db)
             .await?;
     }
     Ok(())
@@ -1312,10 +1675,11 @@ pub(crate) struct SaleInput<'a> {
 }
 
 /// Upserts a line on `(connection_id, external_ref)`.
-pub(crate) async fn upsert_sale(
-    ctx: &Ctx<'_>,
-    sale: &SaleInput<'_>,
-) -> Result<Action, sqlx::Error> {
+#[allow(
+    clippy::disallowed_methods,
+    reason = "a merging upsert that writes only a changed line and tells an insert from an update by xmax, in one statement"
+)]
+pub(crate) async fn upsert_sale(ctx: &Ctx<'_>, sale: &SaleInput<'_>) -> Result<Action, DbErr> {
     let inserted: Option<bool> = sqlx::query_scalar(
         "insert into stash_sales_history as s (id, date, product_id, variant_id, warehouse_id, quantity,
            source, connection_id, external_ref)
@@ -1337,7 +1701,8 @@ pub(crate) async fn upsert_sale(
     .bind(ctx.connection_id)
     .bind(sale.odoo_id.to_string())
     .fetch_optional(ctx.db)
-    .await?;
+    .await
+    .map_err(weldsuite_db::orm_error)?;
     Ok(match inserted {
         Some(true) => Action::Created,
         Some(false) => Action::Updated,
@@ -1347,15 +1712,13 @@ pub(crate) async fn upsert_sale(
 
 /// Removes a line that no longer counts (cancelled, back to quotation, a
 /// product that no longer keeps stock).
-pub(crate) async fn delete_sale(ctx: &Ctx<'_>, odoo_id: i64) -> Result<Action, sqlx::Error> {
-    let removed = sqlx::query(
-        "delete from stash_sales_history where connection_id = $1 and external_ref = $2",
-    )
-    .bind(ctx.connection_id)
-    .bind(odoo_id.to_string())
-    .execute(ctx.db)
-    .await?;
-    Ok(if removed.rows_affected() > 0 {
+pub(crate) async fn delete_sale(ctx: &Ctx<'_>, odoo_id: i64) -> Result<Action, DbErr> {
+    let removed = stash_sales_history::Entity::delete_many()
+        .filter(stash_sales_history::Column::ConnectionId.eq(ctx.connection_id))
+        .filter(stash_sales_history::Column::ExternalRef.eq(odoo_id.to_string()))
+        .exec(&orm(ctx.db))
+        .await?;
+    Ok(if removed.rows_affected > 0 {
         Action::Deleted
     } else {
         Action::Skipped

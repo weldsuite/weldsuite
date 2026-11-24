@@ -9,17 +9,26 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, patch, post};
 use http::HeaderMap;
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ColumnTrait, Condition, DbErr, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder,
+    QuerySelect,
+};
 use serde_json::{Map, Value, json};
+use time::PrimitiveDateTime;
 use weldsuite_catalogs::entity_events::{
     MEETING_WAITLIST_CREATED, MEETING_WAITLIST_DELETED, MEETING_WAITLIST_UPDATED,
 };
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::validation::{Format, Issues, Presence, Text};
 use weldsuite_kit::{ApiError, Created, Data, NoContent, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::meeting_session_waitlist::{self as waitlist, Column as Entry};
+use weldsuite_schema::tenant::meetings;
 
-use crate::js::{js_limit, query_param, sql_limit};
-use crate::sessions::page_of;
+use crate::js::{js_limit, query_param};
+use crate::sessions::{before, limit_of, page_and_count, page_of};
+use crate::table::{js_instant, row_json};
 use crate::tables::MEETING_SESSION_WAITLIST;
 use crate::{Caller, MeetState, internal, now, validate};
 
@@ -41,14 +50,12 @@ where
         .route("/{id}", delete(remove).route_layer(need("meetings:delete")))
 }
 
-async fn entry(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from meeting_session_waitlist t where t.id = $1 limit 1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(|row| MEETING_SESSION_WAITLIST.js(row)))
+async fn entry(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
+    waitlist::Entity::find_by_id(id.to_owned())
+        .one(&orm(db))
+        .await?
+        .map(row_json)
+        .transpose()
 }
 
 async fn admit(State(state): State<MeetState>, caller: Caller, Path(id): Path<String>) -> Response {
@@ -64,23 +71,27 @@ async fn decide(state: &MeetState, caller: &Caller, id: &str, admit: bool) -> Re
     if caller.org_id.is_none() {
         return ApiError::org_required().into_response();
     }
-    let result: Result<Response, sqlx::Error> = async {
+    let result: Result<Response, DbErr> = async {
         let db = &caller.db;
-        let meeting_id: Option<String> = sqlx::query_scalar(
-            "select meeting_id from meeting_session_waitlist where id = $1 limit 1",
-        )
-        .bind(id)
-        .fetch_optional(db)
-        .await?;
+        let tenant = &orm(db);
+        let meeting_id: Option<String> = waitlist::Entity::find()
+            .select_only()
+            .column(Entry::MeetingId)
+            .filter(Entry::Id.eq(id))
+            .into_tuple()
+            .one(tenant)
+            .await?;
         let Some(meeting_id) = meeting_id else {
             return Ok(ApiError::not_found("Waitlist entry", Some(id)).into_response());
         };
-        let organizer: Option<String> = sqlx::query_scalar(
-            "select organizer_id from meetings where id = $1 and deleted_at is null limit 1",
-        )
-        .bind(&meeting_id)
-        .fetch_optional(db)
-        .await?;
+        let organizer: Option<String> = meetings::Entity::find()
+            .select_only()
+            .column(meetings::Column::OrganizerId)
+            .filter(meetings::Column::Id.eq(&meeting_id))
+            .filter(meetings::Column::DeletedAt.is_null())
+            .into_tuple()
+            .one(tenant)
+            .await?;
         let Some(organizer) = organizer else {
             return Ok(ApiError::not_found("Meeting", Some(&meeting_id)).into_response());
         };
@@ -96,17 +107,15 @@ async fn decide(state: &MeetState, caller: &Caller, id: &str, admit: bool) -> Re
             return Ok(ApiError::bad_request("Waitlist entry is already resolved").into_response());
         }
         let status = if admit { "admitted" } else { "denied" };
-        let now = now();
-        sqlx::query(
-            "update meeting_session_waitlist set status = $2, decided_by = $3,
-                 decided_at = $4::timestamp, updated_at = $4::timestamp where id = $1",
-        )
-        .bind(id)
-        .bind(status)
-        .bind(&caller.user_id)
-        .bind(&now)
-        .execute(db)
-        .await?;
+        let now = weldsuite_db::utc_now();
+        waitlist::Entity::update_many()
+            .col_expr(Entry::Status, Expr::value(status))
+            .col_expr(Entry::DecidedBy, Expr::value(caller.user_id.clone()))
+            .col_expr(Entry::DecidedAt, Expr::value(now))
+            .col_expr(Entry::UpdatedAt, Expr::value(now))
+            .filter(Entry::Id.eq(id))
+            .exec(tenant)
+            .await?;
         let updated = entry(db, id).await?.unwrap_or(Value::Null);
         caller.publish(
             state,
@@ -125,15 +134,20 @@ async fn decide(state: &MeetState, caller: &Caller, id: &str, admit: bool) -> Re
     result.unwrap_or_else(|error| internal(&error, message))
 }
 
-const LIST_SQL: &str = "select to_jsonb(t) from meeting_session_waitlist t
-     where ($1::boolean or t.session_id = $2) and ($3::boolean or t.status = $4)
-       and ($5::boolean or t.name like $6)
-       and ($7::boolean or t.created_at < $8::timestamp or (t.created_at = $8::timestamp and t.id < $9))
-     order by t.created_at desc, t.id desc limit $10";
-const COUNT_SQL: &str = "select to_jsonb(count(*)) from meeting_session_waitlist t
-     where ($1::boolean or t.session_id = $2) and ($3::boolean or t.status = $4)
-       and ($5::boolean or t.name like $6)
-       and ($7::boolean or t.created_at < $8::timestamp or (t.created_at = $8::timestamp and t.id < $9))";
+/// `select createdAt, id from meeting_session_waitlist where id = cursor`.
+async fn cursor_row(
+    db: &PgPool,
+    cursor: &str,
+) -> Result<Option<(PrimitiveDateTime, String)>, DbErr> {
+    let row: Option<(PrimitiveDateTime, String)> = waitlist::Entity::find()
+        .select_only()
+        .columns([Entry::CreatedAt, Entry::Id])
+        .filter(Entry::Id.eq(cursor))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
+    Ok(row.map(|(at, id)| (js_instant(at), id)))
+}
 
 async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
     let query = query.as_deref();
@@ -144,65 +158,43 @@ async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
     let status = value("status");
     let search = value("search").map(|s| format!("%{s}%"));
     let cursor = value("cursor");
-    let cursor_row: Option<(String, String)> = match &cursor {
-        Some(cursor) => {
-            let row: Result<Option<(Option<String>, String)>, sqlx::Error> = sqlx::query_as(
-                "select to_jsonb(t.created_at)#>>'{}', t.id from meeting_session_waitlist t where t.id = $1 limit 1",
-            )
-            .bind(cursor)
-            .fetch_optional(db)
-            .await;
-            match row {
-                Ok(row) => row.and_then(|(at, id)| {
-                    at.and_then(|s| weldsuite_db::js_timestamp(&s))
-                        .map(|at| (at, id))
-                }),
-                Err(error) => {
-                    tracing::error!(%error, "meet: cursor lookup failed");
-                    return ApiError::internal().into_response();
-                }
+    let cursor_row = match &cursor {
+        Some(cursor) => match cursor_row(db, cursor).await {
+            Ok(row) => row,
+            Err(error) => {
+                tracing::error!(%error, "meet: cursor lookup failed");
+                return ApiError::internal().into_response();
             }
-        }
+        },
         None => None,
     };
-    let active = [
-        session.is_some(),
-        status.is_some(),
-        search.is_some(),
-        cursor_row.is_some(),
-    ];
-    let page = active.map(|a| !a);
-    let mut count = page;
-    if cursor.is_some()
-        && let Some(last) = count.iter().rposition(|skip| !skip)
-    {
-        count[last] = true;
-    }
-    let bind = |sql: &'static str, skip: [bool; 4]| {
-        sqlx::query_scalar::<_, Value>(sql)
-            .bind(skip[0])
-            .bind(session.clone())
-            .bind(skip[1])
-            .bind(status.clone())
-            .bind(skip[2])
-            .bind(search.clone())
-            .bind(skip[3])
-            .bind(cursor_row.as_ref().map(|(at, _)| at.clone()))
-            .bind(cursor_row.as_ref().map(|(_, id)| id.clone()))
-    };
-    let rows = bind(LIST_SQL, page)
-        .bind(sql_limit(limit + 1.0))
-        .fetch_all(db)
-        .await;
-    let total = bind(COUNT_SQL, count).fetch_one(db).await;
-    match (rows, total) {
-        (Ok(rows), Ok(total)) => page_of(
+    let (page, count) = page_and_count(
+        vec![
+            session.map(|session| Condition::all().add(Entry::SessionId.eq(session))),
+            status.map(|status| Condition::all().add(Entry::Status.eq(status))),
+            search.map(|search| Condition::all().add(Entry::Name.like(search))),
+            cursor_row
+                .as_ref()
+                .map(|row| before(Entry::CreatedAt, Entry::Id, row)),
+        ],
+        cursor.is_some(),
+    );
+    let db = &orm(db);
+    let rows = waitlist::Entity::find()
+        .filter(page)
+        .order_by_desc(Entry::CreatedAt)
+        .order_by_desc(Entry::Id)
+        .limit(limit_of(limit + 1.0))
+        .all(db)
+        .await
+        .and_then(|rows| {
             rows.into_iter()
-                .map(|r| MEETING_SESSION_WAITLIST.js(r))
-                .collect(),
-            limit,
-            total.as_i64().unwrap_or(0),
-        ),
+                .map(row_json)
+                .collect::<Result<Vec<_>, _>>()
+        });
+    let total = waitlist::Entity::find().filter(count).count(db).await;
+    match (rows, total) {
+        (Ok(rows), Ok(total)) => page_of(rows, limit, i64::try_from(total).unwrap_or(i64::MAX)),
         (Err(error), _) | (_, Err(error)) => internal(&error, "Failed to list waitlist entrys"),
     }
 }
@@ -341,13 +333,13 @@ async fn remove(
     caller: Caller,
     Path(id): Path<String>,
 ) -> Response {
-    let result: Result<Response, sqlx::Error> = async {
+    let result: Result<Response, DbErr> = async {
         if entry(&caller.db, &id).await?.is_none() {
             return Ok(ApiError::not_found("Waitlist entry", Some(&id)).into_response());
         }
-        sqlx::query("delete from meeting_session_waitlist where id = $1")
-            .bind(&id)
-            .execute(&caller.db)
+        waitlist::Entity::delete_many()
+            .filter(Entry::Id.eq(&id))
+            .exec(&orm(&caller.db))
             .await?;
         caller.publish(&state, MEETING_WAITLIST_DELETED, &id, &json!({ "id": id }));
         Ok(NoContent.into_response())

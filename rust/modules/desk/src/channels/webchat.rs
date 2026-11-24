@@ -5,8 +5,11 @@
 //! public payloads are in `weldsuite_desk_domain::webchat`, shared with the
 //! helpdesk widget API.
 
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Value, json};
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm};
+use weldsuite_schema::tenant::desk_messages;
 
 pub(crate) use weldsuite_desk_domain::webchat::{
     Append, AppendError, Author, append, author_from_member, get, is_public, public_conversation,
@@ -66,14 +69,16 @@ pub(crate) async fn stamp_email_id(
     db: &PgPool,
     message_id: &str,
     email_message_id: &str,
-) -> Result<(), sqlx::Error> {
+) -> Result<(), sea_orm::DbErr> {
     let rfc =
         normalize_rfc_message_id(email_message_id).unwrap_or_else(|| email_message_id.to_owned());
-    let metadata: Option<Option<Value>> =
-        sqlx::query_scalar("select metadata from desk_messages where id = $1 limit 1")
-            .bind(message_id)
-            .fetch_optional(db)
-            .await?;
+    let db = orm(db);
+    let metadata: Option<Option<Value>> = desk_messages::Entity::find_by_id(message_id)
+        .select_only()
+        .column(desk_messages::Column::Metadata)
+        .into_tuple()
+        .one(&db)
+        .await?;
     let Some(metadata) = metadata else {
         return Ok(());
     };
@@ -81,10 +86,13 @@ pub(crate) async fn stamp_email_id(
         .and_then(|m| m.as_object().cloned())
         .unwrap_or_default();
     next.insert("emailMessageId".to_owned(), json!(rfc));
-    sqlx::query("update desk_messages set metadata = $2 where id = $1")
-        .bind(message_id)
-        .bind(Value::Object(next))
-        .execute(db)
+    desk_messages::Entity::update_many()
+        .col_expr(
+            desk_messages::Column::Metadata,
+            Expr::value(Value::Object(next)),
+        )
+        .filter(desk_messages::Column::Id.eq(message_id))
+        .exec(&db)
         .await?;
     Ok(())
 }

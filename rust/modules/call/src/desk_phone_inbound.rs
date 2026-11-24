@@ -4,8 +4,12 @@
 //! hang up. The queue, ringing and voicemail steps live in
 //! `desk_phone_queue` and `desk_phone_legs`.
 
+use sea_orm::sea_query::Expr;
+use sea_orm::sea_query::extension::postgres as pg;
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm};
+use weldsuite_schema::tenant::{desk_messages, desk_voice_agents, voip_phone_numbers};
 
 use crate::crm;
 use crate::desk_phone::{lookup_crm_tool, now_seconds, tool_url_for};
@@ -179,14 +183,23 @@ impl InboundCall<'_> {
     ) -> Result<(), String> {
         let phone = self.phone();
         let control = self.flow.call_control_id;
-        let agent: Option<AgentRow> = sqlx::query_as(
-            "select id, name, system_prompt, enabled, telnyx_assistant_id, forward_to_e164
-             from desk_voice_agents where id = $1 and deleted_at is null limit 1",
-        )
-        .bind(agent_id)
-        .fetch_optional(phone.db)
-        .await
-        .map_err(|e| e.to_string())?;
+        let agent: Option<AgentRow> = desk_voice_agents::Entity::find()
+            .select_only()
+            .columns([
+                desk_voice_agents::Column::Id,
+                desk_voice_agents::Column::Name,
+                desk_voice_agents::Column::SystemPrompt,
+                desk_voice_agents::Column::Enabled,
+                desk_voice_agents::Column::TelnyxAssistantId,
+                desk_voice_agents::Column::ForwardToE164,
+            ])
+            .filter(desk_voice_agents::Column::Id.eq(agent_id))
+            .filter(desk_voice_agents::Column::DeletedAt.is_null())
+            .limit(1)
+            .into_tuple()
+            .one(&orm(phone.db))
+            .await
+            .map_err(|e| e.to_string())?;
         let Some((id, name, system_prompt, _, Some(assistant), forward)) =
             agent.filter(|(_, _, _, enabled, assistant, _)| {
                 *enabled && assistant.as_deref().is_some_and(|a| !a.is_empty())
@@ -353,17 +366,24 @@ async fn menu_choice_already_recorded(
     conversation_id: &str,
     call_id: &str,
 ) -> Result<bool, String> {
-    let recorded: Option<String> = sqlx::query_scalar(
-        "select id from desk_messages
-         where conversation_id = $1 and metadata->>'event' = 'menu_choice'
-           and metadata->>'callId' = $2
-         limit 1",
-    )
-    .bind(conversation_id)
-    .bind(call_id)
-    .fetch_optional(db)
-    .await
-    .map_err(|e| e.to_string())?;
+    // `metadata->>'key' = value`.
+    let field_is = |key: &str, value: &str| {
+        sea_orm::ExprTrait::eq(
+            pg::PgExpr::cast_json_field(Expr::col(desk_messages::Column::Metadata), key),
+            value,
+        )
+    };
+    let recorded: Option<String> = desk_messages::Entity::find()
+        .select_only()
+        .column(desk_messages::Column::Id)
+        .filter(desk_messages::Column::ConversationId.eq(conversation_id))
+        .filter(field_is("event", "menu_choice"))
+        .filter(field_is("callId", call_id))
+        .limit(1)
+        .into_tuple()
+        .one(&orm(db))
+        .await
+        .map_err(|e| e.to_string())?;
     Ok(recorded.is_some())
 }
 
@@ -376,14 +396,16 @@ async fn inbound_context_of<'a>(
     let Some(flow) = flow_of(phone, call) else {
         return Ok(None);
     };
-    let phone_row: Option<Option<bool>> = sqlx::query_scalar(
-        "select enable_recording from voip_phone_numbers
-         where phone_number = $1 and deleted_at is null limit 1",
-    )
-    .bind(&call.to_number)
-    .fetch_optional(phone.db)
-    .await
-    .map_err(|e| e.to_string())?;
+    let phone_row: Option<Option<bool>> = voip_phone_numbers::Entity::find()
+        .select_only()
+        .column(voip_phone_numbers::Column::EnableRecording)
+        .filter(voip_phone_numbers::Column::PhoneNumber.eq(&call.to_number))
+        .filter(voip_phone_numbers::Column::DeletedAt.is_null())
+        .limit(1)
+        .into_tuple()
+        .one(&orm(phone.db))
+        .await
+        .map_err(|e| e.to_string())?;
     let Some(enable_recording) = phone_row else {
         return Ok(None);
     };

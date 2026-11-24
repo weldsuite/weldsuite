@@ -33,12 +33,18 @@ use std::time::{Duration, Instant};
 use axum::extract::{Request, State};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
-use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 use weldsuite_auth::{AuthContext, WORKSPACE_HEADER};
 use weldsuite_kit::ApiError;
+
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{
+    ColumnTrait, Condition, EntityTrait, JoinType, Order, QueryFilter, QueryOrder, QuerySelect,
+    Select,
+};
 use weldsuite_schema::master::enums::MembershipStatus;
 use weldsuite_schema::master::{user_workspaces, workspaces};
 
+use crate::orm::orm;
 use crate::workspaces::{WorkspaceError, Workspaces};
 
 /// How long a granted membership is reused.
@@ -105,29 +111,29 @@ pub enum SoleWorkspace {
     Several,
 }
 
-/// One master query: the workspace by id, organization id or slug (in that
-/// order of preference), joined to the user's active membership.
-const SELECT_MEMBER_WORKSPACE: &str = "
-    select coalesce(w.clerk_org_id, w.id)
-    from workspaces w
-    join user_workspaces uw on uw.workspace_id = w.id
-    where (w.id = $1 or w.clerk_org_id = $1 or w.slug = $1)
-      and uw.user_id = $2
-      and uw.status = 'ACTIVE'
-      and w.deleted_at is null
-    order by case when w.id = $1 then 0 when w.clerk_org_id = $1 then 1 else 2 end
-    limit 1";
-
-/// The live workspaces the user is an active member of.
-const SELECT_MEMBER_WORKSPACES: &str = "
-    select coalesce(w.clerk_org_id, w.id)
-    from workspaces w
-    join user_workspaces uw on uw.workspace_id = w.id
-    where uw.user_id = $1
-      and uw.status = 'ACTIVE'
-      and w.deleted_at is null
-    order by w.id
-    limit $2";
+/// The live workspaces, as the organization id a session names them by
+/// (`coalesce(clerk_org_id, id)`), joined to the user's active membership.
+fn member_workspaces_of(user_id: &str) -> Select<workspaces::Entity> {
+    workspaces::Entity::find()
+        .select_only()
+        .column_as(
+            Expr::from(Func::coalesce([
+                Expr::col((workspaces::Entity, workspaces::Column::ClerkOrgId)),
+                Expr::col((workspaces::Entity, workspaces::Column::Id)),
+            ])),
+            "workspace",
+        )
+        .join(
+            JoinType::InnerJoin,
+            workspaces::Entity::belongs_to(user_workspaces::Entity)
+                .from(workspaces::Column::Id)
+                .to(user_workspaces::Column::WorkspaceId)
+                .into(),
+        )
+        .filter(user_workspaces::Column::UserId.eq(user_id))
+        .filter(user_workspaces::Column::Status.eq(MembershipStatus::ACTIVE))
+        .filter(workspaces::Column::DeletedAt.is_null())
+}
 
 impl MembershipLookup for Workspaces {
     fn member_workspace_list<'a>(
@@ -172,25 +178,39 @@ impl MembershipLookup for Workspaces {
 
     fn member_workspaces<'a>(&'a self, user_id: &'a str, limit: u8) -> MembershipsFuture<'a> {
         Box::pin(async move {
-            sqlx::query_scalar(SELECT_MEMBER_WORKSPACES)
-                .bind(user_id)
-                .bind(i64::from(limit))
-                .fetch_all(self.master())
+            member_workspaces_of(user_id)
+                .order_by_asc(workspaces::Column::Id)
+                .limit(u64::from(limit))
+                .into_tuple::<String>()
+                .all(&orm(self.master()))
                 .await
                 .map_err(WorkspaceError::from)
         })
     }
 
+    /// The workspace by id, organization id or slug (in that order of
+    /// preference).
     fn member_workspace<'a>(
         &'a self,
         user_id: &'a str,
         reference: &'a str,
     ) -> MembershipFuture<'a> {
         Box::pin(async move {
-            sqlx::query_scalar(SELECT_MEMBER_WORKSPACE)
-                .bind(reference)
-                .bind(user_id)
-                .fetch_optional(self.master())
+            let preference: Expr = Expr::case(workspaces::Column::Id.eq(reference), 0)
+                .case(workspaces::Column::ClerkOrgId.eq(reference), 1)
+                .finally(2)
+                .into();
+            member_workspaces_of(user_id)
+                .filter(
+                    Condition::any()
+                        .add(workspaces::Column::Id.eq(reference))
+                        .add(workspaces::Column::ClerkOrgId.eq(reference))
+                        .add(workspaces::Column::Slug.eq(reference)),
+                )
+                .order_by(preference, Order::Asc)
+                .limit(1)
+                .into_tuple::<String>()
+                .one(&orm(self.master()))
                 .await
                 .map_err(WorkspaceError::from)
         })

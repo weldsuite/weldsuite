@@ -45,6 +45,7 @@ use std::time::{Duration, Instant};
 
 use async_nats::jetstream::{self, AckKind, consumer};
 use futures_util::StreamExt;
+use sea_orm::{DbErr, RuntimeErr};
 use sqlx::PgPool;
 use tokio::sync::watch;
 use weldsuite_adapters_oss::{
@@ -195,6 +196,28 @@ impl From<sqlx::Error> for Failure {
             Self::Refused(error.to_string())
         } else {
             Self::Unavailable(error.to_string())
+        }
+    }
+}
+
+/// The project state's statements fail with SeaORM's error: the sqlx error
+/// it carries is sorted as above; a value SeaORM can't decode is the data's.
+impl From<DbErr> for Failure {
+    fn from(error: DbErr) -> Self {
+        match error {
+            DbErr::Conn(RuntimeErr::SqlxError(error))
+            | DbErr::Exec(RuntimeErr::SqlxError(error))
+            | DbErr::Query(RuntimeErr::SqlxError(error)) => {
+                if refuses_the_data(&error) {
+                    Self::Refused(error.to_string())
+                } else {
+                    Self::Unavailable(error.to_string())
+                }
+            }
+            DbErr::Type(_) | DbErr::TryIntoErr { .. } | DbErr::Json(_) => {
+                Self::Refused(error.to_string())
+            }
+            error => Self::Unavailable(error.to_string()),
         }
     }
 }

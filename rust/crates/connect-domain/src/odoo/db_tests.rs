@@ -13,6 +13,7 @@
     clippy::many_single_char_names,
     clippy::type_complexity
 )]
+#![allow(clippy::disallowed_methods, reason = "test fixtures")]
 
 use std::sync::Arc;
 

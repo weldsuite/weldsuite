@@ -5,18 +5,29 @@ use axum::body::Bytes;
 use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use http::HeaderMap;
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ColumnTrait, Condition, DbErr, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder,
+    QuerySelect,
+};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events::{PIPELINE_CREATED, PIPELINE_DELETED, PIPELINE_UPDATED};
 use weldsuite_crm_domain::tables::CRM_PIPELINES;
-use weldsuite_crm_domain::{drizzle_row, insert_sql, update_sql};
+use weldsuite_db::record::JsonTable;
+use weldsuite_db::{orm, utc_now};
 use weldsuite_kit::{ApiError, Created, Data, NoContent, generate_id};
+use weldsuite_schema::tenant::{crm_pipeline_stages, crm_pipelines};
 
+use crate::orm_rows::{after, cursor_row, insert_values, json, probe_limit, set_values};
 use crate::schema::{Kind, NULLISH, OPT, REQ, Spec, extend, partial, s};
 use crate::{
     Answer, Caller, CrmState, Refusal, answer, cut, js_limit, now, page, query_map, validate_specs,
 };
 
 const LOG: &str = "pipelines";
+
+/// `crm_pipelines`, written from a body as Drizzle wrote it.
+const PIPELINES: JsonTable = JsonTable::of::<crm_pipelines::Entity>();
 
 /// `createPipelineSchema`.
 const CREATE: [Spec; 7] = [
@@ -37,14 +48,34 @@ fn update_schema() -> Vec<Spec> {
     )
 }
 
-async fn live(caller: &Caller, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from crm_pipelines t where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(&caller.db)
-    .await?;
-    Ok(row.map(drizzle_row))
+async fn live(caller: &Caller, id: &str) -> Result<Option<Value>, DbErr> {
+    let row = crm_pipelines::Entity::find_by_id(id.to_owned())
+        .filter(crm_pipelines::Column::DeletedAt.is_null())
+        .one(&orm(&caller.db))
+        .await?;
+    row.map(|row| json(serde_json::to_value(row))).transpose()
+}
+
+/// The list's conditions that are `on` (live, active, archived, search),
+/// in TypeScript's order.
+fn list_filters(on: &[bool], like: Option<&String>) -> Condition {
+    use crm_pipelines::Column;
+    let mut filters = Condition::all();
+    if on[0] {
+        filters = filters.add(Column::DeletedAt.is_null());
+    }
+    if on[1] {
+        filters = filters.add(Column::IsArchived.eq(false));
+    }
+    if on[2] {
+        filters = filters.add(Column::IsArchived.eq(true));
+    }
+    if on[3]
+        && let Some(like) = like
+    {
+        filters = filters.add(Column::Name.like(like.as_str()));
+    }
+    filters
 }
 
 // ── GET / ───────────────────────────────────────────────────────────────────
@@ -58,21 +89,15 @@ pub(crate) async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response 
 }
 
 async fn run_list(caller: &Caller, query: Option<&str>) -> Answer {
+    use crm_pipelines::{Column, Entity};
     let q = query_map(query);
     let limit = js_limit(q.get("limit"), 50, 100);
     let archived = q.get("archived").map_or("active", String::as_str);
     let search = q.get("search").filter(|s| !s.is_empty());
     // The cursor row's position, read before the list (outside its try).
-    let mut cursor: Option<(String, String)> = None;
+    let mut cursor = None;
     if let Some(id) = q.get("cursor").filter(|c| !c.is_empty()) {
-        cursor = sqlx::query_as(
-            "select to_char(date_trunc('milliseconds', created_at), 'YYYY-MM-DD\"T\"HH24:MI:SS.MS'), id
-             from crm_pipelines where id = $1 limit 1",
-        )
-        .bind(id)
-        .fetch_optional(&caller.db)
-        .await
-        .map_err(|e| Refusal::Failed(e.to_string()))?;
+        cursor = cursor_row::<Entity>(&caller.db, Column::CreatedAt, Column::Id, id).await?;
     }
     let limit = limit.ok_or_else(|| Refusal::Failed("limit is NaN".to_owned()))?;
     // The filters in TypeScript's order; a cursor that was given drops the
@@ -91,45 +116,33 @@ async fn run_list(caller: &Caller, query: Option<&str>) -> Answer {
         }
     }
     let like = search.map(|s| format!("%{s}%"));
-    let (cursor_at, cursor_id) = cursor.clone().unzip();
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from crm_pipelines t
-         where (not $1 or deleted_at is null)
-           and (not $2 or is_archived = false)
-           and (not $3 or is_archived = true)
-           and (not $4 or name like $5)
-           and ($6::timestamp is null
-                or created_at > $6::timestamp or (created_at = $6::timestamp and id > $7))
-         order by created_at asc, id asc
-         limit $8",
-    )
-    .bind(page_on[0])
-    .bind(page_on[1])
-    .bind(page_on[2])
-    .bind(page_on[3])
-    .bind(&like)
-    .bind(&cursor_at)
-    .bind(&cursor_id)
-    .bind(limit + 1)
-    .fetch_all(&caller.db)
-    .await?;
-    let total: i64 = sqlx::query_scalar(
-        "select count(*) from crm_pipelines
-         where (not $1 or deleted_at is null)
-           and (not $2 or is_archived = false)
-           and (not $3 or is_archived = true)
-           and (not $4 or name like $5)",
-    )
-    .bind(on[0])
-    .bind(on[1])
-    .bind(on[2])
-    .bind(on[3])
-    .bind(&like)
-    .fetch_one(&caller.db)
-    .await?;
-    let (data, has_more, next) = cut(rows.into_iter().map(drizzle_row).collect(), limit);
+    let mut rows = Entity::find().filter(list_filters(&page_on, like.as_ref()));
+    if let Some(cursor) = &cursor {
+        rows = rows.filter(after(Column::CreatedAt, Column::Id, cursor));
+    }
+    let db = orm(&caller.db);
+    let rows = rows
+        .order_by_asc(Column::CreatedAt)
+        .order_by_asc(Column::Id)
+        .limit(probe_limit(limit)?)
+        .all(&db)
+        .await?;
+    let total = Entity::find()
+        .filter(list_filters(&on, like.as_ref()))
+        .count(&db)
+        .await?;
+    let rows = rows
+        .into_iter()
+        .map(|row| json(serde_json::to_value(row)))
+        .collect::<Result<Vec<_>, DbErr>>()?;
+    let (data, has_more, next) = cut(rows, limit);
     let next = if data.is_empty() { None } else { next };
-    Ok(page(data, total, has_more, next))
+    Ok(page(
+        data,
+        i64::try_from(total).unwrap_or(i64::MAX),
+        has_more,
+        next,
+    ))
 }
 
 // ── GET /:id ────────────────────────────────────────────────────────────────
@@ -188,11 +201,9 @@ async fn run_create(state: &CrmState, caller: &Caller, data: &Map<String, Value>
     values.insert("isArchived".into(), json!(false));
     values.insert("createdAt".into(), json!(now));
     values.insert("updatedAt".into(), json!(now));
-    sqlx::query(insert_sql!(crm_pipelines))
-        .bind(CRM_PIPELINES.values(&values))
-        .execute(&caller.db)
+    let created = PIPELINES
+        .insert(&orm(&caller.db), insert_values(&CRM_PIPELINES, &values))
         .await?;
-    let created = live_any(caller, &id).await?;
     let mut event = Map::new();
     event.insert("id".into(), json!(id));
     for key in ["name", "icon", "color"] {
@@ -202,15 +213,6 @@ async fn run_create(state: &CrmState, caller: &Caller, data: &Map<String, Value>
     }
     caller.publish(state, PIPELINE_CREATED, &id, &Value::Object(event));
     Ok(Created(created).into_response())
-}
-
-async fn live_any(caller: &Caller, id: &str) -> Result<Value, sqlx::Error> {
-    let row: Value =
-        sqlx::query_scalar("select to_jsonb(t) from crm_pipelines t where id = $1 limit 1")
-            .bind(id)
-            .fetch_one(&caller.db)
-            .await?;
-    Ok(drizzle_row(row))
 }
 
 // ── PATCH /:id ──────────────────────────────────────────────────────────────
@@ -247,21 +249,21 @@ async fn run_update(
     for (key, value) in data {
         update.insert(key.clone(), value.clone());
     }
-    let row: Option<Value> = sqlx::query_scalar(update_sql!(
-        crm_pipelines,
-        "where t.id = $1 and t.deleted_at is null returning to_jsonb(t)"
-    ))
-    .bind(id)
-    .bind(CRM_PIPELINES.set(&update))
-    .fetch_optional(&caller.db)
-    .await?;
+    let row = PIPELINES
+        .update(
+            &orm(&caller.db),
+            id,
+            set_values(&CRM_PIPELINES, &update),
+            true,
+        )
+        .await?;
     let mut event = Map::new();
     event.insert("id".into(), json!(id));
     for (key, value) in &update {
         event.insert(key.clone(), value.clone());
     }
     caller.publish(state, PIPELINE_UPDATED, id, &Value::Object(event));
-    Ok(Data(row.map_or(Value::Null, drizzle_row)).into_response())
+    Ok(Data(row.unwrap_or(Value::Null)).into_response())
 }
 
 // ── DELETE /:id ─────────────────────────────────────────────────────────────
@@ -275,24 +277,22 @@ pub(crate) async fn remove(
         let Some(existing) = live(&caller, &id).await? else {
             return Ok(ApiError::not_found("Pipeline", Some(&id)).into_response());
         };
-        let now = now();
+        let now = utc_now();
+        let db = orm(&caller.db);
         // The stages go with the pipeline.
-        sqlx::query(
-            "update crm_pipeline_stages set deleted_at = $2::timestamp, updated_at = $2::timestamp
-             where pipeline = $1 and deleted_at is null",
-        )
-        .bind(&id)
-        .bind(&now)
-        .execute(&caller.db)
-        .await?;
-        sqlx::query(
-            "update crm_pipelines set deleted_at = $2::timestamp, updated_at = $2::timestamp
-             where id = $1",
-        )
-        .bind(&id)
-        .bind(&now)
-        .execute(&caller.db)
-        .await?;
+        crm_pipeline_stages::Entity::update_many()
+            .col_expr(crm_pipeline_stages::Column::DeletedAt, Expr::value(now))
+            .col_expr(crm_pipeline_stages::Column::UpdatedAt, Expr::value(now))
+            .filter(crm_pipeline_stages::Column::Pipeline.eq(id.as_str()))
+            .filter(crm_pipeline_stages::Column::DeletedAt.is_null())
+            .exec(&db)
+            .await?;
+        crm_pipelines::Entity::update_many()
+            .col_expr(crm_pipelines::Column::DeletedAt, Expr::value(now))
+            .col_expr(crm_pipelines::Column::UpdatedAt, Expr::value(now))
+            .filter(crm_pipelines::Column::Id.eq(id.as_str()))
+            .exec(&db)
+            .await?;
         caller.publish(
             &state,
             PIPELINE_DELETED,

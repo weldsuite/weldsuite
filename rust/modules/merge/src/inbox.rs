@@ -23,15 +23,18 @@ use axum::body::Bytes;
 use axum::extract::{Path, RawQuery};
 use axum::response::IntoResponse;
 use http::HeaderMap;
+use sea_orm::ActiveValue::Set;
+use sea_orm::sea_query::OnConflict;
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 use serde_json::{Value, json};
 use time::OffsetDateTime;
 use weldsuite_catalogs::permission_keys::MERGE_ISSUES_READ;
-use weldsuite_db::{PgPool, js_row};
-use weldsuite_events::iso_timestamp;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::validation::{Field, Format, Presence, Text, js_date_parse};
 use weldsuite_kit::{Data, generate_id};
+use weldsuite_schema::tenant::{merge_inbox_states, merge_issues};
 
-use crate::db::{col, rows_of, text};
+use crate::db::{col, instant_opt, json_row, json_rows, millis, now_at, text};
 use crate::issues::hydrate_issues;
 use crate::pull_requests::{Filter, member_github_login, query_pull_requests, to_list_items};
 use crate::schemas::nothing_to_update;
@@ -56,7 +59,7 @@ async fn pull_request_items(
     filter: Filter,
     merged_at: bool,
     items: &mut Vec<Item>,
-) -> Result<(), sqlx::Error> {
+) -> Result<(), DbErr> {
     let rows = query_pull_requests(&caller.db, filter, PER_KIND).await?;
     let list = to_list_items(&caller.db, &rows).await?;
     for (row, item) in rows.iter().zip(list) {
@@ -85,21 +88,22 @@ async fn apply_states(
     items: Vec<Item>,
     include: Option<&str>,
     now_ms: f64,
-) -> Result<Vec<Item>, sqlx::Error> {
+) -> Result<Vec<Item>, DbErr> {
     if items.is_empty() {
         return Ok(items);
     }
     let keys: Vec<String> = items.iter().map(|item| item.id.clone()).collect();
-    let states: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(s) from merge_inbox_states s where s.user_id = $1 and s.item_key = any($2)",
-    )
-    .bind(user_id)
-    .bind(&keys)
-    .fetch_all(db)
-    .await?;
+    let states = json_rows(
+        merge_inbox_states::Entity::find()
+            .filter(merge_inbox_states::Column::UserId.eq(user_id))
+            .filter(merge_inbox_states::Column::ItemKey.is_in(keys))
+            .all(&orm(db))
+            .await?
+            .into_iter()
+            .map(serde_json::to_value),
+    )?;
     let by_key: HashMap<String, Value> = states
         .into_iter()
-        .map(js_row)
         .map(|state| (text(&state, "itemKey").to_owned(), state))
         .collect();
     let mut out = Vec::with_capacity(items.len());
@@ -130,7 +134,7 @@ async fn apply_states(
 }
 
 /// `buildInbox(db, { userId, canReadIssues, include })`.
-async fn build_inbox(caller: &Caller, include: Option<&str>) -> Result<Vec<Item>, sqlx::Error> {
+async fn build_inbox(caller: &Caller, include: Option<&str>) -> Result<Vec<Item>, DbErr> {
     let now = OffsetDateTime::now_utc();
     let user_id = caller.user_id.clone();
     let login = member_github_login(&caller.db, &user_id)
@@ -186,7 +190,7 @@ async fn build_inbox(caller: &Caller, include: Option<&str>) -> Result<Vec<Item>
         Filter {
             state: Some("merged"),
             authored_by: mine(),
-            merged_since: Some(iso_timestamp(now - time::Duration::days(MERGED_DAYS))),
+            merged_since: Some(millis(now - time::Duration::days(MERGED_DAYS))),
             ..Filter::default()
         },
         true,
@@ -195,18 +199,22 @@ async fn build_inbox(caller: &Caller, include: Option<&str>) -> Result<Vec<Item>
     .await?;
 
     if caller.can(MERGE_ISSUES_READ) {
-        let rows = rows_of(
-            sqlx::query_scalar(
-                "select to_jsonb(i) from merge_issues i \
-                 where i.assignee_user_id = $1 and i.deleted_at is null and i.updated_at >= $2::timestamptz \
-                 order by i.updated_at desc, i.id desc limit $3",
-            )
-            .bind(&user_id)
-            .bind(iso_timestamp(now - time::Duration::days(ASSIGNED_DAYS)))
-            .bind(PER_KIND)
-            .fetch_all(&caller.db)
-            .await?,
-        );
+        let rows = json_rows(
+            merge_issues::Entity::find()
+                .filter(merge_issues::Column::AssigneeUserId.eq(&user_id))
+                .filter(merge_issues::Column::DeletedAt.is_null())
+                .filter(
+                    merge_issues::Column::UpdatedAt
+                        .gte(millis(now - time::Duration::days(ASSIGNED_DAYS))),
+                )
+                .order_by_desc(merge_issues::Column::UpdatedAt)
+                .order_by_desc(merge_issues::Column::Id)
+                .limit(PER_KIND.unsigned_abs())
+                .all(&orm(&caller.db))
+                .await?
+                .into_iter()
+                .map(serde_json::to_value),
+        )?;
         let issues = hydrate_issues(&caller.db, &rows).await?;
         for (row, issue) in rows.iter().zip(issues) {
             let id = format!("assigned:{}", text(row, "id"));
@@ -281,7 +289,7 @@ pub(crate) async fn update_item(
     if item_key.encode_utf16().count() > MAX_ITEM_KEY {
         return Err(Refusal::bad_request("The item key is too long"));
     }
-    let now = crate::now();
+    let (_, at) = now_at();
     let set_snooze = !snoozed_until.is_absent();
     let snooze = match snoozed_until {
         Field::Set(until) => {
@@ -289,51 +297,73 @@ pub(crate) async fn update_item(
         }
         _ => None,
     };
-    let row: Value = sqlx::query_scalar(
-        "insert into merge_inbox_states (id, user_id, item_key, created_at, updated_at, read_at, snoozed_until, archived_at) \
-         values ($1, $2, $3, $4::timestamptz, $4::timestamptz, \
-           case when $5::boolean then $4::timestamptz else null end, \
-           $7::timestamptz, \
-           case when $8::boolean then $4::timestamptz else null end) \
-         on conflict (user_id, item_key) do update set updated_at = excluded.updated_at, \
-           read_at = case when $5::boolean is null then merge_inbox_states.read_at else excluded.read_at end, \
-           snoozed_until = case when $6 then excluded.snoozed_until else merge_inbox_states.snoozed_until end, \
-           archived_at = case when $8::boolean is null then merge_inbox_states.archived_at else excluded.archived_at end \
-         returning to_jsonb(merge_inbox_states.*)",
+    let read = read.into_option();
+    let archived = archived.into_option();
+    // A new row takes every field; an existing one only the fields sent.
+    let mut changed = vec![merge_inbox_states::Column::UpdatedAt];
+    if read.is_some() {
+        changed.push(merge_inbox_states::Column::ReadAt);
+    }
+    if set_snooze {
+        changed.push(merge_inbox_states::Column::SnoozedUntil);
+    }
+    if archived.is_some() {
+        changed.push(merge_inbox_states::Column::ArchivedAt);
+    }
+    let row = merge_inbox_states::Entity::insert(merge_inbox_states::ActiveModel {
+        id: Set(generate_id("mib")),
+        user_id: Set(caller.user_id.clone()),
+        item_key: Set(item_key),
+        created_at: Set(at),
+        updated_at: Set(at),
+        read_at: Set((read == Some(true)).then_some(at)),
+        snoozed_until: Set(instant_opt(snooze.as_deref())?),
+        archived_at: Set((archived == Some(true)).then_some(at)),
+    })
+    .on_conflict(
+        OnConflict::columns([
+            merge_inbox_states::Column::UserId,
+            merge_inbox_states::Column::ItemKey,
+        ])
+        .update_columns(changed)
+        .to_owned(),
     )
-    .bind(generate_id("mib"))
-    .bind(&caller.user_id)
-    .bind(&item_key)
-    .bind(&now)
-    .bind(read.into_option())
-    .bind(set_snooze)
-    .bind(snooze)
-    .bind(archived.into_option())
-    .fetch_one(&caller.db)
+    .exec_with_returning(&orm(&caller.db))
     .await?;
-    Ok(Data(state_dto(&js_row(row))).into_response())
+    Ok(Data(state_dto(&json_row(serde_json::to_value(row))?)).into_response())
 }
 
 /// `POST /inbox/read-all`: marks every unread item the member can see read.
 pub(crate) async fn read_all(caller: Caller) -> Answer {
     let items = build_inbox(&caller, None).await?;
-    let now = crate::now();
+    let (_, at) = now_at();
+    let db = orm(&caller.db);
     let mut updated = 0_u64;
     for item in items
         .iter()
         .filter(|item| item.value.get("read") != Some(&Value::Bool(true)))
     {
-        sqlx::query(
-            "insert into merge_inbox_states (id, user_id, item_key, read_at, created_at, updated_at) \
-             values ($1, $2, $3, $4::timestamptz, $4::timestamptz, $4::timestamptz) \
-             on conflict (user_id, item_key) do update set read_at = excluded.read_at, \
-               updated_at = excluded.updated_at",
+        merge_inbox_states::Entity::insert(merge_inbox_states::ActiveModel {
+            id: Set(generate_id("mib")),
+            user_id: Set(caller.user_id.clone()),
+            item_key: Set(item.id.clone()),
+            read_at: Set(Some(at)),
+            created_at: Set(at),
+            updated_at: Set(at),
+            ..Default::default()
+        })
+        .on_conflict(
+            OnConflict::columns([
+                merge_inbox_states::Column::UserId,
+                merge_inbox_states::Column::ItemKey,
+            ])
+            .update_columns([
+                merge_inbox_states::Column::ReadAt,
+                merge_inbox_states::Column::UpdatedAt,
+            ])
+            .to_owned(),
         )
-        .bind(generate_id("mib"))
-        .bind(&caller.user_id)
-        .bind(&item.id)
-        .bind(&now)
-        .execute(&caller.db)
+        .exec_without_returning(&db)
         .await?;
         updated += 1;
     }

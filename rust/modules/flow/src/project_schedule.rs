@@ -19,25 +19,35 @@ use axum::body::Bytes;
 use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
+use sea_orm::prelude::BigDecimal;
+use sea_orm::sea_query::{Expr, Func, NullOrdering};
+use sea_orm::{
+    ColumnTrait, DbErr, EntityTrait, FromQueryResult, Order, QueryFilter, QueryOrder, QuerySelect,
+};
 use serde_json::{Map, Value, json};
+use time::macros::format_description;
+use time::{OffsetDateTime, PrimitiveDateTime, UtcOffset};
 use weldsuite_catalogs::entity_events::{PROJECT_TASK_RESCHEDULED, PROJECT_UPDATED};
-use weldsuite_db::js_row;
+use weldsuite_db::{OrmConn, orm};
 use weldsuite_flow_domain::analytics::task_analytics_payload;
 use weldsuite_flow_domain::js::iso_from_millis;
 use weldsuite_flow_domain::schedule::{
     DependencyKind, MoveFailure, MoveFailureCode, MovePreview, MoveRequest, MovedTask,
     ScheduleCalendar, ScheduleConflict, ScheduleInput, ScheduleLinkInput, ScheduleResult,
     ScheduleTaskInput, compute_schedule, date_of, day_number, normalize_calendar, preview_move,
-    project_deliverables, with_time_of_day, working_days_between,
+    with_time_of_day, working_days_between,
 };
 use weldsuite_kit::Data;
 use weldsuite_kit::validation::{Issues, Presence, Text};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::{
+    project_baselines, project_deliverables, projects, task_dependencies, tasks,
+};
 
 use crate::raid::{PROJECT_DENIED, PROJECT_WRITE_DENIED};
 use crate::raid_body::{Body, IDENTIFIER, Reader, parse_body, whole};
 use crate::task_dependencies::present_dependency;
-use crate::{Caller, FlowState, Refusal, Reply, now_ms, outside, reply};
+use crate::{Caller, FlowState, Refusal, Reply, json_rows, now_ms, outside, reply, row_json};
 
 pub(crate) const PROJECT_MANAGE_DENIED: &str = "You do not have manage access to this project";
 const AUTO_SCHEDULE_OFF: &str = "Auto-schedule is off for this project";
@@ -74,18 +84,40 @@ where
 
 // ── Reading ─────────────────────────────────────────────────────────────────
 
+/// `to_char(at, 'YYYY-MM-DD')`: the calendar day of a wall-clock time.
+fn day_of(at: PrimitiveDateTime) -> String {
+    at.date()
+        .format(format_description!("[year]-[month]-[day]"))
+        .unwrap_or_default()
+}
+
+/// `(extract(epoch from at) * 1000)::bigint`: milliseconds since the epoch,
+/// rounded half away from zero as the cast rounds.
+fn epoch_ms(at: PrimitiveDateTime) -> i64 {
+    let micros = (at.assume_utc().unix_timestamp_nanos() / 1_000)
+        .clamp(i128::from(i64::MIN / 2), i128::from(i64::MAX / 2));
+    let micros = i64::try_from(micros).unwrap_or_default();
+    micros.signum() * ((micros.abs() + 500) / 1_000)
+}
+
+/// A live project, with `endDay` (`to_char(end_date, 'YYYY-MM-DD')`).
 pub(crate) async fn find_live_project(
     db: &weldsuite_db::PgPool,
     id: &str,
-) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(p) || jsonb_build_object('end_day', to_char(p.end_date, 'YYYY-MM-DD'))
-         from projects p where p.id = $1 and p.deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(js_row))
+) -> Result<Option<Value>, DbErr> {
+    let Some(project) = projects::Entity::find_by_id(id)
+        .filter(projects::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?
+    else {
+        return Ok(None);
+    };
+    let end_day = project.end_date.map(day_of);
+    let mut row = row_json(project)?;
+    if let Value::Object(fields) = &mut row {
+        fields.insert("endDay".to_owned(), json!(end_day));
+    }
+    Ok(Some(row))
 }
 
 /// `scheduleSettingsOf(settings)`.
@@ -124,50 +156,137 @@ pub(crate) struct ScheduleData {
     pub(crate) limit_days: i64,
 }
 
+/// The columns of a task the schedule reads.
+#[derive(FromQueryResult)]
+struct ScheduleTaskRow {
+    id: String,
+    number: Option<i32>,
+    title: String,
+    status: String,
+    priority: String,
+    assignee_id: Option<String>,
+    parent_task_id: Option<String>,
+    deliverable_id: Option<String>,
+    progress: BigDecimal,
+    start_date: Option<PrimitiveDateTime>,
+    due_date: Option<PrimitiveDateTime>,
+}
+
+impl ScheduleTaskRow {
+    /// `{ id, number, title, status, priority, assigneeId, parentTaskId,
+    /// deliverableId, progress (text), startMs, dueMs, startDay, dueDay }`.
+    fn to_json(&self) -> Value {
+        json!({
+            "id": self.id,
+            "number": self.number,
+            "title": self.title,
+            "status": self.status,
+            "priority": self.priority,
+            "assigneeId": self.assignee_id,
+            "parentTaskId": self.parent_task_id,
+            "deliverableId": self.deliverable_id,
+            "progress": self.progress.with_scale(2).to_plain_string(),
+            "startMs": self.start_date.map(epoch_ms),
+            "dueMs": self.due_date.map(epoch_ms),
+            "startDay": self.start_date.map(day_of),
+            "dueDay": self.due_date.map(day_of),
+        })
+    }
+}
+
+/// A deliverable as the schedule reads it: id, number, title, planned start and end.
+type DeliverableDates = (
+    String,
+    i32,
+    String,
+    Option<OffsetDateTime>,
+    Option<OffsetDateTime>,
+);
+
+/// `{ id, number, title, plannedStart, plannedEnd }` of a deliverable, its
+/// dates as UTC days.
+fn deliverable_json((id, number, title, start, end): DeliverableDates) -> Value {
+    let utc_day = |at: OffsetDateTime| {
+        let at = at.to_offset(UtcOffset::UTC);
+        day_of(PrimitiveDateTime::new(at.date(), at.time()))
+    };
+    json!({
+        "id": id,
+        "number": number,
+        "title": title,
+        "plannedStart": start.map(utc_day),
+        "plannedEnd": end.map(utc_day),
+    })
+}
+
 pub(crate) async fn load_schedule_data(
     db: &weldsuite_db::PgPool,
     project: Value,
-) -> Result<ScheduleData, sqlx::Error> {
+) -> Result<ScheduleData, DbErr> {
+    use sea_orm::sea_query::extension::postgres::PgExpr as _;
+
+    let orm = &orm(db);
     let id = project["id"].as_str().unwrap_or_default().to_owned();
-    let tasks: Vec<Value> = sqlx::query_scalar(
-        "select jsonb_build_object('id', t.id, 'number', t.number, 'title', t.title,
-             'status', t.status, 'priority', t.priority, 'assigneeId', t.assignee_id,
-             'parentTaskId', t.parent_task_id, 'deliverableId', t.deliverable_id,
-             'progress', t.progress::text,
-             'startMs', (extract(epoch from t.start_date) * 1000)::bigint,
-             'dueMs', (extract(epoch from t.due_date) * 1000)::bigint,
-             'startDay', to_char(t.start_date, 'YYYY-MM-DD'),
-             'dueDay', to_char(t.due_date, 'YYYY-MM-DD'))
-         from tasks t where t.project_id = $1 and t.deleted_at is null
-         order by t.start_date asc nulls last, t.due_date asc nulls last, t.position asc, t.id asc",
-    )
-    .bind(&id)
-    .fetch_all(db)
-    .await?;
-    let links: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(d) from task_dependencies d where d.project_id = $1
-         order by d.created_at asc, d.id asc",
-    )
-    .bind(&id)
-    .fetch_all(db)
-    .await?;
-    let deliverables: Vec<Value> = sqlx::query_scalar(
-        "select jsonb_build_object('id', d.id, 'number', d.number, 'title', d.title,
-             'plannedStart', to_char(d.planned_start at time zone 'UTC', 'YYYY-MM-DD'),
-             'plannedEnd', to_char(d.planned_end at time zone 'UTC', 'YYYY-MM-DD'))
-         from project_deliverables d where d.project_id = $1 and d.deleted_at is null
-         order by d.position asc, d.number asc",
-    )
-    .bind(&id)
-    .fetch_all(db)
-    .await?;
-    let baseline: Option<(i32, Option<String>)> = sqlx::query_as(
-        "select version, snapshot->>'goLive' from project_baselines
-         where project_id = $1 order by version desc limit 1",
-    )
-    .bind(&id)
-    .fetch_optional(db)
-    .await?;
+    let tasks: Vec<ScheduleTaskRow> = tasks::Entity::find()
+        .select_only()
+        .columns([
+            tasks::Column::Id,
+            tasks::Column::Number,
+            tasks::Column::Title,
+            tasks::Column::Status,
+            tasks::Column::Priority,
+            tasks::Column::AssigneeId,
+            tasks::Column::ParentTaskId,
+            tasks::Column::DeliverableId,
+            tasks::Column::Progress,
+            tasks::Column::StartDate,
+            tasks::Column::DueDate,
+        ])
+        .filter(tasks::Column::ProjectId.eq(id.as_str()))
+        .filter(tasks::Column::DeletedAt.is_null())
+        .order_by_with_nulls(tasks::Column::StartDate, Order::Asc, NullOrdering::Last)
+        .order_by_with_nulls(tasks::Column::DueDate, Order::Asc, NullOrdering::Last)
+        .order_by_asc(tasks::Column::Position)
+        .order_by_asc(tasks::Column::Id)
+        .into_model()
+        .all(orm)
+        .await?;
+    let tasks: Vec<Value> = tasks.iter().map(ScheduleTaskRow::to_json).collect();
+    let links = task_dependencies::Entity::find()
+        .filter(task_dependencies::Column::ProjectId.eq(id.as_str()))
+        .order_by_asc(task_dependencies::Column::CreatedAt)
+        .order_by_asc(task_dependencies::Column::Id)
+        .all(orm)
+        .await?;
+    let deliverables: Vec<DeliverableDates> = project_deliverables::Entity::find()
+        .select_only()
+        .columns([
+            project_deliverables::Column::Id,
+            project_deliverables::Column::Number,
+            project_deliverables::Column::Title,
+            project_deliverables::Column::PlannedStart,
+            project_deliverables::Column::PlannedEnd,
+        ])
+        .filter(project_deliverables::Column::ProjectId.eq(id.as_str()))
+        .filter(project_deliverables::Column::DeletedAt.is_null())
+        .order_by_asc(project_deliverables::Column::Position)
+        .order_by_asc(project_deliverables::Column::Number)
+        .into_tuple()
+        .all(orm)
+        .await?;
+    let deliverables: Vec<Value> = deliverables.into_iter().map(deliverable_json).collect();
+    let baseline: Option<(i32, Option<String>)> = project_baselines::Entity::find()
+        .select_only()
+        .column(project_baselines::Column::Version)
+        .column_as(
+            Expr::col(project_baselines::Column::Snapshot).cast_json_field("goLive"),
+            "go_live",
+        )
+        .filter(project_baselines::Column::ProjectId.eq(id.as_str()))
+        .order_by_desc(project_baselines::Column::Version)
+        .into_tuple()
+        .one(orm)
+        .await?;
     let baseline_version = baseline.as_ref().map(|(version, _)| i64::from(*version));
     let baseline_go_live = baseline
         .and_then(|(_, go_live)| go_live)
@@ -187,7 +306,7 @@ pub(crate) async fn load_schedule_data(
         calendar,
         auto,
         tasks,
-        links: links.into_iter().map(js_row).collect(),
+        links: json_rows(links)?,
         deliverables,
         go_live,
         go_live_source,
@@ -251,7 +370,7 @@ fn deliverable_ends(data: &ScheduleData, result: &ScheduleResult) -> Vec<Value> 
         .iter()
         .filter_map(|task| Some((str_of(task, "deliverableId")?, str_of(task, "id")?)))
         .collect();
-    let ends = project_deliverables(&ids, &refs, result);
+    let ends = weldsuite_flow_domain::schedule::project_deliverables(&ids, &refs, result);
     data.deliverables
         .iter()
         .zip(ends)
@@ -405,6 +524,15 @@ fn present_move_impact(
     })
 }
 
+/// `new Date(millis)` as a `timestamp` column holds it; `None` past the
+/// range `toISOString()` writes.
+fn stamp(millis: i64) -> Option<PrimitiveDateTime> {
+    iso_from_millis(millis)?;
+    OffsetDateTime::from_unix_timestamp_nanos(i128::from(millis) * 1_000_000)
+        .ok()
+        .map(weldsuite_db::utc_timestamp)
+}
+
 /// The 400 / 404 / 409 of a refused move.
 fn move_refusal(task_id: &str, failure: &MoveFailure) -> Refusal {
     match failure.code {
@@ -556,17 +684,18 @@ async fn write_settings(
         .unwrap_or(current_auto);
     let next = settings_json(&calendar, auto);
     // A merge of this key only: the other settings keys are other features'.
-    sqlx::query(
-        "update projects set
-             settings = coalesce(settings, '{}'::jsonb) || jsonb_build_object('schedule', $2::jsonb),
-             updated_at = $3::timestamp
-         where id = $1",
-    )
-    .bind(project_id)
-    .bind(next.clone())
-    .bind(crate::now())
-    .execute(&caller.db)
-    .await?;
+    projects::Entity::update_many()
+        .col_expr(
+            projects::Column::Settings,
+            merge_settings(json!({ "schedule": next })),
+        )
+        .col_expr(
+            projects::Column::UpdatedAt,
+            Expr::value(weldsuite_db::utc_now()),
+        )
+        .filter(projects::Column::Id.eq(project_id))
+        .exec(&orm(&caller.db))
+        .await?;
     if let Value::Object(map) = project {
         caller.publish(
             state,
@@ -576,6 +705,19 @@ async fn write_settings(
         );
     }
     Ok(Data(next).into_response())
+}
+
+/// `coalesce(settings, '{}'::jsonb) || patch`: `patch`'s keys written over the
+/// project's settings, in the database.
+pub(crate) fn merge_settings(patch: Value) -> Expr {
+    use sea_orm::ExprTrait as _;
+    use sea_orm::sea_query::extension::postgres::PgExpr as _;
+
+    Expr::expr(Func::coalesce([
+        Expr::col(projects::Column::Settings),
+        Expr::value(json!({})).cast_as("jsonb"),
+    ]))
+    .concat(Expr::value(patch).cast_as("jsonb"))
 }
 
 // ── The schedule ────────────────────────────────────────────────────────────
@@ -700,7 +842,7 @@ async fn apply_move(
         Err(failure) => return Err(move_refusal(&request.task_id, &failure)),
     };
 
-    let now = crate::now();
+    let now = weldsuite_db::utc_now();
     let mut writes = Vec::new();
     for (index, moved) in preview.moved.iter().enumerate() {
         let row = data
@@ -718,23 +860,32 @@ async fn apply_move(
             .flatten();
         writes.push((moved, row, itself, start, due));
     }
-    let statements: Vec<_> = writes
+    // `coalesce(new, old)`: a date the move leaves alone keeps its value.
+    let updates: Vec<_> = writes
         .iter()
         .map(|(moved, _, _, start, due)| {
-            sqlx::query(
-                "update tasks set
-                     start_date = coalesce($2::timestamp, start_date),
-                     due_date = coalesce($3::timestamp, due_date),
-                     updated_at = $4::timestamp
-                 where id = $1",
-            )
-            .bind(moved.task_id.clone())
-            .bind(start.and_then(iso_from_millis))
-            .bind(due.and_then(iso_from_millis))
-            .bind(now.clone())
+            let mut update = tasks::Entity::update_many();
+            if let Some(start) = start.and_then(stamp) {
+                update = update.col_expr(tasks::Column::StartDate, Expr::value(start));
+            }
+            if let Some(due) = due.and_then(stamp) {
+                update = update.col_expr(tasks::Column::DueDate, Expr::value(due));
+            }
+            update
+                .col_expr(tasks::Column::UpdatedAt, Expr::value(now))
+                .filter(tasks::Column::Id.eq(moved.task_id.as_str()))
         })
         .collect();
-    weldsuite_db::atomically(&caller.db, statements).await?;
+    weldsuite_db::atomically_with(&caller.db, |tx| {
+        Box::pin(async move {
+            let tx = OrmConn::new(tx);
+            for update in updates {
+                update.exec(&tx).await?;
+            }
+            Ok::<_, Refusal>(())
+        })
+    })
+    .await?;
 
     for (moved, row, itself, start, due) in &writes {
         let iso = |ms: Option<i64>| ms.and_then(iso_from_millis);

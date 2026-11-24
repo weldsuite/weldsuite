@@ -12,6 +12,7 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 
+use sea_orm::{DbErr, RuntimeErr};
 use sqlx::pool::PoolConnection;
 use sqlx::{PgPool, Postgres, Transaction};
 use weldsuite_panel::project_state::{
@@ -28,8 +29,33 @@ use super::tenant;
 use super::valkey::PanelValkey;
 use super::{Clock, TenantPools};
 
-pub(crate) fn db(error: sqlx::Error) -> PortError {
-    PortError::backend(error)
+/// A database error as the port's: sqlx's error, or the one a SeaORM error
+/// carries (so its text is sqlx's either way).
+pub(crate) fn db(error: impl DatabaseError) -> PortError {
+    error.into_port()
+}
+
+/// What [`db`] takes: sqlx's errors (connections, transactions) and
+/// SeaORM's ([`tenant`]'s statements).
+pub(crate) trait DatabaseError {
+    fn into_port(self) -> PortError;
+}
+
+impl DatabaseError for sqlx::Error {
+    fn into_port(self) -> PortError {
+        PortError::backend(self)
+    }
+}
+
+impl DatabaseError for DbErr {
+    fn into_port(self) -> PortError {
+        match self {
+            DbErr::Conn(RuntimeErr::SqlxError(error))
+            | DbErr::Exec(RuntimeErr::SqlxError(error))
+            | DbErr::Query(RuntimeErr::SqlxError(error)) => PortError::backend(error),
+            error => PortError::backend(error),
+        }
+    }
 }
 
 /// The project state in the workspace's tenant database.

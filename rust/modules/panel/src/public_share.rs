@@ -28,21 +28,25 @@ use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use http::request::Parts;
 use http::{HeaderMap, HeaderValue, StatusCode};
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, Condition, DbErr, EntityTrait, QueryFilter};
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
-use weldsuite_db::{MasterDb, PgPool};
+use weldsuite_db::{MasterDb, PgPool, orm};
 use weldsuite_kit::{ApiError, Data, RequestEnv};
 use weldsuite_panel_domain::js;
 use weldsuite_panel_domain::schemas::PanelQuerySpec;
 use weldsuite_ports::{BoxFuture, DynCache, OutboundHttp, PortError, RequestCache};
+use weldsuite_schema::master::panel_share_registry;
+use weldsuite_schema::tenant::{panel_projects, panel_share_links};
 
 use crate::engine::{AnalyticsSql, BasinSql};
 use crate::keys::sha256_hex;
 use crate::project_state::{PanelProjectState, RequestProjectState};
 use crate::query::{QueryDeps, run_cached_query};
 use crate::saved::{
-    Actor, Target, apply_dashboard_filters, can_see, field, get_target, list_tiles,
-    parse_dashboard_filters, report_in, text, tile_reports, tile_spec,
+    Actor, Target, apply_dashboard_filters, can_see, field, get_target, instant, js_row,
+    list_tiles, parse_dashboard_filters, report_in, text, tile_reports, tile_spec,
 };
 use crate::schemas_gen::PANEL_PUBLIC_RESULTS;
 use crate::share_links::{is_share_token, public_spec, share_refusals};
@@ -372,14 +376,12 @@ async fn open_share(
         return Err("no master database".to_owned());
     };
     let token_hash = sha256_hex(token);
-    let entry: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(r) from panel_share_registry r where r.token_hash = $1 limit 1",
-    )
-    .bind(&token_hash)
-    .fetch_optional(&master)
-    .await
-    .map_err(|error| error.to_string())?;
-    let Some(entry) = entry.map(weldsuite_db::js_row) else {
+    let entry = panel_share_registry::Entity::find_by_id(&token_hash)
+        .one(&orm(&master))
+        .await
+        .and_then(|entry| entry.map(js_row).transpose())
+        .map_err(|error| error.to_string())?;
+    let Some(entry) = entry else {
         return Ok(None);
     };
     if entry.get("revokedAt").is_some_and(|at| !at.is_null())
@@ -399,15 +401,13 @@ async fn open_share(
             return Ok(None);
         }
     };
-    let link: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(l) from panel_share_links l where l.id = $1 and l.token_hash = $2 limit 1",
-    )
-    .bind(text(&entry, "linkId"))
-    .bind(&token_hash)
-    .fetch_optional(&db)
-    .await
-    .map_err(|error| error.to_string())?;
-    let Some(link) = link.map(weldsuite_db::js_row) else {
+    let link = panel_share_links::Entity::find_by_id(text(&entry, "linkId"))
+        .filter(panel_share_links::Column::TokenHash.eq(&token_hash))
+        .one(&orm(&db))
+        .await
+        .and_then(|link| link.map(js_row).transpose())
+        .map_err(|error| error.to_string())?;
+    let Some(link) = link else {
         return Ok(None);
     };
     if link.get("revokedAt").is_some_and(|at| !at.is_null())
@@ -415,14 +415,13 @@ async fn open_share(
     {
         return Ok(None);
     }
-    let project: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(p) from panel_projects p where p.id = $1 and p.deleted_at is null limit 1",
-    )
-    .bind(text(&link, "projectId"))
-    .fetch_optional(&db)
-    .await
-    .map_err(|error| error.to_string())?;
-    let Some(project) = project.map(weldsuite_db::js_row) else {
+    let project = panel_projects::Entity::find_by_id(text(&link, "projectId"))
+        .filter(panel_projects::Column::DeletedAt.is_null())
+        .one(&orm(&db))
+        .await
+        .and_then(|project| project.map(js_row).transpose())
+        .map_err(|error| error.to_string())?;
+    let Some(project) = project else {
         return Ok(None);
     };
     let target = get_target(&db, text(&link, "targetType"), text(&link, "targetId"))
@@ -448,7 +447,7 @@ async fn open_share(
 
 /// `shownTiles`: a dashboard's tiles a link may show (text tiles, and
 /// report tiles of live, visible, shareable reports), and those reports.
-async fn shown_tiles(opened: &Opened) -> Result<(Vec<Value>, Vec<Value>), sqlx::Error> {
+async fn shown_tiles(opened: &Opened) -> Result<(Vec<Value>, Vec<Value>), DbErr> {
     let tiles = list_tiles(&opened.db, text(&opened.target.row, "id")).await?;
     let creator = creator_of(&opened.link);
     let reports: Vec<Value> = tile_reports(&opened.db, &tiles)
@@ -480,7 +479,7 @@ fn public_report(report: &Value, spec: &Value) -> Value {
 }
 
 /// `publicShareDto(opened)`.
-async fn public_share_dto(opened: &Opened) -> Result<Value, sqlx::Error> {
+async fn public_share_dto(opened: &Opened) -> Result<Value, DbErr> {
     let link = &opened.link;
     let allow_date_change = link.get("allowDateChange").and_then(Value::as_bool) == Some(true);
     let mut dto = json!({
@@ -525,16 +524,22 @@ async fn public_share_dto(opened: &Opened) -> Result<Value, sqlx::Error> {
 }
 
 /// `recordView(db, link)`: a view, counted at most once a minute.
-async fn record_view(opened: &Opened, now: i64) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "update panel_share_links set view_count = view_count + 1, last_viewed_at = $2::timestamptz
-         where id = $1 and (last_viewed_at is null or last_viewed_at < $3::timestamptz)",
-    )
-    .bind(text(&opened.link, "id"))
-    .bind(js::iso_string(now))
-    .bind(js::iso_string(now - VIEW_COUNT_INTERVAL_MS))
-    .execute(&opened.db)
-    .await?;
+async fn record_view(opened: &Opened, now: i64) -> Result<(), DbErr> {
+    use panel_share_links::Column;
+    panel_share_links::Entity::update_many()
+        .col_expr(
+            Column::ViewCount,
+            sea_orm::ExprTrait::add(Expr::col(Column::ViewCount), 1),
+        )
+        .col_expr(Column::LastViewedAt, Expr::value(instant(now)))
+        .filter(Column::Id.eq(text(&opened.link, "id")))
+        .filter(
+            Condition::any()
+                .add(Column::LastViewedAt.is_null())
+                .add(Column::LastViewedAt.lt(instant(now - VIEW_COUNT_INTERVAL_MS))),
+        )
+        .exec(&orm(&opened.db))
+        .await?;
     Ok(())
 }
 
@@ -570,7 +575,7 @@ pub(crate) async fn show(
 async fn public_result_spec(
     opened: &Opened,
     input: &Map<String, Value>,
-) -> Result<Option<Map<String, Value>>, sqlx::Error> {
+) -> Result<Option<Map<String, Value>>, DbErr> {
     let allow_date_change =
         opened.link.get("allowDateChange").and_then(Value::as_bool) == Some(true);
     let date_range = input.get("dateRange").filter(|_| allow_date_change);

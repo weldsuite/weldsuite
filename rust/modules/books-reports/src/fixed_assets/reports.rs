@@ -15,7 +15,7 @@ use weldsuite_books_domain::fiscal_year::{FiscalYearConfig, fiscal_year_for};
 use weldsuite_books_domain::js::{locale_compare, number_value};
 use weldsuite_books_domain::reports_basis::periods::fiscal_config_of;
 
-use super::assets::{load_entity, load_entity_book_rows};
+use super::assets::{load_entity, load_entity_book_rows, posted_cents_by_asset};
 use super::schedules::{
     AssetWithBook, ScheduleContext, annual_schedule, business_use, ledger_rows,
     macrs_convention_map, mid_quarter_basis_of,
@@ -229,18 +229,12 @@ pub(crate) async fn fixed_asset_register(
         .map(|(asset, _)| text(asset, "id").to_owned())
         .collect();
     if !ledger_ids.is_empty() {
-        let sums: Vec<(String, String)> = sqlx::query_as(
-            "select asset_id, coalesce(sum(amount), 0)::text from fixed_asset_depreciation \
-             where asset_id = any($1) and journal_entry_id is not null and period_end <= $2::date \
-             group by asset_id",
+        posted = posted_cents_by_asset(
+            &weldsuite_db::orm(db),
+            &ledger_ids,
+            Some(crate::rows::date_of(as_of)?),
         )
-        .bind(&ledger_ids)
-        .bind(as_of)
-        .fetch_all(db)
         .await?;
-        for (id, total) in sums {
-            posted.insert(id, to_cents(as_number(Some(&json!(total)), 0.0)));
-        }
     }
 
     let label = |asset: &Value| {

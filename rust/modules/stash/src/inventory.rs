@@ -11,6 +11,11 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, patch, post};
 use http::HeaderMap;
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{
+    ColumnTrait, Condition, DbErr, EntityTrait, FromQueryResult, JoinType, PaginatorTrait,
+    QueryFilter, QueryOrder, QuerySelect, RelationDef,
+};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events::{
     INVENTORY_CREATED, INVENTORY_DELETED, INVENTORY_UPDATED, WMS_INVENTORY_MOVEMENT_CREATED,
@@ -18,18 +23,22 @@ use weldsuite_catalogs::entity_events::{
 use weldsuite_catalogs::permission_keys::{
     INVENTORY_CREATE, INVENTORY_DELETE, INVENTORY_READ, INVENTORY_UPDATE,
 };
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::validation::{Field, Issues, Number, Presence, Text, query_values};
 use weldsuite_kit::{ApiError, Created, Data, NoContent, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::{
+    inventory, products, stock_adjustments, warehouse_locations, warehouses,
+};
 
-use crate::args::{Arg, bind_scalar, created_cursor, cursor_sql, page_list};
+use crate::args::{CursorRow, before, cursor_row, page_list, timestamp_of};
 use crate::crud::{cursor_failed, soft_delete, write_failed};
 use crate::js::{js_limit, number_text, query_param, query_set, sql_limit};
 use crate::ledger::{
     Endpoint, LedgerError, StockChange, Transfer, apply_stock_change, managed_warehouse,
     transfer_stock, warehouse_is_managed,
 };
-use crate::rows::inventory_row;
+use crate::table::Table;
 use crate::tables::{INVENTORY, STOCK_ADJUSTMENTS};
 use crate::{Caller, Refusal, StashState, internal, now, validate};
 
@@ -113,97 +122,176 @@ async fn refuse_managed_location(
     fallback: &str,
 ) -> Option<Response> {
     let location_id = location_id.filter(|id| !id.is_empty())?;
-    let managed: Result<Option<bool>, sqlx::Error> = sqlx::query_scalar(
-        "select coalesce(w.managed_by_connection_id, '') <> '' from warehouse_locations l \
-         join warehouses w on w.id = l.warehouse_id where l.id = $1 limit 1",
-    )
-    .bind(location_id)
-    .fetch_optional(db)
-    .await;
-    match managed {
-        Ok(None | Some(false)) => None,
-        Ok(Some(true)) => Some(ledger_error(managed_warehouse(), fallback)),
+    let owner: Result<Option<Option<String>>, DbErr> = warehouse_locations::Entity::find()
+        .select_only()
+        .column(warehouses::Column::ManagedByConnectionId)
+        .join(
+            JoinType::InnerJoin,
+            warehouse_locations::Entity::belongs_to(warehouses::Entity)
+                .from(warehouse_locations::Column::WarehouseId)
+                .to(warehouses::Column::Id)
+                .into(),
+        )
+        .filter(warehouse_locations::Column::Id.eq(location_id))
+        .into_tuple()
+        .one(&orm(db))
+        .await;
+    match owner.map(|owner| owner.flatten().is_some_and(|owner| !owner.is_empty())) {
+        Ok(false) => None,
+        Ok(true) => Some(ledger_error(managed_warehouse(), fallback)),
         Err(error) => Some(internal(&error, fallback)),
     }
 }
 
-/// A list row with its names: `{ ...row, productName, productSku, warehouseName, locationCode }`.
-fn with_names(table: &crate::table::Table, joined: &Value) -> Value {
-    let mut row = match table.js(joined.get("row").cloned().unwrap_or(Value::Null)) {
+/// The names a list row carries (left joins): its product's name and SKU,
+/// its warehouse's name and its location's code.
+type Names = [Option<String>; 4];
+
+/// `{ ...row, productName, productSku, warehouseName, locationCode }`, the
+/// row as the entity serializes it.
+fn with_names(
+    table: &Table,
+    row: Result<Value, serde_json::Error>,
+    names: Names,
+) -> Result<Value, DbErr> {
+    let row = row.map_err(|error| DbErr::Json(error.to_string()))?;
+    let mut row = match table.drizzle(row) {
         Value::Object(row) => row,
         _ => Map::new(),
     };
-    for key in ["productName", "productSku", "warehouseName", "locationCode"] {
-        row.insert(
-            key.to_owned(),
-            joined.get(key).cloned().unwrap_or(Value::Null),
-        );
+    for (key, value) in ["productName", "productSku", "warehouseName", "locationCode"]
+        .into_iter()
+        .zip(names)
+    {
+        row.insert(key.to_owned(), json!(value));
     }
-    Value::Object(row)
+    Ok(Value::Object(row))
 }
 
-const LIST_SQL: &str = concat!(
-    "select jsonb_build_object('row', ",
-    inventory_row!(),
-    ", 'productName', p.name, 'productSku', p.sku, ",
-    "'warehouseName', w.name, 'locationCode', l.code) from inventory t ",
-    "left join products p on t.product_id = p.id left join warehouses w on t.warehouse_id = w.id ",
-    "left join warehouse_locations l on t.location_id = l.id ",
-    "where t.deleted_at is null and (not $1::boolean or t.product_id = $2) ",
-    "and (not $3::boolean or t.warehouse_id = $4) ",
-    "and (not $5::boolean or t.quantity_on_hand <= coalesce(p.low_stock_threshold, 5)) ",
-    "and (not $6::boolean or (t.created_at < $7::timestamp or (t.created_at = $7::timestamp and t.id < $8))) ",
-    "order by t.created_at desc, t.id desc limit $9"
-);
+/// `leftJoin(<table>, eq(t.<from>, <table>.id))`.
+fn left_join<E: EntityTrait, F: EntityTrait>(from: E::Column, to: F::Column) -> RelationDef {
+    E::belongs_to(F::default()).from(from).to(to).into()
+}
 
-const COUNT_SQL: &str = concat!(
-    "select count(*) from inventory t left join products p on t.product_id = p.id ",
-    "where t.deleted_at is null and (not $1::boolean or t.product_id = $2) ",
-    "and (not $3::boolean or t.warehouse_id = $4) ",
-    "and (not $5::boolean or t.quantity_on_hand <= coalesce(p.low_stock_threshold, 5))"
-);
+/// A bucket with its names.
+#[derive(Debug, FromQueryResult)]
+struct Bucket {
+    #[sea_orm(nested)]
+    row: inventory::Model,
+    product_name: Option<String>,
+    product_sku: Option<String>,
+    warehouse_name: Option<String>,
+    location_code: Option<String>,
+}
+
+/// The `limit + 1` page: `.limit(n)` when JavaScript's limit allows one.
+fn page_limit(limit: f64) -> Option<u64> {
+    sql_limit(limit).map(|limit| u64::try_from(limit).unwrap_or(0))
+}
+
+/// The bucket list's filters: live buckets, the product, the warehouse,
+/// low stock (`quantityOnHand <= coalesce(product.lowStockThreshold, 5)`).
+fn bucket_filters(product: Option<String>, warehouse: Option<String>, low: bool) -> Condition {
+    use inventory::Column;
+    use sea_orm::ExprTrait as _;
+    let mut filters = Condition::all().add(Column::DeletedAt.is_null());
+    if let Some(product) = product {
+        filters = filters.add(Column::ProductId.eq(product));
+    }
+    if let Some(warehouse) = warehouse {
+        filters = filters.add(Column::WarehouseId.eq(warehouse));
+    }
+    if low {
+        filters = filters.add(Column::QuantityOnHand.into_expr().lte(Func::coalesce([
+            products::Column::LowStockThreshold.into_expr(),
+            Expr::val(5),
+        ])));
+    }
+    filters
+}
 
 async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
+    use inventory::{Column, Entity};
     let query = query.as_deref();
     let limit = js_limit(query_param(query, "limit").as_deref(), 25.0, 100.0);
     let product = query_set(query, "productId");
     let warehouse = query_set(query, "warehouseId");
     let low = query_param(query, "lowStockOnly").as_deref() == Some("true");
     let cursor = match query_set(query, "cursor") {
-        Some(cursor) => match created_cursor(&caller.db, cursor_sql!("inventory"), &cursor).await {
-            Ok(cursor) => cursor,
-            Err(error) => return cursor_failed(&error),
-        },
+        Some(cursor) => {
+            match cursor_row::<Entity>(&caller.db, Column::CreatedAt, Column::Id, &cursor).await {
+                Ok(cursor) => cursor,
+                Err(error) => return cursor_failed(&error),
+            }
+        }
         None => None,
     };
-    let filters = vec![
-        Arg::Bool(product.is_some()),
-        Arg::Text(product),
-        Arg::Bool(warehouse.is_some()),
-        Arg::Text(warehouse),
-        Arg::Bool(low),
-    ];
-    let mut page = filters.clone();
-    page.push(Arg::Bool(cursor.is_some()));
-    page.push(Arg::opt(cursor.as_ref().map(|(at, _)| at.as_str())));
-    page.push(Arg::opt(cursor.as_ref().map(|(_, id)| id.as_str())));
-    page.push(Arg::Int(sql_limit(limit)));
-    let rows: Result<Vec<Value>, _> = bind_scalar(sqlx::query_scalar(LIST_SQL), page)
-        .fetch_all(&caller.db)
-        .await;
-    let total: Result<i64, _> = bind_scalar(sqlx::query_scalar(COUNT_SQL), filters)
-        .fetch_one(&caller.db)
-        .await;
-    match (rows, total) {
-        (Ok(rows), Ok(total)) => page_list(
-            rows.into_iter()
-                .map(|row| with_names(&INVENTORY, &row))
-                .collect(),
-            limit,
-            total,
-        ),
-        (Err(error), _) | (_, Err(error)) => internal(&error, "Failed to list inventorys"),
+    let filters = bucket_filters(product, warehouse, low);
+    match buckets(&caller.db, filters, cursor.as_ref(), limit).await {
+        Ok((rows, total)) => page_list(rows, limit, total),
+        Err(error) => internal(&error, "Failed to list inventorys"),
     }
+}
+
+/// The page of buckets with their names, and the count of the filters.
+async fn buckets(
+    db: &PgPool,
+    filters: Condition,
+    cursor: Option<&CursorRow>,
+    limit: f64,
+) -> Result<(Vec<Value>, i64), DbErr> {
+    use inventory::{Column, Entity};
+    let db = &orm(db);
+    let product = || left_join::<Entity, products::Entity>(Column::ProductId, products::Column::Id);
+    let mut page = Entity::find()
+        .column_as(products::Column::Name, "product_name")
+        .column_as(products::Column::Sku, "product_sku")
+        .column_as(warehouses::Column::Name, "warehouse_name")
+        .column_as(warehouse_locations::Column::Code, "location_code")
+        .join(JoinType::LeftJoin, product())
+        .join(
+            JoinType::LeftJoin,
+            left_join::<Entity, warehouses::Entity>(Column::WarehouseId, warehouses::Column::Id),
+        )
+        .join(
+            JoinType::LeftJoin,
+            left_join::<Entity, warehouse_locations::Entity>(
+                Column::LocationId,
+                warehouse_locations::Column::Id,
+            ),
+        )
+        .filter(filters.clone());
+    if let Some(cursor) = cursor {
+        page = page.filter(before(Column::CreatedAt, Column::Id, cursor));
+    }
+    let rows = page
+        .order_by_desc(Column::CreatedAt)
+        .order_by_desc(Column::Id)
+        .limit(page_limit(limit))
+        .into_model::<Bucket>()
+        .all(db)
+        .await?;
+    let total = Entity::find()
+        .join(JoinType::LeftJoin, product())
+        .filter(filters)
+        .count(db)
+        .await?;
+    let rows = rows
+        .into_iter()
+        .map(|bucket| {
+            with_names(
+                &INVENTORY,
+                serde_json::to_value(bucket.row),
+                [
+                    bucket.product_name,
+                    bucket.product_sku,
+                    bucket.warehouse_name,
+                    bucket.location_code,
+                ],
+            )
+        })
+        .collect::<Result<_, DbErr>>()?;
+    Ok((rows, i64::try_from(total).unwrap_or(i64::MAX)))
 }
 
 /// `stockAdjustmentTypeSchema`.
@@ -220,28 +308,110 @@ const ADJUSTMENT_TYPES: &[&str] = &[
     "cycle_count",
 ];
 
-const LEDGER_SQL: &str = concat!(
-    "select jsonb_build_object('row', to_jsonb(t), 'productName', p.name, 'productSku', p.sku, ",
-    "'warehouseName', w.name, 'locationCode', l.code) from stock_adjustments t ",
-    "left join products p on t.product_id = p.id left join warehouses w on t.warehouse_id = w.id ",
-    "left join warehouse_locations l on t.location_id = l.id where ",
-    "(not $1::boolean or t.product_id = $2) and (not $3::boolean or t.variant_id = $4) ",
-    "and (not $5::boolean or t.warehouse_id = $6) and (not $7::boolean or t.location_id = $8) ",
-    "and (not $9::boolean or t.lot_number = $10) and (not $11::boolean or t.type = $12) ",
-    "and (not $13::boolean or t.source_type = $14) and (not $15::boolean or t.created_at >= $16::timestamp) ",
-    "and (not $17::boolean or t.created_at <= $18::timestamp) ",
-    "and (not $19::boolean or (t.created_at < $20::timestamp or (t.created_at = $20::timestamp and t.id < $21))) ",
-    "order by t.created_at desc, t.id desc limit $22"
-);
+/// A ledger row with its names.
+#[derive(Debug, FromQueryResult)]
+struct Adjustment {
+    #[sea_orm(nested)]
+    row: stock_adjustments::Model,
+    product_name: Option<String>,
+    product_sku: Option<String>,
+    warehouse_name: Option<String>,
+    location_code: Option<String>,
+}
 
-const LEDGER_COUNT_SQL: &str = concat!(
-    "select count(*) from stock_adjustments t where ",
-    "(not $1::boolean or t.product_id = $2) and (not $3::boolean or t.variant_id = $4) ",
-    "and (not $5::boolean or t.warehouse_id = $6) and (not $7::boolean or t.location_id = $8) ",
-    "and (not $9::boolean or t.lot_number = $10) and (not $11::boolean or t.type = $12) ",
-    "and (not $13::boolean or t.source_type = $14) and (not $15::boolean or t.created_at >= $16::timestamp) ",
-    "and (not $17::boolean or t.created_at <= $18::timestamp)"
-);
+/// The ledger's filters, in the query's order: product, variant,
+/// warehouse, location, lot, type, source type, from, to (`if (q.x)`: an
+/// empty string is no filter).
+fn ledger_filters(values: Vec<Option<String>>) -> Result<Condition, DbErr> {
+    use stock_adjustments::Column;
+    let columns = [
+        Column::ProductId,
+        Column::VariantId,
+        Column::WarehouseId,
+        Column::LocationId,
+        Column::LotNumber,
+        Column::Type,
+    ];
+    let mut values = values
+        .into_iter()
+        .map(|value| value.filter(|value| !value.is_empty()));
+    let mut filters = Condition::all();
+    for column in columns {
+        if let Some(value) = values.next().flatten() {
+            filters = filters.add(column.eq(value));
+        }
+    }
+    if let Some(source) = values.next().flatten() {
+        filters = filters.add(Column::SourceType.eq(source));
+    }
+    if let Some(from) = values.next().flatten() {
+        filters = filters.add(Column::CreatedAt.gte(timestamp_of(&from)?));
+    }
+    if let Some(to) = values.next().flatten() {
+        filters = filters.add(Column::CreatedAt.lte(timestamp_of(&to)?));
+    }
+    Ok(filters)
+}
+
+/// The page of the ledger with its names, and the count of the filters.
+async fn adjustments(
+    db: &PgPool,
+    filters: Vec<Option<String>>,
+    cursor: Option<&CursorRow>,
+    limit: f64,
+) -> Result<(Vec<Value>, i64), DbErr> {
+    use stock_adjustments::{Column, Entity};
+    let db = &orm(db);
+    let filters = ledger_filters(filters)?;
+    let mut page = Entity::find()
+        .column_as(products::Column::Name, "product_name")
+        .column_as(products::Column::Sku, "product_sku")
+        .column_as(warehouses::Column::Name, "warehouse_name")
+        .column_as(warehouse_locations::Column::Code, "location_code")
+        .join(
+            JoinType::LeftJoin,
+            left_join::<Entity, products::Entity>(Column::ProductId, products::Column::Id),
+        )
+        .join(
+            JoinType::LeftJoin,
+            left_join::<Entity, warehouses::Entity>(Column::WarehouseId, warehouses::Column::Id),
+        )
+        .join(
+            JoinType::LeftJoin,
+            left_join::<Entity, warehouse_locations::Entity>(
+                Column::LocationId,
+                warehouse_locations::Column::Id,
+            ),
+        )
+        .filter(filters.clone());
+    if let Some(cursor) = cursor {
+        page = page.filter(before(Column::CreatedAt, Column::Id, cursor));
+    }
+    let rows = page
+        .order_by_desc(Column::CreatedAt)
+        .order_by_desc(Column::Id)
+        .limit(page_limit(limit))
+        .into_model::<Adjustment>()
+        .all(db)
+        .await?;
+    let total = Entity::find().filter(filters).count(db).await?;
+    let rows = rows
+        .into_iter()
+        .map(|adjustment| {
+            with_names(
+                &STOCK_ADJUSTMENTS,
+                serde_json::to_value(adjustment.row),
+                [
+                    adjustment.product_name,
+                    adjustment.product_sku,
+                    adjustment.warehouse_name,
+                    adjustment.location_code,
+                ],
+            )
+        })
+        .collect::<Result<_, DbErr>>()?;
+    Ok((rows, i64::try_from(total).unwrap_or(i64::MAX)))
+}
 
 /// `inventoryLedgerQuerySchema`, as `zValidator('query', …)` reads it.
 struct LedgerQuery {
@@ -309,40 +479,17 @@ async fn ledger(caller: Caller, RawQuery(query): RawQuery) -> Response {
     let limit = q.limit.unwrap_or(25.0);
     let cursor = match q.cursor.filter(|cursor| !cursor.is_empty()) {
         Some(cursor) => {
-            match created_cursor(&caller.db, cursor_sql!("stock_adjustments"), &cursor).await {
+            use stock_adjustments::{Column, Entity};
+            match cursor_row::<Entity>(&caller.db, Column::CreatedAt, Column::Id, &cursor).await {
                 Ok(cursor) => cursor,
                 Err(error) => return cursor_failed(&error),
             }
         }
         None => None,
     };
-    let mut filters = Vec::new();
-    for value in q.filters {
-        // `if (q.x)`: an empty string is no filter.
-        let value = value.filter(|value| !value.is_empty());
-        filters.push(Arg::Bool(value.is_some()));
-        filters.push(Arg::Text(value));
-    }
-    let mut page = filters.clone();
-    page.push(Arg::Bool(cursor.is_some()));
-    page.push(Arg::opt(cursor.as_ref().map(|(at, _)| at.as_str())));
-    page.push(Arg::opt(cursor.as_ref().map(|(_, id)| id.as_str())));
-    page.push(Arg::Int(sql_limit(limit)));
-    let rows: Result<Vec<Value>, _> = bind_scalar(sqlx::query_scalar(LEDGER_SQL), page)
-        .fetch_all(&caller.db)
-        .await;
-    let total: Result<i64, _> = bind_scalar(sqlx::query_scalar(LEDGER_COUNT_SQL), filters)
-        .fetch_one(&caller.db)
-        .await;
-    match (rows, total) {
-        (Ok(rows), Ok(total)) => page_list(
-            rows.into_iter()
-                .map(|row| with_names(&STOCK_ADJUSTMENTS, &row))
-                .collect(),
-            limit,
-            total,
-        ),
-        (Err(error), _) | (_, Err(error)) => internal(&error, "Failed to list stock ledger"),
+    match adjustments(&caller.db, q.filters, cursor.as_ref(), limit).await {
+        Ok((rows, total)) => page_list(rows, limit, total),
+        Err(error) => internal(&error, "Failed to list stock ledger"),
     }
 }
 

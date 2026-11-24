@@ -13,13 +13,17 @@
 
 use std::collections::HashSet;
 
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
 use weldsuite_core_domain::files::{NewFile, create_file};
+use weldsuite_db::orm;
 use weldsuite_flow_domain::access::resolve_project_access;
 use weldsuite_flow_domain::analytics::task_analytics_payload;
 use weldsuite_flow_domain::tasks::create_task;
 use weldsuite_kit::validation::js_trim;
 use weldsuite_ports::{BoxFuture, PutOptions};
+use weldsuite_schema::tenant::{files as file_rows, tasks};
 
 use crate::common::{iso, js_slice, text};
 use crate::creator_access::{CreatorForbidden, load_creator_access};
@@ -58,12 +62,20 @@ impl ProcessStep for FlowStep {
 /// `attachFiles(ctx, taskId, userId)`: the response's uploads as files of
 /// the task, each copied once (a retry finds the copies it made).
 async fn attach_files(ctx: &ProcessContext, task_id: &str, user_id: &str) -> Result<(), StepFail> {
-    let made: Vec<Option<String>> = sqlx::query_scalar(
-        "select metadata->>'formResponseFileId' from files where entity_type = 'task' and entity_id = $1",
-    )
-    .bind(task_id)
-    .fetch_all(&ctx.db)
-    .await?;
+    let made: Vec<Option<String>> = file_rows::Entity::find()
+        .select_only()
+        .column_as(
+            sea_orm::sea_query::extension::postgres::PgExpr::cast_json_field(
+                Expr::col(file_rows::Column::Metadata),
+                "formResponseFileId",
+            ),
+            "form_response_file_id",
+        )
+        .filter(file_rows::Column::EntityType.eq("task"))
+        .filter(file_rows::Column::EntityId.eq(task_id))
+        .into_tuple()
+        .all(&orm(&ctx.db))
+        .await?;
     let done: HashSet<String> = made.into_iter().flatten().collect();
     for file in &ctx.files {
         let file_id = text(file, "id");
@@ -157,11 +169,13 @@ async fn flow_body(
     let recorded = recorded_entity(&ctx.db, response_id, integration_id).await?;
     let known = match recorded {
         Some((kind, id)) if kind == "task" => {
-            let exists: Option<String> =
-                sqlx::query_scalar("select id from tasks where id = $1 limit 1")
-                    .bind(&id)
-                    .fetch_optional(&ctx.db)
-                    .await?;
+            let exists: Option<String> = tasks::Entity::find()
+                .select_only()
+                .column(tasks::Column::Id)
+                .filter(tasks::Column::Id.eq(&id))
+                .into_tuple()
+                .one(&orm(&ctx.db))
+                .await?;
             exists.map(|_| id)
         }
         _ => None,

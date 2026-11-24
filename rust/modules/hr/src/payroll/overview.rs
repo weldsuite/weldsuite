@@ -2,14 +2,18 @@
 //! employers and their issues, whether setup is complete, the next period
 //! of each schedule, recent runs and filings due.
 
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 use serde_json::{Value, json};
-use weldsuite_db::{Keyring, PgPool, js_row};
+use weldsuite_db::{Keyring, PgPool, orm};
+use weldsuite_schema::tenant::hr_pay_runs;
 
 use super::employees::list_payroll_employees;
 use super::employers::{list_employers, list_schedules};
 use super::filings::filings_due_soon;
 use super::runs::{s, to_run_dtos};
 use crate::HrError;
+use crate::employees::to_json;
 use crate::entity_scope::Scope;
 
 /// `payrollOverview(db, keyring, { today, digipoortAvailable, employerEntity,
@@ -36,13 +40,21 @@ pub(crate) async fn payroll_overview(
     let live_runs: Vec<(String, Option<String>, String, String)> = if schedule_ids.is_empty() {
         vec![]
     } else {
-        sqlx::query_as(
-            "select id, pay_schedule_id, period_start::text, status from hr_pay_runs
-             where pay_schedule_id = any($1) and kind = 'regular' and status <> 'cancelled'",
-        )
-        .bind(&schedule_ids)
-        .fetch_all(db)
-        .await?
+        hr_pay_runs::Entity::find()
+            .select_only()
+            .column(hr_pay_runs::Column::Id)
+            .column(hr_pay_runs::Column::PayScheduleId)
+            .column_as(
+                sea_orm::ExprTrait::cast_as(Expr::col(hr_pay_runs::Column::PeriodStart), "text"),
+                "period_start",
+            )
+            .column(hr_pay_runs::Column::Status)
+            .filter(hr_pay_runs::Column::PayScheduleId.is_in(schedule_ids.iter().copied()))
+            .filter(hr_pay_runs::Column::Kind.eq("regular"))
+            .filter(hr_pay_runs::Column::Status.ne("cancelled"))
+            .into_tuple()
+            .all(&orm(db))
+            .await?
     };
     let mut upcoming: Vec<Value> = vec![];
     for schedule in &schedules {
@@ -63,18 +75,17 @@ pub(crate) async fn payroll_overview(
         }));
     }
     upcoming.sort_by(|a, b| s(&a["period"], "payDate").cmp(s(&b["period"], "payDate")));
-    let recent: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from hr_pay_runs t where t.status <> 'cancelled'
-           and ($1::text[] is null or t.employer_id in (select scope_p.id from hr_payroll_employers scope_p
-                where scope_p.legal_entity_id = any($1)
-                   or ($2::boolean and scope_p.legal_entity_id is null)))
-         order by t.period_start desc, t.created_at desc limit 6",
-    )
-    .bind(scope.ids())
-    .bind(scope.unassigned())
-    .fetch_all(db)
-    .await?;
-    let recent: Vec<Value> = recent.into_iter().map(js_row).collect();
+    let recent: Vec<Value> = hr_pay_runs::Entity::find()
+        .filter(hr_pay_runs::Column::Status.ne("cancelled"))
+        .filter(scope.employer_id_in(hr_pay_runs::Column::EmployerId))
+        .order_by_desc(hr_pay_runs::Column::PeriodStart)
+        .order_by_desc(hr_pay_runs::Column::CreatedAt)
+        .limit(6)
+        .all(&orm(db))
+        .await?
+        .into_iter()
+        .map(to_json)
+        .collect::<Result<_, _>>()?;
     let not_ready = on_payroll
         .iter()
         .filter(|e| {

@@ -5,7 +5,9 @@
 
 use jiff::Timestamp;
 use jiff::tz::TimeZone;
-use sqlx::PgPool;
+use sea_orm::{DbErr, EntityTrait, QuerySelect};
+use weldsuite_db::{PgPool, orm};
+use weldsuite_schema::tenant::workspace_settings;
 
 const DAY_MS: i64 = 86_400_000;
 
@@ -71,16 +73,18 @@ pub fn day_bounds_in_timezone(timezone: Option<&str>, now_ms: i64) -> DayBounds 
 }
 
 /// `getWorkspaceTimezone(db)`: the workspace's zone, `None` when unset.
-pub async fn workspace_timezone(db: &PgPool) -> Result<Option<String>, sqlx::Error> {
-    let zone: Option<Option<String>> =
-        sqlx::query_scalar("select timezone from workspace_settings limit 1")
-            .fetch_optional(db)
-            .await?;
+pub async fn workspace_timezone(db: &PgPool) -> Result<Option<String>, DbErr> {
+    let zone: Option<Option<String>> = workspace_settings::Entity::find()
+        .select_only()
+        .column(workspace_settings::Column::Timezone)
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     Ok(zone.flatten().filter(|zone| !zone.is_empty()))
 }
 
 /// `workspaceDayBounds(db, now)`.
-pub async fn workspace_day_bounds(db: &PgPool, now_ms: i64) -> Result<DayBounds, sqlx::Error> {
+pub async fn workspace_day_bounds(db: &PgPool, now_ms: i64) -> Result<DayBounds, DbErr> {
     Ok(day_bounds_in_timezone(
         workspace_timezone(db).await?.as_deref(),
         now_ms,

@@ -6,6 +6,8 @@
 //!
 //! Run when `WELDSUITE_TEST_TENANT_URL` is set; otherwise they return early.
 
+#![allow(clippy::disallowed_methods, reason = "test fixtures")]
+
 use weldsuite_db::master_pool;
 
 use crate::envelope::{

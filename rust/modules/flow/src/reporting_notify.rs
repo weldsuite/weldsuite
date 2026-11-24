@@ -19,8 +19,9 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use sea_orm::{ColumnTrait, Condition, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::Value;
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_emails::flow::{
     FlowPortalInvitation, FlowStatusReport, Overall, period_label, portal_invitation, status_report,
 };
@@ -29,6 +30,8 @@ use weldsuite_flow_domain::stakeholders::project_portal_url;
 use weldsuite_flow_domain::status_report::RecipientCandidate;
 use weldsuite_notifications::{NewNotification, Notifier, create_and_deliver};
 use weldsuite_ports::DynSystemMail;
+use weldsuite_schema::master::workspaces;
+use weldsuite_schema::tenant::people;
 
 use crate::reporting_store::{ReportProject, member_identities};
 use crate::{Caller, FlowState};
@@ -74,21 +77,30 @@ pub(crate) fn report_app_path(project_id: &str, report_id: &str) -> String {
 
 /// The workspace's display name and its slug; the client portal routes by the slug.
 async fn workspace_identity(ctx: &NotifyContext) -> Option<(String, String)> {
+    use workspaces::Column;
     let master = ctx.master.as_ref()?;
-    sqlx::query_as::<_, (String, String)>(
-        "select name, slug from workspaces where id = $1 or clerk_org_id = $1 limit 1",
-    )
-    .bind(&ctx.workspace_id)
-    .fetch_optional(master)
-    .await
-    .ok()
-    .flatten()
+    workspaces::Entity::find()
+        .select_only()
+        .columns([Column::Name, Column::Slug])
+        .filter(
+            Condition::any()
+                .add(Column::Id.eq(&ctx.workspace_id))
+                .add(Column::ClerkOrgId.eq(&ctx.workspace_id)),
+        )
+        .into_tuple::<(String, String)>()
+        .one(&orm(master))
+        .await
+        .ok()
+        .flatten()
 }
 
 async fn contact_language(db: &PgPool, contact_id: &str) -> Option<String> {
-    sqlx::query_scalar::<_, Option<String>>("select preferred_language from people where id = $1")
-        .bind(contact_id)
-        .fetch_optional(db)
+    people::Entity::find()
+        .select_only()
+        .column(people::Column::PreferredLanguage)
+        .filter(people::Column::Id.eq(contact_id))
+        .into_tuple::<Option<String>>()
+        .one(&orm(db))
         .await
         .ok()
         .flatten()

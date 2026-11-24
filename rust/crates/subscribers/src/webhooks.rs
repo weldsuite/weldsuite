@@ -33,12 +33,18 @@ use std::time::{Duration, Instant};
 
 use aws_lc_rs::hmac;
 use futures_util::future::join_all;
+use sea_orm::sea_query::{Expr, Query};
+use sea_orm::{
+    ColumnTrait, Condition, ConnectionTrait, DbErr, EntityTrait, JoinType, QueryFilter,
+    QuerySelect, RelationDef,
+};
 use serde_json::{Map, Value, json};
 use time::OffsetDateTime;
 use weldsuite_catalogs::entity_events;
-use weldsuite_db::PgPool;
 use weldsuite_db::due_index::{mark_due, run_sweep};
+use weldsuite_db::{PgPool, orm};
 use weldsuite_ports::{BatchHandler, BoxFuture, Delivery, Disposition, HttpRequest, OutboundHttp};
+use weldsuite_schema::tenant::{external_webhooks, webhook_deliveries};
 
 use crate::event::HubEvent;
 use crate::js;
@@ -132,6 +138,31 @@ impl WebhookRow {
             events: row
                 .get("events")
                 .and_then(Value::as_array)
+                .map(|items| {
+                    items
+                        .iter()
+                        .filter_map(Value::as_str)
+                        .map(str::to_owned)
+                        .collect()
+                })
+                .unwrap_or_default(),
+        }
+    }
+}
+
+/// An `external_webhooks` row as [`WebhookRow::from_json`] reads it.
+impl From<external_webhooks::Model> for WebhookRow {
+    fn from(row: external_webhooks::Model) -> Self {
+        Self {
+            id: row.id,
+            url: row.url,
+            secret: row.secret,
+            headers: row.headers.filter(|headers| !headers.is_null()),
+            status: row.status,
+            consecutive_failures: row.consecutive_failures,
+            events: row
+                .events
+                .as_array()
                 .map(|items| {
                     items
                         .iter()
@@ -433,6 +464,12 @@ fn iso(at: OffsetDateTime) -> String {
     weldsuite_events::iso_timestamp(at)
 }
 
+/// `at` as the `timestamptz` the ISO text of [`iso`] names: UTC, to the
+/// millisecond.
+fn instant(at: OffsetDateTime) -> OffsetDateTime {
+    weldsuite_db::utc_timestamp(at).assume_utc()
+}
+
 fn quote(text: &str) -> String {
     serde_json::to_string(text).unwrap_or_default()
 }
@@ -443,38 +480,40 @@ async fn apply_delivery_outcome(
     webhook: &WebhookRow,
     success: bool,
     error_message: Option<&str>,
-) -> Result<(), sqlx::Error> {
-    let now = iso(OffsetDateTime::now_utc());
-    if success {
-        sqlx::query(
-            "update external_webhooks set last_delivered_at = $2::timestamptz, \
-             total_deliveries = total_deliveries + 1, consecutive_failures = 0, \
-             updated_at = $2::timestamptz where id = $1",
-        )
-        .bind(&webhook.id)
-        .bind(&now)
-        .execute(db)
-        .await?;
-        return Ok(());
-    }
-    let next_failures = webhook.consecutive_failures.unwrap_or(0) + 1;
-    let disable = next_failures >= AUTO_DISABLE_THRESHOLD && webhook.status != "disabled";
-    sqlx::query(
-        "update external_webhooks set last_failed_at = $2::timestamptz, last_failure_reason = $3, \
-         total_deliveries = total_deliveries + 1, total_failures = total_failures + 1, \
-         consecutive_failures = $4, status = $5, updated_at = $2::timestamptz where id = $1",
-    )
-    .bind(&webhook.id)
-    .bind(&now)
-    .bind(error_message.map(|message| js::slice_to(message, ERROR_MESSAGE_CAPTURE_LIMIT)))
-    .bind(next_failures)
-    .bind(if disable {
-        "disabled"
+) -> Result<(), DbErr> {
+    use external_webhooks::Column;
+    use sea_orm::ExprTrait as _;
+    let now = instant(OffsetDateTime::now_utc());
+    let plus_one = |column: Column| Expr::col((external_webhooks::Entity, column)).add(1);
+    let update = external_webhooks::Entity::update_many();
+    let update = if success {
+        update
+            .col_expr(Column::LastDeliveredAt, Expr::value(now))
+            .col_expr(Column::TotalDeliveries, plus_one(Column::TotalDeliveries))
+            .col_expr(Column::ConsecutiveFailures, Expr::value(0))
     } else {
-        webhook.status.as_str()
-    })
-    .execute(db)
-    .await?;
+        let next_failures = webhook.consecutive_failures.unwrap_or(0) + 1;
+        let disable = next_failures >= AUTO_DISABLE_THRESHOLD && webhook.status != "disabled";
+        let reason =
+            error_message.map(|message| js::slice_to(message, ERROR_MESSAGE_CAPTURE_LIMIT));
+        let status = if disable {
+            "disabled"
+        } else {
+            webhook.status.as_str()
+        };
+        update
+            .col_expr(Column::LastFailedAt, Expr::value(now))
+            .col_expr(Column::LastFailureReason, Expr::value(reason))
+            .col_expr(Column::TotalDeliveries, plus_one(Column::TotalDeliveries))
+            .col_expr(Column::TotalFailures, plus_one(Column::TotalFailures))
+            .col_expr(Column::ConsecutiveFailures, Expr::value(next_failures))
+            .col_expr(Column::Status, Expr::value(status))
+    };
+    update
+        .col_expr(Column::UpdatedAt, Expr::value(now))
+        .filter(Column::Id.eq(webhook.id.as_str()))
+        .exec(&orm(db))
+        .await?;
     Ok(())
 }
 
@@ -483,14 +522,16 @@ async fn has_existing_delivery(
     db: &PgPool,
     webhook_id: &str,
     event_id: &str,
-) -> Result<bool, sqlx::Error> {
-    let found: Option<String> = sqlx::query_scalar(
-        "select id from webhook_deliveries where webhook_id = $1 and event_id = $2 limit 1",
-    )
-    .bind(webhook_id)
-    .bind(event_id)
-    .fetch_optional(db)
-    .await?;
+) -> Result<bool, DbErr> {
+    use webhook_deliveries::Column;
+    let found: Option<String> = webhook_deliveries::Entity::find()
+        .select_only()
+        .column(Column::Id)
+        .filter(Column::WebhookId.eq(webhook_id))
+        .filter(Column::EventId.eq(event_id))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     Ok(found.is_some())
 }
 
@@ -503,36 +544,55 @@ struct NewDelivery<'a> {
     status: &'a str,
     attempt: &'a AttemptResult,
     attempt_number: i32,
-    next_retry_at: Option<String>,
+    next_retry_at: Option<OffsetDateTime>,
     max_retries: i32,
-    created_at: &'a str,
+    created_at: OffsetDateTime,
 }
 
-async fn insert_delivery(db: &PgPool, row: NewDelivery<'_>) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "insert into webhook_deliveries (id, webhook_id, event_type, event_id, payload, status, \
-         response_status, response_body, response_time_ms, attempt_number, next_retry_at, \
-         max_retries, error_message, created_at, delivered_at) \
-         values ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9, $10, $11::timestamptz, $12, $13, \
-         $14::timestamptz, $15::timestamptz)",
-    )
-    .bind(delivery_id())
-    .bind(row.webhook_id)
-    .bind(row.event_type)
-    .bind(row.event_id)
-    .bind(row.payload)
-    .bind(row.status)
-    .bind(row.attempt.status.map(i32::from))
-    .bind(row.attempt.body.as_deref())
-    .bind(row.attempt.duration_ms)
-    .bind(row.attempt_number)
-    .bind(row.next_retry_at)
-    .bind(row.max_retries)
-    .bind(row.attempt.error.as_deref())
-    .bind(row.created_at)
-    .bind(row.attempt.ok.then_some(row.created_at))
-    .execute(db)
-    .await?;
+/// The delivery row. The payload goes in as the text that was sent
+/// (`$5::jsonb`), so Postgres reads its numbers as written.
+async fn insert_delivery(db: &PgPool, row: NewDelivery<'_>) -> Result<(), DbErr> {
+    use sea_orm::ExprTrait as _;
+    use webhook_deliveries::Column;
+    let insert = Query::insert()
+        .into_table(webhook_deliveries::Entity)
+        .columns([
+            Column::Id,
+            Column::WebhookId,
+            Column::EventType,
+            Column::EventId,
+            Column::Payload,
+            Column::Status,
+            Column::ResponseStatus,
+            Column::ResponseBody,
+            Column::ResponseTimeMs,
+            Column::AttemptNumber,
+            Column::NextRetryAt,
+            Column::MaxRetries,
+            Column::ErrorMessage,
+            Column::CreatedAt,
+            Column::DeliveredAt,
+        ])
+        .values([
+            Expr::value(delivery_id()),
+            Expr::value(row.webhook_id.to_owned()),
+            Expr::value(row.event_type.to_owned()),
+            Expr::value(row.event_id.to_owned()),
+            Expr::val(row.payload.to_owned()).cast_as("jsonb"),
+            Expr::value(row.status.to_owned()),
+            Expr::value(row.attempt.status.map(i32::from)),
+            Expr::value(row.attempt.body.clone()),
+            Expr::value(row.attempt.duration_ms),
+            Expr::value(row.attempt_number),
+            Expr::value(row.next_retry_at),
+            Expr::value(row.max_retries),
+            Expr::value(row.attempt.error.clone()),
+            Expr::value(row.created_at),
+            Expr::value(row.attempt.ok.then_some(row.created_at)),
+        ])
+        .map_err(|error| DbErr::Custom(error.to_string()))?
+        .to_owned();
+    orm(db).execute(&insert).await?;
     Ok(())
 }
 
@@ -564,7 +624,7 @@ pub async fn deliver_webhook_event(
     db: &PgPool,
     http: &WebhookHttp,
     input: DeliverInput<'_>,
-) -> Result<bool, sqlx::Error> {
+) -> Result<bool, DbErr> {
     deliver_webhook_event_with(db, http, input)
         .await
         .map(|outcome| outcome.delivered)
@@ -577,7 +637,7 @@ pub async fn deliver_webhook_event_with(
     db: &PgPool,
     attempts: &dyn DeliveryAttempts,
     input: DeliverInput<'_>,
-) -> Result<DeliveryOutcome, sqlx::Error> {
+) -> Result<DeliveryOutcome, DbErr> {
     if has_existing_delivery(db, &input.webhook.id, input.event_id).await? {
         tracing::info!(
             event_id = input.event_id,
@@ -613,8 +673,7 @@ pub async fn deliver_webhook_event_with(
     }
     let now = OffsetDateTime::now_utc();
     let next_retry_at =
-        (!attempt.ok).then(|| iso(now + time::Duration::milliseconds(RETRY_BASE_DELAY_MS)));
-    let created_at = iso(now);
+        (!attempt.ok).then(|| instant(now + time::Duration::milliseconds(RETRY_BASE_DELAY_MS)));
     insert_delivery(
         db,
         NewDelivery {
@@ -627,7 +686,7 @@ pub async fn deliver_webhook_event_with(
             attempt_number,
             next_retry_at,
             max_retries: MAX_RETRY_ATTEMPTS,
-            created_at: &created_at,
+            created_at: instant(now),
         },
     )
     .await?;
@@ -659,16 +718,8 @@ pub async fn dispatch_webhook_deliveries(
     let event_type = format!("{}.{}", event.entity_type, event.action);
     let mut names = vec![event_type.clone()];
     names.extend(legacy_webhook_event_names(&event_type));
-    let rows: Result<Vec<Value>, sqlx::Error> = sqlx::query_scalar(
-        "select to_jsonb(w) from external_webhooks w \
-         where w.status = 'active' and w.deleted_at is null \
-         and exists (select 1 from unnest($1::text[]) as n(name) where w.events @> jsonb_build_array(n.name))",
-    )
-    .bind(&names)
-    .fetch_all(db)
-    .await;
-    let webhooks: Vec<WebhookRow> = match rows {
-        Ok(rows) => rows.iter().map(WebhookRow::from_json).collect(),
+    let webhooks: Vec<WebhookRow> = match subscribed_webhooks(db, &names).await {
+        Ok(rows) => rows.into_iter().map(WebhookRow::from).collect(),
         Err(error) => {
             tracing::error!(%error, "webhooks: failed to look up subscriptions");
             return DispatchResult::default();
@@ -720,16 +771,64 @@ pub struct RetryResult {
     pub succeeded: usize,
 }
 
+/// The active webhooks subscribed to one of `names` (`events @>
+/// jsonb_build_array(name)`).
+async fn subscribed_webhooks(
+    db: &PgPool,
+    names: &[String],
+) -> Result<Vec<external_webhooks::Model>, DbErr> {
+    use external_webhooks::Column;
+    let subscribed = names.iter().fold(Condition::any(), |any, name| {
+        any.add(sea_orm::sea_query::extension::postgres::PgExpr::contains(
+            Expr::col((external_webhooks::Entity, Column::Events)),
+            json!([name]),
+        ))
+    });
+    external_webhooks::Entity::find()
+        .filter(
+            Condition::all()
+                .add(Column::Status.eq("active"))
+                .add(Column::DeletedAt.is_null())
+                .add(subscribed),
+        )
+        .all(&orm(db))
+        .await
+}
+
+/// `inner join external_webhooks w on d.webhook_id = w.id`.
+fn delivery_webhook() -> RelationDef {
+    webhook_deliveries::Entity::belongs_to(external_webhooks::Entity)
+        .from(webhook_deliveries::Column::WebhookId)
+        .to(external_webhooks::Column::Id)
+        .into()
+}
+
+/// Failed or retrying deliveries of an active webhook that have attempts
+/// left: `d.status in ('failed', 'retrying') and w.deleted_at is null and
+/// w.status = 'active' and d.attempt_number < d.max_retries`.
+fn retryable() -> Condition {
+    use sea_orm::ExprTrait as _;
+    use webhook_deliveries::Column;
+    Condition::all()
+        .add(Column::Status.is_in(["failed", "retrying"]))
+        .add(external_webhooks::Column::DeletedAt.is_null())
+        .add(external_webhooks::Column::Status.eq("active"))
+        .add(
+            Expr::col((webhook_deliveries::Entity, Column::AttemptNumber))
+                .lt(Expr::col((webhook_deliveries::Entity, Column::MaxRetries))),
+        )
+}
+
 /// `hasPendingWebhookRetries`.
-pub async fn has_pending_webhook_retries(db: &PgPool) -> Result<bool, sqlx::Error> {
-    let found: Option<String> = sqlx::query_scalar(
-        "select d.id from webhook_deliveries d \
-         inner join external_webhooks w on d.webhook_id = w.id \
-         where d.status in ('failed', 'retrying') and w.deleted_at is null and w.status = 'active' \
-         and d.next_retry_at is not null and d.attempt_number < d.max_retries limit 1",
-    )
-    .fetch_optional(db)
-    .await?;
+pub async fn has_pending_webhook_retries(db: &PgPool) -> Result<bool, DbErr> {
+    let found: Option<String> = webhook_deliveries::Entity::find()
+        .select_only()
+        .column(webhook_deliveries::Column::Id)
+        .join(JoinType::InnerJoin, delivery_webhook())
+        .filter(retryable().add(webhook_deliveries::Column::NextRetryAt.is_not_null()))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     Ok(found.is_some())
 }
 
@@ -738,38 +837,26 @@ pub async fn has_pending_webhook_retries(db: &PgPool) -> Result<bool, sqlx::Erro
 pub async fn retry_failed_webhook_deliveries(
     db: &PgPool,
     http: &WebhookHttp,
-) -> Result<RetryResult, sqlx::Error> {
-    let now = iso(OffsetDateTime::now_utc());
-    let due: Vec<(Value, Value)> = sqlx::query_as(
-        "select to_jsonb(d), to_jsonb(w) from webhook_deliveries d \
-         inner join external_webhooks w on d.webhook_id = w.id \
-         where d.status in ('failed', 'retrying') and w.deleted_at is null and w.status = 'active' \
-         and d.next_retry_at <= $1::timestamptz and d.attempt_number < d.max_retries limit 50",
-    )
-    .bind(&now)
-    .fetch_all(db)
-    .await?;
+) -> Result<RetryResult, DbErr> {
+    let now = instant(OffsetDateTime::now_utc());
+    let due: Vec<(webhook_deliveries::Model, Option<external_webhooks::Model>)> =
+        webhook_deliveries::Entity::find()
+            .select_also(external_webhooks::Entity)
+            .join(JoinType::InnerJoin, delivery_webhook())
+            .filter(retryable().add(webhook_deliveries::Column::NextRetryAt.lte(now)))
+            .limit(50)
+            .all(&orm(db))
+            .await?;
     let mut result = RetryResult {
         attempted: due.len(),
         succeeded: 0,
     };
     for (delivery, webhook) in due {
-        let webhook = WebhookRow::from_json(&webhook);
-        let text = |key: &str| {
-            delivery
-                .get(key)
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-                .to_owned()
+        let Some(webhook) = webhook.map(WebhookRow::from) else {
+            continue;
         };
-        let number = |key: &str| {
-            delivery
-                .get(key)
-                .and_then(Value::as_i64)
-                .and_then(|n| i32::try_from(n).ok())
-        };
-        let payload = delivery.get("payload").cloned().unwrap_or(Value::Null);
-        let event_type = text("event_type");
+        let payload = delivery.payload;
+        let event_type = delivery.event_type;
         // `{ ...payload, timestamp: now }`.
         let mut body = match &payload {
             Value::Object(map) => map.clone(),
@@ -782,8 +869,8 @@ pub async fn retry_failed_webhook_deliveries(
         let body = Value::Object(body).to_string();
         let attempt = http.attempt(&webhook, &body, &event_type).await;
 
-        let next_attempt = number("attempt_number").unwrap_or(1) + 1;
-        let max_retries = number("max_retries").unwrap_or(MAX_RETRY_ATTEMPTS);
+        let next_attempt = delivery.attempt_number + 1;
+        let max_retries = delivery.max_retries.unwrap_or(MAX_RETRY_ATTEMPTS);
         let exhausted = next_attempt >= max_retries;
         let backoff_ms =
             RETRY_BASE_DELAY_MS * 2i64.pow(u32::try_from(next_attempt - 1).unwrap_or(0));
@@ -795,27 +882,30 @@ pub async fn retry_failed_webhook_deliveries(
         } else {
             "retrying"
         };
-        let created_at = iso(retry_now);
         insert_delivery(
             db,
             NewDelivery {
                 webhook_id: &webhook.id,
                 event_type: &event_type,
-                event_id: &text("event_id"),
+                event_id: &delivery.event_id,
                 payload: &payload.to_string(),
                 status,
                 attempt: &attempt,
                 attempt_number: next_attempt,
                 next_retry_at: (!attempt.ok && !exhausted)
-                    .then(|| iso(retry_now + time::Duration::milliseconds(backoff_ms))),
+                    .then(|| instant(retry_now + time::Duration::milliseconds(backoff_ms))),
                 max_retries,
-                created_at: &created_at,
+                created_at: instant(retry_now),
             },
         )
         .await?;
-        sqlx::query("update webhook_deliveries set next_retry_at = null where id = $1")
-            .bind(text("id"))
-            .execute(db)
+        webhook_deliveries::Entity::update_many()
+            .col_expr(
+                webhook_deliveries::Column::NextRetryAt,
+                Expr::value(None::<OffsetDateTime>),
+            )
+            .filter(webhook_deliveries::Column::Id.eq(delivery.id.as_str()))
+            .exec(&orm(db))
             .await?;
         apply_delivery_outcome(db, &webhook, attempt.ok, attempt.error.as_deref()).await?;
         if attempt.ok {

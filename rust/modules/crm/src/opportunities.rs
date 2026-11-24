@@ -6,7 +6,13 @@ use axum::body::Bytes;
 use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use http::HeaderMap;
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ColumnTrait, Condition, DbErr, EntityTrait, FromQueryResult, JoinType, PaginatorTrait,
+    QueryFilter, QueryOrder, QuerySelect, RelationDef,
+};
 use serde_json::{Map, Value, json};
+use time::PrimitiveDateTime;
 use weldsuite_catalogs::entity_events::{
     EventName, OPPORTUNITY_CREATED, OPPORTUNITY_DELETED, OPPORTUNITY_LOST,
     OPPORTUNITY_STAGE_CHANGED, OPPORTUNITY_UPDATED, OPPORTUNITY_WON,
@@ -18,16 +24,20 @@ use weldsuite_crm_domain::opportunities::{
     opportunity_update_events, sync_status_with_stage,
 };
 use weldsuite_crm_domain::tables::CRM_OPPORTUNITIES;
-use weldsuite_crm_domain::{drizzle_row, opportunity_json, update_sql};
+use weldsuite_db::record::JsonTable;
+use weldsuite_db::{orm, utc_now};
 use weldsuite_kit::validation::Issues;
 use weldsuite_kit::{ApiError, Created, Data, NoContent};
+use weldsuite_schema::tenant::{companies, crm_opportunities};
 
+use crate::orm_rows::{before, cursor_row, json, probe_limit, set_values};
 use crate::schema::{self, Kind, NULLISH, OPT, REQ, STRINGS, Spec, int, partial, refine, s};
-use crate::{
-    Answer, Caller, CrmState, Refusal, answer, cut, js_limit, now, page, query_map, validate,
-};
+use crate::{Answer, Caller, CrmState, Refusal, answer, cut, js_limit, page, query_map, validate};
 
 const LOG: &str = "opportunities";
+
+/// `crm_opportunities`, written from a body as Drizzle wrote it.
+const OPPORTUNITIES: JsonTable = JsonTable::of::<crm_opportunities::Entity>();
 
 /// `createOpportunitySchema`.
 const CREATE: [Spec; 30] = [
@@ -150,26 +160,111 @@ fn read_body(
     out
 }
 
+/// A deal and its company (`leftJoin(companies, eq(companies.id,
+/// t.customerId))`).
+#[derive(Debug, FromQueryResult)]
+struct WithCompany {
+    #[sea_orm(nested)]
+    deal: crm_opportunities::Model,
+    company_id: Option<String>,
+    company_deleted_at: Option<PrimitiveDateTime>,
+}
+
+/// The deals joined to their companies.
+fn with_company() -> sea_orm::Select<crm_opportunities::Entity> {
+    let company: RelationDef = crm_opportunities::Entity::belongs_to(companies::Entity)
+        .from(crm_opportunities::Column::CustomerId)
+        .to(companies::Column::Id)
+        .into();
+    crm_opportunities::Entity::find()
+        .column_as(companies::Column::Id, "company_id")
+        .column_as(companies::Column::DeletedAt, "company_deleted_at")
+        .join(JoinType::LeftJoin, company)
+}
+
+/// The deal as Drizzle returns it (amounts as their text), with
+/// `companyDeleted`: it names a company that is gone or deleted.
+fn deal_json(row: WithCompany) -> Result<Value, DbErr> {
+    let deleted = !row.deal.customer_id.is_empty()
+        && (row.company_id.is_none() || row.company_deleted_at.is_some());
+    let mut deal = json(serde_json::to_value(row.deal))?;
+    if let Value::Object(fields) = &mut deal {
+        fields.insert("companyDeleted".into(), Value::Bool(deleted));
+    }
+    Ok(deal)
+}
+
 /// A deal with `companyDeleted`, within the owner scope.
 async fn live_with_company(
     caller: &Caller,
     id: &str,
     scope: Option<&str>,
-) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        opportunity_json!("t"),
-        " || jsonb_build_object('company_deleted',
-               coalesce(t.customer_id, '') <> '' and (c.id is null or c.deleted_at is not null))
-         from crm_opportunities t left join companies c on c.id = t.customer_id
-         where t.id = $1 and t.deleted_at is null and ($2::text is null or t.owner_id = $2)
-         limit 1"
-    ))
-    .bind(id)
-    .bind(scope)
-    .fetch_optional(&caller.db)
-    .await?;
-    Ok(row.map(drizzle_row))
+) -> Result<Option<Value>, DbErr> {
+    use crm_opportunities::Column;
+    let mut find = with_company()
+        .filter(Column::Id.eq(id))
+        .filter(Column::DeletedAt.is_null());
+    if let Some(scope) = scope {
+        find = find.filter(Column::OwnerId.eq(scope));
+    }
+    let row = find
+        .into_model::<WithCompany>()
+        .one(&orm(&caller.db))
+        .await?;
+    row.map(deal_json).transpose()
+}
+
+/// The list's filters (its count's conditions), in TypeScript's order.
+fn list_filters(
+    scope: Option<&String>,
+    param: &dyn Fn(&str) -> Option<String>,
+    customer_ids: Option<Vec<String>>,
+) -> Condition {
+    use crm_opportunities::{Column, Entity};
+    use sea_orm::sea_query::extension::postgres::PgExpr;
+    let mut filters = Condition::all().add(Column::DeletedAt.is_null());
+    if let Some(scope) = scope {
+        filters = filters.add(Column::OwnerId.eq(scope.as_str()));
+    }
+    for (key, column) in [
+        ("status", Column::Status),
+        ("stage", Column::Stage),
+        ("pipeline", Column::Pipeline),
+        ("ownerId", Column::OwnerId),
+        ("customerId", Column::CustomerId),
+    ] {
+        if let Some(value) = param(key) {
+            filters = filters.add(column.eq(value));
+        }
+    }
+    if let Some(ids) = customer_ids {
+        filters = filters.add(Column::CustomerId.is_in(ids));
+    }
+    if let Some(person) = param("personId") {
+        // `@>` of a one-id array: the person is among the deal's people or
+        // contacts.
+        filters = filters.add(
+            Condition::any()
+                .add(PgExpr::contains(
+                    Expr::col((Entity, Column::PersonIds)),
+                    json!([person]),
+                ))
+                .add(PgExpr::contains(
+                    Expr::col((Entity, Column::ContactIds)),
+                    json!([person]),
+                )),
+        );
+    }
+    if let Some(search) = param("search") {
+        let term = format!("%{search}%");
+        filters = filters.add(
+            Condition::any()
+                .add(Column::Name.like(term.as_str()))
+                .add(Column::CustomerName.like(term.as_str()))
+                .add(Column::Description.like(term)),
+        );
+    }
+    filters
 }
 
 // ── GET / ───────────────────────────────────────────────────────────────────
@@ -183,6 +278,7 @@ pub(crate) async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response 
 }
 
 async fn run_list(caller: &Caller, query: Option<&str>) -> Answer {
+    use crm_opportunities::{Column, Entity};
     let q = query_map(query);
     let limit = js_limit(q.get("limit"), 25, 100);
     let scope = caller.scope(OPPORTUNITIES_SCOPE_ALL);
@@ -196,83 +292,37 @@ async fn run_list(caller: &Caller, query: Option<&str>) -> Answer {
             .collect();
         (!ids.is_empty()).then_some(ids)
     });
-    let person = param("personId").map(|p| json!([p]));
-    let search = param("search").map(|s| format!("%{s}%"));
-    let mut cursor: Option<(String, String)> = None;
+    let mut cursor = None;
     if let Some(id) = param("cursor") {
-        cursor = sqlx::query_as(
-            "select to_char(date_trunc('milliseconds', created_at), 'YYYY-MM-DD\"T\"HH24:MI:SS.MS'), id
-             from crm_opportunities where id = $1 limit 1",
-        )
-        .bind(id)
-        .fetch_optional(&caller.db)
-        .await
-        .map_err(|e| Refusal::Failed(e.to_string()))?;
+        cursor = cursor_row::<Entity>(&caller.db, Column::CreatedAt, Column::Id, &id).await?;
     }
     let limit = limit.ok_or_else(|| Refusal::Failed("limit is NaN".to_owned()))?;
-    let (cursor_at, cursor_id) = cursor.unzip();
-    let rows: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        opportunity_json!("t"),
-        " || jsonb_build_object('company_deleted',
-               coalesce(t.customer_id, '') <> '' and (c.id is null or c.deleted_at is not null))
-         from crm_opportunities t left join companies c on c.id = t.customer_id
-         where t.deleted_at is null
-           and ($1::text is null or t.owner_id = $1)
-           and ($2::text is null or t.status = $2)
-           and ($3::text is null or t.stage = $3)
-           and ($4::text is null or t.pipeline = $4)
-           and ($5::text is null or t.owner_id = $5)
-           and ($6::text is null or t.customer_id = $6)
-           and ($7::text[] is null or t.customer_id = any($7))
-           and ($8::jsonb is null or t.person_ids @> $8 or t.contact_ids @> $8)
-           and ($9::text is null or t.name like $9 or t.customer_name like $9 or t.description like $9)
-           and ($10::timestamp is null
-                or t.created_at < $10::timestamp or (t.created_at = $10::timestamp and t.id < $11))
-         order by t.created_at desc, t.id desc
-         limit $12"
-    ))
-    .bind(&scope)
-    .bind(param("status"))
-    .bind(param("stage"))
-    .bind(param("pipeline"))
-    .bind(param("ownerId"))
-    .bind(param("customerId"))
-    .bind(&customer_ids)
-    .bind(&person)
-    .bind(&search)
-    .bind(&cursor_at)
-    .bind(&cursor_id)
-    .bind(limit + 1)
-    .fetch_all(&caller.db)
-    .await?;
-    let total: i64 = sqlx::query_scalar(
-        "select count(*) from crm_opportunities t
-         where t.deleted_at is null
-           and ($1::text is null or t.owner_id = $1)
-           and ($2::text is null or t.status = $2)
-           and ($3::text is null or t.stage = $3)
-           and ($4::text is null or t.pipeline = $4)
-           and ($5::text is null or t.owner_id = $5)
-           and ($6::text is null or t.customer_id = $6)
-           and ($7::text[] is null or t.customer_id = any($7))
-           and ($8::jsonb is null or t.person_ids @> $8 or t.contact_ids @> $8)
-           and ($9::text is null or t.name like $9 or t.customer_name like $9 or t.description like $9)",
-    )
-    .bind(&scope)
-    .bind(param("status"))
-    .bind(param("stage"))
-    .bind(param("pipeline"))
-    .bind(param("ownerId"))
-    .bind(param("customerId"))
-    .bind(&customer_ids)
-    .bind(&person)
-    .bind(&search)
-    .fetch_one(&caller.db)
-    .await?;
-    let (data, has_more, next) = cut(rows.into_iter().map(drizzle_row).collect(), limit);
+    let filters = list_filters(scope.as_ref(), &param, customer_ids);
+    let mut rows = with_company().filter(filters.clone());
+    if let Some(cursor) = &cursor {
+        rows = rows.filter(before(Column::CreatedAt, Column::Id, cursor));
+    }
+    let db = orm(&caller.db);
+    let rows = rows
+        .order_by_desc(Column::CreatedAt)
+        .order_by_desc(Column::Id)
+        .limit(probe_limit(limit)?)
+        .into_model::<WithCompany>()
+        .all(&db)
+        .await?;
+    let total = Entity::find().filter(filters).count(&db).await?;
+    let rows = rows
+        .into_iter()
+        .map(deal_json)
+        .collect::<Result<Vec<_>, DbErr>>()?;
+    let (data, has_more, next) = cut(rows, limit);
     let data = hydrate(&caller.db, "opportunity", data, None).await?;
-    Ok(page(data, total, has_more, next))
+    Ok(page(
+        data,
+        i64::try_from(total).unwrap_or(i64::MAX),
+        has_more,
+        next,
+    ))
 }
 
 // ── GET /:id ────────────────────────────────────────────────────────────────
@@ -399,14 +449,14 @@ async fn run_update(
             }
         }
     }
-    sqlx::query(update_sql!(
-        crm_opportunities,
-        "where t.id = $1 and t.deleted_at is null"
-    ))
-    .bind(id)
-    .bind(CRM_OPPORTUNITIES.set(&update))
-    .execute(&caller.db)
-    .await?;
+    OPPORTUNITIES
+        .update(
+            &orm(&caller.db),
+            id,
+            set_values(&CRM_OPPORTUNITIES, &update),
+            true,
+        )
+        .await?;
     sync_values_for_entity(&caller.db, "opportunity", id, data.get("customFields")).await;
     for event in opportunity_update_events(id, &existing, &update) {
         caller.publish(state, event_of(event.action), id, &event.data);
@@ -426,14 +476,13 @@ pub(crate) async fn remove(
         let Some(existing) = live_opportunity(&caller.db, &id, scope.as_deref()).await? else {
             return Ok(ApiError::not_found("Opportunity", Some(&id)).into_response());
         };
-        sqlx::query(
-            "update crm_opportunities set deleted_at = $2::timestamp, updated_at = $2::timestamp
-             where id = $1",
-        )
-        .bind(&id)
-        .bind(now())
-        .execute(&caller.db)
-        .await?;
+        let at = utc_now();
+        crm_opportunities::Entity::update_many()
+            .col_expr(crm_opportunities::Column::DeletedAt, Expr::value(at))
+            .col_expr(crm_opportunities::Column::UpdatedAt, Expr::value(at))
+            .filter(crm_opportunities::Column::Id.eq(id.as_str()))
+            .exec(&orm(&caller.db))
+            .await?;
         let amount = match existing.get("amount") {
             Some(value) if !value.is_null() => value.clone(),
             _ => json!("0"),

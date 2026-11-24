@@ -8,13 +8,21 @@ use std::collections::HashSet;
 use std::sync::{LazyLock, Mutex, PoisonError};
 
 use regex::Regex;
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, Condition, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
 use sqlx::PgPool;
 use time::OffsetDateTime;
-use weldsuite_events::iso_timestamp;
 use weldsuite_ports::{HttpRequest, OutboundHttp};
+use weldsuite_schema::tenant::device_tokens;
 
-use crate::{NewNotification, Notifier, channel_preferences, push_data, push_server, tag_server};
+use crate::{
+    NewNotification, Notifier, channel_preferences, orm, push_data, push_server, tag_server,
+    to_millis, utc_wall_clock,
+};
+
+/// A device token as delivery reads it: token, app code, device id, type.
+type TokenTuple = (Option<String>, String, String, String);
 
 const EXPO_PUSH_URL: &str = "https://exp.host/--/api/v2/push/send";
 const MAX_PER_REQUEST: usize = 100;
@@ -136,19 +144,27 @@ async fn try_deliver_push(
     db: &PgPool,
     notifier: &Notifier,
     params: &NewNotification,
-) -> Result<(), sqlx::Error> {
+) -> Result<(), DbErr> {
+    use device_tokens::Column;
     let app_codes: Vec<String> = app_codes_for_category(&params.category)
         .into_iter()
         .map(str::to_owned)
         .collect();
-    let rows: Vec<(Option<String>, String, String, String)> = sqlx::query_as(
-        "select token, app_code, device_id, token_type from device_tokens
-         where user_id = $1 and is_active is null and app_code = any($2)",
-    )
-    .bind(&params.user_id)
-    .bind(&app_codes)
-    .fetch_all(db)
-    .await?;
+    // `app_code = any($codes)`: an empty list matches nothing (`1 = 2`).
+    let rows: Vec<TokenTuple> = device_tokens::Entity::find()
+        .select_only()
+        .columns([
+            Column::Token,
+            Column::AppCode,
+            Column::DeviceId,
+            Column::TokenType,
+        ])
+        .filter(Column::UserId.eq(&params.user_id))
+        .filter(Column::IsActive.is_null())
+        .filter(Column::AppCode.is_in(app_codes))
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     let tokens: Vec<TokenRow> = rows
         .into_iter()
         .map(|(token, app_code, device_id, token_type)| TokenRow {
@@ -232,19 +248,18 @@ async fn try_deliver_push(
 }
 
 /// `deactivateDeviceTokens`.
-async fn deactivate_device_tokens(db: &PgPool, tokens: &[String]) -> Result<(), sqlx::Error> {
+async fn deactivate_device_tokens(db: &PgPool, tokens: &[String]) -> Result<(), DbErr> {
+    use device_tokens::Column;
     if tokens.is_empty() {
         return Ok(());
     }
-    let now = iso_timestamp(OffsetDateTime::now_utc());
-    sqlx::query(
-        "update device_tokens set is_active = $2::timestamp, updated_at = $2::timestamp
-         where token = any($1)",
-    )
-    .bind(tokens)
-    .bind(&now)
-    .execute(db)
-    .await?;
+    let now = utc_wall_clock(to_millis(OffsetDateTime::now_utc()));
+    device_tokens::Entity::update_many()
+        .col_expr(Column::IsActive, Expr::value(now))
+        .col_expr(Column::UpdatedAt, Expr::value(now))
+        .filter(Column::Token.is_in(tokens))
+        .exec(&orm(db))
+        .await?;
     Ok(())
 }
 
@@ -579,15 +594,29 @@ pub async fn cancel_incoming_call_push(
     let run = async {
         let prefs = channel_preferences(db, user_id, "weldchat").await?;
         if !prefs.push {
-            return Ok::<(), sqlx::Error>(());
+            return Ok::<(), DbErr>(());
         }
-        let rows: Vec<(Option<String>, String, String, String)> = sqlx::query_as(
-            "select token, app_code, device_id, token_type from device_tokens
-             where user_id = $1 and is_active is null and (token_type = 'voip' or token_type = 'expo_call')",
-        )
-        .bind(user_id)
-        .fetch_all(db)
-        .await?;
+        let rows: Vec<TokenTuple> = {
+            use device_tokens::Column;
+            device_tokens::Entity::find()
+                .select_only()
+                .columns([
+                    Column::Token,
+                    Column::AppCode,
+                    Column::DeviceId,
+                    Column::TokenType,
+                ])
+                .filter(Column::UserId.eq(user_id))
+                .filter(Column::IsActive.is_null())
+                .filter(
+                    Condition::any()
+                        .add(Column::TokenType.eq("voip"))
+                        .add(Column::TokenType.eq("expo_call")),
+                )
+                .into_tuple()
+                .all(&orm(db))
+                .await?
+        };
         if rows.is_empty() {
             return Ok(());
         }

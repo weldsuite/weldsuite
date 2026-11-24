@@ -34,6 +34,7 @@ use crate::engine::{AnalyticsSql, Engine};
 use crate::project_state::PanelProjectState;
 use crate::projects::live_project;
 use crate::query_context::{ContextInput, build_query_context};
+use crate::recordings::favorite_session_ids;
 use crate::schemas_gen::PANEL_QUERY_SPEC;
 use crate::{Caller, PanelState, unexpected};
 
@@ -270,13 +271,11 @@ pub(crate) async fn run(
     // Favourites are per project, not part of the cached data.
     let ids = session_ids(&entry.result);
     if entry.result["kind"] == "sessions" && !ids.is_empty() {
-        let favourites: Result<Vec<String>, sqlx::Error> = sqlx::query_scalar(
-            "select session_id from panel_session_favorites
-             where project_id = $1 and session_id = any($2)",
+        let favourites = favorite_session_ids(
+            &caller.db,
+            project["id"].as_str().unwrap_or(&project_id),
+            ids,
         )
-        .bind(project["id"].as_str().unwrap_or(&project_id))
-        .bind(&ids)
-        .fetch_all(&caller.db)
         .await;
         let favourites = match favourites {
             Ok(favourites) => favourites,

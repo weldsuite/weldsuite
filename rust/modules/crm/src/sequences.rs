@@ -12,15 +12,25 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use futures_util::future::join_all;
 use http::{HeaderMap, StatusCode};
+use sea_orm::sea_query::{Asterisk, Expr, Func, OnConflict, Query, SubQueryStatement};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, Condition, DatabaseConnection, DbErr, EntityTrait,
+    FromQueryResult, JoinType, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, RelationDef,
+};
 use serde_json::{Map, Value, json};
+use time::PrimitiveDateTime;
 use weldsuite_catalogs::entity_events::SEQUENCE_UPDATED;
-use weldsuite_crm_domain::drizzle_row;
 use weldsuite_crm_domain::sequence_run::{EXECUTE_SEQUENCE_JOB, SEQUENCE_RESUME_EVENT};
+use weldsuite_db::{orm, utc_now};
 use weldsuite_kit::validation::{Issues, Presence, Text};
 use weldsuite_kit::{ApiError, Data, generate_id};
 use weldsuite_ports::{BoxFuture, DynJobs, JobRequest};
+use weldsuite_schema::tenant::{
+    companies, people, person_companies, sequence_enrollments as enrollments, workflows,
+};
 
-use crate::{Answer, Caller, CrmState, answer, js_limit, now, page, query_map, validate};
+use crate::orm_rows::{before, cursor_row, js_date, js_date_or_null, json};
+use crate::{Answer, Caller, CrmState, answer, js_limit, page, query_map, validate};
 
 const LOG: &str = "sequences";
 
@@ -122,17 +132,11 @@ async fn start_runs(
         );
         return 0;
     };
+    let db = orm(&caller.db);
     let ids: Vec<String> = enrollments.iter().map(|(id, _)| id.clone()).collect();
     let mut claimed: Vec<String> = Vec::new();
     for chunk in ids.chunks(ID_CHUNK) {
-        let rows: Result<Vec<String>, sqlx::Error> = sqlx::query_scalar(
-            "update sequence_enrollments set execution_id = id
-             where id = any($1) and status = 'active' and execution_id is null returning id",
-        )
-        .bind(chunk)
-        .fetch_all(&caller.db)
-        .await;
-        match rows {
+        match claim(&db, chunk).await {
             Ok(rows) => claimed.extend(rows),
             Err(error) => {
                 tracing::error!(%error, "[crm-api/sequences] failed to claim enrollment runs");
@@ -175,14 +179,7 @@ async fn start_runs(
         })
         .collect();
     for chunk in failed.chunks(ID_CHUNK) {
-        let released = sqlx::query(
-            "update sequence_enrollments set execution_id = null
-             where id = any($1) and execution_id = id",
-        )
-        .bind(chunk)
-        .execute(&caller.db)
-        .await;
-        if let Err(error) = released {
+        if let Err(error) = release(&db, chunk).await {
             tracing::error!(%error, "[crm-api/sequences] failed to release enrollment claims");
         }
     }
@@ -190,6 +187,35 @@ async fn start_runs(
         .iter()
         .filter(|outcome| **outcome == RunStart::Triggered)
         .count()
+}
+
+/// Claim the active, unclaimed enrollments among `ids` for their runs (the
+/// run's instance id is the enrollment id): the ids claimed.
+async fn claim(db: &DatabaseConnection, ids: &[String]) -> Result<Vec<String>, DbErr> {
+    use enrollments::Column;
+    let rows = enrollments::Entity::update_many()
+        .col_expr(Column::ExecutionId, Expr::col(Column::Id))
+        .filter(Column::Id.is_in(ids.iter().map(String::as_str)))
+        .filter(Column::Status.eq("active"))
+        .filter(Column::ExecutionId.is_null())
+        .exec_with_returning(db)
+        .await?;
+    Ok(rows.into_iter().map(|row| row.id).collect())
+}
+
+/// Give back the claims of runs that failed to start.
+async fn release(db: &DatabaseConnection, ids: &[String]) -> Result<(), DbErr> {
+    use enrollments::Column;
+    enrollments::Entity::update_many()
+        .col_expr(Column::ExecutionId, Expr::value(None::<String>))
+        .filter(Column::Id.is_in(ids.iter().map(String::as_str)))
+        .filter(sea_orm::ExprTrait::equals(
+            Expr::col((enrollments::Entity, Column::ExecutionId)),
+            (enrollments::Entity, Column::Id),
+        ))
+        .exec(db)
+        .await?;
+    Ok(())
 }
 
 /// `wakeRuns(c, executionIds)`: best effort.
@@ -215,13 +241,16 @@ async fn wake_runs(state: &CrmState, caller: &Caller, execution_ids: &[String]) 
 
 /// `startPendingRuns(c, db, ctx)`.
 async fn start_pending(state: &CrmState, caller: &Caller, ctx: &RunContext<'_>) -> Answer<usize> {
-    let rows: Vec<(String, String)> = sqlx::query_as(
-        "select id, customer_id from sequence_enrollments
-         where sequence_id = $1 and status = 'active' and execution_id is null",
-    )
-    .bind(ctx.sequence_id)
-    .fetch_all(&caller.db)
-    .await?;
+    use enrollments::Column;
+    let rows: Vec<(String, String)> = enrollments::Entity::find()
+        .select_only()
+        .columns([Column::Id, Column::CustomerId])
+        .filter(Column::SequenceId.eq(ctx.sequence_id))
+        .filter(Column::Status.eq("active"))
+        .filter(Column::ExecutionId.is_null())
+        .into_tuple()
+        .all(&orm(&caller.db))
+        .await?;
     Ok(start_runs(state, caller, ctx, &rows).await)
 }
 
@@ -232,98 +261,52 @@ async fn activate(
     ctx: &RunContext<'_>,
     resume_paused: bool,
 ) -> Answer<(usize, usize)> {
-    let db = &caller.db;
-    sqlx::query("update workflows set status = 'active', updated_at = $2::timestamp where id = $1")
-        .bind(ctx.sequence_id)
-        .bind(now())
-        .execute(db)
+    use enrollments::Column;
+    let db = &orm(&caller.db);
+    set_sequence_status(db, ctx.sequence_id, "active", utc_now()).await?;
+    let activated = enrollments::Entity::update_many()
+        .col_expr(Column::Status, Expr::value("active"))
+        .filter(Column::SequenceId.eq(ctx.sequence_id))
+        .filter(Column::Status.eq("pending"))
+        .exec_with_returning(db)
         .await?;
-    let activated: Vec<String> = sqlx::query_scalar(
-        "update sequence_enrollments set status = 'active'
-         where sequence_id = $1 and status = 'pending' returning id",
-    )
-    .bind(ctx.sequence_id)
-    .fetch_all(db)
-    .await?;
     let mut resumed = 0;
     if resume_paused {
-        let rows: Vec<(String, Option<String>)> = sqlx::query_as(
-            "update sequence_enrollments set status = 'active', paused_at = null
-             where sequence_id = $1 and status = 'paused' returning id, execution_id",
-        )
-        .bind(ctx.sequence_id)
-        .fetch_all(db)
-        .await?;
+        let rows = enrollments::Entity::update_many()
+            .col_expr(Column::Status, Expr::value("active"))
+            .col_expr(Column::PausedAt, Expr::value(None::<PrimitiveDateTime>))
+            .filter(Column::SequenceId.eq(ctx.sequence_id))
+            .filter(Column::Status.eq("paused"))
+            .exec_with_returning(db)
+            .await?;
         resumed = rows.len();
-        let parked: Vec<String> = rows.into_iter().filter_map(|(_, run)| run).collect();
+        let parked: Vec<String> = rows
+            .into_iter()
+            .filter_map(|row| row.execution_id)
+            .collect();
         wake_runs(state, caller, &parked).await;
     }
     start_pending(state, caller, ctx).await?;
     Ok((activated.len(), resumed))
 }
 
+/// The sequence's `status` and `updatedAt`.
+async fn set_sequence_status(
+    db: &DatabaseConnection,
+    id: &str,
+    status: &str,
+    at: PrimitiveDateTime,
+) -> Result<(), DbErr> {
+    workflows::Entity::update_many()
+        .col_expr(workflows::Column::Status, Expr::value(status))
+        .col_expr(workflows::Column::UpdatedAt, Expr::value(at))
+        .filter(workflows::Column::Id.eq(id))
+        .exec(db)
+        .await?;
+    Ok(())
+}
+
 // ── Reads ───────────────────────────────────────────────────────────────────
-
-/// One `where` condition with `{}` where its arguments go.
-struct Cond {
-    sql: String,
-    args: Vec<String>,
-}
-
-fn cond(sql: &str, args: &[&str]) -> Cond {
-    Cond {
-        sql: sql.to_owned(),
-        args: args.iter().map(|a| (*a).to_owned()).collect(),
-    }
-}
-
-/// `and(...conditions)` numbered from `$1`, and its arguments.
-fn render(conds: &[Cond]) -> (String, Vec<String>) {
-    let mut args = Vec::new();
-    let parts: Vec<String> = conds
-        .iter()
-        .map(|c| {
-            let mut sql = String::new();
-            let mut pieces = c.sql.split("{}");
-            sql.push_str(pieces.next().unwrap_or_default());
-            for (arg, piece) in c.args.iter().zip(pieces) {
-                args.push(arg.clone());
-                sql.push('$');
-                sql.push_str(&args.len().to_string());
-                sql.push_str(piece);
-            }
-            sql
-        })
-        .collect();
-    (parts.join(" and "), args)
-}
-
-/// Run a `select to_jsonb …` with text arguments. The SQL is built here
-/// from fixed fragments; every value the caller sent is bound.
-async fn fetch_rows(
-    caller: &Caller,
-    sql: &str,
-    args: &[String],
-) -> Result<Vec<Value>, sqlx::Error> {
-    let mut query = sqlx::query_scalar::<_, Value>(sqlx::AssertSqlSafe(sql.to_owned()));
-    for arg in args {
-        query = query.bind(arg);
-    }
-    Ok(query
-        .fetch_all(&caller.db)
-        .await?
-        .into_iter()
-        .map(drizzle_row)
-        .collect())
-}
-
-async fn fetch_count(caller: &Caller, sql: &str, args: &[String]) -> Result<i64, sqlx::Error> {
-    let mut query = sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(sql.to_owned()));
-    for arg in args {
-        query = query.bind(arg);
-    }
-    query.fetch_one(&caller.db).await
-}
 
 /// The fields of `row` named in `keys`, in that order (a Drizzle `select({...})`).
 fn pick(row: &Value, keys: &[&str]) -> Value {
@@ -339,10 +322,8 @@ fn pick(row: &Value, keys: &[&str]) -> Value {
 
 /// `.limit(n)` as Drizzle renders it: no `LIMIT` at all for NaN or a
 /// negative number.
-fn limit_sql(limit: Option<i64>) -> String {
-    limit
-        .filter(|n| *n >= 0)
-        .map_or_else(String::new, |n| format!(" limit {n}"))
+fn sql_limit(limit: Option<i64>) -> Option<u64> {
+    limit.and_then(|n| u64::try_from(n).ok())
 }
 
 /// The page of a `limit + 1` probe as the route cuts it, with JavaScript's
@@ -373,29 +354,105 @@ fn js_cut(rows: Vec<Value>, limit: Option<i64>) -> (Vec<Value>, bool, Option<Str
     (rows, has_more, cursor)
 }
 
-/// The cursor row's `created_at` as Drizzle reads and binds it back.
-const MS: &str = "to_char(date_trunc('milliseconds', {col}), 'YYYY-MM-DD\"T\"HH24:MI:SS.MS')";
-
-fn ms_of(column: &str) -> String {
-    MS.replace("{col}", column)
-}
-
-/// `(select count(*)::int from sequence_enrollments … status <predicate>)`.
-fn enrollment_count(name: &str, predicate: &str) -> String {
-    format!(
-        "'{name}', (select count(*)::int from sequence_enrollments s
-            where s.sequence_id = w.id and s.status {predicate})"
-    )
+/// `and(...conditions)`.
+fn all_of(conditions: &[Condition]) -> Condition {
+    conditions
+        .iter()
+        .cloned()
+        .fold(Condition::all(), Condition::add)
 }
 
 /// `conditions.slice(0, -1)` whenever a cursor was sent (it drops the last
 /// condition even when the cursor row was not found).
-fn count_conds(conds: &[Cond], cursor: bool) -> &[Cond] {
+fn count_conds(conds: &[Condition], cursor: bool) -> &[Condition] {
     if cursor {
         &conds[..conds.len() - 1]
     } else {
         conds
     }
+}
+
+/// `(select count(*) from sequence_enrollments s where s.sequence_id = w.id
+/// and <status>)`: the sequence's enrollments in that status.
+fn enrollment_count(status: Expr) -> Expr {
+    let mut select = Query::select();
+    select
+        .expr(Func::count(Expr::col(Asterisk)))
+        .from(enrollments::Entity)
+        .and_where(sea_orm::ExprTrait::equals(
+            Expr::col((enrollments::Entity, enrollments::Column::SequenceId)),
+            (workflows::Entity, workflows::Column::Id),
+        ))
+        .and_where(status);
+    Expr::SubQuery(None, Box::new(SubQueryStatement::SelectStatement(select)))
+}
+
+/// The counts a sequence is read with, by key: `enrolled_count` (every
+/// status but `unenrolled`), then one per `(key, status)`.
+fn enrollment_counts(statuses: &[(&'static str, &str)]) -> Vec<(&'static str, Expr)> {
+    use enrollments::Column;
+    let mut counts = vec![(
+        "enrolled_count",
+        enrollment_count(Column::Status.ne("unenrolled")),
+    )];
+    for (key, status) in statuses {
+        counts.push((key, enrollment_count(Column::Status.eq(*status))));
+    }
+    counts
+}
+
+/// A sequence with its enrollment counts.
+#[derive(Debug, FromQueryResult)]
+struct ListedSequence {
+    #[sea_orm(nested)]
+    workflow: workflows::Model,
+    enrolled_count: i64,
+    active_enrolled_count: i64,
+    pending_enrolled_count: i64,
+}
+
+/// A sequence with every enrollment count the detail shows.
+#[derive(Debug, FromQueryResult)]
+struct DetailedSequence {
+    #[sea_orm(nested)]
+    workflow: workflows::Model,
+    enrolled_count: i64,
+    active_enrolled_count: i64,
+    pending_enrolled_count: i64,
+    completed_enrolled_count: i64,
+    failed_enrolled_count: i64,
+}
+
+/// A workflow row as Drizzle returns it, with `counts` by key.
+fn with_counts(workflow: workflows::Model, counts: &[(&str, i64)]) -> Result<Value, DbErr> {
+    let mut row = json(serde_json::to_value(workflow))?;
+    if let Value::Object(fields) = &mut row {
+        for (key, count) in counts {
+            fields.insert((*key).to_owned(), json!(count));
+        }
+    }
+    Ok(row)
+}
+
+/// The workflows with their enrollment counts.
+fn sequences_with(counts: Vec<(&'static str, Expr)>) -> sea_orm::Select<workflows::Entity> {
+    counts
+        .into_iter()
+        .fold(workflows::Entity::find(), |select, (name, count)| {
+            select.expr_as(count, name)
+        })
+}
+
+/// `tags ? '__type:sequence'`: the workflow is a sequence. The tags are a
+/// jsonb array of strings, so containment is the same test.
+fn sequence_tagged() -> Expr {
+    sea_orm::sea_query::extension::postgres::PgExpr::contains(
+        Expr::from(Func::coalesce([
+            Expr::col((workflows::Entity, workflows::Column::Tags)),
+            Expr::val(json!([])),
+        ])),
+        Expr::val(json!(["__type:sequence"])),
+    )
 }
 
 const LIST_KEYS: [&str; 14] = [
@@ -424,62 +481,62 @@ pub(crate) async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response 
 }
 
 async fn run_list(caller: &Caller, raw: Option<&str>) -> Answer {
+    use workflows::{Column, Entity};
     let q = query_map(raw);
     let limit = js_limit(q.get("limit"), 50, 100);
     let mut conds = vec![
-        cond("w.deleted_at is null", &[]),
-        cond("w.tags::jsonb ? '__type:sequence'", &[]),
+        Condition::all().add(Column::DeletedAt.is_null()),
+        Condition::all().add(sequence_tagged()),
     ];
     if let Some(search) = q.get("search").filter(|s| !s.is_empty()) {
         let term = format!("%{search}%");
-        conds.push(cond(
-            "(w.name like {} or w.description like {})",
-            &[&term, &term],
-        ));
+        conds.push(
+            Condition::any()
+                .add(Column::Name.like(term.as_str()))
+                .add(Column::Description.like(term)),
+        );
     }
     let cursor = q.get("cursor").filter(|c| !c.is_empty());
-    if let Some(cursor) = cursor {
-        let row: Option<(Option<String>, String)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
-            "select {}, id from workflows where id = $1 limit 1",
-            ms_of("created_at")
-        )))
-        .bind(cursor)
-        .fetch_optional(&caller.db)
-        .await?;
-        if let Some((Some(created), id)) = row {
-            conds.push(cond(
-                "(w.created_at < {}::timestamp or (w.created_at = {}::timestamp and w.id < {}))",
-                &[&created, &created, &id],
-            ));
-        }
+    if let Some(cursor) = cursor
+        && let Some(row) =
+            cursor_row::<Entity>(&caller.db, Column::CreatedAt, Column::Id, cursor).await?
+    {
+        conds.push(before(Column::CreatedAt, Column::Id, &row));
     }
-    let (filter, args) = render(&conds);
-    let counts = [
-        enrollment_count("enrolled_count", "!= 'unenrolled'"),
-        enrollment_count("active_enrolled_count", "= 'active'"),
-        enrollment_count("pending_enrolled_count", "= 'pending'"),
-    ]
-    .join(", ");
-    let rows = fetch_rows(
-        caller,
-        &format!(
-            "select to_jsonb(w) || jsonb_build_object({counts}) from workflows w where {filter}
-             order by w.created_at desc, w.id desc{}",
-            limit_sql(limit.map(|n| n + 1))
-        ),
-        &args,
-    )
+    let db = orm(&caller.db);
+    let rows = sequences_with(enrollment_counts(&[
+        ("active_enrolled_count", "active"),
+        ("pending_enrolled_count", "pending"),
+    ]))
+    .filter(all_of(&conds))
+    .order_by_desc(Column::CreatedAt)
+    .order_by_desc(Column::Id)
+    .limit(sql_limit(limit.map(|n| n + 1)))
+    .into_model::<ListedSequence>()
+    .all(&db)
     .await?;
-    let (count_filter, count_args) = render(count_conds(&conds, cursor.is_some()));
-    let total = fetch_count(
-        caller,
-        &format!("select count(*) from workflows w where {count_filter}"),
-        &count_args,
-    )
-    .await?;
-    let rows: Vec<Value> = rows.iter().map(|row| pick(row, &LIST_KEYS)).collect();
+    let total = Entity::find()
+        .filter(all_of(count_conds(&conds, cursor.is_some())))
+        .count(&db)
+        .await?;
+    let rows = rows
+        .into_iter()
+        .map(|row| {
+            let counts = [
+                ("enrolledCount", row.enrolled_count),
+                ("activeEnrolledCount", row.active_enrolled_count),
+                ("pendingEnrolledCount", row.pending_enrolled_count),
+            ];
+            with_counts(row.workflow, &counts).map(|row| pick(&row, &LIST_KEYS))
+        })
+        .collect::<Result<Vec<_>, DbErr>>()?;
     let (rows, has_more, next) = js_cut(rows, limit);
-    Ok(page(rows, total, has_more, next))
+    Ok(page(
+        rows,
+        i64::try_from(total).unwrap_or(i64::MAX),
+        has_more,
+        next,
+    ))
 }
 
 const DETAIL_KEYS: [&str; 19] = [
@@ -513,27 +570,29 @@ pub(crate) async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
 }
 
 async fn run_detail(caller: &Caller, id: &str) -> Answer {
-    let counts = [
-        enrollment_count("enrolled_count", "!= 'unenrolled'"),
-        enrollment_count("active_enrolled_count", "= 'active'"),
-        enrollment_count("pending_enrolled_count", "= 'pending'"),
-        enrollment_count("completed_enrolled_count", "= 'completed'"),
-        enrollment_count("failed_enrolled_count", "= 'failed'"),
-    ]
-    .join(", ");
-    let rows = fetch_rows(
-        caller,
-        &format!(
-            "select to_jsonb(w) || jsonb_build_object({counts}) from workflows w
-             where w.id = $1 and w.deleted_at is null limit 1"
-        ),
-        &[id.to_owned()],
-    )
+    let row = sequences_with(enrollment_counts(&[
+        ("active_enrolled_count", "active"),
+        ("pending_enrolled_count", "pending"),
+        ("completed_enrolled_count", "completed"),
+        ("failed_enrolled_count", "failed"),
+    ]))
+    .filter(workflows::Column::Id.eq(id))
+    .filter(workflows::Column::DeletedAt.is_null())
+    .into_model::<DetailedSequence>()
+    .one(&orm(&caller.db))
     .await?;
-    let Some(row) = rows.first() else {
+    let Some(row) = row else {
         return Ok(ApiError::not_found("Sequence", Some(id)).into_response());
     };
-    Ok(Data(pick(row, &DETAIL_KEYS)).into_response())
+    let counts = [
+        ("enrolledCount", row.enrolled_count),
+        ("activeEnrolledCount", row.active_enrolled_count),
+        ("pendingEnrolledCount", row.pending_enrolled_count),
+        ("completedEnrolledCount", row.completed_enrolled_count),
+        ("failedEnrolledCount", row.failed_enrolled_count),
+    ];
+    let row = with_counts(row.workflow, &counts)?;
+    Ok(Data(pick(&row, &DETAIL_KEYS)).into_response())
 }
 
 const ENROLLMENT_KEYS: [&str; 20] = [
@@ -571,93 +630,158 @@ pub(crate) async fn enrollments(
     )
 }
 
+/// An enrollment with its person's contact fields.
+#[derive(Debug, FromQueryResult)]
+struct ListedEnrollment {
+    #[sea_orm(nested)]
+    enrollment: enrollments::Model,
+    customer_email: Option<String>,
+    customer_first_name: Option<String>,
+    customer_last_name: Option<String>,
+    customer_full_name: Option<String>,
+    customer_company_name: Option<String>,
+}
+
+/// `innerJoin(people, eq(e.customerId, people.id))`.
+fn enrolled_person() -> RelationDef {
+    enrollments::Entity::belongs_to(people::Entity)
+        .from(enrollments::Column::CustomerId)
+        .to(people::Column::Id)
+        .into()
+}
+
+/// `e.customer_snapshot->>key`, else the person's `column`.
+fn snapshot_or(key: &str, column: Option<people::Column>) -> Expr {
+    let snapshot = sea_orm::sea_query::extension::postgres::PgExpr::cast_json_field(
+        Expr::col((enrollments::Entity, enrollments::Column::CustomerSnapshot)),
+        key,
+    );
+    match column {
+        Some(column) => Expr::from(Func::coalesce([
+            snapshot,
+            Expr::col((people::Entity, column)),
+        ])),
+        None => snapshot,
+    }
+}
+
+/// An enrollment row as Drizzle returns it, with its person's fields.
+fn enrollment_json(row: ListedEnrollment) -> Result<Value, DbErr> {
+    let mut full = json(serde_json::to_value(row.enrollment))?;
+    if let Value::Object(fields) = &mut full {
+        for (key, value) in [
+            ("customerEmail", row.customer_email),
+            ("customerFirstName", row.customer_first_name),
+            ("customerLastName", row.customer_last_name),
+            ("customerFullName", row.customer_full_name),
+            ("customerCompanyName", row.customer_company_name),
+        ] {
+            fields.insert(key.to_owned(), json!(value));
+        }
+    }
+    Ok(full)
+}
+
+/// The enrollment's fields the list returns, `totalSteps` from the
+/// sequence's steps when it has any.
+fn listed_enrollment(row: &Value, step_count: usize) -> Value {
+    let mut picked = pick(row, &ENROLLMENT_KEYS);
+    let total_steps = if step_count > 0 {
+        json!(step_count)
+    } else {
+        match row.get("totalSteps") {
+            Some(Value::Null) | None => json!(0),
+            Some(value) => value.clone(),
+        }
+    };
+    picked["totalSteps"] = total_steps;
+    picked
+}
+
 async fn run_enrollments(caller: &Caller, id: &str, raw: Option<&str>) -> Answer {
+    use enrollments::{Column, Entity};
     let q = query_map(raw);
     let limit = js_limit(q.get("limit"), 25, 100);
     let mut conds = vec![
-        cond("e.sequence_id = {}", &[id]),
-        cond("p.deleted_at is null", &[]),
+        Condition::all().add(Column::SequenceId.eq(id)),
+        Condition::all().add(people::Column::DeletedAt.is_null()),
     ];
     if let Some(status) = q.get("status").filter(|s| !s.is_empty()) {
-        conds.push(cond("e.status = {}", &[status]));
+        conds.push(Condition::all().add(Column::Status.eq(status.as_str())));
     }
     if let Some(search) = q.get("search").filter(|s| !s.is_empty()) {
         let term = format!("%{search}%");
-        conds.push(cond(
-            "(p.display_name like {} or p.email like {})",
-            &[&term, &term],
-        ));
+        conds.push(
+            Condition::any()
+                .add(people::Column::DisplayName.like(term.as_str()))
+                .add(people::Column::Email.like(term)),
+        );
     }
     let cursor = q.get("cursor").filter(|c| !c.is_empty());
-    if let Some(cursor) = cursor {
-        let row: Option<(Option<String>, String)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
-            "select {}, id from sequence_enrollments where id = $1 limit 1",
-            ms_of("enrolled_at")
-        )))
-        .bind(cursor)
-        .fetch_optional(&caller.db)
-        .await?;
-        if let Some((Some(enrolled), row_id)) = row {
-            conds.push(cond(
-                "(e.enrolled_at < {}::timestamp or (e.enrolled_at = {}::timestamp and e.id < {}))",
-                &[&enrolled, &enrolled, &row_id],
-            ));
-        }
+    if let Some(cursor) = cursor
+        && let Some(row) =
+            cursor_row::<Entity>(&caller.db, Column::EnrolledAt, Column::Id, cursor).await?
+    {
+        conds.push(before(Column::EnrolledAt, Column::Id, &row));
     }
-    let (filter, args) = render(&conds);
-    let rows = fetch_rows(
-        caller,
-        &format!(
-            "select to_jsonb(e) || jsonb_build_object(
-               'customer_email', coalesce(e.customer_snapshot->>'email', p.email),
-               'customer_first_name', coalesce(e.customer_snapshot->>'firstName', p.first_name),
-               'customer_last_name', coalesce(e.customer_snapshot->>'lastName', p.last_name),
-               'customer_full_name', coalesce(e.customer_snapshot->>'fullName', p.display_name),
-               'customer_company_name', e.customer_snapshot->>'companyName')
-             from sequence_enrollments e inner join people p on e.customer_id = p.id
-             where {filter} order by e.enrolled_at desc, e.id desc{}",
-            limit_sql(limit.map(|n| n + 1))
-        ),
-        &args,
-    )
-    .await?;
-    let (count_filter, count_args) = render(count_conds(&conds, cursor.is_some()));
-    let total = fetch_count(
-        caller,
-        &format!(
-            "select count(*) from sequence_enrollments e inner join people p on e.customer_id = p.id
-             where {count_filter}"
-        ),
-        &count_args,
-    )
-    .await?;
-    let steps: Option<Option<Value>> =
-        sqlx::query_scalar("select steps from workflows where id = $1 limit 1")
-            .bind(id)
-            .fetch_optional(&caller.db)
-            .await?;
+    let db = orm(&caller.db);
+    let rows = Entity::find()
+        .expr_as(
+            snapshot_or("email", Some(people::Column::Email)),
+            "customer_email",
+        )
+        .expr_as(
+            snapshot_or("firstName", Some(people::Column::FirstName)),
+            "customer_first_name",
+        )
+        .expr_as(
+            snapshot_or("lastName", Some(people::Column::LastName)),
+            "customer_last_name",
+        )
+        .expr_as(
+            snapshot_or("fullName", Some(people::Column::DisplayName)),
+            "customer_full_name",
+        )
+        .expr_as(snapshot_or("companyName", None), "customer_company_name")
+        .join(JoinType::InnerJoin, enrolled_person())
+        .filter(all_of(&conds))
+        .order_by_desc(Column::EnrolledAt)
+        .order_by_desc(Column::Id)
+        .limit(sql_limit(limit.map(|n| n + 1)))
+        .into_model::<ListedEnrollment>()
+        .all(&db)
+        .await?;
+    let total = Entity::find()
+        .join(JoinType::InnerJoin, enrolled_person())
+        .filter(all_of(count_conds(&conds, cursor.is_some())))
+        .count(&db)
+        .await?;
+    let steps: Option<Option<Value>> = workflows::Entity::find()
+        .select_only()
+        .column(workflows::Column::Steps)
+        .filter(workflows::Column::Id.eq(id))
+        .into_tuple()
+        .one(&db)
+        .await?;
     let step_count = match steps.flatten() {
         Some(Value::Array(steps)) => steps.len(),
         _ => 0,
     };
+    let rows = rows
+        .into_iter()
+        .map(enrollment_json)
+        .collect::<Result<Vec<_>, DbErr>>()?;
     let (rows, has_more, next) = js_cut(rows, limit);
     let rows = rows
         .iter()
-        .map(|row| {
-            let mut picked = pick(row, &ENROLLMENT_KEYS);
-            let total_steps = if step_count > 0 {
-                json!(step_count)
-            } else {
-                match row.get("totalSteps") {
-                    Some(Value::Null) | None => json!(0),
-                    Some(value) => value.clone(),
-                }
-            };
-            picked["totalSteps"] = total_steps;
-            picked
-        })
+        .map(|row| listed_enrollment(row, step_count))
         .collect();
-    Ok(page(rows, total, has_more, next))
+    Ok(page(
+        rows,
+        i64::try_from(total).unwrap_or(i64::MAX),
+        has_more,
+        next,
+    ))
 }
 
 // ── Enroll ──────────────────────────────────────────────────────────────────
@@ -746,40 +870,44 @@ async fn run_enroll(
     sequence_id: &str,
     requested: Vec<String>,
 ) -> Answer {
-    let db = &caller.db;
     let mut ids: Vec<String> = Vec::new();
     for id in requested {
         if !ids.contains(&id) {
             ids.push(id);
         }
     }
-    let sequence: Option<(Option<String>, Option<Value>)> = sqlx::query_as(
-        "select status, steps from workflows where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(sequence_id)
-    .fetch_optional(db)
-    .await?;
-    let people: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(p) from people p where p.id = any($1) and p.deleted_at is null",
-    )
-    .bind(&ids)
-    .fetch_all(db)
-    .await?;
-    let employments: Vec<(String, String)> = sqlx::query_as(
-        "select pc.person_id, c.display_name from person_companies pc
-         inner join companies c on pc.company_id = c.id
-         where pc.person_id = any($1) and pc.is_primary = true and pc.ended_at is null",
-    )
-    .bind(&ids)
-    .fetch_all(db)
-    .await?;
-    let enrolled: Vec<String> = sqlx::query_scalar(
-        "select customer_id from sequence_enrollments where sequence_id = $1 and customer_id = any($2)",
-    )
-    .bind(sequence_id)
-    .bind(&ids)
-    .fetch_all(db)
-    .await?;
+    let db = &orm(&caller.db);
+    let sequence = sequence_row(caller, sequence_id).await?;
+    let people = people::Entity::find()
+        .filter(people::Column::Id.is_in(ids.iter().map(String::as_str)))
+        .filter(people::Column::DeletedAt.is_null())
+        .all(db)
+        .await?;
+    let employments: Vec<(String, String)> = person_companies::Entity::find()
+        .select_only()
+        .column(person_companies::Column::PersonId)
+        .column(companies::Column::DisplayName)
+        .join(
+            JoinType::InnerJoin,
+            person_companies::Entity::belongs_to(companies::Entity)
+                .from(person_companies::Column::CompanyId)
+                .to(companies::Column::Id)
+                .into(),
+        )
+        .filter(person_companies::Column::PersonId.is_in(ids.iter().map(String::as_str)))
+        .filter(person_companies::Column::IsPrimary.eq(true))
+        .filter(person_companies::Column::EndedAt.is_null())
+        .into_tuple()
+        .all(db)
+        .await?;
+    let enrolled: Vec<String> = enrollments::Entity::find()
+        .select_only()
+        .column(enrollments::Column::CustomerId)
+        .filter(enrollments::Column::SequenceId.eq(sequence_id))
+        .filter(enrollments::Column::CustomerId.is_in(ids.iter().map(String::as_str)))
+        .into_tuple()
+        .all(db)
+        .await?;
     let Some((status, steps)) = sequence else {
         return Ok(ApiError::not_found("Sequence", Some(sequence_id)).into_response());
     };
@@ -788,7 +916,10 @@ async fn run_enroll(
         Some(Value::Array(steps)) => steps.len(),
         _ => 0,
     };
-    let people: Vec<Value> = people.into_iter().map(drizzle_row).collect();
+    let people = people
+        .into_iter()
+        .map(|person| json(serde_json::to_value(person)))
+        .collect::<Result<Vec<_>, DbErr>>()?;
     let person = |id: &str| {
         people
             .iter()
@@ -813,40 +944,39 @@ async fn run_enroll(
     if to_enroll.is_empty() {
         return Ok(Data(json!({ "enrolled": 0, "enrollmentIds": [] })).into_response());
     }
-    let at = now();
-    let rows: Vec<Value> = to_enroll
-        .iter()
-        .map(|customer| {
-            json!({
-                "id": generate_id("senr"),
-                "sequence_id": sequence_id,
-                "customer_id": customer,
-                "counterparty_id": customer,
-                "status": if active { "active" } else { "pending" },
-                "total_steps": total_steps,
-                "enrolled_by": caller.user_id,
-                "enrolled_at": at,
-                "customer_snapshot": snapshot(
-                    person(customer).unwrap_or(&Value::Null),
-                    companies.get(customer.as_str()).copied(),
-                ),
-            })
-        })
+    let at = utc_now();
+    let total_steps =
+        i32::try_from(total_steps).map_err(|_| DbErr::Custom("integer out of range".to_owned()))?;
+    let rows = to_enroll.iter().map(|customer| enrollments::ActiveModel {
+        id: Set(generate_id("senr")),
+        sequence_id: Set(sequence_id.to_owned()),
+        customer_id: Set((*customer).clone()),
+        counterparty_id: Set(Some((*customer).clone())),
+        status: Set(if active { "active" } else { "pending" }.to_owned()),
+        total_steps: Set(Some(total_steps)),
+        enrolled_by: Set(Some(caller.user_id.clone())),
+        enrolled_at: Set(at),
+        customer_snapshot: Set(Some(snapshot(
+            person(customer).unwrap_or(&Value::Null),
+            companies.get(customer.as_str()).copied(),
+        ))),
+        ..Default::default()
+    });
+    // A person enrolled meanwhile is skipped (`on conflict do nothing`).
+    let inserted: Vec<(String, String)> = enrollments::Entity::insert_many(rows)
+        .on_conflict(
+            OnConflict::columns([
+                enrollments::Column::SequenceId,
+                enrollments::Column::CustomerId,
+            ])
+            .do_nothing()
+            .to_owned(),
+        )
+        .exec_with_returning(db)
+        .await?
+        .into_iter()
+        .map(|row| (row.id, row.customer_id))
         .collect();
-    let inserted: Vec<(String, String)> = sqlx::query_as(
-        "insert into sequence_enrollments (id, sequence_id, customer_id, counterparty_id, status,
-           total_steps, enrolled_by, enrolled_at, customer_snapshot)
-         select x.id, x.sequence_id, x.customer_id, x.counterparty_id, x.status, x.total_steps,
-           x.enrolled_by, x.enrolled_at::timestamp, x.customer_snapshot
-         from jsonb_to_recordset($1::jsonb) as x(id text, sequence_id text, customer_id text,
-           counterparty_id text, status text, total_steps int, enrolled_by text, enrolled_at text,
-           customer_snapshot jsonb)
-         on conflict (sequence_id, customer_id) do nothing
-         returning id, customer_id",
-    )
-    .bind(Value::Array(rows).to_string())
-    .fetch_all(db)
-    .await?;
     if active {
         start_runs(state, caller, &context(caller, sequence_id), &inserted).await;
     }
@@ -860,13 +990,15 @@ async fn run_enroll(
 async fn sequence_row(
     caller: &Caller,
     id: &str,
-) -> Result<Option<(Option<String>, Option<Value>)>, sqlx::Error> {
-    sqlx::query_as(
-        "select status, steps from workflows where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(&caller.db)
-    .await
+) -> Result<Option<(Option<String>, Option<Value>)>, DbErr> {
+    workflows::Entity::find()
+        .select_only()
+        .columns([workflows::Column::Status, workflows::Column::Steps])
+        .filter(workflows::Column::Id.eq(id))
+        .filter(workflows::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(&caller.db))
+        .await
 }
 
 fn context<'a>(caller: &'a Caller, sequence_id: &'a str) -> RunContext<'a> {
@@ -899,12 +1031,11 @@ async fn run_launch(state: &CrmState, caller: &Caller, id: &str) -> Answer {
                 .into_response(),
         );
     }
-    let enrolled: i64 = sqlx::query_scalar(
-        "select count(*) from sequence_enrollments where sequence_id = $1 and status != 'unenrolled'",
-    )
-    .bind(id)
-    .fetch_one(&caller.db)
-    .await?;
+    let enrolled = enrollments::Entity::find()
+        .filter(enrollments::Column::SequenceId.eq(id))
+        .filter(enrollments::Column::Status.ne("unenrolled"))
+        .count(&orm(&caller.db))
+        .await?;
     if enrolled == 0 {
         return Ok(ApiError::bad_request(
             "Enroll at least one person before launching this sequence",
@@ -988,20 +1119,16 @@ async fn run_pause(state: &CrmState, caller: &Caller, id: &str) -> Answer {
     if sequence_row(caller, id).await?.is_none() {
         return Ok(ApiError::not_found("Sequence", Some(id)).into_response());
     }
-    let at = now();
-    sqlx::query("update workflows set status = 'paused', updated_at = $2::timestamp where id = $1")
-        .bind(id)
-        .bind(&at)
-        .execute(&caller.db)
+    let at = utc_now();
+    let db = orm(&caller.db);
+    set_sequence_status(&db, id, "paused", at).await?;
+    let paused = enrollments::Entity::update_many()
+        .col_expr(enrollments::Column::Status, Expr::value("paused"))
+        .col_expr(enrollments::Column::PausedAt, Expr::value(at))
+        .filter(enrollments::Column::SequenceId.eq(id))
+        .filter(enrollments::Column::Status.eq("active"))
+        .exec_with_returning(&db)
         .await?;
-    let paused: Vec<String> = sqlx::query_scalar(
-        "update sequence_enrollments set status = 'paused', paused_at = $2::timestamp
-         where sequence_id = $1 and status = 'active' returning id",
-    )
-    .bind(id)
-    .bind(&at)
-    .fetch_all(&caller.db)
-    .await?;
     caller.publish(
         state,
         SEQUENCE_UPDATED,
@@ -1026,23 +1153,25 @@ pub(crate) async fn unenroll(
 }
 
 async fn run_unenroll(state: &CrmState, caller: &Caller, id: &str) -> Answer {
-    let existing: Option<(String, Option<String>)> = sqlx::query_as(
-        "select status, execution_id from sequence_enrollments where id = $1 limit 1",
-    )
-    .bind(id)
-    .fetch_optional(&caller.db)
-    .await?;
+    let db = orm(&caller.db);
+    let existing: Option<(String, Option<String>)> = enrollments::Entity::find_by_id(id.to_owned())
+        .select_only()
+        .columns([
+            enrollments::Column::Status,
+            enrollments::Column::ExecutionId,
+        ])
+        .into_tuple()
+        .one(&db)
+        .await?;
     let Some((status, execution_id)) = existing else {
         return Ok(ApiError::not_found("Enrollment", Some(id)).into_response());
     };
-    sqlx::query(
-        "update sequence_enrollments set status = 'unenrolled', unenrolled_at = $2::timestamp
-         where id = $1",
-    )
-    .bind(id)
-    .bind(now())
-    .execute(&caller.db)
-    .await?;
+    enrollments::Entity::update_many()
+        .col_expr(enrollments::Column::Status, Expr::value("unenrolled"))
+        .col_expr(enrollments::Column::UnenrolledAt, Expr::value(utc_now()))
+        .filter(enrollments::Column::Id.eq(id))
+        .exec(&db)
+        .await?;
     if status == "paused"
         && let Some(run) = execution_id
     {
@@ -1063,13 +1192,14 @@ pub(crate) async fn pause_enrollment(
 }
 
 async fn run_pause_enrollment(caller: &Caller, sequence_id: &str, id: &str) -> Answer {
-    let status: Option<String> = sqlx::query_scalar(
-        "select status from sequence_enrollments where id = $1 and sequence_id = $2 limit 1",
-    )
-    .bind(id)
-    .bind(sequence_id)
-    .fetch_optional(&caller.db)
-    .await?;
+    let db = orm(&caller.db);
+    let status: Option<String> = enrollments::Entity::find_by_id(id.to_owned())
+        .select_only()
+        .column(enrollments::Column::Status)
+        .filter(enrollments::Column::SequenceId.eq(sequence_id))
+        .into_tuple()
+        .one(&db)
+        .await?;
     let Some(status) = status else {
         return Ok(ApiError::not_found("Enrollment", Some(id)).into_response());
     };
@@ -1079,14 +1209,13 @@ async fn run_pause_enrollment(caller: &Caller, sequence_id: &str, id: &str) -> A
         ))
         .into_response());
     }
-    sqlx::query(
-        "update sequence_enrollments set status = 'paused', paused_at = $2::timestamp
-         where id = $1 and status = 'active'",
-    )
-    .bind(id)
-    .bind(now())
-    .execute(&caller.db)
-    .await?;
+    enrollments::Entity::update_many()
+        .col_expr(enrollments::Column::Status, Expr::value("paused"))
+        .col_expr(enrollments::Column::PausedAt, Expr::value(utc_now()))
+        .filter(enrollments::Column::Id.eq(id))
+        .filter(enrollments::Column::Status.eq("active"))
+        .exec(&db)
+        .await?;
     Ok(Data(json!({ "paused": true })).into_response())
 }
 
@@ -1108,14 +1237,19 @@ async fn run_resume_enrollment(
     sequence_id: &str,
     id: &str,
 ) -> Answer {
-    let existing: Option<(String, String, Option<String>)> = sqlx::query_as(
-        "select customer_id, status, execution_id from sequence_enrollments
-         where id = $1 and sequence_id = $2 limit 1",
-    )
-    .bind(id)
-    .bind(sequence_id)
-    .fetch_optional(&caller.db)
-    .await?;
+    let db = orm(&caller.db);
+    let existing: Option<(String, String, Option<String>)> =
+        enrollments::Entity::find_by_id(id.to_owned())
+            .select_only()
+            .columns([
+                enrollments::Column::CustomerId,
+                enrollments::Column::Status,
+                enrollments::Column::ExecutionId,
+            ])
+            .filter(enrollments::Column::SequenceId.eq(sequence_id))
+            .into_tuple()
+            .one(&db)
+            .await?;
     let sequence = sequence_row(caller, sequence_id).await?;
     let (Some((customer, status, execution_id)), Some((sequence_status, _))) = (existing, sequence)
     else {
@@ -1132,13 +1266,16 @@ async fn run_resume_enrollment(
             ApiError::conflict("Resume the sequence before resuming a person").into_response(),
         );
     }
-    sqlx::query(
-        "update sequence_enrollments set status = 'active', paused_at = null
-         where id = $1 and status = 'paused'",
-    )
-    .bind(id)
-    .execute(&caller.db)
-    .await?;
+    enrollments::Entity::update_many()
+        .col_expr(enrollments::Column::Status, Expr::value("active"))
+        .col_expr(
+            enrollments::Column::PausedAt,
+            Expr::value(None::<PrimitiveDateTime>),
+        )
+        .filter(enrollments::Column::Id.eq(id))
+        .filter(enrollments::Column::Status.eq("paused"))
+        .exec(&db)
+        .await?;
     if let Some(run) = execution_id {
         wake_runs(state, caller, &[run]).await;
     } else {
@@ -1167,23 +1304,52 @@ pub(crate) async fn customer_sequences(
     )
 }
 
+/// An enrollment with its sequence's name and status.
+#[derive(Debug, FromQueryResult)]
+struct CustomerSequence {
+    #[sea_orm(nested)]
+    enrollment: enrollments::Model,
+    sequence_name: String,
+    sequence_status: String,
+}
+
 async fn run_customer_sequences(caller: &Caller, customer_id: &str, raw: Option<&str>) -> Answer {
     let q = query_map(raw);
-    let limit = limit_sql(js_limit(q.get("limit"), 50, 100));
-    let rows = fetch_rows(
-        caller,
-        &format!(
-            "select jsonb_build_object('enrollment_id', e.id, 'sequence_id', e.sequence_id,
-               'status', e.status, 'current_step_index', e.current_step_index,
-               'total_steps', e.total_steps, 'enrolled_at', e.enrolled_at,
-               'completed_at', e.completed_at, 'sequence_name', w.name, 'sequence_status', w.status)
-             from sequence_enrollments e inner join workflows w on e.sequence_id = w.id
-             where e.customer_id = $1 and w.deleted_at is null
-             order by e.enrolled_at desc{limit}"
-        ),
-        &[customer_id.to_owned()],
-    )
-    .await?;
+    let limit = sql_limit(js_limit(q.get("limit"), 50, 100));
+    let rows = enrollments::Entity::find()
+        .column_as(workflows::Column::Name, "sequence_name")
+        .column_as(workflows::Column::Status, "sequence_status")
+        .join(
+            JoinType::InnerJoin,
+            enrollments::Entity::belongs_to(workflows::Entity)
+                .from(enrollments::Column::SequenceId)
+                .to(workflows::Column::Id)
+                .into(),
+        )
+        .filter(enrollments::Column::CustomerId.eq(customer_id))
+        .filter(workflows::Column::DeletedAt.is_null())
+        .order_by_desc(enrollments::Column::EnrolledAt)
+        .limit(limit)
+        .into_model::<CustomerSequence>()
+        .all(&orm(&caller.db))
+        .await?;
+    let rows: Vec<Value> = rows
+        .into_iter()
+        .map(|row| {
+            let e = row.enrollment;
+            json!({
+                "enrollmentId": e.id,
+                "sequenceId": e.sequence_id,
+                "status": e.status,
+                "currentStepIndex": e.current_step_index,
+                "totalSteps": e.total_steps,
+                "enrolledAt": js_date(e.enrolled_at),
+                "completedAt": js_date_or_null(e.completed_at),
+                "sequenceName": row.sequence_name,
+                "sequenceStatus": row.sequence_status,
+            })
+        })
+        .collect();
     let total = i64::try_from(rows.len()).unwrap_or(i64::MAX);
     Ok(page(rows, total, false, None))
 }

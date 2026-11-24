@@ -4,15 +4,20 @@
 
 use std::sync::Arc;
 
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect, Set};
 use serde_json::{Value, json};
-use sqlx::PgPool;
+use time::PrimitiveDateTime;
 use weldsuite_chat_domain::Realtime;
+use weldsuite_db::{PgPool, orm, utc_now, utc_timestamp};
 use weldsuite_kit::generate_id;
 use weldsuite_ports::{
     BoxFuture, DynRealtimePublisher, Job, JobContext, JobError, StepRetry, step,
 };
-
-use crate::util::now;
+use weldsuite_schema::tenant::{
+    chat_channel_members as members, chat_channels as channels, chat_messages as messages,
+    workspace_members,
+};
 
 /// A workspace's tenant database for jobs, which run outside any request.
 pub type TenantDatabases =
@@ -20,6 +25,11 @@ pub type TenantDatabases =
 
 /// The job's name.
 pub const UNPIN_EXPIRED_MESSAGE_JOB: &str = "chat.unpin-expired-message";
+
+/// A `timestamp` as Drizzle hands it back (`toISOString()`).
+fn iso(at: PrimitiveDateTime) -> String {
+    weldsuite_events::iso_timestamp(at.assume_utc())
+}
 
 /// `PinResult`, as the routes answer it.
 pub(crate) fn pin_result(
@@ -51,13 +61,26 @@ pub(crate) fn pin_result(
 pub(crate) async fn live_message_channel(
     db: &PgPool,
     message_id: &str,
-) -> Result<Option<String>, sqlx::Error> {
-    sqlx::query_scalar(
-        "select channel_id from chat_messages where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(message_id)
-    .fetch_optional(db)
-    .await
+) -> Result<Option<String>, DbErr> {
+    messages::Entity::find()
+        .select_only()
+        .column(messages::Column::ChannelId)
+        .filter(messages::Column::Id.eq(message_id))
+        .filter(messages::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await
+}
+
+/// `new Date(expiresAt)` (a `toISOString()`) as `$n::timestamp` reads it.
+fn expiry_timestamp(expires_at: Option<&str>) -> Result<Option<PrimitiveDateTime>, DbErr> {
+    expires_at
+        .map(|iso| {
+            time::OffsetDateTime::parse(iso, &time::format_description::well_known::Rfc3339)
+                .map(utc_timestamp)
+                .map_err(|error| DbErr::Custom(format!("invalid timestamp {iso:?}: {error}")))
+        })
+        .transpose()
 }
 
 /// `pinMessage`: the message pinned now by `user_id`, until `expires_at`.
@@ -66,22 +89,25 @@ pub(crate) async fn pin_message(
     message_id: &str,
     user_id: &str,
     expires_at: Option<&str>,
-) -> Result<Option<Value>, sqlx::Error> {
+) -> Result<Option<Value>, DbErr> {
     let Some(channel_id) = live_message_channel(db, message_id).await? else {
         return Ok(None);
     };
-    let at = now();
-    sqlx::query(
-        "update chat_messages set is_pinned = true, pinned_at = $2::timestamp, pinned_by = $3,
-            pin_expires_at = $4::timestamp, updated_at = $2::timestamp
-         where id = $1 and deleted_at is null",
-    )
-    .bind(message_id)
-    .bind(&at)
-    .bind(user_id)
-    .bind(expires_at)
-    .execute(db)
-    .await?;
+    let stamp = utc_now();
+    let at = iso(stamp);
+    messages::Entity::update_many()
+        .col_expr(messages::Column::IsPinned, Expr::value(true))
+        .col_expr(messages::Column::PinnedAt, Expr::value(stamp))
+        .col_expr(messages::Column::PinnedBy, Expr::value(user_id))
+        .col_expr(
+            messages::Column::PinExpiresAt,
+            Expr::value(expiry_timestamp(expires_at)?),
+        )
+        .col_expr(messages::Column::UpdatedAt, Expr::value(stamp))
+        .filter(messages::Column::Id.eq(message_id))
+        .filter(messages::Column::DeletedAt.is_null())
+        .exec(&orm(db))
+        .await?;
     Ok(Some(pin_result(
         message_id,
         &channel_id,
@@ -90,23 +116,38 @@ pub(crate) async fn pin_message(
 }
 
 /// `unpinMessage`.
-pub(crate) async fn unpin_message(
-    db: &PgPool,
-    message_id: &str,
-) -> Result<Option<Value>, sqlx::Error> {
+pub(crate) async fn unpin_message(db: &PgPool, message_id: &str) -> Result<Option<Value>, DbErr> {
     let Some(channel_id) = live_message_channel(db, message_id).await? else {
         return Ok(None);
     };
-    sqlx::query(
-        "update chat_messages set is_pinned = false, pinned_at = null, pinned_by = null,
-            pin_expires_at = null, updated_at = $2::timestamp
-         where id = $1 and deleted_at is null",
-    )
-    .bind(message_id)
-    .bind(now())
-    .execute(db)
-    .await?;
+    clear_pin(messages::Entity::update_many())
+        .filter(messages::Column::Id.eq(message_id))
+        .filter(messages::Column::DeletedAt.is_null())
+        .exec(&orm(db))
+        .await?;
     Ok(Some(pin_result(message_id, &channel_id, None)))
+}
+
+/// `set is_pinned = false, pinned_at = null, pinned_by = null,
+/// pin_expires_at = null, updated_at = now`.
+fn clear_pin(
+    update: sea_orm::UpdateMany<messages::Entity>,
+) -> sea_orm::UpdateMany<messages::Entity> {
+    update
+        .col_expr(messages::Column::IsPinned, Expr::value(false))
+        .col_expr(
+            messages::Column::PinnedAt,
+            Expr::value(Option::<PrimitiveDateTime>::None),
+        )
+        .col_expr(
+            messages::Column::PinnedBy,
+            Expr::value(Option::<String>::None),
+        )
+        .col_expr(
+            messages::Column::PinExpiresAt,
+            Expr::value(Option::<PrimitiveDateTime>::None),
+        )
+        .col_expr(messages::Column::UpdatedAt, Expr::value(utc_now()))
 }
 
 /// `postPinNotice`: the server-authored `system` message "pinned a message";
@@ -118,52 +159,56 @@ pub(crate) async fn post_pin_notice(
     channel_id: &str,
     pinned_message_id: &str,
     user_id: &str,
-) -> Result<String, sqlx::Error> {
-    let name: Option<Option<String>> =
-        sqlx::query_scalar("select name from workspace_members where user_id = $1 limit 1")
-            .bind(user_id)
-            .fetch_optional(db)
-            .await?;
+) -> Result<String, DbErr> {
+    let orm = orm(db);
+    let name: Option<Option<String>> = workspace_members::Entity::find()
+        .select_only()
+        .column(workspace_members::Column::Name)
+        .filter(workspace_members::Column::UserId.eq(user_id))
+        .into_tuple()
+        .one(&orm)
+        .await?;
     let author_name = name.flatten().unwrap_or_else(|| "Unknown".to_owned());
     // The stamped avatar is the account picture, not the member row's copy.
     let picture = weldsuite_db::load_account_picture(master, user_id).await;
     let id = generate_id("msg");
-    let at = now();
+    let at = utc_now();
     let content = format!("[system:{pinned_message_id}] pinned a message");
-    sqlx::query(
-        "insert into chat_messages
-            (id, channel_id, author_id, author_name, author_avatar, content, type, created_at, updated_at)
-         values ($1, $2, $3, $4, $5, $6, 'system', $7::timestamp, $7::timestamp)",
-    )
-    .bind(&id)
-    .bind(channel_id)
-    .bind(user_id)
-    .bind(&author_name)
-    .bind(&picture)
-    .bind(&content)
-    .bind(&at)
-    .execute(db)
+    messages::Entity::insert(messages::ActiveModel {
+        id: Set(id.clone()),
+        channel_id: Set(channel_id.to_owned()),
+        author_id: Set(user_id.to_owned()),
+        author_name: Set(author_name.clone()),
+        author_avatar: Set(picture.clone()),
+        content: Set(content.clone()),
+        type_: Set("system".to_owned()),
+        created_at: Set(at),
+        updated_at: Set(at),
+        ..Default::default()
+    })
+    .exec_without_returning(&orm)
     .await?;
-    sqlx::query(
-        "update chat_channels set last_message_at = $2::timestamp, last_message_preview = $3,
-            message_count = message_count + 1, updated_at = $2::timestamp
-         where id = $1",
-    )
-    .bind(channel_id)
-    .bind(&at)
-    .bind(format!("{author_name} pinned a message"))
-    .execute(db)
-    .await?;
-    sqlx::query(
-        "update chat_channel_members set last_read_at = $3::timestamp, last_read_message_id = $4
-         where channel_id = $1 and user_id = $2",
-    )
-    .bind(channel_id)
-    .bind(user_id)
-    .bind(&at)
-    .bind(&id)
-    .execute(db)
-    .await?;
+    channels::Entity::update_many()
+        .col_expr(channels::Column::LastMessageAt, Expr::value(at))
+        .col_expr(
+            channels::Column::LastMessagePreview,
+            Expr::value(format!("{author_name} pinned a message")),
+        )
+        .col_expr(
+            channels::Column::MessageCount,
+            sea_orm::ExprTrait::add(Expr::col(channels::Column::MessageCount), 1),
+        )
+        .col_expr(channels::Column::UpdatedAt, Expr::value(at))
+        .filter(channels::Column::Id.eq(channel_id))
+        .exec(&orm)
+        .await?;
+    members::Entity::update_many()
+        .col_expr(members::Column::LastReadAt, Expr::value(at))
+        .col_expr(members::Column::LastReadMessageId, Expr::value(&id))
+        .filter(members::Column::ChannelId.eq(channel_id))
+        .filter(members::Column::UserId.eq(user_id))
+        .exec(&orm)
+        .await?;
     if realtime.is_on() {
         let mut payload = json!({
             "type": "message",
@@ -224,32 +269,29 @@ impl Job for UnpinExpiredMessageJob {
                     let db = (tenants)(workspace.clone())
                         .await
                         .map_err(JobError::failed)?;
-                    let row: Option<(bool, Option<String>)> = sqlx::query_as(
-                        "select is_pinned, to_jsonb(pin_expires_at) #>> '{}' from chat_messages
-                     where id = $1 limit 1",
-                    )
-                    .bind(&message)
-                    .fetch_optional(&db)
-                    .await
-                    .map_err(JobError::failed)?;
+                    let orm = orm(&db);
+                    let row: Option<(bool, Option<PrimitiveDateTime>)> = messages::Entity::find()
+                        .select_only()
+                        .column(messages::Column::IsPinned)
+                        .column(messages::Column::PinExpiresAt)
+                        .filter(messages::Column::Id.eq(&message))
+                        .into_tuple()
+                        .one(&orm)
+                        .await
+                        .map_err(JobError::failed)?;
                     let still_this_pin = row.is_some_and(|(pinned, at)| {
                         pinned
-                            && at.as_deref().map(crate::util::ms_timestamp).as_deref()
+                            && at.map(iso).as_deref()
                                 == weldsuite_kit::validation::js_date_iso(&expires).as_deref()
                     });
                     if !still_this_pin {
                         return Ok(false);
                     }
-                    sqlx::query(
-                    "update chat_messages set is_pinned = false, pinned_at = null, pinned_by = null,
-                        pin_expires_at = null, updated_at = $2::timestamp
-                     where id = $1",
-                )
-                .bind(&message)
-                .bind(now())
-                .execute(&db)
-                .await
-                .map_err(JobError::failed)?;
+                    clear_pin(messages::Entity::update_many())
+                        .filter(messages::Column::Id.eq(&message))
+                        .exec(&orm)
+                        .await
+                        .map_err(JobError::failed)?;
                     Ok(true)
                 }
             })

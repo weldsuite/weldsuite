@@ -11,21 +11,28 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use http::HeaderMap;
+use sea_orm::sea_query::{Alias, Asterisk, Expr, Func};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, Condition, DbErr, EntityTrait, PaginatorTrait, QueryFilter,
+    QueryOrder, QuerySelect,
+};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events::{
     PROJECT_LABEL_CREATED, PROJECT_LABEL_DELETED, PROJECT_LABEL_UPDATED,
 };
-use weldsuite_db::{PgPool, js_row};
+use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_flow_domain::js::contains_pattern;
 use weldsuite_kit::validation::{Issues, Presence, js_trim};
 use weldsuite_kit::{ApiError, Created, Data, NoContent, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::{project_labels, tasks};
 
 use crate::js::{Js, js_string};
-use crate::projects::{bindable, writable};
+use crate::projects::writable;
 use crate::{
-    Caller, FlowState, Query, Refusal, Reply, access_scope, forbidden, keyset_cursor, list_limit,
-    now, outside, page, paged, reply, validate,
+    Caller, FlowState, Query, Refusal, Reply, access_scope, fetch_limit, forbidden, in_accessible,
+    json_rows, keyset_before, keyset_cursor, list_limit, outside, page, paged, reply, row_json,
+    validate,
 };
 
 const PROJECT_DENIED: &str = "You are not a member of this project";
@@ -65,21 +72,95 @@ async fn duplicate(
     name: &str,
     project_id: Option<&str>,
     exclude: Option<&str>,
-) -> Result<bool, sqlx::Error> {
-    let found: Option<String> = sqlx::query_scalar(
-        "select id from project_labels
-         where deleted_at is null and lower(btrim(name)) = $1
-           and (case when $2::text is not null then (project_id = $2 or project_id is null)
-                     else project_id is null end)
-           and ($3::text is null or id <> $3)
-         limit 1",
-    )
-    .bind(js_trim(name).to_lowercase())
-    .bind(project_id.filter(|p| !p.is_empty()))
-    .bind(exclude)
-    .fetch_optional(db)
-    .await?;
+) -> Result<bool, DbErr> {
+    use project_labels::Column;
+    let trimmed = Func::lower(Func::cust("btrim").arg(Expr::col(Column::Name)));
+    let mut found = project_labels::Entity::find()
+        .select_only()
+        .column(Column::Id)
+        .filter(Column::DeletedAt.is_null())
+        .filter(sea_orm::ExprTrait::eq(
+            Expr::from(trimmed),
+            js_trim(name).to_lowercase(),
+        ));
+    found = match project_id.filter(|p| !p.is_empty()) {
+        Some(project_id) => found.filter(
+            Condition::any()
+                .add(Column::ProjectId.eq(project_id))
+                .add(Column::ProjectId.is_null()),
+        ),
+        None => found.filter(Column::ProjectId.is_null()),
+    };
+    if let Some(exclude) = exclude {
+        found = found.filter(Column::Id.ne(exclude));
+    }
+    let found: Option<String> = found.into_tuple().one(&orm(db)).await?;
     Ok(found.is_some())
+}
+
+/// `labelScopeCondition` and the search: that project's labels and the
+/// workspace-wide ones, or the workspace-wide ones and the caller's
+/// projects'.
+fn label_filters(
+    project_id: Option<&str>,
+    scope: &(bool, Vec<String>),
+    search: Option<&str>,
+) -> Condition {
+    use project_labels::Column;
+    let in_scope = match project_id {
+        Some(project_id) => Condition::any()
+            .add(Column::ProjectId.eq(project_id))
+            .add(Column::ProjectId.is_null()),
+        None => Condition::any()
+            .add(Column::ProjectId.is_null())
+            .add(in_accessible(Column::ProjectId, scope)),
+    };
+    let mut filters = Condition::all()
+        .add(Column::DeletedAt.is_null())
+        .add(in_scope);
+    if let Some(search) = search {
+        filters = filters.add(Column::Name.ilike(search));
+    }
+    filters
+}
+
+/// How many visible tasks carry each label (`taskUsageScope`): `select
+/// jsonb_array_elements_text(t.labels) as label_id, count(*)::int from
+/// tasks t where … group by label_id`.
+async fn label_usage(
+    db: &PgPool,
+    scope: &(bool, Vec<String>),
+) -> Result<HashMap<String, i32>, DbErr> {
+    use tasks::Column;
+    let label = Alias::new("label_id");
+    let usage: Vec<(Option<String>, i32)> = tasks::Entity::find()
+        .select_only()
+        .column_as(
+            Expr::from(
+                Func::cust("jsonb_array_elements_text")
+                    .arg(Expr::col((tasks::Entity, Column::Labels))),
+            ),
+            "label_id",
+        )
+        .column_as(
+            sea_orm::ExprTrait::cast_as(Expr::from(Func::count(Expr::col(Asterisk))), "int"),
+            "count",
+        )
+        .filter(Column::Labels.is_not_null())
+        .filter(Column::DeletedAt.is_null())
+        .filter(
+            Condition::any()
+                .add(Column::ProjectId.is_null())
+                .add(in_accessible(Column::ProjectId, scope)),
+        )
+        .group_by(Expr::col(label))
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
+    Ok(usage
+        .into_iter()
+        .filter_map(|(label, count)| label.map(|l| (l, count)))
+        .collect())
 }
 
 fn duplicate_message(name: &str) -> String {
@@ -109,70 +190,37 @@ async fn list_labels(caller: &Caller, q: &Query) -> Reply {
     };
     let search = q.present("search").map(contains_pattern);
     let cursor = match q.present("cursor") {
-        Some(cursor) => keyset_cursor(
-            db,
-            "select id, to_jsonb(created_at) #>> '{}' from project_labels where id = $1 limit 1",
-            cursor,
-        )
-        .await?,
+        Some(cursor) => {
+            use project_labels::Column;
+            keyset_cursor(db, Column::Id, Column::CreatedAt, cursor).await?
+        }
         None => None,
     };
     // `taskUsageScope`: only tasks of projects the caller can see.
     let usage_scope = access_scope(caller).await?;
     let result = async {
+        use project_labels::Column;
         let Some(limit) = limit else {
             return Err(Refusal::Internal("limit is NaN".to_owned()));
         };
-        let rows: Vec<Value> = sqlx::query_scalar(concat!(
-            "select to_jsonb(l) from project_labels l where l.deleted_at is null",
-            " and (case when $1::text is not null then (l.project_id = $1 or l.project_id is null)",
-            " else (l.project_id is null or ",
-            in_accessible!("l.project_id", "$2", "$3"),
-            ") end)",
-            " and ($4::text is null or l.name ilike $4)",
-            " and ($5::timestamp is null or l.created_at < $5::timestamp",
-            " or (l.created_at = $5::timestamp and l.id < $6))",
-            " order by l.created_at desc, l.id desc limit $7"
-        ))
-        .bind(project_id.as_deref())
-        .bind(all)
-        .bind(&ids)
-        .bind(search.as_deref())
-        .bind(cursor.as_ref().map(|c| c.0.as_str()))
-        .bind(cursor.as_ref().map(|c| c.1.as_str()))
-        .bind(limit + 1)
-        .fetch_all(db)
-        .await?;
-        let total: i64 = sqlx::query_scalar(concat!(
-            "select count(*) from project_labels l where l.deleted_at is null",
-            " and (case when $1::text is not null then (l.project_id = $1 or l.project_id is null)",
-            " else (l.project_id is null or ",
-            in_accessible!("l.project_id", "$2", "$3"),
-            ") end)",
-            " and ($4::text is null or l.name ilike $4)"
-        ))
-        .bind(project_id.as_deref())
-        .bind(all)
-        .bind(&ids)
-        .bind(search.as_deref())
-        .fetch_one(db)
-        .await?;
-        let usage: Vec<(Option<String>, i32)> = sqlx::query_as(concat!(
-            "select jsonb_array_elements_text(t.labels) as label_id, count(*)::int as count",
-            " from tasks t where t.labels is not null and t.deleted_at is null",
-            " and (t.project_id is null or ",
-            in_accessible!("t.project_id", "$1", "$2"),
-            ") group by label_id"
-        ))
-        .bind(usage_scope.0)
-        .bind(&usage_scope.1)
-        .fetch_all(db)
-        .await?;
-        let counts: HashMap<String, i32> = usage
-            .into_iter()
-            .filter_map(|(label, count)| label.map(|l| (l, count)))
-            .collect();
-        let (rows, has_more, next) = page(rows.into_iter().map(js_row).collect(), limit);
+        let filters = label_filters(project_id.as_deref(), &(all, ids), search.as_deref());
+        let mut rows = project_labels::Entity::find().filter(filters.clone());
+        if let Some(cursor) = &cursor {
+            rows = rows.filter(keyset_before(Column::Id, Column::CreatedAt, cursor));
+        }
+        let rows = rows
+            .order_by_desc(Column::CreatedAt)
+            .order_by_desc(Column::Id)
+            .limit(fetch_limit(limit)?)
+            .all(&orm(db))
+            .await?;
+        let total = project_labels::Entity::find()
+            .filter(filters)
+            .count(&orm(db))
+            .await?;
+        let total = i64::try_from(total).unwrap_or(i64::MAX);
+        let counts = label_usage(db, &usage_scope).await?;
+        let (rows, has_more, next) = page(json_rows(rows)?, limit);
         let rows: Vec<Value> = rows
             .into_iter()
             .map(|mut row| {
@@ -189,14 +237,25 @@ async fn list_labels(caller: &Caller, q: &Query) -> Reply {
 
 // ── GET /:id ────────────────────────────────────────────────────────────────
 
-async fn label_row(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(l) from project_labels l where l.id = $1 and l.deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(js_row))
+async fn label_row(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
+    project_labels::Entity::find_by_id(id)
+        .filter(project_labels::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?
+        .map(row_json)
+        .transpose()
+}
+
+/// The live label's `projectId`, `None` when there is no such label.
+async fn label_project(db: &PgPool, id: &str) -> Result<Option<Option<String>>, DbErr> {
+    use project_labels::Column;
+    project_labels::Entity::find_by_id(id)
+        .select_only()
+        .column(Column::ProjectId)
+        .filter(Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await
 }
 
 async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
@@ -280,20 +339,18 @@ async fn create(
                 return Err(Refusal::conflict(&duplicate_message(&name)));
             }
             let id = generate_id("plbl");
-            sqlx::query(concat!(
-                "insert into project_labels (id, created_at, updated_at, name, color, project_id)",
-                " values ($2, $3::timestamp, $3::timestamp, ",
-                val_text!("name", "null"),
-                ", ",
-                val_text!("color", "null"),
-                ", ",
-                val_text!("projectId", "null"),
-                ")"
-            ))
-            .bind(bindable(&data))
-            .bind(&id)
-            .bind(now())
-            .execute(&caller.db)
+            let now = utc_now();
+            let text = |key: &str| data.get(key).and_then(Value::as_str).map(str::to_owned);
+            project_labels::Entity::insert(project_labels::ActiveModel {
+                id: Set(id.clone()),
+                created_at: Set(now),
+                updated_at: Set(now),
+                name: Set(text("name").unwrap_or_default()),
+                color: Set(text("color").unwrap_or_default()),
+                project_id: Set(text("projectId")),
+                ..Default::default()
+            })
+            .exec_without_returning(&orm(&caller.db))
             .await?;
             let mut out = data.clone();
             out.insert("id".to_owned(), json!(id));
@@ -335,13 +392,7 @@ async fn update_label(
     mut data: Map<String, Value>,
 ) -> Reply {
     let db = &caller.db;
-    let existing: Option<Option<String>> = sqlx::query_scalar(
-        "select project_id from project_labels where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    let Some(existing_project) = existing else {
+    let Some(existing_project) = label_project(db, id).await? else {
         return Err(Refusal::not_found("Project label", id));
     };
     if let Some(project) = existing_project.as_deref().filter(|p| !p.is_empty())
@@ -372,20 +423,25 @@ async fn update_label(
         }
         data.insert("name".to_owned(), json!(name));
     }
-    sqlx::query(concat!(
-        "update project_labels set ",
-        set_text!("name", "name"),
-        ", ",
-        set_text!("color", "color"),
-        ", ",
-        set_text!("projectId", "project_id"),
-        ", updated_at = $3::timestamp where id = $2 and deleted_at is null"
-    ))
-    .bind(bindable(&data))
-    .bind(id)
-    .bind(now())
-    .execute(db)
-    .await?;
+    {
+        use project_labels::Column;
+        let mut update = project_labels::Entity::update_many();
+        for (key, column) in [
+            ("name", Column::Name),
+            ("color", Column::Color),
+            ("projectId", Column::ProjectId),
+        ] {
+            if let Some(value) = data.get(key) {
+                update = update.col_expr(column, Expr::value(value.as_str().map(str::to_owned)));
+            }
+        }
+        update
+            .col_expr(Column::UpdatedAt, Expr::value(utc_now()))
+            .filter(Column::Id.eq(id))
+            .filter(Column::DeletedAt.is_null())
+            .exec(&orm(db))
+            .await?;
+    }
     let mut out = data;
     out.insert("id".to_owned(), json!(id));
     let out = Value::Object(out);
@@ -402,13 +458,7 @@ async fn remove(
 ) -> Response {
     reply(
         async {
-            let project: Option<Option<String>> = sqlx::query_scalar(
-                "select project_id from project_labels where id = $1 and deleted_at is null limit 1",
-            )
-            .bind(&id)
-            .fetch_optional(&caller.db)
-            .await?;
-            let Some(project) = project else {
+            let Some(project) = label_project(&caller.db, &id).await? else {
                 return Err(Refusal::not_found("Project label", &id));
             };
             if let Some(project) = project.as_deref().filter(|p| !p.is_empty())
@@ -416,13 +466,13 @@ async fn remove(
             {
                 return Err(Refusal::forbidden(PROJECT_WRITE_DENIED));
             }
-            sqlx::query(
-                "update project_labels set deleted_at = $2::timestamp, updated_at = $2::timestamp where id = $1",
-            )
-            .bind(&id)
-            .bind(now())
-            .execute(&caller.db)
-            .await?;
+            let now = utc_now();
+            project_labels::Entity::update_many()
+                .col_expr(project_labels::Column::DeletedAt, Expr::value(now))
+                .col_expr(project_labels::Column::UpdatedAt, Expr::value(now))
+                .filter(project_labels::Column::Id.eq(id.as_str()))
+                .exec(&orm(&caller.db))
+                .await?;
             caller.publish(&state, PROJECT_LABEL_DELETED, &id, &json!({ "id": id }));
             Ok(NoContent.into_response())
         }

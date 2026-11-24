@@ -17,11 +17,17 @@ use axum::body::Bytes;
 use axum::extract::{Path, RawQuery};
 use axum::response::{IntoResponse, Response};
 use http::{HeaderMap, StatusCode};
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{
+    ColumnTrait, Condition, EntityTrait, JoinType, QueryFilter, QueryOrder, QuerySelect,
+};
 use serde_json::{Value, json};
 use weldsuite_catalogs::entity_events::{CART_CREATED, CART_UPDATED};
 use weldsuite_commerce_domain::carts::{self, Attach, Filled, LineProblem, Wanted};
 use weldsuite_commerce_domain::checkout::{self, order_token_hash};
+use weldsuite_db::OrmConn;
 use weldsuite_events::publish_entity_event;
+use weldsuite_schema::tenant::{order_items, orders, parties};
 
 use super::shopper::{self, Loaded};
 use super::{Principal, body_object, data, fail, internal, refuse, validation};
@@ -63,23 +69,54 @@ async fn visible(
         .filter(|m| matches!(m.role.as_str(), "approver" | "admin"))
         .map(|m| m.company_id.clone());
     let mut conn = principal.db.acquire().await?;
-    let ids: Vec<(String, String)> = sqlx::query_as(
-        "select o.id, o.created_at::text from orders o left join parties pa on pa.id = o.counterparty_id \
-         where o.deleted_at is null and o.channel_id = $1 \
-           and (o.person_id = $2 or ($3::text is not null and pa.company_id = $3)) \
-           and ($4::text is null or o.id = $4) \
-           and ($5::text is null or (o.created_at, o.id) < ($5::timestamp, $7)) \
-         order by o.created_at desc, o.id desc limit $6",
-    )
-    .bind(&principal.channel.id)
-    .bind(&loaded.person.id)
-    .bind(company)
-    .bind(only)
-    .bind(after.map(|(at, _)| at.as_str()))
-    .bind(limit)
-    .bind(after.map(|(_, id)| id.as_str()))
-    .fetch_all(&mut *conn)
-    .await?;
+    // The shopper's own orders, or (an approver's) the company's.
+    let mut whose = Condition::any().add(orders::Column::PersonId.eq(loaded.person.id.as_str()));
+    if let Some(company) = company {
+        whose = whose.add(parties::Column::CompanyId.eq(company));
+    }
+    let mut found = orders::Entity::find()
+        .select_only()
+        .column(orders::Column::Id)
+        // The keyset as Postgres prints it, read back with `::timestamp`.
+        .column_as(
+            Expr::from(Func::cast_as(
+                Expr::col((orders::Entity, orders::Column::CreatedAt)),
+                "text",
+            )),
+            "at",
+        )
+        .join(
+            JoinType::LeftJoin,
+            orders::Entity::belongs_to(parties::Entity)
+                .from(orders::Column::CounterpartyId)
+                .to(parties::Column::Id)
+                .into(),
+        )
+        .filter(orders::Column::DeletedAt.is_null())
+        .filter(orders::Column::ChannelId.eq(principal.channel.id.as_str()))
+        .filter(whose);
+    if let Some(only) = only {
+        found = found.filter(orders::Column::Id.eq(only));
+    }
+    if let Some((at, id)) = after {
+        found = found.filter(sea_orm::ExprTrait::lt(
+            Expr::tuple([
+                Expr::col((orders::Entity, orders::Column::CreatedAt)),
+                Expr::col((orders::Entity, orders::Column::Id)),
+            ]),
+            Expr::tuple([
+                sea_orm::ExprTrait::cast_as(Expr::val(at.as_str()), "timestamp"),
+                Expr::val(id.as_str()),
+            ]),
+        ));
+    }
+    let ids: Vec<(String, String)> = found
+        .order_by_desc(orders::Column::CreatedAt)
+        .order_by_desc(orders::Column::Id)
+        .limit(u64::try_from(limit).unwrap_or(0))
+        .into_tuple()
+        .all(&OrmConn::new(&mut conn))
+        .await?;
     let mut views = Vec::with_capacity(ids.len());
     for (id, at) in ids {
         let view = checkout::order_view(&mut conn, &id).await?;
@@ -160,15 +197,15 @@ pub(crate) async fn guest(
     };
     let found = async {
         let mut conn = principal.db.acquire().await?;
-        let matched: Option<String> = sqlx::query_scalar(
-            "select id from orders where id = $1 and channel_id = $2 \
-               and guest_access_token_hash = $3 and deleted_at is null",
-        )
-        .bind(&id)
-        .bind(&principal.channel.id)
-        .bind(order_token_hash(&token))
-        .fetch_optional(&mut *conn)
-        .await?;
+        let matched: Option<String> = orders::Entity::find_by_id(id.as_str())
+            .select_only()
+            .column(orders::Column::Id)
+            .filter(orders::Column::ChannelId.eq(principal.channel.id.as_str()))
+            .filter(orders::Column::GuestAccessTokenHash.eq(order_token_hash(&token)))
+            .filter(orders::Column::DeletedAt.is_null())
+            .into_tuple()
+            .one(&OrmConn::new(&mut conn))
+            .await?;
         match matched {
             Some(id) => Ok(Some(checkout::order_view(&mut conn, &id).await?)),
             None => Ok::<_, weldsuite_commerce_domain::Error>(None),
@@ -299,13 +336,20 @@ pub(crate) async fn reorder(
             return Ok(None);
         }
         let mut conn = principal.db.acquire().await?;
-        let rows: Vec<ItemRow> = sqlx::query_as(
-            "select product_id, variant_id, sku, quantity from order_items \
-                 where order_id = $1 order by created_at asc, id asc",
-        )
-        .bind(&id)
-        .fetch_all(&mut *conn)
-        .await?;
+        let rows: Vec<ItemRow> = order_items::Entity::find()
+            .select_only()
+            .columns([
+                order_items::Column::ProductId,
+                order_items::Column::VariantId,
+                order_items::Column::Sku,
+                order_items::Column::Quantity,
+            ])
+            .filter(order_items::Column::OrderId.eq(id.as_str()))
+            .order_by_asc(order_items::Column::CreatedAt)
+            .order_by_asc(order_items::Column::Id)
+            .into_tuple()
+            .all(&OrmConn::new(&mut conn))
+            .await?;
         Ok::<_, weldsuite_commerce_domain::Error>(Some(rows))
     }
     .await;
