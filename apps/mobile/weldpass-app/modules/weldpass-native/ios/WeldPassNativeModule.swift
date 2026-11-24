@@ -1,3 +1,4 @@
+import AuthenticationServices
 import ExpoModulesCore
 import UIKit
 import UniformTypeIdentifiers
@@ -42,6 +43,33 @@ public class WeldPassNativeModule: Module {
         return true
       } catch {
         return false
+      }
+    }
+
+    // MARK: Native autofill (phase 4C)
+
+    /// The Keychain group the app shares with its AutoFill extension, as
+    /// Xcode expanded it in Info.plist; nil in a build without it.
+    Function("keychainGroup") { () -> String? in
+      Bundle.main.object(forInfoDictionaryKey: "WeldPassKeychainGroup") as? String
+    }
+
+    AsyncFunction("replaceCredentialIdentities") { (json: String, promise: Promise) in
+      CredentialIdentities.replace(json: json) { promise.resolve($0) }
+    }
+
+    AsyncFunction("clearCredentialIdentities") { (promise: Promise) in
+      CredentialIdentities.clear { promise.resolve($0) }
+    }
+
+    AsyncFunction("autofillEnabled") { (promise: Promise) in
+      CredentialIdentities.isEnabled { promise.resolve($0) }
+    }
+
+    /// Settings → General → AutoFill & Passwords, where WeldPass is switched on.
+    Function("openAutofillSettings") {
+      if #available(iOS 17.0, *) {
+        ASSettingsHelper.openCredentialProviderAppSettings { _ in }
       }
     }
   }

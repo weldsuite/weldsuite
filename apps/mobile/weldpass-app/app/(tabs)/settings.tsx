@@ -16,6 +16,7 @@ import { useAuthSession } from '@weldsuite/mobile-ui/contexts/AuthContext';
 import { useTheme, type ThemePreference } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useWorkspace } from '@weldsuite/mobile-ui/contexts/WorkspaceContext';
 
+import { AutofillSettings } from '@/components/AutofillSettings';
 import { Group, GroupRow } from '@/components/Group';
 import { OfflineSettings } from '@/components/OfflineSettings';
 import { Screen } from '@/components/Screen';
@@ -58,6 +59,8 @@ export default function SettingsScreen() {
         </Group>
 
         <OfflineSettings />
+
+        <AutofillSettings />
 
         <WorkspaceGroup />
 

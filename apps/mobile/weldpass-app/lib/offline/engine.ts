@@ -15,7 +15,8 @@ import { clearEvents, flushEvents, type KeyValue } from './events';
 
 export interface CopyFiles {
   read(workspaceId: string): Uint8Array | null;
-  write(workspaceId: string, bytes: Uint8Array): void;
+  /** `deviceId` goes into the index the native autofill reads (phase 4C). */
+  write(workspaceId: string, bytes: Uint8Array, deviceId: string): void;
   delete(workspaceId: string): void;
   deleteAll(): void;
 }
@@ -126,7 +127,7 @@ export async function syncCopy(
     return { kind: 'wiped', reason: outcome.reason };
   }
 
-  deps.files.write(session.workspaceId, await sealCopy(outcome.copy, key, deps.aes));
+  deps.files.write(session.workspaceId, await sealCopy(outcome.copy, key, deps.aes), deviceId);
   try {
     await flushEvents(deps.store, session.workspaceId, (events) => deps.api.uploadEvents(deviceId, events));
   } catch {

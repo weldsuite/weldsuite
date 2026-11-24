@@ -23,9 +23,19 @@ import type { AesGcm } from './envelope';
 const KEY_NAME = 'weldpass.offline.key';
 const KEY_SERVICE = 'weldpass-offline';
 
+/**
+ * iOS: the Keychain group shared with the AutoFill extension, so it can read
+ * the key too (null in a build without it: the key stays the app's own).
+ */
+function accessGroup(): { accessGroup?: string } {
+  const group = Platform.OS === 'ios' ? weldPassNative?.keychainGroup?.() : null;
+  return group ? { accessGroup: group } : {};
+}
+
 function keyOptions(prompt?: string): SecureStore.SecureStoreOptions {
   return {
     keychainService: KEY_SERVICE,
+    ...accessGroup(),
     requireAuthentication: true,
     keychainAccessible: SecureStore.WHEN_PASSCODE_SET_THIS_DEVICE_ONLY,
     ...(prompt ? { authenticationPrompt: prompt } : {}),
@@ -59,7 +69,9 @@ export async function createKey(prompt: string): Promise<string> {
 }
 
 export async function deleteKey(): Promise<void> {
-  await SecureStore.deleteItemAsync(KEY_NAME, { keychainService: KEY_SERVICE });
+  await SecureStore.deleteItemAsync(KEY_NAME, { keychainService: KEY_SERVICE, ...accessGroup() });
+  // A key from before the shared group (1.0 without autofill).
+  await SecureStore.deleteItemAsync(KEY_NAME, { keychainService: KEY_SERVICE }).catch(() => {});
 }
 
 export const expoAes: AesGcm = {
@@ -74,14 +86,25 @@ export const expoAes: AesGcm = {
   },
 };
 
+/** The App Group the AutoFill extension shares (iOS); app.json and targets/autofill name it too. */
+export const APP_GROUP = 'group.com.weldsuite.weldpass';
+
 /**
- * Where the copies live: the app's own documents (Android's app storage, not
- * backed up: `allowBackup` is off). On iOS the folder is excluded from
- * iCloud backup; phase 4C moves it into the App Group container the AutoFill
- * extension shares.
+ * Where the copies live. iOS: the App Group container the AutoFill extension
+ * shares, excluded from iCloud backup (falling back to the app's documents in
+ * a build without the group). Android: the app's own storage, not backed up
+ * (`allowBackup` is off), where the autofill service reads it.
  */
+function root(): Directory {
+  if (Platform.OS === 'ios') {
+    const shared = Paths.appleSharedContainers[APP_GROUP];
+    if (shared) return shared;
+  }
+  return Paths.document;
+}
+
 function folder(): Directory {
-  const directory = new Directory(Paths.document, 'weldpass-offline');
+  const directory = new Directory(root(), 'weldpass-offline');
   if (!directory.exists) {
     directory.create({ intermediates: true, idempotent: true });
     weldPassNative?.excludeFromBackup?.(directory.uri);
@@ -89,8 +112,12 @@ function folder(): Directory {
   return directory;
 }
 
+function fileName(workspaceId: string): string {
+  return `${workspaceId.replace(/[^A-Za-z0-9_-]/g, '_')}.wpo`;
+}
+
 function fileFor(workspaceId: string): File {
-  return new File(folder(), `${workspaceId.replace(/[^A-Za-z0-9_-]/g, '_')}.wpo`);
+  return new File(folder(), fileName(workspaceId));
 }
 
 export function readCopyFile(workspaceId: string): Uint8Array | null {
@@ -98,23 +125,58 @@ export function readCopyFile(workspaceId: string): Uint8Array | null {
   return file.exists ? file.bytesSync() : null;
 }
 
+interface IndexEntry {
+  workspaceId: string;
+  deviceId: string;
+  file: string;
+}
+
+/**
+ * `index.json`: which file is which workspace's, and its device, so the
+ * extension and the service can build each file's additional data. Ids only.
+ */
+function writeIndex(change: (entries: IndexEntry[]) => IndexEntry[]): void {
+  const file = new File(folder(), 'index.json');
+  let entries: IndexEntry[] = [];
+  try {
+    if (file.exists) entries = JSON.parse(file.textSync()) as IndexEntry[];
+  } catch {
+    entries = [];
+  }
+  const next = change(Array.isArray(entries) ? entries : []);
+  if (file.exists) file.delete();
+  file.write(JSON.stringify(next));
+}
+
 /** Written to a temporary file and moved over the old one, so a crash never leaves half a copy. */
-export function writeCopyFile(workspaceId: string, bytes: Uint8Array): void {
+export function writeCopyFile(workspaceId: string, bytes: Uint8Array, deviceId: string): void {
   const target = fileFor(workspaceId);
   const temporary = new File(folder(), `${target.name}.tmp`);
   if (temporary.exists) temporary.delete();
   temporary.write(bytes);
   if (target.exists) target.delete();
   temporary.moveSync(target);
+  writeIndex((entries) => [
+    ...entries.filter((entry) => entry.workspaceId !== workspaceId),
+    { workspaceId, deviceId, file: fileName(workspaceId) },
+  ]);
 }
 
 export function deleteCopyFile(workspaceId: string): void {
   const file = fileFor(workspaceId);
   if (file.exists) file.delete();
+  writeIndex((entries) => entries.filter((entry) => entry.workspaceId !== workspaceId));
 }
 
-/** Every copy on the phone: sign-out and a server switch. */
+/** The fills the extension / service queued for the trail. */
+export function fillsFile(): File {
+  return new File(folder(), 'fills.json');
+}
+
+/** Every copy on the phone, and the autofill side's key and list: sign-out and a server switch. */
 export function deleteAllCopyFiles(): void {
-  const directory = new Directory(Paths.document, 'weldpass-offline');
+  const directory = new Directory(root(), 'weldpass-offline');
   if (directory.exists) directory.delete();
+  weldPassNative?.clearAutofillKey?.();
+  void weldPassNative?.clearCredentialIdentities?.();
 }

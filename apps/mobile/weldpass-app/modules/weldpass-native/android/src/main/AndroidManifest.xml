@@ -1,1 +1,22 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android" />
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <application>
+    <!-- WeldPass in Android's autofill (ADR PASS-010): reads the offline copy, no network. -->
+    <service
+      android:name="expo.modules.weldpassnative.autofill.WeldPassAutofillService"
+      android:exported="true"
+      android:label="WeldPass"
+      android:permission="android.permission.BIND_AUTOFILL_SERVICE">
+      <intent-filter>
+        <action android:name="android.service.autofill.AutofillService" />
+      </intent-filter>
+      <meta-data
+        android:name="android.autofill"
+        android:resource="@xml/weldpass_autofill_service" />
+    </service>
+    <activity
+      android:name="expo.modules.weldpassnative.autofill.AutofillAuthActivity"
+      android:exported="false"
+      android:excludeFromRecents="true"
+      android:theme="@style/Theme.AppCompat.DayNight.Dialog" />
+  </application>
+</manifest>

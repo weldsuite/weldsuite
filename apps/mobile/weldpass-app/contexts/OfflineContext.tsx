@@ -40,6 +40,7 @@ import {
   type OfflineDeps,
   type OfflineSession,
 } from '@/lib/offline/engine';
+import { collectFills, credentialIdentities, handKeyToAutofill, publishIdentities } from '@/lib/offline/autofill';
 import { queueEvent } from '@/lib/offline/events';
 import {
   canHoldKey,
@@ -48,6 +49,7 @@ import {
   deleteCopyFile,
   deleteKey,
   expoAes,
+  fillsFile,
   readCopyFile,
   readKey,
   writeCopyFile,
@@ -219,6 +221,8 @@ export function OfflineProvider({ children }: Readonly<{ children: ReactNode }>)
     lastAttempt.current = Date.now();
     setSyncing(true);
     try {
+      // Fills done by the AutoFill extension / autofill service, for the trail.
+      await collectFills(fillsFile(), AsyncStorage).catch(() => 0);
       const run = await syncCopy(deps, session, key.current, copyRef.current);
       setOffline(false);
       if (run.kind === 'wiped') {
@@ -227,6 +231,8 @@ export function OfflineProvider({ children }: Readonly<{ children: ReactNode }>)
       } else {
         setOpenCopy(run.copy);
         setStatus('ready');
+        // iOS: QuickType suggestions (hosts and usernames, never a password).
+        void publishIdentities(credentialIdentities([run.copy])).catch(() => {});
       }
       void queryClient.invalidateQueries({ queryKey: ['weldpass', session.workspaceId] });
     } catch (error) {
@@ -253,6 +259,8 @@ export function OfflineProvider({ children }: Readonly<{ children: ReactNode }>)
           if (Platform.OS === 'ios' && !(await readKey(prompt))) return false;
         }
         key.current = value;
+        // Android: the autofill service gets the key, wrapped, within the unlock's window.
+        handKeyToAutofill(value);
       } catch (error) {
         if (/cancel/i.test(error instanceof Error ? error.message : String(error))) return false;
         // The key no longer opens (biometrics were changed): drop it, let

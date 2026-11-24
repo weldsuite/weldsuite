@@ -44,9 +44,16 @@ Self-hosted installs add it themselves (`rust/deploy/hetzner/README.md`).
 ### 1.3 Apple
 
 1. developer.apple.com → Identifiers → App ID `com.weldsuite.weldpass`. No
-   push and no Sign in with Apple (sign-in is WeldID's web page).
-   Native autofill (phase 4C) adds the **AutoFill Credential Provider**
-   capability, an **App Group** and a second App ID for the extension.
+   push and no Sign in with Apple (sign-in is WeldID's web page). Native
+   autofill (phase 4C) needs, on this App ID **and** on a second one,
+   `com.weldsuite.weldpass.autofill` (the extension, `targets/autofill`):
+   - the **AutoFill Credential Provider** capability;
+   - **App Groups** with `group.com.weldsuite.weldpass` (register the group
+     under Identifiers → App Groups first).
+   The Keychain group (`$(AppIdentifierPrefix)com.weldsuite.weldpass.shared`)
+   needs no portal setting. `eas credentials --platform ios` then makes the
+   extension's provisioning profile; set `ios.appleTeamId` in `app.json` (the
+   team id) so `@bacons/apple-targets` can sign the extension.
 2. App Store Connect → New App: name **WeldPass**, primary language English
    (U.S.), bundle `com.weldsuite.weldpass`, SKU `weldpass`.
 3. Copy the app's **Apple ID** (App Information) into `eas.json` →
@@ -68,7 +75,10 @@ Self-hosted installs add it themselves (`rust/deploy/hetzner/README.md`).
 4. App content: privacy policy, ads (none), app access (demo account, see
    `review-notes.md`), content rating, target audience (18+), data safety
    (`data-safety.md`), financial features (none).
-5. Autofill (phase 4C): Play's policy on the AutofillService declaration.
+5. Autofill (phase 4C): the app declares an `AutofillService`. Play asks for a
+   declaration of its use in App content (password manager: core function);
+   answer that it fills the person's own saved logins, on the device, from
+   the encrypted offline copy.
 
 ## 2. Build and submit
 
@@ -118,6 +128,16 @@ a version bump in `app.json` and a new binary.
       on the web → its next sync wipes the copy and Settings says so; turn
       offline copies off for the workspace → the same; remove the person from
       a shared vault → that vault leaves the phone
+- [ ] **iOS autofill:** Settings → General → AutoFill & Passwords → WeldPass on;
+      in Safari, a saved site offers the WeldPass login in the QuickType bar;
+      picking it asks for Face ID and fills username and password; the fill
+      shows in the vault's activity after the next sync
+- [ ] **Android autofill:** Settings → Passwords & autofill → WeldPass (or the
+      app's Settings → Autofill → Turn on); in Chrome (Settings → Autofill
+      services → "Autofill using another service") and in a native app whose
+      package is listed on the login, "Fill with WeldPass" asks for the
+      fingerprint and fills; a sign-in in another app offers "Save to
+      WeldPass", which opens New login filled in
 - [ ] The generator's strength meter matches the web app's
 - [ ] Demo workspace seeded and the review account works (`review-notes.md`)
 - [ ] Screenshots captured (`screenshots/README.md`)
