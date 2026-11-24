@@ -1771,7 +1771,7 @@ export const settings = {
         restrictedOffHint:
           'Uit: iedereen die de app (WeldBooks of WeldHR) heeft, ziet deze entiteit, met de eigen werkruimterol.',
         restrictedOnHint:
-          'Aan: alleen de hieronder vermelde leden zien deze entiteit, plus eigenaren van de werkruimte en mensen die toegang beheren.',
+          'Aan: alleen de hieronder vermelde leden en eigenaren van de werkruimte zien deze entiteit. Beheerders die niet vermeld staan, zien hem ook niet.',
         restrictedUpdated: 'Toegang bijgewerkt',
         explanation:
           'Binnen deze entiteit werkt een vermeld lid met de hier gekozen rol in plaats van de eigen werkruimterol. Welke apps iemand kan openen, volgt nog steeds de werkruimterol.',
@@ -1791,6 +1791,12 @@ export const settings = {
         removeTitle: 'Dit lid verwijderen?',
         removeDescription:
           'Diegene verliest de entiteitsrol. Is de entiteit beperkt, dan ziet diegene hem niet meer; anders ziet diegene hem met de eigen werkruimterol.',
+        removeSelfDescription:
+          'Deze entiteit is beperkt, dus zodra je niet meer op de lijst staat, zie je hem niet meer. Alleen de vermelde leden en eigenaren van de werkruimte kunnen je weer toevoegen.',
+        restrictSelfTitle: 'Beperken zonder jezelf?',
+        restrictSelfDescription:
+          'Je staat niet op de ledenlijst. Zodra deze entiteit beperkt is, zie je hem niet meer. Alleen de vermelde leden en eigenaren van de werkruimte kunnen je weer toevoegen.',
+        restrictSelfConfirm: 'Toch beperken',
         removed: 'Lid verwijderd',
         added: 'Lid toegevoegd',
         roleUpdated: 'Rol bijgewerkt',

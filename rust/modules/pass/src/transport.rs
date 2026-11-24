@@ -67,7 +67,18 @@ impl std::fmt::Debug for PassHttp {
     }
 }
 
-/// [`HttpTransport`] over reqwest.
+/// How long a provider call may take when its request names no timeout of
+/// its own (Vercel's; Cloudflare's carry 20 s). Auto-sync runs inside the
+/// secret write, and a server, unlike a Worker, has no runtime cap, so a
+/// provider that never answers would hold the write forever. A timed-out
+/// push is recorded as a failed run; the write stands.
+pub(crate) const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// How long connecting to a provider may take.
+pub(crate) const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// [`HttpTransport`] over reqwest, with [`DEFAULT_TIMEOUT`] and
+/// [`CONNECT_TIMEOUT`].
 #[derive(Debug, Clone)]
 pub struct ReqwestTransport {
     client: reqwest::Client,
@@ -80,6 +91,8 @@ impl ReqwestTransport {
     pub fn new() -> Self {
         #[allow(clippy::expect_used)]
         let client = reqwest::Client::builder()
+            .connect_timeout(CONNECT_TIMEOUT)
+            .timeout(DEFAULT_TIMEOUT)
             .build()
             .expect("the HTTP client builds");
         Self { client }

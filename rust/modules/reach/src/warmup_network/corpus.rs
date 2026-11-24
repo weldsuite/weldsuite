@@ -31,6 +31,9 @@ pub const CORPUS_LATEST_KEY: &str = "reach-warmup.corpus.latest";
 pub const CORPUS_PREVIOUS_KEY: &str = "reach-warmup.corpus.previous";
 /// `{ generatedAt }`: when the latest set was produced.
 pub const CORPUS_META_KEY: &str = "reach-warmup.corpus.meta";
+/// `{ attemptedAt }`: when a refresh was last tried, whether it worked or
+/// not ([`super::generate::CORPUS_RETRY_AFTER_MS`]).
+pub const CORPUS_ATTEMPT_KEY: &str = "reach-warmup.corpus.attempt";
 /// A stored set with fewer valid threads is ignored for the built-in one.
 pub const MIN_STORED_THREADS: usize = 30;
 /// How long a process keeps the loaded sets (`CORPUS_CACHE_TTL_MS`).

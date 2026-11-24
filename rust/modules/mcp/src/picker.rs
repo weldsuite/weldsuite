@@ -1,10 +1,13 @@
 //! The workspace picker: membership mode (WeldID), a plain `/mcp`, and an
-//! account in several workspaces. The token names no workspace and neither
-//! does the URL. Refusing would show the person only that their MCP client
-//! "couldn't connect", so the endpoint connects instead and offers one tool,
-//! [`TOOL`], which lists their workspaces and the address that selects each
-//! (`/mcp/w/<slug>`). The assistant can then tell them which address to
-//! connect with.
+//! account in several workspaces. Neither the token (no `tenant` claim:
+//! a connection made before signing in asked for a workspace, or by a client
+//! that sends no RFC 8707 resource) nor the URL names a workspace. Refusing
+//! would show the person only that their MCP client "couldn't connect", so
+//! the endpoint connects instead and offers one tool, [`TOOL`], which lists
+//! their workspaces and says how to pick one: connect again, and signing in
+//! asks which workspace to use ([`crate::selection`]); or, where signing in
+//! doesn't ask (another identity provider), connect with the workspace's own
+//! address (`/mcp/w/<slug>`), which the listing gives either way.
 //!
 //! It never acts in a workspace: it serves no other tool and no resource,
 //! and it reads only the names and slugs of the caller's own active
@@ -26,8 +29,12 @@ pub(crate) const MAX_LISTED: u64 = 50;
 /// The one tool.
 const TOOL: &str = "list_workspaces";
 
-/// What `initialize` tells the assistant instead of the house instructions.
-const INSTRUCTIONS: &str = "This WeldSuite account belongs to several workspaces, and the address this MCP server was connected with doesn't say which one to use, so no workspace tools are available yet.\n\nCall list_workspaces, show the user their workspaces, and ask them to connect this MCP server again with the address of the workspace they want to use (each workspace has its own address). Nothing in WeldSuite can be read or changed through this connection until then.";
+/// What `initialize` tells the assistant instead of the house instructions,
+/// where signing in asks which workspace to use.
+const INSTRUCTIONS: &str = "This WeldSuite account belongs to several workspaces, and this connection was made without choosing one, so no workspace tools are available yet.\n\nCall list_workspaces, show the user their workspaces, and ask them to disconnect this MCP server and connect it again: while signing in, WeldSuite asks which workspace to use. Nothing in WeldSuite can be read or changed through this connection until then.";
+
+/// The same, where signing in doesn't ask: each workspace's own address.
+const INSTRUCTIONS_BY_ADDRESS: &str = "This WeldSuite account belongs to several workspaces, and the address this MCP server was connected with doesn't say which one to use, so no workspace tools are available yet.\n\nCall list_workspaces, show the user their workspaces, and ask them to connect this MCP server again with the address of the workspace they want to use (each workspace has its own address). Nothing in WeldSuite can be read or changed through this connection until then.";
 
 /// One workspace the caller may pick.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -45,13 +52,21 @@ pub(crate) struct WorkspaceChoice {
     /// The URL that was called: `<server>/mcp`.
     endpoint: String,
     choices: Vec<Choice>,
+    /// Whether connecting again asks which workspace to use
+    /// ([`crate::auth::McpAuth::sign_in_asks_workspace`]).
+    sign_in_asks: bool,
 }
 
 impl WorkspaceChoice {
     /// `server_url` is the endpoint's origin (`McpAuth::server_url`). A
     /// workspace is selected by its slug, or by its id when the slug can't
-    /// be a URL segment as it stands.
-    pub(crate) fn new(server_url: &str, workspaces: &[MemberWorkspace]) -> Self {
+    /// be a URL segment as it stands. `sign_in_asks`: connecting again asks
+    /// which workspace to use.
+    pub(crate) fn new(
+        server_url: &str,
+        workspaces: &[MemberWorkspace],
+        sign_in_asks: bool,
+    ) -> Self {
         let endpoint = format!("{}{MCP_PATH}", server_url.trim_end_matches('/'));
         let choices = workspaces
             .iter()
@@ -67,7 +82,20 @@ impl WorkspaceChoice {
                 }
             })
             .collect();
-        Self { endpoint, choices }
+        Self {
+            endpoint,
+            choices,
+            sign_in_asks,
+        }
+    }
+
+    /// What `initialize` tells the assistant.
+    fn instructions(&self) -> &'static str {
+        if self.sign_in_asks {
+            INSTRUCTIONS
+        } else {
+            INSTRUCTIONS_BY_ADDRESS
+        }
     }
 
     /// The tool's answer: one line per workspace, its name and its URL.
@@ -75,11 +103,19 @@ impl WorkspaceChoice {
         if self.choices.is_empty() {
             return "This account is not an active member of any WeldSuite workspace. Create or join one in WeldSuite first.".to_owned();
         }
-        let mut text = format!(
-            "This WeldSuite account belongs to {} workspaces. {} doesn't say which one to use. To work in one, connect this MCP server again with that workspace's address:\n",
-            self.choices.len(),
-            self.endpoint,
-        );
+        let mut text = if self.sign_in_asks {
+            format!(
+                "This WeldSuite account belongs to {} workspaces, and this connection was made without choosing one. To work in one, disconnect this MCP server and connect it again to {}: while signing in, WeldSuite asks which workspace to use. Or connect with that workspace's own address:\n",
+                self.choices.len(),
+                self.endpoint,
+            )
+        } else {
+            format!(
+                "This WeldSuite account belongs to {} workspaces. {} doesn't say which one to use. To work in one, connect this MCP server again with that workspace's address:\n",
+                self.choices.len(),
+                self.endpoint,
+            )
+        };
         // Writing to a String can't fail.
         for choice in &self.choices {
             let _ = write!(text, "\n- {}: {}", choice.name, choice.url);
@@ -100,7 +136,7 @@ fn tool_definition() -> Value {
     json!({
         "name": TOOL,
         "title": "List workspaces",
-        "description": "List the WeldSuite workspaces this account belongs to, with the MCP server address to connect with for each. This connection names no workspace, so no other tools are available until the MCP server is connected again with one of these addresses.",
+        "description": "List the WeldSuite workspaces this account belongs to, and how to connect to one. This connection names no workspace, so no other tools are available until the MCP server is connected again for one of them.",
         "inputSchema": {
             "$schema": "http://json-schema.org/draft-07/schema#",
             "type": "object",
@@ -135,7 +171,7 @@ pub(crate) fn handle(choice: &WorkspaceChoice, message: &Value) -> Value {
             if let Some(object) = result.as_object_mut() {
                 object.insert(
                     "instructions".to_owned(),
-                    Value::String(INSTRUCTIONS.to_owned()),
+                    Value::String(choice.instructions().to_owned()),
                 );
             }
             Ok(result)
@@ -151,7 +187,7 @@ pub(crate) fn handle(choice: &WorkspaceChoice, message: &Value) -> Value {
                 json!({ "content": [{ "type": "text", "text": choice.listing() }] })
             } else {
                 tool_error(&format!(
-                    "{name} is not available: this connection names no workspace. Call {TOOL} to see this account's workspaces and the address to connect with for each."
+                    "{name} is not available: this connection names no workspace. Call {TOOL} to see this account's workspaces and how to connect to one."
                 ))
             })
         }
@@ -188,12 +224,17 @@ mod tests {
     }
 
     fn choice() -> WorkspaceChoice {
+        choice_asking(false)
+    }
+
+    fn choice_asking(sign_in_asks: bool) -> WorkspaceChoice {
         WorkspaceChoice::new(
             "https://mcp.example.eu/",
             &[
                 workspace("ws_1", "acme", "Acme"),
                 workspace("ws_2", "beta bv", " Beta BV "),
             ],
+            sign_in_asks,
         )
     }
 
@@ -225,6 +266,35 @@ mod tests {
             "{text}"
         );
         assert!(answer["result"].get("isError").is_none());
+    }
+
+    #[test]
+    fn where_signing_in_asks_the_person_is_told_to_connect_again() {
+        let answer = handle(
+            &choice_asking(true),
+            &request("tools/call", &json!({ "name": TOOL, "arguments": {} })),
+        );
+        let text = answer["result"]["content"][0]["text"]
+            .as_str()
+            .expect("text");
+        assert!(
+            text.contains("connect it again to https://mcp.example.eu/mcp: while signing in, WeldSuite asks which workspace to use"),
+            "{text}"
+        );
+        // The addresses still work, and are still listed.
+        assert!(
+            text.contains("- Acme: https://mcp.example.eu/mcp/w/acme"),
+            "{text}"
+        );
+        let initialize = handle(
+            &choice_asking(true),
+            &request("initialize", &json!({ "protocolVersion": "2025-06-18" })),
+        );
+        let instructions = initialize["result"]["instructions"]
+            .as_str()
+            .expect("instructions");
+        assert!(instructions.contains("while signing in, WeldSuite asks which workspace to use"));
+        assert!(!instructions.contains("the address of the workspace"));
     }
 
     #[test]
@@ -284,13 +354,13 @@ mod tests {
 
     #[test]
     fn no_workspace_and_many_workspaces_are_said_so() {
-        let none = WorkspaceChoice::new("https://mcp.example.eu", &[]);
+        let none = WorkspaceChoice::new("https://mcp.example.eu", &[], true);
         assert!(none.listing().contains("not an active member of any"));
 
         let many: Vec<MemberWorkspace> = (0..MAX_LISTED)
             .map(|i| workspace(&format!("ws_{i}"), &format!("w{i}"), &format!("W{i}")))
             .collect();
-        let listing = WorkspaceChoice::new("https://mcp.example.eu", &many).listing();
+        let listing = WorkspaceChoice::new("https://mcp.example.eu", &many, false).listing();
         assert!(
             listing.contains("Only the first 50 are listed"),
             "{listing}"

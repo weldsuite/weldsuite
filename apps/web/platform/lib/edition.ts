@@ -190,6 +190,14 @@ export const EDITION_FEATURES = [
    */
   'outside-eu-services',
   /**
+   * WeldPass deploy-target sync: pushing a project's secrets to Cloudflare and
+   * Vercel (the Sync tab, `/api/weldpass/projects/:id/credentials` and
+   * `/sync-targets`). Off on the EU edition for now: the server answers 403
+   * `SYNC_UNAVAILABLE` and skips auto-sync, and the platform hides the tab.
+   * Self-hosted installs keep it.
+   */
+  'weldpass-sync',
+  /**
    * The rebuilt WeldCommerce (ADR COM-009): a Rust-only module, so it is in
    * `GLOBAL_UNAVAILABLE_FEATURES` and Global hides the whole module.
    */

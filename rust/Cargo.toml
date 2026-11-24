@@ -154,6 +154,9 @@ lopdf = { version = "0.46.0", default-features = false }
 metrics = { version = "0.24.6", default-features = false }
 metrics-exporter-prometheus = { version = "0.18.3", default-features = false }
 png = "0.18.1"
+# The Public Suffix List, compiled in: WeldPass matches a login to a page only
+# above a public suffix (`github.io`, `co.uk`), as tldts does in TypeScript.
+psl = "2.1.249"
 # Pix QR codes on Brazilian invoices: Nayuki's generator, which uqr ports (books-domain).
 qrcodegen = "1.8.0"
 lettre = { version = "0.11.24", default-features = false, features = ["builder", "hostname", "pool", "smtp-transport", "tokio1-rustls", "aws-lc-rs", "rustls-platform-verifier"] }
