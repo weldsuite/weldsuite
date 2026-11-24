@@ -39,6 +39,23 @@ phase 4; ADRs PASS-001, PASS-007, PASS-010.
 - **Sensitive clipboard** (`lib/clipboard.ts`, `modules/weldpass-native`): a
   copied secret is marked sensitive (Android `IS_SENSITIVE`; iOS local-only,
   so no Universal Clipboard) and cleared after 30 s.
+- **Native autofill** (phase 4C), reading the offline copy with no network
+  and no tokens:
+  - iOS: an AutoFill credential provider extension in `targets/autofill`
+    (Swift), added at prebuild by `@bacons/apple-targets`. It shares the App
+    Group `group.com.weldsuite.weldpass` (the copy's folder) and the Keychain
+    group `$(AppIdentifierPrefix)com.weldsuite.weldpass.shared` (the copy's
+    key) with the app. After each sync the app fills the system's credential
+    identity store with hosts and usernames, never a password.
+  - Android: an `AutofillService` in `modules/weldpass-native/android`
+    (Kotlin). After each unlock the app hands it the key, wrapped with a
+    Keystore key of its own that works only within 30 s of the person
+    authenticating; the service's unlock activity opens the copy, matches
+    apps by package name (`fields.apps`) and pages by domain. A save request
+    opens "New login" with what was typed (`?fromAutofill=1`).
+  - Fills are queued in `fills.json` next to the copy and uploaded as
+    `autofilled` device events at the next sync. `index.json` there names
+    each copy's workspace and device (ids only).
 
 ## Layout
 
@@ -54,7 +71,8 @@ contexts/OfflineContext.tsx the offline copy in the running app
 hooks/use-passwords.ts    the copy when open, else TanStack Query over /api/weldpass
 lib/                      server, i18n (en, nl), clipboard, privacy, errors
 lib/offline/              the copy: format and merge, envelope, sync engine, events
-modules/weldpass-native/  local Expo module (Swift + Kotlin)
+modules/weldpass-native/  local Expo module (Swift + Kotlin): clipboard, backups, autofill service
+targets/autofill/         the iOS AutoFill credential provider extension (Swift)
 store/                    store listing, privacy answers, review notes
 .maestro/                 e2e flows
 ```

@@ -29,6 +29,26 @@ export interface WeldPassNativeModule {
    * Absent in binaries built before the offline copy (1.0 without 4B).
    */
   excludeFromBackup?(uri: string): boolean;
+
+  // Native autofill (phase 4C). Absent in binaries built before it.
+
+  /** iOS: the Keychain group shared with the AutoFill extension (Info.plist), or null. */
+  keychainGroup?(): string | null;
+
+  /** iOS: replace the system's QuickType list with these logins (JSON: host, username, recordIdentifier). */
+  replaceCredentialIdentities?(json: string): Promise<boolean>;
+  /** iOS: empty the system's QuickType list (sign-out, wipe). */
+  clearCredentialIdentities?(): Promise<boolean>;
+  /** Android: hand the copy's key to the autofill service, wrapped; within 30 s of an unlock. */
+  storeAutofillKey?(keyBase64: string): boolean;
+  /** Android: forget the autofill service's key (sign-out, wipe). */
+  clearAutofillKey?(): void;
+  /** Android: a login the autofill service was asked to save, once. */
+  takePendingSave?(): { username: string; password: string; webDomain: string | null; packageName: string } | null;
+  /** Whether WeldPass is the phone's autofill provider (iOS: AutoFill Passwords on; Android: the selected service). */
+  autofillEnabled?(): Promise<boolean>;
+  /** Opens the system screen where WeldPass is chosen as the autofill provider. */
+  openAutofillSettings?(): void;
 }
 
 export const weldPassNative = requireOptionalNativeModule<WeldPassNativeModule>('WeldPassNative');

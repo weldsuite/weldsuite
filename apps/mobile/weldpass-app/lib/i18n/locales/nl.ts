@@ -161,6 +161,7 @@ export const nl: Translations = {
     noWritableVault: 'Je kunt in geen enkele kluis items toevoegen.',
     saved: 'Opgeslagen',
     created: 'Item toegevoegd',
+    fromAutofill: 'Bewaar de login die je net gebruikte',
   },
 
   generator: {
@@ -220,6 +221,11 @@ export const nl: Translations = {
     removed: 'Verwijderd',
     lastSync: 'Gesynchroniseerd {time}',
     neverSynced: 'Nooit gesynchroniseerd',
+    autofill: 'Automatisch invullen',
+    autofillOn: 'WeldPass vult wachtwoorden in apps en websites in.',
+    autofillOff: 'Zet WeldPass aan in de instellingen voor automatisch invullen van je telefoon om wachtwoorden in apps en websites in te vullen.',
+    autofillNeedsCopy: 'Automatisch invullen leest de offline kopie, dus daarvoor moet er een op deze telefoon staan.',
+    autofillTurnOn: 'Aanzetten',
     security: 'Beveiliging',
     lock: 'Vergrendelen met {method}',
     lockAlwaysOn: 'Altijd aan. WeldPass vraagt het opnieuw na een minuut op de achtergrond, en voordat het een wachtwoord toont of kopieert.',

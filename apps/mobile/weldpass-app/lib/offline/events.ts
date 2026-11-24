@@ -35,13 +35,25 @@ export async function queueEvent(
   workspaceId: string,
   event: { vaultId: string; itemId: string; action: DeviceEventAction; at?: Date },
 ): Promise<void> {
+  await queueEvents(store, workspaceId, [event]);
+}
+
+/** Several events at once: one read and one write of the workspace's queue. */
+export async function queueEvents(
+  store: KeyValue,
+  workspaceId: string,
+  added: readonly { vaultId: string; itemId: string; action: DeviceEventAction; at?: Date }[],
+): Promise<void> {
+  if (added.length === 0) return;
   const events = await readEvents(store, workspaceId);
-  events.push({
-    vaultId: event.vaultId,
-    itemId: event.itemId,
-    action: event.action,
-    at: (event.at ?? new Date()).toISOString(),
-  });
+  for (const event of added) {
+    events.push({
+      vaultId: event.vaultId,
+      itemId: event.itemId,
+      action: event.action,
+      at: (event.at ?? new Date()).toISOString(),
+    });
+  }
   await store.setItem(queueKey(workspaceId), JSON.stringify(events.slice(-MAX_QUEUED_EVENTS)));
 }
 

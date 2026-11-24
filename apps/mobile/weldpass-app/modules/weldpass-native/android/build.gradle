@@ -13,3 +13,10 @@ android {
     versionName '1.0.0'
   }
 }
+
+dependencies {
+  // The autofill unlock (AutofillAuthActivity): BiometricPrompt on a FragmentActivity.
+  implementation 'androidx.biometric:biometric:1.1.0'
+  implementation 'androidx.fragment:fragment-ktx:1.8.5'
+  implementation 'androidx.appcompat:appcompat:1.7.0'
+}

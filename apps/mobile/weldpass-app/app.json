@@ -13,21 +13,35 @@
       "bundleIdentifier": "com.weldsuite.weldpass",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
-        "NSFaceIDUsageDescription": "WeldPass uses Face ID to unlock your vaults and before it shows or copies a password."
+        "NSFaceIDUsageDescription": "WeldPass uses Face ID to unlock your vaults and before it shows or copies a password.",
+        "WeldPassKeychainGroup": "$(AppIdentifierPrefix)com.weldsuite.weldpass.shared"
+      },
+      "entitlements": {
+        "com.apple.developer.authentication-services.autofill-credential-provider": true,
+        "com.apple.security.application-groups": [
+          "group.com.weldsuite.weldpass"
+        ],
+        "keychain-access-groups": [
+          "$(AppIdentifierPrefix)com.weldsuite.weldpass.shared"
+        ]
       }
     },
     "android": {
       "adaptiveIcon": {
         "backgroundColor": "#4F46E5"
       },
-      "edgeToEdgeEnabled": true,
       "package": "com.weldsuite.weldpass",
       "allowBackup": false,
-      "permissions": ["android.permission.USE_BIOMETRIC"],
-      "blockedPermissions": ["android.permission.POST_NOTIFICATIONS"]
+      "permissions": [
+        "android.permission.USE_BIOMETRIC"
+      ],
+      "blockedPermissions": [
+        "android.permission.POST_NOTIFICATIONS"
+      ]
     },
     "plugins": [
       "expo-router",
+      "@bacons/apple-targets",
       [
         "expo-build-properties",
         {

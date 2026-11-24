@@ -159,6 +159,7 @@ export const en = {
     noWritableVault: 'You can’t add items to any vault.',
     saved: 'Saved',
     created: 'Item added',
+    fromAutofill: 'Save the login you just used',
   },
 
   generator: {
@@ -218,6 +219,11 @@ export const en = {
     removed: 'Removed',
     lastSync: 'Synced {time}',
     neverSynced: 'Never synced',
+    autofill: 'Autofill',
+    autofillOn: 'WeldPass fills in passwords in apps and websites.',
+    autofillOff: 'Turn on WeldPass in the phone’s autofill settings to fill in passwords in apps and websites.',
+    autofillNeedsCopy: 'Autofill reads the offline copy, so it needs one on this phone.',
+    autofillTurnOn: 'Turn on',
     security: 'Security',
     lock: 'Lock with {method}',
     lockAlwaysOn: 'Always on. WeldPass asks again after a minute in the background, and before it shows or copies a password.',

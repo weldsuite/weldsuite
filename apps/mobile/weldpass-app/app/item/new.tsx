@@ -1,6 +1,11 @@
-/** A new login, secure note or card (`?type=`), in the vault given (`?vaultId=`) or the default one. */
+/**
+ * A new login, secure note or card (`?type=`), in the vault given
+ * (`?vaultId=`) or the default one. `?fromAutofill=1`: Android's autofill
+ * service was asked to save a login; its username, password and app or site
+ * fill the form (held in memory by the native module, taken once).
+ */
 
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import type { WeldPassItemType } from '@weldsuite/app-api-client/domains/weldpass-passwords';
 import { weldpassItemTypeSchema } from '@weldsuite/app-api-client/schemas/weldpass-passwords';
@@ -10,6 +15,7 @@ import {
   sortVaults,
   toItemInput,
   writableVaults,
+  type ItemFormValues,
 } from '@weldsuite/app-api-client/schemas/weldpass-items';
 import { EmptyState } from '@weldsuite/mobile-ui/components/EmptyState';
 import { Spinner } from '@weldsuite/mobile-ui/components/Spinner';
@@ -20,15 +26,34 @@ import { Screen } from '@/components/Screen';
 import { useCreateItem, useVaults } from '@/hooks/use-passwords';
 import { passErrorMessage } from '@/lib/errors';
 import { useI18n } from '@/lib/i18n';
+import { weldPassNative } from '@/modules/weldpass-native';
+
+/** The form a pending autofill save starts from. */
+function fromPendingSave(
+  values: ItemFormValues,
+  pending: { username: string; password: string; webDomain: string | null; packageName: string },
+): ItemFormValues {
+  const site = pending.webDomain?.replace(/^www\./, '') ?? null;
+  return {
+    ...values,
+    title: site ?? pending.packageName.split('.').pop() ?? '',
+    url: site ?? '',
+    username: pending.username,
+    password: pending.password,
+    // A native app: matched by its package name on the phone (PASS-010).
+    apps: site ? [] : [pending.packageName],
+  };
+}
 
 export default function NewItemScreen() {
-  const params = useLocalSearchParams<{ type?: string; vaultId?: string }>();
+  const params = useLocalSearchParams<{ type?: string; vaultId?: string; fromAutofill?: string }>();
   const type: WeldPassItemType = weldpassItemTypeSchema.safeParse(params.type).data ?? 'login';
   const { t } = useI18n();
   const toast = useToast();
   const router = useRouter();
   const vaults = useVaults();
   const create = useCreateItem();
+  const [pending] = useState(() => (params.fromAutofill === '1' ? (weldPassNative?.takePendingSave?.() ?? null) : null));
 
   const writable = useMemo(() => sortVaults(writableVaults(vaults.data ?? [])), [vaults.data]);
   const vaultId = defaultCreateVaultId(writable, params.vaultId);
@@ -41,7 +66,7 @@ export default function NewItemScreen() {
   } else {
     body = (
       <ItemForm
-        initial={emptyItemForm(type, vaultId)}
+        initial={pending ? fromPendingSave(emptyItemForm('login', vaultId), pending) : emptyItemForm(type, vaultId)}
         vaults={writable}
         allowVaultChoice
         saving={create.isPending}
@@ -59,7 +84,7 @@ export default function NewItemScreen() {
   }
 
   return (
-    <Screen title={t.form.newTitle[type]} back>
+    <Screen title={pending ? t.form.fromAutofill : t.form.newTitle[type]} back>
       {body}
     </Screen>
   );
