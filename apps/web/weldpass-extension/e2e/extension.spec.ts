@@ -41,8 +41,11 @@ test.beforeEach(() => {
 });
 
 /** A frame of the extension's (`menu.html`, `prompt.html`) inside `page`, once it has loaded. */
+/** Whether a frame shows this extension page (by path: framed pages use a dynamic host). */
+const isPage = (frame: Frame, file: string) => new URL(frame.url() || 'about:blank').pathname === `/${file}`;
+
 async function extensionFrame(page: Page, file: string): Promise<Frame> {
-  const find = () => page.frames().find((frame) => new URL(frame.url() || 'about:blank').pathname === `/${file}`);
+  const find = () => page.frames().find((frame) => isPage(frame, file));
   await expect.poll(() => Boolean(find()), { message: `${file} frame` }).toBe(true);
   const frame = find()!;
   await frame.waitForLoadState('domcontentloaded');
@@ -73,7 +76,7 @@ test('fills a login from the inline menu', async () => {
   expect(state.recorded.reveals).toEqual(['item-local']);
   // Only the origin went to the server for matching.
   expect(state.recorded.matchUrls.every((url) => url === APP)).toBe(true);
-  await expect.poll(() => page.frames().some((frame) => frame.url().includes('menu.html'))).toBe(false);
+  await expect.poll(() => page.frames().some((frame) => isPage(frame, 'menu.html'))).toBe(false);
   await page.close();
 });
 
@@ -130,7 +133,7 @@ test('offers to save a new login on the next page, and saves it', async () => {
     url: `${APP}/login`,
     fields: { username: 'grace@example.com', password: 'a brand new secret', totp: '', notes: '' },
   });
-  await expect.poll(() => page.frames().some((frame) => frame.url().includes('prompt.html'))).toBe(false);
+  await expect.poll(() => page.frames().some((frame) => isPage(frame, 'prompt.html'))).toBe(false);
   await page.close();
 });
 
@@ -166,9 +169,9 @@ test('asks nothing after signing in with exactly the login it filled', async () 
   await page.waitForURL('**/welcome');
   // No bar may load, for longer than the worker's poke after a submit.
   const bar = await page
-    .waitForEvent('framenavigated', { predicate: (frame) => frame.url().includes('prompt.html'), timeout: 2000 })
+    .waitForEvent('framenavigated', { predicate: (frame) => isPage(frame, 'prompt.html'), timeout: 2000 })
     .catch(() => null);
   expect(bar).toBeNull();
-  expect(page.frames().some((frame) => frame.url().includes('prompt.html'))).toBe(false);
+  expect(page.frames().some((frame) => isPage(frame, 'prompt.html'))).toBe(false);
   await page.close();
 });

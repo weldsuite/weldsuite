@@ -371,6 +371,9 @@ describe('save and update prompts', () => {
 
 // ── the edges: server, account, menus and prompts ─────────────────────────────
 
+/** The origin a host permission pattern (`https://host/*`) is for. */
+const patternOrigin = (pattern: string) => new URL(pattern).origin;
+
 const configCalls = (harness: Harness) => harness.calls.filter((call) => call.path === '/config.json');
 const reject = async () => {
   throw new Error('offline');
@@ -411,7 +414,7 @@ describe('the server', () => {
   });
 
   it('names the host access it lacks, and picks up a grant', async () => {
-    h.env.hasPermission = async (origins) => origins.length === 1 && origins[0]!.startsWith(ORIGIN);
+    h.env.hasPermission = async (origins) => origins.length === 1 && patternOrigin(origins[0]!) === ORIGIN;
     await expect(h.worker.state()).resolves.toMatchObject({
       server: { problem: 'no-permission', missingPatterns: [`${ISSUER}/*`] },
     });
@@ -446,7 +449,8 @@ describe('the server', () => {
   });
 
   it('refuses a server it has no host access to, or that answers no config', async () => {
-    h.env.hasPermission = async (origins) => origins.every((origin) => origin.includes('weldsuite.eu'));
+    h.env.hasPermission = async (origins) =>
+      origins.every((pattern) => [ORIGIN, ISSUER].includes(patternOrigin(pattern)));
     await expect(h.worker.setServer('https://weld.example')).resolves.toEqual({ ok: false, problem: 'no-permission' });
     h.env.fetchImpl = reject as unknown as typeof fetch;
     await expect(h.worker.setServer('https://down.example')).resolves.toMatchObject({ ok: false });
