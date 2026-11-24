@@ -69,6 +69,20 @@ function sameList<T>(a: readonly T[], b: readonly T[]): boolean {
   return a.length === b.length && a.every((item, index) => item === b[index]);
 }
 
+/** Changes the sections of `listKey`; an update that changes none of them is no change (and no undo step). */
+function useListChange(listKey: ListKey): (update: (sections: Section[]) => Section[]) => void {
+  const dispatch = useEditorDispatch();
+  return (update) =>
+    dispatch({
+      type: 'change',
+      update: (content) => {
+        const before = getList(content, listKey);
+        const after = update(before);
+        return sameList(before, after) ? content : setList(content, listKey, after);
+      },
+    });
+}
+
 interface PanelActions {
   readOnly: boolean;
   announce: (message: string) => void;
@@ -92,7 +106,7 @@ function IconAction({
 
 function BlockList({ listKey, section, actions }: Readonly<{ listKey: ListKey; section: Section; actions: PanelActions }>) {
   const t = getTranslations('commerce').onlineStore.editor;
-  const dispatch = useEditorDispatch();
+  const change = useListChange(listKey);
   const content = useEditorContent();
   const [selection, setSelection] = useAtom(selectionAtom);
   const blocks = section.blocks ?? [];
@@ -100,16 +114,6 @@ function BlockList({ listKey, section, actions }: Readonly<{ listKey: ListKey; s
   const types = blockTypes(section);
   const headingId = `blocks-${listId(listKey)}-${section.id}`;
   const prefix = `block:${listId(listKey)}:${section.id}`;
-
-  const change = (update: (sections: Section[]) => Section[]) =>
-    dispatch({
-      type: 'change',
-      update: (content) => {
-        const before = getList(content, listKey);
-        const after = update(before);
-        return sameList(before, after) ? content : setList(content, listKey, after);
-      },
-    });
 
   const move = (block: Block, index: number, direction: -1 | 1) => {
     change((sections) => moveBlock(sections, section.id, block.id, direction));
@@ -249,7 +253,7 @@ function SectionRow({
   actions,
 }: Readonly<{ listKey: ListKey; section: Section; index: number; count: number; actions: PanelActions }>) {
   const t = getTranslations('commerce').onlineStore.editor;
-  const dispatch = useEditorDispatch();
+  const change = useListChange(listKey);
   const [selection, setSelection] = useAtom(selectionAtom);
   const name = sectionName(section);
   const required = isRequired(section, listKey.name);
@@ -257,16 +261,6 @@ function SectionRow({
   const selected = selectedSection !== null;
   const prefix = `${listId(listKey)}:${section.id}`;
   const known = section.type in SECTION_CATALOG;
-
-  const change = (update: (sections: Section[]) => Section[]) =>
-    dispatch({
-      type: 'change',
-      update: (content) => {
-        const before = getList(content, listKey);
-        const after = update(before);
-        return sameList(before, after) ? content : setList(content, listKey, after);
-      },
-    });
 
   const move = (direction: -1 | 1) => {
     change((sections) => moveSection(sections, section.id, direction));

@@ -152,8 +152,11 @@ export function applyShopField(document: SiteDocument, id: string, value: Settin
     const analytics = { ...document.settings.analytics };
     if (stringValue) analytics.weldpanelProjectKey = stringValue;
     else delete analytics.weldpanelProjectKey;
-    const { analytics: _previous, ...rest } = document.settings;
-    return { ...document, settings: Object.keys(analytics).length === 0 ? rest : { ...rest, analytics } };
+    // Analytics goes last, and away when it is empty.
+    const settings = { ...document.settings };
+    delete settings.analytics;
+    if (Object.keys(analytics).length > 0) settings.analytics = analytics;
+    return { ...document, settings };
   }
   return document;
 }

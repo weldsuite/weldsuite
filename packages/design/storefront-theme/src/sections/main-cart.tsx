@@ -1,4 +1,5 @@
 import type { Cart, CartLine } from '@weldsuite/commerce-sdk';
+import type { ReactNode } from 'react';
 import { AlertIcon } from '../components/icons';
 import { useMoney } from '../components/price';
 import { ShopLink } from '../components/shop-link';
@@ -46,22 +47,25 @@ function Summary({ cart, showDiscount, note }: Readonly<{ cart: Cart; showDiscou
   const s = shop.strings.cart;
   const DiscountForm = slots.DiscountForm;
   const hasProblems = cart.items.some((line) => line.problem);
+  // The applied code (and the form to change it), or the form alone.
+  let discount: ReactNode = null;
+  if (showDiscount && cart.discount) {
+    discount = (
+      <div className="flex flex-col gap-1">
+        <p>{format(s.discountApplied, { code: cart.discount.code })}</p>
+        {DiscountForm ? <DiscountForm cart={cart} /> : null}
+      </div>
+    );
+  } else if (showDiscount && DiscountForm) {
+    discount = <DiscountForm cart={cart} />;
+  }
   return (
     <aside aria-labelledby="cart-summary" className="flex flex-col gap-5 self-start rounded-shop bg-shop-muted p-6 text-shop-on-muted">
       <h2 id="cart-summary" className="text-xl font-semibold">
         {s.summary}
       </h2>
       <Totals totals={cart} shippingKnown={Boolean(cart.shippingRate)} taxKnown={Boolean(cart.shippingAddress)} />
-      {showDiscount ? (
-        cart.discount ? (
-          <div className="flex flex-col gap-1">
-            <p>{format(s.discountApplied, { code: cart.discount.code })}</p>
-            {DiscountForm ? <DiscountForm cart={cart} /> : null}
-          </div>
-        ) : DiscountForm ? (
-          <DiscountForm cart={cart} />
-        ) : null
-      ) : null}
+      {discount}
       {cart.discountProblem ? <p className="shop-alert-inline">{discountReason(shop.strings, cart.discountProblem)}</p> : null}
       <RichText source={note} baseLevel={3} />
       {hasProblems ? <p className="shop-alert-inline">{s.fixProblems}</p> : null}

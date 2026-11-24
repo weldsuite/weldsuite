@@ -62,10 +62,19 @@ export function setList(content: EditorContent, key: ListKey, sections: Section[
 // Ids
 // ---------------------------------------------------------------------------
 
+/** `value` without the hyphens it starts and ends with (`--a-b-` → `a-b`). */
+export function trimHyphens(value: string): string {
+  let start = 0;
+  let end = value.length;
+  while (start < end && value[start] === '-') start += 1;
+  while (end > start && value[end - 1] === '-') end -= 1;
+  return value.slice(start, end);
+}
+
 /** An id matching `[a-z0-9_-]{1,40}` that no item in `taken` has: the base, then `-2`, `-3`, … */
 export function uniqueId(base: string, taken: Iterable<string>): string {
   const used = new Set(taken);
-  const stem = base.toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, LIMITS.idLength - 4) || 'item';
+  const stem = trimHyphens(base.toLowerCase().replace(/[^a-z0-9_-]+/g, '-')).slice(0, LIMITS.idLength - 4) || 'item';
   if (!used.has(stem)) return stem;
   for (let n = 2; ; n += 1) {
     const candidate = `${stem}-${n}`;
@@ -145,7 +154,8 @@ export function toggleSectionHidden(sections: readonly Section[], id: string): S
   return sections.map((section) => {
     if (section.id !== id) return section;
     if (section.hidden) {
-      const { hidden: _hidden, ...shown } = section;
+      const shown = { ...section };
+      delete shown.hidden;
       return shown;
     }
     return { ...section, hidden: true };

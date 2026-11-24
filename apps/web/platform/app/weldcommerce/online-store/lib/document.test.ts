@@ -16,6 +16,7 @@ import {
   removeSection,
   setList,
   toggleSectionHidden,
+  trimHyphens,
   uniqueId,
   updateBlockSettings,
   updateSectionSettings,
@@ -52,6 +53,31 @@ describe('ids', () => {
     expect(uniqueId('Image With Text!', [])).toBe('image-with-text');
     expect(uniqueId('x'.repeat(80), [])).toMatch(/^[a-z0-9_-]{1,40}$/);
     expect(uniqueId('***', [])).toBe('item');
+  });
+});
+
+describe('trimming hyphens', () => {
+  // The regular expressions the loops replaced, kept to show the two agree.
+  const before = (value: string) => value.replace(/^-+|-+$/g, '');
+  const stemBefore = (base: string) => base.toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 36) || 'item';
+  const inputs = ['', '-', '---', 'a', '-a', 'a-', '--a--', 'a-b', 'a--b', '-a-b-', ' -a- ', 'a-\n', '-\na', '_-a-_', '-- --'];
+
+  it.each(inputs)('trims %j as the regular expression did', (input) => {
+    expect(trimHyphens(input)).toBe(before(input));
+  });
+
+  it('agrees with it on every short string of hyphens, letters and spaces', () => {
+    let values = [''];
+    for (let length = 1; length <= 6; length += 1) {
+      values = values.flatMap((value) => ['-', 'a', ' '].map((char) => value + char));
+      for (const value of values) expect(trimHyphens(value), JSON.stringify(value)).toBe(before(value));
+    }
+  });
+
+  it('makes the same ids as before', () => {
+    for (const base of ['', '---', '***', '  Hero  ', '--x--', 'Ab__Cd!!', 'Image With Text!', `${'x'.repeat(35)}-y`, `-${'y'.repeat(50)}`, 'Crème brûlée']) {
+      expect(uniqueId(base, []), base).toBe(stemBefore(base));
+    }
   });
 });
 

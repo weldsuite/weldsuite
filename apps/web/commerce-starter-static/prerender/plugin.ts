@@ -11,7 +11,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 
 import { createStorefrontClient, type FetchLike, type StorefrontCategory, type StorefrontProduct } from '@weldsuite/commerce-sdk';
-import type { Plugin } from 'vite';
+import type { Logger, Plugin } from 'vite';
 
 import { readConfig, type ShopConfig } from '../src/lib/config.ts';
 import { categoryPage, productPage, renderIndex, renderPage, safeSlug, type PrerenderedPage, type ShopContext } from './html.ts';
@@ -70,15 +70,16 @@ export async function prerenderShop(config: ShopConfig, outDir: string, log: (me
 
 export function prerender(env: Record<string, string>): Plugin {
   let outDir = 'dist';
-  let warn: (message: string) => void = () => undefined;
-  let info: (message: string) => void = () => undefined;
+  // Vite's logger, once the config is resolved; nothing is logged before that.
+  let logger: Pick<Logger, 'warn' | 'info'> | null = null;
+  const warn = (message: string): void => logger?.warn(`[prerender] ${message}`);
+  const info = (message: string): void => logger?.info(`[prerender] ${message}`);
   return {
     name: 'weldcommerce-prerender',
     apply: 'build',
     configResolved(resolved) {
       outDir = resolve(resolved.root, resolved.build.outDir);
-      warn = (message) => resolved.logger.warn(`[prerender] ${message}`);
-      info = (message) => resolved.logger.info(`[prerender] ${message}`);
+      logger = resolved.logger;
     },
     async closeBundle() {
       const read = readConfig(env);

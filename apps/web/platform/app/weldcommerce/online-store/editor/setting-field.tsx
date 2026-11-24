@@ -7,8 +7,8 @@
  * a WeldForms form id and a video address.
  */
 
-import { useId, useState } from 'react';
-import { useFormContext } from 'react-hook-form';
+import { useId, useState, type ReactNode } from 'react';
+import { useFormContext, type ControllerRenderProps } from 'react-hook-form';
 import type { SettingDefinition, SettingValues } from '@weldsuite/storefront-theme/catalog';
 import { Autocomplete } from '@weldsuite/ui/components/autocomplete';
 import { Checkbox } from '@weldsuite/ui/components/checkbox';
@@ -200,9 +200,244 @@ function ImagePreview({ url }: Readonly<{ url: string }>) {
   );
 }
 
+/** What every kind of field is drawn from: the setting, the form's field, its label and help. */
+interface FieldParts {
+  definition: SettingDefinition;
+  field: ControllerRenderProps<SettingValues, string>;
+  label: string;
+  description: ReactNode;
+}
+
+function checkboxField({ field, label, description }: FieldParts) {
+  return (
+    <FormItem className="flex flex-row items-start gap-2">
+      <FormControl>
+        <Checkbox checked={field.value === true} onCheckedChange={(checked) => field.onChange(checked === true)} onBlur={field.onBlur} />
+      </FormControl>
+      <div className="grid gap-1">
+        <FormLabel className="font-normal leading-snug">{label}</FormLabel>
+        {description}
+        <FormMessage />
+      </div>
+    </FormItem>
+  );
+}
+
+/** Radio buttons up to five options, a select above. */
+function selectField({ definition, field, label, description }: FieldParts) {
+  if ((definition.options?.length ?? 0) <= MAX_RADIO_OPTIONS) {
+    return <RadioChoice definition={definition} value={asString(field.value)} onChange={field.onChange} onBlur={field.onBlur} />;
+  }
+  const t = getTranslations('commerce').onlineStore.fields;
+  return (
+    <FormItem>
+      <FormLabel>{label}</FormLabel>
+      <Select value={asString(field.value)} onValueChange={field.onChange}>
+        <FormControl>
+          <SelectTrigger onBlur={field.onBlur}>
+            <SelectValue placeholder={t.choose} />
+          </SelectTrigger>
+        </FormControl>
+        <SelectContent>
+          {(definition.options ?? []).map((option) => (
+            <SelectItem key={option.value} value={option.value}>
+              {pickLabel(option.label)}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      {description}
+      <FormMessage />
+    </FormItem>
+  );
+}
+
+function numberField({ definition, field, label, description }: FieldParts) {
+  return (
+    <FormItem>
+      <FormLabel>{label}</FormLabel>
+      <FormControl>
+        <NumberInput
+          name={field.name}
+          ref={field.ref}
+          value={typeof field.value === 'number' ? field.value : undefined}
+          onValueChange={field.onChange}
+          onBlur={field.onBlur}
+          min={definition.min}
+          max={definition.max}
+        />
+      </FormControl>
+      {description}
+      <FormMessage />
+    </FormItem>
+  );
+}
+
+function colorField({ field, label, description }: FieldParts) {
+  return (
+    <FormItem>
+      <FormLabel>{label}</FormLabel>
+      <FormControl>
+        <ColorField
+          name={field.name}
+          ref={field.ref}
+          value={asString(field.value)}
+          onValueChange={field.onChange}
+          onBlur={field.onBlur}
+          swatchLabel={label}
+        />
+      </FormControl>
+      {description}
+      <FormMessage />
+    </FormItem>
+  );
+}
+
+/** A textarea, or rich text (Markdown): taller, in a monospace font. */
+function textareaField({ definition, field, label, description }: FieldParts) {
+  const richText = definition.type === 'richtext';
+  return (
+    <FormItem>
+      <FormLabel>{label}</FormLabel>
+      <FormControl>
+        <Textarea
+          name={field.name}
+          ref={field.ref}
+          value={asString(field.value)}
+          onChange={field.onChange}
+          onBlur={field.onBlur}
+          rows={richText ? 6 : 3}
+          maxLength={definition.maxLength}
+          className={richText ? 'font-mono text-sm' : undefined}
+        />
+      </FormControl>
+      {description}
+      <FormMessage />
+    </FormItem>
+  );
+}
+
+/** An address (URL, image, video) or a WeldForms form id; an image shows its preview. */
+function addressField({ definition, field, label, description }: FieldParts) {
+  const t = getTranslations('commerce').onlineStore.fields;
+  const formId = definition.type === 'form';
+  return (
+    <FormItem>
+      <FormLabel>{label}</FormLabel>
+      <FormControl>
+        <Input
+          name={field.name}
+          ref={field.ref}
+          value={asString(field.value)}
+          onChange={field.onChange}
+          onBlur={field.onBlur}
+          inputMode={formId ? 'text' : 'url'}
+          placeholder={formId ? t.formPlaceholder : undefined}
+          className={formId ? 'font-mono' : undefined}
+          {...identifierProps}
+        />
+      </FormControl>
+      {definition.type === 'image' && <ImagePreview url={asString(field.value)} />}
+      {description}
+      <FormMessage />
+    </FormItem>
+  );
+}
+
+function catalogueField({ field, label, description }: FieldParts, kind: CatalogueKind) {
+  return (
+    <FormItem>
+      <FormLabel>{label}</FormLabel>
+      <FormControl>
+        <CatalogueChoice
+          kind={kind}
+          value={asString(field.value)}
+          onChange={(value) => {
+            field.onChange(value);
+            field.onBlur();
+          }}
+        />
+      </FormControl>
+      {description}
+      <FormMessage />
+    </FormItem>
+  );
+}
+
+function catalogueListField({ definition, field, label, description }: FieldParts) {
+  return (
+    <FormItem>
+      <FormLabel>{label}</FormLabel>
+      <FormControl>
+        <CatalogueChoices
+          kind={definition.type === 'categories' ? 'category' : 'product'}
+          value={asStrings(field.value)}
+          onChange={(value) => {
+            field.onChange(value);
+            field.onBlur();
+          }}
+        />
+      </FormControl>
+      {description}
+      <FormMessage />
+    </FormItem>
+  );
+}
+
+/** A menu or a page of the shop, or none; a value that no longer exists stays shown as missing. */
+function referenceField({ definition, field, label, description }: FieldParts, choices: { value: string; label: string }[]) {
+  const t = getTranslations('commerce').onlineStore.fields;
+  const value = asString(field.value);
+  const missing = value !== '' && !choices.some((choice) => choice.value === value);
+  return (
+    <FormItem>
+      <FormLabel>{label}</FormLabel>
+      <Select value={value || NONE} onValueChange={(next) => field.onChange(next === NONE ? '' : next)}>
+        <FormControl>
+          <SelectTrigger onBlur={field.onBlur}>
+            <SelectValue placeholder={t.choose} />
+          </SelectTrigger>
+        </FormControl>
+        <SelectContent>
+          <SelectItem value={NONE}>{t.none}</SelectItem>
+          {missing && (
+            <SelectItem value={value}>{definition.type === 'menu' ? `${value} (${t.menuMissing})` : t.pageMissing}</SelectItem>
+          )}
+          {choices.map((choice) => (
+            <SelectItem key={choice.value} value={choice.value}>
+              {choice.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      {description}
+      <FormMessage />
+    </FormItem>
+  );
+}
+
+function textField({ definition, field, label, description }: FieldParts) {
+  return (
+    <FormItem>
+      <FormLabel>{label}</FormLabel>
+      <FormControl>
+        <Input
+          name={field.name}
+          ref={field.ref}
+          value={asString(field.value)}
+          onChange={field.onChange}
+          onBlur={field.onBlur}
+          maxLength={definition.maxLength}
+        />
+      </FormControl>
+      {description}
+      <FormMessage />
+    </FormItem>
+  );
+}
+
 export function SettingField({ definition, siteId }: Readonly<{ definition: SettingDefinition; siteId: string }>) {
   const form = useFormContext<SettingValues>();
-  const t = getTranslations('commerce').onlineStore.fields;
   const label = pickLabel(definition.label);
   const help = helpText(definition);
   const menus = useStoreMenus(siteId, definition.type === 'menu');
@@ -213,219 +448,36 @@ export function SettingField({ definition, siteId }: Readonly<{ definition: Sett
       control={form.control}
       name={definition.id}
       render={({ field }) => {
-        const description = help ? <FormDescription>{help}</FormDescription> : null;
+        const parts: FieldParts = { definition, field, label, description: help ? <FormDescription>{help}</FormDescription> : null };
         switch (definition.type) {
           case 'checkbox':
-            return (
-              <FormItem className="flex flex-row items-start gap-2">
-                <FormControl>
-                  <Checkbox checked={field.value === true} onCheckedChange={(checked) => field.onChange(checked === true)} onBlur={field.onBlur} />
-                </FormControl>
-                <div className="grid gap-1">
-                  <FormLabel className="font-normal leading-snug">{label}</FormLabel>
-                  {description}
-                  <FormMessage />
-                </div>
-              </FormItem>
-            );
+            return checkboxField(parts);
           case 'select':
-            if ((definition.options?.length ?? 0) <= MAX_RADIO_OPTIONS) {
-              return <RadioChoice definition={definition} value={asString(field.value)} onChange={field.onChange} onBlur={field.onBlur} />;
-            }
-            return (
-              <FormItem>
-                <FormLabel>{label}</FormLabel>
-                <Select value={asString(field.value)} onValueChange={field.onChange}>
-                  <FormControl>
-                    <SelectTrigger onBlur={field.onBlur}>
-                      <SelectValue placeholder={t.choose} />
-                    </SelectTrigger>
-                  </FormControl>
-                  <SelectContent>
-                    {(definition.options ?? []).map((option) => (
-                      <SelectItem key={option.value} value={option.value}>
-                        {pickLabel(option.label)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {description}
-                <FormMessage />
-              </FormItem>
-            );
+            return selectField(parts);
           case 'number':
-            return (
-              <FormItem>
-                <FormLabel>{label}</FormLabel>
-                <FormControl>
-                  <NumberInput
-                    name={field.name}
-                    ref={field.ref}
-                    value={typeof field.value === 'number' ? field.value : undefined}
-                    onValueChange={field.onChange}
-                    onBlur={field.onBlur}
-                    min={definition.min}
-                    max={definition.max}
-                  />
-                </FormControl>
-                {description}
-                <FormMessage />
-              </FormItem>
-            );
+            return numberField(parts);
           case 'color':
-            return (
-              <FormItem>
-                <FormLabel>{label}</FormLabel>
-                <FormControl>
-                  <ColorField
-                    name={field.name}
-                    ref={field.ref}
-                    value={asString(field.value)}
-                    onValueChange={field.onChange}
-                    onBlur={field.onBlur}
-                    swatchLabel={label}
-                  />
-                </FormControl>
-                {description}
-                <FormMessage />
-              </FormItem>
-            );
+            return colorField(parts);
           case 'textarea':
           case 'richtext':
-            return (
-              <FormItem>
-                <FormLabel>{label}</FormLabel>
-                <FormControl>
-                  <Textarea
-                    name={field.name}
-                    ref={field.ref}
-                    value={asString(field.value)}
-                    onChange={field.onChange}
-                    onBlur={field.onBlur}
-                    rows={definition.type === 'richtext' ? 6 : 3}
-                    maxLength={definition.maxLength}
-                    className={definition.type === 'richtext' ? 'font-mono text-sm' : undefined}
-                  />
-                </FormControl>
-                {description}
-                <FormMessage />
-              </FormItem>
-            );
+            return textareaField(parts);
           case 'url':
           case 'image':
           case 'video':
           case 'form':
-            return (
-              <FormItem>
-                <FormLabel>{label}</FormLabel>
-                <FormControl>
-                  <Input
-                    name={field.name}
-                    ref={field.ref}
-                    value={asString(field.value)}
-                    onChange={field.onChange}
-                    onBlur={field.onBlur}
-                    inputMode={definition.type === 'form' ? 'text' : 'url'}
-                    placeholder={definition.type === 'form' ? t.formPlaceholder : undefined}
-                    className={definition.type === 'form' ? 'font-mono' : undefined}
-                    {...identifierProps}
-                  />
-                </FormControl>
-                {definition.type === 'image' && <ImagePreview url={asString(field.value)} />}
-                {description}
-                <FormMessage />
-              </FormItem>
-            );
+            return addressField(parts);
           case 'category':
           case 'product':
-            return (
-              <FormItem>
-                <FormLabel>{label}</FormLabel>
-                <FormControl>
-                  <CatalogueChoice
-                    kind={definition.type}
-                    value={asString(field.value)}
-                    onChange={(value) => {
-                      field.onChange(value);
-                      field.onBlur();
-                    }}
-                  />
-                </FormControl>
-                {description}
-                <FormMessage />
-              </FormItem>
-            );
+            return catalogueField(parts, definition.type);
           case 'categories':
           case 'products':
-            return (
-              <FormItem>
-                <FormLabel>{label}</FormLabel>
-                <FormControl>
-                  <CatalogueChoices
-                    kind={definition.type === 'categories' ? 'category' : 'product'}
-                    value={asStrings(field.value)}
-                    onChange={(value) => {
-                      field.onChange(value);
-                      field.onBlur();
-                    }}
-                  />
-                </FormControl>
-                {description}
-                <FormMessage />
-              </FormItem>
-            );
+            return catalogueListField(parts);
           case 'menu':
-          case 'page': {
-            const value = asString(field.value);
-            const choices =
-              definition.type === 'menu'
-                ? (menus.data?.data ?? []).map((menu) => ({ value: menu.handle, label: menu.title || menu.handle }))
-                : (pages.data?.data ?? []).map((page) => ({ value: page.id, label: page.title }));
-            const missing = value !== '' && !choices.some((choice) => choice.value === value);
-            return (
-              <FormItem>
-                <FormLabel>{label}</FormLabel>
-                <Select value={value || NONE} onValueChange={(next) => field.onChange(next === NONE ? '' : next)}>
-                  <FormControl>
-                    <SelectTrigger onBlur={field.onBlur}>
-                      <SelectValue placeholder={t.choose} />
-                    </SelectTrigger>
-                  </FormControl>
-                  <SelectContent>
-                    <SelectItem value={NONE}>{t.none}</SelectItem>
-                    {missing && (
-                      <SelectItem value={value}>{definition.type === 'menu' ? `${value} (${t.menuMissing})` : t.pageMissing}</SelectItem>
-                    )}
-                    {choices.map((choice) => (
-                      <SelectItem key={choice.value} value={choice.value}>
-                        {choice.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {description}
-                <FormMessage />
-              </FormItem>
-            );
-          }
+            return referenceField(parts, (menus.data?.data ?? []).map((menu) => ({ value: menu.handle, label: menu.title || menu.handle })));
+          case 'page':
+            return referenceField(parts, (pages.data?.data ?? []).map((page) => ({ value: page.id, label: page.title })));
           default:
-            return (
-              <FormItem>
-                <FormLabel>{label}</FormLabel>
-                <FormControl>
-                  <Input
-                    name={field.name}
-                    ref={field.ref}
-                    value={asString(field.value)}
-                    onChange={field.onChange}
-                    onBlur={field.onBlur}
-                    maxLength={definition.maxLength}
-                  />
-                </FormControl>
-                {description}
-                <FormMessage />
-              </FormItem>
-            );
+            return textField(parts);
         }
       }}
     />

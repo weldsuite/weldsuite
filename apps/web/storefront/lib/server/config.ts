@@ -7,6 +7,8 @@
  * - `FORMS_PORTAL_URL`: WeldForms' portal, for contact form sections (optional).
  */
 
+import { withoutTrailingSlashes } from '../seo';
+
 /** An environment variable, trimmed; undefined when unset or blank. */
 function env(name: string): string | undefined {
   const value = process.env[name]?.trim();
@@ -52,7 +54,7 @@ export function rendererConfig(): RendererConfig {
     .filter((entry): entry is string => entry !== null);
   const forms = env('FORMS_PORTAL_URL');
   return {
-    apiUrl: apiUrl.replace(/\/+$/, ''),
+    apiUrl: withoutTrailingSlashes(apiUrl),
     secret,
     editorOrigins,
     formsPortalUrl: forms ? origin(forms) : null,

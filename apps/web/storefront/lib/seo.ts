@@ -36,8 +36,15 @@ export function pageTitle(ctx: HeadContext, page: string | null): string {
   return page ? format(ctx.strings.meta.pageTitle, { page, shop: ctx.shopName }) : shop;
 }
 
+/** `value` without the slashes it ends with (`https://a.example/` → `https://a.example`). */
+export function withoutTrailingSlashes(value: string): string {
+  let end = value.length;
+  while (end > 0 && value[end - 1] === '/') end -= 1;
+  return value.slice(0, end);
+}
+
 export function absolute(ctx: HeadContext, path: string): string {
-  return `${ctx.primaryOrigin.replace(/\/+$/, '')}${path}`;
+  return `${withoutTrailingSlashes(ctx.primaryOrigin)}${path}`;
 }
 
 /** A head for a page: defaults from the site's SEO, noindex in preview and for personal pages. */

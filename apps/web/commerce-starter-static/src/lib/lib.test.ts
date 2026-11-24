@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { readConfig } from './config';
 import { describeError, discountReason, fieldErrors, GENERIC_ERROR, messageForCode } from './messages';
 import { clearCartToken, getCartToken, getCheckoutState, safeStore, setCartToken, setCheckoutState, type KeyValueStore } from './storage';
-import { orderPath, orderUrlTemplate, paymentReturnUrl, returnPath } from './urls';
+import { orderPath, orderUrlTemplate, paymentReturnUrl, returnPath, withoutTrailingSlashes } from './urls';
 
 describe('configuration', () => {
   const env = { VITE_WELDCOMMERCE_API_URL: 'https://api.example.com', VITE_WELDCOMMERCE_KEY: 'wcp_abc', VITE_SHOP_URL: 'https://shop.example.com/' };
@@ -87,5 +87,25 @@ describe('order and payment URLs', () => {
     expect(paymentReturnUrl('https://shop.example.com')).toBe('https://shop.example.com/checkout/return');
     expect(returnPath('ord 1', 'pay_1', 'PROVIDER_ERROR')).toBe('/checkout/return?order=ord+1&payment=pay_1&error=PROVIDER_ERROR');
     expect(orderPath('ord_1', 'wot/1')).toBe('/orders/ord_1?token=wot%2F1');
+  });
+});
+
+describe('trailing slashes', () => {
+  // The regular expression the loop replaced, kept to show the two agree.
+  const before = (value: string) => value.replace(/\/+$/, '');
+  const inputs = ['', '/', '///', 'https://shop.example.com', 'https://shop.example.com/', 'https://shop.example.com///', 'https://shop.example.com/a/b/', '/a', 'a//b', 'a/ ', 'a/ /', ' /', 'a/\n', 'a\\'];
+
+  it.each(inputs)('trims %j as the regular expression did', (input) => {
+    expect(withoutTrailingSlashes(input)).toBe(before(input));
+  });
+
+  it('drops only the slashes at the very end', () => {
+    expect(withoutTrailingSlashes('')).toBe('');
+    expect(withoutTrailingSlashes('///')).toBe('');
+    expect(withoutTrailingSlashes('https://shop.example.com//')).toBe('https://shop.example.com');
+    expect(withoutTrailingSlashes('a//b')).toBe('a//b');
+    expect(withoutTrailingSlashes('a/ ')).toBe('a/ ');
+    expect(paymentReturnUrl('https://shop.example.com///')).toBe('https://shop.example.com/checkout/return');
+    expect(orderUrlTemplate('https://shop.example.com//')).toBe('https://shop.example.com/orders/{orderId}?token={token}');
   });
 });

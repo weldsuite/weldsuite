@@ -1,4 +1,5 @@
 import { isZeroMoney, type Address, type StorefrontOrder, type TaxLine } from '@weldsuite/commerce-sdk';
+import type { ReactNode } from 'react';
 import { useShop } from '../context';
 import { format } from '../strings';
 import { useMoney, useTaxRate } from './price';
@@ -37,6 +38,10 @@ export function Totals({
   const rate = useTaxRate();
   const amount = (value: string) => money(value, totals.currency);
   const lines = totals.taxLines ?? [];
+  let shipping: ReactNode;
+  if (!shippingKnown) shipping = <span className="shop-hint">{s.shippingLater}</span>;
+  else if (zero(totals.shippingTotal)) shipping = s.shippingFree;
+  else shipping = amount(totals.shippingTotal);
   return (
     <dl className="grid grid-cols-[1fr_auto] gap-x-4 gap-y-2">
       <dt>{s.subtotal}</dt>
@@ -48,9 +53,7 @@ export function Totals({
         </>
       )}
       <dt>{s.shipping}</dt>
-      <dd className="text-end tabular-nums">
-        {!shippingKnown ? <span className="shop-hint">{s.shippingLater}</span> : zero(totals.shippingTotal) ? s.shippingFree : amount(totals.shippingTotal)}
-      </dd>
+      <dd className="text-end tabular-nums">{shipping}</dd>
       {!totals.pricesIncludeTax && taxKnown && lines.length > 0
         ? lines.map((line) => (
             <div key={line.rate} className="contents">

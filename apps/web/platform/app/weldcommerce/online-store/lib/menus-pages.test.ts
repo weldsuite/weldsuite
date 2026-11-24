@@ -67,6 +67,23 @@ describe('pages', () => {
     expect(slugify('  About   us  ')).toBe('about-us');
   });
 
+  it('makes the same slugs as the regular expressions it used before', () => {
+    // The old implementation, kept to show the two agree.
+    const before = (title: string) =>
+      title
+        .normalize('NFKD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .slice(0, 100)
+        .replace(/-+$/g, '');
+    const titles = ['', ' ', '---', '!!!', '-Hello-', 'Über uns & Kontakt!', '  About   us  ', 'Crème brûlée', '日本語', `${'a'.repeat(99)} b`, `${'a'.repeat(100)} b`, `!${'a'.repeat(99)}!b`, 'x'.repeat(150)];
+    for (const title of titles) expect(slugify(title), title).toBe(before(title));
+    expect(slugify(`${'a'.repeat(99)} b`)).toBe('a'.repeat(99));
+    expect(slugify('---')).toBe('');
+  });
+
   it('starts a page from a template, in the shop’s language', () => {
     expect(newPageValues('about', 'nl')).toEqual({ template: 'about', title: 'Over ons', slug: 'about' });
     expect(newPageValues('terms', 'de')).toEqual({ template: 'terms', title: 'Terms and conditions', slug: 'terms' });

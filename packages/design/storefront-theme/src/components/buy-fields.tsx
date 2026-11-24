@@ -105,6 +105,9 @@ export function ProductBuyFields({
   const available = hasVariants ? (variant?.available ?? false) : product.available;
   const price = variant?.price ?? product.price;
   const compareAt = variant ? variant.compareAtPrice : product.compareAtPrice;
+  let buttonLabel = s.addToCart;
+  if (!available) buttonLabel = s.soldOut;
+  else if (pending) buttonLabel = s.adding;
   return (
     <div className="flex flex-col gap-5">
       <p className="flex flex-wrap items-baseline gap-x-2 text-2xl">
@@ -143,7 +146,7 @@ export function ProductBuyFields({
           />
         </div>
         <button type="submit" className="shop-btn shop-btn-primary min-w-48 flex-1" disabled={pending || !available} aria-disabled={pending || !available}>
-          {!available ? s.soldOut : pending ? s.adding : s.addToCart}
+          {buttonLabel}
         </button>
       </div>
       {showSku && variant?.sku ? <p className="shop-hint">{format(s.sku, { sku: variant.sku })}</p> : null}

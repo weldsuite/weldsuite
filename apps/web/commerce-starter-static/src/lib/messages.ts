@@ -98,6 +98,13 @@ export const SETUP: Record<ConfigProblem, string> = {
   BAD_SHOP_URL: 'VITE_SHOP_URL must be an http(s) address, like https://shop.example.com.',
 };
 
+/** Why a payment did not go through, from the payment's status. */
+function failedReason(status: string | undefined): string {
+  if (status === 'canceled') return 'You cancelled the payment.';
+  if (status === 'expired') return 'The payment expired.';
+  return 'The payment failed.';
+}
+
 /** The shop's own copy. */
 export const text = {
   skipToContent: 'Skip to content',
@@ -221,8 +228,7 @@ export const text = {
   unknownTitle: 'We couldn’t check your payment',
   unknown: (n: string) => `Your order ${n} is saved. We couldn’t reach the payment service just now: check again in a moment.`,
   failedTitle: 'The payment didn’t go through',
-  failed: (status: string | undefined, n: string) =>
-    `${status === 'canceled' ? 'You cancelled the payment.' : status === 'expired' ? 'The payment expired.' : 'The payment failed.'} Your order ${n} is saved: you can try again.`,
+  failed: (status: string | undefined, n: string) => `${failedReason(status)} Your order ${n} is saved: you can try again.`,
   checkAgain: 'Check again',
   tryAgain: 'Try paying again',
   starting: 'Starting the payment…',

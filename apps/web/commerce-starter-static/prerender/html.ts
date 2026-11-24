@@ -91,6 +91,7 @@ export function productPage(product: StorefrontProduct, shop: ShopContext): Prer
     { name: product.name, item: url },
   ];
   const price = money(product.price, product.currency, shop.locale);
+  const shownPrice = prices.length > 1 && low !== high ? `From ${price}` : price;
   return {
     path,
     title: `${product.name} · ${shop.shopName}`,
@@ -113,7 +114,7 @@ export function productPage(product: StorefrontProduct, shop: ShopContext): Prer
       '<main id="main">',
       `<h1>${escapeHtml(product.name)}</h1>`,
       image ? `<img src="${escapeHtml(image)}" alt="${escapeHtml(product.name)}" width="600" height="600">` : '',
-      `<p>${escapeHtml(prices.length > 1 && low !== high ? `From ${price}` : price)}</p>`,
+      `<p>${escapeHtml(shownPrice)}</p>`,
       product.description ? `<p>${escapeHtml(product.description)}</p>` : '',
       '</main>',
     ].join(''),

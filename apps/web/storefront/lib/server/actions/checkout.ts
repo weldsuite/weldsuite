@@ -4,6 +4,7 @@ import { createServerFn } from '@tanstack/react-start';
 import { createIdempotencyKey, isStorefrontError, type Address, type CheckoutInput, type CheckoutResult, type UpdateCartInput } from '@weldsuite/commerce-sdk';
 import type { ShopStrings } from '@weldsuite/storefront-theme';
 import { withQuery } from '../../paths';
+import { withoutTrailingSlashes } from '../../seo';
 import { clearCartToken, getCartToken, getCheckoutState, setCheckoutState } from '../session';
 import { cartOptions, shopRequest } from '../shop';
 import { failed, failedWith, field, formData, go, stringsFor, succeeded } from './respond';
@@ -103,7 +104,7 @@ export const placeOrder = createServerFn({ method: 'POST' })
       return failed('/checkout', 'TERMS_REQUIRED', s.errors.local.TERMS_REQUIRED, { idempotencyKey, fieldErrors: { terms: s.errors.local.TERMS_REQUIRED } });
     }
     // Payment links and order links point at the shop's primary address (one of the channel's hosts).
-    const origin = shop.site.primaryOrigin.replace(/\/+$/, '');
+    const origin = withoutTrailingSlashes(shop.site.primaryOrigin);
     const input: CheckoutInput = { paymentMethod, expectedTotal: field(form, 'expectedTotal') || undefined };
     if (origin.startsWith('https://')) input.orderUrl = `${origin}/orders/{orderId}?token={token}`;
     if (paymentMethod === 'mollie') input.redirectUrl = `${origin}/checkout/return`;

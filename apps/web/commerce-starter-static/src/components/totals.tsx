@@ -1,4 +1,5 @@
 import { isZeroMoney, type TaxLine } from '@weldsuite/commerce-sdk';
+import type { ReactNode } from 'react';
 
 import { config } from '../lib/client';
 import { money, taxRate } from '../lib/format';
@@ -28,6 +29,27 @@ export function Totals({ totals, shippingKnown, taxKnown }: Readonly<{ totals: T
   const locale = config?.locale ?? 'en-IE';
   const amount = (value: string) => money(value, totals.currency, locale);
   const lines = totals.taxLines ?? [];
+  let shipping: ReactNode;
+  if (!shippingKnown) shipping = <span className="hint">{text.shippingLater}</span>;
+  else if (zero(totals.shippingTotal)) shipping = text.free;
+  else shipping = amount(totals.shippingTotal);
+  // VAT on top of the prices: a row per rate when they are known, else the total (or "later").
+  const vatRows = (): ReactNode => {
+    if (taxKnown && lines.length > 0) {
+      return lines.map((line) => (
+        <div key={line.rate} className="contents">
+          <dt>{text.vat(taxRate(line.rate, locale))}</dt>
+          <dd className="text-end tabular-nums">{amount(line.amount)}</dd>
+        </div>
+      ));
+    }
+    return (
+      <>
+        <dt>{text.vatTotal}</dt>
+        <dd className="text-end tabular-nums">{taxKnown ? amount(totals.taxTotal) : <span className="hint">{text.vatLater}</span>}</dd>
+      </>
+    );
+  };
   return (
     <dl className="grid grid-cols-[1fr_auto] gap-x-4 gap-y-2">
       <dt>{text.subtotal}</dt>
@@ -39,22 +61,8 @@ export function Totals({ totals, shippingKnown, taxKnown }: Readonly<{ totals: T
         </>
       )}
       <dt>{text.shipping}</dt>
-      <dd className="text-end tabular-nums">{!shippingKnown ? <span className="hint">{text.shippingLater}</span> : zero(totals.shippingTotal) ? text.free : amount(totals.shippingTotal)}</dd>
-      {!totals.pricesIncludeTax ? (
-        taxKnown && lines.length > 0 ? (
-          lines.map((line) => (
-            <div key={line.rate} className="contents">
-              <dt>{text.vat(taxRate(line.rate, locale))}</dt>
-              <dd className="text-end tabular-nums">{amount(line.amount)}</dd>
-            </div>
-          ))
-        ) : (
-          <>
-            <dt>{text.vatTotal}</dt>
-            <dd className="text-end tabular-nums">{taxKnown ? amount(totals.taxTotal) : <span className="hint">{text.vatLater}</span>}</dd>
-          </>
-        )
-      ) : null}
+      <dd className="text-end tabular-nums">{shipping}</dd>
+      {!totals.pricesIncludeTax ? vatRows() : null}
       <dt className="border-t border-line pt-3 text-lg font-semibold">{text.total}</dt>
       <dd className="border-t border-line pt-3 text-end text-lg font-semibold tabular-nums">{amount(totals.total)}</dd>
       {totals.pricesIncludeTax && taxKnown && !zero(totals.taxTotal) ? <dd className="col-span-2 text-end hint">{text.vatIncluded(amount(totals.taxTotal))}</dd> : null}

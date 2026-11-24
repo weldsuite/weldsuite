@@ -40,9 +40,16 @@ export function uploadable(path: string): boolean {
   return !path.split('/').some((segment) => segment.startsWith('.') && segment !== '.well-known');
 }
 
+/** `value` without the slashes it ends with (`https://a.example/` → `https://a.example`). */
+export function withoutTrailingSlashes(value: string): string {
+  let end = value.length;
+  while (end > 0 && value[end - 1] === '/') end -= 1;
+  return value.slice(0, end);
+}
+
 /** The deploy endpoint of a WeldSuite server. */
 export function deployUrl(apiUrl: string, production: boolean): string {
-  const base = apiUrl.trim().replace(/\/+$/, '');
+  const base = withoutTrailingSlashes(apiUrl.trim());
   if (!/^https?:\/\//.test(base)) {
     throw new CliError(`WELDCOMMERCE_API_URL must be an http(s) address, not ${JSON.stringify(apiUrl)}`);
   }
@@ -104,7 +111,8 @@ export async function run(args: ParsedArgs): Promise<void> {
 
   if (!flagBool(args.flags, 'skip-build')) {
     const runner = detectRunner(cwd);
-    info(`Building with ${cyan(`${runner} run build`)} …`);
+    const buildCommand = `${runner} run build`;
+    info(`Building with ${cyan(buildCommand)} …`);
     await runBuild(runner, cwd);
   }
 

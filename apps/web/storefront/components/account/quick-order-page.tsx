@@ -10,6 +10,8 @@ function Lines() {
   const id = useId()
   const { result } = useFormState()
   const error = result && !result.ok ? result.fieldErrors?.csv : undefined
+  const hintId = `${id}-hint`
+  const errorId = `${id}-error`
   return (
     <div className="flex flex-col gap-1.5">
       <label htmlFor={id} className="shop-label">
@@ -21,15 +23,15 @@ function Lines() {
         rows={10}
         spellCheck={false}
         autoCapitalize="characters"
-        aria-describedby={`${id}-hint${error ? ` ${id}-error` : ''}`}
+        aria-describedby={error ? `${hintId} ${errorId}` : hintId}
         aria-invalid={error ? true : undefined}
         className="shop-input font-mono"
       />
-      <p id={`${id}-hint`} className="shop-hint">
+      <p id={hintId} className="shop-hint">
         {s.linesHint}
       </p>
       {error ? (
-        <p id={`${id}-error`} className="shop-field-error">
+        <p id={errorId} className="shop-field-error">
           {error}
         </p>
       ) : null}

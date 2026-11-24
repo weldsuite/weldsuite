@@ -48,7 +48,9 @@ export const getCheckoutPage = createServerFn({ method: 'GET' }).handler(async (
   const company = activeCompany(shopper);
   const b2b = channel.audience === 'b2b';
   const head = makeHead(headContext(shop), { title: t(shop.site.locale).checkout.title, path: '/checkout', personal: true });
-  const gate = (!channel.guestCheckout || b2b) && !shopper ? 'sign-in' : b2b && !company ? 'company' : null;
+  let gate: CheckoutView['gate'] = null;
+  if ((!channel.guestCheckout || b2b) && !shopper) gate = 'sign-in';
+  else if (b2b && !company) gate = 'company';
   const token = getCartToken();
   const rates =
     gate === null && cart.shippingAddress && token
@@ -105,6 +107,12 @@ async function loadPayment(shop: ShopRequest, paymentId: string | null): Promise
   }
 }
 
+/** The order's page: in the account when signed in, else the guest page with the order token (if there is one). */
+function orderLink(orderId: string, signedIn: boolean, orderToken: string | null): string | null {
+  if (signedIn) return `/account/orders/${encodeURIComponent(orderId)}`;
+  return orderToken ? withQuery(`/orders/${encodeURIComponent(orderId)}`, { token: orderToken }) : null;
+}
+
 async function loadOrder(shop: ShopRequest, orderId: string, orderToken: string | null): Promise<StorefrontOrder | null> {
   const session = await sessionToken(shop);
   try {
@@ -140,11 +148,7 @@ export const getCheckoutReturn = createServerFn({ method: 'GET' })
     const signedIn = Boolean(await sessionToken(shop));
     const orderToken = own?.orderToken ?? null;
     const order = await loadOrder(shop, orderId, orderToken);
-    const link = signedIn
-      ? `/account/orders/${encodeURIComponent(orderId)}`
-      : orderToken
-        ? withQuery(`/orders/${encodeURIComponent(orderId)}`, { token: orderToken })
-        : null;
+    const link = orderLink(orderId, signedIn, orderToken);
     return {
       found: true,
       orderId,

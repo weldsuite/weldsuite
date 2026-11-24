@@ -3,7 +3,7 @@
 import { notFound, redirect } from '@tanstack/react-router';
 import { createServerFn } from '@tanstack/react-start';
 import { isStorefrontError, type Approval, type Page, type Shopper, type StorefrontOrder } from '@weldsuite/commerce-sdk';
-import { format, t } from '@weldsuite/storefront-theme';
+import { format, t, type ShopAccess } from '@weldsuite/storefront-theme';
 import { z } from 'zod';
 import { safePath, withQuery } from '../../paths';
 import { makeHead, type PageHead } from '../../seo';
@@ -15,6 +15,13 @@ export type AccountView =
   | { signedIn: false; step: 'email' | 'code'; email: string | null; next: string; reason: 'shop' | 'prices' | null; head: PageHead }
   | { signedIn: true; shopper: Shopper; orders: StorefrontOrder[]; b2b: boolean; head: PageHead };
 
+/** Why signing in is needed: the shop is for signed-in buyers only, or shows them alone its prices. */
+function signInReason(access: ShopAccess): 'shop' | 'prices' | null {
+  if (access === 'signed_in') return 'shop';
+  if (access === 'prices_signed_in') return 'prices';
+  return null;
+}
+
 export const getAccountPage = createServerFn({ method: 'GET' })
   .validator(z.object({ next: z.string().max(500).optional() }))
   .handler(async ({ data: input }): Promise<AccountView> => {
@@ -23,13 +30,12 @@ export const getAccountPage = createServerFn({ method: 'GET' })
     const shopper = await currentShopper(shop);
     if (!shopper) {
       const pending = getPendingSignIn() ?? null;
-      const access = shop.doc.settings.access;
       return {
         signedIn: false,
         step: pending ? 'code' : 'email',
         email: pending,
         next: safePath(input.next, '/account'),
-        reason: access === 'signed_in' ? 'shop' : access === 'prices_signed_in' ? 'prices' : null,
+        reason: signInReason(shop.doc.settings.access),
         head: makeHead(headContext(shop), { title: s.account.signInTitle, personal: true }),
       };
     }

@@ -80,6 +80,26 @@ function pageHref(listing: ListingData, cursor: string | null): string {
   return search ? `${listing.path}?${search}` : listing.path;
 }
 
+/** Links to the first page and the next one, when the listing has more than one. */
+function Pager({ listing }: Readonly<{ listing: ListingData }>) {
+  const { pagination } = listing.page;
+  if (!listing.paged && !pagination.hasMore) return null;
+  return (
+    <nav aria-label={text.morePages} className="flex flex-wrap justify-center gap-3">
+      {listing.paged ? (
+        <Link to={pageHref(listing, null)} className="btn btn-secondary">
+          {text.firstPage}
+        </Link>
+      ) : null}
+      {pagination.hasMore && pagination.cursor ? (
+        <Link to={pageHref(listing, pagination.cursor)} className="btn btn-primary">
+          {text.morePages}
+        </Link>
+      ) : null}
+    </nav>
+  );
+}
+
 export function Component() {
   const listing = useLoaderData() as ListingData;
   const { category, search, page } = listing;
@@ -107,20 +127,7 @@ export function Component() {
       ) : null}
       {page.data.length > 1 ? <SortForm listing={listing} /> : null}
       {page.data.length > 0 ? <ProductGrid products={page.data} /> : <p>{search ? text.noResults(search) : text.noProducts}</p>}
-      {listing.paged || page.pagination.hasMore ? (
-        <nav aria-label={text.morePages} className="flex flex-wrap justify-center gap-3">
-          {listing.paged ? (
-            <Link to={pageHref(listing, null)} className="btn btn-secondary">
-              {text.firstPage}
-            </Link>
-          ) : null}
-          {page.pagination.hasMore && page.pagination.cursor ? (
-            <Link to={pageHref(listing, page.pagination.cursor)} className="btn btn-primary">
-              {text.morePages}
-            </Link>
-          ) : null}
-        </nav>
-      ) : null}
+      <Pager listing={listing} />
     </div>
   );
 }

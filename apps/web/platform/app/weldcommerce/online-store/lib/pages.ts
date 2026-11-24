@@ -8,6 +8,7 @@ import { PAGE_TEMPLATES, type PageTemplate, type ShopLocale } from '@weldsuite/s
 import type { CreatePageInput, StorePage, UpdatePageInput } from '@/hooks/queries/use-online-store-queries';
 import { getTranslations } from '@/lib/i18n';
 import { fill } from '@/app/weldcommerce/lib/text';
+import { trimHyphens } from './document';
 import type { ThemeLabel } from './labels';
 
 export const SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -15,14 +16,13 @@ const SLUG_MAX = 100;
 
 /** A slug from a title: lowercase ASCII letters and digits joined by hyphens. */
 export function slugify(title: string): string {
-  return title
+  const words = title
     .normalize('NFKD')
     .replace(/[̀-ͯ]/g, '')
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, SLUG_MAX)
-    .replace(/-+$/g, '');
+    .replace(/[^a-z0-9]+/g, '-');
+  // Trimmed again after the cut, which can end on a hyphen.
+  return trimHyphens(trimHyphens(words).slice(0, SLUG_MAX));
 }
 
 /** A template's text in the shop's language: Dutch for a Dutch shop, English otherwise (the templates come in en and nl). */

@@ -35,7 +35,9 @@ function Decision({ orderId }: Readonly<{ orderId: string }>) {
 export function ApprovalsPage({ view, notice }: Readonly<{ view: ApprovalsView; notice: { approved?: string; rejected?: string; payment?: string } }>) {
   const { shop } = useShop()
   const s = shop.strings.b2b
-  const done = notice.approved ? format(s.approved, { number: notice.approved }) : notice.rejected ? format(s.rejected, { number: notice.rejected }) : null
+  let done: string | null = null
+  if (notice.approved) done = format(s.approved, { number: notice.approved })
+  else if (notice.rejected) done = format(s.rejected, { number: notice.rejected })
   return (
     <div className="shop-container shop-section flex flex-col gap-8">
       <QueryError />

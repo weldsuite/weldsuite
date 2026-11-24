@@ -45,10 +45,11 @@ function vimeo(url: URL): VideoEmbed | null {
   const hash = url.searchParams.get('h') ?? (parts[index + 1] && VIMEO_HASH.test(parts[index + 1]!) ? parts[index + 1]! : null);
   const params = new URLSearchParams({ dnt: '1', autoplay: '1' });
   if (hash && VIMEO_HASH.test(hash)) params.set('h', hash);
+  const hashPath = hash && VIMEO_HASH.test(hash) ? `/${hash}` : '';
   return {
     site: 'Vimeo',
     embedUrl: `https://player.vimeo.com/video/${id}?${params.toString()}`,
-    watchUrl: `https://vimeo.com/${id}${hash && VIMEO_HASH.test(hash) ? `/${hash}` : ''}`,
+    watchUrl: `https://vimeo.com/${id}${hashPath}`,
   };
 }
 

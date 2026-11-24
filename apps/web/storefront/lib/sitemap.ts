@@ -1,5 +1,7 @@
 /** `sitemap.xml` and `robots.txt` for a shop, on its primary origin. */
 
+import { withoutTrailingSlashes } from './seo';
+
 export interface SitemapEntry {
   path: string;
 }
@@ -34,7 +36,7 @@ export function sitemapEntries(input: SitemapInput): SitemapEntry[] {
 }
 
 export function sitemapXml(origin: string, entries: SitemapEntry[]): string {
-  const base = origin.replace(/\/+$/, '');
+  const base = withoutTrailingSlashes(origin);
   const urls = entries.map((entry) => `  <url><loc>${escapeXml(base + entry.path)}</loc></url>`);
   return ['<?xml version="1.0" encoding="UTF-8"?>', '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">', ...urls, '</urlset>', ''].join('\n');
 }
@@ -42,7 +44,7 @@ export function sitemapXml(origin: string, entries: SitemapEntry[]): string {
 /** robots.txt: personal pages stay out of the index; a preview stays out entirely. */
 export function robotsTxt(origin: string, preview: boolean): string {
   if (preview) return 'User-agent: *\nDisallow: /\n';
-  const base = origin.replace(/\/+$/, '');
+  const base = withoutTrailingSlashes(origin);
   return [
     'User-agent: *',
     'Disallow: /cart',

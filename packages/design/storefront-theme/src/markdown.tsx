@@ -25,8 +25,24 @@ export type MarkdownBlock =
 /** The longest input parsed; the backend caps rich text at 20,000 characters too. */
 const MAX_LENGTH = 20_000;
 
-const LIST_ITEM = /^\s*[-*]\s+(.*)$/;
-const HEADING = /^(#{2,3})\s+(.*)$/;
+// `\S` after the spaces keeps these linear: the spaces and the text cannot
+// trade characters, so a line that does not match fails without backtracking.
+// The text group is undefined when nothing follows the spaces.
+const LIST_ITEM = /^\s*[-*]\s+(\S.*)?$/;
+const HEADING = /^(#{2,3})\s+(\S.*)?$/;
+
+/** A `## ` / `### ` line's level and text; null for any other line. */
+export function headingLine(line: string): { level: 2 | 3; text: string } | null {
+  const match = HEADING.exec(line);
+  if (!match) return null;
+  return { level: match[1] === '##' ? 2 : 3, text: match[2] ?? '' };
+}
+
+/** The text of a `- ` / `* ` list item line; null for any other line. */
+export function listItemLine(line: string): string | null {
+  const match = LIST_ITEM.exec(line);
+  return match ? (match[1] ?? '') : null;
+}
 
 /** Splits the text into paragraphs, headings and lists. */
 export function parseMarkdown(source: string): MarkdownBlock[] {
@@ -51,17 +67,17 @@ export function parseMarkdown(source: string): MarkdownBlock[] {
       flushList();
       continue;
     }
-    const heading = HEADING.exec(line);
+    const heading = headingLine(line);
     if (heading) {
       flushParagraph();
       flushList();
-      blocks.push({ kind: 'heading', level: heading[1] === '##' ? 2 : 3, children: parseInline(heading[2] ?? '') });
+      blocks.push({ kind: 'heading', level: heading.level, children: parseInline(heading.text) });
       continue;
     }
-    const item = LIST_ITEM.exec(line);
-    if (item) {
+    const item = listItemLine(line);
+    if (item !== null) {
       flushParagraph();
-      list.push(item[1] ?? '');
+      list.push(item);
       continue;
     }
     flushList();
@@ -100,6 +116,54 @@ function linkAt(text: string, start: number): { label: string; url: string; end:
   return null;
 }
 
+/** The nodes markup at some position reads as, and the position after it. */
+interface Markup {
+  nodes: Inline[];
+  end: number;
+}
+
+/** `**bold**` starting at `i`, or null. */
+function strongAt(text: string, i: number, depth: number): Markup | null {
+  if (!text.startsWith('**', i)) return null;
+  let end = text.indexOf('**', i + 2);
+  // In `***` the last two close the bold, so an italic inside it can close first.
+  while (end > 0 && text[end + 2] === '*') end += 1;
+  if (end <= i + 2) return null;
+  return { nodes: [{ kind: 'strong', children: parseInline(text.slice(i + 2, end), depth + 1) }], end: end + 2 };
+}
+
+/** `*italic*` starting at `i`, or null. */
+function emphasisAt(text: string, i: number, depth: number): Markup | null {
+  if (text[i] !== '*' || text[i + 1] === '*' || text[i + 1] === ' ') return null;
+  const end = closing(text, '*', i + 1);
+  if (end <= i + 1) return null;
+  return { nodes: [{ kind: 'em', children: parseInline(text.slice(i + 1, end), depth + 1) }], end: end + 1 };
+}
+
+/** `[label](url)` starting at `i`, or null; an unsafe URL leaves the label alone. */
+function linkNodesAt(text: string, i: number, depth: number): Markup | null {
+  if (text[i] !== '[') return null;
+  const link = linkAt(text, i);
+  if (!link) return null;
+  const children = parseInline(link.label, depth + 1);
+  const safe = safeLink(link.url);
+  return { nodes: safe ? [{ kind: 'link', href: safe.href, external: safe.external, children }] : children, end: link.end };
+}
+
+/** The markup starting at `i`: a line break, bold, italic or a link; null for plain text. */
+function markupAt(text: string, i: number, depth: number): Markup | null {
+  if (text[i] === '\n') return { nodes: [{ kind: 'break' }], end: i + 1 };
+  // Nesting is shallow in practice; past a few levels the markers stay text.
+  if (depth >= 4) return null;
+  return strongAt(text, i, depth) ?? emphasisAt(text, i, depth) ?? linkNodesAt(text, i, depth);
+}
+
+/** The character a backslash at `i` escapes (`\*`, `\[`, …), or null. */
+function escapedAt(text: string, i: number): string | null {
+  const next = text[i + 1];
+  return text[i] === '\\' && next !== undefined && '*[]()\\'.includes(next) ? next : null;
+}
+
 /** Bold, italic, links and line breaks inside a block. */
 export function parseInline(text: string, depth = 0): Inline[] {
   const out: Inline[] = [];
@@ -111,53 +175,16 @@ export function parseInline(text: string, depth = 0): Inline[] {
 
   let i = 0;
   while (i < text.length) {
-    const char = text[i];
-    if (char === '\n') {
+    const markup = markupAt(text, i, depth);
+    if (markup) {
       flush();
-      out.push({ kind: 'break' });
-      i += 1;
+      out.push(...markup.nodes);
+      i = markup.end;
       continue;
     }
-    if (char === '\\' && i + 1 < text.length && '*[]()\\'.includes(text[i + 1] ?? '')) {
-      buffer += text[i + 1];
-      i += 2;
-      continue;
-    }
-    // Nesting is shallow in practice; past a few levels the markers stay text.
-    if (depth < 4 && text.startsWith('**', i)) {
-      let end = text.indexOf('**', i + 2);
-      // In `***` the last two close the bold, so an italic inside it can close first.
-      while (end > 0 && text[end + 2] === '*') end += 1;
-      if (end > i + 2) {
-        flush();
-        out.push({ kind: 'strong', children: parseInline(text.slice(i + 2, end), depth + 1) });
-        i = end + 2;
-        continue;
-      }
-    }
-    if (depth < 4 && char === '*' && text[i + 1] !== '*' && text[i + 1] !== ' ') {
-      const end = closing(text, '*', i + 1);
-      if (end > i + 1) {
-        flush();
-        out.push({ kind: 'em', children: parseInline(text.slice(i + 1, end), depth + 1) });
-        i = end + 1;
-        continue;
-      }
-    }
-    if (depth < 4 && char === '[') {
-      const link = linkAt(text, i);
-      if (link) {
-        flush();
-        const children = parseInline(link.label, depth + 1);
-        const safe = safeLink(link.url);
-        if (safe) out.push({ kind: 'link', href: safe.href, external: safe.external, children });
-        else out.push(...children);
-        i = link.end;
-        continue;
-      }
-    }
-    buffer += char;
-    i += 1;
+    const escaped = escapedAt(text, i);
+    buffer += escaped ?? text[i];
+    i += escaped === null ? 1 : 2;
   }
   flush();
   return out;

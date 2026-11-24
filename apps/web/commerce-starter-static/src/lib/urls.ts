@@ -1,8 +1,15 @@
 /** Addresses the API needs: where Mollie sends the shopper back, and the order link for emails. */
 
+/** `value` without the slashes it ends with (`https://a.example/` → `https://a.example`). */
+export function withoutTrailingSlashes(value: string): string {
+  let end = value.length;
+  while (end > 0 && value[end - 1] === '/') end -= 1;
+  return value.slice(0, end);
+}
+
 /** `https://shop.example.com/checkout/return` (Mollie adds `order=…&payment=…`). */
 export function paymentReturnUrl(shopUrl: string): string {
-  return `${shopUrl.replace(/\/+$/, '')}/checkout/return`;
+  return `${withoutTrailingSlashes(shopUrl)}/checkout/return`;
 }
 
 /**
@@ -10,7 +17,7 @@ export function paymentReturnUrl(shopUrl: string): string {
  * `{token}` (empty for a signed-in shopper). It must be https.
  */
 export function orderUrlTemplate(shopUrl: string): string | undefined {
-  const base = shopUrl.replace(/\/+$/, '');
+  const base = withoutTrailingSlashes(shopUrl);
   return base.startsWith('https://') ? `${base}/orders/{orderId}?token={token}` : undefined;
 }
 

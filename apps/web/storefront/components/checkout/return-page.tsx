@@ -1,27 +1,37 @@
-import { errorMessage, format, OrderLines, ShopLink, useShop } from '@weldsuite/storefront-theme'
+import { errorMessage, format, OrderLines, ShopLink, useShop, type ShopStrings } from '@weldsuite/storefront-theme'
 import { retryPayment } from '@/lib/server/actions/checkout'
 import type { ReturnView } from '@/lib/server/loaders/checkout'
 import { withQuery } from '@/lib/paths'
 import { ShopForm, SubmitButton } from '../shop-form'
+
+type ReturnStrings = ShopStrings['orderReturn']
+
+/** The confirmation of a placed order: waiting for approval or not, paid by Mollie or on invoice. */
+function placedTemplate(s: ReturnStrings, view: ReturnView): string {
+  if (view.order?.approvalStatus === 'pending') return view.method === 'mollie' ? s.placedApprovalMollie : s.placedApproval
+  return view.method === 'invoice' ? s.placedInvoice : s.placed
+}
+
+/** Why the payment did not go through, from its status. */
+function failedTemplate(s: ReturnStrings, status: string | undefined): string {
+  if (status === 'canceled') return s.canceled
+  if (status === 'expired') return s.expired
+  return s.failed
+}
 
 function useOutcomeText(view: ReturnView): { title: string; text: string } {
   const { shop } = useShop()
   const s = shop.strings.orderReturn
   const number = view.number
   switch (view.outcome) {
-    case 'placed': {
-      const awaiting = view.order?.approvalStatus === 'pending'
-      const template = awaiting ? (view.method === 'mollie' ? s.placedApprovalMollie : s.placedApproval) : view.method === 'invoice' ? s.placedInvoice : s.placed
-      return { title: s.placedTitle, text: format(template, { number }) }
-    }
+    case 'placed':
+      return { title: s.placedTitle, text: format(placedTemplate(s, view), { number }) }
     case 'paid':
       return { title: s.paidTitle, text: format(s.paid, { number }) }
     case 'waiting':
       return { title: s.waitingTitle, text: format(s.waiting, { number }) }
-    case 'failed': {
-      const status = view.payment?.status
-      return { title: s.failedTitle, text: format(status === 'canceled' ? s.canceled : status === 'expired' ? s.expired : s.failed, { number }) }
-    }
+    case 'failed':
+      return { title: s.failedTitle, text: format(failedTemplate(s, view.payment?.status), { number }) }
     default:
       return { title: s.unknownTitle, text: format(s.unknown, { number }) }
   }

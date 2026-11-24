@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { CliError } from '../errors.js';
-import { checkBundle, deployUrl, describeError, uploadable } from './storefront-deploy.js';
+import { checkBundle, deployUrl, describeError, uploadable, withoutTrailingSlashes } from './storefront-deploy.js';
 
 const file = (path: string, size = 10) => ({ path, bytes: Buffer.alloc(size) });
 
@@ -20,6 +20,16 @@ describe('weld storefront deploy', () => {
       'https://app.weldsuite.eu/storefront-deploy/v1/deployments?production=true',
     );
     assert.throws(() => deployUrl('app.weldsuite.eu', false), CliError);
+  });
+
+  it('trims trailing slashes as the regular expression it replaced did', () => {
+    const before = (value: string) => value.replace(/\/+$/, '');
+    for (const value of ['', '/', '///', 'https://app.weldsuite.eu', 'https://app.weldsuite.eu/', 'https://app.weldsuite.eu///', 'https://a.example/x/', '/a', 'a//b', 'a/ ', 'a/ /', 'a/\n']) {
+      assert.equal(withoutTrailingSlashes(value), before(value), JSON.stringify(value));
+    }
+    assert.equal(withoutTrailingSlashes('https://app.weldsuite.eu//'), 'https://app.weldsuite.eu');
+    assert.equal(deployUrl('  https://app.weldsuite.eu//  ', false), 'https://app.weldsuite.eu/storefront-deploy/v1/deployments');
+    assert.throws(() => deployUrl('///', false), CliError);
   });
 
   it('checks the bundle before uploading', () => {

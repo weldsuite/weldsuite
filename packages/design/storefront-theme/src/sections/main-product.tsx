@@ -1,5 +1,5 @@
 import type { ProductImage, StorefrontProduct } from '@weldsuite/commerce-sdk';
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Breadcrumbs } from '../components/breadcrumbs';
 import { ProductBuyFields } from '../components/buy-fields';
 import { ShopLink } from '../components/shop-link';
@@ -97,6 +97,21 @@ export function MainProduct({ section, attributes, priority }: Readonly<SectionP
   const AddToCart = slots.AddToCart;
   const showSku = settings.bool('showSku');
   const path = `/products/${encodeURIComponent(product.slug)}`;
+  // Prices hidden from guests: a way to sign in instead of the buy form.
+  let buy: ReactNode;
+  if (!shop.showPrices) {
+    buy = (
+      <p>
+        <ShopLink href={`/account?next=${encodeURIComponent(path)}`} className="shop-btn shop-btn-primary">
+          {shop.strings.account.signInToSeePrices}
+        </ShopLink>
+      </p>
+    );
+  } else if (AddToCart) {
+    buy = <AddToCart product={product} showSku={showSku} />;
+  } else {
+    buy = <ProductBuyFields product={product} showSku={showSku} />;
+  }
   return (
     <section {...attributes} aria-labelledby="product-title" className="shop-container shop-section">
       <Breadcrumbs
@@ -112,17 +127,7 @@ export function MainProduct({ section, attributes, priority }: Readonly<SectionP
           <h1 id="product-title" className="text-3xl font-semibold md:text-4xl">
             {product.name}
           </h1>
-          {!shop.showPrices ? (
-            <p>
-              <ShopLink href={`/account?next=${encodeURIComponent(path)}`} className="shop-btn shop-btn-primary">
-                {shop.strings.account.signInToSeePrices}
-              </ShopLink>
-            </p>
-          ) : AddToCart ? (
-            <AddToCart product={product} showSku={showSku} />
-          ) : (
-            <ProductBuyFields product={product} showSku={showSku} />
-          )}
+          {buy}
           {settings.bool('showDescription') && product.description ? (
             <div className="flex flex-col gap-2 border-t border-shop-border pt-6">
               <h2 className="text-lg font-semibold">{s.description}</h2>

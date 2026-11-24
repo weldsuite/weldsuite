@@ -1,4 +1,4 @@
-import { isStorefrontError, type CartItemInput, type StorefrontProduct, type StorefrontVariant } from '@weldsuite/commerce-sdk';
+import { isStorefrontError, type CartItemInput, type ProductImage, type StorefrontProduct, type StorefrontVariant } from '@weldsuite/commerce-sdk';
 import { useId, useState } from 'react';
 import { data, Link, useFetcher, useLoaderData, type ActionFunctionArgs, type LoaderFunctionArgs } from 'react-router';
 
@@ -47,8 +47,14 @@ export async function action({ request }: ActionFunctionArgs): Promise<ActionSta
   }
 }
 
+/** The product's images; the featured image alone when it has no others. */
+function galleryImages(product: StorefrontProduct): ProductImage[] {
+  if (product.images.length > 0) return product.images;
+  return product.featuredImageUrl ? [{ url: product.featuredImageUrl, altText: null }] : [];
+}
+
 function Gallery({ product }: Readonly<{ product: StorefrontProduct }>) {
-  const images = product.images.length > 0 ? product.images : product.featuredImageUrl ? [{ url: product.featuredImageUrl, altText: null }] : [];
+  const images = galleryImages(product);
   const [active, setActive] = useState(0);
   const current = images[Math.min(active, images.length - 1)];
   if (!current) return <div className="aspect-square rounded-xl bg-surface-muted" />;

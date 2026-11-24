@@ -1,7 +1,7 @@
 import { createServerFn } from '@tanstack/react-start';
 import { isShopLocale } from '@weldsuite/storefront-theme';
 import type { ShopPayload } from '../../payload';
-import { makeHead } from '../../seo';
+import { makeHead, withoutTrailingSlashes } from '../../seo';
 import { rendererConfig } from '../config';
 import { headContext } from '../head';
 import { getConsent } from '../session';
@@ -12,7 +12,7 @@ function collector(value: string | undefined): string | null {
   if (!value) return null;
   try {
     const url = new URL(value);
-    return url.protocol === 'https:' || url.protocol === 'http:' ? url.origin + url.pathname.replace(/\/+$/, '') : null;
+    return url.protocol === 'https:' || url.protocol === 'http:' ? url.origin + withoutTrailingSlashes(url.pathname) : null;
   } catch {
     return null;
   }

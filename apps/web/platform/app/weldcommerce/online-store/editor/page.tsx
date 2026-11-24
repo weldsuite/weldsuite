@@ -79,6 +79,12 @@ function readView(params: { get: (key: string) => string | null }): EditorView {
   return { kind: 'template', template: 'home' };
 }
 
+/** The query string `readView` reads `view` back from; none for the home template. */
+function viewQuery(view: EditorView): string {
+  if (view.kind === 'page') return `?page=${encodeURIComponent(view.pageId)}`;
+  return view.template === 'home' ? '' : `?template=${view.template}`;
+}
+
 /** Typing in a field keeps the field's own undo; the editor's shortcuts work everywhere else. */
 function isTextEntry(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
@@ -167,8 +173,7 @@ function EditorShell({ site }: Readonly<{ site: OnlineStoreSiteDetail }>) {
 
   const setView = useCallback(
     (next: EditorView) => {
-      const query = next.kind === 'page' ? `?page=${encodeURIComponent(next.pageId)}` : next.template === 'home' ? '' : `?template=${next.template}`;
-      router.replace(`/weldcommerce/online-store/${site.id}/editor${query}`);
+      router.replace(`/weldcommerce/online-store/${site.id}/editor${viewQuery(next)}`);
       setSelection(null);
     },
     [router, site.id, setSelection],
