@@ -12,12 +12,14 @@ function Logo() {
   const { shop } = useShop();
   const src = safeImageSrc(shop.theme.logoUrl);
   return (
-    <ShopLink href="/" className="flex shrink-0 items-center gap-2 font-heading text-xl font-semibold">
+    // A long shop name gives way (truncated) before the icons do: on a phone
+    // the search and cart icons always fit.
+    <ShopLink href="/" className="flex min-w-0 items-center gap-2 font-heading text-xl font-semibold">
       {src ? (
         // Above the fold and small: loaded at once, never lazily.
-        <img src={src} alt={shop.theme.logoAlt?.trim() || shop.name} decoding="async" className="h-10 w-auto max-w-48 object-contain" />
+        <img src={src} alt={shop.theme.logoAlt?.trim() || shop.name} decoding="async" className="h-10 w-auto max-w-48 shrink-0 object-contain" />
       ) : (
-        shop.name
+        <span className="truncate">{shop.name}</span>
       )}
     </ShopLink>
   );
@@ -67,7 +69,7 @@ export function Header({ section, attributes }: Readonly<SectionProps>) {
         <nav aria-label={s.main} className="min-w-0 flex-1">
           <WideMenu items={items} />
         </nav>
-        <div className="ms-auto flex items-center gap-1">
+        <div className="ms-auto flex shrink-0 items-center gap-1">
           {settings.bool('showSearch') ? (
             <>
               <SearchForm />

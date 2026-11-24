@@ -71,6 +71,20 @@ describe('SectionRenderer', () => {
     expect(container.querySelector('footer')?.getAttribute('data-section-id')).toBe('footer');
   });
 
+  it('lets a long shop name in the header give way to the icons on a phone', () => {
+    const name = 'Atelier Noord linen, ceramics and beeswax webshop';
+    const { container } = render(
+      <TestShop shop={{ name }}>
+        <SectionRenderer sections={[newSection('header', 'header')]} list="header" />
+      </TestShop>,
+    );
+    // The name truncates inside a link that may shrink; the icons never shrink.
+    const nameSpan = Array.from(container.querySelectorAll('header span')).find((s) => s.textContent === name);
+    expect(nameSpan?.classList.contains('truncate')).toBe(true);
+    expect(nameSpan?.parentElement?.classList.contains('min-w-0')).toBe(true);
+    expect(container.querySelector('header a[href="/cart"]')?.parentElement?.classList.contains('shrink-0')).toBe(true);
+  });
+
   it('gives the first section the h1 when asked, and the rest h2', () => {
     const { container } = render(
       <TestShop>
