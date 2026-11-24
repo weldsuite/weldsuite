@@ -483,26 +483,25 @@ jobs:
           sudo docker image prune --all --force > /dev/null
           df -h /
       # The release build's last step, the `weldsuite` binary with thin LTO
-      # in one codegen unit, cross-compiled for aarch64, outgrew the runner's
-      # 16 GB with WeldCommerce phase 1 (#1665): from 2026-11-21 every push
-      # to main had rustc killed for memory there ("cannot allocate memory",
-      # SIGKILL), so no main build passed CI and EU production stopped
-      # following test. The amd64 build of the same binary still fits. Swap
-      # on the runner's scratch disk lets it finish without changing what
-      # ships; BuildKit's container has no memory limit, so it swaps with
-      # the host.
+      # in one codegen unit, cross-compiled for aarch64, needs more than the
+      # runner's 16 GB; the amd64 build of the same binary still fits. When
+      # rustc runs out of memory there ("cannot allocate memory", SIGKILL), no
+      # main build passes CI and EU production stops following test. Swap
+      # lets it finish without changing what ships; BuildKit's container has
+      # no memory limit, so it swaps with the host. 8 GiB of it was enough
+      # until every crate moved onto the SeaORM entities (#1700, 2026-11-24).
       - name: Add swap
         run: |
           set -euo pipefail
           free -h
-          # GitHub's runners mount a scratch disk on /mnt: up to 32 GiB of
-          # swap there, leaving 4 GiB. Without that mount, the root disk,
-          # which the build itself fills (BuildKit's layers, the Rust
-          # target): at most 8 GiB, leaving 25 GiB.
+          # Up to 32 GiB of swap. On a scratch disk mounted on /mnt, leaving
+          # 4 GiB there. Without one (ubuntu-26.04 has none), on the root
+          # disk, which the build itself fills (BuildKit's layers, the Rust
+          # target), leaving 40 GiB: it has about 110 GiB free by now.
           if mountpoint -q /mnt; then
             dir=/mnt cap=32 headroom=4
           else
-            dir=/ cap=8 headroom=25
+            dir=/ cap=32 headroom=40
           fi
           file="${dir%/}/swapfile"
           avail_gib=$(( $(df --output=avail -k "$dir" | tail -1) / 1048576 ))
@@ -519,6 +518,22 @@ jobs:
           sudo mkswap "$file" > /dev/null
           sudo swapon "$file"
           free -h
+      # Memory and swap in use every 15 seconds, with each process holding
+      # more than 1 GiB (resident plus swapped), so the last step shows how
+      # close the build came to running out.
+      - name: Watch memory
+        run: |
+          log="$RUNNER_TEMP/memory.log"
+          nohup bash -c '
+            while :; do
+              mem=$(free -m | awk "/^Mem:/ {m = \$3} /^Swap:/ {s = \$3} END {print m, s}")
+              procs=$(cat /proc/[0-9]*/status 2> /dev/null | awk "
+                /^Name:/ {name = \$2; rss = 0}
+                /^VmRSS:/ {rss = \$2}
+                /^VmSwap:/ {if (rss + \$2 > 1048576) printf \" %s=%dM\", name, (rss + \$2) / 1024}")
+              echo "$(date -u +%T) $mem$procs"
+              sleep 15
+            done' > "$log" 2>&1 &
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
         with:
@@ -534,6 +549,23 @@ jobs:
           build-args: CARGO_PROFILE=${{ github.event_name == 'pull_request' && 'ci-image' || 'release' }}
           cache-from: type=gha,scope=rust-image-arm64
           cache-to: ${{ github.event_name != 'pull_request' && 'type=gha,mode=max,scope=rust-image-arm64' || '' }}
+      - name: Memory used
+        if: ${{ always() }}
+        run: |
+          log="$RUNNER_TEMP/memory.log"
+          df -h /
+          swapon --show
+          [ -s "$log" ] || exit 0
+          # Columns: time, MiB of memory in use, MiB of swap in use, then
+          # the processes over 1 GiB.
+          awk '{if ($2 + $3 > peak) {peak = $2 + $3; line = $0}}
+            END {printf "Peak: %d MiB of memory and swap in use at %s\n", peak, line}' "$log"
+          echo "::group::Every sample"
+          cat "$log"
+          echo "::endgroup::"
+          if [ "${{ job.status }}" != success ]; then
+            sudo dmesg | grep -iE 'out of memory|oom-kill|killed process' | tail -20 || true
+          fi
 
   # The EU deploy configuration (rust/deploy): OpenTofu for Hetzner validated,
   # every Flux layer built and schema-checked, every pinned chart rendered with
