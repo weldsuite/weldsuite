@@ -6,7 +6,7 @@
 //                     checksums, lengths and hints) and items, sealed by
 //                     envelope.ts with fixed root keys and its own randomness
 //   totp-ts.json      parseTotp results and errors, and totpCode at fixed times
-//   cases-ts.json     slugify, hostOf, hostsMatch, password strength, .env
+//   cases-ts.json     slugify, hostOf, hostsMatch, isPublicSuffix, password strength, .env
 //                     parsing and rendering, CSV import, and Zod's issues for
 //                     the request bodies the routes validate
 //
@@ -238,7 +238,41 @@ const hostsMatch = [
   ['localhost', 'app.localhost'],
   ['notexample.com', 'example.com'],
   ['a.b.c', 'b.c'],
+  ['a.github.io', 'github.io'],
+  ['github.io', 'a.github.io'],
+  ['a.github.io', 'b.github.io'],
+  ['a.github.io', 'login.a.github.io'],
+  ['github.io', 'github.io'],
+  ['example.co.uk', 'www.example.co.uk'],
+  ['example.co.uk', 'co.uk'],
+  ['x.blogspot.com', 'blogspot.com'],
+  ['acme-match.test', 'app.acme-match.test'],
+  ['127.0.0.1', '127.0.0.1'],
+  ['0.0.1', '127.0.0.1'],
+  ['localhost', 'localhost'],
 ].map(([item, page]) => ({ item, page, output: schemas.hostsMatch(item, page) }));
+
+// The Public Suffix List in tldts (TypeScript) and the psl crate (Rust).
+const publicSuffix = [
+  'com',
+  'example.com',
+  'co.uk',
+  'example.co.uk',
+  'github.io',
+  'a.github.io',
+  'blogspot.com',
+  'herokuapp.com',
+  'app.herokuapp.com',
+  'test',
+  'acme-match.test',
+  'localhost',
+  'nl',
+  'gov.uk',
+  'pages.dev',
+  'vercel.app',
+  'my.vercel.app',
+  '127.0.0.1',
+].map((input) => ({ input, output: schemas.isPublicSuffix(input) }));
 
 const passwords = [
   '',
@@ -380,6 +414,7 @@ write('cases-ts.json', {
   slugify,
   hostOf,
   hostsMatch,
+  publicSuffix,
   passwords,
   dotenv: dotenvCases,
   renderDotenv: renderCases,

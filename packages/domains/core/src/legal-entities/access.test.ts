@@ -34,22 +34,41 @@ describe('buildEntityAccess', () => {
     expect(entityRoleId(access, 'open_with_role')).toBe('role_viewer');
   });
 
-  it('lets owners and access managers see everything with their workspace role', () => {
-    for (const permissions of [owner, manager]) {
-      const access = buildEntityAccess('u1', permissions, rows);
-      expect(access.seesAll).toBe(true);
-      expect(access.uniform).toBe(true);
-      expect(visibleEntityIds(access)).toHaveLength(4);
-      expect(entityRoleId(access, 'open_with_role')).toBeNull();
-    }
-    expect(entityAccessSource(buildEntityAccess('u1', owner, rows), 'open')).toBe('owner');
-    expect(entityAccessSource(buildEntityAccess('u1', manager, rows), 'open')).toBe('manager');
+  it('lets owners see everything with their workspace role', () => {
+    const access = buildEntityAccess('u1', owner, rows);
+    expect(access.seesAll).toBe(true);
+    expect(access.uniform).toBe(true);
+    expect(visibleEntityIds(access)).toHaveLength(4);
+    expect(entityRoleId(access, 'open_with_role')).toBeNull();
+    expect(entityAccessSource(access, 'open')).toBe('owner');
+  });
+
+  it('shows a restricted entity to an access manager only when they are listed', () => {
+    const access = buildEntityAccess('u1', manager, rows);
+    expect(access.seesAll).toBe(false);
+    expect(access.managesAccess).toBe(true);
+    expect(access.uniform).toBe(false);
+    expect(canSeeEntity(access, 'restricted')).toBe(false);
+    expect(canSeeEntity(access, 'restricted_listed')).toBe(true);
+    expect(visibleEntityIds(access)).toEqual(['open', 'restricted_listed', 'open_with_role']);
+  });
+
+  it('keeps an access manager on their workspace role where they see', () => {
+    const access = buildEntityAccess('u1', manager, rows);
+    expect(entityRoleId(access, 'open_with_role')).toBeNull();
+    expect(entityAccessSource(access, 'open')).toBe('manager');
+    // Nothing restricted: the same access everywhere, whatever a row says.
+    const open = buildEntityAccess('u1', manager, [
+      { id: 'a', accessRestricted: false, isMember: true, memberRoleId: 'role_viewer' },
+    ]);
+    expect(open.uniform).toBe(true);
   });
 
   it('honours a personal deny on legal_entities:manage', () => {
     const access = buildEntityAccess('u1', { ...manager, denies: ['legal_entities:manage'] }, rows);
-    expect(access.seesAll).toBe(false);
+    expect(access.managesAccess).toBe(false);
     expect(canSeeEntity(access, 'restricted')).toBe(false);
+    expect(entityRoleId(access, 'open_with_role')).toBe('role_viewer');
   });
 
   it('is uniform when nothing is restricted and no entity role is set', () => {

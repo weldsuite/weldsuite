@@ -13,3 +13,15 @@ consume and MTA pods, never through the ingress:
   kubectl -n {{ .Release.Namespace }} port-forward deployment/{{ include "weldsuite.fullname" . }} {{ .Values.metrics.port }}
   curl http://localhost:{{ .Values.metrics.port }}/metrics
 {{- end }}
+{{- if .Values.secret.generate }}
+
+Back up the keys the chart generated, outside the cluster, before anyone stores data:
+  kubectl -n {{ .Release.Namespace }} get secret {{ .Values.secret.generatedName }} -o yaml > weldsuite-keys.yaml
+WELDPASS_ROOT_KEY opens every WeldPass vault and DATABASE_ENCRYPTION_KEY every workspace's
+database URL; neither can be recovered once lost.
+
+The chart keeps those keys by reading the Secret back (lookup). A tool that renders with
+`helm template` (Argo CD, `helm template | kubectl apply`) gets nothing back and would write
+NEW keys over them, leaving every vault unreadable: there, put the keys in secret.existingSecret
+and set secret.generate to false.
+{{- end }}

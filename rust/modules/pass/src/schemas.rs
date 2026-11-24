@@ -290,6 +290,62 @@ fn has_scheme(text: &str) -> bool {
         && chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '.' | '-'))
 }
 
+/// An IPv4 or IPv6 address, as `tldts` sees one (`isIp`).
+fn is_ip(host: &str) -> bool {
+    host.trim_start_matches('[')
+        .trim_end_matches(']')
+        .parse::<std::net::IpAddr>()
+        .is_ok()
+}
+
+/// `isPublicSuffix`: a name under which anyone can register a site of their
+/// own (`com`, `co.uk`, `github.io`), from the Public Suffix List including
+/// its private section (the `psl` crate, as `tldts` with
+/// `allowPrivateDomains`). An IP address is not one.
+pub(crate) fn is_public_suffix(host: &str) -> bool {
+    !is_ip(host) && psl::suffix_str(host) == Some(host)
+}
+
+/// Which item hosts `/items/match` offers on a page at `page_host`, the SQL
+/// shape of `hostsMatch`: the page's own host and each parent of it that is
+/// not a public suffix (`hosts`), and, unless the page's host is a public
+/// suffix, an IP address or a single label, every subdomain of it
+/// (`subdomains`). So a login for `a.github.io` is offered on
+/// `login.a.github.io` but never on `github.io` or `b.github.io`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct MatchScope {
+    pub(crate) hosts: Vec<String>,
+    pub(crate) subdomains: bool,
+}
+
+pub(crate) fn match_scope(page_host: &str) -> MatchScope {
+    if is_ip(page_host) {
+        return MatchScope {
+            hosts: vec![page_host.to_owned()],
+            subdomains: false,
+        };
+    }
+    let labels: Vec<&str> = page_host.split('.').collect();
+    let mut hosts = vec![page_host.to_owned()];
+    hosts.extend(
+        (1..labels.len().saturating_sub(1))
+            .map(|i| labels[i..].join("."))
+            .filter(|parent| !is_public_suffix(parent)),
+    );
+    MatchScope {
+        hosts,
+        subdomains: labels.len() >= 2 && !is_public_suffix(page_host),
+    }
+}
+
+/// `hostsMatch`, by way of [`match_scope`]: what the query offers.
+#[cfg(test)]
+pub(crate) fn hosts_match(item_host: &str, page_host: &str) -> bool {
+    let scope = match_scope(page_host);
+    scope.hosts.iter().any(|host| host == item_host)
+        || (scope.subdomains && item_host.ends_with(&format!(".{page_host}")))
+}
+
 /// The passwords attackers try first; compared lower-cased.
 const COMMON_PASSWORDS: [&str; 52] = [
     "123456",

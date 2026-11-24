@@ -77,19 +77,21 @@ pub(crate) async fn test_pool() -> Option<sqlx::PgPool> {
     for statement in CATALOG_DDL {
         // Tests start in parallel: a lost race to create a table is fine.
         if let Err(error) = sqlx::query(statement).execute(&pool).await {
-            assert!(is_unique_violation(&error), "the catalog's tables: {error}");
+            assert!(is_lost_create_race(&error), "the catalog's tables: {error}");
         }
     }
     Some(pool)
 }
 
 /// `CREATE TABLE IF NOT EXISTS` racing itself fails on the type's unique
-/// index (`pg_type_typname_nsp_index`).
-fn is_unique_violation(error: &sqlx::Error) -> bool {
+/// index (`pg_type_typname_nsp_index`, `23505`), or, when the other
+/// session's row is already visible, as "type … already exists" (`42710`)
+/// or "relation … already exists" (`42P07`).
+fn is_lost_create_race(error: &sqlx::Error) -> bool {
     error
         .as_database_error()
         .and_then(sqlx::error::DatabaseError::code)
-        .is_some_and(|code| code == "23505")
+        .is_some_and(|code| matches!(&*code, "23505" | "42710" | "42P07"))
 }
 
 impl TestLake {

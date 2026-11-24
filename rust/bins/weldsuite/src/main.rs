@@ -8,6 +8,7 @@
 mod admin;
 mod admin_billing;
 mod admin_outside_eu;
+mod admin_weldpass;
 mod ai;
 mod billing;
 mod collab;

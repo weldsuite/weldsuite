@@ -973,6 +973,14 @@ scripts and the self-hosted operator. The commands' rules and writes are in
   The switch lives in the workspace's own database
   (`workspace_settings.features.outsideEu`), so it and its audit row are two
   writes. `bins/weldsuite/src/admin_outside_eu.rs`.
+- **`weldpass`**: WeldPass's root keys, for one workspace or all of them:
+  `status` (how many vault keys each root-key version wraps), `rewrap` (every
+  project and vault key under the newest key: the rotation, once
+  `WELDPASS_ROOT_KEY_V2` is set on the server) and `backfill-checksums`
+  (pre-HMAC secret checksums rewritten as keyed ones). Each workspace it
+  changes gets an audit row. It needs the server's `WELDPASS_ROOT_KEY` (and
+  `_V2`), which a server pod has. `bins/weldsuite/src/admin_weldpass.rs`,
+  `modules/pass/src/rotation.rs`.
 - Every change needs `--reason`, runs in one transaction with its row in
   `admin_audit_events` (`actor_user_id` `cli`), refusals included, and
   `--dry-run` shows it without writing. `--json` prints JSON.
@@ -1139,7 +1147,7 @@ log none.
 | `SYSTEM_EMAIL_FROM` | send from this address instead of `notifications@mail.weldsuite.org` (optional) |
 | `SIGN_SESSION_SECRET`, `SIGN_PORTAL_URL` | WeldSign: the key of signer sessions and access-code hashes (the workers' value), and the signer portal's origin for signing links (default `https://sign.weldsuite.org`) |
 | `PROJECT_PORTAL_URL` | WeldFlow: the client portal's origin (`https://projects.weldsuite.org`), for the links in the portal invitation and in status reports emailed to client contacts. Unset: those emails are not sent. `weldsuite cron flow-status-reports` (daily) drafts the status reports whose cadence has come due, over the `status_report_due` due index |
-| `WELDPASS_ROOT_KEY`, `WELDPASS_ROOT_KEY_V2` | WeldPass: the root key that wraps every vault's key (64 hex characters, the workers' value, so either backend opens the other's vaults), and the new one while a rotation is in flight. Unset: the vault routes answer 500 `CRYPTO_ERROR`. Losing it makes every stored secret unrecoverable |
+| `WELDPASS_ROOT_KEY`, `WELDPASS_ROOT_KEY_V2` | WeldPass: the root key that wraps every vault's key (64 hex characters, the workers' value, so either backend opens the other's vaults), and the new one while a rotation is in flight (`weldsuite admin weldpass rewrap` moves every vault key to it; `status` shows what is left). Unset: the vault routes answer 500 `CRYPTO_ERROR` and `weldsuite doctor` fails. Losing it makes every stored secret unrecoverable |
 | `COLLAB_ROOMS_URLS`, `COLLAB_ROOMS_SECRET` | WeldDocs', WeldSheets' and WeldBoard's live editing (`docs/collab-rooms.md`): every collab-rooms pod's URL, comma separated (the chart lists them), and the `x-internal-secret` both ways. A room's calls and its socket go to the pod that wins rendezvous hashing on the room id. Unset: every route that needs a room or an engine (create, import, convert, session, live snapshot, export, versions, connected tables' refreshes) answers 503, and `/config.json` lists `collab-rooms` as unavailable, so the platform hides WeldDocs, WeldSheets and WeldBoard |
 | `SIGN_PORTAL_SECRET` | WeldSign: the key the signer portal sends with every call to `/public/sign-portal` (ADR FE-017); unset refuses those calls (503) |
 | `FORMS_PORTAL_SECRET`, `FORMS_PORTAL_URL`, `FORMS_SESSION_SECRET` | WeldForms: the key the forms portal sends with every call to `/public/forms` (`X-Forms-Portal-Key`, ADR FORMS-002; unset refuses them, 503), the portal's origin for public links (`<url>/f/<publicId>`, default `https://forms.weldsuite.org`; the chart's `config.forms.portalUrl`), and the key of respondent sessions, verification tokens and the keyed hashes of IPs, browser keys and codes (the workers' value, so a session either backend issued opens on the other; unset: the session routes answer 503) |

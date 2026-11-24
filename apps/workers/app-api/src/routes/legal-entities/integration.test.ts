@@ -83,6 +83,7 @@ async function seed(): Promise<void> {
   await db.insert(schema.workspaceMembers).values([
     member('user_owner', 'OWNER'),
     member('user_admin', 'ADMIN'),
+    member('user_admin2', 'ADMIN'),
     member('user_member', 'MEMBER'),
     member('user_member2', 'MEMBER'),
     member('user_employee', 'MEMBER', 'EMPLOYEE'),
@@ -130,12 +131,14 @@ async function listAs(t: ReturnType<typeof app>): Promise<Entity[]> {
 }
 
 describe('per-entity access', () => {
-  it('hides a restricted entity from a member without a row, and shows it to admins and members with a row', async () => {
+  it('hides a restricted entity from everyone without a row but the owner, admins included', async () => {
     const open = await createEntity('Acme Holding BV');
     const secret = await createEntity('Acme Secret BV');
 
     expect((await listAs(asMember())).map((e) => e.id).sort()).toEqual([open.id, secret.id].sort());
 
+    // The admin lists themselves, then restricts it.
+    expect((await send(asAdmin(), `/${secret.id}/access/members/user_admin`, 'PUT', { roleId: null })).status).toBe(201);
     const restrict = await send(asAdmin(), `/${secret.id}/access`, 'PATCH', { restricted: true });
     expect(restrict.status).toBe(200);
     expect(((await restrict.json()) as { data: { restricted: boolean } }).data.restricted).toBe(true);
@@ -146,9 +149,24 @@ describe('per-entity access', () => {
     expect((await asMember().request(`/api/legal-entities/${secret.id}/registrations`)).status).toBe(404);
     expect((await asMember().request(`/api/legal-entities/${secret.id}/my-access`)).status).toBe(404);
 
-    // An admin holding legal_entities:manage sees both.
-    expect((await listAs(asAdmin())).map((e) => e.id).sort()).toEqual([open.id, secret.id].sort());
+    // The listed admin sees both, acting with their workspace role.
+    const asListedAdmin = await listAs(asAdmin());
+    expect(asListedAdmin.map((e) => e.id).sort()).toEqual([open.id, secret.id].sort());
+    expect(asListedAdmin.find((e) => e.id === secret.id)?.myAccess?.source).toBe('manager');
     expect((await asAdmin().request(`/api/legal-entities/${secret.id}`)).status).toBe(200);
+
+    // Another admin without a row doesn't see it, nor its access list, and can't list themselves.
+    const asOtherAdmin = app('user_admin2', ADMIN_KEYS);
+    expect((await listAs(asOtherAdmin)).map((e) => e.id)).toEqual([open.id]);
+    expect((await asOtherAdmin.request(`/api/legal-entities/${secret.id}`)).status).toBe(404);
+    expect((await asOtherAdmin.request(`/api/legal-entities/${secret.id}/access`)).status).toBe(404);
+    expect((await send(asOtherAdmin, `/${secret.id}/access/members/user_admin2`, 'PUT', { roleId: null })).status).toBe(404);
+    expect((await send(asOtherAdmin, `/${secret.id}/access`, 'PATCH', { restricted: false })).status).toBe(404);
+
+    // The owner always sees it.
+    const asOwner = app('user_owner', ['*']);
+    expect((await listAs(asOwner)).map((e) => e.id).sort()).toEqual([open.id, secret.id].sort());
+    expect((await asOwner.request(`/api/legal-entities/${secret.id}/access`)).status).toBe(200);
 
     // A member with a row sees it, and the list says why.
     const grant = await send(asAdmin(), `/${secret.id}/access/members/user_member2`, 'PUT', { roleId: null });
@@ -159,9 +177,9 @@ describe('per-entity access', () => {
       data: { restricted: boolean; members: { userId: string; picture: string | null }[] };
     }).data;
     expect(listed.restricted).toBe(true);
-    expect(listed.members.map((m) => m.userId)).toEqual(['user_member2']);
+    expect(listed.members.map((m) => m.userId).sort()).toEqual(['user_admin', 'user_member2']);
     // The account picture, not the member row's copy.
-    expect(listed.members[0]!.picture).toBe(MEMBER2_PICTURE);
+    expect(listed.members.find((m) => m.userId === 'user_member2')!.picture).toBe(MEMBER2_PICTURE);
     const withRow = await listAs(asMember('user_member2'));
     expect(withRow.map((e) => e.id).sort()).toEqual([open.id, secret.id].sort());
     expect(withRow.find((e) => e.id === secret.id)?.myAccess?.source).toBe('member');
