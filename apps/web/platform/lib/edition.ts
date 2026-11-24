@@ -181,6 +181,15 @@ export const EDITION_FEATURES = [
    */
   'stash-replenishment',
   /**
+   * WeldStash carrier shipping (ADR STASH-011): PostNL and DHL Parcel
+   * accounts, labels for a packed pick list, service points, return labels,
+   * customs and tracking (`/api/carriers`, `/api/parcels`,
+   * `/api/pick-lists/:id/labels`). Built only in Rust, so it is in
+   * `GLOBAL_UNAVAILABLE_FEATURES`; on Global a pick list ships without a
+   * carrier, as before.
+   */
+  'stash-shipping',
+  /**
    * Services outside the EU (ADR OPS-026, `/api/outside-eu-services`): on the
    * EU edition each is off until a workspace admin switches it on under
    * Settings › Services outside the EU, and the integrations that use one

@@ -176,6 +176,42 @@ pub struct Model {
     #[sea_orm(column_type = "JsonBinary")]
     #[serde(rename = "customFields")]
     pub custom_fields: Option<Json>,
+    /// The pick list the piece was packed for; every piece of a multi-collo
+    /// shipment carries it (`pick_lists.parcel_id` keeps the first).
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "pickListId")]
+    pub pick_list_id: Option<String>,
+    /// The carrier adapter (`postnl`, `dhl_parcel_nl`) that made the label
+    /// and tracks it, kept when the account is deleted.
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "carrierCode")]
+    pub carrier_code: Option<String>,
+    /// The carrier's own id for the piece when it is not the tracking number
+    /// (DHL's label id).
+    #[sea_orm(column_type = "String(StringLen::N(100))")]
+    #[serde(rename = "carrierReference")]
+    pub carrier_reference: Option<String>,
+    /// The carrier's public track-and-trace page for the piece.
+    #[sea_orm(column_type = "String(StringLen::N(500))")]
+    #[serde(rename = "trackingUrl")]
+    pub tracking_url: Option<String>,
+    /// 1..n within the pick list.
+    #[serde(rename = "colloNumber")]
+    pub collo_number: Option<i32>,
+    /// `{ id, name, carrier, address }` when delivered to a pickup point.
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "servicePoint")]
+    pub service_point: Option<Json>,
+    /// A return parcel's outbound parcel.
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "returnForParcelId")]
+    pub return_for_parcel_id: Option<String>,
+    /// When the tracking sweep polls the carrier next; null stops it.
+    #[serde(
+        rename = "trackingNextCheckAt",
+        with = "crate::js::timestamp::option"
+    )]
+    pub tracking_next_check_at: Option<TimeDateTime>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
@@ -330,6 +366,39 @@ pub const DDL: Table = Table {
             unique: false,
             method: "btree",
             filter: None,
+        },
+        Index {
+            name: "parcels_pick_list_id_idx",
+            columns: &[IndexColumn {
+                expression: "pick_list_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "parcels_return_for_parcel_id_idx",
+            columns: &[IndexColumn {
+                expression: "return_for_parcel_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "parcels_tracking_next_check_at_idx",
+            columns: &[IndexColumn {
+                expression: "tracking_next_check_at",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: Some("\"parcels\".\"tracking_next_check_at\" IS NOT NULL"),
         },
     ],
     foreign_keys: &[],

@@ -127,6 +127,8 @@ export const GLOBAL_UNAVAILABLE_FEATURES: readonly string[] = [
   'commerce',
   // WeldStash purchasing and replenishment (ADR STASH-008).
   'stash-replenishment',
+  // WeldStash carrier shipping: PostNL and DHL Parcel labels and tracking (ADR STASH-011).
+  'stash-shipping',
   // The workspace opt-in for services outside the EU (ADR OPS-026): Global
   // keeps calling them as it always has.
   'outside-eu-services',
@@ -402,9 +404,14 @@ export const API_MODULES: readonly ApiModule[] = [
   // WeldCommerce reads and writes the product catalogue too (STASH-006).
   mod('stash', 8807, ['weldstash', 'weldcommerce'], [
     '/api/boxes',
+    // Carrier accounts and parcels: served by the Rust backend only
+    // (weldsuite-documentation/plans/weldstash-carriers.md).
+    '/api/carriers',
     '/api/cycle-counts',
     '/api/inventory',
     '/api/inventory-movements',
+    // Served by the Rust backend only (weldsuite-documentation/plans/weldstash-carriers.md).
+    '/api/parcels',
     '/api/pick-lists',
     '/api/pickers',
     // Served by the Rust backend only (weldsuite-documentation/plans/weldstash-replenishment.md).

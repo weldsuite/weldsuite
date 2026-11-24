@@ -248,10 +248,17 @@ fn stash(router: Router<AppState>, state: &AppState) -> Router<AppState> {
         master: Some(state.workspaces.master().clone()),
         jobs: Some(Arc::clone(&state.infra.jobs)),
     };
+    // Carrier shipping: the master database (credits, the rate card, the
+    // tracking due index) and the private store (labels).
+    let shipping = weldsuite_stash::shipping::Services {
+        master: Some(state.workspaces.master().clone()),
+        files: state.infra.files.clone(),
+    };
     // On the stash routes only (not a fallback the merge could pick up).
     router.merge(
         weldsuite_stash::router(stash, &state.permissions)
-            .route_layer(axum::Extension(replenishment)),
+            .route_layer(axum::Extension(replenishment))
+            .route_layer(axum::Extension(shipping)),
     )
 }
 

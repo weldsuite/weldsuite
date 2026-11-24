@@ -330,9 +330,11 @@
     "id": "stash",
     "prefixes": [
       "/api/boxes",
+      "/api/carriers",
       "/api/cycle-counts",
       "/api/inventory",
       "/api/inventory-movements",
+      "/api/parcels",
       "/api/pick-lists",
       "/api/pickers",
       "/api/product-suppliers",

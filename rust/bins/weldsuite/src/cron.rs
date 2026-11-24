@@ -122,6 +122,11 @@
 //!   `weldsuite_stash::replenishment::run_replenishment_sweep`). The runs go
 //!   to Restate when it is configured; otherwise they run in this process,
 //!   which waits for them. Nothing while stash is not served.
+//! - `stash-parcel-tracking` (every 20 minutes): polls PostNL and DHL Parcel
+//!   for the parcels whose next check has come, in the workspaces the
+//!   `stash_parcel_tracking` due index lists (ADR STASH-013;
+//!   `weldsuite_stash::shipping::run_tracking_sweep`). Nothing while stash is
+//!   not served.
 //! - `mail-attachment-scan` (every 5 minutes): WeldMail's attachments the
 //!   virus scanner couldn't take at delivery, for the workspaces the
 //!   `mail_attachment_scan` due index lists
@@ -299,6 +304,7 @@ pub(crate) fn main(job: Option<&str>) -> ExitCode {
             "panel-maintenance" => Box::pin(panel_maintenance(config)).await,
             "panel-schedule" => Box::pin(crate::panel_monitor::panel_schedule(config)).await,
             "stash-replenishment" => stash_replenishment(config).await,
+            "stash-parcel-tracking" => stash_parcel_tracking(config).await,
             "storefront-hosts" => Box::pin(crate::storefront::sweep(config)).await,
             "mail-attachment-scan" => mail_attachment_scan(config).await,
             "mail-threat-feeds" => mail_threat_feeds(config).await,
@@ -995,6 +1001,75 @@ async fn stash_replenishment(config: Config) -> Result<(), Box<dyn std::error::E
         .is_err()
     {
         tracing::warn!("stopped with planning runs still in flight");
+    }
+    Ok(())
+}
+
+/// `weldsuite cron stash-parcel-tracking`: one tick of WeldStash's parcel
+/// tracking sweep (ADR STASH-013), for the workspaces the
+/// `stash_parcel_tracking` due index lists. Events go out through the
+/// infra's publisher; the tick waits for them before it exits.
+async fn stash_parcel_tracking(config: Config) -> Result<(), Box<dyn std::error::Error>> {
+    if !crate::routes::mounts("stash") {
+        println!(
+            "{}",
+            serde_json::json!({ "job": "stash-parcel-tracking", "result": { "skipped": "stash is not served" } })
+        );
+        return Ok(());
+    }
+    let master =
+        weldsuite_db::master_pool(&config.master_database_url, config.master_max_connections)?;
+    let workspaces = Arc::new(Workspaces::new(
+        master.clone(),
+        config.keyring.clone(),
+        config.workspaces.clone(),
+    ));
+    let tracker = weldsuite_events::TaskTracker::new();
+    #[cfg(not(feature = "conformance"))]
+    let infra =
+        crate::infra::connect(&config.infra, &master, &config.keyring, tracker.clone()).await?;
+    #[cfg(feature = "conformance")]
+    let (infra, _) = crate::conformance::infra(tracker.clone());
+    let http = weldsuite_adapters_oss::ReqwestOutbound::new(Duration::from_secs(20))
+        .map(|client| weldsuite_ports::OutboundHttp(Arc::new(client)))?;
+    let sweep = weldsuite_stash::shipping::TrackingSweep {
+        master: master.clone(),
+        tenants: Arc::new(move |reference: String| {
+            let workspaces = Arc::clone(&workspaces);
+            Box::pin(async move {
+                let tenant = workspaces
+                    .tenant(&reference)
+                    .await
+                    .map_err(|error| error.to_string())?;
+                Ok((tenant.db, tenant.clerk_org_id))
+            })
+        }),
+        http,
+        events: infra.events.clone(),
+        env: Arc::new(|name: &str| std::env::var(name).ok()),
+    };
+    let started = std::time::Instant::now();
+    let result =
+        weldsuite_stash::shipping::run_tracking_sweep(&sweep, time::OffsetDateTime::now_utc())
+            .await;
+    weldsuite_ports::record_job_run(
+        "stash.parcel_tracking",
+        result.failed == 0,
+        started.elapsed(),
+    );
+    println!(
+        "{}",
+        serde_json::json!({
+            "job": "stash-parcel-tracking",
+            "result": { "due": result.due, "processed": result.processed, "failed": result.failed },
+        })
+    );
+    tracker.close();
+    if tokio::time::timeout(Duration::from_mins(5), tracker.wait())
+        .await
+        .is_err()
+    {
+        tracing::warn!("stopped with parcel events still in flight");
     }
     Ok(())
 }

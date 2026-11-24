@@ -1123,14 +1123,22 @@ pub(crate) async fn ship(db: &PgPool, id: &str, user_id: &str) -> Result<Option<
         .clone()
         .unwrap_or_else(|| generate_id("shp"));
     let parcel_id = truthy(&list, "parcelId").map(str::to_owned);
+    // The other labelled pieces of a multi-collo pick list (Rust only; none
+    // without carrier labels).
+    let extra = crate::shipping::labels::extra_pieces(db, id, parcel_id.as_deref()).await?;
+    let all_parcels: Vec<String> = parcel_id
+        .iter()
+        .cloned()
+        .chain(extra.iter().cloned())
+        .collect();
     if existing_shipment.is_none() {
         let shipment = json!({
             "id": shipment_id,
             "shipmentNumber": time_number("SHP"),
             "status": "shipped",
             "type": "outbound",
-            "parcelIds": parcel_id.iter().collect::<Vec<_>>(),
-            "totalParcels": i32::from(parcel_id.is_some()),
+            "parcelIds": all_parcels,
+            "totalParcels": i32::try_from(all_parcels.len()).unwrap_or(i32::MAX),
             "shippedAt": now,
             "createdAt": now,
             "updatedAt": now,
@@ -1154,6 +1162,23 @@ pub(crate) async fn ship(db: &PgPool, id: &str, user_id: &str) -> Result<Option<
             .patch(
                 db,
                 parcel_id,
+                crate::putaway::values_of(&PARCELS, &change),
+                false,
+                &["shippedAt", "updatedAt"],
+            )
+            .await?;
+    }
+    for extra_id in &extra {
+        let change = json!({
+            "shipmentId": shipment_id,
+            "status": "shipped",
+            "shippedAt": now,
+            "updatedAt": now,
+        });
+        PARCELS
+            .patch(
+                db,
+                extra_id,
                 crate::putaway::values_of(&PARCELS, &change),
                 false,
                 &["shippedAt", "updatedAt"],
