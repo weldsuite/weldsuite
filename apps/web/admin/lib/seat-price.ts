@@ -64,7 +64,7 @@ export function seatPriceRefusal({ workspace, account }: SeatPriceState, now: Da
     RUNNING_STATUSES.has(workspace.subscriptionStatus ?? '') &&
     periodEnd !== null &&
     periodEnd > now;
-  if (!running || !account || account.unitAmount === null || account.nextChargeAt === null) return 'no_subscription';
+  if (!running || account?.unitAmount == null || account.nextChargeAt === null) return 'no_subscription';
   if (account.currency.toUpperCase() !== SEAT_PRICE_CURRENCY) return 'not_eur';
   return null;
 }
