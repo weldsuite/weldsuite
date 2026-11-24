@@ -96,7 +96,8 @@ function kindOf(columnType: string): Kind {
 /**
  * Columns the SeaORM entities gained after the Drizzle schema froze
  * (DATA-019): Drizzle doesn't know them, so they are listed here, by table, in
- * the entity's order.
+ * the entity's order. They go into `entity_only`, not `columns`: the routes
+ * answer as the TypeScript worker did, which never read or wrote them.
  */
 const ENTITY_ONLY: Record<string, { prop: string; name: string; kind: Kind }[]> = {
   products: [
@@ -126,7 +127,9 @@ for (const exportName of TABLES) {
     const c = column as unknown as { name: string; columnType: string; defaultFn?: unknown };
     return { prop, name: c.name, kind: kindOf(c.columnType), defaultFn: !!c.defaultFn };
   });
-  columns.push(...(ENTITY_ONLY[name] ?? []).map((c) => ({ ...c, defaultFn: false })));
+  const entityOnly = (ENTITY_ONLY[name] ?? []).map(
+    (c) => `        Column { prop: "${c.prop}", name: "${c.name}", kind: Kind::${c.kind}, default_fn: false },`,
+  );
   const constName = name.toUpperCase();
   constNames.push(constName);
   out += `
@@ -137,6 +140,7 @@ pub(crate) const ${constName}: Table = Table {
     columns: &[
 ${columns.map((c) => `        Column { prop: "${c.prop}", name: "${c.name}", kind: Kind::${c.kind}${c.defaultFn ? ', default_fn: true' : ', default_fn: false'} },`).join('\n')}
     ],
+    entity_only: &[${entityOnly.length ? `\n${entityOnly.join('\n')}\n    ` : ''}],
 };
 `;
 }

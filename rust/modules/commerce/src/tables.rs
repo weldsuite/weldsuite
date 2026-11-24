@@ -68,6 +68,8 @@ pub(crate) const PRODUCTS: Table = Table {
         Column { prop: "reviewCount", name: "review_count", kind: Kind::Number, default_fn: false },
         Column { prop: "publishedAt", name: "published_at", kind: Kind::Date, default_fn: false },
         Column { prop: "createdBy", name: "created_by", kind: Kind::Text, default_fn: false },
+    ],
+    entity_only: &[
         Column { prop: "hsCode", name: "hs_code", kind: Kind::Text, default_fn: false },
         Column { prop: "originCountry", name: "origin_country", kind: Kind::Text, default_fn: false },
     ],
@@ -110,6 +112,7 @@ pub(crate) const PRODUCT_VARIANTS: Table = Table {
         Column { prop: "customFields", name: "custom_fields", kind: Kind::Json, default_fn: false },
         Column { prop: "createdBy", name: "created_by", kind: Kind::Text, default_fn: false },
     ],
+    entity_only: &[],
 };
 
 /// `categories` (`categories`).
@@ -142,6 +145,7 @@ pub(crate) const CATEGORIES: Table = Table {
         Column { prop: "productCount", name: "product_count", kind: Kind::Number, default_fn: false },
         Column { prop: "customFields", name: "custom_fields", kind: Kind::Json, default_fn: false },
     ],
+    entity_only: &[],
 };
 
 /// `categoryProducts` (`category_products`).
@@ -155,6 +159,7 @@ pub(crate) const CATEGORY_PRODUCTS: Table = Table {
         Column { prop: "position", name: "position", kind: Kind::Number, default_fn: false },
         Column { prop: "createdAt", name: "created_at", kind: Kind::Date, default_fn: false },
     ],
+    entity_only: &[],
 };
 
 /// `orders` (`orders`).
@@ -222,6 +227,7 @@ pub(crate) const ORDERS: Table = Table {
         Column { prop: "idempotencyKey", name: "idempotency_key", kind: Kind::Text, default_fn: false },
         Column { prop: "guestAccessTokenHash", name: "guest_access_token_hash", kind: Kind::Text, default_fn: false },
     ],
+    entity_only: &[],
 };
 
 /// `orderItems` (`order_items`).
@@ -252,6 +258,7 @@ pub(crate) const ORDER_ITEMS: Table = Table {
         Column { prop: "properties", name: "properties", kind: Kind::Json, default_fn: false },
         Column { prop: "externalLineId", name: "external_line_id", kind: Kind::Text, default_fn: false },
     ],
+    entity_only: &[],
 };
 
 /// `discounts` (`discounts`).
@@ -289,6 +296,7 @@ pub(crate) const DISCOUNTS: Table = Table {
         Column { prop: "customFields", name: "custom_fields", kind: Kind::Json, default_fn: false },
         Column { prop: "createdBy", name: "created_by", kind: Kind::Text, default_fn: false },
     ],
+    entity_only: &[],
 };
 
 /// `discountRedemptions` (`discount_redemptions`).
@@ -305,6 +313,7 @@ pub(crate) const DISCOUNT_REDEMPTIONS: Table = Table {
         Column { prop: "currency", name: "currency", kind: Kind::Text, default_fn: false },
         Column { prop: "createdAt", name: "created_at", kind: Kind::Date, default_fn: false },
     ],
+    entity_only: &[],
 };
 
 /// `commerceSettings` (`commerce_settings`).
@@ -321,6 +330,7 @@ pub(crate) const COMMERCE_SETTINGS: Table = Table {
         Column { prop: "createdAt", name: "created_at", kind: Kind::Date, default_fn: false },
         Column { prop: "updatedAt", name: "updated_at", kind: Kind::Date, default_fn: false },
     ],
+    entity_only: &[],
 };
 
 /// `commerceChannels` (`commerce_channels`).
@@ -343,6 +353,7 @@ pub(crate) const COMMERCE_CHANNELS: Table = Table {
         Column { prop: "paymentMethods", name: "payment_methods", kind: Kind::Json, default_fn: false },
         Column { prop: "connectionId", name: "connection_id", kind: Kind::Text, default_fn: false },
     ],
+    entity_only: &[],
 };
 
 /// `commerceShippingRates` (`commerce_shipping_rates`).
@@ -364,6 +375,7 @@ pub(crate) const COMMERCE_SHIPPING_RATES: Table = Table {
         Column { prop: "position", name: "position", kind: Kind::Number, default_fn: false },
         Column { prop: "active", name: "active", kind: Kind::Bool, default_fn: false },
     ],
+    entity_only: &[],
 };
 
 /// `commerceChannelKeys` (`commerce_channel_keys`).
@@ -385,6 +397,7 @@ pub(crate) const COMMERCE_CHANNEL_KEYS: Table = Table {
         Column { prop: "lastUsedAt", name: "last_used_at", kind: Kind::Date, default_fn: false },
         Column { prop: "revokedAt", name: "revoked_at", kind: Kind::Date, default_fn: false },
     ],
+    entity_only: &[],
 };
 
 /// `productPrices` (`product_prices`).
@@ -402,6 +415,7 @@ pub(crate) const PRODUCT_PRICES: Table = Table {
         Column { prop: "price", name: "price", kind: Kind::Numeric, default_fn: false },
         Column { prop: "compareAtPrice", name: "compare_at_price", kind: Kind::Numeric, default_fn: false },
     ],
+    entity_only: &[],
 };
 
 /// `carts` (`carts`).
@@ -442,6 +456,7 @@ pub(crate) const CARTS: Table = Table {
         Column { prop: "completedAt", name: "completed_at", kind: Kind::Date, default_fn: false },
         Column { prop: "idempotencyKey", name: "idempotency_key", kind: Kind::Text, default_fn: false },
     ],
+    entity_only: &[],
 };
 
 /// `cartItems` (`cart_items`).
@@ -461,6 +476,7 @@ pub(crate) const CART_ITEMS: Table = Table {
         Column { prop: "unitPrice", name: "unit_price", kind: Kind::Numeric, default_fn: false },
         Column { prop: "properties", name: "properties", kind: Kind::Json, default_fn: false },
     ],
+    entity_only: &[],
 };
 
 /// `commercePayments` (`commerce_payments`).
@@ -492,6 +508,7 @@ pub(crate) const COMMERCE_PAYMENTS: Table = Table {
         Column { prop: "canceledAt", name: "canceled_at", kind: Kind::Date, default_fn: false },
         Column { prop: "expiredAt", name: "expired_at", kind: Kind::Date, default_fn: false },
     ],
+    entity_only: &[],
 };
 
 /// `commerceRefunds` (`commerce_refunds`).
@@ -516,6 +533,7 @@ pub(crate) const COMMERCE_REFUNDS: Table = Table {
         Column { prop: "refundedAt", name: "refunded_at", kind: Kind::Date, default_fn: false },
         Column { prop: "failedAt", name: "failed_at", kind: Kind::Date, default_fn: false },
     ],
+    entity_only: &[],
 };
 
 /// `commercePaymentConnections` (`commerce_payment_connections`).
@@ -545,6 +563,7 @@ pub(crate) const COMMERCE_PAYMENT_CONNECTIONS: Table = Table {
         Column { prop: "disconnectedAt", name: "disconnected_at", kind: Kind::Date, default_fn: false },
         Column { prop: "lastError", name: "last_error", kind: Kind::Text, default_fn: false },
     ],
+    entity_only: &[],
 };
 
 /// `commerceBuyers` (`commerce_buyers`).
@@ -566,6 +585,7 @@ pub(crate) const COMMERCE_BUYERS: Table = Table {
         Column { prop: "invitedAt", name: "invited_at", kind: Kind::Date, default_fn: false },
         Column { prop: "acceptedAt", name: "accepted_at", kind: Kind::Date, default_fn: false },
     ],
+    entity_only: &[],
 };
 
 /// `commerceCompanySettings` (`commerce_company_settings`).
@@ -580,6 +600,7 @@ pub(crate) const COMMERCE_COMPANY_SETTINGS: Table = Table {
         Column { prop: "approvalThreshold", name: "approval_threshold", kind: Kind::Numeric, default_fn: false },
         Column { prop: "approvalThresholdCurrency", name: "approval_threshold_currency", kind: Kind::Text, default_fn: false },
     ],
+    entity_only: &[],
 };
 
 /// `orderApprovals` (`order_approvals`).
@@ -598,6 +619,7 @@ pub(crate) const ORDER_APPROVALS: Table = Table {
         Column { prop: "comment", name: "comment", kind: Kind::Text, default_fn: false },
         Column { prop: "decidedAt", name: "decided_at", kind: Kind::Date, default_fn: false },
     ],
+    entity_only: &[],
 };
 
 /// Every table above, for the test that holds each to its entity.
