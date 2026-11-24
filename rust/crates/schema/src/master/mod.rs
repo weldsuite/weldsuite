@@ -61,6 +61,7 @@ pub mod reach_routes;
 pub mod reach_warmup_mailboxes;
 pub mod reach_warmup_messages;
 pub mod sign_link_registry;
+pub mod storefront_hosts;
 pub mod storefront_key_registry;
 pub mod system_settings;
 pub mod telephony_number_pricing;
@@ -163,6 +164,7 @@ pub fn tables() -> Vec<crate::snapshot::TableSchema> {
         crate::snapshot::table::<reach_warmup_messages::Entity>(&reach_warmup_messages::DDL),
         crate::snapshot::table::<sign_link_registry::Entity>(&sign_link_registry::DDL),
         crate::snapshot::table::<storefront_key_registry::Entity>(&storefront_key_registry::DDL),
+        crate::snapshot::table::<storefront_hosts::Entity>(&storefront_hosts::DDL),
         crate::snapshot::table::<system_settings::Entity>(&system_settings::DDL),
         crate::snapshot::table::<telephony_number_pricing::Entity>(&telephony_number_pricing::DDL),
         crate::snapshot::table::<telephony_service_rates::Entity>(&telephony_service_rates::DDL),
@@ -338,6 +340,7 @@ pub async fn rows_json<C: sea_orm::ConnectionTrait>(
             json(Box::pin(reach_warmup_messages::Entity::find().all(db)).await?)
         }
         "sign_link_registry" => json(Box::pin(sign_link_registry::Entity::find().all(db)).await?),
+        "storefront_hosts" => json(Box::pin(storefront_hosts::Entity::find().all(db)).await?),
         "storefront_key_registry" => {
             json(Box::pin(storefront_key_registry::Entity::find().all(db)).await?)
         }

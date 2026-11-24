@@ -30,6 +30,10 @@
 //! (`/api/orders/:id/payments` …), Mollie's webhook and the OAuth callback
 //! ([`payments_public_router`]) and Mollie at storefront checkout.
 //!
+//! The online store (storefronts plan): `/api/online-store` and
+//! `/api/storefront-hosts` ([`online_store`]), the renderer's
+//! `/public/storefront` and the storefront edge on its own listener.
+//!
 //! Everything but the products route is Rust only, with no TypeScript worker
 //! to compare it with and so no conformance suite: those routes have their
 //! own tests in `tests/`.
@@ -51,6 +55,7 @@ mod decide;
 mod discounts;
 mod js;
 mod mail;
+pub mod online_store;
 mod orders;
 mod overview;
 mod payments;
@@ -108,6 +113,9 @@ pub struct CommerceState {
     /// System mail (buyer invitations, approval decisions); without it
     /// nothing is sent.
     pub mail: mail::Mail,
+    /// The online store (storefronts plan): free addresses, custom domains,
+    /// the renderer's secret, the public bucket for static deployments.
+    pub online_store: online_store::OnlineStoreConfig,
 }
 
 impl std::fmt::Debug for CommerceState {
@@ -138,6 +146,8 @@ where
         .nest("/commerce-channels", channels::routes(gate))
         .nest("/commerce-company-settings", buyers::settings_routes(gate))
         .nest("/commerce-payments", payments::routes(gate))
+        .nest("/online-store", online_store::routes(gate))
+        .nest("/storefront-hosts", online_store::host_routes(gate))
         .with_state(state)
 }
 

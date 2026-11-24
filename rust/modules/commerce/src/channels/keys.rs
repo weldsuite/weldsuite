@@ -1,6 +1,7 @@
 //! `/api/commerce-channels/:id/keys`: a storefront channel's API keys (ADR
 //! COM-011). A secret is `wcp_` (publishable, for browsers, bound to its
-//! allowed origins) or `wcs_` (private, for the merchant's server) followed
+//! allowed origins), `wcs_` (private, for the merchant's server) or `wcd_`
+//! (deploy: uploads a shop the merchant builds to WeldSuite's hosting) followed
 //! by 32 random bytes in base62. It is shown once, when the key is created or
 //! rotated; only its SHA-256 is stored, in the tenant `commerce_channel_keys`
 //! and in the master `storefront_key_registry` ([`super::registry`]).
@@ -95,10 +96,11 @@ struct Secret {
 }
 
 fn generate(kind: &str) -> Secret {
-    let lead = if kind == "publishable" {
-        "wcp_"
-    } else {
-        "wcs_"
+    let lead = match kind {
+        "publishable" => "wcp_",
+        // Uploads a shop the merchant builds (storefronts plan, phase 6).
+        "deploy" => "wcd_",
+        _ => "wcs_",
     };
     let secret = format!("{lead}{}", base62(&random_bytes()));
     Secret {
@@ -321,7 +323,7 @@ async fn create(
                 fields,
                 "kind",
                 Presence::Required,
-                &["publishable", "private"],
+                &["publishable", "private", "deploy"],
             )
             .into_option()
             .unwrap_or_default(),
@@ -411,10 +413,10 @@ fn origins_fit(kind: &str, origins: &[String]) -> Result<(), Refusal> {
             "A publishable key needs at least one allowed origin",
         ));
     }
-    if kind == "private" && !origins.is_empty() {
+    if kind != "publishable" && !origins.is_empty() {
         return Err(invalid(
             "allowedOrigins",
-            "A private key has no allowed origins",
+            "Only a publishable key has allowed origins",
         ));
     }
     Ok(())

@@ -33,6 +33,15 @@ export const COMMERCE_ENTITY_EVENTS = {
   // B2B buyers and company settings (phase 6). Never carry a code, session or token.
   commerce_buyer: ['created', 'updated', 'deleted', 'invited'],
   commerce_company_settings: ['updated'],
+  // The online store (storefronts plan): a site per storefront channel, its
+  // content pages, menus and redirects, its shop domains and, for shops the
+  // merchant builds, its static deployments. Never carry a password or token.
+  storefront_site: ['created', 'updated', 'deleted', 'published', 'restored'],
+  storefront_page: ['created', 'updated', 'deleted'],
+  storefront_menu: ['updated', 'deleted'],
+  storefront_redirect: ['created', 'deleted'],
+  storefront_host: ['created', 'updated', 'deleted', 'verified', 'failed'],
+  storefront_deployment: ['created', 'promoted', 'deleted'],
   website: ['created', 'updated', 'deleted', 'archived'],
   website_domain: ['created', 'updated', 'deleted'],
   website_page: ['created', 'updated', 'deleted', 'archived'],

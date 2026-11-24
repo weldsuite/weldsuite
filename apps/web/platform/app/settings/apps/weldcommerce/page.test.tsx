@@ -15,7 +15,7 @@ const env = vi.hoisted(() => ({
     refetch: () => void;
   },
   update: vi.fn(),
-  search: {} as { tab?: string; channel?: string; mollie?: string; reason?: string },
+  search: {} as { tab?: string; channel?: string; mollie?: string; reason?: string; site?: string },
   navigate: vi.fn(),
 }));
 const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }));
@@ -27,6 +27,16 @@ vi.mock('@tanstack/react-router', () => ({
 }));
 vi.mock('./channels-tab', () => ({
   ChannelsTab: ({ channelId }: { channelId?: string }) => <p>channels tab {channelId ?? 'list'}</p>,
+}));
+vi.mock('./online-store-tab', () => ({
+  OnlineStoreTab: ({ siteId, onSelectSite }: { siteId?: string; onSelectSite: (id: string) => void }) => (
+    <div>
+      <p>online store tab {siteId ?? 'first'}</p>
+      <button type="button" onClick={() => onSelectSite('sfs_2')}>
+        other store
+      </button>
+    </div>
+  ),
 }));
 vi.mock('./payments-tab', () => ({
   PaymentsTab: ({ callback, onCallbackHandled }: { callback?: { mollie?: string; reason?: string }; onCallbackHandled: () => void }) => (
@@ -176,6 +186,25 @@ describe('WeldCommerceSettingsPage', () => {
     expect(screen.getByText('payments tab error access_denied')).toBeTruthy();
     await user.click(screen.getByRole('button', { name: 'handled' }));
     expect(env.navigate).toHaveBeenCalledWith({ to: '/settings/apps/weldcommerce', search: { tab: 'payments' }, replace: true });
+  });
+
+  it('shows the Online store tab from ?tab=online-store for a member who may read websites', async () => {
+    env.allowed.add('websites:read');
+    env.search = { tab: 'online-store', site: 'sfs_1' };
+    const user = userEvent.setup();
+    render(<WeldCommerceSettingsPage />);
+    expect(screen.getByRole('tab', { name: 'Online store' })).toBeTruthy();
+    expect(screen.getByText('online store tab sfs_1')).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: 'other store' }));
+    expect(env.navigate).toHaveBeenCalledWith({ to: '/settings/apps/weldcommerce', search: { tab: 'online-store', site: 'sfs_2' } });
+  });
+
+  it('has no Online store tab without websites:read, and ?tab=online-store falls back to General', () => {
+    env.search = { tab: 'online-store' };
+    render(<WeldCommerceSettingsPage />);
+    expect(screen.queryByRole('tab', { name: 'Online store' })).toBeNull();
+    expect(screen.queryByText(/online store tab/)).toBeNull();
+    expect(screen.getByLabelText('Order number prefix')).toBeTruthy();
   });
 
   it('falls back to General for ?tab=channels without channel access', () => {

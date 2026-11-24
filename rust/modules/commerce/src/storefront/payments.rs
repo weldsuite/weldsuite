@@ -58,10 +58,10 @@ fn settle(principal: &Principal) -> Settle<'_> {
 }
 
 /// A publishable key's `redirectUrl` must be on one of the key's allowed
-/// origins; a private key (the merchant's server) may redirect anywhere
-/// `https`.
+/// origins, a hosted shop's on one of its own hosts; a private key (the
+/// merchant's server) may redirect anywhere `https`.
 pub(super) fn redirect_allowed(principal: &Principal, redirect: &str) -> bool {
-    if principal.key_kind != "publishable" {
+    if principal.key_kind != "publishable" && principal.key_kind != "hosted" {
         return true;
     }
     let Ok(url) = url::Url::parse(redirect) else {

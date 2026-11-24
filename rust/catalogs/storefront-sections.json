@@ -1,0 +1,1752 @@
+{
+  "version": 1,
+  "templates": [
+    "home",
+    "product",
+    "category",
+    "search",
+    "cart",
+    "page",
+    "notFound"
+  ],
+  "groups": [
+    "header",
+    "footer"
+  ],
+  "sections": {
+    "announcement-bar": {
+      "required": [],
+      "limit": 1,
+      "maxBlocks": 0,
+      "blocks": {},
+      "name": {
+        "en": "Announcement bar",
+        "nl": "Mededelingsbalk"
+      },
+      "where": [
+        "header"
+      ],
+      "settings": [
+        {
+          "id": "text",
+          "type": "text",
+          "label": {
+            "en": "Text",
+            "nl": "Tekst"
+          },
+          "default": "Free shipping on orders over €50",
+          "maxLength": 200
+        },
+        {
+          "id": "link",
+          "type": "url",
+          "label": {
+            "en": "Link",
+            "nl": "Link"
+          },
+          "default": ""
+        },
+        {
+          "id": "colorScheme",
+          "type": "select",
+          "label": {
+            "en": "Colours",
+            "nl": "Kleuren"
+          },
+          "default": "primary",
+          "options": [
+            {
+              "value": "default",
+              "label": {
+                "en": "Page colours",
+                "nl": "Paginakleuren"
+              }
+            },
+            {
+              "value": "muted",
+              "label": {
+                "en": "Muted",
+                "nl": "Gedempt"
+              }
+            },
+            {
+              "value": "primary",
+              "label": {
+                "en": "Primary colour",
+                "nl": "Hoofdkleur"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "header": {
+      "required": [
+        "header"
+      ],
+      "limit": 1,
+      "maxBlocks": 0,
+      "blocks": {},
+      "name": {
+        "en": "Header",
+        "nl": "Koptekst"
+      },
+      "where": [
+        "header"
+      ],
+      "settings": [
+        {
+          "id": "menu",
+          "type": "menu",
+          "label": {
+            "en": "Menu",
+            "nl": "Menu"
+          },
+          "default": "main"
+        },
+        {
+          "id": "showSearch",
+          "type": "checkbox",
+          "label": {
+            "en": "Show search",
+            "nl": "Zoeken tonen"
+          },
+          "default": true
+        },
+        {
+          "id": "showAccount",
+          "type": "checkbox",
+          "label": {
+            "en": "Show account link",
+            "nl": "Accountlink tonen"
+          },
+          "default": true
+        },
+        {
+          "id": "sticky",
+          "type": "checkbox",
+          "label": {
+            "en": "Stay at the top while scrolling",
+            "nl": "Bovenaan blijven bij scrollen"
+          },
+          "default": true
+        }
+      ]
+    },
+    "footer": {
+      "required": [
+        "footer"
+      ],
+      "limit": 1,
+      "maxBlocks": 0,
+      "blocks": {},
+      "name": {
+        "en": "Footer",
+        "nl": "Voettekst"
+      },
+      "where": [
+        "footer"
+      ],
+      "settings": [
+        {
+          "id": "menu",
+          "type": "menu",
+          "label": {
+            "en": "Menu",
+            "nl": "Menu"
+          },
+          "default": "footer"
+        },
+        {
+          "id": "text",
+          "type": "richtext",
+          "label": {
+            "en": "Text",
+            "nl": "Tekst"
+          },
+          "default": "",
+          "help": {
+            "en": "Paragraphs, **bold**, *italic*, [links](https://…), lists (- item) and headings (## Heading)",
+            "nl": "Alinea’s, **vet**, *cursief*, [links](https://…), lijsten (- item) en koppen (## Kop)"
+          }
+        },
+        {
+          "id": "showSocial",
+          "type": "checkbox",
+          "label": {
+            "en": "Show social media links",
+            "nl": "Sociale-medialinks tonen"
+          },
+          "default": true
+        },
+        {
+          "id": "showLocaleNote",
+          "type": "checkbox",
+          "label": {
+            "en": "Show prices and VAT note",
+            "nl": "Prijs- en btw-opmerking tonen"
+          },
+          "default": true
+        }
+      ]
+    },
+    "main-product": {
+      "required": [
+        "product"
+      ],
+      "limit": 1,
+      "maxBlocks": 0,
+      "blocks": {},
+      "name": {
+        "en": "Product",
+        "nl": "Product"
+      },
+      "where": [
+        "product"
+      ],
+      "settings": [
+        {
+          "id": "gallery",
+          "type": "select",
+          "label": {
+            "en": "Image gallery",
+            "nl": "Afbeeldingengalerij"
+          },
+          "default": "thumbnails",
+          "options": [
+            {
+              "value": "thumbnails",
+              "label": {
+                "en": "Large image with thumbnails",
+                "nl": "Grote afbeelding met miniaturen"
+              }
+            },
+            {
+              "value": "stacked",
+              "label": {
+                "en": "All images under each other",
+                "nl": "Alle afbeeldingen onder elkaar"
+              }
+            }
+          ]
+        },
+        {
+          "id": "showSku",
+          "type": "checkbox",
+          "label": {
+            "en": "Show SKU",
+            "nl": "Artikelnummer tonen"
+          },
+          "default": false
+        },
+        {
+          "id": "showDescription",
+          "type": "checkbox",
+          "label": {
+            "en": "Show description",
+            "nl": "Beschrijving tonen"
+          },
+          "default": true
+        }
+      ]
+    },
+    "main-category": {
+      "required": [
+        "category"
+      ],
+      "limit": 1,
+      "maxBlocks": 0,
+      "blocks": {},
+      "name": {
+        "en": "Product grid",
+        "nl": "Productraster"
+      },
+      "where": [
+        "category"
+      ],
+      "settings": [
+        {
+          "id": "columns",
+          "type": "select",
+          "label": {
+            "en": "Columns on wide screens",
+            "nl": "Kolommen op brede schermen"
+          },
+          "default": "4",
+          "options": [
+            {
+              "value": "2",
+              "label": {
+                "en": "2",
+                "nl": "2"
+              }
+            },
+            {
+              "value": "3",
+              "label": {
+                "en": "3",
+                "nl": "3"
+              }
+            },
+            {
+              "value": "4",
+              "label": {
+                "en": "4",
+                "nl": "4"
+              }
+            }
+          ]
+        },
+        {
+          "id": "pageSize",
+          "type": "number",
+          "label": {
+            "en": "Products per page",
+            "nl": "Producten per pagina"
+          },
+          "default": 24,
+          "min": 8,
+          "max": 48
+        },
+        {
+          "id": "showSort",
+          "type": "checkbox",
+          "label": {
+            "en": "Show sorting",
+            "nl": "Sorteren tonen"
+          },
+          "default": true
+        },
+        {
+          "id": "showDescription",
+          "type": "checkbox",
+          "label": {
+            "en": "Show category description",
+            "nl": "Categoriebeschrijving tonen"
+          },
+          "default": true
+        }
+      ]
+    },
+    "main-search": {
+      "required": [
+        "search"
+      ],
+      "limit": 1,
+      "maxBlocks": 0,
+      "blocks": {},
+      "name": {
+        "en": "Search results",
+        "nl": "Zoekresultaten"
+      },
+      "where": [
+        "search"
+      ],
+      "settings": [
+        {
+          "id": "columns",
+          "type": "select",
+          "label": {
+            "en": "Columns on wide screens",
+            "nl": "Kolommen op brede schermen"
+          },
+          "default": "4",
+          "options": [
+            {
+              "value": "2",
+              "label": {
+                "en": "2",
+                "nl": "2"
+              }
+            },
+            {
+              "value": "3",
+              "label": {
+                "en": "3",
+                "nl": "3"
+              }
+            },
+            {
+              "value": "4",
+              "label": {
+                "en": "4",
+                "nl": "4"
+              }
+            }
+          ]
+        },
+        {
+          "id": "pageSize",
+          "type": "number",
+          "label": {
+            "en": "Products per page",
+            "nl": "Producten per pagina"
+          },
+          "default": 24,
+          "min": 8,
+          "max": 48
+        }
+      ]
+    },
+    "main-cart": {
+      "required": [
+        "cart"
+      ],
+      "limit": 1,
+      "maxBlocks": 0,
+      "blocks": {},
+      "name": {
+        "en": "Cart",
+        "nl": "Winkelwagen"
+      },
+      "where": [
+        "cart"
+      ],
+      "settings": [
+        {
+          "id": "showDiscount",
+          "type": "checkbox",
+          "label": {
+            "en": "Show discount code field",
+            "nl": "Kortingscodeveld tonen"
+          },
+          "default": true
+        },
+        {
+          "id": "note",
+          "type": "richtext",
+          "label": {
+            "en": "Text",
+            "nl": "Tekst"
+          },
+          "default": "",
+          "help": {
+            "en": "Paragraphs, **bold**, *italic*, [links](https://…), lists (- item) and headings (## Heading)",
+            "nl": "Alinea’s, **vet**, *cursief*, [links](https://…), lijsten (- item) en koppen (## Kop)"
+          }
+        }
+      ]
+    },
+    "main-page": {
+      "required": [
+        "page"
+      ],
+      "limit": 1,
+      "maxBlocks": 0,
+      "blocks": {},
+      "name": {
+        "en": "Page content",
+        "nl": "Pagina-inhoud"
+      },
+      "where": [
+        "page"
+      ],
+      "settings": [
+        {
+          "id": "showTitle",
+          "type": "checkbox",
+          "label": {
+            "en": "Show the page title",
+            "nl": "Paginatitel tonen"
+          },
+          "default": true
+        }
+      ]
+    },
+    "main-not-found": {
+      "required": [
+        "notFound"
+      ],
+      "limit": 1,
+      "maxBlocks": 0,
+      "blocks": {},
+      "name": {
+        "en": "Page not found",
+        "nl": "Pagina niet gevonden"
+      },
+      "where": [
+        "notFound"
+      ],
+      "settings": [
+        {
+          "id": "heading",
+          "type": "text",
+          "label": {
+            "en": "Heading",
+            "nl": "Kop"
+          },
+          "default": "",
+          "maxLength": 200
+        },
+        {
+          "id": "text",
+          "type": "richtext",
+          "label": {
+            "en": "Text",
+            "nl": "Tekst"
+          },
+          "default": "",
+          "help": {
+            "en": "Leave empty for the theme’s own text",
+            "nl": "Laat leeg voor de eigen tekst van het thema"
+          }
+        }
+      ]
+    },
+    "hero": {
+      "required": [],
+      "limit": null,
+      "maxBlocks": 0,
+      "blocks": {},
+      "name": {
+        "en": "Hero",
+        "nl": "Hero"
+      },
+      "where": [
+        "home",
+        "product",
+        "category",
+        "search",
+        "cart",
+        "page",
+        "notFound",
+        "content"
+      ],
+      "settings": [
+        {
+          "id": "image",
+          "type": "image",
+          "label": {
+            "en": "Image",
+            "nl": "Afbeelding"
+          },
+          "default": ""
+        },
+        {
+          "id": "imageAlt",
+          "type": "text",
+          "label": {
+            "en": "Image description",
+            "nl": "Beschrijving van de afbeelding"
+          },
+          "default": "",
+          "maxLength": 200,
+          "help": {
+            "en": "For screen readers; leave empty for a decorative image",
+            "nl": "Voor schermlezers; laat leeg voor een decoratieve afbeelding"
+          }
+        },
+        {
+          "id": "heading",
+          "type": "text",
+          "label": {
+            "en": "Heading",
+            "nl": "Kop"
+          },
+          "default": "Welcome to our shop",
+          "maxLength": 200
+        },
+        {
+          "id": "text",
+          "type": "textarea",
+          "label": {
+            "en": "Text",
+            "nl": "Tekst"
+          },
+          "default": "",
+          "maxLength": 500
+        },
+        {
+          "id": "buttonLabel",
+          "type": "text",
+          "label": {
+            "en": "Button label",
+            "nl": "Knoptekst"
+          },
+          "default": "Shop now",
+          "maxLength": 60
+        },
+        {
+          "id": "buttonLink",
+          "type": "url",
+          "label": {
+            "en": "Button link",
+            "nl": "Knoplink"
+          },
+          "default": "/products",
+          "help": {
+            "en": "A page of this shop (/products) or a full https:// address",
+            "nl": "Een pagina van deze winkel (/products) of een volledig https://-adres"
+          }
+        },
+        {
+          "id": "height",
+          "type": "select",
+          "label": {
+            "en": "Height",
+            "nl": "Hoogte"
+          },
+          "default": "large",
+          "options": [
+            {
+              "value": "small",
+              "label": {
+                "en": "Small",
+                "nl": "Klein"
+              }
+            },
+            {
+              "value": "medium",
+              "label": {
+                "en": "Medium",
+                "nl": "Gemiddeld"
+              }
+            },
+            {
+              "value": "large",
+              "label": {
+                "en": "Large",
+                "nl": "Groot"
+              }
+            }
+          ]
+        },
+        {
+          "id": "align",
+          "type": "select",
+          "label": {
+            "en": "Alignment",
+            "nl": "Uitlijning"
+          },
+          "default": "center",
+          "options": [
+            {
+              "value": "left",
+              "label": {
+                "en": "Left",
+                "nl": "Links"
+              }
+            },
+            {
+              "value": "center",
+              "label": {
+                "en": "Centre",
+                "nl": "Midden"
+              }
+            }
+          ]
+        },
+        {
+          "id": "overlay",
+          "type": "number",
+          "label": {
+            "en": "Image darkening (%)",
+            "nl": "Verdonkering van de afbeelding (%)"
+          },
+          "default": 30,
+          "min": 0,
+          "max": 80
+        }
+      ]
+    },
+    "image-banner": {
+      "required": [],
+      "limit": null,
+      "maxBlocks": 0,
+      "blocks": {},
+      "name": {
+        "en": "Image banner",
+        "nl": "Afbeeldingsbanner"
+      },
+      "where": [
+        "home",
+        "product",
+        "category",
+        "search",
+        "cart",
+        "page",
+        "notFound",
+        "content"
+      ],
+      "settings": [
+        {
+          "id": "image",
+          "type": "image",
+          "label": {
+            "en": "Image",
+            "nl": "Afbeelding"
+          },
+          "default": ""
+        },
+        {
+          "id": "imageAlt",
+          "type": "text",
+          "label": {
+            "en": "Image description",
+            "nl": "Beschrijving van de afbeelding"
+          },
+          "default": "",
+          "maxLength": 200,
+          "help": {
+            "en": "For screen readers; leave empty for a decorative image",
+            "nl": "Voor schermlezers; laat leeg voor een decoratieve afbeelding"
+          }
+        },
+        {
+          "id": "heading",
+          "type": "text",
+          "label": {
+            "en": "Heading",
+            "nl": "Kop"
+          },
+          "default": "",
+          "maxLength": 200
+        },
+        {
+          "id": "text",
+          "type": "textarea",
+          "label": {
+            "en": "Text",
+            "nl": "Tekst"
+          },
+          "default": "",
+          "maxLength": 500
+        },
+        {
+          "id": "buttonLabel",
+          "type": "text",
+          "label": {
+            "en": "Button label",
+            "nl": "Knoptekst"
+          },
+          "default": "",
+          "maxLength": 60
+        },
+        {
+          "id": "buttonLink",
+          "type": "url",
+          "label": {
+            "en": "Button link",
+            "nl": "Knoplink"
+          },
+          "default": "",
+          "help": {
+            "en": "A page of this shop (/products) or a full https:// address",
+            "nl": "Een pagina van deze winkel (/products) of een volledig https://-adres"
+          }
+        },
+        {
+          "id": "height",
+          "type": "select",
+          "label": {
+            "en": "Height",
+            "nl": "Hoogte"
+          },
+          "default": "medium",
+          "options": [
+            {
+              "value": "small",
+              "label": {
+                "en": "Small",
+                "nl": "Klein"
+              }
+            },
+            {
+              "value": "medium",
+              "label": {
+                "en": "Medium",
+                "nl": "Gemiddeld"
+              }
+            },
+            {
+              "value": "large",
+              "label": {
+                "en": "Large",
+                "nl": "Groot"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "featured-products": {
+      "required": [],
+      "limit": null,
+      "maxBlocks": 0,
+      "blocks": {},
+      "name": {
+        "en": "Featured products",
+        "nl": "Uitgelichte producten"
+      },
+      "where": [
+        "home",
+        "product",
+        "category",
+        "search",
+        "cart",
+        "page",
+        "notFound",
+        "content"
+      ],
+      "settings": [
+        {
+          "id": "heading",
+          "type": "text",
+          "label": {
+            "en": "Heading",
+            "nl": "Kop"
+          },
+          "default": "Featured products",
+          "maxLength": 200
+        },
+        {
+          "id": "source",
+          "type": "select",
+          "label": {
+            "en": "Products",
+            "nl": "Producten"
+          },
+          "default": "newest",
+          "options": [
+            {
+              "value": "newest",
+              "label": {
+                "en": "Newest",
+                "nl": "Nieuwste"
+              }
+            },
+            {
+              "value": "category",
+              "label": {
+                "en": "From a category",
+                "nl": "Uit een categorie"
+              }
+            },
+            {
+              "value": "products",
+              "label": {
+                "en": "Chosen products",
+                "nl": "Gekozen producten"
+              }
+            }
+          ]
+        },
+        {
+          "id": "category",
+          "type": "category",
+          "label": {
+            "en": "Category",
+            "nl": "Categorie"
+          },
+          "default": ""
+        },
+        {
+          "id": "products",
+          "type": "products",
+          "label": {
+            "en": "Products",
+            "nl": "Producten"
+          },
+          "default": []
+        },
+        {
+          "id": "limit",
+          "type": "number",
+          "label": {
+            "en": "How many",
+            "nl": "Hoeveel"
+          },
+          "default": 8,
+          "min": 2,
+          "max": 24
+        },
+        {
+          "id": "columns",
+          "type": "select",
+          "label": {
+            "en": "Columns on wide screens",
+            "nl": "Kolommen op brede schermen"
+          },
+          "default": "4",
+          "options": [
+            {
+              "value": "2",
+              "label": {
+                "en": "2",
+                "nl": "2"
+              }
+            },
+            {
+              "value": "3",
+              "label": {
+                "en": "3",
+                "nl": "3"
+              }
+            },
+            {
+              "value": "4",
+              "label": {
+                "en": "4",
+                "nl": "4"
+              }
+            }
+          ]
+        },
+        {
+          "id": "showViewAll",
+          "type": "checkbox",
+          "label": {
+            "en": "Show “View all” link",
+            "nl": "Link “Alles bekijken” tonen"
+          },
+          "default": true
+        }
+      ]
+    },
+    "related-products": {
+      "required": [],
+      "limit": 1,
+      "maxBlocks": 0,
+      "blocks": {},
+      "name": {
+        "en": "Related products",
+        "nl": "Gerelateerde producten"
+      },
+      "where": [
+        "product"
+      ],
+      "settings": [
+        {
+          "id": "heading",
+          "type": "text",
+          "label": {
+            "en": "Heading",
+            "nl": "Kop"
+          },
+          "default": "You may also like",
+          "maxLength": 200
+        },
+        {
+          "id": "limit",
+          "type": "number",
+          "label": {
+            "en": "How many",
+            "nl": "Hoeveel"
+          },
+          "default": 4,
+          "min": 2,
+          "max": 12
+        },
+        {
+          "id": "columns",
+          "type": "select",
+          "label": {
+            "en": "Columns on wide screens",
+            "nl": "Kolommen op brede schermen"
+          },
+          "default": "4",
+          "options": [
+            {
+              "value": "2",
+              "label": {
+                "en": "2",
+                "nl": "2"
+              }
+            },
+            {
+              "value": "3",
+              "label": {
+                "en": "3",
+                "nl": "3"
+              }
+            },
+            {
+              "value": "4",
+              "label": {
+                "en": "4",
+                "nl": "4"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "category-list": {
+      "required": [],
+      "limit": null,
+      "maxBlocks": 0,
+      "blocks": {},
+      "name": {
+        "en": "Category list",
+        "nl": "Categorielijst"
+      },
+      "where": [
+        "home",
+        "product",
+        "category",
+        "search",
+        "cart",
+        "page",
+        "notFound",
+        "content"
+      ],
+      "settings": [
+        {
+          "id": "heading",
+          "type": "text",
+          "label": {
+            "en": "Heading",
+            "nl": "Kop"
+          },
+          "default": "Shop by category",
+          "maxLength": 200
+        },
+        {
+          "id": "categories",
+          "type": "categories",
+          "label": {
+            "en": "Categories",
+            "nl": "Categorieën"
+          },
+          "default": [],
+          "help": {
+            "en": "Empty shows the top-level categories",
+            "nl": "Leeg toont de hoofdcategorieën"
+          }
+        },
+        {
+          "id": "columns",
+          "type": "select",
+          "label": {
+            "en": "Columns on wide screens",
+            "nl": "Kolommen op brede schermen"
+          },
+          "default": "3",
+          "options": [
+            {
+              "value": "2",
+              "label": {
+                "en": "2",
+                "nl": "2"
+              }
+            },
+            {
+              "value": "3",
+              "label": {
+                "en": "3",
+                "nl": "3"
+              }
+            },
+            {
+              "value": "4",
+              "label": {
+                "en": "4",
+                "nl": "4"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "image-with-text": {
+      "required": [],
+      "limit": null,
+      "maxBlocks": 0,
+      "blocks": {},
+      "name": {
+        "en": "Image with text",
+        "nl": "Afbeelding met tekst"
+      },
+      "where": [
+        "home",
+        "product",
+        "category",
+        "search",
+        "cart",
+        "page",
+        "notFound",
+        "content"
+      ],
+      "settings": [
+        {
+          "id": "image",
+          "type": "image",
+          "label": {
+            "en": "Image",
+            "nl": "Afbeelding"
+          },
+          "default": ""
+        },
+        {
+          "id": "imageAlt",
+          "type": "text",
+          "label": {
+            "en": "Image description",
+            "nl": "Beschrijving van de afbeelding"
+          },
+          "default": "",
+          "maxLength": 200,
+          "help": {
+            "en": "For screen readers; leave empty for a decorative image",
+            "nl": "Voor schermlezers; laat leeg voor een decoratieve afbeelding"
+          }
+        },
+        {
+          "id": "heading",
+          "type": "text",
+          "label": {
+            "en": "Heading",
+            "nl": "Kop"
+          },
+          "default": "Made with care",
+          "maxLength": 200
+        },
+        {
+          "id": "text",
+          "type": "richtext",
+          "label": {
+            "en": "Text",
+            "nl": "Tekst"
+          },
+          "default": "Tell your customers what makes your products special.",
+          "help": {
+            "en": "Paragraphs, **bold**, *italic*, [links](https://…), lists (- item) and headings (## Heading)",
+            "nl": "Alinea’s, **vet**, *cursief*, [links](https://…), lijsten (- item) en koppen (## Kop)"
+          }
+        },
+        {
+          "id": "buttonLabel",
+          "type": "text",
+          "label": {
+            "en": "Button label",
+            "nl": "Knoptekst"
+          },
+          "default": "",
+          "maxLength": 60
+        },
+        {
+          "id": "buttonLink",
+          "type": "url",
+          "label": {
+            "en": "Button link",
+            "nl": "Knoplink"
+          },
+          "default": "",
+          "help": {
+            "en": "A page of this shop (/products) or a full https:// address",
+            "nl": "Een pagina van deze winkel (/products) of een volledig https://-adres"
+          }
+        },
+        {
+          "id": "imagePosition",
+          "type": "select",
+          "label": {
+            "en": "Image position",
+            "nl": "Positie van de afbeelding"
+          },
+          "default": "left",
+          "options": [
+            {
+              "value": "left",
+              "label": {
+                "en": "Left",
+                "nl": "Links"
+              }
+            },
+            {
+              "value": "right",
+              "label": {
+                "en": "Right",
+                "nl": "Rechts"
+              }
+            }
+          ]
+        },
+        {
+          "id": "colorScheme",
+          "type": "select",
+          "label": {
+            "en": "Colours",
+            "nl": "Kleuren"
+          },
+          "default": "default",
+          "options": [
+            {
+              "value": "default",
+              "label": {
+                "en": "Page colours",
+                "nl": "Paginakleuren"
+              }
+            },
+            {
+              "value": "muted",
+              "label": {
+                "en": "Muted",
+                "nl": "Gedempt"
+              }
+            },
+            {
+              "value": "primary",
+              "label": {
+                "en": "Primary colour",
+                "nl": "Hoofdkleur"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "rich-text": {
+      "required": [],
+      "limit": null,
+      "maxBlocks": 0,
+      "blocks": {},
+      "name": {
+        "en": "Text",
+        "nl": "Tekst"
+      },
+      "where": [
+        "home",
+        "product",
+        "category",
+        "search",
+        "cart",
+        "page",
+        "notFound",
+        "content"
+      ],
+      "settings": [
+        {
+          "id": "heading",
+          "type": "text",
+          "label": {
+            "en": "Heading",
+            "nl": "Kop"
+          },
+          "default": "",
+          "maxLength": 200
+        },
+        {
+          "id": "text",
+          "type": "richtext",
+          "label": {
+            "en": "Text",
+            "nl": "Tekst"
+          },
+          "default": "",
+          "help": {
+            "en": "Paragraphs, **bold**, *italic*, [links](https://…), lists (- item) and headings (## Heading)",
+            "nl": "Alinea’s, **vet**, *cursief*, [links](https://…), lijsten (- item) en koppen (## Kop)"
+          }
+        },
+        {
+          "id": "align",
+          "type": "select",
+          "label": {
+            "en": "Alignment",
+            "nl": "Uitlijning"
+          },
+          "default": "left",
+          "options": [
+            {
+              "value": "left",
+              "label": {
+                "en": "Left",
+                "nl": "Links"
+              }
+            },
+            {
+              "value": "center",
+              "label": {
+                "en": "Centre",
+                "nl": "Midden"
+              }
+            }
+          ]
+        },
+        {
+          "id": "colorScheme",
+          "type": "select",
+          "label": {
+            "en": "Colours",
+            "nl": "Kleuren"
+          },
+          "default": "default",
+          "options": [
+            {
+              "value": "default",
+              "label": {
+                "en": "Page colours",
+                "nl": "Paginakleuren"
+              }
+            },
+            {
+              "value": "muted",
+              "label": {
+                "en": "Muted",
+                "nl": "Gedempt"
+              }
+            },
+            {
+              "value": "primary",
+              "label": {
+                "en": "Primary colour",
+                "nl": "Hoofdkleur"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "multicolumn": {
+      "required": [],
+      "limit": null,
+      "maxBlocks": 12,
+      "blocks": {
+        "column": {
+          "name": {
+            "en": "Column",
+            "nl": "Kolom"
+          },
+          "settings": [
+            {
+              "id": "image",
+              "type": "image",
+              "label": {
+                "en": "Image",
+                "nl": "Afbeelding"
+              },
+              "default": ""
+            },
+            {
+              "id": "imageAlt",
+              "type": "text",
+              "label": {
+                "en": "Image description",
+                "nl": "Beschrijving van de afbeelding"
+              },
+              "default": "",
+              "maxLength": 200,
+              "help": {
+                "en": "For screen readers; leave empty for a decorative image",
+                "nl": "Voor schermlezers; laat leeg voor een decoratieve afbeelding"
+              }
+            },
+            {
+              "id": "title",
+              "type": "text",
+              "label": {
+                "en": "Title",
+                "nl": "Titel"
+              },
+              "default": "",
+              "maxLength": 200
+            },
+            {
+              "id": "text",
+              "type": "richtext",
+              "label": {
+                "en": "Text",
+                "nl": "Tekst"
+              },
+              "default": "",
+              "help": {
+                "en": "Paragraphs, **bold**, *italic*, [links](https://…), lists (- item) and headings (## Heading)",
+                "nl": "Alinea’s, **vet**, *cursief*, [links](https://…), lijsten (- item) en koppen (## Kop)"
+              }
+            },
+            {
+              "id": "linkLabel",
+              "type": "text",
+              "label": {
+                "en": "Link label",
+                "nl": "Linktekst"
+              },
+              "default": "",
+              "maxLength": 60
+            },
+            {
+              "id": "link",
+              "type": "url",
+              "label": {
+                "en": "Link",
+                "nl": "Link"
+              },
+              "default": ""
+            }
+          ]
+        }
+      },
+      "name": {
+        "en": "Columns",
+        "nl": "Kolommen"
+      },
+      "where": [
+        "home",
+        "product",
+        "category",
+        "search",
+        "cart",
+        "page",
+        "notFound",
+        "content"
+      ],
+      "settings": [
+        {
+          "id": "heading",
+          "type": "text",
+          "label": {
+            "en": "Heading",
+            "nl": "Kop"
+          },
+          "default": "",
+          "maxLength": 200
+        },
+        {
+          "id": "columns",
+          "type": "select",
+          "label": {
+            "en": "Columns on wide screens",
+            "nl": "Kolommen op brede schermen"
+          },
+          "default": "3",
+          "options": [
+            {
+              "value": "2",
+              "label": {
+                "en": "2",
+                "nl": "2"
+              }
+            },
+            {
+              "value": "3",
+              "label": {
+                "en": "3",
+                "nl": "3"
+              }
+            },
+            {
+              "value": "4",
+              "label": {
+                "en": "4",
+                "nl": "4"
+              }
+            }
+          ]
+        },
+        {
+          "id": "colorScheme",
+          "type": "select",
+          "label": {
+            "en": "Colours",
+            "nl": "Kleuren"
+          },
+          "default": "default",
+          "options": [
+            {
+              "value": "default",
+              "label": {
+                "en": "Page colours",
+                "nl": "Paginakleuren"
+              }
+            },
+            {
+              "value": "muted",
+              "label": {
+                "en": "Muted",
+                "nl": "Gedempt"
+              }
+            },
+            {
+              "value": "primary",
+              "label": {
+                "en": "Primary colour",
+                "nl": "Hoofdkleur"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "testimonials": {
+      "required": [],
+      "limit": null,
+      "maxBlocks": 12,
+      "blocks": {
+        "quote": {
+          "name": {
+            "en": "Quote",
+            "nl": "Citaat"
+          },
+          "settings": [
+            {
+              "id": "quote",
+              "type": "textarea",
+              "label": {
+                "en": "Quote",
+                "nl": "Citaat"
+              },
+              "default": "",
+              "maxLength": 600
+            },
+            {
+              "id": "author",
+              "type": "text",
+              "label": {
+                "en": "Name",
+                "nl": "Naam"
+              },
+              "default": "",
+              "maxLength": 100
+            },
+            {
+              "id": "detail",
+              "type": "text",
+              "label": {
+                "en": "Role or place",
+                "nl": "Functie of plaats"
+              },
+              "default": "",
+              "maxLength": 100
+            }
+          ]
+        }
+      },
+      "name": {
+        "en": "Testimonials",
+        "nl": "Klantervaringen"
+      },
+      "where": [
+        "home",
+        "product",
+        "category",
+        "search",
+        "cart",
+        "page",
+        "notFound",
+        "content"
+      ],
+      "settings": [
+        {
+          "id": "heading",
+          "type": "text",
+          "label": {
+            "en": "Heading",
+            "nl": "Kop"
+          },
+          "default": "What our customers say",
+          "maxLength": 200
+        },
+        {
+          "id": "colorScheme",
+          "type": "select",
+          "label": {
+            "en": "Colours",
+            "nl": "Kleuren"
+          },
+          "default": "default",
+          "options": [
+            {
+              "value": "default",
+              "label": {
+                "en": "Page colours",
+                "nl": "Paginakleuren"
+              }
+            },
+            {
+              "value": "muted",
+              "label": {
+                "en": "Muted",
+                "nl": "Gedempt"
+              }
+            },
+            {
+              "value": "primary",
+              "label": {
+                "en": "Primary colour",
+                "nl": "Hoofdkleur"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "faq": {
+      "required": [],
+      "limit": null,
+      "maxBlocks": 30,
+      "blocks": {
+        "item": {
+          "name": {
+            "en": "Question",
+            "nl": "Vraag"
+          },
+          "settings": [
+            {
+              "id": "question",
+              "type": "text",
+              "label": {
+                "en": "Question",
+                "nl": "Vraag"
+              },
+              "default": "",
+              "maxLength": 300
+            },
+            {
+              "id": "answer",
+              "type": "richtext",
+              "label": {
+                "en": "Text",
+                "nl": "Tekst"
+              },
+              "default": "",
+              "help": {
+                "en": "Paragraphs, **bold**, *italic*, [links](https://…), lists (- item) and headings (## Heading)",
+                "nl": "Alinea’s, **vet**, *cursief*, [links](https://…), lijsten (- item) en koppen (## Kop)"
+              }
+            }
+          ]
+        }
+      },
+      "name": {
+        "en": "Questions and answers",
+        "nl": "Vragen en antwoorden"
+      },
+      "where": [
+        "home",
+        "product",
+        "category",
+        "search",
+        "cart",
+        "page",
+        "notFound",
+        "content"
+      ],
+      "settings": [
+        {
+          "id": "heading",
+          "type": "text",
+          "label": {
+            "en": "Heading",
+            "nl": "Kop"
+          },
+          "default": "Frequently asked questions",
+          "maxLength": 200
+        }
+      ]
+    },
+    "video": {
+      "required": [],
+      "limit": null,
+      "maxBlocks": 0,
+      "blocks": {},
+      "name": {
+        "en": "Video",
+        "nl": "Video"
+      },
+      "where": [
+        "home",
+        "product",
+        "category",
+        "search",
+        "cart",
+        "page",
+        "notFound",
+        "content"
+      ],
+      "settings": [
+        {
+          "id": "heading",
+          "type": "text",
+          "label": {
+            "en": "Heading",
+            "nl": "Kop"
+          },
+          "default": "",
+          "maxLength": 200
+        },
+        {
+          "id": "url",
+          "type": "video",
+          "label": {
+            "en": "YouTube or Vimeo address",
+            "nl": "YouTube- of Vimeo-adres"
+          },
+          "default": "",
+          "help": {
+            "en": "Loads only after the visitor clicks play, so nothing is sent to the video site before that",
+            "nl": "Laadt pas als de bezoeker op afspelen klikt, zodat er vooraf niets naar de videosite gaat"
+          }
+        },
+        {
+          "id": "caption",
+          "type": "text",
+          "label": {
+            "en": "Caption",
+            "nl": "Onderschrift"
+          },
+          "default": "",
+          "maxLength": 200
+        }
+      ]
+    },
+    "contact-form": {
+      "required": [],
+      "limit": 1,
+      "maxBlocks": 0,
+      "blocks": {},
+      "name": {
+        "en": "Contact form",
+        "nl": "Contactformulier"
+      },
+      "where": [
+        "home",
+        "product",
+        "category",
+        "search",
+        "cart",
+        "page",
+        "notFound",
+        "content"
+      ],
+      "settings": [
+        {
+          "id": "heading",
+          "type": "text",
+          "label": {
+            "en": "Heading",
+            "nl": "Kop"
+          },
+          "default": "Contact us",
+          "maxLength": 200
+        },
+        {
+          "id": "text",
+          "type": "richtext",
+          "label": {
+            "en": "Text",
+            "nl": "Tekst"
+          },
+          "default": "",
+          "help": {
+            "en": "Paragraphs, **bold**, *italic*, [links](https://…), lists (- item) and headings (## Heading)",
+            "nl": "Alinea’s, **vet**, *cursief*, [links](https://…), lijsten (- item) en koppen (## Kop)"
+          }
+        },
+        {
+          "id": "form",
+          "type": "form",
+          "label": {
+            "en": "WeldForms form",
+            "nl": "WeldForms-formulier"
+          },
+          "default": "",
+          "help": {
+            "en": "The public id of a published form",
+            "nl": "De openbare id van een gepubliceerd formulier"
+          }
+        }
+      ]
+    }
+  }
+}

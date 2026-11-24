@@ -434,6 +434,15 @@ export const platformSyncMap: EntitySyncMap = {
   // B2B buyers and the company's approval threshold (phase 6); order approvals invalidate through `order`.
   commerce_buyer: inv(['weldcommerce', 'buyers']),
   commerce_company_settings: inv(['weldcommerce', 'company-settings']),
+  // The online store (onlineStoreKeys in use-online-store-queries.ts). The
+  // editor seeds its draft and revision once, and a page's sections join it
+  // only when not loaded yet, so a refetch never overwrites unsaved edits.
+  storefront_site: inv(['weldcommerce', 'online-store', 'sites'], ['weldcommerce', 'online-store', 'versions']),
+  storefront_page: inv(['weldcommerce', 'online-store', 'pages'], ['weldcommerce', 'online-store', 'sites', 'list']),
+  storefront_menu: inv(['weldcommerce', 'online-store', 'menus'], ['weldcommerce', 'online-store', 'sites', 'list']),
+  storefront_redirect: inv(['weldcommerce', 'online-store', 'redirects']),
+  storefront_host: inv(['weldcommerce', 'online-store', 'hosts'], ['weldcommerce', 'online-store', 'sites']),
+  storefront_deployment: inv(['weldcommerce', 'online-store', 'deployments'], ['weldcommerce', 'online-store', 'sites']),
 
   // =========================================================================
   // WeldDesk — Helpdesk

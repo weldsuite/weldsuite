@@ -2,6 +2,7 @@
 import { Suspense, lazy, useEffect, useRef, useState } from 'react';
 import { usePathname } from '@/lib/router';
 import { isWorkspaceScopedPath, stripWorkspacePrefix } from '@/lib/workspace-url';
+import { isFullScreenWorkspacePath } from '@/lib/full-screen-paths';
 import { useWorkspaceUrlGate, type WorkspaceUrlGate } from '@/components/workspace-url-gate';
 import { WorkspaceLinkProblem } from '@/components/workspace/workspace-link-problem';
 import { useAuth, useOrganizationList } from '@/lib/auth';
@@ -290,6 +291,7 @@ export function AppShellClient({ children }: Readonly<AppShellClientProps>) {
  */
 function WorkspaceShell({ pathname, children }: Readonly<AppShellClientProps & { pathname: string }>) {
   if (CHROMELESS_WORKSPACE_PATHS.has(stripWorkspacePrefix(pathname))) return <>{children}</>;
+  if (isFullScreenWorkspacePath(pathname)) return <WorkspaceLockGate>{children}</WorkspaceLockGate>;
 
   return (
     <ComposeProvider>

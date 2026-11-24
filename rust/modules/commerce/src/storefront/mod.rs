@@ -17,7 +17,7 @@ mod auth;
 mod b2b;
 mod cart;
 mod catalogue;
-mod limit;
+pub(crate) mod limit;
 mod orders;
 mod payments;
 mod shopper;
@@ -62,6 +62,9 @@ pub struct StorefrontState {
     /// System mail (sign-in codes, order confirmations, invitations,
     /// approvals); without it nothing is sent.
     pub mail: crate::mail::Mail,
+    /// The online store's settings: the renderer's secret (the hosted
+    /// principal) and the host cache.
+    pub hosting: crate::online_store::OnlineStoreConfig,
 }
 
 impl std::fmt::Debug for StorefrontState {
@@ -79,7 +82,9 @@ pub(crate) struct Principal {
     pub(crate) db: PgPool,
     /// `workspaces.id`.
     pub(crate) workspace_id: String,
-    /// `publishable` or `private`, and the origins a publishable key allows.
+    /// `publishable`, `private` or `hosted` (the storefront renderer for a
+    /// shop host), and the origins a publishable key allows (for `hosted`,
+    /// the shop's own hosts).
     pub(crate) key_kind: String,
     pub(crate) key_origins: Vec<String>,
     pub(crate) channel: Channel,

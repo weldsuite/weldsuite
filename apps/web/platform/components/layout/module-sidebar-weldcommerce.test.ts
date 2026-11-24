@@ -14,15 +14,17 @@ describe('WeldCommerce module menu', () => {
     expect(getModuleKey('/weldcommerce/orders')).toBe('weldcommerce');
     expect(getModuleKey('/weldcommerce/orders/new')).toBe('weldcommerce');
     expect(getModuleKey('/weldcommerce/discounts')).toBe('weldcommerce');
+    expect(getModuleKey('/weldcommerce/online-store')).toBe('weldcommerce');
   });
 
-  it('lists the overview, the orders, the catalogue and the discounts, each behind its read permission', () => {
+  it('lists the overview, the orders, the catalogue, the discounts and the online store, each behind its read permission', () => {
     expect(items(en).map((item) => [item.href, item.permission])).toEqual([
       ['/weldcommerce', undefined],
       ['/weldcommerce/orders', 'orders:read'],
       ['/weldcommerce/products', 'products:read'],
       ['/weldcommerce/categories', 'categories:read'],
       ['/weldcommerce/discounts', 'discounts:read'],
+      ['/weldcommerce/online-store', 'websites:read'],
     ]);
   });
 
@@ -39,6 +41,12 @@ describe('WeldCommerce module menu', () => {
     expect(menuPermissionAllows(discounts.permission, (permission) => permission === 'orders:read')).toBe(false);
   });
 
+  it('shows the online store only to a member who may read websites', () => {
+    const store = items(en).find((item) => item.href === '/weldcommerce/online-store')!;
+    expect(menuPermissionAllows(store.permission, (permission) => permission === 'websites:read')).toBe(true);
+    expect(menuPermissionAllows(store.permission, (permission) => permission === 'products:read')).toBe(false);
+  });
+
   it('shows Categories only to a member who may read categories', () => {
     const categories = items(en).find((item) => item.href === '/weldcommerce/categories')!;
     expect(menuPermissionAllows(categories.permission, (permission) => permission === 'categories:read')).toBe(true);
@@ -46,13 +54,14 @@ describe('WeldCommerce module menu', () => {
   });
 
   it('translates the section names', () => {
-    expect(items(en).map((item) => item.title)).toEqual(['Overview', 'Orders', 'Products', 'Categories', 'Discounts']);
+    expect(items(en).map((item) => item.title)).toEqual(['Overview', 'Orders', 'Products', 'Categories', 'Discounts', 'Online store']);
     expect(items(nl as unknown as typeof en).map((item) => item.title)).toEqual([
       'Overzicht',
       'Orders',
       'Producten',
       'Categorieën',
       'Kortingen',
+      'Webwinkel',
     ]);
   });
 });

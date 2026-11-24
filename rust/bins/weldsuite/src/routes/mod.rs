@@ -270,6 +270,7 @@ fn commerce(router: Router<AppState>, state: &AppState) -> Router<AppState> {
         events: state.infra.events.clone(),
         http: shared_outbound(),
         payments: commerce_payments(state),
+        online_store: crate::storefront::online_store(state),
     };
     // The master database holds the storefront key registry (conformance
     // builds have none: the key routes answer 503 there).
@@ -1961,7 +1962,16 @@ pub(crate) fn commerce_storefront(state: &AppState) -> Router {
             cache: state.infra.cache.clone(),
             trusted_proxies: state.trusted_proxies,
             payments: commerce_payments(state),
+            hosting: crate::storefront::online_store(state),
         },
+    )
+    // The online store (storefronts plan): the deploy-key upload of shops
+    // merchants build (`/storefront-deploy/v1`, a CLI or CI) and the
+    // storefront renderer's reads (`/public/storefront`, with its secret).
+    .merge(crate::storefront::deploy_routes(state))
+    .nest_service(
+        "/public/storefront",
+        crate::storefront::renderer_routes(state),
     )
 }
 

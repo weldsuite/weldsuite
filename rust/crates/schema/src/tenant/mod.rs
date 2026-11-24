@@ -423,6 +423,12 @@ pub mod stash_sales_history;
 pub mod stash_sales_history_imports;
 pub mod stash_settings;
 pub mod stock_adjustments;
+pub mod storefront_deployments;
+pub mod storefront_menus;
+pub mod storefront_pages;
+pub mod storefront_redirects;
+pub mod storefront_site_versions;
+pub mod storefront_sites;
 pub mod suppliers;
 pub mod support_channel_members;
 pub mod support_channels;
@@ -997,6 +1003,12 @@ pub fn tables() -> Vec<crate::snapshot::TableSchema> {
         ),
         crate::snapshot::table::<stash_settings::Entity>(&stash_settings::DDL),
         crate::snapshot::table::<stock_adjustments::Entity>(&stock_adjustments::DDL),
+        crate::snapshot::table::<storefront_deployments::Entity>(&storefront_deployments::DDL),
+        crate::snapshot::table::<storefront_menus::Entity>(&storefront_menus::DDL),
+        crate::snapshot::table::<storefront_pages::Entity>(&storefront_pages::DDL),
+        crate::snapshot::table::<storefront_redirects::Entity>(&storefront_redirects::DDL),
+        crate::snapshot::table::<storefront_site_versions::Entity>(&storefront_site_versions::DDL),
+        crate::snapshot::table::<storefront_sites::Entity>(&storefront_sites::DDL),
         crate::snapshot::table::<suppliers::Entity>(&suppliers::DDL),
         crate::snapshot::table::<support_channel_members::Entity>(&support_channel_members::DDL),
         crate::snapshot::table::<support_channels::Entity>(&support_channels::DDL),
@@ -1754,6 +1766,18 @@ pub async fn rows_json<C: sea_orm::ConnectionTrait>(
         }
         "stash_settings" => json(Box::pin(stash_settings::Entity::find().all(db)).await?),
         "stock_adjustments" => json(Box::pin(stock_adjustments::Entity::find().all(db)).await?),
+        "storefront_deployments" => {
+            json(Box::pin(storefront_deployments::Entity::find().all(db)).await?)
+        }
+        "storefront_menus" => json(Box::pin(storefront_menus::Entity::find().all(db)).await?),
+        "storefront_pages" => json(Box::pin(storefront_pages::Entity::find().all(db)).await?),
+        "storefront_redirects" => {
+            json(Box::pin(storefront_redirects::Entity::find().all(db)).await?)
+        }
+        "storefront_site_versions" => {
+            json(Box::pin(storefront_site_versions::Entity::find().all(db)).await?)
+        }
+        "storefront_sites" => json(Box::pin(storefront_sites::Entity::find().all(db)).await?),
         "suppliers" => json(Box::pin(suppliers::Entity::find().all(db)).await?),
         "support_channel_members" => {
             json(Box::pin(support_channel_members::Entity::find().all(db)).await?)

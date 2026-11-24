@@ -26,7 +26,7 @@ apps/workers/analytics-worker
 apps/workers/audit-log-worker
 apps/workers/integration-webhook-worker
 apps/workers/realtime-worker
-apps/web/sites
+apps/web/storefront
 apps/web/helpcenter
 apps/tools/migrate-databases
 # Exclude every other mobile app from this app's EAS build.

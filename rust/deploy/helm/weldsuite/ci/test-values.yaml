@@ -59,12 +59,16 @@ config:
     publicBucket: weldsuite-public
     publicUrl: https://files.example.org
   # WeldPanel's store, and collection on customers' own host names (the
-  # panel-domains Role, RoleBinding and admission policy).
+  # custom-domains Role, RoleBinding and admission policy, shared with the
+  # storefront's custom domains below: both kinds in one policy).
   panel:
     bucket: weldsuite-panel
     customDomains:
       enabled: true
       collectorHost: collect.example.org
+  # The storefront renderer's contact-form sections embed it.
+  forms:
+    portalUrl: https://forms.example.org
 ingress:
   enabled: true
 helpdeskWidget:
@@ -111,6 +115,23 @@ formsPortal:
   enabled: true
   ingress:
     enabled: true
+# WeldCommerce's online stores: the edge's port, the renderer (its HPA and
+# PDB), the wildcard Ingress and custom shop domains. STOREFRONT_RENDERER_SECRET
+# is left out of secret.values on purpose: it comes from the generated Secret.
+storefront:
+  enabled: true
+  baseDomain: shops.example.net
+  ingress:
+    className: traefik
+  wildcardTls:
+    secretName: weldsuite-storefront-wildcard-tls
+  renderer:
+    autoscaling:
+      enabled: true
+  customDomains:
+    enabled: true
+    cnameTarget: shops.example.org
+    apexAddresses: ["203.0.113.10", "2001:db8::10"]
 admin:
   enabled: true
   publicUrl: https://admin.example.org

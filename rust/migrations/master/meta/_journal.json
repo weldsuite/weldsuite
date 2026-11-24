@@ -526,6 +526,13 @@
       "when": 1795300963832,
       "tag": "0074_mail_threat_indicators",
       "breakpoints": true
+    },
+    {
+      "idx": 75,
+      "version": "7",
+      "when": 1795467239277,
+      "tag": "0075_weldcommerce_storefront_hosts",
+      "breakpoints": true
     }
   ]
 }

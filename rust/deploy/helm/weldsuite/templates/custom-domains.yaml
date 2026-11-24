@@ -1,0 +1,126 @@
+{{- if eq (include "weldsuite.customDomains.enabled" .) "true" }}
+{{- /*
+Customers' own host names (ADR PANEL-014, rust/crates/custom-domains): for
+each one whose DNS points at the install, the server (its routes, and the
+panel-schedule and storefront-hosts jobs' sweeps) creates a cert-manager
+Certificate and an Ingress in the release's namespace, and deletes both with
+the domain. Two kinds share this: WeldPanel's collector domains
+(config.panel.customDomains: component panel-collector-domain, objects
+weldpanel-*) and WeldCommerce's shop domains (storefront.customDomains:
+component storefront-host, objects weldshop-*, routed to the edge's port).
+Every object carries app.kubernetes.io/managed-by=weldsuite and its kind's
+component label (weldsuite.customDomains.profiles).
+*/}}
+{{- $sa := include "weldsuite.serviceAccountName" . }}
+{{- $profiles := include "weldsuite.customDomains.profiles" . | fromJsonArray }}
+{{- $components := list }}
+{{- $policy := false }}
+{{- range $profiles }}
+{{- $components = append $components .component }}
+{{- if .admissionPolicy }}{{- $policy = true }}{{- end }}
+{{- end }}
+# The server's service account may read, create and delete Certificates and
+# Ingresses in this namespace, and nothing else there through this Role (no
+# list, update or patch). RBAC matches kinds, namespaces and names, never
+# labels, so it can't keep the account to its own objects: the server only
+# ever touches objects with its labels, and the admission policy below
+# refuses the account any other.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "weldsuite.fullname" . }}-custom-domains
+  labels:
+    {{- include "weldsuite.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["cert-manager.io"]
+    resources: ["certificates"]
+    verbs: ["get", "create", "delete"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses"]
+    verbs: ["get", "create", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "weldsuite.fullname" . }}-custom-domains
+  labels:
+    {{- include "weldsuite.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "weldsuite.fullname" . }}-custom-domains
+subjects:
+  - kind: ServiceAccount
+    name: {{ $sa }}
+    namespace: {{ .Release.Namespace }}
+{{- if $policy }}
+---
+# What the Role can't say: the server's service account creates and deletes
+# only Certificates and Ingresses carrying the labels of a kind of custom
+# domain that is on, Ingresses that route to the server's Service only (any
+# of its ports: the collector's on http, the shops' on storefront), and each
+# kind's Certificates from that kind's issuer only. Anyone else's requests
+# are not matched.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: {{ include "weldsuite.fullname" . }}-custom-domains
+  labels:
+    {{- include "weldsuite.labels" . | nindent 4 }}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["cert-manager.io"]
+        apiVersions: ["*"]
+        operations: ["CREATE", "UPDATE", "DELETE"]
+        resources: ["certificates"]
+      - apiGroups: ["networking.k8s.io"]
+        apiVersions: ["*"]
+        operations: ["CREATE", "UPDATE", "DELETE"]
+        resources: ["ingresses"]
+  matchConditions:
+    - name: the-servers-service-account
+      expression: {{ printf "request.userInfo.username == 'system:serviceaccount:%s:%s'" .Release.Namespace $sa | quote }}
+  variables:
+    # The object as it is after the request; as it was, for a delete.
+    - name: target
+      expression: "request.operation == 'DELETE' ? oldObject : object"
+  validations:
+    - expression: {{ include "weldsuite.customDomains.labelCheck" (dict "components" $components) | quote }}
+      message: "the server may only create and delete Certificates and Ingresses carrying the labels of its custom domains"
+    - expression: {{ printf "request.operation != 'UPDATE' || (%s)" (include "weldsuite.customDomains.labelCheck" (dict "components" $components "object" "oldObject")) | quote }}
+      message: "the server may not take over an object without the labels of its custom domains"
+    - expression: {{ printf "request.operation == 'DELETE' || request.resource.resource != 'ingresses' || (!has(object.spec.defaultBackend) && object.spec.rules.all(r, has(r.http) && r.http.paths.all(p, has(p.backend.service) && p.backend.service.name == '%s')))" (include "weldsuite.fullname" .) | quote }}
+      message: "the server's Ingresses route to its own Service only"
+    {{- /* One kind: its issuer (the first check holds the component). Several: each kind's own. */}}
+    {{- $issuers := list }}
+    {{- range $profiles }}
+    {{- $issuer := printf "object.spec.issuerRef.name == '%s' && has(object.spec.issuerRef.kind) && object.spec.issuerRef.kind == '%s'" .issuer .issuerKind }}
+    {{- if gt (len $profiles) 1 }}
+    {{- $issuer = printf "object.metadata.labels['app.kubernetes.io/component'] == '%s' && %s" .component $issuer }}
+    {{- end }}
+    {{- $issuers = append $issuers (printf "(%s)" $issuer) }}
+    {{- end }}
+    {{- $issuerCheck := join " || " $issuers }}
+    {{- if gt (len $profiles) 1 }}
+    {{- $issuerCheck = printf "(has(object.metadata.labels) && 'app.kubernetes.io/component' in object.metadata.labels && (%s))" $issuerCheck }}
+    {{- end }}
+    - expression: {{ printf "request.operation == 'DELETE' || request.resource.resource != 'certificates' || %s" $issuerCheck | quote }}
+      message: "the server's Certificates come from the configured issuer only"
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: {{ include "weldsuite.fullname" . }}-custom-domains
+  labels:
+    {{- include "weldsuite.labels" . | nindent 4 }}
+spec:
+  policyName: {{ include "weldsuite.fullname" . }}-custom-domains
+  validationActions: ["Deny"]
+  matchResources:
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: {{ .Release.Namespace }}
+{{- end }}
+{{- end }}

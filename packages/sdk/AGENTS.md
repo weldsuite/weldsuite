@@ -7,7 +7,7 @@ licences (MIT) so they can be embedded without AGPL obligations. Read the root
 | Package | What it is | Must stay in step with |
 |---|---|---|
 | `app-sdk` (`@weldsuite/app-sdk`) | Bridge, typed API client and React hooks for WeldApps | The platform host (`apps/web/platform/app/weldapps/host/`) and the CLI's local shell (`cli/src/local-shell/html.ts`) |
-| `cli` (`@weldsuite/cli`) | The `weld` command: `weld app init/create/deploy/publish`, `weld skill install` | `cli/src/manifest.ts` is a copy of the `weldapp.json` schema in `@weldsuite/app-api-client/schemas/user-apps` |
+| `cli` (`@weldsuite/cli`) | The `weld` command: `weld app init/create/deploy/publish`, `weld skill install`, `weld storefront deploy` (a merchant-built shop to WeldCommerce's hosting, `/storefront-deploy/v1`) | `cli/src/manifest.ts` is a copy of the `weldapp.json` schema in `@weldsuite/app-api-client/schemas/user-apps` |
 | `helpdesk-widget-sdk` | Embeds the WeldDesk chat widget | `apps/web/helpdesk-widget/test-local.html` mirrors `src/core/IframeManager.ts` |
 | `forms-embed` | Embeds WeldForms forms (inline, popup, slider, …) | The forms-portal embed view and `apps/web/platform/app/weldforms/share/embed-snippet.ts` (same attribute names) |
 | `panel-sdk` | WeldPanel analytics for websites and web apps | `apps/workers/panel-ingest` |

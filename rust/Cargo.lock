@@ -7528,6 +7528,7 @@ dependencies = [
  "weldsuite-core-signin",
  "weldsuite-core-team",
  "weldsuite-crm",
+ "weldsuite-custom-domains",
  "weldsuite-data",
  "weldsuite-db",
  "weldsuite-desk",
@@ -8119,6 +8120,7 @@ dependencies = [
  "hex",
  "hmac",
  "http",
+ "sea-orm",
  "serde",
  "serde_json",
  "sha2 0.11.1",
@@ -8133,6 +8135,7 @@ dependencies = [
  "weldsuite-books-domain",
  "weldsuite-catalogs",
  "weldsuite-commerce-domain",
+ "weldsuite-custom-domains",
  "weldsuite-db",
  "weldsuite-emails",
  "weldsuite-events",
@@ -8140,6 +8143,7 @@ dependencies = [
  "weldsuite-mollie",
  "weldsuite-permissions",
  "weldsuite-ports",
+ "weldsuite-schema",
 ]
 
 [[package]]
@@ -8496,6 +8500,18 @@ dependencies = [
  "weldsuite-mail-domain",
  "weldsuite-ports",
  "weldsuite-schema",
+]
+
+[[package]]
+name = "weldsuite-custom-domains"
+version = "0.0.0"
+dependencies = [
+ "hex",
+ "serde_json",
+ "sha2 0.11.1",
+ "tracing",
+ "url",
+ "weldsuite-ports",
 ]
 
 [[package]]
@@ -9320,6 +9336,7 @@ dependencies = [
  "weldsuite-catalogs",
  "weldsuite-chat-domain",
  "weldsuite-core-domain",
+ "weldsuite-custom-domains",
  "weldsuite-db",
  "weldsuite-emails",
  "weldsuite-events",

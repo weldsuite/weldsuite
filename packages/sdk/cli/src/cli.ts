@@ -15,6 +15,7 @@ import * as appPublish from './commands/publish.js';
 import * as appUpdate from './commands/update.js';
 import * as appVersions from './commands/versions.js';
 import * as skillInstall from './commands/skill-install.js';
+import * as storefrontDeploy from './commands/storefront-deploy.js';
 import * as login from './commands/login.js';
 import * as logout from './commands/logout.js';
 import * as whoami from './commands/whoami.js';
@@ -40,6 +41,7 @@ const COMMANDS: Record<string, Command> = {
   'app oauth': appOauth,
   'app delete': appDelete,
   'skill install': skillInstall,
+  'storefront deploy': storefrontDeploy,
 };
 
 const HELP = `${bold('weld')} — the WeldSuite app CLI
@@ -68,6 +70,9 @@ App commands:
 Skill commands:
   skill install         Install the weldsuite-app Claude skill into ./.claude/
 
+WeldCommerce:
+  storefront deploy     Upload a shop you built to WeldCommerce's hosting [--prod]
+
 Global options:
   --help, -h            Show help (also works per command: weld app deploy --help)
   --version, -v         Show the CLI version
@@ -79,6 +84,8 @@ Environment:
   WELD_LOGIN_URL        Developer portal origin for weld login
   WELD_DEV_USER_ID      Clerk user id for weld app dev (required with workspace keys)
   WELD_PLATFORM_URL     Platform SPA origin for /apps/{code} deep links
+  WELDCOMMERCE_DEPLOY_KEY  A sales channel's deploy key (wcd_…) for weld storefront deploy
+  WELDCOMMERCE_API_URL     Your WeldSuite server for weld storefront deploy
 
 Auth note:
   Prefer ${cyan('weld login')} (Clerk device code → personal wsk_…).

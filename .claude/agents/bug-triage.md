@@ -23,7 +23,7 @@ Work these steps in order. Do not skip.
 ### 3. Trace to root cause
 For each layer the bug likely touches:
 
-**Frontend (apps/web/platform, apps/web/sites, apps/web/helpcenter):**
+**Frontend (apps/web/platform, apps/web/storefront, apps/web/helpcenter):**
 - Find the component by UI text: `grep -r "button label" apps/web/platform/app`
 - Inspect the handler, mutation? query? form? what does it POST?
 - Check TanStack Query invalidation if the symptom is "data doesn't update"

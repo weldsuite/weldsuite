@@ -221,6 +221,7 @@ import { Route as WeldconnectAnalyticsIndexRouteImport } from './routes/weldconn
 import { Route as WeldconnectActionsIndexRouteImport } from './routes/weldconnect/actions/index'
 import { Route as WeldcommerceProductsIndexRouteImport } from './routes/weldcommerce/products/index'
 import { Route as WeldcommerceOrdersIndexRouteImport } from './routes/weldcommerce/orders/index'
+import { Route as WeldcommerceOnlineStoreIndexRouteImport } from './routes/weldcommerce/online-store/index'
 import { Route as WeldcommerceDiscountsIndexRouteImport } from './routes/weldcommerce/discounts/index'
 import { Route as WeldcommerceCategoriesIndexRouteImport } from './routes/weldcommerce/categories/index'
 import { Route as WeldchatRecordsIndexRouteImport } from './routes/weldchat/records/index'
@@ -506,6 +507,10 @@ import { Route as PreviewSettingsTeamIndexRouteImport } from './routes/preview/s
 import { Route as PreviewAppstoreCodeIndexRouteImport } from './routes/preview/appstore/$code/index'
 import { Route as WelddeskReportsCustomBuilderRouteImport } from './routes/welddesk/reports/custom/builder'
 import { Route as WelddeskReportsCustomIdRouteImport } from './routes/welddesk/reports/custom/$id'
+import { Route as WeldcommerceOnlineStoreSiteIdEditorRouteImport } from './routes/weldcommerce_/online-store/$siteId/editor'
+import { Route as WeldcommerceOnlineStoreSiteIdRedirectsRouteImport } from './routes/weldcommerce/online-store/$siteId/redirects'
+import { Route as WeldcommerceOnlineStoreSiteIdPagesRouteImport } from './routes/weldcommerce/online-store/$siteId/pages'
+import { Route as WeldcommerceOnlineStoreSiteIdMenusRouteImport } from './routes/weldcommerce/online-store/$siteId/menus'
 import { Route as WeldchatDmGroupChannelIdRouteImport } from './routes/weldchat/dm/group/$channelId'
 import { Route as WeldchatChannelIdThreadMessageIdRouteImport } from './routes/weldchat/$channelId/thread/$messageId'
 import { Route as SettingsIntegrationsHubspotCallbackRouteImport } from './routes/settings/integrations/hubspot/callback'
@@ -1730,6 +1735,12 @@ const WeldcommerceOrdersIndexRoute = WeldcommerceOrdersIndexRouteImport.update({
   path: '/orders/',
   getParentRoute: () => WeldcommerceRouteRoute,
 } as any)
+const WeldcommerceOnlineStoreIndexRoute =
+  WeldcommerceOnlineStoreIndexRouteImport.update({
+    id: '/online-store/',
+    path: '/online-store/',
+    getParentRoute: () => WeldcommerceRouteRoute,
+  } as any)
 const WeldcommerceDiscountsIndexRoute =
   WeldcommerceDiscountsIndexRouteImport.update({
     id: '/discounts/',
@@ -3307,6 +3318,30 @@ const WelddeskReportsCustomIdRoute = WelddeskReportsCustomIdRouteImport.update({
   path: '/reports/custom/$id',
   getParentRoute: () => WelddeskRouteRoute,
 } as any)
+const WeldcommerceOnlineStoreSiteIdEditorRoute =
+  WeldcommerceOnlineStoreSiteIdEditorRouteImport.update({
+    id: '/weldcommerce_/online-store/$siteId/editor',
+    path: '/weldcommerce/online-store/$siteId/editor',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const WeldcommerceOnlineStoreSiteIdRedirectsRoute =
+  WeldcommerceOnlineStoreSiteIdRedirectsRouteImport.update({
+    id: '/online-store/$siteId/redirects',
+    path: '/online-store/$siteId/redirects',
+    getParentRoute: () => WeldcommerceRouteRoute,
+  } as any)
+const WeldcommerceOnlineStoreSiteIdPagesRoute =
+  WeldcommerceOnlineStoreSiteIdPagesRouteImport.update({
+    id: '/online-store/$siteId/pages',
+    path: '/online-store/$siteId/pages',
+    getParentRoute: () => WeldcommerceRouteRoute,
+  } as any)
+const WeldcommerceOnlineStoreSiteIdMenusRoute =
+  WeldcommerceOnlineStoreSiteIdMenusRouteImport.update({
+    id: '/online-store/$siteId/menus',
+    path: '/online-store/$siteId/menus',
+    getParentRoute: () => WeldcommerceRouteRoute,
+  } as any)
 const WeldchatDmGroupChannelIdRoute =
   WeldchatDmGroupChannelIdRouteImport.update({
     id: '/dm/group/$channelId',
@@ -4379,6 +4414,7 @@ export interface FileRoutesByFullPath {
   '/weldchat/records/': typeof WeldchatRecordsIndexRoute
   '/weldcommerce/categories/': typeof WeldcommerceCategoriesIndexRoute
   '/weldcommerce/discounts/': typeof WeldcommerceDiscountsIndexRoute
+  '/weldcommerce/online-store/': typeof WeldcommerceOnlineStoreIndexRoute
   '/weldcommerce/orders/': typeof WeldcommerceOrdersIndexRoute
   '/weldcommerce/products/': typeof WeldcommerceProductsIndexRoute
   '/weldconnect/actions/': typeof WeldconnectActionsIndexRoute
@@ -4510,6 +4546,10 @@ export interface FileRoutesByFullPath {
   '/settings/integrations/hubspot/callback': typeof SettingsIntegrationsHubspotCallbackRoute
   '/weldchat/$channelId/thread/$messageId': typeof WeldchatChannelIdThreadMessageIdRoute
   '/weldchat/dm/group/$channelId': typeof WeldchatDmGroupChannelIdRoute
+  '/weldcommerce/online-store/$siteId/menus': typeof WeldcommerceOnlineStoreSiteIdMenusRoute
+  '/weldcommerce/online-store/$siteId/pages': typeof WeldcommerceOnlineStoreSiteIdPagesRoute
+  '/weldcommerce/online-store/$siteId/redirects': typeof WeldcommerceOnlineStoreSiteIdRedirectsRoute
+  '/weldcommerce/online-store/$siteId/editor': typeof WeldcommerceOnlineStoreSiteIdEditorRoute
   '/welddesk/reports/custom/$id': typeof WelddeskReportsCustomIdRoute
   '/welddesk/reports/custom/builder': typeof WelddeskReportsCustomBuilderRoute
   '/preview/appstore/$code/': typeof PreviewAppstoreCodeIndexRoute
@@ -4963,6 +5003,7 @@ export interface FileRoutesByTo {
   '/weldchat/records': typeof WeldchatRecordsIndexRoute
   '/weldcommerce/categories': typeof WeldcommerceCategoriesIndexRoute
   '/weldcommerce/discounts': typeof WeldcommerceDiscountsIndexRoute
+  '/weldcommerce/online-store': typeof WeldcommerceOnlineStoreIndexRoute
   '/weldcommerce/orders': typeof WeldcommerceOrdersIndexRoute
   '/weldcommerce/products': typeof WeldcommerceProductsIndexRoute
   '/weldconnect/actions': typeof WeldconnectActionsIndexRoute
@@ -5087,6 +5128,10 @@ export interface FileRoutesByTo {
   '/settings/integrations/hubspot/callback': typeof SettingsIntegrationsHubspotCallbackRoute
   '/weldchat/$channelId/thread/$messageId': typeof WeldchatChannelIdThreadMessageIdRoute
   '/weldchat/dm/group/$channelId': typeof WeldchatDmGroupChannelIdRoute
+  '/weldcommerce/online-store/$siteId/menus': typeof WeldcommerceOnlineStoreSiteIdMenusRoute
+  '/weldcommerce/online-store/$siteId/pages': typeof WeldcommerceOnlineStoreSiteIdPagesRoute
+  '/weldcommerce/online-store/$siteId/redirects': typeof WeldcommerceOnlineStoreSiteIdRedirectsRoute
+  '/weldcommerce/online-store/$siteId/editor': typeof WeldcommerceOnlineStoreSiteIdEditorRoute
   '/welddesk/reports/custom/$id': typeof WelddeskReportsCustomIdRoute
   '/welddesk/reports/custom/builder': typeof WelddeskReportsCustomBuilderRoute
   '/preview/appstore/$code': typeof PreviewAppstoreCodeIndexRoute
@@ -5594,6 +5639,7 @@ export interface FileRoutesById {
   '/weldchat/records/': typeof WeldchatRecordsIndexRoute
   '/weldcommerce/categories/': typeof WeldcommerceCategoriesIndexRoute
   '/weldcommerce/discounts/': typeof WeldcommerceDiscountsIndexRoute
+  '/weldcommerce/online-store/': typeof WeldcommerceOnlineStoreIndexRoute
   '/weldcommerce/orders/': typeof WeldcommerceOrdersIndexRoute
   '/weldcommerce/products/': typeof WeldcommerceProductsIndexRoute
   '/weldconnect/actions/': typeof WeldconnectActionsIndexRoute
@@ -5725,6 +5771,10 @@ export interface FileRoutesById {
   '/settings/integrations/hubspot/callback': typeof SettingsIntegrationsHubspotCallbackRoute
   '/weldchat/$channelId/thread/$messageId': typeof WeldchatChannelIdThreadMessageIdRoute
   '/weldchat/dm/group/$channelId': typeof WeldchatDmGroupChannelIdRoute
+  '/weldcommerce/online-store/$siteId/menus': typeof WeldcommerceOnlineStoreSiteIdMenusRoute
+  '/weldcommerce/online-store/$siteId/pages': typeof WeldcommerceOnlineStoreSiteIdPagesRoute
+  '/weldcommerce/online-store/$siteId/redirects': typeof WeldcommerceOnlineStoreSiteIdRedirectsRoute
+  '/weldcommerce_/online-store/$siteId/editor': typeof WeldcommerceOnlineStoreSiteIdEditorRoute
   '/welddesk/reports/custom/$id': typeof WelddeskReportsCustomIdRoute
   '/welddesk/reports/custom/builder': typeof WelddeskReportsCustomBuilderRoute
   '/preview/appstore/$code/': typeof PreviewAppstoreCodeIndexRoute
@@ -6233,6 +6283,7 @@ export interface FileRouteTypes {
     | '/weldchat/records/'
     | '/weldcommerce/categories/'
     | '/weldcommerce/discounts/'
+    | '/weldcommerce/online-store/'
     | '/weldcommerce/orders/'
     | '/weldcommerce/products/'
     | '/weldconnect/actions/'
@@ -6364,6 +6415,10 @@ export interface FileRouteTypes {
     | '/settings/integrations/hubspot/callback'
     | '/weldchat/$channelId/thread/$messageId'
     | '/weldchat/dm/group/$channelId'
+    | '/weldcommerce/online-store/$siteId/menus'
+    | '/weldcommerce/online-store/$siteId/pages'
+    | '/weldcommerce/online-store/$siteId/redirects'
+    | '/weldcommerce/online-store/$siteId/editor'
     | '/welddesk/reports/custom/$id'
     | '/welddesk/reports/custom/builder'
     | '/preview/appstore/$code/'
@@ -6817,6 +6872,7 @@ export interface FileRouteTypes {
     | '/weldchat/records'
     | '/weldcommerce/categories'
     | '/weldcommerce/discounts'
+    | '/weldcommerce/online-store'
     | '/weldcommerce/orders'
     | '/weldcommerce/products'
     | '/weldconnect/actions'
@@ -6941,6 +6997,10 @@ export interface FileRouteTypes {
     | '/settings/integrations/hubspot/callback'
     | '/weldchat/$channelId/thread/$messageId'
     | '/weldchat/dm/group/$channelId'
+    | '/weldcommerce/online-store/$siteId/menus'
+    | '/weldcommerce/online-store/$siteId/pages'
+    | '/weldcommerce/online-store/$siteId/redirects'
+    | '/weldcommerce/online-store/$siteId/editor'
     | '/welddesk/reports/custom/$id'
     | '/welddesk/reports/custom/builder'
     | '/preview/appstore/$code'
@@ -7447,6 +7507,7 @@ export interface FileRouteTypes {
     | '/weldchat/records/'
     | '/weldcommerce/categories/'
     | '/weldcommerce/discounts/'
+    | '/weldcommerce/online-store/'
     | '/weldcommerce/orders/'
     | '/weldcommerce/products/'
     | '/weldconnect/actions/'
@@ -7578,6 +7639,10 @@ export interface FileRouteTypes {
     | '/settings/integrations/hubspot/callback'
     | '/weldchat/$channelId/thread/$messageId'
     | '/weldchat/dm/group/$channelId'
+    | '/weldcommerce/online-store/$siteId/menus'
+    | '/weldcommerce/online-store/$siteId/pages'
+    | '/weldcommerce/online-store/$siteId/redirects'
+    | '/weldcommerce_/online-store/$siteId/editor'
     | '/welddesk/reports/custom/$id'
     | '/welddesk/reports/custom/builder'
     | '/preview/appstore/$code/'
@@ -7906,6 +7971,7 @@ export interface RootRouteChildren {
   InviteAcceptIndexRoute: typeof InviteAcceptIndexRoute
   ObjectsSlugIndexRoute: typeof ObjectsSlugIndexRoute
   PreviewHelpDocsIndexRoute: typeof PreviewHelpDocsIndexRoute
+  WeldcommerceOnlineStoreSiteIdEditorRoute: typeof WeldcommerceOnlineStoreSiteIdEditorRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -9392,6 +9458,13 @@ declare module '@tanstack/react-router' {
       path: '/orders'
       fullPath: '/weldcommerce/orders/'
       preLoaderRoute: typeof WeldcommerceOrdersIndexRouteImport
+      parentRoute: typeof WeldcommerceRouteRoute
+    }
+    '/weldcommerce/online-store/': {
+      id: '/weldcommerce/online-store/'
+      path: '/online-store'
+      fullPath: '/weldcommerce/online-store/'
+      preLoaderRoute: typeof WeldcommerceOnlineStoreIndexRouteImport
       parentRoute: typeof WeldcommerceRouteRoute
     }
     '/weldcommerce/discounts/': {
@@ -11389,6 +11462,34 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WelddeskReportsCustomIdRouteImport
       parentRoute: typeof WelddeskRouteRoute
     }
+    '/weldcommerce_/online-store/$siteId/editor': {
+      id: '/weldcommerce_/online-store/$siteId/editor'
+      path: '/weldcommerce/online-store/$siteId/editor'
+      fullPath: '/weldcommerce/online-store/$siteId/editor'
+      preLoaderRoute: typeof WeldcommerceOnlineStoreSiteIdEditorRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/weldcommerce/online-store/$siteId/redirects': {
+      id: '/weldcommerce/online-store/$siteId/redirects'
+      path: '/online-store/$siteId/redirects'
+      fullPath: '/weldcommerce/online-store/$siteId/redirects'
+      preLoaderRoute: typeof WeldcommerceOnlineStoreSiteIdRedirectsRouteImport
+      parentRoute: typeof WeldcommerceRouteRoute
+    }
+    '/weldcommerce/online-store/$siteId/pages': {
+      id: '/weldcommerce/online-store/$siteId/pages'
+      path: '/online-store/$siteId/pages'
+      fullPath: '/weldcommerce/online-store/$siteId/pages'
+      preLoaderRoute: typeof WeldcommerceOnlineStoreSiteIdPagesRouteImport
+      parentRoute: typeof WeldcommerceRouteRoute
+    }
+    '/weldcommerce/online-store/$siteId/menus': {
+      id: '/weldcommerce/online-store/$siteId/menus'
+      path: '/online-store/$siteId/menus'
+      fullPath: '/weldcommerce/online-store/$siteId/menus'
+      preLoaderRoute: typeof WeldcommerceOnlineStoreSiteIdMenusRouteImport
+      parentRoute: typeof WeldcommerceRouteRoute
+    }
     '/weldchat/dm/group/$channelId': {
       id: '/weldchat/dm/group/$channelId'
       path: '/dm/group/$channelId'
@@ -12996,8 +13097,12 @@ interface WeldcommerceRouteRouteChildren {
   WeldcommerceOrdersNewRoute: typeof WeldcommerceOrdersNewRoute
   WeldcommerceCategoriesIndexRoute: typeof WeldcommerceCategoriesIndexRoute
   WeldcommerceDiscountsIndexRoute: typeof WeldcommerceDiscountsIndexRoute
+  WeldcommerceOnlineStoreIndexRoute: typeof WeldcommerceOnlineStoreIndexRoute
   WeldcommerceOrdersIndexRoute: typeof WeldcommerceOrdersIndexRoute
   WeldcommerceProductsIndexRoute: typeof WeldcommerceProductsIndexRoute
+  WeldcommerceOnlineStoreSiteIdMenusRoute: typeof WeldcommerceOnlineStoreSiteIdMenusRoute
+  WeldcommerceOnlineStoreSiteIdPagesRoute: typeof WeldcommerceOnlineStoreSiteIdPagesRoute
+  WeldcommerceOnlineStoreSiteIdRedirectsRoute: typeof WeldcommerceOnlineStoreSiteIdRedirectsRoute
 }
 
 const WeldcommerceRouteRouteChildren: WeldcommerceRouteRouteChildren = {
@@ -13005,8 +13110,15 @@ const WeldcommerceRouteRouteChildren: WeldcommerceRouteRouteChildren = {
   WeldcommerceOrdersNewRoute: WeldcommerceOrdersNewRoute,
   WeldcommerceCategoriesIndexRoute: WeldcommerceCategoriesIndexRoute,
   WeldcommerceDiscountsIndexRoute: WeldcommerceDiscountsIndexRoute,
+  WeldcommerceOnlineStoreIndexRoute: WeldcommerceOnlineStoreIndexRoute,
   WeldcommerceOrdersIndexRoute: WeldcommerceOrdersIndexRoute,
   WeldcommerceProductsIndexRoute: WeldcommerceProductsIndexRoute,
+  WeldcommerceOnlineStoreSiteIdMenusRoute:
+    WeldcommerceOnlineStoreSiteIdMenusRoute,
+  WeldcommerceOnlineStoreSiteIdPagesRoute:
+    WeldcommerceOnlineStoreSiteIdPagesRoute,
+  WeldcommerceOnlineStoreSiteIdRedirectsRoute:
+    WeldcommerceOnlineStoreSiteIdRedirectsRoute,
 }
 
 const WeldcommerceRouteRouteWithChildren =
@@ -14396,6 +14508,8 @@ const rootRouteChildren: RootRouteChildren = {
   InviteAcceptIndexRoute: InviteAcceptIndexRoute,
   ObjectsSlugIndexRoute: ObjectsSlugIndexRoute,
   PreviewHelpDocsIndexRoute: PreviewHelpDocsIndexRoute,
+  WeldcommerceOnlineStoreSiteIdEditorRoute:
+    WeldcommerceOnlineStoreSiteIdEditorRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

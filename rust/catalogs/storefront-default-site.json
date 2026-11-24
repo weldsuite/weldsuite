@@ -1,0 +1,181 @@
+{
+  "schemaVersion": 1,
+  "theme": {
+    "id": "atelier",
+    "settings": {
+      "preset": "classic",
+      "colors": {
+        "background": "#ffffff",
+        "foreground": "#111827",
+        "primary": "#111827",
+        "primaryForeground": "#ffffff",
+        "muted": "#f3f4f6",
+        "border": "#e5e7eb"
+      },
+      "fontHeading": "inter",
+      "fontBody": "inter",
+      "radius": "small",
+      "logoUrl": null,
+      "logoAlt": null,
+      "faviconUrl": null,
+      "social": {}
+    }
+  },
+  "groups": {
+    "header": [
+      {
+        "id": "header",
+        "type": "header",
+        "settings": {
+          "menu": "main",
+          "showSearch": true,
+          "showAccount": true,
+          "sticky": true
+        }
+      }
+    ],
+    "footer": [
+      {
+        "id": "footer",
+        "type": "footer",
+        "settings": {
+          "menu": "footer",
+          "text": "",
+          "showSocial": true,
+          "showLocaleNote": true
+        }
+      }
+    ]
+  },
+  "templates": {
+    "home": [
+      {
+        "id": "hero",
+        "type": "hero",
+        "settings": {
+          "image": "",
+          "imageAlt": "",
+          "heading": "Welcome to our shop",
+          "text": "",
+          "buttonLabel": "Shop now",
+          "buttonLink": "/products",
+          "height": "large",
+          "align": "center",
+          "overlay": 30
+        }
+      },
+      {
+        "id": "featured",
+        "type": "featured-products",
+        "settings": {
+          "heading": "Featured products",
+          "source": "newest",
+          "category": "",
+          "products": [],
+          "limit": 8,
+          "columns": "4",
+          "showViewAll": true
+        }
+      },
+      {
+        "id": "categories",
+        "type": "category-list",
+        "settings": {
+          "heading": "Shop by category",
+          "categories": [],
+          "columns": "3"
+        }
+      },
+      {
+        "id": "story",
+        "type": "image-with-text",
+        "settings": {
+          "image": "",
+          "imageAlt": "",
+          "heading": "Made with care",
+          "text": "Tell your customers what makes your products special.",
+          "buttonLabel": "",
+          "buttonLink": "",
+          "imagePosition": "left",
+          "colorScheme": "default"
+        }
+      }
+    ],
+    "product": [
+      {
+        "id": "main",
+        "type": "main-product",
+        "settings": {
+          "gallery": "thumbnails",
+          "showSku": false,
+          "showDescription": true
+        }
+      },
+      {
+        "id": "related",
+        "type": "related-products",
+        "settings": {
+          "heading": "You may also like",
+          "limit": 4,
+          "columns": "4"
+        }
+      }
+    ],
+    "category": [
+      {
+        "id": "main",
+        "type": "main-category",
+        "settings": {
+          "columns": "4",
+          "pageSize": 24,
+          "showSort": true,
+          "showDescription": true
+        }
+      }
+    ],
+    "search": [
+      {
+        "id": "main",
+        "type": "main-search",
+        "settings": {
+          "columns": "4",
+          "pageSize": 24
+        }
+      }
+    ],
+    "cart": [
+      {
+        "id": "main",
+        "type": "main-cart",
+        "settings": {
+          "showDiscount": true,
+          "note": ""
+        }
+      }
+    ],
+    "page": [
+      {
+        "id": "main",
+        "type": "main-page",
+        "settings": {
+          "showTitle": true
+        }
+      }
+    ],
+    "notFound": [
+      {
+        "id": "main",
+        "type": "main-not-found",
+        "settings": {
+          "heading": "",
+          "text": ""
+        }
+      }
+    ]
+  },
+  "seo": {},
+  "settings": {
+    "access": "public",
+    "cookieBanner": false
+  }
+}

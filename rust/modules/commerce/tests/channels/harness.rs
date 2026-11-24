@@ -79,6 +79,7 @@ pub(crate) fn app_with(db: PgPool, master: Option<PgPool>, permissions: &[&str])
         ),
         http: None,
         payments: weldsuite_commerce::PaymentsConfig::default(),
+        online_store: weldsuite_commerce::online_store::OnlineStoreConfig::default(),
     };
     let gate = Arc::new(PermissionGate::new(|_| Ok(NoQueries)));
     let resolved = ResolvedPermissions {

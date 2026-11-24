@@ -148,6 +148,7 @@ export const navigation = {
         categories: 'Categories',
         orders: 'Orders',
         discounts: 'Discounts',
+        onlineStore: 'Online store',
       },
       weldstash: {
         overview: 'Overview',

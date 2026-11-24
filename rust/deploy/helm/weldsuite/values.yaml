@@ -236,7 +236,8 @@ config:
     # controller) and an Ingress sending the collector's paths on it to the
     # server; removing the domain deletes both. The server's and
     # panel-schedule's pods then get the service-account token, bound to the
-    # panel-domains Role (templates/panel-domains.yaml). Needs cert-manager
+    # custom-domains Role (templates/custom-domains.yaml, shared with
+    # storefront.customDomains). Needs cert-manager
     # and enabled with collectorHost set; otherwise the domain routes answer
     # 503 and the platform says custom domains aren't available here.
     customDomains:
@@ -260,7 +261,8 @@ config:
       # Holds the server's service account to Certificates and Ingresses with
       # WeldPanel's labels, routing to the server and from issuerRef only
       # (ValidatingAdmissionPolicy, Kubernetes 1.30+): RBAC can't limit it
-      # by label.
+      # by label. One policy covers both kinds of custom domain: it is made
+      # when either asks for it, and admits the labels of every kind that is on.
       admissionPolicy:
         enabled: true
   # Durable jobs (the workers' Workflows) on Restate. Leave ingressUrl empty
@@ -478,6 +480,11 @@ config:
 #   SIGN_SESSION_SECRET         WeldSign: keys signer sessions and access-code hashes (the workers' value)
 #   SIGN_PORTAL_SECRET           shared by the server and the sign portal (required with signPortal.enabled)
 #   FORMS_PORTAL_SECRET          shared by the server and the forms portal (required with formsPortal.enabled)
+#   STOREFRONT_RENDERER_SECRET   shared by the server and the storefront renderer: the renderer's bearer
+#                                token to /public/storefront, the edge's header to the renderer, and the
+#                                key of previews, visitor passes and the stored shop passwords, which
+#                                stop working when it changes (with storefront.enabled; generated with
+#                                secret.generate)
 #   FORMS_SESSION_SECRET         WeldForms: signs respondent sessions and verification tokens and keys the
 #                                hashes of IPs, browser keys and emailed codes (the workers' value, so a
 #                                session either backend issued opens on the other); unset: 503 on /public/forms
@@ -549,7 +556,9 @@ secret:
   # SIGN_SESSION_SECRET, SIGN_PORTAL_SECRET, STORAGE_SIGNING_KEY,
   # REALTIME_INTERNAL_SECRET, WIDGET_TOKEN_SECRET, COLLAB_ROOMS_SECRET,
   # INTERNAL_API_SECRET, MAIL_INBOUND_SECRET, OUTBOUND_ADMIN_SECRET,
-  # SANDBOX_TOKEN_SECRET (WeldAgent's sandbox pods' tokens), and the
+  # SANDBOX_TOKEN_SECRET (WeldAgent's sandbox pods' tokens),
+  # STOREFRONT_RENDERER_SECRET (only with storefront.enabled, so the server
+  # doesn't report a renderer it hasn't got), and the
   # bundled dependencies' credentials (bundle below). Every pod reads it before
   # the Secret above, so a key set there wins. Back WELDPASS_ROOT_KEY and the
   # DATABASE_ENCRYPTION_KEYs up somewhere outside the cluster: losing them loses
@@ -890,6 +899,124 @@ formsPortal:
           - path: /
             pathType: Prefix
     tls: []
+
+# WeldCommerce's online stores (weldsuite-documentation/plans/weldcommerce-storefronts.md),
+# off by default. Every shop host goes to the storefront edge, a second
+# listener of this server (STOREFRONT_LISTEN on edgePort; the Service's port
+# `storefront`), never to the platform's port, so a shop's host can't reach
+# the platform or its API. The edge looks the host up, answers redirects and
+# the coming-soon and password pages, serves merchants' static deployments
+# from the public bucket, and proxies builder sites to the renderer: a Node
+# container (ghcr.io/weldsuite/weldsuite-storefront, `--target storefront` of
+# rust/Dockerfile) that only the edge reaches (a ClusterIP Service, no Ingress
+# of its own) and that calls this server's /public/storefront and
+# /storefront/v1. The two share STOREFRONT_RENDERER_SECRET: generated with
+# secret.generate, else in the Secret. `weldsuite cron storefront-hosts`
+# (cron.jobs) checks the custom domains still pending.
+storefront:
+  enabled: false
+  # Free shop addresses are {slug}.<baseDomain> (and a deployment's preview,
+  # {deployment}--{slug}.<baseDomain>): best a registrable domain of their
+  # own, never one the platform's host is under (the chart refuses that: a
+  # shop could set cookies on the platform, and the wildcard would take it).
+  # Put the domain on the Public Suffix List so shops can't set cookies on
+  # each other. Empty: no free addresses, custom domains only.
+  baseDomain: ""
+  # The edge's container and Service port (STOREFRONT_LISTEN=0.0.0.0:<port>).
+  edgePort: 8791
+  # The scheme of shop URLs (STOREFRONT_SCHEME): https; http only on a
+  # development cluster without TLS.
+  scheme: https
+  # The Ingress for *.<baseDomain> to the edge (with baseDomain).
+  ingress:
+    enabled: true
+    # Empty: ingress.className (or the cluster's default class).
+    className: ""
+    # cert-manager's ingress-shim can make the wildcard certificate here
+    # (cert-manager.io/cluster-issuer: <an issuer that solves DNS-01>);
+    # an HTTP-01 issuer can't.
+    annotations: {}
+  # The certificate for *.<baseDomain>: a kubernetes.io/tls Secret in the
+  # release's namespace, made outside the chart (a cert-manager Certificate
+  # from a DNS-01 issuer, or the annotation above). HTTP-01 can't issue a
+  # wildcard, and a certificate per shop would run into Let's Encrypt's limit
+  # of new certificates per registered domain. Empty: no TLS on the Ingress.
+  wildcardTls:
+    secretName: ""
+  # Origins that may frame a shop's preview (the platform's editor), e.g.
+  # [https://app.example.org] (STOREFRONT_EDITOR_ORIGINS, the server's and
+  # the renderer's). Empty: config.publicUrl.
+  editorOrigins: []
+  renderer:
+    image:
+      repository: ghcr.io/weldsuite/weldsuite-storefront
+      # Defaults to the chart's appVersion.
+      tag: ""
+      pullPolicy: IfNotPresent
+    replicaCount: 2
+    # Where the renderer calls the server (STOREFRONT_API_URL); defaults to
+    # the server's Service, its http port.
+    apiUrl: ""
+    # Empty: the chart's podSecurityContext and securityContext, as the other
+    # Node portals (the distroless image's nonroot user, 65532).
+    podSecurityContext: {}
+    securityContext: {}
+    # It renders every page of every builder shop, so it scales with shop
+    # traffic, not with the platform's.
+    resources:
+      requests:
+        cpu: 100m
+        memory: 160Mi
+      limits:
+        memory: 512Mi
+    autoscaling:
+      enabled: false
+      minReplicas: 2
+      maxReplicas: 6
+      targetCPUUtilizationPercentage: 70
+    # Keep a renderer up through node drains: shops show an error page
+    # without one.
+    podDisruptionBudget:
+      enabled: true
+      minAvailable: 1
+  # Shops on the merchant's own host names (www.example-shop.com), through
+  # the same machinery as WeldPanel's collector domains (ADR PANEL-014,
+  # rust/crates/custom-domains): once a host name's ownership TXT record and
+  # its CNAME to cnameTarget (or, for an apex, A/AAAA records to
+  # apexAddresses) resolve, the server (and the storefront-hosts job, every
+  # 10 minutes) creates a cert-manager Certificate (HTTP-01 through the
+  # ingress controller) and an Ingress sending every path of it to the
+  # edge, in the release's namespace through the Kubernetes API; removing
+  # the domain deletes both (objects weldshop-*, component storefront-host).
+  # The server's and storefront-hosts' pods then get the service-account
+  # token, bound to the custom-domains Role (templates/custom-domains.yaml).
+  # Needs cert-manager and storefront.enabled.
+  customDomains:
+    enabled: false
+    # What customers point their CNAME at, e.g. shops.example.org: a name of
+    # the install's own that resolves to the ingress load balancer. Host
+    # names under its parent domain, the platform's and baseDomain are
+    # refused. Required with enabled.
+    cnameTarget: ""
+    # The ingress load balancer's public addresses, for apex domains (which
+    # can't have a CNAME), e.g. ["203.0.113.10", "2001:db8::10"]. Empty:
+    # only CNAMEs count, so an apex can't be added.
+    apexAddresses: []
+    # The certificates' issuer: one that solves HTTP-01 through the ingress
+    # controller.
+    issuerRef:
+      name: letsencrypt
+      kind: ClusterIssuer
+    # The Ingresses' class; empty: storefront.ingress.className, else
+    # ingress.className (or the cluster's default class).
+    ingressClassName: ""
+    # The DNS-over-HTTPS endpoint the records are looked up at; empty:
+    # Cloudflare's (https://cloudflare-dns.com/dns-query).
+    dnsResolver: ""
+    # The admission policy shared with WeldPanel's custom domains
+    # (config.panel.customDomains.admissionPolicy).
+    admissionPolicy:
+      enabled: true
 
 # The staff admin console (ADR FE-018) at admin.<domain>: WeldReach access
 # requests, workspaces, the app catalog, warmup and outbound mail. Staff sign in
@@ -1353,6 +1480,9 @@ topologySpread:
 # open (databases, Clerk).
 networkPolicy:
   enabled: false
+  # Also who may reach the storefront edge's port (storefront.enabled): the
+  # ingress controller. The storefront renderer takes requests from the
+  # server's pods (the edge) only.
   ingressFrom: []
   # Who may call the jobs port (the Restate pods); empty allows any pod.
   jobsFrom: []
@@ -1527,6 +1657,14 @@ cron:
       enabled: true
       schedule: "*/10 * * * *"
       activeDeadlineSeconds: 570
+    # WeldCommerce: the custom shop domains still pending (storefront.customDomains),
+    # checked from the master database alone, never a workspace's: TXT and
+    # CNAME checks, then the Certificate and Ingress once they resolve. Runs
+    # whenever storefront custom domains are on, whatever this says.
+    storefront-hosts:
+      enabled: false
+      schedule: "*/10 * * * *"
+      activeDeadlineSeconds: 540
     # WeldForms: the automatic invitation reminders and the daily response
     # digest, for the workspaces the forms_reminders / forms_digest due index
     # lists. Do nothing while forms is not served.

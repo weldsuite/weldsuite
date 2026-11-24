@@ -100,6 +100,7 @@ weld app publish [--notes <text>]
 weld app oauth [--create|--rotate|--show] [--code <code>]
 weld app delete [--code <code>] [--yes]
 weld skill install [--force]
+weld storefront deploy [--dir <dist>] [--prod] [--skip-build] [--config <file>]
 weld --help | --version
 ```
 
@@ -120,6 +121,43 @@ weld --help | --version
 | `app oauth` | Create / rotate / show the OAuth client for server-to-server calls. |
 | `app delete` | Soft-delete the app (refused while other workspaces still install it). |
 | `skill install` | Drop the `weldsuite-app` skill + CLAUDE.md snippet into `.claude/`. |
+| `storefront deploy` | Build a shop you made yourself and upload its static output to WeldCommerce's hosting; `--prod` makes it live. See below. |
+
+## Hosting a shop you build (WeldCommerce)
+
+A WeldCommerce sales channel can be hosted from your own code: any static
+build (Vite, Astro, …) that calls the storefront API from the browser with a
+publishable key (`@weldsuite/commerce-sdk`). WeldSuite serves it on the
+shop's own address, with a preview address for every deployment.
+
+1. In WeldSuite, create the channel's online store with **Host my own code**
+   (WeldCommerce → Online store), give it an address (Settings → Apps →
+   WeldCommerce → Online store), and create a **deploy key** for the channel
+   (Settings → Apps → WeldCommerce → Channels → Keys).
+2. Deploy:
+
+   ```bash
+   export WELDCOMMERCE_API_URL=https://app.weldsuite.eu
+   export WELDCOMMERCE_DEPLOY_KEY=wcd_…   # a secret: keep it in your CI's secrets
+   weld storefront deploy          # preview
+   weld storefront deploy --prod   # live
+   ```
+
+Optional `weldstorefront.json` next to `package.json`:
+
+```json
+{
+  "spa": false,
+  "cleanUrls": true,
+  "redirects": [{ "from": "/old-shop", "to": "/", "status": 301 }],
+  "headers": [{ "source": "/assets/*", "headers": { "Cache-Control": "public, max-age=31536000, immutable" } }]
+}
+```
+
+`spa: true` answers every path without a file with `index.html`; otherwise a
+`404.html` answers. `cleanUrls` serves `/about` from `about.html` or
+`about/index.html`. Limits: 2,000 files, 200 MiB per deployment, 25 MiB per
+file. Hidden files are not uploaded (but `.well-known/`).
 
 ## Portal-free happy path
 

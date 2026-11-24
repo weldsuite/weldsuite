@@ -68,6 +68,7 @@ fn app(db: PgPool, permissions: &[&str]) -> Router {
         ),
         http: None,
         payments: weldsuite_commerce::PaymentsConfig::default(),
+        online_store: weldsuite_commerce::online_store::OnlineStoreConfig::default(),
     };
     let gate = Arc::new(PermissionGate::new(|_| Ok(NoQueries)));
     let resolved = ResolvedPermissions {
