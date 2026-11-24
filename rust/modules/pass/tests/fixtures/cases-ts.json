@@ -1781,6 +1781,257 @@
       }
     },
     {
+      "schema": "item",
+      "body": {
+        "type": "login",
+        "title": "x",
+        "fields": {
+          "apps": [
+            "com.example.app",
+            "nl.bank_app.v2"
+          ]
+        }
+      },
+      "result": {
+        "success": true,
+        "data": {
+          "type": "login",
+          "title": "x",
+          "fields": {
+            "username": "",
+            "password": "",
+            "totp": "",
+            "notes": "",
+            "apps": [
+              "com.example.app",
+              "nl.bank_app.v2"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "schema": "item",
+      "body": {
+        "type": "login",
+        "title": "x",
+        "fields": {
+          "username": "u",
+          "apps": []
+        }
+      },
+      "result": {
+        "success": true,
+        "data": {
+          "type": "login",
+          "title": "x",
+          "fields": {
+            "username": "u",
+            "password": "",
+            "totp": "",
+            "notes": "",
+            "apps": []
+          }
+        }
+      }
+    },
+    {
+      "schema": "item",
+      "body": {
+        "type": "login",
+        "title": "x",
+        "fields": {
+          "apps": [
+            "bank",
+            "",
+            " com.x.y",
+            "com..y",
+            5
+          ]
+        }
+      },
+      "result": {
+        "success": false,
+        "error": {
+          "issues": [
+            {
+              "validation": "regex",
+              "code": "invalid_string",
+              "message": "Not an Android package name",
+              "path": [
+                "fields",
+                "apps",
+                0
+              ]
+            },
+            {
+              "code": "too_small",
+              "minimum": 1,
+              "type": "string",
+              "inclusive": true,
+              "exact": false,
+              "message": "String must contain at least 1 character(s)",
+              "path": [
+                "fields",
+                "apps",
+                1
+              ]
+            },
+            {
+              "validation": "regex",
+              "code": "invalid_string",
+              "message": "Not an Android package name",
+              "path": [
+                "fields",
+                "apps",
+                1
+              ]
+            },
+            {
+              "validation": "regex",
+              "code": "invalid_string",
+              "message": "Not an Android package name",
+              "path": [
+                "fields",
+                "apps",
+                2
+              ]
+            },
+            {
+              "validation": "regex",
+              "code": "invalid_string",
+              "message": "Not an Android package name",
+              "path": [
+                "fields",
+                "apps",
+                3
+              ]
+            },
+            {
+              "code": "invalid_type",
+              "expected": "string",
+              "received": "number",
+              "path": [
+                "fields",
+                "apps",
+                4
+              ],
+              "message": "Expected string, received number"
+            }
+          ],
+          "name": "ZodError"
+        }
+      }
+    },
+    {
+      "schema": "item",
+      "body": {
+        "type": "login",
+        "title": "x",
+        "fields": {
+          "apps": null
+        }
+      },
+      "result": {
+        "success": false,
+        "error": {
+          "issues": [
+            {
+              "code": "invalid_type",
+              "expected": "array",
+              "received": "null",
+              "path": [
+                "fields",
+                "apps"
+              ],
+              "message": "Expected array, received null"
+            }
+          ],
+          "name": "ZodError"
+        }
+      }
+    },
+    {
+      "schema": "item",
+      "body": {
+        "type": "login",
+        "title": "x",
+        "fields": {
+          "apps": "com.x.y"
+        }
+      },
+      "result": {
+        "success": false,
+        "error": {
+          "issues": [
+            {
+              "code": "invalid_type",
+              "expected": "array",
+              "received": "string",
+              "path": [
+                "fields",
+                "apps"
+              ],
+              "message": "Expected array, received string"
+            }
+          ],
+          "name": "ZodError"
+        }
+      }
+    },
+    {
+      "schema": "item",
+      "body": {
+        "type": "login",
+        "title": "x",
+        "fields": {
+          "apps": [
+            "com.x.a0",
+            "com.x.a1",
+            "com.x.a2",
+            "com.x.a3",
+            "com.x.a4",
+            "com.x.a5",
+            "com.x.a6",
+            "com.x.a7",
+            "com.x.a8",
+            "com.x.a9",
+            "com.x.a10",
+            "com.x.a11",
+            "com.x.a12",
+            "com.x.a13",
+            "com.x.a14",
+            "com.x.a15",
+            "com.x.a16",
+            "com.x.a17",
+            "com.x.a18",
+            "com.x.a19",
+            "com.x.a20"
+          ]
+        }
+      },
+      "result": {
+        "success": false,
+        "error": {
+          "issues": [
+            {
+              "code": "too_big",
+              "maximum": 20,
+              "type": "array",
+              "inclusive": true,
+              "exact": false,
+              "message": "Array must contain at most 20 element(s)",
+              "path": [
+                "fields",
+                "apps"
+              ]
+            }
+          ],
+          "name": "ZodError"
+        }
+      }
+    },
+    {
       "schema": "createVault",
       "body": {
         "name": "  "

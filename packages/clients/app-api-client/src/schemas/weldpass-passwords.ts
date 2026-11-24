@@ -46,12 +46,29 @@ export type WeldPassItemType = z.infer<typeof weldpassItemTypeSchema>;
 const title = z.string().trim().min(1).max(200);
 const notes = z.string().max(20_000).default('');
 
+/** An Android application id: dot-separated segments that start with a letter. */
+export const ANDROID_PACKAGE_PATTERN = /^[A-Za-z]\w*(\.[A-Za-z]\w*)+$/;
+export const MAX_LOGIN_APPS = 20;
+
+export const androidPackageSchema = z
+  .string()
+  .min(1)
+  .max(255)
+  .regex(ANDROID_PACKAGE_PATTERN, 'Not an Android package name');
+
 export const loginFieldsSchema = z.object({
   username: z.string().max(255).default(''),
   password: z.string().max(4096).default(''),
   /** A base32 secret or a full `otpauth://` URI. Empty when 2FA is not stored. */
   totp: z.string().trim().max(2048).default(''),
   notes,
+  /**
+   * The Android apps this login signs in to, by package name
+   * (`com.example.app`). Sealed with the rest of the item and matched only on
+   * the phone, by its autofill service (ADR PASS-010). Left out when there
+   * are none, so a login without apps seals the same text as before.
+   */
+  apps: z.array(androidPackageSchema).max(MAX_LOGIN_APPS).optional(),
 });
 
 export const noteFieldsSchema = z.object({

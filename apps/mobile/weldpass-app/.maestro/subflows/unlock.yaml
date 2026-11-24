@@ -1,0 +1,19 @@
+# Answers the system's lock prompt (before a reveal or a copy, or on launch).
+# The emulator has a PIN and no enrolled fingerprint, so Android shows its PIN
+# screen; MAESTRO_DEVICE_PIN is that PIN. Nothing happens if no prompt shows
+# (a confirmation from the last 10 seconds still counts).
+appId: com.weldsuite.weldpass
+---
+- runFlow:
+    when:
+      visible: "Enter your PIN"
+    commands:
+      - inputText: ${MAESTRO_DEVICE_PIN}
+      - pressKey: Enter
+- runFlow:
+    when:
+      visible: "Use PIN"
+    commands:
+      - tapOn: "Use PIN"
+      - inputText: ${MAESTRO_DEVICE_PIN}
+      - pressKey: Enter

@@ -128,6 +128,7 @@
     "./schemas/weldmeet-responses": "./src/schemas/weldmeet-responses.ts",
     "./schemas/weldpass": "./src/schemas/weldpass.ts",
     "./schemas/weldpass-passwords": "./src/schemas/weldpass-passwords.ts",
+    "./schemas/weldpass-items": "./src/schemas/weldpass-items.ts",
     "./schemas/reach": "./src/schemas/reach.ts",
     "./schemas/sheets": "./src/schemas/sheets.ts",
     "./schemas/sheet-data": "./src/schemas/sheet-data.ts",

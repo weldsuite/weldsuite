@@ -23,6 +23,7 @@
     "expo": ">=57.0.0 <58.0.0",
     "expo-haptics": ">=57.0.0 <58.0.0",
     "expo-image": ">=57.0.0 <58.0.0",
+    "expo-local-authentication": ">=57.0.0 <58.0.0",
     "expo-notifications": ">=57.0.0 <58.0.0",
     "expo-secure-store": ">=57.0.0 <58.0.0",
     "lucide-react-native": ">=0.544.0",
@@ -52,6 +53,9 @@
       "optional": true
     },
     "expo-image": {
+      "optional": true
+    },
+    "expo-local-authentication": {
       "optional": true
     },
     "expo-notifications": {
