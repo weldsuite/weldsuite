@@ -4,12 +4,19 @@
 //!
 //! Global asks `recommended.draft.quality` through the AI Gateway and keeps
 //! the set in R2. These editions ask the install's AI (`weldsuite_ai`, ADR
-//! AI-012) for the fixed feature `reach-warmup` (task `draft`, quality tier:
-//! Mistral on EU, never a workspace's provider: the job has no customer
-//! content) and keep the set in the master database's `system_settings`
+//! AI-012) for the fixed feature `reach-warmup` (task `draft`, quality tier),
+//! never a workspace's provider: Claude on WeldSuite's Anthropic account when
+//! the install has `ANTHROPIC_API_KEY` (the job writes made-up mail with no
+//! customer content), the install provider otherwise and as the fallback. The
+//! set is kept in the master database's `system_settings`
 //! ([`super::corpus`]), where `cron` and `consume` both read it. WeldSuite
 //! pays for the calls; nothing is charged to a workspace. Any failure leaves
 //! the previous set (or the built-in one) in place.
+//!
+//! The refresh only runs while the pool has mailboxes taking part, and a
+//! failed one waits [`CORPUS_RETRY_AFTER_MS`] before the next try, so a
+//! network nobody uses, or a model that can't produce the set, costs nothing
+//! night after night.
 
 use serde_json::{Value, json};
 use sqlx::PgPool;
@@ -18,20 +25,29 @@ use weldsuite_reach_domain::text::js_trim;
 
 use super::clock::DAY_MS;
 use super::corpus::{
-    CORPUS_LATEST_KEY, CORPUS_META_KEY, CORPUS_PREVIOUS_KEY, CorpusThread, read_setting,
-    reset_corpus_cache, write_setting,
+    CORPUS_ATTEMPT_KEY, CORPUS_LATEST_KEY, CORPUS_META_KEY, CORPUS_PREVIOUS_KEY, CorpusThread,
+    read_setting, reset_corpus_cache, write_setting,
 };
+use super::db::has_eligible_mailboxes;
 use super::validate::{parse_corpus_thread, prompt_forbidden_words};
 
-pub const THREADS_PER_BATCH: usize = 10;
-pub const BATCH_COUNT: usize = 12;
+/// Threads asked for in one call. A thread is about 1,100 output tokens, so
+/// four stay far below [`MAX_OUTPUT_TOKENS`] and the AI crate's 120-second
+/// limit. Ten per call ran into both on Mistral Large: cut-off JSON and
+/// timeouts, so no refresh ever succeeded.
+pub const THREADS_PER_BATCH: usize = 4;
+/// Calls per refresh: 120 threads.
+pub const BATCH_COUNT: usize = 30;
 /// Calls in flight at once.
 const BATCH_CONCURRENCY: usize = 4;
-const MAX_OUTPUT_TOKENS: u32 = 12_000;
+const MAX_OUTPUT_TOKENS: u32 = 8_000;
 /// A refresh that yields fewer valid threads than this is discarded.
 pub const MIN_GENERATED_THREADS: usize = 60;
 /// The stored set is replaced once it is older than this.
 pub const CORPUS_MAX_AGE_MS: i64 = 30 * DAY_MS;
+/// After a refresh is tried (whether it worked or not), the next try waits
+/// this long.
+pub const CORPUS_RETRY_AFTER_MS: i64 = 7 * DAY_MS;
 
 pub const TOPICS: [&str; 64] = [
     "scheduling a call or a meeting",
@@ -342,8 +358,9 @@ impl ThreadCollector {
     }
 }
 
-/// The call: the fixed feature `reach-warmup`, drafting at the quality tier,
-/// unmetered (no master database: WeldSuite pays).
+/// The call: the fixed feature `reach-warmup`, drafting at the quality tier
+/// (Claude where the install has WeldSuite's Anthropic key), unmetered (no
+/// master database: WeldSuite pays).
 fn corpus_call() -> AiCall {
     AiCall::new(
         "reach-warmup",
@@ -407,16 +424,31 @@ async fn collect_threads(ai: &Ai, year: i32, month: u8) -> Vec<CorpusThread> {
     collector.threads
 }
 
-/// When the stored set was generated (epoch ms), or `None` without a
-/// readable meta.
-async fn read_generated_at(master: &PgPool) -> Result<Option<i64>, sea_orm::DbErr> {
-    let meta = read_setting(master, CORPUS_META_KEY).await?;
-    Ok(meta
+/// The time in `field` of the setting `key` (epoch ms), or `None` without a
+/// readable one.
+async fn read_time(master: &PgPool, key: &str, field: &str) -> Result<Option<i64>, sea_orm::DbErr> {
+    let value = read_setting(master, key).await?;
+    Ok(value
         .as_ref()
-        .and_then(|meta| meta.get("generatedAt"))
+        .and_then(|value| value.get(field))
         .and_then(Value::as_str)
         .and_then(weldsuite_reach_domain::parse_iso)
         .map(weldsuite_reach_domain::epoch_ms))
+}
+
+/// Whether a refresh is due at `now`: the stored set is a month old (or there
+/// is none), the pool has mailboxes taking part, and the last try was long
+/// enough ago.
+async fn refresh_due(master: &PgPool, now: i64) -> Result<bool, sea_orm::DbErr> {
+    let generated_at = read_time(master, CORPUS_META_KEY, "generatedAt").await?;
+    if generated_at.is_some_and(|at| now - at < CORPUS_MAX_AGE_MS) {
+        return Ok(false);
+    }
+    if !has_eligible_mailboxes(master).await? {
+        return Ok(false);
+    }
+    let attempted_at = read_time(master, CORPUS_ATTEMPT_KEY, "attemptedAt").await?;
+    Ok(attempted_at.is_none_or(|at| now - at >= CORPUS_RETRY_AFTER_MS))
 }
 
 /// `storeCorpus`: the replaced set kept as `previous` (threads planned or
@@ -441,20 +473,26 @@ async fn store_corpus(
 }
 
 /// `refreshCorpus(env, now)`: a new set when the stored one is older than
-/// 30 days (or there is none). A no-op without AI. Keeps the old set when
-/// fewer than [`MIN_GENERATED_THREADS`] threads pass. Never fails.
+/// 30 days (or there is none), while the pool has mailboxes taking part and
+/// no try was made in the last [`CORPUS_RETRY_AFTER_MS`]. A no-op without
+/// AI. The try is recorded before the first call, so a run that is cut short
+/// waits too. Keeps the old set when fewer than [`MIN_GENERATED_THREADS`]
+/// threads pass. Never fails.
 pub async fn refresh_corpus(master: &PgPool, ai: Option<&Ai>, now: i64) -> bool {
     let Some(ai) = ai.filter(|ai| ai.enabled()) else {
         return false;
     };
-    let generated_at = match read_generated_at(master).await {
-        Ok(at) => at,
+    match refresh_due(master, now).await {
+        Ok(true) => {}
+        Ok(false) => return false,
         Err(error) => {
             tracing::warn!(%error, "[reach-warmup] corpus refresh failed");
             return false;
         }
-    };
-    if generated_at.is_some_and(|at| now - at < CORPUS_MAX_AGE_MS) {
+    }
+    let attempt = json!({ "attemptedAt": super::db::ts(now) });
+    if let Err(error) = write_setting(master, CORPUS_ATTEMPT_KEY, &attempt).await {
+        tracing::warn!(%error, "[reach-warmup] corpus refresh failed");
         return false;
     }
     let at = weldsuite_reach_domain::from_epoch_ms(now);
@@ -482,8 +520,21 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_refresh_asks_for_small_batches() {
+        assert_eq!(THREADS_PER_BATCH * BATCH_COUNT, 120);
+        const { assert!(THREADS_PER_BATCH * BATCH_COUNT >= 2 * MIN_GENERATED_THREADS) };
+        let plan = build_batch_plan(1, THREADS_PER_BATCH);
+        assert_eq!(plan.len(), 4);
+        assert!(
+            build_batch_prompt(&plan)
+                .starts_with("Write 4 separate email threads, one for each brief.")
+        );
+    }
+
+    #[test]
     fn batches_follow_the_typescript_plan() {
-        let first = build_batch_plan(0, THREADS_PER_BATCH);
+        // The plan is TypeScript's for any batch size; its batches were ten.
+        let first = build_batch_plan(0, 10);
         assert_eq!(first.len(), 10);
         assert_eq!(
             first[0],
@@ -495,7 +546,7 @@ mod tests {
                 length: "three or four sentences per message",
             }
         );
-        let later = build_batch_plan(3, THREADS_PER_BATCH);
+        let later = build_batch_plan(3, 10);
         // slot 31: topic 217 % 64 = 25, count 31 % 10 = 1, tone (155 + 3) % 6 = 2,
         // format 93 % 5 = 3, length 63 % 4 = 3.
         assert_eq!(later[1].topic, TOPICS[25]);
@@ -554,18 +605,45 @@ mod tests {
         assert_eq!(collector.rejected, 3);
     }
 
-    #[tokio::test]
-    async fn a_batch_asks_the_install_model_for_json() {
+    fn ai_with(anthropic_key: Option<&str>, fake: &FakeProvider) -> Ai {
         let env = |name: &str| match name {
             "AI_DEFAULT_PROVIDER" => Some("mistral".to_owned()),
             "MISTRAL_API_KEY" => Some("mistral-key".to_owned()),
+            "ANTHROPIC_API_KEY" => anthropic_key.map(str::to_owned),
             _ => None,
         };
         let mut problems = Vec::new();
         let config = AiConfig::from_lookup(&env, &mut problems);
+        assert_eq!(problems, Vec::<String>::new());
+        Ai::fake(config, fake.clone())
+    }
+
+    #[tokio::test]
+    async fn a_batch_asks_claude_for_json_on_weldsuites_anthropic_account() {
         let fake = FakeProvider::new()
             .reply_json(&json!({ "threads": [{ "subject": "Lunch", "messages": [] }] }));
-        let ai = Ai::fake(config, fake.clone());
+        let ai = ai_with(Some("sk-ant-weldsuite"), &fake);
+        let drafts = generate_batch(&ai, 0).await.expect("drafts");
+        assert_eq!(drafts.len(), 1);
+        let calls = fake.calls();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].url, "https://api.anthropic.com/v1/messages");
+        assert_eq!(calls[0].model().as_deref(), Some("claude-opus-5-5"));
+        assert_eq!(calls[0].header("x-api-key"), Some("sk-ant-weldsuite"));
+        assert_eq!(calls[0].body["tool_choice"]["name"], "warmup_threads");
+        assert_eq!(calls[0].body["max_tokens"], 8_000);
+        assert!(
+            calls[0].body["messages"][0]["content"][0]["text"]
+                .as_str()
+                .is_some_and(|prompt| prompt.starts_with("Write 4 separate email threads"))
+        );
+    }
+
+    #[tokio::test]
+    async fn without_an_anthropic_key_a_batch_asks_the_install_model() {
+        let fake = FakeProvider::new()
+            .reply_json(&json!({ "threads": [{ "subject": "Lunch", "messages": [] }] }));
+        let ai = ai_with(None, &fake);
         let drafts = generate_batch(&ai, 0).await.expect("drafts");
         assert_eq!(drafts.len(), 1);
         let calls = fake.calls();
@@ -575,7 +653,7 @@ mod tests {
         assert!(
             calls[0].body["messages"][1]["content"]
                 .as_str()
-                .is_some_and(|prompt| prompt.starts_with("Write 10 separate email threads"))
+                .is_some_and(|prompt| prompt.starts_with("Write 4 separate email threads"))
         );
     }
 
