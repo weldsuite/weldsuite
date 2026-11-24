@@ -36,6 +36,7 @@ mod password_items;
 mod password_vaults;
 mod projects;
 mod providers;
+pub mod rotation;
 mod routes_passwords;
 mod routes_projects;
 mod schemas;
@@ -101,9 +102,10 @@ impl PassState {
             v2: read("WELDPASS_ROOT_KEY_V2"),
         };
         // Every vault and project route answers 500 CRYPTO_ERROR without a
-        // usable key; say why once, at start. Wrapping a throwaway vault key
-        // is the check those routes run. The error names no key value.
-        if let Err(error) = envelope::create_vault_key(&root_keys, "startup-check") {
+        // usable key; say why once, at start. Wrapping and opening a
+        // throwaway vault key is the check those routes run (`weldsuite
+        // doctor` runs the same). The error names no key value.
+        if let Err(error) = rotation::self_check(&root_keys) {
             tracing::error!(
                 %error,
                 "WeldPass has no usable root key: vaults and secrets projects answer CRYPTO_ERROR \
