@@ -229,9 +229,10 @@ function ServerSection({ state, onState }: Readonly<{ state: ExtensionState; onS
           {t('settingsServerOwn')}
         </label>
         <div className="flex gap-2">
+          {/* Text, not "url": a bare host (weldsuite.example.com) is a fine answer here. */}
           <input
             id={`${ids}-address`}
-            type="url"
+            type="text"
             inputMode="url"
             autoComplete="url"
             spellCheck={false}
@@ -313,7 +314,8 @@ function AccountSection({ state, onState }: Readonly<{ state: ExtensionState; on
 
 export function SettingsPage() {
   const { state, setState } = useExtensionState();
-  const [settings, setSettings] = useState<Settings | null>(null);
+  // undefined while loading, null when the worker could not answer.
+  const [settings, setSettings] = useState<Settings | null | undefined>(undefined);
 
   useEffect(() => {
     document.title = `${t('settingsTitle')} · WeldPass`;
@@ -332,8 +334,10 @@ export function SettingsPage() {
         <h1 className="text-sm font-semibold text-muted-foreground">{t('settingsTitle')}</h1>
       </header>
 
-      {(state === undefined || settings === null) && <Spinner label={t('loading')} />}
-      {state === null && settings !== null && <Notice tone="error">{t('errorServer')}</Notice>}
+      {(state === undefined || settings === undefined) && <Spinner label={t('loading')} />}
+      {state !== undefined && settings !== undefined && (!state || !settings) && (
+        <Notice tone="error">{t('errorServer')}</Notice>
+      )}
       {state && settings && (
         <>
           <AccountSection state={state} onState={setState} />

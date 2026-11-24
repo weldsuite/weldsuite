@@ -173,7 +173,8 @@ chrome.runtime.onMessage.addListener((message: unknown, rawSender, sendResponse)
   if (!sender || typeof type !== 'string' || !allowed(sender, type)) return false;
 
   route(sender, message as AnyRequest).then(
-    (value) => sendResponse({ ok: true, value } satisfies Envelope<unknown>),
+    // A handler with nothing to say answers null, so every reply carries a value.
+    (value) => sendResponse({ ok: true, value: value ?? null } satisfies Envelope<unknown>),
     (error: unknown) => sendResponse({ ok: false, error: errorCode(error) } satisfies Envelope<unknown>),
   );
   return true;

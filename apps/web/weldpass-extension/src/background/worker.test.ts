@@ -54,6 +54,8 @@ interface Harness {
   memory: Map<string, unknown>;
   local: Map<string, string>;
   revealed: { password: string };
+  env: WorkerEnv;
+  clock: { now: number };
 }
 
 function harness(): Harness {
@@ -63,6 +65,7 @@ function harness(): Harness {
   const calls: Harness['calls'] = [];
   const frames: Harness['frames'] = [];
   const revealed = { password: 'correct horse' };
+  const clock = { now: NOW };
 
   // A signed-in session with one workspace, as the OIDC session stores it.
   local.set(
@@ -89,13 +92,21 @@ function harness(): Harness {
     const method = init?.method ?? 'GET';
     const body = typeof init?.body === 'string' ? JSON.parse(init.body) : null;
     calls.push({ method, path: `${url.pathname}${url.search}`, body });
-    if (url.href === `${ORIGIN}/config.json`) {
+    if (url.pathname === '/.well-known/openid-configuration') {
+      return json({
+        issuer: url.origin,
+        authorization_endpoint: `${url.origin}/oauth/authorize`,
+        token_endpoint: `${url.origin}/oauth/token`,
+        revocation_endpoint: `${url.origin}/oauth/revoke`,
+      });
+    }
+    if (url.pathname === '/config.json') {
       return json({
         backend: 'rust',
         modules: ['pass'],
         auth: {
           provider: 'oidc',
-          issuer: ISSUER,
+          issuer: url.origin === ORIGIN ? ISSUER : 'https://auth.weld.example',
           clientId: 'weldsuite-web',
           extensionClientId: 'weldsuite-extension',
           audience: 'weldsuite-api',
@@ -167,9 +178,9 @@ function harness(): Harness {
     },
     broadcast: () => undefined,
     randomId: () => `nonce-${String((id += 1)).padStart(26, '0')}`,
-    now: () => NOW,
+    now: () => clock.now,
   };
-  return { worker: new WeldPassWorker(env), calls, frames, memory, local, revealed };
+  return { worker: new WeldPassWorker(env), calls, frames, memory, local, revealed, env, clock };
 }
 
 const LOGIN_FIELD = { kind: 'login' as const, hasPassword: true, hasUsername: true };
@@ -355,5 +366,353 @@ describe('save and update prompts', () => {
     await h.worker.capture(top, 'grace@example.com', 'pw');
     await h.worker.signOut();
     expect([...h.memory.keys()].filter((key) => /^weldpass:(menu|prompt|pending):/.test(key))).toEqual([]);
+  });
+});
+
+// ── the edges: server, account, menus and prompts ─────────────────────────────
+
+const configCalls = (harness: Harness) => harness.calls.filter((call) => call.path === '/config.json');
+const reject = async () => {
+  throw new Error('offline');
+};
+
+describe('the server', () => {
+  it('starts from a stored profile, and checks it again once it is old', async () => {
+    await h.worker.state();
+    const stored = JSON.parse(h.local.get('weldpass:server')!) as { checkedAt: number };
+    h.local.set('weldpass:server', JSON.stringify({ ...stored, checkedAt: NOW - 7 * 60 * 60_000 }));
+    const before = configCalls(h).length;
+    const again = new WeldPassWorker(h.env);
+    await expect(again.state()).resolves.toMatchObject({ server: { problem: null } });
+    await vi.waitFor(() => expect(configCalls(h)).toHaveLength(before + 1));
+  });
+
+  it('keeps a known server working on its profile while it is unreachable', async () => {
+    await h.worker.state();
+    h.clock.now = NOW + 7 * 60 * 60_000;
+    h.env.fetchImpl = reject as unknown as typeof fetch;
+    await h.worker.refreshServer();
+    await expect(h.worker.state()).resolves.toMatchObject({ server: { problem: null } });
+  });
+
+  it("reports a server it can't use", async () => {
+    h.env.fetchImpl = reject as unknown as typeof fetch;
+    await expect(h.worker.state()).resolves.toMatchObject({ server: { problem: 'unreachable' } });
+    await expect(h.worker.passwords()).rejects.toMatchObject({ code: 'no-server' });
+    await expect(h.worker.hello(frame)).resolves.toEqual({ inline: false });
+    await expect(h.worker.signIn()).resolves.toEqual({ ok: false, reason: 'server' });
+  });
+
+  it("ignores a stored server it can't read", async () => {
+    h.local.set('weldpass:server', '{broken');
+    await expect(h.worker.state()).resolves.toMatchObject({ server: { origin: ORIGIN, problem: null } });
+    h.local.set('weldpass:server', JSON.stringify({ origin: 42 }));
+    await expect(new WeldPassWorker(h.env).state()).resolves.toMatchObject({ server: { origin: ORIGIN } });
+  });
+
+  it('names the host access it lacks, and picks up a grant', async () => {
+    h.env.hasPermission = async (origins) => origins.length === 1 && origins[0]!.startsWith(ORIGIN);
+    await expect(h.worker.state()).resolves.toMatchObject({
+      server: { problem: 'no-permission', missingPatterns: [`${ISSUER}/*`] },
+    });
+    h.env.hasPermission = async () => true;
+    await h.worker.permissionsChanged();
+    await expect(h.worker.state()).resolves.toMatchObject({ server: { problem: null, missingPatterns: [] } });
+  });
+
+  it('inspects another server before switching to it', async () => {
+    await expect(h.worker.inspect('https://weld.example')).resolves.toEqual({
+      ok: true,
+      issuer: 'https://auth.weld.example',
+      patterns: ['https://weld.example/*', 'https://auth.weld.example/*'],
+    });
+    h.env.fetchImpl = reject as unknown as typeof fetch;
+    await expect(h.worker.inspect('https://down.example')).resolves.toMatchObject({ ok: false });
+  });
+
+  it('switches server, signs out of the old one and gives back host access it no longer needs', async () => {
+    const removed: string[][] = [];
+    h.env.removePermission = async (origins) => {
+      removed.push(origins);
+    };
+    await h.worker.menuOpen(frame, LOGIN_FIELD, null);
+    const switched = await h.worker.setServer('https://weld.example');
+    expect(switched).toMatchObject({ ok: true, state: { server: { origin: 'https://weld.example', isDefault: false } } });
+    expect([...h.memory.keys()].some((key) => key.startsWith('weldpass:menu:'))).toBe(false);
+
+    const back = await h.worker.setServer(null);
+    expect(back).toMatchObject({ ok: true, state: { server: { origin: ORIGIN, isDefault: true } } });
+    expect(removed).toEqual([['https://weld.example/*', 'https://auth.weld.example/*']]);
+  });
+
+  it('refuses a server it has no host access to, or that answers no config', async () => {
+    h.env.hasPermission = async (origins) => origins.every((origin) => origin.includes('weldsuite.eu'));
+    await expect(h.worker.setServer('https://weld.example')).resolves.toEqual({ ok: false, problem: 'no-permission' });
+    h.env.fetchImpl = reject as unknown as typeof fetch;
+    await expect(h.worker.setServer('https://down.example')).resolves.toMatchObject({ ok: false });
+  });
+});
+
+describe('the account', () => {
+  it("switches between the person's workspaces only", async () => {
+    await expect(h.worker.setWorkspace('ws_1')).resolves.toMatchObject({ activeWorkspaceId: 'ws_1' });
+    await expect(h.worker.setWorkspace('ws_other')).rejects.toMatchObject({ code: 'not-found' });
+  });
+
+  it("reports a cancelled sign-in, in the browser's language", async () => {
+    const urls: string[] = [];
+    h.env.launchWebAuthFlow = async ({ url }) => {
+      urls.push(url);
+      return undefined;
+    };
+    vi.stubGlobal('chrome', { i18n: { getUILanguage: () => 'nl-NL' } });
+    await expect(h.worker.signIn()).resolves.toEqual({ ok: false, reason: 'cancelled' });
+    expect(new URL(urls[0]!).searchParams.get('ui_locales')).toBe('nl');
+  });
+
+  it("reports a sign-in page that can't be loaded, and a sign-in that fails", async () => {
+    h.env.launchWebAuthFlow = async () => {
+      throw new Error('Authorization page could not be loaded.');
+    };
+    vi.stubGlobal('chrome', {
+      i18n: {
+        getUILanguage: () => {
+          throw new Error('no i18n');
+        },
+      },
+    });
+    await expect(h.worker.signIn()).resolves.toEqual({
+      ok: false,
+      reason: 'unreachable',
+      message: 'Authorization page could not be loaded.',
+    });
+
+    // A redirect that comes back right, with an ID token for another sign-in.
+    const payload = Buffer.from(JSON.stringify({ sub: 'user-1', nonce: 'another' })).toString('base64url');
+    const working = h.env.fetchImpl;
+    h.env.fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit) =>
+      String(input).endsWith('/oauth/token')
+        ? json({ access_token: 'at', token_type: 'Bearer', expires_in: 600, id_token: `e30.${payload}.sig` })
+        : working(input, init)) as typeof fetch;
+    h.env.launchWebAuthFlow = async ({ url }) => {
+      const state = new URL(url).searchParams.get('state');
+      return `https://nlmnjlkgeoeklbahlemmlcfnlfgdimnp.chromiumapp.org/?code=abc&state=${state}`;
+    };
+    await expect(h.worker.signIn()).resolves.toMatchObject({ ok: false, reason: 'failed' });
+  });
+
+  it('reports an issuer that is down', async () => {
+    const working = h.env.fetchImpl;
+    h.env.fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit) =>
+      String(input).includes('openid-configuration') ? reject() : working(input, init)) as typeof fetch;
+    await expect(h.worker.signIn()).resolves.toEqual({ ok: false, reason: 'unreachable' });
+  });
+
+  it('needs a person, and in header mode a workspace, before the API', async () => {
+    h.local.delete(`weldsuite.oidc.${STORAGE_ID}`);
+    await expect(h.worker.passwords()).rejects.toMatchObject({ code: 'signed-out' });
+
+    const other = harness();
+    const profile = JSON.parse(other.local.get(`weldsuite:oidc-profile:${STORAGE_ID}`)!) as Record<string, unknown>;
+    other.local.set(
+      `weldsuite:oidc-profile:${STORAGE_ID}`,
+      JSON.stringify({
+        ...profile,
+        organizations: [
+          { id: 'ws_1', name: 'Acme', slug: null },
+          { id: 'ws_2', name: 'Globex', slug: null },
+        ],
+        activeWorkspaceId: null,
+      }),
+    );
+    await expect(other.worker.passwords()).rejects.toMatchObject({ code: 'no-workspace' });
+  });
+});
+
+describe('settings', () => {
+  it('falls back to the defaults for broken settings, and merges changes', async () => {
+    h.local.set('weldpass:settings', '{broken');
+    await expect(h.worker.settings()).resolves.toMatchObject({ inlineMenus: true, savePrompts: true });
+    await expect(h.worker.setSettings({ savePrompts: false })).resolves.toMatchObject({ savePrompts: false });
+    await expect(h.worker.settings()).resolves.toMatchObject({ inlineMenus: true, savePrompts: false });
+  });
+});
+
+describe('inline menu edges', () => {
+  it('opens no menu where inline menus are off', async () => {
+    await h.worker.setSettings({ inlineMenus: false });
+    await expect(h.worker.menuOpen(frame, LOGIN_FIELD, null)).resolves.toBeNull();
+  });
+
+  it('forgets a menu after ten minutes, and ignores a nonce that is too short', async () => {
+    const { nonce } = (await h.worker.menuOpen(frame, LOGIN_FIELD, null))!;
+    await expect(h.worker.menuInit(frame.tabId, 'short')).resolves.toBeNull();
+    h.clock.now = NOW + 11 * 60_000;
+    await expect(h.worker.menuInit(frame.tabId, nonce)).resolves.toBeNull();
+    expect(h.memory.has(`weldpass:menu:${nonce}`)).toBe(false);
+  });
+
+  it('names a cross-origin frame', async () => {
+    const { nonce } = (await h.worker.menuOpen(frame, LOGIN_FIELD, 'https://portal.example'))!;
+    await expect(h.worker.menuInit(frame.tabId, nonce)).resolves.toMatchObject({
+      crossOrigin: true,
+      frameOrigin: 'https://login.example.com',
+    });
+  });
+
+  it('fills a generated password into a new-password field only', async () => {
+    const field = { kind: 'new-password' as const, hasPassword: false, hasUsername: false };
+    const { nonce } = (await h.worker.menuOpen(frame, field, null))!;
+    await expect(h.worker.menuInit(frame.tabId, nonce)).resolves.toMatchObject({ items: [], blocked: false });
+    await expect(h.worker.menuGenerated(frame.tabId, nonce, 'short')).resolves.toEqual({ ok: false, reason: 'refused' });
+    await expect(h.worker.menuGenerated(frame.tabId, nonce, 'Generated-password-1')).resolves.toEqual({ ok: true });
+    expect(h.frames.map((sent) => sent.command.type)).toEqual(['fill:new-password', 'menu:remove']);
+    await expect(h.worker.menuGenerated(frame.tabId, nonce, 'Generated-password-1')).resolves.toEqual({
+      ok: false,
+      reason: 'expired',
+    });
+
+    const login = (await h.worker.menuOpen(frame, LOGIN_FIELD, null))!;
+    await expect(h.worker.menuGenerated(frame.tabId, login.nonce, 'Generated-password-1')).resolves.toEqual({
+      ok: false,
+      reason: 'refused',
+    });
+  });
+
+  it("refuses 2FA codes for a login it can't find, and expired menus", async () => {
+    const otp = { kind: 'one-time-code' as const, hasPassword: false, hasUsername: false };
+    const { nonce } = (await h.worker.menuOpen(frame, otp, null))!;
+    await expect(h.worker.menuTotp(frame.tabId, nonce, 'missing', 'vault-1')).resolves.toEqual({
+      ok: false,
+      reason: 'refused',
+    });
+    await expect(h.worker.menuTotp(frame.tabId, 'x'.repeat(32), 'item-good', 'vault-1')).resolves.toEqual({
+      ok: false,
+      reason: 'expired',
+    });
+    await expect(h.worker.menuFill(frame.tabId, 'x'.repeat(32), 'item-good', 'vault-1')).resolves.toEqual({
+      ok: false,
+      reason: 'expired',
+    });
+  });
+
+  it('tells the menu what the frame answered', async () => {
+    const answers: Array<() => Promise<unknown>> = [
+      reject,
+      async () => ({ status: 'origin-mismatch' }),
+      async () => ({ status: 'refused' }),
+      async () => ({ status: 'no-fields' }),
+    ];
+    const reasons: unknown[] = [];
+    for (const answer of answers) {
+      h.env.sendToFrame = answer as WorkerEnv['sendToFrame'];
+      const { nonce } = (await h.worker.menuOpen(frame, LOGIN_FIELD, null))!;
+      reasons.push(await h.worker.menuFill(frame.tabId, nonce, 'item-good', 'vault-1'));
+    }
+    expect(reasons).toEqual([
+      { ok: false, reason: 'page-changed' },
+      { ok: false, reason: 'page-changed' },
+      { ok: false, reason: 'refused' },
+      { ok: false, reason: 'no-fields' },
+    ]);
+  });
+
+  it('refuses a username-only fill for a login without a username', async () => {
+    const step = { kind: 'login' as const, hasPassword: false, hasUsername: true };
+    const { nonce } = (await h.worker.menuOpen(frame, step, null))!;
+    vi.mocked(fetch).mockImplementationOnce(async () => json({ data: [{ ...ITEMS.good, subtitle: null }] }));
+    await expect(h.worker.menuFill(frame.tabId, nonce, 'item-good', 'vault-1')).resolves.toEqual({
+      ok: false,
+      reason: 'no-fields',
+    });
+  });
+
+  it('closes a menu for the frame that opened it only, and targets frames without a document id', async () => {
+    const sender = { ...frame, documentId: undefined };
+    const { nonce } = (await h.worker.menuOpen(sender, LOGIN_FIELD, null))!;
+    await h.worker.menuClosed({ ...sender, frameId: 9 }, nonce);
+    expect(h.memory.has(`weldpass:menu:${nonce}`)).toBe(true);
+    await h.worker.menuClose(frame.tabId, nonce);
+    expect(h.frames.at(-1)).toMatchObject({ command: { type: 'menu:remove' }, target: { frameId: frame.frameId } });
+    expect(h.frames.at(-1)!.target).not.toHaveProperty('documentId');
+    await h.worker.menuClose(frame.tabId, nonce);
+    expect(h.frames).toHaveLength(1);
+
+    const second = (await h.worker.menuOpen(sender, LOGIN_FIELD, null))!;
+    await h.worker.menuClosed(sender, second.nonce);
+    expect(h.memory.has(`weldpass:menu:${second.nonce}`)).toBe(false);
+  });
+});
+
+describe('save prompt edges', () => {
+  it("ignores what it can't or mustn't keep", async () => {
+    await h.worker.capture(top, 'x'.repeat(256), 'pw');
+    await h.worker.capture(top, 'ada', 'x'.repeat(4097));
+    await h.worker.capture({ ...top, url: 'http://login.example.com/' }, 'ada', 'pw');
+    await h.worker.capture(top, 42 as unknown as string, 'pw');
+    await h.worker.setSettings({ savePrompts: false });
+    await h.worker.capture(top, 'ada', 'pw');
+    expect(await h.worker.promptCheck(top)).toBeNull();
+  });
+
+  it('asks nothing when signed out', async () => {
+    h.local.delete(`weldsuite.oidc.${STORAGE_ID}`);
+    await h.worker.capture(top, 'grace@example.com', 'pw');
+    await expect(h.worker.promptCheck(top)).resolves.toBeNull();
+  });
+
+  it('remembers the username of a two-step login for the password step', async () => {
+    await h.worker.capture(top, 'grace@example.com', '');
+    await h.worker.capture(top, '', 'second step');
+    const prompt = (await h.worker.promptCheck(top))!;
+    await expect(h.worker.promptInit(top.tabId, prompt.nonce)).resolves.toMatchObject({
+      kind: 'save',
+      username: 'grace@example.com',
+    });
+  });
+
+  it('acts on no expired bar, nor on the wrong kind of bar', async () => {
+    const stale = 'x'.repeat(32);
+    await expect(h.worker.promptSave(top.tabId, stale, 'vault-1')).resolves.toEqual({ ok: false, reason: 'expired' });
+    await expect(h.worker.promptUpdate(top.tabId, stale)).resolves.toEqual({ ok: false, reason: 'expired' });
+    await expect(h.worker.promptNever(top.tabId, stale)).resolves.toEqual({ ok: false, reason: 'expired' });
+    await expect(h.worker.promptDismiss(top.tabId, stale)).resolves.toEqual({ ok: false, reason: 'expired' });
+
+    await h.worker.capture(top, 'grace@example.com', 'pw');
+    const prompt = (await h.worker.promptCheck(top))!;
+    await expect(h.worker.promptUpdate(top.tabId, prompt.nonce)).resolves.toEqual({ ok: false, reason: 'expired' });
+    await expect(h.worker.promptInit(99, prompt.nonce)).resolves.toBeNull();
+  });
+
+  it('saves a new login', async () => {
+    await h.worker.capture(top, 'grace@example.com', 'pw');
+    const prompt = (await h.worker.promptCheck(top))!;
+    await expect(h.worker.promptSave(top.tabId, prompt.nonce, 'vault-1')).resolves.toEqual({ ok: true });
+    const created = h.calls.find((call) => call.method === 'POST' && call.path === '/api/weldpass/vaults/vault-1/items');
+    expect(created?.body).toMatchObject({ title: 'login.example.com', fields: { username: 'grace@example.com' } });
+    expect(h.frames.at(-1)).toMatchObject({ command: { type: 'prompt:remove' } });
+    await expect(h.worker.promptCheck(top)).resolves.toBeNull();
+  });
+
+  it('dismisses a bar, and forgets one its page closed', async () => {
+    await h.worker.capture(top, 'grace@example.com', 'pw');
+    const first = (await h.worker.promptCheck(top))!;
+    await h.worker.promptClosed(top, first.nonce);
+    expect(h.memory.has(`weldpass:prompt:${first.nonce}`)).toBe(false);
+
+    const second = (await h.worker.promptCheck(top))!;
+    await expect(h.worker.promptDismiss(top.tabId, second.nonce)).resolves.toEqual({ ok: true });
+    await expect(h.worker.promptCheck(top)).resolves.toBeNull();
+  });
+
+  it("drops a tab's menus, bars and pending logins when it closes", async () => {
+    await h.worker.menuOpen(frame, LOGIN_FIELD, null);
+    await h.worker.menuOpen({ ...frame, tabId: 8 }, LOGIN_FIELD, null);
+    await h.worker.capture(top, 'grace@example.com', 'pw');
+    await h.worker.promptCheck(top);
+    await h.worker.tabClosed(frame.tabId);
+    const left = [...h.memory.keys()].filter((key) => /^weldpass:(menu|prompt|pending):/.test(key));
+    expect(left).toHaveLength(1);
+    expect(h.memory.get(left[0]!)).toMatchObject({ tabId: 8 });
   });
 });

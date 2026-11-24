@@ -197,25 +197,26 @@ function onSubmit(event: Event): void {
 
 const SUBMIT_TEXT = /log ?in|sign ?in|sign ?up|register|continue|next|submit|save|aanmelden|inloggen|registreren|doorgaan|volgende|opslaan/i;
 
+function isButton(node: EventTarget): node is HTMLElement {
+  if (node instanceof HTMLButtonElement) return true;
+  if (node instanceof HTMLInputElement) return node.type === 'submit' || node.type === 'button';
+  return node instanceof HTMLElement && node.getAttribute('role') === 'button';
+}
+
 /** Sign-ins that never submit a form (a button and a fetch) are caught at the click. */
 function onClick(event: MouseEvent): void {
   if (!event.isTrusted || ours(event)) return;
-  for (const node of event.composedPath()) {
-    if (!(node instanceof HTMLElement)) continue;
-    const isButton =
-      node instanceof HTMLButtonElement ||
-      (node instanceof HTMLInputElement && (node.type === 'submit' || node.type === 'button')) ||
-      node.getAttribute('role') === 'button';
-    if (!isButton) continue;
-    const form = (node as HTMLButtonElement).form ?? null;
-    const typeSubmit = (node as HTMLButtonElement).type === 'submit';
-    const text = `${node.textContent ?? ''} ${(node as HTMLInputElement).value ?? ''} ${node.getAttribute('aria-label') ?? ''}`;
-    if (form && typeSubmit) return; // The submit event follows.
-    if (!typeSubmit && !SUBMIT_TEXT.test(text)) return;
-    const root = node.getRootNode();
-    captureFrom(form ?? (root instanceof ShadowRoot ? root : document));
-    return;
-  }
+  const button = event.composedPath().find(isButton);
+  if (!button) return;
+  const form = (button as HTMLButtonElement).form ?? null;
+  // A form's submit button: the submit event follows.
+  if (form && (button as HTMLButtonElement).type === 'submit') return;
+  // Any other button counts by what it says. Outside a form, a <button> is
+  // "submit" by default without submitting anything, so its type says nothing.
+  const text = `${button.textContent ?? ''} ${(button as HTMLInputElement).value ?? ''} ${button.getAttribute('aria-label') ?? ''}`;
+  if (!SUBMIT_TEXT.test(text)) return;
+  const root = button.getRootNode();
+  captureFrom(form ?? (root instanceof ShadowRoot ? root : document));
 }
 
 // ── the save bar ────────────────────────────────────────────────────────────
