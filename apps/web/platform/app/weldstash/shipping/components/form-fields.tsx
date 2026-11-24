@@ -192,7 +192,16 @@ export function SelectField<T extends FieldValues>({
             {label}
             {required ? <span aria-hidden="true" className="ml-0.5 text-destructive">*</span> : null}
           </FormLabel>
-          <Select value={(field.value as string | undefined) || undefined} onValueChange={field.onChange} disabled={disabled}>
+          <Select
+            value={(field.value as string | undefined) || undefined}
+            // No option has an empty value, so an empty one comes from Radix's
+            // hidden native select catching up, not from a choice: it would
+            // undo a value set in code (the carrier's default product).
+            onValueChange={(next) => {
+              if (next) field.onChange(next);
+            }}
+            disabled={disabled}
+          >
             <FormControl>
               <SelectTrigger className="w-full">
                 <SelectValue placeholder={placeholder} />
