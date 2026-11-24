@@ -84,7 +84,7 @@ export function AccessTab({ entity }: Readonly<AccessTabProps>) {
   const removingSelf = removing !== null && removingHidesFromSelf(self, Boolean(access?.restricted), removing.userId);
 
   function leaveEntity() {
-    navigate({ to: '/settings/legal-entities' });
+    void navigate({ to: '/settings/legal-entities' });
   }
 
   async function applyRestricted(restricted: boolean, losesAccess: boolean) {
