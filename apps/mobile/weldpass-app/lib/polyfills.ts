@@ -11,7 +11,7 @@ export function installRandomValues(target: { crypto?: unknown } = globalThis): 
   const existing = target.crypto as { getRandomValues?: unknown } | undefined;
   if (typeof existing?.getRandomValues === 'function') return;
   target.crypto = {
-    ...(existing ?? {}),
+    ...existing,
     getRandomValues: <T extends ArrayBufferView | null>(array: T): T =>
       getRandomValues(array as unknown as Uint8Array) as unknown as T,
   };
