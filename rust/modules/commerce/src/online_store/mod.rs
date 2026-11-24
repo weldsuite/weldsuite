@@ -124,7 +124,9 @@ pub(crate) fn body_object(
     if !json {
         return Err(invalid_field("body", "Send JSON"));
     }
-    match serde_json::from_slice::<Value>(body) {
+    // Parsed by the kit's body reader, as every other commerce route's body
+    // (`crate::validate`); a body without a content type is read as JSON.
+    match weldsuite_kit::validation::json_body(Some("application/json"), body) {
         Ok(Value::Object(object)) => Ok(object),
         _ => Err(invalid_field("body", "Must be a JSON object")),
     }

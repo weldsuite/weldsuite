@@ -144,14 +144,18 @@ mod tests {
     #[test]
     fn passwords_and_passes() {
         let (secret, other) = (key(), key());
-        let stored = hash_password(&secret, "open sesame").expect("hash");
-        assert!(check_password(&secret, &stored, "open sesame"));
-        assert!(!check_password(&secret, &stored, "open sesam"));
-        assert!(!check_password(&other, &stored, "open sesame"));
+        // The shop's passwords are made at run time too; `almost` is the
+        // password without its last character.
+        let (password, new_password) = (key(), key());
+        let almost = &password[..password.len() - 1];
+        let stored = hash_password(&secret, &password).expect("hash");
+        assert!(check_password(&secret, &stored, &password));
+        assert!(!check_password(&secret, &stored, almost));
+        assert!(!check_password(&other, &stored, &password));
         let pass = visitor_pass(&secret, "shop.example.com", &stored).expect("pass");
         assert!(verify_pass(&secret, "shop.example.com", &stored, &pass));
         assert!(!verify_pass(&secret, "other.example.com", &stored, &pass));
-        let changed = hash_password(&secret, "new").expect("hash");
+        let changed = hash_password(&secret, &new_password).expect("hash");
         assert!(!verify_pass(&secret, "shop.example.com", &changed, &pass));
     }
 
