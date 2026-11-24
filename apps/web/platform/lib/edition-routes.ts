@@ -90,6 +90,8 @@ const ROUTE_REQUIREMENTS: ReadonlyArray<readonly [prefix: string, requirement: E
   // (ADR OPS-025); its purchase orders keep their create, edit and delete on Global.
   ['/settings/apps/weldstash', { modules: ['stash'], feature: 'stash-replenishment' }],
   ['/weldstash/replenishment', { modules: ['stash'], feature: 'stash-replenishment' }],
+  // Carrier shipping (PostNL, DHL Parcel labels, tracking, returns) exists only on the Rust backend.
+  ['/weldstash/shipments', { modules: ['stash'], feature: 'stash-shipping' }],
 ];
 
 function matchesPrefix(pathname: string, prefix: string): boolean {

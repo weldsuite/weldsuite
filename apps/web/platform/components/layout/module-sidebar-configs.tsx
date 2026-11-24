@@ -61,6 +61,7 @@ import {
   Boxes,
   ClipboardList,
   PackageCheck,
+  PackageSearch,
   KeyRound,
   LockKeyhole,
   Vault,
@@ -207,6 +208,10 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
             : []),
           { title: t.navigation.moduleSidebar.weldstash.pickLists, href: '/weldstash/pick-lists', icon: ClipboardList, permission: 'picklists:read' },
           { title: t.navigation.moduleSidebar.weldstash.packing, href: '/weldstash/packing', icon: PackageCheck, permission: 'picklists:read' },
+          // Carrier shipments are served by the Rust backend only (Kubernetes editions).
+          ...(isFeatureAvailable('stash-shipping')
+            ? [{ title: t.navigation.moduleSidebar.weldstash.shipments, href: '/weldstash/shipments', icon: PackageSearch, permission: 'weldstash:parcels:read' }]
+            : []),
         ],
       },
     ],

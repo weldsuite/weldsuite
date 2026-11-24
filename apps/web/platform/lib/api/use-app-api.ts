@@ -67,6 +67,7 @@ import { createWmsSuppliersApi } from '@weldsuite/app-api-client/domains/wms-sup
 import { createProductSuppliersApi } from '@weldsuite/app-api-client/domains/product-suppliers';
 import { createPurchaseOrdersApi } from '@weldsuite/app-api-client/domains/purchase-orders';
 import { createReplenishmentApi } from '@weldsuite/app-api-client/domains/replenishment';
+import { createShippingApi } from '@weldsuite/app-api-client/domains/shipping';
 import { createFeatureFlagsApi } from '@weldsuite/app-api-client/domains/feature-flags';
 import { createWeldAgentApi } from '@weldsuite/app-api-client/domains/weldagent';
 import { createWeldAgentParityApi } from '@weldsuite/app-api-client/domains/weldagent-parity';
@@ -234,6 +235,8 @@ export function useAppApi() {
       purchaseOrders: createPurchaseOrdersApi(lazyClient),
       productSuppliers: createProductSuppliersApi(lazyClient),
       replenishment: createReplenishmentApi(lazyClient),
+      // WeldStash carrier shipping (Rust backend only).
+      shipping: createShippingApi(lazyClient),
       featureFlags: createFeatureFlagsApi(lazyClient),
       weldAgent: createWeldAgentApi(lazyClient),
       weldAgentParity: createWeldAgentParityApi(lazyClient),

@@ -160,6 +160,7 @@ export const navigation = {
         packing: 'Packing',
         purchaseOrders: 'Purchase orders',
         replenishment: 'Replenishment',
+        shipments: 'Shipments',
       },
       welddata: {
         findLeads: 'Find Leads',

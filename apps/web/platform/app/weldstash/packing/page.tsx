@@ -1,6 +1,7 @@
 import { Suspense, useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import { PackageCheck } from 'lucide-react';
+import { PackageCheck, Tag } from 'lucide-react';
+import { usePermissions } from '@weldsuite/permissions/react';
 import { Button } from '@weldsuite/ui/components/button';
 import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { PageLoader } from '@weldsuite/ui/components/page-loader';
@@ -14,11 +15,17 @@ import {
   useShipWeldstashPickList,
   type WeldstashPickList,
 } from '@/hooks/queries/use-weldstash-queries';
+import { isFeatureAvailable } from '@/lib/edition';
 import { getTranslations } from '@/lib/i18n';
+import { CreateLabelsDialog } from '../shipping/components/create-labels-dialog';
 import { buildPickListColumns } from '../pick-lists/config/pick-list-columns';
 
 function PackingPageContent() {
   const t = getTranslations('common').weldstash;
+  const tl = getTranslations('weldstash').shipping.labels;
+  const { can } = usePermissions();
+  // Carrier labels exist on the Rust editions only.
+  const canCreateLabels = isFeatureAvailable('stash-shipping') && can('weldstash:parcels:create');
   const { open: openObjectPanel } = useObjectPanel();
   useObjectPanelUrlSync('/weldstash/packing');
   const completed = useInfiniteWeldstashPickLists({ limit: 50, status: 'completed' });
@@ -27,6 +34,7 @@ function PackingPageContent() {
   const printSlip = usePrintPackingSlip();
   const ship = useShipWeldstashPickList();
   const [shipId, setShipId] = useState<string | null>(null);
+  const [labelsId, setLabelsId] = useState<string | null>(null);
 
   const rows = useMemo<WeldstashPickList[]>(() => {
     const a = completed.data?.pages.flatMap((p) => p.data ?? []) ?? [];
@@ -57,7 +65,7 @@ function PackingPageContent() {
         {
           id: 'actions',
           header: '',
-          width: 'w-[280px]',
+          width: canCreateLabels ? 'w-[420px]' : 'w-[280px]',
           render: (row) => (
             <div className="flex justify-end gap-2">
               {row.status === 'completed' ? (
@@ -87,6 +95,19 @@ function PackingPageContent() {
               >
                 {t.packing.printSlip}
               </Button>
+              {row.status === 'packed' && canCreateLabels ? (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setLabelsId(row.id);
+                  }}
+                >
+                  <Tag className="mr-1 size-3.5" aria-hidden="true" />
+                  {tl.createAction}
+                </Button>
+              ) : null}
               {row.status === 'packed' ? (
                 <Button
                   size="sm"
@@ -114,6 +135,15 @@ function PackingPageContent() {
         description: t.packing.emptyDescription,
       }}
     />
+    {labelsId ? (
+      <CreateLabelsDialog
+        pickListId={labelsId}
+        open
+        onOpenChange={(next) => {
+          if (!next) setLabelsId(null);
+        }}
+      />
+    ) : null}
     <ConfirmDialog
       open={Boolean(shipId)}
       onOpenChange={(next) => {

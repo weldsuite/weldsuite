@@ -219,3 +219,22 @@ describe('stash-replenishment', () => {
     expect(isFeatureAvailable('stash-replenishment')).toBe(true);
   });
 });
+
+describe('stash-shipping', () => {
+  it('is hidden on Global, which has no runtime config', () => {
+    setRuntimeConfig(null);
+    expect(isFeatureAvailable('stash-shipping')).toBe(false);
+  });
+
+  it('is offered by a Rust backend that does not list it as unavailable', () => {
+    setRuntimeConfig(EU_CONFIG);
+    expect(isFeatureAvailable('stash-shipping')).toBe(true);
+    setRuntimeConfig({ backend: 'rust', modules: ['core', 'stash'], unavailableFeatures: ['billing'] });
+    expect(isFeatureAvailable('stash-shipping')).toBe(true);
+  });
+
+  it('is hidden by a Rust backend that lists it as unavailable', () => {
+    setRuntimeConfig({ backend: 'rust', modules: ['core', 'stash'], unavailableFeatures: ['stash-shipping'] });
+    expect(isFeatureAvailable('stash-shipping')).toBe(false);
+  });
+});

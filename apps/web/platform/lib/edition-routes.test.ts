@@ -73,6 +73,18 @@ describe('route availability', () => {
     expect(isRouteOffered('/weldstash/replenishment?plan=x')).toBe(true);
   });
 
+  it('hides WeldStash Shipments where stash-shipping is missing, such as Global', () => {
+    expect(routeRequirement('/weldstash/shipments')).toEqual({ modules: ['stash'], feature: 'stash-shipping' });
+    expect(routeRequirement('/weldstash/shipments?status=delivered')).toEqual({ modules: ['stash'], feature: 'stash-shipping' });
+    // Global has no runtime config: GLOBAL_UNAVAILABLE_FEATURES lists the feature.
+    expect(isRouteOffered('/weldstash/shipments')).toBe(false);
+    expect(isRouteOffered('/weldstash/packing')).toBe(true);
+    setRuntimeConfig({ backend: 'rust', modules: ['core', 'stash'], unavailableFeatures: [] });
+    expect(isRouteOffered('/weldstash/shipments')).toBe(true);
+    setRuntimeConfig({ backend: 'rust', modules: ['core', 'stash'], unavailableFeatures: ['stash-shipping'] });
+    expect(isRouteOffered('/weldstash/shipments')).toBe(false);
+  });
+
   it('offers the services-outside-the-EU settings on the EU edition only (ADR OPS-026)', () => {
     expect(routeRequirement('/settings/outside-eu')).toEqual({ feature: 'outside-eu-services' });
     // Global: in GLOBAL_UNAVAILABLE_FEATURES.
