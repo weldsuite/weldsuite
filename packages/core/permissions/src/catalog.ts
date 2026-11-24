@@ -109,7 +109,8 @@ export const PERMISSION_CATALOG_OBJECTS: ObjectDefinition[] = [
       {
         key: 'legal_entities:manage',
         label: 'Manage access per legal entity',
-        description: 'Restrict a legal entity and choose who sees it, and with which role. Holders always see every legal entity.',
+        description:
+          'Restrict a legal entity and choose who sees it, and with which role. Holders see a restricted entity only when they are listed on it.',
       },
     ],
   },
