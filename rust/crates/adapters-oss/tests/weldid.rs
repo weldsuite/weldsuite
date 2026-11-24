@@ -25,12 +25,13 @@ use base64::engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD};
 use serde_json::{Value, json};
 use weldsuite_adapters_oss::{
     INVITATION_DAYS, INVITATION_EMAIL_MISMATCH, INVITATION_EMAIL_UNVERIFIED, INVITATION_EXPIRED,
-    WELDID_ADMIN_SCOPES, WeldIdIdentity, WeldIdOptions, WeldIdSso,
+    WELDID_ADMIN_SCOPES, WeldIdIdentity, WeldIdOptions, WeldIdSso, WeldIdWorkspaceSelections,
 };
 use weldsuite_ports::{
     BoxFuture, Identity, IdentityError, InvitationEmail, InvitationMailer, ListPage, NewInvitation,
     NewMembership, NewOrganization, NewSsoConnection, OrganizationChanges, PortError,
-    SsoConnectionChanges, SsoDirectory, SsoDomainStatus, UserChanges,
+    SsoConnectionChanges, SsoDirectory, SsoDomainStatus, UserChanges, WorkspaceSelectionDecision,
+    WorkspaceSelections,
 };
 
 const CLIENT: &str = "weldsuite-backend";
@@ -1378,4 +1379,115 @@ async fn sso_connections_go_through_the_admin_api_scoped_by_tenant() {
             .filter(|s| s.path.starts_with("/admin/"))
             .all(|s| s.path.starts_with(A) && s.query.is_empty())
     );
+}
+
+/// WeldID's tenant selection, as `weldid-server::admin` answers it: one
+/// sign-in waiting under `wtc_live`, decided once.
+fn fake_tenant_selection(
+    decided: &Mutex<Option<Value>>,
+    method: &str,
+    path: &str,
+) -> (StatusCode, Value) {
+    match (method, path) {
+        ("POST", "/oauth/token") => (
+            StatusCode::OK,
+            json!({ "access_token": "at-tenants", "token_type": "Bearer", "expires_in": 600 }),
+        ),
+        ("GET", "/admin/v1/tenant-selections/wtc_live")
+            if decided.lock().expect("lock").is_none() =>
+        {
+            (
+                StatusCode::OK,
+                json!({
+                    "userId": "usr_1",
+                    "clientId": "https://claude.ai/oauth/mcp-oauth-client-metadata",
+                    "clientName": "Claude",
+                    "redirectHost": "claude.ai",
+                    "resource": "https://mcp.example.eu/mcp",
+                    "expiresAt": "2026-11-24T10:10:00Z",
+                }),
+            )
+        }
+        ("POST", "/admin/v1/tenant-selections/wtc_live")
+            if decided.lock().expect("lock").is_none() =>
+        {
+            *decided.lock().expect("lock") = Some(Value::Null);
+            (
+                StatusCode::OK,
+                json!({ "redirectTo": "https://auth.example.eu/tenant?ar=ar_1" }),
+            )
+        }
+        _ => (
+            StatusCode::NOT_FOUND,
+            json!({ "error": { "code": "not_found", "message": "Not found" } }),
+        ),
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn tenant_selections_go_through_the_admin_api_and_are_used_once() {
+    let decided = Arc::new(Mutex::new(None));
+    let state = Arc::clone(&decided);
+    let setup = mock(None, move |method, path, _query| {
+        fake_tenant_selection(&state, method, path)
+    })
+    .await;
+    let seen = Arc::clone(&setup.seen);
+    let selections = WeldIdWorkspaceSelections::new(Arc::new(setup.identity));
+
+    let request = selections
+        .request("wtc_live")
+        .await
+        .expect("read")
+        .expect("waiting");
+    assert_eq!(request.user_id, "usr_1");
+    assert_eq!(request.client_name, "Claude");
+    assert_eq!(
+        request.resource.as_deref(),
+        Some("https://mcp.example.eu/mcp")
+    );
+    // The token asked for the scope the step needs.
+    let token = calls(&seen, "/oauth/token");
+    assert!(
+        form_field(&form(&token[0].body), "scope")
+            .split(' ')
+            .any(|scope| scope == "weldid:tenants")
+    );
+
+    let redirect = selections
+        .decide(
+            "wtc_live",
+            &WorkspaceSelectionDecision::Allow {
+                tenant_ref: "ws_a".to_owned(),
+            },
+        )
+        .await
+        .expect("decided");
+    assert_eq!(
+        redirect.as_deref(),
+        Some("https://auth.example.eu/tenant?ar=ar_1")
+    );
+    let posted = calls(&seen, "/admin/v1/tenant-selections/wtc_live")
+        .into_iter()
+        .find(|s| s.method == "POST")
+        .expect("posted");
+    assert_eq!(
+        serde_json::from_str::<Value>(&posted.body).expect("json"),
+        json!({ "decision": "allow", "tenantRef": "ws_a" })
+    );
+
+    // Used, unknown, or not a challenge at all: None, never an error, and a
+    // value that can't be a path segment never reaches WeldID.
+    assert_eq!(selections.request("wtc_live").await.expect("read"), None);
+    assert_eq!(
+        selections
+            .decide("wtc_live", &WorkspaceSelectionDecision::Deny)
+            .await
+            .expect("decide"),
+        None
+    );
+    assert_eq!(selections.request("wtc_other").await.expect("read"), None);
+    let before = seen.lock().expect("lock").len();
+    assert_eq!(selections.request("../users").await.expect("read"), None);
+    assert_eq!(seen.lock().expect("lock").len(), before);
 }

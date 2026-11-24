@@ -8,17 +8,22 @@
 //! token. A request then counts against the workspace's per-minute limit on
 //! the cache's counters (the worker's `RateLimiter` Durable Object).
 //!
-//! In membership mode (`OIDC_WORKSPACE_SOURCE=header`, WeldID) the token
-//! names no workspace, and an MCP client can't send the platform's
-//! `X-Weld-Workspace` header, so the server URL names it instead:
-//! `/mcp/w/<workspace>` (its `workspaces.id`, slug or organization id),
-//! checked against WeldSuite's own `user_workspaces` like the header
-//! ([`McpAuth::membership`]). A plain `/mcp` takes the user's only
-//! workspace; someone in several gets the workspace picker
-//! ([`crate::picker`]): connected, with one tool that lists their
-//! workspaces and the URL of each, never a workspace they didn't choose.
-//! With a token that names its workspace (claim mode, Clerk) a workspace
-//! URL must name that same one.
+//! In membership mode (`OIDC_WORKSPACE_SOURCE=header`, WeldID) a platform
+//! token names no workspace, and an MCP client can't send the platform's
+//! `X-Weld-Workspace` header. The person picks the workspace while signing
+//! the MCP client in instead: WeldID asks WeldSuite's `/auth/mcp-workspace`
+//! page ([`crate::selection`]) and puts the answer in the grant's access
+//! tokens as the [`TENANT_CLAIM`] (`workspaces.id`). Every request checks it
+//! against WeldSuite's own `user_workspaces` like the header
+//! ([`McpAuth::membership`]), so leaving the workspace ends the connection.
+//! The server URL can still name a workspace, `/mcp/w/<workspace>` (its
+//! `workspaces.id`, slug or organization id), for a client set up that way;
+//! with a `tenant` claim too, both must name the same one. A token with
+//! neither takes the user's only workspace; someone in several gets the
+//! workspace picker ([`crate::picker`]): connected, with one tool that
+//! lists their workspaces and says to connect again, never a workspace they
+//! didn't choose. With a token that names its organization (claim mode,
+//! Clerk) a workspace URL must name that same one.
 //!
 //! Every refusal is logged with its reason (`mcp auth: 401`, `mcp auth:
 //! 403`): an MCP client shows the person only that it couldn't connect.
@@ -75,6 +80,10 @@ const RATE_WINDOW_SECONDS: u64 = 60;
 pub const MCP_PATH: &str = "/mcp";
 /// What follows [`MCP_PATH`] when the URL names a workspace.
 pub(crate) const WORKSPACE_PREFIX: &str = "/w/";
+/// The access token claim naming the workspace an MCP client's grant is
+/// for, in membership mode: chosen while signing in ([`crate::selection`]),
+/// put there by WeldID's tenant selection. `workspaces.id`, opaque to WeldID.
+pub const TENANT_CLAIM: &str = "tenant";
 /// The longest workspace reference (the columns are 255 wide).
 const MAX_WORKSPACE_REFERENCE: usize = 255;
 
@@ -209,9 +218,14 @@ pub struct McpAuth {
     /// The issuer's metadata, cached.
     pub metadata: IssuerMetadata,
     /// Membership mode (`OIDC_WORKSPACE_SOURCE=header`): the platform's
-    /// workspace check, which the URL's workspace goes through instead of a
-    /// token claim. `None` when the token names the workspace.
+    /// workspace check, which the token's [`TENANT_CLAIM`] or the URL's
+    /// workspace goes through instead of an organization claim. `None` when
+    /// the token names the organization.
     pub membership: Option<WorkspaceSelector>,
+    /// Whether signing an MCP client in asks which workspace to use
+    /// (WeldID's tenant selection, [`crate::selection`]): what the picker
+    /// tells a person whose connection names none.
+    pub sign_in_asks_workspace: bool,
 }
 
 impl McpAuth {
@@ -239,6 +253,7 @@ impl std::fmt::Debug for McpAuth {
             .field("server_url", &self.server_url)
             .field("discovery", &self.discovery)
             .field("membership", &self.membership.is_some())
+            .field("sign_in_asks_workspace", &self.sign_in_asks_workspace)
             .finish_non_exhaustive()
     }
 }
@@ -313,6 +328,16 @@ fn names_tenant(reference: &str, tenant: &Tenant) -> bool {
     reference == tenant.workspace_id || tenant.clerk_org_id.as_deref() == Some(reference)
 }
 
+/// The workspace the token's [`TENANT_CLAIM`] names: `Ok(None)` without
+/// one, `Err(())` for a value that can't be a workspace reference.
+fn tenant_claim(claims: &serde_json::Map<String, Value>) -> Result<Option<&str>, ()> {
+    match claims.get(TENANT_CLAIM) {
+        None => Ok(None),
+        Some(Value::String(tenant)) if is_workspace_segment(tenant) => Ok(Some(tenant)),
+        Some(_) => Err(()),
+    }
+}
+
 /// What membership mode selected for a request.
 enum Selected {
     /// A workspace: the organization reference its tenant is found by.
@@ -322,14 +347,38 @@ enum Selected {
     Choice,
 }
 
-/// Membership mode: the workspace the URL names, or the user's only one,
-/// checked against WeldSuite's memberships like the platform's
-/// `X-Weld-Workspace`.
+/// Membership mode: the workspace the token's `tenant` claim or the URL
+/// names (the same one when both do), or the user's only one, checked
+/// against WeldSuite's memberships like the platform's `X-Weld-Workspace`.
 async fn membership_workspace(
     selector: &WorkspaceSelector,
     user_id: &str,
     named: Option<&str>,
+    tenant: Option<&str>,
 ) -> Result<Selected, Response> {
+    if let Some(tenant) = tenant {
+        let org = match selector.resolve(user_id, tenant).await {
+            Ok(Some(org)) => org,
+            Ok(None) => {
+                return Err(forbidden(
+                    "You are not a member of the workspace this connection was made for. Connect again and choose another workspace.",
+                ));
+            }
+            Err(error) => return Err(workspace_lookup_failed(&error)),
+        };
+        if let Some(reference) = named {
+            match selector.resolve(user_id, reference).await {
+                Ok(Some(named_org)) if named_org == org => {}
+                Ok(_) => {
+                    return Err(forbidden(
+                        "This connection was made for another workspace than the one this address names. Connect to /mcp, or connect again and choose this workspace.",
+                    ));
+                }
+                Err(error) => return Err(workspace_lookup_failed(&error)),
+            }
+        }
+        return Ok(Selected::Workspace(org));
+    }
     if let Some(reference) = named {
         return match selector.resolve(user_id, reference).await {
             Ok(Some(org)) => Ok(Selected::Workspace(org)),
@@ -394,14 +443,32 @@ pub async fn authenticate(
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |d| d.as_secs());
-    let context = match auth.verifier.verify(&token, now).await {
-        Ok(context) => context,
+    // The claims too (the `tenant` claim), checked as `verify` checks them.
+    let verified = match auth
+        .verifier
+        .verify_with(&token, now, &weldsuite_kit::is_authorized_party)
+        .await
+    {
+        Ok(verified) => verified,
         Err(error) => {
             return unauthorized("Invalid or expired access token.", &error.to_string());
         }
     };
+    let context = verified.context;
     let org = if let Some(selector) = &auth.membership {
-        match membership_workspace(selector, &context.user_id, named_workspace.as_deref()).await {
+        let Ok(tenant) = tenant_claim(&verified.claims) else {
+            return forbidden(
+                "This connection names a workspace in a form WeldSuite doesn't take. Connect again.",
+            );
+        };
+        match membership_workspace(
+            selector,
+            &context.user_id,
+            named_workspace.as_deref(),
+            tenant,
+        )
+        .await
+        {
             Ok(Selected::Workspace(org)) => org,
             Ok(Selected::Choice) => {
                 // No workspace, so no tenant, permissions or rate limit: the
@@ -411,9 +478,11 @@ pub async fn authenticate(
                     .await
                 {
                     Ok(workspaces) => {
-                        request
-                            .extensions_mut()
-                            .insert(WorkspaceChoice::new(&auth.server_url, &workspaces));
+                        request.extensions_mut().insert(WorkspaceChoice::new(
+                            &auth.server_url,
+                            &workspaces,
+                            auth.sign_in_asks_workspace,
+                        ));
                         next.run(request).await
                     }
                     Err(error) => workspace_lookup_failed(&error),
@@ -952,6 +1021,7 @@ mod tests {
             discovery: Discovery::oidc(Some("weldsuite-api"), ""),
             metadata: IssuerMetadata::default(),
             membership: None,
+            sign_in_asks_workspace: false,
         };
         // Down: no document, and no new fetch until the retry is due.
         assert_eq!(auth.issuer_metadata().await, None);
@@ -1139,6 +1209,7 @@ mod workspace_tests {
             discovery: Discovery::oidc(Some("weldsuite-api"), ""),
             metadata: IssuerMetadata::default(),
             membership: Some(membership),
+            sign_in_asks_workspace: true,
         });
         let master = sqlx::postgres::PgPoolOptions::new()
             .acquire_timeout(Duration::from_millis(300))
@@ -1379,6 +1450,89 @@ mod workspace_tests {
         let (status, _, body) = send(&none, "POST", "/mcp", Some(token)).await;
         assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
         assert!(body.contains("not a member of any workspace"), "{body}");
+    }
+
+    #[test]
+    fn the_tenant_claim_is_one_workspace_reference() {
+        let claims = |value: Value| {
+            let Value::Object(claims) = value else {
+                panic!("object");
+            };
+            claims
+        };
+        assert_eq!(tenant_claim(&claims(json!({ "sub": "usr_1" }))), Ok(None));
+        assert_eq!(
+            tenant_claim(&claims(json!({ "tenant": "ws_acme" }))),
+            Ok(Some("ws_acme"))
+        );
+        for value in [
+            json!(""),
+            json!("a b"),
+            json!("../x"),
+            json!(1),
+            json!(["ws_a"]),
+        ] {
+            assert_eq!(
+                tenant_claim(&claims(json!({ "tenant": value }))),
+                Err(()),
+                "{value}"
+            );
+        }
+    }
+
+    /// The workspace a request goes to, or the refusal's status and message.
+    async fn selected(
+        selector: &WorkspaceSelector,
+        named: Option<&str>,
+        tenant: Option<&str>,
+    ) -> Result<Option<String>, (StatusCode, String)> {
+        match membership_workspace(selector, "usr_1", named, tenant).await {
+            Ok(Selected::Workspace(org)) => Ok(Some(org)),
+            Ok(Selected::Choice) => Ok(None),
+            Err(refused) => {
+                let status = refused.status();
+                let body = to_bytes(refused.into_body(), usize::MAX)
+                    .await
+                    .expect("body");
+                Err((status, String::from_utf8(body.to_vec()).expect("utf-8")))
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn the_workspace_picked_while_signing_in_is_used_while_a_member() {
+        let selector = selector(&[
+            ("usr_1", "ws_a", "org_a"),
+            ("usr_1", "acme", "org_a"),
+            ("usr_1", "ws_b", "org_b"),
+        ]);
+        // The claim alone picks it, though the user has several workspaces.
+        assert_eq!(
+            selected(&selector, None, Some("ws_b")).await,
+            Ok(Some("org_b".to_owned()))
+        );
+        // Without a claim: the picker, as before.
+        assert_eq!(selected(&selector, None, None).await, Ok(None));
+        // An address naming the same workspace (by slug or id) agrees.
+        assert_eq!(
+            selected(&selector, Some("acme"), Some("ws_a")).await,
+            Ok(Some("org_a".to_owned()))
+        );
+        // Another workspace's address: refused, never either one.
+        let (status, body) = selected(&selector, Some("ws_b"), Some("ws_a"))
+            .await
+            .expect_err("mismatch");
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        assert!(body.contains("made for another workspace"), "{body}");
+        // A workspace the person has left: refused.
+        let (status, body) = selected(&selector, None, Some("ws_gone"))
+            .await
+            .expect_err("left");
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        assert!(
+            body.contains("not a member of the workspace this connection was made for"),
+            "{body}"
+        );
     }
 
     #[tokio::test]
