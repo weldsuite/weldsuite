@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from 'react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { setHrFormatLocale } from '@/app/weldhr/components/shared';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@weldsuite/ui/components/dropdown-menu';
@@ -178,6 +179,10 @@ beforeEach(() => {
   evaluationsQuery = loaded([]);
   coachingQuery = loaded([]);
 });
+
+// The dates below read as WeldHR writes them in en-GB, whatever the machine's locale.
+beforeAll(() => setHrFormatLocale('en-GB'));
+afterAll(() => setHrFormatLocale(undefined));
 
 describe('review helpers', () => {
   it('asks to acknowledge only an evaluation shared with you that you have not acknowledged', () => {

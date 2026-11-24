@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { I18nProvider } from '@weldsuite/i18n/provider';
@@ -17,7 +17,7 @@ import {
   MY_SHIFT_PANEL_TYPE,
   MY_SICK_REPORT_PANEL_TYPE,
 } from '@/components/objects/hr-my-hr/types';
-import { formatWeekdayDate } from '../../components/shared';
+import { formatWeekdayDate, setHrFormatLocale } from '../../components/shared';
 import { MyScheduleCalendar } from './schedule-calendar-tab';
 
 const t = en.weldhr.me.schedule;
@@ -223,6 +223,10 @@ beforeEach(() => {
 afterEach(() => {
   vi.useRealTimers();
 });
+
+// The dates below read as WeldHR writes them in en-GB, whatever the machine's locale.
+beforeAll(() => setHrFormatLocale('en-GB'));
+afterAll(() => setHrFormatLocale(undefined));
 
 describe('MyScheduleCalendar toolbar', () => {
   it('opens on the week of today, asking for its days and one either side', () => {
@@ -531,7 +535,7 @@ describe('MyScheduleCalendar month view', () => {
 
   it('greys the days of the neighbouring months', async () => {
     const { container } = await renderMonth();
-    expect(container.querySelectorAll('.bg-muted\\/50').length).toBe(42 - 30);
+    expect(container.querySelectorAll('.bg-muted\\/50')).toHaveLength(42 - 30);
   });
 });
 

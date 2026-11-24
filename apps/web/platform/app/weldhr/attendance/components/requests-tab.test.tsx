@@ -1,4 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { setHrFormatLocale } from '@/app/weldhr/components/shared';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { toast } from 'sonner';
@@ -131,6 +132,10 @@ beforeEach(() => {
 });
 
 afterEach(() => vi.useRealTimers());
+
+// The dates below read as WeldHR writes them in en-GB, whatever the machine's locale.
+beforeAll(() => setHrFormatLocale('en-GB'));
+afterAll(() => setHrFormatLocale(undefined));
 
 describe('attendance RequestsTab', () => {
   it('asks for the pending queue and for the answers of the last 30 days', () => {

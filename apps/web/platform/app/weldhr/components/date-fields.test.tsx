@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { setHrFormatLocale } from '@/app/weldhr/components/shared';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
@@ -16,6 +17,10 @@ vi.mock('@/lib/i18n/date-locale', async () => {
 import { HrDateInput, HrTimeInput } from './date-fields';
 
 const CLEAR = 'common.ui.form.clear';
+
+// The dates below read as WeldHR writes them in en-GB, whatever the machine's locale.
+beforeAll(() => setHrFormatLocale('en-GB'));
+afterAll(() => setHrFormatLocale(undefined));
 
 describe('HrTimeInput', () => {
   it('empties an optional time with Clear', async () => {

@@ -114,7 +114,7 @@ describe('MyPayoutsList', () => {
   it('puts a dash on an outstanding row with nothing to come, and no total on a group without amounts', () => {
     setData([declaration({ id: 'p', status: 'paid', paidAt: '2026-09-20T10:00:00', amount: 12 })]);
     renderList();
-    expect(screen.getAllByText('—').length).toBe(2);
+    expect(screen.getAllByText('—')).toHaveLength(2);
     expect(screen.getAllByText('€12.00').length).toBeGreaterThan(0);
   });
 

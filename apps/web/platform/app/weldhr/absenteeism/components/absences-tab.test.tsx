@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { setHrFormatLocale } from '@/app/weldhr/components/shared';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { toast } from 'sonner';
@@ -92,6 +93,10 @@ beforeEach(() => {
     pagination: { hasMore: false },
   };
 });
+
+// The dates below read as WeldHR writes them in en-GB, whatever the machine's locale.
+beforeAll(() => setHrFormatLocale('en-GB'));
+afterAll(() => setHrFormatLocale(undefined));
 
 describe('AbsencesTab', () => {
   it('asks for the reports of its status', () => {

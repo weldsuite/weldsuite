@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { setHrFormatLocale } from '@/app/weldhr/components/shared';
 import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { HrSelfCoachingLog, HrSelfEvaluation, HrSelfPerformance } from '@weldsuite/app-api-client/domains/weldhr';
@@ -171,6 +172,10 @@ function setClipboard(writeText: () => Promise<void>) {
     configurable: true,
   });
 }
+
+// The dates below read as WeldHR writes them in en-GB, whatever the machine's locale.
+beforeAll(() => setHrFormatLocale('en-GB'));
+afterAll(() => setHrFormatLocale(undefined));
 
 describe('MyEvaluationPanel', () => {
   it('shows the evaluation with its scores per criterion and the summary', () => {

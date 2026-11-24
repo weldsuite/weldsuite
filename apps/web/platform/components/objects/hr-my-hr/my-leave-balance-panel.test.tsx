@@ -115,7 +115,7 @@ describe('MyLeaveBalancePanel', () => {
     expect(tab).toHaveTextContent('Requests');
     await user.click(tab);
     const rows = screen.getAllByRole('button', { name: /–/ });
-    expect(rows.length).toBe(2);
+    expect(rows).toHaveLength(2);
     await user.click(rows[0]);
     expect(panelOpen).toHaveBeenCalledWith({
       type: 'hr_my_leave_request',

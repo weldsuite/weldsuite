@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { setHrFormatLocale } from '@/app/weldhr/components/shared';
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { en } from '@weldsuite/i18n/locales/en';
@@ -70,6 +71,10 @@ beforeEach(() => {
   downloadPending = false;
   setDeclarations(declaration());
 });
+
+// The dates below read as WeldHR writes them in en-GB, whatever the machine's locale.
+beforeAll(() => setHrFormatLocale('en-GB'));
+afterAll(() => setHrFormatLocale(undefined));
 
 describe('MyDeclarationPanel', () => {
   it('shows a pending declaration with its details and dashes for what is not there yet', () => {
