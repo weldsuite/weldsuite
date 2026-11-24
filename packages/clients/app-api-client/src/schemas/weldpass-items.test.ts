@@ -334,7 +334,7 @@ describe('item form', () => {
   it('requires a title and reports the translated message', () => {
     const result = schema.safeParse(emptyItemForm('login', 'v1'));
     expect(result.success).toBe(false);
-    if (!result.success) expect(result.error.issues[0].message).toBe('Title is required');
+    if (!result.success) expect(result.error.issues[0]?.message).toBe('Title is required');
   });
 
   it('accepts an empty login apart from the title', () => {
