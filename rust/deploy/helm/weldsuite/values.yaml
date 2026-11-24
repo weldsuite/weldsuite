@@ -1603,6 +1603,14 @@ cron:
       enabled: true
       schedule: "20 * * * *"
       activeDeadlineSeconds: 3000
+    # WeldStash: polls PostNL and DHL Parcel for the parcels whose next check
+    # has come, in the workspaces the stash_parcel_tracking due index lists
+    # (ADR STASH-013). Calls the carriers' tracking APIs. Does nothing while
+    # stash is not served.
+    stash-parcel-tracking:
+      enabled: true
+      schedule: "*/20 * * * *"
+      activeDeadlineSeconds: 1100
     # WeldMail: the attachments clamd couldn't take at delivery, for the
     # workspaces the mail_attachment_scan due index lists. Nothing without
     # mailInbound and its clamav.
