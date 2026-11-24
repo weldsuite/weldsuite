@@ -1867,8 +1867,15 @@
     {
       "idx": 266,
       "version": "7",
-      "when": 1795533924019,
-      "tag": "0266_stash_carrier_shipping",
+      "when": 1795542505824,
+      "tag": "0266_weldpass_devices",
+      "breakpoints": true
+    },
+    {
+      "idx": 267,
+      "version": "7",
+      "when": 1795552534366,
+      "tag": "0267_stash_carrier_shipping",
       "breakpoints": true
     }
   ]

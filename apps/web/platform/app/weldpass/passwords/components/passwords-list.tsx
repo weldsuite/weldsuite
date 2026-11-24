@@ -57,7 +57,7 @@ import {
   vaultIdFromPills,
   withVaultPill,
   writableVaults,
-} from '../lib/items';
+} from '@weldsuite/app-api-client/schemas/weldpass-items';
 import { usePasswordsT } from '../lib/use-passwords-t';
 
 type Dialog =

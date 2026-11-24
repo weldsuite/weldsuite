@@ -563,6 +563,16 @@ secret:
   # the Secret above, so a key set there wins. Back WELDPASS_ROOT_KEY and the
   # DATABASE_ENCRYPTION_KEYs up somewhere outside the cluster: losing them loses
   # every stored WeldPass secret and every workspace's database URL.
+  # The keys survive upgrades because the chart reads the Secret back
+  # (`lookup`). Rendered with `helm template` (Argo CD, `helm template |
+  # kubectl apply`) there is nothing to read, and NEW keys would be written
+  # over the old ones: there, keep the keys in existingSecret and set
+  # generate to false.
+  # Rotating WeldPass's root key: add WELDPASS_ROOT_KEY_V2 (64 hex) beside
+  # WELDPASS_ROOT_KEY, roll the server, then run
+  # `weldsuite admin weldpass rewrap --as <email> --reason <text>` in a server pod
+  # until `weldsuite admin weldpass status` shows nothing under v1. Keep v2 set
+  # from then on: the rewrapped keys are tagged v2.
   generate: true
   # A fixed name, so the bundled subcharts' values can name it (valkey and
   # nats below). Change it there too if you change it here.

@@ -129,6 +129,8 @@
     "./schemas/weldmeet-responses": "./src/schemas/weldmeet-responses.ts",
     "./schemas/weldpass": "./src/schemas/weldpass.ts",
     "./schemas/weldpass-passwords": "./src/schemas/weldpass-passwords.ts",
+    "./schemas/weldpass-items": "./src/schemas/weldpass-items.ts",
+    "./schemas/weldpass-devices": "./src/schemas/weldpass-devices.ts",
     "./schemas/reach": "./src/schemas/reach.ts",
     "./schemas/sheets": "./src/schemas/sheets.ts",
     "./schemas/sheet-data": "./src/schemas/sheet-data.ts",
@@ -248,6 +250,7 @@
     "./domains/access-requests": "./src/domains/access-requests.ts",
     "./domains/weldpass": "./src/domains/weldpass.ts",
     "./domains/weldpass-passwords": "./src/domains/weldpass-passwords.ts",
+    "./domains/weldpass-devices": "./src/domains/weldpass-devices.ts",
     "./domains/reach": "./src/domains/reach.ts",
     "./domains/sheets": "./src/domains/sheets.ts",
     "./domains/docs": "./src/domains/docs.ts",
@@ -271,6 +274,7 @@
     "@weldsuite/api-client": "workspace:*",
     "@weldsuite/forms-engine": "workspace:*",
     "@weldsuite/text": "workspace:*",
+    "tldts": "7.4.19",
     "zod": "^3.25.76"
   },
   "devDependencies": {

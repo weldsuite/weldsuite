@@ -12,7 +12,7 @@ import { Button } from '@weldsuite/ui/components/button';
 import type { WeldPassTotpCode } from '@weldsuite/app-api-client/domains/weldpass-passwords';
 import { useWeldPassTotp } from '@/hooks/queries/use-weldpass-passwords-queries';
 import { errorMessage } from '../../components/shared';
-import { formatTotpCode, secondsUntil } from '../lib/items';
+import { formatTotpCode, secondsUntil } from '@weldsuite/app-api-client/schemas/weldpass-items';
 import { usePasswordsT } from '../lib/use-passwords-t';
 import { CopyButton } from './copy-button';
 

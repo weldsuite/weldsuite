@@ -74,6 +74,7 @@ const APP_SETTINGS_ITEMS = [
   { appCode: 'weldcommerce', title: 'WeldCommerce', href: '/settings/apps/weldcommerce' },
   { appCode: 'weldstash', title: 'WeldStash', href: '/settings/apps/weldstash' },
   { appCode: 'weldmerge', title: 'WeldMerge', href: '/settings/apps/weldmerge' },
+  { appCode: 'weldpass', title: 'WeldPass', href: '/settings/apps/weldpass' },
   { appCode: 'weldpanel', title: 'WeldPanel', href: '/settings/apps/weldpanel' },
   { appCode: 'weldreach', title: 'WeldReach', href: '/settings/apps/weldreach' },
   { appCode: 'social', title: 'WeldSocial', href: '/settings/apps/social' },
@@ -155,7 +156,8 @@ export function useSettingsSidebarItems(enabled: boolean) {
           (item) =>
             installedAppCodes.has(item.appCode) &&
             (item.appCode !== 'weldstash' || isFeatureAvailable('stash-replenishment')) &&
-            (item.appCode !== 'weldcommerce' || isFeatureAvailable('commerce')),
+            (item.appCode !== 'weldcommerce' || isFeatureAvailable('commerce')) &&
+            (item.appCode !== 'weldpass' || isFeatureAvailable('weldpass-offline')),
         )
         .map(({ appCode, title, href, icon }): MenuItemProps => ({
           title,

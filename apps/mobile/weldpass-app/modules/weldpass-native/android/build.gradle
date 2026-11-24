@@ -1,0 +1,22 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'com.weldsuite.weldpass'
+version = '1.0.0'
+
+android {
+  namespace "expo.modules.weldpassnative"
+  defaultConfig {
+    versionCode 1
+    versionName '1.0.0'
+  }
+}
+
+dependencies {
+  // The autofill unlock (AutofillAuthActivity): BiometricPrompt on a FragmentActivity.
+  implementation 'androidx.biometric:biometric:1.1.0'
+  implementation 'androidx.fragment:fragment-ktx:1.8.5'
+  implementation 'androidx.appcompat:appcompat:1.7.0'
+}

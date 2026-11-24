@@ -369,6 +369,25 @@ pub(crate) async fn delete_environment(caller: Caller, Path(params): Params) -> 
     )
 }
 
+/// The 403 a deploy-target route answers where sync is off.
+pub(crate) const SYNC_UNAVAILABLE: &str = "SYNC_UNAVAILABLE";
+
+/// Refuses a route that stores a provider token or calls a provider when
+/// this install has sync off ([`PassState::sync`]).
+fn require_sync(state: &PassState) -> PassResult<()> {
+    if state.sync {
+        return Ok(());
+    }
+    Err(PassError::Response(Box::new(
+        ApiError::new(
+            StatusCode::FORBIDDEN,
+            SYNC_UNAVAILABLE,
+            "Pushing secrets to Cloudflare and Vercel is not available on this server.",
+        )
+        .into_response(),
+    )))
+}
+
 // ── Secrets ────────────────────────────────────────────────────────────────
 
 /// `runAutoSync`: auto-sync targets after a write; a failure is reported,
@@ -380,6 +399,9 @@ async fn run_auto_sync(
     environment_id: &str,
     kek: &Key,
 ) -> Value {
+    if !state.sync {
+        return json!([]);
+    }
     let http = caller.http(state);
     match push_auto_targets(
         &caller.db,
@@ -856,6 +878,7 @@ pub(crate) async fn create_credential(
 ) -> Response {
     answer(
         async {
+            require_sync(&state)?;
             let (provider, name, token, metadata) = validate(&headers, &body, |issues, fields| {
                 (
                     issues.choice(fields, "provider", Presence::Required, &PROVIDERS),
@@ -899,6 +922,7 @@ pub(crate) async fn update_credential(
 ) -> Response {
     answer(
         async {
+            require_sync(&state)?;
             let (name, token, metadata) = validate(&headers, &body, |issues, fields| {
                 (
                     issues.text(fields, "name", Presence::Optional, Some(1), Some(100)),
@@ -1003,6 +1027,7 @@ pub(crate) async fn verify_credential(
 ) -> Response {
     answer(
         async {
+            require_sync(&state)?;
             let config = validate(&headers, &body, |issues, fields| {
                 read_config(issues, fields, "config", Presence::Required)
             })?
@@ -1099,6 +1124,7 @@ pub(crate) async fn create_target(
 ) -> Response {
     answer(
         async {
+            require_sync(&state)?;
             let (environment_id, credential_id, name, config, auto_sync, prune) =
                 validate(&headers, &body, |issues, fields| {
                     (
@@ -1184,6 +1210,7 @@ pub(crate) async fn update_target(
 ) -> Response {
     answer(
         async {
+            require_sync(&state)?;
             let (name, credential_id, config, auto_sync, prune) =
                 validate(&headers, &body, |issues, fields| {
                     (
@@ -1286,6 +1313,7 @@ pub(crate) async fn preview_target(
 ) -> Response {
     answer(
         async {
+            require_sync(&state)?;
             let (project, _) = vault_for(&caller, &state, &params).await?;
             let target =
                 require_target(&caller.db, &project.id, param(&params, "targetId")).await?;
@@ -1310,6 +1338,7 @@ pub(crate) async fn push_target(
 ) -> Response {
     answer(
         async {
+            require_sync(&state)?;
             let (project, kek) = vault_for(&caller, &state, &params).await?;
             let http = caller.http(&state);
             let outcome = push_to_target(
@@ -1413,4 +1442,29 @@ pub(crate) fn page(mut rows: Vec<Value>, limit: i64) -> Response {
     };
     let count = u64::try_from(rows.len()).unwrap_or(u64::MAX);
     List::new(rows, Pagination::new(count, has_more, cursor)).into_response()
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use super::*;
+    use crate::{ReqwestTransport, RootKeyring};
+
+    fn state(sync: bool) -> PassState {
+        PassState {
+            root_keys: RootKeyring::default(),
+            http: Arc::new(ReqwestTransport::new()),
+            sync,
+        }
+    }
+
+    #[test]
+    fn sync_routes_refuse_where_sync_is_off() {
+        assert!(require_sync(&state(true)).is_ok());
+        let Err(PassError::Response(response)) = require_sync(&state(false)) else {
+            panic!("expected a refusal");
+        };
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    }
 }

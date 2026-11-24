@@ -29,7 +29,7 @@ import { queryClient } from '@/lib/query-client';
 
 import { appApi, setAppApiTokenGetter } from '@/services/app-api';
 import { NotificationProvider } from '@/contexts/NotificationContext';
-import { AppLockProvider } from '@/contexts/AppLockContext';
+import { AppLockProvider } from '@weldsuite/mobile-ui/contexts/AppLockContext';
 import { RealtimeProvider } from '@/providers/realtime-provider';
 import { RealtimeSyncBridge } from '@/providers/realtime-sync-bridge';
 import { I18nProvider, useI18n, usePersistedLanguage } from '@/lib/i18n';
@@ -175,6 +175,20 @@ const installedAppsApi = {
   },
 };
 
+/** The optional Face ID lock (Me → Settings), off until the member switches it on. */
+function HrAppLock({ children }: Readonly<{ children: React.ReactNode }>) {
+  const { t } = useI18n();
+  return (
+    <AppLockProvider
+      copy={{ ...t.lock, cancel: t.common.cancel }}
+      accentColor={BRAND}
+      storageKey="@weldsuite/weldhr:app-lock"
+    >
+      {children}
+    </AppLockProvider>
+  );
+}
+
 function AppStack() {
   const { theme, colors } = useTheme();
   const navigationTheme = {
@@ -192,7 +206,7 @@ function AppStack() {
               <NavigationThemeProvider value={navigationTheme}>
                 <StatusBar style={theme === 'dark' ? 'light' : 'dark'} />
                 <AuthGuard>
-                  <AppLockProvider>
+                  <HrAppLock>
                     <RealtimeProvider>
                       <RealtimeSyncBridge />
                       <Stack screenOptions={{ headerShown: false }}>
@@ -220,7 +234,7 @@ function AppStack() {
                         <Stack.Screen name="employee/[id]" />
                       </Stack>
                     </RealtimeProvider>
-                  </AppLockProvider>
+                  </HrAppLock>
                 </AuthGuard>
               </NavigationThemeProvider>
             </WorkspaceProvider>

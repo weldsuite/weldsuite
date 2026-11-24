@@ -187,7 +187,7 @@
     {
       "item": "co.uk",
       "page": "example.co.uk",
-      "output": true
+      "output": false
     },
     {
       "item": "localhost",
@@ -203,6 +203,140 @@
       "item": "a.b.c",
       "page": "b.c",
       "output": true
+    },
+    {
+      "item": "a.github.io",
+      "page": "github.io",
+      "output": false
+    },
+    {
+      "item": "github.io",
+      "page": "a.github.io",
+      "output": false
+    },
+    {
+      "item": "a.github.io",
+      "page": "b.github.io",
+      "output": false
+    },
+    {
+      "item": "a.github.io",
+      "page": "login.a.github.io",
+      "output": true
+    },
+    {
+      "item": "github.io",
+      "page": "github.io",
+      "output": true
+    },
+    {
+      "item": "example.co.uk",
+      "page": "www.example.co.uk",
+      "output": true
+    },
+    {
+      "item": "example.co.uk",
+      "page": "co.uk",
+      "output": false
+    },
+    {
+      "item": "x.blogspot.com",
+      "page": "blogspot.com",
+      "output": false
+    },
+    {
+      "item": "acme-match.test",
+      "page": "app.acme-match.test",
+      "output": true
+    },
+    {
+      "item": "127.0.0.1",
+      "page": "127.0.0.1",
+      "output": true
+    },
+    {
+      "item": "0.0.1",
+      "page": "127.0.0.1",
+      "output": false
+    },
+    {
+      "item": "localhost",
+      "page": "localhost",
+      "output": true
+    }
+  ],
+  "publicSuffix": [
+    {
+      "input": "com",
+      "output": true
+    },
+    {
+      "input": "example.com",
+      "output": false
+    },
+    {
+      "input": "co.uk",
+      "output": true
+    },
+    {
+      "input": "example.co.uk",
+      "output": false
+    },
+    {
+      "input": "github.io",
+      "output": true
+    },
+    {
+      "input": "a.github.io",
+      "output": false
+    },
+    {
+      "input": "blogspot.com",
+      "output": true
+    },
+    {
+      "input": "herokuapp.com",
+      "output": true
+    },
+    {
+      "input": "app.herokuapp.com",
+      "output": false
+    },
+    {
+      "input": "test",
+      "output": true
+    },
+    {
+      "input": "acme-match.test",
+      "output": false
+    },
+    {
+      "input": "localhost",
+      "output": true
+    },
+    {
+      "input": "nl",
+      "output": true
+    },
+    {
+      "input": "gov.uk",
+      "output": true
+    },
+    {
+      "input": "pages.dev",
+      "output": true
+    },
+    {
+      "input": "vercel.app",
+      "output": true
+    },
+    {
+      "input": "my.vercel.app",
+      "output": false
+    },
+    {
+      "input": "127.0.0.1",
+      "output": false
     }
   ],
   "passwords": [
@@ -1640,6 +1774,257 @@
                 "fields"
               ],
               "message": "Expected object, received null"
+            }
+          ],
+          "name": "ZodError"
+        }
+      }
+    },
+    {
+      "schema": "item",
+      "body": {
+        "type": "login",
+        "title": "x",
+        "fields": {
+          "apps": [
+            "com.example.app",
+            "nl.bank_app.v2"
+          ]
+        }
+      },
+      "result": {
+        "success": true,
+        "data": {
+          "type": "login",
+          "title": "x",
+          "fields": {
+            "username": "",
+            "password": "",
+            "totp": "",
+            "notes": "",
+            "apps": [
+              "com.example.app",
+              "nl.bank_app.v2"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "schema": "item",
+      "body": {
+        "type": "login",
+        "title": "x",
+        "fields": {
+          "username": "u",
+          "apps": []
+        }
+      },
+      "result": {
+        "success": true,
+        "data": {
+          "type": "login",
+          "title": "x",
+          "fields": {
+            "username": "u",
+            "password": "",
+            "totp": "",
+            "notes": "",
+            "apps": []
+          }
+        }
+      }
+    },
+    {
+      "schema": "item",
+      "body": {
+        "type": "login",
+        "title": "x",
+        "fields": {
+          "apps": [
+            "bank",
+            "",
+            " com.x.y",
+            "com..y",
+            5
+          ]
+        }
+      },
+      "result": {
+        "success": false,
+        "error": {
+          "issues": [
+            {
+              "validation": "regex",
+              "code": "invalid_string",
+              "message": "Not an Android package name",
+              "path": [
+                "fields",
+                "apps",
+                0
+              ]
+            },
+            {
+              "code": "too_small",
+              "minimum": 1,
+              "type": "string",
+              "inclusive": true,
+              "exact": false,
+              "message": "String must contain at least 1 character(s)",
+              "path": [
+                "fields",
+                "apps",
+                1
+              ]
+            },
+            {
+              "validation": "regex",
+              "code": "invalid_string",
+              "message": "Not an Android package name",
+              "path": [
+                "fields",
+                "apps",
+                1
+              ]
+            },
+            {
+              "validation": "regex",
+              "code": "invalid_string",
+              "message": "Not an Android package name",
+              "path": [
+                "fields",
+                "apps",
+                2
+              ]
+            },
+            {
+              "validation": "regex",
+              "code": "invalid_string",
+              "message": "Not an Android package name",
+              "path": [
+                "fields",
+                "apps",
+                3
+              ]
+            },
+            {
+              "code": "invalid_type",
+              "expected": "string",
+              "received": "number",
+              "path": [
+                "fields",
+                "apps",
+                4
+              ],
+              "message": "Expected string, received number"
+            }
+          ],
+          "name": "ZodError"
+        }
+      }
+    },
+    {
+      "schema": "item",
+      "body": {
+        "type": "login",
+        "title": "x",
+        "fields": {
+          "apps": null
+        }
+      },
+      "result": {
+        "success": false,
+        "error": {
+          "issues": [
+            {
+              "code": "invalid_type",
+              "expected": "array",
+              "received": "null",
+              "path": [
+                "fields",
+                "apps"
+              ],
+              "message": "Expected array, received null"
+            }
+          ],
+          "name": "ZodError"
+        }
+      }
+    },
+    {
+      "schema": "item",
+      "body": {
+        "type": "login",
+        "title": "x",
+        "fields": {
+          "apps": "com.x.y"
+        }
+      },
+      "result": {
+        "success": false,
+        "error": {
+          "issues": [
+            {
+              "code": "invalid_type",
+              "expected": "array",
+              "received": "string",
+              "path": [
+                "fields",
+                "apps"
+              ],
+              "message": "Expected array, received string"
+            }
+          ],
+          "name": "ZodError"
+        }
+      }
+    },
+    {
+      "schema": "item",
+      "body": {
+        "type": "login",
+        "title": "x",
+        "fields": {
+          "apps": [
+            "com.x.a0",
+            "com.x.a1",
+            "com.x.a2",
+            "com.x.a3",
+            "com.x.a4",
+            "com.x.a5",
+            "com.x.a6",
+            "com.x.a7",
+            "com.x.a8",
+            "com.x.a9",
+            "com.x.a10",
+            "com.x.a11",
+            "com.x.a12",
+            "com.x.a13",
+            "com.x.a14",
+            "com.x.a15",
+            "com.x.a16",
+            "com.x.a17",
+            "com.x.a18",
+            "com.x.a19",
+            "com.x.a20"
+          ]
+        }
+      },
+      "result": {
+        "success": false,
+        "error": {
+          "issues": [
+            {
+              "code": "too_big",
+              "maximum": 20,
+              "type": "array",
+              "inclusive": true,
+              "exact": false,
+              "message": "Array must contain at most 20 element(s)",
+              "path": [
+                "fields",
+                "apps"
+              ]
             }
           ],
           "name": "ZodError"

@@ -22,6 +22,7 @@ getrandom = { workspace = true }
 hex = { workspace = true }
 hkdf = { workspace = true }
 hmac = { workspace = true }
+psl = { workspace = true }
 http = { workspace = true }
 icu_collator = { workspace = true }
 reqwest = { workspace = true }

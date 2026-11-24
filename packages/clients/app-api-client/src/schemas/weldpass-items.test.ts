@@ -3,7 +3,7 @@ import type {
   WeldPassItem,
   WeldPassVault,
   WeldPassVaultRole,
-} from '@weldsuite/app-api-client/domains/weldpass-passwords';
+} from '../domains/weldpass-passwords';
 import {
   canAdministerVault,
   canEditVault,
@@ -11,6 +11,7 @@ import {
   createItemFormSchema,
   defaultCreateVaultId,
   emptyItemForm,
+  invalidApps,
   filterItems,
   filterVaults,
   formatTotpCode,
@@ -18,6 +19,7 @@ import {
   isNonMemberView,
   itemToFormValues,
   moveTargets,
+  parseAppList,
   safeHref,
   secondsUntil,
   sortVaults,
@@ -25,7 +27,7 @@ import {
   vaultIdFromPills,
   withVaultPill,
   type FilterPill,
-} from './items';
+} from './weldpass-items';
 
 function item(overrides: Partial<WeldPassItem>): WeldPassItem {
   return {
@@ -332,7 +334,7 @@ describe('item form', () => {
   it('requires a title and reports the translated message', () => {
     const result = schema.safeParse(emptyItemForm('login', 'v1'));
     expect(result.success).toBe(false);
-    if (!result.success) expect(result.error.issues[0].message).toBe('Title is required');
+    if (!result.success) expect(result.error.issues[0]?.message).toBe('Title is required');
   });
 
   it('accepts an empty login apart from the title', () => {
@@ -413,5 +415,60 @@ describe('safeHref', () => {
     expect(safeHref('ftp://example.com')).toBeNull();
     expect(safeHref('   ')).toBeNull();
     expect(safeHref(null)).toBeNull();
+  });
+});
+
+describe("a login's Android apps", () => {
+  const login = {
+    ...emptyItemForm('login', 'v1'),
+    title: 'Bank',
+    username: 'me',
+    password: 'pw',
+  };
+
+  it('are sent only when there are some, so a login without apps seals the same text', () => {
+    const without = toItemInput(login);
+    expect(without.fields).not.toHaveProperty('apps');
+    expect(JSON.stringify(without.fields)).toBe(
+      JSON.stringify({ username: 'me', password: 'pw', totp: '', notes: '' }),
+    );
+
+    const withApps = toItemInput({ ...login, apps: ['com.example.bank'] });
+    expect(withApps.fields).toEqual({
+      username: 'me',
+      password: 'pw',
+      totp: '',
+      notes: '',
+      apps: ['com.example.bank'],
+    });
+  });
+
+  it('survive an edit made on a form that does not show them', () => {
+    const values = itemToFormValues(
+      { type: 'login', vaultId: 'v1', title: 'Bank', url: null },
+      { username: 'me', password: 'pw', totp: '', notes: '', apps: ['com.example.bank'] },
+    );
+    expect(values.apps).toEqual(['com.example.bank']);
+    expect(toItemInput({ ...values, password: 'new' }).fields).toMatchObject({
+      apps: ['com.example.bank'],
+    });
+  });
+
+  it('are refused by the API schema when they are not package names', () => {
+    expect(() => toItemInput({ ...login, apps: ['not a package'] })).toThrow();
+    expect(() => toItemInput({ ...login, apps: ['bank'] })).toThrow();
+    expect(invalidApps(['com.example.bank', 'bank', 'nl.bank_app.v2', '1com.x'])).toEqual([
+      'bank',
+      '1com.x',
+    ]);
+  });
+
+  it('are typed one per line, with commas and spaces tolerated', () => {
+    expect(parseAppList(' com.a.b\ncom.c.d, com.a.b ;\n\n org.e.f ')).toEqual([
+      'com.a.b',
+      'com.c.d',
+      'org.e.f',
+    ]);
+    expect(parseAppList('   ')).toEqual([]);
   });
 });

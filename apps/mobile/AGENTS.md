@@ -3,8 +3,12 @@
 One Expo app per module (Expo 57, React Native 0.86, Expo Router):
 `weldagent-app`, `weldbooks-app`, `weldcalendar-app`, `weldchat-app`,
 `weldcrm-app`, `welddesk-app`, `weldflow-app`, `weldhr-app`, `weldmail-app`,
-`weldmeet-app`, `weldsocial-app`, `weldstash-app`. Read the root `AGENTS.md`
-first; this file adds what is specific to the apps.
+`weldmeet-app`, `weldpass-app`, `weldsocial-app`, `weldstash-app`. Read the
+root `AGENTS.md` first; this file adds what is specific to the apps.
+
+`weldpass-app` is the first app without Expo's US-hosted services (no push,
+no EAS Update, no Observe, no Mixpanel): every release is a native build, and
+its own `README.md` says what else differs.
 
 - `_template/` is the scaffold for a new app: run `pnpm create:mobile-app` from
   the root rather than copying an app by hand. It is not a workspace package.

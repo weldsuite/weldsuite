@@ -1,5 +1,5 @@
 {
-  "id": "27e40234-004e-4f7e-9a58-9b557fc3194c",
+  "id": "cfb0b4ae-e5e6-4ca9-9673-e40d561db910",
   "prevId": "fa596a56-2851-4a68-8771-85746ef843ca",
   "version": "7",
   "dialect": "postgresql",
@@ -54381,54 +54381,6 @@
           "type": "jsonb",
           "primaryKey": false,
           "notNull": false
-        },
-        "pick_list_id": {
-          "name": "pick_list_id",
-          "type": "varchar(30)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "carrier_code": {
-          "name": "carrier_code",
-          "type": "varchar(30)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "carrier_reference": {
-          "name": "carrier_reference",
-          "type": "varchar(100)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "tracking_url": {
-          "name": "tracking_url",
-          "type": "varchar(500)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "collo_number": {
-          "name": "collo_number",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "service_point": {
-          "name": "service_point",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "return_for_parcel_id": {
-          "name": "return_for_parcel_id",
-          "type": "varchar(30)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "tracking_next_check_at": {
-          "name": "tracking_next_check_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": false
         }
       },
       "indexes": {
@@ -54533,52 +54485,6 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "parcels_pick_list_id_idx": {
-          "name": "parcels_pick_list_id_idx",
-          "columns": [
-            {
-              "expression": "pick_list_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "parcels_return_for_parcel_id_idx": {
-          "name": "parcels_return_for_parcel_id_idx",
-          "columns": [
-            {
-              "expression": "return_for_parcel_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "parcels_tracking_next_check_at_idx": {
-          "name": "parcels_tracking_next_check_at_idx",
-          "columns": [
-            {
-              "expression": "tracking_next_check_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "\"parcels\".\"tracking_next_check_at\" IS NOT NULL",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -58944,18 +58850,6 @@
         "shipping_class": {
           "name": "shipping_class",
           "type": "varchar(50)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "hs_code": {
-          "name": "hs_code",
-          "type": "varchar(20)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "origin_country": {
-          "name": "origin_country",
-          "type": "varchar(2)",
           "primaryKey": false,
           "notNull": false
         },
@@ -83869,6 +83763,123 @@
         "weldpass_audit_events_created_at_idx": {
           "name": "weldpass_audit_events_created_at_idx",
           "columns": [
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.weldpass_devices": {
+      "name": "weldpass_devices",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "varchar(30)",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "varchar(100)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "platform": {
+          "name": "platform",
+          "type": "varchar(20)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "app_version": {
+          "name": "app_version",
+          "type": "varchar(40)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "last_sync_at": {
+          "name": "last_sync_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "revoked_at": {
+          "name": "revoked_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "revoked_by": {
+          "name": "revoked_by",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "weldpass_devices_workspace_user_idx": {
+          "name": "weldpass_devices_workspace_user_idx",
+          "columns": [
+            {
+              "expression": "workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "weldpass_devices_workspace_created_at_idx": {
+          "name": "weldpass_devices_workspace_created_at_idx",
+          "columns": [
+            {
+              "expression": "workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
             {
               "expression": "created_at",
               "isExpression": false,

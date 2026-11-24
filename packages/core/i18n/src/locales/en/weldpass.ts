@@ -466,6 +466,8 @@ export const weldpass = {
       description: 'Who did what in this vault, including every time a password was revealed.',
       empty: 'Nothing recorded yet.',
       loadFailed: 'Could not load the activity.',
+      offline: 'on a phone, offline',
+      deviceItems: '{count} items',
       actions: {
         vault: {
           created: 'created the vault',
@@ -486,9 +488,14 @@ export const weldpass = {
           totp_generated: 'generated a 2FA code',
           moved_in: 'moved an item in',
           moved_out: 'moved an item out',
+          copied: 'copied an item',
+          autofilled: 'autofilled an item',
         },
         items: {
           imported: 'imported items',
+        },
+        device: {
+          synced: 'synced to a phone',
         },
       },
     },

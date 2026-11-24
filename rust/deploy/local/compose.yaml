@@ -43,6 +43,9 @@ x-weldsuite-env: &weldsuite-env
   SIGN_PORTAL_SECRET: local-sign-portal-secret
   SIGN_PORTAL_URL: http://localhost:3010
   STORAGE_SIGNING_KEY: local-storage-signing-key
+  # WeldPass's root key, for this stack only ("local" in hex). Without one
+  # every vault and secrets project answers 500 CRYPTO_ERROR.
+  WELDPASS_ROOT_KEY: 6c6f63616c6c6f63616c6c6f63616c6c6f63616c6c6f63616c6c6f63616c6c6f
   SHUTDOWN_DELAY_SECONDS: "1"
 
 # EU test sign-in (eu-test-auth.mjs): AUTH_PROVIDER and OIDC_* for the

@@ -30,6 +30,28 @@ pub(crate) struct LoginFields {
     pub(crate) password: String,
     pub(crate) totp: String,
     pub(crate) notes: String,
+    /// The Android apps the login signs in to, by package name; `None` when
+    /// the item has none, so its sealed text is what it was before the field
+    /// existed (`.optional()`).
+    pub(crate) apps: Option<Vec<String>>,
+}
+
+/// `MAX_LOGIN_APPS`.
+const MAX_LOGIN_APPS: usize = 20;
+
+/// `ANDROID_PACKAGE_PATTERN`, `/^[A-Za-z]\w*(\.[A-Za-z]\w*)+$/`: at least two
+/// dot-separated segments, each a letter then letters, digits or `_`.
+fn is_android_package(text: &str) -> bool {
+    let mut segments = 0;
+    for segment in text.split('.') {
+        let mut chars = segment.chars();
+        let starts_with_letter = chars.next().is_some_and(|c| c.is_ascii_alphabetic());
+        if !starts_with_letter || !chars.all(|c| c.is_ascii_alphanumeric() || c == '_') {
+            return false;
+        }
+        segments += 1;
+    }
+    segments >= 2
 }
 
 /// A card's fields.
@@ -81,12 +103,18 @@ impl ItemDocument {
     /// `document.fields`, as the reveal route returns them.
     pub(crate) fn fields_json(&self) -> Value {
         match self {
-            Self::Login { fields, .. } => json!({
-                "username": fields.username,
-                "password": fields.password,
-                "totp": fields.totp,
-                "notes": fields.notes,
-            }),
+            Self::Login { fields, .. } => {
+                let mut value = json!({
+                    "username": fields.username,
+                    "password": fields.password,
+                    "totp": fields.totp,
+                    "notes": fields.notes,
+                });
+                if let (Some(apps), Value::Object(object)) = (&fields.apps, &mut value) {
+                    object.insert("apps".to_owned(), json!(apps));
+                }
+                value
+            }
             Self::Note { content, .. } => json!({ "content": content }),
             Self::Card { fields, .. } => json!({
                 "cardholder": fields.cardholder,
@@ -117,15 +145,17 @@ impl ItemDocument {
                     Field::Null => entries.push(("url", "null".to_owned())),
                     Field::Set(url) => entries.push(("url", string(url))),
                 }
-                entries.push((
-                    "fields",
-                    pairs(&[
-                        ("username", string(&fields.username)),
-                        ("password", string(&fields.password)),
-                        ("totp", string(&fields.totp)),
-                        ("notes", string(&fields.notes)),
-                    ]),
-                ));
+                let mut login = vec![
+                    ("username", string(&fields.username)),
+                    ("password", string(&fields.password)),
+                    ("totp", string(&fields.totp)),
+                    ("notes", string(&fields.notes)),
+                ];
+                if let Some(apps) = &fields.apps {
+                    let apps: Vec<String> = apps.iter().map(|app| string(app)).collect();
+                    login.push(("apps", format!("[{}]", apps.join(","))));
+                }
+                entries.push(("fields", pairs(&login)));
                 pairs(&entries)
             }
             Self::Note { title, content } => pairs(&[
@@ -157,6 +187,27 @@ fn defaulted(issues: &mut Issues, fields: &Map<String, Value>, key: &str, rules:
         .text_with(fields, key, Presence::Optional, rules)
         .into_option()
         .unwrap_or_default()
+}
+
+/// `loginFieldsSchema.apps`: `z.array(androidPackageSchema).max(20).optional()`.
+fn read_apps(issues: &mut Issues, fields: &Map<String, Value>) -> Option<Vec<String>> {
+    issues
+        .list(
+            fields,
+            "apps",
+            Presence::Optional,
+            None,
+            Some(MAX_LOGIN_APPS),
+            |issues, item| {
+                issues.item_pattern(
+                    item,
+                    Text::length(Some(1), Some(255)),
+                    is_android_package,
+                    "Not an Android package name",
+                )
+            },
+        )
+        .into_option()
 }
 
 /// `itemInputSchema` (a discriminated union on `type`) read from a body that
@@ -204,6 +255,7 @@ pub(crate) fn read_item(issues: &mut Issues, body: &Value) -> Option<ItemDocumen
                         ),
                         totp: defaulted(issues, fields, "totp", Text::trimmed(None, Some(2048))),
                         notes: defaulted(issues, fields, "notes", Text::length(None, Some(20_000))),
+                        apps: read_apps(issues, fields),
                     }
                 })
                 .into_option();
@@ -288,6 +340,62 @@ fn has_scheme(text: &str) -> bool {
     let mut chars = scheme.chars();
     chars.next().is_some_and(|c| c.is_ascii_alphabetic())
         && chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '.' | '-'))
+}
+
+/// An IPv4 or IPv6 address, as `tldts` sees one (`isIp`).
+fn is_ip(host: &str) -> bool {
+    host.trim_start_matches('[')
+        .trim_end_matches(']')
+        .parse::<std::net::IpAddr>()
+        .is_ok()
+}
+
+/// `isPublicSuffix`: a name under which anyone can register a site of their
+/// own (`com`, `co.uk`, `github.io`), from the Public Suffix List including
+/// its private section (the `psl` crate, as `tldts` with
+/// `allowPrivateDomains`). An IP address is not one.
+pub(crate) fn is_public_suffix(host: &str) -> bool {
+    !is_ip(host) && psl::suffix_str(host) == Some(host)
+}
+
+/// Which item hosts `/items/match` offers on a page at `page_host`, the SQL
+/// shape of `hostsMatch`: the page's own host and each parent of it that is
+/// not a public suffix (`hosts`), and, unless the page's host is a public
+/// suffix, an IP address or a single label, every subdomain of it
+/// (`subdomains`). So a login for `a.github.io` is offered on
+/// `login.a.github.io` but never on `github.io` or `b.github.io`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct MatchScope {
+    pub(crate) hosts: Vec<String>,
+    pub(crate) subdomains: bool,
+}
+
+pub(crate) fn match_scope(page_host: &str) -> MatchScope {
+    if is_ip(page_host) {
+        return MatchScope {
+            hosts: vec![page_host.to_owned()],
+            subdomains: false,
+        };
+    }
+    let labels: Vec<&str> = page_host.split('.').collect();
+    let mut hosts = vec![page_host.to_owned()];
+    hosts.extend(
+        (1..labels.len().saturating_sub(1))
+            .map(|i| labels[i..].join("."))
+            .filter(|parent| !is_public_suffix(parent)),
+    );
+    MatchScope {
+        hosts,
+        subdomains: labels.len() >= 2 && !is_public_suffix(page_host),
+    }
+}
+
+/// `hostsMatch`, by way of [`match_scope`]: what the query offers.
+#[cfg(test)]
+pub(crate) fn hosts_match(item_host: &str, page_host: &str) -> bool {
+    let scope = match_scope(page_host);
+    scope.hosts.iter().any(|host| host == item_host)
+        || (scope.subdomains && item_host.ends_with(&format!(".{page_host}")))
 }
 
 /// The passwords attackers try first; compared lower-cased.

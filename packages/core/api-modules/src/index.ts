@@ -138,6 +138,8 @@ export const GLOBAL_UNAVAILABLE_FEATURES: readonly string[] = [
   'mail-threat-protection',
   // Two-way Moneybird sync: live updates and sending WeldBooks records (ADR INT-013).
   'moneybirdTwoWay',
+  // WeldPass's encrypted offline copy on registered phones (ADR PASS-010).
+  'weldpass-offline',
 ];
 
 const mod = (

@@ -14,6 +14,8 @@
 //!   `passwords:use` opens the door, the role on the vault decides the rest;
 //!   a vault the caller cannot see is a 404, one they can see but not touch
 //!   a 403.
+//! - a registered phone keeps an encrypted offline copy of its owner's
+//!   vaults ([`devices`], ADR PASS-010). Those routes exist only here.
 //!
 //! Every value is encrypted under the envelope of [`envelope`], bit for bit
 //! the worker's, so the two backends read each other's rows. No entity
@@ -26,6 +28,7 @@ mod cases;
 mod credentials;
 #[cfg(test)]
 mod db_tests;
+mod devices;
 mod dotenv;
 pub mod envelope;
 mod health;
@@ -36,6 +39,8 @@ mod password_items;
 mod password_vaults;
 mod projects;
 mod providers;
+pub mod rotation;
+mod routes_devices;
 mod routes_passwords;
 mod routes_projects;
 mod schemas;
@@ -81,12 +86,19 @@ pub struct PassState {
     pub root_keys: RootKeyring,
     /// Outbound calls to the deploy targets.
     pub http: Arc<dyn HttpTransport>,
+    /// Whether secrets may be pushed to deploy targets (Cloudflare, Vercel).
+    /// Off on the hosted EU install for now (weldsuite-documentation
+    /// `plans/weldpass-eu.md`, decision 3): the routes that store a
+    /// provider token or call a provider answer 403 `SYNC_UNAVAILABLE`, and
+    /// writes skip auto-sync. Lists and deletes still work.
+    pub sync: bool,
 }
 
 impl std::fmt::Debug for PassState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("PassState")
             .field("root_keys", &self.root_keys)
+            .field("sync", &self.sync)
             .finish_non_exhaustive()
     }
 }
@@ -101,9 +113,10 @@ impl PassState {
             v2: read("WELDPASS_ROOT_KEY_V2"),
         };
         // Every vault and project route answers 500 CRYPTO_ERROR without a
-        // usable key; say why once, at start. Wrapping a throwaway vault key
-        // is the check those routes run. The error names no key value.
-        if let Err(error) = envelope::create_vault_key(&root_keys, "startup-check") {
+        // usable key; say why once, at start. Wrapping and opening a
+        // throwaway vault key is the check those routes run (`weldsuite
+        // doctor` runs the same). The error names no key value.
+        if let Err(error) = rotation::self_check(&root_keys) {
             tracing::error!(
                 %error,
                 "WeldPass has no usable root key: vaults and secrets projects answer CRYPTO_ERROR \
@@ -113,6 +126,7 @@ impl PassState {
         Self {
             root_keys,
             http: Arc::new(ReqwestTransport::new()),
+            sync: true,
         }
     }
 }
@@ -126,12 +140,14 @@ where
     S: Clone + Send + Sync + 'static,
     Q: PermissionQueries + 'static,
 {
+    use routes_devices as rd;
     use routes_passwords as pw;
     use routes_projects as rp;
 
     const SECRETS: &str = "/projects/{projectId}/environments/{environmentId}/secrets";
     const VAULT: &str = "/vaults/{vaultId}";
     const ITEM: &str = "/vaults/{vaultId}/items/{itemId}";
+    const DEVICE: &str = "/devices/{deviceId}";
     let need = |keys: &[&'static str]| gate.require(keys.iter().copied());
 
     Router::new()
@@ -342,6 +358,33 @@ where
         .route(
             const_format(ITEM, "/move"),
             post(pw::move_item).route_layer(need(&[PASSWORDS_USE])),
+        )
+        // Password manager: devices and their offline copy (ADR PASS-010)
+        .route(
+            "/devices",
+            get(rd::list_devices)
+                .post(rd::register_device)
+                .route_layer(need(&[PASSWORDS_USE])),
+        )
+        .route(
+            DEVICE,
+            delete(rd::revoke_device).route_layer(need(&[PASSWORDS_USE])),
+        )
+        .route(
+            const_format(DEVICE, "/sync"),
+            post(rd::sync_device).route_layer(need(&[PASSWORDS_USE])),
+        )
+        .route(
+            const_format(DEVICE, "/events"),
+            post(rd::device_events).route_layer(need(&[PASSWORDS_USE])),
+        )
+        .route(
+            "/settings",
+            get(rd::get_settings).route_layer(need(&[PASSWORDS_USE])),
+        )
+        .route(
+            "/settings",
+            patch(rd::update_settings).route_layer(need(&[PASSWORDS_MANAGE])),
         )
         .with_state(state)
 }
