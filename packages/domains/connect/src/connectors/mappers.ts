@@ -940,7 +940,7 @@ const IBAN_LENGTHS: Record<string, number> = Object.fromEntries(
 export function looksLikeIban(value: string | null): string | null {
   if (!value) return null;
   const compactIban = value.replace(/\s+/g, '').toUpperCase();
-  if (!/^[A-Z]{2}[0-9]{2}[A-Z0-9]+$/.test(compactIban)) return null;
+  if (!/^[A-Z]{2}\d{2}[A-Z\d]+$/.test(compactIban)) return null;
   if (IBAN_LENGTHS[compactIban.slice(0, 2)] !== compactIban.length) return null;
   // ISO 7064 mod 97-10: move the first four characters to the end, letters become 10..35.
   const rearranged = compactIban.slice(4) + compactIban.slice(0, 4);
@@ -994,15 +994,14 @@ function mapBankTransaction(record: Record<string, unknown>, externalId: string)
   const state = (pickString(record, ['state']) ?? 'unprocessed').toLowerCase();
   const settlementState = (pickString(record, ['settlement_state']) ?? '').toLowerCase();
   const excluded = ['cancelled', 'expired', 'refused', 'error'].includes(settlementState);
-  const status = excluded
-    ? 'excluded'
-    : state === 'processed' || state === 'auto_booked'
-      ? 'reconciled'
-      : 'unreconciled';
+  const processed = state === 'processed' || state === 'auto_booked';
+  let status = processed ? 'reconciled' : 'unreconciled';
+  if (excluded) status = 'excluded';
   const payments = firstRecordArray(record.payments);
   const paymentInvoiceId = (type: string): string | null => {
     const payment = payments.find((p) => p && p.invoice_type === type);
-    return payment ? pickString(payment, ['invoice_id']) : null;
+    const id = payment ? pickString(payment, ['invoice_id']) : null;
+    return id && id !== '0' ? id : null;
   };
   const contra = pickString(record, ['contra_account_number'], 50);
   const description =
