@@ -64,12 +64,12 @@ use crate::zitadel::person_name;
 use crate::zitadel_api::safe_path;
 
 /// What the backend client asks WeldID's token endpoint for. `weldid:sso`
-/// is for the SSO connections ([`crate::WeldIdSso`]); WeldID leaves out a
-/// scope the client isn't allowed (`client_credentials` narrows, it doesn't
-/// refuse), so a client without it keeps working and only `/api/sso`'s
-/// connection calls are refused.
-pub const WELDID_ADMIN_SCOPES: &str =
-    "weldid:users.read weldid:users.write weldid:sessions weldid:events.read weldid:sso";
+/// is for the SSO connections ([`crate::WeldIdSso`]), `weldid:tenants` for
+/// the workspace step of MCP sign-ins ([`crate::WeldIdWorkspaceSelections`]);
+/// WeldID leaves out a scope the client isn't allowed (`client_credentials`
+/// narrows, it doesn't refuse), so a client without one keeps working and
+/// only the calls that need it are refused.
+pub const WELDID_ADMIN_SCOPES: &str = "weldid:users.read weldid:users.write weldid:sessions weldid:events.read weldid:sso weldid:tenants";
 
 /// How long a client assertion is valid.
 const ASSERTION_SECONDS: i64 = 60;

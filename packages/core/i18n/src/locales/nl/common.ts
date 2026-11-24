@@ -1057,6 +1057,24 @@ export const common = {
       tasks: {
         settingUpAccount: 'Uw account instellen...',
       },
+      mcpWorkspace: {
+        loading: 'Je werkruimtes laden…',
+        title: 'Kies een werkruimte',
+        subtitle: '{client} wil WeldSuite gebruiken. Kies de werkruimte waarin de app mag werken.',
+        returnsTo: 'Daarna ga je terug naar {host}.',
+        hint: 'De app kan alles wat jij in die werkruimte kunt. Wil je een andere werkruimte gebruiken, verbind de app dan opnieuw.',
+        required: 'Kies een werkruimte om door te gaan.',
+        continue: 'Doorgaan',
+        cancel: 'Annuleren',
+        continuing: 'Verbinden…',
+        noWorkspacesTitle: 'Je zit nog niet in een werkruimte',
+        noWorkspacesBody: 'Maak eerst een werkruimte aan in WeldSuite of word lid van een werkruimte, en verbind de app daarna opnieuw.',
+        expiredTitle: 'Deze link is verlopen',
+        expiredBody: 'Begin opnieuw met verbinden vanuit je AI-app.',
+        errorTitle: 'Er ging iets mis',
+        errorBody: 'WeldSuite kon de app niet verbinden. Begin opnieuw met verbinden vanuit je AI-app.',
+        tryAgain: 'Opnieuw proberen',
+      },
     },
     desktop: {
       settings: {

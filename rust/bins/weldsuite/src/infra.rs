@@ -15,14 +15,15 @@ use std::sync::Arc;
 use weldsuite_adapters_oss::{
     CnpgOptions, CnpgProvisioner, JetStreamEventBus, MasterDbFlagSource, NatsOptions, S3FileStore,
     SmtpMail, ValkeyCache, ValkeyRealtime, WeldIdIdentity, WeldIdOptions, WeldIdSso,
-    ZitadelIdentity, ZitadelOptions, connect_valkey, entity_events_stream_config,
+    WeldIdWorkspaceSelections, ZitadelIdentity, ZitadelOptions, connect_valkey,
+    entity_events_stream_config,
 };
 use weldsuite_db::{Keyring, PgPool};
 use weldsuite_events::{EntityEventPublisher, TaskTracker};
 use weldsuite_ports::{
     DatabaseProvisioner, DefaultFlags, DynCache, DynEventBus, DynFileStore, DynFlagSource, DynJobs,
     DynRealtimePublisher, DynSystemMail, Identity, InProcessJobs, JobRegistry, NoopJob,
-    SsoDirectory,
+    SsoDirectory, WorkspaceSelections,
 };
 
 use crate::config::{FlagSourceKind, IdentityConfig, InfraConfig, WeldIdConfig};
@@ -54,6 +55,10 @@ pub(crate) struct Infra {
     /// Enterprise SSO connections at the identity provider: WeldID's, with
     /// `IDENTITY_PROVIDER=weldid` (`/api/sso` in WeldID mode).
     pub(crate) sso: Option<Arc<dyn SsoDirectory>>,
+    /// The workspace step of an MCP client's sign-in: WeldID's tenant
+    /// selection, with `IDENTITY_PROVIDER=weldid`
+    /// (`/api/mcp/workspace-selections`).
+    pub(crate) workspace_selections: Option<Arc<dyn WorkspaceSelections>>,
     /// Workspace databases on the CloudNativePG shards, when configured.
     pub(crate) provisioner: Option<Arc<dyn DatabaseProvisioner>>,
     /// The subject prefix of WeldPanel's events stream, on the bus `events` sends to.
@@ -75,6 +80,7 @@ impl std::fmt::Debug for Infra {
             .field("mail", &self.mail.is_some())
             .field("identity", &self.identity.is_some())
             .field("sso", &self.sso.is_some())
+            .field("workspace_selections", &self.workspace_selections.is_some())
             .field("provisioner", &self.provisioner.is_some())
             .finish_non_exhaustive()
     }
@@ -98,6 +104,7 @@ impl Infra {
             flags: Arc::new(DefaultFlags),
             identity: None,
             sso: None,
+            workspace_selections: None,
             provisioner: None,
             panel_events_subject: weldsuite_adapters_oss::DEFAULT_PANEL_EVENTS_SUBJECT.to_owned(),
             panel_files: None,
@@ -265,6 +272,8 @@ pub(crate) struct IdentityPorts {
     pub(crate) identity: Option<Arc<dyn Identity>>,
     /// Enterprise SSO connections: only WeldID's.
     pub(crate) sso: Option<Arc<dyn SsoDirectory>>,
+    /// The workspace step of MCP sign-ins: only WeldID's.
+    pub(crate) workspace_selections: Option<Arc<dyn WorkspaceSelections>>,
 }
 
 /// The identity provider's management API: WeldID's with
@@ -282,9 +291,12 @@ pub(crate) fn identity(
             master.clone(),
         )?);
         let sso: Arc<dyn SsoDirectory> = Arc::new(WeldIdSso::new(Arc::clone(&weldid)));
+        let workspace_selections: Arc<dyn WorkspaceSelections> =
+            Arc::new(WeldIdWorkspaceSelections::new(Arc::clone(&weldid)));
         return Ok(IdentityPorts {
             identity: Some(weldid),
             sso: Some(sso),
+            workspace_selections: Some(workspace_selections),
         });
     }
     let Some(settings) = &config.identity else {
@@ -294,12 +306,14 @@ pub(crate) fn identity(
         return Ok(IdentityPorts {
             identity: None,
             sso: None,
+            workspace_selections: None,
         });
     };
     let identity = ZitadelIdentity::new(zitadel_options(settings, mail))?;
     Ok(IdentityPorts {
         identity: Some(Arc::new(identity)),
         sso: None,
+        workspace_selections: None,
     })
 }
 
@@ -392,7 +406,11 @@ pub(crate) async fn connect(
     let job_registry = job_registry();
     let jobs = jobs(config, &job_registry, &tracker)?;
     let mail = system_mail(config)?;
-    let IdentityPorts { identity, sso } = identity(config, master, mail.as_ref())?;
+    let IdentityPorts {
+        identity,
+        sso,
+        workspace_selections,
+    } = identity(config, master, mail.as_ref())?;
     let provisioner = provisioner(config, master, keyring)?;
     Ok(Infra {
         jobs,
@@ -407,6 +425,7 @@ pub(crate) async fn connect(
         mail,
         identity,
         sso,
+        workspace_selections,
         provisioner,
         panel_events_subject: config.nats_panel_subject.clone(),
         panel_files: panel_files(config)?,
