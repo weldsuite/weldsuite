@@ -57,6 +57,8 @@ export function usePreviewBridge({
   useEffect(() => {
     if (!origin) return;
     const listener = (event: MessageEvent) => {
+      // Only the preview's own origin may talk to the editor.
+      if (event.origin !== origin) return;
       const message = readPreviewMessage(event, { origin, source: frameRef.current?.contentWindow ?? null });
       if (!message) return;
       if (message.type === 'ready') setState('ready');
