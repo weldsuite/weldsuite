@@ -490,10 +490,11 @@ async fn make_return(
     let parcel_id = generate_id("par");
     let stored_label = store(ctx, files.as_ref(), &parcel_id, &piece.label).await;
     let now = utc_now();
+    // A return goes to the merchant: its lookup takes their postal code.
     let track = weldsuite_shipping_domain::TrackRef {
         tracking_number: piece.tracking_number.clone(),
-        postal_code: customer.postal_code.clone(),
-        country: customer.country.clone(),
+        postal_code: merchant.postal_code.clone(),
+        country: merchant.country.clone(),
     };
     let row = parcels::ActiveModel {
         id: Set(parcel_id.clone()),

@@ -582,9 +582,13 @@ async fn make_labels(
         .get("returnAddress")
         .filter(|a| a.is_object())
         .map(|a| AddressInput::from_json(a).resolve());
+    // The account's default product: `{ "<country>": "<code>" }`, or one
+    // code for parcels within the sender's country.
+    let domestic = sender.country == recipient.country;
     let product = input.product.clone().or_else(|| {
         account.settings.get("defaultProduct").and_then(|p| {
-            field(p, recipient.country.as_str()).or_else(|| p.as_str().map(str::to_owned))
+            field(p, recipient.country.as_str())
+                .or_else(|| p.as_str().filter(|_| domestic).map(str::to_owned))
         })
     });
     let request_key = uuid::Uuid::new_v4().to_string();
@@ -788,10 +792,11 @@ async fn make_labels(
             tracking_number: Set(Some(piece.tracking_number.clone())),
             barcode: Set(Some(piece.tracking_number.clone())),
             carrier_reference: Set(piece.carrier_reference.clone()),
+            // A return goes to the merchant: its lookup takes their postal code.
             tracking_url: Set(Some(account.code.tracking_url(&TrackRef {
                 tracking_number: piece.tracking_number.clone(),
-                postal_code: recipient.postal_code.clone(),
-                country: recipient.country.clone(),
+                postal_code: merchant.postal_code.clone(),
+                country: merchant.country.clone(),
             }))),
             order_id: Set(order_id.clone()),
             order_number: Set(order_number.clone()),
