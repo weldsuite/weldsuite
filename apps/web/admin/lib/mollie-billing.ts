@@ -6,6 +6,7 @@ import type { MollieBillingAccount } from './billing-types';
 import { formatCents, formatDay } from './billing-format';
 import { fill } from './i18n';
 import type { MollieBillingCopy } from './mollie-billing-copy';
+import { formatOffList, offList } from './seat-price';
 
 /** "Yearly" / "Monthly"; another cycle as written. */
 export function cycleLabel(copy: MollieBillingCopy, cycle: string): string {
@@ -18,6 +19,8 @@ export function cycleLabel(copy: MollieBillingCopy, cycle: string): string {
 export interface MollieAccountSummary {
   /** "€49.00 per seat / month", or "—" without a price. */
   seatPrice: string;
+  /** "Custom price, 20% below the list price of €49.00" when the seat price isn't the list price. */
+  seatPriceNote: string | null;
   nextCharge: string;
   /** "Day 14 of each month", when the account has an anchor. */
   billingDay: string | null;
@@ -27,12 +30,17 @@ export interface MollieAccountSummary {
   pastDue: { since: string; charge: string; failure: string | null; reminded: string | null } | null;
 }
 
-/** The card's rows for `account`, billed `cycle` (`workspaces.subscription_cycle`). */
+/**
+ * The card's rows for `account`, billed `cycle` (`workspaces.subscription_cycle`);
+ * `listPrice` is the plan's per seat for that cycle (`listSeatPrice`), when it has one.
+ */
 export function mollieAccountSummary(
   copy: MollieBillingCopy,
   account: MollieBillingAccount,
   cycle: string | null,
+  listPrice: number | null = null,
 ): MollieAccountSummary {
+  const off = offList(account.unitAmount, listPrice);
   const seatPrice =
     account.unitAmount == null
       ? '—'
@@ -42,6 +50,13 @@ export function mollieAccountSummary(
         });
   return {
     seatPrice,
+    seatPriceNote:
+      off === null
+        ? null
+        : fill(off > 0 ? copy.seatPriceNote.below : copy.seatPriceNote.above, {
+            percent: formatOffList(off),
+            list: formatCents(listPrice, account.currency),
+          }),
     nextCharge: formatDay(account.nextChargeAt),
     billingDay: account.anchorDay == null ? null : fill(copy.billingDay, { day: account.anchorDay }),
     scheduled: scheduledRows(copy, account.scheduled),

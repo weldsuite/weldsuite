@@ -3,15 +3,18 @@
 
 import { createElement, type ReactNode } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { MollieBillingAccount, WorkspaceBilling } from './billing-types';
 
 vi.mock('@/app/workspaces/[id]/billing/subscription-card', () => ({
   Notice: ({ children }: { children: ReactNode }) => createElement('div', { 'data-notice': '' }, children),
 }));
+// The dialog's server function can't load in node; the card only mounts it once opened.
+vi.mock('@/app/workspaces/[id]/billing/seat-price-dialog', () => ({ SeatPriceDialog: () => null }));
 
 import { MollieBillingCard } from '@/app/workspaces/[id]/billing/mollie-billing-card';
 import { mollieBillingCopyByLocale } from './mollie-billing-copy';
+import type { PlanOption } from './billing-types';
 
 const en = mollieBillingCopyByLocale.en;
 
@@ -28,11 +31,28 @@ const account: MollieBillingAccount = {
   pastDue: null,
 };
 
-const billing = { subscriptionCycle: 'monthly', currentPeriodEnd: '2026-12-14T10:00:00.000Z' } as WorkspaceBilling;
+const billing = {
+  planId: 'plan_business',
+  planName: 'Business',
+  purchasedSeats: 3,
+  subscriptionStatus: 'active',
+  subscriptionCycle: 'monthly',
+  currentPeriodEnd: '2026-12-14T10:00:00.000Z',
+} as WorkspaceBilling;
 
-function card(over: Partial<MollieBillingAccount> = {}): string {
+const plans = [
+  { id: 'plan_business', name: 'Business', slug: 'business', priceMonthly: '49.00', priceYearly: '0', currency: 'EUR' },
+] as PlanOption[];
+
+function card(over: Partial<MollieBillingAccount> = {}, props: { canWrite?: boolean; billing?: WorkspaceBilling } = {}): string {
   return renderToStaticMarkup(
-    createElement(MollieBillingCard, { workspaceId: 'ws_1', account: { ...account, ...over }, billing }),
+    createElement(MollieBillingCard, {
+      workspaceId: 'ws_1',
+      account: { ...account, ...over },
+      billing: props.billing ?? billing,
+      plans,
+      canWrite: props.canWrite ?? false,
+    }),
   );
 }
 
@@ -77,5 +97,35 @@ describe('MollieBillingCard', () => {
 
   it('leaves out the billing day without an anchor', () => {
     expect(card({ anchorDay: null })).not.toContain('Day 14 of the month');
+  });
+});
+
+describe('MollieBillingCard seat price', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-12-01T12:00:00Z'));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('says nothing more at the list price', () => {
+    const html = card();
+    expect(html).toContain('€49.00 per seat per month, excl. VAT');
+    expect(html).not.toContain('Custom price');
+  });
+
+  it('marks a custom price against the list price', () => {
+    expect(card({ unitAmount: 3920 })).toContain('Custom price, 20% below the list price of €49.00');
+    expect(card({ unitAmount: 5390 })).toContain('Custom price, 10% above the list price of €49.00');
+  });
+
+  it('offers the dialog to staff who may write, on a running subscription', () => {
+    expect(card({}, { canWrite: true })).toContain(en.adjustSeatPrice);
+    expect(card({}, { canWrite: false })).not.toContain(en.adjustSeatPrice);
+    expect(card({ unitAmount: null }, { canWrite: true })).not.toContain(en.adjustSeatPrice);
+    expect(card({}, { canWrite: true, billing: { ...billing, subscriptionStatus: 'canceled' } })).not.toContain(
+      en.adjustSeatPrice,
+    );
   });
 });
