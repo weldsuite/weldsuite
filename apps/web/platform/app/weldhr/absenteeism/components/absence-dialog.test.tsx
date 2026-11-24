@@ -109,11 +109,11 @@ describe('AbsenceDialog', () => {
     });
 
     it('cannot pick a day in the future', async () => {
-      vi.useRealTimers();
+      // Keeps the fixed date (Monday 23 November 2026), so the 24th is tomorrow on any day the test runs.
       const user = userEvent.setup();
       renderDialog({ kind: 'self' });
       await user.click(screen.getByLabelText(t.firstSickDay));
-      const tomorrow = await screen.findByRole('button', { name: /Tomorrow|Tuesday, November 24th, 2026/ });
+      const tomorrow = await screen.findByRole('button', { name: /Tuesday, November 24th, 2026/ });
       expect(tomorrow).toBeDisabled();
     });
 
