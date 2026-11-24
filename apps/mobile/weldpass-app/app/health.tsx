@@ -41,7 +41,7 @@ export default function HealthScreen() {
     );
   } else if (health.error) {
     empty = <EmptyState title={passErrorMessage(t, health.error)} />;
-  } else if (report && report.checked === 0) {
+  } else if (report?.checked === 0) {
     empty = <EmptyState title={t.health.nothingChecked} />;
   } else if (report) {
     empty = (
