@@ -4,12 +4,16 @@
 //! Who sees a legal entity, and which role they act with inside it:
 //!
 //! ```text
-//! owner, or holds `legal_entities:manage` → every entity, workspace role
+//! owner                                   → every entity, workspace role
 //! has a `legal_entity_members` row        → that entity, the row's role
 //!                                           (null = workspace role)
 //! no row, entity not restricted           → that entity, workspace role
 //! no row, entity restricted               → not visible
 //! ```
+//!
+//! Holders of `legal_entities:manage` (admins) see entities as any member
+//! does, so a restricted entity only when they are listed on it, and act with
+//! their workspace role in every entity they see.
 //!
 //! One snapshot per request ([`load_entity_access`]), loaded with a single
 //! query and computed from the member's WORKSPACE permissions, before any
@@ -23,7 +27,9 @@ use weldsuite_catalogs::permission_keys;
 use weldsuite_db::TenantPermissionQueries;
 use weldsuite_permissions::{PermissionQueries, ResolvedPermissions, check_app_permission};
 
-/// The permission that sees every entity and manages who sees which.
+/// The permission that manages who sees which entity. Its holders keep their
+/// workspace role in every entity they see, and see a restricted entity only
+/// when they are listed on it.
 pub const LEGAL_ENTITIES_MANAGE: &str = permission_keys::LEGAL_ENTITIES_MANAGE;
 
 /// The member's standing on one live entity.
@@ -86,11 +92,14 @@ impl EntityAccessSource {
 #[derive(Debug, Clone)]
 pub struct EntityAccess {
     pub user_id: String,
+    /// Owner: sees every entity, restricted or not ([`EntityAccess::sees_all`]).
     pub is_owner: bool,
-    /// Owner or `legal_entities:manage`: every entity, with the workspace role.
-    pub sees_all: bool,
+    /// Owner or `legal_entities:manage`: acts with the workspace role in every
+    /// entity they see, whatever role their row names.
+    pub manages_access: bool,
     /// Access is the same in every entity (sees all, or no restricted entity
-    /// and no entity role): record checks can pass without comparing entities.
+    /// and no entity role that applies): record checks can pass without
+    /// comparing entities.
     pub uniform: bool,
     /// The member's workspace permissions, before any entity role swap.
     pub workspace_permissions: ResolvedPermissions,
@@ -100,6 +109,11 @@ pub struct EntityAccess {
 }
 
 impl EntityAccess {
+    /// Every entity, restricted or not (`seesAll`): owners only.
+    pub fn sees_all(&self) -> bool {
+        self.is_owner
+    }
+
     /// The member's standing on a live entity; `None` for an unknown or
     /// deleted id.
     pub fn entry(&self, entity_id: &str) -> Option<&EntityAccessEntry> {
@@ -129,7 +143,7 @@ pub fn build_entity_access(
 ) -> EntityAccess {
     let is_owner = workspace_permissions.is_owner;
     // Workspace-level key (registered in no app), deny-aware.
-    let sees_all = is_owner
+    let manages_access = is_owner
         || check_app_permission(&workspace_permissions, LEGAL_ENTITIES_MANAGE, None).allowed;
     let mut entities: Vec<(String, EntityAccessEntry)> = Vec::new();
     let mut index: HashMap<String, usize> = HashMap::new();
@@ -164,8 +178,8 @@ pub fn build_entity_access(
     EntityAccess {
         user_id: user_id.to_owned(),
         is_owner,
-        sees_all,
-        uniform: sees_all || (!any_restricted && !any_role),
+        manages_access,
+        uniform: is_owner || (!any_restricted && (manages_access || !any_role)),
         workspace_permissions,
         entities,
         index,
@@ -181,18 +195,18 @@ pub fn can_see_entity(access: &EntityAccess, entity_id: Option<&str>) -> bool {
     let Some(entry) = access.entry(entity_id) else {
         return false;
     };
-    if access.sees_all {
+    if access.sees_all() {
         return true;
     }
     entry.member.is_some() || !entry.restricted
 }
 
 /// The role the member acts with inside a visible entity (`entityRoleId`): a
-/// `roles.id`, or `None` for their workspace role. Owners and managers always
-/// keep their workspace role.
+/// `roles.id`, or `None` for their workspace role. Owners and access managers
+/// always keep their workspace role.
 pub fn entity_role_id<'a>(access: &'a EntityAccess, entity_id: Option<&str>) -> Option<&'a str> {
     let entity_id = entity_id.filter(|id| !id.is_empty())?;
-    if access.sees_all {
+    if access.manages_access {
         return None;
     }
     access
@@ -202,12 +216,13 @@ pub fn entity_role_id<'a>(access: &'a EntityAccess, entity_id: Option<&str>) -> 
         .filter(|id| !id.is_empty())
 }
 
-/// `entityAccessSource`.
+/// `entityAccessSource`, for an entity the member sees: `Manager` means they
+/// act there with their workspace role because they manage access.
 pub fn entity_access_source(access: &EntityAccess, entity_id: &str) -> EntityAccessSource {
     if access.is_owner {
         return EntityAccessSource::Owner;
     }
-    if access.sees_all {
+    if access.manages_access {
         return EntityAccessSource::Manager;
     }
     if access
@@ -381,22 +396,47 @@ mod tests {
     }
 
     #[test]
-    fn owners_and_access_managers_see_everything_with_their_workspace_role() {
-        for permissions in [owner(), manager()] {
-            let access = build_entity_access("u1", permissions, rows());
-            assert!(access.sees_all);
-            assert!(access.uniform);
-            assert_eq!(visible_entity_ids(&access).len(), 4);
-            assert_eq!(entity_role_id(&access, Some("open_with_role")), None);
-        }
+    fn owners_see_everything_with_their_workspace_role() {
+        let access = build_entity_access("u1", owner(), rows());
+        assert!(access.sees_all());
+        assert!(access.uniform);
+        assert_eq!(visible_entity_ids(&access).len(), 4);
+        assert_eq!(entity_role_id(&access, Some("open_with_role")), None);
         assert_eq!(
-            entity_access_source(&build_entity_access("u1", owner(), rows()), "open"),
+            entity_access_source(&access, "open"),
             EntityAccessSource::Owner
         );
+    }
+
+    #[test]
+    fn access_managers_see_a_restricted_entity_only_when_listed() {
+        let access = build_entity_access("u1", manager(), rows());
+        assert!(!access.sees_all());
+        assert!(access.manages_access);
+        assert!(!access.uniform);
+        assert!(!can_see_entity(&access, Some("restricted")));
+        assert!(can_see_entity(&access, Some("restricted_listed")));
         assert_eq!(
-            entity_access_source(&build_entity_access("u1", manager(), rows()), "open"),
+            visible_entity_ids(&access),
+            ["open", "restricted_listed", "open_with_role"]
+        );
+    }
+
+    #[test]
+    fn access_managers_keep_their_workspace_role_where_they_see() {
+        let access = build_entity_access("u1", manager(), rows());
+        assert_eq!(entity_role_id(&access, Some("open_with_role")), None);
+        assert_eq!(
+            entity_access_source(&access, "open"),
             EntityAccessSource::Manager
         );
+        // Nothing restricted: the same access everywhere, whatever a row says.
+        let open = build_entity_access(
+            "u1",
+            manager(),
+            vec![EntityAccessRow::new("a", false, true, Some("role_viewer"))],
+        );
+        assert!(open.uniform);
     }
 
     #[test]
@@ -408,8 +448,12 @@ mod tests {
             false,
         );
         let access = build_entity_access("u1", denied, rows());
-        assert!(!access.sees_all);
+        assert!(!access.manages_access);
         assert!(!can_see_entity(&access, Some("restricted")));
+        assert_eq!(
+            entity_role_id(&access, Some("open_with_role")),
+            Some("role_viewer")
+        );
     }
 
     #[test]
@@ -434,12 +478,13 @@ mod tests {
     }
 
     #[test]
-    fn a_wildcard_grant_is_a_manager() {
+    fn a_wildcard_grant_is_a_manager_who_still_needs_a_row() {
         let admin = resolved(&["*"], &[], "ADMIN", false);
         let access = build_entity_access("u1", admin, rows());
-        assert!(access.sees_all);
+        assert!(access.manages_access);
+        assert!(!can_see_entity(&access, Some("restricted")));
         assert_eq!(
-            entity_access_source(&access, "restricted"),
+            entity_access_source(&access, "restricted_listed"),
             EntityAccessSource::Manager
         );
     }

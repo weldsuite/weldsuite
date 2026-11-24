@@ -22,8 +22,9 @@
 //! GET    /:id/my-access                          the caller's role here     [authenticated]
 //! ```
 //!
-//! An entity the member does not see answers 404 on every route; owners and
-//! `legal_entities:manage` holders see all. Giving someone an entity role is
+//! An entity the member does not see answers 404 on every route; owners see
+//! all, `legal_entities:manage` holders see a restricted entity only when
+//! they are listed on it (the access routes included). Giving someone an entity role is
 //! held to the grant ceiling, as assigning a workspace role is: the caller
 //! must hold every permission the role carries. Writes answer the entity as the
 //! caller sees it after the write (a fresh access snapshot). Registrations,

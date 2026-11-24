@@ -2,9 +2,14 @@
  * Access tab (`legal_entities:manage`): the Restricted switch and the members
  * with their role inside this entity. See "Per-entity access" in
  * weldsuite-documentation/plans/legal-entities.md.
+ *
+ * Only owners see every entity: an admin who restricts an entity without
+ * being listed, or takes themselves off a restricted one, loses it. Both ask
+ * first, then go back to the list.
  */
 
 import { useMemo, useState, type ReactNode } from 'react';
+import { useNavigate } from '@tanstack/react-router';
 import { toast } from 'sonner';
 import { Plus, Trash2 } from 'lucide-react';
 import type { LegalEntity, LegalEntityAccessMember } from '@weldsuite/app-api-client/schemas/legal-entities';
@@ -36,8 +41,15 @@ import {
   useSetLegalEntityRestricted,
 } from '@/hooks/queries/use-legal-entities-queries';
 import { useWorkspaceMemberDirectory, useWorkspaceRoles } from '@/hooks/queries/use-settings-queries';
+import { useAuth } from '@/lib/auth';
 import { useI18n } from '@/lib/i18n/provider';
-import { assignableEntityRoles, availableMembersToAdd, filterMembersByQuery } from './access-members';
+import {
+  assignableEntityRoles,
+  availableMembersToAdd,
+  filterMembersByQuery,
+  removingHidesFromSelf,
+  restrictingHidesFromSelf,
+} from './access-members';
 
 /** Select value for "their workspace role" (a null role id on the API). */
 const WORKSPACE_ROLE = '__workspace__';
@@ -54,6 +66,8 @@ interface AccessTabProps {
 export function AccessTab({ entity }: Readonly<AccessTabProps>) {
   const { t } = useI18n();
   const ta = t.settings.legalEntities.access;
+  const navigate = useNavigate();
+  const { userId } = useAuth();
   const { data: access, isLoading, error, refetch } = useLegalEntityAccess(entity.id);
   const { data: rolesResponse, isLoading: rolesLoading } = useWorkspaceRoles();
   const setRestricted = useSetLegalEntityRestricted(entity.id);
@@ -61,18 +75,35 @@ export function AccessTab({ entity }: Readonly<AccessTabProps>) {
   const removeMember = useRemoveLegalEntityMember(entity.id);
   const [adding, setAdding] = useState(false);
   const [removing, setRemoving] = useState<LegalEntityAccessMember | null>(null);
+  const [confirmRestrict, setConfirmRestrict] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
   const roles = useMemo(() => assignableEntityRoles(rolesResponse?.data ?? []), [rolesResponse]);
+  // Owners see every entity; anyone else, admins included, only a restricted one they are listed on.
+  const self = { userId, isOwner: entity.myAccess?.source === 'owner' };
+  const removingSelf = removing !== null && removingHidesFromSelf(self, Boolean(access?.restricted), removing.userId);
 
-  async function toggleRestricted(restricted: boolean) {
+  function leaveEntity() {
+    navigate({ to: '/settings/legal-entities' });
+  }
+
+  async function applyRestricted(restricted: boolean, losesAccess: boolean) {
     try {
       await setRestricted.mutateAsync(restricted);
       setActionError(null);
       toast.success(ta.restrictedUpdated);
+      if (losesAccess) leaveEntity();
     } catch (err) {
       setActionError(err instanceof Error ? err.message : ta.failed);
     }
+  }
+
+  async function toggleRestricted(restricted: boolean) {
+    if (restricted && restrictingHidesFromSelf({ ...self, members: access?.members ?? [] })) {
+      setConfirmRestrict(true);
+      return;
+    }
+    await applyRestricted(restricted, false);
   }
 
   async function changeRole(member: LegalEntityAccessMember, value: string) {
@@ -87,10 +118,12 @@ export function AccessTab({ entity }: Readonly<AccessTabProps>) {
 
   async function confirmRemove() {
     if (!removing) return;
+    const losesAccess = removingSelf;
     try {
       await removeMember.mutateAsync(removing.userId);
       toast.success(ta.removed);
       setActionError(null);
+      if (losesAccess) leaveEntity();
     } catch (err) {
       setActionError(err instanceof Error ? err.message : ta.failed);
     } finally {
@@ -228,10 +261,22 @@ export function AccessTab({ entity }: Readonly<AccessTabProps>) {
           if (!open) setRemoving(null);
         }}
         title={ta.removeTitle}
-        description={ta.removeDescription}
+        description={removingSelf ? ta.removeSelfDescription : ta.removeDescription}
         confirmLabel={ta.remove}
         variant="destructive"
         onConfirm={confirmRemove}
+      />
+      <ConfirmDialog
+        open={confirmRestrict}
+        onOpenChange={setConfirmRestrict}
+        title={ta.restrictSelfTitle}
+        description={ta.restrictSelfDescription}
+        confirmLabel={ta.restrictSelfConfirm}
+        variant="destructive"
+        onConfirm={async () => {
+          await applyRestricted(true, true);
+          setConfirmRestrict(false);
+        }}
       />
     </div>
   );
