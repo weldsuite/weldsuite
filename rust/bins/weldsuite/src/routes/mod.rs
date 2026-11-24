@@ -2235,7 +2235,17 @@ fn flow_tenants(state: &AppState) -> weldsuite_flow::TenantDatabases {
 fn pass_state() -> weldsuite_pass::PassState {
     static STATE: OnceLock<weldsuite_pass::PassState> = OnceLock::new();
     STATE
-        .get_or_init(weldsuite_pass::PassState::from_env)
+        .get_or_init(|| {
+            let mut state = weldsuite_pass::PassState::from_env();
+            // The hosted EU install pushes no secrets to Cloudflare or Vercel
+            // for now (weldsuite-documentation `plans/weldpass-eu.md`,
+            // decision 3); `/config.json` lists `weldpass-sync` as
+            // unavailable there. Conformance builds compare with Global's
+            // workers, which always sync.
+            state.sync = cfg!(feature = "conformance")
+                || !crate::edition::sync_off(std::env::var("EDITION").ok().as_deref());
+            state
+        })
         .clone()
 }
 

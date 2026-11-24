@@ -8,6 +8,8 @@
 //! - the configuration, with every problem `serve` would stop on;
 //! - the settings still on a default that names Global (`global_defaults`);
 //! - the master database answers;
+//! - WeldPass's root keys wrap and open a vault key (`WELDPASS_ROOT_KEY`,
+//!   `WELDPASS_ROOT_KEY_V2`);
 //! - AI (ADR AI-012): the install provider, each provider key the install
 //!   holds (a model list, which costs nothing), and that the install
 //!   provider's default chat models answer: one completion of one token each,
@@ -149,6 +151,7 @@ async fn checks(config: &Config, model_calls: bool, sandbox_probe: bool) -> Vec<
             .map(|line| Check::new(Status::Warn, "global default", line.as_str())),
     );
     out.push(master_database(config).await);
+    out.push(weldpass_check(&weldpass_keys()));
     let http = match weldsuite_adapters_oss::ReqwestOutbound::new(MODEL_TIMEOUT) {
         Ok(client) => OutboundHttp(Arc::new(client)),
         Err(error) => {
@@ -165,6 +168,42 @@ async fn checks(config: &Config, model_calls: bool, sandbox_probe: bool) -> Vec<
     out.extend(ai_checks(&config.ai, config.edition.edition, &http, ai.as_ref()).await);
     out.extend(sandbox_checks(config, sandbox_probe).await);
     out
+}
+
+/// `WELDPASS_ROOT_KEY` and `WELDPASS_ROOT_KEY_V2` as `serve` reads them.
+fn weldpass_keys() -> weldsuite_pass::RootKeyring {
+    let read = |name: &str| std::env::var(name).ok();
+    weldsuite_pass::RootKeyring::from_values(
+        read("WELDPASS_ROOT_KEY").as_deref(),
+        read("WELDPASS_ROOT_KEY_V2").as_deref(),
+    )
+}
+
+/// WeldPass: the root keys wrap and open a throwaway vault key, the check
+/// every vault and secrets-project route runs. Names no key value.
+fn weldpass_check(keys: &weldsuite_pass::RootKeyring) -> Check {
+    let set = |key: &Option<String>| key.as_deref().is_some_and(|key| !key.is_empty());
+    match weldsuite_pass::rotation::self_check(keys) {
+        Ok("v2") if set(&keys.v1) => Check::new(
+            Status::Pass,
+            "weldpass",
+            "root keys v1 and v2 work; new vault keys wrap under v2. Mid-rotation: \
+             `weldsuite admin weldpass status` shows what is left under v1",
+        ),
+        Ok(version) => Check::new(
+            Status::Pass,
+            "weldpass",
+            format!("root key {version} wraps and opens a vault key"),
+        ),
+        Err(_) if !set(&keys.v1) && !set(&keys.v2) => Check::new(
+            Status::Fail,
+            "weldpass",
+            "WELDPASS_ROOT_KEY is not set: every WeldPass vault and secrets project answers \
+             CRYPTO_ERROR. Set 64 hex characters in the server's Secret and back it up: losing \
+             it makes every stored password and secret unrecoverable",
+        ),
+        Err(error) => Check::new(Status::Fail, "weldpass", format!("root key: {error}")),
+    }
 }
 
 /// WeldAgent's sandbox: the Kubernetes API answers with the service
@@ -466,6 +505,8 @@ async fn model_checks(ai: &Ai) -> Vec<Check> {
 mod tests {
     use std::sync::Mutex;
 
+    use weldsuite_pass::RootKeyring;
+
     use weldsuite_ports::{BoxFuture, DynOutboundHttp, HttpResponse, PortError};
 
     use super::*;
@@ -622,5 +663,26 @@ mod tests {
             Check::new(Status::Fail, "ai key mistral", "refused").to_string(),
             "FAIL  ai key mistral: refused"
         );
+    }
+
+    #[test]
+    fn weldpass_check_names_what_is_wrong_and_no_key() {
+        let key = "ab".repeat(32);
+        let v1 = weldpass_check(&RootKeyring::from_values(Some(&key), None));
+        assert_eq!(v1.status, Status::Pass);
+        assert!(v1.detail.contains("v1"));
+        assert!(!v1.detail.contains(&key));
+        let both = weldpass_check(&RootKeyring::from_values(
+            Some(&key),
+            Some(&"cd".repeat(32)),
+        ));
+        assert_eq!(both.status, Status::Pass);
+        assert!(both.detail.contains("rotation"));
+        let none = weldpass_check(&RootKeyring::default());
+        assert_eq!(none.status, Status::Fail);
+        assert!(none.detail.contains("WELDPASS_ROOT_KEY is not set"));
+        let short = weldpass_check(&RootKeyring::from_values(Some("abcd"), None));
+        assert_eq!(short.status, Status::Fail);
+        assert!(short.detail.contains("64 hex"));
     }
 }

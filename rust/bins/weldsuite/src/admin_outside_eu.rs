@@ -115,7 +115,7 @@ fn env(name: &str) -> Option<String> {
 }
 
 /// The workspace's own database, opened with the install's keys.
-async fn tenant_db(master: &PgPool, workspace_id: &str) -> StaffResult<PgPool> {
+pub(crate) async fn tenant_db(master: &PgPool, workspace_id: &str) -> StaffResult<PgPool> {
     let keyring = Keyring {
         v1: env("DATABASE_ENCRYPTION_KEY"),
         v2: env("DATABASE_ENCRYPTION_KEY_V2"),
