@@ -305,13 +305,18 @@ const MONEYBIRD_ATTACHMENT_TYPES = new Set([
 /**
  * Whether this connection imported a Moneybird document of `externalEntityType`
  * whose attachments were never fetched (`attachment_keys` unset: the download
- * budget ran out). A database error counts as no backlog.
+ * budget ran out). Only a Moneybird run that stores attachments has one; a
+ * database error counts as none.
  */
-export async function moneybirdAttachmentBacklog(
-  db: Database,
-  connectionId: string,
-  externalEntityType: string,
-): Promise<boolean> {
+export async function moneybirdAttachmentBacklog(args: {
+  db: Database;
+  provider: string;
+  connectionId: string;
+  externalEntityType: string;
+  storesAttachments: boolean;
+}): Promise<boolean> {
+  const { db, connectionId, externalEntityType } = args;
+  if (!args.storesAttachments || args.provider !== 'moneybird') return false;
   if (!MONEYBIRD_ATTACHMENT_TYPES.has(externalEntityType)) return false;
   const table = externalEntityType === 'moneybird_sales_invoice' ? schema.invoices : schema.bills;
   const m = schema.integrationEntityMappings;
@@ -337,13 +342,18 @@ export async function moneybirdAttachmentBacklog(
 }
 
 /**
- * A Moneybird model with an attachment backlog is pulled in full, so the new
- * run's download budget reaches the documents an earlier run left.
+ * The modified-after watermark a run pulls from: none for a full run, one that
+ * continues a page cursor, or a model with an attachment backlog (pulled in
+ * full, so the new run's download budget reaches what an earlier run left).
  */
-function hasMoneybirdAttachmentBacklog(ctx: SyncPullContext): Promise<boolean> {
-  const { args, sync, moneybirdAttachments } = ctx;
-  if (!moneybirdAttachments || args.connection.provider !== 'moneybird') return Promise.resolve(false);
-  return moneybirdAttachmentBacklog(args.db, args.connection.id, sync.externalEntityType);
+export async function incrementalWatermark(args: {
+  full: boolean | undefined;
+  continuing: boolean;
+  watermark: string | undefined;
+  backlog: () => Promise<boolean>;
+}): Promise<string | undefined> {
+  if (args.full || args.continuing || !args.watermark) return undefined;
+  return (await args.backlog()) ? undefined : args.watermark;
 }
 
 async function runSingleSync(ctx: SyncPullContext): Promise<void> {
@@ -361,8 +371,19 @@ async function runSingleSync(ctx: SyncPullContext): Promise<void> {
   });
 
   // While a page cursor is open, ignore modifiedAfter so we finish the full scan.
-  const backlog = args.full || continuing ? false : await hasMoneybirdAttachmentBacklog(ctx);
-  const modifiedAfter = args.full || continuing || backlog ? undefined : watermarks?.[sync.model];
+  const modifiedAfter = await incrementalWatermark({
+    full: args.full,
+    continuing,
+    watermark: watermarks?.[sync.model],
+    backlog: () =>
+      moneybirdAttachmentBacklog({
+        db: args.db,
+        provider: args.connection.provider,
+        connectionId: args.connection.id,
+        externalEntityType: sync.externalEntityType,
+        storesAttachments: Boolean(ctx.moneybirdAttachments),
+      }),
+  });
   const state: SyncPullState = {
     page: continuing ? Math.max(1, Number(savedPage) || 1) : 1,
     cursor: continuing ? (watermarks?.[cursorWatermarkKey(sync.model)] ?? null) : null,

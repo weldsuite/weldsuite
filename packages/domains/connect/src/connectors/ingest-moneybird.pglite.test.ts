@@ -3,13 +3,13 @@
  * version marker, strict IBANs after field mappings and statement-line links.
  */
 
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { getConnector } from '@weldsuite/connectors';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { ingestRecords, recordChecksum } from './ingest';
-import { moneybirdAttachmentBacklog } from './sync';
+import { incrementalWatermark, moneybirdAttachmentBacklog } from './sync';
 
 let db: Database;
 
@@ -193,17 +193,72 @@ describe('Moneybird ingest', () => {
   });
 
   it('reports imported documents whose attachments were never fetched as a backlog', async () => {
+    const backlog = (externalEntityType: string, over: { connectionId?: string; provider?: string; storesAttachments?: boolean } = {}) =>
+      moneybirdAttachmentBacklog({
+        db,
+        provider: 'moneybird',
+        connectionId: CONNECTION,
+        externalEntityType,
+        storesAttachments: true,
+        ...over,
+      });
     // Imported here without attachment storage, so nothing was fetched yet.
-    expect(await moneybirdAttachmentBacklog(db, CONNECTION, 'moneybird_purchase_invoice')).toBe(true);
-    expect(await moneybirdAttachmentBacklog(db, CONNECTION, 'moneybird_sales_invoice')).toBe(true);
-    expect(await moneybirdAttachmentBacklog(db, CONNECTION, 'moneybird_receipt')).toBe(false);
-    expect(await moneybirdAttachmentBacklog(db, 'conn_other', 'moneybird_purchase_invoice')).toBe(false);
-    expect(await moneybirdAttachmentBacklog(db, CONNECTION, 'moneybird_contact')).toBe(false);
+    expect(await backlog('moneybird_purchase_invoice')).toBe(true);
+    expect(await backlog('moneybird_sales_invoice')).toBe(true);
+    expect(await backlog('moneybird_receipt')).toBe(false);
+    expect(await backlog('moneybird_purchase_invoice', { connectionId: 'conn_other' })).toBe(false);
+    expect(await backlog('moneybird_contact')).toBe(false);
+    // A run that stores no attachments, or another provider, has none.
+    expect(await backlog('moneybird_purchase_invoice', { storesAttachments: false })).toBe(false);
+    expect(await backlog('moneybird_purchase_invoice', { provider: 'stripe' })).toBe(false);
 
     // Fetched, with or without files: no backlog.
     await db.update(schema.bills).set({ attachmentKeys: [] });
     await db.update(schema.invoices).set({ attachmentKeys: ['k/invoice.pdf'] });
-    expect(await moneybirdAttachmentBacklog(db, CONNECTION, 'moneybird_purchase_invoice')).toBe(false);
-    expect(await moneybirdAttachmentBacklog(db, CONNECTION, 'moneybird_sales_invoice')).toBe(false);
+    expect(await backlog('moneybird_purchase_invoice')).toBe(false);
+    expect(await backlog('moneybird_sales_invoice')).toBe(false);
+  });
+
+  it('counts a failing backlog check as no backlog', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    for (const thrown of [new Error('connection lost'), 'connection lost']) {
+      const broken = {
+        select: () => {
+          throw thrown;
+        },
+      } as unknown as Database;
+      expect(
+        await moneybirdAttachmentBacklog({
+          db: broken,
+          provider: 'moneybird',
+          connectionId: CONNECTION,
+          externalEntityType: 'moneybird_receipt',
+          storesAttachments: true,
+        }),
+      ).toBe(false);
+    }
+    expect(warn).toHaveBeenCalledTimes(2);
+    warn.mockRestore();
+  });
+});
+
+describe('incrementalWatermark', () => {
+  const mark = '2026-03-01T00:00:00.000Z';
+  const none = () => Promise.resolve(false);
+  const some = () => Promise.resolve(true);
+
+  it('pulls from the watermark only for an incremental run without a backlog', async () => {
+    expect(await incrementalWatermark({ full: false, continuing: false, watermark: mark, backlog: none })).toBe(mark);
+    expect(await incrementalWatermark({ full: false, continuing: false, watermark: mark, backlog: some })).toBeUndefined();
+    expect(await incrementalWatermark({ full: true, continuing: false, watermark: mark, backlog: none })).toBeUndefined();
+    expect(await incrementalWatermark({ full: false, continuing: true, watermark: mark, backlog: none })).toBeUndefined();
+    expect(await incrementalWatermark({ full: false, continuing: false, watermark: undefined, backlog: none })).toBeUndefined();
+  });
+
+  it('only asks about a backlog when it would change the answer', async () => {
+    const backlog = vi.fn(none);
+    await incrementalWatermark({ full: true, continuing: false, watermark: mark, backlog });
+    await incrementalWatermark({ full: false, continuing: false, watermark: undefined, backlog });
+    expect(backlog).not.toHaveBeenCalled();
   });
 });

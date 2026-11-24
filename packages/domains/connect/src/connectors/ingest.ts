@@ -42,9 +42,7 @@ import {
   type ConnectorFieldMappingRow,
 } from './field-mapper';
 import {
-  attachmentIdsFromKeys,
-  attachmentIdsFromRecord,
-  sameIdSet,
+  moneybirdFilesWanted,
   syncMoneybirdDocumentAttachments,
   type MoneybirdAttachmentSyncContext,
 } from './moneybird-attachments';
@@ -1113,19 +1111,14 @@ async function maybeSyncMoneybirdAttachments(args: {
     .from(table)
     .where(eq(cols.id, args.internalId))
     .limit(1);
-  const stored = row?.attachmentKeys ?? null;
   // null = never attempted (catch-up). [] or [...] = already tried.
-  if (stored !== null) {
-    if (!args.force) return;
-    // Purchase invoices and receipts re-download only when their attachment set changed.
-    const externalType = args.args.sync.externalEntityType;
-    if (
-      (externalType === 'moneybird_purchase_invoice' || externalType === 'moneybird_receipt')
-      && sameIdSet(attachmentIdsFromKeys(stored), attachmentIdsFromRecord(args.record))
-    ) {
-      return;
-    }
-  }
+  const wanted = moneybirdFilesWanted({
+    stored: row?.attachmentKeys,
+    changed: args.force,
+    externalEntityType: args.args.sync.externalEntityType,
+    record: args.record,
+  });
+  if (!wanted) return;
 
   const keys = await syncMoneybirdDocumentAttachments({
     ctx,

@@ -36,6 +36,27 @@ export function sameIdSet(a: ReadonlySet<string>, b: ReadonlySet<string>): boole
   return true;
 }
 
+/**
+ * Whether to (re)download a Moneybird document's files. Never fetched
+ * (`stored` unset): yes. Unchanged: no. A changed sales invoice: yes (its PDF
+ * is rendered from it). A changed purchase invoice or receipt: only when its
+ * attachments differ from the stored ones, so a change elsewhere (or a new
+ * mapper version) does not download every file again.
+ */
+export function moneybirdFilesWanted(args: {
+  stored: readonly string[] | null | undefined;
+  changed: boolean;
+  externalEntityType: string;
+  record: Record<string, unknown>;
+}): boolean {
+  if (args.stored == null) return true;
+  if (!args.changed) return false;
+  if (args.externalEntityType !== 'moneybird_purchase_invoice' && args.externalEntityType !== 'moneybird_receipt') {
+    return true;
+  }
+  return !sameIdSet(attachmentIdsFromKeys(args.stored), attachmentIdsFromRecord(args.record));
+}
+
 export interface MoneybirdAttachmentBudget {
   remaining: number;
 }
