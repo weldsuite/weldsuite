@@ -14,7 +14,7 @@ import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { PanelEntityList, type ActiveFilter, type ColumnDef, type FilterConfig } from '@/components/panel-entity-list';
 import { useDeleteHrAbsence, useHrAbsences, useHrDepartments, useHrEmployees } from '@/hooks/queries/use-weldhr-queries';
 import { emptyIcon } from '../../components/page-kit';
-import { errorMessage, formatDate } from '../../components/shared';
+import { DayCount, errorMessage, formatDate } from '../../components/shared';
 import { AbsenceDialog } from './absence-dialog';
 import { RecoverDialog } from './recover-dialog';
 import { formatDays } from './shared';
@@ -68,8 +68,9 @@ export function AbsencesTab({ status }: Readonly<{ status: HrAbsenceStatus }>) {
     {
       id: 'employee',
       header: t('weldhr.absenteeism.table.employee'),
-      // Never narrower than a name: on a small screen the columns to the right give way instead.
-      width: 'grow-[2] shrink-0 basis-36',
+      // Fixed widths up to the note, so the columns sit in the same place on both tabs
+      // (Ongoing has an extra column on the right); the note takes what is left.
+      width: 'w-[200px] shrink-0',
       render: (r) => (
         <span className="flex min-w-0 items-center gap-1.5">
           <span className="truncate font-medium" title={r.departmentName ?? undefined}>
@@ -87,7 +88,7 @@ export function AbsencesTab({ status }: Readonly<{ status: HrAbsenceStatus }>) {
     {
       id: 'firstSickDay',
       header: t('weldhr.absenteeism.table.firstSickDay'),
-      width: 'w-[150px]',
+      width: 'w-[160px] shrink-0',
       render: (r) => (
         <span className="block truncate tabular-nums">
           {formatDate(r.startDate)}
@@ -98,15 +99,15 @@ export function AbsencesTab({ status }: Readonly<{ status: HrAbsenceStatus }>) {
     {
       id: 'lastSickDay',
       header: t('weldhr.absenteeism.table.lastSickDay'),
-      width: 'w-[105px]',
+      width: 'w-[110px] shrink-0',
       render: (r) =>
         r.endDate ? <span className="tabular-nums">{formatDate(r.endDate)}</span> : <span className="text-muted-foreground">{t('weldhr.absenteeism.stillAbsent')}</span>,
     },
     {
       id: 'days',
       header: t('weldhr.absenteeism.table.days'),
-      width: 'w-[45px]',
-      render: (r) => <span className="tabular-nums">{formatDays(r.days)}</span>,
+      width: 'w-[72px] shrink-0',
+      render: (r) => <DayCount days={r.days} startDate={r.startDate} endDate={r.endDate} format={formatDays} />,
     },
     {
       id: 'note',
@@ -121,11 +122,10 @@ export function AbsencesTab({ status }: Readonly<{ status: HrAbsenceStatus }>) {
     {
       id: 'reportedBy',
       header: t('weldhr.absenteeism.table.reportedBy'),
-      width: 'w-[100px]',
+      width: 'w-[140px] shrink-0',
       render: (r) => (
-        <span className="block truncate text-muted-foreground">
-          {r.reportedBySelf ? t('weldhr.absenteeism.reportedBySelf') : r.reportedByName ?? '—'}
-        </span>
+        // A self-report names the employee, not the word "Employee" (which read like a person).
+        <span className="block truncate text-muted-foreground">{r.reportedBySelf ? r.employeeName : (r.reportedByName ?? '—')}</span>
       ),
     },
     ...(status === 'ongoing' && canUpdate
@@ -133,7 +133,7 @@ export function AbsencesTab({ status }: Readonly<{ status: HrAbsenceStatus }>) {
           {
             id: 'recover',
             header: '',
-            width: 'w-[200px]',
+            width: 'w-[160px] shrink-0',
             render: (r: HrAbsence) =>
               r.endDate === null ? (
                 <Button
@@ -170,6 +170,8 @@ export function AbsencesTab({ status }: Readonly<{ status: HrAbsenceStatus }>) {
         filters={filterConfigs}
         activeFilters={activeFilters}
         onFiltersChange={setActiveFilters}
+        searchFields={['employeeName', 'note', 'reportedByName', 'departmentName']}
+        searchPlaceholder={t('weldhr.absenteeism.list.searchPlaceholder')}
         onEdit={canUpdate ? (r) => setDialogState(r) : undefined}
         onDelete={canDelete ? (r) => setDeleteTarget(r) : undefined}
         hasMore={data?.pagination.hasMore}

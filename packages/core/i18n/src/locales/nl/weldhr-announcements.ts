@@ -11,6 +11,9 @@ export const weldhrAnnouncements = {
     editTitle: 'Mededeling bewerken',
     searchPlaceholder: 'Mededelingen zoeken',
     pinned: 'Vastgepind',
+    filters: {
+      notPinned: 'Niet vastgepind',
+    },
     groups: {
       pinned: 'Vastgepind',
       other: 'Mededelingen',
@@ -53,11 +56,21 @@ export const weldhrAnnouncements = {
       description: '"{title}" verwijderen? Medewerkers zien deze dan niet meer.',
       failed: 'Deze mededeling kon niet worden verwijderd.',
     },
+    panel: {
+      postedBy: 'Geplaatst door',
+      pushNotification: 'Pushmelding',
+      updated: 'Bijgewerkt',
+      message: 'Bericht',
+      notFound: 'Deze mededeling bestaat niet meer.',
+    },
     reads: {
-      title: 'Gelezen door',
-      summary: '{read} van {total} medewerkers hebben dit gelezen.',
-      readTab: 'Gelezen ({count})',
-      notReadTab: 'Niet gelezen ({count})',
+      readLabel: 'Gelezen',
+      notReadLabel: 'Niet gelezen',
+      readOn: 'Gelezen op',
+      noResults: {
+        title: 'Geen medewerkers gevonden',
+        description: 'Probeer een andere zoekterm of een ander filter.',
+      },
       readAt: 'Gelezen {date}',
       emptyRead: 'Niemand heeft dit nog gelezen.',
       emptyNotRead: 'Iedereen heeft dit gelezen.',

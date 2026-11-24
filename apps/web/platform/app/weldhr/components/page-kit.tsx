@@ -111,7 +111,15 @@ export function HrTabsPage({
 }>) {
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <PageTabs tabs={tabs} activeTab={activeTab} onTabChange={onTabChange} overflow="dropdown" />
+      {/* The first tab lines up with the list's own left edge (px-4), with room above under the header. */}
+      <PageTabs
+        tabs={tabs}
+        activeTab={activeTab}
+        onTabChange={onTabChange}
+        overflow="dropdown"
+        className="pt-2"
+        innerClassName="pl-4 pr-2"
+      />
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">{children}</div>
     </div>
   );

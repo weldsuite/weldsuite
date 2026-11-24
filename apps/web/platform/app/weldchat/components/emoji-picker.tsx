@@ -326,8 +326,10 @@ export function EmojiPicker({ onSelect }: Readonly<EmojiPickerProps>) {
         </div>
       )}
 
-      {/* Emoji grid */}
-      <ScrollArea className="flex-1">
+      {/* Emoji grid: `min-h-0` lets it shrink to the space left in the 370px
+          column and scroll, instead of growing to all its emoji and spilling
+          out of the popover. */}
+      <ScrollArea className="min-h-0 flex-1">
         <div className="p-2">
           {filtered.length === 0 && (
             <p className="text-sm text-muted-foreground text-center py-8">{t('sweep.weldchat.emojiPicker.noEmojiFound')}</p>

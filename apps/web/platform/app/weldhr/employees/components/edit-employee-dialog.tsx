@@ -35,6 +35,7 @@ import { employeeFieldRules } from './employee-field-rules';
 import { WorkLocationsField, useWorkLocationOptions } from './work-locations-field';
 import { EmployerField } from './employer-field';
 import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
+import { HrDateInput } from '@/app/weldhr/components/date-fields';
 
 function buildFormSchema(t: (path: string) => string) {
   return z.object({
@@ -79,6 +80,8 @@ export function EditEmployeeDialog({ employee, onClose }: Readonly<{ employee: H
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
+    // Errors show as you go, since Submit stays disabled until the form is valid.
+    mode: 'onChange',
     defaultValues: {
       employeeNumber: employee.employeeNumber ?? '',
       firstName: employee.firstName,
@@ -139,7 +142,7 @@ export function EditEmployeeDialog({ employee, onClose }: Readonly<{ employee: H
   return (
     <Dialog open onOpenChange={(open) => !open && !updateEmployee.isPending && onClose()}>
       <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
-        <DialogHeader>
+        <DialogHeader className="mb-2">
           <DialogTitle>{t('weldhr.employees.detail.edit.title')}</DialogTitle>
         </DialogHeader>
 
@@ -332,7 +335,7 @@ export function EditEmployeeDialog({ employee, onClose }: Readonly<{ employee: H
                   <FormItem>
                     <FormLabel>{t('weldhr.employees.create.startDate')}</FormLabel>
                     <FormControl>
-                      <Input type="date" {...field} />
+                      <HrDateInput {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -345,7 +348,7 @@ export function EditEmployeeDialog({ employee, onClose }: Readonly<{ employee: H
                   <FormItem>
                     <FormLabel>{t('weldhr.employees.detail.overview.probationEndDate')}</FormLabel>
                     <FormControl>
-                      <Input type="date" min={form.watch('startDate') || undefined} {...field} />
+                      <HrDateInput min={form.watch('startDate') || undefined} {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -358,7 +361,7 @@ export function EditEmployeeDialog({ employee, onClose }: Readonly<{ employee: H
                   <FormItem>
                     <FormLabel>{t('weldhr.employees.detail.overview.endDate')}</FormLabel>
                     <FormControl>
-                      <Input type="date" min={form.watch('startDate') || undefined} {...field} />
+                      <HrDateInput min={form.watch('startDate') || undefined} {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -456,7 +459,7 @@ export function EditEmployeeDialog({ employee, onClose }: Readonly<{ employee: H
               <Button type="button" variant="outline" onClick={onClose} disabled={updateEmployee.isPending}>
                 {t('weldhr.common.cancel')}
               </Button>
-              <Button type="submit" disabled={updateEmployee.isPending}>
+              <Button type="submit" disabled={updateEmployee.isPending || !form.formState.isValid}>
                 {updateEmployee.isPending ? t('weldhr.common.saving') : t('weldhr.common.save')}
               </Button>
             </DialogFooter>

@@ -117,9 +117,11 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
         let rows: Vec<Row> = sqlx::query_as(
             "select t.id, t.notification_type, t.title, t.body, t.entity_type, t.entity_id,
                     t.actor_id, t.action_url, to_jsonb(t.read_at) #>> '{}',
-                    to_jsonb(t.created_at) #>> '{}', (t.data->>'channelId'), c.name
+                    to_jsonb(t.created_at) #>> '{}',
+                    coalesce(t.data->>'channelId', t.data->>'chatChannelId'), c.name
              from notifications t
-             left join chat_channels c on c.id = (t.data->>'channelId')
+             left join chat_channels c
+                    on c.id = coalesce(t.data->>'channelId', t.data->>'chatChannelId')
              where t.user_id = $1 and t.category = 'weldchat' and t.deleted_at is null
                and t.notification_type = any($2)
                and ($3::text is null or (t.created_at < $3::timestamptz

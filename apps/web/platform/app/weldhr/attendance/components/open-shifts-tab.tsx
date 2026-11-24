@@ -12,24 +12,30 @@ import { Button } from '@weldsuite/ui/components/button';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { usePermissions } from '@weldsuite/permissions/react';
 import type { HrOpenShift } from '@weldsuite/app-api-client/domains/weldhr';
-import { PanelEntityList, type ColumnDef, type GroupConfig } from '@/components/panel-entity-list';
+import {
+  PanelEntityList,
+  type ActiveFilter,
+  type ColumnDef,
+  type FilterConfig,
+  type GroupConfig,
+} from '@/components/panel-entity-list';
 import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { formatClockRange, useTimeFormat } from '@/app/weldcalendar/lib/calendar-format';
 import { useCancelHrOpenShift, useHrOpenShifts } from '@/hooks/queries/use-weldhr-queries';
 import { cn } from '@/lib/utils';
 import { HR_COL, HrListContainer, emptyIcon } from '../../components/page-kit';
-import { StatusBadge, errorMessage, todayIso } from '../../components/shared';
+import { StatusBadge, errorMessage, formatWeekdayDate, todayIso } from '../../components/shared';
 import { OpenShiftDialog } from './open-shift-dialog';
-
-/** "Mon, 27 Oct" for the day a shift starts, in the viewer's locale. */
-function dayLabel(iso: string): string {
-  return new Date(iso).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
-}
 
 /** What the status chip shows: withdrawn, full (no spot left) or still open. */
 function displayStatus(shift: HrOpenShift): 'open' | 'full' | 'cancelled' {
   if (shift.status === 'cancelled') return 'cancelled';
   return shift.spotsLeft === 0 ? 'full' : 'open';
+}
+
+/** Distinct non-empty values, sorted, as filter options. */
+function optionsOf(values: Array<string | null>): Array<{ value: string; label: string }> {
+  return [...new Set(values.filter((v): v is string => !!v))].sort((a, b) => a.localeCompare(b)).map((value) => ({ value, label: value }));
 }
 
 export function OpenShiftsTab() {
@@ -54,6 +60,31 @@ export function OpenShiftsTab() {
     { id: 'cancelled', label: t('weldhr.attendance.openShifts.groups.cancelled'), sortOrder: 2, filter: (s) => s.status === 'cancelled' },
   ];
 
+  const shifts = data ?? [];
+  const filters: FilterConfig[] = [
+    {
+      field: 'status',
+      label: t('weldhr.attendance.openShifts.table.status'),
+      operators: ['is'],
+      options: (['open', 'full', 'cancelled'] as const).map((status) => ({ value: status, label: t(`weldhr.status.openShift.${status}`) })),
+    },
+    { field: 'client', label: t('weldhr.attendance.openShifts.table.client'), operators: ['is'], options: optionsOf(shifts.map((s) => s.companyName)) },
+    {
+      field: 'department',
+      label: t('weldhr.attendance.openShifts.table.department'),
+      operators: ['is'],
+      options: optionsOf(shifts.map((s) => s.departmentName)),
+    },
+  ];
+  const applyFilters = (rows: HrOpenShift[], active: ActiveFilter[]) =>
+    active.reduce((list, filter) => {
+      if (!filter.value) return list;
+      if (filter.field === 'status') return list.filter((s) => displayStatus(s) === filter.value);
+      if (filter.field === 'client') return list.filter((s) => s.companyName === filter.value);
+      if (filter.field === 'department') return list.filter((s) => s.departmentName === filter.value);
+      return list;
+    }, rows);
+
   const columns: ColumnDef<HrOpenShift>[] = [
     {
       id: 'shift',
@@ -61,10 +92,10 @@ export function OpenShiftsTab() {
       width: HR_COL.main,
       render: (s) => (
         <div className="min-w-0">
-          <p className="truncate font-medium">{s.workType ?? dayLabel(s.startsAt)}</p>
+          <p className="truncate font-medium">{s.workType ?? formatWeekdayDate(s.startsAt)}</p>
           {/* What the hidden columns would show, once the list is too narrow for them. */}
           <p className="truncate text-xs text-muted-foreground @4xl:hidden">
-            {dayLabel(s.startsAt)} · {timeRange(s)}
+            {formatWeekdayDate(s.startsAt)} · {timeRange(s)}
             {s.companyName && <> · {s.companyName}</>}
           </p>
           <div className="mt-1 flex flex-wrap items-center gap-1.5 @lg:hidden">
@@ -76,8 +107,8 @@ export function OpenShiftsTab() {
     {
       id: 'day',
       header: t('weldhr.attendance.openShifts.table.day'),
-      width: cn(HR_COL.fixed, HR_COL.hideLg, 'w-[96px]'),
-      render: (s) => <span className="block truncate tabular-nums">{dayLabel(s.startsAt)}</span>,
+      width: cn(HR_COL.fixed, HR_COL.hideLg, 'w-[124px]'),
+      render: (s) => <span className="block truncate tabular-nums">{formatWeekdayDate(s.startsAt)}</span>,
     },
     {
       id: 'time',
@@ -153,12 +184,15 @@ export function OpenShiftsTab() {
     <>
       <HrListContainer>
         <PanelEntityList<HrOpenShift>
-          items={data ?? []}
+          items={shifts}
           isLoading={isLoading}
           error={error}
           columns={columns}
           groups={groups}
-          filters={[]}
+          filters={filters}
+          applyFilters={applyFilters}
+          searchFields={['workType', 'companyName', 'departmentName', 'notes']}
+          searchPlaceholder={t('weldhr.attendance.openShifts.searchPlaceholder')}
           // A withdrawn shift is history; the server refuses to change it.
           onEdit={canUpdate ? (s) => (s.status === 'open' ? setDialogState(s) : undefined) : undefined}
           createButton={canCreate ? { label: t('weldhr.attendance.openShifts.add'), onClick: () => setDialogState('create') } : undefined}

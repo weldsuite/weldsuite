@@ -62,7 +62,7 @@ export function CompensationDialog({ employeeId, detail, onClose }: Readonly<{ e
   return (
     <Dialog open onOpenChange={(open) => !open && !create.isPending && onClose()}>
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
-        <DialogHeader>
+        <DialogHeader className="mb-2">
           <DialogTitle>{t('weldhr.payroll.employee.compensation.addTitle')}</DialogTitle>
           <DialogDescription>{t('weldhr.payroll.employee.compensation.addDescription')}</DialogDescription>
         </DialogHeader>

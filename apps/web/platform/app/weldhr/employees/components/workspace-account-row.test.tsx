@@ -11,6 +11,7 @@ const refetchPending = vi.fn();
 const toastSuccess = vi.fn();
 let pendingMembers: Array<{ email: string }> = [];
 let available: Array<{ userId: string; name: string; email: string }> = [];
+let profile: { name: string; email: string; picture: string | null } | undefined = { name: 'Ann Archer', email: 'ann@example.com', picture: null };
 
 vi.mock('@/components/object-panel', () => import('@/components/objects/_shared/object-panel-test-mock'));
 vi.mock('@weldsuite/permissions/react', () => ({
@@ -19,7 +20,7 @@ vi.mock('@weldsuite/permissions/react', () => ({
 vi.mock('sonner', () => ({ toast: { success: (message: string) => toastSuccess(message), error: vi.fn() } }));
 vi.mock('@/lib/api/use-app-api', () => ({ useAppApi: () => ({ teamMembers: { inviteMember } }) }));
 vi.mock('@/hooks/queries/use-team-queries', () => ({
-  useMemberProfile: () => ({ data: { name: 'Ann Archer', email: 'ann@example.com', picture: null } }),
+  useMemberProfile: () => ({ data: profile }),
   useTeamMembers: () => ({ data: { data: pendingMembers }, refetch: refetchPending }),
 }));
 vi.mock('@/hooks/queries/use-settings-queries', () => ({
@@ -51,6 +52,34 @@ describe('EmployeeWorkspaceAccountRow', () => {
     panelOpen.mockReset();
     pendingMembers = [];
     available = [];
+    profile = { name: 'Ann Archer', email: 'ann@example.com', picture: null };
+  });
+
+  it('names a linked member by their email when the profile has no name', () => {
+    profile = { name: '', email: 'ann.member@example.com', picture: null };
+    renderRow(makeEmployee({ userId: 'user_ann' }));
+    expect(screen.getByRole('button', { name: /ann.member@example.com/ })).toBeInTheDocument();
+  });
+
+  it('names a linked member by the employee while their profile has not loaded, never by the user id', () => {
+    profile = undefined;
+    renderRow(makeEmployee({ userId: 'user_ann', displayName: 'Ann Archer' }));
+    const button = screen.getByRole('button', { name: /Ann Archer/ });
+    expect(button).toBeInTheDocument();
+    expect(screen.queryByText('user_ann')).not.toBeInTheDocument();
+  });
+
+  it('falls back to the employee email when they have no display name', () => {
+    profile = undefined;
+    renderRow(makeEmployee({ userId: 'user_ann', displayName: '', email: 'ann@work.example' }));
+    expect(screen.getByRole('button', { name: /ann@work.example/ })).toBeInTheDocument();
+  });
+
+  it('shows the member picture when the profile has one', () => {
+    profile = { name: 'Ann Archer', email: 'ann@example.com', picture: 'https://example.com/ann.png' };
+    const { container } = renderRow(makeEmployee({ userId: 'user_ann' }));
+    expect(screen.getByRole('button', { name: /Ann Archer/ })).toBeInTheDocument();
+    expect(container.querySelector('img, [data-slot="avatar-fallback"]')).not.toBeNull();
   });
 
   it('shows the linked member, who opens in their own panel', async () => {

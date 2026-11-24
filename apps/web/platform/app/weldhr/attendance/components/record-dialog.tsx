@@ -23,6 +23,7 @@ import { useCreateHrAttendance, useHrEmployee, useUpdateHrAttendance } from '@/h
 import { EmployeePicker, errorMessage, formatDate, formatMinutes, instantAt, minutesAfter, todayIso } from '../../components/shared';
 import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
 import { InfoBanner } from '@weldsuite/ui/components/info-banner';
+import { HrDateInput, HrTimeInput } from '@/app/weldhr/components/date-fields';
 
 const STATUSES: HrAttendanceStatus[] = ['present', 'late', 'absent', 'excused', 'remote', 'half_day'];
 
@@ -107,7 +108,7 @@ export function AttendanceRecordDialog({
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent>
-        <DialogHeader>
+        <DialogHeader className="mb-2">
           <DialogTitle>{record ? t('weldhr.attendance.records.editRecord') : t('weldhr.attendance.records.addRecord')}</DialogTitle>
         </DialogHeader>
 
@@ -131,7 +132,7 @@ export function AttendanceRecordDialog({
 
           <div className="space-y-1.5">
             <Label htmlFor="hr-att-date">{t('weldhr.attendance.records.form.date')}</Label>
-            <Input id="hr-att-date" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+            <HrDateInput id="hr-att-date" value={date} onChange={setDate} />
           </div>
 
           {beforeStart && employee?.startDate && (
@@ -141,11 +142,11 @@ export function AttendanceRecordDialog({
           <div className="grid grid-cols-2 gap-3">
             <div className="min-w-0 space-y-1.5">
               <Label htmlFor="hr-att-in">{t('weldhr.attendance.records.form.clockIn')}</Label>
-              <Input id="hr-att-in" type="time" value={clockIn} onChange={(e) => setClockIn(e.target.value)} />
+              <HrTimeInput id="hr-att-in" value={clockIn} onChange={setClockIn} />
             </div>
             <div className="min-w-0 space-y-1.5">
               <Label htmlFor="hr-att-out">{t('weldhr.attendance.records.form.clockOut')}</Label>
-              <Input id="hr-att-out" type="time" value={clockOut} onChange={(e) => setClockOut(e.target.value)} />
+              <HrTimeInput id="hr-att-out" value={clockOut} clearable onChange={setClockOut} />
               {endsNextDay && <p className="text-xs text-muted-foreground">{t('weldhr.attendance.records.form.nextDay')}</p>}
             </div>
           </div>

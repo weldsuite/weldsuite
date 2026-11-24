@@ -84,7 +84,7 @@ export const settings = {
       mailAccounts: 'Mail-accounts',
       manageMailAccounts: 'E-mailaccounts beheren',
       weldhrSettings: 'WeldHR',
-      configureWeldhr: 'Afdelingen en verloftypes',
+      configureWeldhr: 'Afdelingen, verloftypes, werklocaties en zelfservice',
     },
 
     companyInfo: {
@@ -1803,7 +1803,7 @@ export const settings = {
 
     weldhr: {
       title: 'WeldHR',
-      description: 'Afdelingen en verloftypes.',
+      description: 'Afdelingen, verloftypes, werklocaties en zelfservice.',
     },
 
     weldflow: {

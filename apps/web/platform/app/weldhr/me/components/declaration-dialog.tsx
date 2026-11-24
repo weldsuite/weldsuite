@@ -19,6 +19,7 @@ import { useMyHrCreateDeclaration } from '@/hooks/queries/use-weldhr-queries';
 import { errorMessage, todayIso } from '../../components/shared';
 import { RECEIPT_ACCEPT, parseAmount, receiptProblem } from '../../declarations/components/receipt-field';
 import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
+import { HrDateInput } from '@/app/weldhr/components/date-fields';
 
 function buildSchema(t: (path: string) => string) {
   return z.object({
@@ -49,6 +50,8 @@ export function MyDeclarationDialog({ onClose }: Readonly<{ onClose: () => void 
 
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
+    // Errors show as you go, since Submit stays disabled until the form is valid.
+    mode: 'onChange',
     defaultValues: { expenseDate: todayIso(), category: 'travel', amount: '', currency: 'EUR', description: '' },
   });
 
@@ -86,7 +89,7 @@ export function MyDeclarationDialog({ onClose }: Readonly<{ onClose: () => void 
   return (
     <Dialog open onOpenChange={(open) => !open && !isSubmitting && onClose()}>
       <DialogContent className="sm:max-w-md">
-        <DialogHeader>
+        <DialogHeader className="mb-2">
           <DialogTitle>{t('weldhr.me.declarations.form.title')}</DialogTitle>
         </DialogHeader>
 
@@ -102,7 +105,7 @@ export function MyDeclarationDialog({ onClose }: Readonly<{ onClose: () => void 
                   <FormItem>
                     <FormLabel>{t('weldhr.me.declarations.form.date')}</FormLabel>
                     <FormControl>
-                      <Input type="date" max={todayIso()} {...field} />
+                      <HrDateInput max={todayIso()} {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -206,7 +209,7 @@ export function MyDeclarationDialog({ onClose }: Readonly<{ onClose: () => void 
               <Button type="button" variant="outline" onClick={onClose} disabled={isSubmitting}>
                 {t('weldhr.common.cancel')}
               </Button>
-              <Button type="submit" disabled={isSubmitting || Boolean(receiptError)}>
+              <Button type="submit" disabled={isSubmitting || Boolean(receiptError) || !form.formState.isValid}>
                 {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 {isSubmitting ? t('weldhr.me.declarations.form.submitting') : t('weldhr.me.declarations.form.submit')}
               </Button>

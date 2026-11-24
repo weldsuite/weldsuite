@@ -6,6 +6,8 @@
 
 /** The channel feature locks the menus care about (`undefined` = not loaded yet = allowed). */
 export interface MessageMenuChannel {
+  /** 'dm' and 'group' are direct messages. */
+  type?: string | null;
   threadsEnabled?: boolean | null;
   reactionsEnabled?: boolean | null;
 }
@@ -19,14 +21,23 @@ export function canReactInChannel(channel: MessageMenuChannel | null | undefined
 }
 
 /**
- * "Reply in thread" needs threads enabled on the channel, and is never offered
- * on a message that is itself a thread reply (no threads inside threads).
+ * Whether new threads may be started in a conversation: threads enabled on
+ * the channel, and not a direct message (a DM is a conversation already;
+ * threads made there before still open from their reply count).
+ */
+export function channelOffersThreads(channel: MessageMenuChannel | null | undefined): boolean {
+  return channel?.threadsEnabled !== false && channel?.type !== 'dm' && channel?.type !== 'group';
+}
+
+/**
+ * "Reply in thread" where the conversation offers threads, and never on a
+ * message that is itself a thread reply (no threads inside threads).
  */
 export function canStartThread(
   message: { parentId?: string | null },
   channel: MessageMenuChannel | null | undefined,
 ): boolean {
-  return channel?.threadsEnabled !== false && !message.parentId;
+  return channelOffersThreads(channel) && !message.parentId;
 }
 
 export function isOwnMessage(message: { authorId?: string | null }, userId: string | null | undefined): boolean {

@@ -112,7 +112,7 @@ export function ProfileDialog({ employeeId, detail, onClose }: Readonly<{ employ
   return (
     <Dialog open onOpenChange={(open) => !open && !upsert.isPending && onClose()}>
       <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-2xl">
-        <DialogHeader>
+        <DialogHeader className="mb-2">
           <DialogTitle>{profile ? t('weldhr.payroll.employee.profile.editTitle') : t('weldhr.payroll.employee.profile.createTitle')}</DialogTitle>
           <DialogDescription>{t('weldhr.payroll.employee.profile.dialogDescription', { name: detail.employee.displayName })}</DialogDescription>
         </DialogHeader>

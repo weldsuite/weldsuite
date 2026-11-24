@@ -3,6 +3,6 @@ import PageComponent from '@/app/weldhr/me/schedule/page';
 import '@/lib/breadcrumbs/types';
 
 export const Route = createFileRoute('/weldhr/me/schedule/')({
-  staticData: { breadcrumb: { labelKey: 'scheduleAndHours' } },
+  staticData: { breadcrumb: { labelKey: 'schedule' } },
   component: PageComponent,
 });

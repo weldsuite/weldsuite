@@ -100,7 +100,7 @@ export function ScheduleDialog({
   return (
     <Dialog open onOpenChange={(open) => !open && !saving && onClose()}>
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
-        <DialogHeader>
+        <DialogHeader className="mb-2">
           <DialogTitle>{schedule ? t('weldhr.payroll.settings.schedules.editTitle') : t('weldhr.payroll.settings.schedules.createTitle')}</DialogTitle>
           <DialogDescription>{t('weldhr.payroll.settings.schedules.dialogDescription')}</DialogDescription>
         </DialogHeader>

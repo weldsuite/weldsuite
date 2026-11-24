@@ -49,7 +49,7 @@ export function DeclarationReviewDialog({
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent>
-        <DialogHeader>
+        <DialogHeader className="mb-2">
           <DialogTitle>
             {action}
             {' · '}

@@ -25,6 +25,7 @@ import { usePermissions } from '@weldsuite/permissions/react';
 import type { HrDepartment } from '@weldsuite/app-api-client/domains/weldhr';
 import {
   useHrDepartments,
+  useHrEmployees,
   useCreateHrDepartment,
   useUpdateHrDepartment,
   useDeleteHrDepartment,
@@ -68,6 +69,9 @@ export function DepartmentsTab() {
   const [search, setSearch] = useState('');
 
   const byId = new Map((departments ?? []).map((d) => [d.id, d]));
+  // A department only stores its head's id; the employee list gives the name.
+  const { data: employeesData } = useHrEmployees({ limit: 100 });
+  const employeeNames = new Map((employeesData?.data ?? []).map((e) => [e.id, e.displayName]));
 
   const items = useMemo(() => {
     const all = departments ?? [];
@@ -128,12 +132,14 @@ export function DepartmentsTab() {
       id: 'head',
       header: t('weldhr.settings.departments.head'),
       // Shown from ~576px of list width, so it fits the narrow settings column.
-      width: cn(HR_COL.fixed, 'hidden @xl:block w-[120px]'),
-      render: (dept) => (
-        <span className="text-muted-foreground">
-          {dept.headEmployeeId ? t('weldhr.settings.departments.headAssigned') : '—'}
-        </span>
-      ),
+      width: cn(HR_COL.fixed, 'hidden @xl:block w-[160px]'),
+      render: (dept) => {
+        // The name; "Assigned" only while the employee list hasn't loaded or doesn't hold them.
+        const name = dept.headEmployeeId
+          ? (employeeNames.get(dept.headEmployeeId) ?? t('weldhr.settings.departments.headAssigned'))
+          : '—';
+        return <span className="block truncate text-muted-foreground">{name}</span>;
+      },
     },
     {
       id: 'employeeCount',
@@ -230,7 +236,7 @@ function DepartmentDialog({
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent>
-        <DialogHeader>
+        <DialogHeader className="mb-2">
           <DialogTitle>
             {isEdit ? t('weldhr.settings.departments.editTitle') : t('weldhr.settings.departments.addTitle')}
           </DialogTitle>
