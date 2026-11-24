@@ -84,11 +84,11 @@ function DevicesSection() {
     <SettingsSection title={td.title} description={canManage ? td.descriptionAll : td.descriptionOwn}>
       {isLoading && <InlineSpinner />}
       {!isLoading && (isError || !devices) && <ErrorState message={td.loadFailed} onRetry={() => void refetch()} />}
-      {devices && devices.length === 0 && <EmptyState icon={Smartphone} title={td.empty} />}
+      {devices?.length === 0 && <EmptyState icon={Smartphone} title={td.empty} />}
       {devices && devices.length > 0 && (
-        // A focusable, named region, so the table scrolls by keyboard on a narrow screen.
+        // A focusable, named section (a region landmark), so the table scrolls by keyboard on a narrow screen.
         // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex
-        <div role="region" tabIndex={0} aria-labelledby="weldpass-devices-caption" className="rounded-md border">
+        <section tabIndex={0} aria-labelledby="weldpass-devices-caption" className="rounded-md border">
           <Table>
             <caption id="weldpass-devices-caption" className="sr-only">
               {td.caption}
@@ -150,7 +150,7 @@ function DevicesSection() {
               })}
             </TableBody>
           </Table>
-        </div>
+        </section>
       )}
 
       <ConfirmDialog

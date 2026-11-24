@@ -69,8 +69,8 @@ const AppLockContext = createContext<AppLockValue>({
   enabled: false,
   required: false,
   locked: false,
-  setEnabled: async () => {},
-  confirm: async () => true,
+  setEnabled: () => Promise.resolve(),
+  confirm: () => Promise.resolve(true),
 });
 
 export function useAppLock(): AppLockValue {

@@ -170,7 +170,7 @@ export function canAdministerVault(
   vault: WeldPassVault | undefined | null,
   canManageAll: boolean,
 ): boolean {
-  if (!vault || vault.kind !== 'shared') return false;
+  if (vault?.kind !== 'shared') return false;
   return vault.role === 'manager' || canManageAll;
 }
 
