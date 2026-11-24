@@ -16,7 +16,7 @@ use weldsuite_kit::generate_id;
 use weldsuite_schema::tenant::{weldpass_item_versions as versions, weldpass_items as items};
 
 use crate::envelope::{ItemLocation, Key, SealedItem, open_item, seal_item};
-use crate::schemas::{ItemDocument, host_of, parse_item};
+use crate::schemas::{ItemDocument, host_of, match_scope, parse_item};
 use crate::totp::{TotpCode, parse_totp, totp_code};
 use crate::{PassError, PassResult, int4, millis, now, row_json};
 
@@ -226,8 +226,8 @@ pub(crate) async fn list_items(
     Ok(rows.iter().map(row_json).collect())
 }
 
-/// `matchLogins`: the same host, a parent of at least two labels, or a
-/// subdomain of the page's host.
+/// `matchLogins`: the same host, a parent of it, or a subdomain of it, never
+/// across a public suffix ([`match_scope`]).
 pub(crate) async fn match_logins(
     db: &PgPool,
     vault_ids: &[String],
@@ -236,13 +236,7 @@ pub(crate) async fn match_logins(
     if vault_ids.is_empty() {
         return Ok(Vec::new());
     }
-    let labels: Vec<&str> = page_host.split('.').collect();
-    let mut parents: Vec<String> = (0..labels.len().saturating_sub(1))
-        .map(|i| labels[i..].join("."))
-        .collect();
-    if parents.is_empty() {
-        parents.push(page_host.to_owned());
-    }
+    let scope = match_scope(page_host);
     // `_` is legal in hostnames and a LIKE wildcard, so it is escaped.
     let mut escaped = String::with_capacity(page_host.len());
     for c in page_host.chars() {
@@ -257,9 +251,9 @@ pub(crate) async fn match_logins(
         .filter(I::Type.eq("login"))
         .filter(I::DeletedAt.is_null())
         .filter(
-            Condition::any().add(I::Host.is_in(parents)).add(
+            Condition::any().add(I::Host.is_in(scope.hosts)).add(
                 Condition::all()
-                    .add(Expr::val(labels.len() >= 2))
+                    .add(Expr::val(scope.subdomains))
                     .add(I::Host.like(pattern)),
             ),
         )

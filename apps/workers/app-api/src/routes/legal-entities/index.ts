@@ -19,8 +19,9 @@
  *   PUT|DELETE /:id/access/members/:userId                                    [manage]
  *   GET    /:id/my-access                          the caller's role here     [authenticated]
  *
- * An entity the member does not see answers 404 on every route. Owners and
- * `legal_entities:manage` holders see all. Giving someone an entity role is
+ * An entity the member does not see answers 404 on every route. Owners see
+ * all; `legal_entities:manage` holders see a restricted entity only when they
+ * are listed on it, the access routes included. Giving someone an entity role is
  * held to the grant ceiling, as assigning a workspace role is: the caller
  * must hold every permission the role carries. Registrations, make-default,
  * unarchive and the restricted switch publish `legal_entity` `updated`.

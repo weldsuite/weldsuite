@@ -32,6 +32,7 @@
       "/api/invitations",
       "/api/legal-entities",
       "/api/me",
+      "/api/mcp",
       "/api/member-limits",
       "/api/my-role",
       "/api/notification-preferences",

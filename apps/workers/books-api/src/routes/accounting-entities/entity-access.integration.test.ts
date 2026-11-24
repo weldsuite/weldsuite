@@ -3,7 +3,7 @@
  * real permission resolution, mounted the way index.ts mounts it):
  *
  *  (a) a restricted entity is missing from GET /accounting-entities for a
- *      member without access, and its invoice is 404 by id;
+ *      member or admin without a row, and its invoice is 404 by id;
  *  (b) a member whose entity role is Viewer gets 403 creating an invoice in
  *      that entity, but can create one in an open entity with their workspace role;
  *  (c) a member who is not allowed everywhere gets 404 on a PATCH of entity
@@ -32,7 +32,7 @@ import type { Env, Variables } from '../../types';
 import { accountingEntitiesRoutes } from './index';
 import { invoicesRoutes } from '../invoices';
 
-const USERS = ['u_admin', 'u_member', 'u_clerk'] as const;
+const USERS = ['u_admin', 'u_admin2', 'u_member', 'u_clerk'] as const;
 type User = (typeof USERS)[number];
 
 let db: Database;
@@ -106,6 +106,7 @@ beforeAll(async () => {
   ]);
   await db.insert(schema.workspaceMembers).values([
     { id: 'wm_admin', userId: 'u_admin', role: 'ADMIN' },
+    { id: 'wm_admin2', userId: 'u_admin2', role: 'ADMIN' },
     { id: 'wm_member', userId: 'u_member', role: 'MEMBER', permissions: ['entities:read'] },
     { id: 'wm_clerk', userId: 'u_clerk', role: 'MEMBER', roleId: 'role_clerk' },
   ]);
@@ -137,6 +138,8 @@ beforeAll(async () => {
   await db.insert(schema.legalEntityMembers).values([
     { id: 'lem_1', entityId: 'ent_role', userId: 'u_member', roleId: 'role_viewer' },
     { id: 'lem_2', entityId: 'ent_clerk_viewer', userId: 'u_clerk', roleId: 'role_viewer' },
+    // u_admin is listed on the restricted entity, u_admin2 is not.
+    { id: 'lem_3', entityId: 'ent_secret', userId: 'u_admin', roleId: null },
   ]);
   await db.insert(schema.parties).values({ id: 'pty_access', displayName: 'Klant BV', role: 'none' });
 
@@ -149,13 +152,16 @@ beforeAll(async () => {
 describe('a restricted entity', () => {
   let secretInvoice: string;
 
-  it('is missing from the entity list of a member without access, and shown to an admin', async () => {
+  it('is missing from the entity list of a member or admin without a row, and shown to a listed admin', async () => {
     const member = await call('u_member', 'GET', '/api/accounting-entities', { entity: 'ent_secret' });
     expect(member.status).toBe(200);
     expect(member.data.map((e: { id: string }) => e.id).sort()).toEqual(['ent_open', 'ent_role']);
     const admin = await call('u_admin', 'GET', '/api/accounting-entities');
     expect(admin.data.map((e: { id: string }) => e.id).sort()).toEqual(['ent_open', 'ent_role', 'ent_secret']);
+    const otherAdmin = await call('u_admin2', 'GET', '/api/accounting-entities');
+    expect(otherAdmin.data.map((e: { id: string }) => e.id).sort()).toEqual(['ent_open', 'ent_role']);
     expect((await call('u_member', 'GET', '/api/accounting-entities/ent_secret')).status).toBe(404);
+    expect((await call('u_admin2', 'GET', '/api/accounting-entities/ent_secret')).status).toBe(404);
   });
 
   it('keeps its invoice a 404 by id for that member, whichever entity the header names', async () => {
@@ -165,6 +171,8 @@ describe('a restricted entity', () => {
     expect((await call('u_admin', 'GET', `/api/invoices/${secretInvoice}`, { entity: 'ent_secret' })).status).toBe(200);
     expect((await call('u_member', 'GET', `/api/invoices/${secretInvoice}`, { entity: 'ent_open' })).status).toBe(404);
     expect((await call('u_member', 'GET', `/api/invoices/${secretInvoice}`, { entity: 'ent_secret' })).status).toBe(404);
+    expect((await call('u_admin2', 'GET', `/api/invoices/${secretInvoice}`, { entity: 'ent_open' })).status).toBe(404);
+    expect((await call('u_admin2', 'GET', `/api/invoices/${secretInvoice}`, { entity: 'ent_secret' })).status).toBe(404);
   });
 });
 
@@ -187,7 +195,7 @@ describe('a record of another entity', () => {
     expect(patched.status).toBe(404);
     const [row] = await db.select().from(schema.invoices).where(eq(schema.invoices.id, id)).limit(1);
     expect(row?.reference).not.toBe('sneaky');
-    // An admin's access is the same everywhere, so deep links keep working.
+    // An admin acts with their workspace role in every entity they see, so deep links keep working.
     expect((await call('u_admin', 'PATCH', `/api/invoices/${id}`, { entity: 'ent_open', body: { reference: 'fine' } })).status).toBe(200);
   });
 });

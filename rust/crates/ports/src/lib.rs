@@ -21,6 +21,7 @@
 //! | [`Embeddings`] | Workers AI embeddings through the AI Gateway (`@weldsuite/ai`) | [`FakeEmbeddings`] |
 //! | [`ImapConnector`] | `@weldsuite/imap` over `cloudflare:sockets` (the WeldReach warmup network) | [`MemoryImap`] |
 //! | [`SsoDirectory`] | Clerk's SAML connections (ADR SEC-010); on Kubernetes WeldID's SSO connections (SEC-019) | [`MemorySsoDirectory`] |
+//! | [`WorkspaceSelections`] | Clerk's organization picker at OAuth consent; on Kubernetes WeldID's tenant selection for MCP clients (SEC-019) | (a test's own) |
 //! | [`VirusScanner`] | nothing (Global never scanned attachments); clamd on Kubernetes | [`FakeScanner`] |
 //!
 //! Every port is a trait with native `async fn`-style methods
@@ -55,6 +56,7 @@ pub mod sso;
 pub mod transport;
 pub mod video_rooms;
 pub mod virus_scan;
+pub mod workspace_selection;
 
 pub use cache::{Cache, CacheExt, DynCache, MemoryCache, RequestCache};
 pub use collab::{CollabError, CollabRooms, RequestCollab};
@@ -113,6 +115,9 @@ pub use transport::{
     Envelope, MailTransport, RecordingMailTransport, SentEnvelope, TransportFailure,
 };
 pub use virus_scan::{EICAR, FakeScanner, ScanVerdict, VirusScanner};
+pub use workspace_selection::{
+    WorkspaceSelectionDecision, WorkspaceSelectionRequest, WorkspaceSelections,
+};
 
 /// A boxed, sendable future: what the `Dyn*` port traits return.
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;

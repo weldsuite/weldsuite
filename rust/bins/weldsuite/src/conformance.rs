@@ -91,6 +91,8 @@ pub(crate) fn infra(tracker: TaskTracker) -> (Infra, Recorders) {
         identity: None,
         // Global's tests: `/api/sso` answers as without WeldID.
         sso: None,
+        // Global has no workspace step: Clerk's consent picks the organization.
+        workspace_selections: None,
         provisioner: None,
         panel_events_subject: weldsuite_adapters_oss::DEFAULT_PANEL_EVENTS_SUBJECT.to_owned(),
         // The collector takes the test's `PANEL_REPLAYS` per request.

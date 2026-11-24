@@ -4,6 +4,7 @@
  */
 
 import { useState } from 'react';
+import { Navigate } from '@tanstack/react-router';
 import { Plus, RefreshCw, Send, Trash2 } from 'lucide-react';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Button } from '@weldsuite/ui/components/button';
@@ -13,6 +14,7 @@ import type { WeldPassSyncTarget } from '@weldsuite/app-api-client/domains/weldp
 import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { useParams } from '@/lib/router';
+import { isFeatureAvailable } from '@/lib/edition';
 import {
   useDeleteWeldPassCredential,
   useDeleteWeldPassSyncTarget,
@@ -35,9 +37,17 @@ import { ProjectPage } from '../components/project-page';
 type Removal = { kind: 'target' | 'credential'; id: string; name: string } | null;
 
 export default function WeldPassSyncPage() {
+  const { projectId } = useParams() as { projectId: string };
+  // Pushing secrets to Cloudflare and Vercel is off on some editions.
+  if (!isFeatureAvailable('weldpass-sync')) {
+    return <Navigate to="/weldpass/$projectId" params={{ projectId }} />;
+  }
+  return <SyncTargets projectId={projectId} />;
+}
+
+function SyncTargets({ projectId }: Readonly<{ projectId: string }>) {
   const t = useTranslations();
   const { can } = usePermissions();
-  const { projectId } = useParams() as { projectId: string };
 
   const { data: project, isLoading } = useWeldPassProject(projectId);
   const { data: targets } = useWeldPassSyncTargets(projectId);

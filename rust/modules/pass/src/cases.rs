@@ -7,7 +7,10 @@ use weldsuite_kit::validation::Issues;
 use crate::dotenv::{is_valid_secret_key, parse_dotenv, render_dotenv};
 use crate::import::{parse_csv, parse_import};
 use crate::js::JsRecord;
-use crate::schemas::{host_of, password_entropy_bits, password_strength, read_item, slugify};
+use crate::schemas::{
+    host_of, hosts_match, is_public_suffix, password_entropy_bits, password_strength, read_item,
+    slugify,
+};
 
 fn fixture() -> Value {
     serde_json::from_str(include_str!("../tests/fixtures/cases-ts.json")).expect("JSON")
@@ -30,6 +33,22 @@ fn slugs_hosts_and_strength() {
     for case in cases["hostOf"].as_array().expect("hostOf") {
         assert_eq!(
             host_of(Some(text(&case["input"]))).map_or(Value::Null, Value::String),
+            case["output"],
+            "{case}"
+        );
+    }
+    // tldts and the psl crate read the same list, and `/items/match`'s query
+    // offers exactly what `hostsMatch` allows.
+    for case in cases["publicSuffix"].as_array().expect("publicSuffix") {
+        assert_eq!(
+            Value::Bool(is_public_suffix(text(&case["input"]))),
+            case["output"],
+            "{case}"
+        );
+    }
+    for case in cases["hostsMatch"].as_array().expect("hostsMatch") {
+        assert_eq!(
+            Value::Bool(hosts_match(text(&case["item"]), text(&case["page"]))),
             case["output"],
             "{case}"
         );

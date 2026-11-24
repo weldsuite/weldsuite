@@ -47,6 +47,7 @@
     "./schemas/company-logos": "./src/schemas/company-logos.ts",
     "./schemas/ai-settings": "./src/schemas/ai-settings.ts",
     "./schemas/outside-eu-services": "./src/schemas/outside-eu-services.ts",
+    "./schemas/mcp-workspace-selections": "./src/schemas/mcp-workspace-selections.ts",
     "./schemas/crm-settings": "./src/schemas/crm-settings.ts",
     "./schemas/welddata": "./src/schemas/welddata.ts",
     "./schemas/weldads": "./src/schemas/weldads.ts",
@@ -190,6 +191,7 @@
     "./domains/company-logos": "./src/domains/company-logos.ts",
     "./domains/ai-settings": "./src/domains/ai-settings.ts",
     "./domains/outside-eu-services": "./src/domains/outside-eu-services.ts",
+    "./domains/mcp-workspace-selections": "./src/domains/mcp-workspace-selections.ts",
     "./domains/crm-settings": "./src/domains/crm-settings.ts",
     "./domains/object-templates": "./src/domains/object-templates.ts",
     "./domains/mail-accounts": "./src/domains/mail-accounts.ts",
@@ -268,6 +270,7 @@
     "@weldsuite/api-client": "workspace:*",
     "@weldsuite/forms-engine": "workspace:*",
     "@weldsuite/text": "workspace:*",
+    "tldts": "7.4.19",
     "zod": "^3.25.76"
   },
   "devDependencies": {

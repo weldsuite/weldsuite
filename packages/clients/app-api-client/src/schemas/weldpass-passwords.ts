@@ -4,6 +4,7 @@
  * (what counts as a weak password, which host a URL belongs to). Zod v3.
  */
 
+import { parse as parseHost } from 'tldts';
 import { z } from 'zod';
 
 // ---------------------------------------------------------------------------
@@ -150,17 +151,34 @@ export function hostOf(url: string | null | undefined): string | null {
   return host.includes('.') || host === 'localhost' ? host.slice(0, 255) : null;
 }
 
+/** The Public Suffix List with its private section (`github.io`, `blogspot.com`). */
+const PSL = { allowPrivateDomains: true } as const;
+
+/**
+ * Whether `host` is a public suffix: a name under which anyone can register a
+ * site of their own (`com`, `co.uk`, `github.io`), from the Public Suffix List
+ * including its private section. An IP address is not one. The Rust backend's
+ * `is_public_suffix` (`rust/modules/pass/src/schemas.rs`, on the `psl` crate)
+ * answers the same; `rust/modules/pass/tools/fixtures.mts` checks it.
+ */
+export function isPublicSuffix(host: string): boolean {
+  const parsed = parseHost(host, PSL);
+  return !parsed.isIp && parsed.publicSuffix === host;
+}
+
 /**
  * Whether a login saved for `itemHost` belongs on a page at `pageHost`: the
  * same host, or one is a subdomain of the other (`accounts.example.com` and
- * `example.com`). There is no public-suffix list here, so the shared part has
- * to be at least two labels — `co.uk` alone never matches anything.
+ * `example.com`). The shorter one must not be a public suffix, so a login for
+ * `a.github.io` is never offered on `github.io` (nor on `b.github.io`), nor
+ * one for `example.co.uk` on `co.uk`. An IP address matches only itself.
  */
 export function hostsMatch(itemHost: string, pageHost: string): boolean {
   if (itemHost === pageHost) return true;
   const [short, long] =
     itemHost.length < pageHost.length ? [itemHost, pageHost] : [pageHost, itemHost];
-  return short.split('.').length >= 2 && long.endsWith(`.${short}`);
+  if (!short.includes('.') || !long.endsWith(`.${short}`)) return false;
+  return !parseHost(long, PSL).isIp && !isPublicSuffix(short);
 }
 
 // ---------------------------------------------------------------------------

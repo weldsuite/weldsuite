@@ -2235,7 +2235,17 @@ fn flow_tenants(state: &AppState) -> weldsuite_flow::TenantDatabases {
 fn pass_state() -> weldsuite_pass::PassState {
     static STATE: OnceLock<weldsuite_pass::PassState> = OnceLock::new();
     STATE
-        .get_or_init(weldsuite_pass::PassState::from_env)
+        .get_or_init(|| {
+            let mut state = weldsuite_pass::PassState::from_env();
+            // The hosted EU install pushes no secrets to Cloudflare or Vercel
+            // for now (weldsuite-documentation `plans/weldpass-eu.md`,
+            // decision 3); `/config.json` lists `weldpass-sync` as
+            // unavailable there. Conformance builds compare with Global's
+            // workers, which always sync.
+            state.sync = cfg!(feature = "conformance")
+                || !crate::edition::sync_off(std::env::var("EDITION").ok().as_deref());
+            state
+        })
         .clone()
 }
 
@@ -2867,13 +2877,23 @@ pub(crate) fn account(state: &AppState) -> Router<AppState> {
             "/auth-desktop",
             weldsuite_core_apps::auth_desktop(core_apps_state(state)),
         );
-    if state.workspace_header.is_some() {
+    if let Some(membership) = &state.workspace_header {
         // Membership mode: the workspace list comes before a workspace is
         // named, and names each by `workspaces.id` (`core_team` leaves it out).
-        router.nest(
-            "/workspaces",
-            weldsuite_core_team::workspace_directory(team),
-        )
+        // The workspace step of an MCP client's sign-in reads the same list
+        // (the platform's `/auth/mcp-workspace` page).
+        router
+            .nest(
+                "/workspaces",
+                weldsuite_core_team::workspace_directory(team),
+            )
+            .nest(
+                "/mcp/workspace-selections",
+                weldsuite_mcp::selection_router(weldsuite_mcp::SelectionState {
+                    selections: state.infra.workspace_selections.clone(),
+                    membership: Some(membership.clone()),
+                }),
+            )
     } else {
         router
     }
@@ -3380,9 +3400,12 @@ pub(crate) fn mcp(state: &AppState) -> Router {
             outbound: shared_outbound(),
             discovery,
             metadata: weldsuite_mcp::auth::IssuerMetadata::default(),
-            // Membership mode: the URL names the workspace, checked as the
+            // Membership mode: the token's `tenant` claim (chosen while
+            // signing in) or the URL names the workspace, checked as the
             // platform's `X-Weld-Workspace` is.
             membership: state.workspace_header.clone(),
+            sign_in_asks_workspace: state.workspace_header.is_some()
+                && state.infra.workspace_selections.is_some(),
         })
     });
     let mcp_state = weldsuite_mcp::McpState::new(
