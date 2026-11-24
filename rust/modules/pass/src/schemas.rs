@@ -189,6 +189,27 @@ fn defaulted(issues: &mut Issues, fields: &Map<String, Value>, key: &str, rules:
         .unwrap_or_default()
 }
 
+/// `loginFieldsSchema.apps`: `z.array(androidPackageSchema).max(20).optional()`.
+fn read_apps(issues: &mut Issues, fields: &Map<String, Value>) -> Option<Vec<String>> {
+    issues
+        .list(
+            fields,
+            "apps",
+            Presence::Optional,
+            None,
+            Some(MAX_LOGIN_APPS),
+            |issues, item| {
+                issues.item_pattern(
+                    item,
+                    Text::length(Some(1), Some(255)),
+                    is_android_package,
+                    "Not an Android package name",
+                )
+            },
+        )
+        .into_option()
+}
+
 /// `itemInputSchema` (a discriminated union on `type`) read from a body that
 /// is the item. `None` when invalid; the issues say why.
 pub(crate) fn read_item(issues: &mut Issues, body: &Value) -> Option<ItemDocument> {
@@ -234,23 +255,7 @@ pub(crate) fn read_item(issues: &mut Issues, body: &Value) -> Option<ItemDocumen
                         ),
                         totp: defaulted(issues, fields, "totp", Text::trimmed(None, Some(2048))),
                         notes: defaulted(issues, fields, "notes", Text::length(None, Some(20_000))),
-                        apps: issues
-                            .list(
-                                fields,
-                                "apps",
-                                Presence::Optional,
-                                None,
-                                Some(MAX_LOGIN_APPS),
-                                |issues, item| {
-                                    issues.item_pattern(
-                                        item,
-                                        Text::length(Some(1), Some(255)),
-                                        is_android_package,
-                                        "Not an Android package name",
-                                    )
-                                },
-                            )
-                            .into_option(),
+                        apps: read_apps(issues, fields),
                     }
                 })
                 .into_option();
