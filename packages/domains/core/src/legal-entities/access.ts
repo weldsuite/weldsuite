@@ -3,11 +3,15 @@
  *
  * Who sees a legal entity, and which role they act with inside it:
  *
- *   owner, or holds `legal_entities:manage` → every entity, workspace role
+ *   owner                                   → every entity, workspace role
  *   has a `legal_entity_members` row        → that entity, the row's role
  *                                             (null = workspace role)
  *   no row, entity not restricted           → that entity, workspace role
  *   no row, entity restricted               → not visible
+ *
+ * Holders of `legal_entities:manage` (admins) see entities as any member
+ * does, so a restricted entity only when they are listed on it, and act with
+ * their workspace role in every entity they see.
  *
  * One snapshot per request (`getEntityAccess`), loaded with a single query,
  * computed from the member's WORKSPACE permissions before any entity role is
@@ -27,7 +31,11 @@ import type { ResolvedPermissions } from '@weldsuite/permissions/types';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import type { LegalEntityAccessSource } from '@weldsuite/app-api-client/schemas/legal-entities';
 
-/** The permission that sees every entity and manages who sees which. */
+/**
+ * The permission that manages who sees which entity. Its holders keep their
+ * workspace role in every entity they see, and see a restricted entity only
+ * when they are listed on it.
+ */
 export const LEGAL_ENTITIES_MANAGE = 'legal_entities:manage';
 
 export interface EntityAccessEntry {
@@ -39,13 +47,19 @@ export interface EntityAccessEntry {
 export interface EntityAccess {
   userId: string;
   isOwner: boolean;
-  /** Owner or `legal_entities:manage`: every entity, with the workspace role. */
+  /** Owner: every entity, restricted or not. */
   seesAll: boolean;
+  /**
+   * Owner or `legal_entities:manage`: acts with the workspace role in every
+   * entity they see, whatever role their row names.
+   */
+  managesAccess: boolean;
   /** Live (not deleted) entities of the workspace, with the member's standing on each. */
   entities: ReadonlyMap<string, EntityAccessEntry>;
   /**
    * Access is the same in every entity (sees all, or no restricted entity
-   * and no entity role): record checks can pass without comparing entities.
+   * and no entity role that applies): record checks can pass without
+   * comparing entities.
    */
   uniform: boolean;
   /** The member's workspace permissions, before any entity role swap. */
@@ -61,8 +75,9 @@ export function buildEntityAccess(
   rows: ReadonlyArray<{ id: string; accessRestricted: boolean; isMember: boolean; memberRoleId: string | null }>,
 ): EntityAccess {
   const isOwner = workspacePermissions.isOwner;
+  const seesAll = isOwner;
   // Workspace-level key (registered in no app), deny-aware.
-  const seesAll = isOwner || checkAppPermission(workspacePermissions, LEGAL_ENTITIES_MANAGE, null).allowed;
+  const managesAccess = isOwner || checkAppPermission(workspacePermissions, LEGAL_ENTITIES_MANAGE, null).allowed;
   const entities = new Map<string, EntityAccessEntry>();
   let anyRestricted = false;
   let anyRole = false;
@@ -78,8 +93,9 @@ export function buildEntityAccess(
     userId,
     isOwner,
     seesAll,
+    managesAccess,
     entities,
-    uniform: seesAll || (!anyRestricted && !anyRole),
+    uniform: seesAll || (!anyRestricted && (managesAccess || !anyRole)),
     workspacePermissions,
   };
 }
@@ -95,17 +111,21 @@ export function canSeeEntity(access: EntityAccess, entityId: string | null | und
 
 /**
  * The role the member acts with inside a visible entity: a `roles.id`, or
- * null for their workspace role. Owners and managers always keep their
- * workspace role.
+ * null for their workspace role. Owners and access managers always keep
+ * their workspace role.
  */
 export function entityRoleId(access: EntityAccess, entityId: string | null | undefined): string | null {
-  if (!entityId || access.seesAll) return null;
+  if (!entityId || access.managesAccess) return null;
   return access.entities.get(entityId)?.member?.roleId ?? null;
 }
 
+/**
+ * For an entity the member sees: 'manager' means they act there with their
+ * workspace role because they manage access.
+ */
 export function entityAccessSource(access: EntityAccess, entityId: string): LegalEntityAccessSource {
   if (access.isOwner) return 'owner';
-  if (access.seesAll) return 'manager';
+  if (access.managesAccess) return 'manager';
   return access.entities.get(entityId)?.member ? 'member' : 'open';
 }
 

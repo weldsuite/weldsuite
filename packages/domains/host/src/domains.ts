@@ -1748,7 +1748,9 @@ export async function getDashboardChart(db: Database, days: number) {
     .where(and(isNull(hostDomains.deletedAt), isListedDomainSql()));
 
   const endDate = new Date();
-  const startDate = new Date();
+  // From endDate, not a second `new Date()`: a millisecond between the two
+  // put the last day just past endDate, and the chart lost today.
+  const startDate = new Date(endDate);
   startDate.setDate(startDate.getDate() - days);
 
   interface Point { date: string; registrations: number; renewals: number; expirations: number }
