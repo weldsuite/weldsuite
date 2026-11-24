@@ -206,6 +206,7 @@ async fn middleware_scenario(db: &PgPool) {
          insert into workspace_members (id, user_id, role, permissions, member_type) values
              ('wm_lert_member', 'u_lert_member', 'MEMBER', '[\"invoices:create\"]', 'INTERNAL'),
              ('wm_lert_admin', 'u_lert_admin', 'ADMIN', '[]', 'INTERNAL'),
+             ('wm_lert_owner', 'u_lert_owner', 'OWNER', '[]', 'INTERNAL'),
              ('wm_lert_emp', 'u_lert_emp', 'MEMBER', '[]', 'EMPLOYEE');
          insert into entities (id, name, jurisdiction_code, base_currency, is_default, access_restricted) values
              ('ent_lert_open', 'Open', 'NL', 'EUR', true, false),
@@ -261,8 +262,16 @@ async fn middleware_scenario(db: &PgPool) {
     let (_, hidden) = call(&books, "/probe", "u_lert_member", Some("ent_lert_secret")).await;
     assert_eq!(hidden["entity"], Value::Null);
     assert_eq!(hidden["scope"], json!([]));
+    // An admin (`legal_entities:manage`) without a row doesn't see it either;
+    // the owner does.
     assert_eq!(
         call(&books, "/probe", "u_lert_admin", Some("ent_lert_secret"))
+            .await
+            .1["entity"],
+        Value::Null
+    );
+    assert_eq!(
+        call(&books, "/probe", "u_lert_owner", Some("ent_lert_secret"))
             .await
             .1["entity"],
         "ent_lert_secret"
@@ -314,11 +323,35 @@ async fn middleware_scenario(db: &PgPool) {
         .1["ok"],
         false
     );
+    // An admin keeps the workspace role wherever they see, but needs a row
+    // on a restricted entity; an owner's access is uniform.
+    assert_eq!(
+        call(
+            &books,
+            "/record/ent_lert_role",
+            "u_lert_admin",
+            Some("ent_lert_open")
+        )
+        .await
+        .1["ok"],
+        true
+    );
     assert_eq!(
         call(
             &books,
             "/record/ent_lert_secret",
             "u_lert_admin",
+            Some("ent_lert_open")
+        )
+        .await
+        .1["ok"],
+        false
+    );
+    assert_eq!(
+        call(
+            &books,
+            "/record/ent_lert_secret",
+            "u_lert_owner",
             Some("ent_lert_open")
         )
         .await
@@ -386,8 +419,18 @@ async fn middleware_scenario(db: &PgPool) {
     assert!(scope.contains(&"ent_lert_open"));
     assert!(!scope.contains(&"ent_lert_role"));
     assert!(!scope.contains(&"ent_lert_secret"));
+    let admin_scope = call(&hr, "/probe", "u_lert_admin", None).await.1["scope"].clone();
+    let admin_scope: Vec<&str> = admin_scope
+        .as_array()
+        .expect("scope")
+        .iter()
+        .filter_map(Value::as_str)
+        .collect();
+    assert!(admin_scope.contains(&"ent_lert_open"));
+    assert!(admin_scope.contains(&"ent_lert_role"));
+    assert!(!admin_scope.contains(&"ent_lert_secret"));
     assert_eq!(
-        call(&hr, "/probe", "u_lert_admin", None).await.1["scope"],
+        call(&hr, "/probe", "u_lert_owner", None).await.1["scope"],
         Value::Null
     );
 

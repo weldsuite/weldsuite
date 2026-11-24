@@ -30,6 +30,7 @@ beforeAll(async () => {
   await db.insert(schema.workspaceMembers).values([
     { id: 'wm_member', userId: 'u_member', role: 'MEMBER', permissions: ['invoices:create'] },
     { id: 'wm_admin', userId: 'u_admin', role: 'ADMIN' },
+    { id: 'wm_owner', userId: 'u_owner', role: 'OWNER' },
     { id: 'wm_emp', userId: 'u_emp', role: 'MEMBER', memberType: 'EMPLOYEE' },
   ]);
   await db.insert(schema.legalEntities).values([
@@ -84,7 +85,9 @@ describe('legalEntityContext', () => {
     const body = await get(books, '/probe', 'u_member', 'ent_secret');
     expect(body.entity).toBeNull();
     expect(body.scope).toEqual([]);
-    expect((await get(books, '/probe', 'u_admin', 'ent_secret')).entity).toBe('ent_secret');
+    // An admin (legal_entities:manage) without a row doesn't see it either; the owner does.
+    expect((await get(books, '/probe', 'u_admin', 'ent_secret')).entity).toBeNull();
+    expect((await get(books, '/probe', 'u_owner', 'ent_secret')).entity).toBe('ent_secret');
   });
 
   it('swaps in the entity role, keeping personal extras', async () => {
@@ -100,13 +103,17 @@ describe('legalEntityContext', () => {
     // Checked with the workspace role (open entity), record in the entity with a Viewer role.
     expect((await get(books, '/record/ent_role', 'u_member', 'ent_open')).ok).toBe(false);
     expect((await get(books, '/record/ent_secret', 'u_member', 'ent_open')).ok).toBe(false);
-    // An admin's access is uniform.
-    expect((await get(books, '/record/ent_secret', 'u_admin', 'ent_open')).ok).toBe(true);
+    // An admin keeps the workspace role wherever they see, but needs a row on a restricted entity.
+    expect((await get(books, '/record/ent_role', 'u_admin', 'ent_open')).ok).toBe(true);
+    expect((await get(books, '/record/ent_secret', 'u_admin', 'ent_open')).ok).toBe(false);
+    // An owner's access is uniform.
+    expect((await get(books, '/record/ent_secret', 'u_owner', 'ent_open')).ok).toBe(true);
   });
 
   it('scopes a request without an entity to where the member acts with the workspace role', async () => {
     expect((await get(hr, '/probe', 'u_member')).scope).toEqual(['ent_open']);
-    expect((await get(hr, '/probe', 'u_admin')).scope).toBeNull();
+    expect(((await get(hr, '/probe', 'u_admin')).scope as string[]).sort()).toEqual(['ent_open', 'ent_role']);
+    expect((await get(hr, '/probe', 'u_owner')).scope).toBeNull();
   });
 
   it('reports the effective access inside an entity', async () => {

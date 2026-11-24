@@ -296,7 +296,7 @@ pub fn record_in_request_entity(request: &RequestEntity, record_entity_id: Optio
 /// entity ids the member sees, or `None` when they see every entity and no
 /// filter is needed.
 pub fn visible_entity_filter(access: &EntityAccess) -> Option<Vec<String>> {
-    if access.sees_all {
+    if access.sees_all() {
         return None;
     }
     let mut visible = Vec::new();
@@ -749,12 +749,30 @@ mod tests {
         ))
     }
 
+    /// An admin (`legal_entities:manage` through `*`) without a row on the
+    /// restricted entity.
     fn admin_access() -> Arc<EntityAccess> {
         Arc::new(build_entity_access(
             "u_admin",
             ResolvedPermissions {
                 permissions: vec!["*".to_owned()],
                 role: "ADMIN".to_owned(),
+                ..ResolvedPermissions::default()
+            },
+            vec![
+                EntityAccessRow::new("ent_open", false, false, None),
+                EntityAccessRow::new("ent_secret", true, false, None),
+            ],
+        ))
+    }
+
+    fn owner_access() -> Arc<EntityAccess> {
+        Arc::new(build_entity_access(
+            "u_owner",
+            ResolvedPermissions {
+                permissions: vec!["*".to_owned()],
+                role: "OWNER".to_owned(),
+                is_owner: true,
                 ..ResolvedPermissions::default()
             },
             vec![
@@ -783,13 +801,20 @@ mod tests {
         assert!(!record_in_request_entity(&open, Some("ent_secret")));
         assert!(record_in_request_entity(&open, Some("ent_open")));
         assert!(record_in_request_entity(&open, None));
-        // An admin's access is uniform.
+        // An admin needs a row on a restricted entity too; an owner's access
+        // is uniform.
         let admin = RequestEntity::new(
             admin_access(),
             Some("ent_open".to_owned()),
             Some("ent_open".to_owned()),
         );
-        assert!(record_in_request_entity(&admin, Some("ent_secret")));
+        assert!(!record_in_request_entity(&admin, Some("ent_secret")));
+        let owner = RequestEntity::new(
+            owner_access(),
+            Some("ent_open".to_owned()),
+            Some("ent_open".to_owned()),
+        );
+        assert!(record_in_request_entity(&owner, Some("ent_secret")));
         // No entity on the request: the workspace role's entities only.
         let none = RequestEntity::unresolved(member_access(), None);
         assert!(record_in_request_entity(&none, Some("ent_open")));
@@ -804,7 +829,12 @@ mod tests {
             Some(vec!["ent_open".to_owned()])
         );
         let admin = RequestEntity::unresolved(admin_access(), None);
-        assert_eq!(request_entity_scope(&admin), None);
+        assert_eq!(
+            request_entity_scope(&admin),
+            Some(vec!["ent_open".to_owned()])
+        );
+        let owner = RequestEntity::unresolved(owner_access(), None);
+        assert_eq!(request_entity_scope(&owner), None);
         let hidden = RequestEntity::new(member_access(), None, Some("ent_secret".to_owned()));
         assert_eq!(request_entity_scope(&hidden), Some(Vec::new()));
         let named = RequestEntity::new(
@@ -820,7 +850,11 @@ mod tests {
 
     #[test]
     fn the_visible_filter_is_none_when_nothing_is_hidden() {
-        assert_eq!(visible_entity_filter(&admin_access()), None);
+        assert_eq!(visible_entity_filter(&owner_access()), None);
+        assert_eq!(
+            visible_entity_filter(&admin_access()),
+            Some(vec!["ent_open".to_owned()])
+        );
         assert_eq!(
             visible_entity_filter(&member_access()),
             Some(vec!["ent_open".to_owned(), "ent_role".to_owned()])
