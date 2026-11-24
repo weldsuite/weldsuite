@@ -49,7 +49,7 @@ import {
   itemToFormValues,
   toItemInput,
   type ItemFormValues,
-} from '../lib/items';
+} from '@weldsuite/app-api-client/schemas/weldpass-items';
 import { usePasswordsT } from '../lib/use-passwords-t';
 import { ItemTypeIcon } from './item-type-icon';
 import { PasswordGenerator, StrengthMeter } from './password-generator';

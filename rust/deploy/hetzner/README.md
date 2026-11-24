@@ -353,6 +353,7 @@ default) organisation:
      `weldcrm://sso-callback`, `welddesk://sso-callback`,
      `weldflow://sso-callback`, `weldhr://sso-callback`,
      `weldmail://sso-callback`, `weldmeet://sso-callback`,
+     `weldpass://sso-callback`,
      `weldsocial://sso-callback` and `weldstash://sso-callback` (the
      route the apps already use for Clerk's SSO). Under *Token settings*
      turn on **User roles inside ID Token** and **User Info inside ID

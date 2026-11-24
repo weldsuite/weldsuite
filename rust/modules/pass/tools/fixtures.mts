@@ -369,6 +369,13 @@ zod('item', schemas.itemInputSchema, [
   [],
   { type: 'login', title: 'x', url: null, fields: { username: 'u', password: 'p', totp: ' JBSW ', notes: 'n' } },
   { type: 'login', title: 'x', fields: null },
+  // A login's Android apps (PASS-010): optional, package names only, at most 20.
+  { type: 'login', title: 'x', fields: { apps: ['com.example.app', 'nl.bank_app.v2'] } },
+  { type: 'login', title: 'x', fields: { username: 'u', apps: [] } },
+  { type: 'login', title: 'x', fields: { apps: ['bank', '', ' com.x.y', 'com..y', 5] } },
+  { type: 'login', title: 'x', fields: { apps: null } },
+  { type: 'login', title: 'x', fields: { apps: 'com.x.y' } },
+  { type: 'login', title: 'x', fields: { apps: Array.from({ length: 21 }, (_, i) => `com.x.a${i}`) } },
 ]);
 zod('createVault', schemas.createVaultSchema, [{ name: '  ' }, { name: ' Team ', description: '  ' }, { name: 'x'.repeat(101) }]);
 zod('addVaultMember', schemas.addVaultMemberSchema, [{ userId: '', role: 'owner' }, { userId: 'u', role: 'viewer' }]);

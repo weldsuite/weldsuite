@@ -1,5 +1,6 @@
 /**
- * Pure helpers for the WeldPass password manager UI: filtering the item list,
+ * Pure helpers for the WeldPass password manager UI, shared by the platform and
+ * the WeldPass phone app: filtering the item list,
  * deciding what a vault role allows, and shaping the item form.
  *
  * Kept free of React so the rules (who may write where, what a search matches)
@@ -8,16 +9,18 @@
 
 import { z } from 'zod';
 import {
+  ANDROID_PACKAGE_PATTERN,
+  MAX_LOGIN_APPS,
   itemInputSchema,
   weldpassItemTypeSchema,
-} from '@weldsuite/app-api-client/schemas/weldpass-passwords';
+} from './weldpass-passwords';
 import type {
   WeldPassItem,
   WeldPassItemFields,
   WeldPassItemInput,
   WeldPassItemType,
   WeldPassVault,
-} from '@weldsuite/app-api-client/domains/weldpass-passwords';
+} from '../domains/weldpass-passwords';
 
 // ---------------------------------------------------------------------------
 // Item list
@@ -240,6 +243,12 @@ export interface ItemFormValues {
   number: string;
   expiry: string;
   cvc: string;
+  /**
+   * A login's Android apps (package names). The web form doesn't show them,
+   * but carries them through an edit: saving sends the whole item, so a field
+   * the form left out would be wiped.
+   */
+  apps: string[];
 }
 
 export function emptyItemForm(
@@ -260,6 +269,7 @@ export function emptyItemForm(
     number: '',
     expiry: '',
     cvc: '',
+    apps: [],
   };
 }
 
@@ -277,6 +287,7 @@ export function itemToFormValues(
     values.password = fields.password;
     values.totp = fields.totp;
     values.notes = fields.notes;
+    values.apps = [...(fields.apps ?? [])];
   } else if ('content' in fields) {
     values.content = fields.content;
   } else {
@@ -309,7 +320,26 @@ export function createItemFormSchema(messages: { titleRequired: string }) {
     number: z.string().trim().max(40),
     expiry: z.string().trim().max(10),
     cvc: z.string().trim().max(10),
+    apps: z.array(z.string()).max(MAX_LOGIN_APPS),
   });
+}
+
+/**
+ * Package names typed into a box, one per line (commas and spaces work too):
+ * trimmed, without blanks and duplicates, in the order given.
+ */
+export function parseAppList(text: string): string[] {
+  const seen = new Set<string>();
+  for (const part of text.split(/[\s,;]+/)) {
+    const app = part.trim();
+    if (app) seen.add(app);
+  }
+  return [...seen];
+}
+
+/** The entries of `apps` that are not Android package names, for the form's message. */
+export function invalidApps(apps: readonly string[]): string[] {
+  return apps.filter((app) => !ANDROID_PACKAGE_PATTERN.test(app));
 }
 
 /**
@@ -331,6 +361,8 @@ export function toItemInput(values: ItemFormValues): WeldPassItemInput {
           password: values.password,
           totp: values.totp,
           notes: values.notes,
+          // Left out when there are none, so the sealed text stays as it was.
+          ...(values.apps.length > 0 ? { apps: values.apps } : {}),
         },
       });
     case 'note':

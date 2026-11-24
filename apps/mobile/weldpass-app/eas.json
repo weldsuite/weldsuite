@@ -1,0 +1,40 @@
+{
+  "cli": {
+    "version": ">= 16.0.0",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "env": {
+        "NODE_ENV": "production",
+        "EXPO_PUBLIC_EU_SERVER_URL": "https://app.test.weldsuite.eu",
+        "EXPO_PUBLIC_SERVER_PICKER": "on"
+      }
+    },
+    "preview": {
+      "distribution": "internal",
+      "env": {
+        "NODE_ENV": "production",
+        "EXPO_PUBLIC_EU_SERVER_URL": "https://app.test.weldsuite.eu",
+        "EXPO_PUBLIC_SERVER_PICKER": "on"
+      }
+    },
+    "production": {
+      "autoIncrement": true,
+      "env": {
+        "NODE_ENV": "production",
+        "EXPO_PUBLIC_EU_SERVER_URL": "https://app.weldsuite.eu",
+        "EXPO_PUBLIC_SERVER_PICKER": "on"
+      }
+    }
+  },
+  "submit": {
+    "production": {
+      "android": {
+        "track": "internal"
+      }
+    }
+  }
+}

@@ -1,0 +1,42 @@
+appId: com.weldsuite.weldpass
+name: Add a login, reveal it, copy it, delete it
+tags: [writes]
+---
+- runFlow: ../subflows/login.yaml
+- evalScript: ${output.title = 'E2E login ' + Date.now()}
+- tapOn:
+    id: add-item
+- tapOn:
+    id: new-login
+- tapOn:
+    id: form-title
+- inputText: ${output.title}
+- tapOn:
+    id: form-username
+- inputText: "e2e@example.com"
+- tapOn:
+    id: form-password
+- inputText: "Correct-Horse-Battery-9"
+- hideKeyboard
+- tapOn:
+    id: form-save
+- extendedWaitUntil:
+    visible: ${output.title}
+    timeout: 15000
+# The password shows as dots until it is revealed, which asks for the lock.
+- assertNotVisible: "Correct-Horse-Battery-9"
+- tapOn:
+    id: field-password-toggle
+- runFlow: ../subflows/unlock.yaml
+- extendedWaitUntil:
+    visible: "Correct-Horse-Battery-9"
+    timeout: 15000
+- tapOn:
+    id: field-password-copy
+- runFlow: ../subflows/unlock.yaml
+- assertVisible: "Password copied. It’s cleared from the clipboard in 30 seconds."
+# Clean up.
+- tapOn:
+    id: delete-item
+- tapOn: "Delete"
+- assertVisible: "Item deleted"
