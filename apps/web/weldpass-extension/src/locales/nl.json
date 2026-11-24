@@ -1,119 +1,420 @@
 {
-  "extName": { "message": "WeldPass" },
-  "extDescription": { "message": "Vul de WeldPass-logins van je team in en sla nieuwe op." },
-  "actionTitle": { "message": "WeldPass" },
-
-  "loading": { "message": "Laden…" },
-  "retry": { "message": "Opnieuw proberen" },
-  "cancel": { "message": "Annuleren" },
-  "openWebApp": { "message": "WeldSuite openen" },
-
-  "notConfiguredTitle": { "message": "Extensie niet geconfigureerd" },
-  "notConfiguredBody": {
-    "message": "In deze build ontbreken instellingen: $1. Bouw de extensie opnieuw met deze waarden ingevuld.",
-    "description": "$1 is a comma-separated list of environment variable names."
+  "extName": {
+    "message": "WeldPass"
   },
-  "signedOutTitle": { "message": "Log in bij WeldSuite" },
+  "extDescription": {
+    "message": "Vul de WeldPass-logins van je team direct in de velden in, en sla nieuwe op."
+  },
+  "actionTitle": {
+    "message": "WeldPass"
+  },
+  "loading": {
+    "message": "Laden…"
+  },
+  "retry": {
+    "message": "Opnieuw proberen"
+  },
+  "cancel": {
+    "message": "Annuleren"
+  },
+  "openWebApp": {
+    "message": "WeldSuite openen"
+  },
+  "signedOutTitle": {
+    "message": "Log in bij WeldPass"
+  },
   "signedOutBody": {
-    "message": "WeldPass gebruikt je WeldSuite-sessie. Log in deze browser in bij de webapp en open deze pop-up daarna opnieuw."
+    "message": "Log in met je WeldSuite-account op $1."
   },
-  "noWorkspaceTitle": { "message": "Geen werkruimte geselecteerd" },
+  "noWorkspaceTitle": {
+    "message": "Nog geen werkruimte"
+  },
   "noWorkspaceBody": {
-    "message": "Open WeldSuite en kies een werkruimte. WeldPass toont de logins van de werkruimte die daar actief is."
+    "message": "Je account heeft op deze server nog geen werkruimte. Maak er een aan of sluit je aan bij een in WeldSuite."
   },
-  "authFailedTitle": { "message": "Je aanmelding kan niet worden gecontroleerd" },
-  "authSlow": {
-    "message": "Nog aan het wachten op de inlogdienst. Blijft dit gebeuren, dan is deze extensie daar mogelijk nog niet geregistreerd."
+  "authFailedTitle": {
+    "message": "Je aanmelding kan niet worden gecontroleerd"
   },
-
-  "tabLogins": { "message": "Logins" },
-  "tabSave": { "message": "Opslaan" },
-  "tabGenerator": { "message": "Generator" },
-
-  "searchLabel": { "message": "Logins zoeken" },
-  "forHost": { "message": "Voor $1", "description": "$1 is the host of the current page." },
-  "allLogins": { "message": "Alle logins" },
-  "searchResults": { "message": "Resultaten" },
-  "noMatches": { "message": "Geen opgeslagen logins voor deze site." },
-  "noResults": { "message": "Geen logins gevonden voor je zoekopdracht." },
-  "noItems": { "message": "Nog geen logins opgeslagen." },
-  "saveForSite": { "message": "Login voor deze site opslaan" },
-
-  "fill": { "message": "Invullen" },
-  "fillItem": { "message": "$1 invullen", "description": "$1 is the title of a login." },
-  "copyUsername": { "message": "Gebruikersnaam kopiëren" },
-  "copyPassword": { "message": "Wachtwoord kopiëren" },
-  "copyTotp": { "message": "2FA-code kopiëren" },
-  "openSite": { "message": "Site openen" },
-
-  "usernameCopied": { "message": "Gebruikersnaam gekopieerd." },
-  "passwordCopied": { "message": "Wachtwoord gekopieerd." },
+  "tabLogins": {
+    "message": "Logins"
+  },
+  "tabSave": {
+    "message": "Opslaan"
+  },
+  "tabGenerator": {
+    "message": "Generator"
+  },
+  "searchLabel": {
+    "message": "Logins zoeken"
+  },
+  "forHost": {
+    "message": "Voor $1",
+    "description": "$1 is the host of the current page."
+  },
+  "allLogins": {
+    "message": "Alle logins"
+  },
+  "searchResults": {
+    "message": "Resultaten"
+  },
+  "noMatches": {
+    "message": "Geen opgeslagen logins voor deze site."
+  },
+  "noResults": {
+    "message": "Geen logins gevonden voor je zoekopdracht."
+  },
+  "noItems": {
+    "message": "Nog geen logins opgeslagen."
+  },
+  "saveForSite": {
+    "message": "Login voor deze site opslaan"
+  },
+  "fill": {
+    "message": "Invullen"
+  },
+  "fillItem": {
+    "message": "$1 invullen",
+    "description": "$1 is the title of a login."
+  },
+  "copyUsername": {
+    "message": "Gebruikersnaam kopiëren"
+  },
+  "copyPassword": {
+    "message": "Wachtwoord kopiëren"
+  },
+  "copyTotp": {
+    "message": "2FA-code kopiëren"
+  },
+  "openSite": {
+    "message": "Site openen"
+  },
+  "usernameCopied": {
+    "message": "Gebruikersnaam gekopieerd."
+  },
+  "passwordCopied": {
+    "message": "Wachtwoord gekopieerd."
+  },
   "totpCopied": {
     "message": "2FA-code gekopieerd. Nog $1 seconden geldig.",
     "description": "$1 is a number of seconds."
   },
-  "noPassword": { "message": "Deze login heeft geen wachtwoord." },
-  "copyFailed": { "message": "Kopiëren naar het klembord is niet gelukt." },
-
-  "filledBoth": { "message": "Gebruikersnaam en wachtwoord ingevuld." },
-  "filledPassword": { "message": "Wachtwoord ingevuld." },
+  "noPassword": {
+    "message": "Deze login heeft geen wachtwoord."
+  },
+  "copyFailed": {
+    "message": "Kopiëren naar het klembord is niet gelukt."
+  },
+  "filledBoth": {
+    "message": "Gebruikersnaam en wachtwoord ingevuld."
+  },
+  "filledPassword": {
+    "message": "Wachtwoord ingevuld."
+  },
   "filledUsername": {
     "message": "Gebruikersnaam ingevuld. Ga door naar de wachtwoordstap en klik dan nogmaals op Invullen."
   },
-  "fillNoFields": { "message": "Geen inlogformulier gevonden op deze pagina." },
-  "fillInsecure": { "message": "Voor je veiligheid vult WeldPass alleen in op https-pagina's." },
-  "fillUnsupported": { "message": "WeldPass kan op deze pagina niets invullen." },
-  "fillNoPage": { "message": "Geen pagina om in te vullen. Open de site en probeer het opnieuw." },
-  "fillHostMismatch": { "message": "Deze login hoort bij een andere site." },
+  "fillNoFields": {
+    "message": "Geen inlogformulier gevonden op deze pagina."
+  },
+  "fillInsecure": {
+    "message": "Voor je veiligheid vult WeldPass alleen in op https-pagina's."
+  },
+  "fillUnsupported": {
+    "message": "WeldPass kan op deze pagina niets invullen."
+  },
+  "fillNoPage": {
+    "message": "Geen pagina om in te vullen. Open de site en probeer het opnieuw."
+  },
+  "fillHostMismatch": {
+    "message": "Deze login hoort bij een andere site."
+  },
   "fillPageChanged": {
     "message": "De pagina veranderde tijdens het invullen. Er is niets ingevuld."
   },
-  "fillFailed": { "message": "De pagina is niet bereikbaar. Herlaad de pagina en probeer het opnieuw." },
-
+  "fillFailed": {
+    "message": "De pagina is niet bereikbaar. Herlaad de pagina en probeer het opnieuw."
+  },
   "saveRead": {
     "message": "Overgenomen uit het formulier op de pagina. Controleer het voordat je opslaat."
   },
   "saveReadNothing": {
     "message": "Er is nog niets ingevuld in het inlogformulier op de pagina. Vul de gegevens hier in."
   },
-  "saveNoPage": { "message": "Open de inlogpagina van de site om dit automatisch in te vullen." },
-  "fieldTitle": { "message": "Titel" },
-  "fieldUrl": { "message": "Website" },
-  "fieldUsername": { "message": "Gebruikersnaam" },
-  "fieldPassword": { "message": "Wachtwoord" },
-  "fieldVault": { "message": "Kluis" },
-  "personalVault": { "message": "Persoonlijk" },
-  "showPassword": { "message": "Wachtwoord tonen" },
-  "hidePassword": { "message": "Wachtwoord verbergen" },
-  "save": { "message": "Login opslaan" },
-  "saving": { "message": "Opslaan…" },
-  "saved": { "message": "Login opgeslagen." },
-  "noWritableVault": { "message": "Je hebt geen kluis waaraan je logins kunt toevoegen." },
-  "validationFailed": { "message": "Controleer de velden en probeer het opnieuw." },
-
-  "genPassword": { "message": "Gegenereerd wachtwoord" },
-  "genLength": { "message": "Lengte" },
-  "genUppercase": { "message": "Hoofdletters" },
-  "genDigits": { "message": "Cijfers" },
-  "genSymbols": { "message": "Symbolen" },
-  "genRegenerate": { "message": "Nieuw wachtwoord" },
-  "genCopy": { "message": "Kopiëren" },
-  "genFill": { "message": "Invullen op pagina" },
+  "saveNoPage": {
+    "message": "Open de inlogpagina van de site om dit automatisch in te vullen."
+  },
+  "fieldTitle": {
+    "message": "Titel"
+  },
+  "fieldUrl": {
+    "message": "Website"
+  },
+  "fieldUsername": {
+    "message": "Gebruikersnaam"
+  },
+  "fieldPassword": {
+    "message": "Wachtwoord"
+  },
+  "fieldVault": {
+    "message": "Kluis"
+  },
+  "personalVault": {
+    "message": "Persoonlijk"
+  },
+  "showPassword": {
+    "message": "Wachtwoord tonen"
+  },
+  "hidePassword": {
+    "message": "Wachtwoord verbergen"
+  },
+  "save": {
+    "message": "Login opslaan"
+  },
+  "saving": {
+    "message": "Opslaan…"
+  },
+  "saved": {
+    "message": "Login opgeslagen."
+  },
+  "noWritableVault": {
+    "message": "Je hebt geen kluis waaraan je logins kunt toevoegen."
+  },
+  "validationFailed": {
+    "message": "Controleer de velden en probeer het opnieuw."
+  },
+  "genPassword": {
+    "message": "Gegenereerd wachtwoord"
+  },
+  "genLength": {
+    "message": "Lengte"
+  },
+  "genUppercase": {
+    "message": "Hoofdletters"
+  },
+  "genDigits": {
+    "message": "Cijfers"
+  },
+  "genSymbols": {
+    "message": "Symbolen"
+  },
+  "genRegenerate": {
+    "message": "Nieuw wachtwoord"
+  },
+  "genCopy": {
+    "message": "Kopiëren"
+  },
+  "genFill": {
+    "message": "Invullen op pagina"
+  },
   "genFilled": {
     "message": "$1 wachtwoordveld(en) ingevuld.",
     "description": "$1 is a number of fields."
   },
-  "genNoFields": { "message": "Geen veld voor een nieuw wachtwoord gevonden op deze pagina." },
-  "strengthLabel": { "message": "Sterkte" },
-  "strengthWeak": { "message": "Zwak" },
-  "strengthFair": { "message": "Redelijk" },
-  "strengthStrong": { "message": "Sterk" },
-
-  "errorSession": { "message": "Je sessie is verlopen. Open WeldSuite en log opnieuw in." },
+  "genNoFields": {
+    "message": "Geen veld voor een nieuw wachtwoord gevonden op deze pagina."
+  },
+  "strengthLabel": {
+    "message": "Sterkte"
+  },
+  "strengthWeak": {
+    "message": "Zwak"
+  },
+  "strengthFair": {
+    "message": "Redelijk"
+  },
+  "strengthStrong": {
+    "message": "Sterk"
+  },
+  "errorSession": {
+    "message": "Je sessie is verlopen. Log opnieuw in."
+  },
   "errorForbidden": {
     "message": "Je hebt in deze werkruimte geen toegang tot de wachtwoordmanager."
   },
-  "errorNotFound": { "message": "Die login bestaat niet meer." },
-  "errorNetwork": { "message": "WeldSuite is niet bereikbaar. Controleer je verbinding." },
-  "errorGeneric": { "message": "Er ging iets mis. Probeer het opnieuw." }
+  "errorNotFound": {
+    "message": "Die login bestaat niet meer."
+  },
+  "errorNetwork": {
+    "message": "WeldSuite is niet bereikbaar. Controleer je verbinding."
+  },
+  "errorGeneric": {
+    "message": "Er ging iets mis. Probeer het opnieuw."
+  },
+  "close": {
+    "message": "Sluiten"
+  },
+  "errorServer": {
+    "message": "WeldPass kan zijn achtergronddienst niet bereiken. Sluit dit en probeer het opnieuw."
+  },
+  "inlineOpen": {
+    "message": "WeldPass openen"
+  },
+  "inlineMenuTitle": {
+    "message": "WeldPass-logins"
+  },
+  "loadingWorkspaces": {
+    "message": "Je werkruimtes laden…"
+  },
+  "menuExpired": {
+    "message": "Dit menu is gesloten. Klik opnieuw in het veld."
+  },
+  "menuFrameOrigin": {
+    "message": "Vult in op $1, een frame binnen deze pagina."
+  },
+  "menuListLabel": {
+    "message": "Opgeslagen logins voor deze site"
+  },
+  "menuNoTotp": {
+    "message": "Geen 2FA-codes opgeslagen voor deze site."
+  },
+  "menuTotpFor": {
+    "message": "2FA-code voor $1"
+  },
+  "menuUnsupported": {
+    "message": "Deze browser kan niet bevestigen dat het menu zichtbaar is, dus WeldPass vult er niet vanuit in. Gebruik de knop in de werkbalk."
+  },
+  "menuUseGenerated": {
+    "message": "Dit wachtwoord gebruiken"
+  },
+  "pickWorkspaceTitle": {
+    "message": "Kies een werkruimte"
+  },
+  "promptExpired": {
+    "message": "Deze login wacht niet meer om opgeslagen te worden."
+  },
+  "promptNever": {
+    "message": "Nooit voor deze site"
+  },
+  "promptNoUsername": {
+    "message": "Geen gebruikersnaam"
+  },
+  "promptNotNow": {
+    "message": "Niet nu"
+  },
+  "promptSaveTitle": {
+    "message": "Login voor $1 opslaan?"
+  },
+  "promptTitle": {
+    "message": "Login opslaan met WeldPass"
+  },
+  "promptUpdate": {
+    "message": "Bijwerken"
+  },
+  "promptUpdateTitle": {
+    "message": "Wachtwoord van $1 bijwerken?"
+  },
+  "serverAddressEmpty": {
+    "message": "Vul het adres van je server in."
+  },
+  "serverAddressInsecure": {
+    "message": "Gebruik een https-adres. Gewone http werkt alleen voor localhost."
+  },
+  "serverAddressInvalid": {
+    "message": "Dat is geen serveradres."
+  },
+  "serverChange": {
+    "message": "Andere server gebruiken"
+  },
+  "serverGrant": {
+    "message": "Toegang geven"
+  },
+  "serverNoExtensionSignIn": {
+    "message": "Deze server ondersteunt inloggen vanuit de WeldPass-extensie nog niet. Vraag de beheerder om OIDC_EXTENSION_CLIENT_ID in te stellen."
+  },
+  "serverNoPermission": {
+    "message": "WeldPass heeft je toestemming nodig om deze server en de inlogpagina te bereiken."
+  },
+  "serverNoWeldPass": {
+    "message": "Deze server biedt WeldPass niet aan."
+  },
+  "serverNotWeldSuite": {
+    "message": "Dat adres is geen WeldSuite-server, of het draait een editie die WeldPass niet kan gebruiken."
+  },
+  "serverUnreachable": {
+    "message": "De server is niet bereikbaar. Controleer je verbinding en probeer het opnieuw."
+  },
+  "settingsAccount": {
+    "message": "Je account"
+  },
+  "settingsAddSite": {
+    "message": "Site toevoegen"
+  },
+  "settingsInline": {
+    "message": "Menu's in inlogvelden"
+  },
+  "settingsInlineMenus": {
+    "message": "WeldPass tonen in inlogvelden"
+  },
+  "settingsInlineMenusHelp": {
+    "message": "Een pictogram in inlog-, registratie- en 2FA-velden opent je opgeslagen logins voor de site. Nooit op de sites die hier staan."
+  },
+  "settingsManageAccount": {
+    "message": "Je account beheren"
+  },
+  "settingsNoSites": {
+    "message": "Geen sites uitgezonderd."
+  },
+  "settingsRemoveSite": {
+    "message": "$1 verwijderen"
+  },
+  "settingsSave": {
+    "message": "Aanbod om op te slaan"
+  },
+  "settingsSavePrompts": {
+    "message": "Aanbieden om logins op te slaan en bij te werken"
+  },
+  "settingsSavePromptsHelp": {
+    "message": "Nadat je ergens inlogt, vraagt WeldPass of de login moet worden opgeslagen. Sites waar je Nooit koos, staan hier."
+  },
+  "settingsServer": {
+    "message": "WeldSuite-server"
+  },
+  "settingsServerBack": {
+    "message": "Weer WeldSuite EU gebruiken"
+  },
+  "settingsServerConnect": {
+    "message": "Verbinden"
+  },
+  "settingsServerCurrent": {
+    "message": "WeldPass gebruikt $1."
+  },
+  "settingsServerDefault": {
+    "message": "(de standaard)"
+  },
+  "settingsServerHelp": {
+    "message": "Voor een zelf gehoste WeldSuite. WeldPass vraagt toestemming om die te bereiken, daarna log je daar in."
+  },
+  "settingsServerIssuer": {
+    "message": "Deze server laat je inloggen via $1. Geef WeldPass ook daar toegang."
+  },
+  "settingsServerOwn": {
+    "message": "Je eigen server gebruiken"
+  },
+  "settingsSignedInAs": {
+    "message": "Ingelogd als $1 op $2."
+  },
+  "settingsTitle": {
+    "message": "Instellingen"
+  },
+  "settingsWorkspace": {
+    "message": "Werkruimte: $1"
+  },
+  "signIn": {
+    "message": "Inloggen"
+  },
+  "signInFailed": {
+    "message": "Inloggen is niet gelukt. Probeer het opnieuw."
+  },
+  "signInUnreachable": {
+    "message": "De inlogpagina kon niet worden geopend. Controleer je verbinding en probeer het opnieuw."
+  },
+  "signOut": {
+    "message": "Uitloggen"
+  },
+  "signingIn": {
+    "message": "Bezig met inloggen…"
+  },
+  "workspaceLabel": {
+    "message": "Werkruimte"
+  }
 }

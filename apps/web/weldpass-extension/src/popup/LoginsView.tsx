@@ -1,9 +1,6 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import { Copy, ExternalLink, KeyRound, Plus, Search, ShieldCheck, User } from 'lucide-react';
-import type {
-  WeldPassItem,
-  WeldPassPasswordsApi,
-} from '@weldsuite/app-api-client/domains/weldpass-passwords';
+import type { WeldPassItem } from '@weldsuite/app-api-client/domains/weldpass-passwords';
 import { fillLogin, revealPassword } from '../lib/actions';
 import { chromePage, openTab, type ActiveTab } from '../lib/chrome-page';
 import { errorMessageKey } from '../lib/errors';
@@ -12,11 +9,12 @@ import { t } from '../lib/i18n';
 import { blockedMessageKey, fillMessageKey } from '../lib/messages';
 import { filterItems } from '../lib/search';
 import { safeExternalUrl } from '../lib/urls';
+import type { PopupApi } from './api';
 import { useAsync, type Notify } from './hooks';
 import { Button, IconButton, Notice, Spinner } from './ui';
 
 interface Props {
-  api: WeldPassPasswordsApi;
+  api: PopupApi;
   /** `undefined` while the active tab is being looked up. */
   tab: ActiveTab | null | undefined;
   notify: Notify;

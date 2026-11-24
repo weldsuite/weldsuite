@@ -1,66 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ApiError, NetworkError } from '@weldsuite/api-client';
 import type { WeldPassItem } from '@weldsuite/app-api-client/domains/weldpass-passwords';
 import { createPasswordsApi } from './api';
-import { normaliseBaseUrl, readConfig } from './config';
 import { errorMessageKey } from './errors';
 import { t } from './i18n';
+import { RemoteError } from './messaging';
 import { blockedMessageKey, fillMessageKey } from './messages';
 import { filterItems } from './search';
 import { pageUrlForSaving, safeExternalUrl } from './urls';
-
-describe('readConfig', () => {
-  const env = {
-    VITE_CLERK_PUBLISHABLE_KEY: 'pk_test_Y2xlcmsuZXhhbXBsZS5jb20k',
-    VITE_SYNC_HOST: 'https://app.example.com/',
-    VITE_API_URL: 'https://app-api.example.com',
-  };
-
-  it('reads a complete env and trims trailing slashes', () => {
-    expect(readConfig(env)).toEqual({
-      ok: true,
-      config: {
-        publishableKey: env.VITE_CLERK_PUBLISHABLE_KEY,
-        syncHost: 'https://app.example.com',
-        apiUrl: 'https://app-api.example.com',
-        appUrl: 'https://app.example.com',
-      },
-    });
-  });
-
-  it('uses VITE_APP_URL for the web app when the sync host is something else', () => {
-    const result = readConfig({
-      ...env,
-      VITE_SYNC_HOST: 'https://clerk.example.com',
-      VITE_APP_URL: 'https://app.example.com',
-    });
-    expect(result).toMatchObject({
-      ok: true,
-      config: { syncHost: 'https://clerk.example.com', appUrl: 'https://app.example.com' },
-    });
-  });
-
-  it('names what is missing instead of throwing', () => {
-    expect(readConfig({})).toEqual({
-      ok: false,
-      missing: ['VITE_CLERK_PUBLISHABLE_KEY', 'VITE_SYNC_HOST', 'VITE_API_URL'],
-    });
-    expect(readConfig({ ...env, VITE_API_URL: 'ftp://nope' })).toEqual({
-      ok: false,
-      missing: ['VITE_API_URL'],
-    });
-    expect(readConfig({ ...env, VITE_CLERK_PUBLISHABLE_KEY: 'sk_live_oops' })).toEqual({
-      ok: false,
-      missing: ['VITE_CLERK_PUBLISHABLE_KEY'],
-    });
-  });
-
-  it('normalises base URLs', () => {
-    expect(normaliseBaseUrl(' http://localhost:8789/ ')).toBe('http://localhost:8789');
-    expect(normaliseBaseUrl('javascript:alert(1)')).toBeNull();
-    expect(normaliseBaseUrl(undefined)).toBeNull();
-  });
-});
 
 describe('safeExternalUrl', () => {
   it('opens http(s) addresses, adding https when the scheme is missing', () => {
@@ -127,12 +73,14 @@ describe('messages', () => {
   });
 
   it('maps API failures to messages without echoing server text', () => {
-    expect(errorMessageKey(new ApiError('nope', 401))).toBe('errorSession');
-    expect(errorMessageKey(new ApiError('nope', 403))).toBe('errorForbidden');
-    expect(errorMessageKey(new ApiError('nope', 404))).toBe('errorNotFound');
-    expect(errorMessageKey(new ApiError('nope', 500))).toBe('errorGeneric');
-    expect(errorMessageKey(new NetworkError())).toBe('errorNetwork');
-    expect(errorMessageKey(new Error('Authentication required'))).toBe('errorSession');
+    expect(errorMessageKey(new RemoteError('api', 401))).toBe('errorSession');
+    expect(errorMessageKey(new RemoteError('api', 403))).toBe('errorForbidden');
+    expect(errorMessageKey(new RemoteError('api', 404))).toBe('errorNotFound');
+    expect(errorMessageKey(new RemoteError('api', 500))).toBe('errorGeneric');
+    expect(errorMessageKey(new RemoteError('network'))).toBe('errorNetwork');
+    expect(errorMessageKey(new RemoteError('signed-out'))).toBe('errorSession');
+    expect(errorMessageKey(new RemoteError('no-workspace'))).toBe('pickWorkspaceTitle');
+    expect(errorMessageKey(new Error('Server said: secret detail'))).toBe('errorGeneric');
     expect(errorMessageKey('weird')).toBe('errorGeneric');
   });
 
@@ -146,7 +94,7 @@ describe('messages', () => {
 describe('createPasswordsApi', () => {
   afterEach(() => vi.unstubAllGlobals());
 
-  it('calls app-api with the Clerk token and the extension client header', async () => {
+  it('calls the server with the token, the workspace and the extension client header', async () => {
     const fetchMock = vi.fn(
       async (_input: string, _init?: RequestInit) =>
         new Response(JSON.stringify({ data: [] }), { status: 200 }),
@@ -154,27 +102,36 @@ describe('createPasswordsApi', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     const api = createPasswordsApi({
-      apiUrl: 'https://app-api.example.com',
-      getToken: async () => 'session.jwt',
+      apiOrigin: 'https://app.weldsuite.eu',
+      getToken: async () => 'access.jwt',
+      getWorkspaceId: () => 'ws_123',
     });
     await api.matchItems('https://example.com');
 
     expect(fetchMock).toHaveBeenCalledOnce();
-    const [url, init] = fetchMock.mock.calls[0];
-    expect(url).toBe(
-      'https://app-api.example.com/api/weldpass/items/match?url=https%3A%2F%2Fexample.com',
-    );
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe('https://app.weldsuite.eu/api/weldpass/items/match?url=https%3A%2F%2Fexample.com');
     expect(init?.headers).toMatchObject({
-      Authorization: 'Bearer session.jwt',
+      Authorization: 'Bearer access.jwt',
       'X-WeldPass-Client': 'extension',
+      'X-Weld-Workspace': 'ws_123',
     });
+  });
+
+  it('sends no workspace header in claim mode (the token names the workspace)', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ data: [] }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const api = createPasswordsApi({ apiOrigin: 'https://eu.example', getToken: async () => 't', getWorkspaceId: () => null });
+    await api.listVaults();
+    const init = (fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1];
+    expect(Object.keys(init.headers as Record<string, string>)).not.toContain('X-Weld-Workspace');
   });
 
   it('does not call the API without a token', async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
 
-    const api = createPasswordsApi({ apiUrl: 'https://app-api.example.com', getToken: async () => null });
+    const api = createPasswordsApi({ apiOrigin: 'https://eu.example', getToken: async () => null, getWorkspaceId: () => null });
     await expect(api.listItems()).rejects.toThrow('Authentication required');
     expect(fetchMock).not.toHaveBeenCalled();
   });
