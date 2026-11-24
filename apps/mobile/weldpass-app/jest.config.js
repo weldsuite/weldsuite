@@ -9,7 +9,7 @@
 module.exports = {
   testEnvironment: 'node',
   transform: {
-    '^.+\.(js|jsx|ts|tsx)$': [
+    '^.+[.](js|jsx|ts|tsx)$': [
       'babel-jest',
       { configFile: false, babelrc: false, presets: ['babel-preset-expo'] },
     ],
