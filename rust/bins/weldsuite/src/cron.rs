@@ -304,7 +304,7 @@ pub(crate) fn main(job: Option<&str>) -> ExitCode {
             "panel-maintenance" => Box::pin(panel_maintenance(config)).await,
             "panel-schedule" => Box::pin(crate::panel_monitor::panel_schedule(config)).await,
             "stash-replenishment" => stash_replenishment(config).await,
-            "stash-parcel-tracking" => stash_parcel_tracking(config).await,
+            "stash-parcel-tracking" => Box::pin(stash_parcel_tracking(config)).await,
             "storefront-hosts" => Box::pin(crate::storefront::sweep(config)).await,
             "mail-attachment-scan" => mail_attachment_scan(config).await,
             "mail-threat-feeds" => mail_threat_feeds(config).await,
