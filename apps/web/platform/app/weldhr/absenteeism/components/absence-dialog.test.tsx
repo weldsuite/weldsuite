@@ -109,7 +109,7 @@ describe('AbsenceDialog', () => {
     });
 
     it('cannot pick a day in the future', async () => {
-      vi.useRealTimers();
+      // Keeps the pinned date (only Date is faked), so tomorrow stays 24 November.
       const user = userEvent.setup();
       renderDialog({ kind: 'self' });
       await user.click(screen.getByLabelText(t.firstSickDay));
