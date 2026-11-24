@@ -109,12 +109,12 @@ where
             "/filings/{id}/mark-filed",
             post(mark_filed).route_layer(manage()),
         )
-        .route_layer(guard("/runs", "Pay run", via_employer!("hr_pay_runs")))
-        .route_layer(guard("/payslips", "Payslip", via_employee!("hr_payslips")))
+        .route_layer(guard("/runs", "Pay run", via_employer!(hr_pay_runs)))
+        .route_layer(guard("/payslips", "Payslip", via_employee!(hr_payslips)))
         .route_layer(guard(
             "/filings",
             "Filing",
-            via_employer!("hr_payroll_filings"),
+            via_employer!(hr_payroll_filings),
         ))
 }
 

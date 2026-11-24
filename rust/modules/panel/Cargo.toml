@@ -44,6 +44,8 @@ tokio = { workspace = true, features = ["time"] }
 tower = { workspace = true, features = ["util"] }
 tracing = { workspace = true }
 url = { workspace = true }
+sea-orm = { workspace = true }
+weldsuite-schema = { workspace = true }
 
 [dev-dependencies]
 # The cert-manager adapter's tests run a fake Kubernetes API on a local port.

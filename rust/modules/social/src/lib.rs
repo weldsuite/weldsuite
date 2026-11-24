@@ -12,49 +12,6 @@
 //! TypeScript worker's; its tests run against this crate in the `social`
 //! conformance suite (`rust/conformance/suites.json`).
 
-#![allow(
-    clippy::disallowed_methods,
-    reason = "not converted to the ORM yet (ADR DATA-019)"
-)]
-
-/// The keyset condition at parameters `$a` (skip), `$b` (createdAt), `$c` (id).
-macro_rules! cursor {
-    ($a:literal, $b:literal, $c:literal) => {
-        concat!(
-            "($",
-            $a,
-            "::boolean or (t.created_at < $",
-            $b,
-            "::timestamp or (t.created_at = $",
-            $b,
-            "::timestamp and t.id < $",
-            $c,
-            "::text)))"
-        )
-    };
-}
-
-/// The list statement of a table: `$1` skips the live-only condition, each
-/// filter takes `(skip, value)`, the cursor `(skip, createdAt, id)`, then
-/// the limit; and its count.
-macro_rules! listing {
-    ($table:literal; $($cond:literal),*; $a:literal, $b:literal, $c:literal; $limit:literal) => {
-        (
-            concat!(
-                "select to_jsonb(t) from \"", $table, "\" t where ($1::boolean or t.deleted_at is null)",
-                $(" and ", $cond,)*
-                " and ", cursor!($a, $b, $c),
-                " order by t.created_at desc, t.id desc limit ", $limit
-            ),
-            concat!(
-                "select count(*) from \"", $table, "\" t where ($1::boolean or t.deleted_at is null)",
-                $(" and ", $cond,)*
-                " and ", cursor!($a, $b, $c)
-            ),
-        )
-    };
-}
-
 mod accounts;
 mod analytics;
 mod approvals;

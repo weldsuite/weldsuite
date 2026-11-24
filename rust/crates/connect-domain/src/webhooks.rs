@@ -9,10 +9,12 @@ use std::time::Duration;
 
 use base64::Engine;
 use hmac::{Hmac, KeyInit, Mac};
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
 use sha2::Sha256;
-use weldsuite_db::{Keyring, PgPool};
+use weldsuite_db::{Keyring, PgPool, orm};
 use weldsuite_ports::{DynCache, OutboundHttp};
+use weldsuite_schema::tenant::integration_entity_mappings as mappings;
 
 use crate::catalog::{get_connector, syncs};
 use crate::clients::decrypt_credentials;
@@ -749,7 +751,7 @@ pub async fn register_connection_webhooks(
         },
     )
     .await
-    .map_err(|error| error.to_string())?;
+    .map_err(|error| crate::sync::db_error_text(&error))?;
     let warning = if failures > 0 {
         Some(format!(
             "Connected, but {failures} webhook(s) failed to register. Use Sync now until the store can reach WeldSuite."
@@ -1118,7 +1120,7 @@ pub async fn process_connector_webhook(
     workspace_id: &str,
     raw_body: &str,
     headers: &http::HeaderMap,
-) -> Result<WebhookResult, sqlx::Error> {
+) -> Result<WebhookResult, DbErr> {
     if connection["status"] == "paused" || !connection["deleted_at"].is_null() {
         return Ok(result(true, 200, "ignored paused connection"));
     }
@@ -1230,7 +1232,7 @@ async fn moneybird_create_guard(
     connection_id: &str,
     topic: &Topic,
     payload: &Value,
-) -> Result<Option<WebhookResult>, sqlx::Error> {
+) -> Result<Option<WebhookResult>, DbErr> {
     use crate::moneybird_push::two_way;
     let types: &[&str] = match topic.sync_name {
         Some("moneybird-contacts") => &[crate::moneybird_push::MB_CONTACT_TYPE],
@@ -1250,16 +1252,15 @@ async fn moneybird_create_guard(
     if entity_id.is_empty() {
         return Ok(None);
     }
-    let kinds: Vec<String> = types.iter().map(|t| (*t).to_owned()).collect();
-    let mapped: Option<i32> = sqlx::query_scalar(
-        "select 1 from integration_entity_mappings
-         where connection_id = $1 and external_entity_type = any($2) and external_entity_id = $3 limit 1",
-    )
-    .bind(connection_id)
-    .bind(&kinds)
-    .bind(&entity_id)
-    .fetch_optional(db)
-    .await?;
+    let mapped: Option<String> = mappings::Entity::find()
+        .select_only()
+        .column(mappings::Column::Id)
+        .filter(mappings::Column::ConnectionId.eq(connection_id))
+        .filter(mappings::Column::ExternalEntityType.is_in(types.iter().copied()))
+        .filter(mappings::Column::ExternalEntityId.eq(entity_id.as_str()))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     if mapped.is_some() {
         return Ok(None);
     }
@@ -1285,7 +1286,7 @@ pub async fn import_records(
     workspace_id: &str,
     sync_name: &str,
     records: Vec<Value>,
-) -> Result<WebhookResult, sqlx::Error> {
+) -> Result<WebhookResult, DbErr> {
     let provider = text(connection, "provider").unwrap_or_default();
     let id = text(connection, "id").unwrap_or_default();
     let stored = decrypt_credentials(connection.get("credentials"), &env.keyring);
@@ -1387,7 +1388,7 @@ async fn process_routed_moneybird(
     d: &Delivery<'_>,
     topic: &Topic,
     payload: &Value,
-) -> Result<WebhookResult, sqlx::Error> {
+) -> Result<WebhookResult, DbErr> {
     let client = ProviderClient::new(
         d.provider,
         d.credentials,
@@ -1450,7 +1451,7 @@ async fn ingest_delivery(
     sync: &Value,
     records: Records,
     force_deleted: bool,
-) -> Result<WebhookResult, sqlx::Error> {
+) -> Result<WebhookResult, DbErr> {
     let (answer, changed) = ingest_run(d, client, sync, records, force_deleted).await?;
     if d.provider == "stripe" && changed {
         crate::moneybird_push::push_after_stripe_ingest(d.db, d.env, d.id).await;
@@ -1466,7 +1467,7 @@ async fn ingest_run(
     sync: &Value,
     records: Records,
     force_deleted: bool,
-) -> Result<(WebhookResult, bool), sqlx::Error> {
+) -> Result<(WebhookResult, bool), DbErr> {
     let Delivery {
         db,
         env,
@@ -1548,7 +1549,7 @@ async fn ingest_run(
             skip_financial_account_ids: &skip,
         })
         .await
-        .map_err(|error| error.to_string())
+        .map_err(|error| crate::sync::db_error_text(&error))
     }
     .await;
     match outcome {

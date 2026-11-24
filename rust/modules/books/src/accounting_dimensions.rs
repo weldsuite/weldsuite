@@ -11,6 +11,11 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::Response;
 use axum::routing::get;
 use http::HeaderMap;
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ColumnTrait, Condition, DatabaseConnection, DbErr, EntityTrait, PaginatorTrait, QueryFilter,
+    QueryOrder, QuerySelect, QueryTrait,
+};
 use serde_json::{Map, Value, json};
 use weldsuite_books_domain::entity_context::resolve_entity_id;
 use weldsuite_books_domain::guards::{AuditInput, change, write_accounting_audit};
@@ -21,10 +26,15 @@ use weldsuite_books_domain::tables::ACCOUNTING_DIMENSION_VALUES as T;
 use weldsuite_catalogs::entity_events::{
     ACCOUNTING_DIMENSION_CREATED, ACCOUNTING_DIMENSION_DELETED, ACCOUNTING_DIMENSION_UPDATED,
 };
+use weldsuite_db::orm;
 use weldsuite_kit::cursor::{atob, btoa, decode_uri_component, encode_uri_component};
 use weldsuite_kit::generate_id;
 use weldsuite_kit::validation::{Field, Issues, Presence, Text};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::accounting_dimension_values::{self, Column};
+use weldsuite_schema::tenant::{bill_items, invoice_items, journal_lines};
+
+use crate::orm_bridge::{select_flags, to_json};
 
 const DIMENSIONS: [&str; 2] = ["class", "location"];
 
@@ -135,16 +145,33 @@ fn decode_cursor(cursor: &str) -> Option<(String, String)> {
     }
 }
 
-async fn find_value(caller: &Caller, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(accounting_dimension_values),
-        " from accounting_dimension_values t where t.id = $1 and t.deleted_at is null limit 1"
-    ))
-    .bind(id)
-    .fetch_optional(&caller.db)
-    .await?;
-    Ok(row.map(|row| T.js(row)))
+async fn find_value(caller: &Caller, id: &str) -> Result<Option<Value>, DbErr> {
+    accounting_dimension_values::Entity::find()
+        .filter(Column::Id.eq(id))
+        .filter(Column::DeletedAt.is_null())
+        .one(&orm(&caller.db))
+        .await?
+        .map(to_json)
+        .transpose()
+}
+
+/// The live value of the entity's dimension that holds `code`, if any.
+async fn code_holder(
+    db: &DatabaseConnection,
+    entity_id: &str,
+    dimension: &str,
+    code: &str,
+) -> Result<Option<String>, DbErr> {
+    accounting_dimension_values::Entity::find()
+        .select_only()
+        .column(Column::Id)
+        .filter(Column::EntityId.eq(entity_id))
+        .filter(Column::Dimension.eq(dimension))
+        .filter(Column::Code.eq(code))
+        .filter(Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(db)
+        .await
 }
 
 /// `parentError`: why `parent_id` can't be the parent of a value of this
@@ -155,7 +182,7 @@ async fn parent_error(
     dimension: &str,
     parent_id: &str,
     self_id: Option<&str>,
-) -> Result<Option<&'static str>, sqlx::Error> {
+) -> Result<Option<&'static str>, DbErr> {
     if Some(parent_id) == self_id {
         return Ok(Some("A value cannot be its own parent"));
     }
@@ -215,18 +242,30 @@ async fn list_values(caller: &Caller, q: &Query) -> Reply {
     let active = q.get("isActive").map(|v| v == "true");
     let parent = q.present("parentId");
     let search = q.present("search").map(|s| format!("%{s}%"));
-    let total: i64 = sqlx::query_scalar(
-        "select count(*)::int8 from accounting_dimension_values where deleted_at is null and entity_id = $1 \
-         and ($2::text is null or dimension = $2) and ($3::boolean is null or is_active = $3) \
-         and ($4::text is null or parent_id = $4) and ($5::text is null or (name like $5 or code like $5))",
-    )
-    .bind(&entity_id)
-    .bind(dimension)
-    .bind(active)
-    .bind(parent)
-    .bind(&search)
-    .fetch_one(&caller.db)
-    .await?;
+    let mut filters = Condition::all()
+        .add(Column::DeletedAt.is_null())
+        .add(Column::EntityId.eq(entity_id.as_str()));
+    if let Some(dimension) = dimension {
+        filters = filters.add(Column::Dimension.eq(dimension));
+    }
+    if let Some(active) = active {
+        filters = filters.add(Column::IsActive.eq(active));
+    }
+    if let Some(parent) = parent {
+        filters = filters.add(Column::ParentId.eq(parent));
+    }
+    if let Some(search) = &search {
+        filters = filters.add(
+            Condition::any()
+                .add(Column::Name.like(search.as_str()))
+                .add(Column::Code.like(search.as_str())),
+        );
+    }
+    let db = orm(&caller.db);
+    let total = accounting_dimension_values::Entity::find()
+        .filter(filters.clone())
+        .count(&db)
+        .await?;
     let after = match q.present("cursor") {
         Some(cursor) => match decode_cursor(cursor) {
             Some(after) => Some(after),
@@ -234,27 +273,25 @@ async fn list_values(caller: &Caller, q: &Query) -> Reply {
         },
         None => None,
     };
-    let (after_name, after_id) = after.unzip();
-    let rows: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(accounting_dimension_values),
-        " from accounting_dimension_values t where t.deleted_at is null and t.entity_id = $1 \
-         and ($2::text is null or t.dimension = $2) and ($3::boolean is null or t.is_active = $3) \
-         and ($4::text is null or t.parent_id = $4) and ($5::text is null or (t.name like $5 or t.code like $5)) \
-         and ($6::text is null or (t.name, t.id) > ($6::text, $7::text)) \
-         order by t.name, t.id limit $8"
-    ))
-    .bind(&entity_id)
-    .bind(dimension)
-    .bind(active)
-    .bind(parent)
-    .bind(&search)
-    .bind(after_name)
-    .bind(after_id)
-    .bind(limit + 1)
-    .fetch_all(&caller.db)
-    .await?;
-    let mut rows = T.js_rows(rows);
+    let mut select = accounting_dimension_values::Entity::find().filter(filters);
+    if let Some((name, id)) = after {
+        // `(name, id) > (cursor name, cursor id)`
+        select = select.filter(sea_orm::ExprTrait::gt(
+            Expr::tuple([Expr::col(Column::Name), Expr::col(Column::Id)]),
+            Expr::tuple([Expr::val(name), Expr::val(id)]),
+        ));
+    }
+    let rows = select
+        .order_by_asc(Column::Name)
+        .order_by_asc(Column::Id)
+        .limit(u64::try_from(limit + 1).unwrap_or(0))
+        .all(&db)
+        .await?;
+    let total = i64::try_from(total).unwrap_or(i64::MAX);
+    let mut rows = rows
+        .into_iter()
+        .map(to_json)
+        .collect::<Result<Vec<_>, _>>()?;
     let has_more = i64::try_from(rows.len()).unwrap_or(i64::MAX) > limit;
     if has_more {
         rows.truncate(usize::try_from(limit).unwrap_or(0));
@@ -311,15 +348,7 @@ async fn create_value(caller: &Caller, state: &BooksState, data: Map<String, Val
         .and_then(Value::as_str)
         .filter(|c| !c.is_empty())
     {
-        let duplicate: Option<String> = sqlx::query_scalar(
-            "select id from accounting_dimension_values where entity_id = $1 and dimension = $2 \
-             and code = $3 and deleted_at is null limit 1",
-        )
-        .bind(&entity_id)
-        .bind(&dimension)
-        .bind(code)
-        .fetch_optional(db)
-        .await?;
+        let duplicate = code_holder(&orm(db), &entity_id, &dimension, code).await?;
         if duplicate.is_some() {
             return Err(Refusal::conflict(format!(
                 "Code '{code}' is already used by another {dimension}"
@@ -416,15 +445,7 @@ async fn update_value(
         .filter(|c| !c.is_empty())
         && existing["code"].as_str() != Some(code)
     {
-        let duplicate: Option<String> = sqlx::query_scalar(
-            "select id from accounting_dimension_values where entity_id = $1 and dimension = $2 \
-             and code = $3 and deleted_at is null limit 1",
-        )
-        .bind(&entity_id)
-        .bind(&dimension)
-        .bind(code)
-        .fetch_optional(db)
-        .await?;
+        let duplicate = code_holder(&orm(db), &entity_id, &dimension, code).await?;
         if duplicate.is_some_and(|dup| dup != id) {
             return Err(Refusal::conflict(format!(
                 "Code '{code}' is already used by another {dimension}"
@@ -491,56 +512,79 @@ async fn remove(
     )
 }
 
+/// `exists` a live journal line, invoice item or bill item on the value `id`
+/// (its `class_id`, or its `location_id`).
+fn used_on_lines(id: &str, class: bool) -> Expr {
+    let journal = journal_lines::Entity::find()
+        .select_only()
+        .expr(Expr::val(1))
+        .filter(if class {
+            journal_lines::Column::ClassId.eq(id)
+        } else {
+            journal_lines::Column::LocationId.eq(id)
+        })
+        .filter(journal_lines::Column::DeletedAt.is_null())
+        .into_query();
+    let invoice = invoice_items::Entity::find()
+        .select_only()
+        .expr(Expr::val(1))
+        .filter(if class {
+            invoice_items::Column::ClassId.eq(id)
+        } else {
+            invoice_items::Column::LocationId.eq(id)
+        })
+        .filter(invoice_items::Column::DeletedAt.is_null())
+        .into_query();
+    let bill = bill_items::Entity::find()
+        .select_only()
+        .expr(Expr::val(1))
+        .filter(if class {
+            bill_items::Column::ClassId.eq(id)
+        } else {
+            bill_items::Column::LocationId.eq(id)
+        })
+        .filter(bill_items::Column::DeletedAt.is_null())
+        .into_query();
+    sea_orm::ExprTrait::or(
+        sea_orm::ExprTrait::or(Expr::exists(journal), Expr::exists(invoice)),
+        Expr::exists(bill),
+    )
+}
+
 async fn remove_value(caller: &Caller, state: &BooksState, id: &str) -> Reply {
     let db = &caller.db;
+    let conn = orm(db);
     let Some(existing) = find_value(caller, id).await? else {
         return Err(Refusal::not_found("Dimension value", id));
     };
-    let child: Option<String> = sqlx::query_scalar(
-        "select id from accounting_dimension_values where parent_id = $1 and deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
+    let child: Option<String> = accounting_dimension_values::Entity::find()
+        .select_only()
+        .column(Column::Id)
+        .filter(Column::ParentId.eq(id))
+        .filter(Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&conn)
+        .await?;
     if child.is_some() {
         return Err(Refusal::conflict(
             "This value has children — move or delete them first",
         ));
     }
     let dimension = existing["dimension"].as_str().unwrap_or_default();
-    let used: bool = if dimension == "class" {
-        sqlx::query_scalar(
-            "select exists (select 1 from journal_lines where class_id = $1 and deleted_at is null) \
-             or exists (select 1 from invoice_items where class_id = $1 and deleted_at is null) \
-             or exists (select 1 from bill_items where class_id = $1 and deleted_at is null)",
-        )
-        .bind(id)
-        .fetch_one(db)
-        .await?
-    } else {
-        sqlx::query_scalar(
-            "select exists (select 1 from journal_lines where location_id = $1 and deleted_at is null) \
-             or exists (select 1 from invoice_items where location_id = $1 and deleted_at is null) \
-             or exists (select 1 from bill_items where location_id = $1 and deleted_at is null)",
-        )
-        .bind(id)
-        .fetch_one(db)
-        .await?
-    };
+    let [used] = select_flags(&conn, [used_on_lines(id, dimension == "class")]).await?;
     if used {
         return Err(Refusal::conflict(format!(
             "This {dimension} is used on bookings — deactivate it instead"
         )));
     }
-    let at = now();
-    sqlx::query(
-        "update accounting_dimension_values set deleted_at = $1::timestamp, is_active = false, \
-         updated_at = $1::timestamp where id = $2",
-    )
-    .bind(&at)
-    .bind(id)
-    .execute(db)
-    .await?;
+    let at = weldsuite_db::utc_now();
+    accounting_dimension_values::Entity::update_many()
+        .col_expr(Column::DeletedAt, Expr::value(at))
+        .col_expr(Column::IsActive, Expr::value(false))
+        .col_expr(Column::UpdatedAt, Expr::value(at))
+        .filter(Column::Id.eq(id))
+        .exec(&conn)
+        .await?;
     write_accounting_audit(
         caller,
         db,

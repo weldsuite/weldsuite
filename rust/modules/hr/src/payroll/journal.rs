@@ -5,16 +5,19 @@
 //! the entry balances by construction whatever the engine rounded. A
 //! correction run has signed totals.
 
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 use serde_json::{Value, json};
 use weldsuite_catalogs::entity_events::PAYROLL_IMPORT_CREATED;
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_events::{EntityEvent, EventContext, EventSource};
+use weldsuite_schema::tenant::hr_pay_runs;
 
 use super::Deps;
 use super::common::BOOKS_NOT_ENABLED;
 use super::employer_context::load_employer_for_payroll;
 use super::runs::{require_run, s};
-use crate::{BooksRequest, HrError, HrState, now};
+use crate::{BooksRequest, HrError, HrState};
 
 fn n(x: f64) -> Value {
     weldsuite_core_domain::js::number_value(x)
@@ -182,16 +185,24 @@ pub(crate) async fn post_run_journal(
             post_payroll(state, db, deps, body).await
         }
     };
-    sqlx::query(
-        "update hr_pay_runs set journal_status = $2, journal_entry_id = coalesce($3, journal_entry_id), journal_error = $4,
-           updated_at = $5::timestamp where id = $1",
-    )
-    .bind(run_id)
-    .bind(outcome.status)
-    .bind(outcome.journal_entry_id.as_deref())
-    .bind(outcome.error.as_deref())
-    .bind(now())
-    .execute(db)
-    .await?;
+    // `journal_entry_id = coalesce($3, journal_entry_id)`: kept when the outcome has none.
+    let mut record = hr_pay_runs::Entity::update_many()
+        .col_expr(
+            hr_pay_runs::Column::JournalStatus,
+            Expr::value(outcome.status),
+        )
+        .col_expr(
+            hr_pay_runs::Column::JournalError,
+            Expr::value(outcome.error.clone()),
+        )
+        .col_expr(hr_pay_runs::Column::UpdatedAt, Expr::value(utc_now()))
+        .filter(hr_pay_runs::Column::Id.eq(run_id));
+    if let Some(entry) = &outcome.journal_entry_id {
+        record = record.col_expr(
+            hr_pay_runs::Column::JournalEntryId,
+            Expr::value(entry.clone()),
+        );
+    }
+    record.exec(&orm(db)).await?;
     Ok(outcome)
 }

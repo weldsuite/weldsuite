@@ -7,16 +7,45 @@
 //! keeps its casing. A message sits in at most one location (`INBOX`,
 //! `ARCHIVE`, `TRASH`, `SPAM`): adding one replaces the previous one.
 
+use sea_orm::sea_query::{Expr, Func, Query, UpdateStatement};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, Condition, ConnectionTrait, DbErr, EntityTrait, QueryFilter,
+    QuerySelect, QueryTrait,
+};
 use serde_json::{Value, json};
 use sqlx::PgPool;
-use time::OffsetDateTime;
-use weldsuite_db::js_row;
+use time::{OffsetDateTime, PrimitiveDateTime};
+use weldsuite_db::{OrmConn, orm, orm_error, utc_timestamp};
 use weldsuite_kit::generate_id;
+use weldsuite_schema::tenant::{mail_labels, mail_messages};
 
-/// `now.toISOString()`.
-fn iso(now: OffsetDateTime) -> String {
-    let ms = i64::try_from(now.unix_timestamp_nanos() / 1_000_000).unwrap_or_default();
-    crate::outbound::clock::iso(ms)
+/// A `mail_messages` column, qualified by its table.
+pub(crate) fn msg(column: mail_messages::Column) -> Expr {
+    Expr::col((mail_messages::Entity, column))
+}
+
+/// `coalesce(labels, '[]'::jsonb)`.
+pub(crate) fn labels_or_empty() -> Expr {
+    Func::coalesce([msg(mail_messages::Column::Labels), Expr::val(json!([]))]).into()
+}
+
+/// `coalesce(labels, '[]'::jsonb) @> '["LABEL"]'::jsonb`: the message carries
+/// the label.
+pub(crate) fn carries(label: &str) -> Expr {
+    sea_orm::sea_query::extension::postgres::PgExpr::contains(
+        labels_or_empty(),
+        Expr::val(json!([label])),
+    )
+}
+
+/// `lower(column)`.
+pub(crate) fn lower(column: Expr) -> Expr {
+    Func::lower(column).into()
+}
+
+/// A `mail_labels` row as Drizzle returns it.
+fn label_json(row: mail_labels::Model) -> Result<Value, DbErr> {
+    serde_json::to_value(row).map_err(|error| DbErr::Json(error.to_string()))
 }
 
 pub const INBOX: &str = "INBOX";
@@ -282,6 +311,29 @@ impl LabelMatch {
     }
 }
 
+impl LabelMatch {
+    /// `labelCondition(slug, customNames)` over `mail_messages`: the message
+    /// carries one of the names (`labels @> jsonb_build_array(name)`), or the
+    /// flag column says starred / important.
+    pub(crate) fn condition(&self) -> Condition {
+        use mail_messages::Column;
+        let mut matched = Condition::any();
+        for name in &self.names {
+            matched = matched.add(sea_orm::sea_query::extension::postgres::PgExpr::contains(
+                msg(Column::Labels),
+                Expr::val(json!([name])),
+            ));
+        }
+        if self.starred {
+            matched = matched.add(Column::IsStarred.eq(true));
+        }
+        if self.important {
+            matched = matched.add(Column::IsImportant.eq(true));
+        }
+        matched
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Label names
 // ---------------------------------------------------------------------------
@@ -292,19 +344,22 @@ pub async fn resolve_custom_label_names(
     db: &PgPool,
     slug: &str,
     account_id: Option<&str>,
-) -> Result<Vec<String>, sqlx::Error> {
+) -> Result<Vec<String>, DbErr> {
+    use mail_labels::Column;
+    use sea_orm::ExprTrait as _;
     if to_system_label(slug).is_some() {
         return Ok(Vec::new());
     }
-    sqlx::query_scalar(
-        "select distinct name from mail_labels
-         where deleted_at is null and lower(name) = lower($1)
-           and ($2::text is null or account_id = $2)",
-    )
-    .bind(slug)
-    .bind(account_id)
-    .fetch_all(db)
-    .await
+    let mut find = mail_labels::Entity::find()
+        .select_only()
+        .column(Column::Name)
+        .distinct()
+        .filter(Column::DeletedAt.is_null())
+        .filter(lower(Expr::col((mail_labels::Entity, Column::Name))).eq(lower(Expr::val(slug))));
+    if let Some(account_id) = account_id {
+        find = find.filter(Column::AccountId.eq(account_id));
+    }
+    find.into_tuple().all(&orm(db)).await
 }
 
 /// `canonicalLabelNames(db, accountId, labels)`: user labels spelled as the
@@ -313,7 +368,8 @@ pub async fn canonical_label_names(
     db: &PgPool,
     account_id: &str,
     labels: &[String],
-) -> Result<Vec<String>, sqlx::Error> {
+) -> Result<Vec<String>, DbErr> {
+    use mail_labels::Column;
     let custom: Vec<String> = labels
         .iter()
         .filter(|l| to_system_label(l).is_none())
@@ -322,15 +378,19 @@ pub async fn canonical_label_names(
     if custom.is_empty() {
         return Ok(labels.to_vec());
     }
-    let rows: Vec<String> = sqlx::query_scalar(
-        "select name from mail_labels
-         where account_id = $1 and deleted_at is null and is_system is not true
-           and lower(name) = any($2::text[])",
-    )
-    .bind(account_id)
-    .bind(&custom)
-    .fetch_all(db)
-    .await?;
+    let rows: Vec<String> = mail_labels::Entity::find()
+        .select_only()
+        .column(Column::Name)
+        .filter(Column::AccountId.eq(account_id))
+        .filter(Column::DeletedAt.is_null())
+        .filter(is_not_system())
+        .filter(sea_orm::ExprTrait::is_in(
+            lower(Expr::col((mail_labels::Entity, Column::Name))),
+            custom,
+        ))
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     // `new Map(rows.map(...))`: a later row wins a shared lower-case key.
     let mut by_lower: Vec<(String, String)> = Vec::new();
     for name in rows {
@@ -356,6 +416,14 @@ pub async fn canonical_label_names(
         .collect())
 }
 
+/// `is_system is not true`: a user label.
+pub(crate) fn is_not_system() -> Expr {
+    sea_orm::ExprTrait::is_not(
+        Expr::col((mail_labels::Entity, mail_labels::Column::IsSystem)),
+        Expr::Constant(true.into()),
+    )
+}
+
 // ---------------------------------------------------------------------------
 // Label rows (`mail_labels`)
 // ---------------------------------------------------------------------------
@@ -366,11 +434,11 @@ pub enum MailLabelError {
     DuplicateName(&'static str),
     NotFound,
     SystemLabelImmutable(&'static str),
-    Db(sqlx::Error),
+    Db(DbErr),
 }
 
-impl From<sqlx::Error> for MailLabelError {
-    fn from(error: sqlx::Error) -> Self {
+impl From<DbErr> for MailLabelError {
+    fn from(error: DbErr) -> Self {
         Self::Db(error)
     }
 }
@@ -390,10 +458,7 @@ fn label_row_key(row: &Value) -> String {
 
 /// `withLiveMessageCounts(db, rows)`: each row's `messageCount` replaced by
 /// the live messages carrying the label, counted as its folder lists them.
-async fn with_live_message_counts(
-    db: &PgPool,
-    rows: Vec<Value>,
-) -> Result<Vec<Value>, sqlx::Error> {
+async fn with_live_message_counts(db: &PgPool, rows: Vec<Value>) -> Result<Vec<Value>, DbErr> {
     if rows.is_empty() {
         return Ok(rows);
     }
@@ -423,30 +488,17 @@ async fn with_live_message_counts(
         everywhere.push(matches!(system, Some(TRASH | SPAM)));
         hides_archived.push(label_folder_hides_archived(key));
     }
-    let counted: Vec<(String, i64, i32)> = sqlx::query_as(
-        "select m.account_id, k.ord, (count(*) filter (where
-             (exists (select 1 from jsonb_array_elements_text(k.names) as n(name)
-                      where m.labels @> jsonb_build_array(n.name))
-              or (k.starred and m.is_starred = true)
-              or (k.important and m.is_important = true))
-             and (k.everywhere or not (coalesce(m.labels, '[]'::jsonb) @> '[\"TRASH\"]'::jsonb
-                  or coalesce(m.labels, '[]'::jsonb) @> '[\"SPAM\"]'::jsonb
-                  or coalesce(m.is_trash, false) or coalesce(m.is_spam, false)))
-             and (not k.hides_archived or not coalesce(m.labels, '[]'::jsonb) @> '[\"ARCHIVE\"]'::jsonb)
-           ))::int
-         from mail_messages m
-         cross join unnest($2::jsonb[], $3::bool[], $4::bool[], $5::bool[], $6::bool[])
-              with ordinality as k(names, starred, important, everywhere, hides_archived, ord)
-         where m.deleted_at is null and m.account_id = any($1::text[])
-         group by m.account_id, k.ord",
+    let counted = live_label_counts(
+        db,
+        &account_ids,
+        &LabelKeys {
+            names,
+            starred,
+            important,
+            everywhere,
+            hides_archived,
+        },
     )
-    .bind(&account_ids)
-    .bind(&names)
-    .bind(&starred)
-    .bind(&important)
-    .bind(&everywhere)
-    .bind(&hides_archived)
-    .fetch_all(db)
     .await?;
     Ok(rows
         .into_iter()
@@ -464,38 +516,100 @@ async fn with_live_message_counts(
         .collect())
 }
 
+/// The label keys [`live_label_counts`] counts, as parallel arrays.
+struct LabelKeys {
+    names: Vec<Value>,
+    starred: Vec<bool>,
+    important: Vec<bool>,
+    everywhere: Vec<bool>,
+    hides_archived: Vec<bool>,
+}
+
+/// `(account_id, key ordinal, live messages)` for every key in every
+/// account, in one pass over the accounts' messages.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "counts every label key in one pass: the keys are parallel arrays unnested with ordinality and matched against each message's labels, which the query builder can't express"
+)]
+async fn live_label_counts(
+    db: &PgPool,
+    account_ids: &[String],
+    keys: &LabelKeys,
+) -> Result<Vec<(String, i64, i32)>, DbErr> {
+    sqlx::query_as(
+        "select m.account_id, k.ord, (count(*) filter (where
+             (exists (select 1 from jsonb_array_elements_text(k.names) as n(name)
+                      where m.labels @> jsonb_build_array(n.name))
+              or (k.starred and m.is_starred = true)
+              or (k.important and m.is_important = true))
+             and (k.everywhere or not (coalesce(m.labels, '[]'::jsonb) @> '[\"TRASH\"]'::jsonb
+                  or coalesce(m.labels, '[]'::jsonb) @> '[\"SPAM\"]'::jsonb
+                  or coalesce(m.is_trash, false) or coalesce(m.is_spam, false)))
+             and (not k.hides_archived or not coalesce(m.labels, '[]'::jsonb) @> '[\"ARCHIVE\"]'::jsonb)
+           ))::int
+         from mail_messages m
+         cross join unnest($2::jsonb[], $3::bool[], $4::bool[], $5::bool[], $6::bool[])
+              with ordinality as k(names, starred, important, everywhere, hides_archived, ord)
+         where m.deleted_at is null and m.account_id = any($1::text[])
+         group by m.account_id, k.ord",
+    )
+    .bind(account_ids)
+    .bind(&keys.names)
+    .bind(&keys.starred)
+    .bind(&keys.important)
+    .bind(&keys.everywhere)
+    .bind(&keys.hides_archived)
+    .fetch_all(db)
+    .await
+    .map_err(orm_error)
+}
+
 /// `listMailLabels(db, filters)`: one account's labels, or those of the
 /// accounts in `accessible` (an empty list is no account).
 pub async fn list_mail_labels(
     db: &PgPool,
     account_id: Option<&str>,
     accessible: Option<&[String]>,
-) -> Result<Vec<Value>, sqlx::Error> {
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(l) from mail_labels l
-         where l.deleted_at is null
-           and ($1::text is null or l.account_id = $1)
-           and ($2::text[] is null or l.account_id = any($2))",
-    )
-    .bind(account_id)
-    .bind(accessible)
-    .fetch_all(db)
-    .await?;
-    with_live_message_counts(db, rows.into_iter().map(js_row).collect()).await
+) -> Result<Vec<Value>, DbErr> {
+    use mail_labels::Column;
+    let mut find = mail_labels::Entity::find().filter(Column::DeletedAt.is_null());
+    if let Some(account_id) = account_id {
+        find = find.filter(Column::AccountId.eq(account_id));
+    }
+    if let Some(accessible) = accessible {
+        // An empty list is no account (`= any('{}')`).
+        find = find.filter(Column::AccountId.is_in(accessible));
+    }
+    let rows = find
+        .all(&orm(db))
+        .await?
+        .into_iter()
+        .map(label_json)
+        .collect::<Result<Vec<_>, _>>()?;
+    with_live_message_counts(db, rows).await
 }
 
-async fn label_row(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(l) from mail_labels l where l.id = $1 and l.deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(js_row))
+async fn label_row(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
+    mail_labels::Entity::find_by_id(id.to_owned())
+        .filter(mail_labels::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?
+        .map(label_json)
+        .transpose()
+}
+
+/// The row as it is now (deleted or not), which must exist: `select
+/// to_jsonb(l) from mail_labels l where l.id = $1`.
+async fn label_row_after(db: &PgPool, id: &str) -> Result<Value, DbErr> {
+    let row = mail_labels::Entity::find_by_id(id.to_owned())
+        .one(&orm(db))
+        .await?
+        .ok_or_else(|| DbErr::RecordNotFound(format!("mail_labels {id}")))?;
+    label_json(row)
 }
 
 /// `getMailLabel(db, id)`.
-pub async fn get_mail_label(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
+pub async fn get_mail_label(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
     let Some(row) = label_row(db, id).await? else {
         return Ok(None);
     };
@@ -529,40 +643,54 @@ pub async fn create_mail_label(
     now: OffsetDateTime,
 ) -> Result<Value, MailLabelError> {
     assert_not_reserved_name(&data.name)?;
-    let existing: Option<String> = sqlx::query_scalar(
-        "select id from mail_labels
-         where account_id = $1 and lower(name) = lower($2) and deleted_at is null limit 1",
-    )
-    .bind(&data.account_id)
-    .bind(&data.name)
-    .fetch_optional(db)
-    .await?;
-    if existing.is_some() {
+    if name_taken(db, &data.account_id, &data.name, None).await? {
         return Err(MailLabelError::DuplicateName(DUPLICATE_NAME));
     }
     let id = generate_id("label");
-    let at = iso(now);
-    sqlx::query(
-        "insert into mail_labels (id, account_id, name, color, message_count, ai_enabled,
-             ai_keywords, ai_description, ai_confidence, created_at, updated_at)
-         values ($1, $2, $3, $4, 0, $5, $6, $7, $8, $9::timestamp, $9::timestamp)",
-    )
-    .bind(&id)
-    .bind(&data.account_id)
-    .bind(&data.name)
-    .bind(data.color.as_deref())
-    .bind(data.ai_enabled.unwrap_or(false))
-    .bind(data.ai_keywords.as_ref().map(|k| json!(k)))
-    .bind(data.ai_description.as_deref())
-    .bind(data.ai_confidence.unwrap_or(70))
-    .bind(&at)
-    .execute(db)
-    .await?;
-    let row: Value = sqlx::query_scalar("select to_jsonb(l) from mail_labels l where l.id = $1")
-        .bind(&id)
-        .fetch_one(db)
+    let at = utc_timestamp(now);
+    let row = mail_labels::ActiveModel {
+        id: Set(id.clone()),
+        account_id: Set(data.account_id.clone()),
+        name: Set(data.name.clone()),
+        color: Set(data.color.clone()),
+        message_count: Set(0),
+        ai_enabled: Set(Some(data.ai_enabled.unwrap_or(false))),
+        ai_keywords: Set(data.ai_keywords.as_ref().map(|k| json!(k))),
+        ai_description: Set(data.ai_description.clone()),
+        ai_confidence: Set(Some(
+            i32::try_from(data.ai_confidence.unwrap_or(70)).unwrap_or(i32::MAX),
+        )),
+        created_at: Set(at),
+        updated_at: Set(at),
+        ..Default::default()
+    };
+    mail_labels::Entity::insert(row)
+        .exec_without_returning(&orm(db))
         .await?;
-    Ok(js_row(row))
+    Ok(label_row_after(db, &id).await?)
+}
+
+/// A live label of the account already has this name, in any casing
+/// (`lower(name) = lower($name)`), other than `except`.
+async fn name_taken(
+    db: &PgPool,
+    account_id: &str,
+    name: &str,
+    except: Option<&str>,
+) -> Result<bool, DbErr> {
+    use mail_labels::Column;
+    use sea_orm::ExprTrait as _;
+    let mut find = mail_labels::Entity::find()
+        .select_only()
+        .column(Column::Id)
+        .filter(Column::AccountId.eq(account_id))
+        .filter(lower(Expr::col((mail_labels::Entity, Column::Name))).eq(lower(Expr::val(name))))
+        .filter(Column::DeletedAt.is_null());
+    if let Some(except) = except {
+        find = find.filter(Column::Id.ne(except));
+    }
+    let found: Option<String> = find.into_tuple().one(&orm(db)).await?;
+    Ok(found.is_some())
 }
 
 /// `UpdateMailLabelInput`: `None` is left out of the patch.
@@ -618,56 +746,60 @@ pub async fn update_mail_label(
         .map(str::to_owned);
     if let Some(name) = &new_name {
         assert_not_reserved_name(name)?;
-        let collision: Option<String> = sqlx::query_scalar(
-            "select id from mail_labels
-             where account_id = $1 and lower(name) = lower($2) and deleted_at is null and id != $3
-             limit 1",
-        )
-        .bind(&account_id)
-        .bind(name)
-        .bind(id)
-        .fetch_optional(db)
-        .await?;
-        if collision.is_some() {
+        if name_taken(db, &account_id, name, Some(id)).await? {
             return Err(MailLabelError::DuplicateName(DUPLICATE_NAME));
         }
     }
-    let at = iso(now);
-    let mut tx = db.begin().await?;
-    sqlx::query(
-        "update mail_labels set
-             name = coalesce($2, name),
-             color = coalesce($3, color),
-             position = coalesce($4, position),
-             ai_enabled = coalesce($5, ai_enabled),
-             ai_keywords = case when $6::jsonb is null then ai_keywords else $6::jsonb end,
-             ai_description = coalesce($7, ai_description),
-             ai_confidence = coalesce($8, ai_confidence),
-             updated_at = $9::timestamp
-         where id = $1",
-    )
-    .bind(id)
-    .bind(data.name.as_deref())
-    .bind(data.color.as_deref())
-    .bind(data.position.and_then(|p| i32::try_from(p).ok()))
-    .bind(data.ai_enabled)
-    .bind(data.ai_keywords.as_ref().map(|k| json!(k)))
-    .bind(data.ai_description.as_deref())
-    .bind(data.ai_confidence.and_then(|c| i32::try_from(c).ok()))
-    .bind(&at)
-    .execute(&mut *tx)
-    .await?;
+    let at = utc_timestamp(now);
+    let mut tx = db.begin().await.map_err(orm_error)?;
+    patch_label(&OrmConn::new(&mut tx), id, data, at).await?;
     if let Some(name) = &new_name {
-        relabel_messages_in(&mut *tx, &account_id, &old_name, name, &at).await?;
+        relabel_messages_in(&mut *tx, &account_id, &old_name, name, at).await?;
     }
-    tx.commit().await?;
-    let after: Value = sqlx::query_scalar("select to_jsonb(l) from mail_labels l where l.id = $1")
-        .bind(id)
-        .fetch_one(db)
-        .await?;
-    let mut counted = with_live_message_counts(db, vec![js_row(after)]).await?;
+    tx.commit().await.map_err(orm_error)?;
+    let after = label_row_after(db, id).await?;
+    let mut counted = with_live_message_counts(db, vec![after]).await?;
     let after = counted.pop().unwrap_or(Value::Null);
     Ok((existing, after))
+}
+
+/// The fields of [`UpdateMailLabel`] the body sent (`coalesce($n, column)`),
+/// and `updated_at`.
+async fn patch_label<C: ConnectionTrait>(
+    db: &C,
+    id: &str,
+    data: &UpdateMailLabel,
+    at: PrimitiveDateTime,
+) -> Result<(), DbErr> {
+    use mail_labels::Column;
+    let mut update = mail_labels::Entity::update_many();
+    if let Some(name) = &data.name {
+        update = update.col_expr(Column::Name, Expr::value(name));
+    }
+    if let Some(color) = &data.color {
+        update = update.col_expr(Column::Color, Expr::value(color));
+    }
+    if let Some(position) = data.position.and_then(|p| i32::try_from(p).ok()) {
+        update = update.col_expr(Column::Position, Expr::value(position));
+    }
+    if let Some(enabled) = data.ai_enabled {
+        update = update.col_expr(Column::AiEnabled, Expr::value(enabled));
+    }
+    if let Some(keywords) = &data.ai_keywords {
+        update = update.col_expr(Column::AiKeywords, Expr::value(json!(keywords)));
+    }
+    if let Some(description) = &data.ai_description {
+        update = update.col_expr(Column::AiDescription, Expr::value(description));
+    }
+    if let Some(confidence) = data.ai_confidence.and_then(|c| i32::try_from(c).ok()) {
+        update = update.col_expr(Column::AiConfidence, Expr::value(confidence));
+    }
+    update
+        .col_expr(Column::UpdatedAt, Expr::value(at))
+        .filter(Column::Id.eq(id))
+        .exec(db)
+        .await?;
+    Ok(())
 }
 
 /// `deleteMailLabel(db, id)`: the row before the delete; `None` when there
@@ -685,14 +817,13 @@ pub async fn delete_mail_label(
             "System labels cannot be deleted",
         ));
     }
-    let at = iso(now);
-    sqlx::query(
-        "update mail_labels set deleted_at = $2::timestamp, updated_at = $2::timestamp where id = $1",
-    )
-    .bind(id)
-    .bind(&at)
-    .execute(db)
-    .await?;
+    let at = utc_timestamp(now);
+    mail_labels::Entity::update_many()
+        .col_expr(mail_labels::Column::DeletedAt, Expr::value(at))
+        .col_expr(mail_labels::Column::UpdatedAt, Expr::value(at))
+        .filter(mail_labels::Column::Id.eq(id))
+        .exec(&orm(db))
+        .await?;
     let account_id = existing["accountId"].as_str().unwrap_or_default();
     let name = existing["name"].as_str().unwrap_or_default();
     strip_label_from_messages(db, account_id, name, now).await?;
@@ -721,6 +852,23 @@ fn touched(rows: Vec<(String, String)>) -> Touched {
     out
 }
 
+/// Runs `update` with `returning id, account_id`: the messages it touched,
+/// in the order the database returns them.
+async fn update_returning_ids(
+    db: &PgPool,
+    update: sea_orm::UpdateMany<mail_messages::Entity>,
+) -> Result<Vec<(String, String)>, DbErr> {
+    use mail_messages::Column;
+    let mut update: UpdateStatement = update.into_query();
+    update.returning(Query::returning().columns([Column::Id, Column::AccountId]));
+    orm(db)
+        .query_all(&update)
+        .await?
+        .iter()
+        .map(|row| Ok((row.try_get_by_index(0)?, row.try_get_by_index(1)?)))
+        .collect()
+}
+
 /// `moveMessagesToLocation(db, ids, location)`: one statement; the other
 /// locations (and promotions, snooze) dropped, `is_trash` / `is_spam`
 /// following. Back to the inbox, outgoing mail keeps its place.
@@ -729,37 +877,39 @@ pub async fn move_messages_to_location(
     ids: &[String],
     location: &str,
     now: OffsetDateTime,
-) -> Result<Touched, sqlx::Error> {
+) -> Result<Touched, DbErr> {
+    use mail_messages::Column;
+    use sea_orm::ExprTrait as _;
+    use sea_orm::sea_query::extension::postgres::PgExpr;
     if ids.is_empty() {
         return Ok(Touched::default());
     }
-    let rows: Vec<(String, String)> = sqlx::query_as(
-        "with c as (
-             select id, (coalesce(labels, '[]'::jsonb) - $4::text[]) as cleared
-             from mail_messages where id = any($1::text[]) and deleted_at is null
-         )
-         update mail_messages m set
-             labels = case
-                 when $2 = 'INBOX' and (c.cleared @> '[\"SENT\"]'::jsonb or c.cleared @> '[\"DRAFT\"]'::jsonb
-                      or c.cleared @> '[\"DRAFTS\"]'::jsonb or c.cleared @> '[\"SCHEDULED\"]'::jsonb)
-                 then c.cleared
-                 else c.cleared || jsonb_build_array($2::text)
-             end,
-             is_trash = ($2 = 'TRASH'),
-             is_spam = ($2 = 'SPAM'),
-             snoozed_until = null,
-             updated_at = $3::timestamp
-         from c
-         where m.id = c.id
-         returning m.id, m.account_id",
-    )
-    .bind(ids)
-    .bind(location)
-    .bind(iso(now))
-    .bind(CLEARED_BY_MOVE.as_slice())
-    .fetch_all(db)
-    .await?;
-    Ok(touched(rows))
+    // `coalesce(labels, '[]'::jsonb) - CLEARED_BY_MOVE`, one label at a time.
+    let cleared = || {
+        CLEARED_BY_MOVE
+            .iter()
+            .fold(labels_or_empty(), |labels, label| labels.sub(*label))
+    };
+    let moved = PgExpr::concat(cleared(), Expr::val(json!([location])));
+    let labels: Expr = if location == INBOX {
+        let outgoing = Condition::any()
+            .add(PgExpr::contains(cleared(), Expr::val(json!(["SENT"]))))
+            .add(PgExpr::contains(cleared(), Expr::val(json!(["DRAFT"]))))
+            .add(PgExpr::contains(cleared(), Expr::val(json!(["DRAFTS"]))))
+            .add(PgExpr::contains(cleared(), Expr::val(json!(["SCHEDULED"]))));
+        Expr::case(outgoing, cleared()).finally(moved).into()
+    } else {
+        moved
+    };
+    let update = mail_messages::Entity::update_many()
+        .col_expr(Column::Labels, labels)
+        .col_expr(Column::IsTrash, Expr::value(location == TRASH))
+        .col_expr(Column::IsSpam, Expr::value(location == SPAM))
+        .col_expr(Column::SnoozedUntil, Expr::value(None::<PrimitiveDateTime>))
+        .col_expr(Column::UpdatedAt, Expr::value(utc_timestamp(now)))
+        .filter(Column::Id.is_in(ids))
+        .filter(Column::DeletedAt.is_null());
+    Ok(touched(update_returning_ids(db, update).await?))
 }
 
 /// `updateLabelMessageCount`: the running tally on the label rows.
@@ -769,22 +919,46 @@ async fn update_label_message_count(
     account_ids: &[String],
     delta: i64,
     now: OffsetDateTime,
-) -> Result<(), sqlx::Error> {
+) -> Result<(), DbErr> {
+    use mail_labels::Column;
+    use sea_orm::ExprTrait as _;
     if account_ids.is_empty() || delta == 0 {
         return Ok(());
     }
-    sqlx::query(
-        "update mail_labels
-         set message_count = greatest(0, message_count + $1), updated_at = $2::timestamp
-         where name = $3 and account_id = any($4::text[]) and deleted_at is null",
-    )
-    .bind(delta)
-    .bind(iso(now))
-    .bind(label)
-    .bind(account_ids)
-    .execute(db)
-    .await?;
+    // `greatest(0, message_count + delta)`, in one statement.
+    let count = Func::greatest([
+        Expr::val(0),
+        Expr::col((mail_labels::Entity, Column::MessageCount)).add(delta),
+    ]);
+    mail_labels::Entity::update_many()
+        .col_expr(Column::MessageCount, count.into())
+        .col_expr(Column::UpdatedAt, Expr::value(utc_timestamp(now)))
+        .filter(Column::Name.eq(label))
+        .filter(Column::AccountId.is_in(account_ids))
+        .filter(Column::DeletedAt.is_null())
+        .exec(&orm(db))
+        .await?;
     Ok(())
+}
+
+/// The mirrored flags a label change writes (`coalesce($flag, column)`):
+/// only those it sets.
+pub(crate) fn with_flags(
+    mut update: sea_orm::UpdateMany<mail_messages::Entity>,
+    flags: LabelFlags,
+) -> sea_orm::UpdateMany<mail_messages::Entity> {
+    use mail_messages::Column;
+    for (column, value) in [
+        (Column::IsStarred, flags.is_starred),
+        (Column::IsImportant, flags.is_important),
+        (Column::IsTrash, flags.is_trash),
+        (Column::IsSpam, flags.is_spam),
+    ] {
+        if let Some(value) = value {
+            update = update.col_expr(column, Expr::value(value));
+        }
+    }
+    update
 }
 
 /// `bulkAddLabelToMessages(db, label, ids)`: appended where missing, the
@@ -794,7 +968,9 @@ pub async fn bulk_add_label(
     label_name: &str,
     ids: &[String],
     now: OffsetDateTime,
-) -> Result<Touched, sqlx::Error> {
+) -> Result<Touched, DbErr> {
+    use mail_messages::Column;
+    use sea_orm::ExprTrait as _;
     if ids.is_empty() {
         return Ok(Touched::default());
     }
@@ -803,28 +979,19 @@ pub async fn bulk_add_label(
         return move_messages_to_location(db, ids, &label, now).await;
     }
     let flags = flags_for_label_change(std::slice::from_ref(&label), true);
-    let rows: Vec<(String, String)> = sqlx::query_as(
-        "update mail_messages set
-             labels = coalesce(labels, '[]'::jsonb) || jsonb_build_array($2::text),
-             is_starred = coalesce($3, is_starred),
-             is_important = coalesce($4, is_important),
-             is_trash = coalesce($5, is_trash),
-             is_spam = coalesce($6, is_spam),
-             updated_at = $7::timestamp
-         where id = any($1::text[]) and deleted_at is null
-           and not coalesce(labels, '[]'::jsonb) @> jsonb_build_array($2::text)
-         returning id, account_id",
-    )
-    .bind(ids)
-    .bind(&label)
-    .bind(flags.is_starred)
-    .bind(flags.is_important)
-    .bind(flags.is_trash)
-    .bind(flags.is_spam)
-    .bind(iso(now))
-    .fetch_all(db)
-    .await?;
-    let touched = touched(rows);
+    let update = mail_messages::Entity::update_many().col_expr(
+        Column::Labels,
+        sea_orm::sea_query::extension::postgres::PgExpr::concat(
+            labels_or_empty(),
+            Expr::val(json!([label])),
+        ),
+    );
+    let update = with_flags(update, flags)
+        .col_expr(Column::UpdatedAt, Expr::value(utc_timestamp(now)))
+        .filter(Column::Id.is_in(ids))
+        .filter(Column::DeletedAt.is_null())
+        .filter(carries(&label).not());
+    let touched = touched(update_returning_ids(db, update).await?);
     let delta = i64::try_from(touched.ids.len()).unwrap_or(i64::MAX);
     update_label_message_count(db, &label, &touched.account_ids, delta, now).await?;
     Ok(touched)
@@ -836,45 +1003,29 @@ pub async fn bulk_remove_label(
     label_name: &str,
     ids: &[String],
     now: OffsetDateTime,
-) -> Result<Touched, sqlx::Error> {
+) -> Result<Touched, DbErr> {
+    use mail_messages::Column;
+    use sea_orm::ExprTrait as _;
     if ids.is_empty() {
         return Ok(Touched::default());
     }
     let label = normalize_label(label_name);
     let flags = flags_for_label_change(std::slice::from_ref(&label), false);
     // Starred / important may live on the column alone.
-    let flag_column = if label == STARRED {
-        "starred"
+    let mut carrying = Condition::any().add(carries(&label));
+    if label == STARRED {
+        carrying = carrying.add(Column::IsStarred.eq(true));
     } else if label == IMPORTANT {
-        "important"
-    } else {
-        ""
-    };
-    let rows: Vec<(String, String)> = sqlx::query_as(
-        "update mail_messages set
-             labels = coalesce(labels, '[]'::jsonb) - $2::text,
-             is_starred = coalesce($3, is_starred),
-             is_important = coalesce($4, is_important),
-             is_trash = coalesce($5, is_trash),
-             is_spam = coalesce($6, is_spam),
-             updated_at = $7::timestamp
-         where id = any($1::text[]) and deleted_at is null
-           and (coalesce(labels, '[]'::jsonb) @> jsonb_build_array($2::text)
-                or ($8 = 'starred' and is_starred = true)
-                or ($8 = 'important' and is_important = true))
-         returning id, account_id",
-    )
-    .bind(ids)
-    .bind(&label)
-    .bind(flags.is_starred)
-    .bind(flags.is_important)
-    .bind(flags.is_trash)
-    .bind(flags.is_spam)
-    .bind(iso(now))
-    .bind(flag_column)
-    .fetch_all(db)
-    .await?;
-    let touched = touched(rows);
+        carrying = carrying.add(Column::IsImportant.eq(true));
+    }
+    let update = mail_messages::Entity::update_many()
+        .col_expr(Column::Labels, labels_or_empty().sub(label.as_str()));
+    let update = with_flags(update, flags)
+        .col_expr(Column::UpdatedAt, Expr::value(utc_timestamp(now)))
+        .filter(Column::Id.is_in(ids))
+        .filter(Column::DeletedAt.is_null())
+        .filter(carrying);
+    let touched = touched(update_returning_ids(db, update).await?);
     let delta = -i64::try_from(touched.ids.len()).unwrap_or(i64::MAX);
     update_label_message_count(db, &label, &touched.account_ids, delta, now).await?;
     Ok(touched)
@@ -889,15 +1040,17 @@ pub async fn apply_label_to_thread(
     label: &str,
     add: bool,
     now: OffsetDateTime,
-) -> Result<Vec<String>, sqlx::Error> {
-    let ids: Vec<String> = sqlx::query_scalar(
-        "select id from mail_messages
-         where account_id = $1 and coalesce(thread_id, id) = $2 and deleted_at is null",
-    )
-    .bind(account_id)
-    .bind(thread_key)
-    .fetch_all(db)
-    .await?;
+) -> Result<Vec<String>, DbErr> {
+    use mail_messages::Column;
+    let ids: Vec<String> = mail_messages::Entity::find()
+        .select_only()
+        .column(Column::Id)
+        .filter(Column::AccountId.eq(account_id))
+        .filter(sea_orm::ExprTrait::eq(thread_key_of(), thread_key))
+        .filter(Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     if ids.is_empty() {
         return Ok(Vec::new());
     }
@@ -909,13 +1062,28 @@ pub async fn apply_label_to_thread(
     Ok(result.ids)
 }
 
+/// `coalesce(thread_id, id)`: the message's thread key.
+pub(crate) fn thread_key_of() -> Expr {
+    Func::coalesce([
+        msg(mail_messages::Column::ThreadId),
+        msg(mail_messages::Column::Id),
+    ])
+    .into()
+}
+
+/// A rename on the messages: every label spelled `from` (any casing)
+/// becomes `to`, in place.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "rewrites matching elements of each message's jsonb labels array in place (jsonb_agg over jsonb_array_elements), which the ORM can't express"
+)]
 async fn relabel_messages_in<'e, E>(
     executor: E,
     account_id: &str,
     from: &str,
     to: &str,
-    at: &str,
-) -> Result<(), sqlx::Error>
+    at: PrimitiveDateTime,
+) -> Result<(), DbErr>
 where
     E: sqlx::PgExecutor<'e>,
 {
@@ -938,18 +1106,23 @@ where
     .bind(to)
     .bind(at)
     .execute(executor)
-    .await?;
+    .await
+    .map_err(orm_error)?;
     Ok(())
 }
 
 /// `stripLabelFromMessages(db, accountId, name)`: the label removed from
 /// every message carrying it, in any casing.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "drops matching elements from each message's jsonb labels array (jsonb_agg over jsonb_array_elements), which the ORM can't express"
+)]
 pub async fn strip_label_from_messages(
     db: &PgPool,
     account_id: &str,
     name: &str,
     now: OffsetDateTime,
-) -> Result<(), sqlx::Error> {
+) -> Result<(), DbErr> {
     sqlx::query(
         "update mail_messages set
              labels = (
@@ -965,9 +1138,10 @@ pub async fn strip_label_from_messages(
     )
     .bind(account_id)
     .bind(name)
-    .bind(iso(now))
+    .bind(utc_timestamp(now))
     .execute(db)
-    .await?;
+    .await
+    .map_err(orm_error)?;
     Ok(())
 }
 

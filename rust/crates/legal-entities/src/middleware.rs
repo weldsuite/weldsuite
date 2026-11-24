@@ -39,21 +39,24 @@ use axum::extract::{FromRequestParts, OptionalFromRequestParts, Request};
 use axum::response::{IntoResponse, Response};
 use http::request::Parts;
 use http::{Extensions, HeaderMap};
+use sea_orm::{ColumnTrait, Condition, DbErr, EntityTrait, QuerySelect};
 use serde_json::Value;
 use sqlx::PgPool;
 use tower::{Layer, Service};
 use weldsuite_auth::AuthContext;
-use weldsuite_db::Tenant;
+use weldsuite_db::{Tenant, orm};
 use weldsuite_kit::ApiError;
 use weldsuite_kit::validation::{js_trim, query_values};
 use weldsuite_permissions::{
     PermissionGate, PermissionQueries, Permissions, PresetPermissions, ResolvedPermissions,
 };
+use weldsuite_schema::tenant::settings;
 
 use crate::access::{
     EntityAccess, can_see_entity, entity_role_id, load_entity_access, permissions_in_entity_with,
 };
 use crate::extensions::LegalEntityApp;
+use crate::service::default_entity_id;
 
 pub const LEGAL_ENTITY_HEADER: &str = "x-legal-entity-id";
 pub const ACCOUNTING_ENTITY_HEADER: &str = "x-accounting-entity-id";
@@ -93,7 +96,7 @@ async fn enabled_for(
     db: &PgPool,
     app: Option<LegalEntityApp>,
     entity_id: &str,
-) -> Result<bool, sqlx::Error> {
+) -> Result<bool, DbErr> {
     match app {
         None => Ok(true),
         Some(app) => app.is_enabled_for(db, entity_id).await,
@@ -106,22 +109,20 @@ async fn enabled_for(
 pub async fn default_entity_id_for(
     db: &PgPool,
     app: Option<LegalEntityApp>,
-) -> Result<Option<String>, sqlx::Error> {
-    let core: Option<String> = sqlx::query_scalar(
-        "select id from entities where is_default = true and deleted_at is null limit 1",
-    )
-    .fetch_optional(db)
-    .await?;
+) -> Result<Option<String>, DbErr> {
+    let core = default_entity_id(db).await?;
     if let Some(id) = core
         && enabled_for(db, app, &id).await?
     {
         return Ok(Some(id));
     }
     if app == Some(LegalEntityApp::Weldbooks) {
-        let settings: Option<Option<String>> =
-            sqlx::query_scalar("select default_entity_id from settings limit 1")
-                .fetch_optional(db)
-                .await?;
+        let settings: Option<Option<String>> = settings::Entity::find()
+            .select_only()
+            .column(settings::Column::DefaultEntityId)
+            .into_tuple()
+            .one(&orm(db))
+            .await?;
         if let Some(id) = settings.flatten().filter(|id| !id.is_empty())
             && enabled_for(db, app, &id).await?
         {
@@ -139,7 +140,7 @@ pub async fn resolve_request_entity(
     requested: Option<&str>,
     app: Option<LegalEntityApp>,
     fallback_to_default: bool,
-) -> Result<Option<String>, sqlx::Error> {
+) -> Result<Option<String>, DbErr> {
     let candidate = match requested {
         Some(id) => Some(id.to_owned()),
         None if fallback_to_default => default_entity_id_for(db, app).await?,
@@ -197,7 +198,7 @@ impl RequestEntity {
         workspace_permissions: ResolvedPermissions,
         headers: &HeaderMap,
         query: Option<&str>,
-    ) -> Result<Self, sqlx::Error> {
+    ) -> Result<Self, DbErr> {
         let access = load_entity_access(db, user_id, workspace_permissions).await?;
         Ok(Self::unresolved(
             Arc::new(access),
@@ -342,7 +343,7 @@ pub fn request_entity_scope(request: &RequestEntity) -> Option<Vec<String>> {
     )
 }
 
-/// [`request_entity_scope`] as a SQL condition on a `legal_entity_id`-style
+/// [`request_entity_scope`] as a condition on a `legal_entity_id`-style
 /// column (`entityScopeCondition`). Rows without an entity (from before a
 /// workspace had one) count as the default entity's.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -360,42 +361,25 @@ pub enum EntityScopeCondition {
 }
 
 impl EntityScopeCondition {
-    /// The condition over `column`, reading two parameters: `$ids` (`text[]`,
-    /// [`EntityScopeCondition::ids_bind`]) and `$unassigned` (`boolean`,
-    /// [`EntityScopeCondition::unassigned_bind`]). Static for a given column
-    /// and positions, so it fits a hand-written query:
-    ///
-    /// ```ignore
-    /// let sql = format!("select ... from hr_employees t where t.deleted_at is null and {}",
-    ///     EntityScopeCondition::sql("t.legal_entity_id", 1, 2));
-    /// sqlx::query(&sql).bind(scope.ids_bind()).bind(scope.unassigned_bind())
-    /// ```
-    pub fn sql(column: &str, ids_param: usize, unassigned_param: usize) -> String {
-        format!(
-            "(${ids_param}::text[] is null or {column} = any(${ids_param}) \
-             or (${unassigned_param}::boolean and {column} is null))"
-        )
-    }
-
-    /// The `$ids` parameter of [`EntityScopeCondition::sql`]: `None` for no
-    /// filter, an empty list for nothing.
-    pub fn ids_bind(&self) -> Option<Vec<String>> {
+    /// The condition over `column`: no filter, none of the rows, or the
+    /// entities allowed (and the rows without an entity when the default one
+    /// is among them).
+    pub fn condition(&self, column: impl ColumnTrait) -> Condition {
         match self {
-            Self::All => None,
-            Self::Nothing => Some(Vec::new()),
-            Self::In { ids, .. } => Some(ids.clone()),
-        }
-    }
-
-    /// The `$unassigned` parameter of [`EntityScopeCondition::sql`].
-    pub fn unassigned_bind(&self) -> bool {
-        matches!(
-            self,
+            Self::All => Condition::all(),
+            Self::Nothing => Condition::all().add(column.is_in(Vec::<String>::new())),
             Self::In {
-                include_unassigned: true,
-                ..
+                ids,
+                include_unassigned,
+            } => {
+                let scoped = Condition::any().add(column.is_in(ids.iter().map(String::as_str)));
+                if *include_unassigned {
+                    scoped.add(column.is_null())
+                } else {
+                    scoped
+                }
             }
-        )
+        }
     }
 
     /// Whether a filter applies at all.
@@ -610,7 +594,7 @@ where
     }
 }
 
-fn database_failure(error: &sqlx::Error) -> ApiError {
+fn database_failure(error: &DbErr) -> ApiError {
     tracing::error!(%error, "legal entities: resolving the request's entity failed");
     ApiError::internal()
 }
@@ -879,6 +863,9 @@ mod tests {
 
     #[test]
     fn scope_conditions_count_unassigned_rows_as_the_default_entity() {
+        use sea_orm::{DbBackend, QueryFilter, QueryTrait};
+        use weldsuite_schema::tenant::hr_employees;
+
         assert_eq!(
             entity_scope_condition(None, Some("ent_open")),
             EntityScopeCondition::All
@@ -891,15 +878,24 @@ mod tests {
         assert!(with_default.matches(None));
         assert!(with_default.matches(Some("ent_open")));
         assert!(!with_default.matches(Some("ent_role")));
-        assert!(with_default.unassigned_bind());
         let without = entity_scope_condition(Some(&["ent_role".to_owned()]), Some("ent_open"));
         assert!(!without.matches(None));
-        assert_eq!(without.ids_bind(), Some(vec!["ent_role".to_owned()]));
-        assert_eq!(EntityScopeCondition::Nothing.ids_bind(), Some(Vec::new()));
-        assert_eq!(EntityScopeCondition::All.ids_bind(), None);
-        assert_eq!(
-            EntityScopeCondition::sql("t.legal_entity_id", 3, 4),
-            "($3::text[] is null or t.legal_entity_id = any($3) or ($4::boolean and t.legal_entity_id is null))"
+
+        let sql = |scope: &EntityScopeCondition| {
+            hr_employees::Entity::find()
+                .select_only()
+                .column(hr_employees::Column::Id)
+                .filter(scope.condition(hr_employees::Column::LegalEntityId))
+                .build(DbBackend::Postgres)
+                .to_string()
+        };
+        assert!(!sql(&EntityScopeCondition::All).contains("WHERE \"hr_employees\""));
+        assert!(sql(&EntityScopeCondition::Nothing).ends_with("WHERE 1 = 2"));
+        assert!(sql(&with_default).ends_with(
+            r#"WHERE "hr_employees"."legal_entity_id" IN ('ent_open') OR "hr_employees"."legal_entity_id" IS NULL"#
+        ));
+        assert!(
+            sql(&without).ends_with(r#"WHERE "hr_employees"."legal_entity_id" IN ('ent_role')"#)
         );
     }
 }

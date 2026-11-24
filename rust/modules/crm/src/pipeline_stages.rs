@@ -6,21 +6,33 @@ use axum::body::Bytes;
 use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use http::HeaderMap;
+use sea_orm::sea_query::{Expr, Func, Order};
+use sea_orm::{
+    ColumnTrait, Condition, DbErr, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder,
+    QuerySelect,
+};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events::{
     PIPELINE_STAGE_CREATED, PIPELINE_STAGE_DELETED, PIPELINE_STAGE_UPDATED,
 };
 use weldsuite_crm_domain::tables::CRM_PIPELINE_STAGES;
-use weldsuite_crm_domain::{drizzle_row, insert_sql, update_sql};
+use weldsuite_db::record::JsonTable;
+use weldsuite_db::{OrmConn, orm, orm_error, utc_now, utc_timestamp};
 use weldsuite_kit::validation::{Presence, Text};
 use weldsuite_kit::{ApiError, Created, Data, NoContent, generate_id};
+use weldsuite_schema::tenant::crm_opportunities;
+use weldsuite_schema::tenant::crm_pipeline_stages::{self as stages, Column};
 
+use crate::orm_rows::{insert_values, json, probe_limit, set_values};
 use crate::schema::{Kind, NULLISH, OPT, REQ, Spec, int, partial, s};
 use crate::{
     Answer, Caller, CrmState, answer, cut, js_limit, now, page, query_map, validate, validate_specs,
 };
 
 const LOG: &str = "pipeline-stages";
+
+/// `crm_pipeline_stages`, written from a body as Drizzle wrote it.
+const STAGES: JsonTable = JsonTable::of::<stages::Entity>();
 
 /// `createPipelineStageSchema`.
 const CREATE: [Spec; 9] = [
@@ -35,15 +47,34 @@ const CREATE: [Spec; 9] = [
     Spec::new("isLost", Kind::Bool, OPT),
 ];
 
-async fn live(caller: &Caller, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from crm_pipeline_stages t
-         where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(&caller.db)
-    .await?;
-    Ok(row.map(drizzle_row))
+async fn live(caller: &Caller, id: &str) -> Result<Option<Value>, DbErr> {
+    let row = stages::Entity::find_by_id(id.to_owned())
+        .filter(Column::DeletedAt.is_null())
+        .one(&orm(&caller.db))
+        .await?;
+    row.map(|row| json(serde_json::to_value(row))).transpose()
+}
+
+/// `coalesce(is_won, false) or coalesce(is_lost, false)`: a won or lost
+/// stage.
+fn closed() -> Expr {
+    use sea_orm::ExprTrait as _;
+    let flag = |column: Column| {
+        Expr::from(Func::coalesce([
+            Expr::col((stages::Entity, column)),
+            Expr::val(false),
+        ]))
+    };
+    flag(Column::IsWon).or(flag(Column::IsLost))
+}
+
+/// The live stages of `pipeline` (every pipeline's without one).
+fn live_in(pipeline: Option<&String>) -> Condition {
+    let mut filters = Condition::all().add(Column::DeletedAt.is_null());
+    if let Some(pipeline) = pipeline {
+        filters = filters.add(Column::Pipeline.eq(pipeline.as_str()));
+    }
+    filters
 }
 
 // ── GET / ───────────────────────────────────────────────────────────────────
@@ -54,29 +85,36 @@ pub(crate) async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response 
         let limit = js_limit(q.get("limit"), 100, 200)
             .ok_or_else(|| crate::Refusal::Failed("limit is NaN".to_owned()))?;
         let pipeline = q.get("pipeline").filter(|p| !p.is_empty());
+        let db = orm(&caller.db);
         // Ties on `position` list open stages before won/lost ones, then by
         // creation order.
-        let rows: Vec<Value> = sqlx::query_scalar(
-            "select to_jsonb(t) from crm_pipeline_stages t
-             where deleted_at is null and ($1::text is null or pipeline = $1)
-             order by position asc,
-                      case when (coalesce(is_won, false) or coalesce(is_lost, false)) then 1 else 0 end asc,
-                      created_at asc, id asc
-             limit $2",
-        )
-        .bind(pipeline)
-        .bind(limit + 1)
-        .fetch_all(&caller.db)
-        .await?;
-        let total: i64 = sqlx::query_scalar(
-            "select count(*) from crm_pipeline_stages
-             where deleted_at is null and ($1::text is null or pipeline = $1)",
-        )
-        .bind(pipeline)
-        .fetch_one(&caller.db)
-        .await?;
-        let (data, has_more, next) = cut(rows.into_iter().map(drizzle_row).collect(), limit);
-        Ok(page(data, total, has_more, next))
+        let rows = stages::Entity::find()
+            .filter(live_in(pipeline))
+            .order_by_asc(Column::Position)
+            .order_by(
+                Into::<Expr>::into(Expr::case(closed(), 1).finally(0)),
+                Order::Asc,
+            )
+            .order_by_asc(Column::CreatedAt)
+            .order_by_asc(Column::Id)
+            .limit(probe_limit(limit)?)
+            .all(&db)
+            .await?;
+        let total = stages::Entity::find()
+            .filter(live_in(pipeline))
+            .count(&db)
+            .await?;
+        let rows = rows
+            .into_iter()
+            .map(|row| json(serde_json::to_value(row)))
+            .collect::<Result<Vec<_>, DbErr>>()?;
+        let (data, has_more, next) = cut(rows, limit);
+        Ok(page(
+            data,
+            i64::try_from(total).unwrap_or(i64::MAX),
+            has_more,
+            next,
+        ))
     }
     .await;
     answer(result, LOG, "Failed to list pipeline stages")
@@ -103,14 +141,15 @@ async fn next_stage_position(
     caller: &Caller,
     pipeline: &str,
     closed: bool,
-) -> Result<(i64, i64), sqlx::Error> {
-    let existing: Vec<(i32, Option<bool>, Option<bool>)> = sqlx::query_as(
-        "select position, is_won, is_lost from crm_pipeline_stages
-         where pipeline = $1 and deleted_at is null",
-    )
-    .bind(pipeline)
-    .fetch_all(&caller.db)
-    .await?;
+) -> Result<(i64, i64), DbErr> {
+    let existing: Vec<(i32, Option<bool>, Option<bool>)> = stages::Entity::find()
+        .select_only()
+        .columns([Column::Position, Column::IsWon, Column::IsLost])
+        .filter(Column::Pipeline.eq(pipeline))
+        .filter(Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&orm(&caller.db))
+        .await?;
     if closed {
         let max = existing.iter().map(|(p, _, _)| i64::from(*p)).max();
         return Ok((max.map_or(0, |max| max + 1), 0));
@@ -155,7 +194,9 @@ pub(crate) async fn create(
 
 async fn run_create(state: &CrmState, caller: &Caller, data: &Map<String, Value>) -> Answer {
     let id = generate_id("pls");
-    let now = now();
+    // One instant: the row's text and the shift's `timestamp`.
+    let at = time::OffsetDateTime::now_utc();
+    let now = weldsuite_events::iso_timestamp(at);
     let pipeline = data
         .get("pipeline")
         .and_then(Value::as_str)
@@ -194,24 +235,28 @@ async fn run_create(state: &CrmState, caller: &Caller, data: &Map<String, Value>
     values.insert("updatedAt".into(), json!(now));
     // Inserting before the closed stages pushes them right in the same
     // transaction.
-    let mut tx = caller.db.begin().await?;
-    if shift != 0 {
-        sqlx::query(
-            "update crm_pipeline_stages set position = position + $2, updated_at = $3::timestamp
-             where pipeline = $1 and deleted_at is null
-               and (coalesce(is_won, false) or coalesce(is_lost, false))",
-        )
-        .bind(&pipeline)
-        .bind(i32::try_from(shift).unwrap_or(i32::MAX))
-        .bind(&now)
-        .execute(&mut *tx)
-        .await?;
+    let mut tx = caller.db.begin().await.map_err(orm_error)?;
+    {
+        let db = OrmConn::new(&mut tx);
+        if shift != 0 {
+            use sea_orm::ExprTrait as _;
+            stages::Entity::update_many()
+                .col_expr(
+                    Column::Position,
+                    Expr::col(Column::Position).add(i32::try_from(shift).unwrap_or(i32::MAX)),
+                )
+                .col_expr(Column::UpdatedAt, Expr::value(utc_timestamp(at)))
+                .filter(Column::Pipeline.eq(pipeline.as_str()))
+                .filter(Column::DeletedAt.is_null())
+                .filter(closed())
+                .exec(&db)
+                .await?;
+        }
+        STAGES
+            .insert(&db, insert_values(&CRM_PIPELINE_STAGES, &values))
+            .await?;
     }
-    sqlx::query(insert_sql!(crm_pipeline_stages))
-        .bind(CRM_PIPELINE_STAGES.values(&values))
-        .execute(&mut *tx)
-        .await?;
-    tx.commit().await?;
+    tx.commit().await.map_err(orm_error)?;
     caller.publish(
         state,
         PIPELINE_STAGE_CREATED,
@@ -243,14 +288,14 @@ pub(crate) async fn update(
         for (key, value) in &data {
             update.insert(key.clone(), value.clone());
         }
-        sqlx::query(update_sql!(
-            crm_pipeline_stages,
-            "where t.id = $1 and t.deleted_at is null"
-        ))
-        .bind(&id)
-        .bind(CRM_PIPELINE_STAGES.set(&update))
-        .execute(&caller.db)
-        .await?;
+        STAGES
+            .update(
+                &orm(&caller.db),
+                &id,
+                set_values(&CRM_PIPELINE_STAGES, &update),
+                true,
+            )
+            .await?;
         let mut event = Map::new();
         event.insert("id".into(), json!(id));
         event.insert(
@@ -279,13 +324,15 @@ pub(crate) async fn remove(
             return Ok(ApiError::not_found("Pipeline stage", Some(&id)).into_response());
         };
         // Deleting a stage that still holds deals would orphan them.
-        let deals: i64 = sqlx::query_scalar(
-            "select count(*) from crm_opportunities
-             where (stage_id = $1 or stage = $1) and deleted_at is null",
-        )
-        .bind(&id)
-        .fetch_one(&caller.db)
-        .await?;
+        let deals = crm_opportunities::Entity::find()
+            .filter(
+                Condition::any()
+                    .add(crm_opportunities::Column::StageId.eq(id.as_str()))
+                    .add(crm_opportunities::Column::Stage.eq(id.as_str())),
+            )
+            .filter(crm_opportunities::Column::DeletedAt.is_null())
+            .count(&orm(&caller.db))
+            .await?;
         let name = existing.get("name").and_then(Value::as_str).unwrap_or_default();
         if deals > 0 {
             return Ok(ApiError::bad_request(format!(
@@ -293,15 +340,13 @@ pub(crate) async fn remove(
             ))
             .into_response());
         }
-        let now = now();
-        sqlx::query(
-            "update crm_pipeline_stages set deleted_at = $2::timestamp, updated_at = $2::timestamp
-             where id = $1",
-        )
-        .bind(&id)
-        .bind(&now)
-        .execute(&caller.db)
-        .await?;
+        let now = utc_now();
+        stages::Entity::update_many()
+            .col_expr(Column::DeletedAt, Expr::value(now))
+            .col_expr(Column::UpdatedAt, Expr::value(now))
+            .filter(Column::Id.eq(id.as_str()))
+            .exec(&orm(&caller.db))
+            .await?;
         caller.publish(
             &state,
             PIPELINE_STAGE_DELETED,
@@ -350,22 +395,26 @@ pub(crate) async fn reorder(
         Err(refusal) => return refusal.respond(LOG, "Invalid request body"),
     };
     let result = async {
-        let now = now();
+        let now = utc_now();
         if !ids.is_empty() {
-            let mut tx = caller.db.begin().await?;
-            for (position, id) in ids.iter().enumerate() {
-                sqlx::query(
-                    "update crm_pipeline_stages set position = $3, updated_at = $4::timestamp
-                     where id = $1 and pipeline = $2 and deleted_at is null",
-                )
-                .bind(id)
-                .bind(&pipeline)
-                .bind(i32::try_from(position).unwrap_or(i32::MAX))
-                .bind(&now)
-                .execute(&mut *tx)
-                .await?;
+            let mut tx = caller.db.begin().await.map_err(orm_error)?;
+            {
+                let db = OrmConn::new(&mut tx);
+                for (position, id) in ids.iter().enumerate() {
+                    stages::Entity::update_many()
+                        .col_expr(
+                            Column::Position,
+                            Expr::value(i32::try_from(position).unwrap_or(i32::MAX)),
+                        )
+                        .col_expr(Column::UpdatedAt, Expr::value(now))
+                        .filter(Column::Id.eq(id.as_str()))
+                        .filter(Column::Pipeline.eq(pipeline.as_str()))
+                        .filter(Column::DeletedAt.is_null())
+                        .exec(&db)
+                        .await?;
+                }
             }
-            tx.commit().await?;
+            tx.commit().await.map_err(orm_error)?;
         }
         for (position, id) in ids.iter().enumerate() {
             caller.publish(

@@ -4,9 +4,17 @@
 //! Checksums written before they were keyed (a bare SHA-256) are upgraded
 //! whenever the plaintext is in hand.
 
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ActiveValue::Unchanged, ColumnTrait, DatabaseConnection, DbErr, EntityTrait, FromQueryResult,
+    QueryFilter, QueryOrder, QuerySelect, Select, Set,
+};
+use serde::Serialize;
 use serde_json::Value;
-use sqlx::PgPool;
+use time::OffsetDateTime;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::generate_id;
+use weldsuite_schema::tenant::{weldpass_secret_versions as versions, weldpass_secrets as secrets};
 
 use crate::dotenv::is_valid_secret_key;
 use crate::envelope::{
@@ -14,18 +22,70 @@ use crate::envelope::{
     seal_secret,
 };
 use crate::js::JsRecord;
-use crate::{PassError, PassResult, dated, now};
+use crate::{PassError, PassResult, int4, now, row_json};
 
-macro_rules! secret_json {
-    () => {
-        "jsonb_build_object('id', s.id, 'projectId', s.project_id, 'environmentId', s.environment_id, \
-         'key', s.key, 'note', s.note, 'version', s.version, 'valueLength', s.value_length, \
-         'valueHint', s.value_hint, 'checksum', s.checksum, 'createdBy', s.created_by, \
-         'updatedBy', s.updated_by, 'createdAt', s.created_at, 'updatedAt', s.updated_at)"
-    };
+use secrets::Column as S;
+
+/// `SecretSummary`'s columns: never the sealed value.
+#[derive(Debug, Clone, FromQueryResult, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SecretRow {
+    id: String,
+    project_id: String,
+    environment_id: String,
+    key: String,
+    note: Option<String>,
+    version: i32,
+    value_length: i32,
+    value_hint: Option<String>,
+    checksum: String,
+    created_by: Option<String>,
+    updated_by: Option<String>,
+    #[serde(with = "weldsuite_schema::js::timestamptz")]
+    created_at: OffsetDateTime,
+    #[serde(with = "weldsuite_schema::js::timestamptz")]
+    updated_at: OffsetDateTime,
 }
 
-const TIMES: [&str; 2] = ["createdAt", "updatedAt"];
+impl SecretRow {
+    fn select() -> Select<secrets::Entity> {
+        secrets::Entity::find().select_only().columns([
+            S::Id,
+            S::ProjectId,
+            S::EnvironmentId,
+            S::Key,
+            S::Note,
+            S::Version,
+            S::ValueLength,
+            S::ValueHint,
+            S::Checksum,
+            S::CreatedBy,
+            S::UpdatedBy,
+            S::CreatedAt,
+            S::UpdatedAt,
+        ])
+    }
+}
+
+impl From<secrets::Model> for SecretRow {
+    fn from(row: secrets::Model) -> Self {
+        Self {
+            id: row.id,
+            project_id: row.project_id,
+            environment_id: row.environment_id,
+            key: row.key,
+            note: row.note,
+            version: row.version,
+            value_length: row.value_length,
+            value_hint: row.value_hint,
+            checksum: row.checksum,
+            created_by: row.created_by,
+            updated_by: row.updated_by,
+            created_at: row.created_at,
+            updated_at: row.updated_at,
+        }
+    }
+}
 
 /// `SecretSummary`: what a client sees without `secrets:reveal`.
 #[derive(Debug, Clone)]
@@ -36,24 +96,24 @@ pub(crate) struct Secret {
     pub(crate) version: i64,
     pub(crate) checksum: String,
     pub(crate) json: Value,
+    environment_id: String,
 }
 
 impl Secret {
-    fn from_row(row: Value) -> Self {
-        let row = dated(row, &TIMES);
-        let text = |key: &str| row[key].as_str().unwrap_or_default().to_owned();
+    fn from_row(row: SecretRow) -> Self {
         Self {
-            id: text("id"),
-            key: text("key"),
-            project_id: text("projectId"),
-            version: row["version"].as_i64().unwrap_or_default(),
-            checksum: text("checksum"),
-            json: row,
+            json: row_json(&row),
+            version: i64::from(row.version),
+            id: row.id,
+            key: row.key,
+            project_id: row.project_id,
+            checksum: row.checksum,
+            environment_id: row.environment_id,
         }
     }
 
-    fn location(&self, environment_id: &str) -> SecretLocation {
-        SecretLocation::new(&self.project_id, environment_id, &self.key)
+    fn location(&self) -> SecretLocation {
+        SecretLocation::new(&self.project_id, &self.environment_id, &self.key)
     }
 }
 
@@ -66,14 +126,13 @@ fn key_error(key: &str) -> PassError {
 
 /// `listSecrets`: by key.
 pub(crate) async fn list_secrets(db: &PgPool, environment_id: &str) -> PassResult<Vec<Secret>> {
-    let rows: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        secret_json!(),
-        " from weldpass_secrets s where s.environment_id = $1 and s.deleted_at is null order by s.key asc"
-    ))
-    .bind(environment_id)
-    .fetch_all(db)
-    .await?;
+    let rows = SecretRow::select()
+        .filter(S::EnvironmentId.eq(environment_id))
+        .filter(S::DeletedAt.is_null())
+        .order_by_asc(S::Key)
+        .into_model::<SecretRow>()
+        .all(&orm(db))
+        .await?;
     Ok(rows.into_iter().map(Secret::from_row).collect())
 }
 
@@ -83,15 +142,13 @@ pub(crate) async fn require_secret(
     environment_id: &str,
     secret_id: &str,
 ) -> PassResult<Secret> {
-    let row: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        secret_json!(),
-        " from weldpass_secrets s where s.id = $1 and s.environment_id = $2 and s.deleted_at is null limit 1"
-    ))
-    .bind(secret_id)
-    .bind(environment_id)
-    .fetch_optional(db)
-    .await?;
+    let row = SecretRow::select()
+        .filter(S::Id.eq(secret_id))
+        .filter(S::EnvironmentId.eq(environment_id))
+        .filter(S::DeletedAt.is_null())
+        .into_model::<SecretRow>()
+        .one(&orm(db))
+        .await?;
     row.map(Secret::from_row)
         .ok_or_else(|| PassError::not_found("secret", secret_id))
 }
@@ -103,31 +160,23 @@ pub(crate) async fn reveal_secret(
     environment_id: &str,
     secret_id: &str,
 ) -> PassResult<(Secret, String)> {
-    let row: Option<(Value, String, String)> = sqlx::query_as(concat!(
-        "select ",
-        secret_json!(),
-        ", s.ciphertext, s.dek_wrapped from weldpass_secrets s \
-         where s.id = $1 and s.environment_id = $2 and s.deleted_at is null limit 1"
-    ))
-    .bind(secret_id)
-    .bind(environment_id)
-    .fetch_optional(db)
-    .await?;
-    let (row, ciphertext, dek_wrapped) =
-        row.ok_or_else(|| PassError::not_found("secret", secret_id))?;
-    let mut secret = Secret::from_row(row);
-    let location = secret.location(environment_id_of(&secret.json, environment_id));
+    let db = orm(db);
+    let row = secrets::Entity::find()
+        .filter(S::Id.eq(secret_id))
+        .filter(S::EnvironmentId.eq(environment_id))
+        .filter(S::DeletedAt.is_null())
+        .one(&db)
+        .await?
+        .ok_or_else(|| PassError::not_found("secret", secret_id))?;
+    let (ciphertext, dek_wrapped) = (row.ciphertext.clone(), row.dek_wrapped.clone());
+    let mut secret = Secret::from_row(row.into());
+    let location = secret.location();
     let value = open_secret(kek, &location, &ciphertext, &dek_wrapped)?;
 
     // Opportunistic: a failed upgrade must not stop the reveal.
     if is_legacy_checksum(&secret.checksum)
         && let Ok(checksum) = checksum_for(kek, &location, &value)
-        && sqlx::query("update weldpass_secrets set checksum = $2 where id = $1")
-            .bind(&secret.id)
-            .bind(&checksum)
-            .execute(db)
-            .await
-            .is_ok()
+        && set_checksum(&db, &secret.id, &checksum).await.is_ok()
     {
         secret.json["checksum"] = Value::String(checksum.clone());
         secret.checksum = checksum;
@@ -135,8 +184,14 @@ pub(crate) async fn reveal_secret(
     Ok((secret, value))
 }
 
-fn environment_id_of<'a>(json: &'a Value, fallback: &'a str) -> &'a str {
-    json["environmentId"].as_str().unwrap_or(fallback)
+/// `update weldpass_secrets set checksum = … where id = …`.
+async fn set_checksum(db: &DatabaseConnection, id: &str, checksum: &str) -> Result<(), DbErr> {
+    secrets::Entity::update_many()
+        .col_expr(S::Checksum, Expr::value(checksum))
+        .filter(S::Id.eq(id))
+        .exec(db)
+        .await?;
+    Ok(())
 }
 
 /// `readEnvironmentValues`: every value, by key, for an export or a push.
@@ -145,13 +200,21 @@ pub(crate) async fn read_environment_values(
     kek: &Key,
     environment_id: &str,
 ) -> PassResult<JsRecord> {
-    let rows: Vec<(String, String, String, String, String)> = sqlx::query_as(
-        "select project_id, environment_id, key, ciphertext, dek_wrapped from weldpass_secrets \
-         where environment_id = $1 and deleted_at is null order by key asc",
-    )
-    .bind(environment_id)
-    .fetch_all(db)
-    .await?;
+    let rows: Vec<(String, String, String, String, String)> = secrets::Entity::find()
+        .select_only()
+        .columns([
+            S::ProjectId,
+            S::EnvironmentId,
+            S::Key,
+            S::Ciphertext,
+            S::DekWrapped,
+        ])
+        .filter(S::EnvironmentId.eq(environment_id))
+        .filter(S::DeletedAt.is_null())
+        .order_by_asc(S::Key)
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     let mut values = JsRecord::default();
     // `Promise.all`: every row opens, or the first failure is thrown.
     let mut opened = Vec::with_capacity(rows.len());
@@ -192,14 +255,16 @@ pub(crate) async fn upsert_secret(
     if !is_valid_secret_key(key) {
         return Err(key_error(key));
     }
-    let existing: Option<(String, i32, String, Option<String>)> = sqlx::query_as(
-        "select id, version, checksum, note from weldpass_secrets \
-         where environment_id = $1 and key = $2 limit 1",
-    )
-    .bind(environment_id)
-    .bind(key)
-    .fetch_optional(db)
-    .await?;
+    let pool = db;
+    let db = orm(pool);
+    let existing: Option<(String, i32, String, Option<String>)> = secrets::Entity::find()
+        .select_only()
+        .columns([S::Id, S::Version, S::Checksum, S::Note])
+        .filter(S::EnvironmentId.eq(environment_id))
+        .filter(S::Key.eq(key))
+        .into_tuple()
+        .one(&db)
+        .await?;
 
     let location = SecretLocation::new(project_id, environment_id, key);
     let sealed = seal_secret(kek, &location, value)?;
@@ -207,29 +272,26 @@ pub(crate) async fn upsert_secret(
 
     let Some((existing_id, version, checksum, existing_note)) = existing else {
         let id = generate_id("wps");
-        let row: Value = sqlx::query_scalar(concat!(
-            "with s as (insert into weldpass_secrets \
-             (id, project_id, environment_id, key, ciphertext, dek_wrapped, checksum, value_length, \
-              value_hint, note, version, created_by, updated_by) \
-             values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 1, $11, $11) returning *) select ",
-            secret_json!(),
-            " from s"
-        ))
-        .bind(&id)
-        .bind(project_id)
-        .bind(environment_id)
-        .bind(key)
-        .bind(&sealed.ciphertext)
-        .bind(&sealed.dek_wrapped)
-        .bind(&sealed.checksum)
-        .bind(sealed.value_length)
-        .bind(sealed.value_hint.as_deref())
-        .bind(note.flatten())
-        .bind(actor_id)
-        .fetch_one(db)
+        let row = secrets::Entity::insert(secrets::ActiveModel {
+            id: Set(id.clone()),
+            project_id: Set(project_id.to_owned()),
+            environment_id: Set(environment_id.to_owned()),
+            key: Set(key.to_owned()),
+            ciphertext: Set(sealed.ciphertext.clone()),
+            dek_wrapped: Set(sealed.dek_wrapped.clone()),
+            checksum: Set(sealed.checksum.clone()),
+            value_length: Set(sealed.value_length),
+            value_hint: Set(sealed.value_hint.clone()),
+            note: Set(note.flatten().map(str::to_owned)),
+            version: Set(1),
+            created_by: Set(Some(actor_id.to_owned())),
+            updated_by: Set(Some(actor_id.to_owned())),
+            ..Default::default()
+        })
+        .exec_with_returning(&db)
         .await?;
         append_version(
-            db,
+            &db,
             &id,
             project_id,
             1,
@@ -241,7 +303,7 @@ pub(crate) async fn upsert_secret(
         )
         .await?;
         return Ok(Upserted {
-            secret: Secret::from_row(row),
+            secret: Secret::from_row(row.into()),
             created: true,
             changed: true,
         });
@@ -251,13 +313,9 @@ pub(crate) async fn upsert_secret(
     let same_value = checksum_matches(&checksum, &sealed.checksum, value);
     if same_value && !note_changed {
         if is_legacy_checksum(&checksum) {
-            sqlx::query("update weldpass_secrets set checksum = $2 where id = $1")
-                .bind(&existing_id)
-                .bind(&sealed.checksum)
-                .execute(db)
-                .await?;
+            set_checksum(&db, &existing_id, &sealed.checksum).await?;
         }
-        let secret = require_secret(db, environment_id, &existing_id).await?;
+        let secret = require_secret(pool, environment_id, &existing_id).await?;
         return Ok(Upserted {
             secret,
             created: false,
@@ -265,10 +323,10 @@ pub(crate) async fn upsert_secret(
         });
     }
 
-    let next = i64::from(version) + 1;
+    let next = int4(i64::from(version) + 1)?;
     // History first: the other order could lose the only copy of a value.
     append_version(
-        db,
+        &db,
         &existing_id,
         project_id,
         next,
@@ -283,27 +341,24 @@ pub(crate) async fn upsert_secret(
         None => existing_note.clone(),
         Some(note) => note.map(str::to_owned),
     };
-    let row: Value = sqlx::query_scalar(concat!(
-        "with s as (update weldpass_secrets set ciphertext = $2, dek_wrapped = $3, checksum = $4, \
-         value_length = $5, value_hint = $6, note = $7, version = $8, updated_by = $9, \
-         updated_at = $10::timestamptz, deleted_at = null where id = $1 returning *) select ",
-        secret_json!(),
-        " from s"
-    ))
-    .bind(&existing_id)
-    .bind(&sealed.ciphertext)
-    .bind(&sealed.dek_wrapped)
-    .bind(&sealed.checksum)
-    .bind(sealed.value_length)
-    .bind(sealed.value_hint.as_deref())
-    .bind(note.as_deref())
-    .bind(next)
-    .bind(actor_id)
-    .bind(&now)
-    .fetch_one(db)
+    let row = secrets::Entity::update(secrets::ActiveModel {
+        id: Unchanged(existing_id),
+        ciphertext: Set(sealed.ciphertext),
+        dek_wrapped: Set(sealed.dek_wrapped),
+        checksum: Set(sealed.checksum),
+        value_length: Set(sealed.value_length),
+        value_hint: Set(sealed.value_hint),
+        note: Set(note),
+        version: Set(next),
+        updated_by: Set(Some(actor_id.to_owned())),
+        updated_at: Set(now),
+        deleted_at: Set(None),
+        ..Default::default()
+    })
+    .exec(&db)
     .await?;
     Ok(Upserted {
-        secret: Secret::from_row(row),
+        secret: Secret::from_row(row.into()),
         created: false,
         changed: true,
     })
@@ -350,29 +405,29 @@ pub(crate) async fn delete_secret(
     actor_id: &str,
 ) -> PassResult<Secret> {
     let secret = require_secret(db, environment_id, secret_id).await?;
-    let current: Option<(String, String)> = sqlx::query_as(
-        "select ciphertext, dek_wrapped from weldpass_secrets where id = $1 limit 1",
-    )
-    .bind(secret_id)
-    .fetch_optional(db)
-    .await?;
+    let db = orm(db);
+    let current: Option<(String, String)> = secrets::Entity::find()
+        .select_only()
+        .columns([S::Ciphertext, S::DekWrapped])
+        .filter(S::Id.eq(secret_id))
+        .into_tuple()
+        .one(&db)
+        .await?;
     let (ciphertext, dek_wrapped) =
         current.ok_or_else(|| PassError::not_found("secret", secret_id))?;
     let now = now();
-    sqlx::query(
-        "update weldpass_secrets set deleted_at = $2::timestamptz, updated_at = $2::timestamptz, \
-         updated_by = $3 where id = $1",
-    )
-    .bind(secret_id)
-    .bind(&now)
-    .bind(actor_id)
-    .execute(db)
-    .await?;
+    secrets::Entity::update_many()
+        .col_expr(S::DeletedAt, Expr::value(now))
+        .col_expr(S::UpdatedAt, Expr::value(now))
+        .col_expr(S::UpdatedBy, Expr::value(actor_id))
+        .filter(S::Id.eq(secret_id))
+        .exec(&db)
+        .await?;
     append_version(
-        db,
+        &db,
         secret_id,
         &secret.project_id,
-        secret.version + 1,
+        int4(secret.version + 1)?,
         "deleted",
         &ciphertext,
         &dek_wrapped,
@@ -385,18 +440,37 @@ pub(crate) async fn delete_secret(
 
 /// `listVersions`: newest first, at most 50.
 pub(crate) async fn list_versions(db: &PgPool, secret_id: &str) -> PassResult<Vec<Value>> {
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select jsonb_build_object('id', v.id, 'version', v.version, 'action', v.action, \
-         'checksum', v.checksum, 'createdBy', v.created_by, 'createdAt', v.created_at) \
-         from weldpass_secret_versions v where v.secret_id = $1 order by v.version desc limit 50",
-    )
-    .bind(secret_id)
-    .fetch_all(db)
-    .await?;
-    Ok(rows
-        .into_iter()
-        .map(|row| dated(row, &["createdAt"]))
-        .collect())
+    use versions::Column as V;
+    let rows = versions::Entity::find()
+        .select_only()
+        .columns([
+            V::Id,
+            V::Version,
+            V::Action,
+            V::Checksum,
+            V::CreatedBy,
+            V::CreatedAt,
+        ])
+        .filter(V::SecretId.eq(secret_id))
+        .order_by_desc(V::Version)
+        .limit(50)
+        .into_model::<VersionRow>()
+        .all(&orm(db))
+        .await?;
+    Ok(rows.iter().map(row_json).collect())
+}
+
+/// One entry of a secret's history: never its sealed value.
+#[derive(Debug, FromQueryResult, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct VersionRow {
+    id: String,
+    version: i32,
+    action: String,
+    checksum: String,
+    created_by: Option<String>,
+    #[serde(with = "weldsuite_schema::js::timestamptz")]
+    created_at: OffsetDateTime,
 }
 
 /// `restoreVersion`: the old ciphertext reused as it is (it is bound to the
@@ -409,19 +483,24 @@ pub(crate) async fn restore_version(
     actor_id: &str,
 ) -> PassResult<Secret> {
     let secret = require_secret(db, environment_id, secret_id).await?;
-    let target: Option<(String, String, String)> = sqlx::query_as(
-        "select ciphertext, dek_wrapped, checksum from weldpass_secret_versions \
-         where secret_id = $1 and version = $2 limit 1",
-    )
-    .bind(secret_id)
-    .bind(version)
-    .fetch_optional(db)
-    .await?;
+    let db = orm(db);
+    let target: Option<(String, String, String)> = versions::Entity::find()
+        .select_only()
+        .columns([
+            versions::Column::Ciphertext,
+            versions::Column::DekWrapped,
+            versions::Column::Checksum,
+        ])
+        .filter(versions::Column::SecretId.eq(secret_id))
+        .filter(versions::Column::Version.eq(version))
+        .into_tuple()
+        .one(&db)
+        .await?;
     let (ciphertext, dek_wrapped, checksum) =
         target.ok_or_else(|| PassError::not_found("secret", &format!("{secret_id}@v{version}")))?;
-    let next = secret.version + 1;
+    let next = int4(secret.version + 1)?;
     append_version(
-        db,
+        &db,
         secret_id,
         &secret.project_id,
         next,
@@ -432,52 +511,47 @@ pub(crate) async fn restore_version(
         actor_id,
     )
     .await?;
-    let row: Value = sqlx::query_scalar(concat!(
-        "with s as (update weldpass_secrets set ciphertext = $2, dek_wrapped = $3, checksum = $4, \
-         version = $5, updated_by = $6, updated_at = $7::timestamptz, deleted_at = null \
-         where id = $1 returning *) select ",
-        secret_json!(),
-        " from s"
-    ))
-    .bind(secret_id)
-    .bind(&ciphertext)
-    .bind(&dek_wrapped)
-    .bind(&checksum)
-    .bind(next)
-    .bind(actor_id)
-    .bind(now())
-    .fetch_one(db)
+    let row = secrets::Entity::update(secrets::ActiveModel {
+        id: Unchanged(secret_id.to_owned()),
+        ciphertext: Set(ciphertext),
+        dek_wrapped: Set(dek_wrapped),
+        checksum: Set(checksum),
+        version: Set(next),
+        updated_by: Set(Some(actor_id.to_owned())),
+        updated_at: Set(now()),
+        deleted_at: Set(None),
+        ..Default::default()
+    })
+    .exec(&db)
     .await?;
-    Ok(Secret::from_row(row))
+    Ok(Secret::from_row(row.into()))
 }
 
 #[allow(clippy::too_many_arguments)]
 async fn append_version(
-    db: &PgPool,
+    db: &DatabaseConnection,
     secret_id: &str,
     project_id: &str,
-    version: i64,
+    version: i32,
     action: &str,
     ciphertext: &str,
     dek_wrapped: &str,
     checksum: &str,
     created_by: &str,
 ) -> PassResult<()> {
-    sqlx::query(
-        "insert into weldpass_secret_versions \
-         (id, secret_id, project_id, version, action, ciphertext, dek_wrapped, checksum, created_by) \
-         values ($1, $2, $3, $4::integer, $5, $6, $7, $8, $9)",
-    )
-    .bind(generate_id("wpv"))
-    .bind(secret_id)
-    .bind(project_id)
-    .bind(version)
-    .bind(action)
-    .bind(ciphertext)
-    .bind(dek_wrapped)
-    .bind(checksum)
-    .bind(created_by)
-    .execute(db)
+    versions::Entity::insert(versions::ActiveModel {
+        id: Set(generate_id("wpv")),
+        secret_id: Set(secret_id.to_owned()),
+        project_id: Set(project_id.to_owned()),
+        version: Set(version),
+        action: Set(action.to_owned()),
+        ciphertext: Set(ciphertext.to_owned()),
+        dek_wrapped: Set(dek_wrapped.to_owned()),
+        checksum: Set(checksum.to_owned()),
+        created_by: Set(Some(created_by.to_owned())),
+        ..Default::default()
+    })
+    .exec_without_returning(db)
     .await?;
     Ok(())
 }
@@ -490,13 +564,15 @@ pub(crate) async fn list_secret_keys(
     if environment_ids.is_empty() {
         return Ok(Vec::new());
     }
-    let rows: Vec<(String, String)> = sqlx::query_as(
-        "select environment_id, key from weldpass_secrets \
-         where environment_id = any($1) and deleted_at is null order by key asc",
-    )
-    .bind(environment_ids)
-    .fetch_all(db)
-    .await?;
+    let rows: Vec<(String, String)> = secrets::Entity::find()
+        .select_only()
+        .columns([S::EnvironmentId, S::Key])
+        .filter(S::EnvironmentId.is_in(environment_ids.iter().map(String::as_str)))
+        .filter(S::DeletedAt.is_null())
+        .order_by_asc(S::Key)
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     let mut by_environment: Vec<(String, Vec<String>)> = Vec::new();
     for (environment, key) in rows {
         match by_environment.iter_mut().find(|(id, _)| *id == environment) {
@@ -530,15 +606,23 @@ pub async fn backfill_checksums(
     db: &PgPool,
     kek: &Key,
     project_id: &str,
-) -> Result<Backfilled, sqlx::Error> {
+) -> Result<Backfilled, DbErr> {
+    let db = orm(db);
     let mut result = Backfilled::default();
-    let rows: Vec<(String, String, String, String, String, String)> = sqlx::query_as(
-        "select id, environment_id, key, ciphertext, dek_wrapped, checksum from weldpass_secrets \
-         where project_id = $1",
-    )
-    .bind(project_id)
-    .fetch_all(db)
-    .await?;
+    let rows: Vec<(String, String, String, String, String, String)> = secrets::Entity::find()
+        .select_only()
+        .columns([
+            S::Id,
+            S::EnvironmentId,
+            S::Key,
+            S::Ciphertext,
+            S::DekWrapped,
+            S::Checksum,
+        ])
+        .filter(S::ProjectId.eq(project_id))
+        .into_tuple()
+        .all(&db)
+        .await?;
     for (id, environment, key, ciphertext, dek_wrapped, checksum) in &rows {
         if !is_legacy_checksum(checksum) {
             continue;
@@ -548,11 +632,7 @@ pub async fn backfill_checksums(
             .and_then(|value| checksum_for(kek, &location, &value))
         {
             Ok(keyed) => {
-                sqlx::query("update weldpass_secrets set checksum = $2 where id = $1")
-                    .bind(id)
-                    .bind(&keyed)
-                    .execute(db)
-                    .await?;
+                set_checksum(&db, id, &keyed).await?;
                 result.secrets += 1;
             }
             Err(_) => result.failed += 1,
@@ -561,14 +641,20 @@ pub async fn backfill_checksums(
 
     // A version row sits at its secret's location (a restore reuses the
     // ciphertext as it is), so the same location opens and re-keys it.
-    let versions: Vec<(String, String, String, String)> = sqlx::query_as(
-        "select id, secret_id, ciphertext, dek_wrapped from weldpass_secret_versions \
-         where project_id = $1 and checksum not like 'h1:%'",
-    )
-    .bind(project_id)
-    .fetch_all(db)
-    .await?;
-    for (id, secret_id, ciphertext, dek_wrapped) in &versions {
+    let history: Vec<(String, String, String, String)> = versions::Entity::find()
+        .select_only()
+        .columns([
+            versions::Column::Id,
+            versions::Column::SecretId,
+            versions::Column::Ciphertext,
+            versions::Column::DekWrapped,
+        ])
+        .filter(versions::Column::ProjectId.eq(project_id))
+        .filter(versions::Column::Checksum.not_like("h1:%"))
+        .into_tuple()
+        .all(&db)
+        .await?;
+    for (id, secret_id, ciphertext, dek_wrapped) in &history {
         let location = rows
             .iter()
             .find(|row| row.0 == *secret_id)
@@ -580,10 +666,10 @@ pub async fn backfill_checksums(
         });
         match keyed {
             Some(keyed) => {
-                sqlx::query("update weldpass_secret_versions set checksum = $2 where id = $1")
-                    .bind(id)
-                    .bind(&keyed)
-                    .execute(db)
+                versions::Entity::update_many()
+                    .col_expr(versions::Column::Checksum, Expr::value(keyed))
+                    .filter(versions::Column::Id.eq(id))
+                    .exec(&db)
                     .await?;
                 result.versions += 1;
             }

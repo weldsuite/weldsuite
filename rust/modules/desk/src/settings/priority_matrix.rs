@@ -13,14 +13,18 @@ use axum::extract::State;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, put};
 use http::HeaderMap;
+use sea_orm::sea_query::Expr;
+use sea_orm::{ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events as ev;
+use weldsuite_db::{orm, utc_now};
 use weldsuite_desk_domain::priority_matrix::{self, LEVELS};
 use weldsuite_kit::validation::{Issues, Presence};
 use weldsuite_kit::{Data, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::helpdesk_settings;
 
-use crate::{Caller, DeskState, Refusal, now, validate};
+use crate::{Caller, DeskState, Refusal, validate};
 
 pub(super) fn routes<Q>(gate: &Arc<PermissionGate<Q>>) -> Router<DeskState>
 where
@@ -93,23 +97,27 @@ async fn save(
 
 /// Put the matrix into the live settings row's `tickets` (merged), or a new
 /// row with only it; the row's id.
-async fn write(caller: &Caller, matrix: &Value) -> Result<String, sqlx::Error> {
-    let existing: Option<(String, Option<Value>)> = sqlx::query_as(
-        "select id, tickets from helpdesk_settings where deleted_at is null limit 1",
-    )
-    .fetch_optional(&caller.db)
-    .await?;
-    let now = now();
+async fn write(caller: &Caller, matrix: &Value) -> Result<String, DbErr> {
+    let db = orm(&caller.db);
+    let existing: Option<(String, Option<Value>)> = helpdesk_settings::Entity::find()
+        .select_only()
+        .column(helpdesk_settings::Column::Id)
+        .column(helpdesk_settings::Column::Tickets)
+        .filter(helpdesk_settings::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&db)
+        .await?;
+    let now = utc_now();
     let Some((id, tickets)) = existing else {
         let id = generate_id("hds");
-        sqlx::query(
-            "insert into helpdesk_settings (id, tickets, created_at, updated_at)
-             values ($1, $2::jsonb, $3::timestamp, $3::timestamp)",
-        )
-        .bind(&id)
-        .bind(json!({ "priorityMatrix": matrix }))
-        .bind(&now)
-        .execute(&caller.db)
+        helpdesk_settings::Entity::insert(helpdesk_settings::ActiveModel {
+            id: Set(id.clone()),
+            tickets: Set(Some(json!({ "priorityMatrix": matrix }))),
+            created_at: Set(now),
+            updated_at: Set(now),
+            ..Default::default()
+        })
+        .exec_without_returning(&db)
         .await?;
         return Ok(id);
     };
@@ -118,13 +126,14 @@ async fn write(caller: &Caller, matrix: &Value) -> Result<String, sqlx::Error> {
         _ => Map::new(),
     };
     tickets.insert("priorityMatrix".to_owned(), matrix.clone());
-    sqlx::query(
-        "update helpdesk_settings set tickets = $2::jsonb, updated_at = $3::timestamp where id = $1",
-    )
-    .bind(&id)
-    .bind(Value::Object(tickets))
-    .bind(&now)
-    .execute(&caller.db)
-    .await?;
+    helpdesk_settings::Entity::update_many()
+        .col_expr(
+            helpdesk_settings::Column::Tickets,
+            Expr::value(Value::Object(tickets)),
+        )
+        .col_expr(helpdesk_settings::Column::UpdatedAt, Expr::value(now))
+        .filter(helpdesk_settings::Column::Id.eq(&id))
+        .exec(&db)
+        .await?;
     Ok(id)
 }

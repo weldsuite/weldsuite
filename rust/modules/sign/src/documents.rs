@@ -10,15 +10,19 @@ use axum::response::{IntoResponse, Response};
 use http::header::{CACHE_CONTROL, CONTENT_DISPOSITION, CONTENT_TYPE, X_CONTENT_TYPE_OPTIONS};
 use http::{HeaderMap, HeaderValue, StatusCode};
 use lopdf::{Dictionary, Document, Object};
+use sea_orm::ActiveValue::Set;
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Value, json};
-use weldsuite_db::{PgPool, js_row};
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::validation::{Presence, Text};
 use weldsuite_kit::{ApiError, Created, Data, NoContent, generate_id};
 use weldsuite_ports::{FileStores, PutOptions, get_stored, is_safe_key};
+use weldsuite_schema::tenant::{sign_documents, sign_fields};
 
 use crate::envelopes::{
     document_dto, list_documents, load_draft, load_envelope, load_template, publish_updated,
-    touch_envelope, viewer_of,
+    row_json, touch_envelope, viewer_of,
 };
 use crate::templates::publish_template_updated;
 use crate::{Caller, SignError, SignResult, SignState, answer, sources, text, validate};
@@ -215,14 +219,25 @@ pub(crate) fn document_name(file_name: &str) -> String {
 }
 
 async fn get_document(db: &PgPool, envelope_id: &str, document_id: &str) -> SignResult<Value> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(d) from sign_documents d where id = $1 and envelope_id = $2 limit 1",
-    )
-    .bind(document_id)
-    .bind(envelope_id)
-    .fetch_optional(db)
-    .await?;
-    row.map(js_row).ok_or(SignError::NotFound("Document"))
+    let row = sign_documents::Entity::find()
+        .filter(sign_documents::Column::Id.eq(document_id))
+        .filter(sign_documents::Column::EnvelopeId.eq(envelope_id))
+        .one(&orm(db))
+        .await?;
+    Ok(row_json(row.ok_or(SignError::NotFound("Document"))?)?)
+}
+
+/// `update sign_documents set position = … where id = …`.
+async fn set_position(db: &PgPool, document_id: &str, position: usize) -> SignResult<()> {
+    sign_documents::Entity::update_many()
+        .col_expr(
+            sign_documents::Column::Position,
+            Expr::value(i32::try_from(position).unwrap_or(i32::MAX)),
+        )
+        .filter(sign_documents::Column::Id.eq(document_id))
+        .exec(&orm(db))
+        .await?;
+    Ok(())
 }
 
 fn files_of(caller: &Caller, state: &SignState) -> SignResult<FileStores> {
@@ -248,11 +263,15 @@ async fn add_document(
         return Err(too_big());
     }
     let envelope_id = text(envelope, "id");
-    let (existing, last): (i64, Option<i32>) =
-        sqlx::query_as("select count(*), max(position) from sign_documents where envelope_id = $1")
-            .bind(envelope_id)
-            .fetch_one(&caller.db)
-            .await?;
+    let (existing, last): (i64, Option<i32>) = sign_documents::Entity::find()
+        .select_only()
+        .column_as(sign_documents::Column::Id.count(), "count")
+        .column_as(sign_documents::Column::Position.max(), "last")
+        .filter(sign_documents::Column::EnvelopeId.eq(envelope_id))
+        .into_tuple()
+        .one(&orm(&caller.db))
+        .await?
+        .unwrap_or((0, None));
     if existing >= MAX_DOCUMENTS {
         return Err(SignError::invalid(format!(
             "An envelope can hold at most {MAX_DOCUMENTS} documents"
@@ -263,7 +282,7 @@ async fn add_document(
     let id = generate_id("sgd");
     let key = document_key(org_id, envelope_id, &id);
     let sha256 = hex::encode(digest::digest(&digest::SHA256, &bytes).as_ref());
-    let size = i64::try_from(bytes.len()).unwrap_or(i64::MAX);
+    let size = i32::try_from(bytes.len()).unwrap_or(i32::MAX);
     files
         .private
         .put_boxed(
@@ -275,24 +294,21 @@ async fn add_document(
         .map_err(|e| storage_error(&e))?;
 
     let position = last.map_or(0, |n| n + 1);
-    let row: Value = sqlx::query_scalar(
-        "insert into sign_documents
-             (id, envelope_id, name, position, storage_key, size_bytes, page_count, page_sizes, sha256)
-         values ($1, $2, $3, $4, $5, $6::int, $7::int, $8, $9)
-         returning to_jsonb(sign_documents)",
-    )
-    .bind(&id)
-    .bind(envelope_id)
-    .bind(document_name(file_name))
-    .bind(position)
-    .bind(&key)
-    .bind(size)
-    .bind(page_count)
-    .bind(Value::Array(page_sizes))
-    .bind(&sha256)
-    .fetch_one(&caller.db)
+    let row = sign_documents::Entity::insert(sign_documents::ActiveModel {
+        id: Set(id),
+        envelope_id: Set(envelope_id.to_owned()),
+        name: Set(document_name(file_name)),
+        position: Set(position),
+        storage_key: Set(key),
+        size_bytes: Set(size),
+        page_count: Set(i32::try_from(page_count).unwrap_or(i32::MAX)),
+        page_sizes: Set(Value::Array(page_sizes)),
+        sha256: Set(sha256),
+        ..Default::default()
+    })
+    .exec_with_returning(&orm(&caller.db))
     .await?;
-    Ok(js_row(row))
+    Ok(row_json(row)?)
 }
 
 fn storage_error(error: &weldsuite_ports::PortError) -> SignError {
@@ -538,11 +554,7 @@ async fn reorder(
                 ));
             }
             for (position, document_id) in ids.iter().enumerate() {
-                sqlx::query("update sign_documents set position = $2::int where id = $1")
-                    .bind(document_id)
-                    .bind(i64::try_from(position).unwrap_or(i64::MAX))
-                    .execute(&caller.db)
-                    .await?;
+                set_position(&caller.db, document_id, position).await?;
             }
             let docs = list_documents(&caller.db, envelope_id).await?;
             touch_envelope(&caller.db, envelope_id).await?;
@@ -643,13 +655,14 @@ async fn remove(
             let envelope_id = text(&envelope, "id");
             let doc = get_document(&caller.db, envelope_id, &document_id).await?;
             let doc_id = text(&doc, "id");
-            sqlx::query("delete from sign_fields where document_id = $1")
-                .bind(doc_id)
-                .execute(&caller.db)
+            let db = &orm(&caller.db);
+            sign_fields::Entity::delete_many()
+                .filter(sign_fields::Column::DocumentId.eq(doc_id))
+                .exec(db)
                 .await?;
-            sqlx::query("delete from sign_documents where id = $1")
-                .bind(doc_id)
-                .execute(&caller.db)
+            sign_documents::Entity::delete_many()
+                .filter(sign_documents::Column::Id.eq(doc_id))
+                .exec(db)
                 .await?;
             // Close the gap so positions stay 0..n-1.
             for (index, rest) in list_documents(&caller.db, envelope_id)
@@ -657,13 +670,8 @@ async fn remove(
                 .iter()
                 .enumerate()
             {
-                let index = i64::try_from(index).unwrap_or(i64::MAX);
-                if rest["position"].as_i64() != Some(index) {
-                    sqlx::query("update sign_documents set position = $2::int where id = $1")
-                        .bind(text(rest, "id"))
-                        .bind(index)
-                        .execute(&caller.db)
-                        .await?;
+                if rest["position"].as_i64() != i64::try_from(index).ok() {
+                    set_position(&caller.db, text(rest, "id"), index).await?;
                 }
             }
             delete_files_later(&caller, &state, vec![text(&doc, "storageKey").to_owned()]);

@@ -10,19 +10,25 @@
 use std::sync::Arc;
 
 use axum::response::{IntoResponse, Response};
+use sea_orm::sea_query::Expr;
+use sea_orm::{ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, QueryFilter};
 use serde_json::{Value, json};
 use sqlx::PgPool;
 use weldsuite_ai::{Ai, AiError};
+use weldsuite_db::orm;
 use weldsuite_kit::ApiError;
 use weldsuite_ports::DynRealtimePublisher;
+use weldsuite_schema::tenant::weldagent_conversations::{self as conversations, Column};
+use weldsuite_schema::tenant::{weldagent_messages, weldagent_routines};
 
 use crate::access::{AgentAccess, agent_viewer_for, can_access_agent};
 use crate::agent_loop::{
     ChatMsg, TurnInput, actor_may_edit, build_system, load_history, run_turn, to_model_history,
     tools_for, trim_history, with_sandbox_tools,
 };
-use crate::agents::get_agent;
+use crate::agents::{get_agent, js, now_tz};
 use crate::approvals::persist_assistant_message;
+use crate::conversations::touch_conversation;
 use crate::routines::complete_routine_run;
 use crate::runs::{RunCompletion, complete_agent_run, create_agent_run, mark_run_running};
 use crate::tools::{EventSink, ToolContext, reply_to_summary_text};
@@ -203,8 +209,8 @@ impl RunError {
     }
 }
 
-impl From<sqlx::Error> for RunError {
-    fn from(error: sqlx::Error) -> Self {
+impl From<DbErr> for RunError {
+    fn from(error: DbErr) -> Self {
         Self::Failed(error.to_string())
     }
 }
@@ -418,13 +424,12 @@ pub async fn run_agent(ai: Option<&Ai>, params: RunParams) -> Result<RunOutcome,
             .as_ref()
             .and_then(|d| d["routineId"].as_str()),
     ) {
-        (Some(_), Some(routine_id)) => sqlx::query_scalar::<_, Value>(
-            "select to_jsonb(r) from weldagent_routines r where r.id = $1",
-        )
-        .bind(routine_id)
-        .fetch_optional(db)
-        .await?
-        .map(weldsuite_db::js_row),
+        (Some(_), Some(routine_id)) => {
+            weldagent_routines::Entity::find_by_id(routine_id.to_owned())
+                .one(&orm(db))
+                .await?
+                .map(js)
+        }
         _ => None,
     };
     let owner = routine
@@ -652,18 +657,17 @@ pub async fn agent_turn(ai: Option<&Ai>, params: TurnParams) -> Result<Value, Ru
         return Err(RunError::Unavailable);
     };
     let db = &params.db;
-    let conversation: Value = sqlx::query_scalar(
-        "select to_jsonb(c) from weldagent_conversations c
-         where c.id = $1 and c.user_id = $2 and c.deleted_at is null",
-    )
-    .bind(&params.conversation_id)
-    .bind(&params.user_id)
-    .fetch_optional(db)
-    .await?
-    .map(weldsuite_db::js_row)
-    .ok_or_else(|| {
-        RunError::NotFound(format!("Conversation with ID '{}'", params.conversation_id))
-    })?;
+    let conn = orm(db);
+    let conversation: Value = conversations::Entity::find()
+        .filter(Column::Id.eq(&params.conversation_id))
+        .filter(Column::UserId.eq(&params.user_id))
+        .filter(Column::DeletedAt.is_null())
+        .one(&conn)
+        .await?
+        .map(js)
+        .ok_or_else(|| {
+            RunError::NotFound(format!("Conversation with ID '{}'", params.conversation_id))
+        })?;
     let bound = params
         .agent_id
         .clone()
@@ -717,11 +721,11 @@ pub async fn agent_turn(ai: Option<&Ai>, params: TurnParams) -> Result<Value, Ru
     .await
     .map_err(RunError::Ai)?;
     if params.agent_id.is_some() && conversation["agentId"].is_null() {
-        sqlx::query("update weldagent_conversations set agent_id = $2, updated_at = $3::timestamptz where id = $1")
-            .bind(&params.conversation_id)
-            .bind(&agent_id)
-            .bind(crate::now())
-            .execute(db)
+        conversations::Entity::update_many()
+            .col_expr(Column::AgentId, Expr::value(&agent_id))
+            .col_expr(Column::UpdatedAt, Expr::value(now_tz()))
+            .filter(Column::Id.eq(&params.conversation_id))
+            .exec(&conn)
             .await?;
     }
     let (rows, _offset) = load_history(db, &params.conversation_id, None).await?;
@@ -730,27 +734,21 @@ pub async fn agent_turn(ai: Option<&Ai>, params: TurnParams) -> Result<Value, Ru
     history.push(ChatMsg::user(params.content.clone()));
 
     let message_id = weldsuite_kit::generate_id("msg");
-    sqlx::query("insert into weldagent_messages (id, conversation_id, role, content) values ($1, $2, 'user', $3)")
-        .bind(&message_id)
-        .bind(&params.conversation_id)
-        .bind(&params.content)
-        .execute(db)
-        .await?;
-    sqlx::query(
-        "update weldagent_conversations
-         set last_message_at = $2::timestamptz, message_count = message_count + 1, updated_at = $2::timestamptz
-         where id = $1",
-    )
-    .bind(&params.conversation_id)
-    .bind(crate::now())
-    .execute(db)
+    weldagent_messages::Entity::insert(weldagent_messages::ActiveModel {
+        id: Set(message_id.clone()),
+        conversation_id: Set(params.conversation_id.clone()),
+        role: Set("user".to_owned()),
+        content: Set(params.content.clone()),
+        ..Default::default()
+    })
+    .exec_without_returning(&conn)
     .await?;
-    let user_message: Value =
-        sqlx::query_scalar("select to_jsonb(m) from weldagent_messages m where m.id = $1")
-            .bind(&message_id)
-            .fetch_one(db)
-            .await
-            .map(weldsuite_db::js_row)?;
+    touch_conversation(&conn, &params.conversation_id).await?;
+    let user_message: Value = weldagent_messages::Entity::find_by_id(message_id)
+        .one(&conn)
+        .await?
+        .map(js)
+        .ok_or_else(|| DbErr::RecordNotFound("weldagent_messages".to_owned()))?;
     let accepted = Accepted {
         conversation_id: params.conversation_id.clone(),
         agent,

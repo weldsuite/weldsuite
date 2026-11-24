@@ -11,11 +11,6 @@
 //! TypeScript worker's; its tests run against this crate in the `flow`
 //! conformance suites (`rust/conformance/suites.json`).
 
-#![allow(
-    clippy::disallowed_methods,
-    reason = "not converted to the ORM yet (ADR DATA-019)"
-)]
-
 #[macro_use]
 mod rows;
 pub mod github_outbound;
@@ -358,32 +353,34 @@ impl Caller {
     }
 
     /// `resolveProjectAccess(c, projectId)`.
-    pub(crate) async fn access(&self, project_id: &str) -> Result<ProjectAccess, sqlx::Error> {
+    pub(crate) async fn access(&self, project_id: &str) -> Result<ProjectAccess, sea_orm::DbErr> {
         resolve_project_access(&self.db, self.user(), self.scope_all(), project_id).await
     }
 
     /// `canAccessProject`.
-    pub(crate) async fn can_access(&self, project_id: &str) -> Result<bool, sqlx::Error> {
+    pub(crate) async fn can_access(&self, project_id: &str) -> Result<bool, sea_orm::DbErr> {
         Ok(self.access(project_id).await?.may_access())
     }
 
     /// `canWriteProject`.
-    pub(crate) async fn can_write(&self, project_id: &str) -> Result<bool, sqlx::Error> {
+    pub(crate) async fn can_write(&self, project_id: &str) -> Result<bool, sea_orm::DbErr> {
         Ok(self.access(project_id).await?.can_write)
     }
 
     /// `canManageProject`.
-    pub(crate) async fn can_manage(&self, project_id: &str) -> Result<bool, sqlx::Error> {
+    pub(crate) async fn can_manage(&self, project_id: &str) -> Result<bool, sea_orm::DbErr> {
         Ok(self.access(project_id).await?.is_admin)
     }
 
     /// `canChangeOwners`.
-    pub(crate) async fn can_change_owners(&self, project_id: &str) -> Result<bool, sqlx::Error> {
+    pub(crate) async fn can_change_owners(&self, project_id: &str) -> Result<bool, sea_orm::DbErr> {
         Ok(self.access(project_id).await?.can_change_owners())
     }
 
     /// `accessibleProjectIds(c)`: `None` for scope:all holders.
-    pub(crate) async fn accessible_project_ids(&self) -> Result<Option<Vec<String>>, sqlx::Error> {
+    pub(crate) async fn accessible_project_ids(
+        &self,
+    ) -> Result<Option<Vec<String>>, sea_orm::DbErr> {
         if self.scope_all() {
             return Ok(None);
         }
@@ -577,13 +574,20 @@ impl<S: Send + Sync> FromRequestParts<S> for Caller {
 #[derive(Debug)]
 pub(crate) enum Refusal {
     Response(Box<Response>),
-    Database(sqlx::Error),
+    Database(sea_orm::DbErr),
     Internal(String),
 }
 
+impl From<sea_orm::DbErr> for Refusal {
+    fn from(error: sea_orm::DbErr) -> Self {
+        Self::Database(error)
+    }
+}
+
+/// SQL not converted to the ORM yet reports through the same error.
 impl From<sqlx::Error> for Refusal {
     fn from(error: sqlx::Error) -> Self {
-        Self::Database(error)
+        Self::Database(weldsuite_db::orm_error(error))
     }
 }
 
@@ -713,10 +717,10 @@ impl Query {
     }
 }
 
-/// `accessibleProjectIds(c)` as the SQL of [`in_accessible!`] binds it:
-/// `(true, [])` for scope:all, else `(false, ids)` with `['']` for none
-/// (`inArray(col, [''])` matches nothing).
-pub(crate) async fn access_scope(caller: &Caller) -> Result<(bool, Vec<String>), sqlx::Error> {
+/// `accessibleProjectIds(c)` as [`in_accessible`] (and the SQL of
+/// `in_accessible!`) reads it: `(true, [])` for scope:all, else
+/// `(false, ids)` with `['']` for none (`inArray(col, [''])` matches nothing).
+pub(crate) async fn access_scope(caller: &Caller) -> Result<(bool, Vec<String>), sea_orm::DbErr> {
     Ok(match caller.accessible_project_ids().await? {
         None => (true, Vec::new()),
         Some(ids) if ids.is_empty() => (false, vec![String::new()]),
@@ -724,22 +728,135 @@ pub(crate) async fn access_scope(caller: &Caller) -> Result<(bool, Vec<String>),
     })
 }
 
-/// The keyset cursor row (`select createdAt, id where id = cursor`):
-/// `created_at` as Drizzle reads it back (milliseconds), and the id.
-/// `sql` selects `id` and `to_jsonb(created_at) #>> '{}'` by `$1`.
-pub(crate) async fn keyset_cursor(
+/// `inAccessibleProjects(col, accessible)` over an [`access_scope`]: for
+/// scope:all only rows of a deleted project are hidden
+/// ([`project_not_deleted`]), else `col = any(ids)`.
+pub(crate) fn in_accessible<C>(col: C, (all, ids): &(bool, Vec<String>)) -> sea_orm::Condition
+where
+    C: sea_orm::ColumnTrait + Copy,
+{
+    if *all {
+        project_not_deleted(col)
+    } else {
+        sea_orm::Condition::all().add(col.is_in(ids.iter().map(String::as_str)))
+    }
+}
+
+/// `projectNotDeleted(col)`: `col is null or not exists (select 1 from
+/// projects where id = col and deleted_at is not null)`, as `col not in` the
+/// deleted projects' ids (never null).
+pub(crate) fn project_not_deleted<C>(col: C) -> sea_orm::Condition
+where
+    C: sea_orm::ColumnTrait + Copy,
+{
+    use sea_orm::ColumnTrait as _;
+    use weldsuite_schema::tenant::projects;
+    let deleted = sea_orm::sea_query::Query::select()
+        .column(projects::Column::Id)
+        .from(projects::Entity)
+        .and_where(projects::Column::DeletedAt.is_not_null())
+        .to_owned();
+    sea_orm::Condition::any()
+        .add(col.is_null())
+        .add(col.not_in_subquery(deleted))
+}
+
+/// The keyset operands: the cursor row's `createdAt` as JavaScript read it
+/// back (milliseconds), and its id.
+pub(crate) type Keyset = (time::PrimitiveDateTime, String);
+
+/// The keyset cursor row (`select createdAt, id from t where id = cursor
+/// limit 1`) of the table whose `id` and `created_at` columns are given.
+pub(crate) async fn keyset_cursor<C>(
     db: &PgPool,
-    sql: &'static str,
+    id: C,
+    created_at: C,
     cursor: &str,
-) -> Result<Option<(String, String)>, sqlx::Error> {
-    let row: Option<(String, Option<String>)> =
-        sqlx::query_as(sql).bind(cursor).fetch_optional(db).await?;
+) -> Result<Option<Keyset>, sea_orm::DbErr>
+where
+    C: sea_orm::ColumnTrait + Copy,
+    C::EntityName: sea_orm::EntityTrait,
+{
+    use sea_orm::{QueryFilter as _, QuerySelect as _};
+    let row: Option<(String, Option<time::PrimitiveDateTime>)> =
+        <C::EntityName as sea_orm::EntityTrait>::find()
+            .select_only()
+            .column(id)
+            .column(created_at)
+            .filter(id.eq(cursor))
+            .into_tuple()
+            .one(&weldsuite_db::orm(db))
+            .await?;
     Ok(row.and_then(|(id, created)| {
-        created
-            .as_deref()
-            .and_then(weldsuite_db::js_timestamp)
-            .map(|at| (at, id))
+        created.map(|at| (weldsuite_db::utc_timestamp(at.assume_utc()), id))
     }))
+}
+
+/// [`keyset_cursor`] of a table whose `created_at` is a `timestamptz`: the
+/// instant as JavaScript read it back (UTC, milliseconds), and the id.
+pub(crate) async fn keyset_cursor_tz<C>(
+    db: &PgPool,
+    id: C,
+    created_at: C,
+    cursor: &str,
+) -> Result<Option<(OffsetDateTime, String)>, sea_orm::DbErr>
+where
+    C: sea_orm::ColumnTrait + Copy,
+    C::EntityName: sea_orm::EntityTrait,
+{
+    use sea_orm::{QueryFilter as _, QuerySelect as _};
+    let row: Option<(String, Option<OffsetDateTime>)> =
+        <C::EntityName as sea_orm::EntityTrait>::find()
+            .select_only()
+            .column(id)
+            .column(created_at)
+            .filter(id.eq(cursor))
+            .into_tuple()
+            .one(&weldsuite_db::orm(db))
+            .await?;
+    Ok(row.and_then(|(id, created)| {
+        created.map(|at| {
+            let at = weldsuite_db::utc_timestamp(at).assume_utc();
+            (at, id)
+        })
+    }))
+}
+
+/// `or(lt(t.createdAt, at), and(eq(t.createdAt, at), lt(t.id, id)))`: the
+/// rows after the cursor (of [`keyset_cursor`] or [`keyset_cursor_tz`]) in
+/// `created_at desc, id desc` order.
+pub(crate) fn keyset_before<C, T>(
+    id: C,
+    created_at: C,
+    (at, cursor): &(T, String),
+) -> sea_orm::Condition
+where
+    C: sea_orm::ColumnTrait + Copy,
+    T: Into<sea_orm::Value> + Copy,
+{
+    sea_orm::Condition::any().add(created_at.lt(*at)).add(
+        sea_orm::Condition::all()
+            .add(created_at.eq(*at))
+            .add(id.lt(cursor.as_str())),
+    )
+}
+
+/// A model as the routes return the row: the entity serializes as Drizzle
+/// returned it.
+pub(crate) fn row_json<M: serde::Serialize>(model: M) -> Result<Value, sea_orm::DbErr> {
+    serde_json::to_value(model).map_err(|error| sea_orm::DbErr::Json(error.to_string()))
+}
+
+/// Models as [`row_json`] writes each.
+pub(crate) fn json_rows<M: serde::Serialize>(models: Vec<M>) -> Result<Vec<Value>, sea_orm::DbErr> {
+    models.into_iter().map(row_json).collect()
+}
+
+/// `limit + 1` as Postgres takes it for a page: a negative `LIMIT` fails the
+/// statement (a 500), as it did when bound.
+pub(crate) fn fetch_limit(limit: i64) -> Result<u64, sea_orm::DbErr> {
+    u64::try_from(limit.saturating_add(1))
+        .map_err(|_| sea_orm::DbErr::Custom("LIMIT must not be negative".to_owned()))
 }
 
 /// `Math.min(q.limit ? Number.parseInt(q.limit, 10) : 25, 100)`; `None`

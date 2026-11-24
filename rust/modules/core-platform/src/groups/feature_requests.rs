@@ -16,14 +16,22 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use http::HeaderMap;
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ActiveEnum, ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder,
+    QuerySelect,
+};
 use serde_json::{Map, Value, json};
-use weldsuite_db::js_row;
+use weldsuite_db::{orm, utc_now};
 use weldsuite_kit::validation::{Issues, Presence};
 use weldsuite_kit::{ApiError, Created, Data, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::master::enums::{FeatureStatus, FeatureType};
+use weldsuite_schema::master::feature_requests::{self, Column};
+use weldsuite_schema::tenant::workspace_members;
 
 use crate::{
-    Caller, CorePlatformState, PlatformError, PlatformResult, answer, now, validate, validate_query,
+    Caller, CorePlatformState, PlatformError, PlatformResult, answer, validate, validate_query,
 };
 
 const TYPES: [&str; 3] = ["feature", "bug", "improvement"];
@@ -72,43 +80,24 @@ async fn list(
             let failed = |e: &dyn std::fmt::Display| {
                 PlatformError::internal("Failed to fetch feature requests", e.to_string())
             };
-            let master = caller.master(&state);
-            let rows: Vec<Value> = match sort.as_str() {
-                "newest" => {
-                    sqlx::query_scalar(
-                        "select to_jsonb(f) from feature_requests f
-                         where ($1::text is null or f.type::text = $1::text)
-                         order by f.created_at desc, f.id desc",
-                    )
-                    .bind(&kind)
-                    .fetch_all(&master)
-                    .await
-                }
-                "oldest" => {
-                    sqlx::query_scalar(
-                        "select to_jsonb(f) from feature_requests f
-                         where ($1::text is null or f.type::text = $1::text)
-                         order by f.created_at asc, f.id desc",
-                    )
-                    .bind(&kind)
-                    .fetch_all(&master)
-                    .await
-                }
-                _ => {
-                    sqlx::query_scalar(
-                        "select to_jsonb(f) from feature_requests f
-                         where ($1::text is null or f.type::text = $1::text)
-                         order by f.vote_count desc, f.id desc",
-                    )
-                    .bind(&kind)
-                    .fetch_all(&master)
-                    .await
-                }
+            let mut select = feature_requests::Entity::find();
+            if let Some(kind) = &kind {
+                let kind = FeatureType::try_from_value(kind).map_err(|e| failed(&e))?;
+                select = select.filter(Column::Type.eq(kind));
             }
-            .map_err(|e| failed(&e))?;
+            let select = match sort.as_str() {
+                "newest" => select.order_by_desc(Column::CreatedAt),
+                "oldest" => select.order_by_asc(Column::CreatedAt),
+                _ => select.order_by_desc(Column::VoteCount),
+            };
+            let rows = select
+                .order_by_desc(Column::Id)
+                .all(&orm(&caller.master(&state)))
+                .await
+                .map_err(|e| failed(&e))?;
             let mut out = Vec::with_capacity(rows.len());
             for row in rows {
-                let row = js_row(row);
+                let row = serde_json::to_value(row).map_err(|e| failed(&e))?;
                 let voted = has_voted(row.get("voters"), &caller.user_id)
                     .ok_or_else(|| failed(&"voters is not a list"))?;
                 let mut item = Map::new();
@@ -137,10 +126,12 @@ async fn list(
 
 /// `GET /stats`: totals by status and type.
 async fn stats(State(state): State<CorePlatformState>, caller: Caller) -> Response {
-    let rows: Result<Vec<(String, String)>, sqlx::Error> =
-        sqlx::query_as("select status::text, type::text from feature_requests")
-            .fetch_all(&caller.master(&state))
-            .await;
+    let rows: Result<Vec<(FeatureStatus, FeatureType)>, DbErr> = feature_requests::Entity::find()
+        .select_only()
+        .columns([Column::Status, Column::Type])
+        .into_tuple()
+        .all(&orm(&caller.master(&state)))
+        .await;
     let rows = match rows {
         Ok(rows) => rows,
         Err(error) => {
@@ -150,27 +141,21 @@ async fn stats(State(state): State<CorePlatformState>, caller: Caller) -> Respon
     };
     let mut counts = [0u64; 9];
     for (status, kind) in &rows {
-        let slot = match status.as_str() {
-            "open" => Some(0),
-            "under_review" => Some(1),
-            "planned" => Some(2),
-            "in_progress" => Some(3),
-            "completed" => Some(4),
-            "declined" => Some(5),
-            _ => None,
+        let slot = match status {
+            FeatureStatus::Open => 0,
+            FeatureStatus::UnderReview => 1,
+            FeatureStatus::Planned => 2,
+            FeatureStatus::InProgress => 3,
+            FeatureStatus::Completed => 4,
+            FeatureStatus::Declined => 5,
         };
-        if let Some(slot) = slot {
-            counts[slot] += 1;
-        }
-        let slot = match kind.as_str() {
-            "feature" => Some(6),
-            "bug" => Some(7),
-            "improvement" => Some(8),
-            _ => None,
+        counts[slot] += 1;
+        let slot = match kind {
+            FeatureType::Feature => 6,
+            FeatureType::Bug => 7,
+            FeatureType::Improvement => 8,
         };
-        if let Some(slot) = slot {
-            counts[slot] += 1;
-        }
+        counts[slot] += 1;
     }
     Data(json!({
         "total": rows.len(),
@@ -209,13 +194,17 @@ type MemberRow = (Option<String>, Option<String>);
 /// The submitter's name and email from their tenant member row, best effort:
 /// feedback never fails on it.
 async fn submitter(caller: &Caller) -> (String, String) {
-    let member: Result<Option<MemberRow>, sqlx::Error> = sqlx::query_as(
-        "select name, email from workspace_members
-             where user_id = $1 and deleted_at is null limit 1",
-    )
-    .bind(&caller.user_id)
-    .fetch_optional(&caller.db)
-    .await;
+    let member: Result<Option<MemberRow>, DbErr> = workspace_members::Entity::find()
+        .select_only()
+        .columns([
+            workspace_members::Column::Name,
+            workspace_members::Column::Email,
+        ])
+        .filter(workspace_members::Column::UserId.eq(&caller.user_id))
+        .filter(workspace_members::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(&caller.db))
+        .await;
     let (name, email) = match member {
         Ok(Some((name, email))) => (name, email),
         Ok(None) => (None, None),
@@ -242,23 +231,23 @@ async fn create(
         async {
             let (title, description, kind) = validate(&headers, &body, read_create)?;
             let (name, email) = submitter(&caller).await;
-            let created: Value = sqlx::query_scalar(
-                "insert into feature_requests as f
-                   (id, title, description, type, submitter_id, submitter_name, submitter_email)
-                 values ($1, $2, $3, $4::text::feature_type, $5, $6, $7)
-                 returning to_jsonb(f)",
-            )
-            .bind(generate_id("freq"))
-            .bind(&title)
-            .bind(&description)
-            .bind(&kind)
-            .bind(&caller.user_id)
-            .bind(&name)
-            .bind(&email)
-            .fetch_one(&caller.master(&state))
-            .await
-            .map_err(|e| PlatformError::internal("Failed to submit feature request", e))?;
-            let mut created = js_row(created);
+            let failed = |e: DbErr| PlatformError::internal("Failed to submit feature request", e);
+            let request = feature_requests::ActiveModel {
+                id: Set(generate_id("freq")),
+                title: Set(title),
+                description: Set(description),
+                type_: Set(FeatureType::try_from_value(&kind).map_err(failed)?),
+                submitter_id: Set(caller.user_id.clone()),
+                submitter_name: Set(name),
+                submitter_email: Set(email),
+                ..Default::default()
+            };
+            let created = feature_requests::Entity::insert(request)
+                .exec_with_returning(&orm(&caller.master(&state)))
+                .await
+                .map_err(failed)?;
+            let mut created =
+                serde_json::to_value(created).map_err(|e| failed(DbErr::Json(e.to_string())))?;
             created["hasVoted"] = Value::Bool(false);
             Ok(Created(created).into_response())
         }
@@ -278,13 +267,15 @@ async fn vote(
 async fn vote_on(state: &CorePlatformState, caller: &Caller, id: &str) -> PlatformResult<Response> {
     let failed =
         |e: &dyn std::fmt::Display| PlatformError::internal("Failed to vote", e.to_string());
-    let master = caller.master(state);
-    let voters: Option<Option<Value>> =
-        sqlx::query_scalar("select voters from feature_requests where id = $1 limit 1")
-            .bind(id)
-            .fetch_optional(&master)
-            .await
-            .map_err(|e| failed(&e))?;
+    let master = orm(&caller.master(state));
+    let voters: Option<Option<Value>> = feature_requests::Entity::find()
+        .select_only()
+        .column(Column::Voters)
+        .filter(Column::Id.eq(id))
+        .into_tuple()
+        .one(&master)
+        .await
+        .map_err(|e| failed(&e))?;
     let Some(voters) = voters else {
         return Err(ApiError::not_found("Feature request", Some(id)).into());
     };
@@ -305,22 +296,26 @@ async fn vote_on(state: &CorePlatformState, caller: &Caller, id: &str) -> Platfo
         next.push(Value::String(caller.user_id.clone()));
         next
     };
-    let updated: Option<(i32, Option<Value>)> = sqlx::query_as(
-        "update feature_requests
-         set voters = $2::jsonb, vote_count = $3, updated_at = $4::timestamptz
-         where id = $1
-         returning vote_count, voters",
-    )
-    .bind(id)
-    .bind(Value::Array(next.clone()).to_string())
-    .bind(i32::try_from(next.len()).unwrap_or(i32::MAX))
-    .bind(now())
-    .fetch_optional(&master)
-    .await
-    .map_err(|e| failed(&e))?;
+    let updated = feature_requests::Entity::update_many()
+        .col_expr(Column::Voters, Expr::value(Value::Array(next.clone())))
+        .col_expr(
+            Column::VoteCount,
+            Expr::value(i32::try_from(next.len()).unwrap_or(i32::MAX)),
+        )
+        .col_expr(Column::UpdatedAt, Expr::value(utc_now().assume_utc()))
+        .filter(Column::Id.eq(id))
+        .exec_with_returning(&master)
+        .await
+        .map_err(|e| failed(&e))?
+        .into_iter()
+        .next();
     let (vote_count, voters) = match updated {
-        Some((count, Some(voters))) => (json!(count), voters),
-        Some((count, None)) => (json!(count), Value::Array(next)),
+        Some(feature_requests::Model {
+            vote_count,
+            voters: Some(voters),
+            ..
+        }) => (json!(vote_count), voters),
+        Some(row) => (json!(row.vote_count), Value::Array(next)),
         None => (json!(next.len()), Value::Array(next)),
     };
     Ok(Data(json!({

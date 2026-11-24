@@ -172,7 +172,7 @@ pub enum PlatformError {
     Response(Box<Response>),
     /// `error.internal(c, message)`: logged, answered with a 500.
     Internal(&'static str, String),
-    Database(sqlx::Error),
+    Database(sea_orm::DbErr),
 }
 
 impl PlatformError {
@@ -201,9 +201,16 @@ impl PlatformError {
     }
 }
 
+impl From<sea_orm::DbErr> for PlatformError {
+    fn from(error: sea_orm::DbErr) -> Self {
+        Self::Database(error)
+    }
+}
+
+/// SQL not converted to the ORM yet reports through the same type.
 impl From<sqlx::Error> for PlatformError {
     fn from(error: sqlx::Error) -> Self {
-        Self::Database(error)
+        Self::Database(weldsuite_db::orm_error(error))
     }
 }
 

@@ -3,46 +3,51 @@
 //! not have is created as a label of the issue's team. An assignee matches
 //! through the member's linked provider account.
 
+use sea_orm::ActiveValue::Set;
+use sea_orm::{ColumnTrait, Condition, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Value, json};
-use weldsuite_db::{PgPool, js_row};
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::generate_id;
+use weldsuite_schema::tenant::{merge_labels, merge_provider_accounts};
 
-use crate::db::{opt_text, text};
+use crate::PendingEvent;
+use crate::db::{json_rows, now_at, opt_text, same_or_null, text};
+use crate::labels::{label_row, lower_name};
 use crate::teams::find_team;
-use crate::{PendingEvent, now};
 
 /// `createLabel(db, { teamId, name })`: `None` when the team is gone or the
 /// name is taken.
-async fn create_label(
-    db: &PgPool,
-    team_id: &str,
-    name: &str,
-) -> Result<Option<Value>, sqlx::Error> {
+async fn create_label(db: &PgPool, team_id: &str, name: &str) -> Result<Option<Value>, DbErr> {
     if find_team(db, team_id).await?.is_none() {
         return Ok(None);
     }
     let name = weldsuite_kit::validation::js_trim(name);
-    let taken: Option<String> = sqlx::query_scalar(
-        "select id from merge_labels where deleted_at is null and team_id = $1 and lower(name) = $2 limit 1",
-    )
-    .bind(team_id)
-    .bind(name.to_lowercase())
-    .fetch_optional(db)
-    .await?;
+    let db = orm(db);
+    let taken = merge_labels::Entity::find()
+        .select_only()
+        .column(merge_labels::Column::Id)
+        .filter(merge_labels::Column::DeletedAt.is_null())
+        .filter(merge_labels::Column::TeamId.eq(team_id))
+        .filter(sea_orm::ExprTrait::eq(lower_name(), name.to_lowercase()))
+        .into_tuple::<String>()
+        .one(&db)
+        .await?;
     if taken.is_some() {
         return Ok(None);
     }
-    let row: Value = sqlx::query_scalar(
-        "insert into merge_labels (id, team_id, name, color, created_at, updated_at) \
-         values ($1, $2, $3, null, $4::timestamptz, $4::timestamptz) returning to_jsonb(merge_labels.*)",
-    )
-    .bind(generate_id("mlb"))
-    .bind(team_id)
-    .bind(name)
-    .bind(now())
-    .fetch_one(db)
+    let (_, at) = now_at();
+    let row = merge_labels::Entity::insert(merge_labels::ActiveModel {
+        id: Set(generate_id("mlb")),
+        team_id: Set(Some(team_id.to_owned())),
+        name: Set(name.to_owned()),
+        color: Set(None),
+        created_at: Set(at),
+        updated_at: Set(at),
+        ..Default::default()
+    })
+    .exec_with_returning(&db)
     .await?;
-    Ok(Some(js_row(row)))
+    label_row(row).map(Some)
 }
 
 /// `resolveLabelIds(db, teamId, names)`: WeldMerge label ids for provider
@@ -52,7 +57,7 @@ pub(crate) async fn resolve_label_ids(
     db: &PgPool,
     team_id: &str,
     names: &[String],
-) -> Result<(Vec<String>, Vec<PendingEvent>), sqlx::Error> {
+) -> Result<(Vec<String>, Vec<PendingEvent>), DbErr> {
     // `new Map(names.map(n => [n.toLowerCase(), n]))`: first position, last name.
     let mut wanted: Vec<(String, String)> = Vec::new();
     for name in names.iter().filter(|n| !n.is_empty()) {
@@ -66,15 +71,20 @@ pub(crate) async fn resolve_label_ids(
         return Ok((Vec::new(), Vec::new()));
     }
     let lowers: Vec<String> = wanted.iter().map(|(lower, _)| lower.clone()).collect();
-    let existing: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(l) from merge_labels l where l.deleted_at is null \
-         and (l.team_id = $1 or l.team_id is null) and lower(l.name) = any($2)",
-    )
-    .bind(team_id)
-    .bind(&lowers)
-    .fetch_all(db)
-    .await?;
-    let existing: Vec<Value> = existing.into_iter().map(js_row).collect();
+    let existing: Vec<Value> = json_rows(
+        merge_labels::Entity::find()
+            .filter(merge_labels::Column::DeletedAt.is_null())
+            .filter(
+                Condition::any()
+                    .add(merge_labels::Column::TeamId.eq(team_id))
+                    .add(merge_labels::Column::TeamId.is_null()),
+            )
+            .filter(sea_orm::ExprTrait::is_in(lower_name(), lowers))
+            .all(&orm(db))
+            .await?
+            .into_iter()
+            .map(serde_json::to_value),
+    )?;
     // The team's own label wins over a workspace-wide one of the same name.
     let mut by_name: Vec<(String, String)> = Vec::new();
     let mut set = |name: String, id: String| match by_name.iter_mut().find(|(n, _)| *n == name) {
@@ -123,16 +133,17 @@ pub(crate) async fn resolve_label_ids(
 
 /// `labelNames(db, labelIds)`: the names of labels, for pushing to the
 /// provider; labels that no longer exist are left out.
-pub(crate) async fn label_names(
-    db: &PgPool,
-    label_ids: &[String],
-) -> Result<Vec<String>, sqlx::Error> {
+pub(crate) async fn label_names(db: &PgPool, label_ids: &[String]) -> Result<Vec<String>, DbErr> {
     if label_ids.is_empty() {
         return Ok(Vec::new());
     }
-    sqlx::query_scalar("select name from merge_labels where id = any($1) and deleted_at is null")
-        .bind(label_ids)
-        .fetch_all(db)
+    merge_labels::Entity::find()
+        .select_only()
+        .column(merge_labels::Column::Name)
+        .filter(merge_labels::Column::Id.is_in(label_ids.iter().map(String::as_str)))
+        .filter(merge_labels::Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&orm(db))
         .await
 }
 
@@ -142,16 +153,16 @@ pub(crate) async fn member_for_login(
     provider: &str,
     host: Option<&str>,
     login: &str,
-) -> Result<Option<String>, sqlx::Error> {
-    sqlx::query_scalar(
-        "select user_id from merge_provider_accounts where provider = $1 \
-         and (case when $2::text is null then host is null else host = $2 end) and login = $3 limit 1",
-    )
-    .bind(provider)
-    .bind(host)
-    .bind(login.to_lowercase())
-    .fetch_optional(db)
-    .await
+) -> Result<Option<String>, DbErr> {
+    merge_provider_accounts::Entity::find()
+        .select_only()
+        .column(merge_provider_accounts::Column::UserId)
+        .filter(merge_provider_accounts::Column::Provider.eq(provider))
+        .filter(same_or_null(merge_provider_accounts::Column::Host, host))
+        .filter(merge_provider_accounts::Column::Login.eq(login.to_lowercase()))
+        .into_tuple()
+        .one(&orm(db))
+        .await
 }
 
 /// `loginForMember(db, provider, host, userId)`.
@@ -160,16 +171,16 @@ pub(crate) async fn login_for_member(
     provider: &str,
     host: Option<&str>,
     user_id: &str,
-) -> Result<Option<String>, sqlx::Error> {
-    sqlx::query_scalar(
-        "select login from merge_provider_accounts where provider = $1 \
-         and (case when $2::text is null then host is null else host = $2 end) and user_id = $3 limit 1",
-    )
-    .bind(provider)
-    .bind(host)
-    .bind(user_id)
-    .fetch_optional(db)
-    .await
+) -> Result<Option<String>, DbErr> {
+    merge_provider_accounts::Entity::find()
+        .select_only()
+        .column(merge_provider_accounts::Column::Login)
+        .filter(merge_provider_accounts::Column::Provider.eq(provider))
+        .filter(same_or_null(merge_provider_accounts::Column::Host, host))
+        .filter(merge_provider_accounts::Column::UserId.eq(user_id))
+        .into_tuple()
+        .one(&orm(db))
+        .await
 }
 
 /// `resolveAssignee(db, provider, host, providerLogin, currentUserId)`: a
@@ -182,7 +193,7 @@ pub(crate) async fn resolve_assignee(
     host: Option<&str>,
     provider_login: Option<&str>,
     current_user_id: Option<&str>,
-) -> Result<Option<String>, sqlx::Error> {
+) -> Result<Option<String>, DbErr> {
     if let Some(login) = provider_login.filter(|l| !l.is_empty()) {
         return Ok(member_for_login(db, provider, host, login)
             .await?

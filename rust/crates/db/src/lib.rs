@@ -12,11 +12,6 @@
 //! [`OrmConn`] lets ORM statements join a transaction `atomically_with`
 //! opened. The SQL here predates the entities.
 
-#![allow(
-    clippy::disallowed_methods,
-    reason = "not converted to the ORM yet (ADR DATA-019)"
-)]
-
 pub mod account_pictures;
 mod atomically;
 mod crypto;
@@ -44,7 +39,7 @@ pub use membership::{
     MembershipLookup, MembershipsFuture, SoleWorkspace, WorkspaceSelector, workspace_from_header,
 };
 pub use middleware::workspace_db;
-pub use orm::{OrmConn, orm, orm_error, utc_minutes_ago, utc_now, utc_timestamp};
+pub use orm::{OrmConn, db_error_text, orm, orm_error, utc_minutes_ago, utc_now, utc_timestamp};
 pub use permissions::TenantPermissionQueries;
 pub use pg_errors::{
     MovedDatabaseFailure, classify_moved_database_error, database_error, has_pg_error_code,

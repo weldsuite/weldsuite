@@ -18,16 +18,16 @@ use weldsuite_catalogs::permission_keys::PASSWORDS_MANAGE;
 use weldsuite_kit::validation::{Field, Issues, Presence, Text};
 use weldsuite_kit::{ApiError, NoContent};
 
-use crate::audit::{VaultEvent, record_vault_event};
+use crate::audit::{VaultEvent, list_vault_events, record_vault_event};
 use crate::health::build_health_report;
 use crate::import::parse_import;
-use crate::js::{clamped_limit, parse_js_date};
+use crate::js::clamped_limit;
 use crate::password_items as items;
 use crate::password_vaults::{
     self as vaults, VaultAccess, assert_vault_admin, assert_vault_role, open_password_vault,
     personal_vault_error, require_vault_access,
 };
-use crate::routes_projects::page;
+use crate::routes_projects::{cursor_before, page};
 use crate::schemas::{IMPORT_FORMATS, ITEM_TYPES, VAULT_ROLES, host_of, read_item};
 use crate::{
     Caller, PassError, PassResult, PassState, answer, created, json_value, merge, ok,
@@ -439,22 +439,8 @@ pub(crate) async fn activity(
                 ));
             }
             let limit = clamped_limit(query(raw.as_deref(), "limit").as_deref(), 50, 1, 200);
-            let before = query(raw.as_deref(), "cursor")
-                .filter(|cursor| !cursor.is_empty())
-                .and_then(|cursor| parse_js_date(&cursor));
-            let rows: Vec<Value> = sqlx::query_scalar(
-                "select jsonb_build_object('id', e.id, 'itemId', e.item_id, 'actorId', e.actor_id, \
-                 'actorName', w.name, 'action', e.action, 'targetLabel', e.target_label, \
-                 'metadata', e.metadata, 'createdAt', e.created_at) \
-                 from weldpass_vault_events e left join workspace_members w on w.user_id = e.actor_id \
-                 where e.vault_id = $1 and ($2::text is null or e.created_at < $2::timestamptz) \
-                 order by e.created_at desc limit $3",
-            )
-            .bind(&access.vault.id)
-            .bind(before)
-            .bind(limit + 1)
-            .fetch_all(&caller.db)
-            .await?;
+            let before = cursor_before(query(raw.as_deref(), "cursor").as_deref());
+            let rows = list_vault_events(&caller.db, &access.vault.id, before, limit + 1).await?;
             Ok(page(rows, limit))
         }
         .await,

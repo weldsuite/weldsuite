@@ -20,7 +20,7 @@ use crate::records::{
     self, NewVersion, get_version, room_name, to_version, version_event_data, version_key_for,
 };
 use crate::routes::{editable_board, find_live_board};
-use crate::{BoardState, Caller, Refusal, answer, now, validate, validate_query};
+use crate::{BoardState, Caller, Refusal, answer, validate, validate_query};
 
 const DEFAULT_LIMIT: i64 = 50;
 
@@ -136,7 +136,7 @@ pub(crate) async fn create(
                     size: &saved["size"],
                     created_by_id: &user_id,
                 },
-                &now(),
+                weldsuite_db::utc_now(),
             )
             .await?;
             caller.publish(

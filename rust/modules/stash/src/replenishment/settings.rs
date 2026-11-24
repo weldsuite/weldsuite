@@ -1,11 +1,25 @@
 //! The workspace's replenishment settings: the single `stash_settings` row
 //! (id `default`), or its defaults while nobody has saved it.
 
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{
+    ColumnTrait, Condition, ConnectionTrait, DbErr, EntityTrait, Order, QueryFilter, QueryOrder,
+    QuerySelect,
+};
 use serde_json::{Value, json};
-use sqlx::PgExecutor;
 use time::Date;
+use weldsuite_schema::tenant::{stash_settings, warehouses};
 
 use crate::incoming::parse_date;
+
+/// An entity's row (anything `Serialize`) as JSON, as Drizzle returns it,
+/// or `DbErr::Json`.
+macro_rules! model_json {
+    ($row:expr) => {
+        serde_json::to_value($row).map_err(|error| sea_orm::DbErr::Json(error.to_string()))
+    };
+}
+pub(crate) use model_json;
 
 /// The id of the one settings row.
 pub(crate) const SETTINGS_ID: &str = "default";
@@ -42,10 +56,6 @@ impl Default for Settings {
     }
 }
 
-/// The row as Drizzle returns it (`default_service_level` as text).
-const ROW: &str = "select to_jsonb(t) || jsonb_build_object('default_service_level', \
-     t.default_service_level::text) from stash_settings t where t.id = 'default'";
-
 /// `GET /replenishment/settings` without a saved row: the defaults, in the
 /// row's shape.
 pub(crate) fn defaults_json() -> Value {
@@ -64,14 +74,17 @@ pub(crate) fn defaults_json() -> Value {
     })
 }
 
-/// The saved row, or the defaults.
-pub(crate) async fn settings_json<'e>(db: impl PgExecutor<'e>) -> Result<Value, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(ROW).fetch_optional(db).await?;
-    Ok(row.map_or_else(defaults_json, weldsuite_db::js_row))
+/// The saved row as Drizzle returns it (`defaultServiceLevel` as text), or
+/// the defaults.
+pub(crate) async fn settings_json<C: ConnectionTrait>(db: &C) -> Result<Value, DbErr> {
+    let row = stash_settings::Entity::find_by_id(SETTINGS_ID)
+        .one(db)
+        .await?;
+    row.map_or_else(|| Ok(defaults_json()), |row| model_json!(row))
 }
 
 /// The settings the planner uses.
-pub(crate) async fn load_settings<'e>(db: impl PgExecutor<'e>) -> Result<Settings, sqlx::Error> {
+pub(crate) async fn load_settings<C: ConnectionTrait>(db: &C) -> Result<Settings, DbErr> {
     Ok(from_json(&settings_json(db).await?))
 }
 
@@ -100,18 +113,33 @@ pub(crate) fn from_json(row: &Value) -> Settings {
 /// The warehouse orders without a pick list count in: the settings'
 /// demand warehouse while it is live and active, else the default
 /// warehouse, else the first active one. `None` without any warehouse.
-pub(crate) async fn demand_warehouse<'e>(
-    db: impl PgExecutor<'e>,
+pub(crate) async fn demand_warehouse<C: ConnectionTrait>(
+    db: &C,
     settings: &Settings,
-) -> Result<Option<String>, sqlx::Error> {
-    sqlx::query_scalar(
-        "select id from warehouses where deleted_at is null and coalesce(is_active, true) \
-         order by coalesce(id = $1, false) desc, coalesce(is_default, false) desc, created_at, id \
-         limit 1",
-    )
-    .bind(settings.demand_warehouse_id.as_deref())
-    .fetch_optional(db)
-    .await
+) -> Result<Option<String>, DbErr> {
+    let mut query = warehouses::Entity::find()
+        .select_only()
+        .column(warehouses::Column::Id)
+        .filter(warehouses::Column::DeletedAt.is_null())
+        .filter(
+            Condition::any()
+                .add(warehouses::Column::IsActive.is_null())
+                .add(warehouses::Column::IsActive.eq(true)),
+        );
+    // `coalesce(id = $1, false) desc`: only a set id puts a row first.
+    if let Some(id) = &settings.demand_warehouse_id {
+        query = query.order_by(warehouses::Column::Id.eq(id.as_str()), Order::Desc);
+    }
+    query
+        .order_by(
+            Func::coalesce([Expr::col(warehouses::Column::IsDefault), Expr::val(false)]),
+            Order::Desc,
+        )
+        .order_by(warehouses::Column::CreatedAt, Order::Asc)
+        .order_by(warehouses::Column::Id, Order::Asc)
+        .into_tuple()
+        .one(db)
+        .await
 }
 
 #[cfg(test)]

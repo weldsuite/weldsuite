@@ -16,11 +16,6 @@
 //! it decides per delivery (ack, retry, defer), and the bus adapter does the
 //! acking, the backoff and the dead letters.
 
-#![allow(
-    clippy::disallowed_methods,
-    reason = "not converted to the ORM yet (ADR DATA-019)"
-)]
-
 pub mod audit;
 pub mod audit_streams;
 pub mod event;

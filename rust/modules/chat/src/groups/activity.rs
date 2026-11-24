@@ -13,14 +13,26 @@ use axum::routing::{get, post};
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use http::HeaderMap;
+use sea_orm::sea_query::extension::postgres as pg;
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{
+    ColumnTrait, Condition, DbErr, EntityTrait, FromQueryResult, JoinType, PaginatorTrait,
+    QueryFilter, QueryOrder, QuerySelect, QueryTrait,
+};
 use serde_json::{Value, json};
+use time::OffsetDateTime;
+use time::format_description::well_known::Rfc3339;
+use weldsuite_db::{orm, utc_now};
+use weldsuite_events::iso_timestamp;
 use weldsuite_kit::validation::{Number, Presence};
 use weldsuite_kit::{Data, NoContent};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::chat_channels;
+use weldsuite_schema::tenant::notifications::{self, Column};
 
 use crate::ChatState;
 use crate::access::{Caller, answer, validate, validate_query};
-use crate::util::{list_response, ms_timestamp, now};
+use crate::util::list_response;
 
 pub(crate) fn router<Q>(gate: &Arc<PermissionGate<Q>>) -> Router<ChatState>
 where
@@ -51,6 +63,42 @@ fn filter_types(filter: &str) -> Vec<String> {
 
 fn feed_types() -> Vec<String> {
     FEED_TYPES.iter().map(|t| (*t).to_owned()).collect()
+}
+
+/// The caller's live WeldChat notifications of `types` (`types` not empty).
+fn feed(user_id: &str, types: &[String]) -> Condition {
+    Condition::all()
+        .add(Column::UserId.eq(user_id))
+        .add(Column::Category.eq("weldchat"))
+        .add(Column::DeletedAt.is_null())
+        .add(Column::NotificationType.is_in(types.iter().map(String::as_str)))
+}
+
+/// `$n::timestamptz` of the cursor's `toISOString()`; `Err` is the failed
+/// cast (the route's 500).
+fn instant_of(text: &str) -> Result<OffsetDateTime, DbErr> {
+    OffsetDateTime::parse(text, &Rfc3339).map_err(|_| {
+        DbErr::Type(format!(
+            "invalid input syntax for type timestamp with time zone: \"{text}\""
+        ))
+    })
+}
+
+/// A feed row: the notification and its channel's name.
+#[derive(Debug, FromQueryResult)]
+struct FeedRow {
+    id: String,
+    notification_type: String,
+    title: String,
+    body: Option<String>,
+    entity_type: Option<String>,
+    entity_id: Option<String>,
+    actor_id: Option<String>,
+    action_url: Option<String>,
+    read_at: Option<OffsetDateTime>,
+    created_at: OffsetDateTime,
+    channel_id: Option<String>,
+    channel_name: Option<String>,
 }
 
 /// The cursor: base64 JSON `{ createdAt, id }`; a malformed one is ignored.
@@ -100,56 +148,69 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
     let types = filter_types(&filter);
     let (cursor_at, cursor_id) = cursor.as_deref().and_then(decode_cursor).unzip();
     let result = async {
-        type Row = (
-            String,
-            String,
-            String,
-            Option<String>,
-            Option<String>,
-            Option<String>,
-            Option<String>,
-            Option<String>,
-            Option<String>,
-            String,
-            Option<String>,
-            Option<String>,
+        // `coalesce(t.data->>'channelId', t.data->>'chatChannelId')`: WeldChat
+        // notifications store their conversation as `chatChannelId`.
+        let channel_id = || {
+            let field = |key: &'static str| {
+                pg::PgExpr::cast_json_field(Expr::col((notifications::Entity, Column::Data)), key)
+            };
+            Expr::from(Func::coalesce([field("channelId"), field("chatChannelId")]))
+        };
+        let mut rows = notifications::Entity::find()
+            .select_only()
+            .columns([
+                Column::Id,
+                Column::NotificationType,
+                Column::Title,
+                Column::Body,
+                Column::EntityType,
+                Column::EntityId,
+                Column::ActorId,
+                Column::ActionUrl,
+                Column::ReadAt,
+                Column::CreatedAt,
+            ])
+            .column_as(channel_id(), "channel_id")
+            .column_as(chat_channels::Column::Name, "channel_name")
+            .filter(feed(&caller.user_id, &types));
+        // `left join chat_channels c on c.id = coalesce(…)`.
+        QueryTrait::query(&mut rows).join(
+            JoinType::LeftJoin,
+            chat_channels::Entity,
+            sea_orm::ExprTrait::eq(
+                Expr::col((chat_channels::Entity, chat_channels::Column::Id)),
+                channel_id(),
+            ),
         );
-        let rows: Vec<Row> = sqlx::query_as(
-            "select t.id, t.notification_type, t.title, t.body, t.entity_type, t.entity_id,
-                    t.actor_id, t.action_url, to_jsonb(t.read_at) #>> '{}',
-                    to_jsonb(t.created_at) #>> '{}',
-                    coalesce(t.data->>'channelId', t.data->>'chatChannelId'), c.name
-             from notifications t
-             left join chat_channels c
-                    on c.id = coalesce(t.data->>'channelId', t.data->>'chatChannelId')
-             where t.user_id = $1 and t.category = 'weldchat' and t.deleted_at is null
-               and t.notification_type = any($2)
-               and ($3::text is null or (t.created_at < $3::timestamptz
-                    or (t.created_at = $3::timestamptz and t.id < $4)))
-             order by t.created_at desc, t.id desc limit $5",
-        )
-        .bind(&caller.user_id)
-        .bind(&types)
-        .bind(&cursor_at)
-        .bind(&cursor_id)
-        .bind(limit + 1)
-        .fetch_all(&caller.db)
-        .await?;
-        let total: i64 = sqlx::query_scalar(
-            "select count(*) from notifications t
-             where t.user_id = $1 and t.category = 'weldchat' and t.deleted_at is null
-               and t.notification_type = any($2)",
-        )
-        .bind(&caller.user_id)
-        .bind(&types)
-        .fetch_one(&caller.db)
-        .await?;
+        if let (Some(at), Some(cursor_id)) = (&cursor_at, &cursor_id) {
+            let at = instant_of(at)?;
+            rows = rows.filter(
+                Condition::any().add(Column::CreatedAt.lt(at)).add(
+                    Condition::all()
+                        .add(Column::CreatedAt.eq(at))
+                        .add(Column::Id.lt(cursor_id.as_str())),
+                ),
+            );
+        }
+        let db = orm(&caller.db);
+        let rows = rows
+            .order_by_desc(Column::CreatedAt)
+            .order_by_desc(Column::Id)
+            .limit(u64::try_from(limit + 1).unwrap_or(0))
+            .into_model::<FeedRow>()
+            .all(&db)
+            .await?;
+        let total = notifications::Entity::find()
+            .filter(feed(&caller.user_id, &types))
+            .count(&db)
+            .await?;
         let limit_len = usize::try_from(limit.max(0)).unwrap_or(0);
         let has_more = rows.len() > limit_len;
-        let rows: Vec<Row> = rows.into_iter().take(limit_len).collect();
+        let rows: Vec<FeedRow> = rows.into_iter().take(limit_len).collect();
         let next = if has_more {
             rows.last().map(|row| {
-                let text = json!({ "createdAt": ms_timestamp(&row.9), "id": row.0 }).to_string();
+                let text =
+                    json!({ "createdAt": iso_timestamp(row.created_at), "id": row.id }).to_string();
                 STANDARD.encode(text)
             })
         } else {
@@ -157,45 +218,35 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
         };
         let items: Vec<Value> = rows
             .into_iter()
-            .map(
-                |(
-                    id,
-                    kind,
-                    title,
-                    body,
-                    entity_type,
-                    entity_id,
-                    actor,
-                    action,
-                    read_at,
-                    created_at,
-                    channel_id,
-                    channel_name,
-                )| {
-                    let message_id = if entity_type.as_deref() == Some("message") {
-                        entity_id
-                    } else {
-                        None
-                    };
-                    json!({
-                        "id": id,
-                        "type": kind,
-                        "title": title,
-                        "body": body,
-                        "channelId": channel_id,
-                        "channelName": channel_name,
-                        "messageId": message_id,
-                        "actorId": actor,
-                        "actorName": null,
-                        "actorAvatarUrl": null,
-                        "actionUrl": action,
-                        "readAt": read_at.map(|at| ms_timestamp(&at)),
-                        "createdAt": ms_timestamp(&created_at),
-                    })
-                },
-            )
+            .map(|row| {
+                let message_id = if row.entity_type.as_deref() == Some("message") {
+                    row.entity_id
+                } else {
+                    None
+                };
+                json!({
+                    "id": row.id,
+                    "type": row.notification_type,
+                    "title": row.title,
+                    "body": row.body,
+                    "channelId": row.channel_id,
+                    "channelName": row.channel_name,
+                    "messageId": message_id,
+                    "actorId": row.actor_id,
+                    "actorName": null,
+                    "actorAvatarUrl": null,
+                    "actionUrl": row.action_url,
+                    "readAt": row.read_at.map(iso_timestamp),
+                    "createdAt": iso_timestamp(row.created_at),
+                })
+            })
             .collect();
-        Ok(list_response(items, total, has_more, next))
+        Ok(list_response(
+            items,
+            i64::try_from(total).unwrap_or(i64::MAX),
+            has_more,
+            next,
+        ))
     }
     .await;
     answer(result, "Failed to fetch activity")
@@ -210,18 +261,22 @@ async fn mark_read(caller: Caller, headers: HeaderMap, body: Bytes) -> Response 
         Err(error) => return error.respond(""),
     };
     let result = async {
-        sqlx::query(
-            "update notifications set read_at = $3::timestamptz, is_read = true
-             where user_id = $1 and category = 'weldchat' and read_at is null and deleted_at is null
-               and (case when $2::text is null then notification_type = any($4) else id = $2 end)",
-        )
-        .bind(&caller.user_id)
-        .bind(&id)
-        .bind(now())
-        // "Mark all read" clears the feed, not the notifications it leaves out.
-        .bind(feed_types())
-        .execute(&caller.db)
-        .await?;
+        let which = match &id {
+            Some(id) => Column::Id.eq(id),
+            // "Mark all read" clears the feed, not the notifications it leaves out.
+            None => Column::NotificationType.is_in(FEED_TYPES),
+        };
+        notifications::Entity::update_many()
+            // `new Date()`, to the millisecond.
+            .col_expr(Column::ReadAt, Expr::value(utc_now().assume_utc()))
+            .col_expr(Column::IsRead, Expr::value(true))
+            .filter(Column::UserId.eq(&caller.user_id))
+            .filter(Column::Category.eq("weldchat"))
+            .filter(Column::ReadAt.is_null())
+            .filter(Column::DeletedAt.is_null())
+            .filter(which)
+            .exec(&orm(&caller.db))
+            .await?;
         Ok(NoContent.into_response())
     }
     .await;
@@ -230,15 +285,11 @@ async fn mark_read(caller: Caller, headers: HeaderMap, body: Bytes) -> Response 
 
 async fn unread_count(caller: Caller) -> Response {
     let result = async {
-        let count: i64 = sqlx::query_scalar(
-            "select count(*) from notifications
-             where user_id = $1 and category = 'weldchat' and read_at is null and deleted_at is null
-               and notification_type = any($2)",
-        )
-        .bind(&caller.user_id)
-        .bind(feed_types())
-        .fetch_one(&caller.db)
-        .await?;
+        let count = notifications::Entity::find()
+            .filter(feed(&caller.user_id, &feed_types()))
+            .filter(Column::ReadAt.is_null())
+            .count(&orm(&caller.db))
+            .await?;
         Ok(Data(json!({ "count": count })).into_response())
     }
     .await;

@@ -409,7 +409,7 @@ async fn collect_threads(ai: &Ai, year: i32, month: u8) -> Vec<CorpusThread> {
 
 /// When the stored set was generated (epoch ms), or `None` without a
 /// readable meta.
-async fn read_generated_at(master: &PgPool) -> sqlx::Result<Option<i64>> {
+async fn read_generated_at(master: &PgPool) -> Result<Option<i64>, sea_orm::DbErr> {
     let meta = read_setting(master, CORPUS_META_KEY).await?;
     Ok(meta
         .as_ref()
@@ -422,7 +422,11 @@ async fn read_generated_at(master: &PgPool) -> sqlx::Result<Option<i64>> {
 /// `storeCorpus`: the replaced set kept as `previous` (threads planned or
 /// mid-conversation still reference its ids), the new one as `latest`, the
 /// meta last.
-async fn store_corpus(master: &PgPool, threads: &[CorpusThread], now: i64) -> sqlx::Result<()> {
+async fn store_corpus(
+    master: &PgPool,
+    threads: &[CorpusThread],
+    now: i64,
+) -> Result<(), sea_orm::DbErr> {
     let json: Vec<Value> = threads.iter().map(CorpusThread::to_json).collect();
     if let Some(replaced) = read_setting(master, CORPUS_LATEST_KEY).await? {
         write_setting(master, CORPUS_PREVIOUS_KEY, &replaced).await?;

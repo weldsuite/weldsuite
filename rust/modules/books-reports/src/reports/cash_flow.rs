@@ -9,12 +9,14 @@
 
 use std::collections::HashMap;
 
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Value, json};
 use sqlx::PgPool;
 use weldsuite_books_domain::js::{parse_float, round_money};
 use weldsuite_books_domain::reports_basis::{
     DateRange, Edge, iso, money, numeric_compare, parse_report_date,
 };
+use weldsuite_schema::tenant::{accounts, bank_accounts};
 
 use super::build::Built;
 
@@ -250,24 +252,35 @@ fn empty_cash_flow(range: &DateRange) -> CashFlow {
 async fn cash_accounts_of(
     db: &PgPool,
     entity_id: &str,
-) -> Result<Vec<(String, String, String)>, sqlx::Error> {
-    let linked: Vec<Option<String>> = sqlx::query_scalar(
-        "select ledger_account_id from bank_accounts where entity_id = $1 and deleted_at is null",
-    )
-    .bind(entity_id)
-    .fetch_all(db)
-    .await?;
+) -> Result<Vec<(String, String, String)>, DbErr> {
+    let orm = weldsuite_db::orm(db);
+    let linked: Vec<Option<String>> = bank_accounts::Entity::find()
+        .select_only()
+        .column(bank_accounts::Column::LedgerAccountId)
+        .filter(bank_accounts::Column::EntityId.eq(entity_id))
+        .filter(bank_accounts::Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&orm)
+        .await?;
     let linked: Vec<String> = linked
         .into_iter()
         .flatten()
         .filter(|id| !id.is_empty())
         .collect();
-    let rows: Vec<(String, String, String, String, Option<String>)> = sqlx::query_as(
-        "select id, code, name, type, subtype from accounts where entity_id = $1 and deleted_at is null",
-    )
-    .bind(entity_id)
-    .fetch_all(db)
-    .await?;
+    let rows: Vec<(String, String, String, String, Option<String>)> = accounts::Entity::find()
+        .select_only()
+        .columns([
+            accounts::Column::Id,
+            accounts::Column::Code,
+            accounts::Column::Name,
+            accounts::Column::Type,
+            accounts::Column::Subtype,
+        ])
+        .filter(accounts::Column::EntityId.eq(entity_id))
+        .filter(accounts::Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&orm)
+        .await?;
     Ok(rows
         .into_iter()
         .filter(|(id, _, _, kind, subtype)| {
@@ -286,6 +299,70 @@ type CounterpartRow = (String, String, Option<String>, String, Option<Value>);
 /// An entry's non-cash lines: entry id, date, (account, amount) pairs.
 type EntryLines = (String, i64, Vec<(String, f64)>);
 
+/// Opening (before `from`) and closing (through `to`) balance of each cash
+/// account: `(account, opening, closing)` as Postgres's numeric text.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "a ledger roll-up of money: posted lines summed per account, split at the period start, read back as Postgres's numeric text"
+)]
+async fn cash_balances(
+    db: &PgPool,
+    entity_id: &str,
+    from: i64,
+    to: i64,
+    cash_ids: &[String],
+) -> Result<Vec<(String, String, String)>, DbErr> {
+    sqlx::query_as(
+        "select jl.account_id, \
+         coalesce(sum(case when je.date < $2::timestamp then jl.debit::numeric - jl.credit::numeric else 0 end), 0)::text, \
+         coalesce(sum(jl.debit::numeric - jl.credit::numeric), 0)::text \
+         from journal_lines jl inner join journal_entries je on jl.journal_entry_id = je.id \
+         where jl.entity_id = $1 and jl.deleted_at is null and je.deleted_at is null \
+         and je.status in ('posted', 'reversed') and jl.account_id = any($3::text[]) \
+         and je.date <= $4::timestamp group by jl.account_id",
+    )
+    .bind(entity_id)
+    .bind(iso(from))
+    .bind(cash_ids)
+    .bind(iso(to))
+    .fetch_all(db)
+    .await
+    .map_err(weldsuite_db::orm_error)
+}
+
+/// Every line of every entry in the period that moves a cash account,
+/// summed per entry and account: `(entry, date in ms, account, debit,
+/// credit)`.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "a ledger roll-up of money: lines summed per entry and account, filtered by an exists over the entry's cash lines, read back as Postgres's numeric text"
+)]
+async fn cash_entry_lines(
+    db: &PgPool,
+    entity_id: &str,
+    from: i64,
+    to: i64,
+    cash_ids: &[String],
+) -> Result<Vec<LineRow>, DbErr> {
+    sqlx::query_as(
+        "select je.id, floor(extract(epoch from je.date) * 1000)::bigint, jl.account_id, \
+         coalesce(sum(jl.debit::numeric), 0)::text, coalesce(sum(jl.credit::numeric), 0)::text \
+         from journal_lines jl inner join journal_entries je on jl.journal_entry_id = je.id \
+         where jl.entity_id = $1 and jl.deleted_at is null and je.deleted_at is null \
+         and je.status in ('posted', 'reversed') and je.date >= $2::timestamp and je.date <= $3::timestamp \
+         and exists (select 1 from journal_lines as cash_line where cash_line.journal_entry_id = je.id \
+         and cash_line.deleted_at is null and cash_line.account_id = any($4::text[])) \
+         group by je.id, je.date, jl.account_id",
+    )
+    .bind(entity_id)
+    .bind(iso(from))
+    .bind(iso(to))
+    .bind(cash_ids)
+    .fetch_all(db)
+    .await
+    .map_err(weldsuite_db::orm_error)
+}
+
 /// `buildCashFlow(db, entityId, range)`.
 #[allow(clippy::too_many_lines)] // one TypeScript builder with its helpers
 pub(crate) async fn build_cash_flow(
@@ -303,43 +380,14 @@ pub(crate) async fn build_cash_flow(
     }
 
     // Opening and closing balance per cash account, straight from the ledger.
-    let balance_rows: Vec<(String, String, String)> = sqlx::query_as(
-        "select jl.account_id, \
-         coalesce(sum(case when je.date < $2::timestamp then jl.debit::numeric - jl.credit::numeric else 0 end), 0)::text, \
-         coalesce(sum(jl.debit::numeric - jl.credit::numeric), 0)::text \
-         from journal_lines jl inner join journal_entries je on jl.journal_entry_id = je.id \
-         where jl.entity_id = $1 and jl.deleted_at is null and je.deleted_at is null \
-         and je.status in ('posted', 'reversed') and jl.account_id = any($3::text[]) \
-         and je.date <= $4::timestamp group by jl.account_id",
-    )
-    .bind(entity_id)
-    .bind(iso(from))
-    .bind(&cash_ids)
-    .bind(iso(to))
-    .fetch_all(db)
-    .await?;
+    let balance_rows = cash_balances(db, entity_id, from, to, &cash_ids).await?;
     let balances: HashMap<String, (f64, f64)> = balance_rows
         .iter()
         .map(|(id, opening, closing)| (id.clone(), (parse_float(opening), parse_float(closing))))
         .collect();
 
     // Every line of every entry in the period that moves a cash account.
-    let line_rows: Vec<LineRow> = sqlx::query_as(
-        "select je.id, floor(extract(epoch from je.date) * 1000)::bigint, jl.account_id, \
-         coalesce(sum(jl.debit::numeric), 0)::text, coalesce(sum(jl.credit::numeric), 0)::text \
-         from journal_lines jl inner join journal_entries je on jl.journal_entry_id = je.id \
-         where jl.entity_id = $1 and jl.deleted_at is null and je.deleted_at is null \
-         and je.status in ('posted', 'reversed') and je.date >= $2::timestamp and je.date <= $3::timestamp \
-         and exists (select 1 from journal_lines as cash_line where cash_line.journal_entry_id = je.id \
-         and cash_line.deleted_at is null and cash_line.account_id = any($4::text[])) \
-         group by je.id, je.date, jl.account_id",
-    )
-    .bind(entity_id)
-    .bind(iso(from))
-    .bind(iso(to))
-    .bind(&cash_ids)
-    .fetch_all(db)
-    .await?;
+    let line_rows = cash_entry_lines(db, entity_id, from, to, &cash_ids).await?;
 
     let mut counterpart_ids: Vec<String> = Vec::new();
     for (_, _, account_id, _, _) in &line_rows {
@@ -349,12 +397,19 @@ pub(crate) async fn build_cash_flow(
     }
     let mut info: HashMap<String, Counterpart> = HashMap::new();
     for chunk in counterpart_ids.chunks(400) {
-        let rows: Vec<CounterpartRow> = sqlx::query_as(
-            "select id, type, subtype, name, metadata from accounts where id = any($1::text[])",
-        )
-        .bind(chunk)
-        .fetch_all(db)
-        .await?;
+        let rows: Vec<CounterpartRow> = accounts::Entity::find()
+            .select_only()
+            .columns([
+                accounts::Column::Id,
+                accounts::Column::Type,
+                accounts::Column::Subtype,
+                accounts::Column::Name,
+                accounts::Column::Metadata,
+            ])
+            .filter(accounts::Column::Id.is_in(chunk.iter().cloned()))
+            .into_tuple()
+            .all(&weldsuite_db::orm(db))
+            .await?;
         for (id, account_type, subtype, name, metadata) in rows {
             let system_role = metadata
                 .as_ref()

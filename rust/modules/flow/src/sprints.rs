@@ -9,22 +9,45 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use http::HeaderMap;
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ColumnTrait, Condition, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect,
+};
 use serde_json::{Map, Value, json};
+use time::PrimitiveDateTime;
 use weldsuite_catalogs::entity_events::{
     PROJECT_SPRINT_COMPLETED, PROJECT_SPRINT_CREATED, PROJECT_SPRINT_DELETED,
     PROJECT_SPRINT_STARTED, PROJECT_SPRINT_UPDATED,
 };
-use weldsuite_db::js_row;
+use weldsuite_db::record::JsonTable;
+use weldsuite_db::{orm, utc_now};
 use weldsuite_flow_domain::js::contains_pattern;
 use weldsuite_kit::validation::{Issues, Presence};
 use weldsuite_kit::{ApiError, Created, Data, NoContent, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::sprints;
 
 use crate::projects::{bindable, writable};
 use crate::{
-    Caller, FlowState, Query, Refusal, Reply, access_scope, forbidden, keyset_cursor, list_limit,
-    now, outside, page, paged, reply, validate,
+    Caller, FlowState, Query, Refusal, Reply, access_scope, fetch_limit, forbidden, in_accessible,
+    json_rows, keyset_before, keyset_cursor, list_limit, now, outside, page, paged, reply,
+    row_json, validate,
 };
+
+const SPRINTS: JsonTable = JsonTable::of::<sprints::Entity>();
+
+/// The writable keys and their columns.
+const COLUMNS: [(&str, &str); 9] = [
+    ("name", "name"),
+    ("projectId", "project_id"),
+    ("goal", "goal"),
+    ("status", "status"),
+    ("startDate", "start_date"),
+    ("endDate", "end_date"),
+    ("velocity", "velocity"),
+    ("storyPointsCommitted", "story_points_committed"),
+    ("storyPointsCompleted", "story_points_completed"),
+];
 
 const PROJECT_DENIED: &str = "You are not a member of this project";
 const PROJECT_WRITE_DENIED: &str = "You do not have write access to this project";
@@ -80,7 +103,7 @@ async fn list_sprints(caller: &Caller, q: &Query) -> Reply {
     let project_id = q.present("projectId").map(str::to_owned);
     // Row-level scope (`projectScope`): an explicit project must be
     // accessible; otherwise the caller's projects (scope:all: live ones).
-    let (scoped, all, ids) = if let Some(project_id) = &project_id {
+    let (scoped, all_projects, ids) = if let Some(project_id) = &project_id {
         if !caller.can_access(project_id).await? {
             return Err(Refusal::forbidden(PROJECT_DENIED));
         }
@@ -93,60 +116,53 @@ async fn list_sprints(caller: &Caller, q: &Query) -> Reply {
     let search = q.present("search").map(contains_pattern);
     let cursor = match q.present("cursor") {
         Some(cursor) => {
-            keyset_cursor(
-                db,
-                "select id, to_jsonb(created_at) #>> '{}' from sprints where id = $1 limit 1",
-                cursor,
-            )
-            .await?
+            keyset_cursor(db, sprints::Column::Id, sprints::Column::CreatedAt, cursor).await?
         }
         None => None,
     };
+    let filters = || {
+        use sprints::Column;
+        let mut all = Condition::all().add(Column::DeletedAt.is_null());
+        if let Some(project_id) = &project_id {
+            all = all.add(Column::ProjectId.eq(project_id.as_str()));
+        }
+        if scoped {
+            all = all.add(in_accessible(
+                Column::ProjectId,
+                &(all_projects, ids.clone()),
+            ));
+        }
+        if let Some(status) = &status {
+            all = all.add(Column::Status.eq(status.as_str()));
+        }
+        if let Some(search) = &search {
+            all = all.add(Column::Name.ilike(search.as_str()));
+        }
+        all
+    };
     let result = async {
+        use sprints::Column;
         let Some(limit) = limit else {
             return Err(Refusal::Internal("limit is NaN".to_owned()));
         };
-        let rows: Vec<Value> = sqlx::query_scalar(concat!(
-            "select to_jsonb(s) from sprints s where s.deleted_at is null",
-            " and ($1::text is null or s.project_id = $1)",
-            " and ($2::bool is not true or ",
-            in_accessible!("s.project_id", "$3", "$4"),
-            ")",
-            " and ($5::text is null or s.status = $5)",
-            " and ($6::text is null or s.name ilike $6)",
-            " and ($7::timestamp is null or s.created_at < $7::timestamp",
-            " or (s.created_at = $7::timestamp and s.id < $8))",
-            " order by s.created_at desc, s.id desc limit $9"
-        ))
-        .bind(project_id.as_deref())
-        .bind(scoped)
-        .bind(all)
-        .bind(&ids)
-        .bind(status.as_deref())
-        .bind(search.as_deref())
-        .bind(cursor.as_ref().map(|c| c.0.as_str()))
-        .bind(cursor.as_ref().map(|c| c.1.as_str()))
-        .bind(limit + 1)
-        .fetch_all(db)
-        .await?;
-        let total: i64 = sqlx::query_scalar(concat!(
-            "select count(*) from sprints s where s.deleted_at is null",
-            " and ($1::text is null or s.project_id = $1)",
-            " and ($2::bool is not true or ",
-            in_accessible!("s.project_id", "$3", "$4"),
-            ")",
-            " and ($5::text is null or s.status = $5)",
-            " and ($6::text is null or s.name ilike $6)"
-        ))
-        .bind(project_id.as_deref())
-        .bind(scoped)
-        .bind(all)
-        .bind(&ids)
-        .bind(status.as_deref())
-        .bind(search.as_deref())
-        .fetch_one(db)
-        .await?;
-        let (rows, has_more, next) = page(rows.into_iter().map(js_row).collect(), limit);
+        let mut found = sprints::Entity::find().filter(filters());
+        if let Some(cursor) = &cursor {
+            found = found.filter(keyset_before(Column::Id, Column::CreatedAt, cursor));
+        }
+        let rows = found
+            .order_by_desc(Column::CreatedAt)
+            .order_by_desc(Column::Id)
+            .limit(fetch_limit(limit)?)
+            .all(&orm(db))
+            .await?;
+        let total = i64::try_from(
+            sprints::Entity::find()
+                .filter(filters())
+                .count(&orm(db))
+                .await?,
+        )
+        .unwrap_or(i64::MAX);
+        let (rows, has_more, next) = page(json_rows(rows)?, limit);
         Ok(paged(rows, total, has_more, next))
     }
     .await;
@@ -155,14 +171,33 @@ async fn list_sprints(caller: &Caller, q: &Query) -> Reply {
 
 // ── GET /:id ────────────────────────────────────────────────────────────────
 
-async fn sprint_row(db: &weldsuite_db::PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(s) from sprints s where s.id = $1 and s.deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(js_row))
+async fn sprint_row(db: &weldsuite_db::PgPool, id: &str) -> Result<Option<Value>, sea_orm::DbErr> {
+    sprints::Entity::find()
+        .filter(sprints::Column::Id.eq(id))
+        .filter(sprints::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?
+        .map(row_json)
+        .transpose()
+}
+
+/// The body's keys by column (`jsonb_populate_record` casts each to its
+/// column's type); `fallback` is the value of a key the body leaves out
+/// (`None`: the column is not written).
+fn sprint_columns(
+    data: &Map<String, Value>,
+    fallback: impl Fn(&str) -> Option<Value>,
+) -> Result<Map<String, Value>, Refusal> {
+    let Value::Object(body) = bindable(data) else {
+        return Err(Refusal::Internal("body is not an object".to_owned()));
+    };
+    let mut row = Map::new();
+    for (key, column) in COLUMNS {
+        if let Some(value) = body.get(key).cloned().or_else(|| fallback(key)) {
+            row.insert(column.to_owned(), value);
+        }
+    }
+    Ok(row)
 }
 
 async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
@@ -253,37 +288,21 @@ async fn create_sprint(
     let status = data.get("status").and_then(Value::as_str);
     let started = matches!(status, Some("active" | "completed"));
     let completed = status == Some("completed");
-    sqlx::query(concat!(
-        "insert into sprints (id, created_at, updated_at, started_at, completed_at, name,",
-        " project_id, goal, status, start_date, end_date, velocity, story_points_committed,",
-        " story_points_completed) values ($2, $3::timestamp, $3::timestamp, $4::timestamp,",
-        " $5::timestamp, ",
-        val_text!("name", "null"),
-        ", ",
-        val_text!("projectId", "null"),
-        ", ",
-        val_text!("goal", "null"),
-        ", ",
-        val_text!("status", "'planned'"),
-        ", ",
-        val_ts!("startDate", "null"),
-        ", ",
-        val_ts!("endDate", "null"),
-        ", ",
-        val_int!("velocity", "null"),
-        ", ",
-        val_int!("storyPointsCommitted", "null"),
-        ", ",
-        val_int!("storyPointsCompleted", "null"),
-        ")"
-    ))
-    .bind(bindable(&data))
-    .bind(&id)
-    .bind(&now)
-    .bind(started.then_some(now.as_str()))
-    .bind(completed.then_some(now.as_str()))
-    .execute(&caller.db)
-    .await?;
+    // Every column named: a key the body sent (even as `null`), else the
+    // insert's own default.
+    let mut row = sprint_columns(&data, |key| {
+        Some(if key == "status" {
+            json!("planned")
+        } else {
+            Value::Null
+        })
+    })?;
+    row.insert("id".to_owned(), json!(id));
+    row.insert("created_at".to_owned(), json!(now));
+    row.insert("updated_at".to_owned(), json!(now));
+    row.insert("started_at".to_owned(), json!(started.then_some(&now)));
+    row.insert("completed_at".to_owned(), json!(completed.then_some(&now)));
+    SPRINTS.insert(&orm(&caller.db), row).await?;
     let status = match data.get("status") {
         None | Some(Value::Null) => json!("planned"),
         Some(status) => status.clone(),
@@ -336,16 +355,24 @@ async fn update_sprint(
     data: Map<String, Value>,
 ) -> Reply {
     let db = &caller.db;
-    let existing: Option<(Option<String>, String, String, bool)> = sqlx::query_as(
-        "select project_id, name, status, started_at is not null from sprints
-         where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    let Some((existing_project, existing_name, before, has_started)) = existing else {
+    let existing: Option<(Option<String>, String, String, Option<PrimitiveDateTime>)> =
+        sprints::Entity::find()
+            .select_only()
+            .columns([
+                sprints::Column::ProjectId,
+                sprints::Column::Name,
+                sprints::Column::Status,
+                sprints::Column::StartedAt,
+            ])
+            .filter(sprints::Column::Id.eq(id))
+            .filter(sprints::Column::DeletedAt.is_null())
+            .into_tuple()
+            .one(&orm(db))
+            .await?;
+    let Some((existing_project, existing_name, before, started_at)) = existing else {
         return Err(Refusal::not_found("Sprint", id));
     };
+    let has_started = started_at.is_some();
     if let Some(project) = existing_project.as_deref().filter(|p| !p.is_empty())
         && !caller.can_write(project).await?
     {
@@ -380,37 +407,16 @@ async fn update_sprint(
     } else {
         (false, None)
     };
-    sqlx::query(concat!(
-        "update sprints set ",
-        set_text!("name", "name"),
-        ", ",
-        set_text!("projectId", "project_id"),
-        ", ",
-        set_text!("goal", "goal"),
-        ", ",
-        set_text!("status", "status"),
-        ", ",
-        set_ts!("startDate", "start_date"),
-        ", ",
-        set_ts!("endDate", "end_date"),
-        ", ",
-        set_int!("velocity", "velocity"),
-        ", ",
-        set_int!("storyPointsCommitted", "story_points_committed"),
-        ", ",
-        set_int!("storyPointsCompleted", "story_points_completed"),
-        ", started_at = case when $4 then $3::timestamp else started_at end",
-        ", completed_at = case when $5 then $6::timestamp else completed_at end",
-        ", updated_at = $3::timestamp where id = $2 and deleted_at is null"
-    ))
-    .bind(bindable(&data))
-    .bind(id)
-    .bind(&now)
-    .bind(set_started)
-    .bind(set_completed)
-    .bind(completed_at)
-    .execute(db)
-    .await?;
+    // A key the body leaves out keeps its column.
+    let mut row = sprint_columns(&data, |_| None)?;
+    if set_started {
+        row.insert("started_at".to_owned(), json!(now));
+    }
+    if set_completed {
+        row.insert("completed_at".to_owned(), json!(completed_at));
+    }
+    row.insert("updated_at".to_owned(), json!(now));
+    SPRINTS.update(&orm(db), id, row, true).await?;
     let name = match data.get("name") {
         None | Some(Value::Null) => Value::String(existing_name),
         Some(name) => name.clone(),
@@ -435,12 +441,14 @@ async fn remove(
 ) -> Response {
     reply(
         async {
-            let project: Option<Option<String>> = sqlx::query_scalar(
-                "select project_id from sprints where id = $1 and deleted_at is null limit 1",
-            )
-            .bind(&id)
-            .fetch_optional(&caller.db)
-            .await?;
+            let project: Option<Option<String>> = sprints::Entity::find()
+                .select_only()
+                .column(sprints::Column::ProjectId)
+                .filter(sprints::Column::Id.eq(&id))
+                .filter(sprints::Column::DeletedAt.is_null())
+                .into_tuple()
+                .one(&orm(&caller.db))
+                .await?;
             let Some(project) = project else {
                 return Err(Refusal::not_found("Sprint", &id));
             };
@@ -449,13 +457,13 @@ async fn remove(
             {
                 return Err(Refusal::forbidden(PROJECT_WRITE_DENIED));
             }
-            sqlx::query(
-                "update sprints set deleted_at = $2::timestamp, updated_at = $2::timestamp where id = $1",
-            )
-            .bind(&id)
-            .bind(now())
-            .execute(&caller.db)
-            .await?;
+            let at = utc_now();
+            sprints::Entity::update_many()
+                .col_expr(sprints::Column::DeletedAt, Expr::value(Some(at)))
+                .col_expr(sprints::Column::UpdatedAt, Expr::value(at))
+                .filter(sprints::Column::Id.eq(&id))
+                .exec(&orm(&caller.db))
+                .await?;
             caller.publish(&state, PROJECT_SPRINT_DELETED, &id, &json!({ "id": id }));
             Ok(NoContent.into_response())
         }

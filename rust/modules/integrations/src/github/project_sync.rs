@@ -9,19 +9,28 @@
 use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
+use sea_orm::ActiveValue::Set;
+use sea_orm::prelude::BigDecimal;
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QuerySelect};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use weldsuite_db::PgPool;
+use time::PrimitiveDateTime;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_ports::{BoxFuture, Job, JobContext, JobError, StepRetry, step};
+use weldsuite_schema::tenant::{
+    github_issue_sync_map as sync_map, github_project_links as links, merge_connections, tasks,
+};
 
 use super::api::{
     self, ItemsPage, ProjectItemIssue, StatusOptionMapping, stage_id_for_status_option,
     status_option_for_stage_id, task_status_from_issue_state,
 };
 use super::{
-    GITHUB_PROJECT_SYNC_JOB, GithubDeps, iso_of_millis, millis_of_iso, now_millis,
-    status_to_stage_id,
+    GITHUB_PROJECT_SYNC_JOB, GithubDeps, millis_of_iso, millis_of_timestamp, now_millis,
+    status_to_stage_id, timestamp_of_millis,
 };
+use crate::crm::db_text;
 
 /// `GithubProjectSyncParams`.
 #[derive(Debug, Clone, Deserialize)]
@@ -71,16 +80,25 @@ pub async fn load_link_data(
         Option<Value>,
         Option<String>,
         Option<String>,
-    )> = sqlx::query_as(
-        "select connection_id, project_v2_node_id, project_id, sync_direction, sync_issues, \
-         status_option_map, repo_full_name, status_field_id from github_project_links \
-         where id = $1 and workspace_id = $2 and deleted_at is null limit 1",
-    )
-    .bind(project_link_id)
-    .bind(workspace_id)
-    .fetch_optional(db)
-    .await
-    .map_err(|e| e.to_string())?;
+    )> = links::Entity::find()
+        .select_only()
+        .columns([
+            links::Column::ConnectionId,
+            links::Column::ProjectV2NodeId,
+            links::Column::ProjectId,
+            links::Column::SyncDirection,
+            links::Column::SyncIssues,
+            links::Column::StatusOptionMap,
+            links::Column::RepoFullName,
+            links::Column::StatusFieldId,
+        ])
+        .filter(links::Column::Id.eq(project_link_id))
+        .filter(links::Column::WorkspaceId.eq(workspace_id))
+        .filter(links::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await
+        .map_err(|e| db_text(&e))?;
     let Some((
         connection_id,
         node_id,
@@ -96,14 +114,19 @@ pub async fn load_link_data(
     };
     // The link's connection is a WeldMerge connection; its installation id
     // is `external_account_id` (`Number(conn.externalAccountId)`).
-    let connection: Option<(String, String, String)> = sqlx::query_as(
-        "select id, external_account_id, status from merge_connections \
-         where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(&connection_id)
-    .fetch_optional(db)
-    .await
-    .map_err(|e| e.to_string())?;
+    let connection: Option<(String, String, String)> = merge_connections::Entity::find()
+        .select_only()
+        .columns([
+            merge_connections::Column::Id,
+            merge_connections::Column::ExternalAccountId,
+            merge_connections::Column::Status,
+        ])
+        .filter(merge_connections::Column::Id.eq(&connection_id))
+        .filter(merge_connections::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await
+        .map_err(|e| db_text(&e))?;
     let Some((id, external_account_id, status)) = connection else {
         return Err(format!(
             "Connection for project link {project_link_id} not found"
@@ -182,91 +205,109 @@ async fn upsert_item_as_task(
     // An empty stage id is no stage (`if (stageId)`).
     let stage_id = stage_id_for_status_option(status_option_map, item.status_option_id.as_deref())
         .filter(|id| !id.is_empty());
-    let issue_iso = issue_updated_at
-        .map(iso_of_millis)
+    let issue_at = issue_updated_at
+        .map(timestamp_of_millis)
         .ok_or_else(|| "Invalid time value".to_owned())?;
-    let existing: Option<(String, String, Option<i64>, Option<i64>)> = sqlx::query_as(
-        "select id, task_id, \
-           floor(extract(epoch from last_synced_task_updated_at) * 1000)::bigint, \
-           floor(extract(epoch from last_synced_issue_updated_at) * 1000)::bigint \
-         from github_issue_sync_map where project_link_id = $1 and project_item_node_id = $2 limit 1",
-    )
-    .bind(project_link_id)
-    .bind(&item.item_node_id)
-    .fetch_optional(db)
-    .await
-    .map_err(|e| e.to_string())?;
-    let now = iso_of_millis(now_millis());
+    let existing: Option<(
+        String,
+        String,
+        Option<PrimitiveDateTime>,
+        Option<PrimitiveDateTime>,
+    )> = sync_map::Entity::find()
+        .select_only()
+        .columns([
+            sync_map::Column::Id,
+            sync_map::Column::TaskId,
+            sync_map::Column::LastSyncedTaskUpdatedAt,
+            sync_map::Column::LastSyncedIssueUpdatedAt,
+        ])
+        .filter(sync_map::Column::ProjectLinkId.eq(project_link_id))
+        .filter(sync_map::Column::ProjectItemNodeId.eq(&item.item_node_id))
+        .into_tuple()
+        .one(&orm(db))
+        .await
+        .map_err(|e| db_text(&e))?;
+    let now = timestamp_of_millis(now_millis());
 
     if let Some((map_id, task_id, last_task, last_issue)) = existing {
-        let task: Option<i64> = sqlx::query_scalar(
-            "select floor(extract(epoch from updated_at) * 1000)::bigint from tasks where id = $1 limit 1",
-        )
-        .bind(&task_id)
-        .fetch_optional(db)
-        .await
-        .map_err(|e| e.to_string())?;
-        let Some(task_updated_at) = task else {
-            sqlx::query("delete from github_issue_sync_map where id = $1")
-                .bind(&map_id)
-                .execute(db)
+        let task: Option<PrimitiveDateTime> = tasks::Entity::find()
+            .select_only()
+            .column(tasks::Column::UpdatedAt)
+            .filter(tasks::Column::Id.eq(&task_id))
+            .into_tuple()
+            .one(&orm(db))
+            .await
+            .map_err(|e| db_text(&e))?;
+        let Some(task_updated_at) = task.map(millis_of_timestamp) else {
+            sync_map::Entity::delete_many()
+                .filter(sync_map::Column::Id.eq(&map_id))
+                .exec(&orm(db))
                 .await
-                .map_err(|e| e.to_string())?;
+                .map_err(|e| db_text(&e))?;
             return Ok(());
         };
         match decide(
             task_updated_at,
-            last_task,
-            last_issue,
+            last_task.map(millis_of_timestamp),
+            last_issue.map(millis_of_timestamp),
             issue_updated_at,
             item,
         ) {
             Decision::Skip => {}
             Decision::KeepTask => {
-                sqlx::query(
-                    "update github_issue_sync_map set last_synced_task_updated_at = $2::timestamp, \
-                     last_synced_issue_updated_at = $3::timestamp, last_writer_side = 'task', \
-                     updated_at = $4::timestamp where id = $1",
-                )
-                .bind(&map_id)
-                .bind(iso_of_millis(task_updated_at))
-                .bind(&issue_iso)
-                .bind(&now)
-                .execute(db)
-                .await
-                .map_err(|e| e.to_string())?;
+                sync_map::Entity::update_many()
+                    .col_expr(
+                        sync_map::Column::LastSyncedTaskUpdatedAt,
+                        Expr::value(timestamp_of_millis(task_updated_at)),
+                    )
+                    .col_expr(
+                        sync_map::Column::LastSyncedIssueUpdatedAt,
+                        Expr::value(issue_at),
+                    )
+                    .col_expr(sync_map::Column::LastWriterSide, Expr::value("task"))
+                    .col_expr(sync_map::Column::UpdatedAt, Expr::value(now))
+                    .filter(sync_map::Column::Id.eq(&map_id))
+                    .exec(&orm(db))
+                    .await
+                    .map_err(|e| db_text(&e))?;
             }
             Decision::ApplyIssue => {
-                // `updateMappedTask`.
-                sqlx::query(
-                    "update tasks set title = $2, description = $3, status = $4, labels = $5, \
-                     updated_at = $6::timestamp, stage_id = case when $7::text is null then stage_id else $7 end \
-                     where id = $1",
-                )
-                .bind(&task_id)
-                .bind(&item.title)
-                .bind(&item.body)
-                .bind(status)
-                .bind(json!(item.labels))
-                .bind(&now)
-                .bind(&stage_id)
-                .execute(db)
-                .await
-                .map_err(|e| e.to_string())?;
-                sqlx::query(
-                    "update github_issue_sync_map set last_synced_issue_updated_at = $2::timestamp, \
-                     last_synced_task_updated_at = $3::timestamp, issue_node_id = $4, issue_number = $5, \
-                     repo_id = $6, last_writer_side = 'issue', updated_at = $3::timestamp where id = $1",
-                )
-                .bind(&map_id)
-                .bind(&issue_iso)
-                .bind(&now)
-                .bind(&item.issue_node_id)
-                .bind(i32::try_from(item.number).unwrap_or(i32::MAX))
-                .bind(item.repo_id)
-                .execute(db)
-                .await
-                .map_err(|e| e.to_string())?;
+                // `updateMappedTask`: the stage only when the option maps to one.
+                let mut update = tasks::Entity::update_many()
+                    .col_expr(tasks::Column::Title, Expr::value(&item.title))
+                    .col_expr(tasks::Column::Description, Expr::value(item.body.clone()))
+                    .col_expr(tasks::Column::Status, Expr::value(status))
+                    .col_expr(tasks::Column::Labels, Expr::value(json!(item.labels)))
+                    .col_expr(tasks::Column::UpdatedAt, Expr::value(now));
+                if let Some(stage_id) = &stage_id {
+                    update = update.col_expr(tasks::Column::StageId, Expr::value(stage_id));
+                }
+                update
+                    .filter(tasks::Column::Id.eq(&task_id))
+                    .exec(&orm(db))
+                    .await
+                    .map_err(|e| db_text(&e))?;
+                sync_map::Entity::update_many()
+                    .col_expr(
+                        sync_map::Column::LastSyncedIssueUpdatedAt,
+                        Expr::value(issue_at),
+                    )
+                    .col_expr(sync_map::Column::LastSyncedTaskUpdatedAt, Expr::value(now))
+                    .col_expr(
+                        sync_map::Column::IssueNodeId,
+                        Expr::value(&item.issue_node_id),
+                    )
+                    .col_expr(
+                        sync_map::Column::IssueNumber,
+                        Expr::value(i32::try_from(item.number).unwrap_or(i32::MAX)),
+                    )
+                    .col_expr(sync_map::Column::RepoId, Expr::value(item.repo_id))
+                    .col_expr(sync_map::Column::LastWriterSide, Expr::value("issue"))
+                    .col_expr(sync_map::Column::UpdatedAt, Expr::value(now))
+                    .filter(sync_map::Column::Id.eq(&map_id))
+                    .exec(&orm(db))
+                    .await
+                    .map_err(|e| db_text(&e))?;
             }
         }
         return Ok(());
@@ -274,42 +315,42 @@ async fn upsert_item_as_task(
 
     let task_id = weldsuite_kit::generate_id("tsk");
     let map_id = weldsuite_kit::generate_id("ghsm");
-    sqlx::query(
-        "insert into tasks (id, title, description, status, stage_id, priority, progress, project_id, \
-         labels, github_issue_number, created_at, updated_at) \
-         values ($1, $2, $3, $4, $5, 'medium', '0', $6, $7, $8, $9::timestamp, $9::timestamp)",
-    )
-    .bind(&task_id)
-    .bind(&item.title)
-    .bind(&item.body)
-    .bind(status)
-    .bind(&stage_id)
-    .bind(project_id)
-    .bind(json!(item.labels))
-    .bind(i32::try_from(item.number).unwrap_or(i32::MAX))
-    .bind(&now)
-    .execute(db)
+    tasks::Entity::insert(tasks::ActiveModel {
+        id: Set(task_id.clone()),
+        title: Set(item.title.clone()),
+        description: Set(item.body.clone()),
+        status: Set(status.to_owned()),
+        stage_id: Set(stage_id.clone()),
+        priority: Set("medium".to_owned()),
+        progress: Set(BigDecimal::from(0)),
+        project_id: Set(Some(project_id.to_owned())),
+        labels: Set(Some(json!(item.labels))),
+        github_issue_number: Set(Some(i32::try_from(item.number).unwrap_or(i32::MAX))),
+        created_at: Set(now),
+        updated_at: Set(now),
+        ..Default::default()
+    })
+    .exec_without_returning(&orm(db))
     .await
-    .map_err(|e| e.to_string())?;
-    sqlx::query(
-        "insert into github_issue_sync_map (id, workspace_id, project_link_id, task_id, project_item_node_id, \
-         issue_node_id, issue_number, repo_id, last_synced_task_updated_at, last_synced_issue_updated_at, \
-         last_writer_side, created_at, updated_at) \
-         values ($1, $2, $3, $4, $5, $6, $7, $8, $9::timestamp, $10::timestamp, 'issue', $9::timestamp, $9::timestamp)",
-    )
-    .bind(&map_id)
-    .bind(workspace_id)
-    .bind(project_link_id)
-    .bind(&task_id)
-    .bind(&item.item_node_id)
-    .bind(&item.issue_node_id)
-    .bind(i32::try_from(item.number).unwrap_or(i32::MAX))
-    .bind(item.repo_id)
-    .bind(&now)
-    .bind(&issue_iso)
-    .execute(db)
+    .map_err(|e| db_text(&e))?;
+    sync_map::Entity::insert(sync_map::ActiveModel {
+        id: Set(map_id),
+        workspace_id: Set(workspace_id.to_owned()),
+        project_link_id: Set(project_link_id.to_owned()),
+        task_id: Set(task_id),
+        project_item_node_id: Set(item.item_node_id.clone()),
+        issue_node_id: Set(Some(item.issue_node_id.clone())),
+        issue_number: Set(i32::try_from(item.number).unwrap_or(i32::MAX)),
+        repo_id: Set(item.repo_id),
+        last_synced_task_updated_at: Set(Some(now)),
+        last_synced_issue_updated_at: Set(Some(issue_at)),
+        last_writer_side: Set(Some("issue".to_owned())),
+        created_at: Set(now),
+        updated_at: Set(now),
+    })
+    .exec_without_returning(&orm(db))
     .await
-    .map_err(|e| e.to_string())?;
+    .map_err(|e| db_text(&e))?;
     Ok(())
 }
 
@@ -319,24 +360,25 @@ async fn prune_stale_mappings(
     project_link_id: &str,
     seen: &HashSet<String>,
 ) -> Result<usize, String> {
-    let rows: Vec<(String, String)> = sqlx::query_as(
-        "select id, project_item_node_id from github_issue_sync_map where project_link_id = $1",
-    )
-    .bind(project_link_id)
-    .fetch_all(db)
-    .await
-    .map_err(|e| e.to_string())?;
+    let rows: Vec<(String, String)> = sync_map::Entity::find()
+        .select_only()
+        .columns([sync_map::Column::Id, sync_map::Column::ProjectItemNodeId])
+        .filter(sync_map::Column::ProjectLinkId.eq(project_link_id))
+        .into_tuple()
+        .all(&orm(db))
+        .await
+        .map_err(|e| db_text(&e))?;
     let stale: Vec<String> = rows
         .into_iter()
         .filter(|(_, item)| !seen.contains(item))
         .map(|(id, _)| id)
         .collect();
     if !stale.is_empty() {
-        sqlx::query("delete from github_issue_sync_map where id = any($1)")
-            .bind(&stale)
-            .execute(db)
+        sync_map::Entity::delete_many()
+            .filter(sync_map::Column::Id.is_in(stale.iter().cloned()))
+            .exec(&orm(db))
             .await
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| db_text(&e))?;
         tracing::info!(
             "[GithubProjectSync] Pruned {} stale mapping(s) for link {project_link_id}",
             stale.len()
@@ -378,14 +420,23 @@ async fn project_tasks(db: &PgPool, project_id: &str) -> Result<Vec<TaskRow>, St
         String,
         Option<Value>,
         Option<i32>,
-    )> = sqlx::query_as(
-        "select id, title, description, stage_id, status, labels, github_issue_number from tasks \
-         where project_id = $1 and deleted_at is null",
-    )
-    .bind(project_id)
-    .fetch_all(db)
-    .await
-    .map_err(|e| e.to_string())?;
+    )> = tasks::Entity::find()
+        .select_only()
+        .columns([
+            tasks::Column::Id,
+            tasks::Column::Title,
+            tasks::Column::Description,
+            tasks::Column::StageId,
+            tasks::Column::Status,
+            tasks::Column::Labels,
+            tasks::Column::GithubIssueNumber,
+        ])
+        .filter(tasks::Column::ProjectId.eq(project_id))
+        .filter(tasks::Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&orm(db))
+        .await
+        .map_err(|e| db_text(&e))?;
     Ok(rows
         .into_iter()
         .map(
@@ -448,12 +499,14 @@ async fn reconcile_task(
     if task.github_issue_number.is_some() {
         return Ok("none");
     }
-    let mapped: Option<String> =
-        sqlx::query_scalar("select id from github_issue_sync_map where task_id = $1 limit 1")
-            .bind(&task.id)
-            .fetch_optional(db)
-            .await
-            .map_err(|e| e.to_string())?;
+    let mapped: Option<String> = sync_map::Entity::find()
+        .select_only()
+        .column(sync_map::Column::Id)
+        .filter(sync_map::Column::TaskId.eq(&task.id))
+        .into_tuple()
+        .one(&orm(db))
+        .await
+        .map_err(|e| db_text(&e))?;
     if mapped.is_some() {
         return Ok("none");
     }
@@ -482,38 +535,37 @@ async fn reconcile_task(
         )
         .await?;
     }
-    let now = iso_of_millis(now_millis());
+    let now = timestamp_of_millis(now_millis());
+    let number = i32::try_from(issue.number).unwrap_or(i32::MAX);
     // Claim the task at once, so a concurrent pass never creates a second issue.
-    sqlx::query(
-        "update tasks set github_issue_number = $2, updated_at = $3::timestamp where id = $1",
-    )
-    .bind(&task.id)
-    .bind(i32::try_from(issue.number).unwrap_or(i32::MAX))
-    .bind(&now)
-    .execute(db)
-    .await
-    .map_err(|e| e.to_string())?;
+    tasks::Entity::update_many()
+        .col_expr(tasks::Column::GithubIssueNumber, Expr::value(number))
+        .col_expr(tasks::Column::UpdatedAt, Expr::value(now))
+        .filter(tasks::Column::Id.eq(&task.id))
+        .exec(&orm(db))
+        .await
+        .map_err(|e| db_text(&e))?;
     let issue_updated = millis_of_iso(&issue.updated_at)
-        .map(iso_of_millis)
+        .map(timestamp_of_millis)
         .ok_or_else(|| "Invalid time value".to_owned())?;
-    sqlx::query(
-        "insert into github_issue_sync_map (id, workspace_id, project_link_id, task_id, project_item_node_id, \
-         issue_node_id, issue_number, repo_id, last_synced_task_updated_at, last_synced_issue_updated_at, \
-         last_writer_side, created_at, updated_at) \
-         values ($1, $2, $3, $4, $5, $6, $7, null, $8::timestamp, $9::timestamp, 'task', $8::timestamp, $8::timestamp)",
-    )
-    .bind(weldsuite_kit::generate_id("ghsm"))
-    .bind(workspace_id)
-    .bind(project_link_id)
-    .bind(&task.id)
-    .bind(&item)
-    .bind(&issue.node_id)
-    .bind(i32::try_from(issue.number).unwrap_or(i32::MAX))
-    .bind(&now)
-    .bind(&issue_updated)
-    .execute(db)
+    sync_map::Entity::insert(sync_map::ActiveModel {
+        id: Set(weldsuite_kit::generate_id("ghsm")),
+        workspace_id: Set(workspace_id.to_owned()),
+        project_link_id: Set(project_link_id.to_owned()),
+        task_id: Set(task.id.clone()),
+        project_item_node_id: Set(item),
+        issue_node_id: Set(Some(issue.node_id)),
+        issue_number: Set(number),
+        repo_id: Set(None),
+        last_synced_task_updated_at: Set(Some(now)),
+        last_synced_issue_updated_at: Set(Some(issue_updated)),
+        last_writer_side: Set(Some("task".to_owned())),
+        created_at: Set(now),
+        updated_at: Set(now),
+    })
+    .exec_without_returning(&orm(db))
     .await
-    .map_err(|e| e.to_string())?;
+    .map_err(|e| db_text(&e))?;
     Ok("pushed")
 }
 
@@ -527,18 +579,22 @@ async fn reconcile_outbound(
     repo_full_name: &str,
 ) -> Result<Value, String> {
     let db = deps.db(workspace_id).await?;
-    let rows: Vec<(String, String)> = sqlx::query_as(
-        "select task_id, project_item_node_id from github_issue_sync_map where project_link_id = $1",
-    )
-    .bind(project_link_id)
-    .fetch_all(&db)
-    .await
-    .map_err(|e| e.to_string())?;
+    let rows: Vec<(String, String)> = sync_map::Entity::find()
+        .select_only()
+        .columns([
+            sync_map::Column::TaskId,
+            sync_map::Column::ProjectItemNodeId,
+        ])
+        .filter(sync_map::Column::ProjectLinkId.eq(project_link_id))
+        .into_tuple()
+        .all(&orm(&db))
+        .await
+        .map_err(|e| db_text(&e))?;
     let item_by_task: HashMap<String, String> = rows.into_iter().collect();
     let tasks = project_tasks(&db, &link.project_id).await?;
     let status_to_stage = status_to_stage_id(&db, &link.project_id)
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| db_text(&e))?;
     let (mut pushed, mut restatused) = (0, 0);
     for task in &tasks {
         match reconcile_task(
@@ -692,16 +748,16 @@ impl GithubProjectSyncJob {
 
         let _: Value = step(ctx, "update-link", retry(3, 5), || async move {
             let db = deps.db(ws).await.map_err(failed)?;
-            let now = iso_of_millis(now_millis());
-            sqlx::query(
-                "update github_project_links set last_synced_at = $2::timestamp, last_error = null, \
-                 sync_cursor = null, updated_at = $2::timestamp where id = $1",
-            )
-            .bind(link_id)
-            .bind(&now)
-            .execute(&db)
-            .await
-            .map_err(failed)?;
+            let now = timestamp_of_millis(now_millis());
+            links::Entity::update_many()
+                .col_expr(links::Column::LastSyncedAt, Expr::value(now))
+                .col_expr(links::Column::LastError, Expr::value(None::<String>))
+                .col_expr(links::Column::SyncCursor, Expr::value(None::<String>))
+                .col_expr(links::Column::UpdatedAt, Expr::value(now))
+                .filter(links::Column::Id.eq(link_id))
+                .exec(&orm(&db))
+                .await
+                .map_err(|e| failed(db_text(&e)))?;
             tracing::info!(
                 "[GithubProjectSync] Completed sync for link {link_id}. Processed {total} items."
             );

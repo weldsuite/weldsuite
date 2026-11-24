@@ -12,19 +12,21 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use http::HeaderMap;
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect, QueryTrait};
 use serde_json::{Value, json};
 use weldsuite_catalogs::entity_events::MAIL_SUBSCRIPTION_UNSUBSCRIBED;
 use weldsuite_catalogs::permission_keys::{MESSAGES_READ, MESSAGES_UPDATE};
-use weldsuite_db::js_row;
+use weldsuite_db::{orm, utc_now, utc_timestamp};
 use weldsuite_kit::cursor::decode_uri_component;
 use weldsuite_kit::validation::Presence;
 use weldsuite_kit::{ApiError, Data};
 use weldsuite_mail_domain::access::check_account_access;
-use weldsuite_mail_domain::messages::iso;
 use weldsuite_mail_domain::outbound::OutboundKind;
 use weldsuite_mail_domain::send::{SendError, SendInput, SendOptions, send_and_persist};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 use weldsuite_ports::HttpRequest;
+use weldsuite_schema::tenant::{mail_messages, mail_subscriptions};
 
 use crate::send::{RequestDoh, SendContext};
 use crate::util::{MailError, answer, unhandled, validate, validate_query};
@@ -32,7 +34,7 @@ use crate::{Caller, MailState};
 
 /// `SCAN_WINDOW_DAYS` / `SCAN_MESSAGE_LIMIT`.
 const SCAN_WINDOW_DAYS: i64 = 180;
-const SCAN_MESSAGE_LIMIT: i64 = 2000;
+const SCAN_MESSAGE_LIMIT: u64 = 2000;
 
 pub(crate) fn routes<S, Q>(state: MailState, gate: &Arc<PermissionGate<Q>>) -> Router<S>
 where
@@ -53,6 +55,11 @@ where
             post(unsubscribe).route_layer(gate.require([MESSAGES_UPDATE])),
         )
         .with_state(state)
+}
+
+/// A subscription row as the route returns it (`to_jsonb(s)`).
+fn subscription_json(row: mail_subscriptions::Model) -> Result<Value, DbErr> {
+    serde_json::to_value(row).map_err(|error| DbErr::Json(error.to_string()))
 }
 
 /// The access check before the route's try/catch: a closed mailbox is a 404.
@@ -82,16 +89,20 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
         return response;
     }
     let result = async {
-        let rows: Vec<Value> = sqlx::query_scalar(
-            "select to_jsonb(s) from mail_subscriptions s
-             where s.account_id = $1 and ($2::text is null or s.status = $2)
-             order by s.last_received_at desc limit 1000",
-        )
-        .bind(&account)
-        .bind(&status)
-        .fetch_all(&caller.db)
-        .await?;
-        Ok(Data(rows.into_iter().map(js_row).collect::<Vec<_>>()).into_response())
+        let rows = mail_subscriptions::Entity::find()
+            .filter(mail_subscriptions::Column::AccountId.eq(&account))
+            .apply_if(status, |query, status| {
+                query.filter(mail_subscriptions::Column::Status.eq(status))
+            })
+            .order_by_desc(mail_subscriptions::Column::LastReceivedAt)
+            .limit(1000)
+            .all(&orm(&caller.db))
+            .await?;
+        let rows = rows
+            .into_iter()
+            .map(subscription_json)
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(Data(rows).into_response())
     }
     .await;
     answer(result, "Failed to list subscriptions")
@@ -119,18 +130,22 @@ async fn scan(caller: Caller, headers: HeaderMap, body: Bytes) -> Response {
     let result = async {
         let since_ms = weldsuite_mail_domain::outbound::clock::now_ms()
             - SCAN_WINDOW_DAYS * 24 * 60 * 60 * 1000;
-        let since = weldsuite_mail_domain::outbound::clock::iso(since_ms);
-        let scanned: Vec<String> = sqlx::query_scalar(
-            "select id from mail_messages
-             where account_id = $1 and source = 'inbound' and is_spam = false
-               and sent_date >= $2::timestamp
-             order by sent_date desc limit $3",
-        )
-        .bind(&account)
-        .bind(&since)
-        .bind(SCAN_MESSAGE_LIMIT)
-        .fetch_all(&caller.db)
-        .await?;
+        let since = utc_timestamp(
+            time::OffsetDateTime::from_unix_timestamp_nanos(i128::from(since_ms) * 1_000_000)
+                .unwrap_or(time::OffsetDateTime::UNIX_EPOCH),
+        );
+        let scanned: Vec<String> = mail_messages::Entity::find()
+            .select_only()
+            .column(mail_messages::Column::Id)
+            .filter(mail_messages::Column::AccountId.eq(&account))
+            .filter(mail_messages::Column::Source.eq("inbound"))
+            .filter(mail_messages::Column::IsSpam.eq(false))
+            .filter(mail_messages::Column::SentDate.gte(since))
+            .order_by_desc(mail_messages::Column::SentDate)
+            .limit(SCAN_MESSAGE_LIMIT)
+            .into_tuple()
+            .all(&orm(&caller.db))
+            .await?;
         Ok(Data(json!({ "scanned": scanned.len(), "subscriptions": 0 })).into_response())
     }
     .await;
@@ -237,13 +252,10 @@ async fn unsubscribe(
         .map(|d| Arc::clone(&d.0.0))
         .or_else(|| state.doh.clone());
     let result = async {
-        let row: Option<Value> = sqlx::query_scalar(
-            "select to_jsonb(s) from mail_subscriptions s where s.id = $1 limit 1",
-        )
-        .bind(&id)
-        .fetch_optional(&caller.db)
-        .await?;
-        let Some(row) = row.map(js_row) else {
+        let row = mail_subscriptions::Entity::find_by_id(&id)
+            .one(&orm(&caller.db))
+            .await?;
+        let Some(row) = row.map(subscription_json).transpose()? else {
             return Err(MailError::not_found("Subscription", Some(&id)));
         };
         let account = row["accountId"].as_str().unwrap_or_default().to_owned();
@@ -332,19 +344,29 @@ async fn unsubscribe(
                 ));
             }
         };
-        let at = iso(time::OffsetDateTime::now_utc());
-        let updated: Option<Value> = sqlx::query_scalar(
-            "update mail_subscriptions s set status = 'unsubscribed', unsubscribe_method = $2,
-               unsubscribed_at = $3::timestamp, unsubscribed_by = $4, updated_at = $3::timestamp
-             where s.id = $1 returning to_jsonb(s)",
-        )
-        .bind(&id)
-        .bind(method)
-        .bind(&at)
-        .bind(&caller.user_id)
-        .fetch_optional(&caller.db)
-        .await?;
-        let subscription = updated.map(js_row).unwrap_or(row);
+        let at = utc_now();
+        let updated = mail_subscriptions::Entity::update_many()
+            .col_expr(
+                mail_subscriptions::Column::Status,
+                Expr::value("unsubscribed"),
+            )
+            .col_expr(
+                mail_subscriptions::Column::UnsubscribeMethod,
+                Expr::value(method),
+            )
+            .col_expr(mail_subscriptions::Column::UnsubscribedAt, Expr::value(at))
+            .col_expr(
+                mail_subscriptions::Column::UnsubscribedBy,
+                Expr::value(&caller.user_id),
+            )
+            .col_expr(mail_subscriptions::Column::UpdatedAt, Expr::value(at))
+            .filter(mail_subscriptions::Column::Id.eq(&id))
+            .exec_with_returning(&orm(&caller.db))
+            .await?;
+        let subscription = match updated.into_iter().next() {
+            Some(updated) => subscription_json(updated)?,
+            None => row,
+        };
         caller.publish(
             &state,
             MAIL_SUBSCRIPTION_UNSUBSCRIBED,

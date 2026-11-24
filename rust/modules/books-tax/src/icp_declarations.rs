@@ -12,8 +12,12 @@ use axum::extract::{Path, State};
 use axum::response::Response;
 use axum::routing::{get, post};
 use http::HeaderMap;
+use sea_orm::ActiveValue::Set;
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 use serde_json::{Map, Value, json};
 use sqlx::PgPool;
+use time::PrimitiveDateTime;
 use weldsuite_books_domain::compliance::get_contact_vat_number;
 use weldsuite_books_domain::entity_context::resolve_entity_id;
 use weldsuite_books_domain::guards::{AuditInput, change, write_accounting_audit};
@@ -21,19 +25,21 @@ use weldsuite_books_domain::http::{
     BooksState, Caller, Refusal, Reply, created, no_content, now, ok, reply, validate,
 };
 use weldsuite_books_domain::js;
-use weldsuite_books_domain::tables::{ICP_DECLARATIONS, ICP_LINES};
 use weldsuite_books_domain::vies::{NormalizedVat, normalize_vat_number};
 use weldsuite_catalogs::entity_events::{
     VAT_RETURN_CREATED, VAT_RETURN_DELETED, VAT_RETURN_UPDATED,
 };
+use weldsuite_db::{orm, utc_now};
 use weldsuite_kit::generate_id;
 use weldsuite_legal_entities::{EntityRecordGuard, EntityTable};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::{entities, icp_declarations, icp_lines};
 
 use crate::filing::{
     is_unfiled, iso_day, load_period_lines, overlapping_period, parse_period, submit_filing,
 };
 use crate::nl::{self, IcpXmlInput, IcpXmlLine};
+use crate::orm_bridge::{day_of, decimal_of, timestamp_of_iso, to_json, to_json_rows};
 use crate::vat_returns::{
     PeriodBody, btw_number, company_name, entity_row, has_feature, phone, read_period, xml_response,
 };
@@ -70,29 +76,24 @@ fn text<'a>(row: &'a Value, key: &str) -> Option<&'a str> {
     row.get(key).and_then(Value::as_str)
 }
 
-async fn find(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(icp_declarations),
-        " from icp_declarations t where t.id = $1 and t.deleted_at is null limit 1"
-    ))
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(|row| ICP_DECLARATIONS.js(row)))
+/// A live declaration, as Drizzle returns it.
+async fn find(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
+    icp_declarations::Entity::find()
+        .filter(icp_declarations::Column::Id.eq(id))
+        .filter(icp_declarations::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?
+        .map(to_json)
+        .transpose()
 }
 
 /// The declaration's lines, in the database's order (no `order by`).
-async fn lines_of(db: &PgPool, id: &str) -> Result<Vec<Value>, sqlx::Error> {
-    let rows: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(icp_lines),
-        " from icp_lines t where t.declaration_id = $1"
-    ))
-    .bind(id)
-    .fetch_all(db)
-    .await?;
-    Ok(ICP_LINES.js_rows(rows))
+async fn lines_of(db: &PgPool, id: &str) -> Result<Vec<Value>, DbErr> {
+    let rows = icp_lines::Entity::find()
+        .filter(icp_lines::Column::DeclarationId.eq(id))
+        .all(&orm(db))
+        .await?;
+    to_json_rows(rows)
 }
 
 fn xml_lines(lines: &[Value]) -> Vec<IcpXmlLine> {
@@ -115,16 +116,14 @@ async fn list(caller: Caller) -> Response {
             let Some(entity_id) = resolve_entity_id(&caller).await? else {
                 return Err(Refusal::bad_request("No accounting entity resolved"));
             };
-            let rows: Vec<Value> = sqlx::query_scalar(concat!(
-                "select ",
-                weldsuite_books_domain::books_row!(icp_declarations),
-                " from icp_declarations t where t.deleted_at is null and t.entity_id = $1 \
-                 order by t.period_start desc"
-            ))
-            .bind(&entity_id)
-            .fetch_all(&caller.db)
-            .await?;
-            Ok(ok(Value::Array(ICP_DECLARATIONS.js_rows(rows))))
+            let rows = icp_declarations::Entity::find()
+                .filter(icp_declarations::Column::DeletedAt.is_null())
+                .filter(icp_declarations::Column::EntityId.eq(&entity_id))
+                .order_by_desc(icp_declarations::Column::PeriodStart)
+                .all(&orm(&caller.db))
+                .await
+                .and_then(to_json_rows)?;
+            Ok(ok(Value::Array(rows)))
         }
         .await,
         "Failed to fetch ICP declarations",
@@ -139,16 +138,14 @@ async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
             let Some(declaration) = find(&caller.db, &id).await? else {
                 return Err(Refusal::not_found("ICP declaration", &id));
             };
-            let rows: Vec<Value> = sqlx::query_scalar(concat!(
-                "select ",
-                weldsuite_books_domain::books_row!(icp_lines),
-                " from icp_lines t where t.declaration_id = $1 order by t.vat_number asc"
-            ))
-            .bind(&id)
-            .fetch_all(&caller.db)
-            .await?;
+            let rows = icp_lines::Entity::find()
+                .filter(icp_lines::Column::DeclarationId.eq(&id))
+                .order_by_asc(icp_lines::Column::VatNumber)
+                .all(&orm(&caller.db))
+                .await
+                .and_then(to_json_rows)?;
             let mut body = declaration.as_object().cloned().unwrap_or_default();
-            body.insert("lines".into(), Value::Array(ICP_LINES.js_rows(rows)));
+            body.insert("lines".into(), Value::Array(rows));
             Ok(ok(Value::Object(body)))
         }
         .await,
@@ -198,47 +195,52 @@ async fn calculate_declaration(caller: &Caller, state: &BooksState, data: Period
     let Some(entity_id) = resolve_entity_id(caller).await? else {
         return Err(Refusal::bad_request("No accounting entity resolved"));
     };
-    let code: Option<Option<String>> =
-        sqlx::query_scalar("select jurisdiction_code from entities where id = $1 limit 1")
-            .bind(&entity_id)
-            .fetch_optional(db)
-            .await?;
-    if !has_feature(code.flatten().as_deref(), "icp") {
+    let code: Option<String> = entities::Entity::find()
+        .select_only()
+        .column(entities::Column::JurisdictionCode)
+        .filter(entities::Column::Id.eq(&entity_id))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
+    if !has_feature(code.as_deref(), "icp") {
         return Err(Refusal::bad_request(
             "ICP declarations only apply to EU (Dutch) entities",
         ));
     }
     let (start, end) = parse_period(&data.period_start, &data.period_end, &data.period_type)
         .map_err(Refusal::bad_request)?;
+    let (start_at, end_at) = (timestamp_of_iso(&start)?, timestamp_of_iso(&end)?);
     // Declarations never overlap: the supplies of a month are declared once.
-    let periods: Vec<(String, String)> = sqlx::query_as(
-        "select to_char(period_start, 'YYYY-MM-DD'), to_char(period_end, 'YYYY-MM-DD') \
-         from icp_declarations where entity_id = $1 and period_start <= $3::timestamp \
-         and period_end >= $2::timestamp and deleted_at is null",
-    )
-    .bind(&entity_id)
-    .bind(&start)
-    .bind(&end)
-    .fetch_all(db)
-    .await?;
+    let periods: Vec<(PrimitiveDateTime, PrimitiveDateTime)> = icp_declarations::Entity::find()
+        .select_only()
+        .column(icp_declarations::Column::PeriodStart)
+        .column(icp_declarations::Column::PeriodEnd)
+        .filter(icp_declarations::Column::EntityId.eq(&entity_id))
+        .filter(icp_declarations::Column::PeriodStart.lte(end_at))
+        .filter(icp_declarations::Column::PeriodEnd.gte(start_at))
+        .filter(icp_declarations::Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
+    let periods: Vec<(String, String)> = periods
+        .into_iter()
+        .map(|(from, to)| (day_of(from), day_of(to)))
+        .collect();
     if let Some(clash) = overlapping_period(&periods, &start, &end) {
         return Err(Refusal::bad_request(format!(
             "This period overlaps the ICP declaration of {clash}."
         )));
     }
 
-    let existing: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(icp_declarations),
-        " from icp_declarations t where t.entity_id = $1 and t.period_start = $2::timestamp \
-         and t.period_end = $3::timestamp and t.deleted_at is null order by t.created_at desc limit 1"
-    ))
-    .bind(&entity_id)
-    .bind(&start)
-    .bind(&end)
-    .fetch_optional(db)
-    .await?;
-    let existing = existing.map(|row| ICP_DECLARATIONS.js(row));
+    let existing = icp_declarations::Entity::find()
+        .filter(icp_declarations::Column::EntityId.eq(&entity_id))
+        .filter(icp_declarations::Column::PeriodStart.eq(start_at))
+        .filter(icp_declarations::Column::PeriodEnd.eq(end_at))
+        .filter(icp_declarations::Column::DeletedAt.is_null())
+        .order_by_desc(icp_declarations::Column::CreatedAt)
+        .one(&orm(db))
+        .await
+        .and_then(|row| row.map(to_json).transpose())?;
     if let Some(existing) = &existing
         && !is_unfiled(text(existing, "status").unwrap_or_default())
     {
@@ -309,7 +311,7 @@ async fn calculate_declaration(caller: &Caller, state: &BooksState, data: Period
     }
     per_vat.retain(|s| s.amount != 0.0);
 
-    let now = now();
+    let stamp = utc_now();
     let total: f64 = per_vat.iter().fold(0.0, |sum, s| sum + s.amount);
     let notes = (!missing.is_empty()).then(|| {
         format!(
@@ -319,74 +321,91 @@ async fn calculate_declaration(caller: &Caller, state: &BooksState, data: Period
         )
     });
     let label = data.period_label.filter(|l| !l.is_empty());
+    // `total_amount` is `numeric(15, 2)`: the total as `toFixed(2)` wrote it.
+    let total_amount = decimal_of(&js::to_fixed(total, 2))?;
     let id = if let Some(existing) = &existing {
         let id = text(existing, "id").unwrap_or_default().to_owned();
-        sqlx::query(
-            "update icp_declarations set period_type = $1, period_label = $2, status = 'calculated', \
-             total_amount = $3::numeric, xml_content = null, rejected_at = null, rejection_reason = null, \
-             notes = $4, updated_at = $5::timestamp where id = $6",
-        )
-        .bind(&data.period_type)
-        .bind(label.as_deref().or_else(|| text(existing, "periodLabel")))
-        .bind(js::to_fixed(total, 2))
-        .bind(notes.as_deref())
-        .bind(&now)
-        .bind(&id)
-        .execute(db)
-        .await?;
-        sqlx::query("delete from icp_lines where declaration_id = $1")
-            .bind(&id)
-            .execute(db)
+        let label = label
+            .as_deref()
+            .or_else(|| text(existing, "periodLabel"))
+            .map(str::to_owned);
+        icp_declarations::Entity::update_many()
+            .col_expr(
+                icp_declarations::Column::PeriodType,
+                Expr::value(data.period_type.clone()),
+            )
+            .col_expr(icp_declarations::Column::PeriodLabel, Expr::value(label))
+            .col_expr(icp_declarations::Column::Status, Expr::value("calculated"))
+            .col_expr(
+                icp_declarations::Column::TotalAmount,
+                Expr::value(total_amount),
+            )
+            .col_expr(
+                icp_declarations::Column::XmlContent,
+                Expr::value(Option::<String>::None),
+            )
+            .col_expr(
+                icp_declarations::Column::RejectedAt,
+                Expr::value(Option::<PrimitiveDateTime>::None),
+            )
+            .col_expr(
+                icp_declarations::Column::RejectionReason,
+                Expr::value(Option::<String>::None),
+            )
+            .col_expr(icp_declarations::Column::Notes, Expr::value(notes.clone()))
+            .col_expr(icp_declarations::Column::UpdatedAt, Expr::value(stamp))
+            .filter(icp_declarations::Column::Id.eq(&id))
+            .exec(&orm(db))
+            .await?;
+        icp_lines::Entity::delete_many()
+            .filter(icp_lines::Column::DeclarationId.eq(&id))
+            .exec(&orm(db))
             .await?;
         id
     } else {
         let id = generate_id("icp");
-        sqlx::query(
-            "insert into icp_declarations (id, entity_id, period_type, period_start, period_end, \
-             period_label, status, total_amount, notes, created_at, updated_at) \
-             values ($1, $2, $3, $4::timestamp, $5::timestamp, $6, 'calculated', $7::numeric, $8, \
-             $9::timestamp, $9::timestamp)",
-        )
-        .bind(&id)
-        .bind(&entity_id)
-        .bind(&data.period_type)
-        .bind(&start)
-        .bind(&end)
-        .bind(label.as_deref())
-        .bind(js::to_fixed(total, 2))
-        .bind(notes.as_deref())
-        .bind(&now)
-        .execute(db)
+        icp_declarations::Entity::insert(icp_declarations::ActiveModel {
+            id: Set(id.clone()),
+            entity_id: Set(entity_id.clone()),
+            period_type: Set(data.period_type.clone()),
+            period_start: Set(start_at),
+            period_end: Set(end_at),
+            period_label: Set(label.clone()),
+            status: Set("calculated".to_owned()),
+            total_amount: Set(total_amount),
+            notes: Set(notes.clone()),
+            created_at: Set(stamp),
+            updated_at: Set(stamp),
+            ..Default::default()
+        })
+        .exec_without_returning(&orm(db))
         .await?;
         id
     };
 
     if !per_vat.is_empty() {
-        let ids: Vec<String> = per_vat.iter().map(|_| generate_id("icpl")).collect();
-        let contacts: Vec<Option<String>> = per_vat.iter().map(|s| s.contact_id.clone()).collect();
-        let vats: Vec<String> = per_vat.iter().map(|s| s.vat_number.clone()).collect();
-        let countries: Vec<String> = per_vat.iter().map(|s| s.country_code.clone()).collect();
-        let types: Vec<String> = per_vat.iter().map(|s| s.supply_type.to_owned()).collect();
-        let amounts: Vec<String> = per_vat.iter().map(|s| js::to_fixed(s.amount, 2)).collect();
-        sqlx::query(
-            "insert into icp_lines (id, declaration_id, entity_id, contact_id, vat_number, country_code, \
-             supply_type, amount, created_at, updated_at) \
-             select u.id, $2, $3, u.contact_id, u.vat_number, u.country_code, u.supply_type, \
-             u.amount::numeric, $9::timestamp, $9::timestamp \
-             from unnest($1::varchar[], $4::varchar[], $5::varchar[], $6::varchar[], $7::varchar[], $8::text[]) \
-             as u(id, contact_id, vat_number, country_code, supply_type, amount)",
-        )
-        .bind(&ids)
-        .bind(&id)
-        .bind(&entity_id)
-        .bind(&contacts)
-        .bind(&vats)
-        .bind(&countries)
-        .bind(&types)
-        .bind(&amounts)
-        .bind(&now)
-        .execute(db)
-        .await?;
+        // One statement for every buyer's line, the amounts as `toFixed(2)`
+        // wrote them for `numeric(15, 2)`.
+        let lines = per_vat
+            .iter()
+            .map(|supply| {
+                Ok(icp_lines::ActiveModel {
+                    id: Set(generate_id("icpl")),
+                    declaration_id: Set(id.clone()),
+                    entity_id: Set(entity_id.clone()),
+                    contact_id: Set(supply.contact_id.clone()),
+                    vat_number: Set(supply.vat_number.clone()),
+                    country_code: Set(supply.country_code.clone()),
+                    supply_type: Set(supply.supply_type.to_owned()),
+                    amount: Set(decimal_of(&js::to_fixed(supply.amount, 2))?),
+                    created_at: Set(stamp),
+                    updated_at: Set(stamp),
+                })
+            })
+            .collect::<Result<Vec<_>, DbErr>>()?;
+        icp_lines::Entity::insert_many(lines)
+            .exec_without_returning(&orm(db))
+            .await?;
     }
 
     let recalculated = existing.is_some();
@@ -474,20 +493,27 @@ async fn file_declaration(caller: &Caller, state: &BooksState, id: &str) -> Repl
     }
     let xml = icp_xml(&declaration, &entity, &btw, &lines);
     let submission = submit_filing(&btw, &xml, "Opgaaf ICP");
-    let now = now();
-    sqlx::query(
-        "update icp_declarations set status = 'filed', xml_content = $1, filing_reference = $2, \
-         digipoort_response = $3, filed_at = $4::timestamp, filed_by = $5, updated_at = $4::timestamp \
-         where id = $6",
-    )
-    .bind(&xml)
-    .bind(Some(&submission.kenmerk).filter(|k| !k.is_empty()))
-    .bind(&submission.stored)
-    .bind(&now)
-    .bind(caller.user())
-    .bind(id)
-    .execute(db)
-    .await?;
+    let stamp = utc_now();
+    icp_declarations::Entity::update_many()
+        .col_expr(icp_declarations::Column::Status, Expr::value("filed"))
+        .col_expr(icp_declarations::Column::XmlContent, Expr::value(xml))
+        .col_expr(
+            icp_declarations::Column::FilingReference,
+            Expr::value(Some(submission.kenmerk.clone()).filter(|k| !k.is_empty())),
+        )
+        .col_expr(
+            icp_declarations::Column::DigipoortResponse,
+            Expr::value(submission.stored),
+        )
+        .col_expr(icp_declarations::Column::FiledAt, Expr::value(stamp))
+        .col_expr(
+            icp_declarations::Column::FiledBy,
+            Expr::value(caller.user().map(str::to_owned)),
+        )
+        .col_expr(icp_declarations::Column::UpdatedAt, Expr::value(stamp))
+        .filter(icp_declarations::Column::Id.eq(id))
+        .exec(&orm(db))
+        .await?;
 
     let mut changes = Map::new();
     changes.insert("status".into(), change(json!(status), json!("filed")));
@@ -585,18 +611,17 @@ async fn remove(
                     "A filed ICP declaration can not be deleted.",
                 ));
             }
-            let now = now();
-            sqlx::query("delete from icp_lines where declaration_id = $1")
-                .bind(&id)
-                .execute(db)
+            let stamp = utc_now();
+            icp_lines::Entity::delete_many()
+                .filter(icp_lines::Column::DeclarationId.eq(&id))
+                .exec(&orm(db))
                 .await?;
-            sqlx::query(
-                "update icp_declarations set deleted_at = $1::timestamp, updated_at = $1::timestamp where id = $2",
-            )
-            .bind(&now)
-            .bind(&id)
-            .execute(db)
-            .await?;
+            icp_declarations::Entity::update_many()
+                .col_expr(icp_declarations::Column::DeletedAt, Expr::value(stamp))
+                .col_expr(icp_declarations::Column::UpdatedAt, Expr::value(stamp))
+                .filter(icp_declarations::Column::Id.eq(&id))
+                .exec(&orm(db))
+                .await?;
             write_accounting_audit(
                 &caller,
                 db,

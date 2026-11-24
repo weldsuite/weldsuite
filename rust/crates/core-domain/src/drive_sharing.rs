@@ -3,18 +3,27 @@
 //! Share dialog's summary, sharing and unsharing, "Shared with me", and the
 //! access fields every Drive read adds to its rows.
 
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, Condition, DbErr, EntityTrait, FromQueryResult, JoinType,
+    QueryFilter, QueryOrder, QuerySelect, RelationDef, Select,
+};
 use serde_json::{Map, Value, json};
-use weldsuite_db::{PgPool, js_row};
+use time::OffsetDateTime;
+use weldsuite_db::{PgPool, orm};
+use weldsuite_events::iso_timestamp;
 use weldsuite_kit::generate_id;
+use weldsuite_schema::tenant::{drive_shares, files, folders, workspace_members};
 
 use crate::drive_access::{
     DriveAccessIndex, DriveFile, DriveFileRef, DriveFolderRef, DriveGeneralAccess, DriveRole,
     ancestor_folder_ids, effective_file_access, effective_folder_access, effective_general_access,
     file_role, folder_role,
 };
+use crate::files::{js, timestamptz_of};
 
 impl DriveFolderRef {
-    /// Build from a [`js_row`] of `folders`.
+    /// Build from a `folders` row as Drizzle returns it.
     pub fn from_row(row: &Value) -> Self {
         let text = |key: &str| row[key].as_str().map(str::to_owned);
         Self {
@@ -29,7 +38,8 @@ impl DriveFolderRef {
 }
 
 impl DriveFileRef {
-    /// Build from a [`js_row`] of `files` (or any row with its camelCase keys).
+    /// Build from a `files` row as Drizzle returns it (or any row with its
+    /// camelCase keys).
     pub fn from_row(row: &Value) -> Self {
         DriveFile::from_row(row.clone()).r#ref
     }
@@ -94,25 +104,99 @@ impl<'a> DriveItem<'a> {
     }
 }
 
+/// `ds.file_id = $1` or `ds.folder_id = $1`: the shares on `item`.
+fn on_item(item: DriveItem<'_>) -> Condition {
+    Condition::all().add(match item {
+        DriveItem::File(id) => drive_shares::Column::FileId.eq(id),
+        DriveItem::Folder(id) => drive_shares::Column::FolderId.eq(id),
+    })
+}
+
+/// `left join workspace_members wm on wm.user_id = ds.user_id and
+/// wm.deleted_at is null`: the person a share is with.
+fn member() -> RelationDef {
+    drive_shares::Entity::belongs_to(workspace_members::Entity)
+        .from(drive_shares::Column::UserId)
+        .to(workspace_members::Column::UserId)
+        .on_condition(|_, member| {
+            Condition::all().add(sea_orm::ExprTrait::is_null(Expr::col((
+                member,
+                workspace_members::Column::DeletedAt,
+            ))))
+        })
+        .into()
+}
+
+/// A share with its person: `userId`, `role`, `sharedBy`, `createdAt`,
+/// `name`, `email`, then (inherited shares) `folderId` and `folderName`.
+#[derive(Debug, FromQueryResult)]
+struct ShareRow {
+    user_id: String,
+    role: String,
+    shared_by: String,
+    created_at: OffsetDateTime,
+    name: Option<String>,
+    email: Option<String>,
+}
+
+impl ShareRow {
+    /// The share's columns and its person's, oldest share first.
+    fn select() -> Select<drive_shares::Entity> {
+        drive_shares::Entity::find()
+            .select_only()
+            .columns([
+                drive_shares::Column::UserId,
+                drive_shares::Column::Role,
+                drive_shares::Column::SharedBy,
+                drive_shares::Column::CreatedAt,
+            ])
+            .columns([
+                workspace_members::Column::Name,
+                workspace_members::Column::Email,
+            ])
+            .join(JoinType::LeftJoin, member())
+            .order_by_asc(drive_shares::Column::CreatedAt)
+    }
+
+    /// `jsonb_build_object('userId', …, 'picture', null)`.
+    fn into_json(self) -> Map<String, Value> {
+        let mut row = Map::new();
+        row.insert("userId".to_owned(), json!(self.user_id));
+        row.insert("role".to_owned(), json!(self.role));
+        row.insert("sharedBy".to_owned(), json!(self.shared_by));
+        row.insert(
+            "createdAt".to_owned(),
+            json!(iso_timestamp(self.created_at)),
+        );
+        row.insert("name".to_owned(), json!(self.name));
+        row.insert("email".to_owned(), json!(self.email));
+        row.insert("picture".to_owned(), Value::Null);
+        row
+    }
+}
+
+/// An inherited share: [`ShareRow`] and the folder it is on.
+#[derive(Debug, FromQueryResult)]
+struct InheritedShareRow {
+    #[sea_orm(nested)]
+    share: ShareRow,
+    folder_id: Option<String>,
+    folder_name: String,
+}
+
 /// The people an item is shared with directly, oldest first
 /// (`listItemShares`). `picture` is null here: avatars are account pictures,
 /// which [`describe_sharing`] resolves.
-pub async fn list_item_shares(db: &PgPool, item: DriveItem<'_>) -> Result<Vec<Value>, sqlx::Error> {
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select jsonb_build_object(
-                'userId', ds.user_id, 'role', ds.role, 'sharedBy', ds.shared_by,
-                'createdAt', ds.created_at, 'name', wm.name, 'email', wm.email,
-                'picture', null)
-         from drive_shares ds
-         left join workspace_members wm on wm.user_id = ds.user_id and wm.deleted_at is null
-         where ($1::text is null or ds.file_id = $1) and ($2::text is null or ds.folder_id = $2)
-         order by ds.created_at",
-    )
-    .bind(item.file_id())
-    .bind(item.folder_id())
-    .fetch_all(db)
-    .await?;
-    Ok(rows.into_iter().map(js_row).collect())
+pub async fn list_item_shares(db: &PgPool, item: DriveItem<'_>) -> Result<Vec<Value>, DbErr> {
+    let rows = ShareRow::select()
+        .filter(on_item(item))
+        .into_model::<ShareRow>()
+        .all(&orm(db))
+        .await?;
+    Ok(rows
+        .into_iter()
+        .map(|row| Value::Object(row.into_json()))
+        .collect())
 }
 
 /// The people who reach an item through a share on a folder above it
@@ -121,25 +205,33 @@ pub async fn list_item_shares(db: &PgPool, item: DriveItem<'_>) -> Result<Vec<Va
 pub async fn list_inherited_shares(
     db: &PgPool,
     folder_ids: &[String],
-) -> Result<Vec<Value>, sqlx::Error> {
+) -> Result<Vec<Value>, DbErr> {
     if folder_ids.is_empty() {
         return Ok(Vec::new());
     }
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select jsonb_build_object(
-                'userId', ds.user_id, 'role', ds.role, 'sharedBy', ds.shared_by,
-                'createdAt', ds.created_at, 'name', wm.name, 'email', wm.email,
-                'picture', null, 'folderId', ds.folder_id, 'folderName', f.name)
-         from drive_shares ds
-         join folders f on f.id = ds.folder_id
-         left join workspace_members wm on wm.user_id = ds.user_id and wm.deleted_at is null
-         where ds.folder_id = any($1)
-         order by ds.created_at",
-    )
-    .bind(folder_ids)
-    .fetch_all(db)
-    .await?;
-    Ok(rows.into_iter().map(js_row).collect())
+    let rows = ShareRow::select()
+        .column_as(drive_shares::Column::FolderId, "folder_id")
+        .column_as(folders::Column::Name, "folder_name")
+        .join(
+            JoinType::InnerJoin,
+            drive_shares::Entity::belongs_to(folders::Entity)
+                .from(drive_shares::Column::FolderId)
+                .to(folders::Column::Id)
+                .into(),
+        )
+        .filter(drive_shares::Column::FolderId.is_in(folder_ids))
+        .into_model::<InheritedShareRow>()
+        .all(&orm(db))
+        .await?;
+    Ok(rows
+        .into_iter()
+        .map(|row| {
+            let mut share = row.share.into_json();
+            share.insert("folderId".to_owned(), json!(row.folder_id));
+            share.insert("folderName".to_owned(), json!(row.folder_name));
+            Value::Object(share)
+        })
+        .collect())
 }
 
 /// What [`upsert_share`] is given.
@@ -159,44 +251,41 @@ pub async fn upsert_share(
     db: &PgPool,
     item: DriveItem<'_>,
     share: NewShare<'_>,
-) -> Result<Option<String>, sqlx::Error> {
-    let existing: Option<(String, String)> = sqlx::query_as(
-        "select id, role from drive_shares
-         where ($1::text is null or file_id = $1) and ($2::text is null or folder_id = $2)
-           and user_id = $3
-         limit 1",
-    )
-    .bind(item.file_id())
-    .bind(item.folder_id())
-    .bind(share.user_id)
-    .fetch_optional(db)
-    .await?;
+) -> Result<Option<String>, DbErr> {
+    let db = orm(db);
+    let existing: Option<(String, String)> = drive_shares::Entity::find()
+        .select_only()
+        .columns([drive_shares::Column::Id, drive_shares::Column::Role])
+        .filter(on_item(item).add(drive_shares::Column::UserId.eq(share.user_id)))
+        .into_tuple()
+        .one(&db)
+        .await?;
     if let Some((id, role)) = existing {
         if role != share.role {
-            sqlx::query(
-                "update drive_shares set role = $2, updated_at = $3::timestamptz where id = $1",
-            )
-            .bind(&id)
-            .bind(share.role)
-            .bind(share.now)
-            .execute(db)
-            .await?;
+            drive_shares::Entity::update_many()
+                .col_expr(drive_shares::Column::Role, Expr::value(share.role))
+                .col_expr(
+                    drive_shares::Column::UpdatedAt,
+                    Expr::value(timestamptz_of(share.now)?),
+                )
+                .filter(drive_shares::Column::Id.eq(id))
+                .exec(&db)
+                .await?;
         }
         return Ok(Some(role));
     }
-    sqlx::query(
-        "insert into drive_shares
-             (id, file_id, folder_id, user_id, role, shared_by, created_at, updated_at)
-         values ($1, $2, $3, $4, $5, $6, $7::timestamptz, $7::timestamptz)",
-    )
-    .bind(generate_id("dsh"))
-    .bind(item.file_id())
-    .bind(item.folder_id())
-    .bind(share.user_id)
-    .bind(share.role)
-    .bind(share.shared_by)
-    .bind(share.now)
-    .execute(db)
+    let now = timestamptz_of(share.now)?;
+    drive_shares::Entity::insert(drive_shares::ActiveModel {
+        id: Set(generate_id("dsh")),
+        file_id: Set(item.file_id().map(str::to_owned)),
+        folder_id: Set(item.folder_id().map(str::to_owned)),
+        user_id: Set(share.user_id.to_owned()),
+        role: Set(share.role.to_owned()),
+        shared_by: Set(share.shared_by.to_owned()),
+        created_at: Set(now),
+        updated_at: Set(now),
+    })
+    .exec_without_returning(&db)
     .await?;
     Ok(None)
 }
@@ -207,19 +296,12 @@ pub async fn remove_share(
     db: &PgPool,
     item: DriveItem<'_>,
     user_id: &str,
-) -> Result<Option<String>, sqlx::Error> {
-    let removed: Option<String> = sqlx::query_scalar(
-        "delete from drive_shares
-         where ($1::text is null or file_id = $1) and ($2::text is null or folder_id = $2)
-           and user_id = $3
-         returning role",
-    )
-    .bind(item.file_id())
-    .bind(item.folder_id())
-    .bind(user_id)
-    .fetch_optional(db)
-    .await?;
-    Ok(removed)
+) -> Result<Option<String>, DbErr> {
+    let removed = drive_shares::Entity::delete_many()
+        .filter(on_item(item).add(drive_shares::Column::UserId.eq(user_id)))
+        .exec_with_returning(&orm(db))
+        .await?;
+    Ok(removed.into_iter().next().map(|share| share.role))
 }
 
 /// A Drive item with the fields its sharing summary needs
@@ -232,14 +314,18 @@ pub struct SharingTarget<'a> {
     pub parent_id: Option<&'a str>,
 }
 
-async fn member_person(db: &PgPool, user_id: &str) -> Result<Value, sqlx::Error> {
-    let member: Option<(Option<String>, Option<String>)> = sqlx::query_as(
-        "select name, email from workspace_members
-         where user_id = $1 and deleted_at is null limit 1",
-    )
-    .bind(user_id)
-    .fetch_optional(db)
-    .await?;
+async fn member_person(db: &PgPool, user_id: &str) -> Result<Value, DbErr> {
+    let member: Option<(Option<String>, Option<String>)> = workspace_members::Entity::find()
+        .select_only()
+        .columns([
+            workspace_members::Column::Name,
+            workspace_members::Column::Email,
+        ])
+        .filter(workspace_members::Column::UserId.eq(user_id))
+        .filter(workspace_members::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     let (name, email) = member.unwrap_or_default();
     Ok(json!({ "userId": user_id, "name": name, "email": email, "picture": null }))
 }
@@ -253,7 +339,7 @@ pub async fn describe_sharing(
     index: &DriveAccessIndex,
     target: SharingTarget<'_>,
     access_role: DriveRole,
-) -> Result<Value, sqlx::Error> {
+) -> Result<Value, DbErr> {
     let mut shares = list_item_shares(db, target.item).await?;
     let mut inherited =
         list_inherited_shares(db, &ancestor_folder_ids(index, target.parent_id)).await?;
@@ -300,21 +386,62 @@ pub struct SharedItem {
     pub shared_at: String,
 }
 
-fn shared_items(rows: Vec<Value>) -> Vec<SharedItem> {
-    let mut items: Vec<SharedItem> = rows
-        .into_iter()
-        .map(|row| {
-            let share = js_row(row["share"].clone());
-            let text = |key: &str| share[key].as_str().unwrap_or_default().to_owned();
-            SharedItem {
-                row: js_row(row["item"].clone()),
-                role: text("role"),
-                shared_by: text("sharedBy"),
-                shared_at: text("sharedAt"),
-            }
-        })
-        .collect();
-    // Oldest share first in SQL, then reversed: newest first.
+/// The share that brought an item to "Shared with me".
+#[derive(Debug, FromQueryResult)]
+struct ShareOf {
+    #[sea_orm(alias = "share_role")]
+    role: String,
+    #[sea_orm(alias = "share_shared_by")]
+    shared_by: String,
+    #[sea_orm(alias = "share_created_at")]
+    created_at: OffsetDateTime,
+}
+
+impl ShareOf {
+    /// `ds.role`, `ds.shared_by` and `ds.created_at` next to the item's
+    /// columns.
+    fn columns<E: EntityTrait>(select: Select<E>) -> Select<E> {
+        select
+            .column_as(drive_shares::Column::Role, "share_role")
+            .column_as(drive_shares::Column::SharedBy, "share_shared_by")
+            .column_as(drive_shares::Column::CreatedAt, "share_created_at")
+    }
+
+    /// `ds.user_id = $1 and ds.shared_by <> $1`, oldest share first.
+    fn with(user_id: &str) -> Condition {
+        Condition::all()
+            .add(drive_shares::Column::UserId.eq(user_id))
+            .add(drive_shares::Column::SharedBy.ne(user_id))
+    }
+
+    fn item(self, row: Value) -> SharedItem {
+        SharedItem {
+            row,
+            role: self.role,
+            shared_by: self.shared_by,
+            shared_at: iso_timestamp(self.created_at),
+        }
+    }
+}
+
+#[derive(Debug, FromQueryResult)]
+struct SharedFile {
+    #[sea_orm(nested)]
+    item: files::Model,
+    #[sea_orm(nested)]
+    share: ShareOf,
+}
+
+#[derive(Debug, FromQueryResult)]
+struct SharedFolder {
+    #[sea_orm(nested)]
+    item: folders::Model,
+    #[sea_orm(nested)]
+    share: ShareOf,
+}
+
+/// Oldest share first in SQL, then reversed: newest first.
+fn shared_items(mut items: Vec<SharedItem>) -> Vec<SharedItem> {
     items.reverse();
     items
 }
@@ -324,29 +451,40 @@ fn shared_items(rows: Vec<Value>) -> Vec<SharedItem> {
 pub async fn list_shared_with_user(
     db: &PgPool,
     user_id: &str,
-) -> Result<(Vec<SharedItem>, Vec<SharedItem>), sqlx::Error> {
-    let files: Vec<Value> = sqlx::query_scalar(
-        "select jsonb_build_object('item', to_jsonb(f), 'share', jsonb_build_object(
-                'role', ds.role, 'sharedBy', ds.shared_by, 'sharedAt', ds.created_at))
-         from drive_shares ds
-         join files f on f.id = ds.file_id
-         where ds.user_id = $1 and ds.shared_by <> $1 and f.deleted_at is null
-         order by ds.created_at",
-    )
-    .bind(user_id)
-    .fetch_all(db)
-    .await?;
-    let folders: Vec<Value> = sqlx::query_scalar(
-        "select jsonb_build_object('item', to_jsonb(f), 'share', jsonb_build_object(
-                'role', ds.role, 'sharedBy', ds.shared_by, 'sharedAt', ds.created_at))
-         from drive_shares ds
-         join folders f on f.id = ds.folder_id
-         where ds.user_id = $1 and ds.shared_by <> $1 and f.deleted_at is null
-         order by ds.created_at",
-    )
-    .bind(user_id)
-    .fetch_all(db)
-    .await?;
+) -> Result<(Vec<SharedItem>, Vec<SharedItem>), DbErr> {
+    let db = orm(db);
+    let files = ShareOf::columns(files::Entity::find())
+        .join(
+            JoinType::InnerJoin,
+            files::Entity::belongs_to(drive_shares::Entity)
+                .from(files::Column::Id)
+                .to(drive_shares::Column::FileId)
+                .into(),
+        )
+        .filter(ShareOf::with(user_id).add(files::Column::DeletedAt.is_null()))
+        .order_by_asc(drive_shares::Column::CreatedAt)
+        .into_model::<SharedFile>()
+        .all(&db)
+        .await?
+        .into_iter()
+        .map(|row| Ok(row.share.item(js(row.item)?)))
+        .collect::<Result<Vec<_>, DbErr>>()?;
+    let folders = ShareOf::columns(folders::Entity::find())
+        .join(
+            JoinType::InnerJoin,
+            folders::Entity::belongs_to(drive_shares::Entity)
+                .from(folders::Column::Id)
+                .to(drive_shares::Column::FolderId)
+                .into(),
+        )
+        .filter(ShareOf::with(user_id).add(folders::Column::DeletedAt.is_null()))
+        .order_by_asc(drive_shares::Column::CreatedAt)
+        .into_model::<SharedFolder>()
+        .all(&db)
+        .await?
+        .into_iter()
+        .map(|row| Ok(row.share.item(js(row.item)?)))
+        .collect::<Result<Vec<_>, DbErr>>()?;
     Ok((shared_items(files), shared_items(folders)))
 }
 
@@ -416,15 +554,18 @@ mod tests {
 
     #[test]
     fn shared_items_come_newest_first() {
-        let rows = vec![
-            json!({ "item": { "id": "a" }, "share": { "role": "viewer", "sharedBy": "u",
-                    "sharedAt": "2026-10-29T07:00:00+00:00" } }),
-            json!({ "item": { "id": "b" }, "share": { "role": "editor", "sharedBy": "u",
-                    "sharedAt": "2026-10-29T08:00:00.5+00:00" } }),
-        ];
-        let items = shared_items(rows);
+        let share = |role: &str, at: &str| ShareOf {
+            role: role.to_owned(),
+            shared_by: "u".to_owned(),
+            created_at: OffsetDateTime::parse(at, &time::format_description::well_known::Rfc3339)
+                .expect("a timestamp"),
+        };
+        let items = shared_items(vec![
+            share("viewer", "2026-10-29T07:00:00+00:00").item(json!({ "id": "a" })),
+            share("editor", "2026-10-29T09:00:00.5123+01:00").item(json!({ "id": "b" })),
+        ]);
         assert_eq!(items[0].row["id"], "b");
-        assert_eq!(items[0].shared_at, "2026-10-29T08:00:00.500Z");
+        assert_eq!(items[0].shared_at, "2026-10-29T08:00:00.512Z");
         let row = with_share_fields(json!({ "id": "b" }), &items[0]);
         assert_eq!(row["sharedRole"], "editor");
     }

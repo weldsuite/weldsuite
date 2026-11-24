@@ -13,24 +13,28 @@ use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::routing::{get, patch, post};
 use http::HeaderMap;
+use sea_orm::{ColumnTrait, Condition, EntityTrait, QuerySelect};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events::{
     SOCIAL_POST_CANCELLED, SOCIAL_POST_CREATED, SOCIAL_POST_DELETED, SOCIAL_POST_FAILED,
     SOCIAL_POST_PUBLISHED, SOCIAL_POST_SCHEDULED, SOCIAL_POST_UPDATED,
 };
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::id::generate_id;
 use weldsuite_kit::{ApiError, RequestEnv};
 use weldsuite_ports::{
     BoxFuture, DynOutboundHttp, HttpRequest, HttpResponse, OutboundHttp, PortError,
 };
+use weldsuite_schema::master::workspaces;
+use weldsuite_schema::tenant::social_posts;
 use weldsuite_social_domain::publishing::{self, Context, PublishError, PublishOptions};
 
 use crate::ExternalApiState;
 use crate::crud::{
     Answer, Caller, Fail, created, dates, field, get_live, no_content, now, ok, page, soft_delete,
-    table_list_sql, text, with_updated,
+    text, with_updated,
 };
+use crate::list::{label_eq, when};
 use crate::schemas::{LIST_SOCIAL_POSTS, SCHEDULE_SOCIAL_POST};
 use crate::schemas_gen::{CREATE_SOCIAL_POST, UPDATE_SOCIAL_POST};
 use crate::session::{bad_request, conflict, internal_with, not_found};
@@ -88,17 +92,23 @@ fn strip_server_fields(values: &mut Map<String, Value>) {
     }
 }
 
-const POSTS_LIST: (&str, &str) = table_list_sql!(
-    social_posts,
-    "t.deleted_at is null \
-     and ($3->>'status' is null or t.status::text = $3->>'status') \
-     and ($3->>'campaignId' is null or t.campaign_id = $3->>'campaignId')"
-);
+/// The posts list: live, the status filter compared by label
+/// (`status::text`).
+fn posts_list(f: &Value) -> Condition {
+    Condition::all()
+        .add(social_posts::Column::DeletedAt.is_null())
+        .add_option(when(f, "status", |v| {
+            label_eq(social_posts::Column::Status, v)
+        }))
+        .add_option(when(f, "campaignId", |v| {
+            social_posts::Column::CampaignId.eq(v)
+        }))
+}
 
 async fn list_posts(caller: Caller, RawQuery(raw): RawQuery) -> Answer {
     let q = zod::query(&LIST_SOCIAL_POSTS, raw.as_deref())?;
     let filters = json!({ "status": text(&q, "status"), "campaignId": text(&q, "campaignId") });
-    page(&caller.db, POSTS_LIST, &SOCIAL_POSTS, &q, filters).await
+    page(&caller.db, posts_list, &SOCIAL_POSTS, &q, filters).await
 }
 
 async fn get_post(caller: Caller, Path(id): Path<String>) -> Answer {
@@ -238,9 +248,11 @@ impl DynOutboundHttp for Unreachable {
 /// master database; a failed read is the worker's 500.
 pub(crate) async fn clerk_org_id(master: &PgPool, caller: &Caller) -> Result<Option<String>, Fail> {
     let org: Option<Option<String>> =
-        sqlx::query_scalar("select clerk_org_id from workspaces where id = $1 limit 1")
-            .bind(&caller.session.workspace_id)
-            .fetch_optional(master)
+        workspaces::Entity::find_by_id(caller.session.workspace_id.clone())
+            .select_only()
+            .column(workspaces::Column::ClerkOrgId)
+            .into_tuple()
+            .one(&orm(master))
             .await?;
     Ok(org.flatten())
 }

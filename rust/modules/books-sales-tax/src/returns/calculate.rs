@@ -2,17 +2,18 @@
 //! worksheet from the agency's tax-ledger rows, the vendor discount proposal
 //! and the total due. Nothing is written here.
 
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
 use weldsuite_books_domain::jurisdictions::us;
 use weldsuite_books_domain::sales_tax::worksheet::{
     WorksheetOptions, build_us_sales_tax_worksheet,
 };
-use weldsuite_books_domain::tables::TAX_RETURNS;
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm};
+use weldsuite_schema::tenant::tax_returns;
 
 use super::common::{
-    ADJUSTMENT_TYPES, adjustments_of, compute_total_due, n, num, num_at, reporting_basis_of,
-    round2, s, sum_money,
+    ADJUSTMENT_TYPES, adjustments_of, compute_total_due, n, num, num_at, parse_day,
+    reporting_basis_of, round2, row_json, s, sum_money,
 };
 use super::rows::{LoadRowsOptions, LoadedRows, load_worksheet_rows};
 use crate::common::text;
@@ -94,22 +95,18 @@ pub(crate) async fn amendment_chain(
     db: &PgPool,
     entity_id: &str,
     ret: &Value,
-) -> Result<Vec<Value>, sqlx::Error> {
+) -> Result<Vec<Value>, DbErr> {
     let mut chain: Vec<Value> = Vec::new();
     let mut cursor = text(ret, "amendsReturnId").map(str::to_owned);
     let mut seen: Vec<String> = vec![s(ret, "id").to_owned()];
     while let Some(id) = cursor.filter(|c| !c.is_empty() && !seen.contains(c)) {
         seen.push(id.clone());
-        let row: Option<Value> = sqlx::query_scalar(concat!(
-            "select ",
-            weldsuite_books_domain::books_row!(tax_returns),
-            " from tax_returns t where t.id = $1 and t.entity_id = $2 limit 1"
-        ))
-        .bind(&id)
-        .bind(entity_id)
-        .fetch_optional(db)
-        .await?;
-        let Some(prev) = row.map(|r| TAX_RETURNS.js(r)) else {
+        let row = tax_returns::Entity::find()
+            .filter(tax_returns::Column::Id.eq(id.as_str()))
+            .filter(tax_returns::Column::EntityId.eq(entity_id))
+            .one(&orm(db))
+            .await?;
+        let Some(prev) = row.map(row_json).transpose()? else {
             break;
         };
         cursor = text(&prev, "amendsReturnId").map(str::to_owned);
@@ -124,16 +121,18 @@ pub(crate) async fn carried_forward_row_ids(
     entity_id: &str,
     agency_id: &str,
     period_start: &str,
-) -> Result<(Vec<String>, Vec<String>), sqlx::Error> {
-    let earlier: Vec<(String, Option<Value>)> = sqlx::query_as(
-        "select id, exceptions from tax_returns where entity_id = $1 and agency_id = $2 \
-         and deleted_at is null and period_end < $3::date",
-    )
-    .bind(entity_id)
-    .bind(agency_id)
-    .bind(period_start)
-    .fetch_all(db)
-    .await?;
+) -> Result<(Vec<String>, Vec<String>), DbErr> {
+    use tax_returns::Column;
+    let earlier: Vec<(String, Option<Value>)> = tax_returns::Entity::find()
+        .select_only()
+        .columns([Column::Id, Column::Exceptions])
+        .filter(Column::EntityId.eq(entity_id))
+        .filter(Column::AgencyId.eq(agency_id))
+        .filter(Column::DeletedAt.is_null())
+        .filter(Column::PeriodEnd.lt(parse_day(period_start)?))
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     let mut ids: Vec<String> = Vec::new();
     let mut return_ids: Vec<String> = Vec::new();
     for (id, exceptions) in earlier {
@@ -187,7 +186,7 @@ pub(crate) struct CalculationInput<'a> {
 pub(crate) async fn calculate_return(
     db: &PgPool,
     input: &CalculationInput<'_>,
-) -> Result<Calculation, sqlx::Error> {
+) -> Result<Calculation, DbErr> {
     let CalculationInput {
         entity,
         agency,

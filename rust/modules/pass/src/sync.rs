@@ -2,38 +2,136 @@
 //! environment, hands the values to the provider and records the run; the
 //! run keeps key names and outcomes only.
 
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ActiveValue::Unchanged, ColumnTrait, EntityTrait, FromQueryResult, QueryFilter, QueryOrder,
+    QuerySelect, Select, Set,
+};
+use serde::Serialize;
 use serde_json::{Value, json};
-use sqlx::PgPool;
+use time::OffsetDateTime;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::generate_id;
+use weldsuite_schema::tenant::{weldpass_sync_runs as runs, weldpass_sync_targets as targets};
 
 use crate::credentials::read_credential_token;
 use crate::envelope::Key;
 use crate::providers;
 use crate::secrets::read_environment_values;
 use crate::transport::HttpTransport;
-use crate::{PassError, PassResult, dated, now};
+use crate::{PassError, PassResult, int4, now, row_json};
 
-macro_rules! target_json {
-    () => {
-        "jsonb_build_object('id', t.id, 'projectId', t.project_id, 'environmentId', t.environment_id, \
-         'credentialId', t.credential_id, 'provider', t.provider, 'name', t.name, 'config', t.config, \
-         'autoSync', t.auto_sync, 'prune', t.prune, 'status', t.status, \
-         'lastSyncedAt', t.last_synced_at, 'lastSyncedCount', t.last_synced_count, \
-         'lastError', t.last_error, 'createdAt', t.created_at, 'updatedAt', t.updated_at)"
-    };
+use runs::Column as R;
+use targets::Column as T;
+
+/// `SyncTargetSummary`'s columns.
+#[derive(Debug, Clone, FromQueryResult, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TargetRow {
+    id: String,
+    project_id: String,
+    environment_id: String,
+    credential_id: String,
+    provider: String,
+    name: String,
+    config: Value,
+    auto_sync: bool,
+    prune: bool,
+    status: String,
+    #[serde(with = "weldsuite_schema::js::timestamptz::option")]
+    last_synced_at: Option<OffsetDateTime>,
+    last_synced_count: i32,
+    last_error: Option<String>,
+    #[serde(with = "weldsuite_schema::js::timestamptz")]
+    created_at: OffsetDateTime,
+    #[serde(with = "weldsuite_schema::js::timestamptz")]
+    updated_at: OffsetDateTime,
 }
 
-macro_rules! run_json {
-    () => {
-        "jsonb_build_object('id', r.id, 'targetId', r.target_id, 'environmentId', r.environment_id, \
-         'status', r.status, 'trigger', r.trigger, 'pushed', r.pushed, 'removed', r.removed, \
-         'failed', r.failed, 'error', r.error, 'details', r.details, 'triggeredBy', r.triggered_by, \
-         'startedAt', r.started_at, 'finishedAt', r.finished_at)"
-    };
+impl TargetRow {
+    fn select() -> Select<targets::Entity> {
+        targets::Entity::find().select_only().columns([
+            T::Id,
+            T::ProjectId,
+            T::EnvironmentId,
+            T::CredentialId,
+            T::Provider,
+            T::Name,
+            T::Config,
+            T::AutoSync,
+            T::Prune,
+            T::Status,
+            T::LastSyncedAt,
+            T::LastSyncedCount,
+            T::LastError,
+            T::CreatedAt,
+            T::UpdatedAt,
+        ])
+    }
 }
 
-const TARGET_TIMES: [&str; 3] = ["lastSyncedAt", "createdAt", "updatedAt"];
-const RUN_TIMES: [&str; 2] = ["startedAt", "finishedAt"];
+impl From<targets::Model> for TargetRow {
+    fn from(row: targets::Model) -> Self {
+        Self {
+            id: row.id,
+            project_id: row.project_id,
+            environment_id: row.environment_id,
+            credential_id: row.credential_id,
+            provider: row.provider,
+            name: row.name,
+            config: row.config,
+            auto_sync: row.auto_sync,
+            prune: row.prune,
+            status: row.status,
+            last_synced_at: row.last_synced_at,
+            last_synced_count: row.last_synced_count,
+            last_error: row.last_error,
+            created_at: row.created_at,
+            updated_at: row.updated_at,
+        }
+    }
+}
+
+/// A run as the routes list it: everything but its project.
+#[derive(Debug, Clone, FromQueryResult, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RunRow {
+    id: String,
+    target_id: String,
+    environment_id: String,
+    status: String,
+    trigger: String,
+    pushed: i32,
+    removed: i32,
+    failed: i32,
+    error: Option<String>,
+    details: Value,
+    triggered_by: Option<String>,
+    #[serde(with = "weldsuite_schema::js::timestamptz")]
+    started_at: OffsetDateTime,
+    #[serde(with = "weldsuite_schema::js::timestamptz::option")]
+    finished_at: Option<OffsetDateTime>,
+}
+
+impl From<runs::Model> for RunRow {
+    fn from(row: runs::Model) -> Self {
+        Self {
+            id: row.id,
+            target_id: row.target_id,
+            environment_id: row.environment_id,
+            status: row.status,
+            trigger: row.trigger,
+            pushed: row.pushed,
+            removed: row.removed,
+            failed: row.failed,
+            error: row.error,
+            details: row.details,
+            triggered_by: row.triggered_by,
+            started_at: row.started_at,
+            finished_at: row.finished_at,
+        }
+    }
+}
 
 /// `SyncTargetSummary`.
 #[derive(Debug, Clone)]
@@ -49,18 +147,16 @@ pub(crate) struct Target {
 }
 
 impl Target {
-    fn from_row(row: Value) -> Self {
-        let row = dated(row, &TARGET_TIMES);
-        let text = |key: &str| row[key].as_str().unwrap_or_default().to_owned();
+    fn from_row(row: TargetRow) -> Self {
         Self {
-            id: text("id"),
-            environment_id: text("environmentId"),
-            credential_id: text("credentialId"),
-            provider: text("provider"),
-            name: text("name"),
-            prune: row["prune"].as_bool().unwrap_or(false),
-            auto_sync: row["autoSync"].as_bool().unwrap_or(false),
-            json: row,
+            json: row_json(&row),
+            id: row.id,
+            environment_id: row.environment_id,
+            credential_id: row.credential_id,
+            provider: row.provider,
+            name: row.name,
+            prune: row.prune,
+            auto_sync: row.auto_sync,
         }
     }
 
@@ -82,16 +178,16 @@ pub(crate) async fn list_targets(
     project_id: &str,
     environment_id: Option<&str>,
 ) -> PassResult<Vec<Target>> {
-    let rows: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        target_json!(),
-        " from weldpass_sync_targets t where t.project_id = $1 \
-         and ($2::text is null or t.environment_id = $2) and t.deleted_at is null order by t.name asc"
-    ))
-    .bind(project_id)
-    .bind(environment_id)
-    .fetch_all(db)
-    .await?;
+    let mut select = TargetRow::select().filter(T::ProjectId.eq(project_id));
+    if let Some(environment_id) = environment_id {
+        select = select.filter(T::EnvironmentId.eq(environment_id));
+    }
+    let rows = select
+        .filter(T::DeletedAt.is_null())
+        .order_by_asc(T::Name)
+        .into_model::<TargetRow>()
+        .all(&orm(db))
+        .await?;
     Ok(rows.into_iter().map(Target::from_row).collect())
 }
 
@@ -101,15 +197,13 @@ pub(crate) async fn require_target(
     project_id: &str,
     target_id: &str,
 ) -> PassResult<Target> {
-    let row: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        target_json!(),
-        " from weldpass_sync_targets t where t.id = $1 and t.project_id = $2 and t.deleted_at is null limit 1"
-    ))
-    .bind(target_id)
-    .bind(project_id)
-    .fetch_optional(db)
-    .await?;
+    let row = TargetRow::select()
+        .filter(T::Id.eq(target_id))
+        .filter(T::ProjectId.eq(project_id))
+        .filter(T::DeletedAt.is_null())
+        .into_model::<TargetRow>()
+        .one(&orm(db))
+        .await?;
     row.map(Target::from_row)
         .ok_or_else(|| PassError::not_found("sync target", target_id))
 }
@@ -129,26 +223,22 @@ pub(crate) struct NewTarget<'a> {
 
 /// `createSyncTarget`.
 pub(crate) async fn create_target(db: &PgPool, input: NewTarget<'_>) -> PassResult<Target> {
-    let row: Value = sqlx::query_scalar(concat!(
-        "with t as (insert into weldpass_sync_targets \
-         (id, project_id, environment_id, credential_id, provider, name, config, auto_sync, prune, created_by) \
-         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) returning *) select ",
-        target_json!(),
-        " from t"
-    ))
-    .bind(generate_id("wpt"))
-    .bind(input.project_id)
-    .bind(input.environment_id)
-    .bind(input.credential_id)
-    .bind(input.provider)
-    .bind(input.name)
-    .bind(input.config)
-    .bind(input.auto_sync.unwrap_or(false))
-    .bind(input.prune.unwrap_or(false))
-    .bind(input.actor_id)
-    .fetch_one(db)
+    let row = targets::Entity::insert(targets::ActiveModel {
+        id: Set(generate_id("wpt")),
+        project_id: Set(input.project_id.to_owned()),
+        environment_id: Set(input.environment_id.to_owned()),
+        credential_id: Set(input.credential_id.to_owned()),
+        provider: Set(input.provider.to_owned()),
+        name: Set(input.name.to_owned()),
+        config: Set(input.config.clone()),
+        auto_sync: Set(input.auto_sync.unwrap_or(false)),
+        prune: Set(input.prune.unwrap_or(false)),
+        created_by: Set(Some(input.actor_id.to_owned())),
+        ..Default::default()
+    })
+    .exec_with_returning(&orm(db))
     .await?;
-    Ok(Target::from_row(row))
+    Ok(Target::from_row(row.into()))
 }
 
 /// The fields a target update may set.
@@ -169,24 +259,28 @@ pub(crate) async fn update_target(
     patch: TargetPatch<'_>,
 ) -> PassResult<Target> {
     require_target(db, project_id, target_id).await?;
-    let row: Value = sqlx::query_scalar(concat!(
-        "with t as (update weldpass_sync_targets set name = coalesce($2, name), \
-         credential_id = coalesce($3, credential_id), config = coalesce($4, config), \
-         auto_sync = coalesce($5, auto_sync), prune = coalesce($6, prune), \
-         updated_at = $7::timestamptz where id = $1 returning *) select ",
-        target_json!(),
-        " from t"
-    ))
-    .bind(target_id)
-    .bind(patch.name)
-    .bind(patch.credential_id)
-    .bind(patch.config)
-    .bind(patch.auto_sync)
-    .bind(patch.prune)
-    .bind(now())
-    .fetch_one(db)
-    .await?;
-    Ok(Target::from_row(row))
+    let mut update = targets::ActiveModel {
+        id: Unchanged(target_id.to_owned()),
+        ..Default::default()
+    };
+    if let Some(name) = patch.name {
+        update.name = Set(name.to_owned());
+    }
+    if let Some(credential_id) = patch.credential_id {
+        update.credential_id = Set(credential_id.to_owned());
+    }
+    if let Some(config) = patch.config {
+        update.config = Set(config.clone());
+    }
+    if let Some(auto_sync) = patch.auto_sync {
+        update.auto_sync = Set(auto_sync);
+    }
+    if let Some(prune) = patch.prune {
+        update.prune = Set(prune);
+    }
+    update.updated_at = Set(now());
+    let row = targets::Entity::update(update).exec(&orm(db)).await?;
+    Ok(Target::from_row(row.into()))
 }
 
 /// `deleteSyncTarget`: soft.
@@ -197,14 +291,12 @@ pub(crate) async fn delete_target(
 ) -> PassResult<()> {
     require_target(db, project_id, target_id).await?;
     let now = now();
-    sqlx::query(
-        "update weldpass_sync_targets set deleted_at = $2::timestamptz, updated_at = $2::timestamptz \
-         where id = $1",
-    )
-    .bind(target_id)
-    .bind(&now)
-    .execute(db)
-    .await?;
+    targets::Entity::update_many()
+        .col_expr(T::DeletedAt, Expr::value(now))
+        .col_expr(T::UpdatedAt, Expr::value(now))
+        .filter(T::Id.eq(target_id))
+        .exec(&orm(db))
+        .await?;
     Ok(())
 }
 
@@ -240,27 +332,26 @@ pub(crate) async fn push_to_target(
 ) -> PassResult<PushOutcome> {
     let target = require_target(db, project_id, target_id).await?;
     let run_id = generate_id("wpr");
-    sqlx::query(
-        "insert into weldpass_sync_runs \
-         (id, target_id, project_id, environment_id, status, trigger, triggered_by, started_at) \
-         values ($1, $2, $3, $4, 'running', $5, $6, $7::timestamptz)",
-    )
-    .bind(&run_id)
-    .bind(&target.id)
-    .bind(project_id)
-    .bind(&target.environment_id)
-    .bind(trigger)
-    .bind(actor_id)
-    .bind(now())
-    .execute(db)
+    let conn = orm(db);
+    runs::Entity::insert(runs::ActiveModel {
+        id: Set(run_id.clone()),
+        target_id: Set(target.id.clone()),
+        project_id: Set(project_id.to_owned()),
+        environment_id: Set(target.environment_id.clone()),
+        status: Set("running".to_owned()),
+        trigger: Set(trigger.to_owned()),
+        triggered_by: Set(Some(actor_id.to_owned())),
+        started_at: Set(now()),
+        ..Default::default()
+    })
+    .exec_without_returning(&conn)
     .await?;
-    sqlx::query(
-        "update weldpass_sync_targets set status = 'running', updated_at = $2::timestamptz where id = $1",
-    )
-    .bind(&target.id)
-    .bind(now())
-    .execute(db)
-    .await?;
+    targets::Entity::update_many()
+        .col_expr(T::Status, Expr::value("running"))
+        .col_expr(T::UpdatedAt, Expr::value(now()))
+        .filter(T::Id.eq(target.id.as_str()))
+        .exec(&conn)
+        .await?;
 
     let attempt = async {
         let token = read_credential_token(db, kek, project_id, &target.credential_id).await?;
@@ -349,14 +440,16 @@ pub(crate) async fn push_auto_targets(
     environment_id: &str,
     actor_id: &str,
 ) -> PassResult<Vec<PushOutcome>> {
-    let ids: Vec<String> = sqlx::query_scalar(
-        "select id from weldpass_sync_targets where project_id = $1 and environment_id = $2 \
-         and auto_sync = true and deleted_at is null",
-    )
-    .bind(project_id)
-    .bind(environment_id)
-    .fetch_all(db)
-    .await?;
+    let ids: Vec<String> = targets::Entity::find()
+        .select_only()
+        .column(T::Id)
+        .filter(T::ProjectId.eq(project_id))
+        .filter(T::EnvironmentId.eq(environment_id))
+        .filter(T::AutoSync.eq(true))
+        .filter(T::DeletedAt.is_null())
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     let mut outcomes = Vec::with_capacity(ids.len());
     for id in ids {
         outcomes.push(push_to_target(db, kek, http, project_id, &id, "auto", actor_id).await?);
@@ -371,18 +464,34 @@ pub(crate) async fn list_runs(
     target_id: Option<&str>,
     limit: i64,
 ) -> PassResult<Vec<Value>> {
-    let rows: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        run_json!(),
-        " from weldpass_sync_runs r where r.project_id = $1 and ($2::text is null or r.target_id = $2) \
-         order by r.started_at desc limit $3"
-    ))
-    .bind(project_id)
-    .bind(target_id)
-    .bind(limit)
-    .fetch_all(db)
-    .await?;
-    Ok(rows.into_iter().map(|row| dated(row, &RUN_TIMES)).collect())
+    let mut select = runs::Entity::find()
+        .select_only()
+        .columns([
+            R::Id,
+            R::TargetId,
+            R::EnvironmentId,
+            R::Status,
+            R::Trigger,
+            R::Pushed,
+            R::Removed,
+            R::Failed,
+            R::Error,
+            R::Details,
+            R::TriggeredBy,
+            R::StartedAt,
+            R::FinishedAt,
+        ])
+        .filter(R::ProjectId.eq(project_id));
+    if let Some(target_id) = target_id {
+        select = select.filter(R::TargetId.eq(target_id));
+    }
+    let rows = select
+        .order_by_desc(R::StartedAt)
+        .limit(u64::try_from(limit).unwrap_or_default())
+        .into_model::<RunRow>()
+        .all(&orm(db))
+        .await?;
+    Ok(rows.iter().map(row_json).collect())
 }
 
 async fn finish_run(
@@ -393,24 +502,20 @@ async fn finish_run(
     error: Option<&str>,
     details: &Value,
 ) -> PassResult<Value> {
-    let row: Value = sqlx::query_scalar(concat!(
-        "with r as (update weldpass_sync_runs set status = $2, pushed = $3::integer, removed = $4::integer, \
-         failed = $5::integer, error = $6, details = $7, finished_at = $8::timestamptz \
-         where id = $1 returning *) select ",
-        run_json!(),
-        " from r"
-    ))
-    .bind(run_id)
-    .bind(status)
-    .bind(pushed)
-    .bind(removed)
-    .bind(failed)
-    .bind(error)
-    .bind(details)
-    .bind(now())
-    .fetch_one(db)
+    let row = runs::Entity::update(runs::ActiveModel {
+        id: Unchanged(run_id.to_owned()),
+        status: Set(status.to_owned()),
+        pushed: Set(int4(pushed)?),
+        removed: Set(int4(removed)?),
+        failed: Set(int4(failed)?),
+        error: Set(error.map(str::to_owned)),
+        details: Set(details.clone()),
+        finished_at: Set(Some(now())),
+        ..Default::default()
+    })
+    .exec(&orm(db))
     .await?;
-    Ok(dated(row, &RUN_TIMES))
+    Ok(row_json(&RunRow::from(row)))
 }
 
 /// `markTarget`: the status, and on success when and how many.
@@ -418,25 +523,20 @@ async fn mark_target(
     db: &PgPool,
     target_id: &str,
     status: &str,
-    synced: Option<(String, i64)>,
+    synced: Option<(OffsetDateTime, i64)>,
     last_error: Option<&str>,
 ) -> PassResult<Target> {
-    let (synced_at, count) = synced.map_or((None, None), |(at, count)| (Some(at), Some(count)));
-    let row: Value = sqlx::query_scalar(concat!(
-        "with t as (update weldpass_sync_targets set status = $2, \
-         last_synced_at = case when $3::text is null then last_synced_at else $3::timestamptz end, \
-         last_synced_count = coalesce($4::integer, last_synced_count), last_error = $5, \
-         updated_at = $6::timestamptz where id = $1 returning *) select ",
-        target_json!(),
-        " from t"
-    ))
-    .bind(target_id)
-    .bind(status)
-    .bind(synced_at)
-    .bind(count)
-    .bind(last_error)
-    .bind(now())
-    .fetch_one(db)
-    .await?;
-    Ok(Target::from_row(row))
+    let mut update = targets::ActiveModel {
+        id: Unchanged(target_id.to_owned()),
+        status: Set(status.to_owned()),
+        ..Default::default()
+    };
+    if let Some((at, count)) = synced {
+        update.last_synced_at = Set(Some(at));
+        update.last_synced_count = Set(int4(count)?);
+    }
+    update.last_error = Set(last_error.map(str::to_owned));
+    update.updated_at = Set(now());
+    let row = targets::Entity::update(update).exec(&orm(db)).await?;
+    Ok(Target::from_row(row.into()))
 }

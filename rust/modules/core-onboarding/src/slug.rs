@@ -2,8 +2,10 @@
 //! `@weldsuite/app-api-client/schemas/workspace-slug`): derived from the
 //! workspace's name, unique among the workspaces.
 
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use unicode_normalization::UnicodeNormalization;
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm};
+use weldsuite_schema::master::workspaces;
 
 const MAX_BASE_LENGTH: usize = 40;
 const FALLBACK_SLUG: &str = "workspace";
@@ -130,11 +132,16 @@ pub fn with_random_suffix(slug: &str) -> String {
     )
 }
 
-async fn taken(master: &PgPool, slug: &str) -> Result<bool, sqlx::Error> {
-    sqlx::query_scalar::<_, bool>("select exists (select 1 from workspaces where slug = $1)")
-        .bind(slug)
-        .fetch_one(master)
-        .await
+/// A workspace already has `slug`.
+async fn taken(master: &PgPool, slug: &str) -> Result<bool, DbErr> {
+    let found: Option<String> = workspaces::Entity::find()
+        .select_only()
+        .column(workspaces::Column::Id)
+        .filter(workspaces::Column::Slug.eq(slug))
+        .into_tuple()
+        .one(&orm(master))
+        .await?;
+    Ok(found.is_some())
 }
 
 /// `resolveUniqueSlug`: `base` (or the slug derived from it when it isn't
@@ -143,7 +150,7 @@ pub(crate) async fn resolve_unique_slug(
     master: &PgPool,
     requested: &str,
     workspace_id: &str,
-) -> Result<String, sqlx::Error> {
+) -> Result<String, DbErr> {
     let base = if slug_format(requested) && !is_reserved(requested) {
         requested.to_owned()
     } else {
@@ -168,7 +175,7 @@ pub(crate) async fn resolve_unique_slug(
 }
 
 /// `pickNewOrgSlug`: the name's slug, else with a random suffix (five tries).
-pub(crate) async fn pick_new_org_slug(master: &PgPool, name: &str) -> Result<String, sqlx::Error> {
+pub(crate) async fn pick_new_org_slug(master: &PgPool, name: &str) -> Result<String, DbErr> {
     let base = slugify_workspace_name(name);
     let mut candidate = base.clone();
     for _ in 0..5 {

@@ -12,24 +12,31 @@ use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, patch, post};
 use http::{HeaderMap, HeaderValue, StatusCode, header};
+use sea_orm::sea_query::{Asterisk, Expr, Func, Query};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, FromQueryResult, JoinType, QueryFilter,
+    QuerySelect, RelationDef,
+};
 use serde_json::{Map, Value, json};
+use time::PrimitiveDateTime;
 use weldsuite_catalogs::entity_events::{
     MAIL_ATTACHMENT_CREATED, MAIL_ATTACHMENT_DELETED, MAIL_ATTACHMENT_UPDATED,
 };
 use weldsuite_catalogs::permission_keys::{
     MESSAGES_CREATE, MESSAGES_DELETE, MESSAGES_READ, MESSAGES_UPDATE,
 };
-use weldsuite_db::{PgPool, js_row};
+use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_kit::cursor::encode_uri_component;
 use weldsuite_kit::validation::{Issues, Number, Presence, Text};
 use weldsuite_kit::{ApiError, Created, Data, NoContent, generate_id};
 use weldsuite_mail_domain::access::accessible_account_ids;
 use weldsuite_mail_domain::messages::public_attachment;
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::{mail_attachments, mail_messages};
 
 use super::mail_messages::locate_message;
 use crate::routes::mail_labels::NO_ACCESS;
-use crate::util::{MailError, MailResult, answer, now, validate};
+use crate::util::{MailError, MailResult, answer, validate};
 use crate::{Caller, MailState};
 
 pub(crate) fn routes<S, Q>(state: MailState, gate: &Arc<PermissionGate<Q>>) -> Router<S>
@@ -83,28 +90,49 @@ fn is_workspace_storage_key(caller: &Caller, key: &str) -> bool {
         })
 }
 
+/// An attachment row as Drizzle returns it.
+fn js(attachment: mail_attachments::Model) -> Result<Value, DbErr> {
+    serde_json::to_value(attachment).map_err(|error| DbErr::Json(error.to_string()))
+}
+
+/// `join(mailMessages, eq(mailMessages.id, mailAttachments.messageId))`.
+fn message() -> RelationDef {
+    mail_attachments::Entity::belongs_to(mail_messages::Entity)
+        .from(mail_attachments::Column::MessageId)
+        .to(mail_messages::Column::Id)
+        .into()
+}
+
+/// An attachment with its message's mailbox.
+#[derive(Debug, FromQueryResult)]
+struct Located {
+    #[sea_orm(nested)]
+    attachment: mail_attachments::Model,
+    message_account_id: String,
+}
+
 /// `locateAttachment(id, accountIds)`: a live attachment of a live message
 /// in one of the mailboxes, with that mailbox.
 async fn locate_attachment(
     db: &PgPool,
     id: &str,
     account_ids: &[String],
-) -> Result<Option<(String, Value)>, sqlx::Error> {
+) -> Result<Option<(String, Value)>, DbErr> {
     if account_ids.is_empty() {
         return Ok(None);
     }
-    let row: Option<(String, Value)> = sqlx::query_as(
-        "select m.account_id, to_jsonb(a) from mail_attachments a
-         join mail_messages m on m.id = a.message_id
-         where a.id = $1 and a.deleted_at is null and m.deleted_at is null
-           and m.account_id = any($2::text[])
-         limit 1",
-    )
-    .bind(id)
-    .bind(account_ids)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(|(account, row)| (account, js_row(row))))
+    let row = mail_attachments::Entity::find()
+        .column_as(mail_messages::Column::AccountId, "message_account_id")
+        .join(JoinType::InnerJoin, message())
+        .filter(mail_attachments::Column::Id.eq(id))
+        .filter(mail_attachments::Column::DeletedAt.is_null())
+        .filter(mail_messages::Column::DeletedAt.is_null())
+        .filter(mail_messages::Column::AccountId.is_in(account_ids.iter().cloned()))
+        .into_model::<Located>()
+        .one(&orm(db))
+        .await?;
+    row.map(|row| Ok((row.message_account_id, js(row.attachment)?)))
+        .transpose()
 }
 
 /// `locateAttachmentOrRespond`: 404 for a missing attachment (or one of a
@@ -114,42 +142,62 @@ async fn locate_or_respond(caller: &Caller, id: &str) -> MailResult<(String, Val
     if let Some(found) = locate_attachment(&caller.db, id, &accessible).await? {
         return Ok(found);
     }
-    let message: Option<String> = sqlx::query_scalar(
-        "select message_id from mail_attachments where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(&caller.db)
-    .await?;
-    let Some(message) = message else {
+    let Some(message) = live_message_id(&caller.db, id).await? else {
         return Err(MailError::not_found("Attachment", Some(id)));
     };
-    let account: Option<String> = sqlx::query_scalar(
-        "select account_id from mail_messages where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(&message)
-    .fetch_optional(&caller.db)
-    .await?;
+    let account: Option<String> = mail_messages::Entity::find_by_id(message)
+        .select_only()
+        .column(mail_messages::Column::AccountId)
+        .filter(mail_messages::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(&caller.db))
+        .await?;
     match account {
         None => Err(MailError::not_found("Attachment", Some(id))),
         Some(_) => Err(MailError::forbidden(NO_ACCESS)),
     }
 }
 
-/// `refreshMessageAttachmentCount(db, messageId)`.
-async fn refresh_count(db: &PgPool, message_id: &str, at: &str) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "update mail_messages set
-           attachment_count = coalesce((select count(*)::int from mail_attachments
-             where message_id = $1 and deleted_at is null), 0),
-           has_attachments = exists (select 1 from mail_attachments
-             where message_id = $1 and deleted_at is null),
-           updated_at = $2::timestamp
-         where id = $1",
-    )
-    .bind(message_id)
-    .bind(at)
-    .execute(db)
-    .await?;
+/// The message of a live attachment.
+async fn live_message_id(db: &PgPool, id: &str) -> Result<Option<String>, DbErr> {
+    mail_attachments::Entity::find_by_id(id.to_owned())
+        .select_only()
+        .column(mail_attachments::Column::MessageId)
+        .filter(mail_attachments::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await
+}
+
+/// `refreshMessageAttachmentCount(db, messageId)`: one statement, the count
+/// and the flag read from the message's live attachments.
+pub(crate) async fn refresh_count(
+    db: &PgPool,
+    message_id: &str,
+    at: PrimitiveDateTime,
+) -> Result<(), DbErr> {
+    let live = |select: Expr| {
+        Query::select()
+            .expr(select)
+            .from(mail_attachments::Entity)
+            .and_where(mail_attachments::Column::MessageId.eq(message_id))
+            .and_where(mail_attachments::Column::DeletedAt.is_null())
+            .to_owned()
+    };
+    let count = live(Func::cast_as(Func::count(Expr::col(Asterisk)), "int").into());
+    mail_messages::Entity::update_many()
+        .col_expr(
+            mail_messages::Column::AttachmentCount,
+            Func::coalesce([Expr::from(count), Expr::val(0)]).into(),
+        )
+        .col_expr(
+            mail_messages::Column::HasAttachments,
+            Expr::exists(live(Expr::val(1))),
+        )
+        .col_expr(mail_messages::Column::UpdatedAt, Expr::value(at))
+        .filter(mail_messages::Column::Id.eq(message_id))
+        .exec(&orm(db))
+        .await?;
     Ok(())
 }
 
@@ -157,17 +205,15 @@ async fn refresh_count(db: &PgPool, message_id: &str, at: &str) -> Result<(), sq
 async fn list_for_message(caller: Caller, Path(message_id): Path<String>) -> Response {
     let result = async {
         locate_message(&caller, &message_id, "Message").await?;
-        let rows: Vec<Value> = sqlx::query_scalar(
-            "select to_jsonb(a) from mail_attachments a
-             where a.message_id = $1 and a.deleted_at is null",
-        )
-        .bind(&message_id)
-        .fetch_all(&caller.db)
-        .await?;
-        let rows: Vec<Value> = rows
+        let rows = mail_attachments::Entity::find()
+            .filter(mail_attachments::Column::MessageId.eq(&message_id))
+            .filter(mail_attachments::Column::DeletedAt.is_null())
+            .all(&orm(&caller.db))
+            .await?;
+        let rows = rows
             .into_iter()
-            .map(|r| public_attachment(js_row(r)))
-            .collect();
+            .map(|row| js(row).map(public_attachment))
+            .collect::<Result<Vec<Value>, _>>()?;
         Ok(Data(rows).into_response())
     }
     .await;
@@ -219,17 +265,18 @@ async fn associate(
         }
         let moving: Vec<String> = movable.iter().map(|(id, _)| id.clone()).collect();
         if !moving.is_empty() {
-            let at = now();
-            sqlx::query(
-                "update mail_attachments set message_id = $1, updated_at = $3::timestamp
-                 where id = any($2::text[]) and deleted_at is null",
-            )
-            .bind(&message_id)
-            .bind(&moving)
-            .bind(&at)
-            .execute(&caller.db)
-            .await?;
-            refresh_count(&caller.db, &message_id, &at).await?;
+            let at = utc_now();
+            mail_attachments::Entity::update_many()
+                .col_expr(
+                    mail_attachments::Column::MessageId,
+                    Expr::value(message_id.clone()),
+                )
+                .col_expr(mail_attachments::Column::UpdatedAt, Expr::value(at))
+                .filter(mail_attachments::Column::Id.is_in(moving.iter().cloned()))
+                .filter(mail_attachments::Column::DeletedAt.is_null())
+                .exec(&orm(&caller.db))
+                .await?;
+            refresh_count(&caller.db, &message_id, at).await?;
             for (id, file_name) in &movable {
                 caller.publish(
                     &state,
@@ -466,7 +513,7 @@ async fn mailbox_attachment(
     caller: &Caller,
     account: &str,
     id: &str,
-) -> Result<Option<Value>, sqlx::Error> {
+) -> Result<Option<Value>, DbErr> {
     let found = locate_attachment(&caller.db, id, &[account.to_owned()]).await?;
     Ok(found.map(|(_, row)| row))
 }
@@ -489,31 +536,37 @@ async fn create(
         let message = text(&data, "messageId").unwrap_or_default().to_owned();
         let account = locate_message(&caller, &message, "Message").await?;
         let id = generate_id("attach");
-        let at = now();
-        sqlx::query(
-            "insert into mail_attachments (id, message_id, file_name, content_type, size,
-               storage_path, checksum, is_inline, content_id, content_disposition,
-               created_at, updated_at)
-             values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::timestamp, $11::timestamp)",
-        )
-        .bind(&id)
-        .bind(&message)
-        .bind(text(&data, "fileName"))
-        .bind(text(&data, "contentType"))
-        .bind(data.get("size").and_then(Value::as_i64))
-        .bind(text(&data, "storagePath"))
-        .bind(text(&data, "checksum"))
-        .bind(
-            data.get("isInline")
-                .and_then(Value::as_bool)
-                .unwrap_or(false),
-        )
-        .bind(text(&data, "contentId"))
-        .bind(text(&data, "contentDisposition"))
-        .bind(&at)
-        .execute(&caller.db)
+        let at = utc_now();
+        let owned = |key: &str| text(&data, key).map(str::to_owned);
+        // An `integer` column: what Postgres refuses ("out of range") stays
+        // the route's 500.
+        let size = data
+            .get("size")
+            .and_then(Value::as_i64)
+            .and_then(|size| i32::try_from(size).ok())
+            .ok_or_else(|| DbErr::Custom("size: integer out of range".to_owned()))?;
+        mail_attachments::Entity::insert(mail_attachments::ActiveModel {
+            id: Set(id.clone()),
+            message_id: Set(message.clone()),
+            file_name: Set(owned("fileName").unwrap_or_default()),
+            content_type: Set(owned("contentType")),
+            size: Set(size),
+            storage_path: Set(owned("storagePath")),
+            checksum: Set(owned("checksum")),
+            is_inline: Set(Some(
+                data.get("isInline")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false),
+            )),
+            content_id: Set(owned("contentId")),
+            content_disposition: Set(owned("contentDisposition")),
+            created_at: Set(at),
+            updated_at: Set(at),
+            ..Default::default()
+        })
+        .exec_without_returning(&orm(&caller.db))
         .await?;
-        refresh_count(&caller.db, &message, &at).await?;
+        refresh_count(&caller.db, &message, at).await?;
         let Some(row) = mailbox_attachment(&caller, &account, &id).await? else {
             return Err(MailError::api(
                 ApiError::internal().with_message("Failed to create attachment"),
@@ -550,43 +603,43 @@ async fn update(
     }
     let result = async {
         let (account, _) = locate_or_respond(&caller, &id).await?;
-        let existing: Option<String> = sqlx::query_scalar(
-            "select message_id from mail_attachments where id = $1 and deleted_at is null limit 1",
-        )
-        .bind(&id)
-        .fetch_optional(&caller.db)
-        .await?;
-        let Some(previous_message) = existing else {
+        let Some(previous_message) = live_message_id(&caller.db, &id).await? else {
             return Err(MailError::not_found("Attachment", Some(&id)));
         };
-        let at = now();
-        sqlx::query(
-            "update mail_attachments set updated_at = $2::timestamp,
-               message_id = coalesce($3, message_id), file_name = coalesce($4, file_name),
-               content_type = coalesce($5, content_type), size = coalesce($6, size),
-               storage_path = coalesce($7, storage_path), checksum = coalesce($8, checksum),
-               is_inline = coalesce($9, is_inline), content_id = coalesce($10, content_id),
-               content_disposition = coalesce($11, content_disposition)
-             where id = $1",
-        )
-        .bind(&id)
-        .bind(&at)
-        .bind(text(&data, "messageId"))
-        .bind(text(&data, "fileName"))
-        .bind(text(&data, "contentType"))
-        .bind(data.get("size").and_then(Value::as_i64))
-        .bind(text(&data, "storagePath"))
-        .bind(text(&data, "checksum"))
-        .bind(data.get("isInline").and_then(Value::as_bool))
-        .bind(text(&data, "contentId"))
-        .bind(text(&data, "contentDisposition"))
-        .execute(&caller.db)
-        .await?;
+        let at = utc_now();
+        let mut update = mail_attachments::Entity::update_many()
+            .col_expr(mail_attachments::Column::UpdatedAt, Expr::value(at));
+        for (key, column) in [
+            ("messageId", mail_attachments::Column::MessageId),
+            ("fileName", mail_attachments::Column::FileName),
+            ("contentType", mail_attachments::Column::ContentType),
+            ("storagePath", mail_attachments::Column::StoragePath),
+            ("checksum", mail_attachments::Column::Checksum),
+            ("contentId", mail_attachments::Column::ContentId),
+            (
+                "contentDisposition",
+                mail_attachments::Column::ContentDisposition,
+            ),
+        ] {
+            if let Some(value) = text(&data, key) {
+                update = update.col_expr(column, Expr::value(value.to_owned()));
+            }
+        }
+        if let Some(size) = data.get("size").and_then(Value::as_i64) {
+            update = update.col_expr(mail_attachments::Column::Size, Expr::value(size));
+        }
+        if let Some(inline) = data.get("isInline").and_then(Value::as_bool) {
+            update = update.col_expr(mail_attachments::Column::IsInline, Expr::value(inline));
+        }
+        update
+            .filter(mail_attachments::Column::Id.eq(&id))
+            .exec(&orm(&caller.db))
+            .await?;
         if let Some(moved) =
             text(&data, "messageId").filter(|m| !m.is_empty() && *m != previous_message)
         {
-            refresh_count(&caller.db, &previous_message, &at).await?;
-            refresh_count(&caller.db, moved, &at).await?;
+            refresh_count(&caller.db, &previous_message, at).await?;
+            refresh_count(&caller.db, moved, at).await?;
         }
         let Some(after) = mailbox_attachment(&caller, &account, &id).await? else {
             return Err(MailError::not_found("Attachment", Some(&id)));
@@ -611,25 +664,28 @@ async fn remove(
 ) -> Response {
     let result = async {
         let (_, attachment) = locate_or_respond(&caller, &id).await?;
-        let existing: Option<(String, Option<String>)> = sqlx::query_as(
-            "select message_id, storage_path from mail_attachments
-             where id = $1 and deleted_at is null limit 1",
-        )
-        .bind(&id)
-        .fetch_optional(&caller.db)
-        .await?;
+        let existing: Option<(String, Option<String>)> =
+            mail_attachments::Entity::find_by_id(id.clone())
+                .select_only()
+                .columns([
+                    mail_attachments::Column::MessageId,
+                    mail_attachments::Column::StoragePath,
+                ])
+                .filter(mail_attachments::Column::DeletedAt.is_null())
+                .into_tuple()
+                .one(&orm(&caller.db))
+                .await?;
         let Some((message, storage_path)) = existing else {
             return Err(MailError::not_found("Attachment", Some(&id)));
         };
-        let at = now();
-        sqlx::query(
-            "update mail_attachments set deleted_at = $2::timestamp, updated_at = $2::timestamp where id = $1",
-        )
-        .bind(&id)
-        .bind(&at)
-        .execute(&caller.db)
-        .await?;
-        refresh_count(&caller.db, &message, &at).await?;
+        let at = utc_now();
+        mail_attachments::Entity::update_many()
+            .col_expr(mail_attachments::Column::DeletedAt, Expr::value(at))
+            .col_expr(mail_attachments::Column::UpdatedAt, Expr::value(at))
+            .filter(mail_attachments::Column::Id.eq(&id))
+            .exec(&orm(&caller.db))
+            .await?;
+        refresh_count(&caller.db, &message, at).await?;
         let buckets = caller.bindings.buckets(&state);
         if let Some(path) = storage_path.filter(|p| !p.is_empty())
             && (buckets.private.is_some() || buckets.public.is_some())

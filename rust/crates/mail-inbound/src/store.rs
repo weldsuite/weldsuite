@@ -5,11 +5,16 @@
 //! attachment rows, the subscription upsert) and the raw MIME to the mail
 //! bucket.
 
-use sea_orm::{ActiveValue::Set, EntityTrait};
+use sea_orm::sea_query::{Expr, Func, OnConflict};
+use sea_orm::{
+    ActiveEnum, ActiveValue::Set, ColumnTrait, Condition, DbErr, EntityTrait, QueryFilter,
+    QueryOrder, QuerySelect,
+};
 use serde_json::{Value, json};
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_ports::PutOptions;
-use weldsuite_schema::tenant::mail_attachments;
+use weldsuite_schema::tenant::enums::MailSecurityStatus;
+use weldsuite_schema::tenant::{mail_attachments, mail_messages, mail_subscriptions};
 
 use crate::context::InboundContext;
 use crate::parsed::{ParsedAttachment, ParsedEmail};
@@ -52,23 +57,28 @@ async fn find_thread_by_reply_ids(
     db: &PgPool,
     account_id: &str,
     email: &ParsedEmail,
-) -> Result<Option<(String, bool)>, sqlx::Error> {
+) -> Result<Option<(String, bool)>, DbErr> {
+    use mail_messages::Column as M;
     let lookup = reply_lookup_ids(email);
     if lookup.is_empty() {
         return Ok(None);
     }
     let providers = provider_message_ids(&lookup);
-    let row: Option<(Option<String>, Option<bool>)> = sqlx::query_as(
-        "select thread_id, is_spam from mail_messages
-         where account_id = $1
-           and (message_id = any($2) or external_message_id = any($2) or mailcow_message_id = any($3))
-         limit 1",
-    )
-    .bind(account_id)
-    .bind(&lookup)
-    .bind(&providers)
-    .fetch_optional(db)
-    .await?;
+    let mut ids = Condition::any()
+        .add(M::MessageId.is_in(lookup.clone()))
+        .add(M::ExternalMessageId.is_in(lookup));
+    // `mailcow_message_id = any('{}')` matches nothing.
+    if !providers.is_empty() {
+        ids = ids.add(M::MailcowMessageId.is_in(providers));
+    }
+    let row: Option<(Option<String>, Option<bool>)> = mail_messages::Entity::find()
+        .select_only()
+        .columns([M::ThreadId, M::IsSpam])
+        .filter(M::AccountId.eq(account_id))
+        .filter(ids)
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     Ok(row.and_then(|(thread, is_spam)| {
         thread
             .filter(|t| !t.is_empty())
@@ -86,20 +96,26 @@ async fn find_thread_by_subject(
     db: &PgPool,
     account_id: &str,
     email: &ParsedEmail,
-) -> Result<Option<(String, bool)>, sqlx::Error> {
+) -> Result<Option<(String, bool)>, DbErr> {
+    use mail_messages::Column as M;
     let subjects = conversation_subjects(Some(&email.subject));
     if subjects.is_empty() {
         return Ok(None);
     }
-    let rows: Vec<SubjectRow> = sqlx::query_as(
-        "select thread_id, is_spam, \"from\", \"to\", cc from mail_messages
-         where account_id = $1 and lower(subject) = any($2) and deleted_at is null
-         order by sent_date desc limit 20",
-    )
-    .bind(account_id)
-    .bind(&subjects)
-    .fetch_all(db)
-    .await?;
+    let rows: Vec<SubjectRow> = mail_messages::Entity::find()
+        .select_only()
+        .columns([M::ThreadId, M::IsSpam, M::From, M::To, M::Cc])
+        .filter(M::AccountId.eq(account_id))
+        .filter(sea_orm::ExprTrait::is_in(
+            Expr::expr(Func::lower(M::Subject.into_expr())),
+            subjects,
+        ))
+        .filter(M::DeletedAt.is_null())
+        .order_by_desc(M::SentDate)
+        .limit(20)
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     let found = rows.into_iter().find(|(thread, _, from, to, cc)| {
         thread.as_deref().is_some_and(|t| !t.is_empty())
             && involves_address(
@@ -117,18 +133,23 @@ pub async fn resolve_inbound(
     db: &PgPool,
     account_id: &str,
     email: &ParsedEmail,
-) -> Result<ResolvedThread, sqlx::Error> {
+) -> Result<ResolvedThread, DbErr> {
+    use mail_messages::Column as M;
     if !email.message_id.is_empty() {
         // `external_message_id` too: a SENT copy keeps there the id of the
         // copy Cloudflare delivered back to this mailbox (`sentCopyMessageIds`).
-        let existing: Option<(String, Option<String>)> = sqlx::query_as(
-            "select id, thread_id from mail_messages
-             where account_id = $1 and (message_id = $2 or external_message_id = $2) limit 1",
-        )
-        .bind(account_id)
-        .bind(&email.message_id)
-        .fetch_optional(db)
-        .await?;
+        let existing: Option<(String, Option<String>)> = mail_messages::Entity::find()
+            .select_only()
+            .columns([M::Id, M::ThreadId])
+            .filter(M::AccountId.eq(account_id))
+            .filter(
+                Condition::any()
+                    .add(M::MessageId.eq(&email.message_id))
+                    .add(M::ExternalMessageId.eq(&email.message_id)),
+            )
+            .into_tuple()
+            .one(&orm(db))
+            .await?;
         if let Some((id, thread)) = existing {
             return Ok(ResolvedThread {
                 duplicate: true,
@@ -404,51 +425,65 @@ async fn upsert_subscription(
     db: &PgPool,
     account_id: &str,
     values: &SubscriptionValues,
-    now: &str,
-) -> Result<(), sqlx::Error> {
-    let received = crate::mime::to_iso(values.received_at);
-    sqlx::query(
-        "insert into mail_subscriptions
-            (id, account_id, sender_email, sender_name, sender_domain, list_id,
-             unsubscribe_url, unsubscribe_mailto, one_click, message_count, last_subject,
-             first_received_at, last_received_at)
-         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, 1, $10, $11::timestamp, $11::timestamp)
-         on conflict (account_id, sender_email) do update set
-            sender_name = coalesce($4, mail_subscriptions.sender_name),
-            list_id = coalesce($6, mail_subscriptions.list_id),
-            unsubscribe_url = $7,
-            unsubscribe_mailto = $8,
-            one_click = $9,
-            message_count = mail_subscriptions.message_count + 1,
-            last_subject = $10,
-            last_received_at = greatest(mail_subscriptions.last_received_at, $11::timestamp),
-            updated_at = $12::timestamp",
-    )
-    .bind(weldsuite_kit::generate_id("msub"))
-    .bind(account_id)
-    .bind(&values.sender_email)
-    .bind(&values.sender_name)
-    .bind(&values.sender_domain)
-    .bind(&values.list_id)
-    .bind(&values.unsubscribe_url)
-    .bind(&values.unsubscribe_mailto)
-    .bind(values.one_click)
-    .bind(&values.last_subject)
-    .bind(&received)
-    .bind(now)
-    .execute(db)
-    .await?;
+    now: time::PrimitiveDateTime,
+) -> Result<(), DbErr> {
+    use mail_subscriptions::Column as S;
+    use sea_orm::ExprTrait as _;
+    let received = timestamp(values.received_at);
+    // The row as it is: `mail_subscriptions.<column>`.
+    let current = |column: S| Expr::col((mail_subscriptions::Entity, column));
+    let row = mail_subscriptions::ActiveModel {
+        id: Set(weldsuite_kit::generate_id("msub")),
+        account_id: Set(account_id.to_owned()),
+        sender_email: Set(values.sender_email.clone()),
+        sender_name: Set(values.sender_name.clone()),
+        sender_domain: Set(values.sender_domain.clone()),
+        list_id: Set(values.list_id.clone()),
+        unsubscribe_url: Set(values.unsubscribe_url.clone()),
+        unsubscribe_mailto: Set(values.unsubscribe_mailto.clone()),
+        one_click: Set(values.one_click),
+        message_count: Set(1),
+        last_subject: Set(values.last_subject.clone()),
+        first_received_at: Set(received),
+        last_received_at: Set(received),
+        ..Default::default()
+    };
+    let merge = OnConflict::columns([S::AccountId, S::SenderEmail])
+        .value(
+            S::SenderName,
+            Func::coalesce([
+                Expr::val(values.sender_name.clone()),
+                current(S::SenderName),
+            ]),
+        )
+        .value(
+            S::ListId,
+            Func::coalesce([Expr::val(values.list_id.clone()), current(S::ListId)]),
+        )
+        .value(S::UnsubscribeUrl, Expr::val(values.unsubscribe_url.clone()))
+        .value(
+            S::UnsubscribeMailto,
+            Expr::val(values.unsubscribe_mailto.clone()),
+        )
+        .value(S::OneClick, Expr::val(values.one_click))
+        .value(S::MessageCount, current(S::MessageCount).add(1))
+        .value(S::LastSubject, Expr::val(values.last_subject.clone()))
+        .value(
+            S::LastReceivedAt,
+            Func::greatest([current(S::LastReceivedAt), Expr::val(received)]),
+        )
+        .value(S::UpdatedAt, Expr::val(now))
+        .to_owned();
+    mail_subscriptions::Entity::insert(row)
+        .on_conflict(merge)
+        .exec_without_returning(&orm(db))
+        .await?;
     Ok(())
 }
 
 /// `toSecurityStatusValue`: only the enum's values reach the column.
-fn security(value: Option<&String>) -> Option<&str> {
-    value.map(String::as_str).filter(|v| {
-        matches!(
-            *v,
-            "pass" | "fail" | "softfail" | "neutral" | "none" | "temperror" | "permerror"
-        )
-    })
+fn security(value: Option<&String>) -> Option<MailSecurityStatus> {
+    value.and_then(|v| MailSecurityStatus::try_from_value(v).ok())
 }
 
 /// The `ingest` op (`applyIngest`): the message row (a lost race on the id
@@ -467,12 +502,10 @@ async fn ingest(
     threats: Option<&Value>,
     subscription: Option<&SubscriptionValues>,
     received_ms: i64,
-) -> Result<String, sqlx::Error> {
-    let now = weldsuite_mail_domain::outbound::clock::iso(
-        weldsuite_mail_domain::outbound::clock::now_ms(),
-    );
-    let received = crate::mime::to_iso(received_ms);
-    let sent = crate::mime::to_iso(email.received_at);
+) -> Result<String, DbErr> {
+    let now = timestamp(weldsuite_mail_domain::outbound::clock::now_ms());
+    let received = timestamp(received_ms);
+    let sent = timestamp(email.received_at);
     let from = email.from.to_json();
     let to: Vec<Value> = email
         .to
@@ -485,63 +518,66 @@ async fn ingest(
         .map(crate::parsed::EmailAddress::to_json)
         .collect();
     let references: Vec<String> = email.references.clone().unwrap_or_default();
-    let inserted: Option<(String, Option<String>)> = sqlx::query_as(
-        "insert into mail_messages
-            (id, account_id, message_id, thread_id, \"from\", \"to\", cc, subject, preview,
-             text_body, html_body, sent_date, received_date, is_read, labels, is_spam,
-             is_starred, is_important, is_trash, in_reply_to, \"references\", is_reply,
-             spf_status, dkim_status, dmarc_status, source, has_attachments, attachment_count,
-             created_at, updated_at, threats)
-         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::timestamp, $13::timestamp,
-                 false, $14, $15, $16, $17, $18, $19, $20, $21,
-                 $22::mail_security_status, $23::mail_security_status, $24::mail_security_status,
-                 'inbound', $25, $26, $13::timestamp, $27::timestamp, $28)
-         on conflict (id) do nothing
-         returning id, thread_id",
-    )
-    .bind(message_id)
-    .bind(account_id)
-    .bind(&email.message_id)
-    .bind(thread_id)
-    .bind(&from)
-    .bind(Value::from(to))
-    .bind(Value::from(cc))
-    .bind(&email.subject)
-    .bind(preview(email))
-    .bind(email.text_body.as_deref())
-    .bind(html)
-    .bind(&sent)
-    .bind(&received)
-    .bind(json!(labels))
-    .bind(is_spam)
-    .bind(labels.iter().any(|l| l == "STARRED"))
-    .bind(labels.iter().any(|l| l == "IMPORTANT"))
-    .bind(labels.iter().any(|l| l == "TRASH"))
-    .bind(email.in_reply_to.as_deref())
-    .bind(json!(references))
-    .bind(email.is_reply())
-    .bind(security(email.spf_status.as_ref()))
-    .bind(security(email.dkim_status.as_ref()))
-    .bind(security(email.dmarc_status.as_ref()))
-    .bind(!attachments.is_empty())
-    .bind(i32::try_from(attachments.len()).unwrap_or(i32::MAX))
-    .bind(&now)
-    .bind(threats)
-    .fetch_optional(db)
-    .await?;
-    let Some((id, thread)) = inserted else {
-        let existing: Option<Option<String>> =
-            sqlx::query_scalar("select thread_id from mail_messages where id = $1 limit 1")
-                .bind(message_id)
-                .fetch_optional(db)
-                .await?;
-        return Ok(existing.flatten().unwrap_or_else(|| message_id.to_owned()));
+    let conn = orm(db);
+    let row = mail_messages::ActiveModel {
+        id: Set(message_id.to_owned()),
+        account_id: Set(account_id.to_owned()),
+        message_id: Set(email.message_id.clone()),
+        thread_id: Set(Some(thread_id.to_owned())),
+        from: Set(from),
+        to: Set(Value::from(to)),
+        cc: Set(Some(Value::from(cc))),
+        subject: Set(Some(email.subject.clone())),
+        preview: Set(Some(preview(email))),
+        text_body: Set(email.text_body.clone()),
+        html_body: Set(html.map(str::to_owned)),
+        sent_date: Set(sent),
+        received_date: Set(Some(received)),
+        is_read: Set(false),
+        labels: Set(Some(json!(labels))),
+        is_spam: Set(Some(is_spam)),
+        is_starred: Set(Some(labels.iter().any(|l| l == "STARRED"))),
+        is_important: Set(Some(labels.iter().any(|l| l == "IMPORTANT"))),
+        is_trash: Set(Some(labels.iter().any(|l| l == "TRASH"))),
+        in_reply_to: Set(email.in_reply_to.clone()),
+        references: Set(Some(json!(references))),
+        is_reply: Set(Some(email.is_reply())),
+        spf_status: Set(security(email.spf_status.as_ref())),
+        dkim_status: Set(security(email.dkim_status.as_ref())),
+        dmarc_status: Set(security(email.dmarc_status.as_ref())),
+        source: Set(Some("inbound".to_owned())),
+        has_attachments: Set(!attachments.is_empty()),
+        attachment_count: Set(Some(i32::try_from(attachments.len()).unwrap_or(i32::MAX))),
+        created_at: Set(received),
+        updated_at: Set(now),
+        threats: Set(threats.cloned()),
+        ..Default::default()
     };
-    insert_attachment_rows(db, &id, attachments, received_ms).await?;
-    if let Some(values) = subscription {
-        upsert_subscription(db, account_id, values, &now).await?;
+    // `on conflict (id) do nothing`: a lost race on the id reports the row
+    // already there.
+    let inserted = mail_messages::Entity::insert(row)
+        .on_conflict(
+            OnConflict::column(mail_messages::Column::Id)
+                .do_nothing()
+                .to_owned(),
+        )
+        .exec_without_returning(&conn)
+        .await?;
+    if inserted == 0 {
+        let existing: Option<Option<String>> = mail_messages::Entity::find()
+            .select_only()
+            .column(mail_messages::Column::ThreadId)
+            .filter(mail_messages::Column::Id.eq(message_id))
+            .into_tuple()
+            .one(&conn)
+            .await?;
+        return Ok(existing.flatten().unwrap_or_else(|| message_id.to_owned()));
     }
-    Ok(thread.unwrap_or(id))
+    insert_attachment_rows(db, message_id, attachments, received_ms).await?;
+    if let Some(values) = subscription {
+        upsert_subscription(db, account_id, values, now).await?;
+    }
+    Ok(thread_id.to_owned())
 }
 
 /// `ms` since the epoch as the timestamp columns take it (UTC).
@@ -551,18 +587,13 @@ pub(crate) fn timestamp(ms: i64) -> time::PrimitiveDateTime {
     time::PrimitiveDateTime::new(at.date(), at.time())
 }
 
-/// An ORM error where the pipeline speaks sqlx's.
-fn db_err(error: &sea_orm::DbErr) -> sqlx::Error {
-    sqlx::Error::Protocol(format!("orm: {error}"))
-}
-
 /// The ingest's attachment rows, with their scan.
 async fn insert_attachment_rows(
     db: &PgPool,
     message_id: &str,
     attachments: &[AttachmentInput],
     at_ms: i64,
-) -> Result<(), sqlx::Error> {
+) -> Result<(), DbErr> {
     if attachments.is_empty() {
         return Ok(());
     }
@@ -588,9 +619,8 @@ async fn insert_attachment_rows(
         ..Default::default()
     });
     mail_attachments::Entity::insert_many(rows)
-        .exec_without_returning(&weldsuite_db::orm(db))
-        .await
-        .map_err(|error| db_err(&error))?;
+        .exec_without_returning(&orm(db))
+        .await?;
     Ok(())
 }
 
@@ -635,7 +665,7 @@ async fn store(
     attachment_names: &[String],
     attachments: &[ParsedAttachment],
     threats: &MessageThreats,
-) -> Result<Option<Stored>, sqlx::Error> {
+) -> Result<Option<Stored>, DbErr> {
     let resolved = resolve_inbound(db, &account.account_id, email).await?;
     if resolved.duplicate {
         tracing::info!(

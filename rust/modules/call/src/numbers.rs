@@ -4,8 +4,11 @@
 //! regulatory requirements of ordering one
 //! (`services/phone-number-requirements.ts`).
 
+use sea_orm::prelude::BigDecimal;
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, Order, QueryFilter, QueryOrder, QuerySelect};
 use serde_json::{Map, Value, json};
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm};
+use weldsuite_schema::master::telephony_number_pricing as pricing;
 
 use crate::js;
 use crate::telnyx::{Body, Telnyx, TelnyxError};
@@ -175,31 +178,41 @@ pub(crate) struct Markup {
 type RawPriceRow = (
     String,
     String,
-    String,
-    String,
+    BigDecimal,
+    BigDecimal,
     String,
     Option<String>,
     Option<i32>,
-    Option<String>,
+    Option<BigDecimal>,
 );
+
+/// `numeric(p, 2)::text`: exactly two decimals, as Postgres prints it.
+fn money(value: &BigDecimal) -> String {
+    value.with_scale(2).to_plain_string()
+}
 
 /// The active price list, in `order_by` when asked (`country_code`,
 /// `number_type`), else as the table returns it.
-pub(crate) async fn price_list(
-    master: &PgPool,
-    ordered: bool,
-) -> Result<Vec<PriceRow>, sqlx::Error> {
-    let sql = if ordered {
-        "select country_code, number_type, monthly_price::text, setup_fee::text, currency,
-             stripe_price_id, markup_amount, markup_percent::text
-         from telephony_number_pricing where is_active = true
-         order by country_code asc, number_type asc"
-    } else {
-        "select country_code, number_type, monthly_price::text, setup_fee::text, currency,
-             stripe_price_id, markup_amount, markup_percent::text
-         from telephony_number_pricing where is_active = true"
-    };
-    let rows: Vec<RawPriceRow> = sqlx::query_as(sql).fetch_all(master).await?;
+pub(crate) async fn price_list(master: &PgPool, ordered: bool) -> Result<Vec<PriceRow>, DbErr> {
+    let mut list = pricing::Entity::find()
+        .select_only()
+        .columns([
+            pricing::Column::CountryCode,
+            pricing::Column::NumberType,
+            pricing::Column::MonthlyPrice,
+            pricing::Column::SetupFee,
+            pricing::Column::Currency,
+            pricing::Column::StripePriceId,
+            pricing::Column::MarkupAmount,
+            pricing::Column::MarkupPercent,
+        ])
+        .filter(pricing::Column::IsActive.eq(true));
+    if ordered {
+        list = list
+            .order_by(pricing::Column::CountryCode, Order::Asc)
+            .order_by(pricing::Column::NumberType, Order::Asc);
+    }
+    let rows: Vec<RawPriceRow> = list.into_tuple().all(&orm(master)).await?;
     Ok(rows
         .into_iter()
         .map(
@@ -215,11 +228,14 @@ pub(crate) async fn price_list(
             )| PriceRow {
                 country_code,
                 number_type,
-                monthly_price,
-                setup_fee,
+                monthly_price: money(&monthly_price),
+                setup_fee: money(&setup_fee),
                 currency,
                 stripe_price_id: stripe,
-                markup: Markup { amount, percent },
+                markup: Markup {
+                    amount,
+                    percent: percent.as_ref().map(money),
+                },
             },
         )
         .collect())

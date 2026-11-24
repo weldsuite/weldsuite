@@ -2,11 +2,16 @@
 //! `markRunRunning`, `completeAgentRun`, `findAgentsForEvent`). The agent loop
 //! ([`crate::run`]) and the dispatchers write through these.
 
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::Value;
 use sqlx::PgPool;
+use weldsuite_db::orm;
 use weldsuite_kit::generate_id;
+use weldsuite_schema::tenant::weldagent_agent_runs::{self as runs, Column};
+use weldsuite_schema::tenant::weldagent_agents as agents;
 
-use crate::agents::list_agents;
+use crate::agents::{int4, list_agents, now_tz};
 
 /// `createAgentRun(db, input)`: a run row (`queued` unless given).
 ///
@@ -19,19 +24,18 @@ pub async fn create_agent_run(
     status: Option<&str>,
     trigger_type: &str,
     trigger_data: Option<&Value>,
-) -> Result<String, sqlx::Error> {
+) -> Result<String, DbErr> {
     let id = generate_id("run");
-    sqlx::query(
-        "insert into weldagent_agent_runs (id, agent_id, status, trigger_type, trigger_data, created_at)
-         values ($1, $2, $3, $4, $5::jsonb, $6::timestamptz)",
-    )
-    .bind(&id)
-    .bind(agent_id)
-    .bind(status.unwrap_or("queued"))
-    .bind(trigger_type)
-    .bind(trigger_data)
-    .bind(crate::now())
-    .execute(db)
+    runs::Entity::insert(runs::ActiveModel {
+        id: Set(id.clone()),
+        agent_id: Set(agent_id.to_owned()),
+        status: Set(status.unwrap_or("queued").to_owned()),
+        trigger_type: Set(Some(trigger_type.to_owned())),
+        trigger_data: Set(trigger_data.cloned()),
+        created_at: Set(now_tz()),
+        ..Default::default()
+    })
+    .exec_without_returning(&orm(db))
     .await?;
     Ok(id)
 }
@@ -41,11 +45,12 @@ pub async fn create_agent_run(
 /// # Errors
 ///
 /// The tenant database fails.
-pub async fn mark_run_running(db: &PgPool, run_id: &str) -> Result<(), sqlx::Error> {
-    sqlx::query("update weldagent_agent_runs set status = 'running', started_at = $2::timestamptz where id = $1")
-        .bind(run_id)
-        .bind(crate::now())
-        .execute(db)
+pub async fn mark_run_running(db: &PgPool, run_id: &str) -> Result<(), DbErr> {
+    runs::Entity::update_many()
+        .col_expr(Column::Status, Expr::value("running"))
+        .col_expr(Column::StartedAt, Expr::value(now_tz()))
+        .filter(Column::Id.eq(run_id))
+        .exec(&orm(db))
         .await?;
     Ok(())
 }
@@ -62,7 +67,8 @@ pub struct RunCompletion {
 }
 
 /// `completeAgentRun(db, input)`: finish the run row and move the agent's run
-/// counters.
+/// counters. `durationMs` is the milliseconds since `startedAt` (`null`
+/// before the run started), worked out by Postgres as the worker does.
 ///
 /// # Errors
 ///
@@ -72,42 +78,61 @@ pub async fn complete_agent_run(
     run_id: &str,
     agent_id: &str,
     done: RunCompletion,
-) -> Result<(), sqlx::Error> {
-    let stamp = crate::now();
+) -> Result<(), DbErr> {
+    use sea_orm::ExprTrait as _;
+    let stamp = now_tz();
     let status = if done.success { "completed" } else { "failed" };
-    sqlx::query(
-        "update weldagent_agent_runs
-         set status = $2, completed_at = $3::timestamptz,
-             duration_ms = case when started_at is null then null
-                           else (extract(epoch from ($3::timestamptz - started_at)) * 1000)::int end,
-             result = $4::jsonb, error = $5, total_iterations = $6::int, total_tokens_used = $7::int,
-             tool_call_count = $8::int
-         where id = $1",
+    let conn = orm(db);
+    // extract(epoch from (completed_at - started_at)) * 1000, as an integer;
+    // null while `started_at` is.
+    let duration = Expr::from(
+        Func::cust("date_part")
+            .arg("epoch")
+            .arg(Expr::value(stamp).sub(Expr::col(Column::StartedAt))),
     )
-    .bind(run_id)
-    .bind(status)
-    .bind(&stamp)
-    .bind(&done.result)
-    .bind(&done.error)
-    .bind(done.total_iterations)
-    .bind(done.total_tokens_used)
-    .bind(done.tool_call_count)
-    .execute(db)
-    .await?;
-    sqlx::query(
-        "update weldagent_agents
-         set total_runs = total_runs + 1,
-             successful_runs = successful_runs + case when $2 then 1 else 0 end,
-             failed_runs = failed_runs + case when $2 then 0 else 1 end,
-             last_run_at = $3::timestamptz, last_run_status = $4, updated_at = $3::timestamptz
-         where id = $1",
-    )
-    .bind(agent_id)
-    .bind(done.success)
-    .bind(&stamp)
-    .bind(status)
-    .execute(db)
-    .await?;
+    .mul(1000)
+    .cast_as("int");
+    runs::Entity::update_many()
+        .col_expr(Column::Status, Expr::value(status))
+        .col_expr(Column::CompletedAt, Expr::value(stamp))
+        .col_expr(Column::DurationMs, duration)
+        .col_expr(Column::Result, Expr::value(done.result))
+        .col_expr(Column::Error, Expr::value(done.error))
+        .col_expr(
+            Column::TotalIterations,
+            Expr::value(int4(done.total_iterations)?),
+        )
+        .col_expr(
+            Column::TotalTokensUsed,
+            Expr::value(int4(done.total_tokens_used)?),
+        )
+        .col_expr(
+            Column::ToolCallCount,
+            Expr::value(int4(done.tool_call_count)?),
+        )
+        .filter(Column::Id.eq(run_id))
+        .exec(&conn)
+        .await?;
+    let (succeeded, failed) = if done.success { (1, 0) } else { (0, 1) };
+    agents::Entity::update_many()
+        .col_expr(
+            agents::Column::TotalRuns,
+            Expr::col(agents::Column::TotalRuns).add(1),
+        )
+        .col_expr(
+            agents::Column::SuccessfulRuns,
+            Expr::col(agents::Column::SuccessfulRuns).add(succeeded),
+        )
+        .col_expr(
+            agents::Column::FailedRuns,
+            Expr::col(agents::Column::FailedRuns).add(failed),
+        )
+        .col_expr(agents::Column::LastRunAt, Expr::value(stamp))
+        .col_expr(agents::Column::LastRunStatus, Expr::value(status))
+        .col_expr(agents::Column::UpdatedAt, Expr::value(stamp))
+        .filter(agents::Column::Id.eq(agent_id))
+        .exec(&conn)
+        .await?;
     Ok(())
 }
 
@@ -117,10 +142,7 @@ pub async fn complete_agent_run(
 /// # Errors
 ///
 /// The tenant database fails.
-pub async fn find_agents_for_event(
-    db: &PgPool,
-    event_key: &str,
-) -> Result<Vec<Value>, sqlx::Error> {
+pub async fn find_agents_for_event(db: &PgPool, event_key: &str) -> Result<Vec<Value>, DbErr> {
     let agents = list_agents(db, Some("active"), &crate::access::system_viewer()).await?;
     Ok(agents
         .into_iter()
@@ -142,12 +164,20 @@ pub async fn has_existing_agent_run_for_event(
     db: &PgPool,
     agent_id: &str,
     event_id: &str,
-) -> Result<bool, sqlx::Error> {
-    sqlx::query_scalar(
-        "select exists (select 1 from weldagent_agent_runs where agent_id = $1 and trigger_data->>'eventId' = $2)",
-    )
-    .bind(agent_id)
-    .bind(event_id)
-    .fetch_one(db)
-    .await
+) -> Result<bool, DbErr> {
+    use sea_orm::ExprTrait as _;
+    use sea_orm::sea_query::extension::postgres::PgExpr as _;
+    let found: Option<String> = runs::Entity::find()
+        .select_only()
+        .column(Column::Id)
+        .filter(Column::AgentId.eq(agent_id))
+        .filter(
+            Expr::col(Column::TriggerData)
+                .cast_json_field("eventId")
+                .eq(event_id),
+        )
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
+    Ok(found.is_some())
 }

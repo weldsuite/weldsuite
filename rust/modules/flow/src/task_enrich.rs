@@ -18,11 +18,15 @@
 
 use std::collections::HashMap;
 
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect, Select};
 use serde_json::{Map, Value, json};
-use weldsuite_db::{PgPool, js_row};
+use weldsuite_db::{PgPool, orm};
 use weldsuite_flow_domain::task_tree::MAX_SUBTASK_DEPTH;
+use weldsuite_schema::tenant::tasks::{self, Column as Task};
+use weldsuite_schema::tenant::{companies, files, people, workspace_members};
 
-use crate::{FlowState, Refusal, custom_values};
+use crate::tasks::{count_int, count_int_where};
+use crate::{FlowState, Refusal, custom_values, row_json};
 
 /// The custom fields' entity type of a task.
 pub(crate) const TASK_ENTITY: &str = "task";
@@ -48,7 +52,7 @@ pub(crate) async fn assignee_map(
     db: &PgPool,
     master: Option<&PgPool>,
     rows: &[Value],
-) -> Result<HashMap<String, Value>, sqlx::Error> {
+) -> Result<HashMap<String, Value>, DbErr> {
     let mut ids: Vec<String> = Vec::new();
     for row in rows {
         if let Some(id) = row.get("assigneeId").and_then(Value::as_str)
@@ -74,17 +78,20 @@ pub(crate) async fn member_map(
     db: &PgPool,
     master: Option<&PgPool>,
     ids: &[String],
-) -> Result<HashMap<String, Value>, sqlx::Error> {
+) -> Result<HashMap<String, Value>, DbErr> {
     let mut map = HashMap::new();
     if ids.is_empty() {
         return Ok(map);
     }
-    let members: Vec<(String, Option<String>, Option<String>)> = sqlx::query_as(
-        "select user_id, name, email from workspace_members where user_id = any($1)",
-    )
-    .bind(ids)
-    .fetch_all(db)
-    .await?;
+    let members: Vec<(String, Option<String>, Option<String>)> = workspace_members::Entity::find()
+        .select_only()
+        .column(workspace_members::Column::UserId)
+        .column(workspace_members::Column::Name)
+        .column(workspace_members::Column::Email)
+        .filter(workspace_members::Column::UserId.is_in(ids.iter().map(String::as_str)))
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     let pictures = weldsuite_db::AccountPictures::load(
         master,
         members.iter().map(|(user_id, ..)| user_id.as_str()),
@@ -104,7 +111,7 @@ pub(crate) async fn member_map(
 pub(crate) async fn assignee_names(
     db: &PgPool,
     ids: &[String],
-) -> Result<HashMap<String, String>, sqlx::Error> {
+) -> Result<HashMap<String, String>, DbErr> {
     // Names only: no account pictures needed.
     let members = member_map(db, None, ids).await?;
     Ok(members
@@ -118,13 +125,15 @@ pub(crate) async fn assignee_names(
         .collect())
 }
 
-/// `{ id, name, avatar }` of the live companies or people named by `key`.
-async fn linked_map(
+/// `{ id, name, avatar }` of the live companies or people named by `key`:
+/// `select id, display_name, avatar_url … where id = any(ids) and
+/// deleted_at is null` over `select`.
+async fn linked_map<E: EntityTrait>(
     db: &PgPool,
     rows: &[Value],
     key: &str,
-    sql: &'static str,
-) -> Result<HashMap<String, Value>, sqlx::Error> {
+    select: impl FnOnce(Vec<String>) -> Select<E>,
+) -> Result<HashMap<String, Value>, DbErr> {
     let mut ids: Vec<String> = Vec::new();
     for row in rows {
         if let Some(id) = row.get(key).and_then(Value::as_str)
@@ -139,7 +148,7 @@ async fn linked_map(
         return Ok(map);
     }
     let found: Vec<(String, Option<String>, Option<String>)> =
-        sqlx::query_as(sql).bind(&ids).fetch_all(db).await?;
+        select(ids).into_tuple().all(&orm(db)).await?;
     for (id, name, avatar) in found {
         map.insert(
             id.clone(),
@@ -169,19 +178,23 @@ pub(crate) async fn enrich(
         .scheduled_slots(db, &ids)
         .await
         .map_err(Refusal::Internal)?;
-    let companies = linked_map(
-        db,
-        &rows,
-        "customerId",
-        "select id, display_name, avatar_url from companies where id = any($1) and deleted_at is null",
-    )
+    let companies = linked_map(db, &rows, "customerId", |ids| {
+        use companies::Column;
+        companies::Entity::find()
+            .select_only()
+            .columns([Column::Id, Column::DisplayName, Column::AvatarUrl])
+            .filter(Column::Id.is_in(ids))
+            .filter(Column::DeletedAt.is_null())
+    })
     .await?;
-    let people = linked_map(
-        db,
-        &rows,
-        "personId",
-        "select id, display_name, avatar_url from people where id = any($1) and deleted_at is null",
-    )
+    let people = linked_map(db, &rows, "personId", |ids| {
+        use people::Column;
+        people::Entity::find()
+            .select_only()
+            .columns([Column::Id, Column::DisplayName, Column::AvatarUrl])
+            .filter(Column::Id.is_in(ids))
+            .filter(Column::DeletedAt.is_null())
+    })
     .await?;
     Ok(rows
         .into_iter()
@@ -233,23 +246,26 @@ pub(crate) async fn enrich(
 }
 
 /// `hydrateCustomFields(db, 'task', rows)`.
-pub(crate) async fn hydrate(db: &PgPool, rows: Vec<Value>) -> Result<Vec<Value>, sqlx::Error> {
-    custom_values::hydrate(db, TASK_ENTITY, rows).await
+pub(crate) async fn hydrate(db: &PgPool, rows: Vec<Value>) -> Result<Vec<Value>, Refusal> {
+    Ok(custom_values::hydrate(db, TASK_ENTITY, rows).await?)
 }
 
 /// `{ total, completed }` live children per parent id.
 pub(crate) async fn subtask_counts(
     db: &PgPool,
     parent_ids: &[String],
-) -> Result<HashMap<String, (i64, i64)>, sqlx::Error> {
-    let rows: Vec<(Option<String>, i32, i32)> = sqlx::query_as(
-        "select parent_task_id, count(*)::int, (count(*) filter (where status = 'done'))::int
-         from tasks where parent_task_id = any($1) and deleted_at is null
-         group by parent_task_id",
-    )
-    .bind(parent_ids)
-    .fetch_all(db)
-    .await?;
+) -> Result<HashMap<String, (i64, i64)>, DbErr> {
+    let rows: Vec<(Option<String>, i32, i32)> = tasks::Entity::find()
+        .select_only()
+        .column(Task::ParentTaskId)
+        .column_as(count_int(), "total")
+        .column_as(count_int_where(Task::Status.eq("done")), "done")
+        .filter(Task::ParentTaskId.is_in(parent_ids.iter().map(String::as_str)))
+        .filter(Task::DeletedAt.is_null())
+        .group_by(Task::ParentTaskId)
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     Ok(rows
         .into_iter()
         .filter_map(|(parent, total, done)| {
@@ -271,10 +287,7 @@ fn set(row: &mut Value, key: &str, value: Value) {
 }
 
 /// `attachSubtaskCounts`: each row's own live children.
-pub(crate) async fn attach_subtask_counts(
-    db: &PgPool,
-    rows: &mut [Value],
-) -> Result<(), sqlx::Error> {
+pub(crate) async fn attach_subtask_counts(db: &PgPool, rows: &mut [Value]) -> Result<(), DbErr> {
     let counts = subtask_counts(db, &ids_of(rows)).await?;
     for row in rows.iter_mut() {
         let id = row.get("id").and_then(Value::as_str).unwrap_or_default();
@@ -287,21 +300,21 @@ pub(crate) async fn attach_subtask_counts(
 
 /// `attachAttachmentCounts`: one count over every row (`files` with
 /// `entityType = 'task'`).
-pub(crate) async fn attach_attachment_counts(
-    db: &PgPool,
-    rows: &mut [Value],
-) -> Result<(), sqlx::Error> {
+pub(crate) async fn attach_attachment_counts(db: &PgPool, rows: &mut [Value]) -> Result<(), DbErr> {
     if rows.is_empty() {
         return Ok(());
     }
-    let found: Vec<(Option<String>, i32)> = sqlx::query_as(
-        "select entity_id, count(*)::int from files
-         where entity_type = 'task' and entity_id = any($1) and deleted_at is null
-         group by entity_id",
-    )
-    .bind(ids_of(rows))
-    .fetch_all(db)
-    .await?;
+    let found: Vec<(Option<String>, i32)> = files::Entity::find()
+        .select_only()
+        .column(files::Column::EntityId)
+        .column_as(count_int(), "count")
+        .filter(files::Column::EntityType.eq("task"))
+        .filter(files::Column::EntityId.is_in(ids_of(rows)))
+        .filter(files::Column::DeletedAt.is_null())
+        .group_by(files::Column::EntityId)
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     let counts: HashMap<String, i32> = found
         .into_iter()
         .filter_map(|(id, n)| id.map(|id| (id, n)))
@@ -331,20 +344,23 @@ pub(crate) async fn load_descendants(
         if frontier.is_empty() {
             break;
         }
-        let children: Vec<Value> = sqlx::query_scalar(concat!(
-            "select ",
-            task_json!("t"),
-            " from tasks t where ($1::text is null or t.project_id = $1)",
-            " and t.parent_task_id = any($2) and t.deleted_at is null",
-            " order by t.position asc, t.created_at asc, t.id asc"
-        ))
-        .bind(project_id)
-        .bind(&frontier)
-        .fetch_all(db)
-        .await?;
+        let mut select = tasks::Entity::find();
+        if let Some(project_id) = project_id {
+            select = select.filter(Task::ProjectId.eq(project_id));
+        }
+        let children: Vec<Value> = select
+            .filter(Task::ParentTaskId.is_in(frontier.iter().map(String::as_str)))
+            .filter(Task::DeletedAt.is_null())
+            .order_by_asc(Task::Position)
+            .order_by_asc(Task::CreatedAt)
+            .order_by_asc(Task::Id)
+            .all(&orm(db))
+            .await?
+            .into_iter()
+            .map(row_json)
+            .collect::<Result<_, DbErr>>()?;
         let fresh: Vec<Value> = children
             .into_iter()
-            .map(js_row)
             .filter(|child| {
                 child
                     .get("id")
@@ -363,7 +379,7 @@ pub(crate) async fn load_descendants(
         return Ok(all);
     }
     let enriched = enrich(state, db, master, all).await?;
-    Ok(hydrate(db, enriched).await?)
+    hydrate(db, enriched).await
 }
 
 /// `attachSubtaskTree(roots, descendants)`: `children`, `subtaskCount` and

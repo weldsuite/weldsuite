@@ -4,12 +4,21 @@
 
 use std::collections::HashMap;
 
+use sea_orm::sea_query::{Alias, Asterisk, Expr, Func};
+use sea_orm::{
+    ColumnTrait, Condition, DatabaseConnection, DbErr, EntityTrait, PaginatorTrait, QueryFilter,
+    QuerySelect,
+};
 use serde_json::{Value, json};
 use sqlx::PgPool;
 use time::OffsetDateTime;
+use weldsuite_db::orm;
+use weldsuite_schema::tenant::{
+    reach_campaigns, reach_enrollments, reach_mailboxes, reach_messages as messages,
+};
 
 use crate::send_window::{add_minutes, start_of_zoned_day, utc_ms, zoned_midnight, zoned_parts};
-use crate::{ReachResult, from_epoch_ms, iso};
+use crate::{ReachResult, from_epoch_ms, stamp};
 
 /// `DEFAULT_DAY_TIMEZONE`.
 pub const DEFAULT_DAY_TIMEZONE: &str = "Europe/Amsterdam";
@@ -26,15 +35,27 @@ pub struct SentToday {
 
 /// `countSentToday(db, dayStart)`.
 pub async fn count_sent_today(db: &PgPool, day_start: OffsetDateTime) -> ReachResult<SentToday> {
-    let rows: Vec<(String, Option<String>, i64)> = sqlx::query_as(
-        "select mailbox_id, campaign_id, count(*) from reach_messages
-         where direction = 'out' and (sent_at >= $1::timestamptz
-             or (sent_at is null and status in ('sending', 'unknown') and created_at >= $1::timestamptz))
-         group by mailbox_id, campaign_id",
-    )
-    .bind(iso(day_start))
-    .fetch_all(db)
-    .await?;
+    use messages::Column;
+    let day_start = stamp(day_start);
+    let rows: Vec<(String, Option<String>, i64)> = messages::Entity::find()
+        .select_only()
+        .column(Column::MailboxId)
+        .column(Column::CampaignId)
+        .expr(Func::count(Expr::col(Asterisk)))
+        .filter(Column::Direction.eq("out"))
+        .filter(
+            Condition::any().add(Column::SentAt.gte(day_start)).add(
+                Condition::all()
+                    .add(Column::SentAt.is_null())
+                    .add(Column::Status.is_in(["sending", "unknown"]))
+                    .add(Column::CreatedAt.gte(day_start)),
+            ),
+        )
+        .group_by(Column::MailboxId)
+        .group_by(Column::CampaignId)
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     let mut out = SentToday::default();
     for (mailbox, campaign, n) in rows {
         out.total += n;
@@ -55,6 +76,32 @@ fn ratio(num: i64, den: i64) -> f64 {
     (raw + 0.5).floor().min(10_000.0) / 10_000.0
 }
 
+/// `select to_char(timezone(tz, <at>), 'YYYY-MM-DD') as day, count(*) …
+/// group by day` over the messages `filter` keeps.
+async fn count_by_local_day(
+    db: &DatabaseConnection,
+    tz: &str,
+    at: messages::Column,
+    filter: Condition,
+) -> Result<Vec<(Option<String>, i64)>, DbErr> {
+    let day = Func::cust("to_char")
+        .arg(
+            Func::cust("timezone")
+                .arg(tz)
+                .arg(Expr::col((messages::Entity, at))),
+        )
+        .arg("YYYY-MM-DD");
+    messages::Entity::find()
+        .select_only()
+        .column_as(Expr::from(day), "day")
+        .expr(Func::count(Expr::col(Asterisk)))
+        .filter(filter)
+        .group_by(Expr::col(Alias::new("day")))
+        .into_tuple()
+        .all(db)
+        .await
+}
+
 fn local_date_key(at: OffsetDateTime, timezone: &str) -> String {
     let p = zoned_parts(at, timezone);
     format!("{}-{:02}-{:02}", p.year, p.month, p.day)
@@ -62,6 +109,7 @@ fn local_date_key(at: OffsetDateTime, timezone: &str) -> String {
 
 /// `buildOverview(db, now)`.
 pub async fn build(db: &PgPool, now: OffsetDateTime) -> ReachResult<Value> {
+    use messages::Column;
     let settings = crate::campaigns::load_settings(db).await?;
     let tz = settings
         .as_ref()
@@ -87,50 +135,63 @@ pub async fn build(db: &PgPool, now: OffsetDateTime) -> ReachResult<Value> {
         .get(usize::try_from(SERIES_DAYS).unwrap_or_default() - WINDOW_DAYS)
         .copied()
         .unwrap_or(today);
-    let sent_rows: Vec<(Option<String>, i64)> = sqlx::query_as(
-        "select to_char(timezone($1, sent_at), 'YYYY-MM-DD'), count(*)::int8 from reach_messages
-         where direction = 'out' and status = 'sent' and sent_at >= $2::timestamptz group by 1",
+    let conn = orm(db);
+    let series_start = stamp(series_start);
+    let window_start = stamp(window_start);
+    let sent_rows = count_by_local_day(
+        &conn,
+        &tz,
+        Column::SentAt,
+        Condition::all()
+            .add(Column::Direction.eq("out"))
+            .add(Column::Status.eq("sent"))
+            .add(Column::SentAt.gte(series_start)),
     )
-    .bind(&tz)
-    .bind(iso(series_start))
-    .fetch_all(db)
     .await?;
-    let reply_rows: Vec<(Option<String>, i64)> = sqlx::query_as(
-        "select to_char(timezone($1, received_at), 'YYYY-MM-DD'), count(*)::int8 from reach_messages
-         where direction = 'in' and kind = 'reply' and received_at >= $2::timestamptz group by 1",
+    let reply_rows = count_by_local_day(
+        &conn,
+        &tz,
+        Column::ReceivedAt,
+        Condition::all()
+            .add(Column::Direction.eq("in"))
+            .add(Column::Kind.eq("reply"))
+            .add(Column::ReceivedAt.gte(series_start)),
     )
-    .bind(&tz)
-    .bind(iso(series_start))
-    .fetch_all(db)
     .await?;
-    let interested: i64 = sqlx::query_scalar(
-        "select count(*) from reach_messages where direction = 'in' and kind = 'reply'
-             and label in ('interested', 'meeting_request') and received_at >= $1::timestamptz",
-    )
-    .bind(iso(window_start))
-    .fetch_one(db)
-    .await?;
-    let bounced: i64 = sqlx::query_scalar(
-        "select count(*) from reach_enrollments where status = 'bounced' and updated_at >= $1::timestamptz",
-    )
-    .bind(iso(window_start))
-    .fetch_one(db)
-    .await?;
-    let active_campaigns: i64 = sqlx::query_scalar(
-        "select count(*) from reach_campaigns where status = 'active' and deleted_at is null",
-    )
-    .fetch_one(db)
-    .await?;
-    let mailbox_rows: Vec<(String, i64)> = sqlx::query_as(
-        "select status, count(*) from reach_mailboxes where deleted_at is null and status <> 'deleted' group by status",
-    )
-    .fetch_all(db)
-    .await?;
-    let unread: i64 = sqlx::query_scalar(
-        "select count(*) from reach_messages where direction = 'in' and kind = 'reply' and read_at is null",
-    )
-    .fetch_one(db)
-    .await?;
+    let interested = messages::Entity::find()
+        .filter(Column::Direction.eq("in"))
+        .filter(Column::Kind.eq("reply"))
+        .filter(Column::Label.is_in(["interested", "meeting_request"]))
+        .filter(Column::ReceivedAt.gte(window_start))
+        .count(&conn)
+        .await?;
+    let bounced = reach_enrollments::Entity::find()
+        .filter(reach_enrollments::Column::Status.eq("bounced"))
+        .filter(reach_enrollments::Column::UpdatedAt.gte(window_start))
+        .count(&conn)
+        .await?;
+    let bounced = i64::try_from(bounced).unwrap_or(i64::MAX);
+    let active_campaigns = reach_campaigns::Entity::find()
+        .filter(reach_campaigns::Column::Status.eq("active"))
+        .filter(reach_campaigns::Column::DeletedAt.is_null())
+        .count(&conn)
+        .await?;
+    let mailbox_rows: Vec<(String, i64)> = reach_mailboxes::Entity::find()
+        .select_only()
+        .column(reach_mailboxes::Column::Status)
+        .expr(Func::count(Expr::col(Asterisk)))
+        .filter(reach_mailboxes::Column::DeletedAt.is_null())
+        .filter(reach_mailboxes::Column::Status.ne("deleted"))
+        .group_by(reach_mailboxes::Column::Status)
+        .into_tuple()
+        .all(&conn)
+        .await?;
+    let unread = messages::Entity::find()
+        .filter(Column::Direction.eq("in"))
+        .filter(Column::Kind.eq("reply"))
+        .filter(Column::ReadAt.is_null())
+        .count(&conn)
+        .await?;
     let count_on = |rows: &[(Option<String>, i64)], date: &str| {
         rows.iter()
             .find(|(d, _)| d.as_deref() == Some(date))

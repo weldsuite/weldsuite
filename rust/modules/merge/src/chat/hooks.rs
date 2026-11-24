@@ -7,12 +7,14 @@
 //! channels are the subscriptions matching the event's team and repository
 //! ([`channels_for`]). The daily digest is [`crate::chat::digest`].
 
+use sea_orm::EntityTrait;
 use serde_json::{Value, json};
-use weldsuite_db::js_row;
+use weldsuite_db::orm;
+use weldsuite_schema::tenant::merge_repositories;
 
 use crate::chat::post::post_card_to_channels;
 use crate::chat::subscriptions::{EventScope, channels_for};
-use crate::db::{Row, col, flag, opt_text, text};
+use crate::db::{Row, col, flag, json_row, opt_text, text};
 use crate::hooks::HookContext;
 use crate::{MergeError, PendingEvent};
 
@@ -133,12 +135,11 @@ pub(crate) async fn after_pull_request_synced(
         return Ok(());
     }
 
-    let repository: Option<Value> =
-        sqlx::query_scalar("select to_jsonb(r) from merge_repositories r where r.id = $1 limit 1")
-            .bind(text(after, "repositoryId"))
-            .fetch_optional(&ctx.db)
-            .await?;
-    let repository = repository.map(js_row);
+    let repository = merge_repositories::Entity::find_by_id(text(after, "repositoryId").to_owned())
+        .one(&orm(&ctx.db))
+        .await?
+        .map(|repository| json_row(serde_json::to_value(repository)))
+        .transpose()?;
     let scope = EventScope {
         team_id: repository.as_ref().and_then(|r| some_text(r, "teamId")),
         repository_id: some_text(after, "repositoryId"),

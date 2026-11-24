@@ -17,8 +17,11 @@ use std::sync::{Arc, LazyLock};
 use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use regex::Regex;
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{ColumnTrait, Condition, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::permission_keys::{COMPANIES_READ, COMPANIES_SCOPE_ALL};
+use weldsuite_db::orm;
 use weldsuite_kit::{ApiError, Data, List, NoContent, Pagination};
 use weldsuite_panel_domain::js;
 use weldsuite_panel_domain::query::scope::{ScopeOptions, events_scope};
@@ -27,6 +30,7 @@ use weldsuite_panel_domain::query::time::resolve_range;
 use weldsuite_panel_domain::query::{PanelQueryContext, PanelSqlQuery, Runner};
 use weldsuite_panel_domain::schemas::{DateRange, PanelFilter};
 use weldsuite_permissions::Permissions;
+use weldsuite_schema::tenant::{companies, panel_group_types};
 use weldsuite_zod::{Hook, Keys, N, S, Z};
 
 use crate::people::events_from;
@@ -41,7 +45,7 @@ use crate::{Caller, PanelState, unexpected};
 
 const RECENT_EVENTS: i64 = 25;
 const TOP_MEMBERS: i64 = 50;
-const CRM_CANDIDATES: i64 = 20;
+const CRM_CANDIDATES: u64 = 20;
 const DAY_MS: i64 = 86_400_000;
 
 /// A recent event that is worth a line in a feed: not a page leave or an identity link.
@@ -432,26 +436,41 @@ async fn match_crm_company(
     caller: &Caller,
     value: &str,
     lookup: &CrmLookup,
-) -> Result<Option<Value>, sqlx::Error> {
+) -> Result<Option<Value>, DbErr> {
     let needle = js::trim(value);
     if needle.is_empty() {
         return Ok(None);
     }
-    let owner = lookup.owner_scope.as_deref();
+    let db = orm(&caller.db);
+    // Live companies the caller may see, oldest first.
+    let live_companies = || {
+        let mut find = companies::Entity::find()
+            .select_only()
+            .columns([
+                companies::Column::Id,
+                companies::Column::DisplayName,
+                companies::Column::Website,
+                companies::Column::Email,
+            ])
+            .filter(companies::Column::DeletedAt.is_null());
+        if let Some(owner) = lookup.owner_scope.as_deref() {
+            find = find.filter(companies::Column::OwnerId.eq(owner));
+        }
+        find.order_by_asc(companies::Column::CreatedAt)
+            .order_by_asc(companies::Column::Id)
+    };
     if let Some(domain) = domain_of(Some(needle)) {
         let like = escape_like(&domain);
-        let candidates: Vec<CompanyRow> = sqlx::query_as(
-            "select id, display_name, website, email from companies
-             where deleted_at is null and ($1::text is null or owner_id = $1)
-               and (website ilike $2 or email ilike $3)
-             order by created_at asc, id asc limit $4",
-        )
-        .bind(owner)
-        .bind(format!("%{like}%"))
-        .bind(format!("%@{like}"))
-        .bind(CRM_CANDIDATES)
-        .fetch_all(&caller.db)
-        .await?;
+        let candidates: Vec<CompanyRow> = live_companies()
+            .filter(
+                Condition::any()
+                    .add(companies::Column::Website.ilike(format!("%{like}%")))
+                    .add(companies::Column::Email.ilike(format!("%@{like}"))),
+            )
+            .limit(CRM_CANDIDATES)
+            .into_tuple()
+            .all(&db)
+            .await?;
         let hit = candidates
             .iter()
             .find(|c| domain_of(c.2.as_deref()).as_deref() == Some(domain.as_str()))
@@ -465,16 +484,18 @@ async fn match_crm_company(
         }
     }
     let lower = needle.to_lowercase();
-    let by_name: Option<CompanyRow> = sqlx::query_as(
-        "select id, display_name, website, email from companies
-         where deleted_at is null and ($1::text is null or owner_id = $1)
-           and (lower(display_name) = $2 or lower(name) = $2)
-         order by created_at asc, id asc limit 1",
-    )
-    .bind(owner)
-    .bind(&lower)
-    .fetch_optional(&caller.db)
-    .await?;
+    let lowered = |column: companies::Column| {
+        sea_orm::ExprTrait::eq(Func::lower(Expr::col(column)), lower.as_str())
+    };
+    let by_name: Option<CompanyRow> = live_companies()
+        .filter(
+            Condition::any()
+                .add(lowered(companies::Column::DisplayName))
+                .add(lowered(companies::Column::Name)),
+        )
+        .into_tuple()
+        .one(&db)
+        .await?;
     Ok(by_name.as_ref().map(company_dto))
 }
 
@@ -509,14 +530,14 @@ async fn load_group_profile(
         project_id,
     };
     let type_row = async {
-        sqlx::query_scalar::<_, Option<String>>(
-            "select crm_match_property from panel_group_types
-             where project_id = $1 and group_type = $2 limit 1",
-        )
-        .bind(project_id)
-        .bind(group_type)
-        .fetch_optional(&caller.db)
-        .await
+        panel_group_types::Entity::find()
+            .select_only()
+            .column(panel_group_types::Column::CrmMatchProperty)
+            .filter(panel_group_types::Column::ProjectId.eq(project_id))
+            .filter(panel_group_types::Column::GroupType.eq(group_type))
+            .into_tuple::<Option<String>>()
+            .one(&orm(&caller.db))
+            .await
     };
     let (group, match_property, ctx) = futures_util::join!(
         project_state.get_group(project, group_type, group_key),

@@ -10,16 +10,24 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use http::StatusCode;
 use http::header::LOCATION;
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, Condition, DbErr, EntityTrait, QueryFilter, QueryOrder,
+    QuerySelect,
+};
 use serde_json::{Value, json};
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm, utc_now, utc_timestamp};
 use weldsuite_kit::generate_id;
+use weldsuite_schema::master::workspaces;
+use weldsuite_schema::tenant::helpdesk_channel_integrations::{
+    ActiveModel, Column, Entity as Integration,
+};
 
 use super::{
     PublicCtx, PublicState, Urls, discord_guild_id, form_encode, json_object, kv_delete,
     kv_get_json, kv_put, providers, truthy,
 };
 use crate::js::query_param;
-use crate::tables::HELPDESK_CHANNEL_INTEGRATIONS as HCI;
 
 const DISCORD_SETTINGS_PATH: &str = "/settings/integrations/discord";
 const SLACK_SETTINGS_PATH: &str = "/settings/integrations/slack";
@@ -117,12 +125,18 @@ async fn workspace_id(
     reference: &str,
 ) -> Result<String, String> {
     let master = ctx.master(state).ok_or("no master database")?;
-    let id: Option<String> =
-        sqlx::query_scalar("select id from workspaces where id = $1 or clerk_org_id = $1 limit 1")
-            .bind(reference)
-            .fetch_optional(&master)
-            .await
-            .map_err(|error| error.to_string())?;
+    let id: Option<String> = workspaces::Entity::find()
+        .select_only()
+        .column(workspaces::Column::Id)
+        .filter(
+            Condition::any()
+                .add(workspaces::Column::Id.eq(reference))
+                .add(workspaces::Column::ClerkOrgId.eq(reference)),
+        )
+        .into_tuple()
+        .one(&orm(&master))
+        .await
+        .map_err(|error| error.to_string())?;
     id.ok_or_else(|| format!("Workspace not found: {reference}"))
 }
 
@@ -267,8 +281,8 @@ async fn discord_flow(
     let expires_in = tokens["expires_in"].as_f64().ok_or("Invalid time value")?;
     #[allow(clippy::cast_possible_truncation)]
     let expires_at = now_time + time::Duration::milliseconds((expires_in * 1000.0) as i64);
-    let now = weldsuite_events::iso_timestamp(now_time);
-    let expires = weldsuite_events::iso_timestamp(expires_at);
+    let now = utc_timestamp(now_time);
+    let expires = utc_timestamp(expires_at);
     let account = json!({ "id": resolved, "name": guild_name, "metadata": { "guildId": resolved, "guildName": guild_name } });
 
     let existing = integration_for_guild(&db, &resolved)
@@ -276,39 +290,47 @@ async fn discord_flow(
         .map_err(|e| e.to_string())?;
     let integration_id = if let Some(existing) = existing {
         let id = existing["id"].as_str().unwrap_or_default().to_owned();
-        sqlx::query(
-            "update helpdesk_channel_integrations set status = 'connected', name = $2, account_info = $3,
-             access_token = $4, refresh_token = $5, token_expires_at = $6::timestamp, error_message = null,
-             last_sync_at = $7::timestamp, updated_at = $7::timestamp where id = $1",
-        )
-        .bind(&id)
-        .bind(&guild_name)
-        .bind(&account)
-        .bind(tokens["access_token"].as_str())
-        .bind(tokens["refresh_token"].as_str())
-        .bind(&expires)
-        .bind(&now)
-        .execute(&db)
-        .await
-        .map_err(|e| e.to_string())?;
+        Integration::update_many()
+            .col_expr(Column::Status, Expr::value("connected"))
+            .col_expr(Column::Name, Expr::value(guild_name.as_str()))
+            .col_expr(Column::AccountInfo, Expr::value(account.clone()))
+            .col_expr(
+                Column::AccessToken,
+                Expr::value(text_of(&tokens["access_token"])),
+            )
+            .col_expr(
+                Column::RefreshToken,
+                Expr::value(text_of(&tokens["refresh_token"])),
+            )
+            .col_expr(Column::TokenExpiresAt, Expr::value(expires))
+            .col_expr(Column::ErrorMessage, Expr::value(Option::<String>::None))
+            .col_expr(Column::LastSyncAt, Expr::value(now))
+            .col_expr(Column::UpdatedAt, Expr::value(now))
+            .filter(Column::Id.eq(id.as_str()))
+            .exec(&orm(&db))
+            .await
+            .map_err(|e| e.to_string())?;
         id
     } else {
         let id = generate_id("chi");
-        sqlx::query(
-            "insert into helpdesk_channel_integrations
-               (id, provider, status, name, account_info, access_token, refresh_token, token_expires_at,
-                config, last_sync_at, created_at, updated_at)
-             values ($1, 'discord', 'connected', $2, $3, $4, $5, $6::timestamp, $7, $8::timestamp, $8::timestamp, $8::timestamp)",
-        )
-        .bind(&id)
-        .bind(&guild_name)
-        .bind(&account)
-        .bind(tokens["access_token"].as_str())
-        .bind(tokens["refresh_token"].as_str())
-        .bind(&expires)
-        .bind(json!({ "supportChannels": [], "processDirectMessages": false, "ignoreBots": true }))
-        .bind(&now)
-        .execute(&db)
+        Integration::insert(ActiveModel {
+            id: Set(id.clone()),
+            provider: Set("discord".to_owned()),
+            status: Set("connected".to_owned()),
+            name: Set(guild_name.clone()),
+            account_info: Set(Some(account.clone())),
+            access_token: Set(text_of(&tokens["access_token"])),
+            refresh_token: Set(text_of(&tokens["refresh_token"])),
+            token_expires_at: Set(Some(expires)),
+            config: Set(Some(
+                json!({ "supportChannels": [], "processDirectMessages": false, "ignoreBots": true }),
+            )),
+            last_sync_at: Set(Some(now)),
+            created_at: Set(now),
+            updated_at: Set(now),
+            ..Default::default()
+        })
+        .exec_without_returning(&orm(&db))
         .await
         .map_err(|e| e.to_string())?;
         id
@@ -330,17 +352,22 @@ async fn discord_flow(
 }
 
 /// `findIntegrationByGuildId`: the live Discord row for a guild.
-async fn integration_for_guild(db: &PgPool, guild: &str) -> Result<Option<Value>, sqlx::Error> {
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from helpdesk_channel_integrations t
-         where t.provider = 'discord' and t.deleted_at is null order by t.created_at desc",
-    )
-    .fetch_all(db)
-    .await?;
+async fn integration_for_guild(db: &PgPool, guild: &str) -> Result<Option<Value>, DbErr> {
+    let rows = Integration::find()
+        .filter(Column::Provider.eq("discord"))
+        .filter(Column::DeletedAt.is_null())
+        .order_by_desc(Column::CreatedAt)
+        .all(&orm(db))
+        .await?;
     Ok(rows
         .into_iter()
-        .map(|row| HCI.js(row))
+        .map(|row| serde_json::to_value(row).unwrap_or(Value::Null))
         .find(|row| discord_guild_id(row).as_deref() == Some(guild)))
+}
+
+/// A token field as the driver bound it: the string, else NULL.
+fn text_of(value: &Value) -> Option<String> {
+    value.as_str().map(str::to_owned)
 }
 
 // ── Slack ─────────────────────────────────────────────────────────────────────
@@ -440,13 +467,14 @@ async fn slack_flow(
 
     let workspace = workspace_id(ctx, state, &org).await?;
     let db = ctx.tenant_db(state, &org).await?;
-    let existing: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from helpdesk_channel_integrations t where t.provider = 'slack' and t.deleted_at is null limit 1",
-    )
-    .fetch_optional(&db)
-    .await
-    .map_err(|e| e.to_string())?;
-    let now = crate::now();
+    let existing: Option<Value> = Integration::find()
+        .filter(Column::Provider.eq("slack"))
+        .filter(Column::DeletedAt.is_null())
+        .one(&orm(&db))
+        .await
+        .map_err(|e| e.to_string())?
+        .map(|row| serde_json::to_value(row).unwrap_or(Value::Null));
+    let now = utc_now();
     let mut metadata = serde_json::Map::new();
     if let Some(team) = &team_id {
         metadata.insert("teamId".to_owned(), json!(team));
@@ -461,32 +489,31 @@ async fn slack_flow(
         .unwrap_or_default();
     config.insert("botToken".to_owned(), json!(bot_token));
     if let Some(existing) = existing {
-        sqlx::query(
-            "update helpdesk_channel_integrations set status = 'connected', name = $2, account_info = $3, config = $4,
-             access_token = $5, updated_at = $6::timestamp where id = $1",
-        )
-        .bind(existing["id"].as_str())
-        .bind(&team_name)
-        .bind(&account)
-        .bind(Value::Object(config))
-        .bind(bot_token)
-        .bind(&now)
-        .execute(&db)
-        .await
-        .map_err(|e| e.to_string())?;
+        Integration::update_many()
+            .col_expr(Column::Status, Expr::value("connected"))
+            .col_expr(Column::Name, Expr::value(team_name.as_str()))
+            .col_expr(Column::AccountInfo, Expr::value(account))
+            .col_expr(Column::Config, Expr::value(Value::Object(config)))
+            .col_expr(Column::AccessToken, Expr::value(bot_token))
+            .col_expr(Column::UpdatedAt, Expr::value(now))
+            .filter(Column::Id.eq(text_of(&existing["id"])))
+            .exec(&orm(&db))
+            .await
+            .map_err(|e| e.to_string())?;
     } else {
-        sqlx::query(
-            "insert into helpdesk_channel_integrations
-               (id, provider, status, name, account_info, config, access_token, created_at, updated_at)
-             values ($1, 'slack', 'connected', $2, $3, $4, $5, $6::timestamp, $6::timestamp)",
-        )
-        .bind(generate_id("chi"))
-        .bind(&team_name)
-        .bind(&account)
-        .bind(Value::Object(config))
-        .bind(bot_token)
-        .bind(&now)
-        .execute(&db)
+        Integration::insert(ActiveModel {
+            id: Set(generate_id("chi")),
+            provider: Set("slack".to_owned()),
+            status: Set("connected".to_owned()),
+            name: Set(team_name.clone()),
+            account_info: Set(Some(account)),
+            config: Set(Some(Value::Object(config))),
+            access_token: Set(Some(bot_token.to_owned())),
+            created_at: Set(now),
+            updated_at: Set(now),
+            ..Default::default()
+        })
+        .exec_without_returning(&orm(&db))
         .await
         .map_err(|e| e.to_string())?;
     }

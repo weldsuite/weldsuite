@@ -16,81 +16,12 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-/// SQL by nature: the migration runner and the lakehouse catalog.
-const SQL_BY_NATURE: &[&str] = &["crates/lakehouse", "crates/migrations"];
+/// SQL by nature: the migration runner, the lakehouse catalog, and the MTA's
+/// queue store (its own database and embedded migrations, no entities).
+const SQL_BY_NATURE: &[&str] = &["crates/lakehouse", "crates/migrations", "crates/mta"];
 
 /// Not converted yet. Remove a crate when its root `allow` goes; never add one.
-const NOT_CONVERTED: &[&str] = &[
-    "bins/weldsuite",
-    "crates/adapters-oss",
-    "crates/ads-domain",
-    "crates/ai",
-    "crates/apps-domain",
-    "crates/books-domain",
-    "crates/calendar-domain",
-    "crates/chat-domain",
-    "crates/connect-domain",
-    "crates/core-domain",
-    "crates/crm-domain",
-    "crates/db",
-    "crates/flow-domain",
-    "crates/legal-entities",
-    "crates/mail-domain",
-    "crates/mail-inbound",
-    "crates/merge-domain",
-    "crates/mta",
-    "crates/notifications",
-    "crates/pipeline",
-    "crates/reach-domain",
-    "crates/realtime",
-    "crates/social-domain",
-    "crates/staff-domain",
-    "crates/subscribers",
-    "modules/ads",
-    "modules/agent",
-    "modules/board",
-    "modules/books",
-    "modules/books-banking",
-    "modules/books-purchases",
-    "modules/books-reports",
-    "modules/books-sales",
-    "modules/books-sales-tax",
-    "modules/books-tax",
-    "modules/calendar",
-    "modules/call",
-    "modules/chat",
-    "modules/commerce",
-    "modules/connect",
-    "modules/core-apps",
-    "modules/core-billing",
-    "modules/core-files",
-    "modules/core-objects",
-    "modules/core-onboarding",
-    "modules/core-platform",
-    "modules/core-team",
-    "modules/crm",
-    "modules/data",
-    "modules/desk",
-    "modules/docs",
-    "modules/external-api",
-    "modules/flow",
-    "modules/forms",
-    "modules/host",
-    "modules/hr",
-    "modules/integrations",
-    "modules/mail",
-    "modules/mcp",
-    "modules/meet",
-    "modules/merge",
-    "modules/panel",
-    "modules/pass",
-    "modules/personal",
-    "modules/reach",
-    "modules/sheets",
-    "modules/sign",
-    "modules/social",
-    "modules/stash",
-];
+const NOT_CONVERTED: &[&str] = &[];
 
 fn rust_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")

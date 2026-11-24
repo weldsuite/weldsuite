@@ -10,13 +10,19 @@
 
 use std::collections::HashSet;
 
+use sea_orm::prelude::BigDecimal;
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
 use sqlx::PgPool;
+use time::PrimitiveDateTime;
+use time::macros::format_description;
 use weldsuite_books_domain::http::now;
 use weldsuite_books_domain::js::{js_number_value, math_round, slice_utf16, to_fixed};
 use weldsuite_books_domain::posting::iso_instant;
 use weldsuite_books_domain::tables::BANK_TRANSACTIONS;
+use weldsuite_db::{orm, orm_error};
 use weldsuite_kit::generate_id;
+use weldsuite_schema::tenant::bank_transactions;
 
 use crate::parsers::{Txn, occurrence_counter, synthetic_external_id};
 
@@ -67,12 +73,16 @@ fn duplicate_key(external_id: &str, amount: f64, day: &str) -> String {
     format!("{external_id}|{}|{day}", to_fixed(amount, 2))
 }
 
-/// `findExistingImports(db, bankAccountId, lines)`.
+/// `findExistingImports(db, bankAccountId, lines)`: the account's live lines
+/// with these ids, keyed by id, amount (read as a number, as the worker reads
+/// the numeric's text) and day.
 async fn existing(
     db: &PgPool,
     bank_account_id: &str,
     ids: &[String],
-) -> Result<HashSet<String>, sqlx::Error> {
+) -> Result<HashSet<String>, DbErr> {
+    use bank_transactions::Column;
+    let db = orm(db);
     let mut unique: Vec<String> = Vec::new();
     for id in ids {
         if !unique.contains(id) {
@@ -81,22 +91,25 @@ async fn existing(
     }
     let mut known = HashSet::new();
     for chunk in unique.chunks(LOOKUP_CHUNK) {
-        let rows: Vec<(Option<String>, Option<String>, Option<String>)> = sqlx::query_as(
-            "select external_id, amount::text, to_jsonb(date) #>> '{}' from bank_transactions \
-             where bank_account_id = $1 and external_id = any($2) and deleted_at is null",
-        )
-        .bind(bank_account_id)
-        .bind(chunk)
-        .fetch_all(db)
-        .await?;
+        let rows: Vec<(Option<String>, BigDecimal, PrimitiveDateTime)> =
+            bank_transactions::Entity::find()
+                .select_only()
+                .columns([Column::ExternalId, Column::Amount, Column::Date])
+                .filter(Column::BankAccountId.eq(bank_account_id))
+                .filter(Column::ExternalId.is_in(chunk.iter().cloned()))
+                .filter(Column::DeletedAt.is_null())
+                .into_tuple()
+                .all(&db)
+                .await?;
         for (external, amount, date) in rows {
             let Some(external) = external.filter(|e| !e.is_empty()) else {
                 continue;
             };
-            let amount = js_number_value(amount.map(Value::String).as_ref());
+            let amount = js_number_value(Some(&Value::String(amount.to_plain_string())));
+            // The day of `toISOString()`.
             let day = date
-                .as_deref()
-                .and_then(weldsuite_db::js_timestamp)
+                .date()
+                .format(format_description!("[year]-[month]-[day]"))
                 .unwrap_or_default();
             known.insert(duplicate_key(&external, amount, &day));
         }
@@ -110,7 +123,7 @@ pub(crate) async fn count_duplicates(
     db: &PgPool,
     bank_account_id: &str,
     transactions: &[Txn],
-) -> Result<usize, sqlx::Error> {
+) -> Result<usize, DbErr> {
     let lines = with_external_ids(transactions);
     let ids: Vec<String> = lines.iter().map(|(_, id)| id.clone()).collect();
     let known = existing(db, bank_account_id, &ids).await?;
@@ -137,7 +150,7 @@ pub(crate) async fn import_transactions(
     bank_account_id: &str,
     batch_id: &str,
     transactions: &[Txn],
-) -> Result<ImportCounts, sqlx::Error> {
+) -> Result<ImportCounts, DbErr> {
     let lines = with_external_ids(transactions);
     let ids: Vec<String> = lines.iter().map(|(_, id)| id.clone()).collect();
     let mut known = existing(db, bank_account_id, &ids).await?;
@@ -198,11 +211,11 @@ pub(crate) async fn import_transactions(
     let net = sum_amounts(fresh.iter().map(|row| row.get("amount")));
     // Drizzle sends each chunk of 100 as one insert: all or nothing per chunk.
     for chunk in fresh.chunks(100) {
-        let mut tx = db.begin().await?;
+        let mut tx = db.begin().await.map_err(orm_error)?;
         for row in chunk {
             BANK_TRANSACTIONS.insert_raw(&mut *tx, row.clone()).await?;
         }
-        tx.commit().await?;
+        tx.commit().await.map_err(orm_error)?;
     }
     Ok(ImportCounts {
         imported,
@@ -280,7 +293,7 @@ pub(crate) async fn delete_lines(
     db: &PgPool,
     lines: Vec<Value>,
     scope: DeleteScope<'_>,
-) -> Result<(Vec<Value>, usize), sqlx::Error> {
+) -> Result<(Vec<Value>, usize), DbErr> {
     let (query, id) = match scope {
         DeleteScope::Line(id) => (delete_lines_sql!("id = $1", ""), id),
         DeleteScope::ImportBatch(id) => (
@@ -300,13 +313,7 @@ pub(crate) async fn delete_lines(
             id,
         ),
     };
-    let gone: HashSet<String> = sqlx::query_scalar(query)
-        .bind(id)
-        .bind(now())
-        .fetch_all(db)
-        .await?
-        .into_iter()
-        .collect();
+    let gone = delete_scope(db, query, id).await?;
     let kept = lines
         .iter()
         .filter(|line| line_delete_blocker(line).is_some())
@@ -320,4 +327,25 @@ pub(crate) async fn delete_lines(
         })
         .collect();
     Ok((deleted, kept))
+}
+
+/// Run [`delete_lines`]' statement for the scope `id`: the ids it deleted.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "one statement of data-modifying CTEs (UPDATE … FROM for the balances, and the \
+              batch's status): the deletable check, the balance and the batch must move \
+              together, so a request that loses a race deletes nothing"
+)]
+async fn delete_scope(
+    db: &PgPool,
+    query: &'static str,
+    id: &str,
+) -> Result<HashSet<String>, DbErr> {
+    let gone: Vec<String> = sqlx::query_scalar(query)
+        .bind(id)
+        .bind(now())
+        .fetch_all(db)
+        .await
+        .map_err(orm_error)?;
+    Ok(gone.into_iter().collect())
 }

@@ -20,7 +20,15 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, patch, post};
 use http::HeaderMap;
+use sea_orm::prelude::BigDecimal;
+use sea_orm::sea_query::{Expr, Func, Order, Query};
+use sea_orm::{
+    ColumnTrait, Condition, DbErr, EntityTrait, FromQueryResult, JoinType, PaginatorTrait,
+    QueryFilter, QueryOrder, QuerySelect, Select,
+};
+use serde::Serialize;
 use serde_json::{Map, Value, json};
+use time::PrimitiveDateTime;
 use weldsuite_catalogs::entity_events::{
     ORDER_CANCELLED, ORDER_COMPLETED, ORDER_CREATED, ORDER_PAID, ORDER_UPDATED,
 };
@@ -31,12 +39,18 @@ use weldsuite_commerce_domain::orders::plan::{self, QuoteInput};
 use weldsuite_commerce_domain::orders::write::{self, NewOrder, Patch, Payment};
 use weldsuite_commerce_domain::orders::{self as domain_orders};
 use weldsuite_commerce_domain::vat::{Buyer, Taxation, country_of};
+use weldsuite_db::{OrmConn, orm};
 use weldsuite_kit::validation::{
     Field, Format, Issues, Number, Presence, Text, js_date_parse, js_iso_from_millis,
 };
 use weldsuite_kit::{Created, Data};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::master::users;
+use weldsuite_schema::tenant::{
+    commerce_payments, commerce_refunds, companies, invoices, orders, parties,
+};
 
+use crate::args::after_cursor;
 use crate::js::query_set;
 use crate::wire::{
     amount, body_or_empty, invalid, iso, read_address, read_currency, read_date, read_money,
@@ -75,32 +89,143 @@ where
 
 // ── presenting ──────────────────────────────────────────────────────────────
 
-const FIELDS_OF_SUMMARY: &str = "jsonb_build_object(\
-    'id', o.id, 'orderNumber', o.order_number, 'status', o.status, \
-    'paymentStatus', coalesce(o.payment_status, 'pending'), \
-    'fulfillmentStatus', coalesce(o.fulfillment_status, 'unfulfilled'), \
-    'approvalStatus', o.approval_status, 'source', coalesce(o.source, 'web'), \
-    'channelId', o.channel_id, 'customerName', o.customer_name, \
-    'customerEmail', o.customer_email, 'personId', o.person_id, \
-    'companyId', pa.company_id, 'companyName', co.display_name, \
-    'currency', coalesce(o.currency, 'EUR'), 'total', o.total::text, \
-    'itemCount', coalesce(o.item_count, 0), 'totalQuantity', coalesce(o.total_quantity, 0), \
-    'amountPaid', (select coalesce(sum(p.amount), 0)::text from commerce_payments p \
-        where p.order_id = o.id and p.status = 'paid'), \
-    'amountRefunded', (select coalesce(sum(r.amount), 0)::text from commerce_refunds r \
-        where r.order_id = o.id and r.status = 'refunded'), \
-    'createdAt', to_jsonb(o.created_at), 'updatedAt', to_jsonb(o.updated_at))";
+/// An order in the list: the columns the screens show, its company, and
+/// what was paid and refunded (`coalesce(sum(…), 0)::text`, so `"0"` when
+/// nothing was).
+#[derive(Debug, FromQueryResult, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Summary {
+    id: String,
+    order_number: String,
+    status: String,
+    payment_status: String,
+    fulfillment_status: String,
+    approval_status: String,
+    source: String,
+    channel_id: Option<String>,
+    customer_name: Option<String>,
+    customer_email: Option<String>,
+    person_id: Option<String>,
+    company_id: Option<String>,
+    company_name: Option<String>,
+    currency: String,
+    #[serde(serialize_with = "weldsuite_schema::js::Numeric::<2>::serialize")]
+    total: BigDecimal,
+    item_count: i32,
+    total_quantity: i32,
+    amount_paid: String,
+    amount_refunded: String,
+    #[serde(with = "weldsuite_schema::js::timestamp")]
+    created_at: PrimitiveDateTime,
+    #[serde(with = "weldsuite_schema::js::timestamp")]
+    updated_at: PrimitiveDateTime,
+}
 
-const FROM_SUMMARY: &str = " from orders o \
-    left join parties pa on pa.id = o.counterparty_id \
-    left join companies co on co.id = pa.company_id";
+/// `coalesce(o.column, fallback)`.
+fn order_or<V: Into<sea_orm::Value>>(column: orders::Column, fallback: V) -> Expr {
+    Func::coalesce([Expr::col((orders::Entity, column)), Expr::val(fallback)]).into()
+}
 
+/// `(select coalesce(sum(t.amount), 0)::text from t where t.order_id = o.id
+/// and t.status = status)` of the payments or the refunds.
+fn settled<E: EntityTrait>(
+    amount: E::Column,
+    order_id: E::Column,
+    state: E::Column,
+    status: &str,
+) -> Expr {
+    let summed = Func::coalesce([Expr::from(Func::sum(Expr::col(amount))), Expr::val(0)]);
+    Query::select()
+        .expr(Func::cast_as(summed, "text"))
+        .from(E::default())
+        .and_where(sea_orm::ExprTrait::eq(
+            Expr::col((E::default(), order_id)),
+            Expr::col((orders::Entity, orders::Column::Id)),
+        ))
+        .and_where(sea_orm::ExprTrait::eq(
+            Expr::col((E::default(), state)),
+            status,
+        ))
+        .to_owned()
+        .into()
+}
+
+/// The orders with their party and company (`left join parties pa on
+/// pa.id = o.counterparty_id left join companies co on co.id =
+/// pa.company_id`).
+fn with_company() -> Select<orders::Entity> {
+    orders::Entity::find()
+        .join(
+            JoinType::LeftJoin,
+            orders::Entity::belongs_to(parties::Entity)
+                .from(orders::Column::CounterpartyId)
+                .to(parties::Column::Id)
+                .into(),
+        )
+        .join(
+            JoinType::LeftJoin,
+            parties::Entity::belongs_to(companies::Entity)
+                .from(parties::Column::CompanyId)
+                .to(companies::Column::Id)
+                .into(),
+        )
+}
+
+/// [`with_company`] with the columns of a [`Summary`].
+fn summaries() -> Select<orders::Entity> {
+    with_company()
+        .select_only()
+        .columns([
+            orders::Column::Id,
+            orders::Column::OrderNumber,
+            orders::Column::Status,
+        ])
+        .column_as(
+            order_or(orders::Column::PaymentStatus, "pending"),
+            "payment_status",
+        )
+        .column_as(
+            order_or(orders::Column::FulfillmentStatus, "unfulfilled"),
+            "fulfillment_status",
+        )
+        .column(orders::Column::ApprovalStatus)
+        .column_as(order_or(orders::Column::Source, "web"), "source")
+        .columns([
+            orders::Column::ChannelId,
+            orders::Column::CustomerName,
+            orders::Column::CustomerEmail,
+            orders::Column::PersonId,
+        ])
+        .column_as(parties::Column::CompanyId, "company_id")
+        .column_as(companies::Column::DisplayName, "company_name")
+        .column_as(order_or(orders::Column::Currency, "EUR"), "currency")
+        .column(orders::Column::Total)
+        .column_as(order_or(orders::Column::ItemCount, 0), "item_count")
+        .column_as(order_or(orders::Column::TotalQuantity, 0), "total_quantity")
+        .column_as(
+            settled::<commerce_payments::Entity>(
+                commerce_payments::Column::Amount,
+                commerce_payments::Column::OrderId,
+                commerce_payments::Column::Status,
+                "paid",
+            ),
+            "amount_paid",
+        )
+        .column_as(
+            settled::<commerce_refunds::Entity>(
+                commerce_refunds::Column::Amount,
+                commerce_refunds::Column::OrderId,
+                commerce_refunds::Column::Status,
+                "refunded",
+            ),
+            "amount_refunded",
+        )
+        .columns([orders::Column::CreatedAt, orders::Column::UpdatedAt])
+}
+
+/// A summary row as the list answers it: `placedAt` is when it was created.
 fn summary(mut row: Value) -> Value {
     if let Value::Object(fields) = &mut row {
-        for key in ["createdAt", "updatedAt"] {
-            let stamp = iso(fields.get(key).unwrap_or(&Value::Null));
-            fields.insert(key.to_owned(), stamp);
-        }
         let placed = fields.get("createdAt").cloned().unwrap_or(Value::Null);
         fields.insert("placedAt".to_owned(), placed);
     }
@@ -407,22 +532,36 @@ pub(crate) async fn fetch(
     let Some(stored) = domain_orders::load(&mut conn, id, false).await? else {
         return Ok(None);
     };
-    let company: Option<(String, Option<String>)> = sqlx::query_as(
-        "select pa.company_id, co.display_name from parties pa \
-         join companies co on co.id = pa.company_id \
-         where pa.id = $1 and pa.company_id is not null limit 1",
-    )
-    .bind(stored.text("counterpartyId"))
-    .fetch_optional(&mut *conn)
-    .await?;
-    let invoice: Option<(String, Option<String>, String)> = sqlx::query_as(
-        "select id, invoice_number, status from invoices \
-         where commerce_order_id = $1 and deleted_at is null \
-         order by created_at desc, id desc limit 1",
-    )
-    .bind(id)
-    .fetch_optional(&mut *conn)
-    .await?;
+    let company: Option<(String, Option<String>)> = parties::Entity::find()
+        .select_only()
+        .column(parties::Column::CompanyId)
+        .column(companies::Column::DisplayName)
+        .join(
+            JoinType::InnerJoin,
+            parties::Entity::belongs_to(companies::Entity)
+                .from(parties::Column::CompanyId)
+                .to(companies::Column::Id)
+                .into(),
+        )
+        .filter(parties::Column::Id.eq(stored.text("counterpartyId")))
+        .filter(parties::Column::CompanyId.is_not_null())
+        .into_tuple()
+        .one(&OrmConn::new(&mut conn))
+        .await?;
+    let invoice: Option<(String, Option<String>, String)> = invoices::Entity::find()
+        .select_only()
+        .columns([
+            invoices::Column::Id,
+            invoices::Column::InvoiceNumber,
+            invoices::Column::Status,
+        ])
+        .filter(invoices::Column::CommerceOrderId.eq(id))
+        .filter(invoices::Column::DeletedAt.is_null())
+        .order_by_desc(invoices::Column::CreatedAt)
+        .order_by_desc(invoices::Column::Id)
+        .into_tuple()
+        .one(&OrmConn::new(&mut conn))
+        .await?;
     let invoice =
         invoice.map(|(id, number, status)| json!({ "id": id, "number": number, "status": status }));
     let amounts = weldsuite_commerce_domain::payments::service::amounts(&mut conn, id).await?;
@@ -461,29 +600,75 @@ pub(crate) fn event(order: &Value) -> Value {
 
 // ── list ────────────────────────────────────────────────────────────────────
 
-/// Params `$1..$11`: search, status, payment status, fulfillment status,
-/// source, channel, company, person, from, to (exclusive), approval status.
-const WHERE_SQL: &str = " where o.deleted_at is null \
-    and ($1::text is null or o.order_number ilike $1 or o.customer_name ilike $1 \
-         or o.customer_email ilike $1 or o.external_order_id ilike $1) \
-    and ($2::text is null or o.status = $2) \
-    and ($3::text is null or o.payment_status = $3) \
-    and ($4::text is null or o.fulfillment_status = $4) \
-    and ($5::text is null or o.source = $5) \
-    and ($6::text is null or o.channel_id = $6) \
-    and ($7::text is null or pa.company_id = $7) \
-    and ($8::text is null or o.person_id = $8) \
-    and ($9::text is null or o.created_at >= $9::timestamp) \
-    and ($10::text is null or o.created_at < $10::timestamp) and ($11::text is null or o.approval_status = $11)";
+/// The list's filters, as the query names them.
+struct Filters {
+    search: Option<String>,
+    status: Option<String>,
+    payment_status: Option<String>,
+    fulfillment_status: Option<String>,
+    source: Option<String>,
+    channel_id: Option<String>,
+    company_id: Option<String>,
+    person_id: Option<String>,
+    /// `from` and `to` (exclusive), as `$n::timestamp` reads them.
+    from: Option<String>,
+    to: Option<String>,
+    approval_status: Option<String>,
+}
+
+impl Filters {
+    /// Live orders matching every filter given.
+    fn condition(&self) -> Condition {
+        let mut all = Condition::all().add(orders::Column::DeletedAt.is_null());
+        if let Some(search) = &self.search {
+            all = all.add(
+                Condition::any()
+                    .add(orders::Column::OrderNumber.ilike(search))
+                    .add(orders::Column::CustomerName.ilike(search))
+                    .add(orders::Column::CustomerEmail.ilike(search))
+                    .add(orders::Column::ExternalOrderId.ilike(search)),
+            );
+        }
+        for (column, value) in [
+            (orders::Column::Status, &self.status),
+            (orders::Column::PaymentStatus, &self.payment_status),
+            (orders::Column::FulfillmentStatus, &self.fulfillment_status),
+            (orders::Column::Source, &self.source),
+            (orders::Column::ChannelId, &self.channel_id),
+        ] {
+            if let Some(value) = value {
+                all = all.add(column.eq(value.as_str()));
+            }
+        }
+        if let Some(company) = &self.company_id {
+            all = all.add(parties::Column::CompanyId.eq(company.as_str()));
+        }
+        if let Some(person) = &self.person_id {
+            all = all.add(orders::Column::PersonId.eq(person.as_str()));
+        }
+        let created_at = || Expr::col((orders::Entity, orders::Column::CreatedAt));
+        let timestamp = |text: &str| sea_orm::ExprTrait::cast_as(Expr::val(text), "timestamp");
+        if let Some(from) = &self.from {
+            all = all.add(sea_orm::ExprTrait::gte(created_at(), timestamp(from)));
+        }
+        if let Some(to) = &self.to {
+            all = all.add(sea_orm::ExprTrait::lt(created_at(), timestamp(to)));
+        }
+        if let Some(approval) = &self.approval_status {
+            all = all.add(orders::Column::ApprovalStatus.eq(approval.as_str()));
+        }
+        all
+    }
+}
 
 /// `(column, descending)` of a `sort`.
-fn sort_of(sort: &str) -> Option<(&'static str, bool)> {
+fn sort_of(sort: &str) -> Option<(orders::Column, bool)> {
     Some(match sort {
-        "createdAt" => ("o.created_at", false),
-        "-createdAt" => ("o.created_at", true),
-        "total" => ("o.total", false),
-        "-total" => ("o.total", true),
-        "orderNumber" => ("o.order_number", false),
+        "createdAt" => (orders::Column::CreatedAt, false),
+        "-createdAt" => (orders::Column::CreatedAt, true),
+        "total" => (orders::Column::Total, false),
+        "-total" => (orders::Column::Total, true),
+        "orderNumber" => (orders::Column::OrderNumber, false),
         _ => return None,
     })
 }
@@ -532,52 +717,52 @@ async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
         }
     }
     let limit = weldsuite_kit::parse_limit(param("limit").as_deref(), 50, 100);
-    let search = param("search").map(|s| like(&s));
-    let operator = if descending { "<" } else { ">" };
-    let direction = if descending { "desc" } else { "asc" };
-    let keyset = format!(
-        " and ($12::text is null or not exists (select 1 from orders where id = $12) \
-           or (({column}, o.id) {operator} (select {c}, c.id from orders c where c.id = $12)))",
-        c = column.replace("o.", "c."),
-    );
-    let select = format!(
-        "select {FIELDS_OF_SUMMARY}{FROM_SUMMARY}{WHERE_SQL}{keyset} \
-         order by {column} {direction}, o.id {direction} limit $13"
-    );
-    let count = format!("select count(*){FROM_SUMMARY}{WHERE_SQL}");
-    let cursor = param("cursor");
-    macro_rules! bind_filters {
-        ($q:expr) => {
-            $q.bind(search.as_deref())
-                .bind(param("status"))
-                .bind(param("paymentStatus"))
-                .bind(param("fulfillmentStatus"))
-                .bind(param("source"))
-                .bind(param("channelId"))
-                .bind(param("companyId"))
-                .bind(param("personId"))
-                .bind(from.as_deref())
-                .bind(to.as_deref())
-                .bind(param("approvalStatus"))
-        };
+    let filters = Filters {
+        search: param("search").map(|s| like(&s)),
+        status: param("status"),
+        payment_status: param("paymentStatus"),
+        fulfillment_status: param("fulfillmentStatus"),
+        source: param("source"),
+        channel_id: param("channelId"),
+        company_id: param("companyId"),
+        person_id: param("personId"),
+        from,
+        to,
+        approval_status: param("approvalStatus"),
     }
-    let rows: Result<Vec<Value>, sqlx::Error> =
-        bind_filters!(sqlx::query_scalar(sqlx::AssertSqlSafe(select)))
-            .bind(cursor.as_deref())
-            .bind(i64::from(limit) + 1)
-            .fetch_all(&caller.db)
-            .await;
-    let total: Result<i64, sqlx::Error> =
-        bind_filters!(sqlx::query_scalar(sqlx::AssertSqlSafe(count)))
-            .fetch_one(&caller.db)
-            .await;
+    .condition();
+    let cursor = param("cursor");
+    let mut page = summaries().filter(filters.clone());
+    if let Some(cursor) = &cursor {
+        page = page.filter(after_cursor::<orders::Entity>(
+            column,
+            orders::Column::Id,
+            cursor,
+            descending,
+        ));
+    }
+    let order = if descending { Order::Desc } else { Order::Asc };
+    let db = orm(&caller.db);
+    let rows = async {
+        page.order_by(column, order.clone())
+            .order_by(orders::Column::Id, order)
+            .limit(u64::from(limit) + 1)
+            .into_model::<Summary>()
+            .all(&db)
+            .await?
+            .iter()
+            .map(|row| serde_json::to_value(row).map_err(|error| DbErr::Json(error.to_string())))
+            .collect::<Result<Vec<Value>, DbErr>>()
+    }
+    .await;
+    let total = with_company().filter(filters).count(&db).await;
     match (rows, total) {
         (Ok(rows), Ok(total)) => weldsuite_kit::Page::of(
             rows.into_iter().map(summary).collect(),
             usize::try_from(limit).unwrap_or(50),
             |row: &Value| row["id"].as_str().unwrap_or_default(),
         )
-        .into_list(u64::try_from(total).unwrap_or(0))
+        .into_list(total)
         .into_response(),
         (Err(error), _) | (_, Err(error)) => internal(&error, FAILED),
     }
@@ -1114,14 +1299,18 @@ async fn mark_paid(
 /// the name read from the master `users` table when the server has one.
 async fn staff_actor(caller: &Caller) -> Value {
     let found: Option<(Option<String>, Option<String>, String)> = match &caller.registry {
-        Some(master) => {
-            sqlx::query_as("select first_name, last_name, email from users where id = $1")
-                .bind(&caller.user_id)
-                .fetch_optional(master)
-                .await
-                .ok()
-                .flatten()
-        }
+        Some(master) => users::Entity::find_by_id(caller.user_id.as_str())
+            .select_only()
+            .columns([
+                users::Column::FirstName,
+                users::Column::LastName,
+                users::Column::Email,
+            ])
+            .into_tuple()
+            .one(&orm(master))
+            .await
+            .ok()
+            .flatten(),
         None => None,
     };
     let (name, email) = found.map_or((None, None), |(first, last, email)| {

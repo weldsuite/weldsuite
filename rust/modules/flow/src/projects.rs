@@ -12,14 +12,21 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use http::HeaderMap;
+use sea_orm::sea_query::{Expr, Func, NullOrdering, Query as SqlQuery, SelectStatement};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, Condition, DbErr, EntityTrait, FromQueryResult, JoinType, Order,
+    PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, TransactionTrait,
+};
 use serde_json::{Map, Value, json};
+use time::PrimitiveDateTime;
 use weldsuite_catalogs::entity_events::{
     PROJECT_CREATED, PROJECT_DELETED, PROJECT_MEMBER_ADDED, PROJECT_TASK_UPDATED, PROJECT_UPDATED,
 };
 use weldsuite_catalogs::permission_keys::{
     PROJECTS_CREATE, PROJECTS_DELETE, PROJECTS_READ, PROJECTS_UPDATE, TASKS_CREATE, TASKS_READ,
 };
-use weldsuite_db::{PgPool, js_row, js_timestamp};
+use weldsuite_db::record::JsonTable;
+use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_flow_domain::js::{
     contains_pattern, js_date, math_round, number_value, numeric, parse_int, slice_utf16,
 };
@@ -30,13 +37,20 @@ use weldsuite_flow_domain::stats::{
 use weldsuite_kit::validation::{Issues, Presence};
 use weldsuite_kit::{ApiError, Created, Data, List, NoContent, Pagination, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::{
+    milestones, project_members, projects, task_dependencies, tasks, workspace_members,
+};
 
 use crate::custom_values::{self, Definition};
 use crate::import_jobs;
-use crate::{Caller, FlowState, Query, Refusal, Reply, now, outside, reply, validate};
+use crate::{
+    Caller, FlowState, Query, Refusal, Reply, json_rows, keyset_before, keyset_cursor, now,
+    outside, reply, row_json, validate,
+};
 
 const NOT_A_MEMBER: &str = "You are not a member of this project";
 const PROJECT_ENTITY: &str = "project";
+const PROJECTS: JsonTable = JsonTable::of::<projects::Entity>();
 
 pub(crate) fn router<S, Q>(state: FlowState, gate: &Arc<PermissionGate<Q>>) -> Router<S>
 where
@@ -95,25 +109,16 @@ where
 }
 
 /// A whole project row (`select()`), numerics as text.
-pub(crate) async fn project_row(
-    db: &PgPool,
-    id: &str,
-    live: bool,
-) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        project_json!("p"),
-        " from projects p where p.id = $1 and (not $2 or p.deleted_at is null) limit 1"
-    ))
-    .bind(id)
-    .bind(live)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(js_row))
+pub(crate) async fn project_row(db: &PgPool, id: &str, live: bool) -> Result<Option<Value>, DbErr> {
+    let mut find = projects::Entity::find().filter(projects::Column::Id.eq(id));
+    if live {
+        find = find.filter(projects::Column::DeletedAt.is_null());
+    }
+    find.one(&orm(db)).await?.map(row_json).transpose()
 }
 
 /// `withProjectStats(hydrate(rows))`.
-async fn decorate(db: &PgPool, rows: Vec<Value>) -> Result<Vec<Value>, sqlx::Error> {
+async fn decorate(db: &PgPool, rows: Vec<Value>) -> Result<Vec<Value>, DbErr> {
     let ids: Vec<String> = rows
         .iter()
         .map(|row| row["id"].as_str().unwrap_or_default().to_owned())
@@ -150,7 +155,7 @@ fn status_key(value: &str) -> String {
         .collect()
 }
 
-/// The list's filters, bound in [`list_filters`]' order.
+/// The list's filters.
 struct Filters {
     member_of: Option<(String, Vec<String>)>,
     derived_status: Option<String>,
@@ -183,48 +188,204 @@ impl Filters {
     }
 }
 
-/// The list's `where`, without the keyset cursor: `$1`–`$10`.
-macro_rules! list_filters {
-    () => {
-        concat!(
-            "p.deleted_at is null",
-            " and ($1::bool or p.project_manager_id = $2 or p.id = any($3))",
-            " and ($4::text is null or ",
-            derived_status!("p"),
-            " = $4)",
-            r" and ($5::text is null or lower(regexp_replace(p.status, '[\s_-]+', '', 'g')) = $5)",
-            " and ($6::text is null or (case when $6 = 'medium'",
-            " then lower(coalesce(nullif(btrim(p.priority), ''), 'medium')) = 'medium'",
-            " else lower(btrim(p.priority)) = $6 end))",
-            " and ($7::text is null or p.project_manager_id = $7 or exists (",
-            "select 1 from project_members xpm where xpm.project_id = p.id and xpm.user_id = $7",
-            " and lower(xpm.role) = 'owner' and xpm.is_active = true and xpm.deleted_at is null))",
-            " and ($8::text is null or p.customer_id = $8)",
-            " and ($9::bool is null or p.is_active = $9)",
-            " and ($10::text is null or p.name ilike $10 or p.code ilike $10)"
-        )
-    };
+impl Filters {
+    /// The list's `where`, without the keyset cursor.
+    fn condition(&self) -> Condition {
+        use projects::Column;
+        let mut all = Condition::all().add(Column::DeletedAt.is_null());
+        if let Some((user, ids)) = &self.member_of {
+            all = all.add(
+                Condition::any()
+                    .add(Column::ProjectManagerId.eq(user.as_str()))
+                    .add(Column::Id.is_in(ids)),
+            );
+        }
+        if let Some(status) = &self.derived_status {
+            all = all.add(sea_orm::ExprTrait::eq(derived_status(), status.as_str()));
+        }
+        if let Some(key) = &self.status_key {
+            // `lower(regexp_replace(p.status, '[\s_-]+', '', 'g'))`.
+            let squashed = Func::lower(regexp_replace(
+                Expr::col((projects::Entity, Column::Status)),
+                r"[\s_-]+",
+                "",
+            ));
+            all = all.add(sea_orm::ExprTrait::eq(Expr::from(squashed), key.as_str()));
+        }
+        if let Some(priority) = &self.priority {
+            all = all.add(if priority == "medium" {
+                sea_orm::ExprTrait::eq(priority_or_medium(), "medium")
+            } else {
+                sea_orm::ExprTrait::eq(
+                    Expr::from(Func::lower(btrim(Expr::col((
+                        projects::Entity,
+                        Column::Priority,
+                    ))))),
+                    priority.as_str(),
+                )
+            });
+        }
+        if let Some(owner) = &self.owner_id {
+            // The manager, or an active owner member (`exists (…)`).
+            let owners = SqlQuery::select()
+                .column(project_members::Column::ProjectId)
+                .from(project_members::Entity)
+                .and_where(project_members::Column::UserId.eq(owner.as_str()))
+                .and_where(sea_orm::ExprTrait::eq(
+                    Expr::from(Func::lower(Expr::col(project_members::Column::Role))),
+                    "owner",
+                ))
+                .and_where(project_members::Column::IsActive.eq(true))
+                .and_where(project_members::Column::DeletedAt.is_null())
+                .to_owned();
+            all = all.add(
+                Condition::any()
+                    .add(Column::ProjectManagerId.eq(owner.as_str()))
+                    .add(Column::Id.in_subquery(owners)),
+            );
+        }
+        if let Some(customer) = &self.customer_id {
+            all = all.add(Column::CustomerId.eq(customer.as_str()));
+        }
+        if let Some(active) = self.is_active {
+            all = all.add(Column::IsActive.eq(active));
+        }
+        if let Some(search) = &self.search {
+            all = all.add(
+                Condition::any()
+                    .add(Column::Name.ilike(search.as_str()))
+                    .add(Column::Code.ilike(search.as_str())),
+            );
+        }
+        all
+    }
 }
 
-fn bind_filters<'q, O>(
-    query: sqlx::query::QueryScalar<'q, sqlx::Postgres, O, sqlx::postgres::PgArguments>,
-    filters: &'q Filters,
-) -> sqlx::query::QueryScalar<'q, sqlx::Postgres, O, sqlx::postgres::PgArguments> {
-    let (all, user, ids) = match &filters.member_of {
-        Some((user, ids)) => (false, Some(user.as_str()), ids.clone()),
-        None => (true, None, Vec::new()),
+/// `btrim(x)`.
+fn btrim(expr: impl Into<Expr>) -> Expr {
+    Func::cust("btrim").arg(expr.into()).into()
+}
+
+/// `regexp_replace(x, pattern, with, 'g')`.
+fn regexp_replace(expr: impl Into<Expr>, pattern: &str, with: &str) -> Expr {
+    Func::cust("regexp_replace")
+        .arg(expr.into())
+        .arg(pattern)
+        .arg(with)
+        .arg("g")
+        .into()
+}
+
+/// `regexp_replace(lower(btrim(col)), '[\s-]+', '_', 'g')`.
+fn status_word(column: projects::Column) -> Expr {
+    regexp_replace(
+        Func::lower(btrim(Expr::col((projects::Entity, column)))),
+        r"[\s-]+",
+        "_",
+    )
+}
+
+/// `lower(coalesce(nullif(btrim(p.priority), ''), 'medium'))`.
+fn priority_or_medium() -> Expr {
+    let set = Func::cust("nullif")
+        .arg(btrim(Expr::col((
+            projects::Entity,
+            projects::Column::Priority,
+        ))))
+        .arg("");
+    Func::lower(Func::coalesce([Expr::from(set), Expr::val("medium")])).into()
+}
+
+/// The status the All Projects table shows for a row (`DERIVED_STATUS_SQL`):
+/// a set `health` wins, else the stored `status`.
+fn derived_status() -> Expr {
+    use projects::Column;
+    let word = |column, value: &str| sea_orm::ExprTrait::eq(status_word(column), value);
+    let health_set = sea_orm::ExprTrait::ne(
+        Expr::from(Func::coalesce([
+            btrim(Expr::col((projects::Entity, Column::Health))),
+            Expr::val(""),
+        ])),
+        "",
+    );
+    let health = Expr::case(word(Column::Health, "at_risk"), "at-risk")
+        .case(word(Column::Health, "off_track"), "off-track")
+        .case(word(Column::Health, "critical"), "off-track")
+        .finally("on-track");
+    let status = Expr::case(word(Column::Status, "on_hold"), "on-hold")
+        .case(word(Column::Status, "completed"), "completed")
+        .case(word(Column::Status, "archived"), "completed")
+        .case(word(Column::Status, "cancelled"), "off-track")
+        .finally("on-track");
+    Expr::case(health_set, health).finally(status).into()
+}
+
+/// Priority rank for sorting; an unset priority sorts as "medium".
+fn priority_rank() -> Expr {
+    let is = |value: &str| sea_orm::ExprTrait::eq(priority_or_medium(), value);
+    Expr::case(is("critical"), 4)
+        .case(is("high"), 3)
+        .case(is("medium"), 2)
+        .case(is("low"), 1)
+        .finally(0)
+        .into()
+}
+
+/// The name of the project's first owner member.
+fn owner_name() -> Expr {
+    use sea_orm::ExprTrait as _;
+    let first_owner: SelectStatement = SqlQuery::select()
+        .column((workspace_members::Entity, workspace_members::Column::Name))
+        .from(project_members::Entity)
+        .inner_join(
+            workspace_members::Entity,
+            Expr::col((workspace_members::Entity, workspace_members::Column::UserId))
+                .equals((project_members::Entity, project_members::Column::UserId)),
+        )
+        .and_where(
+            Expr::col((project_members::Entity, project_members::Column::ProjectId))
+                .equals((projects::Entity, projects::Column::Id)),
+        )
+        .and_where(sea_orm::ExprTrait::eq(
+            Expr::from(Func::lower(Expr::col((
+                project_members::Entity,
+                project_members::Column::Role,
+            )))),
+            "owner",
+        ))
+        .and_where(Expr::col((project_members::Entity, project_members::Column::IsActive)).eq(true))
+        .and_where(
+            Expr::col((project_members::Entity, project_members::Column::DeletedAt)).is_null(),
+        )
+        .order_by(
+            (project_members::Entity, project_members::Column::CreatedAt),
+            Order::Asc,
+        )
+        .limit(1)
+        .to_owned();
+    Expr::SubQuery(None, Box::new(first_owner.into()))
+}
+
+/// The explicit sort's key (`sortField:sortDirection`), which sorts nulls last.
+fn sort_key(order: &str) -> Option<(Expr, Order)> {
+    use projects::Column;
+    let (field, direction) = order.split_once(':')?;
+    let direction = if direction == "asc" {
+        Order::Asc
+    } else {
+        Order::Desc
     };
-    query
-        .bind(all)
-        .bind(user)
-        .bind(ids)
-        .bind(filters.derived_status.as_deref())
-        .bind(filters.status_key.as_deref())
-        .bind(filters.priority.as_deref())
-        .bind(filters.owner_id.as_deref())
-        .bind(filters.customer_id.as_deref())
-        .bind(filters.is_active)
-        .bind(filters.search.as_deref())
+    let key = match field {
+        "name" => Func::lower(Expr::col((projects::Entity, Column::Name))).into(),
+        "status" => derived_status(),
+        "priority" => priority_rank(),
+        "dueDate" => Expr::col((projects::Entity, Column::EndDate)),
+        "owner" => Func::lower(owner_name()).into(),
+        // Only `createdAt:asc` is an explicit sort; `desc` is the default order.
+        "createdAt" if direction == Order::Asc => Expr::col((projects::Entity, Column::CreatedAt)),
+        _ => return None,
+    };
+    Some((key, direction))
 }
 
 const SORT_FIELDS: [&str; 6] = [
@@ -253,13 +414,16 @@ async fn list_projects(caller: &Caller, q: &Query) -> Reply {
     let member_of = if caller.scope_all() {
         None
     } else {
-        let ids: Vec<String> = sqlx::query_scalar(
-            "select project_id from project_members
-             where user_id = $1 and is_active = true and deleted_at is null",
-        )
-        .bind(user)
-        .fetch_all(&caller.db)
-        .await?;
+        use project_members::Column;
+        let ids: Vec<String> = project_members::Entity::find()
+            .select_only()
+            .column(Column::ProjectId)
+            .filter(Column::UserId.eq(user))
+            .filter(Column::IsActive.eq(true))
+            .filter(Column::DeletedAt.is_null())
+            .into_tuple()
+            .all(&orm(&caller.db))
+            .await?;
         Some((user.to_owned(), ids))
     };
     let filters = Filters::from_query(q, member_of);
@@ -284,82 +448,39 @@ async fn list_projects(caller: &Caller, q: &Query) -> Reply {
     } else {
         0
     };
-    let mut keyset: Option<(String, String)> = None;
+    let mut keyset: Option<(PrimitiveDateTime, String)> = None;
     if order.is_none()
         && let Some(cursor) = q.present("cursor")
     {
-        let row: Option<(String, Option<String>)> = sqlx::query_as(
-            "select id, to_jsonb(created_at) #>> '{}' from projects where id = $1 limit 1",
+        keyset = keyset_cursor(
+            &caller.db,
+            projects::Column::Id,
+            projects::Column::CreatedAt,
+            cursor,
         )
-        .bind(cursor)
-        .fetch_optional(&caller.db)
         .await?;
-        if let Some((id, Some(created))) = row {
-            keyset = js_timestamp(&created).map(|at| (at, id));
-        }
     }
     let result = async {
         let Some(limit) = limit else {
             return Err(Refusal::Internal("limit is NaN".to_owned()));
         };
-        let rows: Vec<Value> = bind_filters(
-            sqlx::query_scalar(concat!(
-                "select ",
-                project_json!("p"),
-                " from projects p where ",
-                list_filters!(),
-                " and ($11::timestamp is null or p.created_at < $11::timestamp",
-                " or (p.created_at = $11::timestamp and p.id < $12))",
-                " order by",
-                " (case when $13 = 'name:asc' then lower(p.name) end) asc nulls last,",
-                " (case when $13 = 'name:desc' then lower(p.name) end) desc nulls last,",
-                " (case when $13 = 'status:asc' then ",
-                derived_status!("p"),
-                " end) asc nulls last,",
-                " (case when $13 = 'status:desc' then ",
-                derived_status!("p"),
-                " end) desc nulls last,",
-                " (case when $13 = 'priority:asc' then ",
-                priority_rank!("p"),
-                " end) asc nulls last,",
-                " (case when $13 = 'priority:desc' then ",
-                priority_rank!("p"),
-                " end) desc nulls last,",
-                " (case when $13 = 'dueDate:asc' then p.end_date end) asc nulls last,",
-                " (case when $13 = 'dueDate:desc' then p.end_date end) desc nulls last,",
-                " (case when $13 = 'owner:asc' then lower(",
-                owner_name!("p"),
-                ") end) asc nulls last,",
-                " (case when $13 = 'owner:desc' then lower(",
-                owner_name!("p"),
-                ") end) desc nulls last,",
-                " (case when $13 = 'createdAt:asc' then p.created_at end) asc nulls last,",
-                " (case when $14 then p.created_at end) asc,",
-                " (case when $14 then p.id end) asc,",
-                " (case when not $14 then p.created_at end) desc,",
-                " (case when not $14 then p.id end) desc",
-                " limit $15 offset $16"
-            )),
+        let rows = list_page(
+            &caller.db,
             &filters,
+            keyset.as_ref(),
+            order.as_deref(),
+            ascending,
+            (limit, offset),
         )
-        .bind(keyset.as_ref().map(|(at, _)| at.as_str()))
-        .bind(keyset.as_ref().map(|(_, id)| id.as_str()))
-        .bind(order.as_deref().unwrap_or(""))
-        .bind(order.is_some() && ascending)
-        .bind(limit + 1)
-        .bind(offset)
-        .fetch_all(&caller.db)
         .await?;
-        let total: i64 = bind_filters(
-            sqlx::query_scalar(concat!(
-                "select count(*) from projects p where ",
-                list_filters!()
-            )),
-            &filters,
+        let total = i64::try_from(
+            projects::Entity::find()
+                .filter(filters.condition())
+                .count(&orm(&caller.db))
+                .await?,
         )
-        .fetch_one(&caller.db)
-        .await?;
-        let mut data: Vec<Value> = rows.into_iter().map(js_row).collect();
+        .unwrap_or(i64::MAX);
+        let mut data: Vec<Value> = json_rows(rows)?;
         let has_more = i64::try_from(data.len()).unwrap_or(i64::MAX) > limit;
         if has_more {
             data.truncate(usize::try_from(limit).unwrap_or(0));
@@ -384,6 +505,40 @@ async fn list_projects(caller: &Caller, q: &Query) -> Reply {
     }
     .await;
     Ok(reply(result, "Failed to list projects"))
+}
+
+/// One page of the list: the filters, after the keyset cursor, in the
+/// explicit sort (then `created_at, id` in its direction) or newest first.
+async fn list_page(
+    db: &PgPool,
+    filters: &Filters,
+    keyset: Option<&(PrimitiveDateTime, String)>,
+    order: Option<&str>,
+    ascending: bool,
+    (limit, offset): (i64, i64),
+) -> Result<Vec<projects::Model>, DbErr> {
+    use projects::Column;
+    let mut find = projects::Entity::find().filter(filters.condition());
+    if let Some(keyset) = keyset {
+        find = find.filter(keyset_before(Column::Id, Column::CreatedAt, keyset));
+    }
+    if let Some((key, direction)) = order.and_then(sort_key) {
+        find = find.order_by_with_nulls(key, direction, NullOrdering::Last);
+    }
+    let tail = if order.is_some() && ascending {
+        Order::Asc
+    } else {
+        Order::Desc
+    };
+    find.order_by(Column::CreatedAt, tail.clone())
+        .order_by(Column::Id, tail)
+        .limit(crate::fetch_limit(limit)?)
+        .offset(
+            u64::try_from(offset)
+                .map_err(|_| DbErr::Custom("OFFSET must not be negative".to_owned()))?,
+        )
+        .all(&orm(db))
+        .await
 }
 
 // ── GET /workload/overview, GET /:id/workload ─────────────────────────────
@@ -414,7 +569,8 @@ async fn active_members(
     db: &PgPool,
     master: Option<&PgPool>,
     project_ids: &[String],
-) -> Result<Vec<MemberLoad>, sqlx::Error> {
+) -> Result<Vec<MemberLoad>, DbErr> {
+    use project_members::Column;
     type Row = (
         String,
         String,
@@ -423,32 +579,37 @@ async fn active_members(
         Option<String>,
         Option<String>,
     );
-    // Unordered, so the plan decides the order: one project is an equality
-    // (Postgres reads `in ($1)` as `= $1`, which plans differently from
-    // `= any($1)`), several an array, as Drizzle's `inArray` sends them.
-    let rows: Vec<Row> = if let [project_id] = project_ids {
-        sqlx::query_as(
-            "select pm.user_id, pm.role, pm.allocation_percentage::text, wm.hours_per_week::text,
-                    wm.name, wm.email
-             from project_members pm
-             left join workspace_members wm on pm.user_id = wm.user_id
-             where pm.project_id = $1 and pm.is_active = true and pm.deleted_at is null",
+    // Unordered, so the plan decides the order: the projects as Drizzle's
+    // `inArray` sends them (`in ($1, …)`; Postgres reads one as `= $1`).
+    let rows: Vec<Row> = project_members::Entity::find()
+        .select_only()
+        .columns([Column::UserId, Column::Role])
+        .column_as(
+            as_text((project_members::Entity, Column::AllocationPercentage)),
+            "allocation_percentage",
         )
-        .bind(project_id)
-        .fetch_all(db)
-        .await?
-    } else {
-        sqlx::query_as(
-            "select pm.user_id, pm.role, pm.allocation_percentage::text, wm.hours_per_week::text,
-                    wm.name, wm.email
-             from project_members pm
-             left join workspace_members wm on pm.user_id = wm.user_id
-             where pm.project_id = any($1) and pm.is_active = true and pm.deleted_at is null",
+        .column_as(
+            as_text((
+                workspace_members::Entity,
+                workspace_members::Column::HoursPerWeek,
+            )),
+            "hours_per_week",
         )
-        .bind(project_ids)
-        .fetch_all(db)
-        .await?
-    };
+        .column(workspace_members::Column::Name)
+        .column(workspace_members::Column::Email)
+        .join(
+            JoinType::LeftJoin,
+            project_members::Entity::belongs_to(workspace_members::Entity)
+                .from(Column::UserId)
+                .to(workspace_members::Column::UserId)
+                .into(),
+        )
+        .filter(Column::ProjectId.is_in(project_ids))
+        .filter(Column::IsActive.eq(true))
+        .filter(Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     let pictures = weldsuite_db::AccountPictures::load(
         master,
         rows.iter().map(|(user_id, ..)| user_id.as_str()),
@@ -469,6 +630,11 @@ async fn active_members(
             }
         })
         .collect())
+}
+
+/// `col::text`: a `numeric` exactly as Postgres prints it.
+fn as_text(column: impl sea_orm::sea_query::IntoColumnRef) -> Expr {
+    sea_orm::ExprTrait::cast_as(Expr::col(column), "text")
 }
 
 /// `Number(text)`.
@@ -545,27 +711,67 @@ fn or_text(value: &Value, fallback: &str) -> Value {
     }
 }
 
-/// A task's estimate in hours for the workload views (`workloadEstimateHours`):
-/// `estimated_hours`, else its `duration` (minutes), which the task panel's
-/// estimate picker writes.
-macro_rules! workload_estimate {
-    () => {
-        "(coalesce(t.estimated_hours, round(t.duration / 60.0, 2)))::text"
-    };
+/// A task as the workload views select it.
+#[derive(Debug, FromQueryResult, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkloadTask {
+    id: String,
+    number: Option<i32>,
+    key: Option<String>,
+    title: String,
+    project_id: Option<String>,
+    assignee_id: Option<String>,
+    status: String,
+    priority: String,
+    #[serde(with = "weldsuite_schema::js::timestamp::option")]
+    start_date: Option<PrimitiveDateTime>,
+    #[serde(with = "weldsuite_schema::js::timestamp::option")]
+    due_date: Option<PrimitiveDateTime>,
+    estimated_hours: Option<String>,
+    actual_hours: Option<String>,
 }
 
-/// A task as the workload overview selects it.
-macro_rules! overview_task {
-    () => {
-        concat!(
-            "jsonb_build_object('id', t.id, 'number', t.number, 'key', t.key, 'title', t.title,
-                'projectId', t.project_id, 'assigneeId', t.assignee_id, 'status', t.status,
-                'priority', t.priority, 'startDate', t.start_date, 'dueDate', t.due_date,
-                'estimatedHours', ",
-            workload_estimate!(),
-            ", 'actualHours', t.actual_hours::text)"
-        )
-    };
+impl WorkloadTask {
+    /// The open tasks (`status not in ('done', 'cancelled')`), with a task's
+    /// estimate in hours as text (`workloadEstimateHours`): `estimated_hours`,
+    /// else its `duration` (minutes), which the task panel's estimate picker
+    /// writes.
+    fn open() -> sea_orm::Select<tasks::Entity> {
+        use tasks::Column;
+        let from_duration = Func::round_with_precision(
+            sea_orm::ExprTrait::div(
+                Expr::col(Column::Duration),
+                sea_orm::ExprTrait::cast_as(Expr::val(60), "numeric"),
+            ),
+            2,
+        );
+        let estimate = Func::coalesce([Expr::col(Column::EstimatedHours), from_duration.into()]);
+        tasks::Entity::find()
+            .select_only()
+            .columns([
+                Column::Id,
+                Column::Number,
+                Column::Key,
+                Column::Title,
+                Column::ProjectId,
+                Column::AssigneeId,
+                Column::Status,
+                Column::Priority,
+                Column::StartDate,
+                Column::DueDate,
+            ])
+            .column_as(
+                sea_orm::ExprTrait::cast_as(Expr::from(estimate), "text"),
+                "estimated_hours",
+            )
+            .column_as(as_text(Column::ActualHours), "actual_hours")
+            .filter(Column::DeletedAt.is_null())
+            .filter(Column::Status.is_not_in(["done", "cancelled"]))
+    }
+
+    fn json(&self) -> Result<Value, DbErr> {
+        row_json(self)
+    }
 }
 
 async fn workload_overview(caller: Caller) -> Response {
@@ -581,13 +787,14 @@ async fn overview(caller: &Caller) -> Reply {
     if accessible.as_ref().is_some_and(Vec::is_empty) {
         return Ok(Data(empty_workload()).into_response());
     }
-    let projects: Vec<(String, String)> = sqlx::query_as(
-        "select id, name from projects
-         where deleted_at is null and ($1::text[] is null or id = any($1))",
-    )
-    .bind(accessible.as_deref())
-    .fetch_all(db)
-    .await?;
+    let mut live = projects::Entity::find()
+        .select_only()
+        .columns([projects::Column::Id, projects::Column::Name])
+        .filter(projects::Column::DeletedAt.is_null());
+    if let Some(ids) = &accessible {
+        live = live.filter(projects::Column::Id.is_in(ids));
+    }
+    let projects: Vec<(String, String)> = live.into_tuple().all(&orm(db)).await?;
     if projects.is_empty() {
         return Ok(Data(empty_workload()).into_response());
     }
@@ -607,29 +814,15 @@ async fn overview(caller: &Caller) -> Reply {
             unique.push((member, allocation));
         }
     }
-    // One project is an equality, several an array (see `active_members`).
-    let tasks: Vec<Value> = if let [project_id] = ids.as_slice() {
-        sqlx::query_scalar(concat!(
-            "select ",
-            overview_task!(),
-            " from tasks t where t.project_id = $1 and t.deleted_at is null",
-            " and t.status not in ('done', 'cancelled')"
-        ))
-        .bind(project_id)
-        .fetch_all(db)
+    // The projects as `inArray` sends them (see `active_members`).
+    let tasks: Vec<Value> = WorkloadTask::open()
+        .filter(tasks::Column::ProjectId.is_in(&ids))
+        .into_model::<WorkloadTask>()
+        .all(&orm(db))
         .await?
-    } else {
-        sqlx::query_scalar(concat!(
-            "select ",
-            overview_task!(),
-            " from tasks t where t.project_id = any($1) and t.deleted_at is null",
-            " and t.status not in ('done', 'cancelled')"
-        ))
-        .bind(&ids)
-        .fetch_all(db)
-        .await?
-    };
-    let tasks: Vec<Value> = tasks.into_iter().map(js_row).collect();
+        .iter()
+        .map(WorkloadTask::json)
+        .collect::<Result<_, _>>()?;
     let name_of = |task: &Value| {
         names
             .get(task["projectId"].as_str().unwrap_or_default())
@@ -683,31 +876,19 @@ async fn project_workload(caller: Caller, Path(id): Path<String>) -> Response {
 
 async fn workload(caller: &Caller, project_id: &str) -> Reply {
     let db = &caller.db;
-    let name: Option<String> = sqlx::query_scalar(
-        "select name from projects where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(project_id)
-    .fetch_optional(db)
-    .await?;
-    let Some(name) = name else {
+    let Some(name) = live_project_name(db, project_id).await? else {
         return Err(Refusal::not_found("Project", project_id));
     };
     let members = active_members(db, caller.request_master(), &[project_id.to_owned()]).await?;
-    let tasks: Vec<Value> = sqlx::query_scalar(concat!(
-        "select jsonb_build_object('id', t.id, 'title', t.title, 'assigneeId', t.assignee_id,
-                'status', t.status, 'priority', t.priority, 'startDate', t.start_date,
-                'dueDate', t.due_date, 'estimatedHours', ",
-        workload_estimate!(),
-        ",
-                'actualHours', t.actual_hours::text)
-         from tasks t
-         where t.project_id = $1 and t.deleted_at is null and t.assignee_id is not null
-           and t.status not in ('done', 'cancelled')"
-    ))
-    .bind(project_id)
-    .fetch_all(db)
-    .await?;
-    let tasks: Vec<Value> = tasks.into_iter().map(js_row).collect();
+    let tasks: Vec<Value> = WorkloadTask::open()
+        .filter(tasks::Column::ProjectId.eq(project_id))
+        .filter(tasks::Column::AssigneeId.is_not_null())
+        .into_model::<WorkloadTask>()
+        .all(&orm(db))
+        .await?
+        .iter()
+        .map(WorkloadTask::json)
+        .collect::<Result<_, _>>()?;
     let mut by_assignee: HashMap<String, Vec<Value>> = HashMap::new();
     for task in &tasks {
         let Some(assignee) = task["assigneeId"].as_str().filter(|a| !a.is_empty()) else {
@@ -740,6 +921,18 @@ async fn workload(caller: &Caller, project_id: &str) -> Reply {
     .into_response())
 }
 
+/// The name of a live project.
+async fn live_project_name(db: &PgPool, project_id: &str) -> Result<Option<String>, DbErr> {
+    projects::Entity::find()
+        .select_only()
+        .column(projects::Column::Name)
+        .filter(projects::Column::Id.eq(project_id))
+        .filter(projects::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await
+}
+
 // ── GET /search ─────────────────────────────────────────────────────────────
 
 async fn search(caller: Caller, RawQuery(raw): RawQuery) -> Response {
@@ -747,6 +940,7 @@ async fn search(caller: Caller, RawQuery(raw): RawQuery) -> Response {
     let term = q.present("q").map(contains_pattern);
     reply(
         async {
+            use projects::Column;
             if caller.user().is_none() {
                 return Err(ApiError::unauthorized().into());
             }
@@ -754,19 +948,24 @@ async fn search(caller: Caller, RawQuery(raw): RawQuery) -> Response {
             if accessible.as_ref().is_some_and(Vec::is_empty) {
                 return Ok(Data(json!([])).into_response());
             }
-            let rows: Vec<Value> = sqlx::query_scalar(concat!(
-                "select ",
-                project_json!("p"),
-                " from projects p where p.deleted_at is null",
-                " and ($1::text[] is null or p.id = any($1))",
-                " and ($2::text is null or p.name ilike $2 or p.description ilike $2 or p.code ilike $2)",
-                " order by p.name desc limit 20"
-            ))
-            .bind(accessible.as_deref())
-            .bind(term.as_deref())
-            .fetch_all(&caller.db)
-            .await?;
-            let rows: Vec<Value> = rows.into_iter().map(js_row).collect();
+            let mut found = projects::Entity::find().filter(Column::DeletedAt.is_null());
+            if let Some(ids) = &accessible {
+                found = found.filter(Column::Id.is_in(ids));
+            }
+            if let Some(term) = term.as_deref() {
+                found = found.filter(
+                    Condition::any()
+                        .add(Column::Name.ilike(term))
+                        .add(Column::Description.ilike(term))
+                        .add(Column::Code.ilike(term)),
+                );
+            }
+            let rows = found
+                .order_by_desc(Column::Name)
+                .limit(20)
+                .all(&orm(&caller.db))
+                .await?;
+            let rows: Vec<Value> = json_rows(rows)?;
             let ids: Vec<String> = rows
                 .iter()
                 .map(|row| row["id"].as_str().unwrap_or_default().to_owned())
@@ -799,6 +998,125 @@ async fn permissions(caller: Caller, Path(id): Path<String>) -> Response {
 
 // ── Gantt ───────────────────────────────────────────────────────────────────
 
+/// A task as the Gantt chart reads it.
+#[derive(Debug, FromQueryResult, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GanttTask {
+    id: String,
+    title: String,
+    project_id: Option<String>,
+    milestone_id: Option<String>,
+    parent_task_id: Option<String>,
+    sprint_id: Option<String>,
+    #[serde(with = "weldsuite_schema::js::timestamp::option")]
+    start_date: Option<PrimitiveDateTime>,
+    #[serde(with = "weldsuite_schema::js::timestamp::option")]
+    due_date: Option<PrimitiveDateTime>,
+    #[serde(with = "weldsuite_schema::js::timestamp::option")]
+    completed_date: Option<PrimitiveDateTime>,
+    status: String,
+    priority: String,
+    progress: Option<String>,
+    assignee_id: Option<String>,
+    #[serde(rename = "type")]
+    type_: Option<String>,
+    depends_on: Option<Value>,
+    blocks: Option<Value>,
+    estimated_hours: Option<String>,
+    actual_hours: Option<String>,
+}
+
+impl GanttTask {
+    /// The project's live tasks by start, then due date.
+    async fn of_project(db: &PgPool, project_id: &str) -> Result<Vec<Value>, DbErr> {
+        use tasks::Column;
+        let rows = tasks::Entity::find()
+            .select_only()
+            .columns([
+                Column::Id,
+                Column::Title,
+                Column::ProjectId,
+                Column::MilestoneId,
+                Column::ParentTaskId,
+                Column::SprintId,
+                Column::StartDate,
+                Column::DueDate,
+                Column::CompletedDate,
+                Column::Status,
+                Column::Priority,
+            ])
+            .column_as(as_text(Column::Progress), "progress")
+            .column(Column::AssigneeId)
+            .column_as(Column::Type, "type_")
+            .columns([Column::DependsOn, Column::Blocks])
+            .column_as(as_text(Column::EstimatedHours), "estimated_hours")
+            .column_as(as_text(Column::ActualHours), "actual_hours")
+            .filter(Column::ProjectId.eq(project_id))
+            .filter(Column::DeletedAt.is_null())
+            .order_by_asc(Column::StartDate)
+            .order_by_asc(Column::DueDate)
+            .into_model::<Self>()
+            .all(&orm(db))
+            .await?;
+        json_rows(rows)
+    }
+}
+
+/// A milestone as the Gantt chart reads it.
+#[derive(Debug, FromQueryResult, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GanttMilestone {
+    id: String,
+    name: String,
+    description: Option<String>,
+    #[serde(with = "weldsuite_schema::js::timestamp")]
+    due_date: PrimitiveDateTime,
+    #[serde(with = "weldsuite_schema::js::timestamp::option")]
+    completed_at: Option<PrimitiveDateTime>,
+    status: String,
+    progress: Option<String>,
+    owner_id: Option<String>,
+    is_key_milestone: Option<bool>,
+    depends_on: Option<Value>,
+    completed_tasks: Option<i32>,
+    total_tasks: Option<i32>,
+    #[serde(with = "weldsuite_schema::js::timestamp")]
+    created_at: PrimitiveDateTime,
+}
+
+impl GanttMilestone {
+    /// The project's live milestones by due date.
+    async fn of_project(db: &PgPool, project_id: &str) -> Result<Vec<Value>, DbErr> {
+        use milestones::Column;
+        let rows = milestones::Entity::find()
+            .select_only()
+            .columns([
+                Column::Id,
+                Column::Name,
+                Column::Description,
+                Column::DueDate,
+                Column::CompletedAt,
+                Column::Status,
+            ])
+            .column_as(as_text(Column::Progress), "progress")
+            .columns([
+                Column::OwnerId,
+                Column::IsKeyMilestone,
+                Column::DependsOn,
+                Column::CompletedTasks,
+                Column::TotalTasks,
+                Column::CreatedAt,
+            ])
+            .filter(Column::ProjectId.eq(project_id))
+            .filter(Column::DeletedAt.is_null())
+            .order_by_asc(Column::DueDate)
+            .into_model::<Self>()
+            .all(&orm(db))
+            .await?;
+        json_rows(rows)
+    }
+}
+
 async fn gantt_tasks(caller: Caller, Path(id): Path<String>) -> Response {
     match caller.can_access(&id).await {
         Ok(true) => {}
@@ -809,23 +1127,8 @@ async fn gantt_tasks(caller: Caller, Path(id): Path<String>) -> Response {
         }
         Err(error) => return outside(Err(error.into())),
     }
-    let rows: Result<Vec<Value>, sqlx::Error> = sqlx::query_scalar(
-        "select jsonb_build_object('id', t.id, 'title', t.title, 'projectId', t.project_id,
-                'milestoneId', t.milestone_id, 'parentTaskId', t.parent_task_id,
-                'sprintId', t.sprint_id, 'startDate', t.start_date, 'dueDate', t.due_date,
-                'completedDate', t.completed_date, 'status', t.status, 'priority', t.priority,
-                'progress', t.progress::text, 'assigneeId', t.assignee_id, 'type', t.type,
-                'dependsOn', t.depends_on, 'blocks', t.blocks,
-                'estimatedHours', t.estimated_hours::text, 'actualHours', t.actual_hours::text)
-         from tasks t
-         where t.project_id = $1 and t.deleted_at is null
-         order by t.start_date, t.due_date",
-    )
-    .bind(&id)
-    .fetch_all(&caller.db)
-    .await;
-    match rows {
-        Ok(rows) => Data(rows.into_iter().map(js_row).collect::<Vec<_>>()).into_response(),
+    match GanttTask::of_project(&caller.db, &id).await {
+        Ok(rows) => Data(rows).into_response(),
         Err(error) => Refusal::from(error).respond("Failed to fetch gantt tasks"),
     }
 }
@@ -842,21 +1145,7 @@ async fn gantt_milestones(caller: Caller, Path(id): Path<String>) -> Response {
     }
     reply(
         async {
-            let rows: Vec<Value> = sqlx::query_scalar(
-                "select jsonb_build_object('id', m.id, 'name', m.name, 'description', m.description,
-                        'dueDate', m.due_date, 'completedAt', m.completed_at, 'status', m.status,
-                        'progress', m.progress::text, 'ownerId', m.owner_id,
-                        'isKeyMilestone', m.is_key_milestone, 'dependsOn', m.depends_on,
-                        'completedTasks', m.completed_tasks, 'totalTasks', m.total_tasks,
-                        'createdAt', m.created_at)
-                 from milestones m
-                 where m.project_id = $1 and m.deleted_at is null
-                 order by m.due_date",
-            )
-            .bind(&id)
-            .fetch_all(&caller.db)
-            .await?;
-            let rows: Vec<Value> = rows.into_iter().map(js_row).collect();
+            let rows = GanttMilestone::of_project(&caller.db, &id).await?;
             let stats = milestone_stats(&caller.db, &milestone_refs(&rows)).await?;
             Ok(Data(with_milestone_stats(rows, &stats)).into_response())
         }
@@ -1061,7 +1350,7 @@ async fn write_custom_fields(
     .await
     .map_err(|error| match error {
         custom_values::ValuesError::Invalid(message) => Refusal::bad_request(message),
-        custom_values::ValuesError::Database(error) => Refusal::Database(error),
+        custom_values::ValuesError::Database(error) => Refusal::from(error),
     })
 }
 
@@ -1096,168 +1385,66 @@ pub(crate) fn analytics_payload(project: &Map<String, Value>) -> Value {
     out
 }
 
-/// The project columns as jsonb expressions over the body `$1` (a key
-/// absent from the body is `$2`'s fallback per column).
-macro_rules! project_values {
-    ($fallback:tt) => {
-        concat!(
-            text_col!("name", "name", $fallback),
-            ", ",
-            text_col!("description", "description", $fallback),
-            ", ",
-            text_col!("code", "code", $fallback),
-            ", ",
-            text_col!("key", "key", $fallback),
-            ", ",
-            text_col!("customerId", "customer_id", $fallback),
-            ", ",
-            text_col!("counterpartyId", "counterparty_id", $fallback),
-            ", ",
-            text_col!("clientId", "client_id", $fallback),
-            ", ",
-            text_col!("leaderId", "leader_id", $fallback),
-            ", ",
-            text_col!("administrationId", "administration_id", $fallback),
-            ", ",
-            text_col!("priority", "priority", $fallback),
-            ", ",
-            text_col!("type", "type", $fallback),
-            ", ",
-            text_col!("health", "health", $fallback),
-            ", ",
-            text_col!("methodology", "methodology", $fallback),
-            ", ",
-            text_col!("visibility", "visibility", $fallback),
-            ", ",
-            ts_col!("startDate", "start_date", $fallback),
-            ", ",
-            ts_col!("endDate", "end_date", $fallback),
-            ", ",
-            ts_col!("actualStartDate", "actual_start_date", $fallback),
-            ", ",
-            ts_col!("actualEndDate", "actual_end_date", $fallback),
-            ", ",
-            num_col!("budgetedHours", "budgeted_hours", $fallback),
-            ", ",
-            num_col!("budgetedAmount", "budgeted_amount", $fallback),
-            ", ",
-            text_col!("budgetCurrency", "budget_currency", $fallback),
-            ", ",
-            text_col!("billingMethod", "billing_method", $fallback),
-            ", ",
-            num_col!("hourlyRate", "hourly_rate", $fallback),
-            ", ",
-            text_col!("categoryId", "category_id", $fallback),
-            ", ",
-            text_col!("color", "color", $fallback),
-            ", ",
-            text_col!("icon", "icon", $fallback),
-            ", ",
-            text_col!("coverImage", "cover_image", $fallback),
-            ", ",
-            json_col!("settings", "settings", $fallback),
-            ", ",
-            text_col!("whiteboardData", "whiteboard_data", $fallback),
-            ", ",
-            text_col!("documentData", "document_data", $fallback),
-            ", ",
-            text_col!("goalsData", "goals_data", $fallback)
-        )
-    };
-}
+/// The writable project keys and their columns (the insert's and the
+/// update's `project_values`).
+const COLUMNS: [(&str, &str); 31] = [
+    ("name", "name"),
+    ("description", "description"),
+    ("code", "code"),
+    ("key", "key"),
+    ("customerId", "customer_id"),
+    ("counterpartyId", "counterparty_id"),
+    ("clientId", "client_id"),
+    ("leaderId", "leader_id"),
+    ("administrationId", "administration_id"),
+    ("priority", "priority"),
+    ("type", "type"),
+    ("health", "health"),
+    ("methodology", "methodology"),
+    ("visibility", "visibility"),
+    ("startDate", "start_date"),
+    ("endDate", "end_date"),
+    ("actualStartDate", "actual_start_date"),
+    ("actualEndDate", "actual_end_date"),
+    ("budgetedHours", "budgeted_hours"),
+    ("budgetedAmount", "budgeted_amount"),
+    ("budgetCurrency", "budget_currency"),
+    ("billingMethod", "billing_method"),
+    ("hourlyRate", "hourly_rate"),
+    ("categoryId", "category_id"),
+    ("color", "color"),
+    ("icon", "icon"),
+    ("coverImage", "cover_image"),
+    ("settings", "settings"),
+    ("whiteboardData", "whiteboard_data"),
+    ("documentData", "document_data"),
+    ("goalsData", "goals_data"),
+];
 
-/// A text column from the body `$1`: the key's text, else `$fallback`
-/// (`"col"` keeps the column in an update, `"null"` in an insert).
-macro_rules! text_col {
-    ($key:literal, $col:literal, "keep") => {
-        concat!(
-            "case when $1::jsonb ? '",
-            $key,
-            "' then $1::jsonb->>'",
-            $key,
-            "' else ",
-            $col,
-            " end"
-        )
-    };
-    ($key:literal, $col:literal, "null") => {
-        concat!(
-            "case when $1::jsonb ? '",
-            $key,
-            "' then $1::jsonb->>'",
-            $key,
-            "' end"
-        )
-    };
-}
+/// The keys written with a fallback of their own on insert.
+const WITH_FALLBACK: [(&str, &str); 5] = [
+    ("projectManagerId", "project_manager_id"),
+    ("status", "status"),
+    ("isBillable", "is_billable"),
+    ("isActive", "is_active"),
+    ("trackTime", "track_time"),
+];
 
-macro_rules! ts_col {
-    ($key:literal, $col:literal, "keep") => {
-        concat!(
-            "case when $1::jsonb ? '",
-            $key,
-            "' then ($1::jsonb->>'",
-            $key,
-            "')::timestamp else ",
-            $col,
-            " end"
-        )
-    };
-    ($key:literal, $col:literal, "null") => {
-        concat!(
-            "case when $1::jsonb ? '",
-            $key,
-            "' then ($1::jsonb->>'",
-            $key,
-            "')::timestamp end"
-        )
-    };
-}
-
-macro_rules! num_col {
-    ($key:literal, $col:literal, "keep") => {
-        concat!(
-            "case when $1::jsonb ? '",
-            $key,
-            "' then ($1::jsonb->>'",
-            $key,
-            "')::numeric else ",
-            $col,
-            " end"
-        )
-    };
-    ($key:literal, $col:literal, "null") => {
-        concat!(
-            "case when $1::jsonb ? '",
-            $key,
-            "' then ($1::jsonb->>'",
-            $key,
-            "')::numeric end"
-        )
-    };
-}
-
-macro_rules! json_col {
-    ($key:literal, $col:literal, "keep") => {
-        concat!(
-            "case when $1::jsonb ? '",
-            $key,
-            "' then nullif($1::jsonb->'",
-            $key,
-            "', 'null'::jsonb) else ",
-            $col,
-            " end"
-        )
-    };
-    ($key:literal, $col:literal, "null") => {
-        concat!(
-            "case when $1::jsonb ? '",
-            $key,
-            "' then nullif($1::jsonb->'",
-            $key,
-            "', 'null'::jsonb) end"
-        )
-    };
+/// The body's keys by column, as `jsonb_populate_record` converts them:
+/// Postgres casts each to its column's type, as the `->>` casts did.
+/// `fallback` is the value of a key the body leaves out (`None`: the column
+/// is not written).
+fn project_columns(
+    body: &Map<String, Value>,
+    fallback: impl Fn(&str) -> Option<Value>,
+) -> Map<String, Value> {
+    let mut row = Map::new();
+    for (key, column) in WITH_FALLBACK.iter().chain(COLUMNS.iter()) {
+        if let Some(value) = body.get(*key).cloned().or_else(|| fallback(key)) {
+            row.insert((*column).to_owned(), value);
+        }
+    }
+    row
 }
 
 /// The body as Drizzle would bind it to the columns: whole numbers as
@@ -1311,7 +1498,8 @@ async fn create_project(
 ) -> Reply {
     let db = &caller.db;
     let id = generate_id("prj");
-    let now = now();
+    let at = time::OffsetDateTime::now_utc();
+    let now = weldsuite_events::iso_timestamp(at);
     let custom = prepare_custom_fields(db, input.custom_fields.as_ref()).await?;
     // The creator manages the project unless the body names someone.
     let manager = match data.get("projectManagerId") {
@@ -1322,43 +1510,41 @@ async fn create_project(
     };
     let mut values = data.clone();
     values.insert("projectManagerId".to_owned(), manager);
-    sqlx::query(concat!(
-        "insert into projects (id, created_at, updated_at, project_manager_id, status,",
-        " is_billable, is_active, track_time,",
-        " name, description, code, key, customer_id, counterparty_id, client_id, leader_id,",
-        " administration_id, priority, type, health, methodology, visibility, start_date,",
-        " end_date, actual_start_date, actual_end_date, budgeted_hours, budgeted_amount,",
-        " budget_currency, billing_method, hourly_rate, category_id, color, icon, cover_image,",
-        " settings, whiteboard_data, document_data, goals_data)",
-        " values ($2, $3::timestamp, $3::timestamp, $1::jsonb->>'projectManagerId',",
-        " case when $1::jsonb ? 'status' then $1::jsonb->>'status' else 'Planning' end,",
-        " case when $1::jsonb ? 'isBillable' then ($1::jsonb->>'isBillable')::boolean else true end,",
-        " case when $1::jsonb ? 'isActive' then ($1::jsonb->>'isActive')::boolean else true end,",
-        " case when $1::jsonb ? 'trackTime' then ($1::jsonb->>'trackTime')::boolean else true end, ",
-        project_values!("null"),
-        ")"
-    ))
-    .bind(bindable(&values))
-    .bind(&id)
-    .bind(&now)
-    .execute(db)
-    .await?;
+    let Value::Object(body) = bindable(&values) else {
+        return Err(Refusal::Internal("body is not an object".to_owned()));
+    };
+    // Every column named: a key the body sent (even as `null`), else the
+    // insert's own default.
+    let mut row = project_columns(&body, |key| {
+        Some(match key {
+            "status" => json!("Planning"),
+            "isBillable" | "isActive" | "trackTime" => json!(true),
+            _ => Value::Null,
+        })
+    });
+    row.insert("id".to_owned(), json!(id));
+    row.insert("created_at".to_owned(), json!(now));
+    row.insert("updated_at".to_owned(), json!(now));
+    PROJECTS.insert(&orm(db), row).await?;
     if let Some(custom) = &custom {
         write_custom_fields(db, &id, custom).await?;
     }
     // The creator joins as an owner member; never fail the create over it.
     if let Some(user) = caller.user() {
         let member_id = generate_id("pmem");
-        let added = sqlx::query(
-            "insert into project_members
-                 (id, project_id, user_id, role, is_active, joined_at, created_at, updated_at)
-             values ($1, $2, $3, 'owner', true, $4::timestamp, $4::timestamp, $4::timestamp)",
-        )
-        .bind(&member_id)
-        .bind(&id)
-        .bind(user)
-        .bind(&now)
-        .execute(db)
+        let at = weldsuite_db::utc_timestamp(at);
+        let added = project_members::Entity::insert(project_members::ActiveModel {
+            id: Set(member_id.clone()),
+            project_id: Set(id.clone()),
+            user_id: Set(user.to_owned()),
+            role: Set("owner".to_owned()),
+            is_active: Set(true),
+            joined_at: Set(at),
+            created_at: Set(at),
+            updated_at: Set(at),
+            ..Default::default()
+        })
+        .exec_without_returning(&orm(db))
         .await;
         match added {
             Ok(_) => caller.publish(
@@ -1441,28 +1627,13 @@ async fn update_project(
             "Only a project owner can change the project manager",
         ));
     }
-    sqlx::query(concat!(
-        "update projects set project_manager_id = ",
-        text_col!("projectManagerId", "project_manager_id", "keep"),
-        ", status = ",
-        text_col!("status", "status", "keep"),
-        ", is_billable = case when $1::jsonb ? 'isBillable' then ($1::jsonb->>'isBillable')::boolean else is_billable end",
-        ", is_active = case when $1::jsonb ? 'isActive' then ($1::jsonb->>'isActive')::boolean else is_active end",
-        ", track_time = case when $1::jsonb ? 'trackTime' then ($1::jsonb->>'trackTime')::boolean else track_time end",
-        ", (name, description, code, key, customer_id, counterparty_id, client_id, leader_id,",
-        " administration_id, priority, type, health, methodology, visibility, start_date,",
-        " end_date, actual_start_date, actual_end_date, budgeted_hours, budgeted_amount,",
-        " budget_currency, billing_method, hourly_rate, category_id, color, icon, cover_image,",
-        " settings, whiteboard_data, document_data, goals_data) = row(",
-        project_values!("keep"),
-        "), updated_at = $3::timestamp",
-        " where id = $2 and deleted_at is null"
-    ))
-    .bind(bindable(&data))
-    .bind(id)
-    .bind(now())
-    .execute(db)
-    .await?;
+    let Value::Object(body) = bindable(&data) else {
+        return Err(Refusal::Internal("body is not an object".to_owned()));
+    };
+    // A key the body leaves out keeps its column.
+    let mut row = project_columns(&body, |_| None);
+    row.insert("updated_at".to_owned(), json!(now()));
+    PROJECTS.update(&orm(db), id, row, true).await?;
     if let Some(custom) = &custom {
         write_custom_fields(db, id, custom).await?;
     }
@@ -1521,36 +1692,18 @@ async fn delete_project(
     move_to: Option<&str>,
 ) -> Reply {
     let db = &caller.db;
-    let name: Option<String> = sqlx::query_scalar(
-        "select name from projects where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    let Some(name) = name else {
+    let Some(name) = live_project_name(db, id).await? else {
         return Err(Refusal::not_found("Project", id));
     };
-    let now = now();
+    let now = utc_now();
     let mut moved: Vec<(String, String, Option<String>)> = Vec::new();
     if let Some(dest) = move_to {
-        let exists: Option<String> = sqlx::query_scalar(
-            "select id from projects where id = $1 and deleted_at is null limit 1",
-        )
-        .bind(dest)
-        .fetch_optional(db)
-        .await?;
-        if exists.is_none() {
+        if !crate::raid_store::live_project_exists(db, dest).await? {
             return Err(Refusal::not_found("Project", dest));
         }
-        moved = transfer_tasks(db, id, dest, &now).await?;
+        moved = transfer_tasks(db, id, dest, now).await?;
     } else {
-        sqlx::query(
-            "update projects set deleted_at = $2::timestamp, updated_at = $2::timestamp where id = $1",
-        )
-        .bind(id)
-        .bind(&now)
-        .execute(db)
-        .await?;
+        soft_delete(id, now).exec(&orm(db)).await?;
     }
     caller.publish(
         state,
@@ -1577,21 +1730,29 @@ async fn transfer_tasks(
     db: &PgPool,
     source: &str,
     dest: &str,
-    now: &str,
-) -> Result<Vec<(String, String, Option<String>)>, sqlx::Error> {
-    let moving: Vec<(String, String, String)> = sqlx::query_as(
-        "select id, title, status from tasks where project_id = $1 and deleted_at is null",
-    )
-    .bind(source)
-    .fetch_all(db)
-    .await?;
+    now: PrimitiveDateTime,
+) -> Result<Vec<(String, String, Option<String>)>, DbErr> {
+    use tasks::Column;
+    let moving: Vec<(String, String, String)> = tasks::Entity::find()
+        .select_only()
+        .columns([Column::Id, Column::Title, Column::Status])
+        .filter(Column::ProjectId.eq(source))
+        .filter(Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     let place = stage_placement(db, dest).await?;
-    let max_position: i32 = sqlx::query_scalar(
-        "select coalesce(max(position), 0)::int from tasks where project_id = $1 and deleted_at is null",
-    )
-    .bind(dest)
-    .fetch_one(db)
-    .await?;
+    // `coalesce(max(position), 0)`.
+    let max_position: Option<i32> = tasks::Entity::find()
+        .select_only()
+        .column_as(Column::Position.max(), "max")
+        .filter(Column::ProjectId.eq(dest))
+        .filter(Column::DeletedAt.is_null())
+        .into_tuple::<Option<i32>>()
+        .one(&orm(db))
+        .await?
+        .flatten();
+    let max_position = max_position.unwrap_or(0);
     let offset = if max_position == 0 { 0 } else { max_position } + 1;
     let moved: Vec<(String, String, Option<String>, bool)> = moving
         .into_iter()
@@ -1609,55 +1770,55 @@ async fn transfer_tasks(
         }
     }
     let fallback = place.place(None);
-    let mut tx = db.begin().await?;
+    // Into `dest` at `stage`/`status`: project-scoped references cleared,
+    // positions offset past the destination's last task.
+    let move_into = |stage: Option<&str>, status: Option<&str>| {
+        tasks::Entity::update_many()
+            .col_expr(Column::ProjectId, Expr::value(dest))
+            .col_expr(Column::SprintId, Expr::value(Option::<String>::None))
+            .col_expr(Column::MilestoneId, Expr::value(Option::<String>::None))
+            .col_expr(Column::DeliverableId, Expr::value(Option::<String>::None))
+            .col_expr(Column::Key, Expr::value(Option::<String>::None))
+            .col_expr(Column::BoardPosition, Expr::value(Option::<i32>::None))
+            .col_expr(
+                Column::Position,
+                sea_orm::ExprTrait::add(Expr::col(Column::Position), offset),
+            )
+            .col_expr(Column::UpdatedAt, Expr::value(now))
+            .col_expr(Column::StageId, Expr::value(stage.map(str::to_owned)))
+            .col_expr(Column::Status, Expr::value(status.map(str::to_owned)))
+            .filter(Column::ProjectId.eq(source))
+            .filter(Column::DeletedAt.is_null())
+    };
+    let tx = orm(db).begin().await?;
     for status in &kept {
         let placed = place.place(Some(status));
-        sqlx::query(
-            "update tasks set project_id = $1, sprint_id = null, milestone_id = null, deliverable_id = null, key = null,
-                    board_position = null, position = position + $2, updated_at = $3::timestamp,
-                    stage_id = $4, status = $5
-             where project_id = $6 and deleted_at is null and status = any($7)",
-        )
-        .bind(dest)
-        .bind(offset)
-        .bind(now)
-        .bind(placed.stage_id.as_deref())
-        .bind(status)
-        .bind(source)
-        .bind(task_status_aliases(status))
-        .execute(&mut *tx)
-        .await?;
+        move_into(placed.stage_id.as_deref(), Some(status))
+            .filter(Column::Status.is_in(task_status_aliases(status)))
+            .exec(&tx)
+            .await?;
     }
-    sqlx::query(
-        "update tasks set project_id = $1, sprint_id = null, milestone_id = null, deliverable_id = null, key = null,
-                board_position = null, position = position + $2, updated_at = $3::timestamp,
-                stage_id = $4, status = $5
-         where project_id = $6 and deleted_at is null",
-    )
-    .bind(dest)
-    .bind(offset)
-    .bind(now)
-    .bind(fallback.stage_id.as_deref())
-    .bind(fallback.status.as_deref())
-    .bind(source)
-    .execute(&mut *tx)
-    .await?;
-    // Links travel with their tasks: a dependency's project is its tasks' project.
-    sqlx::query("update task_dependencies set project_id = $1 where project_id = $2")
-        .bind(dest)
-        .bind(source)
-        .execute(&mut *tx)
+    move_into(fallback.stage_id.as_deref(), fallback.status.as_deref())
+        .exec(&tx)
         .await?;
-    sqlx::query(
-        "update projects set deleted_at = $2::timestamp, updated_at = $2::timestamp where id = $1",
-    )
-    .bind(source)
-    .bind(now)
-    .execute(&mut *tx)
-    .await?;
+    // Links travel with their tasks: a dependency's project is its tasks' project.
+    task_dependencies::Entity::update_many()
+        .col_expr(task_dependencies::Column::ProjectId, Expr::value(dest))
+        .filter(task_dependencies::Column::ProjectId.eq(source))
+        .exec(&tx)
+        .await?;
+    soft_delete(source, now).exec(&tx).await?;
     tx.commit().await?;
     Ok(moved
         .into_iter()
         .map(|(id, title, status, _)| (id, title, status))
         .collect())
+}
+
+/// The project soft-deleted: `deletedAt` and `updatedAt` set to `now`.
+fn soft_delete(id: &str, now: PrimitiveDateTime) -> sea_orm::UpdateMany<projects::Entity> {
+    projects::Entity::update_many()
+        .col_expr(projects::Column::DeletedAt, Expr::value(Some(now)))
+        .col_expr(projects::Column::UpdatedAt, Expr::value(now))
+        .filter(projects::Column::Id.eq(id))
 }

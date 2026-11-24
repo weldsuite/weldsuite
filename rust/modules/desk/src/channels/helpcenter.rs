@@ -15,12 +15,18 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use http::{HeaderMap, StatusCode};
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm, orm_error};
 use weldsuite_desk_domain::articles::{self, Reader};
 use weldsuite_desk_domain::webchat::normalize_email;
 use weldsuite_kit::{ApiError, Data};
+use weldsuite_schema::master::{helpcenter_domain_registry, workspaces};
+use weldsuite_schema::tenant::{
+    desk_visitors, helpcenter_settings, helpdesk_article_folders, helpdesk_articles,
+};
 
 use super::{PublicCtx, PublicState, error_body, json_object, kv_get_json, kv_put};
 use crate::js::{js_parse_int, query_param};
@@ -84,13 +90,16 @@ async fn resolve(
         (text(&entry["workspaceId"]), text(&entry["clerkOrgId"]))
     } else {
         let master = ctx.master(state).ok_or("no master database")?;
-        let registry: Option<String> = sqlx::query_scalar(
-            "select workspace_id from helpcenter_domain_registry where domain = $1 and is_active = 1 limit 1",
-        )
-        .bind(domain)
-        .fetch_optional(&master)
-        .await
-        .map_err(|e| e.to_string())?;
+        let master = orm(&master);
+        let registry: Option<String> = helpcenter_domain_registry::Entity::find()
+            .select_only()
+            .column(helpcenter_domain_registry::Column::WorkspaceId)
+            .filter(helpcenter_domain_registry::Column::Domain.eq(domain))
+            .filter(helpcenter_domain_registry::Column::IsActive.eq(1))
+            .into_tuple()
+            .one(&master)
+            .await
+            .map_err(|e| e.to_string())?;
         let Some(workspace_id) = registry else {
             return Ok(Err(error_body(
                 StatusCode::NOT_FOUND,
@@ -98,12 +107,13 @@ async fn resolve(
                 "Help center not found for this domain",
             )));
         };
-        let org: Option<Option<String>> =
-            sqlx::query_scalar("select clerk_org_id from workspaces where id = $1 limit 1")
-                .bind(&workspace_id)
-                .fetch_optional(&master)
-                .await
-                .map_err(|e| e.to_string())?;
+        let org: Option<Option<String>> = workspaces::Entity::find_by_id(&workspace_id)
+            .select_only()
+            .column(workspaces::Column::ClerkOrgId)
+            .into_tuple()
+            .one(&master)
+            .await
+            .map_err(|e| e.to_string())?;
         let Some(org) = org.flatten().filter(|o| !o.is_empty()) else {
             return Ok(Err(error_body(
                 StatusCode::NOT_FOUND,
@@ -144,11 +154,12 @@ async fn config(
     RawQuery(query): RawQuery,
 ) -> Response {
     let (db, _) = tenant_or_answer!(ctx, state, query.as_deref());
-    let row: Result<Option<Value>, sqlx::Error> = sqlx::query_scalar(
-        "select to_jsonb(t) from helpcenter_settings t where t.deleted_at is null order by t.created_at asc, t.id asc limit 1",
-    )
-    .fetch_optional(&db)
-    .await;
+    let row = helpcenter_settings::Entity::find()
+        .filter(helpcenter_settings::Column::DeletedAt.is_null())
+        .order_by_asc(helpcenter_settings::Column::CreatedAt)
+        .order_by_asc(helpcenter_settings::Column::Id)
+        .one(&orm(&db))
+        .await;
     let row = match row {
         Ok(row) => row,
         Err(error) => {
@@ -159,34 +170,36 @@ async fn config(
             );
         }
     };
-    let Some(row) = row.filter(|row| row["is_enabled"].as_i64().is_some_and(|e| e != 0)) else {
+    let Some(row) = row.filter(|row| row.is_enabled.is_some_and(|e| e != 0)) else {
         return error_body(
             StatusCode::NOT_FOUND,
             "NOT_FOUND",
             "Help center is not enabled",
         );
     };
+    // The row as Drizzle returns it: its properties are the answer's keys.
+    let row = serde_json::to_value(row).unwrap_or(Value::Null);
     let mut out = serde_json::Map::new();
-    for (prop, column) in [
-        ("siteName", "site_name"),
-        ("logo", "logo"),
-        ("logoDark", "logo_dark"),
-        ("favicon", "favicon"),
-        ("primaryColor", "primary_color"),
-        ("accentColor", "accent_color"),
-        ("heroTitle", "hero_title"),
-        ("heroSubtitle", "hero_subtitle"),
-        ("showSearch", "show_search"),
-        ("showCategories", "show_categories"),
-        ("metaTitle", "meta_title"),
-        ("metaDescription", "meta_description"),
-        ("ogImage", "og_image"),
-        ("footerText", "footer_text"),
-        ("socialLinks", "social_links"),
-        ("customCss", "custom_css"),
-        ("googleAnalyticsId", "google_analytics_id"),
+    for prop in [
+        "siteName",
+        "logo",
+        "logoDark",
+        "favicon",
+        "primaryColor",
+        "accentColor",
+        "heroTitle",
+        "heroSubtitle",
+        "showSearch",
+        "showCategories",
+        "metaTitle",
+        "metaDescription",
+        "ogImage",
+        "footerText",
+        "socialLinks",
+        "customCss",
+        "googleAnalyticsId",
     ] {
-        out.insert(prop.to_owned(), row[column].clone());
+        out.insert(prop.to_owned(), row[prop].clone());
     }
     Data(Value::Object(out)).into_response()
 }
@@ -258,25 +271,32 @@ async fn portal_email(
     if !expires.is_some_and(|expires| expires > now) {
         return Ok(None);
     }
-    let settings: Option<(Option<i32>, Option<i32>)> = sqlx::query_as(
-        "select is_enabled, portal_enabled from helpcenter_settings
-         where deleted_at is null order by created_at asc, id asc limit 1",
-    )
-    .fetch_optional(db)
-    .await
-    .map_err(|e| e.to_string())?;
+    let settings: Option<(Option<i32>, Option<i32>)> = helpcenter_settings::Entity::find()
+        .select_only()
+        .columns([
+            helpcenter_settings::Column::IsEnabled,
+            helpcenter_settings::Column::PortalEnabled,
+        ])
+        .filter(helpcenter_settings::Column::DeletedAt.is_null())
+        .order_by_asc(helpcenter_settings::Column::CreatedAt)
+        .order_by_asc(helpcenter_settings::Column::Id)
+        .into_tuple()
+        .one(&orm(db))
+        .await
+        .map_err(|e| e.to_string())?;
     if settings != Some((Some(1), Some(1))) {
         return Ok(None);
     }
     let Some(visitor_id) = session["visitorId"].as_str() else {
         return Ok(None);
     };
-    let verified: Option<Option<String>> =
-        sqlx::query_scalar("select verified_email from desk_visitors where id = $1 limit 1")
-            .bind(visitor_id)
-            .fetch_optional(db)
-            .await
-            .map_err(|e| e.to_string())?;
+    let verified: Option<Option<String>> = desk_visitors::Entity::find_by_id(visitor_id)
+        .select_only()
+        .column(desk_visitors::Column::VerifiedEmail)
+        .into_tuple()
+        .one(&orm(db))
+        .await
+        .map_err(|e| e.to_string())?;
     let Some(email) = verified
         .flatten()
         .filter(|email| !email.is_empty())
@@ -337,24 +357,26 @@ async fn folders(
             Option<String>,
             Option<String>,
         )>,
-        sqlx::Error,
-    > = sqlx::query_as(
-        "select id, name, parent_id, sort_order, icon, description from helpdesk_article_folders
-             where deleted_at is null order by sort_order",
-    )
-    .fetch_all(&db)
-    .await;
-    // The articles the reader may open per folder, one per article.
-    let live = articles::live_sql("t", 1, 2);
-    let counts: Result<Vec<(Option<String>, i32)>, sqlx::Error> =
-        sqlx::query_as(sqlx::AssertSqlSafe(format!(
-            "select t.category_id, count(*)::int from helpdesk_articles t
-         where t.translation_of_id is null and {live} group by t.category_id"
-        )))
-        .bind(reader.signed_in())
-        .bind(&reader.company_ids)
-        .fetch_all(&db)
-        .await;
+        DbErr,
+    > = {
+        use helpdesk_article_folders::Column;
+        helpdesk_article_folders::Entity::find()
+            .select_only()
+            .columns([
+                Column::Id,
+                Column::Name,
+                Column::ParentId,
+                Column::SortOrder,
+                Column::Icon,
+                Column::Description,
+            ])
+            .filter(Column::DeletedAt.is_null())
+            .order_by_asc(Column::SortOrder)
+            .into_tuple()
+            .all(&orm(&db))
+            .await
+    };
+    let counts = folder_counts(&db, &reader).await;
     let (rows, counts) = match (rows, counts) {
         (Ok(rows), Ok(counts)) => (rows, counts),
         (Err(error), _) | (_, Err(error)) => {
@@ -381,6 +403,24 @@ async fn folders(
         })
         .collect();
     Data(data).into_response()
+}
+
+/// The articles the reader may open per folder, one per article.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "the reader's audience (each article's jsonb array of companies), the SQL the help-center routes share (weldsuite_desk_domain::articles)"
+)]
+async fn folder_counts(db: &PgPool, reader: &Reader) -> Result<Vec<(Option<String>, i32)>, DbErr> {
+    let live = articles::live_sql("t", 1, 2);
+    sqlx::query_as(sqlx::AssertSqlSafe(format!(
+        "select t.category_id, count(*)::int from helpdesk_articles t
+         where t.translation_of_id is null and {live} group by t.category_id"
+    )))
+    .bind(reader.signed_in())
+    .bind(&reader.company_ids)
+    .fetch_all(db)
+    .await
+    .map_err(orm_error)
 }
 
 // ── paging ────────────────────────────────────────────────────────────────────
@@ -437,6 +477,68 @@ fn listed_filter() -> String {
 /// A listed article row: the row and the folder it is listed under.
 type Listed = (Value, Option<String>);
 
+/// What `GET /articles` and `GET /search` list.
+struct Listing<'a> {
+    reader: &'a Reader,
+    locale: Option<&'a str>,
+    folder: Option<&'a str>,
+    search: Option<&'a articles::Search>,
+    /// Best match first (`/search`), else newest first.
+    ranked: bool,
+}
+
+/// The reader's displayed articles that match: how many, and the page
+/// (`to_jsonb(t)` and its folder).
+#[allow(
+    clippy::disallowed_methods,
+    reason = "full-text search ranked by ts_rank over the reader's displayed language versions, with the audience SQL the help-center routes share (weldsuite_desk_domain::articles)"
+)]
+async fn listed(
+    db: &PgPool,
+    listing: &Listing<'_>,
+    size: i64,
+    offset: i64,
+) -> Result<(i32, Vec<Listed>), DbErr> {
+    let filters = listed_filter();
+    let folder_id = articles::FOLDER_ID_SQL;
+    let order = if listing.ranked {
+        format!("{} desc, ", articles::rank_sql("t", 5, 6))
+    } else {
+        String::new()
+    };
+    let bind = |sql: String| {
+        sqlx::query(sqlx::AssertSqlSafe(sql))
+            .bind(listing.reader.signed_in())
+            .bind(listing.reader.company_ids.clone())
+            .bind(listing.locale.map(str::to_owned))
+            .bind(listing.folder.map(str::to_owned))
+            .bind(listing.search.and_then(|s| s.websearch.clone()))
+            .bind(listing.search.map(|s| s.tsquery.clone()))
+    };
+    let total = bind(format!(
+        "select count(*)::int from helpdesk_articles t where {filters}"
+    ))
+    .fetch_one(db)
+    .await
+    .and_then(|row| sqlx::Row::try_get::<i32, _>(&row, 0))
+    .map_err(orm_error)?;
+    let rows = bind(format!(
+        "select to_jsonb(t), {folder_id} from helpdesk_articles t where {filters}
+         order by {order}t.updated_at desc, t.id desc limit $7 offset $8"
+    ))
+    .bind(size)
+    .bind(offset)
+    .fetch_all(db)
+    .await
+    .and_then(|rows| {
+        rows.iter()
+            .map(|row| Ok((sqlx::Row::try_get(row, 0)?, sqlx::Row::try_get(row, 1)?)))
+            .collect::<Result<Vec<Listed>, sqlx::Error>>()
+    })
+    .map_err(orm_error)?;
+    Ok((total, rows))
+}
+
 // ── GET /articles ─────────────────────────────────────────────────────────────
 
 async fn articles(
@@ -462,41 +564,16 @@ async fn articles(
         .and_then(|s| articles::typed_search(&s));
     let folder = query_param(query, "folderId").filter(|f| !f.is_empty());
     let locale = locale_of(query);
-    let filters = listed_filter();
-    let folder_id = articles::FOLDER_ID_SQL;
-    let bind = |sql: String| {
-        sqlx::query(sqlx::AssertSqlSafe(sql))
-            .bind(reader.signed_in())
-            .bind(reader.company_ids.clone())
-            .bind(locale.clone())
-            .bind(folder.clone())
-            .bind(search.as_ref().and_then(|s| s.websearch.clone()))
-            .bind(search.as_ref().map(|s| s.tsquery.clone()))
+    let listing = Listing {
+        reader: &reader,
+        locale: locale.as_deref(),
+        folder: folder.as_deref(),
+        search: search.as_ref(),
+        ranked: false,
     };
-    let total = bind(format!(
-        "select count(*)::int from helpdesk_articles t where {filters}"
-    ))
-    .fetch_one(&db)
-    .await
-    .and_then(|row| sqlx::Row::try_get::<i32, _>(&row, 0));
-    let rows = bind(format!(
-        "select to_jsonb(t), {folder_id} from helpdesk_articles t where {filters}
-         order by t.updated_at desc, t.id desc limit $7 offset $8"
-    ))
-    .bind(size)
-    .bind(offset)
-    .fetch_all(&db)
-    .await
-    .and_then(|rows| {
-        rows.iter()
-            .map(|row| Ok((sqlx::Row::try_get(row, 0)?, sqlx::Row::try_get(row, 1)?)))
-            .collect::<Result<Vec<Listed>, sqlx::Error>>()
-    });
-    let (total, rows) = match (total, rows) {
-        (Ok(total), Ok(rows)) => (total, rows),
-        (Err(error), _) | (_, Err(error)) => {
-            return internal("articles", &error, "Failed to fetch articles");
-        }
+    let (total, rows) = match listed(&db, &listing, size, offset).await {
+        Ok(found) => found,
+        Err(error) => return internal("articles", &error, "Failed to fetch articles"),
     };
     let data: Vec<Value> = rows
         .iter()
@@ -533,28 +610,13 @@ async fn article(
         "article",
         "Failed to fetch article"
     );
-    let live_t = articles::live_sql("t", 2, 3);
-    let live_o = articles::live_sql("o", 2, 3);
-    let row: Result<Option<Value>, sqlx::Error> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-        "select to_jsonb(t) from helpdesk_articles t where t.slug = $1 and {live_t}
-           and (t.translation_of_id is null or exists (select 1 from helpdesk_articles o where o.id = t.translation_of_id and {live_o}))
-         order by t.created_at asc, t.id asc limit 1"
-    )))
-    .bind(&slug)
-    .bind(reader.signed_in())
-    .bind(&reader.company_ids)
-    .fetch_optional(&db)
-    .await;
+    let row = readable_article(&db, &slug, &reader).await;
     let a = match row {
         Ok(Some(row)) => row,
         Ok(None) => return ApiError::not_found("Article", None).into_response(),
         Err(error) => return internal("article", &error, "Failed to fetch article"),
     };
-    let bumped =
-        sqlx::query("update helpdesk_articles set view_count = view_count + 1 where id = $1")
-            .bind(a["id"].as_str())
-            .execute(&db)
-            .await;
+    let bumped = bump(&db, helpdesk_articles::Column::ViewCount, a["id"].as_str()).await;
     if let Err(error) = bumped {
         return internal("article", &error, "Failed to fetch article");
     }
@@ -563,25 +625,15 @@ async fn article(
         .or_else(|| a["id"].as_str())
         .unwrap_or_default()
         .to_owned();
-    let versions: Result<Vec<(Option<String>, String, String)>, sqlx::Error> =
-        sqlx::query_as(sqlx::AssertSqlSafe(format!(
-            "select t.locale, t.slug, t.title from helpdesk_articles t
-             where (t.id = $1 or t.translation_of_id = $1) and {live_t}
-             order by (t.translation_of_id is not null), t.locale asc nulls first, t.id asc"
-        )))
-        .bind(&root)
-        .bind(reader.signed_in())
-        .bind(&reader.company_ids)
-        .fetch_all(&db)
-        .await;
-    let folder: Result<Value, sqlx::Error> = match a["translation_of_id"].as_str() {
-        Some(original) => sqlx::query_scalar::<_, Option<String>>(
-            "select category_id from helpdesk_articles where id = $1 limit 1",
-        )
-        .bind(original)
-        .fetch_optional(&db)
-        .await
-        .map(|folder| json!(folder.flatten())),
+    let versions = versions(&db, &root, &reader).await;
+    let folder: Result<Value, DbErr> = match a["translation_of_id"].as_str() {
+        Some(original) => helpdesk_articles::Entity::find_by_id(original)
+            .select_only()
+            .column(helpdesk_articles::Column::CategoryId)
+            .into_tuple::<Option<String>>()
+            .one(&orm(&db))
+            .await
+            .map(|folder| json!(folder.flatten())),
         None => Ok(a["category_id"].clone()),
     };
     let (versions, folder) = match (versions, folder) {
@@ -605,6 +657,71 @@ async fn article(
     .into_response()
 }
 
+/// The readable article `slug` whose original (if it is a version) is
+/// readable too, as `to_jsonb(t)`.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "the reader's audience (each article's jsonb array of companies), the SQL the help-center routes share (weldsuite_desk_domain::articles)"
+)]
+async fn readable_article(
+    db: &PgPool,
+    slug: &str,
+    reader: &Reader,
+) -> Result<Option<Value>, DbErr> {
+    let live_t = articles::live_sql("t", 2, 3);
+    let live_o = articles::live_sql("o", 2, 3);
+    sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+        "select to_jsonb(t) from helpdesk_articles t where t.slug = $1 and {live_t}
+           and (t.translation_of_id is null or exists (select 1 from helpdesk_articles o where o.id = t.translation_of_id and {live_o}))
+         order by t.created_at asc, t.id asc limit 1"
+    )))
+    .bind(slug)
+    .bind(reader.signed_in())
+    .bind(&reader.company_ids)
+    .fetch_optional(db)
+    .await
+    .map_err(orm_error)
+}
+
+/// The readable language versions of the article `root` (the original
+/// first): `(locale, slug, title)`.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "the reader's audience (each article's jsonb array of companies), the SQL the help-center routes share (weldsuite_desk_domain::articles)"
+)]
+async fn versions(
+    db: &PgPool,
+    root: &str,
+    reader: &Reader,
+) -> Result<Vec<(Option<String>, String, String)>, DbErr> {
+    let live_t = articles::live_sql("t", 2, 3);
+    sqlx::query_as(sqlx::AssertSqlSafe(format!(
+        "select t.locale, t.slug, t.title from helpdesk_articles t
+         where (t.id = $1 or t.translation_of_id = $1) and {live_t}
+         order by (t.translation_of_id is not null), t.locale asc nulls first, t.id asc"
+    )))
+    .bind(root)
+    .bind(reader.signed_in())
+    .bind(&reader.company_ids)
+    .fetch_all(db)
+    .await
+    .map_err(orm_error)
+}
+
+/// `update helpdesk_articles set <column> = <column> + 1 where id = …`.
+async fn bump(
+    db: &PgPool,
+    column: helpdesk_articles::Column,
+    id: Option<&str>,
+) -> Result<(), DbErr> {
+    helpdesk_articles::Entity::update_many()
+        .col_expr(column, sea_orm::ExprTrait::add(Expr::col(column), 1))
+        .filter(helpdesk_articles::Column::Id.eq(id))
+        .exec(&orm(db))
+        .await?;
+    Ok(())
+}
+
 // ── POST /articles/:id/feedback ───────────────────────────────────────────────
 
 async fn feedback(
@@ -622,28 +739,25 @@ async fn feedback(
         }
         Ok(value) => value.get("helpful") == Some(&Value::Bool(true)),
     };
-    let existing: Result<Option<String>, sqlx::Error> = sqlx::query_scalar(
-        "select id from helpdesk_articles where id = $1 and status = 'published' and deleted_at is null limit 1",
-    )
-    .bind(&id)
-    .fetch_optional(&db)
-    .await;
+    let existing: Result<Option<String>, DbErr> = helpdesk_articles::Entity::find_by_id(&id)
+        .select_only()
+        .column(helpdesk_articles::Column::Id)
+        .filter(helpdesk_articles::Column::Status.eq("published"))
+        .filter(helpdesk_articles::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(&db))
+        .await;
     match existing {
         Ok(Some(_)) => {}
         Ok(None) => return ApiError::not_found("Article", Some(&id)).into_response(),
         Err(error) => return internal("feedback", &error, "Failed to record feedback"),
     }
     let column = if helpful {
-        "helpful_count"
+        helpdesk_articles::Column::HelpfulCount
     } else {
-        "not_helpful_count"
+        helpdesk_articles::Column::NotHelpfulCount
     };
-    let updated = sqlx::query(sqlx::AssertSqlSafe(format!(
-        "update helpdesk_articles set {column} = {column} + 1 where id = $1"
-    )))
-    .bind(&id)
-    .execute(&db)
-    .await;
+    let updated = bump(&db, column, Some(&id)).await;
     if let Err(error) = updated {
         return internal("feedback", &error, "Failed to record feedback");
     }
@@ -682,40 +796,16 @@ async fn search(
         "Search failed"
     );
     let locale = locale_of(query);
-    let filters = listed_filter();
-    let rank = articles::rank_sql("t", 5, 6);
-    let folder_id = articles::FOLDER_ID_SQL;
-    let bind = |sql: String| {
-        sqlx::query(sqlx::AssertSqlSafe(sql))
-            .bind(reader.signed_in())
-            .bind(reader.company_ids.clone())
-            .bind(locale.clone())
-            .bind(None::<String>)
-            .bind(search.websearch.clone())
-            .bind(Some(search.tsquery.clone()))
+    let listing = Listing {
+        reader: &reader,
+        locale: locale.as_deref(),
+        folder: None,
+        search: Some(&search),
+        ranked: true,
     };
-    let total = bind(format!(
-        "select count(*)::int from helpdesk_articles t where {filters}"
-    ))
-    .fetch_one(&db)
-    .await
-    .and_then(|row| sqlx::Row::try_get::<i32, _>(&row, 0));
-    let rows = bind(format!(
-        "select to_jsonb(t), {folder_id} from helpdesk_articles t where {filters}
-         order by {rank} desc, t.updated_at desc, t.id desc limit $7 offset $8"
-    ))
-    .bind(size)
-    .bind(offset)
-    .fetch_all(&db)
-    .await
-    .and_then(|rows| {
-        rows.iter()
-            .map(|row| Ok((sqlx::Row::try_get(row, 0)?, sqlx::Row::try_get(row, 1)?)))
-            .collect::<Result<Vec<Listed>, sqlx::Error>>()
-    });
-    let (total, rows) = match (total, rows) {
-        (Ok(total), Ok(rows)) => (total, rows),
-        (Err(error), _) | (_, Err(error)) => return internal("search", &error, "Search failed"),
+    let (total, rows) = match listed(&db, &listing, size, offset).await {
+        Ok(found) => found,
+        Err(error) => return internal("search", &error, "Search failed"),
     };
     let data: Vec<Value> = rows
         .iter()

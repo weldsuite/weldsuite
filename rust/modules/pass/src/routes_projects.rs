@@ -9,10 +9,12 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use http::{HeaderMap, HeaderValue, StatusCode};
 use serde_json::{Map, Value, json};
+use time::OffsetDateTime;
+use time::format_description::well_known::Rfc3339;
 use weldsuite_kit::validation::{Field, Issues, Presence};
 use weldsuite_kit::{ApiError, List, NoContent, Pagination};
 
-use crate::audit::{AuditEntry, record_audit};
+use crate::audit::{AuditEntry, list_audit_events, record_audit};
 use crate::dotenv::{parse_dotenv, render_dotenv};
 use crate::envelope::Key;
 use crate::js::{clamped_limit, parse_js_date};
@@ -26,7 +28,7 @@ use crate::sync::{
     require_target, update_target as patch_target,
 };
 use crate::{
-    Caller, PassError, PassResult, PassState, answer, created, credentials, dated, merge, ok,
+    Caller, PassError, PassResult, PassState, answer, created, credentials, merge, ok,
     ok_or_created, param, validate,
 };
 
@@ -1379,35 +1381,26 @@ pub(crate) async fn list_audit(
         async {
             let (project, _) = vault_for(&caller, &state, &params).await?;
             let limit = clamped_limit(query(raw.as_deref(), "limit").as_deref(), 50, 1, 200);
-            let before = query(raw.as_deref(), "cursor")
-                .filter(|cursor| !cursor.is_empty())
-                .and_then(|cursor| parse_js_date(&cursor));
-            let rows: Vec<Value> = sqlx::query_scalar(
-                "select jsonb_build_object('id', a.id, 'environmentId', a.environment_id, \
-                 'secretId', a.secret_id, 'actorId', a.actor_id, 'action', a.action, \
-                 'targetKey', a.target_key, 'metadata', a.metadata, 'ip', a.ip, 'createdAt', a.created_at) \
-                 from weldpass_audit_events a where a.project_id = $1 \
-                 and ($2::text is null or a.created_at < $2::timestamptz) \
-                 order by a.created_at desc limit $3",
-            )
-            .bind(&project.id)
-            .bind(before)
-            .bind(limit + 1)
-            .fetch_all(&caller.db)
-            .await?;
+            let before = cursor_before(query(raw.as_deref(), "cursor").as_deref());
+            let rows = list_audit_events(&caller.db, &project.id, before, limit + 1).await?;
             Ok(page(rows, limit))
         }
         .await,
     )
 }
 
+/// `?cursor=` as `new Date(cursor)` reads it, when it is a date: the trail
+/// lists what came before it.
+pub(crate) fn cursor_before(cursor: Option<&str>) -> Option<OffsetDateTime> {
+    cursor
+        .filter(|cursor| !cursor.is_empty())
+        .and_then(parse_js_date)
+        .and_then(|iso| OffsetDateTime::parse(&iso, &Rfc3339).ok())
+}
+
 /// One page of a trail fetched with one row extra: `hasMore` without a
 /// count, the last row's time as the cursor, the page size as the count.
-pub(crate) fn page(rows: Vec<Value>, limit: i64) -> Response {
-    let mut rows: Vec<Value> = rows
-        .into_iter()
-        .map(|row| dated(row, &["createdAt"]))
-        .collect();
+pub(crate) fn page(mut rows: Vec<Value>, limit: i64) -> Response {
     let limit = usize::try_from(limit).unwrap_or(usize::MAX);
     let has_more = rows.len() > limit;
     rows.truncate(limit);

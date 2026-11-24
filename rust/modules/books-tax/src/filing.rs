@@ -10,13 +10,18 @@
 //! worker answers without it (`UNAVAILABLE_FEATURES`: `vat-digipoort`).
 
 use base64::Engine;
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, JoinType, QueryFilter, QuerySelect};
 use serde_json::{Value, json};
 use sqlx::PgPool;
 use weldsuite_books_domain::accounting_entity::upsert_accounting_entity_settings;
 use weldsuite_books_domain::http::{now, now_ms};
 use weldsuite_books_domain::js;
+use weldsuite_db::{OrmConn, orm, utc_now};
+use weldsuite_schema::tenant::{entities, tax_lines, tax_rates};
 
 use crate::nl::{ReturnLine, escape_xml};
+use crate::orm_bridge::{column_text, date_of};
 
 /// `FILED_RETURN_STATUSES`.
 const FILED_STATUSES: [&str; 3] = ["filed", "submitted", "accepted"];
@@ -107,12 +112,15 @@ pub(crate) struct PeriodLine {
 }
 
 /// `loadTaxLinesForPeriod(db, entityId, start, end)`: by tax date, inclusive.
+/// The amounts are read as their `numeric` text, as the service's
+/// `Number(text)` read them.
 pub(crate) async fn load_period_lines(
     db: &PgPool,
     entity_id: &str,
     start_day: &str,
     end_day: &str,
-) -> Result<Vec<PeriodLine>, sqlx::Error> {
+) -> Result<Vec<PeriodLine>, DbErr> {
+    use tax_lines::Column;
     type Row = (
         Option<String>,
         String,
@@ -122,20 +130,35 @@ pub(crate) async fn load_period_lines(
         Option<String>,
         Option<Value>,
     );
-    let rows: Vec<Row> = sqlx::query_as(
-        "select \"tax_lines\".\"tax_category_code\", \"tax_lines\".\"direction\", \
-         \"tax_lines\".\"self_assessed\", \"tax_lines\".\"base_taxable_amount\"::text, \
-         \"tax_lines\".\"base_tax_amount\"::text, \"tax_lines\".\"contact_id\", \
-         \"tax_rates\".\"jurisdiction_metadata\" \
-         from \"tax_lines\" left join \"tax_rates\" on \"tax_lines\".\"tax_rate_id\" = \"tax_rates\".\"id\" \
-         where (\"tax_lines\".\"entity_id\" = $1 and \"tax_lines\".\"tax_date\" >= $2::date \
-         and \"tax_lines\".\"tax_date\" <= $3::date)",
-    )
-    .bind(entity_id)
-    .bind(start_day)
-    .bind(end_day)
-    .fetch_all(db)
-    .await?;
+    let (start, end) = (date_of(start_day)?, date_of(end_day)?);
+    let rows: Vec<Row> = tax_lines::Entity::find()
+        .select_only()
+        .column(Column::TaxCategoryCode)
+        .column(Column::Direction)
+        .column(Column::SelfAssessed)
+        .column_as(
+            column_text((tax_lines::Entity, Column::BaseTaxableAmount)),
+            "base_taxable_amount",
+        )
+        .column_as(
+            column_text((tax_lines::Entity, Column::BaseTaxAmount)),
+            "base_tax_amount",
+        )
+        .column(Column::ContactId)
+        .column(tax_rates::Column::JurisdictionMetadata)
+        .join(
+            JoinType::LeftJoin,
+            tax_lines::Entity::belongs_to(tax_rates::Entity)
+                .from(Column::TaxRateId)
+                .to(tax_rates::Column::Id)
+                .into(),
+        )
+        .filter(Column::EntityId.eq(entity_id))
+        .filter(Column::TaxDate.gte(start))
+        .filter(Column::TaxDate.lte(end))
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     Ok(rows
         .into_iter()
         .map(
@@ -159,7 +182,8 @@ pub(crate) async fn load_period_lines(
 }
 
 /// `fileTaxPeriodStatements(h, …)`: stamp the period's unfiled ledger rows
-/// with the return and move the entity's tax lock date up to the period end.
+/// with the return and move the entity's tax lock date up to the period end,
+/// on the transaction's connection.
 pub(crate) async fn file_period(
     tx: &mut sqlx::PgConnection,
     entity_id: &str,
@@ -167,26 +191,29 @@ pub(crate) async fn file_period(
     end_day: &str,
     tax_return_id: &str,
     current_lock_date: Option<&str>,
-) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "update tax_lines set tax_return_id = $1 where entity_id = $2 and tax_date >= $3::date \
-         and tax_date <= $4::date and tax_return_id is null",
-    )
-    .bind(tax_return_id)
-    .bind(entity_id)
-    .bind(start_day)
-    .bind(end_day)
-    .execute(&mut *tx)
-    .await?;
-    if current_lock_date.is_none_or(|lock| lock.is_empty() || lock < end_day) {
-        sqlx::query(
-            "update entities set tax_lock_date = $1::date, updated_at = $2::timestamp where id = $3",
-        )
-        .bind(end_day)
-        .bind(now())
-        .bind(entity_id)
-        .execute(&mut *tx)
-        .await?;
+) -> Result<(), DbErr> {
+    let (start, end) = (date_of(start_day)?, date_of(end_day)?);
+    let move_lock = current_lock_date.is_none_or(|lock| lock.is_empty() || lock < end_day);
+    {
+        let db = OrmConn::new(&mut *tx);
+        tax_lines::Entity::update_many()
+            .col_expr(tax_lines::Column::TaxReturnId, Expr::value(tax_return_id))
+            .filter(tax_lines::Column::EntityId.eq(entity_id))
+            .filter(tax_lines::Column::TaxDate.gte(start))
+            .filter(tax_lines::Column::TaxDate.lte(end))
+            .filter(tax_lines::Column::TaxReturnId.is_null())
+            .exec(&db)
+            .await?;
+        if move_lock {
+            entities::Entity::update_many()
+                .col_expr(entities::Column::TaxLockDate, Expr::value(end))
+                .col_expr(entities::Column::UpdatedAt, Expr::value(utc_now()))
+                .filter(entities::Column::Id.eq(entity_id))
+                .exec(&db)
+                .await?;
+        }
+    }
+    if move_lock {
         // Release 1 mirror: the WeldBooks extension holds the lock date too.
         let mut mirror = serde_json::Map::new();
         mirror.insert("taxLockDate".into(), json!(end_day));

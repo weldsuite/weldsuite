@@ -9,9 +9,13 @@
 
 use std::fmt::Write as _;
 
-use serde_json::Value;
-use weldsuite_db::{PgPool, js_row};
+use sea_orm::{
+    ColumnTrait, DbErr, EntityTrait, FromQueryResult, JoinType, QueryFilter, QuerySelect,
+};
+use serde_json::{Value, json};
+use weldsuite_db::{PgPool, orm};
 use weldsuite_emails::{EmailBrand, EmailLocale, SystemEmail, hr, send_system_email};
+use weldsuite_schema::tenant::{hr_employees, hr_payroll_employers, hr_payroll_profiles};
 
 use crate::{Caller, HrState};
 
@@ -141,30 +145,55 @@ async fn bank_changed(
     deliver(state, email, rendered, "bank change").await;
 }
 
+/// `join hr_payroll_employers e on e.id = p.employer_id`.
+fn profile_employer() -> sea_orm::RelationDef {
+    hr_payroll_profiles::Entity::belongs_to(hr_payroll_employers::Entity)
+        .from(hr_payroll_profiles::Column::EmployerId)
+        .to(hr_payroll_employers::Column::Id)
+        .into()
+}
+
+/// The employer columns the bank change mail reads.
+#[derive(FromQueryResult)]
+struct MailEmployer {
+    name: String,
+    country: String,
+    nl_settings: Value,
+}
+
 async fn bank_change_task(
     state: &HrState,
     db: &PgPool,
     employee_id: &str,
     by_employee: bool,
-) -> Result<(), sqlx::Error> {
-    let row: Option<(String, String, String)> = sqlx::query_as(
-        "select email, first_name, last_name from hr_employees where id = $1 limit 1",
-    )
-    .bind(employee_id)
-    .fetch_optional(db)
-    .await?;
+) -> Result<(), DbErr> {
+    let db = &orm(db);
+    let row: Option<(String, String, String)> = hr_employees::Entity::find()
+        .select_only()
+        .columns([
+            hr_employees::Column::Email,
+            hr_employees::Column::FirstName,
+            hr_employees::Column::LastName,
+        ])
+        .filter(hr_employees::Column::Id.eq(employee_id))
+        .into_tuple()
+        .one(db)
+        .await?;
     let Some((email, first, last)) = row else {
         return Ok(());
     };
-    let employer: Option<Value> = sqlx::query_scalar(
-        "select jsonb_build_object('name', e.name, 'country', e.country, 'nlSettings', e.nl_settings)
-         from hr_payroll_profiles p join hr_payroll_employers e on e.id = p.employer_id
-         where p.employee_id = $1 limit 1",
-    )
-    .bind(employee_id)
-    .fetch_optional(db)
-    .await?;
-    let employer = employer.map(js_row);
+    let employer: Option<MailEmployer> = hr_payroll_profiles::Entity::find()
+        .select_only()
+        .column(hr_payroll_employers::Column::Name)
+        .column(hr_payroll_employers::Column::Country)
+        .column(hr_payroll_employers::Column::NlSettings)
+        .join(JoinType::InnerJoin, profile_employer())
+        .filter(hr_payroll_profiles::Column::EmployeeId.eq(employee_id))
+        .into_model()
+        .one(db)
+        .await?;
+    let employer = employer
+        .map(|e| json!({ "name": e.name, "country": e.country, "nlSettings": e.nl_settings }));
     let name = format!("{first} {last}");
     let employer_name = employer
         .as_ref()

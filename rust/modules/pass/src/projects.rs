@@ -2,31 +2,119 @@
 //! A project of another workspace is not found: an id from elsewhere reads
 //! as 404, nothing is confirmed to exist.
 
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ActiveValue::Unchanged, ColumnTrait, EntityTrait, FromQueryResult, QueryFilter, QueryOrder,
+    QuerySelect, Select, Set,
+};
+use serde::Serialize;
 use serde_json::Value;
-use sqlx::PgPool;
+use time::OffsetDateTime;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::generate_id;
+use weldsuite_schema::tenant::{
+    weldpass_environments as environments, weldpass_projects as projects, weldpass_secrets,
+    weldpass_sync_targets,
+};
 
 use crate::envelope::{Key, RootKeyring, create_vault_key, unwrap_vault_key};
 use crate::schemas::slugify;
-use crate::{PassError, PassResult, dated, now};
+use crate::{PassError, PassResult, int4, now, row_json};
 
-macro_rules! project_json {
-    () => {
-        "jsonb_build_object('id', p.id, 'name', p.name, 'slug', p.slug, \
-         'description', p.description, 'rootKeyVersion', p.root_key_version, \
-         'createdBy', p.created_by, 'createdAt', p.created_at, 'updatedAt', p.updated_at)"
-    };
+use environments::Column as E;
+use projects::Column as P;
+
+/// `projectColumns`: never the wrapped key.
+#[derive(Debug, Clone, FromQueryResult, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ProjectRow {
+    id: String,
+    name: String,
+    slug: String,
+    description: Option<String>,
+    root_key_version: String,
+    created_by: Option<String>,
+    #[serde(with = "weldsuite_schema::js::timestamptz")]
+    created_at: OffsetDateTime,
+    #[serde(with = "weldsuite_schema::js::timestamptz")]
+    updated_at: OffsetDateTime,
 }
 
-macro_rules! environment_json {
-    () => {
-        "jsonb_build_object('id', e.id, 'projectId', e.project_id, 'name', e.name, \
-         'slug', e.slug, 'isProduction', e.is_production, 'sortOrder', e.sort_order, \
-         'createdAt', e.created_at, 'updatedAt', e.updated_at)"
-    };
+impl ProjectRow {
+    fn select() -> Select<projects::Entity> {
+        projects::Entity::find().select_only().columns([
+            P::Id,
+            P::Name,
+            P::Slug,
+            P::Description,
+            P::RootKeyVersion,
+            P::CreatedBy,
+            P::CreatedAt,
+            P::UpdatedAt,
+        ])
+    }
 }
 
-const TIMES: [&str; 2] = ["createdAt", "updatedAt"];
+impl From<projects::Model> for ProjectRow {
+    fn from(row: projects::Model) -> Self {
+        Self {
+            id: row.id,
+            name: row.name,
+            slug: row.slug,
+            description: row.description,
+            root_key_version: row.root_key_version,
+            created_by: row.created_by,
+            created_at: row.created_at,
+            updated_at: row.updated_at,
+        }
+    }
+}
+
+/// `environmentColumns`.
+#[derive(Debug, Clone, FromQueryResult, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct EnvironmentRow {
+    id: String,
+    project_id: String,
+    name: String,
+    slug: String,
+    is_production: bool,
+    sort_order: i32,
+    #[serde(with = "weldsuite_schema::js::timestamptz")]
+    created_at: OffsetDateTime,
+    #[serde(with = "weldsuite_schema::js::timestamptz")]
+    updated_at: OffsetDateTime,
+}
+
+impl EnvironmentRow {
+    fn select() -> Select<environments::Entity> {
+        environments::Entity::find().select_only().columns([
+            E::Id,
+            E::ProjectId,
+            E::Name,
+            E::Slug,
+            E::IsProduction,
+            E::SortOrder,
+            E::CreatedAt,
+            E::UpdatedAt,
+        ])
+    }
+}
+
+impl From<environments::Model> for EnvironmentRow {
+    fn from(row: environments::Model) -> Self {
+        Self {
+            id: row.id,
+            project_id: row.project_id,
+            name: row.name,
+            slug: row.slug,
+            is_production: row.is_production,
+            sort_order: row.sort_order,
+            created_at: row.created_at,
+            updated_at: row.updated_at,
+        }
+    }
+}
 
 /// A project as the routes return it (`projectColumns`).
 #[derive(Debug, Clone)]
@@ -37,12 +125,11 @@ pub(crate) struct Project {
 }
 
 impl Project {
-    fn from_row(row: Value) -> Self {
-        let row = dated(row, &TIMES);
+    fn from_row(row: ProjectRow) -> Self {
         Self {
-            id: row["id"].as_str().unwrap_or_default().to_owned(),
-            slug: row["slug"].as_str().unwrap_or_default().to_owned(),
-            json: row,
+            json: row_json(&row),
+            id: row.id,
+            slug: row.slug,
         }
     }
 }
@@ -56,14 +143,23 @@ pub(crate) struct Environment {
 }
 
 impl Environment {
-    fn from_row(row: Value) -> Self {
-        let row = dated(row, &TIMES);
+    fn from_row(row: EnvironmentRow) -> Self {
         Self {
-            id: row["id"].as_str().unwrap_or_default().to_owned(),
-            slug: row["slug"].as_str().unwrap_or_default().to_owned(),
-            json: row,
+            json: row_json(&row),
+            id: row.id,
+            slug: row.slug,
         }
     }
+}
+
+/// `workspace_id` of a new row. Without a workspace the worker's insert
+/// fails on the column's NOT NULL (a 500), as it does here before writing.
+pub(crate) fn workspace_of(workspace: Option<&str>, table: &str) -> PassResult<String> {
+    workspace.map(str::to_owned).ok_or_else(|| {
+        PassError::Internal(format!(
+            "null value in column \"workspace_id\" of relation \"{table}\" violates not-null constraint"
+        ))
+    })
 }
 
 /// `listProjects`: by name.
@@ -71,14 +167,13 @@ pub(crate) async fn list_projects(
     db: &PgPool,
     workspace: Option<&str>,
 ) -> PassResult<Vec<Project>> {
-    let rows: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        project_json!(),
-        " from weldpass_projects p where p.workspace_id = $1 and p.deleted_at is null order by p.name asc"
-    ))
-    .bind(workspace)
-    .fetch_all(db)
-    .await?;
+    let rows = ProjectRow::select()
+        .filter(P::WorkspaceId.eq(workspace))
+        .filter(P::DeletedAt.is_null())
+        .order_by_asc(P::Name)
+        .into_model::<ProjectRow>()
+        .all(&orm(db))
+        .await?;
     Ok(rows.into_iter().map(Project::from_row).collect())
 }
 
@@ -88,15 +183,13 @@ pub(crate) async fn find_project_by_slug(
     workspace: Option<&str>,
     slug: &str,
 ) -> PassResult<Option<Project>> {
-    let row: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        project_json!(),
-        " from weldpass_projects p where p.workspace_id = $1 and p.slug = $2 and p.deleted_at is null limit 1"
-    ))
-    .bind(workspace)
-    .bind(slug)
-    .fetch_optional(db)
-    .await?;
+    let row = ProjectRow::select()
+        .filter(P::WorkspaceId.eq(workspace))
+        .filter(P::Slug.eq(slug))
+        .filter(P::DeletedAt.is_null())
+        .into_model::<ProjectRow>()
+        .one(&orm(db))
+        .await?;
     Ok(row.map(Project::from_row))
 }
 
@@ -106,15 +199,13 @@ pub(crate) async fn require_project(
     workspace: Option<&str>,
     project_id: &str,
 ) -> PassResult<Project> {
-    let row: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        project_json!(),
-        " from weldpass_projects p where p.id = $1 and p.workspace_id = $2 and p.deleted_at is null limit 1"
-    ))
-    .bind(project_id)
-    .bind(workspace)
-    .fetch_optional(db)
-    .await?;
+    let row = ProjectRow::select()
+        .filter(P::Id.eq(project_id))
+        .filter(P::WorkspaceId.eq(workspace))
+        .filter(P::DeletedAt.is_null())
+        .into_model::<ProjectRow>()
+        .one(&orm(db))
+        .await?;
     row.map(Project::from_row)
         .ok_or_else(|| PassError::not_found("project", project_id))
 }
@@ -146,53 +237,40 @@ pub(crate) async fn create_project(
         ));
     }
     let key = create_vault_key(keyring, &id)?;
-    let project: Value = sqlx::query_scalar(concat!(
-        "with p as (insert into weldpass_projects \
-         (id, workspace_id, name, slug, description, kek_wrapped, root_key_version, created_by) \
-         values ($1, $2, $3, $4, $5, $6, $7, $8) returning *) select ",
-        project_json!(),
-        " from p"
-    ))
-    .bind(&id)
-    .bind(workspace)
-    .bind(name)
-    .bind(&slug)
-    .bind(description)
-    .bind(&key.kek_wrapped)
-    .bind(key.root_key_version)
-    .bind(created_by)
-    .fetch_one(db)
+    let workspace = workspace_of(workspace, "weldpass_projects")?;
+    let db = orm(db);
+    let project = projects::Entity::insert(projects::ActiveModel {
+        id: Set(id.clone()),
+        workspace_id: Set(workspace),
+        name: Set(name.to_owned()),
+        slug: Set(slug),
+        description: Set(description.map(str::to_owned)),
+        kek_wrapped: Set(key.kek_wrapped),
+        root_key_version: Set(key.root_key_version.to_owned()),
+        created_by: Set(Some(created_by.to_owned())),
+        ..Default::default()
+    })
+    .exec_with_returning(&db)
     .await?;
 
-    let ids: Vec<String> = DEFAULT_ENVIRONMENTS
-        .iter()
-        .map(|_| generate_id("wpe"))
-        .collect();
-    let names: Vec<&str> = DEFAULT_ENVIRONMENTS.iter().map(|e| e.0).collect();
-    let slugs: Vec<&str> = DEFAULT_ENVIRONMENTS.iter().map(|e| e.1).collect();
-    let production: Vec<bool> = DEFAULT_ENVIRONMENTS.iter().map(|e| e.2).collect();
-    let order: Vec<i32> = DEFAULT_ENVIRONMENTS.iter().map(|e| e.3).collect();
-    let environments: Vec<Value> = sqlx::query_scalar(concat!(
-        "with e as (insert into weldpass_environments (id, project_id, name, slug, is_production, sort_order) \
-         select u.id, $2, u.name, u.slug, u.is_production, u.sort_order \
-         from unnest($1::varchar[], $3::varchar[], $4::varchar[], $5::boolean[], $6::integer[]) with ordinality \
-         as u(id, name, slug, is_production, sort_order, n) order by u.n returning *) select ",
-        environment_json!(),
-        " from e"
+    let environments = environments::Entity::insert_many(DEFAULT_ENVIRONMENTS.iter().map(
+        |&(name, slug, is_production, sort_order)| environments::ActiveModel {
+            id: Set(generate_id("wpe")),
+            project_id: Set(id.clone()),
+            name: Set(name.to_owned()),
+            slug: Set(slug.to_owned()),
+            is_production: Set(is_production),
+            sort_order: Set(sort_order),
+            ..Default::default()
+        },
     ))
-    .bind(&ids)
-    .bind(&id)
-    .bind(&names)
-    .bind(&slugs)
-    .bind(&production)
-    .bind(&order)
-    .fetch_all(db)
+    .exec_with_returning(&db)
     .await?;
     Ok((
-        Project::from_row(project),
+        Project::from_row(project.into()),
         environments
             .into_iter()
-            .map(Environment::from_row)
+            .map(|row| Environment::from_row(row.into()))
             .collect(),
     ))
 }
@@ -207,24 +285,23 @@ pub(crate) async fn update_project(
     description: Option<Option<&str>>,
 ) -> PassResult<Project> {
     require_project(db, workspace, project_id).await?;
-    let row: Value = sqlx::query_scalar(concat!(
-        "with p as (update weldpass_projects set \
-         name = coalesce($3, name), \
-         description = case when $4 then $5 else description end, \
-         updated_at = $6::timestamptz \
-         where id = $1 and workspace_id = $2 returning *) select ",
-        project_json!(),
-        " from p"
-    ))
-    .bind(project_id)
-    .bind(workspace)
-    .bind(name)
-    .bind(description.is_some())
-    .bind(description.flatten())
-    .bind(now())
-    .fetch_one(db)
-    .await?;
-    Ok(Project::from_row(row))
+    let mut patch = projects::ActiveModel {
+        id: Unchanged(project_id.to_owned()),
+        updated_at: Set(now()),
+        ..Default::default()
+    };
+    if let Some(name) = name {
+        patch.name = Set(name.to_owned());
+    }
+    if let Some(description) = description {
+        patch.description = Set(description.map(str::to_owned));
+    }
+    let row = projects::Entity::update(patch)
+        .validate()?
+        .filter(P::WorkspaceId.eq(workspace))
+        .exec(&orm(db))
+        .await?;
+    Ok(Project::from_row(row.into()))
 }
 
 /// `deleteProject`: soft.
@@ -235,15 +312,13 @@ pub(crate) async fn delete_project(
 ) -> PassResult<()> {
     require_project(db, workspace, project_id).await?;
     let now = now();
-    sqlx::query(
-        "update weldpass_projects set deleted_at = $3::timestamptz, updated_at = $3::timestamptz \
-         where id = $1 and workspace_id = $2",
-    )
-    .bind(project_id)
-    .bind(workspace)
-    .bind(&now)
-    .execute(db)
-    .await?;
+    projects::Entity::update_many()
+        .col_expr(P::DeletedAt, Expr::value(now))
+        .col_expr(P::UpdatedAt, Expr::value(now))
+        .filter(P::Id.eq(project_id))
+        .filter(P::WorkspaceId.eq(workspace))
+        .exec(&orm(db))
+        .await?;
     Ok(())
 }
 
@@ -255,11 +330,13 @@ pub(crate) async fn open_vault(
     project_id: &str,
 ) -> PassResult<(Project, Key)> {
     let project = require_project(db, workspace, project_id).await?;
-    let wrapped: Option<String> =
-        sqlx::query_scalar("select kek_wrapped from weldpass_projects where id = $1 limit 1")
-            .bind(project_id)
-            .fetch_optional(db)
-            .await?;
+    let wrapped: Option<String> = projects::Entity::find()
+        .select_only()
+        .column(P::KekWrapped)
+        .filter(P::Id.eq(project_id))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     let wrapped = wrapped.ok_or_else(|| PassError::not_found("project", project_id))?;
     let kek = unwrap_vault_key(keyring, &project.id, &wrapped)?;
     Ok((project, kek))
@@ -270,15 +347,14 @@ pub(crate) async fn list_environments(
     db: &PgPool,
     project_id: &str,
 ) -> PassResult<Vec<Environment>> {
-    let rows: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        environment_json!(),
-        " from weldpass_environments e where e.project_id = $1 and e.deleted_at is null \
-         order by e.sort_order asc, e.name asc"
-    ))
-    .bind(project_id)
-    .fetch_all(db)
-    .await?;
+    let rows = EnvironmentRow::select()
+        .filter(E::ProjectId.eq(project_id))
+        .filter(E::DeletedAt.is_null())
+        .order_by_asc(E::SortOrder)
+        .order_by_asc(E::Name)
+        .into_model::<EnvironmentRow>()
+        .all(&orm(db))
+        .await?;
     Ok(rows.into_iter().map(Environment::from_row).collect())
 }
 
@@ -288,15 +364,13 @@ pub(crate) async fn require_environment(
     project_id: &str,
     environment_id: &str,
 ) -> PassResult<Environment> {
-    let row: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        environment_json!(),
-        " from weldpass_environments e where e.id = $1 and e.project_id = $2 and e.deleted_at is null limit 1"
-    ))
-    .bind(environment_id)
-    .bind(project_id)
-    .fetch_optional(db)
-    .await?;
+    let row = EnvironmentRow::select()
+        .filter(E::Id.eq(environment_id))
+        .filter(E::ProjectId.eq(project_id))
+        .filter(E::DeletedAt.is_null())
+        .into_model::<EnvironmentRow>()
+        .one(&orm(db))
+        .await?;
     row.map(Environment::from_row)
         .ok_or_else(|| PassError::not_found("environment", environment_id))
 }
@@ -310,21 +384,18 @@ pub(crate) async fn create_environment(
     is_production: Option<bool>,
 ) -> PassResult<Environment> {
     let existing = list_environments(db, project_id).await?;
-    let row: Value = sqlx::query_scalar(concat!(
-        "with e as (insert into weldpass_environments (id, project_id, name, slug, is_production, sort_order) \
-         values ($1, $2, $3, $4, $5, $6) returning *) select ",
-        environment_json!(),
-        " from e"
-    ))
-    .bind(generate_id("wpe"))
-    .bind(project_id)
-    .bind(name)
-    .bind(slugify(slug.unwrap_or(name)))
-    .bind(is_production.unwrap_or(false))
-    .bind(i32::try_from(existing.len()).unwrap_or(i32::MAX))
-    .fetch_one(db)
+    let row = environments::Entity::insert(environments::ActiveModel {
+        id: Set(generate_id("wpe")),
+        project_id: Set(project_id.to_owned()),
+        name: Set(name.to_owned()),
+        slug: Set(slugify(slug.unwrap_or(name))),
+        is_production: Set(is_production.unwrap_or(false)),
+        sort_order: Set(i32::try_from(existing.len()).unwrap_or(i32::MAX)),
+        ..Default::default()
+    })
+    .exec_with_returning(&orm(db))
     .await?;
-    Ok(Environment::from_row(row))
+    Ok(Environment::from_row(row.into()))
 }
 
 /// `updateEnvironment`: the fields given.
@@ -337,23 +408,26 @@ pub(crate) async fn update_environment(
     sort_order: Option<i64>,
 ) -> PassResult<Environment> {
     require_environment(db, project_id, environment_id).await?;
-    let row: Value = sqlx::query_scalar(concat!(
-        "with e as (update weldpass_environments set \
-         name = coalesce($3, name), is_production = coalesce($4, is_production), \
-         sort_order = coalesce($5::integer, sort_order), updated_at = $6::timestamptz \
-         where id = $1 and project_id = $2 returning *) select ",
-        environment_json!(),
-        " from e"
-    ))
-    .bind(environment_id)
-    .bind(project_id)
-    .bind(name)
-    .bind(is_production)
-    .bind(sort_order)
-    .bind(now())
-    .fetch_one(db)
-    .await?;
-    Ok(Environment::from_row(row))
+    let mut patch = environments::ActiveModel {
+        id: Unchanged(environment_id.to_owned()),
+        ..Default::default()
+    };
+    if let Some(name) = name {
+        patch.name = Set(name.to_owned());
+    }
+    if let Some(is_production) = is_production {
+        patch.is_production = Set(is_production);
+    }
+    if let Some(sort_order) = sort_order {
+        patch.sort_order = Set(int4(sort_order)?);
+    }
+    patch.updated_at = Set(now());
+    let row = environments::Entity::update(patch)
+        .validate()?
+        .filter(E::ProjectId.eq(project_id))
+        .exec(&orm(db))
+        .await?;
+    Ok(Environment::from_row(row.into()))
 }
 
 /// `deleteEnvironment`: soft-deletes its secrets, its sync targets, then it.
@@ -364,29 +438,26 @@ pub(crate) async fn delete_environment(
 ) -> PassResult<()> {
     require_environment(db, project_id, environment_id).await?;
     let now = now();
-    sqlx::query(
-        "update weldpass_secrets set deleted_at = $2::timestamptz, updated_at = $2::timestamptz \
-         where environment_id = $1 and deleted_at is null",
-    )
-    .bind(environment_id)
-    .bind(&now)
-    .execute(db)
-    .await?;
-    sqlx::query(
-        "update weldpass_sync_targets set deleted_at = $2::timestamptz, updated_at = $2::timestamptz \
-         where environment_id = $1 and deleted_at is null",
-    )
-    .bind(environment_id)
-    .bind(&now)
-    .execute(db)
-    .await?;
-    sqlx::query(
-        "update weldpass_environments set deleted_at = $2::timestamptz, updated_at = $2::timestamptz \
-         where id = $1",
-    )
-    .bind(environment_id)
-    .bind(&now)
-    .execute(db)
-    .await?;
+    let db = orm(db);
+    weldpass_secrets::Entity::update_many()
+        .col_expr(weldpass_secrets::Column::DeletedAt, Expr::value(now))
+        .col_expr(weldpass_secrets::Column::UpdatedAt, Expr::value(now))
+        .filter(weldpass_secrets::Column::EnvironmentId.eq(environment_id))
+        .filter(weldpass_secrets::Column::DeletedAt.is_null())
+        .exec(&db)
+        .await?;
+    weldpass_sync_targets::Entity::update_many()
+        .col_expr(weldpass_sync_targets::Column::DeletedAt, Expr::value(now))
+        .col_expr(weldpass_sync_targets::Column::UpdatedAt, Expr::value(now))
+        .filter(weldpass_sync_targets::Column::EnvironmentId.eq(environment_id))
+        .filter(weldpass_sync_targets::Column::DeletedAt.is_null())
+        .exec(&db)
+        .await?;
+    environments::Entity::update_many()
+        .col_expr(E::DeletedAt, Expr::value(now))
+        .col_expr(E::UpdatedAt, Expr::value(now))
+        .filter(E::Id.eq(environment_id))
+        .exec(&db)
+        .await?;
     Ok(())
 }

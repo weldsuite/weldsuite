@@ -4,8 +4,10 @@
 //! shipping address, else the billing address. Nothing is guessed beyond
 //! that; a buyer abroad is an export (96).
 
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::Value;
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm};
+use weldsuite_schema::tenant::{entities, parties};
 
 use crate::address::normalize_postal_address;
 use crate::compliance::get_contact_vat_number;
@@ -29,13 +31,15 @@ pub struct GstSupply {
 }
 
 /// `isGstEntity(db, entityId)`.
-pub async fn is_gst_entity(db: &PgPool, entity_id: &str) -> Result<bool, sqlx::Error> {
-    let code: Option<String> = sqlx::query_scalar(
-        "select jurisdiction_code from entities where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(entity_id)
-    .fetch_optional(db)
-    .await?;
+pub async fn is_gst_entity(db: &PgPool, entity_id: &str) -> Result<bool, DbErr> {
+    let code: Option<String> = entities::Entity::find()
+        .select_only()
+        .column(entities::Column::JurisdictionCode)
+        .filter(entities::Column::Id.eq(entity_id))
+        .filter(entities::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     Ok(code.is_some_and(|c| c.to_uppercase() == "IN"))
 }
 
@@ -91,7 +95,7 @@ pub struct SupplyArgs<'a> {
 pub async fn resolve_gst_supply(
     db: &PgPool,
     args: SupplyArgs<'_>,
-) -> Result<Option<GstSupply>, sqlx::Error> {
+) -> Result<Option<GstSupply>, DbErr> {
     if !is_gst_entity(db, args.entity_id).await? {
         return Ok(None);
     }
@@ -103,12 +107,16 @@ pub async fn resolve_gst_supply(
         && normalize_postal_address(billing.as_ref()).is_none()
         && let Some(contact_id) = args.contact_id.filter(|id| !id.is_empty())
     {
-        let party: Option<(Option<Value>, Option<Value>)> = sqlx::query_as(
-            "select billing_address, shipping_address from parties where id = $1 limit 1",
-        )
-        .bind(contact_id)
-        .fetch_optional(db)
-        .await?;
+        let party: Option<(Option<Value>, Option<Value>)> = parties::Entity::find()
+            .select_only()
+            .columns([
+                parties::Column::BillingAddress,
+                parties::Column::ShippingAddress,
+            ])
+            .filter(parties::Column::Id.eq(contact_id))
+            .into_tuple()
+            .one(&orm(db))
+            .await?;
         let (party_billing, party_shipping) = party.unwrap_or((None, None));
         shipping = party_shipping;
         billing = party_billing;
@@ -150,7 +158,7 @@ pub async fn resolve_gst_bill_supply(
     entity_id: &str,
     contact_id: Option<&str>,
     vendor_address: Option<&Value>,
-) -> Result<Option<GstSupply>, sqlx::Error> {
+) -> Result<Option<GstSupply>, DbErr> {
     if !is_gst_entity(db, entity_id).await? {
         return Ok(None);
     }

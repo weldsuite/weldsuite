@@ -4,32 +4,14 @@
 //! crm-api's routes and WeldConnect's `create_deal` / `move_deal_stage`
 //! steps.
 
+use sea_orm::{ColumnTrait, Condition, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 use serde_json::{Map, Value, json};
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::generate_id;
+use weldsuite_schema::tenant::{companies, crm_opportunities, crm_pipeline_stages as stages};
 
-use crate::tables::CRM_OPPORTUNITIES;
-use crate::{DomainError, DomainResult, drizzle_row, insert_sql, now, to_iso};
-
-/// A deal as Drizzle reads it: `to_jsonb` with the numeric columns as text.
-#[macro_export]
-macro_rules! opportunity_json {
-    ($t:literal) => {
-        concat!(
-            "(to_jsonb(",
-            $t,
-            ") || jsonb_build_object('amount', ",
-            $t,
-            ".amount::text, ",
-            "'expected_revenue', ",
-            $t,
-            ".expected_revenue::text, ",
-            "'recurring_revenue', ",
-            $t,
-            ".recurring_revenue::text))"
-        )
-    };
-}
+use crate::tables::{CRM_OPPORTUNITIES, insert_row, update_rows};
+use crate::{DomainError, DomainResult, now, to_iso};
 
 /// `lookupCompanyName(db, customerId)`: the live company's name.
 pub async fn lookup_company_name(
@@ -39,12 +21,14 @@ pub async fn lookup_company_name(
     let Some(customer_id) = customer_id.filter(|id| !id.is_empty()) else {
         return Ok(None);
     };
-    let name: Option<String> = sqlx::query_scalar(
-        "select name from companies where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(customer_id)
-    .fetch_optional(db)
-    .await?;
+    let name: Option<String> = companies::Entity::find()
+        .select_only()
+        .column(companies::Column::Name)
+        .filter(companies::Column::Id.eq(customer_id))
+        .filter(companies::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     Ok(name)
 }
 
@@ -82,30 +66,46 @@ fn stage_of(row: StageRow) -> StageFlags {
     }
 }
 
+/// `select id, is_won, is_lost, probability, pipeline from crm_pipeline_stages`.
+fn stage_flags() -> sea_orm::Select<stages::Entity> {
+    stages::Entity::find().select_only().columns([
+        stages::Column::Id,
+        stages::Column::IsWon,
+        stages::Column::IsLost,
+        stages::Column::Probability,
+        stages::Column::Pipeline,
+    ])
+}
+
 /// `loadStage(db, stageId)`: a live stage.
 pub async fn load_stage(db: &PgPool, stage_id: &str) -> DomainResult<Option<StageFlags>> {
-    let row: Option<StageRow> = sqlx::query_as(
-        "select id, is_won, is_lost, probability, pipeline from crm_pipeline_stages
-         where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(stage_id)
-    .fetch_optional(db)
-    .await?;
+    let row: Option<StageRow> = stage_flags()
+        .filter(stages::Column::Id.eq(stage_id))
+        .filter(stages::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     Ok(row.map(stage_of))
+}
+
+/// `column is null or column = false`.
+fn not_set(column: stages::Column) -> Condition {
+    Condition::any().add(column.is_null()).add(column.eq(false))
 }
 
 /// `findFirstOpenStage(db, pipeline)`: the lowest live stage that is
 /// neither won nor lost.
 async fn first_open_stage(db: &PgPool, pipeline: &str) -> DomainResult<Option<StageFlags>> {
-    let row: Option<StageRow> = sqlx::query_as(
-        "select id, is_won, is_lost, probability, pipeline from crm_pipeline_stages
-         where pipeline = $1 and (is_won is null or is_won = false)
-           and (is_lost is null or is_lost = false) and deleted_at is null
-         order by position asc, created_at asc limit 1",
-    )
-    .bind(pipeline)
-    .fetch_optional(db)
-    .await?;
+    let row: Option<StageRow> = stage_flags()
+        .filter(stages::Column::Pipeline.eq(pipeline))
+        .filter(not_set(stages::Column::IsWon))
+        .filter(not_set(stages::Column::IsLost))
+        .filter(stages::Column::DeletedAt.is_null())
+        .order_by_asc(stages::Column::Position)
+        .order_by_asc(stages::Column::CreatedAt)
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     Ok(row.map(stage_of))
 }
 
@@ -235,10 +235,7 @@ pub async fn create_opportunity(
     }
     set("createdAt", Some(json!(now)));
     set("updatedAt", Some(json!(now)));
-    sqlx::query(insert_sql!(crm_opportunities))
-        .bind(CRM_OPPORTUNITIES.values(&values))
-        .execute(db)
-        .await?;
+    insert_row::<crm_opportunities::Entity>(&orm(db), &CRM_OPPORTUNITIES, &values).await?;
     let mut event = Map::new();
     event.insert("id".into(), json!(id));
     for (to, from) in [
@@ -461,17 +458,20 @@ pub async fn sync_status_with_stage(
                 let pipeline = update_pipeline
                     .or_else(|| existing_pipeline.map(str::to_owned))
                     .unwrap_or_else(|| "default".to_owned());
-                let matched: Option<(String, Option<i32>)> = sqlx::query_as(
-                    "select id, probability from crm_pipeline_stages
-                     where pipeline = $1
-                       and (case when $2 then is_won else is_lost end) = true
-                       and deleted_at is null
-                     limit 1",
-                )
-                .bind(&pipeline)
-                .bind(explicit == "won")
-                .fetch_optional(db)
-                .await?;
+                let flag = if explicit == "won" {
+                    stages::Column::IsWon
+                } else {
+                    stages::Column::IsLost
+                };
+                let matched: Option<(String, Option<i32>)> = stages::Entity::find()
+                    .select_only()
+                    .columns([stages::Column::Id, stages::Column::Probability])
+                    .filter(stages::Column::Pipeline.eq(pipeline))
+                    .filter(flag.eq(true))
+                    .filter(stages::Column::DeletedAt.is_null())
+                    .into_tuple()
+                    .one(&orm(db))
+                    .await?;
                 if let Some((stage_id, probability)) = matched {
                     update.insert("stageId".into(), json!(stage_id));
                     if !data.contains_key("stage") {
@@ -527,17 +527,13 @@ pub async fn live_opportunity(
     id: &str,
     owner_scope: Option<&str>,
 ) -> DomainResult<Option<Value>> {
-    let row: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        opportunity_json!("t"),
-        " from crm_opportunities t
-         where id = $1 and deleted_at is null and ($2::text is null or owner_id = $2) limit 1"
-    ))
-    .bind(id)
-    .bind(owner_scope)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(drizzle_row))
+    let mut query = crm_opportunities::Entity::find_by_id(id.to_owned())
+        .filter(crm_opportunities::Column::DeletedAt.is_null());
+    if let Some(owner) = owner_scope {
+        query = query.filter(crm_opportunities::Column::OwnerId.eq(owner));
+    }
+    let row = query.one(&orm(db)).await?;
+    Ok(row.map(serde_json::to_value).transpose()?)
 }
 
 /// What [`move_opportunity_stage`] answers: the deal after the move
@@ -581,13 +577,14 @@ pub async fn move_opportunity_stage(
     let mut data = Map::new();
     data.insert("stageId".into(), json!(stage_id));
     sync_status_with_stage(db, &existing, &data, &mut update, target.as_ref()).await?;
-    sqlx::query(crate::update_sql!(
-        crm_opportunities,
-        "where t.id = $1 and t.deleted_at is null"
-    ))
-    .bind(deal_id)
-    .bind(CRM_OPPORTUNITIES.set(&update))
-    .execute(db)
+    update_rows::<crm_opportunities::Entity>(
+        &orm(db),
+        &CRM_OPPORTUNITIES,
+        &update,
+        Condition::all()
+            .add(crm_opportunities::Column::Id.eq(deal_id))
+            .add(crm_opportunities::Column::DeletedAt.is_null()),
+    )
     .await?;
     let mut row = existing.as_object().cloned().unwrap_or_default();
     for (key, value) in &update {

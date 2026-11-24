@@ -135,12 +135,31 @@ pub(crate) fn millis_of_iso(iso: &str) -> Option<i64> {
     crate::github::millis_of_iso(iso)
 }
 
-/// A database error's message, as the driver's `err.message` reads.
-pub(crate) fn db_message(error: &sqlx::Error) -> String {
+/// The driver's error inside a SeaORM one (a statement that reached the
+/// database).
+fn sqlx_of(error: &sea_orm::DbErr) -> Option<&sqlx::Error> {
+    use sea_orm::{DbErr, RuntimeErr};
     match error {
-        sqlx::Error::Database(error) => error.message().to_owned(),
-        other => other.to_string(),
+        DbErr::Conn(RuntimeErr::SqlxError(error))
+        | DbErr::Exec(RuntimeErr::SqlxError(error))
+        | DbErr::Query(RuntimeErr::SqlxError(error)) => Some(error),
+        _ => None,
     }
+}
+
+/// A database error's message, as the driver's `err.message` reads.
+pub(crate) fn db_message(error: &sea_orm::DbErr) -> String {
+    match sqlx_of(error) {
+        Some(sqlx::Error::Database(error)) => error.message().to_owned(),
+        Some(other) => other.to_string(),
+        None => error.to_string(),
+    }
+}
+
+/// A database error as the driver prints it (`String(err)`), for the logs
+/// and messages that carried the driver's text.
+pub(crate) fn db_text(error: &sea_orm::DbErr) -> String {
+    sqlx_of(error).map_or_else(|| error.to_string(), ToString::to_string)
 }
 
 #[cfg(test)]

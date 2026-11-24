@@ -18,7 +18,7 @@ use weldsuite_books_domain::bank_accounts::{
     seal_account_number,
 };
 use weldsuite_books_domain::tables::BANK_ACCOUNTS;
-use weldsuite_db::{Keyring, master_pool};
+use weldsuite_db::{Keyring, master_pool, orm};
 use weldsuite_kit::generate_id;
 
 async fn account(
@@ -105,7 +105,9 @@ async fn bank_accounts_on_the_real_schema() {
     assert_eq!(row["subtype"], json!("bank"));
     assert_eq!(row["taxLine"], json!("bs_cash"));
     assert_eq!(row["parentAccountId"], Value::Null);
-    insert_ledger_account(&db, &row).await.expect("insert");
+    insert_ledger_account(&orm(&db), &row)
+        .await
+        .expect("insert");
     let stored: Option<String> = sqlx::query_scalar("select code from accounts where id = $1")
         .bind(row["id"].as_str())
         .fetch_optional(&db)

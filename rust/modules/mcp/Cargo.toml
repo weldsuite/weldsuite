@@ -27,6 +27,8 @@ time = { workspace = true, features = ["formatting", "parsing"] }
 tower = { workspace = true, features = ["util"] }
 tracing = { workspace = true }
 tokio = { workspace = true, features = ["sync"] }
+sea-orm = { workspace = true }
+weldsuite-schema = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt"] }

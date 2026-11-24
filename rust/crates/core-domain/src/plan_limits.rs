@@ -4,9 +4,12 @@
 //! unlimited) and asks [`plan_limit`]; WeldForms' is its monthly response
 //! quota.
 
+use sea_orm::prelude::BigDecimal;
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, FromQueryResult, QueryFilter, QuerySelect, Select};
 use serde_json::Value;
-use sqlx::PgPool;
 use time::{Date, Month, OffsetDateTime, Time};
+use weldsuite_db::{PgPool, orm};
+use weldsuite_schema::master::{plans, workspaces};
 
 /// The plan a workspace is on (`WorkspacePlan`).
 #[derive(Debug, Clone, PartialEq)]
@@ -41,31 +44,47 @@ impl WorkspacePlan {
 /// A module's limit per plan slug; `None` = unlimited.
 pub type PlanLimitTable = [(&'static str, Option<i64>)];
 
-type PlanRow = (
-    String,
-    String,
-    String,
-    Option<Value>,
-    bool,
-    bool,
-    Option<bool>,
-);
+/// The `plans` columns a [`WorkspacePlan`] is read from.
+#[derive(Debug, FromQueryResult)]
+struct PlanRow {
+    id: String,
+    slug: String,
+    name: String,
+    features: Option<Value>,
+    price_monthly: Option<BigDecimal>,
+    price_per_user: Option<BigDecimal>,
+    remove_branding: Option<bool>,
+}
 
-/// `price_monthly > 0 or price_per_user > 0`, as `Number(...) > 0` reads them.
-const PLAN_COLUMNS: &str = "id, slug, name, features, \
-     coalesce(price_monthly, 0) > 0 as paid_monthly, \
-     coalesce(price_per_user, 0) > 0 as paid_per_user, \
-     remove_branding";
+fn plan_rows() -> Select<plans::Entity> {
+    plans::Entity::find().select_only().columns([
+        plans::Column::Id,
+        plans::Column::Slug,
+        plans::Column::Name,
+        plans::Column::Features,
+        plans::Column::PriceMonthly,
+        plans::Column::PricePerUser,
+        plans::Column::RemoveBranding,
+    ])
+}
+
+/// `Number(price) > 0`, with a missing price as 0.
+fn charges(price: Option<&BigDecimal>) -> bool {
+    use sea_orm::sea_query::prelude::bigdecimal::Signed as _;
+
+    price.is_some_and(BigDecimal::is_positive)
+}
 
 fn to_plan(row: PlanRow) -> WorkspacePlan {
-    let (id, slug, name, features, paid_monthly, paid_per_user, remove_branding) = row;
     WorkspacePlan {
-        id: Some(id),
-        slug: Some(slug),
-        name,
-        features: features.unwrap_or_else(|| Value::Object(serde_json::Map::new())),
-        paid: paid_monthly || paid_per_user,
-        remove_branding: remove_branding == Some(true),
+        paid: charges(row.price_monthly.as_ref()) || charges(row.price_per_user.as_ref()),
+        id: Some(row.id),
+        slug: Some(row.slug),
+        name: row.name,
+        features: row
+            .features
+            .unwrap_or_else(|| Value::Object(serde_json::Map::new())),
+        remove_branding: row.remove_branding == Some(true),
     }
 }
 
@@ -74,28 +93,30 @@ fn to_plan(row: PlanRow) -> WorkspacePlan {
 pub async fn load_workspace_plan(
     master: &PgPool,
     workspace_id: &str,
-) -> Result<WorkspacePlan, sqlx::Error> {
-    let plan_id: Option<Option<String>> =
-        sqlx::query_scalar("select plan_id from workspaces where id = $1 limit 1")
-            .bind(workspace_id)
-            .fetch_optional(master)
-            .await?;
-    if let Some(plan_id) = plan_id.flatten() {
-        let own: Option<PlanRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
-            "select {PLAN_COLUMNS} from plans where id = $1 limit 1"
-        )))
-        .bind(&plan_id)
-        .fetch_optional(master)
+) -> Result<WorkspacePlan, DbErr> {
+    let db = orm(master);
+    let plan_id: Option<Option<String>> = workspaces::Entity::find()
+        .select_only()
+        .column(workspaces::Column::PlanId)
+        .filter(workspaces::Column::Id.eq(workspace_id))
+        .into_tuple()
+        .one(&db)
         .await?;
+    if let Some(plan_id) = plan_id.flatten() {
+        let own = plan_rows()
+            .filter(plans::Column::Id.eq(plan_id))
+            .into_model::<PlanRow>()
+            .one(&db)
+            .await?;
         if let Some(own) = own {
             return Ok(to_plan(own));
         }
     }
-    let fallback: Option<PlanRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
-        "select {PLAN_COLUMNS} from plans where is_default = true limit 1"
-    )))
-    .fetch_optional(master)
-    .await?;
+    let fallback = plan_rows()
+        .filter(plans::Column::IsDefault.eq(true))
+        .into_model::<PlanRow>()
+        .one(&db)
+        .await?;
     Ok(fallback.map_or_else(WorkspacePlan::none, to_plan))
 }
 

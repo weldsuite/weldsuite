@@ -12,14 +12,19 @@ use axum::body::Bytes;
 use axum::extract::{Path, State};
 use axum::response::Response;
 use http::HeaderMap;
+use sea_orm::ActiveValue::Set;
+use sea_orm::sea_query::{Expr, OnConflict};
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
 use sqlx::PgPool;
 use weldsuite_books_domain::entity_context::SequenceType;
 use weldsuite_books_domain::guards::{AuditInput, change, write_accounting_audit};
-use weldsuite_books_domain::http::{BooksState, Caller, Refusal, Reply, now, ok, reply, validate};
+use weldsuite_books_domain::http::{BooksState, Caller, Refusal, Reply, ok, reply, validate};
 use weldsuite_catalogs::entity_events::ACCOUNTING_ENTITY_UPDATED;
+use weldsuite_db::orm;
 use weldsuite_kit::generate_id;
 use weldsuite_kit::validation::{Field, Issues, Number, Presence};
+use weldsuite_schema::tenant::entity_number_sequences::{self, Column};
 
 use super::find_active;
 
@@ -73,14 +78,19 @@ impl Sequence {
 
 /// `listNumberSequences(db, entityId)`: every sequence of the entity; one
 /// that was never used shows the values it will start with.
-async fn list_sequences(db: &PgPool, entity_id: &str) -> Result<Vec<Sequence>, sqlx::Error> {
-    let rows: Vec<(String, String, i32, Option<i32>)> = sqlx::query_as(
-        "select sequence_type, prefix, next_value, padding from entity_number_sequences \
-         where entity_id = $1",
-    )
-    .bind(entity_id)
-    .fetch_all(db)
-    .await?;
+async fn list_sequences(db: &PgPool, entity_id: &str) -> Result<Vec<Sequence>, DbErr> {
+    let rows: Vec<(String, String, i32, Option<i32>)> = entity_number_sequences::Entity::find()
+        .select_only()
+        .columns([
+            Column::SequenceType,
+            Column::Prefix,
+            Column::NextValue,
+            Column::Padding,
+        ])
+        .filter(Column::EntityId.eq(entity_id))
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     Ok(SEQUENCE_TYPES
         .into_iter()
         .map(
@@ -111,7 +121,8 @@ pub(crate) async fn list(caller: Caller, Path(id): Path<String>) -> Response {
         if find_active(&caller, &id).await?.is_none() {
             return Err(Refusal::not_found("Entity", &id));
         }
-        Ok(ok(sequences_json(&list_sequences(&caller.db, &id).await?)))
+        let sequences = list_sequences(&caller.db, &id).await?;
+        Ok(ok(sequences_json(&sequences)))
     }
     .await;
     reply(result, "Failed to load the numbering")
@@ -225,6 +236,66 @@ fn read_sequences(issues: &mut Issues, body: &Map<String, Value>) -> Vec<Update>
 /// already written when a document took a number mid-update.
 struct Backwards(Map<String, Value>);
 
+/// A number as the `integer` columns hold it; past their range, the error
+/// Postgres raised for it.
+fn int4(value: i64) -> Result<i32, DbErr> {
+    i32::try_from(value).map_err(|_| DbErr::Custom("integer out of range".to_owned()))
+}
+
+/// Write the changed `fields` of `next` to the entity's existing sequence,
+/// the forward-only guard repeated in the statement. Whether a row matched.
+async fn write_sequence(
+    db: &PgPool,
+    entity_id: &str,
+    next: &Sequence,
+    fields: &[&str],
+    stamp: time::PrimitiveDateTime,
+) -> Result<bool, DbErr> {
+    let has = |field: &str| fields.contains(&field);
+    let mut update = entity_number_sequences::Entity::update_many();
+    if has("prefix") {
+        update = update.col_expr(Column::Prefix, Expr::value(next.prefix.as_str()));
+    }
+    if has("nextValue") {
+        update = update.col_expr(Column::NextValue, Expr::value(int4(next.next_value)?));
+    }
+    if has("padding") {
+        update = update.col_expr(Column::Padding, Expr::value(int4(next.padding)?));
+    }
+    update = update
+        .col_expr(Column::UpdatedAt, Expr::value(stamp))
+        .filter(Column::EntityId.eq(entity_id))
+        .filter(Column::SequenceType.eq(next.kind.as_str()));
+    if has("nextValue") {
+        update = update.filter(Column::NextValue.lte(int4(next.next_value)?));
+    }
+    Ok(update.exec(&orm(db)).await?.rows_affected > 0)
+}
+
+/// Create the sequence `next` (`on conflict do nothing`): whether a row was
+/// inserted.
+async fn insert_sequence(
+    db: &PgPool,
+    entity_id: &str,
+    next: &Sequence,
+    stamp: time::PrimitiveDateTime,
+) -> Result<bool, DbErr> {
+    let inserted = entity_number_sequences::Entity::insert(entity_number_sequences::ActiveModel {
+        id: Set(generate_id("seq")),
+        entity_id: Set(entity_id.to_owned()),
+        sequence_type: Set(next.kind.as_str().to_owned()),
+        prefix: Set(next.prefix.clone()),
+        next_value: Set(int4(next.next_value)?),
+        padding: Set(Some(int4(next.padding)?)),
+        created_at: Set(stamp),
+        updated_at: Set(stamp),
+    })
+    .on_conflict(OnConflict::new().do_nothing().to_owned())
+    .exec_without_returning(&orm(db))
+    .await?;
+    Ok(inserted > 0)
+}
+
 /// `updateNumberSequences(db, entityId, updates)`: apply the updates and
 /// return the sequences afterwards, with what changed (for the audit log).
 /// Every update is checked before anything is written; the forward-only
@@ -234,7 +305,7 @@ async fn update_sequences(
     db: &PgPool,
     entity_id: &str,
     updates: &[Update],
-) -> Result<Result<(Vec<Sequence>, Map<String, Value>), Backwards>, sqlx::Error> {
+) -> Result<Result<(Vec<Sequence>, Map<String, Value>), Backwards>, DbErr> {
     let current = list_sequences(db, entity_id).await?;
     let mut planned = Vec::with_capacity(updates.len());
     for update in updates {
@@ -265,48 +336,12 @@ async fn update_sequences(
         if changed.is_empty() {
             continue;
         }
-        let stamp = now();
-        let has = |field: &str| changed.contains(&field);
-        let written: Option<String> = sqlx::query_scalar(
-            "update entity_number_sequences set \
-               prefix = case when $3 then $4 else prefix end, \
-               next_value = case when $5 then $6 else next_value end, \
-               padding = case when $7 then $8 else padding end, \
-               updated_at = $9::timestamp \
-             where entity_id = $1 and sequence_type = $2 and (not $5 or next_value <= $6) \
-             returning id",
-        )
-        .bind(entity_id)
-        .bind(next.kind.as_str())
-        .bind(has("prefix"))
-        .bind(&next.prefix)
-        .bind(has("nextValue"))
-        .bind(next.next_value)
-        .bind(has("padding"))
-        .bind(next.padding)
-        .bind(&stamp)
-        .fetch_optional(db)
-        .await?;
-        if written.is_none() {
-            let inserted: Option<String> = sqlx::query_scalar(
-                "insert into entity_number_sequences \
-                 (id, entity_id, sequence_type, prefix, next_value, padding, created_at, updated_at) \
-                 values ($1, $2, $3, $4, $5, $6, $7::timestamp, $7::timestamp) \
-                 on conflict do nothing returning id",
-            )
-            .bind(generate_id("seq"))
-            .bind(entity_id)
-            .bind(next.kind.as_str())
-            .bind(&next.prefix)
-            .bind(next.next_value)
-            .bind(next.padding)
-            .bind(&stamp)
-            .fetch_optional(db)
-            .await?;
+        let stamp = weldsuite_db::utc_now();
+        if !write_sequence(db, entity_id, &next, &changed, stamp).await?
             // A row exists but its next number is already past the requested one.
-            if inserted.is_none() {
-                return Ok(Err(Backwards(changes)));
-            }
+            && !insert_sequence(db, entity_id, &next, stamp).await?
+        {
+            return Ok(Err(Backwards(changes)));
         }
         for field in changed {
             changes.insert(

@@ -12,6 +12,8 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, patch, post};
 use http::HeaderMap;
 use http::header::{CONTENT_DISPOSITION, CONTENT_TYPE};
+use sea_orm::sea_query::Order;
+use sea_orm::{ColumnTrait, Condition, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events::{
     PARCEL_UPDATED, PICKLIST_COMPLETED, PICKLIST_CREATED, PICKLIST_DELETED, PICKLIST_UPDATED,
@@ -20,13 +22,18 @@ use weldsuite_catalogs::entity_events::{
 use weldsuite_catalogs::permission_keys::{
     PICKLISTS_CREATE, PICKLISTS_DELETE, PICKLISTS_READ, PICKLISTS_UPDATE,
 };
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::validation::{Field, Issues, Number, Presence, Text};
 use weldsuite_kit::{ApiError, Created, Data, NoContent, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::pick_lists::{Column, Entity};
+use weldsuite_schema::tenant::{orders, warehouses};
 
-use crate::args::{Arg, bind_scalar, created_cursor, cursor_sql, page_list};
+use crate::args::{
+    CursorRow, before, cursor_row, limit_plus_one, page_list, table_count, table_rows,
+};
 use crate::crud::{cursor_failed, soft_delete, write_failed};
-use crate::js::{js_limit, query_param, query_set, sql_limit, text, time_number};
+use crate::js::{js_limit, query_param, query_set, text, time_number};
 use crate::ledger::LedgerError;
 use crate::picking::{self, Confirm, Generate, PickError};
 use crate::tables::PICK_LISTS;
@@ -110,57 +117,55 @@ fn pick_error(error: PickError, fallback: &str) -> Response {
     }
 }
 
-const LIST_SQL: &str = concat!(
-    "select to_jsonb(t) from pick_lists t where t.deleted_at is null ",
-    "and (not $1::boolean or t.warehouse_id = $2) and (not $3::boolean or t.status = $4) ",
-    "and (not $5::boolean or t.assigned_to = $6) ",
-    "and (not $7::boolean or (t.created_at < $8::timestamp or (t.created_at = $8::timestamp and t.id < $9))) ",
-    "order by t.created_at desc, t.id desc limit $10"
-);
-
-const COUNT_SQL: &str = concat!(
-    "select count(*) from pick_lists t where t.deleted_at is null ",
-    "and (not $1::boolean or t.warehouse_id = $2) and (not $3::boolean or t.status = $4) ",
-    "and (not $5::boolean or t.assigned_to = $6)"
-);
-
 async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
     let query = query.as_deref();
     let limit = js_limit(query_param(query, "limit").as_deref(), 25.0, 100.0);
-    let mut filters = Vec::new();
-    for key in ["warehouseId", "status", "assignedTo"] {
-        let value = query_set(query, key);
-        filters.push(Arg::Bool(value.is_some()));
-        filters.push(Arg::Text(value));
-    }
     let cursor = match query_set(query, "cursor") {
         Some(cursor) => {
-            match created_cursor(&caller.db, cursor_sql!("pick_lists"), &cursor).await {
+            match cursor_row::<Entity>(&caller.db, Column::CreatedAt, Column::Id, &cursor).await {
                 Ok(cursor) => cursor,
                 Err(error) => return cursor_failed(&error),
             }
         }
         None => None,
     };
-    let mut page = filters.clone();
-    page.push(Arg::Bool(cursor.is_some()));
-    page.push(Arg::opt(cursor.as_ref().map(|(at, _)| at.as_str())));
-    page.push(Arg::opt(cursor.as_ref().map(|(_, id)| id.as_str())));
-    page.push(Arg::Int(sql_limit(limit)));
-    let rows: Result<Vec<Value>, _> = bind_scalar(sqlx::query_scalar(LIST_SQL), page)
-        .fetch_all(&caller.db)
-        .await;
-    let total: Result<i64, _> = bind_scalar(sqlx::query_scalar(COUNT_SQL), filters)
-        .fetch_one(&caller.db)
-        .await;
-    match (rows, total) {
-        (Ok(rows), Ok(total)) => page_list(
-            rows.into_iter().map(|row| PICK_LISTS.js(row)).collect(),
-            limit,
-            total,
-        ),
-        (Err(error), _) | (_, Err(error)) => internal(&error, "Failed to list pick lists"),
+    match fetch(&caller.db, query, cursor.as_ref(), limit).await {
+        Ok((rows, total)) => page_list(rows, limit, total),
+        Err(error) => internal(&error, "Failed to list pick lists"),
     }
+}
+
+/// The page (live lists, the filters, the cursor) and the count (live
+/// lists and the filters).
+async fn fetch(
+    db: &PgPool,
+    query: Option<&str>,
+    cursor: Option<&CursorRow>,
+    limit: f64,
+) -> Result<(Vec<Value>, i64), DbErr> {
+    let mut filters = Condition::all().add(Column::DeletedAt.is_null());
+    for (key, column) in [
+        ("warehouseId", Column::WarehouseId),
+        ("status", Column::Status),
+        ("assignedTo", Column::AssignedTo),
+    ] {
+        if let Some(value) = query_set(query, key) {
+            filters = filters.add(column.eq(value));
+        }
+    }
+    let mut page = PICK_LISTS.entity.select();
+    page.cond_where(filters.clone());
+    if let Some(cursor) = cursor {
+        page.cond_where(before(Column::CreatedAt, Column::Id, cursor));
+    }
+    page.order_by((Entity, Column::CreatedAt), Order::Desc)
+        .order_by((Entity, Column::Id), Order::Desc);
+    limit_plus_one(&mut page, limit);
+    let mut counted = PICK_LISTS.entity.select();
+    counted.cond_where(filters);
+    let rows = table_rows(db, &PICK_LISTS, &page).await?;
+    let total = table_count(db, &PICK_LISTS, &counted).await?;
+    Ok((rows, total))
 }
 
 /// A string field into `out` (set or null).
@@ -266,24 +271,14 @@ async fn packing_slip(caller: Caller, Path(id): Path<String>) -> Response {
         Ok(None) => return Refusal::not_found("Pick list", &id).respond(fallback),
         Err(error) => return internal(&error, fallback),
     };
-    let warehouse: Result<Option<String>, _> =
-        sqlx::query_scalar("select name from warehouses where id = $1 limit 1")
-            .bind(text(&row, "warehouseId"))
-            .fetch_optional(&caller.db)
-            .await;
-    let warehouse = match warehouse {
+    let warehouse = match warehouse_name(&caller.db, text(&row, "warehouseId")).await {
         Ok(warehouse) => warehouse,
         Err(error) => return internal(&error, fallback),
     };
     let mut order_number = None;
     if let Some(order_id) = picking::first_order_id(&row) {
-        let order: Result<Option<Option<String>>, _> =
-            sqlx::query_scalar("select order_number from orders where id = $1 limit 1")
-                .bind(order_id)
-                .fetch_optional(&caller.db)
-                .await;
-        match order {
-            Ok(order) => order_number = order.flatten(),
+        match order_number_of(&caller.db, &order_id).await {
+            Ok(order) => order_number = order,
             Err(error) => return internal(&error, fallback),
         }
     }
@@ -311,6 +306,32 @@ async fn packing_slip(caller: Caller, Path(id): Path<String>) -> Response {
         html,
     )
         .into_response()
+}
+
+/// `select name from warehouses where id = …`: no warehouse id matches
+/// nothing.
+async fn warehouse_name(db: &PgPool, id: Option<&str>) -> Result<Option<String>, DbErr> {
+    let Some(id) = id else {
+        return Ok(None);
+    };
+    warehouses::Entity::find()
+        .select_only()
+        .column(warehouses::Column::Name)
+        .filter(warehouses::Column::Id.eq(id))
+        .into_tuple()
+        .one(&orm(db))
+        .await
+}
+
+/// The order's number.
+async fn order_number_of(db: &PgPool, id: &str) -> Result<Option<String>, DbErr> {
+    orders::Entity::find()
+        .select_only()
+        .column(orders::Column::OrderNumber)
+        .filter(orders::Column::Id.eq(id))
+        .into_tuple()
+        .one(&orm(db))
+        .await
 }
 
 /// `assignPickListSchema`.

@@ -25,6 +25,9 @@ regex = { workspace = true, features = ["unicode"] }
 serde_json = { workspace = true }
 sqlx = { workspace = true }
 tracing = { workspace = true }
+sea-orm = { workspace = true }
+weldsuite-schema = { workspace = true }
+time = { workspace = true, features = ["macros", "parsing", "formatting"] }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt"] }

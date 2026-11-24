@@ -3,13 +3,16 @@
 //! update the connection (and the affected accounts); `sync_available` only
 //! says a sync is worth running.
 
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Value, json};
+use weldsuite_db::orm;
+use weldsuite_schema::tenant::{bank_accounts, bank_connections};
 
 use super::connections::{load_connection, stored_feed_accounts};
 use super::normalize::connection_status;
 use super::sync::{SyncOutcome, sync_connection};
-use super::{FeedContext, INACTIVE_STATUSES, ServiceError};
-use crate::http::now;
+use super::{FeedContext, INACTIVE_STATUSES, ServiceError, now_both, stamp};
 use crate::js::{js_date, slice_utf16};
 
 fn text<'a>(row: &'a Value, key: &str) -> Option<&'a str> {
@@ -55,7 +58,7 @@ pub async fn apply_feed_event(
     ctx: &FeedContext,
     connection_id: &str,
     event: &FeedEvent,
-) -> Result<EventResult, sqlx::Error> {
+) -> Result<EventResult, DbErr> {
     let Some(row) = load_connection(&ctx.db, connection_id).await? else {
         return Ok(EventResult {
             missing: true,
@@ -105,12 +108,15 @@ pub async fn apply_feed_event(
         })
         .collect();
 
-    let mapped: Vec<Option<String>> = sqlx::query_scalar(
-        "select feed_account_id from bank_accounts where feed_connection_id = $1 and deleted_at is null",
-    )
-    .bind(text(&row, "id"))
-    .fetch_all(&ctx.db)
-    .await?;
+    let db = &orm(&ctx.db);
+    let mapped: Vec<Option<String>> = bank_accounts::Entity::find()
+        .select_only()
+        .column(bank_accounts::Column::FeedAccountId)
+        .filter(bank_accounts::Column::FeedConnectionId.eq(text(&row, "id")))
+        .filter(bank_accounts::Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(db)
+        .await?;
     let mapped: Vec<String> = mapped.into_iter().flatten().collect();
     let rollup: Vec<&Value> = updated
         .iter()
@@ -129,7 +135,7 @@ pub async fn apply_feed_event(
     };
     let next_status = connection_status(&statuses).to_owned();
 
-    let timestamp = now();
+    let (_, timestamp) = now_both();
     let message = event
         .message
         .as_deref()
@@ -149,19 +155,31 @@ pub async fn apply_feed_event(
     } else {
         message.clone()
     };
-    sqlx::query(
-        "update bank_connections set status = $2, last_error = $3, \
-         consent_expires_at = case when $4::text is null then consent_expires_at else $4::timestamp end, \
-         metadata = (coalesce(metadata, '{}'::jsonb) || $5::jsonb), updated_at = $6::timestamp where id = $1",
-    )
-    .bind(text(&row, "id"))
-    .bind(&next_status)
-    .bind(last_error)
-    .bind(expires)
-    .bind(json!({ "feedAccounts": updated }).to_string())
-    .bind(&timestamp)
-    .execute(&ctx.db)
-    .await?;
+    let metadata = sea_orm::sea_query::extension::postgres::PgExpr::concat(
+        Expr::expr(Func::coalesce([
+            Expr::col(bank_connections::Column::Metadata),
+            Expr::val(json!({})),
+        ])),
+        Expr::val(json!({ "feedAccounts": updated })),
+    );
+    let mut update = bank_connections::Entity::update_many()
+        .col_expr(
+            bank_connections::Column::Status,
+            Expr::val(next_status.as_str()),
+        )
+        .col_expr(bank_connections::Column::LastError, Expr::val(last_error));
+    if let Some(expires) = expires.as_deref() {
+        update = update.col_expr(
+            bank_connections::Column::ConsentExpiresAt,
+            Expr::val(stamp(expires)?),
+        );
+    }
+    update
+        .col_expr(bank_connections::Column::Metadata, metadata)
+        .col_expr(bank_connections::Column::UpdatedAt, Expr::val(timestamp))
+        .filter(bank_connections::Column::Id.eq(text(&row, "id")))
+        .exec(db)
+        .await?;
 
     let touched: Vec<&Value> = updated
         .iter()
@@ -170,16 +188,17 @@ pub async fn apply_feed_event(
         .map(|(new, _)| new)
         .collect();
     for fa in &touched {
-        sqlx::query(
-            "update bank_accounts set feed_status = $3, updated_at = $4::timestamp \
-             where feed_connection_id = $1 and feed_account_id = $2 and deleted_at is null",
-        )
-        .bind(text(&row, "id"))
-        .bind(text(fa, "providerAccountId"))
-        .bind(text(fa, "status"))
-        .bind(&timestamp)
-        .execute(&ctx.db)
-        .await?;
+        bank_accounts::Entity::update_many()
+            .col_expr(
+                bank_accounts::Column::FeedStatus,
+                Expr::val(text(fa, "status")),
+            )
+            .col_expr(bank_accounts::Column::UpdatedAt, Expr::val(timestamp))
+            .filter(bank_accounts::Column::FeedConnectionId.eq(text(&row, "id")))
+            .filter(bank_accounts::Column::FeedAccountId.eq(text(fa, "providerAccountId")))
+            .filter(bank_accounts::Column::DeletedAt.is_null())
+            .exec(db)
+            .await?;
     }
 
     if INACTIVE_STATUSES.contains(&next_status.as_str())

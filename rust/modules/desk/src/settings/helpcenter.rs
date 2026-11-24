@@ -20,16 +20,23 @@ use axum::extract::State;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post, put};
 use http::HeaderMap;
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, JoinType, QueryFilter, QueryOrder,
+    QuerySelect,
+};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events as ev;
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_kit::validation::{Issues, Number, Presence};
 use weldsuite_kit::{ApiError, Created, Data, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::enums::{HostDnsProvider, HostDomainStatus};
+use weldsuite_schema::tenant::{dns_zones, domains, helpcenter_domains, helpcenter_settings};
 
 use super::master;
 use crate::crud::write_failed;
-use crate::tables::{HELPCENTER_DOMAINS, HELPCENTER_SETTINGS};
+use crate::tables::HELPCENTER_SETTINGS;
 use crate::{Caller, DeskState, Refusal, now, validate};
 
 pub(super) fn routes<Q>(gate: &Arc<PermissionGate<Q>>) -> Router<DeskState>
@@ -123,25 +130,28 @@ fn read_settings(issues: &mut Issues, body: &Map<String, Value>) -> Map<String, 
     data
 }
 
+/// The live settings rows, oldest first: the routes use the first.
+fn live_settings() -> sea_orm::Select<helpcenter_settings::Entity> {
+    helpcenter_settings::Entity::find()
+        .filter(helpcenter_settings::Column::DeletedAt.is_null())
+        .order_by_asc(helpcenter_settings::Column::CreatedAt)
+        .order_by_asc(helpcenter_settings::Column::Id)
+}
+
 /// The settings row the routes use: the oldest live one.
-async fn settings_id(db: &PgPool) -> Result<Option<String>, sqlx::Error> {
-    sqlx::query_scalar(
-        "select id from helpcenter_settings where deleted_at is null
-         order by created_at asc, id asc limit 1",
-    )
-    .fetch_optional(db)
-    .await
+async fn settings_id(db: &PgPool) -> Result<Option<String>, DbErr> {
+    live_settings()
+        .select_only()
+        .column(helpcenter_settings::Column::Id)
+        .into_tuple()
+        .one(&orm(db))
+        .await
 }
 
 async fn read(caller: Caller) -> Response {
-    let row: Result<Option<Value>, _> = sqlx::query_scalar(
-        "select to_jsonb(t) from helpcenter_settings t where t.deleted_at is null
-         order by t.created_at asc, t.id asc limit 1",
-    )
-    .fetch_optional(&caller.db)
-    .await;
-    match row {
-        Ok(Some(row)) => Data(HELPCENTER_SETTINGS.js(row)).into_response(),
+    let row = live_settings().one(&orm(&caller.db)).await;
+    match row.and_then(|row| row.map(to_json).transpose()) {
+        Ok(Some(row)) => Data(row).into_response(),
         Ok(None) => Data(json!({
             "isEnabled": 0,
             "siteName": null,
@@ -243,64 +253,71 @@ async fn enable(State(state): State<DeskState>, caller: Caller) -> Response {
 }
 
 #[allow(clippy::single_match_else)] // the route's two branches, as TypeScript writes them
-async fn enable_on(
-    state: &DeskState,
-    caller: &Caller,
-    master: &PgPool,
-) -> Result<Response, sqlx::Error> {
+async fn enable_on(state: &DeskState, caller: &Caller, master: &PgPool) -> Result<Response, DbErr> {
+    use weldsuite_schema::master::{helpcenter_domain_registry as registry, workspaces};
+    let master = orm(master);
+    let tenant = orm(&caller.db);
     // `c.get('orgId')`: the Clerk org id of the workspace.
-    let workspace: Option<(String, String)> =
-        sqlx::query_as("select id, slug from workspaces where clerk_org_id = $1 limit 1")
-            .bind(&caller.clerk_org_id)
-            .fetch_optional(master)
-            .await?;
+    let workspace: Option<(String, String)> = workspaces::Entity::find()
+        .select_only()
+        .column(workspaces::Column::Id)
+        .column(workspaces::Column::Slug)
+        .filter(workspaces::Column::ClerkOrgId.eq(&caller.clerk_org_id))
+        .into_tuple()
+        .one(&master)
+        .await?;
     let Some((workspace_id, slug)) = workspace else {
         return Ok(ApiError::not_found("Workspace", None).into_response());
     };
     let domain = format!("{slug}.welddesk.org");
-    let existing: Option<(String, String)> = sqlx::query_as(
-        "select id, workspace_id from helpcenter_domain_registry where domain = $1 limit 1",
-    )
-    .bind(&domain)
-    .fetch_optional(master)
-    .await?;
-    let now = now();
+    let existing: Option<(String, String)> = registry::Entity::find()
+        .select_only()
+        .column(registry::Column::Id)
+        .column(registry::Column::WorkspaceId)
+        .filter(registry::Column::Domain.eq(&domain))
+        .into_tuple()
+        .one(&master)
+        .await?;
+    let now = utc_now();
     match existing {
         Some((_, owner)) if owner != workspace_id => {
             return Ok(ApiError::conflict("This subdomain is already taken").into_response());
         }
         Some((id, _)) => {
-            sqlx::query(
-                "update helpcenter_domain_registry set is_active = 1, updated_at = $2::timestamp where id = $1",
-            )
-            .bind(&id)
-            .bind(&now)
-            .execute(master)
-            .await?;
+            registry::Entity::update_many()
+                .col_expr(registry::Column::IsActive, Expr::value(1))
+                .col_expr(registry::Column::UpdatedAt, Expr::value(now))
+                .filter(registry::Column::Id.eq(id))
+                .exec(&master)
+                .await?;
         }
         None => {
-            sqlx::query(
-                "insert into helpcenter_domain_registry (id, domain, domain_type, workspace_id, is_verified, is_active, verified_at)
-                 values ($1, $2, 'subdomain', $3, 1, 1, $4::timestamp)",
-            )
-            .bind(generate_id("hcreg"))
-            .bind(&domain)
-            .bind(&workspace_id)
-            .bind(&now)
-            .execute(master)
+            registry::Entity::insert(registry::ActiveModel {
+                id: Set(generate_id("hcreg")),
+                domain: Set(domain.clone()),
+                domain_type: Set("subdomain".to_owned()),
+                workspace_id: Set(workspace_id),
+                is_verified: Set(1),
+                is_active: Set(1),
+                verified_at: Set(Some(now)),
+                ..Default::default()
+            })
+            .exec_without_returning(&master)
             .await?;
         }
     }
     match settings_id(&caller.db).await? {
         Some(id) => {
-            sqlx::query(
-                "update helpcenter_settings set is_enabled = 1, default_subdomain = $2, updated_at = $3::timestamp where id = $1",
-            )
-            .bind(&id)
-            .bind(&domain)
-            .bind(&now)
-            .execute(&caller.db)
-            .await?;
+            helpcenter_settings::Entity::update_many()
+                .col_expr(helpcenter_settings::Column::IsEnabled, Expr::value(1))
+                .col_expr(
+                    helpcenter_settings::Column::DefaultSubdomain,
+                    Expr::value(&domain),
+                )
+                .col_expr(helpcenter_settings::Column::UpdatedAt, Expr::value(now))
+                .filter(helpcenter_settings::Column::Id.eq(&id))
+                .exec(&tenant)
+                .await?;
             caller.publish(
                 state,
                 ev::HELPCENTER_SETTINGS_UPDATED,
@@ -310,14 +327,18 @@ async fn enable_on(
         }
         None => {
             let id = generate_id("hcs");
-            sqlx::query(
-                "insert into helpcenter_settings (id, is_enabled, default_subdomain, hero_title, hero_subtitle, updated_at)
-                 values ($1, 1, $2, 'How can we help?', 'Search our knowledge base or browse categories below.', $3::timestamp)",
-            )
-            .bind(&id)
-            .bind(&domain)
-            .bind(&now)
-            .execute(&caller.db)
+            helpcenter_settings::Entity::insert(helpcenter_settings::ActiveModel {
+                id: Set(id.clone()),
+                is_enabled: Set(Some(1)),
+                default_subdomain: Set(Some(domain.clone())),
+                hero_title: Set(Some("How can we help?".to_owned())),
+                hero_subtitle: Set(Some(
+                    "Search our knowledge base or browse categories below.".to_owned(),
+                )),
+                updated_at: Set(now),
+                ..Default::default()
+            })
+            .exec_without_returning(&tenant)
             .await?;
             caller.publish(
                 state,
@@ -331,37 +352,51 @@ async fn enable_on(
 }
 
 async fn domains(caller: Caller) -> Response {
-    let rows: Result<Vec<Value>, _> = sqlx::query_scalar(
-        "select to_jsonb(t) from helpcenter_domains t where t.deleted_at is null",
-    )
-    .fetch_all(&caller.db)
-    .await;
-    match rows {
-        Ok(rows) => Data(Value::Array(
-            rows.into_iter()
-                .map(|row| HELPCENTER_DOMAINS.js(row))
-                .collect(),
-        ))
-        .into_response(),
+    let rows = helpcenter_domains::Entity::find()
+        .filter(helpcenter_domains::Column::DeletedAt.is_null())
+        .all(&orm(&caller.db))
+        .await;
+    match rows.and_then(|rows| rows.into_iter().map(to_json).collect::<Result<Vec<_>, _>>()) {
+        Ok(rows) => Data(Value::Array(rows)).into_response(),
         Err(error) => Refusal::from(error).respond("Failed to list helpcenter domains"),
     }
 }
 
+/// A row as Drizzle's `select()` returns it.
+fn to_json(model: impl serde::Serialize) -> Result<Value, DbErr> {
+    serde_json::to_value(model).map_err(|error| DbErr::Json(error.to_string()))
+}
+
 async fn host_domains(caller: Caller) -> Response {
-    type Row = (String, String, String, Option<String>, Option<String>);
-    let rows: Result<Vec<Row>, _> = sqlx::query_as(
-        "select d.id, d.full_domain, d.status::text, z.external_zone_id, z.provider::text
-         from domains d left join dns_zones z on z.domain_id = d.id
-         where d.deleted_at is null",
-    )
-    .fetch_all(&caller.db)
-    .await;
+    type Row = (
+        String,
+        String,
+        HostDomainStatus,
+        Option<String>,
+        Option<HostDnsProvider>,
+    );
+    let zone = domains::Entity::belongs_to(dns_zones::Entity)
+        .from(domains::Column::Id)
+        .to(dns_zones::Column::DomainId)
+        .into();
+    let rows: Result<Vec<Row>, _> = domains::Entity::find()
+        .select_only()
+        .column(domains::Column::Id)
+        .column(domains::Column::FullDomain)
+        .column(domains::Column::Status)
+        .column(dns_zones::Column::ExternalZoneId)
+        .column(dns_zones::Column::Provider)
+        .join(JoinType::LeftJoin, zone)
+        .filter(domains::Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&orm(&caller.db))
+        .await;
     match rows {
         Ok(rows) => Data(Value::Array(
             rows.into_iter()
                 .filter(|(_, _, status, zone_id, provider)| {
-                    status == "active"
-                        && provider.as_deref() == Some("cloudflare")
+                    *status == HostDomainStatus::Active
+                        && *provider == Some(HostDnsProvider::Cloudflare)
                         && zone_id.as_deref().is_some_and(|zone| !zone.is_empty())
                 })
                 .map(|(id, full_domain, ..)| json!({ "id": id, "fullDomain": full_domain, "hasZone": true }))

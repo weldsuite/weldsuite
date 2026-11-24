@@ -11,16 +11,22 @@
 //! columns; the shape stays.
 //!
 //! Entities are JSON objects ([`serde_json::Value`]), as every books reader
-//! of `entities` already handles them ([`ENTITIES`]`.js(row)`).
+//! of `entities` already handles them (the row as Drizzle returns it).
 
-use serde_json::{Map, Value};
-use sqlx::PgPool;
-use weldsuite_db::{Keyring, decrypt_field};
-
-use crate::books_row;
-use crate::tables::{
-    ACCOUNTING_ENTITY_SETTINGS, BANK_ACCOUNTS, ENTITIES, LEGAL_ENTITY_REGISTRATIONS,
+use sea_orm::{
+    ColumnTrait, DbErr, EntityTrait, FromQueryResult, JoinType, QueryFilter, QueryOrder,
+    QuerySelect, RelationDef,
 };
+use serde_json::{Map, Value};
+use time::Date;
+use time::macros::format_description;
+use weldsuite_db::{Keyring, PgPool, decrypt_field, orm};
+use weldsuite_schema::tenant::{
+    accounting_entity_settings, bank_accounts, entities, legal_entity_registrations,
+};
+
+use crate::db_values::{to_json, to_json_rows};
+use crate::tables::ACCOUNTING_ENTITY_SETTINGS;
 
 /// The five lock dates of an entity (`EntityLockDates`): `YYYY-MM-DD` or
 /// `None`.
@@ -47,7 +53,7 @@ pub struct SalesTaxEngineSettings {
 /// that does not decrypt (`decryptField` throws). Both are the route's 500.
 #[derive(Debug)]
 pub enum InvoiceEntityError {
-    Database(sqlx::Error),
+    Database(DbErr),
     Decrypt(String),
 }
 
@@ -62,8 +68,8 @@ impl std::fmt::Display for InvoiceEntityError {
 
 impl std::error::Error for InvoiceEntityError {}
 
-impl From<sqlx::Error> for InvoiceEntityError {
-    fn from(error: sqlx::Error) -> Self {
+impl From<DbErr> for InvoiceEntityError {
+    fn from(error: DbErr) -> Self {
         Self::Database(error)
     }
 }
@@ -214,7 +220,7 @@ pub async fn load_accounting_entities(
     db: &PgPool,
     ids: &[String],
     include_deleted: bool,
-) -> Result<Vec<Value>, sqlx::Error> {
+) -> Result<Vec<Value>, DbErr> {
     let mut unique: Vec<String> = Vec::with_capacity(ids.len());
     for id in ids {
         if !unique.contains(id) {
@@ -224,50 +230,37 @@ pub async fn load_accounting_entities(
     if unique.is_empty() {
         return Ok(Vec::new());
     }
-    let rows: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        books_row!(entities),
-        " from entities t where t.id = any($1) and ($2 or t.deleted_at is null)"
-    ))
-    .bind(&unique)
-    .bind(include_deleted)
-    .fetch_all(db)
-    .await?;
+    let db = orm(db);
+    let mut find = entities::Entity::find().filter(entities::Column::Id.is_in(unique.clone()));
+    if !include_deleted {
+        find = find.filter(entities::Column::DeletedAt.is_null());
+    }
+    let rows = find.all(&db).await?;
     if rows.is_empty() {
         return Ok(Vec::new());
     }
-    let rows: Vec<Map<String, Value>> = rows
-        .into_iter()
-        .map(|row| object(ENTITIES.js(row)))
-        .collect();
+    let rows: Vec<Map<String, Value>> = to_json_rows(rows)?.into_iter().map(object).collect();
     let found: Vec<String> = rows
         .iter()
         .filter_map(|row| row.get("id").and_then(Value::as_str).map(str::to_owned))
         .collect();
-    let settings: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        books_row!(accounting_entity_settings),
-        " from accounting_entity_settings t where t.entity_id = any($1)"
-    ))
-    .bind(&found)
-    .fetch_all(db)
-    .await?;
-    let settings: Vec<Map<String, Value>> = settings
+    let settings = accounting_entity_settings::Entity::find()
+        .filter(accounting_entity_settings::Column::EntityId.is_in(found.clone()))
+        .all(&db)
+        .await?;
+    let settings: Vec<Map<String, Value>> =
+        to_json_rows(settings)?.into_iter().map(object).collect();
+    let registrations = legal_entity_registrations::Entity::find()
+        .filter(legal_entity_registrations::Column::EntityId.is_in(found))
+        .filter(legal_entity_registrations::Column::IsPrimary.eq(true))
+        .filter(legal_entity_registrations::Column::DeletedAt.is_null())
+        .order_by_asc(legal_entity_registrations::Column::CreatedAt)
+        .order_by_asc(legal_entity_registrations::Column::Id)
+        .all(&db)
+        .await?;
+    let registrations: Vec<Map<String, Value>> = to_json_rows(registrations)?
         .into_iter()
-        .map(|row| object(ACCOUNTING_ENTITY_SETTINGS.js(row)))
-        .collect();
-    let registrations: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        books_row!(legal_entity_registrations),
-        " from legal_entity_registrations t where t.entity_id = any($1) \
-         and t.is_primary = true and t.deleted_at is null order by t.created_at, t.id"
-    ))
-    .bind(&found)
-    .fetch_all(db)
-    .await?;
-    let registrations: Vec<Map<String, Value>> = registrations
-        .into_iter()
-        .map(|row| object(LEGAL_ENTITY_REGISTRATIONS.js(row)))
+        .map(object)
         .collect();
     let entity_of = |row: &Map<String, Value>, key: &str| {
         row.get(key).and_then(Value::as_str).map(str::to_owned)
@@ -301,7 +294,7 @@ pub async fn load_accounting_entities(
 
 /// `loadAccountingEntity(db, id)`: one entity in today's shape, or `None`
 /// when it is unknown or deleted.
-pub async fn load_accounting_entity(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
+pub async fn load_accounting_entity(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
     Ok(load_accounting_entities(db, &[id.to_owned()], false)
         .await?
         .into_iter()
@@ -314,41 +307,60 @@ pub async fn load_accounting_entity(db: &PgPool, id: &str) -> Result<Option<Valu
 pub async fn load_entity_lock_dates(
     db: &PgPool,
     entity_id: &str,
-) -> Result<Option<EntityLockDates>, sqlx::Error> {
-    type Row = (
-        Option<String>,
-        Option<String>,
-        Option<String>,
-        Option<String>,
-        Option<String>,
-        Option<String>,
-        Option<String>,
-        Option<String>,
-        Option<String>,
-        Option<String>,
-    );
-    let row: Option<Row> = sqlx::query_as(
-        "select e.sales_lock_date::text, e.purchase_lock_date::text, e.tax_lock_date::text, \
-           e.period_lock_date::text, e.hard_lock_date::text, \
-           s.sales_lock_date::text, s.purchase_lock_date::text, s.tax_lock_date::text, \
-           s.period_lock_date::text, s.hard_lock_date::text \
-         from entities e left join accounting_entity_settings s on s.entity_id = e.id \
-         where e.id = $1 limit 1",
-    )
-    .bind(entity_id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(
-        |(sales, purchase, tax, period, hard, x_sales, x_purchase, x_tax, x_period, x_hard)| {
-            EntityLockDates {
-                sales_lock_date: prefer_text(x_sales, sales),
-                purchase_lock_date: prefer_text(x_purchase, purchase),
-                tax_lock_date: prefer_text(x_tax, tax),
-                period_lock_date: prefer_text(x_period, period),
-                hard_lock_date: prefer_text(x_hard, hard),
-            }
-        },
-    ))
+) -> Result<Option<EntityLockDates>, DbErr> {
+    /// The lock dates of `entities` and of its extension (`x_`).
+    #[derive(FromQueryResult)]
+    struct Row {
+        sales: Option<Date>,
+        purchase: Option<Date>,
+        tax: Option<Date>,
+        period: Option<Date>,
+        hard: Option<Date>,
+        x_sales: Option<Date>,
+        x_purchase: Option<Date>,
+        x_tax: Option<Date>,
+        x_period: Option<Date>,
+        x_hard: Option<Date>,
+    }
+    use accounting_entity_settings::Column as X;
+    use entities::Column as E;
+    let row = entities::Entity::find()
+        .select_only()
+        .column_as(E::SalesLockDate, "sales")
+        .column_as(E::PurchaseLockDate, "purchase")
+        .column_as(E::TaxLockDate, "tax")
+        .column_as(E::PeriodLockDate, "period")
+        .column_as(E::HardLockDate, "hard")
+        .column_as(X::SalesLockDate, "x_sales")
+        .column_as(X::PurchaseLockDate, "x_purchase")
+        .column_as(X::TaxLockDate, "x_tax")
+        .column_as(X::PeriodLockDate, "x_period")
+        .column_as(X::HardLockDate, "x_hard")
+        .join(JoinType::LeftJoin, extension())
+        .filter(E::Id.eq(entity_id))
+        .into_model::<Row>()
+        .one(&orm(db))
+        .await?;
+    Ok(row.map(|row| EntityLockDates {
+        sales_lock_date: prefer_text(day_text(row.x_sales), day_text(row.sales)),
+        purchase_lock_date: prefer_text(day_text(row.x_purchase), day_text(row.purchase)),
+        tax_lock_date: prefer_text(day_text(row.x_tax), day_text(row.tax)),
+        period_lock_date: prefer_text(day_text(row.x_period), day_text(row.period)),
+        hard_lock_date: prefer_text(day_text(row.x_hard), day_text(row.hard)),
+    }))
+}
+
+/// `left join accounting_entity_settings s on s.entity_id = e.id`.
+fn extension() -> RelationDef {
+    entities::Entity::belongs_to(accounting_entity_settings::Entity)
+        .from(entities::Column::Id)
+        .to(accounting_entity_settings::Column::EntityId)
+        .into()
+}
+
+/// `date::text`: `YYYY-MM-DD`.
+fn day_text(day: Option<Date>) -> Option<String> {
+    day.and_then(|day| day.format(format_description!("[year]-[month]-[day]")).ok())
 }
 
 /// `loadSalesTaxEngineSettings(db, entityId)`: the sales tax engine columns,
@@ -357,7 +369,7 @@ pub async fn load_entity_lock_dates(
 pub async fn load_sales_tax_engine_settings(
     db: &PgPool,
     entity_id: &str,
-) -> Result<Option<SalesTaxEngineSettings>, sqlx::Error> {
+) -> Result<Option<SalesTaxEngineSettings>, DbErr> {
     type Row = (
         Option<String>,
         Option<Value>,
@@ -366,15 +378,21 @@ pub async fn load_sales_tax_engine_settings(
         Option<Value>,
         Option<String>,
     );
-    let row: Option<Row> = sqlx::query_as(
-        "select e.sales_tax_engine, e.sales_tax_engine_config, e.sales_tax_credentials_encrypted, \
-           s.sales_tax_engine, s.sales_tax_engine_config, s.sales_tax_credentials_encrypted \
-         from entities e left join accounting_entity_settings s on s.entity_id = e.id \
-         where e.id = $1 limit 1",
-    )
-    .bind(entity_id)
-    .fetch_optional(db)
-    .await?;
+    use accounting_entity_settings::Column as X;
+    use entities::Column as E;
+    let row: Option<Row> = entities::Entity::find()
+        .select_only()
+        .column_as(E::SalesTaxEngine, "engine")
+        .column_as(E::SalesTaxEngineConfig, "config")
+        .column_as(E::SalesTaxCredentialsEncrypted, "credentials")
+        .column_as(X::SalesTaxEngine, "x_engine")
+        .column_as(X::SalesTaxEngineConfig, "x_config")
+        .column_as(X::SalesTaxCredentialsEncrypted, "x_credentials")
+        .join(JoinType::LeftJoin, extension())
+        .filter(E::Id.eq(entity_id))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     Ok(row.map(
         |(engine, config, credentials, x_engine, x_config, x_credentials)| {
             SalesTaxEngineSettings {
@@ -436,11 +454,16 @@ fn upsert_sql() -> String {
 /// property, `accountingMethod`, `salesLockDate`, …; a null clears the
 /// column). The caller writes the same values to the old `entities` columns
 /// (the mirror).
+#[allow(
+    clippy::disallowed_methods,
+    reason = "a merging upsert of a `{ column: value }` object: jsonb_populate_record converts \
+              each value to its column, and the one statement keeps insert-or-merge atomic"
+)]
 pub async fn upsert_accounting_entity_settings<'e>(
     db: impl sqlx::PgExecutor<'e>,
     entity_id: &str,
     values: &Map<String, Value>,
-) -> Result<(), sqlx::Error> {
+) -> Result<(), DbErr> {
     let now = crate::http::now();
     let mut row = ACCOUNTING_ENTITY_SETTINGS.values(values);
     row.remove("created_at");
@@ -451,7 +474,8 @@ pub async fn upsert_accounting_entity_settings<'e>(
     sqlx::query(sqlx::AssertSqlSafe(UPSERT_SQL.as_str()))
         .bind(Value::Object(row))
         .execute(db)
-        .await?;
+        .await
+        .map_err(weldsuite_db::orm_error)?;
     Ok(())
 }
 
@@ -476,15 +500,12 @@ pub async fn load_invoice_entity(
     else {
         return Ok(Some(entity));
     };
-    let account: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        books_row!(bank_accounts),
-        " from bank_accounts t where t.id = $1 and t.deleted_at is null limit 1"
-    ))
-    .bind(&account_id)
-    .fetch_optional(db)
-    .await?;
-    let Some(account) = account.map(|row| BANK_ACCOUNTS.js(row)) else {
+    let account = bank_accounts::Entity::find()
+        .filter(bank_accounts::Column::Id.eq(&account_id))
+        .filter(bank_accounts::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?;
+    let Some(account) = account.map(to_json).transpose()? else {
         return Ok(Some(entity));
     };
     let mut account_number: Option<String> = None;

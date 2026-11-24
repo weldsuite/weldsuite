@@ -11,20 +11,28 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use http::HeaderMap;
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, Condition, DbErr, EntityTrait, PaginatorTrait, QueryFilter,
+    QueryOrder, QuerySelect,
+};
 use serde_json::{Map, Value, json};
+use time::PrimitiveDateTime;
 use weldsuite_catalogs::entity_events::{
     MEETING_SESSION_CREATED, MEETING_SESSION_DELETED, MEETING_SESSION_UPDATED,
 };
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::validation::{Presence, Text};
 use weldsuite_kit::{ApiError, Created, Data, NoContent, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::meeting_sessions::{self, Column as Session};
+use weldsuite_schema::tenant::{meetings, workspace_members};
 use weldsuite_video_rooms::{NewParticipant, RoomOptions, member_preset};
 
 use crate::js::{js_limit, js_slice, now_ms, parse_ms, query_param, sql_limit, text, truthy};
 use crate::lifecycle::{self, EndIfEmpty, Env};
 use crate::participants::{self, AvatarStore, Input, Link};
-use crate::table::WriteError;
+use crate::table::{WriteError, js_instant, now_both, row_json};
 use crate::tables::MEETING_SESSIONS;
 use crate::{Caller, MeetState, internal, now, publish, validate};
 
@@ -218,8 +226,20 @@ fn org_of(caller: &Caller) -> Result<String, Box<Response>> {
         .ok_or_else(|| Box::new(ApiError::org_required().into_response()))
 }
 
-async fn session(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
+async fn session(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
     lifecycle::session_row(db, id).await
+}
+
+/// The member's `name` (`select name from workspace_members where user_id = $1`).
+async fn member_name(db: &PgPool, user_id: &str) -> Result<Option<String>, DbErr> {
+    let name: Option<Option<String>> = workspace_members::Entity::find()
+        .select_only()
+        .column(workspace_members::Column::Name)
+        .filter(workspace_members::Column::UserId.eq(user_id))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
+    Ok(name.flatten())
 }
 
 // ── GET /active ────────────────────────────────────────────────────────────
@@ -248,24 +268,31 @@ async fn active_session(
     caller: &Caller,
     org: &str,
     meeting_id: &str,
-) -> Result<Value, sqlx::Error> {
+) -> Result<Value, DbErr> {
     let db = &caller.db;
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from meeting_sessions t
-         where t.meeting_id = $1 and (t.status = 'waiting' or t.status = 'active') limit 1",
-    )
-    .bind(meeting_id)
-    .fetch_optional(db)
-    .await?;
-    let Some(session) = row.map(|row| MEETING_SESSIONS.js(row)) else {
+    let tenant = &orm(db);
+    let row = meeting_sessions::Entity::find()
+        .filter(Session::MeetingId.eq(meeting_id))
+        .filter(
+            Condition::any()
+                .add(Session::Status.eq("waiting"))
+                .add(Session::Status.eq("active")),
+        )
+        .one(tenant)
+        .await?;
+    let Some(session) = row.map(row_json).transpose()? else {
         return Ok(Value::Null);
     };
-    let policy: Option<(Option<bool>, Option<i32>)> = sqlx::query_as(
-        "select auto_end_on_inactivity, auto_end_inactivity_minutes from meetings where id = $1 limit 1",
-    )
-    .bind(meeting_id)
-    .fetch_optional(db)
-    .await?;
+    let policy: Option<(Option<bool>, Option<i32>)> = meetings::Entity::find()
+        .select_only()
+        .columns([
+            meetings::Column::AutoEndOnInactivity,
+            meetings::Column::AutoEndInactivityMinutes,
+        ])
+        .filter(meetings::Column::Id.eq(meeting_id))
+        .into_tuple()
+        .one(tenant)
+        .await?;
     let inactivity = match policy {
         Some((Some(false), _)) => f64::INFINITY,
         Some((_, minutes)) => f64::from(minutes.unwrap_or(10)) * 60_000.0,
@@ -309,15 +336,14 @@ async fn latest(caller: Caller, RawQuery(query): RawQuery) -> Response {
     else {
         return ApiError::bad_request("meetingId query parameter is required").into_response();
     };
-    let row: Result<Option<Value>, sqlx::Error> = sqlx::query_scalar(
-        "select to_jsonb(t) from meeting_sessions t where t.meeting_id = $1
-         order by t.created_at desc limit 1",
-    )
-    .bind(&meeting_id)
-    .fetch_optional(&caller.db)
-    .await;
+    let row = meeting_sessions::Entity::find()
+        .filter(Session::MeetingId.eq(&meeting_id))
+        .order_by_desc(Session::CreatedAt)
+        .one(&orm(&caller.db))
+        .await
+        .and_then(|row| row.map(row_json).transpose());
     match row {
-        Ok(row) => Data(row.map_or(Value::Null, |row| MEETING_SESSIONS.js(row))).into_response(),
+        Ok(row) => Data(row.unwrap_or(Value::Null)).into_response(),
         Err(error) => internal(&error, "Failed to get latest session"),
     }
 }
@@ -331,7 +357,7 @@ async fn member_display(
     state: &MeetState,
     caller: &Caller,
     org: &str,
-) -> Result<(String, Option<String>), sqlx::Error> {
+) -> Result<(String, Option<String>), DbErr> {
     let key = format!("member-display:v2:{org}:{}", caller.user_id);
     let cache = caller.parts.cache(state);
     if let Some(cache) = &cache
@@ -343,12 +369,7 @@ async fn member_display(
         let picture = text(&parsed, "picture").map(str::to_owned);
         return Ok((name, picture));
     }
-    let name: Option<Option<String>> =
-        sqlx::query_scalar("select name from workspace_members where user_id = $1 limit 1")
-            .bind(&caller.user_id)
-            .fetch_optional(&caller.db)
-            .await?;
-    let name = name.flatten();
+    let name = member_name(&caller.db, &caller.user_id).await?;
     // The avatar is the account picture, not the member row's copy.
     let pictures =
         weldsuite_db::AccountPictures::try_load(caller.request_master(), [caller.user_id.as_str()])
@@ -530,7 +551,7 @@ async fn start_session(
         }
     }
     let session_id = generate_id("msess");
-    let now = now();
+    let now = weldsuite_db::utc_now();
     ensure_presets(state, caller).await?;
     let options = RoomOptions {
         record_on_start: Some(
@@ -588,35 +609,37 @@ async fn start_session(
         ));
     }
     let status = if join_inline { "active" } else { "waiting" };
-    sqlx::query(
-        "insert into meeting_sessions (id, meeting_id, session_type, status, cf_app_id, started_by,
-             started_by_name, participants, max_participants, created_at, updated_at, started_at)
-         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::timestamp, $10::timestamp,
-             case when $11 then $10::timestamp else null end)",
-    )
-    .bind(&session_id)
-    .bind(meeting_id)
-    .bind(text(&meeting, "meetingType").unwrap_or("video"))
-    .bind(status)
-    .bind(&room)
-    .bind(&caller.user_id)
-    .bind(&user_name)
-    .bind(Value::Array(initial.clone()))
-    .bind(i32::try_from(initial.len()).unwrap_or(0))
-    .bind(&now)
-    .bind(join_inline)
-    .execute(db)
-    .await
-    .map_err(|e| e.to_string())?;
-    sqlx::query(
-        "update meetings set status = 'in_progress', active_session_id = $2, updated_at = $3::timestamp where id = $1",
-    )
-    .bind(meeting_id)
-    .bind(&session_id)
-    .bind(&now)
-    .execute(db)
-    .await
-    .map_err(|e| e.to_string())?;
+    let tenant = &orm(db);
+    let row = meeting_sessions::ActiveModel {
+        id: Set(session_id.clone()),
+        meeting_id: Set(meeting_id.to_owned()),
+        session_type: Set(text(&meeting, "meetingType").unwrap_or("video").to_owned()),
+        status: Set(status.to_owned()),
+        cf_app_id: Set(Some(room.clone())),
+        started_by: Set(caller.user_id.clone()),
+        started_by_name: Set(user_name.clone()),
+        participants: Set(Some(Value::Array(initial.clone()))),
+        max_participants: Set(i32::try_from(initial.len()).unwrap_or(0)),
+        created_at: Set(now),
+        updated_at: Set(now),
+        started_at: Set(join_inline.then_some(now)),
+        ..Default::default()
+    };
+    meeting_sessions::Entity::insert(row)
+        .exec_without_returning(tenant)
+        .await
+        .map_err(|e| e.to_string())?;
+    meetings::Entity::update_many()
+        .col_expr(meetings::Column::Status, Expr::value("in_progress"))
+        .col_expr(
+            meetings::Column::ActiveSessionId,
+            Expr::value(session_id.clone()),
+        )
+        .col_expr(meetings::Column::UpdatedAt, Expr::value(now))
+        .filter(meetings::Column::Id.eq(meeting_id))
+        .exec(tenant)
+        .await
+        .map_err(|e| e.to_string())?;
 
     {
         let state = state.clone();
@@ -674,7 +697,7 @@ async fn stale_session_or_conflict(
     org: &str,
     meeting_id: &str,
     active_session_id: &str,
-) -> Result<bool, sqlx::Error> {
+) -> Result<bool, DbErr> {
     let Some(existing) = session(db, active_session_id).await? else {
         return Ok(true);
     };
@@ -786,13 +809,9 @@ async fn join_session(
         )
         .into_response());
     }
-    let author_name: Option<Option<String>> =
-        sqlx::query_scalar("select name from workspace_members where user_id = $1 limit 1")
-            .bind(&caller.user_id)
-            .fetch_optional(db)
-            .await
-            .map_err(|e| e.to_string())?;
-    let author_name = author_name.flatten();
+    let author_name = member_name(db, &caller.user_id)
+        .await
+        .map_err(|e| e.to_string())?;
     let user_name = author_name.unwrap_or_else(|| "Unknown".to_owned());
     let link = participants::resolve(
         db,
@@ -845,22 +864,29 @@ async fn join_session(
         .as_i64()
         .unwrap_or(0)
         .max(i64::try_from(filtered.len()).unwrap_or(i64::MAX));
-    let now = now();
+    let now = weldsuite_db::utc_now();
     let waiting = text(&session, "status") == Some("waiting");
-    sqlx::query(
-        "update meeting_sessions set participants = $2, max_participants = $3, updated_at = $4::timestamp,
-             status = case when $5 then 'active' else status end,
-             started_at = case when $5 then $4::timestamp else started_at end
-         where id = $1",
-    )
-    .bind(id)
-    .bind(Value::Array(filtered.clone()))
-    .bind(i32::try_from(max).unwrap_or(i32::MAX))
-    .bind(&now)
-    .bind(waiting)
-    .execute(db)
-    .await
-    .map_err(|e| e.to_string())?;
+    let mut write = meeting_sessions::Entity::update_many()
+        .col_expr(
+            Session::Participants,
+            Expr::value(Value::Array(filtered.clone())),
+        )
+        .col_expr(
+            Session::MaxParticipants,
+            Expr::value(i32::try_from(max).unwrap_or(i32::MAX)),
+        )
+        .col_expr(Session::UpdatedAt, Expr::value(now));
+    // A waiting session goes live with its first join.
+    if waiting {
+        write = write
+            .col_expr(Session::Status, Expr::value("active"))
+            .col_expr(Session::StartedAt, Expr::value(now));
+    }
+    write
+        .filter(Session::Id.eq(id))
+        .exec(&orm(db))
+        .await
+        .map_err(|e| e.to_string())?;
     let superseded = lifecycle::superseded_cf_session_id(previous.as_ref(), &joined.participant_id)
         .map(|old| (session.clone(), old));
     leave_other_calls_later(state, caller, org, id, started, superseded);
@@ -888,7 +914,7 @@ async fn leave_session(
     caller: &Caller,
     org: &str,
     id: &str,
-) -> Result<Response, sqlx::Error> {
+) -> Result<Response, DbErr> {
     let db = &caller.db;
     let Some(session) = session(db, id).await? else {
         return Ok(ApiError::not_found("Session", Some(id)).into_response());
@@ -911,14 +937,15 @@ async fn leave_session(
         .iter()
         .filter(|p| !truthy(p.get("leftAt")))
         .count();
-    sqlx::query(
-        "update meeting_sessions set participants = $2, updated_at = $3::timestamp where id = $1",
-    )
-    .bind(id)
-    .bind(Value::Array(participants))
-    .bind(now())
-    .execute(db)
-    .await?;
+    meeting_sessions::Entity::update_many()
+        .col_expr(
+            Session::Participants,
+            Expr::value(Value::Array(participants)),
+        )
+        .col_expr(Session::UpdatedAt, Expr::value(weldsuite_db::utc_now()))
+        .filter(Session::Id.eq(id))
+        .exec(&orm(db))
+        .await?;
     if active == 0 {
         let env = lifecycle_env(state, caller);
         let meeting_id = text(&session, "meetingId").unwrap_or_default().to_owned();
@@ -934,12 +961,14 @@ async fn is_organizer(
     db: &PgPool,
     session: &Value,
     user_id: &str,
-) -> Result<Option<String>, sqlx::Error> {
-    let organizer: Option<String> =
-        sqlx::query_scalar("select organizer_id from meetings where id = $1 limit 1")
-            .bind(text(session, "meetingId").unwrap_or_default())
-            .fetch_optional(db)
-            .await?;
+) -> Result<Option<String>, DbErr> {
+    let organizer: Option<String> = meetings::Entity::find()
+        .select_only()
+        .column(meetings::Column::OrganizerId)
+        .filter(meetings::Column::Id.eq(text(session, "meetingId").unwrap_or_default()))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     let _ = user_id;
     Ok(organizer)
 }
@@ -949,7 +978,7 @@ async fn end(State(state): State<MeetState>, caller: Caller, Path(id): Path<Stri
         Ok(org) => org,
         Err(response) => return *response,
     };
-    let result: Result<Response, sqlx::Error> = async {
+    let result: Result<Response, DbErr> = async {
         let db = &caller.db;
         let Some(session) = session(db, &id).await? else {
             return Ok(ApiError::not_found("Session", Some(&id)).into_response());
@@ -1044,7 +1073,7 @@ async fn remove_one(
     participant_id: &str,
     rtk_user_id: Option<&str>,
     custom_id: Option<&str>,
-) -> Result<Response, sqlx::Error> {
+) -> Result<Response, DbErr> {
     let db = &caller.db;
     let Some(session) = session(db, id).await? else {
         return Ok(ApiError::not_found("Session", Some(id)).into_response());
@@ -1107,7 +1136,7 @@ async fn remove_one(
                 .into_response(),
         );
     }
-    let now = now();
+    let (now, stamp) = now_both();
     if needs_kick && let Some(entry) = participants[index].as_object_mut() {
         entry.insert("leftAt".into(), json!(now));
     }
@@ -1118,22 +1147,20 @@ async fn remove_one(
         entry.insert("name".into(), target["userName"].clone());
         let mut map = Map::new();
         map.insert(email.clone(), Value::Object(entry));
-        Value::Object(map).to_string()
+        Value::Object(map)
     });
-    sqlx::query(
-        "update meeting_sessions set updated_at = $2::timestamp,
-             participants = case when $3 then $4 else participants end,
-             metadata = case when $5 then coalesce(metadata, '{}'::jsonb) || jsonb_build_object('removedGuests', $6::jsonb || coalesce(metadata->'removedGuests', '{}'::jsonb)) else metadata end
-         where id = $1",
-    )
-    .bind(id)
-    .bind(&now)
-    .bind(needs_kick)
-    .bind(Value::Array(participants))
-    .bind(removed.is_some() && needs_block)
-    .bind(removed.as_deref().unwrap_or("{}"))
-    .execute(db)
-    .await?;
+    let mut write =
+        meeting_sessions::Entity::update_many().col_expr(Session::UpdatedAt, Expr::value(stamp));
+    if needs_kick {
+        write = write.col_expr(
+            Session::Participants,
+            Expr::value(Value::Array(participants)),
+        );
+    }
+    if let Some(removed) = removed.filter(|_| needs_block) {
+        write = write.col_expr(Session::Metadata, with_removed_guest(removed));
+    }
+    write.filter(Session::Id.eq(id)).exec(&orm(db)).await?;
     let mut kicked = false;
     if needs_kick && let Some(room) = text(&session, "cfAppId").filter(|r| !r.is_empty()) {
         let video = caller.parts.video(state);
@@ -1161,6 +1188,24 @@ async fn remove_one(
     Ok(Data(json!({ "ok": true, "kicked": kicked, "blocked": guest.is_some() })).into_response())
 }
 
+/// `coalesce(metadata, '{}') || jsonb_build_object('removedGuests', removed
+/// || coalesce(metadata->'removedGuests', '{}'))`: the guest added to the
+/// stored list in the same statement, so a concurrent removal is kept.
+fn with_removed_guest(removed: Value) -> Expr {
+    use sea_orm::sea_query::extension::postgres::PgExpr;
+    let metadata = || Expr::col(Session::Metadata);
+    let empty = || Expr::val(json!({}));
+    let guests = Func::coalesce([PgExpr::get_json_field(metadata(), "removedGuests"), empty()]);
+    let merged = PgExpr::concat(Expr::val(removed), Expr::expr(guests));
+    let field = Func::cust("jsonb_build_object")
+        .arg("removedGuests")
+        .arg(merged);
+    PgExpr::concat(
+        Expr::expr(Func::coalesce([metadata(), empty()])),
+        Expr::expr(field),
+    )
+}
+
 // ── GET /:id/recordings ────────────────────────────────────────────────────
 
 async fn provider_recordings(
@@ -1168,12 +1213,14 @@ async fn provider_recordings(
     caller: Caller,
     Path(id): Path<String>,
 ) -> Response {
-    let row: Result<Option<(Option<String>, Option<String>)>, sqlx::Error> = sqlx::query_as(
-        "select cf_app_id, recording_url from meeting_sessions where id = $1 limit 1",
-    )
-    .bind(&id)
-    .fetch_optional(&caller.db)
-    .await;
+    let row: Result<Option<(Option<String>, Option<String>)>, DbErr> =
+        meeting_sessions::Entity::find()
+            .select_only()
+            .columns([Session::CfAppId, Session::RecordingUrl])
+            .filter(Session::Id.eq(&id))
+            .into_tuple()
+            .one(&orm(&caller.db))
+            .await;
     let (room, saved) = match row {
         Ok(Some(row)) => row,
         Ok(None) => return ApiError::not_found("Session", Some(&id)).into_response(),
@@ -1193,40 +1240,59 @@ async fn provider_recordings(
 
 // ── CRUD ───────────────────────────────────────────────────────────────────
 
-/// The keyset condition's operands of a cursor: its `createdAt` as
-/// JavaScript read it (milliseconds) and its id.
-async fn cursor_row(db: &PgPool, cursor: &str) -> Result<Option<(String, String)>, sqlx::Error> {
-    let row: Option<(Option<String>, String)> = sqlx::query_as(
-        "select to_jsonb(t.created_at)#>>'{}', t.id from meeting_sessions t where t.id = $1 limit 1",
-    )
-    .bind(cursor)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.and_then(|(created, id)| {
-        created
-            .and_then(|stamp| weldsuite_db::js_timestamp(&stamp))
-            .map(|stamp| (stamp, id))
-    }))
+/// The keyset operands of a cursor: its `createdAt` as JavaScript read it
+/// (milliseconds) and its id.
+pub(crate) type CursorRow = (PrimitiveDateTime, String);
+
+/// `select createdAt, id from meeting_sessions where id = cursor`.
+async fn cursor_row(db: &PgPool, cursor: &str) -> Result<Option<CursorRow>, DbErr> {
+    let row: Option<CursorRow> = meeting_sessions::Entity::find()
+        .select_only()
+        .columns([Session::CreatedAt, Session::Id])
+        .filter(Session::Id.eq(cursor))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
+    Ok(row.map(|(at, id)| (js_instant(at), id)))
 }
 
-const LIST_SQL: &str = "select to_jsonb(t) from meeting_sessions t
-     where ($1::boolean or t.meeting_id = $2) and ($3::boolean or t.status = $4)
-       and ($5::boolean or t.created_at < $6::timestamp or (t.created_at = $6::timestamp and t.id < $7))
-     order by t.created_at desc, t.id desc limit $8";
-const COUNT_SQL: &str = "select count(*) from meeting_sessions t
-     where ($1::boolean or t.meeting_id = $2) and ($3::boolean or t.status = $4)
-       and ($5::boolean or t.created_at < $6::timestamp or (t.created_at = $6::timestamp and t.id < $7))";
+/// `or(lt(t.createdAt, at), and(eq(t.createdAt, at), lt(t.id, id)))`.
+pub(crate) fn before<C: ColumnTrait>(created_at: C, id: C, (at, cursor): &CursorRow) -> Condition {
+    Condition::any().add(created_at.lt(*at)).add(
+        Condition::all()
+            .add(created_at.eq(*at))
+            .add(id.lt(cursor.as_str())),
+    )
+}
 
-/// The skipped slots of the page and of its count: a `?cursor=` makes the
-/// count drop the last condition (the cursor's, or the last filter when the
-/// cursor row is gone).
-fn slots(active: &[bool], cursor_given: bool) -> (Vec<bool>, Vec<bool>) {
-    let page: Vec<bool> = active.iter().map(|a| !a).collect();
-    let mut count = page.clone();
-    if cursor_given && let Some(last) = count.iter().rposition(|skip| !skip) {
-        count[last] = true;
-    }
+/// A list's conditions in the route's order, `None` where the query left
+/// one out: those of the page, and those of its count. A `?cursor=` makes
+/// the count drop the last condition there is (`conditions.slice(0, -1)`:
+/// the cursor's, or the last filter when the cursor row is gone).
+pub(crate) fn page_and_count(
+    conditions: Vec<Option<Condition>>,
+    cursor_given: bool,
+) -> (Condition, Condition) {
+    let present: Vec<Condition> = conditions.into_iter().flatten().collect();
+    let kept = if cursor_given {
+        present.len().saturating_sub(1)
+    } else {
+        present.len()
+    };
+    let page = present
+        .iter()
+        .cloned()
+        .fold(Condition::all(), Condition::add);
+    let count = present
+        .into_iter()
+        .take(kept)
+        .fold(Condition::all(), Condition::add);
     (page, count)
+}
+
+/// `.limit(n)` as Drizzle sent it: no LIMIT for `NaN` or a negative `n`.
+pub(crate) fn limit_of(n: f64) -> Option<u64> {
+    sql_limit(n).and_then(|n| u64::try_from(n).ok())
 }
 
 async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
@@ -1246,31 +1312,32 @@ async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
         },
         None => None,
     };
-    let active = [meeting.is_some(), status.is_some(), cursor_row.is_some()];
-    let (page, count) = slots(&active, cursor.is_some());
-    let bind = |sql: &'static str, skip: &[bool]| {
-        sqlx::query_scalar::<_, Value>(sql)
-            .bind(skip[0])
-            .bind(meeting.clone())
-            .bind(skip[1])
-            .bind(status.clone())
-            .bind(skip[2])
-            .bind(cursor_row.as_ref().map(|(at, _)| at.clone()))
-            .bind(cursor_row.as_ref().map(|(_, id)| id.clone()))
-    };
-    let rows: Result<Vec<Value>, sqlx::Error> = bind(LIST_SQL, &page)
-        .bind(sql_limit(limit + 1.0))
-        .fetch_all(db)
-        .await;
-    let total: Result<i64, sqlx::Error> = sqlx::query_scalar(COUNT_SQL)
-        .bind(count[0])
-        .bind(meeting.clone())
-        .bind(count[1])
-        .bind(status.clone())
-        .bind(count[2])
-        .bind(cursor_row.as_ref().map(|(at, _)| at.clone()))
-        .bind(cursor_row.as_ref().map(|(_, id)| id.clone()))
-        .fetch_one(db)
+    let (page, count) = page_and_count(
+        vec![
+            meeting.map(|meeting| Condition::all().add(Session::MeetingId.eq(meeting))),
+            status.map(|status| Condition::all().add(Session::Status.eq(status))),
+            cursor_row
+                .as_ref()
+                .map(|row| before(Session::CreatedAt, Session::Id, row)),
+        ],
+        cursor.is_some(),
+    );
+    let db = &orm(db);
+    let rows = meeting_sessions::Entity::find()
+        .filter(page)
+        .order_by_desc(Session::CreatedAt)
+        .order_by_desc(Session::Id)
+        .limit(limit_of(limit + 1.0))
+        .all(db)
+        .await
+        .and_then(|rows| {
+            rows.into_iter()
+                .map(row_json)
+                .collect::<Result<Vec<_>, _>>()
+        });
+    let total = meeting_sessions::Entity::find()
+        .filter(count)
+        .count(db)
         .await;
     let (rows, total) = match (rows, total) {
         (Ok(rows), Ok(total)) => (rows, total),
@@ -1278,11 +1345,7 @@ async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
             return internal(&error, "Failed to list meeting sessions");
         }
     };
-    page_of(
-        rows.into_iter().map(|r| MEETING_SESSIONS.js(r)).collect(),
-        limit,
-        total,
-    )
+    page_of(rows, limit, i64::try_from(total).unwrap_or(i64::MAX))
 }
 
 /// The list envelope of `rows` fetched with `limit + 1`.
@@ -1443,13 +1506,13 @@ async fn remove(
     caller: Caller,
     Path(id): Path<String>,
 ) -> Response {
-    let result: Result<Response, sqlx::Error> = async {
+    let result: Result<Response, DbErr> = async {
         let Some(_) = session(&caller.db, &id).await? else {
             return Ok(ApiError::not_found("Meeting session", Some(&id)).into_response());
         };
-        sqlx::query("delete from meeting_sessions where id = $1")
-            .bind(&id)
-            .execute(&caller.db)
+        meeting_sessions::Entity::delete_many()
+            .filter(Session::Id.eq(&id))
+            .exec(&orm(&caller.db))
             .await?;
         caller.publish(&state, MEETING_SESSION_DELETED, &id, &json!({ "id": id }));
         Ok(NoContent.into_response())
@@ -1460,7 +1523,53 @@ async fn remove(
 
 #[cfg(test)]
 mod tests {
+    use sea_orm::{DbBackend, QueryTrait};
+
     use super::*;
+
+    #[test]
+    fn a_removed_guest_joins_the_stored_list() {
+        let sql = meeting_sessions::Entity::update_many()
+            .col_expr(
+                Session::Metadata,
+                with_removed_guest(json!({ "a@x.io": { "removedBy": "u" } })),
+            )
+            .filter(Session::Id.eq("s1"))
+            .build(DbBackend::Postgres)
+            .to_string();
+        assert_eq!(
+            sql,
+            concat!(
+                r#"UPDATE "meeting_sessions" SET "metadata" = COALESCE("metadata", '{}') || "#,
+                r#"jsonb_build_object('removedGuests', '{"a@x.io":{"removedBy":"u"}}' || "#,
+                r#"COALESCE("metadata" -> 'removedGuests', '{}')) WHERE "meeting_sessions"."id" = 's1'"#,
+            )
+        );
+    }
+
+    #[test]
+    fn a_cursor_drops_the_counts_last_condition() {
+        let condition = |status: &str| Some(Condition::all().add(Session::Status.eq(status)));
+        let (page, count) = page_and_count(vec![condition("a"), None, condition("b")], true);
+        let sql = |condition| {
+            meeting_sessions::Entity::find()
+                .select_only()
+                .column(Session::Id)
+                .filter(condition)
+                .build(DbBackend::Postgres)
+                .to_string()
+        };
+        assert_eq!(
+            sql(page),
+            r#"SELECT "meeting_sessions"."id" FROM "meeting_sessions" WHERE "meeting_sessions"."status" = 'a' AND "meeting_sessions"."status" = 'b'"#
+        );
+        assert_eq!(
+            sql(count),
+            r#"SELECT "meeting_sessions"."id" FROM "meeting_sessions" WHERE "meeting_sessions"."status" = 'a'"#
+        );
+        let (_, all) = page_and_count(vec![condition("a"), condition("b")], false);
+        assert!(sql(all).ends_with("'b'"));
+    }
 
     #[test]
     fn rejoins_keep_the_first_join_and_the_time_spent() {

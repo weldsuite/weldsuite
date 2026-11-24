@@ -630,7 +630,7 @@ pub(crate) async fn save_new_board(
             template_category: new.template_category.as_deref(),
             user_id: &caller.user_id,
         },
-        &now(),
+        weldsuite_db::utc_now(),
     )
     .await?;
     let Some(created) = records::get_live_board(&caller.db, &board_id).await? else {
@@ -788,7 +788,7 @@ pub(crate) async fn convert_in_place(
             user_id: &caller.user_id,
             file_name: &file_name,
         },
-        &now(),
+        time::OffsetDateTime::now_utc(),
     )
     .await?;
     let Some(converted) = converted else {
@@ -918,7 +918,7 @@ pub(crate) async fn tasks(
                 let made = create_task(&caller.db, &fields, Some(&project), &user_id)
                     .await
                     .map_err(|error| match error {
-                        CreateError::Database(error) => Refusal::Database(error),
+                        CreateError::Database(error) => Refusal::from(error),
                         CreateError::InvalidDate => Refusal::from(ApiError::internal()),
                     })?;
                 let row = &made.row;
@@ -1212,7 +1212,7 @@ pub(crate) async fn update(
                 }
             }
             if !template.is_absent() {
-                records::set_template(&caller.db, &before.id, template.as_set().map(String::as_str), &now())
+                records::set_template(&caller.db, &before.id, template.as_set().map(String::as_str), weldsuite_db::utc_now())
                     .await?;
             }
             let Some(board) = records::get_live_board(&caller.db, &before.id).await? else {
@@ -1266,7 +1266,7 @@ pub(crate) async fn remove(
             }
             if board.legacy {
                 // An old WeldFlow whiteboard nobody opened since WeldBoard: deleted as WeldFlow did.
-                if !records::trash_legacy(&caller.db, &board.id, &now()).await? {
+                if !records::trash_legacy(&caller.db, &board.id, weldsuite_db::utc_now()).await? {
                     return Err(Refusal::not_found("Board", &board.id));
                 }
                 caller.publish(

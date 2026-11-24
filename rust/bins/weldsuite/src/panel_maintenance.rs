@@ -44,15 +44,21 @@
 use std::collections::{BTreeMap, HashSet};
 use std::time::Duration;
 
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ColumnTrait, DbErr, EntityTrait, FromQueryResult, JoinType, QueryFilter, QueryOrder,
+    QuerySelect,
+};
 use serde_json::{Value, json};
 use time::OffsetDateTime;
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm, utc_timestamp};
 use weldsuite_lakehouse::{
     Erasure, ErasureCounts, Lakehouse, ListedFile, ORPHAN_MIN_AGE, PanelTable, SMALL_FILE_BYTES,
     partitions, workspaces_in,
 };
 use weldsuite_panel::{PanelProjectState, ProjectRef};
 use weldsuite_ports::{BoxFuture, DynFileStore, FileStore, PortError};
+use weldsuite_schema::master::{panel_erasure_ledger as ledger, plans, workspaces};
 
 /// Global's lifecycle rules on the replays bucket
 /// (`scripts/weldpanel/setup-resources.mjs`, ADR PANEL-005): the objects
@@ -329,7 +335,7 @@ impl Lister for S3Lister {
 }
 
 /// One pending ledger row.
-#[derive(Debug, sqlx::FromRow)]
+#[derive(Debug, FromQueryResult)]
 #[allow(clippy::struct_field_names, reason = "the ledger's columns")]
 struct Pending {
     workspace_id: String,
@@ -558,15 +564,22 @@ pub(crate) async fn run(
 async fn pending_erasures(
     master: &PgPool,
     cutoff: OffsetDateTime,
-) -> Result<BTreeMap<String, Erasure>, sqlx::Error> {
-    let rows: Vec<Pending> = sqlx::query_as(
-        "select workspace_id, project_id, erased_id from panel_erasure_ledger \
-         where applied_at is null and requested_at <= $1::timestamptz \
-         order by workspace_id, project_id, erased_id",
-    )
-    .bind(weldsuite_events::iso_timestamp(cutoff))
-    .fetch_all(master)
-    .await?;
+) -> Result<BTreeMap<String, Erasure>, DbErr> {
+    let rows: Vec<Pending> = ledger::Entity::find()
+        .select_only()
+        .columns([
+            ledger::Column::WorkspaceId,
+            ledger::Column::ProjectId,
+            ledger::Column::ErasedId,
+        ])
+        .filter(ledger::Column::AppliedAt.is_null())
+        .filter(ledger::Column::RequestedAt.lte(cutoff_ms(cutoff)))
+        .order_by_asc(ledger::Column::WorkspaceId)
+        .order_by_asc(ledger::Column::ProjectId)
+        .order_by_asc(ledger::Column::ErasedId)
+        .into_model()
+        .all(&orm(master))
+        .await?;
     let mut by_workspace: BTreeMap<String, Erasure> = BTreeMap::new();
     for row in rows {
         by_workspace
@@ -590,22 +603,21 @@ async fn mark_applied(
     master: &PgPool,
     erasure: &Erasure,
     cutoff: OffsetDateTime,
-) -> Result<BTreeMap<String, Vec<String>>, sqlx::Error> {
+) -> Result<BTreeMap<String, Vec<String>>, DbErr> {
     let mut covered = BTreeMap::new();
     for (project, ids) in &erasure.ids_by_project {
-        let ids: Vec<&str> = ids.iter().map(String::as_str).collect();
-        let mut marked: Vec<String> = sqlx::query_scalar(
-            "update panel_erasure_ledger set applied_at = now() \
-             where workspace_id = $1 and project_id = $2 and erased_id = any($3) \
-             and applied_at is null and requested_at <= $4::timestamptz \
-             returning erased_id",
-        )
-        .bind(&erasure.workspace_id)
-        .bind(project)
-        .bind(&ids)
-        .bind(weldsuite_events::iso_timestamp(cutoff))
-        .fetch_all(master)
-        .await?;
+        let mut marked: Vec<String> = ledger::Entity::update_many()
+            .col_expr(ledger::Column::AppliedAt, Expr::current_timestamp())
+            .filter(ledger::Column::WorkspaceId.eq(&erasure.workspace_id))
+            .filter(ledger::Column::ProjectId.eq(project))
+            .filter(ledger::Column::ErasedId.is_in(ids))
+            .filter(ledger::Column::AppliedAt.is_null())
+            .filter(ledger::Column::RequestedAt.lte(cutoff_ms(cutoff)))
+            .exec_with_returning(&orm(master))
+            .await?
+            .into_iter()
+            .map(|row| row.erased_id)
+            .collect();
         if !marked.is_empty() {
             marked.sort();
             covered.insert(project.clone(), marked);
@@ -630,15 +642,16 @@ async fn release(
             project_id,
         };
         if let Err(error) = projects.clear(project, ids).await {
-            let reverted = sqlx::query(
-                "update panel_erasure_ledger set applied_at = null \
-                 where workspace_id = $1 and project_id = $2 and erased_id = any($3)",
-            )
-            .bind(workspace_id)
-            .bind(project_id)
-            .bind(ids)
-            .execute(master)
-            .await;
+            let reverted = ledger::Entity::update_many()
+                .col_expr(
+                    ledger::Column::AppliedAt,
+                    Expr::value(Option::<OffsetDateTime>::None),
+                )
+                .filter(ledger::Column::WorkspaceId.eq(workspace_id))
+                .filter(ledger::Column::ProjectId.eq(project_id))
+                .filter(ledger::Column::ErasedId.is_in(ids))
+                .exec(&orm(master))
+                .await;
             failed.push(match reverted {
                 Ok(_) => format!("{project_id}: {error}"),
                 Err(revert) => {
@@ -672,15 +685,9 @@ async fn retention_cutoffs(
     if workspaces.is_empty() {
         return Ok(BTreeMap::new());
     }
-    let ids: Vec<&str> = workspaces.iter().map(String::as_str).collect();
-    let plans: Vec<(String, Option<String>)> = sqlx::query_as(
-        "select w.id, p.slug from workspaces w left join plans p on p.id = w.plan_id \
-         where w.id = any($1)",
-    )
-    .bind(&ids)
-    .fetch_all(master)
-    .await
-    .map_err(|error| error.to_string())?;
+    let plans = workspace_plans(master, &workspaces)
+        .await
+        .map_err(|error| error.to_string())?;
     let known: BTreeMap<String, Option<String>> = plans.into_iter().collect();
     Ok(workspaces
         .into_iter()
@@ -694,6 +701,35 @@ async fn retention_cutoffs(
         .collect())
 }
 
+/// `select w.id, p.slug from workspaces w left join plans p on p.id =
+/// w.plan_id where w.id = any(ids)`: each workspace's plan slug.
+async fn workspace_plans(
+    master: &PgPool,
+    ids: &HashSet<String>,
+) -> Result<Vec<(String, Option<String>)>, DbErr> {
+    workspaces::Entity::find()
+        .select_only()
+        .column(workspaces::Column::Id)
+        .column(plans::Column::Slug)
+        .join(
+            JoinType::LeftJoin,
+            workspaces::Entity::belongs_to(plans::Entity)
+                .from(workspaces::Column::PlanId)
+                .to(plans::Column::Id)
+                .into(),
+        )
+        .filter(workspaces::Column::Id.is_in(ids))
+        .into_tuple()
+        .all(&orm(master))
+        .await
+}
+
+/// A cutoff as the ledger compares it (`$1::timestamptz` of its ISO text):
+/// to the millisecond.
+fn cutoff_ms(cutoff: OffsetDateTime) -> OffsetDateTime {
+    utc_timestamp(cutoff).assume_utc()
+}
+
 fn ms(at: OffsetDateTime) -> i64 {
     i64::try_from(at.unix_timestamp_nanos() / 1_000_000).unwrap_or(i64::MAX)
 }
@@ -703,6 +739,7 @@ fn millis(duration: Duration) -> i64 {
 }
 
 #[cfg(test)]
+#[allow(clippy::disallowed_methods, reason = "test fixtures")]
 mod tests {
     use time::{Date, Month};
 

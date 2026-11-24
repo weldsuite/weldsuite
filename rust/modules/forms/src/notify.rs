@@ -8,14 +8,26 @@
 use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ColumnTrait, DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder,
+    QuerySelect,
+};
 use serde_json::{Value, json};
 use sqlx::PgPool;
+use time::OffsetDateTime;
 use weldsuite_catalogs::permission_keys::FORM_RESPONSES_READ;
+use weldsuite_db::orm;
 use weldsuite_emails::forms::DigestItem;
 use weldsuite_notifications::{EmailOverride, NewNotification, Notifier, create_and_deliver};
+use weldsuite_schema::tenant::{
+    form_access, form_responses, form_subscriptions, form_versions, notifications,
+    workspace_members,
+};
 
 use crate::common::{
-    Ctx, Env, FormsResult, day_of, iso, js_slice, month_of, opt_text, parse_ms, text,
+    Ctx, Env, FormsResult, day_of, epoch_ms, instant, js_slice, month_of, opt_text, parse_ms,
+    rows_json, text,
 };
 use crate::creator_access::load_creator_access;
 use crate::engine::FormDefinition;
@@ -29,7 +41,7 @@ use crate::usage::load_usage;
 const DAY_MS: i64 = 24 * 60 * 60 * 1000;
 /// The due-index kind of the daily digest.
 pub(crate) const DIGEST_KIND: &str = "forms_digest";
-const LISTED: i64 = 10;
+const LISTED: u64 = 10;
 const SUMMARY_CHARS: usize = 80;
 
 /// `subscribersOf(db, env, form, mode)`: members following the form in
@@ -45,21 +57,25 @@ pub(crate) async fn subscribers_of(
     mode: &str,
 ) -> FormsResult<Vec<MemberRecipient>> {
     let form_id = text(form, "id");
-    let mut user_ids: Vec<String> = sqlx::query_scalar(
-        "select user_id from form_subscriptions where form_id = $1 and mode = $2",
-    )
-    .bind(form_id)
-    .bind(mode)
-    .fetch_all(db)
-    .await?;
+    let orm_db = orm(db);
+    let mut user_ids: Vec<String> = form_subscriptions::Entity::find()
+        .select_only()
+        .column(form_subscriptions::Column::UserId)
+        .filter(form_subscriptions::Column::FormId.eq(form_id))
+        .filter(form_subscriptions::Column::Mode.eq(mode))
+        .into_tuple()
+        .all(&orm_db)
+        .await?;
     if !user_ids.is_empty() && text(form, "access") == "restricted" {
         let mut allowed: HashSet<String> = HashSet::new();
         allowed.insert(text(form, "ownerUserId").to_owned());
-        let listed: Vec<String> =
-            sqlx::query_scalar("select user_id from form_access where form_id = $1")
-                .bind(form_id)
-                .fetch_all(db)
-                .await?;
+        let listed: Vec<String> = form_access::Entity::find()
+            .select_only()
+            .column(form_access::Column::UserId)
+            .filter(form_access::Column::FormId.eq(form_id))
+            .into_tuple()
+            .all(&orm_db)
+            .await?;
         allowed.extend(listed);
         user_ids.retain(|id| allowed.contains(id));
     }
@@ -76,12 +92,17 @@ pub(crate) async fn subscribers_of(
     if user_ids.is_empty() {
         return Ok(Vec::new());
     }
-    let members: Vec<(String, Option<String>)> = sqlx::query_as(
-        "select user_id, email from workspace_members where user_id = any($1) and deleted_at is null",
-    )
-    .bind(&user_ids)
-    .fetch_all(db)
-    .await?;
+    let members: Vec<(String, Option<String>)> = workspace_members::Entity::find()
+        .select_only()
+        .columns([
+            workspace_members::Column::UserId,
+            workspace_members::Column::Email,
+        ])
+        .filter(workspace_members::Column::UserId.is_in(user_ids))
+        .filter(workspace_members::Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&orm_db)
+        .await?;
     Ok(members
         .into_iter()
         .filter_map(|(user_id, email)| {
@@ -96,11 +117,6 @@ pub(crate) async fn subscribers_of(
 pub(crate) fn next_digest_at(now: i64) -> i64 {
     let day = parse_ms(&format!("{}T08:00:00.000Z", day_of(now))).unwrap_or(now);
     if day > now { day } else { day + DAY_MS }
-}
-
-fn at(ms: i64) -> time::OffsetDateTime {
-    time::OffsetDateTime::from_unix_timestamp_nanos(i128::from(ms) * 1_000_000)
-        .unwrap_or(time::OffsetDateTime::UNIX_EPOCH)
 }
 
 /// `notifySubscribers(ctx)`: one platform notification per instant
@@ -186,11 +202,12 @@ pub(crate) async fn notify_subscribers(
         };
         match create_and_deliver(&ctx.db, &notifier, &params).await {
             Ok(Some(id)) => {
-                let emailed: Option<bool> =
-                    sqlx::query_scalar("select delivered_email from notifications where id = $1")
-                        .bind(&id)
-                        .fetch_optional(&ctx.db)
-                        .await?;
+                let emailed: Option<bool> = notifications::Entity::find_by_id(id.as_str())
+                    .select_only()
+                    .column(notifications::Column::DeliveredEmail)
+                    .into_tuple()
+                    .one(&orm(&ctx.db))
+                    .await?;
                 if emailed == Some(true) {
                     send_response_notification_mail(
                         ctx,
@@ -220,7 +237,7 @@ pub(crate) async fn notify_subscribers(
             master,
             DIGEST_KIND,
             &ctx.workspace_id,
-            at(next_digest_at(now)),
+            crate::common::instant(next_digest_at(now)),
         )
         .await;
     }
@@ -231,14 +248,76 @@ pub(crate) async fn notify_subscribers(
 // The digest
 // ---------------------------------------------------------------------------
 
+/// When each daily subscriber of the form got their last digest.
+async fn digest_marks(
+    db: &DatabaseConnection,
+    form_id: &str,
+) -> FormsResult<HashMap<String, Option<i64>>> {
+    let marks: Vec<(String, Option<OffsetDateTime>)> = form_subscriptions::Entity::find()
+        .select_only()
+        .columns([
+            form_subscriptions::Column::UserId,
+            form_subscriptions::Column::LastDigestAt,
+        ])
+        .filter(form_subscriptions::Column::FormId.eq(form_id))
+        .filter(form_subscriptions::Column::Mode.eq("daily"))
+        .into_tuple()
+        .all(db)
+        .await?;
+    Ok(marks
+        .into_iter()
+        .map(|(user, at)| (user, at.map(epoch_ms)))
+        .collect())
+}
+
+/// The digest's lines for `rows`: number, respondent and the first answer,
+/// none of a version with sensitive questions. `versions` keeps the
+/// definitions read so far.
+async fn digest_items(
+    db: &DatabaseConnection,
+    rows: &[Value],
+    versions: &mut HashMap<String, Option<FormDefinition>>,
+) -> FormsResult<Vec<DigestItem>> {
+    let mut listed = Vec::new();
+    for row in rows {
+        let version_id = text(row, "versionId").to_owned();
+        if !versions.contains_key(&version_id) {
+            let definition: Option<Value> = form_versions::Entity::find_by_id(version_id.as_str())
+                .select_only()
+                .column(form_versions::Column::Definition)
+                .into_tuple()
+                .one(db)
+                .await?;
+            if let Some(definition) = definition {
+                versions.insert(version_id.clone(), FormDefinition::parse(&definition).ok());
+            }
+        }
+        let first = versions
+            .get(&version_id)
+            .and_then(Option::as_ref)
+            .filter(|def| !has_sensitive_fields(def))
+            .and_then(|def| answer_pairs(def, &row["answers"], false).into_iter().next());
+        listed.push(DigestItem {
+            number: row["number"].as_i64(),
+            respondent: opt_text(row, "respondentEmail"),
+            summary: first.map(|qa| js_slice(&qa.answer, SUMMARY_CHARS)),
+        });
+    }
+    Ok(listed)
+}
+
 /// `sendDueDigests(ctx, now)`: for each daily subscriber of each form, the
 /// completed responses since their last digest, in one mail. How many went out.
 pub(crate) async fn send_due_digests(ctx: &Ctx, now: i64) -> FormsResult<i64> {
-    let with_daily: Vec<String> = sqlx::query_scalar(
-        "select form_id from form_subscriptions where mode = 'daily' group by form_id",
-    )
-    .fetch_all(&ctx.db)
-    .await?;
+    let db = orm(&ctx.db);
+    let with_daily: Vec<String> = form_subscriptions::Entity::find()
+        .select_only()
+        .column(form_subscriptions::Column::FormId)
+        .filter(form_subscriptions::Column::Mode.eq("daily"))
+        .group_by(form_subscriptions::Column::FormId)
+        .into_tuple()
+        .all(&db)
+        .await?;
     let mut sent = 0;
     for form_id in with_daily {
         let Some(form) = crate::access::form_row(&ctx.db, &form_id).await? else {
@@ -248,17 +327,7 @@ pub(crate) async fn send_due_digests(ctx: &Ctx, now: i64) -> FormsResult<i64> {
         if members.is_empty() {
             continue;
         }
-        let marks: Vec<(String, Option<String>)> = sqlx::query_as(
-            "select user_id, to_char(last_digest_at at time zone 'utc', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"') \
-             from form_subscriptions where form_id = $1 and mode = 'daily'",
-        )
-        .bind(&form_id)
-        .fetch_all(&ctx.db)
-        .await?;
-        let marks: HashMap<String, Option<i64>> = marks
-            .into_iter()
-            .map(|(user, at)| (user, at.as_deref().and_then(parse_ms)))
-            .collect();
+        let marks = digest_marks(&db, &form_id).await?;
         let mut versions: HashMap<String, Option<FormDefinition>> = HashMap::new();
         for member in &members {
             let since = marks
@@ -266,68 +335,39 @@ pub(crate) async fn send_due_digests(ctx: &Ctx, now: i64) -> FormsResult<i64> {
                 .copied()
                 .flatten()
                 .unwrap_or(now - DAY_MS);
-            let total: i64 = sqlx::query_scalar(
-                "select count(*)::int8 from form_responses where form_id = $1 and status = 'completed' \
-                 and submitted_at > $2::timestamptz and submitted_at <= $3::timestamptz",
-            )
-            .bind(&form_id)
-            .bind(iso(since))
-            .bind(iso(now))
-            .fetch_one(&ctx.db)
-            .await?;
+            let window = form_responses::Entity::find()
+                .filter(form_responses::Column::FormId.eq(form_id.as_str()))
+                .filter(form_responses::Column::Status.eq("completed"))
+                .filter(form_responses::Column::SubmittedAt.gt(instant(since)))
+                .filter(form_responses::Column::SubmittedAt.lte(instant(now)));
+            let total = window.clone().count(&db).await?;
+            let total = i64::try_from(total).unwrap_or(i64::MAX);
             if total == 0 {
                 continue;
             }
-            let rows = crate::common::all(
-                &ctx.db,
-                sqlx::query_scalar(
-                    "select to_jsonb(r) from form_responses r where form_id = $1 and status = 'completed' \
-                     and submitted_at > $2::timestamptz and submitted_at <= $3::timestamptz \
-                     order by submitted_at desc limit $4",
-                )
-                .bind(&form_id)
-                .bind(iso(since))
-                .bind(iso(now))
-                .bind(LISTED),
-            )
-            .await?;
-            let mut listed = Vec::new();
-            for row in &rows {
-                let version_id = text(row, "versionId").to_owned();
-                if !versions.contains_key(&version_id) {
-                    let definition: Option<Value> = sqlx::query_scalar(
-                        "select definition from form_versions where id = $1 limit 1",
-                    )
-                    .bind(&version_id)
-                    .fetch_optional(&ctx.db)
-                    .await?;
-                    if let Some(definition) = definition {
-                        versions
-                            .insert(version_id.clone(), FormDefinition::parse(&definition).ok());
-                    }
-                }
-                let first = versions
-                    .get(&version_id)
-                    .and_then(Option::as_ref)
-                    .filter(|def| !has_sensitive_fields(def))
-                    .and_then(|def| answer_pairs(def, &row["answers"], false).into_iter().next());
-                listed.push(DigestItem {
-                    number: row["number"].as_i64(),
-                    respondent: opt_text(row, "respondentEmail"),
-                    summary: first.map(|qa| js_slice(&qa.answer, SUMMARY_CHARS)),
-                });
-            }
+            let rows = rows_json(
+                window
+                    .order_by_desc(form_responses::Column::SubmittedAt)
+                    .limit(LISTED)
+                    .all(&db)
+                    .await?,
+            )?;
+            let listed = digest_items(&db, &rows, &mut versions).await?;
             if send_digest_mail(ctx, &form, member, total, &listed).await? {
                 sent += 1;
-                sqlx::query(
-                    "update form_subscriptions set last_digest_at = $3::timestamptz, updated_at = $3::timestamptz \
-                     where form_id = $1 and user_id = $2",
-                )
-                .bind(&form_id)
-                .bind(&member.user_id)
-                .bind(iso(now))
-                .execute(&ctx.db)
-                .await?;
+                form_subscriptions::Entity::update_many()
+                    .col_expr(
+                        form_subscriptions::Column::LastDigestAt,
+                        Expr::value(instant(now)),
+                    )
+                    .col_expr(
+                        form_subscriptions::Column::UpdatedAt,
+                        Expr::value(instant(now)),
+                    )
+                    .filter(form_subscriptions::Column::FormId.eq(form_id.as_str()))
+                    .filter(form_subscriptions::Column::UserId.eq(member.user_id.as_str()))
+                    .exec(&db)
+                    .await?;
             }
         }
     }
@@ -347,12 +387,17 @@ fn quota_notice_key(workspace_id: &str, month: &str, percent: u8) -> String {
 
 /// `adminsOf(ctx)`: active owners and admins with an address.
 async fn admins_of(db: &PgPool) -> FormsResult<Vec<MemberRecipient>> {
-    let rows: Vec<(String, Option<String>)> = sqlx::query_as(
-        "select user_id, email from workspace_members where role = any($1) and deleted_at is null",
-    )
-    .bind(["OWNER", "ADMIN"].map(str::to_owned).to_vec())
-    .fetch_all(db)
-    .await?;
+    let rows: Vec<(String, Option<String>)> = workspace_members::Entity::find()
+        .select_only()
+        .columns([
+            workspace_members::Column::UserId,
+            workspace_members::Column::Email,
+        ])
+        .filter(workspace_members::Column::Role.is_in(["OWNER", "ADMIN"]))
+        .filter(workspace_members::Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     Ok(rows
         .into_iter()
         .filter_map(|(user_id, email)| {
@@ -419,6 +464,7 @@ pub(crate) async fn send_quota_notices(ctx: &Ctx) -> FormsResult<Option<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::common::iso;
 
     #[test]
     fn the_digest_is_due_at_eight_utc() {

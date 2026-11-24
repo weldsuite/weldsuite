@@ -2,8 +2,9 @@
 //! milestones (`routes/weldhr/performance.ts`, `services/weldhr/performance.ts`).
 //!
 //! Writes that spread the validated body into Drizzle's `.values()` /
-//! `.set()` go through `jsonb_populate_record`: the body's fields as columns,
-//! a column the body left out keeping its value (or its default).
+//! `.set()` go through the entity's [`JsonTable`] (`jsonb_populate_record`):
+//! the body's fields as columns, a column the body left out keeping its
+//! value (or its default).
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -14,6 +15,11 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::IntoResponse;
 use axum::routing::{delete, get, patch, post};
 use http::HeaderMap;
+use sea_orm::sea_query::{Expr, Func, NullOrdering, OnConflict};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, Condition, DbErr, EntityTrait, FromQueryResult, JoinType, Order,
+    QueryFilter, QueryOrder, QuerySelect, Select,
+};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events::{
     HR_COACHING_LOG_CREATED, HR_COACHING_LOG_DELETED, HR_COACHING_LOG_UPDATED,
@@ -25,19 +31,32 @@ use weldsuite_catalogs::permission_keys::{
     COACHING_CREATE, COACHING_DELETE, COACHING_READ, COACHING_UPDATE, EMPLOYEES_MANAGE,
     EVALUATIONS_CREATE, EVALUATIONS_DELETE, EVALUATIONS_READ, EVALUATIONS_UPDATE,
 };
-use weldsuite_db::{PgPool, js_row};
+use weldsuite_db::record::JsonTable;
+use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_kit::validation::{Field, Issues, Presence};
 use weldsuite_kit::{Created, Data, NoContent, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::{
+    hr_coaching_logs, hr_employees, hr_evaluation_forms, hr_evaluations, hr_kpi_definitions,
+    hr_kpi_values, hr_milestones,
+};
 
-use crate::employees::{display_name_of, require_employee};
+use crate::employees::{display_name, require_employee};
 use crate::entity_scope::{Scope, guard, via_employee};
 use crate::fields::{Fields, field_json, id, iso_date, number, short_text, text_max};
+use crate::shared::{row_json, sql_date};
 use crate::{
     Caller, HrError, HrResult, HrState, assert_date_order, company_names, hr_json, js_number,
     js_round, member_names, now, query_date, query_param, query_text, query_values, text,
     today_iso,
 };
+
+const COACHING_LOGS: JsonTable = JsonTable::of::<hr_coaching_logs::Entity>();
+const EVALUATION_FORMS: JsonTable = JsonTable::of::<hr_evaluation_forms::Entity>();
+const EVALUATIONS: JsonTable = JsonTable::of::<hr_evaluations::Entity>();
+const KPI_DEFINITIONS: JsonTable = JsonTable::of::<hr_kpi_definitions::Entity>();
+const KPI_VALUES: JsonTable = JsonTable::of::<hr_kpi_values::Entity>();
+const MILESTONES: JsonTable = JsonTable::of::<hr_milestones::Entity>();
 
 const COACHING_CATEGORIES: [&str; 6] = [
     "performance",
@@ -158,42 +177,128 @@ where
         .route_layer(guard(
             "/coaching",
             "Coaching log",
-            via_employee!("hr_coaching_logs"),
+            via_employee!(hr_coaching_logs),
         ))
         .route_layer(guard(
             "/evaluations",
             "Evaluation",
-            via_employee!("hr_evaluations"),
+            via_employee!(hr_evaluations),
         ))
         .route_layer(guard(
             "/kpi-values",
             "KPI value",
-            via_employee!("hr_kpi_values"),
+            via_employee!(hr_kpi_values),
         ))
         .route_layer(guard(
             "/milestones",
             "Milestone",
-            via_employee!("hr_milestones"),
+            via_employee!(hr_milestones),
         ))
 }
 
 /// The body's present fields, keyed by column, for `jsonb_populate_record`.
-fn record(fields: &[(&str, Option<Value>)]) -> Value {
+fn record(fields: &[(&str, Option<Value>)]) -> Map<String, Value> {
     let mut out = Map::new();
     for (column, value) in fields {
         if let Some(value) = value {
             out.insert((*column).to_owned(), value.clone());
         }
     }
-    Value::Object(out)
+    out
 }
 
-fn employee_name_of(row: &Value) -> String {
-    display_name_of(&json!({
-        "firstName": row["employeeFirstName"],
-        "lastName": row["employeeLastName"],
-        "preferredName": row["employeePreferredName"],
-    }))
+/// `insert into <table> as t (<columns>) select r.<column>, … from
+/// jsonb_populate_record(null::<table>, $1) r returning to_jsonb(t)`: every
+/// one of `columns` is written (NULL where the body has no value), each of
+/// `defaults` as `coalesce(r.<column>, <default>)`.
+async fn insert_record(
+    db: &PgPool,
+    table: JsonTable,
+    mut values: Map<String, Value>,
+    columns: &[&str],
+    defaults: &[(&str, Value)],
+) -> Result<Value, DbErr> {
+    values.retain(|column, _| columns.contains(&column.as_str()));
+    for column in columns {
+        values.entry((*column).to_owned()).or_insert(Value::Null);
+    }
+    for (column, default) in defaults {
+        if values.get(*column).is_none_or(Value::is_null) {
+            values.insert((*column).to_owned(), default.clone());
+        }
+    }
+    table.insert(&orm(db), values).await
+}
+
+/// `update <table> as t set <column> = case when $1 ? '<column>' then
+/// r.<column> else t.<column> end, …, updated_at = $now from
+/// jsonb_populate_record(null::<table>, $1) r where t.id = $id returning
+/// to_jsonb(t)`: the fields `values` has change, and `updated_at` (now,
+/// unless `values` sets it).
+async fn update_record(
+    db: &PgPool,
+    table: JsonTable,
+    id: &str,
+    mut values: Map<String, Value>,
+) -> Result<Value, DbErr> {
+    values
+        .entry("updated_at".to_owned())
+        .or_insert_with(|| json!(now()));
+    table
+        .update(&orm(db), id, values, false)
+        .await?
+        .ok_or_else(|| DbErr::RecordNotFound(format!("{} {id}", table.table_name())))
+}
+
+/// The display name columns of a row's employee
+/// (`jsonb_build_object('employeeFirstName', e.first_name, …)`).
+#[derive(FromQueryResult)]
+struct EmployeeNames {
+    #[sea_orm(alias = "employee_first_name")]
+    first: String,
+    #[sea_orm(alias = "employee_last_name")]
+    last: String,
+    #[sea_orm(alias = "employee_preferred_name")]
+    preferred: Option<String>,
+}
+
+impl EmployeeNames {
+    /// `employeeName(row)`.
+    fn display(&self) -> String {
+        display_name(&self.first, &self.last, self.preferred.as_deref())
+    }
+}
+
+/// `select` joined to its row's employee (`join hr_employees e on e.id =
+/// <employee_id> where e.deleted_at is null`), with [`EmployeeNames`].
+fn with_employee<E: EntityTrait>(select: Select<E>, employee_id: E::Column) -> Select<E> {
+    select
+        .column_as(hr_employees::Column::FirstName, "employee_first_name")
+        .column_as(hr_employees::Column::LastName, "employee_last_name")
+        .column_as(
+            hr_employees::Column::PreferredName,
+            "employee_preferred_name",
+        )
+        .join(
+            JoinType::InnerJoin,
+            E::belongs_to(hr_employees::Entity)
+                .from(employee_id)
+                .to(hr_employees::Column::Id)
+                .into(),
+        )
+        .filter(hr_employees::Column::DeletedAt.is_null())
+}
+
+/// `col = any($statuses)` for a comma separated `status` query.
+fn statuses_of(status: Option<&str>) -> Option<Vec<String>> {
+    status
+        .filter(|s| !s.is_empty())
+        .map(|s| s.split(',').map(str::to_owned).collect())
+}
+
+/// The entity's rows as the API returns them.
+fn rows_json<T: serde::Serialize>(rows: Vec<T>) -> Result<Vec<Value>, DbErr> {
+    rows.into_iter().map(row_json).collect()
 }
 
 /// `{ employeeId, status }` / `{ employeeId, companyId }` event data.
@@ -215,13 +320,9 @@ fn emit(
 
 /// `requireCoachingLog(db, id)`.
 pub(crate) async fn require_coaching_log(db: &PgPool, id: &str) -> Result<Value, HrError> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from hr_coaching_logs t where t.id = $1 and t.deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    row.map(js_row)
+    COACHING_LOGS
+        .find(&orm(db), id, true)
+        .await?
         .ok_or_else(|| HrError::not_found("Coaching log", id))
 }
 
@@ -240,55 +341,83 @@ pub(crate) struct CoachingFilters {
     pub(crate) entity: Scope,
 }
 
+/// A coaching log with its employee's names.
+#[derive(FromQueryResult)]
+struct CoachingRow {
+    #[sea_orm(nested)]
+    log: hr_coaching_logs::Model,
+    #[sea_orm(nested)]
+    employee: EmployeeNames,
+}
+
+/// `c.follow_up_date is not null and c.follow_up_date <= current_date and
+/// c.status <> 'closed'`.
+fn follow_up_due() -> Condition {
+    use hr_coaching_logs::{Column, Entity};
+    use sea_orm::ExprTrait as _;
+    Condition::all()
+        .add(Column::FollowUpDate.is_not_null())
+        .add(Expr::col((Entity, Column::FollowUpDate)).lte(Expr::current_date()))
+        .add(Column::Status.ne("closed"))
+}
+
 pub(crate) async fn list_coaching_logs(
     db: &PgPool,
     filters: &CoachingFilters,
 ) -> Result<Vec<Value>, HrError> {
-    let statuses: Option<Vec<String>> = filters
-        .status
-        .as_deref()
-        .filter(|s| !s.is_empty())
-        .map(|s| s.split(',').map(str::to_owned).collect());
-    let rows: Vec<(Value, Value)> = sqlx::query_as(
-        "select to_jsonb(c), jsonb_build_object('employeeFirstName', e.first_name,
-             'employeeLastName', e.last_name, 'employeePreferredName', e.preferred_name)
-         from hr_coaching_logs c join hr_employees e on e.id = c.employee_id
-         where c.deleted_at is null and e.deleted_at is null
-           and ($1::text is null or c.employee_id = $1)
-           and ($2::text is null or c.company_id = $2)
-           and ($3::text[] is null or c.status = any($3))
-           and ($4::text is null or c.category = $4)
-           and ($5::text is null or c.session_date >= $5::date)
-           and ($6::text is null or c.session_date <= $6::date)
-           and ($7::text[] is null or c.visibility = any($7))
-           and (not $8 or (c.follow_up_date is not null and c.follow_up_date <= current_date and c.status <> 'closed'))
-           and ($9::text[] is null or e.legal_entity_id = any($9)
-                or ($10::boolean and e.legal_entity_id is null))
-         order by c.session_date desc, c.created_at desc limit 1000",
-    )
-    .bind(&filters.employee_id)
-    .bind(&filters.company_id)
-    .bind(&statuses)
-    .bind(&filters.category)
-    .bind(&filters.from)
-    .bind(&filters.to)
-    .bind(&filters.visibilities)
-    .bind(filters.follow_up_due)
-    .bind(filters.entity.ids())
-    .bind(filters.entity.unassigned())
-    .fetch_all(db)
-    .await?;
+    use hr_coaching_logs::Column;
+    let mut logs = with_employee(hr_coaching_logs::Entity::find(), Column::EmployeeId)
+        .filter(Column::DeletedAt.is_null());
+    if let Some(employee_id) = &filters.employee_id {
+        logs = logs.filter(Column::EmployeeId.eq(employee_id.as_str()));
+    }
+    if let Some(company_id) = &filters.company_id {
+        logs = logs.filter(Column::CompanyId.eq(company_id.as_str()));
+    }
+    if let Some(statuses) = statuses_of(filters.status.as_deref()) {
+        logs = logs.filter(Column::Status.is_in(statuses));
+    }
+    if let Some(category) = &filters.category {
+        logs = logs.filter(Column::Category.eq(category.as_str()));
+    }
+    if let Some(from) = &filters.from {
+        logs = logs.filter(Column::SessionDate.gte(sql_date(from)?));
+    }
+    if let Some(to) = &filters.to {
+        logs = logs.filter(Column::SessionDate.lte(sql_date(to)?));
+    }
+    if let Some(visibilities) = &filters.visibilities {
+        logs = logs.filter(Column::Visibility.is_in(visibilities.iter().map(String::as_str)));
+    }
+    if filters.follow_up_due {
+        logs = logs.filter(follow_up_due());
+    }
+    let rows: Vec<CoachingRow> = logs
+        .filter(
+            filters
+                .entity
+                .condition(hr_employees::Column::LegalEntityId),
+        )
+        .order_by_desc(Column::SessionDate)
+        .order_by_desc(Column::CreatedAt)
+        .limit(1000)
+        .into_model()
+        .all(&orm(db))
+        .await?;
     let coaches: Vec<Option<&str>> = rows
         .iter()
-        .map(|(r, _)| r["coach_user_id"].as_str())
+        .map(|r| r.log.coach_user_id.as_deref())
         .collect();
-    let companies: Vec<Option<&str>> = rows.iter().map(|(r, _)| r["company_id"].as_str()).collect();
+    let companies: Vec<Option<&str>> = rows.iter().map(|r| r.log.company_id.as_deref()).collect();
     let coach_names = member_names(db, &coaches).await?;
     let company_name = company_names(db, &companies).await?;
+    let rows: Vec<(Value, String)> = rows
+        .into_iter()
+        .map(|row| Ok((row_json(row.log)?, row.employee.display())))
+        .collect::<Result<_, DbErr>>()?;
     Ok(rows
         .into_iter()
-        .map(|(log, extra)| {
-            let mut log = js_row(log);
+        .map(|(mut log, employee_name)| {
             let coach = if log["coachName"].is_null() {
                 json!(
                     log["coachUserId"]
@@ -304,7 +433,7 @@ pub(crate) async fn list_coaching_logs(
                 .filter(|c| !c.is_empty())
                 .and_then(|c| company_name.get(c).cloned());
             if let Some(map) = log.as_object_mut() {
-                map.insert("employeeName".to_owned(), json!(employee_name_of(&extra)));
+                map.insert("employeeName".to_owned(), json!(employee_name));
                 map.insert("coachName".to_owned(), coach);
                 map.insert("companyName".to_owned(), json!(company));
             }
@@ -500,18 +629,32 @@ async fn create_coaching(
         set_field(&mut input, "action_items", json!([]));
     }
     set_field(&mut input, "id", json!(generate_id("hrcch")));
-    let row: Value = sqlx::query_scalar(
-        "insert into hr_coaching_logs as t (id, employee_id, company_id, coach_user_id, coach_name, session_date,
-             category, topic, notes, action_items, follow_up_date, status, visibility)
-         select r.id, r.employee_id, r.company_id, r.coach_user_id, r.coach_name, r.session_date,
-             coalesce(r.category, 'performance'), r.topic, r.notes, r.action_items, r.follow_up_date,
-             coalesce(r.status, 'open'), coalesce(r.visibility, 'employee')
-         from jsonb_populate_record(null::hr_coaching_logs, $1) r returning to_jsonb(t)",
+    let row = insert_record(
+        db,
+        COACHING_LOGS,
+        record(&input),
+        &[
+            "id",
+            "employee_id",
+            "company_id",
+            "coach_user_id",
+            "coach_name",
+            "session_date",
+            "category",
+            "topic",
+            "notes",
+            "action_items",
+            "follow_up_date",
+            "status",
+            "visibility",
+        ],
+        &[
+            ("category", json!("performance")),
+            ("status", json!("open")),
+            ("visibility", json!("employee")),
+        ],
     )
-    .bind(record(&input))
-    .fetch_one(db)
     .await?;
-    let row = js_row(row);
     emit(
         &caller,
         &state,
@@ -550,29 +693,7 @@ async fn update_coaching(
         existing["followUpDate"].as_str().map(str::to_owned)
     };
     assert_follow_up(&session, follow_up.as_deref())?;
-    let row: Value = sqlx::query_scalar(
-        "update hr_coaching_logs as t set
-             company_id = case when $1 ? 'company_id' then r.company_id else t.company_id end,
-             coach_user_id = case when $1 ? 'coach_user_id' then r.coach_user_id else t.coach_user_id end,
-             coach_name = case when $1 ? 'coach_name' then r.coach_name else t.coach_name end,
-             session_date = case when $1 ? 'session_date' then r.session_date else t.session_date end,
-             category = case when $1 ? 'category' then r.category else t.category end,
-             topic = case when $1 ? 'topic' then r.topic else t.topic end,
-             notes = case when $1 ? 'notes' then r.notes else t.notes end,
-             action_items = case when $1 ? 'action_items' then r.action_items else t.action_items end,
-             follow_up_date = case when $1 ? 'follow_up_date' then r.follow_up_date else t.follow_up_date end,
-             status = case when $1 ? 'status' then r.status else t.status end,
-             visibility = case when $1 ? 'visibility' then r.visibility else t.visibility end,
-             updated_at = $3::timestamp
-         from jsonb_populate_record(null::hr_coaching_logs, $1) r
-         where t.id = $2 returning to_jsonb(t)",
-    )
-    .bind(record(&input))
-    .bind(text(&before, "id"))
-    .bind(now())
-    .fetch_one(db)
-    .await?;
-    let row = js_row(row);
+    let row = update_record(db, COACHING_LOGS, text(&before, "id"), record(&input)).await?;
     emit(
         &caller,
         &state,
@@ -590,10 +711,12 @@ async fn delete_coaching(
 ) -> HrResult {
     let row = require_coaching_log(&caller.db, &id).await?;
     require_coaching_log(&caller.db, &id).await?;
-    sqlx::query("update hr_coaching_logs set deleted_at = $2::timestamp, updated_at = $2::timestamp where id = $1")
-        .bind(&id)
-        .bind(now())
-        .execute(&caller.db)
+    let at = utc_now();
+    hr_coaching_logs::Entity::update_many()
+        .col_expr(hr_coaching_logs::Column::DeletedAt, Expr::value(at))
+        .col_expr(hr_coaching_logs::Column::UpdatedAt, Expr::value(at))
+        .filter(hr_coaching_logs::Column::Id.eq(id.as_str()))
+        .exec(&orm(&caller.db))
         .await?;
     emit(
         &caller,
@@ -612,6 +735,7 @@ pub(crate) async fn acknowledge_coaching_log(
     employee_id: &str,
     comment: Option<&str>,
 ) -> Result<Value, HrError> {
+    use hr_coaching_logs::Column;
     let log = require_coaching_log(db, id).await?;
     if log["employeeId"] != employee_id || log["visibility"] == "internal" {
         return Err(HrError::not_found("Coaching log", id));
@@ -624,18 +748,22 @@ pub(crate) async fn acknowledge_coaching_log(
     } else {
         text(&log, "status")
     };
-    let row: Value = sqlx::query_scalar(
-        "update hr_coaching_logs set acknowledged_at = $2::timestamp, employee_comment = $3, status = $4,
-             updated_at = $2::timestamp
-         where id = $1 returning to_jsonb(hr_coaching_logs)",
-    )
-    .bind(id)
-    .bind(now())
-    .bind(comment)
-    .bind(status)
-    .fetch_one(db)
-    .await?;
-    Ok(js_row(row))
+    let at = utc_now();
+    let row = hr_coaching_logs::Entity::update_many()
+        .col_expr(Column::AcknowledgedAt, Expr::value(at))
+        .col_expr(
+            Column::EmployeeComment,
+            Expr::value(comment.map(str::to_owned)),
+        )
+        .col_expr(Column::Status, Expr::value(status))
+        .col_expr(Column::UpdatedAt, Expr::value(at))
+        .filter(Column::Id.eq(id))
+        .exec_with_returning(&orm(db))
+        .await?
+        .into_iter()
+        .next()
+        .ok_or_else(|| DbErr::RecordNotFound(format!("hr_coaching_logs {id}")))?;
+    Ok(row_json(row)?)
 }
 
 // ---------------------------------------------------------------------------
@@ -643,24 +771,19 @@ pub(crate) async fn acknowledge_coaching_log(
 // ---------------------------------------------------------------------------
 
 async fn list_evaluation_forms(db: &PgPool, include_inactive: bool) -> Result<Vec<Value>, HrError> {
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from hr_evaluation_forms t where t.deleted_at is null and ($1 or t.is_active = true)
-         order by t.name asc",
-    )
-    .bind(include_inactive)
-    .fetch_all(db)
-    .await?;
-    Ok(rows.into_iter().map(js_row).collect())
+    use hr_evaluation_forms::Column;
+    let mut forms = hr_evaluation_forms::Entity::find().filter(Column::DeletedAt.is_null());
+    if !include_inactive {
+        forms = forms.filter(Column::IsActive.eq(true));
+    }
+    let rows = forms.order_by_asc(Column::Name).all(&orm(db)).await?;
+    Ok(rows_json(rows)?)
 }
 
 async fn require_evaluation_form(db: &PgPool, id: &str) -> Result<Value, HrError> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from hr_evaluation_forms t where t.id = $1 and t.deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    row.map(js_row)
+    EVALUATION_FORMS
+        .find(&orm(db), id, true)
+        .await?
         .ok_or_else(|| HrError::not_found("Evaluation form", id))
 }
 
@@ -773,15 +896,15 @@ async fn create_form(caller: Caller, headers: HeaderMap, body: Bytes) -> HrResul
         .unwrap_or_default();
     assert_criteria(&criteria)?;
     set_field(&mut input, "id", json!(generate_id("hrevf")));
-    let row: Value = sqlx::query_scalar(
-        "insert into hr_evaluation_forms as t (id, name, description, criteria, is_active)
-         select r.id, r.name, r.description, r.criteria, coalesce(r.is_active, true)
-         from jsonb_populate_record(null::hr_evaluation_forms, $1) r returning to_jsonb(t)",
+    let row = insert_record(
+        &caller.db,
+        EVALUATION_FORMS,
+        record(&input),
+        &["id", "name", "description", "criteria", "is_active"],
+        &[("is_active", json!(true))],
     )
-    .bind(record(&input))
-    .fetch_one(&caller.db)
     .await?;
-    Ok(Created(js_row(row)).into_response())
+    Ok(Created(row).into_response())
 }
 
 async fn update_form(
@@ -797,30 +920,18 @@ async fn update_form(
     if let Some(criteria) = get_field(&input, "criteria").and_then(Value::as_array) {
         assert_criteria(criteria)?;
     }
-    let row: Value = sqlx::query_scalar(
-        "update hr_evaluation_forms as t set
-             name = case when $1 ? 'name' then r.name else t.name end,
-             description = case when $1 ? 'description' then r.description else t.description end,
-             criteria = case when $1 ? 'criteria' then r.criteria else t.criteria end,
-             is_active = case when $1 ? 'is_active' then r.is_active else t.is_active end,
-             updated_at = $3::timestamp
-         from jsonb_populate_record(null::hr_evaluation_forms, $1) r
-         where t.id = $2 returning to_jsonb(t)",
-    )
-    .bind(record(&input))
-    .bind(&id)
-    .bind(now())
-    .fetch_one(&caller.db)
-    .await?;
-    Ok(Data(js_row(row)).into_response())
+    let row = update_record(&caller.db, EVALUATION_FORMS, &id, record(&input)).await?;
+    Ok(Data(row).into_response())
 }
 
 async fn delete_form(caller: Caller, Path(id): Path<String>) -> HrResult {
     require_evaluation_form(&caller.db, &id).await?;
-    sqlx::query("update hr_evaluation_forms set deleted_at = $2::timestamp, updated_at = $2::timestamp where id = $1")
-        .bind(&id)
-        .bind(now())
-        .execute(&caller.db)
+    let at = utc_now();
+    hr_evaluation_forms::Entity::update_many()
+        .col_expr(hr_evaluation_forms::Column::DeletedAt, Expr::value(at))
+        .col_expr(hr_evaluation_forms::Column::UpdatedAt, Expr::value(at))
+        .filter(hr_evaluation_forms::Column::Id.eq(id.as_str()))
+        .exec(&orm(&caller.db))
         .await?;
     Ok(NoContent.into_response())
 }
@@ -907,13 +1018,9 @@ fn assert_submittable(
 
 /// `requireEvaluation(db, id)`.
 pub(crate) async fn require_evaluation(db: &PgPool, id: &str) -> Result<Value, HrError> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from hr_evaluations t where t.id = $1 and t.deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    row.map(js_row)
+    EVALUATIONS
+        .find(&orm(db), id, true)
+        .await?
         .ok_or_else(|| HrError::not_found("Evaluation", id))
 }
 
@@ -930,52 +1037,104 @@ pub(crate) struct EvaluationFilters {
     pub(crate) entity: Scope,
 }
 
+/// An evaluation with its employee's names and its form's name.
+#[derive(FromQueryResult)]
+struct EvaluationRow {
+    #[sea_orm(nested)]
+    evaluation: hr_evaluations::Model,
+    #[sea_orm(nested)]
+    employee: EmployeeNames,
+    form_name: Option<String>,
+}
+
+/// `coalesce(ev.<column>, ev.created_at::date)`: an evaluation without its
+/// period counts from the day it was made.
+fn evaluation_day(column: hr_evaluations::Column) -> Expr {
+    use hr_evaluations::{Column, Entity};
+    use sea_orm::ExprTrait as _;
+    let created = Expr::col((Entity, Column::CreatedAt)).cast_as("date");
+    Expr::from(Func::coalesce([Expr::col((Entity, column)), created]))
+}
+
+/// `coalesce(ev.period_end, ev.created_at::date) >= $from`.
+fn evaluation_ends_from(from: time::Date) -> Expr {
+    use sea_orm::ExprTrait as _;
+    evaluation_day(hr_evaluations::Column::PeriodEnd).gte(from)
+}
+
+/// `coalesce(ev.period_start, ev.created_at::date) <= $to`.
+fn evaluation_starts_by(to: time::Date) -> Expr {
+    use sea_orm::ExprTrait as _;
+    evaluation_day(hr_evaluations::Column::PeriodStart).lte(to)
+}
+
 pub(crate) async fn list_evaluations(
     db: &PgPool,
     filters: &EvaluationFilters,
 ) -> Result<Vec<Value>, HrError> {
-    let statuses: Option<Vec<String>> = filters
-        .status
-        .as_deref()
-        .filter(|s| !s.is_empty())
-        .map(|s| s.split(',').map(str::to_owned).collect());
-    let rows: Vec<(Value, Value)> = sqlx::query_as(
-        "select to_jsonb(ev), jsonb_build_object('employeeFirstName', e.first_name,
-             'employeeLastName', e.last_name, 'employeePreferredName', e.preferred_name, 'formName', f.name)
-         from hr_evaluations ev join hr_employees e on e.id = ev.employee_id
-         left join hr_evaluation_forms f on f.id = ev.form_id
-         where ev.deleted_at is null and e.deleted_at is null
-           and ($1::text is null or ev.employee_id = $1)
-           and ($2::text is null or ev.company_id = $2)
-           and ($3::text[] is null or ev.status = any($3))
-           and ($4::text is null or ev.form_id = $4)
-           and ($5::text is null or coalesce(ev.period_end, ev.created_at::date) >= $5::date)
-           and ($6::text is null or coalesce(ev.period_start, ev.created_at::date) <= $6::date)
-           and ($7::text[] is null or e.legal_entity_id = any($7)
-                or ($8::boolean and e.legal_entity_id is null))
-         order by ev.created_at desc limit 1000",
-    )
-    .bind(&filters.employee_id)
-    .bind(&filters.company_id)
-    .bind(&statuses)
-    .bind(&filters.form_id)
-    .bind(&filters.from)
-    .bind(&filters.to)
-    .bind(filters.entity.ids())
-    .bind(filters.entity.unassigned())
-    .fetch_all(db)
-    .await?;
+    use hr_evaluations::Column;
+    let mut evaluations = with_employee(hr_evaluations::Entity::find(), Column::EmployeeId)
+        .column_as(hr_evaluation_forms::Column::Name, "form_name")
+        .join(
+            JoinType::LeftJoin,
+            hr_evaluations::Entity::belongs_to(hr_evaluation_forms::Entity)
+                .from(Column::FormId)
+                .to(hr_evaluation_forms::Column::Id)
+                .into(),
+        )
+        .filter(Column::DeletedAt.is_null());
+    if let Some(employee_id) = &filters.employee_id {
+        evaluations = evaluations.filter(Column::EmployeeId.eq(employee_id.as_str()));
+    }
+    if let Some(company_id) = &filters.company_id {
+        evaluations = evaluations.filter(Column::CompanyId.eq(company_id.as_str()));
+    }
+    if let Some(statuses) = statuses_of(filters.status.as_deref()) {
+        evaluations = evaluations.filter(Column::Status.is_in(statuses));
+    }
+    if let Some(form_id) = &filters.form_id {
+        evaluations = evaluations.filter(Column::FormId.eq(form_id.as_str()));
+    }
+    if let Some(from) = &filters.from {
+        evaluations = evaluations.filter(evaluation_ends_from(sql_date(from)?));
+    }
+    if let Some(to) = &filters.to {
+        evaluations = evaluations.filter(evaluation_starts_by(sql_date(to)?));
+    }
+    let rows: Vec<EvaluationRow> = evaluations
+        .filter(
+            filters
+                .entity
+                .condition(hr_employees::Column::LegalEntityId),
+        )
+        .order_by_desc(Column::CreatedAt)
+        .limit(1000)
+        .into_model()
+        .all(&orm(db))
+        .await?;
     let evaluators: Vec<Option<&str>> = rows
         .iter()
-        .map(|(r, _)| r["evaluator_user_id"].as_str())
+        .map(|r| r.evaluation.evaluator_user_id.as_deref())
         .collect();
-    let companies: Vec<Option<&str>> = rows.iter().map(|(r, _)| r["company_id"].as_str()).collect();
+    let companies: Vec<Option<&str>> = rows
+        .iter()
+        .map(|r| r.evaluation.company_id.as_deref())
+        .collect();
     let evaluator_names = member_names(db, &evaluators).await?;
     let company_name = company_names(db, &companies).await?;
+    let rows: Vec<(Value, String, Option<String>)> = rows
+        .into_iter()
+        .map(|row| {
+            Ok((
+                row_json(row.evaluation)?,
+                row.employee.display(),
+                row.form_name,
+            ))
+        })
+        .collect::<Result<_, DbErr>>()?;
     Ok(rows
         .into_iter()
-        .map(|(evaluation, extra)| {
-            let mut evaluation = js_row(evaluation);
+        .map(|(mut evaluation, employee_name, form_name)| {
             let evaluator = if evaluation["evaluatorName"].is_null() {
                 json!(
                     evaluation["evaluatorUserId"]
@@ -991,8 +1150,8 @@ pub(crate) async fn list_evaluations(
                 .filter(|c| !c.is_empty())
                 .and_then(|c| company_name.get(c).cloned());
             if let Some(map) = evaluation.as_object_mut() {
-                map.insert("employeeName".to_owned(), json!(employee_name_of(&extra)));
-                map.insert("formName".to_owned(), extra["formName"].clone());
+                map.insert("employeeName".to_owned(), json!(employee_name));
+                map.insert("formName".to_owned(), json!(form_name));
                 map.insert("evaluatorName".to_owned(), evaluator);
                 map.insert("companyName".to_owned(), json!(company));
             }
@@ -1118,32 +1277,29 @@ async fn create_evaluation(
         .await?
         .get(&caller.user_id)
         .cloned();
-    let now = now();
-    let row: Value = sqlx::query_scalar(
-        "insert into hr_evaluations (id, employee_id, form_id, company_id, evaluator_user_id, evaluator_name,
-             period_start, period_end, criteria, scores, overall_score, summary, shared_with_client, status,
-             submitted_at)
-         values ($1, $2, $3, $4, $5, $6, $7::date, $8::date, $9, $10, $11, $12, $13, $14, $15::timestamp)
-         returning to_jsonb(hr_evaluations)",
-    )
-    .bind(generate_id("hrevl"))
-    .bind(input.employee_id.as_set())
-    .bind(text(&form, "id"))
-    .bind(input.company_id.as_set())
-    .bind(&caller.user_id)
-    .bind(evaluator_name)
-    .bind(input.period_start.as_set())
-    .bind(input.period_end.as_set())
-    .bind(Value::Array(criteria.clone()))
-    .bind(Value::Array(scores.clone()))
-    .bind(overall_score(&criteria, &scores))
-    .bind(input.summary.as_set())
-    .bind(input.shared.as_set().copied().unwrap_or(false))
-    .bind(if submit { "submitted" } else { "draft" })
-    .bind(submit.then_some(now))
-    .fetch_one(db)
+    let now = utc_now();
+    let day = |field: &Field<String>| field.as_set().map(|d| sql_date(d)).transpose();
+    let row = hr_evaluations::Entity::insert(hr_evaluations::ActiveModel {
+        id: Set(generate_id("hrevl")),
+        employee_id: Set(input.employee_id.as_set().cloned().unwrap_or_default()),
+        form_id: Set(text(&form, "id").to_owned()),
+        company_id: Set(input.company_id.as_set().cloned()),
+        evaluator_user_id: Set(Some(caller.user_id.clone())),
+        evaluator_name: Set(evaluator_name),
+        period_start: Set(day(&input.period_start)?),
+        period_end: Set(day(&input.period_end)?),
+        criteria: Set(Value::Array(criteria.clone())),
+        scores: Set(Value::Array(scores.clone())),
+        overall_score: Set(overall_score(&criteria, &scores)),
+        summary: Set(input.summary.as_set().cloned()),
+        shared_with_client: Set(input.shared.as_set().copied().unwrap_or(false)),
+        status: Set(if submit { "submitted" } else { "draft" }.to_owned()),
+        submitted_at: Set(submit.then_some(now)),
+        ..Default::default()
+    })
+    .exec_with_returning(&orm(db))
     .await?;
-    let row = js_row(row);
+    let row = row_json(row)?;
     let event = if row["status"] == "submitted" {
         HR_EVALUATION_SUBMITTED
     } else {
@@ -1192,37 +1348,25 @@ async fn update_evaluation(
         assert_submittable(&criteria, &scores, start.as_deref())?;
         submitting = true;
     }
-    let fields = record(&[
+    let mut fields = record(&[
         ("company_id", field_json(&input.company_id)),
         ("period_start", field_json(&input.period_start)),
         ("period_end", field_json(&input.period_end)),
         ("summary", field_json(&input.summary)),
         ("shared_with_client", field_json(&input.shared)),
     ]);
-    let now = now();
-    let row: Value = sqlx::query_scalar(
-        "update hr_evaluations as t set
-             company_id = case when $1 ? 'company_id' then r.company_id else t.company_id end,
-             period_start = case when $1 ? 'period_start' then r.period_start else t.period_start end,
-             period_end = case when $1 ? 'period_end' then r.period_end else t.period_end end,
-             summary = case when $1 ? 'summary' then r.summary else t.summary end,
-             shared_with_client = case when $1 ? 'shared_with_client' then r.shared_with_client else t.shared_with_client end,
-             scores = $3, overall_score = $4,
-             status = case when $5 then 'submitted' else t.status end,
-             submitted_at = case when $5 then $6::timestamp else t.submitted_at end,
-             updated_at = $6::timestamp
-         from jsonb_populate_record(null::hr_evaluations, $1) r
-         where t.id = $2 returning to_jsonb(t)",
-    )
-    .bind(fields)
-    .bind(&id)
-    .bind(Value::Array(scores.clone()))
-    .bind(overall_score(&criteria, &scores))
-    .bind(submitting)
-    .bind(&now)
-    .fetch_one(db)
-    .await?;
-    let row = js_row(row);
+    fields.insert("scores".to_owned(), Value::Array(scores.clone()));
+    fields.insert(
+        "overall_score".to_owned(),
+        json!(overall_score(&criteria, &scores)),
+    );
+    let at = json!(now());
+    if submitting {
+        fields.insert("status".to_owned(), json!("submitted"));
+        fields.insert("submitted_at".to_owned(), at.clone());
+    }
+    fields.insert("updated_at".to_owned(), at);
+    let row = update_record(db, EVALUATIONS, &id, fields).await?;
     let just_submitted = before["status"] == "draft" && row["status"] == "submitted";
     let event = if just_submitted {
         HR_EVALUATION_SUBMITTED
@@ -1240,10 +1384,12 @@ async fn delete_evaluation(
 ) -> HrResult {
     let row = require_evaluation(&caller.db, &id).await?;
     require_evaluation(&caller.db, &id).await?;
-    sqlx::query("update hr_evaluations set deleted_at = $2::timestamp, updated_at = $2::timestamp where id = $1")
-        .bind(&id)
-        .bind(now())
-        .execute(&caller.db)
+    let at = utc_now();
+    hr_evaluations::Entity::update_many()
+        .col_expr(hr_evaluations::Column::DeletedAt, Expr::value(at))
+        .col_expr(hr_evaluations::Column::UpdatedAt, Expr::value(at))
+        .filter(hr_evaluations::Column::Id.eq(id.as_str()))
+        .exec(&orm(&caller.db))
         .await?;
     emit(
         &caller,
@@ -1269,17 +1415,22 @@ pub(crate) async fn acknowledge_evaluation(
     if row["status"] == "acknowledged" {
         return Err(HrError::conflict("Already acknowledged"));
     }
-    let updated: Value = sqlx::query_scalar(
-        "update hr_evaluations set status = 'acknowledged', acknowledged_at = $2::timestamp,
-             employee_comment = $3, updated_at = $2::timestamp
-         where id = $1 returning to_jsonb(hr_evaluations)",
-    )
-    .bind(id)
-    .bind(now())
-    .bind(comment)
-    .fetch_one(db)
-    .await?;
-    Ok(js_row(updated))
+    let at = utc_now();
+    let updated = hr_evaluations::Entity::update_many()
+        .col_expr(hr_evaluations::Column::Status, Expr::value("acknowledged"))
+        .col_expr(hr_evaluations::Column::AcknowledgedAt, Expr::value(at))
+        .col_expr(
+            hr_evaluations::Column::EmployeeComment,
+            Expr::value(comment.map(str::to_owned)),
+        )
+        .col_expr(hr_evaluations::Column::UpdatedAt, Expr::value(at))
+        .filter(hr_evaluations::Column::Id.eq(id))
+        .exec_with_returning(&orm(db))
+        .await?
+        .into_iter()
+        .next()
+        .ok_or_else(|| DbErr::RecordNotFound(format!("hr_evaluations {id}")))?;
+    Ok(row_json(updated)?)
 }
 
 // ---------------------------------------------------------------------------
@@ -1287,27 +1438,32 @@ pub(crate) async fn acknowledge_evaluation(
 // ---------------------------------------------------------------------------
 
 async fn require_kpi_definition(db: &PgPool, id: &str) -> Result<Value, HrError> {
-    let row: Option<Value> =
-        sqlx::query_scalar("select to_jsonb(t) from hr_kpi_definitions t where t.id = $1 limit 1")
-            .bind(id)
-            .fetch_optional(db)
-            .await?;
-    row.map(js_row).ok_or_else(|| HrError::not_found("KPI", id))
+    KPI_DEFINITIONS
+        .find(&orm(db), id, false)
+        .await?
+        .ok_or_else(|| HrError::not_found("KPI", id))
 }
 
 async fn list_kpis(caller: Caller, RawQuery(query): RawQuery) -> HrResult {
+    use hr_kpi_definitions::Column;
     let q = query_values(query.as_deref());
     let include = query_param(&q, "includeInactive").as_deref() == Some("true");
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from hr_kpi_definitions t
-         where ($1 or t.is_active = true) and ($2::text is null or (t.company_id is null or t.company_id = $2))
-         order by t.name asc",
-    )
-    .bind(include)
-    .bind(query_text(&q, "companyId"))
-    .fetch_all(&caller.db)
-    .await?;
-    let rows: Vec<Value> = rows.into_iter().map(js_row).collect();
+    let mut kpis = hr_kpi_definitions::Entity::find();
+    if !include {
+        kpis = kpis.filter(Column::IsActive.eq(true));
+    }
+    if let Some(company_id) = query_text(&q, "companyId") {
+        kpis = kpis.filter(
+            Condition::any()
+                .add(Column::CompanyId.is_null())
+                .add(Column::CompanyId.eq(company_id)),
+        );
+    }
+    let rows = rows_json(
+        kpis.order_by_asc(Column::Name)
+            .all(&orm(&caller.db))
+            .await?,
+    )?;
     let companies: Vec<Option<&str>> = rows.iter().map(|r| r["companyId"].as_str()).collect();
     let names = company_names(&caller.db, &companies).await?;
     let rows: Vec<Value> = rows
@@ -1403,16 +1559,28 @@ async fn create_kpi(caller: Caller, headers: HeaderMap, body: Bytes) -> HrResult
         .to_owned();
     assert_kpi_target(&unit, get_field(&input, "target").and_then(Value::as_f64))?;
     set_field(&mut input, "id", json!(generate_id("hrkpi")));
-    let row: Value = sqlx::query_scalar(
-        "insert into hr_kpi_definitions as t (id, name, description, unit, direction, target, company_id, is_active)
-         select r.id, r.name, r.description, coalesce(r.unit, 'number'), coalesce(r.direction, 'higher_better'),
-             r.target, r.company_id, coalesce(r.is_active, true)
-         from jsonb_populate_record(null::hr_kpi_definitions, $1) r returning to_jsonb(t)",
+    let row = insert_record(
+        &caller.db,
+        KPI_DEFINITIONS,
+        record(&input),
+        &[
+            "id",
+            "name",
+            "description",
+            "unit",
+            "direction",
+            "target",
+            "company_id",
+            "is_active",
+        ],
+        &[
+            ("unit", json!("number")),
+            ("direction", json!("higher_better")),
+            ("is_active", json!(true)),
+        ],
     )
-    .bind(record(&input))
-    .fetch_one(&caller.db)
     .await?;
-    Ok(Created(js_row(row)).into_response())
+    Ok(Created(row).into_response())
 }
 
 async fn update_kpi(
@@ -1435,46 +1603,34 @@ async fn update_kpi(
         existing["target"].as_f64()
     };
     assert_kpi_target(&unit, target)?;
-    let row: Value = sqlx::query_scalar(
-        "update hr_kpi_definitions as t set
-             name = case when $1 ? 'name' then r.name else t.name end,
-             description = case when $1 ? 'description' then r.description else t.description end,
-             unit = case when $1 ? 'unit' then r.unit else t.unit end,
-             direction = case when $1 ? 'direction' then r.direction else t.direction end,
-             target = case when $1 ? 'target' then r.target else t.target end,
-             company_id = case when $1 ? 'company_id' then r.company_id else t.company_id end,
-             is_active = case when $1 ? 'is_active' then r.is_active else t.is_active end,
-             updated_at = $3::timestamp
-         from jsonb_populate_record(null::hr_kpi_definitions, $1) r
-         where t.id = $2 returning to_jsonb(t)",
-    )
-    .bind(record(&input))
-    .bind(&id)
-    .bind(now())
-    .fetch_one(&caller.db)
-    .await?;
-    Ok(Data(js_row(row)).into_response())
+    let row = update_record(&caller.db, KPI_DEFINITIONS, &id, record(&input)).await?;
+    Ok(Data(row).into_response())
 }
 
 async fn delete_kpi(caller: Caller, Path(id): Path<String>) -> HrResult {
-    let db = &caller.db;
-    require_kpi_definition(db, &id).await?;
-    let used: Option<String> =
-        sqlx::query_scalar("select id from hr_kpi_values where kpi_id = $1 limit 1")
-            .bind(&id)
-            .fetch_optional(db)
-            .await?;
+    let db = orm(&caller.db);
+    require_kpi_definition(&caller.db, &id).await?;
+    let used: Option<String> = hr_kpi_values::Entity::find()
+        .select_only()
+        .column(hr_kpi_values::Column::Id)
+        .filter(hr_kpi_values::Column::KpiId.eq(id.as_str()))
+        .into_tuple()
+        .one(&db)
+        .await?;
     if used.is_some() {
-        sqlx::query("update hr_kpi_definitions set is_active = false, updated_at = $2::timestamp where id = $1")
-            .bind(&id)
-            .bind(now())
-            .execute(db)
+        hr_kpi_definitions::Entity::update_many()
+            .col_expr(hr_kpi_definitions::Column::IsActive, Expr::value(false))
+            .col_expr(
+                hr_kpi_definitions::Column::UpdatedAt,
+                Expr::value(utc_now()),
+            )
+            .filter(hr_kpi_definitions::Column::Id.eq(id.as_str()))
+            .exec(&db)
             .await?;
         return Ok(Data(json!({ "archived": true })).into_response());
     }
-    sqlx::query("delete from hr_kpi_definitions where id = $1")
-        .bind(&id)
-        .execute(db)
+    hr_kpi_definitions::Entity::delete_by_id(id)
+        .exec(&db)
         .await?;
     Ok(Data(json!({ "archived": false })).into_response())
 }
@@ -1493,54 +1649,78 @@ pub(crate) async fn list_kpi_values(
     to: Option<&str>,
     scope: &Scope,
 ) -> Result<Vec<Value>, HrError> {
-    let rows: Vec<(Value, Value)> = sqlx::query_as(
-        "select to_jsonb(v), jsonb_build_object('employeeFirstName', e.first_name,
-             'employeeLastName', e.last_name, 'employeePreferredName', e.preferred_name,
-             'kpiName', d.name, 'unit', d.unit, 'direction', d.direction, 'target', d.target)
-         from hr_kpi_values v join hr_employees e on e.id = v.employee_id
-         join hr_kpi_definitions d on d.id = v.kpi_id
-         where e.deleted_at is null
-           and ($1::text is null or v.employee_id = $1)
-           and ($2::text is null or v.kpi_id = $2)
-           and ($3::text is null or v.company_id = $3)
-           and ($4::text is null or v.period_end >= $4::date)
-           and ($5::text is null or v.period_start <= $5::date)
-           and ($6::text[] is null or e.legal_entity_id = any($6)
-                or ($7::boolean and e.legal_entity_id is null))
-         order by v.period_start desc, d.name asc limit 5000",
-    )
-    .bind(employee_id)
-    .bind(kpi_id)
-    .bind(company_id)
-    .bind(from)
-    .bind(to)
-    .bind(scope.ids())
-    .bind(scope.unassigned())
-    .fetch_all(db)
-    .await?;
-    Ok(rows
-        .into_iter()
-        .map(|(value, extra)| {
-            let mut value = js_row(value);
-            let on_target = extra["target"].as_f64().map(|target| {
-                let v = value["value"].as_f64().unwrap_or(f64::NAN);
-                if extra["direction"] == "lower_better" {
-                    v <= target
-                } else {
-                    v >= target
-                }
-            });
-            if let Some(map) = value.as_object_mut() {
-                map.insert("employeeName".to_owned(), json!(employee_name_of(&extra)));
-                map.insert("kpiName".to_owned(), extra["kpiName"].clone());
-                map.insert("unit".to_owned(), extra["unit"].clone());
-                map.insert("direction".to_owned(), extra["direction"].clone());
-                map.insert("target".to_owned(), extra["target"].clone());
-                map.insert("onTarget".to_owned(), json!(on_target));
+    use hr_kpi_values::Column;
+    let mut values = with_employee(hr_kpi_values::Entity::find(), Column::EmployeeId)
+        .column_as(hr_kpi_definitions::Column::Name, "kpi_name")
+        .column_as(hr_kpi_definitions::Column::Unit, "kpi_unit")
+        .column_as(hr_kpi_definitions::Column::Direction, "kpi_direction")
+        .column_as(hr_kpi_definitions::Column::Target, "kpi_target")
+        .join(
+            JoinType::InnerJoin,
+            hr_kpi_values::Entity::belongs_to(hr_kpi_definitions::Entity)
+                .from(Column::KpiId)
+                .to(hr_kpi_definitions::Column::Id)
+                .into(),
+        );
+    if let Some(employee_id) = employee_id {
+        values = values.filter(Column::EmployeeId.eq(employee_id));
+    }
+    if let Some(kpi_id) = kpi_id {
+        values = values.filter(Column::KpiId.eq(kpi_id));
+    }
+    if let Some(company_id) = company_id {
+        values = values.filter(Column::CompanyId.eq(company_id));
+    }
+    if let Some(from) = from {
+        values = values.filter(Column::PeriodEnd.gte(sql_date(from)?));
+    }
+    if let Some(to) = to {
+        values = values.filter(Column::PeriodStart.lte(sql_date(to)?));
+    }
+    let rows: Vec<KpiValueRow> = values
+        .filter(scope.condition(hr_employees::Column::LegalEntityId))
+        .order_by_desc(Column::PeriodStart)
+        .order_by_asc(hr_kpi_definitions::Column::Name)
+        .limit(5000)
+        .into_model()
+        .all(&orm(db))
+        .await?;
+    let mut out = Vec::with_capacity(rows.len());
+    for row in rows {
+        let on_target = row.kpi_target.map(|target| {
+            let v = row.value.value;
+            if row.kpi_direction == "lower_better" {
+                v <= target
+            } else {
+                v >= target
             }
-            value
-        })
-        .collect())
+        });
+        let employee_name = row.employee.display();
+        let mut value = row_json(row.value)?;
+        if let Some(map) = value.as_object_mut() {
+            map.insert("employeeName".to_owned(), json!(employee_name));
+            map.insert("kpiName".to_owned(), json!(row.kpi_name));
+            map.insert("unit".to_owned(), json!(row.kpi_unit));
+            map.insert("direction".to_owned(), json!(row.kpi_direction));
+            map.insert("target".to_owned(), json!(row.kpi_target));
+            map.insert("onTarget".to_owned(), json!(on_target));
+        }
+        out.push(value);
+    }
+    Ok(out)
+}
+
+/// A KPI value with its employee's names and its KPI.
+#[derive(FromQueryResult)]
+struct KpiValueRow {
+    #[sea_orm(nested)]
+    value: hr_kpi_values::Model,
+    #[sea_orm(nested)]
+    employee: EmployeeNames,
+    kpi_name: String,
+    kpi_unit: String,
+    kpi_direction: String,
+    kpi_target: Option<f64>,
 }
 
 async fn list_kpi_values_route(caller: Caller, RawQuery(query): RawQuery) -> HrResult {
@@ -1559,12 +1739,9 @@ async fn list_kpi_values_route(caller: Caller, RawQuery(query): RawQuery) -> HrR
 }
 
 async fn require_kpi_value(db: &PgPool, id: &str) -> Result<Value, HrError> {
-    let row: Option<Value> =
-        sqlx::query_scalar("select to_jsonb(t) from hr_kpi_values t where t.id = $1 limit 1")
-            .bind(id)
-            .fetch_optional(db)
-            .await?;
-    row.map(js_row)
+    KPI_VALUES
+        .find(&orm(db), id, false)
+        .await?
         .ok_or_else(|| HrError::not_found("KPI value", id))
 }
 
@@ -1648,17 +1825,25 @@ async fn create_kpi_value(
     set_field(&mut input, "id", json!(generate_id("hrkpv")));
     set_field(&mut input, "source", json!("manual"));
     set_field(&mut input, "created_by", json!(caller.user_id));
-    let row: Value = sqlx::query_scalar(
-        "insert into hr_kpi_values as t (id, kpi_id, employee_id, company_id, period_start, period_end, value,
-             source, shared_with_client, created_by)
-         select r.id, r.kpi_id, r.employee_id, r.company_id, r.period_start, r.period_end, r.value, r.source,
-             r.shared_with_client, r.created_by
-         from jsonb_populate_record(null::hr_kpi_values, $1) r returning to_jsonb(t)",
+    let row = insert_record(
+        db,
+        KPI_VALUES,
+        record(&input),
+        &[
+            "id",
+            "kpi_id",
+            "employee_id",
+            "company_id",
+            "period_start",
+            "period_end",
+            "value",
+            "source",
+            "shared_with_client",
+            "created_by",
+        ],
+        &[],
     )
-    .bind(record(&input))
-    .fetch_one(db)
     .await?;
-    let row = js_row(row);
     emit(
         &caller,
         &state,
@@ -1691,23 +1876,7 @@ async fn update_kpi_value(
             .or(existing["periodEnd"].as_str()),
         "KPI period",
     )?;
-    let row: Value = sqlx::query_scalar(
-        "update hr_kpi_values as t set
-             company_id = case when $1 ? 'company_id' then r.company_id else t.company_id end,
-             period_start = case when $1 ? 'period_start' then r.period_start else t.period_start end,
-             period_end = case when $1 ? 'period_end' then r.period_end else t.period_end end,
-             value = case when $1 ? 'value' then r.value else t.value end,
-             shared_with_client = case when $1 ? 'shared_with_client' then r.shared_with_client else t.shared_with_client end,
-             updated_at = $3::timestamp
-         from jsonb_populate_record(null::hr_kpi_values, $1) r
-         where t.id = $2 returning to_jsonb(t)",
-    )
-    .bind(record(&input))
-    .bind(text(&before, "id"))
-    .bind(now())
-    .fetch_one(db)
-    .await?;
-    let row = js_row(row);
+    let row = update_record(db, KPI_VALUES, text(&before, "id"), record(&input)).await?;
     emit(
         &caller,
         &state,
@@ -1725,9 +1894,8 @@ async fn delete_kpi_value(
 ) -> HrResult {
     let row = require_kpi_value(&caller.db, &id).await?;
     require_kpi_value(&caller.db, &id).await?;
-    sqlx::query("delete from hr_kpi_values where id = $1")
-        .bind(&id)
-        .execute(&caller.db)
+    hr_kpi_values::Entity::delete_by_id(id)
+        .exec(&orm(&caller.db))
         .await?;
     emit(
         &caller,
@@ -1790,46 +1958,43 @@ async fn import_kpi_values(caller: Caller, headers: HeaderMap, body: Bytes) -> H
             errors.push(json!({ "row": index + 1, "reason": format!("No employee matches \"{employee}\"") }));
             continue;
         };
-        let existing: Option<String> = sqlx::query_scalar(
-            "select id from hr_kpi_values where kpi_id = $1 and employee_id = $2 and period_start = $3::date
-               and period_end = $4::date limit 1",
-        )
-        .bind(&kpi_id)
-        .bind(&employee_id)
-        .bind(&start)
-        .bind(&end)
-        .fetch_optional(db)
-        .await?;
-        if let Some(existing) = existing {
-            sqlx::query(
-                "update hr_kpi_values set value = $2, company_id = $3, shared_with_client = $4, source = 'import',
-                     updated_at = $5::timestamp
-                 where id = $1",
-            )
-            .bind(&existing)
-            .bind(value)
-            .bind(&company)
-            .bind(shared)
-            .bind(now())
-            .execute(db)
+        let (period_start, period_end) = (sql_date(&start)?, sql_date(&end)?);
+        let existing: Option<String> = hr_kpi_values::Entity::find()
+            .select_only()
+            .column(hr_kpi_values::Column::Id)
+            .filter(hr_kpi_values::Column::KpiId.eq(kpi_id.as_str()))
+            .filter(hr_kpi_values::Column::EmployeeId.eq(employee_id.as_str()))
+            .filter(hr_kpi_values::Column::PeriodStart.eq(period_start))
+            .filter(hr_kpi_values::Column::PeriodEnd.eq(period_end))
+            .into_tuple()
+            .one(&orm(db))
             .await?;
+        if let Some(existing) = existing {
+            hr_kpi_values::Entity::update_many()
+                .col_expr(hr_kpi_values::Column::Value, Expr::value(value))
+                .col_expr(hr_kpi_values::Column::CompanyId, Expr::value(company))
+                .col_expr(hr_kpi_values::Column::SharedWithClient, Expr::value(shared))
+                .col_expr(hr_kpi_values::Column::Source, Expr::value("import"))
+                .col_expr(hr_kpi_values::Column::UpdatedAt, Expr::value(utc_now()))
+                .filter(hr_kpi_values::Column::Id.eq(existing))
+                .exec(&orm(db))
+                .await?;
             updated += 1;
         } else {
-            sqlx::query(
-                "insert into hr_kpi_values (id, kpi_id, employee_id, company_id, period_start, period_end, value,
-                     shared_with_client, source, created_by)
-                 values ($1, $2, $3, $4, $5::date, $6::date, $7, $8, 'import', $9)",
-            )
-            .bind(generate_id("hrkpv"))
-            .bind(&kpi_id)
-            .bind(&employee_id)
-            .bind(&company)
-            .bind(&start)
-            .bind(&end)
-            .bind(value)
-            .bind(shared)
-            .bind(&caller.user_id)
-            .execute(db)
+            hr_kpi_values::Entity::insert(hr_kpi_values::ActiveModel {
+                id: Set(generate_id("hrkpv")),
+                kpi_id: Set(kpi_id.clone()),
+                employee_id: Set(employee_id),
+                company_id: Set(company),
+                period_start: Set(period_start),
+                period_end: Set(period_end),
+                value: Set(value),
+                shared_with_client: Set(shared),
+                source: Set("import".to_owned()),
+                created_by: Set(Some(caller.user_id.clone())),
+                ..Default::default()
+            })
+            .exec_without_returning(&orm(db))
             .await?;
             created += 1;
         }
@@ -1842,14 +2007,19 @@ async fn import_kpi_values(caller: Caller, headers: HeaderMap, body: Bytes) -> H
 // ---------------------------------------------------------------------------
 
 async fn require_milestone(db: &PgPool, id: &str) -> Result<Value, HrError> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from hr_milestones t where t.id = $1 and t.deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    row.map(js_row)
+    MILESTONES
+        .find(&orm(db), id, true)
+        .await?
         .ok_or_else(|| HrError::not_found("Milestone", id))
+}
+
+/// A milestone with its employee's names.
+#[derive(FromQueryResult)]
+struct MilestoneRow {
+    #[sea_orm(nested)]
+    milestone: hr_milestones::Model,
+    #[sea_orm(nested)]
+    employee: EmployeeNames,
 }
 
 /// `listMilestones(db, filters)`; `scope` is the request's entity scope.
@@ -1860,40 +2030,44 @@ pub(crate) async fn list_milestones(
     status: Option<&str>,
     scope: &Scope,
 ) -> Result<Vec<Value>, HrError> {
-    let statuses: Option<Vec<String>> = status
-        .filter(|s| !s.is_empty())
-        .map(|s| s.split(',').map(str::to_owned).collect());
-    let rows: Vec<(Value, Value)> = sqlx::query_as(
-        "select to_jsonb(m), jsonb_build_object('employeeFirstName', e.first_name,
-             'employeeLastName', e.last_name, 'employeePreferredName', e.preferred_name)
-         from hr_milestones m join hr_employees e on e.id = m.employee_id
-         where m.deleted_at is null and e.deleted_at is null
-           and ($1::text is null or m.employee_id = $1)
-           and ($2::text is null or m.company_id = $2)
-           and ($3::text[] is null or m.status = any($3))
-           and ($4::text[] is null or e.legal_entity_id = any($4)
-                or ($5::boolean and e.legal_entity_id is null))
-         order by m.due_date asc nulls last, m.created_at desc limit 1000",
-    )
-    .bind(employee_id)
-    .bind(company_id)
-    .bind(&statuses)
-    .bind(scope.ids())
-    .bind(scope.unassigned())
-    .fetch_all(db)
-    .await?;
-    let companies: Vec<Option<&str>> = rows.iter().map(|(r, _)| r["company_id"].as_str()).collect();
+    use hr_milestones::Column;
+    let mut milestones = with_employee(hr_milestones::Entity::find(), Column::EmployeeId)
+        .filter(Column::DeletedAt.is_null());
+    if let Some(employee_id) = employee_id {
+        milestones = milestones.filter(Column::EmployeeId.eq(employee_id));
+    }
+    if let Some(company_id) = company_id {
+        milestones = milestones.filter(Column::CompanyId.eq(company_id));
+    }
+    if let Some(statuses) = statuses_of(status) {
+        milestones = milestones.filter(Column::Status.is_in(statuses));
+    }
+    let rows: Vec<MilestoneRow> = milestones
+        .filter(scope.condition(hr_employees::Column::LegalEntityId))
+        .order_by_with_nulls(Column::DueDate, Order::Asc, NullOrdering::Last)
+        .order_by_desc(Column::CreatedAt)
+        .limit(1000)
+        .into_model()
+        .all(&orm(db))
+        .await?;
+    let companies: Vec<Option<&str>> = rows
+        .iter()
+        .map(|r| r.milestone.company_id.as_deref())
+        .collect();
     let names = company_names(db, &companies).await?;
+    let rows: Vec<(Value, String)> = rows
+        .into_iter()
+        .map(|row| Ok((row_json(row.milestone)?, row.employee.display())))
+        .collect::<Result<_, DbErr>>()?;
     Ok(rows
         .into_iter()
-        .map(|(milestone, extra)| {
-            let mut milestone = js_row(milestone);
+        .map(|(mut milestone, employee_name)| {
             let company = milestone["companyId"]
                 .as_str()
                 .filter(|c| !c.is_empty())
                 .and_then(|c| names.get(c).cloned());
             if let Some(map) = milestone.as_object_mut() {
-                map.insert("employeeName".to_owned(), json!(employee_name_of(&extra)));
+                map.insert("employeeName".to_owned(), json!(employee_name));
                 map.insert("companyName".to_owned(), json!(company));
             }
             milestone
@@ -2043,18 +2217,30 @@ async fn create_milestone(
     let mut input = reconcile_milestone(with_achieved_date(input), "planned", None)?;
     set_field(&mut input, "id", json!(generate_id("hrmil")));
     set_field(&mut input, "created_by", json!(caller.user_id));
-    let row: Value = sqlx::query_scalar(
-        "insert into hr_milestones as t (id, employee_id, company_id, title, description, type, status, due_date,
-             achieved_at, shared_with_client, created_by)
-         select r.id, r.employee_id, r.company_id, r.title, r.description, coalesce(r.type, 'milestone'),
-             coalesce(r.status, 'planned'), r.due_date, r.achieved_at, coalesce(r.shared_with_client, false),
-             r.created_by
-         from jsonb_populate_record(null::hr_milestones, $1) r returning to_jsonb(t)",
+    let row = insert_record(
+        db,
+        MILESTONES,
+        record(&input),
+        &[
+            "id",
+            "employee_id",
+            "company_id",
+            "title",
+            "description",
+            "type",
+            "status",
+            "due_date",
+            "achieved_at",
+            "shared_with_client",
+            "created_by",
+        ],
+        &[
+            ("type", json!("milestone")),
+            ("status", json!("planned")),
+            ("shared_with_client", json!(false)),
+        ],
     )
-    .bind(record(&input))
-    .fetch_one(db)
     .await?;
-    let row = js_row(row);
     let event = if row["status"] == "achieved" {
         HR_MILESTONE_ACHIEVED
     } else {
@@ -2084,26 +2270,7 @@ async fn update_milestone(
         with_achieved_date(input)
     };
     let patch = reconcile_milestone(input, text(&existing, "status"), achieved)?;
-    let row: Value = sqlx::query_scalar(
-        "update hr_milestones as t set
-             company_id = case when $1 ? 'company_id' then r.company_id else t.company_id end,
-             title = case when $1 ? 'title' then r.title else t.title end,
-             description = case when $1 ? 'description' then r.description else t.description end,
-             type = case when $1 ? 'type' then r.type else t.type end,
-             status = case when $1 ? 'status' then r.status else t.status end,
-             due_date = case when $1 ? 'due_date' then r.due_date else t.due_date end,
-             achieved_at = case when $1 ? 'achieved_at' then r.achieved_at else t.achieved_at end,
-             shared_with_client = case when $1 ? 'shared_with_client' then r.shared_with_client else t.shared_with_client end,
-             updated_at = $3::timestamp
-         from jsonb_populate_record(null::hr_milestones, $1) r
-         where t.id = $2 returning to_jsonb(t)",
-    )
-    .bind(record(&patch))
-    .bind(text(&before, "id"))
-    .bind(now())
-    .fetch_one(db)
-    .await?;
-    let row = js_row(row);
+    let row = update_record(db, MILESTONES, text(&before, "id"), record(&patch)).await?;
     let just_achieved = existing["status"] != "achieved" && row["status"] == "achieved";
     let event = if just_achieved {
         HR_MILESTONE_ACHIEVED
@@ -2121,10 +2288,12 @@ async fn delete_milestone(
 ) -> HrResult {
     let row = require_milestone(&caller.db, &id).await?;
     require_milestone(&caller.db, &id).await?;
-    sqlx::query("update hr_milestones set deleted_at = $2::timestamp, updated_at = $2::timestamp where id = $1")
-        .bind(&id)
-        .bind(now())
-        .execute(&caller.db)
+    let at = utc_now();
+    hr_milestones::Entity::update_many()
+        .col_expr(hr_milestones::Column::DeletedAt, Expr::value(at))
+        .col_expr(hr_milestones::Column::UpdatedAt, Expr::value(at))
+        .filter(hr_milestones::Column::Id.eq(id.as_str()))
+        .exec(&orm(&caller.db))
         .await?;
     emit(&caller, &state, HR_MILESTONE_DELETED, &row, &["employeeId"]);
     Ok(NoContent.into_response())
@@ -2136,8 +2305,17 @@ async fn delete_milestone(
 
 /// `ensureDefaultEvaluationForm(db)`: the starter scorecard.
 pub(crate) async fn ensure_default_evaluation_form(db: &PgPool) -> Result<(), HrError> {
-    let existing: Option<String> = sqlx::query_scalar("select id from hr_evaluation_forms limit 1")
-        .fetch_optional(db)
+    // Boxed: the ORM's futures are large, and the seed runs four at once.
+    Box::pin(default_evaluation_form(db)).await
+}
+
+async fn default_evaluation_form(db: &PgPool) -> Result<(), HrError> {
+    let db = orm(db);
+    let existing: Option<String> = hr_evaluation_forms::Entity::find()
+        .select_only()
+        .column(hr_evaluation_forms::Column::Id)
+        .into_tuple()
+        .one(&db)
         .await?;
     if existing.is_some() {
         return Ok(());
@@ -2149,34 +2327,88 @@ pub(crate) async fn ensure_default_evaluation_form(db: &PgPool) -> Result<(), Hr
         { "id": "reliability", "label": "Attendance and reliability", "weight": 15, "maxScore": 5 },
         { "id": "teamwork", "label": "Teamwork", "weight": 10, "maxScore": 5 },
     ]);
-    sqlx::query(
-        "insert into hr_evaluation_forms (id, name, description, criteria)
-         values ('hrevf_default_scorecard', 'Quality scorecard', 'Monthly quality and performance review.', $1)
-         on conflict do nothing",
-    )
-    .bind(criteria)
-    .execute(db)
+    hr_evaluation_forms::Entity::insert(hr_evaluation_forms::ActiveModel {
+        id: Set("hrevf_default_scorecard".to_owned()),
+        name: Set("Quality scorecard".to_owned()),
+        description: Set(Some("Monthly quality and performance review.".to_owned())),
+        criteria: Set(criteria),
+        ..Default::default()
+    })
+    .on_conflict(OnConflict::new().do_nothing().to_owned())
+    .exec_without_returning(&db)
     .await?;
     Ok(())
 }
 
 /// `ensureDefaultKpis(db)`: the starter KPI definitions.
 pub(crate) async fn ensure_default_kpis(db: &PgPool) -> Result<(), HrError> {
-    let existing: Option<String> = sqlx::query_scalar("select id from hr_kpi_definitions limit 1")
-        .fetch_optional(db)
+    // Boxed, as [`ensure_default_evaluation_form`].
+    Box::pin(default_kpis(db)).await
+}
+
+async fn default_kpis(db: &PgPool) -> Result<(), HrError> {
+    let db = orm(db);
+    let existing: Option<String> = hr_kpi_definitions::Entity::find()
+        .select_only()
+        .column(hr_kpi_definitions::Column::Id)
+        .into_tuple()
+        .one(&db)
         .await?;
     if existing.is_some() {
         return Ok(());
     }
-    sqlx::query(
-        "insert into hr_kpi_definitions (id, name, unit, direction, target, description) values
-             ('hrkpi_default_csat', 'CSAT', 'percent', 'higher_better', 90, 'Customer satisfaction score'),
-             ('hrkpi_default_quality', 'Quality score', 'percent', 'higher_better', 85, null),
-             ('hrkpi_default_aht', 'Average handle time', 'seconds', 'lower_better', 360, null),
-             ('hrkpi_default_fcr', 'First contact resolution', 'percent', 'higher_better', 75, null)
-         on conflict do nothing",
-    )
-    .execute(db)
+    let kpi = |id: &str,
+               name: &str,
+               unit: &str,
+               direction: &str,
+               target: f64,
+               description: Option<&str>| {
+        hr_kpi_definitions::ActiveModel {
+            id: Set(id.to_owned()),
+            name: Set(name.to_owned()),
+            unit: Set(unit.to_owned()),
+            direction: Set(direction.to_owned()),
+            target: Set(Some(target)),
+            description: Set(description.map(str::to_owned)),
+            ..Default::default()
+        }
+    };
+    hr_kpi_definitions::Entity::insert_many([
+        kpi(
+            "hrkpi_default_csat",
+            "CSAT",
+            "percent",
+            "higher_better",
+            90.0,
+            Some("Customer satisfaction score"),
+        ),
+        kpi(
+            "hrkpi_default_quality",
+            "Quality score",
+            "percent",
+            "higher_better",
+            85.0,
+            None,
+        ),
+        kpi(
+            "hrkpi_default_aht",
+            "Average handle time",
+            "seconds",
+            "lower_better",
+            360.0,
+            None,
+        ),
+        kpi(
+            "hrkpi_default_fcr",
+            "First contact resolution",
+            "percent",
+            "higher_better",
+            75.0,
+            None,
+        ),
+    ])
+    .on_conflict(OnConflict::new().do_nothing().to_owned())
+    .exec_without_returning(&db)
     .await?;
     Ok(())
 }

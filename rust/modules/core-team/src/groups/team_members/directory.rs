@@ -18,13 +18,25 @@ use axum::extract::{Path, RawQuery};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use http::HeaderMap;
+use sea_orm::ActiveValue::Set;
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ColumnTrait, Condition, DbErr, EntityTrait, FromQueryResult, PaginatorTrait, QueryFilter,
+    QueryOrder, QuerySelect, Select,
+};
 use serde_json::{Map, Value, json};
-use weldsuite_db::{PgPool, js_row, js_timestamp};
+use time::OffsetDateTime;
+use weldsuite_db::{PgPool, orm, utc_now, utc_timestamp};
 use weldsuite_kit::validation::{Presence, Text};
 use weldsuite_kit::{ApiError, Data, List, Pagination, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries, role_row_permissions};
+use weldsuite_schema::tenant::{
+    roles, user_app_assignments as assignments, workspace_installed_apps as installed,
+    workspace_members as members,
+};
 
-use crate::{Caller, CoreTeamState, TeamError, TeamResult, answer, now, validate};
+use crate::access::js;
+use crate::{Caller, CoreTeamState, TeamError, TeamResult, answer, validate};
 
 #[path = "directory_profile.rs"]
 mod directory_profile;
@@ -52,20 +64,18 @@ where
 }
 
 /// `error.internal(c, message)` for a failed query.
-pub(super) fn failed(message: &'static str) -> impl FnOnce(sqlx::Error) -> TeamError {
+pub(super) fn failed(message: &'static str) -> impl FnOnce(DbErr) -> TeamError {
     move |error| TeamError::internal(message, error)
 }
 
 /// A member row (`select()`), as Drizzle returns it.
-async fn member_by_id(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(m) from workspace_members m
-         where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(js_row))
+async fn member_by_id(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
+    members::Entity::find_by_id(id)
+        .filter(members::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?
+        .map(js)
+        .transpose()
 }
 
 // ── visibility ──────────────────────────────────────────────────────────────
@@ -107,18 +117,42 @@ async fn me(caller: Caller) -> Response {
     answer(me_inner(&caller).await)
 }
 
+/// What `GET /me` selects of the caller's row (`picture` comes after).
+#[derive(Debug, FromQueryResult, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Me {
+    id: String,
+    user_id: String,
+    email: Option<String>,
+    name: Option<String>,
+    role: String,
+    role_id: Option<String>,
+    permissions: Option<Value>,
+    status: String,
+    member_type: String,
+}
+
 async fn me_inner(caller: &Caller) -> TeamResult<Response> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select jsonb_build_object(
-             'id', id, 'userId', user_id, 'email', email, 'name', name,
-             'picture', null, 'role', role, 'roleId', role_id,
-             'permissions', permissions, 'status', status, 'memberType', member_type)
-         from workspace_members where user_id = $1 and deleted_at is null limit 1",
-    )
-    .bind(&caller.user_id)
-    .fetch_optional(&caller.db)
-    .await
-    .map_err(failed("Failed to fetch current member"))?;
+    let row = members::Entity::find()
+        .select_only()
+        .columns([
+            members::Column::Id,
+            members::Column::UserId,
+            members::Column::Email,
+            members::Column::Name,
+            members::Column::Role,
+            members::Column::RoleId,
+            members::Column::Permissions,
+            members::Column::Status,
+            members::Column::MemberType,
+        ])
+        .filter(members::Column::UserId.eq(&caller.user_id))
+        .filter(members::Column::DeletedAt.is_null())
+        .into_model::<Me>()
+        .one(&orm(&caller.db))
+        .await
+        .and_then(|row| row.map(js).transpose())
+        .map_err(failed("Failed to fetch current member"))?;
     match row {
         Some(mut row) => {
             // The avatar is the account picture, not the member row's copy.
@@ -263,39 +297,69 @@ struct Page {
     pagination: Pagination,
 }
 
+/// The list's filters (`and(...)`), without the keyset; `deleted_at is null`
+/// only when `live`.
+fn filtered(
+    live: bool,
+    status: Option<&str>,
+    member_type: Option<&str>,
+    search: Option<&str>,
+) -> Select<members::Entity> {
+    let mut select = members::Entity::find();
+    if live {
+        select = select.filter(members::Column::DeletedAt.is_null());
+    }
+    if let Some(status) = status {
+        select = select.filter(members::Column::Status.eq(status));
+    }
+    if let Some(member_type) = member_type {
+        select = select.filter(members::Column::MemberType.eq(member_type));
+    }
+    if let Some(search) = search {
+        select = select.filter(
+            Condition::any()
+                .add(members::Column::Name.like(search))
+                .add(members::Column::Email.like(search)),
+        );
+    }
+    select
+}
+
 /// `listMembers`, its keyset cursor and its count included.
-async fn list_members(db: &PgPool, f: ListFilters<'_>, limit: i64) -> Result<Page, sqlx::Error> {
-    let keyset: Option<(String, String)> = match f.cursor {
-        Some(cursor) => {
-            sqlx::query_as(
-                "select date_trunc('milliseconds', created_at)::text, id
-                 from workspace_members where id = $1 limit 1",
-            )
-            .bind(cursor)
-            .fetch_optional(db)
+async fn list_members(db: &PgPool, f: ListFilters<'_>, limit: i64) -> Result<Page, DbErr> {
+    let orm = orm(db);
+    // The cursor row's `createdAt`, to the millisecond as the route's `Date`.
+    let keyset: Option<(OffsetDateTime, String)> = match f.cursor {
+        Some(cursor) => members::Entity::find_by_id(cursor)
+            .select_only()
+            .columns([members::Column::CreatedAt, members::Column::Id])
+            .into_tuple::<(OffsetDateTime, String)>()
+            .one(&orm)
             .await?
-        }
+            .map(|(at, id)| (utc_timestamp(at).assume_utc(), id)),
         None => None,
     };
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(m) from workspace_members m
-         where deleted_at is null
-           and ($1::text is null or status = $1)
-           and ($2::text is null or member_type = $2)
-           and ($3::text is null or name like $3 or email like $3)
-           and ($4::timestamptz is null or created_at < $4::timestamptz
-                or (created_at = $4::timestamptz and id < $5))
-         order by created_at desc, id desc
-         limit $6",
-    )
-    .bind(f.status)
-    .bind(f.member_type)
-    .bind(f.search)
-    .bind(keyset.as_ref().map(|(at, _)| at.as_str()))
-    .bind(keyset.as_ref().map(|(_, id)| id.as_str()))
-    .bind(limit + 1)
-    .fetch_all(db)
-    .await?;
+    // `limit(-n)` fails in the database.
+    let fetch = u64::try_from(limit + 1)
+        .map_err(|_| DbErr::Custom("LIMIT must not be negative".to_owned()))?;
+    let mut select = filtered(true, f.status, f.member_type, f.search);
+    if let Some((at, id)) = &keyset {
+        select = select.filter(
+            Condition::any()
+                .add(members::Column::CreatedAt.lt(*at))
+                .add(
+                    Condition::all()
+                        .add(members::Column::CreatedAt.eq(*at))
+                        .add(members::Column::Id.lt(id)),
+                ),
+        );
+    }
+    let rows = select
+        .order_by_desc(members::Column::CreatedAt)
+        .order_by_desc(members::Column::Id)
+        .limit(fetch)
+        .all(&orm)
+        .await?;
 
     // The count leaves out the last condition when a cursor was given: the
     // keyset one, or (cursor not found) the last filter before it.
@@ -312,21 +376,11 @@ async fn list_members(db: &PgPool, f: ListFilters<'_>, limit: i64) -> Result<Pag
             keep_deleted = false;
         }
     }
-    let total: i64 = sqlx::query_scalar(
-        "select count(*) from workspace_members
-         where (not $1 or deleted_at is null)
-           and ($2::text is null or status = $2)
-           and ($3::text is null or member_type = $3)
-           and ($4::text is null or name like $4 or email like $4)",
-    )
-    .bind(keep_deleted)
-    .bind(status)
-    .bind(member_type)
-    .bind(search)
-    .fetch_one(db)
-    .await?;
+    let total = filtered(keep_deleted, status, member_type, search)
+        .count(&orm)
+        .await?;
 
-    let mut rows: Vec<Value> = rows.into_iter().map(js_row).collect();
+    let mut rows: Vec<Value> = rows.into_iter().map(js).collect::<Result<_, _>>()?;
     let (rows, has_more) = take_page(&mut rows, limit);
     let cursor = if has_more {
         rows.last()
@@ -337,7 +391,7 @@ async fn list_members(db: &PgPool, f: ListFilters<'_>, limit: i64) -> Result<Pag
     };
     Ok(Page {
         rows,
-        pagination: Pagination::new(u64::try_from(total).unwrap_or(0), has_more, cursor),
+        pagination: Pagination::new(total, has_more, cursor),
     })
 }
 
@@ -390,18 +444,36 @@ fn strings(value: &Value) -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// A member's access fields, as `findMember` selects them.
+#[derive(Debug, FromQueryResult, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct MemberAccess {
+    user_id: String,
+    role: String,
+    role_id: Option<String>,
+    permissions: Option<Value>,
+    permission_denies: Option<Value>,
+    member_type: String,
+}
+
 /// The live member's access fields (`findMember`).
-async fn find_member(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    sqlx::query_scalar(
-        "select jsonb_build_object(
-             'userId', user_id, 'role', role, 'roleId', role_id,
-             'permissions', permissions, 'permissionDenies', permission_denies,
-             'memberType', member_type)
-         from workspace_members where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await
+async fn find_member(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
+    members::Entity::find_by_id(id)
+        .select_only()
+        .columns([
+            members::Column::UserId,
+            members::Column::Role,
+            members::Column::RoleId,
+            members::Column::Permissions,
+            members::Column::PermissionDenies,
+            members::Column::MemberType,
+        ])
+        .filter(members::Column::DeletedAt.is_null())
+        .into_model::<MemberAccess>()
+        .one(&orm(db))
+        .await?
+        .map(js)
+        .transpose()
 }
 
 async fn permissions(caller: Caller, Path(id): Path<String>) -> Response {
@@ -419,14 +491,18 @@ async fn permissions_inner(caller: &Caller, id: &str) -> TeamResult<Response> {
 
     let mut role_permissions: Vec<String> = Vec::new();
     if let Some(role_id) = role_id {
-        let row: Option<(Option<Value>, bool, String)> = sqlx::query_as(
-            "select permissions, is_system, name from roles
-             where id = $1 and deleted_at is null limit 1",
-        )
-        .bind(role_id)
-        .fetch_optional(&caller.db)
-        .await
-        .map_err(failed(message))?;
+        let row: Option<(Option<Value>, bool, String)> = roles::Entity::find_by_id(role_id)
+            .select_only()
+            .columns([
+                roles::Column::Permissions,
+                roles::Column::IsSystem,
+                roles::Column::Name,
+            ])
+            .filter(roles::Column::DeletedAt.is_null())
+            .into_tuple()
+            .one(&orm(&caller.db))
+            .await
+            .map_err(failed(message))?;
         if let Some((stored, is_system, name)) = row {
             let stored = stored.as_ref().map(strings);
             role_permissions = role_row_permissions(is_system, &name, stored.as_deref());
@@ -508,7 +584,13 @@ pub(crate) fn app_name(code: &str) -> String {
 }
 
 /// `app_code, is_active, granted_at, granted_by` of an assignment.
-type Assignment = (String, bool, Option<String>, Option<String>);
+type Assignment = (String, bool, Option<OffsetDateTime>, Option<String>);
+
+/// A `timestamptz` as the route's `Date` serializes: `toISOString()`.
+fn js_date(at: Option<OffsetDateTime>) -> Value {
+    weldsuite_schema::js::timestamptz::option::serialize(&at, serde_json::value::Serializer)
+        .unwrap_or(Value::Null)
+}
 
 async fn apps(caller: Caller, Path(id): Path<String>) -> Response {
     answer(apps_inner(&caller, &id).await)
@@ -521,21 +603,29 @@ async fn apps_inner(caller: &Caller, id: &str) -> TeamResult<Response> {
         .map_err(failed(message))?
         .ok_or_else(|| ApiError::not_found("Member", Some(id)))?;
     let user_id = member["userId"].as_str().unwrap_or_default();
-    let installed: Vec<String> = sqlx::query_scalar(
-        "select app_code from workspace_installed_apps
-         where is_active = true and deleted_at is null",
-    )
-    .fetch_all(&caller.db)
-    .await
-    .map_err(failed(message))?;
-    let assignments: Vec<Assignment> = sqlx::query_as(
-        "select app_code, is_active, to_jsonb(granted_at) #>> '{}', granted_by
-         from user_app_assignments where user_id = $1",
-    )
-    .bind(user_id)
-    .fetch_all(&caller.db)
-    .await
-    .map_err(failed(message))?;
+    let db = orm(&caller.db);
+    let installed: Vec<String> = installed::Entity::find()
+        .select_only()
+        .column(installed::Column::AppCode)
+        .filter(installed::Column::IsActive.eq(true))
+        .filter(installed::Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&db)
+        .await
+        .map_err(failed(message))?;
+    let assignments: Vec<Assignment> = assignments::Entity::find()
+        .select_only()
+        .columns([
+            assignments::Column::AppCode,
+            assignments::Column::IsActive,
+            assignments::Column::GrantedAt,
+            assignments::Column::GrantedBy,
+        ])
+        .filter(assignments::Column::UserId.eq(user_id))
+        .into_tuple()
+        .all(&db)
+        .await
+        .map_err(failed(message))?;
     let by_app: HashMap<&str, &Assignment> =
         assignments.iter().map(|a| (a.0.as_str(), a)).collect();
     let data: Vec<Value> = installed
@@ -546,7 +636,7 @@ async fn apps_inner(caller: &Caller, id: &str) -> TeamResult<Response> {
                 "appCode": code,
                 "appName": app_name(code),
                 "isAssigned": assignment.is_some_and(|a| a.1),
-                "assignedAt": assignment.and_then(|a| a.2.as_deref()).and_then(js_timestamp),
+                "assignedAt": js_date(assignment.and_then(|a| a.2)),
                 "assignedBy": assignment.and_then(|a| a.3.clone()),
             })
         })
@@ -606,39 +696,39 @@ async fn toggle(
     app_code: &str,
     enabled: bool,
     actor: &str,
-) -> Result<(), sqlx::Error> {
-    let existing: Option<String> = sqlx::query_scalar(
-        "select id from user_app_assignments where user_id = $1 and app_code = $2 limit 1",
-    )
-    .bind(user_id)
-    .bind(app_code)
-    .fetch_optional(db)
-    .await?;
-    let now = now();
+) -> Result<(), DbErr> {
+    let db = orm(db);
+    let existing: Option<String> = assignments::Entity::find()
+        .select_only()
+        .column(assignments::Column::Id)
+        .filter(assignments::Column::UserId.eq(user_id))
+        .filter(assignments::Column::AppCode.eq(app_code))
+        .into_tuple()
+        .one(&db)
+        .await?;
+    let now = utc_now().assume_utc();
     match (enabled, existing) {
         (_, Some(id)) => {
-            sqlx::query(
-                "update user_app_assignments set is_active = $2, updated_at = $3::timestamptz
-                 where id = $1",
-            )
-            .bind(id)
-            .bind(enabled)
-            .bind(&now)
-            .execute(db)
-            .await?;
+            assignments::Entity::update_many()
+                .col_expr(assignments::Column::IsActive, Expr::value(enabled))
+                .col_expr(assignments::Column::UpdatedAt, Expr::value(now))
+                .filter(assignments::Column::Id.eq(id))
+                .exec(&db)
+                .await?;
         }
         (true, None) => {
-            sqlx::query(
-                "insert into user_app_assignments
-                     (id, user_id, app_code, is_active, granted_at, granted_by, created_at, updated_at)
-                 values ($1, $2, $3, true, $4::timestamptz, $5, $4::timestamptz, $4::timestamptz)",
-            )
-            .bind(generate_id("uaa"))
-            .bind(user_id)
-            .bind(app_code)
-            .bind(&now)
-            .bind(actor)
-            .execute(db)
+            assignments::Entity::insert(assignments::ActiveModel {
+                id: Set(generate_id("uaa")),
+                user_id: Set(user_id.to_owned()),
+                app_code: Set(app_code.to_owned()),
+                is_active: Set(true),
+                granted_at: Set(Some(now)),
+                granted_by: Set(Some(actor.to_owned())),
+                created_at: Set(now),
+                updated_at: Set(now),
+                ..Default::default()
+            })
+            .exec_without_returning(&db)
             .await?;
         }
         // Revoking an app that was never granted is a no-op.

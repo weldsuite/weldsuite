@@ -15,8 +15,10 @@ use axum::extract::State;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, patch, post};
 use http::{HeaderMap, StatusCode};
+use sea_orm::sea_query::{Expr, Func, Query};
+use sea_orm::{ColumnTrait, ConnectionTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
-use sqlx::PgPool;
+use time::PrimitiveDateTime;
 use weldsuite_catalogs::entity_events::{
     COMMERCE_PAYMENT_CONNECTION_CONNECTED, COMMERCE_PAYMENT_CONNECTION_DISCONNECTED,
     COMMERCE_PAYMENT_CONNECTION_UPDATED,
@@ -24,19 +26,21 @@ use weldsuite_catalogs::entity_events::{
 use weldsuite_catalogs::permission_keys::{COMMERCE_SETTINGS_READ, COMMERCE_SETTINGS_UPDATE};
 use weldsuite_commerce_domain::payments::connection;
 use weldsuite_commerce_domain::payments::{Env, Error as PaymentError};
-use weldsuite_db::{decrypt_field, encrypt_field};
+use weldsuite_db::{PgPool, decrypt_field, encrypt_field, orm, utc_now};
 use weldsuite_kit::validation::{Presence, Text};
 use weldsuite_kit::{ApiError, Data, generate_id};
 use weldsuite_mollie::Mollie;
 use weldsuite_mollie::connect::{COMMERCE_SCOPES, Tokens};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::commerce_payment_connections as connections;
 
 use super::registry::Registry;
 use super::state;
 use super::{http, refuse};
+use crate::args::utc_now_sql;
 use crate::config::PaymentsConfig;
 use crate::wire::{body_or_empty, iso};
-use crate::{Caller, CommerceState, Refusal, now, validate};
+use crate::{Caller, CommerceState, Refusal, validate};
 
 pub(crate) fn routes<Q>(gate: &Arc<PermissionGate<Q>>) -> Router<CommerceState>
 where
@@ -311,71 +315,126 @@ pub(crate) async fn save(
         .tokens
         .map_or(0, |t| i32::try_from(t.expires_in).unwrap_or(3600));
 
-    let existing: Option<String> = sqlx::query_scalar(
-        "select id from commerce_payment_connections \
-         where provider = 'mollie' and deleted_at is null limit 1",
-    )
-    .fetch_optional(db)
-    .await?;
+    let existing: Option<String> = connections::Entity::find()
+        .select_only()
+        .column(connections::Column::Id)
+        .filter(connections::Column::Provider.eq("mollie"))
+        .filter(connections::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     let id = existing.clone().unwrap_or_else(|| generate_id("cpc"));
     let before = registry.before(&id).await?;
     registry.register(&id).await?;
     let written = async {
-        let at = now();
+        let at = utc_now();
+        // `now() at time zone 'utc' + make_interval(secs => expires_in)`
+        // for a token; none for an API key.
+        let expires: Expr = match &access {
+            Some(_) => sea_orm::ExprTrait::add(
+                utc_now_sql(),
+                Func::cust("make_interval").args([
+                    Expr::val(0),
+                    Expr::val(0),
+                    Expr::val(0),
+                    Expr::val(0),
+                    Expr::val(0),
+                    Expr::val(0),
+                    Expr::val(f64::from(expires_in)),
+                ]),
+            ),
+            None => Expr::val(None::<PrimitiveDateTime>),
+        };
+        let scope = new.tokens.and_then(|t| t.scope.as_deref());
+        let conn = orm(db);
         if existing.is_some() {
-            sqlx::query(
-                "update commerce_payment_connections set auth_method = $2, status = 'connected', \
-                   access_token_encrypted = $3, refresh_token_encrypted = $4, api_key_encrypted = $5, \
-                   token_expires_at = case when $3::text is null then null \
-                     else (now() at time zone 'utc') + make_interval(secs => $6::double precision) end, \
-                   scope = $7, profile_id = $8, profile_name = $9, organization_id = $10, \
-                   organization_name = $11, testmode = $12, connected_by = $13, \
-                   connected_at = $14::timestamp, disconnected_at = null, last_error = null, \
-                   updated_at = $14::timestamp where id = $1",
-            )
-            .bind(&id)
-            .bind(new.auth_method)
-            .bind(&access)
-            .bind(&refresh)
-            .bind(&api_key)
-            .bind(expires_in)
-            .bind(new.tokens.and_then(|t| t.scope.as_deref()))
-            .bind(new.profile_id)
-            .bind(new.profile_name)
-            .bind(new.organization_id)
-            .bind(new.organization_name)
-            .bind(new.testmode)
-            .bind(new.connected_by)
-            .bind(&at)
-            .execute(db)
-            .await?;
+            connections::Entity::update_many()
+                .col_expr(connections::Column::AuthMethod, Expr::val(new.auth_method))
+                .col_expr(connections::Column::Status, Expr::val("connected"))
+                .col_expr(
+                    connections::Column::AccessTokenEncrypted,
+                    Expr::val(access.clone()),
+                )
+                .col_expr(
+                    connections::Column::RefreshTokenEncrypted,
+                    Expr::val(refresh.clone()),
+                )
+                .col_expr(
+                    connections::Column::ApiKeyEncrypted,
+                    Expr::val(api_key.clone()),
+                )
+                .col_expr(connections::Column::TokenExpiresAt, expires)
+                .col_expr(connections::Column::Scope, Expr::val(scope))
+                .col_expr(connections::Column::ProfileId, Expr::val(new.profile_id))
+                .col_expr(
+                    connections::Column::ProfileName,
+                    Expr::val(new.profile_name),
+                )
+                .col_expr(
+                    connections::Column::OrganizationId,
+                    Expr::val(new.organization_id),
+                )
+                .col_expr(
+                    connections::Column::OrganizationName,
+                    Expr::val(new.organization_name),
+                )
+                .col_expr(connections::Column::Testmode, Expr::val(new.testmode))
+                .col_expr(
+                    connections::Column::ConnectedBy,
+                    Expr::val(new.connected_by),
+                )
+                .col_expr(connections::Column::ConnectedAt, Expr::val(at))
+                .col_expr(
+                    connections::Column::DisconnectedAt,
+                    Expr::val(None::<PrimitiveDateTime>),
+                )
+                .col_expr(connections::Column::LastError, Expr::val(None::<String>))
+                .col_expr(connections::Column::UpdatedAt, Expr::val(at))
+                .filter(connections::Column::Id.eq(id.as_str()))
+                .exec(&conn)
+                .await?;
         } else {
-            sqlx::query(
-                "insert into commerce_payment_connections (id, provider, auth_method, status, \
-                   access_token_encrypted, refresh_token_encrypted, api_key_encrypted, \
-                   token_expires_at, scope, profile_id, profile_name, organization_id, \
-                   organization_name, testmode, connected_by, connected_at) \
-                 values ($1, 'mollie', $2, 'connected', $3, $4, $5, \
-                   case when $3::text is null then null \
-                     else (now() at time zone 'utc') + make_interval(secs => $6::double precision) end, \
-                   $7, $8, $9, $10, $11, $12, $13, $14::timestamp)",
-            )
-            .bind(&id)
-            .bind(new.auth_method)
-            .bind(&access)
-            .bind(&refresh)
-            .bind(&api_key)
-            .bind(expires_in)
-            .bind(new.tokens.and_then(|t| t.scope.as_deref()))
-            .bind(new.profile_id)
-            .bind(new.profile_name)
-            .bind(new.organization_id)
-            .bind(new.organization_name)
-            .bind(new.testmode)
-            .bind(new.connected_by)
-            .bind(&at)
-            .execute(db)
-            .await?;
+            let insert = Query::insert()
+                .into_table(connections::Entity)
+                .columns([
+                    connections::Column::Id,
+                    connections::Column::Provider,
+                    connections::Column::AuthMethod,
+                    connections::Column::Status,
+                    connections::Column::AccessTokenEncrypted,
+                    connections::Column::RefreshTokenEncrypted,
+                    connections::Column::ApiKeyEncrypted,
+                    connections::Column::TokenExpiresAt,
+                    connections::Column::Scope,
+                    connections::Column::ProfileId,
+                    connections::Column::ProfileName,
+                    connections::Column::OrganizationId,
+                    connections::Column::OrganizationName,
+                    connections::Column::Testmode,
+                    connections::Column::ConnectedBy,
+                    connections::Column::ConnectedAt,
+                ])
+                .values([
+                    Expr::val(id.as_str()),
+                    Expr::val("mollie"),
+                    Expr::val(new.auth_method),
+                    Expr::val("connected"),
+                    Expr::val(access.clone()),
+                    Expr::val(refresh.clone()),
+                    Expr::val(api_key.clone()),
+                    expires,
+                    Expr::val(scope),
+                    Expr::val(new.profile_id),
+                    Expr::val(new.profile_name),
+                    Expr::val(new.organization_id),
+                    Expr::val(new.organization_name),
+                    Expr::val(new.testmode),
+                    Expr::val(new.connected_by),
+                    Expr::val(at),
+                ])
+                .map_err(|error| DbErr::Custom(error.to_string()))?
+                .to_owned();
+            conn.execute(&insert).await?;
         }
         Ok::<_, Refusal>(connection::row(db).await?)
     }
@@ -486,23 +545,35 @@ async fn update_connection(
             };
             name = Some(found.name);
         }
-        sqlx::query(
-            "update commerce_payment_connections set \
-               profile_id = case when $2::text is null then profile_id else $2 end, \
-               profile_name = coalesce($3, profile_name), \
-               testmode = case when $4::boolean is null or auth_method <> 'oauth' then testmode else $4 end, \
-               updated_at = now() at time zone 'utc' where id = $1",
-        )
-        .bind(&active.id)
-        .bind(
-            profile_id
-                .as_deref()
-                .filter(|_| active.auth_method == "oauth"),
-        )
-        .bind(name)
-        .bind(testmode)
-        .execute(&caller.db)
-        .await?;
+        // Only what the body sets: the profile of a Connect connection,
+        // and a Connect connection's test mode.
+        let mut update = connections::Entity::update_many();
+        if let Some(profile) = profile_id
+            .as_deref()
+            .filter(|_| active.auth_method == "oauth")
+        {
+            update = update.col_expr(connections::Column::ProfileId, Expr::val(profile));
+        }
+        if let Some(name) = name {
+            update = update.col_expr(connections::Column::ProfileName, Expr::val(name));
+        }
+        if let Some(testmode) = testmode {
+            let column = |column| Expr::col((connections::Entity, column));
+            update = update.col_expr(
+                connections::Column::Testmode,
+                Expr::case(
+                    sea_orm::ExprTrait::ne(column(connections::Column::AuthMethod), "oauth"),
+                    column(connections::Column::Testmode),
+                )
+                .finally(testmode)
+                .into(),
+            );
+        }
+        update
+            .col_expr(connections::Column::UpdatedAt, utc_now_sql())
+            .filter(connections::Column::Id.eq(active.id.as_str()))
+            .exec(&orm(&caller.db))
+            .await?;
         let row = connection::row(&caller.db)
             .await?
             .ok_or_else(|| Refusal::not_found("Payment connection", "mollie"))?;
@@ -530,15 +601,20 @@ async fn revoke_tokens(state: &CommerceState, db: &PgPool) {
     let (Some(app), Some(http)) = (state.payments.connect.as_ref(), state.http.as_ref()) else {
         return;
     };
-    let tokens: Option<(Option<String>, Option<String>)> = sqlx::query_as(
-        "select access_token_encrypted, refresh_token_encrypted \
-         from commerce_payment_connections \
-         where provider = 'mollie' and deleted_at is null and auth_method = 'oauth'",
-    )
-    .fetch_optional(db)
-    .await
-    .ok()
-    .flatten();
+    let tokens: Option<(Option<String>, Option<String>)> = connections::Entity::find()
+        .select_only()
+        .columns([
+            connections::Column::AccessTokenEncrypted,
+            connections::Column::RefreshTokenEncrypted,
+        ])
+        .filter(connections::Column::Provider.eq("mollie"))
+        .filter(connections::Column::DeletedAt.is_null())
+        .filter(connections::Column::AuthMethod.eq("oauth"))
+        .into_tuple()
+        .one(&orm(db))
+        .await
+        .ok()
+        .flatten();
     let Some((access, refresh)) = tokens else {
         return;
     };
@@ -564,16 +640,30 @@ async fn disconnect(State(state): State<CommerceState>, caller: Caller) -> Respo
         let before = registry.before(&id).await?;
         revoke_tokens(&state, &caller.db).await;
         registry.remove(&id).await?;
-        let done = sqlx::query(
-            "update commerce_payment_connections set status = 'disconnected', \
-               access_token_encrypted = null, refresh_token_encrypted = null, api_key_encrypted = null, \
-               token_expires_at = null, last_error = null, \
-               disconnected_at = now() at time zone 'utc', updated_at = now() at time zone 'utc' \
-             where id = $1",
-        )
-        .bind(&id)
-        .execute(&caller.db)
-        .await;
+        let done = connections::Entity::update_many()
+            .col_expr(connections::Column::Status, Expr::val("disconnected"))
+            .col_expr(
+                connections::Column::AccessTokenEncrypted,
+                Expr::val(None::<String>),
+            )
+            .col_expr(
+                connections::Column::RefreshTokenEncrypted,
+                Expr::val(None::<String>),
+            )
+            .col_expr(
+                connections::Column::ApiKeyEncrypted,
+                Expr::val(None::<String>),
+            )
+            .col_expr(
+                connections::Column::TokenExpiresAt,
+                Expr::val(None::<PrimitiveDateTime>),
+            )
+            .col_expr(connections::Column::LastError, Expr::val(None::<String>))
+            .col_expr(connections::Column::DisconnectedAt, utc_now_sql())
+            .col_expr(connections::Column::UpdatedAt, utc_now_sql())
+            .filter(connections::Column::Id.eq(id.as_str()))
+            .exec(&orm(&caller.db))
+            .await;
         if let Err(error) = done {
             if let Err(undo) = registry.restore(&id, before).await {
                 tracing::error!(%undo, "[commerce] could not undo the connection registry");

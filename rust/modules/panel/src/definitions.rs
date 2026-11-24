@@ -17,20 +17,24 @@
 use axum::body::Bytes;
 use axum::response::{IntoResponse, Response};
 use http::HeaderMap;
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect,
+};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events::{
     EventName, PANEL_COMPUTED_PROPERTY_CREATED, PANEL_COMPUTED_PROPERTY_DELETED,
     PANEL_COMPUTED_PROPERTY_UPDATED, PANEL_CUSTOM_EVENT_CREATED, PANEL_CUSTOM_EVENT_DELETED,
     PANEL_CUSTOM_EVENT_UPDATED,
 };
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::{ApiError, Created, Data, List, NoContent, Pagination};
 use weldsuite_panel_domain::expression::{
     ExpressionIdentifierKind, ParseExpressionOptions, parse_expression,
 };
 use weldsuite_zod::Z;
 
-use crate::saved::{PROJECT_QUERY, field, project_exists, rows, text};
+use crate::saved::{PROJECT_QUERY, field, js_row, project_exists, text};
 use crate::schemas_gen::{
     CREATE_PANEL_COMPUTED_PROPERTY, CREATE_PANEL_CUSTOM_EVENT, PANEL_COMPUTED_PROPERTY_DEFINITION,
     PANEL_CUSTOM_EVENT_DEFINITION, UPDATE_PANEL_COMPUTED_PROPERTY, UPDATE_PANEL_CUSTOM_EVENT,
@@ -38,11 +42,34 @@ use crate::schemas_gen::{
 use crate::{Caller, PanelState, unexpected};
 
 /// Definitions listed per project (`MAX_LISTED_DEFINITIONS`).
-const MAX_LISTED: i64 = 500;
+const MAX_LISTED: u64 = 500;
+
+/// The two tables, which have the same columns.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Table {
+    CustomEvents,
+    ComputedProperties,
+}
+
+/// `$body` with `$t` naming the kind's entity module, for either table.
+macro_rules! on_table {
+    ($kind:expr, $t:ident => $body:expr) => {
+        match $kind.table {
+            Table::CustomEvents => {
+                use weldsuite_schema::tenant::panel_custom_events as $t;
+                $body
+            }
+            Table::ComputedProperties => {
+                use weldsuite_schema::tenant::panel_computed_properties as $t;
+                $body
+            }
+        }
+    };
+}
 
 /// One kind of definition: its table, id prefix, schemas, events and names.
 struct Kind {
-    table: &'static str,
+    table: Table,
     prefix: &'static str,
     /// What a 404 calls it.
     label: &'static str,
@@ -55,7 +82,7 @@ struct Kind {
 }
 
 const CUSTOM_EVENTS: Kind = Kind {
-    table: "panel_custom_events",
+    table: Table::CustomEvents,
     prefix: "pnce",
     label: "Custom event",
     definition: &PANEL_CUSTOM_EVENT_DEFINITION,
@@ -67,7 +94,7 @@ const CUSTOM_EVENTS: Kind = Kind {
 };
 
 const COMPUTED_PROPERTIES: Kind = Kind {
-    table: "panel_computed_properties",
+    table: Table::ComputedProperties,
     prefix: "pncp",
     label: "Computed property",
     definition: &PANEL_COMPUTED_PROPERTY_DEFINITION,
@@ -82,11 +109,11 @@ const COMPUTED_PROPERTIES: Kind = Kind {
 enum Refusal {
     Bad(String, Option<Value>),
     Taken(String),
-    Failed(sqlx::Error),
+    Failed(DbErr),
 }
 
-impl From<sqlx::Error> for Refusal {
-    fn from(error: sqlx::Error) -> Self {
+impl From<DbErr> for Refusal {
+    fn from(error: DbErr) -> Self {
         Self::Failed(error)
     }
 }
@@ -135,16 +162,13 @@ fn event_data(row: &Value) -> Value {
     json!({ "id": field(row, "id"), "projectId": field(row, "projectId"), "name": field(row, "name") })
 }
 
-async fn get_row(db: &PgPool, kind: &Kind, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let sql = format!(
-        "select to_jsonb(d) from {} d where d.id = $1 and d.deleted_at is null limit 1",
-        kind.table
-    );
-    let row: Option<Value> = sqlx::query_scalar(sqlx::AssertSqlSafe(sql))
-        .bind(id)
-        .fetch_optional(db)
-        .await?;
-    Ok(row.map(weldsuite_db::js_row))
+async fn get_row(db: &PgPool, kind: &Kind, id: &str) -> Result<Option<Value>, DbErr> {
+    on_table!(kind, t => t::Entity::find_by_id(id)
+        .filter(t::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?
+        .map(js_row)
+        .transpose())
 }
 
 /// `checkNameFree`: a 409 when another live definition of the project has
@@ -156,17 +180,21 @@ async fn check_name_free(
     name: &str,
     self_id: Option<&str>,
 ) -> Result<(), Refusal> {
-    let sql = format!(
-        "select id from {} where project_id = $1 and deleted_at is null
-           and lower(name) = lower($2) and ($3::text is null or id <> $3) limit 1",
-        kind.table
-    );
-    let taken: Option<String> = sqlx::query_scalar(sqlx::AssertSqlSafe(sql))
-        .bind(project_id)
-        .bind(name)
-        .bind(self_id)
-        .fetch_optional(db)
-        .await?;
+    let taken: Option<String> = on_table!(kind, t => {
+        let mut find = t::Entity::find()
+            .select_only()
+            .column(t::Column::Id)
+            .filter(t::Column::ProjectId.eq(project_id))
+            .filter(t::Column::DeletedAt.is_null())
+            .filter(sea_orm::ExprTrait::eq(
+                Func::lower(Expr::col(t::Column::Name)),
+                Func::lower(Expr::val(name)),
+            ));
+        if let Some(self_id) = self_id {
+            find = find.filter(t::Column::Id.ne(self_id));
+        }
+        find.into_tuple().one(&orm(db)).await?
+    });
     match taken {
         Some(_) => Err(Refusal::Taken(format!(
             "\"{name}\" is already taken in this project"
@@ -233,7 +261,7 @@ async fn check(
     self_id: Option<&str>,
 ) -> Result<(), Refusal> {
     let definition = input.get("definition");
-    if kind.table == COMPUTED_PROPERTIES.table
+    if kind.table == Table::ComputedProperties
         && let Some(definition) = definition
     {
         check_formula(definition)?;
@@ -241,19 +269,21 @@ async fn check(
     if let Some(name) = input.get("name").and_then(Value::as_str) {
         check_name_free(db, kind, project_id, name, self_id).await?;
     }
-    if kind.table == CUSTOM_EVENTS.table
+    if kind.table == Table::CustomEvents
         && let Some(definition) = definition
     {
         let refs = computed_refs(definition);
         if !refs.is_empty() {
-            let known: Vec<String> = sqlx::query_scalar(
-                "select id from panel_computed_properties
-                 where id = any($1) and project_id = $2 and deleted_at is null",
-            )
-            .bind(&refs)
-            .bind(project_id)
-            .fetch_all(db)
-            .await?;
+            use weldsuite_schema::tenant::panel_computed_properties as computed;
+            let known: Vec<String> = computed::Entity::find()
+                .select_only()
+                .column(computed::Column::Id)
+                .filter(computed::Column::Id.is_in(refs.iter().map(String::as_str)))
+                .filter(computed::Column::ProjectId.eq(project_id))
+                .filter(computed::Column::DeletedAt.is_null())
+                .into_tuple()
+                .all(&orm(db))
+                .await?;
             if let Some(missing) = refs.iter().find(|id| !known.contains(id)) {
                 return Err(Refusal::Bad(
                     format!("Unknown computed property: @{missing}"),
@@ -270,19 +300,18 @@ async fn list(kind: &Kind, caller: Caller, raw: Option<String>) -> Response {
         Ok(query) => query,
         Err(response) => return response,
     };
-    let sql = format!(
-        "select to_jsonb(d) from {} d where d.project_id = $1 and d.deleted_at is null
-         order by d.name asc limit $2",
-        kind.table
-    );
-    let found: Result<Vec<Value>, sqlx::Error> = sqlx::query_scalar(sqlx::AssertSqlSafe(sql))
-        .bind(query.text("projectId"))
-        .bind(MAX_LISTED)
-        .fetch_all(&caller.db)
-        .await;
+    let project_id = query.text("projectId").unwrap_or_default();
+    let found: Result<Vec<Value>, DbErr> = on_table!(kind, t => t::Entity::find()
+        .filter(t::Column::ProjectId.eq(project_id))
+        .filter(t::Column::DeletedAt.is_null())
+        .order_by_asc(t::Column::Name)
+        .limit(MAX_LISTED)
+        .all(&orm(&caller.db))
+        .await
+        .and_then(|found| found.into_iter().map(js_row).collect()));
     match found {
         Ok(found) => {
-            let items: Vec<Value> = rows(found).iter().map(|row| dto(kind, row)).collect();
+            let items: Vec<Value> = found.iter().map(|row| dto(kind, row)).collect();
             let count = items.len() as u64;
             List::new(items, Pagination::new(count, false, None)).into_response()
         }
@@ -317,24 +346,25 @@ async fn create(
         kind,
         &input.get("definition").cloned().unwrap_or(Value::Null),
     );
-    let sql = format!(
-        "insert into {} as d (id, project_id, name, description, definition, owner_user_id)
-         values ($1, $2, $3, $4, $5, $6)
-         returning to_jsonb(d)",
-        kind.table
-    );
-    let created: Result<Value, sqlx::Error> = sqlx::query_scalar(sqlx::AssertSqlSafe(sql))
-        .bind(weldsuite_kit::id::generate_id(kind.prefix))
-        .bind(&project_id)
-        .bind(input.text("name"))
-        .bind(input.get("description").and_then(Value::as_str))
-        .bind(&definition)
-        .bind(&caller.user_id)
-        .fetch_one(&caller.db)
-        .await;
+    let description = input
+        .get("description")
+        .and_then(Value::as_str)
+        .map(str::to_owned);
+    let name = input.text("name").unwrap_or_default().to_owned();
+    let created: Result<Value, DbErr> = on_table!(kind, t => t::Entity::insert(t::ActiveModel {
+        id: Set(weldsuite_kit::id::generate_id(kind.prefix)),
+        project_id: Set(project_id.clone()),
+        name: Set(name),
+        description: Set(description),
+        definition: Set(definition),
+        owner_user_id: Set(caller.user_id.clone()),
+        ..Default::default()
+    })
+    .exec_with_returning(&orm(&caller.db))
+    .await
+    .and_then(js_row));
     match created {
         Ok(row) => {
-            let row = weldsuite_db::js_row(row);
             caller.publish(state, kind.created, text(&row, "id"), &event_data(&row));
             Created(dto(kind, &row)).into_response()
         }
@@ -382,27 +412,31 @@ async fn update(
     let definition = input
         .get("definition")
         .map(|definition| parsed_definition(kind, definition));
-    let sql = format!(
-        "update {} as d set
-           name = coalesce($2, d.name),
-           description = case when $3 then $4 else d.description end,
-           definition = coalesce($5, d.definition),
-           updated_at = now()
-         where d.id = $1 and d.deleted_at is null
-         returning to_jsonb(d)",
-        kind.table
-    );
-    let updated: Result<Option<Value>, sqlx::Error> = sqlx::query_scalar(sqlx::AssertSqlSafe(sql))
-        .bind(&existing_id)
-        .bind(input.get("name").and_then(Value::as_str))
-        .bind(input.get("description").is_some())
-        .bind(input.get("description").and_then(Value::as_str))
-        .bind(definition)
-        .fetch_optional(&caller.db)
-        .await;
+    let name = input.get("name").and_then(Value::as_str);
+    let description = input
+        .get("description")
+        .map(|description| description.as_str().map(str::to_owned));
+    let updated: Result<Option<Value>, DbErr> = on_table!(kind, t => {
+        let mut update = t::Entity::update_many();
+        if let Some(name) = name {
+            update = update.col_expr(t::Column::Name, Expr::value(name));
+        }
+        if let Some(description) = description {
+            update = update.col_expr(t::Column::Description, Expr::value(description));
+        }
+        if let Some(definition) = definition {
+            update = update.col_expr(t::Column::Definition, Expr::value(definition));
+        }
+        update
+            .col_expr(t::Column::UpdatedAt, Expr::current_timestamp())
+            .filter(t::Column::Id.eq(&existing_id))
+            .filter(t::Column::DeletedAt.is_null())
+            .exec_with_returning(&orm(&caller.db))
+            .await
+            .and_then(|rows| rows.into_iter().next().map(js_row).transpose())
+    });
     match updated {
         Ok(Some(row)) => {
-            let row = weldsuite_db::js_row(row);
             caller.publish(state, kind.updated, text(&row, "id"), &event_data(&row));
             Data(dto(kind, &row)).into_response()
         }
@@ -412,19 +446,16 @@ async fn update(
 }
 
 async fn remove(kind: &Kind, state: &PanelState, caller: Caller, id: &str) -> Response {
-    let sql = format!(
-        "update {} as d set deleted_at = now(), updated_at = now()
-         where d.id = $1 and d.deleted_at is null
-         returning to_jsonb(d)",
-        kind.table
-    );
-    let deleted: Result<Option<Value>, sqlx::Error> = sqlx::query_scalar(sqlx::AssertSqlSafe(sql))
-        .bind(id)
-        .fetch_optional(&caller.db)
-        .await;
+    let deleted: Result<Option<Value>, DbErr> = on_table!(kind, t => t::Entity::update_many()
+        .col_expr(t::Column::DeletedAt, Expr::current_timestamp())
+        .col_expr(t::Column::UpdatedAt, Expr::current_timestamp())
+        .filter(t::Column::Id.eq(id))
+        .filter(t::Column::DeletedAt.is_null())
+        .exec_with_returning(&orm(&caller.db))
+        .await
+        .and_then(|rows| rows.into_iter().next().map(js_row).transpose()));
     match deleted {
         Ok(Some(row)) => {
-            let row = weldsuite_db::js_row(row);
             caller.publish(state, kind.deleted, text(&row, "id"), &event_data(&row));
             NoContent.into_response()
         }

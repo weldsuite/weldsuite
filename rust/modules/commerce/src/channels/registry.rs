@@ -14,9 +14,15 @@
 //! Callers hold the tenant row's lock for the whole sequence.
 
 use http::StatusCode;
-use serde_json::Value;
-use sqlx::PgPool;
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, ConnectionTrait, DbErr, EntityTrait, QueryFilter, QuerySelect,
+};
+use serde_json::json;
+use time::PrimitiveDateTime;
+use weldsuite_db::{OrmConn, PgPool, orm};
 use weldsuite_kit::ApiError;
+use weldsuite_schema::master::storefront_key_registry as registry;
 
 use crate::{Caller, Refusal};
 
@@ -29,7 +35,7 @@ pub(super) struct NewKey<'a> {
     pub(super) channel_id: &'a str,
     pub(super) origins: &'a [String],
     pub(super) rotated_from: Option<&'a str>,
-    pub(super) at: &'a str,
+    pub(super) at: PrimitiveDateTime,
 }
 
 pub(super) struct Registry<'a> {
@@ -54,78 +60,60 @@ impl<'a> Registry<'a> {
         }
     }
 
-    pub(super) async fn insert(&self, key: &NewKey<'_>) -> Result<(), sqlx::Error> {
-        insert_row(self.pool, self.workspace_id, key).await
+    pub(super) async fn insert(&self, key: &NewKey<'_>) -> Result<(), DbErr> {
+        insert_row(&orm(self.pool), self.workspace_id, key).await
     }
 
-    pub(super) async fn delete(&self, id: &str) -> Result<(), sqlx::Error> {
-        sqlx::query("delete from storefront_key_registry where id = $1 and workspace_id = $2")
-            .bind(id)
-            .bind(self.workspace_id)
-            .execute(self.pool)
+    pub(super) async fn delete(&self, id: &str) -> Result<(), DbErr> {
+        registry::Entity::delete_many()
+            .filter(registry::Column::Id.eq(id))
+            .filter(registry::Column::WorkspaceId.eq(self.workspace_id))
+            .exec(&orm(self.pool))
             .await?;
         Ok(())
     }
 
     /// Revoke `id` (its first revocation time stays).
-    pub(super) async fn revoke(&self, id: &str, at: &str) -> Result<(), sqlx::Error> {
-        sqlx::query(
-            "update storefront_key_registry set revoked_at = coalesce(revoked_at, $3::timestamp), \
-               updated_at = $3::timestamp where id = $1 and workspace_id = $2",
-        )
-        .bind(id)
-        .bind(self.workspace_id)
-        .bind(at)
-        .execute(self.pool)
-        .await?;
-        Ok(())
+    pub(super) async fn revoke(&self, id: &str, at: PrimitiveDateTime) -> Result<(), DbErr> {
+        revoke_row(&orm(self.pool), self.workspace_id, id, at).await
     }
 
-    pub(super) async fn unrevoke(&self, id: &str, at: &str) -> Result<(), sqlx::Error> {
-        sqlx::query(
-            "update storefront_key_registry set revoked_at = null, updated_at = $3::timestamp \
-             where id = $1 and workspace_id = $2",
-        )
-        .bind(id)
-        .bind(self.workspace_id)
-        .bind(at)
-        .execute(self.pool)
-        .await?;
+    pub(super) async fn unrevoke(&self, id: &str, at: PrimitiveDateTime) -> Result<(), DbErr> {
+        registry::Entity::update_many()
+            .col_expr(
+                registry::Column::RevokedAt,
+                Expr::val(None::<PrimitiveDateTime>),
+            )
+            .col_expr(registry::Column::UpdatedAt, Expr::val(at))
+            .filter(registry::Column::Id.eq(id))
+            .filter(registry::Column::WorkspaceId.eq(self.workspace_id))
+            .exec(&orm(self.pool))
+            .await?;
         Ok(())
     }
 
     /// Rotation, as one registry transaction: the new key in, the old one out.
-    pub(super) async fn rotate(&self, old_id: &str, new: &NewKey<'_>) -> Result<(), sqlx::Error> {
-        let mut tx = self.pool.begin().await?;
-        sqlx::query(
-            "update storefront_key_registry set revoked_at = coalesce(revoked_at, $3::timestamp), \
-               updated_at = $3::timestamp where id = $1 and workspace_id = $2",
-        )
-        .bind(old_id)
-        .bind(self.workspace_id)
-        .bind(new.at)
-        .execute(&mut *tx)
-        .await?;
-        insert_row(&mut *tx, self.workspace_id, new).await?;
-        tx.commit().await
+    pub(super) async fn rotate(&self, old_id: &str, new: &NewKey<'_>) -> Result<(), DbErr> {
+        let mut tx = self.pool.begin().await.map_err(weldsuite_db::orm_error)?;
+        let db = OrmConn::new(&mut tx);
+        revoke_row(&db, self.workspace_id, old_id, new.at).await?;
+        insert_row(&db, self.workspace_id, new).await?;
+        tx.commit().await.map_err(weldsuite_db::orm_error)
     }
 
     pub(super) async fn set_origins(
         &self,
         id: &str,
         origins: &[String],
-        at: &str,
-    ) -> Result<(), sqlx::Error> {
-        sqlx::query(
-            "update storefront_key_registry set allowed_origins = $3::jsonb, \
-               updated_at = $4::timestamp where id = $1 and workspace_id = $2",
-        )
-        .bind(id)
-        .bind(self.workspace_id)
-        .bind(serde_json::json!(origins))
-        .bind(at)
-        .execute(self.pool)
-        .await?;
+        at: PrimitiveDateTime,
+    ) -> Result<(), DbErr> {
+        registry::Entity::update_many()
+            .col_expr(registry::Column::AllowedOrigins, Expr::val(json!(origins)))
+            .col_expr(registry::Column::UpdatedAt, Expr::val(at))
+            .filter(registry::Column::Id.eq(id))
+            .filter(registry::Column::WorkspaceId.eq(self.workspace_id))
+            .exec(&orm(self.pool))
+            .await?;
         Ok(())
     }
 
@@ -133,66 +121,79 @@ impl<'a> Registry<'a> {
     pub(super) async fn revoke_channel(
         &self,
         channel_id: &str,
-        at: &str,
-    ) -> Result<(), sqlx::Error> {
-        sqlx::query(
-            "update storefront_key_registry set revoked_at = coalesce(revoked_at, $3::timestamp), \
-               updated_at = $3::timestamp where channel_id = $1 and workspace_id = $2",
-        )
-        .bind(channel_id)
-        .bind(self.workspace_id)
-        .bind(at)
-        .execute(self.pool)
-        .await?;
+        at: PrimitiveDateTime,
+    ) -> Result<(), DbErr> {
+        registry::Entity::update_many()
+            .col_expr(registry::Column::RevokedAt, first_revocation(at))
+            .col_expr(registry::Column::UpdatedAt, Expr::val(at))
+            .filter(registry::Column::ChannelId.eq(channel_id))
+            .filter(registry::Column::WorkspaceId.eq(self.workspace_id))
+            .exec(&orm(self.pool))
+            .await?;
         Ok(())
     }
 
     /// When each key of the channel was last used, as the storefront records
-    /// it in the registry: `(id, ISO-ish timestamp)`.
+    /// it in the registry.
     pub(super) async fn last_used(
         &self,
         channel_id: &str,
-    ) -> Result<Vec<(String, Option<String>)>, sqlx::Error> {
-        let rows: Vec<Value> = sqlx::query_scalar(
-            "select jsonb_build_object('id', id, 'at', to_jsonb(last_used_at)) \
-             from storefront_key_registry where channel_id = $1 and workspace_id = $2",
-        )
-        .bind(channel_id)
-        .bind(self.workspace_id)
-        .fetch_all(self.pool)
-        .await?;
-        Ok(rows
-            .iter()
-            .filter_map(|row| {
-                Some((
-                    row["id"].as_str()?.to_owned(),
-                    row["at"].as_str().map(str::to_owned),
-                ))
-            })
-            .collect())
+    ) -> Result<Vec<(String, Option<PrimitiveDateTime>)>, DbErr> {
+        registry::Entity::find()
+            .select_only()
+            .columns([registry::Column::Id, registry::Column::LastUsedAt])
+            .filter(registry::Column::ChannelId.eq(channel_id))
+            .filter(registry::Column::WorkspaceId.eq(self.workspace_id))
+            .into_tuple()
+            .all(&orm(self.pool))
+            .await
     }
 }
 
-async fn insert_row<'e>(
-    executor: impl sqlx::PgExecutor<'e>,
+/// `coalesce(revoked_at, at)`: a key keeps its first revocation time.
+fn first_revocation(at: PrimitiveDateTime) -> Expr {
+    Func::coalesce([
+        Expr::col((registry::Entity, registry::Column::RevokedAt)),
+        Expr::val(at),
+    ])
+    .into()
+}
+
+async fn revoke_row<C: ConnectionTrait>(
+    db: &C,
+    workspace_id: &str,
+    id: &str,
+    at: PrimitiveDateTime,
+) -> Result<(), DbErr> {
+    registry::Entity::update_many()
+        .col_expr(registry::Column::RevokedAt, first_revocation(at))
+        .col_expr(registry::Column::UpdatedAt, Expr::val(at))
+        .filter(registry::Column::Id.eq(id))
+        .filter(registry::Column::WorkspaceId.eq(workspace_id))
+        .exec(db)
+        .await?;
+    Ok(())
+}
+
+async fn insert_row<C: ConnectionTrait>(
+    db: &C,
     workspace_id: &str,
     key: &NewKey<'_>,
-) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "insert into storefront_key_registry (id, key_hash, kind, key_prefix, workspace_id, \
-           channel_id, allowed_origins, rotated_from_id, created_at, updated_at) \
-         values ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9::timestamp, $9::timestamp)",
-    )
-    .bind(key.id)
-    .bind(key.hash)
-    .bind(key.kind)
-    .bind(key.prefix)
-    .bind(workspace_id)
-    .bind(key.channel_id)
-    .bind(serde_json::json!(key.origins))
-    .bind(key.rotated_from)
-    .bind(key.at)
-    .execute(executor)
+) -> Result<(), DbErr> {
+    registry::Entity::insert(registry::ActiveModel {
+        id: Set(key.id.to_owned()),
+        key_hash: Set(key.hash.to_owned()),
+        kind: Set(key.kind.to_owned()),
+        key_prefix: Set(key.prefix.to_owned()),
+        workspace_id: Set(workspace_id.to_owned()),
+        channel_id: Set(key.channel_id.to_owned()),
+        allowed_origins: Set(json!(key.origins)),
+        rotated_from_id: Set(key.rotated_from.map(str::to_owned)),
+        created_at: Set(key.at),
+        updated_at: Set(key.at),
+        ..Default::default()
+    })
+    .exec_without_returning(db)
     .await?;
     Ok(())
 }

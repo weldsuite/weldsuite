@@ -32,11 +32,20 @@ use axum::response::{IntoResponse, Redirect, Response};
 use axum::routing::{delete, get, post};
 use http::header::{CACHE_CONTROL, CONTENT_DISPOSITION, CONTENT_TYPE};
 use http::{HeaderMap, HeaderValue, StatusCode};
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{
+    ColumnTrait, EntityTrait, FromQueryResult, JoinType, QueryFilter, QueryOrder, QuerySelect,
+};
 use serde_json::{Map, Value, json};
-use time::OffsetDateTime;
+use time::{OffsetDateTime, PrimitiveDateTime};
+use weldsuite_db::{OrmConn, orm};
 use weldsuite_kit::validation::Presence;
 use weldsuite_kit::{ApiError, Data};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::master::{
+    billing_accounts, billing_invoices, billing_payments, partners, workspace_credits,
+    workspace_licences, workspace_usage, workspaces,
+};
 
 use crate::access::{answer, validate};
 use crate::account::Account;
@@ -250,39 +259,84 @@ async fn plans_page(State(state): State<BillingState>, caller: Caller) -> Respon
     )
 }
 
+/// The partner `GET /managed` names: `jsonb_build_object('id', p.id, …)`,
+/// and its status.
+#[derive(Debug, FromQueryResult, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Partner {
+    id: String,
+    name: String,
+    logo_url: Option<String>,
+    website_url: Option<String>,
+    support_email: Option<String>,
+    support_url: Option<String>,
+    #[serde(skip)]
+    status: String,
+}
+
 /// `GET /managed`: null for a directly billed workspace (every one on the
 /// EU edition today); a partner workspace's partner and licence otherwise.
 async fn managed(State(state): State<BillingState>, caller: Caller) -> Response {
     answer(
         async {
-            let master = caller.master(&state);
-            let partner: Option<(Value, String)> = sqlx::query_as(
-                "select jsonb_build_object('id', p.id, 'name', p.name, 'logoUrl', p.logo_url,
-                         'websiteUrl', p.website_url, 'supportEmail', p.support_email,
-                         'supportUrl', p.support_url), p.status
-                 from workspaces w join partners p on p.id = w.partner_id
-                 where w.id = $1 and w.billing_mode = 'partner' limit 1",
-            )
-            .bind(&caller.workspace_id)
-            .fetch_optional(&master)
-            .await?;
-            let Some((partner, partner_status)) = partner else {
+            let db = orm(&caller.master(&state));
+            let partner = workspaces::Entity::find()
+                .select_only()
+                .columns([
+                    partners::Column::Id,
+                    partners::Column::Name,
+                    partners::Column::LogoUrl,
+                    partners::Column::WebsiteUrl,
+                    partners::Column::SupportEmail,
+                    partners::Column::SupportUrl,
+                    partners::Column::Status,
+                ])
+                .join(
+                    JoinType::InnerJoin,
+                    workspaces::Entity::belongs_to(partners::Entity)
+                        .from(workspaces::Column::PartnerId)
+                        .to(partners::Column::Id)
+                        .into(),
+                )
+                .filter(workspaces::Column::Id.eq(&caller.workspace_id))
+                .filter(workspaces::Column::BillingMode.eq("partner"))
+                .into_model::<Partner>()
+                .one(&db)
+                .await?;
+            let Some(partner) = partner else {
                 return Ok(data(Value::Null));
             };
-            let licence: Option<Value> = sqlx::query_scalar(
-                "select jsonb_build_object('status', status, 'allowedApps', allowed_apps,
-                         'monthlyCredits', monthly_credits, 'maxSeats', max_seats)
-                 from workspace_licences where workspace_id = $1 limit 1",
-            )
-            .bind(&caller.workspace_id)
-            .fetch_optional(&master)
-            .await?;
-            let balance: Option<i32> = sqlx::query_scalar(
-                "select current_balance from workspace_credits where workspace_id = $1",
-            )
-            .bind(&caller.workspace_id)
-            .fetch_optional(&master)
-            .await?;
+            let partner_status = partner.status.clone();
+            let partner = json!(partner);
+            let licence: Option<(String, Value, i32, Option<i32>)> =
+                workspace_licences::Entity::find()
+                    .select_only()
+                    .columns([
+                        workspace_licences::Column::Status,
+                        workspace_licences::Column::AllowedApps,
+                        workspace_licences::Column::MonthlyCredits,
+                        workspace_licences::Column::MaxSeats,
+                    ])
+                    .filter(workspace_licences::Column::WorkspaceId.eq(&caller.workspace_id))
+                    .into_tuple()
+                    .one(&db)
+                    .await?;
+            let licence = licence.map(|(status, allowed_apps, monthly_credits, max_seats)| {
+                json!({
+                    "status": status,
+                    "allowedApps": allowed_apps,
+                    "monthlyCredits": monthly_credits,
+                    "maxSeats": max_seats,
+                })
+            });
+            let balance: Option<i32> = workspace_credits::Entity::find()
+                .select_only()
+                .column(workspace_credits::Column::CurrentBalance)
+                .filter(workspace_credits::Column::WorkspaceId.eq(&caller.workspace_id))
+                .into_tuple()
+                .one(&db)
+                .await?;
+            let master = caller.master(&state);
             let members = workspace::active_members(&master, &caller.workspace_id).await?;
             let licence = licence.unwrap_or_else(
                 || json!({ "status": "ended", "allowedApps": [], "monthlyCredits": 0, "maxSeats": null }),
@@ -313,20 +367,28 @@ async fn limits(State(state): State<BillingState>, caller: Caller) -> Response {
             };
             let features = plan.as_ref().map_or_else(|| json!({}), Plan::features);
             let members = workspace::active_members(&master, &workspace.id).await?;
-            let usage: Option<(i32, i32)> = sqlx::query_as(
-                "select emails_sent_this_month, ai_credits_used_this_month from workspace_usage
-                 where workspace_id = $1 limit 1",
-            )
-            .bind(&workspace.id)
-            .fetch_optional(&master)
-            .await
-            .unwrap_or(None);
-            let credits: Option<(i32, i32)> = sqlx::query_as(
-                "select current_balance, monthly_allocation from workspace_credits where workspace_id = $1",
-            )
-            .bind(&workspace.id)
-            .fetch_optional(&master)
-            .await?;
+            let db = orm(&master);
+            let usage: Option<(i32, i32)> = workspace_usage::Entity::find()
+                .select_only()
+                .columns([
+                    workspace_usage::Column::EmailsSentThisMonth,
+                    workspace_usage::Column::AiCreditsUsedThisMonth,
+                ])
+                .filter(workspace_usage::Column::WorkspaceId.eq(&workspace.id))
+                .into_tuple()
+                .one(&db)
+                .await
+                .unwrap_or(None);
+            let credits: Option<(i32, i32)> = workspace_credits::Entity::find()
+                .select_only()
+                .columns([
+                    workspace_credits::Column::CurrentBalance,
+                    workspace_credits::Column::MonthlyAllocation,
+                ])
+                .filter(workspace_credits::Column::WorkspaceId.eq(&workspace.id))
+                .into_tuple()
+                .one(&db)
+                .await?;
             let number = |key: &str| features.get(key).and_then(Value::as_i64).unwrap_or(0);
             Ok(data(json!({
                 "planId": plan.as_ref().map(|p| p.id.clone()),
@@ -419,6 +481,50 @@ fn page_params(query: Option<&str>, default_limit: i64) -> (i64, i64) {
     (limit, (page.max(1) - 1).saturating_mul(limit))
 }
 
+/// A `GET /invoices` row: app-api's `jsonb_build_object(…)`, the
+/// timestamps as `to_char(…, 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')` printed them.
+#[derive(Debug, FromQueryResult, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct InvoiceRow {
+    id: String,
+    number: Option<String>,
+    amount: i32,
+    currency: Option<String>,
+    status: Option<String>,
+    #[serde(with = "weldsuite_schema::js::timestamp::option")]
+    period_start: Option<PrimitiveDateTime>,
+    #[serde(with = "weldsuite_schema::js::timestamp::option")]
+    period_end: Option<PrimitiveDateTime>,
+    pdf_url: Option<String>,
+    hosted_url: Option<String>,
+    #[serde(with = "weldsuite_schema::js::timestamp")]
+    created_at: PrimitiveDateTime,
+    tax_amount: i32,
+    subtotal_amount: i32,
+    customer_country: Option<String>,
+    customer_tax_exempt: Option<String>,
+    lines: Option<Value>,
+}
+
+/// A `GET /payments` row: app-api's `jsonb_build_object(…)`.
+#[derive(Debug, FromQueryResult, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PaymentRow {
+    id: String,
+    amount: i32,
+    currency: String,
+    status: String,
+    payment_method_type: Option<String>,
+    payment_method_brand: Option<String>,
+    payment_method_last4: Option<String>,
+    failure_message: Option<String>,
+    refunded_amount: i32,
+    invoice_id: Option<String>,
+    kind: Option<String>,
+    #[serde(with = "weldsuite_schema::js::timestamp")]
+    created_at: PrimitiveDateTime,
+}
+
 async fn invoices(
     State(state): State<BillingState>,
     caller: Caller,
@@ -426,27 +532,41 @@ async fn invoices(
 ) -> Response {
     answer(
         async {
+            use billing_invoices::Column as I;
             let (limit, offset) = page_params(query.as_deref(), 10);
-            let rows: Vec<Value> = sqlx::query_scalar(
-                "select jsonb_build_object(
-                     'id', id, 'number', number,
-                     'amount', coalesce(amount_paid, amount_due, 0), 'currency', currency, 'status', status,
-                     'periodStart', to_char(period_start, 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"'),
-                     'periodEnd', to_char(period_end, 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"'),
-                     'pdfUrl', pdf_url, 'hostedUrl', hosted_url,
-                     'createdAt', to_char(created_at, 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"'),
-                     'taxAmount', coalesce(tax_amount, 0), 'subtotalAmount', coalesce(subtotal_amount, 0),
-                     'customerCountry', customer_country, 'customerTaxExempt', customer_tax_exempt,
-                     'lines', lines)
-                 from billing_invoices where workspace_id = $1
-                 order by created_at desc limit $2 offset $3",
-            )
-            .bind(&caller.workspace_id)
-            .bind(limit)
-            .bind(offset)
-            .fetch_all(&caller.master(&state))
-            .await?;
-            Ok(data(Value::Array(rows)))
+            let zero_if_null =
+                |column: I| Expr::from(Func::coalesce([Expr::col(column), Expr::val(0)]));
+            let rows = billing_invoices::Entity::find()
+                .select_only()
+                .columns([I::Id, I::Number])
+                .column_as(
+                    Expr::from(Func::coalesce([
+                        Expr::col(I::AmountPaid),
+                        Expr::col(I::AmountDue),
+                        Expr::val(0),
+                    ])),
+                    "amount",
+                )
+                .columns([
+                    I::Currency,
+                    I::Status,
+                    I::PeriodStart,
+                    I::PeriodEnd,
+                    I::PdfUrl,
+                    I::HostedUrl,
+                    I::CreatedAt,
+                ])
+                .column_as(zero_if_null(I::TaxAmount), "tax_amount")
+                .column_as(zero_if_null(I::SubtotalAmount), "subtotal_amount")
+                .columns([I::CustomerCountry, I::CustomerTaxExempt, I::Lines])
+                .filter(I::WorkspaceId.eq(&caller.workspace_id))
+                .order_by_desc(I::CreatedAt)
+                .limit(u64::try_from(limit).unwrap_or(0))
+                .offset(u64::try_from(offset).unwrap_or(0))
+                .into_model::<InvoiceRow>()
+                .all(&orm(&caller.master(&state)))
+                .await?;
+            Ok(data(json!(rows)))
         }
         .await,
     )
@@ -460,13 +580,17 @@ async fn invoice_document(
 ) -> Response {
     answer(
         async {
-            let row: Option<(Option<String>, Option<String>)> = sqlx::query_as(
-                "select document_key, number from billing_invoices where id = $1 and workspace_id = $2",
-            )
-            .bind(&id)
-            .bind(&caller.workspace_id)
-            .fetch_optional(&caller.master(&state))
-            .await?;
+            let row: Option<(Option<String>, Option<String>)> = billing_invoices::Entity::find()
+                .select_only()
+                .columns([
+                    billing_invoices::Column::DocumentKey,
+                    billing_invoices::Column::Number,
+                ])
+                .filter(billing_invoices::Column::Id.eq(&id))
+                .filter(billing_invoices::Column::WorkspaceId.eq(&caller.workspace_id))
+                .into_tuple()
+                .one(&orm(&caller.master(&state)))
+                .await?;
             let Some((Some(key), number)) = row else {
                 return Err(ApiError::not_found("Invoice", None).into());
             };
@@ -519,24 +643,37 @@ async fn payments(
 ) -> Response {
     answer(
         async {
+            use billing_payments::Column as P;
             let (limit, offset) = page_params(query.as_deref(), 20);
-            let rows: Vec<Value> = sqlx::query_scalar(
-                "select jsonb_build_object(
-                     'id', id, 'amount', amount, 'currency', currency, 'status', status,
-                     'paymentMethodType', payment_method_type, 'paymentMethodBrand', payment_method_brand,
-                     'paymentMethodLast4', payment_method_last4, 'failureMessage', failure_message,
-                     'refundedAmount', refunded_amount, 'invoiceId', invoice_id, 'kind', kind,
-                     'createdAt', to_char(created_at, 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"'))
-                 from billing_payments
-                 where workspace_id = $1 and (provider <> 'mollie' or amount > 0)
-                 order by created_at desc limit $2 offset $3",
-            )
-            .bind(&caller.workspace_id)
-            .bind(limit)
-            .bind(offset)
-            .fetch_all(&caller.master(&state))
-            .await?;
-            Ok(data(Value::Array(rows)))
+            let rows = billing_payments::Entity::find()
+                .select_only()
+                .columns([
+                    P::Id,
+                    P::Amount,
+                    P::Currency,
+                    P::Status,
+                    P::PaymentMethodType,
+                    P::PaymentMethodBrand,
+                    P::PaymentMethodLast4,
+                    P::FailureMessage,
+                    P::RefundedAmount,
+                    P::InvoiceId,
+                    P::Kind,
+                    P::CreatedAt,
+                ])
+                .filter(P::WorkspaceId.eq(&caller.workspace_id))
+                .filter(
+                    sea_orm::Condition::any()
+                        .add(P::Provider.ne("mollie"))
+                        .add(P::Amount.gt(0)),
+                )
+                .order_by_desc(P::CreatedAt)
+                .limit(u64::try_from(limit).unwrap_or(0))
+                .offset(u64::try_from(offset).unwrap_or(0))
+                .into_model::<PaymentRow>()
+                .all(&orm(&caller.master(&state)))
+                .await?;
+            Ok(data(json!(rows)))
         }
         .await,
     )
@@ -889,7 +1026,7 @@ async fn set_default_method(
             }
             let mut tx = master.begin().await?;
             crate::account::set_mandate(
-                &mut tx,
+                &OrmConn::new(&mut tx),
                 &caller.workspace_id,
                 &mandate.id,
                 mandate.method.as_deref(),
@@ -937,14 +1074,14 @@ async fn remove_method(
                 .await
                 .map_err(|error| crate::BillingError::internal("Failed to remove the payment method", error))?;
             if account.mandate_id.as_deref() == Some(id.as_str()) {
-                sqlx::query(
-                    "update billing_accounts set mandate_id = null, mandate_method = null, mandate_label = null,
-                         updated_at = now()
-                     where workspace_id = $1",
-                )
-                .bind(&caller.workspace_id)
-                .execute(&master)
-                .await?;
+                billing_accounts::Entity::update_many()
+                    .col_expr(billing_accounts::Column::MandateId, Expr::null())
+                    .col_expr(billing_accounts::Column::MandateMethod, Expr::null())
+                    .col_expr(billing_accounts::Column::MandateLabel, Expr::null())
+                    .col_expr(billing_accounts::Column::UpdatedAt, Expr::current_timestamp())
+                    .filter(billing_accounts::Column::WorkspaceId.eq(&caller.workspace_id))
+                    .exec(&orm(&master))
+                    .await?;
             }
             Ok(StatusCode::NO_CONTENT.into_response())
         }

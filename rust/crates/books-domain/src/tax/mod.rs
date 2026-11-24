@@ -19,8 +19,11 @@ pub mod eu_vat;
 pub mod gst;
 pub mod totals;
 
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value};
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm};
+use weldsuite_schema::tenant::{entities, invoices, parties, tax_rates};
 
 use crate::address::normalize_postal_address;
 use crate::compliance::get_contact_vat_number;
@@ -61,14 +64,23 @@ pub enum TaxError {
     /// A sales tax refusal (`salesTaxErrorResponse`): engine down, address
     /// missing, rates not configured, ….
     SalesTax(SalesTaxError),
-    Database(sqlx::Error),
+    Database(DbErr),
     /// A failure the route's `catch` answers with its 500.
     Internal(String),
 }
 
+impl From<DbErr> for TaxError {
+    fn from(error: DbErr) -> Self {
+        Self::Database(error)
+    }
+}
+
+/// For the transactions the callers open around their writes (`begin` and
+/// `commit` answer `sqlx::Error`): the same failure, through
+/// `weldsuite_db::orm_error`.
 impl From<sqlx::Error> for TaxError {
     fn from(error: sqlx::Error) -> Self {
-        Self::Database(error)
+        Self::Database(weldsuite_db::orm_error(error))
     }
 }
 
@@ -391,12 +403,14 @@ async fn engine_tax(
 }
 
 /// `originalWasEngineTaxed(db, invoiceId)`.
-async fn original_was_engine_taxed(db: &PgPool, invoice_id: &str) -> Result<bool, sqlx::Error> {
-    let engine: Option<Option<String>> =
-        sqlx::query_scalar("select tax_engine from invoices where id = $1 limit 1")
-            .bind(invoice_id)
-            .fetch_optional(db)
-            .await?;
+async fn original_was_engine_taxed(db: &PgPool, invoice_id: &str) -> Result<bool, DbErr> {
+    let engine: Option<Option<String>> = invoices::Entity::find()
+        .select_only()
+        .column(invoices::Column::TaxEngine)
+        .filter(invoices::Column::Id.eq(invoice_id))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     Ok(engine.flatten().is_some_and(|e| !e.is_empty()))
 }
 
@@ -418,6 +432,7 @@ async fn load_entity_rates(
     entity_id: &str,
     rate_ids: &[String],
 ) -> Result<Vec<RateTableRate>, TaxError> {
+    use sea_orm::ExprTrait as _;
     if rate_ids.is_empty() {
         return Ok(Vec::new());
     }
@@ -429,14 +444,24 @@ async fn load_entity_rates(
         String,
         Option<String>,
         Option<Value>,
-    )> = sqlx::query_as(
-        "select id, name, type, rate::text, tax_category_code, jurisdiction_metadata \
-             from tax_rates where id = any($1) and entity_id = $2 and deleted_at is null",
-    )
-    .bind(rate_ids)
-    .bind(entity_id)
-    .fetch_all(db)
-    .await?;
+    )> = tax_rates::Entity::find()
+        .select_only()
+        .columns([
+            tax_rates::Column::Id,
+            tax_rates::Column::Name,
+            tax_rates::Column::Type,
+        ])
+        .column_as(Expr::col(tax_rates::Column::Rate).cast_as("text"), "rate")
+        .columns([
+            tax_rates::Column::TaxCategoryCode,
+            tax_rates::Column::JurisdictionMetadata,
+        ])
+        .filter(tax_rates::Column::Id.is_in(rate_ids.iter().map(String::as_str)))
+        .filter(tax_rates::Column::EntityId.eq(entity_id))
+        .filter(tax_rates::Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     let rates: Vec<RateTableRate> = rows
         .into_iter()
         .map(
@@ -634,14 +659,19 @@ pub async fn load_place_of_supply(
     db: &PgPool,
     entity_id: &str,
     opts: &PlaceOptions<'_>,
-) -> Result<PlaceOfSupply, sqlx::Error> {
-    let entity: Option<(String, Option<Value>, Option<Value>)> = sqlx::query_as(
-        "select jurisdiction_code, tax_identifiers, jurisdiction_settings from entities \
-         where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(entity_id)
-    .fetch_optional(db)
-    .await?;
+) -> Result<PlaceOfSupply, DbErr> {
+    let entity: Option<(String, Option<Value>, Option<Value>)> = entities::Entity::find()
+        .select_only()
+        .columns([
+            entities::Column::JurisdictionCode,
+            entities::Column::TaxIdentifiers,
+            entities::Column::JurisdictionSettings,
+        ])
+        .filter(entities::Column::Id.eq(entity_id))
+        .filter(entities::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     let Some((jurisdiction_code, tax_identifiers, settings)) = entity else {
         return Ok(PlaceOfSupply::default());
     };
@@ -695,14 +725,19 @@ pub fn document_tax_hook(jurisdiction_code: &str) -> Option<DocumentTaxHook> {
 async fn load_document_tax_hook(
     db: &PgPool,
     entity_id: &str,
-) -> Result<Option<(HookEntity, DocumentTaxHook)>, sqlx::Error> {
-    let entity: Option<(String, Option<String>, Option<Value>)> = sqlx::query_as(
-        "select jurisdiction_code, tax_classification, jurisdiction_settings from entities \
-         where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(entity_id)
-    .fetch_optional(db)
-    .await?;
+) -> Result<Option<(HookEntity, DocumentTaxHook)>, DbErr> {
+    let entity: Option<(String, Option<String>, Option<Value>)> = entities::Entity::find()
+        .select_only()
+        .columns([
+            entities::Column::JurisdictionCode,
+            entities::Column::TaxClassification,
+            entities::Column::JurisdictionSettings,
+        ])
+        .filter(entities::Column::Id.eq(entity_id))
+        .filter(entities::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     let Some((jurisdiction_code, tax_classification, jurisdiction_settings)) = entity else {
         return Ok(None);
     };
@@ -723,7 +758,7 @@ async fn load_document_tax_hook(
 
 /// `hasDocumentTaxHook(db, entityId)`: the entity's jurisdiction calculates
 /// documents as a whole (Brazil).
-pub async fn has_document_tax_hook(db: &PgPool, entity_id: &str) -> Result<bool, sqlx::Error> {
+pub async fn has_document_tax_hook(db: &PgPool, entity_id: &str) -> Result<bool, DbErr> {
     Ok(load_document_tax_hook(db, entity_id).await?.is_some())
 }
 
@@ -734,7 +769,7 @@ pub async fn document_tax_context(
     entity: &HookEntity,
     direction: Direction,
     document: Option<&DocumentContext>,
-) -> Result<HookContext, sqlx::Error> {
+) -> Result<HookContext, DbErr> {
     let mut address = document.and_then(|d| {
         normalize_postal_address(d.shipping_address.as_ref())
             .or_else(|| normalize_postal_address(d.billing_address.as_ref()))
@@ -744,12 +779,17 @@ pub async fn document_tax_context(
         .and_then(|d| d.contact_id.as_deref())
         .filter(|id| !id.is_empty());
     if let Some(contact_id) = contact_id {
-        let party: Option<(Option<Value>, Option<Value>, Option<Value>)> = sqlx::query_as(
-            "select billing_address, shipping_address, br_fiscal from parties where id = $1 limit 1",
-        )
-        .bind(contact_id)
-        .fetch_optional(db)
-        .await?;
+        let party: Option<(Option<Value>, Option<Value>, Option<Value>)> = parties::Entity::find()
+            .select_only()
+            .columns([
+                parties::Column::BillingAddress,
+                parties::Column::ShippingAddress,
+                parties::Column::BrFiscal,
+            ])
+            .filter(parties::Column::Id.eq(contact_id))
+            .into_tuple()
+            .one(&orm(db))
+            .await?;
         if let Some((billing, shipping, fiscal)) = party {
             br_fiscal = fiscal.filter(|f| !f.is_null());
             if address.is_none() {

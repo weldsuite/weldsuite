@@ -16,20 +16,28 @@ use axum::body::Bytes;
 use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use http::{HeaderMap, StatusCode};
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder,
+    QuerySelect,
+};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events::{
     EventName, PANEL_SHARE_LINK_CREATED, PANEL_SHARE_LINK_DELETED,
 };
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::id::{ALPHANUMERIC, random_string};
 use weldsuite_kit::{ApiError, Created, List, NoContent, Pagination};
 use weldsuite_panel_domain::js;
 use weldsuite_permissions::Permissions;
 
 use crate::keys::sha256_hex;
+use weldsuite_schema::master::panel_share_registry;
+use weldsuite_schema::tenant::panel_share_links;
+
 use crate::saved::{
-    Actor, Target, can_change, can_see, field, get_target, list_tiles, rows, target_label, text,
-    tile_reports,
+    Actor, Target, can_change, can_see, field, get_target, instant, js_row, js_rows, list_tiles,
+    target_label, text, tile_reports,
 };
 use crate::schemas_gen::{CREATE_PANEL_SHARE_LINK, PANEL_TARGET_QUERY};
 use crate::{Caller, PanelState, unexpected};
@@ -37,7 +45,9 @@ use crate::{Caller, PanelState, unexpected};
 /// `wpsh_` and the first four characters: what the list shows.
 const PREFIX_LENGTH: usize = 9;
 /// Live links one report or dashboard may have at once.
-const MAX_ACTIVE_LINKS_PER_TARGET: i64 = 20;
+const MAX_ACTIVE_LINKS_PER_TARGET: u64 = 20;
+/// Links listed per target, newest first.
+const MAX_LISTED: u64 = 100;
 const DEFAULT_PLATFORM_URL: &str = "https://app.weldsuite.org";
 
 /// `PANEL_SHAREABLE_KINDS`: aggregates only.
@@ -153,7 +163,7 @@ pub(crate) fn share_refusals(report: &Value) -> Vec<&'static str> {
 
 /// `targetRefusals(db, target)`: every reason the target (a report, or each
 /// report on a dashboard) may not be shared.
-async fn target_refusals(db: &PgPool, target: &Target) -> Result<Vec<Value>, sqlx::Error> {
+async fn target_refusals(db: &PgPool, target: &Target) -> Result<Vec<Value>, DbErr> {
     let reports = if target.target_type == "report" {
         vec![target.row.clone()]
     } else {
@@ -220,18 +230,18 @@ pub(crate) async fn list(
         }
         Err(error) => return unexpected(&error, "list share links"),
     }
-    let found: Result<Vec<Value>, sqlx::Error> = sqlx::query_scalar(
-        "select to_jsonb(l) from panel_share_links l
-         where l.target_type = $1 and l.target_id = $2
-         order by l.created_at desc, l.id asc limit 100",
-    )
-    .bind(&target_type)
-    .bind(&target_id)
-    .fetch_all(&caller.db)
-    .await;
+    let found = panel_share_links::Entity::find()
+        .filter(panel_share_links::Column::TargetType.eq(&target_type))
+        .filter(panel_share_links::Column::TargetId.eq(&target_id))
+        .order_by_desc(panel_share_links::Column::CreatedAt)
+        .order_by_asc(panel_share_links::Column::Id)
+        .limit(MAX_LISTED)
+        .all(&orm(&caller.db))
+        .await
+        .and_then(js_rows);
     match found {
         Ok(found) => {
-            let links: Vec<Value> = rows(found).iter().map(dto).collect();
+            let links: Vec<Value> = found.iter().map(dto).collect();
             let count = links.len() as u64;
             List::new(links, Pagination::new(count, false, None)).into_response()
         }
@@ -243,11 +253,11 @@ pub(crate) async fn list(
 enum CreateFailure {
     Bad(String),
     Conflict(String),
-    Failed(sqlx::Error),
+    Failed(DbErr),
 }
 
-impl From<sqlx::Error> for CreateFailure {
-    fn from(error: sqlx::Error) -> Self {
+impl From<DbErr> for CreateFailure {
+    fn from(error: DbErr) -> Self {
         Self::Failed(error)
     }
 }
@@ -271,14 +281,12 @@ async fn create_link(
             "The expiry date must be in the future".to_owned(),
         ));
     }
-    let active: i64 = sqlx::query_scalar(
-        "select count(*) from panel_share_links
-         where target_type = $1 and target_id = $2 and revoked_at is null",
-    )
-    .bind(target.target_type)
-    .bind(text(&target.row, "id"))
-    .fetch_one(&caller.db)
-    .await?;
+    let active = panel_share_links::Entity::find()
+        .filter(panel_share_links::Column::TargetType.eq(target.target_type))
+        .filter(panel_share_links::Column::TargetId.eq(text(&target.row, "id")))
+        .filter(panel_share_links::Column::RevokedAt.is_null())
+        .count(&orm(&caller.db))
+        .await?;
     if active >= MAX_ACTIVE_LINKS_PER_TARGET {
         return Err(CreateFailure::Conflict(format!(
             "At most {MAX_ACTIVE_LINKS_PER_TARGET} links per {}; revoke one first",
@@ -287,56 +295,45 @@ async fn create_link(
     }
     let token = generate_share_token();
     let token_hash = sha256_hex(&token);
-    let expires_iso = expires_at.map(js::iso_string);
-    let row: Value = sqlx::query_scalar(
-        "insert into panel_share_links as l
-           (id, project_id, target_type, target_id, token_hash, token_prefix,
-            allow_embed, allow_date_change, expires_at, created_by_user_id)
-         values ($1, $2, $3, $4, $5, $6, $7, $8, $9::timestamptz, $10)
-         returning to_jsonb(l)",
-    )
-    .bind(weldsuite_kit::id::generate_id("pnsl"))
-    .bind(text(&target.row, "projectId"))
-    .bind(target.target_type)
-    .bind(text(&target.row, "id"))
-    .bind(&token_hash)
-    .bind(&token[..PREFIX_LENGTH])
-    .bind(
-        input
+    let expires_at = expires_at.map(instant);
+    let created = panel_share_links::Entity::insert(panel_share_links::ActiveModel {
+        id: Set(weldsuite_kit::id::generate_id("pnsl")),
+        project_id: Set(text(&target.row, "projectId").to_owned()),
+        target_type: Set(target.target_type.to_owned()),
+        target_id: Set(text(&target.row, "id").to_owned()),
+        token_hash: Set(token_hash.clone()),
+        token_prefix: Set(token[..PREFIX_LENGTH].to_owned()),
+        allow_embed: Set(input
             .get("allowEmbed")
             .and_then(Value::as_bool)
-            .unwrap_or(false),
-    )
-    .bind(
-        input
+            .unwrap_or(false)),
+        allow_date_change: Set(input
             .get("allowDateChange")
             .and_then(Value::as_bool)
-            .unwrap_or(false),
-    )
-    .bind(expires_iso.as_deref())
-    .bind(&caller.user_id)
-    .fetch_one(&caller.db)
+            .unwrap_or(false)),
+        expires_at: Set(expires_at),
+        created_by_user_id: Set(caller.user_id.clone()),
+        ..Default::default()
+    })
+    .exec_with_returning(&orm(&caller.db))
     .await?;
-    let row = weldsuite_db::js_row(row);
-    let registered = sqlx::query(
-        "insert into panel_share_registry (token_hash, workspace_id, project_id, link_id, expires_at)
-         values ($1, $2, $3, $4, $5::timestamptz)",
-    )
-    .bind(&token_hash)
-    .bind(&caller.workspace_id)
-    .bind(text(&row, "projectId"))
-    .bind(text(&row, "id"))
-    .bind(expires_iso.as_deref())
-    .execute(master)
+    let registered = panel_share_registry::Entity::insert(panel_share_registry::ActiveModel {
+        token_hash: Set(token_hash),
+        workspace_id: Set(caller.workspace_id.clone()),
+        project_id: Set(created.project_id.clone()),
+        link_id: Set(created.id.clone()),
+        expires_at: Set(expires_at),
+        ..Default::default()
+    })
+    .exec_without_returning(&orm(master))
     .await;
     if let Err(error) = registered {
-        sqlx::query("delete from panel_share_links where id = $1")
-            .bind(text(&row, "id"))
-            .execute(&caller.db)
+        panel_share_links::Entity::delete_by_id(created.id)
+            .exec(&orm(&caller.db))
             .await?;
         return Err(CreateFailure::Failed(error));
     }
-    Ok((row, token))
+    Ok((js_row(created)?, token))
 }
 
 /// `panelShareUrl(platformUrl, token)`.
@@ -422,13 +419,12 @@ pub(crate) async fn revoke(
     if caller.workspace_id.is_empty() {
         return ApiError::org_required().into_response();
     }
-    let found: Result<Option<Value>, sqlx::Error> =
-        sqlx::query_scalar("select to_jsonb(l) from panel_share_links l where l.id = $1 limit 1")
-            .bind(&id)
-            .fetch_optional(&caller.db)
-            .await;
+    let found = panel_share_links::Entity::find_by_id(&id)
+        .one(&orm(&caller.db))
+        .await
+        .and_then(|row| row.map(js_row).transpose());
     let link = match found {
-        Ok(Some(row)) => weldsuite_db::js_row(row),
+        Ok(Some(row)) => row,
         Ok(None) => return ApiError::not_found("Share link", Some(&id)).into_response(),
         Err(error) => return unexpected(&error, "revoke share link"),
     };
@@ -459,29 +455,33 @@ pub(crate) async fn revoke(
         return unexpected(&"no master database", "revoke share link");
     };
     // `link.revokedAt ?? now`, the same moment in the tenant row and the registry.
-    let revoked_at = link.get("revokedAt").and_then(Value::as_str).map_or_else(
-        || js::iso_string(caller.now().unwrap_or_else(js::now_millis)),
-        str::to_owned,
+    let revoked_at = instant(
+        link.get("revokedAt")
+            .and_then(Value::as_str)
+            .and_then(js::parse_iso)
+            .unwrap_or_else(|| caller.now().unwrap_or_else(js::now_millis)),
     );
     let revoked = async {
-        let row: Option<Value> = sqlx::query_scalar(
-            "update panel_share_links as l set revoked_at = $2::timestamptz
-             where l.id = $1 returning to_jsonb(l)",
-        )
-        .bind(text(&link, "id"))
-        .bind(&revoked_at)
-        .fetch_optional(&caller.db)
-        .await?;
-        sqlx::query(
-            "update panel_share_registry set revoked_at = $3::timestamptz
-             where token_hash = $1 and workspace_id = $2",
-        )
-        .bind(text(&link, "tokenHash"))
-        .bind(&caller.workspace_id)
-        .bind(&revoked_at)
-        .execute(&master)
-        .await?;
-        Ok::<_, sqlx::Error>(row.map(weldsuite_db::js_row))
+        let row = panel_share_links::Entity::update_many()
+            .col_expr(
+                panel_share_links::Column::RevokedAt,
+                Expr::value(revoked_at),
+            )
+            .filter(panel_share_links::Column::Id.eq(text(&link, "id")))
+            .exec_with_returning(&orm(&caller.db))
+            .await?
+            .into_iter()
+            .next();
+        panel_share_registry::Entity::update_many()
+            .col_expr(
+                panel_share_registry::Column::RevokedAt,
+                Expr::value(revoked_at),
+            )
+            .filter(panel_share_registry::Column::TokenHash.eq(text(&link, "tokenHash")))
+            .filter(panel_share_registry::Column::WorkspaceId.eq(&caller.workspace_id))
+            .exec(&orm(&master))
+            .await?;
+        row.map(js_row).transpose()
     }
     .await;
     match revoked {

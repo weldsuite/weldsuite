@@ -18,44 +18,61 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, patch, post};
 use http::HeaderMap;
+use sea_orm::sea_query::{Expr, Func, Query as SubQuery};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, Condition, DbErr, EntityTrait, PaginatorTrait, QueryFilter,
+    QueryOrder, QuerySelect,
+};
 use serde_json::{Map, Value, json};
-use time::{Duration, OffsetDateTime, Time};
+use time::{Duration, OffsetDateTime, PrimitiveDateTime, Time};
 use weldsuite_catalogs::entity_events::{
     ANALYTICS_CHART_CREATED, ANALYTICS_CHART_DELETED, ANALYTICS_REPORT_CREATED,
     ANALYTICS_REPORT_DELETED, ANALYTICS_REPORT_UPDATED,
 };
-use weldsuite_db::{PgPool, js_row};
+use weldsuite_db::{PgPool, orm, utc_now, utc_timestamp};
 use weldsuite_events::iso_timestamp;
 use weldsuite_flow_domain::js::{js_number_value, math_round, number_value, utf16_len};
 use weldsuite_kit::validation::{Field, Issues, Number, Presence};
 use weldsuite_kit::{ApiError, Created, Data, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 
+use weldsuite_schema::tenant::{
+    analytics_charts, analytics_reports, projects, tasks, time_entries,
+};
+
 use crate::projects::normalize_project_status;
-use crate::{Caller, FlowState, Query, Refusal, now, reply, validate, validate_value};
+use crate::{
+    Caller, FlowState, Query, Refusal, json_rows, reply, row_json, validate, validate_value,
+};
 
 const PROJECT_DENIED: &str = "You are not a member of this project";
 const REPORT_OWNER_ONLY: &str = "Only the report owner or a workspace admin can change this report";
 
-/// The KPI queries' task scope on `t`: `$1` all projects (live ones), else
-/// the ids in `$2`.
-macro_rules! task_scope {
-    () => {
-        concat!(
-            "(case when $1 then t.project_id is not null and not exists (",
-            "select 1 from projects xp where xp.id = t.project_id and xp.deleted_at is not null)",
-            " else t.project_id = any($2) end)"
-        )
-    };
+/// The KPI queries' project scope on `col`: all projects (a project, and a
+/// live one), else the ids given.
+fn project_scope<C: ColumnTrait + Copy>(col: C, all: bool, ids: &[String]) -> Condition {
+    if all {
+        // `not exists (select 1 from projects where id = col and deleted_at is
+        // not null)`, as `col not in` the deleted projects' ids (never null).
+        let deleted = SubQuery::select()
+            .column(projects::Column::Id)
+            .from(projects::Entity)
+            .and_where(projects::Column::DeletedAt.is_not_null())
+            .to_owned();
+        Condition::all()
+            .add(col.is_not_null())
+            .add(col.not_in_subquery(deleted))
+    } else {
+        Condition::all().add(col.is_in(ids.iter().map(String::as_str)))
+    }
 }
 
-/// A chart's copied columns, for `insert … select` (`$c` the source alias).
-macro_rules! chart_columns {
-    () => {
-        "title, description, chart_type, entity, metric, color, smooth_curve, fill_area, \
-         show_data_labels, show_legend, time_range, group_by, aggregation, sort_order, \"limit\", \
-         compare_with"
-    };
+/// Live tasks in the KPI scope that are still open (not done, not cancelled).
+fn open_tasks(all: bool, ids: &[String]) -> Condition {
+    Condition::all()
+        .add(tasks::Column::DeletedAt.is_null())
+        .add(project_scope(tasks::Column::ProjectId, all, ids))
+        .add(tasks::Column::Status.is_not_in(["done", "cancelled"]))
 }
 
 pub(crate) fn router<S, Q>(state: FlowState, gate: &Arc<PermissionGate<Q>>) -> Router<S>
@@ -229,7 +246,7 @@ async fn kpi_summary(
     period: &str,
     project_ids: Option<Vec<String>>,
     project_id: Option<&str>,
-) -> Result<Value, sqlx::Error> {
+) -> Result<Value, DbErr> {
     let now = OffsetDateTime::now_utc();
     let today = now.replace_time(Time::MIDNIGHT);
     let tomorrow = today + Duration::days(1);
@@ -265,79 +282,48 @@ async fn kpi_summary(
     let all = scoped.is_none();
     let ids = scoped.unwrap_or_default();
     let (today_at, tomorrow_at, from_at) = (
-        iso_timestamp(today),
-        iso_timestamp(tomorrow),
-        iso_timestamp(from),
+        utc_timestamp(today),
+        utc_timestamp(tomorrow),
+        utc_timestamp(from),
     );
+    let db = &orm(db);
 
-    let projects: Vec<(Option<String>, Option<String>, Option<bool>)> = sqlx::query_as(
-        "select status, health, is_active from projects
-         where deleted_at is null and ($1 or id = any($2))",
-    )
-    .bind(all)
-    .bind(&ids)
-    .fetch_all(db)
-    .await?;
+    let mut projects = projects::Entity::find()
+        .select_only()
+        .columns([
+            projects::Column::Status,
+            projects::Column::Health,
+            projects::Column::IsActive,
+        ])
+        .filter(projects::Column::DeletedAt.is_null());
+    if !all {
+        projects = projects.filter(projects::Column::Id.is_in(ids.iter().map(String::as_str)));
+    }
+    let projects: Vec<(Option<String>, Option<String>, Option<bool>)> =
+        projects.into_tuple().all(db).await?;
     // Unscoped: tasks and hours of deleted projects stay out.
-    let tasks: Vec<(Option<String>, Option<String>)> = sqlx::query_as(concat!(
-        "select t.status, t.priority from tasks t where t.deleted_at is null and ",
-        task_scope!()
-    ))
-    .bind(all)
-    .bind(&ids)
-    .fetch_all(db)
-    .await?;
-    let due_today: i32 = sqlx::query_scalar(concat!(
-        "select count(*)::int from tasks t where t.deleted_at is null and ",
-        task_scope!(),
-        " and t.due_date >= $3::timestamp and t.due_date < $4::timestamp",
-        " and t.status not in ('done', 'cancelled')"
-    ))
-    .bind(all)
-    .bind(&ids)
-    .bind(&today_at)
-    .bind(&tomorrow_at)
-    .fetch_one(db)
-    .await?;
-    let overdue: i32 = sqlx::query_scalar(concat!(
-        "select count(*)::int from tasks t where t.deleted_at is null and ",
-        task_scope!(),
-        " and t.due_date is not null and t.due_date < $3::timestamp",
-        " and t.status not in ('done', 'cancelled')"
-    ))
-    .bind(all)
-    .bind(&ids)
-    .bind(&today_at)
-    .fetch_one(db)
-    .await?;
-    let hours: (f64, f64) = sqlx::query_as(
-        "select coalesce(sum(e.duration)::float, 0), coalesce(sum(case when e.billable then e.duration else 0 end)::float, 0)
-         from time_entries e where e.deleted_at is null
-           and (case when $1 then e.project_id is not null and not exists (
-                     select 1 from projects xp where xp.id = e.project_id and xp.deleted_at is not null)
-                else e.project_id = any($2) end)
-           and e.date >= $3::date and e.date <= $4::date",
-    )
-    .bind(all)
-    .bind(&ids)
-    .bind(&from_iso)
-    .bind(&to_iso)
-    .fetch_one(db)
-    .await?;
-    let throughput: Vec<(Option<String>, i32)> = sqlx::query_as(concat!(
-        "select to_char(date_trunc('day', t.completed_date), 'YYYY-MM-DD'), count(*)::int",
-        " from tasks t where t.deleted_at is null and ",
-        task_scope!(),
-        " and t.status = 'done' and t.completed_date is not null",
-        " and t.completed_date >= $3::timestamp and t.completed_date < $4::timestamp",
-        " group by date_trunc('day', t.completed_date) order by date_trunc('day', t.completed_date)"
-    ))
-    .bind(all)
-    .bind(&ids)
-    .bind(&from_at)
-    .bind(&tomorrow_at)
-    .fetch_all(db)
-    .await?;
+    let tasks: Vec<(Option<String>, Option<String>)> = tasks::Entity::find()
+        .select_only()
+        .columns([tasks::Column::Status, tasks::Column::Priority])
+        .filter(tasks::Column::DeletedAt.is_null())
+        .filter(project_scope(tasks::Column::ProjectId, all, &ids))
+        .into_tuple()
+        .all(db)
+        .await?;
+    let due_today = tasks::Entity::find()
+        .filter(open_tasks(all, &ids))
+        .filter(tasks::Column::DueDate.gte(today_at))
+        .filter(tasks::Column::DueDate.lt(tomorrow_at))
+        .count(db)
+        .await?;
+    let overdue = tasks::Entity::find()
+        .filter(open_tasks(all, &ids))
+        .filter(tasks::Column::DueDate.is_not_null())
+        .filter(tasks::Column::DueDate.lt(today_at))
+        .count(db)
+        .await?;
+    let hours = logged_minutes(db, all, &ids, (from.date(), today.date())).await?;
+    let throughput = completed_by_day(db, all, &ids, (from_at, tomorrow_at)).await?;
 
     let closed = |status: &Option<String>| {
         status
@@ -365,10 +351,7 @@ async fn kpi_summary(
     } else {
         0.0
     };
-    let by_day: HashMap<String, i32> = throughput
-        .into_iter()
-        .filter_map(|(date, count)| date.map(|d| (d, count)))
-        .collect();
+    let by_day = throughput;
     let throughput_by_day: Vec<Value> = (0..days)
         .map(|i| {
             let date = iso_date(from + Duration::days(i));
@@ -410,18 +393,78 @@ async fn kpi_summary(
     }))
 }
 
+/// The minutes logged and the billable ones in the scope over the days from
+/// `from` to `to` (inclusive): `coalesce(sum(duration)::float, 0)` and
+/// `coalesce(sum(case when billable then duration else 0 end)::float, 0)`.
+async fn logged_minutes(
+    db: &sea_orm::DatabaseConnection,
+    all: bool,
+    ids: &[String],
+    (from, to): (time::Date, time::Date),
+) -> Result<(f64, f64), DbErr> {
+    use time_entries::Column;
+    let total = |amount: Expr| -> Expr {
+        let sum = sea_orm::ExprTrait::cast_as(Expr::from(Func::sum(amount)), "float");
+        Func::coalesce([sum, Expr::val(0.0_f64)]).into()
+    };
+    let duration = Expr::col((time_entries::Entity, Column::Duration));
+    let billable: Expr = Expr::case(Column::Billable.eq(true), duration.clone())
+        .finally(0)
+        .into();
+    let hours: Option<(f64, f64)> = time_entries::Entity::find()
+        .select_only()
+        .column_as(total(duration), "logged")
+        .column_as(total(billable), "billable")
+        .filter(Column::DeletedAt.is_null())
+        .filter(project_scope(Column::ProjectId, all, ids))
+        .filter(Column::Date.gte(from))
+        .filter(Column::Date.lte(to))
+        .into_tuple()
+        .one(db)
+        .await?;
+    Ok(hours.unwrap_or((0.0, 0.0)))
+}
+
+/// The tasks in the scope completed in `[from, to)`, by day (`YYYY-MM-DD` of
+/// `date_trunc('day', completed_date)`).
+async fn completed_by_day(
+    db: &sea_orm::DatabaseConnection,
+    all: bool,
+    ids: &[String],
+    (from, to): (PrimitiveDateTime, PrimitiveDateTime),
+) -> Result<HashMap<String, i32>, DbErr> {
+    use tasks::Column;
+    let completed: Vec<PrimitiveDateTime> = tasks::Entity::find()
+        .select_only()
+        .column(Column::CompletedDate)
+        .filter(Column::DeletedAt.is_null())
+        .filter(project_scope(Column::ProjectId, all, ids))
+        .filter(Column::Status.eq("done"))
+        .filter(Column::CompletedDate.is_not_null())
+        .filter(Column::CompletedDate.gte(from))
+        .filter(Column::CompletedDate.lt(to))
+        .into_tuple()
+        .all(db)
+        .await?;
+    let mut by_day: HashMap<String, i32> = HashMap::new();
+    for at in completed {
+        *by_day.entry(iso_date(at.assume_utc())).or_insert(0) += 1;
+    }
+    Ok(by_day)
+}
+
 // ── Reports ─────────────────────────────────────────────────────────────────
 
 /// The live WeldFlow report (`loadReport`).
-async fn load_report(db: &PgPool, report_id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(r) from analytics_reports r
-         where r.id = $1 and r.app = 'projects' and r.deleted_at is null limit 1",
-    )
-    .bind(report_id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(js_row))
+async fn load_report(db: &PgPool, report_id: &str) -> Result<Option<Value>, DbErr> {
+    use analytics_reports::Column;
+    analytics_reports::Entity::find_by_id(report_id)
+        .filter(Column::App.eq("projects"))
+        .filter(Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?
+        .map(row_json)
+        .transpose()
 }
 
 /// `loadModifiableReport`: the report, once the caller may change it (its
@@ -439,54 +482,120 @@ async fn modifiable_report(caller: &Caller, report_id: &str) -> Result<Value, Re
 }
 
 /// The report's live charts, in `sort_index` order.
-async fn report_charts(db: &PgPool, report_id: &str) -> Result<Vec<Value>, sqlx::Error> {
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(c) from analytics_charts c
-         where c.report_id = $1 and c.deleted_at is null order by c.sort_index asc",
-    )
-    .bind(report_id)
-    .fetch_all(db)
-    .await?;
-    Ok(rows.into_iter().map(js_row).collect())
+async fn report_charts(db: &PgPool, report_id: &str) -> Result<Vec<Value>, DbErr> {
+    let rows = live_charts(report_id)
+        .order_by_asc(analytics_charts::Column::SortIndex)
+        .all(&orm(db))
+        .await?;
+    json_rows(rows)
+}
+
+/// The report's live charts.
+fn live_charts(report_id: &str) -> sea_orm::Select<analytics_charts::Entity> {
+    analytics_charts::Entity::find()
+        .filter(analytics_charts::Column::ReportId.eq(report_id))
+        .filter(analytics_charts::Column::DeletedAt.is_null())
 }
 
 /// How many live charts the report has.
-async fn chart_count(db: &PgPool, report_id: &str) -> Result<i64, sqlx::Error> {
-    sqlx::query_scalar(
-        "select count(*) from analytics_charts where report_id = $1 and deleted_at is null",
-    )
-    .bind(report_id)
-    .fetch_one(db)
-    .await
+async fn chart_count(db: &PgPool, report_id: &str) -> Result<i64, DbErr> {
+    let count = live_charts(report_id).count(&orm(db)).await?;
+    Ok(i64::try_from(count).unwrap_or(i64::MAX))
 }
 
 async fn set_chart_count(
     db: &PgPool,
     report_id: &str,
     count: i64,
-    at: &str,
-) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "update analytics_reports set chart_count = $2, updated_at = $3::timestamp where id = $1",
-    )
-    .bind(report_id)
-    .bind(i32::try_from(count).unwrap_or(i32::MAX))
-    .bind(at)
-    .execute(db)
-    .await
-    .map(|_| ())
+    at: PrimitiveDateTime,
+) -> Result<(), DbErr> {
+    use analytics_reports::Column;
+    analytics_reports::Entity::update_many()
+        .col_expr(
+            Column::ChartCount,
+            Expr::value(i32::try_from(count).unwrap_or(i32::MAX)),
+        )
+        .col_expr(Column::UpdatedAt, Expr::value(at))
+        .filter(Column::Id.eq(report_id))
+        .exec(&orm(db))
+        .await?;
+    Ok(())
+}
+
+/// `where id = $id and app = 'projects' and deleted_at is null`: the live
+/// WeldFlow report.
+fn live_report(report_id: &str) -> Condition {
+    use analytics_reports::Column;
+    Condition::all()
+        .add(Column::Id.eq(report_id))
+        .add(Column::App.eq("projects"))
+        .add(Column::DeletedAt.is_null())
+}
+
+/// Postgres's `float8::integer`: rounded half to even, and an error out of
+/// range.
+fn pg_integer(value: f64) -> Result<i32, DbErr> {
+    let rounded = value.round_ties_even();
+    if rounded.is_nan() || !(-2_147_483_648.0..2_147_483_648.0).contains(&rounded) {
+        return Err(DbErr::Custom("integer out of range".to_owned()));
+    }
+    #[allow(
+        clippy::cast_possible_truncation,
+        reason = "in the range of i32, checked above"
+    )]
+    let value = rounded as i32;
+    Ok(value)
+}
+
+/// A copy of a chart into `report_id`, with its title and layout as given.
+fn chart_copy(
+    chart: analytics_charts::Model,
+    id: String,
+    report_id: &str,
+    title: String,
+    layout: Value,
+    sort_index: i32,
+    now: PrimitiveDateTime,
+) -> analytics_charts::ActiveModel {
+    analytics_charts::ActiveModel {
+        id: Set(id),
+        report_id: Set(report_id.to_owned()),
+        app: Set("projects".to_owned()),
+        title: Set(title),
+        description: Set(chart.description),
+        chart_type: Set(chart.chart_type),
+        entity_: Set(chart.entity_),
+        metric: Set(chart.metric),
+        color: Set(chart.color),
+        smooth_curve: Set(chart.smooth_curve),
+        fill_area: Set(chart.fill_area),
+        show_data_labels: Set(chart.show_data_labels),
+        show_legend: Set(chart.show_legend),
+        time_range: Set(chart.time_range),
+        group_by: Set(chart.group_by),
+        aggregation: Set(chart.aggregation),
+        sort_order: Set(chart.sort_order),
+        limit: Set(chart.limit),
+        compare_with: Set(chart.compare_with),
+        layout: Set(layout),
+        sort_index: Set(sort_index),
+        created_at: Set(now),
+        updated_at: Set(now),
+        ..Default::default()
+    }
 }
 
 async fn list_reports(caller: Caller) -> Response {
     reply(
         async {
-            let rows: Vec<Value> = sqlx::query_scalar(
-                "select to_jsonb(r) from analytics_reports r
-                 where r.app = 'projects' and r.deleted_at is null order by r.updated_at desc",
-            )
-            .fetch_all(&caller.db)
-            .await?;
-            Ok(Data(rows.into_iter().map(js_row).collect::<Vec<_>>()).into_response())
+            use analytics_reports::Column;
+            let rows = analytics_reports::Entity::find()
+                .filter(Column::App.eq("projects"))
+                .filter(Column::DeletedAt.is_null())
+                .order_by_desc(Column::UpdatedAt)
+                .all(&orm(&caller.db))
+                .await?;
+            Ok(Data(json_rows(rows)?).into_response())
         }
         .await,
         "Failed to fetch reports",
@@ -554,18 +663,28 @@ async fn create_report(
         async {
             let id = generate_id("rpt");
             let title = text_of(&data, "title").unwrap_or_default();
-            sqlx::query(
-                "insert into analytics_reports (id, app, title, description, created_by_id, chart_count, created_at, updated_at)
-                 values ($1, 'projects', $2, $3, $4, 0, $5::timestamp, $5::timestamp)",
-            )
-            .bind(&id)
-            .bind(title)
-            .bind(text_of(&data, "description").unwrap_or_default())
-            .bind(&caller.user_id)
-            .bind(now())
-            .execute(&caller.db)
+            let now = utc_now();
+            analytics_reports::Entity::insert(analytics_reports::ActiveModel {
+                id: Set(id.clone()),
+                app: Set("projects".to_owned()),
+                title: Set(title.to_owned()),
+                description: Set(Some(
+                    text_of(&data, "description").unwrap_or_default().to_owned(),
+                )),
+                created_by_id: Set(Some(caller.user_id.clone())),
+                chart_count: Set(0),
+                created_at: Set(now),
+                updated_at: Set(now),
+                ..Default::default()
+            })
+            .exec_without_returning(&orm(&caller.db))
             .await?;
-            caller.publish(&state, ANALYTICS_REPORT_CREATED, &id, &json!({ "id": id, "title": title }));
+            caller.publish(
+                &state,
+                ANALYTICS_REPORT_CREATED,
+                &id,
+                &json!({ "id": id, "title": title }),
+            );
             Ok(Created(json!({ "id": id })).into_response())
         }
         .await,
@@ -589,21 +708,24 @@ async fn update_report(
     reply(
         async {
             modifiable_report(&caller, &report_id).await?;
-            sqlx::query(
-                "update analytics_reports set
-                     title = case when $2 then $3 else title end,
-                     description = case when $4 then $5 else description end,
-                     updated_at = $6::timestamp
-                 where id = $1 and app = 'projects' and deleted_at is null",
-            )
-            .bind(&report_id)
-            .bind(data.contains_key("title"))
-            .bind(text_of(&data, "title"))
-            .bind(data.contains_key("description"))
-            .bind(text_of(&data, "description"))
-            .bind(now())
-            .execute(&caller.db)
-            .await?;
+            {
+                use analytics_reports::Column;
+                let mut update = analytics_reports::Entity::update_many();
+                for (key, column) in [
+                    ("title", Column::Title),
+                    ("description", Column::Description),
+                ] {
+                    if data.contains_key(key) {
+                        let text = text_of(&data, key).map(str::to_owned);
+                        update = update.col_expr(column, Expr::value(text));
+                    }
+                }
+                update
+                    .col_expr(Column::UpdatedAt, Expr::value(utc_now()))
+                    .filter(live_report(&report_id))
+                    .exec(&orm(&caller.db))
+                    .await?;
+            }
             let mut event = data.clone();
             event.insert("id".to_owned(), Value::String(report_id.clone()));
             caller.publish(
@@ -627,14 +749,13 @@ async fn delete_report(
     reply(
         async {
             modifiable_report(&caller, &report_id).await?;
-            sqlx::query(
-                "update analytics_reports set deleted_at = $2::timestamp, updated_at = $2::timestamp
-                 where id = $1 and app = 'projects' and deleted_at is null",
-            )
-            .bind(&report_id)
-            .bind(now())
-            .execute(&caller.db)
-            .await?;
+            let now = utc_now();
+            analytics_reports::Entity::update_many()
+                .col_expr(analytics_reports::Column::DeletedAt, Expr::value(now))
+                .col_expr(analytics_reports::Column::UpdatedAt, Expr::value(now))
+                .filter(live_report(&report_id))
+                .exec(&orm(&caller.db))
+                .await?;
             caller.publish(
                 &state,
                 ANALYTICS_REPORT_DELETED,
@@ -660,42 +781,44 @@ async fn duplicate_report(
                 return Err(Refusal::not_found("Report", &report_id));
             }
             let new_id = generate_id("rpt");
-            let now = now();
-            sqlx::query(
-                "insert into analytics_reports (id, app, title, description, created_by_id, chart_count, created_at, updated_at)
-                 select $1, 'projects', r.title || ' (Copy)', r.description, $3, r.chart_count, $4::timestamp, $4::timestamp
-                 from analytics_reports r where r.id = $2",
-            )
-            .bind(&new_id)
-            .bind(&report_id)
-            .bind(&caller.user_id)
-            .bind(&now)
-            .execute(db)
-            .await?;
-            let charts: Vec<String> = sqlx::query_scalar(
-                "select id from analytics_charts where report_id = $1 and deleted_at is null",
-            )
-            .bind(&report_id)
-            .fetch_all(db)
-            .await?;
+            let now = utc_now();
+            // The copy of the report (`insert … select … from analytics_reports r
+            // where r.id = $2`), then of its live charts.
+            if let Some(source) = analytics_reports::Entity::find_by_id(report_id.as_str())
+                .one(&orm(db))
+                .await?
+            {
+                analytics_reports::Entity::insert(analytics_reports::ActiveModel {
+                    id: Set(new_id.clone()),
+                    app: Set("projects".to_owned()),
+                    title: Set(format!("{} (Copy)", source.title)),
+                    description: Set(source.description),
+                    created_by_id: Set(Some(caller.user_id.clone())),
+                    chart_count: Set(source.chart_count),
+                    created_at: Set(now),
+                    updated_at: Set(now),
+                    ..Default::default()
+                })
+                .exec_without_returning(&orm(db))
+                .await?;
+            }
+            let charts = live_charts(&report_id).all(&orm(db)).await?;
             if !charts.is_empty() {
-                let new_ids: Vec<String> = charts.iter().map(|_| generate_id("cht")).collect();
-                sqlx::query(concat!(
-                    "insert into analytics_charts (id, report_id, app, ",
-                    chart_columns!(),
-                    ", layout, sort_index, created_at, updated_at)",
-                    " select n.new_id, $3, 'projects', c.title, c.description, c.chart_type, c.entity,",
-                    " c.metric, c.color, c.smooth_curve, c.fill_area, c.show_data_labels, c.show_legend,",
-                    " c.time_range, c.group_by, c.aggregation, c.sort_order, c.\"limit\", c.compare_with,",
-                    " c.layout, c.sort_index, $4::timestamp, $4::timestamp",
-                    " from unnest($1::varchar[], $2::varchar[]) with ordinality as n(new_id, old_id, ord)",
-                    " join analytics_charts c on c.id = n.old_id order by n.ord"
-                ))
-                    .bind(&new_ids)
-                    .bind(&charts)
-                    .bind(&new_id)
-                    .bind(&now)
-                    .execute(db)
+                let copies = charts.into_iter().map(|chart| {
+                    let (title, layout, sort_index) =
+                        (chart.title.clone(), chart.layout.clone(), chart.sort_index);
+                    chart_copy(
+                        chart,
+                        generate_id("cht"),
+                        &new_id,
+                        title,
+                        layout,
+                        sort_index,
+                        now,
+                    )
+                });
+                analytics_charts::Entity::insert_many(copies)
+                    .exec_without_returning(&orm(db))
                     .await?;
             }
             caller.publish(
@@ -855,48 +978,59 @@ async fn create_chart(
             modifiable_report(&caller, &report_id).await?;
             let existing = chart_count(db, &report_id).await?;
             let id = generate_id("cht");
-            let now = now();
+            let now = utc_now();
             // `data.limit || null`: 0 is no limit.
             let limit = data
                 .get("limit")
                 .and_then(Value::as_f64)
-                .filter(|l| *l != 0.0 && !l.is_nan());
+                .filter(|l| *l != 0.0 && !l.is_nan())
+                .map(pg_integer)
+                .transpose()?;
             let layout = data
                 .get("layout")
                 .cloned()
                 .unwrap_or_else(|| json!({ "x": 0, "y": 0, "w": 6, "h": 4 }));
-            sqlx::query(
-                "insert into analytics_charts (id, report_id, app, title, description, chart_type, entity, metric,
-                     color, smooth_curve, fill_area, show_data_labels, show_legend, time_range, group_by,
-                     aggregation, sort_order, \"limit\", compare_with, layout, sort_index, created_at, updated_at)
-                 values ($1, $2, 'projects', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
-                         $17::float8::integer, $18, $19, $20, $21::timestamp, $21::timestamp)",
-            )
-            .bind(&id)
-            .bind(&report_id)
-            .bind(text_of(&data, "title"))
-            .bind(text_of(&data, "description").filter(|d| !d.is_empty()))
-            .bind(text_of(&data, "chartType"))
-            .bind(text_of(&data, "entity"))
-            .bind(text_of(&data, "metric"))
-            .bind(or_text(&data, "color", "#3b82f6"))
-            .bind(data["smoothCurve"].as_bool())
-            .bind(data["fillArea"].as_bool())
-            .bind(data["showDataLabels"].as_bool())
-            .bind(data["showLegend"].as_bool())
-            .bind(or_text(&data, "timeRange", "last_30_days"))
-            .bind(or_text(&data, "groupBy", "day"))
-            .bind(or_text(&data, "aggregation", "sum"))
-            .bind(or_text(&data, "sortOrder", "asc"))
-            .bind(limit)
-            .bind(text_of(&data, "compareWith").filter(|c| !c.is_empty()))
-            .bind(&layout)
-            .bind(i32::try_from(existing).unwrap_or(i32::MAX))
-            .bind(&now)
-            .execute(db)
+            let text = |key: &str| text_of(&data, key).unwrap_or_default().to_owned();
+            let flag = |key: &str| data[key].as_bool().unwrap_or_default();
+            analytics_charts::Entity::insert(analytics_charts::ActiveModel {
+                id: Set(id.clone()),
+                report_id: Set(report_id.clone()),
+                app: Set("projects".to_owned()),
+                title: Set(text("title")),
+                description: Set(text_of(&data, "description")
+                    .filter(|d| !d.is_empty())
+                    .map(str::to_owned)),
+                chart_type: Set(text("chartType")),
+                entity_: Set(text("entity")),
+                metric: Set(text("metric")),
+                color: Set(or_text(&data, "color", "#3b82f6").to_owned()),
+                smooth_curve: Set(flag("smoothCurve")),
+                fill_area: Set(flag("fillArea")),
+                show_data_labels: Set(flag("showDataLabels")),
+                show_legend: Set(flag("showLegend")),
+                time_range: Set(Some(or_text(&data, "timeRange", "last_30_days").to_owned())),
+                group_by: Set(Some(or_text(&data, "groupBy", "day").to_owned())),
+                aggregation: Set(Some(or_text(&data, "aggregation", "sum").to_owned())),
+                sort_order: Set(Some(or_text(&data, "sortOrder", "asc").to_owned())),
+                limit: Set(limit),
+                compare_with: Set(text_of(&data, "compareWith")
+                    .filter(|c| !c.is_empty())
+                    .map(str::to_owned)),
+                layout: Set(layout),
+                sort_index: Set(i32::try_from(existing).unwrap_or(i32::MAX)),
+                created_at: Set(now),
+                updated_at: Set(now),
+                ..Default::default()
+            })
+            .exec_without_returning(&orm(db))
             .await?;
-            set_chart_count(db, &report_id, existing + 1, &now).await?;
-            caller.publish(&state, ANALYTICS_CHART_CREATED, &id, &json!({ "id": id, "reportId": report_id }));
+            set_chart_count(db, &report_id, existing + 1, now).await?;
+            caller.publish(
+                &state,
+                ANALYTICS_CHART_CREATED,
+                &id,
+                &json!({ "id": id, "reportId": report_id }),
+            );
             Ok(Created(json!({ "id": id })).into_response())
         }
         .await,
@@ -940,18 +1074,17 @@ async fn update_layouts(
     reply(
         async {
             modifiable_report(&caller, &report_id).await?;
-            let now = now();
+            let now = utc_now();
             for (chart, layout) in &layouts {
-                sqlx::query(
-                    "update analytics_charts set layout = $3, updated_at = $4::timestamp
-                     where id = $1 and report_id = $2 and deleted_at is null",
-                )
-                .bind(chart)
-                .bind(&report_id)
-                .bind(layout)
-                .bind(&now)
-                .execute(&caller.db)
-                .await?;
+                use analytics_charts::Column;
+                analytics_charts::Entity::update_many()
+                    .col_expr(Column::Layout, Expr::value(layout.clone()))
+                    .col_expr(Column::UpdatedAt, Expr::value(now))
+                    .filter(Column::Id.eq(chart.as_str()))
+                    .filter(Column::ReportId.eq(report_id.as_str()))
+                    .filter(Column::DeletedAt.is_null())
+                    .exec(&orm(&caller.db))
+                    .await?;
             }
             Ok(Data(json!({ "updated": layouts.len() })).into_response())
         }
@@ -969,18 +1102,20 @@ async fn delete_chart(
         async {
             let db = &caller.db;
             modifiable_report(&caller, &report_id).await?;
-            let now = now();
-            sqlx::query(
-                "update analytics_charts set deleted_at = $3::timestamp, updated_at = $3::timestamp
-                 where id = $1 and report_id = $2 and deleted_at is null",
-            )
-            .bind(&chart_id)
-            .bind(&report_id)
-            .bind(&now)
-            .execute(db)
-            .await?;
+            let now = utc_now();
+            {
+                use analytics_charts::Column;
+                analytics_charts::Entity::update_many()
+                    .col_expr(Column::DeletedAt, Expr::value(now))
+                    .col_expr(Column::UpdatedAt, Expr::value(now))
+                    .filter(Column::Id.eq(chart_id.as_str()))
+                    .filter(Column::ReportId.eq(report_id.as_str()))
+                    .filter(Column::DeletedAt.is_null())
+                    .exec(&orm(db))
+                    .await?;
+            }
             let remaining = chart_count(db, &report_id).await?;
-            set_chart_count(db, &report_id, remaining, &now).await?;
+            set_chart_count(db, &report_id, remaining, now).await?;
             caller.publish(
                 &state,
                 ANALYTICS_CHART_DELETED,
@@ -1019,40 +1154,31 @@ async fn duplicate_chart(
         async {
             let db = &caller.db;
             modifiable_report(&caller, &report_id).await?;
-            let original: Option<Value> = sqlx::query_scalar(
-                "select to_jsonb(c) from analytics_charts c
-                 where c.id = $1 and c.report_id = $2 and c.deleted_at is null limit 1",
-            )
-            .bind(&chart_id)
-            .bind(&report_id)
-            .fetch_optional(db)
-            .await?;
+            let original = live_charts(&report_id)
+                .filter(analytics_charts::Column::Id.eq(chart_id.as_str()))
+                .one(&orm(db))
+                .await?;
             let Some(original) = original else {
                 return Err(Refusal::not_found("Chart", &chart_id));
             };
             let existing = chart_count(db, &report_id).await?;
             let new_id = generate_id("cht");
-            let now = now();
-            let layout = shifted_layout(original.get("layout"));
-            sqlx::query(concat!(
-                "insert into analytics_charts (id, report_id, app, ",
-                chart_columns!(),
-                ", layout, sort_index, created_at, updated_at)",
-                " select $1, $2, 'projects', c.title || ' (Copy)', c.description, c.chart_type,",
-                " c.entity, c.metric, c.color, c.smooth_curve, c.fill_area, c.show_data_labels,",
-                " c.show_legend, c.time_range, c.group_by, c.aggregation, c.sort_order, c.\"limit\",",
-                " c.compare_with, $4, $5, $6::timestamp, $6::timestamp",
-                " from analytics_charts c where c.id = $3"
+            let now = utc_now();
+            let layout = shifted_layout(Some(&original.layout));
+            let title = format!("{} (Copy)", original.title);
+            let sort_index = i32::try_from(existing).unwrap_or(i32::MAX);
+            analytics_charts::Entity::insert(chart_copy(
+                original,
+                new_id.clone(),
+                &report_id,
+                title,
+                layout,
+                sort_index,
+                now,
             ))
-                .bind(&new_id)
-                .bind(&report_id)
-                .bind(&chart_id)
-                .bind(&layout)
-                .bind(i32::try_from(existing).unwrap_or(i32::MAX))
-                .bind(&now)
-                .execute(db)
-                .await?;
-            set_chart_count(db, &report_id, existing + 1, &now).await?;
+            .exec_without_returning(&orm(db))
+            .await?;
+            set_chart_count(db, &report_id, existing + 1, now).await?;
             caller.publish(
                 &state,
                 ANALYTICS_CHART_CREATED,

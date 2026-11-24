@@ -13,19 +13,26 @@ use std::collections::{HashMap, HashSet};
 use axum::body::Bytes;
 use axum::extract::State;
 use axum::response::{IntoResponse, Response};
+use sea_orm::sea_query::{Expr, OnConflict};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect,
+    TransactionTrait,
+};
 use serde_json::{Value, json};
 use sqlx::PgPool;
 use weldsuite_catalogs::entity_events::{
     FLOW_WORKSPACE_SETTINGS_UPDATED, PROJECT_RAID_ITEM_UPDATED,
 };
-use weldsuite_db::js_row;
+use weldsuite_db::orm;
 use weldsuite_flow_domain::intake::{Criterion, default_scoring_model};
 use weldsuite_kit::validation::{Issues, Presence, Text};
 use weldsuite_kit::{Data, generate_id};
+use weldsuite_schema::tenant::{flow_workspace_settings as settings, project_raid_items as items};
 
-use super::{iso_ms, publish_raid};
+use super::publish_raid;
 use crate::raid_body::{Reader, parse_body};
-use crate::{Caller, FlowState, Refusal, Reply, outside, reply};
+use crate::reporting_store::instant;
+use crate::{Caller, FlowState, Refusal, Reply, json_rows, outside, reply};
 
 /// `RISK_CATEGORIES`: the built-ins, in the order the API lists them.
 pub(crate) const RISK_CATEGORIES: [&str; 7] = [
@@ -286,11 +293,13 @@ fn read_input(issues: &mut Issues, body: &Value) -> Option<Input> {
 // ── Store ───────────────────────────────────────────────────────────────────
 
 /// `storedRiskCategories(db)`: `None` before the first save.
-async fn stored_risk_categories(db: &PgPool) -> Result<Option<Stored>, sqlx::Error> {
-    let column: Option<Option<Value>> =
-        sqlx::query_scalar("select risk_categories from flow_workspace_settings limit 1")
-            .fetch_optional(db)
-            .await?;
+async fn stored_risk_categories(db: &PgPool) -> Result<Option<Stored>, DbErr> {
+    let column: Option<Option<Value>> = settings::Entity::find()
+        .select_only()
+        .column(settings::Column::RiskCategories)
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     Ok(column.flatten().as_ref().and_then(Stored::from_json))
 }
 
@@ -332,65 +341,34 @@ async fn save(state: &FlowState, caller: &Caller, input: &Input) -> Reply {
     let plan = plan_risk_categories(stored.as_ref(), input, || generate_id("rcat"))
         .map_err(Refusal::bad_request)?;
 
-    let now = iso_ms(crate::now_ms());
-    let from: Vec<String> = plan.renames.iter().map(|r| r.from.clone()).collect();
-    let to: Vec<String> = plan.renames.iter().map(|r| r.to.clone()).collect();
-    let renamed: Vec<String> = if plan.renames.is_empty() {
+    let now = instant(crate::now_ms());
+    let pairs: Vec<(String, String)> = plan
+        .renames
+        .iter()
+        .map(|r| (r.from.clone(), r.to.clone()))
+        .collect();
+    let renamed: Vec<String> = if pairs.is_empty() {
         Vec::new()
     } else {
-        sqlx::query_scalar(
-            "select id from project_raid_items
-             where category = any($1::text[]) and deleted_at is null order by id",
-        )
-        .bind(&from)
-        .fetch_all(db)
-        .await?
+        items::Entity::find()
+            .select_only()
+            .column(items::Column::Id)
+            .filter(items::Column::Category.is_in(pairs.iter().map(|(from, _)| from.as_str())))
+            .filter(items::Column::DeletedAt.is_null())
+            .order_by_asc(items::Column::Id)
+            .into_tuple()
+            .all(&orm(db))
+            .await?
     };
-
-    let mut statements = vec![
-        sqlx::query(
-            "insert into flow_workspace_settings (id, singleton, scoring_model, portfolio_board_ids,
-                 risk_categories, updated_by, created_at, updated_at)
-             values ($1, true, $2::jsonb, '[]'::jsonb, $3::jsonb, $4, $5::timestamptz, $5::timestamptz)
-             on conflict (singleton) do update set
-                 risk_categories = $3::jsonb, updated_by = $4, updated_at = $5::timestamptz",
-        )
-        .bind(generate_id("fws"))
-        .bind(Value::Array(
-            default_scoring_model()
-                .iter()
-                .map(Criterion::to_json)
-                .collect(),
-        ))
-        .bind(plan.next.to_json())
-        .bind(caller.user_id.clone())
-        .bind(now.clone()),
-    ];
-    if !renamed.is_empty() {
-        // One statement for every rename (the first `from` that matches
-        // wins, as in a `case`), so swapping two names does not merge them.
-        statements.push(
-            sqlx::query(
-                "update project_raid_items t set
-                     category = coalesce((select r.to_name
-                         from unnest($1::text[], $2::text[]) with ordinality as r(from_name, to_name, n)
-                         where r.from_name = t.category order by r.n limit 1), t.category),
-                     updated_at = $3::timestamptz
-                 where t.id = any($4::text[])",
-            )
-            .bind(from)
-            .bind(to)
-            .bind(now)
-            .bind(renamed.clone()),
-        );
-    }
-    weldsuite_db::atomically(db, statements).await?;
+    write_categories(db, caller, plan.next.to_json(), &pairs, &renamed, now).await?;
 
     let presented = present_risk_categories(Some(&plan.next));
-    let settings_id: Option<String> =
-        sqlx::query_scalar("select id from flow_workspace_settings limit 1")
-            .fetch_optional(db)
-            .await?;
+    let settings_id: Option<String> = settings::Entity::find()
+        .select_only()
+        .column(settings::Column::Id)
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     if let Some(id) = settings_id {
         caller.publish(
             state,
@@ -400,19 +378,77 @@ async fn save(state: &FlowState, caller: &Caller, input: &Input) -> Reply {
         );
     }
     if !renamed.is_empty() {
-        let rows: Vec<Value> = sqlx::query_scalar(concat!(
-            "select ",
-            raid_json!("t"),
-            " from project_raid_items t where t.id = any($1::text[]) order by t.id"
-        ))
-        .bind(&renamed)
-        .fetch_all(db)
-        .await?;
-        for row in rows.into_iter().map(js_row) {
+        let rows = json_rows(
+            items::Entity::find()
+                .filter(items::Column::Id.is_in(&renamed))
+                .order_by_asc(items::Column::Id)
+                .all(&orm(db))
+                .await?,
+        )?;
+        for row in rows {
             publish_raid(state, caller, PROJECT_RAID_ITEM_UPDATED, &row, json!({}));
         }
     }
     Ok(Data(presented).into_response())
+}
+
+/// The settings row upserted with the categories and the items renamed, in
+/// one transaction. One update for every rename (the first `from` that
+/// matches wins, as in a `case`), so swapping two names does not merge them.
+async fn write_categories(
+    db: &PgPool,
+    caller: &Caller,
+    categories: Value,
+    pairs: &[(String, String)],
+    renamed: &[String],
+    now: time::OffsetDateTime,
+) -> Result<(), DbErr> {
+    let tx = orm(db).begin().await?;
+    settings::Entity::insert(settings::ActiveModel {
+        id: Set(generate_id("fws")),
+        singleton: Set(true),
+        scoring_model: Set(Value::Array(
+            default_scoring_model()
+                .iter()
+                .map(Criterion::to_json)
+                .collect(),
+        )),
+        portfolio_board_ids: Set(json!([])),
+        risk_categories: Set(Some(categories)),
+        updated_by: Set(Some(caller.user_id.clone())),
+        created_at: Set(now),
+        updated_at: Set(now),
+        ..Default::default()
+    })
+    .on_conflict(
+        OnConflict::column(settings::Column::Singleton)
+            .update_columns([
+                settings::Column::RiskCategories,
+                settings::Column::UpdatedBy,
+                settings::Column::UpdatedAt,
+            ])
+            .to_owned(),
+    )
+    .exec_without_returning(&tx)
+    .await?;
+    if let Some(((from, to), rest)) = pairs.split_first()
+        && !renamed.is_empty()
+    {
+        let mut category = Expr::case(items::Column::Category.eq(from.as_str()), to.as_str());
+        for (from, to) in rest {
+            category = category.case(items::Column::Category.eq(from.as_str()), to.as_str());
+        }
+        items::Entity::update_many()
+            .col_expr(
+                items::Column::Category,
+                category.finally(Expr::col(items::Column::Category)).into(),
+            )
+            .col_expr(items::Column::UpdatedAt, Expr::value(now))
+            .filter(items::Column::Id.is_in(renamed))
+            .exec(&tx)
+            .await?;
+    }
+    tx.commit().await
 }
 
 #[cfg(test)]

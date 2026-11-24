@@ -63,6 +63,16 @@ fn master(caller: &Caller, state: &DeskState) -> Option<PgPool> {
         .or_else(|| state.master.clone())
 }
 
+/// One `new Date()` two ways: as the value a [`crate::table::Table`] write
+/// takes (`toISOString()`), and as the `timestamp` an entity write stores.
+fn stamp() -> (String, time::PrimitiveDateTime) {
+    let at = time::OffsetDateTime::now_utc();
+    (
+        weldsuite_events::iso_timestamp(at),
+        weldsuite_db::utc_timestamp(at),
+    )
+}
+
 /// `await c.req.json().catch(() => fallback)`: the body as JSON, whatever
 /// its content type; `None` when it doesn't parse.
 fn lenient_json(body: &[u8]) -> Option<Value> {
@@ -128,14 +138,6 @@ fn read_optional(
             out.insert((*key).to_owned(), value);
         }
     }
-}
-
-/// The value of a row column read as `to_jsonb(column)#>>'{}'`, as
-/// Drizzle's `Date` serialises it.
-fn js_stamp(text: Option<String>) -> Value {
-    text.map_or(Value::Null, |text| {
-        Value::String(crate::table::js_date(&text))
-    })
 }
 
 #[cfg(test)]

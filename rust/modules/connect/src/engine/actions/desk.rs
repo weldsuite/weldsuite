@@ -12,7 +12,9 @@
 //! show on the timeline as a bot, traceable to the run
 //! (`{ authorType: 'bot', authorId: executionId }`).
 
+use sea_orm::{ColumnTrait, Condition, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
+use weldsuite_db::orm;
 use weldsuite_desk_domain::assignment::Picker;
 use weldsuite_desk_domain::attributes::{PRIORITIES, Update};
 use weldsuite_desk_domain::inbox::{
@@ -21,6 +23,8 @@ use weldsuite_desk_domain::inbox::{
 };
 use weldsuite_kit::validation::{Field, js_trim};
 use weldsuite_notifications::Notifier;
+use weldsuite_schema::master::workspaces;
+use weldsuite_schema::tenant::desk_conversations;
 
 use super::{ActionCtx, ActionError, ActionResult};
 use crate::js::{as_text, js_string};
@@ -36,16 +40,21 @@ struct Inbox {
 impl Inbox {
     async fn new(ctx: &ActionCtx<'_>) -> Self {
         let workspace_id = match &ctx.deps.master {
-            Some(master) => sqlx::query_scalar::<_, String>(
-                "select id from workspaces where id = $1 or clerk_org_id = $1 limit 1",
-            )
-            .bind(&ctx.info.workspace_id)
-            .fetch_optional(master)
-            .await
-            .unwrap_or_else(|error| {
-                tracing::warn!(%error, "[desk-inbox] the workspace could not be resolved");
-                None
-            }),
+            Some(master) => workspaces::Entity::find()
+                .select_only()
+                .column(workspaces::Column::Id)
+                .filter(
+                    Condition::any()
+                        .add(workspaces::Column::Id.eq(&ctx.info.workspace_id))
+                        .add(workspaces::Column::ClerkOrgId.eq(&ctx.info.workspace_id)),
+                )
+                .into_tuple::<String>()
+                .one(&orm(master))
+                .await
+                .unwrap_or_else(|error| {
+                    tracing::warn!(%error, "[desk-inbox] the workspace could not be resolved");
+                    None
+                }),
             None => None,
         };
         Self {
@@ -398,12 +407,14 @@ pub(super) async fn tag(
     mode: &str,
     tags: Vec<String>,
 ) -> ActionResult {
-    let current: Option<Value> =
-        sqlx::query_scalar("select tags from desk_conversations where id = $1 limit 1")
-            .bind(conversation_id)
-            .fetch_optional(ctx.db)
-            .await
-            .map_err(|e| ActionError::plain(&e.to_string()))?;
+    let current: Option<Value> = desk_conversations::Entity::find()
+        .select_only()
+        .column(desk_conversations::Column::Tags)
+        .filter(desk_conversations::Column::Id.eq(conversation_id))
+        .into_tuple()
+        .one(&orm(ctx.db))
+        .await
+        .map_err(|e| ActionError::database(&e))?;
     let current: Vec<String> = match current {
         Some(Value::Array(items)) => items.iter().map(|t| js_string(Some(t))).collect(),
         _ => Vec::new(),

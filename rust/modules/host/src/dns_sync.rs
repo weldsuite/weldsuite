@@ -4,9 +4,15 @@
 
 use std::collections::HashMap;
 
+use sea_orm::{
+    ActiveEnum, ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect,
+};
 use serde_json::{Map, Value, json};
-use weldsuite_db::PgPool;
+use time::PrimitiveDateTime;
+use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_kit::generate_id;
+use weldsuite_schema::tenant::enums::{HostDnsRecordStatus, HostDnsRecordType};
+use weldsuite_schema::tenant::{dns_records, dns_zones, mail_domains};
 
 use crate::dns_host::{Dns, DnsRecord};
 use crate::js::{as_text, slice_utf16, text};
@@ -100,6 +106,36 @@ fn int(value: &Value) -> Option<i32> {
     value.as_f64().map(|n| n as i32)
 }
 
+/// `ttl`, which the column requires: a null is the failed insert or update.
+fn ttl(value: &Value) -> Result<i32, DbErr> {
+    int(value).ok_or_else(|| {
+        DbErr::Custom(
+            "null value in column \"ttl\" of relation \"dns_records\" violates not-null constraint"
+                .to_owned(),
+        )
+    })
+}
+
+/// The mapped record's columns, as the insert and the drift update write them.
+fn record_columns(m: &Mapped, at: PrimitiveDateTime) -> Result<dns_records::ActiveModel, DbErr> {
+    Ok(dns_records::ActiveModel {
+        type_: Set(HostDnsRecordType::try_from_value(&m.kind)?),
+        name: Set(m.name.clone()),
+        value: Set(m.value.clone()),
+        ttl: Set(ttl(&m.ttl)?),
+        priority: Set(int(&m.priority)),
+        weight: Set(int(&m.weight)),
+        port: Set(int(&m.port)),
+        caa_flag: Set(int(&m.caa_flag)),
+        caa_tag: Set(optional_text(&m.caa_tag)),
+        comment: Set(optional_text(&m.comment)),
+        status: Set(HostDnsRecordStatus::Active),
+        synced_at: Set(Some(at)),
+        sync_error: Set(None),
+        ..Default::default()
+    })
+}
+
 fn optional_text(value: &Value) -> Option<String> {
     (!value.is_null()).then(|| as_text(value))
 }
@@ -110,62 +146,40 @@ async fn reconcile(
     zone_id: &str,
     m: &Mapped,
     local: Option<&Value>,
-    at: &str,
-) -> Result<&'static str, sqlx::Error> {
+    at: PrimitiveDateTime,
+) -> Result<&'static str, DbErr> {
     let Some(local) = local else {
-        sqlx::query(
-            "insert into dns_records (id, zone_id, external_record_id, type, name, value, ttl,
-               priority, weight, port, caa_flag, caa_tag, comment, status, synced_at, sync_error)
-             values ($1, $2, $3, $4::host_dns_record_type, $5, $6, $7, $8, $9, $10, $11, $12, $13,
-               'active', $14::timestamp, null)",
-        )
-        .bind(generate_id("dnsrec"))
-        .bind(zone_id)
-        .bind(&m.external_id)
-        .bind(&m.kind)
-        .bind(&m.name)
-        .bind(&m.value)
-        .bind(int(&m.ttl))
-        .bind(int(&m.priority))
-        .bind(int(&m.weight))
-        .bind(int(&m.port))
-        .bind(int(&m.caa_flag))
-        .bind(optional_text(&m.caa_tag))
-        .bind(optional_text(&m.comment))
-        .bind(at)
-        .execute(db)
-        .await?;
+        let record = dns_records::ActiveModel {
+            id: Set(generate_id("dnsrec")),
+            zone_id: Set(zone_id.to_owned()),
+            external_record_id: Set(Some(m.external_id.clone())),
+            ..record_columns(m, at)?
+        };
+        dns_records::Entity::insert(record)
+            .exec_without_returning(&orm(db))
+            .await?;
         return Ok("added");
     };
     let id = text(local, "id").unwrap_or_default();
     if has_drift(local, m) {
-        sqlx::query(
-            "update dns_records set type = $2::host_dns_record_type, name = $3, value = $4, ttl = $5,
-               priority = $6, weight = $7, port = $8, caa_flag = $9, caa_tag = $10, comment = $11,
-               status = 'active', synced_at = $12::timestamp, sync_error = null,
-               updated_at = $12::timestamp
-             where id = $1",
-        )
-        .bind(id)
-        .bind(&m.kind)
-        .bind(&m.name)
-        .bind(&m.value)
-        .bind(int(&m.ttl))
-        .bind(int(&m.priority))
-        .bind(int(&m.weight))
-        .bind(int(&m.port))
-        .bind(int(&m.caa_flag))
-        .bind(optional_text(&m.caa_tag))
-        .bind(optional_text(&m.comment))
-        .bind(at)
-        .execute(db)
-        .await?;
+        let record = dns_records::ActiveModel {
+            updated_at: Set(at),
+            ..record_columns(m, at)?
+        };
+        dns_records::Entity::update_many()
+            .set(record)
+            .filter(dns_records::Column::Id.eq(id))
+            .exec(&orm(db))
+            .await?;
         return Ok("updated");
     }
-    sqlx::query("update dns_records set synced_at = $2::timestamp where id = $1")
-        .bind(id)
-        .bind(at)
-        .execute(db)
+    dns_records::Entity::update_many()
+        .set(dns_records::ActiveModel {
+            synced_at: Set(Some(at)),
+            ..Default::default()
+        })
+        .filter(dns_records::Column::Id.eq(id))
+        .exec(&orm(db))
         .await?;
     Ok("unchanged")
 }
@@ -177,7 +191,7 @@ pub(crate) async fn sync_zone(
     dns: &Dns,
     zone_id: &str,
     external_zone_id: Option<&str>,
-) -> Result<SyncResult, sqlx::Error> {
+) -> Result<SyncResult, DbErr> {
     let Some(external) = external_zone_id.filter(|id| !id.is_empty()) else {
         return Ok(SyncResult {
             error: Some("Zone has no Cloudflare zone id".to_owned()),
@@ -188,16 +202,17 @@ pub(crate) async fn sync_zone(
         Ok(records) => records,
         Err(error) => {
             tracing::error!(%error, "[host-dns-sync] listDnsRecordsInZone failed");
-            let at = now();
-            sqlx::query(
-                "update dns_zones set sync_error = $2, synced_at = $3::timestamp,
-                   updated_at = $3::timestamp where id = $1",
-            )
-            .bind(zone_id)
-            .bind(slice_utf16(&error.message, 1000))
-            .bind(&at)
-            .execute(db)
-            .await?;
+            let at = utc_now();
+            dns_zones::Entity::update_many()
+                .set(dns_zones::ActiveModel {
+                    sync_error: Set(Some(slice_utf16(&error.message, 1000))),
+                    synced_at: Set(Some(at)),
+                    updated_at: Set(at),
+                    ..Default::default()
+                })
+                .filter(dns_zones::Column::Id.eq(zone_id))
+                .exec(&orm(db))
+                .await?;
             return Ok(SyncResult {
                 records: zone_records(db, zone_id).await?,
                 error: Some(error.message),
@@ -217,20 +232,12 @@ pub(crate) async fn sync_zone(
         }
     }
     let mapped: Vec<Mapped> = listed.iter().filter_map(map_record).collect();
-    let at = now();
+    let at = utc_now();
     let mut seen: Vec<String> = Vec::new();
     let (mut added, mut updated) = (0, 0);
     for m in &mapped {
         seen.push(m.external_id.clone());
-        match reconcile(
-            db,
-            zone_id,
-            m,
-            by_external.get(&m.external_id).copied(),
-            &at,
-        )
-        .await?
-        {
+        match reconcile(db, zone_id, m, by_external.get(&m.external_id).copied(), at).await? {
             "added" => added += 1,
             "updated" => updated += 1,
             _ => {}
@@ -253,25 +260,29 @@ pub(crate) async fn sync_zone(
     );
     let removed = stale.len() as u64;
     if !stale.is_empty() {
-        sqlx::query("delete from dns_records where id = any($1)")
-            .bind(&stale)
-            .execute(db)
+        dns_records::Entity::delete_many()
+            .filter(dns_records::Column::Id.is_in(stale))
+            .exec(&orm(db))
             .await?;
     }
-    sqlx::query(
-        "update dns_zones set synced_at = $2::timestamp, sync_error = null, record_count = $3,
-           updated_at = $2::timestamp where id = $1",
-    )
-    .bind(zone_id)
-    .bind(&at)
-    .bind(i32::try_from(mapped.len()).unwrap_or(i32::MAX))
-    .execute(db)
-    .await?;
+    dns_zones::Entity::update_many()
+        .set(dns_zones::ActiveModel {
+            synced_at: Set(Some(at)),
+            sync_error: Set(None),
+            record_count: Set(Some(i32::try_from(mapped.len()).unwrap_or(i32::MAX))),
+            updated_at: Set(at),
+            ..Default::default()
+        })
+        .filter(dns_zones::Column::Id.eq(zone_id))
+        .exec(&orm(db))
+        .await?;
     // `reconcileSystemLocks`: failures are logged, never returned.
-    let zone_name: Result<Option<String>, sqlx::Error> =
-        sqlx::query_scalar("select name from dns_zones where id = $1 limit 1")
-            .bind(zone_id)
-            .fetch_optional(db)
+    let zone_name: Result<Option<String>, DbErr> =
+        dns_zones::Entity::find_by_id(zone_id.to_owned())
+            .select_only()
+            .column(dns_zones::Column::Name)
+            .into_tuple()
+            .one(&orm(db))
             .await;
     match zone_name {
         Ok(Some(name)) => {
@@ -385,14 +396,19 @@ pub(crate) async fn detect_system_locks(
     db: &PgPool,
     zone_id: &str,
     zone_name: &str,
-) -> Result<(), sqlx::Error> {
+) -> Result<(), DbErr> {
     let records = zone_records(db, zone_id).await?;
-    let mail_domains: Vec<(String, String, Option<Value>)> = sqlx::query_as(
-        "select id, domain_name, dns_records from mail_domains where domain_name = $1",
-    )
-    .bind(zone_name)
-    .fetch_all(db)
-    .await?;
+    let mail_domains: Vec<(String, String, Option<Value>)> = mail_domains::Entity::find()
+        .select_only()
+        .columns([
+            mail_domains::Column::Id,
+            mail_domains::Column::DomainName,
+            mail_domains::Column::DnsRecords,
+        ])
+        .filter(mail_domains::Column::DomainName.eq(zone_name))
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     let mut expected: HashMap<String, Vec<Value>> = HashMap::new();
     for (id, domain_name, dns_records) in &mail_domains {
         let list = dns_records
@@ -452,14 +468,15 @@ pub(crate) async fn detect_system_locks(
         let mut next = user;
         next.extend(merged);
         let metadata = with_locks(record.get("metadata"), next);
-        sqlx::query(
-            "update dns_records set metadata = $2, updated_at = $3::timestamp where id = $1",
-        )
-        .bind(text(record, "id"))
-        .bind(&metadata)
-        .bind(now())
-        .execute(db)
-        .await?;
+        dns_records::Entity::update_many()
+            .set(dns_records::ActiveModel {
+                metadata: Set(Some(metadata)),
+                updated_at: Set(utc_now()),
+                ..Default::default()
+            })
+            .filter(dns_records::Column::Id.eq(text(record, "id")))
+            .exec(&orm(db))
+            .await?;
     }
     Ok(())
 }

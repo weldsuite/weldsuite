@@ -17,16 +17,23 @@
 //! A mailbox paused for any other reason (the customer, staff, a suspended
 //! mailbox or domain) is never changed by it.
 
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter};
 use sqlx::PgPool;
-use weldsuite_db::due_index;
+use weldsuite_db::{due_index, orm};
 use weldsuite_reach_domain::from_epoch_ms;
+use weldsuite_schema::master::reach_warmup_mailboxes::{self as pool, Column};
 
-use super::db::{PoolMailbox, clip, ts};
+use super::db::{PoolMailbox, at, clip};
 use crate::warmup::WARMUP_DUE_KIND;
 
 pub const LOGIN_FAILED_REASON: &str = "login_failed";
 pub const LOW_INBOX_RATE_REASON: &str = "low_inbox_rate";
 pub const CREDENTIALS_UNAVAILABLE_REASON: &str = "credentials_unavailable";
+
+/// The statuses of a mailbox in the network (the ones the engine takes it
+/// out of).
+const ACTIVE: [&str; 3] = ["waiting", "warming", "maintaining"];
 
 /// `markReachDue(env, workspace, now)`: tell the warmup sweep to look at
 /// this workspace now. Best effort.
@@ -44,29 +51,26 @@ pub async fn record_login_failure(
     source: &str,
     detail: &str,
     now: i64,
-) -> sqlx::Result<()> {
+) -> Result<(), DbErr> {
     let last_login_error = clip(&format!("{source}: {detail}"), 300);
-    let stopped = sqlx::query(
-        "update reach_warmup_mailboxes set status = 'error', paused_reason = $2, last_login_error = $3,
-           last_login_error_at = $4::timestamptz, updated_at = $4::timestamptz
-         where id = $1 and status in ('waiting', 'warming', 'maintaining')",
-    )
-    .bind(&mailbox.id)
-    .bind(LOGIN_FAILED_REASON)
-    .bind(&last_login_error)
-    .bind(ts(now))
-    .execute(master)
-    .await?;
-    if stopped.rows_affected() == 0 {
-        sqlx::query(
-            "update reach_warmup_mailboxes set last_login_error = $2, last_login_error_at = $3::timestamptz,
-               updated_at = $3::timestamptz where id = $1",
-        )
-        .bind(&mailbox.id)
-        .bind(&last_login_error)
-        .bind(ts(now))
-        .execute(master)
+    let stopped = pool::Entity::update_many()
+        .col_expr(Column::Status, Expr::value("error"))
+        .col_expr(Column::PausedReason, Expr::value(LOGIN_FAILED_REASON))
+        .col_expr(Column::LastLoginError, Expr::value(&last_login_error))
+        .col_expr(Column::LastLoginErrorAt, Expr::value(at(now)))
+        .col_expr(Column::UpdatedAt, Expr::value(at(now)))
+        .filter(Column::Id.eq(&mailbox.id))
+        .filter(Column::Status.is_in(ACTIVE))
+        .exec(&orm(master))
         .await?;
+    if stopped.rows_affected == 0 {
+        pool::Entity::update_many()
+            .col_expr(Column::LastLoginError, Expr::value(&last_login_error))
+            .col_expr(Column::LastLoginErrorAt, Expr::value(at(now)))
+            .col_expr(Column::UpdatedAt, Expr::value(at(now)))
+            .filter(Column::Id.eq(&mailbox.id))
+            .exec(&orm(master))
+            .await?;
     }
     mark_reach_due(master, &mailbox.workspace_id, now).await;
     Ok(())
@@ -78,18 +82,24 @@ pub async fn pause_for_credentials(
     master: &PgPool,
     mailbox: &PoolMailbox,
     now: i64,
-) -> sqlx::Result<()> {
-    let paused = sqlx::query(
-        "update reach_warmup_mailboxes set status = 'paused', paused_reason = $2, last_login_error = $2,
-           last_login_error_at = $3::timestamptz, updated_at = $3::timestamptz
-         where id = $1 and status in ('waiting', 'warming', 'maintaining')",
-    )
-    .bind(&mailbox.id)
-    .bind(CREDENTIALS_UNAVAILABLE_REASON)
-    .bind(ts(now))
-    .execute(master)
-    .await?;
-    if paused.rows_affected() > 0 {
+) -> Result<(), DbErr> {
+    let paused = pool::Entity::update_many()
+        .col_expr(Column::Status, Expr::value("paused"))
+        .col_expr(
+            Column::PausedReason,
+            Expr::value(CREDENTIALS_UNAVAILABLE_REASON),
+        )
+        .col_expr(
+            Column::LastLoginError,
+            Expr::value(CREDENTIALS_UNAVAILABLE_REASON),
+        )
+        .col_expr(Column::LastLoginErrorAt, Expr::value(at(now)))
+        .col_expr(Column::UpdatedAt, Expr::value(at(now)))
+        .filter(Column::Id.eq(&mailbox.id))
+        .filter(Column::Status.is_in(ACTIVE))
+        .exec(&orm(master))
+        .await?;
+    if paused.rows_affected > 0 {
         mark_reach_due(master, &mailbox.workspace_id, now).await;
     }
     Ok(())
@@ -107,7 +117,7 @@ pub async fn record_login_success(
     master: &PgPool,
     mailbox: &PoolMailbox,
     now: i64,
-) -> sqlx::Result<()> {
+) -> Result<(), DbErr> {
     let restore = is_login_failed_state(mailbox);
     if mailbox
         .last_login_error
@@ -117,25 +127,23 @@ pub async fn record_login_success(
     {
         return Ok(());
     }
-    sqlx::query(
-        "update reach_warmup_mailboxes set last_login_error = null, last_login_error_at = null,
-           updated_at = $2::timestamptz where id = $1",
-    )
-    .bind(&mailbox.id)
-    .bind(ts(now))
-    .execute(master)
-    .await?;
-    if restore {
-        sqlx::query(
-            "update reach_warmup_mailboxes set status = $2, paused_reason = null, updated_at = $3::timestamptz
-             where id = $1 and status = 'error' and paused_reason = $4",
-        )
-        .bind(&mailbox.id)
-        .bind(mailbox.unpaused_status())
-        .bind(ts(now))
-        .bind(LOGIN_FAILED_REASON)
-        .execute(master)
+    pool::Entity::update_many()
+        .col_expr(Column::LastLoginError, Expr::null())
+        .col_expr(Column::LastLoginErrorAt, Expr::null())
+        .col_expr(Column::UpdatedAt, Expr::value(at(now)))
+        .filter(Column::Id.eq(&mailbox.id))
+        .exec(&orm(master))
         .await?;
+    if restore {
+        pool::Entity::update_many()
+            .col_expr(Column::Status, Expr::value(mailbox.unpaused_status()))
+            .col_expr(Column::PausedReason, Expr::null())
+            .col_expr(Column::UpdatedAt, Expr::value(at(now)))
+            .filter(Column::Id.eq(&mailbox.id))
+            .filter(Column::Status.eq("error"))
+            .filter(Column::PausedReason.eq(LOGIN_FAILED_REASON))
+            .exec(&orm(master))
+            .await?;
     }
     mark_reach_due(master, &mailbox.workspace_id, now).await;
     Ok(())

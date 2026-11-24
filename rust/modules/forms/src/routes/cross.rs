@@ -117,14 +117,7 @@ async fn person_responses(member: Member, RawQuery(query): RawQuery) -> Response
             let titles: HashMap<String, String> = if used.is_empty() {
                 HashMap::new()
             } else {
-                sqlx::query_as::<_, (String, String)>(
-                    "select id, title from forms where id = any($1)",
-                )
-                .bind(&used)
-                .fetch_all(&ctx.db)
-                .await?
-                .into_iter()
-                .collect()
+                crate::responses::form_titles(ctx, &used).await?
             };
             let rows: Vec<Value> = page
                 .rows

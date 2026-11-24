@@ -5,13 +5,15 @@
 
 use std::collections::HashMap;
 
+use sea_orm::sea_query::{Expr, Func, NullOrdering, Order};
+use sea_orm::{ColumnTrait, Condition, EntityTrait, QueryFilter, QueryOrder, Select};
 use serde_json::{Map, Value, json};
 use sqlx::PgPool;
-use sqlx::postgres::{PgArguments, Postgres};
-use sqlx::query::QueryScalar;
+use weldsuite_db::orm;
 use weldsuite_kit::validation::js_number_of;
+use weldsuite_schema::tenant::{form_responses, form_versions};
 
-use crate::common::{FormsResult, all, forms_error, iso, parse_ms, text};
+use crate::common::{FormsResult, forms_error, instant, parse_ms, text};
 use crate::engine::js::{js_trim, number_text, utf16_len};
 use crate::engine::{Field, FieldKind, FormDefinition, display_answer, fields_of};
 
@@ -36,23 +38,20 @@ impl VersionInfo {
 
 /// `loadVersions(db, formId)`: every version of a form, oldest first.
 pub(crate) async fn load_versions(db: &PgPool, form_id: &str) -> FormsResult<Vec<VersionInfo>> {
-    let rows = all(
-        db,
-        sqlx::query_scalar(
-            "select to_jsonb(v) from form_versions v where form_id = $1 order by number asc",
-        )
-        .bind(form_id),
-    )
-    .await?;
+    let rows = form_versions::Entity::find()
+        .filter(form_versions::Column::FormId.eq(form_id))
+        .order_by_asc(form_versions::Column::Number)
+        .all(&orm(db))
+        .await?;
     let mut out = Vec::with_capacity(rows.len());
     for row in rows {
-        let definition = FormDefinition::parse(&row["definition"]).map_err(|_| {
+        let definition = FormDefinition::parse(&row.definition).map_err(|_| {
             crate::common::Fail::Internal("forms: a version's definition does not parse".to_owned())
         })?;
         let fields = fields_of(&definition).into_iter().cloned().collect();
         out.push(VersionInfo {
-            id: text(&row, "id").to_owned(),
-            number: row["number"].as_i64().unwrap_or_default(),
+            id: row.id,
+            number: i64::from(row.number),
             definition,
             fields,
         });
@@ -417,57 +416,6 @@ pub(crate) fn answer_cell(
 // Conditions
 // ---------------------------------------------------------------------------
 
-/// A bound value of a built query.
-#[derive(Debug, Clone, PartialEq)]
-pub(crate) enum Bind {
-    Text(String),
-    Texts(Vec<String>),
-    Int(i64),
-}
-
-/// A `where` clause with its binds, numbered from `$1`.
-#[derive(Debug, Clone, Default)]
-pub(crate) struct Where {
-    pub(crate) parts: Vec<String>,
-    pub(crate) binds: Vec<Bind>,
-}
-
-impl Where {
-    /// The placeholder of a new bind.
-    pub(crate) fn param(&mut self, bind: Bind) -> String {
-        self.binds.push(bind);
-        format!("${}", self.binds.len())
-    }
-
-    pub(crate) fn push(&mut self, part: String) {
-        self.parts.push(part);
-    }
-
-    /// The conditions joined with `and`.
-    pub(crate) fn sql(&self) -> String {
-        if self.parts.is_empty() {
-            "true".to_owned()
-        } else {
-            self.parts.join(" and ")
-        }
-    }
-}
-
-/// Binds every value of `binds` on a scalar query, in order.
-pub(crate) fn bind_all<'q, O>(
-    mut query: QueryScalar<'q, Postgres, O, PgArguments>,
-    binds: &'q [Bind],
-) -> QueryScalar<'q, Postgres, O, PgArguments> {
-    for bind in binds {
-        query = match bind {
-            Bind::Text(text) => query.bind(text),
-            Bind::Texts(texts) => query.bind(texts),
-            Bind::Int(n) => query.bind(n),
-        };
-    }
-    query
-}
-
 /// `likePattern(text)`: `%text%` with `%`, `_` and `\` escaped.
 pub(crate) fn like_pattern(text: &str) -> String {
     let mut out = String::with_capacity(text.len() + 2);
@@ -630,43 +578,66 @@ fn not_applicable(operator: &str) -> crate::common::Fail {
     )
 }
 
-/// `answerFilterSql(filter, fields)`: one answer filter as SQL on
-/// `form_responses.answers`, its values bound on `w`.
+/// `form_responses.answers`.
+fn answers_col() -> Expr {
+    Expr::col(form_responses::Column::Answers)
+}
+
+/// A `jsonb` literal (`'null'::jsonb`), from its text.
+fn jsonb(text: &str) -> Expr {
+    use sea_orm::ExprTrait as _;
+    Expr::val(text).cast_as("jsonb")
+}
+
+/// `coalesce(expr, fallback)`.
+fn or_else(expr: Expr, fallback: bool) -> Expr {
+    Expr::from(Func::coalesce([expr, Expr::val(fallback)]))
+}
+
+/// `btrim(expr)`.
+fn btrim(expr: Expr) -> Expr {
+    Expr::from(Func::cust("btrim").arg(expr))
+}
+
+/// `answerFilterSql(filter, fields)`: one answer filter as a condition on
+/// `form_responses.answers`.
 #[allow(
     clippy::too_many_lines,
     reason = "one branch per kind of field, as the worker"
 )]
-pub(crate) fn answer_filter_sql(
+pub(crate) fn answer_filter_condition(
     filter: &AnswerFilter,
     fields: &HashMap<String, Field>,
-    w: &mut Where,
-) -> FormsResult<String> {
+) -> FormsResult<Expr> {
+    use sea_orm::ExprTrait as _;
+    use sea_orm::sea_query::extension::postgres::PgExpr as _;
+
     let field = fields.get(&filter.block_id);
     let kind = kind_of(field, filter.part.as_deref());
-    let block = w.param(Bind::Text(filter.block_id.clone()));
-    let node = format!("(answers -> {block}::text)");
+    // `answers -> blockId`, and its text (`->>`, or a part's).
+    let node = answers_col().get_json_field(filter.block_id.clone());
     let text_expr = match &filter.part {
-        Some(part) => {
-            let part = w.param(Bind::Text(part.clone()));
-            format!("({node} ->> {part}::text)")
-        }
-        None => format!("(answers ->> {block}::text)"),
+        Some(part) => node.clone().cast_json_field(part.clone()),
+        None => answers_col().cast_json_field(filter.block_id.clone()),
     };
     let operator = filter.operator.as_str();
     let value = filter.value.as_ref();
 
     if operator == "is_answered" || operator == "is_empty" {
         let answered = match kind {
-            FilterKind::Text => format!("({text_expr} is not null and btrim({text_expr}) <> '')"),
-            FilterKind::Presence => format!(
-                "({node} is not null and {node} <> 'null'::jsonb and {node} <> '[]'::jsonb and {node} <> '{{}}'::jsonb)"
-            ),
-            _ => format!("({node} is not null and {node} <> 'null'::jsonb)"),
+            FilterKind::Text => text_expr.clone().is_not_null().and(btrim(text_expr).ne("")),
+            FilterKind::Presence => node
+                .clone()
+                .is_not_null()
+                .and(node.clone().ne(jsonb("null")))
+                .and(node.clone().ne(jsonb("[]")))
+                .and(node.ne(jsonb("{}"))),
+            _ => node.clone().is_not_null().and(node.ne(jsonb("null"))),
         };
         return Ok(if operator == "is_answered" {
             answered
         } else {
-            format!("(not {answered})")
+            answered.not()
         });
     }
 
@@ -676,35 +647,42 @@ pub(crate) fn answer_filter_sql(
 
     match kind {
         FilterKind::Choice => {
-            let ids = format!("({node} -> 'choiceIds')");
-            let other = format!("({node} ->> 'other')");
+            let ids = node.clone().get_json_field("choiceIds");
+            let other = node.cast_json_field("other");
             let list = as_array(Some(value));
-            let any = |w: &mut Where| {
-                let list = w.param(Bind::Texts(list.clone()));
-                format!("coalesce(jsonb_exists_any({ids}, {list}::text[]), false)")
+            // `jsonb_exists_any(ids, list)`: any of the ids is in the answer.
+            let any = || {
+                or_else(
+                    list.iter()
+                        .map(|id| Expr::from(Func::cust("jsonb_exists").arg(ids.clone()).arg(id)))
+                        .reduce(Expr::or)
+                        .unwrap_or_else(|| Expr::val(false)),
+                    false,
+                )
             };
             match operator {
                 "any_of" | "is" => Ok(if list.is_empty() {
-                    "false".to_owned()
+                    Expr::val(false)
                 } else {
-                    any(w)
+                    any()
                 }),
                 "none_of" | "is_not" => Ok(if list.is_empty() {
-                    "true".to_owned()
+                    Expr::val(true)
                 } else {
-                    format!("(not {})", any(w))
+                    any().not()
                 }),
-                "contains" => {
-                    let pattern = w.param(Bind::Text(like_pattern(&js_string(value))));
-                    Ok(format!("{other} ilike {pattern}"))
-                }
+                "contains" => Ok(other.ilike(like_pattern(&js_string(value)))),
                 _ => Err(not_applicable(operator)),
             }
         }
         FilterKind::Numeric => {
-            let num = format!(
-                "(case when jsonb_typeof({node}) = 'number' then (answers ->> {block}::text)::numeric end)"
-            );
+            let num: Expr = Expr::case(
+                Expr::from(Func::cust("jsonb_typeof").arg(node)).eq("number"),
+                answers_col()
+                    .cast_json_field(filter.block_id.clone())
+                    .cast_as("numeric"),
+            )
+            .into();
             let n = js_number_of(Some(value));
             if !n.is_finite() {
                 return Err(forms_error(
@@ -713,15 +691,14 @@ pub(crate) fn answer_filter_sql(
                     "A number is needed for this filter.",
                 ));
             }
-            let (op, fallback) = match operator {
-                "is" => ("=", "false"),
-                "is_not" => ("<>", "true"),
-                "greater_than" => (">", "false"),
-                "less_than" => ("<", "false"),
-                _ => return Err(not_applicable(operator)),
-            };
-            let n = w.param(Bind::Text(number_text(n)));
-            Ok(format!("coalesce({num} {op} {n}::numeric, {fallback})"))
+            let n = Expr::val(number_text(n)).cast_as("numeric");
+            match operator {
+                "is" => Ok(or_else(num.eq(n), false)),
+                "is_not" => Ok(or_else(num.ne(n), true)),
+                "greater_than" => Ok(or_else(num.gt(n), false)),
+                "less_than" => Ok(or_else(num.lt(n), false)),
+                _ => Err(not_applicable(operator)),
+            }
         }
         FilterKind::Boolean => {
             let wanted = match value {
@@ -730,17 +707,16 @@ pub(crate) fn answer_filter_sql(
                 Value::Number(n) => n.as_f64() == Some(1.0),
                 _ => false,
             };
-            let literal = w.param(Bind::Text(wanted.to_string()));
-            let bool_expr = format!("coalesce({node} = {literal}::jsonb, false)");
+            let bool_expr = or_else(node.eq(jsonb(&wanted.to_string())), false);
             match operator {
                 "is" => Ok(bool_expr),
-                "is_not" => Ok(format!("(not {bool_expr})")),
+                "is_not" => Ok(bool_expr.not()),
                 _ => Err(not_applicable(operator)),
             }
         }
         FilterKind::Text => {
             let v = js_string(value);
-            let lowered = format!("lower(btrim({text_expr}))");
+            let lowered = Expr::from(Func::lower(btrim(text_expr.clone())));
             let normalised = |list: Vec<String>| -> Vec<String> {
                 list.iter().map(|x| js_trim(x).to_lowercase()).collect()
             };
@@ -752,10 +728,9 @@ pub(crate) fn answer_filter_sql(
                         as_array(Some(value))
                     };
                     if list.is_empty() {
-                        return Ok("false".to_owned());
+                        return Ok(Expr::val(false));
                     }
-                    let list = w.param(Bind::Texts(normalised(list)));
-                    Ok(format!("coalesce({lowered} = any({list}::text[]), false)"))
+                    Ok(or_else(lowered.is_in(normalised(list)), false))
                 }
                 "is_not" | "none_of" => {
                     let list = if operator == "is_not" {
@@ -764,25 +739,16 @@ pub(crate) fn answer_filter_sql(
                         as_array(Some(value))
                     };
                     if list.is_empty() {
-                        return Ok("true".to_owned());
+                        return Ok(Expr::val(true));
                     }
-                    let list = w.param(Bind::Texts(normalised(list)));
-                    Ok(format!("coalesce({lowered} <> all({list}::text[]), true)"))
+                    Ok(or_else(lowered.is_not_in(normalised(list)), true))
                 }
-                "contains" => {
-                    let pattern = w.param(Bind::Text(like_pattern(&v.to_lowercase())));
-                    Ok(format!(
-                        "coalesce(lower({text_expr}) like {pattern}, false)"
-                    ))
-                }
-                "greater_than" => {
-                    let v = w.param(Bind::Text(v));
-                    Ok(format!("coalesce({text_expr} > {v}, false)"))
-                }
-                "less_than" => {
-                    let v = w.param(Bind::Text(v));
-                    Ok(format!("coalesce({text_expr} < {v}, false)"))
-                }
+                "contains" => Ok(or_else(
+                    Expr::from(Func::lower(text_expr)).like(like_pattern(&v.to_lowercase())),
+                    false,
+                )),
+                "greater_than" => Ok(or_else(text_expr.gt(v), false)),
+                "less_than" => Ok(or_else(text_expr.lt(v), false)),
                 _ => Err(not_applicable(operator)),
             }
         }
@@ -807,7 +773,13 @@ pub(crate) struct ResponseFilter {
     pub(crate) filters: Option<String>,
 }
 
-const WHEN: &str = "coalesce(submitted_at, started_at)";
+/// `coalesce(submitted_at, started_at)`: when a response was sent, or begun.
+fn response_when() -> Expr {
+    Expr::from(Func::coalesce([
+        Expr::col(form_responses::Column::SubmittedAt),
+        Expr::col(form_responses::Column::StartedAt),
+    ]))
+}
 
 /// `responseConditions(formId, query, fields)`: the form, the status,
 /// dates, search, version, person, invitation and answer filters.
@@ -815,54 +787,65 @@ pub(crate) fn response_conditions(
     form_id: &str,
     query: &ResponseFilter,
     fields: &HashMap<String, Field>,
-) -> FormsResult<Where> {
-    let mut w = Where::default();
-    let form = w.param(Bind::Text(form_id.to_owned()));
-    w.push(format!("form_id = {form}"));
+) -> FormsResult<Condition> {
+    use sea_orm::ExprTrait as _;
+
+    let mut w = Condition::all().add(form_responses::Column::FormId.eq(form_id));
     if let Some(status) = query.status.as_deref().filter(|s| *s != "all") {
-        let status = w.param(Bind::Text(status.to_owned()));
-        w.push(format!("status = {status}"));
+        w = w.add(form_responses::Column::Status.eq(status));
     }
     if let Some(from) = query.from.as_deref() {
-        let at = w.param(Bind::Text(iso(parse_ms(from).unwrap_or_default())));
-        w.push(format!("{WHEN} >= {at}::timestamptz"));
+        w = w.add(response_when().gte(instant(parse_ms(from).unwrap_or_default())));
     }
     if let Some(to) = query.to.as_deref() {
-        let at = w.param(Bind::Text(iso(parse_ms(to).unwrap_or_default())));
-        w.push(format!("{WHEN} <= {at}::timestamptz"));
+        w = w.add(response_when().lte(instant(parse_ms(to).unwrap_or_default())));
     }
     if let Some(q) = query.q.as_deref().map(js_trim).filter(|q| !q.is_empty()) {
         let like = like_pattern(&q.to_lowercase());
-        let a = w.param(Bind::Text(like.clone()));
-        let b = w.param(Bind::Text(like));
-        w.push(format!(
-            "(search_text ilike {a} or respondent_email ilike {b})"
-        ));
+        w = w.add(
+            Condition::any()
+                .add(form_responses::Column::SearchText.ilike(like.clone()))
+                .add(form_responses::Column::RespondentEmail.ilike(like)),
+        );
     }
     for (column, value) in [
-        ("version_id", &query.version_id),
-        ("person_id", &query.person_id),
-        ("invitation_id", &query.invitation_id),
+        (form_responses::Column::VersionId, &query.version_id),
+        (form_responses::Column::PersonId, &query.person_id),
+        (form_responses::Column::InvitationId, &query.invitation_id),
     ] {
         if let Some(value) = value {
-            let value = w.param(Bind::Text(value.clone()));
-            w.push(format!("{column} = {value}"));
+            w = w.add(column.eq(value.clone()));
         }
     }
     for filter in parse_answer_filters(query.filters.as_deref())? {
-        let sql = answer_filter_sql(&filter, fields, &mut w)?;
-        w.push(sql);
+        w = w.add(answer_filter_condition(&filter, fields)?);
     }
     Ok(w)
 }
 
 /// `responseOrder(sort)`.
-pub(crate) fn response_order(sort: Option<&str>) -> String {
+pub(crate) fn response_order(
+    find: Select<form_responses::Entity>,
+    sort: Option<&str>,
+) -> Select<form_responses::Entity> {
+    let id = form_responses::Column::Id;
     match sort {
-        Some("oldest") => format!("{WHEN} asc, id asc"),
-        Some("score_desc") => format!("score desc nulls last, {WHEN} desc, id desc"),
-        Some("score_asc") => format!("score asc nulls last, {WHEN} desc, id desc"),
-        _ => format!("{WHEN} desc, id desc"),
+        Some("oldest") => find
+            .order_by(response_when(), Order::Asc)
+            .order_by(id, Order::Asc),
+        Some(sort @ ("score_desc" | "score_asc")) => {
+            let order = if sort == "score_desc" {
+                Order::Desc
+            } else {
+                Order::Asc
+            };
+            find.order_by_with_nulls(form_responses::Column::Score, order, NullOrdering::Last)
+                .order_by(response_when(), Order::Desc)
+                .order_by(id, Order::Desc)
+        }
+        _ => find
+            .order_by(response_when(), Order::Desc)
+            .order_by(id, Order::Desc),
     }
 }
 

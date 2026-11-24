@@ -10,6 +10,7 @@
 // Each test walks one scenario through, step by step, as its TypeScript
 // `describe` block does; `assert!(… .is_empty())` reads like the `toEqual([])` it ports.
 #![allow(clippy::too_many_lines, clippy::similar_names, clippy::assert_is_empty)]
+#![allow(clippy::disallowed_methods, reason = "test fixtures")]
 
 use std::io::Read as _;
 use std::sync::{Arc, LazyLock, Mutex};

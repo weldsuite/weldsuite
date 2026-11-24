@@ -9,12 +9,16 @@
 
 use std::sync::Arc;
 
+use sea_orm::sea_query::OnConflict;
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, Condition, DbErr, EntityTrait, QueryFilter, QuerySelect,
+};
 use serde_json::{Value, json};
 use time::{Month, OffsetDateTime};
-use weldsuite_db::PgPool;
-use weldsuite_events::iso_timestamp;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::generate_id;
 use weldsuite_ports::DynCache;
+use weldsuite_schema::master::{system_settings, workspace_credits, workspaces};
 
 /// `WELDMEET_AI_PRICING_KEY`.
 const PRICING_KEY: &str = "weldmeet.ai_pricing";
@@ -97,11 +101,13 @@ pub(crate) async fn pricing(cache: Option<&Arc<dyn DynCache>>, master: Option<&P
         tracing::warn!("[meet-billing] pricing lookup failed, using defaults: no master database");
         return defaults();
     };
-    let row: Result<Option<Option<Value>>, sqlx::Error> =
-        sqlx::query_scalar("select value from system_settings where key = $1 limit 1")
-            .bind(PRICING_KEY)
-            .fetch_optional(master)
-            .await;
+    let row: Result<Option<Option<Value>>, DbErr> = system_settings::Entity::find()
+        .select_only()
+        .column(system_settings::Column::Value)
+        .filter(system_settings::Column::Key.eq(PRICING_KEY))
+        .into_tuple()
+        .one(&orm(master))
+        .await;
     match row {
         Ok(row) => {
             let pricing = parse(&row.flatten().unwrap_or(Value::Null));
@@ -139,8 +145,8 @@ pub(crate) enum BillingError {
     Failed(String),
 }
 
-impl From<sqlx::Error> for BillingError {
-    fn from(error: sqlx::Error) -> Self {
+impl From<DbErr> for BillingError {
+    fn from(error: DbErr) -> Self {
         Self::Failed(error.to_string())
     }
 }
@@ -153,16 +159,22 @@ pub(crate) async fn metering(
     let Some(master) = master else {
         return Err(BillingError::Failed("no master database".into()));
     };
-    let id: Option<String> =
-        sqlx::query_scalar("select id from workspaces where id = $1 or clerk_org_id = $1 limit 1")
-            .bind(org_id)
-            .fetch_optional(master)
-            .await?;
+    let id: Option<String> = workspaces::Entity::find()
+        .select_only()
+        .column(workspaces::Column::Id)
+        .filter(
+            Condition::any()
+                .add(workspaces::Column::Id.eq(org_id))
+                .add(workspaces::Column::ClerkOrgId.eq(org_id)),
+        )
+        .into_tuple()
+        .one(&orm(master))
+        .await?;
     id.ok_or(BillingError::Unavailable)
 }
 
 /// The first day of this month and of the next, at midnight UTC.
-fn period(now: OffsetDateTime) -> (String, String) {
+fn period(now: OffsetDateTime) -> (OffsetDateTime, OffsetDateTime) {
     let start = time::Date::from_calendar_date(now.year(), now.month(), 1)
         .unwrap_or(now.date())
         .midnight()
@@ -176,41 +188,47 @@ fn period(now: OffsetDateTime) -> (String, String) {
         .unwrap_or(now.date())
         .midnight()
         .assume_utc();
-    (iso_timestamp(start), iso_timestamp(end))
+    (start, end)
 }
 
-/// `getOrCreateWorkspaceCredits(db, workspaceId).currentBalance`.
-pub(crate) async fn balance(master: &PgPool, workspace_id: &str) -> Result<i64, sqlx::Error> {
-    let existing: Option<i32> = sqlx::query_scalar(
-        "select current_balance from workspace_credits where workspace_id = $1 limit 1",
-    )
-    .bind(workspace_id)
-    .fetch_optional(master)
-    .await?;
-    if let Some(balance) = existing {
+/// The wallet's `current_balance`, when it has a row.
+async fn current_balance(master: &PgPool, workspace_id: &str) -> Result<Option<i32>, DbErr> {
+    workspace_credits::Entity::find()
+        .select_only()
+        .column(workspace_credits::Column::CurrentBalance)
+        .filter(workspace_credits::Column::WorkspaceId.eq(workspace_id))
+        .into_tuple()
+        .one(&orm(master))
+        .await
+}
+
+/// `getOrCreateWorkspaceCredits(db, workspaceId).currentBalance`: an empty
+/// wallet for this month on the first read (a concurrent creator wins on the
+/// unique `workspace_id`; the balance is read again after).
+pub(crate) async fn balance(master: &PgPool, workspace_id: &str) -> Result<i64, DbErr> {
+    if let Some(balance) = current_balance(master, workspace_id).await? {
         return Ok(i64::from(balance));
     }
     let (start, end) = period(OffsetDateTime::now_utc());
-    sqlx::query(
-        "insert into workspace_credits
-             (id, workspace_id, current_balance, plan_credits, subscribed_credits,
-              monthly_allocation, rolled_over_credits, rollover_cap, period_start, period_end,
-              last_reset_at)
-         values ($1, $2, 0, 0, 0, 0, 0, null, $3::timestamptz, $4::timestamptz, null)
-         on conflict do nothing",
-    )
-    .bind(generate_id("wcr"))
-    .bind(workspace_id)
-    .bind(&start)
-    .bind(&end)
-    .execute(master)
-    .await?;
-    let balance: Option<i32> = sqlx::query_scalar(
-        "select current_balance from workspace_credits where workspace_id = $1 limit 1",
-    )
-    .bind(workspace_id)
-    .fetch_optional(master)
-    .await?;
+    let wallet = workspace_credits::ActiveModel {
+        id: Set(generate_id("wcr")),
+        workspace_id: Set(workspace_id.to_owned()),
+        current_balance: Set(0),
+        plan_credits: Set(0),
+        subscribed_credits: Set(0),
+        monthly_allocation: Set(0),
+        rolled_over_credits: Set(0),
+        rollover_cap: Set(None),
+        period_start: Set(start),
+        period_end: Set(end),
+        last_reset_at: Set(None),
+        ..Default::default()
+    };
+    workspace_credits::Entity::insert(wallet)
+        .on_conflict(OnConflict::new().do_nothing().to_owned())
+        .exec_without_returning(&orm(master))
+        .await?;
+    let balance = current_balance(master, workspace_id).await?;
     Ok(i64::from(balance.unwrap_or(0)))
 }
 

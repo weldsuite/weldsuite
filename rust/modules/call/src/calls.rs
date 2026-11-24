@@ -9,20 +9,41 @@ use axum::body::Bytes;
 use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use http::{HeaderMap, StatusCode};
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, Condition, DbErr, EntityTrait, Order, PaginatorTrait,
+    QueryFilter, QueryOrder, QuerySelect,
+};
 use serde_json::{Map, Value, json};
+use time::format_description::well_known::Rfc3339;
+use time::{OffsetDateTime, PrimitiveDateTime};
 use weldsuite_catalogs::entity_events::{CALL_CREATED, CALL_DELETED, CALL_UPDATED};
+use weldsuite_db::{orm, utc_now, utc_timestamp};
 use weldsuite_kit::validation::{Number, Presence, Text, js_date_iso, query_values};
 use weldsuite_kit::{ApiError, Created, CreditShortfall, Data, List, NoContent, Pagination};
+use weldsuite_schema::tenant::{desk_conversations, voip_calls, voip_phone_numbers};
 
 use crate::credits::{self, VOIP_CALL_PER_MINUTE};
 use crate::desk_phone_messages::post_phone_message;
-use crate::{CallState, Caller, internal, js, now, validate};
+use crate::{CallState, Caller, internal, js, validate};
+
+/// `Date#toISOString()` of a `timestamp` column, as Drizzle reads it.
+pub(crate) fn iso_of(at: PrimitiveDateTime) -> String {
+    match weldsuite_schema::js::timestamp::serialize(&at, serde_json::value::Serializer) {
+        Ok(Value::String(text)) => text,
+        _ => String::new(),
+    }
+}
+
+/// An ISO date (`toISOString()`) as `$n::timestamp` reads it; `None` for
+/// text Postgres would refuse.
+pub(crate) fn timestamp_of(iso: &str) -> Option<PrimitiveDateTime> {
+    OffsetDateTime::parse(iso, &Rfc3339).ok().map(utc_timestamp)
+}
 
 /// A `voip_calls` row as Drizzle reads it (`numeric` as text).
-macro_rules! call_row {
-    () => {
-        "to_jsonb(t) || jsonb_build_object('call_quality_score', t.call_quality_score::text)"
-    };
+fn call_json(call: voip_calls::Model) -> Result<Value, DbErr> {
+    serde_json::to_value(call).map_err(|error| DbErr::Json(error.to_string()))
 }
 
 /// `c.req.query(name)`: the first value of a parameter.
@@ -34,49 +55,131 @@ pub(crate) fn query_param(query: &Map<String, Value>, name: &str) -> Option<Stri
 }
 
 /// The list's conditions, in the order the worker adds them; each is on
-/// when its value is set.
+/// when its value is set: the scope, status, direction, customer, contact,
+/// owner, provider and search (a `like` pattern), then the date range and
+/// the keyset cursor.
 #[derive(Clone, Default)]
 struct Filters {
-    values: [Option<String>; 10],
-    cursor: Option<(String, String)>,
+    values: [Option<String>; 8],
+    from: Option<PrimitiveDateTime>,
+    to: Option<PrimitiveDateTime>,
+    cursor: Option<(PrimitiveDateTime, String)>,
 }
 
-const LIST_SQL: &str = concat!(
-    "select ",
-    call_row!(),
-    " from voip_calls t where ($1::text is null or t.user_id = $1)",
-    " and ($2::text is null or t.status = $2) and ($3::text is null or t.direction = $3)",
-    " and ($4::text is null or t.customer_id = $4) and ($5::text is null or t.contact_id = $5)",
-    " and ($6::text is null or t.user_id = $6) and ($7::text is null or t.provider = $7)",
-    " and ($8::text is null or (t.from_number like $8 or t.to_number like $8",
-    " or t.from_number_formatted like $8 or t.to_number_formatted like $8 or t.notes like $8))",
-    " and ($9::timestamp is null or t.initiated_at >= $9::timestamp)",
-    " and ($10::timestamp is null or t.initiated_at <= $10::timestamp)",
-    " and ($11::timestamp is null or (t.initiated_at < $11::timestamp",
-    " or (t.initiated_at = $11::timestamp and t.id < $12)))",
-    " order by t.initiated_at desc, t.id desc limit $13"
-);
+impl Filters {
+    /// The columns `values[0..7]` compare with.
+    const COLUMNS: [voip_calls::Column; 7] = [
+        voip_calls::Column::UserId,
+        voip_calls::Column::Status,
+        voip_calls::Column::Direction,
+        voip_calls::Column::CustomerId,
+        voip_calls::Column::ContactId,
+        voip_calls::Column::UserId,
+        voip_calls::Column::Provider,
+    ];
 
-const COUNT_SQL: &str = concat!(
-    "select count(*) from voip_calls t where ($1::text is null or t.user_id = $1)",
-    " and ($2::text is null or t.status = $2) and ($3::text is null or t.direction = $3)",
-    " and ($4::text is null or t.customer_id = $4) and ($5::text is null or t.contact_id = $5)",
-    " and ($6::text is null or t.user_id = $6) and ($7::text is null or t.provider = $7)",
-    " and ($8::text is null or (t.from_number like $8 or t.to_number like $8",
-    " or t.from_number_formatted like $8 or t.to_number_formatted like $8 or t.notes like $8))",
-    " and ($9::timestamp is null or t.initiated_at >= $9::timestamp)",
-    " and ($10::timestamp is null or t.initiated_at <= $10::timestamp)",
-    " and ($11::timestamp is null or (t.initiated_at < $11::timestamp",
-    " or (t.initiated_at = $11::timestamp and t.id < $12)))"
-);
+    /// Leave out the last condition that is on (the date range counts after
+    /// the other filters).
+    fn drop_last(&mut self) {
+        if self.to.is_some() {
+            self.to = None;
+        } else if self.from.is_some() {
+            self.from = None;
+        } else if let Some(last) = self.values.iter_mut().rev().find(|v| v.is_some()) {
+            *last = None;
+        }
+    }
+
+    /// The `where` of the list and its count.
+    fn condition(&self) -> Condition {
+        let mut all = Condition::all();
+        for (column, value) in Self::COLUMNS.iter().zip(&self.values) {
+            if let Some(value) = value {
+                all = all.add(column.eq(value));
+            }
+        }
+        if let Some(pattern) = &self.values[7] {
+            all = all.add(
+                Condition::any()
+                    .add(voip_calls::Column::FromNumber.like(pattern))
+                    .add(voip_calls::Column::ToNumber.like(pattern))
+                    .add(voip_calls::Column::FromNumberFormatted.like(pattern))
+                    .add(voip_calls::Column::ToNumberFormatted.like(pattern))
+                    .add(voip_calls::Column::Notes.like(pattern)),
+            );
+        }
+        if let Some(from) = self.from {
+            all = all.add(voip_calls::Column::InitiatedAt.gte(from));
+        }
+        if let Some(to) = self.to {
+            all = all.add(voip_calls::Column::InitiatedAt.lte(to));
+        }
+        if let Some((at, id)) = &self.cursor {
+            all = all.add(
+                Condition::any()
+                    .add(voip_calls::Column::InitiatedAt.lt(*at))
+                    .add(
+                        Condition::all()
+                            .add(voip_calls::Column::InitiatedAt.eq(*at))
+                            .add(voip_calls::Column::Id.lt(id)),
+                    ),
+            );
+        }
+        all
+    }
+}
 
 /// A date filter as Drizzle binds it; `Err` for an invalid date, which
-/// fails the query (`toISOString()` throws).
-fn date_filter(value: Option<String>) -> Result<Option<String>, ()> {
+/// fails the query (`toISOString()` throws, or Postgres refuses the text).
+fn date_filter(value: Option<String>) -> Result<Option<PrimitiveDateTime>, ()> {
     match value.filter(|v| !v.is_empty()) {
         None => Ok(None),
-        Some(text) => js_date_iso(&text).map(Some).ok_or(()),
+        Some(text) => js_date_iso(&text)
+            .as_deref()
+            .and_then(timestamp_of)
+            .map(Some)
+            .ok_or(()),
     }
+}
+
+/// The keyset of the cursor's call: `initiatedAt` (to the millisecond, as
+/// the worker reads it) and the id.
+async fn cursor_of(
+    caller: &Caller,
+    id: &str,
+) -> Result<Option<(PrimitiveDateTime, String)>, DbErr> {
+    let row: Option<(PrimitiveDateTime, String)> = voip_calls::Entity::find()
+        .select_only()
+        .columns([voip_calls::Column::InitiatedAt, voip_calls::Column::Id])
+        .filter(voip_calls::Column::Id.eq(id))
+        .limit(1)
+        .into_tuple()
+        .one(&orm(&caller.db))
+        .await?;
+    Ok(row.map(|(at, id)| (utc_timestamp(at.assume_utc()), id)))
+}
+
+/// One page of calls (`limit` rows at most) and the count of `counted`.
+async fn page(
+    caller: &Caller,
+    filters: &Filters,
+    counted: &Filters,
+    limit: u64,
+) -> Result<(Vec<Value>, u64), DbErr> {
+    let db = orm(&caller.db);
+    let rows = voip_calls::Entity::find()
+        .filter(filters.condition())
+        .order_by(voip_calls::Column::InitiatedAt, Order::Desc)
+        .order_by(voip_calls::Column::Id, Order::Desc)
+        .limit(limit)
+        .all(&db)
+        .await?;
+    let count = voip_calls::Entity::find()
+        .filter(counted.condition())
+        .count(&db)
+        .await?;
+    let rows = rows.into_iter().map(call_json).collect::<Result<_, _>>()?;
+    Ok((rows, count))
 }
 
 /// `GET /api/calls`: a page of calls (`limit` ≤ 100, default 25), filtered
@@ -111,18 +214,11 @@ pub(crate) async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response 
     let (Ok(from), Ok(to)) = (date_filter(q("from")), date_filter(q("to"))) else {
         return internal(&"invalid date", "Failed to list calls");
     };
-    filters.values[8] = from;
-    filters.values[9] = to;
+    filters.from = from;
+    filters.to = to;
     let cursor_param = q("cursor").filter(|c| !c.is_empty());
     if let Some(cursor) = &cursor_param {
-        let found: Result<Option<(String, String)>, sqlx::Error> = sqlx::query_as(
-            "select to_char(initiated_at, 'YYYY-MM-DD\"T\"HH24:MI:SS.MS'), id
-             from voip_calls where id = $1 limit 1",
-        )
-        .bind(cursor)
-        .fetch_optional(&caller.db)
-        .await;
-        match found {
+        match cursor_of(&caller, cursor).await {
             Ok(row) => filters.cursor = row,
             Err(error) => return internal(&error, "Failed to list calls"),
         }
@@ -133,38 +229,19 @@ pub(crate) async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response 
     if cursor_param.is_some() {
         if count_filters.cursor.is_some() {
             count_filters.cursor = None;
-        } else if let Some(last) = count_filters.values.iter_mut().rev().find(|v| v.is_some()) {
-            *last = None;
+        } else {
+            count_filters.drop_last();
         }
     }
     let Some(limit) = limit else {
         return internal(&"limit is NaN", "Failed to list calls");
     };
-    let bind = |sql: &'static str, filters: &Filters| {
-        let mut statement = sqlx::query_scalar::<_, Value>(sql);
-        for value in &filters.values {
-            statement = statement.bind(value.clone());
-        }
-        let (at, id) = filters.cursor.clone().unzip();
-        statement.bind(at).bind(id)
+    // `limit $n` with `limit + 1`: Postgres refuses a negative one.
+    let Ok(fetched) = u64::try_from(limit + 1) else {
+        return internal(&"LIMIT must not be negative", "Failed to list calls");
     };
-    let rows = bind(LIST_SQL, &filters)
-        .bind(limit + 1)
-        .fetch_all(&caller.db)
-        .await;
-    let mut count_statement = sqlx::query_scalar::<_, i64>(COUNT_SQL);
-    for value in &count_filters.values {
-        count_statement = count_statement.bind(value.clone());
-    }
-    let (at, id) = count_filters.cursor.clone().unzip();
-    let count = count_statement
-        .bind(at)
-        .bind(id)
-        .fetch_one(&caller.db)
-        .await;
-    match (rows, count) {
-        (Ok(rows), Ok(count)) => {
-            let rows = crate::rows(rows);
+    match page(&caller, &filters, &count_filters, fetched).await {
+        Ok((rows, count)) => {
             let wanted = usize::try_from(limit).unwrap_or(0);
             let has_more = i64::try_from(rows.len()).unwrap_or(i64::MAX) > limit;
             let data: Vec<Value> = if has_more {
@@ -179,13 +256,9 @@ pub(crate) async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response 
             } else {
                 None
             };
-            List::new(
-                data,
-                Pagination::new(u64::try_from(count).unwrap_or(0), has_more, cursor),
-            )
-            .into_response()
+            List::new(data, Pagination::new(count, has_more, cursor)).into_response()
         }
-        (Err(error), _) | (_, Err(error)) => internal(&error, "Failed to list calls"),
+        Err(error) => internal(&error, "Failed to list calls"),
     }
 }
 
@@ -281,17 +354,16 @@ pub(crate) async fn contact_stats(caller: Caller, RawQuery(query): RawQuery) -> 
 
 /// `GET /api/calls/:id`.
 pub(crate) async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
-    let found: Result<Option<Value>, sqlx::Error> = sqlx::query_scalar(concat!(
-        "select ",
-        call_row!(),
-        " from voip_calls t where t.id = $1 and ($2::text is null or t.user_id = $2) limit 1"
-    ))
-    .bind(&id)
-    .bind(caller.scope())
-    .fetch_optional(&caller.db)
-    .await;
+    let mut found = voip_calls::Entity::find().filter(voip_calls::Column::Id.eq(&id));
+    if let Some(user) = caller.scope() {
+        found = found.filter(voip_calls::Column::UserId.eq(user));
+    }
+    let found = match found.one(&orm(&caller.db)).await {
+        Ok(call) => call.map(call_json).transpose(),
+        Err(error) => Err(error),
+    };
     match found {
-        Ok(Some(row)) => Data(weldsuite_db::js_row(row)).into_response(),
+        Ok(Some(row)) => Data(row).into_response(),
         Ok(None) => ApiError::not_found("Call", Some(&id)).into_response(),
         Err(error) => internal(&error, "Failed to fetch call"),
     }
@@ -384,17 +456,52 @@ async fn metering(caller: &Caller, state: &CallState) -> Option<(weldsuite_db::P
 /// Whether `number` is a live number of the customer's own phone system that
 /// Telnyx has not verified as caller id: such a number is a caller id only once
 /// it is.
-async fn unverified_trunk_number(caller: &Caller, number: &str) -> Result<bool, sqlx::Error> {
-    let found: Option<String> = sqlx::query_scalar(
-        "select id from voip_phone_numbers
-         where phone_number = $1 and provider = 'sip_trunk' and caller_id_verified_at is null
-             and deleted_at is null
-         limit 1",
-    )
-    .bind(crate::registry::normalize_e164(number))
-    .fetch_optional(&caller.db)
-    .await?;
+async fn unverified_trunk_number(caller: &Caller, number: &str) -> Result<bool, DbErr> {
+    let found: Option<String> = voip_phone_numbers::Entity::find()
+        .select_only()
+        .column(voip_phone_numbers::Column::Id)
+        .filter(voip_phone_numbers::Column::PhoneNumber.eq(crate::registry::normalize_e164(number)))
+        .filter(voip_phone_numbers::Column::Provider.eq("sip_trunk"))
+        .filter(voip_phone_numbers::Column::CallerIdVerifiedAt.is_null())
+        .filter(voip_phone_numbers::Column::DeletedAt.is_null())
+        .limit(1)
+        .into_tuple()
+        .one(&orm(&caller.db))
+        .await?;
     Ok(found.is_some())
+}
+
+/// The new call's row: `initiated`, now.
+async fn insert_call(caller: &Caller, id: &str, data: &NewCall) -> Result<u64, DbErr> {
+    let now = utc_now();
+    voip_calls::Entity::insert(voip_calls::ActiveModel {
+        id: Set(id.to_owned()),
+        user_id: Set(caller.user_id.clone()),
+        provider: Set(data
+            .provider
+            .as_deref()
+            .filter(|p| !p.is_empty())
+            .unwrap_or("telnyx")
+            .to_owned()),
+        direction: Set(data.direction.clone()),
+        status: Set("initiated".to_owned()),
+        from_number: Set(data.from_number.clone()),
+        to_number: Set(data.to_number.clone()),
+        from_number_formatted: Set(data.from_formatted.clone()),
+        to_number_formatted: Set(data.to_formatted.clone()),
+        customer_id: Set(data.customer_id.clone()),
+        contact_id: Set(data.contact_id.clone()),
+        opportunity_id: Set(data.opportunity_id.clone()),
+        is_recorded: Set(Some(data.is_recorded.unwrap_or(true))),
+        notes: Set(data.notes.clone()),
+        initiated_at: Set(now),
+        created_at: Set(now),
+        updated_at: Set(now),
+        desk_conversation_id: Set(data.desk_conversation_id.clone()),
+        ..Default::default()
+    })
+    .exec_without_returning(&orm(&caller.db))
+    .await
 }
 
 /// `POST /api/calls`: a call record, before the dialer dials. An outbound
@@ -428,11 +535,14 @@ pub(crate) async fn create(
     }
     // Click-to-call: the conversation the call is placed from must exist.
     if let Some(conversation) = data.desk_conversation_id.as_deref() {
-        let found: Result<Option<String>, sqlx::Error> =
-            sqlx::query_scalar("select id from desk_conversations where id = $1 limit 1")
-                .bind(conversation)
-                .fetch_optional(&caller.db)
-                .await;
+        let found: Result<Option<String>, DbErr> = desk_conversations::Entity::find()
+            .select_only()
+            .column(desk_conversations::Column::Id)
+            .filter(desk_conversations::Column::Id.eq(conversation))
+            .limit(1)
+            .into_tuple()
+            .one(&orm(&caller.db))
+            .await;
         match found {
             Ok(Some(_)) => {}
             Ok(None) => {
@@ -449,37 +559,7 @@ pub(crate) async fn create(
         }
     }
     let id = weldsuite_kit::generate_id("vcall");
-    let now = now();
-    let inserted = sqlx::query(
-        "insert into voip_calls (id, user_id, provider, direction, status, from_number, to_number,
-             from_number_formatted, to_number_formatted, customer_id, contact_id, opportunity_id,
-             is_recorded, notes, initiated_at, created_at, updated_at, desk_conversation_id)
-         values ($1, $2, $3, $4, 'initiated', $5, $6, $7, $8, $9, $10, $11, $12, $13,
-             $14::timestamp, $14::timestamp, $14::timestamp, $15)",
-    )
-    .bind(&id)
-    .bind(&caller.user_id)
-    .bind(
-        data.provider
-            .as_deref()
-            .filter(|p| !p.is_empty())
-            .unwrap_or("telnyx"),
-    )
-    .bind(&data.direction)
-    .bind(&data.from_number)
-    .bind(&data.to_number)
-    .bind(&data.from_formatted)
-    .bind(&data.to_formatted)
-    .bind(&data.customer_id)
-    .bind(&data.contact_id)
-    .bind(&data.opportunity_id)
-    .bind(data.is_recorded.unwrap_or(true))
-    .bind(&data.notes)
-    .bind(&now)
-    .bind(&data.desk_conversation_id)
-    .execute(&caller.db)
-    .await;
-    match inserted {
+    match insert_call(&caller, &id, &data).await {
         Ok(_) => {
             caller.publish(
                 &state,
@@ -588,9 +668,88 @@ fn date_change(change: &Change<String>) -> Result<Change<String>, ()> {
     }
 }
 
-/// A call as an update reads it: `(status, duration, ended, creditTransactionId,
-/// direction)`.
-type ExistingCall = (String, Option<i32>, bool, Option<String>, String);
+/// A call as an update reads it: `(status, duration, endedAt,
+/// creditTransactionId, direction)`.
+type ExistingCall = (
+    String,
+    Option<i32>,
+    Option<PrimitiveDateTime>,
+    Option<String>,
+    String,
+);
+
+/// The writes of `PUT /api/calls/:id`: a column for each field sent, the
+/// settlement when there is one.
+struct CallWrite<'a> {
+    changes: &'a CallChanges,
+    answered_at: Change<PrimitiveDateTime>,
+    ended_at: Change<PrimitiveDateTime>,
+    settlement: Option<(i64, String)>,
+}
+
+/// `$n::int` of a whole number: out of range fails as the cast did.
+fn int(value: i64) -> Result<i32, DbErr> {
+    i32::try_from(value).map_err(|_| DbErr::Custom("integer out of range".to_owned()))
+}
+
+/// `buildCallUpdateFields`: `updatedAt` and the fields sent.
+async fn write_call(caller: &Caller, id: &str, write: CallWrite<'_>) -> Result<(), DbErr> {
+    let changes = write.changes;
+    let mut update = voip_calls::Entity::update_many()
+        .col_expr(voip_calls::Column::UpdatedAt, Expr::value(utc_now()));
+    let texts = [
+        (voip_calls::Column::Status, &changes.status),
+        (voip_calls::Column::CustomerId, &changes.customer_id),
+        (voip_calls::Column::ContactId, &changes.contact_id),
+        (voip_calls::Column::OpportunityId, &changes.opportunity_id),
+    ];
+    for (column, change) in texts {
+        if let Some(value) = change {
+            update = update.col_expr(column, Expr::value(value.clone()));
+        }
+    }
+    for (column, change) in [
+        (voip_calls::Column::AnsweredAt, write.answered_at),
+        (voip_calls::Column::EndedAt, write.ended_at),
+    ] {
+        if let Some(value) = change {
+            update = update.col_expr(column, Expr::value(value));
+        }
+    }
+    if let Some(duration) = changes.duration {
+        update = update.col_expr(voip_calls::Column::Duration, Expr::value(int(duration)?));
+    }
+    if let Some(notes) = &changes.notes {
+        update = update.col_expr(voip_calls::Column::Notes, Expr::value(notes));
+    }
+    if let Some((consumed, transaction)) = write.settlement {
+        update = update
+            .col_expr(
+                voip_calls::Column::CreditsConsumed,
+                Expr::value(int(consumed)?),
+            )
+            .col_expr(
+                voip_calls::Column::CreditTransactionId,
+                Expr::value(transaction),
+            );
+    }
+    update
+        .filter(voip_calls::Column::Id.eq(id))
+        .exec(&orm(&caller.db))
+        .await?;
+    Ok(())
+}
+
+/// A date change as `$n::timestamp` writes it; `None` for text Postgres
+/// would refuse.
+#[allow(clippy::ref_option)] // read as the changes hold it
+fn timestamp_change(change: &Change<String>) -> Option<Change<PrimitiveDateTime>> {
+    match change {
+        None => Some(None),
+        Some(None) => Some(Some(None)),
+        Some(Some(iso)) => timestamp_of(iso).map(|at| Some(Some(at))),
+    }
+}
 
 /// `PUT /api/calls/:id`: update a call. Once it has ended with a known
 /// duration, its minutes are settled from the wallet (once per call).
@@ -606,18 +765,25 @@ pub(crate) async fn update(
         Ok(changes) => changes,
         Err(response) => return *response,
     };
-    let existing: Option<ExistingCall> = match sqlx::query_as(
-        "select status, duration, ended_at is not null, credit_transaction_id, direction
-         from voip_calls where id = $1 limit 1",
-    )
-    .bind(&id)
-    .fetch_optional(&caller.db)
-    .await
-    {
+    let existing: Result<Option<ExistingCall>, DbErr> = voip_calls::Entity::find()
+        .select_only()
+        .columns([
+            voip_calls::Column::Status,
+            voip_calls::Column::Duration,
+            voip_calls::Column::EndedAt,
+            voip_calls::Column::CreditTransactionId,
+            voip_calls::Column::Direction,
+        ])
+        .filter(voip_calls::Column::Id.eq(&id))
+        .limit(1)
+        .into_tuple()
+        .one(&orm(&caller.db))
+        .await;
+    let existing = match existing {
         Ok(row) => row,
         Err(error) => return internal(&error, "Failed to update call"),
     };
-    let Some((status, duration, ended, transaction, direction)) = existing else {
+    let Some((status, duration, ended_at_before, transaction, direction)) = existing else {
         return ApiError::not_found("Call", Some(&id)).into_response();
     };
     let (Ok(answered_at), Ok(ended_at)) = (
@@ -629,7 +795,7 @@ pub(crate) async fn update(
     let duration_secs = changes.duration.or(duration.map(i64::from)).unwrap_or(0);
     let call_ended = matches!(&changes.ended_at, Some(Some(text)) if !text.is_empty())
         || matches!(&changes.status, Some(Some(s)) if s == "completed")
-        || ended;
+        || ended_at_before.is_some();
     let mut settlement: Option<(i64, String)> = None;
     if call_ended
         && duration_secs > 0
@@ -652,47 +818,19 @@ pub(crate) async fn update(
             }
         }
     }
-    let set = |change: &Change<String>| change.is_some();
     let value = |change: &Change<String>| change.clone().flatten();
-    let (consumed, transaction_id) = settlement.clone().unzip();
-    let updated = sqlx::query(
-        "update voip_calls set updated_at = $2::timestamp,
-             status = case when $3 then $4 else status end,
-             answered_at = case when $5 then $6::timestamp else answered_at end,
-             ended_at = case when $7 then $8::timestamp else ended_at end,
-             duration = case when $9 then $10::int else duration end,
-             customer_id = case when $11 then $12 else customer_id end,
-             contact_id = case when $13 then $14 else contact_id end,
-             opportunity_id = case when $15 then $16 else opportunity_id end,
-             notes = case when $17 then $18 else notes end,
-             credits_consumed = case when $19 then $20::int else credits_consumed end,
-             credit_transaction_id = case when $19 then $21 else credit_transaction_id end
-         where id = $1",
-    )
-    .bind(&id)
-    .bind(now())
-    .bind(set(&changes.status))
-    .bind(value(&changes.status))
-    .bind(set(&answered_at))
-    .bind(value(&answered_at))
-    .bind(set(&ended_at))
-    .bind(value(&ended_at))
-    .bind(changes.duration.is_some())
-    .bind(changes.duration)
-    .bind(set(&changes.customer_id))
-    .bind(value(&changes.customer_id))
-    .bind(set(&changes.contact_id))
-    .bind(value(&changes.contact_id))
-    .bind(set(&changes.opportunity_id))
-    .bind(value(&changes.opportunity_id))
-    .bind(changes.notes.is_some())
-    .bind(&changes.notes)
-    .bind(settlement.is_some())
-    .bind(consumed)
-    .bind(transaction_id)
-    .execute(&caller.db)
-    .await;
-    if let Err(error) = updated {
+    let (Some(answered_at), Some(ended_at)) =
+        (timestamp_change(&answered_at), timestamp_change(&ended_at))
+    else {
+        return internal(&"invalid date", "Failed to update call");
+    };
+    let write = CallWrite {
+        changes: &changes,
+        answered_at,
+        ended_at,
+        settlement,
+    };
+    if let Err(error) = write_call(&caller, &id, write).await {
         return internal(&error, "Failed to update call");
     }
     let new_status = value(&changes.status).map_or_else(|| json!(status), |s| json!(s));
@@ -713,19 +851,23 @@ pub(crate) async fn remove(
     caller: Caller,
     Path(id): Path<String>,
 ) -> Response {
-    let existing: Result<Option<String>, sqlx::Error> =
-        sqlx::query_scalar("select id from voip_calls where id = $1 limit 1")
-            .bind(&id)
-            .fetch_optional(&caller.db)
-            .await;
+    let db = orm(&caller.db);
+    let existing: Result<Option<String>, DbErr> = voip_calls::Entity::find()
+        .select_only()
+        .column(voip_calls::Column::Id)
+        .filter(voip_calls::Column::Id.eq(&id))
+        .limit(1)
+        .into_tuple()
+        .one(&db)
+        .await;
     match existing {
         Ok(Some(_)) => {}
         Ok(None) => return ApiError::not_found("Call", Some(&id)).into_response(),
         Err(error) => return internal(&error, "Failed to delete call"),
     }
-    if let Err(error) = sqlx::query("delete from voip_calls where id = $1")
-        .bind(&id)
-        .execute(&caller.db)
+    if let Err(error) = voip_calls::Entity::delete_many()
+        .filter(voip_calls::Column::Id.eq(&id))
+        .exec(&db)
         .await
     {
         return internal(&error, "Failed to delete call");

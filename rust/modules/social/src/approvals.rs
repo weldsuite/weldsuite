@@ -10,23 +10,25 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::post;
 use http::HeaderMap;
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, Condition, DbErr, EntityTrait, QueryFilter, QuerySelect, UpdateMany};
 use serde_json::{Map, Value, json};
+use time::PrimitiveDateTime;
 use weldsuite_catalogs::entity_events as ev;
 use weldsuite_catalogs::permission_keys as perm;
+use weldsuite_db::orm;
 use weldsuite_kit::validation::{Issues, Presence};
 use weldsuite_kit::{ApiError, Created, Data, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::enums::{SocialApprovalStatus, SocialPostStatus};
+use weldsuite_schema::tenant::{social_approvals, social_posts};
 use weldsuite_social_domain::publishing::{PublishError, PublishOptions, publish_post};
 
 use crate::crud::{self, Crud, Filter, Partial, Standard, event, update_or_existing_or};
 use crate::js::{js_date_iso, query_param};
 use crate::objects::{OPT, POSTS, messages, string};
-use crate::{Caller, SocialState, now, tables, validate};
-
-const APPROVAL_LIST: (&str, &str) = listing!("social_approvals";
-    "($2::boolean or t.post_id = $3::text)",
-    "($4::boolean or t.status = $5::social_approval_status)";
-    6, 7, 8; "$9");
+use crate::table::{iso, now_both};
+use crate::{Caller, SocialState, tables, validate};
 
 fn approval_schema(issues: &mut Issues, body: &Map<String, Value>, _partial: Partial) {
     string(issues, body, "postId", Presence::Nullish, None);
@@ -79,9 +81,14 @@ static APPROVALS: Crud = Crud {
         "Failed to delete social approval",
     ),
     schema: approval_schema,
-    filters: &[Filter::eq("postId"), Filter::eq("status")],
-    list_sql: APPROVAL_LIST.0,
-    count_sql: APPROVAL_LIST.1,
+    filters: &[
+        Filter::eq("postId", |v| {
+            Condition::all().add(social_approvals::Column::PostId.eq(v))
+        }),
+        Filter::eq("status", |v| {
+            Condition::all().add(social_approvals::Column::Status.eq(v))
+        }),
+    ],
     slice_count: false,
     hidden: &[],
     prepare: crud::no_prepare,
@@ -121,20 +128,23 @@ struct PostRef {
     timezone: Option<String>,
 }
 
-async fn live_post(caller: &Caller, id: &str) -> Result<Option<PostRef>, sqlx::Error> {
-    let row: Option<(String, Option<Value>, Option<String>)> = sqlx::query_as(
-        "select id, to_jsonb(scheduled_at), timezone from social_posts
-         where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(&caller.db)
-    .await?;
+async fn live_post(caller: &Caller, id: &str) -> Result<Option<PostRef>, DbErr> {
+    let row: Option<(String, Option<PrimitiveDateTime>, Option<String>)> =
+        social_posts::Entity::find()
+            .select_only()
+            .columns([
+                social_posts::Column::Id,
+                social_posts::Column::ScheduledAt,
+                social_posts::Column::Timezone,
+            ])
+            .filter(social_posts::Column::Id.eq(id))
+            .filter(social_posts::Column::DeletedAt.is_null())
+            .into_tuple()
+            .one(&orm(&caller.db))
+            .await?;
     Ok(row.map(|(id, scheduled_at, timezone)| PostRef {
         id,
-        scheduled_at: scheduled_at
-            .as_ref()
-            .and_then(Value::as_str)
-            .and_then(weldsuite_db::js_timestamp),
+        scheduled_at: scheduled_at.map(iso),
         timezone,
     }))
 }
@@ -188,7 +198,7 @@ async fn create(
         Err(response) => return *response,
     };
     let id = generate_id("sap");
-    let now = now();
+    let (now, stamp) = now_both();
     let Some(post_id) = data
         .get("postId")
         .and_then(Value::as_str)
@@ -252,15 +262,17 @@ async fn create(
     {
         return failed(&error);
     }
-    let queued = sqlx::query(
-        "update social_posts set status = 'pending_approval', approval_requested_at = $2::timestamp,
-             updated_at = $2::timestamp
-         where id = $1 and deleted_at is null",
-    )
-    .bind(&post_id)
-    .bind(&now)
-    .execute(&caller.db)
-    .await;
+    let queued = social_posts::Entity::update_many()
+        .col_expr(
+            social_posts::Column::Status,
+            social_posts::Column::Status.save_as(Expr::val(SocialPostStatus::PendingApproval)),
+        )
+        .col_expr(social_posts::Column::ApprovalRequestedAt, Expr::val(stamp))
+        .col_expr(social_posts::Column::UpdatedAt, Expr::val(stamp))
+        .filter(social_posts::Column::Id.eq(&post_id))
+        .filter(social_posts::Column::DeletedAt.is_null())
+        .exec(&orm(&caller.db))
+        .await;
     if let Err(error) = queued {
         return failed(&error);
     }
@@ -280,13 +292,46 @@ async fn create(
 }
 
 /// The approval and the status it must have, read as the action routes do.
-async fn live_approval(caller: &Caller, id: &str) -> Result<Option<(String, String)>, sqlx::Error> {
-    sqlx::query_as(
-        "select post_id, status::text from social_approvals where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(&caller.db)
-    .await
+async fn live_approval(
+    caller: &Caller,
+    id: &str,
+) -> Result<Option<(String, SocialApprovalStatus)>, DbErr> {
+    social_approvals::Entity::find()
+        .select_only()
+        .columns([
+            social_approvals::Column::PostId,
+            social_approvals::Column::Status,
+        ])
+        .filter(social_approvals::Column::Id.eq(id))
+        .filter(social_approvals::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(&caller.db))
+        .await
+}
+
+/// `update(socialApprovals).set({ status, decidedByUserId: userId,
+/// decidedAt: now, decisionNotes, updatedAt: now }).where(eq(id))`; a
+/// rejection sets its reason too.
+fn decision(
+    caller: &Caller,
+    id: &str,
+    status: SocialApprovalStatus,
+    at: PrimitiveDateTime,
+    notes: Option<String>,
+) -> UpdateMany<social_approvals::Entity> {
+    social_approvals::Entity::update_many()
+        .col_expr(
+            social_approvals::Column::Status,
+            social_approvals::Column::Status.save_as(Expr::val(status)),
+        )
+        .col_expr(
+            social_approvals::Column::DecidedByUserId,
+            Expr::val(caller.user_id.as_str()),
+        )
+        .col_expr(social_approvals::Column::DecidedAt, Expr::val(at))
+        .col_expr(social_approvals::Column::DecisionNotes, Expr::val(notes))
+        .col_expr(social_approvals::Column::UpdatedAt, Expr::val(at))
+        .filter(social_approvals::Column::Id.eq(id))
 }
 
 /// `readDecisionNotes`: the body's `decisionNotes` when it is a string; a
@@ -331,38 +376,34 @@ async fn approve_inner(
     caller: &Caller,
     id: &str,
     notes: Option<String>,
-) -> Result<Response, sqlx::Error> {
+) -> Result<Response, DbErr> {
     let Some((post_id, status)) = live_approval(caller, id).await? else {
         return Ok(ApiError::not_found("Social approval", Some(id)).into_response());
     };
-    if status != "pending" {
+    if status != SocialApprovalStatus::Pending {
         return Ok(ApiError::conflict("Approval is not pending").into_response());
     }
     let Some(post) = live_post(caller, &post_id).await? else {
         return Ok(ApiError::not_found("Social post", Some(&post_id)).into_response());
     };
-    let now = now();
-    sqlx::query(
-        "update social_approvals set status = 'approved', decided_by_user_id = $2,
-             decided_at = $3::timestamp, decision_notes = $4, updated_at = $3::timestamp
-         where id = $1",
-    )
-    .bind(id)
-    .bind(&caller.user_id)
-    .bind(&now)
-    .bind(notes)
-    .execute(&caller.db)
-    .await?;
-    sqlx::query(
-        "update social_posts set status = 'approved', approved_at = $2::timestamp,
-             approved_by_user_id = $3, updated_at = $2::timestamp
-         where id = $1",
-    )
-    .bind(&post.id)
-    .bind(&now)
-    .bind(&caller.user_id)
-    .execute(&caller.db)
-    .await?;
+    let now = weldsuite_db::utc_now();
+    decision(caller, id, SocialApprovalStatus::Approved, now, notes)
+        .exec(&orm(&caller.db))
+        .await?;
+    social_posts::Entity::update_many()
+        .col_expr(
+            social_posts::Column::Status,
+            social_posts::Column::Status.save_as(Expr::val(SocialPostStatus::Approved)),
+        )
+        .col_expr(social_posts::Column::ApprovedAt, Expr::val(now))
+        .col_expr(
+            social_posts::Column::ApprovedByUserId,
+            Expr::val(caller.user_id.as_str()),
+        )
+        .col_expr(social_posts::Column::UpdatedAt, Expr::val(now))
+        .filter(social_posts::Column::Id.eq(&post.id))
+        .exec(&orm(&caller.db))
+        .await?;
 
     // PostPeer switched off (ADR OPS-026): approved, but not scheduled there.
     let postpeer_off = match &post.scheduled_at {
@@ -465,48 +506,49 @@ async fn reject_inner(
     notes: Option<String>,
     reason: Option<String>,
     revision: bool,
-) -> Result<Response, sqlx::Error> {
+) -> Result<Response, DbErr> {
     let Some((post_id, status)) = live_approval(caller, id).await? else {
         return Ok(ApiError::not_found("Social approval", Some(id)).into_response());
     };
-    if status != "pending" {
+    if status != SocialApprovalStatus::Pending {
         return Ok(ApiError::conflict("Approval is not pending").into_response());
     }
-    let now = now();
-    let next = if revision {
-        "revision_requested"
+    let now = weldsuite_db::utc_now();
+    let (next, status) = if revision {
+        (
+            "revision_requested",
+            SocialApprovalStatus::RevisionRequested,
+        )
     } else {
-        "rejected"
+        ("rejected", SocialApprovalStatus::Rejected)
     };
     let reason = reason.or_else(|| notes.clone());
-    sqlx::query(
-        "update social_approvals set status = $2::social_approval_status, decided_by_user_id = $3,
-             decided_at = $4::timestamp, decision_notes = $5, rejection_reason = $6,
-             updated_at = $4::timestamp
-         where id = $1",
-    )
-    .bind(id)
-    .bind(next)
-    .bind(&caller.user_id)
-    .bind(&now)
-    .bind(&notes)
-    .bind(&reason)
-    .execute(&caller.db)
-    .await?;
-    sqlx::query(
-        "update social_posts set status = 'draft',
-             rejected_at = case when $2 then null else $3::timestamp end,
-             rejected_by_user_id = case when $2 then null else $4 end,
-             rejection_reason = $5, updated_at = $3::timestamp
-         where id = $1 and deleted_at is null",
-    )
-    .bind(&post_id)
-    .bind(revision)
-    .bind(&now)
-    .bind(&caller.user_id)
-    .bind(&reason)
-    .execute(&caller.db)
-    .await?;
+    decision(caller, id, status, now, notes)
+        .col_expr(
+            social_approvals::Column::RejectionReason,
+            Expr::val(reason.clone()),
+        )
+        .exec(&orm(&caller.db))
+        .await?;
+    // A revision clears who rejected it and when.
+    let rejected_at = (!revision).then_some(now);
+    let rejected_by = (!revision).then(|| caller.user_id.clone());
+    social_posts::Entity::update_many()
+        .col_expr(
+            social_posts::Column::Status,
+            social_posts::Column::Status.save_as(Expr::val(SocialPostStatus::Draft)),
+        )
+        .col_expr(social_posts::Column::RejectedAt, Expr::val(rejected_at))
+        .col_expr(
+            social_posts::Column::RejectedByUserId,
+            Expr::val(rejected_by),
+        )
+        .col_expr(social_posts::Column::RejectionReason, Expr::val(reason))
+        .col_expr(social_posts::Column::UpdatedAt, Expr::val(now))
+        .filter(social_posts::Column::Id.eq(&post_id))
+        .filter(social_posts::Column::DeletedAt.is_null())
+        .exec(&orm(&caller.db))
+        .await?;
     caller.publish(
         state,
         ev::SOCIAL_APPROVAL_UPDATED,

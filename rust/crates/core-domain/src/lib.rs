@@ -7,11 +7,6 @@
 //! (WeldForms' monthly response quota). And the prepaid credits wallet
 //! ([`credits`], `@weldsuite/credits`) every metered feature charges.
 
-#![allow(
-    clippy::disallowed_methods,
-    reason = "not converted to the ORM yet (ADR DATA-019)"
-)]
-
 pub mod credits;
 pub mod custom_field_query;
 pub mod custom_field_values;

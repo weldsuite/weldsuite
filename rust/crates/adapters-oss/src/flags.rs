@@ -15,10 +15,11 @@ use std::collections::HashMap;
 use std::sync::{Arc, PoisonError, RwLock};
 use std::time::{Duration, Instant};
 
+use sea_orm::{EntityTrait, QuerySelect};
 use serde_json::Value;
-use sqlx::PgPool;
-use sqlx::types::Json;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_ports::{FlagContext, FlagSource, PortError};
+use weldsuite_schema::master::feature_flag_overrides;
 
 /// How long a read of the table is used before it is read again.
 pub const DEFAULT_FLAG_REFRESH: Duration = Duration::from_secs(30);
@@ -105,14 +106,17 @@ impl MasterDbFlagSource {
     }
 
     async fn read(&self) -> Result<HashMap<String, Overrides>, PortError> {
-        let rows: Vec<(String, Option<String>, Json<Value>)> =
-            sqlx::query_as("select flag_key, workspace_id, value from feature_flag_overrides")
-                .fetch_all(&self.master)
-                .await
-                .map_err(PortError::backend)?;
+        use feature_flag_overrides::Column;
+        let rows: Vec<(String, Option<String>, Value)> = feature_flag_overrides::Entity::find()
+            .select_only()
+            .columns([Column::FlagKey, Column::WorkspaceId, Column::Value])
+            .into_tuple()
+            .all(&orm(&self.master))
+            .await
+            .map_err(PortError::backend)?;
 
         let mut flags: HashMap<String, Overrides> = HashMap::new();
-        for (key, workspace, Json(value)) in rows {
+        for (key, workspace, value) in rows {
             let overrides = flags.entry(key).or_default();
             match workspace {
                 Some(workspace) => {

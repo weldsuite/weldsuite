@@ -5,10 +5,13 @@
 use axum::Router;
 use axum::extract::RawQuery;
 use axum::routing::get;
-use serde_json::json;
+use sea_orm::{ColumnTrait, Condition};
+use serde_json::{Value, json};
+use weldsuite_schema::tenant::files;
 
 use crate::ExternalApiState;
-use crate::crud::{Answer, Caller, page, table_list_sql, text};
+use crate::crud::{Answer, Caller, page, text};
+use crate::list::when;
 use crate::schemas::LIST_PROJECT_SHEETS;
 use crate::simple::scoped;
 use crate::tables_gen::FILES;
@@ -22,14 +25,18 @@ pub(crate) fn routes(router: Router<ExternalApiState>) -> Router<ExternalApiStat
     )
 }
 
-const SHEETS_LIST: (&str, &str) = table_list_sql!(
-    files,
-    "t.entity_type = 'project' and t.file_type = 'spreadsheet' and t.deleted_at is null \
-     and ($3->>'projectId' is null or t.entity_id = $3->>'projectId')"
-);
+/// A project's spreadsheets (`entityType = 'project'`, `fileType =
+/// 'spreadsheet'`), live, of the project when one is named.
+fn sheets_list(f: &Value) -> Condition {
+    Condition::all()
+        .add(files::Column::EntityType.eq("project"))
+        .add(files::Column::FileType.eq("spreadsheet"))
+        .add(files::Column::DeletedAt.is_null())
+        .add_option(when(f, "projectId", |v| files::Column::EntityId.eq(v)))
+}
 
 async fn list_sheets(caller: Caller, RawQuery(raw): RawQuery) -> Answer {
     let q = zod::query(&LIST_PROJECT_SHEETS, raw.as_deref())?;
     let filters = json!({ "projectId": text(&q, "projectId") });
-    page(&caller.db, SHEETS_LIST, &FILES, &q, filters).await
+    page(&caller.db, sheets_list, &FILES, &q, filters).await
 }

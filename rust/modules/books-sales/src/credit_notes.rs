@@ -3,11 +3,12 @@
 //! receivables, so applying posts nothing: it lowers the open balance of both
 //! by the same amount, at most the smaller of the two.
 
+use sea_orm::DbErr;
 use serde_json::Value;
 use weldsuite_books_domain::http::now;
 use weldsuite_books_domain::js::{self, round_money, to_fixed};
 use weldsuite_books_domain::posting::PostError;
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm_error};
 
 use crate::finalize::load_invoice;
 use crate::persist::{owned, text};
@@ -114,10 +115,36 @@ pub(crate) async fn apply_credit_note(
         return Ok(None);
     }
 
+    let note_id = text(&note, "id").unwrap_or_default().to_owned();
+    let settled = settle_both(db, &note_id, &invoice_id, amount).await?;
+    if settled.len() != 2 {
+        return Err(posting(
+            "The credit note or the invoice changed while the credit was being applied; nothing was applied. Reload and try again.",
+        ));
+    }
+    Ok(Some(CreditApplication {
+        credit_note_id: note_id,
+        invoice_id,
+        amount,
+    }))
+}
+
+/// Lowers the open balance of the credit note and of the invoice by
+/// `amount`: the ids of the documents it settled (both, or neither when
+/// either no longer has the amount open).
+#[allow(
+    clippy::disallowed_methods,
+    reason = "one statement settles both documents or neither: an UPDATE … FROM whose guard locks both rows (FOR UPDATE) and matches only while each still has the amount open, with the status worked out from the new balance in the same statement"
+)]
+async fn settle_both(
+    db: &PgPool,
+    note_id: &str,
+    invoice_id: &str,
+    amount: f64,
+) -> Result<Vec<String>, DbErr> {
     // One statement settles both or neither; the guard locks both rows and
     // matches only while each still has the amount open.
-    let note_id = text(&note, "id").unwrap_or_default().to_owned();
-    let settled: Vec<String> = sqlx::query_scalar(
+    sqlx::query_scalar(
         "update invoices set \
          amount_paid = (coalesce(invoices.amount_paid, '0')::numeric + $1::numeric), \
          balance_due = greatest((coalesce(invoices.total, '0')::numeric - (coalesce(invoices.amount_paid, '0')::numeric + $1::numeric)), 0), \
@@ -138,22 +165,13 @@ pub(crate) async fn apply_credit_note(
     )
     .bind(to_fixed(amount, 2))
     .bind(now())
-    .bind(&note_id)
-    .bind(&invoice_id)
+    .bind(note_id)
+    .bind(invoice_id)
     .bind(to_fixed(amount - 0.005, 3))
-    .bind(vec![note_id.clone(), invoice_id.clone()])
+    .bind(vec![note_id.to_owned(), invoice_id.to_owned()])
     .fetch_all(db)
-    .await?;
-    if settled.len() != 2 {
-        return Err(posting(
-            "The credit note or the invoice changed while the credit was being applied; nothing was applied. Reload and try again.",
-        ));
-    }
-    Ok(Some(CreditApplication {
-        credit_note_id: note_id,
-        invoice_id,
-        amount,
-    }))
+    .await
+    .map_err(orm_error)
 }
 
 /// `applyCreditNoteOnFinalize(db, creditNoteId)`: never a posting error; a

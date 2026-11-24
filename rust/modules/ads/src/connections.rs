@@ -7,7 +7,12 @@ use axum::body::Bytes;
 use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use http::HeaderMap;
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect, Set};
 use serde_json::{Value, json};
+use time::format_description::well_known::Rfc3339;
+use time::{OffsetDateTime, PrimitiveDateTime};
+use weldsuite_ads_domain::AdsError;
 use weldsuite_ads_domain::campaigns::SyncScope;
 use weldsuite_ads_domain::meta::{
     build_authorize_url, exchange_code_for_tokens, exchange_for_long_lived_token,
@@ -20,15 +25,17 @@ use weldsuite_ads_domain::sync::{
 use weldsuite_ads_domain::sync_index::{
     SyncIndexEntry, delete_ad_sync_index, upsert_ad_sync_index,
 };
-use weldsuite_ads_domain::{AdsError, now};
 use weldsuite_catalogs::entity_events::{
     AD_PLATFORM_CONNECTION_CREATED, AD_PLATFORM_CONNECTION_DELETED, AD_PLATFORM_CONNECTION_UPDATED,
 };
+use weldsuite_db::{orm, utc_now};
 use weldsuite_kit::validation::{Presence, query_values};
 use weldsuite_kit::{ApiError, Data, NoContent, generate_id};
 use weldsuite_ports::OutboundHttp;
+use weldsuite_schema::tenant::ad_platform_connections as connections;
+use weldsuite_schema::tenant::enums::{AdPlatform, AdPlatformConnectionStatus};
 
-use crate::{AdsState, Caller, internal, query_param, rows, validate};
+use crate::{AdsState, Caller, internal, json_error, query_param, validate};
 
 /// How long an OAuth start's state is kept (`STATE_TTL_SECONDS`).
 const STATE_TTL: Duration = Duration::from_secs(600);
@@ -56,15 +63,9 @@ fn meta_http(caller: &Caller, state: &AdsState) -> Result<OutboundHttp, AdsError
 /// `GET /api/ad-connections`: the live connections, newest first, without
 /// their tokens.
 pub(crate) async fn list(caller: Caller) -> Response {
-    let result: Result<Vec<Value>, sqlx::Error> = sqlx::query_scalar(
-        "select to_jsonb(c) from ad_platform_connections c
-         where c.deleted_at is null order by c.created_at desc",
-    )
-    .fetch_all(&caller.db)
-    .await;
-    match result {
+    match live_connections(&caller).await {
         Ok(found) => Data(
-            rows(found)
+            found
                 .into_iter()
                 .map(strip_connection_secrets)
                 .collect::<Vec<_>>(),
@@ -72,6 +73,18 @@ pub(crate) async fn list(caller: Caller) -> Response {
         .into_response(),
         Err(error) => internal(&error, "Failed to list ad connections"),
     }
+}
+
+/// The live connections, newest first, as Drizzle returns the rows.
+async fn live_connections(caller: &Caller) -> Result<Vec<Value>, DbErr> {
+    connections::Entity::find()
+        .filter(connections::Column::DeletedAt.is_null())
+        .order_by_desc(connections::Column::CreatedAt)
+        .all(&orm(&caller.db))
+        .await?
+        .into_iter()
+        .map(|connection| serde_json::to_value(connection).map_err(json_error))
+        .collect()
 }
 
 /// Meta is outside the EU (ADR OPS-026): on the EU edition a workspace that
@@ -232,47 +245,67 @@ async fn connect(
     let long_lived =
         exchange_for_long_lived_token(&http, app_id, app_secret, &short_lived.access_token).await?;
     let profile = get_meta_user_profile(&http, &long_lived.access_token).await?;
-    let now = now();
-    let existing: Option<String> = sqlx::query_scalar(
-        "select id from ad_platform_connections
-         where platform = 'facebook' and deleted_at is null limit 1",
-    )
-    .fetch_optional(&caller.db)
-    .await?;
-    let tokens = encrypt_oauth_tokens(&long_lived.access_token, &caller.keyring())?;
-    let connection_id = if let Some(id) = &existing {
-        sqlx::query(
-            "update ad_platform_connections set
-                 platform = 'facebook', status = 'active', meta_user_id = $2, meta_user_name = $3,
-                 oauth_tokens = $4, token_expires_at = $5::timestamp, last_error = null,
-                 updated_at = $6::timestamp
-             where id = $1",
-        )
-        .bind(id)
-        .bind(&profile.id)
-        .bind(&profile.name)
-        .bind(&tokens)
-        .bind(long_lived.expires_at.as_deref())
-        .bind(&now)
-        .execute(&caller.db)
+    let now = utc_now();
+    let db = orm(&caller.db);
+    let existing: Option<String> = connections::Entity::find()
+        .select_only()
+        .column(connections::Column::Id)
+        .filter(connections::Column::Platform.eq(AdPlatform::Facebook))
+        .filter(connections::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&db)
         .await?;
+    let tokens = encrypt_oauth_tokens(&long_lived.access_token, &caller.keyring())?;
+    let expires_at = long_lived
+        .expires_at
+        .as_deref()
+        .map(sql_timestamp)
+        .transpose()?;
+    let connection_id = if let Some(id) = &existing {
+        connections::Entity::update_many()
+            .col_expr(
+                connections::Column::Platform,
+                connections::Column::Platform.save_as(Expr::val(AdPlatform::Facebook)),
+            )
+            .col_expr(
+                connections::Column::Status,
+                connections::Column::Status.save_as(Expr::val(AdPlatformConnectionStatus::Active)),
+            )
+            .col_expr(
+                connections::Column::MetaUserId,
+                Expr::val(profile.id.as_str()),
+            )
+            .col_expr(
+                connections::Column::MetaUserName,
+                Expr::val(profile.name.as_str()),
+            )
+            .col_expr(connections::Column::OauthTokens, Expr::val(tokens))
+            .col_expr(connections::Column::TokenExpiresAt, Expr::val(expires_at))
+            .col_expr(
+                connections::Column::LastError,
+                Expr::val(Option::<String>::None),
+            )
+            .col_expr(connections::Column::UpdatedAt, Expr::val(now))
+            .filter(connections::Column::Id.eq(id))
+            .exec(&db)
+            .await?;
         id.clone()
     } else {
         let id = generate_id("adcn");
-        sqlx::query(
-            "insert into ad_platform_connections
-                 (id, created_at, platform, status, meta_user_id, meta_user_name, oauth_tokens,
-                  token_expires_at, last_error, updated_at)
-             values ($1, $6::timestamp, 'facebook', 'active', $2, $3, $4, $5::timestamp, null,
-                     $6::timestamp)",
-        )
-        .bind(&id)
-        .bind(&profile.id)
-        .bind(&profile.name)
-        .bind(&tokens)
-        .bind(long_lived.expires_at.as_deref())
-        .bind(&now)
-        .execute(&caller.db)
+        connections::Entity::insert(connections::ActiveModel {
+            id: Set(id.clone()),
+            created_at: Set(now),
+            platform: Set(AdPlatform::Facebook),
+            status: Set(AdPlatformConnectionStatus::Active),
+            meta_user_id: Set(Some(profile.id.clone())),
+            meta_user_name: Set(Some(profile.name.clone())),
+            oauth_tokens: Set(Some(tokens)),
+            token_expires_at: Set(expires_at),
+            last_error: Set(None),
+            updated_at: Set(now),
+            ..Default::default()
+        })
+        .exec_without_returning(&db)
         .await?;
         id
     };
@@ -292,16 +325,27 @@ async fn connect(
     Ok((connection_id, existing.is_none()))
 }
 
+/// A `toISOString()` text the route bound as `$n::timestamp`: Postgres
+/// reads its date and time and ignores the zone, and refuses text that is no
+/// timestamp (the statement's error).
+fn sql_timestamp(text: &str) -> Result<PrimitiveDateTime, AdsError> {
+    let at = OffsetDateTime::parse(text, &Rfc3339).map_err(|_| {
+        AdsError::message(format!(
+            "error returned from database: invalid input syntax for type timestamp: \"{text}\""
+        ))
+    })?;
+    Ok(PrimitiveDateTime::new(at.date(), at.time()))
+}
+
 /// The live connection `id`, as Drizzle returns the row.
-async fn live_connection(caller: &Caller, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(c) from ad_platform_connections c
-         where c.id = $1 and c.deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(&caller.db)
-    .await?;
-    Ok(row.map(weldsuite_db::js_row))
+async fn live_connection(caller: &Caller, id: &str) -> Result<Option<Value>, DbErr> {
+    connections::Entity::find()
+        .filter(connections::Column::Id.eq(id))
+        .filter(connections::Column::DeletedAt.is_null())
+        .one(&orm(&caller.db))
+        .await?
+        .map(|connection| serde_json::to_value(connection).map_err(json_error))
+        .transpose()
 }
 
 /// `POST /api/ad-connections/:id/sync[?scope=push|pull|metrics]
@@ -368,16 +412,17 @@ pub(crate) async fn sync(
         Ok(result) => Data(result.to_json()).into_response(),
         Err(error) => {
             tracing::error!(%error, "[ads-api/ad-connections] sync failed");
-            let marked = sqlx::query(
-                "update ad_platform_connections
-                 set status = 'error', last_error = $2, updated_at = $3::timestamp
-                 where id = $1",
-            )
-            .bind(&id)
-            .bind(error.to_string())
-            .bind(now())
-            .execute(&caller.db)
-            .await;
+            let marked = connections::Entity::update_many()
+                .col_expr(
+                    connections::Column::Status,
+                    connections::Column::Status
+                        .save_as(Expr::val(AdPlatformConnectionStatus::Error)),
+                )
+                .col_expr(connections::Column::LastError, Expr::val(error.to_string()))
+                .col_expr(connections::Column::UpdatedAt, Expr::val(utc_now()))
+                .filter(connections::Column::Id.eq(&id))
+                .exec(&orm(&caller.db))
+                .await;
             if let Err(error) = marked {
                 return internal(&error, "Internal server error");
             }
@@ -401,17 +446,18 @@ pub(crate) async fn remove(
         Err(error) => return internal(&error, "Internal server error"),
     };
     let result = async {
-        let now = now();
+        let now = utc_now();
         cleanup_connection_mappings(&caller.db, &id).await?;
-        sqlx::query(
-            "update ad_platform_connections
-             set deleted_at = $2::timestamp, updated_at = $2::timestamp, status = 'error'
-             where id = $1",
-        )
-        .bind(&id)
-        .bind(&now)
-        .execute(&caller.db)
-        .await?;
+        connections::Entity::update_many()
+            .col_expr(connections::Column::DeletedAt, Expr::val(now))
+            .col_expr(connections::Column::UpdatedAt, Expr::val(now))
+            .col_expr(
+                connections::Column::Status,
+                connections::Column::Status.save_as(Expr::val(AdPlatformConnectionStatus::Error)),
+            )
+            .filter(connections::Column::Id.eq(&id))
+            .exec(&orm(&caller.db))
+            .await?;
         if caller.org_id.as_deref().is_some_and(|org| !org.is_empty()) {
             delete_ad_sync_index(caller.master(&state).as_ref(), &caller.workspace_id, &id).await?;
         }

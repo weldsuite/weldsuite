@@ -19,6 +19,7 @@
 //! [`run_finance_snapshots`].
 
 use std::collections::HashMap;
+use std::str::FromStr;
 use std::sync::Arc;
 
 use axum::Router;
@@ -26,12 +27,18 @@ use axum::body::Bytes;
 use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, put};
+use sea_orm::prelude::BigDecimal;
+use sea_orm::sea_query::{Expr, Func, OnConflict, Query as SubQuery};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, JoinType, QueryFilter, QueryOrder,
+    QuerySelect, RelationDef,
+};
 use serde_json::{Map, Value, json};
 use sqlx::PgPool;
 use time::OffsetDateTime;
 use weldsuite_catalogs::entity_events::PROJECT_UPDATED;
 use weldsuite_db::due_index::{SweepResult, run_sweep};
-use weldsuite_db::js_timestamp;
+use weldsuite_db::{orm, orm_error};
 use weldsuite_flow_domain::finance::{
     COMMITTED_PO_STATUSES, COUNTED_BILL_STATUSES, COUNTED_DECLARATION_STATUSES,
     COUNTED_JOURNAL_STATUSES, COUNTED_TIME_STATUSES, DoneTask, EvmItem, compute_evm,
@@ -42,9 +49,15 @@ use weldsuite_flow_domain::js::{millis_of, number_value, parse_int, to_fixed};
 use weldsuite_kit::validation::{Issues, Number, Presence, Text};
 use weldsuite_kit::{ApiError, Data, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::{
+    accounts, bill_items, bills, entities, hr_declarations, journal_entries, journal_lines,
+    project_baselines, project_deliverables, project_finance_snapshots, projects,
+    purchase_order_items, purchase_orders, tasks, time_entries,
+};
 
 use crate::import_tasks::TenantDatabases;
-use crate::projects::{analytics_payload, project_row};
+use crate::project_schedule::merge_settings;
+use crate::projects::analytics_payload;
 use crate::{Caller, FlowState, Query, Refusal, paged, reply};
 
 /// The due index kind of the weekly snapshot.
@@ -110,13 +123,40 @@ fn amount(value: Option<f64>, visible: bool) -> Value {
     }
 }
 
+/// A `numeric` read back as JavaScript's `Number(text)`.
+fn decimal_num(value: Option<&BigDecimal>) -> f64 {
+    num(value.map(BigDecimal::to_plain_string).as_deref())
+}
+
+/// A `numeric` column's value from its text (`$n::numeric`).
+fn decimal(text: &str) -> Result<BigDecimal, DbErr> {
+    BigDecimal::from_str(text)
+        .map_err(|_| DbErr::Custom(format!("invalid input syntax for type numeric: \"{text}\"")))
+}
+
+/// `new Date(millis)`, as a `timestamptz` column stores it.
+fn instant(millis: i64) -> OffsetDateTime {
+    OffsetDateTime::from_unix_timestamp_nanos(i128::from(millis) * 1_000_000)
+        .unwrap_or(OffsetDateTime::UNIX_EPOCH)
+}
+
+/// An instant as `new Date(row.x).getTime()` reads it (milliseconds).
+fn millis(at: OffsetDateTime) -> Option<i64> {
+    i64::try_from(at.unix_timestamp_nanos().div_euclid(1_000_000)).ok()
+}
+
 fn ms_of(row: &Value, key: &str) -> Option<i64> {
     row[key].as_str().and_then(millis_of)
 }
 
 /// The live project row (`findProject`).
-async fn find_project(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    project_row(db, id, true).await
+async fn find_project(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
+    projects::Entity::find_by_id(id)
+        .filter(projects::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?
+        .map(crate::row_json)
+        .transpose()
 }
 
 /// `projectCurrency`: the project's `budget_currency`, upper case.
@@ -129,7 +169,7 @@ fn project_currency(project: &Value) -> Option<String> {
 }
 
 /// `mayDecideAmounts`: `projects:finance` or managing the project.
-async fn may_decide_amounts(caller: &Caller, project_id: &str) -> Result<bool, sqlx::Error> {
+async fn may_decide_amounts(caller: &Caller, project_id: &str) -> Result<bool, DbErr> {
     Ok(caller.can("projects:finance") || caller.can_manage(project_id).await?)
 }
 
@@ -265,7 +305,8 @@ async fn write_settings(
             }
             let (forecast, reason) = crate::raid_body::parse_body(&body, read_forecast)?;
 
-            let now_text = crate::now();
+            let at = OffsetDateTime::now_utc();
+            let now_text = weldsuite_events::iso_timestamp(at);
             let (_, history) = finance_settings_of(&project);
             let entry = StoredForecast {
                 amount: forecast.map(round_money),
@@ -281,21 +322,33 @@ async fn write_settings(
                 "history": next_history.iter().map(StoredForecast::stored).collect::<Vec<_>>(),
             });
             // A merge: only the `finance` key is written.
-            sqlx::query(
-                "update projects set settings = coalesce(settings, '{}'::jsonb) || jsonb_build_object('finance', $2::jsonb),
-                        updated_at = $3::timestamp
-                 where id = $1 and deleted_at is null",
-            )
-            .bind(&project_id)
-            .bind(&finance)
-            .bind(&now_text)
-            .execute(&caller.db)
-            .await?;
+            projects::Entity::update_many()
+                .col_expr(
+                    projects::Column::Settings,
+                    merge_settings(json!({ "finance": finance })),
+                )
+                .col_expr(
+                    projects::Column::UpdatedAt,
+                    Expr::value(weldsuite_db::utc_timestamp(at)),
+                )
+                .filter(projects::Column::Id.eq(project_id.as_str()))
+                .filter(projects::Column::DeletedAt.is_null())
+                .exec(&orm(&caller.db))
+                .await?;
 
             let mut merged: Map<String, Value> = project.as_object().cloned().unwrap_or_default();
             merged.insert("id".to_owned(), json!(project_id));
-            caller.publish(&state, PROJECT_UPDATED, &project_id, &analytics_payload(&merged));
-            let manual = if entry.amount.is_some() { Some(&entry) } else { None };
+            caller.publish(
+                &state,
+                PROJECT_UPDATED,
+                &project_id,
+                &analytics_payload(&merged),
+            );
+            let manual = if entry.amount.is_some() {
+                Some(&entry)
+            } else {
+                None
+            };
             Ok(Data(present_settings(manual, &next_history, true)).into_response())
         }
         .await,
@@ -314,6 +367,265 @@ struct SourceTotals {
     committed: f64,
     declarations: f64,
     excluded: i64,
+}
+
+/// `upper(coalesce(currency, '')) = $currency`: the line is in the project's
+/// currency; `None` when the project has none (every line counts).
+fn currency_is(currency: Expr, project_currency: Option<&str>) -> Option<Expr> {
+    use sea_orm::ExprTrait as _;
+    project_currency.map(|wanted| {
+        Expr::expr(Func::upper(Func::coalesce([currency, Expr::value("")]))).eq(wanted)
+    })
+}
+
+/// `coalesce(sum(value) filter (where counted), 0)`, as
+/// `sum(case when counted then value end)` (`None`: every row counts).
+fn sum_where(value: Expr, counted: Option<Expr>) -> Expr {
+    match counted {
+        Some(counted) => Expr::expr(Func::sum(Expr::expr(Expr::case(counted, value)))),
+        None => Expr::expr(Func::sum(value)),
+    }
+}
+
+/// `count(*) filter (where not counted)`: the lines left out (none without a
+/// currency).
+fn count_unless(counted: Option<Expr>) -> Expr {
+    use sea_orm::ExprTrait as _;
+    match counted {
+        Some(counted) => Expr::expr(Func::count(Expr::expr(Expr::case(counted.not(), 1)))),
+        None => Expr::value(0_i64),
+    }
+}
+
+/// `coalesce(col, 0)`.
+fn or_zero(col: impl Into<Expr>) -> Expr {
+    Expr::expr(Func::coalesce([col.into(), Expr::value(0)]))
+}
+
+/// `left join tasks t on t.id = te.task_id and t.deleted_at is null`.
+fn live_task_of_entry() -> RelationDef {
+    use sea_orm::ExprTrait as _;
+    time_entries::Entity::belongs_to(tasks::Entity)
+        .from(time_entries::Column::TaskId)
+        .to(tasks::Column::Id)
+        .on_condition(|_, task| Expr::col((task, tasks::Column::DeletedAt)).is_null().into())
+        .into()
+}
+
+/// `time_entries`: the counted cost per deliverable of its task.
+async fn labour_totals(
+    db: &sea_orm::DatabaseConnection,
+    project_id: &str,
+) -> Result<Vec<(Option<String>, Option<BigDecimal>)>, DbErr> {
+    time_entries::Entity::find()
+        .select_only()
+        .column(tasks::Column::DeliverableId)
+        .column_as(
+            Expr::expr(Func::sum(Expr::col(time_entries::Column::Cost))),
+            "cost",
+        )
+        .join(JoinType::LeftJoin, live_task_of_entry())
+        .filter(time_entries::Column::ProjectId.eq(project_id))
+        .filter(time_entries::Column::DeletedAt.is_null())
+        .filter(time_entries::Column::Status.is_in(COUNTED_TIME_STATUSES))
+        .group_by(tasks::Column::DeliverableId)
+        .into_tuple()
+        .all(db)
+        .await
+}
+
+/// `bill_items` of counted bills: the net (credit notes negative) in the
+/// project's currency, and the lines in another.
+async fn bill_totals(
+    db: &sea_orm::DatabaseConnection,
+    project_id: &str,
+    currency: Option<&str>,
+) -> Result<(Option<BigDecimal>, i64), DbErr> {
+    use sea_orm::ExprTrait as _;
+    let counted = currency_is(
+        Expr::col((bills::Entity, bills::Column::Currency)),
+        currency,
+    );
+    let line = || {
+        or_zero(Expr::col((
+            bill_items::Entity,
+            bill_items::Column::LineTotal,
+        )))
+    };
+    let signed: Expr = Expr::case(
+        Expr::col((bills::Entity, bills::Column::Type)).eq("credit_note"),
+        Expr::value(0).sub(line()),
+    )
+    .finally(line())
+    .into();
+    let row: Option<(Option<BigDecimal>, i64)> = bill_items::Entity::find()
+        .select_only()
+        .column_as(sum_where(signed, counted.clone()), "total")
+        .column_as(count_unless(counted), "excluded")
+        .join(
+            JoinType::InnerJoin,
+            bill_items::Entity::belongs_to(bills::Entity)
+                .from(bill_items::Column::BillId)
+                .to(bills::Column::Id)
+                .into(),
+        )
+        .filter(bill_items::Column::ProjectId.eq(project_id))
+        .filter(bill_items::Column::DeletedAt.is_null())
+        .filter(bills::Column::DeletedAt.is_null())
+        .filter(bills::Column::Status.is_in(COUNTED_BILL_STATUSES))
+        .into_tuple()
+        .one(db)
+        .await?;
+    Ok(row.unwrap_or((None, 0)))
+}
+
+/// Expense `journal_lines` of counted entries: debit minus credit in the
+/// project's currency (the entity's base currency), and the lines in another.
+async fn journal_totals(
+    db: &sea_orm::DatabaseConnection,
+    project_id: &str,
+    currency: Option<&str>,
+) -> Result<(Option<BigDecimal>, i64), DbErr> {
+    use sea_orm::ExprTrait as _;
+    let counted = currency_is(
+        or_text(Expr::col((
+            entities::Entity,
+            entities::Column::BaseCurrency,
+        ))),
+        currency,
+    );
+    let net = or_zero(Expr::col((
+        journal_lines::Entity,
+        journal_lines::Column::Debit,
+    )))
+    .sub(or_zero(Expr::col((
+        journal_lines::Entity,
+        journal_lines::Column::Credit,
+    ))));
+    let row: Option<(Option<BigDecimal>, i64)> = journal_lines::Entity::find()
+        .select_only()
+        .column_as(sum_where(net, counted.clone()), "total")
+        .column_as(count_unless(counted), "excluded")
+        .join(
+            JoinType::InnerJoin,
+            journal_lines::Entity::belongs_to(journal_entries::Entity)
+                .from(journal_lines::Column::JournalEntryId)
+                .to(journal_entries::Column::Id)
+                .into(),
+        )
+        .join(
+            JoinType::InnerJoin,
+            journal_lines::Entity::belongs_to(accounts::Entity)
+                .from(journal_lines::Column::AccountId)
+                .to(accounts::Column::Id)
+                .into(),
+        )
+        .join(
+            JoinType::LeftJoin,
+            journal_lines::Entity::belongs_to(entities::Entity)
+                .from(journal_lines::Column::EntityId)
+                .to(entities::Column::Id)
+                .into(),
+        )
+        .filter(journal_lines::Column::ProjectId.eq(project_id))
+        .filter(journal_lines::Column::DeletedAt.is_null())
+        .filter(journal_entries::Column::DeletedAt.is_null())
+        .filter(journal_entries::Column::Status.is_in(COUNTED_JOURNAL_STATUSES))
+        .filter(accounts::Column::Type.eq("expense"))
+        .into_tuple()
+        .one(db)
+        .await?;
+    Ok(row.unwrap_or((None, 0)))
+}
+
+/// `coalesce(col, '')`.
+fn or_text(col: Expr) -> Expr {
+    Expr::expr(Func::coalesce([col, Expr::value("")]))
+}
+
+/// `purchase_order_items` with an ordered quantity: the received part (not
+/// cancelled) and the open part (committed orders) of their net value in the
+/// project's currency, and the lines in another.
+async fn purchase_totals(
+    db: &sea_orm::DatabaseConnection,
+    project_id: &str,
+    currency: Option<&str>,
+) -> Result<(Option<BigDecimal>, Option<BigDecimal>, i64), DbErr> {
+    use sea_orm::ExprTrait as _;
+    let item =
+        |column: purchase_order_items::Column| Expr::col((purchase_order_items::Entity, column));
+    let ordered = || item(purchase_order_items::Column::QuantityOrdered);
+    let received_qty = || or_zero(item(purchase_order_items::Column::QuantityReceived));
+    // `(poi.total - coalesce(poi.tax_amount, 0)) * qty::numeric / poi.quantity_ordered`.
+    let net_of = |qty: Expr| {
+        item(purchase_order_items::Column::Total)
+            .sub(or_zero(item(purchase_order_items::Column::TaxAmount)))
+            .mul(qty.cast_as("numeric"))
+            .div(ordered())
+    };
+    let received = net_of(Expr::expr(Func::least([received_qty(), ordered()])));
+    let open = net_of(Expr::expr(Func::greatest([
+        ordered().sub(received_qty()),
+        Expr::value(0),
+    ])));
+    let status = || Expr::col((purchase_orders::Entity, purchase_orders::Column::Status));
+    let counted = currency_is(
+        Expr::col((purchase_orders::Entity, purchase_orders::Column::Currency)),
+        currency,
+    );
+    let both = |extra: Expr| match &counted {
+        Some(counted) => counted.clone().and(extra),
+        None => extra,
+    };
+    let row: Option<(Option<BigDecimal>, Option<BigDecimal>, i64)> =
+        purchase_order_items::Entity::find()
+            .select_only()
+            .column_as(
+                sum_where(received, Some(both(status().ne("cancelled")))),
+                "received",
+            )
+            .column_as(
+                sum_where(open, Some(both(status().is_in(COMMITTED_PO_STATUSES)))),
+                "committed",
+            )
+            .column_as(count_unless(counted.clone()), "excluded")
+            .join(
+                JoinType::InnerJoin,
+                purchase_order_items::Entity::belongs_to(purchase_orders::Entity)
+                    .from(purchase_order_items::Column::PurchaseOrderId)
+                    .to(purchase_orders::Column::Id)
+                    .into(),
+            )
+            .filter(purchase_order_items::Column::ProjectId.eq(project_id))
+            .filter(purchase_orders::Column::DeletedAt.is_null())
+            .filter(purchase_order_items::Column::QuantityOrdered.gt(0))
+            .into_tuple()
+            .one(db)
+            .await?;
+    Ok(row.unwrap_or((None, None, 0)))
+}
+
+/// Counted `hr_declarations`: their amount in the project's currency, and the
+/// ones in another.
+async fn declaration_totals(
+    db: &sea_orm::DatabaseConnection,
+    project_id: &str,
+    currency: Option<&str>,
+) -> Result<(Option<BigDecimal>, i64), DbErr> {
+    let counted = currency_is(Expr::col(hr_declarations::Column::Currency), currency);
+    let row: Option<(Option<BigDecimal>, i64)> = hr_declarations::Entity::find()
+        .select_only()
+        .column_as(
+            sum_where(Expr::col(hr_declarations::Column::Amount), counted.clone()),
+            "total",
+        )
+        .column_as(count_unless(counted), "excluded")
+        .filter(hr_declarations::Column::ProjectId.eq(project_id))
+        .filter(hr_declarations::Column::Status.is_in(COUNTED_DECLARATION_STATUSES))
+        .into_tuple()
+        .one(db)
+        .await?;
+    Ok(row.unwrap_or((None, 0)))
 }
 
 /// The net value of a purchase order line, without tax.
@@ -337,94 +649,33 @@ fn strings(list: &[&str]) -> Vec<String> {
     list.iter().map(|s| (*s).to_owned()).collect()
 }
 
+/// The counted costs of a project, source by source: labour per deliverable,
+/// bills, journal lines, purchase orders (received and committed) and
+/// declarations, in the project's currency, and how many lines another
+/// currency left out. A source without lines counts 0.
 async fn source_totals(
     db: &PgPool,
     project_id: &str,
     currency: Option<&str>,
-) -> Result<SourceTotals, sqlx::Error> {
-    let labour_rows: Vec<(Option<String>, Option<String>)> = sqlx::query_as(
-        "select t.deliverable_id, coalesce(sum(coalesce(te.cost, 0)), 0)::text
-         from time_entries te
-         left join tasks t on t.id = te.task_id and t.deleted_at is null
-         where te.project_id = $1 and te.deleted_at is null and te.status = any($2)
-         group by t.deliverable_id",
-    )
-    .bind(project_id)
-    .bind(strings(&COUNTED_TIME_STATUSES))
-    .fetch_all(db)
-    .await?;
-    let bill: (Option<String>, i64) = sqlx::query_as(concat!(
-        "select coalesce(sum(case when b.type = 'credit_note' then -coalesce(bi.line_total, 0) else coalesce(bi.line_total, 0) end)",
-        " filter (where ($3::text is null or upper(coalesce(b.currency, '')) = $3)), 0)::text,",
-        " count(*) filter (where not ($3::text is null or upper(coalesce(b.currency, '')) = $3))",
-        " from bill_items bi inner join bills b on b.id = bi.bill_id",
-        " where bi.project_id = $1 and bi.deleted_at is null and b.deleted_at is null and b.status = any($2)"
-    ))
-    .bind(project_id)
-    .bind(strings(&COUNTED_BILL_STATUSES))
-    .bind(currency)
-    .fetch_one(db)
-    .await?;
-    let journal: (Option<String>, i64) = sqlx::query_as(concat!(
-        "select coalesce(sum(coalesce(jl.debit, 0) - coalesce(jl.credit, 0))",
-        " filter (where ($3::text is null or upper(coalesce(coalesce(e.base_currency, ''), '')) = $3)), 0)::text,",
-        " count(*) filter (where not ($3::text is null or upper(coalesce(coalesce(e.base_currency, ''), '')) = $3))",
-        " from journal_lines jl",
-        " inner join journal_entries je on je.id = jl.journal_entry_id",
-        " inner join accounts a on a.id = jl.account_id",
-        " left join entities e on e.id = jl.entity_id",
-        " where jl.project_id = $1 and jl.deleted_at is null and je.deleted_at is null",
-        " and je.status = any($2) and a.type = 'expense'"
-    ))
-    .bind(project_id)
-    .bind(strings(&COUNTED_JOURNAL_STATUSES))
-    .bind(currency)
-    .fetch_one(db)
-    .await?;
-    let po: (Option<String>, Option<String>, i64) = sqlx::query_as(concat!(
-        "select coalesce(sum(",
-        po_net!(),
-        " * ",
-        po_received_qty!(),
-        "::numeric / poi.quantity_ordered)",
-        " filter (where ($3::text is null or upper(coalesce(po.currency, '')) = $3) and po.status <> 'cancelled'), 0)::text,",
-        " coalesce(sum(",
-        po_net!(),
-        " * ",
-        po_open_qty!(),
-        "::numeric / poi.quantity_ordered)",
-        " filter (where ($3::text is null or upper(coalesce(po.currency, '')) = $3) and po.status = any($2)), 0)::text,",
-        " count(*) filter (where not ($3::text is null or upper(coalesce(po.currency, '')) = $3))",
-        " from purchase_order_items poi inner join purchase_orders po on po.id = poi.purchase_order_id",
-        " where poi.project_id = $1 and po.deleted_at is null and poi.quantity_ordered > 0"
-    ))
-    .bind(project_id)
-    .bind(strings(&COMMITTED_PO_STATUSES))
-    .bind(currency)
-    .fetch_one(db)
-    .await?;
-    let declaration: (Option<String>, i64) = sqlx::query_as(concat!(
-        "select coalesce(sum(d.amount) filter (where ($3::text is null or upper(coalesce(d.currency, '')) = $3)), 0)::text,",
-        " count(*) filter (where not ($3::text is null or upper(coalesce(d.currency, '')) = $3))",
-        " from hr_declarations d where d.project_id = $1 and d.status = any($2)"
-    ))
-    .bind(project_id)
-    .bind(strings(&COUNTED_DECLARATION_STATUSES))
-    .bind(currency)
-    .fetch_one(db)
-    .await?;
+) -> Result<SourceTotals, DbErr> {
+    let db = &orm(db);
+    let labour_rows = labour_totals(db, project_id).await?;
+    let bill = bill_totals(db, project_id, currency).await?;
+    let journal = journal_totals(db, project_id, currency).await?;
+    let po = purchase_totals(db, project_id, currency).await?;
+    let declaration = declaration_totals(db, project_id, currency).await?;
 
     let mut labour: HashMap<Option<String>, f64> = HashMap::new();
     for (deliverable, cost) in labour_rows {
-        *labour.entry(deliverable).or_insert(0.0) += num(cost.as_deref());
+        *labour.entry(deliverable).or_insert(0.0) += decimal_num(cost.as_ref());
     }
     Ok(SourceTotals {
         labour,
-        bills: num(bill.0.as_deref()),
-        journal: num(journal.0.as_deref()),
-        purchase_received: num(po.0.as_deref()),
-        committed: num(po.1.as_deref()),
-        declarations: num(declaration.0.as_deref()),
+        bills: decimal_num(bill.0.as_ref()),
+        journal: decimal_num(journal.0.as_ref()),
+        purchase_received: decimal_num(po.0.as_ref()),
+        committed: decimal_num(po.1.as_ref()),
+        declarations: decimal_num(declaration.0.as_ref()),
         excluded: bill.1 + journal.1 + po.2 + declaration.1,
     })
 }
@@ -472,49 +723,68 @@ struct FinanceModel {
     rows: Vec<RowModel>,
 }
 
-type DeliverableRow = (String, i32, String, String, Option<String>, Option<String>);
+type DeliverableRow = (
+    String,
+    i32,
+    String,
+    String,
+    Option<OffsetDateTime>,
+    Option<OffsetDateTime>,
+);
 
 /// `computeFinance`: everything the finance figures of one project are built from, at `now_ms`.
 #[allow(clippy::too_many_lines)]
-async fn compute_finance(
-    db: &PgPool,
-    project: &Value,
-    now_ms: i64,
-) -> Result<FinanceModel, sqlx::Error> {
+async fn compute_finance(db: &PgPool, project: &Value, now_ms: i64) -> Result<FinanceModel, DbErr> {
+    use project_deliverables::Column as Deliverable;
+
     let project_id = project["id"].as_str().unwrap_or_default();
     let currency = project_currency(project);
     let budget = project["budgetedAmount"]
         .as_str()
         .map(|text| num(Some(text)));
 
-    let baseline: Option<(String, i32, Option<String>, Value)> = sqlx::query_as(
-        "select id, version, to_jsonb(created_at) #>> '{}', snapshot from project_baselines
-         where project_id = $1 order by version desc limit 1",
-    )
-    .bind(project_id)
-    .fetch_optional(db)
-    .await?;
-    let deliverables: Vec<DeliverableRow> = sqlx::query_as(
-        "select id, number, title, status,
-                to_jsonb(planned_start) #>> '{}', to_jsonb(planned_end) #>> '{}'
-         from project_deliverables where project_id = $1 and deleted_at is null
-         order by position, number",
-    )
-    .bind(project_id)
-    .fetch_all(db)
-    .await?;
-    let task_rows: Vec<(Option<String>, String, Option<String>)> = sqlx::query_as(
-        "select deliverable_id, status, estimated_hours::text from tasks
-         where project_id = $1 and deleted_at is null and status <> 'cancelled' order by id",
-    )
-    .bind(project_id)
-    .fetch_all(db)
-    .await?;
+    let orm = &orm(db);
+    let baseline = project_baselines::Entity::find()
+        .filter(project_baselines::Column::ProjectId.eq(project_id))
+        .order_by_desc(project_baselines::Column::Version)
+        .one(orm)
+        .await?;
+    let deliverables: Vec<DeliverableRow> = project_deliverables::Entity::find()
+        .select_only()
+        .columns([
+            Deliverable::Id,
+            Deliverable::Number,
+            Deliverable::Title,
+            Deliverable::Status,
+            Deliverable::PlannedStart,
+            Deliverable::PlannedEnd,
+        ])
+        .filter(Deliverable::ProjectId.eq(project_id))
+        .filter(Deliverable::DeletedAt.is_null())
+        .order_by_asc(Deliverable::Position)
+        .order_by_asc(Deliverable::Number)
+        .into_tuple()
+        .all(orm)
+        .await?;
+    let task_rows: Vec<(Option<String>, String, Option<BigDecimal>)> = tasks::Entity::find()
+        .select_only()
+        .columns([
+            tasks::Column::DeliverableId,
+            tasks::Column::Status,
+            tasks::Column::EstimatedHours,
+        ])
+        .filter(tasks::Column::ProjectId.eq(project_id))
+        .filter(tasks::Column::DeletedAt.is_null())
+        .filter(tasks::Column::Status.ne("cancelled"))
+        .order_by_asc(tasks::Column::Id)
+        .into_tuple()
+        .all(orm)
+        .await?;
     let totals = source_totals(db, project_id, currency.as_deref()).await?;
 
     let frozen: HashMap<String, (Option<i64>, Option<i64>)> = baseline
         .as_ref()
-        .and_then(|b| b.3["deliverables"].as_array())
+        .and_then(|b| b.snapshot["deliverables"].as_array())
         .map(|list| {
             list.iter()
                 .filter_map(|d| {
@@ -539,7 +809,7 @@ async fn compute_finance(
             .cloned();
         by_deliverable.entry(key).or_default().push(DoneTask {
             done: status == "done",
-            hours: hours.as_deref().map(|h| num(Some(h))),
+            hours: hours.as_ref().map(|h| decimal_num(Some(h))),
         });
     }
     let hours_of = |key: &Option<String>| -> f64 {
@@ -548,12 +818,7 @@ async fn compute_finance(
         })
     };
 
-    let to_ms = |text: &Option<String>| -> Option<i64> {
-        text.as_deref()
-            .and_then(js_timestamp)
-            .as_deref()
-            .and_then(millis_of)
-    };
+    let to_ms = |at: &Option<OffsetDateTime>| -> Option<i64> { at.and_then(millis) };
     let mut items: Vec<EvmItem> = deliverables
         .iter()
         .map(|d| {
@@ -594,7 +859,7 @@ async fn compute_finance(
 
     let go_live = baseline
         .as_ref()
-        .and_then(|b| b.3["goLive"].as_str())
+        .and_then(|b| b.snapshot["goLive"].as_str())
         .and_then(millis_of);
     let span_end = go_live.or_else(|| ms_of(project, "endDate"));
     let evm = compute_evm(
@@ -676,9 +941,9 @@ async fn compute_finance(
         ],
         excluded: totals.excluded,
         baseline: baseline.map(|b| Baseline {
-            id: b.0,
-            version: i64::from(b.1),
-            created_at: b.2.as_deref().and_then(js_timestamp).unwrap_or_default(),
+            id: b.id,
+            version: i64::from(b.version),
+            created_at: weldsuite_events::iso_timestamp(b.created_at),
         }),
         rows,
     })
@@ -817,13 +1082,14 @@ async fn schedule_if_missing(state: &FlowState, caller: &Caller, project_id: &st
         return;
     };
     let week = iso_week_key(now_ms);
-    let found: Result<Option<i32>, sqlx::Error> = sqlx::query_scalar(
-        "select 1 from project_finance_snapshots where project_id = $1 and week = $2 limit 1",
-    )
-    .bind(project_id)
-    .bind(&week)
-    .fetch_optional(&caller.db)
-    .await;
+    let found: Result<Option<String>, DbErr> = project_finance_snapshots::Entity::find()
+        .select_only()
+        .column(project_finance_snapshots::Column::Id)
+        .filter(project_finance_snapshots::Column::ProjectId.eq(project_id))
+        .filter(project_finance_snapshots::Column::Week.eq(week.as_str()))
+        .into_tuple()
+        .one(&orm(&caller.db))
+        .await;
     if matches!(found, Ok(None)) {
         mark_finance_snapshot_due(&master, &caller.workspace_id).await;
     }
@@ -1031,14 +1297,13 @@ fn bind_window<'q>(
 }
 
 /// `listCostLines`: every source (or one), newest first.
-#[allow(clippy::too_many_lines)]
 async fn list_cost_lines(
     db: &PgPool,
     project_id: &str,
     currency: Option<&str>,
     q: &CostsQuery,
     limit: i64,
-) -> Result<(Vec<Line>, i64, bool, Option<String>), sqlx::Error> {
+) -> Result<(Vec<Line>, i64, bool, Option<String>), DbErr> {
     let (cursor_day, cursor_id) = match q.cursor.as_deref().and_then(|c| c.split_once('~')) {
         Some((day, id)) => (Some(day), Some(id)),
         None => (None, None),
@@ -1060,72 +1325,10 @@ async fn list_cost_lines(
     let mut total = 0_i64;
 
     for source in wanted {
-        match source {
-            "time" => {
-                let rows: Vec<TimeLineRow> = sqlx::query_as(concat!(
-                    "select to_char(te.date, 'IYYY\"-W\"IW'), to_char(max(te.date), 'YYYY-MM-DD'),",
-                    " coalesce(sum(coalesce(te.cost, 0)), 0)::text, coalesce(sum(te.duration), 0)::text,",
-                    " count(distinct te.user_id)",
-                    " from time_entries te",
-                    " where te.project_id = $1 and te.deleted_at is null and te.status = any($8)",
-                    " and ($2::text is null or $2::text is not null)",
-                    " group by to_char(te.date, 'IYYY\"-W\"IW')",
-                    " having ($3::text is null or to_char(max(te.date), 'YYYY-MM-DD') >= $3)",
-                    " and ($4::text is null or to_char(max(te.date), 'YYYY-MM-DD') <= $4)",
-                    " and ",
-                    after_cursor!(
-                        "to_char(max(te.date), 'YYYY-MM-DD')",
-                        "'time:' || to_char(te.date, 'IYYY\"-W\"IW')"
-                    ),
-                    " order by to_char(max(te.date), 'YYYY-MM-DD') desc,",
-                    " 'time:' || to_char(te.date, 'IYYY\"-W\"IW') collate \"C\" desc limit $7"
-                ))
-                .bind(w.project_id)
-                .bind(w.currency)
-                .bind(w.from)
-                .bind(w.to)
-                .bind(w.cursor_day)
-                .bind(w.cursor_id)
-                .bind(w.fetch)
-                .bind(strings(&COUNTED_TIME_STATUSES))
-                .fetch_all(db)
-                .await?;
-                for (week, date, cost, minutes, people) in rows {
-                    merged.push(Line {
-                        id: format!("time:{week}"),
-                        source: "time",
-                        date,
-                        title: Some(week),
-                        reference: None,
-                        status: Some("approved".to_owned()),
-                        amount: num(cost.as_deref()),
-                        committed: 0.0,
-                        hours: Some(
-                            weldsuite_flow_domain::js::math_round(
-                                num(minutes.as_deref()) / 60.0 * 100.0,
-                            ) / 100.0,
-                        ),
-                        people: Some(people),
-                    });
-                }
-                let count: i64 = sqlx::query_scalar(concat!(
-                    "select count(distinct to_char(te.date, 'IYYY-IW')) from time_entries te",
-                    " where te.project_id = $1 and te.deleted_at is null and te.status = any($4)",
-                    " and ($2::text is null or te.date >= $2::text::date)",
-                    " and ($3::text is null or te.date <= $3::text::date)"
-                ))
-                .bind(w.project_id)
-                .bind(w.from)
-                .bind(w.to)
-                .bind(strings(&COUNTED_TIME_STATUSES))
-                .fetch_one(db)
-                .await?;
-                total += count;
-            }
-            _ => {
-                total += list_other(db, source, &w, &mut merged).await?;
-            }
-        }
+        total += match source {
+            "time" => list_time(db, &w, &mut merged).await?,
+            _ => list_other(db, source, &w, &mut merged).await?,
+        };
     }
 
     merged.sort_by(|a, b| {
@@ -1145,6 +1348,74 @@ async fn list_cost_lines(
         None
     };
     Ok((merged, total, has_more, cursor))
+}
+
+/// The weeks of approved time and their count.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "a report over ISO weeks, paged by day and id in byte order (`collate \"C\"`), which the ORM cannot express"
+)]
+async fn list_time(db: &PgPool, w: &Window<'_>, merged: &mut Vec<Line>) -> Result<i64, DbErr> {
+    let rows: Vec<TimeLineRow> = sqlx::query_as(concat!(
+        "select to_char(te.date, 'IYYY\"-W\"IW'), to_char(max(te.date), 'YYYY-MM-DD'),",
+        " coalesce(sum(coalesce(te.cost, 0)), 0)::text, coalesce(sum(te.duration), 0)::text,",
+        " count(distinct te.user_id)",
+        " from time_entries te",
+        " where te.project_id = $1 and te.deleted_at is null and te.status = any($8)",
+        " and ($2::text is null or $2::text is not null)",
+        " group by to_char(te.date, 'IYYY\"-W\"IW')",
+        " having ($3::text is null or to_char(max(te.date), 'YYYY-MM-DD') >= $3)",
+        " and ($4::text is null or to_char(max(te.date), 'YYYY-MM-DD') <= $4)",
+        " and ",
+        after_cursor!(
+            "to_char(max(te.date), 'YYYY-MM-DD')",
+            "'time:' || to_char(te.date, 'IYYY\"-W\"IW')"
+        ),
+        " order by to_char(max(te.date), 'YYYY-MM-DD') desc,",
+        " 'time:' || to_char(te.date, 'IYYY\"-W\"IW') collate \"C\" desc limit $7"
+    ))
+    .bind(w.project_id)
+    .bind(w.currency)
+    .bind(w.from)
+    .bind(w.to)
+    .bind(w.cursor_day)
+    .bind(w.cursor_id)
+    .bind(w.fetch)
+    .bind(strings(&COUNTED_TIME_STATUSES))
+    .fetch_all(db)
+    .await
+    .map_err(orm_error)?;
+    for (week, date, cost, minutes, people) in rows {
+        merged.push(Line {
+            id: format!("time:{week}"),
+            source: "time",
+            date,
+            title: Some(week),
+            reference: None,
+            status: Some("approved".to_owned()),
+            amount: num(cost.as_deref()),
+            committed: 0.0,
+            hours: Some(
+                weldsuite_flow_domain::js::math_round(num(minutes.as_deref()) / 60.0 * 100.0)
+                    / 100.0,
+            ),
+            people: Some(people),
+        });
+    }
+    let count: i64 = sqlx::query_scalar(concat!(
+        "select count(distinct to_char(te.date, 'IYYY-IW')) from time_entries te",
+        " where te.project_id = $1 and te.deleted_at is null and te.status = any($4)",
+        " and ($2::text is null or te.date >= $2::text::date)",
+        " and ($3::text is null or te.date <= $3::text::date)"
+    ))
+    .bind(w.project_id)
+    .bind(w.from)
+    .bind(w.to)
+    .bind(strings(&COUNTED_TIME_STATUSES))
+    .fetch_one(db)
+    .await
+    .map_err(orm_error)?;
+    Ok(count)
 }
 
 /// The bill, journal, purchase order and declaration lines of one source and its count.
@@ -1267,13 +1538,16 @@ fn other_sql(source: &str) -> (String, &'static str, String) {
     }
 }
 
-#[allow(clippy::too_many_lines)]
+#[allow(
+    clippy::disallowed_methods,
+    reason = "other modules' ledger lines paged by day and id in byte order (`collate \"C\"`), which the ORM cannot express"
+)]
 async fn list_other(
     db: &PgPool,
     source: &str,
     w: &Window<'_>,
     merged: &mut Vec<Line>,
-) -> Result<i64, sqlx::Error> {
+) -> Result<i64, DbErr> {
     let (select, tail, count_sql) = other_sql(source);
     let statuses = match source {
         "bill" => strings(&COUNTED_BILL_STATUSES),
@@ -1285,7 +1559,8 @@ async fn list_other(
     let rows: Vec<LineRow> = bind_window(sqlx::query_as::<_, LineRow>(sqlx::AssertSqlSafe(sql)), w)
         .bind(statuses.clone())
         .fetch_all(db)
-        .await?;
+        .await
+        .map_err(orm_error)?;
     let source_name: &'static str = SOURCES
         .iter()
         .copied()
@@ -1314,7 +1589,8 @@ async fn list_other(
             .bind(w.to)
             .bind(statuses)
             .fetch_one(db)
-            .await?;
+            .await
+            .map_err(orm_error)?;
     Ok(count)
 }
 
@@ -1353,18 +1629,6 @@ async fn costs(
 
 // ── GET /{projectId}/snapshots ──────────────────────────────────────────────
 
-/// A snapshot: week, budget, PV, EV, AC, committed, forecast, created.
-type SnapshotRow = (
-    String,
-    Option<String>,
-    Option<String>,
-    Option<String>,
-    Option<String>,
-    Option<String>,
-    Option<String>,
-    Option<String>,
-);
-
 async fn snapshots(caller: Caller, Path(project_id): Path<String>) -> Response {
     reply(
         async {
@@ -1375,30 +1639,23 @@ async fn snapshots(caller: Caller, Path(project_id): Path<String>) -> Response {
                 return Err(Refusal::forbidden(PROJECT_DENIED));
             }
             let visible = may_decide_amounts(&caller, &project_id).await?;
-            let rows: Vec<(String, [Option<String>; 6], Option<String>)> = {
-                let raw: Vec<SnapshotRow> = sqlx::query_as(
-                    "select week, budget::text, planned_value::text, earned_value::text, actual_cost::text,
-                            committed::text, forecast::text, to_jsonb(created_at) #>> '{}'
-                     from project_finance_snapshots where project_id = $1 order by week limit 520",
-                )
-                .bind(&project_id)
-                .fetch_all(&caller.db)
+            let rows = project_finance_snapshots::Entity::find()
+                .filter(project_finance_snapshots::Column::ProjectId.eq(project_id.as_str()))
+                .order_by_asc(project_finance_snapshots::Column::Week)
+                .limit(520)
+                .all(&orm(&caller.db))
                 .await?;
-                raw.into_iter()
-                    .map(|r| (r.0, [r.1, r.2, r.3, r.4, r.5, r.6], r.7))
-                    .collect()
-            };
             let list: Vec<Value> = rows
                 .into_iter()
-                .map(|(week, v, created)| {
-                    let budget = v[0].as_deref().map(|t| num(Some(t)));
-                    let planned = num(v[1].as_deref());
-                    let earned = num(v[2].as_deref());
-                    let actual = num(v[3].as_deref());
-                    let committed = num(v[4].as_deref());
-                    let forecast = v[5].as_deref().map(|t| num(Some(t)));
+                .map(|row| {
+                    let budget = row.budget.as_ref().map(|t| decimal_num(Some(t)));
+                    let planned = decimal_num(Some(&row.planned_value));
+                    let earned = decimal_num(Some(&row.earned_value));
+                    let actual = decimal_num(Some(&row.actual_cost));
+                    let committed = decimal_num(Some(&row.committed));
+                    let forecast = row.forecast.as_ref().map(|t| decimal_num(Some(t)));
                     json!({
-                        "week": week,
+                        "week": row.week,
                         "budget": amount(budget, visible),
                         "plannedValue": amount(Some(planned), visible),
                         "earnedValue": amount(Some(earned), visible),
@@ -1406,7 +1663,7 @@ async fn snapshots(caller: Caller, Path(project_id): Path<String>) -> Response {
                         "committed": amount(Some(committed), visible),
                         "forecast": amount(forecast, visible),
                         "percent": percentages(budget, actual, committed, planned, earned, forecast),
-                        "createdAt": created.as_deref().and_then(js_timestamp),
+                        "createdAt": weldsuite_events::iso_timestamp(row.created_at),
                     })
                 })
                 .collect();
@@ -1426,35 +1683,38 @@ async fn upsert_snapshot(
     project_id: &str,
     model: &FinanceModel,
     now_ms: i64,
-) -> Result<String, sqlx::Error> {
+) -> Result<String, DbErr> {
+    use project_finance_snapshots::Column as Snapshot;
+
     let week = iso_week_key(now_ms);
-    let created = weldsuite_events::iso_timestamp(
-        OffsetDateTime::from_unix_timestamp_nanos(i128::from(now_ms) * 1_000_000)
-            .unwrap_or(OffsetDateTime::UNIX_EPOCH),
-    );
-    let budget = model.budget.map(money_string);
-    let forecast = model.forecast.map(money_string);
-    sqlx::query(
-        "insert into project_finance_snapshots
-           (id, project_id, week, budget, planned_value, earned_value, actual_cost, committed, forecast, created_at)
-         values ($1, $2, $3, $4::numeric, $5::numeric, $6::numeric, $7::numeric, $8::numeric, $9::numeric, $10::timestamptz)
-         on conflict (project_id, week) do update set
-           budget = excluded.budget, planned_value = excluded.planned_value,
-           earned_value = excluded.earned_value, actual_cost = excluded.actual_cost,
-           committed = excluded.committed, forecast = excluded.forecast,
-           created_at = excluded.created_at",
+    // The amounts as their two-decimal text, as the column stores it.
+    let money = |value: f64| decimal(&money_string(value));
+    project_finance_snapshots::Entity::insert(project_finance_snapshots::ActiveModel {
+        id: Set(generate_id("pfs")),
+        project_id: Set(project_id.to_owned()),
+        week: Set(week.clone()),
+        budget: Set(model.budget.map(money).transpose()?),
+        planned_value: Set(money(model.planned_value)?),
+        earned_value: Set(money(model.earned_value)?),
+        actual_cost: Set(money(model.actual)?),
+        committed: Set(money(model.committed)?),
+        forecast: Set(model.forecast.map(money).transpose()?),
+        created_at: Set(instant(now_ms)),
+    })
+    .on_conflict(
+        OnConflict::columns([Snapshot::ProjectId, Snapshot::Week])
+            .update_columns([
+                Snapshot::Budget,
+                Snapshot::PlannedValue,
+                Snapshot::EarnedValue,
+                Snapshot::ActualCost,
+                Snapshot::Committed,
+                Snapshot::Forecast,
+                Snapshot::CreatedAt,
+            ])
+            .to_owned(),
     )
-    .bind(generate_id("pfs"))
-    .bind(project_id)
-    .bind(&week)
-    .bind(budget)
-    .bind(money_string(model.planned_value))
-    .bind(money_string(model.earned_value))
-    .bind(money_string(model.actual))
-    .bind(money_string(model.committed))
-    .bind(forecast)
-    .bind(created)
-    .execute(db)
+    .exec_without_returning(&orm(db))
     .await?;
     Ok(week)
 }
@@ -1464,15 +1724,22 @@ async fn upsert_snapshot(
 pub async fn snapshot_workspace(
     db: &PgPool,
     now_ms: i64,
-) -> Result<(usize, Option<OffsetDateTime>), sqlx::Error> {
-    let ids: Vec<String> = sqlx::query_scalar(
-        "select p.id from projects p
-         where p.deleted_at is null and p.status not in ('Closed', 'Cancelled')
-           and exists (select 1 from project_baselines b where b.project_id = p.id)
-         order by p.id",
-    )
-    .fetch_all(db)
-    .await?;
+) -> Result<(usize, Option<OffsetDateTime>), DbErr> {
+    // `exists (select 1 from project_baselines b where b.project_id = p.id)`.
+    let baselined = SubQuery::select()
+        .column(project_baselines::Column::ProjectId)
+        .from(project_baselines::Entity)
+        .to_owned();
+    let ids: Vec<String> = projects::Entity::find()
+        .select_only()
+        .column(projects::Column::Id)
+        .filter(projects::Column::DeletedAt.is_null())
+        .filter(projects::Column::Status.is_not_in(["Closed", "Cancelled"]))
+        .filter(projects::Column::Id.in_subquery(baselined))
+        .order_by_asc(projects::Column::Id)
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     let mut written = 0;
     for id in &ids {
         let Some(project) = find_project(db, id).await? else {

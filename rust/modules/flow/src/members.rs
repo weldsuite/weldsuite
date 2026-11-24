@@ -15,17 +15,30 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use http::HeaderMap;
+use sea_orm::prelude::BigDecimal;
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{
+    ColumnTrait, Condition, DbErr, EntityTrait, FromQueryResult, JoinType, QueryFilter, QuerySelect,
+};
+use serde::Serialize;
 use serde_json::{Map, Value, json};
+use time::PrimitiveDateTime;
 use weldsuite_catalogs::entity_events::{
     PROJECT_MEMBER_ADDED, PROJECT_MEMBER_REMOVED, PROJECT_MEMBER_UPDATED,
 };
 use weldsuite_catalogs::permission_keys::{PROJECTS_DELETE, PROJECTS_READ, PROJECTS_UPDATE};
-use weldsuite_db::{PgPool, is_unique_violation, js_row};
+use weldsuite_db::record::JsonTable;
+use weldsuite_db::{PgPool, is_unique_violation, orm, utc_now};
 use weldsuite_kit::validation::{Field, Issues, Presence, js_trim};
 use weldsuite_kit::{ApiError, Created, Data, NoContent, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::{project_members, projects, workspace_members};
 
-use crate::{Caller, FlowState, Query, Refusal, Reply, now, outside, reply, validate};
+use crate::{Caller, FlowState, Query, Refusal, Reply, now, outside, reply, row_json, validate};
+
+/// `project_members`, inserted from a row object: Postgres converts each
+/// value (the amounts from their text) as the casts did.
+const MEMBERS: JsonTable = JsonTable::of::<project_members::Entity>();
 
 const MANAGE_MEMBERS_DENIED: &str =
     "You must be a project owner, admin, or manager to manage its members";
@@ -73,16 +86,83 @@ where
         .with_state(state)
 }
 
-/// The member's workspace profile, `null` without a workspace member row
-/// (Drizzle nullifies a left-joined object whose fields are all null). The
-/// `avatar` is filled in afterwards from the account ([`with_user_avatars`]).
-macro_rules! member_user {
-    () => {
-        "case when wm.user_id is null and wm.name is null and wm.email is null
-              then null
-              else jsonb_build_object('id', wm.user_id, 'name', wm.name, 'email', wm.email,
-                                      'avatar', null) end"
-    };
+/// A member row with its workspace profile (`leftJoin(workspaceMembers)`).
+#[derive(Debug, FromQueryResult, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct MemberWithUser {
+    id: String,
+    project_id: String,
+    user_id: String,
+    role: String,
+    permissions: Option<Value>,
+    is_active: bool,
+    #[serde(serialize_with = "weldsuite_schema::js::timestamp::serialize")]
+    joined_at: PrimitiveDateTime,
+    #[serde(serialize_with = "weldsuite_schema::js::timestamp::option::serialize")]
+    left_at: Option<PrimitiveDateTime>,
+    #[serde(serialize_with = "weldsuite_schema::js::Numeric::<2>::serialize_option")]
+    allocation_percentage: Option<BigDecimal>,
+    #[serde(serialize_with = "weldsuite_schema::js::Numeric::<2>::serialize_option")]
+    hourly_rate: Option<BigDecimal>,
+    #[serde(serialize_with = "weldsuite_schema::js::timestamp::serialize")]
+    created_at: PrimitiveDateTime,
+    #[serde(serialize_with = "weldsuite_schema::js::timestamp::serialize")]
+    updated_at: PrimitiveDateTime,
+    #[serde(skip)]
+    wm_user_id: Option<String>,
+    #[serde(skip)]
+    wm_name: Option<String>,
+    #[serde(skip)]
+    wm_email: Option<String>,
+}
+
+impl MemberWithUser {
+    /// The member rows joined to their workspace member (`pm`, `wm`).
+    fn query() -> sea_orm::Select<project_members::Entity> {
+        use project_members::Column;
+        let profile = project_members::Entity::belongs_to(workspace_members::Entity)
+            .from(Column::UserId)
+            .to(workspace_members::Column::UserId)
+            .into();
+        project_members::Entity::find()
+            .select_only()
+            .columns([
+                Column::Id,
+                Column::ProjectId,
+                Column::UserId,
+                Column::Role,
+                Column::Permissions,
+                Column::IsActive,
+                Column::JoinedAt,
+                Column::LeftAt,
+                Column::AllocationPercentage,
+                Column::HourlyRate,
+                Column::CreatedAt,
+                Column::UpdatedAt,
+            ])
+            .column_as(workspace_members::Column::UserId, "wm_user_id")
+            .column_as(workspace_members::Column::Name, "wm_name")
+            .column_as(workspace_members::Column::Email, "wm_email")
+            .join(JoinType::LeftJoin, profile)
+    }
+
+    /// The row, with `user`: the member's workspace profile, `null` without
+    /// a workspace member row (Drizzle nullifies a left-joined object whose
+    /// fields are all null). The `avatar` is filled in afterwards from the
+    /// account ([`with_user_avatars`]).
+    fn to_json(&self) -> Result<Value, DbErr> {
+        let mut row = crate::row_json(self)?;
+        let user = if self.wm_user_id.is_none() && self.wm_name.is_none() && self.wm_email.is_none()
+        {
+            Value::Null
+        } else {
+            json!({ "id": self.wm_user_id, "name": self.wm_name, "email": self.wm_email, "avatar": null })
+        };
+        if let Value::Object(fields) = &mut row {
+            fields.insert("user".to_owned(), user);
+        }
+        Ok(row)
+    }
 }
 
 /// Each row's `user.avatar`: the account picture of `user.id`, not the
@@ -101,14 +181,41 @@ async fn with_user_avatars(master: Option<&PgPool>, rows: &mut [Value]) {
 }
 
 /// The members' user ids, active and live (`getActiveMemberIds`).
-async fn active_member_ids(db: &PgPool, project_id: &str) -> Result<Vec<String>, sqlx::Error> {
-    sqlx::query_scalar(
-        "select user_id from project_members
-         where project_id = $1 and is_active = true and deleted_at is null",
-    )
-    .bind(project_id)
-    .fetch_all(db)
-    .await
+async fn active_member_ids(db: &PgPool, project_id: &str) -> Result<Vec<String>, DbErr> {
+    use project_members::Column;
+    project_members::Entity::find()
+        .select_only()
+        .column(Column::UserId)
+        .filter(Column::ProjectId.eq(project_id))
+        .filter(Column::IsActive.eq(true))
+        .filter(Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&orm(db))
+        .await
+}
+
+/// The live member row of `user_id` on the project: its id, role and
+/// whether it is active.
+async fn live_member(
+    db: &PgPool,
+    project_id: &str,
+    user_id: &str,
+) -> Result<Option<(String, String, bool)>, DbErr> {
+    use project_members::Column;
+    project_members::Entity::find()
+        .select_only()
+        .columns([Column::Id, Column::Role, Column::IsActive])
+        .filter(Column::ProjectId.eq(project_id))
+        .filter(Column::UserId.eq(user_id))
+        .filter(Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await
+}
+
+/// An amount as the `numeric` column takes its text (`$n::numeric`).
+fn numeric(amount: Option<&String>) -> Expr {
+    sea_orm::ExprTrait::cast_as(Expr::value(amount.cloned()), "numeric")
 }
 
 /// `redactRate`: project admins and the member themselves see the rate.
@@ -121,32 +228,34 @@ fn redact(mut row: Value, viewer: &str, is_admin: bool) -> Value {
 
 /// Does the project keep an owner if `user_id` stops being one? The project
 /// manager counts (`hasOtherOwner`).
-async fn has_other_owner(
-    db: &PgPool,
-    project_id: &str,
-    user_id: &str,
-) -> Result<bool, sqlx::Error> {
-    let manager: Option<Option<String>> =
-        sqlx::query_scalar("select project_manager_id from projects where id = $1 limit 1")
-            .bind(project_id)
-            .fetch_optional(db)
-            .await?;
+async fn has_other_owner(db: &PgPool, project_id: &str, user_id: &str) -> Result<bool, DbErr> {
+    use project_members::Column;
+    let manager: Option<Option<String>> = projects::Entity::find_by_id(project_id)
+        .select_only()
+        .column(projects::Column::ProjectManagerId)
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     if let Some(Some(manager)) = manager
         && !manager.is_empty()
         && manager != user_id
     {
         return Ok(true);
     }
-    let other: Option<String> = sqlx::query_scalar(
-        "select id from project_members
-         where project_id = $1 and user_id <> $2 and lower(role) = 'owner'
-           and is_active = true and deleted_at is null
-         limit 1",
-    )
-    .bind(project_id)
-    .bind(user_id)
-    .fetch_optional(db)
-    .await?;
+    let other: Option<String> = project_members::Entity::find()
+        .select_only()
+        .column(Column::Id)
+        .filter(Column::ProjectId.eq(project_id))
+        .filter(Column::UserId.ne(user_id))
+        .filter(sea_orm::ExprTrait::eq(
+            Expr::from(Func::lower(Expr::col(Column::Role))),
+            "owner",
+        ))
+        .filter(Column::IsActive.eq(true))
+        .filter(Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     Ok(other.is_some())
 }
 
@@ -166,27 +275,33 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
             .with_message(PROJECT_DENIED)
             .into_response();
     }
-    let rows: Result<Vec<Value>, sqlx::Error> = sqlx::query_scalar(concat!(
-        "select jsonb_build_object('id', pm.id, 'projectId', pm.project_id, 'userId', pm.user_id,
-                'role', pm.role, 'permissions', pm.permissions, 'isActive', pm.is_active,
-                'joinedAt', pm.joined_at, 'leftAt', pm.left_at,
-                'allocationPercentage', pm.allocation_percentage::text,
-                'hourlyRate', pm.hourly_rate::text, 'createdAt', pm.created_at,
-                'updatedAt', pm.updated_at, 'user', ",
-        member_user!(),
-        ") from project_members pm
-         left join workspace_members wm on pm.user_id = wm.user_id
-         where pm.project_id = $1 and pm.is_active = true and pm.deleted_at is null
-           and (wm.user_id is null or (wm.deleted_at is null and wm.status = 'ACTIVE'))"
-    ))
-    .bind(&project_id)
-    .fetch_all(&caller.db)
+    let rows = async {
+        use project_members::Column;
+        let profile_live = Condition::any()
+            .add(workspace_members::Column::UserId.is_null())
+            .add(
+                Condition::all()
+                    .add(workspace_members::Column::DeletedAt.is_null())
+                    .add(workspace_members::Column::Status.eq("ACTIVE")),
+            );
+        let rows: Vec<MemberWithUser> = MemberWithUser::query()
+            .filter(Column::ProjectId.eq(project_id.as_str()))
+            .filter(Column::IsActive.eq(true))
+            .filter(Column::DeletedAt.is_null())
+            .filter(profile_live)
+            .into_model()
+            .all(&orm(&caller.db))
+            .await?;
+        rows.iter()
+            .map(MemberWithUser::to_json)
+            .collect::<Result<Vec<_>, DbErr>>()
+    }
     .await;
     match rows {
         Ok(rows) => {
             let mut rows: Vec<Value> = rows
                 .into_iter()
-                .map(|row| redact(js_row(row), &caller.user_id, access.is_admin))
+                .map(|row| redact(row, &caller.user_id, access.is_admin))
                 .collect();
             with_user_avatars(caller.request_master(), &mut rows).await;
             Data(rows).into_response()
@@ -213,19 +328,32 @@ async fn available(caller: Caller, RawQuery(raw): RawQuery) -> Response {
     }
     reply(
         async {
+            use workspace_members::Column;
             let existing = active_member_ids(&caller.db, &project_id).await?;
-            let mut rows: Vec<Value> = sqlx::query_scalar(
-                "select jsonb_build_object('id', user_id, 'name', name, 'email', email, 'image', null)
-                 from workspace_members
-                 where deleted_at is null and status = 'ACTIVE'
-                   and (cardinality($1::text[]) = 0 or user_id <> all($1))",
-            )
-            .bind(&existing)
-            .fetch_all(&caller.db)
-            .await?;
+            let mut users = workspace_members::Entity::find()
+                .select_only()
+                .columns([Column::UserId, Column::Name, Column::Email])
+                .filter(Column::DeletedAt.is_null())
+                .filter(Column::Status.eq("ACTIVE"));
+            if !existing.is_empty() {
+                users = users.filter(Column::UserId.is_not_in(existing));
+            }
+            let users: Vec<(String, Option<String>, Option<String>)> =
+                users.into_tuple().all(&orm(&caller.db)).await?;
+            let mut rows: Vec<Value> = users
+                .into_iter()
+                .map(|(id, name, email)| {
+                    json!({ "id": id, "name": name, "email": email, "image": null })
+                })
+                .collect();
             // Avatars are account pictures, not the member row's copy.
-            weldsuite_db::overlay_account_pictures(caller.request_master(), &mut rows, "id", "image")
-                .await;
+            weldsuite_db::overlay_account_pictures(
+                caller.request_master(),
+                &mut rows,
+                "id",
+                "image",
+            )
+            .await;
             Ok(Data(rows).into_response())
         }
         .await,
@@ -245,25 +373,31 @@ async fn by_user(caller: Caller, Path((project_id, user_id)): Path<(String, Stri
             .with_message(PROJECT_DENIED)
             .into_response();
     }
-    let row: Result<Option<Value>, sqlx::Error> = sqlx::query_scalar(concat!(
-        "select jsonb_build_object('id', pm.id, 'projectId', pm.project_id, 'userId', pm.user_id,
-                'role', pm.role, 'permissions', pm.permissions, 'isActive', pm.is_active,
-                'joinedAt', pm.joined_at, 'leftAt', pm.left_at,
-                'allocationPercentage', pm.allocation_percentage::text,
-                'hourlyRate', pm.hourly_rate::text, 'user', ",
-        member_user!(),
-        ") from project_members pm
-         left join workspace_members wm on pm.user_id = wm.user_id
-         where pm.project_id = $1 and pm.user_id = $2 and pm.deleted_at is null
-         limit 1"
-    ))
-    .bind(&project_id)
-    .bind(&user_id)
-    .fetch_optional(&caller.db)
+    let row = async {
+        use project_members::Column;
+        let row: Option<MemberWithUser> = MemberWithUser::query()
+            .filter(Column::ProjectId.eq(project_id.as_str()))
+            .filter(Column::UserId.eq(user_id.as_str()))
+            .filter(Column::DeletedAt.is_null())
+            .into_model()
+            .one(&orm(&caller.db))
+            .await?;
+        // Without `createdAt` and `updatedAt`, as the route selects it.
+        row.as_ref()
+            .map(|row| {
+                let mut json = row.to_json()?;
+                if let Value::Object(fields) = &mut json {
+                    fields.remove("createdAt");
+                    fields.remove("updatedAt");
+                }
+                Ok::<_, DbErr>(json)
+            })
+            .transpose()
+    }
     .await;
     match row {
         Ok(Some(row)) => {
-            let mut rows = [redact(js_row(row), &caller.user_id, access.is_admin)];
+            let mut rows = [redact(row, &caller.user_id, access.is_admin)];
             with_user_avatars(caller.request_master(), &mut rows).await;
             let [row] = rows;
             Data(row).into_response()
@@ -409,25 +543,36 @@ async fn add(
 
 async fn add_member(state: &FlowState, caller: &Caller, input: &AddMember) -> Reply {
     let db = &caller.db;
-    let workspace_member: Option<String> = sqlx::query_scalar(
-        "select id from workspace_members
-         where user_id = $1 and status = 'ACTIVE' and deleted_at is null limit 1",
-    )
-    .bind(&input.user_id)
-    .fetch_optional(db)
-    .await?;
+    let workspace_member: Option<String> = {
+        use workspace_members::Column;
+        workspace_members::Entity::find()
+            .select_only()
+            .column(Column::Id)
+            .filter(Column::UserId.eq(input.user_id.as_str()))
+            .filter(Column::Status.eq("ACTIVE"))
+            .filter(Column::DeletedAt.is_null())
+            .into_tuple()
+            .one(&orm(db))
+            .await?
+    };
     if workspace_member.is_none() {
         return Err(Refusal::bad_request(NOT_A_WORKSPACE_MEMBER));
     }
-    let existing: Option<(String, bool, bool)> = sqlx::query_as(
-        "select id, deleted_at is not null, is_active from project_members
-         where project_id = $1 and user_id = $2 limit 1",
-    )
-    .bind(&input.project_id)
-    .bind(&input.user_id)
-    .fetch_optional(db)
-    .await?;
+    let existing: Option<(String, bool, bool)> = {
+        use project_members::Column;
+        let found: Option<(String, Option<PrimitiveDateTime>, bool)> =
+            project_members::Entity::find()
+                .select_only()
+                .columns([Column::Id, Column::DeletedAt, Column::IsActive])
+                .filter(Column::ProjectId.eq(input.project_id.as_str()))
+                .filter(Column::UserId.eq(input.user_id.as_str()))
+                .into_tuple()
+                .one(&orm(db))
+                .await?;
+        found.map(|(id, deleted_at, active)| (id, deleted_at.is_some(), active))
+    };
     let now = now();
+    let stamp = utc_now();
     let permissions = input.permissions.as_ref().map(|p| json!(p));
     let data = |id: &str| {
         json!({
@@ -441,42 +586,42 @@ async fn add_member(state: &FlowState, caller: &Caller, input: &AddMember) -> Re
         if !deleted && active {
             return Err(Refusal::bad_request(ALREADY_MEMBER));
         }
-        sqlx::query(
-            "update project_members set is_active = true, deleted_at = null, role = $2,
-                    permissions = $3, allocation_percentage = $4::numeric, hourly_rate = $5::numeric,
-                    joined_at = $6::timestamp, updated_at = $6::timestamp
-             where id = $1",
-        )
-        .bind(&id)
-        .bind(&input.role)
-        .bind(&permissions)
-        .bind(input.allocation.as_deref())
-        .bind(input.hourly_rate.as_deref())
-        .bind(&now)
-        .execute(db)
-        .await?;
+        {
+            use project_members::Column;
+            project_members::Entity::update_many()
+                .col_expr(Column::IsActive, Expr::value(true))
+                .col_expr(
+                    Column::DeletedAt,
+                    Expr::value(Option::<PrimitiveDateTime>::None),
+                )
+                .col_expr(Column::Role, Expr::value(input.role.as_str()))
+                .col_expr(Column::Permissions, Expr::value(permissions.clone()))
+                .col_expr(
+                    Column::AllocationPercentage,
+                    numeric(input.allocation.as_ref()),
+                )
+                .col_expr(Column::HourlyRate, numeric(input.hourly_rate.as_ref()))
+                .col_expr(Column::JoinedAt, Expr::value(stamp))
+                .col_expr(Column::UpdatedAt, Expr::value(stamp))
+                .filter(Column::Id.eq(id.as_str()))
+                .exec(&orm(db))
+                .await?;
+        }
         let members = active_member_ids(db, &input.project_id).await?;
         caller.publish_to(state, PROJECT_MEMBER_ADDED, &id, data(&id), members);
         return Ok(Created(json!({ "id": id })).into_response());
     }
     let id = generate_id("pmem");
-    let inserted = sqlx::query(
-        "insert into project_members
-             (id, project_id, user_id, role, permissions, allocation_percentage, hourly_rate,
-              is_active, joined_at, created_at, updated_at)
-         values ($1, $2, $3, $4, $5, $6::numeric, $7::numeric, true,
-                 $8::timestamp, $8::timestamp, $8::timestamp)",
-    )
-    .bind(&id)
-    .bind(&input.project_id)
-    .bind(&input.user_id)
-    .bind(&input.role)
-    .bind(&permissions)
-    .bind(input.allocation.as_deref())
-    .bind(input.hourly_rate.as_deref())
-    .bind(&now)
-    .execute(db)
-    .await;
+    let row = json!({
+        "id": id, "project_id": input.project_id, "user_id": input.user_id,
+        "role": input.role, "permissions": permissions,
+        "allocation_percentage": input.allocation, "hourly_rate": input.hourly_rate,
+        "is_active": true, "joined_at": now, "created_at": now, "updated_at": now,
+    });
+    let Value::Object(row) = row else {
+        return Err(Refusal::Internal("the row is not an object".to_owned()));
+    };
+    let inserted = MEMBERS.insert(&orm(db), row).await;
     if let Err(error) = inserted {
         // (project_id, user_id) is unique: a concurrent add loses the race.
         if is_unique_violation(&error) {
@@ -546,15 +691,7 @@ async fn update_member(
     data: Map<String, Value>,
 ) -> Reply {
     let db = &caller.db;
-    let existing: Option<(String, String, bool)> = sqlx::query_as(
-        "select id, role, is_active from project_members
-         where project_id = $1 and user_id = $2 and deleted_at is null limit 1",
-    )
-    .bind(project_id)
-    .bind(user_id)
-    .fetch_optional(db)
-    .await?;
-    let Some((id, role, active)) = existing else {
+    let Some((id, role, active)) = live_member(db, project_id, user_id).await? else {
         return Err(Refusal::not_found(
             "Project member",
             &format!("{project_id}/{user_id}"),
@@ -578,23 +715,34 @@ async fn update_member(
     if revokes_owner && !has_other_owner(db, project_id, user_id).await? {
         return Err(Refusal::conflict(LAST_OWNER));
     }
-    sqlx::query(
-        "update project_members set
-             role = case when $2::jsonb ? 'role' then $2::jsonb->>'role' else role end,
-             permissions = case when $2::jsonb ? 'permissions' then $2::jsonb->'permissions' else permissions end,
-             allocation_percentage = case when $2::jsonb ? 'allocationPercentage'
-                 then ($2::jsonb->>'allocationPercentage')::numeric else allocation_percentage end,
-             hourly_rate = case when $2::jsonb ? 'hourlyRate'
-                 then ($2::jsonb->>'hourlyRate')::numeric else hourly_rate end,
-             is_active = case when $2::jsonb ? 'isActive' then ($2::jsonb->>'isActive')::boolean else is_active end,
-             updated_at = $3::timestamp
-         where id = $1",
-    )
-    .bind(&id)
-    .bind(Value::Object(data.clone()))
-    .bind(now())
-    .execute(db)
-    .await?;
+    {
+        use project_members::Column;
+        // The keys the body sent, as parsed: the role and amounts as text, the
+        // permissions as a list, `isActive` as a boolean.
+        let text = |key: &str| data.get(key).and_then(Value::as_str).map(str::to_owned);
+        let mut update = project_members::Entity::update_many();
+        if data.contains_key("role") {
+            update = update.col_expr(Column::Role, Expr::value(text("role")));
+        }
+        if let Some(permissions) = data.get("permissions") {
+            update = update.col_expr(Column::Permissions, Expr::value(permissions.clone()));
+        }
+        if data.contains_key("allocationPercentage") {
+            let amount = text("allocationPercentage");
+            update = update.col_expr(Column::AllocationPercentage, numeric(amount.as_ref()));
+        }
+        if data.contains_key("hourlyRate") {
+            update = update.col_expr(Column::HourlyRate, numeric(text("hourlyRate").as_ref()));
+        }
+        if let Some(active) = data.get("isActive") {
+            update = update.col_expr(Column::IsActive, Expr::value(active.as_bool()));
+        }
+        update
+            .col_expr(Column::UpdatedAt, Expr::value(utc_now()))
+            .filter(Column::Id.eq(id.as_str()))
+            .exec(&orm(db))
+            .await?;
+    }
     let members = active_member_ids(db, project_id).await?;
     let mut event = Map::new();
     event.insert("id".to_owned(), json!(id));
@@ -650,15 +798,7 @@ async fn remove_member(
     user_id: &str,
 ) -> Reply {
     let db = &caller.db;
-    let existing: Option<(String, String, bool)> = sqlx::query_as(
-        "select id, role, is_active from project_members
-         where project_id = $1 and user_id = $2 and deleted_at is null limit 1",
-    )
-    .bind(project_id)
-    .bind(user_id)
-    .fetch_optional(db)
-    .await?;
-    let Some((id, role, active)) = existing else {
+    let Some((id, role, active)) = live_member(db, project_id, user_id).await? else {
         return Err(Refusal::not_found(
             "Project member",
             &format!("{project_id}/{user_id}"),
@@ -672,15 +812,18 @@ async fn remove_member(
             return Err(Refusal::conflict(LAST_OWNER));
         }
     }
-    sqlx::query(
-        "update project_members set is_active = false, left_at = $2::timestamp,
-                deleted_at = $2::timestamp, updated_at = $2::timestamp
-         where id = $1",
-    )
-    .bind(&id)
-    .bind(now())
-    .execute(db)
-    .await?;
+    {
+        use project_members::Column;
+        let now = utc_now();
+        project_members::Entity::update_many()
+            .col_expr(Column::IsActive, Expr::value(false))
+            .col_expr(Column::LeftAt, Expr::value(now))
+            .col_expr(Column::DeletedAt, Expr::value(now))
+            .col_expr(Column::UpdatedAt, Expr::value(now))
+            .filter(Column::Id.eq(id.as_str()))
+            .exec(&orm(db))
+            .await?;
+    }
     // The remaining members and the removed user all see the change.
     let mut members = active_member_ids(db, project_id).await?;
     members.push(user_id.to_owned());
@@ -699,15 +842,11 @@ async fn remove_member(
 async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
     reply(
         async {
-            let row: Option<Value> = sqlx::query_scalar(concat!(
-                "select ",
-                member_json!("pm"),
-                " from project_members pm where pm.id = $1 and pm.deleted_at is null limit 1"
-            ))
-            .bind(&id)
-            .fetch_optional(&caller.db)
-            .await?;
-            let Some(row) = row.map(js_row) else {
+            let row = project_members::Entity::find_by_id(id.as_str())
+                .filter(project_members::Column::DeletedAt.is_null())
+                .one(&orm(&caller.db))
+                .await?;
+            let Some(row) = row.map(row_json).transpose()? else {
                 return Err(Refusal::not_found("Project member", &id));
             };
             let project_id = row["projectId"].as_str().unwrap_or_default().to_owned();

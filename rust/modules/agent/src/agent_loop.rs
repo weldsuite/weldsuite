@@ -13,12 +13,19 @@
 //! ([`load_history`]), newest messages first within a character budget, so no
 //! server-side session exists and a chat moves between editions untouched.
 
+use sea_orm::{
+    ColumnTrait, DbErr, EntityTrait, JoinType, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect,
+};
 use serde_json::{Value, json};
 use sqlx::PgPool;
 use tokio::sync::mpsc;
 use weldsuite_ai::{
     Ai, AiCall, AiError, ChatRequest, Feature, Message, Part, Role, StreamEvent, Task, Tier,
     ToolCall,
+};
+use weldsuite_db::orm;
+use weldsuite_schema::tenant::{
+    weldagent_agent_skills, weldagent_memories, weldagent_messages, weldagent_skills,
 };
 
 use crate::access::{agent_viewer_for, can_edit_agent};
@@ -97,16 +104,29 @@ pub fn build_system_prompt(name: &str, system_prompt: &str, has_sandbox_tools: b
 /// The skills and memory blocks of the system prompt (`skillsPromptBlock`,
 /// `memoryPromptBlock`).
 async fn prompt_blocks(db: &PgPool, agent_id: &str) -> String {
+    use weldagent_agent_skills::Column as Link;
+    use weldagent_skills::Column as Skill;
     let mut out = String::new();
-    let skills: Vec<(String, String)> = sqlx::query_as(
-        "select s.name, s.instructions from weldagent_agent_skills a join weldagent_skills s on s.id = a.skill_id
-         where a.agent_id = $1 and a.enabled = true and s.status = 'active' and s.deleted_at is null
-         order by s.updated_at desc",
-    )
-    .bind(agent_id)
-    .fetch_all(db)
-    .await
-    .unwrap_or_default();
+    let conn = orm(db);
+    let skills: Vec<(String, String)> = weldagent_agent_skills::Entity::find()
+        .select_only()
+        .columns([Skill::Name, Skill::Instructions])
+        .join(
+            JoinType::InnerJoin,
+            weldagent_agent_skills::Entity::belongs_to(weldagent_skills::Entity)
+                .from(Link::SkillId)
+                .to(Skill::Id)
+                .into(),
+        )
+        .filter(Link::AgentId.eq(agent_id))
+        .filter(Link::Enabled.eq(true))
+        .filter(Skill::Status.eq("active"))
+        .filter(Skill::DeletedAt.is_null())
+        .order_by_desc(Skill::UpdatedAt)
+        .into_tuple()
+        .all(&conn)
+        .await
+        .unwrap_or_default();
     if !skills.is_empty() {
         out.push_str("\n\nEnabled skills (follow when relevant):\n");
         let lines: Vec<String> = skills
@@ -120,14 +140,20 @@ async fn prompt_blocks(db: &PgPool, agent_id: &str) -> String {
             .collect();
         out.push_str(&lines.join("\n"));
     }
-    let memories: Vec<(String, String)> = sqlx::query_as(
-        "select kind, content from weldagent_memories where agent_id = $1 and deleted_at is null
-         order by created_at desc limit 40",
-    )
-    .bind(agent_id)
-    .fetch_all(db)
-    .await
-    .unwrap_or_default();
+    let memories: Vec<(String, String)> = weldagent_memories::Entity::find()
+        .select_only()
+        .columns([
+            weldagent_memories::Column::Kind,
+            weldagent_memories::Column::Content,
+        ])
+        .filter(weldagent_memories::Column::AgentId.eq(agent_id))
+        .filter(weldagent_memories::Column::DeletedAt.is_null())
+        .order_by_desc(weldagent_memories::Column::CreatedAt)
+        .limit(40)
+        .into_tuple()
+        .all(&conn)
+        .await
+        .unwrap_or_default();
     if !memories.is_empty() {
         out.push_str("\n\nDurable memory for this agent:\n");
         let lines: Vec<String> = memories
@@ -163,7 +189,7 @@ pub async fn build_system(
 }
 
 /// How many messages a chat turn reads at most (`HISTORY_WINDOW`).
-pub const HISTORY_WINDOW: i64 = 80;
+pub const HISTORY_WINDOW: u64 = 80;
 /// Characters of history a turn carries (`SEED_HISTORY_MAX_CHARS`).
 pub const HISTORY_MAX_CHARS: usize = 120_000;
 const TOOL_SUMMARY_MAX_CHARS: usize = 1500;
@@ -286,26 +312,29 @@ pub async fn load_history(
     db: &PgPool,
     conversation_id: &str,
     through_id: Option<&str>,
-) -> Result<(Vec<Value>, i64), sqlx::Error> {
-    let filter = "m.conversation_id = $1 and m.deleted_at is null and m.role in ('user', 'assistant')
-        and ($2::text is null or (m.created_at, m.id) <= (select a.created_at, a.id from weldagent_messages a where a.id = $2))";
-    let rows: Vec<Value> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-        "select to_jsonb(m) from weldagent_messages m where {filter} order by m.created_at desc, m.id desc limit $3"
-    )))
-    .bind(conversation_id)
-    .bind(through_id)
-    .bind(HISTORY_WINDOW)
-    .fetch_all(db)
-    .await?;
-    let total: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-        "select count(*)::bigint from weldagent_messages m where {filter}"
-    )))
-    .bind(conversation_id)
-    .bind(through_id)
-    .fetch_one(db)
-    .await?;
+) -> Result<(Vec<Value>, i64), DbErr> {
+    use weldagent_messages::Column as Message;
+    let conn = orm(db);
+    let mut turns = weldagent_messages::Entity::find()
+        .filter(Message::ConversationId.eq(conversation_id))
+        .filter(Message::DeletedAt.is_null())
+        .filter(Message::Role.is_in(["user", "assistant"]));
+    if let Some(through) = through_id {
+        turns = turns.filter(crate::conversations::before_message(
+            through.to_owned(),
+            true,
+        ));
+    }
+    let rows = turns
+        .clone()
+        .order_by_desc(Message::CreatedAt)
+        .order_by_desc(Message::Id)
+        .limit(HISTORY_WINDOW)
+        .all(&conn)
+        .await?;
+    let total = i64::try_from(turns.count(&conn).await?).unwrap_or(i64::MAX);
     let kept = i64::try_from(rows.len()).unwrap_or_default();
-    let mut rows: Vec<Value> = rows.into_iter().map(weldsuite_db::js_row).collect();
+    let mut rows: Vec<Value> = rows.into_iter().map(crate::agents::js).collect();
     rows.reverse();
     Ok((rows, (total - kept).max(0)))
 }

@@ -11,6 +11,9 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::Response;
 use axum::routing::{get, post};
 use http::HeaderMap;
+use sea_orm::prelude::BigDecimal;
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect};
 use serde_json::{Map, Value, json};
 use weldsuite_books_domain::guards::{AuditInput, write_accounting_audit};
 use weldsuite_books_domain::http::{
@@ -24,13 +27,21 @@ use weldsuite_books_domain::tables::SALES_TAX_ZONES as T;
 use weldsuite_catalogs::entity_events::{
     SALES_TAX_ZONE_CREATED, SALES_TAX_ZONE_DELETED, SALES_TAX_ZONE_UPDATED,
 };
-use weldsuite_db::PgPool;
+use weldsuite_db::record::JsonTable;
+use weldsuite_db::{PgPool, orm, utc_timestamp};
 use weldsuite_kit::generate_id;
 use weldsuite_kit::validation::{Field, Issues, Presence};
 use weldsuite_legal_entities::{EntityRecordGuard, EntityTable};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::{
+    sales_tax_jurisdiction_rates, sales_tax_jurisdictions, sales_tax_zones,
+};
 
 use crate::common::{changes, keep, merged, num, number_of, refuse, text, today};
+use crate::returns::common::{day_text, row_json, rows_json};
+
+/// `sales_tax_zones` written from a `{ column: value }` object.
+const ZONE_ROWS: JsonTable = JsonTable::of::<sales_tax_zones::Entity>();
 
 pub(crate) fn router<S, Q>(state: BooksState, gate: &Arc<PermissionGate<Q>>) -> Router<S>
 where
@@ -273,14 +284,22 @@ async fn check_jurisdictions(
     agency_id: &str,
     ids: &[String],
 ) -> Result<(), Refusal> {
+    use sales_tax_jurisdictions::Column;
     let unique = unique(ids);
-    let rows: Vec<(String, String)> = sqlx::query_as(
-        "select id, agency_id from sales_tax_jurisdictions where entity_id = $1 and id = any($2) and deleted_at is null",
-    )
-    .bind(entity_id)
-    .bind(&unique)
-    .fetch_all(db)
-    .await?;
+    // `id = any('{}')` reads nothing.
+    let rows: Vec<(String, String)> = if unique.is_empty() {
+        Vec::new()
+    } else {
+        sales_tax_jurisdictions::Entity::find()
+            .select_only()
+            .columns([Column::Id, Column::AgencyId])
+            .filter(Column::EntityId.eq(entity_id))
+            .filter(Column::Id.is_in(unique.iter().map(String::as_str)))
+            .filter(Column::DeletedAt.is_null())
+            .into_tuple()
+            .all(&orm(db))
+            .await?
+    };
     let agency_of = |id: &str| rows.iter().find(|(r, _)| r == id).map(|(_, a)| a.as_str());
     let missing: Vec<&str> = unique
         .iter()
@@ -323,7 +342,7 @@ async fn present_zones(
     entity_id: &str,
     zones: Vec<Value>,
     day: &str,
-) -> Result<Vec<Value>, sqlx::Error> {
+) -> Result<Vec<Value>, Refusal> {
     let mut ids: Vec<String> = Vec::new();
     for zone in &zones {
         for id in zone["jurisdictionIds"].as_array().into_iter().flatten() {
@@ -337,20 +356,44 @@ async fn present_zones(
     let (jurisdictions, rates): (Vec<Triple>, Vec<Quad>) = if ids.is_empty() {
         (Vec::new(), Vec::new())
     } else {
-        let jurisdictions = sqlx::query_as(
-                "select id, name, level from sales_tax_jurisdictions where entity_id = $1 and id = any($2)",
-            )
-            .bind(entity_id)
-            .bind(&ids)
-            .fetch_all(db)
+        use sales_tax_jurisdiction_rates::Column as Rate;
+        use sales_tax_jurisdictions::Column as Jurisdiction;
+        let conn = orm(db);
+        let jurisdictions = sales_tax_jurisdictions::Entity::find()
+            .select_only()
+            .columns([Jurisdiction::Id, Jurisdiction::Name, Jurisdiction::Level])
+            .filter(Jurisdiction::EntityId.eq(entity_id))
+            .filter(Jurisdiction::Id.is_in(ids.iter().map(String::as_str)))
+            .into_tuple()
+            .all(&conn)
             .await?;
-        let rates = sqlx::query_as(
-                "select effective_from::text, coalesce(effective_to::text, ''), jurisdiction_id, rate::text                  from sales_tax_jurisdiction_rates where entity_id = $1 and jurisdiction_id = any($2) and deleted_at is null",
-            )
-            .bind(entity_id)
-            .bind(&ids)
-            .fetch_all(db)
-            .await?;
+        let rates: Vec<(time::Date, Option<time::Date>, String, BigDecimal)> =
+            sales_tax_jurisdiction_rates::Entity::find()
+                .select_only()
+                .columns([
+                    Rate::EffectiveFrom,
+                    Rate::EffectiveTo,
+                    Rate::JurisdictionId,
+                    Rate::Rate,
+                ])
+                .filter(Rate::EntityId.eq(entity_id))
+                .filter(Rate::JurisdictionId.is_in(ids.iter().map(String::as_str)))
+                .filter(Rate::DeletedAt.is_null())
+                .into_tuple()
+                .all(&conn)
+                .await?;
+        // `effective_from::text, coalesce(effective_to::text, ''), jurisdiction_id, rate::text`.
+        let rates = rates
+            .into_iter()
+            .map(|(from, to, jurisdiction, rate)| {
+                (
+                    day_text(from),
+                    to.map(day_text).unwrap_or_default(),
+                    jurisdiction,
+                    rate.to_plain_string(),
+                )
+            })
+            .collect();
         (jurisdictions, rates)
     };
     let day = day.to_owned();
@@ -401,16 +444,15 @@ async fn present_zones(
 }
 
 async fn require_zone(db: &PgPool, entity_id: &str, id: &str) -> Result<Value, Refusal> {
-    let row: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(sales_tax_zones),
-        " from sales_tax_zones t where t.id = $1 and t.entity_id = $2 and t.deleted_at is null limit 1"
-    ))
-    .bind(id)
-    .bind(entity_id)
-    .fetch_optional(db)
-    .await?;
-    row.map(|r| T.js(r))
+    use sales_tax_zones::Column;
+    let row = sales_tax_zones::Entity::find()
+        .filter(Column::Id.eq(id))
+        .filter(Column::EntityId.eq(entity_id))
+        .filter(Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?;
+    row.map(row_json)
+        .transpose()?
         .ok_or_else(|| refuse(format!("Sales tax zone {id} not found"), 404))
 }
 
@@ -460,6 +502,7 @@ async fn list(
 }
 
 async fn list_zones(caller: &Caller, state: &BooksState, q: &Query) -> Reply {
+    use sales_tax_zones::Column;
     let Some(entity) = optional_sales_tax_entity(caller).await? else {
         return Ok(paged(Vec::new(), 0, false, None));
     };
@@ -467,33 +510,31 @@ async fn list_zones(caller: &Caller, state: &BooksState, q: &Query) -> Reply {
     let (page, page_size, offset) = page_params(q);
     let agency = q.present("agencyId");
     let state_code = q.present("stateCode").map(str::to_uppercase);
-    let rows: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(sales_tax_zones),
-        " from sales_tax_zones t where t.entity_id = $1 and t.deleted_at is null \
-         and ($2::text is null or t.agency_id = $2) and ($3::text is null or t.state_code = $3) \
-         order by t.state_code asc, t.priority asc, t.name asc limit $4 offset $5"
-    ))
-    .bind(entity_id)
-    .bind(agency)
-    .bind(&state_code)
-    .bind(page_size)
-    .bind(offset)
-    .fetch_all(&caller.db)
-    .await?;
-    let total: i64 = sqlx::query_scalar(
-        "select count(*)::int8 from sales_tax_zones t where t.entity_id = $1 and t.deleted_at is null \
-         and ($2::text is null or t.agency_id = $2) and ($3::text is null or t.state_code = $3)",
-    )
-    .bind(entity_id)
-    .bind(agency)
-    .bind(&state_code)
-    .fetch_one(&caller.db)
-    .await?;
+    let db = orm(&caller.db);
+    let mut select = sales_tax_zones::Entity::find()
+        .filter(Column::EntityId.eq(entity_id))
+        .filter(Column::DeletedAt.is_null());
+    if let Some(agency) = agency {
+        select = select.filter(Column::AgencyId.eq(agency));
+    }
+    if let Some(state_code) = &state_code {
+        select = select.filter(Column::StateCode.eq(state_code.as_str()));
+    }
+    let rows = select
+        .clone()
+        .order_by_asc(Column::StateCode)
+        .order_by_asc(Column::Priority)
+        .order_by_asc(Column::Name)
+        .limit(u64::try_from(page_size).unwrap_or(0))
+        .offset(u64::try_from(offset).unwrap_or(0))
+        .all(&db)
+        .await?;
+    let total = select.count(&db).await?;
+    let total = i64::try_from(total).unwrap_or(i64::MAX);
     let rows = present_zones(
         &caller.db,
         entity_id,
-        T.js_rows(rows),
+        rows_json(rows)?,
         &today(caller, state),
     )
     .await?;
@@ -572,11 +613,12 @@ async fn create_zone(caller: &Caller, state: &BooksState, data: ZoneBody) -> Rep
         "createdAt": at,
         "updatedAt": at,
     });
-    T.insert_raw(
-        &caller.db,
-        T.values(zone.as_object().unwrap_or(&Map::new())),
-    )
-    .await?;
+    ZONE_ROWS
+        .insert(
+            &orm(&caller.db),
+            T.values(zone.as_object().unwrap_or(&Map::new())),
+        )
+        .await?;
     audit(caller, &entity_id, &id, "created", None).await;
     caller.publish(state, SALES_TAX_ZONE_CREATED, &id, event_data(&zone));
     let row = present_zones(&caller.db, &entity_id, vec![zone], &today(caller, state))
@@ -629,7 +671,8 @@ async fn update_zone(caller: &Caller, state: &BooksState, id: &str, data: ZoneBo
     keep(&mut update, "postalCodes", &data.postal_codes);
     keep(&mut update, "isOrigin", &data.is_origin);
     keep(&mut update, "priority", &data.priority);
-    T.patch_raw(&caller.db, id, T.values(&update), false)
+    ZONE_ROWS
+        .update(&orm(&caller.db), id, T.values(&update), false)
         .await?;
     audit(
         caller,
@@ -659,13 +702,13 @@ async fn remove(
             let entity = require_sales_tax_entity(&caller).await?;
             let entity_id = text(&entity, "id").unwrap_or_default().to_owned();
             let zone = require_zone(&caller.db, &entity_id, &id).await?;
-            sqlx::query(
-                "update sales_tax_zones set deleted_at = $1::timestamp, updated_at = $1::timestamp where id = $2",
-            )
-            .bind(now())
-            .bind(&id)
-            .execute(&caller.db)
-            .await?;
+            let at = utc_timestamp(time::OffsetDateTime::now_utc());
+            sales_tax_zones::Entity::update_many()
+                .col_expr(sales_tax_zones::Column::DeletedAt, Expr::value(at))
+                .col_expr(sales_tax_zones::Column::UpdatedAt, Expr::value(at))
+                .filter(sales_tax_zones::Column::Id.eq(id.as_str()))
+                .exec(&orm(&caller.db))
+                .await?;
             audit(&caller, &entity_id, &id, "deleted", None).await;
             caller.publish(&state, SALES_TAX_ZONE_DELETED, &id, event_data(&zone));
             Ok(no_content())

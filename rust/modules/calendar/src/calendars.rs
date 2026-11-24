@@ -6,17 +6,22 @@ use axum::body::Bytes;
 use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use http::{HeaderMap, StatusCode};
+use sea_orm::ActiveValue::Set;
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Value, json};
 use weldsuite_catalogs::entity_events::{
     CALENDAR_CREATED, CALENDAR_DELETED, CALENDAR_EVENT_DELETED, CALENDAR_SHARE_CREATED,
     CALENDAR_SHARE_DELETED, CALENDAR_SHARE_UPDATED, CALENDAR_UPDATED,
 };
-use weldsuite_db::js_row;
+use weldsuite_db::orm;
 use weldsuite_events::EntityEvent;
 use weldsuite_kit::validation::{Presence, Text};
 use weldsuite_kit::{ApiError, Created, Data, NoContent, generate_id};
+use weldsuite_schema::tenant::{calendar_events, calendar_shares, calendars};
 
 use crate::access;
+use crate::access::row_json;
 use crate::js::{millis_of, now_ms};
 use crate::mail::{self, MailEvent, MailKind};
 use crate::{CalendarState, Caller, Outcome, Refusal, all, now, query_param, text, validate};
@@ -97,18 +102,19 @@ pub(crate) async fn create(
     let id = generate_id("cal");
     let now = now();
     let name = input.name.unwrap_or_default();
-    let inserted = sqlx::query(
-        "insert into calendars
-             (id, name, description, color, owner_id, is_default, is_active, created_at, updated_at)
-         values ($1, $2, $3, $4, $5, false, true, $6::timestamp, $6::timestamp)",
-    )
-    .bind(&id)
-    .bind(&name)
-    .bind(&input.description)
-    .bind(&input.color)
-    .bind(&caller.user_id)
-    .bind(&now)
-    .execute(&caller.db)
+    let inserted = calendars::Entity::insert(calendars::ActiveModel {
+        id: Set(id.clone()),
+        name: Set(name.clone()),
+        description: Set(input.description),
+        color: Set(input.color),
+        owner_id: Set(caller.user_id.clone()),
+        is_default: Set(Some(false)),
+        is_active: Set(Some(true)),
+        created_at: Set(now),
+        updated_at: Set(now),
+        ..Default::default()
+    })
+    .exec_without_returning(&orm(&caller.db))
     .await;
     match inserted {
         Ok(_) => {
@@ -166,24 +172,22 @@ pub(crate) async fn update(
         if text(&existing, "ownerId") != caller.user_id {
             return Err(Refusal::forbidden());
         }
-        sqlx::query(
-            "update calendars set
-                 updated_at = $2::timestamp,
-                 name = case when $3 then $4 else name end,
-                 description = case when $5 then $6 else description end,
-                 color = case when $7 then $8 else color end
-             where id = $1 and deleted_at is null",
-        )
-        .bind(&id)
-        .bind(now())
-        .bind(input.name.is_some())
-        .bind(&input.name)
-        .bind(input.description.is_some())
-        .bind(&input.description)
-        .bind(input.color.is_some())
-        .bind(&input.color)
-        .execute(&caller.db)
-        .await?;
+        let mut update = calendars::Entity::update_many()
+            .col_expr(calendars::Column::UpdatedAt, Expr::value(now()));
+        for (column, value) in [
+            (calendars::Column::Name, &input.name),
+            (calendars::Column::Description, &input.description),
+            (calendars::Column::Color, &input.color),
+        ] {
+            if let Some(value) = value {
+                update = update.col_expr(column, Expr::value(value.clone()));
+            }
+        }
+        update
+            .filter(calendars::Column::Id.eq(id.as_str()))
+            .filter(calendars::Column::DeletedAt.is_null())
+            .exec(&orm(&caller.db))
+            .await?;
         let name = input
             .name
             .clone()
@@ -250,14 +254,15 @@ pub(crate) fn needs_cancellation_mail(row: &Value, now: i64) -> bool {
 }
 
 /// The calendar's live events (`listCalendarEventsForDeletion`).
-async fn calendar_events(caller: &Caller, calendar_id: &str) -> Result<Vec<Value>, sqlx::Error> {
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(e) from calendar_events e where calendar_id = $1 and deleted_at is null",
-    )
-    .bind(calendar_id)
-    .fetch_all(&caller.db)
-    .await?;
-    Ok(rows.into_iter().map(js_row).collect())
+async fn calendar_events(caller: &Caller, calendar_id: &str) -> Result<Vec<Value>, DbErr> {
+    calendar_events::Entity::find()
+        .filter(calendar_events::Column::CalendarId.eq(calendar_id))
+        .filter(calendar_events::Column::DeletedAt.is_null())
+        .all(&orm(&caller.db))
+        .await?
+        .into_iter()
+        .map(row_json)
+        .collect()
 }
 
 pub(crate) async fn delete_impact(caller: Caller, Path(id): Path<String>) -> Response {
@@ -335,32 +340,30 @@ pub(crate) async fn remove(
 }
 
 /// Soft-delete a calendar, its events and its shares (`softDeleteCalendar`).
-async fn soft_delete(caller: &Caller, calendar_id: &str) -> Result<(), sqlx::Error> {
+async fn soft_delete(caller: &Caller, calendar_id: &str) -> Result<(), DbErr> {
     let now = now();
-    sqlx::query(
-        "update calendar_events set deleted_at = $2::timestamp, updated_at = $2::timestamp
-         where calendar_id = $1 and deleted_at is null",
-    )
-    .bind(calendar_id)
-    .bind(&now)
-    .execute(&caller.db)
-    .await?;
-    sqlx::query(
-        "update calendar_shares set deleted_at = $2::timestamp, updated_at = $2::timestamp
-         where calendar_id = $1 and deleted_at is null",
-    )
-    .bind(calendar_id)
-    .bind(&now)
-    .execute(&caller.db)
-    .await?;
-    sqlx::query(
-        "update calendars set deleted_at = $2::timestamp, updated_at = $2::timestamp
-         where id = $1 and deleted_at is null",
-    )
-    .bind(calendar_id)
-    .bind(&now)
-    .execute(&caller.db)
-    .await?;
+    let db = orm(&caller.db);
+    calendar_events::Entity::update_many()
+        .col_expr(calendar_events::Column::DeletedAt, Expr::value(now))
+        .col_expr(calendar_events::Column::UpdatedAt, Expr::value(now))
+        .filter(calendar_events::Column::CalendarId.eq(calendar_id))
+        .filter(calendar_events::Column::DeletedAt.is_null())
+        .exec(&db)
+        .await?;
+    calendar_shares::Entity::update_many()
+        .col_expr(calendar_shares::Column::DeletedAt, Expr::value(now))
+        .col_expr(calendar_shares::Column::UpdatedAt, Expr::value(now))
+        .filter(calendar_shares::Column::CalendarId.eq(calendar_id))
+        .filter(calendar_shares::Column::DeletedAt.is_null())
+        .exec(&db)
+        .await?;
+    calendars::Entity::update_many()
+        .col_expr(calendars::Column::DeletedAt, Expr::value(now))
+        .col_expr(calendars::Column::UpdatedAt, Expr::value(now))
+        .filter(calendars::Column::Id.eq(calendar_id))
+        .filter(calendars::Column::DeletedAt.is_null())
+        .exec(&db)
+        .await?;
     Ok(())
 }
 
@@ -373,7 +376,7 @@ async fn cancel_linked_meetings(state: &CalendarState, caller: &Caller, event_id
         for event_id in with_meetings {
             changed.extend(crate::meetings::cancel_for_event(&caller.db, &event_id).await?);
         }
-        Ok::<_, sqlx::Error>(changed)
+        Ok::<_, DbErr>(changed)
     }
     .await;
     match result {
@@ -442,12 +445,14 @@ pub(crate) async fn shares(caller: Caller, Path(id): Path<String>) -> Response {
 
 /// The calendar exists and the caller owns it: 404 / 403 otherwise.
 async fn owner_only(caller: &Caller, id: &str) -> Outcome<()> {
-    let owner: Option<String> = sqlx::query_scalar(
-        "select owner_id from calendars where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(&caller.db)
-    .await?;
+    let owner: Option<String> = calendars::Entity::find()
+        .select_only()
+        .column(calendars::Column::OwnerId)
+        .filter(calendars::Column::Id.eq(id))
+        .filter(calendars::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(&caller.db))
+        .await?;
     match owner {
         None => Err(Refusal::not_found("Calendar", id)),
         Some(owner) if owner != caller.user_id => Err(Refusal::forbidden()),

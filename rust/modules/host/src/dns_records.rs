@@ -12,25 +12,29 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, patch, post};
 use http::{HeaderMap, StatusCode};
+use sea_orm::{ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, QueryFilter};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events::{
     DNS_RECORD_CREATED, DNS_RECORD_DELETED, DNS_RECORD_UPDATED,
 };
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_kit::validation::{Field, Issues, Number, Presence};
 use weldsuite_kit::{ApiError, Created, Data};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::dns_records;
 
 use crate::dns_host::{Created as Outcome, Dns, RecordInput};
 use crate::dns_sync::{SyncResult, add_user_lock, record_locks, remove_user_lock, sync_zone};
 use crate::doh::scan_domain_records;
 use crate::js::{as_text, slice_utf16, text};
-use crate::rows::{any_zone, live_domain, live_zone, live_zone_of_domain, one, zone_records};
+use crate::rows::{
+    any_record, any_zone, live_domain, live_zone, live_zone_of_domain, zone_records,
+};
 use crate::weldreach::{
     domain_name_for_zone, duplicates_record, is_managed_record, mark_records, record_managed,
 };
 use crate::{
-    Caller, DnsProvider, HostState, Providers, ZoneDns, dns_allowed, internal, json_response, now,
+    Caller, DnsProvider, HostState, Providers, ZoneDns, dns_allowed, internal, json_response,
     validate, validate_query,
 };
 
@@ -107,7 +111,7 @@ fn not_managed(providers: &Providers) -> Response {
 }
 
 /// A statement outside the route's `try`: the app's 500.
-fn app_error(error: &sqlx::Error) -> Response {
+fn app_error(error: &DbErr) -> Response {
     tracing::error!(%error, "[host-api] dns-records");
     ApiError::internal().into_response()
 }
@@ -153,7 +157,7 @@ async fn ready_by_domain(
     db: &PgPool,
     domain_id: &str,
     providers: &Providers,
-) -> Result<Ready, sqlx::Error> {
+) -> Result<Ready, DbErr> {
     let Some(domain) = live_domain(db, domain_id).await? else {
         return Ok(Ready::NotFound);
     };
@@ -172,11 +176,7 @@ async fn allowed(db: &PgPool, ready: Ready) -> Ready {
 }
 
 /// `resolveCloudflareReadyByZone(db, zoneId, token)`.
-async fn ready_by_zone(
-    db: &PgPool,
-    zone_id: &str,
-    providers: &Providers,
-) -> Result<Ready, sqlx::Error> {
+async fn ready_by_zone(db: &PgPool, zone_id: &str, providers: &Providers) -> Result<Ready, DbErr> {
     let Some(zone) = live_zone(db, zone_id).await? else {
         return Ok(Ready::NotFound);
     };
@@ -192,7 +192,7 @@ async fn list_by_zone(
     caller: &Caller,
     state: &HostState,
     zone_id: &str,
-) -> Result<Option<Value>, sqlx::Error> {
+) -> Result<Option<Value>, DbErr> {
     let Some(zone) = live_zone(&caller.db, zone_id).await? else {
         return Ok(None);
     };
@@ -235,7 +235,7 @@ async fn by_domain(
     caller: Caller,
     Path(domain_id): Path<String>,
 ) -> Response {
-    let result: Result<Response, sqlx::Error> = async {
+    let result: Result<Response, DbErr> = async {
         if live_domain(&caller.db, &domain_id).await?.is_none() {
             return Ok(ApiError::not_found("Domain", Some(&domain_id)).into_response());
         }
@@ -280,7 +280,7 @@ async fn flat_list(
 }
 
 /// The sync's records with `managedBy`, and its counts.
-async fn sync_body(db: &PgPool, sync: SyncResult) -> Result<Value, sqlx::Error> {
+async fn sync_body(db: &PgPool, sync: SyncResult) -> Result<Value, DbErr> {
     Ok(json!({
         "records": mark_records(db, sync.records).await?,
         "added": sync.added,
@@ -295,7 +295,7 @@ async fn sync(
     Path(zone_id): Path<String>,
 ) -> Response {
     let providers = caller.providers(&state);
-    let result: Result<Response, sqlx::Error> = async {
+    let result: Result<Response, DbErr> = async {
         let (zone_id, external, provider, dns) =
             match ready_by_zone(&caller.db, &zone_id, &providers).await? {
                 Ready::NotFound => {
@@ -358,7 +358,7 @@ async fn scan(
 ) -> Response {
     let found = async {
         let Some(domain) = live_domain(&caller.db, &domain_id).await? else {
-            return Ok::<_, sqlx::Error>(None);
+            return Ok::<_, DbErr>(None);
         };
         let zone = live_zone_of_domain(&caller.db, &domain_id).await?;
         Ok(Some((domain, zone)))
@@ -500,7 +500,7 @@ async fn import(
     if !providers.configured() {
         return unconfigured(providers.dns_provider);
     }
-    let result: Result<Response, sqlx::Error> = async {
+    let result: Result<Response, DbErr> = async {
         let (domain, zone_id, external, dns) =
             match ready_by_domain(&caller.db, &domain_id, &providers).await? {
                 Ready::NotFound => {
@@ -554,7 +554,7 @@ async fn provider_refused(
     provider: DnsProvider,
     sync: SyncResult,
     message: &str,
-) -> Result<Response, sqlx::Error> {
+) -> Result<Response, DbErr> {
     let records = mark_records(db, sync.records).await?;
     Ok(json_response(
         StatusCode::UNPROCESSABLE_ENTITY,
@@ -578,7 +578,7 @@ async fn create(
         Err(response) => return *response,
     };
     let providers = caller.providers(&state);
-    let result: Result<Response, sqlx::Error> = async {
+    let result: Result<Response, DbErr> = async {
         let (zone_id, external, provider, dns) =
             match ready_by_domain(&caller.db, &domain_id, &providers).await? {
                 Ready::NotFound => {
@@ -631,14 +631,8 @@ async fn create(
 }
 
 /// `loadDnsRecordWithZone`: the record and its zone (deleted or not).
-async fn record_with_zone(db: &PgPool, id: &str) -> Result<Option<(Value, Value)>, sqlx::Error> {
-    let Some(record) = one(
-        db,
-        "select to_jsonb(t) from dns_records t where t.id = $1 limit 1",
-        id,
-    )
-    .await?
-    else {
+async fn record_with_zone(db: &PgPool, id: &str) -> Result<Option<(Value, Value)>, DbErr> {
+    let Some(record) = any_record(db, id).await? else {
         return Ok(None);
     };
     let zone = any_zone(db, text(&record, "zoneId").unwrap_or_default()).await?;
@@ -679,7 +673,7 @@ async fn guard(
     providers: &Providers,
     id: &str,
     input: Option<&RecordInput>,
-) -> Result<Result<Guarded, Response>, sqlx::Error> {
+) -> Result<Result<Guarded, Response>, DbErr> {
     let Some((record, zone)) = record_with_zone(db, id).await? else {
         return Ok(Err(
             ApiError::not_found("DNS record", Some(id)).into_response()
@@ -732,7 +726,7 @@ async fn update(
     if !providers.configured() {
         return unconfigured(providers.dns_provider);
     }
-    let result: Result<Response, sqlx::Error> = async {
+    let result: Result<Response, DbErr> = async {
         let Guarded {
             record,
             zone,
@@ -784,7 +778,7 @@ async fn remove(
     if !providers.configured() {
         return unconfigured(providers.dns_provider);
     }
-    let result: Result<Response, sqlx::Error> = async {
+    let result: Result<Response, DbErr> = async {
         let Guarded {
             record,
             zone,
@@ -842,7 +836,7 @@ async fn lock(
     let reason = reason
         .filter(|r| !crate::js::js_trim(r).is_empty())
         .map_or_else(|| "Locked by user".to_owned(), |r| slice_utf16(&r, 500));
-    let result: Result<Response, sqlx::Error> = async {
+    let result: Result<Response, DbErr> = async {
         let Some((record, zone)) = record_with_zone(&caller.db, &id).await? else {
             return Ok(ApiError::not_found("DNS record", Some(&id)).into_response());
         };
@@ -851,14 +845,15 @@ async fn lock(
         } else {
             remove_user_lock(record.get("metadata"))
         };
-        sqlx::query(
-            "update dns_records set metadata = $2, updated_at = $3::timestamp where id = $1",
-        )
-        .bind(&id)
-        .bind(&metadata)
-        .bind(now())
-        .execute(&caller.db)
-        .await?;
+        dns_records::Entity::update_many()
+            .set(dns_records::ActiveModel {
+                metadata: Set(Some(metadata)),
+                updated_at: Set(utc_now()),
+                ..Default::default()
+            })
+            .filter(dns_records::Column::Id.eq(&id))
+            .exec(&orm(&caller.db))
+            .await?;
         let zone_id = text(&zone, "id").unwrap_or_default().to_owned();
         let records = zone_records(&caller.db, &zone_id).await?;
         caller.publish(

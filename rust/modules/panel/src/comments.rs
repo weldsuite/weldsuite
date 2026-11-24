@@ -14,22 +14,30 @@ use axum::body::Bytes;
 use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use http::HeaderMap;
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect,
+};
 use serde_json::{Value, json};
 use weldsuite_catalogs::entity_events::{
     EventName, PANEL_COMMENT_CREATED, PANEL_COMMENT_DELETED, PANEL_COMMENT_UPDATED,
 };
+use weldsuite_db::orm;
 use weldsuite_kit::{ApiError, Created, Data, List, NoContent, Pagination};
 use weldsuite_notifications::{
     NewNotification, Notifier, create_and_deliver, notification_preview,
 };
 use weldsuite_permissions::Permissions;
+use weldsuite_schema::tenant::{
+    panel_comments as comments, user_preferences, workspace_members, workspace_settings,
+};
 
-use crate::saved::{Actor, Target, can_see, field, get_target, rows, target_label, text};
+use crate::saved::{Actor, Target, can_see, field, get_target, js_row, target_label, text};
 use crate::schemas_gen::{CREATE_PANEL_COMMENT, PANEL_TARGET_QUERY, UPDATE_PANEL_COMMENT};
 use crate::{Caller, PanelState, unexpected};
 
 /// Comments listed per target, oldest first (`MAX_LISTED_COMMENTS`).
-const MAX_LISTED: i64 = 500;
+const MAX_LISTED: u64 = 500;
 
 /// `toCommentDto(c)`: `edited` when changed more than a second after posting.
 fn dto(row: &Value) -> Value {
@@ -68,7 +76,7 @@ async fn visible_target(
     actor: &Actor,
     target_type: &str,
     target_id: &str,
-) -> Result<Option<Target>, sqlx::Error> {
+) -> Result<Option<Target>, DbErr> {
     Ok(get_target(&caller.db, target_type, target_id)
         .await?
         .filter(|target| can_see(&target.row, actor)))
@@ -76,14 +84,13 @@ async fn visible_target(
 
 /// `visibleComment(c)`: the comment when the caller may see its target.
 async fn visible_comment(caller: &Caller, actor: &Actor, id: &str) -> Result<Value, Box<Response>> {
-    let row: Result<Option<Value>, sqlx::Error> = sqlx::query_scalar(
-        "select to_jsonb(c) from panel_comments c where c.id = $1 and c.deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(&caller.db)
-    .await;
+    let row = comments::Entity::find_by_id(id)
+        .filter(comments::Column::DeletedAt.is_null())
+        .one(&orm(&caller.db))
+        .await
+        .and_then(|row| row.map(js_row).transpose());
     let comment = match row {
-        Ok(Some(row)) => weldsuite_db::js_row(row),
+        Ok(Some(row)) => row,
         Ok(None) => {
             return Err(Box::new(
                 ApiError::not_found("Comment", Some(id)).into_response(),
@@ -128,19 +135,19 @@ pub(crate) async fn list(
         }
         Err(error) => return unexpected(&error, "list comments"),
     }
-    let found: Result<Vec<Value>, sqlx::Error> = sqlx::query_scalar(
-        "select to_jsonb(c) from panel_comments c
-         where c.target_type = $1 and c.target_id = $2 and c.deleted_at is null
-         order by c.created_at asc, c.id asc limit $3",
-    )
-    .bind(&target_type)
-    .bind(&target_id)
-    .bind(MAX_LISTED)
-    .fetch_all(&caller.db)
-    .await;
+    let found = comments::Entity::find()
+        .filter(comments::Column::TargetType.eq(&target_type))
+        .filter(comments::Column::TargetId.eq(&target_id))
+        .filter(comments::Column::DeletedAt.is_null())
+        .order_by_asc(comments::Column::CreatedAt)
+        .order_by_asc(comments::Column::Id)
+        .limit(MAX_LISTED)
+        .all(&orm(&caller.db))
+        .await
+        .and_then(|found| found.into_iter().map(js_row).collect::<Result<Vec<_>, _>>());
     match found {
         Ok(found) => {
-            let comments: Vec<Value> = rows(found).iter().map(dto).collect();
+            let comments: Vec<Value> = found.iter().map(dto).collect();
             let count = comments.len() as u64;
             List::new(comments, Pagination::new(count, false, None)).into_response()
         }
@@ -174,21 +181,20 @@ pub(crate) async fn create(
         }
         Err(error) => return unexpected(&error, "create comment"),
     };
-    let created: Result<Value, sqlx::Error> = sqlx::query_scalar(
-        "insert into panel_comments as c (id, project_id, target_type, target_id, body, author_user_id)
-         values ($1, $2, $3, $4, $5, $6)
-         returning to_jsonb(c)",
-    )
-    .bind(weldsuite_kit::id::generate_id("pncm"))
-    .bind(text(&target.row, "projectId"))
-    .bind(target.target_type)
-    .bind(text(&target.row, "id"))
-    .bind(input.text("body"))
-    .bind(&caller.user_id)
-    .fetch_one(&caller.db)
-    .await;
+    let created = comments::Entity::insert(comments::ActiveModel {
+        id: Set(weldsuite_kit::id::generate_id("pncm")),
+        project_id: Set(text(&target.row, "projectId").to_owned()),
+        target_type: Set(target.target_type.to_owned()),
+        target_id: Set(text(&target.row, "id").to_owned()),
+        body: Set(input.text("body").unwrap_or_default().to_owned()),
+        author_user_id: Set(caller.user_id.clone()),
+        ..Default::default()
+    })
+    .exec_with_returning(&orm(&caller.db))
+    .await
+    .and_then(js_row);
     let comment = match created {
-        Ok(row) => weldsuite_db::js_row(row),
+        Ok(row) => row,
         Err(error) => return unexpected(&error, "create comment"),
     };
     publish(&caller, &state, &comment, PANEL_COMMENT_CREATED);
@@ -223,18 +229,16 @@ pub(crate) async fn update(
             .with_message("Only the author can change this comment")
             .into_response();
     }
-    let updated: Result<Option<Value>, sqlx::Error> = sqlx::query_scalar(
-        "update panel_comments as c set body = $2, updated_at = now()
-         where c.id = $1 and c.deleted_at is null
-         returning to_jsonb(c)",
-    )
-    .bind(text(&found, "id"))
-    .bind(input.text("body"))
-    .fetch_optional(&caller.db)
-    .await;
+    let updated = comments::Entity::update_many()
+        .col_expr(comments::Column::Body, Expr::value(input.text("body")))
+        .col_expr(comments::Column::UpdatedAt, Expr::current_timestamp())
+        .filter(comments::Column::Id.eq(text(&found, "id")))
+        .filter(comments::Column::DeletedAt.is_null())
+        .exec_with_returning(&orm(&caller.db))
+        .await
+        .and_then(|rows| rows.into_iter().next().map(js_row).transpose());
     match updated {
-        Ok(Some(row)) => {
-            let comment = weldsuite_db::js_row(row);
+        Ok(Some(comment)) => {
             publish(&caller, &state, &comment, PANEL_COMMENT_UPDATED);
             Data(dto(&comment)).into_response()
         }
@@ -260,17 +264,16 @@ pub(crate) async fn remove(
             .with_message("Only the author can delete this comment")
             .into_response();
     }
-    let deleted: Result<Option<Value>, sqlx::Error> = sqlx::query_scalar(
-        "update panel_comments as c set deleted_at = now(), updated_at = now()
-         where c.id = $1 and c.deleted_at is null
-         returning to_jsonb(c)",
-    )
-    .bind(text(&found, "id"))
-    .fetch_optional(&caller.db)
-    .await;
+    let deleted = comments::Entity::update_many()
+        .col_expr(comments::Column::DeletedAt, Expr::current_timestamp())
+        .col_expr(comments::Column::UpdatedAt, Expr::current_timestamp())
+        .filter(comments::Column::Id.eq(text(&found, "id")))
+        .filter(comments::Column::DeletedAt.is_null())
+        .exec_with_returning(&orm(&caller.db))
+        .await
+        .and_then(|rows| rows.into_iter().next().map(js_row).transpose());
     match deleted {
-        Ok(Some(row)) => {
-            let comment = weldsuite_db::js_row(row);
+        Ok(Some(comment)) => {
             publish(&caller, &state, &comment, PANEL_COMMENT_DELETED);
             NoContent.into_response()
         }
@@ -362,22 +365,29 @@ async fn notify_target_owner(
     let owner = text(&target.row, "ownerUserId");
     let author = text(comment, "authorUserId");
     let lookups = async {
-        let preference: Option<Option<String>> =
-            sqlx::query_scalar("select language from user_preferences where user_id = $1 limit 1")
-                .bind(owner)
-                .fetch_optional(&caller.db)
-                .await?;
-        let workspace: Option<Option<String>> =
-            sqlx::query_scalar("select language from workspace_settings limit 1")
-                .fetch_optional(&caller.db)
-                .await?;
-        let name: Option<Option<String>> =
-            sqlx::query_scalar("select name from workspace_members where user_id = $1 limit 1")
-                .bind(author)
-                .fetch_optional(&caller.db)
-                .await?;
-        Ok::<_, sqlx::Error>((
-            email_locale(&[preference.flatten(), workspace.flatten()]),
+        let db = orm(&caller.db);
+        let preference: Option<String> = user_preferences::Entity::find()
+            .select_only()
+            .column(user_preferences::Column::Language)
+            .filter(user_preferences::Column::UserId.eq(owner))
+            .into_tuple()
+            .one(&db)
+            .await?;
+        let workspace: Option<Option<String>> = workspace_settings::Entity::find()
+            .select_only()
+            .column(workspace_settings::Column::Language)
+            .into_tuple()
+            .one(&db)
+            .await?;
+        let name: Option<Option<String>> = workspace_members::Entity::find()
+            .select_only()
+            .column(workspace_members::Column::Name)
+            .filter(workspace_members::Column::UserId.eq(author))
+            .into_tuple()
+            .one(&db)
+            .await?;
+        Ok::<_, DbErr>((
+            email_locale(&[preference, workspace.flatten()]),
             name.flatten(),
         ))
     };

@@ -4,11 +4,12 @@
 //! payload.
 
 use serde_json::{Map, Value, json};
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::generate_id;
+use weldsuite_schema::tenant::crm_leads;
 
-use crate::tables::CRM_LEADS;
-use crate::{DomainResult, insert_sql, now};
+use crate::tables::{CRM_LEADS, insert_row};
+use crate::{DomainResult, now};
 
 /// `LEAD_EVENT_FIELDS`: the contact card a workflow needs, not the whole
 /// row (the free-text qualification fields stay off the event bus).
@@ -143,10 +144,7 @@ pub async fn create_lead(
     }
     values.insert("createdAt".into(), json!(now));
     values.insert("updatedAt".into(), json!(now));
-    sqlx::query(insert_sql!(crm_leads))
-        .bind(CRM_LEADS.values(&values))
-        .execute(db)
-        .await?;
+    insert_row::<crm_leads::Entity>(&orm(db), &CRM_LEADS, &values).await?;
     let mut event = lead_event_fields(&values);
     event.insert("id".into(), json!(id));
     event.insert(

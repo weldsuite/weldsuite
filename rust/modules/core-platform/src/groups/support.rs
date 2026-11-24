@@ -46,15 +46,21 @@ use axum::body::Bytes;
 use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get};
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect,
+};
 use serde_json::{Value, json};
-use time::OffsetDateTime;
-use weldsuite_db::js_row;
+use time::{OffsetDateTime, PrimitiveDateTime};
+use weldsuite_db::{orm, utc_now, utc_timestamp};
 use weldsuite_kit::validation::{js_number, js_trim};
 use weldsuite_kit::{ApiError, Created, Data, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 use weldsuite_ports::{DynRealtimePublisher, RealtimeMessage, Room};
+use weldsuite_schema::master::{plans, workspaces};
+use weldsuite_schema::tenant::{support_channel_members, support_channels, support_messages};
 
-use crate::{Caller, CorePlatformState, now};
+use crate::{Caller, CorePlatformState};
 
 pub(crate) fn router<Q>(gate: &Arc<PermissionGate<Q>>) -> Router<CorePlatformState>
 where
@@ -87,8 +93,8 @@ enum Failure {
     Internal(String),
 }
 
-impl From<sqlx::Error> for Failure {
-    fn from(error: sqlx::Error) -> Self {
+impl From<DbErr> for Failure {
+    fn from(error: DbErr) -> Self {
         Self::Internal(error.to_string())
     }
 }
@@ -133,41 +139,65 @@ async fn is_enterprise_plan(
     caller: &Caller,
     state: &CorePlatformState,
     org_id: &str,
-) -> Result<bool, sqlx::Error> {
-    let master = caller.master(state);
-    let plan_id: Option<Option<String>> =
-        sqlx::query_scalar("select plan_id from workspaces where clerk_org_id = $1 limit 1")
-            .bind(org_id)
-            .fetch_optional(&master)
-            .await?;
+) -> Result<bool, DbErr> {
+    let master = orm(&caller.master(state));
+    let plan_id: Option<Option<String>> = workspaces::Entity::find()
+        .select_only()
+        .column(workspaces::Column::PlanId)
+        .filter(workspaces::Column::ClerkOrgId.eq(org_id))
+        .into_tuple()
+        .one(&master)
+        .await?;
     let Some(plan_id) = plan_id.flatten().filter(|id| !id.is_empty()) else {
         return Ok(false);
     };
-    let slug: Option<String> = sqlx::query_scalar("select slug from plans where id = $1 limit 1")
-        .bind(&plan_id)
-        .fetch_optional(&master)
+    let slug: Option<String> = plans::Entity::find()
+        .select_only()
+        .column(plans::Column::Slug)
+        .filter(plans::Column::Id.eq(&plan_id))
+        .into_tuple()
+        .one(&master)
         .await?;
     Ok(slug.as_deref() == Some("enterprise"))
 }
 
-/// The active channel, as Drizzle returns the row.
-async fn active_channel(caller: &Caller) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(c) from support_channels c where status = 'active' limit 1",
-    )
-    .fetch_optional(&caller.db)
-    .await?;
-    Ok(row.map(js_row))
+/// A row as Drizzle returns it: the entity serializes as `to_jsonb`
+/// through `js_row` read it.
+fn row_json(row: impl serde::Serialize) -> Value {
+    serde_json::to_value(row).unwrap_or(Value::Null)
 }
 
-async fn members_of(caller: &Caller, channel_id: &str) -> Result<Vec<Value>, sqlx::Error> {
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(m) from support_channel_members m where channel_id = $1",
-    )
-    .bind(channel_id)
-    .fetch_all(&caller.db)
-    .await?;
-    Ok(rows.into_iter().map(js_row).collect())
+/// The active channel, as Drizzle returns the row.
+async fn active_channel(caller: &Caller) -> Result<Option<Value>, DbErr> {
+    let row = support_channels::Entity::find()
+        .filter(support_channels::Column::Status.eq("active"))
+        .one(&orm(&caller.db))
+        .await?;
+    Ok(row.map(row_json))
+}
+
+async fn members_of(caller: &Caller, channel_id: &str) -> Result<Vec<Value>, DbErr> {
+    let rows = support_channel_members::Entity::find()
+        .filter(support_channel_members::Column::ChannelId.eq(channel_id))
+        .all(&orm(&caller.db))
+        .await?;
+    Ok(rows.into_iter().map(row_json).collect())
+}
+
+/// `update support_channels set <count> = …, updated_at = now where id = …`.
+async fn set_channel_count(
+    caller: &Caller,
+    channel_id: &str,
+    column: support_channels::Column,
+    count: i64,
+) -> Result<(), DbErr> {
+    support_channels::Entity::update_many()
+        .col_expr(column, Expr::value(count))
+        .col_expr(support_channels::Column::UpdatedAt, Expr::value(utc_now()))
+        .filter(support_channels::Column::Id.eq(channel_id))
+        .exec(&orm(&caller.db))
+        .await?;
+    Ok(())
 }
 
 fn text_of<'a>(row: &'a Value, key: &str) -> &'a str {
@@ -280,26 +310,31 @@ async fn channel_inner(state: &CorePlatformState, caller: &Caller) -> Outcome {
     // Created on first access, the caller as its owner.
     let channel_id = generate_id("sup");
     let member_id = generate_id("scm");
-    sqlx::query("insert into support_channels (id, status, member_count) values ($1, 'active', 1)")
-        .bind(&channel_id)
-        .execute(&caller.db)
+    let db = orm(&caller.db);
+    let channel = support_channels::ActiveModel {
+        id: Set(channel_id.clone()),
+        status: Set("active".to_owned()),
+        member_count: Set(1),
+        ..Default::default()
+    };
+    support_channels::Entity::insert(channel)
+        .exec_without_returning(&db)
         .await?;
-    sqlx::query(
-        "insert into support_channel_members (id, channel_id, user_id, role)
-         values ($1, $2, $3, 'owner')",
-    )
-    .bind(&member_id)
-    .bind(&channel_id)
-    .bind(&caller.user_id)
-    .execute(&caller.db)
-    .await?;
-    let row: Option<Value> =
-        sqlx::query_scalar("select to_jsonb(c) from support_channels c where id = $1")
-            .bind(&channel_id)
-            .fetch_optional(&caller.db)
-            .await?;
+    let owner = support_channel_members::ActiveModel {
+        id: Set(member_id),
+        channel_id: Set(channel_id.clone()),
+        user_id: Set(caller.user_id.clone()),
+        role: Set("owner".to_owned()),
+        ..Default::default()
+    };
+    support_channel_members::Entity::insert(owner)
+        .exec_without_returning(&db)
+        .await?;
+    let row = support_channels::Entity::find_by_id(channel_id.clone())
+        .one(&db)
+        .await?;
     let members = members_of(caller, &channel_id).await?;
-    let channel = row.map_or(Value::Null, js_row);
+    let channel = row.map_or(Value::Null, row_json);
     Ok(Created(json!({ "channel": channel, "members": members })).into_response())
 }
 
@@ -353,6 +388,7 @@ async fn list_messages_inner(
     caller: &Caller,
     query: Option<&str>,
 ) -> Outcome {
+    use support_messages::Column as M;
     enterprise_org(caller, state).await?;
     let before = query_param(query, "before").filter(|before| !before.is_empty());
     let limit = page_size(query_param(query, "limit").as_deref());
@@ -365,34 +401,35 @@ async fn list_messages_inner(
 
     // Older than the cursor message, at the millisecond the worker reads
     // its `createdAt` with (a `Date`).
-    let cursor: Option<String> = match &before {
+    let db = orm(&caller.db);
+    let cursor: Option<PrimitiveDateTime> = match &before {
         Some(before) => {
-            sqlx::query_scalar(
-                "select date_trunc('milliseconds', created_at)::text
-             from support_messages where id = $1 limit 1",
-            )
-            .bind(before)
-            .fetch_optional(&caller.db)
-            .await?
+            let at: Option<PrimitiveDateTime> = support_messages::Entity::find()
+                .select_only()
+                .column(M::CreatedAt)
+                .filter(M::Id.eq(before))
+                .into_tuple()
+                .one(&db)
+                .await?;
+            at.map(|at| utc_timestamp(at.assume_utc()))
         }
         None => None,
     };
 
     let limit =
         limit.map_err(|()| Failure::Internal("the page size is not an integer".to_owned()))?;
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(m) from support_messages m
-         where channel_id = $1 and deleted_at is null
-           and ($2::timestamp is null or created_at < $2::timestamp)
-         order by created_at desc
-         limit $3",
-    )
-    .bind(text_of(&channel, "id"))
-    .bind(&cursor)
-    .bind(limit.map(|limit| limit + 1))
-    .fetch_all(&caller.db)
-    .await?;
-    let mut messages: Vec<Value> = rows.into_iter().map(js_row).collect();
+    let mut select = support_messages::Entity::find()
+        .filter(M::ChannelId.eq(text_of(&channel, "id")))
+        .filter(M::DeletedAt.is_null());
+    if let Some(cursor) = cursor {
+        select = select.filter(M::CreatedAt.lt(cursor));
+    }
+    let rows = select
+        .order_by_desc(M::CreatedAt)
+        .limit(limit.map(|limit| u64::try_from(limit + 1).unwrap_or(0)))
+        .all(&db)
+        .await?;
+    let mut messages: Vec<Value> = rows.into_iter().map(row_json).collect();
     let has_more = limit.is_some_and(|limit| messages.len() > usize::try_from(limit).unwrap_or(0));
     if has_more {
         messages.pop();
@@ -461,43 +498,44 @@ async fn send_message_inner(state: &CorePlatformState, caller: &Caller, body: &[
         .cloned();
 
     let message_id = generate_id("smsg");
-    sqlx::query(
-        "insert into support_messages
-             (id, channel_id, author_id, author_name, author_avatar, author_type,
-              content, html_content, attachments)
-         values ($1, $2, $3, $4, $5, 'customer', $6, $7, $8::jsonb)",
-    )
-    .bind(&message_id)
-    .bind(&channel_id)
-    .bind(&caller.user_id)
-    .bind(&author_name)
-    .bind(&author_avatar)
-    .bind(&content)
-    .bind(&html_content)
-    .bind(&attachments)
-    .execute(&caller.db)
-    .await?;
+    let db = orm(&caller.db);
+    let preview = preview_of(&content);
+    let message = support_messages::ActiveModel {
+        id: Set(message_id.clone()),
+        channel_id: Set(channel_id.clone()),
+        author_id: Set(caller.user_id.clone()),
+        author_name: Set(author_name),
+        author_avatar: Set(author_avatar),
+        author_type: Set("customer".to_owned()),
+        content: Set(content),
+        html_content: Set(html_content),
+        attachments: Set(attachments),
+        ..Default::default()
+    };
+    support_messages::Entity::insert(message)
+        .exec_without_returning(&db)
+        .await?;
 
-    let stamp = now();
-    sqlx::query(
-        "update support_channels
-         set last_message_at = $2::timestamp, last_message_preview = $3,
-             message_count = $4, updated_at = $2::timestamp
-         where id = $1",
-    )
-    .bind(&channel_id)
-    .bind(&stamp)
-    .bind(preview_of(&content))
-    .bind(count_of(&channel, "messageCount") + 1)
-    .execute(&caller.db)
-    .await?;
+    let stamp = utc_now();
+    support_channels::Entity::update_many()
+        .col_expr(support_channels::Column::LastMessageAt, Expr::value(stamp))
+        .col_expr(
+            support_channels::Column::LastMessagePreview,
+            Expr::value(preview),
+        )
+        .col_expr(
+            support_channels::Column::MessageCount,
+            Expr::value(count_of(&channel, "messageCount") + 1),
+        )
+        .col_expr(support_channels::Column::UpdatedAt, Expr::value(stamp))
+        .filter(support_channels::Column::Id.eq(&channel_id))
+        .exec(&db)
+        .await?;
 
-    let row: Option<Value> =
-        sqlx::query_scalar("select to_jsonb(m) from support_messages m where id = $1")
-            .bind(&message_id)
-            .fetch_optional(&caller.db)
-            .await?;
-    let message = row.map_or(Value::Null, js_row);
+    let row = support_messages::Entity::find_by_id(message_id)
+        .one(&db)
+        .await?;
+    let message = row.map_or(Value::Null, row_json);
     support_event(state, &org_id, "message", message.clone()).await;
     Ok(Created(message).into_response())
 }
@@ -567,11 +605,13 @@ async fn add_members_inner(state: &CorePlatformState, caller: &Caller, body: &[u
         return Err(support_channel_not_found());
     };
     let channel_id = text_of(&channel, "id").to_owned();
-    let existing: Vec<String> =
-        sqlx::query_scalar("select user_id from support_channel_members where channel_id = $1")
-            .bind(&channel_id)
-            .fetch_all(&caller.db)
-            .await?;
+    let existing: Vec<String> = support_channel_members::Entity::find()
+        .select_only()
+        .column(support_channel_members::Column::UserId)
+        .filter(support_channel_members::Column::ChannelId.eq(&channel_id))
+        .into_tuple()
+        .all(&orm(&caller.db))
+        .await?;
     let Requested::List(requested) = requested else {
         return Err(Failure::Internal(
             "userIds.filter is not a function".to_owned(),
@@ -600,26 +640,25 @@ async fn add_members_inner(state: &CorePlatformState, caller: &Caller, body: &[u
             }
             user_ids.push(text);
         }
-        let member_ids: Vec<String> = user_ids.iter().map(|_| generate_id("scm")).collect();
-        sqlx::query(
-            "insert into support_channel_members (id, channel_id, user_id, role)
-             select id, $2, user_id, 'member'
-             from unnest($1::varchar[], $3::varchar[]) as t(id, user_id)",
-        )
-        .bind(&member_ids)
-        .bind(&channel_id)
-        .bind(&user_ids)
-        .execute(&caller.db)
-        .await?;
         let added = i64::try_from(user_ids.len()).unwrap_or_default();
-        sqlx::query(
-            "update support_channels set member_count = $2, updated_at = $3::timestamp
-             where id = $1",
+        let members = user_ids
+            .into_iter()
+            .map(|user_id| support_channel_members::ActiveModel {
+                id: Set(generate_id("scm")),
+                channel_id: Set(channel_id.clone()),
+                user_id: Set(user_id),
+                role: Set("member".to_owned()),
+                ..Default::default()
+            });
+        support_channel_members::Entity::insert_many(members)
+            .exec_without_returning(&orm(&caller.db))
+            .await?;
+        set_channel_count(
+            caller,
+            &channel_id,
+            support_channels::Column::MemberCount,
+            count_of(&channel, "memberCount") + added,
         )
-        .bind(&channel_id)
-        .bind(count_of(&channel, "memberCount") + added)
-        .bind(now())
-        .execute(&caller.db)
         .await?;
     }
 
@@ -650,19 +689,21 @@ async fn remove_member(
 }
 
 async fn remove_member_inner(state: &CorePlatformState, caller: &Caller, target: &str) -> Outcome {
+    use support_channel_members::Column as C;
     let org_id = enterprise_org(caller, state).await?;
     let Some(channel) = active_channel(caller).await? else {
         return Err(support_channel_not_found());
     };
     let channel_id = text_of(&channel, "id").to_owned();
-    let member: Option<(String, String)> = sqlx::query_as(
-        "select id, role from support_channel_members
-         where channel_id = $1 and user_id = $2 limit 1",
-    )
-    .bind(&channel_id)
-    .bind(target)
-    .fetch_optional(&caller.db)
-    .await?;
+    let db = orm(&caller.db);
+    let member: Option<(String, String)> = support_channel_members::Entity::find()
+        .select_only()
+        .columns([C::Id, C::Role])
+        .filter(C::ChannelId.eq(&channel_id))
+        .filter(C::UserId.eq(target))
+        .into_tuple()
+        .one(&db)
+        .await?;
     let Some((member_id, role)) = member else {
         return Err(ApiError::not_found("Member", Some(target)).into());
     };
@@ -670,18 +711,15 @@ async fn remove_member_inner(state: &CorePlatformState, caller: &Caller, target:
         return Err(ApiError::bad_request("Cannot remove the channel owner.").into());
     }
 
-    sqlx::query("delete from support_channel_members where id = $1")
-        .bind(&member_id)
-        .execute(&caller.db)
+    support_channel_members::Entity::delete_by_id(member_id)
+        .exec(&db)
         .await?;
-    sqlx::query(
-        "update support_channels set member_count = $2, updated_at = $3::timestamp
-         where id = $1",
+    set_channel_count(
+        caller,
+        &channel_id,
+        support_channels::Column::MemberCount,
+        (count_of(&channel, "memberCount") - 1).max(0),
     )
-    .bind(&channel_id)
-    .bind((count_of(&channel, "memberCount") - 1).max(0))
-    .bind(now())
-    .execute(&caller.db)
     .await?;
 
     support_event(

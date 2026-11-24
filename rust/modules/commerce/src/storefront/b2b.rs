@@ -15,6 +15,7 @@ use axum::body::Bytes;
 use axum::extract::Path;
 use axum::response::{IntoResponse, Response};
 use http::{HeaderMap, StatusCode};
+use sea_orm::{ColumnTrait, EntityTrait, JoinType, QueryFilter, QueryOrder, QuerySelect};
 use serde_json::{Value, json};
 use weldsuite_catalogs::entity_events::{
     COMMERCE_BUYER_CREATED, COMMERCE_BUYER_DELETED, COMMERCE_BUYER_INVITED, COMMERCE_BUYER_UPDATED,
@@ -23,8 +24,10 @@ use weldsuite_commerce_domain::accounts::{self, BuyerPatch, NewBuyer};
 use weldsuite_commerce_domain::approvals::{self, Decider};
 use weldsuite_commerce_domain::checkout;
 use weldsuite_commerce_domain::money;
+use weldsuite_db::OrmConn;
 use weldsuite_emails::commerce::BuyerInvitation;
 use weldsuite_events::publish_entity_event;
+use weldsuite_schema::tenant::{order_approvals, orders, parties};
 
 use super::shopper::{self, Loaded};
 use super::{Principal, body_object, created, data, domain, fail, internal, validation};
@@ -72,16 +75,34 @@ pub(crate) async fn approvals(
     };
     let found = async {
         let mut conn = principal.db.acquire().await?;
-        let rows: Vec<(String, String, Option<String>)> = sqlx::query_as(
-            "select o.id, a.reason, a.requested_by_person_id from order_approvals a \
-             join orders o on o.id = a.order_id join parties pa on pa.id = o.counterparty_id \
-             where a.decision = 'pending' and pa.company_id = $1 and o.channel_id = $2 \
-               and o.deleted_at is null order by a.created_at desc, a.id desc",
-        )
-        .bind(&company)
-        .bind(&principal.channel.id)
-        .fetch_all(&mut *conn)
-        .await?;
+        let rows: Vec<(String, String, Option<String>)> = order_approvals::Entity::find()
+            .select_only()
+            .column(orders::Column::Id)
+            .column(order_approvals::Column::Reason)
+            .column(order_approvals::Column::RequestedByPersonId)
+            .join(
+                JoinType::InnerJoin,
+                order_approvals::Entity::belongs_to(orders::Entity)
+                    .from(order_approvals::Column::OrderId)
+                    .to(orders::Column::Id)
+                    .into(),
+            )
+            .join(
+                JoinType::InnerJoin,
+                orders::Entity::belongs_to(parties::Entity)
+                    .from(orders::Column::CounterpartyId)
+                    .to(parties::Column::Id)
+                    .into(),
+            )
+            .filter(order_approvals::Column::Decision.eq("pending"))
+            .filter(parties::Column::CompanyId.eq(company.as_str()))
+            .filter(orders::Column::ChannelId.eq(principal.channel.id.as_str()))
+            .filter(orders::Column::DeletedAt.is_null())
+            .order_by_desc(order_approvals::Column::CreatedAt)
+            .order_by_desc(order_approvals::Column::Id)
+            .into_tuple()
+            .all(&OrmConn::new(&mut conn))
+            .await?;
         let mut out = Vec::with_capacity(rows.len());
         for (order_id, reason, requested) in rows {
             let order = checkout::order_view(&mut conn, &order_id).await?;
@@ -139,14 +160,21 @@ async fn decide_order(
     // The order must be on this channel and a company the shopper approves for.
     let decided = async {
         let mut tx = principal.db.begin().await?;
-        let company: Option<Option<String>> = sqlx::query_scalar(
-            "select pa.company_id from orders o left join parties pa on pa.id = o.counterparty_id \
-             where o.id = $1 and o.channel_id = $2 and o.deleted_at is null",
-        )
-        .bind(&order_id)
-        .bind(&principal.channel.id)
-        .fetch_optional(&mut *tx)
-        .await?;
+        let company: Option<Option<String>> = orders::Entity::find_by_id(order_id.as_str())
+            .select_only()
+            .column(parties::Column::CompanyId)
+            .join(
+                JoinType::LeftJoin,
+                orders::Entity::belongs_to(parties::Entity)
+                    .from(orders::Column::CounterpartyId)
+                    .to(parties::Column::Id)
+                    .into(),
+            )
+            .filter(orders::Column::ChannelId.eq(principal.channel.id.as_str()))
+            .filter(orders::Column::DeletedAt.is_null())
+            .into_tuple()
+            .one(&OrmConn::new(&mut tx))
+            .await?;
         let Some(company) = company else {
             return Ok(Err(None));
         };

@@ -15,10 +15,18 @@
 //! `weldsuite_social_domain::credits`, moving to `weldsuite-core-domain`; this
 //! grant moves next to them once that wallet takes a typed grant.
 
+use std::str::FromStr;
+
+use sea_orm::prelude::BigDecimal;
+use sea_orm::sea_query::{Expr, OnConflict};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, ConnectionTrait, DbErr, EntityTrait, QueryFilter, QuerySelect,
+};
 use serde_json::{Value, json};
 use time::OffsetDateTime;
-use weldsuite_db::PgPool;
+use weldsuite_db::{OrmConn, PgPool, orm, orm_error};
 use weldsuite_kit::generate_id;
+use weldsuite_schema::master::{credit_transactions, workspace_credits, workspaces};
 
 use super::mollie::Money;
 
@@ -86,109 +94,143 @@ struct Entry<'a> {
 }
 
 /// The first instants of this UTC month and the next, for a new wallet row.
-fn period(now: OffsetDateTime) -> (String, String) {
+fn period(now: OffsetDateTime) -> (OffsetDateTime, OffsetDateTime) {
     let start = now.date().replace_day(1).unwrap_or(now.date());
     let next = start
         .checked_add(time::Duration::days(32))
         .and_then(|date| date.replace_day(1).ok())
         .unwrap_or(start);
-    let iso = |date: time::Date| {
-        format!(
-            "{:04}-{:02}-01T00:00:00.000Z",
-            date.year(),
-            u8::from(date.month())
-        )
-    };
-    (iso(start), iso(next))
+    (start.midnight().assume_utc(), next.midnight().assume_utc())
 }
 
-async fn apply(master: &PgPool, entry: &Entry<'_>) -> Result<Applied, sqlx::Error> {
-    let mut tx = master.begin().await?;
-    let taken: Option<String> =
-        sqlx::query_scalar("select id from credit_transactions where idempotency_key = $1 limit 1")
-            .bind(&entry.idempotency_key)
-            .fetch_optional(&mut *tx)
-            .await?;
+/// Runs `entry` in one transaction: committed when its ledger row was
+/// written, rolled back otherwise (a duplicate, no workspace, an error).
+async fn apply(master: &PgPool, entry: &Entry<'_>) -> Result<Applied, DbErr> {
+    let mut tx = master.begin().await.map_err(orm_error)?;
+    let applied = write(&OrmConn::new(&mut tx), entry).await?;
+    if matches!(applied, Applied::New { .. }) {
+        tx.commit().await.map_err(orm_error)?;
+    } else {
+        tx.rollback().await.map_err(orm_error)?;
+    }
+    Ok(applied)
+}
+
+/// The statements of [`apply`], in order, on its transaction.
+async fn write(tx: &impl ConnectionTrait, entry: &Entry<'_>) -> Result<Applied, DbErr> {
+    let taken: Option<String> = credit_transactions::Entity::find()
+        .select_only()
+        .column(credit_transactions::Column::Id)
+        .filter(credit_transactions::Column::IdempotencyKey.eq(&entry.idempotency_key))
+        .into_tuple()
+        .one(tx)
+        .await?;
     if taken.is_some() {
-        tx.rollback().await?;
         return Ok(Applied::Duplicate);
     }
-    let workspace: Option<String> =
-        sqlx::query_scalar("select id from workspaces where id = $1 limit 1")
-            .bind(entry.workspace_id)
-            .fetch_optional(&mut *tx)
-            .await?;
+    let workspace: Option<String> = workspaces::Entity::find()
+        .select_only()
+        .column(workspaces::Column::Id)
+        .filter(workspaces::Column::Id.eq(entry.workspace_id))
+        .into_tuple()
+        .one(tx)
+        .await?;
     if workspace.is_none() {
-        tx.rollback().await?;
         return Ok(Applied::NoWorkspace);
     }
     // `getOrCreateWorkspaceCredits`: an empty wallet for this month first.
     let (start, end) = period(OffsetDateTime::now_utc());
-    sqlx::query(
-        "insert into workspace_credits
-             (id, workspace_id, current_balance, plan_credits, subscribed_credits,
-              monthly_allocation, rolled_over_credits, rollover_cap, period_start, period_end,
-              last_reset_at)
-         values ($1, $2, 0, 0, 0, 0, 0, null, $3::timestamptz, $4::timestamptz, null)
-         on conflict do nothing",
-    )
-    .bind(generate_id("wcr"))
-    .bind(entry.workspace_id)
-    .bind(&start)
-    .bind(&end)
-    .execute(&mut *tx)
-    .await?;
+    let wallet = workspace_credits::ActiveModel {
+        id: Set(generate_id("wcr")),
+        workspace_id: Set(entry.workspace_id.to_owned()),
+        current_balance: Set(0),
+        plan_credits: Set(0),
+        subscribed_credits: Set(0),
+        monthly_allocation: Set(0),
+        rolled_over_credits: Set(0),
+        rollover_cap: Set(None),
+        period_start: Set(start),
+        period_end: Set(end),
+        last_reset_at: Set(None),
+        ..Default::default()
+    };
+    workspace_credits::Entity::insert(wallet)
+        .on_conflict(OnConflict::new().do_nothing().to_owned())
+        .exec_without_returning(tx)
+        .await?;
     // A clawback may take the balance below zero: visible debt beats hidden
     // loss (`handleChargeRefunded`).
-    let balance: i32 = sqlx::query_scalar(
-        "update workspace_credits set current_balance = current_balance + $2::int,
-             updated_at = now()
-         where workspace_id = $1
-         returning current_balance",
-    )
-    .bind(entry.workspace_id)
-    .bind(entry.amount)
-    .fetch_one(&mut *tx)
-    .await?;
-    let inserted: Option<String> = sqlx::query_scalar(
-        "insert into credit_transactions
-             (id, workspace_id, type, amount, balance_after, reference_id, reference_type,
-              idempotency_key, amount_paid, currency, description, metadata, user_id)
-         values ($1, $2, $3, $4::int, $5, $6, $7, $8, $9::numeric, $10, $11, $12::jsonb, $13)
-         on conflict (idempotency_key) do nothing
-         returning id",
-    )
-    .bind(generate_id("ctx"))
-    .bind(entry.workspace_id)
-    .bind(entry.kind)
-    .bind(entry.amount)
-    .bind(balance)
-    .bind(entry.reference_id.as_deref())
-    .bind(entry.reference_type)
-    .bind(&entry.idempotency_key)
-    .bind(entry.amount_paid.as_deref())
-    .bind(entry.currency.as_deref())
-    .bind(&entry.description)
-    .bind(&entry.metadata)
-    .bind(entry.user_id)
-    .fetch_optional(&mut *tx)
-    .await?;
-    if let Some(transaction_id) = inserted {
-        tx.commit().await?;
-        Ok(Applied::New {
-            transaction_id,
+    let balance = workspace_credits::Entity::update_many()
+        .col_expr(
+            workspace_credits::Column::CurrentBalance,
+            sea_orm::ExprTrait::add(
+                Expr::col(workspace_credits::Column::CurrentBalance),
+                sea_orm::ExprTrait::cast_as(Expr::value(entry.amount), "int"),
+            ),
+        )
+        .col_expr(
+            workspace_credits::Column::UpdatedAt,
+            Expr::current_timestamp(),
+        )
+        .filter(workspace_credits::Column::WorkspaceId.eq(entry.workspace_id))
+        .exec_with_returning(tx)
+        .await?
+        .into_iter()
+        .next()
+        .map(|wallet| wallet.current_balance)
+        .ok_or_else(|| DbErr::RecordNotFound("workspace_credits".to_owned()))?;
+    let inserted = credit_transactions::Entity::insert(ledger_row(entry, balance)?)
+        .on_conflict(
+            OnConflict::column(credit_transactions::Column::IdempotencyKey)
+                .do_nothing()
+                .to_owned(),
+        )
+        .try_insert()
+        .exec(tx)
+        .await?;
+    match inserted {
+        sea_orm::TryInsertResult::Inserted(row) => Ok(Applied::New {
+            transaction_id: row.last_insert_id,
             balance_after: i64::from(balance),
-        })
-    } else {
+        }),
         // A concurrent delivery committed the key first: undo ours.
-        tx.rollback().await?;
-        Ok(Applied::Duplicate)
+        sea_orm::TryInsertResult::Empty | sea_orm::TryInsertResult::Conflicted => {
+            Ok(Applied::Duplicate)
+        }
     }
+}
+
+/// The `credit_transactions` row of `entry`, after the balance it left.
+fn ledger_row(entry: &Entry<'_>, balance: i32) -> Result<credit_transactions::ActiveModel, DbErr> {
+    // The balance update cast the amount to `int` already.
+    let amount = i32::try_from(entry.amount).map_err(|error| DbErr::Custom(error.to_string()))?;
+    let amount_paid = entry
+        .amount_paid
+        .as_deref()
+        .map(BigDecimal::from_str)
+        .transpose()
+        .map_err(|error| DbErr::Custom(error.to_string()))?;
+    Ok(credit_transactions::ActiveModel {
+        id: Set(generate_id("ctx")),
+        workspace_id: Set(entry.workspace_id.to_owned()),
+        type_: Set(entry.kind.to_owned()),
+        amount: Set(amount),
+        balance_after: Set(balance),
+        reference_id: Set(entry.reference_id.clone()),
+        reference_type: Set(Some(entry.reference_type.to_owned())),
+        idempotency_key: Set(Some(entry.idempotency_key.clone())),
+        amount_paid: Set(amount_paid),
+        currency: Set(entry.currency.clone()),
+        description: Set(Some(entry.description.clone())),
+        metadata: Set(Some(entry.metadata.clone())),
+        user_id: Set(entry.user_id.map(str::to_owned)),
+        ..Default::default()
+    })
 }
 
 /// `grantCredits({ type: 'purchase', idempotencyKey })` for a paid payment:
 /// the credits quoted at checkout, once per payment.
-pub async fn grant_purchase(master: &PgPool, purchase: &Purchase) -> Result<Applied, sqlx::Error> {
+pub async fn grant_purchase(master: &PgPool, purchase: &Purchase) -> Result<Applied, DbErr> {
     let mut metadata = json!({
         "provider": "mollie",
         "paymentId": purchase.payment_id,
@@ -233,14 +275,19 @@ pub enum Reversed {
 
 /// A payment refunded or charged back in full: the credits it granted are
 /// taken back (`handleChargeRefunded`'s clawback), once.
-pub async fn reverse_purchase(master: &PgPool, payment_id: &str) -> Result<Reversed, sqlx::Error> {
-    let purchase: Option<(String, String, i32)> = sqlx::query_as(
-        "select id, workspace_id, amount from credit_transactions
-         where idempotency_key = $1 and type = 'purchase' limit 1",
-    )
-    .bind(purchase_key(payment_id))
-    .fetch_optional(master)
-    .await?;
+pub async fn reverse_purchase(master: &PgPool, payment_id: &str) -> Result<Reversed, DbErr> {
+    let purchase: Option<(String, String, i32)> = credit_transactions::Entity::find()
+        .select_only()
+        .columns([
+            credit_transactions::Column::Id,
+            credit_transactions::Column::WorkspaceId,
+            credit_transactions::Column::Amount,
+        ])
+        .filter(credit_transactions::Column::IdempotencyKey.eq(purchase_key(payment_id)))
+        .filter(credit_transactions::Column::Type.eq("purchase"))
+        .into_tuple()
+        .one(&orm(master))
+        .await?;
     let Some((transaction_id, workspace_id, amount)) =
         purchase.filter(|(_, _, amount)| *amount > 0)
     else {
@@ -275,16 +322,24 @@ pub async fn granted_for_checkout(
     master: &PgPool,
     workspace_id: &str,
     checkout_id: &str,
-) -> Result<Option<i64>, sqlx::Error> {
-    let amount: Option<i32> = sqlx::query_scalar(
-        "select amount from credit_transactions
-         where workspace_id = $1 and type = 'purchase' and metadata->>'checkoutId' = $2
-         limit 1",
-    )
-    .bind(workspace_id)
-    .bind(checkout_id)
-    .fetch_optional(master)
-    .await?;
+) -> Result<Option<i64>, DbErr> {
+    use sea_orm::sea_query::extension::postgres::PgExpr;
+    let checkout = sea_orm::ExprTrait::eq(
+        PgExpr::cast_json_field(
+            Expr::col(credit_transactions::Column::Metadata),
+            "checkoutId",
+        ),
+        checkout_id,
+    );
+    let amount: Option<i32> = credit_transactions::Entity::find()
+        .select_only()
+        .column(credit_transactions::Column::Amount)
+        .filter(credit_transactions::Column::WorkspaceId.eq(workspace_id))
+        .filter(credit_transactions::Column::Type.eq("purchase"))
+        .filter(checkout)
+        .into_tuple()
+        .one(&orm(master))
+        .await?;
     Ok(amount.map(i64::from))
 }
 
@@ -301,15 +356,17 @@ mod tests {
                 .midnight()
                 .assume_utc()
         };
+        let iso = weldsuite_events::iso_timestamp;
+        let (start, end) = period(at("2026-11-13"));
         assert_eq!(
-            period(at("2026-11-13")),
+            (iso(start), iso(end)),
             (
                 "2026-11-01T00:00:00.000Z".to_owned(),
                 "2026-12-01T00:00:00.000Z".to_owned()
             )
         );
-        assert_eq!(period(at("2026-12-31")).1, "2027-01-01T00:00:00.000Z");
-        assert_eq!(period(at("2027-01-31")).1, "2027-02-01T00:00:00.000Z");
+        assert_eq!(iso(period(at("2026-12-31")).1), "2027-01-01T00:00:00.000Z");
+        assert_eq!(iso(period(at("2027-01-31")).1), "2027-02-01T00:00:00.000Z");
     }
 
     #[test]

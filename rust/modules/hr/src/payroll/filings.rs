@@ -11,8 +11,14 @@
 
 use std::collections::HashMap;
 
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect, Select,
+};
 use serde_json::{Value, json};
-use weldsuite_db::{PgPool, js_row};
+use time::{OffsetDateTime, PrimitiveDateTime};
+use weldsuite_db::{PgPool, orm, utc_timestamp};
+use weldsuite_events::iso_timestamp;
 use weldsuite_kit::generate_id;
 use weldsuite_payroll_domain::documents::Lang;
 use weldsuite_payroll_domain::money::from_cents;
@@ -28,6 +34,9 @@ use weldsuite_payroll_domain::us::forms::{
     state_unemployment_report, state_withholding_report,
 };
 use weldsuite_ports::PutOptions;
+use weldsuite_schema::tenant::{
+    hr_payroll_employers, hr_payroll_filings, hr_payroll_profiles, hr_payslips,
+};
 
 use super::Deps;
 use super::annual::{filing_kind, form_payslip, nl_filing_of, us_employer_for_forms};
@@ -35,18 +44,45 @@ use super::common::{
     address_lines, end_of_next_month, engine_error, file_safe, incomplete, invalid_with,
     month_bounds, quarter_bounds, safe_id,
 };
-use super::employees::{decrypt_sensitive, transition_income_relationship_number};
+use super::employees::{
+    decrypt_sensitive, employee_rows, jsonb_row, jsonb_rows, pg_numeric,
+    transition_income_relationship_number,
+};
 use super::employer_context::load_employer_for_payroll;
 use super::files::{param_text, structured_issues};
-use super::runs::{int_of, payslip_sql, s};
-use crate::employees::display_name_of;
+use super::runs::{int_of, payslip_rows, s};
+use crate::employees::{display_name_of, pg_date};
 use crate::entity_scope::Scope;
 use crate::{HrError, add_days, locale_compare, now};
 
-const FILING_ROW: &str = "select to_jsonb(f) || jsonb_build_object('amount_due', f.amount_due::text) from hr_payroll_filings f";
+/// The filings `filings` matches, as the services read them: the entity's
+/// row, `amountDue` as its `numeric(14, 2)` text (what `amount_due::text`
+/// read).
+async fn filing_rows(
+    db: &PgPool,
+    filings: Select<hr_payroll_filings::Entity>,
+) -> Result<Vec<Value>, HrError> {
+    jsonb_rows(filings.all(&orm(db)).await?)
+}
 
-fn filing_sql(filter: &str) -> sqlx::AssertSqlSafe<String> {
-    sqlx::AssertSqlSafe(format!("{FILING_ROW} where {filter}"))
+/// The final payslips of an employer paid between `from` and `to`
+/// (`s.pay_date >= $2::date and s.pay_date <= $3::date`).
+fn paid_between(
+    employer_id: &str,
+    from: &str,
+    to: &str,
+) -> Result<Select<hr_payslips::Entity>, HrError> {
+    Ok(hr_payslips::Entity::find()
+        .filter(hr_payslips::Column::EmployerId.eq(employer_id))
+        .filter(hr_payslips::Column::Status.eq("final"))
+        .filter(hr_payslips::Column::PayDate.gte(pg_date(from)?))
+        .filter(hr_payslips::Column::PayDate.lte(pg_date(to)?)))
+}
+
+/// `now()` once: the history's ISO text and the `timestamp` written with it.
+fn instant() -> (String, PrimitiveDateTime) {
+    let at = OffsetDateTime::now_utc();
+    (iso_timestamp(at), utc_timestamp(at))
 }
 
 /// `quarterOfDate(iso)`.
@@ -79,15 +115,20 @@ pub(crate) async fn to_filing_dtos(db: &PgPool, rows: &[Value]) -> Result<Vec<Va
     let employers: HashMap<String, (String, String)> = if ids.is_empty() {
         HashMap::new()
     } else {
-        sqlx::query_as::<_, (String, String, String)>(
-            "select id, name, currency from hr_payroll_employers where id = any($1)",
-        )
-        .bind(&ids)
-        .fetch_all(db)
-        .await?
-        .into_iter()
-        .map(|(id, name, currency)| (id, (name, currency)))
-        .collect()
+        hr_payroll_employers::Entity::find()
+            .select_only()
+            .columns([
+                hr_payroll_employers::Column::Id,
+                hr_payroll_employers::Column::Name,
+                hr_payroll_employers::Column::Currency,
+            ])
+            .filter(hr_payroll_employers::Column::Id.is_in(ids))
+            .into_tuple::<(String, String, String)>()
+            .all(&orm(db))
+            .await?
+            .into_iter()
+            .map(|(id, name, currency)| (id, (name, currency)))
+            .collect()
     };
     Ok(rows
         .iter()
@@ -104,12 +145,10 @@ pub(crate) async fn to_filing_dtos(db: &PgPool, rows: &[Value]) -> Result<Vec<Va
 
 /// `requireFilingRow(db, id)`.
 pub(crate) async fn require_filing_row(db: &PgPool, id: &str) -> Result<Value, HrError> {
-    let row: Option<Value> = sqlx::query_scalar(filing_sql("f.id = $1 limit 1"))
-        .bind(id)
-        .fetch_optional(db)
+    let row = hr_payroll_filings::Entity::find_by_id(id)
+        .one(&orm(db))
         .await?;
-    row.map(js_row)
-        .ok_or_else(|| HrError::not_found("Payroll filing", id))
+    jsonb_row(row.ok_or_else(|| HrError::not_found("Payroll filing", id))?)
 }
 
 /// `getFiling(db, id)`.
@@ -133,23 +172,25 @@ pub(crate) async fn list_filings(
     kind: Option<&str>,
     scope: &Scope,
 ) -> Result<Vec<Value>, HrError> {
-    let rows: Vec<Value> = sqlx::query_scalar(filing_sql(
-        "($1::text is null or f.employer_id = $1) and ($2::int is null or f.tax_year = $2)
-         and ($3::text[] is null or f.status = any($3)) and ($4::text[] is null or f.kind = any($4))
-         and ($5::text[] is null or f.employer_id in (select scope_p.id from hr_payroll_employers scope_p
-                where scope_p.legal_entity_id = any($5)
-                   or ($6::boolean and scope_p.legal_entity_id is null)))
-         order by f.period_start desc, f.kind asc limit 500",
-    ))
-    .bind(employer_id.filter(|v| !v.is_empty()))
-    .bind(year.filter(|y| *y != 0.0).map(|y| y as i32))
-    .bind(split(status))
-    .bind(split(kind))
-    .bind(scope.ids())
-    .bind(scope.unassigned())
-    .fetch_all(db)
-    .await?;
-    to_filing_dtos(db, &rows.into_iter().map(js_row).collect::<Vec<_>>()).await
+    let mut filings = hr_payroll_filings::Entity::find()
+        .filter(scope.employer_id_in(hr_payroll_filings::Column::EmployerId))
+        .order_by_desc(hr_payroll_filings::Column::PeriodStart)
+        .order_by_asc(hr_payroll_filings::Column::Kind)
+        .limit(500);
+    if let Some(employer_id) = employer_id.filter(|v| !v.is_empty()) {
+        filings = filings.filter(hr_payroll_filings::Column::EmployerId.eq(employer_id));
+    }
+    if let Some(year) = year.filter(|y| *y != 0.0) {
+        filings = filings.filter(hr_payroll_filings::Column::TaxYear.eq(year as i32));
+    }
+    if let Some(statuses) = split(status) {
+        filings = filings.filter(hr_payroll_filings::Column::Status.is_in(statuses));
+    }
+    if let Some(kinds) = split(kind) {
+        filings = filings.filter(hr_payroll_filings::Column::Kind.is_in(kinds));
+    }
+    let rows = filing_rows(db, filings).await?;
+    to_filing_dtos(db, &rows).await
 }
 
 /// `filingsDueSoon(db, today, entity)`: open or ready, due within 45 days or
@@ -160,19 +201,17 @@ pub(crate) async fn filings_due_soon(
     today: &str,
     scope: &Scope,
 ) -> Result<Vec<Value>, HrError> {
-    let rows: Vec<Value> = sqlx::query_scalar(filing_sql(
-        "f.status in ('open', 'ready') and f.due_date <= $1::date
-         and ($2::text[] is null or f.employer_id in (select scope_p.id from hr_payroll_employers scope_p
-                where scope_p.legal_entity_id = any($2)
-                   or ($3::boolean and scope_p.legal_entity_id is null)))
-         order by f.due_date asc limit 50",
-    ))
-    .bind(add_days(today, 45))
-    .bind(scope.ids())
-    .bind(scope.unassigned())
-    .fetch_all(db)
+    let rows = filing_rows(
+        db,
+        hr_payroll_filings::Entity::find()
+            .filter(hr_payroll_filings::Column::Status.is_in(["open", "ready"]))
+            .filter(hr_payroll_filings::Column::DueDate.lte(pg_date(&add_days(today, 45))?))
+            .filter(scope.employer_id_in(hr_payroll_filings::Column::EmployerId))
+            .order_by_asc(hr_payroll_filings::Column::DueDate)
+            .limit(50),
+    )
     .await?;
-    to_filing_dtos(db, &rows.into_iter().map(js_row).collect::<Vec<_>>()).await
+    to_filing_dtos(db, &rows).await
 }
 
 // ── which filings a payslip belongs to ──────────────────────────────────────
@@ -292,6 +331,30 @@ fn with_event(filing: &Value, event: Value) -> Value {
     Value::Array(history)
 }
 
+/// `channel`, `external_reference`, `submitted_at` and `submitted_by` back
+/// to null: a new version that has not been sent.
+fn clear_submission(
+    update: sea_orm::UpdateMany<hr_payroll_filings::Entity>,
+) -> sea_orm::UpdateMany<hr_payroll_filings::Entity> {
+    update
+        .col_expr(
+            hr_payroll_filings::Column::Channel,
+            Expr::value(Option::<String>::None),
+        )
+        .col_expr(
+            hr_payroll_filings::Column::ExternalReference,
+            Expr::value(Option::<String>::None),
+        )
+        .col_expr(
+            hr_payroll_filings::Column::SubmittedAt,
+            Expr::value(Option::<PrimitiveDateTime>::None),
+        )
+        .col_expr(
+            hr_payroll_filings::Column::SubmittedBy,
+            Expr::value(Option::<String>::None),
+        )
+}
+
 /// `ensureFilingsForRun(db, employer, payslips, deps, { userId })`: the
 /// filings an approved run feeds; existing ones go back to `open`.
 pub(crate) async fn ensure_filings_for_run(
@@ -308,41 +371,51 @@ pub(crate) async fn ensure_filings_for_run(
             }
         }
     }
-    let at = now();
+    let (at, stamp) = instant();
+    let orm = orm(db);
     let mut touched = vec![];
     for key in keys {
-        let existing: Option<Value> = sqlx::query_scalar(filing_sql(
-            "f.employer_id = $1 and f.kind = $2 and f.tax_year = $3 and f.period = $4
-             and (($5::text is null and f.state is null) or f.state = $5) limit 1",
-        ))
-        .bind(s(employer, "id"))
-        .bind(key.kind)
-        .bind(i32::try_from(key.tax_year).unwrap_or_default())
-        .bind(i32::try_from(key.period).unwrap_or_default())
-        .bind(key.state.as_deref())
-        .fetch_optional(db)
-        .await?;
-        match existing.map(js_row) {
+        let tax_year = i32::try_from(key.tax_year).unwrap_or_default();
+        let period = i32::try_from(key.period).unwrap_or_default();
+        // `($5::text is null and f.state is null) or f.state = $5`.
+        let state = match key.state.as_deref() {
+            Some(state) => hr_payroll_filings::Column::State.eq(state),
+            None => hr_payroll_filings::Column::State.is_null(),
+        };
+        let existing = hr_payroll_filings::Entity::find()
+            .filter(hr_payroll_filings::Column::EmployerId.eq(s(employer, "id")))
+            .filter(hr_payroll_filings::Column::Kind.eq(key.kind))
+            .filter(hr_payroll_filings::Column::TaxYear.eq(tax_year))
+            .filter(hr_payroll_filings::Column::Period.eq(period))
+            .filter(state)
+            .one(&orm)
+            .await?;
+        match existing.map(jsonb_row).transpose()? {
             None => {
                 let (start, end) = bounds_of(&key);
                 let id = generate_id("hrpf");
-                sqlx::query(
-                    "insert into hr_payroll_filings (id, employer_id, country, kind, state, tax_year, period, period_start,
-                       period_end, due_date, status, history)
-                     values ($1, $2, $3, $4, $5, $6, $7, $8::date, $9::date, $10::date, 'open', $11)",
-                )
-                .bind(&id)
-                .bind(s(employer, "id"))
-                .bind(s(employer, "country"))
-                .bind(key.kind)
-                .bind(key.state.as_deref())
-                .bind(i32::try_from(key.tax_year).unwrap_or_default())
-                .bind(i32::try_from(key.period).unwrap_or_default())
-                .bind(&start)
-                .bind(&end)
-                .bind(fallback_due_date(&key))
-                .bind(json!([history_event(&at, "open", user_id, Some("Created by an approved pay run".into()), 1)]))
-                .execute(db)
+                hr_payroll_filings::Entity::insert(hr_payroll_filings::ActiveModel {
+                    id: Set(id.clone()),
+                    employer_id: Set(s(employer, "id").to_owned()),
+                    country: Set(s(employer, "country").to_owned()),
+                    kind: Set(key.kind.to_owned()),
+                    state: Set(key.state.clone()),
+                    tax_year: Set(tax_year),
+                    period: Set(period),
+                    period_start: Set(pg_date(&start)?),
+                    period_end: Set(pg_date(&end)?),
+                    due_date: Set(Some(pg_date(&fallback_due_date(&key))?)),
+                    status: Set("open".to_owned()),
+                    history: Set(json!([history_event(
+                        &at,
+                        "open",
+                        user_id,
+                        Some("Created by an approved pay run".into()),
+                        1
+                    )])),
+                    ..Default::default()
+                })
+                .exec_without_returning(&orm)
                 .await?;
                 touched.push((id, true));
             }
@@ -362,22 +435,19 @@ pub(crate) async fn ensure_filings_for_run(
                         &existing,
                         history_event(&at, "open", user_id, Some(message), version),
                     );
-                    sqlx::query(
-                        "update hr_payroll_filings set status = 'open', version = $2, history = $3,
-                           channel = case when $4 then null else channel end,
-                           external_reference = case when $4 then null else external_reference end,
-                           submitted_at = case when $4 then null else submitted_at end,
-                           submitted_by = case when $4 then null else submitted_by end,
-                           updated_at = $5::timestamp
-                         where id = $1",
-                    )
-                    .bind(s(&existing, "id"))
-                    .bind(i32::try_from(version).unwrap_or_default())
-                    .bind(history)
-                    .bind(sent)
-                    .bind(&at)
-                    .execute(db)
-                    .await?;
+                    let mut reopen = hr_payroll_filings::Entity::update_many()
+                        .col_expr(hr_payroll_filings::Column::Status, Expr::value("open"))
+                        .col_expr(
+                            hr_payroll_filings::Column::Version,
+                            Expr::value(i32::try_from(version).unwrap_or_default()),
+                        )
+                        .col_expr(hr_payroll_filings::Column::History, Expr::value(history))
+                        .col_expr(hr_payroll_filings::Column::UpdatedAt, Expr::value(stamp))
+                        .filter(hr_payroll_filings::Column::Id.eq(s(&existing, "id")));
+                    if sent {
+                        reopen = clear_submission(reopen);
+                    }
+                    reopen.exec(&orm).await?;
                 }
                 touched.push((s(&existing, "id").to_owned(), false));
             }
@@ -429,16 +499,17 @@ async fn previously_reported(
     if months.is_empty() {
         return Ok(out);
     }
-    let returns: Vec<Value> = sqlx::query_scalar(filing_sql(
-        "f.employer_id = $1 and f.kind = 'nl_loonaangifte' and f.tax_year = $2",
-    ))
-    .bind(employer_id)
-    .bind(i32::try_from(int_of(filing, "taxYear")).unwrap_or_default())
-    .fetch_all(db)
-    .await?
-    .into_iter()
-    .map(js_row)
-    .collect();
+    let returns = filing_rows(
+        db,
+        hr_payroll_filings::Entity::find()
+            .filter(hr_payroll_filings::Column::EmployerId.eq(employer_id))
+            .filter(hr_payroll_filings::Column::Kind.eq("nl_loonaangifte"))
+            .filter(
+                hr_payroll_filings::Column::TaxYear
+                    .eq(i32::try_from(int_of(filing, "taxYear")).unwrap_or_default()),
+            ),
+    )
+    .await?;
     let period = int_of(filing, "period");
     for month in months {
         let month_number: i64 = month.get(5..7).and_then(|m| m.parse().ok()).unwrap_or(0);
@@ -497,17 +568,12 @@ async fn build_nl(
     let tax_year = int_of(filing, "taxYear");
     let period = int_of(filing, "period");
     let (month_start, month_end) = month_bounds(tax_year, period);
-    let slips: Vec<Value> = sqlx::query_scalar(payslip_sql(
-        "s.employer_id = $1 and s.status = 'final' and s.pay_date >= $2::date and s.pay_date <= $3::date",
-    ))
-    .bind(s(employer, "id"))
-    .bind(&month_start)
-    .bind(&month_end)
-    .fetch_all(db)
-    .await?
-    .into_iter()
-    .map(js_row)
-    .collect();
+    let orm = orm(db);
+    let slips = payslip_rows(
+        &orm,
+        paid_between(s(employer, "id"), &month_start, &month_end)?,
+    )
+    .await?;
     let mut original_ids: Vec<String> = vec![];
     for slip in &slips {
         if let Some(id) = slip["correctsPayslipId"].as_str().filter(|v| !v.is_empty()) {
@@ -517,13 +583,11 @@ async fn build_nl(
     let originals: Vec<Value> = if original_ids.is_empty() {
         vec![]
     } else {
-        sqlx::query_scalar(payslip_sql("s.id = any($1)"))
-            .bind(&original_ids)
-            .fetch_all(db)
-            .await?
-            .into_iter()
-            .map(js_row)
-            .collect()
+        payslip_rows(
+            &orm,
+            hr_payslips::Entity::find().filter(hr_payslips::Column::Id.is_in(&original_ids)),
+        )
+        .await?
     };
     let month_of = |iso: &str| iso.get(0..7).unwrap_or("").to_owned();
     let mut main: Vec<Value> = vec![];
@@ -557,32 +621,24 @@ async fn build_nl(
         let year: i64 = month.get(0..4).and_then(|y| y.parse().ok()).unwrap_or(0);
         let m: i64 = month.get(5..7).and_then(|m| m.parse().ok()).unwrap_or(1);
         let (start, end) = month_bounds(year, m);
-        let paid: Vec<Value> = sqlx::query_scalar(payslip_sql(
-            "s.employer_id = $1 and s.status = 'final' and s.pay_date >= $2::date and s.pay_date <= $3::date
-             and s.corrects_payslip_id is null",
-        ))
-        .bind(s(employer, "id"))
-        .bind(&start)
-        .bind(&end)
-        .fetch_all(db)
-        .await?
-        .into_iter()
-        .map(js_row)
-        .collect();
+        let paid = payslip_rows(
+            &orm,
+            paid_between(s(employer, "id"), &start, &end)?
+                .filter(hr_payslips::Column::CorrectsPayslipId.is_null()),
+        )
+        .await?;
         let deltas: Vec<Value> = if paid.is_empty() {
             vec![]
         } else {
             let ids: Vec<&str> = paid.iter().map(|p| s(p, "id")).collect();
-            sqlx::query_scalar(payslip_sql(
-                "s.corrects_payslip_id = any($1) and s.status = 'final' and s.pay_date <= $2::date",
-            ))
-            .bind(ids)
-            .bind(&month_end)
-            .fetch_all(db)
+            payslip_rows(
+                &orm,
+                hr_payslips::Entity::find()
+                    .filter(hr_payslips::Column::CorrectsPayslipId.is_in(ids))
+                    .filter(hr_payslips::Column::Status.eq("final"))
+                    .filter(hr_payslips::Column::PayDate.lte(pg_date(&month_end)?)),
+            )
             .await?
-            .into_iter()
-            .map(js_row)
-            .collect()
         };
         let mut set = paid;
         set.extend(deltas);
@@ -594,23 +650,13 @@ async fn build_nl(
     let (people, profiles): (Vec<Value>, Vec<Value>) = if employee_ids.is_empty() {
         (vec![], vec![])
     } else {
-        let people: Vec<Value> =
-            sqlx::query_scalar("select to_jsonb(e) from hr_employees e where e.id = any($1)")
-                .bind(&employee_ids)
-                .fetch_all(db)
-                .await?
-                .into_iter()
-                .map(js_row)
-                .collect();
-        let profiles: Vec<Value> = sqlx::query_scalar(
-            "select to_jsonb(p) from hr_payroll_profiles p where p.employee_id = any($1)",
-        )
-        .bind(&employee_ids)
-        .fetch_all(db)
-        .await?
-        .into_iter()
-        .map(js_row)
-        .collect();
+        let people = employee_rows(db, &employee_ids).await?;
+        let profiles = jsonb_rows(
+            hr_payroll_profiles::Entity::find()
+                .filter(hr_payroll_profiles::Column::EmployeeId.is_in(&employee_ids))
+                .all(&orm)
+                .await?,
+        )?;
         (people, profiles)
     };
     let mut sensitive: HashMap<String, Value> = HashMap::new();
@@ -865,14 +911,7 @@ async fn us_employees_for_forms(
         return Ok(vec![]);
     }
     let ids: Vec<&String> = by_employee.iter().map(|(id, _)| id).collect();
-    let mut people: Vec<Value> =
-        sqlx::query_scalar("select to_jsonb(e) from hr_employees e where e.id = any($1)")
-            .bind(ids)
-            .fetch_all(db)
-            .await?
-            .into_iter()
-            .map(js_row)
-            .collect();
+    let mut people = employee_rows(db, &ids).await?;
     people.sort_by(|a, b| locale_compare(&display_name_of(a), &display_name_of(b)));
     let mut out = vec![];
     for person in &people {
@@ -923,27 +962,16 @@ async fn build_us(
     let tax_year = int_of(filing, "taxYear");
     let quarter = int_of(filing, "period");
     let (q_start, q_end) = quarter_bounds(tax_year, if quarter == 0 { 1 } else { quarter });
-    let in_quarter: Vec<Value> = sqlx::query_scalar(payslip_sql(
-        "s.employer_id = $1 and s.status = 'final' and s.pay_date >= $2::date and s.pay_date <= $3::date",
-    ))
-    .bind(s(employer, "id"))
-    .bind(&q_start)
-    .bind(&q_end)
-    .fetch_all(db)
-    .await?
-    .into_iter()
-    .map(js_row)
-    .collect();
-    let in_year: Vec<Value> = sqlx::query_scalar(payslip_sql(
-        "s.employer_id = $1 and s.status = 'final' and s.tax_year = $2",
-    ))
-    .bind(s(employer, "id"))
-    .bind(i32::try_from(tax_year).unwrap_or_default())
-    .fetch_all(db)
-    .await?
-    .into_iter()
-    .map(js_row)
-    .collect();
+    let orm = orm(db);
+    let in_quarter = payslip_rows(&orm, paid_between(s(employer, "id"), &q_start, &q_end)?).await?;
+    let in_year = payslip_rows(
+        &orm,
+        hr_payslips::Entity::find()
+            .filter(hr_payslips::Column::EmployerId.eq(s(employer, "id")))
+            .filter(hr_payslips::Column::Status.eq("final"))
+            .filter(hr_payslips::Column::TaxYear.eq(i32::try_from(tax_year).unwrap_or_default())),
+    )
+    .await?;
     let us_payslips = |rows: &[Value]| -> Result<Vec<_>, HrError> {
         rows.iter()
             .filter(|x| filing_kind(x) == "us")
@@ -1106,12 +1134,18 @@ pub(crate) async fn generate_filing(
             } = &error
                 && let Some(issues) = details.get("issues")
             {
-                sqlx::query("update hr_payroll_filings set issues = $2, updated_at = $3::timestamp where id = $1")
-                        .bind(id)
-                        .bind(issues)
-                        .bind(now())
-                        .execute(db)
-                        .await?;
+                hr_payroll_filings::Entity::update_many()
+                    .col_expr(
+                        hr_payroll_filings::Column::Issues,
+                        Expr::value(issues.clone()),
+                    )
+                    .col_expr(
+                        hr_payroll_filings::Column::UpdatedAt,
+                        Expr::value(weldsuite_db::utc_now()),
+                    )
+                    .filter(hr_payroll_filings::Column::Id.eq(id))
+                    .exec(&orm(db))
+                    .await?;
             }
             return Err(error);
         }
@@ -1134,7 +1168,7 @@ pub(crate) async fn generate_filing(
             file_key = key;
         }
     }
-    let at = now();
+    let (at, stamp) = instant();
     let message = if resubmission {
         format!("Regenerated (version {version})")
     } else {
@@ -1144,32 +1178,54 @@ pub(crate) async fn generate_filing(
         &filing,
         history_event(&at, "ready", Some(user_id), Some(message), version),
     );
-    sqlx::query(
-        "update hr_payroll_filings set status = 'ready', version = $2, summary = $3, amount_due = $4::numeric,
-           due_date = coalesce($5::date, due_date), payment_reference = $6, file_key = $7, file_name = $8, content_type = $9,
-           generated_at = $10::timestamp,
-           channel = case when $11 then null else channel end,
-           external_reference = case when $11 then null else external_reference end,
-           submitted_at = case when $11 then null else submitted_at end,
-           submitted_by = case when $11 then null else submitted_by end,
-           history = $12, issues = $13, updated_at = $10::timestamp
-         where id = $1",
-    )
-    .bind(id)
-    .bind(i32::try_from(version).unwrap_or_default())
-    .bind(&built.summary)
-    .bind(from_cents(built.amount_due_cents))
-    .bind(built.due_date.as_deref())
-    .bind(built.payment_reference.as_deref())
-    .bind(&file_key)
-    .bind(&built.primary.file_name)
-    .bind(&built.primary.content_type)
-    .bind(&at)
-    .bind(resubmission)
-    .bind(history)
-    .bind(Value::Array(built.issues))
-    .execute(db)
-    .await?;
+    // `amount_due = $n::numeric` of `fromCents(amountDueCents)`: the exact decimal text.
+    let amount_due = pg_numeric(&from_cents(built.amount_due_cents))?;
+    let mut update = hr_payroll_filings::Entity::update_many()
+        .col_expr(hr_payroll_filings::Column::Status, Expr::value("ready"))
+        .col_expr(
+            hr_payroll_filings::Column::Version,
+            Expr::value(i32::try_from(version).unwrap_or_default()),
+        )
+        .col_expr(
+            hr_payroll_filings::Column::Summary,
+            Expr::value(built.summary.clone()),
+        )
+        .col_expr(
+            hr_payroll_filings::Column::AmountDue,
+            Expr::value(amount_due),
+        )
+        .col_expr(
+            hr_payroll_filings::Column::PaymentReference,
+            Expr::value(built.payment_reference.clone()),
+        )
+        .col_expr(hr_payroll_filings::Column::FileKey, Expr::value(file_key))
+        .col_expr(
+            hr_payroll_filings::Column::FileName,
+            Expr::value(built.primary.file_name.clone()),
+        )
+        .col_expr(
+            hr_payroll_filings::Column::ContentType,
+            Expr::value(built.primary.content_type.clone()),
+        )
+        .col_expr(hr_payroll_filings::Column::GeneratedAt, Expr::value(stamp))
+        .col_expr(hr_payroll_filings::Column::History, Expr::value(history))
+        .col_expr(
+            hr_payroll_filings::Column::Issues,
+            Expr::value(Value::Array(built.issues)),
+        )
+        .col_expr(hr_payroll_filings::Column::UpdatedAt, Expr::value(stamp))
+        .filter(hr_payroll_filings::Column::Id.eq(id));
+    // `due_date = coalesce($5::date, due_date)`.
+    if let Some(due) = built.due_date.as_deref() {
+        update = update.col_expr(
+            hr_payroll_filings::Column::DueDate,
+            Expr::value(pg_date(due)?),
+        );
+    }
+    if resubmission {
+        update = clear_submission(update);
+    }
+    update.exec(&orm(db)).await?;
     require_filing_row(db, id).await
 }
 
@@ -1267,11 +1323,12 @@ pub(crate) async fn mark_filing_filed(
             format!("This filing is already {status}")
         }));
     }
-    let at = now();
-    let filed_at = input["filedOn"]
-        .as_str()
-        .filter(|v| !v.is_empty())
-        .map_or_else(|| at.clone(), |d| format!("{d}T12:00:00.000Z"));
+    let (at, stamp) = instant();
+    // `${filedOn}T12:00:00.000Z` as a `timestamp`: noon of that day.
+    let filed_at = match input["filedOn"].as_str().filter(|v| !v.is_empty()) {
+        Some(day) => PrimitiveDateTime::new(pg_date(day)?, time::macros::time!(12:00)),
+        None => stamp,
+    };
     let reference = input["externalReference"]
         .as_str()
         .filter(|v| !v.is_empty());
@@ -1293,18 +1350,32 @@ pub(crate) async fn mark_filing_filed(
         Some(Value::String(r)) => Some(r.clone()),
         _ => filing["externalReference"].as_str().map(str::to_owned),
     };
-    sqlx::query(
-        "update hr_payroll_filings set status = 'filed', channel = coalesce(channel, 'manual'), external_reference = $2,
-           submitted_by = $3, submitted_at = $4::timestamp, history = $5, updated_at = $6::timestamp
-         where id = $1",
-    )
-    .bind(id)
-    .bind(external)
-    .bind(user_id)
-    .bind(&filed_at)
-    .bind(history)
-    .bind(&at)
-    .execute(db)
-    .await?;
+    hr_payroll_filings::Entity::update_many()
+        .col_expr(hr_payroll_filings::Column::Status, Expr::value("filed"))
+        .col_expr(
+            hr_payroll_filings::Column::Channel,
+            Func::coalesce([
+                Expr::col(hr_payroll_filings::Column::Channel),
+                Expr::value("manual"),
+            ])
+            .into(),
+        )
+        .col_expr(
+            hr_payroll_filings::Column::ExternalReference,
+            Expr::value(external),
+        )
+        .col_expr(
+            hr_payroll_filings::Column::SubmittedBy,
+            Expr::value(user_id),
+        )
+        .col_expr(
+            hr_payroll_filings::Column::SubmittedAt,
+            Expr::value(filed_at),
+        )
+        .col_expr(hr_payroll_filings::Column::History, Expr::value(history))
+        .col_expr(hr_payroll_filings::Column::UpdatedAt, Expr::value(stamp))
+        .filter(hr_payroll_filings::Column::Id.eq(id))
+        .exec(&orm(db))
+        .await?;
     require_filing_row(db, id).await
 }

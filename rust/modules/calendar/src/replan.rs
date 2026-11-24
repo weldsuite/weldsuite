@@ -13,12 +13,14 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QuerySelect};
 use serde::Serialize;
 use time::OffsetDateTime;
-use weldsuite_db::PgPool;
 use weldsuite_db::due_index::{mark_due, run_sweep};
+use weldsuite_db::{PgPool, orm};
 use weldsuite_events::iso_timestamp;
 use weldsuite_ports::{BoxFuture, DynCache};
+use weldsuite_schema::master::workspaces;
 
 /// Cache flag: active workspaces were seeded into the due index. Bump to reseed.
 pub const CALENDAR_REPLAN_SEED_KEY: &str = "calendar:replan-index:seed:v1";
@@ -62,12 +64,15 @@ async fn seed(
     {
         return Ok(0);
     }
-    let ids: Vec<String> = sqlx::query_scalar(
-        "select id from workspaces where is_active = true and clerk_org_id is not null",
-    )
-    .fetch_all(master)
-    .await
-    .map_err(|e| e.to_string())?;
+    let ids: Vec<String> = workspaces::Entity::find()
+        .select_only()
+        .column(workspaces::Column::Id)
+        .filter(workspaces::Column::IsActive.eq(true))
+        .filter(workspaces::Column::ClerkOrgId.is_not_null())
+        .into_tuple()
+        .all(&orm(master))
+        .await
+        .map_err(|e| e.to_string())?;
     for id in &ids {
         mark_due(master, weldsuite_calendar_domain::REPLAN_KIND, id, now).await;
     }

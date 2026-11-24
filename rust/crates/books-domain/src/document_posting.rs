@@ -20,11 +20,18 @@
 
 use std::collections::HashMap;
 
+use sea_orm::sea_query::{Expr, Func, IntoColumnRef, NullOrdering, Order};
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 use serde_json::{Map, Value, json};
-use sqlx::{PgConnection, PgPool};
+use sqlx::PgConnection;
+use weldsuite_db::{OrmConn, PgPool, orm, utc_now};
 use weldsuite_ports::OutboundHttp;
+use weldsuite_schema::tenant::{
+    bank_accounts, bills, entities, invoices, parties, sales_tax_agencies, tax_rates,
+};
 
 use crate::currency::to_base_currency;
+use crate::db_values::{decimal_of, to_json, to_json_rows};
 use crate::fx::{parse_rate, require_booking_rate};
 use crate::guards::{PostingLockKind, is_kor_active};
 use crate::http::now;
@@ -40,7 +47,7 @@ use crate::sales_tax::{
     TaxLineFieldsContext, allocate_cents, breakdown_to_tax_line_fields, from_cents, pick_ship_to,
     round_half_up, to_cents, zip5_of,
 };
-use crate::tables::{BILLS, ENTITIES, INVOICES, TAX_RATES};
+use crate::tables::{BILLS, INVOICES};
 
 /// Legacy fallbacks for entities seeded before a role existed (NL / IN
 /// template codes): `FALLBACK_CODES`.
@@ -119,15 +126,12 @@ fn millis(document: &Value, key: &str) -> i64 {
 
 /// `loadEntity(db, entityId)`: a live entity, else a posting error.
 pub async fn load_entity(db: &PgPool, entity_id: &str) -> Result<Value, PostError> {
-    let row: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        crate::books_row!(entities),
-        " from entities t where t.id = $1 and t.deleted_at is null limit 1"
-    ))
-    .bind(entity_id)
-    .fetch_optional(db)
-    .await?;
-    row.map(|row| ENTITIES.js(row))
+    let row = entities::Entity::find_by_id(entity_id.to_owned())
+        .filter(entities::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?;
+    row.map(to_json)
+        .transpose()?
         .ok_or_else(|| posting("Accounting entity not found"))
 }
 
@@ -136,7 +140,7 @@ pub async fn load_tax_rates<'a>(
     db: &PgPool,
     entity_id: &str,
     ids: impl IntoIterator<Item = Option<&'a str>>,
-) -> Result<HashMap<String, Value>, sqlx::Error> {
+) -> Result<HashMap<String, Value>, DbErr> {
     let mut unique: Vec<String> = Vec::new();
     for id in ids.into_iter().flatten() {
         if !id.is_empty() && !unique.iter().any(|u| u == id) {
@@ -146,21 +150,14 @@ pub async fn load_tax_rates<'a>(
     if unique.is_empty() {
         return Ok(HashMap::new());
     }
-    let rows: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        crate::books_row!(tax_rates),
-        " from tax_rates t where t.entity_id = $1 and t.id = any($2)"
-    ))
-    .bind(entity_id)
-    .bind(&unique)
-    .fetch_all(db)
-    .await?;
-    Ok(rows
+    let rows = tax_rates::Entity::find()
+        .filter(tax_rates::Column::EntityId.eq(entity_id))
+        .filter(tax_rates::Column::Id.is_in(unique))
+        .all(&orm(db))
+        .await?;
+    Ok(to_json_rows(rows)?
         .into_iter()
-        .map(|row| {
-            let row = TAX_RATES.js(row);
-            (id_of(&row), row)
-        })
+        .map(|row| (id_of(&row), row))
         .collect())
 }
 
@@ -173,16 +170,20 @@ fn rate_for<'a>(rates: &'a HashMap<String, Value>, row: &Value) -> Option<&'a Va
 async fn load_party(
     db: &PgPool,
     party_id: Option<&str>,
-) -> Result<(Option<String>, Option<String>), sqlx::Error> {
+) -> Result<(Option<String>, Option<String>), DbErr> {
     let Some(party_id) = party_id.filter(|id| !id.is_empty()) else {
         return Ok((None, None));
     };
-    let row: Option<(Option<String>, Option<String>)> = sqlx::query_as(
-        "select default_revenue_account_id, default_expense_account_id from parties where id = $1 limit 1",
-    )
-    .bind(party_id)
-    .fetch_optional(db)
-    .await?;
+    let row: Option<(Option<String>, Option<String>)> = parties::Entity::find()
+        .select_only()
+        .columns([
+            parties::Column::DefaultRevenueAccountId,
+            parties::Column::DefaultExpenseAccountId,
+        ])
+        .filter(parties::Column::Id.eq(party_id))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     Ok(row.unwrap_or_default())
 }
 
@@ -328,13 +329,19 @@ type AgencyRow = (String, Option<String>, Option<String>, Option<String>);
 async fn load_agency_accounts(
     db: &PgPool,
     entity_id: &str,
-) -> Result<HashMap<String, Agency>, sqlx::Error> {
-    let rows: Vec<AgencyRow> = sqlx::query_as(
-        "select id, name, liability_account_id, use_tax_account_id from sales_tax_agencies where entity_id = $1",
-    )
-    .bind(entity_id)
-    .fetch_all(db)
-    .await?;
+) -> Result<HashMap<String, Agency>, DbErr> {
+    let rows: Vec<AgencyRow> = sales_tax_agencies::Entity::find()
+        .select_only()
+        .columns([
+            sales_tax_agencies::Column::Id,
+            sales_tax_agencies::Column::Name,
+            sales_tax_agencies::Column::LiabilityAccountId,
+            sales_tax_agencies::Column::UseTaxAccountId,
+        ])
+        .filter(sales_tax_agencies::Column::EntityId.eq(entity_id))
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     Ok(rows
         .into_iter()
         .map(|(id, name, liability_account_id, use_tax_account_id)| {
@@ -1482,7 +1489,7 @@ pub async fn resolve_bill_default_expense_account(
     entity_id: &str,
     expense_account_id: Option<&str>,
     contact_id: Option<&str>,
-) -> Result<Value, sqlx::Error> {
+) -> Result<Value, DbErr> {
     let accounts = load_entity_accounts(db, entity_id).await?;
     let (_, party_expense) = load_party(db, contact_id).await?;
     Ok(
@@ -1690,14 +1697,25 @@ pub async fn post_bill(
 pub async fn find_default_bank_account(
     db: &PgPool,
     entity_id: &str,
-) -> Result<Option<(String, Option<String>)>, sqlx::Error> {
-    sqlx::query_as(
-        "select id, ledger_account_id from bank_accounts where entity_id = $1 and deleted_at is null \
-         and ledger_account_id is not null order by is_default desc nulls last, created_at limit 1",
-    )
-    .bind(entity_id)
-    .fetch_optional(db)
-    .await
+) -> Result<Option<(String, Option<String>)>, DbErr> {
+    bank_accounts::Entity::find()
+        .select_only()
+        .columns([
+            bank_accounts::Column::Id,
+            bank_accounts::Column::LedgerAccountId,
+        ])
+        .filter(bank_accounts::Column::EntityId.eq(entity_id))
+        .filter(bank_accounts::Column::DeletedAt.is_null())
+        .filter(bank_accounts::Column::LedgerAccountId.is_not_null())
+        .order_by_with_nulls(
+            bank_accounts::Column::IsDefault,
+            Order::Desc,
+            NullOrdering::Last,
+        )
+        .order_by_asc(bank_accounts::Column::CreatedAt)
+        .into_tuple()
+        .one(&orm(db))
+        .await
 }
 
 /// `resolveMoneyAccount(db, accounts, entity, args)`: the payment's bank
@@ -1712,14 +1730,16 @@ pub async fn resolve_money_account(
 ) -> Result<String, PostError> {
     let entity_id = text(entity, "id").unwrap_or_default();
     if let Some(bank_account_id) = bank_account_id.filter(|id| !id.is_empty()) {
-        let row: Option<(Option<String>,)> = sqlx::query_as(
-            "select ledger_account_id from bank_accounts where id = $1 and entity_id = $2 and deleted_at is null limit 1",
-        )
-        .bind(bank_account_id)
-        .bind(entity_id)
-        .fetch_optional(db)
-        .await?;
-        let Some((ledger,)) = row else {
+        let row: Option<Option<String>> = bank_accounts::Entity::find()
+            .select_only()
+            .column(bank_accounts::Column::LedgerAccountId)
+            .filter(bank_accounts::Column::Id.eq(bank_account_id))
+            .filter(bank_accounts::Column::EntityId.eq(entity_id))
+            .filter(bank_accounts::Column::DeletedAt.is_null())
+            .into_tuple()
+            .one(&orm(db))
+            .await?;
+        let Some(ledger) = row else {
             return Err(posting("Bank account not found for this accounting entity"));
         };
         return require_account(
@@ -1955,33 +1975,118 @@ pub async fn settle(
     invoice: bool,
     id: &str,
     delta: f64,
-) -> Result<(), sqlx::Error> {
-    let statement = if invoice {
-        // An invoice that was never sent goes back to 'finalized', not 'sent'.
-        "update invoices set \
-         amount_paid = (coalesce(amount_paid, '0')::numeric + $1::numeric), \
-         balance_due = greatest((coalesce(total, '0')::numeric - (coalesce(amount_paid, '0')::numeric + $1::numeric)), 0), \
-         status = case when (coalesce(total, '0')::numeric - (coalesce(amount_paid, '0')::numeric + $1::numeric)) <= 0.005 then 'paid' \
-           when (coalesce(amount_paid, '0')::numeric + $1::numeric) <= 0.005 then \
-             case when due_date < now() then 'overdue' when sent_at is not null then 'sent' else 'finalized' end \
-           else 'partial' end, \
-         paid_at = case when (coalesce(total, '0')::numeric - (coalesce(amount_paid, '0')::numeric + $1::numeric)) <= 0.005 then now() else null end, \
-         updated_at = $2::timestamp where id = $3"
-    } else {
-        "update bills set \
-         amount_paid = (coalesce(amount_paid, '0')::numeric + $1::numeric), \
-         balance_due = greatest((coalesce(total, '0')::numeric - (coalesce(amount_paid, '0')::numeric + $1::numeric)), 0), \
-         status = case when (coalesce(total, '0')::numeric - (coalesce(amount_paid, '0')::numeric + $1::numeric)) <= 0.005 then 'paid' \
-           when (coalesce(amount_paid, '0')::numeric + $1::numeric) <= 0.005 then 'approved' \
-           else 'partial' end, \
-         paid_at = case when (coalesce(total, '0')::numeric - (coalesce(amount_paid, '0')::numeric + $1::numeric)) <= 0.005 then now() else null end, \
-         updated_at = $2::timestamp where id = $3"
+) -> Result<(), DbErr> {
+    let db = OrmConn::new(conn);
+    let delta = decimal_of(&to_fixed(delta, 2))?;
+    let settlement = Settlement {
+        delta,
+        half_cent: decimal_of("0.005")?,
     };
-    sqlx::query(statement)
-        .bind(to_fixed(delta, 2))
-        .bind(now())
-        .bind(id)
-        .execute(conn)
-        .await?;
+    if invoice {
+        use invoices::Column;
+        use sea_orm::ExprTrait as _;
+        // An invoice that was never sent goes back to 'finalized', not 'sent'.
+        let unpaid: Expr = Expr::case(
+            Expr::col(Column::DueDate).lt(Expr::current_timestamp()),
+            "overdue",
+        )
+        .case(Expr::col(Column::SentAt).is_not_null(), "sent")
+        .finally("finalized")
+        .into();
+        invoices::Entity::update_many()
+            .col_expr(Column::AmountPaid, settlement.paid(Column::AmountPaid))
+            .col_expr(
+                Column::BalanceDue,
+                settlement.balance(Column::Total, Column::AmountPaid),
+            )
+            .col_expr(
+                Column::Status,
+                settlement.status(Column::Total, Column::AmountPaid, unpaid),
+            )
+            .col_expr(
+                Column::PaidAt,
+                settlement.paid_at(Column::Total, Column::AmountPaid),
+            )
+            .col_expr(Column::UpdatedAt, Expr::value(utc_now()))
+            .filter(Column::Id.eq(id))
+            .exec(&db)
+            .await?;
+    } else {
+        use bills::Column;
+        bills::Entity::update_many()
+            .col_expr(Column::AmountPaid, settlement.paid(Column::AmountPaid))
+            .col_expr(
+                Column::BalanceDue,
+                settlement.balance(Column::Total, Column::AmountPaid),
+            )
+            .col_expr(
+                Column::Status,
+                settlement.status(Column::Total, Column::AmountPaid, Expr::val("approved")),
+            )
+            .col_expr(
+                Column::PaidAt,
+                settlement.paid_at(Column::Total, Column::AmountPaid),
+            )
+            .col_expr(Column::UpdatedAt, Expr::value(utc_now()))
+            .filter(Column::Id.eq(id))
+            .exec(&db)
+            .await?;
+    }
     Ok(())
+}
+
+/// The expressions of [`settle`]'s `UPDATE` over a document's `total` and
+/// `amount_paid` (`coalesce(…, '0')::numeric`).
+struct Settlement {
+    /// `$1::numeric`.
+    delta: sea_orm::prelude::BigDecimal,
+    /// What still counts as settled (`<= 0.005`).
+    half_cent: sea_orm::prelude::BigDecimal,
+}
+
+impl Settlement {
+    /// `coalesce(amount_paid, '0')::numeric + $1`.
+    fn paid(&self, amount_paid: impl IntoColumnRef) -> Expr {
+        use sea_orm::ExprTrait as _;
+        Func::coalesce([Expr::col(amount_paid), Expr::val(0)]).add(self.delta.clone())
+    }
+
+    /// `coalesce(total, '0')::numeric - (paid)`.
+    fn open(&self, total: impl IntoColumnRef, amount_paid: impl IntoColumnRef) -> Expr {
+        use sea_orm::ExprTrait as _;
+        Func::coalesce([Expr::col(total), Expr::val(0)]).sub(self.paid(amount_paid))
+    }
+
+    /// `greatest(open, 0)`.
+    fn balance(&self, total: impl IntoColumnRef, amount_paid: impl IntoColumnRef) -> Expr {
+        Func::greatest([self.open(total, amount_paid), Expr::val(0)]).into()
+    }
+
+    /// `open <= 0.005`.
+    fn settled(&self, total: impl IntoColumnRef, amount_paid: impl IntoColumnRef) -> Expr {
+        use sea_orm::ExprTrait as _;
+        self.open(total, amount_paid).lte(self.half_cent.clone())
+    }
+
+    /// `case when settled then 'paid' when paid <= 0.005 then <unpaid>
+    /// else 'partial' end`.
+    fn status(
+        &self,
+        total: impl IntoColumnRef,
+        amount_paid: impl IntoColumnRef + Copy,
+        unpaid: Expr,
+    ) -> Expr {
+        use sea_orm::ExprTrait as _;
+        Expr::case(self.settled(total, amount_paid), "paid")
+            .case(self.paid(amount_paid).lte(self.half_cent.clone()), unpaid)
+            .finally("partial")
+            .into()
+    }
+
+    /// `case when settled then now() else null end`.
+    fn paid_at(&self, total: impl IntoColumnRef, amount_paid: impl IntoColumnRef) -> Expr {
+        Expr::case(self.settled(total, amount_paid), Expr::current_timestamp())
+            .finally(Expr::null())
+            .into()
+    }
 }

@@ -10,12 +10,14 @@ use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, post};
 use http::HeaderMap;
+use sea_orm::{ColumnTrait, Condition};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events as ev;
 use weldsuite_catalogs::permission_keys as perm;
 use weldsuite_kit::validation::{Format, Issues, Presence, Text};
 use weldsuite_kit::{ApiError, CreditShortfall, Data, NoContent};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::social_posts;
 use weldsuite_social_domain::publishing::{
     PublishError, PublishOptions, cancel_delivery_before_delete, cancel_post, publish_post,
 };
@@ -27,11 +29,6 @@ use crate::crud::{
 use crate::js::js_date_iso;
 use crate::objects::{OPT, POSTS, messages, string, strings};
 use crate::{Caller, SocialState, now, tables, validate};
-
-const POST_LIST: (&str, &str) = listing!("social_posts";
-    "($2::boolean or t.status = $3::social_post_status)",
-    "($4::boolean or t.campaign_id = $5::text)";
-    6, 7, 8; "$9");
 
 const POST_TYPES: [&str; 6] = ["post", "story", "reel", "thread", "carousel", "poll"];
 
@@ -134,9 +131,14 @@ static POSTS_CRUD: Crud = Crud {
         "Failed to delete social post",
     ),
     schema: post_schema,
-    filters: &[Filter::eq("status"), Filter::eq("campaignId")],
-    list_sql: POST_LIST.0,
-    count_sql: POST_LIST.1,
+    filters: &[
+        Filter::eq("status", |v| {
+            Condition::all().add(social_posts::Column::Status.eq(v))
+        }),
+        Filter::eq("campaignId", |v| {
+            Condition::all().add(social_posts::Column::CampaignId.eq(v))
+        }),
+    ],
     slice_count: true,
     hidden: &[],
     prepare: post_prepare,

@@ -2,7 +2,9 @@
 //! (`@weldsuite/flow-domain/task-stage`), and the task status spellings
 //! (`@weldsuite/app-api-client/schemas/tasks`).
 
-use sqlx::PgPool;
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
+use weldsuite_db::{PgPool, orm};
+use weldsuite_schema::tenant::project_pipeline_stages as stages;
 
 /// The built-in task statuses.
 pub const TASK_STATUSES: [&str; 7] = [
@@ -42,15 +44,17 @@ pub fn task_status_aliases(status: &str) -> Vec<String> {
 async fn live_stages(
     db: &PgPool,
     project_id: &str,
-) -> Result<Vec<(String, Option<String>)>, sqlx::Error> {
-    sqlx::query_as(
-        "select id, system_status from project_pipeline_stages
-         where project_id = $1 and deleted_at is null
-         order by position asc",
-    )
-    .bind(project_id)
-    .fetch_all(db)
-    .await
+) -> Result<Vec<(String, Option<String>)>, DbErr> {
+    stages::Entity::find()
+        .select_only()
+        .column(stages::Column::Id)
+        .column(stages::Column::SystemStatus)
+        .filter(stages::Column::ProjectId.eq(project_id))
+        .filter(stages::Column::DeletedAt.is_null())
+        .order_by_asc(stages::Column::Position)
+        .into_tuple()
+        .all(&orm(db))
+        .await
 }
 
 /// `statusFromStage`: the status a stage stands for, `None` for no stage,
@@ -58,16 +62,17 @@ async fn live_stages(
 pub async fn status_from_stage(
     db: &PgPool,
     stage_id: Option<&str>,
-) -> Result<Option<String>, sqlx::Error> {
+) -> Result<Option<String>, DbErr> {
     let Some(stage_id) = stage_id.filter(|id| !id.is_empty()) else {
         return Ok(None);
     };
-    let status: Option<Option<String>> = sqlx::query_scalar(
-        "select system_status from project_pipeline_stages where id = $1 limit 1",
-    )
-    .bind(stage_id)
-    .fetch_optional(db)
-    .await?;
+    let status: Option<Option<String>> = stages::Entity::find()
+        .select_only()
+        .column(stages::Column::SystemStatus)
+        .filter(stages::Column::Id.eq(stage_id))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     Ok(status
         .flatten()
         .map(|s| normalize_task_status(&s))
@@ -81,7 +86,7 @@ pub async fn stage_for_status(
     project_id: Option<&str>,
     stage_id: Option<&str>,
     status: &str,
-) -> Result<Option<String>, sqlx::Error> {
+) -> Result<Option<String>, DbErr> {
     let Some(project_id) = project_id.filter(|id| !id.is_empty()) else {
         return Ok(None);
     };
@@ -133,7 +138,7 @@ impl StagePlacement {
 }
 
 /// `stagePlacement(db, projectId)`.
-pub async fn stage_placement(db: &PgPool, project_id: &str) -> Result<StagePlacement, sqlx::Error> {
+pub async fn stage_placement(db: &PgPool, project_id: &str) -> Result<StagePlacement, DbErr> {
     let stages = live_stages(db, project_id).await?;
     let mut by_status: Vec<(Option<String>, String)> = Vec::new();
     for (id, system_status) in &stages {
@@ -184,7 +189,7 @@ pub async fn apply_status_change(
     existing_status: Option<&str>,
     stage_sent: Option<Option<&str>>,
     status: Option<String>,
-) -> Result<StatusChange, sqlx::Error> {
+) -> Result<StatusChange, DbErr> {
     let mut status = status;
     let mut stage_id = None;
     if let Some(stage_status) = status_from_stage(db, stage_sent.flatten()).await? {

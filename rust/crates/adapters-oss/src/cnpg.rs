@@ -83,16 +83,23 @@ use aws_lc_rs::rand::{SecureRandom, SystemRandom};
 use aws_lc_rs::{digest, hmac, pbkdf2};
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
+use sea_orm::sea_query::{Alias, Expr, Func, LockBehavior, LockType, OnConflict, Query};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, Condition, DbErr, EntityTrait, FromQueryResult, Order,
+    QueryFilter, QuerySelect,
+};
 use serde::Deserialize;
 use sqlx::postgres::PgConnectOptions;
 use sqlx::{AssertSqlSafe, Connection, PgConnection, PgPool};
 use tokio::sync::OnceCell;
-use weldsuite_db::{Keyring, encrypt_workspace_database_url, resolve_database_url};
+use weldsuite_db::{Keyring, encrypt_workspace_database_url, orm, resolve_database_url};
 use weldsuite_migrations::{DatabaseOptions, Folder, Journal, migrate_database};
 use weldsuite_ports::{
     BoxFuture, DatabaseProvisioner, DatabaseUrl, Placement, ProvisionError, ProvisionRequest,
     ProvisionedDatabase, Teardown,
 };
+use weldsuite_schema::master::enums::NeonSharedProjectStatus;
+use weldsuite_schema::master::{database_pool, neon_shared_projects, workspaces};
 
 /// Postgres's identifier limit (`NAMEDATALEN - 1`).
 const MAX_IDENTIFIER: usize = 63;
@@ -297,8 +304,15 @@ fn new_password() -> Result<(String, String), ProvisionError> {
     Ok((password, verifier))
 }
 
-fn master_error(error: sqlx::Error) -> ProvisionError {
+fn master_error(error: DbErr) -> ProvisionError {
     ProvisionError::Master(Box::new(error))
+}
+
+/// `timezone('utc', now())`: the master's clock, as a UTC `timestamp`.
+fn utc_now_sql() -> Expr {
+    Func::cust("timezone")
+        .args([Expr::val("utc"), Expr::current_timestamp()])
+        .into()
 }
 
 fn shard_error(error: sqlx::Error) -> ProvisionError {
@@ -314,7 +328,7 @@ async fn connect(options: &PgConnectOptions) -> Result<PgConnection, ProvisionEr
     }
 }
 
-#[derive(sqlx::FromRow)]
+#[derive(FromQueryResult)]
 struct WorkspaceRow {
     neon_project_id: Option<String>,
     neon_database_name: Option<String>,
@@ -394,42 +408,60 @@ impl CnpgProvisioner {
                 .map(|options| options.get_username().to_owned())
                 .ok();
             let port = i16::try_from(shard.pooler_port).unwrap_or(i16::MAX);
-            sqlx::query(
-                "insert into neon_shared_projects
-                     (id, neon_project_id, neon_project_name, region, connection_host,
-                      connection_port, admin_role, max_databases, database_count, status)
-                 values ($1, $2, $3, $4, $5, $6, $7, $8, 0, 'active')
-                 on conflict (neon_project_id) do update set
-                     neon_project_name = excluded.neon_project_name,
-                     region = excluded.region,
-                     connection_host = excluded.connection_host,
-                     connection_port = excluded.connection_port,
-                     admin_role = excluded.admin_role,
-                     max_databases = excluded.max_databases,
-                     status = case
-                         when neon_shared_projects.status = 'full'
-                              and neon_shared_projects.database_count < excluded.max_databases
-                             then 'active'::neon_shared_project_status
-                         when neon_shared_projects.status = 'active'
-                              and neon_shared_projects.database_count >= excluded.max_databases
-                             then 'full'::neon_shared_project_status
-                         else neon_shared_projects.status
-                     end,
-                     updated_at = timezone('utc', now())",
-            )
-            .bind(weldsuite_kit::generate_id("nsp"))
-            .bind(shard.key())
-            .bind(&shard.name)
-            .bind(&self.options.region)
-            .bind(&shard.pooler_host)
-            .bind(port)
-            .bind(admin)
-            .bind(shard.max_databases)
-            .execute(&self.master)
+            neon_shared_projects::Entity::insert(neon_shared_projects::ActiveModel {
+                id: Set(weldsuite_kit::generate_id("nsp")),
+                neon_project_id: Set(shard.key()),
+                neon_project_name: Set(shard.name.clone()),
+                region: Set(self.options.region.clone()),
+                connection_host: Set(Some(shard.pooler_host.clone())),
+                connection_port: Set(Some(port)),
+                admin_role: Set(admin),
+                max_databases: Set(shard.max_databases),
+                database_count: Set(0),
+                status: Set(NeonSharedProjectStatus::Active),
+                ..Default::default()
+            })
+            .on_conflict(Self::refresh_shard())
+            .exec_without_returning(&orm(&self.master))
             .await
             .map_err(master_error)?;
         }
         Ok(())
+    }
+
+    /// `on conflict (neon_project_id) do update`: the configuration's values;
+    /// the count and an admin's `disabled` stay, a `full` shard given more
+    /// room is `active` again and an `active` one with less is `full`.
+    fn refresh_shard() -> OnConflict {
+        use neon_shared_projects::Column;
+        use sea_orm::ExprTrait as _;
+        let excluded = |column: Column| Expr::col((Alias::new("excluded"), column));
+        let current = |column: Column| Expr::col((neon_shared_projects::Entity, column));
+        let status = Expr::case(
+            Column::Status
+                .eq(NeonSharedProjectStatus::Full)
+                .and(current(Column::DatabaseCount).lt(excluded(Column::MaxDatabases))),
+            Column::Status.save_as(Expr::val(NeonSharedProjectStatus::Active)),
+        )
+        .case(
+            Column::Status
+                .eq(NeonSharedProjectStatus::Active)
+                .and(current(Column::DatabaseCount).gte(excluded(Column::MaxDatabases))),
+            Column::Status.save_as(Expr::val(NeonSharedProjectStatus::Full)),
+        )
+        .finally(current(Column::Status));
+        OnConflict::column(Column::NeonProjectId)
+            .update_columns([
+                Column::NeonProjectName,
+                Column::Region,
+                Column::ConnectionHost,
+                Column::ConnectionPort,
+                Column::AdminRole,
+                Column::MaxDatabases,
+            ])
+            .value(Column::Status, status)
+            .value(Column::UpdatedAt, utc_now_sql())
+            .to_owned()
     }
 
     async fn ensure_registered(&self) -> Result<(), ProvisionError> {
@@ -440,15 +472,20 @@ impl CnpgProvisioner {
     }
 
     async fn workspace(&self, workspace_id: &str) -> Result<WorkspaceRow, ProvisionError> {
-        sqlx::query_as(
-            "select neon_project_id, neon_database_name, neon_role_name, shared_project_id
-             from workspaces where id = $1",
-        )
-        .bind(workspace_id)
-        .fetch_optional(&self.master)
-        .await
-        .map_err(master_error)?
-        .ok_or(ProvisionError::WorkspaceNotFound)
+        use workspaces::Column;
+        workspaces::Entity::find_by_id(workspace_id.to_owned())
+            .select_only()
+            .columns([
+                Column::NeonProjectId,
+                Column::NeonDatabaseName,
+                Column::NeonRoleName,
+                Column::SharedProjectId,
+            ])
+            .into_model::<WorkspaceRow>()
+            .one(&orm(&self.master))
+            .await
+            .map_err(master_error)?
+            .ok_or(ProvisionError::WorkspaceNotFound)
     }
 
     /// The placement a row records, when it is on a managed shard.
@@ -498,59 +535,100 @@ impl CnpgProvisioner {
         // `skip locked` keeps concurrent claims off each other's shard. When
         // it finds nothing, the only rows with room may just be locked by a
         // claim in flight: wait for them once instead of reporting no capacity.
-        if let Some(claimed) = self.claim_shard_row(&keys, "skip locked").await? {
+        if let Some(claimed) = self.claim_shard_row(&keys, true).await? {
             return Ok(claimed);
         }
-        self.claim_shard_row(&keys, "")
+        self.claim_shard_row(&keys, false)
             .await?
             .ok_or(ProvisionError::NoCapacity)
     }
 
+    /// One statement: the emptiest matching row, locked (`for update`, with
+    /// `skip locked` when asked), gets one more database, and is `full` when
+    /// that fills it. Returns its id and key.
     async fn claim_shard_row(
         &self,
         keys: &[String],
-        lock_option: &'static str,
+        skip_locked: bool,
     ) -> Result<Option<(String, String)>, ProvisionError> {
-        sqlx::query_as(AssertSqlSafe(format!(
-            "update neon_shared_projects
-             set database_count = database_count + 1,
-                 status = case when database_count + 1 >= max_databases then 'full' else status end,
-                 updated_at = timezone('utc', now())
-             where id = (
-                 select id from neon_shared_projects
-                 where status = 'active'
-                   and region = $1
-                   and database_count < max_databases
-                   and neon_project_id = any($2)
-                 order by database_count asc
-                 limit 1
-                 for update {lock_option}
-             )
-             returning id, neon_project_id",
-        )))
-        .bind(&self.options.region)
-        .bind(keys)
-        .fetch_optional(&self.master)
-        .await
-        .map_err(master_error)
+        use neon_shared_projects::Column;
+        use sea_orm::ExprTrait as _;
+        let mut emptiest = Query::select();
+        emptiest
+            .column(Column::Id)
+            .from(neon_shared_projects::Entity)
+            .cond_where(
+                Condition::all()
+                    .add(Column::Status.eq(NeonSharedProjectStatus::Active))
+                    .add(Column::Region.eq(self.options.region.as_str()))
+                    .add(Expr::col(Column::DatabaseCount).lt(Expr::col(Column::MaxDatabases)))
+                    .add(Column::NeonProjectId.is_in(keys.iter().map(String::as_str))),
+            )
+            .order_by(Column::DatabaseCount, Order::Asc)
+            .limit(1);
+        if skip_locked {
+            emptiest.lock_with_behavior(LockType::Update, LockBehavior::SkipLocked);
+        } else {
+            emptiest.lock(LockType::Update);
+        }
+        let full = Expr::col(Column::DatabaseCount)
+            .add(1)
+            .gte(Expr::col(Column::MaxDatabases));
+        let claimed = neon_shared_projects::Entity::update_many()
+            .col_expr(
+                Column::DatabaseCount,
+                Expr::col(Column::DatabaseCount).add(1),
+            )
+            .col_expr(
+                Column::Status,
+                Expr::case(
+                    full,
+                    Column::Status.save_as(Expr::val(NeonSharedProjectStatus::Full)),
+                )
+                .finally(Expr::col(Column::Status))
+                .into(),
+            )
+            .col_expr(Column::UpdatedAt, utc_now_sql())
+            .filter(Expr::col((neon_shared_projects::Entity, Column::Id)).eq(emptiest))
+            .exec_with_returning(&orm(&self.master))
+            .await
+            .map_err(master_error)?;
+        Ok(claimed
+            .into_iter()
+            .next()
+            .map(|shard| (shard.id, shard.neon_project_id)))
     }
 
     /// Give a slot back (`decrementShardCount`): never below zero, and a
     /// `full` shard with room is `active` again.
     async fn release_capacity(&self, shard_id: &str) -> Result<(), ProvisionError> {
-        sqlx::query(
-            "update neon_shared_projects
-             set database_count = greatest(database_count - 1, 0),
-                 status = case when status = 'full' and database_count - 1 < max_databases
-                               then 'active'::neon_shared_project_status else status end,
-                 updated_at = timezone('utc', now())
-             where id = $1",
-        )
-        .bind(shard_id)
-        .execute(&self.master)
-        .await
-        .map(|_| ())
-        .map_err(master_error)
+        use neon_shared_projects::Column;
+        use sea_orm::ExprTrait as _;
+        let reopened = Column::Status.eq(NeonSharedProjectStatus::Full).and(
+            Expr::col(Column::DatabaseCount)
+                .sub(1)
+                .lt(Expr::col(Column::MaxDatabases)),
+        );
+        neon_shared_projects::Entity::update_many()
+            .col_expr(
+                Column::DatabaseCount,
+                Func::greatest([Expr::col(Column::DatabaseCount).sub(1), Expr::val(0)]).into(),
+            )
+            .col_expr(
+                Column::Status,
+                Expr::case(
+                    reopened,
+                    Column::Status.save_as(Expr::val(NeonSharedProjectStatus::Active)),
+                )
+                .finally(Expr::col(Column::Status))
+                .into(),
+            )
+            .col_expr(Column::UpdatedAt, utc_now_sql())
+            .filter(Column::Id.eq(shard_id))
+            .exec(&orm(&self.master))
+            .await
+            .map(drop)
+            .map_err(master_error)
     }
 
     /// The workspace's placement: the recorded one, or a new one claimed now.
@@ -564,23 +642,29 @@ impl CnpgProvisioner {
         }
         let (database_name, role_name) = database_names(&request.workspace_id)?;
         let (shard_id, key) = self.claim_capacity(request.shard.as_deref()).await?;
-        let claimed = sqlx::query(
-            "update workspaces
-             set neon_project_id = $2, neon_database_name = $3, neon_branch_id = null,
-                 neon_role_name = $4, neon_region = $5, shared_project_id = $6,
-                 updated_at = timezone('utc', now())
-             where id = $1 and neon_project_id is null",
-        )
-        .bind(&request.workspace_id)
-        .bind(&key)
-        .bind(&database_name)
-        .bind(&role_name)
-        .bind(&self.options.region)
-        .bind(&shard_id)
-        .execute(&self.master)
-        .await
-        .map_err(master_error)?
-        .rows_affected();
+        let claimed = {
+            use workspaces::Column;
+            workspaces::Entity::update_many()
+                .col_expr(Column::NeonProjectId, Expr::value(key.as_str()))
+                .col_expr(
+                    Column::NeonDatabaseName,
+                    Expr::value(database_name.as_str()),
+                )
+                .col_expr(Column::NeonBranchId, Expr::value(Option::<String>::None))
+                .col_expr(Column::NeonRoleName, Expr::value(role_name.as_str()))
+                .col_expr(
+                    Column::NeonRegion,
+                    Expr::value(self.options.region.as_str()),
+                )
+                .col_expr(Column::SharedProjectId, Expr::value(shard_id.as_str()))
+                .col_expr(Column::UpdatedAt, utc_now_sql())
+                .filter(Column::Id.eq(request.workspace_id.as_str()))
+                .filter(Column::NeonProjectId.is_null())
+                .exec(&orm(&self.master))
+                .await
+                .map_err(master_error)?
+                .rows_affected
+        };
         if claimed == 0 {
             // Another call placed it first: give the slot back and follow it.
             self.release_capacity(&shard_id).await?;
@@ -633,9 +717,11 @@ impl CnpgProvisioner {
         placement: &Placement,
     ) -> Result<Option<String>, ProvisionError> {
         let stored: Option<Option<String>> =
-            sqlx::query_scalar("select database_url from workspaces where id = $1")
-                .bind(workspace_id)
-                .fetch_optional(&self.master)
+            workspaces::Entity::find_by_id(workspace_id.to_owned())
+                .select_only()
+                .column(workspaces::Column::DatabaseUrl)
+                .into_tuple()
+                .one(&orm(&self.master))
                 .await
                 .map_err(master_error)?;
         Ok(stored
@@ -659,17 +745,18 @@ impl CnpgProvisioner {
             self.options.aad_writes,
         )
         .map_err(|error| ProvisionError::Encryption(error.to_string()))?;
-        let stored = sqlx::query(
-            "update workspaces set database_url = $2, updated_at = timezone('utc', now())
-             where id = $1 and neon_database_name = $3",
-        )
-        .bind(workspace_id)
-        .bind(sealed)
-        .bind(&placement.database_name)
-        .execute(&self.master)
-        .await
-        .map_err(master_error)?
-        .rows_affected();
+        let stored = {
+            use workspaces::Column;
+            workspaces::Entity::update_many()
+                .col_expr(Column::DatabaseUrl, Expr::value(sealed))
+                .col_expr(Column::UpdatedAt, utc_now_sql())
+                .filter(Column::Id.eq(workspace_id))
+                .filter(Column::NeonDatabaseName.eq(placement.database_name.as_str()))
+                .exec(&orm(&self.master))
+                .await
+                .map_err(master_error)?
+                .rows_affected
+        };
         if stored == 0 {
             return Err(ProvisionError::ForeignPlacement(
                 "the placement changed while provisioning".to_owned(),
@@ -689,18 +776,11 @@ impl CnpgProvisioner {
         let admin_options = PgConnectOptions::from_str(&shard.admin_url).map_err(shard_error)?;
         let mut admin = connect(&admin_options).await?;
         let lock = format!("weldsuite:provision:{}", placement.database_name);
-        sqlx::query("select pg_advisory_lock(hashtextextended($1, 0))")
-            .bind(&lock)
-            .execute(&mut admin)
-            .await
-            .map_err(shard_error)?;
+        lock_database(&mut admin, &lock).await?;
         let result = self
             .ensure_locked(&mut admin, &admin_options, workspace_id, shard, placement)
             .await;
-        let _ = sqlx::query("select pg_advisory_unlock(hashtextextended($1, 0))")
-            .bind(&lock)
-            .execute(&mut admin)
-            .await;
+        unlock_database(&mut admin, &lock).await;
         let _ = admin.close().await;
         result
     }
@@ -734,10 +814,11 @@ impl CnpgProvisioner {
                 .await?;
             } else {
                 if !powers.superuser && powers.server_version >= 160_000 {
-                    sqlx::raw_sql("SET createrole_self_grant = 'set, inherit'")
-                        .execute(&mut *admin)
-                        .await
-                        .map_err(shard_error)?;
+                    execute(
+                        admin,
+                        "SET createrole_self_grant = 'set, inherit'".to_owned(),
+                    )
+                    .await?;
                 }
                 execute(
                     admin,
@@ -801,10 +882,7 @@ impl CnpgProvisioner {
             return Ok(());
         }
         let mut conn = connect(&admin_options.clone().database(database)).await?;
-        let present: Vec<String> = sqlx::query_scalar("select extname::text from pg_extension")
-            .fetch_all(&mut conn)
-            .await
-            .map_err(shard_error)?;
+        let present = extensions_present(&mut conn).await?;
         for extension in &self.options.extensions {
             if !present.contains(extension) {
                 execute(
@@ -818,6 +896,28 @@ impl CnpgProvisioner {
         Ok(())
     }
 
+    /// The workspace's row forgets its placement and database.
+    async fn clear_placement(&self, workspace_id: &str) -> Result<(), ProvisionError> {
+        use workspaces::Column;
+        let none = || Expr::value(Option::<String>::None);
+        workspaces::Entity::update_many()
+            .col_expr(Column::NeonProjectId, none())
+            .col_expr(Column::NeonDatabaseName, none())
+            .col_expr(Column::NeonBranchId, none())
+            .col_expr(Column::NeonRoleName, none())
+            .col_expr(Column::SharedProjectId, none())
+            .col_expr(
+                Column::DatabaseProvisionedAt,
+                Expr::value(Option::<time::PrimitiveDateTime>::None),
+            )
+            .col_expr(Column::UpdatedAt, utc_now_sql())
+            .filter(Column::Id.eq(workspace_id))
+            .exec(&orm(&self.master))
+            .await
+            .map(drop)
+            .map_err(master_error)
+    }
+
     /// Drop the database and role on the shard, under the database's lock.
     /// Returns whether this call dropped the database.
     async fn drop_database(
@@ -828,21 +928,58 @@ impl CnpgProvisioner {
         let admin_options = PgConnectOptions::from_str(&shard.admin_url).map_err(shard_error)?;
         let mut admin = connect(&admin_options).await?;
         let lock = format!("weldsuite:provision:{}", placement.database_name);
-        sqlx::query("select pg_advisory_lock(hashtextextended($1, 0))")
-            .bind(&lock)
-            .execute(&mut admin)
-            .await
-            .map_err(shard_error)?;
+        lock_database(&mut admin, &lock).await?;
         let result = drop_locked(&mut admin, placement).await;
-        let _ = sqlx::query("select pg_advisory_unlock(hashtextextended($1, 0))")
-            .bind(&lock)
-            .execute(&mut admin)
-            .await;
+        unlock_database(&mut admin, &lock).await;
         let _ = admin.close().await;
         result
     }
 }
 
+/// `pg_advisory_lock` on a database's provisioning key, for this session:
+/// two calls for one workspace take turns.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "database provisioning: DDL and Postgres system catalogues"
+)]
+async fn lock_database(admin: &mut PgConnection, lock: &str) -> Result<(), ProvisionError> {
+    sqlx::query("select pg_advisory_lock(hashtextextended($1, 0))")
+        .bind(lock)
+        .execute(&mut *admin)
+        .await
+        .map(drop)
+        .map_err(shard_error)
+}
+
+/// Releases [`lock_database`]'s lock; best effort (closing the session
+/// releases it too).
+#[allow(
+    clippy::disallowed_methods,
+    reason = "database provisioning: DDL and Postgres system catalogues"
+)]
+async fn unlock_database(admin: &mut PgConnection, lock: &str) {
+    let _ = sqlx::query("select pg_advisory_unlock(hashtextextended($1, 0))")
+        .bind(lock)
+        .execute(&mut *admin)
+        .await;
+}
+
+/// The extensions a database has (`pg_extension`).
+#[allow(
+    clippy::disallowed_methods,
+    reason = "database provisioning: DDL and Postgres system catalogues"
+)]
+async fn extensions_present(conn: &mut PgConnection) -> Result<Vec<String>, ProvisionError> {
+    sqlx::query_scalar("select extname::text from pg_extension")
+        .fetch_all(&mut *conn)
+        .await
+        .map_err(shard_error)
+}
+
+#[allow(
+    clippy::disallowed_methods,
+    reason = "database provisioning: DDL and Postgres system catalogues"
+)]
 async fn admin_powers(admin: &mut PgConnection) -> Result<Admin, ProvisionError> {
     let (superuser, server_version): (bool, i32) = sqlx::query_as(
         "select rolsuper, current_setting('server_version_num')::int
@@ -857,6 +994,10 @@ async fn admin_powers(admin: &mut PgConnection) -> Result<Admin, ProvisionError>
     })
 }
 
+#[allow(
+    clippy::disallowed_methods,
+    reason = "database provisioning: DDL and Postgres system catalogues"
+)]
 async fn exists(
     conn: &mut PgConnection,
     query: &'static str,
@@ -870,6 +1011,10 @@ async fn exists(
 }
 
 /// A statement built from checked identifiers and a SCRAM verifier only.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "database provisioning: DDL and Postgres system catalogues"
+)]
 async fn execute(conn: &mut PgConnection, statement: String) -> Result<(), ProvisionError> {
     sqlx::raw_sql(AssertSqlSafe(statement))
         .execute(&mut *conn)
@@ -961,22 +1106,12 @@ impl DatabaseProvisioner for CnpgProvisioner {
             if self.drop_database(shard, &placement).await? {
                 self.release_capacity(&placement.shard_id).await?;
             }
-            sqlx::query(
-                "update workspaces
-                 set neon_project_id = null, neon_database_name = null, neon_branch_id = null,
-                     neon_role_name = null, shared_project_id = null,
-                     database_provisioned_at = null, updated_at = timezone('utc', now())
-                 where id = $1",
-            )
-            .bind(workspace_id)
-            .execute(&self.master)
-            .await
-            .map_err(master_error)?;
+            self.clear_placement(workspace_id).await?;
             // Best effort, as the TypeScript teardown: a pool row that tracked
             // the workspace (none on Kubernetes, which has no warm pool).
-            let _ = sqlx::query("delete from database_pool where assigned_workspace_id = $1")
-                .bind(workspace_id)
-                .execute(&self.master)
+            let _ = database_pool::Entity::delete_many()
+                .filter(database_pool::Column::AssignedWorkspaceId.eq(workspace_id))
+                .exec(&orm(&self.master))
                 .await;
             Ok(Teardown::Dropped(placement))
         })

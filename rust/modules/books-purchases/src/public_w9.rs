@@ -16,22 +16,27 @@ use axum::http::request::Parts;
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use http::{HeaderMap, HeaderValue, StatusCode};
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
 use weldsuite_books_domain::address::normalize_postal_address;
 use weldsuite_books_domain::guards::{AuditInput, write_audit};
-use weldsuite_books_domain::http::{BooksState, now, now_ms};
+use weldsuite_books_domain::http::{BooksState, now_ms};
 use weldsuite_books_domain::jurisdictions::us::{is_address_state_code, validate_zip};
-use weldsuite_books_domain::tables::{PARTIES, W9_REQUESTS};
+use weldsuite_books_domain::tables::PARTIES;
 use weldsuite_books_domain::vendor_tax::{
     TIN_TYPES, VendorTaxError, VendorTaxInput, W9_FEDERAL_CLASSIFICATIONS, build_vendor_tax_change,
     is_corporation_classification, iso_millis, sha256_hex, w9_event_data, w9_kv_key,
 };
 use weldsuite_catalogs::entity_events::{ACCOUNTING_CONTACT_UPDATED, W9_REQUEST_COMPLETED};
-use weldsuite_db::{Keyring, PgPool, Tenant, Workspaces};
+use weldsuite_db::{Keyring, OrmConn, PgPool, Tenant, Workspaces, orm};
 use weldsuite_events::{EntityEvent, EventContext, EventSource};
 use weldsuite_kit::RequestEnv;
 use weldsuite_kit::validation::{Field, Issues, Presence, Text};
 use weldsuite_ports::{DynCache, RequestCache};
+use weldsuite_schema::tenant::{entities, parties, w9_requests};
+
+use crate::rows::{js, now_and_stamp};
 
 /// `W9_MAX_BODY_BYTES`.
 const MAX_BODY_BYTES: usize = 10 * 1024;
@@ -181,17 +186,14 @@ async fn resolve(
         return Ok(None);
     }
     let db = tenant.db.clone();
-    let request: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(w9_requests),
-        " from w9_requests t where t.id = $1 and t.token_hash = $2 limit 1"
-    ))
-    .bind(request_id)
-    .bind(&hash)
-    .fetch_optional(&db)
-    .await
-    .map_err(|error| error.to_string())?;
-    let Some(request) = request.map(|row| W9_REQUESTS.js(row)) else {
+    let request = w9_requests::Entity::find()
+        .filter(w9_requests::Column::Id.eq(request_id))
+        .filter(w9_requests::Column::TokenHash.eq(hash.as_str()))
+        .one(&orm(&db))
+        .await
+        .and_then(|row| row.map(|row| js!(row)).transpose())
+        .map_err(|error| error.to_string())?;
+    let Some(request) = request else {
         return Ok(None);
     };
     let expires = request
@@ -202,21 +204,19 @@ async fn resolve(
     if request.get("status").and_then(Value::as_str) != Some("pending") || expires <= now_ms() {
         return Ok(None);
     }
-    let party: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(parties),
-        " from parties t where t.id = $1 and t.deleted_at is null limit 1"
-    ))
-    .bind(
-        request
-            .get("partyId")
-            .and_then(Value::as_str)
-            .unwrap_or_default(),
-    )
-    .fetch_optional(&db)
-    .await
-    .map_err(|error| error.to_string())?;
-    let Some(party) = party.map(|row| PARTIES.js(row)) else {
+    let party = parties::Entity::find()
+        .filter(
+            parties::Column::Id.eq(request
+                .get("partyId")
+                .and_then(Value::as_str)
+                .unwrap_or_default()),
+        )
+        .filter(parties::Column::DeletedAt.is_null())
+        .one(&orm(&db))
+        .await
+        .and_then(|row| row.map(|row| js!(row)).transpose())
+        .map_err(|error| error.to_string())?;
+    let Some(party) = party else {
         return Ok(None);
     };
     Ok(Some(Resolved {
@@ -245,17 +245,19 @@ async fn load(
             return not_found();
         }
     };
-    let entity: Result<Option<(String, Option<String>)>, sqlx::Error> =
-        sqlx::query_as("select name, legal_name from entities where id = $1 limit 1")
-            .bind(
-                resolved
-                    .request
-                    .get("entityId")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default(),
-            )
-            .fetch_optional(&resolved.db)
-            .await;
+    let entity: Result<Option<(String, Option<String>)>, _> = entities::Entity::find()
+        .select_only()
+        .columns([entities::Column::Name, entities::Column::LegalName])
+        .filter(
+            entities::Column::Id.eq(resolved
+                .request
+                .get("entityId")
+                .and_then(Value::as_str)
+                .unwrap_or_default()),
+        )
+        .into_tuple()
+        .one(&orm(&resolved.db))
+        .await;
     let entity = match entity {
         Ok(entity) => entity,
         Err(error) => {
@@ -528,7 +530,7 @@ async fn submit_form(
     );
     address.insert("country".into(), json!("US"));
 
-    let now = now();
+    let (now, at) = now_and_stamp();
     let today = now[..10].to_owned();
     let mut w9 = Map::new();
     let mut put = |key: &str, value: Option<&str>| {
@@ -587,14 +589,14 @@ async fn submit_form(
     PARTIES
         .patch_raw(&mut *tx, &party_id, PARTIES.values(&columns), false)
         .await?;
-    sqlx::query(
-        "update w9_requests set status = 'completed', completed_at = $2::timestamp, updated_at = $2::timestamp \
-         where id = $1 and status = 'pending'",
-    )
-    .bind(&request_id)
-    .bind(&now)
-    .execute(&mut *tx)
-    .await?;
+    w9_requests::Entity::update_many()
+        .col_expr(w9_requests::Column::Status, Expr::value("completed"))
+        .col_expr(w9_requests::Column::CompletedAt, Expr::value(at))
+        .col_expr(w9_requests::Column::UpdatedAt, Expr::value(at))
+        .filter(w9_requests::Column::Id.eq(request_id.as_str()))
+        .filter(w9_requests::Column::Status.eq("pending"))
+        .exec(&OrmConn::new(&mut tx))
+        .await?;
     tx.commit().await?;
 
     if let Some(cache) = shared.cache(state) {

@@ -12,21 +12,30 @@ use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, patch, post, put};
 use http::HeaderMap;
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, FromQueryResult, QueryFilter, QueryOrder,
+    QuerySelect,
+};
 use serde_json::{Value, json};
-use time::OffsetDateTime;
+use time::{OffsetDateTime, PrimitiveDateTime};
 use weldsuite_catalogs::entity_events::{DOC_CREATED, DOC_UPDATED, FILE_CREATED, FILE_UPDATED};
 use weldsuite_core_domain::drive_access::{
     DriveFileRef, DriveGeneralAccess, can_edit, container_role, file_role,
     load_drive_access_for_user,
 };
 use weldsuite_core_domain::files::{NewFile, create_file};
-use weldsuite_db::{PgPool, js_row};
+use weldsuite_db::{PgPool, orm, utc_minutes_ago, utc_now};
 use weldsuite_kit::validation::{Presence, Text};
 use weldsuite_kit::{ApiError, Created, Data, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 use weldsuite_ports::PutOptions;
+use weldsuite_schema::tenant::{docs, document_versions as versions, files, projects};
 
-use crate::{Caller, FlowState, Refusal, Reply, forbidden, now, outside, reply, validate};
+use crate::{
+    Caller, FlowState, Refusal, Reply, forbidden, json_rows, now, outside, reply, row_json,
+    validate,
+};
 
 const PROJECT_DENIED: &str = "You are not a member of this project";
 const PROJECT_WRITE_DENIED: &str = "You do not have write access to this project";
@@ -125,22 +134,21 @@ fn is_welddocs_row(row: &Value) -> bool {
     row["content"].is_null() || !row["snapshotKey"].is_null()
 }
 
-async fn doc_by_file(db: &PgPool, file_id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> =
-        sqlx::query_scalar("select to_jsonb(d) from docs d where d.file_id = $1 limit 1")
-            .bind(file_id)
-            .fetch_optional(db)
-            .await?;
-    Ok(row.map(js_row))
+async fn doc_by_file(db: &PgPool, file_id: &str) -> Result<Option<Value>, DbErr> {
+    docs::Entity::find()
+        .filter(docs::Column::FileId.eq(file_id))
+        .one(&orm(db))
+        .await?
+        .map(row_json)
+        .transpose()
 }
 
-async fn doc_by_id(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> =
-        sqlx::query_scalar("select to_jsonb(d) from docs d where d.id = $1 limit 1")
-            .bind(id)
-            .fetch_optional(db)
-            .await?;
-    Ok(row.map(js_row))
+async fn doc_by_id(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
+    docs::Entity::find_by_id(id.to_owned())
+        .one(&orm(db))
+        .await?
+        .map(row_json)
+        .transpose()
 }
 
 /// `createDocForFile`.
@@ -149,18 +157,19 @@ async fn create_doc(
     file_id: &str,
     user_id: &str,
     content: &Value,
-) -> Result<Value, sqlx::Error> {
+) -> Result<Value, DbErr> {
     let id = generate_id("doc");
-    sqlx::query(
-        "insert into docs (id, file_id, content, updated_by_id, created_at, updated_at)
-         values ($1, $2, $3, $4, $5::timestamp, $5::timestamp)",
-    )
-    .bind(&id)
-    .bind(file_id)
-    .bind(content)
-    .bind(user_id)
-    .bind(now())
-    .execute(db)
+    let now = utc_now();
+    docs::Entity::insert(docs::ActiveModel {
+        id: Set(id.clone()),
+        file_id: Set(file_id.to_owned()),
+        content: Set(Some(content.clone())),
+        updated_by_id: Set(Some(user_id.to_owned())),
+        created_at: Set(now),
+        updated_at: Set(now),
+        ..Default::default()
+    })
+    .exec_without_returning(&orm(db))
     .await?;
     Ok(doc_by_id(db, &id).await?.unwrap_or(Value::Null))
 }
@@ -179,15 +188,13 @@ async fn upsert_doc(
         return Err(Refusal::Internal(WELDDOCS_ROW_MESSAGE.to_owned()));
     }
     let id = existing["id"].as_str().unwrap_or_default().to_owned();
-    sqlx::query(
-        "update docs set content = $2, updated_by_id = $3, updated_at = $4::timestamp where id = $1",
-    )
-    .bind(&id)
-    .bind(content)
-    .bind(user_id)
-    .bind(now())
-    .execute(db)
-    .await?;
+    docs::Entity::update_many()
+        .col_expr(docs::Column::Content, Expr::value(content.clone()))
+        .col_expr(docs::Column::UpdatedById, Expr::value(user_id))
+        .col_expr(docs::Column::UpdatedAt, Expr::value(utc_now()))
+        .filter(docs::Column::Id.eq(&id))
+        .exec(&orm(db))
+        .await?;
     Ok(doc_by_id(db, &id).await?.unwrap_or(Value::Null))
 }
 
@@ -198,26 +205,21 @@ async fn insert_version(
     content: &Value,
     user_id: &str,
     label: Option<&str>,
-) -> Result<Value, sqlx::Error> {
+) -> Result<Value, DbErr> {
     let id = generate_id("docver");
-    sqlx::query(
-        "insert into document_versions (id, file_id, content, label, created_by_id, created_at)
-         values ($1, $2, $3, $4, $5, $6::timestamp)",
-    )
-    .bind(&id)
-    .bind(file_id)
-    .bind(content)
-    .bind(label)
-    .bind(user_id)
-    .bind(now())
-    .execute(db)
+    let db = orm(db);
+    versions::Entity::insert(versions::ActiveModel {
+        id: Set(id.clone()),
+        file_id: Set(file_id.to_owned()),
+        content: Set(content.clone()),
+        label: Set(label.map(str::to_owned)),
+        created_by_id: Set(Some(user_id.to_owned())),
+        created_at: Set(utc_now()),
+    })
+    .exec_without_returning(&db)
     .await?;
-    let row: Option<Value> =
-        sqlx::query_scalar("select to_jsonb(v) from document_versions v where v.id = $1 limit 1")
-            .bind(&id)
-            .fetch_optional(db)
-            .await?;
-    Ok(row.map_or(Value::Null, js_row))
+    let row = versions::Entity::find_by_id(id).one(&db).await?;
+    Ok(row.map(row_json).transpose()?.unwrap_or(Value::Null))
 }
 
 /// `maybeAutoSnapshot`: a version unless one is less than ten minutes old.
@@ -226,17 +228,15 @@ async fn maybe_auto_snapshot(
     file_id: &str,
     content: &Value,
     user_id: &str,
-) -> Result<(), sqlx::Error> {
-    let cutoff = weldsuite_events::iso_timestamp(
-        OffsetDateTime::now_utc() - time::Duration::minutes(AUTO_SNAPSHOT_MINUTES),
-    );
-    let recent: Option<String> = sqlx::query_scalar(
-        "select id from document_versions where file_id = $1 and created_at > $2::timestamp limit 1",
-    )
-    .bind(file_id)
-    .bind(&cutoff)
-    .fetch_optional(db)
-    .await?;
+) -> Result<(), DbErr> {
+    let recent: Option<String> = versions::Entity::find()
+        .select_only()
+        .column(versions::Column::Id)
+        .filter(versions::Column::FileId.eq(file_id))
+        .filter(versions::Column::CreatedAt.gt(utc_minutes_ago(AUTO_SNAPSHOT_MINUTES)))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     if recent.is_none() {
         insert_version(db, file_id, content, user_id, None).await?;
     }
@@ -251,11 +251,7 @@ enum Mode {
 
 /// `guardDocument`: project documents by project access, drive documents by
 /// the WeldDrive rules (hidden is a 404). `None` lets the caller through.
-async fn guard(
-    caller: &Caller,
-    file_id: &str,
-    mode: Mode,
-) -> Result<Option<Response>, sqlx::Error> {
+async fn guard(caller: &Caller, file_id: &str, mode: Mode) -> Result<Option<Response>, DbErr> {
     type FileRow = (
         String,
         Option<String>,
@@ -264,13 +260,20 @@ async fn guard(
         Option<String>,
         String,
     );
-    let file: Option<FileRow> = sqlx::query_as(
-        "select id, entity_type, entity_id, uploaded_by_id, folder_id, general_access
-         from files where id = $1 limit 1",
-    )
-    .bind(file_id)
-    .fetch_optional(&caller.db)
-    .await?;
+    let file: Option<FileRow> = files::Entity::find()
+        .select_only()
+        .columns([
+            files::Column::Id,
+            files::Column::EntityType,
+            files::Column::EntityId,
+            files::Column::UploadedById,
+            files::Column::FolderId,
+            files::Column::GeneralAccess,
+        ])
+        .filter(files::Column::Id.eq(file_id))
+        .into_tuple()
+        .one(&orm(&caller.db))
+        .await?;
     let Some((id, entity_type, entity_id, uploaded_by, folder_id, general_access)) = file else {
         return Ok(None);
     };
@@ -505,12 +508,14 @@ async fn create_project_document(
         if !caller.can_write(&project_id).await? {
             return Err(Refusal::forbidden(PROJECT_WRITE_DENIED));
         }
-        let exists: Option<String> = sqlx::query_scalar(
-            "select id from projects where id = $1 and deleted_at is null limit 1",
-        )
-        .bind(&project_id)
-        .fetch_optional(&caller.db)
-        .await?;
+        let exists: Option<String> = projects::Entity::find()
+            .select_only()
+            .column(projects::Column::Id)
+            .filter(projects::Column::Id.eq(&project_id))
+            .filter(projects::Column::DeletedAt.is_null())
+            .into_tuple()
+            .one(&orm(&caller.db))
+            .await?;
         if exists.is_none() {
             return Err(Refusal::not_found("Project", &project_id));
         }
@@ -546,15 +551,17 @@ async fn share_project_document(
 ) -> Response {
     reply(
         async {
-            let existing: Option<String> = sqlx::query_scalar(
-                "select id from files
-                 where id = $1 and entity_type = 'project' and entity_id = $2
-                   and file_type = 'document' and deleted_at is null limit 1",
-            )
-            .bind(&file_id)
-            .bind(&project_id)
-            .fetch_optional(&caller.db)
-            .await?;
+            let existing: Option<String> = files::Entity::find()
+                .select_only()
+                .column(files::Column::Id)
+                .filter(files::Column::Id.eq(&file_id))
+                .filter(files::Column::EntityType.eq("project"))
+                .filter(files::Column::EntityId.eq(&project_id))
+                .filter(files::Column::FileType.eq("document"))
+                .filter(files::Column::DeletedAt.is_null())
+                .into_tuple()
+                .one(&orm(&caller.db))
+                .await?;
             if existing.is_none() {
                 return Err(Refusal::not_found("Project document", &file_id));
             }
@@ -571,16 +578,16 @@ async fn share_project_document(
                     _ => None,
                 })
                 .ok_or_else(|| Refusal::bad_request("Invalid request body"))?;
-            let row: Value = sqlx::query_scalar(
-                "update files set client_visible = $2, updated_at = $3::timestamp
-                 where id = $1 returning to_jsonb(files)",
-            )
-            .bind(&file_id)
-            .bind(visible)
-            .bind(now())
-            .fetch_one(&caller.db)
-            .await?;
-            let row = js_row(row);
+            let row = files::Entity::update_many()
+                .col_expr(files::Column::ClientVisible, Expr::value(visible))
+                .col_expr(files::Column::UpdatedAt, Expr::value(utc_now()))
+                .filter(files::Column::Id.eq(&file_id))
+                .exec_with_returning(&orm(&caller.db))
+                .await?
+                .into_iter()
+                .next()
+                .ok_or_else(|| DbErr::RecordNotFound("files".to_owned()))?;
+            let row = row_json(row)?;
             caller.publish(
                 &state,
                 FILE_UPDATED,
@@ -609,17 +616,15 @@ async fn list_project_documents(caller: Caller, Path(project_id): Path<String>) 
         Ok(false) => return forbidden(PROJECT_DENIED),
         Err(error) => return outside(Err(error.into())),
     }
-    let rows: Result<Vec<Value>, sqlx::Error> = sqlx::query_scalar(
-        "select to_jsonb(f) from files f
-         where f.entity_type = 'project' and f.entity_id = $1 and f.file_type = 'document'
-           and f.deleted_at is null
-         order by f.is_pinned desc, f.pinned_at desc, f.created_at desc",
-    )
-    .bind(&project_id)
-    .fetch_all(&caller.db)
-    .await;
+    let rows = project_files(&project_id, "document")
+        .order_by_desc(files::Column::IsPinned)
+        .order_by_desc(files::Column::PinnedAt)
+        .order_by_desc(files::Column::CreatedAt)
+        .all(&orm(&caller.db))
+        .await
+        .and_then(json_rows);
     match rows {
-        Ok(rows) => Data(rows.into_iter().map(js_row).collect::<Vec<_>>()).into_response(),
+        Ok(rows) => Data(rows).into_response(),
         Err(error) => Refusal::from(error).respond("Failed to list project documents"),
     }
 }
@@ -630,19 +635,24 @@ async fn list_project_sheets(caller: Caller, Path(project_id): Path<String>) -> 
         Ok(false) => return forbidden(PROJECT_DENIED),
         Err(error) => return outside(Err(error.into())),
     }
-    let rows: Result<Vec<Value>, sqlx::Error> = sqlx::query_scalar(
-        "select to_jsonb(f) from files f
-         where f.entity_type = 'project' and f.entity_id = $1 and f.file_type = 'spreadsheet'
-           and f.deleted_at is null
-         order by f.created_at desc",
-    )
-    .bind(&project_id)
-    .fetch_all(&caller.db)
-    .await;
+    let rows = project_files(&project_id, "spreadsheet")
+        .order_by_desc(files::Column::CreatedAt)
+        .all(&orm(&caller.db))
+        .await
+        .and_then(json_rows);
     match rows {
-        Ok(rows) => Data(rows.into_iter().map(js_row).collect::<Vec<_>>()).into_response(),
+        Ok(rows) => Data(rows).into_response(),
         Err(error) => Refusal::from(error).respond("Failed to list project sheets"),
     }
+}
+
+/// The live files of a project of one `file_type`.
+fn project_files(project_id: &str, file_type: &str) -> sea_orm::Select<files::Entity> {
+    files::Entity::find()
+        .filter(files::Column::EntityType.eq("project"))
+        .filter(files::Column::EntityId.eq(project_id))
+        .filter(files::Column::FileType.eq(file_type))
+        .filter(files::Column::DeletedAt.is_null())
 }
 
 // ── PUT /api/documents/:fileId/content ──────────────────────────────────────
@@ -672,12 +682,14 @@ async fn save_content(
     reply(
         async {
             let db = &caller.db;
-            let live: Option<String> = sqlx::query_scalar(
-                "select id from files where id = $1 and deleted_at is null limit 1",
-            )
-            .bind(&file_id)
-            .fetch_optional(db)
-            .await?;
+            let live: Option<String> = files::Entity::find()
+                .select_only()
+                .column(files::Column::Id)
+                .filter(files::Column::Id.eq(&file_id))
+                .filter(files::Column::DeletedAt.is_null())
+                .into_tuple()
+                .one(&orm(db))
+                .await?;
             if live.is_none() {
                 return Err(Refusal::not_found("Document", &file_id));
             }
@@ -712,18 +724,36 @@ async fn list_versions(caller: Caller, Path(file_id): Path<String>) -> Response 
     if let Err(denied) = guarded(&caller, &file_id, Mode::Read).await {
         return *denied;
     }
-    let rows: Result<Vec<Value>, sqlx::Error> = sqlx::query_scalar(
-        "select jsonb_build_object('id', v.id, 'fileId', v.file_id, 'label', v.label,
-                'createdById', v.created_by_id, 'createdAt', v.created_at)
-         from document_versions v where v.file_id = $1 order by v.created_at desc",
-    )
-    .bind(&file_id)
-    .fetch_all(&caller.db)
-    .await;
-    match rows {
-        Ok(rows) => Data(rows.into_iter().map(js_row).collect::<Vec<_>>()).into_response(),
+    let rows: Result<Vec<VersionSummary>, DbErr> = versions::Entity::find()
+        .select_only()
+        .columns([
+            versions::Column::Id,
+            versions::Column::FileId,
+            versions::Column::Label,
+            versions::Column::CreatedById,
+            versions::Column::CreatedAt,
+        ])
+        .filter(versions::Column::FileId.eq(&file_id))
+        .order_by_desc(versions::Column::CreatedAt)
+        .into_model()
+        .all(&orm(&caller.db))
+        .await;
+    match rows.and_then(json_rows) {
+        Ok(rows) => Data(rows).into_response(),
         Err(error) => Refusal::from(error).respond("Failed to list versions"),
     }
+}
+
+/// A version without its content, as the list shows it.
+#[derive(Debug, FromQueryResult, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct VersionSummary {
+    id: String,
+    file_id: String,
+    label: Option<String>,
+    created_by_id: Option<String>,
+    #[serde(with = "weldsuite_schema::js::timestamp")]
+    created_at: PrimitiveDateTime,
 }
 
 async fn create_version(
@@ -772,19 +802,13 @@ async fn create_version(
     )
 }
 
-async fn version_row(
-    db: &PgPool,
-    file_id: &str,
-    version_id: &str,
-) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(v) from document_versions v where v.id = $1 and v.file_id = $2 limit 1",
-    )
-    .bind(version_id)
-    .bind(file_id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(js_row))
+async fn version_row(db: &PgPool, file_id: &str, version_id: &str) -> Result<Option<Value>, DbErr> {
+    versions::Entity::find_by_id(version_id.to_owned())
+        .filter(versions::Column::FileId.eq(file_id))
+        .one(&orm(db))
+        .await?
+        .map(row_json)
+        .transpose()
 }
 
 async fn version(caller: Caller, Path((file_id, version_id)): Path<(String, String)>) -> Response {

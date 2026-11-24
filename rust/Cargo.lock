@@ -7486,6 +7486,7 @@ dependencies = [
  "opentelemetry_sdk",
  "redis",
  "reqwest 0.13.5",
+ "sea-orm",
  "serde",
  "serde_json",
  "sqlx",
@@ -7567,6 +7568,7 @@ dependencies = [
  "weldsuite-reach-domain",
  "weldsuite-realtime",
  "weldsuite-sandbox",
+ "weldsuite-schema",
  "weldsuite-sheets",
  "weldsuite-sign",
  "weldsuite-social",
@@ -7598,9 +7600,11 @@ dependencies = [
  "rustls",
  "rustls-platform-verifier",
  "rusty-s3",
+ "sea-orm",
  "serde",
  "serde_json",
  "sqlx",
+ "time",
  "tokio",
  "tokio-rustls",
  "tracing",
@@ -7612,6 +7616,7 @@ dependencies = [
  "weldsuite-kit",
  "weldsuite-migrations",
  "weldsuite-ports",
+ "weldsuite-schema",
 ]
 
 [[package]]
@@ -7620,8 +7625,10 @@ version = "0.0.0"
 dependencies = [
  "axum",
  "http",
+ "sea-orm",
  "serde_json",
  "sqlx",
+ "time",
  "tracing",
  "uuid",
  "weldsuite-ads-domain",
@@ -7633,6 +7640,7 @@ dependencies = [
  "weldsuite-outside-eu",
  "weldsuite-permissions",
  "weldsuite-ports",
+ "weldsuite-schema",
 ]
 
 [[package]]
@@ -7640,6 +7648,7 @@ name = "weldsuite-ads-domain"
 version = "0.0.0"
 dependencies = [
  "form_urlencoded",
+ "sea-orm",
  "serde_json",
  "sqlx",
  "time",
@@ -7651,6 +7660,7 @@ dependencies = [
  "weldsuite-kit",
  "weldsuite-outside-eu",
  "weldsuite-ports",
+ "weldsuite-schema",
 ]
 
 [[package]]
@@ -7685,6 +7695,7 @@ dependencies = [
  "weldsuite-permissions",
  "weldsuite-ports",
  "weldsuite-sandbox",
+ "weldsuite-schema",
  "weldsuite-subscribers",
 ]
 
@@ -7697,15 +7708,18 @@ dependencies = [
  "futures-util",
  "hex",
  "http",
+ "sea-orm",
  "serde",
  "serde_json",
  "sqlx",
+ "time",
  "tokio",
  "tracing",
  "weldsuite-core-domain",
  "weldsuite-db",
  "weldsuite-kit",
  "weldsuite-ports",
+ "weldsuite-schema",
 ]
 
 [[package]]
@@ -7715,6 +7729,7 @@ dependencies = [
  "aws-lc-rs",
  "hex",
  "regex",
+ "sea-orm",
  "serde_json",
  "sqlx",
  "time",
@@ -7723,6 +7738,7 @@ dependencies = [
  "weldsuite-db",
  "weldsuite-events",
  "weldsuite-kit",
+ "weldsuite-schema",
 ]
 
 [[package]]
@@ -7750,6 +7766,7 @@ dependencies = [
  "http",
  "regex",
  "reqwest 0.13.5",
+ "sea-orm",
  "serde_json",
  "sqlx",
  "time",
@@ -7766,6 +7783,7 @@ dependencies = [
  "weldsuite-kit",
  "weldsuite-permissions",
  "weldsuite-ports",
+ "weldsuite-schema",
 ]
 
 [[package]]
@@ -7775,6 +7793,7 @@ dependencies = [
  "axum",
  "http",
  "jiff",
+ "sea-orm",
  "serde",
  "serde_json",
  "sqlx",
@@ -7789,6 +7808,7 @@ dependencies = [
  "weldsuite-legal-entities",
  "weldsuite-permissions",
  "weldsuite-ports",
+ "weldsuite-schema",
 ]
 
 [[package]]
@@ -7798,8 +7818,10 @@ dependencies = [
  "axum",
  "http",
  "regex",
+ "sea-orm",
  "serde_json",
  "sqlx",
+ "time",
  "tokio",
  "tracing",
  "weldsuite-auth",
@@ -7812,6 +7834,7 @@ dependencies = [
  "weldsuite-outside-eu",
  "weldsuite-permissions",
  "weldsuite-ports",
+ "weldsuite-schema",
 ]
 
 [[package]]
@@ -7831,6 +7854,7 @@ dependencies = [
  "jsonwebtoken 11.1.0",
  "qrcodegen",
  "regex",
+ "sea-orm",
  "serde",
  "serde_json",
  "sha2 0.11.1",
@@ -7852,6 +7876,7 @@ dependencies = [
  "weldsuite-permissions",
  "weldsuite-pipeline",
  "weldsuite-ports",
+ "weldsuite-schema",
 ]
 
 [[package]]
@@ -7862,8 +7887,10 @@ dependencies = [
  "base64 0.22.1",
  "http",
  "jiff",
+ "sea-orm",
  "serde_json",
  "sqlx",
+ "time",
  "tokio",
  "tracing",
  "weldsuite-ai",
@@ -7876,6 +7903,7 @@ dependencies = [
  "weldsuite-legal-entities",
  "weldsuite-permissions",
  "weldsuite-ports",
+ "weldsuite-schema",
 ]
 
 [[package]]
@@ -7886,6 +7914,7 @@ dependencies = [
  "base64 0.22.1",
  "http",
  "jiff",
+ "sea-orm",
  "serde",
  "serde_json",
  "sha2 0.11.1",
@@ -7901,6 +7930,7 @@ dependencies = [
  "weldsuite-legal-entities",
  "weldsuite-permissions",
  "weldsuite-ports",
+ "weldsuite-schema",
 ]
 
 [[package]]
@@ -7909,6 +7939,7 @@ version = "0.0.0"
 dependencies = [
  "axum",
  "http",
+ "sea-orm",
  "serde",
  "serde_json",
  "sqlx",
@@ -7924,6 +7955,7 @@ dependencies = [
  "weldsuite-legal-entities",
  "weldsuite-permissions",
  "weldsuite-ports",
+ "weldsuite-schema",
 ]
 
 [[package]]
@@ -7934,6 +7966,7 @@ dependencies = [
  "base64 0.22.1",
  "http",
  "jiff",
+ "sea-orm",
  "serde",
  "serde_json",
  "sqlx",
@@ -7948,6 +7981,7 @@ dependencies = [
  "weldsuite-legal-entities",
  "weldsuite-permissions",
  "weldsuite-ports",
+ "weldsuite-schema",
 ]
 
 [[package]]
@@ -7961,6 +7995,7 @@ dependencies = [
  "getrandom 0.4.3",
  "http",
  "regex",
+ "sea-orm",
  "serde",
  "serde_json",
  "sqlx",
@@ -7975,6 +8010,7 @@ dependencies = [
  "weldsuite-legal-entities",
  "weldsuite-permissions",
  "weldsuite-ports",
+ "weldsuite-schema",
 ]
 
 [[package]]
@@ -7988,6 +8024,7 @@ dependencies = [
  "http",
  "jiff",
  "reqwest 0.13.5",
+ "sea-orm",
  "serde",
  "serde_json",
  "sqlx",
@@ -8006,6 +8043,7 @@ dependencies = [
  "weldsuite-outside-eu",
  "weldsuite-permissions",
  "weldsuite-ports",
+ "weldsuite-schema",
 ]
 
 [[package]]
@@ -8013,6 +8051,7 @@ name = "weldsuite-calendar-domain"
 version = "0.0.0"
 dependencies = [
  "jiff",
+ "sea-orm",
  "serde_json",
  "sqlx",
  "time",
@@ -8021,6 +8060,7 @@ dependencies = [
  "weldsuite-db",
  "weldsuite-events",
  "weldsuite-kit",
+ "weldsuite-schema",
 ]
 
 [[package]]
@@ -8033,6 +8073,7 @@ dependencies = [
  "form_urlencoded",
  "hmac",
  "http",
+ "sea-orm",
  "serde_json",
  "sha2 0.11.1",
  "sqlx",
@@ -8051,6 +8092,7 @@ dependencies = [
  "weldsuite-outside-eu",
  "weldsuite-permissions",
  "weldsuite-ports",
+ "weldsuite-schema",
 ]
 
 [[package]]
@@ -8071,6 +8113,7 @@ dependencies = [
  "hmac",
  "http",
  "icu_collator",
+ "sea-orm",
  "serde",
  "serde_json",
  "sha2 0.11.1",
@@ -8088,6 +8131,7 @@ dependencies = [
  "weldsuite-notifications",
  "weldsuite-permissions",
  "weldsuite-ports",
+ "weldsuite-schema",
  "weldsuite-video-rooms",
 ]
 
@@ -8096,6 +8140,7 @@ name = "weldsuite-chat-domain"
 version = "0.0.0"
 dependencies = [
  "regex",
+ "sea-orm",
  "serde_json",
  "sqlx",
  "time",
@@ -8109,6 +8154,7 @@ dependencies = [
  "weldsuite-notifications",
  "weldsuite-permissions",
  "weldsuite-ports",
+ "weldsuite-schema",
 ]
 
 [[package]]
@@ -8178,6 +8224,7 @@ dependencies = [
  "jiff",
  "jsonwebtoken 11.1.0",
  "regex",
+ "sea-orm",
  "serde",
  "serde_json",
  "sha2 0.11.1",
@@ -8206,6 +8253,7 @@ dependencies = [
  "weldsuite-outside-eu",
  "weldsuite-permissions",
  "weldsuite-ports",
+ "weldsuite-schema",
  "weldsuite-subscribers",
 ]
 
@@ -8220,6 +8268,7 @@ dependencies = [
  "http",
  "jsonwebtoken 11.1.0",
  "regex",
+ "sea-orm",
  "serde_json",
  "sha2 0.11.1",
  "sqlx",
@@ -8235,6 +8284,7 @@ dependencies = [
  "weldsuite-events",
  "weldsuite-kit",
  "weldsuite-ports",
+ "weldsuite-schema",
 ]
 
 [[package]]
@@ -8249,6 +8299,7 @@ dependencies = [
  "http",
  "regex",
  "reqwest 0.13.5",
+ "sea-orm",
  "serde",
  "serde_json",
  "sqlx",
@@ -8264,6 +8315,7 @@ dependencies = [
  "weldsuite-kit",
  "weldsuite-permissions",
  "weldsuite-ports",
+ "weldsuite-schema",
 ]
 
 [[package]]
@@ -8274,6 +8326,7 @@ dependencies = [
  "axum",
  "base64 0.22.1",
  "http",
+ "sea-orm",
  "serde",
  "serde_json",
  "sqlx",
@@ -8289,12 +8342,14 @@ dependencies = [
  "weldsuite-mollie",
  "weldsuite-permissions",
  "weldsuite-ports",
+ "weldsuite-schema",
 ]
 
 [[package]]
 name = "weldsuite-core-domain"
 version = "0.0.0"
 dependencies = [
+ "sea-orm",
  "serde",
  "serde_json",
  "sqlx",
@@ -8304,6 +8359,7 @@ dependencies = [
  "weldsuite-db",
  "weldsuite-events",
  "weldsuite-kit",
+ "weldsuite-schema",
 ]
 
 [[package]]
@@ -8317,6 +8373,7 @@ dependencies = [
  "hex",
  "http",
  "http-body-util",
+ "sea-orm",
  "serde",
  "serde_json",
  "sqlx",
@@ -8334,6 +8391,7 @@ dependencies = [
  "weldsuite-kit",
  "weldsuite-permissions",
  "weldsuite-ports",
+ "weldsuite-schema",
  "weldsuite-subscribers",
 ]
 
@@ -8345,6 +8403,7 @@ dependencies = [
  "form_urlencoded",
  "hex",
  "http",
+ "sea-orm",
  "serde",
  "serde_json",
  "sha2 0.11.1",
@@ -8361,6 +8420,7 @@ dependencies = [
  "weldsuite-outside-eu",
  "weldsuite-permissions",
  "weldsuite-ports",
+ "weldsuite-schema",
 ]
 
 [[package]]
@@ -8369,6 +8429,7 @@ version = "0.0.0"
 dependencies = [
  "axum",
  "http",
+ "sea-orm",
  "serde",
  "serde_json",
  "sqlx",
@@ -8381,6 +8442,7 @@ dependencies = [
  "weldsuite-events",
  "weldsuite-kit",
  "weldsuite-ports",
+ "weldsuite-schema",
 ]
 
 [[package]]
@@ -8440,6 +8502,7 @@ dependencies = [
  "axum",
  "http",
  "regex",
+ "sea-orm",
  "serde",
  "serde_json",
  "sqlx",
@@ -8454,6 +8517,7 @@ dependencies = [
  "weldsuite-legal-entities",
  "weldsuite-permissions",
  "weldsuite-ports",
+ "weldsuite-schema",
 ]
 
 [[package]]
@@ -8463,6 +8527,7 @@ dependencies = [
  "axum",
  "futures-util",
  "http",
+ "sea-orm",
  "serde_json",
  "sqlx",
  "time",
@@ -8478,6 +8543,7 @@ dependencies = [
  "weldsuite-mail-domain",
  "weldsuite-permissions",
  "weldsuite-ports",
+ "weldsuite-schema",
 ]
 
 [[package]]
@@ -8524,6 +8590,7 @@ dependencies = [
  "http",
  "regex",
  "reqwest 0.13.5",
+ "sea-orm",
  "serde",
  "serde_json",
  "sha2 0.11.1",
@@ -8543,6 +8610,7 @@ dependencies = [
  "weldsuite-outside-eu",
  "weldsuite-permissions",
  "weldsuite-ports",
+ "weldsuite-schema",
 ]
 
 [[package]]
@@ -8664,6 +8732,7 @@ dependencies = [
  "axum",
  "flate2",
  "http",
+ "sea-orm",
  "serde_json",
  "sqlx",
  "time",
@@ -8676,6 +8745,7 @@ dependencies = [
  "weldsuite-kit",
  "weldsuite-permissions",
  "weldsuite-ports",
+ "weldsuite-schema",
 ]
 
 [[package]]
@@ -8747,6 +8817,7 @@ dependencies = [
  "weldsuite-outside-eu",
  "weldsuite-pipeline",
  "weldsuite-ports",
+ "weldsuite-schema",
  "weldsuite-social-domain",
  "weldsuite-zod",
 ]
@@ -8758,6 +8829,7 @@ dependencies = [
  "axum",
  "http",
  "jiff",
+ "sea-orm",
  "serde",
  "serde_json",
  "sqlx",
@@ -8779,6 +8851,7 @@ dependencies = [
  "weldsuite-permissions",
  "weldsuite-pipeline",
  "weldsuite-ports",
+ "weldsuite-schema",
 ]
 
 [[package]]
@@ -8786,6 +8859,7 @@ name = "weldsuite-flow-domain"
 version = "0.0.0"
 dependencies = [
  "jiff",
+ "sea-orm",
  "serde",
  "serde_json",
  "sqlx",
@@ -8793,6 +8867,7 @@ dependencies = [
  "weldsuite-db",
  "weldsuite-events",
  "weldsuite-kit",
+ "weldsuite-schema",
 ]
 
 [[package]]
@@ -8806,6 +8881,7 @@ dependencies = [
  "hex",
  "http",
  "regex",
+ "sea-orm",
  "serde",
  "serde_json",
  "sqlx",
@@ -8828,6 +8904,7 @@ dependencies = [
  "weldsuite-notifications",
  "weldsuite-permissions",
  "weldsuite-ports",
+ "weldsuite-schema",
 ]
 
 [[package]]
@@ -8851,6 +8928,7 @@ dependencies = [
  "hex",
  "http",
  "regex",
+ "sea-orm",
  "serde_json",
  "sqlx",
  "time",
@@ -8864,6 +8942,7 @@ dependencies = [
  "weldsuite-outside-eu",
  "weldsuite-permissions",
  "weldsuite-ports",
+ "weldsuite-schema",
 ]
 
 [[package]]
@@ -8874,6 +8953,7 @@ dependencies = [
  "bytes",
  "http",
  "icu_collator",
+ "sea-orm",
  "serde",
  "serde_json",
  "sqlx",
@@ -8894,6 +8974,7 @@ dependencies = [
  "weldsuite-permissions",
  "weldsuite-pipeline",
  "weldsuite-ports",
+ "weldsuite-schema",
 ]
 
 [[package]]
@@ -8908,6 +8989,7 @@ dependencies = [
  "hmac",
  "http",
  "jsonwebtoken 11.1.0",
+ "sea-orm",
  "serde",
  "serde_json",
  "sha1 0.11.0",
@@ -8925,6 +9007,7 @@ dependencies = [
  "weldsuite-kit",
  "weldsuite-outside-eu",
  "weldsuite-ports",
+ "weldsuite-schema",
 ]
 
 [[package]]
@@ -9016,6 +9099,7 @@ dependencies = [
  "http",
  "http-body-util",
  "regex",
+ "sea-orm",
  "serde",
  "serde_json",
  "sqlx",
@@ -9028,6 +9112,7 @@ dependencies = [
  "weldsuite-db",
  "weldsuite-kit",
  "weldsuite-permissions",
+ "weldsuite-schema",
 ]
 
 [[package]]
@@ -9040,6 +9125,7 @@ dependencies = [
  "jiff",
  "regex",
  "reqwest 0.13.5",
+ "sea-orm",
  "serde",
  "serde_json",
  "sha2 0.11.1",
@@ -9061,6 +9147,7 @@ dependencies = [
  "weldsuite-notifications",
  "weldsuite-permissions",
  "weldsuite-ports",
+ "weldsuite-schema",
 ]
 
 [[package]]
@@ -9128,6 +9215,7 @@ dependencies = [
  "form_urlencoded",
  "http",
  "regex",
+ "sea-orm",
  "serde",
  "serde_json",
  "sqlx",
@@ -9141,6 +9229,7 @@ dependencies = [
  "weldsuite-kit",
  "weldsuite-permissions",
  "weldsuite-ports",
+ "weldsuite-schema",
 ]
 
 [[package]]
@@ -9153,6 +9242,7 @@ dependencies = [
  "bytes",
  "getrandom 0.4.3",
  "http",
+ "sea-orm",
  "serde",
  "serde_json",
  "sqlx",
@@ -9174,6 +9264,7 @@ dependencies = [
  "weldsuite-notifications",
  "weldsuite-permissions",
  "weldsuite-ports",
+ "weldsuite-schema",
  "weldsuite-video-rooms",
 ]
 
@@ -9187,6 +9278,7 @@ dependencies = [
  "hex",
  "hmac",
  "http",
+ "sea-orm",
  "serde_json",
  "sha2 0.11.1",
  "sqlx",
@@ -9208,18 +9300,21 @@ dependencies = [
  "weldsuite-outside-eu",
  "weldsuite-permissions",
  "weldsuite-ports",
+ "weldsuite-schema",
 ]
 
 [[package]]
 name = "weldsuite-merge-domain"
 version = "0.0.0"
 dependencies = [
+ "sea-orm",
  "serde_json",
  "sqlx",
  "time",
  "weldsuite-db",
  "weldsuite-events",
  "weldsuite-kit",
+ "weldsuite-schema",
 ]
 
 [[package]]
@@ -9261,6 +9356,7 @@ dependencies = [
  "reqwest 0.13.5",
  "rustls",
  "rustls-platform-verifier",
+ "sea-orm",
  "serde",
  "serde_json",
  "sqlx",
@@ -9269,6 +9365,7 @@ dependencies = [
  "tokio-rustls",
  "tokio-util",
  "tracing",
+ "weldsuite-schema",
 ]
 
 [[package]]
@@ -9278,6 +9375,7 @@ dependencies = [
  "base64 0.22.1",
  "jsonwebtoken 11.1.0",
  "regex",
+ "sea-orm",
  "serde",
  "serde_json",
  "sqlx",
@@ -9287,6 +9385,7 @@ dependencies = [
  "weldsuite-events",
  "weldsuite-kit",
  "weldsuite-ports",
+ "weldsuite-schema",
 ]
 
 [[package]]
@@ -9322,6 +9421,7 @@ dependencies = [
  "jiff",
  "regex",
  "reqwest 0.13.5",
+ "sea-orm",
  "serde",
  "serde_json",
  "sha2 0.11.1",
@@ -9345,6 +9445,7 @@ dependencies = [
  "weldsuite-panel-domain",
  "weldsuite-permissions",
  "weldsuite-ports",
+ "weldsuite-schema",
  "weldsuite-zod",
 ]
 
@@ -9375,6 +9476,7 @@ dependencies = [
  "http",
  "icu_collator",
  "reqwest 0.13.5",
+ "sea-orm",
  "serde",
  "serde_json",
  "sha1 0.11.0",
@@ -9391,6 +9493,7 @@ dependencies = [
  "weldsuite-kit",
  "weldsuite-permissions",
  "weldsuite-ports",
+ "weldsuite-schema",
 ]
 
 [[package]]
@@ -9428,6 +9531,7 @@ dependencies = [
  "http",
  "http-body-util",
  "jiff",
+ "sea-orm",
  "serde_json",
  "sqlx",
  "time",
@@ -9445,6 +9549,7 @@ dependencies = [
  "weldsuite-mail-inbound",
  "weldsuite-notifications",
  "weldsuite-ports",
+ "weldsuite-schema",
 ]
 
 [[package]]
@@ -9454,9 +9559,11 @@ dependencies = [
  "axum",
  "http",
  "http-body-util",
+ "sea-orm",
  "serde",
  "serde_json",
  "sqlx",
+ "time",
  "tokio",
  "tower",
  "tracing",
@@ -9465,6 +9572,7 @@ dependencies = [
  "weldsuite-db",
  "weldsuite-kit",
  "weldsuite-ports",
+ "weldsuite-schema",
 ]
 
 [[package]]
@@ -9493,6 +9601,7 @@ dependencies = [
  "jiff",
  "lettre",
  "regex",
+ "sea-orm",
  "serde",
  "serde_json",
  "sha2 0.11.1",
@@ -9513,6 +9622,7 @@ dependencies = [
  "weldsuite-pipeline",
  "weldsuite-ports",
  "weldsuite-reach-domain",
+ "weldsuite-schema",
 ]
 
 [[package]]
@@ -9524,6 +9634,7 @@ dependencies = [
  "futures-util",
  "jiff",
  "regex",
+ "sea-orm",
  "serde_json",
  "sqlx",
  "time",
@@ -9535,6 +9646,7 @@ dependencies = [
  "weldsuite-kit",
  "weldsuite-mail-inbound",
  "weldsuite-ports",
+ "weldsuite-schema",
 ]
 
 [[package]]
@@ -9547,10 +9659,12 @@ dependencies = [
  "futures-util",
  "hmac",
  "http",
+ "sea-orm",
  "serde",
  "serde_json",
  "sha2 0.11.1",
  "sqlx",
+ "time",
  "tokio",
  "tokio-tungstenite",
  "tracing",
@@ -9560,6 +9674,7 @@ dependencies = [
  "weldsuite-catalogs",
  "weldsuite-db",
  "weldsuite-ports",
+ "weldsuite-schema",
 ]
 
 [[package]]
@@ -9606,6 +9721,7 @@ dependencies = [
  "axum",
  "flate2",
  "http",
+ "sea-orm",
  "serde",
  "serde_json",
  "sqlx",
@@ -9620,6 +9736,7 @@ dependencies = [
  "weldsuite-kit",
  "weldsuite-permissions",
  "weldsuite-ports",
+ "weldsuite-schema",
 ]
 
 [[package]]
@@ -9634,6 +9751,7 @@ dependencies = [
  "jiff",
  "lopdf",
  "png",
+ "sea-orm",
  "serde",
  "serde_json",
  "sqlx",
@@ -9650,6 +9768,7 @@ dependencies = [
  "weldsuite-kit",
  "weldsuite-permissions",
  "weldsuite-ports",
+ "weldsuite-schema",
 ]
 
 [[package]]
@@ -9658,6 +9777,7 @@ version = "0.0.0"
 dependencies = [
  "axum",
  "http",
+ "sea-orm",
  "serde_json",
  "sqlx",
  "time",
@@ -9671,6 +9791,7 @@ dependencies = [
  "weldsuite-outside-eu",
  "weldsuite-permissions",
  "weldsuite-ports",
+ "weldsuite-schema",
  "weldsuite-social-domain",
 ]
 
@@ -9681,6 +9802,7 @@ dependencies = [
  "aws-lc-rs",
  "form_urlencoded",
  "hex",
+ "sea-orm",
  "serde_json",
  "sqlx",
  "time",
@@ -9690,6 +9812,7 @@ dependencies = [
  "weldsuite-events",
  "weldsuite-kit",
  "weldsuite-ports",
+ "weldsuite-schema",
 ]
 
 [[package]]
@@ -9697,8 +9820,10 @@ name = "weldsuite-staff-domain"
 version = "0.0.0"
 dependencies = [
  "regex",
+ "sea-orm",
  "serde_json",
  "sqlx",
+ "time",
  "tokio",
  "tracing",
  "weldsuite-db",
@@ -9706,6 +9831,7 @@ dependencies = [
  "weldsuite-kit",
  "weldsuite-ports",
  "weldsuite-reach-domain",
+ "weldsuite-schema",
 ]
 
 [[package]]
@@ -9715,6 +9841,7 @@ dependencies = [
  "axum",
  "base64 0.22.1",
  "http",
+ "sea-orm",
  "serde_json",
  "sqlx",
  "time",
@@ -9730,6 +9857,7 @@ dependencies = [
  "weldsuite-notifications",
  "weldsuite-permissions",
  "weldsuite-ports",
+ "weldsuite-schema",
 ]
 
 [[package]]
@@ -9743,6 +9871,7 @@ dependencies = [
  "getrandom 0.4.3",
  "hex",
  "reqwest 0.13.5",
+ "sea-orm",
  "serde",
  "serde_json",
  "sqlx",
@@ -9757,6 +9886,7 @@ dependencies = [
  "weldsuite-events",
  "weldsuite-kit",
  "weldsuite-ports",
+ "weldsuite-schema",
 ]
 
 [[package]]

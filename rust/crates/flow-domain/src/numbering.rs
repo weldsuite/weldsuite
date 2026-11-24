@@ -12,9 +12,11 @@
 
 use std::borrow::Cow;
 
-use sqlx::PgExecutor;
-use time::OffsetDateTime;
-use weldsuite_events::iso_timestamp;
+use sea_orm::ActiveValue::Set;
+use sea_orm::sea_query::{Expr, OnConflict};
+use sea_orm::{ConnectionTrait, DbErr, EntityTrait};
+use weldsuite_db::utc_now;
+use weldsuite_schema::tenant::task_number_sequences as sequences;
 
 /// One counter (`NumberSequence`): its scope key (unique per row) and the
 /// prefix of the display code.
@@ -33,42 +35,51 @@ pub const TASK_SEQUENCE: NumberSequence = NumberSequence {
 /// `allocateNumbers(db, sequence, count)`: `count` consecutive numbers from
 /// the sequence, ascending, in one atomic bump. The sequence row is created
 /// on first use, with the prefix given then.
-pub async fn allocate_numbers<'e>(
-    db: impl PgExecutor<'e>,
+pub async fn allocate_numbers(
+    db: &impl ConnectionTrait,
     sequence: &NumberSequence,
     count: i64,
-) -> Result<Vec<i64>, sqlx::Error> {
+) -> Result<Vec<i64>, DbErr> {
     if count <= 0 {
         return Ok(Vec::new());
     }
-    let next: i32 = sqlx::query_scalar(
-        "insert into task_number_sequences (id, scope, prefix, next_value)
-         values ($1, $4, $5, $2 + 1)
-         on conflict (scope) do update set
-             next_value = task_number_sequences.next_value + $2,
-             updated_at = $3::timestamp
-         returning next_value",
+    let step = i32::try_from(count).unwrap_or(i32::MAX);
+    // `insert … on conflict (scope) do update set next_value = next_value + step
+    // returning next_value`: one statement, so two callers never get the same numbers.
+    let bumped = sequences::Entity::insert(sequences::ActiveModel {
+        id: Set(weldsuite_kit::generate_id("seq")),
+        scope: Set(sequence.scope.clone().into_owned()),
+        prefix: Set(sequence.prefix.to_owned()),
+        next_value: Set(step.saturating_add(1)),
+        ..Default::default()
+    })
+    .on_conflict(
+        OnConflict::column(sequences::Column::Scope)
+            .value(
+                sequences::Column::NextValue,
+                sea_orm::ExprTrait::add(
+                    Expr::col((sequences::Entity, sequences::Column::NextValue)),
+                    step,
+                ),
+            )
+            .value(sequences::Column::UpdatedAt, utc_now())
+            .to_owned(),
     )
-    .bind(weldsuite_kit::generate_id("seq"))
-    .bind(i32::try_from(count).unwrap_or(i32::MAX))
-    .bind(iso_timestamp(OffsetDateTime::now_utc()))
-    .bind(sequence.scope.as_ref())
-    .bind(sequence.prefix)
-    .fetch_one(db)
+    .exec_with_returning(db)
     .await?;
-    let end = i64::from(next) - 1;
+    let end = i64::from(bumped.next_value) - 1;
     let start = end - count + 1;
     Ok((0..count).map(|i| start + i).collect())
 }
 
 /// `allocateNumber(db, sequence)`: one number from the sequence.
-pub async fn allocate_number<'e>(
-    db: impl PgExecutor<'e>,
+pub async fn allocate_number(
+    db: &impl ConnectionTrait,
     sequence: &NumberSequence,
-) -> Result<i64, sqlx::Error> {
+) -> Result<i64, DbErr> {
     let numbers = allocate_numbers(db, sequence, 1).await?;
     numbers.first().copied().ok_or_else(|| {
-        sqlx::Error::Protocol(format!(
+        DbErr::Custom(format!(
             "Failed to allocate a number for scope {}",
             sequence.scope
         ))
@@ -76,18 +87,18 @@ pub async fn allocate_number<'e>(
 }
 
 /// `allocateTaskNumbers(db, count)`: `count` consecutive task numbers, ascending.
-pub async fn allocate_task_numbers<'e>(
-    db: impl PgExecutor<'e>,
+pub async fn allocate_task_numbers(
+    db: &impl ConnectionTrait,
     count: i64,
-) -> Result<Vec<i64>, sqlx::Error> {
+) -> Result<Vec<i64>, DbErr> {
     allocate_numbers(db, &TASK_SEQUENCE, count).await
 }
 
 /// `allocateTaskNumber(db)`.
-pub async fn allocate_task_number<'e>(db: impl PgExecutor<'e>) -> Result<i64, sqlx::Error> {
+pub async fn allocate_task_number(db: &impl ConnectionTrait) -> Result<i64, DbErr> {
     let numbers = allocate_task_numbers(db, 1).await?;
     numbers
         .first()
         .copied()
-        .ok_or_else(|| sqlx::Error::Protocol("Failed to allocate a task number".to_owned()))
+        .ok_or_else(|| DbErr::Custom("Failed to allocate a task number".to_owned()))
 }

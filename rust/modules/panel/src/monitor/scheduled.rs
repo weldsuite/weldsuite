@@ -20,6 +20,7 @@
 
 use std::sync::Arc;
 
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, JoinType, QueryFilter, QuerySelect};
 use serde::Serialize;
 use serde_json::{Value, json};
 use sqlx::PgPool;
@@ -27,12 +28,13 @@ use weldsuite_catalogs::entity_events::{
     PANEL_ALERT_FIRED, PANEL_ALERT_RESOLVED, PANEL_CUSTOM_DOMAIN_DELETED,
     PANEL_CUSTOM_DOMAIN_UPDATED,
 };
-use weldsuite_db::Keyring;
+use weldsuite_db::{Keyring, orm};
 use weldsuite_events::{EntityEventPublisher, EventContext, EventSource, publish_entity_event};
 use weldsuite_panel_domain::js;
 use weldsuite_panel_domain::query::plan_retention::event_retention_days;
 use weldsuite_panel_domain::query::{PanelQueryContext, PanelSqlQuery};
 use weldsuite_ports::{BoxFuture, DynCache, DynRealtimePublisher, DynSystemMail, OutboundHttp};
+use weldsuite_schema::master::{plans, workspaces};
 
 use super::alerts::{self, CheckPorts};
 use super::delivery::{self, Delivered, Delivery, Message, Senders, Target};
@@ -200,13 +202,21 @@ impl ExportPorts for ExportRunPorts<'_> {
                 })
                 .await
                 .map_err(|error| error.to_string())?;
-            let slug: Option<Option<String>> = sqlx::query_scalar(
-                "select p.slug from workspaces w left join plans p on p.id = w.plan_id where w.id = $1 limit 1",
-            )
-            .bind(workspace_id)
-            .fetch_optional(&self.ports.deps.master)
-            .await
-            .map_err(|error| error.to_string())?;
+            let slug: Option<Option<String>> = workspaces::Entity::find()
+                .select_only()
+                .column(plans::Column::Slug)
+                .join(
+                    JoinType::LeftJoin,
+                    workspaces::Entity::belongs_to(plans::Entity)
+                        .from(workspaces::Column::PlanId)
+                        .to(plans::Column::Id)
+                        .into(),
+                )
+                .filter(workspaces::Column::Id.eq(workspace_id))
+                .into_tuple()
+                .one(&orm(&self.ports.deps.master))
+                .await
+                .map_err(|error| error.to_string())?;
             // 366 or 762 days: an f64 holds them exactly.
             #[allow(clippy::cast_precision_loss)]
             let retention_days = event_retention_days(slug.flatten().as_deref()) as f64;
@@ -280,7 +290,7 @@ async fn run_schedule_item(
     row: &ScheduleRow,
     now: i64,
     deadline: i64,
-) -> Result<Option<i64>, sqlx::Error> {
+) -> Result<Option<i64>, DbErr> {
     let ports = WorkspacePorts {
         deps,
         ws,
@@ -355,7 +365,7 @@ async fn run_schedule_item(
 
 /// `pollDomains(env, masterDb, now)`: refreshes pending custom domains and
 /// retries removals the provider refused.
-async fn poll_domains(deps: &ScheduleDeps, now: i64) -> Result<u64, sqlx::Error> {
+async fn poll_domains(deps: &ScheduleDeps, now: i64) -> Result<u64, DbErr> {
     let Some(domains) = deps.domains.clone() else {
         return Ok(0);
     };
@@ -412,7 +422,7 @@ async fn run_row(
     now: i64,
     deadline: i64,
     summary: &mut Summary,
-) -> Result<(), sqlx::Error> {
+) -> Result<(), DbErr> {
     let Some(ws) = ws.filter(|ws| !ws.suspended) else {
         // A suspended workspace runs nothing until it is back.
         let later = if ws.is_some_and(|ws| ws.suspended) {
@@ -450,7 +460,7 @@ pub(crate) async fn run_scheduled_with(
     items: &dyn ItemRunner,
     now: i64,
     budget_ms: i64,
-) -> Result<Summary, sqlx::Error> {
+) -> Result<Summary, DbErr> {
     let deadline = js::now_millis() + budget_ms;
     let mut summary = Summary::default();
     let claimed = claim_due(&deps.master, now, MAX_CLAIM).await?;
@@ -494,7 +504,7 @@ pub(crate) async fn run_scheduled_with(
 }
 
 /// `weldsuite cron panel-schedule`: one run at `now`.
-pub async fn run_scheduled(deps: &ScheduleDeps, now: i64) -> Result<Summary, sqlx::Error> {
+pub async fn run_scheduled(deps: &ScheduleDeps, now: i64) -> Result<Summary, DbErr> {
     let items = DefaultItems {
         deps,
         senders: None,

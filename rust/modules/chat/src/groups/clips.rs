@@ -9,18 +9,21 @@ use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{patch, post};
 use http::HeaderMap;
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events::CHAT_MESSAGE_UPDATED;
 use weldsuite_chat_domain::can_access_channel;
 use weldsuite_chat_domain::publish::object;
+use weldsuite_db::{orm, utc_now};
 use weldsuite_kit::Data;
 use weldsuite_kit::validation::{Field, Presence};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::chat_messages;
 
 use crate::ChatState;
 use crate::access::{Caller, ChatError, ChatResult, answer, validate};
 use crate::groups::channels::read_transcript;
-use crate::util::now;
 
 pub(crate) fn router<Q>(gate: &Arc<PermissionGate<Q>>) -> Router<ChatState>
 where
@@ -49,14 +52,15 @@ async fn clip_of(
             "You do not have access to this channel",
         ));
     }
-    let row: Option<Option<Value>> = sqlx::query_scalar(
-        "select attachments from chat_messages
-         where id = $1 and channel_id = $2 and deleted_at is null limit 1",
-    )
-    .bind(message_id)
-    .bind(channel_id)
-    .fetch_optional(&caller.db)
-    .await?;
+    let row: Option<Option<Value>> = chat_messages::Entity::find()
+        .select_only()
+        .column(chat_messages::Column::Attachments)
+        .filter(chat_messages::Column::Id.eq(message_id))
+        .filter(chat_messages::Column::ChannelId.eq(channel_id))
+        .filter(chat_messages::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(&caller.db))
+        .await?;
     let Some(attachments) = row else {
         return Err(ChatError::not_found("Message", Some(message_id)));
     };
@@ -74,19 +78,16 @@ async fn clip_of(
     Ok((attachments, index))
 }
 
-async fn save(
-    caller: &Caller,
-    message_id: &str,
-    attachments: Vec<Value>,
-) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "update chat_messages set attachments = $2, updated_at = $3::timestamp where id = $1",
-    )
-    .bind(message_id)
-    .bind(Value::Array(attachments))
-    .bind(now())
-    .execute(&caller.db)
-    .await?;
+async fn save(caller: &Caller, message_id: &str, attachments: Vec<Value>) -> Result<(), DbErr> {
+    chat_messages::Entity::update_many()
+        .col_expr(
+            chat_messages::Column::Attachments,
+            Expr::value(Value::Array(attachments)),
+        )
+        .col_expr(chat_messages::Column::UpdatedAt, Expr::value(utc_now()))
+        .filter(chat_messages::Column::Id.eq(message_id))
+        .exec(&orm(&caller.db))
+        .await?;
     Ok(())
 }
 

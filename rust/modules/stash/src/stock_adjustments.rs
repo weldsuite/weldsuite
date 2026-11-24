@@ -9,14 +9,20 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use http::HeaderMap;
+use sea_orm::{
+    ColumnTrait, Condition, DbErr, EntityTrait, Order, PaginatorTrait, QueryFilter, QueryOrder,
+    QuerySelect,
+};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events::WMS_ADJUSTMENT_CREATED;
 use weldsuite_catalogs::permission_keys::{INVENTORY_CREATE, INVENTORY_READ};
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::validation::{Field, Issues, Number, Presence, Text};
 use weldsuite_kit::{Created, Data, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::stock_adjustments as adjustments;
 
-use crate::args::{Arg, bind_scalar, created_cursor, cursor_sql, page_list};
+use crate::args::{CursorRow, before, cursor_row, page_list};
 use crate::crud::{cursor_failed, write_failed};
 use crate::js::{js_limit, query_param, query_set, sql_limit};
 use crate::tables::STOCK_ADJUSTMENTS;
@@ -40,63 +46,90 @@ where
         )
 }
 
-const LIST_SQL: &str = concat!(
-    "select to_jsonb(t) from stock_adjustments t where ",
-    "(not $1::boolean or (t.reason like $2 or t.notes like $2)) and (not $3::boolean or t.type = $4) ",
-    "and (not $5::boolean or t.warehouse_id = $6) and (not $7::boolean or t.product_id = $8) ",
-    "and (not $9::boolean or t.source_type = $10) ",
-    "and (not $11::boolean or (t.created_at < $12::timestamp or (t.created_at = $12::timestamp and t.id < $13))) ",
-    "order by t.created_at desc, t.id desc limit $14"
-);
+/// The list's conditions: `like(reason | notes, %search%)`, then `type`,
+/// `warehouseId`, `productId` and `sourceType` when set.
+fn filters(query: Option<&str>) -> Condition {
+    let mut condition = Condition::all();
+    if let Some(search) = query_set(query, "search") {
+        let pattern = format!("%{search}%");
+        condition = condition.add(
+            Condition::any()
+                .add(adjustments::Column::Reason.like(pattern.as_str()))
+                .add(adjustments::Column::Notes.like(pattern.as_str())),
+        );
+    }
+    for (key, column) in [
+        ("type", adjustments::Column::Type),
+        ("warehouseId", adjustments::Column::WarehouseId),
+        ("productId", adjustments::Column::ProductId),
+        ("sourceType", adjustments::Column::SourceType),
+    ] {
+        if let Some(value) = query_set(query, key) {
+            condition = condition.add(column.eq(value));
+        }
+    }
+    condition
+}
 
-const COUNT_SQL: &str = concat!(
-    "select count(*) from stock_adjustments t where ",
-    "(not $1::boolean or (t.reason like $2 or t.notes like $2)) and (not $3::boolean or t.type = $4) ",
-    "and (not $5::boolean or t.warehouse_id = $6) and (not $7::boolean or t.product_id = $8) ",
-    "and (not $9::boolean or t.source_type = $10)"
-);
+/// The page (`limit + 1` rows, newest first, after the cursor) and the
+/// number of rows the filters match.
+async fn page(
+    db: &PgPool,
+    query: Option<&str>,
+    cursor: Option<CursorRow>,
+    limit: f64,
+) -> Result<(Vec<Value>, i64), DbErr> {
+    let db = orm(db);
+    let mut rows = adjustments::Entity::find().filter(filters(query));
+    if let Some(cursor) = &cursor {
+        rows = rows.filter(before(
+            adjustments::Column::CreatedAt,
+            adjustments::Column::Id,
+            cursor,
+        ));
+    }
+    let rows = rows
+        .order_by(adjustments::Column::CreatedAt, Order::Desc)
+        .order_by(adjustments::Column::Id, Order::Desc)
+        .limit(sql_limit(limit).and_then(|limit| u64::try_from(limit).ok()))
+        .all(&db)
+        .await?
+        .into_iter()
+        .map(|row| {
+            serde_json::to_value(row)
+                .map(|row| STOCK_ADJUSTMENTS.drizzle(row))
+                .map_err(|error| DbErr::Json(error.to_string()))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let total = adjustments::Entity::find()
+        .filter(filters(query))
+        .count(&db)
+        .await?;
+    Ok((rows, i64::try_from(total).unwrap_or(i64::MAX)))
+}
 
 async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
     let query = query.as_deref();
     let limit = js_limit(query_param(query, "limit").as_deref(), 25.0, 100.0);
-    let mut filters = Vec::new();
-    let search = query_set(query, "search").map(|search| format!("%{search}%"));
-    filters.push(Arg::Bool(search.is_some()));
-    filters.push(Arg::Text(search));
-    for key in ["type", "warehouseId", "productId", "sourceType"] {
-        let value = query_set(query, key);
-        filters.push(Arg::Bool(value.is_some()));
-        filters.push(Arg::Text(value));
-    }
+    // The cursor lookup runs before the route's `try`: a failure is the
+    // app's 500.
     let cursor = match query_set(query, "cursor") {
-        Some(cursor) => {
-            match created_cursor(&caller.db, cursor_sql!("stock_adjustments"), &cursor).await {
-                Ok(cursor) => cursor,
-                Err(error) => return cursor_failed(&error),
-            }
-        }
+        Some(cursor) => match cursor_row::<adjustments::Entity>(
+            &caller.db,
+            adjustments::Column::CreatedAt,
+            adjustments::Column::Id,
+            &cursor,
+        )
+        .await
+        {
+            Ok(cursor) => cursor,
+            Err(error) => return cursor_failed(&error),
+        },
         None => None,
     };
-    let mut page = filters.clone();
-    page.push(Arg::Bool(cursor.is_some()));
-    page.push(Arg::opt(cursor.as_ref().map(|(at, _)| at.as_str())));
-    page.push(Arg::opt(cursor.as_ref().map(|(_, id)| id.as_str())));
-    page.push(Arg::Int(sql_limit(limit)));
-    let rows: Result<Vec<Value>, _> = bind_scalar(sqlx::query_scalar(LIST_SQL), page)
-        .fetch_all(&caller.db)
-        .await;
-    let total: Result<i64, _> = bind_scalar(sqlx::query_scalar(COUNT_SQL), filters)
-        .fetch_one(&caller.db)
-        .await;
-    match (rows, total) {
-        (Ok(rows), Ok(total)) => page_list(
-            rows.into_iter()
-                .map(|row| STOCK_ADJUSTMENTS.js(row))
-                .collect(),
-            limit,
-            total,
-        ),
-        (Err(error), _) | (_, Err(error)) => internal(&error, "Failed to list stock adjustments"),
+    match page(&caller.db, query, cursor, limit).await {
+        Ok((rows, total)) => page_list(rows, limit, total),
+        Err(error) => internal(&error, "Failed to list stock adjustments"),
     }
 }
 

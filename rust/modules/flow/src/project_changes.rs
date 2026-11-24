@@ -29,12 +29,19 @@ use axum::body::Bytes;
 use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, patch, post, put};
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{
+    ColumnTrait, Condition, DbErr, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder,
+    QuerySelect,
+};
 use serde_json::{Map, Value, json};
+use time::OffsetDateTime;
 use weldsuite_catalogs::entity_events::{
     EventName, PROJECT_CHANGE_REQUEST_CREATED, PROJECT_CHANGE_REQUEST_DELETED,
     PROJECT_CHANGE_REQUEST_SUBMITTED, PROJECT_CHANGE_REQUEST_UPDATED,
 };
-use weldsuite_db::{PgPool, js_row};
+use weldsuite_db::record::JsonTable;
+use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_flow_domain::approval_views::present_review_approver;
 use weldsuite_flow_domain::approvals::{
     PendingReviewFilters, RequestApprovalsInput, RequestApprovalsResult, cancel_pending_approvals,
@@ -51,6 +58,9 @@ use weldsuite_flow_domain::js::{iso_from_millis, parse_int, to_fixed};
 use weldsuite_flow_domain::numbering::allocate_number;
 use weldsuite_kit::{Created, Data, NoContent, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::{
+    milestones, project_baselines, project_change_requests, project_deliverables, projects,
+};
 
 use self::body::{has, list_query, read_create, read_settings, read_update};
 use crate::approvals::announce::{
@@ -59,9 +69,13 @@ use crate::approvals::announce::{
 use crate::approvals::{find_live_project, project_member_ids, publish_project_updated};
 use crate::raid_body::parse_body;
 use crate::{
-    Caller, FlowState, Refusal, Reply, access_scope, keyset_cursor, now_ms, outside, page, paged,
-    reply,
+    Caller, FlowState, Refusal, Reply, access_scope, fetch_limit, in_accessible, json_rows,
+    keyset_before, keyset_cursor_tz, now_ms, outside, page, paged, reply,
 };
+
+/// `project_change_requests`, written whole from a row object: Postgres
+/// converts each value to its column's type, as `jsonb_populate_record` did.
+const CHANGES: JsonTable = JsonTable::of::<project_change_requests::Entity>();
 
 const PROJECT_DENIED: &str = "You are not a member of this project";
 const PROJECT_WRITE_DENIED: &str = "You do not have write access to this project";
@@ -113,6 +127,30 @@ fn iso(ms: i64) -> String {
     iso_from_millis(ms).unwrap_or_default()
 }
 
+/// `new Date(ms)`: the instant a `timestamptz` column stores.
+fn instant(ms: i64) -> OffsetDateTime {
+    OffsetDateTime::from_unix_timestamp_nanos(i128::from(ms) * 1_000_000)
+        .unwrap_or(OffsetDateTime::UNIX_EPOCH)
+}
+
+/// `update project_change_requests set … where id = $id and deleted_at is
+/// null`, the sets given by `set`.
+async fn update_live_change(
+    db: &PgPool,
+    id: &str,
+    set: impl FnOnce(
+        sea_orm::UpdateMany<project_change_requests::Entity>,
+    ) -> sea_orm::UpdateMany<project_change_requests::Entity>,
+) -> Result<(), DbErr> {
+    use project_change_requests::Column;
+    set(project_change_requests::Entity::update_many())
+        .filter(Column::Id.eq(id))
+        .filter(Column::DeletedAt.is_null())
+        .exec(&orm(db))
+        .await?;
+    Ok(())
+}
+
 /// `money(value)`: two decimals as the numeric column stores it, or null.
 fn money(value: Option<&Value>) -> Value {
     match value.and_then(Value::as_f64) {
@@ -152,19 +190,23 @@ async fn writable_change(caller: &Caller, id: &str) -> Result<Value, Refusal> {
 async fn known_plan_ids(
     db: &PgPool,
     project_id: &str,
-) -> Result<(HashSet<String>, HashSet<String>), sqlx::Error> {
-    let milestones: Vec<String> = sqlx::query_scalar(
-        "select id from milestones where project_id = $1 and deleted_at is null",
-    )
-    .bind(project_id)
-    .fetch_all(db)
-    .await?;
-    let deliverables: Vec<String> = sqlx::query_scalar(
-        "select id from project_deliverables where project_id = $1 and deleted_at is null",
-    )
-    .bind(project_id)
-    .fetch_all(db)
-    .await?;
+) -> Result<(HashSet<String>, HashSet<String>), DbErr> {
+    let milestones: Vec<String> = milestones::Entity::find()
+        .select_only()
+        .column(milestones::Column::Id)
+        .filter(milestones::Column::ProjectId.eq(project_id))
+        .filter(milestones::Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
+    let deliverables: Vec<String> = project_deliverables::Entity::find()
+        .select_only()
+        .column(project_deliverables::Column::Id)
+        .filter(project_deliverables::Column::ProjectId.eq(project_id))
+        .filter(project_deliverables::Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     Ok((
         milestones.into_iter().collect(),
         deliverables.into_iter().collect(),
@@ -235,14 +277,22 @@ async fn put_settings(
     reply(
         async {
             let mut board: Vec<String> = Vec::new();
-            for id in input["boardMemberIds"].as_array().into_iter().flatten().filter_map(Value::as_str) {
+            for id in input["boardMemberIds"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+            {
                 if !board.iter().any(|b| b == id) {
                     board.push(id.to_owned());
                 }
             }
-            let members =
-                project_member_ids(&caller.db, &project_id, project["projectManagerId"].as_str())
-                    .await?;
+            let members = project_member_ids(
+                &caller.db,
+                &project_id,
+                project["projectManagerId"].as_str(),
+            )
+            .await?;
             if !board_outsiders(&board, &members).is_empty() {
                 return Err(Refusal::bad_request(messages::BOARD_NOT_MEMBERS));
             }
@@ -251,15 +301,24 @@ async fn put_settings(
                 "scheduleLimitDays": input["scheduleLimitDays"],
                 "boardMemberIds": board,
             });
-            sqlx::query(
-                "update projects set settings = coalesce(settings, '{}'::jsonb) || jsonb_build_object('changeControl', $2::jsonb),
-                     updated_at = $3::timestamp where id = $1 and deleted_at is null",
-            )
-            .bind(&project_id)
-            .bind(control)
-            .bind(crate::now())
-            .execute(&caller.db)
-            .await?;
+            {
+                use projects::Column;
+                // `coalesce(settings, '{}') || jsonb_build_object('changeControl', control)`.
+                let settings = sea_orm::sea_query::extension::postgres::PgExpr::concat(
+                    Expr::from(Func::coalesce([
+                        Expr::col((projects::Entity, Column::Settings)),
+                        Expr::val(json!({})),
+                    ])),
+                    Expr::val(json!({ "changeControl": control })),
+                );
+                projects::Entity::update_many()
+                    .col_expr(Column::Settings, settings)
+                    .col_expr(Column::UpdatedAt, Expr::value(utc_now()))
+                    .filter(Column::Id.eq(project_id.as_str()))
+                    .filter(Column::DeletedAt.is_null())
+                    .exec(&orm(&caller.db))
+                    .await?;
+            }
             let updated = find_live_project(&caller.db, &project_id).await?;
             publish_project_updated(&state, &caller, &project_id).await?;
             Ok(Data(settings_response(updated.as_ref().unwrap_or(&project))).into_response())
@@ -271,20 +330,31 @@ async fn put_settings(
 
 // ── GET / ───────────────────────────────────────────────────────────────────
 
-const CHANGE_JSON: &str = "(to_jsonb(t) || jsonb_build_object('cost_delta', t.cost_delta::text))";
-
-macro_rules! change_filters {
-    () => {
-        concat!(
-            "t.deleted_at is null",
-            " and ($1::text is null or t.project_id = $1)",
-            " and ($1::text is not null or ",
-            in_accessible!("t.project_id", "$2", "$3"),
-            ")",
-            " and ($4::text is null or t.status = $4)",
-            " and ($5::text is null or t.title ilike $5 or t.description ilike $5)"
-        )
+/// The list's `where`, without the cursor: the project (else the
+/// accessible ones), the status and the search.
+fn change_filters(
+    project_id: Option<&str>,
+    scope: &(bool, Vec<String>),
+    status: Option<&str>,
+    search: Option<&str>,
+) -> Condition {
+    use project_change_requests::Column;
+    let mut filters = Condition::all().add(Column::DeletedAt.is_null());
+    filters = match project_id {
+        Some(project_id) => filters.add(Column::ProjectId.eq(project_id)),
+        None => filters.add(in_accessible(Column::ProjectId, scope)),
     };
+    if let Some(status) = status {
+        filters = filters.add(Column::Status.eq(status));
+    }
+    if let Some(search) = search {
+        filters = filters.add(
+            Condition::any()
+                .add(Column::Title.ilike(search))
+                .add(Column::Description.ilike(search)),
+        );
+    }
+    filters
 }
 
 async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
@@ -311,9 +381,10 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
         Err(refused) => return outside(Err(refused)),
     };
     let cursor = match &q.cursor {
-        Some(cursor) => match keyset_cursor(
+        Some(cursor) => match keyset_cursor_tz(
             &caller.db,
-            "select id, to_jsonb(created_at) #>> '{}' from project_change_requests where id = $1 limit 1",
+            project_change_requests::Column::Id,
+            project_change_requests::Column::CreatedAt,
             cursor,
         )
         .await
@@ -325,39 +396,33 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
     };
     reply(
         async {
+            use project_change_requests::Column;
             let search = q
                 .search
                 .as_deref()
                 .map(weldsuite_flow_domain::js::contains_pattern);
-            let rows: Vec<Value> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-                "select {CHANGE_JSON} from project_change_requests t where {}
-                 and ($6::timestamptz is null or t.created_at < $6::timestamptz
-                      or (t.created_at = $6::timestamptz and t.id < $7))
-                 order by t.created_at desc, t.id desc limit $8",
-                change_filters!()
-            )))
-            .bind(q.project_id.as_deref())
-            .bind(all)
-            .bind(&ids)
-            .bind(q.status.as_deref())
-            .bind(search.as_deref())
-            .bind(cursor.as_ref().map(|c| c.0.as_str()))
-            .bind(cursor.as_ref().map(|c| c.1.as_str()))
-            .bind(limit + 1)
-            .fetch_all(&caller.db)
-            .await?;
-            let total: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-                "select count(*)::int8 from project_change_requests t where {}",
-                change_filters!()
-            )))
-            .bind(q.project_id.as_deref())
-            .bind(all)
-            .bind(&ids)
-            .bind(q.status.as_deref())
-            .bind(search.as_deref())
-            .fetch_one(&caller.db)
-            .await?;
-            let (rows, has_more, next) = page(rows.into_iter().map(js_row).collect(), limit);
+            let filters = change_filters(
+                q.project_id.as_deref(),
+                &(all, ids),
+                q.status.as_deref(),
+                search.as_deref(),
+            );
+            let mut rows = project_change_requests::Entity::find().filter(filters.clone());
+            if let Some(cursor) = &cursor {
+                rows = rows.filter(keyset_before(Column::Id, Column::CreatedAt, cursor));
+            }
+            let rows = rows
+                .order_by_desc(Column::CreatedAt)
+                .order_by_desc(Column::Id)
+                .limit(fetch_limit(limit)?)
+                .all(&orm(&caller.db))
+                .await?;
+            let total = project_change_requests::Entity::find()
+                .filter(filters)
+                .count(&orm(&caller.db))
+                .await?;
+            let total = i64::try_from(total).unwrap_or(i64::MAX);
+            let (rows, has_more, next) = page(json_rows(rows)?, limit);
             Ok(paged(
                 rows.iter().map(present_change_request).collect(),
                 total,
@@ -423,9 +488,11 @@ async fn fetch_detail(caller: &Caller, id: &str) -> Reply {
     let pending = list_pending_for_approver(db, &caller.user_id, &filters, now_ms()).await?;
     let version: Option<i32> = match row["baselineId"].as_str() {
         Some(baseline) => {
-            sqlx::query_scalar("select version from project_baselines where id = $1 limit 1")
-                .bind(baseline)
-                .fetch_optional(db)
+            project_baselines::Entity::find_by_id(baseline)
+                .select_only()
+                .column(project_baselines::Column::Version)
+                .into_tuple()
+                .one(&orm(db))
                 .await?
         }
         None => None,
@@ -488,7 +555,7 @@ async fn create(State(state): State<FlowState>, caller: Caller, body: Bytes) -> 
         async {
             let now = iso(now_ms());
             let id = generate_id("pcr");
-            let number = allocate_number(&caller.db, &change_sequence(&project_id)).await?;
+            let number = allocate_number(&orm(&caller.db), &change_sequence(&project_id)).await?;
             let row = json!({
                 "id": id, "project_id": project_id, "number": number, "title": input["title"],
                 "description": null_if_absent(input.get("description")),
@@ -500,18 +567,10 @@ async fn create(State(state): State<FlowState>, caller: Caller, body: Bytes) -> 
                 "client_visible": input.get("clientVisible").and_then(Value::as_bool).unwrap_or(false),
                 "created_by": caller.user_id, "created_at": now, "updated_at": now,
             });
-            sqlx::query(
-                "insert into project_change_requests (id, project_id, number, title, description, requested_by,
-                     status, cost_delta, schedule_delta_days, plan_changes, scope_changes, client_visible,
-                     created_by, created_at, updated_at)
-                 select p.id, p.project_id, p.number, p.title, p.description, p.requested_by, p.status,
-                     p.cost_delta, p.schedule_delta_days, p.plan_changes, p.scope_changes, p.client_visible,
-                     p.created_by, p.created_at, p.updated_at
-                 from jsonb_populate_record(null::project_change_requests, $1) p",
-            )
-            .bind(row)
-            .execute(&caller.db)
-            .await?;
+            let Value::Object(row) = row else {
+                return Err(Refusal::Internal("the row is not an object".to_owned()));
+            };
+            CHANGES.insert(&orm(&caller.db), row).await?;
             let Some(created) = find_change_request(&caller.db, &id).await? else {
                 return Err(Refusal::Internal("the new change is missing".to_owned()));
             };
@@ -577,47 +636,57 @@ async fn update_change(
             return Err(Refusal::bad_request(message));
         }
     }
-    let now = iso(now_ms());
+    let now = instant(now_ms());
     // Editing what the approvers weigh, once it is with them, starts the approval over (FLOW-013).
     let reroute = existing["status"] == "awaiting_approval" && impact_changed(existing, data);
-    let json_opt = |key: &str| Some(null_if_absent(data.get(key))).filter(|v| !v.is_null());
-    sqlx::query(
-        "update project_change_requests set
-            title = case when $2::bool then $3 else title end,
-            description = case when $4::bool then $5 else description end,
-            cost_delta = case when $6::bool then $7::numeric else cost_delta end,
-            schedule_delta_days = case when $8::bool then $9::int else schedule_delta_days end,
-            plan_changes = case when $10::bool then $11::jsonb else plan_changes end,
-            scope_changes = case when $12::bool then $13::jsonb else scope_changes end,
-            client_visible = case when $14::bool then $15::bool else client_visible end,
-            status = case when $16::bool then 'assessing' else status end,
-            route = case when $16::bool then null else route end,
-            submitted_at = case when $16::bool then null else submitted_at end,
-            updated_at = $17::timestamptz
-         where id = $1 and deleted_at is null",
-    )
-    .bind(id)
-    .bind(has(data, "title"))
-    .bind(data.get("title").and_then(Value::as_str))
-    .bind(has(data, "description"))
-    .bind(data.get("description").and_then(Value::as_str))
-    .bind(has(data, "costDelta"))
-    .bind(money(data.get("costDelta")).as_str().map(str::to_owned))
-    .bind(has(data, "scheduleDeltaDays"))
-    .bind(
-        data.get("scheduleDeltaDays")
-            .and_then(Value::as_i64)
-            .and_then(|n| i32::try_from(n).ok()),
-    )
-    .bind(has(data, "planChanges"))
-    .bind(json_opt("planChanges"))
-    .bind(has(data, "scopeChanges"))
-    .bind(json_opt("scopeChanges"))
-    .bind(has(data, "clientVisible"))
-    .bind(data.get("clientVisible").and_then(Value::as_bool))
-    .bind(reroute)
-    .bind(&now)
-    .execute(db)
+    update_live_change(db, id, |mut update| {
+        use project_change_requests::Column;
+        let text =
+            |key: &str| Expr::value(data.get(key).and_then(Value::as_str).map(str::to_owned));
+        let json_opt =
+            |key: &str| Expr::value(Some(null_if_absent(data.get(key))).filter(|v| !v.is_null()));
+        if has(data, "title") {
+            update = update.col_expr(Column::Title, text("title"));
+        }
+        if has(data, "description") {
+            update = update.col_expr(Column::Description, text("description"));
+        }
+        if has(data, "costDelta") {
+            // The two-decimal text, cast as the column takes it.
+            let amount = money(data.get("costDelta")).as_str().map(str::to_owned);
+            update = update.col_expr(
+                Column::CostDelta,
+                sea_orm::ExprTrait::cast_as(Expr::value(amount), "numeric"),
+            );
+        }
+        if has(data, "scheduleDeltaDays") {
+            let days = data
+                .get("scheduleDeltaDays")
+                .and_then(Value::as_i64)
+                .and_then(|n| i32::try_from(n).ok());
+            update = update.col_expr(Column::ScheduleDeltaDays, Expr::value(days));
+        }
+        if has(data, "planChanges") {
+            update = update.col_expr(Column::PlanChanges, json_opt("planChanges"));
+        }
+        if has(data, "scopeChanges") {
+            update = update.col_expr(Column::ScopeChanges, json_opt("scopeChanges"));
+        }
+        if has(data, "clientVisible") {
+            let visible = data.get("clientVisible").and_then(Value::as_bool);
+            update = update.col_expr(Column::ClientVisible, Expr::value(visible));
+        }
+        if reroute {
+            update = update
+                .col_expr(Column::Status, Expr::value("assessing"))
+                .col_expr(Column::Route, Expr::value(Option::<String>::None))
+                .col_expr(
+                    Column::SubmittedAt,
+                    Expr::value(Option::<OffsetDateTime>::None),
+                );
+        }
+        update.col_expr(Column::UpdatedAt, Expr::value(now))
+    })
     .await?;
     let Some(row) = find_change_request(db, id).await? else {
         return Err(Refusal::not_found(ITEM_LABEL, id));
@@ -644,13 +713,13 @@ async fn remove(
             if status != "draft" && status != "withdrawn" {
                 return Err(Refusal::conflict(messages::NOT_DELETABLE));
             }
-            sqlx::query(
-                "update project_change_requests set deleted_at = $2::timestamptz, updated_at = $2::timestamptz
-                 where id = $1 and deleted_at is null",
-            )
-            .bind(&id)
-            .bind(iso(now_ms()))
-            .execute(&caller.db)
+            let now = instant(now_ms());
+            update_live_change(&caller.db, &id, |update| {
+                use project_change_requests::Column;
+                update
+                    .col_expr(Column::DeletedAt, Expr::value(now))
+                    .col_expr(Column::UpdatedAt, Expr::value(now))
+            })
             .await?;
             let number = existing["number"].as_i64().unwrap_or(0);
             caller.publish(
@@ -743,15 +812,19 @@ async fn submit_change(state: &FlowState, caller: &Caller, id: &str, existing: &
             return Err(Refusal::bad_request(message));
         }
     };
-    sqlx::query(
-        "update project_change_requests set status = 'awaiting_approval', route = $2,
-             submitted_at = $3::timestamptz, decided_at = null, updated_at = $3::timestamptz
-         where id = $1 and deleted_at is null",
-    )
-    .bind(id)
-    .bind(routing.route)
-    .bind(iso(now))
-    .execute(db)
+    let at = instant(now);
+    update_live_change(db, id, |update| {
+        use project_change_requests::Column;
+        update
+            .col_expr(Column::Status, Expr::value("awaiting_approval"))
+            .col_expr(Column::Route, Expr::value(routing.route))
+            .col_expr(Column::SubmittedAt, Expr::value(at))
+            .col_expr(
+                Column::DecidedAt,
+                Expr::value(Option::<OffsetDateTime>::None),
+            )
+            .col_expr(Column::UpdatedAt, Expr::value(at))
+    })
     .await?;
     let Some(row) = find_change_request(db, id).await? else {
         cancel_pending_approvals(db, "change_request", id, true, now).await?;
@@ -803,13 +876,13 @@ async fn withdraw(
     reply(
         async {
             let now = now_ms();
-            sqlx::query(
-                "update project_change_requests set status = 'withdrawn', updated_at = $2::timestamptz
-                 where id = $1 and deleted_at is null",
-            )
-            .bind(&id)
-            .bind(iso(now))
-            .execute(&caller.db)
+            let at = instant(now);
+            update_live_change(&caller.db, &id, |update| {
+                use project_change_requests::Column;
+                update
+                    .col_expr(Column::Status, Expr::value("withdrawn"))
+                    .col_expr(Column::UpdatedAt, Expr::value(at))
+            })
             .await?;
             let Some(row) = find_change_request(&caller.db, &id).await? else {
                 return Err(Refusal::not_found(ITEM_LABEL, &id));

@@ -12,11 +12,6 @@
 //! route moved to `weldsuite-commerce` (WeldCommerce phase 1), where the
 //! "stash: products" suite still checks it.
 
-#![allow(
-    clippy::disallowed_methods,
-    reason = "not converted to the ORM yet (ADR DATA-019)"
-)]
-
 mod activity;
 mod args;
 mod crud;
@@ -39,7 +34,6 @@ mod purchase_order_items;
 mod purchasing_tests;
 mod putaway;
 pub mod replenishment;
-mod rows;
 mod stock_adjustments;
 mod table;
 #[rustfmt::skip]
@@ -230,13 +224,21 @@ impl<S: Send + Sync> FromRequestParts<S> for Caller {
 /// the route maps to its 500 with its own message.
 pub(crate) enum Refusal {
     Response(Box<Response>),
-    Database(sqlx::Error),
+    Database(sea_orm::DbErr),
     Write(WriteError),
 }
 
+impl From<sea_orm::DbErr> for Refusal {
+    fn from(error: sea_orm::DbErr) -> Self {
+        Self::Database(error)
+    }
+}
+
+/// SQL that stays SQL, and the code not on the entities yet, fail with
+/// `sqlx::Error`: the same 500.
 impl From<sqlx::Error> for Refusal {
     fn from(error: sqlx::Error) -> Self {
-        Self::Database(error)
+        Self::Database(weldsuite_db::orm_error(error))
     }
 }
 

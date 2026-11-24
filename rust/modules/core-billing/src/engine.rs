@@ -3,14 +3,20 @@
 //! end, save a new payment method, pay a past-due charge, and end a plan.
 
 use http::StatusCode;
+use sea_orm::sea_query::extension::postgres as pg;
+use sea_orm::sea_query::{Expr, Query};
+use sea_orm::{
+    ColumnTrait, ConnectionTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect,
+};
 use serde_json::json;
 use time::OffsetDateTime;
-use weldsuite_db::PgPool;
+use weldsuite_db::{OrmConn, PgPool, orm, utc_timestamp};
 use weldsuite_kit::{ApiError, generate_id};
 use weldsuite_mollie::{
     Money, NewCustomer, NewPayment, Payment, Sequence, checkout_locale, with_query,
 };
 use weldsuite_ports::OutboundHttp;
+use weldsuite_schema::master::{billing_accounts, billing_payments, workspaces};
 
 use crate::account::{self, Account, Scheduled};
 use crate::buyer::{self, BillingDetails};
@@ -454,7 +460,7 @@ pub(crate) async fn change(
     if cycle != current_cycle {
         let mut tx = master.begin().await?;
         account::schedule(
-            &mut tx,
+            &OrmConn::new(&mut tx),
             &workspace.id,
             Some(&Scheduled {
                 plan_id: (!same_plan).then(|| plan.id.clone()),
@@ -463,7 +469,7 @@ pub(crate) async fn change(
             }),
         )
         .await?;
-        clear_cancel(&mut tx, &workspace.id).await?;
+        clear_cancel(&OrmConn::new(&mut tx), &workspace.id).await?;
         tx.commit().await?;
         return Ok(scheduled_answer(end));
     }
@@ -478,7 +484,7 @@ pub(crate) async fn change(
     if new_total < old_total {
         let mut tx = master.begin().await?;
         account::schedule(
-            &mut tx,
+            &OrmConn::new(&mut tx),
             &workspace.id,
             Some(&Scheduled {
                 plan_id: (!same_plan).then(|| plan.id.clone()),
@@ -487,7 +493,7 @@ pub(crate) async fn change(
             }),
         )
         .await?;
-        clear_cancel(&mut tx, &workspace.id).await?;
+        clear_cancel(&OrmConn::new(&mut tx), &workspace.id).await?;
         tx.commit().await?;
         return Ok(scheduled_answer(end));
     }
@@ -514,8 +520,8 @@ pub(crate) async fn change(
     };
     if prorated <= 0 {
         let mut tx = master.begin().await?;
-        apply_change(&mut tx, &workspace.id, &plan.id, seats, unit).await?;
-        clear_cancel(&mut tx, &workspace.id).await?;
+        apply_change(&OrmConn::new(&mut tx), &workspace.id, &plan.id, seats, unit).await?;
+        clear_cancel(&OrmConn::new(&mut tx), &workspace.id).await?;
         tx.commit().await?;
         seats::write_cap(
             state.identity.as_ref(),
@@ -604,20 +610,23 @@ pub(crate) async fn change(
     };
     if let Some(payment) = accepted.filter(|p| p.status.is_accepted()) {
         let mut tx = master.begin().await?;
-        apply_change(&mut tx, &workspace.id, &plan.id, seats, unit).await?;
-        clear_cancel(&mut tx, &workspace.id).await?;
-        mark_applied(&mut tx, &row.id).await?;
-        if payment.status != weldsuite_mollie::PaymentStatus::Paid {
-            ChargeRow::record(
-                &mut tx,
-                &row.id,
-                status_of(&payment.status),
-                &payment.details,
-                None,
-                None,
-                0,
-            )
-            .await?;
+        {
+            let conn = OrmConn::new(&mut tx);
+            apply_change(&conn, &workspace.id, &plan.id, seats, unit).await?;
+            clear_cancel(&conn, &workspace.id).await?;
+            mark_applied(&conn, &row.id).await?;
+            if payment.status != weldsuite_mollie::PaymentStatus::Paid {
+                ChargeRow::record(
+                    &conn,
+                    &row.id,
+                    status_of(&payment.status),
+                    &payment.details,
+                    None,
+                    None,
+                    0,
+                )
+                .await?;
+            }
         }
         tx.commit().await?;
         // Paid at once (a card): settled here, invoice included; otherwise
@@ -747,61 +756,89 @@ pub async fn set_seats(
 
 /// Plan, seats and seat price now; the period stays.
 pub(crate) async fn apply_change(
-    tx: &mut sqlx::PgConnection,
+    tx: &impl ConnectionTrait,
     workspace_id: &str,
     plan_id: &str,
     seats: i64,
     unit: i64,
-) -> Result<(), sqlx::Error> {
+) -> Result<(), DbErr> {
     // What was scheduled for the period end stays, except what this change
     // replaces now: the seats always, the plan when it changes. A scheduled
     // cycle switch is never replaced (a cycle change is always scheduled).
-    sqlx::query(
-        "update billing_accounts set scheduled_seats = null,
-             scheduled_plan_id = case
-                 when (select plan_id from workspaces where id = $1) is distinct from $2 then null
-                 else scheduled_plan_id end,
-             updated_at = now()
-         where workspace_id = $1",
-    )
-    .bind(workspace_id)
-    .bind(plan_id)
-    .execute(&mut *tx)
-    .await?;
-    sqlx::query(
-        "update workspaces set plan_id = $2, purchased_seats = $3, updated_at = now() where id = $1",
-    )
-    .bind(workspace_id)
-    .bind(plan_id)
-    .bind(i32::try_from(seats).unwrap_or(i32::MAX))
-    .execute(&mut *tx)
-    .await?;
+    // `case when (select plan_id …) is distinct from $2 then null else
+    // scheduled_plan_id end`, with `$2` never null: kept only when equal.
+    let current_plan = Query::select()
+        .column(workspaces::Column::PlanId)
+        .from(workspaces::Entity)
+        .and_where(workspaces::Column::Id.eq(workspace_id))
+        .to_owned();
+    billing_accounts::Entity::update_many()
+        .col_expr(billing_accounts::Column::ScheduledSeats, Expr::null())
+        .col_expr(
+            billing_accounts::Column::ScheduledPlanId,
+            Expr::case(
+                sea_orm::ExprTrait::eq(Expr::from(current_plan), plan_id),
+                Expr::col(billing_accounts::Column::ScheduledPlanId),
+            )
+            .finally(Expr::null())
+            .into(),
+        )
+        .col_expr(
+            billing_accounts::Column::UpdatedAt,
+            Expr::current_timestamp(),
+        )
+        .filter(billing_accounts::Column::WorkspaceId.eq(workspace_id))
+        .exec(tx)
+        .await?;
+    workspaces::Entity::update_many()
+        .col_expr(workspaces::Column::PlanId, Expr::value(plan_id.to_owned()))
+        .col_expr(
+            workspaces::Column::PurchasedSeats,
+            Expr::value(i32::try_from(seats).unwrap_or(i32::MAX)),
+        )
+        .col_expr(workspaces::Column::UpdatedAt, Expr::current_timestamp())
+        .filter(workspaces::Column::Id.eq(workspace_id))
+        .exec(tx)
+        .await?;
     account::set_unit_amount(tx, workspace_id, unit).await?;
     Ok(())
 }
 
-async fn clear_cancel(tx: &mut sqlx::PgConnection, workspace_id: &str) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "update workspaces set subscription_cancel_at_period_end = false, updated_at = now() where id = $1",
-    )
-    .bind(workspace_id)
-    .execute(&mut *tx)
-    .await?;
+/// `update workspaces set subscription_cancel_at_period_end = $to, updated_at = now()`.
+async fn set_cancel(db: &impl ConnectionTrait, workspace_id: &str, to: bool) -> Result<(), DbErr> {
+    workspaces::Entity::update_many()
+        .col_expr(
+            workspaces::Column::SubscriptionCancelAtPeriodEnd,
+            Expr::value(to),
+        )
+        .col_expr(workspaces::Column::UpdatedAt, Expr::current_timestamp())
+        .filter(workspaces::Column::Id.eq(workspace_id))
+        .exec(db)
+        .await?;
     Ok(())
 }
 
-pub(crate) async fn mark_applied(
-    tx: &mut sqlx::PgConnection,
-    row_id: &str,
-) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "update billing_payments set metadata = jsonb_set(coalesce(metadata, '{}'::jsonb), '{applied}', 'true'),
-             updated_at = now()
-         where id = $1",
-    )
-    .bind(row_id)
-    .execute(&mut *tx)
-    .await?;
+async fn clear_cancel(tx: &impl ConnectionTrait, workspace_id: &str) -> Result<(), DbErr> {
+    set_cancel(tx, workspace_id, false).await
+}
+
+pub(crate) async fn mark_applied(tx: &impl ConnectionTrait, row_id: &str) -> Result<(), DbErr> {
+    let metadata = sea_orm::sea_query::Func::coalesce([
+        Expr::col(billing_payments::Column::Metadata),
+        Expr::val(json!({})),
+    ]);
+    billing_payments::Entity::update_many()
+        .col_expr(
+            billing_payments::Column::Metadata,
+            crate::store::jsonb_set(metadata, "applied", Expr::val(json!(true))),
+        )
+        .col_expr(
+            billing_payments::Column::UpdatedAt,
+            Expr::current_timestamp(),
+        )
+        .filter(billing_payments::Column::Id.eq(row_id))
+        .exec(tx)
+        .await?;
     Ok(())
 }
 
@@ -814,12 +851,7 @@ pub async fn cancel(master: &PgPool, workspace_id: &str, now: OffsetDateTime) ->
     if !workspace.has_running_subscription(now) {
         return Err(ApiError::bad_request("No active subscription").into());
     }
-    sqlx::query(
-        "update workspaces set subscription_cancel_at_period_end = true, updated_at = now() where id = $1",
-    )
-    .bind(&workspace.id)
-    .execute(master)
-    .await?;
+    set_cancel(&orm(master), &workspace.id, true).await?;
     Ok(())
 }
 
@@ -836,12 +868,7 @@ pub async fn reactivate(
     if !workspace.has_running_subscription(now) || !workspace.cancel_at_period_end {
         return Err(ApiError::bad_request("No subscription to reactivate").into());
     }
-    sqlx::query(
-        "update workspaces set subscription_cancel_at_period_end = false, updated_at = now() where id = $1",
-    )
-    .bind(&workspace.id)
-    .execute(master)
-    .await?;
+    set_cancel(&orm(master), &workspace.id, false).await?;
     Ok(())
 }
 
@@ -969,17 +996,7 @@ pub async fn outstanding_checkout(
     };
     // A checkout opened for this charge in the last hour that can still be
     // paid is reused: mail scanners open links before people do.
-    let recent: Option<String> = sqlx::query_scalar(
-        "select provider_payment_id from billing_payments
-         where workspace_id = $1 and kind = 'pay_link' and status = 'processing'
-           and metadata ->> 'settles' = $2 and provider_payment_id is not null
-           and created_at > now() - interval '1 hour'
-         order by created_at desc limit 1",
-    )
-    .bind(workspace_id)
-    .bind(&open.id)
-    .fetch_optional(master)
-    .await?;
+    let recent = recent_pay_link(master, workspace_id, &open.id).await?;
     if let Some(payment_id) = recent
         && let Ok(payment) = state.mollie.payment(&http, &payment_id).await
         && payment.status == weldsuite_mollie::PaymentStatus::Open
@@ -1019,6 +1036,32 @@ pub async fn outstanding_checkout(
     Ok(Some(url))
 }
 
+/// The newest pay-link checkout for the open charge `open_id`, opened in the
+/// last hour and not paid yet: its Mollie payment.
+async fn recent_pay_link(
+    master: &PgPool,
+    workspace_id: &str,
+    open_id: &str,
+) -> Result<Option<String>, DbErr> {
+    use billing_payments::Column as P;
+    use sea_orm::ExprTrait as _;
+    // `created_at > now() - interval '1 hour'`, on the database's clock.
+    let hour_ago = Expr::current_timestamp().sub(Expr::val("1 hour").cast_as("interval"));
+    billing_payments::Entity::find()
+        .select_only()
+        .column(P::ProviderPaymentId)
+        .filter(P::WorkspaceId.eq(workspace_id))
+        .filter(P::Kind.eq("pay_link"))
+        .filter(P::Status.eq("processing"))
+        .filter(pg::PgExpr::cast_json_field(Expr::col(P::Metadata), "settles").eq(open_id))
+        .filter(P::ProviderPaymentId.is_not_null())
+        .filter(Expr::col(P::CreatedAt).gt(hour_ago))
+        .order_by_desc(P::CreatedAt)
+        .into_tuple()
+        .one(&orm(master))
+        .await
+}
+
 /// What ending a subscription did (`applySubscriptionEnded`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Ended {
@@ -1042,15 +1085,15 @@ pub async fn end_subscription(
     now: OffsetDateTime,
 ) -> BillingResult<Ended> {
     let mut tx = master.begin().await?;
-    let Some(workspace) = Workspace::lock(&mut tx, workspace_id).await? else {
+    let Some(workspace) = Workspace::lock(&OrmConn::new(&mut tx), workspace_id).await? else {
         return Ok(Ended::SkippedInactive);
     };
     if workspace.is_partner() {
         return Ok(Ended::SkippedPartner);
     }
-    account::end(&mut tx, workspace_id).await?;
+    account::end(&OrmConn::new(&mut tx), workspace_id).await?;
     // Unbilled from here on: WeldReach's inboxes pause until a paid plan.
-    crate::addons::pause_inboxes(&mut tx, workspace_id).await?;
+    crate::addons::pause_inboxes(&OrmConn::new(&mut tx), workspace_id).await?;
     if workspace.paid_plan_required {
         if !workspace.is_active {
             tx.commit().await?;
@@ -1066,34 +1109,60 @@ pub async fn end_subscription(
             .as_deref()
             .and_then(crate::period::parse_iso)
             .unwrap_or(trial_expired + time::Duration::days(DELETION_GRACE_DAYS));
-        sqlx::query(
-            "update workspaces set subscription_status = 'canceled',
-                 subscription_cancel_at_period_end = false, trial_expired_at = $2::timestamp,
-                 scheduled_deletion_at = $3::timestamp, updated_at = now()
-             where id = $1",
-        )
-        .bind(workspace_id)
-        .bind(iso(trial_expired))
-        .bind(iso(deletion))
-        .execute(&mut *tx)
-        .await?;
+        workspaces::Entity::update_many()
+            .col_expr(
+                workspaces::Column::SubscriptionStatus,
+                Expr::value("canceled"),
+            )
+            .col_expr(
+                workspaces::Column::SubscriptionCancelAtPeriodEnd,
+                Expr::value(false),
+            )
+            .col_expr(
+                workspaces::Column::TrialExpiredAt,
+                Expr::value(utc_timestamp(trial_expired)),
+            )
+            .col_expr(
+                workspaces::Column::ScheduledDeletionAt,
+                Expr::value(utc_timestamp(deletion)),
+            )
+            .col_expr(workspaces::Column::UpdatedAt, Expr::current_timestamp())
+            .filter(workspaces::Column::Id.eq(workspace_id))
+            .exec(&OrmConn::new(&mut tx))
+            .await?;
         tx.commit().await?;
         return Ok(Ended::GracePeriod);
     }
     let free = Plan::free(master).await?;
-    sqlx::query(
-        "update workspaces set plan_id = $2, purchased_seats = 0, subscription_status = 'canceled',
-             subscription_cycle = null, subscription_current_period_start = null,
-             subscription_current_period_end = null, subscription_cancel_at_period_end = false,
-             updated_at = now()
-         where id = $1",
-    )
-    .bind(workspace_id)
-    .bind(free.as_ref().map(|plan| plan.id.clone()))
-    .execute(&mut *tx)
-    .await?;
+    workspaces::Entity::update_many()
+        .col_expr(
+            workspaces::Column::PlanId,
+            Expr::value(free.as_ref().map(|plan| plan.id.clone())),
+        )
+        .col_expr(workspaces::Column::PurchasedSeats, Expr::value(0))
+        .col_expr(
+            workspaces::Column::SubscriptionStatus,
+            Expr::value("canceled"),
+        )
+        .col_expr(workspaces::Column::SubscriptionCycle, Expr::null())
+        .col_expr(
+            workspaces::Column::SubscriptionCurrentPeriodStart,
+            Expr::null(),
+        )
+        .col_expr(
+            workspaces::Column::SubscriptionCurrentPeriodEnd,
+            Expr::null(),
+        )
+        .col_expr(
+            workspaces::Column::SubscriptionCancelAtPeriodEnd,
+            Expr::value(false),
+        )
+        .col_expr(workspaces::Column::UpdatedAt, Expr::current_timestamp())
+        .filter(workspaces::Column::Id.eq(workspace_id))
+        .exec(&OrmConn::new(&mut tx))
+        .await?;
     credits::reset_allocation(
-        &mut tx,
+        &OrmConn::new(&mut tx),
         workspace_id,
         free.as_ref()
             .and_then(|p| p.monthly_credits)

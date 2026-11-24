@@ -32,6 +32,7 @@ use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::post;
 use http::{HeaderMap, StatusCode};
+use sea_orm::{ColumnTrait, Condition, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
 use time::OffsetDateTime;
 use weldsuite_connect_domain::catchup::{self, Backoff};
@@ -40,8 +41,9 @@ use weldsuite_connect_domain::webhooks::{
     STRIPE_CONNECT_VERIFIED_HEADER, connection_kv_key, registration_kv_key, stripe_account_kv_key,
     verify,
 };
-use weldsuite_db::PgPool;
 use weldsuite_db::due_index::{SweepResult, run_sweep};
+use weldsuite_db::{PgPool, orm};
+use weldsuite_schema::master::workspaces;
 
 use crate::connect_internal::{ConnectCall, ConnectInternal};
 use crate::crm::due::WorkspaceOpener;
@@ -413,9 +415,10 @@ pub async fn catch_up_workspace(
     clerk_org_id: &str,
     now: i64,
     counts: &mut CatchupCounts,
-) -> Result<Option<i64>, sqlx::Error> {
+) -> Result<Option<i64>, DbErr> {
     let mut next: Option<i64> = None;
-    for connection in catchup::due_connections(db).await? {
+    let connections = catchup::due_connections(db).await?;
+    for connection in connections {
         let at = if connection.due_at <= now {
             let interval = now + connection.interval_minutes * 60_000;
             // ADR OPS-026: a store outside the EU (Stripe, Shopify) the
@@ -574,14 +577,22 @@ pub async fn push_workspace(
 /// The Clerk org id connect-api's internal routes take (`X-Workspace-Id`),
 /// read off the master database; the tenant stays closed.
 async fn clerk_org_of(master: &PgPool, workspace_id: &str) -> Result<String, String> {
-    let found: Option<String> = sqlx::query_scalar(
-        "select coalesce(clerk_org_id, id) from workspaces where id = $1 or clerk_org_id = $1 limit 1",
-    )
-    .bind(workspace_id)
-    .fetch_optional(master)
-    .await
-    .map_err(|e| crate::crm::db_message(&e))?;
-    found.ok_or_else(|| format!("workspace {workspace_id} not found"))
+    let found: Option<(String, Option<String>)> = workspaces::Entity::find()
+        .select_only()
+        .columns([workspaces::Column::Id, workspaces::Column::ClerkOrgId])
+        .filter(
+            Condition::any()
+                .add(workspaces::Column::Id.eq(workspace_id))
+                .add(workspaces::Column::ClerkOrgId.eq(workspace_id)),
+        )
+        .into_tuple()
+        .one(&orm(master))
+        .await
+        .map_err(|e| crate::crm::db_message(&e))?;
+    // `coalesce(clerk_org_id, id)`.
+    found
+        .map(|(id, clerk_org_id)| clerk_org_id.unwrap_or(id))
+        .ok_or_else(|| format!("workspace {workspace_id} not found"))
 }
 
 /// `runMoneybirdPushSweep(env)`: every workspace with a Moneybird push

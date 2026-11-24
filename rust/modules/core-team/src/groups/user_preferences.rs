@@ -17,12 +17,17 @@ use axum::body::Bytes;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, patch};
 use http::HeaderMap;
+use sea_orm::ActiveValue::Set;
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
-use weldsuite_db::{PgPool, js_row};
+use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_kit::validation::{Field, Issues, Number, Presence};
 use weldsuite_kit::{Created, Data, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::user_preferences as prefs;
 
+use crate::access::js;
 use crate::{Caller, CoreTeamState, TeamError, answer, now, validate};
 
 pub(crate) fn router<Q>(_gate: &Arc<PermissionGate<Q>>) -> Router<CoreTeamState>
@@ -70,31 +75,29 @@ fn to_response(row: &Value) -> Value {
     })
 }
 
-async fn own_row(db: &PgPool, user_id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(p) from user_preferences p
-         where user_id = $1 and deleted_at is null limit 1",
-    )
-    .bind(user_id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(js_row))
+/// The caller's live row.
+async fn own_row(db: &PgPool, user_id: &str) -> Result<Option<prefs::Model>, DbErr> {
+    prefs::Entity::find()
+        .filter(prefs::Column::UserId.eq(user_id))
+        .filter(prefs::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await
 }
 
-async fn row_by_id(db: &PgPool, id: &str) -> Result<Value, sqlx::Error> {
-    let row: Option<Value> =
-        sqlx::query_scalar("select to_jsonb(p) from user_preferences p where id = $1 limit 1")
-            .bind(id)
-            .fetch_optional(db)
-            .await?;
-    Ok(row.map_or(Value::Null, js_row))
+/// The row `id` as Drizzle returns it; null without one.
+async fn row_by_id(db: &PgPool, id: &str) -> Result<Value, DbErr> {
+    let row = prefs::Entity::find_by_id(id).one(&orm(db)).await?;
+    row.map_or(Ok(Value::Null), js)
 }
 
 // ── GET / ───────────────────────────────────────────────────────────────────
 
 async fn preferences(caller: Caller) -> Response {
-    match own_row(&caller.db, &caller.user_id).await {
-        Ok(row) => Data(to_response(&row.unwrap_or(Value::Null))).into_response(),
+    let row = own_row(&caller.db, &caller.user_id)
+        .await
+        .and_then(|row| row.map_or(Ok(Value::Null), js));
+    match row {
+        Ok(row) => Data(to_response(&row)).into_response(),
         Err(error) => TeamError::internal("Failed to fetch user preferences", error).respond(),
     }
 }
@@ -168,85 +171,108 @@ async fn update(caller: Caller, headers: HeaderMap, body: Bytes) -> Response {
     )
 }
 
-async fn save(db: &PgPool, user_id: &str, changes: &Changes) -> Result<Response, sqlx::Error> {
-    let stamp = now();
-    if let Some(existing) = own_row(db, user_id).await? {
-        let id = existing["id"].as_str().unwrap_or_default().to_owned();
+impl Changes {
+    /// `fontSize` as the column holds it.
+    fn font_size(&self) -> Option<i32> {
+        self.font_size.and_then(|n| i32::try_from(n).ok())
+    }
+
+    /// `buildPreferencesUpdate`: the columns of the fields sent, with
+    /// `uiPreferences` merged into the stored JSON (`existing`).
+    fn sent(&self, existing: Option<&Value>) -> Vec<(prefs::Column, Expr)> {
+        let mut sent = Vec::new();
+        let texts = [
+            (prefs::Column::Theme, &self.theme),
+            (prefs::Column::Language, &self.language),
+            (prefs::Column::DateFormat, &self.date_format),
+            (prefs::Column::TimeFormat, &self.time_format),
+            (prefs::Column::Timezone, &self.timezone),
+        ];
+        for (column, value) in texts {
+            if let Some(value) = value {
+                sent.push((column, Expr::value(value.clone())));
+            }
+        }
+        if let Some(size) = self.font_size() {
+            sent.push((prefs::Column::FontSize, Expr::value(size)));
+        }
+        if let Some(notifications) = &self.notifications {
+            sent.push((
+                prefs::Column::Notifications,
+                Expr::value(notifications.clone()),
+            ));
+        }
         // Merge: keeps homeWidgets, profile, sidebarAppOrder and the rest.
-        let ui = changes.ui_preferences.as_ref().map(|patch| {
-            let mut merged = match &existing["uiPreferences"] {
-                Value::Object(map) => map.clone(),
+        if let Some(patch) = &self.ui_preferences {
+            let mut merged = match existing {
+                Some(Value::Object(map)) => map.clone(),
                 _ => Map::new(),
             };
             merged.extend(patch.clone());
-            Value::Object(merged)
-        });
-        sqlx::query(
-            "update user_preferences set
-                 theme = coalesce($2, theme),
-                 font_size = coalesce($3, font_size),
-                 language = coalesce($4, language),
-                 date_format = coalesce($5, date_format),
-                 time_format = coalesce($6, time_format),
-                 timezone = coalesce($7, timezone),
-                 notifications = case when $8 then $9 else notifications end,
-                 ui_preferences = case when $10 then $11 else ui_preferences end,
-                 working_hours = case when $12 then $13 else working_hours end,
-                 updated_at = $14::timestamptz
-             where id = $1",
-        )
-        .bind(&id)
-        .bind(&changes.theme)
-        .bind(changes.font_size.and_then(|n| i32::try_from(n).ok()))
-        .bind(&changes.language)
-        .bind(&changes.date_format)
-        .bind(&changes.time_format)
-        .bind(&changes.timezone)
-        .bind(changes.notifications.is_some())
-        .bind(&changes.notifications)
-        .bind(ui.is_some())
-        .bind(&ui)
-        .bind(changes.working_hours.is_some())
-        .bind(&changes.working_hours)
-        .bind(&stamp)
-        .execute(db)
-        .await?;
+            sent.push((
+                prefs::Column::UiPreferences,
+                Expr::value(Value::Object(merged)),
+            ));
+        }
+        if let Some(hours) = &self.working_hours {
+            sent.push((prefs::Column::WorkingHours, Expr::value(hours.clone())));
+        }
+        sent
+    }
+
+    /// The new row: the fields sent, else the defaults.
+    fn new_row(&self, id: String, user_id: &str) -> prefs::ActiveModel {
+        let stamp = utc_now().assume_utc();
+        let text = |value: &Option<String>, default: &str| {
+            Set(value.clone().unwrap_or_else(|| default.to_owned()))
+        };
+        prefs::ActiveModel {
+            id: Set(id),
+            user_id: Set(user_id.to_owned()),
+            theme: text(&self.theme, "system"),
+            font_size: Set(self.font_size().unwrap_or(16)),
+            language: text(&self.language, "en"),
+            date_format: text(&self.date_format, "MM/DD/YYYY"),
+            time_format: text(&self.time_format, "12h"),
+            timezone: text(&self.timezone, "UTC"),
+            notifications: Set(Some(
+                self.notifications.clone().unwrap_or_else(|| json!({})),
+            )),
+            ui_preferences: Set(Some(
+                self.ui_preferences
+                    .clone()
+                    .map_or_else(|| json!({}), Value::Object),
+            )),
+            working_hours: Set(self.working_hours.clone()),
+            created_at: Set(stamp),
+            updated_at: Set(stamp),
+            ..Default::default()
+        }
+    }
+}
+
+async fn save(db: &PgPool, user_id: &str, changes: &Changes) -> Result<Response, DbErr> {
+    if let Some(existing) = own_row(db, user_id).await? {
+        let mut update = prefs::Entity::update_many().col_expr(
+            prefs::Column::UpdatedAt,
+            Expr::value(utc_now().assume_utc()),
+        );
+        for (column, value) in changes.sent(existing.ui_preferences.as_ref()) {
+            update = update.col_expr(column, value);
+        }
+        update
+            .filter(prefs::Column::Id.eq(&existing.id))
+            .exec(&orm(db))
+            .await?;
         clear_auto_scheduled(db, user_id, changes.ui_preferences.as_ref()).await?;
-        let updated = row_by_id(db, &id).await?;
+        let updated = row_by_id(db, &existing.id).await?;
         return Ok(Data(to_response(&updated)).into_response());
     }
 
     let id = generate_id("upref");
-    sqlx::query(
-        "insert into user_preferences
-             (id, user_id, theme, font_size, language, date_format, time_format, timezone,
-              notifications, ui_preferences, working_hours, created_at, updated_at)
-         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::timestamptz, $12::timestamptz)",
-    )
-    .bind(&id)
-    .bind(user_id)
-    .bind(changes.theme.as_deref().unwrap_or("system"))
-    .bind(
-        changes
-            .font_size
-            .and_then(|n| i32::try_from(n).ok())
-            .unwrap_or(16),
-    )
-    .bind(changes.language.as_deref().unwrap_or("en"))
-    .bind(changes.date_format.as_deref().unwrap_or("MM/DD/YYYY"))
-    .bind(changes.time_format.as_deref().unwrap_or("12h"))
-    .bind(changes.timezone.as_deref().unwrap_or("UTC"))
-    .bind(changes.notifications.clone().unwrap_or_else(|| json!({})))
-    .bind(
-        changes
-            .ui_preferences
-            .clone()
-            .map_or_else(|| json!({}), Value::Object),
-    )
-    .bind(&changes.working_hours)
-    .bind(&stamp)
-    .execute(db)
-    .await?;
+    prefs::Entity::insert(changes.new_row(id.clone(), user_id))
+        .exec_without_returning(&orm(db))
+        .await?;
     clear_auto_scheduled(db, user_id, changes.ui_preferences.as_ref()).await?;
     let created = row_by_id(db, &id).await?;
     Ok(Created(to_response(&created)).into_response())
@@ -257,7 +283,7 @@ async fn clear_auto_scheduled(
     db: &PgPool,
     user_id: &str,
     ui: Option<&Map<String, Value>>,
-) -> Result<(), sqlx::Error> {
+) -> Result<(), DbErr> {
     let off = |key: &str| ui.and_then(|ui| ui.get(key)) == Some(&Value::Bool(false));
     if off("autoScheduleTasks") {
         return remove_auto_scheduled_task_events(db, user_id, None).await;
@@ -276,11 +302,15 @@ async fn clear_auto_scheduled(
 /// `removeAutoScheduledTaskEvents` (`@weldsuite/db/lib/calendar-sync`):
 /// soft-delete the user's auto-placed task events (of one app's tasks, when
 /// given) and unlink them from their tasks, in one statement.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "two data-modifying CTEs: the soft-delete and the unlink stay one atomic statement, as removeAutoScheduledTaskEvents runs them"
+)]
 async fn remove_auto_scheduled_task_events(
     db: &PgPool,
     user_id: &str,
     app: Option<&str>,
-) -> Result<(), sqlx::Error> {
+) -> Result<(), DbErr> {
     sqlx::query(
         "with removed as (
              update calendar_events
@@ -305,7 +335,8 @@ async fn remove_auto_scheduled_task_events(
     .bind(now())
     .bind(app)
     .execute(db)
-    .await?;
+    .await
+    .map_err(weldsuite_db::orm_error)?;
     Ok(())
 }
 
@@ -346,49 +377,44 @@ async fn font_size(caller: Caller, headers: HeaderMap, body: Bytes) -> Response 
 
 /// Set `theme` or `font_size` on the caller's row, creating it with the
 /// column defaults otherwise.
-async fn set_one(
-    db: &PgPool,
-    user_id: &str,
-    column: &str,
-    value: Value,
-) -> Result<(), sqlx::Error> {
-    let stamp = now();
+async fn set_one(db: &PgPool, user_id: &str, column: &str, value: Value) -> Result<(), DbErr> {
+    let stamp = utc_now().assume_utc();
     let theme = (column == "theme").then(|| value.as_str().unwrap_or_default().to_owned());
     let size = (column == "font_size")
         .then(|| value.as_i64().and_then(|n| i32::try_from(n).ok()))
         .flatten();
-    let existing: Option<String> = sqlx::query_scalar(
-        "select id from user_preferences where user_id = $1 and deleted_at is null limit 1",
-    )
-    .bind(user_id)
-    .fetch_optional(db)
-    .await?;
+    let db = orm(db);
+    let existing: Option<String> = prefs::Entity::find()
+        .select_only()
+        .column(prefs::Column::Id)
+        .filter(prefs::Column::UserId.eq(user_id))
+        .filter(prefs::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&db)
+        .await?;
     if let Some(id) = existing {
-        sqlx::query(
-            "update user_preferences
-             set theme = coalesce($2, theme), font_size = coalesce($3, font_size),
-                 updated_at = $4::timestamptz
-             where id = $1",
-        )
-        .bind(id)
-        .bind(theme)
-        .bind(size)
-        .bind(&stamp)
-        .execute(db)
-        .await?;
+        let mut update =
+            prefs::Entity::update_many().col_expr(prefs::Column::UpdatedAt, Expr::value(stamp));
+        if let Some(theme) = theme {
+            update = update.col_expr(prefs::Column::Theme, Expr::value(theme));
+        }
+        if let Some(size) = size {
+            update = update.col_expr(prefs::Column::FontSize, Expr::value(size));
+        }
+        update.filter(prefs::Column::Id.eq(id)).exec(&db).await?;
     } else {
-        sqlx::query(
-            "insert into user_preferences (id, user_id, theme, font_size, created_at, updated_at)
-             values ($1, $2, coalesce($3, 'system'), coalesce($4, 16),
-                     $5::timestamptz, $5::timestamptz)",
-        )
-        .bind(generate_id("upref"))
-        .bind(user_id)
-        .bind(theme)
-        .bind(size)
-        .bind(&stamp)
-        .execute(db)
-        .await?;
+        let row = prefs::ActiveModel {
+            id: Set(generate_id("upref")),
+            user_id: Set(user_id.to_owned()),
+            theme: Set(theme.unwrap_or_else(|| "system".to_owned())),
+            font_size: Set(size.unwrap_or(16)),
+            created_at: Set(stamp),
+            updated_at: Set(stamp),
+            ..Default::default()
+        };
+        prefs::Entity::insert(row)
+            .exec_without_returning(&db)
+            .await?;
     }
     Ok(())
 }

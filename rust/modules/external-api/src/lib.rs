@@ -19,10 +19,6 @@
 //! TypeScript worker's; its tests run against this crate in the
 //! `external-api` conformance suite (`rust/conformance/suites.json`).
 
-#![allow(
-    clippy::disallowed_methods,
-    reason = "not converted to the ORM yet (ADR DATA-019)"
-)]
 // Handlers answer a ready `Response` as their error (a validation failure).
 #![allow(clippy::result_large_err)]
 

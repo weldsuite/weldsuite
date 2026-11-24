@@ -9,12 +9,18 @@ use std::fmt::Write as _;
 use std::sync::LazyLock;
 
 use regex::{Captures, Regex};
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value};
 use sqlx::PgPool;
+use weldsuite_db::orm;
 use weldsuite_events::{EntityEvent, EventContext, EventSource, EventType};
 use weldsuite_kit::validation::js_trim;
+use weldsuite_schema::tenant::{form_response_actions, people};
 
-use crate::common::{Ctx, Env, Fail, FormsResult, text, workspace_app_url};
+use crate::common::{
+    Ctx, Env, Fail, FormsResult, db_error_text, row_json, text, workspace_app_url,
+};
 use crate::creator_access::CreatorForbidden;
 use crate::engine::{
     FormDefinition, PreparedAnswer, RecallContext, display_answer, fields_of, find_field,
@@ -43,6 +49,12 @@ impl From<Fail> for StepFail {
             Fail::Internal(message) => message,
             Fail::Response(_) => "forms: the step failed".to_owned(),
         })
+    }
+}
+
+impl From<sea_orm::DbErr> for StepFail {
+    fn from(error: sea_orm::DbErr) -> Self {
+        Self::Error(db_error_text(&error))
     }
 }
 
@@ -196,14 +208,17 @@ pub(crate) fn answer_lines(definition: &FormDefinition, answers: &Value) -> Stri
 /// `findPersonByEmail(db, email)` (`steps/crm.ts`): a CRM person with this
 /// (lowercased) email.
 pub(crate) async fn find_person_by_email(db: &PgPool, email: &str) -> FormsResult<Option<Value>> {
-    crate::common::one(
-        db,
-        sqlx::query_scalar(
-            "select to_jsonb(p) from people p              where lower(p.email) = $1 and p.deleted_at is null and p.in_crm = true limit 1",
-        )
-        .bind(email),
-    )
-    .await
+    people::Entity::find()
+        .filter(sea_orm::ExprTrait::eq(
+            Expr::from(Func::lower(Expr::col(people::Column::Email))),
+            email,
+        ))
+        .filter(people::Column::DeletedAt.is_null())
+        .filter(people::Column::InCrm.eq(true))
+        .one(&orm(db))
+        .await?
+        .map(row_json)
+        .transpose()
 }
 
 // ── The record a step made ───────────────────────────────────────────────────
@@ -215,14 +230,17 @@ pub(crate) async fn recorded_entity(
     response_id: &str,
     integration_id: &str,
 ) -> FormsResult<Option<(String, String)>> {
-    let row: Option<(Option<String>, Option<String>)> = sqlx::query_as(
-        "select entity_type, entity_id from form_response_actions \
-         where response_id = $1 and integration_id = $2 limit 1",
-    )
-    .bind(response_id)
-    .bind(integration_id)
-    .fetch_optional(db)
-    .await?;
+    let row: Option<(Option<String>, Option<String>)> = form_response_actions::Entity::find()
+        .select_only()
+        .columns([
+            form_response_actions::Column::EntityType,
+            form_response_actions::Column::EntityId,
+        ])
+        .filter(form_response_actions::Column::ResponseId.eq(response_id))
+        .filter(form_response_actions::Column::IntegrationId.eq(integration_id))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     Ok(match row {
         Some((Some(kind), Some(id))) if !kind.is_empty() && !id.is_empty() => Some((kind, id)),
         _ => None,
@@ -239,16 +257,19 @@ pub(crate) async fn remember_entity(
     entity_type: &str,
     entity_id: &str,
 ) -> FormsResult<()> {
-    sqlx::query(
-        "update form_response_actions set entity_type = $3, entity_id = $4 \
-         where response_id = $1 and integration_id = $2",
-    )
-    .bind(response_id)
-    .bind(integration_id)
-    .bind(entity_type)
-    .bind(entity_id)
-    .execute(db)
-    .await?;
+    form_response_actions::Entity::update_many()
+        .col_expr(
+            form_response_actions::Column::EntityType,
+            Expr::value(entity_type),
+        )
+        .col_expr(
+            form_response_actions::Column::EntityId,
+            Expr::value(entity_id),
+        )
+        .filter(form_response_actions::Column::ResponseId.eq(response_id))
+        .filter(form_response_actions::Column::IntegrationId.eq(integration_id))
+        .exec(&orm(db))
+        .await?;
     Ok(())
 }
 

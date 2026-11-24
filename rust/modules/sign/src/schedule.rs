@@ -12,11 +12,13 @@
 //! reminder sent by hand moves the next automatic one a full interval on,
 //! without counting towards the maximum.
 
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 use serde_json::Value;
-use sqlx::PgPool;
 use time::{Duration, OffsetDateTime};
-use weldsuite_db::js_row;
+use weldsuite_db::{PgPool, orm};
+use weldsuite_schema::tenant::{sign_envelopes, sign_recipients};
 
+use crate::envelopes::json_rows;
 use crate::{SendContext, SignResult, text};
 
 /// The due index kind of the lifecycle sweep.
@@ -74,25 +76,24 @@ pub(crate) fn next_reminder_at(envelope: &Value, recipient: &Value) -> Option<Of
 /// Open requests with their signers, for the sweep and for working out the
 /// next due time (`openRequests`).
 pub(crate) async fn open_requests(db: &PgPool) -> SignResult<Vec<(Value, Vec<Value>)>> {
-    let envelopes: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(e) from sign_envelopes e
-         where kind = 'envelope' and status in ('sent', 'in_progress') and deleted_at is null",
-    )
-    .fetch_all(db)
-    .await?;
+    let db = &orm(db);
+    let envelopes = sign_envelopes::Entity::find()
+        .filter(sign_envelopes::Column::Kind.eq("envelope"))
+        .filter(sign_envelopes::Column::Status.is_in(["sent", "in_progress"]))
+        .filter(sign_envelopes::Column::DeletedAt.is_null())
+        .all(db)
+        .await?;
     if envelopes.is_empty() {
         return Ok(Vec::new());
     }
-    let envelopes: Vec<Value> = envelopes.into_iter().map(js_row).collect();
-    let ids: Vec<String> = envelopes.iter().map(|e| text(e, "id").to_owned()).collect();
-    let signers: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(r) from sign_recipients r
-         where envelope_id = any($1) and role = 'signer'",
-    )
-    .bind(&ids)
-    .fetch_all(db)
-    .await?;
-    let signers: Vec<Value> = signers.into_iter().map(js_row).collect();
+    let ids: Vec<String> = envelopes.iter().map(|e| e.id.clone()).collect();
+    let envelopes = json_rows(envelopes)?;
+    let signers = sign_recipients::Entity::find()
+        .filter(sign_recipients::Column::EnvelopeId.is_in(ids))
+        .filter(sign_recipients::Column::Role.eq("signer"))
+        .all(db)
+        .await?;
+    let signers = json_rows(signers)?;
     Ok(envelopes
         .into_iter()
         .map(|envelope| {

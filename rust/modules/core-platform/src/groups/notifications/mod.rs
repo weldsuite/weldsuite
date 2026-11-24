@@ -22,18 +22,25 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, patch, post};
 use http::HeaderMap;
+use sea_orm::sea_query::{Expr, OnConflict};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, Condition, DbErr, EntityTrait, IdenStatic, Iterable,
+    PaginatorTrait, QueryFilter, QueryOrder, QuerySelect,
+};
 use serde_json::{Map, Value, json};
+use time::OffsetDateTime;
 use weldsuite_catalogs::entity_events::NOTIFICATION_UPDATED;
 use weldsuite_catalogs::permission_keys::{GENERAL_READ, GENERAL_UPDATE};
-use weldsuite_db::{PgPool, js_row};
+use weldsuite_db::{PgPool, orm, utc_now, utc_timestamp};
 use weldsuite_kit::validation::{Issues, Presence, query_values};
 use weldsuite_kit::{ApiError, Created, Data, List, NoContent, Pagination, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::{notifications, workspace_members};
 
 use self::body::{
     Column, Kind, col, column_values, js_min, parse_int, pg_bool, query_first, slice_end, sql_limit,
 };
-use crate::{Caller, CorePlatformState, PlatformError, PlatformResult, answer, now, validate};
+use crate::{Caller, CorePlatformState, PlatformError, PlatformResult, answer, validate};
 
 /// Not a catalog key (no role holds it but the owner's `*`); the route
 /// requires it as written.
@@ -123,16 +130,31 @@ const COLUMNS: [Column; 22] = [
     col("deletedAt", "deleted_at", Kind::Timestamp, false),
 ];
 
+/// A row as `to_jsonb` through `js_row` read it: the entity serializes as
+/// Drizzle did.
+fn row_json(row: notifications::Model) -> Value {
+    serde_json::to_value(row).unwrap_or(Value::Null)
+}
+
 /// The caller's row with this id (deleted or not), if any.
-async fn own(db: &PgPool, id: &str, user_id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from notifications t where id = $1 and user_id = $2 limit 1",
-    )
-    .bind(id)
-    .bind(user_id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(js_row))
+async fn own(db: &PgPool, id: &str, user_id: &str) -> Result<Option<Value>, DbErr> {
+    let row = notifications::Entity::find()
+        .filter(notifications::Column::Id.eq(id))
+        .filter(notifications::Column::UserId.eq(user_id))
+        .one(&orm(db))
+        .await?;
+    Ok(row.map(row_json))
+}
+
+/// `user_id = $1 and deleted_at is null and ($2 is null or is_read = $2)`.
+fn live_of(user_id: &str, is_read: Option<bool>) -> Condition {
+    let mut condition = Condition::all()
+        .add(notifications::Column::UserId.eq(user_id))
+        .add(notifications::Column::DeletedAt.is_null());
+    if let Some(is_read) = is_read {
+        condition = condition.add(notifications::Column::IsRead.eq(is_read));
+    }
+    condition
 }
 
 // ── GET / ───────────────────────────────────────────────────────────────────
@@ -149,17 +171,19 @@ async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
 
     // The cursor row, any user's: its time as the route reads it (a `Date`,
     // so milliseconds) and its id.
-    let mut after: Option<(Value, String)> = None;
+    let mut after: Option<(OffsetDateTime, String)> = None;
     if let Some(cursor) = &cursor {
-        let found: Result<Option<(Value, String)>, sqlx::Error> = sqlx::query_as(
-            "select to_jsonb(date_trunc('milliseconds', created_at)), id
-             from notifications where id = $1 limit 1",
-        )
-        .bind(cursor)
-        .fetch_optional(&caller.db)
-        .await;
+        let found: Result<Option<(OffsetDateTime, String)>, DbErr> = notifications::Entity::find()
+            .select_only()
+            .columns([notifications::Column::CreatedAt, notifications::Column::Id])
+            .filter(notifications::Column::Id.eq(cursor))
+            .into_tuple()
+            .one(&orm(&caller.db))
+            .await;
         match found {
-            Ok(found) => after = found,
+            Ok(found) => {
+                after = found.map(|(at, id)| (utc_timestamp(at).assume_utc(), id));
+            }
             Err(error) => return PlatformError::Database(error).respond(),
         }
     }
@@ -185,38 +209,30 @@ async fn page(
     caller: &Caller,
     limit: f64,
     is_read: Option<bool>,
-    after: Option<(Value, String)>,
-) -> Result<Response, sqlx::Error> {
-    let (after_at, after_id) = match &after {
-        Some((at, id)) => (at.as_str().map(str::to_owned), Some(id.clone())),
-        None => (None, None),
-    };
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from notifications t
-         where user_id = $1 and deleted_at is null
-           and ($2::boolean is null or is_read = $2)
-           and ($3::timestamptz is null or created_at < $3::timestamptz
-                or (created_at = $3::timestamptz and id < $4))
-         order by created_at desc, id desc
-         limit $5",
-    )
-    .bind(&caller.user_id)
-    .bind(is_read)
-    .bind(&after_at)
-    .bind(&after_id)
-    .bind(sql_limit(limit + 1.0))
-    .fetch_all(&caller.db)
-    .await?;
-    let total: i64 = sqlx::query_scalar(
-        "select count(*) from notifications
-         where user_id = $1 and deleted_at is null and ($2::boolean is null or is_read = $2)",
-    )
-    .bind(&caller.user_id)
-    .bind(is_read)
-    .fetch_one(&caller.db)
-    .await?;
+    after: Option<(OffsetDateTime, String)>,
+) -> Result<Response, DbErr> {
+    use notifications::Column as N;
+    let db = orm(&caller.db);
+    let mut select = notifications::Entity::find().filter(live_of(&caller.user_id, is_read));
+    if let Some((at, id)) = after {
+        select = select.filter(
+            Condition::any()
+                .add(N::CreatedAt.lt(at))
+                .add(Condition::all().add(N::CreatedAt.eq(at)).add(N::Id.lt(id))),
+        );
+    }
+    let rows = select
+        .order_by_desc(N::CreatedAt)
+        .order_by_desc(N::Id)
+        .limit(sql_limit(limit + 1.0).map(|n| u64::try_from(n).unwrap_or(0)))
+        .all(&db)
+        .await?;
+    let total = notifications::Entity::find()
+        .filter(live_of(&caller.user_id, is_read))
+        .count(&db)
+        .await?;
 
-    let mut rows: Vec<Value> = rows.into_iter().map(js_row).collect();
+    let mut rows: Vec<Value> = rows.into_iter().map(row_json).collect();
     #[allow(clippy::cast_precision_loss)]
     let has_more = (rows.len() as f64) > limit;
     if has_more {
@@ -242,11 +258,16 @@ async fn page(
     }
     let mut names: HashMap<String, Value> = HashMap::new();
     if !actor_ids.is_empty() {
-        let members: Vec<(String, Option<String>)> =
-            sqlx::query_as("select user_id, name from workspace_members where user_id = any($1)")
-                .bind(&actor_ids)
-                .fetch_all(&caller.db)
-                .await?;
+        let members: Vec<(String, Option<String>)> = workspace_members::Entity::find()
+            .select_only()
+            .columns([
+                workspace_members::Column::UserId,
+                workspace_members::Column::Name,
+            ])
+            .filter(workspace_members::Column::UserId.is_in(actor_ids.clone()))
+            .into_tuple()
+            .all(&db)
+            .await?;
         // `new Map(entries)`: a later row for the same user wins.
         for (user_id, name) in members {
             names.insert(user_id, json!(name));
@@ -269,11 +290,7 @@ async fn page(
             row
         })
         .collect();
-    Ok(List::new(
-        data,
-        Pagination::new(u64::try_from(total).unwrap_or(0), has_more, cursor),
-    )
-    .into_response())
+    Ok(List::new(data, Pagination::new(total, has_more, cursor)).into_response())
 }
 
 /// The actor's user id when a member triggered the notification.
@@ -287,13 +304,12 @@ fn user_actor(row: &Value) -> Option<&str> {
 // ── GET /unread-count ───────────────────────────────────────────────────────
 
 async fn unread_count(caller: Caller) -> Response {
-    let count: Result<i64, sqlx::Error> = sqlx::query_scalar(
-        "select count(*) from notifications
-         where user_id = $1 and is_read = false and deleted_at is null",
-    )
-    .bind(&caller.user_id)
-    .fetch_one(&caller.db)
-    .await;
+    let count: Result<u64, DbErr> = notifications::Entity::find()
+        .filter(notifications::Column::UserId.eq(&caller.user_id))
+        .filter(notifications::Column::IsRead.eq(false))
+        .filter(notifications::Column::DeletedAt.is_null())
+        .count(&orm(&caller.db))
+        .await;
     match count {
         Ok(count) => Data(json!({ "count": count })).into_response(),
         Err(error) => {
@@ -305,16 +321,19 @@ async fn unread_count(caller: Caller) -> Response {
 // ── POST /read-all ──────────────────────────────────────────────────────────
 
 async fn read_all(caller: Caller) -> Response {
-    let updated = sqlx::query(
-        "update notifications set is_read = true, read_at = $2::timestamptz
-         where user_id = $1 and is_read = false and deleted_at is null",
-    )
-    .bind(&caller.user_id)
-    .bind(now())
-    .execute(&caller.db)
-    .await;
+    let updated = notifications::Entity::update_many()
+        .col_expr(notifications::Column::IsRead, Expr::value(true))
+        .col_expr(
+            notifications::Column::ReadAt,
+            Expr::value(utc_now().assume_utc()),
+        )
+        .filter(notifications::Column::UserId.eq(&caller.user_id))
+        .filter(notifications::Column::IsRead.eq(false))
+        .filter(notifications::Column::DeletedAt.is_null())
+        .exec(&orm(&caller.db))
+        .await;
     match updated {
-        Ok(done) => Data(json!({ "updated": done.rows_affected() })).into_response(),
+        Ok(done) => Data(json!({ "updated": done.rows_affected })).into_response(),
         Err(error) => {
             PlatformError::internal("Failed to mark notifications as read", error).respond()
         }
@@ -337,18 +356,20 @@ async fn mark_read(
             if existing.is_none() {
                 return Err(ApiError::not_found("Notification", Some(&id)).into());
             }
-            let row: Option<Value> = sqlx::query_scalar(
-                "update notifications as t set is_read = true, read_at = $3::timestamptz
-                 where id = $1 and user_id = $2
-                 returning to_jsonb(t)",
-            )
-            .bind(&id)
-            .bind(&caller.user_id)
-            .bind(now())
-            .fetch_optional(&caller.db)
-            .await
-            .map_err(|error| PlatformError::internal(FAILED, error))?;
-            let row = js_row(row.ok_or_else(|| PlatformError::internal(FAILED, "row vanished"))?);
+            let row = notifications::Entity::update_many()
+                .col_expr(notifications::Column::IsRead, Expr::value(true))
+                .col_expr(
+                    notifications::Column::ReadAt,
+                    Expr::value(utc_now().assume_utc()),
+                )
+                .filter(notifications::Column::Id.eq(&id))
+                .filter(notifications::Column::UserId.eq(&caller.user_id))
+                .exec_with_returning(&orm(&caller.db))
+                .await
+                .map_err(|error| PlatformError::internal(FAILED, error))?
+                .into_iter()
+                .next();
+            let row = row_json(row.ok_or_else(|| PlatformError::internal(FAILED, "row vanished"))?);
             caller.publish(
                 &state,
                 NOTIFICATION_UPDATED,
@@ -413,33 +434,17 @@ async fn create(caller: Caller, headers: HeaderMap, body: Bytes) -> Response {
                 }
             }
             let id = generate_id("ntf");
-            let inserted = sqlx::query(
-                "insert into notifications
-                     (id, user_id, title, body, category, notification_type, entity_type,
-                      entity_id, action_url, actor_type, actor_id, icon, severity, data,
-                      is_read, read_at, delivered_in_app, delivered_email, delivered_push,
-                      created_at, expires_at, deleted_at)
-                 values (coalesce($1->>'id', $2), $1->>'user_id', $1->>'title', $1->>'body',
-                         coalesce($1->>'category', 'system'),
-                         coalesce($1->>'notification_type', 'custom'),
-                         $1->>'entity_type', $1->>'entity_id', $1->>'action_url',
-                         $1->>'actor_type', $1->>'actor_id', $1->>'icon',
-                         coalesce($1->>'severity', 'info'), nullif($1->'data', 'null'::jsonb),
-                         coalesce(($1->>'is_read')::boolean, false), null,
-                         coalesce(($1->>'delivered_in_app')::boolean, true),
-                         coalesce(($1->>'delivered_email')::boolean, false),
-                         coalesce(($1->>'delivered_push')::boolean, false),
-                         $3::timestamptz, null, null)
-                 on conflict (id) do nothing",
-            )
-            .bind(Value::Object(values))
-            .bind(&id)
-            .bind(now())
-            .execute(&caller.db)
-            .await
-            .map_err(|error| PlatformError::internal(FAILED, error))?;
+            let inserted = notifications::Entity::insert(new_row(&values, &id))
+                .on_conflict(
+                    OnConflict::column(notifications::Column::Id)
+                        .do_nothing()
+                        .to_owned(),
+                )
+                .exec_without_returning(&orm(&caller.db))
+                .await
+                .map_err(|error| PlatformError::internal(FAILED, error))?;
             // A body `id` that is taken: the primary key refuses the row.
-            if inserted.rows_affected() == 0 {
+            if inserted == 0 {
                 return Err(PlatformError::internal(FAILED, "duplicate key"));
             }
             Ok(Created(json!({ "id": id })).into_response())
@@ -467,50 +472,90 @@ async fn update(
             let values = column_values(&COLUMNS, &input)
                 .map_err(|error| PlatformError::internal(FAILED, error))?;
             ensure_settable(&caller.db, &values, &id, FAILED).await?;
-            sqlx::query(
-                "update notifications set
-                     id = case when $1 ? 'id' then $1->>'id' else id end,
-                     user_id = case when $1 ? 'user_id' then $1->>'user_id' else user_id end,
-                     title = case when $1 ? 'title' then $1->>'title' else title end,
-                     body = case when $1 ? 'body' then $1->>'body' else body end,
-                     category = case when $1 ? 'category' then $1->>'category' else category end,
-                     notification_type = case when $1 ? 'notification_type'
-                         then $1->>'notification_type' else notification_type end,
-                     entity_type = case when $1 ? 'entity_type'
-                         then $1->>'entity_type' else entity_type end,
-                     entity_id = case when $1 ? 'entity_id' then $1->>'entity_id' else entity_id end,
-                     action_url = case when $1 ? 'action_url'
-                         then $1->>'action_url' else action_url end,
-                     actor_type = case when $1 ? 'actor_type'
-                         then $1->>'actor_type' else actor_type end,
-                     actor_id = case when $1 ? 'actor_id' then $1->>'actor_id' else actor_id end,
-                     icon = case when $1 ? 'icon' then $1->>'icon' else icon end,
-                     severity = case when $1 ? 'severity' then $1->>'severity' else severity end,
-                     data = case when $1 ? 'data'
-                         then nullif($1->'data', 'null'::jsonb) else data end,
-                     is_read = case when $1 ? 'is_read'
-                         then ($1->>'is_read')::boolean else is_read end,
-                     read_at = case when $1 ? 'read_at' then null else read_at end,
-                     delivered_in_app = case when $1 ? 'delivered_in_app'
-                         then ($1->>'delivered_in_app')::boolean else delivered_in_app end,
-                     delivered_email = case when $1 ? 'delivered_email'
-                         then ($1->>'delivered_email')::boolean else delivered_email end,
-                     delivered_push = case when $1 ? 'delivered_push'
-                         then ($1->>'delivered_push')::boolean else delivered_push end,
-                     expires_at = case when $1 ? 'expires_at' then null else expires_at end,
-                     deleted_at = case when $1 ? 'deleted_at' then null else deleted_at end
-                 where id = $2 and user_id = $3",
-            )
-            .bind(Value::Object(values))
-            .bind(&id)
-            .bind(&caller.user_id)
-            .execute(&caller.db)
-            .await
-            .map_err(|error| PlatformError::internal(FAILED, error))?;
+            let mut update = notifications::Entity::update_many();
+            for (column, value) in set_values::<notifications::Entity>(&COLUMNS, &values) {
+                update = update.col_expr(column, value);
+            }
+            update
+                .filter(notifications::Column::Id.eq(&id))
+                .filter(notifications::Column::UserId.eq(&caller.user_id))
+                .exec(&orm(&caller.db))
+                .await
+                .map_err(|error| PlatformError::internal(FAILED, error))?;
             Ok(Data(json!({ "id": id })).into_response())
         }
         .await,
     )
+}
+
+/// The text a column takes from the body's values (`$1->>'column'`).
+fn text_of(values: &Map<String, Value>, name: &str) -> Option<String> {
+    values.get(name).and_then(Value::as_str).map(str::to_owned)
+}
+
+/// A boolean column's value (`($1->>'column')::boolean`, already read as
+/// Postgres reads it), else its default.
+fn flag_of(values: &Map<String, Value>, name: &str, default: bool) -> bool {
+    values.get(name).and_then(Value::as_bool).unwrap_or(default)
+}
+
+/// The inserted row: `{ id, ...data, createdAt: now }`, the defaults where
+/// the body leaves a column out (`coalesce($1->>'column', default)`).
+fn new_row(values: &Map<String, Value>, id: &str) -> notifications::ActiveModel {
+    let text = |name: &str| text_of(values, name);
+    notifications::ActiveModel {
+        id: Set(text("id").unwrap_or_else(|| id.to_owned())),
+        user_id: Set(text("user_id").unwrap_or_default()),
+        title: Set(text("title").unwrap_or_default()),
+        body: Set(text("body")),
+        category: Set(text("category").unwrap_or_else(|| "system".to_owned())),
+        notification_type: Set(text("notification_type").unwrap_or_else(|| "custom".to_owned())),
+        entity_type: Set(text("entity_type")),
+        entity_id: Set(text("entity_id")),
+        action_url: Set(text("action_url")),
+        actor_type: Set(text("actor_type")),
+        actor_id: Set(text("actor_id")),
+        icon: Set(text("icon")),
+        severity: Set(text("severity").unwrap_or_else(|| "info".to_owned())),
+        // `nullif($1->'data', 'null'::jsonb)`.
+        data: Set(values.get("data").filter(|data| !data.is_null()).cloned()),
+        is_read: Set(flag_of(values, "is_read", false)),
+        read_at: Set(None),
+        delivered_in_app: Set(flag_of(values, "delivered_in_app", true)),
+        delivered_email: Set(flag_of(values, "delivered_email", false)),
+        delivered_push: Set(flag_of(values, "delivered_push", false)),
+        created_at: Set(utc_now().assume_utc()),
+        expires_at: Set(None),
+        deleted_at: Set(None),
+    }
+}
+
+/// `set <column> = …` for each of `columns` the body's values name (the
+/// others keep their value), each value as `case when $1 ? 'column' …` read
+/// it from the values: `$1->>'column'` for text and booleans,
+/// `nullif($1->'column', 'null'::jsonb)` for `jsonb`, and `null` for a
+/// timestamp (the only value [`column_values`] lets through for one).
+pub(super) fn set_values<E: EntityTrait>(
+    columns: &[Column],
+    values: &Map<String, Value>,
+) -> Vec<(E::Column, Expr)> {
+    let mut set = Vec::new();
+    for column in columns {
+        let Some(value) = values.get(column.name) else {
+            continue;
+        };
+        let Some(target) = E::Column::iter().find(|c| c.as_str() == column.name) else {
+            continue;
+        };
+        let expr = match column.kind {
+            Kind::Text(_) => Expr::value(value.as_str().map(str::to_owned)),
+            Kind::Bool => Expr::value(value.as_bool()),
+            Kind::Json => Expr::value((!value.is_null()).then(|| value.clone())),
+            Kind::Timestamp => Expr::null(),
+        };
+        set.push((target, expr));
+    }
+    set
 }
 
 /// What makes Drizzle's `update … set` fail before it changes anything: no
@@ -524,13 +569,15 @@ async fn ensure_settable(
 ) -> PlatformResult<()> {
     body::ensure_some_column(values, failed)?;
     if let Some(new_id) = body::new_id(values, id) {
-        let taken: bool =
-            sqlx::query_scalar("select exists (select 1 from notifications where id = $1)")
-                .bind(new_id)
-                .fetch_one(db)
-                .await
-                .map_err(|error| PlatformError::internal(failed, error))?;
-        if taken {
+        let taken: Option<String> = notifications::Entity::find()
+            .select_only()
+            .column(notifications::Column::Id)
+            .filter(notifications::Column::Id.eq(new_id))
+            .into_tuple()
+            .one(&orm(db))
+            .await
+            .map_err(|error| PlatformError::internal(failed, error))?;
+        if taken.is_some() {
             return Err(PlatformError::internal(failed, "duplicate key"));
         }
     }
@@ -544,17 +591,18 @@ async fn remove(caller: Caller, Path(id): Path<String>) -> Response {
     answer(
         async {
             // A soft delete, scoped to the caller's live rows.
-            let removed = sqlx::query(
-                "update notifications set deleted_at = $3::timestamptz
-                 where id = $1 and user_id = $2 and deleted_at is null",
-            )
-            .bind(&id)
-            .bind(&caller.user_id)
-            .bind(now())
-            .execute(&caller.db)
-            .await
-            .map_err(|error| PlatformError::internal(FAILED, error))?;
-            if removed.rows_affected() == 0 {
+            let removed = notifications::Entity::update_many()
+                .col_expr(
+                    notifications::Column::DeletedAt,
+                    Expr::value(utc_now().assume_utc()),
+                )
+                .filter(notifications::Column::Id.eq(&id))
+                .filter(notifications::Column::UserId.eq(&caller.user_id))
+                .filter(notifications::Column::DeletedAt.is_null())
+                .exec(&orm(&caller.db))
+                .await
+                .map_err(|error| PlatformError::internal(FAILED, error))?;
+            if removed.rows_affected == 0 {
                 return Err(ApiError::not_found("Notification", Some(&id)).into());
             }
             Ok(NoContent.into_response())

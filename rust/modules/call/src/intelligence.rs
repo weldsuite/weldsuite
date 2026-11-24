@@ -7,15 +7,31 @@ use axum::body::Bytes;
 use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use http::HeaderMap;
+use sea_orm::sea_query::{Asterisk, Expr, Func};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, FromQueryResult, Order, QueryFilter,
+    QueryOrder, QuerySelect,
+};
 use serde_json::{Map, Value, json};
+use time::PrimitiveDateTime;
 use weldsuite_catalogs::entity_events::{CALL_CREATED, CALL_DELETED, CALL_UPDATED};
+use weldsuite_db::{orm, utc_now};
 use weldsuite_kit::validation::{Field, Issues, Presence, Text, query_values};
 use weldsuite_kit::{ApiError, Created, Data, NoContent};
 use weldsuite_ports::HttpRequest;
+use weldsuite_schema::tenant::{
+    crm_transcript_segments as segments, crm_transcriptions as transcriptions, voip_calls,
+    voip_phone_numbers as numbers,
+};
 
-use crate::calls::query_param;
+use crate::calls::{iso_of, query_param};
 use crate::sip_trunks::{TRUNK_NUMBER_REFUSAL, TRUNK_PROVIDER};
-use crate::{CallState, Caller, internal, js, now, rows, validate};
+use crate::{CallState, Caller, internal, js, validate};
+
+/// A row as the API returns it: the entity's JSON.
+fn json_error(error: &serde_json::Error) -> DbErr {
+    DbErr::Json(error.to_string())
+}
 
 const CALL_DENIED: &str = "You do not have access to this call";
 
@@ -25,18 +41,27 @@ pub(crate) async fn list_numbers(caller: Caller, RawQuery(query): RawQuery) -> R
     let query = query_values(query.as_deref());
     let status = query_param(&query, "status").filter(|s| !s.is_empty());
     let provider = query_param(&query, "provider").filter(|p| !p.is_empty());
-    let found: Result<Vec<Value>, sqlx::Error> = sqlx::query_scalar(
-        "select to_jsonb(t) from voip_phone_numbers t
-         where t.deleted_at is null and ($1::text is null or t.status = $1)
-           and ($2::text is null or t.provider = $2)
-         order by t.is_default desc, t.created_at desc",
-    )
-    .bind(status)
-    .bind(provider)
-    .fetch_all(&caller.db)
-    .await;
+    let mut found = numbers::Entity::find().filter(numbers::Column::DeletedAt.is_null());
+    if let Some(status) = status {
+        found = found.filter(numbers::Column::Status.eq(status));
+    }
+    if let Some(provider) = provider {
+        found = found.filter(numbers::Column::Provider.eq(provider));
+    }
+    let found = found
+        .order_by(numbers::Column::IsDefault, Order::Desc)
+        .order_by(numbers::Column::CreatedAt, Order::Desc)
+        .all(&orm(&caller.db))
+        .await
+        .and_then(|found| {
+            found
+                .into_iter()
+                .map(serde_json::to_value)
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|error| json_error(&error))
+        });
     match found {
-        Ok(found) => Data(rows(found)).into_response(),
+        Ok(found) => Data(found).into_response(),
         Err(error) => internal(&error, "Failed to fetch phone numbers"),
     }
 }
@@ -129,31 +154,30 @@ pub(crate) async fn create_number(
         Err(response) => return *response,
     };
     let id = weldsuite_kit::generate_id("vnum");
-    let inserted = sqlx::query(
-        "insert into voip_phone_numbers (id, provider, phone_number, formatted_number, country_code,
-             number_type, status, provider_phone_number_id, provider_connection_id, display_name,
-             description, is_default, allow_inbound, allow_outbound, enable_recording,
-             created_at, updated_at)
-         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
-             $16::timestamp, $16::timestamp)",
-    )
-    .bind(&id)
-    .bind(&data.provider)
-    .bind(&data.phone_number)
-    .bind(&data.formatted_number)
-    .bind(&data.country_code)
-    .bind(data.number_type.as_deref().unwrap_or("local"))
-    .bind(&data.status)
-    .bind(&data.provider_phone_number_id)
-    .bind(&data.provider_connection_id)
-    .bind(&data.display_name)
-    .bind(&data.description)
-    .bind(data.is_default.unwrap_or(false))
-    .bind(data.allow_inbound.unwrap_or(true))
-    .bind(data.allow_outbound.unwrap_or(true))
-    .bind(data.enable_recording.unwrap_or(true))
-    .bind(now())
-    .execute(&caller.db)
+    let now = utc_now();
+    let inserted = numbers::Entity::insert(numbers::ActiveModel {
+        id: Set(id.clone()),
+        provider: Set(data.provider.clone()),
+        phone_number: Set(data.phone_number.clone()),
+        formatted_number: Set(data.formatted_number.clone()),
+        country_code: Set(data.country_code.clone()),
+        number_type: Set(Some(
+            data.number_type.as_deref().unwrap_or("local").to_owned(),
+        )),
+        status: Set(data.status.clone()),
+        provider_phone_number_id: Set(data.provider_phone_number_id.clone()),
+        provider_connection_id: Set(data.provider_connection_id.clone()),
+        display_name: Set(data.display_name.clone()),
+        description: Set(data.description.clone()),
+        is_default: Set(Some(data.is_default.unwrap_or(false))),
+        allow_inbound: Set(Some(data.allow_inbound.unwrap_or(true))),
+        allow_outbound: Set(Some(data.allow_outbound.unwrap_or(true))),
+        enable_recording: Set(Some(data.enable_recording.unwrap_or(true))),
+        created_at: Set(now),
+        updated_at: Set(now),
+        ..Default::default()
+    })
+    .exec_without_returning(&orm(&caller.db))
     .await;
     match inserted {
         Ok(_) => {
@@ -204,14 +228,59 @@ fn read_number_changes(issues: &mut Issues, fields: &Map<String, Value>) -> Numb
 
 /// A live number's provider, when the number exists.
 /// A live number's provider, and whether Telnyx verified it as caller id.
-async fn live_number(caller: &Caller, id: &str) -> Result<Option<(String, bool)>, sqlx::Error> {
-    sqlx::query_as(
-        "select provider, caller_id_verified_at is not null from voip_phone_numbers
-         where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(&caller.db)
-    .await
+async fn live_number(caller: &Caller, id: &str) -> Result<Option<(String, bool)>, DbErr> {
+    let found: Option<(String, Option<PrimitiveDateTime>)> = numbers::Entity::find()
+        .select_only()
+        .columns([
+            numbers::Column::Provider,
+            numbers::Column::CallerIdVerifiedAt,
+        ])
+        .filter(numbers::Column::Id.eq(id))
+        .filter(numbers::Column::DeletedAt.is_null())
+        .limit(1)
+        .into_tuple()
+        .one(&orm(&caller.db))
+        .await?;
+    Ok(found.map(|(provider, verified_at)| (provider, verified_at.is_some())))
+}
+
+/// `PATCH`'s update: `updatedAt`, and each field the body sent.
+async fn write_number(caller: &Caller, id: &str, changes: NumberChanges) -> Result<(), DbErr> {
+    let mut update =
+        numbers::Entity::update_many().col_expr(numbers::Column::UpdatedAt, Expr::value(utc_now()));
+    if !changes.display_name.is_absent() {
+        update = update.col_expr(
+            numbers::Column::DisplayName,
+            Expr::value(changes.display_name.into_option()),
+        );
+    }
+    let texts = [
+        (numbers::Column::Status, changes.status),
+        (numbers::Column::FormattedNumber, changes.formatted_number),
+        (numbers::Column::Description, changes.description),
+    ];
+    for (column, value) in texts {
+        if let Some(value) = value {
+            update = update.col_expr(column, Expr::value(value));
+        }
+    }
+    let flags = [
+        (numbers::Column::IsDefault, changes.is_default),
+        (numbers::Column::AllowInbound, changes.allow_inbound),
+        (numbers::Column::AllowOutbound, changes.allow_outbound),
+        (numbers::Column::EnableRecording, changes.enable_recording),
+    ];
+    for (column, value) in flags {
+        if let Some(value) = value {
+            update = update.col_expr(column, Expr::value(value));
+        }
+    }
+    update
+        .filter(numbers::Column::Id.eq(id))
+        .filter(numbers::Column::DeletedAt.is_null())
+        .exec(&orm(&caller.db))
+        .await?;
+    Ok(())
 }
 
 /// `PATCH /api/call-intelligence/phone-numbers/:id`.
@@ -238,33 +307,8 @@ pub(crate) async fn update_number(
         Ok(None) => return ApiError::not_found("Phone number", Some(&id)).into_response(),
         Err(error) => return internal(&error, "Failed to update phone number"),
     }
-    let updated = sqlx::query(
-        "update voip_phone_numbers set updated_at = $2::timestamp,
-             display_name = case when $3 then $4 else display_name end,
-             status = case when $5::text is not null then $5 else status end,
-             is_default = coalesce($6, is_default),
-             formatted_number = case when $7::text is not null then $7 else formatted_number end,
-             allow_inbound = coalesce($8, allow_inbound),
-             allow_outbound = coalesce($9, allow_outbound),
-             enable_recording = coalesce($10, enable_recording),
-             description = case when $11::text is not null then $11 else description end
-         where id = $1 and deleted_at is null",
-    )
-    .bind(&id)
-    .bind(now())
-    .bind(!changes.display_name.is_absent())
-    .bind(changes.display_name.clone().into_option())
-    .bind(&changes.status)
-    .bind(changes.is_default)
-    .bind(&changes.formatted_number)
-    .bind(changes.allow_inbound)
-    .bind(changes.allow_outbound)
-    .bind(changes.enable_recording)
-    .bind(&changes.description)
-    .execute(&caller.db)
-    .await;
-    match updated {
-        Ok(_) => {
+    match write_number(&caller, &id, changes).await {
+        Ok(()) => {
             caller.publish(&state, CALL_UPDATED, &id, &json!({ "id": id }));
             Data(json!({ "id": id })).into_response()
         }
@@ -288,15 +332,13 @@ pub(crate) async fn delete_number(
         Ok(None) => return ApiError::not_found("Phone number", Some(&id)).into_response(),
         Err(error) => return internal(&error, "Failed to delete phone number"),
     }
-    let now = now();
-    if let Err(error) = sqlx::query(
-        "update voip_phone_numbers set deleted_at = $2::timestamp, updated_at = $2::timestamp
-         where id = $1",
-    )
-    .bind(&id)
-    .bind(&now)
-    .execute(&caller.db)
-    .await
+    let now = utc_now();
+    if let Err(error) = numbers::Entity::update_many()
+        .col_expr(numbers::Column::DeletedAt, Expr::value(now))
+        .col_expr(numbers::Column::UpdatedAt, Expr::value(now))
+        .filter(numbers::Column::Id.eq(&id))
+        .exec(&orm(&caller.db))
+        .await
     {
         return internal(&error, "Failed to delete phone number");
     }
@@ -400,37 +442,95 @@ async fn mint_token(
     Ok(minted.text())
 }
 
+/// The counters of `GET /api/call-intelligence/stats`, each `::int`.
+#[derive(Debug, FromQueryResult)]
+struct CallStats {
+    total_calls: i32,
+    completed_calls: i32,
+    total_duration: i32,
+    avg_duration: i32,
+    inbound_calls: i32,
+    outbound_calls: i32,
+    recorded_calls: i32,
+    total_credits_consumed: i32,
+}
+
 /// `GET /api/call-intelligence/stats`: counters over every call.
 pub(crate) async fn stats(caller: Caller) -> Response {
-    let found: Result<Value, sqlx::Error> = sqlx::query_scalar(
-        "select jsonb_build_object(
-             'totalCalls', count(*)::int,
-             'completedCalls', (count(*) filter (where status = 'completed'))::int,
-             'totalDuration', coalesce(sum(duration), 0)::int,
-             'avgDuration', coalesce(avg(duration), 0)::int,
-             'inboundCalls', (count(*) filter (where direction = 'inbound'))::int,
-             'outboundCalls', (count(*) filter (where direction = 'outbound'))::int,
-             'recordedCalls', (count(*) filter (where is_recorded = true))::int,
-             'totalCreditsConsumed', coalesce(sum(credits_consumed), 0)::int)
-         from voip_calls",
-    )
-    .fetch_one(&caller.db)
-    .await;
+    // `(…)::int`, `count(*) filter (where c)` as `count(case when c then 1 end)`.
+    let int = |expr: Expr| Expr::from(Func::cast_as(expr, "int"));
+    let count_where = |condition: Expr| int(Func::count(Expr::case(condition, 1)).into());
+    let or_zero = |expr: Expr| int(Func::coalesce([expr, Expr::val(0)]).into());
+    let found = voip_calls::Entity::find()
+        .select_only()
+        .column_as(int(Func::count(Expr::col(Asterisk)).into()), "total_calls")
+        .column_as(
+            count_where(voip_calls::Column::Status.eq("completed")),
+            "completed_calls",
+        )
+        .column_as(
+            or_zero(voip_calls::Column::Duration.sum()),
+            "total_duration",
+        )
+        .column_as(
+            or_zero(Func::avg(Expr::col(voip_calls::Column::Duration)).into()),
+            "avg_duration",
+        )
+        .column_as(
+            count_where(voip_calls::Column::Direction.eq("inbound")),
+            "inbound_calls",
+        )
+        .column_as(
+            count_where(voip_calls::Column::Direction.eq("outbound")),
+            "outbound_calls",
+        )
+        .column_as(
+            count_where(voip_calls::Column::IsRecorded.eq(true)),
+            "recorded_calls",
+        )
+        .column_as(
+            or_zero(voip_calls::Column::CreditsConsumed.sum()),
+            "total_credits_consumed",
+        )
+        .into_model::<CallStats>()
+        .one(&orm(&caller.db))
+        .await;
     match found {
-        Ok(stats) => Data(stats).into_response(),
+        Ok(stats) => Data(stats.map(|stats| {
+            json!({
+                "totalCalls": stats.total_calls,
+                "completedCalls": stats.completed_calls,
+                "totalDuration": stats.total_duration,
+                "avgDuration": stats.avg_duration,
+                "inboundCalls": stats.inbound_calls,
+                "outboundCalls": stats.outbound_calls,
+                "recordedCalls": stats.recorded_calls,
+                "totalCreditsConsumed": stats.total_credits_consumed,
+            })
+        }))
+        .into_response(),
         Err(error) => internal(&error, "Failed to fetch call statistics"),
     }
+}
+
+/// The call's owner, when the call exists.
+async fn call_owner(caller: &Caller, call_id: &str) -> Result<Option<String>, DbErr> {
+    voip_calls::Entity::find()
+        .select_only()
+        .column(voip_calls::Column::UserId)
+        .filter(voip_calls::Column::Id.eq(call_id))
+        .limit(1)
+        .into_tuple()
+        .one(&orm(&caller.db))
+        .await
 }
 
 /// `canAccessCall(c, callId)`: `Err` with the 404 or 403.
 #[allow(clippy::result_large_err)] // the route's own answer
 async fn can_access(caller: &Caller, call_id: &str) -> Result<(), Response> {
-    let owner: Option<String> =
-        sqlx::query_scalar("select user_id from voip_calls where id = $1 limit 1")
-            .bind(call_id)
-            .fetch_optional(&caller.db)
-            .await
-            .map_err(|error| internal(&error, "Internal server error"))?;
+    let owner = call_owner(caller, call_id)
+        .await
+        .map_err(|error| internal(&error, "Internal server error"))?;
     let Some(owner) = owner else {
         return Err(ApiError::not_found("VoIP call", Some(call_id)).into_response());
     };
@@ -449,23 +549,27 @@ pub(crate) async fn transcription(caller: Caller, Path(id): Path<String>) -> Res
         return response;
     }
     let result = async {
-        let transcription: Option<Value> = sqlx::query_scalar(
-            "select to_jsonb(t) from crm_transcriptions t where t.activity_id = $1 limit 1",
-        )
-        .bind(&id)
-        .fetch_optional(&caller.db)
-        .await?;
-        let Some(transcription) = transcription.map(weldsuite_db::js_row) else {
+        let db = orm(&caller.db);
+        let transcription = transcriptions::Entity::find()
+            .filter(transcriptions::Column::ActivityId.eq(&id))
+            .one(&db)
+            .await?;
+        let Some(transcription) = transcription else {
             return Ok(None);
         };
-        let segments: Vec<Value> = sqlx::query_scalar(
-            "select to_jsonb(s) from crm_transcript_segments s
-             where s.transcription_id = $1 order by s.sequence_number asc",
-        )
-        .bind(transcription["id"].as_str().unwrap_or_default())
-        .fetch_all(&caller.db)
-        .await?;
-        Ok::<_, sqlx::Error>(Some((transcription, rows(segments))))
+        let segments = segments::Entity::find()
+            .filter(segments::Column::TranscriptionId.eq(&transcription.id))
+            .order_by(segments::Column::SequenceNumber, Order::Asc)
+            .all(&db)
+            .await?;
+        let transcription =
+            serde_json::to_value(transcription).map_err(|error| json_error(&error))?;
+        let segments = segments
+            .into_iter()
+            .map(serde_json::to_value)
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|error| json_error(&error))?;
+        Ok::<_, DbErr>(Some((transcription, segments)))
     }
     .await;
     match result {
@@ -487,24 +591,57 @@ pub(crate) async fn transcription(caller: Caller, Path(id): Path<String>) -> Res
     }
 }
 
+/// A transcription's progress, as `jsonb_build_object` of its columns read.
+#[derive(Debug, FromQueryResult)]
+struct TranscriptionStatus {
+    id: String,
+    status: String,
+    error_message: Option<String>,
+    processing_started_at: Option<PrimitiveDateTime>,
+    processing_completed_at: Option<PrimitiveDateTime>,
+    word_count: Option<i32>,
+    speaker_count: Option<i32>,
+}
+
+impl TranscriptionStatus {
+    /// The object as Drizzle's row reads (camelCase, `toISOString()`).
+    fn json(&self) -> Value {
+        json!({
+            "id": self.id,
+            "status": self.status,
+            "errorMessage": self.error_message,
+            "processingStartedAt": self.processing_started_at.map(iso_of),
+            "processingCompletedAt": self.processing_completed_at.map(iso_of),
+            "wordCount": self.word_count,
+            "speakerCount": self.speaker_count,
+        })
+    }
+}
+
 /// `GET /api/call-intelligence/calls/:id/transcription/status`.
 pub(crate) async fn transcription_status(caller: Caller, Path(id): Path<String>) -> Response {
     if let Err(response) = can_access(&caller, &id).await {
         return response;
     }
-    let found: Result<Option<Value>, sqlx::Error> = sqlx::query_scalar(
-        "select jsonb_build_object('id', id, 'status', status, 'error_message', error_message,
-             'processing_started_at', processing_started_at,
-             'processing_completed_at', processing_completed_at,
-             'word_count', word_count, 'speaker_count', speaker_count)
-         from crm_transcriptions where activity_id = $1 limit 1",
-    )
-    .bind(&id)
-    .fetch_optional(&caller.db)
-    .await;
+    let found = transcriptions::Entity::find()
+        .select_only()
+        .columns([
+            transcriptions::Column::Id,
+            transcriptions::Column::Status,
+            transcriptions::Column::ErrorMessage,
+            transcriptions::Column::ProcessingStartedAt,
+            transcriptions::Column::ProcessingCompletedAt,
+            transcriptions::Column::WordCount,
+            transcriptions::Column::SpeakerCount,
+        ])
+        .filter(transcriptions::Column::ActivityId.eq(&id))
+        .limit(1)
+        .into_model::<TranscriptionStatus>()
+        .one(&orm(&caller.db))
+        .await;
     match found {
         Ok(Some(row)) => {
-            let mut row = weldsuite_db::js_row(row);
+            let mut row = row.json();
             row["exists"] = json!(true);
             Data(row).into_response()
         }
@@ -528,39 +665,42 @@ pub(crate) async fn create_transcription(
         Err(response) => return *response,
     };
     let result = async {
-        let owner: Option<String> =
-            sqlx::query_scalar("select user_id from voip_calls where id = $1 limit 1")
-                .bind(&id)
-                .fetch_optional(&caller.db)
-                .await?;
+        let owner = call_owner(&caller, &id).await?;
         let Some(owner) = owner else {
             return Ok(ApiError::not_found("VoIP call", Some(&id)).into_response());
         };
         if caller.scope().is_some_and(|scope| scope != owner) {
-            return Ok(ApiError::forbidden().with_message(CALL_DENIED).into_response());
+            return Ok(ApiError::forbidden()
+                .with_message(CALL_DENIED)
+                .into_response());
         }
-        let existing: Option<String> =
-            sqlx::query_scalar("select id from crm_transcriptions where activity_id = $1 limit 1")
-                .bind(&id)
-                .fetch_optional(&caller.db)
-                .await?;
+        let existing: Option<String> = transcriptions::Entity::find()
+            .select_only()
+            .column(transcriptions::Column::Id)
+            .filter(transcriptions::Column::ActivityId.eq(&id))
+            .limit(1)
+            .into_tuple()
+            .one(&orm(&caller.db))
+            .await?;
         if existing.is_some() {
             return Ok(
                 ApiError::conflict("Transcription already exists for this call").into_response(),
             );
         }
         let transcription = weldsuite_kit::generate_id("trans");
-        sqlx::query(
-            "insert into crm_transcriptions (id, activity_id, status, language, created_at, updated_at)
-             values ($1, $2, 'pending', $3, $4::timestamp, $4::timestamp)",
-        )
-        .bind(&transcription)
-        .bind(&id)
-        .bind(language.as_deref().unwrap_or("en"))
-        .bind(now())
-        .execute(&caller.db)
+        let now = utc_now();
+        transcriptions::Entity::insert(transcriptions::ActiveModel {
+            id: Set(transcription.clone()),
+            activity_id: Set(id.clone()),
+            status: Set("pending".to_owned()),
+            language: Set(Some(language.as_deref().unwrap_or("en").to_owned())),
+            created_at: Set(now),
+            updated_at: Set(now),
+            ..Default::default()
+        })
+        .exec_without_returning(&orm(&caller.db))
         .await?;
-        Ok::<_, sqlx::Error>(Created(json!({ "id": transcription })).into_response())
+        Ok::<_, DbErr>(Created(json!({ "id": transcription })).into_response())
     }
     .await;
     result.unwrap_or_else(|error| internal(&error, "Failed to create transcription"))

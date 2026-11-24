@@ -192,7 +192,9 @@ async fn send(
 /// `GET /status`; null when billing is off.
 pub(crate) async fn status(caller: &Caller, state: &ReachState) -> Result<Value, ReachError> {
     if let Some(billing) = &state.inbox_billing {
-        let inboxes = crate::mailboxes::live_inbox_count(&caller.db).await?;
+        let inboxes = crate::mailboxes::live_inbox_count(&caller.db)
+            .await
+            .map_err(crate::db_error)?;
         return billing.status(&caller.workspace_id, inboxes).await;
     }
     if !enabled(caller) {

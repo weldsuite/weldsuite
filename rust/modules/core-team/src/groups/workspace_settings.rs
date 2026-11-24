@@ -28,17 +28,28 @@ use axum::extract::State;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post, put};
 use http::HeaderMap;
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{
+    ColumnTrait, Condition, DatabaseConnection, DbErr, EntityTrait, PaginatorTrait, QueryFilter,
+    QuerySelect,
+};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events::{
     LEGAL_ENTITY_CREATED, LEGAL_ENTITY_UPDATED, WORKSPACE_SETTINGS_DELETED,
     WORKSPACE_SETTINGS_UPDATED,
 };
 use weldsuite_catalogs::permission_keys::{GENERAL_READ, GENERAL_UPDATE};
-use weldsuite_db::{PgPool, js_row};
+use weldsuite_db::record::JsonTable;
+use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_kit::validation::{Presence, json_body};
 use weldsuite_kit::{ApiError, Created, Data, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 use weldsuite_ports::{IdentityError, OrganizationChanges, with_identity};
+use weldsuite_schema::master::{
+    digest_schedules, helpcenter_domain_registry, user_workspaces, workspaces,
+};
+use weldsuite_schema::tenant::workspace_settings as settings;
+use weldsuite_schema::tenant::{helpcenter_settings, workspace_members as members};
 
 use super::business_profile::{
     WriteThrough, default_entity_profile, locked_business_profile_change, overlay_default_entity,
@@ -48,6 +59,7 @@ use super::vat_number;
 use super::zod_issues::{
     ZodIssues, invalid_type_issue, js_length, js_trim, object, unrecognized_keys,
 };
+use crate::access::js;
 use crate::{Caller, CoreTeamState, TeamError, TeamResult, answer, now, validate};
 
 const HELPCENTER_DOMAIN_SUFFIX: &str = ".welddesk.org";
@@ -100,25 +112,27 @@ async fn invalidate_workspace_cache(state: &CoreTeamState, caller: &Caller, org:
 }
 
 /// The caller's role on their live tenant member row.
-async fn caller_role(caller: &Caller) -> Result<Option<String>, sqlx::Error> {
-    let role: Option<Option<String>> = sqlx::query_scalar(
-        "select role from workspace_members where user_id = $1 and deleted_at is null limit 1",
-    )
-    .bind(&caller.user_id)
-    .fetch_optional(&caller.db)
-    .await?;
+async fn caller_role(caller: &Caller) -> Result<Option<String>, DbErr> {
+    let role: Option<Option<String>> = members::Entity::find()
+        .select_only()
+        .column(members::Column::Role)
+        .filter(members::Column::UserId.eq(&caller.user_id))
+        .filter(members::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(&caller.db))
+        .await?;
     Ok(role.flatten())
 }
 
 // ── GET / and PUT / ─────────────────────────────────────────────────────────
 
-async fn select_settings(db: &PgPool) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(s) from workspace_settings s where deleted_at is null limit 1",
-    )
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(js_row))
+/// The live settings row, as Drizzle returns it.
+async fn select_settings(db: &PgPool) -> Result<Option<Value>, DbErr> {
+    let row = settings::Entity::find()
+        .filter(settings::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?;
+    row.map(js).transpose()
 }
 
 async fn get_settings(caller: Caller) -> Response {
@@ -342,12 +356,19 @@ async fn sync_billing_mirror(
     data: &Map<String, Value>,
     skip_stripe: bool,
 ) {
-    let workspace: Result<Option<(String, Option<String>)>, sqlx::Error> = sqlx::query_as(
-        "select id, stripe_customer_id from workspaces where id = $1 or clerk_org_id = $1 limit 1",
-    )
-    .bind(org)
-    .fetch_optional(master)
-    .await;
+    let master = orm(master);
+    let workspace: Result<Option<(String, Option<String>)>, DbErr> = workspaces::Entity::find()
+        .select_only()
+        .column(workspaces::Column::Id)
+        .column(workspaces::Column::StripeCustomerId)
+        .filter(
+            Condition::any()
+                .add(workspaces::Column::Id.eq(org))
+                .add(workspaces::Column::ClerkOrgId.eq(org)),
+        )
+        .into_tuple()
+        .one(&master)
+        .await;
     let (workspace_id, stripe_customer) = match workspace {
         Ok(Some(row)) => row,
         Ok(None) => return,
@@ -358,15 +379,18 @@ async fn sync_billing_mirror(
     };
     if let Some(Value::String(timezone)) = data.get("timezone")
         && !timezone.is_empty()
-        && let Err(error) = sqlx::query(
-            "update digest_schedules set timezone = $2, updated_at = $3::timestamp
-             where workspace_id = $1",
-        )
-        .bind(&workspace_id)
-        .bind(timezone)
-        .bind(now())
-        .execute(master)
-        .await
+        && let Err(error) = digest_schedules::Entity::update_many()
+            .col_expr(
+                digest_schedules::Column::Timezone,
+                Expr::value(timezone.clone()),
+            )
+            .col_expr(
+                digest_schedules::Column::UpdatedAt,
+                Expr::value(utc_now().assume_utc()),
+            )
+            .filter(digest_schedules::Column::WorkspaceId.eq(&workspace_id))
+            .exec(&master)
+            .await
     {
         tracing::error!(%error, "workspace settings: digest timezone sync failed");
     }
@@ -394,78 +418,46 @@ async fn put_settings(
     answer(run_put_settings(&state, &caller, &headers, &body).await)
 }
 
+/// `workspace_settings` written from the body's columns.
+const SETTINGS: JsonTable = JsonTable::of::<settings::Entity>();
+
 /// `upsertWorkspaceSettings`: the singleton row with the fields the body
 /// sets; its id, whether it was created, and the row as Drizzle returns it.
+/// The fields the body leaves out keep their value (update) or are null
+/// (insert: none of them has a default).
 async fn upsert_settings(
     db: &PgPool,
     data: &Map<String, Value>,
-) -> Result<(String, bool, Value), sqlx::Error> {
+) -> Result<(String, bool, Value), DbErr> {
     // The columns the body sets, for `jsonb_populate_record`.
-    let patch: Map<String, Value> = FIELDS
+    let mut patch: Map<String, Value> = FIELDS
         .iter()
         .filter_map(|(key, column, _)| data.get(*key).map(|v| ((*column).to_owned(), v.clone())))
         .collect();
-    let patch = Value::Object(patch);
-    let stamp = now();
+    let stamp = Value::String(now());
+    let db = orm(db);
 
-    let existing: Option<String> =
-        sqlx::query_scalar("select id from workspace_settings where deleted_at is null limit 1")
-            .fetch_optional(db)
-            .await?;
-    let (id, created) = if let Some(id) = existing {
-        sqlx::query(
-            "update workspace_settings w set
-                 theme = r.theme, timezone = r.timezone, currency = r.currency,
-                 language = r.language, date_format = r.date_format, time_format = r.time_format,
-                 legal_name = r.legal_name, trading_name = r.trading_name,
-                 contact_first_name = r.contact_first_name, contact_last_name = r.contact_last_name,
-                 email = r.email, phone = r.phone, address_line_1 = r.address_line_1,
-                 address_line_2 = r.address_line_2, city = r.city, state = r.state,
-                 postal_code = r.postal_code, country = r.country, vat_number = r.vat_number,
-                 registration_number = r.registration_number, logo_url = r.logo_url,
-                 website_url = r.website_url, primary_color = r.primary_color,
-                 accent_color = r.accent_color, custom_settings = r.custom_settings,
-                 updated_at = $3::timestamptz
-             from (select (jsonb_populate_record(c, $2::jsonb)).*
-                   from workspace_settings c where c.id = $1) r
-             where w.id = $1",
-        )
-        .bind(&id)
-        .bind(&patch)
-        .bind(&stamp)
-        .execute(db)
+    let existing: Option<String> = settings::Entity::find()
+        .select_only()
+        .column(settings::Column::Id)
+        .filter(settings::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&db)
         .await?;
-        (id, false)
-    } else {
-        let id = generate_id("ws");
-        sqlx::query(
-            "insert into workspace_settings
-                 (id, theme, timezone, currency, language, date_format, time_format, legal_name,
-                  trading_name, contact_first_name, contact_last_name, email, phone,
-                  address_line_1, address_line_2, city, state, postal_code, country, vat_number,
-                  registration_number, logo_url, website_url, primary_color, accent_color,
-                  custom_settings, created_at, updated_at)
-             select $1, r.theme, r.timezone, r.currency, r.language, r.date_format,
-                    r.time_format, r.legal_name, r.trading_name, r.contact_first_name,
-                    r.contact_last_name, r.email, r.phone, r.address_line_1, r.address_line_2,
-                    r.city, r.state, r.postal_code, r.country, r.vat_number,
-                    r.registration_number, r.logo_url, r.website_url, r.primary_color,
-                    r.accent_color, r.custom_settings, $3::timestamptz, $3::timestamptz
-             from jsonb_populate_record(null::workspace_settings, $2::jsonb) r",
-        )
-        .bind(&id)
-        .bind(&patch)
-        .bind(&stamp)
-        .execute(db)
-        .await?;
-        (id, true)
-    };
-    let row: Value =
-        sqlx::query_scalar("select to_jsonb(s) from workspace_settings s where id = $1 limit 1")
-            .bind(&id)
-            .fetch_one(db)
-            .await?;
-    Ok((id, created, js_row(row)))
+    if let Some(id) = existing {
+        patch.insert("updated_at".to_owned(), stamp);
+        let row = SETTINGS
+            .update(&db, &id, patch, false)
+            .await?
+            .ok_or_else(|| DbErr::RecordNotFound(format!("workspace_settings {id}")))?;
+        return Ok((id, false, row));
+    }
+    let id = generate_id("ws");
+    patch.insert("id".to_owned(), Value::String(id.clone()));
+    patch.insert("created_at".to_owned(), stamp.clone());
+    patch.insert("updated_at".to_owned(), stamp);
+    let row = SETTINGS.insert(&db, patch).await?;
+    Ok((id, true, row))
 }
 
 async fn run_put_settings(
@@ -587,26 +579,29 @@ async fn run_rename(
         TeamError::internal("Failed to update workspace name", error)
     };
 
-    let master = caller.master(state);
-    let workspace: Option<(String, String)> =
-        sqlx::query_as("select id, name from workspaces where clerk_org_id = $1 limit 1")
-            .bind(&org)
-            .fetch_optional(&master)
-            .await
-            .map_err(|e| failed(&e))?;
+    let master = orm(&caller.master(state));
+    let workspace: Option<(String, String)> = workspaces::Entity::find()
+        .select_only()
+        .column(workspaces::Column::Id)
+        .column(workspaces::Column::Name)
+        .filter(workspaces::Column::ClerkOrgId.eq(&org))
+        .into_tuple()
+        .one(&master)
+        .await
+        .map_err(|e| failed(&e))?;
     let Some((id, previous)) = workspace else {
         return Err(TeamError::api(ApiError::not_found("Workspace", None)));
     };
 
     if previous != name {
         let set_name = |value: String| {
-            sqlx::query("update workspaces set name = $2, updated_at = $3::timestamp where id = $1")
-                .bind(id.clone())
-                .bind(value)
-                .bind(now())
+            workspaces::Entity::update_many()
+                .col_expr(workspaces::Column::Name, Expr::value(value))
+                .col_expr(workspaces::Column::UpdatedAt, Expr::value(utc_now()))
+                .filter(workspaces::Column::Id.eq(&id))
         };
         set_name(name.clone())
-            .execute(&master)
+            .exec(&master)
             .await
             .map_err(|e| failed(&e))?;
         let changes = OrganizationChanges {
@@ -620,7 +615,7 @@ async fn run_rename(
         {
             // Compensating write: the previous name back.
             set_name(previous)
-                .execute(&master)
+                .exec(&master)
                 .await
                 .map_err(|e| failed(&e))?;
             return Err(match error {
@@ -764,40 +759,45 @@ async fn change_slug(
 
 /// Point the help-center subdomain rows at `to` where they still say `from`.
 async fn move_helpcenter(
-    master: &PgPool,
+    master: &DatabaseConnection,
     tenant: &PgPool,
     workspace_id: &str,
     from: &str,
     to: &str,
-) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "update helpcenter_domain_registry set domain = $3, updated_at = $4::timestamp
-         where workspace_id = $1 and domain = $2",
-    )
-    .bind(workspace_id)
-    .bind(from)
-    .bind(to)
-    .bind(now())
-    .execute(master)
-    .await?;
-    sqlx::query(
-        "update helpcenter_settings set default_subdomain = $2, updated_at = $3::timestamp
-         where default_subdomain = $1",
-    )
-    .bind(from)
-    .bind(to)
-    .bind(now())
-    .execute(tenant)
-    .await?;
+) -> Result<(), DbErr> {
+    use helpcenter_domain_registry as registry;
+    registry::Entity::update_many()
+        .col_expr(registry::Column::Domain, Expr::value(to))
+        .col_expr(registry::Column::UpdatedAt, Expr::value(utc_now()))
+        .filter(registry::Column::WorkspaceId.eq(workspace_id))
+        .filter(registry::Column::Domain.eq(from))
+        .exec(master)
+        .await?;
+    helpcenter_settings::Entity::update_many()
+        .col_expr(
+            helpcenter_settings::Column::DefaultSubdomain,
+            Expr::value(to),
+        )
+        .col_expr(
+            helpcenter_settings::Column::UpdatedAt,
+            Expr::value(utc_now()),
+        )
+        .filter(helpcenter_settings::Column::DefaultSubdomain.eq(from))
+        .exec(&orm(tenant))
+        .await?;
     Ok(())
 }
 
-async fn set_slug(master: &PgPool, workspace_id: &str, slug: &str) -> Result<(), sqlx::Error> {
-    sqlx::query("update workspaces set slug = $2, updated_at = $3::timestamp where id = $1")
-        .bind(workspace_id)
-        .bind(slug)
-        .bind(now())
-        .execute(master)
+async fn set_slug(
+    master: &DatabaseConnection,
+    workspace_id: &str,
+    slug: &str,
+) -> Result<(), DbErr> {
+    workspaces::Entity::update_many()
+        .col_expr(workspaces::Column::Slug, Expr::value(slug))
+        .col_expr(workspaces::Column::UpdatedAt, Expr::value(utc_now()))
+        .filter(workspaces::Column::Id.eq(workspace_id))
+        .exec(master)
         .await
         .map(|_| ())
 }
@@ -830,13 +830,16 @@ async fn run_change_slug(
         TeamError::internal("Failed to update workspace slug", error)
     };
 
-    let master = caller.master(state);
-    let workspace: Option<(String, String)> =
-        sqlx::query_as("select id, slug from workspaces where clerk_org_id = $1 limit 1")
-            .bind(&org)
-            .fetch_optional(&master)
-            .await
-            .map_err(|e| failed(&e))?;
+    let master = orm(&caller.master(state));
+    let workspace: Option<(String, String)> = workspaces::Entity::find()
+        .select_only()
+        .column(workspaces::Column::Id)
+        .column(workspaces::Column::Slug)
+        .filter(workspaces::Column::ClerkOrgId.eq(&org))
+        .into_tuple()
+        .one(&master)
+        .await
+        .map_err(|e| failed(&e))?;
     let Some((id, previous)) = workspace else {
         return Err(TeamError::api(ApiError::not_found("Workspace", None)));
     };
@@ -845,12 +848,14 @@ async fn run_change_slug(
             "New slug is identical to the current slug",
         )));
     }
-    let taken: Option<String> =
-        sqlx::query_scalar("select id from workspaces where slug = $1 limit 1")
-            .bind(&slug)
-            .fetch_optional(&master)
-            .await
-            .map_err(|e| failed(&e))?;
+    let taken: Option<String> = workspaces::Entity::find()
+        .select_only()
+        .column(workspaces::Column::Id)
+        .filter(workspaces::Column::Slug.eq(&slug))
+        .into_tuple()
+        .one(&master)
+        .await
+        .map_err(|e| failed(&e))?;
     if taken.is_some() {
         return Err(TeamError::api(ApiError::conflict(format!(
             "Slug '{slug}' is already taken"
@@ -920,32 +925,33 @@ async fn run_deletion_status(state: &CoreTeamState, caller: &Caller) -> TeamResu
     if caller_role(caller).await?.as_deref() != Some("OWNER") {
         return Err(owner_only());
     }
-    let failed = |error: sqlx::Error| {
-        TeamError::internal("Failed to compute workspace deletion status", error)
-    };
-    let workspace: Option<(String, String, String, Option<String>)> = sqlx::query_as(
-        "select id, name, slug, stripe_subscription_id from workspaces
-         where clerk_org_id = $1 limit 1",
-    )
-    .bind(&org)
-    .fetch_optional(&caller.master(state))
-    .await
-    .map_err(failed)?;
+    let failed =
+        |error: DbErr| TeamError::internal("Failed to compute workspace deletion status", error);
+    let workspace: Option<(String, String, String, Option<String>)> = workspaces::Entity::find()
+        .select_only()
+        .column(workspaces::Column::Id)
+        .column(workspaces::Column::Name)
+        .column(workspaces::Column::Slug)
+        .column(workspaces::Column::StripeSubscriptionId)
+        .filter(workspaces::Column::ClerkOrgId.eq(&org))
+        .into_tuple()
+        .one(&orm(&caller.master(state)))
+        .await
+        .map_err(failed)?;
     let Some((id, name, slug, subscription)) = workspace else {
         return Err(TeamError::api(ApiError::not_found("Workspace", None)));
     };
-    let members: i32 = sqlx::query_scalar(
-        "select count(*)::int from workspace_members
-         where status = 'ACTIVE' and deleted_at is null",
-    )
-    .fetch_one(&caller.db)
-    .await
-    .map_err(failed)?;
+    let member_count: u64 = members::Entity::find()
+        .filter(members::Column::Status.eq("ACTIVE"))
+        .filter(members::Column::DeletedAt.is_null())
+        .count(&orm(&caller.db))
+        .await
+        .map_err(failed)?;
     Ok(Data(json!({
         "workspaceId": id,
         "name": name,
         "slug": slug,
-        "memberCount": members,
+        "memberCount": member_count,
         "hasActiveSubscription": subscription.is_some_and(|s| !s.is_empty()),
     }))
     .into_response())
@@ -975,15 +981,18 @@ async fn run_delete(
     if caller_role(caller).await?.as_deref() != Some("OWNER") {
         return Err(owner_only());
     }
-    let failed = |error: sqlx::Error| TeamError::internal("Failed to delete workspace", error);
-    let master = caller.master(state);
-    let workspace: Option<(String, String, Option<String>)> = sqlx::query_as(
-        "select id, slug, stripe_subscription_id from workspaces where clerk_org_id = $1 limit 1",
-    )
-    .bind(&org)
-    .fetch_optional(&master)
-    .await
-    .map_err(failed)?;
+    let failed = |error: DbErr| TeamError::internal("Failed to delete workspace", error);
+    let master = orm(&caller.master(state));
+    let workspace: Option<(String, String, Option<String>)> = workspaces::Entity::find()
+        .select_only()
+        .column(workspaces::Column::Id)
+        .column(workspaces::Column::Slug)
+        .column(workspaces::Column::StripeSubscriptionId)
+        .filter(workspaces::Column::ClerkOrgId.eq(&org))
+        .into_tuple()
+        .one(&master)
+        .await
+        .map_err(failed)?;
     let Some((id, slug, subscription)) = workspace else {
         return Err(TeamError::api(ApiError::not_found("Workspace", None)));
     };
@@ -1014,21 +1023,21 @@ async fn run_delete(
         ));
     }
 
-    let stamp = now();
-    sqlx::query(
-        "update workspaces
-         set is_active = false, deleted_at = coalesce(deleted_at, $2::timestamp),
-             updated_at = $2::timestamp
-         where id = $1",
-    )
-    .bind(&id)
-    .bind(&stamp)
-    .execute(&master)
-    .await
-    .map_err(failed)?;
-    sqlx::query("delete from user_workspaces where workspace_id = $1")
-        .bind(&id)
-        .execute(&master)
+    let stamp = utc_now();
+    workspaces::Entity::update_many()
+        .col_expr(workspaces::Column::IsActive, Expr::value(false))
+        .col_expr(
+            workspaces::Column::DeletedAt,
+            Func::coalesce([Expr::col(workspaces::Column::DeletedAt), Expr::value(stamp)]).into(),
+        )
+        .col_expr(workspaces::Column::UpdatedAt, Expr::value(stamp))
+        .filter(workspaces::Column::Id.eq(&id))
+        .exec(&master)
+        .await
+        .map_err(failed)?;
+    user_workspaces::Entity::delete_many()
+        .filter(user_workspaces::Column::WorkspaceId.eq(&id))
+        .exec(&master)
         .await
         .map_err(failed)?;
 

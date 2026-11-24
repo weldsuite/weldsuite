@@ -2,11 +2,14 @@
 //! no booking in a closed fiscal period or on or before a lock date, the
 //! Dutch KOR, and the tax-facing audit trail (`audit_log`).
 
+use sea_orm::{ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value};
-use sqlx::PgPool;
+use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_kit::generate_id;
+use weldsuite_schema::tenant::{audit_log, fiscal_periods, lock_date_exceptions};
 
-use crate::http::{Caller, now};
+use crate::db_values::date_of;
+use crate::http::Caller;
 
 /// A booking dated inside a closed fiscal period (`ClosedPeriodError`).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -96,11 +99,11 @@ impl std::fmt::Display for LockedPeriodError {
 pub enum GuardError {
     Closed(ClosedPeriodError),
     Locked(LockedPeriodError),
-    Database(sqlx::Error),
+    Database(DbErr),
 }
 
-impl From<sqlx::Error> for GuardError {
-    fn from(error: sqlx::Error) -> Self {
+impl From<DbErr> for GuardError {
+    fn from(error: DbErr) -> Self {
         Self::Database(error)
     }
 }
@@ -128,14 +131,18 @@ pub async fn assert_period_open(
     date: &str,
 ) -> Result<(), GuardError> {
     let iso = iso_date(date);
-    let closed: Option<String> = sqlx::query_scalar(
-        "select name from fiscal_periods where entity_id = $1 and status = 'closed' \
-         and start_date <= $2::date and end_date >= $2::date and deleted_at is null limit 1",
-    )
-    .bind(entity_id)
-    .bind(iso)
-    .fetch_optional(db)
-    .await?;
+    let day = date_of(iso)?;
+    let closed: Option<String> = fiscal_periods::Entity::find()
+        .select_only()
+        .column(fiscal_periods::Column::Name)
+        .filter(fiscal_periods::Column::EntityId.eq(entity_id))
+        .filter(fiscal_periods::Column::Status.eq("closed"))
+        .filter(fiscal_periods::Column::StartDate.lte(day))
+        .filter(fiscal_periods::Column::EndDate.gte(day))
+        .filter(fiscal_periods::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     match closed {
         Some(period_name) => Err(GuardError::Closed(ClosedPeriodError {
             period_name,
@@ -217,14 +224,18 @@ pub async fn assert_posting_allowed(
     if hits.is_empty() {
         return Ok(());
     }
-    let exceptions: Vec<(String, Option<String>)> = sqlx::query_as(
-        "select lock_type, user_id from lock_date_exceptions \
-         where entity_id = $1 and revoked_at is null and ends_at > $2::timestamp",
-    )
-    .bind(check.entity_id)
-    .bind(now())
-    .fetch_all(db)
-    .await?;
+    let exceptions: Vec<(String, Option<String>)> = lock_date_exceptions::Entity::find()
+        .select_only()
+        .columns([
+            lock_date_exceptions::Column::LockType,
+            lock_date_exceptions::Column::UserId,
+        ])
+        .filter(lock_date_exceptions::Column::EntityId.eq(check.entity_id))
+        .filter(lock_date_exceptions::Column::RevokedAt.is_null())
+        .filter(lock_date_exceptions::Column::EndsAt.gt(utc_now()))
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     for (kind, lock_date) in hits {
         let excepted = exceptions.iter().any(|(lock_type, user)| {
             lock_type == kind.as_str()
@@ -312,19 +323,19 @@ pub async fn write_audit(
             other => other,
         }
     });
-    let result = sqlx::query(
-        "insert into audit_log (id, accounting_entity_id, entity_type, entity_id, action, changes, user_id, user_email, ip_address) \
-         values ($1, $2, $3, $4, $5, $6, $7, null, $8)",
-    )
-    .bind(generate_id("aud"))
-    .bind(input.accounting_entity_id)
-    .bind(input.entity_type)
-    .bind(input.entity_id)
-    .bind(input.action)
-    .bind(changes)
-    .bind(user_id)
-    .bind(ip_address)
-    .execute(db)
+    let result: Result<_, DbErr> = audit_log::Entity::insert(audit_log::ActiveModel {
+        id: Set(generate_id("aud")),
+        accounting_entity_id: Set(input.accounting_entity_id.map(str::to_owned)),
+        entity_type: Set(input.entity_type.to_owned()),
+        entity_id: Set(input.entity_id.to_owned()),
+        action: Set(input.action.to_owned()),
+        changes: Set(changes),
+        user_id: Set(user_id.map(str::to_owned)),
+        user_email: Set(None),
+        ip_address: Set(ip_address.map(str::to_owned)),
+        ..Default::default()
+    })
+    .exec_without_returning(&orm(db))
     .await;
     if let Err(error) = result {
         tracing::error!(%error, "[accounting-audit] failed to write audit row");

@@ -33,13 +33,23 @@ use axum::body::Bytes;
 use axum::extract::{Path, RawQuery, State};
 use axum::response::IntoResponse;
 use http::HeaderMap;
+use sea_orm::sea_query::{Asterisk, Expr, Func, OnConflict};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, Condition, DbErr, EntityTrait, FromQueryResult, JoinType,
+    QueryFilter, QueryOrder, QuerySelect, RelationDef,
+};
 use serde_json::{Map, Value, json};
-use weldsuite_db::{PgPool, js_row};
+use time::OffsetDateTime;
+use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_kit::validation::{Field, Issues, Presence, Text};
 use weldsuite_kit::{Created, Data, NoContent, generate_id};
+use weldsuite_schema::tenant::{
+    merge_issue_pull_requests, merge_issues, merge_pull_requests, merge_record_links,
+    merge_release_pull_requests, merge_releases, merge_repositories,
+};
 
 use crate::connections::find_connection;
-use crate::db::{Row, col, opt_text, rows_of, text};
+use crate::db::{Row, col, json_row, opt_text, text};
 use crate::github_client::{GithubClient, encode_uri_component};
 use crate::issues::{diff_fields, hydrate_issues, limit_of};
 use crate::mappers::pull_request_summary;
@@ -47,7 +57,7 @@ use crate::record_links::TitleAccess;
 use crate::schemas::nothing_to_update;
 use crate::teams::find_team;
 use crate::{
-    Answer, Caller, MergeState, PendingEvent, Refusal, now, page, publish, validate, validate_query,
+    Answer, Caller, MergeState, PendingEvent, Refusal, page, publish, validate, validate_query,
 };
 
 pub(crate) use notes::generate_notes;
@@ -118,18 +128,28 @@ fn release_title(row: &Row) -> String {
 
 // ── Reading ─────────────────────────────────────────────────────────────────
 
+/// The row a `.returning()` update answers with: none is the error
+/// `fetch_one` raised (the route's 500).
+fn returned(rows: Vec<merge_releases::Model>) -> Result<Row, DbErr> {
+    let release = rows
+        .into_iter()
+        .next()
+        .ok_or_else(|| DbErr::RecordNotFound("merge_releases".to_owned()))?;
+    json_row(serde_json::to_value(release))
+}
+
 /// `findRelease(db, id)`: a live release.
-pub(crate) async fn find_release(db: &PgPool, id: &str) -> Result<Option<Row>, sqlx::Error> {
-    crate::db::one_by_id(
-        db,
-        "select to_jsonb(r) from merge_releases r where r.id = $1 and r.deleted_at is null limit 1",
-        id,
-    )
-    .await
+pub(crate) async fn find_release(db: &PgPool, id: &str) -> Result<Option<Row>, DbErr> {
+    merge_releases::Entity::find_by_id(id.to_owned())
+        .filter(merge_releases::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?
+        .map(|release| json_row(serde_json::to_value(release)))
+        .transpose()
 }
 
 /// `hydrateReleases(db, rows)`.
-async fn hydrate_releases(db: &PgPool, rows: &[Row]) -> Result<Vec<Value>, sqlx::Error> {
+async fn hydrate_releases(db: &PgPool, rows: &[Row]) -> Result<Vec<Value>, DbErr> {
     if rows.is_empty() {
         return Ok(Vec::new());
     }
@@ -140,25 +160,32 @@ async fn hydrate_releases(db: &PgPool, rows: &[Row]) -> Result<Vec<Value>, sqlx:
             repository_ids.push(id);
         }
     }
+    let orm = orm(db);
     // Deleted repositories too: a release keeps its repository's name.
-    let names: HashMap<String, String> =
-        sqlx::query_as("select id, full_name from merge_repositories where id = any($1)")
-            .bind(&repository_ids)
-            .fetch_all(db)
-            .await?
-            .into_iter()
-            .collect();
+    let names: HashMap<String, String> = merge_repositories::Entity::find()
+        .select_only()
+        .columns([
+            merge_repositories::Column::Id,
+            merge_repositories::Column::FullName,
+        ])
+        .filter(merge_repositories::Column::Id.is_in(repository_ids))
+        .into_tuple::<(String, String)>()
+        .all(&orm)
+        .await?
+        .into_iter()
+        .collect();
     let ids: Vec<String> = rows.iter().map(|r| text(r, "id").to_owned()).collect();
-    let counts: HashMap<String, i64> = sqlx::query_as::<_, (String, i32)>(
-        "select release_id, count(*)::int from merge_release_pull_requests \
-         where release_id = any($1) group by release_id",
-    )
-    .bind(&ids)
-    .fetch_all(db)
-    .await?
-    .into_iter()
-    .map(|(id, count)| (id, i64::from(count)))
-    .collect();
+    let counts: HashMap<String, i64> = merge_release_pull_requests::Entity::find()
+        .select_only()
+        .column(merge_release_pull_requests::Column::ReleaseId)
+        .column_as(Expr::from(Func::count(Expr::col(Asterisk))), "count")
+        .filter(merge_release_pull_requests::Column::ReleaseId.is_in(ids))
+        .group_by(merge_release_pull_requests::Column::ReleaseId)
+        .into_tuple::<(String, i64)>()
+        .all(&orm)
+        .await?
+        .into_iter()
+        .collect();
     Ok(rows
         .iter()
         .map(|row| {
@@ -173,7 +200,7 @@ async fn hydrate_releases(db: &PgPool, rows: &[Row]) -> Result<Vec<Value>, sqlx:
         .collect())
 }
 
-async fn one_release_dto(db: &PgPool, row: &Row) -> Result<Value, sqlx::Error> {
+async fn one_release_dto(db: &PgPool, row: &Row) -> Result<Value, DbErr> {
     Ok(hydrate_releases(db, std::slice::from_ref(row))
         .await?
         .into_iter()
@@ -189,22 +216,46 @@ struct Contents {
     tickets: Vec<Value>,
 }
 
+/// A release's pull request with its repository's name.
+#[derive(FromQueryResult)]
+struct ReleasePullRequest {
+    #[sea_orm(nested)]
+    pull_request: merge_pull_requests::Model,
+    repository_full_name: String,
+}
+
 /// `releaseContents(db, releaseId)`.
-async fn release_contents(db: &PgPool, release_id: &str) -> Result<Contents, sqlx::Error> {
-    let prs: Vec<(Value, String)> = sqlx::query_as(
-        "select to_jsonb(p), r.full_name from merge_release_pull_requests rp \
-         inner join merge_pull_requests p on p.id = rp.pull_request_id \
-         inner join merge_repositories r on r.id = p.repository_id \
-         where rp.release_id = $1 \
-         order by p.merged_at desc, p.id desc",
-    )
-    .bind(release_id)
-    .fetch_all(db)
-    .await?;
+async fn release_contents(db: &PgPool, release_id: &str) -> Result<Contents, DbErr> {
+    let orm = orm(db);
+    let in_release: RelationDef =
+        merge_pull_requests::Entity::belongs_to(merge_release_pull_requests::Entity)
+            .from(merge_pull_requests::Column::Id)
+            .to(merge_release_pull_requests::Column::PullRequestId)
+            .into();
+    let repository: RelationDef =
+        merge_pull_requests::Entity::belongs_to(merge_repositories::Entity)
+            .from(merge_pull_requests::Column::RepositoryId)
+            .to(merge_repositories::Column::Id)
+            .into();
+    let prs = merge_pull_requests::Entity::find()
+        .column_as(merge_repositories::Column::FullName, "repository_full_name")
+        .join(JoinType::InnerJoin, in_release)
+        .join(JoinType::InnerJoin, repository)
+        .filter(merge_release_pull_requests::Column::ReleaseId.eq(release_id))
+        .order_by_desc(merge_pull_requests::Column::MergedAt)
+        .order_by_desc(merge_pull_requests::Column::Id)
+        .into_model::<ReleasePullRequest>()
+        .all(&orm)
+        .await?;
     let pull_requests: Vec<(Row, String)> = prs
         .into_iter()
-        .map(|(pr, full_name)| (js_row(pr), full_name))
-        .collect();
+        .map(|pr| {
+            Ok((
+                json_row(serde_json::to_value(pr.pull_request))?,
+                pr.repository_full_name,
+            ))
+        })
+        .collect::<Result<_, DbErr>>()?;
     if pull_requests.is_empty() {
         return Ok(Contents {
             pull_requests,
@@ -216,16 +267,21 @@ async fn release_contents(db: &PgPool, release_id: &str) -> Result<Contents, sql
         .iter()
         .map(|(pr, _)| text(pr, "id").to_owned())
         .collect();
-    let issue_rows = rows_of(
-        sqlx::query_scalar(
-            "select distinct to_jsonb(i) from merge_issue_pull_requests l \
-             inner join merge_issues i on i.id = l.issue_id \
-             where l.pull_request_id = any($1) and l.dismissed_at is null and i.deleted_at is null",
-        )
-        .bind(&pr_ids)
-        .fetch_all(db)
-        .await?,
-    );
+    let links: RelationDef = merge_issues::Entity::belongs_to(merge_issue_pull_requests::Entity)
+        .from(merge_issues::Column::Id)
+        .to(merge_issue_pull_requests::Column::IssueId)
+        .into();
+    let issue_rows = merge_issues::Entity::find()
+        .distinct()
+        .join(JoinType::InnerJoin, links)
+        .filter(merge_issue_pull_requests::Column::PullRequestId.is_in(pr_ids))
+        .filter(merge_issue_pull_requests::Column::DismissedAt.is_null())
+        .filter(merge_issues::Column::DeletedAt.is_null())
+        .all(&orm)
+        .await?
+        .into_iter()
+        .map(|issue| json_row(serde_json::to_value(issue)))
+        .collect::<Result<Vec<Row>, DbErr>>()?;
     let mut issues = hydrate_issues(db, &issue_rows).await?;
     issues.sort_by(|a, b| {
         a.get("key")
@@ -242,7 +298,7 @@ async fn release_contents(db: &PgPool, release_id: &str) -> Result<Contents, sql
 }
 
 /// `deskTicketsOf(db, issues)`.
-async fn desk_tickets_of(db: &PgPool, issues: &[Value]) -> Result<Vec<Value>, sqlx::Error> {
+async fn desk_tickets_of(db: &PgPool, issues: &[Value]) -> Result<Vec<Value>, DbErr> {
     if issues.is_empty() {
         return Ok(Vec::new());
     }
@@ -251,27 +307,22 @@ async fn desk_tickets_of(db: &PgPool, issues: &[Value]) -> Result<Vec<Value>, sq
         .iter()
         .map(|i| (text(i, "id").to_owned(), text(i, "key").to_owned()))
         .collect();
-    let links = rows_of(
-        sqlx::query_scalar(
-            "select to_jsonb(l) from merge_record_links l \
-             where l.issue_id = any($1) and l.record_type = 'desk_ticket'",
-        )
-        .bind(&ids)
-        .fetch_all(db)
-        .await?,
-    );
+    let links = merge_record_links::Entity::find()
+        .filter(merge_record_links::Column::IssueId.is_in(ids))
+        .filter(merge_record_links::Column::RecordType.eq("desk_ticket"))
+        .all(&orm(db))
+        .await?;
     let mut tickets: Vec<(String, String, Value)> = links
-        .iter()
+        .into_iter()
         .map(|link| {
-            let issue_key = keys.get(text(link, "issueId")).cloned().unwrap_or_default();
-            let ticket_id = text(link, "recordId").to_owned();
+            let issue_key = keys.get(&link.issue_id).cloned().unwrap_or_default();
             let ticket = json!({
-                "ticketId": ticket_id,
-                "title": col(link, "title"),
-                "issueId": col(link, "issueId"),
-                "issueKey": issue_key,
+                "ticketId": &link.record_id,
+                "title": link.title,
+                "issueId": link.issue_id,
+                "issueKey": &issue_key,
             });
-            (issue_key, ticket_id, ticket)
+            (issue_key, link.record_id, ticket)
         })
         .collect();
     tickets.sort_by(|a, b| (&a.0, &a.1).cmp(&(&b.0, &b.1)));
@@ -280,7 +331,7 @@ async fn desk_tickets_of(db: &PgPool, issues: &[Value]) -> Result<Vec<Value>, sq
 
 /// `detailOf(c, row)`: `getReleaseDetail(db, row)`, with a desk ticket's
 /// subject only for a caller with `tickets:read` (`withVisibleTitles`).
-async fn release_detail(caller: &Caller, row: &Row) -> Result<Value, sqlx::Error> {
+async fn release_detail(caller: &Caller, row: &Row) -> Result<Value, DbErr> {
     let db = &caller.db;
     let base = one_release_dto(db, row).await?;
     let mut contents = release_contents(db, text(row, "id")).await?;
@@ -313,7 +364,7 @@ async fn release_detail(caller: &Caller, row: &Row) -> Result<Value, sqlx::Error
 }
 
 /// `shippedEventData(db, row)`: the payload of `merge_release.shipped`.
-async fn shipped_event_data(db: &PgPool, row: &Row) -> Result<Value, sqlx::Error> {
+async fn shipped_event_data(db: &PgPool, row: &Row) -> Result<Value, DbErr> {
     let contents = release_contents(db, text(row, "id")).await?;
     let mut ticket_ids: Vec<String> = Vec::new();
     for ticket in &contents.tickets {
@@ -334,13 +385,13 @@ async fn shipped_event_data(db: &PgPool, row: &Row) -> Result<Value, sqlx::Error
 }
 
 /// `findLiveRepository(db, id)`.
-async fn find_live_repository(db: &PgPool, id: &str) -> Result<Option<Row>, sqlx::Error> {
-    crate::db::one_by_id(
-        db,
-        "select to_jsonb(r) from merge_repositories r where r.id = $1 and r.deleted_at is null limit 1",
-        id,
-    )
-    .await
+async fn find_live_repository(db: &PgPool, id: &str) -> Result<Option<Row>, DbErr> {
+    merge_repositories::Entity::find_by_id(id.to_owned())
+        .filter(merge_repositories::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?
+        .map(|repository| json_row(serde_json::to_value(repository)))
+        .transpose()
 }
 
 // ── GET / and GET /:id ──────────────────────────────────────────────────────
@@ -365,23 +416,28 @@ pub(crate) async fn list(caller: Caller, RawQuery(query): RawQuery) -> Answer {
             (team_id, repository_id, status, limit, cursor)
         })?;
     let db = &caller.db;
-    let rows = rows_of(
-        sqlx::query_scalar(
-            "select to_jsonb(r) from merge_releases r where r.deleted_at is null \
-             and ($1::text is null or r.team_id = $1) \
-             and ($2::text is null or r.repository_id = $2) \
-             and ($3::text is null or r.status = $3) \
-             and ($4::text is null or r.id < $4) \
-             order by r.id desc limit $5",
-        )
-        .bind(team_id)
-        .bind(repository_id)
-        .bind(status)
-        .bind(cursor)
-        .bind(limit + 1)
-        .fetch_all(db)
-        .await?,
-    );
+    let mut select =
+        merge_releases::Entity::find().filter(merge_releases::Column::DeletedAt.is_null());
+    if let Some(team_id) = team_id {
+        select = select.filter(merge_releases::Column::TeamId.eq(team_id));
+    }
+    if let Some(repository_id) = repository_id {
+        select = select.filter(merge_releases::Column::RepositoryId.eq(repository_id));
+    }
+    if let Some(status) = status {
+        select = select.filter(merge_releases::Column::Status.eq(status));
+    }
+    if let Some(cursor) = cursor {
+        select = select.filter(merge_releases::Column::Id.lt(cursor));
+    }
+    let rows = select
+        .order_by_desc(merge_releases::Column::Id)
+        .limit(u64::try_from(limit + 1).unwrap_or(0))
+        .all(&orm(db))
+        .await?
+        .into_iter()
+        .map(|release| json_row(serde_json::to_value(release)))
+        .collect::<Result<Vec<Row>, DbErr>>()?;
     let size = usize::try_from(limit).unwrap_or(0);
     let has_more = rows.len() > size;
     let rows: Vec<Row> = rows.into_iter().take(size).collect();
@@ -471,26 +527,24 @@ pub(crate) async fn create(
     if find_live_repository(db, &repository_id).await?.is_none() {
         return Err(Refusal::not_found("Repository", None));
     }
-    let now = now();
-    let row: Value = sqlx::query_scalar(
-        "insert into merge_releases (id, team_id, repository_id, name, version, base_ref, head_ref, notes, \
-           created_by_user_id, created_at, updated_at) \
-         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::timestamptz, $10::timestamptz) \
-         returning to_jsonb(merge_releases.*)",
-    )
-    .bind(generate_id("mrl"))
-    .bind(&team_id)
-    .bind(&repository_id)
-    .bind(&name)
-    .bind(trimmed_or_null(version))
-    .bind(trimmed_or_null(base_ref))
-    .bind(trimmed_or_null(head_ref))
-    .bind(notes.into_option())
-    .bind(&caller.user_id)
-    .bind(&now)
-    .fetch_one(db)
+    let at = utc_now().assume_utc();
+    let row = merge_releases::Entity::insert(merge_releases::ActiveModel {
+        id: Set(generate_id("mrl")),
+        team_id: Set(team_id),
+        repository_id: Set(repository_id),
+        name: Set(name),
+        version: Set(trimmed_or_null(version)),
+        base_ref: Set(trimmed_or_null(base_ref)),
+        head_ref: Set(trimmed_or_null(head_ref)),
+        notes: Set(notes.into_option()),
+        created_by_user_id: Set(caller.user_id.clone()),
+        created_at: Set(at),
+        updated_at: Set(at),
+        ..Default::default()
+    })
+    .exec_with_returning(&orm(db))
     .await?;
-    let release = js_row(row);
+    let release = json_row(serde_json::to_value(row))?;
     publish(
         &state,
         &caller.events,
@@ -566,29 +620,29 @@ pub(crate) async fn update(
         Field::Null => (true, None),
         Field::Set(value) => (true, Some(value.clone())),
     };
-    let row: Value = sqlx::query_scalar(
-        "update merge_releases set updated_at = $2::timestamptz, \
-           name = case when $3::text is null then name else $3 end, \
-           version = case when $4 then $5 else version end, \
-           base_ref = case when $6 then $7 else base_ref end, \
-           head_ref = case when $8 then $9 else head_ref end, \
-           notes = case when $10 then $11 else notes end \
-         where id = $1 returning to_jsonb(merge_releases.*)",
-    )
-    .bind(&id)
-    .bind(now())
-    .bind(name.into_option())
-    .bind(set_version)
-    .bind(version)
-    .bind(set_base)
-    .bind(base_ref)
-    .bind(set_head)
-    .bind(head_ref)
-    .bind(set_notes)
-    .bind(notes)
-    .fetch_one(db)
-    .await?;
-    let release = js_row(row);
+    let mut change = merge_releases::Entity::update_many().col_expr(
+        merge_releases::Column::UpdatedAt,
+        Expr::value(utc_now().assume_utc()),
+    );
+    if let Some(name) = name.into_option() {
+        change = change.col_expr(merge_releases::Column::Name, Expr::value(name));
+    }
+    for (set, column, value) in [
+        (set_version, merge_releases::Column::Version, version),
+        (set_base, merge_releases::Column::BaseRef, base_ref),
+        (set_head, merge_releases::Column::HeadRef, head_ref),
+        (set_notes, merge_releases::Column::Notes, notes),
+    ] {
+        if set {
+            change = change.col_expr(column, Expr::value(value));
+        }
+    }
+    let release = returned(
+        change
+            .filter(merge_releases::Column::Id.eq(&id))
+            .exec_with_returning(&orm(db))
+            .await?,
+    )?;
     let changes = diff_fields(&before, &release, &RELEASE_CHANGE_FIELDS);
     publish(
         &state,
@@ -604,18 +658,18 @@ pub(crate) async fn remove(
     caller: Caller,
     Path(id): Path<String>,
 ) -> Answer {
-    let now = now();
-    let row: Option<Value> = sqlx::query_scalar(
-        "update merge_releases set deleted_at = $2::timestamptz, updated_at = $2::timestamptz \
-         where id = $1 and deleted_at is null returning to_jsonb(merge_releases.*)",
-    )
-    .bind(&id)
-    .bind(&now)
-    .fetch_optional(&caller.db)
-    .await?;
-    let Some(release) = row.map(js_row) else {
+    let at = utc_now().assume_utc();
+    let rows = merge_releases::Entity::update_many()
+        .col_expr(merge_releases::Column::DeletedAt, Expr::value(at))
+        .col_expr(merge_releases::Column::UpdatedAt, Expr::value(at))
+        .filter(merge_releases::Column::Id.eq(&id))
+        .filter(merge_releases::Column::DeletedAt.is_null())
+        .exec_with_returning(&orm(&caller.db))
+        .await?;
+    let Some(release) = rows.into_iter().next() else {
         return Err(Refusal::not_found("Release", Some(&id)));
     };
+    let release = json_row(serde_json::to_value(release))?;
     publish(
         &state,
         &caller.events,
@@ -628,7 +682,7 @@ pub(crate) async fn remove(
 
 const COMPARE_PAGE: usize = 100;
 const COMPARE_MAX_PAGES: usize = 5;
-const FALLBACK_CAP: i64 = 200;
+const FALLBACK_CAP: u64 = 200;
 
 /// A ref as a URL path: each segment encoded, the slashes kept (`feature/x`).
 fn ref_path(reference: &str) -> String {
@@ -707,7 +761,7 @@ async fn merged_by_compare(
     db: &PgPool,
     repository_id: &str,
     commits: &[Value],
-) -> Result<Vec<Row>, sqlx::Error> {
+) -> Result<Vec<Row>, DbErr> {
     let shas: Vec<String> = commits.iter().map(|c| text(c, "sha").to_owned()).collect();
     let mut numbers: Vec<i64> = Vec::new();
     for commit in commits {
@@ -724,47 +778,54 @@ async fn merged_by_compare(
     if shas.is_empty() {
         return Ok(Vec::new());
     }
-    Ok(rows_of(
-        sqlx::query_scalar(
-            "select to_jsonb(p) from merge_pull_requests p \
-             where p.repository_id = $1 and p.state = 'merged' \
-               and (p.head_sha = any($2) or ($3::int[] is not null and p.number = any($3))) \
-             order by p.merged_at desc, p.id desc",
-        )
-        .bind(repository_id)
-        .bind(&shas)
-        .bind((!numbers.is_empty()).then_some(&numbers))
-        .fetch_all(db)
-        .await?,
-    ))
+    // `head_sha = any(shas)`, or a number a commit message names.
+    let mut named = Condition::any().add(merge_pull_requests::Column::HeadSha.is_in(shas));
+    if !numbers.is_empty() {
+        named = named.add(merge_pull_requests::Column::Number.is_in(numbers));
+    }
+    merge_pull_requests::Entity::find()
+        .filter(merge_pull_requests::Column::RepositoryId.eq(repository_id))
+        .filter(merge_pull_requests::Column::State.eq("merged"))
+        .filter(named)
+        .order_by_desc(merge_pull_requests::Column::MergedAt)
+        .order_by_desc(merge_pull_requests::Column::Id)
+        .all(&orm(db))
+        .await?
+        .into_iter()
+        .map(|pr| json_row(serde_json::to_value(pr)))
+        .collect()
 }
 
 /// `mergedSince(db, release)`: merged since the previous shipped release of
 /// the repository (all of them, newest 200, when there is none).
-async fn merged_since(db: &PgPool, release: &Row) -> Result<Vec<Row>, sqlx::Error> {
-    let since: Option<Option<Value>> = sqlx::query_scalar(
-        "select to_jsonb(r.shipped_at) from merge_releases r \
-         where r.repository_id = $1 and r.status = 'shipped' and r.deleted_at is null and r.id <> $2 \
-         order by r.shipped_at desc limit 1",
-    )
-    .bind(text(release, "repositoryId"))
-    .bind(text(release, "id"))
-    .fetch_optional(db)
-    .await?;
-    let since = since.flatten().and_then(|v| v.as_str().map(str::to_owned));
-    Ok(rows_of(
-        sqlx::query_scalar(
-            "select to_jsonb(p) from merge_pull_requests p \
-             where p.repository_id = $1 and p.state = 'merged' \
-               and ($2::timestamptz is null or p.merged_at > $2::timestamptz) \
-             order by p.merged_at desc, p.id desc limit $3",
-        )
-        .bind(text(release, "repositoryId"))
-        .bind(since)
-        .bind(FALLBACK_CAP)
-        .fetch_all(db)
-        .await?,
-    ))
+async fn merged_since(db: &PgPool, release: &Row) -> Result<Vec<Row>, DbErr> {
+    let orm = orm(db);
+    let since: Option<Option<OffsetDateTime>> = merge_releases::Entity::find()
+        .select_only()
+        .column(merge_releases::Column::ShippedAt)
+        .filter(merge_releases::Column::RepositoryId.eq(text(release, "repositoryId")))
+        .filter(merge_releases::Column::Status.eq("shipped"))
+        .filter(merge_releases::Column::DeletedAt.is_null())
+        .filter(merge_releases::Column::Id.ne(text(release, "id")))
+        .order_by_desc(merge_releases::Column::ShippedAt)
+        .into_tuple()
+        .one(&orm)
+        .await?;
+    let mut merged = merge_pull_requests::Entity::find()
+        .filter(merge_pull_requests::Column::RepositoryId.eq(text(release, "repositoryId")))
+        .filter(merge_pull_requests::Column::State.eq("merged"));
+    if let Some(since) = since.flatten() {
+        merged = merged.filter(merge_pull_requests::Column::MergedAt.gt(since));
+    }
+    merged
+        .order_by_desc(merge_pull_requests::Column::MergedAt)
+        .order_by_desc(merge_pull_requests::Column::Id)
+        .limit(FALLBACK_CAP)
+        .all(&orm)
+        .await?
+        .into_iter()
+        .map(|pr| json_row(serde_json::to_value(pr)))
+        .collect()
 }
 
 /// `POST /releases/:id/refresh`.
@@ -817,38 +878,40 @@ pub(crate) async fn refresh(
         None => merged_since(db, &release).await?,
     };
 
-    sqlx::query("delete from merge_release_pull_requests where release_id = $1")
-        .bind(&id)
-        .execute(db)
+    let orm = orm(db);
+    merge_release_pull_requests::Entity::delete_many()
+        .filter(merge_release_pull_requests::Column::ReleaseId.eq(&id))
+        .exec(&orm)
         .await?;
     let pr_ids: Vec<String> = pull_requests
         .iter()
         .map(|p| text(p, "id").to_owned())
         .collect();
     if !pr_ids.is_empty() {
-        let ids: Vec<String> = pr_ids.iter().map(|_| generate_id("mrr")).collect();
-        sqlx::query(
-            "insert into merge_release_pull_requests (id, release_id, pull_request_id, created_at) \
-             select l.id, $2, l.pull_request_id, $4::timestamptz \
-             from unnest($1::varchar[], $3::varchar[]) as l(id, pull_request_id) \
-             on conflict do nothing",
-        )
-        .bind(&ids)
-        .bind(&id)
-        .bind(&pr_ids)
-        .bind(now())
-        .execute(db)
-        .await?;
+        let at = utc_now().assume_utc();
+        let links = pr_ids
+            .iter()
+            .map(|pull_request_id| merge_release_pull_requests::ActiveModel {
+                id: Set(generate_id("mrr")),
+                release_id: Set(id.clone()),
+                pull_request_id: Set(pull_request_id.clone()),
+                created_at: Set(at),
+            });
+        merge_release_pull_requests::Entity::insert_many(links)
+            .on_conflict(OnConflict::new().do_nothing().to_owned())
+            .exec_without_returning(&orm)
+            .await?;
     }
-    let row: Value = sqlx::query_scalar(
-        "update merge_releases set updated_at = $2::timestamptz where id = $1 \
-         returning to_jsonb(merge_releases.*)",
-    )
-    .bind(&id)
-    .bind(now())
-    .fetch_one(db)
-    .await?;
-    let updated = js_row(row);
+    let updated = returned(
+        merge_releases::Entity::update_many()
+            .col_expr(
+                merge_releases::Column::UpdatedAt,
+                Expr::value(utc_now().assume_utc()),
+            )
+            .filter(merge_releases::Column::Id.eq(&id))
+            .exec_with_returning(&orm)
+            .await?,
+    )?;
     publish(
         &state,
         &caller.events,
@@ -880,21 +943,20 @@ pub(crate) async fn ship(
     }
     // `markShipped(db, id)`: only a live draft ships, so a second click or a
     // concurrent request (or a delete in between) ships nothing.
-    let now = now();
-    let row: Option<Value> = sqlx::query_scalar(
-        "update merge_releases set status = 'shipped', shipped_at = $2::timestamptz, \
-           updated_at = $2::timestamptz \
-         where id = $1 and status = 'draft' and deleted_at is null \
-         returning to_jsonb(merge_releases.*)",
-    )
-    .bind(&id)
-    .bind(&now)
-    .fetch_optional(db)
-    .await?;
-    let Some(row) = row else {
+    let at = utc_now().assume_utc();
+    let rows = merge_releases::Entity::update_many()
+        .col_expr(merge_releases::Column::Status, Expr::value("shipped"))
+        .col_expr(merge_releases::Column::ShippedAt, Expr::value(at))
+        .col_expr(merge_releases::Column::UpdatedAt, Expr::value(at))
+        .filter(merge_releases::Column::Id.eq(&id))
+        .filter(merge_releases::Column::Status.eq("draft"))
+        .filter(merge_releases::Column::DeletedAt.is_null())
+        .exec_with_returning(&orm(db))
+        .await?;
+    let Some(row) = rows.into_iter().next() else {
         return Err(Refusal::conflict("The release is already shipped"));
     };
-    let shipped = js_row(row);
+    let shipped = json_row(serde_json::to_value(row))?;
     let data = shipped_event_data(db, &shipped).await?;
     publish(
         &state,

@@ -11,19 +11,29 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, post, put};
 use http::HeaderMap;
+use sea_orm::sea_query::{Asterisk, Expr, Func, Query, SelectStatement, SubQueryStatement};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, Condition, ConnectionTrait, DatabaseConnection, DbErr,
+    EntityTrait, QueryFilter, QueryOrder, QuerySelect, QueryTrait,
+};
 use serde_json::{Map, Value, json};
+use time::PrimitiveDateTime;
 use weldsuite_catalogs::entity_events::{
     CUSTOM_FIELD_CREATED, CUSTOM_FIELD_DELETED, CUSTOM_FIELD_UPDATED,
 };
 use weldsuite_catalogs::permission_keys::{WELDOBJECTS_MANAGE, WELDOBJECTS_READ};
-use weldsuite_db::PgPool;
+use weldsuite_db::{OrmConn, PgPool, orm, utc_now};
 use weldsuite_kit::validation::{Field, Issues, Number, Presence, Text};
 use weldsuite_kit::{ApiError, Created, Data, NoContent, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::{
+    custom_field_definitions, custom_field_values, custom_object_links, custom_object_records,
+    custom_object_relations, custom_objects, search_index,
+};
 
 use crate::links::find_restricting_links;
 use crate::{
-    Answer, Caller, CoreObjectsState, Refusal, Rejected, STAMPS, all, answer, change, now, row,
+    Answer, Caller, CoreObjectsState, Refusal, Rejected, all, answer, change, int4, json_row,
     validate, validate_query,
 };
 
@@ -112,54 +122,55 @@ pub(crate) struct CustomObject {
 }
 
 impl CustomObject {
-    fn from_row(raw: Value) -> Self {
-        let row = row(raw, &STAMPS);
-        let text = |key: &str| row[key].as_str().unwrap_or_default().to_owned();
-        Self {
-            id: text("id"),
-            slug: text("slug"),
-            entity_key: text("entityKey"),
-            label_singular: text("labelSingular"),
-            label_plural: text("labelPlural"),
-            title_field_id: row["titleFieldId"].as_str().map(str::to_owned),
-            status: text("status"),
-            enable_events: row["enableEvents"] == true,
-            enable_search: row["enableSearch"] == true,
+    fn from_model(model: custom_objects::Model) -> Result<Self, DbErr> {
+        let row = json_row(&model)?;
+        Ok(Self {
+            id: model.id,
+            slug: model.slug,
+            entity_key: model.entity_key,
+            label_singular: model.label_singular,
+            label_plural: model.label_plural,
+            title_field_id: model.title_field_id,
+            status: model.status,
+            enable_events: model.enable_events,
+            enable_search: model.enable_search,
             row,
-        }
+        })
     }
 }
 
+/// The live object that `condition` picks.
+async fn live_object(db: &PgPool, condition: Condition) -> Result<Option<CustomObject>, DbErr> {
+    let object = custom_objects::Entity::find()
+        .filter(condition)
+        .filter(custom_objects::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?;
+    object.map(CustomObject::from_model).transpose()
+}
+
 /// The live object with this id.
-pub(crate) async fn object_by_id(
-    db: &PgPool,
-    id: &str,
-) -> Result<Option<CustomObject>, sqlx::Error> {
-    let raw: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(o) from custom_objects o where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    Ok(raw.map(CustomObject::from_row))
+pub(crate) async fn object_by_id(db: &PgPool, id: &str) -> Result<Option<CustomObject>, DbErr> {
+    live_object(db, Condition::all().add(custom_objects::Column::Id.eq(id))).await
 }
 
 /// The live object with this slug (`getCustomObjectBySlug`).
-pub(crate) async fn object_by_slug(
-    db: &PgPool,
-    slug: &str,
-) -> Result<Option<CustomObject>, sqlx::Error> {
-    let raw: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(o) from custom_objects o where slug = $1 and deleted_at is null limit 1",
+pub(crate) async fn object_by_slug(db: &PgPool, slug: &str) -> Result<Option<CustomObject>, DbErr> {
+    live_object(
+        db,
+        Condition::all().add(custom_objects::Column::Slug.eq(slug)),
     )
-    .bind(slug)
-    .fetch_optional(db)
-    .await?;
-    Ok(raw.map(CustomObject::from_row))
+    .await
+}
+
+/// The object with this id, deleted or not, as Drizzle returns it.
+async fn object_row(db: &DatabaseConnection, id: &str) -> Result<Option<Value>, DbErr> {
+    let object = custom_objects::Entity::find_by_id(id).one(db).await?;
+    object.map(json_row).transpose()
 }
 
 /// `{ [entityKey]: { recordCount, fieldCount } }` (`getCustomObjectCounts`).
-async fn counts(db: &PgPool, keys: &[String]) -> Result<Map<String, Value>, sqlx::Error> {
+async fn counts(db: &PgPool, keys: &[String]) -> Result<Map<String, Value>, DbErr> {
     let mut out = Map::new();
     for key in keys {
         out.insert(key.clone(), json!({ "recordCount": 0, "fieldCount": 0 }));
@@ -167,20 +178,33 @@ async fn counts(db: &PgPool, keys: &[String]) -> Result<Map<String, Value>, sqlx
     if keys.is_empty() {
         return Ok(out);
     }
-    let records: Vec<(String, i64)> = sqlx::query_as(
-        "select entity_key, count(*) from custom_object_records
-          where entity_key = any($1) and deleted_at is null group by entity_key",
-    )
-    .bind(keys)
-    .fetch_all(db)
-    .await?;
-    let fields: Vec<(String, i64)> = sqlx::query_as(
-        "select entity_type, count(*) from custom_field_definitions
-          where entity_type = any($1) and deleted_at is null group by entity_type",
-    )
-    .bind(keys)
-    .fetch_all(db)
-    .await?;
+    let db = &orm(db);
+    let records: Vec<(String, i64)> = {
+        use custom_object_records::Column;
+        custom_object_records::Entity::find()
+            .select_only()
+            .column(Column::EntityKey)
+            .column_as(Expr::from(Func::count(Expr::col(Asterisk))), "count")
+            .filter(Column::EntityKey.is_in(keys.iter().map(String::as_str)))
+            .filter(Column::DeletedAt.is_null())
+            .group_by(Column::EntityKey)
+            .into_tuple()
+            .all(db)
+            .await?
+    };
+    let fields: Vec<(String, i64)> = {
+        use custom_field_definitions::Column;
+        custom_field_definitions::Entity::find()
+            .select_only()
+            .column(Column::EntityType)
+            .column_as(Expr::from(Func::count(Expr::col(Asterisk))), "count")
+            .filter(Column::EntityType.is_in(keys.iter().map(String::as_str)))
+            .filter(Column::DeletedAt.is_null())
+            .group_by(Column::EntityType)
+            .into_tuple()
+            .all(db)
+            .await?
+    };
     for (key, count) in records {
         if let Some(entry) = out.get_mut(&key) {
             entry["recordCount"] = json!(count);
@@ -218,15 +242,20 @@ async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
         Err(invalid) => return *invalid,
     };
     let result: Answer = async {
-        let rows: Vec<Value> = sqlx::query_scalar(
-            "select to_jsonb(o) from custom_objects o
-              where deleted_at is null and ($1::text is null or status = $1)
-              order by sort_order asc, label_plural asc",
-        )
-        .bind(status)
-        .fetch_all(&caller.db)
-        .await?;
-        let objects: Vec<CustomObject> = rows.into_iter().map(CustomObject::from_row).collect();
+        use custom_objects::Column;
+        let rows = custom_objects::Entity::find()
+            .filter(Column::DeletedAt.is_null())
+            .apply_if(status, |query, status| {
+                query.filter(Column::Status.eq(status))
+            })
+            .order_by_asc(Column::SortOrder)
+            .order_by_asc(Column::LabelPlural)
+            .all(&orm(&caller.db))
+            .await?;
+        let objects = rows
+            .into_iter()
+            .map(CustomObject::from_model)
+            .collect::<Result<Vec<_>, _>>()?;
         let keys: Vec<String> = objects.iter().map(|o| o.entity_key.clone()).collect();
         let counts = counts(&caller.db, &keys).await?;
         let data = objects
@@ -263,20 +292,74 @@ async fn show(caller: Caller, id: String) -> Response {
 
 // ── GET /:id/delete-impact ─────────────────────────────────────────────────
 
-/// `getDeleteImpact`: what deleting the object would destroy.
-async fn impact(db: &PgPool, entity_key: &str) -> Result<Value, sqlx::Error> {
-    let (records, fields, links, relations): (i64, i64, i64, i64) = sqlx::query_as(
-        "select
-             (select count(*) from custom_object_records where entity_key = $1 and deleted_at is null),
-             (select count(*) from custom_field_definitions where entity_type = $1 and deleted_at is null),
-             (select count(*) from custom_object_links
-               where (source_entity_key = $1 or target_entity_key = $1) and deleted_at is null),
-             (select count(*) from custom_object_relations
-               where source_entity_key = $1 or target_entity_key = $1)",
-    )
-    .bind(entity_key)
-    .fetch_one(db)
-    .await?;
+/// `(select count(*) from … where …)`: a count as one column of a select.
+fn count_of<E: EntityTrait>(condition: Condition) -> Expr {
+    let count: SelectStatement = E::find()
+        .select_only()
+        .expr(Func::count(Expr::col(Asterisk)))
+        .filter(condition)
+        .into_query();
+    Expr::SubQuery(None, Box::new(SubQueryStatement::SelectStatement(count)))
+}
+
+/// `getDeleteImpact`: what deleting the object would destroy, counted in one
+/// statement.
+async fn impact(db: &PgPool, entity_key: &str) -> Result<Value, DbErr> {
+    // `source = key or target = key`.
+    fn either<C: ColumnTrait>(source: C, target: C, entity_key: &str) -> Condition {
+        Condition::any()
+            .add(source.eq(entity_key))
+            .add(target.eq(entity_key))
+    }
+    let statement = Query::select()
+        .expr_as(
+            count_of::<custom_object_records::Entity>(
+                Condition::all()
+                    .add(custom_object_records::Column::EntityKey.eq(entity_key))
+                    .add(custom_object_records::Column::DeletedAt.is_null()),
+            ),
+            "records",
+        )
+        .expr_as(
+            count_of::<custom_field_definitions::Entity>(
+                Condition::all()
+                    .add(custom_field_definitions::Column::EntityType.eq(entity_key))
+                    .add(custom_field_definitions::Column::DeletedAt.is_null()),
+            ),
+            "fields",
+        )
+        .expr_as(
+            count_of::<custom_object_links::Entity>(
+                Condition::all()
+                    .add(either(
+                        custom_object_links::Column::SourceEntityKey,
+                        custom_object_links::Column::TargetEntityKey,
+                        entity_key,
+                    ))
+                    .add(custom_object_links::Column::DeletedAt.is_null()),
+            ),
+            "links",
+        )
+        .expr_as(
+            count_of::<custom_object_relations::Entity>(either(
+                custom_object_relations::Column::SourceEntityKey,
+                custom_object_relations::Column::TargetEntityKey,
+                entity_key,
+            )),
+            "relations",
+        )
+        .to_owned();
+    let row = orm(db)
+        .query_one(&statement)
+        .await?
+        .ok_or_else(|| DbErr::RecordNotFound("the delete impact counts".to_owned()))?;
+    let count = |column: &str| row.try_get::<i64>("", column);
+    let (records, fields, links, relations) = (
+        count("records")?,
+        count("fields")?,
+        count("links")?,
+        count("relations")?,
+    );
     Ok(json!({
         "recordCount": records,
         "fieldCount": fields,
@@ -327,20 +410,28 @@ async fn reorder(caller: Caller, headers: HeaderMap, body: Bytes) -> Response {
         Err(invalid) => return *invalid,
     };
     let result: Answer = async {
-        let now = now();
+        use custom_objects::Column;
+        let now = utc_now();
         let mut statements = Vec::with_capacity(items.len());
         for (id, order) in &items {
             statements.push(
-                sqlx::query(
-                    "update custom_objects set sort_order = $2::int, updated_at = $3::timestamp
-                  where id = $1 and deleted_at is null",
-                )
-                .bind(id)
-                .bind(order)
-                .bind(&now),
+                custom_objects::Entity::update_many()
+                    .col_expr(Column::SortOrder, Expr::value(int4(*order)?))
+                    .col_expr(Column::UpdatedAt, Expr::value(now))
+                    .filter(Column::Id.eq(id))
+                    .filter(Column::DeletedAt.is_null()),
             );
         }
-        weldsuite_db::atomically(&caller.db, statements).await?;
+        weldsuite_db::atomically_with(&caller.db, |tx| {
+            Box::pin(async move {
+                let tx = OrmConn::new(tx);
+                for statement in statements {
+                    statement.exec(&tx).await?;
+                }
+                Ok::<_, Refusal>(())
+            })
+        })
+        .await?;
         Ok(Data(json!({ "reordered": items.len() })).into_response())
     }
     .await;
@@ -529,48 +620,31 @@ async fn create(
         input.slug
     );
     let result: Answer = async {
-        let existing: Option<(String, bool)> = sqlx::query_as(
-            "select id, deleted_at is not null from custom_objects where slug = $1 limit 1",
-        )
-        .bind(&input.slug)
-        .fetch_optional(&caller.db)
-        .await?;
-        if let Some((_, deleted)) = existing {
-            return Err(Refusal::conflict(if deleted {
-                format!("The name '{}' belonged to a deleted object and cannot be reused", input.slug)
+        let db = &orm(&caller.db);
+        let existing: Option<(String, Option<PrimitiveDateTime>)> = custom_objects::Entity::find()
+            .select_only()
+            .columns([
+                custom_objects::Column::Id,
+                custom_objects::Column::DeletedAt,
+            ])
+            .filter(custom_objects::Column::Slug.eq(&input.slug))
+            .into_tuple()
+            .one(db)
+            .await?;
+        if let Some((_, deleted_at)) = existing {
+            return Err(Refusal::conflict(if deleted_at.is_some() {
+                format!(
+                    "The name '{}' belonged to a deleted object and cannot be reused",
+                    input.slug
+                )
             } else {
                 taken.clone()
             }));
         }
         let id = generate_id("cobj");
-        let now = now();
-        let inserted = sqlx::query(
-            "insert into custom_objects
-                 (id, slug, entity_key, label_singular, label_plural, description, icon, color, status,
-                  enable_events, enable_search, enable_agent_tools, enable_external_api, list_config,
-                  sort_order, created_by, created_at, updated_at)
-             values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15::int, $16,
-                     $17::timestamp, $17::timestamp)",
-        )
-        .bind(&id)
-        .bind(&input.slug)
-        .bind(format!("co_{}", input.slug))
-        .bind(input.label_singular.as_set())
-        .bind(input.label_plural.as_set())
-        .bind(input.description.as_set())
-        .bind(input.icon.as_set().map_or("Box", String::as_str))
-        .bind(input.color.as_set())
-        .bind(input.status.as_set().map_or("draft", String::as_str))
-        .bind(input.enable_events.as_set().copied().unwrap_or(true))
-        .bind(input.enable_search.as_set().copied().unwrap_or(false))
-        .bind(input.enable_agent_tools.as_set().copied().unwrap_or(false))
-        .bind(input.enable_external_api.as_set().copied().unwrap_or(false))
-        .bind(input.list_config.as_set().cloned().unwrap_or_else(|| json!({})))
-        .bind(input.sort_order.as_set().copied().unwrap_or(0))
-        .bind(&caller.user_id)
-        .bind(&now)
-        .execute(&caller.db)
-        .await;
+        let inserted = custom_objects::Entity::insert(new_object(&id, &input, &caller.user_id)?)
+            .exec_without_returning(db)
+            .await;
         if let Err(error) = inserted {
             // Two creates racing past the check: the unique index decides.
             if weldsuite_db::is_unique_violation(&error) {
@@ -578,18 +652,59 @@ async fn create(
             }
             return Err(error.into());
         }
-        let created: Option<Value> = sqlx::query_scalar("select to_jsonb(o) from custom_objects o where id = $1 limit 1")
-            .bind(&id)
-            .fetch_optional(&caller.db)
-            .await?;
+        let created = object_row(db, &id).await?;
         let Some(created) = created else {
-            return Err(ApiError::internal().with_message("Failed to create custom object").into());
+            return Err(ApiError::internal()
+                .with_message("Failed to create custom object")
+                .into());
         };
-        caller.publish(&state, CUSTOM_FIELD_CREATED, &id, &event_data(&id, "custom_object", &input.data));
-        Ok(Created(row(created, &STAMPS)).into_response())
+        caller.publish(
+            &state,
+            CUSTOM_FIELD_CREATED,
+            &id,
+            &event_data(&id, "custom_object", &input.data),
+        );
+        Ok(Created(created).into_response())
     }
     .await;
     answer(result, "Failed to create custom object")
+}
+
+/// The row a `POST` inserts: what the body set, the schema's defaults for
+/// the rest.
+fn new_object(
+    id: &str,
+    input: &ObjectInput,
+    user_id: &str,
+) -> Result<custom_objects::ActiveModel, DbErr> {
+    let now = utc_now();
+    let text = |field: &Field<String>| field.as_set().cloned();
+    let flag = |field: &Field<bool>, default: bool| field.as_set().copied().unwrap_or(default);
+    Ok(custom_objects::ActiveModel {
+        id: Set(id.to_owned()),
+        slug: Set(input.slug.clone()),
+        entity_key: Set(format!("co_{}", input.slug)),
+        label_singular: Set(text(&input.label_singular).unwrap_or_default()),
+        label_plural: Set(text(&input.label_plural).unwrap_or_default()),
+        description: Set(text(&input.description)),
+        icon: Set(text(&input.icon).unwrap_or_else(|| "Box".to_owned())),
+        color: Set(text(&input.color)),
+        status: Set(text(&input.status).unwrap_or_else(|| "draft".to_owned())),
+        enable_events: Set(flag(&input.enable_events, true)),
+        enable_search: Set(flag(&input.enable_search, false)),
+        enable_agent_tools: Set(flag(&input.enable_agent_tools, false)),
+        enable_external_api: Set(flag(&input.enable_external_api, false)),
+        list_config: Set(input
+            .list_config
+            .as_set()
+            .cloned()
+            .unwrap_or_else(|| json!({}))),
+        sort_order: Set(int4(input.sort_order.as_set().copied().unwrap_or(0))?),
+        created_by: Set(Some(user_id.to_owned())),
+        created_at: Set(now),
+        updated_at: Set(now),
+        ..Default::default()
+    })
 }
 
 #[allow(clippy::too_many_lines)]
@@ -605,19 +720,21 @@ async fn update(
         Err(invalid) => return *invalid,
     };
     let result: Answer = async {
-        let db = &caller.db;
-        let existing = object_by_id(db, &id)
+        let existing = object_by_id(&caller.db, &id)
             .await?
             .ok_or_else(|| Refusal::not_found("Custom object", &id))?;
+        let db = &orm(&caller.db);
         if let Some(title_field_id) = input.title_field_id.as_set().filter(|t| !t.is_empty()) {
-            let found: Option<String> = sqlx::query_scalar(
-                "select id from custom_field_definitions
-                  where id = $1 and entity_type = $2 and deleted_at is null limit 1",
-            )
-            .bind(title_field_id)
-            .bind(&existing.entity_key)
-            .fetch_optional(db)
-            .await?;
+            use custom_field_definitions::Column;
+            let found: Option<String> = custom_field_definitions::Entity::find()
+                .select_only()
+                .column(Column::Id)
+                .filter(Column::Id.eq(title_field_id))
+                .filter(Column::EntityType.eq(&existing.entity_key))
+                .filter(Column::DeletedAt.is_null())
+                .into_tuple()
+                .one(db)
+                .await?;
             if found.is_none() {
                 return Err(Refusal::bad_request(
                     "titleFieldId must reference a field belonging to this object",
@@ -626,87 +743,67 @@ async fn update(
         }
         // The index goes first, so a failure leaves the flag on to retry.
         if existing.enable_search && input.enable_search.as_set() == Some(&false) {
-            sqlx::query("delete from search_index where entity_type = $1")
-                .bind(&existing.entity_key)
-                .execute(db)
+            search_index::Entity::delete_many()
+                .filter(search_index::Column::EntityType.eq(&existing.entity_key))
+                .exec(db)
                 .await?;
         }
-        let (set_singular, singular) = change(&input.label_singular);
-        let (set_plural, plural) = change(&input.label_plural);
-        let (set_description, description) = change(&input.description);
-        let (set_icon, icon) = change(&input.icon);
-        let (set_color, color) = change(&input.color);
-        let (set_status, status) = change(&input.status);
-        let (set_title, title) = change(&input.title_field_id);
-        let (set_events, events) = change(&input.enable_events);
-        let (set_search, search) = change(&input.enable_search);
-        let (set_agent, agent) = change(&input.enable_agent_tools);
-        let (set_external, external) = change(&input.enable_external_api);
-        let (set_config, config) = change(&input.list_config);
-        let (set_order, order) = change(&input.sort_order);
-        sqlx::query(
-            "update custom_objects set
-                 label_singular = case when $2 then $3 else label_singular end,
-                 label_plural = case when $4 then $5 else label_plural end,
-                 description = case when $6 then $7 else description end,
-                 icon = case when $8 then $9 else icon end,
-                 color = case when $10 then $11 else color end,
-                 status = case when $12 then $13 else status end,
-                 title_field_id = case when $14 then $15 else title_field_id end,
-                 enable_events = case when $16 then $17 else enable_events end,
-                 enable_search = case when $18 then $19 else enable_search end,
-                 enable_agent_tools = case when $20 then $21 else enable_agent_tools end,
-                 enable_external_api = case when $22 then $23 else enable_external_api end,
-                 list_config = case when $24 then $25 else list_config end,
-                 sort_order = case when $26 then $27::int else sort_order end,
-                 updated_at = $28::timestamp
-             where id = $1",
-        )
-        .bind(&id)
-        .bind(set_singular)
-        .bind(singular)
-        .bind(set_plural)
-        .bind(plural)
-        .bind(set_description)
-        .bind(description)
-        .bind(set_icon)
-        .bind(icon)
-        .bind(set_color)
-        .bind(color)
-        .bind(set_status)
-        .bind(status)
-        .bind(set_title)
-        .bind(title)
-        .bind(set_events)
-        .bind(events)
-        .bind(set_search)
-        .bind(search)
-        .bind(set_agent)
-        .bind(agent)
-        .bind(set_external)
-        .bind(external)
-        .bind(set_config)
-        .bind(config)
-        .bind(set_order)
-        .bind(order)
-        .bind(now())
-        .execute(db)
-        .await?;
-        let updated: Option<Value> =
-            sqlx::query_scalar("select to_jsonb(o) from custom_objects o where id = $1 limit 1")
-                .bind(&id)
-                .fetch_optional(db)
-                .await?;
+        object_update(&input)?
+            .col_expr(custom_objects::Column::UpdatedAt, Expr::value(utc_now()))
+            .filter(custom_objects::Column::Id.eq(&id))
+            .exec(db)
+            .await?;
+        let updated = object_row(db, &id).await?;
         caller.publish(
             &state,
             CUSTOM_FIELD_UPDATED,
             &id,
             &event_data(&id, "custom_object", &input.data),
         );
-        Ok(Data(updated.map_or(Value::Null, |u| row(u, &STAMPS))).into_response())
+        Ok(Data(updated.unwrap_or(Value::Null)).into_response())
     }
     .await;
     answer(result, "Failed to update custom object")
+}
+
+/// The columns a `PUT` sets: only the fields the body sent.
+fn object_update(
+    input: &ObjectInput,
+) -> Result<sea_orm::UpdateMany<custom_objects::Entity>, DbErr> {
+    use custom_objects::Column;
+    let mut update = custom_objects::Entity::update_many();
+    let texts = [
+        (Column::LabelSingular, &input.label_singular),
+        (Column::LabelPlural, &input.label_plural),
+        (Column::Description, &input.description),
+        (Column::Icon, &input.icon),
+        (Column::Color, &input.color),
+        (Column::Status, &input.status),
+        (Column::TitleFieldId, &input.title_field_id),
+    ];
+    for (column, field) in texts {
+        if let (true, value) = change(field) {
+            update = update.col_expr(column, Expr::value(value));
+        }
+    }
+    let flags = [
+        (Column::EnableEvents, &input.enable_events),
+        (Column::EnableSearch, &input.enable_search),
+        (Column::EnableAgentTools, &input.enable_agent_tools),
+        (Column::EnableExternalApi, &input.enable_external_api),
+    ];
+    for (column, field) in flags {
+        if let (true, value) = change(field) {
+            update = update.col_expr(column, Expr::value(value));
+        }
+    }
+    if let (true, config) = change(&input.list_config) {
+        update = update.col_expr(Column::ListConfig, Expr::value(config));
+    }
+    if let (true, order) = change(&input.sort_order) {
+        update = update.col_expr(Column::SortOrder, Expr::value(order.map(int4).transpose()?));
+    }
+    Ok(update)
 }
 
 // ── DELETE /:id ────────────────────────────────────────────────────────────
@@ -738,46 +835,7 @@ async fn remove(
             );
             return Err(ApiError::conflict(message).with_details(json!({ "blockedBy": restricting })).into());
         }
-        let now = now();
-        let key = existing.entity_key.as_str();
-        // One unit, the definition last: a failure leaves the object intact.
-        weldsuite_db::atomically(
-            db,
-            [
-                sqlx::query(
-                    "delete from custom_field_values where entity_type = $1
-                        and entity_id in (select id from custom_object_records where entity_key = $1)",
-                )
-                .bind(key),
-                sqlx::query("delete from custom_object_relations where source_entity_key = $1 or target_entity_key = $1")
-                    .bind(key),
-                sqlx::query(
-                    "update custom_object_links set deleted_at = $2::timestamp, updated_at = $2::timestamp
-                      where source_entity_key = $1 or target_entity_key = $1",
-                )
-                .bind(key)
-                .bind(&now),
-                sqlx::query(
-                    "update custom_object_records set deleted_at = $2::timestamp, updated_at = $2::timestamp
-                      where entity_key = $1",
-                )
-                .bind(key)
-                .bind(&now),
-                sqlx::query(
-                    "update custom_field_definitions set deleted_at = $2::timestamp, updated_at = $2::timestamp
-                      where entity_type = $1",
-                )
-                .bind(key)
-                .bind(&now),
-                sqlx::query("delete from search_index where entity_type = $1").bind(key),
-                sqlx::query(
-                    "update custom_objects set deleted_at = $2::timestamp, updated_at = $2::timestamp where id = $1",
-                )
-                .bind(&existing.id)
-                .bind(&now),
-            ],
-        )
-        .await?;
+        delete_object(db, &existing).await?;
         caller.publish(
             &state,
             CUSTOM_FIELD_DELETED,
@@ -788,4 +846,72 @@ async fn remove(
     }
     .await;
     answer(result, "Failed to delete custom object")
+}
+
+/// Delete an object with everything that hangs off it, as one unit, the
+/// definition last: a failure leaves the object intact.
+async fn delete_object(db: &PgPool, object: &CustomObject) -> Result<(), Refusal> {
+    let now = utc_now();
+    let key = object.entity_key.clone();
+    let values = custom_field_values::Entity::delete_many()
+        .filter(custom_field_values::Column::EntityType.eq(&key))
+        .filter(
+            custom_field_values::Column::EntityId.in_subquery(
+                Query::select()
+                    .column((
+                        custom_object_records::Entity,
+                        custom_object_records::Column::Id,
+                    ))
+                    .from(custom_object_records::Entity)
+                    .and_where(custom_object_records::Column::EntityKey.eq(&key))
+                    .to_owned(),
+            ),
+        );
+    let relations = custom_object_relations::Entity::delete_many().filter(
+        Condition::any()
+            .add(custom_object_relations::Column::SourceEntityKey.eq(&key))
+            .add(custom_object_relations::Column::TargetEntityKey.eq(&key)),
+    );
+    let links = custom_object_links::Entity::update_many()
+        .col_expr(custom_object_links::Column::DeletedAt, Expr::value(now))
+        .col_expr(custom_object_links::Column::UpdatedAt, Expr::value(now))
+        .filter(
+            Condition::any()
+                .add(custom_object_links::Column::SourceEntityKey.eq(&key))
+                .add(custom_object_links::Column::TargetEntityKey.eq(&key)),
+        );
+    let records = custom_object_records::Entity::update_many()
+        .col_expr(custom_object_records::Column::DeletedAt, Expr::value(now))
+        .col_expr(custom_object_records::Column::UpdatedAt, Expr::value(now))
+        .filter(custom_object_records::Column::EntityKey.eq(&key));
+    let fields = custom_field_definitions::Entity::update_many()
+        .col_expr(
+            custom_field_definitions::Column::DeletedAt,
+            Expr::value(now),
+        )
+        .col_expr(
+            custom_field_definitions::Column::UpdatedAt,
+            Expr::value(now),
+        )
+        .filter(custom_field_definitions::Column::EntityType.eq(&key));
+    let index =
+        search_index::Entity::delete_many().filter(search_index::Column::EntityType.eq(&key));
+    let definition = custom_objects::Entity::update_many()
+        .col_expr(custom_objects::Column::DeletedAt, Expr::value(now))
+        .col_expr(custom_objects::Column::UpdatedAt, Expr::value(now))
+        .filter(custom_objects::Column::Id.eq(&object.id));
+    weldsuite_db::atomically_with(db, |tx| {
+        Box::pin(async move {
+            let tx = OrmConn::new(tx);
+            values.exec(&tx).await?;
+            relations.exec(&tx).await?;
+            links.exec(&tx).await?;
+            records.exec(&tx).await?;
+            fields.exec(&tx).await?;
+            index.exec(&tx).await?;
+            definition.exec(&tx).await?;
+            Ok::<_, Refusal>(())
+        })
+    })
+    .await
 }

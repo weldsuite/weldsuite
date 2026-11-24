@@ -17,11 +17,18 @@ use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use http::StatusCode;
 use http::request::Parts;
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ColumnTrait, Condition, DbErr, EntityTrait, FromQueryResult, JoinType, QueryFilter, QuerySelect,
+};
 use serde::Serialize;
 use serde_json::{Value, json};
 use sqlx::PgPool;
+use time::OffsetDateTime;
 use weldsuite_auth::AuthContext;
+use weldsuite_db::orm;
 use weldsuite_kit::ApiError;
+use weldsuite_schema::master::{workspace_app_access, workspaces};
 
 /// `APP_ACCESS_CACHE_TTL_SECONDS`.
 pub const APP_ACCESS_CACHE_TTL: Duration = Duration::from_secs(60);
@@ -43,13 +50,23 @@ pub struct AppAccess {
     pub billing_status_at: Option<String>,
 }
 
-#[derive(sqlx::FromRow)]
+#[derive(FromQueryResult)]
 struct AccessRow {
     workspace_id: String,
     status: Option<String>,
     limits: Option<Value>,
     billing_status: Option<String>,
-    billing_status_at: Option<String>,
+    billing_status_at: Option<OffsetDateTime>,
+}
+
+/// `Date#toISOString()` (what `to_char(… 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`
+/// printed in UTC: milliseconds truncated).
+fn iso(at: OffsetDateTime) -> String {
+    at.to_offset(time::UtcOffset::UTC)
+        .format(time::macros::format_description!(
+            "[year]-[month]-[day]T[hour]:[minute]:[second].[subsecond digits:3]Z"
+        ))
+        .unwrap_or_default()
 }
 
 /// Uncached master read (`readAppAccessFrom`), by `workspaces.id` or Clerk
@@ -58,27 +75,43 @@ pub async fn read_app_access(
     master: &PgPool,
     workspace_ref: &str,
     app_code: &str,
-) -> Result<AppAccess, sqlx::Error> {
-    let row: Option<AccessRow> = sqlx::query_as(
-        r#"select w.id as workspace_id, a.status, a.limits, a.billing_status,
-                  to_char(a.billing_status_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
-                      as billing_status_at
-           from workspaces w
-           left join workspace_app_access a on a.workspace_id = w.id and a.app_code = $2
-           where w.id = $1 or w.clerk_org_id = $1
-           limit 1"#,
-    )
-    .bind(workspace_ref)
-    .bind(app_code)
-    .fetch_optional(master)
-    .await?;
+) -> Result<AppAccess, DbErr> {
+    use workspace_app_access::Column as Access;
+    // `left join workspace_app_access a on a.workspace_id = w.id and a.app_code = $app`.
+    let app = app_code.to_owned();
+    let access = workspaces::Entity::belongs_to(workspace_app_access::Entity)
+        .from(workspaces::Column::Id)
+        .to(Access::WorkspaceId)
+        .on_condition(move |_, right| {
+            Condition::all().add(sea_orm::ExprTrait::eq(
+                Expr::col((right, Access::AppCode)),
+                app.clone(),
+            ))
+        })
+        .into();
+    let row: Option<AccessRow> = workspaces::Entity::find()
+        .select_only()
+        .column_as(workspaces::Column::Id, "workspace_id")
+        .column_as(Access::Status, "status")
+        .column_as(Access::Limits, "limits")
+        .column_as(Access::BillingStatus, "billing_status")
+        .column_as(Access::BillingStatusAt, "billing_status_at")
+        .join(JoinType::LeftJoin, access)
+        .filter(
+            Condition::any()
+                .add(workspaces::Column::Id.eq(workspace_ref))
+                .add(workspaces::Column::ClerkOrgId.eq(workspace_ref)),
+        )
+        .into_model()
+        .one(&orm(master))
+        .await?;
     Ok(match row {
         Some(row) => AppAccess {
             workspace_id: Some(row.workspace_id),
             status: row.status.unwrap_or_else(|| "none".to_owned()),
             limits: row.limits.unwrap_or_else(|| json!({})),
             billing_status: row.billing_status.unwrap_or_else(|| "none".to_owned()),
-            billing_status_at: row.billing_status_at,
+            billing_status_at: row.billing_status_at.map(iso),
         },
         None => AppAccess {
             workspace_id: None,
@@ -126,7 +159,7 @@ impl AppAccessGate {
     }
 
     /// Cached read (`getAppAccess`).
-    pub async fn access(&self, org_id: &str) -> Result<AppAccess, sqlx::Error> {
+    pub async fn access(&self, org_id: &str) -> Result<AppAccess, DbErr> {
         {
             let cache = self.cache.lock().unwrap_or_else(PoisonError::into_inner);
             if let Some((at, access)) = cache.get(org_id)

@@ -5,16 +5,25 @@
 
 use std::collections::{HashMap, HashSet};
 
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{
+    ColumnTrait, Condition, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect,
+};
 use serde_json::{Value, json};
 use sqlx::PgPool;
+use weldsuite_db::{OrmConn, atomically_with, orm};
+use weldsuite_schema::tenant::{
+    form_access, form_integrations, form_response_actions, form_response_files, form_responses,
+    form_versions, forms,
+};
 
 use crate::access::{Grants, Need, form_permissions, relation_to};
-use crate::common::{Ctx, FormsResult, all, forms_error, iso, not_found, one, text};
+use crate::common::{Ctx, FormsResult, forms_error, instant, not_found, row_json, rows_json, text};
 use crate::members::member_refs;
 use crate::process::{ProcessResponseParams, start_processing};
 use crate::response_model::{
-    Bind, ResponseFilter, Where, bind_all, latest_fields, load_versions, response_conditions,
-    response_order, to_response_dto,
+    ResponseFilter, latest_fields, load_versions, response_conditions, response_order,
+    to_response_dto,
 };
 
 const DEFAULT_LIMIT: i64 = 50;
@@ -28,14 +37,13 @@ async fn files_of(
     if response_ids.is_empty() {
         return Ok(by_response);
     }
-    let files = all(
-        db,
-        sqlx::query_scalar(
-            "select to_jsonb(f) from form_response_files f where response_id = any($1) order by created_at",
-        )
-        .bind(response_ids),
-    )
-    .await?;
+    let files = rows_json(
+        form_response_files::Entity::find()
+            .filter(form_response_files::Column::ResponseId.is_in(response_ids))
+            .order_by_asc(form_response_files::Column::CreatedAt)
+            .all(&orm(db))
+            .await?,
+    )?;
     for file in files {
         by_response
             .entry(text(&file, "responseId").to_owned())
@@ -105,27 +113,22 @@ pub(crate) fn offset_of(cursor: Option<&str>) -> i64 {
 /// same conditions.
 async fn page_of(
     db: &PgPool,
-    mut w: Where,
-    order: &str,
+    w: Condition,
+    sort: Option<&str>,
     limit: i64,
     offset: i64,
 ) -> FormsResult<(Vec<Value>, i64)> {
-    let count_sql = format!("select count(*)::int from form_responses where {}", w.sql());
-    let total: i32 = bind_all(sqlx::query_scalar(sqlx::AssertSqlSafe(count_sql)), &w.binds)
-        .fetch_one(db)
+    let db = orm(db);
+    let total = form_responses::Entity::find()
+        .filter(w.clone())
+        .count(&db)
         .await?;
-    let limit = w.param(Bind::Int(limit));
-    let offset = w.param(Bind::Int(offset));
-    let sql = format!(
-        "select to_jsonb(r) from form_responses r where {} order by {order} limit {limit} offset {offset}",
-        w.sql()
-    );
-    let rows = all(
-        db,
-        bind_all(sqlx::query_scalar(sqlx::AssertSqlSafe(sql)), &w.binds),
-    )
-    .await?;
-    Ok((rows, i64::from(total)))
+    let rows = response_order(form_responses::Entity::find().filter(w), sort)
+        .limit(u64::try_from(limit).unwrap_or_default())
+        .offset(u64::try_from(offset).unwrap_or_default())
+        .all(&db)
+        .await?;
+    Ok((rows_json(rows)?, i64::try_from(total).unwrap_or(i64::MAX)))
 }
 
 fn next_cursor(offset: i64, rows: usize, total: i64) -> Option<String> {
@@ -146,7 +149,7 @@ pub(crate) async fn list_responses(
     let w = response_conditions(form_id, filter, &latest_fields(&versions))?;
     let limit = limit.unwrap_or(DEFAULT_LIMIT);
     let offset = offset_of(cursor);
-    let (rows, total) = page_of(&ctx.db, w, &response_order(sort), limit, offset).await?;
+    let (rows, total) = page_of(&ctx.db, w, sort, limit, offset).await?;
     let numbers: HashMap<String, i64> = versions.iter().map(|v| (v.id.clone(), v.number)).collect();
     Ok(ResponsePage {
         next: next_cursor(offset, rows.len(), total),
@@ -161,15 +164,14 @@ pub(crate) async fn get_response(
     form_id: &str,
     response_id: &str,
 ) -> FormsResult<Value> {
-    let Some(row) = one(
-        &ctx.db,
-        sqlx::query_scalar(
-            "select to_jsonb(r) from form_responses r where id = $1 and form_id = $2 limit 1",
-        )
-        .bind(response_id)
-        .bind(form_id),
-    )
-    .await?
+    let db = orm(&ctx.db);
+    let Some(row) = form_responses::Entity::find()
+        .filter(form_responses::Column::Id.eq(response_id))
+        .filter(form_responses::Column::FormId.eq(form_id))
+        .one(&db)
+        .await?
+        .map(row_json)
+        .transpose()?
     else {
         return Err(not_found("Response"));
     };
@@ -179,14 +181,13 @@ pub(crate) async fn get_response(
         .await?
         .pop()
         .unwrap_or(Value::Null);
-    let actions = all(
-        &ctx.db,
-        sqlx::query_scalar(
-            "select to_jsonb(a) from form_response_actions a where response_id = $1 order by created_at",
-        )
-        .bind(text(&row, "id")),
-    )
-    .await?;
+    let actions = rows_json(
+        form_response_actions::Entity::find()
+            .filter(form_response_actions::Column::ResponseId.eq(text(&row, "id")))
+            .order_by_asc(form_response_actions::Column::CreatedAt)
+            .all(&db)
+            .await?,
+    )?;
     dto["actions"] = Value::Array(
         actions
             .iter()
@@ -232,37 +233,24 @@ pub(crate) async fn delete_responses(
     if response_ids.is_empty() {
         return Ok((Vec::new(), Vec::new()));
     }
-    let rows = match form_id {
-        Some(form_id) => {
-            all(
-                &ctx.db,
-                sqlx::query_scalar(
-                    "select to_jsonb(r) from form_responses r where id = any($1) and form_id = $2",
-                )
-                .bind(response_ids)
-                .bind(form_id),
-            )
-            .await?
-        }
-        None => {
-            all(
-                &ctx.db,
-                sqlx::query_scalar("select to_jsonb(r) from form_responses r where id = any($1)")
-                    .bind(response_ids),
-            )
-            .await?
-        }
-    };
+    let db = orm(&ctx.db);
+    let mut find = form_responses::Entity::find()
+        .filter(form_responses::Column::Id.is_in(response_ids.iter().cloned()));
+    if let Some(form_id) = form_id {
+        find = find.filter(form_responses::Column::FormId.eq(form_id));
+    }
+    let rows = rows_json(find.all(&db).await?)?;
     if rows.is_empty() {
         return Ok((Vec::new(), Vec::new()));
     }
     let ids: Vec<String> = rows.iter().map(|r| text(r, "id").to_owned()).collect();
-    let keys: Vec<String> = sqlx::query_scalar(
-        "select storage_key from form_response_files where response_id = any($1)",
-    )
-    .bind(&ids)
-    .fetch_all(&ctx.db)
-    .await?;
+    let keys: Vec<String> = form_response_files::Entity::find()
+        .select_only()
+        .column(form_response_files::Column::StorageKey)
+        .filter(form_response_files::Column::ResponseId.is_in(ids.iter().cloned()))
+        .into_tuple()
+        .all(&db)
+        .await?;
     let mut form_ids: Vec<String> = Vec::new();
     for row in &rows {
         let id = text(row, "formId").to_owned();
@@ -270,13 +258,7 @@ pub(crate) async fn delete_responses(
             form_ids.push(id);
         }
     }
-    let titles: HashMap<String, String> =
-        sqlx::query_as::<_, (String, String)>("select id, title from forms where id = any($1)")
-            .bind(&form_ids)
-            .fetch_all(&ctx.db)
-            .await?
-            .into_iter()
-            .collect();
+    let titles = form_titles(ctx, &form_ids).await?;
     let mut completed: Vec<(String, i32)> = Vec::new();
     for row in rows.iter().filter(|r| text(r, "status") == "completed") {
         let id = text(row, "formId");
@@ -286,29 +268,7 @@ pub(crate) async fn delete_responses(
         }
     }
 
-    let mut tx = ctx.db.begin().await?;
-    sqlx::query("delete from form_response_actions where response_id = any($1)")
-        .bind(&ids)
-        .execute(&mut *tx)
-        .await?;
-    sqlx::query("delete from form_response_files where response_id = any($1)")
-        .bind(&ids)
-        .execute(&mut *tx)
-        .await?;
-    sqlx::query("delete from form_responses where id = any($1)")
-        .bind(&ids)
-        .execute(&mut *tx)
-        .await?;
-    for (form, n) in &completed {
-        sqlx::query(
-            "update forms set response_count = greatest(response_count - $2, 0) where id = $1",
-        )
-        .bind(form)
-        .bind(n)
-        .execute(&mut *tx)
-        .await?;
-    }
-    tx.commit().await?;
+    delete_rows(&ctx.db, ids, completed).await?;
 
     let deleted = rows
         .iter()
@@ -332,22 +292,87 @@ pub(crate) async fn delete_responses(
     Ok((deleted, keys))
 }
 
+/// `id, title` of the given forms.
+pub(crate) async fn form_titles(
+    ctx: &Ctx,
+    form_ids: &[String],
+) -> FormsResult<HashMap<String, String>> {
+    Ok(forms::Entity::find()
+        .select_only()
+        .columns([forms::Column::Id, forms::Column::Title])
+        .filter(forms::Column::Id.is_in(form_ids.iter().cloned()))
+        .into_tuple::<(String, String)>()
+        .all(&orm(&ctx.db))
+        .await?
+        .into_iter()
+        .collect())
+}
+
+/// The responses with their actions and files, in one transaction; each
+/// form's `response_count` goes down by its completed ones (not below 0).
+async fn delete_rows(
+    db: &PgPool,
+    ids: Vec<String>,
+    completed: Vec<(String, i32)>,
+) -> FormsResult<()> {
+    atomically_with(db, |tx| {
+        Box::pin(async move {
+            use sea_orm::ExprTrait as _;
+            let db = OrmConn::new(tx);
+            form_response_actions::Entity::delete_many()
+                .filter(form_response_actions::Column::ResponseId.is_in(ids.iter().cloned()))
+                .exec(&db)
+                .await?;
+            form_response_files::Entity::delete_many()
+                .filter(form_response_files::Column::ResponseId.is_in(ids.iter().cloned()))
+                .exec(&db)
+                .await?;
+            form_responses::Entity::delete_many()
+                .filter(form_responses::Column::Id.is_in(ids))
+                .exec(&db)
+                .await?;
+            for (form, n) in completed {
+                forms::Entity::update_many()
+                    .col_expr(
+                        forms::Column::ResponseCount,
+                        Expr::from(Func::greatest([
+                            Expr::col(forms::Column::ResponseCount).sub(n),
+                            Expr::val(0),
+                        ])),
+                    )
+                    .filter(forms::Column::Id.eq(form))
+                    .exec(&db)
+                    .await?;
+            }
+            FormsResult::Ok(())
+        })
+    })
+    .await
+}
+
 /// `responseIdsByEmail(ctx, email, formIds)`: for the GDPR erase.
 pub(crate) async fn response_ids_by_email(
     ctx: &Ctx,
     email: &str,
     form_ids: &[String],
 ) -> FormsResult<Vec<String>> {
+    use sea_orm::ExprTrait as _;
     if form_ids.is_empty() {
         return Ok(Vec::new());
     }
-    Ok(sqlx::query_scalar(
-        "select id from form_responses where form_id = any($1) and lower(respondent_email) = $2",
-    )
-    .bind(form_ids)
-    .bind(weldsuite_kit::validation::js_trim(email).to_lowercase())
-    .fetch_all(&ctx.db)
-    .await?)
+    Ok(form_responses::Entity::find()
+        .select_only()
+        .column(form_responses::Column::Id)
+        .filter(form_responses::Column::FormId.is_in(form_ids.iter().cloned()))
+        .filter(
+            Expr::from(Func::lower(Expr::col(
+                form_responses::Column::RespondentEmail,
+            )))
+            .eq(weldsuite_kit::validation::js_trim(email).to_lowercase()),
+        )
+        .into_tuple()
+        .all(&orm(&ctx.db))
+        .await?)
 }
 
 /// `findResponseFile(ctx, formId, responseId, fileId)`.
@@ -357,18 +382,15 @@ pub(crate) async fn find_response_file(
     response_id: &str,
     file_id: &str,
 ) -> FormsResult<Value> {
-    one(
-        &ctx.db,
-        sqlx::query_scalar(
-            "select to_jsonb(f) from form_response_files f \
-             where id = $1 and response_id = $2 and form_id = $3 limit 1",
-        )
-        .bind(file_id)
-        .bind(response_id)
-        .bind(form_id),
-    )
-    .await?
-    .ok_or_else(|| not_found("File"))
+    form_response_files::Entity::find()
+        .filter(form_response_files::Column::Id.eq(file_id))
+        .filter(form_response_files::Column::ResponseId.eq(response_id))
+        .filter(form_response_files::Column::FormId.eq(form_id))
+        .one(&orm(&ctx.db))
+        .await?
+        .map(row_json)
+        .transpose()?
+        .ok_or_else(|| not_found("File"))
 }
 
 // ---------------------------------------------------------------------------
@@ -391,18 +413,20 @@ pub(crate) async fn answerable_form_ids(
     grants: &Grants,
     need: Need,
 ) -> FormsResult<Vec<String>> {
-    let forms = all(db, sqlx::query_scalar("select to_jsonb(f) from forms f")).await?;
+    let db = orm(db);
+    let forms = rows_json(forms::Entity::find().all(&db).await?)?;
     let roles: HashMap<String, String> = if grants.manage {
         HashMap::new()
     } else {
-        sqlx::query_as::<_, (String, String)>(
-            "select form_id, role from form_access where user_id = $1",
-        )
-        .bind(user_id)
-        .fetch_all(db)
-        .await?
-        .into_iter()
-        .collect()
+        form_access::Entity::find()
+            .select_only()
+            .columns([form_access::Column::FormId, form_access::Column::Role])
+            .filter(form_access::Column::UserId.eq(user_id))
+            .into_tuple::<(String, String)>()
+            .all(&db)
+            .await?
+            .into_iter()
+            .collect()
     };
     Ok(forms
         .iter()
@@ -432,21 +456,13 @@ pub(crate) async fn list_person_responses(
             next: None,
         });
     }
-    let mut w = Where::default();
-    let person = w.param(Bind::Text(person_id.to_owned()));
-    let forms = w.param(Bind::Texts(form_ids.to_vec()));
-    w.push(format!("person_id = {person}"));
-    w.push(format!("form_id = any({forms})"));
+    let w = Condition::all()
+        .add(form_responses::Column::PersonId.eq(person_id))
+        .add(form_responses::Column::FormId.is_in(form_ids.iter().cloned()));
     let limit = limit.unwrap_or(DEFAULT_LIMIT);
     let offset = offset_of(cursor);
-    let (rows, total) = page_of(
-        &ctx.db,
-        w,
-        "coalesce(submitted_at, started_at) desc, id desc",
-        limit,
-        offset,
-    )
-    .await?;
+    // Newest first (`coalesce(submitted_at, started_at) desc, id desc`).
+    let (rows, total) = page_of(&ctx.db, w, None, limit, offset).await?;
     let version_ids: Vec<String> = rows
         .iter()
         .map(|r| text(r, "versionId").to_owned())
@@ -455,15 +471,16 @@ pub(crate) async fn list_person_responses(
         .collect();
     let mut numbers = HashMap::new();
     if !version_ids.is_empty() {
-        numbers = sqlx::query_as::<_, (String, i32)>(
-            "select id, number from form_versions where id = any($1)",
-        )
-        .bind(&version_ids)
-        .fetch_all(&ctx.db)
-        .await?
-        .into_iter()
-        .map(|(id, n)| (id, i64::from(n)))
-        .collect();
+        numbers = form_versions::Entity::find()
+            .select_only()
+            .columns([form_versions::Column::Id, form_versions::Column::Number])
+            .filter(form_versions::Column::Id.is_in(version_ids))
+            .into_tuple::<(String, i32)>()
+            .all(&orm(&ctx.db))
+            .await?
+            .into_iter()
+            .map(|(id, n)| (id, i64::from(n)))
+            .collect();
     }
     Ok(ResponsePage {
         next: next_cursor(offset, rows.len(), total),
@@ -485,27 +502,24 @@ pub(crate) async fn retry_action(
     action_id: &str,
 ) -> FormsResult<()> {
     let form_id = text(form, "id");
-    let Some(action) = one(
-        &ctx.db,
-        sqlx::query_scalar(
-            "select to_jsonb(a) from form_response_actions a \
-             where id = $1 and response_id = $2 and form_id = $3 limit 1",
-        )
-        .bind(action_id)
-        .bind(response_id)
-        .bind(form_id),
-    )
-    .await?
+    let db = orm(&ctx.db);
+    let Some(action) = form_response_actions::Entity::find()
+        .filter(form_response_actions::Column::Id.eq(action_id))
+        .filter(form_response_actions::Column::ResponseId.eq(response_id))
+        .filter(form_response_actions::Column::FormId.eq(form_id))
+        .one(&db)
+        .await?
     else {
         return Err(not_found("Action"));
     };
-    let status: Option<String> = sqlx::query_scalar(
-        "select status from form_responses where id = $1 and form_id = $2 limit 1",
-    )
-    .bind(response_id)
-    .bind(form_id)
-    .fetch_optional(&ctx.db)
-    .await?;
+    let status: Option<String> = form_responses::Entity::find()
+        .select_only()
+        .column(form_responses::Column::Status)
+        .filter(form_responses::Column::Id.eq(response_id))
+        .filter(form_responses::Column::FormId.eq(form_id))
+        .into_tuple()
+        .one(&db)
+        .await?;
     let Some(status) = status else {
         return Err(not_found("Response"));
     };
@@ -516,22 +530,33 @@ pub(crate) async fn retry_action(
             "Only a completed response can be processed again.",
         ));
     }
-    let integration: Option<String> =
-        sqlx::query_scalar("select id from form_integrations where id = $1 limit 1")
-            .bind(text(&action, "integrationId"))
-            .fetch_optional(&ctx.db)
-            .await?;
+    let integration: Option<String> = form_integrations::Entity::find()
+        .select_only()
+        .column(form_integrations::Column::Id)
+        .filter(form_integrations::Column::Id.eq(&action.integration_id))
+        .into_tuple()
+        .one(&db)
+        .await?;
     let Some(integration) = integration else {
         return Err(not_found("Integration"));
     };
     let now = ctx.now_ms();
-    sqlx::query(
-        "update form_response_actions set status = 'pending', error = null, updated_at = $2::timestamptz where id = $1",
-    )
-    .bind(text(&action, "id"))
-    .bind(iso(now))
-    .execute(&ctx.db)
-    .await?;
+    form_response_actions::Entity::update_many()
+        .col_expr(
+            form_response_actions::Column::Status,
+            Expr::value("pending"),
+        )
+        .col_expr(
+            form_response_actions::Column::Error,
+            Expr::value(None::<String>),
+        )
+        .col_expr(
+            form_response_actions::Column::UpdatedAt,
+            Expr::value(instant(now)),
+        )
+        .filter(form_response_actions::Column::Id.eq(&action.id))
+        .exec(&db)
+        .await?;
     let params = ProcessResponseParams {
         clerk_org_id: ctx.clerk_org_id.clone(),
         workspace_id: ctx.workspace_id.clone(),

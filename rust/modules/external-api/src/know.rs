@@ -11,6 +11,8 @@ use axum::response::IntoResponse;
 use axum::routing::{get, patch, post};
 use http::HeaderMap;
 use regex::Regex;
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, Condition, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 use serde_json::{Map, Value, json};
 use std::collections::HashMap;
 use std::sync::LazyLock;
@@ -18,21 +20,22 @@ use weldsuite_catalogs::entity_events::{
     KNOWLEDGE_PAGE_CREATED, KNOWLEDGE_PAGE_DELETED, KNOWLEDGE_PAGE_MOVED, KNOWLEDGE_PAGE_UPDATED,
     KNOWLEDGE_SPACE_CREATED, KNOWLEDGE_SPACE_DELETED, KNOWLEDGE_SPACE_UPDATED,
 };
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm, utc_now, utc_timestamp};
 use weldsuite_kit::id::generate_id;
 use weldsuite_know_domain::KnowError;
 use weldsuite_know_domain::access::{self, SpaceAccess};
+use weldsuite_schema::tenant::{knowledge_pages, knowledge_spaces};
 
 use crate::ExternalApiState;
 use crate::crud::{Answer, Caller, Fail, created, field, list_query, no_content, now, ok};
-use crate::list::list_page_mapped;
+use crate::list::{like_any, list_page_mapped, one_of, when};
 use crate::schemas::{
     CREATE_KNOWLEDGE_PAGE, LIST_KNOWLEDGE_PAGES, MOVE_KNOWLEDGE_PAGE, UPDATE_KNOWLEDGE_PAGE,
 };
 use crate::schemas_gen::{CREATE_KNOWLEDGE_SPACE, UPDATE_KNOWLEDGE_SPACE};
 use crate::session::{bad_request, conflict, forbidden, internal, not_found};
 use crate::simple::scoped;
-use crate::tables_gen::{KNOWLEDGE_PAGES, KNOWLEDGE_SPACES, row};
+use crate::tables_gen::{KNOWLEDGE_PAGES, KNOWLEDGE_SPACES};
 use crate::zod;
 
 type S = State<ExternalApiState>;
@@ -155,12 +158,15 @@ async fn create_space(State(state): S, caller: Caller, headers: HeaderMap, body:
     let sort_order = if let Some(order) = body.get("sortOrder") {
         order.clone()
     } else {
-        let max: i64 = sqlx::query_scalar(
-            "select coalesce(max(sort_order), -1)::bigint from knowledge_spaces where deleted_at is null",
-        )
-        .fetch_one(&caller.db)
-        .await?;
-        json!(max + 1)
+        // `coalesce(max(sort_order), -1)` of the live spaces.
+        let max: Option<Option<i32>> = knowledge_spaces::Entity::find()
+            .select_only()
+            .column_as(knowledge_spaces::Column::SortOrder.max(), "max")
+            .filter(knowledge_spaces::Column::DeletedAt.is_null())
+            .into_tuple()
+            .one(&orm(&caller.db))
+            .await?;
+        json!(max.flatten().map_or(-1, i64::from) + 1)
     };
     let opt = |key: &str| body.get(key).cloned().unwrap_or(Value::Null);
     let mut values = Map::new();
@@ -263,23 +269,22 @@ async fn delete_space(State(state): S, caller: Caller, Path(id): Path<String>) -
     if !access.can_manage {
         return Err(forbidden(NOT_OWNER).into());
     }
-    let stamp = now();
-    sqlx::query(
-        "update knowledge_spaces set deleted_at = $2::timestamptz, updated_at = $2::timestamptz where id = $1",
-    )
-    .bind(&id)
-    .bind(&stamp)
-    .execute(&caller.db)
-    .await?;
+    let at = utc_now();
+    let db = orm(&caller.db);
+    knowledge_spaces::Entity::update_many()
+        .col_expr(knowledge_spaces::Column::DeletedAt, Expr::value(at))
+        .col_expr(knowledge_spaces::Column::UpdatedAt, Expr::value(at))
+        .filter(knowledge_spaces::Column::Id.eq(id.as_str()))
+        .exec(&db)
+        .await?;
     // Every live page in the space goes to the platform trash.
-    sqlx::query(
-        "update knowledge_pages set deleted_at = $2::timestamptz, updated_at = $2::timestamptz
-         where space_id = $1 and deleted_at is null",
-    )
-    .bind(&id)
-    .bind(&stamp)
-    .execute(&caller.db)
-    .await?;
+    knowledge_pages::Entity::update_many()
+        .col_expr(knowledge_pages::Column::DeletedAt, Expr::value(at))
+        .col_expr(knowledge_pages::Column::UpdatedAt, Expr::value(at))
+        .filter(knowledge_pages::Column::SpaceId.eq(id.as_str()))
+        .filter(knowledge_pages::Column::DeletedAt.is_null())
+        .exec(&db)
+        .await?;
     caller.publish(
         &state.events,
         KNOWLEDGE_SPACE_DELETED,
@@ -407,15 +412,22 @@ async fn load_page(
 
 /// `nextPosition(db, spaceId, parentId)`.
 async fn next_position(db: &PgPool, space_id: &str, parent_id: Option<&str>) -> Result<i64, Fail> {
-    let max: Option<i64> = sqlx::query_scalar(
-        "select max(position)::bigint from knowledge_pages
-         where space_id = $1 and parent_id is not distinct from $2 and deleted_at is null",
-    )
-    .bind(space_id)
-    .bind(parent_id)
-    .fetch_one(db)
-    .await?;
-    Ok(max.unwrap_or(-1).max(-1) + 1)
+    use knowledge_pages::Column;
+    // `parent_id is not distinct from $parent`.
+    let under = match parent_id {
+        Some(parent) => Column::ParentId.eq(parent),
+        None => Column::ParentId.is_null(),
+    };
+    let max: Option<Option<i32>> = knowledge_pages::Entity::find()
+        .select_only()
+        .column_as(Column::Position.max(), "max")
+        .filter(Column::SpaceId.eq(space_id))
+        .filter(under)
+        .filter(Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
+    Ok(max.flatten().map_or(-1, i64::from).max(-1) + 1)
 }
 
 /// `collectSubtreeIds(db, rootId)`: the page and its live descendants.
@@ -423,12 +435,14 @@ async fn subtree(db: &PgPool, root: &str) -> Result<Vec<String>, Fail> {
     let mut all = vec![root.to_owned()];
     let mut frontier = vec![root.to_owned()];
     while !frontier.is_empty() {
-        frontier = sqlx::query_scalar(
-            "select id from knowledge_pages where parent_id = any($1) and deleted_at is null",
-        )
-        .bind(&frontier)
-        .fetch_all(db)
-        .await?;
+        frontier = knowledge_pages::Entity::find()
+            .select_only()
+            .column(knowledge_pages::Column::Id)
+            .filter(knowledge_pages::Column::ParentId.is_in(frontier))
+            .filter(knowledge_pages::Column::DeletedAt.is_null())
+            .into_tuple()
+            .all(&orm(db))
+            .await?;
         all.extend(frontier.iter().cloned());
     }
     Ok(all)
@@ -442,24 +456,29 @@ async fn would_create_cycle(db: &PgPool, page_id: &str, parent_id: &str) -> Resu
         if id == page_id || !seen.insert(id.clone()) {
             return Ok(true);
         }
-        current = sqlx::query_scalar::<_, Option<String>>(
-            "select parent_id from knowledge_pages where id = $1 limit 1",
-        )
-        .bind(&id)
-        .fetch_optional(db)
-        .await?
-        .flatten();
+        current = knowledge_pages::Entity::find_by_id(id)
+            .select_only()
+            .column(knowledge_pages::Column::ParentId)
+            .into_tuple::<Option<String>>()
+            .one(&orm(db))
+            .await?
+            .flatten();
     }
     Ok(false)
 }
 
-const PAGES_LIST: (&str, &str) = crate::crud::table_list_sql!(
-    knowledge_pages,
-    "t.deleted_at is null \
-     and t.space_id in (select jsonb_array_elements_text($3->'spaceIds')) \
-     and ($3->>'parentId' is null or t.parent_id = $3->>'parentId') \
-     and ($3->>'search' is null or (t.title like $3->>'search' or t.content_text like $3->>'search'))"
-);
+/// The pages list: live pages in the caller's readable spaces (`spaceIds`),
+/// then the filters.
+fn pages_list(f: &Value) -> Condition {
+    use knowledge_pages::Column;
+    Condition::all()
+        .add(Column::DeletedAt.is_null())
+        .add(one_of(f, "spaceIds", Column::SpaceId))
+        .add_option(when(f, "parentId", |v| Column::ParentId.eq(v)))
+        .add_option(when(f, "search", |v| {
+            like_any(&[Column::Title, Column::ContentText], &v)
+        }))
+}
 
 /// The caller's readable spaces, narrowed to `spaceId` when given.
 async fn readable_scope(caller: &Caller, space_id: Option<&str>) -> Result<Vec<String>, Fail> {
@@ -483,20 +502,15 @@ async fn list_pages(caller: Caller, RawQuery(raw): RawQuery) -> Answer {
         "parentId": crate::crud::text(&q, "parentId"),
         "search": crate::crud::like(&q, "search"),
     });
-    Ok(
-        list_page_mapped(&caller.db, PAGES_LIST, &list_query(&q), &filters, |row| {
-            KNOWLEDGE_PAGES.js(row)
-        })
-        .await?,
+    Ok(list_page_mapped(
+        &caller.db,
+        &KNOWLEDGE_PAGES.entity,
+        pages_list(&filters),
+        &list_query(&q),
+        |row| KNOWLEDGE_PAGES.js(row),
     )
+    .await?)
 }
-
-const TREE_SQL: &str = concat!(
-    "select ",
-    row!(knowledge_pages),
-    " from knowledge_pages t where t.space_id = any($1) and t.deleted_at is null \
-     order by t.position asc, t.created_at asc"
-);
 
 async fn page_tree(caller: Caller, Query(query): Query<HashMap<String, String>>) -> Answer {
     let space_id = query.get("spaceId").filter(|s| !s.is_empty());
@@ -504,14 +518,21 @@ async fn page_tree(caller: Caller, Query(query): Query<HashMap<String, String>>)
     if scope.is_empty() {
         return whole(Vec::new());
     }
-    let rows: Vec<Value> = sqlx::query_scalar(TREE_SQL)
-        .bind(&scope)
-        .fetch_all(&caller.db)
-        .await?;
-    let rows = rows
+    let pages = knowledge_pages::Entity::find()
+        .filter(knowledge_pages::Column::SpaceId.is_in(scope))
+        .filter(knowledge_pages::Column::DeletedAt.is_null())
+        .order_by_asc(knowledge_pages::Column::Position)
+        .order_by_asc(knowledge_pages::Column::CreatedAt)
+        .all(&orm(&caller.db))
+        .await?
         .into_iter()
-        .map(|row| {
-            let page = KNOWLEDGE_PAGES.js(row);
+        .map(serde_json::to_value)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| DbErr::Json(error.to_string()))?;
+    let rows = pages
+        .into_iter()
+        .map(|page| {
+            let page = KNOWLEDGE_PAGES.js(page);
             json!({
                 "id": field(&page, "id"),
                 "spaceId": field(&page, "spaceId"),
@@ -698,7 +719,9 @@ async fn move_page(
         Some(position) => position.clone(),
         None => json!(next_position(&caller.db, &target, parent_value.as_str()).await?),
     };
-    let stamp = now();
+    // One instant: the moved page's text stamp and its descendants'.
+    let now_at = time::OffsetDateTime::now_utc();
+    let stamp = weldsuite_events::iso_timestamp(now_at);
     let mut update = Map::new();
     update.insert("parentId".into(), parent_value.clone());
     update.insert("spaceId".into(), json!(target));
@@ -717,14 +740,18 @@ async fn move_page(
             .filter(|page| *page != id)
             .collect();
         if !descendants.is_empty() {
-            sqlx::query(
-                "update knowledge_pages set space_id = $2, updated_at = $3::timestamptz where id = any($1)",
-            )
-            .bind(&descendants)
-            .bind(&target)
-            .bind(&stamp)
-            .execute(&caller.db)
-            .await?;
+            knowledge_pages::Entity::update_many()
+                .col_expr(
+                    knowledge_pages::Column::SpaceId,
+                    Expr::value(target.as_str()),
+                )
+                .col_expr(
+                    knowledge_pages::Column::UpdatedAt,
+                    Expr::value(utc_timestamp(now_at)),
+                )
+                .filter(knowledge_pages::Column::Id.is_in(descendants))
+                .exec(&orm(&caller.db))
+                .await?;
         }
     }
     caller.publish(
@@ -744,13 +771,13 @@ async fn delete_page(State(state): S, caller: Caller, Path(id): Path<String>) ->
         return Err(forbidden(NOT_EDITOR).into());
     }
     let ids = subtree(&caller.db, &id).await?;
-    sqlx::query(
-        "update knowledge_pages set deleted_at = $2::timestamptz, updated_at = $2::timestamptz where id = any($1)",
-    )
-    .bind(&ids)
-    .bind(now())
-    .execute(&caller.db)
-    .await?;
+    let at = utc_now();
+    knowledge_pages::Entity::update_many()
+        .col_expr(knowledge_pages::Column::DeletedAt, Expr::value(at))
+        .col_expr(knowledge_pages::Column::UpdatedAt, Expr::value(at))
+        .filter(knowledge_pages::Column::Id.is_in(ids))
+        .exec(&orm(&caller.db))
+        .await?;
     caller.publish(
         &state.events,
         KNOWLEDGE_PAGE_DELETED,

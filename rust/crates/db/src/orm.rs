@@ -100,6 +100,18 @@ pub fn orm_error(error: sqlx::Error) -> DbErr {
     query_err(error)
 }
 
+/// A database error's text as sqlx words it, without SeaORM's prefix
+/// (`Query Error: …`): the text callers showed before their queries moved to
+/// the ORM.
+pub fn db_error_text(error: &DbErr) -> String {
+    match error {
+        DbErr::Query(RuntimeErr::SqlxError(error))
+        | DbErr::Exec(RuntimeErr::SqlxError(error))
+        | DbErr::Conn(RuntimeErr::SqlxError(error)) => error.to_string(),
+        other => other.to_string(),
+    }
+}
+
 #[async_trait::async_trait]
 impl ConnectionTrait for OrmConn<'_> {
     fn get_database_backend(&self) -> DbBackend {

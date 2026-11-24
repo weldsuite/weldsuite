@@ -15,13 +15,19 @@ use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Response};
 use http::header::CONTENT_TYPE;
 use http::{HeaderMap, StatusCode};
+use sea_orm::ActiveValue::Set;
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
+use serde::Serialize;
 use serde_json::{Value, json};
+use time::OffsetDateTime;
 use weldsuite_auth::AuthContext;
-use weldsuite_db::{PgPool, Tenant, js_row};
+use weldsuite_db::{PgPool, Tenant, orm, utc_now};
 use weldsuite_kit::validation::{Issues, json_body};
 use weldsuite_kit::{ApiError, Created, Data, List, Pagination, generate_id};
 use weldsuite_permissions::{Permissions, check_permission_grants, is_grantable_permission_key};
 use weldsuite_ports::{DynRealtimePublisher, RealtimeMessage};
+use weldsuite_schema::tenant::{access_requests, notifications, workspace_members};
 
 use crate::server::AppState;
 
@@ -61,16 +67,26 @@ fn notify(clerk_org_id: &str, user_id: &str, notification: &Value) -> RealtimeMe
     )
 }
 
-async fn fetch_row(
+/// A row as the route returns it: the entity serializes as Drizzle did.
+fn row_json(model: impl Serialize) -> Result<Value, DbErr> {
+    serde_json::to_value(model).map_err(|error| DbErr::Json(error.to_string()))
+}
+
+/// `date_trunc('milliseconds', clock_timestamp())`: now, to the millisecond.
+fn now_ms() -> OffsetDateTime {
+    utc_now().assume_utc()
+}
+
+/// `insert into notifications (…) returning *`: one in-app notification of
+/// an access request, as the route returns it.
+async fn insert_notification(
     db: &PgPool,
-    sql: &'static str,
-    binds: &[&str],
-) -> Result<Option<Value>, sqlx::Error> {
-    let mut query = sqlx::query_scalar::<_, Value>(sql);
-    for bind in binds {
-        query = query.bind(*bind);
-    }
-    Ok(query.fetch_optional(db).await?.map(js_row))
+    notification: notifications::ActiveModel,
+) -> Result<Value, DbErr> {
+    let row = notifications::Entity::insert(notification)
+        .exec_with_returning(&orm(db))
+        .await?;
+    row_json(row)
 }
 
 // ── POST / ──────────────────────────────────────────────────────────────────
@@ -156,53 +172,56 @@ async fn create_request(
     permission: &str,
     page_label: Option<&str>,
     page_path: Option<&str>,
-) -> Result<CreatedRequest, sqlx::Error> {
-    let requester_name: Option<Option<String>> = sqlx::query_scalar(
-        "select name from workspace_members where user_id = $1 and deleted_at is null limit 1",
-    )
-    .bind(requester_id)
-    .fetch_optional(db)
-    .await?;
+) -> Result<CreatedRequest, DbErr> {
+    let requester_name: Option<Option<String>> = workspace_members::Entity::find()
+        .select_only()
+        .column(workspace_members::Column::Name)
+        .filter(workspace_members::Column::UserId.eq(requester_id))
+        .filter(workspace_members::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
 
-    if let Some(existing) = fetch_row(
-        db,
-        "select to_jsonb(a) from access_requests a
-         where requester_id = $1 and permission = $2 and status = 'pending'
-         order by created_at desc limit 1",
-        &[requester_id, permission],
-    )
-    .await?
-    {
+    let existing = access_requests::Entity::find()
+        .filter(access_requests::Column::RequesterId.eq(requester_id))
+        .filter(access_requests::Column::Permission.eq(permission))
+        .filter(access_requests::Column::Status.eq("pending"))
+        .order_by_desc(access_requests::Column::CreatedAt)
+        .one(&orm(db))
+        .await?;
+    if let Some(existing) = existing {
         return Ok(CreatedRequest {
-            request: existing,
+            request: row_json(existing)?,
             deduped: true,
             notifications: Vec::new(),
         });
     }
 
-    let request: Value = sqlx::query_scalar(
-        "insert into access_requests
-             (id, requester_id, permission, page_label, page_path, status, created_at, updated_at)
-         values ($1, $2, $3, $4, $5, 'pending',
-                 date_trunc('milliseconds', clock_timestamp()), date_trunc('milliseconds', clock_timestamp()))
-         returning to_jsonb(access_requests)",
-    )
-    .bind(generate_id("areq"))
-    .bind(requester_id)
-    .bind(permission)
-    .bind(page_label)
-    .bind(page_path)
-    .fetch_one(db)
+    let now = now_ms();
+    let request = access_requests::Entity::insert(access_requests::ActiveModel {
+        id: Set(generate_id("areq")),
+        requester_id: Set(requester_id.to_owned()),
+        permission: Set(permission.to_owned()),
+        page_label: Set(page_label.map(str::to_owned)),
+        page_path: Set(page_path.map(str::to_owned)),
+        status: Set("pending".to_owned()),
+        created_at: Set(now),
+        updated_at: Set(now),
+        ..Default::default()
+    })
+    .exec_with_returning(&orm(db))
     .await?;
-    let request = js_row(request);
-    let request_id = request["id"].as_str().unwrap_or_default().to_owned();
+    let request_id = request.id.clone();
+    let request = row_json(request)?;
 
-    let admins: Vec<String> = sqlx::query_scalar(
-        "select user_id from workspace_members where role = any($1) and deleted_at is null",
-    )
-    .bind(ADMIN_ROLES.map(str::to_owned).to_vec())
-    .fetch_all(db)
-    .await?;
+    let admins: Vec<String> = workspace_members::Entity::find()
+        .select_only()
+        .column(workspace_members::Column::UserId)
+        .filter(workspace_members::Column::Role.is_in(ADMIN_ROLES))
+        .filter(workspace_members::Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     let recipients: Vec<String> = admins
         .into_iter()
         .filter(|user| !user.is_empty() && user != requester_id)
@@ -227,23 +246,28 @@ async fn create_request(
             "requesterId": requester_id,
         });
         for user in &recipients {
-            let row: Value = sqlx::query_scalar(
-                "insert into notifications
-                     (id, user_id, title, body, category, notification_type, entity_type, entity_id,
-                      action_url, actor_type, actor_id, icon, severity, data)
-                 values ($1, $2, 'Access request', $3, 'security', 'access_request', 'access_request', $4,
-                         '/settings/team', 'user', $5, 'lock', 'info', $6)
-                 returning to_jsonb(notifications)",
+            let row = insert_notification(
+                db,
+                notifications::ActiveModel {
+                    id: Set(generate_id("ntf")),
+                    user_id: Set(user.clone()),
+                    title: Set("Access request".to_owned()),
+                    body: Set(Some(body.clone())),
+                    category: Set("security".to_owned()),
+                    notification_type: Set("access_request".to_owned()),
+                    entity_type: Set(Some("access_request".to_owned())),
+                    entity_id: Set(Some(request_id.clone())),
+                    action_url: Set(Some("/settings/team".to_owned())),
+                    actor_type: Set(Some("user".to_owned())),
+                    actor_id: Set(Some(requester_id.to_owned())),
+                    icon: Set(Some("lock".to_owned())),
+                    severity: Set("info".to_owned()),
+                    data: Set(Some(data.clone())),
+                    ..Default::default()
+                },
             )
-            .bind(generate_id("ntf"))
-            .bind(user)
-            .bind(&body)
-            .bind(&request_id)
-            .bind(requester_id)
-            .bind(&data)
-            .fetch_one(db)
             .await?;
-            notifications.push(js_row(row));
+            notifications.push(row);
         }
     }
 
@@ -349,63 +373,62 @@ async fn resolve_request(
     resolver_id: &str,
     status: &str,
     grantor: &Permissions,
-) -> Result<Outcome, sqlx::Error> {
-    let Some(existing) = fetch_row(
-        db,
-        "select to_jsonb(a) from access_requests a where id = $1 limit 1",
-        &[request_id],
-    )
-    .await?
+) -> Result<Outcome, DbErr> {
+    let Some(existing) = access_requests::Entity::find_by_id(request_id.to_owned())
+        .one(&orm(db))
+        .await?
     else {
         return Ok(Outcome::NotFound);
     };
-    if existing["status"] != "pending" {
+    if existing.status != "pending" {
         return Ok(Outcome::AlreadyResolved);
     }
-    let requester_id = existing["requesterId"]
-        .as_str()
-        .unwrap_or_default()
-        .to_owned();
-    let permission = existing["permission"]
-        .as_str()
-        .unwrap_or_default()
-        .to_owned();
+    let requester_id = existing.requester_id;
+    let permission = existing.permission;
 
     if status == "approved" && !grant(db, &requester_id, &permission, grantor).await? {
         // Left pending, so someone who does hold the permission can approve it.
         return Ok(Outcome::Ungrantable);
     }
 
-    let request: Value = sqlx::query_scalar(
-        "update access_requests
-         set status = $2, resolved_by = $3,
-             resolved_at = date_trunc('milliseconds', clock_timestamp()),
-             updated_at = date_trunc('milliseconds', clock_timestamp())
-         where id = $1
-         returning to_jsonb(access_requests)",
-    )
-    .bind(request_id)
-    .bind(status)
-    .bind(resolver_id)
-    .fetch_one(db)
-    .await?;
-    let request = js_row(request);
+    let resolved_at = now_ms();
+    let request = access_requests::Entity::update_many()
+        .col_expr(access_requests::Column::Status, Expr::value(status))
+        .col_expr(
+            access_requests::Column::ResolvedBy,
+            Expr::value(resolver_id),
+        )
+        .col_expr(
+            access_requests::Column::ResolvedAt,
+            Expr::value(resolved_at),
+        )
+        .col_expr(access_requests::Column::UpdatedAt, Expr::value(resolved_at))
+        .filter(access_requests::Column::Id.eq(request_id))
+        .exec_with_returning(&orm(db))
+        .await?
+        .into_iter()
+        .next()
+        .ok_or_else(|| DbErr::RecordNotFound("access_requests".to_owned()))?;
+    let request = row_json(request)?;
 
     // Stamp the admins' original notifications with the outcome and mark them
     // read, so the panel shows "Approved"/"Denied" and the badge settles.
-    sqlx::query(
-        "update notifications
-         set data = coalesce(data, '{}'::jsonb)
-                    || jsonb_build_object('resolvedStatus', $2::text, 'resolvedBy', $3::text),
-             is_read = true,
-             read_at = date_trunc('milliseconds', clock_timestamp())
-         where entity_type = 'access_request' and entity_id = $1",
-    )
-    .bind(request_id)
-    .bind(status)
-    .bind(resolver_id)
-    .execute(db)
-    .await?;
+    // `coalesce(data, '{}'::jsonb) || jsonb_build_object(…)`.
+    let stamped = sea_orm::sea_query::extension::postgres::PgExpr::concat(
+        Expr::from(Func::coalesce([
+            Expr::col(notifications::Column::Data),
+            Expr::val(json!({})),
+        ])),
+        Expr::val(json!({ "resolvedStatus": status, "resolvedBy": resolver_id })),
+    );
+    notifications::Entity::update_many()
+        .col_expr(notifications::Column::Data, stamped)
+        .col_expr(notifications::Column::IsRead, Expr::value(true))
+        .col_expr(notifications::Column::ReadAt, Expr::value(now_ms()))
+        .filter(notifications::Column::EntityType.eq("access_request"))
+        .filter(notifications::Column::EntityId.eq(request_id))
+        .exec(&orm(db))
+        .await?;
 
     let approved = status == "approved";
     let (title, body, icon, severity) = if approved {
@@ -423,31 +446,36 @@ async fn resolve_request(
             "info",
         )
     };
-    let notification: Value = sqlx::query_scalar(
-        "insert into notifications
-             (id, user_id, title, body, category, notification_type, entity_type, entity_id,
-              action_url, actor_type, actor_id, icon, severity, data)
-         values ($1, $2, $3, $4, 'security', 'access_request_resolved', 'access_request', $5,
-                 $6, 'user', $7, $8, $9, $10)
-         returning to_jsonb(notifications)",
+    let notification = insert_notification(
+        db,
+        notifications::ActiveModel {
+            id: Set(generate_id("ntf")),
+            user_id: Set(requester_id.clone()),
+            title: Set(title.to_owned()),
+            body: Set(Some(body)),
+            category: Set("security".to_owned()),
+            notification_type: Set("access_request_resolved".to_owned()),
+            entity_type: Set(Some("access_request".to_owned())),
+            entity_id: Set(Some(request_id.to_owned())),
+            action_url: Set(existing.page_path),
+            actor_type: Set(Some("user".to_owned())),
+            actor_id: Set(Some(resolver_id.to_owned())),
+            icon: Set(Some(icon.to_owned())),
+            severity: Set(severity.to_owned()),
+            data: Set(Some(json!({
+                "accessRequestId": request_id,
+                "permission": permission,
+                "status": status,
+            }))),
+            ..Default::default()
+        },
     )
-    .bind(generate_id("ntf"))
-    .bind(&requester_id)
-    .bind(title)
-    .bind(body)
-    .bind(request_id)
-    .bind(existing["pagePath"].as_str())
-    .bind(resolver_id)
-    .bind(icon)
-    .bind(severity)
-    .bind(json!({ "accessRequestId": request_id, "permission": permission, "status": status }))
-    .fetch_one(db)
     .await?;
 
     Ok(Outcome::Resolved {
         request,
         requester_id,
-        requester_notification: js_row(notification),
+        requester_notification: notification,
     })
 }
 
@@ -459,14 +487,18 @@ async fn grant(
     requester_id: &str,
     permission: &str,
     grantor: &Permissions,
-) -> Result<bool, sqlx::Error> {
-    let member: Option<(String, Option<Value>)> = sqlx::query_as(
-        "select id, permissions from workspace_members
-         where user_id = $1 and deleted_at is null limit 1",
-    )
-    .bind(requester_id)
-    .fetch_optional(db)
-    .await?;
+) -> Result<bool, DbErr> {
+    let member: Option<(String, Option<Value>)> = workspace_members::Entity::find()
+        .select_only()
+        .columns([
+            workspace_members::Column::Id,
+            workspace_members::Column::Permissions,
+        ])
+        .filter(workspace_members::Column::UserId.eq(requester_id))
+        .filter(workspace_members::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     let Some((member_id, stored)) = member else {
         return Ok(true);
     };
@@ -491,15 +523,15 @@ async fn grant(
             })
             .unwrap_or_default();
         next.push(Value::String(permission.to_owned()));
-        sqlx::query(
-            "update workspace_members
-             set permissions = $2, updated_at = date_trunc('milliseconds', clock_timestamp())
-             where id = $1",
-        )
-        .bind(member_id)
-        .bind(Value::Array(next))
-        .execute(db)
-        .await?;
+        workspace_members::Entity::update_many()
+            .col_expr(
+                workspace_members::Column::Permissions,
+                Expr::value(Value::Array(next)),
+            )
+            .col_expr(workspace_members::Column::UpdatedAt, Expr::value(now_ms()))
+            .filter(workspace_members::Column::Id.eq(member_id))
+            .exec(&orm(db))
+            .await?;
     }
     Ok(true)
 }
@@ -507,17 +539,19 @@ async fn grant(
 // ── GET /me/pending ─────────────────────────────────────────────────────────
 
 pub(crate) async fn my_pending(auth: AuthContext, tenant: Tenant) -> Response {
-    let rows: Result<Vec<Value>, sqlx::Error> = sqlx::query_scalar(
-        "select to_jsonb(a) from access_requests a
-         where requester_id = $1 and status = 'pending'
-         order by created_at desc",
-    )
-    .bind(&auth.user_id)
-    .fetch_all(&tenant.db)
-    .await;
+    let rows = access_requests::Entity::find()
+        .filter(access_requests::Column::RequesterId.eq(&auth.user_id))
+        .filter(access_requests::Column::Status.eq("pending"))
+        .order_by_desc(access_requests::Column::CreatedAt)
+        .all(&orm(&tenant.db))
+        .await
+        .and_then(|rows| {
+            rows.into_iter()
+                .map(row_json)
+                .collect::<Result<Vec<_>, _>>()
+        });
     match rows {
         Ok(rows) => {
-            let rows: Vec<Value> = rows.into_iter().map(js_row).collect();
             let total = u64::try_from(rows.len()).unwrap_or(u64::MAX);
             List::new(rows, Pagination::new(total, false, None)).into_response()
         }

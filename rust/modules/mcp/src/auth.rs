@@ -46,12 +46,14 @@ use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use http::{HeaderValue, StatusCode, header};
+use sea_orm::{ColumnTrait, EntityTrait, JoinType, QueryFilter, QuerySelect};
 use serde_json::{Value, json};
 use weldsuite_auth::SessionVerifier;
 use weldsuite_db::TenantPermissionQueries;
-use weldsuite_db::{SoleWorkspace, Tenant, WorkspaceError, WorkspaceSelector};
+use weldsuite_db::{SoleWorkspace, Tenant, WorkspaceError, WorkspaceSelector, orm};
 use weldsuite_permissions::resolve_effective_permissions;
 use weldsuite_ports::{HttpRequest, OutboundHttp};
+use weldsuite_schema::master::{plans, workspaces};
 
 use crate::picker::{self, WorkspaceChoice};
 use crate::{McpSession, McpState};
@@ -515,13 +517,22 @@ pub async fn authenticate(
 
 /// The workspace's name and plan tier (`getTierFromPlan`).
 async fn workspace_name_and_tier(state: &McpState, tenant: &Tenant) -> (String, String) {
-    let row: Option<(String, Option<String>)> = sqlx::query_as(
-        "select w.name, p.slug from workspaces w left join plans p on p.id = w.plan_id where w.id = $1 limit 1",
-    )
-    .bind(&tenant.workspace_id)
-    .fetch_optional(&state.master)
-    .await
-    .unwrap_or_default();
+    let row: Option<(String, Option<String>)> = workspaces::Entity::find()
+        .select_only()
+        .column(workspaces::Column::Name)
+        .column(plans::Column::Slug)
+        .join(
+            JoinType::LeftJoin,
+            workspaces::Entity::belongs_to(plans::Entity)
+                .from(workspaces::Column::PlanId)
+                .to(plans::Column::Id)
+                .into(),
+        )
+        .filter(workspaces::Column::Id.eq(&tenant.workspace_id))
+        .into_tuple()
+        .one(&orm(&state.master))
+        .await
+        .unwrap_or_default();
     let (name, slug) = row.unwrap_or_default();
     let tier = match slug.as_deref() {
         Some(tier @ ("free" | "business" | "scale" | "enterprise")) => tier.to_owned(),

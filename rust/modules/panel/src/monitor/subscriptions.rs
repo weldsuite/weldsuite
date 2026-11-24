@@ -21,11 +21,15 @@ use axum::body::Bytes;
 use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use http::HeaderMap;
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect,
+};
 use serde_json::{Map, Value, json};
-use sqlx::PgPool;
 use weldsuite_catalogs::entity_events::{
     EventName, PANEL_SUBSCRIPTION_CREATED, PANEL_SUBSCRIPTION_DELETED, PANEL_SUBSCRIPTION_UPDATED,
 };
+use weldsuite_db::{PgPool, orm};
 use weldsuite_emails::EmailLocale;
 use weldsuite_emails::panel_monitor::{
     DigestBlock, DigestFigure, DigestProps, DigestRow, NumberFormat,
@@ -33,6 +37,8 @@ use weldsuite_emails::panel_monitor::{
 use weldsuite_kit::{ApiError, Created, Data, List, NoContent, Pagination};
 use weldsuite_panel_domain::js;
 use weldsuite_permissions::Permissions;
+use weldsuite_schema::tenant::panel_subscriptions::{self as subscriptions, Column};
+use weldsuite_schema::tenant::{panel_dashboard_tiles, panel_projects, panel_reports};
 
 use super::alerts::CheckPorts;
 use super::delivery::{self, Delivered, Message, Stored, Target, channels_dto, delivery_error};
@@ -42,7 +48,8 @@ use super::schedule::{
 use super::schemas::{CREATE_SUBSCRIPTION, SCHEDULE, SUBSCRIPTION_LIST_QUERY, UPDATE_SUBSCRIPTION};
 use super::{MonitorState, channels_for, master_of, now_of};
 use crate::saved::{
-    Actor, can_change, can_see, field, get_dashboard, get_report, project_exists, text,
+    Actor, can_change, can_see, field, get_dashboard, get_report, instant, js_row, js_rows,
+    project_exists, text,
 };
 use crate::schemas_gen::{PANEL_DATE_RANGE, PANEL_FILTER, PANEL_QUERY_SPEC};
 use crate::{Caller, unexpected};
@@ -50,6 +57,8 @@ use crate::{Caller, unexpected};
 /// Most report tiles of a dashboard one message carries.
 pub(crate) const MAX_DIGEST_TILES: usize = 12;
 const MAX_ROWS: usize = 10;
+/// Subscriptions listed at most.
+const MAX_LISTED: u64 = 500;
 
 // ---------------------------------------------------------------------------
 // Rows and DTOs
@@ -107,14 +116,13 @@ pub(crate) fn next_run_of(row: &Value, now: i64) -> Option<i64> {
 }
 
 /// `getSubscription(db, id)`.
-pub(crate) async fn get_subscription(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(s) from panel_subscriptions s where s.id = $1 and s.deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(weldsuite_db::js_row))
+pub(crate) async fn get_subscription(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
+    subscriptions::Entity::find_by_id(id)
+        .filter(Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?
+        .map(js_row)
+        .transpose()
 }
 
 // ---------------------------------------------------------------------------
@@ -509,14 +517,15 @@ pub(crate) async fn build_digest(
     db: &PgPool,
     ports: &dyn CheckPorts,
     sub: &Value,
-) -> Result<Result<Message, String>, sqlx::Error> {
+) -> Result<Result<Message, String>, DbErr> {
     let project_id = text(sub, "projectId").to_owned();
-    let project: Option<String> = sqlx::query_scalar(
-        "select name from panel_projects where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(&project_id)
-    .fetch_optional(db)
-    .await?;
+    let project: Option<String> = panel_projects::Entity::find_by_id(&project_id)
+        .select_only()
+        .column(panel_projects::Column::Name)
+        .filter(panel_projects::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     let Some(project_name) = project else {
         return Ok(Err("The project was deleted".to_owned()));
     };
@@ -539,15 +548,12 @@ pub(crate) async fn build_digest(
         let Some(dashboard) = dashboard.filter(|d| text(d, "projectId") == project_id) else {
             return Ok(Err("The dashboard was deleted".to_owned()));
         };
-        let tiles: Vec<Value> = sqlx::query_scalar(
-            "select to_jsonb(t) from panel_dashboard_tiles t where t.dashboard_id = $1",
-        )
-        .bind(text(&dashboard, "id"))
-        .fetch_all(db)
-        .await?;
-        let mut tiles: Vec<Value> = tiles
+        let tiles = panel_dashboard_tiles::Entity::find()
+            .filter(panel_dashboard_tiles::Column::DashboardId.eq(text(&dashboard, "id")))
+            .all(&orm(db))
+            .await?;
+        let mut tiles: Vec<Value> = js_rows(tiles)?
             .into_iter()
-            .map(weldsuite_db::js_row)
             .filter(|t| text(t, "kind") != "text" && !text(t, "reportId").is_empty())
             .collect();
         let at = |t: &Value, key: &str| t["layout"][key].as_f64().unwrap_or(0.0);
@@ -568,15 +574,13 @@ pub(crate) async fn build_digest(
         let reports: Vec<Value> = if ids.is_empty() {
             Vec::new()
         } else {
-            let found: Vec<Value> = sqlx::query_scalar(
-                "select to_jsonb(r) from panel_reports r
-                 where r.id = any($1) and r.project_id = $2 and r.deleted_at is null",
-            )
-            .bind(&ids)
-            .bind(&project_id)
-            .fetch_all(db)
-            .await?;
-            found.into_iter().map(weldsuite_db::js_row).collect()
+            let found = panel_reports::Entity::find()
+                .filter(panel_reports::Column::Id.is_in(ids.iter().map(String::as_str)))
+                .filter(panel_reports::Column::ProjectId.eq(&project_id))
+                .filter(panel_reports::Column::DeletedAt.is_null())
+                .all(&orm(db))
+                .await?;
+            js_rows(found)?
         };
         let ordered: Vec<&Value> = ids
             .iter()
@@ -623,7 +627,7 @@ pub(crate) async fn send_subscription(
     ports: &dyn CheckPorts,
     sub: &Value,
     schedule: bool,
-) -> Result<(Vec<Delivered>, Option<String>, Value), sqlx::Error> {
+) -> Result<(Vec<Delivered>, Option<String>, Value), DbErr> {
     let digest = build_digest(db, ports, sub).await?;
     let (delivered, error) = match &digest {
         Ok(message) => {
@@ -638,21 +642,23 @@ pub(crate) async fn send_subscription(
     } else {
         None
     };
-    let row: Option<Value> = sqlx::query_scalar(
-        "update panel_subscriptions s set
-           last_run_at = $2::timestamptz, last_error = $3,
-           next_run_at = case when $4 then $5::timestamptz else s.next_run_at end,
-           updated_at = $2::timestamptz
-         where s.id = $1 returning to_jsonb(s)",
-    )
-    .bind(text(sub, "id"))
-    .bind(js::iso_string(now))
-    .bind(error.as_deref())
-    .bind(schedule)
-    .bind(next.map(js::iso_string))
-    .fetch_optional(db)
-    .await?;
-    let row = row.map_or_else(|| sub.clone(), weldsuite_db::js_row);
+    let mut run = subscriptions::Entity::update_many()
+        .col_expr(Column::LastRunAt, Expr::value(instant(now)))
+        .col_expr(Column::LastError, Expr::value(error.clone()));
+    if schedule {
+        run = run.col_expr(Column::NextRunAt, Expr::value(next.map(instant)));
+    }
+    let row = run
+        .col_expr(Column::UpdatedAt, Expr::value(instant(now)))
+        .filter(Column::Id.eq(text(sub, "id")))
+        .exec_with_returning(&orm(db))
+        .await?
+        .into_iter()
+        .next();
+    let row = match row {
+        Some(row) => js_row(row)?,
+        None => sub.clone(),
+    };
     Ok((delivered, error, row))
 }
 
@@ -672,7 +678,7 @@ fn publish(caller: &Caller, state: &MonitorState, sub: &Value, event: EventName)
 }
 
 /// `reschedule(c, sub)`: the registry row follows `nextRunAt`.
-async fn reschedule(caller: &Caller, state: &MonitorState, sub: &Value) -> Result<(), sqlx::Error> {
+async fn reschedule(caller: &Caller, state: &MonitorState, sub: &Value) -> Result<(), DbErr> {
     let Some(master) = master_of(caller, state) else {
         return Ok(());
     };
@@ -705,27 +711,26 @@ pub(crate) async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
         Err(response) => return response,
     };
     let owner = (query.text("scope") == Some("mine")).then(|| caller.user_id.clone());
-    let found: Result<Vec<Value>, sqlx::Error> = sqlx::query_scalar(
-        "select to_jsonb(s) from panel_subscriptions s where s.deleted_at is null
-           and ($1::text is null or s.project_id = $1)
-           and ($2::text is null or s.target_type = $2)
-           and ($3::text is null or s.target_id = $3)
-           and ($4::text is null or s.owner_user_id = $4)
-         order by s.updated_at desc limit 500",
-    )
-    .bind(query.text("projectId"))
-    .bind(query.text("targetType"))
-    .bind(query.text("targetId"))
-    .bind(owner)
-    .fetch_all(&caller.db)
-    .await;
+    let mut select = subscriptions::Entity::find().filter(Column::DeletedAt.is_null());
+    for (column, value) in [
+        (Column::ProjectId, query.text("projectId")),
+        (Column::TargetType, query.text("targetType")),
+        (Column::TargetId, query.text("targetId")),
+        (Column::OwnerUserId, owner.as_deref()),
+    ] {
+        if let Some(value) = value {
+            select = select.filter(column.eq(value));
+        }
+    }
+    let found = select
+        .order_by_desc(Column::UpdatedAt)
+        .limit(MAX_LISTED)
+        .all(&orm(&caller.db))
+        .await
+        .and_then(js_rows);
     match found {
         Ok(found) => {
-            let data: Vec<Value> = found
-                .into_iter()
-                .map(weldsuite_db::js_row)
-                .map(|s| dto(&s))
-                .collect();
+            let data: Vec<Value> = found.iter().map(dto).collect();
             let count = data.len() as u64;
             List::new(data, Pagination::new(count, false, None)).into_response()
         }
@@ -740,7 +745,7 @@ async fn visible_target(
     project_id: &str,
     target_type: &str,
     target_id: &str,
-) -> Result<bool, sqlx::Error> {
+) -> Result<bool, DbErr> {
     let target = if target_type == "report" {
         get_report(&caller.db, target_id).await?
     } else {
@@ -805,28 +810,25 @@ pub(crate) async fn create(
         .then(|| SubscriptionSchedule::parse(&schedule))
         .flatten()
         .map(|s| next_subscription_run(&s, js::now_millis()));
-    let row: Result<Option<Value>, sqlx::Error> = sqlx::query_scalar(
-        "insert into panel_subscriptions as s (id, project_id, name, target_type, target_id, schedule,
-             channels, slack_webhook_ciphertext, enabled, next_run_at, owner_user_id)
-         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::timestamptz, $11)
-         returning to_jsonb(s)",
-    )
-    .bind(weldsuite_kit::generate_id("pnsb"))
-    .bind(&project_id)
-    .bind(text(&input, "name"))
-    .bind(target_type)
-    .bind(target_id)
-    .bind(&schedule)
-    .bind(&stored.channels)
-    .bind(stored.slack_ciphertext.as_deref())
-    .bind(enabled)
-    .bind(next.map(js::iso_string))
-    .bind(&caller.user_id)
-    .fetch_optional(&caller.db)
-    .await;
+    let row = subscriptions::Entity::insert(subscriptions::ActiveModel {
+        id: Set(weldsuite_kit::generate_id("pnsb")),
+        project_id: Set(project_id.clone()),
+        name: Set(text(&input, "name").to_owned()),
+        target_type: Set(target_type.to_owned()),
+        target_id: Set(target_id.to_owned()),
+        schedule: Set(schedule),
+        channels: Set(stored.channels),
+        slack_webhook_ciphertext: Set(stored.slack_ciphertext),
+        enabled: Set(enabled),
+        next_run_at: Set(next.map(instant)),
+        owner_user_id: Set(caller.user_id.clone()),
+        ..Default::default()
+    })
+    .exec_with_returning(&orm(&caller.db))
+    .await
+    .and_then(js_row);
     let sub = match row {
-        Ok(Some(row)) => weldsuite_db::js_row(row),
-        Ok(None) => return ApiError::internal().into_response(),
+        Ok(row) => row,
         Err(error) => return unexpected(&error, "create subscription"),
     };
     if let Err(error) = reschedule(&caller, &state, &sub).await {
@@ -884,34 +886,40 @@ pub(crate) async fn update(
         obj.insert("enabled".to_owned(), enabled.clone());
     }
     let next = next_run_of(&next_row, now);
-    let row: Result<Option<Value>, sqlx::Error> = sqlx::query_scalar(
-        "update panel_subscriptions s set
-           name = case when $2 then $3 else s.name end,
-           schedule = case when $4 then $5::jsonb else s.schedule end,
-           enabled = case when $6 then $7 else s.enabled end,
-           channels = case when $8 then $9::jsonb else s.channels end,
-           slack_webhook_ciphertext = case when $8 then $10 else s.slack_webhook_ciphertext end,
-           next_run_at = $11::timestamptz,
-           updated_at = $12::timestamptz
-         where s.id = $1 and s.deleted_at is null
-         returning to_jsonb(s)",
-    )
-    .bind(&id)
-    .bind(input.contains_key("name"))
-    .bind(input.get("name").and_then(Value::as_str))
-    .bind(input.contains_key("schedule"))
-    .bind(input.get("schedule"))
-    .bind(input.contains_key("enabled"))
-    .bind(input.get("enabled").and_then(Value::as_bool))
-    .bind(stored.is_some())
-    .bind(stored.as_ref().map(|s| &s.channels))
-    .bind(stored.as_ref().and_then(|s| s.slack_ciphertext.as_deref()))
-    .bind(next.map(js::iso_string))
-    .bind(js::iso_string(now))
-    .fetch_optional(&caller.db)
-    .await;
+    let mut change = subscriptions::Entity::update_many();
+    if input.contains_key("name") {
+        change = change.col_expr(
+            Column::Name,
+            Expr::value(input.get("name").and_then(Value::as_str)),
+        );
+    }
+    if let Some(schedule) = input.get("schedule") {
+        change = change.col_expr(Column::Schedule, Expr::value(schedule.clone()));
+    }
+    if input.contains_key("enabled") {
+        change = change.col_expr(
+            Column::Enabled,
+            Expr::value(input.get("enabled").and_then(Value::as_bool)),
+        );
+    }
+    if let Some(stored) = stored {
+        change = change
+            .col_expr(Column::Channels, Expr::value(stored.channels))
+            .col_expr(
+                Column::SlackWebhookCiphertext,
+                Expr::value(stored.slack_ciphertext),
+            );
+    }
+    let row = change
+        .col_expr(Column::NextRunAt, Expr::value(next.map(instant)))
+        .col_expr(Column::UpdatedAt, Expr::value(instant(now)))
+        .filter(Column::Id.eq(&id))
+        .filter(Column::DeletedAt.is_null())
+        .exec_with_returning(&orm(&caller.db))
+        .await
+        .and_then(|rows| rows.into_iter().next().map(js_row).transpose());
     let sub = match row {
-        Ok(Some(row)) => weldsuite_db::js_row(row),
+        Ok(Some(row)) => row,
         Ok(None) => return ApiError::not_found("Subscription", Some(&id)).into_response(),
         Err(error) => return unexpected(&error, "update subscription"),
     };
@@ -938,17 +946,19 @@ pub(crate) async fn remove(
             .with_message("Only the owner can delete this scheduled report")
             .into_response();
     }
-    let row: Result<Option<Value>, sqlx::Error> = sqlx::query_scalar(
-        "update panel_subscriptions s set deleted_at = $2::timestamptz, updated_at = $2::timestamptz,
-           enabled = false, next_run_at = null
-         where s.id = $1 and s.deleted_at is null returning to_jsonb(s)",
-    )
-    .bind(&id)
-    .bind(js::iso_string(js::now_millis()))
-    .fetch_optional(&caller.db)
-    .await;
+    let now = instant(js::now_millis());
+    let row = subscriptions::Entity::update_many()
+        .col_expr(Column::DeletedAt, Expr::value(now))
+        .col_expr(Column::UpdatedAt, Expr::value(now))
+        .col_expr(Column::Enabled, Expr::value(false))
+        .col_expr(Column::NextRunAt, Expr::value(None::<time::OffsetDateTime>))
+        .filter(Column::Id.eq(&id))
+        .filter(Column::DeletedAt.is_null())
+        .exec_with_returning(&orm(&caller.db))
+        .await
+        .and_then(|rows| rows.into_iter().next().map(js_row).transpose());
     let sub = match row {
-        Ok(Some(row)) => weldsuite_db::js_row(row),
+        Ok(Some(row)) => row,
         Ok(None) => return ApiError::not_found("Subscription", Some(&id)).into_response(),
         Err(error) => return unexpected(&error, "delete subscription"),
     };

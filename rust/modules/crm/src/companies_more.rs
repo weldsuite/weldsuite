@@ -7,18 +7,29 @@ use axum::body::Bytes;
 use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use http::HeaderMap;
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{
+    ColumnTrait, Condition, DatabaseConnection, DbErr, EntityTrait, JoinType, PaginatorTrait,
+    QueryFilter, QueryOrder, QuerySelect,
+};
 use serde_json::{Map, Value, json};
+use time::PrimitiveDateTime;
 use weldsuite_catalogs::entity_events::{COMPANY_CREATED, COMPANY_UPDATED};
 use weldsuite_catalogs::permission_keys::COMPANIES_SCOPE_ALL;
 use weldsuite_crm_domain::DomainError;
 use weldsuite_crm_domain::companies as service;
-use weldsuite_crm_domain::drizzle_row;
 use weldsuite_crm_domain::validation::StatusLookup;
+use weldsuite_db::orm;
 use weldsuite_kit::validation::{Format, Issues, Number, Presence, Text, js_trim, query_values};
 use weldsuite_kit::{ApiError, Data};
+use weldsuite_schema::tenant::{
+    companies, crm_activities, crm_opportunities, list_members, lists, orders, parties,
+    person_companies,
+};
 
 use crate::companies::{EMPLOYEES_MESSAGE, WEBSITE_MESSAGE, company_event, is_employee_count};
 use crate::identity_schema::{LIFECYCLE_STAGES, address, url_field, url_refine};
+use crate::orm_rows::{js_date, json, millis};
 use crate::schema::{self, Kind, OPT, STRINGS, Spec, s};
 use crate::{Answer, Caller, CrmState, answer, validate};
 
@@ -333,14 +344,15 @@ async fn run_import(state: &CrmState, caller: &Caller, records: &[Map<String, Va
             emails.push(email);
         }
     }
+    let orm_db = orm(db);
     if !codes.is_empty() {
-        let rows: Vec<Value> = sqlx::query_scalar(
-            "select to_jsonb(t) from companies t where deleted_at is null and party_code = any($1)",
-        )
-        .bind(&codes)
-        .fetch_all(db)
-        .await?;
-        for row in rows.into_iter().map(drizzle_row) {
+        let rows = companies::Entity::find()
+            .filter(companies::Column::DeletedAt.is_null())
+            .filter(companies::Column::PartyCode.is_in(codes.iter().map(String::as_str)))
+            .all(&orm_db)
+            .await?;
+        for row in rows {
+            let row = json(serde_json::to_value(row))?;
             if let Some(code) = row
                 .get("partyCode")
                 .and_then(Value::as_str)
@@ -351,12 +363,20 @@ async fn run_import(state: &CrmState, caller: &Caller, records: &[Map<String, Va
         }
     }
     if !emails.is_empty() {
-        let rows: Vec<Value> =
-            sqlx::query_scalar("select to_jsonb(t) from companies t where deleted_at is null and lower(email) = any($1)")
-                .bind(&emails)
-                .fetch_all(db)
-                .await?;
-        for row in rows.into_iter().map(drizzle_row) {
+        use sea_orm::ExprTrait as _;
+        let rows = companies::Entity::find()
+            .filter(companies::Column::DeletedAt.is_null())
+            .filter(
+                Expr::from(Func::lower(Expr::col((
+                    companies::Entity,
+                    companies::Column::Email,
+                ))))
+                .is_in(emails.iter().map(String::as_str)),
+            )
+            .all(&orm_db)
+            .await?;
+        for row in rows {
+            let row = json(serde_json::to_value(row))?;
             if let Some(email) = row
                 .get("email")
                 .and_then(Value::as_str)
@@ -449,22 +469,124 @@ fn limit_param(values: &Map<String, Value>, issues: &mut Issues, key: &str, fall
     value
 }
 
-/// Rows of a party-keyed table, newest first; none without a party.
-async fn party_rows(
-    caller: &Caller,
+/// The party's live rows of a party-keyed table (`counterpartyId`), newest
+/// first, as Drizzle returns them; none without a party.
+async fn party_rows<E: EntityTrait>(
+    db: &DatabaseConnection,
     party: Option<&String>,
-    sql: &'static str,
+    columns: [E::Column; 3],
     limit: i64,
-) -> Result<Vec<Value>, sqlx::Error> {
+    row_json: fn(E::Model) -> Result<Value, serde_json::Error>,
+) -> Result<Vec<Value>, DbErr> {
     let Some(party) = party else {
         return Ok(Vec::new());
     };
-    let rows: Vec<Value> = sqlx::query_scalar(sql)
-        .bind(party)
-        .bind(limit)
-        .fetch_all(&caller.db)
+    let [counterparty_id, deleted_at, created_at] = columns;
+    E::find()
+        .filter(counterparty_id.eq(party.as_str()))
+        .filter(deleted_at.is_null())
+        .order_by_desc(created_at)
+        .limit(u64::try_from(limit).unwrap_or(0))
+        .all(db)
+        .await?
+        .into_iter()
+        .map(|row| json(row_json(row)))
+        .collect()
+}
+
+/// The live rows of a party-keyed table (`counterpartyId`) that match
+/// `filter` as well.
+async fn party_count<E>(
+    db: &DatabaseConnection,
+    party: &str,
+    [counterparty_id, deleted_at]: [E::Column; 2],
+    filter: Condition,
+) -> Result<i64, DbErr>
+where
+    E: EntityTrait,
+    E::Model: Sync,
+{
+    let count = E::find()
+        .filter(counterparty_id.eq(party))
+        .filter(filter)
+        .filter(deleted_at.is_null())
+        .count(db)
         .await?;
-    Ok(rows.into_iter().map(drizzle_row).collect())
+    Ok(i64::try_from(count).unwrap_or(i64::MAX))
+}
+
+/// `(activities, opportunities, orders, notes, tasks)` of the party.
+async fn party_counts(db: &DatabaseConnection, party: &str) -> Result<[i64; 5], DbErr> {
+    use crm_activities::Column as Activity;
+    let activity = [Activity::CounterpartyId, Activity::DeletedAt];
+    Ok([
+        party_count::<crm_activities::Entity>(db, party, activity, Condition::all()).await?,
+        party_count::<crm_opportunities::Entity>(
+            db,
+            party,
+            [
+                crm_opportunities::Column::CounterpartyId,
+                crm_opportunities::Column::DeletedAt,
+            ],
+            Condition::all(),
+        )
+        .await?,
+        party_count::<orders::Entity>(
+            db,
+            party,
+            [orders::Column::CounterpartyId, orders::Column::DeletedAt],
+            Condition::all(),
+        )
+        .await?,
+        party_count::<crm_activities::Entity>(
+            db,
+            party,
+            activity,
+            Condition::all().add(Activity::Type.eq("note")),
+        )
+        .await?,
+        party_count::<crm_activities::Entity>(
+            db,
+            party,
+            activity,
+            Condition::all().add(Activity::Type.eq("task")),
+        )
+        .await?,
+    ])
+}
+
+/// The company's lists (`kind = 'company'`, live), newest membership
+/// first: `{ id, name, color, icon, description, addedAt }`.
+async fn company_lists(db: &DatabaseConnection, id: &str) -> Result<Vec<Value>, DbErr> {
+    let rows = list_members::Entity::find()
+        .select_also(lists::Entity)
+        .join(
+            JoinType::InnerJoin,
+            list_members::Entity::belongs_to(lists::Entity)
+                .from(list_members::Column::ListId)
+                .to(lists::Column::Id)
+                .into(),
+        )
+        .filter(list_members::Column::EntityId.eq(id))
+        .filter(lists::Column::Kind.eq("company"))
+        .filter(lists::Column::DeletedAt.is_null())
+        .order_by_desc(list_members::Column::AddedAt)
+        .all(db)
+        .await?;
+    Ok(rows
+        .into_iter()
+        .filter_map(|(member, list)| {
+            let list = list?;
+            Some(json!({
+                "id": list.id,
+                "name": list.name,
+                "color": list.color,
+                "icon": list.icon,
+                "description": list.description,
+                "addedAt": js_date(member.added_at),
+            }))
+        })
+        .collect())
 }
 
 pub(crate) async fn aggregate(
@@ -497,75 +619,61 @@ async fn run_aggregate(caller: &Caller, id: &str, limits: [i64; 4]) -> Answer {
     let Some(company) = service::get_company(db, id, scope.as_deref()).await? else {
         return Ok(ApiError::not_found("Company", Some(id)).into_response());
     };
-    let party: Option<String> = sqlx::query_scalar(
-        "select id from parties where company_id = $1 and deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
+    let orm_db = orm(db);
+    let party: Option<String> = parties::Entity::find()
+        .select_only()
+        .column(parties::Column::Id)
+        .filter(parties::Column::CompanyId.eq(id))
+        .filter(parties::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm_db)
+        .await?;
     let mut people = service::list_company_people(db, id, None).await?;
     people.truncate(usize::try_from(limits[3]).unwrap_or(0));
-    let activities = party_rows(
-        caller,
+    let activities = party_rows::<crm_activities::Entity>(
+        &orm_db,
         party.as_ref(),
-        "select to_jsonb(t) from crm_activities t where counterparty_id = $1 and deleted_at is null
-         order by created_at desc limit $2",
+        [
+            crm_activities::Column::CounterpartyId,
+            crm_activities::Column::DeletedAt,
+            crm_activities::Column::CreatedAt,
+        ],
         limits[0],
+        serde_json::to_value::<crm_activities::Model>,
     )
     .await?;
-    let opportunities = party_rows(
-        caller,
+    let opportunities = party_rows::<crm_opportunities::Entity>(
+        &orm_db,
         party.as_ref(),
-        concat!(
-            "select ",
-            weldsuite_crm_domain::opportunity_json!("t"),
-            " from crm_opportunities t where counterparty_id = $1 and deleted_at is null
-             order by created_at desc limit $2"
-        ),
+        [
+            crm_opportunities::Column::CounterpartyId,
+            crm_opportunities::Column::DeletedAt,
+            crm_opportunities::Column::CreatedAt,
+        ],
         limits[2],
+        serde_json::to_value::<crm_opportunities::Model>,
     )
     .await?;
-    let orders = party_rows(
-        caller,
+    let orders = party_rows::<orders::Entity>(
+        &orm_db,
         party.as_ref(),
-        "select to_jsonb(t) || jsonb_build_object('subtotal', t.subtotal::text,
-             'discount_total', t.discount_total::text, 'shipping_total', t.shipping_total::text,
-             'tax_total', t.tax_total::text, 'total', t.total::text)
-         from orders t where counterparty_id = $1 and deleted_at is null
-         order by created_at desc limit $2",
+        [
+            orders::Column::CounterpartyId,
+            orders::Column::DeletedAt,
+            orders::Column::CreatedAt,
+        ],
         limits[1],
+        serde_json::to_value::<orders::Model>,
     )
     .await?;
-    let lists: Vec<Value> = sqlx::query_scalar(
-        "select jsonb_build_object('id', l.id, 'name', l.name, 'color', l.color, 'icon', l.icon,
-             'description', l.description, 'added_at', lm.added_at)
-         from list_members lm inner join lists l on l.id = lm.list_id
-         where lm.entity_id = $1 and l.kind = 'company' and l.deleted_at is null
-         order by lm.added_at desc",
-    )
-    .bind(id)
-    .fetch_all(db)
-    .await?;
-    let people_count: i64 =
-        sqlx::query_scalar("select count(*) from person_companies where company_id = $1")
-            .bind(id)
-            .fetch_one(db)
-            .await?;
-    let counts: (i64, i64, i64, i64, i64) = match &party {
-        None => (0, 0, 0, 0, 0),
-        Some(party) => {
-            sqlx::query_as(
-                "select
-                   (select count(*) from crm_activities where counterparty_id = $1 and deleted_at is null),
-                   (select count(*) from crm_opportunities where counterparty_id = $1 and deleted_at is null),
-                   (select count(*) from orders where counterparty_id = $1 and deleted_at is null),
-                   (select count(*) from crm_activities where counterparty_id = $1 and type = 'note' and deleted_at is null),
-                   (select count(*) from crm_activities where counterparty_id = $1 and type = 'task' and deleted_at is null)",
-            )
-            .bind(party)
-            .fetch_one(db)
-            .await?
-        }
+    let lists = company_lists(&orm_db, id).await?;
+    let people_count = person_companies::Entity::find()
+        .filter(person_companies::Column::CompanyId.eq(id))
+        .count(&orm_db)
+        .await?;
+    let counts = match &party {
+        None => [0; 5],
+        Some(party) => party_counts(&orm_db, party).await?,
     };
     let last_activity = activities
         .first()
@@ -579,15 +687,15 @@ async fn run_aggregate(caller: &Caller, id: &str, limits: [i64; 4]) -> Answer {
         "opportunities": opportunities,
         "orders": orders,
         "invoices": [],
-        "lists": lists.into_iter().map(drizzle_row).collect::<Vec<_>>(),
+        "lists": lists,
         "counts": {
             "people": people_count,
-            "activities": counts.0,
-            "opportunities": counts.1,
-            "orders": counts.2,
+            "activities": counts[0],
+            "opportunities": counts[1],
+            "orders": counts[2],
             "invoices": 0,
-            "notes": counts.3,
-            "tasks": counts.4,
+            "notes": counts[3],
+            "tasks": counts[4],
         },
         "lastActivity": last_activity,
     }))
@@ -617,26 +725,80 @@ pub(crate) async fn navigation(
     )
 }
 
+/// The companies the caller sees: live, within the owner scope.
+fn visible(scope: Option<&String>) -> Condition {
+    let mut filters = Condition::all().add(companies::Column::DeletedAt.is_null());
+    if let Some(scope) = scope {
+        filters = filters.add(companies::Column::OwnerId.eq(scope.as_str()));
+    }
+    filters
+}
+
+/// `(total, previousId, nextId, after)` around a company created at
+/// `created`, among the companies the caller sees: the next one created
+/// after it, the one created before it, and how many came after.
+async fn neighbours(
+    db: &DatabaseConnection,
+    scope: Option<&String>,
+    created: PrimitiveDateTime,
+) -> Result<(u64, Option<String>, Option<String>, u64), DbErr> {
+    use companies::{Column, Entity};
+    let total = Entity::find().filter(visible(scope)).count(db).await?;
+    let previous: Option<String> = Entity::find()
+        .select_only()
+        .column(Column::Id)
+        .filter(visible(scope))
+        .filter(Column::CreatedAt.gt(created))
+        .order_by_asc(Column::CreatedAt)
+        .into_tuple()
+        .one(db)
+        .await?;
+    let next: Option<String> = Entity::find()
+        .select_only()
+        .column(Column::Id)
+        .filter(visible(scope))
+        .filter(Column::CreatedAt.lt(created))
+        .order_by_desc(Column::CreatedAt)
+        .into_tuple()
+        .one(db)
+        .await?;
+    let after = Entity::find()
+        .filter(visible(scope))
+        .filter(Column::CreatedAt.gt(created))
+        .count(db)
+        .await?;
+    Ok((total, previous, next, after))
+}
+
 async fn run_navigation(caller: &Caller, id: &str, list_id: Option<String>) -> Answer {
     let scope = caller.scope(COMPANIES_SCOPE_ALL);
-    let db = &caller.db;
+    let db = &orm(&caller.db);
     if let Some(list_id) = list_id {
-        let name: Option<String> = sqlx::query_scalar(
-            "select name from lists where id = $1 and deleted_at is null limit 1",
-        )
-        .bind(&list_id)
-        .fetch_optional(db)
-        .await?;
+        let name: Option<String> = lists::Entity::find()
+            .select_only()
+            .column(lists::Column::Name)
+            .filter(lists::Column::Id.eq(list_id.as_str()))
+            .filter(lists::Column::DeletedAt.is_null())
+            .into_tuple()
+            .one(db)
+            .await?;
         let context = name.unwrap_or_else(|| "Company List".to_owned());
-        let members: Vec<String> = sqlx::query_scalar(
-            "select lm.entity_id from list_members lm inner join companies c on c.id = lm.entity_id
-             where lm.list_id = $1 and c.deleted_at is null and ($2::text is null or c.owner_id = $2)
-             order by lm.added_at desc",
-        )
-        .bind(&list_id)
-        .bind(&scope)
-        .fetch_all(db)
-        .await?;
+        let members: Vec<String> = list_members::Entity::find()
+            .select_only()
+            .column(list_members::Column::EntityId)
+            .join(
+                JoinType::InnerJoin,
+                list_members::Entity::belongs_to(companies::Entity)
+                    .from(list_members::Column::EntityId)
+                    .to(companies::Column::Id)
+                    .into(),
+            )
+            .filter(list_members::Column::ListId.eq(list_id.as_str()))
+            .filter(visible(scope.as_ref()))
+            .order_by_desc(list_members::Column::AddedAt)
+            .into_tuple()
+            .all(db)
+            .await?;
         let total = members.len();
         let body = match members.iter().position(|m| m == id) {
             None => {
@@ -652,31 +814,18 @@ async fn run_navigation(caller: &Caller, id: &str, list_id: Option<String>) -> A
         };
         return Ok(Data(body).into_response());
     }
-    let created: Option<String> = sqlx::query_scalar(
-        "select to_char(date_trunc('milliseconds', created_at), 'YYYY-MM-DD\"T\"HH24:MI:SS.MS')
-         from companies where id = $1 and deleted_at is null and ($2::text is null or owner_id = $2) limit 1",
-    )
-    .bind(id)
-    .bind(&scope)
-    .fetch_optional(db)
-    .await?;
+    let created: Option<PrimitiveDateTime> = companies::Entity::find()
+        .select_only()
+        .column(companies::Column::CreatedAt)
+        .filter(companies::Column::Id.eq(id))
+        .filter(visible(scope.as_ref()))
+        .into_tuple()
+        .one(db)
+        .await?;
     let Some(created) = created else {
         return Ok(ApiError::not_found("Company", Some(id)).into_response());
     };
-    let (total, previous, next, after): (i64, Option<String>, Option<String>, i64) = sqlx::query_as(
-        "select
-           (select count(*) from companies where deleted_at is null and ($1::text is null or owner_id = $1)),
-           (select id from companies where deleted_at is null and ($1::text is null or owner_id = $1)
-              and created_at > $2::timestamp order by created_at limit 1),
-           (select id from companies where deleted_at is null and ($1::text is null or owner_id = $1)
-              and created_at < $2::timestamp order by created_at desc limit 1),
-           (select count(*) from companies where deleted_at is null and ($1::text is null or owner_id = $1)
-              and created_at > $2::timestamp)",
-    )
-    .bind(&scope)
-    .bind(&created)
-    .fetch_one(db)
-    .await?;
+    let (total, previous, next, after) = neighbours(db, scope.as_ref(), millis(created)).await?;
     Ok(Data(json!({
         "currentIndex": after + 1,
         "totalCount": total,

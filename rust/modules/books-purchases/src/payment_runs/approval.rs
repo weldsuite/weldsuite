@@ -9,8 +9,10 @@
 //! any backup withholding. Each payment's id derives from the run and the
 //! vendor, so approving again after a failure midway never pays twice.
 
+use sea_orm::prelude::BigDecimal;
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{ColumnTrait, Condition, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 use serde_json::{Value, json};
-use sqlx::PgPool;
 use weldsuite_books_domain::guards::{PostingCheck, PostingLockKind, assert_posting_allowed};
 use weldsuite_books_domain::http::now;
 use weldsuite_books_domain::js::{locale_compare, parse_float, round_money, to_fixed};
@@ -18,9 +20,10 @@ use weldsuite_books_domain::payments::{
     AllocationInput, RecordPaymentInput, payment_net_amount, record_payment,
 };
 use weldsuite_books_domain::posting::PostError;
-use weldsuite_books_domain::tables::{PAYMENT_RUNS, PAYMENTS};
 use weldsuite_books_domain::vendor_tax::sha256_hex;
+use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_ports::OutboundHttp;
+use weldsuite_schema::tenant::{bank_accounts, payment_runs, payments};
 
 use super::holds::{RunHold, active_holds, encode_holds, held_party_ids, load_parties};
 use super::runs::{
@@ -28,6 +31,7 @@ use super::runs::{
     refresh_holds, required_approvals, resolve_items, s, text, totals_of,
 };
 use super::{Faults, RunError, load_bank_account, run_error};
+use crate::rows::{decimal_of, int4, js, js_rows, money_text};
 
 /// `runReference(runId)`: the marker on the reference of a run's payments.
 pub(crate) fn run_reference(run_id: &str) -> String {
@@ -57,29 +61,39 @@ fn check_number_required() -> RunError {
     )
 }
 
-/// `claimCheckNumber(db, bankAccountId)`: an atomic bump of the counter,
-/// skipping any number a payment (voided ones included) holds.
+/// `claimCheckNumber(db, bankAccountId)`: an atomic bump of the counter
+/// (one `update … returning`), skipping any number a payment (voided ones
+/// included) holds.
 async fn claim_check_number(db: &PgPool, bank_account_id: &str) -> Result<String, RunError> {
+    use sea_orm::ExprTrait as _;
+    let db = orm(db);
     for _ in 0..MAX_CLAIM_ATTEMPTS {
-        let next: Option<Option<i64>> = sqlx::query_scalar(
-            "update bank_accounts set next_check_number = coalesce(next_check_number, 1) + 1, updated_at = $2::timestamp \
-             where id = $1 returning next_check_number::bigint",
-        )
-        .bind(bank_account_id)
-        .bind(now())
-        .fetch_optional(db)
-        .await?;
-        let Some(Some(next)) = next else {
+        let bumped = Expr::from(Func::coalesce([
+            Expr::col(bank_accounts::Column::NextCheckNumber),
+            Expr::val(1),
+        ]))
+        .add(1);
+        let next = bank_accounts::Entity::update_many()
+            .col_expr(bank_accounts::Column::NextCheckNumber, bumped)
+            .col_expr(bank_accounts::Column::UpdatedAt, Expr::value(utc_now()))
+            .filter(bank_accounts::Column::Id.eq(bank_account_id))
+            .exec_with_returning(&db)
+            .await?
+            .into_iter()
+            .next()
+            .and_then(|bank| bank.next_check_number);
+        let Some(next) = next else {
             return Err(check_number_required());
         };
-        let claimed = (next - 1).to_string();
-        let taken: Option<String> = sqlx::query_scalar(
-            "select id from payments where bank_account_id = $1 and check_number = $2 limit 1",
-        )
-        .bind(bank_account_id)
-        .bind(&claimed)
-        .fetch_optional(db)
-        .await?;
+        let claimed = (i64::from(next) - 1).to_string();
+        let taken: Option<String> = payments::Entity::find()
+            .select_only()
+            .column(payments::Column::Id)
+            .filter(payments::Column::BankAccountId.eq(bank_account_id))
+            .filter(payments::Column::CheckNumber.eq(claimed.as_str()))
+            .into_tuple()
+            .one(&db)
+            .await?;
         if taken.is_none() {
             return Ok(claimed);
         }
@@ -92,12 +106,14 @@ async fn claim_check_number(db: &PgPool, bank_account_id: &str) -> Result<String
     ))
 }
 
-async fn read_check_number(db: &PgPool, payment_id: &str) -> Result<Option<String>, sqlx::Error> {
-    let row: Option<Option<String>> =
-        sqlx::query_scalar("select check_number from payments where id = $1 limit 1")
-            .bind(payment_id)
-            .fetch_optional(db)
-            .await?;
+async fn read_check_number(db: &PgPool, payment_id: &str) -> Result<Option<String>, DbErr> {
+    let row: Option<Option<String>> = payments::Entity::find()
+        .select_only()
+        .column(payments::Column::CheckNumber)
+        .filter(payments::Column::Id.eq(payment_id))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     Ok(row.flatten())
 }
 
@@ -114,16 +130,17 @@ async fn number_check(
         return Ok(current);
     }
     let claimed = claim_check_number(db, bank_account_id).await?;
-    let updated: Option<Option<String>> = sqlx::query_scalar(
-        "update payments set check_number = $2, updated_at = $3::timestamp \
-         where id = $1 and check_number is null returning check_number",
-    )
-    .bind(payment_id)
-    .bind(&claimed)
-    .bind(now())
-    .fetch_optional(db)
-    .await?;
-    if let Some(Some(number)) = updated {
+    let updated = payments::Entity::update_many()
+        .col_expr(payments::Column::CheckNumber, Expr::value(claimed.as_str()))
+        .col_expr(payments::Column::UpdatedAt, Expr::value(utc_now()))
+        .filter(payments::Column::Id.eq(payment_id))
+        .filter(payments::Column::CheckNumber.is_null())
+        .exec_with_returning(&orm(db))
+        .await?
+        .into_iter()
+        .next()
+        .and_then(|payment| payment.check_number);
+    if let Some(number) = updated {
         return Ok(number);
     }
     // Someone numbered it in between: theirs stands.
@@ -211,12 +228,19 @@ pub(crate) async fn create_run_payment(
         None
     };
     // A payment that already existed (same id) is returned as it was stored.
-    let stored: Option<(String, Option<String>)> = sqlx::query_as(
-        "select amount::text, backup_withholding_amount::text from payments where id = $1 limit 1",
-    )
-    .bind(&result.payment_id)
-    .fetch_optional(db)
-    .await?;
+    let stored: Option<(BigDecimal, Option<BigDecimal>)> = payments::Entity::find()
+        .select_only()
+        .columns([
+            payments::Column::Amount,
+            payments::Column::BackupWithholdingAmount,
+        ])
+        .filter(payments::Column::Id.eq(result.payment_id.as_str()))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
+    // `amount::text`, `backup_withholding_amount::text`.
+    let stored =
+        stored.map(|(amount, withheld)| (money_text(&amount), withheld.as_ref().map(money_text)));
     let (amount, backup, net) = match stored {
         Some((stored_amount, stored_withheld)) => {
             let row =
@@ -244,13 +268,17 @@ async fn number_unnumbered_checks(
     run_id: &str,
     bank_account_id: &str,
 ) -> Result<(), RunError> {
-    let ids: Vec<String> = sqlx::query_scalar(
-        "select id from payments where payment_run_id = $1 and check_number is null and deleted_at is null \
-         order by created_at, id",
-    )
-    .bind(run_id)
-    .fetch_all(db)
-    .await?;
+    let ids: Vec<String> = payments::Entity::find()
+        .select_only()
+        .column(payments::Column::Id)
+        .filter(payments::Column::PaymentRunId.eq(run_id))
+        .filter(payments::Column::CheckNumber.is_null())
+        .filter(payments::Column::DeletedAt.is_null())
+        .order_by_asc(payments::Column::CreatedAt)
+        .order_by_asc(payments::Column::Id)
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     for id in ids {
         number_check(db, &id, bank_account_id).await?;
     }
@@ -263,20 +291,19 @@ async fn find_run_payments(
     run: &Value,
     party_ids: Option<&[String]>,
     include_deleted: bool,
-) -> Result<Vec<Value>, sqlx::Error> {
-    let rows: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(payments),
-        " from payments t where t.entity_id = $1 and t.type = 'sent' and t.payment_run_id = $2 \
-         and ($3 or t.deleted_at is null) and ($4::varchar[] is null or t.contact_id = any($4))"
-    ))
-    .bind(s(run, "entityId"))
-    .bind(s(run, "id"))
-    .bind(include_deleted)
-    .bind(party_ids)
-    .fetch_all(db)
-    .await?;
-    Ok(PAYMENTS.js_rows(rows))
+) -> Result<Vec<Value>, DbErr> {
+    let mut found = Condition::all()
+        .add(payments::Column::EntityId.eq(s(run, "entityId")))
+        .add(payments::Column::Type.eq("sent"))
+        .add(payments::Column::PaymentRunId.eq(s(run, "id")));
+    if !include_deleted {
+        found = found.add(payments::Column::DeletedAt.is_null());
+    }
+    if let Some(party_ids) = party_ids {
+        found = found.add(payments::Column::ContactId.is_in(party_ids));
+    }
+    let rows = payments::Entity::find().filter(found).all(&orm(db)).await?;
+    js_rows!(rows)
 }
 
 /// `RunPaymentView`.
@@ -469,20 +496,26 @@ pub(crate) async fn approve_run(
             ));
         }
         // Compare-and-set on the approvals so two approvers arriving together can't both finish the run.
-        let recorded: Option<String> = sqlx::query_scalar(
-            "update payment_runs t set approvals = $2, updated_at = $3::timestamp \
-             where t.id = $1 and t.status = 'pending_approval' \
-             and (case when $4 then (t.approvals is null or t.approvals = '[]'::jsonb) else t.approvals = $5 end) \
-             returning t.id",
-        )
-        .bind(s(&run, "id"))
-        .bind(Value::Array(current.clone()))
-        .bind(now())
-        .bind(approvals.is_empty())
-        .bind(Value::Array(approvals.clone()))
-        .fetch_optional(db)
-        .await?;
-        if recorded.is_none() {
+        let unchanged = if approvals.is_empty() {
+            Condition::any()
+                .add(payment_runs::Column::Approvals.is_null())
+                .add(payment_runs::Column::Approvals.eq(json!([])))
+        } else {
+            Condition::all()
+                .add(payment_runs::Column::Approvals.eq(Value::Array(approvals.clone())))
+        };
+        let recorded = payment_runs::Entity::update_many()
+            .col_expr(
+                payment_runs::Column::Approvals,
+                Expr::value(Value::Array(current.clone())),
+            )
+            .col_expr(payment_runs::Column::UpdatedAt, Expr::value(utc_now()))
+            .filter(payment_runs::Column::Id.eq(s(&run, "id")))
+            .filter(payment_runs::Column::Status.eq("pending_approval"))
+            .filter(unchanged)
+            .exec(&orm(db))
+            .await?;
+        if recorded.rows_affected == 0 {
             return Err(run_error(
                 "CONFLICT",
                 "Someone else just approved this run. Reload it to see where it stands.".to_owned(),
@@ -514,21 +547,37 @@ pub(crate) async fn approve_run(
     } else {
         i64::try_from(payments.len()).unwrap_or(0)
     };
-    let row: Option<Value> = sqlx::query_scalar(concat!(
-        "update payment_runs t set status = 'approved', approvals = $2, holds = $3, total_amount = $4::numeric, \
-         payment_count = $5, updated_at = $6::timestamp where t.id = $1 and t.status = 'pending_approval' returning ",
-        weldsuite_books_domain::books_row!(payment_runs)
-    ))
-    .bind(s(&run, "id"))
-    .bind(Value::Array(current.clone()))
-    .bind(encode_holds(&holds))
-    .bind(to_fixed(total, 2))
-    .bind(count)
-    .bind(now())
-    .fetch_optional(db)
-    .await?;
+    let row = payment_runs::Entity::update_many()
+        .col_expr(payment_runs::Column::Status, Expr::value("approved"))
+        .col_expr(
+            payment_runs::Column::Approvals,
+            Expr::value(Value::Array(current.clone())),
+        )
+        .col_expr(
+            payment_runs::Column::Holds,
+            Expr::value(encode_holds(&holds)),
+        )
+        .col_expr(
+            payment_runs::Column::TotalAmount,
+            Expr::value(decimal_of(&to_fixed(total, 2))?),
+        )
+        .col_expr(
+            payment_runs::Column::PaymentCount,
+            Expr::value(int4(count)?),
+        )
+        .col_expr(payment_runs::Column::UpdatedAt, Expr::value(utc_now()))
+        .filter(payment_runs::Column::Id.eq(s(&run, "id")))
+        .filter(payment_runs::Column::Status.eq("pending_approval"))
+        .exec_with_returning(&orm(db))
+        .await?
+        .into_iter()
+        .next();
+    let run = match row {
+        Some(row) => js!(row)?,
+        None => run,
+    };
     Ok(ApproveResult {
-        run: row.map_or(run, |row| PAYMENT_RUNS.js(row)),
+        run,
         approval_count: current.len(),
         approved: true,
         payments,
@@ -659,11 +708,13 @@ async fn make_payments(
     if check {
         number_unnumbered_checks(db, s(run, "id"), bank_id).await?;
         let ids: Vec<String> = views.iter().map(|v| s(v, "paymentId").to_owned()).collect();
-        let numbered: Vec<(String, Option<String>)> =
-            sqlx::query_as("select id, check_number from payments where id = any($1)")
-                .bind(&ids)
-                .fetch_all(db)
-                .await?;
+        let numbered: Vec<(String, Option<String>)> = payments::Entity::find()
+            .select_only()
+            .columns([payments::Column::Id, payments::Column::CheckNumber])
+            .filter(payments::Column::Id.is_in(&ids))
+            .into_tuple()
+            .all(&orm(db))
+            .await?;
         for view in &mut views {
             let id = s(view, "paymentId").to_owned();
             if let Some((_, Some(number))) = numbered.iter().find(|(pid, _)| *pid == id) {

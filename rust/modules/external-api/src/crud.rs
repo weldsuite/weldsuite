@@ -1,6 +1,6 @@
 //! What the `/v1/<object>` routes share: the caller with its event context,
 //! answers, the live-row read, the soft delete and the cursor list over a
-//! generated table.
+//! generated table (its conditions a [`Filter`] on the table's entity).
 
 use axum::Json;
 use axum::extract::FromRequestParts;
@@ -12,7 +12,7 @@ use weldsuite_db::PgPool;
 use weldsuite_events::{EntityEvent, EntityEventPublisher, EventContext, EventType};
 use weldsuite_kit::ApiError;
 
-use crate::list::{ListQuery, clamp_limit, list_page_mapped};
+use crate::list::{Filter, ListQuery, clamp_limit, list_page_mapped};
 use crate::session::{ApiSession, Key, database_error, internal, not_found};
 use crate::table::{Table, WriteError};
 use crate::zod::Parsed;
@@ -200,16 +200,23 @@ pub(crate) fn list_query(parsed: &Parsed) -> ListQuery {
     }
 }
 
-/// One page of `table` (statements from `table_list_sql!`), each row as
+/// One page of `table` under `filter` (read from `filters`), each row as
 /// Drizzle returns it.
 pub(crate) async fn page(
     db: &PgPool,
-    sql: (&'static str, &'static str),
+    filter: Filter,
     table: &'static Table,
     parsed: &Parsed,
     filters: Value,
 ) -> Answer {
-    Ok(list_page_mapped(db, sql, &list_query(parsed), &filters, |row| table.js(row)).await?)
+    Ok(list_page_mapped(
+        db,
+        &table.entity,
+        filter(&filters),
+        &list_query(parsed),
+        |row| table.js(row),
+    )
+    .await?)
 }
 
 /// `%term%` for a `like` filter, when the term is not empty (`if (q.search)`).
@@ -318,33 +325,3 @@ pub(crate) fn changes(existing: &Value, update: &Map<String, Value>) -> Option<M
     }
     (!out.is_empty()).then_some(out)
 }
-
-/// `table_list_sql!(table, filter)`: a cursor list's statements over a
-/// generated table, its rows as `row!` selects them.
-macro_rules! table_list_sql {
-    ($table:ident, $filter:literal) => {
-        (
-            concat!(
-                "with cursor_row as (select date_trunc('milliseconds', created_at) as ts, id from ",
-                stringify!($table),
-                " where id = $1 limit 1) select ",
-                $crate::tables_gen::row!($table),
-                " from ",
-                stringify!($table),
-                " t where (",
-                $filter,
-                ") and (not exists (select 1 from cursor_row) or t.created_at < (select ts from cursor_row) \
-                 or (t.created_at = (select ts from cursor_row) and t.id < (select id from cursor_row))) \
-                 order by t.created_at desc, t.id desc limit $2"
-            ),
-            concat!(
-                "select count(*) from ",
-                stringify!($table),
-                " t where (",
-                $filter,
-                ") and ($1::text is null or true) and ($2::bigint is null or true)"
-            ),
-        )
-    };
-}
-pub(crate) use table_list_sql;

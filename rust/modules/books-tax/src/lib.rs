@@ -8,10 +8,6 @@
 //! TypeScript worker's; its tests run against this crate in the `books:
 //! tax` conformance suite (`rust/conformance/suites.json`).
 
-#![allow(
-    clippy::disallowed_methods,
-    reason = "not converted to the ORM yet (ADR DATA-019)"
-)]
 // The handlers mirror the worker's TypeScript functions one for one (the
 // long ones too), its names (`periodStart` / `periodEnd`, `base` / `bases`)
 // and its JavaScript comparisons (`===` on numbers); the docs name Dutch,
@@ -36,6 +32,7 @@ mod fiscal;
 mod gst;
 mod icp_declarations;
 mod nl;
+mod orm_bridge;
 mod vat_returns;
 
 use std::sync::Arc;

@@ -1,9 +1,13 @@
 //! `domains.ts`: the connected domains as the app shows them.
 
+use sea_orm::sea_query::{Asterisk, Expr, Func};
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 use serde_json::{Value, json};
 use sqlx::PgPool;
+use weldsuite_db::orm;
+use weldsuite_schema::tenant::{reach_domains, reach_mailboxes};
 
-use crate::{ReachError, ReachResult, field, js_rows, text};
+use crate::{ReachError, ReachResult, field, js, js_all, text};
 
 /// `toDomainDto(row, mailboxCount)`.
 pub fn to_dto(row: &Value, mailbox_count: i64) -> Value {
@@ -24,16 +28,21 @@ pub fn to_dto(row: &Value, mailbox_count: i64) -> Value {
 
 /// `domainMailboxCounts(db, domainIds)`.
 pub async fn mailbox_counts(db: &PgPool, domain_ids: &[String]) -> ReachResult<Vec<(String, i64)>> {
+    use reach_mailboxes::Column;
     if domain_ids.is_empty() {
         return Ok(Vec::new());
     }
-    Ok(sqlx::query_as(
-        "select domain_id, count(*) from reach_mailboxes
-         where domain_id = any($1) and status <> 'deleted' and deleted_at is null group by domain_id",
-    )
-    .bind(domain_ids)
-    .fetch_all(db)
-    .await?)
+    Ok(reach_mailboxes::Entity::find()
+        .select_only()
+        .column(Column::DomainId)
+        .expr(Func::count(Expr::col(Asterisk)))
+        .filter(Column::DomainId.is_in(domain_ids))
+        .filter(Column::Status.ne("deleted"))
+        .filter(Column::DeletedAt.is_null())
+        .group_by(Column::DomainId)
+        .into_tuple()
+        .all(&orm(db))
+        .await?)
 }
 
 fn count_of(counts: &[(String, i64)], id: &str) -> i64 {
@@ -42,11 +51,14 @@ fn count_of(counts: &[(String, i64)], id: &str) -> i64 {
 
 /// `listDomains(db)`.
 pub async fn list(db: &PgPool) -> ReachResult<Vec<Value>> {
-    let rows = js_rows(
-        sqlx::query_scalar("select to_jsonb(t) from reach_domains t order by t.created_at")
-            .fetch_all(db)
-            .await?,
-    );
+    let rows = js_all(
+        reach_domains::Entity::find()
+            .order_by_asc(reach_domains::Column::CreatedAt)
+            .all(&orm(db))
+            .await?
+            .into_iter()
+            .map(serde_json::to_value),
+    )?;
     let ids: Vec<String> = rows
         .iter()
         .filter_map(|r| text(r, "id").map(str::to_owned))
@@ -60,13 +72,11 @@ pub async fn list(db: &PgPool) -> ReachResult<Vec<Value>> {
 
 /// `requireDomain(db, id)`.
 pub async fn require(db: &PgPool, id: &str) -> ReachResult<Value> {
-    let row: Option<Value> =
-        sqlx::query_scalar("select to_jsonb(t) from reach_domains t where t.id = $1 limit 1")
-            .bind(id)
-            .fetch_optional(db)
-            .await?;
-    row.map(weldsuite_db::js_row)
-        .ok_or_else(|| ReachError::not_found("Domain", Some(id)))
+    let row = reach_domains::Entity::find_by_id(id)
+        .one(&orm(db))
+        .await?
+        .ok_or_else(|| ReachError::not_found("Domain", Some(id)))?;
+    Ok(js(serde_json::to_value(row))?)
 }
 
 /// `getDomainDto(db, id)`.

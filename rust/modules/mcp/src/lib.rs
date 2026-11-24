@@ -25,10 +25,6 @@
 //! - [`picker`]: membership mode, a plain `/mcp` and an account in several
 //!   workspaces: connected, with one tool that lists them and the URL of each.
 
-#![allow(
-    clippy::disallowed_methods,
-    reason = "not converted to the ORM yet (ADR DATA-019)"
-)]
 #![allow(clippy::result_large_err)]
 
 mod annotations;

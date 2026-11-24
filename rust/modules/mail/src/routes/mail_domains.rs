@@ -44,21 +44,31 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, patch, post};
 use http::{HeaderMap, StatusCode};
+use sea_orm::sea_query::{Expr, Func, OnConflict};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, Condition, DbErr, EntityTrait, QueryFilter, QueryOrder,
+    QuerySelect,
+};
 use serde_json::{Map, Value, json};
+use time::OffsetDateTime;
 use weldsuite_catalogs::entity_events::{
     MAIL_DOMAIN_CREATED, MAIL_DOMAIN_DELETED, MAIL_DOMAIN_UPDATED, MAIL_DOMAIN_VERIFIED,
 };
 use weldsuite_catalogs::permission_keys::{
     ACCOUNTS_CREATE, ACCOUNTS_DELETE, ACCOUNTS_READ, ACCOUNTS_UPDATE,
 };
-use weldsuite_db::{PgPool, js_row};
+use weldsuite_db::{PgPool, orm, utc_timestamp};
+use weldsuite_events::iso_timestamp;
 use weldsuite_kit::validation::{Field, Issues, Number, Presence};
 use weldsuite_kit::{ApiError, Created, Data, NoContent, generate_id};
 use weldsuite_mail_domain::domains::{DnsRecord, DomainError, DomainSetup, MailDomains};
 use weldsuite_mail_domain::outbound::limits::is_shared_weldmail_domain;
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::master::mail_account_registry as registry;
+use weldsuite_schema::tenant::enums::{HostDomainStatus, MailAccountStatus, MailDomainDnsStatus};
+use weldsuite_schema::tenant::{domains, mail_accounts, mail_domains};
 
-use crate::util::{MailError, MailResult, answer, now, query_map, validate};
+use crate::util::{MailError, MailResult, answer, query_map, validate};
 use crate::{Caller, MailState};
 
 pub(crate) fn routes<S, Q>(state: MailState, gate: &Arc<PermissionGate<Q>>) -> Router<S>
@@ -158,11 +168,11 @@ impl Provisioned {
         Value::Array(records)
     }
 
-    fn dns_status(&self) -> &'static str {
+    fn dns_status(&self) -> MailDomainDnsStatus {
         if self.verified() {
-            "verified"
+            MailDomainDnsStatus::Verified
         } else {
-            "pending"
+            MailDomainDnsStatus::Pending
         }
     }
 }
@@ -232,6 +242,27 @@ async fn provision(
     }
 }
 
+/// `metadata` with `ownershipVerifiedAt` set to `at`, on a row with an
+/// ownership token (`metadata ? 'verificationToken'`, the key read with
+/// `->`) that has none yet; the row's own `metadata` otherwise.
+fn mark_ownership_proven(at: &str) -> Expr {
+    use sea_orm::ExprTrait as _;
+    use sea_orm::sea_query::extension::postgres::PgExpr as _;
+    let metadata = || Expr::col(mail_domains::Column::Metadata);
+    let has_token = metadata().get_json_field("verificationToken").is_not_null();
+    let unproven = Expr::from(Func::coalesce([
+        metadata().cast_json_field("ownershipVerifiedAt"),
+        Expr::val(""),
+    ]))
+    .eq("");
+    Expr::case(
+        has_token.and(unproven),
+        metadata().concat(Expr::value(json!({ "ownershipVerifiedAt": at }))),
+    )
+    .finally(metadata())
+    .into()
+}
+
 /// Write what the adapter answered to the row; `provider` replaces the
 /// row's providers (a re-sync through this edition's adapter). `proven`
 /// records, once, that the workspace proved the domain is its own (on a row
@@ -242,38 +273,68 @@ async fn store(
     provider: Option<&str>,
     outcome: &Provisioned,
     proven: bool,
-    at: &str,
-) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "update mail_domains set mail_provider = coalesce($2, mail_provider),
-           send_provider = coalesce($2, send_provider),
-           receive_provider = coalesce($2, receive_provider),
-           dns_status = $3::mail_domain_dns_status, dns_records = $4,
-           spf_verified = $5, dkim_verified = $6, dmarc_verified = $7,
-           dkim_selector = coalesce($8, dkim_selector),
-           cloudflare_routing_enabled = false,
-           verified_at = case when $9 then $10::timestamp else verified_at end,
-           metadata = case
-             when $11 and metadata ? 'verificationToken'
-               and coalesce(metadata->>'ownershipVerifiedAt', '') = ''
-             then metadata || jsonb_build_object('ownershipVerifiedAt', $10::text)
-             else metadata end,
-           last_verification_attempt = $10::timestamp, updated_at = $10::timestamp
-         where id = $1",
-    )
-    .bind(id)
-    .bind(provider)
-    .bind(outcome.dns_status())
-    .bind(outcome.records_json())
-    .bind(outcome.setup.spf_verified())
-    .bind(outcome.setup.dkim_verified())
-    .bind(outcome.setup.dmarc_verified())
-    .bind(outcome.setup.dkim_selector.as_deref())
-    .bind(outcome.verified())
-    .bind(at)
-    .bind(proven)
-    .execute(db)
-    .await?;
+    at: OffsetDateTime,
+) -> Result<(), DbErr> {
+    let stamp = utc_timestamp(at);
+    let mut update = mail_domains::Entity::update_many();
+    if let Some(provider) = provider {
+        for column in [
+            mail_domains::Column::MailProvider,
+            mail_domains::Column::SendProvider,
+            mail_domains::Column::ReceiveProvider,
+        ] {
+            update = update.col_expr(column, Expr::value(provider.to_owned()));
+        }
+    }
+    update = update
+        .col_expr(
+            mail_domains::Column::DnsStatus,
+            mail_domains::Column::DnsStatus.save_as(Expr::value(outcome.dns_status())),
+        )
+        .col_expr(
+            mail_domains::Column::DnsRecords,
+            Expr::value(outcome.records_json()),
+        )
+        .col_expr(
+            mail_domains::Column::SpfVerified,
+            Expr::value(outcome.setup.spf_verified()),
+        )
+        .col_expr(
+            mail_domains::Column::DkimVerified,
+            Expr::value(outcome.setup.dkim_verified()),
+        )
+        .col_expr(
+            mail_domains::Column::DmarcVerified,
+            Expr::value(outcome.setup.dmarc_verified()),
+        );
+    if let Some(selector) = &outcome.setup.dkim_selector {
+        update = update.col_expr(
+            mail_domains::Column::DkimSelector,
+            Expr::value(selector.clone()),
+        );
+    }
+    update = update.col_expr(
+        mail_domains::Column::CloudflareRoutingEnabled,
+        Expr::value(false),
+    );
+    if outcome.verified() {
+        update = update.col_expr(mail_domains::Column::VerifiedAt, Expr::value(stamp));
+    }
+    if proven {
+        update = update.col_expr(
+            mail_domains::Column::Metadata,
+            mark_ownership_proven(&iso_timestamp(at)),
+        );
+    }
+    update
+        .col_expr(
+            mail_domains::Column::LastVerificationAttempt,
+            Expr::value(stamp),
+        )
+        .col_expr(mail_domains::Column::UpdatedAt, Expr::value(stamp))
+        .filter(mail_domains::Column::Id.eq(id))
+        .exec(&orm(db))
+        .await?;
     Ok(())
 }
 
@@ -343,29 +404,33 @@ pub(crate) async fn ensure_provisioned(
     caller: &Caller,
     adapter: &dyn MailDomains,
     domain: &str,
-    at: &str,
+    at: OffsetDateTime,
 ) -> MailResult<()> {
     refuse_weldmail_domain(state, caller, domain)?;
-    let row: Option<(String, Option<String>)> = sqlx::query_as(
-        "select id, dns_status::text from mail_domains
-         where domain_name = $1 and deleted_at is null limit 1",
-    )
-    .bind(domain)
-    .fetch_optional(&caller.db)
-    .await?;
+    let row: Option<(String, Option<MailDomainDnsStatus>)> = mail_domains::Entity::find()
+        .select_only()
+        .columns([mail_domains::Column::Id, mail_domains::Column::DnsStatus])
+        .filter(mail_domains::Column::DomainName.eq(domain))
+        .filter(mail_domains::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(&caller.db))
+        .await?;
     if row
         .as_ref()
-        .is_some_and(|(_, status)| status.as_deref() == Some("verified"))
+        .is_some_and(|(_, status)| *status == Some(MailDomainDnsStatus::Verified))
     {
         return Ok(());
     }
-    let weldhost: bool = sqlx::query_scalar(
-        "select exists(select 1 from domains
-           where full_domain = $1 and deleted_at is null and status = 'active')",
-    )
-    .bind(domain)
-    .fetch_one(&caller.db)
-    .await?;
+    let weldhost = domains::Entity::find()
+        .select_only()
+        .column(domains::Column::Id)
+        .filter(domains::Column::FullDomain.eq(domain))
+        .filter(domains::Column::DeletedAt.is_null())
+        .filter(domains::Column::Status.eq(HostDomainStatus::Active))
+        .into_tuple::<String>()
+        .one(&orm(&caller.db))
+        .await?
+        .is_some();
     if !weldhost {
         return Err(MailError::bad_request(if row.is_some() {
             format!(
@@ -419,24 +484,27 @@ pub(crate) async fn ensure_provisioned(
 // Rows
 // ---------------------------------------------------------------------------
 
+/// A domain row as Drizzle returns it.
+fn js(domain: mail_domains::Model) -> Result<Value, DbErr> {
+    serde_json::to_value(domain).map_err(|error| DbErr::Json(error.to_string()))
+}
+
 /// `getDomain(db, id)`.
-async fn find(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(d) from mail_domains d where d.id = $1 and d.deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(js_row))
+async fn find(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
+    let row = mail_domains::Entity::find_by_id(id.to_owned())
+        .filter(mail_domains::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?;
+    row.map(js).transpose()
 }
 
 /// The row as it is now, deleted or not.
-async fn reread(db: &PgPool, id: &str) -> Result<Value, sqlx::Error> {
-    let row: Value = sqlx::query_scalar("select to_jsonb(d) from mail_domains d where d.id = $1")
-        .bind(id)
-        .fetch_one(db)
-        .await?;
-    Ok(js_row(row))
+async fn reread(db: &PgPool, id: &str) -> Result<Value, DbErr> {
+    let row = mail_domains::Entity::find_by_id(id.to_owned())
+        .one(&orm(db))
+        .await?
+        .ok_or_else(|| DbErr::RecordNotFound(format!("mail domain {id}")))?;
+    js(row)
 }
 
 fn text<'a>(row: &'a Value, key: &str) -> &'a str {
@@ -515,41 +583,51 @@ async fn insert(
     fields: &DomainFields,
     provider: &str,
     token: Option<&str>,
-    at: &str,
-) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "insert into mail_domains (id, domain_name, is_active, is_primary, mail_provider,
-           send_provider, receive_provider, dns_status, cloudflare_routing_enabled,
-           max_email_accounts, current_email_accounts, catch_all_enabled, metadata,
-           created_at, updated_at)
-         values ($1, $2, $3, $4, $5, $6, $7, 'pending', false, $8, 0, false, $9,
-           $10::timestamp, $10::timestamp)",
-    )
-    .bind(id)
-    .bind(domain)
-    .bind(fields.is_active.unwrap_or(true))
-    .bind(fields.is_primary.unwrap_or(false))
-    .bind(fields.mail_provider.as_deref().unwrap_or(provider))
-    .bind(fields.send_provider.as_deref().unwrap_or(provider))
-    .bind(fields.receive_provider.as_deref().unwrap_or(provider))
-    .bind(fields.max_email_accounts.unwrap_or(100))
-    .bind(token.map(|token| json!({ "verificationToken": token })))
-    .bind(at)
-    .execute(db)
+    at: OffsetDateTime,
+) -> Result<(), DbErr> {
+    let stamp = utc_timestamp(at);
+    let provider = |given: &Option<String>| Some(given.as_deref().unwrap_or(provider).to_owned());
+    // `maxEmailAccounts` is 1 to 10 000.
+    let max_accounts = fields
+        .max_email_accounts
+        .map_or(Ok(100), i32::try_from)
+        .map_err(|_| DbErr::Custom("max_email_accounts: integer out of range".to_owned()))?;
+    mail_domains::Entity::insert(mail_domains::ActiveModel {
+        id: Set(id.to_owned()),
+        domain_name: Set(domain.to_owned()),
+        is_active: Set(fields.is_active.unwrap_or(true)),
+        is_primary: Set(Some(fields.is_primary.unwrap_or(false))),
+        mail_provider: Set(provider(&fields.mail_provider)),
+        send_provider: Set(provider(&fields.send_provider)),
+        receive_provider: Set(provider(&fields.receive_provider)),
+        dns_status: Set(Some(MailDomainDnsStatus::Pending)),
+        cloudflare_routing_enabled: Set(Some(false)),
+        max_email_accounts: Set(Some(max_accounts)),
+        current_email_accounts: Set(Some(0)),
+        catch_all_enabled: Set(false),
+        metadata: Set(token.map(|token| json!({ "verificationToken": token }))),
+        created_at: Set(stamp),
+        updated_at: Set(stamp),
+        ..Default::default()
+    })
+    .exec_without_returning(&orm(db))
     .await?;
     Ok(())
 }
 
 /// `markAsSolePrimary`: every other domain stops being the primary one.
-async fn mark_as_sole_primary(db: &PgPool, id: &str, at: &str) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "update mail_domains set is_primary = false, updated_at = $2::timestamp
-         where deleted_at is null and id <> $1 and is_primary is true",
-    )
-    .bind(id)
-    .bind(at)
-    .execute(db)
-    .await?;
+async fn mark_as_sole_primary(db: &PgPool, id: &str, at: OffsetDateTime) -> Result<(), DbErr> {
+    mail_domains::Entity::update_many()
+        .col_expr(mail_domains::Column::IsPrimary, Expr::value(false))
+        .col_expr(
+            mail_domains::Column::UpdatedAt,
+            Expr::value(utc_timestamp(at)),
+        )
+        .filter(mail_domains::Column::DeletedAt.is_null())
+        .filter(mail_domains::Column::Id.ne(id))
+        .filter(mail_domains::Column::IsPrimary.eq(true))
+        .exec(&orm(db))
+        .await?;
     Ok(())
 }
 
@@ -592,13 +670,14 @@ async fn validate_catch_all(
             "Choose a mailbox to receive catch-all mail before enabling",
         ));
     };
-    let account: Option<(String, Option<String>)> = sqlx::query_as(
-        "select email, status::text from mail_accounts
-         where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(account_id)
-    .fetch_optional(&caller.db)
-    .await?;
+    let account: Option<(String, MailAccountStatus)> =
+        mail_accounts::Entity::find_by_id(account_id.to_owned())
+            .select_only()
+            .columns([mail_accounts::Column::Email, mail_accounts::Column::Status])
+            .filter(mail_accounts::Column::DeletedAt.is_null())
+            .into_tuple()
+            .one(&orm(&caller.db))
+            .await?;
     let Some((email, status)) = account else {
         return Err(MailError::bad_request("Catch-all mailbox was not found"));
     };
@@ -608,7 +687,7 @@ async fn validate_catch_all(
             "Catch-all mailbox must be on {domain}"
         )));
     }
-    if status.as_deref() != Some("active") {
+    if status != MailAccountStatus::Active {
         return Err(MailError::bad_request(
             "Catch-all mailbox must be an active account",
         ));
@@ -625,14 +704,49 @@ fn master_db(state: &MailState, caller: &Caller, fallback: &str) -> MailResult<P
 }
 
 /// `deactivateCatchAllRegistry`.
-async fn deactivate_catch_all(master: &PgPool, domain: &str, at: &str) -> MailResult<()> {
-    sqlx::query(
-        "update mail_account_registry set is_active = false, updated_at = $2::timestamp
-         where email = $1",
+async fn deactivate_catch_all(master: &PgPool, domain: &str, at: OffsetDateTime) -> MailResult<()> {
+    registry::Entity::update_many()
+        .col_expr(registry::Column::IsActive, Expr::value(false))
+        .col_expr(registry::Column::UpdatedAt, Expr::value(utc_timestamp(at)))
+        .filter(registry::Column::Email.eq(catch_all_registry_email(domain)))
+        .exec(&orm(master))
+        .await?;
+    Ok(())
+}
+
+/// The master registry entry of `email` for the workspace's mailbox
+/// `account_id`: inserted, or taken over (`on conflict (email) do update`,
+/// `updated_at` set only then).
+pub(crate) async fn upsert_registry(
+    master: &PgPool,
+    email: String,
+    workspace_id: &str,
+    account_id: &str,
+    at: time::PrimitiveDateTime,
+) -> Result<(), DbErr> {
+    registry::Entity::insert(registry::ActiveModel {
+        id: Set(generate_id("reg")),
+        email: Set(email),
+        tenant_kind: Set("workspace".to_owned()),
+        workspace_id: Set(Some(workspace_id.to_owned())),
+        account_id: Set(account_id.to_owned()),
+        is_active: Set(true),
+        ..Default::default()
+    })
+    .on_conflict(
+        OnConflict::column(registry::Column::Email)
+            .value(registry::Column::TenantKind, Expr::value("workspace"))
+            .value(registry::Column::WorkspaceId, Expr::value(workspace_id))
+            .value(
+                registry::Column::PersonalAccountId,
+                Expr::value(Option::<String>::None),
+            )
+            .value(registry::Column::AccountId, Expr::value(account_id))
+            .value(registry::Column::IsActive, Expr::value(true))
+            .value(registry::Column::UpdatedAt, Expr::value(at))
+            .to_owned(),
     )
-    .bind(catch_all_registry_email(domain))
-    .bind(at)
-    .execute(master)
+    .exec_without_returning(&orm(master))
     .await?;
     Ok(())
 }
@@ -643,7 +757,7 @@ async fn sync_catch_all(
     state: &MailState,
     caller: &Caller,
     after: &Value,
-    at: &str,
+    at: OffsetDateTime,
 ) -> MailResult<()> {
     let master = master_db(state, caller, "Failed to update domain")?;
     let domain = text(after, "domainName");
@@ -653,30 +767,20 @@ async fn sync_catch_all(
     let (true, Some(account)) = (after["catchAllEnabled"].as_bool() == Some(true), account) else {
         return deactivate_catch_all(&master, domain, at).await;
     };
-    sqlx::query(
-        "insert into mail_account_registry (id, email, tenant_kind, workspace_id, account_id, is_active)
-         values ($1, $2, 'workspace', $3, $4, true)
-         on conflict (email) do update set tenant_kind = 'workspace', workspace_id = $3,
-           personal_account_id = null, account_id = $4, is_active = true,
-           updated_at = $5::timestamp",
+    upsert_registry(
+        &master,
+        catch_all_registry_email(domain),
+        &caller.workspace_id,
+        account,
+        utc_timestamp(at),
     )
-    .bind(generate_id("reg"))
-    .bind(catch_all_registry_email(domain))
-    .bind(&caller.workspace_id)
-    .bind(account)
-    .bind(at)
-    .execute(&master)
     .await?;
     Ok(())
 }
 
 /// Whether another workspace (or a personal account) has active addresses
 /// on `domain` in the master registry.
-async fn used_elsewhere(
-    master: &PgPool,
-    workspace_id: &str,
-    domain: &str,
-) -> Result<bool, sqlx::Error> {
+async fn used_elsewhere(master: &PgPool, workspace_id: &str, domain: &str) -> Result<bool, DbErr> {
     let mut pattern = String::from("%@");
     for c in domain.to_lowercase().chars() {
         if matches!(c, '\\' | '%' | '_') {
@@ -684,14 +788,20 @@ async fn used_elsewhere(
         }
         pattern.push(c);
     }
-    sqlx::query_scalar(
-        "select exists(select 1 from mail_account_registry
-           where is_active = true and email like $1 and workspace_id is distinct from $2)",
-    )
-    .bind(pattern)
-    .bind(workspace_id)
-    .fetch_one(master)
-    .await
+    // `workspace_id is distinct from $2`, `$2` never null.
+    let other = Condition::any()
+        .add(registry::Column::WorkspaceId.is_null())
+        .add(registry::Column::WorkspaceId.ne(workspace_id));
+    let found: Option<String> = registry::Entity::find()
+        .select_only()
+        .column(registry::Column::Id)
+        .filter(registry::Column::IsActive.eq(true))
+        .filter(registry::Column::Email.like(pattern))
+        .filter(other)
+        .into_tuple()
+        .one(&orm(master))
+        .await?;
+    Ok(found.is_some())
 }
 
 // ---------------------------------------------------------------------------
@@ -705,18 +815,20 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
     let flag = |key: &str| query.get(key).map(|value| !value.is_empty());
     let (is_active, is_primary) = (flag("isActive"), flag("isPrimary"));
     let result = async {
-        let rows: Vec<Value> = sqlx::query_scalar(
-            "select to_jsonb(d) from mail_domains d
-             where d.deleted_at is null
-               and ($1::boolean is null or d.is_active = $1)
-               and ($2::boolean is null or d.is_primary = $2)
-             order by d.is_primary desc, d.domain_name asc",
-        )
-        .bind(is_active)
-        .bind(is_primary)
-        .fetch_all(&caller.db)
-        .await?;
-        let rows: Vec<Value> = rows.into_iter().map(js_row).collect();
+        let mut find =
+            mail_domains::Entity::find().filter(mail_domains::Column::DeletedAt.is_null());
+        if let Some(is_active) = is_active {
+            find = find.filter(mail_domains::Column::IsActive.eq(is_active));
+        }
+        if let Some(is_primary) = is_primary {
+            find = find.filter(mail_domains::Column::IsPrimary.eq(is_primary));
+        }
+        let rows = find
+            .order_by_desc(mail_domains::Column::IsPrimary)
+            .order_by_asc(mail_domains::Column::DomainName)
+            .all(&orm(&caller.db))
+            .await?;
+        let rows = rows.into_iter().map(js).collect::<Result<Vec<_>, _>>()?;
         Ok(Data(Value::Array(rows)).into_response())
     }
     .await;
@@ -726,15 +838,13 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
 /// `GET /by-name/:domainName` (`getDomainByName`).
 async fn by_name(caller: Caller, Path(domain_name): Path<String>) -> Response {
     let result = async {
-        let row: Option<Value> = sqlx::query_scalar(
-            "select to_jsonb(d) from mail_domains d
-             where d.domain_name = $1 and d.deleted_at is null limit 1",
-        )
-        .bind(domain_name.to_lowercase())
-        .fetch_optional(&caller.db)
-        .await?;
+        let row = mail_domains::Entity::find()
+            .filter(mail_domains::Column::DomainName.eq(domain_name.to_lowercase()))
+            .filter(mail_domains::Column::DeletedAt.is_null())
+            .one(&orm(&caller.db))
+            .await?;
         match row {
-            Some(row) => Ok(Data(js_row(row)).into_response()),
+            Some(row) => Ok(Data(js(row)?).into_response()),
             None => Err(MailError::not_found("Domain", Some(&domain_name))),
         }
     }
@@ -785,13 +895,7 @@ async fn create(
     let result = async {
         let domain = domain.trim().to_lowercase();
         refuse_weldmail_domain(&state, &caller, &domain)?;
-        let existing: Option<String> = sqlx::query_scalar(
-            "select id from mail_domains where domain_name = $1 and deleted_at is null limit 1",
-        )
-        .bind(&domain)
-        .fetch_optional(&caller.db)
-        .await?;
-        if existing.is_some() {
+        if live_domain_id(&caller.db, &domain).await?.is_some() {
             return Err(MailError::conflict(format!(
                 "Domain {domain} is already registered"
             )));
@@ -801,7 +905,7 @@ async fn create(
         // A new token cannot resolve yet: no lookup, and no MTA call.
         let outcome = Provisioned::unproven(Some(ownership_record(&domain, &token)));
         let id = generate_id("mdom");
-        let at = now();
+        let at = OffsetDateTime::now_utc();
         insert(
             &caller.db,
             &id,
@@ -809,12 +913,12 @@ async fn create(
             &fields,
             adapter.provider(),
             Some(&token),
-            &at,
+            at,
         )
         .await?;
-        store(&caller.db, &id, None, &outcome, false, &at).await?;
+        store(&caller.db, &id, None, &outcome, false, at).await?;
         if fields.is_primary == Some(true) {
-            mark_as_sole_primary(&caller.db, &id, &at).await?;
+            mark_as_sole_primary(&caller.db, &id, at).await?;
         }
         let row = reread(&caller.db, &id).await?;
         caller.publish(&state, MAIL_DOMAIN_CREATED, &id, &event_data(&row));
@@ -877,36 +981,13 @@ async fn update_domain(
             } else {
                 None
             };
-        let at = now();
-        sqlx::query(
-            "update mail_domains set updated_at = $2::timestamp,
-               is_active = coalesce($3, is_active), is_primary = coalesce($4, is_primary),
-               mail_provider = coalesce($5, mail_provider),
-               send_provider = coalesce($6, send_provider),
-               receive_provider = coalesce($7, receive_provider),
-               max_email_accounts = coalesce($8, max_email_accounts),
-               catch_all_enabled = coalesce($9, catch_all_enabled),
-               catch_all_account_id = case when $10 then $11 else catch_all_account_id end
-             where id = $1",
-        )
-        .bind(&id)
-        .bind(&at)
-        .bind(fields.is_active)
-        .bind(fields.is_primary)
-        .bind(fields.mail_provider.as_deref())
-        .bind(fields.send_provider.as_deref())
-        .bind(fields.receive_provider.as_deref())
-        .bind(fields.max_email_accounts)
-        .bind(enabled)
-        .bind(account_write.is_some())
-        .bind(account_write.flatten())
-        .execute(&caller.db)
-        .await?;
+        let at = OffsetDateTime::now_utc();
+        write_update(&caller.db, &id, &fields, enabled, account_write, at).await?;
         if fields.is_primary == Some(true) {
-            mark_as_sole_primary(&caller.db, &id, &at).await?;
+            mark_as_sole_primary(&caller.db, &id, at).await?;
         }
         let after = reread(&caller.db, &id).await?;
-        sync_catch_all(&state, &caller, &after, &at).await?;
+        sync_catch_all(&state, &caller, &after, at).await?;
         let mut data = event_data(&after);
         data["catchAllEnabled"] = after["catchAllEnabled"].clone();
         data["catchAllAccountId"] = after["catchAllAccountId"].clone();
@@ -915,6 +996,70 @@ async fn update_domain(
     }
     .await;
     answer(result, "Failed to update domain")
+}
+
+/// The live domain named `domain`.
+async fn live_domain_id(db: &PgPool, domain: &str) -> Result<Option<String>, DbErr> {
+    mail_domains::Entity::find()
+        .select_only()
+        .column(mail_domains::Column::Id)
+        .filter(mail_domains::Column::DomainName.eq(domain))
+        .filter(mail_domains::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await
+}
+
+/// `updateDomain`'s write: the fields the body sent, `catch_all_account_id`
+/// when decided (`Some(None)` clears it), and `updatedAt`.
+#[allow(clippy::option_option)] // absent, cleared or set, as the route decides
+async fn write_update(
+    db: &PgPool,
+    id: &str,
+    fields: &DomainFields,
+    enabled: Option<bool>,
+    account_write: Option<Option<String>>,
+    at: OffsetDateTime,
+) -> Result<(), DbErr> {
+    let mut update = mail_domains::Entity::update_many().col_expr(
+        mail_domains::Column::UpdatedAt,
+        Expr::value(utc_timestamp(at)),
+    );
+    if let Some(is_active) = fields.is_active {
+        update = update.col_expr(mail_domains::Column::IsActive, Expr::value(is_active));
+    }
+    if let Some(is_primary) = fields.is_primary {
+        update = update.col_expr(mail_domains::Column::IsPrimary, Expr::value(is_primary));
+    }
+    for (value, column) in [
+        (&fields.mail_provider, mail_domains::Column::MailProvider),
+        (&fields.send_provider, mail_domains::Column::SendProvider),
+        (
+            &fields.receive_provider,
+            mail_domains::Column::ReceiveProvider,
+        ),
+    ] {
+        if let Some(value) = value {
+            update = update.col_expr(column, Expr::value(value.clone()));
+        }
+    }
+    if let Some(max) = fields.max_email_accounts {
+        update = update.col_expr(mail_domains::Column::MaxEmailAccounts, Expr::value(max));
+    }
+    if let Some(enabled) = enabled {
+        update = update.col_expr(mail_domains::Column::CatchAllEnabled, Expr::value(enabled));
+    }
+    if let Some(account) = account_write {
+        update = update.col_expr(
+            mail_domains::Column::CatchAllAccountId,
+            Expr::value(account),
+        );
+    }
+    update
+        .filter(mail_domains::Column::Id.eq(id))
+        .exec(&orm(db))
+        .await?;
+    Ok(())
 }
 
 /// `DELETE /:id` (`softDeleteDomain`): the row goes, its catch-all sentinel
@@ -930,18 +1075,21 @@ async fn remove(
             return Err(MailError::not_found("Domain", Some(&id)));
         };
         let domain = text(&existing, "domainName").to_owned();
-        let at = now();
-        sqlx::query(
-            "update mail_domains set deleted_at = $2::timestamp, updated_at = $2::timestamp,
-               catch_all_enabled = false, catch_all_account_id = null
-             where id = $1",
-        )
-        .bind(&id)
-        .bind(&at)
-        .execute(&caller.db)
-        .await?;
+        let at = OffsetDateTime::now_utc();
+        let stamp = utc_timestamp(at);
+        mail_domains::Entity::update_many()
+            .col_expr(mail_domains::Column::DeletedAt, Expr::value(stamp))
+            .col_expr(mail_domains::Column::UpdatedAt, Expr::value(stamp))
+            .col_expr(mail_domains::Column::CatchAllEnabled, Expr::value(false))
+            .col_expr(
+                mail_domains::Column::CatchAllAccountId,
+                Expr::value(Option::<String>::None),
+            )
+            .filter(mail_domains::Column::Id.eq(&id))
+            .exec(&orm(&caller.db))
+            .await?;
         let master = master_db(&state, &caller, "Failed to delete domain")?;
-        deactivate_catch_all(&master, &domain, &at).await?;
+        deactivate_catch_all(&master, &domain, at).await?;
         if let Some(adapter) = &state.domains
             && text(&existing, "dnsStatus") == "verified"
         {
@@ -999,7 +1147,15 @@ async fn verify(
             )
         })?;
         let proven = proven || outcome.ownership_resolved();
-        store(&caller.db, &id, None, &outcome, proven, &now()).await?;
+        store(
+            &caller.db,
+            &id,
+            None,
+            &outcome,
+            proven,
+            OffsetDateTime::now_utc(),
+        )
+        .await?;
         let after = reread(&caller.db, &id).await?;
         if outcome.verified() {
             caller.publish(&state, MAIL_DOMAIN_VERIFIED, &id, &event_data(&after));
@@ -1038,7 +1194,7 @@ async fn sync(State(state): State<MailState>, caller: Caller, Path(id): Path<Str
             Some(adapter.provider()),
             &outcome,
             proven,
-            &now(),
+            OffsetDateTime::now_utc(),
         )
         .await?;
         let after = reread(&caller.db, &id).await?;
@@ -1093,14 +1249,15 @@ async fn generate_dkim(
             .clone()
             .or_else(|| dkim.and_then(|r| r.name.split('.').next().map(str::to_owned)))
             .unwrap_or_default();
-        sqlx::query(
-            "update mail_domains set dkim_selector = $2, updated_at = $3::timestamp where id = $1",
-        )
-        .bind(&id)
-        .bind(&selector)
-        .bind(now())
-        .execute(&caller.db)
-        .await?;
+        mail_domains::Entity::update_many()
+            .col_expr(
+                mail_domains::Column::DkimSelector,
+                Expr::value(selector.clone()),
+            )
+            .col_expr(mail_domains::Column::UpdatedAt, Expr::value(weldsuite_db::utc_now()))
+            .filter(mail_domains::Column::Id.eq(&id))
+            .exec(&orm(&caller.db))
+            .await?;
         Ok(Data(json!({
             "selector": selector,
             "dnsRecord": dkim.map(|r| r.value.clone()).unwrap_or_default(),
@@ -1162,7 +1319,7 @@ mod tests {
             ownership: Some(ownership.clone()),
         };
         assert!(!pending.verified());
-        assert_eq!(pending.dns_status(), "pending");
+        assert_eq!(pending.dns_status(), MailDomainDnsStatus::Pending);
         ownership.verified = true;
         let done = Provisioned {
             setup: setup(true),
@@ -1215,6 +1372,7 @@ mod tests {
 #[cfg(test)]
 mod db_tests {
     #![allow(clippy::too_many_lines)] // one scenario, step by step
+    #![allow(clippy::disallowed_methods, reason = "test fixtures")]
 
     use std::collections::HashMap;
     use std::sync::Mutex;
@@ -1387,10 +1545,15 @@ mod db_tests {
                     .is_some_and(|m| m.contains("is a WeldMail domain")),
                 "{body}"
             );
-            let refused =
-                ensure_provisioned(&state, &caller(&offline), fake.as_ref(), name, &now())
-                    .await
-                    .expect_err("a WeldMail domain");
+            let refused = ensure_provisioned(
+                &state,
+                &caller(&offline),
+                fake.as_ref(),
+                name,
+                OffsetDateTime::now_utc(),
+            )
+            .await
+            .expect_err("a WeldMail domain");
             assert_eq!(refused.respond("").status(), StatusCode::BAD_REQUEST);
         }
         assert!(fake.reached.lock().expect("lock").is_empty());
@@ -1499,7 +1662,7 @@ mod db_tests {
             &caller(&tenant),
             fake.as_ref(),
             "acme.mdt.test",
-            &now(),
+            OffsetDateTime::now_utc(),
         )
         .await
         .expect_err("pending domain");
@@ -1550,7 +1713,7 @@ mod db_tests {
             &caller(&tenant),
             fake.as_ref(),
             "acme.mdt.test",
-            &now(),
+            OffsetDateTime::now_utc(),
         )
         .await
         .expect("verified domain");
@@ -1614,7 +1777,7 @@ mod db_tests {
             &caller(&tenant),
             fake.as_ref(),
             "host.mdt.test",
-            &now(),
+            OffsetDateTime::now_utc(),
         )
         .await
         .expect("weldhost domain");

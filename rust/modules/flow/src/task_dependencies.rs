@@ -20,23 +20,34 @@ use axum::body::Bytes;
 use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, patch};
+use sea_orm::prelude::BigDecimal;
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, Condition, DbErr, EntityTrait, FromQueryResult, PaginatorTrait,
+    QueryFilter, QueryOrder, QuerySelect, TransactionTrait,
+};
+use serde::Serialize;
 use serde_json::{Value, json};
+use time::OffsetDateTime;
 use weldsuite_catalogs::entity_events::EventName;
 use weldsuite_catalogs::entity_events::{
     PROJECT_TASK_UPDATED, TASK_DEPENDENCY_CREATED, TASK_DEPENDENCY_DELETED, TASK_DEPENDENCY_UPDATED,
 };
-use weldsuite_db::js_row;
+use weldsuite_db::{orm, utc_timestamp};
 use weldsuite_flow_domain::analytics::task_analytics_payload;
 use weldsuite_flow_domain::js::parse_int;
 use weldsuite_flow_domain::task_dependencies::{messages, with_id, without_id, would_close_cycle};
 use weldsuite_kit::validation::{Issues, Presence, Text};
 use weldsuite_kit::{Created, Data, NoContent, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::task_dependencies::{self as dependencies, Column as Dependency};
+use weldsuite_schema::tenant::tasks::{self, Column as Task};
 
 use crate::raid::{PROJECT_DENIED, PROJECT_WRITE_DENIED};
 use crate::raid_body::{Body, IDENTIFIER, Reader, parse_body, read_query, whole};
 use crate::{
-    Caller, FlowState, Refusal, Reply, keyset_cursor, now_ms, outside, page, paged, reply,
+    Caller, FlowState, Refusal, Reply, fetch_limit, keyset_before, keyset_cursor_tz, now_ms,
+    outside, page, paged, reply, row_json,
 };
 
 const LABEL: &str = "Dependency";
@@ -70,38 +81,86 @@ where
 pub(crate) async fn find_dependency(
     db: &weldsuite_db::PgPool,
     id: &str,
-) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> =
-        sqlx::query_scalar("select to_jsonb(d) from task_dependencies d where d.id = $1 limit 1")
-            .bind(id)
-            .fetch_optional(db)
-            .await?;
-    Ok(row.map(js_row))
+) -> Result<Option<Value>, DbErr> {
+    dependencies::Entity::find_by_id(id.to_owned())
+        .one(&orm(db))
+        .await?
+        .map(row_json)
+        .transpose()
 }
 
-/// The task columns a link write needs, as the camelCase row Drizzle reads.
-macro_rules! task_json {
-    () => {
-        "jsonb_build_object('id', t.id, 'projectId', t.project_id, 'title', t.title,
-    'number', t.number, 'status', t.status, 'priority', t.priority, 'type', t.type,
-    'assigneeId', t.assignee_id, 'estimatedHours', t.estimated_hours::text,
-    'actualHours', t.actual_hours::text, 'progress', t.progress::text,
-    'dependsOn', t.depends_on, 'blocks', t.blocks)"
-    };
+/// The task columns a link write needs, as the camelCase row Drizzle reads
+/// (`numeric` columns as their text).
+#[derive(Debug, FromQueryResult, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LinkedTask {
+    id: String,
+    project_id: Option<String>,
+    title: String,
+    number: Option<i32>,
+    status: String,
+    priority: String,
+    #[serde(rename = "type")]
+    kind: Option<String>,
+    assignee_id: Option<String>,
+    #[serde(serialize_with = "weldsuite_schema::js::Numeric::<2>::serialize_option")]
+    estimated_hours: Option<BigDecimal>,
+    #[serde(serialize_with = "weldsuite_schema::js::Numeric::<2>::serialize_option")]
+    actual_hours: Option<BigDecimal>,
+    #[serde(serialize_with = "weldsuite_schema::js::Numeric::<2>::serialize")]
+    progress: BigDecimal,
+    depends_on: Option<Value>,
+    blocks: Option<Value>,
 }
 
 pub(crate) async fn linked_tasks(
     db: &weldsuite_db::PgPool,
     ids: &[String],
-) -> Result<Vec<Value>, sqlx::Error> {
-    sqlx::query_scalar(concat!(
-        "select ",
-        task_json!(),
-        " from tasks t where t.id = any($1) and t.deleted_at is null"
-    ))
-    .bind(ids)
-    .fetch_all(db)
-    .await
+) -> Result<Vec<Value>, DbErr> {
+    tasks::Entity::find()
+        .select_only()
+        .columns([
+            Task::Id,
+            Task::ProjectId,
+            Task::Title,
+            Task::Number,
+            Task::Status,
+            Task::Priority,
+        ])
+        .column_as(Task::Type, "kind")
+        .columns([
+            Task::AssigneeId,
+            Task::EstimatedHours,
+            Task::ActualHours,
+            Task::Progress,
+            Task::DependsOn,
+            Task::Blocks,
+        ])
+        .filter(Task::Id.is_in(ids.iter().map(String::as_str)))
+        .filter(Task::DeletedAt.is_null())
+        .into_model::<LinkedTask>()
+        .all(&orm(db))
+        .await?
+        .into_iter()
+        .map(row_json)
+        .collect()
+}
+
+/// `update(tasks).set({ [column]: ids, updatedAt })` of one task.
+async fn set_task_links<C: sea_orm::ConnectionTrait>(
+    db: &C,
+    task_id: &str,
+    column: Task,
+    ids: &[String],
+    at: time::PrimitiveDateTime,
+) -> Result<(), DbErr> {
+    tasks::Entity::update_many()
+        .col_expr(column, Expr::value(json!(ids)))
+        .col_expr(Task::UpdatedAt, Expr::value(at))
+        .filter(Task::Id.eq(task_id))
+        .exec(db)
+        .await?;
+    Ok(())
 }
 
 fn id_list(task: &Value, key: &str) -> Vec<String> {
@@ -260,16 +319,13 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
         return outside(Err(refused));
     }
     let cursor = match &q.cursor {
-        Some(cursor) => match keyset_cursor(
-            &caller.db,
-            "select id, to_jsonb(created_at) #>> '{}' from task_dependencies where id = $1 limit 1",
-            cursor,
-        )
-        .await
-        {
-            Ok(found) => found,
-            Err(error) => return outside(Err(error.into())),
-        },
+        Some(cursor) => {
+            match keyset_cursor_tz(&caller.db, Dependency::Id, Dependency::CreatedAt, cursor).await
+            {
+                Ok(found) => found,
+                Err(error) => return outside(Err(error.into())),
+            }
+        }
         None => None,
     };
     reply(
@@ -278,43 +334,48 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
     )
 }
 
-macro_rules! filters {
-    () => {
-        "($1::text is null or d.project_id = $1)
-    and ($2::text is null or d.predecessor_id = $2 or d.successor_id = $2)"
-    };
+/// `projectId` and `taskId` (either end of the link).
+fn filters(q: &ListQuery) -> Condition {
+    let mut all = Condition::all();
+    if let Some(project_id) = &q.project_id {
+        all = all.add(Dependency::ProjectId.eq(project_id));
+    }
+    if let Some(task_id) = &q.task_id {
+        all = all.add(
+            Condition::any()
+                .add(Dependency::PredecessorId.eq(task_id))
+                .add(Dependency::SuccessorId.eq(task_id)),
+        );
+    }
+    all
 }
 
 async fn list_rows(
     caller: &Caller,
     q: &ListQuery,
     limit: i64,
-    cursor: Option<(String, String)>,
+    cursor: Option<(OffsetDateTime, String)>,
 ) -> Reply {
-    let db = &caller.db;
-    let rows: Vec<Value> = sqlx::query_scalar(concat!(
-        "select to_jsonb(d) from task_dependencies d where ",
-        filters!(),
-        " and ($3::timestamptz is null or d.created_at < $3::timestamptz
-                or (d.created_at = $3::timestamptz and d.id < $4))
-         order by d.created_at desc, d.id desc limit $5"
-    ))
-    .bind(q.project_id.as_deref())
-    .bind(q.task_id.as_deref())
-    .bind(cursor.as_ref().map(|c| c.0.as_str()))
-    .bind(cursor.as_ref().map(|c| c.1.as_str()))
-    .bind(limit + 1)
-    .fetch_all(db)
-    .await?;
-    let total: i64 = sqlx::query_scalar(concat!(
-        "select count(*) from task_dependencies d where ",
-        filters!()
-    ))
-    .bind(q.project_id.as_deref())
-    .bind(q.task_id.as_deref())
-    .fetch_one(db)
-    .await?;
-    let (rows, has_more, next) = page(rows.into_iter().map(js_row).collect(), limit);
+    let db = &orm(&caller.db);
+    let mut select = dependencies::Entity::find().filter(filters(q));
+    if let Some(cursor) = &cursor {
+        select = select.filter(keyset_before(Dependency::Id, Dependency::CreatedAt, cursor));
+    }
+    let rows: Vec<Value> = select
+        .order_by_desc(Dependency::CreatedAt)
+        .order_by_desc(Dependency::Id)
+        .limit(fetch_limit(limit)?)
+        .all(db)
+        .await?
+        .into_iter()
+        .map(row_json)
+        .collect::<Result<_, DbErr>>()?;
+    let total = dependencies::Entity::find()
+        .filter(filters(q))
+        .count(db)
+        .await?;
+    let total = i64::try_from(total).unwrap_or(i64::MAX);
+    let (rows, has_more, next) = page(rows, limit);
     Ok(paged(
         rows.iter().map(present).collect(),
         total,
@@ -366,13 +427,14 @@ async fn create_link(state: &FlowState, caller: &Caller, input: &Body) -> Reply 
     if succ_project != pred_project {
         return Err(Refusal::bad_request(messages::DIFFERENT_PROJECTS));
     }
-    let existing: Option<String> = sqlx::query_scalar(
-        "select id from task_dependencies where predecessor_id = $1 and successor_id = $2 limit 1",
-    )
-    .bind(&pred_id)
-    .bind(&succ_id)
-    .fetch_optional(db)
-    .await?;
+    let existing: Option<String> = dependencies::Entity::find()
+        .select_only()
+        .column(Dependency::Id)
+        .filter(Dependency::PredecessorId.eq(&pred_id))
+        .filter(Dependency::SuccessorId.eq(&succ_id))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     if existing.is_some() {
         return Err(Refusal::conflict(messages::DUPLICATE));
     }
@@ -380,38 +442,29 @@ async fn create_link(state: &FlowState, caller: &Caller, input: &Body) -> Reply 
         return Err(Refusal::bad_request(messages::CYCLE));
     }
 
-    let now = crate::now();
+    let at = utc_timestamp(OffsetDateTime::now_utc());
     let id = generate_id("tdp");
     let next_depends_on = with_id(&id_list(&successor, "dependsOn"), &pred_id);
     let next_blocks = with_id(&id_list(&predecessor, "blocks"), &succ_id);
     let lag = i32::try_from(input.get("lagDays").and_then(Value::as_i64).unwrap_or(0)).unwrap_or(0);
-    weldsuite_db::atomically(
-        db,
-        [
-            sqlx::query(
-                "insert into task_dependencies
-                     (id, project_id, predecessor_id, successor_id, type, lag_days, created_by, created_at, updated_at)
-                 values ($1, $2, $3, $4, $5, $6, $7, $8::timestamptz, $8::timestamptz)",
-            )
-            .bind(id.clone())
-            .bind(pred_project.to_owned())
-            .bind(pred_id.clone())
-            .bind(succ_id.clone())
-            .bind(text(input, "type").unwrap_or("fs").to_owned())
-            .bind(lag)
-            .bind(caller.user_id.clone())
-            .bind(now.clone()),
-            sqlx::query("update tasks set depends_on = $2, updated_at = $3::timestamp where id = $1")
-                .bind(succ_id.clone())
-                .bind(json!(next_depends_on))
-                .bind(now.clone()),
-            sqlx::query("update tasks set blocks = $2, updated_at = $3::timestamp where id = $1")
-                .bind(pred_id.clone())
-                .bind(json!(next_blocks))
-                .bind(now),
-        ],
-    )
+    // One batch: the link and both tasks' arrays.
+    let tx = orm(db).begin().await?;
+    dependencies::Entity::insert(dependencies::ActiveModel {
+        id: Set(id.clone()),
+        project_id: Set(pred_project.to_owned()),
+        predecessor_id: Set(pred_id.clone()),
+        successor_id: Set(succ_id.clone()),
+        type_: Set(text(input, "type").unwrap_or("fs").to_owned()),
+        lag_days: Set(lag),
+        created_by: Set(caller.user_id.clone()),
+        created_at: Set(at.assume_utc()),
+        updated_at: Set(at.assume_utc()),
+    })
+    .exec_without_returning(&tx)
     .await?;
+    set_task_links(&tx, &succ_id, Task::DependsOn, &next_depends_on, at).await?;
+    set_task_links(&tx, &pred_id, Task::Blocks, &next_blocks, at).await?;
+    tx.commit().await?;
     let Some(row) = find_dependency(db, &id).await? else {
         return Err(Refusal::Internal(
             "the new dependency is missing".to_owned(),
@@ -458,17 +511,22 @@ async fn update_link(state: &FlowState, caller: &Caller, id: &str, input: &Body)
         .get("lagDays")
         .and_then(Value::as_i64)
         .and_then(|n| i32::try_from(n).ok());
-    sqlx::query(
-        "update task_dependencies set
-             type = coalesce($2, type), lag_days = coalesce($3, lag_days), updated_at = $4::timestamptz
-         where id = $1",
-    )
-    .bind(id)
-    .bind(text(input, "type"))
-    .bind(lag)
-    .bind(crate::now())
-    .execute(db)
-    .await?;
+    // `coalesce($type, type)`, `coalesce($lag, lag_days)`: only what was sent.
+    let mut update = dependencies::Entity::update_many();
+    if let Some(kind) = text(input, "type") {
+        update = update.col_expr(Dependency::Type, Expr::value(kind));
+    }
+    if let Some(lag) = lag {
+        update = update.col_expr(Dependency::LagDays, Expr::value(lag));
+    }
+    update
+        .col_expr(
+            Dependency::UpdatedAt,
+            Expr::value(weldsuite_db::utc_now().assume_utc()),
+        )
+        .filter(Dependency::Id.eq(id))
+        .exec(&orm(db))
+        .await?;
     let Some(row) = find_dependency(db, id).await? else {
         return Err(Refusal::not_found(LABEL, id));
     };
@@ -517,34 +575,26 @@ async fn remove_link(state: &FlowState, caller: &Caller, id: &str) -> Reply {
         .iter()
         .find(|task| task["id"] == succ_id.as_str())
         .cloned();
-    let now = crate::now();
+    let at = weldsuite_db::utc_now();
     let next_blocks = predecessor
         .as_ref()
         .map(|task| without_id(&id_list(task, "blocks"), &succ_id));
     let next_depends_on = successor
         .as_ref()
         .map(|task| without_id(&id_list(task, "dependsOn"), &pred_id));
-    let mut statements =
-        vec![sqlx::query("delete from task_dependencies where id = $1").bind(id.to_owned())];
+    // One batch: the link goes, and the arrays of the tasks still there.
+    let tx = orm(db).begin().await?;
+    dependencies::Entity::delete_many()
+        .filter(Dependency::Id.eq(id))
+        .exec(&tx)
+        .await?;
     if let Some(blocks) = &next_blocks {
-        statements.push(
-            sqlx::query("update tasks set blocks = $2, updated_at = $3::timestamp where id = $1")
-                .bind(pred_id.clone())
-                .bind(json!(blocks))
-                .bind(now.clone()),
-        );
+        set_task_links(&tx, &pred_id, Task::Blocks, blocks, at).await?;
     }
     if let Some(depends_on) = &next_depends_on {
-        statements.push(
-            sqlx::query(
-                "update tasks set depends_on = $2, updated_at = $3::timestamp where id = $1",
-            )
-            .bind(succ_id.clone())
-            .bind(json!(depends_on))
-            .bind(now),
-        );
+        set_task_links(&tx, &succ_id, Task::DependsOn, depends_on, at).await?;
     }
-    weldsuite_db::atomically(db, statements).await?;
+    tx.commit().await?;
     publish_dependency(state, caller, TASK_DEPENDENCY_DELETED, &existing);
     if let (Some(task), Some(_)) = (&predecessor, &next_blocks) {
         publish_linked_task(state, caller, task);

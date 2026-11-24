@@ -27,11 +27,14 @@ use axum::body::{Body, Bytes};
 use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use http::{HeaderMap, HeaderValue, StatusCode, header};
+use sea_orm::sea_query::Expr;
+use sea_orm::{ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder};
 use serde_json::value::RawValue;
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events::{
     EventName, PANEL_HEATMAP_PAGE_CREATED, PANEL_HEATMAP_PAGE_DELETED, PANEL_HEATMAP_PAGE_UPDATED,
 };
+use weldsuite_db::orm;
 use weldsuite_kit::{ApiError, Created, Data, List, NoContent, Pagination};
 use weldsuite_panel_domain::device_class::{MOBILE_MAX_WIDTH, TABLET_MAX_WIDTH};
 use weldsuite_panel_domain::js;
@@ -43,12 +46,14 @@ use weldsuite_panel_domain::query::time::resolve_range;
 use weldsuite_panel_domain::query::{PanelQueryContext, PanelSqlQuery, Runner};
 use weldsuite_panel_domain::schemas::{DatePreset, DateRange};
 use weldsuite_ports::{Cache, DynCache, DynFileStore};
+use weldsuite_schema::tenant::panel_heatmap_pages as pages;
 use weldsuite_zod::{Hook, Keys, S, Z};
 
 use crate::domain::{heatmap_snapshot_key, snapshot_request_key};
 use crate::engine::Engine;
 use crate::query::QueryDeps;
 use crate::recordings::{Bindings, Failure, chunk_key_belongs, iso_of, session_context, text_of};
+use crate::saved::js_row;
 use crate::{Caller, PanelState, unexpected};
 
 /// How long a snapshot request waits for a visitor on a matching page.
@@ -147,16 +152,9 @@ fn publish(caller: &Caller, state: &PanelState, event: EventName, row: &Value) {
     caller.publish(state, event, text(row, "id"), &event_data(row));
 }
 
-async fn rows(
-    caller: &Caller,
-    sql: &'static str,
-    project_or_id: &str,
-) -> Result<Vec<Value>, sqlx::Error> {
-    let rows: Vec<Value> = sqlx::query_scalar(sqlx::AssertSqlSafe(sql))
-        .bind(project_or_id)
-        .fetch_all(&caller.db)
-        .await?;
-    Ok(rows.into_iter().map(weldsuite_db::js_row).collect())
+/// The first of `rows` (a `returning` list), as Drizzle returns it.
+fn first_row(rows: Vec<pages::Model>) -> Result<Option<Value>, DbErr> {
+    rows.into_iter().next().map(js_row).transpose()
 }
 
 /// `GET /pages`.
@@ -166,14 +164,14 @@ pub(crate) async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
         Err(response) => return response,
     };
     let project_id = parsed.text("projectId").unwrap_or_default();
-    match rows(
-        &caller,
-        "select to_jsonb(h) from panel_heatmap_pages h
-         where h.project_id = $1 order by h.name asc, h.id asc",
-        project_id,
-    )
-    .await
-    {
+    let found = pages::Entity::find()
+        .filter(pages::Column::ProjectId.eq(project_id))
+        .order_by_asc(pages::Column::Name)
+        .order_by_asc(pages::Column::Id)
+        .all(&orm(&caller.db))
+        .await
+        .and_then(|found| found.into_iter().map(js_row).collect::<Result<Vec<_>, _>>());
+    match found {
         Ok(pages) => {
             let count = pages.len() as u64;
             List::new(
@@ -206,20 +204,19 @@ pub(crate) async fn create(
         Ok(None) => return ApiError::not_found("Project", Some(project_id)).into_response(),
         Err(error) => return unexpected(&error, "project exists"),
     }
-    let row: Result<Value, sqlx::Error> = sqlx::query_scalar(
-        "insert into panel_heatmap_pages as h (id, project_id, name, url_pattern, created_by_user_id)
-         values ($1, $2, $3, $4, $5) returning to_jsonb(h)",
-    )
-    .bind(weldsuite_kit::id::generate_id("pnh"))
-    .bind(project_id)
-    .bind(parsed.text("name").unwrap_or_default())
-    .bind(parsed.text("urlPattern").unwrap_or_default())
-    .bind(&caller.user_id)
-    .fetch_one(&caller.db)
-    .await;
+    let row = pages::Entity::insert(pages::ActiveModel {
+        id: Set(weldsuite_kit::id::generate_id("pnh")),
+        project_id: Set(project_id.to_owned()),
+        name: Set(parsed.text("name").unwrap_or_default().to_owned()),
+        url_pattern: Set(parsed.text("urlPattern").unwrap_or_default().to_owned()),
+        created_by_user_id: Set(caller.user_id.clone()),
+        ..Default::default()
+    })
+    .exec_with_returning(&orm(&caller.db))
+    .await
+    .and_then(js_row);
     match row {
         Ok(row) => {
-            let row = weldsuite_db::js_row(row);
             publish(&caller, &state, PANEL_HEATMAP_PAGE_CREATED, &row);
             Created(page_dto(&row)).into_response()
         }
@@ -241,21 +238,21 @@ pub(crate) async fn update(
     };
     let name = parsed.get("name").and_then(Value::as_str);
     let pattern = parsed.get("urlPattern").and_then(Value::as_str);
-    let row: Result<Option<Value>, sqlx::Error> = sqlx::query_scalar(
-        "update panel_heatmap_pages as h set
-           name = coalesce($2, h.name),
-           url_pattern = coalesce($3, h.url_pattern),
-           updated_at = now()
-         where h.id = $1 returning to_jsonb(h)",
-    )
-    .bind(&id)
-    .bind(name)
-    .bind(pattern)
-    .fetch_optional(&caller.db)
-    .await;
+    let mut update = pages::Entity::update_many();
+    if let Some(name) = name {
+        update = update.col_expr(pages::Column::Name, Expr::value(name));
+    }
+    if let Some(pattern) = pattern {
+        update = update.col_expr(pages::Column::UrlPattern, Expr::value(pattern));
+    }
+    let row = update
+        .col_expr(pages::Column::UpdatedAt, Expr::current_timestamp())
+        .filter(pages::Column::Id.eq(&id))
+        .exec_with_returning(&orm(&caller.db))
+        .await
+        .and_then(first_row);
     match row {
         Ok(Some(row)) => {
-            let row = weldsuite_db::js_row(row);
             publish(&caller, &state, PANEL_HEATMAP_PAGE_UPDATED, &row);
             Data(page_dto(&row)).into_response()
         }
@@ -316,14 +313,13 @@ pub(crate) async fn remove(
     if caller.workspace_id.is_empty() {
         return ApiError::org_required().into_response();
     }
-    let row: Result<Option<Value>, sqlx::Error> = sqlx::query_scalar(
-        "delete from panel_heatmap_pages as h where h.id = $1 returning to_jsonb(h)",
-    )
-    .bind(&id)
-    .fetch_optional(&caller.db)
-    .await;
+    let row = pages::Entity::delete_many()
+        .filter(pages::Column::Id.eq(&id))
+        .exec_with_returning(&orm(&caller.db))
+        .await
+        .and_then(first_row);
     let row = match row {
-        Ok(Some(row)) => weldsuite_db::js_row(row),
+        Ok(Some(row)) => row,
         Ok(None) => return ApiError::not_found("Heatmap page", Some(&id)).into_response(),
         Err(error) => return unexpected(&error, "delete heatmap page"),
     };
@@ -620,13 +616,12 @@ pub(crate) async fn snapshot(
     if caller.workspace_id.is_empty() {
         return ApiError::org_required().into_response();
     }
-    let page: Result<Option<Value>, sqlx::Error> =
-        sqlx::query_scalar("select to_jsonb(h) from panel_heatmap_pages h where h.id = $1 limit 1")
-            .bind(&id)
-            .fetch_optional(&caller.db)
-            .await;
+    let page = pages::Entity::find_by_id(id.as_str())
+        .one(&orm(&caller.db))
+        .await
+        .and_then(|page| page.map(js_row).transpose());
     let page = match page {
-        Ok(Some(page)) => weldsuite_db::js_row(page),
+        Ok(Some(page)) => page,
         Ok(None) => return ApiError::not_found("Heatmap page", Some(&id)).into_response(),
         Err(error) => return unexpected(&error, "get heatmap page"),
     };

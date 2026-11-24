@@ -2,6 +2,11 @@
 //! state changes and the operations the API exposes (create, edit, steps,
 //! mailboxes, enrol, launch, pause, resume, preview, stats).
 
+use sea_orm::sea_query::{Asterisk, Expr, Func};
+use sea_orm::{
+    ColumnTrait, Condition, EntityTrait, JoinType, PaginatorTrait, QueryFilter, QueryOrder,
+    QuerySelect, RelationDef, Set,
+};
 use serde_json::{Map, Value, json};
 use sqlx::PgPool;
 use time::OffsetDateTime;
@@ -9,22 +14,28 @@ use weldsuite_catalogs::entity_events::{
     EventName, REACH_CAMPAIGN_COMPLETED, REACH_CAMPAIGN_CREATED, REACH_CAMPAIGN_DELETED,
     REACH_CAMPAIGN_LAUNCHED, REACH_CAMPAIGN_PAUSED, REACH_CAMPAIGN_UPDATED,
 };
+use weldsuite_db::{OrmConn, orm};
 use weldsuite_kit::generate_id;
+use weldsuite_schema::tenant::{
+    reach_campaign_mailboxes as campaign_mailboxes, reach_campaign_steps as steps,
+    reach_campaigns as campaigns, reach_enrollments as enrollments, reach_mailboxes,
+    reach_messages as messages, reach_prospects, reach_settings,
+};
 
 use crate::enrollments::{
     add_prospects_to_campaign, bulk_set_next_send_at, count_active_campaign_mailboxes,
     count_campaign_enrollments, list_campaign_enrollments, remove_enrollment, to_enrollment,
 };
 use crate::lists::{
-    Page, PageQuery, cursor_row, find_list, like_pattern, page_result, parse_limit,
+    Page, PageQuery, before, cursor_row, find_list, like_pattern, page_result, parse_limit, probe,
 };
 use crate::render::{
     RenderProspect, RenderSender, compose_body, email_footer, render_step, template_values,
 };
 use crate::send_window::{SendSchedule, is_valid_time_zone, parse_hhmm, spread_send_times};
 use crate::{
-    DuePort, EventSink, ReachError, ReachEvent, ReachResult, epoch_ms, field, int, iso, js_rows,
-    now, parse_iso, text,
+    DuePort, EventSink, ReachError, ReachEvent, ReachResult, epoch_ms, field, int, js, js_all, now,
+    stamp, text,
 };
 
 const CAMPAIGN_STATUSES: &[&str] = &["draft", "active", "paused", "completed", "archived"];
@@ -91,42 +102,38 @@ pub fn schedule_of(row: &Value) -> SendSchedule {
 
 /// `loadReachSettings(db)`: the settings row, if any.
 pub async fn load_settings(db: &PgPool) -> ReachResult<Option<Value>> {
-    let row: Option<Value> = sqlx::query_scalar("select to_jsonb(t) from reach_settings t limit 1")
-        .fetch_optional(db)
-        .await?;
-    Ok(row.map(weldsuite_db::js_row))
+    let row = reach_settings::Entity::find().one(&orm(db)).await?;
+    Ok(row.map(serde_json::to_value).map(js).transpose()?)
 }
 
 /// `findCampaign(db, id)`.
 pub async fn find_campaign(db: &PgPool, id: &str) -> ReachResult<Option<Value>> {
-    let row: Option<Value> =
-        sqlx::query_scalar("select to_jsonb(t) from reach_campaigns t where t.id = $1 and t.deleted_at is null limit 1")
-            .bind(id)
-            .fetch_optional(db)
-            .await?;
-    Ok(row.map(weldsuite_db::js_row))
+    let row = campaigns::Entity::find_by_id(id)
+        .filter(campaigns::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?;
+    Ok(row.map(serde_json::to_value).map(js).transpose()?)
 }
 
 /// `loadSteps(db, campaignId)`.
 pub async fn load_steps(db: &PgPool, campaign_id: &str) -> ReachResult<Vec<Value>> {
-    let rows: Vec<Value> =
-        sqlx::query_scalar(r#"select to_jsonb(t) from reach_campaign_steps t where t.campaign_id = $1 order by t."order" asc"#)
-            .bind(campaign_id)
-            .fetch_all(db)
-            .await?;
-    Ok(js_rows(rows))
+    let rows = steps::Entity::find()
+        .filter(steps::Column::CampaignId.eq(campaign_id))
+        .order_by_asc(steps::Column::Order)
+        .all(&orm(db))
+        .await?;
+    Ok(js_all(rows.into_iter().map(serde_json::to_value))?)
 }
 
 /// `loadCampaignMailboxIds(db, campaignId)`.
 pub async fn load_mailbox_ids(db: &PgPool, campaign_id: &str) -> ReachResult<Vec<String>> {
-    Ok(
-        sqlx::query_scalar(
-            "select mailbox_id from reach_campaign_mailboxes where campaign_id = $1",
-        )
-        .bind(campaign_id)
-        .fetch_all(db)
-        .await?,
-    )
+    Ok(campaign_mailboxes::Entity::find()
+        .select_only()
+        .column(campaign_mailboxes::Column::MailboxId)
+        .filter(campaign_mailboxes::Column::CampaignId.eq(campaign_id))
+        .into_tuple()
+        .all(&orm(db))
+        .await?)
 }
 
 /// `loadCampaignDetail(db, id)`.
@@ -160,17 +167,24 @@ pub fn schedule_problem(timezone: &str, window_start: &str, window_end: &str) ->
 
 /// `recountCampaignProspects(db, campaignId)`.
 pub async fn recount_prospects(db: &PgPool, campaign_id: &str) -> ReachResult<i64> {
-    let n: i64 =
-        sqlx::query_scalar("select count(*) from reach_enrollments where campaign_id = $1")
-            .bind(campaign_id)
-            .fetch_one(db)
-            .await?;
-    sqlx::query("update reach_campaigns set stats = stats || jsonb_build_object('prospects', $2::int) where id = $1")
-        .bind(campaign_id)
-        .bind(i32::try_from(n).unwrap_or(i32::MAX))
-        .execute(db)
+    let db = orm(db);
+    let n = enrollments::Entity::find()
+        .filter(enrollments::Column::CampaignId.eq(campaign_id))
+        .count(&db)
         .await?;
-    Ok(n)
+    let prospects = json!({ "prospects": i32::try_from(n).unwrap_or(i32::MAX) });
+    campaigns::Entity::update_many()
+        .col_expr(
+            campaigns::Column::Stats,
+            sea_orm::sea_query::extension::postgres::PgExpr::concat(
+                Expr::col(campaigns::Column::Stats),
+                Expr::val(prospects),
+            ),
+        )
+        .filter(campaigns::Column::Id.eq(campaign_id))
+        .exec(&db)
+        .await?;
+    Ok(i64::try_from(n).unwrap_or(i64::MAX))
 }
 
 /// `activateQueuedEnrollments(db, campaign, now)`: (activated, earliest).
@@ -180,12 +194,16 @@ pub async fn activate_queued(
     at: OffsetDateTime,
 ) -> ReachResult<(usize, Option<OffsetDateTime>)> {
     let campaign_id = crate::text_or_empty(campaign, "id");
-    let queued: Vec<String> = sqlx::query_scalar(
-        "select id from reach_enrollments where campaign_id = $1 and status = 'queued' order by created_at asc, id asc",
-    )
-    .bind(campaign_id)
-    .fetch_all(db)
-    .await?;
+    let queued: Vec<String> = enrollments::Entity::find()
+        .select_only()
+        .column(enrollments::Column::Id)
+        .filter(enrollments::Column::CampaignId.eq(campaign_id))
+        .filter(enrollments::Column::Status.eq("queued"))
+        .order_by_asc(enrollments::Column::CreatedAt)
+        .order_by_asc(enrollments::Column::Id)
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     if queued.is_empty() {
         return Ok((0, None));
     }
@@ -203,11 +221,13 @@ pub async fn activate_queued(
 
 /// `launchProblems(db, campaignId)`.
 pub async fn launch_problems(db: &PgPool, campaign_id: &str) -> ReachResult<Vec<&'static str>> {
-    let step: Option<String> =
-        sqlx::query_scalar("select id from reach_campaign_steps where campaign_id = $1 limit 1")
-            .bind(campaign_id)
-            .fetch_optional(db)
-            .await?;
+    let step: Option<String> = steps::Entity::find()
+        .select_only()
+        .column(steps::Column::Id)
+        .filter(steps::Column::CampaignId.eq(campaign_id))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     let active = count_active_campaign_mailboxes(db, campaign_id).await?;
     let queued = count_campaign_enrollments(db, campaign_id, Some("queued")).await?;
     let settings = load_settings(db).await?;
@@ -238,36 +258,47 @@ pub async fn earliest_due_at(
     db: &PgPool,
     campaign_id: &str,
 ) -> ReachResult<Option<OffsetDateTime>> {
-    let at: Option<String> = sqlx::query_scalar(
-        "select to_char(min(next_send_at) at time zone 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"')
-         from reach_enrollments where campaign_id = $1 and status = 'active'",
-    )
-    .bind(campaign_id)
-    .fetch_one(db)
-    .await?;
-    Ok(at.as_deref().and_then(parse_iso))
+    let at: Option<Option<OffsetDateTime>> = enrollments::Entity::find()
+        .select_only()
+        .expr(Func::min(Expr::col(enrollments::Column::NextSendAt)))
+        .filter(enrollments::Column::CampaignId.eq(campaign_id))
+        .filter(enrollments::Column::Status.eq("active"))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
+    Ok(at.flatten().map(stamp))
 }
 
 /// `campaignStepStats(db, campaignId)`.
 pub async fn step_stats(db: &PgPool, campaign_id: &str) -> ReachResult<Vec<Value>> {
     let steps = load_steps(db, campaign_id).await?;
-    let sent: Vec<(Option<String>, i64)> = sqlx::query_as(
-        "select step_id, count(*) from reach_messages
-         where campaign_id = $1 and direction = 'out' and status = 'sent' group by step_id",
-    )
-    .bind(campaign_id)
-    .fetch_all(db)
-    .await?;
-    let outcomes: Vec<(Option<String>, String)> = sqlx::query_as(
-        "select distinct on (m.enrollment_id) m.step_id, e.status from reach_messages m
-         join reach_enrollments e on e.id = m.enrollment_id
-         where m.campaign_id = $1 and m.direction = 'out' and e.status in ('replied', 'bounced')
-           and m.status in ('sent', 'unknown', 'failed')
-         order by m.enrollment_id, m.created_at desc",
-    )
-    .bind(campaign_id)
-    .fetch_all(db)
-    .await?;
+    let conn = orm(db);
+    let sent: Vec<(Option<String>, i64)> = messages::Entity::find()
+        .select_only()
+        .column(messages::Column::StepId)
+        .expr(Func::count(Expr::col(Asterisk)))
+        .filter(messages::Column::CampaignId.eq(campaign_id))
+        .filter(messages::Column::Direction.eq("out"))
+        .filter(messages::Column::Status.eq("sent"))
+        .group_by(messages::Column::StepId)
+        .into_tuple()
+        .all(&conn)
+        .await?;
+    let outcomes: Vec<(Option<String>, String)> = messages::Entity::find()
+        .select_only()
+        .distinct_on([messages::Column::EnrollmentId])
+        .column(messages::Column::StepId)
+        .column(enrollments::Column::Status)
+        .join(JoinType::InnerJoin, message_enrollment())
+        .filter(messages::Column::CampaignId.eq(campaign_id))
+        .filter(messages::Column::Direction.eq("out"))
+        .filter(enrollments::Column::Status.is_in(["replied", "bounced"]))
+        .filter(messages::Column::Status.is_in(["sent", "unknown", "failed"]))
+        .order_by_asc(messages::Column::EnrollmentId)
+        .order_by_desc(messages::Column::CreatedAt)
+        .into_tuple()
+        .all(&conn)
+        .await?;
     let count_of = |step: &str, wanted: &str| {
         i64::try_from(
             outcomes
@@ -292,28 +323,42 @@ pub async fn step_stats(db: &PgPool, campaign_id: &str) -> ReachResult<Vec<Value
         .collect())
 }
 
+/// `join(reachEnrollments, eq(reachEnrollments.id, reachMessages.enrollmentId))`.
+fn message_enrollment() -> RelationDef {
+    messages::Entity::belongs_to(enrollments::Entity)
+        .from(messages::Column::EnrollmentId)
+        .to(enrollments::Column::Id)
+        .into()
+}
+
 /// `completeCampaignIfDone(db, campaignId)`: the campaign when it was
 /// completed now.
 pub async fn complete_if_done(db: &PgPool, campaign_id: &str) -> ReachResult<Option<Value>> {
-    let pending: Option<String> = sqlx::query_scalar(
-        "select id from reach_enrollments where campaign_id = $1 and status in ('queued', 'active') limit 1",
-    )
-    .bind(campaign_id)
-    .fetch_optional(db)
-    .await?;
+    let db = orm(db);
+    let pending: Option<String> = enrollments::Entity::find()
+        .select_only()
+        .column(enrollments::Column::Id)
+        .filter(enrollments::Column::CampaignId.eq(campaign_id))
+        .filter(enrollments::Column::Status.is_in(["queued", "active"]))
+        .into_tuple()
+        .one(&db)
+        .await?;
     if pending.is_some() {
         return Ok(None);
     }
-    let at = iso(now());
-    let row: Option<Value> = sqlx::query_scalar(
-        "update reach_campaigns set status = 'completed', completed_at = $2::timestamptz, updated_at = $2::timestamptz
-         where id = $1 and status = 'active' and deleted_at is null returning to_jsonb(reach_campaigns)",
-    )
-    .bind(campaign_id)
-    .bind(at)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(weldsuite_db::js_row))
+    let at = now();
+    let row = campaigns::Entity::update_many()
+        .col_expr(campaigns::Column::Status, Expr::value("completed"))
+        .col_expr(campaigns::Column::CompletedAt, Expr::value(at))
+        .col_expr(campaigns::Column::UpdatedAt, Expr::value(at))
+        .filter(campaigns::Column::Id.eq(campaign_id))
+        .filter(campaigns::Column::Status.eq("active"))
+        .filter(campaigns::Column::DeletedAt.is_null())
+        .exec_with_returning(&db)
+        .await?
+        .into_iter()
+        .next();
+    Ok(row.map(serde_json::to_value).map(js).transpose()?)
 }
 
 /// `completeAndPublishCampaigns(db, emit, campaignIds)`.
@@ -368,6 +413,7 @@ pub async fn get_detail(db: &PgPool, id: &str) -> ReachResult<Value> {
 
 /// `listCampaigns(db, q)`.
 pub async fn list(db: &PgPool, query: &PageQuery) -> ReachResult<Page> {
+    use campaigns::Column;
     let limit = parse_limit(query.limit.as_deref());
     let status = match query.status.as_deref().filter(|s| !s.is_empty()) {
         Some(status) if CAMPAIGN_STATUSES.contains(&status) => Some(status.to_owned()),
@@ -379,29 +425,41 @@ pub async fn list(db: &PgPool, query: &PageQuery) -> ReachResult<Page> {
         .as_deref()
         .filter(|s| !crate::text::js_trim(s).is_empty())
         .map(like_pattern);
-    let cursor = cursor_row(db, "reach_campaigns", query.cursor.as_deref()).await?;
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from reach_campaigns t
-         where t.deleted_at is null and ($1::text is null or t.status = $1) and ($2::text is null or t.name ilike $2)
-           and ($3::timestamptz is null or t.created_at < $3::timestamptz or (t.created_at = $3::timestamptz and t.id < $4))
-         order by t.created_at desc, t.id desc limit $5",
-    )
-    .bind(&status)
-    .bind(&search)
-    .bind(cursor.as_ref().map(|c| c.0.clone()))
-    .bind(cursor.as_ref().map(|c| c.1.clone()))
-    .bind(limit + 1)
-    .fetch_all(db)
-    .await?;
-    let total: i64 = sqlx::query_scalar(
-        "select count(*) from reach_campaigns t
-         where t.deleted_at is null and ($1::text is null or t.status = $1) and ($2::text is null or t.name ilike $2)",
-    )
-    .bind(&status)
-    .bind(&search)
-    .fetch_one(db)
-    .await?;
-    Ok(page_result(&js_rows(rows), limit, total, to_campaign))
+    let cursor =
+        cursor_row::<campaigns::Entity>(db, Column::CreatedAt, Column::Id, query.cursor.as_deref())
+            .await?;
+    let mut filters = Condition::all().add(Column::DeletedAt.is_null());
+    if let Some(status) = &status {
+        filters = filters.add(Column::Status.eq(status.as_str()));
+    }
+    if let Some(search) = &search {
+        filters = filters.add(Column::Name.ilike(search.as_str()));
+    }
+    let page = match &cursor {
+        Some(cursor) => filters
+            .clone()
+            .add(before(Column::CreatedAt, Column::Id, cursor)),
+        None => filters.clone(),
+    };
+    let conn = orm(db);
+    let rows = campaigns::Entity::find()
+        .filter(page)
+        .order_by_desc(Column::CreatedAt)
+        .order_by_desc(Column::Id)
+        .limit(probe(limit))
+        .all(&conn)
+        .await?;
+    let total = campaigns::Entity::find()
+        .filter(filters)
+        .count(&conn)
+        .await?;
+    let rows = js_all(rows.into_iter().map(serde_json::to_value))?;
+    Ok(page_result(
+        &rows,
+        limit,
+        i64::try_from(total).unwrap_or(i64::MAX),
+        to_campaign,
+    ))
 }
 
 /// The schedule fields of a create or update body (`campaignScheduleSchema`).
@@ -457,27 +515,33 @@ pub async fn create(
     ) {
         return Err(ReachError::bad_request(problem));
     }
-    let row: Value = sqlx::query_scalar(
-        "insert into reach_campaigns (id, name, status, timezone, send_days, window_start, window_end, daily_limit,
-             min_gap_minutes, stop_on_auto_reply, stats, owner_id, created_by)
-         values ($1, $2, 'draft', coalesce($3, 'Europe/Amsterdam'), coalesce($4::jsonb, '[1, 2, 3, 4, 5]'::jsonb),
-             coalesce($5, '09:00'), coalesce($6, '17:00'), coalesce($7, 100), coalesce($8, 8), coalesce($9, false),
-             '{\"prospects\":0,\"sent\":0,\"replied\":0,\"interested\":0,\"bounced\":0,\"unsubscribed\":0}'::jsonb, $10, $10)
-         returning to_jsonb(reach_campaigns)",
-    )
-    .bind(generate_id("rcmp"))
-    .bind(input.name.as_deref().unwrap_or_default())
-    .bind(&timezone)
-    .bind(&send_days)
-    .bind(&window_start)
-    .bind(&window_end)
-    .bind(input.daily_limit.map(|n| i32::try_from(n).unwrap_or(i32::MAX)))
-    .bind(min_gap.map(|n| i32::try_from(n).unwrap_or(i32::MAX)))
-    .bind(input.stop_on_auto_reply)
-    .bind(user_id)
-    .fetch_one(db)
+    let to_i32 = |n: i64| i32::try_from(n).unwrap_or(i32::MAX);
+    let row = campaigns::Entity::insert(campaigns::ActiveModel {
+        id: Set(generate_id("rcmp")),
+        name: Set(input.name.clone().unwrap_or_default()),
+        status: Set("draft".to_owned()),
+        timezone: Set(timezone.unwrap_or_else(|| "Europe/Amsterdam".to_owned())),
+        send_days: Set(send_days.unwrap_or_else(|| json!([1, 2, 3, 4, 5]))),
+        window_start: Set(window_start.unwrap_or_else(|| "09:00".to_owned())),
+        window_end: Set(window_end.unwrap_or_else(|| "17:00".to_owned())),
+        daily_limit: Set(input.daily_limit.map_or(100, to_i32)),
+        min_gap_minutes: Set(min_gap.map_or(8, to_i32)),
+        stop_on_auto_reply: Set(input.stop_on_auto_reply.unwrap_or(false)),
+        stats: Set(json!({
+            "prospects": 0,
+            "sent": 0,
+            "replied": 0,
+            "interested": 0,
+            "bounced": 0,
+            "unsubscribed": 0,
+        })),
+        owner_id: Set(Some(user_id.to_owned())),
+        created_by: Set(Some(user_id.to_owned())),
+        ..Default::default()
+    })
+    .exec_with_returning(&orm(db))
     .await?;
-    let row = weldsuite_db::js_row(row);
+    let row = js(serde_json::to_value(row))?;
     emit_campaign(emit, REACH_CAMPAIGN_CREATED, &row);
     let mut detail = to_campaign(&row);
     if let Some(map) = detail.as_object_mut() {
@@ -510,49 +574,59 @@ pub async fn update(
     if let Some(problem) = schedule_problem(&timezone, &start, &end) {
         return Err(ReachError::bad_request(problem));
     }
-    let i32_of = |n: Option<i64>| n.map(|n| i32::try_from(n).unwrap_or(i32::MAX));
-    let row: Option<Value> = sqlx::query_scalar(
-        "update reach_campaigns set
-             name = case when $2 then $3 else name end,
-             timezone = case when $4 then $5 else timezone end,
-             send_days = case when $6 then $7::jsonb else send_days end,
-             window_start = case when $8 then $9 else window_start end,
-             window_end = case when $10 then $11 else window_end end,
-             daily_limit = case when $12 then $13 else daily_limit end,
-             min_gap_minutes = case when $14 then $15 else min_gap_minutes end,
-             stop_on_auto_reply = case when $16 then $17 else stop_on_auto_reply end,
-             owner_id = case when $18 then $19 else owner_id end,
-             updated_at = $20::timestamptz
-         where id = $1 and deleted_at is null
-         returning to_jsonb(reach_campaigns)",
-    )
-    .bind(id)
-    .bind(input.name.is_some())
-    .bind(&input.name)
-    .bind(input.timezone.is_some())
-    .bind(&input.timezone)
-    .bind(input.send_days.is_some())
-    .bind(input.send_days.as_ref().map(|d| json!(d)))
-    .bind(input.window_start.is_some())
-    .bind(&input.window_start)
-    .bind(input.window_end.is_some())
-    .bind(&input.window_end)
-    .bind(input.daily_limit.is_some())
-    .bind(i32_of(input.daily_limit))
-    .bind(input.min_gap_minutes.is_some())
-    .bind(i32_of(input.min_gap_minutes))
-    .bind(input.stop_on_auto_reply.is_some())
-    .bind(input.stop_on_auto_reply)
-    .bind(input.owner_id.is_some())
-    .bind(input.owner_id.clone().flatten())
-    .bind(iso(now()))
-    .fetch_optional(db)
-    .await?;
-    let Some(row) = row else {
+    let Some(row) = update_campaign_row(db, id, input).await? else {
         return Err(ReachError::not_found("Campaign", Some(id)));
     };
-    emit_campaign(emit, REACH_CAMPAIGN_UPDATED, &weldsuite_db::js_row(row));
+    emit_campaign(emit, REACH_CAMPAIGN_UPDATED, &row);
     get_detail(db, id).await
+}
+
+/// The `update` of [`update`]: the fields the body sent, and `updated_at`;
+/// the changed live row.
+async fn update_campaign_row(
+    db: &PgPool,
+    id: &str,
+    input: CampaignInput,
+) -> ReachResult<Option<Value>> {
+    use campaigns::Column;
+    let to_i32 = |n: i64| i32::try_from(n).unwrap_or(i32::MAX);
+    let mut update = campaigns::Entity::update_many();
+    if let Some(name) = input.name {
+        update = update.col_expr(Column::Name, Expr::value(name));
+    }
+    if let Some(timezone) = input.timezone {
+        update = update.col_expr(Column::Timezone, Expr::value(timezone));
+    }
+    if let Some(send_days) = input.send_days {
+        update = update.col_expr(Column::SendDays, Expr::value(json!(send_days)));
+    }
+    if let Some(window_start) = input.window_start {
+        update = update.col_expr(Column::WindowStart, Expr::value(window_start));
+    }
+    if let Some(window_end) = input.window_end {
+        update = update.col_expr(Column::WindowEnd, Expr::value(window_end));
+    }
+    if let Some(daily_limit) = input.daily_limit {
+        update = update.col_expr(Column::DailyLimit, Expr::value(to_i32(daily_limit)));
+    }
+    if let Some(min_gap) = input.min_gap_minutes {
+        update = update.col_expr(Column::MinGapMinutes, Expr::value(to_i32(min_gap)));
+    }
+    if let Some(stop) = input.stop_on_auto_reply {
+        update = update.col_expr(Column::StopOnAutoReply, Expr::value(stop));
+    }
+    if let Some(owner_id) = input.owner_id {
+        update = update.col_expr(Column::OwnerId, Expr::value(owner_id));
+    }
+    let row = update
+        .col_expr(Column::UpdatedAt, Expr::value(now()))
+        .filter(Column::Id.eq(id))
+        .filter(Column::DeletedAt.is_null())
+        .exec_with_returning(&orm(db))
+        .await?
+        .into_iter()
+        .next();
+    Ok(row.map(serde_json::to_value).map(js).transpose()?)
 }
 
 /// `deleteCampaign(deps, id)`.
@@ -564,21 +638,28 @@ pub async fn delete(db: &PgPool, emit: &dyn EventSink, id: &str) -> ReachResult<
             "Pause the campaign before deleting it",
         ));
     }
-    let at = iso(now());
-    sqlx::query("update reach_campaigns set deleted_at = $2::timestamptz, updated_at = $2::timestamptz where id = $1")
-        .bind(id)
-        .bind(&at)
-        .execute(db)
+    let at = now();
+    let conn = orm(db);
+    campaigns::Entity::update_many()
+        .col_expr(campaigns::Column::DeletedAt, Expr::value(at))
+        .col_expr(campaigns::Column::UpdatedAt, Expr::value(at))
+        .filter(campaigns::Column::Id.eq(id))
+        .exec(&conn)
         .await?;
-    sqlx::query(
-        "update reach_enrollments set status = 'paused', stopped_reason = 'campaign_deleted', claimed_at = null,
-             next_send_at = null, updated_at = $2::timestamptz
-         where campaign_id = $1 and status in ('queued', 'active')",
-    )
-    .bind(id)
-    .bind(&at)
-    .execute(db)
-    .await?;
+    let never: Option<OffsetDateTime> = None;
+    enrollments::Entity::update_many()
+        .col_expr(enrollments::Column::Status, Expr::value("paused"))
+        .col_expr(
+            enrollments::Column::StoppedReason,
+            Expr::value("campaign_deleted"),
+        )
+        .col_expr(enrollments::Column::ClaimedAt, Expr::value(never))
+        .col_expr(enrollments::Column::NextSendAt, Expr::value(never))
+        .col_expr(enrollments::Column::UpdatedAt, Expr::value(at))
+        .filter(enrollments::Column::CampaignId.eq(id))
+        .filter(enrollments::Column::Status.is_in(["queued", "active"]))
+        .exec(&conn)
+        .await?;
     emit.emit(ReachEvent::new(
         REACH_CAMPAIGN_DELETED,
         id,
@@ -612,48 +693,19 @@ pub async fn replace_steps(
         ));
     }
     let existing = load_steps(db, id).await?;
-    let at = iso(now());
+    let at = now();
     let campaign_id = id.to_owned();
     weldsuite_db::atomically_with(db, move |conn| {
         Box::pin(async move {
+            let db = OrmConn::new(conn);
             let count = steps.len();
             for (order, step) in steps.into_iter().enumerate() {
                 let order = i64::try_from(order).unwrap_or_default();
-                let previous = existing.iter().find(|s| int(s, "order") == order).and_then(|s| text(s, "id"));
-                let to_i32 = |n: i64| i32::try_from(n).unwrap_or(i32::MAX);
-                match previous {
-                    Some(previous) => {
-                        sqlx::query(
-                            "update reach_campaign_steps set delay_days = $2, delay_hours = $3, subject = $4, body = $5,
-                                 reply_in_thread = $6, updated_at = $7::timestamptz where id = $1",
-                        )
-                        .bind(previous)
-                        .bind(to_i32(step.delay_days))
-                        .bind(to_i32(step.delay_hours))
-                        .bind(&step.subject)
-                        .bind(&step.body)
-                        .bind(step.reply_in_thread)
-                        .bind(&at)
-                        .execute(&mut *conn)
-                        .await?;
-                    }
-                    None => {
-                        sqlx::query(
-                            r#"insert into reach_campaign_steps (id, campaign_id, "order", delay_days, delay_hours, subject, body, reply_in_thread)
-                               values ($1, $2, $3, $4, $5, $6, $7, $8)"#,
-                        )
-                        .bind(generate_id("rstp"))
-                        .bind(&campaign_id)
-                        .bind(to_i32(order))
-                        .bind(to_i32(step.delay_days))
-                        .bind(to_i32(step.delay_hours))
-                        .bind(&step.subject)
-                        .bind(&step.body)
-                        .bind(step.reply_in_thread)
-                        .execute(&mut *conn)
-                        .await?;
-                    }
-                }
+                let previous = existing
+                    .iter()
+                    .find(|s| int(s, "order") == order)
+                    .and_then(|s| text(s, "id"));
+                write_step(&db, &campaign_id, previous, order, step, at).await?;
             }
             let surplus: Vec<String> = existing
                 .iter()
@@ -661,17 +713,61 @@ pub async fn replace_steps(
                 .filter_map(|s| text(s, "id").map(str::to_owned))
                 .collect();
             if !surplus.is_empty() {
-                sqlx::query("delete from reach_campaign_steps where id = any($1)")
-                    .bind(&surplus)
-                    .execute(&mut *conn)
+                steps::Entity::delete_many()
+                    .filter(steps::Column::Id.is_in(surplus))
+                    .exec(&db)
                     .await?;
             }
-            Ok::<_, sqlx::Error>(())
+            Ok::<_, ReachError>(())
         })
     })
     .await?;
     emit_campaign(emit, REACH_CAMPAIGN_UPDATED, &campaign);
     get_detail(db, id).await
+}
+
+/// One step of [`replace_steps`]: the step at `order` rewritten in place
+/// (`previous`), or a new one.
+async fn write_step(
+    db: &OrmConn<'_>,
+    campaign_id: &str,
+    previous: Option<&str>,
+    order: i64,
+    step: StepInput,
+    at: OffsetDateTime,
+) -> ReachResult<()> {
+    use steps::Column;
+    let to_i32 = |n: i64| i32::try_from(n).unwrap_or(i32::MAX);
+    match previous {
+        Some(previous) => {
+            steps::Entity::update_many()
+                .col_expr(Column::DelayDays, Expr::value(to_i32(step.delay_days)))
+                .col_expr(Column::DelayHours, Expr::value(to_i32(step.delay_hours)))
+                .col_expr(Column::Subject, Expr::value(step.subject))
+                .col_expr(Column::Body, Expr::value(step.body))
+                .col_expr(Column::ReplyInThread, Expr::value(step.reply_in_thread))
+                .col_expr(Column::UpdatedAt, Expr::value(at))
+                .filter(Column::Id.eq(previous))
+                .exec(db)
+                .await?;
+        }
+        None => {
+            steps::Entity::insert(steps::ActiveModel {
+                id: Set(generate_id("rstp")),
+                campaign_id: Set(campaign_id.to_owned()),
+                order: Set(to_i32(order)),
+                delay_days: Set(to_i32(step.delay_days)),
+                delay_hours: Set(to_i32(step.delay_hours)),
+                subject: Set(step.subject),
+                body: Set(step.body),
+                reply_in_thread: Set(step.reply_in_thread),
+                ..Default::default()
+            })
+            .exec_without_returning(db)
+            .await?;
+        }
+    }
+    Ok(())
 }
 
 /// `setCampaignMailboxes(deps, id, mailboxIds)`.
@@ -684,12 +780,15 @@ pub async fn set_mailboxes(
     let mailbox_ids = crate::unique(mailbox_ids);
     let campaign = require_campaign(db, id).await?;
     if !mailbox_ids.is_empty() {
-        let found: Vec<String> = sqlx::query_scalar(
-            "select id from reach_mailboxes where id = any($1) and deleted_at is null and status <> 'deleted'",
-        )
-        .bind(&mailbox_ids)
-        .fetch_all(db)
-        .await?;
+        let found: Vec<String> = reach_mailboxes::Entity::find()
+            .select_only()
+            .column(reach_mailboxes::Column::Id)
+            .filter(reach_mailboxes::Column::Id.is_in(&mailbox_ids))
+            .filter(reach_mailboxes::Column::DeletedAt.is_null())
+            .filter(reach_mailboxes::Column::Status.ne("deleted"))
+            .into_tuple()
+            .all(&orm(db))
+            .await?;
         let unknown: Vec<&String> = mailbox_ids.iter().filter(|m| !found.contains(m)).collect();
         if !unknown.is_empty() {
             return Err(ReachError::bad_request("Some mailboxes do not exist")
@@ -697,25 +796,28 @@ pub async fn set_mailboxes(
         }
     }
     let campaign_id = id.to_owned();
-    let ids: Vec<String> = mailbox_ids.iter().map(|_| generate_id("rcmb")).collect();
+    let links: Vec<campaign_mailboxes::ActiveModel> = mailbox_ids
+        .into_iter()
+        .map(|mailbox_id| campaign_mailboxes::ActiveModel {
+            id: Set(generate_id("rcmb")),
+            campaign_id: Set(campaign_id.clone()),
+            mailbox_id: Set(mailbox_id),
+            ..Default::default()
+        })
+        .collect();
     weldsuite_db::atomically_with(db, move |conn| {
         Box::pin(async move {
-            sqlx::query("delete from reach_campaign_mailboxes where campaign_id = $1")
-                .bind(&campaign_id)
-                .execute(&mut *conn)
+            let db = OrmConn::new(conn);
+            campaign_mailboxes::Entity::delete_many()
+                .filter(campaign_mailboxes::Column::CampaignId.eq(campaign_id))
+                .exec(&db)
                 .await?;
-            if !mailbox_ids.is_empty() {
-                sqlx::query(
-                    "insert into reach_campaign_mailboxes (id, campaign_id, mailbox_id)
-                     select id, $2, mailbox_id from unnest($1::varchar[], $3::varchar[]) as v(id, mailbox_id)",
-                )
-                .bind(&ids)
-                .bind(&campaign_id)
-                .bind(&mailbox_ids)
-                .execute(&mut *conn)
-                .await?;
+            if !links.is_empty() {
+                campaign_mailboxes::Entity::insert_many(links)
+                    .exec_without_returning(&db)
+                    .await?;
             }
-            Ok::<_, sqlx::Error>(())
+            Ok::<_, ReachError>(())
         })
     })
     .await?;
@@ -775,7 +877,13 @@ pub async fn list_enrollments(
         Some(_) => return Err(ReachError::bad_request("Unknown status filter")),
         None => None,
     };
-    let cursor = cursor_row(db, "reach_enrollments", query.cursor.as_deref()).await?;
+    let cursor = cursor_row::<enrollments::Entity>(
+        db,
+        enrollments::Column::CreatedAt,
+        enrollments::Column::Id,
+        query.cursor.as_deref(),
+    )
+    .await?;
     let rows =
         list_campaign_enrollments(db, campaign_id, status.as_deref(), cursor.as_ref(), limit)
             .await?;
@@ -849,16 +957,23 @@ pub async fn launch(
     }
     let at = now();
     let (_, earliest) = activate_queued(db, &campaign, at).await?;
-    let launched_at = text(&campaign, "launchedAt").map_or_else(|| iso(at), str::to_owned);
-    let row: Option<Value> = sqlx::query_scalar(
-        "update reach_campaigns set status = 'active', launched_at = $2::timestamptz, completed_at = null,
-             paused_reason = null, updated_at = $3::timestamptz
-         where id = $1 and status in ('draft', 'completed') returning to_jsonb(reach_campaigns)",
+    let launched_at = text(&campaign, "launchedAt")
+        .and_then(crate::parse_iso)
+        .unwrap_or(at);
+    let row = set_status(
+        db,
+        id,
+        &["draft", "completed"],
+        campaigns::Entity::update_many()
+            .col_expr(campaigns::Column::Status, Expr::value("active"))
+            .col_expr(campaigns::Column::LaunchedAt, Expr::value(launched_at))
+            .col_expr(
+                campaigns::Column::CompletedAt,
+                Expr::value(None::<OffsetDateTime>),
+            )
+            .col_expr(campaigns::Column::PausedReason, Expr::value(None::<String>))
+            .col_expr(campaigns::Column::UpdatedAt, Expr::value(at)),
     )
-    .bind(id)
-    .bind(launched_at)
-    .bind(iso(at))
-    .fetch_optional(db)
     .await?;
     let Some(row) = row else {
         return Err(ReachError::state(
@@ -867,20 +982,40 @@ pub async fn launch(
         ));
     };
     wake(due, earliest).await;
-    emit_campaign(emit, REACH_CAMPAIGN_LAUNCHED, &weldsuite_db::js_row(row));
+    emit_campaign(emit, REACH_CAMPAIGN_LAUNCHED, &row);
     get_detail(db, id).await
+}
+
+/// `update` of the campaign `id` while its status is one of `from`: the
+/// changed row.
+async fn set_status(
+    db: &PgPool,
+    id: &str,
+    from: &[&str],
+    update: sea_orm::UpdateMany<campaigns::Entity>,
+) -> ReachResult<Option<Value>> {
+    let row = update
+        .filter(campaigns::Column::Id.eq(id))
+        .filter(campaigns::Column::Status.is_in(from.iter().copied()))
+        .exec_with_returning(&orm(db))
+        .await?
+        .into_iter()
+        .next();
+    Ok(row.map(serde_json::to_value).map(js).transpose()?)
 }
 
 /// `pauseCampaign(deps, id)`.
 pub async fn pause(db: &PgPool, emit: &dyn EventSink, id: &str) -> ReachResult<Value> {
     require_campaign(db, id).await?;
-    let row: Option<Value> = sqlx::query_scalar(
-        "update reach_campaigns set status = 'paused', paused_reason = 'manual', updated_at = $2::timestamptz
-         where id = $1 and status = 'active' returning to_jsonb(reach_campaigns)",
+    let row = set_status(
+        db,
+        id,
+        &["active"],
+        campaigns::Entity::update_many()
+            .col_expr(campaigns::Column::Status, Expr::value("paused"))
+            .col_expr(campaigns::Column::PausedReason, Expr::value("manual"))
+            .col_expr(campaigns::Column::UpdatedAt, Expr::value(now())),
     )
-    .bind(id)
-    .bind(iso(now()))
-    .fetch_optional(db)
     .await?;
     let Some(row) = row else {
         return Err(ReachError::state(
@@ -888,7 +1023,7 @@ pub async fn pause(db: &PgPool, emit: &dyn EventSink, id: &str) -> ReachResult<V
             "Only a running campaign can be paused",
         ));
     };
-    emit_campaign(emit, REACH_CAMPAIGN_PAUSED, &weldsuite_db::js_row(row));
+    emit_campaign(emit, REACH_CAMPAIGN_PAUSED, &row);
     get_detail(db, id).await
 }
 
@@ -908,13 +1043,15 @@ pub async fn resume(
     }
     let at = now();
     let (_, earliest) = activate_queued(db, &campaign, at).await?;
-    let row: Option<Value> = sqlx::query_scalar(
-        "update reach_campaigns set status = 'active', paused_reason = null, updated_at = $2::timestamptz
-         where id = $1 and status = 'paused' returning to_jsonb(reach_campaigns)",
+    let row = set_status(
+        db,
+        id,
+        &["paused"],
+        campaigns::Entity::update_many()
+            .col_expr(campaigns::Column::Status, Expr::value("active"))
+            .col_expr(campaigns::Column::PausedReason, Expr::value(None::<String>))
+            .col_expr(campaigns::Column::UpdatedAt, Expr::value(at)),
     )
-    .bind(id)
-    .bind(iso(at))
-    .fetch_optional(db)
     .await?;
     let Some(row) = row else {
         return Err(ReachError::state(
@@ -924,7 +1061,7 @@ pub async fn resume(
     };
     let due_at = earliest_due_at(db, id).await?.or(earliest);
     wake(due, due_at).await;
-    emit_campaign(emit, REACH_CAMPAIGN_UPDATED, &weldsuite_db::js_row(row));
+    emit_campaign(emit, REACH_CAMPAIGN_UPDATED, &row);
     get_detail(db, id).await
 }
 
@@ -972,39 +1109,47 @@ pub async fn preview(db: &PgPool, id: &str, input: &PreviewInput) -> ReachResult
             }
         }
     };
-    let prospect: Option<Value> = if let Some(prospect_id) =
-        input.prospect_id.as_deref().filter(|p| !p.is_empty())
-    {
-        let row: Option<Value> =
-            sqlx::query_scalar("select to_jsonb(t) from reach_prospects t where t.id = $1 and t.deleted_at is null limit 1")
-                .bind(prospect_id)
-                .fetch_optional(db)
+    let prospect: Option<Value> =
+        if let Some(prospect_id) = input.prospect_id.as_deref().filter(|p| !p.is_empty()) {
+            let row = reach_prospects::Entity::find_by_id(prospect_id)
+                .filter(reach_prospects::Column::DeletedAt.is_null())
+                .one(&orm(db))
                 .await?;
-        match row {
-            Some(row) => Some(weldsuite_db::js_row(row)),
-            None => return Err(ReachError::not_found("Prospect", Some(prospect_id))),
-        }
-    } else {
-        let row: Option<Value> = sqlx::query_scalar(
-            "select to_jsonb(p) from reach_enrollments e join reach_prospects p on p.id = e.prospect_id
-             where e.campaign_id = $1 and p.deleted_at is null order by e.created_at asc limit 1",
-        )
-        .bind(id)
-        .fetch_optional(db)
-        .await?;
-        row.map(weldsuite_db::js_row)
-    };
+            match row {
+                Some(row) => Some(js(serde_json::to_value(row))?),
+                None => return Err(ReachError::not_found("Prospect", Some(prospect_id))),
+            }
+        } else {
+            let row = reach_prospects::Entity::find()
+                .join(
+                    JoinType::InnerJoin,
+                    reach_prospects::Entity::belongs_to(enrollments::Entity)
+                        .from(reach_prospects::Column::Id)
+                        .to(enrollments::Column::ProspectId)
+                        .into(),
+                )
+                .filter(enrollments::Column::CampaignId.eq(id))
+                .filter(reach_prospects::Column::DeletedAt.is_null())
+                .order_by_asc(enrollments::Column::CreatedAt)
+                .one(&orm(db))
+                .await?;
+            row.map(serde_json::to_value).map(js).transpose()?
+        };
     let mailbox_ids = load_mailbox_ids(db, id).await?;
     let mailbox: Option<(String, String, Option<String>)> = if mailbox_ids.is_empty() {
         None
     } else {
-        sqlx::query_as(
-            "select first_name, last_name, signature from reach_mailboxes
-             where id = any($1) and deleted_at is null order by created_at asc limit 1",
-        )
-        .bind(&mailbox_ids)
-        .fetch_optional(db)
-        .await?
+        reach_mailboxes::Entity::find()
+            .select_only()
+            .column(reach_mailboxes::Column::FirstName)
+            .column(reach_mailboxes::Column::LastName)
+            .column(reach_mailboxes::Column::Signature)
+            .filter(reach_mailboxes::Column::Id.is_in(mailbox_ids))
+            .filter(reach_mailboxes::Column::DeletedAt.is_null())
+            .order_by_asc(reach_mailboxes::Column::CreatedAt)
+            .into_tuple()
+            .one(&orm(db))
+            .await?
     };
     let render_prospect = match &prospect {
         Some(row) => RenderProspect::from_row(row),
@@ -1044,6 +1189,8 @@ pub async fn add_to_stats(
     campaign_id: &str,
     delta: &[(&str, i64)],
 ) -> ReachResult<()> {
+    use sea_orm::ExprTrait as _;
+    use sea_orm::sea_query::extension::postgres::PgExpr;
     let delta: Map<String, Value> = delta
         .iter()
         .filter(|(_, n)| *n != 0)
@@ -1052,15 +1199,24 @@ pub async fn add_to_stats(
     if delta.is_empty() {
         return Ok(());
     }
-    sqlx::query(
-        "update reach_campaigns set stats = stats || (
-             select jsonb_object_agg(d.key, coalesce((stats->>d.key)::int, 0) + d.value::int)
-             from jsonb_each_text($2::jsonb) d)
-         where id = $1",
-    )
-    .bind(campaign_id)
-    .bind(Value::Object(delta))
-    .execute(db)
-    .await?;
+    // `stats || jsonb_build_object(key, coalesce((stats->>key)::int, 0) + n, …)`.
+    let mut pairs: Vec<Expr> = Vec::with_capacity(delta.len() * 2);
+    for (key, n) in delta {
+        let current = PgExpr::cast_json_field(Expr::col(campaigns::Column::Stats), key.as_str())
+            .cast_as("int");
+        pairs.push(Expr::val(key));
+        pairs.push(Func::coalesce([current, Expr::val(0)]).add(n.as_i64().unwrap_or_default()));
+    }
+    campaigns::Entity::update_many()
+        .col_expr(
+            campaigns::Column::Stats,
+            PgExpr::concat(
+                Expr::col(campaigns::Column::Stats),
+                Func::cust("jsonb_build_object").args(pairs),
+            ),
+        )
+        .filter(campaigns::Column::Id.eq(campaign_id))
+        .exec(&orm(db))
+        .await?;
     Ok(())
 }

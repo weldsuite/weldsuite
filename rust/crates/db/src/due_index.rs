@@ -17,8 +17,14 @@
 
 use std::future::Future;
 
+use sea_orm::ActiveValue::{NotSet, Set};
+use sea_orm::sea_query::{self, Alias, Expr, Func, OnConflict};
+use sea_orm::{ColumnTrait, Condition, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 use sqlx::PgPool;
 use time::OffsetDateTime;
+use weldsuite_schema::master::workspace_due_index;
+
+use crate::orm::orm;
 
 /// A due row as the sweep lists it; `version` is the compare-and-set token.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -28,9 +34,60 @@ pub struct DueRow {
     pub version: i32,
 }
 
-fn iso(at: OffsetDateTime) -> String {
-    at.format(&time::format_description::well_known::Rfc3339)
-        .unwrap_or_default()
+/// Insert the row at `at`, or bump the one there: `next_due_at` becomes
+/// `next(stored, at)`, and the version moves so a sweep that listed the row
+/// before does not overwrite it.
+async fn upsert(
+    pool: &PgPool,
+    kind: &str,
+    workspace_id: &str,
+    at: OffsetDateTime,
+    next: Expr,
+) -> Result<(), DbErr> {
+    let row = workspace_due_index::ActiveModel {
+        kind: Set(kind.to_owned()),
+        workspace_id: Set(workspace_id.to_owned()),
+        next_due_at: Set(at),
+        updated_at: NotSet,
+        version: Set(1),
+    };
+    workspace_due_index::Entity::insert(row)
+        .on_conflict(
+            OnConflict::columns([
+                workspace_due_index::Column::Kind,
+                workspace_due_index::Column::WorkspaceId,
+            ])
+            .value(workspace_due_index::Column::NextDueAt, next)
+            .value(
+                workspace_due_index::Column::UpdatedAt,
+                Expr::col((
+                    Alias::new("excluded"),
+                    workspace_due_index::Column::UpdatedAt,
+                )),
+            )
+            .value(
+                workspace_due_index::Column::Version,
+                sea_query::ExprTrait::add(
+                    Expr::col((
+                        workspace_due_index::Entity,
+                        workspace_due_index::Column::Version,
+                    )),
+                    1,
+                ),
+            )
+            .to_owned(),
+        )
+        .exec_without_returning(&orm(pool))
+        .await?;
+    Ok(())
+}
+
+/// `excluded.next_due_at`: the time being written.
+fn written() -> Expr {
+    Expr::col((
+        Alias::new("excluded"),
+        workspace_due_index::Column::NextDueAt,
+    ))
 }
 
 async fn mark(
@@ -38,21 +95,13 @@ async fn mark(
     kind: &str,
     workspace_id: &str,
     at: OffsetDateTime,
-) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "insert into workspace_due_index (kind, workspace_id, next_due_at, updated_at, version)
-         values ($1, $2, $3::timestamptz, now(), 1)
-         on conflict (kind, workspace_id) do update set
-             next_due_at = least(workspace_due_index.next_due_at, excluded.next_due_at),
-             updated_at = excluded.updated_at,
-             version = workspace_due_index.version + 1",
-    )
-    .bind(kind)
-    .bind(workspace_id)
-    .bind(iso(at))
-    .execute(pool)
-    .await?;
-    Ok(())
+) -> Result<(), DbErr> {
+    let stored = Expr::col((
+        workspace_due_index::Entity,
+        workspace_due_index::Column::NextDueAt,
+    ));
+    let earlier = Func::cust("least").arg(stored).arg(written());
+    upsert(pool, kind, workspace_id, at, Expr::from(earlier)).await
 }
 
 /// Make sure the sweep looks at this workspace no later than `at`
@@ -75,20 +124,7 @@ pub async fn set_due(pool: &PgPool, kind: &str, workspace_id: &str, at: OffsetDa
     if workspace_id.is_empty() {
         return;
     }
-    let set = sqlx::query(
-        "insert into workspace_due_index (kind, workspace_id, next_due_at, updated_at, version)
-         values ($1, $2, $3::timestamptz, now(), 1)
-         on conflict (kind, workspace_id) do update set
-             next_due_at = excluded.next_due_at,
-             updated_at = excluded.updated_at,
-             version = workspace_due_index.version + 1",
-    )
-    .bind(kind)
-    .bind(workspace_id)
-    .bind(iso(at))
-    .execute(pool)
-    .await;
-    if let Err(error) = set {
+    if let Err(error) = upsert(pool, kind, workspace_id, at, written()).await {
         tracing::warn!(%error, kind, workspace_id, "due index: set failed");
     }
 }
@@ -118,31 +154,23 @@ pub async fn list_due(
     kind: &str,
     as_of: OffsetDateTime,
     limit: i64,
-) -> Result<Vec<DueRow>, sqlx::Error> {
-    let rows: Vec<(String, String, i32)> = sqlx::query_as(
-        "select workspace_id, to_char(next_due_at at time zone 'utc', 'YYYY-MM-DD\"T\"HH24:MI:SS.USZ'), version
-         from workspace_due_index
-         where kind = $1 and next_due_at <= $2::timestamptz
-         order by next_due_at asc
-         limit $3",
-    )
-    .bind(kind)
-    .bind(iso(as_of))
-    .bind(limit)
-    .fetch_all(pool)
-    .await?;
-    Ok(rows
-        .into_iter()
-        .filter_map(|(workspace_id, at, version)| {
-            OffsetDateTime::parse(&at, &time::format_description::well_known::Rfc3339)
-                .ok()
-                .map(|next_due_at| DueRow {
-                    workspace_id,
-                    next_due_at,
-                    version,
-                })
-        })
-        .collect())
+) -> Result<Vec<DueRow>, DbErr> {
+    let rows = workspace_due_index::Entity::find()
+        .filter(workspace_due_index::Column::Kind.eq(kind))
+        .filter(workspace_due_index::Column::NextDueAt.lte(as_of))
+        .order_by_asc(workspace_due_index::Column::NextDueAt)
+        .limit(u64::try_from(limit).unwrap_or(0))
+        .all(&orm(pool))
+        .await?;
+    Ok(rows.into_iter().map(due_row).collect())
+}
+
+fn due_row(row: workspace_due_index::Model) -> DueRow {
+    DueRow {
+        workspace_id: row.workspace_id,
+        next_due_at: row.next_due_at,
+        version: row.version,
+    }
 }
 
 /// One workspace's row as it is now, to [`settle`] later (reach-api's
@@ -152,24 +180,11 @@ pub async fn read_due(
     pool: &PgPool,
     kind: &str,
     workspace_id: &str,
-) -> Result<Option<DueRow>, sqlx::Error> {
-    let row: Option<(String, i32)> = sqlx::query_as(
-        "select to_char(next_due_at at time zone 'utc', 'YYYY-MM-DD\"T\"HH24:MI:SS.USZ'), version
-         from workspace_due_index where kind = $1 and workspace_id = $2",
-    )
-    .bind(kind)
-    .bind(workspace_id)
-    .fetch_optional(pool)
-    .await?;
-    Ok(row.and_then(|(at, version)| {
-        OffsetDateTime::parse(&at, &time::format_description::well_known::Rfc3339)
-            .ok()
-            .map(|next_due_at| DueRow {
-                workspace_id: workspace_id.to_owned(),
-                next_due_at,
-                version,
-            })
-    }))
+) -> Result<Option<DueRow>, DbErr> {
+    let row = workspace_due_index::Entity::find_by_id((kind.to_owned(), workspace_id.to_owned()))
+        .one(&orm(pool))
+        .await?;
+    Ok(row.map(due_row))
 }
 
 /// Store a listed row's re-derived due time (`None`: nothing left, drop the
@@ -180,33 +195,38 @@ pub async fn settle(
     kind: &str,
     row: &DueRow,
     next: Option<OffsetDateTime>,
-) -> Result<bool, sqlx::Error> {
-    let result = match next {
+) -> Result<bool, DbErr> {
+    let listed = Condition::all()
+        .add(workspace_due_index::Column::Kind.eq(kind))
+        .add(workspace_due_index::Column::WorkspaceId.eq(&row.workspace_id))
+        .add(workspace_due_index::Column::Version.eq(row.version));
+    let db = orm(pool);
+    let rows_affected = match next {
         None => {
-            sqlx::query(
-                "delete from workspace_due_index where kind = $1 and workspace_id = $2 and version = $3",
-            )
-            .bind(kind)
-            .bind(&row.workspace_id)
-            .bind(row.version)
-            .execute(pool)
-            .await?
+            workspace_due_index::Entity::delete_many()
+                .filter(listed)
+                .exec(&db)
+                .await?
+                .rows_affected
         }
         Some(at) => {
-            sqlx::query(
-                "update workspace_due_index
-                 set next_due_at = $4::timestamptz, updated_at = now(), version = version + 1
-                 where kind = $1 and workspace_id = $2 and version = $3",
-            )
-            .bind(kind)
-            .bind(&row.workspace_id)
-            .bind(row.version)
-            .bind(iso(at))
-            .execute(pool)
-            .await?
+            workspace_due_index::Entity::update_many()
+                .col_expr(workspace_due_index::Column::NextDueAt, Expr::value(at))
+                .col_expr(
+                    workspace_due_index::Column::UpdatedAt,
+                    Expr::current_timestamp(),
+                )
+                .col_expr(
+                    workspace_due_index::Column::Version,
+                    sea_query::ExprTrait::add(Expr::col(workspace_due_index::Column::Version), 1),
+                )
+                .filter(listed)
+                .exec(&db)
+                .await?
+                .rows_affected
         }
     };
-    Ok(result.rows_affected() > 0)
+    Ok(rows_affected > 0)
 }
 
 /// What one sweep tick did.

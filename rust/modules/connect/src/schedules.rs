@@ -11,19 +11,29 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, patch, post};
 use http::HeaderMap;
+use sea_orm::ActiveValue::Set;
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ColumnTrait, Condition, DbErr, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder,
+    QuerySelect, Select,
+};
 use serde_json::{Value, json};
+use time::format_description::well_known::Rfc3339;
+use time::{OffsetDateTime, PrimitiveDateTime};
 use weldsuite_catalogs::entity_events::{
     WORKFLOW_SCHEDULE_CREATED, WORKFLOW_SCHEDULE_DELETED, WORKFLOW_SCHEDULE_UPDATED,
 };
 use weldsuite_catalogs::permission_keys as perm;
-use weldsuite_db::{PgPool, js_row};
+use weldsuite_db::{PgPool, orm, utc_now, utc_timestamp};
 use weldsuite_kit::validation::{Field, Presence, js_date_iso};
 use weldsuite_kit::{ApiError, Created, Data, List, NoContent, Pagination, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::workflow_schedules::{self, Column};
+use weldsuite_schema::tenant::workflows;
 
-use crate::js::{next_cursor, page, page_limit, query_param, query_truthy, total};
+use crate::js::{next_cursor, page, page_limit, query_param, query_truthy};
 use crate::sync::SyncContext;
-use crate::{Caller, ConnectState, Refusal, internal, now, validate};
+use crate::{Caller, ConnectState, Refusal, internal, validate};
 
 pub(crate) fn routes<Q: PermissionQueries + 'static>(
     gate: &Arc<PermissionGate<Q>>,
@@ -50,49 +60,59 @@ pub(crate) fn routes<Q: PermissionQueries + 'static>(
         .route("/{id}/toggle", patch(toggle).route_layer(update()))
 }
 
+/// A row as Drizzle returned it.
+fn js(model: workflow_schedules::Model) -> Value {
+    serde_json::to_value(model).unwrap_or(Value::Null)
+}
+
+/// The list's filters: not deleted, the `workflowId` and `isEnabled` sent.
+fn filtered(
+    workflow_id: Option<&str>,
+    enabled: Option<bool>,
+) -> Select<workflow_schedules::Entity> {
+    let mut filter = Condition::all().add(Column::DeletedAt.is_null());
+    if let Some(workflow_id) = workflow_id {
+        filter = filter.add(Column::WorkflowId.eq(workflow_id));
+    }
+    if let Some(enabled) = enabled {
+        filter = filter.add(Column::IsEnabled.eq(enabled));
+    }
+    workflow_schedules::Entity::find().filter(filter)
+}
+
 async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
     let query = query.as_deref();
     let limit = page_limit(query, 25, 100);
     let workflow_id = query_truthy(query, "workflowId");
     let enabled = query_param(query, "isEnabled").map(|v| v == "true");
     let cursor = query_truthy(query, "cursor");
-    const FILTER: &str = "t.deleted_at is null and ($1::text is null or t.workflow_id = $1)
-        and ($2::boolean is null or t.is_enabled = $2)";
-    let rows: Result<Vec<Value>, sqlx::Error> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-        "select to_jsonb(t) from workflow_schedules t where {FILTER} and ($3::text is null or t.id < $3)
-         order by t.created_at desc limit $4"
-    )))
-    .bind(&workflow_id)
-    .bind(enabled)
-    .bind(&cursor)
-    .bind(limit + 1)
-    .fetch_all(&caller.db)
-    .await;
-    let count: Result<i64, sqlx::Error> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-        "select count(*) from workflow_schedules t where {FILTER}"
-    )))
-    .bind(&workflow_id)
-    .bind(enabled)
-    .fetch_one(&caller.db)
-    .await;
+    let db = orm(&caller.db);
+    let mut rows = filtered(workflow_id.as_deref(), enabled);
+    if let Some(cursor) = &cursor {
+        rows = rows.filter(Column::Id.lt(cursor));
+    }
+    let rows = rows
+        .order_by_desc(Column::CreatedAt)
+        .limit(u64::try_from(limit + 1).unwrap_or(0))
+        .all(&db)
+        .await;
+    let count = filtered(workflow_id.as_deref(), enabled).count(&db).await;
     match (rows, count) {
         (Ok(rows), Ok(count)) => {
-            let (data, has_more) = page(rows.into_iter().map(js_row).collect(), limit);
+            let (data, has_more) = page(rows.into_iter().map(js).collect(), limit);
             let cursor = next_cursor(&data, has_more, "id");
-            List::new(data, Pagination::new(total(count), has_more, cursor)).into_response()
+            List::new(data, Pagination::new(count, has_more, cursor)).into_response()
         }
         (Err(error), _) | (_, Err(error)) => internal(&error, "Failed to list workflow schedules"),
     }
 }
 
-pub(crate) async fn get_schedule(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from workflow_schedules t where t.id = $1 and t.deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(js_row))
+pub(crate) async fn get_schedule(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
+    let row = workflow_schedules::Entity::find_by_id(id.to_owned())
+        .filter(Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?;
+    Ok(row.map(js))
 }
 
 async fn get_one(caller: Caller, Path(id): Path<String>) -> Response {
@@ -120,20 +140,24 @@ pub(crate) enum CreateError {
     WorkflowNotFound,
     /// `new Date(value).toISOString()` threw.
     InvalidDate,
-    Database(sqlx::Error),
+    Database(DbErr),
 }
 
-impl From<sqlx::Error> for CreateError {
-    fn from(error: sqlx::Error) -> Self {
+impl From<DbErr> for CreateError {
+    fn from(error: DbErr) -> Self {
         Self::Database(error)
     }
 }
 
-/// `new Date(value)` of a truthy date string, as written.
-fn date(value: Option<&str>) -> Result<Option<String>, ()> {
+/// `new Date(value)` of a truthy date string, as the `timestamp` column
+/// stores it (`toISOString()`, read without its `Z`).
+fn date(value: Option<&str>) -> Result<Option<PrimitiveDateTime>, ()> {
     match value.filter(|v| !v.is_empty()) {
         None => Ok(None),
-        Some(text) => js_date_iso(text).map(Some).ok_or(()),
+        Some(text) => js_date_iso(text)
+            .and_then(|iso| OffsetDateTime::parse(&iso, &Rfc3339).ok())
+            .map(|at| Some(utc_timestamp(at)))
+            .ok_or(()),
     }
 }
 
@@ -143,11 +167,16 @@ pub(crate) async fn create_schedule(
     ctx: &SyncContext,
     input: NewSchedule,
 ) -> Result<String, CreateError> {
-    let found: Option<String> =
-        sqlx::query_scalar("select id from workflows where id = $1 and deleted_at is null limit 1")
-            .bind(&input.workflow_id)
-            .fetch_optional(db)
-            .await?;
+    let db = orm(db);
+    let found: Option<String> = workflows::Entity::find()
+        .select_only()
+        .column(workflows::Column::Id)
+        .filter(workflows::Column::Id.eq(&input.workflow_id))
+        .filter(workflows::Column::DeletedAt.is_null())
+        .limit(1)
+        .into_tuple()
+        .one(&db)
+        .await?;
     if found.is_none() {
         return Err(CreateError::WorkflowNotFound);
     }
@@ -158,23 +187,22 @@ pub(crate) async fn create_schedule(
         .timezone
         .filter(|tz| !tz.is_empty())
         .unwrap_or_else(|| "UTC".into());
-    sqlx::query(
-        "insert into workflow_schedules
-            (id, workflow_id, trigger_id, name, cron_expression, timezone, start_date, end_date,
-             is_enabled, created_at, updated_at)
-         values ($1, $2, $3, $4, $5, $6, $7::timestamp, $8::timestamp, $9, $10::timestamp, $10::timestamp)",
-    )
-    .bind(&id)
-    .bind(&input.workflow_id)
-    .bind(&input.trigger_id)
-    .bind(&input.name)
-    .bind(&input.cron_expression)
-    .bind(&timezone)
-    .bind(&start)
-    .bind(&end)
-    .bind(input.is_enabled)
-    .bind(now())
-    .execute(db)
+    let stamp = utc_now();
+    workflow_schedules::Entity::insert(workflow_schedules::ActiveModel {
+        id: Set(id.clone()),
+        workflow_id: Set(input.workflow_id),
+        trigger_id: Set(input.trigger_id),
+        name: Set(input.name),
+        cron_expression: Set(Some(input.cron_expression)),
+        timezone: Set(timezone),
+        start_date: Set(start),
+        end_date: Set(end),
+        is_enabled: Set(input.is_enabled),
+        created_at: Set(stamp),
+        updated_at: Set(stamp),
+        ..Default::default()
+    })
+    .exec_without_returning(&db)
     .await?;
     ctx.schedule_due().await;
     Ok(id)
@@ -271,7 +299,7 @@ async fn update_route(
         if get_schedule(&caller.db, &id).await?.is_none() {
             return Err(Refusal::not_found("Workflow schedule", &id));
         }
-        let when = |field: &Field<String>| -> Result<(bool, Option<String>), Refusal> {
+        let when = |field: &Field<String>| -> Result<(bool, Option<PrimitiveDateTime>), Refusal> {
             match field {
                 Field::Absent => Ok((false, None)),
                 Field::Null => Ok((true, None)),
@@ -290,34 +318,37 @@ async fn update_route(
             || start_set
             || end_set
             || !enabled.is_absent();
-        sqlx::query(
-            "update workflow_schedules set updated_at = $2::timestamp,
-                name = case when $3 then $4 else name end,
-                cron_expression = case when $5 then $6 else cron_expression end,
-                timezone = case when $7 then $8 else timezone end,
-                is_enabled = case when $9 then $10 else is_enabled end,
-                start_date = case when $11 then $12::timestamp else start_date end,
-                end_date = case when $13 then $14::timestamp else end_date end,
-                next_run_at = case when $15 then null else next_run_at end
-             where id = $1",
-        )
-        .bind(&id)
-        .bind(now())
-        .bind(!name.is_absent())
-        .bind(name.as_set())
-        .bind(!cron.is_absent())
-        .bind(cron.as_set())
-        .bind(!timezone.is_absent())
-        .bind(timezone.as_set())
-        .bind(!enabled.is_absent())
-        .bind(enabled.as_set().copied())
-        .bind(start_set)
-        .bind(&start)
-        .bind(end_set)
-        .bind(&end)
-        .bind(timing)
-        .execute(&caller.db)
-        .await?;
+        let mut update = workflow_schedules::Entity::update_many()
+            .col_expr(Column::UpdatedAt, Expr::value(utc_now()));
+        let texts = [
+            (Column::Name, &name),
+            (Column::CronExpression, &cron),
+            (Column::Timezone, &timezone),
+        ];
+        for (column, field) in texts {
+            if !field.is_absent() {
+                update = update.col_expr(column, Expr::value(field.as_set().cloned()));
+            }
+        }
+        if !enabled.is_absent() {
+            update = update.col_expr(Column::IsEnabled, Expr::value(enabled.as_set().copied()));
+        }
+        if start_set {
+            update = update.col_expr(Column::StartDate, Expr::value(start));
+        }
+        if end_set {
+            update = update.col_expr(Column::EndDate, Expr::value(end));
+        }
+        if timing {
+            update = update.col_expr(
+                Column::NextRunAt,
+                Expr::value(Option::<PrimitiveDateTime>::None),
+            );
+        }
+        update
+            .filter(Column::Id.eq(&id))
+            .exec(&orm(&caller.db))
+            .await?;
         if timing {
             SyncContext::for_caller(&caller, &state)
                 .schedule_due()
@@ -351,15 +382,16 @@ async fn toggle(
         if get_schedule(&caller.db, &id).await?.is_none() {
             return Err(Refusal::not_found("Workflow schedule", &id));
         }
-        sqlx::query(
-            "update workflow_schedules set is_enabled = $2, updated_at = $3::timestamp, next_run_at = null
-             where id = $1",
-        )
-        .bind(&id)
-        .bind(enabled)
-        .bind(now())
-        .execute(&caller.db)
-        .await?;
+        workflow_schedules::Entity::update_many()
+            .col_expr(Column::IsEnabled, Expr::value(enabled))
+            .col_expr(Column::UpdatedAt, Expr::value(utc_now()))
+            .col_expr(
+                Column::NextRunAt,
+                Expr::value(Option::<PrimitiveDateTime>::None),
+            )
+            .filter(Column::Id.eq(&id))
+            .exec(&orm(&caller.db))
+            .await?;
         SyncContext::for_caller(&caller, &state)
             .schedule_due()
             .await;
@@ -385,15 +417,14 @@ async fn delete(
         if get_schedule(&caller.db, &id).await?.is_none() {
             return Err(Refusal::not_found("Workflow schedule", &id));
         }
-        let stamp = now();
-        sqlx::query(
-            "update workflow_schedules set deleted_at = $2::timestamp, updated_at = $2::timestamp
-             where id = $1 and deleted_at is null",
-        )
-        .bind(&id)
-        .bind(&stamp)
-        .execute(&caller.db)
-        .await?;
+        let stamp = utc_now();
+        workflow_schedules::Entity::update_many()
+            .col_expr(Column::DeletedAt, Expr::value(stamp))
+            .col_expr(Column::UpdatedAt, Expr::value(stamp))
+            .filter(Column::Id.eq(&id))
+            .filter(Column::DeletedAt.is_null())
+            .exec(&orm(&caller.db))
+            .await?;
         caller.publish(&state, WORKFLOW_SCHEDULE_DELETED, &id, &json!({ "id": id }));
         Ok(NoContent.into_response())
     };

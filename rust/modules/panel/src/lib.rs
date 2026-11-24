@@ -65,11 +65,6 @@
 //! TypeScript workers'; their tests run against this crate in the `panel`
 //! conformance suites (`rust/conformance/suites.json`).
 
-#![allow(
-    clippy::disallowed_methods,
-    reason = "not converted to the ORM yet (ADR DATA-019)"
-)]
-
 mod ai_summaries;
 mod analysis_routes;
 mod annotations;

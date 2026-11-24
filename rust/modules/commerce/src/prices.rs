@@ -12,18 +12,27 @@ use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, put};
 use http::HeaderMap;
+use sea_orm::prelude::BigDecimal;
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, ConnectionTrait, DbErr, EntityTrait, FromQueryResult,
+    QueryFilter, QueryOrder, QuerySelect,
+};
+use serde::Serialize;
 use serde_json::{Map, Value};
-use sqlx::PgConnection;
 use weldsuite_catalogs::entity_events::PRODUCT_UPDATED;
 use weldsuite_catalogs::permission_keys::{PRODUCTS_READ, PRODUCTS_UPDATE};
-use weldsuite_commerce_domain::money::{self, Cents};
+use weldsuite_commerce_domain::money::Cents;
+use weldsuite_db::{OrmConn, orm, utc_now};
 use weldsuite_kit::validation::{Field, Issues, Presence, Text};
 use weldsuite_kit::{Data, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::{product_prices, product_variants, products};
 
+use crate::args::decimal;
 use crate::tables::PRODUCTS;
 use crate::wire::{read_currency, read_money};
-use crate::{Caller, CommerceState, Refusal, now, validate, wire};
+use crate::{Caller, CommerceState, Refusal, validate, wire};
 
 pub(crate) fn routes<Q>(gate: &Arc<PermissionGate<Q>>) -> Router<CommerceState>
 where
@@ -40,33 +49,62 @@ where
         )
 }
 
-const SELECT: &str = "select jsonb_build_object('id', p.id, 'productId', p.product_id, \
-       'variantId', p.variant_id, 'currency', p.currency, 'price', p.price::text, \
-       'compareAtPrice', p.compare_at_price::text) \
-     from product_prices p where p.product_id = $1 and p.deleted_at is null \
-     order by p.currency asc, (p.variant_id is not null), p.variant_id asc";
+/// A price as the routes answer it: `{ id, productId, variantId, currency,
+/// price, compareAtPrice }`, the amounts as `numeric` text.
+#[derive(Debug, FromQueryResult, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PriceRow {
+    id: String,
+    product_id: String,
+    variant_id: Option<String>,
+    currency: String,
+    #[serde(serialize_with = "weldsuite_schema::js::Numeric::<2>::serialize")]
+    price: BigDecimal,
+    #[serde(serialize_with = "weldsuite_schema::js::Numeric::<2>::serialize_option")]
+    compare_at_price: Option<BigDecimal>,
+}
 
-async fn current(conn: &mut PgConnection, product_id: &str) -> Result<Vec<Value>, sqlx::Error> {
-    sqlx::query_scalar(SELECT)
-        .bind(product_id)
-        .fetch_all(&mut *conn)
-        .await
+/// The product's live prices by currency, the product's own before its
+/// variants'.
+async fn current<C: ConnectionTrait>(db: &C, product_id: &str) -> Result<Vec<Value>, DbErr> {
+    let rows: Vec<PriceRow> = product_prices::Entity::find()
+        .select_only()
+        .columns([
+            product_prices::Column::Id,
+            product_prices::Column::ProductId,
+            product_prices::Column::VariantId,
+            product_prices::Column::Currency,
+            product_prices::Column::Price,
+            product_prices::Column::CompareAtPrice,
+        ])
+        .filter(product_prices::Column::ProductId.eq(product_id))
+        .filter(product_prices::Column::DeletedAt.is_null())
+        .order_by_asc(product_prices::Column::Currency)
+        .order_by_asc(product_prices::Column::VariantId.is_not_null())
+        .order_by_asc(product_prices::Column::VariantId)
+        .into_model()
+        .all(db)
+        .await?;
+    rows.iter()
+        .map(|row| serde_json::to_value(row).map_err(|error| DbErr::Json(error.to_string())))
+        .collect()
 }
 
 async fn list(caller: Caller, Path(id): Path<String>) -> Response {
     const FAILED: &str = "Failed to fetch product prices";
     let result = async {
-        let mut conn = caller.db.acquire().await?;
-        let exists: bool = sqlx::query_scalar(
-            "select exists (select 1 from products where id = $1 and deleted_at is null)",
-        )
-        .bind(&id)
-        .fetch_one(&mut *conn)
-        .await?;
-        if !exists {
+        let db = orm(&caller.db);
+        let exists: Option<String> = products::Entity::find_by_id(id.as_str())
+            .filter(products::Column::DeletedAt.is_null())
+            .select_only()
+            .column(products::Column::Id)
+            .into_tuple()
+            .one(&db)
+            .await?;
+        if exists.is_none() {
             return Err(Refusal::not_found("Product", &id));
         }
-        Ok(current(&mut conn, &id).await?)
+        Ok(current(&db, &id).await?)
     }
     .await;
     match result {
@@ -161,92 +199,96 @@ async fn save(
         }
     }
     let mut tx = caller.db.begin().await?;
-    let locked = PRODUCTS
-        .select_live
-        .replace(" limit 1", " limit 1 for update of t");
-    let product: Option<Value> = sqlx::query_scalar(sqlx::AssertSqlSafe(locked))
-        .bind(product_id)
-        .fetch_optional(&mut *tx)
-        .await?;
-    let Some(product) = product else {
-        return Err(Refusal::not_found("Product", product_id));
+    let saved = {
+        let db = OrmConn::new(&mut tx);
+        let product = products::Entity::find_by_id(product_id)
+            .filter(products::Column::DeletedAt.is_null())
+            .lock_exclusive()
+            .one(&db)
+            .await?;
+        let Some(product) = product else {
+            return Err(Refusal::not_found("Product", product_id));
+        };
+        let product = PRODUCTS.model(&product)?;
+        let variants: Vec<String> = product_variants::Entity::find()
+            .select_only()
+            .column(product_variants::Column::Id)
+            .filter(product_variants::Column::ProductId.eq(product_id))
+            .filter(product_variants::Column::DeletedAt.is_null())
+            .into_tuple()
+            .all(&db)
+            .await?;
+        for (index, entry) in entries.iter().enumerate() {
+            if let Some(variant) = &entry.variant_id
+                && !variants.contains(variant)
+            {
+                return Err(wire::invalid(
+                    &format!("prices.{index}.variantId"),
+                    "Not a variant of this product",
+                ));
+            }
+        }
+        let stamp = utc_now();
+        let existing: Vec<(String, Option<String>, String)> = product_prices::Entity::find()
+            .select_only()
+            .columns([
+                product_prices::Column::Id,
+                product_prices::Column::VariantId,
+                product_prices::Column::Currency,
+            ])
+            .filter(product_prices::Column::ProductId.eq(product_id))
+            .filter(product_prices::Column::DeletedAt.is_null())
+            .lock_exclusive()
+            .into_tuple()
+            .all(&db)
+            .await?;
+        // What is not listed goes first.
+        for (row_id, variant, currency) in &existing {
+            let kept = entries
+                .iter()
+                .any(|e| e.variant_id == *variant && e.currency == *currency);
+            if !kept {
+                product_prices::Entity::update_many()
+                    .col_expr(product_prices::Column::DeletedAt, Expr::val(stamp))
+                    .col_expr(product_prices::Column::UpdatedAt, Expr::val(stamp))
+                    .filter(product_prices::Column::Id.eq(row_id.as_str()))
+                    .exec(&db)
+                    .await?;
+            }
+        }
+        for entry in entries {
+            let price = decimal(entry.price);
+            let compare = entry.compare_at.map(decimal);
+            let found = existing
+                .iter()
+                .find(|(_, v, c)| *v == entry.variant_id && *c == entry.currency);
+            if let Some((row_id, _, _)) = found {
+                product_prices::Entity::update_many()
+                    .col_expr(product_prices::Column::Price, Expr::val(price))
+                    .col_expr(product_prices::Column::CompareAtPrice, Expr::val(compare))
+                    .col_expr(product_prices::Column::UpdatedAt, Expr::val(stamp))
+                    .filter(product_prices::Column::Id.eq(row_id.as_str()))
+                    .exec(&db)
+                    .await?;
+            } else {
+                product_prices::Entity::insert(product_prices::ActiveModel {
+                    id: Set(generate_id("ppr")),
+                    product_id: Set(product_id.to_owned()),
+                    variant_id: Set(entry.variant_id.clone()),
+                    currency: Set(entry.currency.clone()),
+                    price: Set(price),
+                    compare_at_price: Set(compare),
+                    created_at: Set(stamp),
+                    updated_at: Set(stamp),
+                    ..Default::default()
+                })
+                .exec_without_returning(&db)
+                .await?;
+            }
+        }
+        let rows = current(&db, product_id).await?;
+        (product, rows)
     };
-    let product = PRODUCTS.js(product);
-    let variants: Vec<String> = sqlx::query_scalar(
-        "select id from product_variants where product_id = $1 and deleted_at is null",
-    )
-    .bind(product_id)
-    .fetch_all(&mut *tx)
-    .await?;
-    for (index, entry) in entries.iter().enumerate() {
-        if let Some(variant) = &entry.variant_id
-            && !variants.contains(variant)
-        {
-            return Err(wire::invalid(
-                &format!("prices.{index}.variantId"),
-                "Not a variant of this product",
-            ));
-        }
-    }
-    let stamp = now();
-    let existing: Vec<(String, Option<String>, String)> = sqlx::query_as(
-        "select id, variant_id, currency from product_prices \
-         where product_id = $1 and deleted_at is null for update",
-    )
-    .bind(product_id)
-    .fetch_all(&mut *tx)
-    .await?;
-    // What is not listed goes first.
-    for (row_id, variant, currency) in &existing {
-        let kept = entries
-            .iter()
-            .any(|e| e.variant_id == *variant && e.currency == *currency);
-        if !kept {
-            sqlx::query(
-                "update product_prices set deleted_at = $2::timestamp, updated_at = $2::timestamp \
-                 where id = $1",
-            )
-            .bind(row_id)
-            .bind(&stamp)
-            .execute(&mut *tx)
-            .await?;
-        }
-    }
-    for entry in entries {
-        let price = money::format(entry.price);
-        let compare = entry.compare_at.map(money::format);
-        let found = existing
-            .iter()
-            .find(|(_, v, c)| *v == entry.variant_id && *c == entry.currency);
-        if let Some((row_id, _, _)) = found {
-            sqlx::query(
-                "update product_prices set price = $2::numeric, compare_at_price = $3::numeric, \
-                 updated_at = $4::timestamp where id = $1",
-            )
-            .bind(row_id)
-            .bind(&price)
-            .bind(compare.as_deref())
-            .bind(&stamp)
-            .execute(&mut *tx)
-            .await?;
-        } else {
-            sqlx::query(
-                "insert into product_prices (id, product_id, variant_id, currency, price, \
-                 compare_at_price, created_at, updated_at) \
-                 values ($1, $2, $3, $4, $5::numeric, $6::numeric, $7::timestamp, $7::timestamp)",
-            )
-            .bind(generate_id("ppr"))
-            .bind(product_id)
-            .bind(entry.variant_id.as_deref())
-            .bind(&entry.currency)
-            .bind(&price)
-            .bind(compare.as_deref())
-            .bind(&stamp)
-            .execute(&mut *tx)
-            .await?;
-        }
-    }
-    let rows = current(&mut tx, product_id).await?;
     tx.commit().await?;
-    Ok((product, rows))
+    Ok(saved)
 }

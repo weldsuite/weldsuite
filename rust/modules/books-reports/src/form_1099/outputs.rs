@@ -5,20 +5,29 @@
 
 use std::collections::HashMap;
 
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Value, json};
 use sqlx::PgPool;
 use weldsuite_books_domain::address::normalize_postal_address;
 use weldsuite_books_domain::form_1099::pdf::{self, form_1099_pdf_copies};
 use weldsuite_books_domain::form_1099::{iris, tin_matching};
 use weldsuite_books_domain::jurisdictions::us::mask_tin;
-use weldsuite_books_domain::tables::{PARTIES, TAX_ID_REVEALS};
+use weldsuite_books_domain::tables::TAX_ID_REVEALS;
 use weldsuite_books_domain::vendor_tax::{is_tin_type, read_sensitive};
-use weldsuite_db::{Keyring, decrypt_field};
+use weldsuite_db::record::JsonTable;
+use weldsuite_db::{Keyring, OrmConn, decrypt_field, orm};
 use weldsuite_kit::generate_id;
+use weldsuite_schema::tenant::{parties, tax_id_reveals};
 
 use super::Fail;
 use super::data::{TIN_MATCH_PROBLEMS, load_entity, opt, text, w9_text};
 use super::filings::{lines_for_file, load_filing, load_lines};
+use crate::rows::js_rows;
+
+/// `taxIdReveals`, written from a `{ column: value }` object as Drizzle's
+/// `insert` wrote it.
+const REVEALS: JsonTable = JsonTable::of::<tax_id_reveals::Entity>();
 
 fn trim(value: Option<&str>) -> Option<String> {
     value
@@ -34,7 +43,7 @@ async fn reveal(
     field: &str,
     user_id: &str,
     reason: &str,
-) -> Result<(), sqlx::Error> {
+) -> Result<(), DbErr> {
     let row: serde_json::Map<String, Value> = [
         ("id", json!(generate_id("tir"))),
         ("entityId", json!(entity_id)),
@@ -47,8 +56,8 @@ async fn reveal(
     .into_iter()
     .map(|(k, v)| (k.to_owned(), v))
     .collect();
-    TAX_ID_REVEALS
-        .insert_raw(db, TAX_ID_REVEALS.values(&row))
+    REVEALS
+        .insert(&orm(db), TAX_ID_REVEALS.values(&row))
         .await?;
     Ok(())
 }
@@ -494,16 +503,14 @@ pub(crate) async fn build_tin_matching(
     let key = weldsuite_books_domain::vendor_tax::require_keyring(keyring)
         .map_err(|e| Fail::Unavailable(e.to_string()))?;
     let only = party_ids.filter(|ids| !ids.is_empty());
-    let rows: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(parties),
-        " from parties t where t.is_1099_vendor = true and t.deleted_at is null \
-         and ($1::text[] is null or t.id = any($1))"
-    ))
-    .bind(&only)
-    .fetch_all(db)
-    .await?;
-    let parties = PARTIES.js_rows(rows);
+    let mut rows = parties::Entity::find()
+        .filter(parties::Column::Is1099Vendor.eq(true))
+        .filter(parties::Column::DeletedAt.is_null());
+    if let Some(only) = &only {
+        rows = rows.filter(parties::Column::Id.is_in(only.iter().cloned()));
+    }
+    let rows = rows.all(&orm(db)).await?;
+    let parties = js_rows!(rows)?;
     let mut records = Vec::new();
     let mut tin_parties = Vec::new();
     for party in &parties {
@@ -575,11 +582,18 @@ pub(crate) async fn apply_tin_matching_results(
     db: &PgPool,
     body: &str,
 ) -> Result<(Vec<String>, Value), Fail> {
-    let parties: Vec<PartyMatch> = sqlx::query_as(
-        "select id, display_name, tin_last4, backup_withholding from parties where deleted_at is null",
-    )
-    .fetch_all(db)
-    .await?;
+    let parties: Vec<PartyMatch> = parties::Entity::find()
+        .select_only()
+        .columns([
+            parties::Column::Id,
+            parties::Column::DisplayName,
+            parties::Column::TinLast4,
+            parties::Column::BackupWithholding,
+        ])
+        .filter(parties::Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     let accounts: HashMap<String, String> = parties
         .iter()
         .filter(|(_, _, last4, _)| last4.as_deref().is_some_and(|l| !l.is_empty()))
@@ -618,20 +632,19 @@ pub(crate) async fn apply_tin_matching_results(
         }
     }
     if !latest.is_empty() {
-        let at = weldsuite_books_domain::http::now();
+        let at = weldsuite_db::utc_now();
         let updates = latest.clone();
-        weldsuite_db::atomically_with::<_, (), sqlx::Error, _>(db, move |conn| {
+        weldsuite_db::atomically_with::<_, (), Fail, _>(db, move |conn| {
             Box::pin(async move {
-                for (id, status) in &updates {
-                    sqlx::query(
-                        "update parties set tin_match_status = $1, tin_matched_at = $2::timestamp, \
-                         updated_at = $2::timestamp where id = $3",
-                    )
-                    .bind(status)
-                    .bind(&at)
-                    .bind(id)
-                    .execute(&mut *conn)
-                    .await?;
+                let tx = OrmConn::new(conn);
+                for (id, status) in updates {
+                    parties::Entity::update_many()
+                        .col_expr(parties::Column::TinMatchStatus, Expr::value(status))
+                        .col_expr(parties::Column::TinMatchedAt, Expr::value(at))
+                        .col_expr(parties::Column::UpdatedAt, Expr::value(at))
+                        .filter(parties::Column::Id.eq(id))
+                        .exec(&tx)
+                        .await?;
                 }
                 Ok(())
             })

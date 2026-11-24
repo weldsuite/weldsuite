@@ -5,10 +5,18 @@
 
 use axum::response::{IntoResponse, Response};
 use http::{HeaderMap, StatusCode};
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, FromQueryResult, JoinType, PaginatorTrait,
+    QueryFilter, QuerySelect,
+};
 use serde::Serialize;
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::ApiError;
 use weldsuite_ports::{DynSystemMail, Mailbox, OutgoingMail};
+use weldsuite_schema::master::{
+    partner_members, partner_territories, partner_workspace_requests, partners,
+};
 
 /// `normalizeCountryCode`: ISO-2, upper case; Cloudflare's `XX` (unknown)
 /// and `T1` (Tor) are no country.
@@ -37,7 +45,7 @@ pub(crate) fn request_country(headers: &HeaderMap) -> Option<String> {
 }
 
 /// `PartnerPublicInfo`: what a signup sees about a reseller.
-#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, FromQueryResult)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct PartnerInfo {
     pub(crate) id: String,
@@ -53,22 +61,33 @@ pub(crate) struct PartnerInfo {
 pub(crate) async fn territory_partner(
     master: &PgPool,
     country: Option<&str>,
-) -> Result<Option<PartnerInfo>, sqlx::Error> {
+) -> Result<Option<PartnerInfo>, DbErr> {
     let Some(country) =
         country.filter(|c| c.len() == 2 && c.bytes().all(|b| b.is_ascii_alphabetic()))
     else {
         return Ok(None);
     };
-    sqlx::query_as(
-        "select p.id, p.name, p.logo_url, p.website_url, p.support_email, p.support_url
-           from partner_territories t
-           join partners p on p.id = t.partner_id
-          where t.country_code = $1
-          limit 1",
-    )
-    .bind(country.to_ascii_uppercase())
-    .fetch_optional(master)
-    .await
+    partner_territories::Entity::find()
+        .select_only()
+        .columns([
+            partners::Column::Id,
+            partners::Column::Name,
+            partners::Column::LogoUrl,
+            partners::Column::WebsiteUrl,
+            partners::Column::SupportEmail,
+            partners::Column::SupportUrl,
+        ])
+        .join(
+            JoinType::InnerJoin,
+            partner_territories::Entity::belongs_to(partners::Entity)
+                .from(partner_territories::Column::PartnerId)
+                .to(partners::Column::Id)
+                .into(),
+        )
+        .filter(partner_territories::Column::CountryCode.eq(country.to_ascii_uppercase()))
+        .into_model::<PartnerInfo>()
+        .one(&orm(master))
+        .await
 }
 
 #[derive(Serialize)]
@@ -92,7 +111,7 @@ pub(crate) fn territory_response(country: &str, partner: &PartnerInfo) -> Respon
 pub(crate) async fn territory_refusal(
     master: &PgPool,
     headers: &HeaderMap,
-) -> Result<Option<Response>, sqlx::Error> {
+) -> Result<Option<Response>, DbErr> {
     let country = request_country(headers);
     let partner = territory_partner(master, country.as_deref()).await?;
     Ok(match (partner, country) {
@@ -102,18 +121,18 @@ pub(crate) async fn territory_refusal(
 }
 
 /// `MAX_REQUESTS_PER_USER_PER_DAY`.
-const MAX_REQUESTS_PER_USER_PER_DAY: i64 = 5;
+const MAX_REQUESTS_PER_USER_PER_DAY: u64 = 5;
 
 /// Why `createWorkspaceRequest` failed.
 #[derive(Debug)]
 pub(crate) enum RequestError {
     /// `PartnerPortalError('RATE_LIMITED')`.
     RateLimited,
-    Database(sqlx::Error),
+    Database(DbErr),
 }
 
-impl From<sqlx::Error> for RequestError {
-    fn from(error: sqlx::Error) -> Self {
+impl From<DbErr> for RequestError {
+    fn from(error: DbErr) -> Self {
         Self::Database(error)
     }
 }
@@ -135,33 +154,34 @@ pub(crate) async fn create_workspace_request(
     master: &PgPool,
     request: &WorkspaceRequest<'_>,
 ) -> Result<String, RequestError> {
-    let recent: i64 = sqlx::query_scalar(
-        "select count(*) from partner_workspace_requests
-          where requester_user_id = $1 and created_at >= now() - interval '1 day'",
-    )
-    .bind(request.requester_user_id)
-    .fetch_one(master)
-    .await?;
+    use partner_workspace_requests::{ActiveModel, Column, Entity};
+    use sea_orm::ExprTrait as _;
+    let db = orm(master);
+    // `created_at >= now() - interval '1 day'`.
+    let since = Expr::current_timestamp().sub(Expr::val("1 day").cast_as("interval"));
+    let recent = Entity::find()
+        .filter(Column::RequesterUserId.eq(request.requester_user_id))
+        .filter(Expr::col((Entity, Column::CreatedAt)).gte(since))
+        .count(&db)
+        .await?;
     if recent >= MAX_REQUESTS_PER_USER_PER_DAY {
         return Err(RequestError::RateLimited);
     }
     let id = weldsuite_kit::generate_id("pwr");
-    sqlx::query(
-        "insert into partner_workspace_requests
-           (id, partner_id, requester_user_id, requester_email, requester_name, company_name,
-            country_code, selected_apps, message, status)
-         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'new')",
-    )
-    .bind(&id)
-    .bind(request.partner_id)
-    .bind(request.requester_user_id)
-    .bind(request.requester_email.trim().to_lowercase())
-    .bind(request.requester_name)
-    .bind(request.company_name)
-    .bind(request.country_code.to_ascii_uppercase())
-    .bind(sqlx::types::Json(request.selected_apps))
-    .bind(request.message)
-    .execute(master)
+    Entity::insert(ActiveModel {
+        id: Set(id.clone()),
+        partner_id: Set(request.partner_id.to_owned()),
+        requester_user_id: Set(Some(request.requester_user_id.to_owned())),
+        requester_email: Set(request.requester_email.trim().to_lowercase()),
+        requester_name: Set(request.requester_name.map(str::to_owned)),
+        company_name: Set(request.company_name.to_owned()),
+        country_code: Set(request.country_code.to_ascii_uppercase()),
+        selected_apps: Set(serde_json::json!(request.selected_apps)),
+        message: Set(request.message.map(str::to_owned)),
+        status: Set("new".to_owned()),
+        ..Default::default()
+    })
+    .exec_without_returning(&db)
     .await?;
     Ok(id)
 }
@@ -170,13 +190,15 @@ pub(crate) async fn create_workspace_request(
 pub(crate) async fn partner_admin_emails(
     master: &PgPool,
     partner_id: &str,
-) -> Result<Vec<String>, sqlx::Error> {
-    sqlx::query_scalar(
-        "select email from partner_members where partner_id = $1 and role in ('owner', 'admin')",
-    )
-    .bind(partner_id)
-    .fetch_all(master)
-    .await
+) -> Result<Vec<String>, DbErr> {
+    partner_members::Entity::find()
+        .select_only()
+        .column(partner_members::Column::Email)
+        .filter(partner_members::Column::PartnerId.eq(partner_id))
+        .filter(partner_members::Column::Role.is_in(["owner", "admin"]))
+        .into_tuple()
+        .all(&orm(master))
+        .await
 }
 
 /// The "new workspace request" notice (`sendWorkspaceRequestEmail`): plain

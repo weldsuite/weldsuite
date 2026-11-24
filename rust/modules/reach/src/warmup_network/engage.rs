@@ -15,18 +15,22 @@
 //! never as `missing`: only a clean search that finds nothing says the
 //! email did not arrive.
 
+use sea_orm::sea_query::Expr;
+use sea_orm::{ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
+use weldsuite_db::orm;
 use weldsuite_kit::generate_id;
 use weldsuite_ports::{ImapConfig, ImapError, ImapSession, SpecialUse};
 use weldsuite_reach_domain::smtp::generate_message_id;
 use weldsuite_reach_domain::warmup::{WARMUP_REPLY_RATE_MAX, WARMUP_REPLY_RATE_MIN};
+use weldsuite_schema::master::reach_warmup_messages::{self as messages, Column};
 
 use super::WarmupNetwork;
 use super::clock::{HOUR_MS, MINUTE_MS, Rng, chance, into_business_hours, js_date, random_between};
 use super::corpus::{load_corpus_for_lookup, render_corpus_message};
 use super::db::{
-    PoolMailbox, WarmupMessage, clip_error, is_eligible, load_mailboxes, load_message, open_login,
-    take_claim, ts,
+    PoolMailbox, WarmupMessage, at, clip_error, is_eligible, load_mailboxes, load_message,
+    open_login, take_claim,
 };
 use super::dispatch::MAX_ENGAGE_ATTEMPTS;
 use super::pool_state::{pause_for_credentials, record_login_failure, record_login_success};
@@ -73,14 +77,14 @@ impl From<ImapError> for Stop {
     }
 }
 
-impl From<sqlx::Error> for Stop {
-    fn from(error: sqlx::Error) -> Self {
+impl From<DbErr> for Stop {
+    fn from(error: DbErr) -> Self {
         Self::Fatal(error.to_string())
     }
 }
 
 #[allow(clippy::needless_pass_by_value)] // map_err hands it over
-fn db(error: sqlx::Error) -> String {
+fn db(error: DbErr) -> String {
     error.to_string()
 }
 
@@ -99,29 +103,35 @@ struct Patch {
 
 /// `settle(ctx, id, patch)`: free the claim and record the new state. Only
 /// touches a row that is still `sent`.
-async fn settle(net: &WarmupNetwork, id: &str, patch: Patch) -> sqlx::Result<()> {
-    sqlx::query(
-        "update reach_warmup_messages set
-           status = coalesce($2, status),
-           engage_at = coalesce($3::timestamptz, engage_at),
-           engage_attempts = coalesce($4::int4, engage_attempts),
-           engaged_at = coalesce($5::timestamptz, engaged_at),
-           placement = coalesce($6, placement),
-           actions = coalesce($7::jsonb, actions),
-           error = coalesce($8, error),
-           claimed_at = null
-         where id = $1 and status = 'sent'",
-    )
-    .bind(id)
-    .bind(patch.status)
-    .bind(patch.engage_at.map(ts))
-    .bind(patch.engage_attempts)
-    .bind(patch.engaged_at.map(ts))
-    .bind(patch.placement)
-    .bind(patch.actions.map(|actions| actions.to_string()))
-    .bind(patch.error)
-    .execute(&net.master)
-    .await?;
+async fn settle(net: &WarmupNetwork, id: &str, patch: Patch) -> Result<(), DbErr> {
+    let mut update = messages::Entity::update_many();
+    if let Some(status) = patch.status {
+        update = update.col_expr(Column::Status, Expr::value(status));
+    }
+    if let Some(engage_at) = patch.engage_at {
+        update = update.col_expr(Column::EngageAt, Expr::value(at(engage_at)));
+    }
+    if let Some(attempts) = patch.engage_attempts {
+        update = update.col_expr(Column::EngageAttempts, Expr::value(attempts));
+    }
+    if let Some(engaged_at) = patch.engaged_at {
+        update = update.col_expr(Column::EngagedAt, Expr::value(at(engaged_at)));
+    }
+    if let Some(placement) = patch.placement {
+        update = update.col_expr(Column::Placement, Expr::value(placement));
+    }
+    if let Some(actions) = patch.actions {
+        update = update.col_expr(Column::Actions, Expr::value(actions));
+    }
+    if let Some(error) = patch.error {
+        update = update.col_expr(Column::Error, Expr::value(error));
+    }
+    update
+        .col_expr(Column::ClaimedAt, Expr::null())
+        .filter(Column::Id.eq(id))
+        .filter(Column::Status.eq("sent"))
+        .exec(&orm(&net.master))
+        .await?;
     Ok(())
 }
 
@@ -132,7 +142,7 @@ async fn defer(
     now: i64,
     after_ms: i64,
     attempts: Option<i32>,
-) -> sqlx::Result<()> {
+) -> Result<(), DbErr> {
     let patch = Patch {
         engage_at: Some(now + after_ms),
         engage_attempts: attempts,
@@ -142,7 +152,7 @@ async fn defer(
 }
 
 /// `giveUp(ctx, id, error)`.
-async fn give_up(net: &WarmupNetwork, id: &str, error: &str) -> sqlx::Result<EngageOutcome> {
+async fn give_up(net: &WarmupNetwork, id: &str, error: &str) -> Result<EngageOutcome, DbErr> {
     let text = clip_error(error);
     let patch = Patch {
         status: Some("failed"),
@@ -245,7 +255,7 @@ async fn schedule_reply(
     recipient: &PoolMailbox,
     now: i64,
     rng: Rng<'_>,
-) -> sqlx::Result<bool> {
+) -> Result<bool, DbErr> {
     let threads = load_corpus_for_lookup(&net.master).await;
     let Some(thread) = threads.iter().find(|t| t.id == row.corpus_thread_id) else {
         return Ok(false);
@@ -257,11 +267,13 @@ async fn schedule_reply(
     if !is_eligible(&sender.status) || !wants_reply(row, &mut *rng) {
         return Ok(false);
     }
-    let existing: Option<String> =
-        sqlx::query_scalar("select id from reach_warmup_messages where in_reply_to = $1 limit 1")
-            .bind(&row.message_id_header)
-            .fetch_optional(&net.master)
-            .await?;
+    let existing: Option<String> = messages::Entity::find()
+        .select_only()
+        .column(Column::Id)
+        .filter(Column::InReplyTo.eq(&row.message_id_header))
+        .into_tuple()
+        .one(&orm(&net.master))
+        .await?;
     if existing.is_some() {
         return Ok(true);
     }
@@ -279,23 +291,22 @@ async fn schedule_reply(
     let delay = random_between(&mut *rng, REPLY_DELAY_MIN_MINUTES, REPLY_DELAY_MAX_MINUTES)
         * MINUTE_MS as f64;
     let scheduled_at = into_business_hours(js_date(now as f64 + delay), &recipient.timezone, rng);
-    sqlx::query(
-        "insert into reach_warmup_messages (id, thread_id, step, from_mailbox_id, to_mailbox_id,
-           corpus_thread_id, message_id_header, in_reply_to, \"references\", subject, status, scheduled_at)
-         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'scheduled', $11::timestamptz)",
-    )
-    .bind(generate_id("rwms"))
-    .bind(&row.thread_id)
-    .bind(i32::try_from(next).unwrap_or(i32::MAX))
-    .bind(&recipient.id)
-    .bind(&sender.id)
-    .bind(&row.corpus_thread_id)
-    .bind(message_id_header)
-    .bind(&row.message_id_header)
-    .bind(reference_chain(row))
-    .bind(subject)
-    .bind(ts(scheduled_at))
-    .execute(&net.master)
+    messages::Entity::insert(messages::ActiveModel {
+        id: Set(generate_id("rwms")),
+        thread_id: Set(row.thread_id.clone()),
+        step: Set(i32::try_from(next).unwrap_or(i32::MAX)),
+        from_mailbox_id: Set(recipient.id.clone()),
+        to_mailbox_id: Set(sender.id.clone()),
+        corpus_thread_id: Set(row.corpus_thread_id.clone()),
+        message_id_header: Set(message_id_header),
+        in_reply_to: Set(Some(row.message_id_header.clone())),
+        references: Set(Some(reference_chain(row))),
+        subject: Set(subject),
+        status: Set("scheduled".to_owned()),
+        scheduled_at: Set(at(scheduled_at)),
+        ..Default::default()
+    })
+    .exec_without_returning(&orm(&net.master))
     .await?;
     Ok(true)
 }
@@ -308,7 +319,7 @@ async fn record_engaged(
     flagged: bool,
     reply_scheduled: bool,
     now: i64,
-) -> sqlx::Result<()> {
+) -> Result<(), DbErr> {
     let mut actions = Map::new();
     actions.insert("seen".to_owned(), json!(!found.uids.is_empty()));
     if flagged {
@@ -335,7 +346,7 @@ async fn record_not_found(
     net: &WarmupNetwork,
     row: &WarmupMessage,
     now: i64,
-) -> sqlx::Result<EngageOutcome> {
+) -> Result<EngageOutcome, DbErr> {
     let attempts = row.engage_attempts + 1;
     if attempts >= MAX_ENGAGE_ATTEMPTS {
         let patch = Patch {
@@ -358,7 +369,7 @@ async fn record_transient_failure(
     row: &WarmupMessage,
     error: &ImapError,
     now: i64,
-) -> sqlx::Result<EngageOutcome> {
+) -> Result<EngageOutcome, DbErr> {
     let attempts = row.engage_attempts + 1;
     let kind = error.kind.as_str();
     if attempts >= MAX_ENGAGE_ATTEMPTS {
@@ -375,7 +386,7 @@ async fn check_recipient(
     row: &WarmupMessage,
     recipient: Option<&PoolMailbox>,
     now: i64,
-) -> sqlx::Result<Option<EngageOutcome>> {
+) -> Result<Option<EngageOutcome>, DbErr> {
     let Some(recipient) = recipient.filter(|r| r.status != "removed") else {
         return give_up(net, &row.id, "mailbox_inactive").await.map(Some);
     };

@@ -22,6 +22,7 @@ use weldsuite_panel_domain::query::{PanelSqlQuery, normalize_rows};
 use weldsuite_ports::Cache;
 
 use crate::engine::AnalyticsSql;
+use crate::projects::live_project_names;
 use crate::usage_mail::mail_notice;
 use crate::usage_settlement::{
     FAVORITE_RETENTION_MONTHS, Settlement, SettlementInput, UsageMonth, load_workspace_plan,
@@ -186,11 +187,7 @@ pub(crate) async fn usage(State(state): State<PanelState>, caller: Caller) -> Re
         }
     }
 
-    let projects: Result<Vec<(String, String)>, sqlx::Error> = sqlx::query_as(
-        "select id, name from panel_projects where deleted_at is null order by created_at asc, id asc",
-    )
-    .fetch_all(&caller.db)
-    .await;
+    let projects = live_project_names(&caller.db).await;
     let projects = match projects {
         Ok(projects) => projects,
         Err(error) => return unexpected(&error, "list projects"),

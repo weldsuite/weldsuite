@@ -26,8 +26,11 @@
 use axum::extract::Path;
 use axum::response::{IntoResponse, Response};
 use http::StatusCode;
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
+use weldsuite_db::orm;
 use weldsuite_kit::{ApiError, Data};
+use weldsuite_schema::tenant::voip_calls;
 
 use crate::{Caller, internal, js};
 
@@ -82,11 +85,14 @@ fn translation_state(call_id: &str, translation: &Value) -> Value {
 /// `GET /api/desk/phone/calls/:callId/translation`: the stored state, or
 /// null before any.
 pub(crate) async fn state(caller: Caller, Path(call_id): Path<String>) -> Response {
-    let stored: Result<Option<Option<Value>>, sqlx::Error> =
-        sqlx::query_scalar("select translation from voip_calls where id = $1 limit 1")
-            .bind(&call_id)
-            .fetch_optional(&caller.db)
-            .await;
+    let stored: Result<Option<Option<Value>>, DbErr> = voip_calls::Entity::find()
+        .select_only()
+        .column(voip_calls::Column::Translation)
+        .filter(voip_calls::Column::Id.eq(&call_id))
+        .limit(1)
+        .into_tuple()
+        .one(&orm(&caller.db))
+        .await;
     match stored {
         Ok(Some(translation)) => {
             // `call.translation ? toTranslationState(call.id, call.translation) : null`.

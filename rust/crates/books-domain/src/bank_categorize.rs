@@ -11,8 +11,10 @@
 //! KOR, and on a US entity, purchase tax is not deductible and stays in the
 //! category amount; a US entity's 0% rate writes no tax-ledger row.
 
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter};
 use serde_json::{Map, Value, json};
-use sqlx::PgPool;
+use weldsuite_db::{PgPool, orm};
+use weldsuite_schema::tenant::{bank_accounts, tax_rates};
 
 use crate::document_posting::{load_entity, text, update_with_entry};
 use crate::guards::{PostingLockKind, is_kor_active};
@@ -23,10 +25,15 @@ use crate::posting::{
     PostError, PostJournalEntryInput, PostingLine, PostingTaxLine, account_for_role,
     load_entity_accounts, post_journal_entry,
 };
-use crate::tables::{BANK_ACCOUNTS, BANK_TRANSACTIONS, TAX_RATES};
+use crate::tables::BANK_TRANSACTIONS;
 
 fn refuse(message: &str) -> PostError {
     PostError::Posting(message.to_owned())
+}
+
+/// A row as Drizzle returns it.
+fn js<M: serde::Serialize>(model: M) -> Result<Value, DbErr> {
+    serde_json::to_value(model).map_err(|error| DbErr::Json(error.to_string()))
 }
 
 /// What a categorization posted.
@@ -76,16 +83,13 @@ pub async fn categorize(
     let money_in = amount > 0.0;
     let entity_id = text(txn, "entityId").unwrap_or_default();
 
-    let bank: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        crate::books_row!(bank_accounts),
-        " from bank_accounts t where t.id = $1 and t.entity_id = $2 and t.deleted_at is null limit 1"
-    ))
-    .bind(text(txn, "bankAccountId"))
-    .bind(entity_id)
-    .fetch_optional(db)
-    .await?;
-    let Some(bank) = bank.map(|row| BANK_ACCOUNTS.js(row)) else {
+    let bank = bank_accounts::Entity::find()
+        .filter(bank_accounts::Column::Id.eq(text(txn, "bankAccountId")))
+        .filter(bank_accounts::Column::EntityId.eq(entity_id))
+        .filter(bank_accounts::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?;
+    let Some(bank) = bank.map(js).transpose()? else {
         return Err(refuse("Bank account not found"));
     };
     let accounts = load_entity_accounts(db, entity_id).await?;
@@ -143,16 +147,13 @@ pub async fn categorize(
     let mut tax_account_id: Option<String> = None;
     let tax_rate_id = tax_rate_id.filter(|t| !t.is_empty());
     if let Some(rate_id) = tax_rate_id {
-        let rate: Option<Value> = sqlx::query_scalar(concat!(
-            "select ",
-            crate::books_row!(tax_rates),
-            " from tax_rates t where t.id = $1 and t.entity_id = $2 and t.deleted_at is null limit 1"
-        ))
-        .bind(rate_id)
-        .bind(entity_id)
-        .fetch_optional(db)
-        .await?;
-        let Some(rate) = rate.map(|row| TAX_RATES.js(row)) else {
+        let rate = tax_rates::Entity::find()
+            .filter(tax_rates::Column::Id.eq(rate_id))
+            .filter(tax_rates::Column::EntityId.eq(entity_id))
+            .filter(tax_rates::Column::DeletedAt.is_null())
+            .one(&orm(db))
+            .await?;
+        let Some(rate) = rate.map(js).transpose()? else {
             return Err(refuse("Tax rate not found for this accounting entity"));
         };
         let percent = crate::js::js_number_value(rate.get("rate"));

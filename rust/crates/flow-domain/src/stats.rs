@@ -6,8 +6,11 @@
 
 use std::collections::HashMap;
 
+use sea_orm::sea_query::{Asterisk, Expr, Func, IntoCondition};
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
-use sqlx::PgPool;
+use weldsuite_db::{PgPool, orm};
+use weldsuite_schema::tenant::{milestones, tasks, time_entries};
 
 use crate::js::{math_round, to_fixed};
 
@@ -87,44 +90,65 @@ fn unique(ids: &[String]) -> Vec<String> {
     out
 }
 
+/// `count(*)::int`.
+fn count_all() -> Expr {
+    sea_orm::ExprTrait::cast_as(Func::count(Expr::col(Asterisk)), "int")
+}
+
+/// `(count(*) filter (where …))::int`: the rows the case keeps (it is null
+/// otherwise).
+fn count_where(condition: impl IntoCondition) -> Expr {
+    sea_orm::ExprTrait::cast_as(Func::count(Expr::case(condition, 1)), "int")
+}
+
 /// `getProjectStats`: every requested id is present.
 pub async fn project_stats(
     db: &PgPool,
     project_ids: &[String],
-) -> Result<HashMap<String, ProjectStats>, sqlx::Error> {
+) -> Result<HashMap<String, ProjectStats>, DbErr> {
     let ids = unique(project_ids);
     let mut result = HashMap::new();
     if ids.is_empty() {
         return Ok(result);
     }
-    let tasks: Vec<(Option<String>, i32, i32, i32)> = sqlx::query_as(
-        "select project_id, count(*)::int,
-                (count(*) filter (where status = 'done'))::int,
-                (count(*) filter (where status = 'cancelled'))::int
-         from tasks where project_id = any($1) and deleted_at is null
-         group by project_id",
-    )
-    .bind(&ids)
-    .fetch_all(db)
-    .await?;
-    let milestones: Vec<(Option<String>, i32, i32)> = sqlx::query_as(
-        "select project_id, count(*)::int,
-                (count(*) filter (where status = 'completed'))::int
-         from milestones where project_id = any($1) and deleted_at is null
-         group by project_id",
-    )
-    .bind(&ids)
-    .fetch_all(db)
-    .await?;
-    let minutes: Vec<(Option<String>, Option<f64>)> = sqlx::query_as(
-        "select project_id, sum(duration)::float8
-         from time_entries
-         where project_id = any($1) and deleted_at is null and status <> 'rejected'
-         group by project_id",
-    )
-    .bind(&ids)
-    .fetch_all(db)
-    .await?;
+    let db = &orm(db);
+    let tasks: Vec<(Option<String>, i32, i32, i32)> = tasks::Entity::find()
+        .select_only()
+        .column(tasks::Column::ProjectId)
+        .expr(count_all())
+        .expr(count_where(tasks::Column::Status.eq("done")))
+        .expr(count_where(tasks::Column::Status.eq("cancelled")))
+        .filter(tasks::Column::ProjectId.is_in(&ids))
+        .filter(tasks::Column::DeletedAt.is_null())
+        .group_by(tasks::Column::ProjectId)
+        .into_tuple()
+        .all(db)
+        .await?;
+    let milestones: Vec<(Option<String>, i32, i32)> = milestones::Entity::find()
+        .select_only()
+        .column(milestones::Column::ProjectId)
+        .expr(count_all())
+        .expr(count_where(milestones::Column::Status.eq("completed")))
+        .filter(milestones::Column::ProjectId.is_in(&ids))
+        .filter(milestones::Column::DeletedAt.is_null())
+        .group_by(milestones::Column::ProjectId)
+        .into_tuple()
+        .all(db)
+        .await?;
+    let minutes: Vec<(Option<String>, Option<f64>)> = time_entries::Entity::find()
+        .select_only()
+        .column(time_entries::Column::ProjectId)
+        .expr(sea_orm::ExprTrait::cast_as(
+            Func::sum(Expr::col(time_entries::Column::Duration)),
+            "float8",
+        ))
+        .filter(time_entries::Column::ProjectId.is_in(&ids))
+        .filter(time_entries::Column::DeletedAt.is_null())
+        .filter(time_entries::Column::Status.ne("rejected"))
+        .group_by(time_entries::Column::ProjectId)
+        .into_tuple()
+        .all(db)
+        .await?;
     for id in ids {
         let task = tasks.iter().find(|t| t.0.as_deref() == Some(id.as_str()));
         let milestone = milestones
@@ -175,7 +199,7 @@ pub fn with_project_stats<H: std::hash::BuildHasher>(
 pub async fn milestone_stats(
     db: &PgPool,
     milestones: &[(String, Option<String>)],
-) -> Result<HashMap<String, MilestoneStats>, sqlx::Error> {
+) -> Result<HashMap<String, MilestoneStats>, DbErr> {
     let mut status_by_id: Vec<(String, Option<String>)> = Vec::new();
     for (id, status) in milestones {
         if id.is_empty() {
@@ -192,17 +216,19 @@ pub async fn milestone_stats(
         return Ok(result);
     }
     let ids: Vec<String> = status_by_id.iter().map(|(id, _)| id.clone()).collect();
-    let rows: Vec<(Option<String>, i32, i32, i32)> = sqlx::query_as(
-        "select milestone_id, count(*)::int,
-                (count(*) filter (where status = 'done'))::int,
-                (count(*) filter (where status = 'cancelled'))::int
-         from tasks
-         where milestone_id = any($1) and milestone_id is not null and deleted_at is null
-         group by milestone_id",
-    )
-    .bind(&ids)
-    .fetch_all(db)
-    .await?;
+    let rows: Vec<(Option<String>, i32, i32, i32)> = tasks::Entity::find()
+        .select_only()
+        .column(tasks::Column::MilestoneId)
+        .expr(count_all())
+        .expr(count_where(tasks::Column::Status.eq("done")))
+        .expr(count_where(tasks::Column::Status.eq("cancelled")))
+        .filter(tasks::Column::MilestoneId.is_in(&ids))
+        .filter(tasks::Column::MilestoneId.is_not_null())
+        .filter(tasks::Column::DeletedAt.is_null())
+        .group_by(tasks::Column::MilestoneId)
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     for (id, status) in status_by_id {
         let row = rows.iter().find(|r| r.0.as_deref() == Some(id.as_str()));
         let total = i64::from(row.map_or(0, |r| r.1));

@@ -17,12 +17,16 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, patch, post};
 use http::HeaderMap;
-use sea_orm::TransactionTrait;
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect, TransactionTrait};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events as ev;
+use weldsuite_db::orm;
 use weldsuite_kit::validation::Presence;
 use weldsuite_kit::{Created, Data, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::helpdesk_workflow_executions::{self, Column as Execution};
+use weldsuite_schema::tenant::helpdesk_workflows::{self, Column};
 
 use crate::crud::write_failed;
 use crate::js::query_param;
@@ -64,18 +68,21 @@ where
 }
 
 async fn stats(caller: Caller) -> Response {
-    let rows: Result<Vec<(String, i32)>, _> = sqlx::query_as(
-        "select status, count(*)::int from helpdesk_workflows where deleted_at is null group by status",
-    )
-    .fetch_all(&caller.db)
-    .await;
+    let rows: Result<Vec<(String, i64)>, DbErr> = helpdesk_workflows::Entity::find()
+        .select_only()
+        .column(Column::Status)
+        .column_as(Column::Id.count(), "count")
+        .filter(Column::DeletedAt.is_null())
+        .group_by(Column::Status)
+        .into_tuple()
+        .all(&orm(&caller.db))
+        .await;
     let rows = match rows {
         Ok(rows) => rows,
         Err(error) => return Refusal::from(error).respond("Failed to fetch workflow stats"),
     };
     let (mut total, mut active, mut draft, mut paused) = (0_i64, 0_i64, 0_i64, 0_i64);
     for (status, count) in rows {
-        let count = i64::from(count);
         total += count;
         match status.as_str() {
             "active" => active = count,
@@ -100,10 +107,15 @@ async fn stats(caller: Caller) -> Response {
 async fn for_chaining(caller: Caller, RawQuery(query): RawQuery) -> Response {
     let exclude = query_param(query.as_deref(), "exclude");
     // No ORDER BY, as TypeScript has none.
-    let rows: Result<Vec<(String, String, String)>, _> =
-        sqlx::query_as("select id, name, status from helpdesk_workflows where deleted_at is null")
-            .fetch_all(&caller.db)
-            .await;
+    let rows: Result<Vec<(String, String, String)>, DbErr> = helpdesk_workflows::Entity::find()
+        .select_only()
+        .column(Column::Id)
+        .column(Column::Name)
+        .column(Column::Status)
+        .filter(Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&orm(&caller.db))
+        .await;
     match rows {
         Ok(rows) => Data(Value::Array(
             rows.into_iter()
@@ -138,26 +150,26 @@ async fn set_status(
         Ok(status) => status,
         Err(refusal) => return refusal.respond(MESSAGE),
     };
-    let found: Result<Option<String>, _> = sqlx::query_scalar(
-        "select id from helpdesk_workflows where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(&id)
-    .fetch_optional(&caller.db)
-    .await;
+    let db = orm(&caller.db);
+    let found: Result<Option<String>, DbErr> = helpdesk_workflows::Entity::find_by_id(&id)
+        .select_only()
+        .column(Column::Id)
+        .filter(Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&db)
+        .await;
     match found {
         Ok(Some(_)) => {}
         Ok(None) => return Refusal::not_found("Workflow", &id).respond(MESSAGE),
         Err(error) => return Refusal::from(error).respond(MESSAGE),
     }
-    let updated = sqlx::query(
-        "update helpdesk_workflows set status = $2, updated_at = $3::timestamp
-         where id = $1 and deleted_at is null",
-    )
-    .bind(&id)
-    .bind(&status)
-    .bind(now())
-    .execute(&caller.db)
-    .await;
+    let updated = helpdesk_workflows::Entity::update_many()
+        .col_expr(Column::Status, Expr::value(&status))
+        .col_expr(Column::UpdatedAt, Expr::value(weldsuite_db::utc_now()))
+        .filter(Column::Id.eq(&id))
+        .filter(Column::DeletedAt.is_null())
+        .exec(&db)
+        .await;
     if let Err(error) = updated {
         return Refusal::from(error).respond(MESSAGE);
     }
@@ -360,12 +372,13 @@ fn created_event(row: &Map<String, Value>) -> (ev::EventName, String, Value) {
 
 async fn seed_defaults(State(state): State<DeskState>, caller: Caller) -> Response {
     const MESSAGE: &str = "Failed to seed default workflows";
-    let existing: Result<Vec<Option<String>>, _> = sqlx::query_scalar(
-        "select template_id from helpdesk_workflows where template_id = any($1)",
-    )
-    .bind(TEMPLATE_IDS.map(str::to_owned).to_vec())
-    .fetch_all(&caller.db)
-    .await;
+    let existing: Result<Vec<Option<String>>, DbErr> = helpdesk_workflows::Entity::find()
+        .select_only()
+        .column(Column::TemplateId)
+        .filter(Column::TemplateId.is_in(TEMPLATE_IDS))
+        .into_tuple()
+        .all(&orm(&caller.db))
+        .await;
     let existing = match existing {
         Ok(rows) => rows,
         Err(error) => return Refusal::from(error).respond(MESSAGE),
@@ -394,14 +407,12 @@ async fn seed_defaults(State(state): State<DeskState>, caller: Caller) -> Respon
 
 async fn reset_defaults(State(state): State<DeskState>, caller: Caller) -> Response {
     const MESSAGE: &str = "Failed to reset default workflows";
-    let deleted: Result<Vec<String>, _> = sqlx::query_scalar(
-        "delete from helpdesk_workflows where template_id = any($1) returning id",
-    )
-    .bind(TEMPLATE_IDS.map(str::to_owned).to_vec())
-    .fetch_all(&caller.db)
-    .await;
-    let deleted = match deleted {
-        Ok(ids) => ids,
+    let deleted = helpdesk_workflows::Entity::delete_many()
+        .filter(Column::TemplateId.is_in(TEMPLATE_IDS))
+        .exec_with_returning(&orm(&caller.db))
+        .await;
+    let deleted: Vec<String> = match deleted {
+        Ok(rows) => rows.into_iter().map(|row| row.id).collect(),
         Err(error) => return Refusal::from(error).respond(MESSAGE),
     };
     let rows = default_workflows();
@@ -539,17 +550,20 @@ async fn resume(
         context.insert("stepOutputs".to_owned(), Value::Object(outputs));
         context.remove("waitingForInput");
         let index = execution["currentStepIndex"].as_i64().unwrap_or(0) + 1;
-        let updated = sqlx::query(
-            "update helpdesk_workflow_executions set status = 'running', execution_context = $2,
-                 current_step_index = $3, updated_at = $4::timestamp
-             where id = $1",
-        )
-        .bind(&execution_id)
-        .bind(Value::Object(context))
-        .bind(i32::try_from(index).unwrap_or(i32::MAX))
-        .bind(now())
-        .execute(&caller.db)
-        .await;
+        let updated = helpdesk_workflow_executions::Entity::update_many()
+            .col_expr(Execution::Status, Expr::value("running"))
+            .col_expr(
+                Execution::ExecutionContext,
+                Expr::value(Value::Object(context)),
+            )
+            .col_expr(
+                Execution::CurrentStepIndex,
+                Expr::value(i32::try_from(index).unwrap_or(i32::MAX)),
+            )
+            .col_expr(Execution::UpdatedAt, Expr::value(weldsuite_db::utc_now()))
+            .filter(Execution::Id.eq(&execution_id))
+            .exec(&orm(&caller.db))
+            .await;
         if let Err(error) = updated {
             return Refusal::from(error).respond(MESSAGE);
         }

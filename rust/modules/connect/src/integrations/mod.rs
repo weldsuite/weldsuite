@@ -24,16 +24,29 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, patch, post, put};
 use http::HeaderMap;
+use sea_orm::ActiveValue::Set;
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ColumnTrait, Condition, DbErr, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder,
+    QuerySelect, Select,
+};
 use serde_json::{Map, Value, json};
+use time::PrimitiveDateTime;
 use weldsuite_catalogs::permission_keys as perm;
-use weldsuite_db::{PgPool, js_row};
+use weldsuite_db::record::JsonTable;
+use weldsuite_db::{PgPool, orm, orm_error, utc_now};
 use weldsuite_kit::validation::{Field, Format, Issues, Presence, Text};
 use weldsuite_kit::{ApiError, Created, Data, List, NoContent, Pagination, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 use weldsuite_ports::{DynCache, HttpRequest, OutboundHttp};
+use weldsuite_schema::tenant::integration_connections::{self as connections, Column, Model};
+use weldsuite_schema::tenant::{
+    calendars, integration_entity_mappings, integration_field_mappings, integration_sync_conflicts,
+    sync_logs,
+};
 
 use self::oauth::{Provider, Tokens, hubspot_portal_id, webhook_worker_url};
-use crate::js::{next_cursor, page, page_limit, query_truthy, total, truthy};
+use crate::js::{next_cursor, page, page_limit, query_truthy, truthy};
 use crate::runs::ProjectSyncRuns;
 use crate::{Caller, ConnectState, Refusal, internal as internal_error, now, validate};
 
@@ -166,23 +179,45 @@ pub(crate) fn uuid() -> String {
 }
 
 fn db_error(error: impl std::fmt::Display) -> Refusal {
-    Refusal::Database(sqlx::Error::Protocol(error.to_string()))
+    Refusal::from(sqlx::Error::Protocol(error.to_string()))
 }
 
-/// The connection row (`to_jsonb`, `snake_case`), not deleted.
-pub(crate) async fn connection_row(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    sqlx::query_scalar(
-        "select to_jsonb(t) from integration_connections t
-         where t.id = $1 and t.deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await
+/// The database's own message, where a route's answer carries it
+/// (`err.message`).
+fn db_message(error: &DbErr) -> String {
+    match error {
+        DbErr::Conn(inner) | DbErr::Exec(inner) | DbErr::Query(inner) => inner.to_string(),
+        other => other.to_string(),
+    }
+}
+
+/// `integration_connections`, written from a body's columns.
+const INTEGRATION_CONNECTIONS: JsonTable = JsonTable::of::<connections::Entity>();
+
+/// A row as Drizzle returned it.
+fn js<M: serde::Serialize>(model: M) -> Value {
+    serde_json::to_value(model).unwrap_or(Value::Null)
+}
+
+/// The connection row, not deleted.
+pub(crate) async fn connection_row(db: &PgPool, id: &str) -> Result<Option<Model>, DbErr> {
+    connections::Entity::find_by_id(id.to_owned())
+        .filter(Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await
+}
+
+/// `tokens.accessToken` of a connection's `oauth_tokens`.
+fn access_token(connection: &Model) -> Option<&Value> {
+    connection
+        .oauth_tokens
+        .as_ref()
+        .and_then(|tokens| tokens.get("accessToken"))
 }
 
 /// `{ ...connection, oauthTokens: undefined, webhookSecret: undefined }`.
-fn sanitized(row: Value) -> Value {
-    let mut row = js_row(row);
+fn sanitized(row: Model) -> Value {
+    let mut row = js(row);
     if let Value::Object(map) = &mut row {
         map.remove("oauthTokens");
         map.remove("webhookSecret");
@@ -299,9 +334,9 @@ pub(crate) enum ActionError {
     OutsideEu(weldsuite_outside_eu::OutsideEuError),
 }
 
-impl From<sqlx::Error> for ActionError {
-    fn from(error: sqlx::Error) -> Self {
-        Self::Thrown(error.to_string())
+impl From<DbErr> for ActionError {
+    fn from(error: DbErr) -> Self {
+        Self::Thrown(db_message(&error))
     }
 }
 
@@ -325,27 +360,16 @@ pub(crate) async fn trigger_connection_sync(
     connection_id: &str,
     sync_type: &str,
 ) -> Result<&'static str, ActionError> {
-    let stamp = now();
-    let found: Option<(Value, bool)> = sqlx::query_as(
-        "select to_jsonb(t), coalesce($2::timestamp - coalesce(t.updated_at, t.created_at)
-                < make_interval(mins => $3::int), false)
-         from integration_connections t where t.id = $1 and t.deleted_at is null limit 1",
-    )
-    .bind(connection_id)
-    .bind(&stamp)
-    .bind(i32::try_from(STALE_SYNC_MINUTES).unwrap_or(15))
-    .fetch_optional(db)
-    .await?;
-    let Some((connection, fresh)) = found else {
+    let stamp = utc_now();
+    let Some(connection) = connection_row(db, connection_id).await? else {
         return Err(ActionError::NotFound);
     };
-    weldsuite_outside_eu::require_integration(
-        db,
-        connection["provider"].as_str().unwrap_or_default(),
-    )
-    .await
-    .map_err(ActionError::OutsideEu)?;
-    if connection["status"].as_str() == Some("syncing") {
+    weldsuite_outside_eu::require_integration(db, &connection.provider)
+        .await
+        .map_err(ActionError::OutsideEu)?;
+    // `now - updated_at < STALE_SYNC_MINUTES`.
+    let fresh = stamp - connection.updated_at < time::Duration::minutes(STALE_SYNC_MINUTES);
+    if connection.status == "syncing" {
         if fresh {
             return Err(ActionError::Conflict(
                 "A sync is already in progress".to_owned(),
@@ -356,24 +380,20 @@ pub(crate) async fn trigger_connection_sync(
             "[Integrations] connection stuck in 'syncing'; treating as stale and re-running"
         );
     }
-    if !connection["oauth_tokens"]
-        .get("accessToken")
-        .is_some_and(truthy)
-    {
+    if !access_token(&connection).is_some_and(truthy) {
         return Err(ActionError::Other("No access token available".to_owned()));
     }
-    sqlx::query(
-        "update integration_connections set status = 'syncing', updated_at = $2::timestamp where id = $1",
-    )
-    .bind(connection_id)
-    .bind(now())
-    .execute(db)
-    .await?;
+    connections::Entity::update_many()
+        .col_expr(Column::Status, Expr::value("syncing"))
+        .col_expr(Column::UpdatedAt, Expr::value(utc_now()))
+        .filter(Column::Id.eq(connection_id))
+        .exec(&orm(db))
+        .await?;
     trigger_crm_sync(
         runs,
         connection_id,
         clerk_org_id,
-        connection["provider"].as_str().unwrap_or_default(),
+        &connection.provider,
         sync_type,
     )
     .await
@@ -398,20 +418,20 @@ pub(crate) async fn renew_google_calendar_watch(
     renewal: WatchRenewal<'_>,
     connection_id: &str,
 ) -> Result<&'static str, ActionError> {
-    let connection: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from integration_connections t
-         where t.id = $1 and t.provider = 'google_calendar' and t.deleted_at is null limit 1",
-    )
-    .bind(connection_id)
-    .fetch_optional(db)
-    .await?;
+    let pool = db;
+    let db = orm(pool);
+    let connection = connections::Entity::find_by_id(connection_id.to_owned())
+        .filter(Column::Provider.eq("google_calendar"))
+        .filter(Column::DeletedAt.is_null())
+        .one(&db)
+        .await?;
     let Some(connection) = connection else {
         return Err(ActionError::NotFound);
     };
-    weldsuite_outside_eu::require(db, weldsuite_outside_eu::ServiceId::Google)
+    weldsuite_outside_eu::require(pool, weldsuite_outside_eu::ServiceId::Google)
         .await
         .map_err(ActionError::OutsideEu)?;
-    let tokens = &connection["oauth_tokens"];
+    let tokens = connection.oauth_tokens.as_ref().unwrap_or(&Value::Null);
     let Some(mut access_token) = tokens
         .get("accessToken")
         .filter(|t| truthy(t))
@@ -431,24 +451,23 @@ pub(crate) async fn renew_google_calendar_watch(
             .await
         {
             access_token = fresh.bearer().to_owned();
-            sqlx::query(
-                "update integration_connections set oauth_tokens = $2::jsonb, updated_at = $3::timestamp where id = $1",
-            )
-            .bind(connection_id)
-            .bind(fresh.to_json())
-            .bind(now())
-            .execute(db)
-            .await?;
+            connections::Entity::update_many()
+                .col_expr(Column::OauthTokens, Expr::value(fresh.to_json()))
+                .col_expr(Column::UpdatedAt, Expr::value(utc_now()))
+                .filter(Column::Id.eq(connection_id))
+                .exec(&db)
+                .await?;
         }
     }
-    if let Some(webhook_id) = connection["webhook_id"].as_str().filter(|w| !w.is_empty())
+    if let Some(webhook_id) = connection.webhook_id.as_deref().filter(|w| !w.is_empty())
         && let Err(error) = adapter
             .delete_webhooks(
                 renewal.http,
                 &access_token,
                 webhook_id,
-                connection["webhook_secret"]
-                    .as_str()
+                connection
+                    .webhook_secret
+                    .as_deref()
                     .filter(|s| !s.is_empty()),
             )
             .await
@@ -466,15 +485,13 @@ pub(crate) async fn renew_google_calendar_watch(
         .register_webhooks(renewal.http, &access_token, &target)
         .await
         .map_err(ActionError::Thrown)?;
-    sqlx::query(
-        "update integration_connections set webhook_id = $2, webhook_secret = $3, updated_at = $4::timestamp where id = $1",
-    )
-    .bind(connection_id)
-    .bind(&registration.webhook_id)
-    .bind(&registration.secret)
-    .bind(now())
-    .execute(db)
-    .await?;
+    connections::Entity::update_many()
+        .col_expr(Column::WebhookId, Expr::value(&registration.webhook_id))
+        .col_expr(Column::WebhookSecret, Expr::value(&registration.secret))
+        .col_expr(Column::UpdatedAt, Expr::value(utc_now()))
+        .filter(Column::Id.eq(connection_id))
+        .exec(&db)
+        .await?;
     Ok("Watch channel renewed")
 }
 
@@ -510,51 +527,54 @@ async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
     let status = query_truthy(query, "status");
     let cursor = query_truthy(query, "cursor");
     // The cursor row is read before the try, as TypeScript does.
-    let cursor_row: Option<(Option<String>, String)> = match &cursor {
-        Some(cursor) => match sqlx::query_as(
-            "select to_char(created_at, 'YYYY-MM-DD\"T\"HH24:MI:SS.US'), id
-             from integration_connections where id = $1 limit 1",
-        )
-        .bind(cursor)
-        .fetch_optional(&caller.db)
-        .await
+    let cursor_row: Option<(PrimitiveDateTime, String)> = match &cursor {
+        Some(cursor) => match connections::Entity::find()
+            .select_only()
+            .columns([Column::CreatedAt, Column::Id])
+            .filter(Column::Id.eq(cursor))
+            .limit(1)
+            .into_tuple()
+            .one(&orm(&caller.db))
+            .await
         {
             Ok(row) => row,
             Err(error) => return internal_error(&error, "Failed to list integrations"),
         },
         None => None,
     };
-    let (cursor_at, cursor_id) = match cursor_row {
-        Some((Some(at), id)) => (Some(at), Some(id)),
-        _ => (None, None),
+    let filtered = || -> Select<connections::Entity> {
+        let mut filter = Condition::all().add(Column::DeletedAt.is_null());
+        if let Some(provider) = &provider {
+            filter = filter.add(Column::Provider.eq(provider));
+        }
+        if let Some(status) = &status {
+            filter = filter.add(Column::Status.eq(status));
+        }
+        connections::Entity::find().filter(filter)
     };
-    const FILTER: &str = "t.deleted_at is null and ($1::text is null or t.provider = $1)
-        and ($2::text is null or t.status = $2)";
-    let rows: Result<Vec<Value>, sqlx::Error> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-        "select to_jsonb(t) from integration_connections t where {FILTER}
-           and ($3::timestamp is null or t.created_at < $3::timestamp
-                or (t.created_at = $3::timestamp and t.id < $4))
-         order by t.created_at desc, t.id desc limit $5"
-    )))
-    .bind(&provider)
-    .bind(&status)
-    .bind(&cursor_at)
-    .bind(&cursor_id)
-    .bind(limit + 1)
-    .fetch_all(&caller.db)
-    .await;
-    let count: Result<i64, sqlx::Error> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-        "select count(*) from integration_connections t where {FILTER}"
-    )))
-    .bind(&provider)
-    .bind(&status)
-    .fetch_one(&caller.db)
-    .await;
+    let db = orm(&caller.db);
+    let mut rows = filtered();
+    if let Some((at, id)) = cursor_row {
+        rows = rows.filter(
+            Condition::any().add(Column::CreatedAt.lt(at)).add(
+                Condition::all()
+                    .add(Column::CreatedAt.eq(at))
+                    .add(Column::Id.lt(id)),
+            ),
+        );
+    }
+    let rows = rows
+        .order_by_desc(Column::CreatedAt)
+        .order_by_desc(Column::Id)
+        .limit(u64::try_from(limit + 1).unwrap_or(0))
+        .all(&db)
+        .await;
+    let count = filtered().count(&db).await;
     match (rows, count) {
         (Ok(rows), Ok(count)) => {
-            let (data, has_more) = page(rows.into_iter().map(js_row).collect(), limit);
+            let (data, has_more) = page(rows.into_iter().map(js).collect(), limit);
             let cursor = next_cursor(&data, has_more, "id");
-            List::new(data, Pagination::new(total(count), has_more, cursor)).into_response()
+            List::new(data, Pagination::new(count, has_more, cursor)).into_response()
         }
         (Err(error), _) | (_, Err(error)) => internal_error(&error, "Failed to list integrations"),
     }
@@ -562,7 +582,7 @@ async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
 
 async fn get_integration(caller: Caller, Path(id): Path<String>) -> Response {
     match connection_row(&caller.db, &id).await {
-        Ok(Some(row)) => Data(js_row(row)).into_response(),
+        Ok(Some(row)) => Data(js(row)).into_response(),
         Ok(None) => ApiError::not_found("Integration", Some(&id)).into_response(),
         Err(error) => internal_error(&error, "Failed to fetch integration"),
     }
@@ -676,13 +696,13 @@ async fn create_integration(caller: Caller, headers: HeaderMap, body: Bytes) -> 
     record.extend(column_values(&data));
     record.insert("created_at".to_owned(), json!(stamp));
     record.insert("updated_at".to_owned(), json!(stamp));
-    let inserted = sqlx::query(sqlx::AssertSqlSafe(format!(
-        "insert into integration_connections ({ALL_COLUMNS})
-         select {ALL_FROM_R} from jsonb_populate_record(null::integration_connections, $1::jsonb) r"
-    )))
-    .bind(Value::Object(record))
-    .execute(&caller.db)
-    .await;
+    // Every column is written: the ones the record leaves out are NULL.
+    for (_, column) in COLUMNS {
+        record.entry(*column).or_insert(Value::Null);
+    }
+    let inserted = INTEGRATION_CONNECTIONS
+        .insert(&orm(&caller.db), record)
+        .await;
     match inserted {
         Ok(_) => Created(json!({ "id": id })).into_response(),
         Err(error) => internal_error(&error, FAILED),
@@ -702,40 +722,51 @@ async fn update_integration(
         Ok(data) => data,
         Err(refusal) => return refusal.respond(FAILED),
     };
-    let result: Result<Response, sqlx::Error> = async {
+    let result: Result<Response, DbErr> = async {
         if connection_row(&caller.db, &id).await?.is_none() {
             return Ok(ApiError::not_found("Integration", Some(&id)).into_response());
         }
         let mut patch = column_values(&data);
         patch.insert("updated_at".to_owned(), json!(now()));
-        sqlx::query(sqlx::AssertSqlSafe(format!(
-            "update integration_connections t set ({ALL_COLUMNS}) =
-                 (select {ALL_FROM_R} from jsonb_populate_record(t, $2::jsonb) r)
-             where t.id = $1 and t.deleted_at is null"
-        )))
-        .bind(&id)
-        .bind(Value::Object(patch))
-        .execute(&caller.db)
-        .await?;
+        write_patch(&caller.db, &id, patch).await?;
         Ok(Data(json!({ "id": id })).into_response())
     }
     .await;
     result.unwrap_or_else(|error| internal_error(&error, FAILED))
 }
 
+/// `db.update(integrationConnections).set({ ...data, updatedAt })` over the
+/// live row `id`: every column the patch names, `id` included.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "the passthrough body may rewrite any column, `id` included, which `JsonTable::update` never does: every column set from `jsonb_populate_record` over the row itself"
+)]
+async fn write_patch(db: &PgPool, id: &str, patch: Map<String, Value>) -> Result<(), DbErr> {
+    sqlx::query(sqlx::AssertSqlSafe(format!(
+        "update integration_connections t set ({ALL_COLUMNS}) =
+             (select {ALL_FROM_R} from jsonb_populate_record(t, $2::jsonb) r)
+         where t.id = $1 and t.deleted_at is null"
+    )))
+    .bind(id)
+    .bind(Value::Object(patch))
+    .execute(db)
+    .await
+    .map_err(orm_error)?;
+    Ok(())
+}
+
 async fn delete_integration(caller: Caller, Path(id): Path<String>) -> Response {
-    let result: Result<Response, sqlx::Error> = async {
+    let result: Result<Response, DbErr> = async {
         if connection_row(&caller.db, &id).await?.is_none() {
             return Ok(ApiError::not_found("Integration", Some(&id)).into_response());
         }
-        let stamp = now();
-        sqlx::query(
-            "update integration_connections set deleted_at = $2::timestamp, updated_at = $2::timestamp where id = $1",
-        )
-        .bind(&id)
-        .bind(&stamp)
-        .execute(&caller.db)
-        .await?;
+        let stamp = utc_now();
+        connections::Entity::update_many()
+            .col_expr(Column::DeletedAt, Expr::value(stamp))
+            .col_expr(Column::UpdatedAt, Expr::value(stamp))
+            .filter(Column::Id.eq(&id))
+            .exec(&orm(&caller.db))
+            .await?;
         Ok(NoContent.into_response())
     }
     .await;
@@ -745,12 +776,11 @@ async fn delete_integration(caller: Caller, Path(id): Path<String>) -> Response 
 // ── Connections ─────────────────────────────────────────────────────────────
 
 async fn list_connections(caller: Caller) -> Response {
-    let rows: Result<Vec<Value>, sqlx::Error> = sqlx::query_scalar(
-        "select to_jsonb(t) from integration_connections t where t.deleted_at is null
-         order by t.created_at desc",
-    )
-    .fetch_all(&caller.db)
-    .await;
+    let rows = connections::Entity::find()
+        .filter(Column::DeletedAt.is_null())
+        .order_by_desc(Column::CreatedAt)
+        .all(&orm(&caller.db))
+        .await;
     match rows {
         Ok(rows) => Data(rows.into_iter().map(sanitized).collect::<Vec<_>>()).into_response(),
         Err(error) => internal_error(&error, "Failed to list connections"),
@@ -816,19 +846,19 @@ async fn create_connection(caller: Caller, headers: HeaderMap, body: Bytes) -> R
     let tokens = token
         .filter(|t| !t.is_empty())
         .map(|t| json!({ "accessToken": t }));
-    let inserted = sqlx::query(
-        "insert into integration_connections
-            (id, provider, name, status, direction, settings, oauth_tokens, connected_at, connected_by)
-         values ($1, $2, $3, 'active', 'bidirectional', $4::jsonb, $5::jsonb, $6::timestamp, $7)",
-    )
-    .bind(&id)
-    .bind(&provider)
-    .bind(&name)
-    .bind(Value::Object(settings))
-    .bind(tokens)
-    .bind(now())
-    .bind(&caller.user_id)
-    .execute(&caller.db)
+    let inserted = connections::Entity::insert(connections::ActiveModel {
+        id: Set(id.clone()),
+        provider: Set(provider.clone()),
+        name: Set(Some(name.clone())),
+        status: Set("active".to_owned()),
+        direction: Set("bidirectional".to_owned()),
+        settings: Set(Some(Value::Object(settings))),
+        oauth_tokens: Set(tokens),
+        connected_at: Set(Some(utc_now())),
+        connected_by: Set(Some(caller.user_id.clone())),
+        ..Default::default()
+    })
+    .exec_without_returning(&orm(&caller.db))
     .await;
     match inserted {
         Ok(_) => Created(json!({
@@ -844,19 +874,18 @@ async fn create_connection(caller: Caller, headers: HeaderMap, body: Bytes) -> R
 }
 
 async fn get_connection(caller: Caller, Path(id): Path<String>) -> Response {
-    let result: Result<Response, sqlx::Error> = async {
+    let result: Result<Response, DbErr> = async {
         let Some(row) = connection_row(&caller.db, &id).await? else {
             return Ok(ApiError::not_found("Connection", Some(&id)).into_response());
         };
-        let logs: Vec<Value> = sqlx::query_scalar(
-            "select to_jsonb(l) from sync_logs l where l.connection_id = $1
-             order by l.created_at desc limit 20",
-        )
-        .bind(&id)
-        .fetch_all(&caller.db)
-        .await?;
+        let logs = sync_logs::Entity::find()
+            .filter(sync_logs::Column::ConnectionId.eq(&id))
+            .order_by_desc(sync_logs::Column::CreatedAt)
+            .limit(20)
+            .all(&orm(&caller.db))
+            .await?;
         let mut detail = sanitized(row);
-        detail["recentLogs"] = Value::Array(logs.into_iter().map(js_row).collect());
+        detail["recentLogs"] = Value::Array(logs.into_iter().map(js).collect());
         Ok(Data(detail).into_response())
     }
     .await;
@@ -950,22 +979,22 @@ async fn update_connection(
         Ok(patch) => patch,
         Err(refusal) => return refusal.respond(FAILED),
     };
-    let result: Result<Response, sqlx::Error> = async {
+    let result: Result<Response, DbErr> = async {
         let Some(connection) = connection_row(&caller.db, &id).await? else {
             return Ok(ApiError::not_found("Connection", Some(&id)).into_response());
         };
         let entity_config = patch
             .entity_config
             .as_ref()
-            .map(|p| merged(connection.get("entity_config"), p));
+            .map(|p| merged(connection.entity_config.as_ref(), p));
         let settings = patch
             .settings
             .as_ref()
-            .map(|p| merged(connection.get("settings"), p));
+            .map(|p| merged(connection.settings.as_ref(), p));
         let sync_settings = patch
             .sync_settings
             .as_ref()
-            .map(|p| merged(connection.get("sync_settings"), p));
+            .map(|p| merged(connection.sync_settings.as_ref(), p));
         // `accessToken ? { accessToken } : null` when it was sent.
         let tokens = patch.access_token.as_ref().map(|token| {
             if token.is_empty() {
@@ -974,28 +1003,31 @@ async fn update_connection(
                 json!({ "accessToken": token })
             }
         });
-        sqlx::query(
-            "update integration_connections set
-                 updated_at = $2::timestamp,
-                 name = case when $3::text is null then name else $3 end,
-                 direction = case when $4::text is null then direction else $4 end,
-                 entity_config = case when $5::jsonb is null then entity_config else $5 end,
-                 settings = case when $6::jsonb is null then settings else $6 end,
-                 oauth_tokens = case when $7 then $8::jsonb else oauth_tokens end,
-                 sync_settings = case when $9::jsonb is null then sync_settings else $9 end
-             where id = $1",
-        )
-        .bind(&id)
-        .bind(now())
-        .bind(patch.name.filter(|n| !n.is_empty()))
-        .bind(patch.direction.filter(|d| !d.is_empty()))
-        .bind(entity_config)
-        .bind(settings)
-        .bind(tokens.is_some())
-        .bind(tokens.filter(|t| !t.is_null()))
-        .bind(sync_settings)
-        .execute(&caller.db)
-        .await?;
+        let mut update =
+            connections::Entity::update_many().col_expr(Column::UpdatedAt, Expr::value(utc_now()));
+        if let Some(name) = patch.name.filter(|n| !n.is_empty()) {
+            update = update.col_expr(Column::Name, Expr::value(name));
+        }
+        if let Some(direction) = patch.direction.filter(|d| !d.is_empty()) {
+            update = update.col_expr(Column::Direction, Expr::value(direction));
+        }
+        if let Some(entity_config) = entity_config {
+            update = update.col_expr(Column::EntityConfig, Expr::value(entity_config));
+        }
+        if let Some(settings) = settings {
+            update = update.col_expr(Column::Settings, Expr::value(settings));
+        }
+        if let Some(tokens) = tokens {
+            let tokens = Some(tokens).filter(|t| !t.is_null());
+            update = update.col_expr(Column::OauthTokens, Expr::value(tokens));
+        }
+        if let Some(sync_settings) = sync_settings {
+            update = update.col_expr(Column::SyncSettings, Expr::value(sync_settings));
+        }
+        update
+            .filter(Column::Id.eq(&id))
+            .exec(&orm(&caller.db))
+            .await?;
         Ok(Data(json!({ "id": id, "updated": true })).into_response())
     }
     .await;
@@ -1011,20 +1043,14 @@ async fn disconnect(
         let Some(connection) = connection_row(&caller.db, &id).await? else {
             return Err(Refusal::not_found("Connection", &id));
         };
-        let token = connection["oauth_tokens"]
-            .get("accessToken")
+        let token = access_token(&connection)
             .filter(|t| truthy(t))
             .map(|t| crate::js::js_string(Some(t)));
-        let webhook_id = connection["webhook_id"].as_str().filter(|w| !w.is_empty());
-        let provider = connection["provider"].as_str().and_then(Provider::of);
+        let webhook_id = connection.webhook_id.as_deref().filter(|w| !w.is_empty());
+        let provider = Provider::of(&connection.provider);
         // A provider outside the EU the workspace has switched off is not
         // called, not even to remove its webhooks (ADR OPS-026).
-        let reachable = outside_eu(
-            &caller.db,
-            connection["provider"].as_str().unwrap_or_default(),
-        )
-        .await
-        .is_ok();
+        let reachable = outside_eu(&caller.db, &connection.provider).await.is_ok();
         if let (Some(token), Some(webhook_id), Some(provider), true) =
             (token, webhook_id, provider, reachable)
             && let Err(error) = provider
@@ -1032,8 +1058,9 @@ async fn disconnect(
                     &caller.http(&state),
                     &token,
                     webhook_id,
-                    connection["webhook_secret"]
-                        .as_str()
+                    connection
+                        .webhook_secret
+                        .as_deref()
                         .filter(|s| !s.is_empty()),
                 )
                 .await
@@ -1045,15 +1072,14 @@ async fn disconnect(
             .delete_boxed(&format!("intconn:{id}"))
             .await
             .map_err(db_error)?;
-        let stamp = now();
-        sqlx::query(
-            "update integration_connections set status = 'inactive', deleted_at = $2::timestamp,
-                 updated_at = $2::timestamp where id = $1",
-        )
-        .bind(&id)
-        .bind(&stamp)
-        .execute(&caller.db)
-        .await?;
+        let stamp = utc_now();
+        connections::Entity::update_many()
+            .col_expr(Column::Status, Expr::value("inactive"))
+            .col_expr(Column::DeletedAt, Expr::value(stamp))
+            .col_expr(Column::UpdatedAt, Expr::value(stamp))
+            .filter(Column::Id.eq(&id))
+            .exec(&orm(&caller.db))
+            .await?;
         Ok(NoContent.into_response())
     }
     .await;
@@ -1232,27 +1258,24 @@ struct NewConnection<'a> {
     connected_by: &'a str,
 }
 
-async fn insert_connection(db: &PgPool, c: NewConnection<'_>) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "insert into integration_connections
-            (id, provider, name, status, direction, external_account_id, oauth_tokens, webhook_id,
-             webhook_secret, settings, sync_settings, connected_at, connected_by)
-         values ($1, $2, $3, 'active', $4, $5, $6::jsonb, $7, $8, $9::jsonb, $10::jsonb,
-                 $11::timestamp, $12)",
-    )
-    .bind(c.id)
-    .bind(c.provider)
-    .bind(c.name)
-    .bind(c.direction)
-    .bind(c.external_account_id)
-    .bind(c.tokens.to_json())
-    .bind(c.webhook_id)
-    .bind(c.webhook_secret)
-    .bind(c.settings)
-    .bind(c.sync_settings)
-    .bind(now())
-    .bind(c.connected_by)
-    .execute(db)
+async fn insert_connection(db: &PgPool, c: NewConnection<'_>) -> Result<(), DbErr> {
+    connections::Entity::insert(connections::ActiveModel {
+        id: Set(c.id.to_owned()),
+        provider: Set(c.provider.to_owned()),
+        name: Set(Some(c.name.to_owned())),
+        status: Set("active".to_owned()),
+        direction: Set(c.direction.to_owned()),
+        external_account_id: Set(c.external_account_id),
+        oauth_tokens: Set(Some(c.tokens.to_json())),
+        webhook_id: Set(Some(c.webhook_id.to_owned())),
+        webhook_secret: Set(Some(c.webhook_secret.to_owned())),
+        settings: Set(c.settings),
+        sync_settings: Set(Some(c.sync_settings)),
+        connected_at: Set(Some(utc_now())),
+        connected_by: Set(Some(c.connected_by.to_owned())),
+        ..Default::default()
+    })
+    .exec_without_returning(&orm(db))
     .await?;
     Ok(())
 }
@@ -1348,7 +1371,7 @@ async fn attio_callback(
             },
         )
         .await
-        .map_err(|error| thrown(error.to_string()))?;
+        .map_err(|error| thrown(db_message(&error)))?;
         put_connection_mapping(&cache, &id, &caller.workspace_id, "attio").await?;
         mark_crm_due(state.master.as_ref(), &caller.workspace_id).await;
         if let Err(error) =
@@ -1465,15 +1488,17 @@ async fn generic_callback(
         let connected_by = text_of(&stored, "userId").unwrap_or_default();
         let settings = if calendar {
             let calendar_id = generate_id("cal");
-            sqlx::query(
-                "insert into calendars (id, name, color, owner_id, is_default)
-                 values ($1, 'Google Calendar', '#4285f4', $2, false)",
-            )
-            .bind(&calendar_id)
-            .bind(&connected_by)
-            .execute(&caller.db)
+            calendars::Entity::insert(calendars::ActiveModel {
+                id: Set(calendar_id.clone()),
+                name: Set("Google Calendar".to_owned()),
+                color: Set(Some("#4285f4".to_owned())),
+                owner_id: Set(connected_by.clone()),
+                is_default: Set(Some(false)),
+                ..Default::default()
+            })
+            .exec_without_returning(&orm(&caller.db))
             .await
-            .map_err(|error| thrown(error.to_string()))?;
+            .map_err(|error| thrown(db_message(&error)))?;
             Some(json!({ "googleCalendarId": calendar_id }))
         } else {
             None
@@ -1495,11 +1520,11 @@ async fn generic_callback(
             },
         )
         .await
-        .map_err(|error| thrown(error.to_string()))?;
+        .map_err(|error| thrown(db_message(&error)))?;
         if !calendar {
             insert_default_mappings(&caller.db, adapter, &id)
                 .await
-                .map_err(|error| thrown(error.to_string()))?;
+                .map_err(|error| thrown(db_message(&error)))?;
         }
         put_connection_mapping(&cache, &id, &caller.workspace_id, &provider).await?;
         mark_crm_due(state.master.as_ref(), &caller.workspace_id).await;
@@ -1532,7 +1557,7 @@ async fn insert_default_mappings(
     db: &PgPool,
     adapter: Provider,
     connection_id: &str,
-) -> Result<(), sqlx::Error> {
+) -> Result<(), DbErr> {
     let mut rows = Vec::new();
     for entity in adapter.supported_entities() {
         for (position, mapping) in adapter
@@ -1556,31 +1581,76 @@ async fn insert_default_mappings(
     insert_mappings(db, connection_id, &rows, true).await
 }
 
+/// `r->>'key'` of a mapping built as JSON (`jsonb_to_recordset`'s `text`):
+/// a string as it is, null or missing as NULL, anything else as its JSON
+/// text.
+fn row_text(row: &Value, key: &str) -> Option<String> {
+    match row.get(key)? {
+        Value::Null => None,
+        Value::String(text) => Some(text.clone()),
+        other => Some(other.to_string()),
+    }
+}
+
+/// A NOT NULL column of a mapping row: the insert fails without it, as the
+/// column refuses the NULL `jsonb_to_recordset` reads.
+fn required<T>(value: Option<T>, column: &str) -> Result<T, DbErr> {
+    value.ok_or_else(|| DbErr::Custom(format!("integration_field_mappings.{column} is null")))
+}
+
+/// One `integration_field_mappings` row from its `snake_case` object.
+fn mapping_row(
+    connection_id: &str,
+    row: &Value,
+    is_default: bool,
+) -> Result<integration_field_mappings::ActiveModel, DbErr> {
+    let flag = row.get("is_required").and_then(Value::as_bool);
+    let position = row
+        .get("position")
+        .and_then(Value::as_i64)
+        .and_then(|p| i32::try_from(p).ok());
+    Ok(integration_field_mappings::ActiveModel {
+        id: Set(required(row_text(row, "id"), "id")?),
+        connection_id: Set(connection_id.to_owned()),
+        entity_type: Set(required(row_text(row, "entity_type"), "entity_type")?),
+        external_field_path: Set(required(
+            row_text(row, "external_field_path"),
+            "external_field_path",
+        )?),
+        internal_field_path: Set(required(
+            row_text(row, "internal_field_path"),
+            "internal_field_path",
+        )?),
+        direction: Set(required(row_text(row, "direction"), "direction")?),
+        transform_type: Set(required(row_text(row, "transform_type"), "transform_type")?),
+        transform_config: Set(row
+            .get("transform_config")
+            .filter(|c| !c.is_null())
+            .cloned()),
+        is_required: Set(required(flag, "is_required")?),
+        is_default: Set(is_default),
+        position: Set(required(position, "position")?),
+        ..Default::default()
+    })
+}
+
 /// Multi-row insert of `integration_field_mappings` (`snake_case` objects).
 async fn insert_mappings(
     db: &PgPool,
     connection_id: &str,
     rows: &[Value],
     is_default: bool,
-) -> Result<(), sqlx::Error> {
+) -> Result<(), DbErr> {
     if rows.is_empty() {
         return Ok(());
     }
-    sqlx::query(
-        "insert into integration_field_mappings
-            (id, connection_id, entity_type, external_field_path, internal_field_path, direction,
-             transform_type, transform_config, is_required, is_default, position)
-         select r.id, $1, r.entity_type, r.external_field_path, r.internal_field_path, r.direction,
-                r.transform_type, r.transform_config, r.is_required, $3, r.position
-         from jsonb_to_recordset($2::jsonb) as r(id text, entity_type text, external_field_path text,
-              internal_field_path text, direction text, transform_type text, transform_config jsonb,
-              is_required boolean, position int)",
-    )
-    .bind(connection_id)
-    .bind(Value::Array(rows.to_vec()))
-    .bind(is_default)
-    .execute(db)
-    .await?;
+    let rows = rows
+        .iter()
+        .map(|row| mapping_row(connection_id, row, is_default))
+        .collect::<Result<Vec<_>, _>>()?;
+    integration_field_mappings::Entity::insert_many(rows)
+        .exec_without_returning(&orm(db))
+        .await?;
     Ok(())
 }
 
@@ -1595,13 +1665,13 @@ async fn discover_tools(
         let Some(connection) = connection_row(&caller.db, &id).await? else {
             return Err(Refusal::not_found("Connection", &id));
         };
-        if connection["provider"].as_str() != Some("mcp_server") {
+        if connection.provider != "mcp_server" {
             return Err(Refusal::bad_request(
                 "Tool discovery is only supported for MCP server integrations",
             ));
         }
-        let settings = match &connection["settings"] {
-            Value::Object(map) => map.clone(),
+        let settings = match &connection.settings {
+            Some(Value::Object(map)) => map.clone(),
             _ => Map::new(),
         };
         let Some(url) = settings
@@ -1616,8 +1686,7 @@ async fn discover_tools(
         let mut request = HttpRequest::empty("POST", &url)
             .header("Content-Type", "application/json")
             .header("Accept", "application/json");
-        let token = connection["oauth_tokens"]
-            .get("accessToken")
+        let token = access_token(&connection)
             .filter(|t| truthy(t))
             .map(|t| crate::js::js_string(Some(t)));
         let auth_type = settings.get("authType").and_then(Value::as_str);
@@ -1690,15 +1759,18 @@ async fn discover_tools(
         let mut next = settings.clone();
         next.insert("discoveredTools".to_owned(), Value::Array(tools.clone()));
         next.insert("lastDiscoveredAt".to_owned(), json!(discovered_at));
-        sqlx::query(
-            "update integration_connections set settings = $2::jsonb, status = 'active',
-                 last_error = null, last_error_at = null, updated_at = $3::timestamp where id = $1",
-        )
-        .bind(&id)
-        .bind(Value::Object(next))
-        .bind(now())
-        .execute(&caller.db)
-        .await?;
+        connections::Entity::update_many()
+            .col_expr(Column::Settings, Expr::value(Value::Object(next)))
+            .col_expr(Column::Status, Expr::value("active"))
+            .col_expr(Column::LastError, Expr::value(Option::<String>::None))
+            .col_expr(
+                Column::LastErrorAt,
+                Expr::value(Option::<PrimitiveDateTime>::None),
+            )
+            .col_expr(Column::UpdatedAt, Expr::value(utc_now()))
+            .filter(Column::Id.eq(&id))
+            .exec(&orm(&caller.db))
+            .await?;
         Ok(Data(json!({ "tools": tools, "lastDiscoveredAt": discovered_at })).into_response())
     }
     .await;
@@ -1716,18 +1788,20 @@ async fn test_connection(
     caller: Caller,
     Path(id): Path<String>,
 ) -> Response {
-    let result: Result<Response, sqlx::Error> = async {
+    let result: Result<Response, DbErr> = async {
         let Some(connection) = connection_row(&caller.db, &id).await? else {
             return Ok(ApiError::not_found("Connection", Some(&id)).into_response());
         };
-        if connection["provider"].as_str() != Some("mcp_server") {
+        if connection.provider != "mcp_server" {
             return Ok(Data(
                 json!({ "connected": true, "message": "Test not implemented for this provider" }),
             )
             .into_response());
         }
-        let Some(url) = connection["settings"]
-            .get("url")
+        let Some(url) = connection
+            .settings
+            .as_ref()
+            .and_then(|settings| settings.get("url"))
             .filter(|u| truthy(u))
             .map(|u| crate::js::js_string(Some(u)))
         else {
@@ -1743,18 +1817,24 @@ async fn test_connection(
         {
             Ok(response) => {
                 let connected = response.ok() || response.status == 405;
-                sqlx::query(
-                    "update integration_connections set status = $2, last_error = $3,
-                         last_error_at = case when $4 then null else $5::timestamp end,
-                         updated_at = $5::timestamp where id = $1",
-                )
-                .bind(&id)
-                .bind(if connected { "active" } else { "error" })
-                .bind((!connected).then(|| format!("HTTP {}", response.status)))
-                .bind(connected)
-                .bind(now())
-                .execute(&caller.db)
-                .await?;
+                let stamp = utc_now();
+                connections::Entity::update_many()
+                    .col_expr(
+                        Column::Status,
+                        Expr::value(if connected { "active" } else { "error" }),
+                    )
+                    .col_expr(
+                        Column::LastError,
+                        Expr::value((!connected).then(|| format!("HTTP {}", response.status))),
+                    )
+                    .col_expr(
+                        Column::LastErrorAt,
+                        Expr::value((!connected).then_some(stamp)),
+                    )
+                    .col_expr(Column::UpdatedAt, Expr::value(stamp))
+                    .filter(Column::Id.eq(&id))
+                    .exec(&orm(&caller.db))
+                    .await?;
                 Ok(
                     Data(json!({ "connected": connected, "status": response.status }))
                         .into_response(),
@@ -1762,15 +1842,15 @@ async fn test_connection(
             }
             Err(error) => {
                 let message = error.to_string();
-                sqlx::query(
-                    "update integration_connections set status = 'error', last_error = $2,
-                         last_error_at = $3::timestamp, updated_at = $3::timestamp where id = $1",
-                )
-                .bind(&id)
-                .bind(&message)
-                .bind(now())
-                .execute(&caller.db)
-                .await?;
+                let stamp = utc_now();
+                connections::Entity::update_many()
+                    .col_expr(Column::Status, Expr::value("error"))
+                    .col_expr(Column::LastError, Expr::value(&message))
+                    .col_expr(Column::LastErrorAt, Expr::value(stamp))
+                    .col_expr(Column::UpdatedAt, Expr::value(stamp))
+                    .filter(Column::Id.eq(&id))
+                    .exec(&orm(&caller.db))
+                    .await?;
                 Ok(Data(json!({ "connected": false, "error": message })).into_response())
             }
         }
@@ -1819,15 +1899,14 @@ async fn renew_watch(
 // ── Logs, field mappings, conflicts, entity mappings ────────────────────────
 
 async fn logs(caller: Caller, Path(id): Path<String>) -> Response {
-    let rows: Result<Vec<Value>, sqlx::Error> = sqlx::query_scalar(
-        "select to_jsonb(l) from sync_logs l where l.connection_id = $1
-         order by l.created_at desc limit 50",
-    )
-    .bind(&id)
-    .fetch_all(&caller.db)
-    .await;
+    let rows = sync_logs::Entity::find()
+        .filter(sync_logs::Column::ConnectionId.eq(&id))
+        .order_by_desc(sync_logs::Column::CreatedAt)
+        .limit(50)
+        .all(&orm(&caller.db))
+        .await;
     match rows {
-        Ok(rows) => Data(rows.into_iter().map(js_row).collect::<Vec<_>>()).into_response(),
+        Ok(rows) => Data(rows.into_iter().map(js).collect::<Vec<_>>()).into_response(),
         Err(error) => internal_error(&error, "Failed to fetch sync logs"),
     }
 }
@@ -1838,16 +1917,14 @@ async fn field_mappings(
     RawQuery(query): RawQuery,
 ) -> Response {
     let entity_type = query_truthy(query.as_deref(), "entityType");
-    let rows: Result<Vec<Value>, sqlx::Error> = sqlx::query_scalar(
-        "select to_jsonb(m) from integration_field_mappings m
-         where m.connection_id = $1 and ($2::text is null or m.entity_type = $2)",
-    )
-    .bind(&id)
-    .bind(&entity_type)
-    .fetch_all(&caller.db)
-    .await;
+    use integration_field_mappings::Column as Mapping;
+    let mut rows = integration_field_mappings::Entity::find().filter(Mapping::ConnectionId.eq(&id));
+    if let Some(entity_type) = &entity_type {
+        rows = rows.filter(Mapping::EntityType.eq(entity_type));
+    }
+    let rows = rows.all(&orm(&caller.db)).await;
     match rows {
-        Ok(rows) => Data(rows.into_iter().map(js_row).collect::<Vec<_>>()).into_response(),
+        Ok(rows) => Data(rows.into_iter().map(js).collect::<Vec<_>>()).into_response(),
         Err(error) => internal_error(&error, "Failed to fetch field mappings"),
     }
 }
@@ -1860,11 +1937,11 @@ async fn default_field_mappings(
     let Some(entity_type) = query_truthy(query.as_deref(), "entityType") else {
         return ApiError::bad_request("entityType query param required").into_response();
     };
-    let result: Result<Response, sqlx::Error> = async {
+    let result: Result<Response, DbErr> = async {
         let Some(connection) = connection_row(&caller.db, &id).await? else {
             return Ok(ApiError::not_found("Connection", Some(&id)).into_response());
         };
-        let provider = connection["provider"].as_str().unwrap_or_default();
+        let provider = connection.provider.as_str();
         let Some(adapter) = Provider::of(provider) else {
             return Ok(ApiError::bad_request(format!(
                 "Provider {provider} has no default field mappings"
@@ -1923,14 +2000,13 @@ pub(crate) async fn replace_mappings(
     id: &str,
     entity_type: &str,
     mappings: &[Value],
-) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "delete from integration_field_mappings where connection_id = $1 and entity_type = $2",
-    )
-    .bind(id)
-    .bind(entity_type)
-    .execute(db)
-    .await?;
+) -> Result<(), DbErr> {
+    use integration_field_mappings::Column as Mapping;
+    integration_field_mappings::Entity::delete_many()
+        .filter(Mapping::ConnectionId.eq(id))
+        .filter(Mapping::EntityType.eq(entity_type))
+        .exec(&orm(db))
+        .await?;
     let rows: Vec<Value> = mappings
         .iter()
         .enumerate()
@@ -1958,7 +2034,7 @@ async fn replace_field_mappings(
         Ok(read) => read,
         Err(refusal) => return refusal.respond(FAILED),
     };
-    let result: Result<Response, sqlx::Error> = async {
+    let result: Result<Response, DbErr> = async {
         replace_mappings(&caller.db, &id, &entity_type, &mappings).await?;
         Ok(Data(json!({ "entityType": entity_type, "count": mappings.len() })).into_response())
     }
@@ -1970,18 +2046,20 @@ async fn conflicts(caller: Caller, Path(id): Path<String>, RawQuery(query): RawQ
     let query = query.as_deref();
     let resolution = query_truthy(query, "resolution").unwrap_or_else(|| "pending".to_owned());
     let entity_type = query_truthy(query, "entityType");
-    let rows: Result<Vec<Value>, sqlx::Error> = sqlx::query_scalar(
-        "select to_jsonb(c) from integration_sync_conflicts c
-         where c.connection_id = $1 and c.resolution = $2 and ($3::text is null or c.entity_type = $3)
-         order by c.created_at desc limit 100",
-    )
-    .bind(&id)
-    .bind(&resolution)
-    .bind(&entity_type)
-    .fetch_all(&caller.db)
-    .await;
+    use integration_sync_conflicts::Column as Conflict;
+    let mut rows = integration_sync_conflicts::Entity::find()
+        .filter(Conflict::ConnectionId.eq(&id))
+        .filter(Conflict::Resolution.eq(&resolution));
+    if let Some(entity_type) = &entity_type {
+        rows = rows.filter(Conflict::EntityType.eq(entity_type));
+    }
+    let rows = rows
+        .order_by_desc(Conflict::CreatedAt)
+        .limit(100)
+        .all(&orm(&caller.db))
+        .await;
     match rows {
-        Ok(rows) => Data(rows.into_iter().map(js_row).collect::<Vec<_>>()).into_response(),
+        Ok(rows) => Data(rows.into_iter().map(js).collect::<Vec<_>>()).into_response(),
         Err(error) => internal_error(&error, "Failed to fetch conflicts"),
     }
 }
@@ -2007,16 +2085,14 @@ async fn resolve_conflict(
         Ok(resolution) => resolution,
         Err(refusal) => return refusal.respond(FAILED),
     };
-    let updated = sqlx::query(
-        "update integration_sync_conflicts set resolution = $2, resolved_at = $3::timestamp,
-             resolved_by = $4 where id = $1",
-    )
-    .bind(&conflict_id)
-    .bind(&resolution)
-    .bind(now())
-    .bind(&caller.user_id)
-    .execute(&caller.db)
-    .await;
+    use integration_sync_conflicts::Column as Conflict;
+    let updated = integration_sync_conflicts::Entity::update_many()
+        .col_expr(Conflict::Resolution, Expr::value(&resolution))
+        .col_expr(Conflict::ResolvedAt, Expr::value(utc_now()))
+        .col_expr(Conflict::ResolvedBy, Expr::value(&caller.user_id))
+        .filter(Conflict::Id.eq(&conflict_id))
+        .exec(&orm(&caller.db))
+        .await;
     match updated {
         Ok(_) => Data(json!({ "resolved": true })).into_response(),
         Err(error) => internal_error(&error, FAILED),
@@ -2048,18 +2124,17 @@ async fn resolve_all(
         Ok(read) => read,
         Err(refusal) => return refusal.respond(FAILED),
     };
-    let updated = sqlx::query(
-        "update integration_sync_conflicts set resolution = $2, resolved_at = $3::timestamp,
-             resolved_by = $4
-         where connection_id = $1 and resolution = 'pending' and ($5::text is null or entity_type = $5)",
-    )
-    .bind(&id)
-    .bind(&resolution)
-    .bind(now())
-    .bind(&caller.user_id)
-    .bind(entity_type.filter(|e| !e.is_empty()))
-    .execute(&caller.db)
-    .await;
+    use integration_sync_conflicts::Column as Conflict;
+    let mut update = integration_sync_conflicts::Entity::update_many()
+        .col_expr(Conflict::Resolution, Expr::value(&resolution))
+        .col_expr(Conflict::ResolvedAt, Expr::value(utc_now()))
+        .col_expr(Conflict::ResolvedBy, Expr::value(&caller.user_id))
+        .filter(Conflict::ConnectionId.eq(&id))
+        .filter(Conflict::Resolution.eq("pending"));
+    if let Some(entity_type) = entity_type.filter(|e| !e.is_empty()) {
+        update = update.filter(Conflict::EntityType.eq(entity_type));
+    }
+    let updated = update.exec(&orm(&caller.db)).await;
     match updated {
         Ok(_) => Data(json!({ "resolved": true })).into_response(),
         Err(error) => internal_error(&error, FAILED),
@@ -2075,16 +2150,14 @@ async fn entity_mappings(caller: Caller, RawQuery(query): RawQuery) -> Response 
         return ApiError::bad_request("internalEntityType and internalEntityId are required")
             .into_response();
     };
-    let rows: Result<Vec<Value>, sqlx::Error> = sqlx::query_scalar(
-        "select to_jsonb(m) from integration_entity_mappings m
-         where m.internal_entity_type = $1 and m.internal_entity_id = $2",
-    )
-    .bind(&entity_type)
-    .bind(&entity_id)
-    .fetch_all(&caller.db)
-    .await;
+    use integration_entity_mappings::Column as Mapped;
+    let rows = integration_entity_mappings::Entity::find()
+        .filter(Mapped::InternalEntityType.eq(&entity_type))
+        .filter(Mapped::InternalEntityId.eq(&entity_id))
+        .all(&orm(&caller.db))
+        .await;
     match rows {
-        Ok(rows) => Data(rows.into_iter().map(js_row).collect::<Vec<_>>()).into_response(),
+        Ok(rows) => Data(rows.into_iter().map(js).collect::<Vec<_>>()).into_response(),
         Err(error) => internal_error(&error, "Failed to fetch entity mappings"),
     }
 }

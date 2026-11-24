@@ -10,14 +10,18 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, patch, post};
 use http::HeaderMap;
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, Condition, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
+use time::{OffsetDateTime, PrimitiveDateTime};
 use weldsuite_catalogs::entity_events as ev;
 use weldsuite_catalogs::permission_keys as perm;
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm, utc_now, utc_timestamp};
 use weldsuite_desk_domain::notify::EntityKind;
 use weldsuite_kit::validation::{Format, Issues, Presence, Text};
 use weldsuite_kit::{Created, Data, NoContent, generate_id, random_string};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::{helpdesk_agents, helpdesk_tickets, people};
 
 use crate::crud::{Filter, Listing, fetch, page_of, soft_delete, write_failed};
 use crate::custom_fields::{definitions_for_ticket, hydrate_tickets, sync_ticket};
@@ -25,35 +29,36 @@ use crate::js::text;
 use crate::link::{Link, link_conversation_to_ticket};
 use crate::notify::{Assigned, assigned};
 use crate::tables::{HELPDESK_TICKET_MESSAGES, HELPDESK_TICKETS};
-use crate::{Caller, DeskState, Refusal, now, validate};
+use crate::{Caller, DeskState, Refusal, validate};
+use weldsuite_schema::tenant::helpdesk_tickets::Column as Ticket;
 
-const TICKET_LIST: (&str, &str) = listing!("helpdesk_tickets";
-    "($2::boolean or t.status = $3::text)",
-    "($4::boolean or t.priority = $5::text)",
-    "($6::boolean or t.assignee_id = $7::text)",
-    "($8::boolean or t.department_id = $9::text)",
-    "($10::boolean or t.contact_id = $11::text)",
-    "($12::boolean or t.channel = $13::text)",
-    "($14::boolean or t.category = $15::text)",
-    "($16::boolean or t.ticket_type_id = $17::text)",
-    "($18::boolean or (t.subject like $19::text or t.customer_email like $19::text or t.customer_name like $19::text or t.ticket_number like $19::text))";
-    20, 21, 22; "$23");
-
-const LISTING: Listing = Listing {
+pub(crate) const LISTING: Listing = Listing {
     table: &HELPDESK_TICKETS,
     filters: &[
-        Filter::eq("status"),
-        Filter::eq("priority"),
-        Filter::eq("assigneeId"),
-        Filter::eq("departmentId"),
-        Filter::eq("contactId"),
-        Filter::eq("channel"),
-        Filter::eq("category"),
-        Filter::eq("ticketTypeId"),
-        Filter::like("search"),
+        Filter::eq("status", |v| Condition::all().add(Ticket::Status.eq(v))),
+        Filter::eq("priority", |v| Condition::all().add(Ticket::Priority.eq(v))),
+        Filter::eq("assigneeId", |v| {
+            Condition::all().add(Ticket::AssigneeId.eq(v))
+        }),
+        Filter::eq("departmentId", |v| {
+            Condition::all().add(Ticket::DepartmentId.eq(v))
+        }),
+        Filter::eq("contactId", |v| {
+            Condition::all().add(Ticket::ContactId.eq(v))
+        }),
+        Filter::eq("channel", |v| Condition::all().add(Ticket::Channel.eq(v))),
+        Filter::eq("category", |v| Condition::all().add(Ticket::Category.eq(v))),
+        Filter::eq("ticketTypeId", |v| {
+            Condition::all().add(Ticket::TicketTypeId.eq(v))
+        }),
+        Filter::like("search", |v| {
+            Condition::any()
+                .add(Ticket::Subject.like(v.clone()))
+                .add(Ticket::CustomerEmail.like(v.clone()))
+                .add(Ticket::CustomerName.like(v.clone()))
+                .add(Ticket::TicketNumber.like(v))
+        }),
     ],
-    list_sql: TICKET_LIST.0,
-    count_sql: TICKET_LIST.1,
     slice_count: true,
 };
 
@@ -289,15 +294,26 @@ async fn resolve_contact(
         return Some(provided.to_owned());
     }
     let email = email.filter(|e| !e.is_empty())?;
-    let found: Result<Option<String>, sqlx::Error> =
-        sqlx::query_scalar("select id from people where email = $1 and deleted_at is null limit 1")
-            .bind(email)
-            .fetch_optional(db)
-            .await;
+    let found: Result<Option<String>, DbErr> = people::Entity::find()
+        .select_only()
+        .column(people::Column::Id)
+        .filter(people::Column::Email.eq(email))
+        .filter(people::Column::DeletedAt.is_null())
+        .limit(1)
+        .into_tuple()
+        .one(&orm(db))
+        .await;
     found.unwrap_or_else(|error| {
         tracing::error!(%error, "[app-api/tickets] contact auto-resolve failed");
         None
     })
+}
+
+/// `new Date()` once: as the route's JSON writes it, and as the `timestamp`
+/// it stores.
+fn now_and_stamp() -> (String, PrimitiveDateTime) {
+    let at = OffsetDateTime::now_utc();
+    (weldsuite_events::iso_timestamp(at), utc_timestamp(at))
 }
 
 /// A field of the body, when it is there (`data.x` not `undefined`).
@@ -320,7 +336,7 @@ async fn create(
     let conversation_id = data.remove("conversationId");
     let source = data.remove("source");
     let id = generate_id("tkt");
-    let now = now();
+    let (now, stamp) = now_and_stamp();
     let ticket_number = match data.get("ticketNumber") {
         Some(Value::String(number)) if !number.is_empty() => number.clone(),
         _ => generated_ticket_number(),
@@ -382,7 +398,7 @@ async fn create(
         &id,
         data.get("customFields"),
         &definitions,
-        &now,
+        stamp,
     )
     .await;
 
@@ -475,7 +491,7 @@ async fn update(
         Ok(None) => return Refusal::not_found("Ticket", &id).respond(MESSAGE),
         Err(error) => return Refusal::from(error).respond(MESSAGE),
     };
-    let now = now();
+    let (now, stamp) = now_and_stamp();
     let table = &HELPDESK_TICKETS;
     let mut values = Map::new();
     table.set(&mut values, "updatedAt", json!(now));
@@ -496,7 +512,7 @@ async fn update(
         &id,
         data.get("customFields"),
         &definitions,
-        &now,
+        stamp,
     )
     .await;
     let subject = or_existing(&data, &existing, "subject");
@@ -575,12 +591,15 @@ async fn add_tags(
         Ok(tags) => tags,
         Err(refusal) => return refusal.respond(MESSAGE),
     };
-    let existing: Option<Option<Value>> = match sqlx::query_scalar(
-        "select tags from helpdesk_tickets where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(&id)
-    .fetch_optional(&caller.db)
-    .await
+    let existing: Option<Option<Value>> = match helpdesk_tickets::Entity::find()
+        .select_only()
+        .column(helpdesk_tickets::Column::Tags)
+        .filter(helpdesk_tickets::Column::Id.eq(&id))
+        .filter(helpdesk_tickets::Column::DeletedAt.is_null())
+        .limit(1)
+        .into_tuple()
+        .one(&orm(&caller.db))
+        .await
     {
         Ok(row) => row,
         Err(error) => return Refusal::from(error).respond(MESSAGE),
@@ -602,14 +621,16 @@ async fn add_tags(
             merged.push(tag);
         }
     }
-    let result = sqlx::query(
-        "update helpdesk_tickets set tags = $2, updated_at = $3::timestamp where id = $1 and deleted_at is null",
-    )
-    .bind(&id)
-    .bind(Value::Array(merged.clone()))
-    .bind(now())
-    .execute(&caller.db)
-    .await;
+    let result = helpdesk_tickets::Entity::update_many()
+        .col_expr(
+            helpdesk_tickets::Column::Tags,
+            Expr::value(Value::Array(merged.clone())),
+        )
+        .col_expr(helpdesk_tickets::Column::UpdatedAt, Expr::value(utc_now()))
+        .filter(helpdesk_tickets::Column::Id.eq(&id))
+        .filter(helpdesk_tickets::Column::DeletedAt.is_null())
+        .exec(&orm(&caller.db))
+        .await;
     if let Err(error) = result {
         return Refusal::from(error).respond(MESSAGE);
     }
@@ -623,12 +644,16 @@ type NameAndEmail = (Option<String>, Option<String>);
 /// `resolveAgentIdentity`: the replying agent's roster name and email,
 /// `'Agent'` / `''` without one (or when the lookup fails).
 async fn agent_identity(db: &PgPool, user_id: &str) -> (String, String) {
-    let row: Result<Option<NameAndEmail>, sqlx::Error> = sqlx::query_as(
-        "select name, email from helpdesk_agents where user_id = $1 and deleted_at is null limit 1",
-    )
-    .bind(user_id)
-    .fetch_optional(db)
-    .await;
+    let row: Result<Option<NameAndEmail>, DbErr> = helpdesk_agents::Entity::find()
+        .select_only()
+        .column(helpdesk_agents::Column::Name)
+        .column(helpdesk_agents::Column::Email)
+        .filter(helpdesk_agents::Column::UserId.eq(user_id))
+        .filter(helpdesk_agents::Column::DeletedAt.is_null())
+        .limit(1)
+        .into_tuple()
+        .one(&orm(db))
+        .await;
     match row {
         Ok(row) => {
             let (name, email) = row.unwrap_or_default();
@@ -666,12 +691,15 @@ async fn reply(
         Ok(read) => read,
         Err(refusal) => return refusal.respond(MESSAGE),
     };
-    let found: Result<Option<String>, sqlx::Error> = sqlx::query_scalar(
-        "select id from helpdesk_tickets where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(&ticket_id)
-    .fetch_optional(&caller.db)
-    .await;
+    let found: Result<Option<String>, DbErr> = helpdesk_tickets::Entity::find()
+        .select_only()
+        .column(helpdesk_tickets::Column::Id)
+        .filter(helpdesk_tickets::Column::Id.eq(&ticket_id))
+        .filter(helpdesk_tickets::Column::DeletedAt.is_null())
+        .limit(1)
+        .into_tuple()
+        .one(&orm(&caller.db))
+        .await;
     match found {
         Ok(Some(_)) => {}
         Ok(None) => return Refusal::not_found("Ticket", &ticket_id).respond(MESSAGE),
@@ -679,7 +707,7 @@ async fn reply(
     }
     let (author_name, author_email) = agent_identity(&caller.db, &caller.user_id).await;
     let id = generate_id("tkm");
-    let now = now();
+    let (now, stamp) = now_and_stamp();
     let table = &HELPDESK_TICKET_MESSAGES;
     let mut values = Map::new();
     table.set(&mut values, "id", json!(id));
@@ -708,12 +736,11 @@ async fn reply(
         Ok(message) => message,
         Err(error) => return write_failed(&error, MESSAGE),
     };
-    let touched =
-        sqlx::query("update helpdesk_tickets set updated_at = $2::timestamp where id = $1")
-            .bind(&ticket_id)
-            .bind(&now)
-            .execute(&caller.db)
-            .await;
+    let touched = helpdesk_tickets::Entity::update_many()
+        .col_expr(helpdesk_tickets::Column::UpdatedAt, Expr::value(stamp))
+        .filter(helpdesk_tickets::Column::Id.eq(&ticket_id))
+        .exec(&orm(&caller.db))
+        .await;
     if let Err(error) = touched {
         return Refusal::from(error).respond(MESSAGE);
     }

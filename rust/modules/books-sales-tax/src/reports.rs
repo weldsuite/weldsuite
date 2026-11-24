@@ -13,6 +13,10 @@ use axum::Router;
 use axum::extract::{RawQuery, State};
 use axum::response::Response;
 use axum::routing::get;
+use sea_orm::prelude::BigDecimal;
+use sea_orm::{
+    ColumnTrait, DbErr, EntityTrait, FromQueryResult, JoinType, QueryFilter, QuerySelect,
+};
 use serde_json::{Map, Value, json};
 use weldsuite_books_domain::http::{BooksState, Caller, Query, ok, reply};
 use weldsuite_books_domain::js::{locale_compare, math_round, parse_int, to_fixed};
@@ -20,15 +24,19 @@ use weldsuite_books_domain::sales_tax::exemptions::{
     certificate_expiry, missing_certificate_cure_deadline,
 };
 use weldsuite_books_domain::sales_tax::load::to_certificate_ref;
-use weldsuite_books_domain::tables::{EXEMPTION_CERTIFICATES, INVOICES, TAX_LINES};
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::{
+    exemption_certificates, invoice_items, invoices, parties, tax_lines,
+};
 
+use crate::certificates::last_used_by_certificate;
 use crate::common::{is_iso_date_text, text, today_in};
 use crate::returns::checks::{agency_liability, status_as_of};
 use crate::returns::common::{
-    add_days, add_months, bad, load_agencies, load_agency_returns, n, next_day, num, num_at,
-    registered_on, round2, s, start_of_day, state_of_address, sum_money, us_entity_of,
+    add_days, add_months, bad, day_start, day_text, decimal_num, load_agencies,
+    load_agency_returns, n, next_day, num_at, parse_day, registered_on, round2, rows_json, s,
+    state_of_address, sum_money, us_entity_of,
 };
 use crate::returns::documents::{anchor_rows, describe_documents, document_key};
 
@@ -113,37 +121,59 @@ type JurisdictionGroup = (
     Option<String>,
     Option<String>,
     Option<String>,
-    Option<String>,
+    Option<BigDecimal>,
 );
+
+/// The agency's sales and use tax before `before`, summed by jurisdiction and
+/// the return that stamped it.
+async fn jurisdiction_groups(
+    db: &PgPool,
+    entity_id: &str,
+    agency_id: &str,
+    before: &str,
+) -> Result<Vec<JurisdictionGroup>, DbErr> {
+    use tax_lines::Column;
+    tax_lines::Entity::find()
+        .select_only()
+        .columns([
+            Column::JurisdictionCode,
+            Column::JurisdictionName,
+            Column::JurisdictionLevel,
+            Column::TaxReturnId,
+        ])
+        .column_as(Column::TaxAmount.sum(), "tax")
+        .filter(Column::EntityId.eq(entity_id))
+        .filter(Column::AgencyId.eq(agency_id))
+        .filter(Column::Direction.is_in(["sales", "use"]))
+        .filter(Column::TaxDate.lt(parse_day(before)?))
+        .group_by(Column::JurisdictionCode)
+        .group_by(Column::JurisdictionName)
+        .group_by(Column::JurisdictionLevel)
+        .group_by(Column::TaxReturnId)
+        .into_tuple()
+        .all(&orm(db))
+        .await
+}
 
 /// A month of the provider reconciliation: period, documents, committed,
 /// uncommitted, provider tax, ledger tax, difference, problems.
 type ReconciliationPeriod = (String, i64, i64, i64, f64, f64, f64, i64);
 
 /// `liabilityReport(db, entity, asOf)`.
-async fn liability_report(db: &PgPool, entity: &Value, as_of: &str) -> Result<Value, sqlx::Error> {
+async fn liability_report(db: &PgPool, entity: &Value, as_of: &str) -> Result<Value, DbErr> {
     let entity_id = s(entity, "id");
     let agencies = load_agencies(db, entity_id).await?;
     let mut rows: Vec<Value> = Vec::new();
     for agency in &agencies {
         let returns = load_agency_returns(db, entity_id, s(agency, "id")).await?;
         let liability = agency_liability(db, entity_id, agency, as_of, false, &returns).await?;
-        let grouped: Vec<JurisdictionGroup> = sqlx::query_as(
-            "select jurisdiction_code, jurisdiction_name, jurisdiction_level, tax_return_id, \
-                 sum(tax_amount)::text from tax_lines where entity_id = $1 and agency_id = $2 \
-                 and direction in ('sales', 'use') and tax_date < $3::date \
-                 group by jurisdiction_code, jurisdiction_name, jurisdiction_level, tax_return_id",
-        )
-        .bind(entity_id)
-        .bind(s(agency, "id"))
-        .bind(next_day(as_of))
-        .fetch_all(db)
-        .await?;
+        let grouped = jurisdiction_groups(db, entity_id, s(agency, "id"), &next_day(as_of)).await?;
         // (code, name, level, collected, filed, paid, outstanding)
         let mut jurisdictions: Vec<(String, String, String, f64, f64, f64, f64)> = Vec::new();
         for (code, name, level, return_id, tax) in grouped {
             let key = code.unwrap_or_default();
-            let tax = num(&tax.map_or(Value::Null, Value::String));
+            // `sum(tax_amount)::text`, read as a number.
+            let tax = decimal_num(tax.as_ref());
             let stamped = return_id
                 .as_deref()
                 .filter(|r| !r.is_empty())
@@ -316,33 +346,29 @@ async fn sales_rows(
     entity_id: &str,
     from: &str,
     to: &str,
-) -> Result<Vec<Value>, sqlx::Error> {
-    let rows: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(tax_lines),
-        " from tax_lines t where t.entity_id = $1 and t.direction = 'sales' \
-         and t.tax_date >= $2::date and t.tax_date <= $3::date"
-    ))
-    .bind(entity_id)
-    .bind(from)
-    .bind(to)
-    .fetch_all(db)
-    .await?;
-    Ok(TAX_LINES.js_rows(rows))
+) -> Result<Vec<Value>, DbErr> {
+    use tax_lines::Column;
+    let rows = tax_lines::Entity::find()
+        .filter(Column::EntityId.eq(entity_id))
+        .filter(Column::Direction.eq("sales"))
+        .filter(Column::TaxDate.gte(parse_day(from)?))
+        .filter(Column::TaxDate.lte(parse_day(to)?))
+        .all(&orm(db))
+        .await?;
+    rows_json(rows)
 }
 
 /// `customerNames(db, ids)`.
-async fn customer_names(
-    db: &PgPool,
-    ids: &[String],
-) -> Result<HashMap<String, String>, sqlx::Error> {
+async fn customer_names(db: &PgPool, ids: &[String]) -> Result<HashMap<String, String>, DbErr> {
     let mut out = HashMap::new();
     for part in ids.chunks(1000) {
-        let rows: Vec<(String, Option<String>)> =
-            sqlx::query_as("select id, display_name from parties where id = any($1)")
-                .bind(part)
-                .fetch_all(db)
-                .await?;
+        let rows: Vec<(String, Option<String>)> = parties::Entity::find()
+            .select_only()
+            .columns([parties::Column::Id, parties::Column::DisplayName])
+            .filter(parties::Column::Id.is_in(part.iter().map(String::as_str)))
+            .into_tuple()
+            .all(&orm(db))
+            .await?;
         for (id, name) in rows {
             if let Some(name) = name.filter(|n| !n.is_empty()) {
                 out.insert(id, name);
@@ -401,7 +427,7 @@ async fn summary(
     from: &str,
     to: &str,
     group_by: &str,
-) -> Result<Value, sqlx::Error> {
+) -> Result<Value, DbErr> {
     let rows = sales_rows(db, entity_id, from, to).await?;
     let refs: Vec<&Value> = rows.iter().collect();
     let docs = describe_documents(db, entity_id, &refs).await?;
@@ -577,20 +603,93 @@ async fn posted_invoices(
     entity_id: &str,
     from: &str,
     to: &str,
-) -> Result<Vec<Value>, sqlx::Error> {
-    let rows: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(invoices),
-        " from invoices t where t.entity_id = $1 and t.deleted_at is null \
-         and t.type in ('standard', 'correction', 'credit_note') and t.journal_entry_id is not null \
-         and t.issue_date >= $2::timestamp and t.issue_date <= $3::timestamp"
-    ))
-    .bind(entity_id)
-    .bind(start_of_day(from))
-    .bind(start_of_day(&next_day(to)))
-    .fetch_all(db)
-    .await?;
-    Ok(INVOICES.js_rows(rows))
+) -> Result<Vec<Value>, DbErr> {
+    use invoices::Column;
+    let rows = invoices::Entity::find()
+        .filter(Column::EntityId.eq(entity_id))
+        .filter(Column::DeletedAt.is_null())
+        .filter(Column::Type.is_in(["standard", "correction", "credit_note"]))
+        .filter(Column::JournalEntryId.is_not_null())
+        .filter(Column::IssueDate.gte(day_start(from)?))
+        .filter(Column::IssueDate.lte(day_start(&next_day(to))?))
+        .all(&orm(db))
+        .await?;
+    rows_json(rows)
+}
+
+/// An invoice line whose tax was set by hand, with its invoice.
+#[derive(Debug, FromQueryResult)]
+struct TaxOverride {
+    invoice_id: String,
+    description: String,
+    amount: Option<BigDecimal>,
+    reason: Option<String>,
+    number: Option<String>,
+    kind: String,
+    issue_date: time::PrimitiveDateTime,
+    contact_name: Option<String>,
+    shipping: Option<Value>,
+    billing: Option<Value>,
+}
+
+impl TaxOverride {
+    /// The row as `jsonb_build_object` built it (`amount` as `::text`,
+    /// `issueDate` as `to_char(issue_date, 'YYYY-MM-DD')`).
+    fn to_json(&self) -> Value {
+        json!({
+            "invoiceId": self.invoice_id,
+            "description": self.description,
+            "amount": self.amount.as_ref().map(BigDecimal::to_plain_string),
+            "reason": self.reason,
+            "number": self.number,
+            "type": self.kind,
+            "issueDate": day_text(self.issue_date.date()),
+            "contactName": self.contact_name,
+            "shipping": self.shipping,
+            "billing": self.billing,
+        })
+    }
+}
+
+/// The posted documents' lines issued in `[from, to]` whose tax was set by
+/// hand.
+async fn tax_overrides(
+    db: &PgPool,
+    entity_id: &str,
+    from: &str,
+    to: &str,
+) -> Result<Vec<Value>, DbErr> {
+    use invoice_items::Column as Item;
+    use invoices::Column as Invoice;
+    let rows = invoice_items::Entity::find()
+        .select_only()
+        .columns([Item::InvoiceId, Item::Description])
+        .column_as(Item::TaxOverrideAmount, "amount")
+        .column_as(Item::TaxOverrideReason, "reason")
+        .column_as(Invoice::InvoiceNumber, "number")
+        .column_as(Invoice::Type, "kind")
+        .column_as(Invoice::IssueDate, "issue_date")
+        .column_as(Invoice::ContactName, "contact_name")
+        .column_as(Invoice::ShippingAddress, "shipping")
+        .column_as(Invoice::BillingAddress, "billing")
+        .join(
+            JoinType::InnerJoin,
+            invoice_items::Entity::belongs_to(invoices::Entity)
+                .from(Item::InvoiceId)
+                .to(Invoice::Id)
+                .into(),
+        )
+        .filter(Invoice::EntityId.eq(entity_id))
+        .filter(Invoice::DeletedAt.is_null())
+        .filter(Item::DeletedAt.is_null())
+        .filter(Item::TaxOverrideAmount.is_not_null())
+        .filter(Invoice::JournalEntryId.is_not_null())
+        .filter(Invoice::IssueDate.gte(day_start(from)?))
+        .filter(Invoice::IssueDate.lte(day_start(&next_day(to))?))
+        .into_model::<TaxOverride>()
+        .all(&orm(db))
+        .await?;
+    Ok(rows.iter().map(TaxOverride::to_json).collect())
 }
 
 fn doc_type(kind: &str) -> &'static str {
@@ -661,7 +760,7 @@ async fn exceptions_report(
     entity_id: &str,
     from: &str,
     to: &str,
-) -> Result<Value, sqlx::Error> {
+) -> Result<Value, DbErr> {
     let agencies = load_agencies(db, entity_id).await?;
     let mut out: Vec<Value> = Vec::new();
     for i in posted_invoices(db, entity_id, from, to).await? {
@@ -711,21 +810,7 @@ async fn exceptions_report(
         }
     }
 
-    let overrides: Vec<Value> = sqlx::query_scalar(
-        "select jsonb_build_object('invoiceId', ii.invoice_id, 'description', ii.description, \
-         'amount', ii.tax_override_amount::text, 'reason', ii.tax_override_reason, \
-         'number', inv.invoice_number, 'type', inv.type, 'issueDate', to_char(inv.issue_date, 'YYYY-MM-DD'), \
-         'contactName', inv.contact_name, 'shipping', inv.shipping_address, 'billing', inv.billing_address) \
-         from invoice_items ii inner join invoices inv on inv.id = ii.invoice_id \
-         where inv.entity_id = $1 and inv.deleted_at is null and ii.deleted_at is null \
-         and ii.tax_override_amount is not null and inv.journal_entry_id is not null \
-         and inv.issue_date >= $2::timestamp and inv.issue_date <= $3::timestamp",
-    )
-    .bind(entity_id)
-    .bind(start_of_day(from))
-    .bind(start_of_day(&next_day(to)))
-    .fetch_all(db)
-    .await?;
+    let overrides = tax_overrides(db, entity_id, from, to).await?;
     for o in &overrides {
         let reason = text(o, "reason")
             .map(weldsuite_kit::validation::js_trim)
@@ -910,35 +995,26 @@ pub(crate) async fn expiring_certificates(
     entity: &Value,
     days: i64,
     today: &str,
-) -> Result<Value, sqlx::Error> {
+) -> Result<Value, DbErr> {
+    use exemption_certificates::Column;
     let entity_id = s(entity, "id");
     let until = add_days(today, days);
     let earliest = add_days(today, -365);
-    let certs: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(exemption_certificates),
-        " from exemption_certificates t where t.entity_id = $1 and t.deleted_at is null \
-         and t.status in ('valid', 'expired')"
-    ))
-    .bind(entity_id)
-    .fetch_all(db)
-    .await?;
-    let certs = EXEMPTION_CERTIFICATES.js_rows(certs);
+    let certs = exemption_certificates::Entity::find()
+        .filter(Column::EntityId.eq(entity_id))
+        .filter(Column::DeletedAt.is_null())
+        .filter(Column::Status.is_in(["valid", "expired"]))
+        .all(&orm(db))
+        .await?;
+    let certs = rows_json(certs)?;
     if certs.is_empty() {
         return Ok(json!({ "asOf": today, "days": days, "certificates": [] }));
     }
     let ids: Vec<String> = certs.iter().map(|c| s(c, "id").to_owned()).collect();
-    let used: Vec<(Option<String>, Option<String>)> = sqlx::query_as(
-        "select certificate_id, max(tax_date)::text from tax_lines \
-         where entity_id = $1 and certificate_id = any($2) group by certificate_id",
-    )
-    .bind(entity_id)
-    .bind(&ids)
-    .fetch_all(db)
-    .await?;
+    let used = last_used_by_certificate(db, entity_id, &ids).await?;
     let last_used = |id: &str| -> Option<String> {
         used.iter()
-            .find(|(c, _)| c.as_deref() == Some(id))
+            .find(|(c, _)| c == id)
             .and_then(|(_, d)| d.clone())
     };
     let names = customer_names(
@@ -1031,22 +1107,23 @@ async fn missing_certificates(
     from: Option<&str>,
     to: Option<&str>,
     today: &str,
-) -> Result<Value, sqlx::Error> {
+) -> Result<Value, DbErr> {
+    use tax_lines::Column;
     let entity_id = s(entity, "id");
-    let rows: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(tax_lines),
-        " from tax_lines t where t.entity_id = $1 and t.direction = 'sales' \
-         and t.certificate_id is null and t.marketplace_facilitated = false \
-         and coalesce(t.exempt_amount, 0) > 0 \
-         and ($2::date is null or t.tax_date >= $2::date) and ($3::date is null or t.tax_date <= $3::date)"
-    ))
-    .bind(entity_id)
-    .bind(from)
-    .bind(to)
-    .fetch_all(db)
-    .await?;
-    let rows = TAX_LINES.js_rows(rows);
+    let mut select = tax_lines::Entity::find()
+        .filter(Column::EntityId.eq(entity_id))
+        .filter(Column::Direction.eq("sales"))
+        .filter(Column::CertificateId.is_null())
+        .filter(Column::MarketplaceFacilitated.eq(false))
+        // `coalesce(exempt_amount, 0) > 0`: a null amount isn't more than 0.
+        .filter(Column::ExemptAmount.gt(0));
+    if let Some(from) = from {
+        select = select.filter(Column::TaxDate.gte(parse_day(from)?));
+    }
+    if let Some(to) = to {
+        select = select.filter(Column::TaxDate.lte(parse_day(to)?));
+    }
+    let rows = rows_json(select.all(&orm(db)).await?)?;
     let refs: Vec<&Value> = rows.iter().collect();
     let docs = describe_documents(db, entity_id, &refs).await?;
     let mut by_document: Vec<(String, Vec<&Value>)> = Vec::new();
@@ -1138,7 +1215,7 @@ async fn reconcile(
     from: &str,
     to: &str,
     all: bool,
-) -> Result<Value, sqlx::Error> {
+) -> Result<Value, DbErr> {
     let engine = text(entity, "salesTaxEngine")
         .unwrap_or("manual")
         .to_owned();
@@ -1158,18 +1235,23 @@ async fn reconcile(
     let ids: Vec<String> = invoices.iter().map(|i| s(i, "id").to_owned()).collect();
     let mut ledger: HashMap<String, f64> = HashMap::new();
     for part in ids.chunks(2000) {
-        let sums: Vec<(Option<String>, Option<String>)> = sqlx::query_as(
-            "select source_id, sum(tax_amount)::text from tax_lines where entity_id = $1 \
-             and source_type in ('invoice', 'credit_note') and direction = 'sales' \
-             and source_id = any($2) group by source_id",
-        )
-        .bind(s(entity, "id"))
-        .bind(part)
-        .fetch_all(db)
-        .await?;
+        use tax_lines::Column;
+        let sums: Vec<(Option<String>, Option<BigDecimal>)> = tax_lines::Entity::find()
+            .select_only()
+            .column(Column::SourceId)
+            .column_as(Column::TaxAmount.sum(), "tax")
+            .filter(Column::EntityId.eq(s(entity, "id")))
+            .filter(Column::SourceType.is_in(["invoice", "credit_note"]))
+            .filter(Column::Direction.eq("sales"))
+            .filter(Column::SourceId.is_in(part.iter().map(String::as_str)))
+            .group_by(Column::SourceId)
+            .into_tuple()
+            .all(&orm(db))
+            .await?;
         for (id, tax) in sums {
             if let Some(id) = id.filter(|i| !i.is_empty()) {
-                ledger.insert(id, num(&tax.map_or(Value::Null, Value::String)));
+                // `sum(tax_amount)::text`, read as a number.
+                ledger.insert(id, decimal_num(tax.as_ref()));
             }
         }
     }

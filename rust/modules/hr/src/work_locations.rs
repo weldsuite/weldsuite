@@ -11,17 +11,21 @@ use axum::extract::{Path, RawQuery};
 use axum::response::IntoResponse;
 use axum::routing::{delete, get, patch, post};
 use http::HeaderMap;
+use sea_orm::ActiveValue::Set;
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect};
 use serde_json::{Value, json};
 use weldsuite_catalogs::permission_keys::{ATTENDANCE_READ, EMPLOYEES_MANAGE, EMPLOYEES_READ};
-use weldsuite_db::{PgPool, js_row};
+use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_kit::validation::{Field, Presence};
 use weldsuite_kit::{Created, Data, NoContent, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::hr_employees;
+use weldsuite_schema::tenant::hr_work_locations::{self, Column as Location};
 
+use crate::employees::{no_row, to_json};
 use crate::fields::{Fields, change, int, number, short_text};
-use crate::{
-    Caller, HrError, HrResult, HrState, hr_json, js_round, js_to_fixed, now, query_values,
-};
+use crate::{Caller, HrError, HrResult, HrState, hr_json, js_round, js_to_fixed, query_values};
 
 /// At most this much of a GPS fix's uncertainty is given the benefit of the doubt.
 const MAX_ACCURACY_ALLOWANCE_METERS: f64 = 50.0;
@@ -62,26 +66,26 @@ pub(crate) async fn list_work_locations(
     db: &PgPool,
     include_inactive: bool,
 ) -> Result<Vec<Value>, HrError> {
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from hr_work_locations t
-         where t.deleted_at is null and ($1 or t.is_active = true)
-         order by t.name asc",
-    )
-    .bind(include_inactive)
-    .fetch_all(db)
-    .await?;
-    Ok(rows.into_iter().map(js_row).collect())
+    let mut query = hr_work_locations::Entity::find().filter(Location::DeletedAt.is_null());
+    if !include_inactive {
+        query = query.filter(Location::IsActive.eq(true));
+    }
+    query
+        .order_by_asc(Location::Name)
+        .all(&orm(db))
+        .await?
+        .into_iter()
+        .map(to_json)
+        .collect()
 }
 
 async fn require_work_location(db: &PgPool, id: &str) -> Result<Value, HrError> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from hr_work_locations t where t.id = $1 and t.deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    row.map(js_row)
-        .ok_or_else(|| HrError::not_found("Work location", id))
+    let row = hr_work_locations::Entity::find()
+        .filter(Location::Id.eq(id))
+        .filter(Location::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?;
+    to_json(row.ok_or_else(|| HrError::not_found("Work location", id))?)
 }
 
 async fn list(caller: Caller, RawQuery(query): RawQuery) -> HrResult {
@@ -159,21 +163,24 @@ async fn create(caller: Caller, headers: HeaderMap, body: Bytes) -> HrResult {
     let input = hr_json(&headers, &body, |issues, fields| {
         location_input(issues, fields, false)
     })?;
-    let row: Value = sqlx::query_scalar(
-        "insert into hr_work_locations (id, name, address, latitude, longitude, radius_meters, is_active)
-         values ($1, $2, $3, $4, $5, coalesce($6::int, 150), coalesce($7, true))
-         returning to_jsonb(hr_work_locations)",
-    )
-    .bind(generate_id("hrloc"))
-    .bind(input.name.as_set().map(|name| name.trim()))
-    .bind(address_of(&input.address))
-    .bind(input.latitude.as_set())
-    .bind(input.longitude.as_set())
-    .bind(input.radius_meters.as_set().map(|r| *r as i32))
-    .bind(input.is_active.as_set())
-    .fetch_one(&caller.db)
+    // The schema requires name, latitude and longitude on a create.
+    let row = hr_work_locations::Entity::insert(hr_work_locations::ActiveModel {
+        id: Set(generate_id("hrloc")),
+        name: Set(input
+            .name
+            .as_set()
+            .map(|name| name.trim().to_owned())
+            .unwrap_or_default()),
+        address: Set(address_of(&input.address)),
+        latitude: Set(input.latitude.as_set().copied().unwrap_or_default()),
+        longitude: Set(input.longitude.as_set().copied().unwrap_or_default()),
+        radius_meters: Set(input.radius_meters.as_set().map_or(150, |r| *r as i32)),
+        is_active: Set(input.is_active.as_set().copied().unwrap_or(true)),
+        ..Default::default()
+    })
+    .exec_with_returning(&orm(&caller.db))
     .await?;
-    Ok(Created(js_row(row)).into_response())
+    Ok(Created(to_json(row)?).into_response())
 }
 
 async fn update(
@@ -192,46 +199,53 @@ async fn update(
     let (set_lon, lon) = change(&input.longitude);
     let (set_radius, radius) = change(&input.radius_meters);
     let (set_active, active) = change(&input.is_active);
-    let row: Value = sqlx::query_scalar(
-        "update hr_work_locations set
-             name = case when $2 then $3 else name end,
-             address = case when $4 then $5 else address end,
-             latitude = case when $6 then $7 else latitude end,
-             longitude = case when $8 then $9 else longitude end,
-             radius_meters = case when $10 then $11::int else radius_meters end,
-             is_active = case when $12 then $13 else is_active end,
-             updated_at = $14::timestamp
-         where id = $1 returning to_jsonb(hr_work_locations)",
-    )
-    .bind(&id)
-    .bind(set_name)
-    .bind(name.map(|name| name.trim().to_owned()))
-    .bind(set_address)
-    .bind(address_of(&input.address))
-    .bind(set_lat)
-    .bind(lat)
-    .bind(set_lon)
-    .bind(lon)
-    .bind(set_radius)
-    .bind(radius.map(|r| r as i32))
-    .bind(set_active)
-    .bind(active)
-    .bind(now())
-    .fetch_one(&caller.db)
-    .await?;
-    Ok(Data(js_row(row)).into_response())
+    // Only the fields the body sent change (`.set({ ...input })`).
+    let mut update = hr_work_locations::Entity::update_many();
+    if set_name {
+        update = update.col_expr(
+            Location::Name,
+            Expr::value(name.map(|name| name.trim().to_owned())),
+        );
+    }
+    if set_address {
+        update = update.col_expr(Location::Address, Expr::value(address_of(&input.address)));
+    }
+    if set_lat {
+        update = update.col_expr(Location::Latitude, Expr::value(lat));
+    }
+    if set_lon {
+        update = update.col_expr(Location::Longitude, Expr::value(lon));
+    }
+    if set_radius {
+        update = update.col_expr(
+            Location::RadiusMeters,
+            Expr::value(radius.map(|r| r as i32)),
+        );
+    }
+    if set_active {
+        update = update.col_expr(Location::IsActive, Expr::value(active));
+    }
+    let row = update
+        .col_expr(Location::UpdatedAt, Expr::value(utc_now()))
+        .filter(Location::Id.eq(id.as_str()))
+        .exec_with_returning(&orm(&caller.db))
+        .await?
+        .into_iter()
+        .next()
+        .ok_or_else(|| no_row("hr_work_locations"))?;
+    Ok(Data(to_json(row)?).into_response())
 }
 
 async fn remove(caller: Caller, Path(id): Path<String>) -> HrResult {
     require_work_location(&caller.db, &id).await?;
-    sqlx::query(
-        "update hr_work_locations set deleted_at = $2::timestamp, is_active = false, updated_at = $2::timestamp
-         where id = $1",
-    )
-    .bind(&id)
-    .bind(now())
-    .execute(&caller.db)
-    .await?;
+    let at = utc_now();
+    hr_work_locations::Entity::update_many()
+        .col_expr(Location::DeletedAt, Expr::value(at))
+        .col_expr(Location::IsActive, Expr::value(false))
+        .col_expr(Location::UpdatedAt, Expr::value(at))
+        .filter(Location::Id.eq(id.as_str()))
+        .exec(&orm(&caller.db))
+        .await?;
     Ok(NoContent.into_response())
 }
 
@@ -250,12 +264,11 @@ pub(crate) async fn assert_work_locations(
             unique.push(id.clone());
         }
     }
-    let count: i64 = sqlx::query_scalar(
-        "select count(*) from hr_work_locations where id = any($1) and deleted_at is null",
-    )
-    .bind(&unique)
-    .fetch_one(db)
-    .await?;
+    let count = hr_work_locations::Entity::find()
+        .filter(Location::Id.is_in(unique.iter().map(String::as_str)))
+        .filter(Location::DeletedAt.is_null())
+        .count(&orm(db))
+        .await?;
     if usize::try_from(count).unwrap_or_default() != unique.len() {
         return Err(HrError::validation(
             "One of the work locations does not exist",
@@ -280,11 +293,13 @@ pub(crate) async fn work_location_names(
     if unique.is_empty() {
         return Ok(HashMap::new());
     }
-    let rows: Vec<(String, String)> =
-        sqlx::query_as("select id, name from hr_work_locations where id = any($1)")
-            .bind(&unique)
-            .fetch_all(db)
-            .await?;
+    let rows: Vec<(String, String)> = hr_work_locations::Entity::find()
+        .select_only()
+        .columns([Location::Id, Location::Name])
+        .filter(Location::Id.is_in(unique.iter().map(String::as_str)))
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     Ok(rows.into_iter().collect())
 }
 
@@ -397,12 +412,13 @@ pub(crate) async fn clock_place_for(
     if !requires_location {
         return Ok(ClockPlace::default());
     }
-    let ids: Option<Option<Value>> = sqlx::query_scalar(
-        "select to_jsonb(work_location_ids) from hr_employees where id = $1 limit 1",
-    )
-    .bind(employee_id)
-    .fetch_optional(db)
-    .await?;
+    let ids: Option<Option<Value>> = hr_employees::Entity::find()
+        .select_only()
+        .column(hr_employees::Column::WorkLocationIds)
+        .filter(hr_employees::Column::Id.eq(employee_id))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     let ids = ids.flatten().and_then(|ids| {
         ids.as_array().map(|ids| {
             ids.iter()

@@ -34,17 +34,26 @@ use axum::body::Bytes;
 use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, patch, post, put};
+use sea_orm::sea_query::{Asterisk, Expr, Func};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, Condition, ConnectionTrait, DbErr, EntityTrait, PaginatorTrait,
+    QueryFilter, QueryOrder, QuerySelect, TransactionTrait,
+};
 use serde_json::{Map, Value, json};
+use time::OffsetDateTime;
 use weldsuite_catalogs::entity_events::{
     EventName, PROJECT_CONTROL_LINK_CREATED, PROJECT_CONTROL_LINK_DELETED,
     PROJECT_RAID_ITEM_CLOSED, PROJECT_RAID_ITEM_CONVERTED, PROJECT_RAID_ITEM_CREATED,
     PROJECT_RAID_ITEM_DELETED, PROJECT_RAID_ITEM_ESCALATED, PROJECT_RAID_ITEM_UPDATED,
     PROJECT_TASK_CREATED,
 };
-use weldsuite_db::js_row;
+use weldsuite_db::record::JsonTable;
+use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_flow_domain::analytics::task_analytics_payload;
 use weldsuite_flow_domain::approvals::cancel_pending_approvals;
-use weldsuite_flow_domain::js::{contains_pattern, iso_from_millis, js_date, parse_int, to_fixed};
+use weldsuite_flow_domain::js::{
+    contains_pattern, iso_from_millis, js_date, millis_of, parse_int, to_fixed,
+};
 use weldsuite_flow_domain::numbering::allocate_number;
 use weldsuite_flow_domain::raid::{
     RaidFields, RaidKind, closed_at_for, control_link_event_data, conversion_error,
@@ -59,6 +68,10 @@ use weldsuite_flow_domain::risk::{
 use weldsuite_flow_domain::tasks::create_task;
 use weldsuite_kit::{Created, Data, NoContent, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::{
+    project_control_links as links, project_raid_assessments as assessments,
+    project_raid_items as items, tasks,
+};
 
 use crate::approvals::announce::announce_approvals_cancelled;
 use crate::raid_body::{
@@ -69,9 +82,13 @@ use crate::raid_store::{
     Direction, find_raid_item, links_of_raid_item, live_project_exists, present_linked_objects,
     progress_of, task_progress_for,
 };
+use crate::reporting_store::instant;
 use crate::{
-    Caller, FlowState, Refusal, Reply, access_scope, keyset_cursor, outside, page, paged, reply,
+    Caller, FlowState, Refusal, Reply, access_scope, fetch_limit, in_accessible, json_rows,
+    keyset_before, keyset_cursor_tz, outside, page, paged, reply, row_json,
 };
+
+const RAID_ITEMS: JsonTable = JsonTable::of::<items::Entity>();
 
 pub(crate) use acceptance::register as register_subject;
 
@@ -298,106 +315,71 @@ fn new_item_values(kind: RaidKind, input: &Body, ctx: &NewItem<'_>) -> Body {
 }
 
 /// The columns an insert or update writes (`score` is generated).
-macro_rules! raid_columns {
-    ($p:literal) => {
-        concat!(
-            $p,
-            "id, ",
-            $p,
-            "project_id, ",
-            $p,
-            "kind, ",
-            $p,
-            "number, ",
-            $p,
-            "title, ",
-            $p,
-            "description, ",
-            $p,
-            "status, ",
-            $p,
-            "category, ",
-            $p,
-            "owner_id, ",
-            $p,
-            "due_at, ",
-            $p,
-            "closed_at, ",
-            $p,
-            "custom_fields, ",
-            $p,
-            "probability, ",
-            $p,
-            "impact, ",
-            $p,
-            "residual_probability, ",
-            $p,
-            "residual_impact, ",
-            $p,
-            "strategy, ",
-            $p,
-            "\"trigger\", ",
-            $p,
-            "cost_impact, ",
-            $p,
-            "schedule_impact_days, ",
-            $p,
-            "review_interval_days, ",
-            $p,
-            "confidence, ",
-            $p,
-            "if_wrong, ",
-            $p,
-            "severity, ",
-            $p,
-            "escalated_at, ",
-            $p,
-            "direction, ",
-            $p,
-            "party_type, ",
-            $p,
-            "party_project_id, ",
-            $p,
-            "party_name, ",
-            $p,
-            "created_by, ",
-            $p,
-            "created_at, ",
-            $p,
-            "updated_at"
-        )
+const RAID_COLUMNS: [&str; 32] = [
+    "id",
+    "project_id",
+    "kind",
+    "number",
+    "title",
+    "description",
+    "status",
+    "category",
+    "owner_id",
+    "due_at",
+    "closed_at",
+    "custom_fields",
+    "probability",
+    "impact",
+    "residual_probability",
+    "residual_impact",
+    "strategy",
+    "trigger",
+    "cost_impact",
+    "schedule_impact_days",
+    "review_interval_days",
+    "confidence",
+    "if_wrong",
+    "severity",
+    "escalated_at",
+    "direction",
+    "party_type",
+    "party_project_id",
+    "party_name",
+    "created_by",
+    "created_at",
+    "updated_at",
+];
+
+/// The written columns of `values` (camelCase keys, as the row reads), by
+/// column name; `jsonb_populate_record` casts each to its column's type.
+fn raid_record(values: &Body) -> Map<String, Value> {
+    let Value::Object(by_column) = columns_of(values) else {
+        return Map::new();
     };
+    by_column
+        .into_iter()
+        .filter(|(column, _)| RAID_COLUMNS.contains(&column.as_str()))
+        .collect()
 }
 
-/// Insert an item from its values (camelCase keys, as the row reads).
-fn insert_item(
-    values: &Body,
-) -> sqlx::query::Query<'static, sqlx::Postgres, sqlx::postgres::PgArguments> {
-    sqlx::query(concat!(
-        "insert into project_raid_items (",
-        raid_columns!(""),
-        ") select ",
-        raid_columns!("p."),
-        " from jsonb_populate_record(null::project_raid_items, $1) p"
-    ))
-    .bind(columns_of(values))
+/// Insert an item from its values (camelCase keys, as the row reads): every
+/// written column, a value left out as null.
+async fn insert_item<C: ConnectionTrait>(db: &C, values: &Body) -> Result<(), DbErr> {
+    let mut row = raid_record(values);
+    for column in RAID_COLUMNS {
+        if !row.contains_key(column) {
+            row.insert(column.to_owned(), Value::Null);
+        }
+    }
+    RAID_ITEMS.insert(db, row).await?;
+    Ok(())
 }
 
 /// Update the live item with the columns in `set` (camelCase keys); the
 /// others keep their values.
-fn update_item(
-    id: &str,
-    set: &Body,
-) -> sqlx::query::Query<'static, sqlx::Postgres, sqlx::postgres::PgArguments> {
-    sqlx::query(concat!(
-        "update project_raid_items r set (",
-        raid_columns!(""),
-        ") = (select ",
-        raid_columns!("p."),
-        " from jsonb_populate_record(r, $1) p) where r.id = $2 and r.deleted_at is null"
-    ))
-    .bind(columns_of(set))
-    .bind(id.to_owned())
+async fn update_item<C: ConnectionTrait>(db: &C, id: &str, set: &Body) -> Result<(), DbErr> {
+    RAID_ITEMS.update(db, id, raid_record(set), true).await?;
+    Ok(())
 }
 
 /// An assessment of a risk.
@@ -414,24 +396,39 @@ pub(super) struct Assessment<'a> {
     assessed_at: String,
 }
 
-pub(super) fn insert_assessment(
+/// A rating as its `smallint` column takes it; out of range fails the
+/// statement, as the cast did.
+fn rating(value: i64) -> Result<i16, DbErr> {
+    i16::try_from(value).map_err(|_| DbErr::Custom("smallint out of range".to_owned()))
+}
+
+/// An ISO timestamp bound as `$n::timestamptz`.
+fn instant_of(iso: &str) -> Result<OffsetDateTime, DbErr> {
+    millis_of(iso)
+        .map(instant)
+        .ok_or_else(|| DbErr::Custom(format!("invalid input syntax for type timestamp: {iso}")))
+}
+
+pub(super) async fn insert_assessment<C: ConnectionTrait>(
+    db: &C,
     row: &Assessment<'_>,
-) -> sqlx::query::Query<'static, sqlx::Postgres, sqlx::postgres::PgArguments> {
-    sqlx::query(
-        "insert into project_raid_assessments (id, item_id, project_id, probability, impact,
-             residual_probability, residual_impact, note, assessed_by, assessed_at)
-         values ($1, $2, $3, $4::int, $5::int, $6::int, $7::int, $8, $9, $10::timestamptz)",
-    )
-    .bind(row.id.clone())
-    .bind(row.item_id.to_owned())
-    .bind(row.project_id.to_owned())
-    .bind(row.probability)
-    .bind(row.impact)
-    .bind(row.residual_probability)
-    .bind(row.residual_impact)
-    .bind(row.note.clone())
-    .bind(row.assessed_by.to_owned())
-    .bind(row.assessed_at.clone())
+) -> Result<(), DbErr> {
+    assessments::Entity::insert(assessments::ActiveModel {
+        id: Set(row.id.clone()),
+        item_id: Set(row.item_id.to_owned()),
+        project_id: Set(row.project_id.to_owned()),
+        probability: Set(rating(row.probability)?),
+        impact: Set(rating(row.impact)?),
+        residual_probability: Set(row.residual_probability.map(rating).transpose()?),
+        residual_impact: Set(row.residual_impact.map(rating).transpose()?),
+        note: Set(row.note.clone()),
+        assessed_by: Set(row.assessed_by.to_owned()),
+        assessed_at: Set(instant_of(&row.assessed_at)?),
+        ..Default::default()
+    })
+    .exec_without_returning(db)
+    .await?;
+    Ok(())
 }
 
 /// A new link row (camelCase), as `presentControlLink` reads it.
@@ -457,24 +454,22 @@ pub(crate) fn link_values(
     })
 }
 
-pub(crate) fn insert_link(
-    link: &Value,
-) -> sqlx::query::Query<'static, sqlx::Postgres, sqlx::postgres::PgArguments> {
+pub(crate) async fn insert_link<C: ConnectionTrait>(db: &C, link: &Value) -> Result<(), DbErr> {
     let field = |key: &str| link[key].as_str().unwrap_or_default().to_owned();
-    sqlx::query(
-        "insert into project_control_links (id, project_id, from_type, from_id, to_type, to_id,
-             relation, created_by, created_at)
-         values ($1, $2, $3, $4, $5, $6, $7, $8, $9::timestamptz)",
-    )
-    .bind(field("id"))
-    .bind(field("projectId"))
-    .bind(field("fromType"))
-    .bind(field("fromId"))
-    .bind(field("toType"))
-    .bind(field("toId"))
-    .bind(field("relation"))
-    .bind(field("createdBy"))
-    .bind(field("createdAt"))
+    links::Entity::insert(links::ActiveModel {
+        id: Set(field("id")),
+        project_id: Set(field("projectId")),
+        from_type: Set(field("fromType")),
+        from_id: Set(field("fromId")),
+        to_type: Set(field("toType")),
+        to_id: Set(field("toId")),
+        relation_: Set(field("relation")),
+        created_by: Set(field("createdBy")),
+        created_at: Set(instant_of(&field("createdAt"))?),
+    })
+    .exec_without_returning(db)
+    .await?;
+    Ok(())
 }
 
 // ── Events ──────────────────────────────────────────────────────────────────
@@ -518,7 +513,7 @@ async fn party_project_error(
 }
 
 /// `presentOne(c, row)`: the item with its task progress.
-pub(super) async fn present_one(caller: &Caller, row: &Value) -> Result<Value, sqlx::Error> {
+pub(super) async fn present_one(caller: &Caller, row: &Value) -> Result<Value, DbErr> {
     let id = row["id"].as_str().unwrap_or_default().to_owned();
     let progress = task_progress_for(&caller.db, std::slice::from_ref(&id)).await?;
     let (done, total) = progress_of(&progress, &id);
@@ -556,28 +551,57 @@ pub(crate) fn parse_limit(raw: Option<&str>, fallback: i64, max: i64) -> i64 {
     }
 }
 
-/// The list's `where`, without the cursor: the project scope (`$1` the
-/// project, else `$2`/`$3` the accessible ones), then the filters.
-macro_rules! raid_filters {
-    () => {
-        concat!(
-            "t.deleted_at is null",
-            " and ($1::text is null or t.project_id = $1)",
-            " and ($1::text is not null or ",
-            in_accessible!("t.project_id", "$2", "$3"),
-            ")",
-            " and ($4::text is null or t.kind = $4)",
-            " and ($5::text is null or t.status = $5)",
-            " and ($6::text is null or t.owner_id = $6)",
-            " and ($7::int is null or (t.score is not null and t.score >= $7 and t.score <= $8))",
-            " and ($9::bool is not true or t.closed_at is null)",
-            " and ($10::text is null or t.title ilike $10 or t.description ilike $10)"
-        )
-    };
+/// The project scope: the one project, else the accessible ones.
+fn scope_condition(project_id: Option<&str>, scope: &(bool, Vec<String>)) -> Condition {
+    match project_id {
+        Some(project_id) => Condition::all().add(items::Column::ProjectId.eq(project_id)),
+        None => in_accessible(items::Column::ProjectId, scope),
+    }
+}
+
+/// The list's `where`, without the cursor: the project scope, then the
+/// filters.
+fn raid_filters(q: &ListQuery, scope: &(bool, Vec<String>)) -> Condition {
+    use items::Column;
+    let mut all = Condition::all()
+        .add(Column::DeletedAt.is_null())
+        .add(scope_condition(q.project_id.as_deref(), scope));
+    if let Some(kind) = &q.kind {
+        all = all.add(Column::Kind.eq(kind.as_str()));
+    }
+    if let Some(status) = &q.status {
+        all = all.add(Column::Status.eq(status.as_str()));
+    }
+    if let Some(owner) = &q.owner_id {
+        all = all.add(Column::OwnerId.eq(owner.as_str()));
+    }
+    if let Some((min, max)) = q
+        .band
+        .as_deref()
+        .and_then(RiskBand::parse)
+        .map(RiskBand::range)
+    {
+        let bound = |n: i64| i32::try_from(n).unwrap_or(i32::MAX);
+        all = all
+            .add(Column::Score.is_not_null())
+            .add(Column::Score.gte(bound(min)))
+            .add(Column::Score.lte(bound(max)));
+    }
+    if q.open {
+        all = all.add(Column::ClosedAt.is_null());
+    }
+    if let Some(search) = q.search.as_deref().map(contains_pattern) {
+        all = all.add(
+            Condition::any()
+                .add(Column::Title.ilike(search.as_str()))
+                .add(Column::Description.ilike(search.as_str())),
+        );
+    }
+    all
 }
 
 /// `projectScope(c, projectId)`: the one project when the caller is in it,
-/// else every accessible project (`(all, ids)` for [`in_accessible!`]).
+/// else every accessible project (`(all, ids)` for [`in_accessible`]).
 async fn project_scope(
     caller: &Caller,
     project_id: Option<&str>,
@@ -603,9 +627,10 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
         Err(refused) => return outside(Err(refused)),
     };
     let cursor = match &q.cursor {
-        Some(cursor) => match keyset_cursor(
+        Some(cursor) => match keyset_cursor_tz(
             &caller.db,
-            "select id, to_jsonb(created_at) #>> '{}' from project_raid_items where id = $1 limit 1",
+            items::Column::Id,
+            items::Column::CreatedAt,
             cursor,
         )
         .await
@@ -616,7 +641,7 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
         None => None,
     };
     reply(
-        list_items(&caller, &q, limit, (all, &ids), cursor).await,
+        list_items(&caller, &q, limit, &(all, ids), cursor).await,
         "Failed to list RAID items",
     )
 }
@@ -625,59 +650,29 @@ async fn list_items(
     caller: &Caller,
     q: &ListQuery,
     limit: i64,
-    (all, ids): (bool, &[String]),
-    cursor: Option<(String, String)>,
+    scope: &(bool, Vec<String>),
+    cursor: Option<(OffsetDateTime, String)>,
 ) -> Reply {
+    use items::Column;
     let db = &caller.db;
-    let range = q
-        .band
-        .as_deref()
-        .and_then(RiskBand::parse)
-        .map(RiskBand::range);
-    let min = range.map(|(min, _)| i32::try_from(min).unwrap_or(i32::MAX));
-    let max = range.map(|(_, max)| i32::try_from(max).unwrap_or(i32::MAX));
-    let search = q.search.as_deref().map(contains_pattern);
-    let rows: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        raid_json!("t"),
-        " from project_raid_items t where ",
-        raid_filters!(),
-        " and ($11::timestamptz is null or t.created_at < $11::timestamptz",
-        " or (t.created_at = $11::timestamptz and t.id < $12))",
-        " order by t.created_at desc, t.id desc limit $13"
-    ))
-    .bind(q.project_id.as_deref())
-    .bind(all)
-    .bind(ids)
-    .bind(q.kind.as_deref())
-    .bind(q.status.as_deref())
-    .bind(q.owner_id.as_deref())
-    .bind(min)
-    .bind(max)
-    .bind(q.open)
-    .bind(search.as_deref())
-    .bind(cursor.as_ref().map(|c| c.0.as_str()))
-    .bind(cursor.as_ref().map(|c| c.1.as_str()))
-    .bind(limit + 1)
-    .fetch_all(db)
-    .await?;
-    let total: i64 = sqlx::query_scalar(concat!(
-        "select count(*) from project_raid_items t where ",
-        raid_filters!()
-    ))
-    .bind(q.project_id.as_deref())
-    .bind(all)
-    .bind(ids)
-    .bind(q.kind.as_deref())
-    .bind(q.status.as_deref())
-    .bind(q.owner_id.as_deref())
-    .bind(min)
-    .bind(max)
-    .bind(q.open)
-    .bind(search.as_deref())
-    .fetch_one(db)
-    .await?;
-    let (rows, has_more, next) = page(rows.into_iter().map(js_row).collect(), limit);
+    let mut found = items::Entity::find().filter(raid_filters(q, scope));
+    if let Some(cursor) = &cursor {
+        found = found.filter(keyset_before(Column::Id, Column::CreatedAt, cursor));
+    }
+    let rows = found
+        .order_by_desc(Column::CreatedAt)
+        .order_by_desc(Column::Id)
+        .limit(fetch_limit(limit)?)
+        .all(&orm(db))
+        .await?;
+    let total = i64::try_from(
+        items::Entity::find()
+            .filter(raid_filters(q, scope))
+            .count(&orm(db))
+            .await?,
+    )
+    .unwrap_or(i64::MAX);
+    let (rows, has_more, next) = page(json_rows(rows)?, limit);
     let page_ids: Vec<String> = rows
         .iter()
         .filter_map(|row| row["id"].as_str().map(str::to_owned))
@@ -700,30 +695,12 @@ async fn matrix(caller: Caller, RawQuery(raw): RawQuery) -> Response {
         Ok(q) => q,
         Err(refused) => return outside(Err(refused)),
     };
-    let (all, ids) = match project_scope(&caller, project_id.as_deref()).await {
+    let scope = match project_scope(&caller, project_id.as_deref()).await {
         Ok(scope) => scope,
         Err(refused) => return outside(Err(refused)),
     };
     let result = async {
-        // After mitigation, a risk with no residual assessment stays in its current cell.
-        let counts: Vec<(i32, i32, i64)> = sqlx::query_as(concat!(
-            "select (case when $4::bool then coalesce(t.residual_probability, t.probability)",
-            " else t.probability end)::int,",
-            " (case when $4::bool then coalesce(t.residual_impact, t.impact)",
-            " else t.impact end)::int,",
-            " count(*)::int8",
-            " from project_raid_items t where t.deleted_at is null",
-            " and ($1::text is null or t.project_id = $1)",
-            " and ($1::text is not null or ",
-            in_accessible!("t.project_id", "$2", "$3"),
-            ") and t.kind = 'risk' and t.closed_at is null group by 1, 2"
-        ))
-        .bind(project_id.as_deref())
-        .bind(all)
-        .bind(&ids)
-        .bind(residual)
-        .fetch_all(&caller.db)
-        .await?;
+        let counts = matrix_counts(&caller.db, project_id.as_deref(), &scope, residual).await?;
         let counts: Vec<MatrixCell> = counts
             .into_iter()
             .map(|(probability, impact, count)| MatrixCell {
@@ -745,6 +722,44 @@ async fn matrix(caller: Caller, RawQuery(raw): RawQuery) -> Response {
     reply(result, "Failed to load the risk matrix")
 }
 
+/// The open risks per cell. After mitigation, a risk with no residual
+/// assessment stays in its current cell.
+async fn matrix_counts(
+    db: &PgPool,
+    project_id: Option<&str>,
+    scope: &(bool, Vec<String>),
+    residual: bool,
+) -> Result<Vec<(i32, i32, i64)>, DbErr> {
+    use items::Column;
+    let rating = |residual_column: Column, column: Column| -> Expr {
+        let value = if residual {
+            Expr::from(Func::coalesce([
+                Expr::col(residual_column),
+                Expr::col(column),
+            ]))
+        } else {
+            Expr::col(column)
+        };
+        sea_orm::ExprTrait::cast_as(value, "int")
+    };
+    let probability = rating(Column::ResidualProbability, Column::Probability);
+    let impact = rating(Column::ResidualImpact, Column::Impact);
+    items::Entity::find()
+        .select_only()
+        .column_as(probability.clone(), "probability")
+        .column_as(impact.clone(), "impact")
+        .column_as(Expr::from(Func::count(Expr::col(Asterisk))), "count")
+        .filter(Column::DeletedAt.is_null())
+        .filter(scope_condition(project_id, scope))
+        .filter(Column::Kind.eq("risk"))
+        .filter(Column::ClosedAt.is_null())
+        .group_by(probability)
+        .group_by(impact)
+        .into_tuple()
+        .all(&orm(db))
+        .await
+}
+
 // ── GET /:id ────────────────────────────────────────────────────────────────
 
 async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
@@ -760,13 +775,14 @@ async fn fetch_detail(caller: &Caller, id: &str) -> Reply {
     if !caller.can_access(project).await? {
         return Err(Refusal::forbidden(PROJECT_DENIED));
     }
-    let assessments: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(a) from project_raid_assessments a where a.item_id = $1
-         order by a.assessed_at desc, a.id desc",
-    )
-    .bind(id)
-    .fetch_all(&caller.db)
-    .await?;
+    let assessments = json_rows(
+        assessments::Entity::find()
+            .filter(assessments::Column::ItemId.eq(id))
+            .order_by_desc(assessments::Column::AssessedAt)
+            .order_by_desc(assessments::Column::Id)
+            .all(&orm(&caller.db))
+            .await?,
+    )?;
     let link_rows = links_of_raid_item(&caller.db, id).await?;
     let progress = task_progress_for(&caller.db, &[id.to_owned()]).await?;
     let links = present_linked_objects(caller, link_rows, |link| {
@@ -782,12 +798,7 @@ async fn fetch_detail(caller: &Caller, id: &str) -> Reply {
     if let Value::Object(fields) = &mut item {
         fields.insert(
             "assessments".to_owned(),
-            Value::Array(
-                assessments
-                    .into_iter()
-                    .map(|row| present_raid_assessment(&js_row(row)))
-                    .collect(),
-            ),
+            Value::Array(assessments.iter().map(present_raid_assessment).collect()),
         );
         fields.insert("links".to_owned(), Value::Array(links));
     }
@@ -845,7 +856,7 @@ async fn create_item(
     let db = &caller.db;
     let now_ms = crate::now_ms();
     let id = generate_id("raid");
-    let number = allocate_number(db, &raid_sequence(kind, project_id)).await?;
+    let number = allocate_number(&orm(db), &raid_sequence(kind, project_id)).await?;
     let values = new_item_values(
         kind,
         input,
@@ -856,23 +867,25 @@ async fn create_item(
             now_ms,
         },
     );
-    let mut statements = vec![insert_item(&values)];
     // A risk's first assessment is its creation: the start of the trend.
-    if kind == RaidKind::Risk {
-        statements.push(insert_assessment(&Assessment {
-            id: generate_id("rasm"),
-            item_id: &id,
-            project_id,
-            probability: num(input, "probability").unwrap_or(0),
-            impact: num(input, "impact").unwrap_or(0),
-            residual_probability: num(input, "residualProbability"),
-            residual_impact: num(input, "residualImpact"),
-            note: None,
-            assessed_by: &caller.user_id,
-            assessed_at: iso_ms(now_ms),
-        }));
+    let first = (kind == RaidKind::Risk).then(|| Assessment {
+        id: generate_id("rasm"),
+        item_id: &id,
+        project_id,
+        probability: num(input, "probability").unwrap_or(0),
+        impact: num(input, "impact").unwrap_or(0),
+        residual_probability: num(input, "residualProbability"),
+        residual_impact: num(input, "residualImpact"),
+        note: None,
+        assessed_by: &caller.user_id,
+        assessed_at: iso_ms(now_ms),
+    });
+    let tx = orm(db).begin().await?;
+    insert_item(&tx, &values).await?;
+    if let Some(first) = &first {
+        insert_assessment(&tx, first).await?;
     }
-    weldsuite_db::atomically(db, statements).await?;
+    tx.commit().await?;
     let Some(row) = find_raid_item(db, &id).await? else {
         return Err(Refusal::Internal("the new item is missing".to_owned()));
     };
@@ -1003,11 +1016,10 @@ async fn update_raid(
     let rated = previous_score.is_some()
         && next_score.is_some()
         && (next["probability"] != existing["probability"] || next["impact"] != existing["impact"]);
-    let mut statements = vec![update_item(id, &set)];
-    if rated
+    let reassessment = if rated
         && let (Some(probability), Some(impact)) = (int(&next, "probability"), int(&next, "impact"))
     {
-        statements.push(insert_assessment(&Assessment {
+        Some(Assessment {
             id: generate_id("rasm"),
             item_id: id,
             project_id,
@@ -1018,9 +1030,16 @@ async fn update_raid(
             note: None,
             assessed_by: &caller.user_id,
             assessed_at: now.clone(),
-        }));
+        })
+    } else {
+        None
+    };
+    let tx = orm(db).begin().await?;
+    update_item(&tx, id, &set).await?;
+    if let Some(reassessment) = &reassessment {
+        insert_assessment(&tx, reassessment).await?;
     }
-    weldsuite_db::atomically(db, statements).await?;
+    tx.commit().await?;
     let Some(row) = find_raid_item(db, id).await? else {
         return Err(Refusal::not_found(ITEM_LABEL, id));
     };
@@ -1070,36 +1089,48 @@ async fn close_acceptance_request(
     state: &FlowState,
     caller: &Caller,
     id: &str,
-) -> Result<(), sqlx::Error> {
+) -> Result<(), DbErr> {
     let cleared =
         cancel_pending_approvals(&caller.db, "risk_acceptance", id, true, crate::now_ms()).await?;
     announce_approvals_cancelled(state, caller, &cleared);
     Ok(())
 }
 
+/// The item soft-deleted and its links deleted, in one transaction.
+async fn delete_item(db: &PgPool, id: &str) -> Result<(), DbErr> {
+    let now = instant(crate::now_ms());
+    let tx = orm(db).begin().await?;
+    items::Entity::update_many()
+        .col_expr(items::Column::DeletedAt, Expr::value(Some(now)))
+        .col_expr(items::Column::UpdatedAt, Expr::value(now))
+        .filter(items::Column::Id.eq(id))
+        .filter(items::Column::DeletedAt.is_null())
+        .exec(&tx)
+        .await?;
+    links::Entity::delete_many()
+        .filter(
+            Condition::any()
+                .add(
+                    Condition::all()
+                        .add(links::Column::FromType.eq("raid_item"))
+                        .add(links::Column::FromId.eq(id)),
+                )
+                .add(
+                    Condition::all()
+                        .add(links::Column::ToType.eq("raid_item"))
+                        .add(links::Column::ToId.eq(id)),
+                ),
+        )
+        .exec(&tx)
+        .await?;
+    tx.commit().await
+}
+
 async fn remove_item(state: &FlowState, caller: &Caller, id: &str) -> Reply {
     let (existing, kind) = writable_item(caller, id).await?;
     // The item's links go with it, in the same batch.
     let links = links_of_raid_item(&caller.db, id).await?;
-    let now = iso_ms(crate::now_ms());
-    weldsuite_db::atomically(
-        &caller.db,
-        [
-            sqlx::query(
-                "update project_raid_items set deleted_at = $2::timestamptz, updated_at = $2::timestamptz
-                 where id = $1 and deleted_at is null",
-            )
-            .bind(id.to_owned())
-            .bind(now),
-            sqlx::query(
-                "delete from project_control_links
-                 where (from_type = 'raid_item' and from_id = $1)
-                    or (to_type = 'raid_item' and to_id = $1)",
-            )
-            .bind(id.to_owned()),
-        ],
-    )
-    .await?;
+    delete_item(&caller.db, id).await?;
     // A risk that is gone has nothing left to accept: close the open acceptance request.
     if kind == RaidKind::Risk {
         close_acceptance_request(state, caller, id).await?;
@@ -1207,33 +1238,32 @@ async fn assess_risk(
     set.insert("dueAt".to_owned(), due_at);
     set.insert("updatedAt".to_owned(), json!(now));
     let project_id = existing["projectId"].as_str().unwrap_or_default();
-    weldsuite_db::atomically(
-        db,
-        [
-            update_item(id, &set),
-            insert_assessment(&Assessment {
-                id: assessment_id.clone(),
-                item_id: id,
-                project_id,
-                probability,
-                impact,
-                residual_probability,
-                residual_impact,
-                note: text(input, "note").map(str::to_owned),
-                assessed_by: &caller.user_id,
-                assessed_at: now,
-            }),
-        ],
+    let tx = orm(db).begin().await?;
+    update_item(&tx, id, &set).await?;
+    insert_assessment(
+        &tx,
+        &Assessment {
+            id: assessment_id.clone(),
+            item_id: id,
+            project_id,
+            probability,
+            impact,
+            residual_probability,
+            residual_impact,
+            note: text(input, "note").map(str::to_owned),
+            assessed_by: &caller.user_id,
+            assessed_at: now,
+        },
     )
     .await?;
+    tx.commit().await?;
     let row = find_raid_item(db, id).await?;
-    let assessment: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(a) from project_raid_assessments a where a.id = $1 limit 1",
-    )
-    .bind(&assessment_id)
-    .fetch_optional(db)
-    .await?;
-    let (Some(row), Some(assessment)) = (row, assessment.map(js_row)) else {
+    let assessment = assessments::Entity::find_by_id(assessment_id.as_str())
+        .one(&orm(db))
+        .await?
+        .map(row_json)
+        .transpose()?;
+    let (Some(row), Some(assessment)) = (row, assessment) else {
         return Err(Refusal::Internal("the assessment is missing".to_owned()));
     };
 
@@ -1381,7 +1411,7 @@ async fn convert_item(
     let now_ms = crate::now_ms();
     let now = iso_ms(now_ms);
     let new_id = generate_id("raid");
-    let number = allocate_number(db, &raid_sequence(to, project_id)).await?;
+    let number = allocate_number(&orm(db), &raid_sequence(to, project_id)).await?;
     let created = converted_values(
         source,
         to,
@@ -1414,24 +1444,26 @@ async fn convert_item(
     closing.insert("closedAt".to_owned(), json!(now));
     closing.insert("updatedAt".to_owned(), json!(now));
 
-    let mut statements = vec![insert_item(&created)];
-    if let Some((probability, impact)) = rating {
-        statements.push(insert_assessment(&Assessment {
-            id: generate_id("rasm"),
-            item_id: &new_id,
-            project_id,
-            probability,
-            impact,
-            residual_probability: None,
-            residual_impact: None,
-            note: None,
-            assessed_by: &caller.user_id,
-            assessed_at: now.clone(),
-        }));
+    let first = rating.map(|(probability, impact)| Assessment {
+        id: generate_id("rasm"),
+        item_id: &new_id,
+        project_id,
+        probability,
+        impact,
+        residual_probability: None,
+        residual_impact: None,
+        note: None,
+        assessed_by: &caller.user_id,
+        assessed_at: now.clone(),
+    });
+    let tx = orm(db).begin().await?;
+    insert_item(&tx, &created).await?;
+    if let Some(first) = &first {
+        insert_assessment(&tx, first).await?;
     }
-    statements.push(insert_link(&link));
-    statements.push(update_item(id, &closing));
-    weldsuite_db::atomically(db, statements).await?;
+    insert_link(&tx, &link).await?;
+    update_item(&tx, id, &closing).await?;
+    tx.commit().await?;
     // The source is closed now: a risk converted to an issue is no longer accepted or refused as a risk.
     if kind == RaidKind::Risk {
         close_acceptance_request(state, caller, id).await?;
@@ -1506,14 +1538,13 @@ async fn create_mitigation_task(
         && let Some(task_id) = task_id
     {
         // The task cannot share a batch with its link: take it back out.
-        let taken = iso_ms(crate::now_ms());
-        if let Err(error) = sqlx::query(
-            "update tasks set deleted_at = $2::timestamp, updated_at = $2::timestamp where id = $1",
-        )
-        .bind(&task_id)
-        .bind(&taken)
-        .execute(&caller.db)
-        .await
+        let taken = utc_now();
+        if let Err(error) = tasks::Entity::update_many()
+            .col_expr(tasks::Column::DeletedAt, Expr::value(Some(taken)))
+            .col_expr(tasks::Column::UpdatedAt, Expr::value(taken))
+            .filter(tasks::Column::Id.eq(&task_id))
+            .exec(&orm(&caller.db))
+            .await
         {
             tracing::error!(%error, "[flow-api/project-raid] task rollback failed");
         }
@@ -1562,7 +1593,7 @@ async fn mitigation_task(
         &caller.user_id,
         &now,
     );
-    weldsuite_db::atomically(db, [insert_link(&link)]).await?;
+    insert_link(&orm(db), &link).await?;
 
     caller.publish(
         state,

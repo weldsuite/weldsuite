@@ -14,11 +14,6 @@
 //! `f64`) so an unparseable working-hours string behaves as an Invalid Date
 //! does: the window it touches yields no slot.
 
-#![allow(
-    clippy::disallowed_methods,
-    reason = "not converted to the ORM yet (ADR DATA-019)"
-)]
-
 pub mod js_dates;
 mod time_math;
 
@@ -26,12 +21,22 @@ use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::pin::Pin;
 
+use sea_orm::sea_query::{Expr, NullOrdering, Order, Query};
+use sea_orm::{
+    ColumnTrait, Condition, DbErr, EntityTrait, FromQueryResult, JoinType, QueryFilter, QueryOrder,
+    QuerySelect, RelationDef, Set,
+};
 use serde_json::Value;
 use sqlx::PgPool;
-use time::OffsetDateTime;
+use time::{OffsetDateTime, PrimitiveDateTime};
+use weldsuite_db::{orm, utc_now};
+use weldsuite_schema::tenant::{
+    calendar_events, calendars, meetings, tasks, user_preferences, workspace_members,
+};
 
 use time_math::{
-    DAY_MS, end_of_day, from_db, js_number, same_day, set_hours, start_of_day, weekday,
+    DAY_MS, end_of_day, from_db, instant, iso_of, js_number, same_day, set_hours, start_of_day,
+    weekday,
 };
 pub use time_math::{iso, now_ms};
 
@@ -60,7 +65,7 @@ const DAY_NAMES: [&str; 7] = [
 /// Date bound to a query).
 #[derive(Debug)]
 pub enum SyncError {
-    Database(sqlx::Error),
+    Database(DbErr),
     Invalid(String),
 }
 
@@ -75,19 +80,20 @@ impl std::fmt::Display for SyncError {
 
 impl std::error::Error for SyncError {}
 
-impl From<sqlx::Error> for SyncError {
-    fn from(error: sqlx::Error) -> Self {
+impl From<DbErr> for SyncError {
+    fn from(error: DbErr) -> Self {
         Self::Database(error)
     }
 }
 
 pub type SyncResult<T> = Result<T, SyncError>;
 
-/// A time bound to a query (`toISOString()`; an Invalid Date throws).
-fn bind_time(ms: f64) -> SyncResult<String> {
+/// A time bound to a query (`toISOString()`, then `::timestamp`: UTC to the
+/// millisecond; an Invalid Date throws).
+fn bind_time(ms: f64) -> SyncResult<PrimitiveDateTime> {
     if ms.is_finite() {
         #[allow(clippy::cast_possible_truncation)]
-        Ok(iso(ms as i64))
+        Ok(weldsuite_db::utc_timestamp(instant(ms as i64)))
     } else {
         Err(SyncError::Invalid(
             "RangeError: Invalid time value".to_owned(),
@@ -143,36 +149,35 @@ fn truthy(value: &Value) -> bool {
 /// The user's default calendar id, created when missing
 /// (`ensureDefaultCalendar`).
 pub async fn ensure_default_calendar(db: &PgPool, user_id: &str) -> SyncResult<String> {
-    let existing: Option<String> = sqlx::query_scalar(
-        "select id from calendars
-         where owner_id = $1 and is_default = true and deleted_at is null
-         limit 1",
-    )
-    .bind(user_id)
-    .fetch_optional(db)
-    .await?;
+    use calendars::Column;
+    let db = orm(db);
+    let existing: Option<String> = calendars::Entity::find()
+        .select_only()
+        .column(Column::Id)
+        .filter(Column::OwnerId.eq(user_id))
+        .filter(Column::IsDefault.eq(true))
+        .filter(Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&db)
+        .await?;
     if let Some(id) = existing {
         return Ok(id);
     }
     let id = weldsuite_kit::generate_id("cal");
-    let now = iso(now_ms_i64());
-    sqlx::query(
-        "insert into calendars (id, name, owner_id, is_default, is_active, created_at, updated_at)
-         values ($1, 'My Calendar', $2, true, true, $3::timestamp, $3::timestamp)",
-    )
-    .bind(&id)
-    .bind(user_id)
-    .bind(&now)
-    .execute(db)
+    let now = utc_now();
+    calendars::Entity::insert(calendars::ActiveModel {
+        id: Set(id.clone()),
+        name: Set("My Calendar".to_owned()),
+        owner_id: Set(user_id.to_owned()),
+        is_default: Set(Some(true)),
+        is_active: Set(Some(true)),
+        created_at: Set(now),
+        updated_at: Set(now),
+        ..Default::default()
+    })
+    .exec_without_returning(&db)
     .await?;
     Ok(id)
-}
-
-fn now_ms_i64() -> i64 {
-    #[allow(clippy::cast_possible_truncation)]
-    {
-        now_ms() as i64
-    }
 }
 
 // ── Scheduling context ──────────────────────────────────────────────────────
@@ -185,12 +190,14 @@ pub struct SchedulingContext {
 }
 
 async fn scheduling_context(db: &PgPool, user_id: &str) -> SyncResult<SchedulingContext> {
-    let prefs: Option<(Option<String>, Option<Value>)> = sqlx::query_as(
-        "select timezone, working_hours from user_preferences where user_id = $1 limit 1",
-    )
-    .bind(user_id)
-    .fetch_optional(db)
-    .await?;
+    use user_preferences::Column;
+    let prefs: Option<(Option<String>, Option<Value>)> = user_preferences::Entity::find()
+        .select_only()
+        .columns([Column::Timezone, Column::WorkingHours])
+        .filter(Column::UserId.eq(user_id))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     let (timezone, working_hours) = prefs.unwrap_or((None, None));
     Ok(SchedulingContext {
         timezone: timezone
@@ -230,18 +237,35 @@ impl TaskSchedulingApp {
 
 const LEGACY_PREFERENCE: &str = "autoScheduleTasks";
 
+/// A task's CRM links: customer, contact, counterparty, person.
+type CrmLinks = (
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+);
+
 async fn task_scheduling_app(db: &PgPool, task_id: Option<&str>) -> SyncResult<TaskSchedulingApp> {
+    use tasks::Column;
     let Some(task_id) = task_id.filter(|id| !id.is_empty()) else {
         return Ok(TaskSchedulingApp::Flow);
     };
-    let crm: Option<bool> = sqlx::query_scalar(
-        "select (customer_id is not null or contact_id is not null
-                 or counterparty_id is not null or person_id is not null)
-         from tasks where id = $1 limit 1",
-    )
-    .bind(task_id)
-    .fetch_optional(db)
-    .await?;
+    let links: Option<CrmLinks> = tasks::Entity::find()
+        .select_only()
+        .columns([
+            Column::CustomerId,
+            Column::ContactId,
+            Column::CounterpartyId,
+            Column::PersonId,
+        ])
+        .filter(Column::Id.eq(task_id))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
+    // `customer_id is not null or contact_id is not null or …`.
+    let crm = links.map(|(customer, contact, counterparty, person)| {
+        customer.is_some() || contact.is_some() || counterparty.is_some() || person.is_some()
+    });
     Ok(if crm == Some(true) {
         TaskSchedulingApp::Crm
     } else {
@@ -257,14 +281,15 @@ pub async fn is_task_auto_schedule_enabled(
     user_id: &str,
     task_id: Option<&str>,
 ) -> SyncResult<bool> {
-    let prefs: Option<Option<Value>> = sqlx::query_scalar(
-        "select ui_preferences from user_preferences
-         where user_id = $1 and deleted_at is null
-         limit 1",
-    )
-    .bind(user_id)
-    .fetch_optional(db)
-    .await?;
+    use user_preferences::Column;
+    let prefs: Option<Option<Value>> = user_preferences::Entity::find()
+        .select_only()
+        .column(Column::UiPreferences)
+        .filter(Column::UserId.eq(user_id))
+        .filter(Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     let app = task_scheduling_app(db, task_id).await?;
     let ui = prefs.flatten().unwrap_or(Value::Null);
     let own = ui.get(app.preference()).filter(|v| !v.is_null());
@@ -508,50 +533,66 @@ async fn busy_blocks(
 ) -> SyncResult<Vec<ExistingEvent>> {
     let from = bind_time(day_start)?;
     let to = bind_time(day_end)?;
-    let member: Option<String> =
-        sqlx::query_scalar("select id from workspace_members where user_id = $1 limit 1")
-            .bind(user_id)
-            .fetch_optional(db)
-            .await?;
-    let events: Vec<(String, Value, Option<Value>)> = sqlx::query_as(
-        "select id, to_jsonb(start_time), to_jsonb(end_time) from calendar_events
-         where deleted_at is null and organizer_id = $1 and status = 'confirmed'
-           and start_time >= $2::timestamp and start_time <= $3::timestamp",
-    )
-    .bind(user_id)
-    .bind(&from)
-    .bind(&to)
-    .fetch_all(db)
-    .await?;
-    let meetings: Vec<(String, Option<Value>, Option<Value>)> = sqlx::query_as(
-        "select id, to_jsonb(scheduled_start), to_jsonb(scheduled_end) from meetings
-         where deleted_at is null and status not in ('cancelled', 'completed', 'failed')
-           and scheduled_start >= $2::timestamp and scheduled_start <= $3::timestamp
-           and (organizer_id = $1
-                or ($4::text is not null
-                    and attendees @> jsonb_build_array(jsonb_build_object('workspaceMemberId', $4::text))))",
-    )
-    .bind(user_id)
-    .bind(&from)
-    .bind(&to)
-    .bind(&member)
-    .fetch_all(db)
-    .await?;
+    let db = orm(db);
+    let member: Option<String> = workspace_members::Entity::find()
+        .select_only()
+        .column(workspace_members::Column::Id)
+        .filter(workspace_members::Column::UserId.eq(user_id))
+        .into_tuple()
+        .one(&db)
+        .await?;
+    let events: Vec<(String, PrimitiveDateTime, Option<PrimitiveDateTime>)> = {
+        use calendar_events::Column;
+        calendar_events::Entity::find()
+            .select_only()
+            .columns([Column::Id, Column::StartTime, Column::EndTime])
+            .filter(Column::DeletedAt.is_null())
+            .filter(Column::OrganizerId.eq(user_id))
+            .filter(Column::Status.eq("confirmed"))
+            .filter(Column::StartTime.gte(from))
+            .filter(Column::StartTime.lte(to))
+            .into_tuple()
+            .all(&db)
+            .await?
+    };
+    let meetings: Vec<(String, Option<PrimitiveDateTime>, Option<PrimitiveDateTime>)> = {
+        use meetings::Column;
+        // `organizer_id = $1 or attendees @> [{ workspaceMemberId }]`.
+        let mut mine = Condition::any().add(Column::OrganizerId.eq(user_id));
+        if let Some(member) = &member {
+            mine = mine.add(sea_orm::sea_query::extension::postgres::PgExpr::contains(
+                Expr::col((meetings::Entity, Column::Attendees)),
+                Expr::val(serde_json::json!([{ "workspaceMemberId": member }])),
+            ));
+        }
+        meetings::Entity::find()
+            .select_only()
+            .columns([Column::Id, Column::ScheduledStart, Column::ScheduledEnd])
+            .filter(
+                Condition::all()
+                    .add(Column::DeletedAt.is_null())
+                    .add(Column::Status.is_not_in(["cancelled", "completed", "failed"]))
+                    .add(Column::ScheduledStart.gte(from))
+                    .add(Column::ScheduledStart.lte(to))
+                    .add(mine),
+            )
+            .into_tuple()
+            .all(&db)
+            .await?
+    };
     let mut out: Vec<ExistingEvent> = events
         .into_iter()
-        .filter_map(|(id, start, end)| {
-            Some(ExistingEvent {
-                id,
-                start: from_db(&start)?,
-                end: end.as_ref().and_then(from_db),
-            })
+        .map(|(id, start, end)| ExistingEvent {
+            id,
+            start: from_db(start),
+            end: end.map(from_db),
         })
         .collect();
     out.extend(meetings.into_iter().filter_map(|(id, start, end)| {
         Some(ExistingEvent {
             id,
-            start: start.as_ref().and_then(from_db)?,
-            end: end.as_ref().and_then(from_db),
+            start: from_db(start?),
+            end: end.map(from_db),
         })
     }));
     Ok(out)
@@ -614,8 +655,8 @@ pub async fn find_free_slot(db: &PgPool, params: &FindSlot<'_>) -> SyncResult<Op
 /// An auto-scheduled event as the bump search reads it.
 type BumpRow = (
     String,
-    Value,
-    Option<Value>,
+    PrimitiveDateTime,
+    Option<PrimitiveDateTime>,
     Option<String>,
     Option<String>,
     String,
@@ -645,27 +686,36 @@ async fn find_bumpable_event(
 ) -> SyncResult<Option<BumpCandidate>> {
     let duration_ms = duration_minutes * MINUTE_MS;
     let start = now_ms();
-    let rows: Vec<BumpRow> = sqlx::query_as(
-        "select id, to_jsonb(start_time), to_jsonb(end_time), priority, source_id, organizer_id
-         from calendar_events
-         where deleted_at is null and organizer_id = $1 and status = 'confirmed'
-           and auto_scheduled = true
-           and start_time >= $2::timestamp and start_time <= $3::timestamp",
-    )
-    .bind(user_id)
-    .bind(bind_time(start_of_day(start))?)
-    .bind(bind_time(end_of_day(deadline))?)
-    .fetch_all(db)
-    .await?;
+    let from = bind_time(start_of_day(start))?;
+    let to = bind_time(end_of_day(deadline))?;
+    let rows: Vec<BumpRow> = {
+        use calendar_events::Column;
+        calendar_events::Entity::find()
+            .select_only()
+            .columns([
+                Column::Id,
+                Column::StartTime,
+                Column::EndTime,
+                Column::Priority,
+                Column::SourceId,
+                Column::OrganizerId,
+            ])
+            .filter(Column::DeletedAt.is_null())
+            .filter(Column::OrganizerId.eq(user_id))
+            .filter(Column::Status.eq("confirmed"))
+            .filter(Column::AutoScheduled.eq(true))
+            .filter(Column::StartTime.gte(from))
+            .filter(Column::StartTime.lte(to))
+            .into_tuple()
+            .all(&orm(db))
+            .await?
+    };
     let mut candidates: Vec<(i32, BumpCandidate)> = rows
         .into_iter()
-        .filter_map(|(id, start, end, priority, source_id, organizer_id)| {
-            let start = from_db(&start)?;
-            let end = end
-                .as_ref()
-                .and_then(from_db)
-                .unwrap_or(start + 30.0 * MINUTE_MS);
-            Some((
+        .map(|(id, start, end, priority, source_id, organizer_id)| {
+            let start = from_db(start);
+            let end = end.map_or(start + 30.0 * MINUTE_MS, from_db);
+            (
                 priority_weight(priority.as_deref()),
                 BumpCandidate {
                     event_id: id,
@@ -675,7 +725,7 @@ async fn find_bumpable_event(
                     priority,
                     organizer_id,
                 },
-            ))
+            )
         })
         .filter(|(weight, c)| {
             !visited.contains(&c.event_id)
@@ -702,13 +752,15 @@ async fn source_task_schedule(
     let Some(source_id) = source_id.filter(|id| !id.is_empty()) else {
         return Ok((None, None));
     };
-    let row: Option<(Option<Value>, Option<i32>)> =
-        sqlx::query_as("select to_jsonb(due_date), duration from tasks where id = $1 limit 1")
-            .bind(source_id)
-            .fetch_optional(db)
-            .await?;
+    let row: Option<(Option<PrimitiveDateTime>, Option<i32>)> = tasks::Entity::find()
+        .select_only()
+        .columns([tasks::Column::DueDate, tasks::Column::Duration])
+        .filter(tasks::Column::Id.eq(source_id))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     Ok(row.map_or((None, None), |(due, duration)| {
-        (due.as_ref().and_then(from_db), duration.map(f64::from))
+        (due.map(from_db), duration.map(f64::from))
     }))
 }
 
@@ -719,18 +771,18 @@ async fn place_event(
     end: Option<f64>,
     all_day: bool,
 ) -> SyncResult<()> {
-    sqlx::query(
-        "update calendar_events set start_time = $2::timestamp, end_time = $3::timestamp,
-             all_day = $4, updated_at = $5::timestamp
-         where id = $1 and deleted_at is null",
-    )
-    .bind(event_id)
-    .bind(bind_time(start)?)
-    .bind(end.map(bind_time).transpose()?)
-    .bind(all_day)
-    .bind(iso(now_ms_i64()))
-    .execute(db)
-    .await?;
+    use calendar_events::Column;
+    let start = bind_time(start)?;
+    let end = end.map(bind_time).transpose()?;
+    calendar_events::Entity::update_many()
+        .col_expr(Column::StartTime, Expr::value(start))
+        .col_expr(Column::EndTime, Expr::value(end))
+        .col_expr(Column::AllDay, Expr::value(all_day))
+        .col_expr(Column::UpdatedAt, Expr::value(utc_now()))
+        .filter(Column::Id.eq(event_id))
+        .filter(Column::DeletedAt.is_null())
+        .exec(&orm(db))
+        .await?;
     Ok(())
 }
 
@@ -868,27 +920,35 @@ async fn insert_task_event(
     now: f64,
 ) -> SyncResult<()> {
     let created = bind_time(now)?;
-    sqlx::query(
-        "insert into calendar_events
-             (id, calendar_id, title, description, type, start_time, end_time, all_day, status,
-              priority, organizer_id, source_type, source_id, auto_scheduled, created_at, updated_at)
-         values ($1, $2, $3, $4, 'reminder', $5::timestamp, $6::timestamp, $7, 'confirmed',
-                 $8, $9, $10, $11, $12, $13::timestamp, $13::timestamp)",
-    )
-    .bind(id)
-    .bind(calendar_id)
-    .bind(&params.title)
-    .bind(params.description.as_deref().filter(|d| !d.is_empty()))
-    .bind(bind_time(start)?)
-    .bind(end.map(bind_time).transpose()?)
-    .bind(all_day)
-    .bind(calendar_priority(params.priority.as_deref()))
-    .bind(&params.user_id)
-    .bind(params.source_type.as_deref().unwrap_or("task"))
-    .bind(&params.source_id)
-    .bind(auto_scheduled)
-    .bind(&created)
-    .execute(db)
+    let start = bind_time(start)?;
+    let end = end.map(bind_time).transpose()?;
+    calendar_events::Entity::insert(calendar_events::ActiveModel {
+        id: Set(id.to_owned()),
+        calendar_id: Set(calendar_id.to_owned()),
+        title: Set(params.title.clone()),
+        description: Set(params
+            .description
+            .clone()
+            .filter(|description| !description.is_empty())),
+        type_: Set("reminder".to_owned()),
+        start_time: Set(start),
+        end_time: Set(end),
+        all_day: Set(Some(all_day)),
+        status: Set("confirmed".to_owned()),
+        priority: Set(Some(
+            calendar_priority(params.priority.as_deref()).to_owned(),
+        )),
+        organizer_id: Set(params.user_id.clone()),
+        source_type: Set(Some(
+            params.source_type.as_deref().unwrap_or("task").to_owned(),
+        )),
+        source_id: Set(params.source_id.clone()),
+        auto_scheduled: Set(Some(auto_scheduled)),
+        created_at: Set(created),
+        updated_at: Set(created),
+        ..Default::default()
+    })
+    .exec_without_returning(&orm(db))
     .await?;
     Ok(())
 }
@@ -1072,6 +1132,7 @@ pub struct EventUpdate {
 /// `updateCalendarEventForTask`: the title, and the times the task's dates
 /// imply.
 pub async fn update_calendar_event_for_task(db: &PgPool, params: &EventUpdate) -> SyncResult<()> {
+    use calendar_events::Column;
     let mut start: Option<Option<f64>> = None;
     let mut end: Option<Option<f64>> = None;
     match (params.due_date, params.start_date) {
@@ -1083,26 +1144,24 @@ pub async fn update_calendar_event_for_task(db: &PgPool, params: &EventUpdate) -
         (Some(None), _) | (None, None) => {}
         (None, Some(start_date)) => start = Some(start_date),
     }
-    let start_text = start.flatten().map(bind_time).transpose()?;
-    let end_text = end.flatten().map(bind_time).transpose()?;
-    sqlx::query(
-        "update calendar_events set
-             updated_at = $2::timestamp,
-             title = case when $3 then $4 else title end,
-             start_time = case when $5 then $6::timestamp else start_time end,
-             end_time = case when $7 then $8::timestamp else end_time end
-         where id = $1 and deleted_at is null",
-    )
-    .bind(&params.calendar_event_id)
-    .bind(iso(now_ms_i64()))
-    .bind(params.title.is_some())
-    .bind(&params.title)
-    .bind(start.is_some())
-    .bind(start_text)
-    .bind(end.is_some())
-    .bind(end_text)
-    .execute(db)
-    .await?;
+    let start_at = start.flatten().map(bind_time).transpose()?;
+    let end_at = end.flatten().map(bind_time).transpose()?;
+    let mut update =
+        calendar_events::Entity::update_many().col_expr(Column::UpdatedAt, Expr::value(utc_now()));
+    if let Some(title) = &params.title {
+        update = update.col_expr(Column::Title, Expr::value(title.clone()));
+    }
+    if start.is_some() {
+        update = update.col_expr(Column::StartTime, Expr::value(start_at));
+    }
+    if end.is_some() {
+        update = update.col_expr(Column::EndTime, Expr::value(end_at));
+    }
+    update
+        .filter(Column::Id.eq(&params.calendar_event_id))
+        .filter(Column::DeletedAt.is_null())
+        .exec(&orm(db))
+        .await?;
     Ok(())
 }
 
@@ -1121,94 +1180,90 @@ pub async fn reschedule_calendar_event(
     db: &PgPool,
     params: &Reschedule,
 ) -> SyncResult<Option<String>> {
-    let existing: Option<(Option<bool>, Option<Value>)> = sqlx::query_as(
-        "select auto_scheduled, to_jsonb(start_time) from calendar_events
-         where id = $1 and deleted_at is null
-         limit 1",
-    )
-    .bind(&params.calendar_event_id)
-    .fetch_optional(db)
-    .await?;
-    if let Some((Some(false), start)) = existing {
-        let start = start.as_ref().and_then(from_db);
-        let end = match (params.event.duration_minutes.filter(|d| *d != 0.0), start) {
-            (Some(duration), Some(start)) => Some(bind_time(start + duration * MINUTE_MS)?),
-            _ => None,
-        };
-        sqlx::query(
-            "update calendar_events set updated_at = $2::timestamp, title = $3, description = $4,
-                 end_time = case when $5 then $6::timestamp else end_time end
-             where id = $1",
-        )
-        .bind(&params.calendar_event_id)
-        .bind(iso(now_ms_i64()))
-        .bind(&params.event.title)
-        .bind(&params.event.description)
-        .bind(end.is_some())
-        .bind(&end)
-        .execute(db)
+    use calendar_events::Column;
+    let existing: Option<(Option<bool>, PrimitiveDateTime)> = calendar_events::Entity::find()
+        .select_only()
+        .columns([Column::AutoScheduled, Column::StartTime])
+        .filter(Column::Id.eq(&params.calendar_event_id))
+        .filter(Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
         .await?;
+    if let Some((Some(false), start)) = existing {
+        let start = from_db(start);
+        let end = match params.event.duration_minutes.filter(|d| *d != 0.0) {
+            Some(duration) => Some(bind_time(start + duration * MINUTE_MS)?),
+            None => None,
+        };
+        let mut update = calendar_events::Entity::update_many()
+            .col_expr(Column::UpdatedAt, Expr::value(utc_now()))
+            .col_expr(Column::Title, Expr::value(params.event.title.clone()))
+            .col_expr(
+                Column::Description,
+                Expr::value(params.event.description.clone()),
+            );
+        if let Some(end) = end {
+            update = update.col_expr(Column::EndTime, Expr::value(end));
+        }
+        update
+            .filter(Column::Id.eq(&params.calendar_event_id))
+            .exec(&orm(db))
+            .await?;
         return Ok(Some(params.calendar_event_id.clone()));
     }
     delete_calendar_event(db, &params.calendar_event_id).await?;
     create_calendar_event_for_task(db, &params.event).await
 }
 
-async fn set_status(db: &PgPool, calendar_event_id: &str, status: &str) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "update calendar_events set status = $2, updated_at = $3::timestamp
-         where id = $1 and deleted_at is null",
-    )
-    .bind(calendar_event_id)
-    .bind(status)
-    .bind(iso(now_ms_i64()))
-    .execute(db)
-    .await?;
+async fn set_status(db: &PgPool, calendar_event_id: &str, status: &str) -> Result<(), DbErr> {
+    use calendar_events::Column;
+    calendar_events::Entity::update_many()
+        .col_expr(Column::Status, Expr::value(status))
+        .col_expr(Column::UpdatedAt, Expr::value(utc_now()))
+        .filter(Column::Id.eq(calendar_event_id))
+        .filter(Column::DeletedAt.is_null())
+        .exec(&orm(db))
+        .await?;
     Ok(())
 }
 
 /// The task was completed (`cancelCalendarEvent`).
-pub async fn cancel_calendar_event(
-    db: &PgPool,
-    calendar_event_id: &str,
-) -> Result<(), sqlx::Error> {
+pub async fn cancel_calendar_event(db: &PgPool, calendar_event_id: &str) -> Result<(), DbErr> {
     set_status(db, calendar_event_id, "cancelled").await
 }
 
 /// The task was reopened (`confirmCalendarEvent`).
-pub async fn confirm_calendar_event(
-    db: &PgPool,
-    calendar_event_id: &str,
-) -> Result<(), sqlx::Error> {
+pub async fn confirm_calendar_event(db: &PgPool, calendar_event_id: &str) -> Result<(), DbErr> {
     set_status(db, calendar_event_id, "confirmed").await
 }
 
 /// The task was deleted (`deleteCalendarEvent`).
-pub async fn delete_calendar_event(
-    db: &PgPool,
-    calendar_event_id: &str,
-) -> Result<(), sqlx::Error> {
-    let now = iso(now_ms_i64());
-    sqlx::query(
-        "update calendar_events set deleted_at = $2::timestamp, updated_at = $2::timestamp
-         where id = $1 and deleted_at is null",
-    )
-    .bind(calendar_event_id)
-    .bind(&now)
-    .execute(db)
-    .await?;
+pub async fn delete_calendar_event(db: &PgPool, calendar_event_id: &str) -> Result<(), DbErr> {
+    use calendar_events::Column;
+    let now = utc_now();
+    calendar_events::Entity::update_many()
+        .col_expr(Column::DeletedAt, Expr::value(now))
+        .col_expr(Column::UpdatedAt, Expr::value(now))
+        .filter(Column::Id.eq(calendar_event_id))
+        .filter(Column::DeletedAt.is_null())
+        .exec(&orm(db))
+        .await?;
     Ok(())
 }
 
 /// Soft-delete every auto-scheduled task event the user organises (of one
 /// app's tasks when given) and unlink it from its task, in one statement
 /// (`removeAutoScheduledTaskEvents`). How many were removed.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "a data-modifying CTE: soft-deletes the events and unlinks their tasks in one statement, as the TypeScript does"
+)]
 pub async fn remove_auto_scheduled_task_events(
     db: &PgPool,
     user_id: &str,
     app: Option<TaskSchedulingApp>,
-) -> Result<i64, sqlx::Error> {
-    let now = iso(now_ms_i64());
+) -> Result<i64, DbErr> {
+    let now = weldsuite_events::iso_timestamp(OffsetDateTime::now_utc());
     let removed: Option<i32> = sqlx::query_scalar(
         "with removed as (
              update calendar_events
@@ -1239,37 +1294,98 @@ pub async fn remove_auto_scheduled_task_events(
     .bind(&now)
     .bind(app.map(TaskSchedulingApp::as_str))
     .fetch_optional(db)
-    .await?;
+    .await
+    .map_err(weldsuite_db::orm_error)?;
     Ok(i64::from(removed.unwrap_or(0)))
 }
 
 // ── Nightly re-plan ─────────────────────────────────────────────────────────
 
+/// `inner join tasks on calendar_events.source_id = tasks.id`.
+fn source_task() -> RelationDef {
+    calendar_events::Entity::belongs_to(tasks::Entity)
+        .from(calendar_events::Column::SourceId)
+        .to(tasks::Column::Id)
+        .into()
+}
+
+/// `crmLinkedTask()`: the task hangs off a CRM record.
+fn crm_linked_task() -> Condition {
+    Condition::any()
+        .add(tasks::Column::CustomerId.is_not_null())
+        .add(tasks::Column::ContactId.is_not_null())
+        .add(tasks::Column::CounterpartyId.is_not_null())
+        .add(tasks::Column::PersonId.is_not_null())
+}
+
+/// `replannableEventConditions` (with `tasks` joined on the event's source):
+/// a live, confirmed, auto-scheduled event of an open task whose organizer
+/// has not turned re-planning, or the switch of the task's app, off.
+fn replannable_event_conditions() -> Condition {
+    use sea_orm::ExprTrait as _;
+    use user_preferences::{Column as Prefs, Entity as UserPreferences};
+    let pref = |key: &str| {
+        sea_orm::sea_query::extension::postgres::PgExpr::cast_json_field(
+            Expr::col((UserPreferences, Prefs::UiPreferences)),
+            key.to_owned(),
+        )
+    };
+    // `coalesce(ui_preferences->>'<app switch>', ui_preferences->>'autoScheduleTasks') = 'false'`.
+    let switched_off = |app: TaskSchedulingApp| {
+        Expr::from(sea_orm::sea_query::Func::coalesce([
+            pref(app.preference()),
+            pref(LEGACY_PREFERENCE),
+        ]))
+        .eq("false")
+    };
+    let opted_out = Query::select()
+        .expr(Expr::val(1))
+        .from(UserPreferences)
+        .cond_where(
+            Condition::all()
+                .add(Expr::col((UserPreferences, Prefs::UserId)).equals((
+                    calendar_events::Entity,
+                    calendar_events::Column::OrganizerId,
+                )))
+                .add(Prefs::DeletedAt.is_null())
+                .add(
+                    Condition::any()
+                        .add(pref("autoRescheduleTasks").eq("false"))
+                        .add(
+                            Condition::all()
+                                .add(switched_off(TaskSchedulingApp::Crm))
+                                .add(crm_linked_task()),
+                        )
+                        .add(
+                            Condition::all()
+                                .add(switched_off(TaskSchedulingApp::Flow))
+                                .add(crm_linked_task().not()),
+                        ),
+                ),
+        )
+        .to_owned();
+    Condition::all()
+        .add(calendar_events::Column::DeletedAt.is_null())
+        .add(calendar_events::Column::AutoScheduled.eq(true))
+        .add(calendar_events::Column::Status.eq("confirmed"))
+        .add(tasks::Column::DeletedAt.is_null())
+        .add(tasks::Column::Status.is_not_in(["done", "cancelled"]))
+        .add(Expr::not_exists(opted_out))
+}
+
 /// When the workspace's next auto-scheduled task event needs re-planning
 /// (its start; in the past when one is stale), or `None`
 /// (`nextAutoScheduledReplanAt`).
-pub async fn next_auto_scheduled_replan_at(
-    db: &PgPool,
-) -> Result<Option<OffsetDateTime>, sqlx::Error> {
-    let next: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(min(e.start_time)) from calendar_events e
-         inner join tasks t on e.source_id = t.id
-         where e.deleted_at is null and e.auto_scheduled = true and e.status = 'confirmed'
-           and t.deleted_at is null and t.status not in ('done', 'cancelled')
-           and not exists (
-             select 1 from user_preferences p
-             where p.user_id = e.organizer_id and p.deleted_at is null
-               and (p.ui_preferences->>'autoRescheduleTasks' = 'false'
-                    or (coalesce(p.ui_preferences->>'autoScheduleCrmTasks', p.ui_preferences->>'autoScheduleTasks') = 'false'
-                        and (t.customer_id is not null or t.contact_id is not null
-                             or t.counterparty_id is not null or t.person_id is not null))
-                    or (coalesce(p.ui_preferences->>'autoScheduleFlowTasks', p.ui_preferences->>'autoScheduleTasks') = 'false'
-                        and not (t.customer_id is not null or t.contact_id is not null
-                                 or t.counterparty_id is not null or t.person_id is not null))))",
-    )
-    .fetch_one(db)
-    .await?;
-    Ok(next.as_ref().and_then(from_db).and_then(|ms| {
+pub async fn next_auto_scheduled_replan_at(db: &PgPool) -> Result<Option<OffsetDateTime>, DbErr> {
+    let next: Option<Option<PrimitiveDateTime>> = calendar_events::Entity::find()
+        .select_only()
+        .column_as(calendar_events::Column::StartTime.min(), "next")
+        .join(JoinType::InnerJoin, source_task())
+        .filter(replannable_event_conditions())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
+    Ok(next.flatten().map(from_db).and_then(|ms| {
         #[allow(clippy::cast_possible_truncation)]
         OffsetDateTime::from_unix_timestamp_nanos(i128::from(ms as i64) * 1_000_000).ok()
     }))
@@ -1283,64 +1399,75 @@ pub struct ReplanStats {
     pub failed: usize,
 }
 
-type StaleRow = (
-    String,
-    String,
-    String,
-    Option<String>,
-    Option<String>,
-    Option<Value>,
-    Option<Value>,
-    Option<i32>,
-    Option<String>,
-    Option<Value>,
-);
+/// A stale event and its open task, as the re-plan reads them.
+#[derive(Debug, FromQueryResult)]
+struct StaleRow {
+    event_id: String,
+    organizer_id: String,
+    task_id: String,
+    title: Option<String>,
+    description: Option<String>,
+    due_date: Option<PrimitiveDateTime>,
+    start_date: Option<PrimitiveDateTime>,
+    duration: Option<i32>,
+    priority: Option<String>,
+    created_at: Option<PrimitiveDateTime>,
+}
+
+/// `case priority when 'critical' then 4 … else 0 end`, the re-plan's
+/// order.
+fn priority_rank() -> Expr {
+    use tasks::Column;
+    Expr::case(Column::Priority.eq("critical"), 4)
+        .case(Column::Priority.eq("urgent"), 4)
+        .case(Column::Priority.eq("high"), 3)
+        .case(Column::Priority.eq("medium"), 2)
+        .case(Column::Priority.eq("normal"), 2)
+        .case(Column::Priority.eq("low"), 1)
+        .finally(0)
+        .into()
+}
 
 /// Re-plan the auto-scheduled task events whose start passed while the task
 /// is still open, highest priority first (`replanStaleAutoScheduledEvents`).
+/// A negative `batch_limit` reads none.
 pub async fn replan_stale_auto_scheduled_events(
     db: &PgPool,
     batch_limit: i64,
 ) -> SyncResult<ReplanStats> {
-    let now = iso(now_ms_i64());
-    let stale: Vec<StaleRow> = sqlx::query_as(
-        "select e.id, e.organizer_id, t.id, t.title, t.description, to_jsonb(t.due_date), to_jsonb(t.start_date),
-                t.duration, t.priority, to_jsonb(t.created_at)
-         from calendar_events e
-         inner join tasks t on e.source_id = t.id
-         where e.deleted_at is null and e.auto_scheduled = true and e.status = 'confirmed'
-           and t.deleted_at is null and t.status not in ('done', 'cancelled')
-           and not exists (
-             select 1 from user_preferences p
-             where p.user_id = e.organizer_id and p.deleted_at is null
-               and (p.ui_preferences->>'autoRescheduleTasks' = 'false'
-                    or (coalesce(p.ui_preferences->>'autoScheduleCrmTasks', p.ui_preferences->>'autoScheduleTasks') = 'false'
-                        and (t.customer_id is not null or t.contact_id is not null
-                             or t.counterparty_id is not null or t.person_id is not null))
-                    or (coalesce(p.ui_preferences->>'autoScheduleFlowTasks', p.ui_preferences->>'autoScheduleTasks') = 'false'
-                        and not (t.customer_id is not null or t.contact_id is not null
-                                 or t.counterparty_id is not null or t.person_id is not null))))
-           and e.start_time <= $1::timestamp
-         order by case t.priority
-             when 'critical' then 4 when 'urgent' then 4 when 'high' then 3
-             when 'medium' then 2 when 'normal' then 2 when 'low' then 1 else 0 end desc,
-           t.due_date asc nulls last,
-           t.created_at asc
-         limit $2",
-    )
-    .bind(&now)
-    .bind(batch_limit)
-    .fetch_all(db)
-    .await?;
+    let stale: Vec<StaleRow> = calendar_events::Entity::find()
+        .select_only()
+        .column_as(calendar_events::Column::Id, "event_id")
+        .column_as(calendar_events::Column::OrganizerId, "organizer_id")
+        .column_as(tasks::Column::Id, "task_id")
+        .column_as(tasks::Column::Title, "title")
+        .column_as(tasks::Column::Description, "description")
+        .column_as(tasks::Column::DueDate, "due_date")
+        .column_as(tasks::Column::StartDate, "start_date")
+        .column_as(tasks::Column::Duration, "duration")
+        .column_as(tasks::Column::Priority, "priority")
+        .column_as(tasks::Column::CreatedAt, "created_at")
+        .join(JoinType::InnerJoin, source_task())
+        .filter(
+            replannable_event_conditions().add(calendar_events::Column::StartTime.lte(utc_now())),
+        )
+        .order_by(priority_rank(), Order::Desc)
+        .order_by_with_nulls(tasks::Column::DueDate, Order::Asc, NullOrdering::Last)
+        .order_by_asc(tasks::Column::CreatedAt)
+        .limit(u64::try_from(batch_limit).unwrap_or(0))
+        .into_model()
+        .all(&orm(db))
+        .await?;
     let mut result = ReplanStats {
         scanned: stale.len(),
         ..ReplanStats::default()
     };
     let mut ordered = stale;
     ordered.sort_by(|a, b| {
-        let weight = priority_weight(b.8.as_deref()).cmp(&priority_weight(a.8.as_deref()));
-        let due = |row: &StaleRow| row.5.as_ref().and_then(from_db).unwrap_or(f64::INFINITY);
-        let created = |row: &StaleRow| row.9.as_ref().and_then(from_db).unwrap_or(f64::NAN);
+        let weight =
+            priority_weight(b.priority.as_deref()).cmp(&priority_weight(a.priority.as_deref()));
+        let due = |row: &StaleRow| row.due_date.map_or(f64::INFINITY, from_db);
+        let created = |row: &StaleRow| row.created_at.map_or(f64::NAN, from_db);
         weight
             .then_with(|| {
                 due(a)
@@ -1353,9 +1480,19 @@ pub async fn replan_stale_auto_scheduled_events(
                     .unwrap_or(std::cmp::Ordering::Equal)
             })
     });
-    for (event_id, organizer_id, task_id, title, description, due, start, duration, priority, _) in
-        ordered
-    {
+    for row in ordered {
+        let StaleRow {
+            event_id,
+            organizer_id,
+            task_id,
+            title,
+            description,
+            due_date,
+            start_date,
+            duration,
+            priority,
+            created_at: _,
+        } = row;
         let description = description.filter(|d| !d.is_empty());
         let params = Reschedule {
             calendar_event_id: event_id.clone(),
@@ -1365,18 +1502,18 @@ pub async fn replan_stale_auto_scheduled_events(
                 source_type: None,
                 title: title.unwrap_or_default(),
                 description,
-                due_date: due.as_ref().and_then(from_db),
-                start_date: start.as_ref().and_then(from_db),
+                due_date: due_date.map(from_db),
+                start_date: start_date.map(from_db),
                 duration_minutes: duration.map(f64::from),
                 priority,
             },
         };
         let outcome = async {
             let new_id = reschedule_calendar_event(db, &params).await?;
-            sqlx::query("update tasks set calendar_event_id = $2 where id = $1")
-                .bind(&task_id)
-                .bind(&new_id)
-                .execute(db)
+            tasks::Entity::update_many()
+                .col_expr(tasks::Column::CalendarEventId, Expr::value(new_id))
+                .filter(tasks::Column::Id.eq(&task_id))
+                .exec(&orm(db))
                 .await?;
             Ok::<_, SyncError>(())
         }
@@ -1396,8 +1533,8 @@ pub async fn replan_stale_auto_scheduled_events(
 type SlotRow = (
     String,
     Option<String>,
-    Option<Value>,
-    Option<Value>,
+    PrimitiveDateTime,
+    Option<PrimitiveDateTime>,
     Option<bool>,
     String,
 );
@@ -1417,19 +1554,30 @@ pub struct ScheduledSlot {
 pub async fn fetch_task_scheduled_slots(
     db: &PgPool,
     task_ids: &[String],
-) -> Result<HashMap<String, ScheduledSlot>, sqlx::Error> {
+) -> Result<HashMap<String, ScheduledSlot>, DbErr> {
     let mut map = HashMap::new();
     if task_ids.is_empty() {
         return Ok(map);
     }
-    let rows: Vec<SlotRow> = sqlx::query_as(
-        "select id, source_id, to_jsonb(start_time), to_jsonb(end_time), auto_scheduled, status
-         from calendar_events
-         where source_type = 'task' and source_id = any($1) and deleted_at is null",
-    )
-    .bind(task_ids)
-    .fetch_all(db)
-    .await?;
+    let rows: Vec<SlotRow> = {
+        use calendar_events::Column;
+        calendar_events::Entity::find()
+            .select_only()
+            .columns([
+                Column::Id,
+                Column::SourceId,
+                Column::StartTime,
+                Column::EndTime,
+                Column::AutoScheduled,
+                Column::Status,
+            ])
+            .filter(Column::SourceType.eq("task"))
+            .filter(Column::SourceId.is_in(task_ids))
+            .filter(Column::DeletedAt.is_null())
+            .into_tuple()
+            .all(&orm(db))
+            .await?
+    };
     for (id, source_id, start, end, auto_scheduled, status) in rows {
         if status == "cancelled" {
             continue;
@@ -1437,15 +1585,12 @@ pub async fn fetch_task_scheduled_slots(
         let Some(source_id) = source_id.filter(|s| !s.is_empty()) else {
             continue;
         };
-        let stamp = |value: Option<Value>| {
-            value.and_then(|v| v.as_str().and_then(weldsuite_db::js_timestamp))
-        };
         map.insert(
             source_id,
             ScheduledSlot {
                 event_id: id,
-                start_time: stamp(start),
-                end_time: stamp(end),
+                start_time: Some(iso_of(start)),
+                end_time: end.map(iso_of),
                 auto_scheduled: auto_scheduled.unwrap_or(false),
             },
         );

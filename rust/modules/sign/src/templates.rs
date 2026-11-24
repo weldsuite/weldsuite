@@ -10,24 +10,31 @@ use axum::body::Bytes;
 use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use http::HeaderMap;
+use sea_orm::ActiveValue::Set;
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{
+    ColumnTrait, Condition, DbErr, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder,
+    QuerySelect,
+};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events::{
     SIGN_ENVELOPE_CREATED, SIGN_TEMPLATE_CREATED, SIGN_TEMPLATE_DELETED, SIGN_TEMPLATE_UPDATED,
 };
 use weldsuite_catalogs::permission_keys::SIGN_TEMPLATES_UPDATE;
-use weldsuite_db::{PgPool, js_row};
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::validation::{Field, Issues, Presence, Text};
 use weldsuite_kit::{Created, Data, NoContent, generate_id};
+use weldsuite_schema::tenant::{sign_documents, sign_envelopes, sign_fields, sign_recipients};
 
 use crate::envelopes::{
-    DetailAccess, Viewer, delete_draft, detail_for, envelope_detail,
-    event_data as envelope_event_data, list_documents, list_fields, list_recipients,
+    DetailAccess, Viewer, delete_draft, detail_for, document_rows, envelope_detail,
+    event_data as envelope_event_data, field_rows, int, json_rows, list_recipients,
     load_sign_settings, load_template, member_profile, page_query, read_changes, recipient_dto,
-    record_event, touch_envelope, update_envelope,
+    record_event, returned, row_json, sent, touch_envelope, update_envelope,
 };
 use crate::recipients::{
     AUTH_MODES, EMAIL, LOCALES, MAX_RECIPIENTS, NAME, NewRecipient, ROLES, add_recipient,
-    get_recipient, recipient_count, remove_recipient, routing_order,
+    delete_fields_of, get_recipient, recipient_count, remove_recipient, routing_order,
 };
 use crate::{
     Caller, SignError, SignResult, SignState, answer, like_pattern, now, offset_page, text,
@@ -82,44 +89,48 @@ pub(crate) async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response 
 async fn list_templates(db: &PgPool, query: Option<&str>) -> SignResult<Response> {
     let (search, limit, offset) = validate_query(query, page_query)?;
     let pattern = search.as_deref().map(like_pattern);
-    let page: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(e) from sign_envelopes e
-         where kind = 'template' and deleted_at is null and ($1::text is null or title ilike $1)
-         order by updated_at desc, id desc limit $2 offset $3",
-    )
-    .bind(pattern.as_deref())
-    .bind(limit)
-    .bind(offset)
-    .fetch_all(db)
-    .await?;
-    let total: i64 = sqlx::query_scalar(
-        "select count(*) from sign_envelopes
-         where kind = 'template' and deleted_at is null and ($1::text is null or title ilike $1)",
-    )
-    .bind(pattern.as_deref())
-    .fetch_one(db)
-    .await?;
-    let page: Vec<Value> = page.into_iter().map(js_row).collect();
+    let mut condition = Condition::all()
+        .add(sign_envelopes::Column::Kind.eq("template"))
+        .add(sign_envelopes::Column::DeletedAt.is_null());
+    if let Some(pattern) = pattern.as_deref() {
+        condition = condition.add(sign_envelopes::Column::Title.ilike(pattern));
+    }
+    let db = &orm(db);
+    let page = sign_envelopes::Entity::find()
+        .filter(condition.clone())
+        .order_by_desc(sign_envelopes::Column::UpdatedAt)
+        .order_by_desc(sign_envelopes::Column::Id)
+        .limit(u64::try_from(limit).unwrap_or(0))
+        .offset(u64::try_from(offset).unwrap_or(0))
+        .all(db)
+        .await?;
+    let total = sign_envelopes::Entity::find()
+        .filter(condition)
+        .count(db)
+        .await?;
+    let total = i64::try_from(total).unwrap_or(i64::MAX);
+    let page = json_rows(page)?;
     if page.is_empty() {
         return Ok(offset_page(Vec::new(), total, offset));
     }
 
-    let ids: Vec<String> = page.iter().map(|r| text(r, "id").to_owned()).collect();
-    let counts: Vec<(String, i64)> = sqlx::query_as(
-        "select envelope_id, count(*) from sign_documents
-         where envelope_id = any($1) group by envelope_id",
-    )
-    .bind(&ids)
-    .fetch_all(db)
-    .await?;
-    let roles: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(r) from sign_recipients r where envelope_id = any($1)
-         order by routing_order asc, created_at asc",
-    )
-    .bind(&ids)
-    .fetch_all(db)
-    .await?;
-    let roles: Vec<Value> = roles.into_iter().map(js_row).collect();
+    let ids: Vec<&str> = page.iter().map(|r| text(r, "id")).collect();
+    let counts: Vec<(String, i64)> = sign_documents::Entity::find()
+        .select_only()
+        .column(sign_documents::Column::EnvelopeId)
+        .column_as(sign_documents::Column::Id.count(), "count")
+        .filter(sign_documents::Column::EnvelopeId.is_in(ids.iter().copied()))
+        .group_by(sign_documents::Column::EnvelopeId)
+        .into_tuple()
+        .all(db)
+        .await?;
+    let roles = sign_recipients::Entity::find()
+        .filter(sign_recipients::Column::EnvelopeId.is_in(ids.iter().copied()))
+        .order_by_asc(sign_recipients::Column::RoutingOrder)
+        .order_by_asc(sign_recipients::Column::CreatedAt)
+        .all(db)
+        .await?;
+    let roles = json_rows(roles)?;
     let rows = page
         .iter()
         .map(|row| {
@@ -181,25 +192,23 @@ pub(crate) async fn create(
             let (name, email) = member_profile(db, &caller.user_id).await?;
             let settings = load_sign_settings(db).await?;
             // On a template the sender columns record who made it.
-            let template: Value = sqlx::query_scalar(
-                "insert into sign_envelopes
-                     (id, kind, status, title, message, sender_user_id, sender_name, sender_email,
-                      reminder_after_days, reminder_every_days, reminder_max_count)
-                 values ($1, 'template', 'draft', $2, $3, $4, $5, $6, $7, $8, $9)
-                 returning to_jsonb(sign_envelopes)",
-            )
-            .bind(generate_id("sgn"))
-            .bind(title.into_option().unwrap_or_default())
-            .bind(message.into_option())
-            .bind(&caller.user_id)
-            .bind(name)
-            .bind(email)
-            .bind(settings.after_days)
-            .bind(settings.every_days)
-            .bind(settings.max_count)
-            .fetch_one(db)
+            let template = sign_envelopes::Entity::insert(sign_envelopes::ActiveModel {
+                id: Set(generate_id("sgn")),
+                kind: Set("template".to_owned()),
+                status: Set("draft".to_owned()),
+                title: Set(title.into_option().unwrap_or_default()),
+                message: Set(message.into_option()),
+                sender_user_id: Set(caller.user_id.clone()),
+                sender_name: Set(name),
+                sender_email: Set(email),
+                reminder_after_days: Set(settings.after_days),
+                reminder_every_days: Set(settings.every_days),
+                reminder_max_count: Set(settings.max_count),
+                ..Default::default()
+            })
+            .exec_with_returning(&orm(db))
             .await?;
-            let template = js_row(template);
+            let template = row_json(template)?;
             caller.publish(
                 &state,
                 SIGN_TEMPLATE_CREATED,
@@ -304,16 +313,21 @@ async fn assert_role_name_free(
     role_name: &str,
     except: Option<&str>,
 ) -> SignResult<()> {
-    let taken: Option<String> = sqlx::query_scalar(
-        "select id from sign_recipients
-         where envelope_id = $1 and lower(role_name) = $2 and ($3::text is null or id <> $3)
-         limit 1",
-    )
-    .bind(template_id)
-    .bind(role_name.to_lowercase())
-    .bind(except)
-    .fetch_optional(db)
-    .await?;
+    let mut query = sign_recipients::Entity::find()
+        .select_only()
+        .column(sign_recipients::Column::Id)
+        .filter(sign_recipients::Column::EnvelopeId.eq(template_id))
+        .filter(sea_orm::ExprTrait::eq(
+            Expr::expr(Func::lower(Expr::col((
+                sign_recipients::Entity,
+                sign_recipients::Column::RoleName,
+            )))),
+            role_name.to_lowercase(),
+        ));
+    if let Some(except) = except {
+        query = query.filter(sign_recipients::Column::Id.ne(except));
+    }
+    let taken: Option<String> = query.into_tuple().one(&orm(db)).await?;
     if taken.is_some() {
         return Err(SignError::invalid(format!(
             "This template already has a role called {role_name}"
@@ -331,7 +345,9 @@ pub(crate) async fn add_role(
 ) -> Response {
     answer(
         async {
-            let input = validate(&headers, &body, |issues, fields| read_role(issues, fields, true))?;
+            let input = validate(&headers, &body, |issues, fields| {
+                read_role(issues, fields, true)
+            })?;
             let db = &caller.db;
             let template = load_template(db, &id).await?;
             let template_id = text(&template, "id");
@@ -348,32 +364,38 @@ pub(crate) async fn add_role(
             let auth_mode = if input.role.as_set().map(String::as_str) == Some("cc") {
                 "link".to_owned()
             } else {
-                input.auth_mode.into_option().unwrap_or_else(|| "link".to_owned())
+                input
+                    .auth_mode
+                    .into_option()
+                    .unwrap_or_else(|| "link".to_owned())
             };
             let order = input
                 .routing_order
                 .into_option()
                 .unwrap_or_else(|| last.map_or(1, |n| i64::from(n) + 1));
-            let row: Value = sqlx::query_scalar(
-                "insert into sign_recipients
-                     (id, envelope_id, role, role_name, name, email, locale, routing_order, auth_mode)
-                 values ($1, $2, $3, $4, $5, $6, $7, $8::int, $9)
-                 returning to_jsonb(sign_recipients)",
-            )
-            .bind(generate_id("sgr"))
-            .bind(template_id)
-            .bind(input.role.into_option().unwrap_or_else(|| "signer".to_owned()))
-            .bind(&role_name)
-            .bind(input.name.into_option())
-            .bind(input.email.into_option())
-            .bind(input.locale.into_option().unwrap_or_else(|| "en".to_owned()))
-            .bind(order)
-            .bind(auth_mode)
-            .fetch_one(db)
+            let row = sign_recipients::Entity::insert(sign_recipients::ActiveModel {
+                id: Set(generate_id("sgr")),
+                envelope_id: Set(template_id.to_owned()),
+                role: Set(input
+                    .role
+                    .into_option()
+                    .unwrap_or_else(|| "signer".to_owned())),
+                role_name: Set(Some(role_name)),
+                name: Set(input.name.into_option()),
+                email: Set(input.email.into_option()),
+                locale: Set(input
+                    .locale
+                    .into_option()
+                    .unwrap_or_else(|| "en".to_owned())),
+                routing_order: Set(int(order)),
+                auth_mode: Set(auth_mode),
+                ..Default::default()
+            })
+            .exec_with_returning(&orm(db))
             .await?;
             touch_envelope(db, template_id).await?;
             publish_template_updated(&caller, &state, &template);
-            Ok(Created(recipient_dto(&js_row(row))).into_response())
+            Ok(Created(recipient_dto(&row_json(row)?)).into_response())
         }
         .await,
     )
@@ -411,48 +433,54 @@ pub(crate) async fn update_role(
             } else {
                 input.auth_mode.as_set().cloned()
             };
-            let row: Value = sqlx::query_scalar(
-                "update sign_recipients set
-                     role = $2,
-                     role_name = case when $3 then $4 else role_name end,
-                     name = case when $5 then $6 else name end,
-                     email = case when $7 then $8 else email end,
-                     locale = case when $9 then $10 else locale end,
-                     routing_order = case when $11 then $12::int else routing_order end,
-                     auth_mode = coalesce($13, auth_mode),
-                     updated_at = $14::timestamptz
-                 where id = $1
-                 returning to_jsonb(sign_recipients)",
-            )
-            .bind(&role_id)
-            .bind(&role)
-            .bind(!input.role_name.is_absent())
-            .bind(input.role_name.as_set())
-            .bind(!input.name.is_absent())
-            .bind(input.name.as_set())
-            .bind(!input.email.is_absent())
-            .bind(input.email.as_set())
-            .bind(!input.locale.is_absent())
-            .bind(input.locale.as_set())
-            .bind(!input.routing_order.is_absent())
-            .bind(input.routing_order.as_set())
-            .bind(auth_mode)
-            .bind(now())
-            .fetch_one(db)
-            .await?;
+            let row = update_role_row(db, &role_id, &role, &input, auth_mode).await?;
             // A copy role fills nothing in: drop the fields it had as a signer.
             if role == "cc" && current["role"] != "cc" {
-                sqlx::query("delete from sign_fields where recipient_id = $1")
-                    .bind(&role_id)
-                    .execute(db)
-                    .await?;
+                delete_fields_of(db, &role_id).await?;
             }
             touch_envelope(db, template_id).await?;
             publish_template_updated(&caller, &state, &template);
-            Ok(Data(recipient_dto(&js_row(row))).into_response())
+            Ok(Data(recipient_dto(&row)).into_response())
         }
         .await,
     )
+}
+
+/// The role's new settings: what the body sent; the auth mode only when
+/// there is one (`coalesce($n, auth_mode)`).
+async fn update_role_row(
+    db: &PgPool,
+    role_id: &str,
+    role: &str,
+    input: &RoleInput,
+    auth_mode: Option<String>,
+) -> SignResult<Value> {
+    use sign_recipients::Column;
+    let values: [(Column, Option<sea_orm::Value>); 8] = [
+        (Column::Role, Some(role.into())),
+        (Column::RoleName, sent(&input.role_name, Clone::clone)),
+        (Column::Name, sent(&input.name, Clone::clone)),
+        (Column::Email, sent(&input.email, Clone::clone)),
+        (Column::Locale, sent(&input.locale, Clone::clone)),
+        (
+            Column::RoutingOrder,
+            sent(&input.routing_order, |n| int(*n)),
+        ),
+        (Column::AuthMode, auth_mode.map(Into::into)),
+        (Column::UpdatedAt, Some(now().into())),
+    ];
+    let update = values.into_iter().fold(
+        sign_recipients::Entity::update_many(),
+        |update, (column, value)| match value {
+            Some(value) => update.col_expr(column, Expr::value(value)),
+            None => update,
+        },
+    );
+    let rows = update
+        .filter(Column::Id.eq(role_id))
+        .exec_with_returning(&orm(db))
+        .await?;
+    Ok(row_json(returned(rows, "sign_recipients")?)?)
 }
 
 pub(crate) async fn remove_role(
@@ -620,21 +648,20 @@ pub(crate) async fn use_template(
                 Field::Absent => template["message"].as_str().map(str::to_owned),
                 other => other.into_option(),
             };
-            let draft: Value = sqlx::query_scalar(
-                "insert into sign_envelopes
-                     (id, kind, status, title, message, sender_user_id, sender_name, sender_email)
-                 values ($1, 'envelope', 'draft', $2, $3, $4, $5, $6)
-                 returning to_jsonb(sign_envelopes)",
-            )
-            .bind(generate_id("sgn"))
-            .bind(&title)
-            .bind(message)
-            .bind(&caller.user_id)
-            .bind(&name)
-            .bind(&email)
-            .fetch_one(db)
+            let draft = sign_envelopes::Entity::insert(sign_envelopes::ActiveModel {
+                id: Set(generate_id("sgn")),
+                kind: Set("envelope".to_owned()),
+                status: Set("draft".to_owned()),
+                title: Set(title),
+                message: Set(message),
+                sender_user_id: Set(caller.user_id.clone()),
+                sender_name: Set(name.clone()),
+                sender_email: Set(email.clone()),
+                ..Default::default()
+            })
+            .exec_with_returning(&orm(db))
             .await?;
-            let draft = js_row(draft);
+            let draft = row_json(draft)?;
             let draft_id = text(&draft, "id").to_owned();
             record_event(
                 db,
@@ -659,12 +686,11 @@ pub(crate) async fn use_template(
                 return Err(error);
             }
 
-            let row: Value =
-                sqlx::query_scalar("select to_jsonb(e) from sign_envelopes e where id = $1")
-                    .bind(&draft_id)
-                    .fetch_one(db)
-                    .await?;
-            let row = js_row(row);
+            let row = sign_envelopes::Entity::find_by_id(draft_id.as_str())
+                .one(&orm(db))
+                .await?
+                .ok_or_else(|| DbErr::RecordNotFound("sign_envelopes".to_owned()))?;
+            let row = row_json(row)?;
             let mut data = envelope_event_data(&row);
             data["templateId"] = json!(template_id);
             caller.publish(&state, SIGN_ENVELOPE_CREATED, &draft_id, &data);
@@ -693,26 +719,34 @@ async fn fill_draft(
     let db = &caller.db;
     let template = draft.template;
     let template_id = text(template, "id");
-    sqlx::query(
-        "update sign_envelopes set template_id = $2, signing_order_enabled = $3,
-             reminder_after_days = $4::int, reminder_every_days = $5::int,
-             reminder_max_count = $6::int
-         where id = $1",
-    )
-    .bind(draft.id)
-    .bind(template_id)
-    .bind(template["signingOrderEnabled"] == true)
-    .bind(template["reminderAfterDays"].as_i64())
-    .bind(template["reminderEveryDays"].as_i64())
-    .bind(template["reminderMaxCount"].as_i64())
-    .execute(db)
-    .await?;
+    let days = |key: &str| template[key].as_i64().map(int);
+    sign_envelopes::Entity::update_many()
+        .col_expr(sign_envelopes::Column::TemplateId, Expr::value(template_id))
+        .col_expr(
+            sign_envelopes::Column::SigningOrderEnabled,
+            Expr::value(template["signingOrderEnabled"] == true),
+        )
+        .col_expr(
+            sign_envelopes::Column::ReminderAfterDays,
+            Expr::value(days("reminderAfterDays")),
+        )
+        .col_expr(
+            sign_envelopes::Column::ReminderEveryDays,
+            Expr::value(days("reminderEveryDays")),
+        )
+        .col_expr(
+            sign_envelopes::Column::ReminderMaxCount,
+            Expr::value(days("reminderMaxCount")),
+        )
+        .filter(sign_envelopes::Column::Id.eq(draft.id))
+        .exec(&orm(db))
+        .await?;
 
     let document_ids = copy_documents(caller, state, draft, written).await?;
 
     let recipient_ids = add_people(caller, state, draft).await?;
 
-    let fields = list_fields(db, template_id).await?;
+    let fields = field_rows(db, template_id).await?;
     if fields.is_empty() {
         return Ok(());
     }
@@ -721,44 +755,34 @@ async fn fill_draft(
             .iter()
             .find(|(from, _)| from == old)
             .map(|(_, to)| to.clone())
+            // A field of a document or role that was not copied: the insert
+            // fails as the null did in SQL (`not null`), and nothing is kept.
+            .ok_or_else(|| SignError::Internal(format!("sign: template field refers to {old}")))
     };
-    let ids: Vec<String> = fields.iter().map(|_| generate_id("sgf")).collect();
-    let document_refs: Vec<Option<String>> = fields
-        .iter()
-        .map(|f| lookup(&document_ids, text(f, "documentId")))
-        .collect();
-    let recipient_refs: Vec<Option<String>> = fields
-        .iter()
-        .map(|f| lookup(&recipient_ids, text(f, "recipientId")))
-        .collect();
-    let boxes: Vec<Value> = fields
-        .iter()
+    let rows = fields
+        .into_iter()
         .map(|f| {
-            json!({
-                "type": f["type"], "page": f["page"], "x": f["x"], "y": f["y"],
-                "width": f["width"], "height": f["height"], "required": f["required"],
-                "label": f["label"],
+            Ok(sign_fields::ActiveModel {
+                id: Set(generate_id("sgf")),
+                envelope_id: Set(draft.id.to_owned()),
+                document_id: Set(lookup(&document_ids, &f.document_id)?),
+                recipient_id: Set(lookup(&recipient_ids, &f.recipient_id)?),
+                type_: Set(f.type_),
+                page: Set(f.page),
+                x: Set(f.x),
+                y: Set(f.y),
+                width: Set(f.width),
+                height: Set(f.height),
+                required: Set(f.required),
+                label: Set(f.label),
+                ..Default::default()
             })
         })
-        .collect();
+        .collect::<SignResult<Vec<_>>>()?;
     // One statement, as Drizzle's multi-row insert.
-    sqlx::query(
-        "insert into sign_fields
-             (id, envelope_id, document_id, recipient_id, type, page, x, y, width, height,
-              required, label)
-         select u.id, $2, u.document_id, u.recipient_id, u.f->>'type', (u.f->>'page')::int,
-                (u.f->>'x')::real, (u.f->>'y')::real, (u.f->>'width')::real,
-                (u.f->>'height')::real, (u.f->>'required')::boolean, u.f->>'label'
-         from unnest($1::varchar[], $3::varchar[], $4::varchar[], $5::jsonb[])
-              as u(id, document_id, recipient_id, f)",
-    )
-    .bind(&ids)
-    .bind(draft.id)
-    .bind(&document_refs)
-    .bind(&recipient_refs)
-    .bind(&boxes)
-    .execute(db)
-    .await?;
+    sign_fields::Entity::insert_many(rows)
+        .exec_without_returning(&orm(db))
+        .await?;
     Ok(())
 }
 
@@ -819,7 +843,7 @@ async fn copy_documents(
     draft: &Draft<'_>,
     written: &mut Vec<String>,
 ) -> SignResult<Vec<(String, String)>> {
-    let docs = list_documents(&caller.db, text(draft.template, "id")).await?;
+    let docs = document_rows(&caller.db, text(draft.template, "id")).await?;
     if docs.is_empty() {
         return Err(SignError::invalid("This template has no documents"));
     }
@@ -830,43 +854,40 @@ async fn copy_documents(
     for doc in &docs {
         let object = files
             .private
-            .get_boxed(text(doc, "storageKey"))
+            .get_boxed(&doc.storage_key)
             .await
             .map_err(|e| SignError::Internal(format!("file store: {e}")))?
             .ok_or_else(|| {
                 SignError::Internal(format!(
                     "The file of template document {} is missing",
-                    text(doc, "id")
+                    doc.id
                 ))
             })?;
         let id = generate_id("sgd");
         let key = crate::documents::document_key(draft.org_id, draft.id, &id);
         let options = weldsuite_ports::PutOptions::content_type("application/pdf")
-            .with_metadata("sha256", text(doc, "sha256"));
+            .with_metadata("sha256", &doc.sha256);
         files
             .private
             .put_boxed(&key, object.bytes, &options)
             .await
             .map_err(|e| SignError::Internal(format!("file store: {e}")))?;
         written.push(key.clone());
-        sqlx::query(
-            "insert into sign_documents
-                 (id, envelope_id, name, position, storage_key, size_bytes, page_count,
-                  page_sizes, sha256)
-             values ($1, $2, $3, $4::int, $5, $6::int, $7::int, $8, $9)",
-        )
-        .bind(&id)
-        .bind(draft.id)
-        .bind(text(doc, "name"))
-        .bind(doc["position"].as_i64())
-        .bind(&key)
-        .bind(doc["sizeBytes"].as_i64())
-        .bind(doc["pageCount"].as_i64())
-        .bind(&doc["pageSizes"])
-        .bind(text(doc, "sha256"))
-        .execute(&caller.db)
+        sign_documents::Entity::insert(sign_documents::ActiveModel {
+            id: Set(id.clone()),
+            envelope_id: Set(draft.id.to_owned()),
+            name: Set(doc.name.clone()),
+            position: Set(doc.position),
+            storage_key: Set(key),
+            size_bytes: Set(doc.size_bytes),
+            page_count: Set(doc.page_count),
+            page_sizes: Set(doc.page_sizes.clone()),
+            sha256: Set(doc.sha256.clone()),
+            ..Default::default()
+        })
+        .exec_without_returning(&orm(&caller.db))
         .await?;
-        ids.push((text(doc, "id").to_owned(), id));
+        ids.push((doc.id.clone(), id));
     }
     Ok(ids)
 }

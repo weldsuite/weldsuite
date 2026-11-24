@@ -4,9 +4,16 @@
 //! to it. flow-api's
 //! `DELETE /api/tasks/:id`, external-api and the mcp-server share it.
 
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ColumnTrait, Condition, ConnectionTrait, DbErr, EntityTrait, QueryFilter, QuerySelect,
+};
 use serde_json::{Value, json};
-use sqlx::PgPool;
-use weldsuite_events::iso_timestamp;
+use time::PrimitiveDateTime;
+use weldsuite_db::{OrmConn, PgPool, orm, orm_error, utc_now};
+use weldsuite_schema::tenant::{
+    calendar_events, files, project_control_links, task_comments, task_dependencies, tasks,
+};
 
 /// How many subtask levels below a task are followed.
 pub const MAX_SUBTASK_DEPTH: usize = 10;
@@ -38,14 +45,23 @@ impl From<Row> for RemovedTask {
 pub async fn live_children(
     db: &PgPool,
     frontier: &[String],
-) -> Result<Vec<(String, Option<String>, String, Option<String>)>, sqlx::Error> {
-    sqlx::query_as(
-        "select id, project_id, title, calendar_event_id from tasks
-         where parent_task_id = any($1) and deleted_at is null",
-    )
-    .bind(frontier)
-    .fetch_all(db)
-    .await
+) -> Result<Vec<(String, Option<String>, String, Option<String>)>, DbErr> {
+    removal_columns()
+        .filter(tasks::Column::ParentTaskId.is_in(frontier))
+        .filter(tasks::Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&orm(db))
+        .await
+}
+
+/// `select id, project_id, title, calendar_event_id from tasks`.
+fn removal_columns() -> sea_orm::Select<tasks::Entity> {
+    tasks::Entity::find().select_only().columns([
+        tasks::Column::Id,
+        tasks::Column::ProjectId,
+        tasks::Column::Title,
+        tasks::Column::CalendarEventId,
+    ])
 }
 
 /// `softDeleteTaskTree(db, id)`: the removed tasks, the requested one
@@ -59,14 +75,13 @@ pub async fn live_children(
 pub async fn soft_delete_task_tree(
     db: &PgPool,
     id: &str,
-) -> Result<Option<Vec<RemovedTask>>, sqlx::Error> {
-    let existing: Option<Row> = sqlx::query_as(
-        "select id, project_id, title, calendar_event_id from tasks
-         where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
+) -> Result<Option<Vec<RemovedTask>>, DbErr> {
+    let existing: Option<Row> = removal_columns()
+        .filter(tasks::Column::Id.eq(id))
+        .filter(tasks::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     let Some(existing) = existing else {
         return Ok(None);
     };
@@ -91,14 +106,29 @@ pub async fn soft_delete_task_tree(
         removed.extend(fresh);
     }
 
-    let dependents: Vec<(String, Option<Value>, Option<Value>)> = sqlx::query_as(
-        "select id, depends_on, blocks from tasks
-         where deleted_at is null
-           and (depends_on::jsonb ?| $1::text[] or blocks::jsonb ?| $1::text[])",
-    )
-    .bind(&removed_ids)
-    .fetch_all(db)
-    .await?;
+    // `depends_on ?| ids or blocks ?| ids`: the lists are arrays of ids, so
+    // holding one of them is containing `[id]`.
+    let mut holds_one = Condition::any();
+    for column in [tasks::Column::DependsOn, tasks::Column::Blocks] {
+        for removed_id in &removed_ids {
+            holds_one = holds_one.add(sea_orm::sea_query::extension::postgres::PgExpr::contains(
+                Expr::col((tasks::Entity, column)),
+                json!([removed_id]),
+            ));
+        }
+    }
+    let dependents: Vec<(String, Option<Value>, Option<Value>)> = tasks::Entity::find()
+        .select_only()
+        .columns([
+            tasks::Column::Id,
+            tasks::Column::DependsOn,
+            tasks::Column::Blocks,
+        ])
+        .filter(tasks::Column::DeletedAt.is_null())
+        .filter(holds_one)
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     let calendar_event_ids: Vec<String> = removed
         .iter()
         .filter_map(|row| row.calendar_event_id.clone())
@@ -115,60 +145,85 @@ async fn write_removal(
     removed_ids: &[String],
     calendar_event_ids: &[String],
     dependents: Vec<(String, Option<Value>, Option<Value>)>,
-) -> Result<(), sqlx::Error> {
-    let now = iso_timestamp(time::OffsetDateTime::now_utc());
-    let mut tx = db.begin().await?;
-    sqlx::query(
-        "update tasks set deleted_at = $2::timestamp, updated_at = $2::timestamp
-         where id = any($1) and deleted_at is null",
+) -> Result<(), DbErr> {
+    let now = utc_now();
+    let mut tx = db.begin().await.map_err(orm_error)?;
+    remove_on(
+        &OrmConn::new(&mut tx),
+        removed_ids,
+        calendar_event_ids,
+        dependents,
+        now,
     )
-    .bind(removed_ids)
-    .bind(&now)
-    .execute(&mut *tx)
     .await?;
-    if !calendar_event_ids.is_empty() {
-        sqlx::query(
-            "update calendar_events set deleted_at = $2::timestamp, updated_at = $2::timestamp
-             where id = any($1) and deleted_at is null",
-        )
-        .bind(calendar_event_ids)
-        .bind(&now)
-        .execute(&mut *tx)
+    tx.commit().await.map_err(orm_error)
+}
+
+/// [`write_removal`]'s statements, in order, on its transaction.
+async fn remove_on(
+    tx: &impl ConnectionTrait,
+    removed_ids: &[String],
+    calendar_event_ids: &[String],
+    dependents: Vec<(String, Option<Value>, Option<Value>)>,
+    now: PrimitiveDateTime,
+) -> Result<(), DbErr> {
+    tasks::Entity::update_many()
+        .col_expr(tasks::Column::DeletedAt, Expr::val(now))
+        .col_expr(tasks::Column::UpdatedAt, Expr::val(now))
+        .filter(tasks::Column::Id.is_in(removed_ids))
+        .filter(tasks::Column::DeletedAt.is_null())
+        .exec(tx)
         .await?;
+    if !calendar_event_ids.is_empty() {
+        calendar_events::Entity::update_many()
+            .col_expr(calendar_events::Column::DeletedAt, Expr::val(now))
+            .col_expr(calendar_events::Column::UpdatedAt, Expr::val(now))
+            .filter(calendar_events::Column::Id.is_in(calendar_event_ids))
+            .filter(calendar_events::Column::DeletedAt.is_null())
+            .exec(tx)
+            .await?;
     }
-    sqlx::query(
-        "update task_comments set deleted_at = $2::timestamp, updated_at = $2::timestamp
-         where task_id = any($1) and deleted_at is null",
-    )
-    .bind(removed_ids)
-    .bind(&now)
-    .execute(&mut *tx)
-    .await?;
-    sqlx::query(
-        "update files set deleted_at = $2::timestamp, updated_at = $2::timestamp
-         where entity_type = 'task' and entity_id = any($1) and deleted_at is null",
-    )
-    .bind(removed_ids)
-    .bind(&now)
-    .execute(&mut *tx)
-    .await?;
+    task_comments::Entity::update_many()
+        .col_expr(task_comments::Column::DeletedAt, Expr::val(now))
+        .col_expr(task_comments::Column::UpdatedAt, Expr::val(now))
+        .filter(task_comments::Column::TaskId.is_in(removed_ids))
+        .filter(task_comments::Column::DeletedAt.is_null())
+        .exec(tx)
+        .await?;
+    files::Entity::update_many()
+        .col_expr(files::Column::DeletedAt, Expr::val(now))
+        .col_expr(files::Column::UpdatedAt, Expr::val(now))
+        .filter(files::Column::EntityType.eq("task"))
+        .filter(files::Column::EntityId.is_in(removed_ids))
+        .filter(files::Column::DeletedAt.is_null())
+        .exec(tx)
+        .await?;
     // FLOW-011: a task's project-control links go with it, deleted for real.
-    sqlx::query(
-        "delete from project_control_links
-         where (from_type = 'task' and from_id = any($1))
-            or (to_type = 'task' and to_id = any($1))",
-    )
-    .bind(removed_ids)
-    .execute(&mut *tx)
-    .await?;
+    project_control_links::Entity::delete_many()
+        .filter(
+            Condition::any()
+                .add(
+                    Condition::all()
+                        .add(project_control_links::Column::FromType.eq("task"))
+                        .add(project_control_links::Column::FromId.is_in(removed_ids)),
+                )
+                .add(
+                    Condition::all()
+                        .add(project_control_links::Column::ToType.eq("task"))
+                        .add(project_control_links::Column::ToId.is_in(removed_ids)),
+                ),
+        )
+        .exec(tx)
+        .await?;
     // FLOW-015: so are the typed dependency rows.
-    sqlx::query(
-        "delete from task_dependencies
-         where predecessor_id = any($1) or successor_id = any($1)",
-    )
-    .bind(removed_ids)
-    .execute(&mut *tx)
-    .await?;
+    task_dependencies::Entity::delete_many()
+        .filter(
+            Condition::any()
+                .add(task_dependencies::Column::PredecessorId.is_in(removed_ids))
+                .add(task_dependencies::Column::SuccessorId.is_in(removed_ids)),
+        )
+        .exec(tx)
+        .await?;
     for (dependent, depends_on, blocks) in dependents {
         if removed_ids.contains(&dependent) {
             continue;
@@ -188,17 +243,15 @@ async fn write_removal(
                     .collect(),
             )
         };
-        sqlx::query(
-            "update tasks set depends_on = $2, blocks = $3, updated_at = $4::timestamp where id = $1",
-        )
-        .bind(&dependent)
-        .bind(prune(depends_on))
-        .bind(prune(blocks))
-        .bind(&now)
-        .execute(&mut *tx)
-        .await?;
+        tasks::Entity::update_many()
+            .col_expr(tasks::Column::DependsOn, Expr::val(prune(depends_on)))
+            .col_expr(tasks::Column::Blocks, Expr::val(prune(blocks)))
+            .col_expr(tasks::Column::UpdatedAt, Expr::val(now))
+            .filter(tasks::Column::Id.eq(&dependent))
+            .exec(tx)
+            .await?;
     }
-    tx.commit().await
+    Ok(())
 }
 
 /// The `{ id, title }` of a removed task, as the `deleted` events carry it.

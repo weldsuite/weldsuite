@@ -3,8 +3,10 @@
 //! and counters, record chat following, thread counters, the realtime
 //! fan-out, mention / thread / DM notifications, and agent room dispatch.
 
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect, Set};
 use serde_json::{Map, Value, json};
-use sqlx::PgPool;
+use time::PrimitiveDateTime;
 use weldsuite_chat_domain::entity::{self, can_post_in_record_chat};
 use weldsuite_chat_domain::policy::parse_agent_room_policy;
 use weldsuite_chat_domain::publish::object;
@@ -13,14 +15,18 @@ use weldsuite_chat_domain::text::{
     read_reply_reference,
 };
 use weldsuite_chat_domain::{Can, Realtime};
+use weldsuite_db::{PgPool, orm, utc_now, utc_timestamp};
 use weldsuite_kit::generate_id;
 use weldsuite_notifications::{chat as notify, create_and_deliver};
 use weldsuite_ports::JobRequest;
+use weldsuite_schema::tenant::{
+    chat_channel_members as members, chat_channels as channels, chat_messages as messages,
+    crm_activities, workspace_members,
+};
 
 use crate::ChatState;
 use crate::access::Caller;
 use crate::followers::{announce_new_followers, follow_record_chat_on_post};
-use crate::util::now;
 
 /// Most files one message may carry.
 pub(crate) const MAX_MESSAGE_ATTACHMENTS: usize = 10;
@@ -60,13 +66,24 @@ pub(crate) struct PostInput {
 #[derive(Debug)]
 pub(crate) enum PostError {
     Feature(u16, String),
-    Database(sqlx::Error),
+    Database(DbErr),
 }
 
-impl From<sqlx::Error> for PostError {
-    fn from(error: sqlx::Error) -> Self {
+impl From<DbErr> for PostError {
+    fn from(error: DbErr) -> Self {
         Self::Database(error)
     }
+}
+
+/// The author's `workspace_members.name` (`select name … limit 1`).
+async fn member_name(db: &PgPool, user_id: &str) -> Result<Option<Option<String>>, DbErr> {
+    workspace_members::Entity::find()
+        .select_only()
+        .column(workspace_members::Column::Name)
+        .filter(workspace_members::Column::UserId.eq(user_id))
+        .into_tuple()
+        .one(&orm(db))
+        .await
 }
 
 /// `getChannelFeatureFlags`: threads, attachments, reactions, slow mode,
@@ -74,15 +91,19 @@ impl From<sqlx::Error> for PostError {
 pub(crate) async fn channel_feature_flags(
     db: &PgPool,
     channel_id: &str,
-) -> Result<Option<(bool, bool, bool, i32, bool)>, sqlx::Error> {
-    sqlx::query_as(
-        "select threads_enabled, attachments_enabled, reactions_enabled, slow_mode_seconds,
-                is_archived
-         from chat_channels where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(channel_id)
-    .fetch_optional(db)
-    .await
+) -> Result<Option<(bool, bool, bool, i32, bool)>, DbErr> {
+    channels::Entity::find()
+        .select_only()
+        .column(channels::Column::ThreadsEnabled)
+        .column(channels::Column::AttachmentsEnabled)
+        .column(channels::Column::ReactionsEnabled)
+        .column(channels::Column::SlowModeSeconds)
+        .column(channels::Column::IsArchived)
+        .filter(channels::Column::Id.eq(channel_id))
+        .filter(channels::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await
 }
 
 async fn assert_channel_allows_send(
@@ -122,12 +143,7 @@ async fn assert_channel_allows_send(
         ));
     }
     if let Some(parent) = input.parent_id.as_deref().filter(|p| !p.is_empty()) {
-        let parent_channel: Option<String> = sqlx::query_scalar(
-            "select channel_id from chat_messages where id = $1 and deleted_at is null limit 1",
-        )
-        .bind(parent)
-        .fetch_optional(db)
-        .await?;
+        let parent_channel = crate::pins::live_message_channel(db, parent).await?;
         if parent_channel.as_deref() != Some(channel_id) {
             return Err(PostError::Feature(
                 400,
@@ -137,19 +153,19 @@ async fn assert_channel_allows_send(
     }
     assert_may_write_in_record_chat(db, channel_id, author).await?;
     if slow_mode > 0 {
-        let cutoff = weldsuite_events::iso_timestamp(
+        let cutoff = utc_timestamp(
             time::OffsetDateTime::now_utc() - time::Duration::seconds(i64::from(slow_mode)),
         );
-        let recent: Option<String> = sqlx::query_scalar(
-            "select id from chat_messages
-             where channel_id = $1 and author_id = $2 and deleted_at is null
-               and created_at > $3::timestamp limit 1",
-        )
-        .bind(channel_id)
-        .bind(author)
-        .bind(&cutoff)
-        .fetch_optional(db)
-        .await?;
+        let recent: Option<String> = messages::Entity::find()
+            .select_only()
+            .column(messages::Column::Id)
+            .filter(messages::Column::ChannelId.eq(channel_id))
+            .filter(messages::Column::AuthorId.eq(author))
+            .filter(messages::Column::DeletedAt.is_null())
+            .filter(messages::Column::CreatedAt.gt(cutoff))
+            .into_tuple()
+            .one(&orm(db))
+            .await?;
         if recent.is_some() {
             return Err(PostError::Feature(
                 400,
@@ -166,12 +182,15 @@ async fn assert_may_write_in_record_chat(
     channel_id: &str,
     author: &str,
 ) -> Result<(), PostError> {
-    let channel: Option<(String, Option<String>, Option<String>)> = sqlx::query_as(
-        "select type, entity_type, entity_id from chat_channels where id = $1 limit 1",
-    )
-    .bind(channel_id)
-    .fetch_optional(db)
-    .await?;
+    let channel: Option<(String, Option<String>, Option<String>)> = channels::Entity::find()
+        .select_only()
+        .column(channels::Column::Type)
+        .column(channels::Column::EntityType)
+        .column(channels::Column::EntityId)
+        .filter(channels::Column::Id.eq(channel_id))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     let Some((kind, Some(entity_type), Some(entity_id))) = channel else {
         return Ok(());
     };
@@ -280,31 +299,31 @@ async fn log_entity_activity(
     display_name: Option<&str>,
     author: &str,
     content: &str,
-    created_at: &str,
-) -> Result<(), sqlx::Error> {
+    created_at: PrimitiveDateTime,
+) -> Result<(), DbErr> {
     let subject = activity_subject(content);
     if subject.is_empty() {
         return Ok(());
     }
     let is_company = entity_type == "company";
-    sqlx::query(
-        "insert into crm_activities
-            (id, type, subject, description, related_to, related_to_id, related_to_name,
-             customer_id, person_id, assigned_to_id, status, created_at, updated_at)
-         values ($1, 'comment', $2, $3, $4, $5, $6, $7, $8, $9, 'completed',
-                 $10::timestamp, $10::timestamp)",
-    )
-    .bind(generate_id("act"))
-    .bind(&subject)
-    .bind(content)
-    .bind(if is_company { "customer" } else { "contact" })
-    .bind(entity_id)
-    .bind(display_name)
-    .bind(is_company.then_some(entity_id))
-    .bind((!is_company).then_some(entity_id))
-    .bind(author)
-    .bind(created_at)
-    .execute(db)
+    let related_to = if is_company { "customer" } else { "contact" };
+    crm_activities::Entity::insert(crm_activities::ActiveModel {
+        id: Set(generate_id("act")),
+        type_: Set("comment".to_owned()),
+        subject: Set(subject),
+        description: Set(Some(content.to_owned())),
+        related_to: Set(Some(related_to.to_owned())),
+        related_to_id: Set(Some(entity_id.to_owned())),
+        related_to_name: Set(display_name.map(str::to_owned)),
+        customer_id: Set(is_company.then(|| entity_id.to_owned())),
+        person_id: Set((!is_company).then(|| entity_id.to_owned())),
+        assigned_to_id: Set(author.to_owned()),
+        status: Set("completed".to_owned()),
+        created_at: Set(created_at),
+        updated_at: Set(created_at),
+        ..Default::default()
+    })
+    .exec_without_returning(&orm(db))
     .await?;
     Ok(())
 }
@@ -332,12 +351,8 @@ pub(crate) async fn post_chat_message(
     let realtime = Caller::realtime(state);
     assert_channel_allows_send(db, channel_id, author_id, &input).await?;
 
-    let author_name: Option<Option<String>> =
-        sqlx::query_scalar("select name from workspace_members where user_id = $1 limit 1")
-            .bind(author_id)
-            .fetch_optional(db)
-            .await?;
-    let author_name = author_name
+    let author_name = member_name(db, author_id)
+        .await?
         .flatten()
         .unwrap_or_else(|| "Unknown".to_owned());
     // The stamped avatar is the account picture, not the member row's copy.
@@ -359,14 +374,21 @@ pub(crate) async fn post_chat_message(
             bool,
             Option<Value>,
         );
-        let target: Option<Target> = sqlx::query_as(
-            "select id, author_id, author_name, author_avatar, content, has_attachments, metadata
-             from chat_messages where id = $1 and channel_id = $2 and deleted_at is null limit 1",
-        )
-        .bind(reply_to)
-        .bind(channel_id)
-        .fetch_optional(db)
-        .await?;
+        let target: Option<Target> = messages::Entity::find()
+            .select_only()
+            .column(messages::Column::Id)
+            .column(messages::Column::AuthorId)
+            .column(messages::Column::AuthorName)
+            .column(messages::Column::AuthorAvatar)
+            .column(messages::Column::Content)
+            .column(messages::Column::HasAttachments)
+            .column(messages::Column::Metadata)
+            .filter(messages::Column::Id.eq(reply_to))
+            .filter(messages::Column::ChannelId.eq(channel_id))
+            .filter(messages::Column::DeletedAt.is_null())
+            .into_tuple()
+            .one(&orm(db))
+            .await?;
         if let Some((id, target_author, name, avatar, content, has_attachments, target_meta)) =
             target
         {
@@ -392,7 +414,7 @@ pub(crate) async fn post_chat_message(
     }
 
     let id = generate_id("msg");
-    let at = now();
+    let at = utc_now();
     let has_attachments = input.attachments.as_ref().is_some_and(|a| !a.is_empty());
     let mut all_mentions: Vec<String> = Vec::new();
     for mention in input
@@ -410,57 +432,29 @@ pub(crate) async fn post_chat_message(
     let mentions_everyone = all_mentions.iter().any(|m| m == "everyone");
     let attachments_json = input.attachments.clone().map(Value::Array);
     let mentions_json = (!all_mentions.is_empty()).then(|| Value::from(all_mentions.clone()));
-    sqlx::query(
-        "insert into chat_messages
-            (id, channel_id, author_id, author_name, author_avatar, content, html_content,
-             parent_id, attachments, has_attachments, mentions, mentions_everyone, metadata,
-             created_at, updated_at)
-         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14::timestamp, $14::timestamp)",
-    )
-    .bind(&id)
-    .bind(channel_id)
-    .bind(author_id)
-    .bind(&author_name)
-    .bind(&author_picture)
-    .bind(&input.content)
-    .bind(&input.html_content)
-    .bind(&input.parent_id)
-    .bind(&attachments_json)
-    .bind(has_attachments)
-    .bind(&mentions_json)
-    .bind(mentions_everyone)
-    .bind(&metadata)
-    .bind(&at)
-    .execute(db)
+    messages::Entity::insert(messages::ActiveModel {
+        id: Set(id.clone()),
+        channel_id: Set(channel_id.to_owned()),
+        author_id: Set(author_id.to_owned()),
+        author_name: Set(author_name.clone()),
+        author_avatar: Set(author_picture.clone()),
+        content: Set(input.content.clone()),
+        html_content: Set(input.html_content.clone()),
+        parent_id: Set(input.parent_id.clone()),
+        attachments: Set(attachments_json),
+        has_attachments: Set(has_attachments),
+        mentions: Set(mentions_json),
+        mentions_everyone: Set(mentions_everyone),
+        metadata: Set(metadata.clone()),
+        created_at: Set(at),
+        updated_at: Set(at),
+        ..Default::default()
+    })
+    .exec_without_returning(&orm(db))
     .await?;
 
     let preview = build_message_preview(db, &input.content).await;
-    let channel: Option<(
-        String,
-        String,
-        Option<String>,
-        Option<String>,
-        Option<String>,
-    )> = sqlx::query_as(
-        "update chat_channels set last_message_at = $2::timestamp, last_message_preview = $3,
-                message_count = message_count + 1, updated_at = $2::timestamp
-             where id = $1
-             returning type, name, entity_type, entity_id, entity_display_name",
-    )
-    .bind(channel_id)
-    .bind(&at)
-    .bind(&preview)
-    .fetch_optional(db)
-    .await?;
-    let channel = channel.map(
-        |(kind, name, entity_type, entity_id, entity_display_name)| ChannelRef {
-            kind,
-            name,
-            entity_type,
-            entity_id,
-            entity_display_name,
-        },
-    );
+    let channel = bump_channel(db, channel_id, at, &preview).await?;
 
     if let Some(channel) = &channel
         && let (Some(entity_type), Some(entity_id)) =
@@ -474,7 +468,7 @@ pub(crate) async fn post_chat_message(
             channel.entity_display_name.as_deref(),
             author_id,
             &input.content,
-            &at,
+            at,
         )
         .await
     {
@@ -509,16 +503,13 @@ pub(crate) async fn post_chat_message(
         }
     }
 
-    sqlx::query(
-        "update chat_channel_members set last_read_at = $3::timestamp, last_read_message_id = $4
-         where channel_id = $1 and user_id = $2",
-    )
-    .bind(channel_id)
-    .bind(author_id)
-    .bind(&at)
-    .bind(&id)
-    .execute(db)
-    .await?;
+    members::Entity::update_many()
+        .col_expr(members::Column::LastReadAt, Expr::value(at))
+        .col_expr(members::Column::LastReadMessageId, Expr::value(&id))
+        .filter(members::Column::ChannelId.eq(channel_id))
+        .filter(members::Column::UserId.eq(author_id))
+        .exec(&orm(db))
+        .await?;
 
     let notifier = caller.notifier(state);
     if let Some(parent) = input.parent_id.as_deref().filter(|p| !p.is_empty()) {
@@ -533,17 +524,18 @@ pub(crate) async fn post_chat_message(
             &id,
             &preview,
             parent,
-            &at,
+            at,
         )
         .await?;
     }
 
-    let message: Value =
-        sqlx::query_scalar("select to_jsonb(m) from chat_messages m where m.id = $1 limit 1")
-            .bind(&id)
-            .fetch_optional(db)
-            .await?
-            .map_or(Value::Null, weldsuite_db::js_row);
+    let message = messages::Entity::find_by_id(id.clone())
+        .one(&orm(db))
+        .await?
+        .map(serde_json::to_value)
+        .transpose()
+        .map_err(|error| DbErr::Json(error.to_string()))?
+        .unwrap_or(Value::Null);
 
     if realtime.is_on() {
         let reply = metadata.as_ref().and_then(read_reply_reference).cloned();
@@ -628,6 +620,35 @@ pub(crate) async fn post_chat_message(
     Ok(message)
 }
 
+/// `update chat_channels set last_message_at, last_message_preview,
+/// message_count = message_count + 1, updated_at … returning type, name,
+/// entity_type, entity_id, entity_display_name`.
+async fn bump_channel(
+    db: &PgPool,
+    channel_id: &str,
+    at: PrimitiveDateTime,
+    preview: &str,
+) -> Result<Option<ChannelRef>, DbErr> {
+    let updated = channels::Entity::update_many()
+        .col_expr(channels::Column::LastMessageAt, Expr::value(at))
+        .col_expr(channels::Column::LastMessagePreview, Expr::value(preview))
+        .col_expr(
+            channels::Column::MessageCount,
+            sea_orm::ExprTrait::add(Expr::col(channels::Column::MessageCount), 1),
+        )
+        .col_expr(channels::Column::UpdatedAt, Expr::value(at))
+        .filter(channels::Column::Id.eq(channel_id))
+        .exec_with_returning(&orm(db))
+        .await?;
+    Ok(updated.into_iter().next().map(|channel| ChannelRef {
+        kind: channel.type_,
+        name: channel.name,
+        entity_type: channel.entity_type,
+        entity_id: channel.entity_id,
+        entity_display_name: channel.entity_display_name,
+    }))
+}
+
 /// The parent's thread counters, then every other participant is told.
 #[allow(clippy::too_many_arguments)]
 async fn notify_thread_reply(
@@ -641,14 +662,16 @@ async fn notify_thread_reply(
     message_id: &str,
     preview: &str,
     parent_id: &str,
-    at: &str,
-) -> Result<(), sqlx::Error> {
-    let parent: Option<(Option<Value>, String)> = sqlx::query_as(
-        "select thread_participant_ids, author_id from chat_messages where id = $1 limit 1",
-    )
-    .bind(parent_id)
-    .fetch_optional(db)
-    .await?;
+    at: PrimitiveDateTime,
+) -> Result<(), DbErr> {
+    let parent: Option<(Option<Value>, String)> = messages::Entity::find()
+        .select_only()
+        .column(messages::Column::ThreadParticipantIds)
+        .column(messages::Column::AuthorId)
+        .filter(messages::Column::Id.eq(parent_id))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     let mut participants: Vec<String> = parent
         .as_ref()
         .and_then(|(ids, _)| ids.as_ref())
@@ -663,17 +686,20 @@ async fn notify_thread_reply(
     {
         participants.push(parent_author.clone());
     }
-    sqlx::query(
-        "update chat_messages set thread_reply_count = thread_reply_count + 1,
-            thread_last_reply_at = $2::timestamp, thread_participant_ids = $3,
-            updated_at = $2::timestamp
-         where id = $1",
-    )
-    .bind(parent_id)
-    .bind(at)
-    .bind(Value::from(participants.clone()))
-    .execute(db)
-    .await?;
+    messages::Entity::update_many()
+        .col_expr(
+            messages::Column::ThreadReplyCount,
+            sea_orm::ExprTrait::add(Expr::col(messages::Column::ThreadReplyCount), 1),
+        )
+        .col_expr(messages::Column::ThreadLastReplyAt, Expr::value(at))
+        .col_expr(
+            messages::Column::ThreadParticipantIds,
+            Expr::value(Value::from(participants.clone())),
+        )
+        .col_expr(messages::Column::UpdatedAt, Expr::value(at))
+        .filter(messages::Column::Id.eq(parent_id))
+        .exec(&orm(db))
+        .await?;
 
     let others: Vec<&String> = participants.iter().filter(|p| *p != author_id).collect();
     for participant in &others {
@@ -723,19 +749,24 @@ async fn notify_dm_recipients(
     all_mentions: &[String],
 ) {
     let run = async {
-        let kind: Option<String> =
-            sqlx::query_scalar("select type from chat_channels where id = $1 limit 1")
-                .bind(channel_id)
-                .fetch_optional(db)
-                .await?;
+        let orm = orm(db);
+        let kind: Option<String> = channels::Entity::find()
+            .select_only()
+            .column(channels::Column::Type)
+            .filter(channels::Column::Id.eq(channel_id))
+            .into_tuple()
+            .one(&orm)
+            .await?;
         if kind.as_deref() != Some("dm") {
-            return Ok::<(), sqlx::Error>(());
+            return Ok::<(), DbErr>(());
         }
-        let members: Vec<String> =
-            sqlx::query_scalar("select user_id from chat_channel_members where channel_id = $1")
-                .bind(channel_id)
-                .fetch_all(db)
-                .await?;
+        let members: Vec<String> = members::Entity::find()
+            .select_only()
+            .column(members::Column::UserId)
+            .filter(members::Column::ChannelId.eq(channel_id))
+            .into_tuple()
+            .all(&orm)
+            .await?;
         for member in members
             .iter()
             .filter(|m| *m != author_id && !all_mentions.contains(m) && !m.starts_with("agt_"))
@@ -771,14 +802,15 @@ async fn notify_mentioned_users(
         .filter(|m| is_notifiable_mention(m, author_id))
         .collect();
     for mentioned in &notifiable {
-        if let Err(error) = sqlx::query(
-            "update chat_channel_members set unread_mention_count = unread_mention_count + 1
-             where channel_id = $1 and user_id = $2",
-        )
-        .bind(channel_id)
-        .bind(mentioned)
-        .execute(db)
-        .await
+        if let Err(error) = members::Entity::update_many()
+            .col_expr(
+                members::Column::UnreadMentionCount,
+                sea_orm::ExprTrait::add(Expr::col(members::Column::UnreadMentionCount), 1),
+            )
+            .filter(members::Column::ChannelId.eq(channel_id))
+            .filter(members::Column::UserId.eq(mentioned.as_str()))
+            .exec(&orm(db))
+            .await
         {
             tracing::error!(%error, "[app-api/chat] mention count increment failed");
         }
@@ -822,12 +854,14 @@ async fn fan_out_unread_updates(
     channel_id: &str,
     author_id: &str,
 ) {
-    let members: Result<Vec<(String, String)>, sqlx::Error> = sqlx::query_as(
-        "select user_id, member_type from chat_channel_members where channel_id = $1",
-    )
-    .bind(channel_id)
-    .fetch_all(db)
-    .await;
+    let members: Result<Vec<(String, String)>, DbErr> = members::Entity::find()
+        .select_only()
+        .column(members::Column::UserId)
+        .column(members::Column::MemberType)
+        .filter(members::Column::ChannelId.eq(channel_id))
+        .into_tuple()
+        .all(&orm(db))
+        .await;
     match members {
         Ok(members) => {
             for (user_id, member_type) in members {
@@ -853,17 +887,19 @@ async fn dispatch_agent_room_replies(
     message_id: &str,
     content: &str,
     all_mentions: &[String],
-) -> Result<(), sqlx::Error> {
+) -> Result<(), DbErr> {
     let agent_mentions: Vec<String> = all_mentions
         .iter()
         .filter(|m| m.starts_with("agt_"))
         .cloned()
         .collect();
-    let metadata: Option<Option<Value>> =
-        sqlx::query_scalar("select metadata from chat_channels where id = $1 limit 1")
-            .bind(channel_id)
-            .fetch_optional(&caller.db)
-            .await?;
+    let metadata: Option<Option<Value>> = channels::Entity::find()
+        .select_only()
+        .column(channels::Column::Metadata)
+        .filter(channels::Column::Id.eq(channel_id))
+        .into_tuple()
+        .one(&orm(&caller.db))
+        .await?;
     let policy = parse_agent_room_policy(metadata.flatten().as_ref());
     let dispatch = policy.agent_reply_policy != "none"
         && (!agent_mentions.is_empty() || policy.agent_reply_policy == "always");

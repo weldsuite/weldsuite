@@ -5,24 +5,44 @@
 
 use std::collections::HashSet;
 
+use sea_orm::ActiveValue::Set;
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 use serde_json::{Map, Value};
 use sqlx::PgPool;
-use weldsuite_db::{Keyring, decrypt_field, encrypt_field};
+use weldsuite_db::{Keyring, decrypt_field, encrypt_field, orm, utc_now};
 use weldsuite_kit::generate_id;
 use weldsuite_kit::validation::Field;
+use weldsuite_schema::tenant::{
+    accounting_bank_account_settings, accounting_entity_settings, bank_accounts,
+    hr_payroll_employers, tax_id_reveals,
+};
 
 use super::entities::require_entity_row;
 use super::types::{
     BankAccountRow, CreateBankAccountInput, LegalEntityBankAccount, RevealBankAccount,
     RevealedAccountNumber, UpdateBankAccountInput,
 };
-use super::{
-    Columns, LegalEntityError, Param, insert_returning, js_slice_end, js_slice_start, now_iso,
-    read_row, update_returning,
-};
+use super::{LegalEntityError, js_slice_end, js_slice_start, read_model};
 
-fn bank_account_row(value: Value) -> Result<BankAccountRow, LegalEntityError> {
-    Ok(read_row::<BankAccountRow>(value)?.0)
+fn bank_account_row(model: &bank_accounts::Model) -> Result<BankAccountRow, LegalEntityError> {
+    Ok(read_model::<_, BankAccountRow>(model)?.0)
+}
+
+/// `update bank_accounts set … where id = $id returning *`; `None` when no
+/// row has the id.
+async fn update_bank_account_row(
+    db: &PgPool,
+    id: &str,
+    patch: bank_accounts::ActiveModel,
+) -> Result<Option<bank_accounts::Model>, DbErr> {
+    Ok(bank_accounts::Entity::update_many()
+        .set(patch)
+        .filter(bank_accounts::Column::Id.eq(id))
+        .exec_with_returning(&orm(db))
+        .await?
+        .into_iter()
+        .next())
 }
 
 /// `requireKeyring(env)`: the keys that are set (an empty value counts as
@@ -59,15 +79,15 @@ async fn to_bank_accounts(
     let in_books: HashSet<String> = if ids.is_empty() {
         HashSet::new()
     } else {
-        sqlx::query_scalar::<_, String>(
-            "select bank_account_id from accounting_bank_account_settings
-             where bank_account_id = any($1)",
-        )
-        .bind(&ids)
-        .fetch_all(db)
-        .await?
-        .into_iter()
-        .collect()
+        accounting_bank_account_settings::Entity::find()
+            .select_only()
+            .column(accounting_bank_account_settings::Column::BankAccountId)
+            .filter(accounting_bank_account_settings::Column::BankAccountId.is_in(ids))
+            .into_tuple::<String>()
+            .all(&orm(db))
+            .await?
+            .into_iter()
+            .collect()
     };
     Ok(rows
         .into_iter()
@@ -113,16 +133,15 @@ pub async fn list_bank_accounts(
     entity_id: &str,
 ) -> Result<Vec<LegalEntityBankAccount>, LegalEntityError> {
     require_entity_row(db, entity_id).await?;
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from bank_accounts t
-         where t.entity_id = $1 and t.deleted_at is null
-         order by t.is_default desc, t.name asc",
-    )
-    .bind(entity_id)
-    .fetch_all(db)
-    .await?;
+    let rows = bank_accounts::Entity::find()
+        .filter(bank_accounts::Column::EntityId.eq(entity_id))
+        .filter(bank_accounts::Column::DeletedAt.is_null())
+        .order_by_desc(bank_accounts::Column::IsDefault)
+        .order_by_asc(bank_accounts::Column::Name)
+        .all(&orm(db))
+        .await?;
     let rows = rows
-        .into_iter()
+        .iter()
         .map(bank_account_row)
         .collect::<Result<Vec<_>, _>>()?;
     to_bank_accounts(db, rows).await
@@ -135,16 +154,14 @@ async fn require_bank_account(
     entity_id: &str,
     account_id: &str,
 ) -> Result<BankAccountRow, LegalEntityError> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from bank_accounts t
-         where t.id = $1 and t.entity_id = $2 and t.deleted_at is null limit 1",
-    )
-    .bind(account_id)
-    .bind(entity_id)
-    .fetch_optional(db)
-    .await?;
+    let row = bank_accounts::Entity::find()
+        .filter(bank_accounts::Column::Id.eq(account_id))
+        .filter(bank_accounts::Column::EntityId.eq(entity_id))
+        .filter(bank_accounts::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?;
     match row {
-        Some(row) => bank_account_row(row),
+        Some(row) => bank_account_row(&row),
         None => Err(LegalEntityError::not_found("Bank account not found")),
     }
 }
@@ -157,12 +174,16 @@ async fn mirror_bank_account_to_employers(
     keyring: &Keyring,
     row: &BankAccountRow,
 ) -> Result<(), LegalEntityError> {
-    let employers: Vec<(String, Option<String>)> = sqlx::query_as(
-        "select id, bank_encrypted from hr_payroll_employers where bank_account_id = $1",
-    )
-    .bind(&row.id)
-    .fetch_all(db)
-    .await?;
+    let employers: Vec<(String, Option<String>)> = hr_payroll_employers::Entity::find()
+        .select_only()
+        .columns([
+            hr_payroll_employers::Column::Id,
+            hr_payroll_employers::Column::BankEncrypted,
+        ])
+        .filter(hr_payroll_employers::Column::BankAccountId.eq(row.id.as_str()))
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     if employers.is_empty() {
         return Ok(());
     }
@@ -212,14 +233,18 @@ async fn mirror_bank_account_to_employers(
         next.insert("bankName".to_owned(), text(&row.bank_name));
         next.insert("nachaCompanyId".to_owned(), nacha);
         let sealed = seal(&Value::Object(next).to_string(), &keyring)?;
-        sqlx::query(
-            "update hr_payroll_employers set bank_encrypted = $1, updated_at = $2::timestamp where id = $3",
-        )
-        .bind(sealed)
-        .bind(now_iso())
-        .bind(&id)
-        .execute(db)
-        .await?;
+        hr_payroll_employers::Entity::update_many()
+            .col_expr(
+                hr_payroll_employers::Column::BankEncrypted,
+                Expr::value(sealed),
+            )
+            .col_expr(
+                hr_payroll_employers::Column::UpdatedAt,
+                Expr::value(utc_now()),
+            )
+            .filter(hr_payroll_employers::Column::Id.eq(id))
+            .exec(&orm(db))
+            .await?;
     }
     Ok(())
 }
@@ -229,15 +254,14 @@ async fn clear_other_default_accounts(
     db: &PgPool,
     row: &BankAccountRow,
 ) -> Result<(), LegalEntityError> {
-    sqlx::query(
-        "update bank_accounts set is_default = false, updated_at = $1::timestamp
-         where entity_id = $2 and id <> $3 and is_default = true",
-    )
-    .bind(now_iso())
-    .bind(&row.entity_id)
-    .bind(&row.id)
-    .execute(db)
-    .await?;
+    bank_accounts::Entity::update_many()
+        .col_expr(bank_accounts::Column::IsDefault, Expr::value(false))
+        .col_expr(bank_accounts::Column::UpdatedAt, Expr::value(utc_now()))
+        .filter(bank_accounts::Column::EntityId.eq(row.entity_id.as_str()))
+        .filter(bank_accounts::Column::Id.ne(row.id.as_str()))
+        .filter(bank_accounts::Column::IsDefault.eq(true))
+        .exec(&orm(db))
+        .await?;
     Ok(())
 }
 
@@ -255,13 +279,11 @@ pub async fn create_bank_account(
     input: &CreateBankAccountInput,
 ) -> Result<LegalEntityBankAccount, LegalEntityError> {
     let entity = require_entity_row(db, entity_id).await?;
-    let mut columns = Columns::default();
-    columns.set("id", Param::Text(Some(generate_id("ba"))));
-    columns.set("entity_id", Param::Text(Some(entity_id.to_owned())));
-    columns.set("name", Param::Text(Some(input.name.clone())));
-    columns.set(
-        "account_holder_name",
-        Param::Text(Some(
+    let mut row = bank_accounts::ActiveModel {
+        id: Set(generate_id("ba")),
+        entity_id: Set(entity_id.to_owned()),
+        name: Set(input.name.clone()),
+        account_holder_name: Set(Some(
             input
                 .account_holder_name
                 .as_set()
@@ -269,51 +291,31 @@ pub async fn create_bank_account(
                 .or_else(|| entity.legal_name.clone())
                 .unwrap_or_else(|| entity.name.clone()),
         )),
-    );
-    columns.set("iban", Param::Text(non_empty(&input.iban)));
-    columns.set("bic", Param::Text(non_empty(&input.bic)));
-    columns.set("bank_name", Param::Text(input.bank_name.as_set().cloned()));
-    columns.set(
-        "currency",
-        Param::Text(Some(
+        iban: Set(non_empty(&input.iban)),
+        bic: Set(non_empty(&input.bic)),
+        bank_name: Set(input.bank_name.as_set().cloned()),
+        currency: Set(Some(
             input
                 .currency
                 .clone()
                 .unwrap_or_else(|| entity.base_currency.clone()),
         )),
-    );
-    columns.set(
-        "account_type",
-        Param::Text(input.account_type.as_set().cloned()),
-    );
-    columns.set(
-        "routing_number",
-        Param::Text(non_empty(&input.routing_number)),
-    );
-    columns.set(
-        "ach_settings",
-        Param::Json(input.ach_settings.as_set().cloned()),
-    );
-    columns.set(
-        "is_default",
-        Param::Bool(Some(input.is_default.unwrap_or(false))),
-    );
-    columns.set(
-        "is_active",
-        Param::Bool(Some(input.is_active.unwrap_or(true))),
-    );
+        account_type: Set(input.account_type.as_set().cloned()),
+        routing_number: Set(non_empty(&input.routing_number)),
+        ach_settings: Set(input.ach_settings.as_set().cloned()),
+        is_default: Set(Some(input.is_default.unwrap_or(false))),
+        is_active: Set(Some(input.is_active.unwrap_or(true))),
+        ..Default::default()
+    };
     if let Some(number) = non_empty(&input.account_number) {
         let keyring = require_keyring(keyring)?;
-        columns.set(
-            "account_number_encrypted",
-            Param::Text(Some(seal(&number, &keyring)?)),
-        );
-        columns.set(
-            "account_number_last4",
-            Param::Text(Some(js_slice_end(&number, 4))),
-        );
+        row.account_number_encrypted = Set(Some(seal(&number, &keyring)?));
+        row.account_number_last4 = Set(Some(js_slice_end(&number, 4)));
     }
-    let row = bank_account_row(insert_returning(db, "bank_accounts", columns).await?)?;
+    let row = bank_accounts::Entity::insert(row)
+        .exec_with_returning(&orm(db))
+        .await?;
+    let row = bank_account_row(&row)?;
     if row.is_default == Some(true) {
         clear_other_default_accounts(db, &row).await?;
     }
@@ -330,62 +332,60 @@ pub async fn update_bank_account(
     input: &UpdateBankAccountInput,
 ) -> Result<LegalEntityBankAccount, LegalEntityError> {
     require_bank_account(db, entity_id, account_id).await?;
-    let mut patch = Columns::default();
-    patch.set("updated_at", Param::Timestamp(Some(now_iso())));
+    let mut patch = bank_accounts::ActiveModel {
+        updated_at: Set(utc_now()),
+        ..Default::default()
+    };
     if let Some(name) = &input.name {
-        patch.set("name", Param::Text(Some(name.clone())));
+        patch.name = Set(name.clone());
     }
-    let mut text = |column: &'static str, field: &Field<String>, empty_is_null: bool| {
+    let text = |slot: &mut sea_orm::ActiveValue<Option<String>>,
+                field: &Field<String>,
+                empty_is_null: bool| {
         if field.is_absent() {
             return;
         }
-        let value = if empty_is_null {
+        *slot = Set(if empty_is_null {
             non_empty(field)
         } else {
             field.as_set().cloned()
-        };
-        patch.set(column, Param::Text(value));
+        });
     };
-    text("account_holder_name", &input.account_holder_name, false);
-    text("iban", &input.iban, true);
-    text("bic", &input.bic, true);
-    text("bank_name", &input.bank_name, false);
-    text("account_type", &input.account_type, false);
-    text("routing_number", &input.routing_number, true);
+    text(
+        &mut patch.account_holder_name,
+        &input.account_holder_name,
+        false,
+    );
+    text(&mut patch.iban, &input.iban, true);
+    text(&mut patch.bic, &input.bic, true);
+    text(&mut patch.bank_name, &input.bank_name, false);
+    text(&mut patch.account_type, &input.account_type, false);
+    text(&mut patch.routing_number, &input.routing_number, true);
     if let Some(currency) = &input.currency {
-        patch.set("currency", Param::Text(Some(currency.clone())));
+        patch.currency = Set(Some(currency.clone()));
     }
     if !input.ach_settings.is_absent() {
-        patch.set(
-            "ach_settings",
-            Param::Json(input.ach_settings.as_set().cloned()),
-        );
+        patch.ach_settings = Set(input.ach_settings.as_set().cloned());
     }
     if let Some(is_default) = input.is_default {
-        patch.set("is_default", Param::Bool(Some(is_default)));
+        patch.is_default = Set(Some(is_default));
     }
     if let Some(is_active) = input.is_active {
-        patch.set("is_active", Param::Bool(Some(is_active)));
+        patch.is_active = Set(Some(is_active));
     }
     if let Some(number) = non_empty(&input.account_number) {
         let keyring = require_keyring(keyring)?;
-        patch.set(
-            "account_number_encrypted",
-            Param::Text(Some(seal(&number, &keyring)?)),
-        );
-        patch.set(
-            "account_number_last4",
-            Param::Text(Some(js_slice_end(&number, 4))),
-        );
+        patch.account_number_encrypted = Set(Some(seal(&number, &keyring)?));
+        patch.account_number_last4 = Set(Some(js_slice_end(&number, 4)));
     } else if !input.account_number.is_absent() {
         // Null or empty clears the number.
-        patch.set("account_number_encrypted", Param::Text(None));
-        patch.set("account_number_last4", Param::Text(None));
+        patch.account_number_encrypted = Set(None);
+        patch.account_number_last4 = Set(None);
     }
-    let row = update_returning(db, "bank_accounts", patch, account_id)
+    let row = update_bank_account_row(db, account_id, patch)
         .await?
         .ok_or_else(|| LegalEntityError::not_found("Bank account not found"))?;
-    let row = bank_account_row(row)?;
+    let row = bank_account_row(&row)?;
     if row.is_default == Some(true) {
         clear_other_default_accounts(db, &row).await?;
     }
@@ -401,49 +401,56 @@ pub async fn delete_bank_account(
     account_id: &str,
 ) -> Result<(), LegalEntityError> {
     let row = require_bank_account(db, entity_id, account_id).await?;
-    let in_books: Option<String> = sqlx::query_scalar(
-        "select bank_account_id from accounting_bank_account_settings
-         where bank_account_id = $1 limit 1",
-    )
-    .bind(&row.id)
-    .fetch_optional(db)
-    .await?;
+    let in_books: Option<String> = accounting_bank_account_settings::Entity::find()
+        .select_only()
+        .column(accounting_bank_account_settings::Column::BankAccountId)
+        .filter(accounting_bank_account_settings::Column::BankAccountId.eq(row.id.as_str()))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     if in_books.is_some() {
         return Err(LegalEntityError::conflict(
             "This account is in WeldBooks; remove it there first",
         ));
     }
-    let employer: Option<String> = sqlx::query_scalar(
-        "select id from hr_payroll_employers
-         where bank_account_id = $1 and deleted_at is null limit 1",
-    )
-    .bind(&row.id)
-    .fetch_optional(db)
-    .await?;
+    let employer: Option<String> = hr_payroll_employers::Entity::find()
+        .select_only()
+        .column(hr_payroll_employers::Column::Id)
+        .filter(hr_payroll_employers::Column::BankAccountId.eq(row.id.as_str()))
+        .filter(hr_payroll_employers::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     if employer.is_some() {
         return Err(LegalEntityError::conflict(
             "WeldHR pays salaries from this account; change the payroll setup first",
         ));
     }
-    let invoice_account: Option<String> = sqlx::query_scalar(
-        "select entity_id from accounting_entity_settings
-         where invoice_bank_account_id = $1 limit 1",
-    )
-    .bind(&row.id)
-    .fetch_optional(db)
-    .await?;
+    let invoice_account: Option<String> = accounting_entity_settings::Entity::find()
+        .select_only()
+        .column(accounting_entity_settings::Column::EntityId)
+        .filter(accounting_entity_settings::Column::InvoiceBankAccountId.eq(row.id.as_str()))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     if invoice_account.is_some() {
         return Err(LegalEntityError::conflict(
             "WeldBooks prints this account on invoices; pick another one first",
         ));
     }
-    let now = now_iso();
-    let mut columns = Columns::default();
-    columns.set("deleted_at", Param::Timestamp(Some(now.clone())));
-    columns.set("is_active", Param::Bool(Some(false)));
-    columns.set("is_default", Param::Bool(Some(false)));
-    columns.set("updated_at", Param::Timestamp(Some(now)));
-    update_returning(db, "bank_accounts", columns, &row.id).await?;
+    let now = utc_now();
+    update_bank_account_row(
+        db,
+        &row.id,
+        bank_accounts::ActiveModel {
+            deleted_at: Set(Some(now)),
+            is_active: Set(Some(false)),
+            is_default: Set(Some(false)),
+            updated_at: Set(now),
+            ..Default::default()
+        },
+    )
+    .await?;
     Ok(())
 }
 
@@ -465,16 +472,17 @@ pub async fn reveal_bank_account_number(
         ));
     };
     let keyring = require_keyring(keyring)?;
-    sqlx::query(
-        "insert into tax_id_reveals (id, entity_id, subject_type, subject_id, field, revealed_by, reason)
-         values ($1, $2, 'bank_account', $3, 'account_number', $4, $5)",
-    )
-    .bind(generate_id("tir"))
-    .bind(&account.entity_id)
-    .bind(&account.id)
-    .bind(args.user_id)
-    .bind(args.reason.map(|reason| js_slice_start(reason, 255)))
-    .execute(db)
+    tax_id_reveals::Entity::insert(tax_id_reveals::ActiveModel {
+        id: Set(generate_id("tir")),
+        entity_id: Set(Some(account.entity_id.clone())),
+        subject_type: Set("bank_account".to_owned()),
+        subject_id: Set(account.id.clone()),
+        field: Set("account_number".to_owned()),
+        revealed_by: Set(args.user_id.to_owned()),
+        reason: Set(args.reason.map(|reason| js_slice_start(reason, 255))),
+        ..Default::default()
+    })
+    .exec_without_returning(&orm(db))
     .await?;
     Ok(RevealedAccountNumber {
         account_number: open(sealed, &keyring)?,

@@ -39,22 +39,33 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, post};
 use http::HeaderMap;
+use sea_orm::ActiveValue::Set;
+use sea_orm::sea_query::{Asterisk, Expr, Func, Query, SubQueryStatement};
+use sea_orm::{
+    ColumnTrait, Condition, ConnectionTrait, DbErr, EntityTrait, Order, PaginatorTrait,
+    QueryFilter, QueryOrder, QuerySelect,
+};
 use serde_json::{Map, Value, json};
-use sqlx::PgConnection;
-use time::OffsetDateTime;
+use time::{OffsetDateTime, PrimitiveDateTime};
 use weldsuite_catalogs::entity_events::{
     SALES_HISTORY_IMPORT_COMPLETED, SALES_HISTORY_IMPORT_CREATED, SALES_HISTORY_IMPORT_DELETED,
 };
 use weldsuite_catalogs::permission_keys::{INVENTORY_MANAGE, INVENTORY_READ};
+use weldsuite_db::{OrmConn, orm, utc_now};
 use weldsuite_kit::validation::{Issues, Presence, Text};
 use weldsuite_kit::{Created, Data, List, NoContent, Pagination, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::{
+    orders, product_variants, products, stash_sales_history as history,
+    stash_sales_history_imports as imports, warehouses,
+};
 
-use super::demand::NOT_DEMAND;
+use super::demand::{NOT_DEMAND, ymd};
 use super::engine::MAX_QUANTITY;
 use super::routes::{Ctx, is_iso_day, limit_param, whole};
-use super::settings::load_settings;
-use crate::{Caller, Refusal, StashState, internal, now, validate};
+use super::settings::{load_settings, model_json};
+use crate::incoming::parse_date;
+use crate::{Caller, Refusal, StashState, internal, validate};
 
 const RESOURCE: &str = "Sales history import";
 
@@ -91,18 +102,13 @@ fn import_event(row: &Value) -> Value {
 }
 
 /// The live import `id`.
-async fn find_import<'e>(
-    db: impl sqlx::PgExecutor<'e>,
-    id: &str,
-) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from stash_sales_history_imports t where t.id = $1 \
-         and t.deleted_at is null",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(weldsuite_db::js_row))
+async fn find_import<C: ConnectionTrait>(db: &C, id: &str) -> Result<Option<Value>, DbErr> {
+    imports::Entity::find_by_id(id)
+        .filter(imports::Column::DeletedAt.is_null())
+        .one(db)
+        .await?
+        .map(|row| model_json!(row))
+        .transpose()
 }
 
 // ── Reading ─────────────────────────────────────────────────────────────────
@@ -110,27 +116,27 @@ async fn find_import<'e>(
 async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
     const FAILED: &str = "Failed to list sales history imports";
     let limit = limit_param(query.as_deref(), 50, 200);
-    let rows: Result<Vec<Value>, _> = sqlx::query_scalar(
-        "select to_jsonb(t) from stash_sales_history_imports t where t.deleted_at is null \
-         order by t.created_at desc, t.id desc limit $1",
-    )
-    .bind(limit)
-    .fetch_all(&caller.db)
-    .await;
-    let total: Result<i64, _> = sqlx::query_scalar(
-        "select count(*) from stash_sales_history_imports where deleted_at is null",
-    )
-    .fetch_one(&caller.db)
-    .await;
+    let db = orm(&caller.db);
+    let rows = imports::Entity::find()
+        .filter(imports::Column::DeletedAt.is_null())
+        .order_by(imports::Column::CreatedAt, Order::Desc)
+        .order_by(imports::Column::Id, Order::Desc)
+        .limit(u64::try_from(limit).ok())
+        .all(&db)
+        .await
+        .and_then(|rows| {
+            rows.iter()
+                .map(|row| model_json!(row))
+                .collect::<Result<Vec<_>, _>>()
+        });
+    let total = imports::Entity::find()
+        .filter(imports::Column::DeletedAt.is_null())
+        .count(&db)
+        .await;
     match (rows, total) {
         (Ok(rows), Ok(total)) => {
-            let total = u64::try_from(total).unwrap_or(0);
             let has_more = total > u64::try_from(rows.len()).unwrap_or(u64::MAX);
-            List::new(
-                rows.into_iter().map(weldsuite_db::js_row).collect(),
-                Pagination::new(total, has_more, None),
-            )
-            .into_response()
+            List::new(rows, Pagination::new(total, has_more, None)).into_response()
         }
         (Err(error), _) | (_, Err(error)) => internal(&error, FAILED),
     }
@@ -138,7 +144,7 @@ async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
 
 async fn fetch(caller: Caller, Path(id): Path<String>) -> Response {
     const FAILED: &str = "Failed to fetch sales history import";
-    match find_import(&caller.db, &id).await {
+    match find_import(&orm(&caller.db), &id).await {
         Ok(Some(row)) => Data(row).into_response(),
         Ok(None) => Refusal::not_found(RESOURCE, &id).respond(FAILED),
         Err(error) => internal(&error, FAILED),
@@ -168,20 +174,21 @@ async fn create(
         Ok(None) => return weldsuite_kit::ApiError::internal().into_response(),
         Err(refusal) => return refusal.respond(FAILED),
     };
-    let row: Result<Value, _> = sqlx::query_scalar(
-        "insert into stash_sales_history_imports as t (id, created_at, updated_at, file_name, \
-         status, created_by) values ($1, $2::timestamp, $2::timestamp, $3, 'processing', $4) \
-         returning to_jsonb(t)",
-    )
-    .bind(generate_id("shimp"))
-    .bind(now())
-    .bind(&file_name)
-    .bind(&caller.user_id)
-    .fetch_one(&caller.db)
-    .await;
+    let now = utc_now();
+    let row = imports::Entity::insert(imports::ActiveModel {
+        id: Set(generate_id("shimp")),
+        created_at: Set(now),
+        updated_at: Set(now),
+        file_name: Set(file_name),
+        status: Set("processing".to_owned()),
+        created_by: Set(Some(caller.user_id.clone())),
+        ..Default::default()
+    })
+    .exec_with_returning(&orm(&caller.db))
+    .await
+    .and_then(|row| model_json!(row));
     match row {
         Ok(row) => {
-            let row = weldsuite_db::js_row(row);
             let id = row["id"].as_str().unwrap_or_default().to_owned();
             caller.publish(
                 &state,
@@ -412,7 +419,7 @@ type Lookups = (
     HashMap<String, String>,
 );
 
-async fn lookups(conn: &mut PgConnection, rows: &[HistoryRow]) -> Result<Lookups, sqlx::Error> {
+async fn lookups<C: ConnectionTrait>(db: &C, rows: &[HistoryRow]) -> Result<Lookups, DbErr> {
     let skus: Vec<String> = rows
         .iter()
         .map(|row| row.sku.clone())
@@ -425,27 +432,47 @@ async fn lookups(conn: &mut PgConnection, rows: &[HistoryRow]) -> Result<Lookups
         .collect::<HashSet<_>>()
         .into_iter()
         .collect();
-    let variants: Vec<(String, String, String)> = sqlx::query_as(
-        "select distinct on (sku) sku, product_id, id from product_variants \
-         where deleted_at is null and sku = any($1) order by sku, created_at, id",
-    )
-    .bind(&skus)
-    .fetch_all(&mut *conn)
-    .await?;
-    let products: Vec<(String, String)> = sqlx::query_as(
-        "select distinct on (sku) sku, id from products \
-         where deleted_at is null and sku = any($1) order by sku, created_at, id",
-    )
-    .bind(&skus)
-    .fetch_all(&mut *conn)
-    .await?;
-    let warehouses: Vec<(String, String)> = sqlx::query_as(
-        "select distinct on (code) code, id from warehouses \
-         where deleted_at is null and code = any($1) order by code, created_at, id",
-    )
-    .bind(&codes)
-    .fetch_all(&mut *conn)
-    .await?;
+    // `distinct on (sku)`, the oldest first.
+    let variants: Vec<(String, String, String)> = product_variants::Entity::find()
+        .select_only()
+        .columns([
+            product_variants::Column::Sku,
+            product_variants::Column::ProductId,
+            product_variants::Column::Id,
+        ])
+        .distinct_on([product_variants::Column::Sku])
+        .filter(product_variants::Column::DeletedAt.is_null())
+        .filter(product_variants::Column::Sku.is_in(skus.iter().map(String::as_str)))
+        .order_by(product_variants::Column::Sku, Order::Asc)
+        .order_by(product_variants::Column::CreatedAt, Order::Asc)
+        .order_by(product_variants::Column::Id, Order::Asc)
+        .into_tuple()
+        .all(db)
+        .await?;
+    let products: Vec<(String, String)> = products::Entity::find()
+        .select_only()
+        .columns([products::Column::Sku, products::Column::Id])
+        .distinct_on([products::Column::Sku])
+        .filter(products::Column::DeletedAt.is_null())
+        .filter(products::Column::Sku.is_in(skus.iter().map(String::as_str)))
+        .order_by(products::Column::Sku, Order::Asc)
+        .order_by(products::Column::CreatedAt, Order::Asc)
+        .order_by(products::Column::Id, Order::Asc)
+        .into_tuple()
+        .all(db)
+        .await?;
+    let warehouses: Vec<(String, String)> = warehouses::Entity::find()
+        .select_only()
+        .columns([warehouses::Column::Code, warehouses::Column::Id])
+        .distinct_on([warehouses::Column::Code])
+        .filter(warehouses::Column::DeletedAt.is_null())
+        .filter(warehouses::Column::Code.is_in(codes.iter().map(String::as_str)))
+        .order_by(warehouses::Column::Code, Order::Asc)
+        .order_by(warehouses::Column::CreatedAt, Order::Asc)
+        .order_by(warehouses::Column::Id, Order::Asc)
+        .into_tuple()
+        .all(db)
+        .await?;
     Ok((
         variants
             .into_iter()
@@ -456,74 +483,146 @@ async fn lookups(conn: &mut PgConnection, rows: &[HistoryRow]) -> Result<Lookups
     ))
 }
 
+/// A row's day (`u.day::date`): Postgres has no year 0.
+fn history_day(text: &str) -> Result<time::Date, DbErr> {
+    parse_date(text)
+        .filter(|day| day.year() != 0)
+        .ok_or_else(|| DbErr::Custom(format!("date/time field value out of range: \"{text}\"")))
+}
+
 /// Store `matched` as the import's sales history rows, in one statement.
-async fn insert_history(
-    conn: &mut PgConnection,
+async fn insert_history<C: ConnectionTrait>(
+    db: &C,
     import_id: &str,
-    at: &str,
+    at: PrimitiveDateTime,
     matched: &[Matched],
-) -> Result<(), sqlx::Error> {
+) -> Result<(), DbErr> {
     if matched.is_empty() {
         return Ok(());
     }
-    let ids: Vec<String> = matched.iter().map(|_| generate_id("sh")).collect();
-    let days: Vec<&str> = matched.iter().map(|row| row.date.as_str()).collect();
-    let product_ids: Vec<&str> = matched.iter().map(|row| row.product_id.as_str()).collect();
-    let variant_ids: Vec<Option<&str>> = matched
-        .iter()
-        .map(|row| row.variant_id.as_deref())
-        .collect();
-    let warehouse_ids: Vec<Option<&str>> = matched
-        .iter()
-        .map(|row| row.warehouse_id.as_deref())
-        .collect();
-    let quantities: Vec<i64> = matched.iter().map(|row| row.quantity).collect();
-    let references: Vec<Option<&str>> =
-        matched.iter().map(|row| row.reference.as_deref()).collect();
-    sqlx::query(
-        "insert into stash_sales_history (id, created_at, date, product_id, variant_id, \
-         warehouse_id, quantity, source, import_id, external_ref) \
-         select u.id, $1::timestamp, u.day::date, u.product_id, u.variant_id, u.warehouse_id, \
-         u.quantity, 'import', $2, u.reference \
-         from unnest($3::text[], $4::text[], $5::text[], $6::text[], $7::text[], $8::int8[], \
-         $9::text[]) as u(id, day, product_id, variant_id, warehouse_id, quantity, reference)",
-    )
-    .bind(at)
-    .bind(import_id)
-    .bind(&ids)
-    .bind(&days)
-    .bind(&product_ids)
-    .bind(&variant_ids)
-    .bind(&warehouse_ids)
-    .bind(&quantities)
-    .bind(&references)
-    .execute(&mut *conn)
-    .await?;
+    let mut rows = Vec::with_capacity(matched.len());
+    for row in matched {
+        rows.push(history::ActiveModel {
+            id: Set(generate_id("sh")),
+            created_at: Set(at),
+            date: Set(history_day(&row.date)?),
+            product_id: Set(row.product_id.clone()),
+            variant_id: Set(row.variant_id.clone()),
+            warehouse_id: Set(row.warehouse_id.clone()),
+            quantity: Set(i32::try_from(row.quantity)
+                .map_err(|_| DbErr::Custom("integer out of range".to_owned()))?),
+            source: Set("import".to_owned()),
+            import_id: Set(Some(import_id.to_owned())),
+            external_ref: Set(row.reference.clone()),
+            ..Default::default()
+        });
+    }
+    history::Entity::insert_many(rows)
+        .exec_without_returning(db)
+        .await?;
     Ok(())
 }
 
-/// The counts of a chunk with `startRow`: derived from the rows stored, so
-/// a retry doesn't add them twice (`$2`: the furthest row the chunk reaches).
-const DERIVED_COUNTS: &str = "update stash_sales_history_imports t set \
-     rows_total = greatest(t.rows_total, $2), \
-     rows_imported = s.stored, rows_skipped = greatest(greatest(t.rows_total, $2) - s.stored, 0), \
-     unmatched_skus = $3, date_from = least(t.date_from, $4::date), \
-     date_to = greatest(t.date_to, $5::date), updated_at = $6::timestamp \
-     from (select count(*)::integer as stored from stash_sales_history h \
-       where h.import_id = $1) s \
-     where t.id = $1";
+/// `(select <expr> from stash_sales_history h where h.import_id = $id)`.
+fn of_history(id: &str, expr: Expr) -> Expr {
+    use sea_orm::ExprTrait as _;
+    let mut select = Query::select();
+    select
+        .expr(expr)
+        .from(history::Entity)
+        .and_where(Expr::col(history::Column::ImportId).eq(id));
+    Expr::SubQuery(None, Box::new(SubQueryStatement::SelectStatement(select)))
+}
 
-/// The counts of a chunk without `startRow`: added up.
-const ADDED_COUNTS: &str = "update stash_sales_history_imports set \
-     rows_total = rows_total + $2, rows_imported = rows_imported + $7, \
-     rows_skipped = rows_skipped + $8, unmatched_skus = $3, \
-     date_from = least(date_from, $4::date), date_to = greatest(date_to, $5::date), \
-     updated_at = $6::timestamp where id = $1";
+/// What a chunk adds to its import's counts.
+struct Counts<'a> {
+    id: &'a str,
+    /// With `startRow`: the furthest row the chunk reaches.
+    start_row: Option<i64>,
+    length: i64,
+    chunk: &'a Chunk,
+    unmatched: Vec<String>,
+    first: Option<&'a str>,
+    last: Option<&'a str>,
+    at: PrimitiveDateTime,
+}
+
+/// The import's counts after a chunk: derived from the rows stored for a
+/// chunk with `startRow`, so a retry doesn't add them twice; added up
+/// without.
+async fn update_counts<C: ConnectionTrait>(db: &C, counts: Counts<'_>) -> Result<(), DbErr> {
+    use sea_orm::ExprTrait as _;
+    let int4 = |n: i64| i32::try_from(n).unwrap_or(i32::MAX);
+    let col = |column: imports::Column| Expr::col((imports::Entity, column));
+    let mut update = imports::Entity::update_many();
+    update = match counts.start_row {
+        Some(start) => {
+            let furthest = || {
+                Expr::from(Func::greatest([
+                    col(imports::Column::RowsTotal),
+                    Expr::val(int4(start + counts.length)),
+                ]))
+            };
+            let stored = || {
+                of_history(
+                    counts.id,
+                    Expr::from(Func::count(Expr::col(Asterisk))).cast_as("integer"),
+                )
+            };
+            update
+                .col_expr(imports::Column::RowsTotal, furthest())
+                .col_expr(imports::Column::RowsImported, stored())
+                .col_expr(
+                    imports::Column::RowsSkipped,
+                    Func::greatest([furthest().sub(stored()), Expr::val(0)]).into(),
+                )
+        }
+        None => update
+            .col_expr(
+                imports::Column::RowsTotal,
+                col(imports::Column::RowsTotal).add(int4(counts.length)),
+            )
+            .col_expr(
+                imports::Column::RowsImported,
+                col(imports::Column::RowsImported).add(int4(counts.chunk.imported)),
+            )
+            .col_expr(
+                imports::Column::RowsSkipped,
+                col(imports::Column::RowsSkipped).add(int4(counts.chunk.skipped)),
+            ),
+    };
+    update
+        .col_expr(
+            imports::Column::UnmatchedSkus,
+            Expr::val(json!(counts.unmatched)),
+        )
+        .col_expr(
+            imports::Column::DateFrom,
+            Func::least([
+                col(imports::Column::DateFrom),
+                Expr::val(counts.first.map(str::to_owned)).cast_as("date"),
+            ])
+            .into(),
+        )
+        .col_expr(
+            imports::Column::DateTo,
+            Func::greatest([
+                col(imports::Column::DateTo),
+                Expr::val(counts.last.map(str::to_owned)).cast_as("date"),
+            ])
+            .into(),
+        )
+        .col_expr(imports::Column::UpdatedAt, Expr::val(counts.at))
+        .filter(imports::Column::Id.eq(counts.id))
+        .exec(db)
+        .await?;
+    Ok(())
+}
 
 /// Lock the import, match and store the rows (a chunk with `startRow`
 /// replacing what an earlier attempt stored), update its counts.
 async fn store_rows(caller: &Caller, id: String, body: RowsBody) -> Result<Chunk, Refusal> {
-    let at = now();
+    let at = utc_now();
     let RowsBody {
         mut rows,
         start_row,
@@ -539,13 +638,16 @@ async fn store_rows(caller: &Caller, id: String, body: RowsBody) -> Result<Chunk
     }
     weldsuite_db::atomically_with(&caller.db, move |conn| {
         Box::pin(async move {
-            let import: Option<(String, Option<Value>)> = sqlx::query_as(
-                "select status, unmatched_skus from stash_sales_history_imports \
-                 where id = $1 and deleted_at is null for update",
-            )
-            .bind(&id)
-            .fetch_optional(&mut *conn)
-            .await?;
+            let db = OrmConn::new(conn);
+            let import: Option<(String, Option<Value>)> = imports::Entity::find()
+                .select_only()
+                .columns([imports::Column::Status, imports::Column::UnmatchedSkus])
+                .filter(imports::Column::Id.eq(&id))
+                .filter(imports::Column::DeletedAt.is_null())
+                .lock_exclusive()
+                .into_tuple()
+                .one(&db)
+                .await?;
             let Some((status, existing)) = import else {
                 return Err(Refusal::not_found(RESOURCE, &id));
             };
@@ -555,43 +657,30 @@ async fn store_rows(caller: &Caller, id: String, body: RowsBody) -> Result<Chunk
                 ));
             }
             if !refs.is_empty() {
-                sqlx::query(
-                    "delete from stash_sales_history where import_id = $1 \
-                     and external_ref = any($2)",
-                )
-                .bind(&id)
-                .bind(&refs)
-                .execute(&mut *conn)
-                .await?;
+                history::Entity::delete_many()
+                    .filter(history::Column::ImportId.eq(&id))
+                    .filter(history::Column::ExternalRef.is_in(refs.iter().map(String::as_str)))
+                    .exec(&db)
+                    .await?;
             }
-            let (variants, products, warehouses) = lookups(conn, &rows).await?;
+            let (variants, products, warehouses) = lookups(&db, &rows).await?;
             let (matched, chunk) = match_rows(&rows, &variants, &products, &warehouses);
-            insert_history(conn, &id, &at, &matched).await?;
+            insert_history(&db, &id, at, &matched).await?;
             let existing: Vec<String> = existing
                 .and_then(|value| serde_json::from_value(value).ok())
                 .unwrap_or_default();
             let unmatched = merge_unmatched(&existing, &chunk.unmatched);
-            let first = matched.iter().map(|row| row.date.as_str()).min();
-            let last = matched.iter().map(|row| row.date.as_str()).max();
-            let length = i64::try_from(rows.len()).unwrap_or(i64::MAX);
-            let int4 = |n: i64| i32::try_from(n).unwrap_or(i32::MAX);
-            let counts = match start_row {
-                Some(start) => sqlx::query(DERIVED_COUNTS)
-                    .bind(&id)
-                    .bind(int4(start + length)),
-                None => sqlx::query(ADDED_COUNTS).bind(&id).bind(int4(length)),
+            let counts = Counts {
+                id: &id,
+                start_row,
+                length: i64::try_from(rows.len()).unwrap_or(i64::MAX),
+                chunk: &chunk,
+                unmatched,
+                first: matched.iter().map(|row| row.date.as_str()).min(),
+                last: matched.iter().map(|row| row.date.as_str()).max(),
+                at,
             };
-            let counts = counts
-                .bind(json!(unmatched))
-                .bind(first)
-                .bind(last)
-                .bind(&at);
-            let counts = if start_row.is_some() {
-                counts
-            } else {
-                counts.bind(int4(chunk.imported)).bind(int4(chunk.skipped))
-            };
-            counts.execute(&mut *conn).await?;
+            update_counts(&db, counts).await?;
             Ok::<_, Refusal>(chunk)
         })
     })
@@ -628,79 +717,96 @@ async fn complete(State(state): State<StashState>, ctx: Ctx, Path(id): Path<Stri
 /// Mark the import done with its date range: the row, and whether it was
 /// still processing (a second complete answers it again, unchanged).
 async fn finish_import(caller: &Caller, id: String) -> Result<(Value, bool), Refusal> {
-    let at = now();
+    let at = utc_now();
     weldsuite_db::atomically_with(&caller.db, move |conn| {
         Box::pin(async move {
-            let status: Option<String> = sqlx::query_scalar(
-                "select status from stash_sales_history_imports where id = $1 \
-                 and deleted_at is null for update",
-            )
-            .bind(&id)
-            .fetch_optional(&mut *conn)
-            .await?;
+            let db = OrmConn::new(conn);
+            let status: Option<String> = imports::Entity::find()
+                .select_only()
+                .column(imports::Column::Status)
+                .filter(imports::Column::Id.eq(&id))
+                .filter(imports::Column::DeletedAt.is_null())
+                .lock_exclusive()
+                .into_tuple()
+                .one(&db)
+                .await?;
             match status.as_deref() {
                 None => return Err(Refusal::not_found(RESOURCE, &id)),
                 Some("processing") => {}
                 Some("done") => {
-                    let row = find_import(&mut *conn, &id)
+                    let row = find_import(&db, &id)
                         .await?
                         .ok_or_else(|| Refusal::not_found(RESOURCE, &id))?;
                     return Ok((row, false));
                 }
                 Some(_) => return Err(Refusal::bad_request("This import failed")),
             }
-            let row: Value = sqlx::query_scalar(
-                "update stash_sales_history_imports t set status = 'done', \
-                 date_from = (select min(h.date) from stash_sales_history h where h.import_id = $1), \
-                 date_to = (select max(h.date) from stash_sales_history h where h.import_id = $1), \
-                 updated_at = $2::timestamp where t.id = $1 returning to_jsonb(t)",
-            )
-            .bind(&id)
-            .bind(&at)
-            .fetch_one(&mut *conn)
-            .await?;
-            Ok::<_, Refusal>((weldsuite_db::js_row(row), true))
+            let day = |of: fn(Expr) -> sea_orm::sea_query::FunctionCall| {
+                of_history(&id, of(Expr::col(history::Column::Date)).into())
+            };
+            let row = imports::Entity::update_many()
+                .col_expr(imports::Column::Status, Expr::val("done"))
+                .col_expr(imports::Column::DateFrom, day(Func::min))
+                .col_expr(imports::Column::DateTo, day(Func::max))
+                .col_expr(imports::Column::UpdatedAt, Expr::val(at))
+                .filter(imports::Column::Id.eq(&id))
+                .exec_with_returning(&db)
+                .await?
+                .into_iter()
+                .next()
+                .ok_or_else(|| DbErr::RecordNotFound(id.clone()))?;
+            Ok::<_, Refusal>((model_json!(row)?, true))
         })
     })
     .await
 }
 
 /// The day of the first order, while the settings have no cut-over date.
-async fn suggested_cutover(db: &weldsuite_db::PgPool) -> Result<Option<String>, sqlx::Error> {
-    if load_settings(db).await?.cutover.is_some() {
+async fn suggested_cutover(db: &weldsuite_db::PgPool) -> Result<Option<String>, DbErr> {
+    let db = orm(db);
+    if load_settings(&db).await?.cutover.is_some() {
         return Ok(None);
     }
-    sqlx::query_scalar(
-        "select to_char(min(created_at), 'YYYY-MM-DD') from orders where deleted_at is null \
-         and cancelled_at is null and coalesce(status, '') <> all($1)",
-    )
-    .bind(&NOT_DEMAND[..])
-    .fetch_one(db)
-    .await
+    let first: Option<Option<PrimitiveDateTime>> = orders::Entity::find()
+        .select_only()
+        .column_as(orders::Column::CreatedAt.min(), "first")
+        .filter(orders::Column::DeletedAt.is_null())
+        .filter(orders::Column::CancelledAt.is_null())
+        // `coalesce(status, '') <> all(…)`.
+        .filter(
+            Condition::any()
+                .add(orders::Column::Status.is_null())
+                .add(orders::Column::Status.is_not_in(NOT_DEMAND)),
+        )
+        .into_tuple()
+        .one(&db)
+        .await?;
+    Ok(first.flatten().map(|at| ymd(at.date())))
 }
 
 async fn remove(State(state): State<StashState>, ctx: Ctx, Path(id): Path<String>) -> Response {
     const FAILED: &str = "Failed to delete sales history import";
-    let at = now();
+    let at = utc_now();
     let import_id = id.clone();
     let deleted = weldsuite_db::atomically_with(&ctx.caller.db, move |conn| {
         Box::pin(async move {
-            let row: Option<Value> = sqlx::query_scalar(
-                "update stash_sales_history_imports t set deleted_at = $2::timestamp, \
-                 updated_at = $2::timestamp where t.id = $1 and t.deleted_at is null \
-                 returning to_jsonb(t)",
-            )
-            .bind(&import_id)
-            .bind(&at)
-            .fetch_optional(&mut *conn)
-            .await?;
+            let db = OrmConn::new(conn);
+            let row = imports::Entity::update_many()
+                .col_expr(imports::Column::DeletedAt, Expr::val(at))
+                .col_expr(imports::Column::UpdatedAt, Expr::val(at))
+                .filter(imports::Column::Id.eq(&import_id))
+                .filter(imports::Column::DeletedAt.is_null())
+                .exec_with_returning(&db)
+                .await?
+                .into_iter()
+                .next();
             if row.is_some() {
-                sqlx::query("delete from stash_sales_history where import_id = $1")
-                    .bind(&import_id)
-                    .execute(&mut *conn)
+                history::Entity::delete_many()
+                    .filter(history::Column::ImportId.eq(&import_id))
+                    .exec(&db)
                     .await?;
             }
-            Ok::<_, sqlx::Error>(row.map(weldsuite_db::js_row))
+            Ok::<_, Refusal>(row.map(|row| model_json!(row)).transpose()?)
         })
     })
     .await;
@@ -716,7 +822,7 @@ async fn remove(State(state): State<StashState>, ctx: Ctx, Path(id): Path<String
             NoContent.into_response()
         }
         Ok(None) => Refusal::not_found(RESOURCE, &id).respond(FAILED),
-        Err(error) => internal(&error, FAILED),
+        Err(refusal) => refusal.respond(FAILED),
     }
 }
 

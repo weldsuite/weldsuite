@@ -15,12 +15,23 @@ use axum::body::Bytes;
 use axum::extract::{Path, RawQuery, State};
 use axum::response::IntoResponse;
 use http::HeaderMap;
+use sea_orm::ActiveValue::Set;
+use sea_orm::sea_query::{Expr, OnConflict};
+use sea_orm::{
+    ColumnTrait, Condition, DbErr, EntityTrait, FromQueryResult, JoinType, QueryFilter, QueryOrder,
+    QuerySelect, RelationDef,
+};
 use serde_json::{Map, Value, json};
-use weldsuite_db::{PgPool, js_row};
+use time::OffsetDateTime;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::validation::{Presence, Text, js_iso_from_millis, js_number};
 use weldsuite_kit::{Data, NoContent, generate_id};
+use weldsuite_schema::tenant::{
+    merge_issue_pull_requests, merge_issues, merge_provider_accounts, merge_pull_requests,
+    merge_repositories, merge_teams,
+};
 
-use crate::db::{Row, col, like_pattern, text};
+use crate::db::{Row, col, ilike, instant, json_row, like_pattern, now_at, text};
 use crate::github::millis_of;
 use crate::issues::{find_issue, issue_detail, limit_of};
 use crate::mappers::{issue_event_data, pull_request_summary};
@@ -35,13 +46,29 @@ use crate::{
 pub(crate) async fn member_github_login(
     db: &PgPool,
     user_id: &str,
-) -> Result<Option<String>, sqlx::Error> {
-    sqlx::query_scalar(
-        "select login from merge_provider_accounts where user_id = $1 and provider = 'github' limit 1",
-    )
-    .bind(user_id)
-    .fetch_optional(db)
-    .await
+) -> Result<Option<String>, DbErr> {
+    merge_provider_accounts::Entity::find()
+        .select_only()
+        .column(merge_provider_accounts::Column::Login)
+        .filter(merge_provider_accounts::Column::UserId.eq(user_id))
+        .filter(merge_provider_accounts::Column::Provider.eq("github"))
+        .into_tuple::<String>()
+        .one(&orm(db))
+        .await
+}
+
+/// An issue a pull request is linked to: the link and what the list shows
+/// of the issue (`l.pull_request_id, to_jsonb(i), t.key, l.source, l.closes`).
+#[derive(Debug, FromQueryResult)]
+struct IssueLink {
+    pull_request_id: String,
+    issue_id: String,
+    number: i32,
+    title: String,
+    status: String,
+    team_key: String,
+    source: String,
+    closes: bool,
 }
 
 /// `linkedIssuesByPullRequest(db, ids)`: the issues each pull request is
@@ -49,31 +76,54 @@ pub(crate) async fn member_github_login(
 pub(crate) async fn linked_issues(
     db: &PgPool,
     pull_request_ids: &[String],
-) -> Result<HashMap<String, Vec<Value>>, sqlx::Error> {
+) -> Result<HashMap<String, Vec<Value>>, DbErr> {
     let mut out: HashMap<String, Vec<Value>> = HashMap::new();
     if pull_request_ids.is_empty() {
         return Ok(out);
     }
-    let rows: Vec<(String, Value, String, String, bool)> = sqlx::query_as(
-        "select l.pull_request_id, to_jsonb(i), t.key, l.source, l.closes \
-         from merge_issue_pull_requests l \
-         inner join merge_issues i on i.id = l.issue_id \
-         inner join merge_teams t on t.id = i.team_id \
-         where l.pull_request_id = any($1) and l.dismissed_at is null and i.deleted_at is null \
-         order by t.key, i.number",
-    )
-    .bind(pull_request_ids)
-    .fetch_all(db)
-    .await?;
-    for (pull_request_id, issue, team_key, source, closes) in rows {
-        let issue = js_row(issue);
-        out.entry(pull_request_id).or_default().push(json!({
-            "id": issue["id"],
-            "key": format!("{team_key}-{}", col(&issue, "number")),
-            "title": issue["title"],
-            "status": issue["status"],
-            "source": source,
-            "closes": closes,
+    let rows = merge_issue_pull_requests::Entity::find()
+        .select_only()
+        .column(merge_issue_pull_requests::Column::PullRequestId)
+        .column_as(merge_issues::Column::Id, "issue_id")
+        .column(merge_issues::Column::Number)
+        .column(merge_issues::Column::Title)
+        .column(merge_issues::Column::Status)
+        .column_as(merge_teams::Column::Key, "team_key")
+        .column(merge_issue_pull_requests::Column::Source)
+        .column(merge_issue_pull_requests::Column::Closes)
+        .join(
+            JoinType::InnerJoin,
+            merge_issue_pull_requests::Entity::belongs_to(merge_issues::Entity)
+                .from(merge_issue_pull_requests::Column::IssueId)
+                .to(merge_issues::Column::Id)
+                .into(),
+        )
+        .join(
+            JoinType::InnerJoin,
+            merge_issues::Entity::belongs_to(merge_teams::Entity)
+                .from(merge_issues::Column::TeamId)
+                .to(merge_teams::Column::Id)
+                .into(),
+        )
+        .filter(
+            merge_issue_pull_requests::Column::PullRequestId
+                .is_in(pull_request_ids.iter().map(String::as_str)),
+        )
+        .filter(merge_issue_pull_requests::Column::DismissedAt.is_null())
+        .filter(merge_issues::Column::DeletedAt.is_null())
+        .order_by_asc(merge_teams::Column::Key)
+        .order_by_asc(merge_issues::Column::Number)
+        .into_model::<IssueLink>()
+        .all(&orm(db))
+        .await?;
+    for link in rows {
+        out.entry(link.pull_request_id).or_default().push(json!({
+            "id": link.issue_id,
+            "key": format!("{}-{}", link.team_key, link.number),
+            "title": link.title,
+            "status": link.status,
+            "source": link.source,
+            "closes": link.closes,
         }));
     }
     Ok(out)
@@ -87,10 +137,7 @@ pub(crate) struct WithRepo {
 }
 
 /// `toListItems(db, rows)`: list rows with the issues each is linked to.
-pub(crate) async fn to_list_items(
-    db: &PgPool,
-    rows: &[WithRepo],
-) -> Result<Vec<Value>, sqlx::Error> {
+pub(crate) async fn to_list_items(db: &PgPool, rows: &[WithRepo]) -> Result<Vec<Value>, DbErr> {
     let ids: Vec<String> = rows.iter().map(|r| text(&r.pr, "id").to_owned()).collect();
     let mut issues = linked_issues(db, &ids).await?;
     Ok(rows
@@ -123,7 +170,45 @@ pub(crate) struct Filter {
     pub(crate) cursor: Option<(String, String)>,
     pub(crate) checks_status: Option<&'static str>,
     pub(crate) review_decision: Option<&'static str>,
-    pub(crate) merged_since: Option<String>,
+    pub(crate) merged_since: Option<OffsetDateTime>,
+}
+
+/// A pull request with its repository's name and team, as selected.
+#[derive(Debug, FromQueryResult)]
+struct PullRequestWithRepo {
+    #[sea_orm(nested)]
+    pr: merge_pull_requests::Model,
+    full_name: String,
+    team_id: Option<String>,
+}
+
+impl PullRequestWithRepo {
+    /// `select to_jsonb(p), r.full_name, r.team_id from merge_pull_requests p
+    /// inner join merge_repositories r on r.id = p.repository_id where
+    /// r.deleted_at is null`.
+    fn query() -> sea_orm::Select<merge_pull_requests::Entity> {
+        merge_pull_requests::Entity::find()
+            .column_as(merge_repositories::Column::FullName, "full_name")
+            .column_as(merge_repositories::Column::TeamId, "team_id")
+            .join(JoinType::InnerJoin, pull_request_repository())
+            .filter(merge_repositories::Column::DeletedAt.is_null())
+    }
+
+    fn into_row(self) -> Result<WithRepo, DbErr> {
+        Ok(WithRepo {
+            pr: json_row(serde_json::to_value(self.pr))?,
+            full_name: self.full_name,
+            team_id: self.team_id,
+        })
+    }
+}
+
+/// `pull_request.repository_id = repository.id`.
+fn pull_request_repository() -> RelationDef {
+    merge_pull_requests::Entity::belongs_to(merge_repositories::Entity)
+        .from(merge_pull_requests::Column::RepositoryId)
+        .to(merge_repositories::Column::Id)
+        .into()
 }
 
 /// Pull requests of live repositories matching `filter`, newest update first.
@@ -131,61 +216,73 @@ pub(crate) async fn query_pull_requests(
     db: &PgPool,
     filter: Filter,
     limit: i64,
-) -> Result<Vec<WithRepo>, sqlx::Error> {
-    let review = filter
-        .review_requested_from
-        .map(|login| json!([{ "kind": "user", "login": login }]));
-    let (author, author_login) = match filter.authored_by {
-        Some((user, login)) => (Some(user), login),
-        None => (None, None),
-    };
-    let (cursor_at, cursor_id) = match filter.cursor {
-        Some((at, id)) => (Some(at), Some(id)),
-        None => (None, None),
-    };
-    let rows: Vec<(Value, String, Option<String>)> = sqlx::query_as(
-        "select to_jsonb(p), r.full_name, r.team_id from merge_pull_requests p \
-         inner join merge_repositories r on r.id = p.repository_id \
-         where r.deleted_at is null \
-           and ($1::text is null or p.state = $1) \
-           and ($2::boolean is null or p.draft = $2) \
-           and ($3::jsonb is null or p.requested_reviewers @> $3) \
-           and ($4::text is null or p.author_user_id = $4 or ($5::text is not null and p.author_login = $5)) \
-           and ($6::text is null or p.repository_id = $6) \
-           and ($7::text is null or r.team_id = $7) \
-           and ($8::text is null or p.title ilike $8 escape '\\' or p.head_ref ilike $8 escape '\\' \
-                or r.full_name ilike $8 escape '\\' or ($9::int is not null and p.number = $9)) \
-           and ($10::timestamptz is null or (p.provider_updated_at, p.id) < ($10::timestamptz, $11::varchar)) \
-           and ($12::text is null or p.checks_status = $12) \
-           and ($13::text is null or p.review_decision = $13) \
-           and ($14::timestamptz is null or p.merged_at >= $14::timestamptz) \
-         order by p.provider_updated_at desc, p.id desc limit $15",
-    )
-    .bind(filter.state)
-    .bind(filter.draft)
-    .bind(review)
-    .bind(author)
-    .bind(author_login)
-    .bind(filter.repository_id)
-    .bind(filter.team_id)
-    .bind(filter.pattern)
-    .bind(filter.number)
-    .bind(cursor_at)
-    .bind(cursor_id)
-    .bind(filter.checks_status)
-    .bind(filter.review_decision)
-    .bind(filter.merged_since)
-    .bind(limit)
-    .fetch_all(db)
-    .await?;
-    Ok(rows
+) -> Result<Vec<WithRepo>, DbErr> {
+    let mut select = PullRequestWithRepo::query();
+    if let Some(state) = filter.state {
+        select = select.filter(merge_pull_requests::Column::State.eq(state));
+    }
+    if let Some(draft) = filter.draft {
+        select = select.filter(merge_pull_requests::Column::Draft.eq(draft));
+    }
+    if let Some(login) = filter.review_requested_from {
+        select = select.filter(sea_orm::sea_query::extension::postgres::PgExpr::contains(
+            merge_pull_requests::Column::RequestedReviewers.into_expr(),
+            json!([{ "kind": "user", "login": login }]),
+        ));
+    }
+    if let Some((user_id, login)) = filter.authored_by {
+        let mut authored =
+            Condition::any().add(merge_pull_requests::Column::AuthorUserId.eq(user_id));
+        if let Some(login) = login {
+            authored = authored.add(merge_pull_requests::Column::AuthorLogin.eq(login));
+        }
+        select = select.filter(authored);
+    }
+    if let Some(repository_id) = filter.repository_id {
+        select = select.filter(merge_pull_requests::Column::RepositoryId.eq(repository_id));
+    }
+    if let Some(team_id) = filter.team_id {
+        select = select.filter(merge_repositories::Column::TeamId.eq(team_id));
+    }
+    if let Some(pattern) = filter.pattern {
+        let mut search = Condition::any()
+            .add(ilike(merge_pull_requests::Column::Title, &pattern))
+            .add(ilike(merge_pull_requests::Column::HeadRef, &pattern))
+            .add(ilike(merge_repositories::Column::FullName, &pattern));
+        if let Some(number) = filter.number {
+            search = search.add(merge_pull_requests::Column::Number.eq(number));
+        }
+        select = select.filter(search);
+    }
+    if let Some((at, id)) = filter.cursor {
+        // `(provider_updated_at, id) < ($at, $id)`.
+        select = select.filter(sea_orm::ExprTrait::lt(
+            Expr::tuple([
+                merge_pull_requests::Column::ProviderUpdatedAt.into_expr(),
+                merge_pull_requests::Column::Id.into_expr(),
+            ]),
+            Expr::tuple([Expr::value(instant(&at)?), Expr::value(id)]),
+        ));
+    }
+    if let Some(status) = filter.checks_status {
+        select = select.filter(merge_pull_requests::Column::ChecksStatus.eq(status));
+    }
+    if let Some(decision) = filter.review_decision {
+        select = select.filter(merge_pull_requests::Column::ReviewDecision.eq(decision));
+    }
+    if let Some(since) = filter.merged_since {
+        select = select.filter(merge_pull_requests::Column::MergedAt.gte(since));
+    }
+    select
+        .order_by_desc(merge_pull_requests::Column::ProviderUpdatedAt)
+        .order_by_desc(merge_pull_requests::Column::Id)
+        .limit(u64::try_from(limit).unwrap_or(0))
+        .into_model::<PullRequestWithRepo>()
+        .all(&orm(db))
+        .await?
         .into_iter()
-        .map(|(pr, full_name, team_id)| WithRepo {
-            pr: js_row(pr),
-            full_name,
-            team_id,
-        })
-        .collect())
+        .map(PullRequestWithRepo::into_row)
+        .collect()
 }
 
 /// `parseCursor(cursor)`: `<ms>|<id>`.
@@ -274,7 +371,7 @@ pub(crate) async fn list_pull_requests(
     db: &PgPool,
     query: ListQuery,
     user_id: &str,
-) -> Result<(Vec<Value>, bool, Option<String>), sqlx::Error> {
+) -> Result<(Vec<Value>, bool, Option<String>), DbErr> {
     let mut filter = Filter::default();
     match query.view.as_str() {
         view @ ("needs_review" | "mine") => {
@@ -326,20 +423,14 @@ pub(crate) async fn list_pull_requests(
 }
 
 /// `findPullRequest(db, id)`: a pull request of a live repository.
-async fn find_pull_request(db: &PgPool, id: &str) -> Result<Option<WithRepo>, sqlx::Error> {
-    let row: Option<(Value, String, Option<String>)> = sqlx::query_as(
-        "select to_jsonb(p), r.full_name, r.team_id from merge_pull_requests p \
-         inner join merge_repositories r on r.id = p.repository_id \
-         where p.id = $1 and r.deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(|(pr, full_name, team_id)| WithRepo {
-        pr: js_row(pr),
-        full_name,
-        team_id,
-    }))
+async fn find_pull_request(db: &PgPool, id: &str) -> Result<Option<WithRepo>, DbErr> {
+    PullRequestWithRepo::query()
+        .filter(merge_pull_requests::Column::Id.eq(id))
+        .into_model::<PullRequestWithRepo>()
+        .one(&orm(db))
+        .await?
+        .map(PullRequestWithRepo::into_row)
+        .transpose()
 }
 
 pub(crate) async fn detail(caller: Caller, Path(id): Path<String>) -> Answer {
@@ -351,10 +442,7 @@ pub(crate) async fn detail(caller: Caller, Path(id): Path<String>) -> Answer {
 
 /// `getPullRequestDetail(db, id)`: a pull request of a live repository with
 /// the issues it is linked to.
-pub(crate) async fn pull_request_detail(
-    db: &PgPool,
-    id: &str,
-) -> Result<Option<Value>, sqlx::Error> {
+pub(crate) async fn pull_request_detail(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
     let Some(row) = find_pull_request(db, id).await? else {
         return Ok(None);
     };
@@ -405,26 +493,40 @@ pub(crate) async fn link(
     let Some(target) = find_pull_request(db, &pull_request_id).await? else {
         return Err(Refusal::not_found("Pull request", Some(&pull_request_id)));
     };
-    let existing: Option<(String, bool)> = sqlx::query_as(
-        "select id, dismissed_at is not null from merge_issue_pull_requests \
-         where issue_id = $1 and pull_request_id = $2 limit 1",
-    )
-    .bind(&id)
-    .bind(&pull_request_id)
-    .fetch_optional(db)
-    .await?;
+    let orm_db = orm(db);
+    let existing = merge_issue_pull_requests::Entity::find()
+        .select_only()
+        .column(merge_issue_pull_requests::Column::Id)
+        .column(merge_issue_pull_requests::Column::DismissedAt)
+        .filter(merge_issue_pull_requests::Column::IssueId.eq(&id))
+        .filter(merge_issue_pull_requests::Column::PullRequestId.eq(&pull_request_id))
+        .into_tuple::<(String, Option<OffsetDateTime>)>()
+        .one(&orm_db)
+        .await?
+        .map(|(link_id, dismissed_at)| (link_id, dismissed_at.is_some()));
     let mut events: Vec<PendingEvent> = Vec::new();
     if let Some((link_id, true)) = &existing {
         // A dismissed automatic link, linked again by hand: it is a manual link now, and new.
-        sqlx::query(
-            "update merge_issue_pull_requests set source = 'manual', closes = $2, dismissed_at = null, \
-               created_by_user_id = $3 where id = $1",
-        )
-        .bind(link_id)
-        .bind(closes)
-        .bind(&caller.user_id)
-        .execute(db)
-        .await?;
+        merge_issue_pull_requests::Entity::update_many()
+            .col_expr(
+                merge_issue_pull_requests::Column::Source,
+                Expr::value("manual"),
+            )
+            .col_expr(
+                merge_issue_pull_requests::Column::Closes,
+                Expr::value(closes),
+            )
+            .col_expr(
+                merge_issue_pull_requests::Column::DismissedAt,
+                Expr::value(Option::<OffsetDateTime>::None),
+            )
+            .col_expr(
+                merge_issue_pull_requests::Column::CreatedByUserId,
+                Expr::value(caller.user_id.clone()),
+            )
+            .filter(merge_issue_pull_requests::Column::Id.eq(link_id))
+            .exec(&orm_db)
+            .await?;
         let phase = phase_of(&target.pr);
         let mut links = [LinkedIssue {
             closes,
@@ -434,22 +536,26 @@ pub(crate) async fn link(
         }];
         events = run_automation(db, &target.pr, Some(phase), &mut links, None).await?;
     } else if let Some((link_id, false)) = existing {
-        sqlx::query("update merge_issue_pull_requests set closes = $2 where id = $1")
-            .bind(&link_id)
-            .bind(closes)
-            .execute(db)
+        merge_issue_pull_requests::Entity::update_many()
+            .col_expr(
+                merge_issue_pull_requests::Column::Closes,
+                Expr::value(closes),
+            )
+            .filter(merge_issue_pull_requests::Column::Id.eq(link_id))
+            .exec(&orm_db)
             .await?;
     } else {
-        sqlx::query(
-            "insert into merge_issue_pull_requests (id, issue_id, pull_request_id, source, closes, created_by_user_id) \
-             values ($1, $2, $3, 'manual', $4, $5) on conflict do nothing",
-        )
-        .bind(generate_id("mip"))
-        .bind(&id)
-        .bind(&pull_request_id)
-        .bind(closes)
-        .bind(&caller.user_id)
-        .execute(db)
+        merge_issue_pull_requests::Entity::insert(merge_issue_pull_requests::ActiveModel {
+            id: Set(generate_id("mip")),
+            issue_id: Set(id.clone()),
+            pull_request_id: Set(pull_request_id.clone()),
+            source: Set("manual".to_owned()),
+            closes: Set(closes),
+            created_by_user_id: Set(Some(caller.user_id.clone())),
+            ..Default::default()
+        })
+        .on_conflict(OnConflict::new().do_nothing().to_owned())
+        .exec_without_returning(&orm_db)
         .await?;
         let phase = phase_of(&target.pr);
         let mut links = [LinkedIssue {
@@ -487,27 +593,31 @@ pub(crate) async fn unlink(
     let Some(issue) = find_issue(db, &id).await? else {
         return Err(Refusal::not_found("Issue", Some(&id)));
     };
-    let mut removed: Vec<String> = sqlx::query_scalar(
-        "update merge_issue_pull_requests set dismissed_at = $3::timestamptz \
-         where issue_id = $1 and pull_request_id = $2 and dismissed_at is null and source = 'auto' \
-         returning id",
-    )
-    .bind(&id)
-    .bind(&pr_id)
-    .bind(crate::now())
-    .fetch_all(db)
-    .await?;
-    if removed.is_empty() {
-        removed = sqlx::query_scalar(
-            "delete from merge_issue_pull_requests where issue_id = $1 and pull_request_id = $2 \
-             and dismissed_at is null and source = 'manual' returning id",
+    let orm_db = orm(db);
+    let (_, at) = now_at();
+    let mut removed = merge_issue_pull_requests::Entity::update_many()
+        .col_expr(
+            merge_issue_pull_requests::Column::DismissedAt,
+            Expr::value(at),
         )
-        .bind(&id)
-        .bind(&pr_id)
-        .fetch_all(db)
-        .await?;
+        .filter(merge_issue_pull_requests::Column::IssueId.eq(&id))
+        .filter(merge_issue_pull_requests::Column::PullRequestId.eq(&pr_id))
+        .filter(merge_issue_pull_requests::Column::DismissedAt.is_null())
+        .filter(merge_issue_pull_requests::Column::Source.eq("auto"))
+        .exec(&orm_db)
+        .await?
+        .rows_affected;
+    if removed == 0 {
+        removed = merge_issue_pull_requests::Entity::delete_many()
+            .filter(merge_issue_pull_requests::Column::IssueId.eq(&id))
+            .filter(merge_issue_pull_requests::Column::PullRequestId.eq(&pr_id))
+            .filter(merge_issue_pull_requests::Column::DismissedAt.is_null())
+            .filter(merge_issue_pull_requests::Column::Source.eq("manual"))
+            .exec(&orm_db)
+            .await?
+            .rows_affected;
     }
-    if removed.is_empty() {
+    if removed == 0 {
         return Err(Refusal::not_found("Pull request link", Some(&pr_id)));
     }
     let team_key = match find_team(db, text(&issue, "teamId")).await? {

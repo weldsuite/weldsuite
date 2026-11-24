@@ -856,6 +856,7 @@ was the first):
 | a join | `Entity::belongs_to(Other).from(…).to(…).into()` with `.join(JoinType::…, relation)` |
 | `$1::timestamp` bound as text | a `PrimitiveDateTime` from `weldsuite_db::utc_now()` (UTC, milliseconds, as Drizzle wrote it) |
 | a request body written whole (`insert … select … from jsonb_populate_record(…)`, generated per table) | `weldsuite_db::record::JsonTable::of::<Entity>()`: the statements come from the entity's columns, Postgres still converts the values (desk's `Table`) |
+| a paged list over such a table (`select to_jsonb(t) … where … order by created_at desc, id desc limit …` and its `count(*)`) | `JsonTable::select()` plus its conditions, order and limit, read with `JsonTable::rows` and `JsonTable::count`; filters are typed conditions on the entity (`fn(String) -> Condition`), shared columns by name through `JsonTable::column` (desk's `crud::fetch`) |
 | `select … filter (where …)`, `extract(epoch …)` | the columns themselves, worked out in Rust (`CASE` inside `Func::min` for a filtered aggregate) |
 | `metadata->>'key'`, `jsonb || jsonb`, `ILIKE`, `@>` | `PgExpr::cast_json_field`, `PgExpr::concat`, `PgExpr::ilike`, `PgExpr::contains`, called by path |
 | a statement that has to stay one (a claim with its children, a read-and-clear, a bulk upsert that merges) | SQL, with `#[allow(clippy::disallowed_methods, reason = "…")]` on its function and its error through `weldsuite_db::orm_error` |

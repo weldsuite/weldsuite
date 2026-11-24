@@ -10,19 +10,23 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use futures_util::future::join_all;
+use sea_orm::ActiveValue::Set;
+use sea_orm::sea_query::OnConflict;
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, JoinType, QueryFilter, QuerySelect};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use weldsuite_db::{PgPool, js_row};
+use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_kit::id::generate_id;
 use weldsuite_ports::{
     BoxFuture, DynJobs, Job, JobContext, JobError, JobRequest, OutboundHttp, StepRetry, step,
 };
+use weldsuite_schema::tenant::{welddata_cells, welddata_columns, welddata_leads};
 
 use crate::actions::{
     ActionContext, ActionKeys, ActionResult, AiModel, WebPages, config_of, known_action, run_action,
 };
 use crate::js::js_lowercase;
-use crate::now;
+use crate::service::{int4, js};
 
 /// The job's name (the Workflow, `WELDDATA_ENRICH`).
 pub const WELDDATA_ENRICH_JOB: &str = "data.welddata-enrich";
@@ -142,28 +146,39 @@ async fn write_cell(
     column_id: &str,
     lead_id: &str,
     patch: &CellWrite<'_>,
-) -> Result<(), sqlx::Error> {
-    let at = now();
-    sqlx::query(
-        "insert into welddata_cells
-           (id, created_at, updated_at, column_id, lead_id, status, value, data, error, credits_used, ran_at)
-         values ($1, $2::timestamp, $2::timestamp, $3, $4, $5, $6, $7, $8, $9::int, $10::timestamp)
-         on conflict (column_id, lead_id) do update set
-           status = $5, value = $6, data = $7, error = $8, credits_used = $9::int,
-           ran_at = $10::timestamp, updated_at = $2::timestamp",
-    )
-    .bind(generate_id("wdcell"))
-    .bind(&at)
-    .bind(column_id)
-    .bind(lead_id)
-    .bind(patch.status)
-    .bind(patch.value)
-    .bind(patch.data)
-    .bind(patch.error)
-    .bind(patch.credits_used)
-    .bind(patch.ran.then_some(at.as_str()))
-    .execute(db)
-    .await?;
+) -> Result<(), DbErr> {
+    use welddata_cells::Column as Cell;
+    let at = utc_now();
+    let cell = welddata_cells::ActiveModel {
+        id: Set(generate_id("wdcell")),
+        created_at: Set(at),
+        updated_at: Set(at),
+        column_id: Set(column_id.to_owned()),
+        lead_id: Set(lead_id.to_owned()),
+        status: Set(patch.status.to_owned()),
+        value: Set(patch.value.map(str::to_owned)),
+        data: Set(patch.data.cloned()),
+        error: Set(patch.error.map(str::to_owned)),
+        credits_used: Set(patch.credits_used.map(int4).transpose()?),
+        ran_at: Set(patch.ran.then_some(at)),
+    };
+    // The update takes the row's own values (`excluded`): those of the insert.
+    welddata_cells::Entity::insert(cell)
+        .on_conflict(
+            OnConflict::columns([Cell::ColumnId, Cell::LeadId])
+                .update_columns([
+                    Cell::Status,
+                    Cell::Value,
+                    Cell::Data,
+                    Cell::Error,
+                    Cell::CreditsUsed,
+                    Cell::RanAt,
+                    Cell::UpdatedAt,
+                ])
+                .to_owned(),
+        )
+        .exec_without_returning(&orm(db))
+        .await?;
     Ok(())
 }
 
@@ -174,18 +189,28 @@ async fn sibling_values(
     list_id: &str,
     column_id: &str,
     lead_id: &str,
-) -> Result<HashMap<String, String>, sqlx::Error> {
-    let rows: Vec<(String, Option<String>)> = sqlx::query_as(
-        "select c.name, cell.value from welddata_cells cell
-         join welddata_columns c on c.id = cell.column_id
-         where c.list_id = $1 and c.id <> $2 and c.deleted_at is null
-           and cell.lead_id = $3 and cell.status = 'done'",
-    )
-    .bind(list_id)
-    .bind(column_id)
-    .bind(lead_id)
-    .fetch_all(db)
-    .await?;
+) -> Result<HashMap<String, String>, DbErr> {
+    use welddata_cells::Column as Cell;
+    use welddata_columns::Column as Col;
+    let rows: Vec<(String, Option<String>)> = welddata_cells::Entity::find()
+        .select_only()
+        .column(Col::Name)
+        .column(Cell::Value)
+        .join(
+            JoinType::InnerJoin,
+            welddata_cells::Entity::belongs_to(welddata_columns::Entity)
+                .from(Cell::ColumnId)
+                .to(Col::Id)
+                .into(),
+        )
+        .filter(Col::ListId.eq(list_id))
+        .filter(Col::Id.ne(column_id))
+        .filter(Col::DeletedAt.is_null())
+        .filter(Cell::LeadId.eq(lead_id))
+        .filter(Cell::Status.eq("done"))
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     Ok(rows
         .into_iter()
         .filter(|(name, _)| !name.is_empty())
@@ -247,14 +272,13 @@ impl WelddataEnrichJob {
         lead_id: &str,
         ai: Option<&AiModel>,
     ) -> Result<(), String> {
-        let lead: Option<Value> = sqlx::query_scalar(
-            "select to_jsonb(t) from welddata_leads t where t.id = $1 and t.deleted_at is null limit 1",
-        )
-        .bind(lead_id)
-        .fetch_optional(db)
-        .await
-        .map_err(|error| error.to_string())?;
-        let Some(lead) = lead.map(js_row) else {
+        let lead = welddata_leads::Entity::find_by_id(lead_id)
+            .filter(welddata_leads::Column::DeletedAt.is_null())
+            .one(&orm(db))
+            .await
+            .and_then(|lead| lead.map(js).transpose())
+            .map_err(|error| error.to_string())?;
+        let Some(lead) = lead else {
             return Ok(());
         };
         if !known_action(&column.kind) {
@@ -314,15 +338,20 @@ impl Job for WelddataEnrichJob {
                 .await
                 .map_err(JobError::Failed)?;
             // Read outside a step: cheap and idempotent.
-            let column: Option<(String, String, Option<Value>)> = sqlx::query_as(
-                "select id, type, config from welddata_columns
-                 where id = $1 and list_id = $2 and deleted_at is null limit 1",
-            )
-            .bind(&params.column_id)
-            .bind(&params.list_id)
-            .fetch_optional(&db)
-            .await
-            .map_err(JobError::failed)?;
+            let column: Option<(String, String, Option<Value>)> = welddata_columns::Entity::find()
+                .select_only()
+                .columns([
+                    welddata_columns::Column::Id,
+                    welddata_columns::Column::Type,
+                    welddata_columns::Column::Config,
+                ])
+                .filter(welddata_columns::Column::Id.eq(params.column_id.as_str()))
+                .filter(welddata_columns::Column::ListId.eq(params.list_id.as_str()))
+                .filter(welddata_columns::Column::DeletedAt.is_null())
+                .into_tuple()
+                .one(&orm(&db))
+                .await
+                .map_err(JobError::failed)?;
             let Some((id, kind, config)) = column else {
                 return Ok(());
             };

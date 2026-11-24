@@ -8,16 +8,27 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicI64, Ordering};
 
+use sea_orm::sea_query::{Alias, Expr, Order, Query};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, ConnectionTrait, DbBackend, DbErr, EntityTrait, PaginatorTrait,
+    QueryFilter, QueryOrder, QuerySelect,
+};
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
+use time::PrimitiveDateTime;
 use weldsuite_books_domain::roles::{PromoteTo, promote_accounting_role};
-use weldsuite_books_domain::table::Table;
+use weldsuite_books_domain::table::{Table, TableDb};
 use weldsuite_commerce_domain::channels::{Connector, ensure_connector};
 use weldsuite_commerce_domain::orders::write::{Import, ImportLine, import};
-use weldsuite_db::PgPool;
+use weldsuite_db::{OrmConn, PgPool, orm, utc_now};
 use weldsuite_events::{EntityEvent, EntityEventPublisher, EventContext, EventSource, EventType};
 use weldsuite_kit::generate_id;
 use weldsuite_ports::{DynFileStore, OutboundHttp, PutOptions};
+use weldsuite_schema::tenant::{
+    accounting_entity_settings, bill_items, bills, companies, entities,
+    integration_entity_mappings as mappings, integration_field_mappings, invoice_items, invoices,
+    orders, parties, people, product_sales_channels, product_variants, settings, warehouses,
+};
 
 use crate::catalog::{get_connector, syncs};
 use crate::clients::as_text;
@@ -127,17 +138,16 @@ impl IngestArgs<'_> {
 #[derive(Debug)]
 struct Failure(String);
 
+/// A transaction's own `BEGIN` / `COMMIT`.
 impl From<sqlx::Error> for Failure {
     fn from(error: sqlx::Error) -> Self {
-        Self(match &error {
-            sqlx::Error::Database(db) => db.message().to_owned(),
-            other => other.to_string(),
-        })
+        Self::from(weldsuite_db::orm_error(error))
     }
 }
 
-impl From<weldsuite_commerce_domain::DbErr> for Failure {
-    fn from(error: weldsuite_commerce_domain::DbErr) -> Self {
+/// The database's own message (no driver prefix), else the error's text.
+impl From<DbErr> for Failure {
+    fn from(error: DbErr) -> Self {
         Self(weldsuite_commerce_domain::db::message_of(&error))
     }
 }
@@ -249,16 +259,20 @@ async fn find_mapping(
     connection_id: &str,
     external_type: &str,
     external_id: &str,
-) -> Result<Option<MappingRow>, sqlx::Error> {
-    let row: Option<(String, String, Option<String>)> = sqlx::query_as(
-        "select id, internal_entity_id, sync_checksum from integration_entity_mappings
-         where connection_id = $1 and external_entity_type = $2 and external_entity_id = $3 limit 1",
-    )
-    .bind(connection_id)
-    .bind(external_type)
-    .bind(external_id)
-    .fetch_optional(db)
-    .await?;
+) -> Result<Option<MappingRow>, DbErr> {
+    let row: Option<(String, String, Option<String>)> = mappings::Entity::find()
+        .select_only()
+        .columns([
+            mappings::Column::Id,
+            mappings::Column::InternalEntityId,
+            mappings::Column::SyncChecksum,
+        ])
+        .filter(mappings::Column::ConnectionId.eq(connection_id))
+        .filter(mappings::Column::ExternalEntityType.eq(external_type))
+        .filter(mappings::Column::ExternalEntityId.eq(external_id))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     Ok(row.map(|(id, internal_id, checksum)| MappingRow {
         id,
         internal_id,
@@ -266,51 +280,48 @@ async fn find_mapping(
     }))
 }
 
-async fn insert_mapping<'e>(
-    db: impl sqlx::PgExecutor<'e>,
+async fn insert_mapping<C: ConnectionTrait>(
+    db: &C,
     connection_id: &str,
     external_type: &str,
     external_id: &str,
     internal_type: &str,
     internal_id: &str,
     checksum: &str,
-) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "insert into integration_entity_mappings
-           (id, connection_id, external_entity_type, external_entity_id, internal_entity_type,
-            internal_entity_id, last_synced_at, sync_checksum)
-         values ($1, $2, $3, $4, $5, $6, $7::timestamp, $8)",
-    )
-    .bind(generate_id("iem"))
-    .bind(connection_id)
-    .bind(external_type)
-    .bind(external_id)
-    .bind(internal_type)
-    .bind(internal_id)
-    .bind(now_iso())
-    .bind(checksum)
-    .execute(db)
+) -> Result<(), DbErr> {
+    mappings::Entity::insert(mappings::ActiveModel {
+        id: Set(generate_id("iem")),
+        connection_id: Set(connection_id.to_owned()),
+        external_entity_type: Set(external_type.to_owned()),
+        external_entity_id: Set(external_id.to_owned()),
+        internal_entity_type: Set(internal_type.to_owned()),
+        internal_entity_id: Set(internal_id.to_owned()),
+        last_synced_at: Set(Some(utc_now())),
+        sync_checksum: Set(Some(checksum.to_owned())),
+        ..Default::default()
+    })
+    .exec_without_returning(db)
     .await
     .map(|_| ())
 }
 
-async fn touch_mapping<'e>(
-    db: impl sqlx::PgExecutor<'e>,
+async fn touch_mapping<C: ConnectionTrait>(
+    db: &C,
     mapping_id: &str,
     checksum: Option<&str>,
-) -> Result<(), sqlx::Error> {
-    let now = now_iso();
-    sqlx::query(
-        "update integration_entity_mappings
-         set sync_checksum = $1, last_synced_at = $2::timestamp, updated_at = $2::timestamp
-         where id = $3",
-    )
-    .bind(checksum)
-    .bind(now)
-    .bind(mapping_id)
-    .execute(db)
-    .await
-    .map(|_| ())
+) -> Result<(), DbErr> {
+    let now = utc_now();
+    mappings::Entity::update_many()
+        .set(mappings::ActiveModel {
+            sync_checksum: Set(checksum.map(str::to_owned)),
+            last_synced_at: Set(Some(now)),
+            updated_at: Set(now),
+            ..Default::default()
+        })
+        .filter(mappings::Column::Id.eq(mapping_id))
+        .exec(db)
+        .await
+        .map(|_| ())
 }
 
 fn with(values: &Map<String, Value>, extra: &[(&str, Value)]) -> Map<String, Value> {
@@ -322,12 +333,12 @@ fn with(values: &Map<String, Value>, extra: &[(&str, Value)]) -> Map<String, Val
 }
 
 /// `db.update(table).set(values).where(eq(table.id, id))`.
-async fn patch<'e>(
-    db: impl sqlx::PgExecutor<'e>,
+async fn patch(
+    db: impl Into<TableDb<'_>>,
     table: &Table,
     id: &str,
     values: &Map<String, Value>,
-) -> Result<(), sqlx::Error> {
+) -> Result<(), DbErr> {
     let columns = table.values(values);
     if columns.is_empty() {
         return Ok(());
@@ -336,11 +347,11 @@ async fn patch<'e>(
 }
 
 /// `db.insert(table).values(values)`.
-async fn insert<'e>(
-    db: impl sqlx::PgExecutor<'e>,
+async fn insert(
+    db: impl Into<TableDb<'_>>,
     table: &Table,
     values: &Map<String, Value>,
-) -> Result<(), sqlx::Error> {
+) -> Result<(), DbErr> {
     table.insert_raw(db, table.values(values)).await.map(|_| ())
 }
 
@@ -371,6 +382,41 @@ fn dedup_value(values: &Map<String, Value>, key: &str) -> Option<Value> {
     values.get(key).filter(|v| crate::js::truthy(v)).cloned()
 }
 
+/// `select t.id from t where t.<column> = <value> and t.deleted_at is null
+/// order by t.created_at, t.id limit 1`. The natural keys are text columns,
+/// and the value is compared as `jsonb_populate_record` made it one: a JSON
+/// string as it is, anything else as its JSON text.
+async fn find_by_natural_key(
+    db: &PgPool,
+    table: &Table,
+    column: &str,
+    value: &Value,
+) -> Result<Option<String>, DbErr> {
+    use sea_orm::ExprTrait as _;
+    let (Some(key), Some(id)) = (table.entity.column(column), table.entity.column("id")) else {
+        return Ok(None);
+    };
+    let text = value
+        .as_str()
+        .map_or_else(|| value.to_string(), str::to_owned);
+    let mut select = table.entity.select();
+    select
+        .clear_selects()
+        .expr_as(id.clone(), Alias::new("id"))
+        .and_where(key.eq(text));
+    if let Some(deleted_at) = table.entity.column("deleted_at") {
+        select.and_where(deleted_at.is_null());
+    }
+    if let Some(created_at) = table.entity.column("created_at") {
+        select.order_by_expr(created_at, Order::Asc);
+    }
+    select.order_by_expr(id, Order::Asc).limit(1);
+    let row = orm(db)
+        .query_one_raw(DbBackend::Postgres.build(&select))
+        .await?;
+    row.map(|row| row.try_get::<String>("", "id")).transpose()
+}
+
 async fn upsert_by_mapping(
     db: &PgPool,
     connection_id: &str,
@@ -399,7 +445,7 @@ async fn upsert_by_mapping(
             ),
         )
         .await?;
-        touch_mapping(&mut *tx, &mapping.id, Some(checksum)).await?;
+        touch_mapping(&OrmConn::new(&mut tx), &mapping.id, Some(checksum)).await?;
         tx.commit().await?;
         return Ok(Upserted {
             action: Action::Updated,
@@ -410,19 +456,12 @@ async fn upsert_by_mapping(
     if let Some(column) = target.dedup.and_then(|prop| target.table.column(prop))
         && let Some(value) = dedup_value(values, column.prop)
     {
-        let sql = format!(
-            "select t.id from \"{}\" t where t.\"{}\" = (jsonb_populate_record(null::\"{}\", jsonb_build_object('{}', $1::jsonb))).\"{}\" and t.deleted_at is null order by t.created_at asc, t.id asc limit 1",
-            target.table.name, column.name, target.table.name, column.name, column.name
-        );
-        let found: Option<String> = sqlx::query_scalar(sqlx::AssertSqlSafe(sql))
-            .bind(&value)
-            .fetch_optional(db)
-            .await?;
+        let found = find_by_natural_key(db, target.table, column.name, &value).await?;
         if let Some(id) = found {
             check_dates(values)?;
             let mut tx = db.begin().await?;
             insert_mapping(
-                &mut *tx,
+                &OrmConn::new(&mut tx),
                 connection_id,
                 target.external_type,
                 target.external_id,
@@ -456,7 +495,7 @@ async fn upsert_by_mapping(
     )
     .await?;
     insert_mapping(
-        &mut *tx,
+        &OrmConn::new(&mut tx),
         connection_id,
         target.external_type,
         target.external_id,
@@ -490,7 +529,7 @@ async fn soft_delete_mapped(
         ),
     )
     .await?;
-    touch_mapping(&mut *tx, mapping_id, None).await?;
+    touch_mapping(&OrmConn::new(&mut tx), mapping_id, None).await?;
     tx.commit().await?;
     Ok(())
 }
@@ -546,7 +585,7 @@ async fn keep_pushed_bill_status(
     args: &IngestArgs<'_>,
     external_id: &str,
     mut values: Map<String, Value>,
-) -> Result<Map<String, Value>, sqlx::Error> {
+) -> Result<Map<String, Value>, DbErr> {
     if values.get("status").and_then(Value::as_str) != Some("draft") {
         return Ok(values);
     }
@@ -560,17 +599,26 @@ async fn keep_pushed_bill_status(
     else {
         return Ok(values);
     };
-    let status: Option<String> = sqlx::query_scalar(
-        "select b.status from bills b
-         where b.id = $1 and exists (select 1 from integration_entity_mappings x
-           where x.connection_id = $2 and x.external_entity_type = $3 and x.internal_entity_id = b.id)
-         limit 1",
-    )
-    .bind(&mapping.internal_id)
-    .bind(args.connection_id)
-    .bind(crate::moneybird_push::two_way::PUSHED_BILL_TYPE)
-    .fetch_optional(args.db)
-    .await?;
+    // `exists (… x where x.internal_entity_id = b.id)`, with `b.id` the
+    // mapped bill: WeldBooks pushed it.
+    let pushed = Query::select()
+        .expr(Expr::val(1))
+        .from(mappings::Entity)
+        .and_where(mappings::Column::ConnectionId.eq(args.connection_id))
+        .and_where(
+            mappings::Column::ExternalEntityType
+                .eq(crate::moneybird_push::two_way::PUSHED_BILL_TYPE),
+        )
+        .and_where(mappings::Column::InternalEntityId.eq(mapping.internal_id.as_str()))
+        .to_owned();
+    let status: Option<String> = bills::Entity::find()
+        .select_only()
+        .column(bills::Column::Status)
+        .filter(bills::Column::Id.eq(mapping.internal_id.as_str()))
+        .filter(Expr::exists(pushed))
+        .into_tuple()
+        .one(&orm(args.db))
+        .await?;
     if status.is_some_and(|s| s != "draft") {
         values.remove("status");
     }
@@ -623,15 +671,23 @@ async fn load_field_mappings(
     db: &PgPool,
     connection_id: &str,
     entity_type: &str,
-) -> Result<Vec<FieldMapping>, sqlx::Error> {
-    let rows: Vec<(String, String, String, String, Option<Value>)> = sqlx::query_as(
-        "select external_field_path, internal_field_path, direction, transform_type, transform_config
-         from integration_field_mappings where connection_id = $1 and entity_type = $2",
-    )
-    .bind(connection_id)
-    .bind(entity_type)
-    .fetch_all(db)
-    .await?;
+) -> Result<Vec<FieldMapping>, DbErr> {
+    use integration_field_mappings::Column;
+    let rows: Vec<(String, String, String, String, Option<Value>)> =
+        integration_field_mappings::Entity::find()
+            .select_only()
+            .columns([
+                Column::ExternalFieldPath,
+                Column::InternalFieldPath,
+                Column::Direction,
+                Column::TransformType,
+                Column::TransformConfig,
+            ])
+            .filter(Column::ConnectionId.eq(connection_id))
+            .filter(Column::EntityType.eq(entity_type))
+            .into_tuple()
+            .all(&orm(db))
+            .await?;
     Ok(rows
         .into_iter()
         .map(|(e, i, d, t, c)| FieldMapping {
@@ -695,21 +751,31 @@ async fn ingest_order(
     if found.is_none()
         && let Some(external) = dedup_value(values, "externalOrderId")
     {
-        found = sqlx::query_scalar(
-            "select o.id from orders o
-              where o.external_order_id = $1::text and o.deleted_at is null
-                and not exists (select 1 from integration_entity_mappings m
-                                 where m.internal_entity_id = o.id and m.connection_id <> $2)
-              order by o.created_at asc, o.id asc limit 1",
-        )
-        .bind(
-            external
-                .as_str()
-                .map_or_else(|| external.to_string(), str::to_owned),
-        )
-        .bind(args.connection_id)
-        .fetch_optional(args.db)
-        .await?;
+        // `not exists (… where m.internal_entity_id = o.id …)`: the mapped id
+        // is never null.
+        found = orders::Entity::find()
+            .select_only()
+            .column(orders::Column::Id)
+            .filter(
+                orders::Column::ExternalOrderId.eq(external
+                    .as_str()
+                    .map_or_else(|| external.to_string(), str::to_owned)),
+            )
+            .filter(orders::Column::DeletedAt.is_null())
+            .filter(
+                orders::Column::Id.not_in_subquery(
+                    Query::select()
+                        .column(mappings::Column::InternalEntityId)
+                        .from(mappings::Entity)
+                        .and_where(mappings::Column::ConnectionId.ne(args.connection_id))
+                        .to_owned(),
+                ),
+            )
+            .order_by_asc(orders::Column::CreatedAt)
+            .order_by_asc(orders::Column::Id)
+            .into_tuple()
+            .one(&orm(args.db))
+            .await?;
     }
     let product_type = format!("{}_product", args.provider);
     let mut lines = Vec::with_capacity(line_items.len());
@@ -767,10 +833,12 @@ async fn ingest_order(
     )
     .await?;
     match &mapping {
-        Some(mapping) => touch_mapping(&mut *tx, &mapping.id, Some(checksum.as_str())).await?,
+        Some(mapping) => {
+            touch_mapping(&OrmConn::new(&mut tx), &mapping.id, Some(checksum.as_str())).await?;
+        }
         None => {
             insert_mapping(
-                &mut *tx,
+                &OrmConn::new(&mut tx),
                 args.connection_id,
                 args.external_type(),
                 external_id,
@@ -855,12 +923,18 @@ async fn upsert_product_variants(
     product_id: &str,
     variants: &[ProductVariant],
 ) -> Outcome<()> {
-    let existing: Vec<(String, Option<String>, Option<Value>)> = sqlx::query_as(
-        "select id, sku, attributes from product_variants where product_id = $1 and deleted_at is null",
-    )
-    .bind(product_id)
-    .fetch_all(db)
-    .await?;
+    let existing: Vec<(String, Option<String>, Option<Value>)> = product_variants::Entity::find()
+        .select_only()
+        .columns([
+            product_variants::Column::Id,
+            product_variants::Column::Sku,
+            product_variants::Column::Attributes,
+        ])
+        .filter(product_variants::Column::ProductId.eq(product_id))
+        .filter(product_variants::Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     // bySku / byExternal, later rows winning as `Map.set` does.
     let mut by_sku: Vec<(String, String)> = Vec::new();
     let mut by_external: Vec<(String, String)> = Vec::new();
@@ -936,13 +1010,14 @@ async fn upsert_sales_channel(
     let listing = listing_status
         .filter(|status| matches!(*status, "active" | "inactive" | "draft"))
         .unwrap_or("active");
-    let existing: Option<String> = sqlx::query_scalar(
-        "select id from product_sales_channels where connection_id = $1 and external_id = $2 limit 1",
-    )
-    .bind(args.connection_id)
-    .bind(external_id)
-    .fetch_optional(args.db)
-    .await?;
+    let existing: Option<String> = product_sales_channels::Entity::find()
+        .select_only()
+        .column(product_sales_channels::Column::Id)
+        .filter(product_sales_channels::Column::ConnectionId.eq(args.connection_id))
+        .filter(product_sales_channels::Column::ExternalId.eq(external_id))
+        .into_tuple()
+        .one(&orm(args.db))
+        .await?;
     let mut values = Map::new();
     values.insert("productId".to_owned(), json!(product_id));
     values.insert("displayName".to_owned(), json!(args.display_name));
@@ -990,29 +1065,30 @@ async fn delete_catalog_record(
     };
     let product = args.internal_entity() == "product";
     if product {
-        let now = now_iso();
-        sqlx::query(
-            "update product_sales_channels set status = 'deleted_remote', updated_at = $1::timestamp,
-               last_synced_at = $1::timestamp
-             where connection_id = $2 and external_id = $3",
-        )
-        .bind(now)
-        .bind(args.connection_id)
-        .bind(external_id)
-        .execute(args.db)
-        .await?;
+        let now = utc_now();
+        product_sales_channels::Entity::update_many()
+            .col_expr(
+                product_sales_channels::Column::Status,
+                Expr::value("deleted_remote"),
+            )
+            .col_expr(product_sales_channels::Column::UpdatedAt, Expr::value(now))
+            .col_expr(
+                product_sales_channels::Column::LastSyncedAt,
+                Expr::value(now),
+            )
+            .filter(product_sales_channels::Column::ConnectionId.eq(args.connection_id))
+            .filter(product_sales_channels::Column::ExternalId.eq(external_id))
+            .exec(&orm(args.db))
+            .await?;
     }
     // A product listed on another channel stays; only the last channel removes it.
     let still_listed = product
-        && {
-            let count: i64 = sqlx::query_scalar(
-            "select count(*) from product_sales_channels where product_id = $1 and status = 'active'",
-        )
-        .bind(&mapping.internal_id)
-        .fetch_one(args.db)
-        .await?;
-            count > 0
-        };
+        && product_sales_channels::Entity::find()
+            .filter(product_sales_channels::Column::ProductId.eq(mapping.internal_id.as_str()))
+            .filter(product_sales_channels::Column::Status.eq("active"))
+            .count(&orm(args.db))
+            .await?
+            > 0;
     if !still_listed {
         soft_delete_mapped(args.db, table, &mapping.internal_id, &mapping.id).await?;
     }
@@ -1207,23 +1283,20 @@ async fn upsert_party(
     );
     let mapping = find_mapping(args.db, args.connection_id, &external_type, external_id).await?;
     if let Some(mapping) = mapping {
-        let current: Option<Option<String>> = sqlx::query_scalar(
-            "select sync_checksum from integration_entity_mappings where id = $1 limit 1",
-        )
-        .bind(&mapping.id)
-        .fetch_optional(args.db)
-        .await?;
+        let current: Option<Option<String>> = mappings::Entity::find()
+            .select_only()
+            .column(mappings::Column::SyncChecksum)
+            .filter(mappings::Column::Id.eq(mapping.id.as_str()))
+            .into_tuple()
+            .one(&orm(args.db))
+            .await?;
         if current.flatten().as_deref() == Some(checksum) {
             return Ok(Upserted {
                 action: Action::Skipped,
                 internal_id: mapping.internal_id,
             });
         }
-        let party: Option<(Option<String>, Option<String>)> =
-            sqlx::query_as("select company_id, person_id from parties where id = $1 limit 1")
-                .bind(&mapping.internal_id)
-                .fetch_optional(args.db)
-                .await?;
+        let party = party_identities(args.db, &mapping.internal_id).await?;
         let identity_id =
             party.and_then(|(company, person)| if kind == "company" { company } else { person });
         check_dates(party_values)?;
@@ -1247,7 +1320,7 @@ async fn upsert_party(
             ),
         )
         .await?;
-        touch_mapping(&mut *tx, &mapping.id, Some(checksum)).await?;
+        touch_mapping(&OrmConn::new(&mut tx), &mapping.id, Some(checksum)).await?;
         tx.commit().await?;
         return Ok(Upserted {
             action: Action::Updated,
@@ -1259,30 +1332,46 @@ async fn upsert_party(
     let email = identity.get("email").and_then(Value::as_str);
     let vat = identity.get("vatNumber").and_then(Value::as_str);
     let mut existing: Option<String> = None;
+    let db = &orm(args.db);
     if let Some(email) = email {
         existing = if kind == "company" {
-            sqlx::query_scalar(
-                "select id from companies where email = $1 and deleted_at is null order by created_at asc, id asc limit 1",
-            )
+            companies::Entity::find()
+                .select_only()
+                .column(companies::Column::Id)
+                .filter(companies::Column::Email.eq(email))
+                .filter(companies::Column::DeletedAt.is_null())
+                .order_by_asc(companies::Column::CreatedAt)
+                .order_by_asc(companies::Column::Id)
+                .into_tuple()
+                .one(db)
+                .await?
         } else {
-            sqlx::query_scalar(
-                "select id from people where email = $1 and deleted_at is null order by created_at asc, id asc limit 1",
-            )
-        }
-        .bind(email)
-        .fetch_optional(args.db)
-        .await?;
+            people::Entity::find()
+                .select_only()
+                .column(people::Column::Id)
+                .filter(people::Column::Email.eq(email))
+                .filter(people::Column::DeletedAt.is_null())
+                .order_by_asc(people::Column::CreatedAt)
+                .order_by_asc(people::Column::Id)
+                .into_tuple()
+                .one(db)
+                .await?
+        };
     }
     if existing.is_none()
         && kind == "company"
         && let Some(vat) = vat
     {
-        existing = sqlx::query_scalar(
-            "select id from companies where vat_number = $1 and deleted_at is null order by created_at asc, id asc limit 1",
-        )
-        .bind(vat)
-        .fetch_optional(args.db)
-        .await?;
+        existing = companies::Entity::find()
+            .select_only()
+            .column(companies::Column::Id)
+            .filter(companies::Column::VatNumber.eq(vat))
+            .filter(companies::Column::DeletedAt.is_null())
+            .order_by_asc(companies::Column::CreatedAt)
+            .order_by_asc(companies::Column::Id)
+            .into_tuple()
+            .one(db)
+            .await?;
     }
     let identity_id = match existing {
         Some(id) => {
@@ -1318,18 +1407,18 @@ async fn upsert_party(
     };
 
     // The party wrapping it: found, else created.
-    let wrapping: Option<String> = if kind == "company" {
-        sqlx::query_scalar(
-            "select id from parties where company_id = $1 and deleted_at is null limit 1",
-        )
-    } else {
-        sqlx::query_scalar(
-            "select id from parties where person_id = $1 and deleted_at is null limit 1",
-        )
-    }
-    .bind(&identity_id)
-    .fetch_optional(args.db)
-    .await?;
+    let wrapping: Option<String> = parties::Entity::find()
+        .select_only()
+        .column(parties::Column::Id)
+        .filter(if kind == "company" {
+            parties::Column::CompanyId.eq(identity_id.as_str())
+        } else {
+            parties::Column::PersonId.eq(identity_id.as_str())
+        })
+        .filter(parties::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(db)
+        .await?;
     check_dates(party_values)?;
     let (party_id, created) = match wrapping {
         Some(id) => {
@@ -1375,7 +1464,7 @@ async fn upsert_party(
         }
     };
     insert_mapping(
-        args.db,
+        db,
         args.connection_id,
         &external_type,
         external_id,
@@ -1394,36 +1483,50 @@ async fn upsert_party(
     })
 }
 
+/// `select company_id, person_id from parties where id = $1 limit 1`.
+async fn party_identities(
+    db: &PgPool,
+    party_id: &str,
+) -> Result<Option<(Option<String>, Option<String>)>, DbErr> {
+    parties::Entity::find()
+        .select_only()
+        .columns([parties::Column::CompanyId, parties::Column::PersonId])
+        .filter(parties::Column::Id.eq(party_id))
+        .into_tuple()
+        .one(&orm(db))
+        .await
+}
+
 async fn soft_delete_party(db: &PgPool, party_id: &str, mapping_id: &str) -> Outcome<()> {
-    let party: Option<(Option<String>, Option<String>)> =
-        sqlx::query_as("select company_id, person_id from parties where id = $1 limit 1")
-            .bind(party_id)
-            .fetch_optional(db)
-            .await?;
-    let now = now_iso();
+    let party = party_identities(db, party_id).await?;
+    let now: PrimitiveDateTime = utc_now();
     let mut tx = db.begin().await?;
-    sqlx::query(
-        "update parties set deleted_at = $1::timestamp, updated_at = $1::timestamp where id = $2",
-    )
-    .bind(&now)
-    .bind(party_id)
-    .execute(&mut *tx)
-    .await?;
-    touch_mapping(&mut *tx, mapping_id, None).await?;
-    if let Some((company, person)) = party {
-        if let Some(company) = company {
-            sqlx::query("update companies set deleted_at = $1::timestamp, updated_at = $1::timestamp where id = $2")
-                .bind(&now)
-                .bind(company)
-                .execute(&mut *tx)
-                .await?;
-        }
-        if let Some(person) = person {
-            sqlx::query("update people set deleted_at = $1::timestamp, updated_at = $1::timestamp where id = $2")
-                .bind(&now)
-                .bind(person)
-                .execute(&mut *tx)
-                .await?;
+    {
+        let conn = OrmConn::new(&mut tx);
+        parties::Entity::update_many()
+            .col_expr(parties::Column::DeletedAt, Expr::value(now))
+            .col_expr(parties::Column::UpdatedAt, Expr::value(now))
+            .filter(parties::Column::Id.eq(party_id))
+            .exec(&conn)
+            .await?;
+        touch_mapping(&conn, mapping_id, None).await?;
+        if let Some((company, person)) = party {
+            if let Some(company) = company {
+                companies::Entity::update_many()
+                    .col_expr(companies::Column::DeletedAt, Expr::value(now))
+                    .col_expr(companies::Column::UpdatedAt, Expr::value(now))
+                    .filter(companies::Column::Id.eq(company))
+                    .exec(&conn)
+                    .await?;
+            }
+            if let Some(person) = person {
+                people::Entity::update_many()
+                    .col_expr(people::Column::DeletedAt, Expr::value(now))
+                    .col_expr(people::Column::UpdatedAt, Expr::value(now))
+                    .filter(people::Column::Id.eq(person))
+                    .exec(&conn)
+                    .await?;
+            }
         }
     }
     tx.commit().await?;
@@ -1474,13 +1577,16 @@ async fn replace_document_items(
     items: &[DocumentLine],
 ) -> Outcome<()> {
     if invoice {
-        sqlx::query("delete from invoice_items where invoice_id = $1")
+        invoice_items::Entity::delete_many()
+            .filter(invoice_items::Column::InvoiceId.eq(parent_id))
+            .exec(&orm(args.db))
+            .await?;
     } else {
-        sqlx::query("delete from bill_items where bill_id = $1")
+        bill_items::Entity::delete_many()
+            .filter(bill_items::Column::BillId.eq(parent_id))
+            .exec(&orm(args.db))
+            .await?;
     }
-    .bind(parent_id)
-    .execute(args.db)
-    .await?;
     let product_type = sync_external_type(
         args.provider,
         "product",
@@ -1694,15 +1800,24 @@ async fn store_stripe_pdf(
     }
 }
 
-async fn attachments_unset(db: &PgPool, invoice: bool, id: &str) -> Result<bool, sqlx::Error> {
+async fn attachments_unset(db: &PgPool, invoice: bool, id: &str) -> Result<bool, DbErr> {
     let keys: Option<Option<Value>> = if invoice {
-        sqlx::query_scalar("select attachment_keys from invoices where id = $1 limit 1")
+        invoices::Entity::find()
+            .select_only()
+            .column(invoices::Column::AttachmentKeys)
+            .filter(invoices::Column::Id.eq(id))
+            .into_tuple()
+            .one(&orm(db))
+            .await?
     } else {
-        sqlx::query_scalar("select attachment_keys from bills where id = $1 limit 1")
-    }
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
+        bills::Entity::find()
+            .select_only()
+            .column(bills::Column::AttachmentKeys)
+            .filter(bills::Column::Id.eq(id))
+            .into_tuple()
+            .one(&orm(db))
+            .await?
+    };
     Ok(keys.flatten().is_none_or(|k| k.is_null()))
 }
 
@@ -1711,22 +1826,24 @@ async fn set_attachment_keys(
     invoice: bool,
     id: &str,
     keys: &[String],
-) -> Result<(), sqlx::Error> {
+) -> Result<(), DbErr> {
+    let now = utc_now();
     if invoice {
-        sqlx::query(
-            "update invoices set attachment_keys = $1, updated_at = $2::timestamp where id = $3",
-        )
+        invoices::Entity::update_many()
+            .col_expr(invoices::Column::AttachmentKeys, Expr::value(json!(keys)))
+            .col_expr(invoices::Column::UpdatedAt, Expr::value(now))
+            .filter(invoices::Column::Id.eq(id))
+            .exec(&orm(db))
+            .await?;
     } else {
-        sqlx::query(
-            "update bills set attachment_keys = $1, updated_at = $2::timestamp where id = $3",
-        )
+        bills::Entity::update_many()
+            .col_expr(bills::Column::AttachmentKeys, Expr::value(json!(keys)))
+            .col_expr(bills::Column::UpdatedAt, Expr::value(now))
+            .filter(bills::Column::Id.eq(id))
+            .exec(&orm(db))
+            .await?;
     }
-    .bind(json!(keys))
-    .bind(now_iso())
-    .bind(id)
-    .execute(db)
-    .await
-    .map(|_| ())
+    Ok(())
 }
 
 #[allow(clippy::too_many_arguments)] // `ingestDocumentRecord`'s parameters
@@ -1829,7 +1946,7 @@ async fn ingest_document(
 
 /// `resolveIngestEntityId(args)`: the entity the run names, else the
 /// default WeldBooks entity ([`load_default_entity_id`]).
-async fn resolve_entity_id(args: &IngestArgs<'_>) -> Result<Option<String>, sqlx::Error> {
+async fn resolve_entity_id(args: &IngestArgs<'_>) -> Result<Option<String>, DbErr> {
     if let Some(id) = args.entity_id.filter(|e| !e.is_empty()) {
         return Ok(Some(id.to_owned()));
     }
@@ -1841,30 +1958,36 @@ async fn resolve_entity_id(args: &IngestArgs<'_>) -> Result<Option<String>, sqlx
 /// the deprecated `settings.default_entity_id` when it is. The same rule as
 /// `defaultEntityIdFor(db, 'weldbooks')` of the legal entities core, without
 /// depending on it. No member is involved.
-async fn load_default_entity_id(db: &PgPool) -> Result<Option<String>, sqlx::Error> {
-    async fn enabled(db: &PgPool, id: &str) -> Result<bool, sqlx::Error> {
-        let row: Option<String> = sqlx::query_scalar(
-            "select entity_id from accounting_entity_settings where entity_id = $1 limit 1",
-        )
-        .bind(id)
-        .fetch_optional(db)
-        .await?;
+async fn load_default_entity_id(db: &PgPool) -> Result<Option<String>, DbErr> {
+    async fn enabled(db: &PgPool, id: &str) -> Result<bool, DbErr> {
+        let row: Option<String> = accounting_entity_settings::Entity::find()
+            .select_only()
+            .column(accounting_entity_settings::Column::EntityId)
+            .filter(accounting_entity_settings::Column::EntityId.eq(id))
+            .into_tuple()
+            .one(&orm(db))
+            .await?;
         Ok(row.is_some())
     }
-    let core: Option<String> = sqlx::query_scalar(
-        "select id from entities where is_default = true and deleted_at is null limit 1",
-    )
-    .fetch_optional(db)
-    .await?;
+    let core: Option<String> = entities::Entity::find()
+        .select_only()
+        .column(entities::Column::Id)
+        .filter(entities::Column::IsDefault.eq(true))
+        .filter(entities::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     if let Some(core) = core
         && enabled(db, &core).await?
     {
         return Ok(Some(core));
     }
-    let settings: Option<Option<String>> =
-        sqlx::query_scalar("select default_entity_id from settings limit 1")
-            .fetch_optional(db)
-            .await?;
+    let settings: Option<Option<String>> = settings::Entity::find()
+        .select_only()
+        .column(settings::Column::DefaultEntityId)
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     match settings.flatten().filter(|id| !id.is_empty()) {
         Some(id) if enabled(db, &id).await? => Ok(Some(id)),
         _ => Ok(None),
@@ -1892,11 +2015,14 @@ async fn ingest_accounting_record(
             return Ok(());
         };
         let entity_type = if args.internal_entity() == "party" {
-            let kind: Option<String> =
-                sqlx::query_scalar("select kind from parties where id = $1 limit 1")
-                    .bind(&mapping.internal_id)
-                    .fetch_optional(args.db)
-                    .await?;
+            let kind: Option<Option<String>> = parties::Entity::find()
+                .select_only()
+                .column(parties::Column::Kind)
+                .filter(parties::Column::Id.eq(mapping.internal_id.as_str()))
+                .into_tuple()
+                .one(&orm(args.db))
+                .await?;
+            let kind = kind.flatten();
             soft_delete_party(args.db, &mapping.internal_id, &mapping.id).await?;
             if kind.as_deref() == Some("person") {
                 "person"
@@ -2313,12 +2439,15 @@ fn wms_target(
     }
 }
 
-async fn ensure_default_warehouse(db: &PgPool, owner: &str) -> Result<String, sqlx::Error> {
-    let existing: Option<String> = sqlx::query_scalar(
-        "select id from warehouses where deleted_at is null order by created_at asc limit 1",
-    )
-    .fetch_optional(db)
-    .await?;
+async fn ensure_default_warehouse(db: &PgPool, owner: &str) -> Result<String, DbErr> {
+    let existing: Option<String> = warehouses::Entity::find()
+        .select_only()
+        .column(warehouses::Column::Id)
+        .filter(warehouses::Column::DeletedAt.is_null())
+        .order_by_asc(warehouses::Column::CreatedAt)
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     if let Some(id) = existing {
         return Ok(id);
     }
@@ -2341,7 +2470,7 @@ async fn linked_id(
     args: &IngestArgs<'_>,
     external_id: Option<&String>,
     kind: &str,
-) -> Result<Option<String>, sqlx::Error> {
+) -> Result<Option<String>, DbErr> {
     let Some(external_id) = external_id.filter(|e| !e.is_empty()) else {
         return Ok(None);
     };
@@ -2360,7 +2489,7 @@ async fn resolve_links(
     entity: &str,
     links: &Links,
     values: &Map<String, Value>,
-) -> Result<Map<String, Value>, sqlx::Error> {
+) -> Result<Map<String, Value>, DbErr> {
     let mut extra = Map::new();
     if let Some(id) = linked_id(args, links.product.as_ref(), "product").await? {
         extra.insert("productId".to_owned(), json!(id));
@@ -2506,7 +2635,7 @@ enum Family {
 }
 
 /// `ingestRecords(args)`.
-pub async fn ingest_records(args: &IngestArgs<'_>) -> Result<IngestResult, sqlx::Error> {
+pub async fn ingest_records(args: &IngestArgs<'_>) -> Result<IngestResult, DbErr> {
     let entity = args.internal_entity().to_owned();
     let mut result = IngestResult::default();
     let mut records = args.records.clone();

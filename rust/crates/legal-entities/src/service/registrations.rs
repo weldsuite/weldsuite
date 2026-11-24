@@ -1,23 +1,53 @@
 //! Registrations: every number an authority gave the company, with the
 //! release 1 mirrors into `entities.tax_identifiers` and the WeldHR employers.
 
+use sea_orm::ActiveValue::{NotSet, Set};
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, Condition, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 use serde_json::{Map, Value};
 use sqlx::PgPool;
+use time::Date;
+use weldsuite_db::{orm, utc_now};
 use weldsuite_kit::generate_id;
 use weldsuite_kit::validation::Field;
+use weldsuite_schema::tenant::{entities, hr_payroll_employers, legal_entity_registrations};
 
 use super::entities::{load_entity_row, require_entity_row};
 use super::types::{
     CreateRegistrationInput, LegalEntityRegistration, RegistrationRow, UpdateRegistrationInput,
 };
-use super::{
-    Columns, LegalEntityError, Param, insert_returning, js_slice_start, now_iso, read_row,
-    update_returning,
-};
+use super::{LegalEntityError, js_slice_start, read_model};
 use crate::schemas::{RegistrationType, normalize_registration_number, registration_number_error};
 
-fn registration_row(value: Value) -> Result<RegistrationRow, LegalEntityError> {
-    Ok(read_row::<RegistrationRow>(value)?.0)
+fn registration_row(
+    model: &legal_entity_registrations::Model,
+) -> Result<RegistrationRow, LegalEntityError> {
+    Ok(read_model::<_, RegistrationRow>(model)?.0)
+}
+
+/// `update legal_entity_registrations set … where id = $id returning *`;
+/// `None` when no row has the id.
+async fn update_registration_row(
+    db: &PgPool,
+    id: &str,
+    patch: legal_entity_registrations::ActiveModel,
+) -> Result<Option<legal_entity_registrations::Model>, DbErr> {
+    Ok(legal_entity_registrations::Entity::update_many()
+        .set(patch)
+        .filter(legal_entity_registrations::Column::Id.eq(id))
+        .exec_with_returning(&orm(db))
+        .await?
+        .into_iter()
+        .next())
+}
+
+/// `region = $region` when the registration has one (`$5::text is null or
+/// region = $5`).
+fn in_region(region: Option<&str>) -> Condition {
+    match region.filter(|region| !region.is_empty()) {
+        Some(region) => Condition::all().add(legal_entity_registrations::Column::Region.eq(region)),
+        None => Condition::all(),
+    }
 }
 
 /// `listRegistrations`: by type, primary first, oldest first.
@@ -26,15 +56,15 @@ pub async fn list_registrations(
     entity_id: &str,
 ) -> Result<Vec<LegalEntityRegistration>, LegalEntityError> {
     require_entity_row(db, entity_id).await?;
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from legal_entity_registrations t
-         where t.entity_id = $1 and t.deleted_at is null
-         order by t.type asc, t.is_primary desc, t.created_at asc",
-    )
-    .bind(entity_id)
-    .fetch_all(db)
-    .await?;
-    rows.into_iter()
+    let rows = legal_entity_registrations::Entity::find()
+        .filter(legal_entity_registrations::Column::EntityId.eq(entity_id))
+        .filter(legal_entity_registrations::Column::DeletedAt.is_null())
+        .order_by_asc(legal_entity_registrations::Column::Type)
+        .order_by_desc(legal_entity_registrations::Column::IsPrimary)
+        .order_by_asc(legal_entity_registrations::Column::CreatedAt)
+        .all(&orm(db))
+        .await?;
+    rows.iter()
         .map(|row| registration_row(row).map(LegalEntityRegistration::from))
         .collect()
 }
@@ -47,36 +77,44 @@ pub async fn get_registration(
     registration_type: RegistrationType,
     region: Option<&str>,
 ) -> Result<Option<LegalEntityRegistration>, LegalEntityError> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from legal_entity_registrations t
-         where t.entity_id = $1 and t.type = $2 and t.deleted_at is null
-           and ($3::text is null or t.region = $3)
-         order by t.is_primary desc, t.created_at asc
-         limit 1",
-    )
-    .bind(entity_id)
-    .bind(registration_type.as_str())
-    .bind(region.filter(|region| !region.is_empty()))
-    .fetch_optional(db)
-    .await?;
-    row.map(|row| registration_row(row).map(LegalEntityRegistration::from))
+    let row = legal_entity_registrations::Entity::find()
+        .filter(
+            Condition::all()
+                .add(legal_entity_registrations::Column::EntityId.eq(entity_id))
+                .add(legal_entity_registrations::Column::Type.eq(registration_type.as_str()))
+                .add(legal_entity_registrations::Column::DeletedAt.is_null())
+                .add(in_region(region)),
+        )
+        .order_by_desc(legal_entity_registrations::Column::IsPrimary)
+        .order_by_asc(legal_entity_registrations::Column::CreatedAt)
+        .one(&orm(db))
+        .await?;
+    row.as_ref()
+        .map(|row| registration_row(row).map(LegalEntityRegistration::from))
         .transpose()
 }
 
 /// `clearOtherPrimaries`: one primary per type (per region when it has one).
 async fn clear_other_primaries(db: &PgPool, row: &RegistrationRow) -> Result<(), LegalEntityError> {
-    sqlx::query(
-        "update legal_entity_registrations set is_primary = false, updated_at = $1::timestamp
-         where entity_id = $2 and type = $3 and id <> $4 and is_primary = true
-           and ($5::text is null or region = $5)",
-    )
-    .bind(now_iso())
-    .bind(&row.entity_id)
-    .bind(&row.registration_type)
-    .bind(&row.id)
-    .bind(row.region.as_deref().filter(|region| !region.is_empty()))
-    .execute(db)
-    .await?;
+    legal_entity_registrations::Entity::update_many()
+        .col_expr(
+            legal_entity_registrations::Column::IsPrimary,
+            Expr::value(false),
+        )
+        .col_expr(
+            legal_entity_registrations::Column::UpdatedAt,
+            Expr::value(utc_now()),
+        )
+        .filter(
+            Condition::all()
+                .add(legal_entity_registrations::Column::EntityId.eq(row.entity_id.as_str()))
+                .add(legal_entity_registrations::Column::Type.eq(row.registration_type.as_str()))
+                .add(legal_entity_registrations::Column::Id.ne(row.id.as_str()))
+                .add(legal_entity_registrations::Column::IsPrimary.eq(true))
+                .add(in_region(row.region.as_deref())),
+        )
+        .exec(&orm(db))
+        .await?;
     Ok(())
 }
 
@@ -88,13 +126,18 @@ async fn mirror_tax_identifiers(db: &PgPool, entity_id: &str) -> Result<(), Lega
     let Some(entity) = load_entity_row(db, entity_id).await? else {
         return Ok(());
     };
-    let primaries: Vec<(String, String)> = sqlx::query_as(
-        "select type, number from legal_entity_registrations
-         where entity_id = $1 and is_primary = true and deleted_at is null",
-    )
-    .bind(entity_id)
-    .fetch_all(db)
-    .await?;
+    let primaries: Vec<(String, String)> = legal_entity_registrations::Entity::find()
+        .select_only()
+        .columns([
+            legal_entity_registrations::Column::Type,
+            legal_entity_registrations::Column::Number,
+        ])
+        .filter(legal_entity_registrations::Column::EntityId.eq(entity_id))
+        .filter(legal_entity_registrations::Column::IsPrimary.eq(true))
+        .filter(legal_entity_registrations::Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     let primary = |kind: &str| {
         primaries
             .iter()
@@ -126,14 +169,15 @@ async fn mirror_tax_identifiers(db: &PgPool, entity_id: &str) -> Result<(), Lega
     if let Some(ein) = primary("ein") {
         next.insert("einOrSsn".to_owned(), Value::String(ein));
     }
-    sqlx::query(
-        "update entities set tax_identifiers = $1::jsonb, updated_at = $2::timestamp where id = $3",
-    )
-    .bind(Value::Object(next))
-    .bind(now_iso())
-    .bind(entity_id)
-    .execute(db)
-    .await?;
+    entities::Entity::update_many()
+        .col_expr(
+            entities::Column::TaxIdentifiers,
+            Expr::value(Value::Object(next)),
+        )
+        .col_expr(entities::Column::UpdatedAt, Expr::value(utc_now()))
+        .filter(entities::Column::Id.eq(entity_id))
+        .exec(&orm(db))
+        .await?;
     Ok(())
 }
 
@@ -145,44 +189,53 @@ async fn mirror_registration_to_employers(
     row: &RegistrationRow,
 ) -> Result<(), LegalEntityError> {
     let (column, key) = match row.registration_type.as_str() {
-        "nl_payroll_tax" => ("nl_settings", "loonheffingennummer"),
-        "ein" => ("us_settings", "ein"),
+        "nl_payroll_tax" => (
+            hr_payroll_employers::Column::NlSettings,
+            "loonheffingennummer",
+        ),
+        "ein" => (hr_payroll_employers::Column::UsSettings, "ein"),
         _ => return Ok(()),
     };
-    let employers: Vec<(String, Value, Value)> = sqlx::query_as(
-        "select id, nl_settings, us_settings from hr_payroll_employers where registration_id = $1",
-    )
-    .bind(&row.id)
-    .fetch_all(db)
-    .await?;
-    for (id, nl, us) in employers {
-        let current = if column == "nl_settings" { nl } else { us };
+    let employers: Vec<(String, Value)> = hr_payroll_employers::Entity::find()
+        .select_only()
+        .columns([hr_payroll_employers::Column::Id, column])
+        .filter(hr_payroll_employers::Column::RegistrationId.eq(row.id.as_str()))
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
+    for (id, current) in employers {
         let mut settings = match current {
             Value::Object(fields) => fields,
             _ => Map::new(),
         };
         settings.insert(key.to_owned(), Value::String(row.number.clone()));
-        let sql = if column == "nl_settings" {
-            "update hr_payroll_employers set nl_settings = $1::jsonb, updated_at = $2::timestamp where id = $3"
-        } else {
-            "update hr_payroll_employers set us_settings = $1::jsonb, updated_at = $2::timestamp where id = $3"
-        };
-        sqlx::query(sql)
-            .bind(Value::Object(settings))
-            .bind(now_iso())
-            .bind(&id)
-            .execute(db)
+        hr_payroll_employers::Entity::update_many()
+            .col_expr(column, Expr::value(Value::Object(settings)))
+            .col_expr(
+                hr_payroll_employers::Column::UpdatedAt,
+                Expr::value(utc_now()),
+            )
+            .filter(hr_payroll_employers::Column::Id.eq(id))
+            .exec(&orm(db))
             .await?;
     }
     Ok(())
 }
 
-fn text_param(field: &Field<String>) -> Param {
-    Param::Text(field.as_set().cloned())
-}
-
-fn date_param(field: &Field<String>) -> Param {
-    Param::Date(field.as_set().cloned())
+/// A `YYYY-MM-DD` the schema checked, as Postgres reads `$n::date`.
+fn date_param(field: &Field<String>) -> Result<Option<Date>, LegalEntityError> {
+    let Some(text) = field.as_set() else {
+        return Ok(None);
+    };
+    let format = time::macros::format_description!("[year]-[month]-[day]");
+    Date::parse(text, &format)
+        .ok()
+        // Postgres has no year 0.
+        .filter(|day| day.year() > 0)
+        .map(Some)
+        .ok_or_else(|| {
+            LegalEntityError::Internal(format!("invalid input syntax for type date: \"{text}\""))
+        })
 }
 
 /// `createRegistration`: `BAD_REQUEST` when the number does not fit its type.
@@ -215,18 +268,23 @@ pub async fn create_registration(
         .as_set()
         .cloned()
         .unwrap_or_else(|| js_slice_start(&entity.jurisdiction_code, 2).to_uppercase());
-    let mut columns = Columns::default();
-    columns.set("id", Param::Text(Some(generate_id("ler"))));
-    columns.set("entity_id", Param::Text(Some(entity_id.to_owned())));
-    columns.set("type", Param::Text(Some(kind.as_str().to_owned())));
-    columns.set("number", Param::Text(Some(number)));
-    columns.set("country", Param::Text(Some(country)));
-    columns.set("region", text_param(&input.region));
-    columns.set("label", text_param(&input.label));
-    columns.set("valid_from", date_param(&input.valid_from));
-    columns.set("valid_to", date_param(&input.valid_to));
-    columns.set("is_primary", Param::Bool(Some(is_primary)));
-    let row = registration_row(insert_returning(db, "legal_entity_registrations", columns).await?)?;
+    let row = legal_entity_registrations::ActiveModel {
+        id: Set(generate_id("ler")),
+        entity_id: Set(entity_id.to_owned()),
+        type_: Set(kind.as_str().to_owned()),
+        number: Set(number),
+        country: Set(Some(country)),
+        region: Set(input.region.as_set().cloned()),
+        label: Set(input.label.as_set().cloned()),
+        valid_from: Set(date_param(&input.valid_from)?),
+        valid_to: Set(date_param(&input.valid_to)?),
+        is_primary: Set(is_primary),
+        ..Default::default()
+    };
+    let row = legal_entity_registrations::Entity::insert(row)
+        .exec_with_returning(&orm(db))
+        .await?;
+    let row = registration_row(&row)?;
     if row.is_primary {
         clear_other_primaries(db, &row).await?;
     }
@@ -241,16 +299,14 @@ async fn require_registration(
     entity_id: &str,
     registration_id: &str,
 ) -> Result<RegistrationRow, LegalEntityError> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from legal_entity_registrations t
-         where t.id = $1 and t.entity_id = $2 and t.deleted_at is null limit 1",
-    )
-    .bind(registration_id)
-    .bind(entity_id)
-    .fetch_optional(db)
-    .await?;
+    let row = legal_entity_registrations::Entity::find()
+        .filter(legal_entity_registrations::Column::Id.eq(registration_id))
+        .filter(legal_entity_registrations::Column::EntityId.eq(entity_id))
+        .filter(legal_entity_registrations::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?;
     match row {
-        Some(row) => registration_row(row),
+        Some(row) => registration_row(&row),
         None => Err(LegalEntityError::not_found("Registration not found")),
     }
 }
@@ -267,43 +323,46 @@ pub async fn update_registration(
     // A type outside the catalog reads like `other`: no format, never primary.
     let kind =
         RegistrationType::parse(&existing.registration_type).unwrap_or(RegistrationType::Other);
-    let mut patch = Columns::default();
-    patch.set("updated_at", Param::Timestamp(Some(now_iso())));
+    let mut patch = legal_entity_registrations::ActiveModel {
+        updated_at: Set(utc_now()),
+        ..Default::default()
+    };
     if let Some(raw) = &input.number {
         let number = normalize_registration_number(kind, raw);
         if let Some(problem) = registration_number_error(kind, &number) {
             return Err(LegalEntityError::bad_request(problem));
         }
         if number != existing.number {
-            patch.set("verified_at", Param::Timestamp(None));
-            patch.set("verification", Param::Json(None));
+            patch.verified_at = Set(None);
+            patch.verification = Set(None);
         }
-        patch.set("number", Param::Text(Some(number)));
+        patch.number = Set(number);
     }
-    if !input.country.is_absent() {
-        patch.set("country", text_param(&input.country));
-    }
-    if !input.region.is_absent() {
-        patch.set("region", text_param(&input.region));
-    }
-    if !input.label.is_absent() {
-        patch.set("label", text_param(&input.label));
-    }
+    let text = |field: &Field<String>| {
+        if field.is_absent() {
+            NotSet
+        } else {
+            Set(field.as_set().cloned())
+        }
+    };
+    patch.country = text(&input.country);
+    patch.region = text(&input.region);
+    patch.label = text(&input.label);
     if !input.valid_from.is_absent() {
-        patch.set("valid_from", date_param(&input.valid_from));
+        patch.valid_from = Set(date_param(&input.valid_from)?);
     }
     if !input.valid_to.is_absent() {
-        patch.set("valid_to", date_param(&input.valid_to));
+        patch.valid_to = Set(date_param(&input.valid_to)?);
     }
     if let Some(is_primary) = input.is_primary
         && kind.is_primary_type()
     {
-        patch.set("is_primary", Param::Bool(Some(is_primary)));
+        patch.is_primary = Set(is_primary);
     }
-    let row = update_returning(db, "legal_entity_registrations", patch, registration_id)
+    let row = update_registration_row(db, registration_id, patch)
         .await?
         .ok_or_else(|| LegalEntityError::not_found("Registration not found"))?;
-    let row = registration_row(row)?;
+    let row = registration_row(&row)?;
     if row.is_primary {
         clear_other_primaries(db, &row).await?;
     }
@@ -320,24 +379,31 @@ pub async fn delete_registration(
     registration_id: &str,
 ) -> Result<(), LegalEntityError> {
     let row = require_registration(db, entity_id, registration_id).await?;
-    let employer: Option<String> = sqlx::query_scalar(
-        "select id from hr_payroll_employers
-         where registration_id = $1 and deleted_at is null limit 1",
-    )
-    .bind(&row.id)
-    .fetch_optional(db)
-    .await?;
+    let employer: Option<String> = hr_payroll_employers::Entity::find()
+        .select_only()
+        .column(hr_payroll_employers::Column::Id)
+        .filter(hr_payroll_employers::Column::RegistrationId.eq(row.id.as_str()))
+        .filter(hr_payroll_employers::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     if employer.is_some() {
         return Err(LegalEntityError::conflict(
             "WeldHR payroll runs under this registration; change the payroll setup first",
         ));
     }
-    let now = now_iso();
-    let mut columns = Columns::default();
-    columns.set("deleted_at", Param::Timestamp(Some(now.clone())));
-    columns.set("is_primary", Param::Bool(Some(false)));
-    columns.set("updated_at", Param::Timestamp(Some(now)));
-    update_returning(db, "legal_entity_registrations", columns, &row.id).await?;
+    let now = utc_now();
+    update_registration_row(
+        db,
+        &row.id,
+        legal_entity_registrations::ActiveModel {
+            deleted_at: Set(Some(now)),
+            is_primary: Set(false),
+            updated_at: Set(now),
+            ..Default::default()
+        },
+    )
+    .await?;
     mirror_tax_identifiers(db, entity_id).await?;
     Ok(())
 }

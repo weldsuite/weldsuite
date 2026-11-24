@@ -4,14 +4,24 @@
 
 use std::collections::HashMap;
 
+use sea_orm::ActiveValue::Set;
+use sea_orm::sea_query::{Expr, Query};
+use sea_orm::{
+    ColumnTrait, Condition, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect,
+};
 use serde_json::{Map, Value, json};
-use sqlx::types::Json;
-use sqlx::{Postgres, QueryBuilder};
+use weldsuite_db::{OrmConn, orm};
+use weldsuite_schema::master::{form_invitation_registry, form_link_registry};
+use weldsuite_schema::tenant::{
+    form_access, form_ai_summaries, form_folders, form_integrations, form_invitations,
+    form_response_actions, form_response_files, form_responses, form_settings, form_subscriptions,
+    form_themes, form_versions, forms,
+};
 
 use crate::access::{Grants, Relation, form_permissions};
 use crate::common::{
-    Ctx, Env, FormsResult, all, forms_error, forms_error_with, int, iso, js_slice, not_found, one,
-    opt_text, parse_ms, public_form_url, text,
+    Ctx, Env, Fail, FormsResult, forms_error, forms_error_with, instant, int, js_slice, not_found,
+    opt_text, parse_ms, public_form_url, row_json, rows_json, text,
 };
 use crate::members::{bare_ref, member_ref, member_refs};
 use crate::model::{FormSettings, blank_definition, parsed_definition, template_definition};
@@ -54,22 +64,18 @@ pub(crate) async fn moderation_of(ctx: &Ctx, row: &Value) -> FormsResult<Value> 
     let Some(public_id) = opt_text(row, "publicId") else {
         return Ok(Value::Null);
     };
-    let link = one(
-        ctx.master()?,
-        sqlx::query_scalar(
-            "select to_jsonb(l) from form_link_registry l where public_id = $1 limit 1",
-        )
-        .bind(public_id),
-    )
-    .await?;
+    let link = form_link_registry::Entity::find()
+        .filter(form_link_registry::Column::PublicId.eq(public_id))
+        .one(&orm(ctx.master()?))
+        .await?;
     let Some(link) = link else {
         return Ok(Value::Null);
     };
-    if !link["suspendedAt"].is_null() {
-        return Ok(json!({ "state": "suspended", "reason": link["suspendedReason"] }));
+    if link.suspended_at.is_some() {
+        return Ok(json!({ "state": "suspended", "reason": link.suspended_reason }));
     }
-    if !link["heldAt"].is_null() {
-        return Ok(json!({ "state": "held", "reason": link["heldReason"] }));
+    if link.held_at.is_some() {
+        return Ok(json!({ "state": "held", "reason": link.held_reason }));
     }
     Ok(Value::Null)
 }
@@ -85,14 +91,11 @@ pub(crate) async fn detail_of(
     let owner = member_ref(ctx, text(row, "ownerUserId")).await?;
     let moderation = moderation_of(ctx, row).await?;
     let version = match opt_text(row, "publishedVersionId") {
-        Some(id) => {
-            one(
-                &ctx.db,
-                sqlx::query_scalar("select to_jsonb(v) from form_versions v where id = $1 limit 1")
-                    .bind(id),
-            )
+        Some(id) => form_versions::Entity::find_by_id(id)
+            .one(&orm(&ctx.db))
             .await?
-        }
+            .map(row_json)
+            .transpose()?,
         None => None,
     };
     let mut detail = to_summary(ctx.env(), row, &owner);
@@ -163,31 +166,42 @@ fn like_pattern(search: &str) -> String {
     out
 }
 
-fn push_filters(q: &mut QueryBuilder<Postgres>, user_id: &str, grants: &Grants, query: &ListQuery) {
-    q.push(" where true");
+/// The list's conditions: what the member may see, the folder, the status
+/// and the title search.
+fn list_condition(user_id: &str, grants: &Grants, query: &ListQuery) -> Condition {
+    let mut condition = Condition::all();
     if !grants.manage {
-        q.push(" and (f.access = 'workspace' or f.owner_user_id = ")
-            .push_bind(user_id.to_owned())
-            .push(" or f.id in (select form_id from form_access where user_id = ")
-            .push_bind(user_id.to_owned())
-            .push("))");
+        condition = condition.add(
+            Condition::any()
+                .add(forms::Column::Access.eq("workspace"))
+                .add(forms::Column::OwnerUserId.eq(user_id))
+                .add(
+                    forms::Column::Id.in_subquery(
+                        Query::select()
+                            .column(form_access::Column::FormId)
+                            .from(form_access::Entity)
+                            .and_where(form_access::Column::UserId.eq(user_id))
+                            .to_owned(),
+                    ),
+                ),
+        );
     }
     match query.folder_id.as_deref() {
         Some("none") => {
-            q.push(" and f.folder_id is null");
+            condition = condition.add(forms::Column::FolderId.is_null());
         }
         Some(folder) if !folder.is_empty() => {
-            q.push(" and f.folder_id = ").push_bind(folder.to_owned());
+            condition = condition.add(forms::Column::FolderId.eq(folder));
         }
         _ => {}
     }
     if let Some(status) = query.status.as_deref() {
-        q.push(" and f.status = ").push_bind(status.to_owned());
+        condition = condition.add(forms::Column::Status.eq(status));
     }
     if let Some(search) = query.q.as_deref().filter(|q| !q.is_empty()) {
-        q.push(" and f.title ilike ")
-            .push_bind(like_pattern(search));
+        condition = condition.add(forms::Column::Title.ilike(like_pattern(search)));
     }
+    condition
 }
 
 /// `listForms(ctx, userId, grants, query)`: a page, the total and the next cursor.
@@ -197,12 +211,6 @@ pub(crate) async fn list_forms(
     grants: &Grants,
     query: &ListQuery,
 ) -> FormsResult<(Vec<Value>, i64, Option<String>)> {
-    let order = match query.sort.as_deref() {
-        Some("created") => "f.created_at desc",
-        Some("title") => "f.title asc, f.id asc",
-        Some("responses") => "f.response_count desc, f.updated_at desc",
-        _ => "f.updated_at desc, f.id desc",
-    };
     let limit = query.limit.unwrap_or(DEFAULT_LIMIT);
     let offset = query
         .cursor
@@ -219,27 +227,30 @@ pub(crate) async fn list_forms(
             }
         });
 
-    let mut rows_query = QueryBuilder::new("select to_jsonb(f) from forms f");
-    push_filters(&mut rows_query, user_id, grants, query);
-    rows_query
-        .push(format!(" order by {order} limit "))
-        .push_bind(limit)
-        .push(" offset ")
-        .push_bind(offset);
-    let rows: Vec<Value> = rows_query
-        .build_query_scalar::<Value>()
-        .fetch_all(&ctx.db)
-        .await?
-        .into_iter()
-        .map(weldsuite_db::js_row)
-        .collect();
+    let db = orm(&ctx.db);
+    let condition = list_condition(user_id, grants, query);
+    let find = forms::Entity::find().filter(condition.clone());
+    let find = match query.sort.as_deref() {
+        Some("created") => find.order_by_desc(forms::Column::CreatedAt),
+        Some("title") => find
+            .order_by_asc(forms::Column::Title)
+            .order_by_asc(forms::Column::Id),
+        Some("responses") => find
+            .order_by_desc(forms::Column::ResponseCount)
+            .order_by_desc(forms::Column::UpdatedAt),
+        _ => find
+            .order_by_desc(forms::Column::UpdatedAt)
+            .order_by_desc(forms::Column::Id),
+    };
+    let rows = rows_json(
+        find.limit(u64::try_from(limit).unwrap_or(0))
+            .offset(u64::try_from(offset).unwrap_or(0))
+            .all(&db)
+            .await?,
+    )?;
 
-    let mut count_query = QueryBuilder::new("select count(*)::int8 from forms f");
-    push_filters(&mut count_query, user_id, grants, query);
-    let total: i64 = count_query
-        .build_query_scalar::<i64>()
-        .fetch_one(&ctx.db)
-        .await?;
+    let total = forms::Entity::find().filter(condition).count(&db).await?;
+    let total = i64::try_from(total).unwrap_or(i64::MAX);
 
     let owners = member_refs(
         ctx,
@@ -280,18 +291,23 @@ pub(crate) struct CreateInput {
 
 /// The theme new forms start with: the workspace default.
 async fn default_theme_id(ctx: &Ctx) -> FormsResult<Option<String>> {
-    let settings: Option<Option<String>> =
-        sqlx::query_scalar("select default_theme_id from form_settings limit 1")
-            .fetch_optional(&ctx.db)
-            .await?;
+    let db = orm(&ctx.db);
+    let settings: Option<Option<String>> = form_settings::Entity::find()
+        .select_only()
+        .column(form_settings::Column::DefaultThemeId)
+        .into_tuple()
+        .one(&db)
+        .await?;
     if let Some(id) = settings.flatten() {
         return Ok(Some(id));
     }
-    Ok(
-        sqlx::query_scalar("select id from form_themes where is_default = true limit 1")
-            .fetch_optional(&ctx.db)
-            .await?,
-    )
+    Ok(form_themes::Entity::find()
+        .select_only()
+        .column(form_themes::Column::Id)
+        .filter(form_themes::Column::IsDefault.eq(true))
+        .into_tuple()
+        .one(&db)
+        .await?)
 }
 
 fn starting_definition(input: &CreateInput) -> FormsResult<Value> {
@@ -320,11 +336,12 @@ fn starting_definition(input: &CreateInput) -> FormsResult<Value> {
 }
 
 async fn require_folder(ctx: &Ctx, folder_id: &str) -> FormsResult<()> {
-    let found: Option<String> =
-        sqlx::query_scalar("select id from form_folders where id = $1 limit 1")
-            .bind(folder_id)
-            .fetch_optional(&ctx.db)
-            .await?;
+    let found: Option<String> = form_folders::Entity::find_by_id(folder_id)
+        .select_only()
+        .column(form_folders::Column::Id)
+        .into_tuple()
+        .one(&orm(&ctx.db))
+        .await?;
     found.map(|_| ()).ok_or_else(|| not_found("Folder"))
 }
 
@@ -333,6 +350,17 @@ pub(crate) async fn load_row(ctx: &Ctx, id: &str) -> FormsResult<Value> {
     crate::access::form_row(&ctx.db, id)
         .await?
         .ok_or_else(|| not_found("Form"))
+}
+
+/// The owner's `instant` subscription to a new form.
+fn owner_subscription(form_id: &str, user_id: &str) -> form_subscriptions::ActiveModel {
+    form_subscriptions::ActiveModel {
+        id: Set(weldsuite_kit::generate_id("fsb")),
+        form_id: Set(form_id.to_owned()),
+        user_id: Set(user_id.to_owned()),
+        mode: Set("instant".to_owned()),
+        ..Default::default()
+    }
 }
 
 /// `createForm(ctx, userId, input)`.
@@ -348,29 +376,30 @@ pub(crate) async fn create_form(
     let id = weldsuite_kit::generate_id("frm");
     let theme_id = default_theme_id(ctx).await?;
     let settings = FormSettings::default().to_json();
-    weldsuite_db::atomically(
-        &ctx.db,
-        [
-            sqlx::query(
-                "insert into forms (id, folder_id, title, definition, settings, theme_id, owner_user_id) \
-                 values ($1, $2, $3, $4, $5, $6, $7)",
-            )
-            .bind(id.clone())
-            .bind(input.folder_id.clone())
-            .bind(input.title.clone())
-            .bind(Json(definition))
-            .bind(Json(settings))
-            .bind(theme_id)
-            .bind(user_id.to_owned()),
-            // The owner is subscribed to responses from the start.
-            sqlx::query(
-                "insert into form_subscriptions (id, form_id, user_id, mode) values ($1, $2, $3, 'instant')",
-            )
-            .bind(weldsuite_kit::generate_id("fsb"))
-            .bind(id.clone())
-            .bind(user_id.to_owned()),
-        ],
-    )
+    let form = forms::ActiveModel {
+        id: Set(id.clone()),
+        folder_id: Set(input.folder_id.clone()),
+        title: Set(input.title.clone()),
+        definition: Set(definition),
+        settings: Set(settings),
+        theme_id: Set(theme_id),
+        owner_user_id: Set(user_id.to_owned()),
+        ..Default::default()
+    };
+    // The owner is subscribed to responses from the start.
+    let subscription = owner_subscription(&id, user_id);
+    weldsuite_db::atomically_with(&ctx.db, move |tx| {
+        Box::pin(async move {
+            let tx = OrmConn::new(tx);
+            forms::Entity::insert(form)
+                .exec_without_returning(&tx)
+                .await?;
+            form_subscriptions::Entity::insert(subscription)
+                .exec_without_returning(&tx)
+                .await?;
+            Ok::<_, Fail>(())
+        })
+    })
     .await?;
     load_row(ctx, &id).await
 }
@@ -411,11 +440,12 @@ pub(crate) async fn update_form(
     if let Some(Some(theme)) = &input.theme_id
         && !theme.is_empty()
     {
-        let found: Option<String> =
-            sqlx::query_scalar("select id from form_themes where id = $1 limit 1")
-                .bind(theme)
-                .fetch_optional(&ctx.db)
-                .await?;
+        let found: Option<String> = form_themes::Entity::find_by_id(theme.as_str())
+            .select_only()
+            .column(form_themes::Column::Id)
+            .into_tuple()
+            .one(&orm(&ctx.db))
+            .await?;
         if found.is_none() {
             return Err(not_found("Theme"));
         }
@@ -445,44 +475,47 @@ pub(crate) async fn update_form(
     let changes_content = input.definition.is_some() || input.theme_id.is_some();
     let id = text(form, "id").to_owned();
 
-    let mut q =
-        QueryBuilder::<Postgres>::new("update forms set revision = revision + 1, updated_at = ");
-    q.push_bind(iso(ctx.now_ms())).push("::timestamptz");
+    let mut update = forms::Entity::update_many()
+        .col_expr(
+            forms::Column::Revision,
+            sea_orm::ExprTrait::add(Expr::col(forms::Column::Revision), 1),
+        )
+        .col_expr(forms::Column::UpdatedAt, Expr::value(instant(ctx.now_ms())));
     if let Some(title) = &input.title {
-        q.push(", title = ").push_bind(title.clone());
+        update = update.col_expr(forms::Column::Title, Expr::value(title.clone()));
     }
     if let Some(folder) = &input.folder_id {
-        q.push(", folder_id = ").push_bind(folder.clone());
+        update = update.col_expr(forms::Column::FolderId, Expr::value(folder.clone()));
     }
     if let Some(definition) = &input.definition {
-        q.push(", definition = ")
-            .push_bind(Json(definition.clone()));
+        update = update.col_expr(forms::Column::Definition, Expr::value(definition.clone()));
     }
     if let Some(settings) = &settings {
-        q.push(", settings = ").push_bind(Json(settings.clone()));
+        update = update.col_expr(forms::Column::Settings, Expr::value(settings.clone()));
     }
     if let Some(theme) = &input.theme_id {
-        q.push(", theme_id = ").push_bind(theme.clone());
+        update = update.col_expr(forms::Column::ThemeId, Expr::value(theme.clone()));
     }
     if let Some(access) = &input.access {
-        q.push(", access = ").push_bind(access.clone());
+        update = update.col_expr(forms::Column::Access, Expr::value(access.clone()));
     }
     if changes_content && !form["publishedVersionId"].is_null() {
-        q.push(", has_unpublished_changes = true");
+        update = update.col_expr(forms::Column::HasUnpublishedChanges, Expr::value(true));
     }
-    q.push(" where id = ")
-        .push_bind(id.clone())
-        .push(" and revision = ")
-        .push_bind(input.revision)
-        .push(" returning id");
-    let updated: Option<String> = q.build_query_scalar().fetch_optional(&ctx.db).await?;
-    if updated.is_none() {
-        let current: Option<i64> =
-            sqlx::query_scalar("select revision::int8 from forms where id = $1 limit 1")
-                .bind(&id)
-                .fetch_optional(&ctx.db)
-                .await?;
-        let Some(current) = current else {
+    let db = orm(&ctx.db);
+    let updated = update
+        .filter(forms::Column::Id.eq(id.as_str()))
+        .filter(forms::Column::Revision.eq(input.revision))
+        .exec(&db)
+        .await?;
+    if updated.rows_affected == 0 {
+        let current: Option<i32> = forms::Entity::find_by_id(id.as_str())
+            .select_only()
+            .column(forms::Column::Revision)
+            .into_tuple()
+            .one(&db)
+            .await?;
+        let Some(current) = current.map(i64::from) else {
             return Err(not_found("Form"));
         };
         return Err(forms_error_with(
@@ -503,6 +536,17 @@ pub(crate) async fn update_form(
 // Duplicate, delete
 // ---------------------------------------------------------------------------
 
+/// A `form_access` row of `form_id`.
+fn access_entry(form_id: &str, user_id: String, role: String) -> form_access::ActiveModel {
+    form_access::ActiveModel {
+        id: Set(weldsuite_kit::generate_id("fac")),
+        form_id: Set(form_id.to_owned()),
+        user_id: Set(user_id),
+        role: Set(role),
+        ..Default::default()
+    }
+}
+
 /// `duplicateForm(ctx, source, userId, title)`: a copy as a new draft owned
 /// by `user_id`, seen by the same people: the original's `access` and its
 /// access list come along (less the new owner, who needs no entry), so
@@ -521,44 +565,49 @@ pub(crate) async fn duplicate_form(
         ),
         255,
     );
-    let listed: Vec<(String, String)> = sqlx::query_as(
-        "select user_id, role from form_access where form_id = $1 order by user_id asc",
-    )
-    .bind(text(source, "id"))
-    .fetch_all(&ctx.db)
+    let listed: Vec<(String, String)> = form_access::Entity::find()
+        .select_only()
+        .columns([form_access::Column::UserId, form_access::Column::Role])
+        .filter(form_access::Column::FormId.eq(text(source, "id")))
+        .order_by_asc(form_access::Column::UserId)
+        .into_tuple()
+        .all(&orm(&ctx.db))
+        .await?;
+    let form = forms::ActiveModel {
+        id: Set(id.clone()),
+        folder_id: Set(opt_text(source, "folderId")),
+        title: Set(copy_title),
+        definition: Set(source["definition"].clone()),
+        settings: Set(source["settings"].clone()),
+        theme_id: Set(opt_text(source, "themeId")),
+        access: Set(text(source, "access").to_owned()),
+        owner_user_id: Set(user_id.to_owned()),
+        ..Default::default()
+    };
+    let subscription = owner_subscription(&id, user_id);
+    let entries: Vec<form_access::ActiveModel> = listed
+        .into_iter()
+        .filter(|(member, _)| member != user_id)
+        .map(|(member, role)| access_entry(&id, member, role))
+        .collect();
+    weldsuite_db::atomically_with(&ctx.db, move |tx| {
+        Box::pin(async move {
+            let tx = OrmConn::new(tx);
+            forms::Entity::insert(form)
+                .exec_without_returning(&tx)
+                .await?;
+            form_subscriptions::Entity::insert(subscription)
+                .exec_without_returning(&tx)
+                .await?;
+            for entry in entries {
+                form_access::Entity::insert(entry)
+                    .exec_without_returning(&tx)
+                    .await?;
+            }
+            Ok::<_, Fail>(())
+        })
+    })
     .await?;
-    let mut statements = vec![
-        sqlx::query(
-            "insert into forms (id, folder_id, title, definition, settings, theme_id, access, owner_user_id) \
-             values ($1, $2, $3, $4, $5, $6, $7, $8)",
-        )
-        .bind(id.clone())
-        .bind(opt_text(source, "folderId"))
-        .bind(copy_title)
-        .bind(Json(source["definition"].clone()))
-        .bind(Json(source["settings"].clone()))
-        .bind(opt_text(source, "themeId"))
-        .bind(text(source, "access").to_owned())
-        .bind(user_id.to_owned()),
-        sqlx::query(
-            "insert into form_subscriptions (id, form_id, user_id, mode) values ($1, $2, $3, 'instant')",
-        )
-        .bind(weldsuite_kit::generate_id("fsb"))
-        .bind(id.clone())
-        .bind(user_id.to_owned()),
-    ];
-    for (member, role) in listed.into_iter().filter(|(member, _)| member != user_id) {
-        statements.push(
-            sqlx::query(
-                "insert into form_access (id, form_id, user_id, role) values ($1, $2, $3, $4)",
-            )
-            .bind(weldsuite_kit::generate_id("fac"))
-            .bind(id.clone())
-            .bind(member)
-            .bind(role),
-        );
-    }
-    weldsuite_db::atomically(&ctx.db, statements).await?;
     load_row(ctx, &id).await
 }
 
@@ -567,39 +616,70 @@ pub(crate) async fn duplicate_form(
 /// its files; the caller deletes them after the response.
 pub(crate) async fn delete_form(ctx: &Ctx, form: &Value) -> FormsResult<Vec<String>> {
     let id = text(form, "id").to_owned();
-    let keys: Vec<String> =
-        sqlx::query_scalar("select storage_key from form_response_files where form_id = $1")
-            .bind(&id)
-            .fetch_all(&ctx.db)
-            .await?;
-    let statements: [&'static str; 10] = [
-        "delete from form_ai_summaries where form_id = $1",
-        "delete from form_response_actions where form_id = $1",
-        "delete from form_response_files where form_id = $1",
-        "delete from form_responses where form_id = $1",
-        "delete from form_invitations where form_id = $1",
-        "delete from form_integrations where form_id = $1",
-        "delete from form_subscriptions where form_id = $1",
-        "delete from form_access where form_id = $1",
-        "delete from form_versions where form_id = $1",
-        "delete from forms where id = $1",
-    ];
-    let queries: Vec<_> = statements
-        .into_iter()
-        .map(|sql| sqlx::query(sql).bind(id.clone()))
-        .collect();
-    weldsuite_db::atomically(&ctx.db, queries).await?;
-    // The registries only route; with the form gone the links must stop answering.
-    let master = ctx.master()?;
-    sqlx::query("delete from form_link_registry where workspace_id = $1 and form_id = $2")
-        .bind(&ctx.workspace_id)
-        .bind(&id)
-        .execute(master)
+    let keys: Vec<String> = form_response_files::Entity::find()
+        .select_only()
+        .column(form_response_files::Column::StorageKey)
+        .filter(form_response_files::Column::FormId.eq(id.as_str()))
+        .into_tuple()
+        .all(&orm(&ctx.db))
         .await?;
-    sqlx::query("delete from form_invitation_registry where workspace_id = $1 and form_id = $2")
-        .bind(&ctx.workspace_id)
-        .bind(&id)
-        .execute(master)
+    let form_id = id.clone();
+    weldsuite_db::atomically_with(&ctx.db, move |tx| {
+        Box::pin(async move {
+            let tx = OrmConn::new(tx);
+            let id = form_id.as_str();
+            form_ai_summaries::Entity::delete_many()
+                .filter(form_ai_summaries::Column::FormId.eq(id))
+                .exec(&tx)
+                .await?;
+            form_response_actions::Entity::delete_many()
+                .filter(form_response_actions::Column::FormId.eq(id))
+                .exec(&tx)
+                .await?;
+            form_response_files::Entity::delete_many()
+                .filter(form_response_files::Column::FormId.eq(id))
+                .exec(&tx)
+                .await?;
+            form_responses::Entity::delete_many()
+                .filter(form_responses::Column::FormId.eq(id))
+                .exec(&tx)
+                .await?;
+            form_invitations::Entity::delete_many()
+                .filter(form_invitations::Column::FormId.eq(id))
+                .exec(&tx)
+                .await?;
+            form_integrations::Entity::delete_many()
+                .filter(form_integrations::Column::FormId.eq(id))
+                .exec(&tx)
+                .await?;
+            form_subscriptions::Entity::delete_many()
+                .filter(form_subscriptions::Column::FormId.eq(id))
+                .exec(&tx)
+                .await?;
+            form_access::Entity::delete_many()
+                .filter(form_access::Column::FormId.eq(id))
+                .exec(&tx)
+                .await?;
+            form_versions::Entity::delete_many()
+                .filter(form_versions::Column::FormId.eq(id))
+                .exec(&tx)
+                .await?;
+            forms::Entity::delete_by_id(id).exec(&tx).await?;
+            Ok::<_, Fail>(())
+        })
+    })
+    .await?;
+    // The registries only route; with the form gone the links must stop answering.
+    let master = orm(ctx.master()?);
+    form_link_registry::Entity::delete_many()
+        .filter(form_link_registry::Column::WorkspaceId.eq(ctx.workspace_id.as_str()))
+        .filter(form_link_registry::Column::FormId.eq(id.as_str()))
+        .exec(&master)
+        .await?;
+    form_invitation_registry::Entity::delete_many()
+        .filter(form_invitation_registry::Column::WorkspaceId.eq(ctx.workspace_id.as_str()))
+        .filter(form_invitation_registry::Column::FormId.eq(id.as_str()))
+        .exec(&master)
         .await?;
     if let Some(public_id) = opt_text(form, "publicId") {
         drop_public_cache(&ctx.svc, &public_id).await?;
@@ -613,29 +693,23 @@ pub(crate) async fn delete_form(ctx: &Ctx, form: &Value) -> FormsResult<Vec<Stri
 
 /// `listAccess(ctx, formId)`.
 pub(crate) async fn list_access(ctx: &Ctx, form_id: &str) -> FormsResult<Vec<Value>> {
-    let rows = all(
-        &ctx.db,
-        sqlx::query_scalar(
-            "select to_jsonb(a) from form_access a where form_id = $1 order by created_at asc",
-        )
-        .bind(form_id),
-    )
-    .await?;
+    let rows = form_access::Entity::find()
+        .filter(form_access::Column::FormId.eq(form_id))
+        .order_by_asc(form_access::Column::CreatedAt)
+        .all(&orm(&ctx.db))
+        .await?;
     let refs = member_refs(
         ctx,
-        &rows
-            .iter()
-            .map(|r| text(r, "userId").to_owned())
-            .collect::<Vec<_>>(),
+        &rows.iter().map(|r| r.user_id.clone()).collect::<Vec<_>>(),
     )
     .await?;
     Ok(rows
         .iter()
         .map(|row| {
-            let user_id = text(row, "userId");
+            let user_id = row.user_id.as_str();
             json!({
                 "user": refs.get(user_id).cloned().unwrap_or_else(|| bare_ref(user_id)),
-                "role": row["role"],
+                "role": row.role,
             })
         })
         .collect())
@@ -662,25 +736,34 @@ pub(crate) async fn set_access(
         }
         roles.insert(user_id.clone(), role.clone());
     }
-    let mut statements =
-        vec![sqlx::query("delete from form_access where form_id = $1").bind(form_id.clone())];
-    for user_id in &order {
-        statements.push(
-            sqlx::query(
-                "insert into form_access (id, form_id, user_id, role) values ($1, $2, $3, $4)",
-            )
-            .bind(weldsuite_kit::generate_id("fac"))
-            .bind(form_id.clone())
-            .bind(user_id.clone())
-            .bind(roles.get(user_id).cloned().unwrap_or_default()),
-        );
-    }
-    statements.push(
-        sqlx::query("update forms set updated_at = $2::timestamptz where id = $1")
-            .bind(form_id.clone())
-            .bind(iso(ctx.now_ms())),
-    );
-    weldsuite_db::atomically(&ctx.db, statements).await?;
+    let entries: Vec<form_access::ActiveModel> = order
+        .into_iter()
+        .map(|user_id| {
+            let role = roles.get(&user_id).cloned().unwrap_or_default();
+            access_entry(&form_id, user_id, role)
+        })
+        .collect();
+    let touched = forms::Entity::update_many()
+        .col_expr(forms::Column::UpdatedAt, Expr::value(instant(ctx.now_ms())))
+        .filter(forms::Column::Id.eq(form_id.as_str()));
+    let id = form_id.clone();
+    weldsuite_db::atomically_with(&ctx.db, move |tx| {
+        Box::pin(async move {
+            let tx = OrmConn::new(tx);
+            form_access::Entity::delete_many()
+                .filter(form_access::Column::FormId.eq(id.as_str()))
+                .exec(&tx)
+                .await?;
+            for entry in entries {
+                form_access::Entity::insert(entry)
+                    .exec_without_returning(&tx)
+                    .await?;
+            }
+            touched.exec(&tx).await?;
+            Ok::<_, Fail>(())
+        })
+    })
+    .await?;
     list_access(ctx, &form_id).await
 }
 

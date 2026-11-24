@@ -2,11 +2,21 @@
 //! (an opt-out suppresses and stops sequences, interest moves the counter),
 //! and a person's change to one inbound message.
 
+use sea_orm::sea_query::extension::postgres as pg;
+use sea_orm::sea_query::{Expr, Func, OnConflict, Query};
+use sea_orm::{ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Value, json};
 use sqlx::PgPool;
+use time::OffsetDateTime;
+use weldsuite_db::orm;
 use weldsuite_kit::generate_id;
 use weldsuite_reach_domain::schemas::is_consumer_email;
-use weldsuite_reach_domain::{ReachResult, iso, js_slice, now, text};
+use weldsuite_reach_domain::{ReachResult, js_slice, now};
+use weldsuite_schema::tenant::{
+    reach_campaigns, reach_enrollments, reach_messages, reach_prospects, reach_suppressions,
+};
+
+use crate::{db_error, row_json};
 
 const STOPPABLE: &[&str] = &["queued", "active", "paused", "completed"];
 
@@ -21,24 +31,36 @@ pub(crate) async fn bump_campaign_stat(
     key: &str,
     by: i64,
 ) -> ReachResult<()> {
+    use sea_orm::ExprTrait as _;
     let Some(campaign_id) = campaign_id.filter(|id| !id.is_empty()) else {
         return Ok(());
     };
     if by == 0 {
         return Ok(());
     }
-    sqlx::query(
-        "update reach_campaigns set
-             stats = jsonb_set(stats, array[$2::text], to_jsonb(greatest(0, (coalesce(stats->>$2, '0'))::int + $3::int))),
-             updated_at = $4::timestamptz
-         where id = $1",
-    )
-    .bind(campaign_id)
-    .bind(key)
-    .bind(i32::try_from(by).unwrap_or_default())
-    .bind(iso(now()))
-    .execute(db)
-    .await?;
+    let stats = || Expr::col(reach_campaigns::Column::Stats);
+    // `greatest(0, coalesce(stats->>key, '0')::int + by)`
+    let current = Expr::from(Func::coalesce([
+        pg::PgExpr::cast_json_field(stats(), key),
+        Expr::val("0"),
+    ]))
+    .cast_as("int");
+    let next = Func::greatest([
+        Expr::val(0),
+        current.add(i32::try_from(by).unwrap_or_default()),
+    ]);
+    // `jsonb_set(stats, array[key], to_jsonb(next))`
+    let set = Func::cust("jsonb_set")
+        .arg(stats())
+        .arg(Expr::val(format!("{{{key}}}")).cast_as("text[]"))
+        .arg(Func::cust("to_jsonb").arg(next));
+    reach_campaigns::Entity::update_many()
+        .col_expr(reach_campaigns::Column::Stats, Expr::from(set))
+        .col_expr(reach_campaigns::Column::UpdatedAt, Expr::value(now()))
+        .filter(reach_campaigns::Column::Id.eq(campaign_id))
+        .exec(&orm(db))
+        .await
+        .map_err(db_error)?;
     Ok(())
 }
 
@@ -50,20 +72,27 @@ pub(crate) async fn transition_enrollment(
     reason: &str,
     from: &[&str],
 ) -> ReachResult<bool> {
-    let from: Vec<String> = from.iter().map(|s| (*s).to_owned()).collect();
-    let rows: Vec<String> = sqlx::query_scalar(
-        "update reach_enrollments set status = $2, stopped_reason = $3, next_send_at = null, claimed_at = null,
-             updated_at = $4::timestamptz
-         where id = $1 and status = any($5) returning id",
-    )
-    .bind(id)
-    .bind(to)
-    .bind(js_slice(reason, 100))
-    .bind(iso(now()))
-    .bind(&from)
-    .fetch_all(db)
-    .await?;
-    Ok(!rows.is_empty())
+    let done = stopped(to, &js_slice(reason, 100))
+        .filter(reach_enrollments::Column::Id.eq(id))
+        .filter(reach_enrollments::Column::Status.is_in(from.iter().copied()))
+        .exec(&orm(db))
+        .await
+        .map_err(db_error)?;
+    Ok(done.rows_affected > 0)
+}
+
+/// `status = to, stopped_reason = reason, next_send_at = null,
+/// claimed_at = null, updated_at = now` on `reach_enrollments`.
+fn stopped(to: &str, reason: &str) -> sea_orm::UpdateMany<reach_enrollments::Entity> {
+    reach_enrollments::Entity::update_many()
+        .col_expr(reach_enrollments::Column::Status, Expr::value(to))
+        .col_expr(
+            reach_enrollments::Column::StoppedReason,
+            Expr::value(reason),
+        )
+        .col_expr(reach_enrollments::Column::NextSendAt, Expr::null())
+        .col_expr(reach_enrollments::Column::ClaimedAt, Expr::null())
+        .col_expr(reach_enrollments::Column::UpdatedAt, Expr::value(now()))
 }
 
 /// `stopOtherEnrollments(db, input)`.
@@ -90,25 +119,27 @@ pub(crate) async fn stop_other_enrollments(
     } else {
         "replied_elsewhere"
     };
-    let rows: Vec<String> = sqlx::query_scalar(
-        "update reach_enrollments set status = $1, stopped_reason = $2, next_send_at = null, claimed_at = null,
-             updated_at = $3::timestamptz
-         where (case when $4 then prospect_id in (select id from reach_prospects where company_domain = $5 and deleted_at is null)
-                     else prospect_id = $6 end)
-           and status in ('queued', 'active', 'paused')
-           and ($7::text is null or id <> $7)
-         returning id",
-    )
-    .bind(status)
-    .bind(reason)
-    .bind(iso(now()))
-    .bind(company_wide)
-    .bind(&domain)
-    .bind(prospect_id)
-    .bind(except)
-    .fetch_all(db)
-    .await?;
-    Ok(rows.len() as i64)
+    let mut update = stopped(status, reason);
+    update = if company_wide {
+        update.filter(
+            reach_enrollments::Column::ProspectId.in_subquery(
+                Query::select()
+                    .column(reach_prospects::Column::Id)
+                    .from(reach_prospects::Entity)
+                    .and_where(reach_prospects::Column::CompanyDomain.eq(&domain))
+                    .and_where(reach_prospects::Column::DeletedAt.is_null())
+                    .to_owned(),
+            ),
+        )
+    } else {
+        update.filter(reach_enrollments::Column::ProspectId.eq(prospect_id))
+    };
+    update = update.filter(reach_enrollments::Column::Status.is_in(["queued", "active", "paused"]));
+    if let Some(except) = except {
+        update = update.filter(reach_enrollments::Column::Id.ne(except));
+    }
+    let done = update.exec(&orm(db)).await.map_err(db_error)?;
+    Ok(done.rows_affected as i64)
 }
 
 /// `suppressAddress(db, email, reason, source)`.
@@ -122,16 +153,23 @@ pub(crate) async fn suppress_address(
     if !value.contains('@') {
         return Ok(());
     }
-    sqlx::query(
-        "insert into reach_suppressions (id, value, type, reason, source, created_by)
-         values ($1, $2, 'email', $3, $4, null) on conflict (value) do nothing",
+    reach_suppressions::Entity::insert(reach_suppressions::ActiveModel {
+        id: Set(generate_id("rsup")),
+        value: Set(value),
+        type_: Set("email".to_owned()),
+        reason: Set(reason.to_owned()),
+        source: Set(source.map(|s| js_slice(s, 255))),
+        created_by: Set(None),
+        ..Default::default()
+    })
+    .on_conflict(
+        OnConflict::column(reach_suppressions::Column::Value)
+            .do_nothing()
+            .to_owned(),
     )
-    .bind(generate_id("rsup"))
-    .bind(&value)
-    .bind(reason)
-    .bind(source.map(|s| js_slice(s, 255)))
-    .execute(db)
-    .await?;
+    .exec_without_returning(&orm(db))
+    .await
+    .map_err(db_error)?;
     Ok(())
 }
 
@@ -147,14 +185,17 @@ pub(crate) async fn flag_prospects_suppressed(db: &PgPool, emails: &[String]) ->
     if unique.is_empty() {
         return Ok(());
     }
-    sqlx::query(
-        "update reach_prospects set validation = 'suppressed', updated_at = $2::timestamptz
-         where email = any($1) and deleted_at is null",
-    )
-    .bind(&unique)
-    .bind(iso(now()))
-    .execute(db)
-    .await?;
+    reach_prospects::Entity::update_many()
+        .col_expr(
+            reach_prospects::Column::Validation,
+            Expr::value("suppressed"),
+        )
+        .col_expr(reach_prospects::Column::UpdatedAt, Expr::value(now()))
+        .filter(reach_prospects::Column::Email.is_in(unique))
+        .filter(reach_prospects::Column::DeletedAt.is_null())
+        .exec(&orm(db))
+        .await
+        .map_err(db_error)?;
     Ok(())
 }
 
@@ -167,6 +208,23 @@ pub(crate) struct Target {
     pub(crate) enrollment_id: Option<String>,
     pub(crate) campaign_id: Option<String>,
     pub(crate) previous_label: Option<String>,
+}
+
+/// A prospect as a [`Target`] names it: `(id, email, companyDomain)`.
+pub(crate) async fn load_target_prospect(
+    db: &PgPool,
+    id: &str,
+) -> Result<Option<(String, String, Option<String>)>, DbErr> {
+    reach_prospects::Entity::find_by_id(id.to_owned())
+        .select_only()
+        .columns([
+            reach_prospects::Column::Id,
+            reach_prospects::Column::Email,
+            reach_prospects::Column::CompanyDomain,
+        ])
+        .into_tuple()
+        .one(&orm(db))
+        .await
 }
 
 /// `applyUnsubscribe(db, target)`.
@@ -230,6 +288,12 @@ pub(crate) struct MessageInput {
     pub(crate) handled: Option<bool>,
 }
 
+/// `at` as its ISO text reads back (`toISOString()`): to the millisecond.
+pub(crate) fn to_ms(at: OffsetDateTime) -> OffsetDateTime {
+    at.replace_nanosecond(at.nanosecond() / 1_000_000 * 1_000_000)
+        .unwrap_or(at)
+}
+
 /// `updateMessage(db, id, input, userId)`: the updated row and the label
 /// change (previous, next), or `None` for an unknown inbound message.
 pub(crate) async fn update_message(
@@ -238,121 +302,104 @@ pub(crate) async fn update_message(
     input: &MessageInput,
     user_id: &str,
 ) -> ReachResult<Option<(Value, Option<(Option<String>, String)>)>> {
-    let existing: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from reach_messages t where t.id = $1 and t.direction = 'in' limit 1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    let Some(existing) = existing.map(weldsuite_db::js_row) else {
+    use reach_messages::Column;
+    let existing = reach_messages::Entity::find_by_id(id.to_owned())
+        .filter(Column::Direction.eq("in"))
+        .one(&orm(db))
+        .await
+        .map_err(db_error)?;
+    let Some(existing) = existing else {
         return Ok(None);
     };
-    let at = iso(now());
-    let mut patch = serde_json::Map::new();
-    let read_at = text(&existing, "readAt").map(str::to_owned);
-    let handled_at = text(&existing, "handledAt").map(str::to_owned);
+    let at = now();
+    let read_at = existing.read_at.map(to_ms);
+    let handled_at = existing.handled_at.map(to_ms);
+    let mut update = reach_messages::Entity::update_many();
+    let mut read: Option<Option<OffsetDateTime>> = None;
     match input.handled {
         Some(true) => {
-            patch.insert(
-                "handled_at".to_owned(),
-                json!(handled_at.clone().unwrap_or_else(|| at.clone())),
-            );
-            patch.insert(
-                "handled_by".to_owned(),
-                if handled_at.is_some() {
-                    json!(text(&existing, "handledBy"))
-                } else {
-                    json!(user_id)
-                },
-            );
-            patch.insert(
-                "read_at".to_owned(),
-                json!(read_at.clone().unwrap_or_else(|| at.clone())),
-            );
+            update = update
+                .col_expr(Column::HandledAt, Expr::value(handled_at.unwrap_or(at)))
+                .col_expr(
+                    Column::HandledBy,
+                    Expr::value(if handled_at.is_some() {
+                        existing.handled_by.clone()
+                    } else {
+                        Some(user_id.to_owned())
+                    }),
+                );
+            read = Some(Some(read_at.unwrap_or(at)));
         }
         Some(false) => {
-            patch.insert("handled_at".to_owned(), Value::Null);
-            patch.insert("handled_by".to_owned(), Value::Null);
+            update = update
+                .col_expr(Column::HandledAt, Expr::null())
+                .col_expr(Column::HandledBy, Expr::null());
         }
         None => {}
     }
     match input.read {
-        Some(true) => {
-            patch.insert(
-                "read_at".to_owned(),
-                json!(read_at.clone().unwrap_or_else(|| at.clone())),
-            );
-        }
-        Some(false) if input.handled != Some(true) => {
-            patch.insert("read_at".to_owned(), Value::Null);
-        }
+        Some(true) => read = Some(Some(read_at.unwrap_or(at))),
+        Some(false) if input.handled != Some(true) => read = Some(None),
         _ => {}
     }
-    let previous_label = text(&existing, "label").map(str::to_owned);
+    if let Some(read) = read {
+        update = update.col_expr(Column::ReadAt, Expr::value(read));
+    }
+    let previous_label = existing.label.clone();
     let change = input
         .label
         .clone()
         .filter(|label| Some(label.as_str()) != previous_label.as_deref())
         .map(|next| (previous_label.clone(), next));
     if let Some((_, next)) = &change {
-        patch.insert("label".to_owned(), json!(next));
-        patch.insert("label_source".to_owned(), json!("user"));
-        patch.insert("classified_at".to_owned(), json!(at));
+        update = update
+            .col_expr(Column::Label, Expr::value(next))
+            .col_expr(Column::LabelSource, Expr::value("user"))
+            .col_expr(Column::ClassifiedAt, Expr::value(at));
     }
-    let updated: Option<Value> = sqlx::query_scalar(
-        "update reach_messages m set
-             handled_at = case when $2::jsonb ? 'handled_at' then ($2::jsonb->>'handled_at')::timestamptz else m.handled_at end,
-             handled_by = case when $2::jsonb ? 'handled_by' then $2::jsonb->>'handled_by' else m.handled_by end,
-             read_at = case when $2::jsonb ? 'read_at' then ($2::jsonb->>'read_at')::timestamptz else m.read_at end,
-             label = case when $2::jsonb ? 'label' then $2::jsonb->>'label' else m.label end,
-             label_source = case when $2::jsonb ? 'label_source' then $2::jsonb->>'label_source' else m.label_source end,
-             classified_at = case when $2::jsonb ? 'classified_at' then ($2::jsonb->>'classified_at')::timestamptz else m.classified_at end,
-             updated_at = $3::timestamptz
-         where m.id = $1 returning to_jsonb(m)",
-    )
-    .bind(id)
-    .bind(Value::Object(patch))
-    .bind(&at)
-    .fetch_optional(db)
-    .await?;
-    let Some(updated) = updated.map(weldsuite_db::js_row) else {
+    let updated = update
+        .col_expr(Column::UpdatedAt, Expr::value(at))
+        .filter(Column::Id.eq(id))
+        .exec_with_returning(&orm(db))
+        .await
+        .map_err(db_error)?
+        .into_iter()
+        .next();
+    let Some(updated) = updated else {
         return Ok(None);
     };
     if input.read == Some(true)
-        && let (Some(thread_key), Some(received_at)) =
-            (text(&existing, "threadKey"), text(&existing, "receivedAt"))
+        && let (Some(thread_key), Some(received_at)) = (&existing.thread_key, existing.received_at)
     {
-        sqlx::query(
-            "update reach_messages set read_at = $3::timestamptz, updated_at = $3::timestamptz
-             where thread_key = $1 and direction = 'in' and read_at is null and received_at < $2::timestamptz",
-        )
-        .bind(thread_key)
-        .bind(received_at)
-        .bind(&at)
-        .execute(db)
-        .await?;
+        reach_messages::Entity::update_many()
+            .col_expr(Column::ReadAt, Expr::value(at))
+            .col_expr(Column::UpdatedAt, Expr::value(at))
+            .filter(Column::ThreadKey.eq(thread_key))
+            .filter(Column::Direction.eq("in"))
+            .filter(Column::ReadAt.is_null())
+            .filter(Column::ReceivedAt.lt(to_ms(received_at)))
+            .exec(&orm(db))
+            .await
+            .map_err(db_error)?;
     }
     if let Some((previous, next)) = &change {
-        let prospect: Option<(String, String, Option<String>)> =
-            match text(&updated, "prospectId") {
-                Some(prospect_id) => sqlx::query_as(
-                    "select id, email, company_domain from reach_prospects where id = $1 limit 1",
-                )
-                .bind(prospect_id)
-                .fetch_optional(db)
-                .await?,
-                None => None,
-            };
+        let prospect = match &updated.prospect_id {
+            Some(prospect_id) => load_target_prospect(db, prospect_id)
+                .await
+                .map_err(db_error)?,
+            None => None,
+        };
         let target = Target {
-            message_id: text(&updated, "id").unwrap_or_default().to_owned(),
-            sender_email: text(&updated, "fromEmail").unwrap_or_default().to_owned(),
+            message_id: updated.id.clone(),
+            sender_email: updated.from_email.clone(),
             prospect,
-            enrollment_id: text(&updated, "enrollmentId").map(str::to_owned),
-            campaign_id: text(&updated, "campaignId").map(str::to_owned),
+            enrollment_id: updated.enrollment_id.clone(),
+            campaign_id: updated.campaign_id.clone(),
             previous_label: previous.clone(),
         };
         apply_label_effects(db, &target, next).await?;
     }
+    let updated = row_json(updated)?;
     Ok(Some((updated, change)))
 }
 

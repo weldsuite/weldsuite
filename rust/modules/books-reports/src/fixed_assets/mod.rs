@@ -24,6 +24,8 @@ use axum::extract::{Path, State};
 use axum::response::Response;
 use axum::routing::{get, post};
 use http::HeaderMap;
+use sea_orm::sea_query::{Condition, Expr};
+use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect};
 use serde_json::{Map, Value, json};
 use weldsuite_books_domain::dates::is_iso_date;
 use weldsuite_books_domain::entity_context::resolve_entity_id;
@@ -35,19 +37,21 @@ use weldsuite_books_domain::http::{
 use weldsuite_books_domain::js::{math_round, parse_int};
 use weldsuite_books_domain::reports_basis::periods::fiscal_config_of;
 use weldsuite_books_domain::reports_basis::today_for;
-use weldsuite_books_domain::tables::FIXED_ASSETS;
 use weldsuite_catalogs::entity_events::{
     FIXED_ASSET_CREATED, FIXED_ASSET_DELETED, FIXED_ASSET_DISPOSED, FIXED_ASSET_UPDATED,
 };
 use weldsuite_kit::validation::{Field, Issues, Presence, Text, js_number, js_trim};
 use weldsuite_legal_entities::{EntityRecordGuard, EntityTable};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::fixed_assets;
 
 pub use run::{EntityRun, last_completed_month_end, run_monthly_depreciation};
 
 use assets::{AssetInput, AssetPatch, FromBillLine};
 use books::{BookInput, CONVENTIONS, DEPRECIATION_METHODS, issues_json};
 use shared::{Fail, money, num, opt, text};
+
+use crate::rows::js_rows;
 
 pub(crate) fn router<S, Q>(state: BooksState, gate: &Arc<PermissionGate<Q>>) -> Router<S>
 where
@@ -637,17 +641,28 @@ async fn list_assets(caller: &Caller) -> Result<Response, Fail> {
     let status = q.present("status");
     let class = q.present("assetClass");
     let search = q.present("search").map(|s| format!("%{s}%"));
-    let total: i64 = sqlx::query_scalar(
-        "select count(*)::int8 from fixed_assets where deleted_at is null and entity_id = $1 \
-         and ($2::text is null or status = $2) and ($3::text is null or asset_class = $3) \
-         and ($4::text is null or (name ilike $4 or asset_number ilike $4))",
-    )
-    .bind(&entity_id)
-    .bind(status)
-    .bind(class)
-    .bind(&search)
-    .fetch_one(db)
-    .await?;
+    let orm = weldsuite_db::orm(db);
+    let mut filters = Condition::all()
+        .add(fixed_assets::Column::DeletedAt.is_null())
+        .add(fixed_assets::Column::EntityId.eq(&entity_id));
+    if let Some(status) = status {
+        filters = filters.add(fixed_assets::Column::Status.eq(status));
+    }
+    if let Some(class) = class {
+        filters = filters.add(fixed_assets::Column::AssetClass.eq(class));
+    }
+    if let Some(search) = &search {
+        filters = filters.add(
+            Condition::any()
+                .add(fixed_assets::Column::Name.ilike(search))
+                .add(fixed_assets::Column::AssetNumber.ilike(search)),
+        );
+    }
+    let total = fixed_assets::Entity::find()
+        .filter(filters.clone())
+        .count(&orm)
+        .await?;
+    let total = i64::try_from(total).unwrap_or(i64::MAX);
 
     let cursor = match q.present("cursor") {
         Some(raw) => match decode_cursor(raw) {
@@ -656,26 +671,27 @@ async fn list_assets(caller: &Caller) -> Result<Response, Fail> {
         },
         None => None,
     };
-    let (cursor_at, cursor_id) = cursor.map_or((None, None), |(at, id)| (Some(at), Some(id)));
-    let rows: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(fixed_assets),
-        " from fixed_assets t where t.deleted_at is null and t.entity_id = $1 \
-         and ($2::text is null or t.status = $2) and ($3::text is null or t.asset_class = $3) \
-         and ($4::text is null or (t.name ilike $4 or t.asset_number ilike $4)) \
-         and ($5::text is null or (t.created_at, t.id) < ($5::timestamp, $6::text)) \
-         order by t.created_at desc, t.id desc limit $7"
-    ))
-    .bind(&entity_id)
-    .bind(status)
-    .bind(class)
-    .bind(&search)
-    .bind(&cursor_at)
-    .bind(&cursor_id)
-    .bind(limit + 1)
-    .fetch_all(db)
-    .await?;
-    let mut rows = FIXED_ASSETS.js_rows(rows);
+    if let Some((at, id)) = cursor {
+        // `(created_at, id) < ($at::timestamp, $id)`.
+        filters = filters.add(sea_orm::ExprTrait::lt(
+            Expr::tuple([
+                Expr::col((fixed_assets::Entity, fixed_assets::Column::CreatedAt)),
+                Expr::col((fixed_assets::Entity, fixed_assets::Column::Id)),
+            ]),
+            Expr::tuple([
+                Expr::val(crate::rows::timestamp_of_iso(&at)?),
+                Expr::val(id),
+            ]),
+        ));
+    }
+    let rows = fixed_assets::Entity::find()
+        .filter(filters)
+        .order_by_desc(fixed_assets::Column::CreatedAt)
+        .order_by_desc(fixed_assets::Column::Id)
+        .limit(u64::try_from(limit + 1).unwrap_or(0))
+        .all(&orm)
+        .await?;
+    let mut rows = js_rows!(rows)?;
     let has_more = i64::try_from(rows.len()).unwrap_or(i64::MAX) > limit;
     if has_more {
         rows.truncate(usize::try_from(limit).unwrap_or(0));

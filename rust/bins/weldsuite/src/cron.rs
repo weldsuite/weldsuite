@@ -272,13 +272,13 @@ pub(crate) fn main(job: Option<&str>) -> ExitCode {
             "flow-status-reports" => flow_status_reports(config).await,
             "flow-finance-snapshot" => flow_finance_snapshot(config).await,
             "workflow-schedules" => workflow_schedules(config).await,
-            "books-sweep" => books_sweep(config).await,
+            "books-sweep" => Box::pin(books_sweep(config)).await,
             "domain-auto-renew" => {
                 domain_auto_renew();
                 Ok(())
             }
             "desk-sla-sweep" => Box::pin(desk_sla_sweep(config)).await,
-            "desk-report-sweep" => desk_report_sweep(config).await,
+            "desk-report-sweep" => Box::pin(desk_report_sweep(config)).await,
             "asset-import-sweep" => asset_import_sweep(config).await,
             "reach-send-sweep" => reach_send_sweep(config).await,
             "reach-warmup-sweep" | "reach-slot-reconciliation" => reach_warmup(config, job).await,
@@ -291,7 +291,7 @@ pub(crate) fn main(job: Option<&str>) -> ExitCode {
             "connector-catchup" | "moneybird-push" => connectors(config, job).await,
             "workflow-polls" => workflow_polls(config).await,
             "merge-digest-sweep" => merge_digest_sweep(config).await,
-            "forms-reminders" | "forms-digest" => forms_sweep(config, job).await,
+            "forms-reminders" | "forms-digest" => Box::pin(forms_sweep(config, job)).await,
             "weldagent-routines" => Box::pin(weldagent_routines(config)).await,
             "sandbox-cleanup" => sandbox_cleanup(config).await,
             "billing-renewals" => Box::pin(billing_renewals(config)).await,

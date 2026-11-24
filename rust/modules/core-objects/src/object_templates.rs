@@ -15,13 +15,17 @@ use axum::Router;
 use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
+use sea_orm::{ActiveValue::Set, ColumnTrait, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
+use time::PrimitiveDateTime;
 use weldsuite_catalogs::entity_events::CUSTOM_FIELD_CREATED;
 use weldsuite_catalogs::permission_keys::{WELDOBJECTS_MANAGE, WELDOBJECTS_READ};
+use weldsuite_db::{OrmConn, orm, utc_now};
 use weldsuite_kit::{ApiError, Created, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::{custom_field_definitions, custom_object_links, custom_objects};
 
-use crate::{Answer, Caller, CoreObjectsState, Refusal, STAMPS, all, answer, now, row};
+use crate::{Answer, Caller, CoreObjectsState, Refusal, all, answer, json_row};
 
 pub(crate) fn router<Q>(gate: &Arc<PermissionGate<Q>>) -> Router<CoreObjectsState>
 where
@@ -176,10 +180,13 @@ fn options_json(field: &TemplateField) -> Option<Value> {
 
 async fn list(caller: Caller) -> Response {
     let result: Answer = async {
-        let live: Vec<(String, String)> =
-            sqlx::query_as("select slug, id from custom_objects where deleted_at is null")
-                .fetch_all(&caller.db)
-                .await?;
+        let live: Vec<(String, String)> = custom_objects::Entity::find()
+            .select_only()
+            .columns([custom_objects::Column::Slug, custom_objects::Column::Id])
+            .filter(custom_objects::Column::DeletedAt.is_null())
+            .into_tuple()
+            .all(&orm(&caller.db))
+            .await?;
         let rows = TEMPLATES
             .iter()
             .map(|template| {
@@ -221,21 +228,20 @@ async fn install(
         template.slug
     );
     let result: Answer = async {
-        let db = &caller.db;
-        let existing: Option<Value> =
-            sqlx::query_scalar("select to_jsonb(o) from custom_objects o where slug = $1 limit 1")
-                .bind(template.slug)
-                .fetch_optional(db)
-                .await?;
+        let db = &orm(&caller.db);
+        let existing = custom_objects::Entity::find()
+            .filter(custom_objects::Column::Slug.eq(template.slug))
+            .one(db)
+            .await?;
         if let Some(existing) = existing {
-            if !existing["deleted_at"].is_null() {
+            if existing.deleted_at.is_some() {
                 return Err(Refusal::conflict(format!(
                     "The name '{}' belonged to a deleted object and cannot be reused",
                     template.slug
                 )));
             }
             return Err(ApiError::conflict(taken.clone())
-                .with_details(row(existing, &STAMPS))
+                .with_details(json_row(existing)?)
                 .into());
         }
 
@@ -246,93 +252,37 @@ async fn install(
             .iter()
             .map(|_| generate_id("cfld"))
             .collect();
-        let link_ids: Vec<String> = template
-            .links
-            .iter()
-            .map(|_| generate_id("colk"))
-            .collect();
+        let link_ids: Vec<String> = template.links.iter().map(|_| generate_id("colk")).collect();
         let title_field_id = template
             .fields
             .iter()
             .position(|f| f.slug == template.title_field)
             .map(|index| field_ids[index].clone());
-        let now = now();
-
-        let mut statements = Vec::with_capacity(1 + field_ids.len() + link_ids.len());
-        statements.push(
-            sqlx::query(
-                "insert into custom_objects
-                     (id, slug, entity_key, label_singular, label_plural, description, icon,
-                      title_field_id, status, enable_events, enable_search, enable_agent_tools,
-                      enable_external_api, list_config, sort_order, created_by, created_at, updated_at)
-                 values ($1, $2, $3, $4, $5, $6, $7, $8, 'active', $9, $10, false, false, '{}'::jsonb,
-                         0, $11, $12::timestamp, $12::timestamp)",
-            )
-            .bind(&object_id)
-            .bind(template.slug)
-            .bind(&entity_key)
-            .bind(template.label_singular)
-            .bind(template.label_plural)
-            .bind(template.description)
-            .bind(template.icon)
-            .bind(&title_field_id)
-            .bind(template.enable_events)
-            .bind(template.enable_search)
-            .bind(&caller.user_id)
-            .bind(&now),
+        let rows = template_rows(
+            template,
+            Ids {
+                object: &object_id,
+                entity_key: &entity_key,
+                title_field: title_field_id,
+                fields: &field_ids,
+                links: &link_ids,
+            },
+            &caller.user_id,
+            utc_now(),
         );
-        for (index, (field, id)) in template.fields.iter().zip(&field_ids).enumerate() {
-            statements.push(
-                sqlx::query(
-                    "insert into custom_field_definitions
-                         (id, entity_type, name, slug, field_type, options, required, sort_order,
-                          created_at, updated_at)
-                     values ($1, $2, $3, $4, $5, $6, $7, $8::int, $9::timestamp, $9::timestamp)",
-                )
-                .bind(id)
-                .bind(&entity_key)
-                .bind(field.name)
-                .bind(field.slug)
-                .bind(field.field_type)
-                .bind(options_json(field))
-                .bind(field.required)
-                .bind(i32::try_from(index).unwrap_or(i32::MAX))
-                .bind(&now),
-            );
-        }
-        for (index, (link, id)) in template.links.iter().zip(&link_ids).enumerate() {
-            statements.push(
-                sqlx::query(
-                    "insert into custom_object_links
-                         (id, slug, source_entity_key, target_entity_key, cardinality, source_label,
-                          target_label, on_delete, required, sort_order, created_at, updated_at)
-                     values ($1, $2, $3, $4, $5, $6, $7, $8, false, $9::int, $10::timestamp, $10::timestamp)",
-                )
-                .bind(id)
-                .bind(link.slug)
-                .bind(&entity_key)
-                .bind(link.target_entity_key)
-                .bind(link.cardinality)
-                .bind(link.source_label)
-                .bind(link.target_label)
-                .bind(link.on_delete)
-                .bind(i32::try_from(index).unwrap_or(i32::MAX))
-                .bind(&now),
-            );
-        }
-        if let Err(error) = weldsuite_db::atomically(db, statements).await {
+        if let Err(refused) = install_rows(&caller.db, rows).await {
             // Two installs racing past the check: the unique index decides.
-            if weldsuite_db::is_unique_violation(&error) {
+            if let Refusal::Database(error) = &refused
+                && weldsuite_db::is_unique_violation(error)
+            {
                 return Err(Refusal::conflict(taken.clone()));
             }
-            return Err(error.into());
+            return Err(refused);
         }
 
-        let created: Option<Value> =
-            sqlx::query_scalar("select to_jsonb(o) from custom_objects o where id = $1 limit 1")
-                .bind(&object_id)
-                .fetch_optional(db)
-                .await?;
+        let created = custom_objects::Entity::find_by_id(object_id.as_str())
+            .one(db)
+            .await?;
         let Some(created) = created else {
             return Err(ApiError::internal()
                 .with_message("Failed to install object template")
@@ -389,10 +339,127 @@ async fn install(
                 }),
             );
         }
-        Ok(Created(row(created, &STAMPS)).into_response())
+        Ok(Created(json_row(created)?).into_response())
     }
     .await;
     answer(result, "Failed to install object template")
+}
+
+/// The ids an install writes its rows under.
+struct Ids<'a> {
+    object: &'a str,
+    entity_key: &'a str,
+    title_field: Option<String>,
+    fields: &'a [String],
+    links: &'a [String],
+}
+
+/// What an install writes: the object, its fields, its relationships.
+struct TemplateRows {
+    object: custom_objects::ActiveModel,
+    fields: Vec<custom_field_definitions::ActiveModel>,
+    links: Vec<custom_object_links::ActiveModel>,
+}
+
+fn template_rows(
+    template: &Template,
+    ids: Ids<'_>,
+    user_id: &str,
+    now: PrimitiveDateTime,
+) -> TemplateRows {
+    let object = custom_objects::ActiveModel {
+        id: Set(ids.object.to_owned()),
+        slug: Set(template.slug.to_owned()),
+        entity_key: Set(ids.entity_key.to_owned()),
+        label_singular: Set(template.label_singular.to_owned()),
+        label_plural: Set(template.label_plural.to_owned()),
+        description: Set(Some(template.description.to_owned())),
+        icon: Set(template.icon.to_owned()),
+        title_field_id: Set(ids.title_field),
+        status: Set("active".to_owned()),
+        enable_events: Set(template.enable_events),
+        enable_search: Set(template.enable_search),
+        enable_agent_tools: Set(false),
+        enable_external_api: Set(false),
+        list_config: Set(json!({})),
+        sort_order: Set(0),
+        created_by: Set(Some(user_id.to_owned())),
+        created_at: Set(now),
+        updated_at: Set(now),
+        ..Default::default()
+    };
+    let fields = template
+        .fields
+        .iter()
+        .zip(ids.fields)
+        .enumerate()
+        .map(
+            |(index, (field, id))| custom_field_definitions::ActiveModel {
+                id: Set(id.clone()),
+                entity_type: Set(ids.entity_key.to_owned()),
+                name: Set(field.name.to_owned()),
+                slug: Set(field.slug.to_owned()),
+                field_type: Set(field.field_type.to_owned()),
+                options: Set(options_json(field)),
+                required: Set(Some(field.required)),
+                sort_order: Set(Some(i32::try_from(index).unwrap_or(i32::MAX))),
+                created_at: Set(now),
+                updated_at: Set(now),
+                ..Default::default()
+            },
+        )
+        .collect();
+    let links = template
+        .links
+        .iter()
+        .zip(ids.links)
+        .enumerate()
+        .map(|(index, (link, id))| custom_object_links::ActiveModel {
+            id: Set(id.clone()),
+            slug: Set(link.slug.to_owned()),
+            source_entity_key: Set(ids.entity_key.to_owned()),
+            target_entity_key: Set(link.target_entity_key.to_owned()),
+            cardinality: Set(link.cardinality.to_owned()),
+            source_label: Set(link.source_label.to_owned()),
+            target_label: Set(link.target_label.to_owned()),
+            on_delete: Set(link.on_delete.to_owned()),
+            required: Set(false),
+            sort_order: Set(i32::try_from(index).unwrap_or(i32::MAX)),
+            created_at: Set(now),
+            updated_at: Set(now),
+            ..Default::default()
+        })
+        .collect();
+    TemplateRows {
+        object,
+        fields,
+        links,
+    }
+}
+
+/// The object, then each field, then each relationship, in one
+/// transaction.
+async fn install_rows(db: &weldsuite_db::PgPool, rows: TemplateRows) -> Result<(), Refusal> {
+    weldsuite_db::atomically_with(db, |tx| {
+        Box::pin(async move {
+            let tx = OrmConn::new(tx);
+            custom_objects::Entity::insert(rows.object)
+                .exec_without_returning(&tx)
+                .await?;
+            for field in rows.fields {
+                custom_field_definitions::Entity::insert(field)
+                    .exec_without_returning(&tx)
+                    .await?;
+            }
+            for link in rows.links {
+                custom_object_links::Entity::insert(link)
+                    .exec_without_returning(&tx)
+                    .await?;
+            }
+            Ok::<_, Refusal>(())
+        })
+    })
+    .await
 }
 
 #[cfg(test)]

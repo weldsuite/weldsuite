@@ -12,7 +12,10 @@ use axum::body::Bytes;
 use axum::extract::{Path, State};
 use axum::response::IntoResponse;
 use http::{HeaderMap, StatusCode};
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 use serde_json::{Map, Value, json};
+use weldsuite_db::{orm, utc_now};
 use weldsuite_kit::validation::{Format, Issues, Presence, Text};
 use weldsuite_kit::{ApiError, Data};
 use weldsuite_know_domain::KnowError;
@@ -21,12 +24,11 @@ use weldsuite_mail_domain::outbound::{DenialCode, OutboundKind, RequestOutbound}
 use weldsuite_mail_domain::recipients::{DnsOverHttps, MxLookup};
 use weldsuite_mail_domain::send::{SendDeps, SendError, SendInput, SendOptions, send_and_persist};
 use weldsuite_ports::{BoxFuture, HttpRequest, OutboundHttp};
+use weldsuite_schema::tenant::merge_releases;
 
-use super::{find_release, one_release_dto, release_event, release_title};
+use super::{find_release, one_release_dto, release_event, release_title, returned};
 use crate::db::{Row, col, text};
-use crate::{
-    Answer, Caller, MergeError, MergeState, PendingEvent, Refusal, now, publish, validate,
-};
+use crate::{Answer, Caller, MergeError, MergeState, PendingEvent, Refusal, publish, validate};
 
 /// `text(value)`: one plain text run.
 fn text_run(value: &str) -> Value {
@@ -315,16 +317,20 @@ pub(crate) async fn publish_release(
         .await
         .map_err(know_failure)?;
         let page_id = text(&page, "id").to_owned();
-        let row: Value = sqlx::query_scalar(
-            "update merge_releases set knowledge_page_id = $2, updated_at = $3::timestamptz \
-             where id = $1 returning to_jsonb(merge_releases.*)",
-        )
-        .bind(&id)
-        .bind(&page_id)
-        .bind(now())
-        .fetch_one(db)
-        .await?;
-        current = weldsuite_db::js_row(row);
+        current = returned(
+            merge_releases::Entity::update_many()
+                .col_expr(
+                    merge_releases::Column::KnowledgePageId,
+                    Expr::value(page_id.clone()),
+                )
+                .col_expr(
+                    merge_releases::Column::UpdatedAt,
+                    Expr::value(utc_now().assume_utc()),
+                )
+                .filter(merge_releases::Column::Id.eq(&id))
+                .exec_with_returning(&orm(db))
+                .await?,
+        )?;
         let mut changes = Map::new();
         changes.insert(
             "knowledgePageId".to_owned(),

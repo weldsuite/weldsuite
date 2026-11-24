@@ -14,12 +14,21 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use http::HeaderMap;
+use sea_orm::sea_query::extension::postgres::PgExpr;
+use sea_orm::sea_query::{Expr, NullOrdering, Query, SelectStatement, SubQueryStatement};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, Condition, DbErr, EntityTrait, Order, PaginatorTrait,
+    QueryFilter, QueryOrder, QuerySelect, QueryTrait, Select,
+};
 use serde_json::{Map, Value, json};
-use weldsuite_db::PgPool;
+use weldsuite_db::{OrmConn, PgPool, orm, utc_now};
 use weldsuite_events::EventType;
 use weldsuite_kit::validation::{Field, Presence, js_number};
 use weldsuite_kit::{ApiError, Created, Data, NoContent, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::{
+    custom_field_values, custom_object_records as records, custom_object_relations as relations,
+};
 
 use crate::js::{Js, js_date, parse_body, stringify};
 use crate::links::plan_target_delete;
@@ -28,8 +37,7 @@ use crate::values::{
     Column, Definition, ValuesError, definitions, resolve_title, set_values, values_for,
 };
 use crate::{
-    Answer, Caller, CoreObjectsState, Refusal, Rejected, STAMPS, answer, now, query_param, row,
-    validate,
+    Answer, Caller, CoreObjectsState, Refusal, Rejected, answer, json_row, query_param, validate,
 };
 
 pub(crate) fn router<Q>(gate: &Arc<PermissionGate<Q>>) -> Router<CoreObjectsState>
@@ -123,22 +131,20 @@ pub(crate) async fn get_record(
     object: &CustomObject,
     id: &str,
     scope: Option<&str>,
-) -> Result<Option<Value>, sqlx::Error> {
-    let raw: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(r) from custom_object_records r
-          where id = $1 and entity_key = $2 and deleted_at is null
-            and ($3::text is null or owner_id = $3)
-          limit 1",
-    )
-    .bind(id)
-    .bind(&object.entity_key)
-    .bind(scope)
-    .fetch_optional(db)
-    .await?;
-    let Some(raw) = raw else {
+) -> Result<Option<Value>, DbErr> {
+    let found = records::Entity::find()
+        .filter(records::Column::Id.eq(id))
+        .filter(records::Column::EntityKey.eq(&object.entity_key))
+        .filter(records::Column::DeletedAt.is_null())
+        .apply_if(scope, |query, owner| {
+            query.filter(records::Column::OwnerId.eq(owner))
+        })
+        .one(&orm(db))
+        .await?;
+    let Some(found) = found else {
         return Ok(None);
     };
-    let mut record = row(raw, &STAMPS);
+    let mut record = json_row(found)?;
     let definitions = definitions(db, &object.entity_key).await?;
     let mut values = values_for(db, &object.entity_key, &[id.to_owned()], &definitions).await?;
     record["fields"] = Value::Object(values.remove(id).unwrap_or_default());
@@ -166,75 +172,6 @@ fn emit(
 
 // ── GET /:slug/records ─────────────────────────────────────────────────────
 
-/// The WHERE clause of the list and its count: the object's live records,
-/// the owner, the title search, and every custom-field filter as one row of
-/// the `unnest`ed arrays (`customFieldFilter`, as `entity_id in (…)`).
-macro_rules! records_where {
-    () => {
-        "where r.entity_key = $1 and r.deleted_at is null
-           and ($2::text is null or r.owner_id = $2)
-           and ($3::text is null or r.title ilike $3)
-           and not exists (
-             select 1
-               from unnest($4::text[], $5::text[], $6::float8[], $7::text[], $8::bool[], $9::text[])
-                    as f(field_id, kind, num, day, flag, txt)
-              where not exists (
-                select 1 from custom_field_values v
-                 where v.entity_type = $1 and v.entity_id = r.id and v.field_id = f.field_id
-                   and case f.kind
-                         when 'number' then v.value_number = f.num
-                         when 'date' then v.value_date::date = f.day::timestamp::date
-                         when 'bool' then v.value_bool = f.flag
-                         when 'json' then v.value_json @> f.txt::jsonb
-                         when 'ref' then v.value_ref = f.txt
-                         else v.value_text ilike f.txt
-                       end))"
-    };
-}
-
-/// One custom-field sort expression per column and direction: only the one
-/// `$10`/`$11` choose is non-null, so the others don't change the order
-/// (`customFieldOrderBy`: a correlated lookup, `nulls last` either way).
-macro_rules! custom_sort {
-    ($kind:literal, $column:literal) => {
-        concat!(
-            "case when $10 = '", $kind, "' and $11 then (select v.", $column,
-            " from custom_field_values v where v.entity_type = $1 and v.entity_id = r.id and v.field_id = $12)",
-            " end asc nulls last, ",
-            "case when $10 = '", $kind, "' and not $11 then (select v.", $column,
-            " from custom_field_values v where v.entity_type = $1 and v.entity_id = r.id and v.field_id = $12)",
-            " end desc nulls last, "
-        )
-    };
-}
-
-const LIST_SQL: &str = concat!(
-    "select to_jsonb(r) from custom_object_records r ",
-    records_where!(),
-    " order by ",
-    custom_sort!("text", "value_text"),
-    custom_sort!("number", "value_number"),
-    custom_sort!("date", "value_date"),
-    custom_sort!("bool", "value_bool"),
-    custom_sort!("json", "value_json"),
-    custom_sort!("ref", "value_ref"),
-    // The built-in columns keep Postgres's default null order, as Drizzle's
-    // `asc(col)` / `desc(col)` do.
-    "case when $10 = 'title' and $11 then r.title end asc,
-     case when $10 = 'title' and not $11 then r.title end desc,
-     case when $10 = 'updated' and $11 then r.updated_at end asc,
-     case when $10 = 'updated' and not $11 then r.updated_at end desc,
-     case when $10 = 'created' and $11 then r.created_at end asc,
-     case when $10 = 'created' and not $11 then r.created_at end desc,
-     r.id desc
-     limit $13 offset $14"
-);
-
-const COUNT_SQL: &str = concat!(
-    "select count(*) from custom_object_records r ",
-    records_where!()
-);
-
 /// `custom:<slug>` → the slug (`parseCustomFieldKey`).
 fn custom_field_key(key: &str) -> Option<&str> {
     key.strip_prefix("custom:").filter(|slug| !slug.is_empty())
@@ -246,52 +183,129 @@ fn filter_key(name: &str) -> Option<&str> {
     (!inner.is_empty() && !inner.contains(['\n', '\r', '\u{2028}', '\u{2029}'])).then_some(inner)
 }
 
-/// The custom-field filters as the arrays the query unnests.
-#[derive(Default)]
-struct Filters {
-    field_ids: Vec<String>,
-    kinds: Vec<String>,
-    numbers: Vec<Option<f64>>,
-    days: Vec<Option<String>>,
-    flags: Vec<Option<bool>>,
-    texts: Vec<Option<String>>,
+/// What one custom-field filter asks of the field's value
+/// (`customFieldFilter`), by the column it lives in.
+#[derive(Debug, Clone)]
+enum Test {
+    /// `value_number = n`.
+    Number(f64),
+    /// `value_date::date = iso::timestamp::date`.
+    Day(String),
+    /// `value_bool = flag`.
+    Flag(bool),
+    /// `value_json @> '["value"]'::jsonb`.
+    Contains(String),
+    /// `value_ref = id`.
+    Ref(String),
+    /// `value_text ilike '%value%'`.
+    Like(String),
 }
+
+/// One custom-field filter: the field, and what its value must be.
+#[derive(Debug, Clone)]
+struct Filter {
+    field_id: String,
+    test: Test,
+}
+
+/// The custom-field filters of a list; a record matches every one.
+#[derive(Default)]
+struct Filters(Vec<Filter>);
 
 impl Filters {
     /// Add one; `false` when the value can't match the field's type, which
     /// means no rows rather than no filter.
     fn push(&mut self, definition: &Definition, raw: &str) -> bool {
-        let column = Column::of(&definition.field_type);
-        let (mut number, mut day, mut flag, mut text) = (None, None, None, None);
-        match column {
+        let test = match Column::of(&definition.field_type) {
             Column::Number => {
                 let n = js_number(raw);
                 if n.is_nan() {
                     return false;
                 }
-                number = Some(n);
+                Test::Number(n)
             }
             Column::Date => match js_date(raw) {
-                Some(iso) => day = Some(iso),
+                Some(iso) => Test::Day(iso),
                 None => return false,
             },
             Column::Bool => match raw {
-                "true" => flag = Some(true),
-                "false" => flag = Some(false),
+                "true" => Test::Flag(true),
+                "false" => Test::Flag(false),
                 _ => return false,
             },
-            Column::Json => text = Some(stringify(&Js::Array(vec![Js::String(raw.to_owned())]))),
-            Column::Ref => text = Some(raw.to_owned()),
-            Column::Text => text = Some(format!("%{raw}%")),
-        }
-        self.field_ids.push(definition.id.clone());
-        self.kinds.push(column.kind().to_owned());
-        self.numbers.push(number);
-        self.days.push(day);
-        self.flags.push(flag);
-        self.texts.push(text);
+            Column::Json => Test::Contains(stringify(&Js::Array(vec![Js::String(raw.to_owned())]))),
+            Column::Ref => Test::Ref(raw.to_owned()),
+            Column::Text => Test::Like(format!("%{raw}%")),
+        };
+        self.0.push(Filter {
+            field_id: definition.id.clone(),
+            test,
+        });
         true
     }
+}
+
+/// `v.entity_type = key and v.entity_id = r.id and v.field_id = field`: the
+/// value row of one field of the listed record (`custom_field_values` keeps
+/// one per field and record).
+fn value_of(entity_key: &str, field_id: &str) -> SelectStatement {
+    use custom_field_values::Column as Cell;
+    Query::select()
+        .from(custom_field_values::Entity)
+        .and_where(Cell::EntityType.eq(entity_key))
+        .and_where(sea_orm::ExprTrait::equals(
+            Expr::col((custom_field_values::Entity, Cell::EntityId)),
+            (records::Entity, records::Column::Id),
+        ))
+        .and_where(Cell::FieldId.eq(field_id))
+        .to_owned()
+}
+
+/// `exists (select 1 from custom_field_values v where … and <test>)`.
+fn matches(entity_key: &str, filter: &Filter) -> Expr {
+    use custom_field_values::Column as Cell;
+    let cell = |column: Cell| Expr::col((custom_field_values::Entity, column));
+    let test = match &filter.test {
+        Test::Number(number) => Cell::ValueNumber.eq(*number),
+        Test::Day(iso) => sea_orm::ExprTrait::eq(
+            sea_orm::ExprTrait::cast_as(cell(Cell::ValueDate), "date"),
+            sea_orm::ExprTrait::cast_as(
+                sea_orm::ExprTrait::cast_as(Expr::val(iso.as_str()), "timestamp"),
+                "date",
+            ),
+        ),
+        Test::Flag(flag) => Cell::ValueBool.eq(*flag),
+        Test::Contains(json) => PgExpr::contains(
+            cell(Cell::ValueJson),
+            sea_orm::ExprTrait::cast_as(Expr::val(json.as_str()), "jsonb"),
+        ),
+        Test::Ref(id) => Cell::ValueRef.eq(id.as_str()),
+        Test::Like(pattern) => Cell::ValueText.ilike(pattern.as_str()),
+    };
+    let mut value = value_of(entity_key, &filter.field_id);
+    value.expr(Expr::val(1)).and_where(test);
+    Expr::exists(value)
+}
+
+/// `(select v.<column> from custom_field_values v where …)`: the sort
+/// field's value of the listed record, for `order by`.
+fn sort_value(entity_key: &str, kind: &str, field_id: &str) -> Option<Expr> {
+    use custom_field_values::Column as Cell;
+    let column = match kind {
+        "text" => Cell::ValueText,
+        "number" => Cell::ValueNumber,
+        "date" => Cell::ValueDate,
+        "bool" => Cell::ValueBool,
+        "json" => Cell::ValueJson,
+        "ref" => Cell::ValueRef,
+        _ => return None,
+    };
+    let mut value = value_of(entity_key, field_id);
+    value.column((custom_field_values::Entity, column));
+    Some(Expr::SubQuery(
+        None,
+        Box::new(SubQueryStatement::SelectStatement(value)),
+    ))
 }
 
 /// `ilike` pattern with `\`, `%` and `_` taken literally (`escapeLikeTerm`).
@@ -397,8 +411,8 @@ async fn list_records(caller: &Caller, access: &ObjectAccess, query: Option<&str
     let mut page: Vec<Value> = rows
         .into_iter()
         .take(page_size)
-        .map(|r| row(r, &STAMPS))
-        .collect();
+        .map(json_row)
+        .collect::<Result<_, _>>()?;
     let ids: Vec<String> = page
         .iter()
         .map(|r| r["id"].as_str().unwrap_or_default().to_owned())
@@ -429,40 +443,63 @@ struct PageQuery<'a> {
     offset: i64,
 }
 
+impl PageQuery<'_> {
+    /// The WHERE clause of the list and its count: the object's live
+    /// records, the owner, the title search, and every custom-field filter.
+    fn condition(&self) -> Condition {
+        let mut condition = Condition::all()
+            .add(records::Column::EntityKey.eq(self.entity_key))
+            .add(records::Column::DeletedAt.is_null());
+        if let Some(owner) = self.owner {
+            condition = condition.add(records::Column::OwnerId.eq(owner));
+        }
+        if let Some(search) = self.search {
+            condition = condition.add(records::Column::Title.ilike(search));
+        }
+        for filter in &self.filters.0 {
+            condition = condition.add(matches(self.entity_key, filter));
+        }
+        condition
+    }
+
+    /// The list's order: a custom field's value (`customFieldOrderBy`,
+    /// `nulls last` either way) or a built-in column (Postgres's default
+    /// null order, as Drizzle's `asc(col)` / `desc(col)`), then the id.
+    fn order(&self, query: Select<records::Entity>) -> Select<records::Entity> {
+        let order = if self.ascending {
+            Order::Asc
+        } else {
+            Order::Desc
+        };
+        let custom = self
+            .sort_field
+            .and_then(|field_id| sort_value(self.entity_key, self.sort_kind, field_id));
+        let query = match (self.sort_kind, custom) {
+            ("title", _) => query.order_by(records::Column::Title, order),
+            ("updated", _) => query.order_by(records::Column::UpdatedAt, order),
+            ("created", _) => query.order_by(records::Column::CreatedAt, order),
+            (_, Some(value)) => query.order_by_with_nulls(value, order, NullOrdering::Last),
+            (_, None) => query,
+        };
+        query.order_by_desc(records::Column::Id)
+    }
+}
+
 /// The page's rows (up to `limit + 1`, to tell whether there is more) and
 /// the total count.
-async fn fetch_page(db: &PgPool, q: &PageQuery<'_>) -> Result<(Vec<Value>, i64), sqlx::Error> {
-    let f = q.filters;
-    let rows: Vec<Value> = sqlx::query_scalar(LIST_SQL)
-        .bind(q.entity_key)
-        .bind(q.owner)
-        .bind(q.search)
-        .bind(&f.field_ids)
-        .bind(&f.kinds)
-        .bind(&f.numbers)
-        .bind(&f.days)
-        .bind(&f.flags)
-        .bind(&f.texts)
-        .bind(q.sort_kind)
-        .bind(q.ascending)
-        .bind(q.sort_field)
-        .bind(q.limit + 1)
-        .bind(q.offset)
-        .fetch_all(db)
+async fn fetch_page(db: &PgPool, q: &PageQuery<'_>) -> Result<(Vec<records::Model>, i64), DbErr> {
+    let db = &orm(db);
+    let rows = q
+        .order(records::Entity::find().filter(q.condition()))
+        .limit(u64::try_from(q.limit + 1).unwrap_or(0))
+        .offset(u64::try_from(q.offset).unwrap_or(0))
+        .all(db)
         .await?;
-    let total: i64 = sqlx::query_scalar(COUNT_SQL)
-        .bind(q.entity_key)
-        .bind(q.owner)
-        .bind(q.search)
-        .bind(&f.field_ids)
-        .bind(&f.kinds)
-        .bind(&f.numbers)
-        .bind(&f.days)
-        .bind(&f.flags)
-        .bind(&f.texts)
-        .fetch_one(db)
+    let total = records::Entity::find()
+        .filter(q.condition())
+        .count(db)
         .await?;
-    Ok((rows, total))
+    Ok((rows, i64::try_from(total).unwrap_or(i64::MAX)))
 }
 
 /// No rows: a filter that can't match.
@@ -555,19 +592,21 @@ pub(crate) async fn create_record_as(
     owner_id: Option<&str>,
 ) -> Result<Value, ValuesError> {
     let id = generate_id("cor");
-    let now = now();
-    sqlx::query(
-        "insert into custom_object_records
-             (id, object_id, entity_key, title, owner_id, created_by, updated_by, created_at, updated_at)
-         values ($1, $2, $3, null, $4, $5, $5, $6::timestamp, $6::timestamp)",
-    )
-    .bind(&id)
-    .bind(&object.id)
-    .bind(&object.entity_key)
-    .bind(owner_id.unwrap_or(user_id))
-    .bind(user_id)
-    .bind(&now)
-    .execute(db)
+    let now = utc_now();
+    let conn = &orm(db);
+    records::Entity::insert(records::ActiveModel {
+        id: Set(id.clone()),
+        object_id: Set(object.id.clone()),
+        entity_key: Set(object.entity_key.clone()),
+        title: Set(None),
+        owner_id: Set(Some(owner_id.unwrap_or(user_id).to_owned())),
+        created_by: Set(Some(user_id.to_owned())),
+        updated_by: Set(Some(user_id.to_owned())),
+        created_at: Set(now),
+        updated_at: Set(now),
+        ..Default::default()
+    })
+    .exec_without_returning(conn)
     .await?;
     if let Err(error) = set_values(
         db,
@@ -580,9 +619,8 @@ pub(crate) async fn create_record_as(
     )
     .await
     {
-        sqlx::query("delete from custom_object_records where id = $1")
-            .bind(&id)
-            .execute(db)
+        records::Entity::delete_by_id(id.as_str())
+            .exec(conn)
             .await?;
         return Err(error);
     }
@@ -593,19 +631,20 @@ pub(crate) async fn create_record_as(
             .map(|(_, value)| value.clone())
     };
     let title = resolve_title(object.title_field_id.as_deref(), definitions, lookup);
-    sqlx::query("update custom_object_records set title = $2 where id = $1")
-        .bind(&id)
-        .bind(&title)
-        .execute(db)
+    records::Entity::update_many()
+        .col_expr(records::Column::Title, Expr::value(title))
+        .filter(records::Column::Id.eq(&id))
+        .exec(conn)
         .await?;
-    let raw: Option<Value> =
-        sqlx::query_scalar("select to_jsonb(r) from custom_object_records r where id = $1 limit 1")
-            .bind(&id)
-            .fetch_optional(db)
-            .await?;
-    let mut record = raw.map_or_else(|| json!({}), |r| row(r, &STAMPS));
+    let mut record = record_row(conn, &id).await?;
     record["fields"] = Js::Object(fields).to_value();
     Ok(record)
+}
+
+/// The record with this id as Drizzle returns it (`{}` when it is gone).
+async fn record_row(db: &sea_orm::DatabaseConnection, id: &str) -> Result<Value, DbErr> {
+    let record = records::Entity::find_by_id(id).one(db).await?;
+    record.map_or_else(|| Ok(json!({})), json_row)
 }
 
 async fn create(
@@ -798,27 +837,16 @@ pub(crate) async fn update_record_as(
     let title = resolve_title(object.title_field_id.as_deref(), &definitions, |slug| {
         fields.get(slug).map(Js::from_jsonb)
     });
-    let (set_owner, owner) = crate::change(owner_id);
-    sqlx::query(
-        "update custom_object_records set
-             updated_at = $2::timestamp, updated_by = $3, title = $4,
-             owner_id = case when $5 then $6 else owner_id end
-         where id = $1",
-    )
-    .bind(id)
-    .bind(now())
-    .bind(user_id)
-    .bind(&title)
-    .bind(set_owner)
-    .bind(owner)
-    .execute(db)
-    .await?;
-    let raw: Option<Value> =
-        sqlx::query_scalar("select to_jsonb(r) from custom_object_records r where id = $1 limit 1")
-            .bind(id)
-            .fetch_optional(db)
-            .await?;
-    let mut record = raw.map_or_else(|| json!({}), |r| row(r, &STAMPS));
+    let mut update = records::Entity::update_many()
+        .col_expr(records::Column::UpdatedAt, Expr::value(utc_now()))
+        .col_expr(records::Column::UpdatedBy, Expr::value(user_id))
+        .col_expr(records::Column::Title, Expr::value(title));
+    if let (true, owner) = crate::change(owner_id) {
+        update = update.col_expr(records::Column::OwnerId, Expr::value(owner));
+    }
+    let conn = &orm(db);
+    update.filter(records::Column::Id.eq(id)).exec(conn).await?;
+    let mut record = record_row(conn, id).await?;
     record["fields"] = Value::Object(fields);
     Ok(record)
 }
@@ -905,42 +933,7 @@ async fn remove(
                 .with_details(json!({ "blockedBy": plan.blocked_by }))
                 .into());
         }
-        let now = now();
-        let key = object.entity_key.as_str();
-        // The cascade and the delete commit together.
-        let mut statements = Vec::new();
-        if !plan.cascaded_record_ids.is_empty() {
-            statements.push(
-                sqlx::query(
-                    "update custom_object_records set deleted_at = $2::timestamp, updated_at = $2::timestamp
-                      where id = any($1)",
-                )
-                .bind(&plan.cascaded_record_ids)
-                .bind(&now),
-            );
-        }
-        statements.extend([
-            sqlx::query("delete from custom_object_relations where target_entity_key = $1 and target_id = $2")
-                .bind(key)
-                .bind(&id),
-            sqlx::query(
-                "update custom_object_records set deleted_at = $3::timestamp, updated_at = $3::timestamp
-                  where id = $1 and entity_key = $2",
-            )
-            .bind(&id)
-            .bind(key)
-            .bind(&now),
-            sqlx::query("delete from custom_field_values where entity_type = $1 and entity_id = $2")
-                .bind(key)
-                .bind(&id),
-            sqlx::query(
-                "delete from custom_object_relations
-                  where (source_entity_key = $1 and source_id = $2) or (target_entity_key = $1 and target_id = $2)",
-            )
-            .bind(key)
-            .bind(&id),
-        ]);
-        weldsuite_db::atomically(db, statements).await?;
+        delete_record(db, &object.entity_key, &id, &plan.cascaded_record_ids).await?;
         let mut data = json!({ "id": id, "title": existing["title"] });
         if !plan.cascaded_record_ids.is_empty() {
             data["cascadedRecordIds"] = json!(plan.cascaded_record_ids);
@@ -955,7 +948,63 @@ async fn remove(
     )
 }
 
+/// Delete a record with its values and edges, and the records a `cascade`
+/// link takes with it: the cascade and the delete commit together.
+async fn delete_record(
+    db: &PgPool,
+    key: &str,
+    id: &str,
+    cascaded: &[String],
+) -> Result<(), Refusal> {
+    let now = utc_now();
+    let soft_delete = || {
+        records::Entity::update_many()
+            .col_expr(records::Column::DeletedAt, Expr::value(now))
+            .col_expr(records::Column::UpdatedAt, Expr::value(now))
+    };
+    let cascade = (!cascaded.is_empty()).then(|| {
+        soft_delete().filter(records::Column::Id.is_in(cascaded.iter().map(String::as_str)))
+    });
+    let incoming = relations::Entity::delete_many()
+        .filter(relations::Column::TargetEntityKey.eq(key))
+        .filter(relations::Column::TargetId.eq(id));
+    let record = soft_delete()
+        .filter(records::Column::Id.eq(id))
+        .filter(records::Column::EntityKey.eq(key));
+    let values = custom_field_values::Entity::delete_many()
+        .filter(custom_field_values::Column::EntityType.eq(key))
+        .filter(custom_field_values::Column::EntityId.eq(id));
+    let edges = relations::Entity::delete_many().filter(
+        Condition::any()
+            .add(
+                Condition::all()
+                    .add(relations::Column::SourceEntityKey.eq(key))
+                    .add(relations::Column::SourceId.eq(id)),
+            )
+            .add(
+                Condition::all()
+                    .add(relations::Column::TargetEntityKey.eq(key))
+                    .add(relations::Column::TargetId.eq(id)),
+            ),
+    );
+    weldsuite_db::atomically_with(db, |tx| {
+        Box::pin(async move {
+            let tx = OrmConn::new(tx);
+            if let Some(cascade) = cascade {
+                cascade.exec(&tx).await?;
+            }
+            incoming.exec(&tx).await?;
+            record.exec(&tx).await?;
+            values.exec(&tx).await?;
+            edges.exec(&tx).await?;
+            Ok::<_, Refusal>(())
+        })
+    })
+    .await
+}
+
 #[cfg(test)]
+#[allow(clippy::disallowed_methods, reason = "test fixtures")]
 mod tests {
     //! The value store and the list query against the real tenant schema (a
     //! database built from the journaled migrations by
@@ -987,10 +1036,7 @@ mod tests {
             offset: 0,
         };
         let (rows, total) = fetch_page(db, &query).await.expect("page");
-        let ids = rows
-            .iter()
-            .map(|r| r["id"].as_str().unwrap_or_default().to_owned())
-            .collect();
+        let ids = rows.into_iter().map(|r| r.id).collect();
         (ids, total)
     }
 

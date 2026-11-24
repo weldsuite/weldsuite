@@ -8,6 +8,7 @@ use axum::extract::FromRequestParts;
 use axum::response::{IntoResponse, Response};
 use http::request::Parts;
 use http::{HeaderMap, StatusCode};
+use sea_orm::DbErr;
 use serde_json::{Map, Value, json};
 use weldsuite_db::PgPool;
 use weldsuite_kit::validation::{Issues, json_body, query_values};
@@ -136,14 +137,20 @@ pub(crate) enum Failure {
     /// An answer the route gives on purpose.
     Answer(Response),
     /// A statement failed (the route's catch).
-    Db(sqlx::Error),
+    Db(DbErr),
     /// Anything else the route's catch takes (an Invalid Date bound to a query).
     Internal(String),
 }
 
+impl From<DbErr> for Failure {
+    fn from(error: DbErr) -> Self {
+        Self::Db(error)
+    }
+}
+
 impl From<sqlx::Error> for Failure {
     fn from(error: sqlx::Error) -> Self {
-        Self::Db(error)
+        Self::Db(weldsuite_db::orm_error(error))
     }
 }
 
@@ -162,7 +169,7 @@ impl From<Response> for Failure {
 impl Failure {
     /// The unique-constraint violation a route turns into a conflict.
     pub(crate) fn is_unique_violation(&self) -> bool {
-        matches!(self, Self::Db(sqlx::Error::Database(error)) if error.code().as_deref() == Some("23505"))
+        matches!(self, Self::Db(error) if weldsuite_db::is_unique_violation(error))
     }
 }
 

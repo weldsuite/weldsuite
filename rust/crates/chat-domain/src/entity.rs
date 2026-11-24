@@ -9,14 +9,20 @@
 
 use std::collections::HashSet;
 
+use sea_orm::{
+    ColumnTrait, DbErr, EntityTrait, JoinType, QueryFilter, QuerySelect, RelationDef, Select,
+};
 use serde_json::{Map, Value};
-use sqlx::PgPool;
 use weldsuite_core_domain::drive_access::{
     DriveFileRef, DriveGeneralAccess, can_edit, file_role, load_drive_access_for_user,
 };
+use weldsuite_db::{PgPool, orm};
+use weldsuite_schema::tenant::{
+    companies, docs, domains, files, people, project_members, projects, sheets, tasks, whiteboards,
+};
 
 use crate::access::{Can, string_list};
-use crate::flow;
+use crate::{flow, json_error};
 
 /// A record type with a chat.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -135,44 +141,55 @@ fn file_record(row: FileRow) -> FileRecord {
     }
 }
 
-async fn load_files(
-    db: &PgPool,
-    kind: Provider,
-    ids: &[String],
-) -> Result<Vec<FileRecord>, sqlx::Error> {
+/// `select x.id, f.file_name, f.id, f.uploaded_by_id, f.folder_id,
+/// f.general_access, f.entity_type, f.entity_id from <x> inner join files f
+/// on f.id = x.file_id where f.deleted_at is null`: a [`FileRow`] per record.
+fn with_live_file<E: EntityTrait>(id: E::Column, file_id: E::Column) -> Select<E> {
+    let file: RelationDef = E::belongs_to(files::Entity)
+        .from(file_id)
+        .to(files::Column::Id)
+        .into();
+    E::find()
+        .select_only()
+        .column(id)
+        .columns([
+            files::Column::FileName,
+            files::Column::Id,
+            files::Column::UploadedById,
+            files::Column::FolderId,
+            files::Column::GeneralAccess,
+            files::Column::EntityType,
+            files::Column::EntityId,
+        ])
+        .join(JoinType::InnerJoin, file)
+        .filter(files::Column::DeletedAt.is_null())
+}
+
+async fn load_files(db: &PgPool, kind: Provider, ids: &[String]) -> Result<Vec<FileRecord>, DbErr> {
     if ids.is_empty() {
         return Ok(Vec::new());
     }
+    let db = orm(db);
+    let ids = ids.iter().map(String::as_str);
     let rows: Vec<FileRow> = if kind == Provider::Board {
-        sqlx::query_as(
-            "select w.id, f.file_name, f.id, f.uploaded_by_id, f.folder_id, f.general_access::text,
-                    f.entity_type, f.entity_id
-             from whiteboards w inner join files f on f.id = w.file_id
-             where w.id = any($1) and f.deleted_at is null",
-        )
-        .bind(ids)
-        .fetch_all(db)
-        .await?
+        with_live_file::<whiteboards::Entity>(whiteboards::Column::Id, whiteboards::Column::FileId)
+            .filter(whiteboards::Column::Id.is_in(ids))
+            .into_tuple()
+            .all(&db)
+            .await?
     } else if kind == Provider::Sheet {
-        sqlx::query_as(
-            "select s.id, f.file_name, f.id, f.uploaded_by_id, f.folder_id, f.general_access::text,
-                    f.entity_type, f.entity_id
-             from sheets s inner join files f on f.id = s.file_id
-             where s.id = any($1) and f.deleted_at is null",
-        )
-        .bind(ids)
-        .fetch_all(db)
-        .await?
+        with_live_file::<sheets::Entity>(sheets::Column::Id, sheets::Column::FileId)
+            .filter(sheets::Column::Id.is_in(ids))
+            .into_tuple()
+            .all(&db)
+            .await?
     } else {
-        sqlx::query_as(
-            "select d.id, f.file_name, f.id, f.uploaded_by_id, f.folder_id, f.general_access::text,
-                    f.entity_type, f.entity_id
-             from docs d inner join files f on f.id = d.file_id
-             where d.id = any($1) and d.snapshot_key is not null and f.deleted_at is null",
-        )
-        .bind(ids)
-        .fetch_all(db)
-        .await?
+        with_live_file::<docs::Entity>(docs::Column::Id, docs::Column::FileId)
+            .filter(docs::Column::Id.is_in(ids))
+            .filter(docs::Column::SnapshotKey.is_not_null())
+            .into_tuple()
+            .all(&db)
+            .await?
     };
     Ok(rows.into_iter().map(file_record).collect())
 }
@@ -239,7 +256,8 @@ impl Provider {
         db: &PgPool,
         acting_user_id: &str,
         entity_id: &str,
-    ) -> Result<Option<ResolvedEntity>, sqlx::Error> {
+    ) -> Result<Option<ResolvedEntity>, DbErr> {
+        let orm_db = orm(db);
         match self {
             Self::Company => {
                 let row: Option<(
@@ -247,13 +265,19 @@ impl Provider {
                     Option<String>,
                     Option<String>,
                     Option<String>,
-                )> = sqlx::query_as(
-                    "select display_name, name, owner_id, account_manager_id from companies
-                         where id = $1 and deleted_at is null limit 1",
-                )
-                .bind(entity_id)
-                .fetch_optional(db)
-                .await?;
+                )> = companies::Entity::find()
+                    .select_only()
+                    .columns([
+                        companies::Column::DisplayName,
+                        companies::Column::Name,
+                        companies::Column::OwnerId,
+                        companies::Column::AccountManagerId,
+                    ])
+                    .filter(companies::Column::Id.eq(entity_id))
+                    .filter(companies::Column::DeletedAt.is_null())
+                    .into_tuple()
+                    .one(&orm_db)
+                    .await?;
                 Ok(row.map(|(display_name, name, owner, manager)| {
                     let mut members = Vec::new();
                     for id in [owner, manager]
@@ -272,14 +296,22 @@ impl Provider {
                 }))
             }
             Self::Person => {
-                let row: Option<PersonRow> = sqlx::query_as(
-                    "select display_name, full_name, first_name, last_name, email, owner_id,
-                            account_manager_id
-                     from people where id = $1 and deleted_at is null limit 1",
-                )
-                .bind(entity_id)
-                .fetch_optional(db)
-                .await?;
+                let row: Option<PersonRow> = people::Entity::find()
+                    .select_only()
+                    .columns([
+                        people::Column::DisplayName,
+                        people::Column::FullName,
+                        people::Column::FirstName,
+                        people::Column::LastName,
+                        people::Column::Email,
+                        people::Column::OwnerId,
+                        people::Column::AccountManagerId,
+                    ])
+                    .filter(people::Column::Id.eq(entity_id))
+                    .filter(people::Column::DeletedAt.is_null())
+                    .into_tuple()
+                    .one(&orm_db)
+                    .await?;
                 Ok(row.map(|row| {
                     let mut members = Vec::new();
                     for id in [row.5.clone(), row.6.clone()]
@@ -308,13 +340,20 @@ impl Provider {
                     Option<String>,
                     Option<String>,
                     Option<String>,
-                )> = sqlx::query_as(
-                    "select display_name, first_name, last_name, full_name, email from people
-                         where id = $1 and deleted_at is null limit 1",
-                )
-                .bind(entity_id)
-                .fetch_optional(db)
-                .await?;
+                )> = people::Entity::find()
+                    .select_only()
+                    .columns([
+                        people::Column::DisplayName,
+                        people::Column::FirstName,
+                        people::Column::LastName,
+                        people::Column::FullName,
+                        people::Column::Email,
+                    ])
+                    .filter(people::Column::Id.eq(entity_id))
+                    .filter(people::Column::DeletedAt.is_null())
+                    .into_tuple()
+                    .one(&orm_db)
+                    .await?;
                 Ok(
                     row.map(|(display_name, first, last, full, email)| ResolvedEntity {
                         display_name: person_display_name(
@@ -329,12 +368,14 @@ impl Provider {
                 )
             }
             Self::Domain => {
-                let row: Option<String> = sqlx::query_scalar(
-                    "select full_domain from domains where id = $1 and deleted_at is null limit 1",
-                )
-                .bind(entity_id)
-                .fetch_optional(db)
-                .await?;
+                let row: Option<String> = domains::Entity::find()
+                    .select_only()
+                    .column(domains::Column::FullDomain)
+                    .filter(domains::Column::Id.eq(entity_id))
+                    .filter(domains::Column::DeletedAt.is_null())
+                    .into_tuple()
+                    .one(&orm_db)
+                    .await?;
                 Ok(row.map(|full_domain| ResolvedEntity {
                     display_name: full_domain,
                     default_member_ids: vec![acting_user_id.to_owned()],
@@ -347,13 +388,20 @@ impl Provider {
                     Option<Value>,
                     Option<String>,
                     Option<Value>,
-                )> = sqlx::query_as(
-                    "select title, assignee_id, assignee_ids, reporter_id, watchers from tasks
-                         where id = $1 and deleted_at is null limit 1",
-                )
-                .bind(entity_id)
-                .fetch_optional(db)
-                .await?;
+                )> = tasks::Entity::find()
+                    .select_only()
+                    .columns([
+                        tasks::Column::Title,
+                        tasks::Column::AssigneeId,
+                        tasks::Column::AssigneeIds,
+                        tasks::Column::ReporterId,
+                        tasks::Column::Watchers,
+                    ])
+                    .filter(tasks::Column::Id.eq(entity_id))
+                    .filter(tasks::Column::DeletedAt.is_null())
+                    .into_tuple()
+                    .one(&orm_db)
+                    .await?;
                 Ok(row.map(|(title, assignee, assignees, reporter, watchers)| {
                     let mut members = Vec::new();
                     if let Some(id) = assignee.filter(|i| !i.is_empty()) {
@@ -375,23 +423,26 @@ impl Provider {
                 }))
             }
             Self::Project => {
-                let row: Option<(String, Option<String>)> = sqlx::query_as(
-                    "select name, project_manager_id from projects
-                     where id = $1 and deleted_at is null limit 1",
-                )
-                .bind(entity_id)
-                .fetch_optional(db)
-                .await?;
+                let row: Option<(String, Option<String>)> = projects::Entity::find()
+                    .select_only()
+                    .columns([projects::Column::Name, projects::Column::ProjectManagerId])
+                    .filter(projects::Column::Id.eq(entity_id))
+                    .filter(projects::Column::DeletedAt.is_null())
+                    .into_tuple()
+                    .one(&orm_db)
+                    .await?;
                 let Some((name, manager)) = row else {
                     return Ok(None);
                 };
-                let members: Vec<String> = sqlx::query_scalar(
-                    "select user_id from project_members
-                     where project_id = $1 and is_active = true and deleted_at is null",
-                )
-                .bind(entity_id)
-                .fetch_all(db)
-                .await?;
+                let members: Vec<String> = project_members::Entity::find()
+                    .select_only()
+                    .column(project_members::Column::UserId)
+                    .filter(project_members::Column::ProjectId.eq(entity_id))
+                    .filter(project_members::Column::IsActive.eq(true))
+                    .filter(project_members::Column::DeletedAt.is_null())
+                    .into_tuple()
+                    .all(&orm_db)
+                    .await?;
                 let mut ids = Vec::new();
                 for id in &members {
                     push_unique(&mut ids, id);
@@ -424,44 +475,48 @@ impl Provider {
         acting_user_id: &str,
         can: &Can<'_>,
         entity_ids: &[String],
-    ) -> Result<HashSet<String>, sqlx::Error> {
+    ) -> Result<HashSet<String>, DbErr> {
         if entity_ids.is_empty() {
             return Ok(HashSet::new());
         }
+        let ids = entity_ids.iter().map(String::as_str);
         match self {
             Self::Company => {
                 let scope_all = can.can("companies:scope:all").await?;
-                let ids: Vec<String> = sqlx::query_scalar(
-                    "select id from companies
-                     where id = any($1) and deleted_at is null and ($2 or owner_id = $3)",
-                )
-                .bind(entity_ids)
-                .bind(scope_all)
-                .bind(acting_user_id)
-                .fetch_all(db)
-                .await?;
+                // `$scope_all or owner_id = $user`.
+                let mut find = companies::Entity::find()
+                    .select_only()
+                    .column(companies::Column::Id)
+                    .filter(companies::Column::Id.is_in(ids))
+                    .filter(companies::Column::DeletedAt.is_null());
+                if !scope_all {
+                    find = find.filter(companies::Column::OwnerId.eq(acting_user_id));
+                }
+                let ids: Vec<String> = find.into_tuple().all(&orm(db)).await?;
                 Ok(ids.into_iter().collect())
             }
             Self::Person | Self::Contact => {
                 let scope_all = can.can("people:scope:all").await?;
-                let ids: Vec<String> = sqlx::query_scalar(
-                    "select id from people
-                     where id = any($1) and deleted_at is null and ($2 or owner_id = $3)",
-                )
-                .bind(entity_ids)
-                .bind(scope_all)
-                .bind(acting_user_id)
-                .fetch_all(db)
-                .await?;
+                let mut find = people::Entity::find()
+                    .select_only()
+                    .column(people::Column::Id)
+                    .filter(people::Column::Id.is_in(ids))
+                    .filter(people::Column::DeletedAt.is_null());
+                if !scope_all {
+                    find = find.filter(people::Column::OwnerId.eq(acting_user_id));
+                }
+                let ids: Vec<String> = find.into_tuple().all(&orm(db)).await?;
                 Ok(ids.into_iter().collect())
             }
             Self::Domain => {
-                let ids: Vec<String> = sqlx::query_scalar(
-                    "select id from domains where id = any($1) and deleted_at is null",
-                )
-                .bind(entity_ids)
-                .fetch_all(db)
-                .await?;
+                let ids: Vec<String> = domains::Entity::find()
+                    .select_only()
+                    .column(domains::Column::Id)
+                    .filter(domains::Column::Id.is_in(ids))
+                    .filter(domains::Column::DeletedAt.is_null())
+                    .into_tuple()
+                    .all(&orm(db))
+                    .await?;
                 Ok(ids.into_iter().collect())
             }
             Self::Task => visible_tasks(db, acting_user_id, can, entity_ids).await,
@@ -479,7 +534,7 @@ impl Provider {
         acting_user_id: &str,
         entity_id: &str,
         can: &Can<'_>,
-    ) -> Result<bool, sqlx::Error> {
+    ) -> Result<bool, DbErr> {
         let (comment, update) = match self {
             Self::Sheet => ("sheets:comment", "sheets:update"),
             Self::Doc => ("docs:comment", "docs:update"),
@@ -513,50 +568,52 @@ impl Provider {
         self,
         db: &PgPool,
         entity_id: &str,
-    ) -> Result<Option<Value>, sqlx::Error> {
-        let row: Option<Value> = match self {
+    ) -> Result<Option<Value>, DbErr> {
+        let orm_db = orm(db);
+        let row: Option<Map<String, Value>> = match self {
             Self::Company | Self::Person => return Ok(None),
             Self::Contact => {
-                sqlx::query_scalar(
-                    "select jsonb_build_object('id', id, 'firstName', first_name, 'lastName', last_name,
-                        'fullName', full_name, 'email', email, 'directPhone', direct_phone,
-                        'mobilePhone', mobile_phone, 'title', title, 'department', department,
-                        'avatarUrl', avatar_url, 'status', status)
-                     from people where id = $1 and deleted_at is null limit 1",
-                )
-                .bind(entity_id)
-                .fetch_optional(db)
-                .await?
+                let row = people::Entity::find_by_id(entity_id)
+                    .filter(people::Column::DeletedAt.is_null())
+                    .one(&orm_db)
+                    .await?;
+                let row = row
+                    .map(serde_json::to_value)
+                    .transpose()
+                    .map_err(json_error)?;
+                picked(row, CONTACT_DETAIL)
             }
             Self::Domain => {
-                let row: Option<Value> = sqlx::query_scalar(
-                    "select jsonb_build_object('id', id, 'name', name, 'tld', tld,
-                        'fullDomain', full_domain, 'status', status, 'registrar', registrar,
-                        'registeredAt', registered_at, 'expiresAt', expires_at,
-                        'autoRenew', auto_renew, 'nameservers', nameservers)
-                     from domains where id = $1 and deleted_at is null limit 1",
-                )
-                .bind(entity_id)
-                .fetch_optional(db)
-                .await?;
-                row.map(|mut row| {
-                    let registrar = row["registrar"].as_str().map(str::to_owned);
-                    row["registrar"] = public_domain_registrar(registrar.as_deref());
+                let row = domains::Entity::find_by_id(entity_id)
+                    .filter(domains::Column::DeletedAt.is_null())
+                    .one(&orm_db)
+                    .await?;
+                let row = row
+                    .map(serde_json::to_value)
+                    .transpose()
+                    .map_err(json_error)?;
+                picked(row, DOMAIN_DETAIL).map(|mut row| {
+                    let registrar = row
+                        .get("registrar")
+                        .and_then(Value::as_str)
+                        .map(str::to_owned);
+                    row.insert(
+                        "registrar".to_owned(),
+                        public_domain_registrar(registrar.as_deref()),
+                    );
                     row
                 })
             }
             Self::Task => {
-                sqlx::query_scalar(
-                    "select jsonb_build_object('id', id, 'title', title, 'description', description,
-                        'status', status, 'priority', priority, 'type', type,
-                        'assigneeId', assignee_id, 'assigneeIds', assignee_ids,
-                        'reporterId', reporter_id, 'projectId', project_id,
-                        'startDate', start_date, 'dueDate', due_date, 'tags', tags, 'labels', labels)
-                     from tasks where id = $1 and deleted_at is null limit 1",
-                )
-                .bind(entity_id)
-                .fetch_optional(db)
-                .await?
+                let row = tasks::Entity::find_by_id(entity_id)
+                    .filter(tasks::Column::DeletedAt.is_null())
+                    .one(&orm_db)
+                    .await?;
+                let row = row
+                    .map(serde_json::to_value)
+                    .transpose()
+                    .map_err(json_error)?;
+                picked(row, TASK_DETAIL)
             }
             Self::Project => return project_detail(db, entity_id).await,
             Self::Sheet | Self::Doc | Self::Board => {
@@ -571,8 +628,102 @@ impl Provider {
                 }));
             }
         };
-        Ok(row.map(weldsuite_db::js_row))
+        Ok(row.map(Value::Object))
     }
+}
+
+/// The record panels' columns (`jsonb_build_object` of them): the keys of the
+/// entity's row, which serializes each as Drizzle returned it.
+const CONTACT_DETAIL: &[&str] = &[
+    "id",
+    "firstName",
+    "lastName",
+    "fullName",
+    "email",
+    "directPhone",
+    "mobilePhone",
+    "title",
+    "department",
+    "avatarUrl",
+    "status",
+];
+const DOMAIN_DETAIL: &[&str] = &[
+    "id",
+    "name",
+    "tld",
+    "fullDomain",
+    "status",
+    "registrar",
+    "registeredAt",
+    "expiresAt",
+    "autoRenew",
+    "nameservers",
+];
+const TASK_DETAIL: &[&str] = &[
+    "id",
+    "title",
+    "description",
+    "status",
+    "priority",
+    "type",
+    "assigneeId",
+    "assigneeIds",
+    "reporterId",
+    "projectId",
+    "startDate",
+    "dueDate",
+    "tags",
+    "labels",
+];
+/// `budgetedHours`, `budgetedAmount`, `actualAmount` and `hourlyRate` were
+/// `::text`: the entity prints them with the column's two decimals, as
+/// Postgres does.
+const PROJECT_DETAIL: &[&str] = &[
+    "id",
+    "code",
+    "name",
+    "description",
+    "status",
+    "priority",
+    "health",
+    "type",
+    "methodology",
+    "visibility",
+    "projectManagerId",
+    "leaderId",
+    "customerId",
+    "startDate",
+    "endDate",
+    "actualStartDate",
+    "actualEndDate",
+    "budgetedHours",
+    "budgetedAmount",
+    "actualAmount",
+    "budgetCurrency",
+    "billingMethod",
+    "hourlyRate",
+    "isBillable",
+    "trackTime",
+    "color",
+    "icon",
+    "createdAt",
+    "updatedAt",
+];
+
+/// The entity row's JSON (as Drizzle returns it), cut to `keys`: the
+/// `jsonb_build_object` of those columns.
+fn picked(row: Option<Value>, keys: &[&str]) -> Option<Map<String, Value>> {
+    let row = row?;
+    Some(
+        keys.iter()
+            .map(|key| {
+                (
+                    (*key).to_owned(),
+                    row.get(*key).cloned().unwrap_or(Value::Null),
+                )
+            })
+            .collect(),
+    )
 }
 
 type PersonRow = (
@@ -596,40 +747,36 @@ fn public_domain_registrar(registrar: Option<&str>) -> Value {
 }
 
 /// The project panel: its columns, computed counters and active members.
-async fn project_detail(db: &PgPool, entity_id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select jsonb_build_object('id', id, 'code', code, 'name', name,
-            'description', description, 'status', status, 'priority', priority,
-            'health', health, 'type', type, 'methodology', methodology,
-            'visibility', visibility, 'projectManagerId', project_manager_id,
-            'leaderId', leader_id, 'customerId', customer_id, 'startDate', start_date,
-            'endDate', end_date, 'actualStartDate', actual_start_date,
-            'actualEndDate', actual_end_date, 'budgetedHours', budgeted_hours::text,
-            'budgetedAmount', budgeted_amount::text, 'actualAmount', actual_amount::text,
-            'budgetCurrency', budget_currency, 'billingMethod', billing_method,
-            'hourlyRate', hourly_rate::text, 'isBillable', is_billable,
-            'trackTime', track_time, 'color', color, 'icon', icon,
-            'createdAt', created_at, 'updatedAt', updated_at)
-         from projects where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(entity_id)
-    .fetch_optional(db)
-    .await?;
-    let Some(row) = row else {
+async fn project_detail(db: &PgPool, entity_id: &str) -> Result<Option<Value>, DbErr> {
+    let orm_db = orm(db);
+    let row = projects::Entity::find_by_id(entity_id)
+        .filter(projects::Column::DeletedAt.is_null())
+        .one(&orm_db)
+        .await?;
+    let row = row
+        .map(serde_json::to_value)
+        .transpose()
+        .map_err(json_error)?;
+    let Some(mut detail) = picked(row, PROJECT_DETAIL) else {
         return Ok(None);
     };
-    let members: Vec<Value> = sqlx::query_scalar(
-        "select jsonb_build_object('userId', user_id, 'role', role) from project_members
-         where project_id = $1 and is_active = true and deleted_at is null",
-    )
-    .bind(entity_id)
-    .fetch_all(db)
-    .await?;
+    let members: Vec<(String, String)> = project_members::Entity::find()
+        .select_only()
+        .columns([
+            project_members::Column::UserId,
+            project_members::Column::Role,
+        ])
+        .filter(project_members::Column::ProjectId.eq(entity_id))
+        .filter(project_members::Column::IsActive.eq(true))
+        .filter(project_members::Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&orm_db)
+        .await?;
+    let members: Vec<Value> = members
+        .into_iter()
+        .map(|(user_id, role)| serde_json::json!({ "userId": user_id, "role": role }))
+        .collect();
     let stats = flow::project_stats(db, entity_id).await?;
-    let mut detail = match weldsuite_db::js_row(row) {
-        Value::Object(map) => map,
-        _ => Map::new(),
-    };
     if let Value::Object(stats) = stats {
         detail.extend(stats);
     }
@@ -644,7 +791,7 @@ pub async fn can_access_entity(
     acting_user_id: &str,
     entity_id: &str,
     can: &Can<'_>,
-) -> Result<bool, sqlx::Error> {
+) -> Result<bool, DbErr> {
     if !can.can(provider.required_permission()).await? {
         return Ok(false);
     }
@@ -661,7 +808,7 @@ pub async fn can_post_in_record_chat(
     acting_user_id: &str,
     entity_id: &str,
     can: &Can<'_>,
-) -> Result<bool, sqlx::Error> {
+) -> Result<bool, DbErr> {
     if !provider.has_post_check() {
         return Ok(true);
     }
@@ -675,13 +822,8 @@ async fn visible_projects(
     user_id: &str,
     can: &Can<'_>,
     entity_ids: &[String],
-) -> Result<HashSet<String>, sqlx::Error> {
-    let live: Vec<(String, Option<String>)> = sqlx::query_as(
-        "select id, project_manager_id from projects where id = any($1) and deleted_at is null",
-    )
-    .bind(entity_ids)
-    .fetch_all(db)
-    .await?;
+) -> Result<HashSet<String>, DbErr> {
+    let live = live_projects(db, entity_ids).await?;
     if can.can("projects:scope:all").await? {
         return Ok(live.into_iter().map(|(id, _)| id).collect());
     }
@@ -695,17 +837,43 @@ async fn visible_projects(
         }
     }
     if !others.is_empty() {
-        let member_of: Vec<String> = sqlx::query_scalar(
-            "select project_id from project_members
-             where project_id = any($1) and user_id = $2 and is_active = true and deleted_at is null",
-        )
-        .bind(&others)
-        .bind(user_id)
-        .fetch_all(db)
-        .await?;
-        visible.extend(member_of);
+        visible.extend(member_of_projects(db, user_id, &others).await?);
     }
     Ok(visible)
+}
+
+/// `select id, project_manager_id from projects where id = any($1) and
+/// deleted_at is null`.
+async fn live_projects(
+    db: &PgPool,
+    project_ids: &[String],
+) -> Result<Vec<(String, Option<String>)>, DbErr> {
+    projects::Entity::find()
+        .select_only()
+        .columns([projects::Column::Id, projects::Column::ProjectManagerId])
+        .filter(projects::Column::Id.is_in(project_ids.iter().map(String::as_str)))
+        .filter(projects::Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&orm(db))
+        .await
+}
+
+/// Of `project_ids`, those the user is an active member of.
+async fn member_of_projects(
+    db: &PgPool,
+    user_id: &str,
+    project_ids: &[String],
+) -> Result<Vec<String>, DbErr> {
+    project_members::Entity::find()
+        .select_only()
+        .column(project_members::Column::ProjectId)
+        .filter(project_members::Column::ProjectId.is_in(project_ids.iter().map(String::as_str)))
+        .filter(project_members::Column::UserId.eq(user_id))
+        .filter(project_members::Column::IsActive.eq(true))
+        .filter(project_members::Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&orm(db))
+        .await
 }
 
 /// `openProjectIds`: of `project_ids`, the ones the user may open.
@@ -714,13 +882,8 @@ async fn open_project_ids(
     user_id: &str,
     project_ids: &[String],
     scope_all: bool,
-) -> Result<HashSet<String>, sqlx::Error> {
-    let live: Vec<(String, Option<String>)> = sqlx::query_as(
-        "select id, project_manager_id from projects where id = any($1) and deleted_at is null",
-    )
-    .bind(project_ids)
-    .fetch_all(db)
-    .await?;
+) -> Result<HashSet<String>, DbErr> {
+    let live = live_projects(db, project_ids).await?;
     let mut open = HashSet::new();
     let mut others = Vec::new();
     for (id, manager) in live {
@@ -733,15 +896,7 @@ async fn open_project_ids(
     if others.is_empty() {
         return Ok(open);
     }
-    let member_of: Vec<String> = sqlx::query_scalar(
-        "select project_id from project_members
-         where project_id = any($1) and user_id = $2 and is_active = true and deleted_at is null",
-    )
-    .bind(&others)
-    .bind(user_id)
-    .fetch_all(db)
-    .await?;
-    open.extend(member_of);
+    open.extend(member_of_projects(db, user_id, &others).await?);
     Ok(open)
 }
 
@@ -752,7 +907,7 @@ async fn visible_tasks(
     user_id: &str,
     can: &Can<'_>,
     entity_ids: &[String],
-) -> Result<HashSet<String>, sqlx::Error> {
+) -> Result<HashSet<String>, DbErr> {
     type TaskRow = (
         String,
         Option<String>,
@@ -761,13 +916,21 @@ async fn visible_tasks(
         Option<Value>,
         Option<String>,
     );
-    let rows: Vec<TaskRow> = sqlx::query_as(
-        "select id, assignee_id, assignee_ids, reporter_id, watchers, project_id from tasks
-         where id = any($1) and deleted_at is null",
-    )
-    .bind(entity_ids)
-    .fetch_all(db)
-    .await?;
+    let rows: Vec<TaskRow> = tasks::Entity::find()
+        .select_only()
+        .columns([
+            tasks::Column::Id,
+            tasks::Column::AssigneeId,
+            tasks::Column::AssigneeIds,
+            tasks::Column::ReporterId,
+            tasks::Column::Watchers,
+            tasks::Column::ProjectId,
+        ])
+        .filter(tasks::Column::Id.is_in(entity_ids.iter().map(String::as_str)))
+        .filter(tasks::Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     let mut visible = HashSet::new();
     let mut via_project: Vec<(String, String)> = Vec::new();
     for (id, assignee, assignees, reporter, watchers, project) in rows {
@@ -813,7 +976,7 @@ async fn visible_files(
     user_id: &str,
     can: &Can<'_>,
     entity_ids: &[String],
-) -> Result<HashSet<String>, sqlx::Error> {
+) -> Result<HashSet<String>, DbErr> {
     let records = load_files(db, kind, entity_ids).await?;
     let mut visible = HashSet::new();
     if records.is_empty() {

@@ -15,10 +15,6 @@
 //! starter data seeded on a workspace's first request ([`defaults`]), and
 //! the readable 400s of `hrJson` ([`validation`]).
 
-#![allow(
-    clippy::disallowed_methods,
-    reason = "not converted to the ORM yet (ADR DATA-019)"
-)]
 // The routes follow the TypeScript services function by function (long
 // handlers, many arguments, names like `row`/`rows`), and amounts and counts
 // are JavaScript numbers (`f64`), converted where a column is an integer.
@@ -91,9 +87,9 @@ use weldsuite_ports::{
 pub use books::{BooksInternal, BooksRequest, BooksResponse, InProcessBooks, RequestBooksInternal};
 pub(crate) use shared::{
     add_days, assert_birth_date, assert_date_order, company_names, employed_share_of_year,
-    is_iso_date_shape, js_number, js_number_of, js_round, js_time, js_to_fixed, js_trim,
-    locale_compare, member_names, now, number_text, parse_date, query_date, query_param,
-    query_text, text, today_iso, working_days_between, year_of,
+    is_iso_date_shape, js_number, js_number_of, js_round, js_to_fixed, js_trim, locale_compare,
+    member_names, now, number_text, parse_date, query_date, query_param, query_text, text,
+    today_iso, working_days_between, year_of,
 };
 pub(crate) use validation::{hr_json, query_values, zod_query};
 
@@ -461,7 +457,7 @@ pub(crate) enum HrError {
     /// A response the route writes itself (403, a validation failure, …).
     Response(Box<Response>),
     /// A failing statement: the router's `onError` (500 `INTERNAL_ERROR`).
-    Database(sqlx::Error),
+    Database(sea_orm::DbErr),
     /// Anything else unexpected, logged with its reason: also a 500.
     Internal(String),
 }
@@ -580,9 +576,17 @@ fn unexpected() -> Response {
     .into_response()
 }
 
+impl From<sea_orm::DbErr> for HrError {
+    fn from(error: sea_orm::DbErr) -> Self {
+        Self::Database(error)
+    }
+}
+
+/// SQL that stays SQL, and the crates not converted to the ORM yet, report
+/// through the same error ([`weldsuite_db::orm_error`]).
 impl From<sqlx::Error> for HrError {
     fn from(error: sqlx::Error) -> Self {
-        Self::Database(error)
+        Self::Database(weldsuite_db::orm_error(error))
     }
 }
 
