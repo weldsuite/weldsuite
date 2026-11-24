@@ -160,7 +160,8 @@ const RECORDS: Rec[] = [
   record('r3', '2026-11-20', { status: 'absent' }),
   // Tuesday: no shift that day, so the bar takes the whole column; a status without a colour of its own.
   record('r4', '2026-11-17', { clockIn: at(17, 10), clockOut: at(17, 12), workedMinutes: 120, status: 'excused', companyName: 'Beta', notes: 'Training' }),
-  // Sunday: a night shift clocked in the evening before; and a clock-out only the next day.
+  // Saturday's night shift, clocked in at 23:00 and out the next day, but filed under Sunday,
+  // as a backend dating records by the UTC day does west of UTC.
   record('r5', '2026-11-22', { clockIn: at(21, 23), clockOut: at(22, 1), workedMinutes: 120, status: 'half_day' }),
   // Monday: an open record that is not today.
   record('r6', '2026-11-16', { clockIn: at(16, 9), status: 'present', workedMinutes: 480 }),
@@ -224,10 +225,10 @@ afterEach(() => {
 });
 
 describe('MyScheduleCalendar toolbar', () => {
-  it('opens on the week of today, asking for exactly its days', () => {
+  it('opens on the week of today, asking for its days and one either side', () => {
     renderCalendar();
     expect(heading()).toBe('November 2026');
-    expect(mocks.attendance).toHaveBeenLastCalledWith({ from: '2026-11-16', to: '2026-11-22' });
+    expect(mocks.attendance).toHaveBeenLastCalledWith({ from: '2026-11-15', to: '2026-11-23' });
     expect(screen.getByRole('combobox', { name: sched.viewLabel })).toHaveTextContent(sched.viewWeek);
   });
 
@@ -241,25 +242,25 @@ describe('MyScheduleCalendar toolbar', () => {
     expect(screen.queryByRole('button', { name: sched.today })).not.toBeInTheDocument();
 
     await press(sched.next);
-    expect(mocks.attendance).toHaveBeenLastCalledWith({ from: '2026-11-23', to: '2026-11-29' });
+    expect(mocks.attendance).toHaveBeenLastCalledWith({ from: '2026-11-22', to: '2026-11-30' });
     await press(sched.next);
     // 30 November to 6 December straddles two months.
     expect(heading()).toBe('Nov – Dec 2026');
-    expect(mocks.attendance).toHaveBeenLastCalledWith({ from: '2026-11-30', to: '2026-12-06' });
+    expect(mocks.attendance).toHaveBeenLastCalledWith({ from: '2026-11-29', to: '2026-12-07' });
 
     await press(sched.today);
-    expect(mocks.attendance).toHaveBeenLastCalledWith({ from: '2026-11-16', to: '2026-11-22' });
+    expect(mocks.attendance).toHaveBeenLastCalledWith({ from: '2026-11-15', to: '2026-11-23' });
     expect(screen.queryByRole('button', { name: sched.today })).not.toBeInTheDocument();
 
     await press(sched.previous);
-    expect(mocks.attendance).toHaveBeenLastCalledWith({ from: '2026-11-09', to: '2026-11-15' });
+    expect(mocks.attendance).toHaveBeenLastCalledWith({ from: '2026-11-08', to: '2026-11-16' });
   });
 
   it('switches to the day view, titled with the day', async () => {
     renderCalendar();
     await chooseView(sched.viewDay);
     expect(heading()).toBe(formatWeekdayDate(TODAY));
-    expect(mocks.attendance).toHaveBeenLastCalledWith({ from: TODAY, to: TODAY });
+    expect(mocks.attendance).toHaveBeenLastCalledWith({ from: '2026-11-17', to: '2026-11-19' });
 
     await press(sched.next);
     expect(heading()).toBe(formatWeekdayDate('2026-11-19'));
@@ -271,7 +272,7 @@ describe('MyScheduleCalendar toolbar', () => {
     renderCalendar();
     await chooseView(sched.viewMonth);
     expect(heading()).toBe('November 2026');
-    expect(mocks.attendance).toHaveBeenLastCalledWith({ from: '2026-10-26', to: '2026-12-06' });
+    expect(mocks.attendance).toHaveBeenLastCalledWith({ from: '2026-10-25', to: '2026-12-07' });
 
     await press(sched.next);
     expect(heading()).toBe('December 2026');
@@ -298,10 +299,12 @@ describe('MyScheduleCalendar week view', () => {
     expect(screen.queryByRole('button', { name: formatWeekdayDate('2026-11-19') })).not.toBeInTheDocument();
   });
 
-  it('draws the whole day when a record starts before midnight and a shift ends after it', () => {
+  it('runs to midnight for a shift that ends after it, but does not start there for a record filed under the next day', () => {
     renderCalendar();
-    expect(screen.getByText('00:00')).toBeInTheDocument();
+    expect(screen.getByText('06:00')).toBeInTheDocument();
     expect(screen.getByText('23:00')).toBeInTheDocument();
+    expect(screen.queryByText('05:00')).not.toBeInTheDocument();
+    expect(screen.queryByText('00:00')).not.toBeInTheDocument();
   });
 
   it('widens the hours to the earliest and latest item, to whole hours', () => {
@@ -335,8 +338,8 @@ describe('MyScheduleCalendar week view', () => {
     renderCalendar();
     // Today has a clock record: the shift stops short of it.
     expect(screen.getByTitle('09:00 – 17:00 · Cashier · Acme').style.right).toContain('32%');
-    // Saturday has a shift and no record.
-    expect(screen.getByTitle('22:00 – 02:00').style.right).toBe('4px');
+    // Friday's record was never clocked in, so it draws no bar and the shift keeps its width.
+    expect(screen.getByTitle('09:00 – 10:00').style.right).toBe('4px');
   });
 
   it('shades a shift break, but not one without length', () => {
@@ -373,9 +376,37 @@ describe('MyScheduleCalendar week view', () => {
     expect(screen.queryByText(status.absent)).not.toBeInTheDocument();
   });
 
-  it('draws a record clocked in the evening before from midnight, and one clocked out later up to the end of the day', () => {
+  it('draws a night shift and its clocked time side by side on the evening they started, up to the end of the day', () => {
     renderCalendar();
-    expect(screen.getByTitle(/23:00 · .* 01:00$/)).toHaveTextContent('2h 00m');
+    const clocked = screen.getByTitle(/23:00 · .* 01:00$/);
+    expect(clocked).toHaveTextContent('2h 00m');
+    // Beside Saturday's shift, which leaves room for it; Sunday has no shift.
+    expect(clocked.style.width).toBe('32%');
+    expect(screen.getByTitle('22:00 – 02:00').style.right).toContain('32%');
+  });
+
+  it('draws a record on the day it was clocked in, and leaves out the days either side it was fetched for', async () => {
+    mocks.data = {
+      records: [
+        // Clocked in on Sunday evening, filed under Monday.
+        record('sun', '2026-11-23', { clockIn: at(22, 23, 30), clockOut: at(23, 0, 30), workedMinutes: 60, companyName: 'Gamma' }),
+        // The Monday and Saturday either side of the week.
+        record('mon', '2026-11-23', { clockIn: at(23, 9), clockOut: at(23, 17), workedMinutes: 480, companyName: 'Delta' }),
+        record('sat', '2026-11-15', { status: 'absent', companyName: 'Delta' }),
+      ],
+      shifts: [shift('next', at(23, 9), at(23, 17), { companyName: 'Delta' })],
+    } satisfies HrSelfAttendance;
+    renderCalendar();
+
+    expect(screen.getByTitle(/23:30 · .* 00:30$/)).toHaveTextContent('1h 00m');
+    expect(screen.queryByTitle(/09:00 · .* 17:00$/)).not.toBeInTheDocument();
+    expect(screen.queryByTitle(/^09:00 – 17:00/)).not.toBeInTheDocument();
+    // Only the clients of what is shown are offered.
+    expect(screen.getAllByRole('button', { name: /^client / }).map((b) => b.textContent)).toEqual(['client is Gamma', 'client is not Gamma']);
+
+    // The week after shows Monday's.
+    await press(sched.next);
+    expect(screen.getByTitle(/09:00 · .* 17:00$/)).toHaveTextContent('8h 00m');
   });
 
   it('draws time off in an all-day row, and opens the leave request or sick report', async () => {
@@ -483,7 +514,7 @@ describe('MyScheduleCalendar month view', () => {
     const more = screen.getByRole('button', { name: sched.more.replace('{count}', '3') });
     await user().click(more);
     expect(heading()).toBe(formatWeekdayDate(TODAY));
-    expect(mocks.attendance).toHaveBeenLastCalledWith({ from: TODAY, to: TODAY });
+    expect(mocks.attendance).toHaveBeenLastCalledWith({ from: '2026-11-17', to: '2026-11-19' });
   });
 
   it('opens a day from its number', async () => {

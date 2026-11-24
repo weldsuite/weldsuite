@@ -38,7 +38,7 @@ import {
   type TimeOff,
 } from '../../attendance/components/schedule-model';
 import { RosterSearchInput, TimeOffBar, useTimeOffText } from '../../attendance/components/schedule-parts';
-import { formatMinutes, formatWeekdayDate, formatWeekdayShort, todayIso, useFormatTime } from '../../components/shared';
+import { formatMinutes, formatWeekdayDate, formatWeekdayShort, shiftIsoDate, todayIso, useFormatTime } from '../../components/shared';
 import type { MyAttendanceRecord } from './schedule-hours-tab';
 import type { MyShift } from './schedule-shifts-tab';
 
@@ -73,6 +73,21 @@ function clientOf(item: DayItem): string | null {
   if (item.kind === 'shift') return item.shift.companyName;
   if (item.kind === 'record') return item.record.companyName;
   return null;
+}
+
+/** The day a shift shows on: the local day it starts. */
+function shiftDay(shift: MyShift): string {
+  return format(new Date(shift.startsAt), 'yyyy-MM-dd');
+}
+
+/**
+ * The day a clock record shows on: the local day it was clocked in, as a shift
+ * shows on the day it starts. The record's own date is the UTC day of the
+ * clock-in, which away from UTC is the day before or after around midnight (an
+ * evening in New York is the next day). A record never clocked in has only that date.
+ */
+function recordDay(record: MyAttendanceRecord): string {
+  return record.clockIn ? format(new Date(record.clockIn), 'yyyy-MM-dd') : record.date;
 }
 
 /** The start and end an item has on the clock; time off has none. */
@@ -147,9 +162,13 @@ export function MyScheduleCalendar({ viewToggle }: Readonly<{ /** The list / cal
   const month = anchor.slice(0, 7);
   const today = todayIso();
 
-  const { data: attendance } = useMyHrAttendance({ from: first, to: last });
+  // A day either side too: a record or shift filed under its UTC day can fall on a shown local day.
+  const { data: attendance } = useMyHrAttendance({ from: shiftIsoDate(first, -1), to: shiftIsoDate(last, 1) });
   const { data: leave } = useMyHrLeave();
   const { data: absences } = useMyHrAbsences();
+  const inView = new Set(days);
+  const shiftsInView = (attendance?.shifts ?? []).filter((s) => inView.has(shiftDay(s)));
+  const recordsInView = (attendance?.records ?? []).filter((r) => inView.has(recordDay(r)));
 
   /** The words an item is found by in the search. */
   const searchText = (item: DayItem): string => {
@@ -175,16 +194,16 @@ export function MyScheduleCalendar({ viewToggle }: Readonly<{ /** The list / cal
     for (const day of days) {
       for (const item of timeOff) if (timeOffCovers(item, day)) add(day, { kind: 'timeOff', key: `off|${item.id}`, item });
     }
-    for (const shift of [...(attendance?.shifts ?? [])].sort((a, b) => a.startsAt.localeCompare(b.startsAt))) {
-      add(format(new Date(shift.startsAt), 'yyyy-MM-dd'), { kind: 'shift', key: `shift|${shift.id}`, shift });
+    for (const shift of [...shiftsInView].sort((a, b) => a.startsAt.localeCompare(b.startsAt))) {
+      add(shiftDay(shift), { kind: 'shift', key: `shift|${shift.id}`, shift });
     }
-    for (const record of attendance?.records ?? []) add(record.date, { kind: 'record', key: `record|${record.id}`, record });
+    for (const record of recordsInView) add(recordDay(record), { kind: 'record', key: `record|${record.id}`, record });
     return map;
   })();
 
   const clients = [
     ...new Set(
-      [...(attendance?.shifts ?? []).map((s) => s.companyName), ...(attendance?.records ?? []).map((r) => r.companyName)].filter(
+      [...shiftsInView.map((s) => s.companyName), ...recordsInView.map((r) => r.companyName)].filter(
         (name): name is string => !!name,
       ),
     ),
@@ -386,7 +405,10 @@ export function MyScheduleCalendar({ viewToggle }: Readonly<{ /** The list / cal
           {days.map((day) => {
             const items = itemsByDay.get(day) ?? [];
             const shifts = items.flatMap((item) => (item.kind === 'shift' ? [item] : []));
-            const records = items.flatMap((item) => (item.kind === 'record' ? [item] : []));
+            // Only records with a clock-in draw a bar; one never clocked in leaves the shift its full width.
+            const records = items.flatMap((item) =>
+              item.kind === 'record' && item.record.clockIn ? [{ ...item, clockIn: item.record.clockIn }] : [],
+            );
             return (
               <div key={day} className="relative min-w-0 border-r border-border last:border-r-0" style={{ height: bodyHeight }}>
                 {hours.map((hour) => (
@@ -435,8 +457,7 @@ export function MyScheduleCalendar({ viewToggle }: Readonly<{ /** The list / cal
                 {/* The time you were clocked in: a narrow bar on the right */}
                 {records.map((item) => {
                   const { record } = item;
-                  if (!record.clockIn) return null;
-                  const start = hoursIntoDay(record.clockIn, day);
+                  const start = hoursIntoDay(item.clockIn, day);
                   let end = record.clockOut ? hoursIntoDay(record.clockOut, day) : start + 0.5;
                   // Still clocked in today: up to now.
                   if (!record.clockOut && day === today) end = Math.max(start + 0.25, nowHours);
