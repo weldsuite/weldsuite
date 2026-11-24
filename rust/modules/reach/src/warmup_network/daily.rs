@@ -12,8 +12,9 @@
 //!    with any other reason is never touched.
 //! 4. Cleanup of old warmup mail and old message rows ([`run_cleanup`]).
 //! 5. The corpus refresh ([`refresh_corpus`]): a new generated set when the
-//!    stored one is a month old, with the install's AI; without AI the
-//!    built-in set stays.
+//!    stored one is a month old and the pool has mailboxes taking part, tried
+//!    at most once a week, with the install's AI (Claude where the install
+//!    has WeldSuite's Anthropic key); without AI the built-in set stays.
 //!
 //! Each step is independent: one failing is logged and the others still run.
 

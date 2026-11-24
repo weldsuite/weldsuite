@@ -1060,6 +1060,27 @@ export const common = {
       tasks: {
         settingUpAccount: 'Setting up your account...',
       },
+      // The workspace step of connecting an AI app (an MCP client) on the EU
+      // and self-hosted editions: the sign-in sends the browser here after
+      // its consent screen to ask which workspace the connection is for.
+      mcpWorkspace: {
+        loading: 'Loading your workspaces…',
+        title: 'Choose a workspace',
+        subtitle: '{client} wants to use WeldSuite. Choose the workspace it may work in.',
+        returnsTo: "You'll go back to {host} afterwards.",
+        hint: 'The app can do what you can do in that workspace. To use another workspace, connect the app again.',
+        required: 'Choose a workspace to continue.',
+        continue: 'Continue',
+        cancel: 'Cancel',
+        continuing: 'Connecting…',
+        noWorkspacesTitle: "You're not in a workspace yet",
+        noWorkspacesBody: 'Create or join a workspace in WeldSuite first, then connect the app again.',
+        expiredTitle: 'This link has expired',
+        expiredBody: 'Start connecting again from your AI app.',
+        errorTitle: 'Something went wrong',
+        errorBody: "WeldSuite couldn't finish connecting the app. Start connecting again from your AI app.",
+        tryAgain: 'Try again',
+      },
     },
     desktop: {
       settings: {

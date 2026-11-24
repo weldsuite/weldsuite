@@ -10,13 +10,15 @@
 //! 2. The feature's override: its provider and model, or the provider's task
 //!    map.
 //! 3. The workspace default provider's task map.
-//! 4. The install default.
+//! 4. A fixed feature's own provider ([`Feature::weldsuite_provider`]), on
+//!    WeldSuite's key, when the install has that key.
+//! 5. The install default.
 //!
 //! Whatever the settings say: a provider that isn't enabled (or offered by the
 //! install, or whose key source isn't configured, or whose own key is marked
 //! failing) is never routed to; fixed features ([`Feature::overridable`]) and
 //! the install-only tasks (embeddings, transcription) stay on the install
-//! provider; and the fallback chain goes from a non-EU provider to the
+//! provider, or on the fixed feature's own provider; and the fallback chain goes from a non-EU provider to the
 //! install provider's model for the same task and tier, then to the install's
 //! EU `AI_FALLBACK_MODEL`, never from an EU target to a non-EU one.
 
@@ -321,7 +323,19 @@ fn primary_target(
         }
     }
 
-    // 4. The install default.
+    // 4. A fixed feature's own provider, on WeldSuite's key. No workspace
+    //    setting reaches this: the feature isn't overridable.
+    if let Some(provider) = call.feature.weldsuite_provider()
+        && provider != install
+        && !call.task.install_only()
+        && has_weldsuite_key(config, provider)
+        && let Some(model) = task_model(config, provider, call.task, call.tier)
+            .filter(|model| capable(config, provider, model, needs))
+    {
+        return Ok(target(config, provider, model, KeySource::Weldsuite));
+    }
+
+    // 5. The install default.
     let model = task_model(config, install, call.task, call.tier).ok_or(AiError::Unavailable)?;
     Ok(target(config, install, model, KeySource::Weldsuite))
 }
@@ -920,6 +934,43 @@ mod tests {
     }
 
     #[test]
+    fn the_warmup_corpus_runs_on_weldsuites_anthropic_account() {
+        let draft = call(Feature::ReachWarmup, Task::Draft, Tier::Quality);
+        // No workspace opted in to anything: WeldSuite's key is what counts.
+        let none = WorkspaceAiSettings::default();
+        let claude = route(&eu(), &none, &draft);
+        assert_eq!(
+            claude.primary,
+            Target {
+                provider: ProviderId::Anthropic,
+                model: "anthropic/claude-opus-5-5".to_owned(),
+                region: Region::OutsideEu,
+                key_source: KeySource::Weldsuite,
+            }
+        );
+        // A refusal falls back to the install provider, on WeldSuite's key.
+        assert_eq!(claude.fallbacks.len(), 1);
+        assert_eq!(claude.fallbacks[0].model, "mistral/mistral-large-4-0");
+        assert_eq!(claude.fallbacks[0].key_source, KeySource::Weldsuite);
+        // A workspace's settings don't move it: Anthropic disabled, or an
+        // own key, still runs on WeldSuite's account.
+        let mut own = WorkspaceAiSettings::default();
+        enable(&mut own, ProviderId::Anthropic, KeySource::Own);
+        own.default_provider = Some(ProviderId::OpenAi);
+        assert_eq!(route(&eu(), &own, &draft).primary, claude.primary);
+        // Without WeldSuite's Anthropic key it stays on the install provider.
+        let mut config = eu();
+        config.anthropic.api_key = Some("  ".to_owned());
+        let mistral = route(&config, &none, &draft);
+        assert_eq!(mistral.primary.provider, ProviderId::Mistral);
+        assert_eq!(mistral.primary.model, "mistral/mistral-large-4-0");
+        assert_eq!(mistral.fallbacks, Vec::<Target>::new());
+        // The other fixed features have no provider of their own.
+        assert_eq!(Feature::SearchIndex.weldsuite_provider(), None);
+        assert_eq!(Feature::MailReview.weldsuite_provider(), None);
+    }
+
+    #[test]
     fn fixed_features_and_install_only_tasks_stay_on_the_install_provider() {
         let mut settings = WorkspaceAiSettings::default();
         enable(&mut settings, ProviderId::Anthropic, KeySource::Weldsuite);
@@ -930,13 +981,16 @@ mod tests {
             Feature::MailReview,
         ] {
             let task = catalog::feature(feature).tasks[0];
-            let route = route(&eu(), &settings, &call(feature, task, Tier::Free));
-            assert_eq!(
-                route.primary.provider,
-                ProviderId::Mistral,
-                "{}",
-                feature.as_str()
-            );
+            if feature.weldsuite_provider().is_none() {
+                let route = route(&eu(), &settings, &call(feature, task, Tier::Free));
+                assert_eq!(
+                    route.primary.provider,
+                    ProviderId::Mistral,
+                    "{}",
+                    feature.as_str()
+                );
+            }
+            // No workspace can pick their model, whoever runs them.
             assert!(!allows(
                 &eu(),
                 &settings,
@@ -1255,6 +1309,15 @@ mod tests {
         })
     }
 
+    /// Whether `target` is a fixed feature's own provider on WeldSuite's
+    /// configured key ([`Feature::weldsuite_provider`]).
+    fn weldsuite_target(config: &AiConfig, feature: Feature, target: &Target) -> bool {
+        !feature.overridable()
+            && feature.weldsuite_provider() == Some(target.provider)
+            && target.key_source == KeySource::Weldsuite
+            && has_weldsuite_key(config, target.provider)
+    }
+
     #[test]
     #[allow(clippy::too_many_lines)]
     fn a_disabled_provider_is_never_routed_to() {
@@ -1372,7 +1435,8 @@ mod tests {
             };
             for target in route.targets() {
                 assert!(
-                    permitted(&config, &settings, target),
+                    permitted(&config, &settings, target)
+                        || weldsuite_target(&config, feature, target),
                     "{target:?} for {} under {settings:?}",
                     feature.as_str()
                 );
@@ -1389,7 +1453,12 @@ mod tests {
                 previous = Some(target);
             }
             if !feature.overridable() || task.install_only() {
-                assert_eq!(Some(route.primary.provider), config.default_provider);
+                assert!(
+                    Some(route.primary.provider) == config.default_provider
+                        || weldsuite_target(&config, feature, &route.primary),
+                    "{route:?} for {}",
+                    feature.as_str()
+                );
             }
         }
         assert!(
@@ -1459,6 +1528,15 @@ mod tests {
         assert_eq!(index["overridable"], false);
         assert_eq!(index["effective"]["provider"], "mistral");
         assert_eq!(index["effective"]["region"], "eu");
+        // The warmup corpus shows where WeldSuite runs it.
+        let warmup = policy
+            .features
+            .iter()
+            .find(|f| f["id"] == "reach-warmup")
+            .expect("reach-warmup");
+        assert_eq!(warmup["overridable"], false);
+        assert_eq!(warmup["effective"]["provider"], "anthropic");
+        assert_eq!(warmup["effective"]["region"], "outside-eu");
         let index_models: Vec<&str> = index["models"]
             .as_array()
             .expect("models")

@@ -311,6 +311,7 @@ import { Route as ObjectsSlugIndexRouteImport } from './routes/objects/$slug/ind
 import { Route as InviteAcceptIndexRouteImport } from './routes/invite/accept/index'
 import { Route as AuthSsoCallbackIndexRouteImport } from './routes/auth/sso-callback/index'
 import { Route as AuthResetPasswordIndexRouteImport } from './routes/auth/reset-password/index'
+import { Route as AuthMcpWorkspaceIndexRouteImport } from './routes/auth/mcp-workspace/index'
 import { Route as AuthForgotPasswordIndexRouteImport } from './routes/auth/forgot-password/index'
 import { Route as AuthErrorIndexRouteImport } from './routes/auth/error/index'
 import { Route as AuthDesktopHandoffIndexRouteImport } from './routes/auth/desktop-handoff/index'
@@ -2201,6 +2202,11 @@ const AuthSsoCallbackIndexRoute = AuthSsoCallbackIndexRouteImport.update({
 const AuthResetPasswordIndexRoute = AuthResetPasswordIndexRouteImport.update({
   id: '/reset-password/',
   path: '/reset-password/',
+  getParentRoute: () => AuthRouteRoute,
+} as any)
+const AuthMcpWorkspaceIndexRoute = AuthMcpWorkspaceIndexRouteImport.update({
+  id: '/mcp-workspace/',
+  path: '/mcp-workspace/',
   getParentRoute: () => AuthRouteRoute,
 } as any)
 const AuthForgotPasswordIndexRoute = AuthForgotPasswordIndexRouteImport.update({
@@ -4332,6 +4338,7 @@ export interface FileRoutesByFullPath {
   '/auth/desktop-handoff/': typeof AuthDesktopHandoffIndexRoute
   '/auth/error/': typeof AuthErrorIndexRoute
   '/auth/forgot-password/': typeof AuthForgotPasswordIndexRoute
+  '/auth/mcp-workspace/': typeof AuthMcpWorkspaceIndexRoute
   '/auth/reset-password/': typeof AuthResetPasswordIndexRoute
   '/auth/sso-callback/': typeof AuthSsoCallbackIndexRoute
   '/invite/accept/': typeof InviteAcceptIndexRoute
@@ -4922,6 +4929,7 @@ export interface FileRoutesByTo {
   '/auth/desktop-handoff': typeof AuthDesktopHandoffIndexRoute
   '/auth/error': typeof AuthErrorIndexRoute
   '/auth/forgot-password': typeof AuthForgotPasswordIndexRoute
+  '/auth/mcp-workspace': typeof AuthMcpWorkspaceIndexRoute
   '/auth/reset-password': typeof AuthResetPasswordIndexRoute
   '/auth/sso-callback': typeof AuthSsoCallbackIndexRoute
   '/invite/accept': typeof InviteAcceptIndexRoute
@@ -5559,6 +5567,7 @@ export interface FileRoutesById {
   '/auth/desktop-handoff/': typeof AuthDesktopHandoffIndexRoute
   '/auth/error/': typeof AuthErrorIndexRoute
   '/auth/forgot-password/': typeof AuthForgotPasswordIndexRoute
+  '/auth/mcp-workspace/': typeof AuthMcpWorkspaceIndexRoute
   '/auth/reset-password/': typeof AuthResetPasswordIndexRoute
   '/auth/sso-callback/': typeof AuthSsoCallbackIndexRoute
   '/invite/accept/': typeof InviteAcceptIndexRoute
@@ -6204,6 +6213,7 @@ export interface FileRouteTypes {
     | '/auth/desktop-handoff/'
     | '/auth/error/'
     | '/auth/forgot-password/'
+    | '/auth/mcp-workspace/'
     | '/auth/reset-password/'
     | '/auth/sso-callback/'
     | '/invite/accept/'
@@ -6794,6 +6804,7 @@ export interface FileRouteTypes {
     | '/auth/desktop-handoff'
     | '/auth/error'
     | '/auth/forgot-password'
+    | '/auth/mcp-workspace'
     | '/auth/reset-password'
     | '/auth/sso-callback'
     | '/invite/accept'
@@ -7430,6 +7441,7 @@ export interface FileRouteTypes {
     | '/auth/desktop-handoff/'
     | '/auth/error/'
     | '/auth/forgot-password/'
+    | '/auth/mcp-workspace/'
     | '/auth/reset-password/'
     | '/auth/sso-callback/'
     | '/invite/accept/'
@@ -10102,6 +10114,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthResetPasswordIndexRouteImport
       parentRoute: typeof AuthRouteRoute
     }
+    '/auth/mcp-workspace/': {
+      id: '/auth/mcp-workspace/'
+      path: '/mcp-workspace'
+      fullPath: '/auth/mcp-workspace/'
+      preLoaderRoute: typeof AuthMcpWorkspaceIndexRouteImport
+      parentRoute: typeof AuthRouteRoute
+    }
     '/auth/forgot-password/': {
       id: '/auth/forgot-password/'
       path: '/forgot-password'
@@ -12514,6 +12533,7 @@ interface AuthRouteRouteChildren {
   AuthDesktopHandoffIndexRoute: typeof AuthDesktopHandoffIndexRoute
   AuthErrorIndexRoute: typeof AuthErrorIndexRoute
   AuthForgotPasswordIndexRoute: typeof AuthForgotPasswordIndexRoute
+  AuthMcpWorkspaceIndexRoute: typeof AuthMcpWorkspaceIndexRoute
   AuthResetPasswordIndexRoute: typeof AuthResetPasswordIndexRoute
   AuthSsoCallbackIndexRoute: typeof AuthSsoCallbackIndexRoute
   AuthLoginTasksSplatRoute: typeof AuthLoginTasksSplatRoute
@@ -12526,6 +12546,7 @@ const AuthRouteRouteChildren: AuthRouteRouteChildren = {
   AuthDesktopHandoffIndexRoute: AuthDesktopHandoffIndexRoute,
   AuthErrorIndexRoute: AuthErrorIndexRoute,
   AuthForgotPasswordIndexRoute: AuthForgotPasswordIndexRoute,
+  AuthMcpWorkspaceIndexRoute: AuthMcpWorkspaceIndexRoute,
   AuthResetPasswordIndexRoute: AuthResetPasswordIndexRoute,
   AuthSsoCallbackIndexRoute: AuthSsoCallbackIndexRoute,
   AuthLoginTasksSplatRoute: AuthLoginTasksSplatRoute,

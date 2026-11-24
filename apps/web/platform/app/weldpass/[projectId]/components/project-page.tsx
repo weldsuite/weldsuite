@@ -1,6 +1,7 @@
 /**
  * The frame every page of one WeldPass project shares: the breadcrumb trail,
- * the toolbar row with the back button and the Secrets / Sync / Audit log tabs. The three sections are separate
+ * the toolbar row with the back button and the Secrets / Sync / Audit log tabs (no Sync where the
+ * edition lacks 'weldpass-sync'). The sections are separate
  * routes, so a tab change is a navigation and each one can be linked to. A
  * section's own search and buttons join the back button in the toolbar row.
  */
@@ -11,6 +12,7 @@ import { KeyRound, RefreshCw, ScrollText } from 'lucide-react';
 import type { PageTab } from '@weldsuite/ui/components/page-tabs';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { useWeldPassProject } from '@/hooks/queries/use-weldpass-queries';
+import { isFeatureAvailable } from '@/lib/edition';
 import { TabsPage, usePassBreadcrumbs, type TabsPageToolbar } from '../../components/page-kit';
 
 export type ProjectSection = 'secrets' | 'sync' | 'audit';
@@ -38,7 +40,10 @@ export function ProjectPage({
 
   const tabs: PageTab[] = [
     { id: 'secrets', label: t('weldpass.secretsTab'), icon: KeyRound },
-    { id: 'sync', label: t('weldpass.sync'), icon: RefreshCw },
+    // Sync pushes secrets to Cloudflare and Vercel, which some editions don't.
+    ...(isFeatureAvailable('weldpass-sync')
+      ? [{ id: 'sync', label: t('weldpass.sync'), icon: RefreshCw }]
+      : []),
     { id: 'audit', label: t('weldpass.auditLog'), icon: ScrollText },
   ];
 

@@ -17,16 +17,21 @@ use std::sync::{Arc, Mutex};
 
 use serde_json::{Value, json};
 use sqlx::PgPool;
+use weldsuite_ai::{Ai, AiConfig, FakeProvider};
 use weldsuite_ports::{
     BoxFuture, DefaultFlags, DynFlagSource, ImapError, ImapErrorKind, MemoryImap, SpecialUse,
     StaticFlags,
 };
 use weldsuite_reach::warmup_network::WarmupNetwork;
+use weldsuite_reach::warmup_network::corpus::reset_corpus_cache;
 use weldsuite_reach::warmup_network::daily::run_daily;
 use weldsuite_reach::warmup_network::dispatch::{
     WarmupQueue, WarmupQueueKind, handle_batch, run_dispatch,
 };
 use weldsuite_reach::warmup_network::engage::{EngageOutcome, process_engage};
+use weldsuite_reach::warmup_network::generate::{
+    BATCH_COUNT, CORPUS_RETRY_AFTER_MS, THREADS_PER_BATCH, refresh_corpus,
+};
 use weldsuite_reach::warmup_network::planner::run_planner;
 use weldsuite_reach::warmup_network::send::{SendOutcome, process_send};
 use weldsuite_reach_domain::credentials::{MailServerCredentials, seal, warmup_keyring};
@@ -144,6 +149,7 @@ async fn reset(world: &World) {
         "delete from reach_warmup_messages",
         "delete from reach_warmup_mailboxes",
         "delete from workspace_due_index where kind = 'reach_warmup'",
+        "delete from system_settings where key like 'reach-warmup.corpus.%'",
     ] {
         sqlx::query(sql).execute(&world.master).await.expect(sql);
     }
@@ -753,6 +759,101 @@ async fn daily_and_cleanup(world: &World) {
     assert_eq!(again.advanced, 0);
 }
 
+/// The install's AI with WeldSuite's Anthropic key, answered by `fake`.
+fn claude(fake: &FakeProvider) -> Ai {
+    let env = |name: &str| match name {
+        "AI_DEFAULT_PROVIDER" => Some("mistral".to_owned()),
+        "MISTRAL_API_KEY" => Some("mistral-key".to_owned()),
+        "ANTHROPIC_API_KEY" => Some("sk-ant-weldsuite".to_owned()),
+        _ => None,
+    };
+    let mut problems = Vec::new();
+    let config = AiConfig::from_lookup(&env, &mut problems);
+    Ai::fake(config, fake.clone())
+}
+
+/// A batch of valid threads, subjects numbered from `first`.
+fn valid_batch(first: usize) -> Value {
+    let threads: Vec<Value> = (first..first + THREADS_PER_BATCH)
+        .map(|n| {
+            json!({
+                "subject": format!("Room booking {n}"),
+                "messages": [
+                    { "author": "starter", "body": "Hi {{recipientFirstName}}, can we move our meeting to Friday morning?\n\nThanks,\n{{senderFirstName}}" },
+                    { "author": "responder", "body": "Friday morning works for me, see you then.\n\n{{senderFirstName}}" },
+                ],
+            })
+        })
+        .collect();
+    json!({ "threads": threads })
+}
+
+async fn corpus_refresh(world: &World) {
+    reset(world).await;
+    let first = now();
+
+    // No mailbox takes part: nothing is asked.
+    mailbox(world, "r1", "rho.test", "removed", 0).await;
+    let idle = FakeProvider::new();
+    assert!(!refresh_corpus(&world.master, Some(&claude(&idle)), first).await);
+    assert_eq!(idle.calls().len(), 0);
+
+    // With one, a refresh is tried on Claude. Answers that aren't the JSON
+    // asked for leave the built-in set, and the try is recorded.
+    mailbox(world, "w1", "omega.test", "warming", 3).await;
+    let failing = FakeProvider::new();
+    assert!(!refresh_corpus(&world.master, Some(&claude(&failing)), first).await);
+    let calls = failing.calls();
+    assert_eq!(calls.len(), BATCH_COUNT);
+    assert!(
+        calls
+            .iter()
+            .all(|call| call.url == "https://api.anthropic.com/v1/messages")
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "select count(*) from system_settings where key = 'reach-warmup.corpus.meta'"
+        )
+        .fetch_one(&world.master)
+        .await
+        .expect("count"),
+        0
+    );
+
+    // The next nights wait for the retry window.
+    let waiting = FakeProvider::new();
+    for day in 1..7 {
+        let at = first + day * DAY;
+        assert!(!refresh_corpus(&world.master, Some(&claude(&waiting)), at).await);
+    }
+    assert_eq!(waiting.calls().len(), 0);
+
+    // A week later it tries again, and a good answer replaces the set.
+    let mut good = FakeProvider::new();
+    for batch in 0..BATCH_COUNT {
+        good = good.reply_json(&valid_batch(batch * THREADS_PER_BATCH + 1));
+    }
+    let later = first + CORPUS_RETRY_AFTER_MS;
+    assert!(refresh_corpus(&world.master, Some(&claude(&good)), later).await);
+    assert_eq!(good.calls().len(), BATCH_COUNT);
+    let stored: Option<Value> = sqlx::query_scalar(
+        "select value from system_settings where key = 'reach-warmup.corpus.latest'",
+    )
+    .fetch_one(&world.master)
+    .await
+    .expect("stored set");
+    assert_eq!(
+        stored.as_ref().and_then(Value::as_array).map(Vec::len),
+        Some(THREADS_PER_BATCH * BATCH_COUNT)
+    );
+
+    // A fresh set isn't refreshed, a month on it is.
+    let fresh = FakeProvider::new();
+    assert!(!refresh_corpus(&world.master, Some(&claude(&fresh)), later + 20 * DAY).await);
+    assert_eq!(fresh.calls().len(), 0);
+    reset_corpus_cache();
+}
+
 #[tokio::test]
 async fn the_warmup_network_on_the_master_schema() {
     let Some(world) = world().await else {
@@ -765,5 +866,6 @@ async fn the_warmup_network_on_the_master_schema() {
     engagement_failures(&world).await;
     login_recheck_and_planner(&world).await;
     daily_and_cleanup(&world).await;
+    corpus_refresh(&world).await;
     reset(&world).await;
 }

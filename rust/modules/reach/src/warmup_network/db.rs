@@ -18,9 +18,27 @@ use weldsuite_schema::master::{reach_warmup_mailboxes, reach_warmup_messages};
 
 use super::corpus::CorpusPerson;
 
+/// The statuses of a mailbox taking part in the network.
+const ELIGIBLE_STATUSES: [&str; 3] = ["waiting", "warming", "maintaining"];
+
 /// `isEligible(status)`.
 pub fn is_eligible(status: &str) -> bool {
-    matches!(status, "waiting" | "warming" | "maintaining")
+    ELIGIBLE_STATUSES.contains(&status)
+}
+
+/// Whether any pool mailbox takes part in the network ([`is_eligible`]):
+/// without one, nothing is planned and the corpus isn't needed.
+pub async fn has_eligible_mailboxes(master: &PgPool) -> Result<bool, DbErr> {
+    use reach_warmup_mailboxes::Column;
+    let any: Option<String> = reach_warmup_mailboxes::Entity::find()
+        .select_only()
+        .column(Column::Id)
+        .filter(Column::Status.is_in(ELIGIBLE_STATUSES))
+        .limit(1)
+        .into_tuple()
+        .one(&orm(master))
+        .await?;
+    Ok(any.is_some())
 }
 
 /// `CLAIM_TTL_MS`: a claim is held this long before the dispatcher hands the

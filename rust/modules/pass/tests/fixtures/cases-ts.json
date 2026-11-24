@@ -187,7 +187,7 @@
     {
       "item": "co.uk",
       "page": "example.co.uk",
-      "output": true
+      "output": false
     },
     {
       "item": "localhost",
@@ -203,6 +203,140 @@
       "item": "a.b.c",
       "page": "b.c",
       "output": true
+    },
+    {
+      "item": "a.github.io",
+      "page": "github.io",
+      "output": false
+    },
+    {
+      "item": "github.io",
+      "page": "a.github.io",
+      "output": false
+    },
+    {
+      "item": "a.github.io",
+      "page": "b.github.io",
+      "output": false
+    },
+    {
+      "item": "a.github.io",
+      "page": "login.a.github.io",
+      "output": true
+    },
+    {
+      "item": "github.io",
+      "page": "github.io",
+      "output": true
+    },
+    {
+      "item": "example.co.uk",
+      "page": "www.example.co.uk",
+      "output": true
+    },
+    {
+      "item": "example.co.uk",
+      "page": "co.uk",
+      "output": false
+    },
+    {
+      "item": "x.blogspot.com",
+      "page": "blogspot.com",
+      "output": false
+    },
+    {
+      "item": "acme-match.test",
+      "page": "app.acme-match.test",
+      "output": true
+    },
+    {
+      "item": "127.0.0.1",
+      "page": "127.0.0.1",
+      "output": true
+    },
+    {
+      "item": "0.0.1",
+      "page": "127.0.0.1",
+      "output": false
+    },
+    {
+      "item": "localhost",
+      "page": "localhost",
+      "output": true
+    }
+  ],
+  "publicSuffix": [
+    {
+      "input": "com",
+      "output": true
+    },
+    {
+      "input": "example.com",
+      "output": false
+    },
+    {
+      "input": "co.uk",
+      "output": true
+    },
+    {
+      "input": "example.co.uk",
+      "output": false
+    },
+    {
+      "input": "github.io",
+      "output": true
+    },
+    {
+      "input": "a.github.io",
+      "output": false
+    },
+    {
+      "input": "blogspot.com",
+      "output": true
+    },
+    {
+      "input": "herokuapp.com",
+      "output": true
+    },
+    {
+      "input": "app.herokuapp.com",
+      "output": false
+    },
+    {
+      "input": "test",
+      "output": true
+    },
+    {
+      "input": "acme-match.test",
+      "output": false
+    },
+    {
+      "input": "localhost",
+      "output": true
+    },
+    {
+      "input": "nl",
+      "output": true
+    },
+    {
+      "input": "gov.uk",
+      "output": true
+    },
+    {
+      "input": "pages.dev",
+      "output": true
+    },
+    {
+      "input": "vercel.app",
+      "output": true
+    },
+    {
+      "input": "my.vercel.app",
+      "output": false
+    },
+    {
+      "input": "127.0.0.1",
+      "output": false
     }
   ],
   "passwords": [

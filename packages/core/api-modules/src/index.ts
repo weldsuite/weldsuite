@@ -186,6 +186,10 @@ export const API_MODULES: readonly ApiModule[] = [
     '/api/invitations',
     '/api/legal-entities',
     '/api/me',
+    // Rust-only (EU and self-hosted editions on WeldID): the workspace step of
+    // an MCP client's sign-in. Global's app-api does not mount it (Clerk's
+    // OAuth consent picks the organization there).
+    '/api/mcp',
     '/api/member-limits',
     '/api/my-role',
     '/api/notification-preferences',

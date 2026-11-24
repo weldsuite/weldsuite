@@ -1775,7 +1775,7 @@ export const settings = {
         restrictedOffHint:
           'Off: everyone who has the app (WeldBooks or WeldHR) sees this entity, with their workspace role.',
         restrictedOnHint:
-          'On: only the members listed below see this entity, plus workspace owners and people who manage access.',
+          "On: only the members listed below and workspace owners see this entity. Admins who aren't listed don't see it either.",
         restrictedUpdated: 'Access updated',
         explanation:
           'Inside this entity a listed member acts with the role chosen here instead of their workspace role. Which apps they can open still follows their workspace role.',
@@ -1795,6 +1795,12 @@ export const settings = {
         removeTitle: 'Remove this member?',
         removeDescription:
           'They lose the entity role. If the entity is restricted they no longer see it; otherwise they see it with their workspace role.',
+        removeSelfDescription:
+          "This entity is restricted, so you won't see it anymore once you're off the list. Only the listed members and workspace owners can add you back.",
+        restrictSelfTitle: "Restrict it without yourself?",
+        restrictSelfDescription:
+          "You're not on the member list. Once this entity is restricted you won't see it anymore. Only the listed members and workspace owners can add you back.",
+        restrictSelfConfirm: 'Restrict anyway',
         removed: 'Member removed',
         added: 'Member added',
         roleUpdated: 'Role updated',
