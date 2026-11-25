@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useAccountingInvoices } from '@/hooks/queries/use-accounting-queries';
+import { useInfiniteAccountingInvoices } from '@/hooks/queries/use-accounting-queries';
 import { FileMinus } from 'lucide-react';
 import { WeldbooksEntityList } from '@/components/accounting/weldbooks-entity-list';
 import {
@@ -39,7 +39,7 @@ interface CreditNoteRow {
  */
 export default function CreditNotesPage() {
   const [search, setSearch] = useState('');
-  const { data, isLoading } = useAccountingInvoices({ type: 'credit_note', search });
+  const { data, isLoading, hasNextPage, isFetchingNextPage, fetchNextPage } = useInfiniteAccountingInvoices({ type: 'credit_note', search });
   // A credit note is an invoice of type 'credit_note': it opens in the invoice
   // panel, synced to `?stack=` on this page.
   const { open: openPanel } = useObjectPanel();
@@ -49,7 +49,7 @@ export default function CreditNotesPage() {
   const tsl = t.accounting.statusLabels.invoice;
   const { formatMoney, formatDate } = useWeldbooksFormat();
 
-  const creditNotes = (data?.data ?? []) as unknown as CreditNoteRow[];
+  const creditNotes = (data?.rows ?? []) as unknown as CreditNoteRow[];
 
   const columns: ColumnDef<CreditNoteRow>[] = [
     {
@@ -112,6 +112,9 @@ export default function CreditNotesPage() {
       items={creditNotes}
       isLoading={isLoading}
       columns={columns}
+      hasMore={hasNextPage}
+      isLoadingMore={isFetchingNextPage}
+      onLoadMore={() => void fetchNextPage()}
       onRowClick={(cn) => openPanel({ type: 'invoice', id: cn.id })}
       getRowLabel={(cn) => cn.invoiceNumber ?? tcn.colNumber}
       searchQuery={search}

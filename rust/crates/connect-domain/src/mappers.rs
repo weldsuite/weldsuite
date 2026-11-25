@@ -306,8 +306,12 @@ pub enum Mapped {
     BankTransaction {
         external_id: String,
         financial_account_external_id: Option<String>,
-        /// Stripe lines: the invoice a charge paid.
+        /// Stripe lines: the invoice a charge paid. Moneybird mutations: the
+        /// sales invoice their first `SalesInvoice` payment settles.
         invoice_external_id: Option<String>,
+        /// Moneybird mutations: the purchase invoice or receipt their first
+        /// `Document` payment settles.
+        bill_external_id: Option<String>,
         values: Map<String, Value>,
     },
     Wms {
@@ -1475,6 +1479,7 @@ fn map_document(record: &Value, external_id: &str, entity: &'static str) -> Opti
             "currency",
             json!(psm(record, &["currency"], 3).unwrap_or_else(|| "EUR".to_owned())),
         ),
+        ("exchangeRate", opt(document_exchange_rate(record))),
         ("subtotal", json!(subtotal)),
         ("taxTotal", json!(tax_total)),
         ("total", json!(total)),
@@ -1495,24 +1500,153 @@ fn map_document(record: &Value, external_id: &str, entity: &'static str) -> Opti
     })
 }
 
-/// `looksLikeIban(value)`.
-fn looks_like_iban(value: Option<&str>) -> Option<String> {
+/// `documentExchangeRate(record)`: units of the document's currency per unit
+/// of the administration's base currency (WeldBooks converts with
+/// `amount / exchangeRate`), from Moneybird's totals and their `_base`
+/// twins: incl. tax first, else excl. tax. `None` when neither pair gives a
+/// positive ratio (a zero total, or no `_base` totals).
+fn document_exchange_rate(record: &Value) -> Option<String> {
+    [
+        ("total_price_incl_tax", "total_price_incl_tax_base"),
+        ("total_price_excl_tax", "total_price_excl_tax_base"),
+    ]
+    .into_iter()
+    .find_map(|(amount, base)| {
+        let amount = pick_number(record, &[amount])?;
+        let base = pick_number(record, &[base])?;
+        let rate = amount / base;
+        (amount != 0.0 && base != 0.0 && rate.is_finite() && rate > 0.0)
+            .then(|| format!("{rate:.6}"))
+    })
+}
+
+/// `IBAN_LENGTHS`: each IBAN country's IBAN length (the ISO 13616 registry).
+const IBAN_LENGTHS: [(&str, usize); 87] = [
+    ("AD", 24),
+    ("AE", 23),
+    ("AL", 28),
+    ("AT", 20),
+    ("AZ", 28),
+    ("BA", 20),
+    ("BE", 16),
+    ("BG", 22),
+    ("BH", 22),
+    ("BI", 27),
+    ("BR", 29),
+    ("BY", 28),
+    ("CH", 21),
+    ("CR", 22),
+    ("CY", 28),
+    ("CZ", 24),
+    ("DE", 22),
+    ("DJ", 27),
+    ("DK", 18),
+    ("DO", 28),
+    ("EE", 20),
+    ("EG", 29),
+    ("ES", 24),
+    ("FI", 18),
+    ("FK", 18),
+    ("FO", 18),
+    ("FR", 27),
+    ("GB", 22),
+    ("GE", 22),
+    ("GI", 23),
+    ("GL", 18),
+    ("GR", 27),
+    ("GT", 28),
+    ("HR", 21),
+    ("HU", 28),
+    ("IE", 22),
+    ("IL", 23),
+    ("IQ", 23),
+    ("IS", 26),
+    ("IT", 27),
+    ("JO", 30),
+    ("KW", 30),
+    ("KZ", 20),
+    ("LB", 28),
+    ("LC", 32),
+    ("LI", 21),
+    ("LT", 20),
+    ("LU", 20),
+    ("LV", 21),
+    ("LY", 25),
+    ("MC", 27),
+    ("MD", 24),
+    ("ME", 22),
+    ("MK", 19),
+    ("MN", 20),
+    ("MR", 27),
+    ("MT", 31),
+    ("MU", 30),
+    ("NI", 28),
+    ("NL", 18),
+    ("NO", 15),
+    ("OM", 23),
+    ("PK", 24),
+    ("PL", 28),
+    ("PS", 29),
+    ("PT", 25),
+    ("QA", 29),
+    ("RO", 24),
+    ("RS", 22),
+    ("RU", 33),
+    ("SA", 24),
+    ("SC", 31),
+    ("SD", 18),
+    ("SE", 24),
+    ("SI", 19),
+    ("SK", 24),
+    ("SM", 27),
+    ("SO", 23),
+    ("ST", 25),
+    ("SV", 28),
+    ("TL", 23),
+    ("TN", 24),
+    ("TR", 26),
+    ("UA", 29),
+    ("VA", 22),
+    ("VG", 24),
+    ("XK", 20),
+];
+
+/// `looksLikeIban(value)`: the value without whitespace, upper-cased, when it
+/// is an IBAN: two letters, two check digits and letters or digits, as long
+/// as its country's IBAN, with an ISO 7064 mod-97 remainder of 1. A
+/// Moneybird account identifier that only looks like one (a payment
+/// provider's account id) is not.
+pub(crate) fn looks_like_iban(value: Option<&str>) -> Option<String> {
     let compact: String = value?
         .chars()
         .filter(|c| !js_space(*c))
         .collect::<String>()
         .to_uppercase();
-    let len = compact.encode_utf16().count();
-    if !(15..=34).contains(&len) {
+    let bytes = compact.as_bytes();
+    if bytes.len() < 5
+        || !bytes[..2].iter().all(u8::is_ascii_uppercase)
+        || !bytes[2..4].iter().all(u8::is_ascii_digit)
+        || !bytes[4..]
+            .iter()
+            .all(|b| b.is_ascii_digit() || b.is_ascii_uppercase())
+    {
         return None;
     }
-    let bytes = compact.as_bytes();
-    let valid = bytes.len() >= 3
-        && bytes[..2].iter().all(u8::is_ascii_uppercase)
-        && bytes[2..]
-            .iter()
-            .all(|b| b.is_ascii_digit() || b.is_ascii_uppercase());
-    valid.then(|| slice_units(&compact, 34))
+    let (_, length) = IBAN_LENGTHS
+        .iter()
+        .find(|(country, _)| country.as_bytes() == &bytes[..2])?;
+    if bytes.len() != *length {
+        return None;
+    }
+    // The first four characters move to the end; letters count as 10..35.
+    let remainder = bytes[4..]
+        .iter()
+        .chain(&bytes[..4])
+        .fold(0u32, |acc, b| match b {
+            b'0'..=b'9' => (acc * 10 + u32::from(b - b'0')) % 97,
+            _ => (acc * 100 + u32::from(b - b'A') + 10) % 97,
+        });
+    (remainder == 1).then_some(compact)
 }
 
 fn map_bank_account(record: &Value, external_id: &str) -> Mapped {
@@ -1560,7 +1694,15 @@ fn map_bank_transaction(record: &Value, external_id: &str) -> Option<Mapped> {
     let state = ps(record, &["state"])
         .unwrap_or_else(|| "unprocessed".to_owned())
         .to_lowercase();
-    let status = if state == "processed" || state == "auto_booked" {
+    let settlement = ps(record, &["settlement_state"])
+        .unwrap_or_default()
+        .to_lowercase();
+    // A payment that never went through (a refused direct debit, a cancelled
+    // or expired card authorisation) stays visible, out of balances.
+    let void = VOID_SETTLEMENT_STATES.contains(&settlement.as_str());
+    let status = if void {
+        "excluded"
+    } else if state == "processed" || state == "auto_booked" {
         "reconciled"
     } else {
         "unreconciled"
@@ -1601,13 +1743,28 @@ fn map_bank_transaction(record: &Value, external_id: &str) -> Option<Mapped> {
         ("status", json!(status)),
         ("rawData", record.clone()),
     ]);
+    // The first payment of a type names what the mutation settles.
+    let paid = |invoice_type: &str| -> Option<String> {
+        if void {
+            return None;
+        }
+        records(record.get("payments"))
+            .iter()
+            .find(|p| p.get("invoice_type").and_then(Value::as_str) == Some(invoice_type))
+            .and_then(|p| nonzero(ps(p, &["invoice_id"])))
+    };
     Some(Mapped::BankTransaction {
         external_id: external_id.to_owned(),
         financial_account_external_id: ps(record, &["financial_account_id"]),
-        invoice_external_id: None,
+        invoice_external_id: paid("SalesInvoice"),
+        bill_external_id: paid("Document"),
         values,
     })
 }
+
+/// Moneybird's `settlement_state`s of a mutation that never settled: only
+/// `settled`, `authorised` and `pending` ones can be booked.
+const VOID_SETTLEMENT_STATES: [&str; 4] = ["cancelled", "expired", "refused", "error"];
 
 // ── WMS (Picqer) ────────────────────────────────────────────────────────────
 
@@ -2189,8 +2346,25 @@ pub fn map_with_field_mappings(
         let mapper_status = mapped.values_mut().get("status").cloned();
         apply_inbound_field_mappings(record, mapped.values_mut(), mappings);
         keep_known_document_status(&mut mapped, mapper_status);
+        keep_valid_iban(&mut mapped);
     }
     Some(mapped)
+}
+
+/// `keepValidIban(mapped)`: a bank account's IBAN after field mappings is an
+/// IBAN or nothing. Moneybird connections are seeded with `identifier →
+/// iban`, and an identifier is often no IBAN (a private account's name, a
+/// payment provider's account id).
+fn keep_valid_iban(mapped: &mut Mapped) {
+    if mapped.entity() != "bank_account" {
+        return;
+    }
+    let values = mapped.values_mut();
+    let Some(iban) = values.get("iban").filter(|v| !v.is_null()) else {
+        return;
+    };
+    let valid = looks_like_iban(iban.as_str());
+    values.insert("iban".to_owned(), opt(valid));
 }
 
 /// `keepKnownDocumentStatus(mapped, values)`: field mappings may not give an
@@ -2416,6 +2590,172 @@ mod tests {
         let mapped = map_with_field_mappings("invoice", &cancelled, "moneybird", &[custom])
             .expect("an invoice");
         assert_eq!(document(&mapped).0["status"], json!("cancelled"));
+    }
+
+    #[test]
+    fn moneybird_bills_carry_the_rate_of_their_base_totals() {
+        let bill = |totals: Value| {
+            let mut record =
+                json!({ "id": "bil9", "reference": "F-1", "state": "paid", "contact_id": "c1" });
+            if let (Some(record), Some(totals)) = (record.as_object_mut(), totals.as_object()) {
+                record.extend(totals.clone());
+            }
+            map_connector_record("bill", &record, "moneybird").expect("a bill")
+        };
+        let usd = bill(json!({
+            "currency": "USD",
+            "total_price_excl_tax": "120.0",
+            "total_price_excl_tax_base": "110.5",
+            "total_price_incl_tax": "120.0",
+            "total_price_incl_tax_base": "110.5",
+        }));
+        assert_eq!(document(&usd).0["exchangeRate"], json!("1.085973"));
+        let eur = bill(
+            json!({ "currency": "EUR", "total_price_incl_tax": "25.41", "total_price_incl_tax_base": "25.41" }),
+        );
+        assert_eq!(document(&eur).0["exchangeRate"], json!("1.000000"));
+        // A zero total says nothing about the rate; the excl. pair may.
+        let zero = bill(
+            json!({ "currency": "USD", "total_price_incl_tax": "0.0", "total_price_incl_tax_base": "0.0" }),
+        );
+        assert!(document(&zero).0.get("exchangeRate").is_none());
+        let excl = bill(json!({
+            "currency": "USD",
+            "total_price_incl_tax": "0",
+            "total_price_excl_tax": "10.0",
+            "total_price_excl_tax_base": "8.0",
+        }));
+        assert_eq!(document(&excl).0["exchangeRate"], json!("1.250000"));
+    }
+
+    fn bank_transaction(record: &Value) -> (Map<String, Value>, Option<String>, Option<String>) {
+        match map_connector_record("bank_transaction", record, "moneybird") {
+            Some(Mapped::BankTransaction {
+                values,
+                invoice_external_id,
+                bill_external_id,
+                ..
+            }) => (values, invoice_external_id, bill_external_id),
+            other => panic!(
+                "not a bank transaction but {:?}",
+                other.as_ref().map(Mapped::entity)
+            ),
+        }
+    }
+
+    #[test]
+    fn moneybird_mutations_name_what_their_payments_settle() {
+        let (values, invoice, bill) = bank_transaction(&json!({
+            "id": "fm1",
+            "amount": "-25.41",
+            "date": "2026-10-21",
+            "state": "processed",
+            "settlement_state": "settled",
+            "financial_account_id": "fa1",
+            "payments": [
+                { "invoice_type": "Document", "invoice_id": "501" },
+                { "invoice_type": "SalesInvoice", "invoice_id": "601" },
+                { "invoice_type": "Document", "invoice_id": "502" },
+            ],
+        }));
+        assert_eq!(values["status"], json!("reconciled"));
+        assert_eq!(bill.as_deref(), Some("501"));
+        assert_eq!(invoice.as_deref(), Some("601"));
+    }
+
+    #[test]
+    fn moneybird_mutations_that_never_settled_are_excluded() {
+        for settlement in ["refused", "cancelled", "expired", "error", "Cancelled"] {
+            let (values, invoice, bill) = bank_transaction(&json!({
+                "id": "fm2",
+                "amount": "-4.84",
+                "date": "2026-01-06",
+                "state": "processed",
+                "settlement_state": settlement,
+                "financial_account_id": "fa1",
+                "payments": [{ "invoice_type": "Document", "invoice_id": "501" }],
+            }));
+            assert_eq!(values["status"], json!("excluded"), "{settlement}");
+            assert_eq!((invoice, bill), (None, None), "{settlement}");
+        }
+        for settlement in ["settled", "authorised", "pending", ""] {
+            let (values, ..) = bank_transaction(&json!({
+                "id": "fm3",
+                "amount": "1",
+                "date": "2026-01-06",
+                "state": "unprocessed",
+                "settlement_state": settlement,
+                "financial_account_id": "fa1",
+            }));
+            assert_eq!(values["status"], json!("unreconciled"), "{settlement}");
+        }
+    }
+
+    #[test]
+    fn ibans_are_checked_by_country_length_and_checksum() {
+        for valid in [
+            "NL91ABNA0417164300",
+            "nl91 abna 0417 1643 00",
+            "DE89370400440532013000",
+            "GB82WEST12345698765432",
+            "BE68539007547034",
+        ] {
+            assert!(looks_like_iban(Some(valid)).is_some(), "{valid}");
+        }
+        assert_eq!(
+            looks_like_iban(Some("nl91 abna 0417 1643 00")).as_deref(),
+            Some("NL91ABNA0417164300")
+        );
+        for invalid in [
+            "NL91ABNA0417164301",        // wrong check digits
+            "NL91ABNA041716430",         // too short for NL
+            "BA32ABCDEFGHIJKLMNOPQRSTU", // looks like one, wrong length for BA
+            "ZZ12345678901234",          // no IBAN country
+            "G.L. van den Berg",
+            "0001",
+            "",
+        ] {
+            assert!(looks_like_iban(Some(invalid)).is_none(), "{invalid}");
+        }
+        assert!(looks_like_iban(None).is_none());
+    }
+
+    #[test]
+    fn a_bank_account_identifier_that_is_no_iban_does_not_become_one() {
+        let identifier = FieldMapping {
+            external_field_path: "identifier".to_owned(),
+            internal_field_path: "iban".to_owned(),
+            direction: "inbound".to_owned(),
+            transform_type: "direct".to_owned(),
+            transform_config: None,
+        };
+        let account = |record: Value| {
+            let mapped = map_with_field_mappings(
+                "bank_account",
+                &record,
+                "moneybird",
+                std::slice::from_ref(&identifier),
+            )
+            .expect("a bank account");
+            match mapped {
+                Mapped::BankAccount { values, .. } => values,
+                other => panic!("not a bank account but a {}", other.entity()),
+            }
+        };
+        let private = account(json!({
+            "id": "fa1",
+            "type": "PrivateWithdrawalAccount",
+            "name": "Rekening courant",
+            "identifier": "G.L. van den Berg",
+        }));
+        assert!(private.get("iban").is_none_or(Value::is_null));
+        let bank = account(json!({
+            "id": "fa2",
+            "type": "BankAccount",
+            "name": "Main",
+            "identifier": "NL91 ABNA 0417 1643 00",
+        }));
+        assert_eq!(bank["iban"], json!("NL91ABNA0417164300"));
     }
 
     #[test]

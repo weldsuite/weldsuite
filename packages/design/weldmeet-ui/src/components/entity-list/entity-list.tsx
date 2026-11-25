@@ -286,8 +286,9 @@ export function EntityList<T extends { id: string }>({
       <div className="absolute inset-0 bg-muted/50 pointer-events-none" />
       {leadingContent && <div className="relative flex items-center">{leadingContent}</div>}
       <span className="relative text-xs font-medium text-muted-foreground">{label}</span>
-      <span className="relative text-[10px] font-mono text-muted-foreground bg-muted border border-border w-[16px] h-[16px] flex items-center justify-center rounded-[5px] -translate-y-px">
-        <span className="translate-y-[1px]">{count}</span>
+      <span className="relative text-[10px] font-mono text-muted-foreground bg-muted border border-border min-w-[16px] h-[16px] px-1 flex items-center justify-center rounded-[5px] -translate-y-px">
+        {/* Rows are still being paged in: the count covers the loaded rows only, so it reads "N+". */}
+        <span className="translate-y-[1px]">{hasMore ? `${count}+` : count}</span>
       </span>
       {rightContent && <div className="relative ml-auto flex items-center">{rightContent}</div>}
     </div>

@@ -5,6 +5,7 @@
 //! (sku, email, code, …) links an existing row; else a row is created and
 //! mapped. A failing record is counted and sampled, never aborts the page.
 
+use std::collections::BTreeSet;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicI64, Ordering};
 
@@ -43,7 +44,11 @@ use crate::tables;
 
 const MAX_ERROR_SAMPLES: usize = 5;
 const MAX_ERROR_MESSAGE_LENGTH: usize = 200;
-pub const MONEYBIRD_ATTACHMENT_DOWNLOAD_BUDGET: i64 = 30;
+/// Moneybird attachment downloads per sync run. Global's 30 fits a Worker's
+/// subrequest cap; the server runs syncs in the background, with no such
+/// cap. What a run leaves is fetched by the next one
+/// ([`moneybird_attachment_backlog`]).
+pub const MONEYBIRD_ATTACHMENT_DOWNLOAD_BUDGET: i64 = 250;
 pub const STRIPE_PDF_DOWNLOAD_BUDGET: i64 = 30;
 
 /// `IngestCounts` + `errorSamples`.
@@ -188,6 +193,27 @@ pub fn stable_stringify(value: &Value) -> String {
             format!("{{{}}}", parts.join(","))
         }
     }
+}
+
+/// The version of the Moneybird mapping that a stored checksum was taken
+/// with: bumping it makes the next full sync re-apply the mapping to every
+/// record once (an unchanged checksum skips the record).
+const MONEYBIRD_MAPPER_VERSION: &str = "moneybird-2";
+
+/// `ingestChecksum(provider, record)`: [`record_checksum`], over a Moneybird
+/// record with [`MONEYBIRD_MAPPER_VERSION`] added as `__mapperVersion`.
+fn ingest_checksum(provider: &str, record: &Value) -> String {
+    if provider == "moneybird"
+        && let Some(object) = record.as_object()
+    {
+        let mut versioned = object.clone();
+        versioned.insert(
+            "__mapperVersion".to_owned(),
+            json!(MONEYBIRD_MAPPER_VERSION),
+        );
+        return record_checksum(&Value::Object(versioned));
+    }
+    record_checksum(record)
 }
 
 /// `recordChecksum(record)`: SHA-256 hex of [`stable_stringify`].
@@ -1156,7 +1182,7 @@ async fn ingest_catalog_record(
         publish_upsert(args, entity_type, &outcome).await;
         return Ok(());
     }
-    let checksum = record_checksum(record);
+    let checksum = ingest_checksum(args.provider, record);
     let outcome = upsert_by_mapping(
         args.db,
         args.connection_id,
@@ -1746,7 +1772,9 @@ async fn sync_moneybird_attachments(
             .and_then(Value::as_str)
             .or_else(|| item.get("name").and_then(Value::as_str));
         if !take_budget(&files.budget) {
-            return if keys.is_empty() { None } else { Some(keys) };
+            // Out of budget part-way: no partial list, so the document is
+            // fetched again (`attachment_keys` stays as it was).
+            return None;
         }
         if let Ok(download) = files
             .client
@@ -1821,6 +1849,145 @@ async fn attachments_unset(db: &PgPool, invoice: bool, id: &str) -> Result<bool,
     Ok(keys.flatten().is_none_or(|k| k.is_null()))
 }
 
+/// The stored `attachment_keys` of an invoice or bill (`None`: never set).
+async fn stored_attachment_keys(
+    db: &PgPool,
+    invoice: bool,
+    id: &str,
+) -> Result<Option<Value>, DbErr> {
+    let keys: Option<Option<Value>> = if invoice {
+        invoices::Entity::find()
+            .select_only()
+            .column(invoices::Column::AttachmentKeys)
+            .filter(invoices::Column::Id.eq(id))
+            .into_tuple()
+            .one(&orm(db))
+            .await?
+    } else {
+        bills::Entity::find()
+            .select_only()
+            .column(bills::Column::AttachmentKeys)
+            .filter(bills::Column::Id.eq(id))
+            .into_tuple()
+            .one(&orm(db))
+            .await?
+    };
+    Ok(keys.flatten().filter(|k| !k.is_null()))
+}
+
+/// `moneybirdFilesWanted(...)`: whether to (re)download a Moneybird
+/// document's files. Never fetched: yes. A changed sales invoice: yes (its
+/// PDF is rendered from it). A changed purchase invoice or receipt: only
+/// when its attachments differ from the stored ones, so a change elsewhere
+/// (or a new mapping version) does not download every file again.
+async fn moneybird_files_wanted(
+    args: &IngestArgs<'_>,
+    invoice: bool,
+    id: &str,
+    changed: bool,
+    record: &Value,
+) -> Result<bool, DbErr> {
+    let Some(stored) = stored_attachment_keys(args.db, invoice, id).await? else {
+        return Ok(true);
+    };
+    if !changed {
+        return Ok(false);
+    }
+    if !matches!(
+        args.external_type(),
+        "moneybird_purchase_invoice" | "moneybird_receipt"
+    ) {
+        return Ok(true);
+    }
+    let wanted: BTreeSet<String> = record
+        .get("attachments")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|item| match item.get("id") {
+            None | Some(Value::Null) => None,
+            Some(v) => Some(as_text(v)).filter(|id| !id.is_empty()),
+        })
+        .collect();
+    let stored: BTreeSet<String> = stored
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .filter_map(|key| {
+            key.split_once("/attachments/")
+                .and_then(|(_, rest)| rest.split('/').next())
+                .map(str::to_owned)
+        })
+        .collect();
+    Ok(wanted != stored)
+}
+
+/// `moneybirdAttachmentBacklog(db, connectionId, externalType)`: whether this
+/// connection imported a Moneybird document of that type (`None`: any of
+/// them) whose files were never fetched (`attachment_keys` unset): a run
+/// that ran out of download budget leaves them for the next.
+///
+/// # Errors
+///
+/// The tenant database's.
+pub async fn moneybird_attachment_backlog(
+    db: &PgPool,
+    connection_id: &str,
+    external_type: Option<&str>,
+) -> Result<bool, DbErr> {
+    let types: Vec<&str> = match external_type {
+        Some(
+            t @ ("moneybird_sales_invoice" | "moneybird_purchase_invoice" | "moneybird_receipt"),
+        ) => {
+            vec![t]
+        }
+        Some(_) => return Ok(false),
+        None => vec![
+            "moneybird_sales_invoice",
+            "moneybird_purchase_invoice",
+            "moneybird_receipt",
+        ],
+    };
+    let mapped = |types: &[&str]| {
+        Query::select()
+            .column(mappings::Column::InternalEntityId)
+            .from(mappings::Entity)
+            .and_where(mappings::Column::ConnectionId.eq(connection_id))
+            .and_where(mappings::Column::ExternalEntityType.is_in(types.iter().copied()))
+            .to_owned()
+    };
+    let sales: Vec<&str> = types
+        .iter()
+        .copied()
+        .filter(|t| *t == "moneybird_sales_invoice")
+        .collect();
+    let documents: Vec<&str> = types
+        .iter()
+        .copied()
+        .filter(|t| *t != "moneybird_sales_invoice")
+        .collect();
+    if !sales.is_empty()
+        && invoices::Entity::find()
+            .filter(invoices::Column::AttachmentKeys.is_null())
+            .filter(invoices::Column::DeletedAt.is_null())
+            .filter(invoices::Column::Id.in_subquery(mapped(&sales)))
+            .count(&orm(db))
+            .await?
+            > 0
+    {
+        return Ok(true);
+    }
+    Ok(!documents.is_empty()
+        && bills::Entity::find()
+            .filter(bills::Column::AttachmentKeys.is_null())
+            .filter(bills::Column::DeletedAt.is_null())
+            .filter(bills::Column::Id.in_subquery(mapped(&documents)))
+            .count(&orm(db))
+            .await?
+            > 0)
+}
+
 async fn set_attachment_keys(
     db: &PgPool,
     invoice: bool,
@@ -1861,6 +2028,12 @@ async fn ingest_document(
     result: &mut IngestResult,
 ) -> Outcome<()> {
     let invoice = entity == "invoice";
+    // A document without any contact (one still unprocessed in Moneybird's
+    // inbox) waits: it imports once it has one, as that change syncs.
+    if contact_external_id.is_none_or(str::is_empty) && nested.is_none() {
+        result.skipped += 1;
+        return Ok(());
+    }
     let Some(contact_id) = resolve_contact_id(args, contact_external_id, nested).await? else {
         return Err(Failure(
             "Invoice/bill contact is not mapped — sync contacts first".to_owned(),
@@ -1925,7 +2098,7 @@ async fn ingest_document(
     if let Some(files) = args.moneybird_files
         && args.provider == "moneybird"
         && files.budget.load(Ordering::SeqCst) > 0
-        && (changed || attachments_unset(args.db, invoice, &outcome.internal_id).await?)
+        && moneybird_files_wanted(args, invoice, &outcome.internal_id, changed, record).await?
         && let Some(keys) =
             sync_moneybird_attachments(files, args.http, args.external_type(), external_id, record)
                 .await
@@ -2055,7 +2228,7 @@ async fn ingest_accounting_record(
         result.skipped += 1;
         return Ok(());
     };
-    let checksum = record_checksum(record);
+    let checksum = ingest_checksum(args.provider, record);
     match mapped {
         Mapped::Party {
             external_id: party_external_id,
@@ -2192,6 +2365,47 @@ async fn resolve_bank_account_id(
     Ok(stub.internal_id)
 }
 
+/// `linkMoneybirdPayment(...)`: a Moneybird mutation names the bill (a
+/// purchase invoice or receipt) or sales invoice its payment settles; when
+/// this connection imported it, the transaction points at it, and a
+/// reconciled one was reconciled automatically. The status stays the
+/// mapper's.
+async fn link_moneybird_payment(
+    args: &IngestArgs<'_>,
+    values: &mut Map<String, Value>,
+    invoice_external_id: Option<&str>,
+    bill_external_id: Option<&str>,
+) -> Outcome<()> {
+    let mut linked = false;
+    if let Some(bill) = bill_external_id.filter(|b| !b.is_empty()) {
+        for external_type in ["moneybird_purchase_invoice", "moneybird_receipt"] {
+            if let Some(found) =
+                find_mapping(args.db, args.connection_id, external_type, bill).await?
+            {
+                values.insert("reconciledBillId".to_owned(), json!(found.internal_id));
+                linked = true;
+                break;
+            }
+        }
+    }
+    if let Some(invoice) = invoice_external_id.filter(|i| !i.is_empty())
+        && let Some(found) = find_mapping(
+            args.db,
+            args.connection_id,
+            "moneybird_sales_invoice",
+            invoice,
+        )
+        .await?
+    {
+        values.insert("reconciledInvoiceId".to_owned(), json!(found.internal_id));
+        linked = true;
+    }
+    if linked && values.get("status").and_then(Value::as_str) == Some("reconciled") {
+        values.insert("reconciliationType".to_owned(), json!("auto"));
+    }
+    Ok(())
+}
+
 async fn ingest_bank_record(
     args: &IngestArgs<'_>,
     entity_id: &str,
@@ -2272,7 +2486,7 @@ async fn ingest_bank_record(
         result.skipped += 1;
         return Ok(());
     }
-    let checksum = record_checksum(record);
+    let checksum = ingest_checksum(args.provider, record);
     match mapped {
         Mapped::BankAccount { values, .. } => {
             let outcome = upsert_by_mapping(
@@ -2296,6 +2510,7 @@ async fn ingest_bank_record(
         Mapped::BankTransaction {
             financial_account_external_id,
             invoice_external_id,
+            bill_external_id,
             values,
             ..
         } => {
@@ -2310,16 +2525,25 @@ async fn ingest_bank_record(
                     .await?;
             let mut values = values;
             if args.provider == "stripe"
-                && let Some(invoice) = invoice_external_id.filter(|i| !i.is_empty())
+                && let Some(invoice) = invoice_external_id.as_deref().filter(|i| !i.is_empty())
             {
                 let invoice_type = sync_external_type("stripe", "invoice", "stripe_invoice");
                 if let Some(found) =
-                    find_mapping(args.db, args.connection_id, &invoice_type, &invoice).await?
+                    find_mapping(args.db, args.connection_id, &invoice_type, invoice).await?
                 {
                     values.insert("status".to_owned(), json!("reconciled"));
                     values.insert("reconciliationType".to_owned(), json!("auto"));
                     values.insert("reconciledInvoiceId".to_owned(), json!(found.internal_id));
                 }
+            }
+            if args.provider == "moneybird" {
+                link_moneybird_payment(
+                    args,
+                    &mut values,
+                    invoice_external_id.as_deref(),
+                    bill_external_id.as_deref(),
+                )
+                .await?;
             }
             values.insert("entityId".to_owned(), json!(entity_id));
             values.insert("bankAccountId".to_owned(), json!(bank_account_id));

@@ -28,6 +28,10 @@ pub const AUTH_STATE_TTL_SECONDS: u64 = 15 * 60;
 pub const CALLBACK_PATH: &str = "/weldconnect/connectors/callback";
 
 const DEFAULT_PER_PAGE: u32 = 100;
+/// The `filter` the financial mutations' id list is asked with. Moneybird
+/// applies `period:this_year` when no filter is sent, and any filter without
+/// a `period` has no date limit, so this lists every year.
+pub const FINANCIAL_MUTATIONS_FILTER: &str = "state:all";
 /// Binary downloads (PDF redirects) can be slower than JSON list calls.
 const BINARY_TIMEOUT: Duration = Duration::from_secs(45);
 
@@ -521,6 +525,8 @@ impl Moneybird {
 
     /// Financial mutations through the synchronisation API: a 1-based page
     /// into the filtered id list, each page posting up to `per_page` ids.
+    /// The id list is asked for with [`FINANCIAL_MUTATIONS_FILTER`]: without
+    /// a filter Moneybird lists this year's mutations only.
     pub async fn list_financial_mutations(
         &self,
         http: Option<&OutboundHttp>,
@@ -529,7 +535,11 @@ impl Moneybird {
         let page = options.page.unwrap_or(1);
         let per_page = options.per_page.unwrap_or(DEFAULT_PER_PAGE) as usize;
         let versions = self
-            .get(http, "financial_mutations/synchronization", &[])
+            .get(
+                http,
+                "financial_mutations/synchronization",
+                &[("filter", Some(FINANCIAL_MUTATIONS_FILTER.to_owned()))],
+            )
             .await?;
         let rows = array(&versions);
         let since = options
@@ -699,7 +709,15 @@ impl Moneybird {
                     + self.count_path(http, "documents/receipts").await?
             }
             "bankAccounts" => self.list_financial_accounts(http).await?.items.len(),
-            "bankTransactions" => self.count_path(http, "financial_mutations").await?,
+            "bankTransactions" => self
+                .get(
+                    http,
+                    "financial_mutations/synchronization",
+                    &[("filter", Some(FINANCIAL_MUTATIONS_FILTER.to_owned()))],
+                )
+                .await?
+                .as_array()
+                .map_or(0, Vec::len),
             _ => 0,
         })
     }

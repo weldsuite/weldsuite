@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
-import { useAccountingBills } from '@/hooks/queries/use-accounting-queries';
+import { useInfiniteAccountingBills } from '@/hooks/queries/use-accounting-queries';
 import { ReceiptText } from 'lucide-react';
 import { WeldbooksEntityList } from '@/components/accounting/weldbooks-entity-list';
 import { ContactCell, RowAmount, RowDate, RowTitle, StatusChip } from '@/components/accounting/weldbooks-row-cells';
@@ -27,7 +27,7 @@ interface BillRow {
 
 export default function BillsPage() {
   const [search, setSearch] = useState('');
-  const { data, isLoading } = useAccountingBills({ search });
+  const { data, isLoading, hasNextPage, isFetchingNextPage, fetchNextPage } = useInfiniteAccountingBills({ search });
   const navigate = useNavigate();
   // Each bill opens in the shared object panel (type 'bill'), the same
   // panel/fullscreen shell as WeldCRM companies, synced to `?stack=`.
@@ -38,7 +38,7 @@ export default function BillsPage() {
   const tbp = t.accounting.billsPage;
   const tsl = t.accounting.statusLabels.bill as Record<string, string>;
 
-  const bills = (data?.data ?? []) as unknown as BillRow[];
+  const bills = (data?.rows ?? []) as unknown as BillRow[];
 
   // Group by lifecycle status, most-urgent first. The trailing "other" group is
   // an explicit catch-all: EntityList drops items matching no group, so any
@@ -98,6 +98,9 @@ export default function BillsPage() {
       isLoading={isLoading}
       columns={columns}
       groups={groups}
+      hasMore={hasNextPage}
+      isLoadingMore={isFetchingNextPage}
+      onLoadMore={() => void fetchNextPage()}
       onRowClick={(bill) => openPanel({ type: 'bill', id: bill.id })}
       getRowLabel={(bill) => bill.billNumber ?? bill.contactName ?? bill.id}
       searchQuery={search}

@@ -6,9 +6,9 @@ import type { GroupConfig } from '@/components/entity-list';
 const query = vi.hoisted(() => ({ filters: undefined as unknown, rows: [] as Array<Record<string, unknown>> }));
 
 vi.mock('@/hooks/queries/use-accounting-queries', () => ({
-  useAccountingInvoices: (filters: unknown) => {
+  useInfiniteAccountingInvoices: (filters: unknown) => {
     query.filters = filters;
-    return { data: { data: query.rows }, isLoading: false };
+    return { data: { rows: query.rows }, isLoading: false };
   },
 }));
 vi.mock('@/lib/router', () => ({ useRouter: () => ({ push: vi.fn() }) }));
