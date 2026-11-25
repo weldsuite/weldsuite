@@ -24,15 +24,20 @@ signs in through the server's WeldID; there is no Clerk and no Firebase.
 
 ### 1.1 EAS project
 
+Done: the project is `@weldsuite/weldpass-app`, and its id is in `app.json`
+(`extra.eas.projectId`). It was made with:
+
 ```bash
 cd apps/mobile/weldpass-app
 eas login
 eas init            # writes extra.eas.projectId into app.json
 ```
 
-Commit the project id. Until then `app.config.js` refuses CI and EAS builds.
-There is no `updates.url` and no OTA step in the deploy: WeldPass is not in
-`MOBILE_APPS` (`.github/scripts/deploy-plan.mjs`).
+Commit only the project id: `eas init` also writes the autofill extension's
+`extra.eas.build.experimental` block, which `@bacons/apple-targets` adds at
+build time anyway. Without a project id `app.config.js` refuses CI and EAS
+builds. There is no `updates.url` and no OTA step in the deploy: WeldPass is
+not in `MOBILE_APPS` (`.github/scripts/deploy-plan.mjs`).
 
 ### 1.2 WeldID
 
