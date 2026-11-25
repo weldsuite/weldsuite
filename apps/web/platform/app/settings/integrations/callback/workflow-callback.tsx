@@ -72,7 +72,7 @@ export function WorkflowCallback({ code, state, provider, returnTo }: Readonly<W
 
   return (
     <div className="flex min-h-[calc(100vh-8rem)] w-full items-center justify-center px-4 pb-[60px]">
-      <div className="max-w-sm text-center" role="status">
+      <div className="max-w-sm text-center">
         {status === 'loading' && (
           <>
             <Loader2 className="mx-auto mb-4 h-12 w-12 animate-spin text-muted-foreground" aria-hidden="true" />

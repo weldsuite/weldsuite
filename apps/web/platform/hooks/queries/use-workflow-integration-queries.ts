@@ -283,9 +283,7 @@ export function useConnectWorkflowProviderApiKey() {
         { credentials },
       );
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: workflowIntegrationKeys.list() });
-    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: workflowIntegrationKeys.list() }),
   });
 }
 
