@@ -16,7 +16,10 @@ import {
 } from './seat-price';
 import { parseMajorUnitsToCents } from './sso-admin';
 
-/** "Custom price, 20% below the list price of €25.00", or null at the list price or without one. */
+/**
+ * "Custom price, 20% below the list price of €25.00" ("Free seats, instead of
+ * …" at zero), or null at the list price or without one.
+ */
 export function offListNote(
   copy: MollieBillingCopy,
   unit: number | null,
@@ -25,8 +28,10 @@ export function offListNote(
 ): string | null {
   const off = offList(unit, list);
   if (off === null) return null;
+  const listPrice = formatCents(list, currency);
+  if (unit === 0) return fill(copy.seatPriceNote.free, { list: listPrice });
   const template = off > 0 ? copy.seatPriceNote.below : copy.seatPriceNote.above;
-  return fill(template, { percent: formatOffList(off), list: formatCents(list, currency) });
+  return fill(template, { percent: formatOffList(off), list: listPrice });
 }
 
 /** What to tell staff about a price that can't be saved. */
@@ -35,8 +40,6 @@ export function seatPriceProblemMessage(copy: MollieBillingCopy, problem: SeatPr
   switch (problem) {
     case 'format':
       return e.format;
-    case 'zero':
-      return e.zero;
     case 'too_high':
       return fill(e.tooHigh, { max: formatCents(MAX_SEAT_PRICE_CENTS, SEAT_PRICE_CURRENCY) });
     case 'unchanged':
@@ -83,6 +86,8 @@ export interface SeatPriceFormState {
   error: string | null;
   /** "3 × €19.50 = €58.50 per month, excl. VAT · Custom price, 22% below …", for a price that can be saved. */
   total: string | null;
+  /** Whether a price of zero can be saved: the dialog then says what free seats still pay. */
+  free: boolean;
   /** The field's `aria-describedby`: the total and the error while they show. */
   describedBy: string | undefined;
 }
@@ -111,5 +116,12 @@ export function seatPriceFormState(copy: MollieBillingCopy, input: SeatPriceForm
   }
 
   const ids = [total ? SEAT_PRICE_TOTAL_ID : null, error ? SEAT_PRICE_ERROR_ID : null].filter(Boolean);
-  return { cents, problem, error, total, describedBy: ids.length > 0 ? ids.join(' ') : undefined };
+  return {
+    cents,
+    problem,
+    error,
+    total,
+    free: cents === 0 && problem === null,
+    describedBy: ids.length > 0 ? ids.join(' ') : undefined,
+  };
 }

@@ -84,12 +84,15 @@ export function canAdjustSeatPrice(account: MollieBillingAccount, billing: Works
   return seatPriceRefusal(state, now) === null;
 }
 
-export type SeatPriceProblem = 'format' | 'zero' | 'too_high' | 'unchanged';
+export type SeatPriceProblem = 'format' | 'too_high' | 'unchanged';
 
-/** Why a price in cents can't be saved over `current`, or null when it can. Zero is a comp, not a price. */
+/**
+ * Why a price in cents can't be saved over `current`, or null when it can.
+ * Zero is a price: renewals then charge nothing for the seats (no plan line),
+ * while add-ons are still charged and the plan's credits still come.
+ */
 export function seatPriceProblem(cents: number | null, current: number | null): SeatPriceProblem | null {
   if (cents === null || !Number.isInteger(cents) || cents < 0) return 'format';
-  if (cents === 0) return 'zero';
   if (cents > MAX_SEAT_PRICE_CENTS) return 'too_high';
   if (cents === current) return 'unchanged';
   return null;

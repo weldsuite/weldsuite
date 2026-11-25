@@ -27,6 +27,7 @@ const en = {
   seatPriceNote: {
     below: 'Custom price, {percent} below the list price of {list}',
     above: 'Custom price, {percent} above the list price of {list}',
+    free: 'Free seats, instead of the list price of {list}',
   },
   adjustSeatPrice: 'Adjust seat price',
   seatPriceDialog: {
@@ -42,11 +43,11 @@ const en = {
     when: 'The renewal on {date} charges the new price. Nothing is charged or refunded for the current period, and seats added before then are charged at the new price.',
     ends: 'The price stays until the customer changes plan or billing cycle; a new plan is charged at its list price.',
     scheduled: 'A change of plan or billing cycle is scheduled for {date}, so this price only applies until then.',
+    free: 'At zero the seats are free: renewals charge nothing for them. Add-ons such as WeldReach inboxes are still charged, and the plan’s credits still come.',
     submit: 'Save seat price',
     success: 'Seat price saved.',
     errors: {
-      format: 'Enter an amount such as 20 or 19.50.',
-      zero: 'A seat price can’t be zero. For a free plan, comp the workspace from the CLI.',
+      format: 'Enter an amount such as 20, 19.50 or 0.',
       tooHigh: 'A seat can cost at most {max}.',
       unchanged: 'That is already the seat price.',
       noSubscription: 'This workspace has no running subscription on Mollie, so it has no seat price to change.',
@@ -125,6 +126,7 @@ const nl: MollieBillingCopy = {
   seatPriceNote: {
     below: 'Aangepaste prijs, {percent} onder de lijstprijs van {list}',
     above: 'Aangepaste prijs, {percent} boven de lijstprijs van {list}',
+    free: 'Gratis gebruikers, in plaats van de lijstprijs van {list}',
   },
   adjustSeatPrice: 'Prijs per gebruiker aanpassen',
   seatPriceDialog: {
@@ -140,11 +142,11 @@ const nl: MollieBillingCopy = {
     when: 'De verlenging op {date} schrijft de nieuwe prijs af. Voor de huidige periode wordt niets afgeschreven of terugbetaald, en gebruikers die tot dan worden toegevoegd, kosten de nieuwe prijs.',
     ends: 'De prijs blijft tot de klant van plan of factuurcyclus wisselt; een nieuw plan kost de lijstprijs.',
     scheduled: 'Op {date} staat een wijziging van plan of factuurcyclus gepland, dus deze prijs geldt alleen tot dan.',
+    free: 'Bij nul zijn de gebruikers gratis: verlengingen schrijven er niets voor af. Add-ons zoals WeldReach-inboxen worden wel afgeschreven, en de credits van het plan komen gewoon.',
     submit: 'Prijs opslaan',
     success: 'Prijs per gebruiker opgeslagen.',
     errors: {
-      format: 'Vul een bedrag in zoals 20 of 19,50.',
-      zero: 'Een prijs per gebruiker kan niet nul zijn. Geef de werkruimte voor een gratis plan een comp via de CLI.',
+      format: 'Vul een bedrag in zoals 20, 19,50 of 0.',
       tooHigh: 'Een gebruiker kost hoogstens {max}.',
       unchanged: 'Dat is al de prijs per gebruiker.',
       noSubscription: 'Deze werkruimte heeft geen lopend abonnement bij Mollie, dus er is geen prijs per gebruiker om te wijzigen.',
