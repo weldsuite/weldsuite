@@ -52,4 +52,5 @@ import './discount';
 import './supplier';
 import './warehouse';
 import './pick-list';
+import './parcel';
 import './merge-pull-request';

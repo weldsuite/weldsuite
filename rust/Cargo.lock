@@ -9756,6 +9756,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "weldsuite-shipping-domain"
+version = "0.0.0"
+dependencies = [
+ "base64 0.22.1",
+ "form_urlencoded",
+ "serde",
+ "serde_json",
+ "time",
+ "tokio",
+ "tracing",
+ "uuid",
+ "weldsuite-ports",
+]
+
+[[package]]
 name = "weldsuite-sign"
 version = "0.0.0"
 dependencies = [
@@ -9858,15 +9873,18 @@ dependencies = [
  "base64 0.22.1",
  "http",
  "sea-orm",
+ "serde",
  "serde_json",
  "sqlx",
  "time",
  "tokio",
  "tower",
  "tracing",
+ "uuid",
  "weldsuite-auth",
  "weldsuite-catalogs",
  "weldsuite-connect-domain",
+ "weldsuite-core-domain",
  "weldsuite-db",
  "weldsuite-events",
  "weldsuite-kit",
@@ -9874,6 +9892,7 @@ dependencies = [
  "weldsuite-permissions",
  "weldsuite-ports",
  "weldsuite-schema",
+ "weldsuite-shipping-domain",
 ]
 
 [[package]]

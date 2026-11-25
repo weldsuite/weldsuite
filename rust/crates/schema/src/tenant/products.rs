@@ -150,6 +150,14 @@ pub struct Model {
     #[sea_orm(column_type = "String(StringLen::N(50))")]
     #[serde(rename = "shippingClass")]
     pub shipping_class: Option<String>,
+    /// The customs tariff code (HS, 6 to 10 digits) for a declaration.
+    #[sea_orm(column_type = "String(StringLen::N(20))")]
+    #[serde(rename = "hsCode")]
+    pub hs_code: Option<String>,
+    /// Where the goods were made (ISO 3166 alpha-2), for a declaration.
+    #[sea_orm(column_type = "String(StringLen::N(2))")]
+    #[serde(rename = "originCountry")]
+    pub origin_country: Option<String>,
     #[serde(rename = "hasVariants")]
     pub has_variants: Option<bool>,
     #[sea_orm(column_type = "JsonBinary")]

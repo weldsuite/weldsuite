@@ -6,6 +6,7 @@ vi.mock('@/components/edition-unavailable-page', () => ({
   EditionUnavailablePage: () => <div>Not available in this edition</div>,
 }));
 vi.mock('./settings-tab', () => ({ SettingsTab: () => <div>settings tab</div> }));
+vi.mock('./carriers-section', () => ({ CarriersSection: () => <div>carriers section</div> }));
 
 import WeldStashSettingsPage from './page';
 
@@ -24,5 +25,6 @@ describe('WeldStashSettingsPage', () => {
     expect(screen.getByRole('heading', { name: 'WeldStash' })).toBeInTheDocument();
     expect(screen.getByText('Settings for replenishment and the sales history it learns from.')).toBeInTheDocument();
     expect(screen.getByText('settings tab')).toBeInTheDocument();
+    expect(screen.getByText('carriers section')).toBeInTheDocument();
   });
 });

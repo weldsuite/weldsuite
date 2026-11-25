@@ -35,6 +35,7 @@ pub(crate) const BOXES: Table = Table {
         Column { prop: "image", name: "image", kind: Kind::Text, default_fn: false },
         Column { prop: "description", name: "description", kind: Kind::Text, default_fn: false },
     ],
+    entity_only: &[],
 };
 
 /// `warehouses` (`warehouses`).
@@ -69,6 +70,7 @@ pub(crate) const WAREHOUSES: Table = Table {
         Column { prop: "tags", name: "tags", kind: Kind::Json, default_fn: false },
         Column { prop: "managedByConnectionId", name: "managed_by_connection_id", kind: Kind::Text, default_fn: false },
     ],
+    entity_only: &[],
 };
 
 /// `cycleCounts` (`cycle_counts`).
@@ -105,6 +107,7 @@ pub(crate) const CYCLE_COUNTS: Table = Table {
         Column { prop: "createdBy", name: "created_by", kind: Kind::Text, default_fn: false },
         Column { prop: "metadata", name: "metadata", kind: Kind::Json, default_fn: false },
     ],
+    entity_only: &[],
 };
 
 /// `purchaseOrders` (`purchase_orders`).
@@ -146,6 +149,7 @@ pub(crate) const PURCHASE_ORDERS: Table = Table {
         Column { prop: "metadata", name: "metadata", kind: Kind::Json, default_fn: false },
         Column { prop: "tags", name: "tags", kind: Kind::Json, default_fn: false },
     ],
+    entity_only: &[],
 };
 
 /// `purchaseOrderItems` (`purchase_order_items`).
@@ -180,6 +184,7 @@ pub(crate) const PURCHASE_ORDER_ITEMS: Table = Table {
         Column { prop: "metadata", name: "metadata", kind: Kind::Json, default_fn: false },
         Column { prop: "projectId", name: "project_id", kind: Kind::Text, default_fn: false },
     ],
+    entity_only: &[],
 };
 
 /// `inventoryMovements` (`inventory_movements`).
@@ -219,6 +224,7 @@ pub(crate) const INVENTORY_MOVEMENTS: Table = Table {
         Column { prop: "completedBy", name: "completed_by", kind: Kind::Text, default_fn: false },
         Column { prop: "metadata", name: "metadata", kind: Kind::Json, default_fn: false },
     ],
+    entity_only: &[],
 };
 
 /// `warehouseZones` (`warehouse_zones`).
@@ -245,6 +251,7 @@ pub(crate) const WAREHOUSE_ZONES: Table = Table {
         Column { prop: "pickingSequence", name: "picking_sequence", kind: Kind::Number, default_fn: false },
         Column { prop: "metadata", name: "metadata", kind: Kind::Json, default_fn: false },
     ],
+    entity_only: &[],
 };
 
 /// `warehouseLocations` (`warehouse_locations`).
@@ -284,6 +291,7 @@ pub(crate) const WAREHOUSE_LOCATIONS: Table = Table {
         Column { prop: "abcClass", name: "abc_class", kind: Kind::Text, default_fn: false },
         Column { prop: "metadata", name: "metadata", kind: Kind::Json, default_fn: false },
     ],
+    entity_only: &[],
 };
 
 /// `suppliers` (`suppliers`).
@@ -321,6 +329,7 @@ pub(crate) const SUPPLIERS: Table = Table {
         Column { prop: "metadata", name: "metadata", kind: Kind::Json, default_fn: false },
         Column { prop: "tags", name: "tags", kind: Kind::Json, default_fn: false },
     ],
+    entity_only: &[],
 };
 
 /// `warehouseWorkers` (`warehouse_workers`).
@@ -343,6 +352,7 @@ pub(crate) const WAREHOUSE_WORKERS: Table = Table {
         Column { prop: "notes", name: "notes", kind: Kind::Text, default_fn: false },
         Column { prop: "metadata", name: "metadata", kind: Kind::Json, default_fn: false },
     ],
+    entity_only: &[],
 };
 
 /// `stockAdjustments` (`stock_adjustments`).
@@ -377,6 +387,7 @@ pub(crate) const STOCK_ADJUSTMENTS: Table = Table {
         Column { prop: "approvedAt", name: "approved_at", kind: Kind::Date, default_fn: false },
         Column { prop: "metadata", name: "metadata", kind: Kind::Json, default_fn: false },
     ],
+    entity_only: &[],
 };
 
 /// `inventory` (`inventory`).
@@ -413,6 +424,7 @@ pub(crate) const INVENTORY: Table = Table {
         Column { prop: "lastInspectionDate", name: "last_inspection_date", kind: Kind::Date, default_fn: false },
         Column { prop: "metadata", name: "metadata", kind: Kind::Json, default_fn: false },
     ],
+    entity_only: &[],
 };
 
 /// `pickLists` (`pick_lists`).
@@ -450,6 +462,7 @@ pub(crate) const PICK_LISTS: Table = Table {
         Column { prop: "createdBy", name: "created_by", kind: Kind::Text, default_fn: false },
         Column { prop: "metadata", name: "metadata", kind: Kind::Json, default_fn: false },
     ],
+    entity_only: &[],
 };
 
 /// `pickListItems` (`pick_list_items`).
@@ -486,6 +499,7 @@ pub(crate) const PICK_LIST_ITEMS: Table = Table {
         Column { prop: "notes", name: "notes", kind: Kind::Text, default_fn: false },
         Column { prop: "metadata", name: "metadata", kind: Kind::Json, default_fn: false },
     ],
+    entity_only: &[],
 };
 
 /// `activityLogs` (`activity_logs`).
@@ -503,6 +517,7 @@ pub(crate) const ACTIVITY_LOGS: Table = Table {
         Column { prop: "description", name: "description", kind: Kind::Text, default_fn: false },
         Column { prop: "metadata", name: "metadata", kind: Kind::Json, default_fn: false },
     ],
+    entity_only: &[],
 };
 
 /// `parcels` (`parcels`).
@@ -566,6 +581,16 @@ pub(crate) const PARCELS: Table = Table {
         Column { prop: "notes", name: "notes", kind: Kind::Text, default_fn: false },
         Column { prop: "customFields", name: "custom_fields", kind: Kind::Json, default_fn: false },
     ],
+    entity_only: &[
+        Column { prop: "pickListId", name: "pick_list_id", kind: Kind::Text, default_fn: false },
+        Column { prop: "carrierCode", name: "carrier_code", kind: Kind::Text, default_fn: false },
+        Column { prop: "carrierReference", name: "carrier_reference", kind: Kind::Text, default_fn: false },
+        Column { prop: "trackingUrl", name: "tracking_url", kind: Kind::Text, default_fn: false },
+        Column { prop: "colloNumber", name: "collo_number", kind: Kind::Number, default_fn: false },
+        Column { prop: "servicePoint", name: "service_point", kind: Kind::Json, default_fn: false },
+        Column { prop: "returnForParcelId", name: "return_for_parcel_id", kind: Kind::Text, default_fn: false },
+        Column { prop: "trackingNextCheckAt", name: "tracking_next_check_at", kind: Kind::Date, default_fn: false },
+    ],
 };
 
 /// `shipments` (`shipments`).
@@ -597,6 +622,7 @@ pub(crate) const SHIPMENTS: Table = Table {
         Column { prop: "specialInstructions", name: "special_instructions", kind: Kind::Text, default_fn: false },
         Column { prop: "internalNotes", name: "internal_notes", kind: Kind::Text, default_fn: false },
     ],
+    entity_only: &[],
 };
 
 /// `orders` (`orders`).
@@ -664,6 +690,7 @@ pub(crate) const ORDERS: Table = Table {
         Column { prop: "idempotencyKey", name: "idempotency_key", kind: Kind::Text, default_fn: false },
         Column { prop: "guestAccessTokenHash", name: "guest_access_token_hash", kind: Kind::Text, default_fn: false },
     ],
+    entity_only: &[],
 };
 
 /// Every table above, for the test that holds each to its entity.

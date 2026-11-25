@@ -60,6 +60,10 @@ pub(crate) struct Table {
     /// The table's entity: the statements, and the row as Drizzle returns it.
     pub(crate) entity: JsonTable,
     pub(crate) columns: &'static [Column],
+    /// Columns the entity gained after the Drizzle schema froze (DATA-019).
+    /// The TypeScript worker never reads or writes them, so a row as Drizzle
+    /// returns it leaves them out and writes ignore them.
+    pub(crate) entity_only: &'static [Column],
 }
 
 /// Why a write could not run.
@@ -108,6 +112,9 @@ impl Table {
             {
                 *value = json_value(std::mem::take(value));
             }
+        }
+        for column in self.entity_only {
+            row.remove(column.prop);
         }
         Value::Object(row)
     }
@@ -264,7 +271,8 @@ impl Table {
     }
 
     /// The columns this table names that its entity lacks, and the entity's
-    /// columns it leaves out: both empty while the two agree.
+    /// columns it leaves out (other than [`Table::entity_only`]): both empty
+    /// while the two agree.
     #[cfg(test)]
     fn entity_drift(&self) -> (Vec<&'static str>, Vec<&'static str>) {
         let entity = self.entity.columns();
@@ -276,7 +284,13 @@ impl Table {
             .collect();
         let extra = entity
             .into_iter()
-            .filter(|name| !self.columns.iter().any(|column| column.name == *name))
+            .filter(|name| {
+                !self
+                    .columns
+                    .iter()
+                    .chain(self.entity_only)
+                    .any(|column| column.name == *name)
+            })
             .collect();
         (missing, extra)
     }

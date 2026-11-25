@@ -3,7 +3,11 @@ import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
 import { toast } from 'sonner';
 import { useState } from 'react';
+import { Tag } from 'lucide-react';
+import { usePermissions } from '@weldsuite/permissions/react';
+import { isFeatureAvailable } from '@/lib/edition';
 import { getTranslations } from '@/lib/i18n';
+import { CreateLabelsDialog } from '@/app/weldstash/shipping/components/create-labels-dialog';
 import {
   useAssignWeldstashPickList,
   useWeldstashPickList,
@@ -24,6 +28,12 @@ export function PickListPanel(props: Readonly<ObjectPanelComponentProps>) {
   const list = data?.data;
   const assign = useAssignWeldstashPickList();
   const [assignee, setAssignee] = useState('');
+  const { can } = usePermissions();
+  const tl = getTranslations('weldstash').shipping;
+  const [labelsOpen, setLabelsOpen] = useState(false);
+  // Carrier labels exist on the Rust editions only, for a packed or shipped list.
+  const showLabels =
+    isFeatureAvailable('stash-shipping') && can('weldstash:parcels:read') && (list?.status === 'packed' || list?.status === 'shipped');
 
   return (
     <SimpleObjectPanel
@@ -76,6 +86,18 @@ export function PickListPanel(props: Readonly<ObjectPanelComponentProps>) {
                 >
                   {tp.assign}
                 </Button>
+              </div>
+            ) : null}
+            {showLabels ? (
+              <div className="space-y-2">
+                <SectionHeader>{tl.pickListPanel.title}</SectionHeader>
+                <div className="px-4">
+                  <Button type="button" size="sm" variant="outline" onClick={() => setLabelsOpen(true)}>
+                    <Tag className="mr-1 size-3.5" aria-hidden="true" />
+                    {list.status === 'packed' ? tl.labels.createAction : tl.labels.viewAction}
+                  </Button>
+                </div>
+                {labelsOpen ? <CreateLabelsDialog pickListId={list.id} open onOpenChange={setLabelsOpen} /> : null}
               </div>
             ) : null}
             <SectionHeader>{tp.items}</SectionHeader>

@@ -4259,6 +4259,8 @@
     "parcel.created",
     "parcel.updated",
     "parcel.deleted",
+    "parcel.shipped",
+    "parcel.delivered",
     "parcel_box.created",
     "parcel_box.updated",
     "parcel_box.deleted",

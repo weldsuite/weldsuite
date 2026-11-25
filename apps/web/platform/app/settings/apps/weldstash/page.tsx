@@ -1,13 +1,16 @@
 /**
- * WeldStash settings (Settings > Apps > WeldStash): replenishment's settings
- * and the sales history CSV import. They live here, not in WeldStash itself
- * (AGENTS.md, "App settings live in Settings"). Replenishment is served by the
- * Rust backend only, so on Global the page says it is not available.
+ * WeldStash settings (Settings > Apps > WeldStash): replenishment's settings,
+ * the sales history CSV import and the carrier accounts (PostNL, DHL Parcel).
+ * They live here, not in WeldStash itself (AGENTS.md, "App settings live in
+ * Settings"). Replenishment and carriers are served by the Rust backend only,
+ * so on Global the page says it is not available; the Carriers section also
+ * needs `stash-shipping`.
  */
 
 import { EditionUnavailablePage } from '@/components/edition-unavailable-page';
 import { isFeatureAvailable } from '@/lib/edition';
 import { getTranslations } from '@/lib/i18n';
+import { CarriersSection } from './carriers-section';
 import { SettingsTab } from './settings-tab';
 
 export default function WeldStashSettingsPage() {
@@ -20,6 +23,9 @@ export default function WeldStashSettingsPage() {
         <p className="text-muted-foreground">{ts.description}</p>
       </div>
       <SettingsTab />
+      <div className="mx-auto max-w-3xl px-6 pb-6">
+        <CarriersSection />
+      </div>
     </div>
   );
 }

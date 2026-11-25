@@ -16,8 +16,8 @@ use sea_orm::sea_query::Order;
 use sea_orm::{ColumnTrait, Condition, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events::{
-    PARCEL_UPDATED, PICKLIST_COMPLETED, PICKLIST_CREATED, PICKLIST_DELETED, PICKLIST_UPDATED,
-    SHIPMENT_SHIPPED,
+    PARCEL_SHIPPED, PARCEL_UPDATED, PICKLIST_COMPLETED, PICKLIST_CREATED, PICKLIST_DELETED,
+    PICKLIST_UPDATED, SHIPMENT_SHIPPED,
 };
 use weldsuite_catalogs::permission_keys::{
     PICKLISTS_CREATE, PICKLISTS_DELETE, PICKLISTS_READ, PICKLISTS_UPDATE,
@@ -407,8 +407,17 @@ async fn pack(State(state): State<StashState>, caller: Caller, Path(id): Path<St
     }
 }
 
-async fn ship(State(state): State<StashState>, caller: Caller, Path(id): Path<String>) -> Response {
+/// Ship: as stash-api does, and (Rust only, ADR STASH-011) every labelled
+/// piece of the pick list ships with it, publishes `parcel:shipped`, and the
+/// workspace is marked due for tracking. Without labels the answer and the
+/// events are stash-api's.
+async fn ship(
+    State(state): State<StashState>,
+    ctx: crate::shipping::Ctx,
+    Path(id): Path<String>,
+) -> Response {
     let fallback = "Failed to ship pick list";
+    let caller = &ctx.caller;
     let result = match picking::ship(&caller.db, &id, &caller.user_id).await {
         Ok(Some(result)) => result,
         Ok(None) => return Refusal::not_found("Pick list", &id).respond(fallback),
@@ -420,6 +429,21 @@ async fn ship(State(state): State<StashState>, caller: Caller, Path(id): Path<St
     }
     if let Some(parcel) = crate::js::truthy(&result, "parcelId") {
         events.push((PARCEL_UPDATED, parcel.to_owned(), result.clone()));
+    }
+    match crate::shipping::labels::shipped_pieces(&caller.db, &id).await {
+        Ok(pieces) => {
+            for piece in &pieces {
+                events.push((
+                    PARCEL_SHIPPED,
+                    piece.id.clone(),
+                    crate::shipping::parcels::view(piece),
+                ));
+            }
+            if let (Some(master), Some(first)) = (&ctx.master, pieces.first()) {
+                crate::shipping::tracking::mark_due(master, &ctx.workspace_id, first).await;
+            }
+        }
+        Err(error) => tracing::error!(%error, "[stash] reading the shipped pieces"),
     }
     caller.publish_in_order(&state, events);
     Data(result).into_response()

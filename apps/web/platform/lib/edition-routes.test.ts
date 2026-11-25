@@ -73,6 +73,18 @@ describe('route availability', () => {
     expect(isRouteOffered('/weldstash/replenishment?plan=x')).toBe(true);
   });
 
+  it('hides WeldStash Shipments where stash-shipping is missing, such as Global', () => {
+    expect(routeRequirement('/weldstash/shipments')).toEqual({ modules: ['stash'], feature: 'stash-shipping' });
+    expect(routeRequirement('/weldstash/shipments?status=delivered')).toEqual({ modules: ['stash'], feature: 'stash-shipping' });
+    // Global has no runtime config: GLOBAL_UNAVAILABLE_FEATURES lists the feature.
+    expect(isRouteOffered('/weldstash/shipments')).toBe(false);
+    expect(isRouteOffered('/weldstash/packing')).toBe(true);
+    setRuntimeConfig({ backend: 'rust', modules: ['core', 'stash'], unavailableFeatures: [] });
+    expect(isRouteOffered('/weldstash/shipments')).toBe(true);
+    setRuntimeConfig({ backend: 'rust', modules: ['core', 'stash'], unavailableFeatures: ['stash-shipping'] });
+    expect(isRouteOffered('/weldstash/shipments')).toBe(false);
+  });
+
   it('hides WeldPass settings (the offline copy) on Global and offers them on Rust (ADR PASS-010)', () => {
     expect(routeRequirement('/settings/apps/weldpass')).toEqual({ modules: ['pass'], feature: 'weldpass-offline' });
     // Global has no runtime config: GLOBAL_UNAVAILABLE_FEATURES lists the feature.
