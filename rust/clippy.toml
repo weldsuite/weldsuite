@@ -7,7 +7,7 @@ doc-valid-idents = [
   "WeldCommerce", "WeldForms", "WeldID", "WooCommerce", "WhatsApp",
   "WeldAds", "WeldSocial", "WeldPanel", "WeldMerge", "PostPeer", "WeldCall", "WebRTC",
   "CloudNativePG", "WebCrypto", "PostgreSQL", "MinIO", "RustFS", "SigV4", "DataFusion",
-  "RustSec", "SeaORM", "SeaQuery", "PgBouncer", "WinAnsi", "XObject", "PostNL", "..",
+  "RustSec", "SeaORM", "SeaQuery", "PgBouncer", "WinAnsi", "XObject", "PostNL", "PAdES", "CAdES", "..",
 ]
 
 # Queries go through the SeaORM entities (ADR DATA-019, plan phase 4):
