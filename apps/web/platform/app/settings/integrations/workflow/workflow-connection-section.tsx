@@ -1,6 +1,7 @@
 import { AlertCircle, CheckCircle2, FlaskConical, Loader2, Plug } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { useI18n } from '@/lib/i18n/provider';
+import type { IntegrationDef, WorkflowIntegration } from '@/hooks/queries/use-workflow-integration-queries';
 import { useWorkflowConnection, type WorkflowConnection } from './use-workflow-connection';
 
 function formatDate(value: string | null, language: string): string | null {
@@ -9,70 +10,99 @@ function formatDate(value: string | null, language: string): string | null {
   return Number.isNaN(date.getTime()) ? null : date.toLocaleDateString(language);
 }
 
+/** The live connection: connected or failing, since when, and a test. */
+function ConnectionStatus({ connection, state }: Readonly<{ connection: WorkflowIntegration; state: WorkflowConnection }>) {
+  const { t, format, language } = useI18n();
+  const copy = t.settings.integrations.workflowConnections;
+  const since = formatDate(connection.connectedAt, language);
+  const failing = Boolean(connection.lastError);
+  const StatusIcon = failing ? AlertCircle : CheckCircle2;
+  const TestIcon = state.testing ? Loader2 : FlaskConical;
+
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border px-4 py-3">
+      <p className="flex items-center gap-2 text-sm">
+        <StatusIcon
+          className={failing ? 'h-4 w-4 shrink-0 text-destructive' : 'h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400'}
+          aria-hidden="true"
+        />
+        <span className="font-medium">{failing ? copy.error : copy.connected}</span>
+        {since ? <span className="text-muted-foreground">{format(copy.connectedSince, { date: since })}</span> : null}
+      </p>
+      {state.canManage ? (
+        <Button type="button" variant="outline" size="sm" onClick={state.test} disabled={state.testing}>
+          <TestIcon className={state.testing ? 'mr-1.5 h-3.5 w-3.5 animate-spin' : 'mr-1.5 h-3.5 w-3.5'} />
+          {copy.test}
+        </Button>
+      ) : null}
+      {failing ? <p className="w-full text-sm text-destructive">{connection.lastError}</p> : null}
+    </div>
+  );
+}
+
+function CapabilityList({ heading, items }: Readonly<{ heading: string; items: ReadonlyArray<{ id: string; name: string }> }>) {
+  if (items.length === 0) return null;
+  return (
+    <div>
+      <h3 className="mb-2 text-sm font-medium">{heading}</h3>
+      <ul className="space-y-1.5 text-sm text-muted-foreground">
+        {items.map((item) => (
+          <li key={item.id}>{item.name}</li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/** What workflows can do with the provider: its catalog actions and triggers. */
+function Capabilities({ def }: Readonly<{ def: IntegrationDef }>) {
+  const { t } = useI18n();
+  const copy = t.settings.integrations.workflowConnections;
+  if (def.actions.length === 0 && def.triggers.length === 0) return null;
+  return (
+    <div className="grid gap-6 sm:grid-cols-2">
+      <CapabilityList heading={copy.actionsHeading} items={def.actions} />
+      <CapabilityList heading={copy.triggersHeading} items={def.triggers} />
+    </div>
+  );
+}
+
 /**
  * The live connection's state and test, and what workflows can do with the
  * provider (its catalog actions and triggers).
  */
 export function WorkflowConnectionDetails({ state }: Readonly<{ state: WorkflowConnection }>) {
-  const { t, format, language } = useI18n();
-  const copy = t.settings.integrations.workflowConnections;
-  const { def, connection } = state;
-  const since = formatDate(connection?.connectedAt ?? null, language);
-
   return (
     <div className="space-y-6">
-      {connection ? (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border px-4 py-3">
-          <p className="flex items-center gap-2 text-sm">
-            {connection.lastError ? (
-              <AlertCircle className="h-4 w-4 shrink-0 text-destructive" aria-hidden="true" />
-            ) : (
-              <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" aria-hidden="true" />
-            )}
-            <span className="font-medium">{connection.lastError ? copy.error : copy.connected}</span>
-            {since ? <span className="text-muted-foreground">{format(copy.connectedSince, { date: since })}</span> : null}
-          </p>
-          {state.canManage ? (
-            <Button type="button" variant="outline" size="sm" onClick={state.test} disabled={state.testing}>
-              {state.testing ? (
-                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <FlaskConical className="mr-1.5 h-3.5 w-3.5" />
-              )}
-              {copy.test}
-            </Button>
-          ) : null}
-          {connection.lastError ? (
-            <p className="w-full text-sm text-destructive">{connection.lastError}</p>
-          ) : null}
-        </div>
-      ) : null}
-
-      {def && (def.actions.length > 0 || def.triggers.length > 0) ? (
-        <div className="grid gap-6 sm:grid-cols-2">
-          {def.actions.length > 0 ? (
-            <div>
-              <h3 className="mb-2 text-sm font-medium">{copy.actionsHeading}</h3>
-              <ul className="space-y-1.5 text-sm text-muted-foreground">
-                {def.actions.map((action) => (
-                  <li key={action.id}>{action.name}</li>
-                ))}
-              </ul>
-            </div>
-          ) : null}
-          {def.triggers.length > 0 ? (
-            <div>
-              <h3 className="mb-2 text-sm font-medium">{copy.triggersHeading}</h3>
-              <ul className="space-y-1.5 text-sm text-muted-foreground">
-                {def.triggers.map((trigger) => (
-                  <li key={trigger.id}>{trigger.name}</li>
-                ))}
-              </ul>
-            </div>
-          ) : null}
-        </div>
-      ) : null}
+      {state.connection ? <ConnectionStatus connection={state.connection} state={state} /> : null}
+      {state.def ? <Capabilities def={state.def} /> : null}
     </div>
+  );
+}
+
+/** The section's one button: disconnect when connected, connect when not, nothing without the permission. */
+function SectionAction({ state, connectLabel }: Readonly<{ state: WorkflowConnection; connectLabel: string }>) {
+  const { t } = useI18n();
+  const copy = t.settings.integrations.workflowConnections;
+
+  if (state.isLoading) {
+    return <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" aria-hidden="true" />;
+  }
+  if (state.connection) {
+    if (!state.canManage) return null;
+    return (
+      <Button type="button" variant="outline" className="hover:text-destructive" onClick={state.disconnect} disabled={state.working}>
+        {copy.disconnect}
+      </Button>
+    );
+  }
+  if (!state.canConnect) return null;
+  const Icon = state.working ? Loader2 : Plug;
+  return (
+    <Button type="button" onClick={state.connect} disabled={state.working}>
+      <Icon className={state.working ? 'mr-1.5 h-3.5 w-3.5 animate-spin' : 'mr-1.5 h-3.5 w-3.5'} />
+      {connectLabel}
+    </Button>
   );
 }
 
@@ -93,7 +123,6 @@ export function WorkflowConnectionSection({ type, providerName, connectLabel }: 
   const { t, format } = useI18n();
   const copy = t.settings.integrations.workflowConnections;
   const state = useWorkflowConnection(type, providerName);
-  const connected = Boolean(state.connection);
   const headingId = `workflow-connection-${type}`;
 
   if (!state.isLoading && !state.def) return null;
@@ -107,20 +136,7 @@ export function WorkflowConnectionSection({ type, providerName, connectLabel }: 
           </h2>
           <p className="mt-1 text-sm text-muted-foreground">{format(copy.sectionDescription, { provider: providerName })}</p>
         </div>
-        {state.isLoading ? (
-          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" aria-hidden="true" />
-        ) : connected ? (
-          state.canManage ? (
-            <Button type="button" variant="outline" className="hover:text-destructive" onClick={state.disconnect} disabled={state.working}>
-              {copy.disconnect}
-            </Button>
-          ) : null
-        ) : state.canConnect ? (
-          <Button type="button" onClick={state.connect} disabled={state.working}>
-            {state.working ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Plug className="mr-1.5 h-3.5 w-3.5" />}
-            {connectLabel ?? copy.connect}
-          </Button>
-        ) : null}
+        <SectionAction state={state} connectLabel={connectLabel ?? copy.connect} />
       </div>
       <WorkflowConnectionDetails state={state} />
       {state.dialogs}

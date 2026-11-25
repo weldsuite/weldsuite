@@ -82,6 +82,28 @@ export function HelpdeskSlackSection() {
     }
   };
 
+  let sectionAction = (
+    <Button type="button" disabled={working} onClick={handleConnect}>
+      {working ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
+      {st('sweep.welddesk.slackIntegration.connectLabel')}
+    </Button>
+  );
+  if (isLoading) {
+    sectionAction = <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" aria-hidden="true" />;
+  } else if (isConnected) {
+    sectionAction = (
+      <Button
+        type="button"
+        variant="outline"
+        className="hover:text-destructive"
+        disabled={working}
+        onClick={() => setDisconnectOpen(true)}
+      >
+        {st('sweep.settings.integrationConnectionCard.disconnect')}
+      </Button>
+    );
+  }
+
   return (
     <section aria-labelledby="helpdesk-slack" className="mt-10 space-y-4 border-t pt-8">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -91,24 +113,7 @@ export function HelpdeskSlackSection() {
           </h2>
           <p className="mt-1 text-sm text-muted-foreground">{st('sweep.welddesk.slackIntegration.overview')}</p>
         </div>
-        {isLoading ? (
-          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" aria-hidden="true" />
-        ) : isConnected ? (
-          <Button
-            type="button"
-            variant="outline"
-            className="hover:text-destructive"
-            disabled={working}
-            onClick={() => setDisconnectOpen(true)}
-          >
-            {st('sweep.settings.integrationConnectionCard.disconnect')}
-          </Button>
-        ) : (
-          <Button type="button" disabled={working} onClick={handleConnect}>
-            {working ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
-            {st('sweep.welddesk.slackIntegration.connectLabel')}
-          </Button>
-        )}
+        {sectionAction}
       </div>
 
       {isConnected && integration ? (

@@ -1,5 +1,5 @@
 ---
-title: App steps: Slack, Google and GitHub
+title: 'App steps: Slack, Google and GitHub'
 nextjs:
   metadata:
     title: 'App steps: Slack, Google and GitHub'
