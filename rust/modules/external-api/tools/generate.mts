@@ -21,7 +21,7 @@ import { writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { OMIT_SENSITIVE, SCHEMAS, TABLES } from './inventory.mts';
+import { OMIT_SENSITIVE, RUST_ONLY_COLUMNS, SCHEMAS, TABLES } from './inventory.mts';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.resolve(here, '../../../..');
@@ -309,7 +309,8 @@ for (const exportName of TABLES) {
   const readableNames = new Set(Object.values(readable).map(columnName));
   const omitted = Object.values(all)
     .map(columnName)
-    .filter((column) => !readableNames.has(column));
+    .filter((column) => !readableNames.has(column))
+    .concat(RUST_ONLY_COLUMNS[name] ?? []);
   const columns = Object.entries(readable).map(([prop, column]) => {
     const c = column as unknown as { name: string; columnType: string; defaultFn?: unknown; onUpdateFn?: unknown };
     return {

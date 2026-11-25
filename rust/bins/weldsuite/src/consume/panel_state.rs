@@ -1349,7 +1349,11 @@ mod tests {
         let mut filled = None;
         for _ in 0..120 {
             filled = valkey.group_types("pnp_1").await.expect("valkey");
-            if filled.is_some()
+            // The group types can exist, still empty, before the company
+            // group lands: wait for the group itself, not just the list.
+            if filled
+                .as_deref()
+                .is_some_and(|types| types.iter().any(|kind| kind == "company"))
                 && reader
                     .get_person(p, "a-1")
                     .await

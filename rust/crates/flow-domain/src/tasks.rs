@@ -288,6 +288,8 @@ async fn insert_task(
             C::UpdatedAt,
             C::SourceType,
             C::SourceId,
+            C::EpicId,
+            C::AcceptanceCriteria,
         ])
         .values([
             Expr::val(&id),
@@ -331,6 +333,10 @@ async fn insert_task(
             Expr::val(now),
             Expr::val(text(data, "sourceType")),
             Expr::val(text(data, "sourceId")),
+            // FLOW-023: the epic (checked by the caller) and the item's
+            // acceptance criteria.
+            Expr::val(text(data, "epicId").filter(|e| !e.is_empty())),
+            Expr::val(text(data, "acceptanceCriteria")),
         ])
         .map_err(|error| DbErr::Custom(error.to_string()))?
         .on_conflict(OnConflict::column(C::Id).do_nothing().to_owned());
@@ -470,6 +476,7 @@ fn occurrence_insert(
             C::SprintId,
             C::MilestoneId,
             C::ParentTaskId,
+            C::EpicId,
             C::CustomerId,
             C::ContactId,
             C::PersonId,
@@ -504,6 +511,7 @@ fn occurrence_insert(
             Expr::val(text(source, "sprintId")),
             Expr::val(text(source, "milestoneId")),
             Expr::val(text(source, "parentTaskId")),
+            Expr::val(text(source, "epicId")),
             Expr::val(text(source, "customerId")),
             Expr::val(text(source, "contactId")),
             Expr::val(text(source, "personId")),

@@ -36,6 +36,13 @@ pub struct Model {
     #[sea_orm(column_type = "String(StringLen::N(255))")]
     #[serde(rename = "parentTaskId")]
     pub parent_task_id: Option<String>,
+    /// The epic (or feature) this item belongs to, EU and self-hosted only
+    /// (ADR FLOW-023). Not the subtask tree: an item in an epic stays a
+    /// top-level task, and deleting the epic clears the link instead of
+    /// deleting the item. Left out of answers while null.
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "epicId", skip_serializing_if = "Option::is_none")]
+    pub epic_id: Option<String>,
     #[sea_orm(column_type = "String(StringLen::N(255))")]
     #[serde(rename = "stageId")]
     pub stage_id: Option<String>,
@@ -298,6 +305,17 @@ pub const DDL: Table = Table {
             name: "tasks_deliverable_idx",
             columns: &[IndexColumn {
                 expression: "deliverable_id",
+                is_expression: false,
+                asc: true,
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "tasks_epic_idx",
+            columns: &[IndexColumn {
+                expression: "epic_id",
                 is_expression: false,
                 asc: true,
             }],

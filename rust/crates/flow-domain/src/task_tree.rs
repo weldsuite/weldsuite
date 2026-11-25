@@ -68,8 +68,9 @@ fn removal_columns() -> sea_orm::Select<tasks::Entity> {
 /// first, or `None` when it does not exist or is already deleted. One
 /// transaction: the tasks, their calendar slots, comments and attachment
 /// rows, their project-control links (deleted for real, FLOW-011), their typed
-/// `task_dependencies` rows (deleted for real, FLOW-015), and the removed ids
-/// pruned from every other live task's `dependsOn` / `blocks`.
+/// `task_dependencies` rows (deleted for real, FLOW-015), the removed ids
+/// pruned from every other live task's `dependsOn` / `blocks`, and the
+/// items of a removed epic or feature unlinked (FLOW-023; never deleted).
 /// Publishing the events is the caller's job (no link events, as in
 /// TypeScript).
 pub async fn soft_delete_task_tree(
@@ -171,6 +172,14 @@ async fn remove_on(
         .col_expr(tasks::Column::DeletedAt, Expr::val(now))
         .col_expr(tasks::Column::UpdatedAt, Expr::val(now))
         .filter(tasks::Column::Id.is_in(removed_ids))
+        .filter(tasks::Column::DeletedAt.is_null())
+        .exec(tx)
+        .await?;
+    // FLOW-023: the items of a removed epic or feature stay, unlinked.
+    tasks::Entity::update_many()
+        .col_expr(tasks::Column::EpicId, Expr::val(Option::<String>::None))
+        .col_expr(tasks::Column::UpdatedAt, Expr::val(now))
+        .filter(tasks::Column::EpicId.is_in(removed_ids))
         .filter(tasks::Column::DeletedAt.is_null())
         .exec(tx)
         .await?;

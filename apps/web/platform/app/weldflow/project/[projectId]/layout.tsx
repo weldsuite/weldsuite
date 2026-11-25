@@ -44,6 +44,7 @@ import { isApiError } from '@weldsuite/api-client';
 import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { EmptyState } from '@weldsuite/ui/components/empty-state';
 import { useProject } from '@/hooks/queries/use-projects-queries';
+import { useProjectDelivery } from '@/hooks/queries/use-flow-agile-queries';
 import { useProjectTabPreference } from '@/hooks/queries/use-weldflow-preferences';
 import {
   isProjectTabId,
@@ -90,6 +91,9 @@ const TABS_WITHOUT_TOP_PADDING = new Set([
   'tasks',
   'settings',
   'analytics',
+  // Agile pages that are not tabs: a sprint (Board, Report, Retro) and an epic.
+  'sprints',
+  'epics',
 ]);
 
 function SortableTab({ id, children }: Readonly<{ id: string; children: React.ReactNode }>) {
@@ -385,7 +389,12 @@ function ProjectLayoutBody({
   // order, is their own preference (saved server-side, the same in every
   // project). The tab objects (labels included) are derived from the ids at
   // render time, so they follow the locale.
-  const tabDefs = useProjectTabDefs();
+  // An agile project's Tasks tab opens on the Backlog view (ADR FLOW-022).
+  const delivery = useProjectDelivery(projectId);
+  const offeredDefs = useProjectTabDefs();
+  const tabDefs = delivery.tasksOpensOn === 'backlog'
+    ? offeredDefs.map((tab) => (tab.id === 'tasks' ? { ...tab, href: '/tasks/backlog' } : tab))
+    : offeredDefs;
   const offeredIds = tabDefs.map((tab) => tab.id);
   const access = useProjectTabAccess(projectId, offeredIds);
   const allowedTabs = tabDefs.filter((tab) => access.allowed.includes(tab.id));

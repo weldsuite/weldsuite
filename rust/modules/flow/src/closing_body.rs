@@ -12,7 +12,9 @@
 use axum::body::Bytes;
 use serde_json::{Map, Value, json};
 use weldsuite_flow_domain::blueprint::{Obj, read_blueprint_fields};
-use weldsuite_flow_domain::project_closing::{LESSON_CATEGORIES, LESSON_PAGE_LOCALES};
+use weldsuite_flow_domain::project_closing::{
+    LESSON_CATEGORIES, LESSON_PAGE_LOCALES, RETRO_ACTION_CATEGORY, RETRO_CATEGORIES,
+};
 use weldsuite_kit::ApiError;
 use weldsuite_kit::validation::{Field, Invalid, Issues, Presence, Text};
 
@@ -111,20 +113,42 @@ fn object_of(issues: &mut Issues, body: &Value, fields: impl FnOnce(&mut Obj<'_>
 /// `lessonText`: `z.string().trim().min(1).max(2000)`.
 const LESSON_TEXT: Text = Text::trimmed(Some(1), Some(2_000));
 
-/// `createLessonSchema`.
+/// The categories a lesson's `category` may take: `action` too on a sprint
+/// retro's card (FLOW-024). Any other value is refused with the three
+/// categories of a project's lessons, as TypeScript refuses it.
+fn lesson_categories(body: &Value, retro: bool) -> &'static [&'static str] {
+    if retro && body.get("category").and_then(Value::as_str) == Some(RETRO_ACTION_CATEGORY) {
+        &RETRO_CATEGORIES
+    } else {
+        &LESSON_CATEGORIES
+    }
+}
+
+/// `createLessonSchema`, and the sprint of a retro card (EU and
+/// self-hosted only, FLOW-024).
 pub(crate) fn read_create_lesson(issues: &mut Issues, body: &Value) -> Option<Body> {
+    let retro = body
+        .get("sprintId")
+        .and_then(Value::as_str)
+        .is_some_and(|sprint| !sprint.is_empty());
+    let categories = lesson_categories(body, retro);
     object_of(issues, body, |o| {
         o.text("projectId", Presence::Required, IDENTIFIER)
-            .choice("category", Presence::Required, &LESSON_CATEGORIES)
-            .text("text", Presence::Required, LESSON_TEXT);
+            .choice("category", Presence::Required, categories)
+            .text("text", Presence::Required, LESSON_TEXT)
+            .text("sprintId", Presence::Nullish, IDENTIFIER);
     })
 }
 
-/// `updateLessonSchema`.
-pub(crate) fn read_update_lesson(issues: &mut Issues, body: &Value) -> Option<Body> {
+/// `updateLessonSchema`; `retro`: the lesson is a sprint retro's card.
+pub(crate) fn read_update_lesson(issues: &mut Issues, body: &Value, retro: bool) -> Option<Body> {
+    let categories = lesson_categories(body, retro);
     object_of(issues, body, |o| {
-        o.choice("category", Presence::Optional, &LESSON_CATEGORIES)
-            .text("text", Presence::Optional, LESSON_TEXT);
+        o.choice("category", Presence::Optional, categories).text(
+            "text",
+            Presence::Optional,
+            LESSON_TEXT,
+        );
     })
 }
 
@@ -150,6 +174,9 @@ pub(crate) struct LessonQuery {
     pub(crate) search: Option<String>,
     pub(crate) cursor: Option<String>,
     pub(crate) limit: Option<String>,
+    /// A sprint's retro cards (FLOW-024); without it, the project's own
+    /// lessons.
+    pub(crate) sprint_id: Option<String>,
 }
 
 fn optional_text(issues: &mut Issues, fields: &Map<String, Value>, key: &str) -> Option<String> {
@@ -169,6 +196,7 @@ pub(crate) fn lesson_query(raw: Option<&str>) -> Result<LessonQuery, Refusal> {
             search: optional_text(issues, f, "search"),
             cursor: optional_text(issues, f, "cursor"),
             limit: optional_text(issues, f, "limit"),
+            sprint_id: optional_text(issues, f, "sprintId"),
         };
         Body::new()
     })?;

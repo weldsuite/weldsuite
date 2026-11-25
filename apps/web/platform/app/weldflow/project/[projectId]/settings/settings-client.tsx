@@ -9,11 +9,16 @@ import { MembersClient } from '../members/members-client';
 import { GithubSection } from './github-section';
 import { ImportSection } from './import-section';
 import { TabsSection } from './tabs-section';
+import { DeliverySection } from './delivery-section';
+import { ItemTypesSection } from './item-types-section';
+import { isFeatureAvailable } from '@/lib/edition';
 import { useI18n } from '@/lib/i18n/provider';
 
-type SubTab = 'general' | 'members' | 'tabs' | 'labels' | 'stages' | 'github' | 'import';
+type SubTab = 'general' | 'members' | 'tabs' | 'delivery' | 'item-types' | 'labels' | 'stages' | 'github' | 'import';
 
-const SUB_TABS: readonly SubTab[] = ['general', 'members', 'tabs', 'labels', 'stages', 'github', 'import'];
+// Delivery approach and Item types are agile delivery, Rust only (`flow-agile`).
+const AGILE_SUB_TABS: readonly SubTab[] = ['delivery', 'item-types'];
+const SUB_TABS: readonly SubTab[] = ['general', 'members', 'tabs', 'delivery', 'item-types', 'labels', 'stages', 'github', 'import'];
 
 // Mirrors the (unexported) `ProjectMember`/`AvailableUser` shapes that
 // `MembersClient` expects — kept local since `members`/`availableUsers` come
@@ -52,7 +57,7 @@ interface SettingsClientProps {
 function getInitialTab(): SubTab {
   if (typeof window === 'undefined') return 'general';
   const hash = window.location.hash.replace('#', '');
-  const known = SUB_TABS.find((tab) => tab === hash);
+  const known = SUB_TABS.find((tab) => tab === hash && (isFeatureAvailable('flow-agile') || !AGILE_SUB_TABS.includes(tab)));
   if (known) return known;
   return 'general';
 }
@@ -71,6 +76,12 @@ export function SettingsClient({
     { id: 'general', label: t.projects.settings.generalLabel, description: t.projects.settings.generalDesc },
     { id: 'members', label: t.projects.settings.membersLabel, description: t.projects.settings.membersDesc },
     { id: 'tabs', label: t.projects.settings.tabsLabel, description: t.projects.settings.tabsDesc },
+    ...(isFeatureAvailable('flow-agile')
+      ? [
+          { id: 'delivery' as const, label: t.flowAgile.delivery.navLabel, description: t.flowAgile.delivery.description },
+          { id: 'item-types' as const, label: t.flowAgile.itemTypesSettings.navLabel, description: t.flowAgile.itemTypesSettings.description },
+        ]
+      : []),
     { id: 'labels', label: t.projects.settings.labelsLabel, description: t.projects.settings.labelsDesc },
     { id: 'stages', label: t.projects.settings.stagesLabel, description: t.projects.settings.stagesDesc },
     { id: 'github', label: t.projects.settings.githubLabel, description: t.projects.settings.githubDesc },
@@ -155,6 +166,8 @@ export function SettingsClient({
           {active === 'tabs' && (
             <TabsSection projectId={projectId} isAdmin={isAdmin} members={members} />
           )}
+          {active === 'delivery' && <DeliverySection projectId={projectId} isAdmin={isAdmin} />}
+          {active === 'item-types' && <ItemTypesSection projectId={projectId} isAdmin={isAdmin} />}
           {active === 'labels' && (
             <LabelsSection projectId={projectId} isAdmin={isAdmin} />
           )}

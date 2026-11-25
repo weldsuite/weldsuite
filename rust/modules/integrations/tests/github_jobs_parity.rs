@@ -153,6 +153,22 @@ fn normalise(value: &Value) -> Value {
     }
 }
 
+/// Columns only the Rust schema has (added after the Drizzle schema froze,
+/// ADR DATA-019), by table: the TypeScript fixture never saw them, so a row
+/// leaves them out while they are null, as the API answers do.
+const RUST_ONLY_COLUMNS: &[(&str, &str)] = &[("tasks", "epic_id")];
+
+fn without_rust_only(table: &str, mut row: Value) -> Value {
+    if let Value::Object(fields) = &mut row {
+        for (_, column) in RUST_ONLY_COLUMNS.iter().filter(|(t, _)| *t == table) {
+            if fields.get(*column).is_some_and(Value::is_null) {
+                fields.remove(*column);
+            }
+        }
+    }
+    row
+}
+
 async fn dump(db: &PgPool) -> Value {
     let mut out = Map::new();
     for (table, filter) in [
@@ -167,7 +183,10 @@ async fn dump(db: &PgPool) -> Value {
         .fetch_all(db)
         .await
         .expect("dump");
-        let mut rows: Vec<Value> = rows.iter().map(normalise).collect();
+        let mut rows: Vec<Value> = rows
+            .iter()
+            .map(|row| without_rust_only(table, normalise(row)))
+            .collect();
         rows.sort_by_key(ToString::to_string);
         out.insert(table.to_owned(), Value::Array(rows));
     }
