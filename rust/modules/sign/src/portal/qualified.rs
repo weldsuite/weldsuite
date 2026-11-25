@@ -17,7 +17,7 @@
 
 use std::time::Duration;
 
-use aws_lc_rs::rand::{SecureRandom, SystemRandom};
+use aws_lc_rs::rand::SystemRandom;
 use axum::body::Bytes;
 use axum::response::{IntoResponse, Response};
 use base64::Engine as _;
@@ -55,10 +55,13 @@ fn cache_key(state: &str) -> String {
     format!("sign:sig:{state}")
 }
 
-fn random_token() -> String {
-    let mut bytes = [0u8; 32];
-    let _ = SystemRandom::new().fill(&mut bytes);
-    URL_SAFE_NO_PAD.encode(bytes)
+/// 32 random bytes, URL-safe: a `state` or a PKCE verifier. No random source
+/// is an error, never a guessable token.
+fn random_token() -> SignResult<String> {
+    let bytes = aws_lc_rs::rand::generate::<[u8; 32]>(&SystemRandom::new())
+        .map_err(|_| SignError::Internal("no random source".to_owned()))?
+        .expose();
+    Ok(URL_SAFE_NO_PAD.encode(bytes))
 }
 
 /// PKCE S256.
@@ -246,8 +249,8 @@ pub(super) async fn start(portal: Portal, body: Bytes) -> Response {
                 ),
                 now_ms(),
             )?;
-            let state = random_token();
-            let verifier = random_token();
+            let state = random_token()?;
+            let verifier = random_token()?;
             let url = trust
                 .identify_url(&IdentifyRequest {
                     level,
@@ -539,8 +542,8 @@ async fn identified(
         .await
         .map_err(internal)?;
 
-    let state = random_token();
-    let verifier = random_token();
+    let state = random_token()?;
+    let verifier = random_token()?;
     let url = trust
         .authorize_url(&AuthorizeRequest {
             credential: &credential,

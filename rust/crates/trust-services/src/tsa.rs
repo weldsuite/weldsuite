@@ -1,6 +1,6 @@
 //! An RFC 3161 timestamp authority over HTTP.
 
-use aws_lc_rs::rand::{SecureRandom, SystemRandom};
+use aws_lc_rs::rand::SystemRandom;
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
 use weldsuite_pades::{Hash, tsp};
@@ -27,8 +27,10 @@ impl std::fmt::Debug for HttpTsa {
 impl HttpTsa {
     /// A token for a SHA-256 `digest`, checked to cover it.
     pub async fn token(&self, digest: &[u8]) -> Result<Vec<u8>, TrustError> {
-        let mut nonce = [0u8; 8];
-        let _ = SystemRandom::new().fill(&mut nonce);
+        // A fresh nonce per request; no random source is an error, not a fixed value.
+        let nonce = aws_lc_rs::rand::generate::<[u8; 8]>(&SystemRandom::new())
+            .map_err(|_| TrustError::new("no random source for the timestamp nonce"))?
+            .expose();
         let mut request = HttpRequest {
             method: "POST".to_owned(),
             url: self.url.clone(),

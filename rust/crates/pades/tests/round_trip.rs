@@ -223,7 +223,10 @@ fn pem_round_trips_and_timestamp_requests_are_answered() {
 
     let tsa = LocalTsa::new(&ca).expect("tsa");
     let digest = weldsuite_pades::crypto::sha256(b"hello");
-    let request = weldsuite_pades::tsp::request(&digest, &[1, 2, 3, 4]);
+    let nonce = aws_lc_rs::rand::generate::<[u8; 8]>(&aws_lc_rs::rand::SystemRandom::new())
+        .expect("random nonce")
+        .expose();
+    let request = weldsuite_pades::tsp::request(&digest, &nonce);
     let response = tsa.respond(&request).expect("respond");
     let token = weldsuite_pades::tsp::token_from_response(&response).expect("token");
     let stamp =

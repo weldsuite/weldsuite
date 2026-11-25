@@ -4,7 +4,7 @@
 //! included, so the "qualified" paths run) but chain to a root nobody
 //! trusts, made fresh each time the process starts. Never for production.
 
-use aws_lc_rs::rand::{SecureRandom, SystemRandom};
+use aws_lc_rs::rand::SystemRandom;
 use aws_lc_rs::signature::{ECDSA_P256_SHA256_ASN1_SIGNING, EcdsaKeyPair, KeyPair};
 use time::{Duration, OffsetDateTime};
 
@@ -54,14 +54,17 @@ pub enum Profile {
     Tsa,
 }
 
-fn random(len: usize) -> Vec<u8> {
-    let mut bytes = vec![0u8; len];
-    let _ = SystemRandom::new().fill(&mut bytes);
+/// N random bytes as a positive, non-zero INTEGER's content (serial numbers).
+/// A random source that fails is an error, never a predictable value.
+fn random<const N: usize>() -> Result<[u8; N], CertError> {
+    let mut bytes = aws_lc_rs::rand::generate::<[u8; N]>(&SystemRandom::new())
+        .map_err(|_| CertError("no random source".to_owned()))?
+        .expose();
     if let Some(first) = bytes.first_mut() {
         *first &= 0x7F;
         *first |= 0x01;
     }
-    bytes
+    Ok(bytes)
 }
 
 fn new_key() -> Result<EcdsaKeyPair, CertError> {
@@ -121,7 +124,7 @@ fn certificate(issue: &Issue<'_>) -> Result<Certificate, CertError> {
     let now = OffsetDateTime::now_utc();
     let tbs = der::sequence([
         der::explicit(0, &der::integer(2)),
-        der::integer_unsigned(&random(16)),
+        der::integer_unsigned(&random::<16>()?),
         der::algorithm(oid::ECDSA_SHA256, false),
         issue.issuer.clone(),
         der::sequence([
@@ -292,7 +295,7 @@ impl LocalTsa {
             der::integer(1),
             der::oid(LOCAL_TSA_POLICY),
             der::sequence([der::algorithm(oid::SHA256, true), der::octet_string(digest)]),
-            der::integer_unsigned(&random(8)),
+            der::integer_unsigned(&random::<8>().map_err(|e| TspError(e.0))?),
             der::generalized_time(OffsetDateTime::now_utc()),
         ]);
         let cert = &self.identity.certificate;

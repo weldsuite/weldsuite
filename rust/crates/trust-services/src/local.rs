@@ -7,7 +7,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, PoisonError};
 
-use aws_lc_rs::rand::{SecureRandom, SystemRandom};
+use aws_lc_rs::rand::SystemRandom;
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use weldsuite_pades::local::{LocalCa, LocalIdentity, LocalTsa, Profile};
@@ -187,8 +187,9 @@ impl TrustService for LocalTrustService {
                     },
                 )
                 .map_err(failed)?;
-            let mut id = [0u8; 12];
-            let _ = SystemRandom::new().fill(&mut id);
+            let id = aws_lc_rs::rand::generate::<[u8; 12]>(&SystemRandom::new())
+                .map_err(|_| TrustError::new("no random source"))?
+                .expose();
             let credential_id = URL_SAFE_NO_PAD.encode(id);
             let credential = SignerCredential {
                 credential_id: credential_id.clone(),
