@@ -8,8 +8,9 @@ import {
   useSelectConnectorAccount,
   type MoneybirdAdministration,
 } from '@/hooks/queries/use-connector-queries';
+import { clearOAuthFlow } from '@/lib/integrations-oauth-flow';
 
-interface CallbackPageProps {
+interface ConnectorCallbackProps {
   code: string | undefined;
   state: string | undefined;
   error: string | undefined;
@@ -17,28 +18,37 @@ interface CallbackPageProps {
 
 type Status = 'loading' | 'picker' | 'success' | 'error';
 
-function safeReturnPath(returnUrl: string | undefined): string {
-  if (!returnUrl) return '/weldconnect/connectors';
+const INTEGRATIONS_PATH = '/settings/integrations';
+
+/**
+ * Where to land afterwards: the Settings → Integrations page the flow started
+ * from (the connection's `returnUrl`), or the integrations list. A return to
+ * the old WeldConnect connectors page lands on the list.
+ */
+export function safeReturnPath(returnUrl: string | undefined): string {
+  if (!returnUrl) return INTEGRATIONS_PATH;
   try {
-    const parsed = new URL(returnUrl);
+    const parsed = new URL(returnUrl, window.location.origin);
+    if (parsed.origin !== window.location.origin) return INTEGRATIONS_PATH;
     // A `/w/{workspace}/…` return keeps its prefix, so the tab lands back in that workspace.
     const page = parseWorkspacePath(parsed.pathname)?.rest ?? parsed.pathname;
-    if (page.startsWith('/weldconnect/connectors') || page.startsWith('/settings/integrations/')) {
+    if (page === INTEGRATIONS_PATH || page.startsWith(`${INTEGRATIONS_PATH}/`)) {
       return `${parsed.pathname}${parsed.search}`;
     }
   } catch {
     /* fall through */
   }
-  return '/weldconnect/connectors';
+  return INTEGRATIONS_PATH;
 }
 
 function providerFromState(state: string): 'stripe' | 'moneybird' {
   return state.startsWith('stripe_') ? 'stripe' : 'moneybird';
 }
 
-export default function ConnectorsCallbackPage({ code, state, error }: Readonly<CallbackPageProps>) {
+/** Finishes a Moneybird or Stripe connect, with Moneybird's administration picker. */
+export function ConnectorCallback({ code, state, error }: Readonly<ConnectorCallbackProps>) {
   const { t } = useI18n();
-  const tc = t.weldconnect.connectors;
+  const tc = t.settings.integrations.connectors;
   const callback = useConnectorOAuthCallback();
   const selectAccount = useSelectConnectorAccount();
   const calledRef = useRef(false);
@@ -46,13 +56,14 @@ export default function ConnectorsCallbackPage({ code, state, error }: Readonly<
   const [errorMessage, setErrorMessage] = useState('');
   const [administrations, setAdministrations] = useState<MoneybirdAdministration[]>([]);
   const [connectionId, setConnectionId] = useState<string | null>(null);
-  const [returnPath, setReturnPath] = useState('/weldconnect/connectors');
+  const [returnPath, setReturnPath] = useState(INTEGRATIONS_PATH);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [provider, setProvider] = useState<'stripe' | 'moneybird'>('moneybird');
 
   useEffect(() => {
     if (calledRef.current) return;
     calledRef.current = true;
+    clearOAuthFlow();
 
     if (error) {
       setStatus('error');
@@ -115,7 +126,7 @@ export default function ConnectorsCallbackPage({ code, state, error }: Readonly<
   };
 
   return (
-    <div className="min-h-screen bg-background flex items-center justify-center px-4">
+    <div className="flex min-h-[calc(100vh-8rem)] w-full items-center justify-center px-4 pb-[60px]">
       <div className="text-center max-w-sm w-full">
         {status === 'loading' && (
           <>

@@ -5,7 +5,6 @@ import { useI18n } from '@/lib/i18n/provider';
 import type { TranslationNamespaces } from '@/lib/i18n';
 import {
   Video,
-  MessageCircle,
   DollarSign,
   Loader2,
   Globe,
@@ -38,20 +37,6 @@ const INTEGRATION_DATA: Record<string, {
     catalogKey: 'googleMeet',
     category: 'communication',
     icon: <Video className="h-5 w-5" />,
-    configurable: false,
-  },
-  'microsoft-teams': {
-    name: 'Microsoft Teams',
-    catalogKey: 'microsoftTeams',
-    category: 'communication',
-    icon: <MessageCircle className="h-5 w-5" />,
-    configurable: false,
-  },
-  slack: {
-    name: 'Slack',
-    catalogKey: 'slack',
-    category: 'communication',
-    icon: <MessageCircle className="h-5 w-5" />,
     configurable: false,
   },
   'exact-online': {

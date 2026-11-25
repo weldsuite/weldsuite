@@ -42,11 +42,18 @@ const integrations = [
   'crm-sync',
   'discord',
   'github',
+  'gmail',
   'google-calendar',
+  'google-sheets',
   'hubspot',
   'mcp-servers',
+  'moneybird',
+  'picqer',
   'salesforce',
+  'shopify',
   'slack',
+  'stripe',
+  'woocommerce',
 ];
 
 test.describe('Settings · integrations', () => {

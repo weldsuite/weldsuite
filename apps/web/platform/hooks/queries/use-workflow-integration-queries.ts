@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import { withQuery } from '@/lib/with-query';
+import { markOAuthFlow } from '@/lib/integrations-oauth-flow';
 
 // =============================================================================
 // Query Keys
@@ -38,8 +39,17 @@ interface TriggerDef {
   description?: string;
 }
 
+/** One credential an API-key provider asks for (Airtable's token, Twilio's SID and token, …). */
+export interface IntegrationAuthField {
+  key: string;
+  label: string;
+  placeholder?: string;
+  secret?: boolean;
+}
+
 interface IntegrationAuth {
   kind: 'oauth2' | 'api_key' | 'app_installation';
+  fields?: IntegrationAuthField[];
   [key: string]: unknown;
 }
 
@@ -236,9 +246,12 @@ export function useConnectWorkflowProvider() {
     mutationFn: async ({
       provider,
       integrationId,
+      returnTo,
     }: {
       provider: string;
       integrationId?: string;
+      /** The page to land on once the provider sends the browser back. */
+      returnTo?: string;
     }) => {
       const client = await getClient();
       const result = await client.post<{
@@ -246,9 +259,9 @@ export function useConnectWorkflowProvider() {
       }>(`/workflow-integrations/${provider}/authorize`, {
         ...(integrationId ? { integrationId } : {}),
       });
-      // Store provider in sessionStorage so the callback page can read it
-      sessionStorage.setItem('wf_oauth_provider', provider);
-      // Redirect to OAuth authorisation URL
+      // The callback (`/settings/integrations/callback`) reads the flow and
+      // provider it is finishing from here.
+      markOAuthFlow({ kind: 'workflow', provider, returnTo });
       window.location.href = result.data.authorizeUrl;
       return result;
     },
@@ -256,12 +269,32 @@ export function useConnectWorkflowProvider() {
 }
 
 /**
- * Point WeldConnect's `github` integration at the workspace's existing
- * GitHub App installation (WeldFlow's project sync, Settings → Integrations
- * → GitHub) — no OAuth redirect, unlike `useConnectWorkflowProvider`. When no
- * installation exists yet, the response comes back `status: 'needs_install'`
- * instead of `'connected'`; the caller is responsible for sending the member
- * to Settings → Integrations → GitHub to install the App first.
+ * Connect a provider that signs in with an API key or token (Airtable, Asana,
+ * Notion, Microsoft Teams, Twilio), with the fields its catalog entry lists.
+ */
+export function useConnectWorkflowProviderApiKey() {
+  const { getClient } = useAppApiClient();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ provider, credentials }: { provider: string; credentials: Record<string, string> }) => {
+      const client = await getClient();
+      return client.post<{ data: { id: string; status: string; provider: string } }>(
+        `/workflow-integrations/${provider}/apikey`,
+        { credentials },
+      );
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: workflowIntegrationKeys.list() });
+    },
+  });
+}
+
+/**
+ * Point the `github` workflow connection at the workspace's existing GitHub
+ * App installation (Settings → Integrations → GitHub): no OAuth redirect,
+ * unlike `useConnectWorkflowProvider`. When no installation exists yet, the
+ * response comes back `status: 'needs_install'` instead of `'connected'`, and
+ * the caller sends the member to install the App first.
  */
 export function useLinkGithubInstallation() {
   const { getClient } = useAppApiClient();

@@ -34,7 +34,7 @@ vi.mock('@/hooks/queries/use-connector-queries', () => ({
 import { setRuntimeConfig } from '@/lib/runtime-config';
 import { ConnectionDetails } from './connection-details';
 
-const tc = en.weldconnect.connectors;
+const tc = en.settings.integrations.connectors;
 
 const SYNCS = [
   ['contacts', 'moneybird-contacts'],

@@ -3,7 +3,7 @@ import * as React from "react"
 import { useRouter } from '@/lib/router'
 import { useI18n } from '@/lib/i18n/provider'
 import type { TranslationNamespaces } from '@/lib/i18n'
-import { ChevronRight } from "lucide-react"
+import { ChevronRight, Factory } from "lucide-react"
 import { PageLoader } from "@weldsuite/ui/components/page-loader"
 import { Button } from "@weldsuite/ui/components/button"
 import { Badge } from "@weldsuite/ui/components/badge"
@@ -12,6 +12,8 @@ import { useIntegrationConnections } from '@/hooks/queries/use-integration-queri
 import { useChannelIntegrations } from '@/hooks/queries/use-helpdesk-integration-queries'
 import { useGithubConnection } from '@/hooks/queries/use-github-queries'
 import { useConnectorCatalog } from '@/hooks/queries/use-connector-queries'
+import { useWorkflowIntegrations } from '@/hooks/queries/use-workflow-integration-queries'
+import { LISTED_WORKFLOW_PROVIDERS, liveConnection, workflowProviderIconUrl } from '@/app/settings/integrations/workflow/providers'
 import { isRouteOffered } from '@/lib/edition-routes'
 import { EmptyState } from "@weldsuite/ui/components/empty-state"
 import { OutsideEuBadge, OutsideEuNotice } from '@/components/outside-eu/outside-eu-notice'
@@ -101,7 +103,7 @@ const integrationDefinitions: (Omit<Integration, 'connected' | 'description'> & 
     id: 'slack',
     name: 'Slack',
     descriptionKey: 'slack',
-    category: 'Support',
+    category: 'Communication',
     icon: (
       <img
         src="https://upload.wikimedia.org/wikipedia/commons/d/d5/Slack_icon_2019.svg"
@@ -204,15 +206,65 @@ const integrationDefinitions: (Omit<Integration, 'connected' | 'description'> & 
     configurable: true,
     href: '/settings/integrations/picqer',
   },
+  {
+    id: 'stripe',
+    name: 'Stripe',
+    descriptionKey: 'stripe',
+    category: 'Accounting',
+    icon: (
+      <img
+        src="https://icons.duckduckgo.com/ip3/stripe.com.ico"
+        alt="Stripe"
+        className="h-6 w-6 rounded-[4px]"
+        loading="lazy"
+      />
+    ),
+    configurable: true,
+    href: '/settings/integrations/stripe',
+  },
+  {
+    id: 'odoo',
+    name: 'Odoo',
+    descriptionKey: 'odoo',
+    category: 'ERP',
+    icon: <Factory className="h-5 w-5 text-muted-foreground" aria-hidden="true" />,
+    configurable: true,
+    href: '/settings/integrations/odoo',
+  },
+  // The providers only workflow steps use; Slack, Google Calendar and GitHub
+  // are listed above with the page their other uses share.
+  ...LISTED_WORKFLOW_PROVIDERS.filter((provider) => !provider.ownPage).map((provider) => ({
+    id: provider.type,
+    name: provider.name,
+    descriptionKey: provider.descriptionKey,
+    category: provider.category,
+    icon: (
+      <img
+        src={workflowProviderIconUrl(provider)}
+        alt={provider.name}
+        className="h-6 w-6 rounded-[4px]"
+        loading="lazy"
+      />
+    ),
+    configurable: true,
+    href: `/settings/integrations/${provider.slug}`,
+  })),
 ]
 
-const CATEGORY_ORDER = ['CRM', 'E-Commerce', 'Warehouse', 'Accounting', 'Support', 'Calendar', 'AI', 'Developer Tools']
+/** Connectors the backend may leave out of its catalog on this edition (Odoo runs only on the Kubernetes editions). */
+const EDITION_CONNECTORS = new Set(['odoo'])
+const CONNECTOR_IDS = new Set(['woocommerce', 'shopify', 'moneybird', 'stripe', 'picqer', 'odoo'])
+
+const CATEGORY_ORDER = ['CRM', 'E-Commerce', 'Warehouse', 'Accounting', 'ERP', 'Communication', 'Productivity', 'Support', 'Calendar', 'AI', 'Developer Tools']
 
 const CATEGORY_LABEL_KEYS: Record<string, keyof IntegrationListStrings['categories']> = {
   CRM: 'crm',
   'E-Commerce': 'ecommerce',
   Warehouse: 'warehouse',
   Accounting: 'accounting',
+  ERP: 'erp',
+  Communication: 'communication',
+  Productivity: 'productivity',
   Support: 'support',
   Calendar: 'calendar',
   AI: 'ai',
@@ -232,7 +284,8 @@ export function IntegrationsSection() {
   const { data: integrationConnectionsResult, isLoading: connectionsLoading } = useIntegrationConnections()
   const { data: channelIntegrationsResult, isLoading: channelLoading } = useChannelIntegrations()
   const { data: githubConnectionResult } = useGithubConnection()
-  const { data: connectorCatalogResult } = useConnectorCatalog()
+  const { data: connectorCatalogResult, isLoading: connectorCatalogLoading } = useConnectorCatalog()
+  const { data: workflowConnectionsResult } = useWorkflowIntegrations()
 
   const integrations = React.useMemo(() => {
     const crmConnections = integrationConnectionsResult?.data ?? []
@@ -252,24 +305,33 @@ export function IntegrationsSection() {
     const slackConnected = channelIntegrations.some(c => c.provider === 'slack' && c.status === 'connected')
     const githubConnection = githubConnectionResult?.data
     const githubConnected = !!githubConnection && githubConnection.status === 'active'
+    const connectorCatalog = connectorCatalogResult?.data ?? []
     const connectorConnected = (provider: string) =>
-      (connectorCatalogResult?.data ?? []).some((entry) => entry.provider === provider && entry.connectionCount > 0)
+      connectorCatalog.some((entry) => entry.provider === provider && entry.connectionCount > 0)
+    const workflowRows = workflowConnectionsResult?.data ?? []
+    const workflowConnected = (type: string) => Boolean(liveConnection(workflowRows, type))
 
     // Edition flags: only integrations whose page this deployment serves
-    // (`lib/edition-routes.ts`: syncs and webhooks the backend runs, MCP servers with WeldAgent).
-    const offered = integrationDefinitions.filter(def => isRouteOffered(def.href || `/settings/integrations/${def.id}`))
+    // (`lib/edition-routes.ts`: syncs and webhooks the backend runs, MCP servers with WeldAgent),
+    // and connectors the backend's catalog offers.
+    const offered = integrationDefinitions.filter(def =>
+      isRouteOffered(def.href || `/settings/integrations/${def.id}`) &&
+      (!EDITION_CONNECTORS.has(def.id) || connectorCatalog.some((entry) => entry.provider === def.id))
+    )
     return offered.map(def => {
       let connected = false
       if (def.id === 'discord') connected = discordConnected
-      else if (def.id === 'slack') connected = slackConnected
+      else if (def.id === 'slack') connected = slackConnected || workflowConnected('slack')
       else if (def.id === 'mcp_servers') connected = mcpCount > 0
       else if (def.id === 'github') connected = githubConnected
-      else if (def.id === 'woocommerce' || def.id === 'shopify' || def.id === 'moneybird' || def.id === 'picqer') connected = connectorConnected(def.id)
-      else if (['attio', 'salesforce', 'hubspot', 'google_calendar'].includes(def.id)) connected = isProviderConnected(def.id)
+      else if (def.id === 'google_calendar') connected = isProviderConnected(def.id) || workflowConnected('google_calendar')
+      else if (CONNECTOR_IDS.has(def.id)) connected = connectorConnected(def.id)
+      else if (['attio', 'salesforce', 'hubspot'].includes(def.id)) connected = isProviderConnected(def.id)
+      else connected = workflowConnected(def.id)
       const { descriptionKey, ...rest } = def
       return { ...rest, description: list.descriptions[descriptionKey], connected }
     })
-  }, [integrationConnectionsResult, channelIntegrationsResult, githubConnectionResult, connectorCatalogResult, list])
+  }, [integrationConnectionsResult, channelIntegrationsResult, githubConnectionResult, connectorCatalogResult, workflowConnectionsResult, list])
 
   const { integrationsByCategory, sortedCategories } = React.useMemo(() => {
     const grouped: Record<string, Integration[]> = {}
@@ -291,7 +353,7 @@ export function IntegrationsSection() {
     }
   }
 
-  if (connectionsLoading || channelLoading) {
+  if (connectionsLoading || channelLoading || connectorCatalogLoading) {
     return <PageLoader fullScreen={false} />
   }
 

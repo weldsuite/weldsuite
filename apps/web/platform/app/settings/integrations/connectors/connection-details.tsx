@@ -131,7 +131,7 @@ function recordTypeKey(record: ConnectorSyncedRecord): RecordTypeKey {
 }
 
 function runLabel(run: ConnectorSyncRun, connection: ConnectorConnection, t: ReturnType<typeof useI18n>['t']): string {
-  const tc = t.weldconnect.connectors;
+  const tc = t.settings.integrations.connectors;
   if (run.syncName.includes('receipt')) return tc.types.receipts;
   const sync = connection.syncs.find((item) => item.syncName === run.syncName || item.model === run.model);
   if (sync) {
@@ -141,7 +141,7 @@ function runLabel(run: ConnectorSyncRun, connection: ConnectorConnection, t: Ret
 }
 
 function triggerLabel(trigger: string, t: ReturnType<typeof useI18n>['t']): string {
-  const labels = t.weldconnect.connectors.runs;
+  const labels = t.settings.integrations.connectors.runs;
   if (trigger === 'initial') return labels.initial;
   if (trigger === 'manual') return labels.manual;
   if (trigger === 'webhook') return labels.webhook;
@@ -150,7 +150,7 @@ function triggerLabel(trigger: string, t: ReturnType<typeof useI18n>['t']): stri
 }
 
 type Translations = ReturnType<typeof useI18n>['t'];
-type ConnectorsTranslations = Translations['weldconnect']['connectors'];
+type ConnectorsTranslations = Translations['settings']['integrations']['connectors'];
 type FormatFn = ReturnType<typeof useI18n>['format'];
 
 function DirectionSelectContent({ tc }: Readonly<{ tc: ConnectorsTranslations }>) {
@@ -204,7 +204,7 @@ interface RunItemProps {
 }
 
 function RunItem({ run, connection, t, language }: Readonly<RunItemProps>) {
-  const tc = t.weldconnect.connectors;
+  const tc = t.settings.integrations.connectors;
   return (
     <li className="flex items-start justify-between gap-3">
       <div className="min-w-0">
@@ -252,7 +252,7 @@ function RunsPanel({ runs, connection, t, language }: Readonly<RunsPanelProps>) 
   if (runs.length === 0) {
     return (
       <p className="text-muted-foreground py-10 text-center text-sm">
-        {t.weldconnect.connectors.runs.empty}
+        {t.settings.integrations.connectors.runs.empty}
       </p>
     );
   }
@@ -603,7 +603,7 @@ interface ConnectionDetailsProps {
 
 export function ConnectionDetails({ connectionId, onOpenChange, onDisconnect, canManage }: Readonly<ConnectionDetailsProps>) {
   const { t, language, format } = useI18n();
-  const tc = t.weldconnect.connectors;
+  const tc = t.settings.integrations.connectors;
   const { data, isLoading } = useConnectorConnection(connectionId, { pollWhileRunning: true });
   const running = data?.data?.lastSyncStatus === 'running';
   const { data: runsData } = useConnectorSyncRuns(connectionId, { pollWhileRunning: running });

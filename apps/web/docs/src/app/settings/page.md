@@ -17,7 +17,7 @@ nextjs:
 | **Team** | Members, roles, invites |
 | **Permissions** | Fine-grained access per app |
 | **Billing** | Plan, payment method, invoices |
-| **Integrations** | Google, Shopify, WooCommerce, Moneybird, CRM sync, webhooks |
+| [**Integrations**](/settings/integrations) | Every app WeldSuite connects to: connectors (Shopify, WooCommerce, Moneybird, Stripe), Slack and Google for workflows, CRM sync |
 | **Notifications** | Email and in-app preferences |
 | **Appearance** | Theme and display options |
 | **API keys** | Programmatic access for developers |

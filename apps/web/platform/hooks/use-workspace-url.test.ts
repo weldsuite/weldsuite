@@ -31,7 +31,7 @@ describe('useWorkspaceUrl', () => {
   });
 
   it('leaves a path that already names its workspace alone', () => {
-    expect(workspaceUrl('/w/globex/weldconnect/connectors?x=1')).toBe(`${origin}/w/globex/weldconnect/connectors?x=1`);
+    expect(workspaceUrl('/w/globex/settings/integrations/moneybird?x=1')).toBe(`${origin}/w/globex/settings/integrations/moneybird?x=1`);
   });
 
   it('gives the bare link without an active workspace', () => {

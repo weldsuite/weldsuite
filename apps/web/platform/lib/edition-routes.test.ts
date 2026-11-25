@@ -131,7 +131,7 @@ describe('route availability', () => {
 
   it('on the EU edition, offers the ported modules and core, nothing else', () => {
     setRuntimeConfig(EU_CONFIG);
-    for (const path of ['/', '/weldknow', '/weldsign/documents', '/weldpass', '/weldcalendar/week', '/welddrive', '/settings/team', '/settings/apps/weldcalendar', '/appstore']) {
+    for (const path of ['/', '/weldknow', '/weldsign/documents', '/weldpass', '/weldcalendar/week', '/welddrive', '/settings/team', '/settings/apps/weldcalendar', '/appstore', '/settings/integrations', '/settings/webhooks']) {
       expect(isRouteOffered(path), path).toBe(true);
     }
     for (const path of [
@@ -145,8 +145,6 @@ describe('route availability', () => {
       '/settings/sso',
       '/settings/plans',
       '/settings/billing/invoices',
-      '/settings/integrations',
-      '/settings/webhooks',
       '/settings/entities',
       '/settings/apps/phone-numbers',
       '/settings/apps/weldmail',
@@ -181,39 +179,52 @@ describe('route availability', () => {
     expect(isRouteOffered('/settings/integrations/attio')).toBe(true);
   });
 
-  it('offers the store and accounting connectors without integration-sync, and only those', () => {
-    const connectors = [
+  it('offers the connectors and workflow providers without integration-sync, and only those', () => {
+    const core = [
+      '/settings/integrations/callback',
       '/settings/integrations/woocommerce',
       '/settings/integrations/shopify',
       '/settings/integrations/moneybird',
+      '/settings/integrations/stripe',
       '/settings/integrations/picqer',
+      '/settings/integrations/odoo',
+      // Slack and Google Calendar show their workflow connection everywhere.
+      '/settings/integrations/slack',
+      '/settings/integrations/google-calendar',
+      '/settings/integrations/gmail',
+      '/settings/integrations/google-sheets',
     ];
     const others = [
-      '/settings/integrations/slack',
       '/settings/integrations/discord',
       '/settings/integrations/github',
-      '/settings/integrations/google-calendar',
+      '/settings/integrations/google-calendar/callback',
       '/settings/integrations/hubspot',
       '/settings/integrations/salesforce',
       '/settings/integrations/attio',
       '/settings/integrations/crm-sync',
     ];
     setRuntimeConfig({ backend: 'rust', modules: ['core', 'connect'], unavailableFeatures: ['integration-sync'] });
-    for (const path of connectors) {
-      expect(routeRequirement(path), path).toEqual({ modules: ['connect'] });
+    for (const path of core) {
+      expect(routeRequirement(path), path).toEqual({});
       expect(isRouteOffered(path), path).toBe(true);
     }
     // A link into one, with a workspace prefix and a query.
     expect(isHrefOffered('/w/acme/settings/integrations/moneybird?connected=1')).toBe(true);
     for (const path of others) expect(isRouteOffered(path), path).toBe(false);
     // A longer name is another integration, not a connector's page.
-    expect(routeRequirement('/settings/integrations/shopifyx')).toEqual({ modules: ['connect'], feature: 'integration-sync' });
-    // Still WeldConnect's: hidden where connect isn't served.
+    expect(routeRequirement('/settings/integrations/shopifyx')).toEqual({ feature: 'integration-sync' });
+    // Core platform (ADR INT-014): offered whether or not WeldConnect is served.
     setRuntimeConfig({ backend: 'rust', modules: ['core'] });
-    for (const path of connectors) expect(isRouteOffered(path), path).toBe(false);
+    for (const path of [...core, '/settings/integrations', '/settings/webhooks']) {
+      expect(isRouteOffered(path), path).toBe(true);
+    }
+    // The old WeldConnect return URLs Global still sends are core too.
+    expect(isRouteOffered('/weldconnect/connectors/callback')).toBe(true);
+    expect(isRouteOffered('/weldconnect/integrations/callback')).toBe(true);
+    expect(isRouteOffered('/weldconnect/workflows')).toBe(false);
     // Global offers every integration, as before.
     setRuntimeConfig(null);
-    for (const path of [...connectors, ...others]) expect(isRouteOffered(path), path).toBe(true);
+    for (const path of [...core, ...others]) expect(isRouteOffered(path), path).toBe(true);
   });
 
   it('offers API keys on a Kubernetes edition only once it names the public API', () => {

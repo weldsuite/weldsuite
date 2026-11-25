@@ -215,9 +215,7 @@ import { Route as WeldconnectWebhooksIndexRouteImport } from './routes/weldconne
 import { Route as WeldconnectVariablesIndexRouteImport } from './routes/weldconnect/variables/index'
 import { Route as WeldconnectTriggersIndexRouteImport } from './routes/weldconnect/triggers/index'
 import { Route as WeldconnectTemplatesIndexRouteImport } from './routes/weldconnect/templates/index'
-import { Route as WeldconnectIntegrationsIndexRouteImport } from './routes/weldconnect/integrations/index'
 import { Route as WeldconnectExecutionsIndexRouteImport } from './routes/weldconnect/executions/index'
-import { Route as WeldconnectConnectorsIndexRouteImport } from './routes/weldconnect/connectors/index'
 import { Route as WeldconnectAnalyticsIndexRouteImport } from './routes/weldconnect/analytics/index'
 import { Route as WeldconnectActionsIndexRouteImport } from './routes/weldconnect/actions/index'
 import { Route as WeldcommerceProductsIndexRouteImport } from './routes/weldcommerce/products/index'
@@ -339,10 +337,11 @@ import { Route as WelddeskReportsWallboardRouteImport } from './routes/welddesk/
 import { Route as WelddeskReportsSchedulesRouteImport } from './routes/welddesk/reports/schedules'
 import { Route as WelddeskReportsPhoneRouteImport } from './routes/welddesk/reports/phone'
 import { Route as WelddeskProblemsProblemIdRouteImport } from './routes/welddesk/problems/$problemId'
-import { Route as WeldconnectIntegrationsCallbackRouteImport } from './routes/weldconnect/integrations/callback'
-import { Route as WeldconnectConnectorsCallbackRouteImport } from './routes/weldconnect/connectors/callback'
+import { Route as WeldconnectIntegrationsCallbackRouteImport } from './routes/weldconnect_/integrations/callback'
+import { Route as WeldconnectConnectorsCallbackRouteImport } from './routes/weldconnect_/connectors/callback'
 import { Route as WeldcommerceOrdersNewRouteImport } from './routes/weldcommerce/orders/new'
 import { Route as WeldchatDmUserIdRouteImport } from './routes/weldchat/dm/$userId'
+import { Route as SettingsIntegrationsCallbackRouteImport } from './routes/settings/integrations/callback'
 import { Route as SettingsCustomObjectsObjectIdRouteImport } from './routes/settings/custom-objects/$objectId'
 import { Route as SettingsAppsWeldstashRouteImport } from './routes/settings/apps/weldstash'
 import { Route as SettingsAppsWeldreachRouteImport } from './routes/settings/apps/weldreach'
@@ -1705,22 +1704,10 @@ const WeldconnectTemplatesIndexRoute =
     path: '/templates/',
     getParentRoute: () => WeldconnectRouteRoute,
   } as any)
-const WeldconnectIntegrationsIndexRoute =
-  WeldconnectIntegrationsIndexRouteImport.update({
-    id: '/integrations/',
-    path: '/integrations/',
-    getParentRoute: () => WeldconnectRouteRoute,
-  } as any)
 const WeldconnectExecutionsIndexRoute =
   WeldconnectExecutionsIndexRouteImport.update({
     id: '/executions/',
     path: '/executions/',
-    getParentRoute: () => WeldconnectRouteRoute,
-  } as any)
-const WeldconnectConnectorsIndexRoute =
-  WeldconnectConnectorsIndexRouteImport.update({
-    id: '/connectors/',
-    path: '/connectors/',
     getParentRoute: () => WeldconnectRouteRoute,
   } as any)
 const WeldconnectAnalyticsIndexRoute =
@@ -2356,15 +2343,15 @@ const WelddeskProblemsProblemIdRoute =
   } as any)
 const WeldconnectIntegrationsCallbackRoute =
   WeldconnectIntegrationsCallbackRouteImport.update({
-    id: '/integrations/callback',
-    path: '/integrations/callback',
-    getParentRoute: () => WeldconnectRouteRoute,
+    id: '/weldconnect_/integrations/callback',
+    path: '/weldconnect/integrations/callback',
+    getParentRoute: () => rootRouteImport,
   } as any)
 const WeldconnectConnectorsCallbackRoute =
   WeldconnectConnectorsCallbackRouteImport.update({
-    id: '/connectors/callback',
-    path: '/connectors/callback',
-    getParentRoute: () => WeldconnectRouteRoute,
+    id: '/weldconnect_/connectors/callback',
+    path: '/weldconnect/connectors/callback',
+    getParentRoute: () => rootRouteImport,
   } as any)
 const WeldcommerceOrdersNewRoute = WeldcommerceOrdersNewRouteImport.update({
   id: '/orders/new',
@@ -2376,6 +2363,12 @@ const WeldchatDmUserIdRoute = WeldchatDmUserIdRouteImport.update({
   path: '/dm/$userId',
   getParentRoute: () => WeldchatRouteRoute,
 } as any)
+const SettingsIntegrationsCallbackRoute =
+  SettingsIntegrationsCallbackRouteImport.update({
+    id: '/integrations/callback',
+    path: '/integrations/callback',
+    getParentRoute: () => SettingsRouteRoute,
+  } as any)
 const SettingsCustomObjectsObjectIdRoute =
   SettingsCustomObjectsObjectIdRouteImport.update({
     id: '/custom-objects/$objectId',
@@ -4329,6 +4322,7 @@ export interface FileRoutesByFullPath {
   '/settings/apps/weldreach': typeof SettingsAppsWeldreachRoute
   '/settings/apps/weldstash': typeof SettingsAppsWeldstashRoute
   '/settings/custom-objects/$objectId': typeof SettingsCustomObjectsObjectIdRoute
+  '/settings/integrations/callback': typeof SettingsIntegrationsCallbackRoute
   '/weldchat/dm/$userId': typeof WeldchatDmUserIdRoute
   '/weldcommerce/orders/new': typeof WeldcommerceOrdersNewRoute
   '/weldconnect/connectors/callback': typeof WeldconnectConnectorsCallbackRoute
@@ -4454,9 +4448,7 @@ export interface FileRoutesByFullPath {
   '/weldcommerce/products/': typeof WeldcommerceProductsIndexRoute
   '/weldconnect/actions/': typeof WeldconnectActionsIndexRoute
   '/weldconnect/analytics/': typeof WeldconnectAnalyticsIndexRoute
-  '/weldconnect/connectors/': typeof WeldconnectConnectorsIndexRoute
   '/weldconnect/executions/': typeof WeldconnectExecutionsIndexRoute
-  '/weldconnect/integrations/': typeof WeldconnectIntegrationsIndexRoute
   '/weldconnect/templates/': typeof WeldconnectTemplatesIndexRoute
   '/weldconnect/triggers/': typeof WeldconnectTriggersIndexRoute
   '/weldconnect/variables/': typeof WeldconnectVariablesIndexRoute
@@ -4923,6 +4915,7 @@ export interface FileRoutesByTo {
   '/settings/apps/weldreach': typeof SettingsAppsWeldreachRoute
   '/settings/apps/weldstash': typeof SettingsAppsWeldstashRoute
   '/settings/custom-objects/$objectId': typeof SettingsCustomObjectsObjectIdRoute
+  '/settings/integrations/callback': typeof SettingsIntegrationsCallbackRoute
   '/weldchat/dm/$userId': typeof WeldchatDmUserIdRoute
   '/weldcommerce/orders/new': typeof WeldcommerceOrdersNewRoute
   '/weldconnect/connectors/callback': typeof WeldconnectConnectorsCallbackRoute
@@ -5048,9 +5041,7 @@ export interface FileRoutesByTo {
   '/weldcommerce/products': typeof WeldcommerceProductsIndexRoute
   '/weldconnect/actions': typeof WeldconnectActionsIndexRoute
   '/weldconnect/analytics': typeof WeldconnectAnalyticsIndexRoute
-  '/weldconnect/connectors': typeof WeldconnectConnectorsIndexRoute
   '/weldconnect/executions': typeof WeldconnectExecutionsIndexRoute
-  '/weldconnect/integrations': typeof WeldconnectIntegrationsIndexRoute
   '/weldconnect/templates': typeof WeldconnectTemplatesIndexRoute
   '/weldconnect/triggers': typeof WeldconnectTriggersIndexRoute
   '/weldconnect/variables': typeof WeldconnectVariablesIndexRoute
@@ -5564,10 +5555,11 @@ export interface FileRoutesById {
   '/settings/apps/weldreach': typeof SettingsAppsWeldreachRoute
   '/settings/apps/weldstash': typeof SettingsAppsWeldstashRoute
   '/settings/custom-objects/$objectId': typeof SettingsCustomObjectsObjectIdRoute
+  '/settings/integrations/callback': typeof SettingsIntegrationsCallbackRoute
   '/weldchat/dm/$userId': typeof WeldchatDmUserIdRoute
   '/weldcommerce/orders/new': typeof WeldcommerceOrdersNewRoute
-  '/weldconnect/connectors/callback': typeof WeldconnectConnectorsCallbackRoute
-  '/weldconnect/integrations/callback': typeof WeldconnectIntegrationsCallbackRoute
+  '/weldconnect_/connectors/callback': typeof WeldconnectConnectorsCallbackRoute
+  '/weldconnect_/integrations/callback': typeof WeldconnectIntegrationsCallbackRoute
   '/welddesk/problems/$problemId': typeof WelddeskProblemsProblemIdRoute
   '/welddesk/reports/phone': typeof WelddeskReportsPhoneRoute
   '/welddesk/reports/schedules': typeof WelddeskReportsSchedulesRoute
@@ -5689,9 +5681,7 @@ export interface FileRoutesById {
   '/weldcommerce/products/': typeof WeldcommerceProductsIndexRoute
   '/weldconnect/actions/': typeof WeldconnectActionsIndexRoute
   '/weldconnect/analytics/': typeof WeldconnectAnalyticsIndexRoute
-  '/weldconnect/connectors/': typeof WeldconnectConnectorsIndexRoute
   '/weldconnect/executions/': typeof WeldconnectExecutionsIndexRoute
-  '/weldconnect/integrations/': typeof WeldconnectIntegrationsIndexRoute
   '/weldconnect/templates/': typeof WeldconnectTemplatesIndexRoute
   '/weldconnect/triggers/': typeof WeldconnectTriggersIndexRoute
   '/weldconnect/variables/': typeof WeldconnectVariablesIndexRoute
@@ -6213,6 +6203,7 @@ export interface FileRouteTypes {
     | '/settings/apps/weldreach'
     | '/settings/apps/weldstash'
     | '/settings/custom-objects/$objectId'
+    | '/settings/integrations/callback'
     | '/weldchat/dm/$userId'
     | '/weldcommerce/orders/new'
     | '/weldconnect/connectors/callback'
@@ -6338,9 +6329,7 @@ export interface FileRouteTypes {
     | '/weldcommerce/products/'
     | '/weldconnect/actions/'
     | '/weldconnect/analytics/'
-    | '/weldconnect/connectors/'
     | '/weldconnect/executions/'
-    | '/weldconnect/integrations/'
     | '/weldconnect/templates/'
     | '/weldconnect/triggers/'
     | '/weldconnect/variables/'
@@ -6807,6 +6796,7 @@ export interface FileRouteTypes {
     | '/settings/apps/weldreach'
     | '/settings/apps/weldstash'
     | '/settings/custom-objects/$objectId'
+    | '/settings/integrations/callback'
     | '/weldchat/dm/$userId'
     | '/weldcommerce/orders/new'
     | '/weldconnect/connectors/callback'
@@ -6932,9 +6922,7 @@ export interface FileRouteTypes {
     | '/weldcommerce/products'
     | '/weldconnect/actions'
     | '/weldconnect/analytics'
-    | '/weldconnect/connectors'
     | '/weldconnect/executions'
-    | '/weldconnect/integrations'
     | '/weldconnect/templates'
     | '/weldconnect/triggers'
     | '/weldconnect/variables'
@@ -7447,10 +7435,11 @@ export interface FileRouteTypes {
     | '/settings/apps/weldreach'
     | '/settings/apps/weldstash'
     | '/settings/custom-objects/$objectId'
+    | '/settings/integrations/callback'
     | '/weldchat/dm/$userId'
     | '/weldcommerce/orders/new'
-    | '/weldconnect/connectors/callback'
-    | '/weldconnect/integrations/callback'
+    | '/weldconnect_/connectors/callback'
+    | '/weldconnect_/integrations/callback'
     | '/welddesk/problems/$problemId'
     | '/welddesk/reports/phone'
     | '/welddesk/reports/schedules'
@@ -7572,9 +7561,7 @@ export interface FileRouteTypes {
     | '/weldcommerce/products/'
     | '/weldconnect/actions/'
     | '/weldconnect/analytics/'
-    | '/weldconnect/connectors/'
     | '/weldconnect/executions/'
-    | '/weldconnect/integrations/'
     | '/weldconnect/templates/'
     | '/weldconnect/triggers/'
     | '/weldconnect/variables/'
@@ -8029,6 +8016,8 @@ export interface RootRouteChildren {
   WeldsocialIndexRoute: typeof WeldsocialIndexRoute
   ObjectsSlugRecordIdRoute: typeof ObjectsSlugRecordIdRoute
   SPanelTokenRoute: typeof SPanelTokenRoute
+  WeldconnectConnectorsCallbackRoute: typeof WeldconnectConnectorsCallbackRoute
+  WeldconnectIntegrationsCallbackRoute: typeof WeldconnectIntegrationsCallbackRoute
   AppsManageIndexRoute: typeof AppsManageIndexRoute
   InviteAcceptIndexRoute: typeof InviteAcceptIndexRoute
   ObjectsSlugIndexRoute: typeof ObjectsSlugIndexRoute
@@ -9480,25 +9469,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WeldconnectTemplatesIndexRouteImport
       parentRoute: typeof WeldconnectRouteRoute
     }
-    '/weldconnect/integrations/': {
-      id: '/weldconnect/integrations/'
-      path: '/integrations'
-      fullPath: '/weldconnect/integrations/'
-      preLoaderRoute: typeof WeldconnectIntegrationsIndexRouteImport
-      parentRoute: typeof WeldconnectRouteRoute
-    }
     '/weldconnect/executions/': {
       id: '/weldconnect/executions/'
       path: '/executions'
       fullPath: '/weldconnect/executions/'
       preLoaderRoute: typeof WeldconnectExecutionsIndexRouteImport
-      parentRoute: typeof WeldconnectRouteRoute
-    }
-    '/weldconnect/connectors/': {
-      id: '/weldconnect/connectors/'
-      path: '/connectors'
-      fullPath: '/weldconnect/connectors/'
-      preLoaderRoute: typeof WeldconnectConnectorsIndexRouteImport
       parentRoute: typeof WeldconnectRouteRoute
     }
     '/weldconnect/analytics/': {
@@ -10348,19 +10323,19 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WelddeskProblemsProblemIdRouteImport
       parentRoute: typeof WelddeskRouteRoute
     }
-    '/weldconnect/integrations/callback': {
-      id: '/weldconnect/integrations/callback'
-      path: '/integrations/callback'
+    '/weldconnect_/integrations/callback': {
+      id: '/weldconnect_/integrations/callback'
+      path: '/weldconnect/integrations/callback'
       fullPath: '/weldconnect/integrations/callback'
       preLoaderRoute: typeof WeldconnectIntegrationsCallbackRouteImport
-      parentRoute: typeof WeldconnectRouteRoute
+      parentRoute: typeof rootRouteImport
     }
-    '/weldconnect/connectors/callback': {
-      id: '/weldconnect/connectors/callback'
-      path: '/connectors/callback'
+    '/weldconnect_/connectors/callback': {
+      id: '/weldconnect_/connectors/callback'
+      path: '/weldconnect/connectors/callback'
       fullPath: '/weldconnect/connectors/callback'
       preLoaderRoute: typeof WeldconnectConnectorsCallbackRouteImport
-      parentRoute: typeof WeldconnectRouteRoute
+      parentRoute: typeof rootRouteImport
     }
     '/weldcommerce/orders/new': {
       id: '/weldcommerce/orders/new'
@@ -10375,6 +10350,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/weldchat/dm/$userId'
       preLoaderRoute: typeof WeldchatDmUserIdRouteImport
       parentRoute: typeof WeldchatRouteRoute
+    }
+    '/settings/integrations/callback': {
+      id: '/settings/integrations/callback'
+      path: '/integrations/callback'
+      fullPath: '/settings/integrations/callback'
+      preLoaderRoute: typeof SettingsIntegrationsCallbackRouteImport
+      parentRoute: typeof SettingsRouteRoute
     }
     '/settings/custom-objects/$objectId': {
       id: '/settings/custom-objects/$objectId'
@@ -12688,6 +12670,7 @@ interface SettingsRouteRouteChildren {
   SettingsAppsWeldreachRoute: typeof SettingsAppsWeldreachRoute
   SettingsAppsWeldstashRoute: typeof SettingsAppsWeldstashRoute
   SettingsCustomObjectsObjectIdRoute: typeof SettingsCustomObjectsObjectIdRoute
+  SettingsIntegrationsCallbackRoute: typeof SettingsIntegrationsCallbackRoute
   SettingsActivityIndexRoute: typeof SettingsActivityIndexRoute
   SettingsAdvancedIndexRoute: typeof SettingsAdvancedIndexRoute
   SettingsAiIndexRoute: typeof SettingsAiIndexRoute
@@ -12763,6 +12746,7 @@ const SettingsRouteRouteChildren: SettingsRouteRouteChildren = {
   SettingsAppsWeldreachRoute: SettingsAppsWeldreachRoute,
   SettingsAppsWeldstashRoute: SettingsAppsWeldstashRoute,
   SettingsCustomObjectsObjectIdRoute: SettingsCustomObjectsObjectIdRoute,
+  SettingsIntegrationsCallbackRoute: SettingsIntegrationsCallbackRoute,
   SettingsActivityIndexRoute: SettingsActivityIndexRoute,
   SettingsAdvancedIndexRoute: SettingsAdvancedIndexRoute,
   SettingsAiIndexRoute: SettingsAiIndexRoute,
@@ -13231,13 +13215,9 @@ const WeldcommerceRouteRouteWithChildren =
 
 interface WeldconnectRouteRouteChildren {
   WeldconnectIndexRoute: typeof WeldconnectIndexRoute
-  WeldconnectConnectorsCallbackRoute: typeof WeldconnectConnectorsCallbackRoute
-  WeldconnectIntegrationsCallbackRoute: typeof WeldconnectIntegrationsCallbackRoute
   WeldconnectActionsIndexRoute: typeof WeldconnectActionsIndexRoute
   WeldconnectAnalyticsIndexRoute: typeof WeldconnectAnalyticsIndexRoute
-  WeldconnectConnectorsIndexRoute: typeof WeldconnectConnectorsIndexRoute
   WeldconnectExecutionsIndexRoute: typeof WeldconnectExecutionsIndexRoute
-  WeldconnectIntegrationsIndexRoute: typeof WeldconnectIntegrationsIndexRoute
   WeldconnectTemplatesIndexRoute: typeof WeldconnectTemplatesIndexRoute
   WeldconnectTriggersIndexRoute: typeof WeldconnectTriggersIndexRoute
   WeldconnectVariablesIndexRoute: typeof WeldconnectVariablesIndexRoute
@@ -13253,13 +13233,9 @@ interface WeldconnectRouteRouteChildren {
 
 const WeldconnectRouteRouteChildren: WeldconnectRouteRouteChildren = {
   WeldconnectIndexRoute: WeldconnectIndexRoute,
-  WeldconnectConnectorsCallbackRoute: WeldconnectConnectorsCallbackRoute,
-  WeldconnectIntegrationsCallbackRoute: WeldconnectIntegrationsCallbackRoute,
   WeldconnectActionsIndexRoute: WeldconnectActionsIndexRoute,
   WeldconnectAnalyticsIndexRoute: WeldconnectAnalyticsIndexRoute,
-  WeldconnectConnectorsIndexRoute: WeldconnectConnectorsIndexRoute,
   WeldconnectExecutionsIndexRoute: WeldconnectExecutionsIndexRoute,
-  WeldconnectIntegrationsIndexRoute: WeldconnectIntegrationsIndexRoute,
   WeldconnectTemplatesIndexRoute: WeldconnectTemplatesIndexRoute,
   WeldconnectTriggersIndexRoute: WeldconnectTriggersIndexRoute,
   WeldconnectVariablesIndexRoute: WeldconnectVariablesIndexRoute,
@@ -14611,6 +14587,8 @@ const rootRouteChildren: RootRouteChildren = {
   WeldsocialIndexRoute: WeldsocialIndexRoute,
   ObjectsSlugRecordIdRoute: ObjectsSlugRecordIdRoute,
   SPanelTokenRoute: SPanelTokenRoute,
+  WeldconnectConnectorsCallbackRoute: WeldconnectConnectorsCallbackRoute,
+  WeldconnectIntegrationsCallbackRoute: WeldconnectIntegrationsCallbackRoute,
   AppsManageIndexRoute: AppsManageIndexRoute,
   InviteAcceptIndexRoute: InviteAcceptIndexRoute,
   ObjectsSlugIndexRoute: ObjectsSlugIndexRoute,

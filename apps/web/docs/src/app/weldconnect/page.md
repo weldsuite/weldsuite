@@ -66,23 +66,14 @@ Each template shows whether it is ready to use or how many fields you still need
 
 ---
 
-## Connectors
+## Connected apps
 
-WeldConnect **Connectors** import live data from first-party apps (Shopify, WooCommerce, Moneybird, Stripe). After the first import, the provider pushes changes over webhooks; a periodic catch-up fills gaps.
-
-- **Shopify / WooCommerce**: products, orders, and customers.
-- **Moneybird**: contacts, sales invoices, products, and purchase invoices/receipts into WeldBooks. Moneybird stays the book of record: imported invoices and bills do not post to the WeldSuite ledger. It can also receive your Stripe sales: see [Send Stripe sales to Moneybird](/weldconnect/stripe-to-moneybird).
-  - **Live updates**: changes you make in Moneybird show up in WeldSuite within seconds. The connection's **Settings** tab shows whether live updates are **On** or **Off**. If they are off, click **Turn on live updates**; WeldSuite also sets them up again on its own within a few hours.
-  - **Sending to Moneybird**: for contacts, products, sales invoices and bills you can set the direction per object to **Two-way** or **One-way (out to store)**. Only records you make in WeldBooks after switching an object on are created in Moneybird; your existing history is not copied. Records that came from Moneybird are updated in place when you change them in WeldBooks. Invoices made in WeldBooks go to Moneybird once they are sent, as external sales invoices that keep the WeldBooks number (Moneybird does not email them), and bills go once they are approved. Moneybird does not allow sent invoices to be edited, so a sent invoice can only be credited in Moneybird. Choose the revenue ledger (invoices and products) and the expense ledger (bills) in the push settings.
-  - **Bank accounts and bank transactions** always come from Moneybird: bank data arrives through the bank feed there, so these two objects cannot be sent. When you reconcile a bank line in WeldBooks, Moneybird receives it as the payment's bank link.
-- **Stripe**: finalized invoices, payments, fees and payouts into WeldBooks.
-
-Connect them from **Settings** → **Integrations**.
+Workflows use the apps your workspace connects in **Settings** → **Integrations**: Slack, Gmail, Google Sheets, Google Calendar and GitHub for app steps, and the connectors (Shopify, WooCommerce, Moneybird, Stripe, Picqer, Odoo) that import data into WeldSuite. Connections belong to the workspace, not to WeldConnect. See [Integrations](/settings/integrations) and [App steps](/weldconnect/connect-apps).
 
 ---
 
 ## Next steps
 
 - [Create a workflow](/weldconnect/create-workflow)
-- [Connect Slack, Google and GitHub](/weldconnect/connect-apps)
+- [App steps: Slack, Google and GitHub](/weldconnect/connect-apps)
 - [WeldCRM overview](/weldcrm), a common source of record events

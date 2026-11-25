@@ -138,5 +138,5 @@ Store API keys as **Secret** variables under **WeldConnect** → **Variables** a
 ## Next steps
 
 - [AI steps](/weldconnect/ai-steps)
-- [Connect Slack, Google and GitHub](/weldconnect/connect-apps)
+- [App steps: Slack, Google and GitHub](/weldconnect/connect-apps)
 - [Runs and history](/weldconnect/runs-and-history)
