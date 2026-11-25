@@ -353,10 +353,17 @@ pub(crate) async fn send_envelope(
     )
     .await;
     if let Err(error) = recorded {
-        if sent.is_some() {
-            give_back().await;
+        // A prepared request that went out stays sent and paid for: its AES/QES
+        // signers can sign, so the charge stands and the trail gap is logged.
+        // Anything else answers as before.
+        if prepared.is_none() || sent.is_none() {
+            return Err(error);
         }
-        return Err(error);
+        tracing::error!(
+            ?error,
+            envelope_id = id,
+            "sign: the sent event was not written"
+        );
     }
     // Only the send that won: the charge per signer on the trail, which the
     // refunds read. Without it they could not be worked out, so a failed

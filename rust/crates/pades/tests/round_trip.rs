@@ -54,7 +54,10 @@ fn cades(name: &str) -> SignatureKind {
 }
 
 #[test]
-#[allow(clippy::too_many_lines, reason = "one file through every step, checked as it goes")]
+#[allow(
+    clippy::too_many_lines,
+    reason = "one file through every step, checked as it goes"
+)]
 fn every_level_up_to_lta_and_each_signature_stays_intact() {
     let ca = LocalCa::new("Test root").expect("ca");
     let tsa = LocalTsa::new(&ca).expect("tsa");
