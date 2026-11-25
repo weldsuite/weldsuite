@@ -240,8 +240,9 @@ ingress:
       paths:
         - path: /
           pathType: Prefix
-    # The MCP server (config.mcp): /mcp and its OAuth discovery documents,
-    # nothing else (any other path on this host is Traefik's 404).
+    # The MCP server (config.mcp): /mcp, its OAuth discovery documents and
+    # OpenAI's domain verification, nothing else (any other path on this
+    # host is Traefik's 404).
     - host: mcp.${DOMAIN}
       paths:
         - path: /mcp
@@ -250,6 +251,8 @@ ingress:
           pathType: Prefix
         - path: /.well-known/oauth-authorization-server
           pathType: Prefix
+        - path: /.well-known/openai-apps-challenge
+          pathType: Exact
   tls:
     - secretName: weldsuite-api-tls
       hosts:
