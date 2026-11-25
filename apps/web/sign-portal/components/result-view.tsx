@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Ban, CheckCircle2, Clock, Download, FileCheck2, FileX, Hourglass, Loader2, ShieldCheck } from 'lucide-react';
 import type { SignPortalClosedReason, SignPortalEnvelope } from '@weldsuite/app-api-client/schemas/weldsign';
+import { hasEvidenceReport, pdfFileName } from '@/lib/eidas';
 import { PortalNetworkError, portalBytes } from '@/lib/portal-client';
 import { Button } from '@weldsuite/ui/components/button';
 import { BrandButton } from './brand-button';
@@ -46,8 +47,7 @@ export function CompletedView({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // The evidence report exists for a request with advanced or qualified signers.
-  const hasEvidence = envelope.hasEvidence ?? envelope.signatureLevel !== undefined;
+  const hasEvidence = hasEvidenceReport(envelope);
   const [evidenceBusy, setEvidenceBusy] = useState(false);
 
   async function download(path = '/api/portal/download', suffix = '') {
@@ -59,7 +59,7 @@ export function CompletedView({
       const url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
       const link = document.createElement('a');
       link.href = url;
-      link.download = `${envelope.title.replace(/[\\/:*?"<>|]+/g, ' ').trim() || 'document'}${suffix}.pdf`;
+      link.download = pdfFileName(envelope.title, suffix);
       document.body.appendChild(link);
       link.click();
       link.remove();
