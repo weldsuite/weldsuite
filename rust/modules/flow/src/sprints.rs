@@ -1,5 +1,7 @@
 //! `/api/sprints` (`routes/sprints/index.ts`): a project's sprints; the
-//! lifecycle stamps (`startedAt`, `completedAt`) follow the status.
+//! lifecycle stamps (`startedAt`, `completedAt`) follow the status. A
+//! deleted sprint's tasks go back to the backlog. Starting, completing and
+//! the report (EU and self-hosted only) are [`crate::sprint_lifecycle`].
 
 use std::sync::Arc;
 
@@ -25,7 +27,7 @@ use weldsuite_flow_domain::js::contains_pattern;
 use weldsuite_kit::validation::{Issues, Presence};
 use weldsuite_kit::{ApiError, Created, Data, NoContent, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
-use weldsuite_schema::tenant::sprints;
+use weldsuite_schema::tenant::{sprints, tasks};
 
 use crate::projects::{bindable, writable};
 use crate::{
@@ -49,8 +51,8 @@ const COLUMNS: [(&str, &str); 9] = [
     ("storyPointsCompleted", "story_points_completed"),
 ];
 
-const PROJECT_DENIED: &str = "You are not a member of this project";
-const PROJECT_WRITE_DENIED: &str = "You do not have write access to this project";
+pub(crate) const PROJECT_DENIED: &str = "You are not a member of this project";
+pub(crate) const PROJECT_WRITE_DENIED: &str = "You do not have write access to this project";
 
 /// `SPRINT_WRITABLE_FIELDS`.
 const WRITABLE: [&str; 9] = [
@@ -86,6 +88,21 @@ where
         .route(
             "/{id}",
             axum::routing::delete(remove).route_layer(need("projects:delete")),
+        )
+        // The sprint lifecycle, EU and self-hosted only (FLOW-024).
+        .route(
+            "/{id}/start",
+            axum::routing::post(crate::sprint_lifecycle::start)
+                .route_layer(need("projects:update")),
+        )
+        .route(
+            "/{id}/complete",
+            axum::routing::post(crate::sprint_lifecycle::complete)
+                .route_layer(need("projects:update")),
+        )
+        .route(
+            "/{id}/report",
+            get(crate::sprint_lifecycle::report).route_layer(need("projects:read")),
         )
         .with_state(state)
 }
@@ -462,6 +479,14 @@ async fn remove(
                 .col_expr(sprints::Column::DeletedAt, Expr::value(Some(at)))
                 .col_expr(sprints::Column::UpdatedAt, Expr::value(at))
                 .filter(sprints::Column::Id.eq(&id))
+                .exec(&orm(&caller.db))
+                .await?;
+            // Its tasks go back to the backlog.
+            tasks::Entity::update_many()
+                .col_expr(tasks::Column::SprintId, Expr::value(Option::<String>::None))
+                .col_expr(tasks::Column::UpdatedAt, Expr::value(at))
+                .filter(tasks::Column::SprintId.eq(&id))
+                .filter(tasks::Column::DeletedAt.is_null())
                 .exec(&orm(&caller.db))
                 .await?;
             caller.publish(&state, PROJECT_SPRINT_DELETED, &id, &json!({ "id": id }));

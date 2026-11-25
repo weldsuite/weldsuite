@@ -15,6 +15,10 @@
 //!
 //! The checks run in TypeScript's order: permission, then the lesson (404),
 //! then project access (403), then the body (400), then the rules.
+//!
+//! A sprint's retro cards are lessons with a `sprintId` (EU and self-hosted
+//! only, FLOW-024): listed with `?sprintId=`, left out of the project's list
+//! and its WeldKnow page, and the only lessons that may be an `action`.
 
 use std::sync::Arc;
 
@@ -46,6 +50,7 @@ use weldsuite_know_domain::KnowError;
 use weldsuite_know_domain::pages::{CreatePageInput, create_knowledge_page};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 use weldsuite_schema::tenant::project_lessons::{self, Column};
+use weldsuite_schema::tenant::sprints;
 
 use crate::closing_body::{
     Body, LessonQuery, lesson_query, parse_body, read_create_lesson, read_publish,
@@ -141,7 +146,11 @@ fn lesson_filters(q: &LessonQuery, scope: &(bool, Vec<String>)) -> Condition {
     if let Some(search) = q.search.as_deref() {
         filters = filters.add(Column::Text.ilike(contains_pattern(search)));
     }
-    filters
+    // A sprint's retro cards, or (as always) the project's own lessons.
+    filters.add(match q.sprint_id.as_deref() {
+        Some(sprint_id) => Column::SprintId.eq(sprint_id),
+        None => Column::SprintId.is_null(),
+    })
 }
 
 async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
@@ -244,6 +253,13 @@ async fn create(State(state): State<FlowState>, caller: Caller, body: Bytes) -> 
         if find_live_project(&caller.db, &project_id).await?.is_none() {
             return Err(Refusal::not_found("Project", &project_id));
         }
+        if let Some(sprint_id) = input.get("sprintId").and_then(Value::as_str)
+            && !sprint_in_project(&caller.db, sprint_id, &project_id).await?
+        {
+            return Err(Refusal::bad_request(format!(
+                "Sprint {sprint_id} not found in this project"
+            )));
+        }
         Ok(input)
     }
     .await;
@@ -257,6 +273,20 @@ async fn create(State(state): State<FlowState>, caller: Caller, body: Bytes) -> 
     )
 }
 
+/// Whether a live sprint of the project has this id.
+async fn sprint_in_project(db: &PgPool, sprint_id: &str, project_id: &str) -> Result<bool, DbErr> {
+    let found: Option<String> = sprints::Entity::find()
+        .select_only()
+        .column(sprints::Column::Id)
+        .filter(sprints::Column::Id.eq(sprint_id))
+        .filter(sprints::Column::ProjectId.eq(project_id))
+        .filter(sprints::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
+    Ok(found.is_some())
+}
+
 async fn create_lesson(state: &FlowState, caller: &Caller, input: &Body) -> Reply {
     let id = generate_id("les");
     let now = now();
@@ -268,6 +298,10 @@ async fn create_lesson(state: &FlowState, caller: &Caller, input: &Body) -> Repl
         author_id: Set(caller.user_id.clone()),
         votes: Set(json!([])),
         know_page_id: Set(None),
+        sprint_id: Set(input
+            .get("sprintId")
+            .and_then(Value::as_str)
+            .map(str::to_owned)),
         created_by: Set(caller.user_id.clone()),
         created_at: Set(now),
         updated_at: Set(now),
@@ -315,7 +349,10 @@ async fn update(
             return Err(Refusal::not_found(LESSON_LABEL, &id));
         };
         changeable(&caller, &existing).await?;
-        let input = parse_body(&body, read_update_lesson)?;
+        let retro = existing.text("sprintId").is_some_and(|s| !s.is_empty());
+        let input = parse_body(&body, |issues, value| {
+            read_update_lesson(issues, value, retro)
+        })?;
         author_only(&caller, &existing).await?;
         Ok(input)
     }
@@ -512,8 +549,10 @@ async fn publish_lessons(
 ) -> Reply {
     let db = &caller.db;
     let project_id = text(input, "projectId");
+    // The project's own lessons: a sprint's retro cards stay with the sprint.
     let lessons = project_lessons::Entity::find()
         .filter(Column::ProjectId.eq(project_id))
+        .filter(Column::SprintId.is_null())
         .filter(Column::DeletedAt.is_null())
         .order_by_asc(Column::CreatedAt)
         .order_by_asc(Column::Id)
@@ -549,6 +588,7 @@ async fn publish_lessons(
         .col_expr(Column::KnowPageId, Expr::value(page_id))
         .col_expr(Column::UpdatedAt, Expr::value(now()))
         .filter(Column::ProjectId.eq(project_id))
+        .filter(Column::SprintId.is_null())
         .filter(Column::DeletedAt.is_null())
         .exec_with_returning(&orm(db))
         .await?;

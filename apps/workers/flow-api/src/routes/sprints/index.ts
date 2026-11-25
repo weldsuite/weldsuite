@@ -236,6 +236,11 @@ app.delete('/:id', requirePermission('projects:delete'), async (c) => {
       return error.forbidden(c, PROJECT_WRITE_DENIED);
     }
     await db.update(t).set({ deletedAt: new Date(), updatedAt: new Date() }).where(eq(t.id, id));
+    // Its tasks go back to the backlog.
+    await db
+      .update(schema.tasks)
+      .set({ sprintId: null, updatedAt: new Date() })
+      .where(and(eq(schema.tasks.sprintId, id), isNull(schema.tasks.deletedAt)));
     publishEntityEvent({
       c,
       entityType: 'project_sprint',
