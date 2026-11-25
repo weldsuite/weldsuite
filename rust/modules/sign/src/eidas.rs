@@ -1138,8 +1138,11 @@ pub(crate) async fn evidence(
             if envelope["status"] != "completed" || key.is_empty() {
                 return Ok(ApiError::not_found("Evidence report", None).into_response());
             }
-            let files = caller
-                .files(&state)
+            // The app's own private bucket. A Rust-only route has no
+            // conformance stand-in to take from the request.
+            let files = state
+                .files
+                .clone()
                 .ok_or_else(|| SignError::Internal("sign: no file storage".to_owned()))?;
             let Some(object) = files.private.get_boxed(key).await.map_err(internal)? else {
                 return Ok(ApiError::not_found("Evidence report", None).into_response());
