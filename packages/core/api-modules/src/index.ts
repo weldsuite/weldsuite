@@ -140,6 +140,8 @@ export const GLOBAL_UNAVAILABLE_FEATURES: readonly string[] = [
   'moneybirdTwoWay',
   // WeldPass's encrypted offline copy on registered phones (ADR PASS-010).
   'weldpass-offline',
+  // WeldFlow agile delivery: sprints, backlog, epics, retros (ADRs FLOW-022 to FLOW-024).
+  'flow-agile',
 ];
 
 const mod = (

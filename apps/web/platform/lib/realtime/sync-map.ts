@@ -227,7 +227,8 @@ export const platformSyncMap: EntitySyncMap = {
   project_stakeholder: inv(stakeholderKeys.all, reportKeys.all),
 
   // Closing: lessons and templates, and the close checklist (use-project-closing-queries.ts).
-  project_lesson: inv(['project-closing']),
+  // Sprint retro cards are lessons too (use-flow-agile-queries.ts, under projectKeys.all).
+  project_lesson: inv(['project-closing'], projectKeys.all),
   project_template: inv(['project-closing']),
 
   // Portfolio: capacity, intake and the workspace settings behind them.

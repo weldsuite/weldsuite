@@ -78,6 +78,9 @@ import { flowSchedule } from './flow-schedule';
 import { flowReporting } from './flow-reporting';
 import { flowFinance } from './flow-finance';
 import { flowClosing } from './flow-closing';
+import { flowAgile } from './flow-agile';
+import { flowAgileBacklog } from './flow-agile-backlog';
+import { flowAgileSprints } from './flow-agile-sprints';
 import { flowPortfolio } from './flow-portfolio';
 import { projectPortal } from './project-portal';
 import { formsPortal } from './forms-portal';
@@ -163,6 +166,9 @@ export const en = {
   flowReporting,
   flowFinance,
   flowClosing,
+  flowAgile,
+  flowAgileBacklog,
+  flowAgileSprints,
   flowPortfolio,
   projectPortal,
   formsPortal,

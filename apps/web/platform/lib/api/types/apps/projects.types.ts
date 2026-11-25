@@ -108,6 +108,8 @@ export namespace Projects {
     sprintId?: string;
     milestoneId?: string;
     parentTaskId?: string;
+    /** The epic or feature the item belongs to (EU and self-hosted only; ADR FLOW-023). */
+    epicId?: string | null;
     title: string;
     description?: string;
     key?: string;

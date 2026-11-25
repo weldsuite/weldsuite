@@ -20,6 +20,7 @@ import { createProjectScheduleApi } from '@weldsuite/app-api-client/domains/proj
 import { createProjectReportingApi } from '@weldsuite/app-api-client/domains/project-reporting';
 import { createProjectFinanceApi } from '@weldsuite/app-api-client/domains/project-finance';
 import { createProjectClosingApi } from '@weldsuite/app-api-client/domains/project-closing';
+import { createFlowAgileApi } from '@weldsuite/app-api-client/domains/flow-agile';
 import { createFlowPortfolioApi } from '@weldsuite/app-api-client/domains/flow-portfolio';
 import { createTicketsApi } from '@weldsuite/app-api-client/domains/tickets';
 import { createCompaniesApi } from '@weldsuite/app-api-client/domains/companies';
@@ -191,6 +192,8 @@ export function useAppApi() {
       projectReporting: createProjectReportingApi(lazyClient),
       projectFinance: createProjectFinanceApi(lazyClient),
       projectClosing: createProjectClosingApi(lazyClient),
+      // WeldFlow agile delivery (Rust only): sprints, epics, delivery approach, retros.
+      flowAgile: createFlowAgileApi(lazyClient),
       flowPortfolio: createFlowPortfolioApi(lazyClient),
       tickets: createTicketsApi(lazyClient),
       companies: createCompaniesApi(lazyClient),
