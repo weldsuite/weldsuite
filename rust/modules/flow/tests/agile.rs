@@ -287,12 +287,15 @@ impl Fx {
 
     async fn project(&self, key: &str) -> String {
         let id = self.id(key);
-        sqlx::query("insert into projects (id, name) values ($1, $2)")
-            .bind(&id)
-            .bind(format!("Project {key}"))
-            .execute(&self.db)
-            .await
-            .expect("project");
+        // `projects` has no default for its timestamps (Drizzle set them).
+        sqlx::query(
+            "insert into projects (id, name, created_at, updated_at) values ($1, $2, now(), now())",
+        )
+        .bind(&id)
+        .bind(format!("Project {key}"))
+        .execute(&self.db)
+        .await
+        .expect("project");
         id
     }
 
