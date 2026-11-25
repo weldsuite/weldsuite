@@ -60,49 +60,26 @@ import { ReadinessBanner } from '../components/readiness-banner';
 
 const message = (error: unknown): string | undefined => (error instanceof Error ? error.message : undefined);
 
-function AnnualReportEditor({ report }: Readonly<{ report: AnnualReport }>) {
+type FileMutation = ReturnType<typeof useFileAnnualReport>;
+type StatusMutation = ReturnType<typeof useAnnualReportFilingStatus>;
+
+/** Download the XBRL, recalculate, mark as filed and delete, with their dialogs. */
+function MoreMenu({ report }: Readonly<{ report: AnnualReport }>) {
   const { t } = useI18n();
   const ta = t.weldbooksNl.annualReports;
   const tx = ta.actions;
-  const { formatDate, formatDateTime } = useWeldbooksFormat();
   const { can } = usePermissions();
   const navigate = useNavigate();
   const id = report.id;
-
-  const updateMutation = useUpdateAnnualReport(id);
   const recalculateMutation = useRecalculateAnnualReport(id);
-  const fileMutation = useFileAnnualReport(id);
   const markFiledMutation = useMarkAnnualReportFiled(id);
-  const statusMutation = useAnnualReportFilingStatus(id);
   const deleteMutation = useDeleteAnnualReport(id);
-
-  const [confirmFile, setConfirmFile] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState(false);
   const [confirmRecalculate, setConfirmRecalculate] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const [markFiledOpen, setMarkFiledOpen] = useState(false);
-
-  const form = useForm<AnnualReportFormValues>({
-    resolver: zodResolver(annualReportFormSchema),
-    defaultValues: reportToFormValues(report),
-  });
-  const { reset } = form;
-
-  // A save, a recalculation or a filing changes the report: show what the server holds.
-  useEffect(() => {
-    reset(reportToFormValues(report));
-  }, [report, reset]);
-
   const editable = isAnnualReportEditable(report.status);
-  const dirty = form.formState.isDirty;
-  const kvkDigipoort = isFeatureAvailable('kvk-digipoort');
-  const canUpdate = can('reports:update');
-  const notReady = report.issues.length > 0;
-
-  const save = (values: AnnualReportFormValues) =>
-    updateMutation.mutate(formValuesToPatch(values, report), {
-      onSuccess: () => toast.success(tx.saved),
-      onError: (err) => toast.error(tx.saveFailed, { description: message(err) }),
-    });
+  const canEdit = editable && can('reports:update');
+  const canDelete = editable && can('reports:delete');
 
   const recalculate = () =>
     recalculateMutation.mutate(undefined, {
@@ -111,7 +88,7 @@ function AnnualReportEditor({ report }: Readonly<{ report: AnnualReport }>) {
       onSettled: () => setConfirmRecalculate(false),
     });
 
-  const handleDownload = async () => {
+  const download = async () => {
     try {
       const { blob, filename } = await accountingApi.downloadAnnualReportXbrl(id);
       downloadBlob(blob, filename ?? `jaarrekening-${report.fiscalYear}.xbrl`);
@@ -119,25 +96,6 @@ function AnnualReportEditor({ report }: Readonly<{ report: AnnualReport }>) {
       toast.error(tx.xbrlFailed, { description: message(err) });
     }
   };
-
-  const file = () =>
-    fileMutation.mutate(undefined, {
-      onSuccess: () => toast.success(tx.submitted),
-      onError: (err) => toast.error(tx.fileFailed, { description: message(err) }),
-      onSettled: () => setConfirmFile(false),
-    });
-
-  const checkStatus = () =>
-    statusMutation.mutate(undefined, {
-      onSuccess: (res) => {
-        if (res.data.success === false) {
-          toast.error(res.data.error ?? t.weldbooksNl.digipoort.statusCheckFailed);
-          return;
-        }
-        toast.info(tx.statusResult.replace('{status}', t.weldbooksNl.digipoort.statusLabels[res.data.status]));
-      },
-      onError: (err) => toast.error(message(err) ?? t.weldbooksNl.digipoort.statusCheckFailed),
-    });
 
   const remove = () =>
     deleteMutation.mutate(undefined, {
@@ -152,116 +110,45 @@ function AnnualReportEditor({ report }: Readonly<{ report: AnnualReport }>) {
       },
     });
 
-  const filingFields = [
-    { label: ta.filing.status, value: <AnnualReportStatusChip status={report.status} /> },
-    { label: kvkDigipoort ? ta.filing.referenceDigipoort : ta.filing.reference, value: report.filingReference },
-    { label: ta.filing.filedAt, value: report.filedAt ? formatDateTime(report.filedAt) : null },
-    ...(report.acceptedAt ? [{ label: ta.filing.acceptedAt, value: formatDate(report.acceptedAt) }] : []),
-    ...(report.rejectedAt ? [{ label: ta.filing.rejectedAt, value: formatDate(report.rejectedAt) }] : []),
-  ];
+  // Hand-edited figures are only replaced after a confirmation.
+  const askRecalculate = () => (report.figures.edited ? setConfirmRecalculate(true) : recalculate());
 
   return (
-    <DetailPage className="mx-auto max-w-5xl">
-      <DetailHeader
-        onBack={() => void navigate({ to: '/weldbooks/annual-reports' })}
-        backLabel={ta.detail.back}
-        title={ta.detail.title.replace('{year}', String(report.fiscalYear))}
-        subtitle={`${ta.detail.periodLabel}: ${formatDate(report.periodStart)} — ${formatDate(report.periodEnd)}`}
-        badges={
-          <>
-            <AnnualReportStatusChip status={report.status} />
-            <PreprodBadge row={report} />
-          </>
-        }
-        actions={
-          <>
-            {editable && canUpdate ? (
-              <Button type="submit" form="annual-report-form" size="sm" disabled={!dirty || updateMutation.isPending}>
-                {updateMutation.isPending ? tx.saving : tx.save}
-              </Button>
-            ) : null}
-            {editable && canUpdate && kvkDigipoort ? (
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={notReady || dirty || fileMutation.isPending}
-                title={dirty ? ta.detail.unsavedChanges : undefined}
-                onClick={() => setConfirmFile(true)}
-              >
-                <Send className="h-3.5 w-3.5" />
-                {fileMutation.isPending ? tx.filing : tx.file}
-              </Button>
-            ) : null}
-            {report.status === 'submitted' && kvkDigipoort ? (
-              <Button size="sm" variant="outline" disabled={statusMutation.isPending} onClick={checkStatus}>
-                <ShieldCheck className="h-3.5 w-3.5" />
-                {statusMutation.isPending ? tx.checking : tx.checkStatus}
-              </Button>
-            ) : null}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon-sm" aria-label={tx.more}>
-                  <EllipsisVertical className="h-4 w-4 text-muted-foreground" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem disabled={notReady} onClick={() => void handleDownload()}>
-                  <Download />
-                  {tx.downloadXbrl}
-                </DropdownMenuItem>
-                {editable && canUpdate ? (
-                  <>
-                    <DropdownMenuItem
-                      disabled={recalculateMutation.isPending}
-                      onClick={() => (report.figures.edited ? setConfirmRecalculate(true) : recalculate())}
-                    >
-                      <RefreshCw />
-                      {recalculateMutation.isPending ? ta.recalculate.pending : ta.recalculate.action}
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => setMarkFiledOpen(true)}>
-                      <CheckCircle2 />
-                      {tx.markFiled}
-                    </DropdownMenuItem>
-                  </>
-                ) : null}
-                {editable && can('reports:delete') ? (
-                  <>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem variant="destructive" onClick={() => setConfirmDelete(true)}>
-                      <Trash2 />
-                      {tx.delete}
-                    </DropdownMenuItem>
-                  </>
-                ) : null}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </>
-        }
-      />
-
-      <ReadinessBanner report={report} />
-      {fileMutation.isError ? (
-        <InfoBanner variant="danger" title={tx.fileFailed}>
-          {message(fileMutation.error)}
-        </InfoBanner>
-      ) : null}
-
-      <DisclosuresFields form={form} report={report} editable={editable && canUpdate} onSubmit={save}>
-        <section aria-labelledby="balance-title" className="space-y-3">
-          <h2 id="balance-title" className="text-base font-semibold">
-            {ta.balance.title}
-          </h2>
-          <BalanceSheetTable report={report} control={form.control} setValue={form.setValue} editable={editable && canUpdate} />
-        </section>
-      </DisclosuresFields>
-
-      <section aria-labelledby="filing-title" className="space-y-3">
-        <h2 id="filing-title" className="text-base font-semibold">
-          {ta.filing.title}
-        </h2>
-        <FieldGrid fields={filingFields} />
-        {statusMutation.data?.data ? <FilingStatusSummary status={statusMutation.data.data} /> : null}
-      </section>
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="ghost" size="icon-sm" aria-label={tx.more}>
+            <EllipsisVertical className="h-4 w-4 text-muted-foreground" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem disabled={report.issues.length > 0} onClick={() => void download()}>
+            <Download />
+            {tx.downloadXbrl}
+          </DropdownMenuItem>
+          {canEdit ? (
+            <>
+              <DropdownMenuItem disabled={recalculateMutation.isPending} onClick={askRecalculate}>
+                <RefreshCw />
+                {recalculateMutation.isPending ? ta.recalculate.pending : ta.recalculate.action}
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setMarkFiledOpen(true)}>
+                <CheckCircle2 />
+                {tx.markFiled}
+              </DropdownMenuItem>
+            </>
+          ) : null}
+          {canDelete ? (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem variant="destructive" onClick={() => setConfirmDelete(true)}>
+                <Trash2 />
+                {tx.delete}
+              </DropdownMenuItem>
+            </>
+          ) : null}
+        </DropdownMenuContent>
+      </DropdownMenu>
 
       <MarkVatFiledDialog
         open={markFiledOpen}
@@ -278,16 +165,6 @@ function AnnualReportEditor({ report }: Readonly<{ report: AnnualReport }>) {
             onError: (err) => toast.error(tx.markFiledFailed, { description: message(err) }),
           })
         }
-      />
-      <ConfirmDialog
-        open={confirmFile}
-        onOpenChange={setConfirmFile}
-        title={tx.fileConfirmTitle}
-        description={tx.fileConfirmDescription}
-        confirmLabel={tx.fileConfirm}
-        cancelLabel={tx.fileConfirmCancel}
-        loading={fileMutation.isPending}
-        onConfirm={file}
       />
       <ConfirmDialog
         open={confirmRecalculate}
@@ -309,6 +186,188 @@ function AnnualReportEditor({ report }: Readonly<{ report: AnnualReport }>) {
         loading={deleteMutation.isPending}
         onConfirm={remove}
       />
+    </>
+  );
+}
+
+/** Save, file with the KvK (after a confirmation) and check the status. */
+function HeaderActions({
+  report,
+  dirty,
+  saving,
+  fileMutation,
+  statusMutation,
+}: Readonly<{
+  report: AnnualReport;
+  dirty: boolean;
+  saving: boolean;
+  fileMutation: FileMutation;
+  statusMutation: StatusMutation;
+}>) {
+  const { t } = useI18n();
+  const ta = t.weldbooksNl.annualReports;
+  const tx = ta.actions;
+  const td = t.weldbooksNl.digipoort;
+  const { can } = usePermissions();
+  const [confirmFile, setConfirmFile] = useState(false);
+  const canEdit = isAnnualReportEditable(report.status) && can('reports:update');
+  const kvkDigipoort = isFeatureAvailable('kvk-digipoort');
+  const canFile = canEdit && kvkDigipoort;
+  const canCheck = report.status === 'submitted' && kvkDigipoort;
+
+  const file = () =>
+    fileMutation.mutate(undefined, {
+      onSuccess: () => toast.success(tx.submitted),
+      onError: (err) => toast.error(tx.fileFailed, { description: message(err) }),
+      onSettled: () => setConfirmFile(false),
+    });
+
+  const checkStatus = () =>
+    statusMutation.mutate(undefined, {
+      onSuccess: ({ data }) =>
+        data.success === false
+          ? toast.error(data.error ?? td.statusCheckFailed)
+          : toast.info(tx.statusResult.replace('{status}', td.statusLabels[data.status])),
+      onError: (err) => toast.error(message(err) ?? td.statusCheckFailed),
+    });
+
+  return (
+    <>
+      {canEdit ? (
+        <Button type="submit" form="annual-report-form" size="sm" disabled={!dirty || saving}>
+          {saving ? tx.saving : tx.save}
+        </Button>
+      ) : null}
+      {canFile ? (
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={report.issues.length > 0 || dirty || fileMutation.isPending}
+          title={dirty ? ta.detail.unsavedChanges : undefined}
+          onClick={() => setConfirmFile(true)}
+        >
+          <Send className="h-3.5 w-3.5" />
+          {fileMutation.isPending ? tx.filing : tx.file}
+        </Button>
+      ) : null}
+      {canCheck ? (
+        <Button size="sm" variant="outline" disabled={statusMutation.isPending} onClick={checkStatus}>
+          <ShieldCheck className="h-3.5 w-3.5" />
+          {statusMutation.isPending ? tx.checking : tx.checkStatus}
+        </Button>
+      ) : null}
+      <MoreMenu report={report} />
+      <ConfirmDialog
+        open={confirmFile}
+        onOpenChange={setConfirmFile}
+        title={tx.fileConfirmTitle}
+        description={tx.fileConfirmDescription}
+        confirmLabel={tx.fileConfirm}
+        cancelLabel={tx.fileConfirmCancel}
+        loading={fileMutation.isPending}
+        onConfirm={file}
+      />
+    </>
+  );
+}
+
+/** Where the filing stands, and the statuses of the last check. */
+function FilingSection({ report, status }: Readonly<{ report: AnnualReport; status: StatusMutation['data'] }>) {
+  const { t } = useI18n();
+  const ta = t.weldbooksNl.annualReports;
+  const { formatDate, formatDateTime } = useWeldbooksFormat();
+  const kvkDigipoort = isFeatureAvailable('kvk-digipoort');
+  const fields = [
+    { label: ta.filing.status, value: <AnnualReportStatusChip status={report.status} /> },
+    { label: kvkDigipoort ? ta.filing.referenceDigipoort : ta.filing.reference, value: report.filingReference },
+    { label: ta.filing.filedAt, value: report.filedAt ? formatDateTime(report.filedAt) : null },
+    ...(report.acceptedAt ? [{ label: ta.filing.acceptedAt, value: formatDate(report.acceptedAt) }] : []),
+    ...(report.rejectedAt ? [{ label: ta.filing.rejectedAt, value: formatDate(report.rejectedAt) }] : []),
+  ];
+  return (
+    <section aria-labelledby="filing-title" className="space-y-3">
+      <h2 id="filing-title" className="text-base font-semibold">
+        {ta.filing.title}
+      </h2>
+      <FieldGrid fields={fields} />
+      {status?.data ? <FilingStatusSummary status={status.data} /> : null}
+    </section>
+  );
+}
+
+function AnnualReportEditor({ report }: Readonly<{ report: AnnualReport }>) {
+  const { t } = useI18n();
+  const ta = t.weldbooksNl.annualReports;
+  const tx = ta.actions;
+  const { formatDate } = useWeldbooksFormat();
+  const { can } = usePermissions();
+  const navigate = useNavigate();
+  const id = report.id;
+
+  const updateMutation = useUpdateAnnualReport(id);
+  const fileMutation = useFileAnnualReport(id);
+  const statusMutation = useAnnualReportFilingStatus(id);
+
+  const form = useForm<AnnualReportFormValues>({
+    resolver: zodResolver(annualReportFormSchema),
+    defaultValues: reportToFormValues(report),
+  });
+  const { reset } = form;
+
+  // A save, a recalculation or a filing changes the report: show what the server holds.
+  useEffect(() => {
+    reset(reportToFormValues(report));
+  }, [report, reset]);
+
+  const editable = isAnnualReportEditable(report.status) && can('reports:update');
+
+  const save = (values: AnnualReportFormValues) =>
+    updateMutation.mutate(formValuesToPatch(values, report), {
+      onSuccess: () => toast.success(tx.saved),
+      onError: (err) => toast.error(tx.saveFailed, { description: message(err) }),
+    });
+
+  return (
+    <DetailPage className="mx-auto max-w-5xl">
+      <DetailHeader
+        onBack={() => void navigate({ to: '/weldbooks/annual-reports' })}
+        backLabel={ta.detail.back}
+        title={ta.detail.title.replace('{year}', String(report.fiscalYear))}
+        subtitle={`${ta.detail.periodLabel}: ${formatDate(report.periodStart)} — ${formatDate(report.periodEnd)}`}
+        badges={
+          <>
+            <AnnualReportStatusChip status={report.status} />
+            <PreprodBadge row={report} />
+          </>
+        }
+        actions={
+          <HeaderActions
+            report={report}
+            dirty={form.formState.isDirty}
+            saving={updateMutation.isPending}
+            fileMutation={fileMutation}
+            statusMutation={statusMutation}
+          />
+        }
+      />
+
+      <ReadinessBanner report={report} />
+      {fileMutation.isError ? (
+        <InfoBanner variant="danger" title={tx.fileFailed}>
+          {message(fileMutation.error)}
+        </InfoBanner>
+      ) : null}
+
+      <DisclosuresFields form={form} report={report} editable={editable} onSubmit={save}>
+        <section aria-labelledby="balance-title" className="space-y-3">
+          <h2 id="balance-title" className="text-base font-semibold">
+            {ta.balance.title}
+          </h2>
+          <BalanceSheetTable report={report} control={form.control} setValue={form.setValue} editable={editable} />
+        </section>
+      </DisclosuresFields>
+
+      <FilingSection report={report} status={statusMutation.data} />
     </DetailPage>
   );
 }

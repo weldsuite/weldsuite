@@ -25,22 +25,30 @@ export function ReadinessBanner({ report }: Readonly<{ report: AnnualReport }>) 
       {!isAnnualReportEditable(report.status) && report.status !== 'submitted' ? (
         <InfoBanner variant="neutral">{td.locked}</InfoBanner>
       ) : null}
-      {isAnnualReportEditable(report.status) ? (
-        report.issues.length > 0 ? (
-          <InfoBanner variant="warning" title={tr.issuesTitle} data-testid="readiness-issues">
-            <p>{tr.issuesIntro}</p>
-            <ul className="mt-1 list-disc space-y-0.5 pl-5">
-              {report.issues.map((issue) => (
-                <li key={`${issue.field}-${issue.message}`}>{issue.message}</li>
-              ))}
-            </ul>
-          </InfoBanner>
-        ) : (
-          <InfoBanner variant="success" title={tr.readyTitle} data-testid="readiness-ready">
-            {tr.readyBody}
-          </InfoBanner>
-        )
-      ) : null}
+      {isAnnualReportEditable(report.status) ? <Readiness report={report} /> : null}
     </div>
+  );
+}
+
+/** An editable report's issues, or that it is ready to file. */
+function Readiness({ report }: Readonly<{ report: AnnualReport }>) {
+  const { t } = useI18n();
+  const tr = t.weldbooksNl.annualReports.readiness;
+  if (report.issues.length === 0) {
+    return (
+      <InfoBanner variant="success" title={tr.readyTitle} data-testid="readiness-ready">
+        {tr.readyBody}
+      </InfoBanner>
+    );
+  }
+  return (
+    <InfoBanner variant="warning" title={tr.issuesTitle} data-testid="readiness-issues">
+      <p>{tr.issuesIntro}</p>
+      <ul className="mt-1 list-disc space-y-0.5 pl-5">
+        {report.issues.map((issue) => (
+          <li key={`${issue.field}-${issue.message}`}>{issue.message}</li>
+        ))}
+      </ul>
+    </InfoBanner>
   );
 }

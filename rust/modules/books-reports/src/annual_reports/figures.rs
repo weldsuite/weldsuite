@@ -450,109 +450,128 @@ mod tests {
     }
 
     #[test]
-    #[allow(
-        clippy::too_many_lines,
-        reason = "one case per account of the Dutch chart"
-    )]
     fn sorts_the_dutch_chart_into_the_publication_lines() {
         let cases = [
             (
-                account("0100", "Immateriële vaste activa", "asset", "fixed_assets"),
+                "0100",
+                "Immateriële vaste activa",
+                "asset",
+                "fixed_assets",
                 Item::IntangibleAssets,
             ),
             (
-                account("0200", "Materiële vaste activa", "asset", "fixed_assets"),
+                "0200",
+                "Materiële vaste activa",
+                "asset",
+                "fixed_assets",
                 Item::TangibleAssets,
             ),
             (
-                account(
-                    "0290",
-                    "Cumulatieve afschrijvingen",
-                    "asset",
-                    "fixed_assets",
-                ),
+                "0290",
+                "Cumulatieve afschrijvingen",
+                "asset",
+                "fixed_assets",
                 Item::TangibleAssets,
             ),
             (
-                account("0300", "Financiële vaste activa", "asset", "fixed_assets"),
+                "0300",
+                "Financiële vaste activa",
+                "asset",
+                "fixed_assets",
                 Item::FinancialAssets,
             ),
-            (account("1100", "Bank", "asset", "bank"), Item::Cash),
+            ("1100", "Bank", "asset", "bank", Item::Cash),
             (
-                account("1300", "Debiteuren", "asset", "accounts_receivable"),
+                "1300",
+                "Debiteuren",
+                "asset",
+                "accounts_receivable",
                 Item::Receivables,
             ),
             (
-                account("1500", "Voorraad", "asset", "current_assets"),
+                "1500",
+                "Voorraad",
+                "asset",
+                "current_assets",
                 Item::Inventories,
             ),
             (
-                account("1510", "Onderhanden werk", "asset", "current_assets"),
+                "1510",
+                "Onderhanden werk",
+                "asset",
+                "current_assets",
                 Item::Inventories,
             ),
             (
-                account(
-                    "1400",
-                    "Vooruitbetaalde bedragen",
-                    "asset",
-                    "current_assets",
-                ),
+                "1400",
+                "Vooruitbetaalde bedragen",
+                "asset",
+                "current_assets",
                 Item::Receivables,
             ),
+            ("1520", "BTW te vorderen", "asset", "tax", Item::Receivables),
             (
-                account("1520", "BTW te vorderen", "asset", "tax"),
-                Item::Receivables,
-            ),
-            (
-                account("1600", "Crediteuren", "liability", "accounts_payable"),
+                "1600",
+                "Crediteuren",
+                "liability",
+                "accounts_payable",
                 Item::CurrentLiabilities,
             ),
             (
-                account("1730", "BTW voorbelasting", "liability", "tax"),
+                "1730",
+                "BTW voorbelasting",
+                "liability",
+                "tax",
                 Item::CurrentLiabilities,
             ),
             (
-                account(
-                    "2000",
-                    "Langlopende leningen",
-                    "liability",
-                    "accounts_payable",
-                ),
+                "2000",
+                "Langlopende leningen",
+                "liability",
+                "accounts_payable",
                 Item::LongTermLiabilities,
             ),
             (
-                account(
-                    "0700",
-                    "Voorziening groot onderhoud",
-                    "liability",
-                    "accounts_payable",
-                ),
+                "0700",
+                "Voorziening groot onderhoud",
+                "liability",
+                "accounts_payable",
                 Item::Provisions,
             ),
             (
-                account("0510", "Aandelenkapitaal", "equity", "capital"),
+                "0510",
+                "Aandelenkapitaal",
+                "equity",
+                "capital",
                 Item::ShareCapital,
             ),
             (
-                account("0520", "Reserves", "equity", "retained_earnings"),
+                "0520",
+                "Reserves",
+                "equity",
+                "retained_earnings",
                 Item::OtherReserves,
             ),
             (
-                account("0530", "Onverdeelde winst", "equity", "retained_earnings"),
+                "0530",
+                "Onverdeelde winst",
+                "equity",
+                "retained_earnings",
                 Item::OtherReserves,
             ),
             (
-                account("0525", "Agioreserve", "equity", "capital"),
+                "0525",
+                "Agioreserve",
+                "equity",
+                "capital",
                 Item::SharePremium,
             ),
         ];
-        for (account, item) in cases {
+        for (code, name, kind, subtype, item) in cases {
             assert_eq!(
-                classify(&account),
+                classify(&account(code, name, kind, subtype)),
                 Some(item),
-                "{} {}",
-                account.code,
-                account.name
+                "{code} {name}"
             );
         }
         assert_eq!(

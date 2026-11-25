@@ -140,7 +140,7 @@ export default function VatReturnsPage() {
   const fileIcp = useMutation({
     mutationFn: (icpId: string) => accountingApi.fileIcpDeclaration(icpId),
     onSuccess: (res) => {
-      qc.invalidateQueries({ queryKey: ['accounting', 'icp-declarations'] });
+      void qc.invalidateQueries({ queryKey: ['accounting', 'icp-declarations'] });
       toast.success(res.data?.status === 'submitted' ? td.icpSubmitted : td.icpFiled);
     },
     onError: (err) => toast.error(err?.message ?? st('sweep.weldbooks.vat.icpFilingFailed')),
@@ -150,7 +150,7 @@ export default function VatReturnsPage() {
   const checkIcpStatus = useMutation({
     mutationFn: (icpId: string) => accountingApi.getIcpFilingStatus(icpId),
     onSuccess: (res) => {
-      qc.invalidateQueries({ queryKey: ['accounting', 'icp-declarations'] });
+      void qc.invalidateQueries({ queryKey: ['accounting', 'icp-declarations'] });
       const result = res.data;
       if (result.success === false) {
         toast.error(result.error ?? td.statusCheckFailed);

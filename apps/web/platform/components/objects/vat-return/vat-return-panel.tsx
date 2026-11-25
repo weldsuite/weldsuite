@@ -306,32 +306,20 @@ function VatReturnActions({
 
 // ─── Details tab ───────────────────────────────────────────────────────────
 
-function VatReturnDetailsTab({
+/** The return was filed from this panel a moment ago: `sent` when it went through Digipoort and waits for an answer. */
+type FiledNotice = 'filed' | 'sent' | null;
+
+/** What happened to the filing: just filed or sent, rejected, waiting for the Belastingdienst, or failed. */
+function VatFilingNotices({
   vr,
   filedNotice,
   filingError,
-  statusResult,
   t,
-}: Readonly<{
-  vr: VatReturn;
-  /** The return was filed from this panel a moment ago: `sent` when it went through Digipoort and waits for an answer. */
-  filedNotice: 'filed' | 'sent' | null;
-  filingError: string | null;
-  /** The answer of the last status check made from this panel. */
-  statusResult: FilingStatus | null;
-  t: Translations;
-}>) {
-  const { formatMoney, formatDate, formatDateTime } = useWeldbooksFormat();
-  const st = useTranslations();
-  const statusLabels = useVatStatusLabels(t);
+}: Readonly<{ vr: VatReturn; filedNotice: FiledNotice; filingError: string | null; t: Translations }>) {
   const tv = t.accounting.vat;
-  const rubrieken = vr.rubrieken ?? {};
-  const total = rubrieken.r5g ?? 0;
-  const digipoort = isFeatureAvailable('vat-digipoort');
   const td = t.weldbooksNl.digipoort;
-
   return (
-    <div className="@container p-4 space-y-4">
+    <>
       {filedNotice ? (
         <p className="flex items-center gap-1 text-sm text-green-600 dark:text-green-400" role="status">
           <CheckCircle2 className="h-4 w-4" />
@@ -357,6 +345,36 @@ function VatReturnDetailsTab({
           {filingError}
         </p>
       ) : null}
+    </>
+  );
+}
+
+function VatReturnDetailsTab({
+  vr,
+  filedNotice,
+  filingError,
+  statusResult,
+  t,
+}: Readonly<{
+  vr: VatReturn;
+  filedNotice: FiledNotice;
+  filingError: string | null;
+  /** The answer of the last status check made from this panel. */
+  statusResult: FilingStatus | null;
+  t: Translations;
+}>) {
+  const { formatMoney, formatDate, formatDateTime } = useWeldbooksFormat();
+  const st = useTranslations();
+  const statusLabels = useVatStatusLabels(t);
+  const tv = t.accounting.vat;
+  const rubrieken = vr.rubrieken ?? {};
+  const total = rubrieken.r5g ?? 0;
+  const digipoort = isFeatureAvailable('vat-digipoort');
+  const td = t.weldbooksNl.digipoort;
+
+  return (
+    <div className="@container p-4 space-y-4">
+      <VatFilingNotices vr={vr} filedNotice={filedNotice} filingError={filingError} t={t} />
 
       <div className="space-y-1">
         <PanelRow icon={ArrowUpRight} label={tv.colR5a} value={formatMoney(rubrieken.r5a)} />
@@ -476,7 +494,7 @@ function VatReturnTabBody({
 }: Readonly<{
   vr: Parameters<typeof VatReturnBoxesTab>[0]['vr'];
   activeTab: VatReturnTab['id'];
-  filedNotice: 'filed' | 'sent' | null;
+  filedNotice: FiledNotice;
   filingError: string | null;
   statusResult: FilingStatus | null;
   t: Translations;
@@ -598,7 +616,7 @@ export function VatReturnPanel(props: Readonly<ObjectPanelComponentProps>) {
       )
     : null;
 
-  let filedNotice: 'filed' | 'sent' | null = null;
+  let filedNotice: FiledNotice = null;
   if (fileMutation.isSuccess) filedNotice = fileMutation.data?.data?.status === 'submitted' ? 'sent' : 'filed';
   else if (markFiledMutation.isSuccess) filedNotice = 'filed';
 

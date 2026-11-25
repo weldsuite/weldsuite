@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { screen, within } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 const returns = vi.hoisted(() => ({
@@ -14,15 +14,23 @@ const returns = vi.hoisted(() => ({
   }[],
 }));
 vi.mock('@/components/object-panel', () => import('@/components/objects/_shared/object-panel-test-mock'));
-vi.mock('@/lib/api/weldbooks-client', () => ({ weldbooksApi: {}, setWeldbooksEntityId: vi.fn() }));
+const api = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), delete: vi.fn() }));
+vi.mock('@/lib/api/weldbooks-client', () => ({ weldbooksApi: api, setWeldbooksEntityId: vi.fn() }));
 vi.mock('@/hooks/queries/use-accounting-queries', () => ({
   useAccountingVatReturns: () => ({ data: { data: returns.data }, isLoading: false }),
   useCalculateVatReturn: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 vi.mock('@/hooks/use-current-accounting-entity', () => ({ useCurrentAccountingEntity: () => ({ entityId: 'ent_1' }) }));
+const jurisdiction = vi.hoisted(() => ({ icp: false }));
 vi.mock('@/lib/weldbooks/use-jurisdiction', () => ({
-  useCurrentJurisdiction: () => ({ features: { vatReturn: true, icp: false }, isResolved: true, isError: false }),
+  useCurrentJurisdiction: () => ({ features: { vatReturn: true, icp: jurisdiction.icp }, isResolved: true, isError: false }),
 }));
+vi.mock('@/lib/edition', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/edition')>();
+  return { ...actual, isFeatureAvailable: (feature: string) => feature === 'vat-digipoort' || actual.isFeatureAvailable(feature as never) };
+});
+const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn() }));
+vi.mock('sonner', () => ({ toast }));
 vi.mock('@/lib/weldbooks/use-weldbooks-format', () => ({
   useWeldbooksFormat: () => ({
     formatMoney: (value: number | null | undefined) => `€${Number(value ?? 0).toFixed(2)}`,
@@ -39,6 +47,7 @@ import { renderWithProviders } from '../fixed-assets/test-utils';
 describe('VatReturnsPage', () => {
   beforeEach(() => {
     panelOpen.mockReset();
+    jurisdiction.icp = false;
     returns.data = [
       { id: 'vr_1', periodType: 'quarterly', periodStart: '2026-01-01', periodEnd: '2026-03-31', periodLabel: 'Q1 2026', status: 'calculated' },
     ];
@@ -93,5 +102,73 @@ describe('VatReturnsPage', () => {
     renderWithProviders(<VatReturnsPage />);
     await user.click(screen.getByRole('button', { name: 'Q1 2026' }));
     expect(panelOpen).toHaveBeenCalledWith({ type: 'vat_return', id: 'vr_1' });
+  });
+});
+
+describe('VatReturnsPage › ICP declarations', () => {
+  const declarations = [
+    { id: 'icp_1', periodType: 'quarterly', periodStart: '2026-01-01', periodEnd: '2026-03-31', periodLabel: 'Q1 2026', status: 'calculated', totalAmount: '1200.00' },
+    { id: 'icp_2', periodType: 'quarterly', periodStart: '2026-04-01', periodEnd: '2026-06-30', periodLabel: 'Q2 2026', status: 'submitted', totalAmount: '800.00', filingReference: 'dp-2' },
+  ];
+
+  function row(label: string) {
+    return screen.getByText(label).closest('div.group') as HTMLElement;
+  }
+
+  beforeEach(() => {
+    returns.data = [];
+    jurisdiction.icp = true;
+    for (const fn of [...Object.values(api), ...Object.values(toast)]) fn.mockReset();
+    api.get.mockImplementation(async (path: string) => (path === '/icp-declarations' ? { data: declarations } : { data: {} }));
+  });
+
+  it('files a calculated declaration through Digipoort and says it was sent', async () => {
+    api.post.mockResolvedValue({ data: { status: 'submitted' } });
+    const user = userEvent.setup();
+    renderWithProviders(<VatReturnsPage />);
+    await screen.findByText('Q1 2026');
+    expect(within(row('Q2 2026')).queryByRole('button', { name: 'File' })).not.toBeInTheDocument();
+
+    await user.click(within(row('Q1 2026')).getByRole('button', { name: 'File' }));
+    expect(api.post).toHaveBeenCalledWith('/icp-declarations/icp_1/file');
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('ICP declaration sent through Digipoort. Check the status later.'));
+  });
+
+  it('shows the reason when filing is refused', async () => {
+    api.post.mockRejectedValue(new Error('Digipoort refused the message (510)'));
+    const user = userEvent.setup();
+    renderWithProviders(<VatReturnsPage />);
+    await screen.findByText('Q1 2026');
+    await user.click(within(row('Q1 2026')).getByRole('button', { name: 'File' }));
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Digipoort refused the message (510)'));
+  });
+
+  it('checks the status of a submitted declaration', async () => {
+    api.get.mockImplementation(async (path: string) => {
+      if (path === '/icp-declarations') return { data: declarations };
+      if (path === '/icp-declarations/icp_2/filing-status') {
+        return { data: { success: true, status: 'accepted', statusDescription: 'Aanlevering verwerkt' } };
+      }
+      return { data: {} };
+    });
+    const user = userEvent.setup();
+    renderWithProviders(<VatReturnsPage />);
+    await screen.findByText('Q2 2026');
+    await user.click(within(row('Q2 2026')).getByRole('button', { name: 'Check status' }));
+    await waitFor(() =>
+      expect(toast.info).toHaveBeenCalledWith('ICP declaration status: Accepted', { description: 'Aanlevering verwerkt' }),
+    );
+  });
+
+  it('says when the status check failed', async () => {
+    api.get.mockImplementation(async (path: string) => {
+      if (path === '/icp-declarations') return { data: declarations };
+      return { data: { success: false, error: 'Digipoort is unreachable' } };
+    });
+    const user = userEvent.setup();
+    renderWithProviders(<VatReturnsPage />);
+    await screen.findByText('Q2 2026');
+    await user.click(within(row('Q2 2026')).getByRole('button', { name: 'Check status' }));
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Digipoort is unreachable'));
   });
 });
