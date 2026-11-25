@@ -1,5 +1,6 @@
 import type { ButtonHTMLAttributes, ReactNode } from 'react';
-import { KeyRound, Loader2 } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
+import { LOGO_PATH, LOGO_STROKE_WIDTH, LOGO_VIEW_BOX } from '../lib/logo';
 import type { Status } from './hooks';
 
 function cx(...parts: Array<string | false | null | undefined>): string {
@@ -86,7 +87,17 @@ export function Brand() {
   return (
     <span className="inline-flex items-center gap-1.5 font-semibold">
       <span className="inline-flex size-5 items-center justify-center rounded bg-primary text-primary-foreground">
-        <KeyRound className="size-3" aria-hidden />
+        <svg
+          viewBox={LOGO_VIEW_BOX}
+          className="size-3"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={LOGO_STROKE_WIDTH}
+          strokeLinecap="round"
+          aria-hidden
+        >
+          <path d={LOGO_PATH} />
+        </svg>
       </span>
       WeldPass
     </span>
