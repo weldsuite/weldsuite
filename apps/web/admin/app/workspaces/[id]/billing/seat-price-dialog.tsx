@@ -127,6 +127,7 @@ export function SeatPriceDialog({
         {/* The plan is charged when its period ends; a yearly plan's next charge is only the month's add-ons. */}
         <p>{fill(d.when, { date: formatDay(billing.currentPeriodEnd) })}</p>
         <p>{d.ends}</p>
+        {form.free && <p className="font-medium text-foreground">{d.free}</p>}
         {scheduledChange && (
           <p className="font-medium text-amber-600 dark:text-amber-400">
             {fill(d.scheduled, { date: formatDay(billing.currentPeriodEnd) })}

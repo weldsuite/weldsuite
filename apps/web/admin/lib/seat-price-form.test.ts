@@ -20,6 +20,11 @@ describe('offListNote', () => {
     expect(offListNote(nl, 2000, 2500, 'EUR')).toBe('Aangepaste prijs, 20% onder de lijstprijs van €25.00');
   });
 
+  it('calls a price of zero free seats', () => {
+    expect(offListNote(en, 0, 2500, 'EUR')).toBe('Free seats, instead of the list price of €25.00');
+    expect(offListNote(nl, 0, 2500, 'EUR')).toBe('Gratis gebruikers, in plaats van de lijstprijs van €25.00');
+  });
+
   it('says nothing at the list price or without one', () => {
     expect(offListNote(en, 2500, 2500, 'EUR')).toBeNull();
     expect(offListNote(en, 2500, null, 'EUR')).toBeNull();
@@ -30,7 +35,6 @@ describe('offListNote', () => {
 describe('seatPriceProblemMessage', () => {
   it('has a message for every problem', () => {
     expect(seatPriceProblemMessage(en, 'format')).toBe(en.seatPriceDialog.errors.format);
-    expect(seatPriceProblemMessage(en, 'zero')).toBe(en.seatPriceDialog.errors.zero);
     expect(seatPriceProblemMessage(en, 'too_high')).toBe('A seat can cost at most €10,000.00.');
     expect(seatPriceProblemMessage(en, 'unchanged')).toBe(en.seatPriceDialog.errors.unchanged);
   });
@@ -63,6 +67,7 @@ describe('seatPriceFormState', () => {
       problem: 'format',
       error: null,
       total: null,
+      free: false,
       describedBy: undefined,
     });
     // An empty field left behind isn't an error either.
@@ -77,6 +82,22 @@ describe('seatPriceFormState', () => {
       '3 × €19.50 = €58.50 per month, excl. VAT · Custom price, 22% below the list price of €25.00',
     );
     expect(state.describedBy).toBe(SEAT_PRICE_TOTAL_ID);
+    expect(state.free).toBe(false);
+  });
+
+  it('saves a price of zero, and says the seats are free', () => {
+    const state = seatPriceFormState(en, { ...input, amount: '0', touched: true });
+    expect(state.cents).toBe(0);
+    expect(state.problem).toBeNull();
+    expect(state.error).toBeNull();
+    expect(state.free).toBe(true);
+    expect(state.total).toBe(
+      '3 × €0.00 = €0.00 per month, excl. VAT · Free seats, instead of the list price of €25.00',
+    );
+    // Zero over seats that are already free is no change, and not free to save.
+    const already = seatPriceFormState(en, { ...input, current: 0, amount: '0', touched: true });
+    expect(already.error).toBe(en.seatPriceDialog.errors.unchanged);
+    expect(already.free).toBe(false);
   });
 
   it('leaves the note out at the list price', () => {

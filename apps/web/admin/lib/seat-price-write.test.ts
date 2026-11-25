@@ -98,6 +98,17 @@ describe('setSeatPrice', () => {
     });
   });
 
+  it('makes the seats free at zero', async () => {
+    const result = await setSeatPrice({ workspaceId: 'ws_1', unitAmount: 0, reason: 'Partner programme' });
+    expect(result).toEqual({ ok: true, data: { unitAmount: 0, previous: 2500 } });
+
+    const [update, audit] = writes();
+    expect(update!.sql).toMatch(/^update "billing_accounts" set "unit_amount" = \$1/);
+    expect(update!.params[0]).toBe(0);
+    const details = audit!.params.find((p) => typeof p === 'string' && p.includes('"listPrice"'));
+    expect(JSON.parse(details as string)).toMatchObject({ from: 2500, to: 0, listPrice: 2500 });
+  });
+
   it('refuses a viewer, a short reason and a bad price before reading anything', async () => {
     fake.state.guard = { ok: false, error: 'Your account has read-only access' };
     expect(await setSeatPrice({ workspaceId: 'ws_1', unitAmount: 2000, reason: 'Discount' })).toEqual({
@@ -106,9 +117,9 @@ describe('setSeatPrice', () => {
     });
     fake.state.guard = { ok: true, identity: staff };
     expect(await setSeatPrice({ workspaceId: 'ws_1', unitAmount: 2000, reason: ' x ' })).toMatchObject({ ok: false });
-    expect(await setSeatPrice({ workspaceId: 'ws_1', unitAmount: 0, reason: 'Discount' })).toEqual({
+    expect(await setSeatPrice({ workspaceId: 'ws_1', unitAmount: -100, reason: 'Discount' })).toEqual({
       ok: false,
-      error: errors.zero,
+      error: errors.format,
     });
     expect(await setSeatPrice({ workspaceId: 'ws_1', unitAmount: 1_000_001, reason: 'Discount' })).toMatchObject({
       ok: false,

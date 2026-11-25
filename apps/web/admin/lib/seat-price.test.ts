@@ -91,18 +91,20 @@ describe('seatPriceRefusal', () => {
 });
 
 describe('seatPriceProblem', () => {
-  it('takes a whole number of cents above zero, up to the maximum', () => {
+  it('takes a whole number of cents from zero up to the maximum', () => {
     expect(seatPriceProblem(2000, 2500)).toBeNull();
+    expect(seatPriceProblem(0, 2500)).toBeNull();
     expect(seatPriceProblem(MAX_SEAT_PRICE_CENTS, 2500)).toBeNull();
     expect(seatPriceProblem(MAX_SEAT_PRICE_CENTS + 1, 2500)).toBe('too_high');
-    expect(seatPriceProblem(0, 2500)).toBe('zero');
+    expect(seatPriceProblem(-1, 2500)).toBe('format');
     expect(seatPriceProblem(-100, 2500)).toBe('format');
     expect(seatPriceProblem(19.5, 2500)).toBe('format');
     expect(seatPriceProblem(null, 2500)).toBe('format');
   });
 
-  it('refuses the price the workspace already pays', () => {
+  it('refuses the price the workspace already pays, free seats included', () => {
     expect(seatPriceProblem(2500, 2500)).toBe('unchanged');
+    expect(seatPriceProblem(0, 0)).toBe('unchanged');
   });
 
   it('reads what staff type', () => {
@@ -110,7 +112,9 @@ describe('seatPriceProblem', () => {
     expect(typedSeatPriceProblem('19,50', 2500)).toBeNull();
     expect(typedSeatPriceProblem('25.00', 2500)).toBe('unchanged');
     expect(typedSeatPriceProblem('€20', 2500)).toBe('format');
-    expect(typedSeatPriceProblem('0', 2500)).toBe('zero');
+    expect(typedSeatPriceProblem('0', 2500)).toBeNull();
+    expect(typedSeatPriceProblem('0,00', 2500)).toBeNull();
+    expect(typedSeatPriceProblem('-5', 2500)).toBe('format');
   });
 });
 
