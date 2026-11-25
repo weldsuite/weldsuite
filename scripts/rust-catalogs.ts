@@ -18,7 +18,12 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { API_MODULES, RECORD_CHAT_OWNER, RECORD_CHAT_PREFIX } from '../packages/core/api-modules/src/index';
+import {
+  API_MODULES,
+  CORE_PLATFORM_PREFIXES,
+  RECORD_CHAT_OWNER,
+  RECORD_CHAT_PREFIX,
+} from '../packages/core/api-modules/src/index';
 import { ENTITY_EVENTS } from '../packages/core/entity-events/src/events/index';
 import { listWebhookEvents } from '../packages/core/entity-events/src/webhook-events';
 import {
@@ -211,6 +216,8 @@ async function main(): Promise<void> {
   const outputs: Record<string, unknown> = {
     'catalogs/api-modules.json': API_MODULES,
     'catalogs/record-chat.json': { prefix: RECORD_CHAT_PREFIX, owners: RECORD_CHAT_OWNER },
+    // Integrations: never licence-gated, though connect's entry routes them (ADR INT-014).
+    'catalogs/core-platform-prefixes.json': CORE_PLATFORM_PREFIXES,
     'catalogs/entity-events.json': ENTITY_EVENTS,
     // The entity types in ENTITY_EVENTS' own order (the JSON above is sorted):
     // `listAllEvents()` and the public API's /v1/webhooks/events list in it.
