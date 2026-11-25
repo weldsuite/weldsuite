@@ -212,6 +212,10 @@ fn certificate_recipients(recipients: &[Value], events: &[Value]) -> Vec<Certifi
 
 /// Build and store the signed PDF; mark the request completed. The final
 /// hash and key, or `None` when there is nothing to build (`buildFinalPdf`).
+#[allow(
+    clippy::too_many_lines,
+    reason = "one build of the signed PDF, both pipelines"
+)]
 pub(crate) async fn build_final_pdf(
     ctx: &SendContext,
     envelope_id: &str,
@@ -250,7 +254,6 @@ pub(crate) async fn build_final_pdf(
     }
 
     let files = storage(ctx)?;
-    let mut out = drawn_documents(ctx, &documents, &fields).await?;
     let completed = crate::now();
     let completed_at = iso_timestamp(completed);
     let (_, workspace_name) = workspace_brand(ctx).await?;
@@ -273,11 +276,22 @@ pub(crate) async fn build_final_pdf(
         recipients: certificate_recipients(&recipients, &events),
         disclosure_version: DISCLOSURE_VERSION.to_owned(),
     };
-    append_certificate(&mut out, &input).map_err(|e| SignError::Internal(e.to_string()))?;
-
-    let bytes = out
-        .finish(text(&envelope, "title"))
-        .map_err(|e| SignError::Internal(e.to_string()))?;
+    // A request with AES/QES signers (SIGN-009): the prepared PDF with its
+    // revisions is the signed document, and the certificate of completion is
+    // a separate evidence report, since appending a page would break the
+    // signatures in it.
+    let (bytes, evidence) = if envelope["pipeline"] == crate::eidas::PREPARED {
+        let bytes = crate::eidas::prepared_with_values(ctx, &envelope).await?;
+        let report = crate::eidas::evidence_report(&input, text(&envelope, "title"))?;
+        (bytes, Some(report))
+    } else {
+        let mut out = drawn_documents(ctx, &documents, &fields).await?;
+        append_certificate(&mut out, &input).map_err(|e| SignError::Internal(e.to_string()))?;
+        let bytes = out
+            .finish(text(&envelope, "title"))
+            .map_err(|e| SignError::Internal(e.to_string()))?;
+        (bytes, None)
+    };
     let sha256 = sha256_hex(&bytes);
     let key = final_key(&ctx.clerk_org_id, envelope_id);
     let size = bytes.len();
@@ -290,13 +304,40 @@ pub(crate) async fn build_final_pdf(
         )
         .await
         .map_err(|e| SignError::Internal(e.to_string()))?;
+    let mut evidence_saved = None;
+    if let Some(report) = evidence {
+        let evidence_key = crate::eidas::evidence_storage_key(&ctx.clerk_org_id, envelope_id);
+        let evidence_sha = sha256_hex(&report);
+        files
+            .private
+            .put_boxed(
+                &evidence_key,
+                report,
+                &PutOptions::content_type("application/pdf").with_metadata("sha256", &evidence_sha),
+            )
+            .await
+            .map_err(|e| SignError::Internal(e.to_string()))?;
+        evidence_saved = Some((evidence_key, evidence_sha));
+    }
     // Once: only while the request is still in the status it was read in.
-    sign_envelopes::Entity::update_many()
+    let mut update = sign_envelopes::Entity::update_many()
         .col_expr(sign_envelopes::Column::Status, Expr::value("completed"))
         .col_expr(sign_envelopes::Column::CompletedAt, Expr::value(completed))
         .col_expr(sign_envelopes::Column::FinalSha256, Expr::value(&sha256))
         .col_expr(sign_envelopes::Column::FinalStorageKey, Expr::value(&key))
-        .col_expr(sign_envelopes::Column::UpdatedAt, Expr::value(completed))
+        .col_expr(sign_envelopes::Column::UpdatedAt, Expr::value(completed));
+    if let Some((evidence_key, evidence_sha)) = &evidence_saved {
+        update = update
+            .col_expr(
+                sign_envelopes::Column::EvidenceStorageKey,
+                Expr::value(evidence_key),
+            )
+            .col_expr(
+                sign_envelopes::Column::EvidenceSha256,
+                Expr::value(evidence_sha),
+            );
+    }
+    update
         .filter(sign_envelopes::Column::Id.eq(envelope_id))
         .filter(sign_envelopes::Column::Status.eq(status))
         .exec(&orm(&ctx.db))
@@ -405,6 +446,17 @@ pub(crate) async fn notify_completed(ctx: &SendContext, envelope_id: &str) -> Si
 }
 
 /// `sign_envelope:completed`, from the system (`publishCompleted`).
+/// The signed PDF's hash as stored now: after sealing it is the sealed
+/// file's, not the one the build step made.
+async fn final_sha256(ctx: &SendContext, envelope_id: &str, built: &str) -> String {
+    match envelope_row(&ctx.db, envelope_id).await {
+        Ok(Some(row)) if !text(&row, "finalSha256").is_empty() => {
+            text(&row, "finalSha256").to_owned()
+        }
+        _ => built.to_owned(),
+    }
+}
+
 async fn publish_completed(services: &Services, params: &FinalizeParams, sha256: &str) {
     let context = EventContext::new(&params.clerk_org_id, "system", EventSource::System);
     let data = json!({ "id": params.envelope_id, "status": "completed", "finalSha256": sha256 });
@@ -475,6 +527,16 @@ impl Job for FinalizeJob {
             let Some(built) = built else {
                 return Ok(());
             };
+            // The operator's seal, the DSS and a document timestamp (SIGN-006);
+            // nothing without a trust service. Never holds back the emails: a
+            // failure is noted on the trail and the PDF goes out unsealed.
+            step(ctx, "secure signed pdf", StepRetry::default(), || async {
+                let sign = self.context(&params).await?;
+                crate::eidas::secure_final(&sign, &params.envelope_id)
+                    .await
+                    .map_err(failed)
+            })
+            .await?;
             step(
                 ctx,
                 "send signed pdf",
@@ -488,7 +550,9 @@ impl Job for FinalizeJob {
             )
             .await?;
             step(ctx, "publish completed", StepRetry::default(), || async {
-                publish_completed(&self.services, &params, &built.sha256).await;
+                let sign = self.context(&params).await?;
+                let sha256 = final_sha256(&sign, &params.envelope_id, &built.sha256).await;
+                publish_completed(&self.services, &params, &sha256).await;
                 Ok(())
             })
             .await?;
@@ -522,10 +586,18 @@ pub async fn finalize_request(job: &FinalizeJob, params: &FinalizeParams) -> Res
     else {
         return Ok(());
     };
+    if let Err(error) = crate::eidas::secure_final(&ctx, &params.envelope_id).await {
+        tracing::error!(
+            ?error,
+            envelope_id = params.envelope_id,
+            "sign: sealing the signed PDF failed"
+        );
+    }
     notify_completed(&ctx, &params.envelope_id)
         .await
         .map_err(failed)?;
-    publish_completed(&job.services, params, &built.sha256).await;
+    let sha256 = final_sha256(&ctx, &params.envelope_id, &built.sha256).await;
+    publish_completed(&job.services, params, &sha256).await;
     if let Err(error) = file_signed_pdf(&ctx, &params.envelope_id).await {
         tracing::error!(
             ?error,

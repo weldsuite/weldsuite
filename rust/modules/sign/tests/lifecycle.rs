@@ -101,6 +101,7 @@ fn doubles() -> Doubles {
         portal_url: Some("https://sign.test".to_owned()),
         environment: Some("test".to_owned()),
         app_url: None,
+        eidas: weldsuite_sign::Eidas::default(),
     };
     Doubles {
         events,

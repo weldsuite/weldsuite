@@ -21,6 +21,8 @@ use std::fmt::Write as _;
 use lopdf::content::{Content, Operation};
 use lopdf::{Dictionary, Document, Object, ObjectId, Stream, StringFormat, dictionary};
 
+use weldsuite_pades::{ObjectSink, Revision};
+
 use crate::standard_fonts::{COURIER, HELVETICA, HELVETICA_BOLD, StandardFont, WIN_ANSI};
 
 /// Why a PDF could not be built.
@@ -38,6 +40,12 @@ impl std::error::Error for PdfError {}
 impl From<lopdf::Error> for PdfError {
     fn from(error: lopdf::Error) -> Self {
         Self(format!("pdf: {error}"))
+    }
+}
+
+impl From<weldsuite_pades::PdfError> for PdfError {
+    fn from(error: weldsuite_pades::PdfError) -> Self {
+        Self(error.to_string())
     }
 }
 
@@ -375,7 +383,7 @@ struct EmbeddedImage {
 
 /// `doc.embedPng(bytes)`: the colour channels as an image XObject, with the
 /// alpha channel as its soft mask when the PNG has transparency.
-fn embed_png(doc: &mut Document, bytes: &[u8]) -> PdfResult<EmbeddedImage> {
+fn embed_png(doc: &mut impl ObjectSink, bytes: &[u8]) -> PdfResult<EmbeddedImage> {
     let mut decoder = png::Decoder::new(std::io::Cursor::new(bytes));
     decoder.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16);
     let mut reader = decoder.read_info()?;
@@ -425,13 +433,13 @@ fn embed_png(doc: &mut Document, bytes: &[u8]) -> PdfResult<EmbeddedImage> {
             alpha,
         );
         mask.compress()?;
-        let mask_id = doc.add_object(mask);
+        let mask_id = doc.add_object(Object::Stream(mask));
         dict.set("SMask", Object::Reference(mask_id));
     }
     let mut stream = Stream::new(dict, color);
     stream.compress()?;
     Ok(EmbeddedImage {
-        id: doc.add_object(stream),
+        id: doc.add_object(Object::Stream(stream)),
         width: f64::from(info.width),
         height: f64::from(info.height),
     })
@@ -692,6 +700,93 @@ pub fn draw_fields(doc: &mut Document, fields: &[RenderField]) -> PdfResult<()> 
         apply_drawing(doc, pages[index], font, drawing)?;
     }
     Ok(())
+}
+
+// ── Form fields of a prepared PDF (plan weldsign-eidas, SIGN-009) ──────────
+
+/// The page-space rectangle `[x1 y1 x2 y2]` a field box covers on page
+/// `page` of `doc`: where its widget goes.
+pub fn field_rect(doc: &Document, page: usize, field: Rect) -> Option<[f64; 4]> {
+    let page = doc.get_pages().into_values().nth(page)?;
+    let p = place_box(field, crop_box(doc, page), rotation(doc, page));
+    Some(bounds(p, field.width, field.height))
+}
+
+fn bounds(p: Placement, width: f64, height: f64) -> [f64; 4] {
+    let corners = [
+        offset(p, 0.0, 0.0),
+        offset(p, width, 0.0),
+        offset(p, 0.0, height),
+        offset(p, width, height),
+    ];
+    let xs = corners.iter().map(|c| c.0);
+    let ys = corners.iter().map(|c| c.1);
+    [
+        xs.clone().fold(f64::INFINITY, f64::min),
+        ys.clone().fold(f64::INFINITY, f64::min),
+        xs.fold(f64::NEG_INFINITY, f64::max),
+        ys.fold(f64::NEG_INFINITY, f64::max),
+    ]
+}
+
+/// How a filled field looks, as the appearance stream of its widget: the
+/// same drawing [`draw_fields`] puts on the page, in a form XObject whose
+/// bounding box is the widget's rectangle, so it lands on the same spot.
+/// `None` when there is nothing to draw (an empty text, an unticked box).
+pub fn field_appearance(revision: &mut Revision, field: &RenderField) -> PdfResult<Option<Stream>> {
+    let doc = revision.document();
+    let Some(page) = doc.get_pages().into_values().nth(field.page) else {
+        return Ok(None);
+    };
+    let rect = Rect {
+        x: field.x,
+        y: field.y,
+        width: field.width,
+        height: field.height,
+    };
+    let p = place_box(rect, crop_box(doc, page), rotation(doc, page));
+    let bbox = bounds(p, field.width, field.height);
+    let mut ops = Vec::new();
+    let mut resources = Dictionary::new();
+    match field.kind.as_str() {
+        "signature" | "initials" => {
+            let Some(bytes) = &field.image else {
+                return Ok(None);
+            };
+            let image = embed_png(revision, bytes)?;
+            let scale = (field.width / image.width).min(field.height / image.height);
+            let (w, h) = (image.width * scale, image.height * scale);
+            let at = offset(p, (field.width - w) / 2.0, (field.height - h) / 2.0);
+            push_image(&mut ops, "WSImg1", at, (w, h), p.rotate);
+            resources.set(
+                "XObject",
+                dictionary! { "WSImg1" => Object::Reference(image.id) },
+            );
+        }
+        "checkbox" => draw_checkbox(&mut ops, field, p),
+        _ => {
+            draw_text_field(&mut ops, "WSHelv1", field, p);
+            if !ops.is_empty() {
+                let font = revision.add_object(Object::Dictionary(font_dictionary(&HELVETICA)));
+                resources.set("Font", dictionary! { "WSHelv1" => Object::Reference(font) });
+            }
+        }
+    }
+    if ops.is_empty() {
+        return Ok(None);
+    }
+    let bytes = Content { operations: ops }.encode()?;
+    let mut stream = Stream::new(
+        dictionary! {
+            "Type" => "XObject",
+            "Subtype" => "Form",
+            "BBox" => bbox.iter().map(|v| real(*v)).collect::<Vec<Object>>(),
+            "Resources" => resources,
+        },
+        bytes,
+    );
+    stream.compress()?;
+    Ok(Some(stream))
 }
 
 /// A document with `fields` drawn in, as new PDF bytes (`flattenDocument`).

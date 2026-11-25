@@ -285,9 +285,27 @@ pub(crate) async fn send_envelope(
     envelope["expiresAt"] = expiry_text.clone().map_or(Value::Null, Value::from);
     let signing_order = draft["signingOrderEnabled"].as_bool().unwrap_or(false);
 
+    // AES/QES signers (plan weldsign-eidas): the prepared PDF and the credits,
+    // before anyone is emailed; given back if the emails don't go out.
+    let prepared = crate::eidas::prepare_for_send(ctx, draft, &recipients).await?;
+    let give_back = || async {
+        if let Some(prepared) = &prepared {
+            crate::eidas::give_back(ctx, id, prepared.credits, prepared.ledger_key.as_deref())
+                .await;
+        }
+    };
+
     let group = next_group(signing_order, &recipients);
-    if !email_group(ctx, &envelope, &group, Some(actor)).await? {
-        return Err(SignError::invalid(EMAIL_LIMIT_MESSAGE));
+    match email_group(ctx, &envelope, &group, Some(actor)).await {
+        Ok(true) => {}
+        Ok(false) => {
+            give_back().await;
+            return Err(SignError::invalid(EMAIL_LIMIT_MESSAGE));
+        }
+        Err(error) => {
+            give_back().await;
+            return Err(error);
+        }
     }
 
     let now = crate::now();
@@ -316,8 +334,18 @@ pub(crate) async fn send_envelope(
         },
     )
     .await?;
+    if let Some(prepared) = &prepared {
+        crate::eidas::record_prepared(ctx, id, prepared).await?;
+    }
     schedule_lifecycle(ctx).await;
     match sent {
+        Some(sent) if prepared.is_some() => {
+            let reread = sign_envelopes::Entity::find_by_id(id)
+                .one(&orm(&ctx.db))
+                .await?
+                .unwrap_or(sent);
+            Ok(row_json(reread)?)
+        }
         Some(sent) => Ok(row_json(sent)?),
         None => Err(SignError::Internal(format!(
             "sign: draft {id} changed while it was sent"

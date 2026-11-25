@@ -190,16 +190,6 @@ static API_MODULES: LazyLock<Vec<ApiModule>> = LazyLock::new(|| {
         .expect("api-modules.json matches ApiModule (checked by the tests)")
 });
 
-/// `core-platform-prefixes.json` (`CORE_PLATFORM_PREFIXES`): the integration
-/// prefixes, core platform and never licence-gated (ADR INT-014), though the
-/// `connect` entry still owns them for Global's routing.
-static CORE_PLATFORM_PREFIXES: LazyLock<Vec<String>> = LazyLock::new(|| {
-    serde_json::from_str(include_str!(
-        "../../../catalogs/core-platform-prefixes.json"
-    ))
-    .expect("core-platform-prefixes.json is a list of prefixes (checked by the tests)")
-});
-
 /// The permission catalog: objects, system roles, the employee member set and
 /// the app registry.
 pub fn permissions() -> &'static PermissionCatalog {
@@ -217,12 +207,8 @@ pub fn api_module(id: &str) -> Option<&'static ApiModule> {
 }
 
 /// The apps that open a path for a licensed workspace (`licenceAppsForPath`);
-/// `None` when it is never gated: core paths, WeldAgent, and the integration
-/// paths, whose owning prefix (longest match) is a core platform prefix.
+/// `None` when it is never gated.
 pub fn licence_apps_for_path(path: &str) -> Option<Vec<&'static str>> {
-    if owning_prefix(path).is_some_and(|(prefix, _)| CORE_PLATFORM_PREFIXES.contains(prefix)) {
-        return None;
-    }
     let apps: Vec<&'static str> = find_module_for_path(path)
         .apps
         .as_ref()?
@@ -267,21 +253,8 @@ pub fn missing_licensed_app_for_path<S: AsRef<str>>(
 ///
 /// Never with the exported catalog, which always has a `core` module.
 pub fn find_module_for_path(path: &str) -> &'static ApiModule {
-    owning_prefix(path).map_or_else(
-        || {
-            api_modules()
-                .iter()
-                .find(|m| m.id == "core")
-                .expect("the catalog has a core module")
-        },
-        |(_, module)| module,
-    )
-}
-
-/// The longest whole-segment prefix that claims `path`, with its module;
-/// `None` when no module claims it.
-fn owning_prefix(path: &str) -> Option<(&'static String, &'static ApiModule)> {
-    api_modules()
+    let modules = api_modules();
+    modules
         .iter()
         .flat_map(|module| module.prefixes.iter().map(move |prefix| (prefix, module)))
         .filter(|(prefix, _)| {
@@ -289,6 +262,15 @@ fn owning_prefix(path: &str) -> Option<(&'static String, &'static ApiModule)> {
                 .is_some_and(|rest| rest.is_empty() || rest.starts_with(['/', '?']))
         })
         .max_by_key(|(prefix, _)| prefix.len())
+        .map_or_else(
+            || {
+                modules
+                    .iter()
+                    .find(|m| m.id == "core")
+                    .expect("the catalog has a core module")
+            },
+            |(_, module)| module,
+        )
 }
 
 #[cfg(test)]
@@ -367,52 +349,6 @@ mod tests {
         // A company's chat also opens to the CRM's apps.
         let chat = licence_apps_for_path("/api/chat-entity-channels/company/c_1").expect("gated");
         assert!(chat.contains(&own.as_str()));
-    }
-
-    #[test]
-    fn integrations_are_never_licence_gated() {
-        let books_only = ["weldbooks"];
-        for path in [
-            "/api/integrations/connections",
-            "/api/connectors/catalog",
-            "/api/workflow-integrations",
-            "/api/external-webhooks/whk_1",
-            "/api/github-connections?workspace=ws_1",
-            "/webhooks/woocommerce/return",
-        ] {
-            assert_eq!(licence_apps_for_path(path), None, "{path}");
-            assert_eq!(
-                missing_licensed_app_for_path(path, &books_only),
-                None,
-                "{path}"
-            );
-        }
-        // WeldConnect's own screens still need a licence that opens it.
-        assert_eq!(
-            missing_licensed_app_for_path("/api/workflows", &books_only),
-            Some("weldconnect")
-        );
-        assert_eq!(
-            missing_licensed_app_for_path("/api/workflow-executions/wex_1", &books_only),
-            Some("weldconnect")
-        );
-        // Whole segments only, and a longer prefix of another module wins.
-        assert_eq!(find_module_for_path("/api/integrations-x").id, "core");
-        assert_eq!(
-            missing_licensed_app_for_path("/api/github-project-links", &books_only),
-            Some("weldconnect")
-        );
-        assert_eq!(
-            missing_licensed_app_for_path("/api/integrations/helpdesk/slack/callback", &books_only),
-            Some("welddesk")
-        );
-        // Routing is unchanged: the connect entry still owns every one of them.
-        let connect = api_module("connect").expect("connect");
-        assert!(!CORE_PLATFORM_PREFIXES.is_empty());
-        for prefix in CORE_PLATFORM_PREFIXES.iter() {
-            assert!(connect.prefixes.contains(prefix), "{prefix}");
-            assert_eq!(find_module_for_path(prefix).id, "connect", "{prefix}");
-        }
     }
 
     /// A module served by Rust must have a conformance suite that proves it.

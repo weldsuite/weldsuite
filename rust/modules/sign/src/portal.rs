@@ -28,6 +28,7 @@
 //! `Authorization: Bearer <session>`.
 
 mod codes;
+mod qualified;
 mod session;
 
 use std::sync::Arc;
@@ -142,6 +143,10 @@ where
         .route("/complete", post(complete))
         .route("/decline", post(decline))
         .route("/download", get(download))
+        .route("/evidence", get(qualified::evidence))
+        .route("/signature/start", post(qualified::start))
+        .route("/signature/finish", post(qualified::finish))
+        .route("/signature/cancel", post(qualified::cancel))
         .fallback(not_found)
         .method_not_allowed_fallback(not_found)
         .layer(axum::middleware::from_fn_with_state(
@@ -457,6 +462,7 @@ impl Portal {
             ),
             environment: env_value(self.env.as_ref(), "ENVIRONMENT", state.environment.as_ref()),
             app_url: env_value(self.env.as_ref(), "PUBLIC_APP_URL", state.app_url.as_ref()),
+            eidas: state.eidas.clone(),
         }
     }
 
@@ -697,7 +703,7 @@ impl Portal {
             let ctx = self.send_context(&signer.workspace, &signer.session.org_id)?;
             workspace_brand(&ctx).await?.1
         };
-        portal_view(
+        let mut view = portal_view(
             db,
             current,
             PortalBrand {
@@ -706,7 +712,21 @@ impl Portal {
                 logo_url,
             },
         )
-        .await
+        .await?;
+        // eIDAS: only for an AES/QES signer or a request with an evidence
+        // report, so a simple signer's view answers as before.
+        if let Some(level) = crate::eidas::level_of(&current.recipient) {
+            view["signatureLevel"] = json!(level.as_str());
+            if let Some(trust) = &self.state.sign.eidas.trust {
+                view["trustProvider"] = json!(trust.provider());
+            }
+        }
+        if current.envelope["status"] == "completed"
+            && current.envelope["evidenceStorageKey"].is_string()
+        {
+            view["hasEvidence"] = json!(true);
+        }
+        Ok(view)
     }
 
     /// `finish`: after the last signature, start finalizing. When it cannot
@@ -1032,50 +1052,73 @@ async fn complete(portal: Portal, body: Bytes) -> Response {
                 Ok(input) => input,
                 Err(invalid) => return Ok(invalid.into_response()),
             };
-            let org_id = signer.session.org_id.clone();
-            let db = signer.workspace.db.clone();
+            // An advanced or qualified signer signs at their provider
+            // (`/signature/start`), never with a plain submission.
             let current = Portal::current(&signer).await?;
-            let envelope_id = text(&current.envelope, "id").to_owned();
-            let params = FinalizeParams {
-                clerk_org_id: org_id.clone(),
-                workspace_id: signer.workspace.id.clone(),
-                envelope_id: envelope_id.clone(),
-            };
-            // A retry after finalizing could not start: the signature is already saved.
-            if current.recipient["status"] == "signed"
-                && crate::sending::awaiting_finalize(&db, &current.envelope).await?
+            if crate::eidas::level_of(&current.recipient).is_some()
+                && current.recipient["status"] != "signed"
             {
-                return portal.finish(&signer, &params).await;
+                return Err(SignError::Conflict(
+                    "This signature is made with your trust service provider".to_owned(),
+                ));
             }
-            let bucket = portal.private_bucket()?;
-            complete_signing(
-                &CompleteContext {
-                    db: &db,
-                    bucket: bucket.as_ref(),
-                    workspace_id: &org_id,
-                    meta: &portal.meta,
-                },
-                &current,
-                &input,
-            )
-            .await?;
-            let envelope = &current.envelope;
-            portal.state.sign.events.publish(
-                &EventContext::new(&org_id, "system", EventSource::Api),
-                EntityEvent::new(
-                    SIGN_ENVELOPE_SIGNED,
-                    &envelope_id,
-                    json!({ "id": envelope["id"], "title": envelope["title"], "status": envelope["status"] }),
-                ),
-            );
-            let ctx = portal.send_context(&signer.workspace, &org_id)?;
-            if advance_after_signing(&ctx, envelope).await? == Advance::AllSigned {
-                return portal.finish(&signer, &params).await;
-            }
-            let current = Portal::current(&signer).await?;
-            Ok(ok(portal.view(&signer, &current).await?))
+            portal.complete_submission(&signer, &input).await
         })
         .await
+}
+
+impl Portal {
+    /// The rest of `/complete`: the values saved, the recipient signed, the
+    /// next group or finalizing. Also what a qualified signature ends with.
+    async fn complete_submission(
+        &self,
+        signer: &Signer,
+        input: &Submission,
+    ) -> SignResult<Response> {
+        let portal = self;
+        let org_id = signer.session.org_id.clone();
+        let db = signer.workspace.db.clone();
+        let current = Portal::current(signer).await?;
+        let envelope_id = text(&current.envelope, "id").to_owned();
+        let params = FinalizeParams {
+            clerk_org_id: org_id.clone(),
+            workspace_id: signer.workspace.id.clone(),
+            envelope_id: envelope_id.clone(),
+        };
+        // A retry after finalizing could not start: the signature is already saved.
+        if current.recipient["status"] == "signed"
+            && crate::sending::awaiting_finalize(&db, &current.envelope).await?
+        {
+            return portal.finish(signer, &params).await;
+        }
+        let bucket = portal.private_bucket()?;
+        complete_signing(
+            &CompleteContext {
+                db: &db,
+                bucket: bucket.as_ref(),
+                workspace_id: &org_id,
+                meta: &portal.meta,
+            },
+            &current,
+            input,
+        )
+        .await?;
+        let envelope = &current.envelope;
+        portal.state.sign.events.publish(
+            &EventContext::new(&org_id, "system", EventSource::Api),
+            EntityEvent::new(
+                SIGN_ENVELOPE_SIGNED,
+                &envelope_id,
+                json!({ "id": envelope["id"], "title": envelope["title"], "status": envelope["status"] }),
+            ),
+        );
+        let ctx = portal.send_context(&signer.workspace, &org_id)?;
+        if advance_after_signing(&ctx, envelope).await? == Advance::AllSigned {
+            return portal.finish(signer, &params).await;
+        }
+        let current = Portal::current(signer).await?;
+        Ok(ok(portal.view(signer, &current).await?))
+    }
 }
 
 /// `POST /decline` (`decline`).
@@ -1105,6 +1148,7 @@ async fn decline(portal: Portal, body: Bytes) -> Response {
             revoke_envelope_links(&portal.master()?, &signer.workspace.id, &envelope_id).await?;
             // The sender hears about it, and the event goes out, after the answer.
             let ctx = portal.send_context(&signer.workspace, &org_id)?;
+            crate::eidas::refund_unsigned(&ctx, &envelope_id).await;
             let envelope = current.envelope.clone();
             let recipient = &current.recipient;
             let declined_by = crate::or_else(&recipient["name"], &recipient["email"])
@@ -1258,6 +1302,7 @@ mod tests {
             portal_url: None,
             environment: None,
             app_url: None,
+            eidas: crate::Eidas::default(),
         };
         PortalState::new(sign, None, secret.map(Arc::from))
     }

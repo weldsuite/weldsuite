@@ -1111,6 +1111,7 @@ pub(crate) async fn sign_lifecycle_sweep(
         portal_url: request.env.get("SIGN_PORTAL_URL").cloned(),
         environment: request.env.get("ENVIRONMENT").cloned(),
         app_url: request.env.get("PUBLIC_APP_URL").cloned(),
+        eidas: weldsuite_sign::Eidas::default(),
     };
     let tenants: Arc<dyn weldsuite_sign::TenantResolver> = Arc::new(TestTenants {
         db,

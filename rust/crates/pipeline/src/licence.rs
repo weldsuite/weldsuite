@@ -188,13 +188,6 @@ mod tests {
         assert_eq!(refusal.code(), "APP_NOT_LICENSED");
         assert_eq!(refusal.details(), Some(&json!({ "app": own_app })));
         assert!(licence_decision(&unlicensed, &Method::GET, "/api/me/permissions").is_none());
-        // Integrations are core platform: open without a WeldConnect licence.
-        assert!(
-            licence_decision(&unlicensed, &Method::POST, "/api/integrations/connections").is_none()
-        );
-        let workflows = licence_decision(&unlicensed, &Method::GET, "/api/workflows")
-            .expect("WeldConnect's own screens stay gated");
-        assert_eq!(workflows.details(), Some(&json!({ "app": "weldconnect" })));
 
         let moving = tenant(weldsuite_db::WorkspaceRestrictions {
             licensed_apps: None,

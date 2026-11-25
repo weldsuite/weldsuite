@@ -15,6 +15,7 @@
 //! draft (409 otherwise). Templates belong to the workspace.
 
 mod documents;
+mod eidas;
 mod envelopes;
 mod fields;
 mod filing;
@@ -36,6 +37,7 @@ mod standard_fonts;
 mod sweep;
 mod templates;
 
+pub use eidas::{Eidas, PRICING_KEY};
 pub use finalize::{
     BuiltPdf, FINALIZE_JOB, FinalizeJob, FinalizeParams, TenantRef, TenantResolver,
     finalize_request, start_finalize,
@@ -103,6 +105,8 @@ pub struct SignState {
     /// `PUBLIC_APP_URL`: the platform emails link to, on an install that
     /// sets it (the Kubernetes editions); unset, the one `ENVIRONMENT` names.
     pub app_url: Option<Arc<str>>,
+    /// eIDAS: the trust service (AES, QES, the seal) and default prices.
+    pub eidas: Eidas,
 }
 
 impl SignState {
@@ -117,6 +121,7 @@ impl SignState {
             portal_url: self.portal_url.as_deref().map(str::to_owned),
             environment: self.environment.as_deref().map(str::to_owned),
             app_url: self.app_url.as_deref().map(str::to_owned),
+            eidas: self.eidas.clone(),
         }
     }
 }
@@ -137,6 +142,10 @@ impl std::fmt::Debug for SignState {
 
 /// `/api/sign`, to nest under `/api` behind the session, tenant database,
 /// licence and flag layers. Each route carries its `requirePermission`.
+#[allow(
+    clippy::too_many_lines,
+    reason = "one block of routes, as the workers mount them"
+)]
 pub fn router<S, Q>(state: SignState, gate: &Arc<PermissionGate<Q>>) -> Router<S>
 where
     S: Clone + Send + Sync + 'static,
@@ -167,6 +176,14 @@ where
         .route(
             "/{id}/events",
             get(envelopes::events).route_layer(need(SIGN_ENVELOPES_READ)),
+        )
+        .route(
+            "/{id}/signatures",
+            get(eidas::signatures).route_layer(need(SIGN_ENVELOPES_READ)),
+        )
+        .route(
+            "/{id}/evidence",
+            get(eidas::evidence).route_layer(need(SIGN_ENVELOPES_READ)),
         )
         .route(
             "/{id}/recipients",
@@ -231,6 +248,10 @@ where
         )
         .merge(document_routes(Scope::Template, gate));
     Router::new()
+        .route(
+            "/capabilities",
+            get(eidas::capabilities).route_layer(need(SIGN_ENVELOPES_READ)),
+        )
         .nest("/envelopes", envelopes)
         .nest("/templates", templates)
         .with_state(state)
@@ -402,6 +423,7 @@ impl Caller {
             portal_url: self.env_value("SIGN_PORTAL_URL", state.portal_url.as_ref()),
             environment: self.env_value("ENVIRONMENT", state.environment.as_ref()),
             app_url: self.env_value("PUBLIC_APP_URL", state.app_url.as_ref()),
+            eidas: state.eidas.clone(),
         }
     }
 
@@ -442,6 +464,7 @@ pub struct Services {
     /// `PUBLIC_APP_URL`: the platform the sender's "open in WeldSuite" link
     /// goes to; unset, the one `ENVIRONMENT` names.
     pub app_url: Option<String>,
+    pub eidas: Eidas,
 }
 
 /// What sending, the lifecycle, the sweep and the finalize job work in

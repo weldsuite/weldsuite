@@ -78,6 +78,7 @@ weldsuite-panel = { workspace = true }
 weldsuite-migrations = { workspace = true }
 weldsuite-outside-eu = { workspace = true }
 weldsuite-sign = { workspace = true }
+weldsuite-trust-services = { workspace = true }
 weldsuite-staff-domain = { workspace = true }
 weldsuite-reach = { workspace = true }
 weldsuite-reach-domain = { workspace = true }

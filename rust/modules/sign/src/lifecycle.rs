@@ -121,6 +121,7 @@ async fn void_request(
         .await?;
     let voided = row_json(voided.into_iter().next().ok_or_else(closed)?)?;
     revoke_envelope_links(&ctx.master, &ctx.workspace_id, id).await?;
+    crate::eidas::refund_unsigned(ctx, id).await;
     record_sign_event(
         &ctx.db,
         SignEvent {
@@ -452,6 +453,7 @@ pub(crate) async fn expire_due(ctx: &SendContext, now: OffsetDateTime) -> SignRe
             continue;
         };
         revoke_envelope_links(&ctx.master, &ctx.workspace_id, id).await?;
+        crate::eidas::refund_unsigned(ctx, id).await;
         record_sign_event(
             &ctx.db,
             SignEvent {

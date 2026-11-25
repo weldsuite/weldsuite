@@ -1891,6 +1891,13 @@
       "when": 1795633477456,
       "tag": "0269_weldflow_agile",
       "breakpoints": true
+    },
+    {
+      "idx": 270,
+      "version": "7",
+      "when": 1795640820311,
+      "tag": "0270_weldsign_eidas",
+      "breakpoints": true
     }
   ]
 }

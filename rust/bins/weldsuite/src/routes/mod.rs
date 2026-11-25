@@ -2510,6 +2510,7 @@ pub(crate) fn sign_state(state: &AppState) -> weldsuite_sign::SignState {
         portal_url: state.sign_portal_url.clone(),
         environment: Some(Arc::from(state.environment.as_str())),
         app_url: state.public_app_url.clone(),
+        eidas: state.sign_eidas.clone(),
     }
 }
 

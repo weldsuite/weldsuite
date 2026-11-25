@@ -407,6 +407,7 @@ pub mod sign_events;
 pub mod sign_fields;
 pub mod sign_recipients;
 pub mod sign_settings;
+pub mod sign_signatures;
 pub mod sms_templates;
 pub mod social_accounts;
 pub mod social_analytics;
@@ -987,6 +988,7 @@ pub fn tables() -> Vec<crate::snapshot::TableSchema> {
         crate::snapshot::table::<sign_fields::Entity>(&sign_fields::DDL),
         crate::snapshot::table::<sign_recipients::Entity>(&sign_recipients::DDL),
         crate::snapshot::table::<sign_settings::Entity>(&sign_settings::DDL),
+        crate::snapshot::table::<sign_signatures::Entity>(&sign_signatures::DDL),
         crate::snapshot::table::<sms_templates::Entity>(&sms_templates::DDL),
         crate::snapshot::table::<social_accounts::Entity>(&social_accounts::DDL),
         crate::snapshot::table::<social_analytics::Entity>(&social_analytics::DDL),
@@ -1750,6 +1752,7 @@ pub async fn rows_json<C: sea_orm::ConnectionTrait>(
         "sign_fields" => json(Box::pin(sign_fields::Entity::find().all(db)).await?),
         "sign_recipients" => json(Box::pin(sign_recipients::Entity::find().all(db)).await?),
         "sign_settings" => json(Box::pin(sign_settings::Entity::find().all(db)).await?),
+        "sign_signatures" => json(Box::pin(sign_signatures::Entity::find().all(db)).await?),
         "sms_templates" => json(Box::pin(sms_templates::Entity::find().all(db)).await?),
         "social_accounts" => json(Box::pin(social_accounts::Entity::find().all(db)).await?),
         "social_analytics" => json(Box::pin(social_analytics::Entity::find().all(db)).await?),
