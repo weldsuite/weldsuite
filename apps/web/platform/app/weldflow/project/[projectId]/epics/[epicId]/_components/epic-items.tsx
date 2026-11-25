@@ -26,6 +26,12 @@ function useStatusLabel(): (status: string) => string {
   return (status) => map[status] ?? status;
 }
 
+function groupName(group: EpicItemGroup, page: { backlogGroup: string; completedSprints: string }): string {
+  if (group.kind === 'backlog') return page.backlogGroup;
+  if (group.kind === 'earlier') return page.completedSprints;
+  return group.name ?? '';
+}
+
 export function EpicItems({
   groups,
   naming,
@@ -39,8 +45,7 @@ export function EpicItems({
   return (
     <div className="space-y-4">
       {groups.map((group) => {
-        const name =
-          group.kind === 'backlog' ? copy.epicPage.backlogGroup : group.kind === 'earlier' ? copy.epicPage.completedSprints : (group.name ?? '');
+        const name = groupName(group, copy.epicPage);
         const status = group.status as keyof typeof t.flowAgile.sprintStatus | null;
         return (
           <section key={group.id} aria-label={name} className="overflow-hidden rounded-lg border border-border">

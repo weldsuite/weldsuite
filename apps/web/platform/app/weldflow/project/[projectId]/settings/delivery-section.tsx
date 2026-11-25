@@ -134,6 +134,42 @@ export function DeliverySection({ projectId, isAdmin }: Readonly<DeliverySection
   const lengthLabel = (days: number) =>
     days % 7 === 0 ? plural(days / 7, copy.sprintLengthOption) : plural(days, copy.sprintLengthDays);
 
+  const wipStages = stages.data ?? [];
+  const renderWipLimits = () => {
+    if (stages.isLoading) return <PageLoader fullScreen={false} />;
+    if (wipStages.length === 0) return <p className="text-sm text-muted-foreground">{copy.wipNoStages}</p>;
+    return (
+      <div className="divide-y rounded-lg border">
+        {wipStages.map((stage) => {
+          const id = `${headingId}-wip-${stage.id}`;
+          return (
+            <div key={stage.id} className="flex items-center justify-between gap-4 px-3 py-2">
+              <label htmlFor={id} className="flex min-w-0 items-center gap-2 text-sm">
+                <span
+                  aria-hidden
+                  className="size-2.5 flex-none rounded-full"
+                  style={{ backgroundColor: stage.color ?? undefined }}
+                />
+                <span className="truncate">{stage.name}</span>
+              </label>
+              <NumberInput
+                id={id}
+                name={`wip-${stage.id}`}
+                min={1}
+                max={WIP_LIMIT_MAX}
+                placeholder={copy.wipNone}
+                value={current.wipLimits[stage.id]}
+                onValueChange={(value) => setWipLimit(stage.id, value)}
+                disabled={disabled}
+                className="w-28"
+              />
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
   return (
     <form className="max-w-2xl space-y-10" aria-labelledby={headingId} onSubmit={submit}>
       <h3 id={headingId} className="sr-only">
@@ -231,40 +267,7 @@ export function DeliverySection({ projectId, isAdmin }: Readonly<DeliverySection
 
       {current.approach !== 'tasklist' && current.approach !== 'predictive' && (
         <SettingsSection title={copy.wipTitle} description={copy.wipDescription}>
-          {stages.isLoading ? (
-            <PageLoader fullScreen={false} />
-          ) : (stages.data ?? []).length === 0 ? (
-            <p className="text-sm text-muted-foreground">{copy.wipNoStages}</p>
-          ) : (
-            <div className="divide-y rounded-lg border">
-              {(stages.data ?? []).map((stage) => {
-                const id = `${headingId}-wip-${stage.id}`;
-                return (
-                  <div key={stage.id} className="flex items-center justify-between gap-4 px-3 py-2">
-                    <label htmlFor={id} className="flex min-w-0 items-center gap-2 text-sm">
-                      <span
-                        aria-hidden
-                        className="size-2.5 flex-none rounded-full"
-                        style={{ backgroundColor: stage.color ?? undefined }}
-                      />
-                      <span className="truncate">{stage.name}</span>
-                    </label>
-                    <NumberInput
-                      id={id}
-                      name={`wip-${stage.id}`}
-                      min={1}
-                      max={WIP_LIMIT_MAX}
-                      placeholder={copy.wipNone}
-                      value={current.wipLimits[stage.id]}
-                      onValueChange={(value) => setWipLimit(stage.id, value)}
-                      disabled={disabled}
-                      className="w-28"
-                    />
-                  </div>
-                );
-              })}
-            </div>
-          )}
+          {renderWipLimits()}
         </SettingsSection>
       )}
 

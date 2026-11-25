@@ -30,6 +30,17 @@ function useSprintDates(sprint: Sprint): string | null {
 
 // ── Active ──────────────────────────────────────────────────────────────────
 
+function remainingLabel(
+  left: number | null,
+  copy: { ended: string; endsToday: string; daysLeft: Parameters<ReturnType<typeof useI18n>['plural']>[1] },
+  plural: ReturnType<typeof useI18n>['plural'],
+): string | null {
+  if (left === null) return null;
+  if (left === 0) return copy.ended;
+  if (left === 1) return copy.endsToday;
+  return plural(left, copy.daysLeft);
+}
+
 export function ActiveSprintCard({
   sprint,
   items,
@@ -44,7 +55,7 @@ export function ActiveSprintCard({
   const done = sumPoints(items.filter((item) => item.status === 'done'));
   const share = total > 0 ? Math.round((done / total) * 100) : 0;
   const left = daysLeft(sprint.endDate, new Date());
-  const remaining = left === null ? null : left === 0 ? copy.ended : left === 1 ? copy.endsToday : plural(left, copy.daysLeft);
+  const remaining = remainingLabel(left, copy, plural);
 
   return (
     <section

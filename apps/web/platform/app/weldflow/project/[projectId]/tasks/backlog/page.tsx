@@ -9,77 +9,37 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Plus } from 'lucide-react';
 import { toast } from 'sonner';
-import { useQueryClient } from '@tanstack/react-query';
-import {
-  DndContext,
-  DragOverlay,
-  KeyboardSensor,
-  PointerSensor,
-  closestCenter,
-  pointerWithin,
-  useSensor,
-  useSensors,
-  type Announcements,
-  type CollisionDetection,
-  type DragEndEvent,
-  type DragStartEvent,
-} from '@dnd-kit/core';
-import { sortableKeyboardCoordinates } from '@dnd-kit/sortable';
 import type { ItemType, TaskAgileInput } from '@weldsuite/app-api-client/schemas/flow-agile';
 import { Button } from '@weldsuite/ui/components/button';
-import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { EmptyState } from '@weldsuite/ui/components/empty-state';
 import { ErrorState } from '@weldsuite/ui/components/error-banner';
-import { InfoBanner } from '@weldsuite/ui/components/info-banner';
 import { ListToolbar } from '@weldsuite/ui/components/list-toolbar';
 import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { SubNavSwitch, type SubNavItem } from '@/app/weldflow/components/sub-nav';
 import { useProjectPermissions } from '@/app/weldflow/contexts/project-permission-context';
-import { averageVelocity } from '@/app/weldflow/lib/delivery';
-import type { ApiTask } from '@/app/weldflow/lib/api-client';
-import {
-  BACKLOG_SECTION,
-  NO_EPIC,
-  buildSections,
-  countUnestimated,
-  dropItem,
-  isFiltering,
-  nextSprintDraft,
-  pickableTypes,
-  sectionSprintId,
-  sumPoints,
-  typeChangeInput,
-  type BacklogFilter,
-  type DropResult,
-} from '@/app/weldflow/lib/backlog';
+import { NO_EPIC, isFiltering, nextSprintDraft, typeChangeInput, type BacklogFilter } from '@/app/weldflow/lib/backlog';
 import { useObjectPanel } from '@/components/object-panel';
-import { QuickCreateItem } from '@/components/weldflow/agile/quick-create-item';
-import { agileBacklogKeys, useBacklogItems, useCreateItem, useDeleteItems, useReorderItems } from '@/hooks/queries/use-flow-agile-backlog-queries';
+import { useCreateItem, useDeleteItems } from '@/hooks/queries/use-flow-agile-backlog-queries';
 import {
   useBulkUpdateTaskAgile,
   useCreateSprint,
   useProjectDelivery,
-  useProjectEpics,
-  useProjectSprints,
-  useUpdateTaskAgile,
 } from '@/hooks/queries/use-flow-agile-queries';
 import { useI18n } from '@/lib/i18n/provider';
 import { useParams, useRouter } from '@/lib/router';
 import { apiMessage } from '../../close/_lib/api-error';
 import { BacklogEnvProvider, type BacklogActions, type BacklogEnv } from './_components/backlog-context';
-import { BacklogList } from './_components/backlog-list';
-import { BacklogRowOverlay } from './_components/backlog-row';
 import { BulkBar } from './_components/bulk-bar';
 import { EpicsPanel } from './_components/epics-panel';
-import { ActiveSprintCard, PlannedSprintSection } from './_components/sprint-sections';
+import { BacklogBoard, BacklogFilterBanner, DeleteBacklogItemsDialog } from './_components/backlog-sections';
+import { useBacklogData } from './_components/use-backlog-data';
 
 export default function BacklogPage() {
   const params = useParams();
   const projectId = params.projectId as string;
   const router = useRouter();
-  const { t, plural, format } = useI18n();
+  const { t, plural } = useI18n();
   const copy = t.flowAgileBacklog;
-  const qc = useQueryClient();
   const { canWrite } = useProjectPermissions();
   const { open: openPanel } = useObjectPanel();
 
@@ -92,42 +52,30 @@ export default function BacklogPage() {
     if (!delivery.isLoading && !available) router.replace(`/weldflow/project/${projectId}/tasks`);
   }, [delivery.isLoading, available, projectId, router]);
 
-  const itemsQuery = useBacklogItems(projectId, available);
-  const sprintsQuery = useProjectSprints(projectId, available && delivery.usesSprints);
-  const epicsQuery = useProjectEpics(projectId, available);
   const createItem = useCreateItem(projectId);
   const deleteItems = useDeleteItems(projectId);
-  const reorder = useReorderItems(projectId);
   const createSprint = useCreateSprint(projectId);
-  const updateAgile = useUpdateTaskAgile(projectId);
   const bulkUpdate = useBulkUpdateTaskAgile(projectId);
 
   const [filter, setFilter] = useState<BacklogFilter>({ epicId: null, search: '', type: null });
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
   const [pendingDelete, setPendingDelete] = useState<string[] | null>(null);
-  const [draggingId, setDraggingId] = useState<string | null>(null);
 
-  const items = useMemo(() => itemsQuery.data ?? [], [itemsQuery.data]);
-  const itemsById = useMemo(() => new Map(items.map((item) => [item.id, item])), [items]);
-  const allSprints = useMemo(() => sprintsQuery.data ?? [], [sprintsQuery.data]);
-  const epics = useMemo(() => epicsQuery.data ?? [], [epicsQuery.data]);
-  const epicsById = useMemo(() => new Map(epics.map((epic) => [epic.id, epic])), [epics]);
-
-  const activeSprint = allSprints.find((sprint) => sprint.status === 'active');
-  const plannedSprints = useMemo(
-    () =>
-      allSprints
-        .filter((sprint) => sprint.status === 'planned')
-        .sort((a, b) => (a.startDate ?? '9999').localeCompare(b.startDate ?? '9999') || a.name.localeCompare(b.name)),
-    [allSprints],
-  );
-  const openSprints = useMemo(() => (activeSprint ? [activeSprint, ...plannedSprints] : plannedSprints), [activeSprint, plannedSprints]);
-  const sprintIds = useMemo(() => (delivery.usesSprints ? openSprints.map((sprint) => sprint.id) : []), [delivery.usesSprints, openSprints]);
-  const forecast = useMemo(() => averageVelocity(allSprints), [allSprints]);
-  const types = useMemo(() => pickableTypes(delivery.enabledTypes), [delivery.enabledTypes]);
-
-  const sections = useMemo(() => buildSections(items, sprintIds, filter), [items, sprintIds, filter]);
-  const backlogItems = sections[BACKLOG_SECTION] ?? [];
+  const {
+    itemsQuery,
+    epicsQuery,
+    items,
+    itemsById,
+    allSprints,
+    epics,
+    epicsById,
+    activeSprint,
+    plannedSprints,
+    openSprints,
+    forecast,
+    types,
+    sections,
+  } = useBacklogData({ projectId, available, usesSprints: delivery.usesSprints, enabledTypes: delivery.enabledTypes, filter });
 
   // Selection follows what exists: an item that was deleted or moved away from the view leaves it.
   const selectedIds = useMemo(() => [...selected].filter((id) => itemsById.has(id)), [selected, itemsById]);
@@ -225,70 +173,6 @@ export default function BacklogPage() {
     });
   };
 
-  // ── Drag and drop ─────────────────────────────────────────────────────────
-
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
-  );
-
-  // An item under the pointer wins over the section around it; an empty section is the fallback.
-  const collisionDetection = useCallback<CollisionDetection>(
-    (args) => {
-      const hits = pointerWithin(args);
-      const onItem = hits.find((hit) => !(String(hit.id) in sections));
-      if (onItem) return [onItem];
-      return hits.length > 0 ? hits : closestCenter(args);
-    },
-    [sections],
-  );
-
-  const sectionName = useCallback(
-    (id: string) => (id === BACKLOG_SECTION ? copy.backlog.sectionTitle : (allSprints.find((sprint) => sprint.id === id)?.name ?? id)),
-    [allSprints, copy.backlog.sectionTitle],
-  );
-  const announcements = useMemo<Announcements>(() => {
-    const title = (id: string | number) => itemsById.get(String(id))?.title ?? String(id);
-    const target = (id: string | number) =>
-      String(id) in sections ? format(copy.dnd.section, { name: sectionName(String(id)) }) : title(id);
-    return {
-      onDragStart: ({ active }) => format(copy.dnd.pickedUp, { title: title(active.id) }),
-      onDragOver: ({ active, over }) => (over ? format(copy.dnd.movedOver, { title: title(active.id), target: target(over.id) }) : undefined),
-      onDragEnd: ({ active }) => format(copy.dnd.dropped, { title: title(active.id) }),
-      onDragCancel: ({ active }) => format(copy.dnd.cancelled, { title: title(active.id) }),
-    };
-  }, [itemsById, sections, format, copy.dnd, sectionName]);
-
-  /** Show the drop at once; the refetch after saving makes it the server's. */
-  const applyOptimistic = (result: DropResult) => {
-    const sprintId = sectionSprintId(result.targetId);
-    const positions = new Map(result.targetOrder.map((id, index) => [id, index]));
-    qc.setQueryData<ApiTask[]>(agileBacklogKeys.items(projectId), (old) =>
-      old?.map((task) =>
-        positions.has(task.id) ? { ...task, sprintId: sprintId ?? undefined, position: positions.get(task.id) ?? task.position } : task,
-      ),
-    );
-  };
-
-  const onDragStart = (event: DragStartEvent) => setDraggingId(String(event.active.id));
-  const onDragEnd = async (event: DragEndEvent) => {
-    setDraggingId(null);
-    if (!event.over) return;
-    const activeId = String(event.active.id);
-    const result = dropItem(sections, activeId, String(event.over.id));
-    if (!result) return;
-    applyOptimistic(result);
-    try {
-      if (result.sourceId !== undefined) {
-        await updateAgile.mutateAsync({ taskId: activeId, input: { sprintId: sectionSprintId(result.targetId) } });
-      }
-      await reorder.mutateAsync(result.targetOrder);
-    } catch (error) {
-      toast.error(apiMessage(error, copy.backlog.moveFailed));
-      await qc.invalidateQueries({ queryKey: agileBacklogKeys.items(projectId) });
-    }
-  };
-
   // ── Render ────────────────────────────────────────────────────────────────
 
   const viewItems: SubNavItem[] = [
@@ -301,47 +185,15 @@ export default function BacklogPage() {
 
   if (delivery.isLoading || !available) return <PageLoader fullScreen={false} />;
 
-  const draggingItem = draggingId ? itemsById.get(draggingId) : undefined;
   const filteredEpic = filter.epicId && filter.epicId !== NO_EPIC ? epicsById.get(filter.epicId) : undefined;
   const showEmpty = !itemsQuery.isLoading && items.length === 0 && !isFiltering(filter);
-
-  const backlogSection = (
-    <section aria-labelledby="backlog-heading" className="overflow-hidden rounded-lg border border-border">
-      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 border-b border-border bg-muted/40 px-4 py-3.5">
-        <div className="flex items-center gap-2.5">
-          <h2 id="backlog-heading" className="text-[15px] font-semibold">
-            {copy.backlog.sectionTitle}
-          </h2>
-          <span className="text-[13px] text-muted-foreground">
-            {plural(backlogItems.length, copy.backlog.items)} · {format(copy.backlog.pointsEstimated, { points: plural(sumPoints(backlogItems), t.flowAgile.points) })}
-          </span>
-        </div>
-        {canWrite ? (
-          <span className="text-[13px] text-muted-foreground">{delivery.usesSprints ? copy.backlog.orderHint : copy.backlog.orderHintKanban}</span>
-        ) : null}
-      </div>
-      <BacklogList
-        sectionId={BACKLOG_SECTION}
-        items={backlogItems}
-        label={copy.backlog.sectionTitle}
-        emptyText={isFiltering(filter) ? copy.backlog.noMatches : copy.backlog.dropBacklog}
-      />
-      {canWrite ? (
-        <div className="border-t border-border">
-          <QuickCreateItem
-            types={types}
-            naming={settings.itemTypes.naming}
-            featureLevel={settings.itemTypes.featureLevel}
-            placeholder={copy.quick.placeholder}
-            onCreate={createInSection(null)}
-          />
-          {countUnestimated(backlogItems) > 0 ? (
-            <p className="px-4 pb-2.5 text-xs text-muted-foreground">{plural(countUnestimated(backlogItems), copy.backlog.unestimated)}</p>
-          ) : null}
-        </div>
-      ) : null}
-    </section>
-  );
+  const createProps = {
+    canWrite,
+    types,
+    naming: settings.itemTypes.naming,
+    featureLevel: settings.itemTypes.featureLevel,
+    createInSection,
+  };
 
   return (
     <BacklogEnvProvider value={env}>
@@ -385,74 +237,26 @@ export default function BacklogPage() {
               />
 
               <div className="flex min-w-0 flex-col gap-4">
-                {filter.epicId !== null ? (
-                  <InfoBanner
-                    variant="neutral"
-                    action={
-                      <Button type="button" variant="ghost" size="sm" onClick={() => setFilter((previous) => ({ ...previous, epicId: null }))}>
-                        {copy.backlog.clearFilter}
-                      </Button>
-                    }
-                  >
-                    {filteredEpic ? format(copy.backlog.filteredByEpic, { name: filteredEpic.title }) : copy.backlog.filteredByNoEpic}
-                  </InfoBanner>
-                ) : null}
+                <BacklogFilterBanner
+                  epicId={filter.epicId}
+                  epicTitle={filteredEpic?.title}
+                  onClear={() => setFilter((previous) => ({ ...previous, epicId: null }))}
+                />
 
-                {showEmpty ? (
-                  <EmptyState title={copy.backlog.emptyTitle} description={copy.backlog.emptyDescription} />
-                ) : null}
+                {showEmpty ? <EmptyState title={copy.backlog.emptyTitle} description={copy.backlog.emptyDescription} /> : null}
 
-                <DndContext
-                  sensors={sensors}
-                  collisionDetection={collisionDetection}
-                  onDragStart={onDragStart}
-                  onDragEnd={(event) => void onDragEnd(event)}
-                  onDragCancel={() => setDraggingId(null)}
-                  accessibility={{
-                    announcements,
-                    screenReaderInstructions: { draggable: copy.dnd.instructions },
-                  }}
-                >
-                  {delivery.usesSprints && activeSprint ? (
-                    <ActiveSprintCard sprint={activeSprint} items={sections[activeSprint.id] ?? []} projectId={projectId} canWrite={canWrite} />
-                  ) : null}
-
-                  {delivery.usesSprints
-                    ? plannedSprints.map((sprint) => (
-                        <PlannedSprintSection
-                          key={sprint.id}
-                          sprint={sprint}
-                          items={sections[sprint.id] ?? []}
-                          forecast={forecast}
-                          activeSprint={activeSprint}
-                          projectId={projectId}
-                          canWrite={canWrite}
-                        >
-                          <BacklogList
-                            sectionId={sprint.id}
-                            items={sections[sprint.id] ?? []}
-                            label={sprint.name}
-                            emptyText={copy.sprint.emptySprint}
-                          />
-                          {canWrite ? (
-                            <div className="border-t border-border">
-                              <QuickCreateItem
-                                types={types}
-                                naming={settings.itemTypes.naming}
-                                featureLevel={settings.itemTypes.featureLevel}
-                                placeholder={format(copy.quick.placeholderSprint, { name: sprint.name })}
-                                onCreate={createInSection(sprint.id)}
-                              />
-                            </div>
-                          ) : null}
-                        </PlannedSprintSection>
-                      ))
-                    : null}
-
-                  {backlogSection}
-
-                  <DragOverlay>{draggingItem ? <BacklogRowOverlay item={draggingItem} /> : null}</DragOverlay>
-                </DndContext>
+                <BacklogBoard
+                  projectId={projectId}
+                  sections={sections}
+                  itemsById={itemsById}
+                  allSprints={allSprints}
+                  usesSprints={delivery.usesSprints}
+                  activeSprint={activeSprint}
+                  plannedSprints={plannedSprints}
+                  forecast={forecast}
+                  filtering={isFiltering(filter)}
+                  {...createProps}
+                />
               </div>
             </div>
           ) : null}
@@ -461,25 +265,11 @@ export default function BacklogPage() {
         </div>
       </div>
 
-      <ConfirmDialog
-        open={pendingDelete !== null}
-        onOpenChange={(open) => {
-          if (!open) setPendingDelete(null);
-        }}
-        title={
-          pendingDelete && pendingDelete.length === 1
-            ? copy.delete.title
-            : plural(pendingDelete?.length ?? 0, copy.delete.titleMany)
-        }
-        description={
-          pendingDelete && pendingDelete.length === 1
-            ? format(copy.delete.description, { title: itemsById.get(pendingDelete[0] ?? '')?.title ?? '' })
-            : copy.delete.descriptionMany
-        }
-        confirmLabel={copy.delete.confirm}
-        cancelLabel={t.flowAgile.shared.cancel}
-        variant="destructive"
+      <DeleteBacklogItemsDialog
+        pendingDelete={pendingDelete}
+        itemsById={itemsById}
         loading={deleteItems.isPending}
+        onCancel={() => setPendingDelete(null)}
         onConfirm={confirmDelete}
       />
     </BacklogEnvProvider>

@@ -56,6 +56,101 @@ function ReportFigures({ report }: Readonly<{ report: SprintReport }>) {
   );
 }
 
+type SprintItems = ReturnType<typeof useSprintItems>;
+type SprintItem = NonNullable<SprintItems['data']>[number];
+
+/** Where the unfinished items go: a default for all, a choice per item. */
+function UnfinishedItems({
+  target,
+  onTargetChange,
+  nextSprintId,
+  onNextSprintChange,
+  planned,
+  items,
+  unfinished,
+  overrides,
+  onOverride,
+}: Readonly<{
+  target: CarryOverTarget;
+  onTargetChange: (target: CarryOverTarget) => void;
+  nextSprintId: string;
+  onNextSprintChange: (sprintId: string) => void;
+  planned: readonly Sprint[];
+  items: SprintItems;
+  unfinished: readonly SprintItem[];
+  overrides: Record<string, CarryOverTarget>;
+  onOverride: (taskId: string, moveTo: CarryOverTarget) => void;
+}>) {
+  const { t, plural, format } = useI18n();
+  const copy = t.flowAgileSprints.complete;
+  return (
+    <section aria-labelledby="complete-sprint-unfinished" className="grid gap-3">
+      <h3 id="complete-sprint-unfinished" className="text-sm font-medium">
+        {copy.unfinishedTitle}
+      </h3>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <Label htmlFor="complete-sprint-target" className="text-sm font-normal text-muted-foreground">
+          {copy.defaultTarget}
+        </Label>
+        <Select value={target} onValueChange={(value) => onTargetChange(value as CarryOverTarget)}>
+          <SelectTrigger id="complete-sprint-target" size="sm" className="w-auto min-w-36">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="next">{copy.toNext}</SelectItem>
+            <SelectItem value="backlog">{copy.toBacklog}</SelectItem>
+          </SelectContent>
+        </Select>
+        {target === 'next' ? (
+          <Select value={nextSprintId} onValueChange={onNextSprintChange}>
+            <SelectTrigger aria-label={copy.nextSprint} size="sm" className="w-auto min-w-36">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {planned.map((candidate) => (
+                <SelectItem key={candidate.id} value={candidate.id}>
+                  {candidate.name}
+                </SelectItem>
+              ))}
+              <SelectItem value={NEW_SPRINT}>{copy.newSprint}</SelectItem>
+            </SelectContent>
+          </Select>
+        ) : null}
+      </div>
+
+      {items.isLoading ? <p className="text-xs text-muted-foreground">{copy.itemsLoading}</p> : null}
+      {items.isError ? <p className="text-xs text-destructive">{copy.itemsFailed}</p> : null}
+      {unfinished.length > 0 ? (
+        <ul className="grid gap-1.5">
+          {unfinished.map((task) => (
+            <li key={task.id} className="flex items-center gap-2 rounded-lg border px-3 py-2">
+              {task.number != null ? <span className="shrink-0 text-xs tabular-nums text-muted-foreground">#{task.number}</span> : null}
+              <span className="min-w-0 flex-1 truncate text-sm">{task.title}</span>
+              {task.storyPoints != null ? (
+                <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{plural(task.storyPoints, t.flowAgile.points)}</span>
+              ) : null}
+              <Select
+                value={overrides[task.id] ?? target}
+                onValueChange={(value) => onOverride(task.id, value as CarryOverTarget)}
+              >
+                <SelectTrigger aria-label={format(copy.moveItemTo, { title: task.title })} size="sm" className="w-auto min-w-32">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="next">{copy.toNext}</SelectItem>
+                  <SelectItem value="backlog">{copy.toBacklog}</SelectItem>
+                </SelectContent>
+              </Select>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      <p className="text-xs text-muted-foreground">{copy.velocityNote}</p>
+    </section>
+  );
+}
+
 /**
  * Completes a sprint: the live numbers, whether the goal was met, and where
  * each unfinished item goes (a default for all, a choice per item). Optionally
@@ -75,7 +170,7 @@ export function CompleteSprintDialog({
   /** After the sprint is completed; `openRetro` when the retro was asked for. */
   onCompleted: (result: CompleteSprintResult, options: { openRetro: boolean }) => void;
 }>) {
-  const { t, plural, format } = useI18n();
+  const { t, format } = useI18n();
   const copy = t.flowAgileSprints.complete;
   const report = useSprintReport(projectId, open ? sprint.id : null);
   const items = useSprintItems(projectId, sprint.id, open);
@@ -170,70 +265,17 @@ export function CompleteSprintDialog({
           {report.data && !hasUnfinished ? <p className="text-sm text-muted-foreground">{copy.allDone}</p> : null}
 
           {hasUnfinished ? (
-            <section aria-labelledby="complete-sprint-unfinished" className="grid gap-3">
-              <h3 id="complete-sprint-unfinished" className="text-sm font-medium">
-                {copy.unfinishedTitle}
-              </h3>
-
-              <div className="flex flex-wrap items-center gap-2">
-                <Label htmlFor="complete-sprint-target" className="text-sm font-normal text-muted-foreground">
-                  {copy.defaultTarget}
-                </Label>
-                <Select value={target} onValueChange={(value) => setTarget(value as CarryOverTarget)}>
-                  <SelectTrigger id="complete-sprint-target" size="sm" className="w-auto min-w-36">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="next">{copy.toNext}</SelectItem>
-                    <SelectItem value="backlog">{copy.toBacklog}</SelectItem>
-                  </SelectContent>
-                </Select>
-                {target === 'next' ? (
-                  <Select value={nextSprintId} onValueChange={setNextChoice}>
-                    <SelectTrigger aria-label={copy.nextSprint} size="sm" className="w-auto min-w-36">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {planned.map((candidate) => (
-                        <SelectItem key={candidate.id} value={candidate.id}>
-                          {candidate.name}
-                        </SelectItem>
-                      ))}
-                      <SelectItem value={NEW_SPRINT}>{copy.newSprint}</SelectItem>
-                    </SelectContent>
-                  </Select>
-                ) : null}
-              </div>
-
-              {items.isLoading ? <p className="text-xs text-muted-foreground">{copy.itemsLoading}</p> : null}
-              {items.isError ? <p className="text-xs text-destructive">{copy.itemsFailed}</p> : null}
-              {unfinished.length > 0 ? (
-                <ul className="grid gap-1.5">
-                  {unfinished.map((task) => (
-                    <li key={task.id} className="flex items-center gap-2 rounded-lg border px-3 py-2">
-                      {task.number != null ? <span className="shrink-0 text-xs tabular-nums text-muted-foreground">#{task.number}</span> : null}
-                      <span className="min-w-0 flex-1 truncate text-sm">{task.title}</span>
-                      {task.storyPoints != null ? (
-                        <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{plural(task.storyPoints, t.flowAgile.points)}</span>
-                      ) : null}
-                      <Select
-                        value={overrides[task.id] ?? target}
-                        onValueChange={(value) => setOverrides((previous) => ({ ...previous, [task.id]: value as CarryOverTarget }))}
-                      >
-                        <SelectTrigger aria-label={format(copy.moveItemTo, { title: task.title })} size="sm" className="w-auto min-w-32">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="next">{copy.toNext}</SelectItem>
-                          <SelectItem value="backlog">{copy.toBacklog}</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </li>
-                  ))}
-                </ul>
-              ) : null}
-              <p className="text-xs text-muted-foreground">{copy.velocityNote}</p>
-            </section>
+            <UnfinishedItems
+              target={target}
+              onTargetChange={setTarget}
+              nextSprintId={nextSprintId}
+              onNextSprintChange={setNextChoice}
+              planned={planned}
+              items={items}
+              unfinished={unfinished}
+              overrides={overrides}
+              onOverride={(taskId, moveTo) => setOverrides((previous) => ({ ...previous, [taskId]: moveTo }))}
+            />
           ) : null}
 
           <div className="flex items-center gap-2">

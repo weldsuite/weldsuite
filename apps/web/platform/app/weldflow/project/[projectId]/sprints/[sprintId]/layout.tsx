@@ -64,6 +64,8 @@ export default function SprintLayout({ children }: Readonly<{ children: ReactNod
   const committed = sprint.report?.committed?.points ?? sprint.storyPointsCommitted ?? null;
   const done = sprint.status === 'completed';
   const goalMet = sprint.report?.goalMet;
+  let goalText: string | null = null;
+  if (done && typeof goalMet === 'boolean') goalText = goalMet ? copy.goalMet : copy.goalNotMet;
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -81,7 +83,7 @@ export default function SprintLayout({ children }: Readonly<{ children: ReactNod
               {[
                 dates(sprint),
                 done && points !== null && committed !== null ? format(copy.stats, { completed: points, committed }) : null,
-                done && typeof goalMet === 'boolean' ? (goalMet ? copy.goalMet : copy.goalNotMet) : null,
+                goalText,
               ]
                 .filter(Boolean)
                 .join(' · ')}

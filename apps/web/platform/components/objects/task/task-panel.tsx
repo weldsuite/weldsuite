@@ -287,6 +287,14 @@ function TaskActions({
   );
 }
 
+type AgileTask = Parameters<typeof TaskAgileFields>[0]['task'];
+
+/** The agile fields and sections of a project task (item type, sprint, epic, points); none outside a project. */
+function agileSlots(projectId: string | null, task: AgileTask | undefined): { agileFields?: React.ReactNode; agileSections?: React.ReactNode } {
+  if (!projectId || !task) return {};
+  return { agileFields: <TaskAgileFields task={task} />, agileSections: <TaskAgileSections task={task} /> };
+}
+
 export function TaskPanel(props: Readonly<ObjectPanelComponentProps>) {
   const t = useTranslations();
   const workspaceUrl = useWorkspaceUrl();
@@ -802,8 +810,7 @@ export function TaskPanel(props: Readonly<ObjectPanelComponentProps>) {
             onAddDependency={projectId ? handleAddDependency : undefined}
             onRemoveDependency={projectId ? handleRemoveDependency : undefined}
             onSaveCustomFields={handleSaveCustomFields}
-            agileFields={projectId && apiTask ? <TaskAgileFields task={apiTask} /> : undefined}
-            agileSections={projectId && apiTask ? <TaskAgileSections task={apiTask} /> : undefined}
+            {...agileSlots(projectId, apiTask)}
           />
       )}
       {task && (

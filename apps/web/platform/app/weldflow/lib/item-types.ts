@@ -72,10 +72,13 @@ const PREFIXES: Record<string, ItemType> = {
 
 /** Splits a leading `/type` off a quick-create title. */
 export function parseQuickCreate(input: string): { type: ItemType | null; title: string } {
-  const match = /^\/([a-z]+)\s+(.*)$/i.exec(input.trim());
-  const prefix = match?.[1]?.toLowerCase();
-  if (match && prefix && prefix in PREFIXES) {
-    return { type: PREFIXES[prefix] ?? null, title: (match[2] ?? '').trim() };
+  const text = input.trim();
+  // `/word rest`: split at the first whitespace (no regex, so no backtracking).
+  const gap = text.search(/\s/);
+  if (text.startsWith('/') && gap > 1) {
+    const prefix = text.slice(1, gap).toLowerCase();
+    const type = Object.hasOwn(PREFIXES, prefix) ? PREFIXES[prefix] : undefined;
+    if (type) return { type, title: text.slice(gap).trim() };
   }
-  return { type: null, title: input.trim() };
+  return { type: null, title: text };
 }

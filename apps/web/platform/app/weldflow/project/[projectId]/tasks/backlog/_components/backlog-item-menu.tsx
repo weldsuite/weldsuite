@@ -18,6 +18,89 @@ import { TaskTypeBadge, useItemTypeLabel } from '@/components/weldflow/agile/tas
 import type { BacklogItem } from '@/app/weldflow/lib/backlog';
 import { useBacklogEnv } from './backlog-context';
 
+type MenuEnv = ReturnType<typeof useBacklogEnv>;
+
+interface SubMenuProps {
+  item: BacklogItem;
+  env: MenuEnv;
+  targets: ReturnType<MenuEnv['targetsFor']>;
+}
+
+function ChangeTypeSub({
+  item,
+  env,
+  targets,
+  label,
+  title,
+}: Readonly<SubMenuProps & { label: ReturnType<typeof useItemTypeLabel>; title: string }>) {
+  return (
+    <ContextMenuSub>
+      <ContextMenuSubTrigger>
+        <Shapes className="h-3.5 w-3.5" />
+        {title}
+      </ContextMenuSubTrigger>
+      <ContextMenuSubContent className="w-48">
+        {env.types.map((type) => (
+          <ContextMenuItem key={type} onSelect={() => env.actions.changeType(targets, type)}>
+            <TaskTypeBadge type={type} naming={env.naming} featureLevel size="sm" />
+            {label(type, env.naming)}
+            {type === item.type ? <Check className="ml-auto h-3.5 w-3.5" /> : null}
+          </ContextMenuItem>
+        ))}
+      </ContextMenuSubContent>
+    </ContextMenuSub>
+  );
+}
+
+function MoveToSprintSub({ item, env, targets, sprints }: Readonly<SubMenuProps & { sprints: MenuEnv['sprints'] }>) {
+  const { t } = useI18n();
+  const copy = t.flowAgileBacklog.menu;
+  return (
+    <ContextMenuSub>
+      <ContextMenuSubTrigger>
+        <Flag className="h-3.5 w-3.5" />
+        {copy.moveToSprint}
+      </ContextMenuSubTrigger>
+      <ContextMenuSubContent className="w-52">
+        {item.sprintId ? (
+          <ContextMenuItem onSelect={() => env.actions.moveToSprint(targets, null)}>
+            <ArrowUpToLine className="h-3.5 w-3.5" />
+            {copy.moveToBacklog}
+          </ContextMenuItem>
+        ) : null}
+        {sprints.map((sprint) => (
+          <ContextMenuItem key={sprint.id} onSelect={() => env.actions.moveToSprint(targets, sprint.id)}>
+            <span className="truncate">{sprint.name}</span>
+          </ContextMenuItem>
+        ))}
+        {sprints.length === 0 && !item.sprintId ? <ContextMenuItem disabled>{copy.noSprints}</ContextMenuItem> : null}
+      </ContextMenuSubContent>
+    </ContextMenuSub>
+  );
+}
+
+function SetEpicSub({ item, env, targets, epics }: Readonly<SubMenuProps & { epics: MenuEnv['epics'] }>) {
+  const { t } = useI18n();
+  const copy = t.flowAgileBacklog.menu;
+  return (
+    <ContextMenuSub>
+      <ContextMenuSubTrigger>
+        <Layers className="h-3.5 w-3.5" />
+        {copy.setEpic}
+      </ContextMenuSubTrigger>
+      <ContextMenuSubContent className="w-56">
+        {item.epicId ? <ContextMenuItem onSelect={() => env.actions.setEpic(targets, null)}>{copy.noEpic}</ContextMenuItem> : null}
+        {epics.map((epic) => (
+          <ContextMenuItem key={epic.id} onSelect={() => env.actions.setEpic(targets, epic.id)}>
+            <span className="truncate">{epic.title}</span>
+          </ContextMenuItem>
+        ))}
+        {epics.length === 0 && !item.epicId ? <ContextMenuItem disabled>{copy.noEpicsYet}</ContextMenuItem> : null}
+      </ContextMenuSubContent>
+    </ContextMenuSub>
+  );
+}
+
 export function BacklogItemMenu({ item }: Readonly<{ item: BacklogItem }>) {
   const { t } = useI18n();
   const copy = t.flowAgileBacklog.menu;
@@ -38,62 +121,9 @@ export function BacklogItemMenu({ item }: Readonly<{ item: BacklogItem }>) {
       {env.canWrite ? (
         <>
           <ContextMenuSeparator />
-          <ContextMenuSub>
-            <ContextMenuSubTrigger>
-              <Shapes className="h-3.5 w-3.5" />
-              {copy.changeType}
-            </ContextMenuSubTrigger>
-            <ContextMenuSubContent className="w-48">
-              {env.types.map((type) => (
-                <ContextMenuItem key={type} onSelect={() => actions.changeType(targets, type)}>
-                  <TaskTypeBadge type={type} naming={env.naming} featureLevel size="sm" />
-                  {label(type, env.naming)}
-                  {type === item.type ? <Check className="ml-auto h-3.5 w-3.5" /> : null}
-                </ContextMenuItem>
-              ))}
-            </ContextMenuSubContent>
-          </ContextMenuSub>
-          {env.usesSprints ? (
-            <ContextMenuSub>
-              <ContextMenuSubTrigger>
-                <Flag className="h-3.5 w-3.5" />
-                {copy.moveToSprint}
-              </ContextMenuSubTrigger>
-              <ContextMenuSubContent className="w-52">
-                {item.sprintId ? (
-                  <ContextMenuItem onSelect={() => actions.moveToSprint(targets, null)}>
-                    <ArrowUpToLine className="h-3.5 w-3.5" />
-                    {copy.moveToBacklog}
-                  </ContextMenuItem>
-                ) : null}
-                {sprints.map((sprint) => (
-                  <ContextMenuItem key={sprint.id} onSelect={() => actions.moveToSprint(targets, sprint.id)}>
-                    <span className="truncate">{sprint.name}</span>
-                  </ContextMenuItem>
-                ))}
-                {sprints.length === 0 && !item.sprintId ? (
-                  <ContextMenuItem disabled>{copy.noSprints}</ContextMenuItem>
-                ) : null}
-              </ContextMenuSubContent>
-            </ContextMenuSub>
-          ) : null}
-          <ContextMenuSub>
-            <ContextMenuSubTrigger>
-              <Layers className="h-3.5 w-3.5" />
-              {copy.setEpic}
-            </ContextMenuSubTrigger>
-            <ContextMenuSubContent className="w-56">
-              {item.epicId ? (
-                <ContextMenuItem onSelect={() => actions.setEpic(targets, null)}>{copy.noEpic}</ContextMenuItem>
-              ) : null}
-              {epics.map((epic) => (
-                <ContextMenuItem key={epic.id} onSelect={() => actions.setEpic(targets, epic.id)}>
-                  <span className="truncate">{epic.title}</span>
-                </ContextMenuItem>
-              ))}
-              {epics.length === 0 && !item.epicId ? <ContextMenuItem disabled>{copy.noEpicsYet}</ContextMenuItem> : null}
-            </ContextMenuSubContent>
-          </ContextMenuSub>
+          <ChangeTypeSub item={item} env={env} targets={targets} label={label} title={copy.changeType} />
+          {env.usesSprints ? <MoveToSprintSub item={item} env={env} targets={targets} sprints={sprints} /> : null}
+          <SetEpicSub item={item} env={env} targets={targets} epics={epics} />
           {canBecomeEpic ? (
             <ContextMenuItem onSelect={() => actions.turnIntoEpic(item.id)}>
               <Sparkles className="h-3.5 w-3.5" />

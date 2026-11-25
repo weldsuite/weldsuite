@@ -1,6 +1,6 @@
 import { SoftBadge, type SoftTone } from '@weldsuite/ui/components/soft-badge';
 import { Button } from '@weldsuite/ui/components/button';
-import type { Sprint } from '@weldsuite/app-api-client/schemas/flow-agile';
+import type { Sprint, SprintReport } from '@weldsuite/app-api-client/schemas/flow-agile';
 import { Link } from '@/lib/router';
 import { useI18n } from '@/lib/i18n/provider';
 import { useSprintReport } from '@/hooks/queries/use-flow-agile-queries';
@@ -33,6 +33,41 @@ export function useSprintDates(): (sprint: Pick<Sprint, 'startDate' | 'endDate'>
       : t.flowAgileSprints.noDates;
 }
 
+/** The picked sprint's status, dates, day, goal and planned hint. */
+function SprintSummary({ sprint }: Readonly<{ sprint: Sprint }>) {
+  const { t, format } = useI18n();
+  const copy = t.flowAgileSprints.bar;
+  const dates = useSprintDates();
+  const day = sprint.status === 'active' ? sprintDay(sprint) : null;
+  return (
+    <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+      <SprintStatusBadge status={sprint.status} />
+      <span className="text-muted-foreground tabular-nums">
+        {dates(sprint)}
+        {day ? ` · ${format(copy.day, { day: day.day, total: day.total })}` : ''}
+      </span>
+      {sprint.goal ? <span className="min-w-0 max-w-md truncate" title={sprint.goal}>{format(copy.goal, { goal: sprint.goal })}</span> : null}
+      {sprint.status === 'planned' ? <span className="text-muted-foreground">{copy.plannedHint}</span> : null}
+    </div>
+  );
+}
+
+/** The points done of the total, and what was added after the start; nothing while the report loads. */
+function SprintProgress({ report }: Readonly<{ report: SprintReport | undefined }>) {
+  const { t, format } = useI18n();
+  const copy = t.flowAgileSprints.bar;
+  if (!report) return null;
+  const total = report.committed.points + report.added.points - report.removed.points;
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 text-sm tabular-nums">
+      <span>{format(copy.progress, { done: report.completed.points, total })}</span>
+      {report.added.points > 0 ? (
+        <span className="text-amber-700 dark:text-amber-400">{format(copy.added, { points: report.added.points })}</span>
+      ) : null}
+    </div>
+  );
+}
+
 /**
  * The row above the Pipeline of a sprint project: the sprint picker, then the
  * picked sprint's status, dates, day, goal and progress, with a link to its
@@ -50,13 +85,9 @@ export function SprintBar({
   sprint: Sprint | null;
   onSprintChange?: (sprintId: string | null) => void;
 }>) {
-  const { t, format } = useI18n();
+  const { t } = useI18n();
   const copy = t.flowAgileSprints.bar;
-  const dates = useSprintDates();
   const report = useSprintReport(projectId, sprint && sprint.status !== 'planned' ? sprint.id : null);
-  const day = sprint?.status === 'active' ? sprintDay(sprint) : null;
-
-  const total = report.data ? report.data.committed.points + report.data.added.points - report.data.removed.points : null;
 
   return (
     <div className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-2 border-b border-gray-200 px-4 py-2 dark:border-border">
@@ -69,24 +100,8 @@ export function SprintBar({
 
       {sprint ? (
         <>
-          <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-sm">
-            <SprintStatusBadge status={sprint.status} />
-            <span className="text-muted-foreground tabular-nums">
-              {dates(sprint)}
-              {day ? ` · ${format(copy.day, { day: day.day, total: day.total })}` : ''}
-            </span>
-            {sprint.goal ? <span className="min-w-0 max-w-md truncate" title={sprint.goal}>{format(copy.goal, { goal: sprint.goal })}</span> : null}
-            {sprint.status === 'planned' ? <span className="text-muted-foreground">{copy.plannedHint}</span> : null}
-          </div>
-
-          {report.data && total !== null ? (
-            <div className="flex flex-wrap items-center gap-x-3 text-sm tabular-nums">
-              <span>{format(copy.progress, { done: report.data.completed.points, total })}</span>
-              {report.data.added.points > 0 ? (
-                <span className="text-amber-700 dark:text-amber-400">{format(copy.added, { points: report.data.added.points })}</span>
-              ) : null}
-            </div>
-          ) : null}
+          <SprintSummary sprint={sprint} />
+          <SprintProgress report={report.data} />
 
           <div className="ml-auto flex items-center gap-2">
             <Button asChild variant="outline" size="sm">

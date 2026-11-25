@@ -87,7 +87,8 @@ function TypeField({ task }: Readonly<Props>) {
   const isSubtask = type === 'subtask';
   const types = pickableTypes(delivery.enabledTypes);
   const notes = t.flowAgileBacklog.panel.notes;
-  const note = type === 'epic' ? notes.epic : type === 'feature' ? notes.feature : type === 'spike' ? notes.spike : null;
+  const noteByType: Partial<Record<string, string>> = { epic: notes.epic, feature: notes.feature, spike: notes.spike };
+  const note = noteByType[type] ?? null;
 
   return (
     <>

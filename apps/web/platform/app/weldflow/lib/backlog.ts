@@ -171,6 +171,18 @@ export interface SprintDraft {
   endDate: string;
 }
 
+/** The number a name ends with ("Sprint 14" → 14), or null. */
+export function trailingNumber(name: string): number | null {
+  const text = name.trimEnd();
+  let start = text.length;
+  const isDigit = (index: number) => {
+    const code = text.charCodeAt(index);
+    return code >= 48 && code <= 57;
+  };
+  while (start > 0 && isDigit(start - 1)) start -= 1;
+  return start < text.length ? Number(text.slice(start)) : null;
+}
+
 /**
  * The next sprint: "Sprint N" after the highest number in use, starting the
  * day after the last planned or active sprint ends (today when there is none,
@@ -184,8 +196,8 @@ export function nextSprintDraft(
 ): SprintDraft {
   let highest = 0;
   for (const sprint of sprints) {
-    const match = /(\d+)\s*$/.exec(sprint.name);
-    if (match) highest = Math.max(highest, Number(match[1]));
+    const number = trailingNumber(sprint.name);
+    if (number !== null) highest = Math.max(highest, number);
   }
   const number = highest > 0 ? highest + 1 : sprints.length + 1;
 
@@ -254,7 +266,9 @@ export function dropItem(
 
   if (from.sectionId === to.sectionId) {
     const order = source.filter((id) => id !== activeId);
-    const target = overId in sections ? order.length : order.indexOf(overId) + (to.index > from.index ? 1 : 0);
+    // Dropped on the section itself: last. On a row: before it, or after it when moving down.
+    const after = to.index > from.index ? 1 : 0;
+    const target = overId in sections ? order.length : order.indexOf(overId) + after;
     order.splice(target, 0, activeId);
     if (order.every((id, i) => id === source[i])) return null;
     return { targetId: from.sectionId, targetOrder: order };

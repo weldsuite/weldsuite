@@ -788,6 +788,23 @@ function SortableTaskRow({ id, isDragEnabled, children }: Readonly<{ id: string;
   );
 }
 
+/** The agile side of the Tasks tab: the project's delivery settings, the type label and the List · Backlog switch. */
+function useTasksAgile(isEntityMode: boolean, projectId: string) {
+  const { t } = useI18n();
+  const delivery = useProjectDelivery(isEntityMode ? '' : projectId);
+  const showAgile = !isEntityMode && delivery.available && delivery.usesItemTypes;
+  const itemTypeLabel = useItemTypeLabel();
+  const updateAgile = useUpdateTaskAgile(projectId);
+  const viewItems = useMemo<SubNavItem[]>(
+    () => [
+      { id: 'list', label: t.flowAgile.views.list, path: '' },
+      { id: 'backlog', label: t.flowAgile.views.backlog, path: '/backlog' },
+    ],
+    [t],
+  );
+  return { delivery, showAgile, itemTypeLabel, updateAgile, viewItems };
+}
+
 export function TasksClient({
   projectId,
   initialTasks,
@@ -821,17 +838,7 @@ export function TasksClient({
   // Agile projects (Scrum, Kanban, Hybrid) give each task a type and an
   // estimate, and the Tasks tab a second view, the Backlog. A task list, a CRM
   // panel and the Global edition keep the list exactly as it was.
-  const delivery = useProjectDelivery(isEntityMode ? '' : projectId);
-  const showAgile = !isEntityMode && delivery.available && delivery.usesItemTypes;
-  const itemTypeLabel = useItemTypeLabel();
-  const updateAgile = useUpdateTaskAgile(projectId);
-  const viewItems = useMemo<SubNavItem[]>(
-    () => [
-      { id: 'list', label: t.flowAgile.views.list, path: '' },
-      { id: 'backlog', label: t.flowAgile.views.backlog, path: '/backlog' },
-    ],
-    [t],
-  );
+  const { delivery, showAgile, itemTypeLabel, updateAgile, viewItems } = useTasksAgile(isEntityMode, projectId);
 
   const priorityConfig = useMemo(() => ({
     low: { label: t.projects.tasks.priorityLow, color: 'text-gray-600 dark:text-muted-foreground', bg: 'bg-gray-100 dark:bg-secondary' },

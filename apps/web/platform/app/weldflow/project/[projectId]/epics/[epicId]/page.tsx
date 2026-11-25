@@ -4,7 +4,7 @@
  * Reached from the Backlog's epics panel, an epic chip or the task panel.
  */
 
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, type ReactNode } from 'react';
 import { isApiError } from '@weldsuite/api-client';
 import { toast } from 'sonner';
 import { DetailHeader } from '@weldsuite/ui/components/page-layout';
@@ -34,6 +34,76 @@ import { apiMessage } from '../../close/_lib/api-error';
 import { BurnupChart } from './_components/burnup-chart';
 import { EpicItems } from './_components/epic-items';
 import { EpicLinks } from './_components/epic-links';
+
+function epicPercent(pointsTotal: number, pointsDone: number, itemTotal: number, itemsDone: number): number {
+  if (pointsTotal > 0) return Math.round((pointsDone / pointsTotal) * 100);
+  if (itemTotal > 0) return Math.round((itemsDone / itemTotal) * 100);
+  return 0;
+}
+
+function isEpicNotFound(
+  query: { isError: boolean; error: unknown },
+  epic: { projectId?: string | null; type?: string | null } | null | undefined,
+  projectId: string,
+): boolean {
+  if (query.isError && isApiError(query.error) && query.error.status === 404) return true;
+  return !!epic && (epic.projectId !== projectId || !isContainerType(itemTypeOf(epic.type, { featureLevel: true })));
+}
+
+function EpicItemsState({
+  query,
+  empty,
+  copy,
+  retryLabel,
+}: Readonly<{
+  query: { isLoading: boolean; isError: boolean; refetch: () => unknown };
+  empty: boolean;
+  copy: { loadFailed: string; emptyItems: string };
+  retryLabel: string;
+}>) {
+  if (query.isLoading) return <Skeleton className="h-32 w-full" />;
+  if (query.isError) return <ErrorState message={copy.loadFailed} onRetry={() => void query.refetch()} retryLabel={retryLabel} />;
+  if (empty) {
+    return <p className="rounded-lg border border-dashed border-border px-4 py-6 text-center text-sm text-muted-foreground">{copy.emptyItems}</p>;
+  }
+  return null;
+}
+
+function EpicDescription({
+  canWrite,
+  epic,
+  onUpdate,
+  heading,
+  empty,
+}: Readonly<{
+  canWrite: boolean;
+  epic: { id: string; description?: string | null };
+  onUpdate: (data: Parameters<typeof buildTaskUpdatePayload>[0]) => void;
+  heading: string;
+  empty: string;
+}>) {
+  let body: ReactNode;
+  if (canWrite) {
+    body = <DescriptionField taskId={epic.id} description={epic.description ?? undefined} onUpdate={(_taskId, data) => onUpdate(data)} />;
+  } else if (epic.description) {
+    body = (
+      <div
+        className="text-sm [&_a]:text-primary [&_a]:underline [&_ol]:list-decimal [&_ol]:pl-5 [&_ul]:list-disc [&_ul]:pl-5"
+        dangerouslySetInnerHTML={{ __html: descriptionToHtml(epic.description) }}
+      />
+    );
+  } else {
+    body = <p className="text-sm text-muted-foreground">{empty}</p>;
+  }
+  return (
+    <section aria-labelledby="epic-description-heading" className="space-y-2 rounded-lg border border-border p-4">
+      <h2 id="epic-description-heading" className="text-sm font-semibold">
+        {heading}
+      </h2>
+      {body}
+    </section>
+  );
+}
 
 export default function EpicPage() {
   const params = useParams();
@@ -81,10 +151,7 @@ export default function EpicPage() {
 
   if (delivery.isLoading || !available || epicQuery.isLoading) return <PageLoader fullScreen={false} />;
 
-  const notFound =
-    (epicQuery.isError && isApiError(epicQuery.error) && epicQuery.error.status === 404) ||
-    (!!epic && (epic.projectId !== projectId || !isContainerType(itemTypeOf(epic.type, { featureLevel: true }))));
-  if (notFound) {
+  if (isEpicNotFound(epicQuery, epic, projectId)) {
     return (
       <div className="p-6">
         <EmptyState
@@ -110,7 +177,7 @@ export default function EpicPage() {
   const itemsDone = rollup?.done ?? items.filter((item) => item.status === 'done').length;
   const pointsTotal = rollup?.points ?? sumPoints(items);
   const pointsDone = rollup?.donePoints ?? sumPoints(items.filter((item) => item.status === 'done'));
-  const percent = pointsTotal > 0 ? Math.round((pointsDone / pointsTotal) * 100) : itemTotal > 0 ? Math.round((itemsDone / itemTotal) * 100) : 0;
+  const percent = epicPercent(pointsTotal, pointsDone, itemTotal, itemsDone);
   const status = epic.status;
 
   return (
@@ -157,13 +224,7 @@ export default function EpicPage() {
             </h2>
             {delivery.usesSprints ? <span className="text-xs text-muted-foreground">{copy.epicPage.groupedBySprint}</span> : null}
           </div>
-          {itemsQuery.isLoading ? <Skeleton className="h-32 w-full" /> : null}
-          {itemsQuery.isError ? (
-            <ErrorState message={copy.epicPage.loadFailed} onRetry={() => void itemsQuery.refetch()} retryLabel={t.flowAgile.shared.retry} />
-          ) : null}
-          {!itemsQuery.isLoading && !itemsQuery.isError && groups.length === 0 ? (
-            <p className="rounded-lg border border-dashed border-border px-4 py-6 text-center text-sm text-muted-foreground">{copy.epicPage.emptyItems}</p>
-          ) : null}
+          <EpicItemsState query={itemsQuery} empty={groups.length === 0} copy={copy.epicPage} retryLabel={t.flowAgile.shared.retry} />
           <EpicItems
             groups={groups}
             naming={settings.itemTypes.naming}
@@ -195,28 +256,17 @@ export default function EpicPage() {
             <BurnupChart items={items} />
           </div>
           <EpicLinks links={linksQuery.data ?? []} loading={linksQuery.isLoading} failed={linksQuery.isError} projectId={projectId} />
-          <section aria-labelledby="epic-description-heading" className="space-y-2 rounded-lg border border-border p-4">
-            <h2 id="epic-description-heading" className="text-sm font-semibold">
-              {copy.epicPage.description}
-            </h2>
-            {canWrite ? (
-              <DescriptionField
-                taskId={epic.id}
-                description={epic.description ?? undefined}
-                onUpdate={(_taskId, data) =>
-                  updateEpic.mutate(buildTaskUpdatePayload(data), {
-                    onError: (error) => toast.error(apiMessage(error, t.flowAgile.shared.saveFailed)),
-                  })
-                }
-              />
-            ) : (
-              epic.description ? (
-                <div className="text-sm [&_a]:text-primary [&_a]:underline [&_ol]:list-decimal [&_ol]:pl-5 [&_ul]:list-disc [&_ul]:pl-5" dangerouslySetInnerHTML={{ __html: descriptionToHtml(epic.description) }} />
-              ) : (
-                <p className="text-sm text-muted-foreground">{copy.epicPage.noDescription}</p>
-              )
-            )}
-          </section>
+          <EpicDescription
+            canWrite={canWrite}
+            epic={epic}
+            heading={copy.epicPage.description}
+            empty={copy.epicPage.noDescription}
+            onUpdate={(data) =>
+              updateEpic.mutate(buildTaskUpdatePayload(data), {
+                onError: (error) => toast.error(apiMessage(error, t.flowAgile.shared.saveFailed)),
+              })
+            }
+          />
         </aside>
       </div>
     </div>

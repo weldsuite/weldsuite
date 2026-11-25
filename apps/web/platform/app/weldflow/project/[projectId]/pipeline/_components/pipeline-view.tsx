@@ -1,5 +1,5 @@
 
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo, type ComponentProps } from 'react';
 
 import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import {
@@ -744,6 +744,51 @@ export interface PipelineViewProps {
   onSprintChange?: (sprintId: string | null) => void;
 }
 
+type ProjectDelivery = ReturnType<typeof useProjectDelivery>;
+
+/** What the project's delivery setting changes on the board: the sprint it filters by, the WIP limits and the card item types. */
+function boardDeliveryOf(delivery: ProjectDelivery, sprintId: string | null) {
+  return {
+    // Only a project that plans in sprints filters its board by one.
+    activeSprintId: delivery.usesSprints ? sprintId : null,
+    wipLimits: delivery.usesWipLimits ? delivery.settings.wipLimits : EMPTY_LIMITS,
+    itemTypes: delivery.usesItemTypes
+      ? { naming: delivery.settings.itemTypes.naming, featureLevel: delivery.settings.itemTypes.featureLevel }
+      : undefined,
+  };
+}
+
+/** The board's sprint; the items are loaded again when starting or completing it moves them. */
+function useBoardSprint(projectId: string, usesSprints: boolean, activeSprintId: string | null, reload: () => Promise<void>) {
+  const sprints = useProjectSprints(projectId, usesSprints);
+  const sprint = activeSprintId ? (sprints.data?.find((candidate) => candidate.id === activeSprintId) ?? null) : null;
+  const sprintStatus = sprint?.status;
+  const previousSprintStatus = useRef(sprintStatus);
+  useEffect(() => {
+    if (previousSprintStatus.current && previousSprintStatus.current !== sprintStatus) void reload();
+    previousSprintStatus.current = sprintStatus;
+  }, [sprintStatus, reload]);
+  return { sprints, sprint };
+}
+
+/** The row above the board with the sprint picker; nothing unless shown and the project has sprints. */
+function BoardSprintBar({
+  show,
+  projectId,
+  sprints,
+  sprint,
+  onSprintChange,
+}: Readonly<{
+  show: boolean;
+  projectId: string;
+  sprints: ComponentProps<typeof SprintBar>['sprints'] | undefined;
+  sprint: ComponentProps<typeof SprintBar>['sprint'];
+  onSprintChange?: (sprintId: string | null) => void;
+}>) {
+  if (!show || !sprints || sprints.length === 0) return null;
+  return <SprintBar projectId={projectId} sprints={sprints} sprint={sprint} onSprintChange={onSprintChange} />;
+}
+
 export function PipelineView({ projectId, sprintId = null, embedded = false, onSprintChange }: Readonly<PipelineViewProps>) {
   const { t, format } = useI18n();
   const stageLabel = useStageLabel();
@@ -752,12 +797,7 @@ export function PipelineView({ projectId, sprintId = null, embedded = false, onS
   const delivery = useProjectDelivery(projectId);
   const updateDelivery = useUpdateProjectDelivery(projectId);
   const canManageDelivery = delivery.available && isAdmin && can('projects:update');
-  // Only a project that plans in sprints filters its board by one.
-  const activeSprintId = delivery.usesSprints ? sprintId : null;
-  const wipLimits = delivery.usesWipLimits ? delivery.settings.wipLimits : EMPTY_LIMITS;
-  const itemTypes = delivery.usesItemTypes
-    ? { naming: delivery.settings.itemTypes.naming, featureLevel: delivery.settings.itemTypes.featureLevel }
-    : undefined;
+  const { activeSprintId, wipLimits, itemTypes } = boardDeliveryOf(delivery, sprintId);
   const featureFallbacks = useMemo<FeatureFallbacks>(
     () => ({ untitled: t.projects.pipeline.untitledTask, unknown: t.common.labels.unknown }),
     [t],
@@ -892,14 +932,7 @@ export function PipelineView({ projectId, sprintId = null, embedded = false, onS
   useEffect(() => { void loadData(); }, [loadData]);
 
   // Starting or completing the sprint on the board moves its items: load them again.
-  const sprints = useProjectSprints(projectId, delivery.usesSprints);
-  const sprint = activeSprintId ? (sprints.data?.find((candidate) => candidate.id === activeSprintId) ?? null) : null;
-  const sprintStatus = sprint?.status;
-  const previousSprintStatus = useRef(sprintStatus);
-  useEffect(() => {
-    if (previousSprintStatus.current && previousSprintStatus.current !== sprintStatus) void loadData();
-    previousSprintStatus.current = sprintStatus;
-  }, [sprintStatus, loadData]);
+  const { sprints, sprint } = useBoardSprint(projectId, delivery.usesSprints, activeSprintId, loadData);
 
   // A task deleted from the task panel disappears from this list right away.
   useEffect(() => {
@@ -979,23 +1012,25 @@ export function PipelineView({ projectId, sprintId = null, embedded = false, onS
     }
   };
 
-  const handleDragEnd = async (event: DragEndEvent) => {
-    const { active, over } = event;
-    setActiveDealId(null);
+  // Saves the card order. A failure tells the user and, when given, puts the previous list back.
+  const saveCardOrder = async (ordered: TaskFeature[], rollbackTo?: TaskFeature[]) => {
+    const result = await tasksApi.reorderTasks(projectId, ordered.map(f => f.id));
+    if (result.success) return;
+    if (rollbackTo) setFeatures(rollbackTo);
+    toast.error(t.projects.pipeline.taskReorderFailed);
+  };
 
-    if (!canWrite || !over) { setDraggedFeatureOriginalColumn(null); return; }
+  // Soft limit: moving into a column that is already at its limit still works, with a warning.
+  // Returns the limit when the move goes past it, else null.
+  const limitReachedBy = (targetStageId: string, movedId: string): number | null => {
+    const limit = wipLimits[targetStageId];
+    if (limit === undefined) return null;
+    const inColumn = filteredFeatures.filter(f => f.column === targetStageId && f.id !== movedId).length;
+    return inColumn >= limit ? limit : null;
+  };
 
-    const activeId = active.id as string;
-    const overId = over.id as string;
-
-    // Stage reordering
-    if (activeId.startsWith(STAGE_SORTABLE_PREFIX)) {
-      handleStageDrop(activeId, overId);
-      setDraggedFeatureOriginalColumn(null);
-      return;
-    }
-
-    // Task movement
+  // A card dropped on a column or on another card: where it lands, and the saves that follow.
+  const handleTaskDrop = async (overId: string) => {
     if (!draggedFeatureOriginalColumn) return;
     const movedFeature = features.find(f => f.id === draggedFeatureOriginalColumn.id);
     if (!movedFeature) { setDraggedFeatureOriginalColumn(null); return; }
@@ -1016,18 +1051,11 @@ export function PipelineView({ projectId, sprintId = null, embedded = false, onS
       // Ordering within a column: only the position changes.
       if (!overFeature) return;
       setFeatures(reordered);
-      const result = await tasksApi.reorderTasks(projectId, reordered.map(f => f.id));
-      if (!result.success) {
-        setFeatures(beforeDrop);
-        toast.error(t.projects.pipeline.taskReorderFailed);
-      }
+      await saveCardOrder(reordered, beforeDrop);
       return;
     }
 
-    // Soft limit: moving into a column that is already at its limit still works, with a warning.
-    const targetLimit = wipLimits[targetStageId];
-    const exceedsLimit = targetLimit !== undefined
-      && filteredFeatures.filter(f => f.column === targetStageId && f.id !== movedFeature.id).length >= targetLimit;
+    const reachedLimit = limitReachedBy(targetStageId, movedFeature.id);
 
     // Optimistic update
     setFeatures(reordered);
@@ -1047,14 +1075,31 @@ export function PipelineView({ projectId, sprintId = null, embedded = false, onS
       return;
     }
     toast.success(t.projects.pipeline.taskMoved);
-    if (exceedsLimit && targetStage) {
-      toast.warning(format(t.flowAgileSprints.wip.reached, { stage: stageLabel(targetStage.name, targetStage.systemStatus), limit: targetLimit }));
+    if (reachedLimit !== null && targetStage) {
+      toast.warning(format(t.flowAgileSprints.wip.reached, { stage: stageLabel(targetStage.name, targetStage.systemStatus), limit: reachedLimit }));
     }
-    if (overFeature) {
-      const reorderResult = await tasksApi.reorderTasks(projectId, reordered.map(f => f.id));
-      if (!reorderResult.success) toast.error(t.projects.pipeline.taskReorderFailed);
-    }
+    if (overFeature) await saveCardOrder(reordered);
     if (result.data?.nextTaskId) await showNextRecurringTask(result.data.nextTaskId);
+  };
+
+  const handleDragEnd = async (event: DragEndEvent) => {
+    const { active, over } = event;
+    setActiveDealId(null);
+
+    if (!canWrite || !over) { setDraggedFeatureOriginalColumn(null); return; }
+
+    const activeId = active.id as string;
+    const overId = over.id as string;
+
+    // Stage reordering
+    if (activeId.startsWith(STAGE_SORTABLE_PREFIX)) {
+      handleStageDrop(activeId, overId);
+      setDraggedFeatureOriginalColumn(null);
+      return;
+    }
+
+    // Task movement
+    await handleTaskDrop(overId);
   };
 
   const activeDeal = activeDealId ? features.find(f => f.id === activeDealId) : null;
@@ -1240,14 +1285,15 @@ export function PipelineView({ projectId, sprintId = null, embedded = false, onS
     }
   };
 
-  const sprintControls = !embedded && delivery.usesSprints && sprints.data && sprints.data.length > 0 ? (
-    <SprintBar
+  const sprintControls = (
+    <BoardSprintBar
+      show={!embedded && delivery.usesSprints}
       projectId={projectId}
       sprints={sprints.data}
       sprint={sprint}
       onSprintChange={onSprintChange}
     />
-  ) : null;
+  );
 
   // Loading / error states
   if (isLoading && !hasLoaded) {
