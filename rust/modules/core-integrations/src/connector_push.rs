@@ -13,12 +13,12 @@ use serde_json::json;
 use weldsuite_catalogs::entity_events::CONNECTOR_CONNECTION_SYNC_STARTED;
 use weldsuite_kit::{ApiError, Data};
 
-use crate::{Caller, ConnectState};
+use crate::{Caller, IntegrationsState};
 
 /// `POST /connections/:id/moneybird/push`: "Send now", failed invoices
 /// retried at once.
 pub(crate) async fn push_now(
-    State(state): State<ConnectState>,
+    State(state): State<IntegrationsState>,
     caller: Caller,
     Path(id): Path<String>,
 ) -> Response {
@@ -51,7 +51,7 @@ pub(crate) async fn push_now(
 /// A push pass on the tracker; a pass that leaves work schedules the next.
 #[allow(clippy::needless_pass_by_value)] // moved into the task
 pub(crate) fn spawn_push(
-    state: &ConnectState,
+    state: &IntegrationsState,
     db: PgPool,
     env: SyncEnv,
     connection: Value,

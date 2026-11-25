@@ -25,6 +25,11 @@ use weldsuite_catalogs::entity_events::{
     WORKFLOW_INTEGRATION_CREATED, WORKFLOW_INTEGRATION_DELETED, WORKFLOW_INTEGRATION_UPDATED,
 };
 use weldsuite_catalogs::permission_keys as perm;
+use weldsuite_connect_domain::crypto::{maybe_decrypt, seal_if_keyed};
+use weldsuite_connect_domain::github_app::{
+    AppCredentials, installation_token, list_available_repos,
+};
+use weldsuite_connect_domain::workflow_catalog::{integration, integrations};
 use weldsuite_db::{Keyring, PgPool, orm, utc_now};
 use weldsuite_kit::validation::{Field, Issues, Presence, Text};
 use weldsuite_kit::{ApiError, Created, Data, List, NoContent, Pagination, generate_id};
@@ -32,11 +37,8 @@ use weldsuite_permissions::{PermissionGate, PermissionQueries};
 use weldsuite_ports::{DynCache, HttpRequest, OutboundHttp};
 use weldsuite_schema::tenant::workflow_integrations::{self, Column};
 
-use crate::catalog::{integration, integrations};
-use crate::crypto::{maybe_decrypt, seal_if_keyed};
-use crate::github_app::{AppCredentials, installation_token, list_available_repos};
 use crate::js::{next_cursor, page, page_limit, query_truthy};
-use crate::{Caller, ConnectState, Refusal, internal, validate};
+use crate::{Caller, IntegrationsState, Refusal, internal, validate};
 
 const GOOGLE_TYPES: &[&str] = &["google_sheets", "gmail", "google_calendar"];
 const STATE_TTL: Duration = Duration::from_secs(600);
@@ -58,7 +60,7 @@ async fn outside_eu_row(db: &PgPool, row: &Value) -> Result<(), Refusal> {
 
 pub(crate) fn routes<Q: PermissionQueries + 'static>(
     gate: &Arc<PermissionGate<Q>>,
-) -> Router<ConnectState> {
+) -> Router<IntegrationsState> {
     let read = || gate.require([perm::INTEGRATIONS_READ]);
     let update = || gate.require([perm::INTEGRATIONS_UPDATE]);
     Router::new()
@@ -106,7 +108,7 @@ pub(crate) fn routes<Q: PermissionQueries + 'static>(
 }
 
 impl Caller {
-    pub(crate) fn keyring(&self, state: &ConnectState) -> Keyring {
+    pub(crate) fn keyring(&self, state: &IntegrationsState) -> Keyring {
         let key = |name: &str| self.overrides.env(state, name).filter(|v| !v.is_empty());
         Keyring {
             v1: key("DATABASE_ENCRYPTION_KEY"),
@@ -115,7 +117,7 @@ impl Caller {
     }
 
     /// Third-party HTTP, or a client that can't connect.
-    pub(crate) fn http(&self, state: &ConnectState) -> OutboundHttp {
+    pub(crate) fn http(&self, state: &IntegrationsState) -> OutboundHttp {
         self.overrides
             .http(state)
             .unwrap_or_else(|| OutboundHttp(Arc::new(crate::Unreachable)))
@@ -128,7 +130,7 @@ impl Caller {
     }
 
     /// `GITHUB_APP_ID` + `GITHUB_APP_PRIVATE_KEY`.
-    pub(crate) fn github_app(&self, state: &ConnectState) -> Option<AppCredentials> {
+    pub(crate) fn github_app(&self, state: &IntegrationsState) -> Option<AppCredentials> {
         let app_id = self
             .overrides
             .env(state, "GITHUB_APP_ID")
@@ -320,7 +322,7 @@ fn integration_body(issues: &mut Issues, b: &Map<String, Value>, partial: bool) 
 }
 
 async fn create(
-    State(state): State<ConnectState>,
+    State(state): State<IntegrationsState>,
     caller: Caller,
     headers: HeaderMap,
     body: Bytes,
@@ -377,7 +379,7 @@ async fn create(
 }
 
 async fn update_route(
-    State(state): State<ConnectState>,
+    State(state): State<IntegrationsState>,
     caller: Caller,
     Path(id): Path<String>,
     headers: HeaderMap,
@@ -446,7 +448,7 @@ async fn update_route(
 }
 
 async fn connect(
-    State(state): State<ConnectState>,
+    State(state): State<IntegrationsState>,
     caller: Caller,
     Path(id): Path<String>,
     headers: HeaderMap,
@@ -494,7 +496,7 @@ async fn connect(
 }
 
 /// `c.env.WORKSPACE_CACHE`, which the OAuth flows require.
-fn kv(caller: &Caller, state: &ConnectState) -> Result<Arc<dyn DynCache>, Refusal> {
+fn kv(caller: &Caller, state: &IntegrationsState) -> Result<Arc<dyn DynCache>, Refusal> {
     caller
         .overrides
         .kv(state)
@@ -502,7 +504,7 @@ fn kv(caller: &Caller, state: &ConnectState) -> Result<Arc<dyn DynCache>, Refusa
 }
 
 async fn disconnect(
-    State(state): State<ConnectState>,
+    State(state): State<IntegrationsState>,
     caller: Caller,
     Path(id): Path<String>,
 ) -> Response {
@@ -608,7 +610,7 @@ fn installation_id(settings: &Value) -> Result<i64, String> {
 }
 
 async fn test(
-    State(state): State<ConnectState>,
+    State(state): State<IntegrationsState>,
     caller: Caller,
     Path(id): Path<String>,
 ) -> Response {
@@ -729,7 +731,7 @@ async fn list_slack_channels(http: &OutboundHttp, token: &str) -> Result<Vec<Val
 }
 
 async fn slack_channels(
-    State(state): State<ConnectState>,
+    State(state): State<IntegrationsState>,
     caller: Caller,
     Path(id): Path<String>,
 ) -> Response {
@@ -762,7 +764,7 @@ async fn slack_channels(
 }
 
 async fn github_repos(
-    State(state): State<ConnectState>,
+    State(state): State<IntegrationsState>,
     caller: Caller,
     Path(id): Path<String>,
 ) -> Response {
@@ -802,7 +804,7 @@ async fn github_repos(
 /// `loadGoogleToken(c, id, expectedType)`.
 async fn google_token(
     caller: &Caller,
-    state: &ConnectState,
+    state: &IntegrationsState,
     id: &str,
     expected: &str,
 ) -> Result<String, Refusal> {
@@ -841,7 +843,7 @@ fn spreadsheet_id(raw: &str) -> String {
 }
 
 async fn google_spreadsheet(
-    State(state): State<ConnectState>,
+    State(state): State<IntegrationsState>,
     caller: Caller,
     Path(id): Path<String>,
     RawQuery(query): RawQuery,
@@ -922,7 +924,7 @@ async fn google_spreadsheet(
 }
 
 async fn google_calendars(
-    State(state): State<ConnectState>,
+    State(state): State<IntegrationsState>,
     caller: Caller,
     Path(id): Path<String>,
 ) -> Response {
@@ -996,7 +998,7 @@ async fn google_calendars(
 }
 
 async fn delete(
-    State(state): State<ConnectState>,
+    State(state): State<IntegrationsState>,
     caller: Caller,
     Path(id): Path<String>,
 ) -> Response {
@@ -1027,7 +1029,7 @@ async fn delete(
 // ── OAuth and the other connect flows (`oauth.ts`) ─────────────────────────
 
 /// `redirectUri(env)`.
-fn redirect_uri(caller: &Caller, state: &ConnectState) -> String {
+fn redirect_uri(caller: &Caller, state: &IntegrationsState) -> String {
     let base = caller
         .overrides
         .env(state, "PUBLIC_APP_URL")
@@ -1044,7 +1046,12 @@ fn def_text(def: &Value, key: &str) -> Option<String> {
     def[key].as_str().map(str::to_owned)
 }
 
-fn env_named(caller: &Caller, state: &ConnectState, def: &Value, field: &str) -> Option<String> {
+fn env_named(
+    caller: &Caller,
+    state: &IntegrationsState,
+    def: &Value,
+    field: &str,
+) -> Option<String> {
     let name = def["auth"][field].as_str()?;
     caller.overrides.env(state, name).filter(|v| !v.is_empty())
 }
@@ -1078,7 +1085,7 @@ fn authorize_params(def: &Value) -> Vec<(String, String)> {
 }
 
 async fn authorize(
-    State(state): State<ConnectState>,
+    State(state): State<IntegrationsState>,
     caller: Caller,
     Path(provider): Path<String>,
     headers: HeaderMap,
@@ -1166,7 +1173,7 @@ async fn put_mapping(cache: &Arc<dyn DynCache>, key: &str, value: &str) -> Resul
 }
 
 async fn callback(
-    State(state): State<ConnectState>,
+    State(state): State<IntegrationsState>,
     caller: Caller,
     Path(provider): Path<String>,
     headers: HeaderMap,
@@ -1260,7 +1267,7 @@ async fn callback(
                 i64::try_from(time::OffsetDateTime::now_utc().unix_timestamp_nanos() / 1_000_000)
                     .unwrap_or(0);
             #[allow(clippy::cast_possible_truncation)]
-            if let Some(at) = crate::cron::iso(now_ms + (seconds * 1000.0) as i64) {
+            if let Some(at) = crate::js::iso(now_ms + (seconds * 1000.0) as i64) {
                 oauth_tokens.insert("expiresAt".into(), json!(at));
             }
         }
@@ -1373,7 +1380,7 @@ async fn callback(
 }
 
 async fn apikey(
-    State(state): State<ConnectState>,
+    State(state): State<IntegrationsState>,
     caller: Caller,
     Path(provider): Path<String>,
     headers: HeaderMap,
@@ -1460,7 +1467,7 @@ async fn apikey(
 }
 
 async fn link(
-    State(state): State<ConnectState>,
+    State(state): State<IntegrationsState>,
     caller: Caller,
     Path(provider): Path<String>,
 ) -> Response {
@@ -1485,8 +1492,10 @@ async fn link(
     let result = async {
         // The workspace's GitHub App installation, a WeldMerge connection
         // (`getConnectionByWorkspace`: the newest active one first).
-        let connection =
-            crate::github_connections::connection_by_workspace(&caller.db, &org_id).await?;
+        let connection = weldsuite_connect_domain::github_connections::connection_by_workspace(
+            &caller.db, &org_id,
+        )
+        .await?;
         let Some(connection) = connection.filter(|c| c["status"].as_str() == Some("active")) else {
             return Ok(
                 Data(json!({ "status": "needs_install", "provider": provider })).into_response(),

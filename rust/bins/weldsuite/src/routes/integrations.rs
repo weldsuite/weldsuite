@@ -7,7 +7,9 @@
 //! `books` is marked ported), as the worker without the binding.
 //!
 //! WeldConnect's routes start the same Workflows (`GITHUB_PROJECT_SYNC` on
-//! "Sync now"): [`connect_bindings`] gives them this deployment's jobs.
+//! "Sync now"): [`connect_bindings`] gives them this deployment's jobs. The
+//! core integration routes' CRM sync starts `CRM_SYNC` the same way
+//! ([`core_integrations_bindings`]).
 
 use std::sync::{Arc, Once};
 
@@ -234,32 +236,59 @@ impl weldsuite_connect::ProjectSyncRuns for ConnectRuns {
     }
 }
 
-/// WeldConnect's Workflow bindings that the integration workers host, on
+/// The core integrations' `CrmSyncRuns` over this deployment's jobs.
+struct CrmRuns(Arc<JobRuns>);
+
+impl weldsuite_core_integrations::CrmSyncRuns for CrmRuns {
+    fn create<'a>(&'a self, id: &'a str, params: &'a Value) -> BoxFuture<'a, Result<(), String>> {
+        WorkflowRuns::create(self.0.as_ref(), id, params)
+    }
+}
+
+/// `CRM_SYNC` (the `integrations.crm-sync` job) over `jobs`.
+fn crm_runs(
+    jobs: Arc<dyn weldsuite_ports::DynJobs>,
+) -> Arc<dyn weldsuite_core_integrations::CrmSyncRuns> {
+    Arc::new(CrmRuns(Arc::new(JobRuns {
+        jobs,
+        job: CRM_SYNC_JOB,
+    })))
+}
+
+/// WeldConnect's Workflow binding that the integration workers host, on
 /// this deployment's jobs: `GITHUB_PROJECT_SYNC` ("Sync now" on a project
 /// link). Conformance builds take the test's binding per request instead.
-/// `CRM_SYNC`: the `integrations.crm-sync` job (Connect's CRM sync routes).
 pub(crate) fn connect_bindings(router: Router<AppState>, state: &AppState) -> Router<AppState> {
     if cfg!(feature = "conformance") {
         return router;
     }
     let runs: Arc<dyn weldsuite_connect::ProjectSyncRuns> =
         Arc::new(ConnectRuns(job_runs(state, GITHUB_PROJECT_SYNC_JOB)));
-    let crm: Arc<dyn weldsuite_connect::ProjectSyncRuns> =
-        Arc::new(ConnectRuns(job_runs(state, CRM_SYNC_JOB)));
-    with_crm_runs(
-        router.layer(axum::middleware::from_fn(
-            move |mut request: Request, next: Next| {
-                let runs = Arc::clone(&runs);
-                async move {
-                    request
-                        .extensions_mut()
-                        .insert(weldsuite_connect::RequestProjectSyncRuns(Some(runs)));
-                    next.run(request).await
-                }
-            },
-        )),
-        crm,
-    )
+    router.layer(axum::middleware::from_fn(
+        move |mut request: Request, next: Next| {
+            let runs = Arc::clone(&runs);
+            async move {
+                request
+                    .extensions_mut()
+                    .insert(weldsuite_connect::RequestProjectSyncRuns(Some(runs)));
+                next.run(request).await
+            }
+        },
+    ))
+}
+
+/// The core integration routes' Workflow binding that the integration
+/// workers host, on this deployment's jobs: `CRM_SYNC`, the
+/// `integrations.crm-sync` job (the CRM sync routes). Conformance builds take
+/// the test's binding per request instead.
+pub(crate) fn core_integrations_bindings(
+    router: Router<AppState>,
+    state: &AppState,
+) -> Router<AppState> {
+    if cfg!(feature = "conformance") {
+        return router;
+    }
+    with_crm_runs(router, crm_runs(Arc::clone(&state.infra.jobs)))
 }
 
 // ── CRM sync ────────────────────────────────────────────────────────────────
@@ -275,11 +304,11 @@ fn crm_deps(state: &AppState) -> CrmDeps {
     }
 }
 
-/// `CRM_SYNC` on a request (`RequestCrmSyncRuns`), for WeldConnect's
-/// CRM routes and its internal sync route.
+/// `CRM_SYNC` on a request (`RequestCrmSyncRuns`), for the CRM routes and
+/// the internal sync route.
 fn with_crm_runs<S>(
     router: Router<S>,
-    runs: Arc<dyn weldsuite_connect::ProjectSyncRuns>,
+    runs: Arc<dyn weldsuite_core_integrations::CrmSyncRuns>,
 ) -> Router<S>
 where
     S: Clone + Send + Sync + 'static,
@@ -290,16 +319,16 @@ where
             async move {
                 request
                     .extensions_mut()
-                    .insert(weldsuite_connect::RequestCrmSyncRuns(Some(runs)));
+                    .insert(weldsuite_core_integrations::RequestCrmSyncRuns(Some(runs)));
                 next.run(request).await
             }
         },
     ))
 }
 
-/// `CONNECT_INTERNAL` in this process: WeldConnect's internal integration
-/// router, called with the internal secret (`INTERNAL_API_SECRET`) as the
-/// app-api fallback path does on Global.
+/// `CONNECT_INTERNAL` in this process: the internal integration router
+/// (`weldsuite-core-integrations`), called with the internal secret
+/// (`INTERNAL_API_SECRET`) as the app-api fallback path does on Global.
 pub(crate) struct InProcessConnectInternal {
     router: Router,
     secret: Option<String>,
@@ -335,35 +364,30 @@ impl ConnectInternal for InProcessConnectInternal {
     }
 }
 
-/// The server's `CONNECT_INTERNAL`: WeldConnect's internal routes with
-/// this deployment's `CRM_SYNC`; none while connect is not served.
+/// The server's `CONNECT_INTERNAL`: the internal integration routes with
+/// this deployment's `CRM_SYNC`; none while core is not served.
 fn server_connect_internal(state: &AppState) -> Option<Arc<dyn ConnectInternal>> {
-    let router = super::connect_internal(state)?;
-    let crm: Arc<dyn weldsuite_connect::ProjectSyncRuns> =
-        Arc::new(ConnectRuns(job_runs(state, CRM_SYNC_JOB)));
+    let router = super::core_integrations_internal(state)?;
+    let crm = crm_runs(Arc::clone(&state.infra.jobs));
     Some(Arc::new(InProcessConnectInternal {
         router: with_crm_runs(router, crm).with_state(state.clone()),
         secret: env_value("INTERNAL_API_SECRET"),
     }))
 }
 
-/// `CONNECT_INTERNAL` for a cron run: WeldConnect's internal routes over
-/// `connect`, starting `CRM_SYNC` on `jobs`; none while connect is not served.
+/// `CONNECT_INTERNAL` for a cron run: the internal integration routes over
+/// `integrations`, starting `CRM_SYNC` on `jobs`; none while core is not
+/// served.
 pub(crate) fn cron_connect_internal(
-    connect: weldsuite_connect::ConnectState,
+    integrations: weldsuite_core_integrations::IntegrationsState,
     jobs: Arc<dyn weldsuite_ports::DynJobs>,
 ) -> Option<Arc<dyn ConnectInternal>> {
-    if !super::mounts("connect") {
+    if !super::mounts("core") {
         return None;
     }
-    let crm: Arc<dyn weldsuite_connect::ProjectSyncRuns> =
-        Arc::new(ConnectRuns(Arc::new(JobRuns {
-            jobs,
-            job: CRM_SYNC_JOB,
-        })));
-    let router: Router = weldsuite_connect::internal_integrations_router(connect);
+    let router: Router = weldsuite_core_integrations::internal_router(integrations);
     Some(Arc::new(InProcessConnectInternal {
-        router: with_crm_runs(router, crm),
+        router: with_crm_runs(router, crm_runs(jobs)),
         secret: env_value("INTERNAL_API_SECRET"),
     }))
 }

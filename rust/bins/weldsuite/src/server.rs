@@ -230,8 +230,8 @@ pub(crate) fn router(state: AppState) -> Router {
     // any origin, as external-api does.
     let public_api =
         crate::routes::external_api(&state).layer(axum::middleware::from_fn(bundle_host_guard));
-    let connect_internal =
-        crate::routes::connect_internal(&state).map(|internal| internal.with_state(state.clone()));
+    let integrations_internal = crate::routes::core_integrations_internal(&state)
+        .map(|internal| internal.with_state(state.clone()));
     // So does personal-api (any origin, no credentials), at `/personal-api`.
     let personal =
         crate::routes::personal::router(&state).layer(axum::middleware::from_fn(bundle_host_guard));
@@ -254,8 +254,8 @@ pub(crate) fn router(state: AppState) -> Router {
         .fallback(not_found)
         .with_state(state)
         .layer(axum::middleware::from_fn_with_state(
-            connect_internal,
-            connect_internal_calls,
+            integrations_internal,
+            internal_integration_calls,
         ))
         .layer(axum::middleware::from_fn(bundle_host_guard))
         .layer(axum::middleware::from_fn(app_context))
@@ -296,16 +296,17 @@ impl<B> tower_http::trace::MakeSpan<B> for RequestSpan {
 }
 
 /// connect-api's internal integration calls (`X-Internal-Secret`) go to
-/// their own router ahead of the session, as the worker mounts it ahead of
-/// `clerkMiddleware`; every other request goes on.
-async fn connect_internal_calls(
+/// their own router (`weldsuite-core-integrations`) ahead of the session, as
+/// the worker mounts it ahead of `clerkMiddleware`; every other request goes
+/// on.
+async fn internal_integration_calls(
     State(internal): State<Option<Router>>,
     request: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> Response {
     match internal {
         Some(internal)
-            if weldsuite_connect::is_internal_integrations_call(
+            if weldsuite_core_integrations::is_internal_integrations_call(
                 request.method(),
                 request.uri().path(),
                 request.headers(),

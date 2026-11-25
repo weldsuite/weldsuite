@@ -48,6 +48,7 @@ weldsuite-core-objects = { path = "modules/core-objects" }
 weldsuite-core-onboarding = { path = "modules/core-onboarding" }
 weldsuite-core-signin = { path = "modules/core-signin" }
 weldsuite-core-files = { path = "modules/core-files" }
+weldsuite-core-integrations = { path = "modules/core-integrations" }
 weldsuite-core-platform = { path = "modules/core-platform" }
 weldsuite-core-team = { path = "modules/core-team" }
 weldsuite-commerce = { path = "modules/commerce" }

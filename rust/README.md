@@ -291,15 +291,17 @@ modules, each with conformance suites that reach every route:
   tier of the workspace's plan); the quota state is read from the cache,
   where the usage settlement writes it)
 - **connect** (WeldConnect: workflows, their engine as the
-  `connect.execute-workflow` job and the scheduled runs, workflow
-  integrations and webhooks, GitHub, the CRM and ad integrations, and the
-  store and accounting connectors (WooCommerce, Shopify, Picqer, Moneybird,
-  Stripe): connecting (API keys, WooCommerce's app authorisation with its
-  public callback `POST /webhooks/woocommerce/auth`, the Moneybird and
-  Stripe OAuth flows), the sync engine with its mappers and
-  ingest (`crates/connect-domain`), provider webhook registration and ingest,
-  and the WeldBooks to Moneybird push. Not ported: AI workflow generation
-  and AI steps (`weldconnect-ai`)
+  `connect.execute-workflow` job and the scheduled runs, workflow webhooks
+  and WeldFlow's GitHub links in `modules/connect`; connect-api's
+  integration routes are core functionality in `modules/core-integrations`:
+  workflow integrations, outbound webhooks, the GitHub connection, the CRM
+  and ad integrations, and the store and accounting connectors (WooCommerce,
+  Shopify, Picqer, Moneybird, Stripe): connecting (API keys, WooCommerce's
+  app authorisation with its public callback
+  `POST /webhooks/woocommerce/auth`, the Moneybird and Stripe OAuth flows),
+  the sync engine with its mappers and ingest (`crates/connect-domain`),
+  provider webhook registration and ingest, and the WeldBooks to Moneybird
+  push. Not ported: AI workflow generation and AI steps (`weldconnect-ai`)
 - **forms** (WeldForms, built in both backends from the first route, ADR
   FORMS-001: the forms engine `@weldsuite/forms-engine` held equal by its
   fixtures; forms with their revisions (409 `REVISION_CONFLICT`), templates
@@ -730,7 +732,12 @@ rust/
                         gateway, the CLI and desktop sign-in routes), modules/core-onboarding (signup:
                         /api/onboarding, the workspace.provision job, the identity sync, the deletion sweeps),
                         modules/core-signin (/api/sign-in: the backend of the platform's own sign-in
-                        screens on an OIDC provider, as its login client; no TypeScript twin, ADR SEC-016)
+                        screens on an OIDC provider, as its login client; no TypeScript twin, ADR SEC-016),
+                        modules/core-integrations (connect-api's integration routes as core functionality,
+                        served whether or not WeldConnect is: /api/integrations (CRM sync, Google Calendar,
+                        MCP servers), /api/connectors, /api/external-webhooks, /api/github-connections,
+                        /api/workflow-integrations, the internal integration routes, WooCommerce's
+                        app-auth callback and the Moneybird two-way sync's subscriber)
   deploy/helm/weldsuite the Helm chart (collabRooms: WeldDocs', WeldSheets' and WeldBoard's rooms, apps/tools/collab-rooms)
   docs/collab-rooms.md  how the collaborative rooms run on Kubernetes
   deploy/haraka/        the MX image (MAIL-010): Haraka with three plugins, the RCPT TO check, DMARC + Authentication-Results,

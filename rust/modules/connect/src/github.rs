@@ -1,12 +1,14 @@
 //! WeldFlow's GitHub App (`routes/workflow-github/*`,
-//! `routes/github-project-links`, `routes/github-connections`,
-//! `routes/github-repo-links`, `routes/public-github-callback.ts`,
-//! `services/github/*`): the workspace's installation, the repositories and
-//! GitHub Projects linked to WeldFlow projects, and the post-install
-//! callback GitHub redirects the browser to.
+//! `routes/github-project-links`, `routes/github-repo-links`,
+//! `routes/public-github-callback.ts`, `services/github/*`): the workspace's
+//! installation, the repositories and GitHub Projects linked to WeldFlow
+//! projects, and the post-install callback GitHub redirects the browser to.
+//! `/api/github-connections` is a core integration route
+//! (`weldsuite-core-integrations`).
 //!
 //! The installation is a WeldMerge connection (`merge_connections`, provider
-//! `github`, read through [`crate::github_connections`]); the link rows
+//! `github`, read through
+//! [`weldsuite_connect_domain::github_connections`]); the link rows
 //! (`github_repo_links`, `github_project_links`) are keyed by the Clerk org
 //! id (the install state carries it as `workspaceId`), as in the TypeScript
 //! worker. The sync runs themselves (`GithubProjectSyncWorkflow`, GitHub's
@@ -47,10 +49,10 @@ use weldsuite_schema::tenant::{
     github_project_links as project_links, github_repo_links as repo_links, merge_connections,
 };
 
-use crate::github_app::{AppCredentials, app_jwt, installation_token_as};
 use crate::js::{next_cursor, page, page_limit, query_truthy, total};
 use crate::runs::RequestProjectSyncRuns;
 use crate::{Caller, ConnectState, Overrides, Refusal, internal, now, validate, validate_query};
+use weldsuite_connect_domain::github_app::{AppCredentials, app_jwt, installation_token_as};
 use weldsuite_kit::cursor::encode_uri_component;
 
 const DIRECTIONS: &[&str] = &["inbound", "outbound", "bidirectional"];
@@ -125,14 +127,6 @@ pub(crate) fn project_links_routes<Q: PermissionQueries + 'static>(
                 .route_layer(manage()),
         )
         .route("/{id}/sync", post(sync_project).route_layer(manage()))
-}
-
-/// `/api/github-connections`: the generic object routes, over the
-/// workspace's WeldMerge GitHub connections.
-pub(crate) fn connections_routes<Q: PermissionQueries + 'static>(
-    gate: &Arc<PermissionGate<Q>>,
-) -> Router<ConnectState> {
-    crate::github_connections::routes(gate)
 }
 
 /// `/api/github-repo-links`: the generic object routes.
@@ -228,11 +222,11 @@ async fn install_url(
     Data(json!({ "url": url })).into_response()
 }
 
-use crate::github_connections::connection_by_workspace;
+use weldsuite_connect_domain::github_connections::connection_by_workspace;
 
 /// `formatConnection(conn)`: the connection without its webhook secret.
 fn format_connection(view: Value) -> Value {
-    crate::github_connections::without_secret(view)
+    weldsuite_connect_domain::github_connections::without_secret(view)
 }
 
 fn is_active(connection: Option<&Value>) -> bool {
@@ -639,7 +633,10 @@ async fn recover(
     .await
     {
         Ok(Some(row)) => Data(format_connection(
-            crate::github_connections::connection_view(&row, &caller.clerk_org_id),
+            weldsuite_connect_domain::github_connections::connection_view(
+                &row,
+                &caller.clerk_org_id,
+            ),
         ))
         .into_response(),
         Ok(None) => ApiError::new(
@@ -843,7 +840,7 @@ async fn repos_available(State(state): State<ConnectState>, caller: Caller) -> R
         Ok(token) => token,
         Err(error) => return internal(&error, FAILED),
     };
-    match crate::github_app::list_available_repos(&client, &token).await {
+    match weldsuite_connect_domain::github_app::list_available_repos(&client, &token).await {
         Ok(repos) => {
             let count = repos.len() as u64;
             List::new(repos, Pagination::new(count, false, None)).into_response()

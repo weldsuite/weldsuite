@@ -31,6 +31,7 @@ weldsuite-core-objects = { workspace = true }
 weldsuite-core-onboarding = { workspace = true }
 weldsuite-core-signin = { workspace = true }
 weldsuite-core-files = { workspace = true }
+weldsuite-core-integrations = { workspace = true }
 weldsuite-core-platform = { workspace = true }
 weldsuite-core-team = { workspace = true }
 weldsuite-commerce = { workspace = true }

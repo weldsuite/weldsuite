@@ -165,8 +165,12 @@ const RUST_NOT_SERVER = [
   'rust/deny.toml',
 ];
 
-/** The module crate a suite-less name serves under: `mcp` serves mcp-server. */
-const CRATE_SUITE_MODULE: Record<string, string> = { mcp: 'mcp-server' };
+/**
+ * The suite module of a crate whose name doesn't say it: `mcp` serves
+ * mcp-server; `core-integrations` serves connect-api's integration routes,
+ * whose suites are connect's (not core's, as its name would match).
+ */
+const CRATE_SUITE_MODULE: Record<string, string> = { mcp: 'mcp-server', 'core-integrations': 'connect' };
 
 /**
  * The suite module a crate in rust/modules serves: its own name, else the

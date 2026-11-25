@@ -1,10 +1,15 @@
-//! WeldConnect: connect-api's routes (`apps/workers/connect-api`) at the
-//! paths it serves under `/api` (workflows and their versions, templates,
-//! schedules, variables, webhooks, triggers, executions, the dashboard and
-//! the AI builder's drafts), the public workflow webhook receiver
-//! (`/api/workflows/webhook/:id`, [`public_router`]) and WooCommerce's
-//! app-auth callback (`/webhooks/woocommerce/auth`,
-//! [`woocommerce_auth_router`]).
+//! WeldConnect: connect-api's workflow routes (`apps/workers/connect-api`)
+//! at the paths it serves under `/api` (workflows and their versions,
+//! templates, schedules, variables, webhooks, triggers, executions, the
+//! dashboard, the AI builder's drafts and WeldFlow's GitHub links) and the
+//! public workflow webhook receiver (`/api/workflows/webhook/:id`,
+//! [`public_router`]).
+//!
+//! connect-api's integration routes (`/api/integrations`, `/api/connectors`,
+//! `/api/external-webhooks`, `/api/github-connections`,
+//! `/api/workflow-integrations`, WooCommerce's app-auth callback) are core
+//! platform functionality and live in `weldsuite-core-integrations`, served
+//! whether or not WeldConnect is.
 //!
 //! A run is started through [`runs::WorkflowRuns`]: the `EXECUTE_WORKFLOW`
 //! Workflow binding on Global, the `connect.execute-workflow` job here.
@@ -27,26 +32,15 @@
 
 mod builder;
 mod catalog;
-mod connector_auth;
-mod connector_push;
-mod connector_sync;
-mod connectors;
 mod cron;
-mod crypto;
 mod dashboard;
 pub mod engine;
 mod entity_workflows;
 mod executions;
-mod external_webhooks;
 mod generate;
 mod github;
-mod github_app;
-mod github_connections;
-mod integrations;
 mod js;
-mod moneybird_sync;
 mod mvp;
-mod picqer_push;
 mod public_webhook;
 pub mod runs;
 mod schedule_sweep;
@@ -58,9 +52,7 @@ mod triggers;
 mod variables;
 mod versions;
 mod webhooks;
-mod webhooks_woocommerce_auth;
 mod workflow_actions;
-mod workflow_integrations;
 mod workflows;
 
 /// A deployment without an HTTP client: every call fails like a `fetch`
@@ -103,9 +95,6 @@ use weldsuite_ports::{DynCache, DynJobs, OutboundHttp, RequestCache};
 
 pub use cron::compute_next_run_at;
 pub use entity_workflows::EntityWorkflowsSubscriber;
-pub use integrations::RequestCrmSyncRuns;
-pub use integrations::internal::is_internal_call as is_internal_integrations_call;
-pub use moneybird_sync::{MONEYBIRD_SYNC_CONSUMER, MONEYBIRD_SYNC_TOPICS, MoneybirdSyncSubscriber};
 pub use public_webhook::RequestHeaderNames;
 pub use runs::{
     EXECUTE_WORKFLOW_JOB, JobsWorkflowRuns, ProjectSyncRuns, RESUME_SIGNAL, RequestProjectSyncRuns,
@@ -144,27 +133,14 @@ pub struct ConnectState {
     /// The worker's env values this crate reads (`ENVIRONMENT`,
     /// `CONNECT_API_URL`, …). A request's `RequestEnv` (conformance) wins.
     pub env: Arc<HashMap<String, String>>,
-    /// Where the test delivery of an outbound webhook goes out
-    /// (`WebhookHttp`, which refuses private addresses unless allowed). A
-    /// request's `OutboundHttp` (conformance) wins.
-    pub webhooks: Option<Arc<dyn weldsuite_subscribers::DeliveryAttempts>>,
     /// `TRUSTED_PROXIES`: where the webhook caller's address sits in
     /// `X-Forwarded-For`, counted from the right.
     pub trusted_proxies: usize,
-    /// The `STORAGE` bucket: Moneybird attachments and Stripe invoice PDFs
-    /// the connector sync copies. A request's `StorageBuckets`
-    /// (conformance) wins.
-    pub storage: Option<Arc<dyn weldsuite_ports::DynFileStore>>,
     /// The install's AI (`weldsuite-ai`, ADR AI-012): "Generate with AI"
     /// (`POST /api/workflows/generate`). `None` without a provider, which
     /// answers as connect-api without its gateway. A request's `Ai`
     /// (conformance) wins.
     pub ai: Option<weldsuite_ai::Ai>,
-    /// The edition whose connectors the catalog lists (`editions` in
-    /// `catalog.ts`, ADR INT-012): `kubernetes` normally, `global` in
-    /// conformance builds, which compare against Global's TypeScript
-    /// catalog (it hides Odoo).
-    pub connector_edition: &'static str,
 }
 
 impl std::fmt::Debug for ConnectState {
@@ -185,7 +161,6 @@ pub const ENV_NAMES: &[&str] = &[
     "ENVIRONMENT",
     "CONNECT_API_URL",
     "PUBLIC_APP_URL",
-    "APP_API_PUBLIC_URL",
     "DATABASE_ENCRYPTION_KEY",
     "DATABASE_ENCRYPTION_KEY_V2",
     "GITHUB_APP_ID",
@@ -193,22 +168,6 @@ pub const ENV_NAMES: &[&str] = &[
     "GITHUB_APP_PRIVATE_KEY",
     "CLERK_SECRET_KEY",
     "INTERNAL_API_SECRET",
-    "SLACK_CLIENT_ID",
-    "SLACK_CLIENT_SECRET",
-    "GOOGLE_CLIENT_ID",
-    "GOOGLE_CLIENT_SECRET",
-    "ATTIO_CLIENT_ID",
-    "ATTIO_CLIENT_SECRET",
-    "HUBSPOT_CLIENT_ID",
-    "HUBSPOT_CLIENT_SECRET",
-    "GOOGLE_CALENDAR_CLIENT_ID",
-    "GOOGLE_CALENDAR_CLIENT_SECRET",
-    "STRIPE_SECRET_KEY",
-    "STRIPE_CONNECT_CLIENT_ID",
-    "MONEYBIRD_CLIENT_ID",
-    "MONEYBIRD_CLIENT_SECRET",
-    "APP_API_PUBLIC_URL",
-    "CONNECTOR_WEBHOOK_BASE_URL",
 ];
 
 /// [`ENV_NAMES`] from the process environment.
@@ -227,20 +186,12 @@ where
     Q: PermissionQueries + 'static,
 {
     Router::new()
-        .nest("/github-connections", github::connections_routes(gate))
         .nest("/github-repo-links", github::repo_links_routes(gate))
         .nest("/github-project-links", github::project_links_routes(gate))
-        .nest("/external-webhooks", external_webhooks::routes(gate))
-        .nest("/integrations", integrations::routes(gate))
-        .nest("/connectors", connectors::routes(gate))
         .nest("/workflow-builder", builder::routes(gate))
         .nest("/workflow-dashboard", dashboard::routes(gate))
         .nest("/workflow-executions", executions::routes(gate))
         .nest("/workflow-github", github::workflow_github_routes(gate))
-        .nest(
-            "/workflow-integrations",
-            workflow_integrations::routes(gate),
-        )
         .nest("/workflow-schedules", schedules::routes(gate))
         .nest("/workflow-templates", templates::routes(gate))
         .nest("/workflow-triggers", triggers::routes(gate))
@@ -272,32 +223,6 @@ where
         .with_state(state)
 }
 
-/// WooCommerce's application-authentication callback
-/// (`POST /webhooks/woocommerce/auth`), at its full path and without a
-/// session: the shop posts the API keys it made, and the HMAC-signed state
-/// names the workspace, whose tenant database `workspaces` opens. A request's
-/// own `Tenant` (conformance) wins.
-pub fn woocommerce_auth_router<S>(
-    state: ConnectState,
-    workspaces: Option<Arc<weldsuite_db::Workspaces>>,
-) -> Router<S>
-where
-    S: Clone + Send + Sync + 'static,
-{
-    webhooks_woocommerce_auth::router(state, workspaces)
-}
-
-/// connect-api's internal integration routes (`X-Internal-Secret`) at their
-/// full `/api/integrations/...` paths. They share their paths with the
-/// member routes, so the server sends a request here only when
-/// [`is_internal_integrations_call`] says it is one, ahead of the session.
-pub fn internal_integrations_router<S>(state: ConnectState) -> Router<S>
-where
-    S: Clone + Send + Sync + 'static,
-{
-    integrations::internal::router(state)
-}
-
 /// What conformance builds hand a request in place of the state's.
 #[derive(Clone, Default)]
 pub(crate) struct Overrides {
@@ -306,7 +231,6 @@ pub(crate) struct Overrides {
     pub(crate) http: Option<OutboundHttp>,
     pub(crate) master: Option<weldsuite_db::MasterDb>,
     pub(crate) runs: Option<RequestWorkflowRuns>,
-    pub(crate) buckets: Option<weldsuite_ports::StorageBuckets>,
     pub(crate) ai: Option<weldsuite_ai::Ai>,
 }
 
@@ -318,7 +242,6 @@ impl Overrides {
             http: extensions.get::<OutboundHttp>().cloned(),
             master: extensions.get::<weldsuite_db::MasterDb>().cloned(),
             runs: extensions.get::<RequestWorkflowRuns>().cloned(),
-            buckets: extensions.get::<weldsuite_ports::StorageBuckets>().cloned(),
             ai: extensions.get::<weldsuite_ai::Ai>().cloned(),
         }
     }
@@ -341,19 +264,6 @@ impl Overrides {
         state.env.get(name).cloned()
     }
 
-    /// `c.env.STORAGE`: the request's bucket (conformance, which may have
-    /// none), else the state's.
-    pub(crate) fn storage(
-        &self,
-        state: &ConnectState,
-    ) -> Option<Arc<dyn weldsuite_ports::DynFileStore>> {
-        match &self.buckets {
-            Some(buckets) => buckets.public.clone(),
-            None if self.env.is_some() => None,
-            None => state.storage.clone(),
-        }
-    }
-
     /// The workspace cache: the request's (conformance), else the state's.
     pub(crate) fn kv(&self, state: &ConnectState) -> Option<Arc<dyn DynCache>> {
         match &self.cache {
@@ -364,27 +274,8 @@ impl Overrides {
     }
 
     /// Third-party HTTP: the request's (conformance), else the state's.
-    #[allow(dead_code)] // the integration routes use it
     pub(crate) fn http(&self, state: &ConnectState) -> Option<OutboundHttp> {
         self.http.clone().or_else(|| state.http.clone())
-    }
-
-    /// Outbound webhook deliveries: through the request's outbound HTTP
-    /// (conformance), else the state's client; without either every attempt
-    /// fails as a `fetch` that cannot connect.
-    pub(crate) fn webhook_attempts(
-        &self,
-        state: &ConnectState,
-    ) -> Arc<dyn weldsuite_subscribers::DeliveryAttempts> {
-        if let Some(http) = &self.http {
-            return Arc::new(weldsuite_subscribers::OutboundAttempts(http.clone()));
-        }
-        match &state.webhooks {
-            Some(webhooks) if self.env.is_none() => Arc::clone(webhooks),
-            _ => Arc::new(weldsuite_subscribers::OutboundAttempts(OutboundHttp(
-                Arc::new(Unreachable),
-            ))),
-        }
     }
 
     /// The master database: the request's (conformance), else the state's.

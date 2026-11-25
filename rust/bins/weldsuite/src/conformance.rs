@@ -482,7 +482,7 @@ impl Pools {
             self.workflows.project_sync_runs(&context.workflows),
         ));
         // CRM syncs start on the test's `CRM_SYNC`, or nowhere.
-        extensions.insert(weldsuite_connect::RequestCrmSyncRuns(
+        extensions.insert(weldsuite_core_integrations::RequestCrmSyncRuns(
             self.workflows.crm_sync_runs(&context.workflows),
         ));
         // WeldForms' ProcessResponse runs start on the test's `PROCESS_RESPONSE`.

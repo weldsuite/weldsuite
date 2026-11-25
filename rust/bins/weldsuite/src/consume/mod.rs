@@ -187,7 +187,7 @@ pub(crate) fn moneybird_sync_spec(config: &ConsumeConfig) -> ConsumerSpec {
         durable: MONEYBIRD_SYNC.to_owned(),
         description: "WeldSuite Moneybird two-way sync (INT-013, Rust only)".to_owned(),
         filter_subject: filter_subject(
-            weldsuite_connect::MONEYBIRD_SYNC_TOPICS,
+            weldsuite_core_integrations::MONEYBIRD_SYNC_TOPICS,
             &config.subject_prefix,
         ),
         deliver_new_only: true,
@@ -222,7 +222,7 @@ fn moneybird_sync_handler(
     let stripe_secret_key = std::env::var("STRIPE_SECRET_KEY")
         .ok()
         .filter(|key| !key.is_empty());
-    let subscriber = weldsuite_connect::MoneybirdSyncSubscriber::new(
+    let subscriber = weldsuite_core_integrations::MoneybirdSyncSubscriber::new(
         Arc::clone(tenants),
         config.keyring.clone(),
         http,
@@ -231,7 +231,7 @@ fn moneybird_sync_handler(
         Some(master.clone()),
     );
     Arc::new(Routed::new(
-        weldsuite_connect::MONEYBIRD_SYNC_TOPICS,
+        weldsuite_core_integrations::MONEYBIRD_SYNC_TOPICS,
         Arc::new(subscriber),
     ))
 }

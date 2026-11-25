@@ -1,6 +1,6 @@
 [package]
 name = "weldsuite-connect"
-description = "WeldConnect (workflow automation and integrations): connect-api's routes, the public workflow webhook receiver, and the execution engine (workflow-worker) as the connect.execute-workflow job"
+description = "WeldConnect (workflow automation): connect-api's workflow routes, the public workflow webhook receiver, and the execution engine (workflow-worker) as the connect.execute-workflow job"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -9,7 +9,6 @@ repository.workspace = true
 publish.workspace = true
 
 [dependencies]
-weldsuite-ads-domain = { workspace = true }
 weldsuite-ai = { workspace = true }
 weldsuite-auth = { workspace = true }
 weldsuite-calendar-domain = { workspace = true }

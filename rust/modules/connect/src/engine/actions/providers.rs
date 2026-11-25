@@ -275,7 +275,7 @@ async fn valid_token(
     assert_owner_still_member(ctx).await?;
     let row = resolve_integration(ctx, kind, id).await?;
     let row_type = row.type_.clone();
-    let def = crate::catalog::integration(&row_type);
+    let def = weldsuite_connect_domain::workflow_catalog::integration(&row_type);
     let auth = def.and_then(|d| d.get("auth"));
     let auth_kind = auth.and_then(|a| a.get("kind")).and_then(Value::as_str);
     if auth_kind == Some("app_installation") {
@@ -310,14 +310,19 @@ async fn valid_token(
             .http
             .clone()
             .unwrap_or_else(|| OutboundHttp(Arc::new(crate::Unreachable)));
-        let creds = crate::github_app::AppCredentials {
+        let creds = weldsuite_connect_domain::github_app::AppCredentials {
             app_id: app_id.clone(),
             private_key: private_key.clone(),
         };
         #[allow(clippy::cast_possible_truncation)]
-        return crate::github_app::installation_token(&http, &creds, installation as i64, true)
-            .await
-            .map_err(|message| ActionError::plain(&message));
+        return weldsuite_connect_domain::github_app::installation_token(
+            &http,
+            &creds,
+            installation as i64,
+            true,
+        )
+        .await
+        .map_err(|message| ActionError::plain(&message));
     }
     let keys = keyring(ctx);
     let tokens = row.oauth_tokens.as_ref().unwrap_or(&Value::Null);
@@ -326,7 +331,7 @@ async fn valid_token(
         .and_then(Value::as_str)
         .filter(|t| !t.is_empty())
     {
-        let mut access = crate::crypto::maybe_decrypt(sealed, &keys);
+        let mut access = weldsuite_connect_domain::crypto::maybe_decrypt(sealed, &keys);
         let expires_ms = tokens
             .get("expiresAt")
             .and_then(Value::as_str)
@@ -341,10 +346,11 @@ async fn valid_token(
             .and_then(Value::as_str)
             .filter(|t| !t.is_empty());
         if let (true, Some(refresh_sealed), Some("oauth2")) = (expiring, refresh, auth_kind) {
-            let refresh_plain = crate::crypto::maybe_decrypt(refresh_sealed, &keys);
+            let refresh_plain =
+                weldsuite_connect_domain::crypto::maybe_decrypt(refresh_sealed, &keys);
             let (fresh, expires_at) =
                 refresh_oauth_token(ctx, auth.unwrap_or(&Value::Null), &refresh_plain).await?;
-            let stored = crate::crypto::seal_if_keyed(&fresh, &keys)
+            let stored = weldsuite_connect_domain::crypto::seal_if_keyed(&fresh, &keys)
                 .map_err(|message| ActionError::plain(&message))?;
             let mut tokens = json!({ "accessToken": stored, "refreshToken": refresh_sealed });
             if let Some(at) = expires_at {
@@ -362,7 +368,9 @@ async fn valid_token(
         return Ok(access);
     }
     if let Some(bearer) = bearer_token(&row) {
-        return Ok(crate::crypto::maybe_decrypt(&bearer, &keys));
+        return Ok(weldsuite_connect_domain::crypto::maybe_decrypt(
+            &bearer, &keys,
+        ));
     }
     Err(ActionError::plain(&format!(
         "Integration \"{row_type}\" has no usable token"
@@ -383,7 +391,7 @@ async fn credentials(
     if let Some(Value::Object(credentials)) = &row.credentials {
         for (key, value) in credentials {
             let opened = match value {
-                Value::String(text) => crate::crypto::maybe_decrypt(text, &keys),
+                Value::String(text) => weldsuite_connect_domain::crypto::maybe_decrypt(text, &keys),
                 other => js_string(Some(other)),
             };
             out.insert(key.clone(), Value::String(opened));

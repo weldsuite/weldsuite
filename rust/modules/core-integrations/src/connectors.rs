@@ -44,11 +44,11 @@ use weldsuite_schema::tenant::{connector_connections, integration_field_mappings
 
 use crate::integrations::{field_mappings_body, replace_mappings};
 use crate::js::{page_limit, query_truthy};
-use crate::{Caller, ConnectState, internal, validate};
+use crate::{Caller, IntegrationsState, internal, validate};
 
 pub(crate) fn routes<Q: PermissionQueries + 'static>(
     gate: &Arc<PermissionGate<Q>>,
-) -> Router<ConnectState> {
+) -> Router<IntegrationsState> {
     let read = || gate.require([perm::INTEGRATIONS_READ]);
     let update = || gate.require([perm::INTEGRATIONS_UPDATE]);
     Router::new()
@@ -139,7 +139,7 @@ pub(crate) fn routes<Q: PermissionQueries + 'static>(
 }
 
 /// `keyringFromEnv(c.env)`.
-pub(crate) fn keyring(caller: &Caller, state: &ConnectState) -> Keyring {
+pub(crate) fn keyring(caller: &Caller, state: &IntegrationsState) -> Keyring {
     weldsuite_connect_domain::connections::keyring(
         caller.overrides.env(state, "DATABASE_ENCRYPTION_KEY"),
         caller.overrides.env(state, "DATABASE_ENCRYPTION_KEY_V2"),
@@ -152,7 +152,7 @@ fn unhandled(error: &dyn std::fmt::Display) -> Response {
     ApiError::internal().into_response()
 }
 
-async fn catalog(State(state): State<ConnectState>, caller: Caller) -> Response {
+async fn catalog(State(state): State<IntegrationsState>, caller: Caller) -> Response {
     let rows = match list_connections(&caller.db).await {
         Ok(rows) => rows,
         Err(error) => return internal(&error, "Failed to load connector catalog"),
@@ -225,7 +225,7 @@ async fn found(caller: &Caller, id: &str) -> Result<Value, Response> {
 }
 
 async fn connection(
-    State(state): State<ConnectState>,
+    State(state): State<IntegrationsState>,
     caller: Caller,
     Path(id): Path<String>,
 ) -> Response {
@@ -339,7 +339,7 @@ fn credentials(issues: &mut Issues, b: &Map<String, Value>, key: &str) -> Map<St
 }
 
 async fn test(
-    State(state): State<ConnectState>,
+    State(state): State<IntegrationsState>,
     caller: Caller,
     headers: HeaderMap,
     body: Bytes,
@@ -374,7 +374,7 @@ async fn test(
 
 /// Pause or resume: the status, then the event.
 async fn set_status(
-    state: &ConnectState,
+    state: &IntegrationsState,
     caller: &Caller,
     id: &str,
     status: &str,
@@ -420,7 +420,7 @@ async fn set_status(
 }
 
 async fn pause(
-    State(state): State<ConnectState>,
+    State(state): State<IntegrationsState>,
     caller: Caller,
     Path(id): Path<String>,
 ) -> Response {
@@ -428,7 +428,7 @@ async fn pause(
 }
 
 async fn resume(
-    State(state): State<ConnectState>,
+    State(state): State<IntegrationsState>,
     caller: Caller,
     Path(id): Path<String>,
 ) -> Response {
@@ -448,7 +448,7 @@ async fn moneybird_connection(caller: &Caller, id: &str) -> Result<Value, Respon
 
 /// `GET /connections/:id/moneybird/options`.
 async fn moneybird_options(
-    State(state): State<ConnectState>,
+    State(state): State<IntegrationsState>,
     caller: Caller,
     Path(id): Path<String>,
 ) -> Response {

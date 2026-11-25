@@ -47,15 +47,8 @@ use weldsuite_schema::tenant::{
 
 use self::oauth::{Provider, Tokens, hubspot_portal_id, webhook_worker_url};
 use crate::js::{next_cursor, page, page_limit, query_truthy, truthy};
-use crate::runs::ProjectSyncRuns;
-use crate::{Caller, ConnectState, Refusal, internal as internal_error, now, validate};
-
-/// The `CRM_SYNC` Workflow binding (`CrmSyncWorkflow`, hosted by
-/// integration-webhook-worker on Global): `create({ id, params })`, the
-/// same shape as `GITHUB_PROJECT_SYNC`. A request's own binding
-/// (conformance): the test's, or none.
-#[derive(Clone)]
-pub struct RequestCrmSyncRuns(pub Option<Arc<dyn ProjectSyncRuns>>);
+use crate::runs::{CrmSyncRuns, RequestCrmSyncRuns};
+use crate::{Caller, IntegrationsState, Refusal, internal as internal_error, now, validate};
 
 const STATE_TTL: Duration = Duration::from_secs(300);
 const MAPPING_TTL: Duration = Duration::from_hours(8760);
@@ -66,7 +59,7 @@ const AUTH_TYPES: &[&str] = &["none", "bearer", "api_key", "header"];
 
 pub(crate) fn routes<Q: PermissionQueries + 'static>(
     gate: &Arc<PermissionGate<Q>>,
-) -> Router<ConnectState> {
+) -> Router<IntegrationsState> {
     let read = || gate.require([perm::INTEGRATIONS_READ]);
     let create = || gate.require([perm::INTEGRATIONS_CREATE]);
     let update = || gate.require([perm::INTEGRATIONS_UPDATE]);
@@ -243,11 +236,11 @@ fn text_of(row: &Value, key: &str) -> Option<String> {
 
 impl Caller {
     /// `env[name]`, empty counting as unset.
-    fn env_value(&self, state: &ConnectState, name: &str) -> Option<String> {
+    fn env_value(&self, state: &IntegrationsState, name: &str) -> Option<String> {
         self.overrides.env(state, name).filter(|v| !v.is_empty())
     }
 
-    fn workspace_cache(&self, state: &ConnectState) -> Result<Arc<dyn DynCache>, Refusal> {
+    fn workspace_cache(&self, state: &IntegrationsState) -> Result<Arc<dyn DynCache>, Refusal> {
         self.overrides
             .kv(state)
             .ok_or_else(|| db_error("WORKSPACE_CACHE is not bound"))
@@ -257,7 +250,7 @@ impl Caller {
 /// `providerCredentials(env, provider)`: `<PROVIDER>_CLIENT_ID` and `_SECRET`.
 fn provider_credentials(
     caller: &Caller,
-    state: &ConnectState,
+    state: &IntegrationsState,
     provider: &str,
 ) -> (Option<String>, Option<String>) {
     let upper = provider.to_uppercase();
@@ -298,7 +291,7 @@ const CRM_SYNC_DUE_KIND: &str = "crm_sync";
 /// `triggerCrmSync(env, payload)`: start the `CRM_SYNC` Workflow, or skip it
 /// without the binding.
 pub(crate) async fn trigger_crm_sync(
-    runs: Option<&Arc<dyn ProjectSyncRuns>>,
+    runs: Option<&Arc<dyn CrmSyncRuns>>,
     connection_id: &str,
     workspace_id: &str,
     provider: &str,
@@ -355,7 +348,7 @@ pub(crate) async fn outside_eu(db: &PgPool, provider: &str) -> Result<(), Respon
 /// `CRM_SYNC` Workflow.
 pub(crate) async fn trigger_connection_sync(
     db: &PgPool,
-    runs: Option<&Arc<dyn ProjectSyncRuns>>,
+    runs: Option<&Arc<dyn CrmSyncRuns>>,
     clerk_org_id: &str,
     connection_id: &str,
     sync_type: &str,
@@ -1035,7 +1028,7 @@ async fn update_connection(
 }
 
 async fn disconnect(
-    State(state): State<ConnectState>,
+    State(state): State<IntegrationsState>,
     caller: Caller,
     Path(id): Path<String>,
 ) -> Response {
@@ -1136,7 +1129,7 @@ fn state_record(org_id: &str, user_id: &str, provider: Option<&str>) -> String {
 }
 
 async fn attio_authorize(
-    State(state): State<ConnectState>,
+    State(state): State<IntegrationsState>,
     caller: Caller,
     headers: HeaderMap,
     body: Bytes,
@@ -1176,7 +1169,7 @@ async fn attio_authorize(
 }
 
 async fn generic_authorize(
-    State(state): State<ConnectState>,
+    State(state): State<IntegrationsState>,
     caller: Caller,
     Path(provider): Path<String>,
     headers: HeaderMap,
@@ -1237,7 +1230,7 @@ fn thrown(message: impl Into<String>) -> Refusal {
 }
 
 /// The CRM sync binding the request carries (conformance), else none.
-fn crm_runs(extensions: &http::Extensions) -> Option<Arc<dyn ProjectSyncRuns>> {
+fn crm_runs(extensions: &http::Extensions) -> Option<Arc<dyn CrmSyncRuns>> {
     extensions
         .get::<RequestCrmSyncRuns>()
         .and_then(|runs| runs.0.clone())
@@ -1300,7 +1293,7 @@ async fn put_connection_mapping(
 
 #[allow(clippy::too_many_arguments)]
 async fn attio_callback(
-    State(state): State<ConnectState>,
+    State(state): State<IntegrationsState>,
     caller: Caller,
     extensions: http::Extensions,
     headers: HeaderMap,
@@ -1412,7 +1405,7 @@ fn connection_profile(provider: &str) -> (String, &'static str, Value) {
 }
 
 async fn generic_callback(
-    State(state): State<ConnectState>,
+    State(state): State<IntegrationsState>,
     caller: Caller,
     Path(provider): Path<String>,
     extensions: http::Extensions,
@@ -1657,7 +1650,7 @@ async fn insert_mappings(
 // ── MCP tool discovery and connectivity ─────────────────────────────────────
 
 async fn discover_tools(
-    State(state): State<ConnectState>,
+    State(state): State<IntegrationsState>,
     caller: Caller,
     Path(id): Path<String>,
 ) -> Response {
@@ -1784,7 +1777,7 @@ fn weldsuite_subscribers_slice(text: &str, n: usize) -> String {
 }
 
 async fn test_connection(
-    State(state): State<ConnectState>,
+    State(state): State<IntegrationsState>,
     caller: Caller,
     Path(id): Path<String>,
 ) -> Response {
@@ -1877,7 +1870,7 @@ async fn sync(caller: Caller, Path(id): Path<String>, extensions: http::Extensio
 }
 
 async fn renew_watch(
-    State(state): State<ConnectState>,
+    State(state): State<IntegrationsState>,
     caller: Caller,
     Path(id): Path<String>,
 ) -> Response {
