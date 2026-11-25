@@ -1,5 +1,5 @@
 
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Link, useRouter } from '@/lib/router';
 import { formatDate } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n/provider';
@@ -51,6 +51,8 @@ interface AnalyticsListClientProps {
   stickyOffset?: number;
   /** Passed to EntityList, e.g. to centre the empty state in a project tab. */
   emptyStateClassName?: string;
+  /** Shown on the left of the list's top bar, e.g. a view switch (a project's Sprints and Custom reports). */
+  leftActionButtons?: ReactNode;
 }
 
 /**
@@ -64,6 +66,7 @@ export function AnalyticsListClient({
   basePath = '/weldflow/analytics',
   stickyOffset,
   emptyStateClassName,
+  leftActionButtons,
 }: Readonly<AnalyticsListClientProps>) {
   const { t } = useI18n();
   const router = useRouter();
@@ -335,6 +338,7 @@ export function AnalyticsListClient({
         topBarClassName="pt-2 pb-2"
         stickyOffset={stickyOffset}
         emptyStateClassName={emptyStateClassName}
+        leftActionButtons={leftActionButtons}
         createButton={{
           label: t.projects.analyticsReports.newReport,
           onClick: () => setIsCreateDialogOpen(true),
