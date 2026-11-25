@@ -25,7 +25,6 @@ pub const REVOKE_URL: &str = "https://moneybird.com/oauth/revoke";
 pub const API_BASE: &str = "https://moneybird.com/api/v2";
 pub const SCOPES: [&str; 4] = ["sales_invoices", "documents", "settings", "bank"];
 pub const AUTH_STATE_TTL_SECONDS: u64 = 15 * 60;
-pub const CALLBACK_PATH: &str = "/weldconnect/connectors/callback";
 
 const DEFAULT_PER_PAGE: u32 = 100;
 /// The `filter` the financial mutations' id list is asked with. Moneybird
@@ -1432,9 +1431,14 @@ fn administration_name(row: &Value) -> String {
 
 // ── OAuth (`moneybird/auth.ts`) ─────────────────────────────────────────────
 
-/// `moneybirdRedirectUri(publicAppUrl)`.
-pub fn redirect_uri(public_app_url: &str) -> String {
-    format!("{}{CALLBACK_PATH}", public_app_url.trim_end_matches('/'))
+/// `moneybirdRedirectUri(publicAppUrl)`, on `edition`'s return page
+/// ([`crate::oauth_callback`], ADR INT-014).
+pub fn redirect_uri(public_app_url: &str, edition: &str) -> String {
+    format!(
+        "{}{}",
+        public_app_url.trim_end_matches('/'),
+        crate::oauth_callback::connector_callback_path(edition)
+    )
 }
 
 /// `buildMoneybirdAuthorizeUrl({ clientId, redirectUri, state })`.

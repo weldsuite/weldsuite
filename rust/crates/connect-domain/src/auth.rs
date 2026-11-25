@@ -54,6 +54,9 @@ pub struct AuthEnv {
     pub stripe_connect_client_id: Option<String>,
     /// `connectorWebhookBaseUrl(env)`.
     pub webhook_base_url: String,
+    /// The `connector_edition`: which page OAuth providers return to
+    /// ([`crate::oauth_callback`]).
+    pub edition: &'static str,
 }
 
 impl AuthEnv {
@@ -624,7 +627,7 @@ pub async fn start_moneybird_oauth(
     Ok(json!({
         "authorizeUrl": moneybird::authorize_url(
             &client_id,
-            &moneybird::redirect_uri(&env.public_app_url()),
+            &moneybird::redirect_uri(&env.public_app_url(), env.edition),
             &state,
         ),
     }))
@@ -706,7 +709,7 @@ where
         &client_id,
         &client_secret,
         code,
-        &moneybird::redirect_uri(&env.public_app_url()),
+        &moneybird::redirect_uri(&env.public_app_url(), env.edition),
     )
     .await
     .map_err(|error| refused(error.message, 400))?;
@@ -957,7 +960,7 @@ pub async fn start_stripe_oauth(
     .await
     .map_err(AuthError::Other)?;
     Ok(json!({
-        "authorizeUrl": stripe::authorize_url(&client_id, &stripe::redirect_uri(&env.public_app_url()), &state),
+        "authorizeUrl": stripe::authorize_url(&client_id, &stripe::redirect_uri(&env.public_app_url(), env.edition), &state),
     }))
 }
 

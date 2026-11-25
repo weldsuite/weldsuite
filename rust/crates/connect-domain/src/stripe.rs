@@ -1036,11 +1036,15 @@ pub const CONNECT_DEAUTHORIZE_URL: &str = "https://connect.stripe.com/oauth/deau
 pub const CONNECT_SCOPE: &str = "read_write";
 pub const OAUTH_STATE_PREFIX: &str = "stripe_";
 pub const AUTH_STATE_TTL_SECONDS: u64 = 15 * 60;
-pub const CALLBACK_PATH: &str = "/weldconnect/connectors/callback";
 
-/// `stripeRedirectUri(publicAppUrl)`.
-pub fn redirect_uri(public_app_url: &str) -> String {
-    format!("{}{CALLBACK_PATH}", public_app_url.trim_end_matches('/'))
+/// `stripeRedirectUri(publicAppUrl)`, on `edition`'s return page
+/// ([`crate::oauth_callback`], ADR INT-014).
+pub fn redirect_uri(public_app_url: &str, edition: &str) -> String {
+    format!(
+        "{}{}",
+        public_app_url.trim_end_matches('/'),
+        crate::oauth_callback::connector_callback_path(edition)
+    )
 }
 
 /// `isStripeOAuthState(state)`.

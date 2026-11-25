@@ -60,6 +60,7 @@ pub(crate) fn auth_env(overrides: &Overrides, state: &IntegrationsState) -> Auth
             env("CONNECTOR_WEBHOOK_BASE_URL").as_deref(),
             env("ENVIRONMENT").as_deref(),
         ),
+        edition: state.connector_edition,
     }
 }
 
