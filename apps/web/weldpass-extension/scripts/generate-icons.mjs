@@ -28,12 +28,17 @@ if (viewBox?.length !== 4) {
   throw new Error(`Could not read the logo's viewBox from ${source}`);
 }
 
-// The logo in white: every colour it paints with, stroke or fill, becomes #fff.
+// The logo's <svg> element on its own (without the XML declaration and the
+// comment before it), in white: every colour it paints with, stroke or fill,
+// becomes #fff.
+const start = svg.indexOf('<svg');
+const end = svg.lastIndexOf('</svg>');
+if (start < 0 || end < start) {
+  throw new Error(`Could not find the <svg> element in ${source}`);
+}
 const white = svg
-  .replace(/<\?xml[^>]*\?>/, '')
-  .replace(/<!--[\s\S]*?-->/g, '')
-  .replace(/(stroke|fill)="#[0-9a-fA-F]{3,8}"/g, '$1="#fff"')
-  .trim();
+  .slice(start, end + '</svg>'.length)
+  .replace(/(stroke|fill)="#[0-9a-fA-F]{3,8}"/g, '$1="#fff"');
 
 // A square tile with the logo centred at 66% of its width.
 const tile = 1000;
