@@ -11,11 +11,17 @@
 
 use std::sync::Arc;
 
+use sea_orm::sea_query::{Expr, Query};
+use sea_orm::{ColumnTrait, ConnectionTrait, DbErr, EntityTrait, QueryFilter};
 use serde_json::{Map, Value, json};
-use weldsuite_db::{PgPool, js_row};
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::generate_id;
 use weldsuite_ports::BoxFuture;
+use weldsuite_schema::tenant::{
+    integration_connections as connections, integration_entity_mappings as mappings,
+};
 
+use crate::access::row_json;
 use crate::js::{Ordered, OrderedValue, iso, now_ms, parse_date, truthy};
 use crate::{CalendarState, Caller, now, text};
 
@@ -140,14 +146,30 @@ pub(crate) fn queue_deletes(state: &CalendarState, caller: &Caller, event_ids: V
 
 /// `pushCalendarEventToGoogle`: every active connection, each on its own.
 async fn push_event(context: &PushContext, event_id: &str, action: PushAction, data: &Ordered) {
-    let connections: Result<Vec<Value>, sqlx::Error> = sqlx::query_scalar(
-        "select to_jsonb(c) from integration_connections c
-         where provider = 'google_calendar' and status = 'active' and deleted_at is null",
+    // ADR OPS-026: nothing goes to Google while the workspace has it off.
+    if !weldsuite_outside_eu::allowed(
+        &context.db,
+        weldsuite_outside_eu::ServiceId::Google,
+        &format!("calendar google push {event_id}"),
     )
-    .fetch_all(&context.db)
+    .await
+    {
+        return;
+    }
+    let connections: Result<Vec<Value>, DbErr> = async {
+        connections::Entity::find()
+            .filter(connections::Column::Provider.eq("google_calendar"))
+            .filter(connections::Column::Status.eq("active"))
+            .filter(connections::Column::DeletedAt.is_null())
+            .all(&orm(&context.db))
+            .await?
+            .into_iter()
+            .map(row_json)
+            .collect()
+    }
     .await;
     let connections = match connections {
-        Ok(rows) => rows.into_iter().map(js_row).collect::<Vec<_>>(),
+        Ok(rows) => rows,
         Err(error) => {
             tracing::error!(%error, "[OutboundCalSync] Failed to push event {event_id}");
             return;
@@ -171,7 +193,7 @@ async fn send(context: &PushContext, request: HttpRequest) -> Result<HttpRespons
     http.send(request).await
 }
 
-fn db_error(error: &sqlx::Error) -> String {
+fn db_error(error: &DbErr) -> String {
     error.to_string()
 }
 
@@ -240,16 +262,16 @@ async fn access_token(context: &PushContext, connection: &Value) -> Result<Optio
         .filter(|t| !t.is_empty())
         .unwrap_or("Bearer");
     tokens.insert("tokenType".to_owned(), json!(token_type));
-    sqlx::query(
-        "update integration_connections set oauth_tokens = $2::jsonb, updated_at = $3::timestamp
-         where id = $1",
-    )
-    .bind(text(connection, "id"))
-    .bind(Value::Object(tokens))
-    .bind(now())
-    .execute(&context.db)
-    .await
-    .map_err(|e| db_error(&e))?;
+    connections::Entity::update_many()
+        .col_expr(
+            connections::Column::OauthTokens,
+            Expr::value(Value::Object(tokens)),
+        )
+        .col_expr(connections::Column::UpdatedAt, Expr::value(now()))
+        .filter(connections::Column::Id.eq(text(connection, "id")))
+        .exec(&orm(&context.db))
+        .await
+        .map_err(|e| db_error(&e))?;
     Ok(data["access_token"].as_str().map(str::to_owned))
 }
 
@@ -265,18 +287,14 @@ async fn push_to_connection(
         return Ok(());
     };
     let connection_id = text(connection, "id");
-    let mapping: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(m) from integration_entity_mappings m
-         where connection_id = $1 and internal_entity_type = 'calendar_event'
-           and internal_entity_id = $2
-         limit 1",
-    )
-    .bind(connection_id)
-    .bind(event_id)
-    .fetch_optional(&context.db)
-    .await
-    .map_err(|e| db_error(&e))?;
-    let mapping = mapping.map(js_row);
+    let mapping = mappings::Entity::find()
+        .filter(mappings::Column::ConnectionId.eq(connection_id))
+        .filter(mappings::Column::InternalEntityType.eq("calendar_event"))
+        .filter(mappings::Column::InternalEntityId.eq(event_id))
+        .one(&orm(&context.db))
+        .await
+        .and_then(|row| row.map(row_json).transpose())
+        .map_err(|e| db_error(&e))?;
     let authorization = ("Authorization".to_owned(), format!("Bearer {token}"));
 
     if action == PushAction::Deleted {
@@ -298,14 +316,12 @@ async fn push_to_connection(
         .await?;
         let ok = (200..300).contains(&response.status) || matches!(response.status, 404 | 410);
         if ok {
-            sqlx::query(
-                "update integration_entity_mappings set updated_at = $2::timestamp where id = $1",
-            )
-            .bind(text(&mapping, "id"))
-            .bind(now())
-            .execute(&context.db)
-            .await
-            .map_err(|e| db_error(&e))?;
+            mappings::Entity::update_many()
+                .col_expr(mappings::Column::UpdatedAt, Expr::value(now()))
+                .filter(mappings::Column::Id.eq(text(&mapping, "id")))
+                .exec(&orm(&context.db))
+                .await
+                .map_err(|e| db_error(&e))?;
         }
         return Ok(());
     }
@@ -377,17 +393,18 @@ async fn mark_write_access_denied(
     connection_id: &str,
 ) -> Result<(), String> {
     let now = now();
-    sqlx::query(
-        "update integration_connections set status = 'error',
-             last_error = 'Write access denied. Please reconnect Google Calendar.',
-             last_error_at = $2::timestamp, updated_at = $2::timestamp
-         where id = $1",
-    )
-    .bind(connection_id)
-    .bind(&now)
-    .execute(&context.db)
-    .await
-    .map_err(|e| db_error(&e))?;
+    connections::Entity::update_many()
+        .col_expr(connections::Column::Status, Expr::value("error"))
+        .col_expr(
+            connections::Column::LastError,
+            Expr::value("Write access denied. Please reconnect Google Calendar."),
+        )
+        .col_expr(connections::Column::LastErrorAt, Expr::value(now))
+        .col_expr(connections::Column::UpdatedAt, Expr::value(now))
+        .filter(connections::Column::Id.eq(connection_id))
+        .exec(&orm(&context.db))
+        .await
+        .map_err(|e| db_error(&e))?;
     Ok(())
 }
 
@@ -401,37 +418,56 @@ async fn upsert_mapping(
 ) -> Result<(), String> {
     let now = now();
     let external = external_id.as_str();
+    let db = orm(&context.db);
     if let Some(mapping) = mapping {
-        sqlx::query(
-            "update integration_entity_mappings set
-                 external_entity_id = coalesce($2, external_entity_id),
-                 sync_checksum = $3, last_synced_at = $4::timestamp, updated_at = $4::timestamp
-             where id = $1",
-        )
-        .bind(text(mapping, "id"))
-        .bind(external)
-        .bind(checksum)
-        .bind(&now)
-        .execute(&context.db)
-        .await
-        .map_err(|e| db_error(&e))?;
+        // `externalEntityId: result.id ?? mapping.externalEntityId`.
+        let mut update = mappings::Entity::update_many();
+        if let Some(external) = external {
+            update = update.col_expr(
+                mappings::Column::ExternalEntityId,
+                Expr::value(external.to_owned()),
+            );
+        }
+        update
+            .col_expr(
+                mappings::Column::SyncChecksum,
+                Expr::value(checksum.to_owned()),
+            )
+            .col_expr(mappings::Column::LastSyncedAt, Expr::value(now))
+            .col_expr(mappings::Column::UpdatedAt, Expr::value(now))
+            .filter(mappings::Column::Id.eq(text(mapping, "id")))
+            .exec(&db)
+            .await
+            .map_err(|e| db_error(&e))?;
         return Ok(());
     }
-    sqlx::query(
-        "insert into integration_entity_mappings
-             (id, connection_id, external_entity_type, external_entity_id, internal_entity_type,
-              internal_entity_id, sync_checksum, last_synced_at)
-         values ($1, $2, 'calendar_event', $3, 'calendar_event', $4, $5, $6::timestamp)",
-    )
-    .bind(generate_id("iem"))
-    .bind(connection_id)
-    .bind(external)
-    .bind(event_id)
-    .bind(checksum)
-    .bind(&now)
-    .execute(&context.db)
-    .await
-    .map_err(|e| db_error(&e))?;
+    // A plain insert, `externalEntityId` as Google answered it: without an
+    // `id` the not-null column refuses the row, as it did in TypeScript.
+    let mut insert = Query::insert();
+    insert
+        .into_table(mappings::Entity)
+        .columns([
+            mappings::Column::Id,
+            mappings::Column::ConnectionId,
+            mappings::Column::ExternalEntityType,
+            mappings::Column::ExternalEntityId,
+            mappings::Column::InternalEntityType,
+            mappings::Column::InternalEntityId,
+            mappings::Column::SyncChecksum,
+            mappings::Column::LastSyncedAt,
+        ])
+        .values([
+            Expr::value(generate_id("iem")),
+            Expr::value(connection_id.to_owned()),
+            Expr::value("calendar_event"),
+            Expr::value(external.map(str::to_owned)),
+            Expr::value("calendar_event"),
+            Expr::value(event_id.to_owned()),
+            Expr::value(checksum.to_owned()),
+            Expr::value(now),
+        ])
+        .map_err(|e| e.to_string())?;
+    db.execute(&insert).await.map_err(|e| db_error(&e))?;
     Ok(())
 }
 

@@ -797,6 +797,8 @@ export function MeetingRoomView(props: Readonly<MeetingRoomViewProps>) {
     leaveLabels,
     onToggleFullscreen,
     onPictureInPicture,
+    onMinimize,
+    iconHeaderButtons,
     onRenameMeeting,
     isRecording,
     recordingState,
@@ -1033,6 +1035,8 @@ export function MeetingRoomView(props: Readonly<MeetingRoomViewProps>) {
           showToolsButton={showToolsButton}
           mobileOverflowActions
           statusSlot={headerStatusSlot}
+          onMinimize={onMinimize}
+          iconButtons={iconHeaderButtons}
         />
 
         <div className="flex-1 min-h-0 overflow-hidden relative">

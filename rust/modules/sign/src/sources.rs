@@ -3,6 +3,7 @@
 //! through the shared rules (`weldsuite_core_domain::drive_access`); CRM rows
 //! are read from the tenant schema.
 
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::permission_keys::{
     COMPANIES_READ, FILES_READ, OPPORTUNITIES_READ, PEOPLE_READ,
@@ -10,8 +11,9 @@ use weldsuite_catalogs::permission_keys::{
 use weldsuite_core_domain::drive_access::{
     DriveFile, can_edit, container_role, file_role, get_file, load_drive_access_for_user,
 };
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::validation::{Field, Issues, Presence};
+use weldsuite_schema::tenant::{companies, crm_opportunities, folders, people, person_companies};
 
 use crate::{Caller, SignError, SignResult};
 
@@ -67,11 +69,14 @@ pub(crate) async fn visible_drive_file(
 
 /// Whether the member may add files to this live folder (`canFileInto`).
 pub(crate) async fn can_file_into(db: &PgPool, user_id: &str, folder_id: &str) -> SignResult<bool> {
-    let folder: Option<String> =
-        sqlx::query_scalar("select id from folders where id = $1 and deleted_at is null limit 1")
-            .bind(folder_id)
-            .fetch_optional(db)
-            .await?;
+    let folder: Option<String> = folders::Entity::find()
+        .select_only()
+        .column(folders::Column::Id)
+        .filter(folders::Column::Id.eq(folder_id))
+        .filter(folders::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     if folder.is_none() {
         return Ok(false);
     }
@@ -79,8 +84,22 @@ pub(crate) async fn can_file_into(db: &PgPool, user_id: &str, folder_id: &str) -
     Ok(can_edit(container_role(&access, Some(folder_id))))
 }
 
-async fn name_of(db: &PgPool, sql: &'static str, id: &str) -> SignResult<Option<String>> {
-    let row: Option<Option<String>> = sqlx::query_scalar(sql).bind(id).fetch_optional(db).await?;
+/// `select <name> from <table> where id = … and deleted_at is null limit 1`.
+async fn name_of<E: EntityTrait>(
+    db: &PgPool,
+    name: E::Column,
+    id_column: E::Column,
+    deleted_at: E::Column,
+    id: &str,
+) -> SignResult<Option<String>> {
+    let row: Option<Option<String>> = E::find()
+        .select_only()
+        .column(name)
+        .filter(id_column.eq(id))
+        .filter(deleted_at.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     Ok(row.flatten())
 }
 
@@ -94,25 +113,28 @@ pub(crate) async fn source_name(
     match entity_type {
         "file" => Ok(get_file(db, entity_id).await?.map(|f| f.file_name)),
         "company" => {
-            name_of(
-                db,
-                "select name from companies where id = $1 and deleted_at is null limit 1",
-                entity_id,
-            )
-            .await
+            use companies::Column;
+            name_of::<companies::Entity>(db, Column::Name, Column::Id, Column::DeletedAt, entity_id)
+                .await
         }
         "person" => {
-            name_of(
+            use people::Column;
+            name_of::<people::Entity>(
                 db,
-                "select display_name from people where id = $1 and deleted_at is null limit 1",
+                Column::DisplayName,
+                Column::Id,
+                Column::DeletedAt,
                 entity_id,
             )
             .await
         }
         "opportunity" => {
-            name_of(
+            use crm_opportunities::Column;
+            name_of::<crm_opportunities::Entity>(
                 db,
-                "select name from crm_opportunities where id = $1 and deleted_at is null limit 1",
+                Column::Name,
+                Column::Id,
+                Column::DeletedAt,
                 entity_id,
             )
             .await
@@ -182,13 +204,20 @@ async fn people_by_ids(
     if ids.is_empty() {
         return Ok(Vec::new());
     }
-    Ok(sqlx::query_as(
-        "select id, display_name, email, title from people
-         where id = any($1) and deleted_at is null and email is not null",
-    )
-    .bind(ids)
-    .fetch_all(db)
-    .await?)
+    Ok(people::Entity::find()
+        .select_only()
+        .columns([
+            people::Column::Id,
+            people::Column::DisplayName,
+            people::Column::Email,
+            people::Column::Title,
+        ])
+        .filter(people::Column::Id.is_in(ids.iter().map(String::as_str)))
+        .filter(people::Column::DeletedAt.is_null())
+        .filter(people::Column::Email.is_not_null())
+        .into_tuple()
+        .all(&orm(db))
+        .await?)
 }
 
 /// People on a CRM source who have an email address, offered as recipients
@@ -198,19 +227,26 @@ pub(crate) async fn recipient_suggestions(db: &PgPool, source: &Value) -> SignRe
     let ids: Vec<String> = match source["entityType"].as_str() {
         Some("person") => vec![entity_id.to_owned()],
         Some("company") => {
-            sqlx::query_scalar("select person_id from person_companies where company_id = $1")
-                .bind(entity_id)
-                .fetch_all(db)
+            person_companies::Entity::find()
+                .select_only()
+                .column(person_companies::Column::PersonId)
+                .filter(person_companies::Column::CompanyId.eq(entity_id))
+                .into_tuple()
+                .all(&orm(db))
                 .await?
         }
         Some("opportunity") => {
-            let row: Option<(Option<String>, Option<Value>)> = sqlx::query_as(
-                "select primary_contact_id, to_jsonb(person_ids) from crm_opportunities
-                 where id = $1 and deleted_at is null limit 1",
-            )
-            .bind(entity_id)
-            .fetch_optional(db)
-            .await?;
+            let row: Option<(Option<String>, Option<Value>)> = crm_opportunities::Entity::find()
+                .select_only()
+                .columns([
+                    crm_opportunities::Column::PrimaryContactId,
+                    crm_opportunities::Column::PersonIds,
+                ])
+                .filter(crm_opportunities::Column::Id.eq(entity_id))
+                .filter(crm_opportunities::Column::DeletedAt.is_null())
+                .into_tuple()
+                .one(&orm(db))
+                .await?;
             let mut ids = Vec::new();
             if let Some((primary, people)) = row {
                 ids.extend(primary.filter(|id| !id.is_empty()));

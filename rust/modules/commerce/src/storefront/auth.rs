@@ -10,6 +10,13 @@
 //!
 //! `last_used_at` is written, in the tenant and the master, at most once a
 //! minute per key.
+//!
+//! The storefront renderer of WeldSuite-hosted shops (storefronts plan) is a
+//! third kind of caller, *hosted*: `Authorization: Hosted <renderer secret>`
+//! with `X-Storefront-Host: <shop host>`. The host resolves through the
+//! master `storefront_hosts` to its workspace and channel; it acts like a
+//! private key of that channel (the shopper's address in `X-Shopper-Ip`),
+//! and its payment redirects must stay on the shop's own hosts.
 
 use std::time::Duration;
 
@@ -18,14 +25,19 @@ use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use http::header::{self, HeaderName, HeaderValue};
 use http::{HeaderMap, Method, StatusCode};
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use time::OffsetDateTime;
 use weldsuite_commerce_domain::carts;
+use weldsuite_db::orm;
 use weldsuite_events::EventContext;
+use weldsuite_schema::master::storefront_key_registry as registry;
+use weldsuite_schema::tenant::commerce_channel_keys;
 
 use super::{Principal, StorefrontState, fail, internal, limit};
+use crate::args::utc_now_sql;
 
 const KEY_CACHE_TTL: Duration = Duration::from_secs(30);
 const ALLOW_HEADERS: &str =
@@ -118,7 +130,7 @@ fn inactive() -> Response {
 
 /// The registry entry of a key hash, from the cache or the master database;
 /// `None` for an unknown or revoked key.
-async fn lookup(state: &StorefrontState, hash: &str) -> Result<Option<Entry>, sqlx::Error> {
+async fn lookup(state: &StorefrontState, hash: &str) -> Result<Option<Entry>, DbErr> {
     let cache_key = format!("sfk:{hash}");
     if let Some(cache) = &state.cache
         && let Ok(Some(raw)) = cache.get_boxed(&cache_key).await
@@ -126,15 +138,31 @@ async fn lookup(state: &StorefrontState, hash: &str) -> Result<Option<Entry>, sq
     {
         return Ok(Some(entry));
     }
-    let row: Option<Value> = sqlx::query_scalar(
-        "select jsonb_build_object('id', id, 'kind', kind, 'workspaceId', workspace_id, \
-           'channelId', channel_id, 'origins', allowed_origins) \
-         from storefront_key_registry where key_hash = $1 and revoked_at is null",
-    )
-    .bind(hash)
-    .fetch_optional(&state.master)
-    .await?;
-    let entry = row.and_then(|row| serde_json::from_value::<Entry>(row).ok());
+    let row: Option<(String, String, String, String, Value)> = registry::Entity::find()
+        .select_only()
+        .columns([
+            registry::Column::Id,
+            registry::Column::Kind,
+            registry::Column::WorkspaceId,
+            registry::Column::ChannelId,
+            registry::Column::AllowedOrigins,
+        ])
+        .filter(registry::Column::KeyHash.eq(hash))
+        .filter(registry::Column::RevokedAt.is_null())
+        .into_tuple()
+        .one(&orm(&state.master))
+        .await?;
+    // Origins that are not a list of strings make no entry, as reading the
+    // row as an `Entry` refused them.
+    let entry = row.and_then(|(id, kind, workspace_id, channel_id, origins)| {
+        Some(Entry {
+            id,
+            kind,
+            workspace_id,
+            channel_id,
+            origins: serde_json::from_value(origins).ok()?,
+        })
+    });
     if let (Some(entry), Some(cache)) = (&entry, &state.cache)
         && let Ok(raw) = serde_json::to_string(entry)
         && let Err(error) = cache.put_boxed(&cache_key, &raw, Some(KEY_CACHE_TTL)).await
@@ -160,25 +188,89 @@ async fn touch(state: &StorefrontState, entry: &Entry, tenant: &weldsuite_db::Pg
     }
     let (master, tenant, id) = (state.master.clone(), tenant.clone(), entry.id.clone());
     state.events.tracker().spawn(async move {
-        if let Err(error) = sqlx::query(
-            "update commerce_channel_keys set last_used_at = now() at time zone 'utc' where id = $1",
-        )
-        .bind(&id)
-        .execute(&tenant)
-        .await
+        if let Err(error) = commerce_channel_keys::Entity::update_many()
+            .col_expr(commerce_channel_keys::Column::LastUsedAt, utc_now_sql())
+            .filter(commerce_channel_keys::Column::Id.eq(id.as_str()))
+            .exec(&orm(&tenant))
+            .await
         {
             tracing::warn!(%error, "[storefront] last_used_at not updated");
         }
-        if let Err(error) = sqlx::query(
-            "update storefront_key_registry set last_used_at = now() at time zone 'utc' where id = $1",
-        )
-        .bind(&id)
-        .execute(&master)
-        .await
+        if let Err(error) = registry::Entity::update_many()
+            .col_expr(registry::Column::LastUsedAt, utc_now_sql())
+            .filter(registry::Column::Id.eq(id.as_str()))
+            .exec(&orm(&master))
+            .await
         {
             tracing::warn!(%error, "[storefront] registry last_used_at not updated");
         }
     });
+}
+
+/// The renderer's `Authorization: Hosted <secret>`, checked; the shop host
+/// it names, resolved to a registry-like entry with the shop's origins.
+/// `Ok(None)` when the request isn't the renderer's.
+#[allow(clippy::result_large_err, reason = "the Err is the response to send")]
+async fn hosted_entry(
+    state: &StorefrontState,
+    headers: &HeaderMap,
+) -> Result<Option<Entry>, Response> {
+    let Some(given) = headers
+        .get(header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Hosted "))
+    else {
+        return Ok(None);
+    };
+    let secret = state.hosting.secret.as_deref().unwrap_or_default();
+    if secret.is_empty() || !crate::online_store::tokens::same(given.trim(), secret) {
+        return Err(invalid_key());
+    }
+    let Some(host) = headers
+        .get("x-storefront-host")
+        .and_then(|v| v.to_str().ok())
+        .map(weldsuite_custom_domains::normalize_host)
+        .filter(|h| !h.is_empty())
+    else {
+        return Err(invalid_key());
+    };
+    match crate::online_store::registry::lookup(&state.master, state.hosting.cache.as_ref(), &host)
+        .await
+    {
+        Ok(Some(found)) => Ok(Some(Entry {
+            id: found.id.clone(),
+            kind: "hosted".to_owned(),
+            workspace_id: found.workspace_id.clone(),
+            channel_id: found.channel_id.clone(),
+            origins: found
+                .site_hosts
+                .iter()
+                .map(|h| state.hosting.origin(h))
+                .collect(),
+        })),
+        Ok(None) => Err(invalid_key()),
+        Err(error) => Err(internal(&error, "The shop could not be reached")),
+    }
+}
+
+/// `origin` is an active WeldSuite-hosted address of the key's own channel
+/// (storefronts plan, static deployments).
+async fn hosted_origin(state: &StorefrontState, entry: &Entry, origin: Option<&str>) -> bool {
+    let Some(host) = origin
+        .and_then(|o| url::Url::parse(o).ok())
+        .and_then(|u| u.host_str().map(weldsuite_custom_domains::normalize_host))
+    else {
+        return false;
+    };
+    let Ok(Some(found)) =
+        crate::online_store::registry::lookup(&state.master, state.hosting.cache.as_ref(), &host)
+            .await
+    else {
+        return false;
+    };
+    found.workspace_id == entry.workspace_id
+        && found.channel_id == entry.channel_id
+        && origin.is_some_and(|o| same_origin(&state.hosting.origin(&host), o))
 }
 
 /// The `/storefront/v1` authentication layer.
@@ -195,10 +287,16 @@ pub(crate) async fn authenticate(
     if request.method() == Method::OPTIONS {
         return preflight(origin.as_deref());
     }
-    let Some(key) = bearer(request.headers()).map(str::to_owned) else {
-        return invalid_key();
+    let hosted = match hosted_entry(&state, request.headers()).await {
+        Ok(hosted) => hosted,
+        Err(response) => return response,
     };
-    let publishable = key.starts_with("wcp_");
+    let key = match (&hosted, bearer(request.headers())) {
+        (Some(entry), _) => format!("hosted:{}", entry.id),
+        (None, Some(key)) => key.to_owned(),
+        (None, None) => return invalid_key(),
+    };
+    let publishable = hosted.is_none() && key.starts_with("wcp_");
     let cors_origin = if publishable { origin.as_deref() } else { None };
     let hash = hex::encode(Sha256::digest(key.as_bytes()));
     let client = if publishable {
@@ -231,16 +329,30 @@ pub(crate) async fn authenticate(
         }
         return with_cors(response, cors_origin);
     }
-    let entry = match lookup(&state, &hash).await {
-        Ok(Some(entry)) => entry,
-        Ok(None) => return with_cors(invalid_key(), cors_origin),
-        Err(error) => return internal(&error, "The key could not be checked"),
+    let entry = match hosted {
+        Some(entry) => entry,
+        None => match lookup(&state, &hash).await {
+            Ok(Some(entry)) => entry,
+            Ok(None) => return with_cors(invalid_key(), cors_origin),
+            Err(error) => return internal(&error, "The key could not be checked"),
+        },
     };
+    // A deploy key uploads deployments; it never shops.
+    if entry.kind == "deploy" {
+        return with_cors(invalid_key(), cors_origin);
+    }
+    let mut entry = entry;
     if entry.kind == "publishable" {
-        let allowed = origin
+        let listed = origin
             .as_deref()
             .is_some_and(|o| entry.origins.iter().any(|a| same_origin(a, o)));
-        if !allowed {
+        // A shop WeldSuite hosts for this channel may use the channel's
+        // publishable keys from its own addresses without listing them.
+        let hosted = !listed && hosted_origin(&state, &entry, origin.as_deref()).await;
+        if hosted && let Some(origin) = &origin {
+            entry.origins.push(origin.clone());
+        }
+        if !listed && !hosted {
             return fail(
                 StatusCode::FORBIDDEN,
                 "ORIGIN_NOT_ALLOWED",
@@ -293,7 +405,9 @@ pub(crate) async fn authenticate(
             }
         }
     };
-    touch(&state, &entry, &tenant.db).await;
+    if entry.kind != "hosted" {
+        touch(&state, &entry, &tenant.db).await;
+    }
     request.extensions_mut().insert(Principal {
         db: tenant.db.clone(),
         workspace_id: tenant.workspace_id.clone(),

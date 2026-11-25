@@ -10,25 +10,31 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::IntoResponse;
 use axum::routing::{delete, get, patch, post};
 use http::HeaderMap;
+use sea_orm::sea_query::{Alias, Expr, Query};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, Condition, EntityTrait, FromQueryResult, JoinType,
+    PaginatorTrait, QueryFilter, QueryOrder, QuerySelect,
+};
 use serde_json::{Value, json};
+use time::Date;
 use weldsuite_catalogs::entity_events::{
     HR_ABSENCE_CREATED, HR_ABSENCE_DELETED, HR_ABSENCE_RECOVERED, HR_ABSENCE_UPDATED,
 };
 use weldsuite_catalogs::permission_keys::{
     ABSENCES_CREATE, ABSENCES_DELETE, ABSENCES_READ, ABSENCES_UPDATE,
 };
-use weldsuite_db::{PgPool, js_row};
+use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_kit::validation::{Field, Issues, Presence, Text};
 use weldsuite_kit::{Created, Data, List, NoContent, Pagination, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::{hr_absences as absences, hr_departments, hr_employees};
 
-use crate::employees::{display_name_of, require_employee};
-use crate::entity_scope::{guard, via_employee};
+use crate::employees::{display_name, no_row, pg_date, pg_date_opt, require_employee, to_json};
+use crate::entity_scope::{Scope, guard, via_employee};
 use crate::fields::{Fields, id, iso_date};
 use crate::{
     Caller, HrError, HrResult, HrState, add_days, assert_date_order, hr_json, js_number, js_trim,
-    member_names, now, query_param, query_text, query_values, text, today_iso,
-    working_days_between,
+    member_names, query_param, query_text, query_values, text, today_iso, working_days_between,
 };
 
 /// A sick report that starts within this many days of the previous one's end is a relapse.
@@ -61,7 +67,7 @@ where
             "/absences/{id}",
             delete(remove).route_layer(gate.require([ABSENCES_DELETE])),
         )
-        .route_layer(guard("/absences", "Absence", via_employee!("hr_absences")))
+        .route_layer(guard("/absences", "Absence", via_employee!(hr_absences)))
 }
 
 /// `absenceStatus(endDate, today)`.
@@ -101,13 +107,10 @@ fn present(mut row: Value, today: &str) -> Value {
 
 /// `requireAbsence(db, id)`.
 async fn require_absence(db: &PgPool, id: &str) -> Result<Value, HrError> {
-    let row: Option<Value> =
-        sqlx::query_scalar("select to_jsonb(t) from hr_absences t where t.id = $1 limit 1")
-            .bind(id)
-            .fetch_optional(db)
-            .await?;
-    row.map(js_row)
-        .ok_or_else(|| HrError::not_found("Sick report", id))
+    let row = absences::Entity::find_by_id(id.to_owned())
+        .one(&orm(db))
+        .await?;
+    to_json(row.ok_or_else(|| HrError::not_found("Sick report", id))?)
 }
 
 /// `assertNoOverlap(db, employeeId, startDate, endDate, exceptId?)`.
@@ -118,19 +121,24 @@ async fn assert_no_overlap(
     end_date: Option<&str>,
     except_id: Option<&str>,
 ) -> Result<(), HrError> {
-    let overlap: Option<Option<String>> = sqlx::query_scalar(
-        "select end_date::text from hr_absences
-         where employee_id = $1 and (end_date is null or end_date >= $2::date)
-           and ($3::text is null or start_date <= $3::date)
-           and ($4::text is null or id <> $4)
-         limit 1",
-    )
-    .bind(employee_id)
-    .bind(start_date)
-    .bind(end_date)
-    .bind(except_id)
-    .fetch_optional(db)
-    .await?;
+    let start_date = pg_date(start_date)?;
+    let end_date = pg_date_opt(end_date)?;
+    let mut overlap = absences::Entity::find()
+        .select_only()
+        .column(absences::Column::EndDate)
+        .filter(absences::Column::EmployeeId.eq(employee_id))
+        .filter(
+            Condition::any()
+                .add(absences::Column::EndDate.is_null())
+                .add(absences::Column::EndDate.gte(start_date)),
+        );
+    if let Some(end_date) = end_date {
+        overlap = overlap.filter(absences::Column::StartDate.lte(end_date));
+    }
+    if let Some(except_id) = except_id {
+        overlap = overlap.filter(absences::Column::Id.ne(except_id));
+    }
+    let overlap: Option<Option<Date>> = overlap.into_tuple().one(&orm(db)).await?;
     match overlap {
         None => Ok(()),
         Some(None) => Err(HrError::conflict("There is already an open sick report")),
@@ -151,90 +159,80 @@ async fn list(caller: Caller, RawQuery(query): RawQuery) -> HrResult {
     let today = today_iso();
     let db = &caller.db;
     let scope = caller.scope().await?;
-    let cursor_row: Option<(String, String)> = match &cursor {
+    let orm_db = &orm(db);
+    let cursor_row: Option<(Date, String)> = match &cursor {
         Some(cursor) => {
-            sqlx::query_as("select start_date::text, id from hr_absences where id = $1 limit 1")
-                .bind(cursor)
-                .fetch_optional(db)
+            absences::Entity::find()
+                .select_only()
+                .columns([absences::Column::StartDate, absences::Column::Id])
+                .filter(absences::Column::Id.eq(cursor.as_str()))
+                .into_tuple()
+                .one(orm_db)
                 .await?
         }
         None => None,
     };
-    let rows: Vec<(Value, Value)> = sqlx::query_as(
-        "select to_jsonb(ab), jsonb_build_object('firstName', e.first_name, 'lastName', e.last_name,
-             'preferredName', e.preferred_name, 'employeeUserId', e.user_id, 'departmentName', d.name,
-             'relapse', exists (
-                 select 1 from hr_absences previous
-                 where previous.employee_id = ab.employee_id and previous.id <> ab.id
-                   and previous.end_date < ab.start_date
-                   and previous.end_date >= ab.start_date - 28::int))
-         from hr_absences ab
-         join hr_employees e on e.id = ab.employee_id
-         left join hr_departments d on d.id = e.department_id and d.deleted_at is null
-         where e.deleted_at is null
-           and ($1::text is null or ab.employee_id = $1)
-           and ($2::text is null or e.department_id = $2)
-           and ($3::text is null or ($3 = 'completed' and ab.end_date < $4::date)
-                or ($3 = 'ongoing' and (ab.end_date is null or ab.end_date >= $4::date)))
-           and ($5::text is null or (ab.start_date, ab.id) < ($5::date, $6))
-           and ($8::text[] is null or e.legal_entity_id = any($8)
-                or ($9::boolean and e.legal_entity_id is null))
-         order by ab.start_date desc, ab.id desc
-         limit $7",
-    )
-    .bind(&employee_id)
-    .bind(&department_id)
-    .bind(&status)
-    .bind(&today)
-    .bind(cursor_row.as_ref().map(|c| c.0.clone()))
-    .bind(cursor_row.as_ref().map(|c| c.1.clone()))
-    .bind(limit + 1)
-    .bind(scope.ids())
-    .bind(scope.unassigned())
-    .fetch_all(db)
-    .await?;
-    let total: i64 = sqlx::query_scalar(
-        "select count(*) from hr_absences ab join hr_employees e on e.id = ab.employee_id
-         where e.deleted_at is null
-           and ($1::text is null or ab.employee_id = $1)
-           and ($2::text is null or e.department_id = $2)
-           and ($3::text is null or ($3 = 'completed' and ab.end_date < $4::date)
-                or ($3 = 'ongoing' and (ab.end_date is null or ab.end_date >= $4::date)))
-           and ($5::text[] is null or e.legal_entity_id = any($5)
-                or ($6::boolean and e.legal_entity_id is null))",
-    )
-    .bind(&employee_id)
-    .bind(&department_id)
-    .bind(&status)
-    .bind(&today)
-    .bind(scope.ids())
-    .bind(scope.unassigned())
-    .fetch_one(db)
-    .await?;
+    let filters = list_filters(
+        employee_id.as_deref(),
+        department_id.as_deref(),
+        status.as_deref(),
+        pg_date(&today)?,
+        &scope,
+    );
+    let mut page = AbsenceListRow::select().filter(filters.clone());
+    if let Some((start, id)) = &cursor_row {
+        use sea_orm::ExprTrait as _;
+        let column = |column: absences::Column| Expr::col((absences::Entity, column));
+        page = page.filter(
+            Expr::tuple([
+                column(absences::Column::StartDate),
+                column(absences::Column::Id),
+            ])
+            .lt(Expr::tuple([Expr::val(*start), Expr::val(id.as_str())])),
+        );
+    }
+    // `limit $n` with a negative `limit + 1` fails the statement (a 500).
+    let page_limit = u64::try_from(limit + 1).map_err(|_| {
+        HrError::Database(sea_orm::DbErr::Custom(
+            "LIMIT must not be negative".to_owned(),
+        ))
+    })?;
+    let rows: Vec<AbsenceListRow> = page
+        .order_by_desc(absences::Column::StartDate)
+        .order_by_desc(absences::Column::Id)
+        .limit(page_limit)
+        .into_model()
+        .all(orm_db)
+        .await?;
+    let total = absences::Entity::find()
+        .join(JoinType::InnerJoin, with_employee())
+        .filter(filters)
+        .count(orm_db)
+        .await?;
     let page_size = usize::try_from(limit).unwrap_or(0);
     let has_more = rows.len() > page_size;
-    let page: Vec<(Value, Value)> = rows.into_iter().take(page_size).collect();
+    let page: Vec<AbsenceListRow> = rows.into_iter().take(page_size).collect();
     let reporters: Vec<Option<&str>> = page
         .iter()
-        .map(|(a, _)| a["reported_by"].as_str())
+        .map(|row| row.absence.reported_by.as_deref())
         .collect();
     let names = member_names(db, &reporters).await?;
     let cursor = if has_more {
-        page.last().map(|(a, _)| text(a, "id").to_owned())
+        page.last().map(|row| row.absence.id.clone())
     } else {
         None
     };
     let data: Vec<Value> = page
         .into_iter()
-        .map(|(absence, extra)| {
-            let absence = js_row(absence);
+        .map(|extra| {
+            let absence = to_json(&extra.absence)?;
             let reported_by = absence["reportedBy"]
                 .as_str()
                 .filter(|r| !r.is_empty())
                 .map(str::to_owned);
             let employee_id = text(&absence, "employeeId").to_owned();
             let reported_by_self = reported_by.as_deref().is_some_and(|by| {
-                Some(by) == extra["employeeUserId"].as_str()
+                Some(by) == extra.employee_user_id.as_deref()
                     || by == format!("portal:{employee_id}")
             });
             let reported_by_name = reported_by
@@ -243,20 +241,130 @@ async fn list(caller: Caller, RawQuery(query): RawQuery) -> HrResult {
                 .and_then(|by| names.get(by).cloned());
             let mut row = present(absence, &today);
             if let Some(map) = row.as_object_mut() {
-                map.insert("employeeName".to_owned(), json!(display_name_of(&extra)));
-                map.insert("departmentName".to_owned(), extra["departmentName"].clone());
-                map.insert("relapse".to_owned(), json!(extra["relapse"] == true));
+                map.insert(
+                    "employeeName".to_owned(),
+                    json!(display_name(
+                        &extra.employee_first_name,
+                        &extra.employee_last_name,
+                        extra.employee_preferred_name.as_deref(),
+                    )),
+                );
+                map.insert("departmentName".to_owned(), json!(extra.department_name));
+                map.insert("relapse".to_owned(), json!(extra.relapse));
                 map.insert("reportedBySelf".to_owned(), json!(reported_by_self));
                 map.insert("reportedByName".to_owned(), json!(reported_by_name));
             }
-            row
+            Ok(row)
         })
-        .collect();
-    Ok(List::new(
-        data,
-        Pagination::new(u64::try_from(total).unwrap_or_default(), has_more, cursor),
-    )
-    .into_response())
+        .collect::<Result<_, HrError>>()?;
+    Ok(List::new(data, Pagination::new(total, has_more, cursor)).into_response())
+}
+
+/// `join hr_employees e on e.id = ab.employee_id`.
+fn with_employee() -> sea_orm::RelationDef {
+    absences::Entity::belongs_to(hr_employees::Entity)
+        .from(absences::Column::EmployeeId)
+        .to(hr_employees::Column::Id)
+        .into()
+}
+
+/// The list's `where` without its cursor (the page and its `count(*)`
+/// share it), over the absence joined with its employee.
+fn list_filters(
+    employee_id: Option<&str>,
+    department_id: Option<&str>,
+    status: Option<&str>,
+    today: Date,
+    scope: &Scope,
+) -> Condition {
+    let mut all = Condition::all().add(hr_employees::Column::DeletedAt.is_null());
+    if let Some(employee_id) = employee_id {
+        all = all.add(absences::Column::EmployeeId.eq(employee_id));
+    }
+    if let Some(department_id) = department_id {
+        all = all.add(hr_employees::Column::DepartmentId.eq(department_id));
+    }
+    match status {
+        Some("completed") => all = all.add(absences::Column::EndDate.lt(today)),
+        Some("ongoing") => {
+            all = all.add(
+                Condition::any()
+                    .add(absences::Column::EndDate.is_null())
+                    .add(absences::Column::EndDate.gte(today)),
+            );
+        }
+        _ => {}
+    }
+    all.add(scope.condition(hr_employees::Column::LegalEntityId))
+}
+
+/// A sick report of the list with its employee, department and whether it
+/// is a relapse.
+#[derive(Debug, FromQueryResult)]
+struct AbsenceListRow {
+    #[sea_orm(nested)]
+    absence: absences::Model,
+    employee_first_name: String,
+    employee_last_name: String,
+    employee_preferred_name: Option<String>,
+    employee_user_id: Option<String>,
+    department_name: Option<String>,
+    relapse: bool,
+}
+
+impl AbsenceListRow {
+    /// `select ab.*, e.first_name, …, d.name, exists (<an earlier report
+    /// ending within 28 days before this one starts>) from hr_absences ab
+    /// join hr_employees e … left join hr_departments d on d.id =
+    /// e.department_id and d.deleted_at is null`.
+    fn select() -> sea_orm::Select<absences::Entity> {
+        use sea_orm::ExprTrait as _;
+        let previous = Alias::new("previous");
+        let outer = |column: absences::Column| Expr::col((absences::Entity, column));
+        let earlier = |column: absences::Column| Expr::col((previous.clone(), column));
+        let relapse = Query::select()
+            .expr(Expr::val(1))
+            .from_as(absences::Entity, previous.clone())
+            .cond_where(
+                Condition::all()
+                    .add(
+                        earlier(absences::Column::EmployeeId)
+                            .eq(outer(absences::Column::EmployeeId)),
+                    )
+                    .add(earlier(absences::Column::Id).ne(outer(absences::Column::Id)))
+                    .add(earlier(absences::Column::EndDate).lt(outer(absences::Column::StartDate)))
+                    .add(
+                        earlier(absences::Column::EndDate).gte(
+                            outer(absences::Column::StartDate)
+                                .sub(Expr::val(i32::try_from(RELAPSE_WINDOW_DAYS).unwrap_or(28))),
+                        ),
+                    ),
+            )
+            .to_owned();
+        absences::Entity::find()
+            .column_as(hr_employees::Column::FirstName, "employee_first_name")
+            .column_as(hr_employees::Column::LastName, "employee_last_name")
+            .column_as(
+                hr_employees::Column::PreferredName,
+                "employee_preferred_name",
+            )
+            .column_as(hr_employees::Column::UserId, "employee_user_id")
+            .column_as(hr_departments::Column::Name, "department_name")
+            .column_as(Expr::exists(relapse), "relapse")
+            .join(JoinType::InnerJoin, with_employee())
+            .join(
+                JoinType::LeftJoin,
+                hr_employees::Entity::belongs_to(hr_departments::Entity)
+                    .from(hr_employees::Column::DepartmentId)
+                    .to(hr_departments::Column::Id)
+                    .on_condition(|_, department| {
+                        Expr::col((department, hr_departments::Column::DeletedAt))
+                            .is_null()
+                            .into()
+                    })
+                    .into(),
+            )
+    }
 }
 
 /// `absenceNote`: `z.string().trim().max(1000).nullable().optional()`.
@@ -290,26 +398,22 @@ pub(crate) async fn create_absence(
     require_employee(db, employee_id).await?;
     assert_date_order(Some(start_date), end_date, "Sick report")?;
     assert_no_overlap(db, employee_id, start_date, end_date, None).await?;
-    let now = now();
-    let row: Value = sqlx::query_scalar(
-        "insert into hr_absences
-             (id, employee_id, start_date, end_date, first_day, note, reported_by,
-              recovered_reported_by, recovered_reported_at)
-         values ($1, $2, $3::date, $4::date, $5, $6, $7, $8, $9::timestamp)
-         returning to_jsonb(hr_absences)",
-    )
-    .bind(generate_id("hrabs"))
-    .bind(employee_id)
-    .bind(start_date)
-    .bind(end_date)
-    .bind(first_day.unwrap_or("full"))
-    .bind(note)
-    .bind(reported_by)
-    .bind(end_date.map(|_| reported_by))
-    .bind(end_date.map(|_| now.clone()))
-    .fetch_one(db)
+    let now = utc_now();
+    let row = absences::Entity::insert(absences::ActiveModel {
+        id: Set(generate_id("hrabs")),
+        employee_id: Set(employee_id.to_owned()),
+        start_date: Set(pg_date(start_date)?),
+        end_date: Set(pg_date_opt(end_date)?),
+        first_day: Set(first_day.unwrap_or("full").to_owned()),
+        note: Set(note),
+        reported_by: Set(Some(reported_by.to_owned())),
+        recovered_reported_by: Set(end_date.map(|_| reported_by.to_owned())),
+        recovered_reported_at: Set(end_date.map(|_| now)),
+        ..Default::default()
+    })
+    .exec_with_returning(&orm(db))
     .await?;
-    Ok(js_row(row))
+    to_json(row)
 }
 
 async fn create(
@@ -380,32 +484,58 @@ async fn update(
         Some(&id),
     )
     .await?;
-    let now = now();
+    let now = utc_now();
     let closing = end_date.is_some() && existing["endDate"].is_null();
     let reopening = end_date.is_none() && !existing["endDate"].is_null();
     let note_out: Option<String> = match &note_field {
         Field::Absent => existing["note"].as_str().map(str::to_owned),
         _ => note_value(&note_field),
     };
-    let row: Value = sqlx::query_scalar(
-        "update hr_absences set start_date = $2::date, end_date = $3::date, first_day = $4, note = $5,
-             recovered_reported_by = case when $6 then $7 when $8 then null else recovered_reported_by end,
-             recovered_reported_at = case when $6 then $9::timestamp when $8 then null else recovered_reported_at end,
-             updated_at = $9::timestamp
-         where id = $1 returning to_jsonb(hr_absences)",
-    )
-    .bind(&id)
-    .bind(&start_date)
-    .bind(&end_date)
-    .bind(first_day.as_set().map_or_else(|| text(&existing, "firstDay").to_owned(), Clone::clone))
-    .bind(note_out)
-    .bind(closing)
-    .bind(&caller.user_id)
-    .bind(reopening)
-    .bind(&now)
-    .fetch_one(db)
-    .await?;
-    let row = js_row(row);
+    let mut update = absences::Entity::update_many()
+        .col_expr(
+            absences::Column::StartDate,
+            Expr::value(pg_date(&start_date)?),
+        )
+        .col_expr(
+            absences::Column::EndDate,
+            Expr::value(pg_date_opt(end_date.as_deref())?),
+        )
+        .col_expr(
+            absences::Column::FirstDay,
+            Expr::value(
+                first_day
+                    .as_set()
+                    .map_or_else(|| text(&existing, "firstDay").to_owned(), Clone::clone),
+            ),
+        )
+        .col_expr(absences::Column::Note, Expr::value(note_out));
+    // Closing records who reported the recovery; reopening clears it.
+    if closing {
+        update = update
+            .col_expr(
+                absences::Column::RecoveredReportedBy,
+                Expr::value(caller.user_id.as_str()),
+            )
+            .col_expr(absences::Column::RecoveredReportedAt, Expr::value(now));
+    } else if reopening {
+        update = update
+            .col_expr(
+                absences::Column::RecoveredReportedBy,
+                Expr::value(Option::<String>::None),
+            )
+            .col_expr(
+                absences::Column::RecoveredReportedAt,
+                Expr::value(Option::<time::PrimitiveDateTime>::None),
+            );
+    }
+    let row = update
+        .col_expr(absences::Column::UpdatedAt, Expr::value(now))
+        .filter(absences::Column::Id.eq(id.as_str()))
+        .exec_with_returning(&orm(db))
+        .await?
+        .pop()
+        .ok_or_else(|| no_row("hr_absences"))?;
+    let row = to_json(row)?;
     caller.emit(&state, HR_ABSENCE_UPDATED, text(&row, "id"), &[]);
     Ok(Data(row).into_response())
 }
@@ -435,18 +565,21 @@ pub(crate) async fn recover_absence(
             "The last sick day cannot be in the future",
         ));
     }
-    let row: Value = sqlx::query_scalar(
-        "update hr_absences set end_date = $2::date, recovered_reported_by = $3,
-             recovered_reported_at = $4::timestamp, updated_at = $4::timestamp
-         where id = $1 returning to_jsonb(hr_absences)",
-    )
-    .bind(id)
-    .bind(end_date)
-    .bind(recovered_by)
-    .bind(now())
-    .fetch_one(db)
-    .await?;
-    Ok(js_row(row))
+    let now = utc_now();
+    let row = absences::Entity::update_many()
+        .col_expr(absences::Column::EndDate, Expr::value(pg_date(end_date)?))
+        .col_expr(
+            absences::Column::RecoveredReportedBy,
+            Expr::value(recovered_by),
+        )
+        .col_expr(absences::Column::RecoveredReportedAt, Expr::value(now))
+        .col_expr(absences::Column::UpdatedAt, Expr::value(now))
+        .filter(absences::Column::Id.eq(id))
+        .exec_with_returning(&orm(db))
+        .await?
+        .pop()
+        .ok_or_else(|| no_row("hr_absences"))?;
+    to_json(row)
 }
 
 /// `recoverHrAbsenceSchema`: `{ endDate }`.
@@ -473,9 +606,8 @@ async fn recover(
 async fn remove(State(state): State<HrState>, caller: Caller, Path(id): Path<String>) -> HrResult {
     let row = require_absence(&caller.db, &id).await?;
     require_absence(&caller.db, &id).await?;
-    sqlx::query("delete from hr_absences where id = $1")
-        .bind(&id)
-        .execute(&caller.db)
+    absences::Entity::delete_by_id(id.clone())
+        .exec(&orm(&caller.db))
         .await?;
     caller.emit(&state, HR_ABSENCE_DELETED, text(&row, "id"), &[]);
     Ok(NoContent.into_response())
@@ -534,16 +666,16 @@ pub(crate) async fn report_sick(
 /// `employeeAbsences(db, employeeId)`: the open report and the history.
 pub(crate) async fn employee_absences(db: &PgPool, employee_id: &str) -> Result<Value, HrError> {
     let today = today_iso();
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from hr_absences t where t.employee_id = $1
-         order by t.start_date desc, t.id desc limit 100",
-    )
-    .bind(employee_id)
-    .fetch_all(db)
-    .await?;
+    let rows = absences::Entity::find()
+        .filter(absences::Column::EmployeeId.eq(employee_id))
+        .order_by_desc(absences::Column::StartDate)
+        .order_by_desc(absences::Column::Id)
+        .limit(100)
+        .all(&orm(db))
+        .await?;
+    let rows: Vec<Value> = rows.into_iter().map(to_json).collect::<Result<_, _>>()?;
     let reports: Vec<Value> = rows
         .into_iter()
-        .map(js_row)
         .map(|row| {
             json!({
                 "id": row["id"],

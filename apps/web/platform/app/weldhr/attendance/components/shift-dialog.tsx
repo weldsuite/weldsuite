@@ -18,6 +18,7 @@ import type { HrShift } from '@weldsuite/app-api-client/domains/weldhr';
 import { useCreateHrShift, useUpdateHrShift } from '@/hooks/queries/use-weldhr-queries';
 import { CompanyPicker, EmployeePicker, errorMessage, instantAt, minutesAfter } from '../../components/shared';
 import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
+import { HrDateInput, HrTimeInput } from '@/app/weldhr/components/date-fields';
 
 /** The local calendar day (`YYYY-MM-DD`) of a UTC instant, matching `timeOf`. */
 export function dateOf(iso: string): string {
@@ -126,7 +127,7 @@ export function ShiftDialog({
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent>
-        <DialogHeader>
+        <DialogHeader className="mb-2">
           <DialogTitle>{shift ? t('weldhr.attendance.schedule.editShift') : t('weldhr.attendance.schedule.addShift')}</DialogTitle>
         </DialogHeader>
 
@@ -172,17 +173,17 @@ export function ShiftDialog({
 
           <div className="space-y-1.5">
             <Label htmlFor="hr-shift-date">{t('weldhr.attendance.schedule.form.date')}</Label>
-            <Input id="hr-shift-date" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+            <HrDateInput id="hr-shift-date" value={date} onChange={setDate} />
           </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label htmlFor="hr-shift-start">{t('weldhr.attendance.schedule.form.start')}</Label>
-              <Input id="hr-shift-start" type="time" value={start} onChange={(e) => setStart(e.target.value)} />
+              <HrTimeInput id="hr-shift-start" value={start} onChange={setStart} />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="hr-shift-end">{t('weldhr.attendance.schedule.form.end')}</Label>
-              <Input id="hr-shift-end" type="time" value={end} onChange={(e) => setEnd(e.target.value)} />
+              <HrTimeInput id="hr-shift-end" value={end} onChange={setEnd} />
               {endsNextDay && <p className="text-xs text-muted-foreground">{t('weldhr.attendance.schedule.form.nextDay')}</p>}
             </div>
           </div>
@@ -191,22 +192,22 @@ export function ShiftDialog({
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label htmlFor="hr-shift-break-start">{t('weldhr.attendance.schedule.form.breakStart')}</Label>
-                <Input
+                <HrTimeInput
                   id="hr-shift-break-start"
-                  type="time"
+                  clearable
                   value={breakStart}
                   aria-invalid={!breakValid}
-                  onChange={(e) => setBreakStart(e.target.value)}
+                  onChange={setBreakStart}
                 />
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="hr-shift-break-end">{t('weldhr.attendance.schedule.form.breakEnd')}</Label>
-                <Input
+                <HrTimeInput
                   id="hr-shift-break-end"
-                  type="time"
+                  clearable
                   value={breakEnd}
                   aria-invalid={!breakValid}
-                  onChange={(e) => setBreakEnd(e.target.value)}
+                  onChange={setBreakEnd}
                 />
               </div>
             </div>

@@ -45,8 +45,23 @@ pub(crate) async fn after_issue_updated(
     after: &Row,
     _team_key: &str,
 ) -> Result<(), MergeError> {
-    push_issue_update(&ctx.db, &ctx.state, &ctx.overrides, before, after).await?;
-    Ok(())
+    skip_outside_eu(push_issue_update(&ctx.db, &ctx.state, &ctx.overrides, before, after).await)
+}
+
+/// ADR OPS-026: a push to a provider the workspace switched off is skipped
+/// with a log line; the member's own edit has already been saved.
+fn skip_outside_eu<T>(result: Result<T, MergeError>) -> Result<(), MergeError> {
+    match result {
+        Ok(_) => Ok(()),
+        Err(MergeError::OutsideEu(service)) => {
+            tracing::info!(
+                service = service.as_str(),
+                "merge: issue sync push skipped: the workspace has not switched this service on"
+            );
+            Ok(())
+        }
+        Err(error) => Err(error),
+    }
 }
 
 /// `afterCommentChanged`: a comment a member wrote, pushed to the linked
@@ -61,8 +76,7 @@ pub(crate) async fn after_comment_changed(
     if change != CommentChange::Created {
         return Ok(());
     }
-    push_comment(&ctx.db, &ctx.state, &ctx.overrides, comment, issue).await?;
-    Ok(())
+    skip_outside_eu(push_comment(&ctx.db, &ctx.state, &ctx.overrides, comment, issue).await)
 }
 
 // ── GitHub webhook intake ──────────────────────────────────────────────────

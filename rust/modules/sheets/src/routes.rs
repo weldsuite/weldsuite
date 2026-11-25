@@ -5,7 +5,9 @@ use axum::extract::{FromRequest, Multipart, Path, RawQuery, Request, State};
 use axum::response::{IntoResponse, Response};
 use http::header::{CACHE_CONTROL, CONTENT_DISPOSITION, CONTENT_LENGTH, CONTENT_TYPE};
 use http::{HeaderMap, HeaderValue, StatusCode};
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
+use time::OffsetDateTime;
 use weldsuite_catalogs::entity_events::{
     FILE_CREATED, FILE_DELETED, FILE_UPDATED, SHEET_CREATED, SHEET_DELETED, SHEET_UPDATED,
 };
@@ -16,11 +18,14 @@ use weldsuite_core_domain::drive_access::{
 use weldsuite_core_domain::files::{
     Change, FileUpdate, NewFile, UpdatedFile, create_file, soft_delete_file, update_file,
 };
+use weldsuite_db::{orm, utc_timestamp};
+use weldsuite_events::iso_timestamp;
 use weldsuite_flow_domain::access::resolve_project_access;
 use weldsuite_kit::validation::{Field, Number, Presence, Text, js_number, js_trim};
 use weldsuite_kit::{ApiError, Created, Data, List, NoContent, Pagination, generate_id};
 use weldsuite_ports::collab::{bytes_value, value_bytes};
 use weldsuite_ports::files::{PutOptions, get_stored};
+use weldsuite_schema::tenant::projects;
 
 use crate::records::{
     self, AdoptFile, DriveFileRecord, ListSheets, PROJECT_ENTITY, SheetRecord, WELDSHEET_MIME_TYPE,
@@ -115,11 +120,14 @@ async fn writable_project(caller: &Caller, project_id: &str) -> Result<String, R
     let scope_all = caller.can(PROJECTS_SCOPE_ALL);
     let access =
         resolve_project_access(&caller.db, Some(&caller.user_id), scope_all, project_id).await?;
-    let live: Option<String> =
-        sqlx::query_scalar("select id from projects where id = $1 and deleted_at is null limit 1")
-            .bind(project_id)
-            .fetch_optional(&caller.db)
-            .await?;
+    let live: Option<String> = projects::Entity::find()
+        .select_only()
+        .column(projects::Column::Id)
+        .filter(projects::Column::Id.eq(project_id))
+        .filter(projects::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(&caller.db))
+        .await?;
     if live.is_none()
         || access.deleted
         || !(access.scope_all || access.is_manager || access.is_member)
@@ -402,7 +410,9 @@ pub(crate) async fn save_new_sheet(
     let sheet_id = generate_id("sht");
     let key = snapshot_key_for(new.org, &sheet_id);
     let size = write_checkpoint(state, caller, &key, new.checkpoint).await?;
-    let now = now();
+    // `new Date()`: the drive file takes its text, the sheet row its `timestamp`.
+    let at = OffsetDateTime::now_utc();
+    let now = iso_timestamp(at);
     let (entity_type, entity_id) = match new.project {
         Some(project) => (Some(PROJECT_ENTITY.to_owned()), Some(project)),
         None => (None, None),
@@ -429,7 +439,15 @@ pub(crate) async fn save_new_sheet(
     )
     .await?;
     let file_id = file["id"].as_str().unwrap_or_default().to_owned();
-    records::insert_sheet(&caller.db, &sheet_id, &file_id, &key, &caller.user_id, &now).await?;
+    records::insert_sheet(
+        &caller.db,
+        &sheet_id,
+        &file_id,
+        &key,
+        &caller.user_id,
+        utc_timestamp(at),
+    )
+    .await?;
     let Some(created) = records::get_sheet(&caller.db, &sheet_id).await? else {
         tracing::error!(sheet_id, "[sheets-api] a sheet vanished after insert");
         return Err(ApiError::internal().into());
@@ -830,7 +848,7 @@ pub(crate) async fn convert(
                     user_id: &caller.user_id,
                     old_key: &file.key,
                 },
-                &now(),
+                OffsetDateTime::now_utc(),
             )
             .await?;
             let Some(sheet) = adopted else {

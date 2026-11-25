@@ -43,6 +43,14 @@ export interface AutocompleteProps {
   onSearch?: (query: string) => Promise<AutocompleteOption[]>
   debounceMs?: number
   minSearchLength?: number
+  /** Shown in the trigger while `loading`. */
+  loadingText?: string
+  /** Id of the trigger, so a `<label htmlFor>` names it. */
+  id?: string
+  "aria-label"?: string
+  "aria-labelledby"?: string
+  "aria-describedby"?: string
+  "aria-invalid"?: boolean | "true" | "false"
 }
 
 export function Autocomplete({
@@ -61,6 +69,12 @@ export function Autocomplete({
   onSearch,
   debounceMs = 300,
   minSearchLength = 2,
+  loadingText = "Loading...",
+  id,
+  "aria-label": ariaLabel,
+  "aria-labelledby": ariaLabelledBy,
+  "aria-describedby": ariaDescribedBy,
+  "aria-invalid": ariaInvalid,
 }: Readonly<AutocompleteProps>) {
   const [open, setOpen] = React.useState(false)
   const [search, setSearch] = React.useState("")
@@ -198,7 +212,7 @@ export function Autocomplete({
 
   let triggerLabel = placeholder
   if (loading) {
-    triggerLabel = "Loading..."
+    triggerLabel = loadingText
   } else if (selectedOption) {
     triggerLabel = selectedOption.label
   }
@@ -207,9 +221,15 @@ export function Autocomplete({
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <Button
+          id={id}
+          type="button"
           variant="outline"
           role="combobox"
           aria-expanded={open}
+          aria-label={ariaLabel}
+          aria-labelledby={ariaLabelledBy}
+          aria-describedby={ariaDescribedBy}
+          aria-invalid={ariaInvalid}
           className={cn(
             "w-full justify-between shadow-none",
             !selectedOption && "text-muted-foreground",

@@ -56,6 +56,7 @@
         "discounts",
         "commerce_settings",
         "commerce_channels",
+        "websites",
         "companies",
         "people"
       ]
@@ -525,7 +526,7 @@
           "label": "Reveal full bank account numbers"
         },
         {
-          "description": "Restrict a legal entity and choose who sees it, and with which role. Holders always see every legal entity.",
+          "description": "Restrict a legal entity and choose who sees it, and with which role. Holders see a restricted entity only when they are listed on it.",
           "key": "legal_entities:manage",
           "label": "Manage access per legal entity"
         }
@@ -1096,27 +1097,27 @@
     },
     {
       "key": "websites",
-      "label": "Websites",
+      "label": "Online store",
       "permissions": [
         {
           "key": "websites:read",
-          "label": "View websites"
+          "label": "View online store"
         },
         {
           "key": "websites:create",
-          "label": "Create websites"
+          "label": "Create online store"
         },
         {
           "key": "websites:update",
-          "label": "Edit websites"
+          "label": "Edit online store"
         },
         {
           "key": "websites:delete",
-          "label": "Delete websites"
+          "label": "Delete online store"
         },
         {
           "key": "websites:manage",
-          "label": "Manage websites"
+          "label": "Manage online store"
         }
       ]
     },
@@ -3732,7 +3733,26 @@
         "reach_mailboxes:update",
         "reach_mailboxes:delete",
         "reach_settings:read",
-        "reach_settings:update"
+        "reach_settings:update",
+        "categories:read",
+        "categories:create",
+        "categories:update",
+        "categories:delete",
+        "discounts:read",
+        "discounts:create",
+        "discounts:update",
+        "discounts:delete",
+        "commerce_settings:read",
+        "commerce_settings:update",
+        "commerce_channels:read",
+        "commerce_channels:create",
+        "commerce_channels:update",
+        "commerce_channels:delete",
+        "websites:read",
+        "websites:create",
+        "websites:update",
+        "websites:delete",
+        "websites:manage"
       ]
     },
     "MEMBER": {
@@ -3975,7 +3995,16 @@
         "reach_inbox:update",
         "reach_inbox:reply",
         "reach_mailboxes:read",
-        "reach_settings:read"
+        "reach_settings:read",
+        "categories:read",
+        "categories:create",
+        "categories:update",
+        "discounts:read",
+        "commerce_channels:read",
+        "commerce_settings:read",
+        "websites:read",
+        "websites:create",
+        "websites:update"
       ]
     },
     "OWNER": {
@@ -4084,7 +4113,12 @@
         "reach_campaigns:read",
         "reach_prospects:read",
         "reach_inbox:read",
-        "reach_mailboxes:read"
+        "reach_mailboxes:read",
+        "categories:read",
+        "discounts:read",
+        "commerce_channels:read",
+        "commerce_settings:read",
+        "websites:read"
       ]
     }
   }

@@ -15,16 +15,27 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, patch, post};
 use http::{HeaderMap, StatusCode};
+use sea_orm::prelude::BigDecimal;
+use sea_orm::sea_query::{Asterisk, Expr, Func};
+use sea_orm::{
+    ActiveEnum, ActiveValue::Set, ColumnTrait, Condition, DbErr, EntityTrait, FromQueryResult,
+    PaginatorTrait, QueryFilter, QueryOrder, QuerySelect,
+};
 use serde_json::{Map, Value, json};
-use time::{Duration, OffsetDateTime};
+use time::{Duration, OffsetDateTime, PrimitiveDateTime};
 use weldsuite_catalogs::entity_events::{
     DNS_ZONE_CREATED, DOMAIN_CREATED, DOMAIN_DELETED, DOMAIN_UPDATED, DOMAIN_USE_EXTERNAL,
 };
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm, utc_now, utc_timestamp};
 use weldsuite_events::iso_timestamp;
 use weldsuite_kit::validation::{Field, Format, Issues, Number, Presence, Text, js_date_iso};
 use weldsuite_kit::{ApiError, Created, Data, NoContent, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::master::domain_pricing;
+use weldsuite_schema::tenant::enums::{
+    HostDnsProvider, HostDnsZoneStatus, HostDomainRegistrationStatus, HostDomainStatus,
+};
+use weldsuite_schema::tenant::{dns_zones, domains};
 
 use crate::cloudflare::RegistrarError;
 use crate::dns_host::ZoneErrorKind;
@@ -36,13 +47,13 @@ use crate::registrar::{
     tld_supports_privacy_protect,
 };
 use crate::rows::{
-    any_domain, any_zone, domain_with_zone, is_external_registrar, is_hidden_unpaid, live_domain,
-    live_zone_of_domain, public_domain,
+    any_domain, any_zone, domain_with_zone, is_external_registrar, is_hidden_unpaid, js, js_option,
+    live_domain, live_zone_of_domain, public_domain, timestamp_of,
 };
 use crate::weldreach::{changes_nameservers, connected_domain_ids, domain_in_use, is_domain_used};
 use crate::{
-    Caller, DnsProvider, HostState, Providers, ZoneDns, error_response, internal, json_response,
-    now, validate, validate_query,
+    Caller, DnsProvider, HostState, Providers, ZoneDns, dns_allowed, error_response, internal,
+    json_response, now, validate, validate_query,
 };
 
 const STATUSES: [&str; 5] = ["active", "pending", "expired", "suspended", "cancelled"];
@@ -130,11 +141,58 @@ where
         )
 }
 
-/// `isListedDomainSql()`: unpaid checkout rows stay out of lists and counts.
-macro_rules! listed {
-    () => {
-        "(t.registration_status is distinct from 'pending_payment' and not (t.status = 'cancelled' and t.registration_status is not distinct from 'failed'))"
-    };
+/// `isListedDomainSql()`: unpaid checkout rows stay out of lists and counts
+/// (`registration_status is distinct from 'pending_payment' and not (status =
+/// 'cancelled' and registration_status is not distinct from 'failed')`).
+fn listed() -> Condition {
+    let registration = domains::Column::RegistrationStatus;
+    Condition::all()
+        .add(
+            Condition::any()
+                .add(registration.is_null())
+                .add(registration.ne(HostDomainRegistrationStatus::PendingPayment)),
+        )
+        .add(
+            Condition::any()
+                .add(domains::Column::Status.ne(HostDomainStatus::Cancelled))
+                .add(registration.is_null())
+                .add(registration.ne(HostDomainRegistrationStatus::Failed)),
+        )
+}
+
+/// The live, listed domains.
+fn listed_domains() -> sea_orm::Select<domains::Entity> {
+    domains::Entity::find()
+        .filter(domains::Column::DeletedAt.is_null())
+        .filter(listed())
+}
+
+/// `count(*) filter (where …)`: the rows the case keeps (it is null otherwise).
+fn count_where(condition: Condition) -> Expr {
+    Expr::from(Func::count(Expr::case(condition, 1)))
+}
+
+/// `count(*)`.
+fn count_all() -> Expr {
+    Expr::from(Func::count(Expr::col(Asterisk)))
+}
+
+/// `status = …` as a filtered count's condition.
+fn status_is(status: HostDomainStatus) -> Condition {
+    Condition::all().add(domains::Column::Status.eq(status))
+}
+
+/// A validated `status` as the column's enum.
+fn domain_status(status: &str) -> Result<HostDomainStatus, DbErr> {
+    HostDomainStatus::try_from_value(&status.to_owned())
+}
+
+/// The `dns_zones.provider` of a DNS host.
+fn zone_provider(provider: DnsProvider) -> HostDnsProvider {
+    match provider {
+        DnsProvider::Cloudflare => HostDnsProvider::Cloudflare,
+        DnsProvider::Hetzner => HostDnsProvider::Hetzner,
+    }
 }
 
 // ── Errors ──────────────────────────────────────────────────────────────────
@@ -143,8 +201,11 @@ macro_rules! listed {
 enum Failure {
     Rtr(RtrError),
     Cf(RegistrarError),
-    Db(sqlx::Error),
+    Db(DbErr),
     Other(String),
+    /// Cloudflare is outside the EU and the workspace hasn't switched it on
+    /// (ADR OPS-026).
+    OutsideEu(weldsuite_outside_eu::OutsideEuError),
 }
 
 impl std::fmt::Display for Failure {
@@ -154,12 +215,21 @@ impl std::fmt::Display for Failure {
             Self::Cf(error) => error.fmt(f),
             Self::Db(error) => error.fmt(f),
             Self::Other(message) => f.write_str(message),
+            Self::OutsideEu(error) => error.fmt(f),
         }
     }
 }
 
-impl From<sqlx::Error> for Failure {
-    fn from(error: sqlx::Error) -> Self {
+/// The legacy Cloudflare Registrar is Cloudflare too: a workspace's
+/// domains go to it only once Cloudflare is switched on (ADR OPS-026).
+async fn cloudflare_registrar_allowed(db: &PgPool) -> Result<(), Failure> {
+    weldsuite_outside_eu::require(db, weldsuite_outside_eu::ServiceId::Cloudflare)
+        .await
+        .map_err(Failure::OutsideEu)
+}
+
+impl From<DbErr> for Failure {
+    fn from(error: DbErr) -> Self {
         Self::Db(error)
     }
 }
@@ -182,6 +252,9 @@ fn bad_gateway(code: &str, message: &str) -> Response {
 
 /// `registrarFailure(c, scope, err, fallback)`.
 fn registrar_failure(scope: &str, failure: &Failure, fallback: &str) -> Response {
+    if let Failure::OutsideEu(error) = failure {
+        return error.to_api_error().into_response();
+    }
     tracing::error!(%failure, "[app-api/domains] {scope} failed");
     match failure {
         Failure::Rtr(error) => match error.status {
@@ -219,7 +292,7 @@ fn rtr_unconfigured() -> Response {
 }
 
 /// A statement outside the route's `try`: the app's 500.
-fn app_error(error: &sqlx::Error) -> Response {
+fn app_error(error: &DbErr) -> Response {
     tracing::error!(%error, "[host-api] domains");
     ApiError::internal().into_response()
 }
@@ -230,32 +303,61 @@ fn domain_event(id: &str, row: &Value) -> Value {
 
 // ── Dashboard ───────────────────────────────────────────────────────────────
 
-#[allow(clippy::type_complexity)]
+/// The dashboard's counts.
+#[derive(Debug, Default, FromQueryResult)]
+struct DashboardStats {
+    total: i64,
+    active: i64,
+    pending: i64,
+    expired: i64,
+    expiring: i64,
+    ssl: i64,
+    auto_renew: i64,
+}
+
 async fn dashboard(caller: Caller) -> Response {
-    let stats: Result<(i32, i32, i32, i32, i32, i32, i32), sqlx::Error> = sqlx::query_as(concat!(
-        "select count(*)::int,
-           count(*) filter (where t.status = 'active')::int,
-           count(*) filter (where t.status = 'pending')::int,
-           count(*) filter (where t.status = 'expired')::int,
-           count(*) filter (where t.expires_at is not null and t.expires_at <= now() + interval '30 days')::int,
-           count(*) filter (where t.ssl_enabled = true)::int,
-           count(*) filter (where t.auto_renew = true)::int
-         from domains t where t.deleted_at is null and ",
-        listed!()
-    ))
-    .fetch_one(&caller.db)
-    .await;
+    // `expires_at <= now() + interval '30 days'`, on the database's clock.
+    let expiring = {
+        use sea_orm::ExprTrait as _;
+        Condition::all()
+            .add(domains::Column::ExpiresAt.is_not_null())
+            .add(
+                Expr::col((domains::Entity, domains::Column::ExpiresAt))
+                    .lte(Expr::current_timestamp().add(Expr::val("30 days").cast_as("interval"))),
+            )
+    };
+    let stats = listed_domains()
+        .select_only()
+        .column_as(count_all(), "total")
+        .column_as(count_where(status_is(HostDomainStatus::Active)), "active")
+        .column_as(count_where(status_is(HostDomainStatus::Pending)), "pending")
+        .column_as(count_where(status_is(HostDomainStatus::Expired)), "expired")
+        .column_as(count_where(expiring), "expiring")
+        .column_as(
+            count_where(Condition::all().add(domains::Column::SslEnabled.eq(true))),
+            "ssl",
+        )
+        .column_as(
+            count_where(Condition::all().add(domains::Column::AutoRenew.eq(true))),
+            "auto_renew",
+        )
+        .into_model::<DashboardStats>()
+        .one(&orm(&caller.db))
+        .await;
     match stats {
-        Ok((total, active, pending, expired, expiring, ssl, auto_renew)) => Data(json!({
-            "totalDomains": total,
-            "activeDomains": active,
-            "pendingDomains": pending,
-            "expiredDomains": expired,
-            "expiringSoon": expiring,
-            "sslEnabled": ssl,
-            "autoRenewEnabled": auto_renew,
-        }))
-        .into_response(),
+        Ok(stats) => {
+            let stats = stats.unwrap_or_default();
+            Data(json!({
+                "totalDomains": stats.total,
+                "activeDomains": stats.active,
+                "pendingDomains": stats.pending,
+                "expiredDomains": stats.expired,
+                "expiringSoon": stats.expiring,
+                "sslEnabled": stats.ssl,
+                "autoRenewEnabled": stats.auto_renew,
+            }))
+            .into_response()
+        }
         Err(error) => internal(&error, "Failed to fetch dashboard stats"),
     }
 }
@@ -275,17 +377,34 @@ fn day_of(stamp: &str) -> Option<String> {
     stamp.get(..10).map(str::to_owned)
 }
 
+/// A `timestamp` as the route's `Date` serializes: `toISOString()`.
+fn js_date(at: PrimitiveDateTime) -> Option<String> {
+    weldsuite_schema::js::timestamp::serialize(&at, serde_json::value::Serializer)
+        .ok()
+        .and_then(|value| value.as_str().map(str::to_owned))
+}
+
 #[allow(clippy::type_complexity)]
 async fn chart(caller: Caller, RawQuery(raw): RawQuery) -> Response {
     let days = clamp_param(raw.as_deref(), "days", 90, 365);
-    let rows: Result<Vec<(Option<String>, Option<String>, Option<String>, String)>, sqlx::Error> =
-        sqlx::query_as(concat!(
-            "select to_jsonb(t.registered_at)#>>'{}', to_jsonb(t.renewed_at)#>>'{}',
-               to_jsonb(t.expires_at)#>>'{}', t.status::text
-             from domains t where t.deleted_at is null and ",
-            listed!()
-        ))
-        .fetch_all(&caller.db)
+    let rows: Result<
+        Vec<(
+            Option<PrimitiveDateTime>,
+            Option<PrimitiveDateTime>,
+            Option<PrimitiveDateTime>,
+            HostDomainStatus,
+        )>,
+        DbErr,
+    > = listed_domains()
+        .select_only()
+        .columns([
+            domains::Column::RegisteredAt,
+            domains::Column::RenewedAt,
+            domains::Column::ExpiresAt,
+            domains::Column::Status,
+        ])
+        .into_tuple()
+        .all(&orm(&caller.db))
         .await;
     let rows = match rows {
         Ok(rows) => rows,
@@ -300,11 +419,8 @@ async fn chart(caller: Caller, RawQuery(raw): RawQuery) -> Response {
         }
         at += Duration::days(1);
     }
-    let mut bump = |stamp: &Option<String>, field: usize| {
-        if let Some(day) = stamp
-            .as_deref()
-            .and_then(weldsuite_db::js_timestamp)
-            .and_then(|s| day_of(&s))
+    let mut bump = |stamp: &Option<PrimitiveDateTime>, field: usize| {
+        if let Some(day) = stamp.and_then(js_date).and_then(|s| day_of(&s))
             && let Some(point) = points.iter_mut().find(|(d, _)| *d == day)
         {
             point.1[field] += 1;
@@ -313,7 +429,7 @@ async fn chart(caller: Caller, RawQuery(raw): RawQuery) -> Response {
     for (registered, renewed, expires, status) in &rows {
         bump(registered, 0);
         bump(renewed, 1);
-        if status == "expired" {
+        if *status == HostDomainStatus::Expired {
             bump(expires, 2);
         }
     }
@@ -329,21 +445,19 @@ async fn chart(caller: Caller, RawQuery(raw): RawQuery) -> Response {
 
 async fn recent(caller: Caller, RawQuery(raw): RawQuery) -> Response {
     let limit = clamp_param(raw.as_deref(), "limit", 10, 100);
-    let rows: Result<Vec<Value>, sqlx::Error> = sqlx::query_scalar(concat!(
-        "select to_jsonb(t) from domains t where t.deleted_at is null and ",
-        listed!(),
-        " order by t.created_at desc limit $1"
-    ))
-    .bind(limit)
-    .fetch_all(&caller.db)
+    let rows: Result<Vec<Value>, DbErr> = async {
+        listed_domains()
+            .order_by_desc(domains::Column::CreatedAt)
+            .limit(u64::try_from(limit).unwrap_or(0))
+            .all(&orm(&caller.db))
+            .await?
+            .into_iter()
+            .map(|row| js!(row).map(public_domain))
+            .collect()
+    }
     .await;
     match rows {
-        Ok(rows) => Data(
-            rows.into_iter()
-                .map(|row| public_domain(weldsuite_db::js_row(row)))
-                .collect::<Vec<_>>(),
-        )
-        .into_response(),
+        Ok(rows) => Data(rows).into_response(),
         Err(error) => internal(&error, "Failed to fetch recent domains"),
     }
 }
@@ -362,27 +476,29 @@ struct Pricing {
 /// `loadPricingMap`: by normalised TLD, in row order (a later row for the
 /// same TLD wins, keeping the first one's place).
 #[allow(clippy::type_complexity)]
-async fn pricing_map(master: &PgPool) -> Result<Vec<(String, Pricing)>, sqlx::Error> {
-    let rows: Vec<(
-        String,
-        Option<String>,
-        Option<String>,
-        Option<i32>,
-        Option<String>,
-    )> = sqlx::query_as(
-        "select tld, currency, registration_price::text, markup_amount, markup_percent::text
-             from domain_pricing where is_active = true",
-    )
-    .fetch_all(master)
-    .await?;
+async fn pricing_map(master: &PgPool) -> Result<Vec<(String, Pricing)>, DbErr> {
+    let rows: Vec<(String, String, BigDecimal, Option<i32>, Option<BigDecimal>)> =
+        domain_pricing::Entity::find()
+            .select_only()
+            .columns([
+                domain_pricing::Column::Tld,
+                domain_pricing::Column::Currency,
+                domain_pricing::Column::RegistrationPrice,
+                domain_pricing::Column::MarkupAmount,
+                domain_pricing::Column::MarkupPercent,
+            ])
+            .filter(domain_pricing::Column::IsActive.eq(true))
+            .into_tuple()
+            .all(&orm(master))
+            .await?;
     let mut map: Vec<(String, Pricing)> = Vec::new();
     for (tld, currency, registration_price, markup_amount, markup_percent) in rows {
         let key = tld.strip_prefix('.').unwrap_or(&tld).to_lowercase();
         let pricing = Pricing {
-            currency,
-            registration_price,
+            currency: Some(currency),
+            registration_price: Some(numeric_text(&registration_price)),
             markup_amount,
-            markup_percent,
+            markup_percent: markup_percent.as_ref().map(numeric_text),
         };
         if let Some(slot) = map.iter_mut().find(|(k, _)| *k == key) {
             slot.1 = pricing;
@@ -391,6 +507,11 @@ async fn pricing_map(master: &PgPool) -> Result<Vec<(String, Pricing)>, sqlx::Er
         }
     }
     Ok(map)
+}
+
+/// `numeric(p, 2)::text`: exactly two decimals.
+fn numeric_text(value: &BigDecimal) -> String {
+    value.with_scale(2).to_plain_string()
 }
 
 fn pricing_of<'a>(map: &'a [(String, Pricing)], tld: &str) -> Option<&'a Pricing> {
@@ -751,28 +872,44 @@ async fn abandon(
         Ok(ids) => ids,
         Err(response) => return *response,
     };
-    let result: Result<Vec<(String, String, String)>, sqlx::Error> = async {
-        let rows: Vec<(String, String, String)> = sqlx::query_as(
-            "select t.id, t.full_domain, t.status::text from domains t
-             where t.deleted_at is null
-               and (t.registration_status = 'pending_payment'
-                    or (t.status = 'cancelled' and t.registration_status = 'failed'))
-               and t.id = any($1)",
-        )
-        .bind(&ids)
-        .fetch_all(&caller.db)
-        .await?;
+    let result: Result<Vec<(String, String, HostDomainStatus)>, DbErr> = async {
+        let db = orm(&caller.db);
+        let registration = domains::Column::RegistrationStatus;
+        let rows: Vec<(String, String, HostDomainStatus)> = domains::Entity::find()
+            .select_only()
+            .columns([
+                domains::Column::Id,
+                domains::Column::FullDomain,
+                domains::Column::Status,
+            ])
+            .filter(domains::Column::DeletedAt.is_null())
+            .filter(
+                Condition::any()
+                    .add(registration.eq(HostDomainRegistrationStatus::PendingPayment))
+                    .add(
+                        Condition::all()
+                            .add(domains::Column::Status.eq(HostDomainStatus::Cancelled))
+                            .add(registration.eq(HostDomainRegistrationStatus::Failed)),
+                    ),
+            )
+            .filter(domains::Column::Id.is_in(ids.clone()))
+            .into_tuple()
+            .all(&db)
+            .await?;
         if rows.is_empty() {
             return Ok(rows);
         }
         let deleted: Vec<String> = rows.iter().map(|(id, _, _)| id.clone()).collect();
-        sqlx::query(
-            "update domains set deleted_at = $2::timestamp, updated_at = $2::timestamp where id = any($1)",
-        )
-        .bind(&deleted)
-        .bind(now())
-        .execute(&caller.db)
-        .await?;
+        let at = utc_now();
+        domains::Entity::update_many()
+            .set(domains::ActiveModel {
+                deleted_at: Set(Some(at)),
+                updated_at: Set(at),
+                ..Default::default()
+            })
+            .filter(domains::Column::Id.is_in(deleted))
+            .exec(&db)
+            .await?;
         // No Stripe here: no checkout session to expire.
         Ok(rows)
     }
@@ -825,6 +962,7 @@ fn is_reserved_domain(domain: &str) -> bool {
             .is_some_and(|tld| RESERVED_TLDS.contains(&tld))
 }
 
+#[allow(clippy::too_many_lines)]
 async fn external(
     State(state): State<HostState>,
     caller: Caller,
@@ -880,38 +1018,57 @@ async fn external(
         Err(response) => return *response,
     };
     let (domain, registrar) = input;
-    let result: Result<Response, sqlx::Error> = async {
-        let existing: Option<String> = sqlx::query_scalar(
-            "select t.status::text from domains t where t.full_domain = $1 and t.deleted_at is null limit 1",
-        )
-        .bind(&domain)
-        .fetch_optional(&caller.db)
-        .await?;
-        if existing.is_some_and(|status| status != "cancelled") {
-            return Ok(ApiError::conflict("This domain is already being managed in your workspace.")
-                .into_response());
+    let result: Result<Response, DbErr> = async {
+        let existing: Option<HostDomainStatus> = domains::Entity::find()
+            .select_only()
+            .column(domains::Column::Status)
+            .filter(domains::Column::FullDomain.eq(&domain))
+            .filter(domains::Column::DeletedAt.is_null())
+            .into_tuple()
+            .one(&orm(&caller.db))
+            .await?;
+        if existing.is_some_and(|status| status != HostDomainStatus::Cancelled) {
+            return Ok(ApiError::conflict(
+                "This domain is already being managed in your workspace.",
+            )
+            .into_response());
         }
         let parts: Vec<&str> = domain.split('.').collect();
-        let name = parts.first().copied().filter(|p| !p.is_empty()).unwrap_or(&domain);
+        let name = parts
+            .first()
+            .copied()
+            .filter(|p| !p.is_empty())
+            .unwrap_or(&domain);
         let tld = parts.get(1..).map(|p| p.join(".")).unwrap_or_default();
-        let tld = if tld.is_empty() { "com".to_owned() } else { tld };
+        let tld = if tld.is_empty() {
+            "com".to_owned()
+        } else {
+            tld
+        };
         let id = generate_id("dom");
         let token = random_uuid_hex();
         // Renewal stays with the outside registrar: WeldSuite never renews it.
-        sqlx::query(
-            "insert into domains (id, name, tld, full_domain, status, registrar, custom_nameservers,
-               nameserver_verified, nameserver_verification_pending, nameserver_verification_token,
-               auto_renew)
-             values ($1, $2, $3, $4, 'pending', $5, false, false, true, $6, false)",
-        )
-        .bind(&id)
-        .bind(name)
-        .bind(&tld)
-        .bind(&domain)
-        .bind(registrar.filter(|r| !r.is_empty()).unwrap_or_else(|| "External".to_owned()))
-        .bind(&token)
-        .execute(&caller.db)
-        .await?;
+        let row = domains::ActiveModel {
+            id: Set(id.clone()),
+            name: Set(name.to_owned()),
+            tld: Set(tld),
+            full_domain: Set(domain.clone()),
+            status: Set(HostDomainStatus::Pending),
+            registrar: Set(Some(
+                registrar
+                    .filter(|r| !r.is_empty())
+                    .unwrap_or_else(|| "External".to_owned()),
+            )),
+            custom_nameservers: Set(Some(false)),
+            nameserver_verified: Set(Some(false)),
+            nameserver_verification_pending: Set(Some(true)),
+            nameserver_verification_token: Set(Some(token.clone())),
+            auto_renew: Set(Some(false)),
+            ..Default::default()
+        };
+        domains::Entity::insert(row)
+            .exec_without_returning(&orm(&caller.db))
+            .await?;
         let row = any_domain(&caller.db, &id).await?.unwrap_or(Value::Null);
         caller.publish(&state, DOMAIN_USE_EXTERNAL, &id, &domain_event(&id, &row));
         let mut body = public_domain(row);
@@ -952,32 +1109,22 @@ fn pending_verification_record(domain: &Value, zone: Option<&Value>) -> Value {
 
 // ── List, read, create, update, delete ──────────────────────────────────────
 
-macro_rules! list_sql {
-    ($column:literal, $dir:literal) => {
-        concat!(
-            "select to_jsonb(t) from domains t where t.deleted_at is null and ",
-            listed!(),
-            " and ($1::boolean or (t.full_domain like $2 or t.name like $2))",
-            " and ($3::boolean or t.status = $4::host_domain_status)",
-            " order by t.",
-            $column,
-            " ",
-            $dir,
-            " limit $5 offset $6"
-        )
+/// `orderBy` of `GET /`: the column and its direction.
+fn list_order(
+    select: sea_orm::Select<domains::Entity>,
+    sort_by: Option<&str>,
+    ascending: bool,
+) -> sea_orm::Select<domains::Entity> {
+    let column = match sort_by {
+        Some("fullDomain") => domains::Column::FullDomain,
+        Some("status") => domains::Column::Status,
+        Some("expiresAt") => domains::Column::ExpiresAt,
+        _ => domains::Column::CreatedAt,
     };
-}
-
-fn list_statement(sort_by: Option<&str>, ascending: bool) -> &'static str {
-    match (sort_by, ascending) {
-        (Some("fullDomain"), true) => list_sql!("full_domain", "asc"),
-        (Some("fullDomain"), false) => list_sql!("full_domain", "desc"),
-        (Some("status"), true) => list_sql!("status", "asc"),
-        (Some("status"), false) => list_sql!("status", "desc"),
-        (Some("expiresAt"), true) => list_sql!("expires_at", "asc"),
-        (Some("expiresAt"), false) => list_sql!("expires_at", "desc"),
-        (_, true) => list_sql!("created_at", "asc"),
-        (_, false) => list_sql!("created_at", "desc"),
+    if ascending {
+        select.order_by_asc(column)
+    } else {
+        select.order_by_desc(column)
     }
 }
 
@@ -1053,49 +1200,52 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
         Ok(query) => query,
         Err(response) => return *response,
     };
-    let result: Result<Value, sqlx::Error> = async {
+    let result: Result<Value, DbErr> = async {
+        let db = orm(&caller.db);
         let page_size = query.page_size.min(100);
         let search = query
             .search
             .filter(|s| !s.is_empty())
             .map(|s| format!("%{s}%"));
-        let status = query.status.filter(|s| !s.is_empty() && s != "all");
-        let total: i32 = sqlx::query_scalar(concat!(
-            "select count(*)::int from domains t where t.deleted_at is null and ",
-            listed!(),
-            " and ($1::boolean or (t.full_domain like $2 or t.name like $2))",
-            " and ($3::boolean or t.status = $4::host_domain_status)"
-        ))
-        .bind(search.is_none())
-        .bind(search.clone())
-        .bind(status.is_none())
-        .bind(status.clone())
-        .fetch_one(&caller.db)
-        .await?;
-        let rows: Vec<Value> =
-            sqlx::query_scalar(list_statement(query.sort_by.as_deref(), query.ascending))
-                .bind(search.is_none())
-                .bind(search)
-                .bind(status.is_none())
-                .bind(status)
-                .bind(page_size)
-                .bind((query.page - 1) * page_size)
-                .fetch_all(&caller.db)
-                .await?;
-        let (all, active, pending, expired): (i32, i32, i32, i32) = sqlx::query_as(concat!(
-            "select count(*)::int,
-               count(*) filter (where t.status = 'active')::int,
-               count(*) filter (where t.status = 'pending')::int,
-               count(*) filter (where t.status = 'expired')::int
-             from domains t where t.deleted_at is null and ",
-            listed!()
-        ))
-        .fetch_one(&caller.db)
-        .await?;
+        let status = query
+            .status
+            .filter(|s| !s.is_empty() && s != "all")
+            .map(|status| domain_status(&status))
+            .transpose()?;
+        let filtered = || {
+            let mut select = listed_domains();
+            if let Some(search) = &search {
+                select = select.filter(
+                    Condition::any()
+                        .add(domains::Column::FullDomain.like(search.as_str()))
+                        .add(domains::Column::Name.like(search.as_str())),
+                );
+            }
+            if let Some(status) = status {
+                select = select.filter(domains::Column::Status.eq(status));
+            }
+            select
+        };
+        let total = filtered().count(&db).await?;
+        let rows = list_order(filtered(), query.sort_by.as_deref(), query.ascending)
+            .limit(u64::try_from(page_size).unwrap_or(0))
+            .offset(u64::try_from((query.page - 1).saturating_mul(page_size)).unwrap_or(0))
+            .all(&db)
+            .await?;
+        let counts = listed_domains()
+            .select_only()
+            .column_as(count_all(), "total")
+            .column_as(count_where(status_is(HostDomainStatus::Active)), "active")
+            .column_as(count_where(status_is(HostDomainStatus::Pending)), "pending")
+            .column_as(count_where(status_is(HostDomainStatus::Expired)), "expired")
+            .into_tuple::<(i64, i64, i64, i64)>()
+            .one(&db)
+            .await?;
+        let (all, active, pending, expired) = counts.unwrap_or_default();
         let domains: Vec<Value> = rows
             .into_iter()
-            .map(|row| public_domain(weldsuite_db::js_row(row)))
-            .collect();
+            .map(|row| js!(row).map(public_domain))
+            .collect::<Result<_, _>>()?;
         let ids: Vec<String> = domains
             .iter()
             .filter_map(|d| text(d, "id").map(str::to_owned))
@@ -1109,7 +1259,7 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
                 domain
             })
             .collect();
-        let total_pages = ((f64::from(total) / page_size as f64).ceil() as i64).max(1);
+        let total_pages = ((total as f64 / page_size as f64).ceil() as i64).max(1);
         Ok(json!({
             "domains": domains,
             "pagination": {
@@ -1129,7 +1279,7 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
 }
 
 async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
-    let result: Result<Response, sqlx::Error> = async {
+    let result: Result<Response, DbErr> = async {
         let Some((domain, zone)) = domain_with_zone(&caller.db, &id).await? else {
             return Ok(ApiError::not_found("Domain", Some(&id)).into_response());
         };
@@ -1206,26 +1356,25 @@ async fn create(
     let id = generate_id("dom");
     let text_of = |key: &str| input.get(key).and_then(Value::as_str).map(str::to_owned);
     let flag = |key: &str| input.get(key).and_then(Value::as_bool);
-    let result: Result<Response, sqlx::Error> = async {
-        sqlx::query(
-            "insert into domains (id, name, tld, full_domain, status, registrar, nameservers,
-               custom_nameservers, auto_renew, privacy_protection, locked, notes)
-             values ($1, $2, $3, $4, $5::host_domain_status, $6, $7, $8, $9, $10, $11, $12)",
-        )
-        .bind(&id)
-        .bind(text_of("name"))
-        .bind(text_of("tld"))
-        .bind(text_of("fullDomain"))
-        .bind(text_of("status"))
-        .bind(text_of("registrar"))
-        .bind(input.get("nameservers").cloned())
-        .bind(flag("customNameservers"))
-        .bind(flag("autoRenew"))
-        .bind(flag("privacyProtection"))
-        .bind(flag("locked"))
-        .bind(text_of("notes"))
-        .execute(&caller.db)
-        .await?;
+    let result: Result<Response, DbErr> = async {
+        let row = domains::ActiveModel {
+            id: Set(id.clone()),
+            name: Set(text_of("name").unwrap_or_default()),
+            tld: Set(text_of("tld").unwrap_or_default()),
+            full_domain: Set(text_of("fullDomain").unwrap_or_default()),
+            status: Set(domain_status(&text_of("status").unwrap_or_default())?),
+            registrar: Set(text_of("registrar")),
+            nameservers: Set(input.get("nameservers").cloned()),
+            custom_nameservers: Set(flag("customNameservers")),
+            auto_renew: Set(flag("autoRenew")),
+            privacy_protection: Set(flag("privacyProtection")),
+            locked: Set(flag("locked")),
+            notes: Set(text_of("notes")),
+            ..Default::default()
+        };
+        domains::Entity::insert(row)
+            .exec_without_returning(&orm(&caller.db))
+            .await?;
         let row = any_domain(&caller.db, &id).await?.unwrap_or(Value::Null);
         caller.publish(&state, DOMAIN_CREATED, &id, &domain_event(&id, &row));
         Ok(Created(public_domain(row)).into_response())
@@ -1327,7 +1476,6 @@ fn update_fields(issues: &mut Issues, body: &Map<String, Value>) -> Map<String, 
 
 /// `updateDomain(db, id, data)`: every given field, dates through
 /// `new Date()`; `Ok(None)` for no live domain.
-#[allow(clippy::too_many_lines)] // one bind per column
 async fn write_update(
     db: &PgPool,
     id: &str,
@@ -1336,112 +1484,72 @@ async fn write_update(
     if live_domain(db, id).await?.is_none() {
         return Ok(None);
     }
-    let set = |key: &str| data.contains_key(key);
+    let row = update_columns(data)?;
+    domains::Entity::update_many()
+        .set(row)
+        .filter(domains::Column::Id.eq(id))
+        .exec(&orm(db))
+        .await?;
+    Ok(any_domain(db, id).await?)
+}
+
+/// The columns `updateDomain` writes: each field the body gave, and
+/// `updatedAt`.
+fn update_columns(data: &Map<String, Value>) -> Result<domains::ActiveModel, Failure> {
     let text = |key: &str| data.get(key).and_then(Value::as_str).map(str::to_owned);
-    let stamp = |key: &str| -> Result<Option<String>, Failure> {
+    let stamp = |key: &str| -> Result<Option<PrimitiveDateTime>, Failure> {
         match data.get(key).and_then(Value::as_str) {
             None => Ok(None),
-            Some(raw) => js_date_iso(raw)
-                .map(Some)
-                .ok_or_else(|| Failure::Other("RangeError: Invalid time value".to_owned())),
+            Some(raw) => {
+                let iso = js_date_iso(raw)
+                    .ok_or_else(|| Failure::Other("RangeError: Invalid time value".to_owned()))?;
+                Ok(Some(timestamp_of(&iso)?))
+            }
         }
     };
     let flag = |key: &str| data.get(key).and_then(Value::as_bool);
     let json_of = |key: &str| data.get(key).cloned().filter(|v| !v.is_null());
-    sqlx::query(
-        "update domains set
-           name = case when $2 then $3 else name end,
-           tld = case when $4 then $5 else tld end,
-           full_domain = case when $6 then $7 else full_domain end,
-           status = case when $8 then $9::host_domain_status else status end,
-           registrar = case when $10 then $11 else registrar end,
-           external_registrar_id = case when $12 then $13 else external_registrar_id end,
-           registrar_status = case when $14 then $15 else registrar_status end,
-           registrar_synced_at = case when $16 then $17::timestamp else registrar_synced_at end,
-           registered_at = case when $18 then $19::timestamp else registered_at end,
-           expires_at = case when $20 then $21::timestamp else expires_at end,
-           renewed_at = case when $22 then $23::timestamp else renewed_at end,
-           nameservers = case when $24 then $25 else nameservers end,
-           custom_nameservers = case when $26 then $27 else custom_nameservers end,
-           nameserver_verified = case when $28 then $29 else nameserver_verified end,
-           nameserver_verification_pending = case when $30 then $31 else nameserver_verification_pending end,
-           auto_renew = case when $32 then $33 else auto_renew end,
-           privacy_protection = case when $34 then $35 else privacy_protection end,
-           locked = case when $36 then $37 else locked end,
-           ssl_enabled = case when $38 then $39 else ssl_enabled end,
-           email_forwarding_enabled = case when $40 then $41 else email_forwarding_enabled end,
-           auth_code = case when $42 then $43 else auth_code end,
-           auth_code_expires_at = case when $44 then $45::timestamp else auth_code_expires_at end,
-           registrant_contact = case when $46 then $47 else registrant_contact end,
-           admin_contact = case when $48 then $49 else admin_contact end,
-           tech_contact = case when $50 then $51 else tech_contact end,
-           billing_contact = case when $52 then $53 else billing_contact end,
-           notes = case when $54 then $55 else notes end,
-           metadata = case when $56 then $57 else metadata end,
-           updated_at = $58::timestamp
-         where id = $1",
-    )
-    .bind(id)
-    .bind(set("name"))
-    .bind(text("name"))
-    .bind(set("tld"))
-    .bind(text("tld"))
-    .bind(set("fullDomain"))
-    .bind(text("fullDomain"))
-    .bind(set("status"))
-    .bind(text("status"))
-    .bind(set("registrar"))
-    .bind(text("registrar"))
-    .bind(set("externalRegistrarId"))
-    .bind(text("externalRegistrarId"))
-    .bind(set("registrarStatus"))
-    .bind(text("registrarStatus"))
-    .bind(set("registrarSyncedAt"))
-    .bind(stamp("registrarSyncedAt")?)
-    .bind(set("registeredAt"))
-    .bind(stamp("registeredAt")?)
-    .bind(set("expiresAt"))
-    .bind(stamp("expiresAt")?)
-    .bind(set("renewedAt"))
-    .bind(stamp("renewedAt")?)
-    .bind(set("nameservers"))
-    .bind(json_of("nameservers"))
-    .bind(set("customNameservers"))
-    .bind(flag("customNameservers"))
-    .bind(set("nameserverVerified"))
-    .bind(flag("nameserverVerified"))
-    .bind(set("nameserverVerificationPending"))
-    .bind(flag("nameserverVerificationPending"))
-    .bind(set("autoRenew"))
-    .bind(flag("autoRenew"))
-    .bind(set("privacyProtection"))
-    .bind(flag("privacyProtection"))
-    .bind(set("locked"))
-    .bind(flag("locked"))
-    .bind(set("sslEnabled"))
-    .bind(flag("sslEnabled"))
-    .bind(set("emailForwardingEnabled"))
-    .bind(flag("emailForwardingEnabled"))
-    .bind(set("authCode"))
-    .bind(text("authCode"))
-    .bind(set("authCodeExpiresAt"))
-    .bind(stamp("authCodeExpiresAt")?)
-    .bind(set("registrantContact"))
-    .bind(json_of("registrantContact"))
-    .bind(set("adminContact"))
-    .bind(json_of("adminContact"))
-    .bind(set("techContact"))
-    .bind(json_of("techContact"))
-    .bind(set("billingContact"))
-    .bind(json_of("billingContact"))
-    .bind(set("notes"))
-    .bind(text("notes"))
-    .bind(set("metadata"))
-    .bind(json_of("metadata"))
-    .bind(now())
-    .execute(db)
-    .await?;
-    Ok(any_domain(db, id).await?)
+    let mut row = domains::ActiveModel::default();
+    for (key, _) in UPDATE_FIELDS {
+        if !data.contains_key(key) {
+            continue;
+        }
+        match key {
+            "name" => row.name = Set(text(key).unwrap_or_default()),
+            "tld" => row.tld = Set(text(key).unwrap_or_default()),
+            "fullDomain" => row.full_domain = Set(text(key).unwrap_or_default()),
+            "status" => row.status = Set(domain_status(&text(key).unwrap_or_default())?),
+            "registrar" => row.registrar = Set(text(key)),
+            "externalRegistrarId" => row.external_registrar_id = Set(text(key)),
+            "registrarStatus" => row.registrar_status = Set(text(key)),
+            "registrarSyncedAt" => row.registrar_synced_at = Set(stamp(key)?),
+            "registeredAt" => row.registered_at = Set(stamp(key)?),
+            "expiresAt" => row.expires_at = Set(stamp(key)?),
+            "renewedAt" => row.renewed_at = Set(stamp(key)?),
+            "nameservers" => row.nameservers = Set(json_of(key)),
+            "customNameservers" => row.custom_nameservers = Set(flag(key)),
+            "nameserverVerified" => row.nameserver_verified = Set(flag(key)),
+            "nameserverVerificationPending" => {
+                row.nameserver_verification_pending = Set(flag(key));
+            }
+            "autoRenew" => row.auto_renew = Set(flag(key)),
+            "privacyProtection" => row.privacy_protection = Set(flag(key)),
+            "locked" => row.locked = Set(flag(key)),
+            "sslEnabled" => row.ssl_enabled = Set(flag(key)),
+            "emailForwardingEnabled" => row.email_forwarding_enabled = Set(flag(key)),
+            "authCode" => row.auth_code = Set(text(key)),
+            "authCodeExpiresAt" => row.auth_code_expires_at = Set(stamp(key)?),
+            "registrantContact" => row.registrant_contact = Set(json_of(key)),
+            "adminContact" => row.admin_contact = Set(json_of(key)),
+            "techContact" => row.tech_contact = Set(json_of(key)),
+            "billingContact" => row.billing_contact = Set(json_of(key)),
+            "notes" => row.notes = Set(text(key)),
+            "metadata" => row.metadata = Set(json_of(key)),
+            _ => {}
+        }
+    }
+    row.updated_at = Set(utc_now());
+    Ok(row)
 }
 
 async fn update(
@@ -1478,20 +1586,23 @@ async fn remove(
     caller: Caller,
     Path(id): Path<String>,
 ) -> Response {
-    let result: Result<Response, sqlx::Error> = async {
+    let result: Result<Response, DbErr> = async {
         if is_domain_used(&caller.db, &id).await? {
             return Ok(domain_in_use());
         }
         let Some(existing) = live_domain(&caller.db, &id).await? else {
             return Ok(ApiError::not_found("Domain", Some(&id)).into_response());
         };
-        sqlx::query(
-            "update domains set deleted_at = $2::timestamp, updated_at = $2::timestamp where id = $1",
-        )
-        .bind(&id)
-        .bind(now())
-        .execute(&caller.db)
-        .await?;
+        let at = utc_now();
+        domains::Entity::update_many()
+            .set(domains::ActiveModel {
+                deleted_at: Set(Some(at)),
+                updated_at: Set(at),
+                ..Default::default()
+            })
+            .filter(domains::Column::Id.eq(&id))
+            .exec(&orm(&caller.db))
+            .await?;
         caller.publish(&state, DOMAIN_DELETED, &id, &domain_event(&id, &existing));
         Ok(NoContent.into_response())
     }
@@ -1518,20 +1629,31 @@ fn registered_at(domain: &Value) -> Option<&str> {
         .and(text(domain, "registrar"))
 }
 
-/// `update domains t set <column> = $2 … returning to_jsonb(t)`.
+/// `update domains set … where id = $1 returning *`: the row as it is
+/// now, `None` for no row.
+async fn update_returning(
+    db: &PgPool,
+    id: &str,
+    row: domains::ActiveModel,
+) -> Result<Option<Value>, DbErr> {
+    let updated = domains::Entity::update_many()
+        .set(row)
+        .filter(domains::Column::Id.eq(id))
+        .exec_with_returning(&orm(db))
+        .await?;
+    js_option!(updated.into_iter().next())
+}
+
+/// `update domains set <flag> = value, updated_at = now() … returning *`.
 async fn set_flag(
     db: &PgPool,
     id: &str,
-    sql: &'static str,
-    value: bool,
-) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(sql)
-        .bind(id)
-        .bind(value)
-        .bind(now())
-        .fetch_optional(db)
-        .await?;
-    Ok(row.map(weldsuite_db::js_row))
+    set: impl FnOnce(&mut domains::ActiveModel),
+) -> Result<Option<Value>, DbErr> {
+    let mut row = domains::ActiveModel::default();
+    set(&mut row);
+    row.updated_at = Set(utc_now());
+    update_returning(db, id, row).await
 }
 
 fn toggled(state: &HostState, caller: &Caller, id: &str, updated: Option<Value>) -> Response {
@@ -1562,27 +1684,22 @@ async fn toggle_auto_renew(
         let full = text(&domain, "fullDomain").unwrap_or_default();
         match registered_at(&domain) {
             Some("realtimeregister") => {
-                let rtr = providers
-                    .rtr
-                    .as_ref()
-                    .ok_or_else(|| Failure::Other("Realtime Register is not configured".to_owned()))?;
-                rtr.update_domain(full, &json!({ "autoRenew": false })).await?;
+                let rtr = providers.rtr.as_ref().ok_or_else(|| {
+                    Failure::Other("Realtime Register is not configured".to_owned())
+                })?;
+                rtr.update_domain(full, &json!({ "autoRenew": false }))
+                    .await?;
             }
             Some("cloudflare") => {
-                let cf = providers
-                    .cf_registrar()
-                    .ok_or_else(|| Failure::Other("Cloudflare Registrar is not configured".to_owned()))?;
+                let cf = providers.cf_registrar().ok_or_else(|| {
+                    Failure::Other("Cloudflare Registrar is not configured".to_owned())
+                })?;
+                cloudflare_registrar_allowed(&caller.db).await?;
                 cf.update_domain(full, Some(enabled), None).await?;
             }
             _ => {}
         }
-        Ok(set_flag(
-            &caller.db,
-            &id,
-            "update domains t set auto_renew = $2, updated_at = $3::timestamp where t.id = $1 returning to_jsonb(t)",
-            enabled,
-        )
-        .await?)
+        Ok(set_flag(&caller.db, &id, |row| row.auto_renew = Set(Some(enabled))).await?)
     }
     .await;
     match result {
@@ -1631,12 +1748,9 @@ async fn toggle_privacy(
             }
             _ => {}
         }
-        Ok(set_flag(
-            &caller.db,
-            &id,
-            "update domains t set privacy_protection = $2, updated_at = $3::timestamp where t.id = $1 returning to_jsonb(t)",
-            enabled,
-        )
+        Ok(set_flag(&caller.db, &id, |row| {
+            row.privacy_protection = Set(Some(enabled));
+        })
         .await?)
     }
     .await;
@@ -1669,27 +1783,21 @@ async fn toggle_lock(
         let full = text(&domain, "fullDomain").unwrap_or_default();
         match registered_at(&domain) {
             Some("realtimeregister") => {
-                let rtr = providers
-                    .rtr
-                    .as_ref()
-                    .ok_or_else(|| Failure::Other("Realtime Register is not configured".to_owned()))?;
+                let rtr = providers.rtr.as_ref().ok_or_else(|| {
+                    Failure::Other("Realtime Register is not configured".to_owned())
+                })?;
                 rtr.set_transfer_lock(full, locked).await?;
             }
             Some("cloudflare") => {
-                let cf = providers
-                    .cf_registrar()
-                    .ok_or_else(|| Failure::Other("Cloudflare Registrar is not configured".to_owned()))?;
+                let cf = providers.cf_registrar().ok_or_else(|| {
+                    Failure::Other("Cloudflare Registrar is not configured".to_owned())
+                })?;
+                cloudflare_registrar_allowed(&caller.db).await?;
                 cf.update_domain(full, None, Some(locked)).await?;
             }
             _ => {}
         }
-        Ok(set_flag(
-            &caller.db,
-            &id,
-            "update domains t set locked = $2, updated_at = $3::timestamp where t.id = $1 returning to_jsonb(t)",
-            locked,
-        )
-        .await?)
+        Ok(set_flag(&caller.db, &id, |row| row.locked = Set(Some(locked))).await?)
     }
     .await;
     match result {
@@ -1710,8 +1818,10 @@ const IN_FLIGHT: [&str; 5] = [
 ];
 
 /// `new Date(text)` as written: `Err` for an Invalid Date.
-fn date_or_fail(text: &str) -> Result<String, Failure> {
-    js_date_iso(text).ok_or_else(|| Failure::Other("RangeError: Invalid time value".to_owned()))
+fn date_or_fail(text: &str) -> Result<PrimitiveDateTime, Failure> {
+    let iso = js_date_iso(text)
+        .ok_or_else(|| Failure::Other("RangeError: Invalid time value".to_owned()))?;
+    Ok(timestamp_of(&iso)?)
 }
 
 /// `syncDomainStatus`.
@@ -1737,34 +1847,35 @@ async fn sync_status(
             .map(date_or_fail)
             .transpose()?;
         let ok = remote.status.iter().any(|s| s == "OK" || s == "ok");
-        let row: Option<Value> = sqlx::query_scalar(
-            "update domains t set external_registrar_id = $2, registrar_status = $3, locked = $4,
-               privacy_protection = $5,
-               expires_at = case when $6 then $7::timestamp else expires_at end,
-               auth_code = coalesce($8, auth_code),
-               status = case when $9 then 'active'::host_domain_status else status end,
-               registration_status = case when $10 then 'registered'::host_domain_registration_status else registration_status end,
-               registrar_synced_at = $11::timestamp, updated_at = $11::timestamp
-             where t.id = $1 returning to_jsonb(t)",
-        )
-        .bind(id)
-        .bind(&remote.id)
-        .bind(remote.status.join(","))
-        .bind(remote.locked)
-        .bind(remote.privacy_protect)
-        .bind(expires.is_some())
-        .bind(expires)
-        .bind(remote.auth_code.clone())
-        .bind(ok)
-        .bind(can_mark)
-        .bind(now())
-        .fetch_optional(db)
-        .await?;
-        return Ok(row.map(weldsuite_db::js_row));
+        let at = utc_now();
+        let mut row = domains::ActiveModel {
+            external_registrar_id: Set(Some(remote.id.clone())),
+            registrar_status: Set(Some(remote.status.join(","))),
+            locked: Set(Some(remote.locked)),
+            privacy_protection: Set(Some(remote.privacy_protect)),
+            registrar_synced_at: Set(Some(at)),
+            updated_at: Set(at),
+            ..Default::default()
+        };
+        if let Some(expires) = expires {
+            row.expires_at = Set(Some(expires));
+        }
+        // `coalesce($code, auth_code)`.
+        if let Some(code) = &remote.auth_code {
+            row.auth_code = Set(Some(code.clone()));
+        }
+        if ok {
+            row.status = Set(HostDomainStatus::Active);
+        }
+        if can_mark {
+            row.registration_status = Set(Some(HostDomainRegistrationStatus::Registered));
+        }
+        return Ok(update_returning(db, id, row).await?);
     }
     if registrar == Some("cloudflare")
         && let Some(cf) = providers.cf_registrar()
     {
+        cloudflare_registrar_allowed(db).await?;
         let remote = cf.get_domain(&full).await?;
         let expires = remote
             .expires_at
@@ -1772,28 +1883,26 @@ async fn sync_status(
             .filter(|e| !e.is_empty())
             .map(date_or_fail)
             .transpose()?;
-        let row: Option<Value> = sqlx::query_scalar(
-            "update domains t set external_registrar_id = $2, registrar_status = $3, locked = $4,
-               auto_renew = $5,
-               expires_at = case when $6 then $7::timestamp else expires_at end,
-               status = case when $8 then 'active'::host_domain_status else status end,
-               registration_status = case when $9 then 'registered'::host_domain_registration_status else registration_status end,
-               registrar_synced_at = $10::timestamp, updated_at = $10::timestamp
-             where t.id = $1 returning to_jsonb(t)",
-        )
-        .bind(id)
-        .bind(&remote.id)
-        .bind((!remote.status.is_null()).then(|| as_text(&remote.status)))
-        .bind(remote.locked.as_bool())
-        .bind(remote.auto_renew.as_bool())
-        .bind(expires.is_some())
-        .bind(expires)
-        .bind(remote.status.as_str() == Some("active"))
-        .bind(can_mark)
-        .bind(now())
-        .fetch_optional(db)
-        .await?;
-        return Ok(row.map(weldsuite_db::js_row));
+        let at = utc_now();
+        let mut row = domains::ActiveModel {
+            external_registrar_id: Set(Some(remote.id.clone())),
+            registrar_status: Set((!remote.status.is_null()).then(|| as_text(&remote.status))),
+            locked: Set(remote.locked.as_bool()),
+            auto_renew: Set(remote.auto_renew.as_bool()),
+            registrar_synced_at: Set(Some(at)),
+            updated_at: Set(at),
+            ..Default::default()
+        };
+        if let Some(expires) = expires {
+            row.expires_at = Set(Some(expires));
+        }
+        if remote.status.as_str() == Some("active") {
+            row.status = Set(HostDomainStatus::Active);
+        }
+        if can_mark {
+            row.registration_status = Set(Some(HostDomainRegistrationStatus::Registered));
+        }
+        return Ok(update_returning(db, id, row).await?);
     }
     Ok(Some(domain))
 }
@@ -1803,16 +1912,17 @@ async fn sync(State(state): State<HostState>, caller: Caller, Path(id): Path<Str
     if providers.rtr.is_none() && providers.cf_registrar().is_none() {
         let found = async {
             if live_domain(&caller.db, &id).await?.is_none() {
-                return Ok::<_, sqlx::Error>(false);
+                return Ok::<_, DbErr>(false);
             }
-            sqlx::query(
-                "update domains set registrar_synced_at = $2::timestamp, updated_at = $3::timestamp where id = $1",
-            )
-            .bind(&id)
-            .bind(now())
-            .bind(now())
-            .execute(&caller.db)
-            .await?;
+            domains::Entity::update_many()
+                .set(domains::ActiveModel {
+                    registrar_synced_at: Set(Some(utc_now())),
+                    updated_at: Set(utc_now()),
+                    ..Default::default()
+                })
+                .filter(domains::Column::Id.eq(&id))
+                .exec(&orm(&caller.db))
+                .await?;
             Ok(true)
         }
         .await;
@@ -1828,6 +1938,7 @@ async fn sync(State(state): State<HostState>, caller: Caller, Path(id): Path<Str
             Data(public_domain(updated)).into_response()
         }
         Ok(None) => ApiError::not_found("Domain", Some(&id)).into_response(),
+        Err(Failure::OutsideEu(error)) => error.to_api_error().into_response(),
         Err(failure) => internal(&failure, "Domain sync failed"),
     }
 }
@@ -1881,17 +1992,19 @@ async fn verify_nameservers(
     } else {
         configured
     };
-    let result: Result<Option<Value>, sqlx::Error> = async {
+    let result: Result<Option<Value>, DbErr> = async {
         let Some(domain) = live_domain(&caller.db, &id).await? else {
             return Ok(None);
         };
-        sqlx::query(
-            "update domains set nameserver_verification_pending = true, updated_at = $2::timestamp where id = $1",
-        )
-        .bind(&id)
-        .bind(now())
-        .execute(&caller.db)
-        .await?;
+        domains::Entity::update_many()
+            .set(domains::ActiveModel {
+                nameserver_verification_pending: Set(Some(true)),
+                updated_at: Set(utc_now()),
+                ..Default::default()
+            })
+            .filter(domains::Column::Id.eq(&id))
+            .exec(&orm(&caller.db))
+            .await?;
         Ok(Some(domain))
     }
     .await;
@@ -1924,7 +2037,7 @@ async fn verify_ownership(
     Path(id): Path<String>,
 ) -> Response {
     let providers = caller.providers(&state);
-    let result: Result<Response, sqlx::Error> = async {
+    let result: Result<Response, DbErr> = async {
         let Some(domain) = live_domain(&caller.db, &id).await? else {
             return Ok(ApiError::not_found("Domain", Some(&id)).into_response());
         };
@@ -1999,6 +2112,9 @@ async fn verify_ownership(
                 ))
                 .into_response());
         };
+        if let Err(refusal) = dns_allowed(&caller.db, provider).await {
+            return Ok(refusal);
+        }
         let label = provider.label();
         let zone = match dns.create_zone(&account, &full).await {
             Ok(zone) => zone,
@@ -2031,49 +2147,15 @@ async fn verify_ownership(
             }
         };
         let zone_row_id = take_over.clone().unwrap_or_else(|| generate_id("zone"));
-        let persisted: Result<(), sqlx::Error> = async {
-            sqlx::query(
-                "update domains set nameservers = $2, nameserver_verified = true,
-                   nameserver_verification_pending = false, custom_nameservers = false,
-                   updated_at = $3::timestamp where id = $1",
-            )
-            .bind(&id)
-            .bind(json!(zone.nameservers))
-            .bind(now())
-            .execute(&caller.db)
-            .await?;
-            if take_over.is_some() {
-                sqlx::query(
-                    "update dns_zones set name = $3, status = 'pending', provider = $6::host_dns_provider,
-                       external_zone_id = $4, external_nameservers = $5, updated_at = $7::timestamp
-                     where id = $1 and domain_id = $2",
-                )
-                .bind(&zone_row_id)
-                .bind(&id)
-                .bind(&full)
-                .bind(&zone.id)
-                .bind(json!(zone.nameservers))
-                .bind(provider.as_str())
-                .bind(now())
-                .execute(&caller.db)
-                .await?;
-                return Ok(());
-            }
-            sqlx::query(
-                "insert into dns_zones (id, domain_id, name, status, provider, external_zone_id,
-                   external_nameservers)
-                 values ($1, $2, $3, 'pending', $6::host_dns_provider, $4, $5)",
-            )
-            .bind(&zone_row_id)
-            .bind(&id)
-            .bind(&full)
-            .bind(&zone.id)
-            .bind(json!(zone.nameservers))
-            .bind(provider.as_str())
-            .execute(&caller.db)
-            .await?;
-            Ok(())
-        }
+        let persisted = persist_zone(
+            &caller.db,
+            &id,
+            &full,
+            &zone,
+            zone_provider(provider),
+            &zone_row_id,
+            take_over.is_some(),
+        )
         .await;
         if let Err(error) = persisted {
             tracing::error!(%error, "[domains.service] DB write failed after zone creation, rolling back the {label} zone");
@@ -2099,13 +2181,81 @@ async fn verify_ownership(
     result.unwrap_or_else(|error| internal(&error, "Failed to verify ownership"))
 }
 
+/// The verified domain's nameservers and its zone row: a new one, or the
+/// zone kept by hand that it takes over.
+async fn persist_zone(
+    db: &PgPool,
+    id: &str,
+    full: &str,
+    zone: &crate::dns_host::Zone,
+    provider: HostDnsProvider,
+    zone_row_id: &str,
+    take_over: bool,
+) -> Result<(), DbErr> {
+    let db = orm(db);
+    domains::Entity::update_many()
+        .set(domains::ActiveModel {
+            nameservers: Set(Some(json!(zone.nameservers))),
+            nameserver_verified: Set(Some(true)),
+            nameserver_verification_pending: Set(Some(false)),
+            custom_nameservers: Set(Some(false)),
+            updated_at: Set(utc_now()),
+            ..Default::default()
+        })
+        .filter(domains::Column::Id.eq(id))
+        .exec(&db)
+        .await?;
+    if take_over {
+        dns_zones::Entity::update_many()
+            .set(dns_zones::ActiveModel {
+                name: Set(full.to_owned()),
+                status: Set(HostDnsZoneStatus::Pending),
+                provider: Set(provider),
+                external_zone_id: Set(Some(zone.id.clone())),
+                external_nameservers: Set(Some(json!(zone.nameservers))),
+                updated_at: Set(utc_now()),
+                ..Default::default()
+            })
+            .filter(dns_zones::Column::Id.eq(zone_row_id))
+            .filter(dns_zones::Column::DomainId.eq(id))
+            .exec(&db)
+            .await?;
+        return Ok(());
+    }
+    let row = dns_zones::ActiveModel {
+        id: Set(zone_row_id.to_owned()),
+        domain_id: Set(id.to_owned()),
+        name: Set(full.to_owned()),
+        status: Set(HostDnsZoneStatus::Pending),
+        provider: Set(provider),
+        external_zone_id: Set(Some(zone.id.clone())),
+        external_nameservers: Set(Some(json!(zone.nameservers))),
+        ..Default::default()
+    };
+    dns_zones::Entity::insert(row)
+        .exec_without_returning(&db)
+        .await?;
+    Ok(())
+}
+
+/// `update dns_zones set … where id = $1`.
+async fn update_zone(db: &PgPool, zone_id: &str, row: dns_zones::ActiveModel) -> Result<(), DbErr> {
+    dns_zones::Entity::update_many()
+        .set(row)
+        .filter(dns_zones::Column::Id.eq(zone_id))
+        .exec(&orm(db))
+        .await?;
+    Ok(())
+}
+
+#[allow(clippy::too_many_lines)] // the zone, the outside-EU check, the read and the writes
 async fn refresh_zone_status(
     State(state): State<HostState>,
     caller: Caller,
     Path(id): Path<String>,
 ) -> Response {
     let providers = caller.providers(&state);
-    let result: Result<Response, sqlx::Error> = async {
+    let result: Result<Response, DbErr> = async {
         let Some((domain, zone)) = domain_with_zone(&caller.db, &id).await? else {
             return Ok(ApiError::not_found("Domain", Some(&id)).into_response());
         };
@@ -2114,7 +2264,10 @@ async fn refresh_zone_status(
             (Some(zone), ZoneDns::Ready(provider, dns)) => (zone, provider, dns),
             (_, ZoneDns::Unconfigured(provider)) => {
                 return Ok(ApiError::internal()
-                    .with_message(format!("{} integration is not configured.", provider.label()))
+                    .with_message(format!(
+                        "{} integration is not configured.",
+                        provider.label()
+                    ))
                     .into_response());
             }
             _ => {
@@ -2125,6 +2278,9 @@ async fn refresh_zone_status(
                 .into_response());
             }
         };
+        if let Err(refusal) = dns_allowed(&caller.db, provider).await {
+            return Ok(refusal);
+        }
         let label = provider.label();
         let external = text(&zone, "externalZoneId").unwrap_or_default().to_owned();
         let zone_id = text(&zone, "id").unwrap_or_default().to_owned();
@@ -2141,16 +2297,15 @@ async fn refresh_zone_status(
             }
         };
         let Some(cf_zone) = cf_zone else {
-            let at = now();
-            sqlx::query(
-                "update dns_zones set status = 'error', sync_error = $3,
-                   synced_at = $2::timestamp, updated_at = $2::timestamp where id = $1",
-            )
-            .bind(&zone_id)
-            .bind(&at)
-            .bind(format!("Zone no longer exists on {label}"))
-            .execute(&caller.db)
-            .await?;
+            let at = utc_now();
+            let row = dns_zones::ActiveModel {
+                status: Set(HostDnsZoneStatus::Error),
+                sync_error: Set(Some(format!("Zone no longer exists on {label}"))),
+                synced_at: Set(Some(at)),
+                updated_at: Set(at),
+                ..Default::default()
+            };
+            update_zone(&caller.db, &zone_id, row).await?;
             return Ok(Data(json!({
                 "zoneStatus": "error",
                 "domainStatus": domain_status,
@@ -2158,37 +2313,41 @@ async fn refresh_zone_status(
             }))
             .into_response());
         };
-        let next = match cf_zone.status.as_str() {
-            "active" => "active",
-            "pending" | "initializing" => "pending",
-            _ => "error",
+        let (next, next_status) = match cf_zone.status.as_str() {
+            "active" => ("active", HostDnsZoneStatus::Active),
+            "pending" | "initializing" => ("pending", HostDnsZoneStatus::Pending),
+            _ => ("error", HostDnsZoneStatus::Error),
         };
         if Some(next) != text(&zone, "status") {
-            let at = now();
-            sqlx::query(
-                "update dns_zones set status = $2::host_dns_zone_status, external_nameservers = $3,
-                   synced_at = $4::timestamp, sync_error = $5, updated_at = $4::timestamp
-                 where id = $1",
-            )
-            .bind(&zone_id)
-            .bind(next)
-            .bind(json!(cf_zone.nameservers))
-            .bind(&at)
-            .bind((next == "error").then(|| format!("{label} status: {}", cf_zone.status)))
-            .execute(&caller.db)
-            .await?;
+            let at = utc_now();
+            let row = dns_zones::ActiveModel {
+                status: Set(next_status),
+                external_nameservers: Set(Some(json!(cf_zone.nameservers))),
+                synced_at: Set(Some(at)),
+                sync_error: Set(
+                    (next == "error").then(|| format!("{label} status: {}", cf_zone.status))
+                ),
+                updated_at: Set(at),
+                ..Default::default()
+            };
+            update_zone(&caller.db, &zone_id, row).await?;
         }
         let mut status = domain_status;
-        if is_external_registrar(text(&domain, "registrar")) && next == "active" && status == "pending" {
+        if is_external_registrar(text(&domain, "registrar"))
+            && next == "active"
+            && status == "pending"
+        {
             "active".clone_into(&mut status);
-            sqlx::query(
-                "update domains set status = 'active', nameservers = $2, updated_at = $3::timestamp where id = $1",
-            )
-            .bind(&id)
-            .bind(json!(cf_zone.nameservers))
-            .bind(now())
-            .execute(&caller.db)
-            .await?;
+            domains::Entity::update_many()
+                .set(domains::ActiveModel {
+                    status: Set(HostDomainStatus::Active),
+                    nameservers: Set(Some(json!(cf_zone.nameservers))),
+                    updated_at: Set(utc_now()),
+                    ..Default::default()
+                })
+                .filter(domains::Column::Id.eq(&id))
+                .exec(&orm(&caller.db))
+                .await?;
         }
         Ok(Data(json!({
             "zoneStatus": next,
@@ -2208,7 +2367,7 @@ async fn auth_code(
     Path(id): Path<String>,
 ) -> Response {
     let providers = caller.providers(&state);
-    let result: Result<Response, sqlx::Error> = async {
+    let result: Result<Response, DbErr> = async {
         if is_domain_used(&caller.db, &id).await? {
             return Ok(domain_in_use());
         }
@@ -2247,17 +2406,18 @@ async fn auth_code(
                 "The registrar did not return an auth code for this domain yet. Try again shortly.",
             );
         };
-        let expires = iso_timestamp(OffsetDateTime::now_utc() + Duration::days(7));
-        sqlx::query(
-            "update domains set auth_code = $2, auth_code_expires_at = $3::timestamp,
-               updated_at = $4::timestamp where id = $1",
-        )
-        .bind(&id)
-        .bind(&code)
-        .bind(&expires)
-        .bind(now())
-        .execute(&caller.db)
-        .await?;
+        let expires_at = OffsetDateTime::now_utc() + Duration::days(7);
+        let expires = iso_timestamp(expires_at);
+        domains::Entity::update_many()
+            .set(domains::ActiveModel {
+                auth_code: Set(Some(code.clone())),
+                auth_code_expires_at: Set(Some(utc_timestamp(expires_at))),
+                updated_at: Set(utc_now()),
+                ..Default::default()
+            })
+            .filter(domains::Column::Id.eq(&id))
+            .exec(&orm(&caller.db))
+            .await?;
         Ok(json_response(
             StatusCode::OK,
             json!({ "success": true, "authCode": code, "expiresAt": expires }),
@@ -2310,7 +2470,7 @@ pub(crate) async fn poll_registration(
     db: &PgPool,
     rtr: &RealtimeRegistrar,
     id: &str,
-) -> Result<Option<Value>, sqlx::Error> {
+) -> Result<Option<Value>, DbErr> {
     let Some(domain) = live_domain(db, id).await? else {
         return Ok(None);
     };
@@ -2337,15 +2497,13 @@ pub(crate) async fn poll_registration(
     match outcome {
         Outcome::Pending => Ok(Some(domain)),
         Outcome::Failed => {
-            let row: Option<Value> = sqlx::query_scalar(
-                "update domains t set registration_status = 'registration_failed', status = 'cancelled',
-                   updated_at = $2::timestamp where t.id = $1 returning to_jsonb(t)",
-            )
-            .bind(id)
-            .bind(now())
-            .fetch_optional(db)
-            .await?;
-            Ok(row.map(weldsuite_db::js_row))
+            let row = domains::ActiveModel {
+                registration_status: Set(Some(HostDomainRegistrationStatus::RegistrationFailed)),
+                status: Set(HostDomainStatus::Cancelled),
+                updated_at: Set(utc_now()),
+                ..Default::default()
+            };
+            update_returning(db, id, row).await
         }
         Outcome::Completed => {
             let remote = match rtr
@@ -2367,24 +2525,22 @@ pub(crate) async fn poll_registration(
             else {
                 return Ok(Some(domain));
             };
-            let at = now();
-            let row: Option<Value> = sqlx::query_scalar(
-                "update domains t set status = 'active', registration_status = 'registered',
-                   external_registrar_id = $2, registrar_status = $3, registered_at = $4::timestamp,
-                   expires_at = $5::timestamp, locked = $6, privacy_protection = $7,
-                   registrar_synced_at = $4::timestamp, updated_at = $4::timestamp
-                 where t.id = $1 returning to_jsonb(t)",
-            )
-            .bind(id)
-            .bind(&remote.id)
-            .bind(remote.status.join(","))
-            .bind(&at)
-            .bind(expires)
-            .bind(remote.locked)
-            .bind(remote.privacy_protect)
-            .fetch_optional(db)
-            .await?;
-            Ok(row.map(weldsuite_db::js_row))
+            let expires = expires.map(|iso| timestamp_of(&iso)).transpose()?;
+            let at = utc_now();
+            let row = domains::ActiveModel {
+                status: Set(HostDomainStatus::Active),
+                registration_status: Set(Some(HostDomainRegistrationStatus::Registered)),
+                external_registrar_id: Set(Some(remote.id.clone())),
+                registrar_status: Set(Some(remote.status.join(","))),
+                registered_at: Set(Some(at)),
+                expires_at: Set(expires),
+                locked: Set(Some(remote.locked)),
+                privacy_protection: Set(Some(remote.privacy_protect)),
+                registrar_synced_at: Set(Some(at)),
+                updated_at: Set(at),
+                ..Default::default()
+            };
+            update_returning(db, id, row).await
         }
     }
 }
@@ -2394,7 +2550,7 @@ pub(crate) async fn poll_renewal(
     db: &PgPool,
     rtr: &RealtimeRegistrar,
     id: &str,
-) -> Result<Option<Value>, sqlx::Error> {
+) -> Result<Option<Value>, DbErr> {
     let Some(domain) = live_domain(db, id).await? else {
         return Ok(None);
     };
@@ -2435,16 +2591,13 @@ pub(crate) async fn poll_renewal(
                 "error".to_owned(),
                 json!("Registrar renewal process failed"),
             );
-            let row: Option<Value> = sqlx::query_scalar(
-                "update domains t set registration_status = 'failed', metadata = $2,
-                   updated_at = $3::timestamp where t.id = $1 returning to_jsonb(t)",
-            )
-            .bind(id)
-            .bind(Value::Object(metadata))
-            .bind(now())
-            .fetch_optional(db)
-            .await?;
-            Ok(row.map(weldsuite_db::js_row))
+            let row = domains::ActiveModel {
+                registration_status: Set(Some(HostDomainRegistrationStatus::Failed)),
+                metadata: Set(Some(Value::Object(metadata))),
+                updated_at: Set(utc_now()),
+                ..Default::default()
+            };
+            update_returning(db, id, row).await
         }
         Outcome::Completed => {
             let remote = match rtr
@@ -2468,24 +2621,22 @@ pub(crate) async fn poll_renewal(
             };
             let mut metadata = metadata;
             metadata.remove("rtrRenewalProcessId");
-            let at = now();
-            let row: Option<Value> = sqlx::query_scalar(
-                "update domains t set status = 'active', registration_status = 'renewed',
-                   renewed_at = $2::timestamp,
-                   expires_at = case when $3 then $4::timestamp else expires_at end,
-                   registrar_status = $5, registrar_synced_at = $2::timestamp, metadata = $6,
-                   updated_at = $2::timestamp
-                 where t.id = $1 returning to_jsonb(t)",
-            )
-            .bind(id)
-            .bind(&at)
-            .bind(expires.is_some())
-            .bind(expires)
-            .bind(remote.status.join(","))
-            .bind(Value::Object(metadata))
-            .fetch_optional(db)
-            .await?;
-            Ok(row.map(weldsuite_db::js_row))
+            let expires = expires.map(|iso| timestamp_of(&iso)).transpose()?;
+            let at = utc_now();
+            let mut row = domains::ActiveModel {
+                status: Set(HostDomainStatus::Active),
+                registration_status: Set(Some(HostDomainRegistrationStatus::Renewed)),
+                renewed_at: Set(Some(at)),
+                registrar_status: Set(Some(remote.status.join(","))),
+                registrar_synced_at: Set(Some(at)),
+                metadata: Set(Some(Value::Object(metadata))),
+                updated_at: Set(at),
+                ..Default::default()
+            };
+            if let Some(expires) = expires {
+                row.expires_at = Set(Some(expires));
+            }
+            update_returning(db, id, row).await
         }
     }
 }
@@ -2528,22 +2679,27 @@ async fn complete_registration(
         Ok(contact) => contact,
         Err(response) => return *response,
     };
-    let result: Result<Response, sqlx::Error> = async {
+    let result: Result<Response, DbErr> = async {
         if any_domain(&caller.db, &id).await?.is_none() {
             return Ok(ApiError::not_found("Domain registration", Some(&id)).into_response());
         }
-        let at = now();
-        sqlx::query(
-            "update domains set status = 'active', registration_status = 'registered',
-               registered_at = $2::timestamp, registrant_contact = coalesce($3, registrant_contact),
-               updated_at = $2::timestamp
-             where id = $1",
-        )
-        .bind(&id)
-        .bind(&at)
-        .bind(contact)
-        .execute(&caller.db)
-        .await?;
+        let at = utc_now();
+        let mut row = domains::ActiveModel {
+            status: Set(HostDomainStatus::Active),
+            registration_status: Set(Some(HostDomainRegistrationStatus::Registered)),
+            registered_at: Set(Some(at)),
+            updated_at: Set(at),
+            ..Default::default()
+        };
+        // `coalesce($contact, registrant_contact)`.
+        if let Some(contact) = contact {
+            row.registrant_contact = Set(Some(contact));
+        }
+        domains::Entity::update_many()
+            .set(row)
+            .filter(domains::Column::Id.eq(&id))
+            .exec(&orm(&caller.db))
+            .await?;
         let Some(row) = any_domain(&caller.db, &id).await? else {
             return Ok(ApiError::not_found("Domain registration", Some(&id)).into_response());
         };

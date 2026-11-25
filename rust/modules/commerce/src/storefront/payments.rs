@@ -15,10 +15,13 @@ use axum::Extension;
 use axum::extract::Path;
 use axum::response::Response;
 use http::StatusCode;
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Value, json};
 use weldsuite_commerce_domain::payments::connection;
 use weldsuite_commerce_domain::payments::service::{self, NewOrderPayment};
 use weldsuite_commerce_domain::payments::{Env, Error as PaymentError};
+use weldsuite_db::orm;
+use weldsuite_schema::tenant::orders;
 
 use super::{Principal, conflict, data, fail, internal};
 use crate::payments::{Settle, settle_after_apply, settle_created};
@@ -58,10 +61,10 @@ fn settle(principal: &Principal) -> Settle<'_> {
 }
 
 /// A publishable key's `redirectUrl` must be on one of the key's allowed
-/// origins; a private key (the merchant's server) may redirect anywhere
-/// `https`.
+/// origins, a hosted shop's on one of its own hosts; a private key (the
+/// merchant's server) may redirect anywhere `https`.
 pub(super) fn redirect_allowed(principal: &Principal, redirect: &str) -> bool {
-    if principal.key_kind != "publishable" {
+    if principal.key_kind != "publishable" && principal.key_kind != "hosted" {
         return true;
     }
     let Ok(url) = url::Url::parse(redirect) else {
@@ -194,13 +197,19 @@ async fn find(
     let Some(payment) = payment else {
         return Err(missing());
     };
-    let order: Option<(String, String, Option<String>)> = sqlx::query_as(
-        "select id, order_number, channel_id from orders where id = $1 and deleted_at is null",
-    )
-    .bind(payment["orderId"].as_str())
-    .fetch_optional(&principal.db)
-    .await
-    .map_err(|e| internal(&e, "The payment could not be read"))?;
+    let order: Option<(String, String, Option<String>)> = orders::Entity::find()
+        .select_only()
+        .columns([
+            orders::Column::Id,
+            orders::Column::OrderNumber,
+            orders::Column::ChannelId,
+        ])
+        .filter(orders::Column::Id.eq(payment["orderId"].as_str()))
+        .filter(orders::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(&principal.db))
+        .await
+        .map_err(|e| internal(&e, "The payment could not be read"))?;
     match order {
         Some((id, number, Some(channel))) if channel == principal.channel.id => {
             Ok((payment, id, number))

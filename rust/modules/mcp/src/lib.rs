@@ -22,11 +22,14 @@
 //! - [`auth`]: the bearer token, the workspace, the member's permissions and
 //!   the rate limit, for the server; conformance builds take the session from
 //!   the test instead.
+//! - [`selection`]: the workspace step of an MCP client's sign-in on WeldID
+//!   (`/api/mcp/workspace-selections`, for the platform's `/auth/mcp-workspace`
+//!   page): the answer becomes the token's `tenant` claim, which [`auth`]
+//!   reads.
+//! - [`picker`]: membership mode, a plain `/mcp` and a token that names no
+//!   workspace for an account in several: connected, with one tool that
+//!   lists them and says how to pick one.
 
-#![allow(
-    clippy::disallowed_methods,
-    reason = "not converted to the ORM yet (ADR DATA-019)"
-)]
 #![allow(clippy::result_large_err)]
 
 mod annotations;
@@ -38,8 +41,10 @@ pub mod catalog;
 mod hooks;
 mod js;
 pub mod permissions;
+mod picker;
 pub mod present;
 mod rpc;
+pub mod selection;
 pub mod transport;
 mod user_apps;
 
@@ -55,6 +60,7 @@ use weldsuite_db::{PgPool, Workspaces};
 use weldsuite_ports::DynCache;
 
 pub use auth::{McpAuth, well_known_router};
+pub use selection::{SelectionState, selection_router};
 pub use transport::serve;
 
 /// An authenticated MCP session (`McpSession`): a member acting inside one

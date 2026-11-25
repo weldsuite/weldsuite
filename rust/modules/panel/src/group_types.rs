@@ -20,16 +20,20 @@ use axum::body::Bytes;
 use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use http::{HeaderMap, StatusCode};
+use sea_orm::sea_query::Expr;
+use sea_orm::{ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder};
 use serde_json::{Value, json};
 use weldsuite_catalogs::entity_events::{
     EventName, PANEL_GROUP_TYPE_CREATED, PANEL_GROUP_TYPE_DELETED, PANEL_GROUP_TYPE_UPDATED,
 };
+use weldsuite_db::orm;
 use weldsuite_kit::{ApiError, Created, Data, List, NoContent, Pagination};
+use weldsuite_schema::tenant::panel_group_types as group_types;
 
 use crate::project_state::{PanelProjectState, ProjectRef};
 use crate::projects::live_project;
 use crate::query::QueryFailure;
-use crate::saved::{field, rows, text};
+use crate::saved::{field, js_row, text};
 use crate::schemas_gen::{
     CREATE_PANEL_GROUP_TYPE, PANEL_GROUP_TYPE_LIST_QUERY, UPDATE_PANEL_GROUP_TYPE,
 };
@@ -124,24 +128,24 @@ fn limit_reached(types: &[String]) -> Response {
     .into_response()
 }
 
-async fn list_rows(caller: &Caller, project_id: &str) -> Result<Vec<Value>, sqlx::Error> {
-    let found: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from panel_group_types t
-         where t.project_id = $1 order by t.created_at asc, t.id asc",
-    )
-    .bind(project_id)
-    .fetch_all(&caller.db)
-    .await?;
-    Ok(rows(found))
+async fn list_rows(caller: &Caller, project_id: &str) -> Result<Vec<Value>, DbErr> {
+    group_types::Entity::find()
+        .filter(group_types::Column::ProjectId.eq(project_id))
+        .order_by_asc(group_types::Column::CreatedAt)
+        .order_by_asc(group_types::Column::Id)
+        .all(&orm(&caller.db))
+        .await?
+        .into_iter()
+        .map(js_row)
+        .collect()
 }
 
-async fn get_row(caller: &Caller, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> =
-        sqlx::query_scalar("select to_jsonb(t) from panel_group_types t where t.id = $1 limit 1")
-            .bind(id)
-            .fetch_optional(&caller.db)
-            .await?;
-    Ok(row.map(weldsuite_db::js_row))
+async fn get_row(caller: &Caller, id: &str) -> Result<Option<Value>, DbErr> {
+    group_types::Entity::find_by_id(id)
+        .one(&orm(&caller.db))
+        .await?
+        .map(js_row)
+        .transpose()
 }
 
 fn project_ref<'a>(caller: &'a Caller, project_id: &'a str) -> ProjectRef<'a> {
@@ -280,24 +284,25 @@ pub(crate) async fn create(
     if !types.contains(&group_type) {
         return limit_reached(&types);
     }
-    let inserted: Result<Value, sqlx::Error> = sqlx::query_scalar(
-        "insert into panel_group_types as t
-           (id, project_id, group_type, name_singular, name_plural, crm_match_property)
-         values ($1, $2, $3, $4, $5, $6)
-         returning to_jsonb(t)",
-    )
-    .bind(weldsuite_kit::id::generate_id("pngt"))
-    .bind(&project_id)
-    .bind(&group_type)
-    .bind(input.text("nameSingular"))
-    .bind(input.text("namePlural"))
-    .bind(input.get("crmMatchProperty").and_then(Value::as_str))
-    .fetch_one(&caller.db)
-    .await;
+    let inserted = group_types::Entity::insert(group_types::ActiveModel {
+        id: Set(weldsuite_kit::id::generate_id("pngt")),
+        project_id: Set(project_id.clone()),
+        group_type: Set(group_type.clone()),
+        name_singular: Set(input.text("nameSingular").unwrap_or_default().to_owned()),
+        name_plural: Set(input.text("namePlural").unwrap_or_default().to_owned()),
+        crm_match_property: Set(input
+            .get("crmMatchProperty")
+            .and_then(Value::as_str)
+            .map(str::to_owned)),
+        ..Default::default()
+    })
+    .exec_with_returning(&orm(&caller.db))
+    .await
+    .and_then(js_row);
     let row = match inserted {
-        Ok(row) => weldsuite_db::js_row(row),
+        Ok(row) => row,
         // Created by a concurrent request between the check and the insert.
-        Err(sqlx::Error::Database(error)) if error.is_unique_violation() => return duplicate(),
+        Err(error) if weldsuite_db::is_unique_violation(&error) => return duplicate(),
         Err(error) => return unexpected(&error, "create group type"),
     };
     publish(&caller, &state, &row, PANEL_GROUP_TYPE_CREATED);
@@ -339,24 +344,27 @@ pub(crate) async fn update(
     if let Err(response) = existing(&caller, &id).await {
         return *response;
     }
-    let updated: Result<Option<Value>, sqlx::Error> = sqlx::query_scalar(
-        "update panel_group_types as t set
-           name_singular = coalesce($2, t.name_singular),
-           name_plural = coalesce($3, t.name_plural),
-           crm_match_property = case when $4 then $5 else t.crm_match_property end,
-           updated_at = now()
-         where t.id = $1
-         returning to_jsonb(t)",
-    )
-    .bind(&id)
-    .bind(input.get("nameSingular").and_then(Value::as_str))
-    .bind(input.get("namePlural").and_then(Value::as_str))
-    .bind(input.get("crmMatchProperty").is_some())
-    .bind(input.get("crmMatchProperty").and_then(Value::as_str))
-    .fetch_optional(&caller.db)
-    .await;
+    let mut update = group_types::Entity::update_many();
+    if let Some(singular) = input.get("nameSingular").and_then(Value::as_str) {
+        update = update.col_expr(group_types::Column::NameSingular, Expr::value(singular));
+    }
+    if let Some(plural) = input.get("namePlural").and_then(Value::as_str) {
+        update = update.col_expr(group_types::Column::NamePlural, Expr::value(plural));
+    }
+    if let Some(property) = input.get("crmMatchProperty") {
+        update = update.col_expr(
+            group_types::Column::CrmMatchProperty,
+            Expr::value(property.as_str().map(str::to_owned)),
+        );
+    }
+    let updated = update
+        .col_expr(group_types::Column::UpdatedAt, Expr::current_timestamp())
+        .filter(group_types::Column::Id.eq(&id))
+        .exec_with_returning(&orm(&caller.db))
+        .await
+        .and_then(|rows| rows.into_iter().next().map(js_row).transpose());
     let row = match updated {
-        Ok(Some(row)) => weldsuite_db::js_row(row),
+        Ok(Some(row)) => row,
         Ok(None) => return ApiError::not_found("Group type", Some(&id)).into_response(),
         Err(error) => return unexpected(&error, "update group type"),
     };
@@ -375,13 +383,13 @@ pub(crate) async fn remove(
     if let Err(response) = existing(&caller, &id).await {
         return *response;
     }
-    let deleted: Result<Option<Value>, sqlx::Error> =
-        sqlx::query_scalar("delete from panel_group_types t where t.id = $1 returning to_jsonb(t)")
-            .bind(&id)
-            .fetch_optional(&caller.db)
-            .await;
+    let deleted = group_types::Entity::delete_many()
+        .filter(group_types::Column::Id.eq(&id))
+        .exec_with_returning(&orm(&caller.db))
+        .await
+        .and_then(|rows| rows.into_iter().next().map(js_row).transpose());
     let row = match deleted {
-        Ok(Some(row)) => weldsuite_db::js_row(row),
+        Ok(Some(row)) => row,
         Ok(None) => return ApiError::not_found("Group type", Some(&id)).into_response(),
         Err(error) => return unexpected(&error, "delete group type"),
     };

@@ -45,11 +45,6 @@
 //!   organization mismatch) and an admin console that knows each
 //!   deployment's gateway.
 
-#![allow(
-    clippy::disallowed_methods,
-    reason = "not converted to the ORM yet (ADR DATA-019)"
-)]
-
 mod config;
 mod directory;
 mod gateway;

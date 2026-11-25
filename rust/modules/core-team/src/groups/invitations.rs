@@ -23,16 +23,28 @@ use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use http::{HeaderMap, StatusCode};
+use sea_orm::ActiveValue::Set;
+use sea_orm::sea_query::{Asterisk, Expr, Func, OnConflict};
+use sea_orm::{
+    ColumnTrait, Condition, DbErr, EntityTrait, JoinType, QueryFilter, QuerySelect, QueryTrait,
+    RelationDef,
+};
 use serde_json::{Value, json};
-use weldsuite_db::{PgPool, js_row};
+use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_kit::validation::Presence;
 use weldsuite_kit::{ApiError, Data, generate_id};
 use weldsuite_ports::{
     DynRealtimePublisher, IdentityError, Invitation, Membership, RealtimeMessage, Room,
     with_identity,
 };
+use weldsuite_schema::master::workspaces;
+use weldsuite_schema::tenant::{
+    chat_channel_members as channel_members, chat_channel_role_links as role_links, chat_channels,
+    workspace_members as members,
+};
 
-use crate::{AccountCaller, CoreTeamState, TeamError, TeamResult, answer, now, validate};
+use crate::access::js;
+use crate::{AccountCaller, CoreTeamState, TeamError, TeamResult, answer, validate};
 
 pub(crate) fn router() -> Router<CoreTeamState> {
     Router::new()
@@ -61,14 +73,20 @@ fn tenant_role(role: &str) -> Option<&'static str> {
 /// every workspace there: an accepted invitation left the member row
 /// PENDING, so the new member's every request was refused.
 async fn tenant_db(state: &CoreTeamState, master: &PgPool, org: &str) -> Option<PgPool> {
-    let configured: Option<bool> = sqlx::query_scalar(
-        "select coalesce(database_url, '') <> '' from workspaces
-         where id = $1 or clerk_org_id = $1 limit 1",
-    )
-    .bind(org)
-    .fetch_optional(master)
-    .await
-    .ok()?;
+    let database_url: Option<Option<String>> = workspaces::Entity::find()
+        .select_only()
+        .column(workspaces::Column::DatabaseUrl)
+        .filter(
+            Condition::any()
+                .add(workspaces::Column::Id.eq(org))
+                .add(workspaces::Column::ClerkOrgId.eq(org)),
+        )
+        .into_tuple()
+        .one(&orm(master))
+        .await
+        .ok()?;
+    // `coalesce(database_url, '') <> ''`.
+    let configured = database_url.map(|url| url.is_some_and(|url| !url.is_empty()));
     if configured != Some(true) {
         return None;
     }
@@ -79,6 +97,17 @@ async fn tenant_db(state: &CoreTeamState, master: &PgPool, org: &str) -> Option<
             None
         }
     }
+}
+
+/// The workspace of a provider's organization: its name, if any.
+async fn workspace_name(master: &PgPool, org_id: &str) -> Result<Option<String>, DbErr> {
+    workspaces::Entity::find()
+        .select_only()
+        .column(workspaces::Column::Name)
+        .filter(workspaces::Column::ClerkOrgId.eq(org_id))
+        .into_tuple()
+        .one(&orm(master))
+        .await
 }
 
 // ── GET /:token ─────────────────────────────────────────────────────────────
@@ -108,12 +137,7 @@ async fn lookup_org_invitation(
     let invitation = with_identity(identity.as_ref(), |i| i.invitation(&org.id, token))
         .await
         .ok()?;
-    let name: Option<String> =
-        sqlx::query_scalar("select name from workspaces where clerk_org_id = $1 limit 1")
-            .bind(&org.id)
-            .fetch_optional(master)
-            .await
-            .ok()?;
+    let name = workspace_name(master, &org.id).await.ok()?;
     // `workspace?.name || org.name`.
     let workspace_name = name.filter(|n| !n.is_empty()).unwrap_or(org.name);
     Some(invitation_details(&org.id, &workspace_name, &invitation))
@@ -145,23 +169,33 @@ async fn find_in_tenant_dbs(
     state: &CoreTeamState,
     master: &PgPool,
     token: &str,
-) -> Result<Option<Value>, sqlx::Error> {
-    let workspaces: Vec<(String, Option<String>)> =
-        sqlx::query_as("select name, clerk_org_id from workspaces where is_active = true limit 50")
-            .fetch_all(master)
-            .await?;
-    for (name, org) in workspaces {
+) -> Result<Option<Value>, DbErr> {
+    let active: Vec<(String, Option<String>)> = workspaces::Entity::find()
+        .select_only()
+        .columns([workspaces::Column::Name, workspaces::Column::ClerkOrgId])
+        .filter(workspaces::Column::IsActive.eq(true))
+        .limit(50)
+        .into_tuple()
+        .all(&orm(master))
+        .await?;
+    for (name, org) in active {
         let Some(org) = org else { continue };
         let Some(db) = tenant_db(state, master, &org).await else {
             continue;
         };
-        let member: Result<Option<MemberRef>, _> = sqlx::query_as(
-            "select role, email, name, status from workspace_members
-                 where clerk_invitation_id = $1 and deleted_at is null limit 1",
-        )
-        .bind(token)
-        .fetch_optional(&db)
-        .await;
+        let member: Result<Option<MemberRef>, _> = members::Entity::find()
+            .select_only()
+            .columns([
+                members::Column::Role,
+                members::Column::Email,
+                members::Column::Name,
+                members::Column::Status,
+            ])
+            .filter(members::Column::ClerkInvitationId.eq(token))
+            .filter(members::Column::DeletedAt.is_null())
+            .into_tuple()
+            .one(&orm(&db))
+            .await;
         if let Ok(Some((role, email, member_name, status))) = member {
             return Ok(Some(json!({
                 "workspaceId": org,
@@ -311,12 +345,9 @@ async fn run_accept(
     if matched.is_none() {
         for membership in &memberships {
             let org = membership.organization.clone().unwrap_or_default();
-            let name: Option<String> =
-                sqlx::query_scalar("select name from workspaces where clerk_org_id = $1 limit 1")
-                    .bind(&org.id)
-                    .fetch_optional(&master)
-                    .await
-                    .map_err(|e| failed(&e))?;
+            let name = workspace_name(&master, &org.id)
+                .await
+                .map_err(|e| failed(&e))?;
             if let Some(name) = name {
                 let role = tenant_role(&membership.role).unwrap_or("MEMBER");
                 matched = Some((org.id, name, role.to_owned()));
@@ -378,12 +409,7 @@ async fn accept_in_org(
             return None;
         }
     };
-    let name: Option<String> =
-        sqlx::query_scalar("select name from workspaces where clerk_org_id = $1 limit 1")
-            .bind(&org.id)
-            .fetch_optional(master)
-            .await
-            .ok()?;
+    let name = workspace_name(master, &org.id).await.ok()?;
     let name = name.filter(|n| !n.is_empty()).unwrap_or(org.name);
     // `CLERK_ROLE_MAP[role] || pending.role || 'MEMBER'`.
     let role = tenant_role(&membership.role)
@@ -403,30 +429,37 @@ async fn find_pending_member(
     db: &PgPool,
     token: &str,
     email: &str,
-) -> Result<Option<Value>, sqlx::Error> {
+) -> Result<Option<Value>, DbErr> {
+    let db = orm(db);
     if !token.is_empty() {
-        let row: Option<Value> = sqlx::query_scalar(
-            "select to_jsonb(m) from workspace_members m
-             where clerk_invitation_id = $1 and status = 'PENDING' and deleted_at is null limit 1",
-        )
-        .bind(token)
-        .fetch_optional(db)
-        .await?;
+        let row = members::Entity::find()
+            .filter(members::Column::ClerkInvitationId.eq(token))
+            .filter(members::Column::Status.eq("PENDING"))
+            .filter(members::Column::DeletedAt.is_null())
+            .one(&db)
+            .await?;
         if let Some(row) = row {
-            return Ok(Some(js_row(row)));
+            return js(row).map(Some);
         }
     }
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(m) from workspace_members m
-         where lower(email) = lower($1)
-           and (status = 'PENDING' or user_id like 'invited_%' or user_id like 'pending_clerk_%')
-           and deleted_at is null
-         limit 1",
-    )
-    .bind(email)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(js_row))
+    // `lower(email) = lower($1)`.
+    let same_email = sea_orm::ExprTrait::eq(
+        Expr::from(Func::lower(Expr::col(members::Column::Email))),
+        Func::lower(Expr::value(email)),
+    );
+    members::Entity::find()
+        .filter(same_email)
+        .filter(
+            Condition::any()
+                .add(members::Column::Status.eq("PENDING"))
+                .add(members::Column::UserId.like("invited_%"))
+                .add(members::Column::UserId.like("pending_clerk_%")),
+        )
+        .filter(members::Column::DeletedAt.is_null())
+        .one(&db)
+        .await?
+        .map(js)
+        .transpose()
 }
 
 /// `linkInvitedMember`: the row as it was before linking, or `None`.
@@ -437,7 +470,7 @@ async fn link_invited_member(
     membership: &Membership,
     user_id: &str,
     token: &str,
-) -> Result<Option<Value>, sqlx::Error> {
+) -> Result<Option<Value>, DbErr> {
     let Some(pending) = find_pending_member(db, token, &membership.user.identifier).await? else {
         return Ok(None);
     };
@@ -460,7 +493,7 @@ async fn activate_pending_member(
     user_id: &str,
     membership: &Membership,
     pending: &Value,
-) -> Result<bool, sqlx::Error> {
+) -> Result<bool, DbErr> {
     let name = [&membership.user.first_name, &membership.user.last_name]
         .into_iter()
         .filter_map(|part| part.as_deref().filter(|p| !p.is_empty()))
@@ -480,33 +513,44 @@ async fn activate_pending_member(
             .unwrap_or("MEMBER")
             .to_owned()
     };
+    let db = orm(db);
     // A returning member's removed row still holds their user id.
-    sqlx::query(
-        "update workspace_members set user_id = 'removed_' || id
-         where user_id = $1 and deleted_at is not null",
-    )
-    .bind(user_id)
-    .execute(db)
-    .await?;
-    let stamp = now();
-    let updated: Option<String> = sqlx::query_scalar(
-        "update workspace_members
-         set user_id = $3, name = coalesce($4, name),
-             role = $5, status = 'ACTIVE', clerk_membership_id = $6,
-             accepted_at = coalesce(accepted_at, $7::timestamptz), updated_at = $7::timestamptz
-         where id = $1 and user_id = $2
-         returning id",
-    )
-    .bind(pending["id"].as_str())
-    .bind(pending["userId"].as_str())
-    .bind(user_id)
-    .bind(name)
+    members::Entity::update_many()
+        .col_expr(
+            members::Column::UserId,
+            sea_orm::sea_query::extension::postgres::PgExpr::concat(
+                Expr::value("removed_"),
+                Expr::col(members::Column::Id),
+            ),
+        )
+        .filter(members::Column::UserId.eq(user_id))
+        .filter(members::Column::DeletedAt.is_not_null())
+        .exec(&db)
+        .await?;
+    let stamp = utc_now().assume_utc();
+    let mut link =
+        members::Entity::update_many().col_expr(members::Column::UserId, Expr::value(user_id));
+    // `coalesce($name, name)`.
+    if let Some(name) = name {
+        link = link.col_expr(members::Column::Name, Expr::value(name));
+    }
     // No picture: avatars are the account's (master `users.image_url`).
-    .bind(role)
-    .bind(&membership.id)
-    .bind(stamp)
-    .fetch_optional(db)
-    .await?;
+    let updated = link
+        .col_expr(members::Column::Role, Expr::value(role))
+        .col_expr(members::Column::Status, Expr::value("ACTIVE"))
+        .col_expr(
+            members::Column::ClerkMembershipId,
+            Expr::value(&membership.id),
+        )
+        .col_expr(
+            members::Column::AcceptedAt,
+            Func::coalesce([Expr::col(members::Column::AcceptedAt), Expr::value(stamp)]).into(),
+        )
+        .col_expr(members::Column::UpdatedAt, Expr::value(stamp))
+        .filter(members::Column::Id.eq(pending["id"].as_str()))
+        .filter(members::Column::UserId.eq(pending["userId"].as_str()))
+        .exec(&db)
+        .await?;
     if let Some(cache) = &state.cache
         && let Err(error) = cache
             .delete_boxed(&format!("member-type:{org}:{user_id}"))
@@ -514,7 +558,7 @@ async fn activate_pending_member(
     {
         tracing::warn!(%error, "invitations: member-type cache delete failed");
     }
-    Ok(updated.is_some())
+    Ok(updated.rows_affected > 0)
 }
 
 /// Publish without holding up the response; failures are logged.
@@ -575,20 +619,25 @@ async fn join_public_channels(
 async fn auto_join_public_channels(
     db: &PgPool,
     user_id: &str,
-) -> Result<Vec<(String, String)>, sqlx::Error> {
-    let channels: Vec<(String, String)> = sqlx::query_as(
-        "select id, name from chat_channels where type = 'public' and deleted_at is null",
-    )
-    .fetch_all(db)
-    .await?;
+) -> Result<Vec<(String, String)>, DbErr> {
+    let channels: Vec<(String, String)> = chat_channels::Entity::find()
+        .select_only()
+        .columns([chat_channels::Column::Id, chat_channels::Column::Name])
+        .filter(chat_channels::Column::Type.eq("public"))
+        .filter(chat_channels::Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     if channels.is_empty() {
         return Ok(channels);
     }
-    let existing: Vec<String> =
-        sqlx::query_scalar("select channel_id from chat_channel_members where user_id = $1")
-            .bind(user_id)
-            .fetch_all(db)
-            .await?;
+    let existing: Vec<String> = channel_members::Entity::find()
+        .select_only()
+        .column(channel_members::Column::ChannelId)
+        .filter(channel_members::Column::UserId.eq(user_id))
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     let to_insert: Vec<(String, String)> = channels
         .into_iter()
         .filter(|(id, _)| !existing.contains(id))
@@ -607,54 +656,55 @@ async fn insert_memberships(
     user_id: &str,
     channels: &[(String, String)],
     role_id: Option<&str>,
-) -> Result<(), sqlx::Error> {
-    let ids: Vec<String> = channels.iter().map(|_| generate_id("cmb")).collect();
-    let channel_ids: Vec<String> = channels.iter().map(|(id, _)| id.clone()).collect();
-    let stamp = now();
-    if let Some(role_id) = role_id {
-        sqlx::query(
-            "insert into chat_channel_members
-                 (id, channel_id, user_id, member_type, role, added_by_role_id, joined_at, created_at)
-             select i, c, $3, 'user', 'member', $4, $5::timestamp, $5::timestamp
-             from unnest($1::varchar[], $2::varchar[]) as t(i, c)
-             on conflict do nothing",
-        )
-        .bind(&ids)
-        .bind(&channel_ids)
-        .bind(user_id)
-        .bind(role_id)
-        .bind(stamp)
-        .execute(db)
+) -> Result<(), DbErr> {
+    let stamp = utc_now();
+    let rows = channels.iter().map(|(channel_id, _)| {
+        let mut row = channel_members::ActiveModel {
+            id: Set(generate_id("cmb")),
+            channel_id: Set(channel_id.clone()),
+            user_id: Set(user_id.to_owned()),
+            role: Set("member".to_owned()),
+            joined_at: Set(stamp),
+            created_at: Set(stamp),
+            ..Default::default()
+        };
+        if let Some(role_id) = role_id {
+            row.member_type = Set("user".to_owned());
+            row.added_by_role_id = Set(Some(role_id.to_owned()));
+        }
+        row
+    });
+    channel_members::Entity::insert_many(rows)
+        .on_conflict(OnConflict::new().do_nothing().to_owned())
+        .exec_without_returning(&orm(db))
         .await?;
-    } else {
-        sqlx::query(
-            "insert into chat_channel_members (id, channel_id, user_id, role, joined_at, created_at)
-             select i, c, $3, 'member', $4::timestamp, $4::timestamp
-             from unnest($1::varchar[], $2::varchar[]) as t(i, c)
-             on conflict do nothing",
-        )
-        .bind(&ids)
-        .bind(&channel_ids)
-        .bind(user_id)
-        .bind(stamp)
-        .execute(db)
-        .await?;
-    }
     Ok(())
 }
 
-async fn recount(db: &PgPool, channels: &[(String, String)]) -> Result<(), sqlx::Error> {
+/// Each channel's `member_count` from its members:
+/// `(select count(*)::int from chat_channel_members m where m.channel_id = c.id)`.
+async fn recount(db: &PgPool, channels: &[(String, String)]) -> Result<(), DbErr> {
     let ids: Vec<String> = channels.iter().map(|(id, _)| id.clone()).collect();
-    sqlx::query(
-        "update chat_channels c
-         set member_count = (select count(*)::int from chat_channel_members m where m.channel_id = c.id),
-             updated_at = $2::timestamp
-         where c.id = any($1)",
-    )
-    .bind(&ids)
-    .bind(now())
-    .execute(db)
-    .await?;
+    let member_count = channel_members::Entity::find()
+        .select_only()
+        .expr(sea_orm::ExprTrait::cast_as(
+            Func::count(Expr::col(Asterisk)),
+            "int",
+        ))
+        .filter(sea_orm::ExprTrait::equals(
+            Expr::col((channel_members::Entity, channel_members::Column::ChannelId)),
+            (chat_channels::Entity, chat_channels::Column::Id),
+        ))
+        .into_query();
+    chat_channels::Entity::update_many()
+        .col_expr(
+            chat_channels::Column::MemberCount,
+            Expr::SubQuery(None, Box::new(member_count.into())),
+        )
+        .col_expr(chat_channels::Column::UpdatedAt, Expr::value(utc_now()))
+        .filter(chat_channels::Column::Id.is_in(ids))
+        .exec(&orm(db))
+        .await?;
     Ok(())
 }
 
@@ -688,26 +738,32 @@ async fn add_to_role_channels(
     db: &PgPool,
     user_id: &str,
     role_id: &str,
-) -> Result<Vec<(String, String)>, sqlx::Error> {
-    let channels: Vec<(String, String)> = sqlx::query_as(
-        "select c.id, c.name from chat_channel_role_links l
-         inner join chat_channels c on c.id = l.channel_id
-         where l.role_id = $1 and c.deleted_at is null",
-    )
-    .bind(role_id)
-    .fetch_all(db)
-    .await?;
+) -> Result<Vec<(String, String)>, DbErr> {
+    let channel: RelationDef = role_links::Entity::belongs_to(chat_channels::Entity)
+        .from(role_links::Column::ChannelId)
+        .to(chat_channels::Column::Id)
+        .into();
+    let channels: Vec<(String, String)> = role_links::Entity::find()
+        .select_only()
+        .columns([chat_channels::Column::Id, chat_channels::Column::Name])
+        .join(JoinType::InnerJoin, channel)
+        .filter(role_links::Column::RoleId.eq(role_id))
+        .filter(chat_channels::Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     if channels.is_empty() {
         return Ok(channels);
     }
     let ids: Vec<String> = channels.iter().map(|(id, _)| id.clone()).collect();
-    let existing: Vec<String> = sqlx::query_scalar(
-        "select channel_id from chat_channel_members where channel_id = any($1) and user_id = $2",
-    )
-    .bind(&ids)
-    .bind(user_id)
-    .fetch_all(db)
-    .await?;
+    let existing: Vec<String> = channel_members::Entity::find()
+        .select_only()
+        .column(channel_members::Column::ChannelId)
+        .filter(channel_members::Column::ChannelId.is_in(ids))
+        .filter(channel_members::Column::UserId.eq(user_id))
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     let to_insert: Vec<(String, String)> = channels
         .into_iter()
         .filter(|(id, _)| !existing.contains(id))
@@ -721,6 +777,7 @@ async fn add_to_role_channels(
 }
 
 #[cfg(test)]
+#[allow(clippy::disallowed_methods, reason = "test fixtures")]
 mod tests {
     use super::*;
 

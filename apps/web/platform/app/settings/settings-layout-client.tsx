@@ -18,7 +18,8 @@ function getContentWrapperClassName(pathname: string): string {
     pathname === '/settings/integrations' ||
     /^\/settings\/integrations\/[^/]+$/.test(pathname) ||
     pathname === '/settings/apps/phone-numbers/new-number' ||
-    /^\/settings\/apps\/welddesk\/.+$/.test(pathname) ||
+    // …except Email, a plain settings page in the standard column.
+    (/^\/settings\/apps\/welddesk\/.+$/.test(pathname) && pathname !== '/settings/apps/welddesk/email') ||
     /^\/settings\/entities\/[^/]+\/invoice-templates(\/[^/]+)?$/.test(pathname)
   ) {
     return FULL_WIDTH_CLASS;
@@ -80,6 +81,7 @@ export function SettingsLayoutClient({ children }: Readonly<{ children: React.Re
     '/settings/apps/welddesk/sla-policies': ts.welddesk.slaPoliciesTitle,
     '/settings/apps/welddesk/priority-matrix': ts.welddesk.priorityMatrixTitle,
     '/settings/apps/welddesk/asset-register': t.helpdesk.assets.settingsTitle,
+    '/settings/apps/welddesk/bi-connector': t.deskBi.title,
     '/settings/apps/weldbooks/payment-runs': t.weldbooksUs.settingsPage.tabs.paymentRuns,
   });
   const memberPanelWidth = useMemberPanelWidth();

@@ -8,7 +8,10 @@
 //!
 //! Roles compare case-insensitively. A soft-deleted project grants nothing.
 
-use sqlx::PgPool;
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, JoinType, QueryFilter, QuerySelect};
+use time::PrimitiveDateTime;
+use weldsuite_db::{PgPool, orm};
+use weldsuite_schema::tenant::{project_members, projects};
 
 /// The resolved access (`ProjectAccess`).
 // The flags are the TypeScript object's, one per rule.
@@ -48,33 +51,39 @@ pub async fn resolve_project_access(
     user_id: Option<&str>,
     scope_all: bool,
     project_id: &str,
-) -> Result<ProjectAccess, sqlx::Error> {
+) -> Result<ProjectAccess, DbErr> {
+    let db = &orm(db);
     let (is_manager, member_role, deleted) = if let Some(user_id) = user_id {
-        let project: Option<(Option<String>, bool)> = sqlx::query_as(
-            "select project_manager_id, deleted_at is not null from projects where id = $1 limit 1",
-        )
-        .bind(project_id)
-        .fetch_optional(db)
-        .await?;
-        let role: Option<String> = sqlx::query_scalar(
-            "select role from project_members
-             where project_id = $1 and user_id = $2 and is_active = true and deleted_at is null
-             limit 1",
-        )
-        .bind(project_id)
-        .bind(user_id)
-        .fetch_optional(db)
-        .await?;
-        let (manager, deleted) = project.unwrap_or((None, false));
+        let project: Option<(Option<String>, Option<PrimitiveDateTime>)> = projects::Entity::find()
+            .select_only()
+            .column(projects::Column::ProjectManagerId)
+            .column(projects::Column::DeletedAt)
+            .filter(projects::Column::Id.eq(project_id))
+            .into_tuple()
+            .one(db)
+            .await?;
+        let role: Option<String> = project_members::Entity::find()
+            .select_only()
+            .column(project_members::Column::Role)
+            .filter(project_members::Column::ProjectId.eq(project_id))
+            .filter(project_members::Column::UserId.eq(user_id))
+            .filter(project_members::Column::IsActive.eq(true))
+            .filter(project_members::Column::DeletedAt.is_null())
+            .into_tuple()
+            .one(db)
+            .await?;
+        let (manager, deleted_at) = project.unwrap_or((None, None));
         let is_manager = manager.is_some_and(|m| !m.is_empty() && m == user_id);
-        (is_manager, role, deleted)
+        (is_manager, role, deleted_at.is_some())
     } else {
-        let deleted: Option<bool> =
-            sqlx::query_scalar("select deleted_at is not null from projects where id = $1 limit 1")
-                .bind(project_id)
-                .fetch_optional(db)
-                .await?;
-        (false, None, deleted.unwrap_or(false))
+        let deleted_at: Option<Option<PrimitiveDateTime>> = projects::Entity::find()
+            .select_only()
+            .column(projects::Column::DeletedAt)
+            .filter(projects::Column::Id.eq(project_id))
+            .into_tuple()
+            .one(db)
+            .await?;
+        (false, None, deleted_at.flatten().is_some())
     };
     if deleted {
         return Ok(ProjectAccess {
@@ -114,7 +123,7 @@ pub async fn can_write_project(
     user_id: Option<&str>,
     scope_all: bool,
     project_id: &str,
-) -> Result<bool, sqlx::Error> {
+) -> Result<bool, DbErr> {
     Ok(resolve_project_access(db, user_id, scope_all, project_id)
         .await?
         .can_write)
@@ -123,22 +132,27 @@ pub async fn can_write_project(
 /// The live projects a user manages or actively belongs to
 /// (`accessibleProjectIds` without scope:all): managed ones first, then
 /// memberships, each once.
-pub async fn member_project_ids(db: &PgPool, user_id: &str) -> Result<Vec<String>, sqlx::Error> {
-    let managed: Vec<String> = sqlx::query_scalar(
-        "select id from projects where project_manager_id = $1 and deleted_at is null",
-    )
-    .bind(user_id)
-    .fetch_all(db)
-    .await?;
-    let member_of: Vec<String> = sqlx::query_scalar(
-        "select pm.project_id from project_members pm
-         inner join projects p on p.id = pm.project_id
-         where pm.user_id = $1 and pm.is_active = true and pm.deleted_at is null
-           and p.deleted_at is null",
-    )
-    .bind(user_id)
-    .fetch_all(db)
-    .await?;
+pub async fn member_project_ids(db: &PgPool, user_id: &str) -> Result<Vec<String>, DbErr> {
+    let db = &orm(db);
+    let managed: Vec<String> = projects::Entity::find()
+        .select_only()
+        .column(projects::Column::Id)
+        .filter(projects::Column::ProjectManagerId.eq(user_id))
+        .filter(projects::Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(db)
+        .await?;
+    let member_of: Vec<String> = project_members::Entity::find()
+        .select_only()
+        .column(project_members::Column::ProjectId)
+        .join(JoinType::InnerJoin, member_project())
+        .filter(project_members::Column::UserId.eq(user_id))
+        .filter(project_members::Column::IsActive.eq(true))
+        .filter(project_members::Column::DeletedAt.is_null())
+        .filter(projects::Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(db)
+        .await?;
     let mut ids: Vec<String> = Vec::with_capacity(managed.len() + member_of.len());
     for id in managed.into_iter().chain(member_of) {
         if !ids.contains(&id) {
@@ -146,4 +160,12 @@ pub async fn member_project_ids(db: &PgPool, user_id: &str) -> Result<Vec<String
         }
     }
     Ok(ids)
+}
+
+/// `innerJoin(projects, eq(projects.id, projectMembers.projectId))`.
+fn member_project() -> sea_orm::RelationDef {
+    project_members::Entity::belongs_to(projects::Entity)
+        .from(project_members::Column::ProjectId)
+        .to(projects::Column::Id)
+        .into()
 }

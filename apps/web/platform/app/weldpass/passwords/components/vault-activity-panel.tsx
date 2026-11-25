@@ -7,7 +7,7 @@ import {
   useWeldPassVaultMembers,
 } from '@/hooks/queries/use-weldpass-passwords-queries';
 import { TimeAgo, errorMessage } from '../../components/shared';
-import { usePasswordsT } from '../lib/use-passwords-t';
+import { usePasswordsT, type PasswordsT } from '../lib/use-passwords-t';
 import { memberLabel } from './vault-members-panel';
 import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
 import { InlineSpinner } from '@weldsuite/ui/components/page-loader';
@@ -24,6 +24,9 @@ const KNOWN_ACTIONS = new Set([
   'item.deleted',
   'item.restored',
   'item.revealed',
+  'item.copied',
+  'item.autofilled',
+  'device.synced',
   'item.totp_generated',
   'item.moved_in',
   'item.moved_out',
@@ -32,6 +35,17 @@ const KNOWN_ACTIONS = new Set([
 
 /** Events whose target label is a user id rather than an item title. */
 const MEMBER_ACTIONS = new Set(['member.added', 'member.role_changed', 'member.removed']);
+
+/** Actions a phone can take offline: its app reports them later, with `metadata.offline` set. */
+const OFFLINE_ACTIONS = new Set(['item.revealed', 'item.copied', 'item.autofilled']);
+
+/** What to add after an event: where it happened (a phone, offline), or how big a sync was. */
+function suffix(event: { action: string; metadata: Record<string, unknown> }, tp: PasswordsT): string | null {
+  if (OFFLINE_ACTIONS.has(event.action) && event.metadata.offline === true) return tp('activity.offline');
+  const count = event.metadata.items;
+  if (event.action === 'device.synced' && typeof count === 'number') return tp('activity.deviceItems', { count });
+  return null;
+}
 
 export function VaultActivityPanel({ vaultId }: Readonly<{ vaultId: string }>) {
   const tp = usePasswordsT();
@@ -65,12 +79,14 @@ export function VaultActivityPanel({ vaultId }: Readonly<{ vaultId: string }>) {
           const target = MEMBER_ACTIONS.has(event.action)
             ? (names.get(event.targetLabel ?? '') ?? event.targetLabel)
             : event.targetLabel;
+          const note = suffix(event, tp);
           return (
             <li key={event.id} className="px-3 py-2 text-sm">
               <p>
                 <span className="font-medium">{event.actorName || event.actorId}</span>{' '}
                 {KNOWN_ACTIONS.has(event.action) ? tp(`activity.actions.${event.action}`) : event.action}
                 {target && <span className="text-muted-foreground"> · {target}</span>}
+                {note && <span className="text-muted-foreground"> · {note}</span>}
               </p>
               <p className="text-xs">
                 <TimeAgo value={event.createdAt} />

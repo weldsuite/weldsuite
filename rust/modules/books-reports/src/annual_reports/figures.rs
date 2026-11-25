@@ -370,7 +370,7 @@ pub(crate) async fn balance_sheet(
 #[derive(Debug)]
 pub(crate) enum BalanceError {
     Input(ReportInputError),
-    Database(sqlx::Error),
+    Database(sea_orm::DbErr),
 }
 
 impl From<ReportInputError> for BalanceError {
@@ -379,8 +379,8 @@ impl From<ReportInputError> for BalanceError {
     }
 }
 
-impl From<sqlx::Error> for BalanceError {
-    fn from(error: sqlx::Error) -> Self {
+impl From<sea_orm::DbErr> for BalanceError {
+    fn from(error: sea_orm::DbErr) -> Self {
         Self::Database(error)
     }
 }
@@ -450,6 +450,10 @@ mod tests {
     }
 
     #[test]
+    #[allow(
+        clippy::too_many_lines,
+        reason = "one case per account of the Dutch chart"
+    )]
     fn sorts_the_dutch_chart_into_the_publication_lines() {
         let cases = [
             (

@@ -11,6 +11,9 @@ use axum::extract::{Path, State};
 use axum::response::Response;
 use axum::routing::{get, post};
 use http::HeaderMap;
+use sea_orm::ActiveValue::Set;
+use sea_orm::sea_query::{Expr, OnConflict};
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
 use weldsuite_books_domain::catch_up::run_posting_catch_up;
 use weldsuite_books_domain::currency::{
@@ -23,9 +26,14 @@ use weldsuite_books_domain::http::{
 };
 use weldsuite_books_domain::tables::{SETTINGS as T, WORKFLOW_TEMPLATES};
 use weldsuite_catalogs::entity_events::ACCOUNTING_SETTINGS_UPDATED;
+use weldsuite_db::orm;
 use weldsuite_kit::generate_id;
 use weldsuite_kit::validation::{Field, Format, Issues, Number, Presence, Text};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::master::mail_account_registry;
+use weldsuite_schema::tenant::{settings, workflow_templates};
+
+use crate::orm_bridge::to_json;
 
 pub(crate) fn router<S, Q>(state: BooksState, gate: &Arc<PermissionGate<Q>>) -> Router<S>
 where
@@ -121,15 +129,14 @@ async fn posting_catch_up(
     reply(result, FAILED)
 }
 
-async fn find(caller: &Caller) -> Result<Option<Map<String, Value>>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(settings),
-        " from settings t where t.deleted_at is null limit 1"
-    ))
-    .fetch_optional(&caller.db)
-    .await?;
-    Ok(row.and_then(|row| T.js(row).as_object().cloned()))
+async fn find(caller: &Caller) -> Result<Option<Map<String, Value>>, DbErr> {
+    let row = settings::Entity::find()
+        .filter(settings::Column::DeletedAt.is_null())
+        .one(&orm(&caller.db))
+        .await?
+        .map(to_json)
+        .transpose()?;
+    Ok(row.and_then(|row| row.as_object().cloned()))
 }
 
 // ── GET / ───────────────────────────────────────────────────────────────────
@@ -408,30 +415,48 @@ async fn inbox(
         };
         let workspace_id = caller.workspace_id.clone();
         let account_id = format!("acct_inbox_{workspace_id}");
-        let at = now();
-        sqlx::query(
-            "insert into mail_account_registry (id, email, workspace_id, account_id, is_active, created_at, updated_at) \
-             values ($1, $2, $3, $4, true, $5::timestamp, $5::timestamp) \
-             on conflict (email) do update set workspace_id = $3, account_id = $4, is_active = true, updated_at = $5::timestamp",
+        let at = weldsuite_db::utc_now();
+        // `on conflict (email) do update`: the address moves to this workspace.
+        mail_account_registry::Entity::insert(mail_account_registry::ActiveModel {
+            id: Set(generate_id("mar")),
+            email: Set(email.clone()),
+            workspace_id: Set(Some(workspace_id.clone())),
+            account_id: Set(account_id.clone()),
+            is_active: Set(true),
+            created_at: Set(at),
+            updated_at: Set(at),
+            ..Default::default()
+        })
+        .on_conflict(
+            OnConflict::column(mail_account_registry::Column::Email)
+                .update_columns([
+                    mail_account_registry::Column::WorkspaceId,
+                    mail_account_registry::Column::AccountId,
+                    mail_account_registry::Column::IsActive,
+                    mail_account_registry::Column::UpdatedAt,
+                ])
+                .to_owned(),
         )
-        .bind(generate_id("mar"))
-        .bind(&email)
-        .bind(&workspace_id)
-        .bind(&account_id)
-        .bind(&at)
-        .execute(&master)
+        .exec_without_returning(&orm(&master))
         .await?;
         if let Some(current) = find(&caller).await? {
             let id = current["id"].as_str().unwrap_or_default().to_owned();
-            let old = current.get("emailSettings").filter(|v| !v.is_null()).cloned().unwrap_or_else(|| json!({}));
+            let old = current
+                .get("emailSettings")
+                .filter(|v| !v.is_null())
+                .cloned()
+                .unwrap_or_else(|| json!({}));
             let mut next = old.as_object().cloned().unwrap_or_default();
             next.insert("inboxAddress".to_owned(), json!(email));
             next.insert("autoScanEnabled".to_owned(), json!(true));
-            sqlx::query("update settings set email_settings = $1, updated_at = $2::timestamp where id = $3")
-                .bind(Value::Object(next.clone()))
-                .bind(&at)
-                .bind(&id)
-                .execute(&caller.db)
+            settings::Entity::update_many()
+                .col_expr(
+                    settings::Column::EmailSettings,
+                    Expr::value(Value::Object(next.clone())),
+                )
+                .col_expr(settings::Column::UpdatedAt, Expr::value(at))
+                .filter(settings::Column::Id.eq(id.as_str()))
+                .exec(&orm(&caller.db))
                 .await?;
             let mut changes = Map::new();
             changes.insert("emailSettings".to_owned(), change(old, Value::Object(next)));
@@ -462,11 +487,13 @@ const TEMPLATES: &str = include_str!("../data/finance-workflow-templates.json");
 
 async fn seed_workflows(caller: Caller) -> Response {
     let result = async {
-        let existing: Option<String> = sqlx::query_scalar(
-            "select id from workflow_templates where category = 'finance' limit 1",
-        )
-        .fetch_optional(&caller.db)
-        .await?;
+        let existing: Option<String> = workflow_templates::Entity::find()
+            .select_only()
+            .column(workflow_templates::Column::Id)
+            .filter(workflow_templates::Column::Category.eq("finance"))
+            .into_tuple()
+            .one(&orm(&caller.db))
+            .await?;
         if existing.is_some() {
             return Err(Refusal::conflict(
                 "Accounting workflow templates already seeded.",
@@ -491,7 +518,7 @@ async fn seed_workflows(caller: Caller) -> Response {
                 for row in rows {
                     WORKFLOW_TEMPLATES.insert_raw(&mut *conn, row).await?;
                 }
-                Ok::<_, sqlx::Error>(())
+                Ok::<_, Refusal>(())
             })
         })
         .await?;

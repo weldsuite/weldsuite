@@ -40,8 +40,6 @@ async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
     let listing = Listing {
         table: ANNOUNCEMENTS.table,
         filters: ANNOUNCEMENTS.filters,
-        list_sql: ANNOUNCEMENTS.list_sql,
-        count_sql: ANNOUNCEMENTS.count_sql,
         slice_count: ANNOUNCEMENTS.slice_count,
     };
     match fetch(listing, &caller.db, query.as_deref()).await {

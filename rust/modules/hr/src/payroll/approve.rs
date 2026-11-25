@@ -9,25 +9,31 @@
 
 use std::collections::{HashMap, HashSet};
 
+use sea_orm::sea_query::{Expr, OnConflict, Query};
+use sea_orm::{ActiveValue::Set, ColumnTrait, Condition, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Value, json};
-use weldsuite_db::{PgPool, encrypt_field, js_row};
+use time::{OffsetDateTime, PrimitiveDateTime};
+use weldsuite_db::{OrmConn, PgPool, atomically_with, encrypt_field, orm, utc_timestamp};
+use weldsuite_events::iso_timestamp;
 use weldsuite_kit::generate_id;
+use weldsuite_schema::master::payroll_usage_events;
+use weldsuite_schema::tenant::{hr_declarations, hr_pay_run_inputs, hr_pay_runs, hr_payslips};
 
 use super::Deps;
 use super::calculate::{data_version, run_inputs_stamp};
-use super::employees::{bank_of, decrypt_sensitive};
+use super::employees::{bank_of, decrypt_sensitive, employee_rows};
 use super::employer_context::load_employer_for_payroll;
 use super::filings::ensure_filings_for_run;
 use super::journal::{JournalOutcome, post_run_journal};
 use super::notifier::{PayslipReady, language_of, my_payroll_url, payslip_ready};
 use super::payslips::{employees_to_notify, render_and_store_payslip};
 use super::runs::{
-    assert_correction_in_year, four_eyes_blocks, included_employee_ids, int_of, payslip_sql,
+    assert_correction_in_year, four_eyes_blocks, included_employee_ids, int_of, payslip_rows,
     require_run, s,
 };
 use super::ytd::{final_payslips_by_employee, latest_by_approval, number_key};
-use crate::employees::display_name_of;
-use crate::{Caller, HrError, HrState, locale_compare, now};
+use crate::employees::{display_name_of, pg_date};
+use crate::{Caller, HrError, HrState, locale_compare};
 
 /// `ApproveResult`.
 pub(crate) struct ApproveResult {
@@ -52,13 +58,14 @@ async fn assign_numbers(
         if next.contains_key(&year) {
             continue;
         }
-        let numbers: Vec<Option<String>> = sqlx::query_scalar(
-            "select number from hr_payslips where employer_id = $1 and number like $2",
-        )
-        .bind(employer_id)
-        .bind(format!("{year}-%"))
-        .fetch_all(db)
-        .await?;
+        let numbers: Vec<Option<String>> = hr_payslips::Entity::find()
+            .select_only()
+            .column(hr_payslips::Column::Number)
+            .filter(hr_payslips::Column::EmployerId.eq(employer_id))
+            .filter(hr_payslips::Column::Number.like(format!("{year}-%")))
+            .into_tuple()
+            .all(&orm(db))
+            .await?;
         let max = numbers.iter().fold(0, |max, n| {
             max.max(number_key(n.as_deref()).map_or(0, |(_, seq)| seq))
         });
@@ -226,8 +233,78 @@ struct Approved {
     finals: Vec<Value>,
 }
 
+/// The run's payslips with this status (`s.run_id = $1 and s.status = $2`).
+fn run_payslips(run_id: &str, status: &str) -> sea_orm::Select<hr_payslips::Entity> {
+    hr_payslips::Entity::find()
+        .filter(hr_payslips::Column::RunId.eq(run_id))
+        .filter(hr_payslips::Column::Status.eq(status))
+}
+
+/// The claim, in ONE transaction: the run calculated → approved, then each
+/// draft payslip (`finalise`: id, number, sealed account) final with its
+/// number and the account it is paid to, only while the run is still the
+/// one this approval wrote (same approver, same stamp).
+async fn claim_run(
+    db: &PgPool,
+    run_id: &str,
+    user_id: &str,
+    at: PrimitiveDateTime,
+    finalise: Vec<(String, Option<String>, Option<String>)>,
+) -> Result<(), HrError> {
+    let run_id = run_id.to_owned();
+    let user_id = user_id.to_owned();
+    atomically_with(db, |tx| {
+        Box::pin(async move {
+            let tx = OrmConn::new(tx);
+            hr_pay_runs::Entity::update_many()
+                .col_expr(hr_pay_runs::Column::Status, Expr::value("approved"))
+                .col_expr(
+                    hr_pay_runs::Column::ApprovedBy,
+                    Expr::value(user_id.as_str()),
+                )
+                .col_expr(hr_pay_runs::Column::ApprovedAt, Expr::value(at))
+                .col_expr(hr_pay_runs::Column::UpdatedAt, Expr::value(at))
+                .filter(hr_pay_runs::Column::Id.eq(run_id.as_str()))
+                .filter(hr_pay_runs::Column::Status.eq("calculated"))
+                .exec(&tx)
+                .await?;
+            // `exists (select 1 from hr_pay_runs r where r.id = … and r.status = 'approved' and …)`.
+            let still_ours = Query::select()
+                .expr(Expr::val(1))
+                .from(hr_pay_runs::Entity)
+                .cond_where(
+                    Condition::all()
+                        .add(hr_pay_runs::Column::Id.eq(run_id.as_str()))
+                        .add(hr_pay_runs::Column::Status.eq("approved"))
+                        .add(hr_pay_runs::Column::ApprovedBy.eq(user_id.as_str()))
+                        .add(hr_pay_runs::Column::ApprovedAt.eq(at)),
+                )
+                .to_owned();
+            for (id, number, sealed) in finalise {
+                // `snapshot || jsonb_build_object('bankEncrypted', $3::text)`.
+                let snapshot = sea_orm::sea_query::extension::postgres::PgExpr::concat(
+                    Expr::col((hr_payslips::Entity, hr_payslips::Column::Snapshot)),
+                    Expr::value(json!({ "bankEncrypted": sealed })),
+                );
+                hr_payslips::Entity::update_many()
+                    .col_expr(hr_payslips::Column::Status, Expr::value("final"))
+                    .col_expr(hr_payslips::Column::Number, Expr::value(number))
+                    .col_expr(hr_payslips::Column::Snapshot, snapshot)
+                    .col_expr(hr_payslips::Column::UpdatedAt, Expr::value(at))
+                    .filter(hr_payslips::Column::Id.eq(id))
+                    .filter(hr_payslips::Column::Status.eq("draft"))
+                    .filter(Expr::exists(still_ours.clone()))
+                    .exec(&tx)
+                    .await?;
+            }
+            Ok::<_, HrError>(())
+        })
+    })
+    .await
+}
+
 fn is_unique_violation(error: &HrError) -> bool {
-    matches!(error, HrError::Database(e) if e.as_database_error().and_then(sqlx::error::DatabaseError::code).is_some_and(|c| c == "23505"))
+    matches!(error, HrError::Database(e) if weldsuite_db::is_unique_violation(e))
 }
 
 /// `claimAndFinalise(db, runId, deps, ctx)`: one attempt.
@@ -282,14 +359,7 @@ async fn claim_and_finalise(
         assert_correction_in_year(int_of(&run, "taxYear"), s(&run, "payDate"))?;
     }
     let included = included_employee_ids(db, &run).await?;
-    let drafts: Vec<Value> =
-        sqlx::query_scalar(payslip_sql("s.run_id = $1 and s.status = 'draft'"))
-            .bind(run_id)
-            .fetch_all(db)
-            .await?
-            .into_iter()
-            .map(js_row)
-            .collect();
+    let drafts = payslip_rows(&orm(db), run_payslips(run_id, "draft")).await?;
     if drafts.is_empty() {
         return Err(HrError::payroll(
             "RUN_EMPTY",
@@ -300,14 +370,7 @@ async fn claim_and_finalise(
     assert_calculation_current(db, &run, &employer, &drafts, &included).await?;
 
     let ids: Vec<&str> = drafts.iter().map(|d| s(d, "employeeId")).collect();
-    let people: Vec<Value> =
-        sqlx::query_scalar("select to_jsonb(e) from hr_employees e where e.id = any($1)")
-            .bind(&ids)
-            .fetch_all(db)
-            .await?
-            .into_iter()
-            .map(js_row)
-            .collect();
+    let people = employee_rows(db, &ids).await?;
     let name_of = |id: &str| {
         people
             .iter()
@@ -334,35 +397,21 @@ async fn claim_and_finalise(
         sealed.insert(s(person, "id").to_owned(), seal);
     }
 
-    let at = now();
-    let mut tx = db.begin().await?;
-    sqlx::query(
-        "update hr_pay_runs set status = 'approved', approved_by = $2, approved_at = $3::timestamp, updated_at = $3::timestamp
-         where id = $1 and status = 'calculated'",
-    )
-    .bind(run_id)
-    .bind(user_id)
-    .bind(&at)
-    .execute(&mut *tx)
-    .await?;
-    for slip in &ordered {
-        sqlx::query(
-            "update hr_payslips set status = 'final', number = $2,
-               snapshot = snapshot || jsonb_build_object('bankEncrypted', $3::text), updated_at = $4::timestamp
-             where id = $1 and status = 'draft' and exists (
-               select 1 from hr_pay_runs r where r.id = $5 and r.status = 'approved' and r.approved_by = $6
-                 and r.approved_at = $4::timestamp)",
-        )
-        .bind(s(slip, "id"))
-        .bind(numbers.get(s(slip, "id")))
-        .bind(sealed.get(s(slip, "employeeId")).cloned().flatten())
-        .bind(&at)
-        .bind(run_id)
-        .bind(user_id)
-        .execute(&mut *tx)
-        .await?;
-    }
-    tx.commit().await?;
+    // One instant: the stamp written (`$n::timestamp` of the ISO text) and the text compared after.
+    let instant = OffsetDateTime::now_utc();
+    let at = iso_timestamp(instant);
+    // (id, number, the sealed account) of each payslip, in numbering order.
+    let finalise: Vec<(String, Option<String>, Option<String>)> = ordered
+        .iter()
+        .map(|slip| {
+            (
+                s(slip, "id").to_owned(),
+                numbers.get(s(slip, "id")).cloned(),
+                sealed.get(s(slip, "employeeId")).cloned().flatten(),
+            )
+        })
+        .collect();
+    claim_run(db, run_id, user_id, utc_timestamp(instant), finalise).await?;
 
     let after = require_run(db, run_id).await?;
     let stamp = |v: &Value| v.as_str().map(|t| t.trim_end_matches('Z').to_owned());
@@ -374,14 +423,7 @@ async fn claim_and_finalise(
             "This pay run was approved or changed by someone else",
         ));
     }
-    let finals: Vec<Value> =
-        sqlx::query_scalar(payslip_sql("s.run_id = $1 and s.status = 'final'"))
-            .bind(run_id)
-            .fetch_all(db)
-            .await?
-            .into_iter()
-            .map(js_row)
-            .collect();
+    let finals = payslip_rows(&orm(db), run_payslips(run_id, "final")).await?;
     Ok(Approved {
         run: after,
         employer,
@@ -427,20 +469,22 @@ pub(crate) async fn approve_run(
     // Billing: every final payslip of a regular or off-cycle run.
     if run["kind"] != "correction" {
         if let Some(master) = &deps.master {
+            let master = orm(master);
             for slip in &finals {
-                let metered = sqlx::query(
-                    "insert into payroll_usage_events (id, workspace_id, month, country, employer_id, run_id, payslip_id)
-                     values ($1, $2, $3, $4, $5, $6, $7) on conflict do nothing",
-                )
-                .bind(generate_id("pue"))
-                .bind(&deps.workspace_id)
-                .bind(s(&run, "payDate").get(0..7).unwrap_or(""))
-                .bind(s(&run, "country"))
-                .bind(s(&employer, "id"))
-                .bind(run_id)
-                .bind(s(slip, "id"))
-                .execute(master)
-                .await;
+                let metered =
+                    payroll_usage_events::Entity::insert(payroll_usage_events::ActiveModel {
+                        id: Set(generate_id("pue")),
+                        workspace_id: Set(deps.workspace_id.clone()),
+                        month: Set(s(&run, "payDate").get(0..7).unwrap_or("").to_owned()),
+                        country: Set(s(&run, "country").to_owned()),
+                        employer_id: Set(s(&employer, "id").to_owned()),
+                        run_id: Set(run_id.to_owned()),
+                        payslip_id: Set(s(slip, "id").to_owned()),
+                        ..Default::default()
+                    })
+                    .on_conflict(OnConflict::new().do_nothing().to_owned())
+                    .exec_without_returning(&master)
+                    .await;
                 if let Err(error) = metered {
                     tracing::error!(%error, "[payroll] could not meter payslips");
                     break;
@@ -515,44 +559,49 @@ pub(crate) async fn mark_run_paid(
             "This pay run is {status}; only an approved run can be marked as paid"
         )));
     }
-    let at = now();
-    let paid_at = input["paidOn"]
-        .as_str()
-        .filter(|v| !v.is_empty())
-        .map_or_else(|| at.clone(), |d| format!("{d}T12:00:00.000Z"));
-    let refs: Vec<Option<String>> = sqlx::query_scalar(
-        "select source_ref from hr_pay_run_inputs where run_id = $1 and source = 'declaration'",
-    )
-    .bind(run_id)
-    .fetch_all(db)
-    .await?;
+    let at = utc_timestamp(OffsetDateTime::now_utc());
+    // `${paidOn}T12:00:00.000Z` as a `timestamp`: noon of that day.
+    let paid_at = match input["paidOn"].as_str().filter(|v| !v.is_empty()) {
+        Some(day) => PrimitiveDateTime::new(pg_date(day)?, time::macros::time!(12:00)),
+        None => at,
+    };
+    let orm = orm(db);
+    let refs: Vec<Option<String>> = hr_pay_run_inputs::Entity::find()
+        .select_only()
+        .column(hr_pay_run_inputs::Column::SourceRef)
+        .filter(hr_pay_run_inputs::Column::RunId.eq(run_id))
+        .filter(hr_pay_run_inputs::Column::Source.eq("declaration"))
+        .into_tuple()
+        .all(&orm)
+        .await?;
     let declaration_ids: Vec<String> = refs
         .into_iter()
         .flatten()
         .filter(|r| !r.is_empty())
         .collect();
-    sqlx::query(
-        "update hr_pay_runs set status = 'paid', paid_by = $2, paid_at = $3::timestamp, updated_at = $4::timestamp
-         where id = $1 and status = 'approved'",
-    )
-    .bind(run_id)
-    .bind(user_id)
-    .bind(&paid_at)
-    .bind(&at)
-    .execute(db)
-    .await?;
+    hr_pay_runs::Entity::update_many()
+        .col_expr(hr_pay_runs::Column::Status, Expr::value("paid"))
+        .col_expr(hr_pay_runs::Column::PaidBy, Expr::value(user_id))
+        .col_expr(hr_pay_runs::Column::PaidAt, Expr::value(paid_at))
+        .col_expr(hr_pay_runs::Column::UpdatedAt, Expr::value(at))
+        .filter(hr_pay_runs::Column::Id.eq(run_id))
+        .filter(hr_pay_runs::Column::Status.eq("approved"))
+        .exec(&orm)
+        .await?;
     let mut paid = vec![];
     if !declaration_ids.is_empty() {
-        paid = sqlx::query_scalar(
-            "update hr_declarations set status = 'paid', paid_by = $2, paid_at = $3::timestamp, updated_at = $4::timestamp
-             where id = any($1) and status = 'approved' returning id",
-        )
-        .bind(&declaration_ids)
-        .bind(user_id)
-        .bind(&paid_at)
-        .bind(&at)
-        .fetch_all(db)
-        .await?;
+        paid = hr_declarations::Entity::update_many()
+            .col_expr(hr_declarations::Column::Status, Expr::value("paid"))
+            .col_expr(hr_declarations::Column::PaidBy, Expr::value(user_id))
+            .col_expr(hr_declarations::Column::PaidAt, Expr::value(paid_at))
+            .col_expr(hr_declarations::Column::UpdatedAt, Expr::value(at))
+            .filter(hr_declarations::Column::Id.is_in(&declaration_ids))
+            .filter(hr_declarations::Column::Status.eq("approved"))
+            .exec_with_returning(&orm)
+            .await?
+            .into_iter()
+            .map(|declaration| declaration.id)
+            .collect();
     }
     Ok((require_run(db, run_id).await?, paid))
 }

@@ -16,6 +16,7 @@ use axum::Router;
 use axum::extract::State;
 use axum::response::Response;
 use axum::routing::get;
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter};
 use serde_json::{Value, json};
 use weldsuite_books_domain::entity_context::resolve_entity_id;
 use weldsuite_books_domain::http::{BooksState, Caller, Query, Refusal, ok};
@@ -27,11 +28,13 @@ use weldsuite_books_domain::reports_basis::{
     parse_periods, parse_report_date, period_columns, point_in_time_columns, prior_period_of,
     prior_year_of, require_iso_date, resolve_basis, resolve_period, split_columns, today_for,
 };
-use weldsuite_books_domain::tables::ENTITIES;
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::entities;
 
 use build::{BuildError, delta_of, latest_date};
 use export::{Meta, Table, TableColumn, TableRow};
+
+use crate::rows::js;
 
 pub(crate) fn router<S, Q>(state: BooksState, gate: &Arc<PermissionGate<Q>>) -> Router<S>
 where
@@ -86,9 +89,15 @@ impl From<BuildError> for Failure {
     }
 }
 
+impl From<DbErr> for Failure {
+    fn from(error: DbErr) -> Self {
+        Self::Refusal(Refusal::Database(error))
+    }
+}
+
 impl From<sqlx::Error> for Failure {
     fn from(error: sqlx::Error) -> Self {
-        Self::Refusal(Refusal::Database(error))
+        Self::Refusal(Refusal::from(error))
     }
 }
 
@@ -154,15 +163,11 @@ async fn report_context(caller: &Caller, with_basis: bool) -> Result<Context, Fa
     let Some(entity_id) = resolve_entity_id(caller).await? else {
         return Err(Failure::Input("No accounting entity resolved".to_owned()));
     };
-    let entity: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(entities),
-        " from entities t where t.id = $1 and t.deleted_at is null limit 1"
-    ))
-    .bind(&entity_id)
-    .fetch_optional(db)
-    .await?;
-    let Some(entity) = entity.map(|row| ENTITIES.js(row)) else {
+    let entity = entities::Entity::find_by_id(entity_id.clone())
+        .filter(entities::Column::DeletedAt.is_null())
+        .one(&weldsuite_db::orm(db))
+        .await?;
+    let Some(entity) = entity.map(|row| js!(row)).transpose()? else {
         return Err(Failure::EntityNotFound(entity_id));
     };
     let format = match query.get("format").unwrap_or("json") {
@@ -416,27 +421,43 @@ type TaxRow = (
     String,
 );
 
+/// The posted tax of the period by tax rate, with the rate's fields: the
+/// ledger's tax lines summed per rate, as the route's query does.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "a ledger roll-up of money: tax amounts summed per tax rate over a join, read back as Postgres's numeric text"
+)]
+async fn tax_totals(
+    db: &sqlx::PgPool,
+    entity_id: &str,
+    from: i64,
+    to: i64,
+) -> Result<Vec<TaxRow>, DbErr> {
+    sqlx::query_as(
+        "select jl.tax_rate_id, tr.name, tr.rate::text, tr.tax_category_code, \
+         tr.jurisdiction_metadata, coalesce(sum(jl.tax_amount::numeric), 0)::text \
+         from journal_lines jl inner join journal_entries je on jl.journal_entry_id = je.id \
+         left join tax_rates tr on jl.tax_rate_id = tr.id \
+         where jl.entity_id = $1 and jl.deleted_at is null \
+         and je.status in ('posted', 'reversed') and je.date >= $2::timestamp \
+         and je.date <= $3::timestamp and jl.tax_rate_id is not null \
+         group by jl.tax_rate_id, tr.name, tr.rate, tr.tax_category_code, tr.jurisdiction_metadata",
+    )
+    .bind(entity_id)
+    .bind(weldsuite_books_domain::reports_basis::iso(from))
+    .bind(weldsuite_books_domain::reports_basis::iso(to))
+    .fetch_all(db)
+    .await
+    .map_err(weldsuite_db::orm_error)
+}
+
 async fn vat_summary(caller: Caller) -> Response {
     let result = async {
         let ctx = report_context(&caller, false).await?;
         let range = resolve_period(&ctx.entity, ctx.get("from"), ctx.get("to"), &ctx.today())?;
         let from = parse_report_date(&range.from, Edge::Start)?;
         let to = parse_report_date(&range.to, Edge::End)?;
-        let rows: Vec<TaxRow> = sqlx::query_as(
-            "select jl.tax_rate_id, tr.name, tr.rate::text, tr.tax_category_code, \
-             tr.jurisdiction_metadata, coalesce(sum(jl.tax_amount::numeric), 0)::text \
-             from journal_lines jl inner join journal_entries je on jl.journal_entry_id = je.id \
-             left join tax_rates tr on jl.tax_rate_id = tr.id \
-             where jl.entity_id = $1 and jl.deleted_at is null \
-             and je.status in ('posted', 'reversed') and je.date >= $2::timestamp \
-             and je.date <= $3::timestamp and jl.tax_rate_id is not null \
-             group by jl.tax_rate_id, tr.name, tr.rate, tr.tax_category_code, tr.jurisdiction_metadata",
-        )
-        .bind(&ctx.entity_id)
-        .bind(weldsuite_books_domain::reports_basis::iso(from))
-        .bind(weldsuite_books_domain::reports_basis::iso(to))
-        .fetch_all(&caller.db)
-        .await?;
+        let rows = tax_totals(&caller.db, &ctx.entity_id, from, to).await?;
         let table = || Table {
             report: "tax_summary",
             title: "Tax summary".to_owned(),

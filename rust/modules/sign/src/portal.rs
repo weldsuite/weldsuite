@@ -57,7 +57,7 @@ use weldsuite_ports::{BoxFuture, DynCache, DynFileStore, DynJobs, FileStores, Jo
 use crate::finalize::{FinalizeJob, FinalizeParams, TenantRef, TenantResolver, finalize_request};
 use crate::hash::code_hash;
 use crate::links::{ResolvedLink, resolve_link, resolve_link_by_hash, revoke_envelope_links};
-use crate::mail::{pdf_file_name, send_code, send_declined, workspace_brand};
+use crate::mail::{pdf_file_name, send_code, send_declined, settings_brand, workspace_brand};
 use crate::sending::{Advance, advance_after_signing};
 use crate::signing::{
     CompleteContext, PortalBrand, Signature, SignerMeta, SignerRef, Submission, closed_reason,
@@ -689,12 +689,7 @@ impl Portal {
     /// `view`: what the signer sees, branded.
     async fn view(&self, signer: &Signer, current: &SignerRef) -> SignResult<Value> {
         let db = &signer.workspace.db;
-        let brand: Option<(Option<String>, Option<String>, Option<String>)> = sqlx::query_as(
-            "select brand_name, brand_color, brand_logo_url from sign_settings limit 1",
-        )
-        .fetch_optional(db)
-        .await?;
-        let (name, color, logo_url) = brand.unwrap_or_default();
+        let (name, color, logo_url) = settings_brand(db).await?;
         // `brand.name ?? workspaceBrand(…).name`.
         let name = if let Some(name) = name {
             name

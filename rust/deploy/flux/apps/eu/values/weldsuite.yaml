@@ -168,7 +168,8 @@ config:
 # WIDGET_TOKEN_SECRET, ZITADEL_SERVICE_TOKEN, TENANT_SHARDS,
 # COLLAB_ROOMS_SECRET, LIVEKIT_API_KEY + LIVEKIT_API_SECRET, MAIL_INBOUND_SECRET,
 # MISTRAL_API_KEY + AI_KEYS_ENCRYPTION_KEY + ANTHROPIC_API_KEY (config.ai),
-# SANDBOX_TOKEN_SECRET (once the sandbox is on again), and optionally MOLLIE_API_KEY
+# SANDBOX_TOKEN_SECRET (once the sandbox is on again), STOREFRONT_RENDERER_SECRET
+# (read once storefront is on), and optionally MOLLIE_API_KEY
 # and MOLLIE_CONNECT_CLIENT_ID + MOLLIE_CONNECT_CLIENT_SECRET (WeldCommerce's Mollie Connect app):
 # secrets/weldsuite.yaml, from the store's values (secrets/store.example.yaml).
 # The MTA's keys are in weldsuite-mta (mta below).
@@ -309,6 +310,41 @@ formsPortal:
       - secretName: weldsuite-forms-tls
         hosts:
           - forms.${DOMAIN}
+
+# WeldCommerce's online stores (weldsuite-documentation/plans/weldcommerce-storefronts.md):
+# every shop host goes to the server's storefront edge (port 8791, the
+# Service's port storefront), which proxies builder shops to the renderer,
+# the `storefront` target of rust/Dockerfile, released with the server's
+# image. STOREFRONT_RENDERER_SECRET is in weldsuite-env.
+#
+# OFF until the owner has picked the shop domain: a registrable domain of its
+# own, never under ${DOMAIN} (a shop could set cookies on the platform), with
+# a Public Suffix List entry requested. Then the cluster's settings set
+#   STOREFRONT_ENABLED: "true" and STOREFRONT_BASE_DOMAIN: <the shop domain>
+# once *.<shop domain> points at the ingress load balancer and its wildcard
+# certificate is in the Secret weldsuite-storefront-wildcard-tls (a
+# cert-manager Certificate from a DNS-01 issuer: letsencrypt's HTTP-01 can't
+# issue wildcards); and, for merchants' own domains,
+#   STOREFRONT_CUSTOM_DOMAINS: "true" once shops.${DOMAIN} points at the load
+#   balancer, with STOREFRONT_APEX_ADDRESSES its addresses for apex domains,
+#   e.g. "[203.0.113.10, 2001:db8::10]" (tofu output); the server then makes a
+#   letsencrypt Certificate (HTTP-01 through Traefik) and an Ingress per host
+#   name in this namespace, as for WeldPanel's collector domains.
+storefront:
+  enabled: ${STOREFRONT_ENABLED:=false}
+  baseDomain: "${STOREFRONT_BASE_DOMAIN:=}"
+  ingress:
+    className: traefik
+  wildcardTls:
+    secretName: weldsuite-storefront-wildcard-tls
+  renderer:
+    image:
+      repository: ghcr.io/weldsuite/weldsuite-storefront
+      tag: ${WELDSUITE_IMAGE_TAG}
+  customDomains:
+    enabled: ${STOREFRONT_CUSTOM_DOMAINS:=false}
+    cnameTarget: shops.${DOMAIN}
+    apexAddresses: ${STOREFRONT_APEX_ADDRESSES:=[]}
 
 # The staff admin console at admin.${DOMAIN} (ADR FE-018): access requests,
 # workspaces, the app catalog, warmup and outbound mail. Its image is the

@@ -11,17 +11,25 @@ use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, patch, post};
 use http::HeaderMap;
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, JoinType, QueryFilter, QuerySelect, Select};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events::{
     TRANSCRIPTION_CREATED, TRANSCRIPTION_DELETED, TRANSCRIPTION_UPDATED,
 };
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm, orm_error};
 use weldsuite_kit::validation::{Field, Issues, Number, Presence, Text};
 use weldsuite_kit::{ApiError, Created, Data, NoContent, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::crm_transcriptions::{self, Column as Transcription};
+use weldsuite_schema::tenant::{
+    crm_activities, crm_transcript_segments, meeting_bot_sessions, meeting_sessions, meetings,
+    voip_calls,
+};
 
 use crate::js::text;
-use crate::tables::{CRM_TRANSCRIPT_SEGMENTS, CRM_TRANSCRIPTIONS};
+use crate::recording::{insert_pending_transcription, remove_transcription, segment_rows};
+use crate::table::row_json;
+use crate::tables::CRM_TRANSCRIPTIONS;
 use crate::{Caller, MeetState, internal, now, validate};
 
 const ACTIVITY_DENIED: &str = "You do not have access to this transcript";
@@ -72,32 +80,58 @@ fn denied() -> Response {
 
 /// `resolveActivityOwner(c, activityId)`: the owner across every kind of
 /// activity a transcript can belong to.
-async fn activity_owner(
-    db: &PgPool,
-    activity: &str,
-) -> Result<Option<Option<String>>, sqlx::Error> {
-    let lookups = [
-        "select user_id from voip_calls where id = $1 limit 1",
-        "select user_id from meeting_bot_sessions where id = $1 limit 1",
-        "select m.organizer_id from meeting_sessions s inner join meetings m on s.meeting_id = m.id where s.id = $1 limit 1",
-        "select organizer_id from meetings where id = $1 limit 1",
-        "select assigned_to_id from crm_activities where id = $1 limit 1",
-    ];
-    for sql in lookups {
-        let row: Option<Option<String>> = sqlx::query_scalar(sql)
-            .bind(activity)
-            .fetch_optional(db)
-            .await?;
-        if let Some(owner) = row {
-            return Ok(Some(owner));
-        }
+async fn activity_owner(db: &PgPool, activity: &str) -> Result<Option<Option<String>>, DbErr> {
+    /// `select <owner> from <kind> where id = $1 limit 1`.
+    async fn owner<E: EntityTrait>(
+        db: &sea_orm::DatabaseConnection,
+        find: Select<E>,
+    ) -> Result<Option<Option<String>>, DbErr> {
+        find.into_tuple::<Option<String>>().one(db).await
     }
-    Ok(None)
+    let db = &orm(db);
+    let call = voip_calls::Entity::find()
+        .select_only()
+        .column(voip_calls::Column::UserId)
+        .filter(voip_calls::Column::Id.eq(activity));
+    if let Some(found) = owner(db, call).await? {
+        return Ok(Some(found));
+    }
+    let bot = meeting_bot_sessions::Entity::find()
+        .select_only()
+        .column(meeting_bot_sessions::Column::UserId)
+        .filter(meeting_bot_sessions::Column::Id.eq(activity));
+    if let Some(found) = owner(db, bot).await? {
+        return Ok(Some(found));
+    }
+    let meeting = meeting_sessions::Entity::belongs_to(meetings::Entity)
+        .from(meeting_sessions::Column::MeetingId)
+        .to(meetings::Column::Id)
+        .into();
+    let session = meeting_sessions::Entity::find()
+        .select_only()
+        .column(meetings::Column::OrganizerId)
+        .join(JoinType::InnerJoin, meeting)
+        .filter(meeting_sessions::Column::Id.eq(activity));
+    if let Some(found) = owner(db, session).await? {
+        return Ok(Some(found));
+    }
+    let legacy = meetings::Entity::find()
+        .select_only()
+        .column(meetings::Column::OrganizerId)
+        .filter(meetings::Column::Id.eq(activity));
+    if let Some(found) = owner(db, legacy).await? {
+        return Ok(Some(found));
+    }
+    let crm = crm_activities::Entity::find()
+        .select_only()
+        .column(crm_activities::Column::AssignedToId)
+        .filter(crm_activities::Column::Id.eq(activity));
+    owner(db, crm).await
 }
 
 /// `canAccessActivity(c, activityId)`: always with `activities:scope:all`,
 /// else only the activity's owner (an unknown activity denies).
-async fn can_access(caller: &Caller, activity: &str) -> Result<bool, sqlx::Error> {
+async fn can_access(caller: &Caller, activity: &str) -> Result<bool, DbErr> {
     if caller.can("activities:scope:all") {
         return Ok(true);
     }
@@ -105,31 +139,29 @@ async fn can_access(caller: &Caller, activity: &str) -> Result<bool, sqlx::Error
     Ok(owner.flatten().as_deref() == Some(caller.user_id.as_str()))
 }
 
-async fn transcription(
-    db: &PgPool,
-    sql: &'static str,
-    key: &str,
-) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(sql).bind(key).fetch_optional(db).await?;
-    Ok(row.map(|row| CRM_TRANSCRIPTIONS.js(row)))
+/// Which column a transcription is looked up by.
+#[derive(Debug, Clone, Copy)]
+enum By {
+    Id,
+    Activity,
 }
 
-async fn segment_rows(db: &PgPool, transcription_id: &str) -> Result<Vec<Value>, sqlx::Error> {
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(s) from crm_transcript_segments s where s.transcription_id = $1
-         order by s.sequence_number asc",
-    )
-    .bind(transcription_id)
-    .fetch_all(db)
-    .await?;
-    Ok(rows
-        .into_iter()
-        .map(|r| CRM_TRANSCRIPT_SEGMENTS.js(r))
-        .collect())
+/// The transcription whose id (or activity) is `key`.
+async fn transcription(db: &PgPool, by: By, key: &str) -> Result<Option<Value>, DbErr> {
+    let column = match by {
+        By::Id => Transcription::Id,
+        By::Activity => Transcription::ActivityId,
+    };
+    crm_transcriptions::Entity::find()
+        .filter(column.eq(key))
+        .one(&orm(db))
+        .await?
+        .map(row_json)
+        .transpose()
 }
 
 /// `{ ...transcription, segments: [{ ...seg, start, end, speaker }] }`.
-async fn with_segments(db: &PgPool, transcription: Value) -> Result<Value, sqlx::Error> {
+async fn with_segments(db: &PgPool, transcription: Value) -> Result<Value, DbErr> {
     let id = text(&transcription, "id").unwrap_or_default().to_owned();
     let segments: Vec<Value> = segment_rows(db, &id)
         .await?
@@ -147,15 +179,9 @@ async fn with_segments(db: &PgPool, transcription: Value) -> Result<Value, sqlx:
 }
 
 async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
-    let result: Result<Response, sqlx::Error> = async {
+    let result: Result<Response, DbErr> = async {
         let db = &caller.db;
-        let Some(found) = transcription(
-            db,
-            "select to_jsonb(t) from crm_transcriptions t where t.id = $1 limit 1",
-            &id,
-        )
-        .await?
-        else {
+        let Some(found) = transcription(db, By::Id, &id).await? else {
             return Ok(ApiError::not_found("Transcription", Some(&id)).into_response());
         };
         if !can_access(&caller, text(&found, "activityId").unwrap_or_default()).await? {
@@ -168,15 +194,9 @@ async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
 }
 
 async fn by_activity(caller: Caller, Path(activity): Path<String>) -> Response {
-    let result: Result<Response, sqlx::Error> = async {
+    let result: Result<Response, DbErr> = async {
         let db = &caller.db;
-        let Some(found) = transcription(
-            db,
-            "select to_jsonb(t) from crm_transcriptions t where t.activity_id = $1 limit 1",
-            &activity,
-        )
-        .await?
-        else {
+        let Some(found) = transcription(db, By::Activity, &activity).await? else {
             return Ok(ApiError::not_found("Transcription", None).into_response());
         };
         if !can_access(&caller, &activity).await? {
@@ -198,12 +218,7 @@ async fn status_by_activity(caller: Caller, Path(activity): Path<String>) -> Res
             return ApiError::internal().into_response();
         }
     }
-    let row = transcription(
-        &caller.db,
-        "select to_jsonb(t) from crm_transcriptions t where t.activity_id = $1 limit 1",
-        &activity,
-    )
-    .await;
+    let row = transcription(&caller.db, By::Activity, &activity).await;
     match row {
         Ok(None) => Data(json!({ "exists": false })).into_response(),
         Ok(Some(t)) => Data(json!({
@@ -245,41 +260,38 @@ async fn create(
         Err(response) => return *response,
     };
     let (activity, language) = input;
-    let result: Result<Response, sqlx::Error> = async {
+    let result: Result<Response, DbErr> = async {
         let db = &caller.db;
-        let found: Option<String> = sqlx::query_scalar(
-            "select id from crm_activities where id = $1 and deleted_at is null limit 1",
-        )
-        .bind(&activity)
-        .fetch_optional(db)
-        .await?;
+        let found: Option<String> = crm_activities::Entity::find()
+            .select_only()
+            .column(crm_activities::Column::Id)
+            .filter(crm_activities::Column::Id.eq(&activity))
+            .filter(crm_activities::Column::DeletedAt.is_null())
+            .into_tuple()
+            .one(&orm(db))
+            .await?;
         if found.is_none() {
             return Ok(ApiError::not_found("Activity", Some(&activity)).into_response());
         }
         if !can_access(&caller, &activity).await? {
             return Ok(denied());
         }
-        let existing: Option<String> =
-            sqlx::query_scalar("select id from crm_transcriptions where activity_id = $1 limit 1")
-                .bind(&activity)
-                .fetch_optional(db)
-                .await?;
+        let existing: Option<String> = crm_transcriptions::Entity::find()
+            .select_only()
+            .column(Transcription::Id)
+            .filter(Transcription::ActivityId.eq(&activity))
+            .into_tuple()
+            .one(&orm(db))
+            .await?;
         if existing.is_some() {
-            return Ok(ApiError::conflict("Transcription already exists for this activity").into_response());
+            return Ok(
+                ApiError::conflict("Transcription already exists for this activity")
+                    .into_response(),
+            );
         }
         let id = generate_id("trans");
         let language = language.unwrap_or_else(|| "en".to_owned());
-        let now = now();
-        sqlx::query(
-            "insert into crm_transcriptions (id, activity_id, status, language, created_at, updated_at)
-             values ($1, $2, 'pending', $3, $4::timestamp, $4::timestamp)",
-        )
-        .bind(&id)
-        .bind(&activity)
-        .bind(&language)
-        .bind(&now)
-        .execute(db)
-        .await?;
+        insert_pending_transcription(db, &id, &activity, language.clone()).await?;
         caller.publish(
             &state,
             TRANSCRIPTION_CREATED,
@@ -366,13 +378,9 @@ async fn update(
     };
     let result: Result<Response, String> = async {
         let db = &caller.db;
-        let Some(existing) = transcription(
-            db,
-            "select to_jsonb(t) from crm_transcriptions t where t.id = $1 limit 1",
-            &id,
-        )
-        .await
-        .map_err(|e| e.to_string())?
+        let Some(existing) = transcription(db, By::Id, &id)
+            .await
+            .map_err(|e| e.to_string())?
         else {
             return Ok(ApiError::not_found("Transcription", Some(&id)).into_response());
         };
@@ -422,28 +430,15 @@ async fn remove(
     caller: Caller,
     Path(id): Path<String>,
 ) -> Response {
-    let result: Result<Response, sqlx::Error> = async {
+    let result: Result<Response, DbErr> = async {
         let db = &caller.db;
-        let Some(existing) = transcription(
-            db,
-            "select to_jsonb(t) from crm_transcriptions t where t.id = $1 limit 1",
-            &id,
-        )
-        .await?
-        else {
+        let Some(existing) = transcription(db, By::Id, &id).await? else {
             return Ok(ApiError::not_found("Transcription", Some(&id)).into_response());
         };
         if !can_access(&caller, text(&existing, "activityId").unwrap_or_default()).await? {
             return Ok(denied());
         }
-        sqlx::query("delete from crm_transcript_segments where transcription_id = $1")
-            .bind(&id)
-            .execute(db)
-            .await?;
-        sqlx::query("delete from crm_transcriptions where id = $1")
-            .bind(&id)
-            .execute(db)
-            .await?;
+        remove_transcription(db, &id).await?;
         caller.publish(&state, TRANSCRIPTION_DELETED, &id, &json!({ "id": id }));
         Ok(NoContent.into_response())
     }
@@ -452,12 +447,14 @@ async fn remove(
 }
 
 /// The transcription's activity, or the 404 / 403 to answer.
-async fn owned(caller: &Caller, id: &str) -> Result<Result<(), Response>, sqlx::Error> {
-    let activity: Option<String> =
-        sqlx::query_scalar("select activity_id from crm_transcriptions where id = $1 limit 1")
-            .bind(id)
-            .fetch_optional(&caller.db)
-            .await?;
+async fn owned(caller: &Caller, id: &str) -> Result<Result<(), Response>, DbErr> {
+    let activity: Option<String> = crm_transcriptions::Entity::find()
+        .select_only()
+        .column(Transcription::ActivityId)
+        .filter(Transcription::Id.eq(id))
+        .into_tuple()
+        .one(&orm(&caller.db))
+        .await?;
     let Some(activity) = activity else {
         return Ok(Err(
             ApiError::not_found("Transcription", Some(id)).into_response()
@@ -470,7 +467,7 @@ async fn owned(caller: &Caller, id: &str) -> Result<Result<(), Response>, sqlx::
 }
 
 async fn segments(caller: Caller, Path(id): Path<String>) -> Response {
-    let result: Result<Response, sqlx::Error> = async {
+    let result: Result<Response, DbErr> = async {
         if let Err(response) = owned(&caller, &id).await? {
             return Ok(response);
         }
@@ -581,31 +578,44 @@ async fn create_segments(
             })
             .collect();
         let count = rows.len();
-        sqlx::query(
-            "insert into crm_transcript_segments (id, transcription_id, speaker_id, speaker_label,
-                 speaker_name, text, start_time, end_time, timestamp, confidence, sequence_number, created_at)
-             select r.id, r.transcription_id, r.speaker_id, r.speaker_label, r.speaker_name, r.text,
-                 r.start_time, r.end_time, r.timestamp, r.confidence, r.sequence_number, r.created_at
-             from jsonb_populate_recordset(null::crm_transcript_segments, $1::jsonb) r",
-        )
-        .bind(Value::Array(rows))
-        .execute(&caller.db)
-        .await
-        .map_err(|e| e.to_string())?;
+        insert_segments(&caller.db, rows)
+            .await
+            .map_err(|e| e.to_string())?;
         Ok(Created(json!({ "count": count })).into_response())
     }
     .await;
     result.unwrap_or_else(|error| internal(&error, "Failed to create transcript segments"))
 }
 
+/// The request's segments (`{ column: value }` rows) inserted in one
+/// statement.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "the request's segments written whole in one statement: jsonb_populate_recordset lets Postgres convert each value as it did for Drizzle's insert (a fractional speakerId or an out-of-range time is the statement's error), which a typed insert_many can't reproduce"
+)]
+async fn insert_segments(db: &PgPool, rows: Vec<Value>) -> Result<(), DbErr> {
+    sqlx::query(
+        "insert into crm_transcript_segments (id, transcription_id, speaker_id, speaker_label,
+             speaker_name, text, start_time, end_time, timestamp, confidence, sequence_number, created_at)
+         select r.id, r.transcription_id, r.speaker_id, r.speaker_label, r.speaker_name, r.text,
+             r.start_time, r.end_time, r.timestamp, r.confidence, r.sequence_number, r.created_at
+         from jsonb_populate_recordset(null::crm_transcript_segments, $1::jsonb) r",
+    )
+    .bind(Value::Array(rows))
+    .execute(db)
+    .await
+    .map_err(orm_error)?;
+    Ok(())
+}
+
 async fn delete_segments(caller: Caller, Path(id): Path<String>) -> Response {
-    let result: Result<Response, sqlx::Error> = async {
+    let result: Result<Response, DbErr> = async {
         if let Err(response) = owned(&caller, &id).await? {
             return Ok(response);
         }
-        sqlx::query("delete from crm_transcript_segments where transcription_id = $1")
-            .bind(&id)
-            .execute(&caller.db)
+        crm_transcript_segments::Entity::delete_many()
+            .filter(crm_transcript_segments::Column::TranscriptionId.eq(&id))
+            .exec(&orm(&caller.db))
             .await?;
         Ok(NoContent.into_response())
     }

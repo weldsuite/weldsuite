@@ -1,0 +1,19 @@
+appId: com.weldsuite.weldpass
+name: Sign in and the tabs load
+tags: [smoke]
+---
+- runFlow: ../subflows/login.yaml
+- assertVisible: "All items"
+- tapOn:
+    id: tab-vaults
+- assertVisible: "Personal"
+- tapOn:
+    id: tab-generator
+- assertVisible:
+    id: generated-password
+- tapOn:
+    id: tab-settings
+- assertVisible: "Sign out"
+- tapOn:
+    id: tab-items
+- assertVisible: "All items"

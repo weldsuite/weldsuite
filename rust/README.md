@@ -624,6 +624,11 @@ rust/
   crates/merge-domain/  WeldMerge code merge and connect share (@weldsuite/merge-domain/installations): a GitHub App
                         installation recorded as a merge_connections row and in the master merge_provider_index,
                         its status and its removal
+  crates/outside-eu/    services outside the EU (ADR OPS-026): the one list of them (by company: where, what
+                        data, what uses it), a workspace's opt-ins (workspace_settings.features.outsideEu), and
+                        the check every call path makes on the EU edition (`require` in routes, `allowed` in jobs;
+                        installed from EDITION in main.rs, off in conformance builds); routes in
+                        modules/core-platform (`/api/outside-eu-services`), staff command `weldsuite admin outside-eu`
   crates/legal-entities/ legal entities (@weldsuite/core-domain/legal-entities): per-entity access, the
                         legal_entity_context layer and record guard for books and hr, the core service
                         (entities, registrations, bank accounts, access) and its request schemas
@@ -853,6 +858,7 @@ was the first):
 | a join | `Entity::belongs_to(Other).from(…).to(…).into()` with `.join(JoinType::…, relation)` |
 | `$1::timestamp` bound as text | a `PrimitiveDateTime` from `weldsuite_db::utc_now()` (UTC, milliseconds, as Drizzle wrote it) |
 | a request body written whole (`insert … select … from jsonb_populate_record(…)`, generated per table) | `weldsuite_db::record::JsonTable::of::<Entity>()`: the statements come from the entity's columns, Postgres still converts the values (desk's `Table`) |
+| a paged list over such a table (`select to_jsonb(t) … where … order by created_at desc, id desc limit …` and its `count(*)`) | `JsonTable::select()` plus its conditions, order and limit, read with `JsonTable::rows` and `JsonTable::count`; filters are typed conditions on the entity (`fn(String) -> Condition`), shared columns by name through `JsonTable::column` (desk's `crud::fetch`) |
 | `select … filter (where …)`, `extract(epoch …)` | the columns themselves, worked out in Rust (`CASE` inside `Func::min` for a filtered aggregate) |
 | `metadata->>'key'`, `jsonb || jsonb`, `ILIKE`, `@>` | `PgExpr::cast_json_field`, `PgExpr::concat`, `PgExpr::ilike`, `PgExpr::contains`, called by path |
 | a statement that has to stay one (a claim with its children, a read-and-clear, a bulk upsert that merges) | SQL, with `#[allow(clippy::disallowed_methods, reason = "…")]` on its function and its error through `weldsuite_db::orm_error` |
@@ -962,6 +968,21 @@ scripts and the self-hosted operator. The commands' rules and writes are in
   through Mollie (the credit note is made in WeldBooks, in the issuer
   workspace) and `retry-now` (charge a past-due workspace's open charge
   again). `bins/weldsuite/src/admin_billing.rs`.
+- **`outside-eu`**: a workspace's services outside the EU (ADR OPS-026,
+  `crates/outside-eu`): `list`, and `on`/`off` with
+  `--service <id>[,<id>…]`. `on --via move` records an integration the
+  workspace had connected on Global before it moved (OPS-025 decision 6).
+  The switch lives in the workspace's own database
+  (`workspace_settings.features.outsideEu`), so it and its audit row are two
+  writes. `bins/weldsuite/src/admin_outside_eu.rs`.
+- **`weldpass`**: WeldPass's root keys, for one workspace or all of them:
+  `status` (how many vault keys each root-key version wraps), `rewrap` (every
+  project and vault key under the newest key: the rotation, once
+  `WELDPASS_ROOT_KEY_V2` is set on the server) and `backfill-checksums`
+  (pre-HMAC secret checksums rewritten as keyed ones). Each workspace it
+  changes gets an audit row. It needs the server's `WELDPASS_ROOT_KEY` (and
+  `_V2`), which a server pod has. `bins/weldsuite/src/admin_weldpass.rs`,
+  `modules/pass/src/rotation.rs`.
 - Every change needs `--reason`, runs in one transaction with its row in
   `admin_audit_events` (`actor_user_id` `cli`), refusals included, and
   `--dry-run` shows it without writing. `--json` prints JSON.
@@ -984,14 +1005,17 @@ flags, the app catalog's flags, workspaces and plans, which are still SQL.
 docker build -f rust/Dockerfile -t weldsuite:dev .                                       # from the repo root: the server and the platform SPA
 docker build -f rust/Dockerfile --target sign-portal -t weldsuite-sign-portal:dev .     # the WeldSign signer portal (Node, ADR FE-017)
 docker build -f rust/Dockerfile --target collab-rooms -t weldsuite-collab-rooms:dev .   # WeldDocs', WeldSheets' and WeldBoard's rooms (Node, docs/collab-rooms.md)
+docker build -f rust/Dockerfile --target storefront -t weldsuite-storefront:dev .       # WeldCommerce's online store renderer (Node, ADR COM-015), behind the storefront edge
 docker build -t weldsuite-haraka:dev rust/deploy/haraka                                # the MX (MAIL-010)
 rust/deploy/kind/smoke-test.sh     # kind + Postgres + Valkey + NATS + RustFS + Restate + the chart; a signed request through the pipeline, a job through Restate, the SPA, the portal, inbound mail over SMTP
 ```
 
 Built images for the test clusters: the "Rust images" workflow
 (`.github/workflows/rust-images.yml`) pushes
-`ghcr.io/weldsuite/weldsuite`, `ghcr.io/weldsuite/weldsuite-sign-portal` and
-`ghcr.io/weldsuite/weldsuite-collab-rooms`, amd64, tagged
+`ghcr.io/weldsuite/weldsuite`, `ghcr.io/weldsuite/weldsuite-sign-portal`,
+`ghcr.io/weldsuite/weldsuite-collab-rooms` and the other portal images
+(the storefront renderer's `ghcr.io/weldsuite/weldsuite-storefront` among
+them), amd64, tagged
 `sha-<12 characters of the commit>`, on every push to `main` or a
 `deploy/*` branch that changes what the images are built from. A push to
 `main` also moves the tag `main` and publishes the chart as
@@ -1010,6 +1034,12 @@ build's `_headers` rules, a 404 for a missing asset. `/api`, `/public`,
 share one origin and the app finds the API through `/config.json`
 (`"backend": "rust"`). The build context is the repo root, trimmed by
 `rust/Dockerfile.dockerignore`.
+
+WeldCommerce's online store (storefronts plan, ADRs COM-015 to COM-018): the
+server answers shop hosts on a second listener, the storefront edge
+(`STOREFRONT_LISTEN`), and serves the renderer's `/public/storefront`; every
+`STOREFRONT_*` setting is listed in `bins/weldsuite/src/storefront.rs`, and
+the chart's `storefront:` values set them.
 
 `weldsuite cron <job>` runs one scheduled job and exits, with the same
 environment (the chart's CronJobs, `cron.jobs` in its values): `sign-lifecycle`
@@ -1073,7 +1103,7 @@ log none.
 | `OIDC_ISSUER`, `OIDC_AUDIENCE` | with `oidc` (both required): the issuer (`iss`, and where discovery reads `/.well-known/openid-configuration`) and the accepted audiences, comma separated (Zitadel: the project id) |
 | `OIDC_ORG_CLAIM` | the claim naming the session's organization (default `urn:zitadel:iam:org:id`; Zitadel's project-roles claim works too). Its value is matched against `workspaces.clerk_org_id`, which holds the provider's organization id on Kubernetes, or `workspaces.id` |
 | `OIDC_JWKS_URL`, `OIDC_WEB_CLIENT_ID` | fetch the keys here instead of through discovery; the platform's PKCE client id for `/config.json` (both optional) |
-| `OIDC_MOBILE_CLIENT_ID`, `OIDC_DESKTOP_CLIENT_ID` | the mobile apps' and the desktop app's public native clients for `/config.json` (`mobileClientId`, `desktopClientId`; optional). The desktop app signs in through the system browser with the loopback redirect `http://127.0.0.1/callback` on any port (RFC 8252, `apps/desktop/docs/auth-handoff.md`); without its client it signs in inside its window with the web client |
+| `OIDC_MOBILE_CLIENT_ID`, `OIDC_DESKTOP_CLIENT_ID`, `OIDC_EXTENSION_CLIENT_ID` | the mobile apps', the desktop app's and the WeldPass browser extension's public clients for `/config.json` (`mobileClientId`, `desktopClientId`, `extensionClientId`; optional). The extension signs in from its service worker with `https://<extension id>.chromiumapp.org/` redirects (ADR PASS-009); without its client it can't sign in. The desktop app signs in through the system browser with the loopback redirect `http://127.0.0.1/callback` on any port (RFC 8252, `apps/desktop/docs/auth-handoff.md`); without its client it signs in inside its window with the web client |
 | `OIDC_WORKSPACE_SOURCE` | `claim` (default; `header` with `IDENTITY_PROVIDER=weldid`): the workspace is the token's `OIDC_ORG_CLAIM`. `header`: membership mode (self-hosted plan E1): the provider only authenticates, every request names its workspace in `X-Weld-Workspace` (`workspaces.id`, its slug or its organization id), and the user must be an active member in the master `user_workspaces` (`crates/db/src/membership.rs`; no header: `ORG_REQUIRED`, not a member: 403). The realtime gateway's sockets, which a browser can't give headers, name it in `?workspace=` and are checked alike (`crates/realtime`). `/config.json` then sends provider-neutral scopes, `audienceScope`, `organizationScope` and `orgClaim` `null`, and `workspaceSource: "header"`; `GET /api/workspaces` needs no workspace and names each by `workspaces.id` |
 | `OIDC_SIGN_IN`, `ZITADEL_LOGIN_TOKEN`, `PLATFORM_URL` | `platform`: the platform shows its own sign-in screens (the ones Global shows) and the server is Zitadel's login client behind them at `/api/sign-in` (`modules/core-signin`, ADR SEC-016); `/config.json` then says `auth.signIn: "platform"`. Needs `ZITADEL_*`, and a service user with the `IAM_LOGIN_CLIENT` role: `ZITADEL_LOGIN_TOKEN`, else `ZITADEL_SERVICE_TOKEN`. `PLATFORM_URL` is where the links in its emails open the platform (unset: Zitadel's own pages). Invitations are accepted there too, on `/invite` at `PUBLIC_APP_URL` (`/api/sign-in/invitation/accept`). Attempts are counted in Valkey (`VALKEY_URL`; unset: per process). Unset or `provider`: the provider's own pages, and no `/api/sign-in` |
 | `DATABASE_ENCRYPTION_KEY`, `DATABASE_ENCRYPTION_KEY_V2` | open encrypted `workspaces.database_url`; seal and open WeldAds' Meta tokens (`encryptField`); seal and open WeldConnect's store connection credentials; seal and open WeldBooks' stored credentials, tax ids and bank account numbers |
@@ -1120,7 +1150,7 @@ log none.
 | `SYSTEM_EMAIL_FROM` | send from this address instead of `notifications@mail.weldsuite.org` (optional) |
 | `SIGN_SESSION_SECRET`, `SIGN_PORTAL_URL` | WeldSign: the key of signer sessions and access-code hashes (the workers' value), and the signer portal's origin for signing links (default `https://sign.weldsuite.org`) |
 | `PROJECT_PORTAL_URL` | WeldFlow: the client portal's origin (`https://projects.weldsuite.org`), for the links in the portal invitation and in status reports emailed to client contacts. Unset: those emails are not sent. `weldsuite cron flow-status-reports` (daily) drafts the status reports whose cadence has come due, over the `status_report_due` due index |
-| `WELDPASS_ROOT_KEY`, `WELDPASS_ROOT_KEY_V2` | WeldPass: the root key that wraps every vault's key (64 hex characters, the workers' value, so either backend opens the other's vaults), and the new one while a rotation is in flight. Unset: the vault routes answer 500 `CRYPTO_ERROR`. Losing it makes every stored secret unrecoverable |
+| `WELDPASS_ROOT_KEY`, `WELDPASS_ROOT_KEY_V2` | WeldPass: the root key that wraps every vault's key (64 hex characters, the workers' value, so either backend opens the other's vaults), and the new one while a rotation is in flight (`weldsuite admin weldpass rewrap` moves every vault key to it; `status` shows what is left). Unset: the vault routes answer 500 `CRYPTO_ERROR` and `weldsuite doctor` fails. Losing it makes every stored secret unrecoverable |
 | `COLLAB_ROOMS_URLS`, `COLLAB_ROOMS_SECRET` | WeldDocs', WeldSheets' and WeldBoard's live editing (`docs/collab-rooms.md`): every collab-rooms pod's URL, comma separated (the chart lists them), and the `x-internal-secret` both ways. A room's calls and its socket go to the pod that wins rendezvous hashing on the room id. Unset: every route that needs a room or an engine (create, import, convert, session, live snapshot, export, versions, connected tables' refreshes) answers 503, and `/config.json` lists `collab-rooms` as unavailable, so the platform hides WeldDocs, WeldSheets and WeldBoard |
 | `SIGN_PORTAL_SECRET` | WeldSign: the key the signer portal sends with every call to `/public/sign-portal` (ADR FE-017); unset refuses those calls (503) |
 | `FORMS_PORTAL_SECRET`, `FORMS_PORTAL_URL`, `FORMS_SESSION_SECRET` | WeldForms: the key the forms portal sends with every call to `/public/forms` (`X-Forms-Portal-Key`, ADR FORMS-002; unset refuses them, 503), the portal's origin for public links (`<url>/f/<publicId>`, default `https://forms.weldsuite.org`; the chart's `config.forms.portalUrl`), and the key of respondent sessions, verification tokens and the keyed hashes of IPs, browser keys and codes (the workers' value, so a session either backend issued opens on the other; unset: the session routes answer 503) |

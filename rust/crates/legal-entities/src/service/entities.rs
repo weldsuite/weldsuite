@@ -2,19 +2,22 @@
 
 use std::collections::HashMap;
 
+use sea_orm::ActiveValue::{self, Set};
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, Condition, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 use serde_json::{Map, Value};
 use sqlx::PgPool;
+use time::PrimitiveDateTime;
+use weldsuite_db::{orm, utc_now};
 use weldsuite_kit::generate_id;
 use weldsuite_kit::validation::Field;
+use weldsuite_schema::tenant::{entities, legal_entity_members, roles, settings};
 
 use super::types::{
     CreateLegalEntityInput, EntityRow, LegalEntity, LegalEntityMyAccess, LegalEntityUsage,
     ListLegalEntitiesOptions, UpdateLegalEntityInput,
 };
-use super::{
-    Columns, LegalEntityError, Param, insert_returning, js_truthy, now_iso, read_row,
-    update_returning,
-};
+use super::{LegalEntityError, js_truthy, read_model};
 use crate::access::{
     EntityAccess, can_see_entity, entity_access_source, entity_role_id, visible_entity_ids,
 };
@@ -22,8 +25,8 @@ use crate::extensions::{
     LegalEntityApp, LegalEntityCoreChange, enabled_apps_by_entity, locked_core_change,
 };
 
-pub(super) fn entity_row(value: Value) -> Result<EntityRow, LegalEntityError> {
-    let (mut row, json): (EntityRow, Value) = read_row(value)?;
+pub(super) fn entity_row(model: &entities::Model) -> Result<EntityRow, LegalEntityError> {
+    let (mut row, json): (EntityRow, Value) = read_model(model)?;
     row.row = json;
     Ok(row)
 }
@@ -33,13 +36,40 @@ pub(super) async fn load_entity_row(
     db: &PgPool,
     id: &str,
 ) -> Result<Option<EntityRow>, LegalEntityError> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from entities t where t.id = $1 and t.deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    row.map(entity_row).transpose()
+    let row = entities::Entity::find_by_id(id.to_owned())
+        .filter(entities::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?;
+    row.as_ref().map(entity_row).transpose()
+}
+
+/// `update entities set … where id = $id returning *`: the columns `patch`
+/// sets; `None` when no row has the id.
+pub(super) async fn update_entity(
+    db: &PgPool,
+    id: &str,
+    patch: entities::ActiveModel,
+) -> Result<Option<entities::Model>, DbErr> {
+    Ok(entities::Entity::update_many()
+        .set(patch)
+        .filter(entities::Column::Id.eq(id))
+        .exec_with_returning(&orm(db))
+        .await?
+        .into_iter()
+        .next())
+}
+
+/// [`update_entity`] for a row that was just read: `NOT_FOUND` "Legal entity
+/// not found" when it is gone, else the row.
+pub(super) async fn update_entity_row(
+    db: &PgPool,
+    id: &str,
+    patch: entities::ActiveModel,
+) -> Result<EntityRow, LegalEntityError> {
+    let row = update_entity(db, id, patch)
+        .await?
+        .ok_or_else(|| LegalEntityError::not_found("Legal entity not found"))?;
+    entity_row(&row)
 }
 
 /// `requireEntityRow`: `NOT_FOUND` "Legal entity not found".
@@ -118,11 +148,13 @@ pub(super) async fn role_names(
     if role_ids.is_empty() {
         return Ok(HashMap::new());
     }
-    let rows: Vec<(String, String)> =
-        sqlx::query_as("select id, name from roles where id = any($1)")
-            .bind(role_ids)
-            .fetch_all(db)
-            .await?;
+    let rows: Vec<(String, String)> = roles::Entity::find()
+        .select_only()
+        .columns([roles::Column::Id, roles::Column::Name])
+        .filter(roles::Column::Id.is_in(role_ids))
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     Ok(rows.into_iter().collect())
 }
 
@@ -171,21 +203,26 @@ pub async fn list_legal_entities(
         }
         None => None,
     };
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from entities t
-         where t.deleted_at is null
-           and ($1 or t.is_active is not false)
-           and ($2::text[] is null or t.id = any($2))
-         order by t.is_default desc, t.name asc, t.id asc",
-    )
-    .bind(options.include_archived)
-    .bind(visible)
-    .fetch_all(db)
-    .await?;
-    let rows = rows
-        .into_iter()
-        .map(entity_row)
-        .collect::<Result<Vec<_>, _>>()?;
+    let mut live = Condition::all().add(entities::Column::DeletedAt.is_null());
+    if !options.include_archived {
+        // `is_active is not false`.
+        live = live.add(
+            Condition::any()
+                .add(entities::Column::IsActive.is_null())
+                .add(entities::Column::IsActive.eq(true)),
+        );
+    }
+    if let Some(visible) = visible {
+        live = live.add(entities::Column::Id.is_in(visible));
+    }
+    let rows = entities::Entity::find()
+        .filter(live)
+        .order_by_desc(entities::Column::IsDefault)
+        .order_by_asc(entities::Column::Name)
+        .order_by_asc(entities::Column::Id)
+        .all(&orm(db))
+        .await?;
+    let rows = rows.iter().map(entity_row).collect::<Result<Vec<_>, _>>()?;
     let ids: Vec<String> = rows.iter().map(|row| row.id.clone()).collect();
     let mut apps = enabled_apps_by_entity(db, &ids).await?;
     let entities = rows
@@ -224,13 +261,25 @@ pub async fn get_legal_entity(
 pub async fn get_default_legal_entity_row(
     db: &PgPool,
 ) -> Result<Option<EntityRow>, LegalEntityError> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from entities t
-         where t.is_default = true and t.deleted_at is null limit 1",
-    )
-    .fetch_optional(db)
-    .await?;
-    row.map(entity_row).transpose()
+    let row = entities::Entity::find()
+        .filter(entities::Column::IsDefault.eq(true))
+        .filter(entities::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?;
+    row.as_ref().map(entity_row).transpose()
+}
+
+/// The id of the live default entity
+/// (`select id from entities where is_default and deleted_at is null limit 1`).
+pub(crate) async fn default_entity_id(db: &PgPool) -> Result<Option<String>, DbErr> {
+    entities::Entity::find()
+        .select_only()
+        .column(entities::Column::Id)
+        .filter(entities::Column::IsDefault.eq(true))
+        .filter(entities::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await
 }
 
 /// `getDefaultLegalEntity`.
@@ -257,59 +306,52 @@ fn default_locale(country: &str) -> &'static str {
     }
 }
 
-fn text_field(field: &Field<String>) -> Option<Param> {
+/// A nullable column as Drizzle's `.set()` writes it: absent keys keep
+/// their value.
+fn field<T: Clone>(field: &Field<T>) -> ActiveValue<Option<T>>
+where
+    Option<T>: Into<sea_orm::Value>,
+{
     match field {
-        Field::Absent => None,
-        Field::Null => Some(Param::Text(None)),
-        Field::Set(value) => Some(Param::Text(Some(value.clone()))),
+        Field::Absent => ActiveValue::NotSet,
+        Field::Null => Set(None),
+        Field::Set(value) => Set(Some(value.clone())),
     }
 }
 
-fn json_field(field: &Field<Value>) -> Option<Param> {
-    match field {
-        Field::Absent => None,
-        Field::Null => Some(Param::Json(None)),
-        Field::Set(value) => Some(Param::Json(Some(value.clone()))),
-    }
+/// A column the input may leave out.
+fn given<T: Clone + Into<sea_orm::Value>>(value: Option<&T>) -> ActiveValue<T> {
+    value.map_or(ActiveValue::NotSet, |value| Set(value.clone()))
 }
 
 /// `coreColumns(input, existing)`: the core columns of a create/update
-/// input. Document texts in `branding` are WeldBooks' and are kept as they are.
-fn core_columns(input: &UpdateLegalEntityInput, existing: Option<&EntityRow>) -> Columns {
-    let mut out = Columns::default();
-    let mut set = |column: &'static str, param: Option<Param>| {
-        if let Some(param) = param {
-            out.set(column, param);
-        }
-    };
-    set("name", input.name.clone().map(|v| Param::Text(Some(v))));
-    set("legal_name", text_field(&input.legal_name));
-    set("dba", text_field(&input.dba));
-    set("entity_type", text_field(&input.entity_type));
-    set(
-        "jurisdiction_code",
-        input
-            .jurisdiction_code
+/// input, as an `entities` patch. Document texts in `branding` are
+/// WeldBooks' and are kept as they are.
+fn core_columns(
+    input: &UpdateLegalEntityInput,
+    existing: Option<&EntityRow>,
+) -> entities::ActiveModel {
+    let mut out = entities::ActiveModel {
+        name: given(input.name.as_ref()),
+        legal_name: field(&input.legal_name),
+        dba: field(&input.dba),
+        entity_type: field(&input.entity_type),
+        jurisdiction_code: given(input.jurisdiction_code.as_ref()),
+        base_currency: given(input.base_currency.as_ref()),
+        locale: given(input.locale.as_ref()),
+        timezone: input
+            .timezone
             .clone()
-            .map(|v| Param::Text(Some(v))),
-    );
-    set(
-        "base_currency",
-        input.base_currency.clone().map(|v| Param::Text(Some(v))),
-    );
-    set("locale", input.locale.clone().map(|v| Param::Text(Some(v))));
-    set(
-        "timezone",
-        input.timezone.clone().map(|v| Param::Text(Some(v))),
-    );
-    set("address", json_field(&input.address));
-    set("contact", json_field(&input.contact));
-    set(
-        "fiscal_year_start",
-        input.fiscal_year_start.map(|v| Param::Int(Some(v))),
-    );
-    set("fiscal_year_config", json_field(&input.fiscal_year_config));
-    set("tax_classification", text_field(&input.tax_classification));
+            .map_or(ActiveValue::NotSet, |zone| Set(Some(zone))),
+        address: field(&input.address),
+        contact: field(&input.contact),
+        fiscal_year_start: input
+            .fiscal_year_start
+            .map_or(ActiveValue::NotSet, |start| Set(Some(start))),
+        fiscal_year_config: field(&input.fiscal_year_config),
+        tax_classification: field(&input.tax_classification),
+        ..Default::default()
+    };
     if !input.branding.is_absent() {
         let mut branding = match &input.branding {
             Field::Set(Value::Object(fields)) => fields.clone(),
@@ -322,7 +364,7 @@ fn core_columns(input: &UpdateLegalEntityInput, existing: Option<&EntityRow>) ->
                 }
             }
         }
-        set("branding", Some(Param::Json(Some(Value::Object(branding)))));
+        out.branding = Set(Some(Value::Object(branding)));
     }
     out
 }
@@ -335,54 +377,38 @@ pub async fn create_legal_entity(
 ) -> Result<EntityRow, LegalEntityError> {
     let id = generate_id("ent");
     let country = input.jurisdiction_code.as_str();
-    let existing_default: Option<String> = sqlx::query_scalar(
-        "select id from entities where is_default = true and deleted_at is null limit 1",
-    )
-    .fetch_optional(db)
-    .await?;
+    let existing_default = default_entity_id(db).await?;
     let make_default = existing_default.is_none() || input.is_default == Some(true);
 
     if make_default && let Some(existing) = &existing_default {
-        sqlx::query(
-            "update entities set is_default = false, updated_at = $1::timestamp where id = $2",
-        )
-        .bind(now_iso())
-        .bind(existing)
-        .execute(db)
+        entities::Entity::update_many()
+            .col_expr(entities::Column::IsDefault, Expr::value(false))
+            .col_expr(entities::Column::UpdatedAt, Expr::value(utc_now()))
+            .filter(entities::Column::Id.eq(existing.as_str()))
+            .exec(&orm(db))
+            .await?;
+    }
+    let row = entities::ActiveModel {
+        id: Set(id),
+        name: Set(input.name.clone()),
+        jurisdiction_code: Set(country.to_owned()),
+        base_currency: Set(input.base_currency.clone()),
+        locale: Set(input
+            .locale
+            .clone()
+            .unwrap_or_else(|| default_locale(country).to_owned())),
+        timezone: Set(input
+            .timezone
+            .clone()
+            .or_else(|| (country == "NL").then(|| "Europe/Amsterdam".to_owned()))),
+        is_default: Set(Some(make_default)),
+        is_active: Set(Some(true)),
+        ..core_columns(&input.as_update(), None)
+    };
+    let row = entities::Entity::insert(row)
+        .exec_with_returning(&orm(db))
         .await?;
-    }
-    let mut columns = Columns::default();
-    columns.set("id", Param::Text(Some(id)));
-    for (column, param) in core_columns(&input.as_update(), None).0 {
-        columns.set(column, param);
-    }
-    columns.set("name", Param::Text(Some(input.name.clone())));
-    columns.set("jurisdiction_code", Param::Text(Some(country.to_owned())));
-    columns.set(
-        "base_currency",
-        Param::Text(Some(input.base_currency.clone())),
-    );
-    columns.set(
-        "locale",
-        Param::Text(Some(
-            input
-                .locale
-                .clone()
-                .unwrap_or_else(|| default_locale(country).to_owned()),
-        )),
-    );
-    columns.set(
-        "timezone",
-        Param::Text(
-            input
-                .timezone
-                .clone()
-                .or_else(|| (country == "NL").then(|| "Europe/Amsterdam".to_owned())),
-        ),
-    );
-    columns.set("is_default", Param::Bool(Some(make_default)));
-    columns.set("is_active", Param::Bool(Some(true)));
-    entity_row(insert_returning(db, "entities", columns).await?)
+    entity_row(&row)
 }
 
 /// Keys of a `jsonb` object in Postgres's order: shorter keys first, then
@@ -435,19 +461,17 @@ fn json_text(value: &Value, order: fn(&str, &str) -> std::cmp::Ordering) -> Stri
 /// compared as `JSON.stringify` text, key order included, as TypeScript
 /// does: a config from the schema (its key order) never reads equal to the
 /// stored `jsonb` (Postgres's key order), so sending one counts as a change.
-fn core_change(existing: &EntityRow, patch: &Columns) -> LegalEntityCoreChange {
-    let differs = |column: &str, current: &str| match patch.get(column) {
-        Some(Param::Text(next)) => {
-            next.as_deref().unwrap_or_default().to_uppercase() != current.to_uppercase()
-        }
+fn core_change(existing: &EntityRow, patch: &entities::ActiveModel) -> LegalEntityCoreChange {
+    let differs = |next: &ActiveValue<String>, current: &str| match next {
+        ActiveValue::Set(next) => next.to_uppercase() != current.to_uppercase(),
         _ => false,
     };
-    let start_changed = match patch.get("fiscal_year_start") {
-        Some(Param::Int(next)) => next.map(i64::from) != existing.fiscal_year_start,
+    let start_changed = match &patch.fiscal_year_start {
+        ActiveValue::Set(next) => next.map(i64::from) != existing.fiscal_year_start,
         _ => false,
     };
-    let config_changed = match patch.get("fiscal_year_config") {
-        Some(Param::Json(next)) => {
+    let config_changed = match &patch.fiscal_year_config {
+        ActiveValue::Set(next) => {
             let next = next.clone().unwrap_or(Value::Null);
             json_text(&next, schema_key_order)
                 != json_text(&existing.fiscal_year_config, stored_key_order)
@@ -455,8 +479,8 @@ fn core_change(existing: &EntityRow, patch: &Columns) -> LegalEntityCoreChange {
         _ => false,
     };
     LegalEntityCoreChange {
-        jurisdiction_code: differs("jurisdiction_code", &existing.jurisdiction_code),
-        base_currency: differs("base_currency", &existing.base_currency),
+        jurisdiction_code: differs(&patch.jurisdiction_code, &existing.jurisdiction_code),
+        base_currency: differs(&patch.base_currency, &existing.base_currency),
         fiscal_year: start_changed || config_changed,
     }
 }
@@ -471,17 +495,14 @@ pub async fn update_legal_entity(
 ) -> Result<EntityRow, LegalEntityError> {
     let existing = require_entity_row(db, id).await?;
     let mut patch = core_columns(input, Some(&existing));
-    if patch.is_empty() {
+    if !sea_orm::ActiveModelTrait::is_changed(&patch) {
         return Ok(existing);
     }
     if let Some(locked) = locked_core_change(db, id, core_change(&existing, &patch)).await? {
         return Err(LegalEntityError::conflict(locked));
     }
-    patch.set("updated_at", Param::Timestamp(Some(now_iso())));
-    let row = update_returning(db, "entities", patch, id)
-        .await?
-        .ok_or_else(|| LegalEntityError::not_found("Legal entity not found"))?;
-    entity_row(row)
+    patch.updated_at = Set(utc_now());
+    update_entity_row(db, id, patch).await
 }
 
 /// `setDefaultLegalEntity`: CONFLICT for an archived entity; mirrors the
@@ -499,30 +520,34 @@ pub async fn set_default_legal_entity(
     if entity.is_default == Some(true) {
         return Ok(entity);
     }
-    let now = now_iso();
-    sqlx::query(
-        "update entities set is_default = false, updated_at = $1::timestamp
-         where is_default = true and id <> $2",
+    let now = utc_now();
+    entities::Entity::update_many()
+        .col_expr(entities::Column::IsDefault, Expr::value(false))
+        .col_expr(entities::Column::UpdatedAt, Expr::value(now))
+        .filter(entities::Column::IsDefault.eq(true))
+        .filter(entities::Column::Id.ne(id))
+        .exec(&orm(db))
+        .await?;
+    let row = update_entity(
+        db,
+        id,
+        entities::ActiveModel {
+            is_default: Set(Some(true)),
+            updated_at: Set(now),
+            ..Default::default()
+        },
     )
-    .bind(&now)
-    .bind(id)
-    .execute(db)
-    .await?;
-    let mut columns = Columns::default();
-    columns.set("is_default", Param::Bool(Some(true)));
-    columns.set("updated_at", Param::Timestamp(Some(now.clone())));
-    let row = update_returning(db, "entities", columns, id)
-        .await?
-        .ok_or_else(|| LegalEntityError::not_found("Legal entity not found"))?;
+    .await?
+    .ok_or_else(|| LegalEntityError::not_found("Legal entity not found"))?;
     // Release 1 mirror: WeldBooks still reads settings.default_entity_id.
     if LegalEntityApp::Weldbooks.is_enabled_for(db, id).await? {
-        sqlx::query("update settings set default_entity_id = $1, updated_at = $2::timestamp")
-            .bind(id)
-            .bind(&now)
-            .execute(db)
+        settings::Entity::update_many()
+            .col_expr(settings::Column::DefaultEntityId, Expr::value(id))
+            .col_expr(settings::Column::UpdatedAt, Expr::value(now))
+            .exec(&orm(db))
             .await?;
     }
-    entity_row(row)
+    entity_row(&row)
 }
 
 /// `setLegalEntityArchived`: the default cannot be archived.
@@ -537,13 +562,16 @@ pub async fn set_legal_entity_archived(
             "Make another legal entity the default before archiving this one",
         ));
     }
-    let mut columns = Columns::default();
-    columns.set("is_active", Param::Bool(Some(!archived)));
-    columns.set("updated_at", Param::Timestamp(Some(now_iso())));
-    let row = update_returning(db, "entities", columns, id)
-        .await?
-        .ok_or_else(|| LegalEntityError::not_found("Legal entity not found"))?;
-    entity_row(row)
+    update_entity_row(
+        db,
+        id,
+        entities::ActiveModel {
+            is_active: Set(Some(!archived)),
+            updated_at: Set(utc_now()),
+            ..Default::default()
+        },
+    )
+    .await
 }
 
 /// `legalEntityUsage`: per app, whether it is enabled and holds data.
@@ -590,19 +618,24 @@ pub async fn delete_legal_entity(db: &PgPool, id: &str) -> Result<EntityRow, Leg
             in_use.join(", ")
         )));
     }
-    let now = now_iso();
-    let mut columns = Columns::default();
-    columns.set("deleted_at", Param::Timestamp(Some(now.clone())));
-    columns.set("is_active", Param::Bool(Some(false)));
-    columns.set("updated_at", Param::Timestamp(Some(now)));
-    let row = update_returning(db, "entities", columns, id)
-        .await?
-        .ok_or_else(|| LegalEntityError::not_found("Legal entity not found"))?;
-    sqlx::query("delete from legal_entity_members where entity_id = $1")
-        .bind(id)
-        .execute(db)
+    let now: PrimitiveDateTime = utc_now();
+    let row = update_entity(
+        db,
+        id,
+        entities::ActiveModel {
+            deleted_at: Set(Some(now)),
+            is_active: Set(Some(false)),
+            updated_at: Set(now),
+            ..Default::default()
+        },
+    )
+    .await?
+    .ok_or_else(|| LegalEntityError::not_found("Legal entity not found"))?;
+    legal_entity_members::Entity::delete_many()
+        .filter(legal_entity_members::Column::EntityId.eq(id))
+        .exec(&orm(db))
         .await?;
-    entity_row(row)
+    entity_row(&row)
 }
 
 #[cfg(test)]
@@ -663,19 +696,24 @@ mod tests {
             ..UpdateLegalEntityInput::default()
         };
         let columns = core_columns(&input, Some(&existing));
-        assert!(matches!(
-            columns.get("branding"),
-            Some(Param::Json(Some(value))) if *value == json!({ "primaryColor": "#fff", "footerText": "Thanks" })
-        ));
+        assert_eq!(
+            columns.branding,
+            Set(Some(
+                json!({ "primaryColor": "#fff", "footerText": "Thanks" })
+            ))
+        );
         let cleared = UpdateLegalEntityInput {
             branding: Field::Null,
             ..UpdateLegalEntityInput::default()
         };
-        assert!(matches!(
-            core_columns(&cleared, Some(&existing)).get("branding"),
-            Some(Param::Json(Some(value))) if *value == json!({ "footerText": "Thanks" })
-        ));
-        assert!(core_columns(&UpdateLegalEntityInput::default(), Some(&existing)).is_empty());
+        assert_eq!(
+            core_columns(&cleared, Some(&existing)).branding,
+            Set(Some(json!({ "footerText": "Thanks" })))
+        );
+        assert!(!sea_orm::ActiveModelTrait::is_changed(&core_columns(
+            &UpdateLegalEntityInput::default(),
+            Some(&existing)
+        )));
     }
 
     #[test]

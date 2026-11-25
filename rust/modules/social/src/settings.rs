@@ -10,12 +10,14 @@ use axum::extract::State;
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use http::HeaderMap;
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events::SOCIAL_SETTINGS_UPDATED;
 use weldsuite_catalogs::permission_keys as perm;
 use weldsuite_kit::Data;
 use weldsuite_kit::validation::{Issues, Number, Presence, Text};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::workspace_settings;
 
 use crate::{Caller, SocialState, now, tables, validate};
 
@@ -49,14 +51,17 @@ pub(crate) fn routes<Q: PermissionQueries + 'static>(
         .route("/timezones", get(timezones).route_layer(read()))
 }
 
-/// The settings row's `custom_settings`, when the row exists.
-async fn custom_settings(caller: &Caller, org: Option<&str>) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<(Option<Value>,)> =
-        sqlx::query_as("select custom_settings from workspace_settings where id = $1 limit 1")
-            .bind(org)
-            .fetch_optional(&caller.db)
-            .await?;
-    Ok(row.map(|(custom,)| custom.unwrap_or(Value::Null)))
+/// The settings row's `custom_settings`, when the row exists. Without an
+/// org no row matches (`id is null`).
+async fn custom_settings(caller: &Caller, org: Option<&str>) -> Result<Option<Value>, DbErr> {
+    let row: Option<Option<Value>> = workspace_settings::Entity::find()
+        .select_only()
+        .column(workspace_settings::Column::CustomSettings)
+        .filter(workspace_settings::Column::Id.eq(org))
+        .into_tuple()
+        .one(&weldsuite_db::orm(&caller.db))
+        .await?;
+    Ok(row.map(|custom| custom.unwrap_or(Value::Null)))
 }
 
 /// `social[key] ?? fallback`.

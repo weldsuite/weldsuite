@@ -11,8 +11,14 @@ use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, patch, post, put};
 use http::HeaderMap;
+use sea_orm::prelude::BigDecimal;
+use sea_orm::sea_query::{Expr, Func, Query};
+use sea_orm::{
+    ColumnTrait, ConnectionTrait, DbErr, EntityTrait, FromQueryResult, QueryFilter, QueryOrder,
+    QuerySelect, Select,
+};
+use serde::Serialize;
 use serde_json::{Map, Value, json};
-use sqlx::{PgConnection, Postgres, Transaction};
 use weldsuite_catalogs::entity_events::{
     COMMERCE_SHIPPING_RATE_CREATED, COMMERCE_SHIPPING_RATE_DELETED, COMMERCE_SHIPPING_RATE_UPDATED,
 };
@@ -21,13 +27,16 @@ use weldsuite_catalogs::permission_keys::{
     COMMERCE_CHANNELS_UPDATE,
 };
 use weldsuite_commerce_domain::money::{self, Cents};
+use weldsuite_db::{OrmConn, orm, utc_now};
 use weldsuite_kit::validation::{Field, Issues, Presence, Text};
 use weldsuite_kit::{Created, Data, NoContent, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::commerce_shipping_rates;
 
 use super::{conflict, find, read_countries, strings};
+use crate::args::decimal;
 use crate::wire::{body_or_empty, invalid, read_money};
-use crate::{Caller, CommerceState, Refusal, now, validate};
+use crate::{Caller, CommerceState, Refusal, validate};
 
 pub(super) fn routes<Q>(gate: &Arc<PermissionGate<Q>>) -> Router<CommerceState>
 where
@@ -56,11 +65,45 @@ where
         )
 }
 
-const SELECT: &str = "select jsonb_build_object('id', r.id, 'channelId', r.channel_id, \
-       'zoneName', r.zone_name, 'countries', r.countries, 'name', r.name, \
-       'price', r.price::text, 'currency', r.currency, \
-       'freeShippingThreshold', r.free_shipping_threshold::text, \
-       'position', r.position, 'active', r.active) from commerce_shipping_rates r";
+/// A rate as the API answers it, the amounts as `numeric` text.
+#[derive(Debug, FromQueryResult, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Rate {
+    id: String,
+    channel_id: String,
+    zone_name: String,
+    countries: Value,
+    name: String,
+    #[serde(serialize_with = "weldsuite_schema::js::Numeric::<2>::serialize")]
+    price: BigDecimal,
+    currency: String,
+    #[serde(serialize_with = "weldsuite_schema::js::Numeric::<2>::serialize_option")]
+    free_shipping_threshold: Option<BigDecimal>,
+    position: i32,
+    active: bool,
+}
+
+/// The rates with the columns of a [`Rate`].
+fn rate_rows() -> Select<commerce_shipping_rates::Entity> {
+    commerce_shipping_rates::Entity::find()
+        .select_only()
+        .columns([
+            commerce_shipping_rates::Column::Id,
+            commerce_shipping_rates::Column::ChannelId,
+            commerce_shipping_rates::Column::ZoneName,
+            commerce_shipping_rates::Column::Countries,
+            commerce_shipping_rates::Column::Name,
+            commerce_shipping_rates::Column::Price,
+            commerce_shipping_rates::Column::Currency,
+            commerce_shipping_rates::Column::FreeShippingThreshold,
+            commerce_shipping_rates::Column::Position,
+            commerce_shipping_rates::Column::Active,
+        ])
+}
+
+fn json_of(rate: &Rate) -> Result<Value, DbErr> {
+    serde_json::to_value(rate).map_err(|error| DbErr::Json(error.to_string()))
+}
 
 fn event(rate: &Value) -> Value {
     json!({
@@ -69,38 +112,46 @@ fn event(rate: &Value) -> Value {
     })
 }
 
-async fn rates(conn: &mut PgConnection, channel_id: &str) -> Result<Vec<Value>, sqlx::Error> {
-    sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-        "{SELECT} where r.channel_id = $1 and r.deleted_at is null \
-         order by r.position asc, r.created_at asc, r.id asc"
-    )))
-    .bind(channel_id)
-    .fetch_all(&mut *conn)
-    .await
+async fn rates<C: ConnectionTrait>(db: &C, channel_id: &str) -> Result<Vec<Value>, DbErr> {
+    rate_rows()
+        .filter(commerce_shipping_rates::Column::ChannelId.eq(channel_id))
+        .filter(commerce_shipping_rates::Column::DeletedAt.is_null())
+        .order_by_asc(commerce_shipping_rates::Column::Position)
+        .order_by_asc(commerce_shipping_rates::Column::CreatedAt)
+        .order_by_asc(commerce_shipping_rates::Column::Id)
+        .into_model::<Rate>()
+        .all(db)
+        .await?
+        .iter()
+        .map(json_of)
+        .collect()
 }
 
-async fn find_rate(
-    conn: &mut PgConnection,
+async fn find_rate<C: ConnectionTrait>(
+    db: &C,
     channel_id: &str,
     rate_id: &str,
     lock: bool,
-) -> Result<Option<Value>, sqlx::Error> {
-    let tail = if lock { " for update of r" } else { "" };
-    sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-        "{SELECT} where r.id = $1 and r.channel_id = $2 and r.deleted_at is null{tail}"
-    )))
-    .bind(rate_id)
-    .bind(channel_id)
-    .fetch_optional(&mut *conn)
-    .await
+) -> Result<Option<Value>, DbErr> {
+    let mut found = rate_rows()
+        .filter(commerce_shipping_rates::Column::Id.eq(rate_id))
+        .filter(commerce_shipping_rates::Column::ChannelId.eq(channel_id))
+        .filter(commerce_shipping_rates::Column::DeletedAt.is_null());
+    if lock {
+        found = found.lock_exclusive();
+    }
+    found
+        .into_model::<Rate>()
+        .one(db)
+        .await?
+        .as_ref()
+        .map(json_of)
+        .transpose()
 }
 
 /// The channel, locked, when it is a storefront (the only channel with rates).
-async fn storefront(
-    tx: &mut Transaction<'_, Postgres>,
-    channel_id: &str,
-) -> Result<Value, Refusal> {
-    let Some(channel) = find(tx, channel_id, true).await? else {
+async fn storefront<C: ConnectionTrait>(db: &C, channel_id: &str) -> Result<Value, Refusal> {
+    let Some(channel) = find(db, channel_id, true).await? else {
         return Err(Refusal::not_found("Channel", channel_id));
     };
     if channel["type"] != "storefront" {
@@ -116,11 +167,11 @@ async fn storefront(
 async fn list(caller: Caller, Path(id): Path<String>) -> Response {
     const FAILED: &str = "Failed to list shipping rates";
     let result = async {
-        let mut conn = caller.db.acquire().await?;
-        if find(&mut conn, &id, false).await?.is_none() {
+        let db = orm(&caller.db);
+        if find(&db, &id, false).await?.is_none() {
             return Err(Refusal::not_found("Channel", &id));
         }
-        Ok(rates(&mut conn, &id).await?)
+        Ok(rates(&db, &id).await?)
     }
     .await;
     match result {
@@ -202,32 +253,61 @@ async fn create(
     };
     let result = async {
         let mut tx = caller.db.begin().await?;
-        let channel = storefront(&mut tx, &id).await?;
+        let db = OrmConn::new(&mut tx);
+        let channel = storefront(&db, &id).await?;
         let countries = body.countries.clone().unwrap_or_default();
         within(&countries, &strings(&channel["sellingCountries"]))?;
         let rate_id = generate_id("shrt");
-        let stamp = now();
-        sqlx::query(
-            "insert into commerce_shipping_rates (id, channel_id, zone_name, countries, name, \
-               price, currency, free_shipping_threshold, position, active, created_at, updated_at) \
-             values ($1, $2, $3, $4::jsonb, $5, $6::numeric, $7, $8::numeric, \
-               (select coalesce(max(position) + 1, 0) from commerce_shipping_rates \
-                 where channel_id = $2 and deleted_at is null), \
-               $9, $10::timestamp, $10::timestamp)",
-        )
-        .bind(&rate_id)
-        .bind(&id)
-        .bind(body.zone_name.as_deref().unwrap_or_default())
-        .bind(json!(countries))
-        .bind(body.name.as_deref().unwrap_or_default())
-        .bind(money::format(body.price.unwrap_or(0)))
-        .bind(channel["currency"].as_str().unwrap_or("EUR"))
-        .bind(body.threshold.as_set().copied().map(money::format))
-        .bind(body.active.unwrap_or(true))
-        .bind(&stamp)
-        .execute(&mut *tx)
-        .await?;
-        let row = find_rate(&mut tx, &id, &rate_id, false).await?;
+        let stamp = utc_now();
+        // `position`: after the channel's live rates.
+        let next = Query::select()
+            .expr(Func::coalesce([
+                sea_orm::ExprTrait::add(
+                    Expr::from(Func::max(Expr::col(
+                        commerce_shipping_rates::Column::Position,
+                    ))),
+                    1,
+                ),
+                Expr::val(0),
+            ]))
+            .from(commerce_shipping_rates::Entity)
+            .and_where(commerce_shipping_rates::Column::ChannelId.eq(id.as_str()))
+            .and_where(commerce_shipping_rates::Column::DeletedAt.is_null())
+            .to_owned();
+        let insert = Query::insert()
+            .into_table(commerce_shipping_rates::Entity)
+            .columns([
+                commerce_shipping_rates::Column::Id,
+                commerce_shipping_rates::Column::ChannelId,
+                commerce_shipping_rates::Column::ZoneName,
+                commerce_shipping_rates::Column::Countries,
+                commerce_shipping_rates::Column::Name,
+                commerce_shipping_rates::Column::Price,
+                commerce_shipping_rates::Column::Currency,
+                commerce_shipping_rates::Column::FreeShippingThreshold,
+                commerce_shipping_rates::Column::Position,
+                commerce_shipping_rates::Column::Active,
+                commerce_shipping_rates::Column::CreatedAt,
+                commerce_shipping_rates::Column::UpdatedAt,
+            ])
+            .values([
+                Expr::val(rate_id.as_str()),
+                Expr::val(id.as_str()),
+                Expr::val(body.zone_name.as_deref().unwrap_or_default()),
+                Expr::val(json!(countries)),
+                Expr::val(body.name.as_deref().unwrap_or_default()),
+                Expr::val(decimal(body.price.unwrap_or(0))),
+                Expr::val(channel["currency"].as_str().unwrap_or("EUR")),
+                Expr::val(body.threshold.as_set().copied().map(decimal)),
+                Expr::from(next),
+                Expr::val(body.active.unwrap_or(true)),
+                Expr::val(stamp),
+                Expr::val(stamp),
+            ])
+            .map_err(|error| DbErr::Custom(error.to_string()))?
+            .to_owned();
+        db.execute(&insert).await?;
+        let row = find_rate(&db, &id, &rate_id, false).await?;
         tx.commit().await?;
         row.ok_or_else(|| Refusal::not_found("Shipping rate", &rate_id))
     }
@@ -264,8 +344,9 @@ async fn update(
     };
     let result = async {
         let mut tx = caller.db.begin().await?;
-        let channel = storefront(&mut tx, &id).await?;
-        let Some(current) = find_rate(&mut tx, &id, &rate_id, true).await? else {
+        let db = OrmConn::new(&mut tx);
+        let channel = storefront(&db, &id).await?;
+        let Some(current) = find_rate(&db, &id, &rate_id, true).await? else {
             return Err(Refusal::not_found("Shipping rate", &rate_id));
         };
         let countries = body
@@ -284,35 +365,52 @@ async fn update(
             Field::Null => None,
             Field::Absent => text_of(&current["freeShippingThreshold"]),
         };
-        sqlx::query(
-            "update commerce_shipping_rates set zone_name = $2, countries = $3::jsonb, name = $4, \
-               price = $5::numeric, free_shipping_threshold = $6::numeric, active = $7, \
-               updated_at = $8::timestamp where id = $1",
-        )
-        .bind(&rate_id)
-        .bind(
-            body.zone_name
-                .as_deref()
-                .or_else(|| current["zoneName"].as_str())
-                .unwrap_or_default(),
-        )
-        .bind(json!(countries))
-        .bind(
-            body.name
-                .as_deref()
-                .or_else(|| current["name"].as_str())
-                .unwrap_or_default(),
-        )
-        .bind(money::format(price))
-        .bind(threshold.map(money::format))
-        .bind(
-            body.active
-                .unwrap_or_else(|| current["active"].as_bool().unwrap_or(true)),
-        )
-        .bind(now())
-        .execute(&mut *tx)
-        .await?;
-        let row = find_rate(&mut tx, &id, &rate_id, false).await?;
+        commerce_shipping_rates::Entity::update_many()
+            .col_expr(
+                commerce_shipping_rates::Column::ZoneName,
+                Expr::val(
+                    body.zone_name
+                        .as_deref()
+                        .or_else(|| current["zoneName"].as_str())
+                        .unwrap_or_default(),
+                ),
+            )
+            .col_expr(
+                commerce_shipping_rates::Column::Countries,
+                Expr::val(json!(countries)),
+            )
+            .col_expr(
+                commerce_shipping_rates::Column::Name,
+                Expr::val(
+                    body.name
+                        .as_deref()
+                        .or_else(|| current["name"].as_str())
+                        .unwrap_or_default(),
+                ),
+            )
+            .col_expr(
+                commerce_shipping_rates::Column::Price,
+                Expr::val(decimal(price)),
+            )
+            .col_expr(
+                commerce_shipping_rates::Column::FreeShippingThreshold,
+                Expr::val(threshold.map(decimal)),
+            )
+            .col_expr(
+                commerce_shipping_rates::Column::Active,
+                Expr::val(
+                    body.active
+                        .unwrap_or_else(|| current["active"].as_bool().unwrap_or(true)),
+                ),
+            )
+            .col_expr(
+                commerce_shipping_rates::Column::UpdatedAt,
+                Expr::val(utc_now()),
+            )
+            .filter(commerce_shipping_rates::Column::Id.eq(rate_id.as_str()))
+            .exec(&db)
+            .await?;
+        let row = find_rate(&db, &id, &rate_id, false).await?;
         tx.commit().await?;
         row.ok_or_else(|| Refusal::not_found("Shipping rate", &rate_id))
     }
@@ -339,18 +437,17 @@ async fn remove(
     const FAILED: &str = "Failed to delete shipping rate";
     let result = async {
         let mut tx = caller.db.begin().await?;
-        let Some(rate) = find_rate(&mut tx, &id, &rate_id, true).await? else {
+        let db = OrmConn::new(&mut tx);
+        let Some(rate) = find_rate(&db, &id, &rate_id, true).await? else {
             return Err(Refusal::not_found("Shipping rate", &rate_id));
         };
-        let stamp = now();
-        sqlx::query(
-            "update commerce_shipping_rates set deleted_at = $2::timestamp, \
-               updated_at = $2::timestamp where id = $1",
-        )
-        .bind(&rate_id)
-        .bind(&stamp)
-        .execute(&mut *tx)
-        .await?;
+        let stamp = utc_now();
+        commerce_shipping_rates::Entity::update_many()
+            .col_expr(commerce_shipping_rates::Column::DeletedAt, Expr::val(stamp))
+            .col_expr(commerce_shipping_rates::Column::UpdatedAt, Expr::val(stamp))
+            .filter(commerce_shipping_rates::Column::Id.eq(rate_id.as_str()))
+            .exec(&db)
+            .await?;
         tx.commit().await?;
         Ok(rate)
     }
@@ -397,8 +494,9 @@ async fn reorder(
     };
     let result = async {
         let mut tx = caller.db.begin().await?;
-        storefront(&mut tx, &id).await?;
-        let current = rates(&mut tx, &id).await?;
+        let db = OrmConn::new(&mut tx);
+        storefront(&db, &id).await?;
+        let current = rates(&db, &id).await?;
         let known: Vec<&str> = current.iter().filter_map(|r| r["id"].as_str()).collect();
         for (index, rate) in ids.iter().enumerate() {
             if !known.contains(&rate.as_str()) {
@@ -413,7 +511,7 @@ async fn reorder(
         }
         let mut order: Vec<&str> = ids.iter().map(String::as_str).collect();
         order.extend(known.iter().filter(|rate| !ids.iter().any(|i| i == *rate)));
-        let stamp = now();
+        let stamp = utc_now();
         let mut moved = Vec::new();
         for (position, rate) in order.iter().enumerate() {
             let before = current
@@ -422,15 +520,15 @@ async fn reorder(
                 .and_then(|r| r["position"].as_i64());
             let position = i64::try_from(position).unwrap_or(0);
             if before != Some(position) {
-                sqlx::query(
-                    "update commerce_shipping_rates set position = $2, updated_at = $3::timestamp \
-                     where id = $1",
-                )
-                .bind(rate)
-                .bind(position)
-                .bind(&stamp)
-                .execute(&mut *tx)
-                .await?;
+                commerce_shipping_rates::Entity::update_many()
+                    .col_expr(
+                        commerce_shipping_rates::Column::Position,
+                        Expr::val(position),
+                    )
+                    .col_expr(commerce_shipping_rates::Column::UpdatedAt, Expr::val(stamp))
+                    .filter(commerce_shipping_rates::Column::Id.eq(*rate))
+                    .exec(&db)
+                    .await?;
                 moved.push(
                     current
                         .iter()

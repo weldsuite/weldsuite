@@ -1,5 +1,6 @@
 import {
   keepPreviousData,
+  useInfiniteQuery,
   useQueries,
   useQuery,
   useMutation,
@@ -537,10 +538,29 @@ export function useUpdateAccountingCustomer() {
 // Invoices
 // ============================================================================
 
-export function useAccountingInvoices(filters?: { status?: string; type?: string; search?: string; page?: number; pageSize?: number }) {
-  return useQuery({
-    queryKey: accountingKeys.invoices.list(filters),
-    queryFn: () => accountingApi.listInvoices(filters),
+/** Rows per request of the infinite WeldBooks lists (the API allows up to 100). */
+const LIST_PAGE_SIZE = 50;
+
+/**
+ * Paging of a page-numbered list (`{ data, pagination: { totalCount, hasMore } }`): the list
+ * asks for the next page (`fetchNextPage`) when it scrolls to the end.
+ */
+function selectRows<T>(data: { pages: Array<{ data: T[]; pagination?: { totalCount?: number } }> }) {
+  return { rows: data.pages.flatMap((page) => page.data ?? []), totalCount: data.pages[0]?.pagination?.totalCount };
+}
+
+function nextPageParam(lastPage: { pagination?: { hasMore?: boolean } }, _pages: unknown[], lastPageParam: number) {
+  return lastPage.pagination?.hasMore ? lastPageParam + 1 : undefined;
+}
+
+export function useInfiniteAccountingInvoices(filters?: { status?: string; type?: string; search?: string }) {
+  return useInfiniteQuery({
+    queryKey: [...accountingKeys.invoices.list(filters), 'infinite'] as const,
+    queryFn: ({ pageParam }) => accountingApi.listInvoices({ ...filters, page: pageParam, pageSize: LIST_PAGE_SIZE }),
+    initialPageParam: 1,
+    getNextPageParam: nextPageParam,
+    select: selectRows,
+    placeholderData: keepPreviousData,
   });
 }
 
@@ -666,10 +686,14 @@ export function useCreatePayment() {
 // Bills
 // ============================================================================
 
-export function useAccountingBills(filters?: { status?: string; search?: string; page?: number; pageSize?: number }) {
-  return useQuery({
-    queryKey: accountingKeys.bills.list(filters),
-    queryFn: () => accountingApi.listBills(filters),
+export function useInfiniteAccountingBills(filters?: { status?: string; search?: string }) {
+  return useInfiniteQuery({
+    queryKey: [...accountingKeys.bills.list(filters), 'infinite'] as const,
+    queryFn: ({ pageParam }) => accountingApi.listBills({ ...filters, page: pageParam, pageSize: LIST_PAGE_SIZE }),
+    initialPageParam: 1,
+    getNextPageParam: nextPageParam,
+    select: selectRows,
+    placeholderData: keepPreviousData,
   });
 }
 

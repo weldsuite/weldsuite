@@ -2,6 +2,7 @@
 
 import * as React from "react"
 import { format, type Locale } from "date-fns"
+import type { Matcher } from "react-day-picker"
 import { Calendar as CalendarIcon } from "lucide-react"
 import { cn } from "../lib/utils"
 import { Button } from "./button"
@@ -19,6 +20,17 @@ interface DatePickerProps
   placeholder?: string
   /** date-fns locale for the trigger label and the calendar; US English when left out. */
   locale?: Locale
+  /** Days that can't be picked, e.g. `{ before: tomorrow }` for a date in the future. */
+  disabledDays?: Matcher | Matcher[]
+  /** The trigger's label for the picked date; date-fns "PPP" ("November 22nd, 2026") when left out. */
+  formatDate?: (date: Date) => string
+  /**
+   * "dropdown" puts month and year menus in the calendar's caption, for dates
+   * far from today (a date of birth). Set `startMonth` and `endMonth` with it.
+   */
+  captionLayout?: React.ComponentProps<typeof Calendar>["captionLayout"]
+  startMonth?: Date
+  endMonth?: Date
 }
 
 /**
@@ -31,10 +43,17 @@ export function DatePicker({
   onDateChange,
   placeholder = "Pick a date",
   locale,
+  disabledDays,
+  formatDate,
+  captionLayout,
+  startMonth,
+  endMonth,
   className,
   ...props
 }: Readonly<DatePickerProps>) {
   const [open, setOpen] = React.useState(false)
+  let label: React.ReactNode = <span>{placeholder}</span>
+  if (date) label = formatDate ? formatDate(date) : format(date, "PPP", { locale })
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
@@ -49,7 +68,7 @@ export function DatePicker({
           )}
         >
           <CalendarIcon className="mr-2 h-4 w-4" />
-          {date ? format(date, "PPP", { locale }) : <span>{placeholder}</span>}
+          {label}
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-auto p-0">
@@ -58,6 +77,10 @@ export function DatePicker({
           selected={date}
           defaultMonth={date}
           locale={locale}
+          disabled={disabledDays}
+          captionLayout={captionLayout}
+          startMonth={startMonth}
+          endMonth={endMonth}
           onSelect={(next) => {
             onDateChange?.(next)
             setOpen(false)

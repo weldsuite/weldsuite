@@ -21,15 +21,21 @@ use axum::extract::{DefaultBodyLimit, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, put};
 use http::HeaderMap;
+use sea_orm::ActiveValue::Set;
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::permission_keys::GENERAL_READ;
-use weldsuite_db::{PgPool, js_row};
+use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_kit::validation::{Presence, Text};
 use weldsuite_kit::{ApiError, Data, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 use weldsuite_ports::{DynFileStore, PutOptions};
+use weldsuite_schema::master::users;
+use weldsuite_schema::tenant::{user_preferences, workspace_members as members};
 
-use crate::{Caller, CoreTeamState, TeamError, TeamResult, answer, now, validate};
+use crate::access::js;
+use crate::{Caller, CoreTeamState, TeamError, TeamResult, answer, validate};
 
 pub(crate) fn router<Q>(gate: &Arc<PermissionGate<Q>>) -> Router<CoreTeamState>
 where
@@ -63,36 +69,38 @@ fn or<'a>(a: &'a Value, b: &'a Value) -> &'a Value {
     if falsy { b } else { a }
 }
 
-async fn member_row(db: &PgPool, user_id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(m) from workspace_members m
-         where user_id = $1 and deleted_at is null limit 1",
-    )
-    .bind(user_id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(js_row))
+/// The caller's live member row, as far as the profile reads it: `id`,
+/// `email`, `name`.
+async fn member_row(db: &PgPool, user_id: &str) -> Result<Option<Value>, DbErr> {
+    let row: Option<(String, Option<String>, Option<String>)> = members::Entity::find()
+        .select_only()
+        .columns([
+            members::Column::Id,
+            members::Column::Email,
+            members::Column::Name,
+        ])
+        .filter(members::Column::UserId.eq(user_id))
+        .filter(members::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
+    Ok(row.map(|(id, email, name)| json!({ "id": id, "email": email, "name": name })))
 }
 
-async fn prefs_row(db: &PgPool, user_id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(p) from user_preferences p
-         where user_id = $1 and deleted_at is null limit 1",
-    )
-    .bind(user_id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(js_row))
+async fn prefs_row(db: &PgPool, user_id: &str) -> Result<Option<Value>, DbErr> {
+    user_preferences::Entity::find()
+        .filter(user_preferences::Column::UserId.eq(user_id))
+        .filter(user_preferences::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?
+        .map(js)
+        .transpose()
 }
 
 /// `composeProfile`: the member row and the preferences projected into the
 /// response. `picture` is the account picture (`master`), not the member
 /// row's copy.
-async fn compose(
-    db: &PgPool,
-    master: Option<&PgPool>,
-    user_id: &str,
-) -> Result<Value, sqlx::Error> {
+async fn compose(db: &PgPool, master: Option<&PgPool>, user_id: &str) -> Result<Value, DbErr> {
     let member = member_row(db, user_id).await?.unwrap_or(Value::Null);
     let picture = weldsuite_db::load_account_picture(master, user_id)
         .await
@@ -239,17 +247,18 @@ async fn update_profile(
     master: Option<&PgPool>,
     user_id: &str,
     changes: &ProfileChanges,
-) -> Result<Value, sqlx::Error> {
+) -> Result<Value, DbErr> {
     if let Some(name) = &changes.name {
-        sqlx::query(
-            "update workspace_members set name = $2, updated_at = $3::timestamptz
-             where user_id = $1 and deleted_at is null",
-        )
-        .bind(user_id)
-        .bind(name)
-        .bind(now())
-        .execute(db)
-        .await?;
+        members::Entity::update_many()
+            .col_expr(members::Column::Name, Expr::value(name))
+            .col_expr(
+                members::Column::UpdatedAt,
+                Expr::value(utc_now().assume_utc()),
+            )
+            .filter(members::Column::UserId.eq(user_id))
+            .filter(members::Column::DeletedAt.is_null())
+            .exec(&orm(db))
+            .await?;
     }
 
     let mut ext = Map::new();
@@ -276,10 +285,11 @@ async fn upsert_preferences(
     user_id: &str,
     ext: Map<String, Value>,
     timezone: Option<&str>,
-) -> Result<(), sqlx::Error> {
+) -> Result<(), DbErr> {
     let has_ext = !ext.is_empty();
     let existing = prefs_row(db, user_id).await?;
-    let stamp = now();
+    let stamp = utc_now().assume_utc();
+    let db = orm(db);
     if let Some(existing) = existing {
         let mut ui = match &existing["uiPreferences"] {
             Value::Object(map) => map.clone(),
@@ -291,33 +301,34 @@ async fn upsert_preferences(
         };
         profile.extend(ext);
         ui.insert("profile".to_owned(), Value::Object(profile));
-        sqlx::query(
-            "update user_preferences set
-                 ui_preferences = case when $2 then $3 else ui_preferences end,
-                 timezone = coalesce($4, timezone),
-                 updated_at = $5::timestamptz
-             where id = $1",
-        )
-        .bind(existing["id"].as_str().unwrap_or_default())
-        .bind(has_ext)
-        .bind(Value::Object(ui))
-        .bind(timezone)
-        .bind(&stamp)
-        .execute(db)
-        .await?;
+        let mut write = user_preferences::Entity::update_many();
+        if has_ext {
+            write = write.col_expr(
+                user_preferences::Column::UiPreferences,
+                Expr::value(Value::Object(ui)),
+            );
+        }
+        if let Some(timezone) = timezone {
+            write = write.col_expr(user_preferences::Column::Timezone, Expr::value(timezone));
+        }
+        write
+            .col_expr(user_preferences::Column::UpdatedAt, Expr::value(stamp))
+            .filter(user_preferences::Column::Id.eq(existing["id"].as_str().unwrap_or_default()))
+            .exec(&db)
+            .await?;
         return Ok(());
     }
     let seed = has_ext.then(|| json!({ "profile": ext }));
-    sqlx::query(
-        "insert into user_preferences (id, user_id, ui_preferences, timezone, created_at, updated_at)
-         values ($1, $2, $3, coalesce($4, 'UTC'), $5::timestamptz, $5::timestamptz)",
-    )
-    .bind(generate_id("upref"))
-    .bind(user_id)
-    .bind(seed)
-    .bind(timezone)
-    .bind(&stamp)
-    .execute(db)
+    user_preferences::Entity::insert(user_preferences::ActiveModel {
+        id: Set(generate_id("upref")),
+        user_id: Set(user_id.to_owned()),
+        ui_preferences: Set(seed),
+        timezone: Set(timezone.unwrap_or("UTC").to_owned()),
+        created_at: Set(stamp),
+        updated_at: Set(stamp),
+        ..Default::default()
+    })
+    .exec_without_returning(&db)
     .await?;
     Ok(())
 }
@@ -497,16 +508,15 @@ async fn store_avatar(
     // shows in every workspace; the member row keeps no copy. The identity
     // port has no avatar call, so the provider's own picture is not changed.
     let saved = match caller.request_master() {
-        Some(master) => {
-            sqlx::query("update users set image_url = $2, updated_at = now() where id = $1")
-                .bind(&caller.user_id)
-                .bind(&image_url)
-                .execute(master)
-                .await
-                .map(|_| ())
-        }
-        None => Err(sqlx::Error::Configuration(
-            "no master database for the account picture".into(),
+        Some(master) => users::Entity::update_many()
+            .col_expr(users::Column::ImageUrl, Expr::value(&image_url))
+            .col_expr(users::Column::UpdatedAt, Expr::current_timestamp())
+            .filter(users::Column::Id.eq(&caller.user_id))
+            .exec(&orm(master))
+            .await
+            .map(|_| ()),
+        None => Err(DbErr::Custom(
+            "no master database for the account picture".to_owned(),
         )),
     };
     if let Err(error) = saved {

@@ -4,8 +4,10 @@
 //! tenant schema. Skipped without `WELDSUITE_TEST_TENANT_URL`. The database
 //! is shared: fresh ids, nothing truncated or assumed empty.
 
+#![allow(clippy::disallowed_methods, reason = "test fixtures")]
+
 use serde_json::json;
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm};
 
 use crate::incoming::{
     Incoming, IncomingQuery, VariantFilter, incoming, incoming_lines, parse_date,
@@ -313,7 +315,7 @@ async fn po_numbers_are_new_and_well_formed() {
         return;
     };
     let prefix = po_number_prefix(time::OffsetDateTime::now_utc().date());
-    let numbers = generate_po_numbers(&db, 3).await.expect("numbers");
+    let numbers = generate_po_numbers(&orm(&db), 3).await.expect("numbers");
     assert_eq!(numbers.len(), 3);
     for number in &numbers {
         assert!(number.starts_with(&prefix), "{number}");
@@ -329,11 +331,11 @@ async fn po_numbers_are_new_and_well_formed() {
     assert_ne!(numbers[0], numbers[1]);
     assert_ne!(numbers[1], numbers[2]);
     assert_eq!(
-        generate_po_numbers(&db, 0).await.expect("none"),
+        generate_po_numbers(&orm(&db), 0).await.expect("none"),
         Vec::<String>::new()
     );
     assert!(
-        generate_po_number(&db)
+        generate_po_number(&orm(&db))
             .await
             .expect("one")
             .starts_with(&prefix)
@@ -348,7 +350,7 @@ async fn totals_of_a_missing_purchase_order_are_none() {
     let fx = Fx::new(&db);
     let gone = fx.order("gone", "draft", None, None, true).await;
     for id in [gone, fx.id("never")] {
-        let row = recompute_po_totals(&db, &id, &crate::now())
+        let row = recompute_po_totals(&orm(&db), &id, weldsuite_db::utc_now())
             .await
             .expect("recompute");
         assert!(row.is_none(), "{id}");

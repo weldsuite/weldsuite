@@ -14,6 +14,8 @@ weldsuite-auth = { workspace = true }
 weldsuite-books-domain = { workspace = true }
 weldsuite-catalogs = { workspace = true }
 weldsuite-commerce-domain = { workspace = true }
+# Shop domains on Kubernetes: cert-manager certificates and ingresses (storefronts plan).
+weldsuite-custom-domains = { workspace = true }
 weldsuite-db = { workspace = true }
 weldsuite-emails = { workspace = true }
 weldsuite-events = { workspace = true }
@@ -21,7 +23,9 @@ weldsuite-kit = { workspace = true }
 weldsuite-mollie = { workspace = true }
 weldsuite-permissions = { workspace = true }
 weldsuite-ports = { workspace = true }
-axum = { workspace = true, features = ["json"] }
+# The online store's tables (storefronts plan), queried through the entities.
+weldsuite-schema = { workspace = true }
+axum = { workspace = true, features = ["json", "multipart", "query"] }
 base64 = { workspace = true }
 hex = { workspace = true }
 hmac = { workspace = true }
@@ -29,6 +33,7 @@ http = { workspace = true }
 serde = { workspace = true }
 sha2 = { workspace = true }
 serde_json = { workspace = true }
+sea-orm = { workspace = true }
 sqlx = { workspace = true }
 time = { workspace = true }
 tracing = { workspace = true }

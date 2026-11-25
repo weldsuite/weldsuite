@@ -707,6 +707,7 @@ impl Ctx {
             events: self.publisher(),
             http: Some(self.http()),
             payments: self.config(connect),
+            online_store: weldsuite_commerce::online_store::OnlineStoreConfig::default(),
         };
         let gate = Arc::new(PermissionGate::new(|_| Ok(NoQueries)));
         let resolved = ResolvedPermissions {
@@ -767,6 +768,7 @@ impl Ctx {
             cache: Some(Arc::new(MemoryCache::default()) as Arc<dyn DynCache>),
             trusted_proxies: 1,
             payments: self.config(true),
+            hosting: weldsuite_commerce::online_store::OnlineStoreConfig::default(),
         });
         Storefront { router }
     }

@@ -12,15 +12,18 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
+use sea_orm::sea_query::Expr;
+use sea_orm::{ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Value, json};
 use weldsuite_catalogs::entity_events::MEETING_SESSION_UPDATED;
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm, orm_error};
 use weldsuite_kit::generate_id;
 use weldsuite_ports::DynCache;
+use weldsuite_schema::tenant::{crm_activities, meeting_sessions, meetings};
 use weldsuite_video_rooms::DynVideoRooms;
 
 use crate::js::{now_ms, parse_ms, text};
-use crate::tables::{MEETING_SESSIONS, MEETINGS};
+use crate::table::{iso, row_json, sql_timestamp};
 use crate::{MeetState, now, publish, publish_system};
 
 /// What the lifecycle needs besides the database.
@@ -138,13 +141,21 @@ async fn log_meeting_activities(
     ended_at: &str,
     duration_seconds: i64,
 ) {
-    let result: Result<(), sqlx::Error> = async {
-        let meeting: Option<(String, String, Option<Value>, Option<String>)> = sqlx::query_as(
-            "select title, organizer_id, attendees, calendar_event_id from meetings where id = $1 limit 1",
-        )
-        .bind(meeting_id)
-        .fetch_optional(db)
-        .await?;
+    let result: Result<(), DbErr> = async {
+        let db = &orm(db);
+        let meeting: Option<(String, String, Option<Value>, Option<String>)> =
+            meetings::Entity::find()
+                .select_only()
+                .columns([
+                    meetings::Column::Title,
+                    meetings::Column::OrganizerId,
+                    meetings::Column::Attendees,
+                    meetings::Column::CalendarEventId,
+                ])
+                .filter(meetings::Column::Id.eq(meeting_id))
+                .into_tuple()
+                .one(db)
+                .await?;
         let Some((title, organizer_id, attendees, calendar_event_id)) = meeting else {
             return Ok(());
         };
@@ -155,37 +166,36 @@ async fn log_meeting_activities(
         if people.is_empty() {
             return Ok(());
         }
-        let now = now();
+        let now = weldsuite_db::utc_now();
         #[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation)]
         let minutes = (duration_seconds as f64 / 60.0 + 0.5).floor() as i64;
-        let start = started_at.unwrap_or(ended_at);
+        let start = sql_timestamp(started_at.unwrap_or(ended_at))?;
+        let end = sql_timestamp(ended_at)?;
         let subject = slice_utf16(&title, 255);
-        let ids: Vec<String> = people.iter().map(|_| generate_id("act")).collect();
-        let person_ids: Vec<Option<String>> = people.iter().map(|p| p.person_id.clone()).collect();
-        let contact_ids: Vec<Option<String>> = people
-            .iter()
-            .map(|p| p.contact_id.clone().or_else(|| p.person_id.clone()))
-            .collect();
-        sqlx::query(
-            "insert into crm_activities (id, type, subject, status, is_virtual, assigned_to_id,
-                 person_id, contact_id, start_time, end_time, duration, calendar_event_id,
-                 created_at, updated_at)
-             select u.id, 'meeting', $4, 'completed', true, $5, u.person_id, u.contact_id,
-                 $6::timestamp, $7::timestamp, $8, $9, $10::timestamp, $10::timestamp
-             from unnest($1::varchar[], $2::varchar[], $3::varchar[]) as u(id, person_id, contact_id)",
-        )
-        .bind(&ids)
-        .bind(&person_ids)
-        .bind(&contact_ids)
-        .bind(&subject)
-        .bind(&organizer_id)
-        .bind(start)
-        .bind(ended_at)
-        .bind(i32::try_from(minutes).unwrap_or(i32::MAX))
-        .bind(&calendar_event_id)
-        .bind(&now)
-        .execute(db)
-        .await?;
+        // One statement for every linked person, as the worker's batch insert.
+        let rows = people.iter().map(|person| crm_activities::ActiveModel {
+            id: Set(generate_id("act")),
+            type_: Set("meeting".to_owned()),
+            subject: Set(subject.clone()),
+            status: Set("completed".to_owned()),
+            is_virtual: Set(Some(true)),
+            assigned_to_id: Set(organizer_id.clone()),
+            person_id: Set(person.person_id.clone()),
+            contact_id: Set(person
+                .contact_id
+                .clone()
+                .or_else(|| person.person_id.clone())),
+            start_time: Set(Some(start)),
+            end_time: Set(Some(end)),
+            duration: Set(Some(i32::try_from(minutes).unwrap_or(i32::MAX))),
+            calendar_event_id: Set(calendar_event_id.clone()),
+            created_at: Set(now),
+            updated_at: Set(now),
+            ..Default::default()
+        });
+        crm_activities::Entity::insert_many(rows)
+            .exec_without_returning(db)
+            .await?;
         Ok(())
     }
     .await;
@@ -205,7 +215,7 @@ pub(crate) async fn end_session(
     session_id: &str,
     session: &Value,
     meeting_id: &str,
-) -> Result<(), sqlx::Error> {
+) -> Result<(), DbErr> {
     let now_ms = now_ms();
     let ended_at = crate::js::iso_of_ms(now_ms);
     let started_at = text(session, "startedAt").map(str::to_owned);
@@ -214,61 +224,44 @@ pub(crate) async fn end_session(
         let seconds = ((now_ms - start) as f64 / 1000.0 + 0.5).floor() as i64;
         seconds
     });
-    let claimed: Option<Option<Value>> = sqlx::query_scalar(
-        "update meeting_sessions set status = 'ended', ended_at = $2::timestamp, duration = $3,
-             participants = (
-               select coalesce(
-                 jsonb_agg(
-                   case when coalesce(e.p->>'leftAt', '') = ''
-                     then e.p || jsonb_build_object('leftAt', $4::text)
-                     else e.p
-                   end
-                   order by e.ord
-                 ),
-                 '[]'::jsonb
-               )
-               from jsonb_array_elements(coalesce(meeting_sessions.participants, '[]'::jsonb)) with ordinality as e(p, ord)
-             ),
-             recording_status = case when recording_status = 'recording' then 'processing' else recording_status end,
-             recording_enabled = case when recording_status = 'recording' then false else recording_enabled end,
-             updated_at = $2::timestamp
-         where id = $1 and status <> 'ended'
-         returning participants",
-    )
-    .bind(session_id)
-    .bind(&ended_at)
-    .bind(i32::try_from(duration).unwrap_or(i32::MAX))
-    .bind(&ended_at)
-    .fetch_optional(db)
-    .await?;
-    let Some(participants) = claimed else {
+    let Some(participants) = claim_end(db, session_id, &ended_at, duration).await? else {
         return Ok(());
     };
     let participants = participants
         .and_then(|p| p.as_array().cloned())
         .unwrap_or_default();
 
-    let schedule: Option<(Option<Value>, Option<Value>)> = sqlx::query_as(
-        "select to_jsonb(scheduled_end), to_jsonb(scheduled_start) from meetings where id = $1 limit 1",
-    )
-    .bind(meeting_id)
-    .fetch_optional(db)
-    .await?;
+    let tenant = &orm(db);
+    // The meeting's schedule as Drizzle's `Date`s.
+    let schedule: Option<(
+        Option<time::PrimitiveDateTime>,
+        Option<time::PrimitiveDateTime>,
+    )> = meetings::Entity::find()
+        .select_only()
+        .columns([
+            meetings::Column::ScheduledEnd,
+            meetings::Column::ScheduledStart,
+        ])
+        .filter(meetings::Column::Id.eq(meeting_id))
+        .into_tuple()
+        .one(tenant)
+        .await?;
     let (end, start) = schedule.unwrap_or((None, None));
-    let past = is_meeting_past(
-        start.as_ref().and_then(Value::as_str),
-        end.as_ref().and_then(Value::as_str),
-        now_ms,
-    );
+    let past = is_meeting_past(start.map(iso).as_deref(), end.map(iso).as_deref(), now_ms);
     let meeting_status = if past { "completed" } else { "scheduled" };
-    sqlx::query(
-        "update meetings set active_session_id = null, status = $2, updated_at = $3::timestamp where id = $1",
-    )
-    .bind(meeting_id)
-    .bind(meeting_status)
-    .bind(&ended_at)
-    .execute(db)
-    .await?;
+    meetings::Entity::update_many()
+        .col_expr(
+            meetings::Column::ActiveSessionId,
+            Expr::value(Option::<String>::None),
+        )
+        .col_expr(meetings::Column::Status, Expr::value(meeting_status))
+        .col_expr(
+            meetings::Column::UpdatedAt,
+            Expr::value(sql_timestamp(&ended_at)?),
+        )
+        .filter(meetings::Column::Id.eq(meeting_id))
+        .exec(tenant)
+        .await?;
 
     if let Some(room) = text(session, "cfAppId").filter(|r| !r.is_empty()) {
         if let Err(error) = env.video.kick_all(room).await {
@@ -305,6 +298,50 @@ pub(crate) async fn end_session(
     Ok(())
 }
 
+/// The end's claim: the session `ended` (`ended_at`, `duration`), every
+/// connection still in it stamped `leftAt`, a running recording handed to
+/// processing; the participants it ended with, or `None` when another
+/// writer ended it first.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "a claim that must stay one statement: the first writer wins, and the participants are stamped from the row as it is then (jsonb_agg over jsonb_array_elements)"
+)]
+async fn claim_end(
+    db: &PgPool,
+    session_id: &str,
+    ended_at: &str,
+    duration: i64,
+) -> Result<Option<Option<Value>>, DbErr> {
+    sqlx::query_scalar(
+        "update meeting_sessions set status = 'ended', ended_at = $2::timestamp, duration = $3,
+             participants = (
+               select coalesce(
+                 jsonb_agg(
+                   case when coalesce(e.p->>'leftAt', '') = ''
+                     then e.p || jsonb_build_object('leftAt', $4::text)
+                     else e.p
+                   end
+                   order by e.ord
+                 ),
+                 '[]'::jsonb
+               )
+               from jsonb_array_elements(coalesce(meeting_sessions.participants, '[]'::jsonb)) with ordinality as e(p, ord)
+             ),
+             recording_status = case when recording_status = 'recording' then 'processing' else recording_status end,
+             recording_enabled = case when recording_status = 'recording' then false else recording_enabled end,
+             updated_at = $2::timestamp
+         where id = $1 and status <> 'ended'
+         returning participants",
+    )
+    .bind(session_id)
+    .bind(ended_at)
+    .bind(i32::try_from(duration).unwrap_or(i32::MAX))
+    .bind(ended_at)
+    .fetch_optional(db)
+    .await
+    .map_err(orm_error)
+}
+
 /// `EndIfEmptyOutcome`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum EndIfEmpty {
@@ -323,7 +360,7 @@ pub(crate) async fn end_session_if_empty(
     session_id: &str,
     session: &Value,
     meeting_id: &str,
-) -> Result<EndIfEmpty, sqlx::Error> {
+) -> Result<EndIfEmpty, DbErr> {
     if let Some(room) = text(session, "cfAppId").filter(|r| !r.is_empty()) {
         match env.video.live_participant_count(room).await {
             Ok(0) => {}
@@ -415,14 +452,19 @@ pub(crate) async fn leave_other_sessions(
     except_session_id: Option<&str>,
     triggered_at: i64,
 ) {
-    let needle = json!([{ "userId": user_id }]).to_string();
-    let sessions: Result<Vec<Value>, sqlx::Error> = sqlx::query_scalar(
-        "select to_jsonb(t) from meeting_sessions t
-         where t.status in ('waiting', 'active') and t.participants @> $1::jsonb",
-    )
-    .bind(&needle)
-    .fetch_all(db)
-    .await;
+    let sessions = meeting_sessions::Entity::find()
+        .filter(meeting_sessions::Column::Status.is_in(["waiting", "active"]))
+        .filter(sea_orm::sea_query::extension::postgres::PgExpr::contains(
+            Expr::col(meeting_sessions::Column::Participants),
+            json!([{ "userId": user_id }]),
+        ))
+        .all(&orm(db))
+        .await
+        .and_then(|rows| {
+            rows.into_iter()
+                .map(row_json)
+                .collect::<Result<Vec<_>, _>>()
+        });
     let sessions = match sessions {
         Ok(rows) => rows,
         Err(error) => {
@@ -431,7 +473,6 @@ pub(crate) async fn leave_other_sessions(
         }
     };
     for session in sessions {
-        let session = MEETING_SESSIONS.js(session);
         let id = text(&session, "id").unwrap_or_default().to_owned();
         if Some(id.as_str()) == except_session_id {
             continue;
@@ -454,7 +495,7 @@ async fn leave_session(
     user_id: &str,
     session: &Value,
     triggered_at: i64,
-) -> Result<(), sqlx::Error> {
+) -> Result<(), DbErr> {
     let participants = session["participants"]
         .as_array()
         .cloned()
@@ -485,30 +526,13 @@ async fn leave_session(
     evict(env, text(session, "cfAppId"), cf_session_id, session_id).await;
 
     let left_at = now();
-    let updated: Option<Option<Value>> = sqlx::query_scalar(
-        "update meeting_sessions set participants = (
-           select coalesce(
-             jsonb_agg(
-               case when e.p->>'userId' = $2
-                      and coalesce(e.p->>'leftAt', '') = ''
-                      and coalesce(e.p->>'cfSessionId', '') = $3
-                 then e.p || jsonb_build_object('leftAt', $4::text)
-                 else e.p
-               end
-               order by e.ord
-             ),
-             '[]'::jsonb
-           )
-           from jsonb_array_elements(coalesce(meeting_sessions.participants, '[]'::jsonb)) with ordinality as e(p, ord)
-         ), updated_at = $4::timestamp
-         where id = $1 and status <> 'ended'
-         returning participants",
+    let updated = stamp_left(
+        db,
+        session_id,
+        user_id,
+        text(mine, "cfSessionId").unwrap_or_default(),
+        &left_at,
     )
-    .bind(session_id)
-    .bind(user_id)
-    .bind(text(mine, "cfSessionId").unwrap_or_default())
-    .bind(&left_at)
-    .fetch_optional(db)
     .await?;
     let Some(participants) = updated else {
         return Ok(());
@@ -535,24 +559,64 @@ async fn leave_session(
     Ok(())
 }
 
+/// `leftAt` on the user's still-open entry for that connection
+/// (`cfSessionId`), unless the session has ended: its participants after,
+/// or `None` when it had.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "a per-entry stamp that must stay one statement: the participants are rewritten from the row as it is then, so a concurrent join or leave is kept (jsonb_agg over jsonb_array_elements)"
+)]
+async fn stamp_left(
+    db: &PgPool,
+    session_id: &str,
+    user_id: &str,
+    cf_session_id: &str,
+    left_at: &str,
+) -> Result<Option<Option<Value>>, DbErr> {
+    sqlx::query_scalar(
+        "update meeting_sessions set participants = (
+           select coalesce(
+             jsonb_agg(
+               case when e.p->>'userId' = $2
+                      and coalesce(e.p->>'leftAt', '') = ''
+                      and coalesce(e.p->>'cfSessionId', '') = $3
+                 then e.p || jsonb_build_object('leftAt', $4::text)
+                 else e.p
+               end
+               order by e.ord
+             ),
+             '[]'::jsonb
+           )
+           from jsonb_array_elements(coalesce(meeting_sessions.participants, '[]'::jsonb)) with ordinality as e(p, ord)
+         ), updated_at = $4::timestamp
+         where id = $1 and status <> 'ended'
+         returning participants",
+    )
+    .bind(session_id)
+    .bind(user_id)
+    .bind(cf_session_id)
+    .bind(left_at)
+    .fetch_optional(db)
+    .await
+    .map_err(orm_error)
+}
+
 /// A meeting row as Drizzle's `select()` returns it.
-pub(crate) async fn meeting_row(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> =
-        sqlx::query_scalar("select to_jsonb(t) from meetings t where t.id = $1 limit 1")
-            .bind(id)
-            .fetch_optional(db)
-            .await?;
-    Ok(row.map(|row| MEETINGS.js(row)))
+pub(crate) async fn meeting_row(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
+    meetings::Entity::find_by_id(id.to_owned())
+        .one(&orm(db))
+        .await?
+        .map(row_json)
+        .transpose()
 }
 
 /// A session row as Drizzle's `select()` returns it (`loadSession`).
-pub(crate) async fn session_row(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> =
-        sqlx::query_scalar("select to_jsonb(t) from meeting_sessions t where t.id = $1 limit 1")
-            .bind(id)
-            .fetch_optional(db)
-            .await?;
-    Ok(row.map(|row| MEETING_SESSIONS.js(row)))
+pub(crate) async fn session_row(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
+    meeting_sessions::Entity::find_by_id(id.to_owned())
+        .one(&orm(db))
+        .await?
+        .map(row_json)
+        .transpose()
 }
 
 #[cfg(test)]

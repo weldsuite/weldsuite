@@ -91,8 +91,12 @@ export const WithLabel: Story = {
     const [value, setValue] = useState("");
     return (
       <div className="grid gap-1.5 w-[280px]">
-        <Label>Favorite fruit</Label>
-        <Autocomplete {...args} value={value} onValueChange={setValue} />
+        {/* `id` goes to the trigger, so the label names it and clicking the label focuses it. */}
+        <Label htmlFor="favorite-fruit">Favorite fruit</Label>
+        <Autocomplete {...args} id="favorite-fruit" aria-describedby="favorite-fruit-hint" value={value} onValueChange={setValue} />
+        <p id="favorite-fruit-hint" className="text-xs text-muted-foreground">
+          Read out with the trigger through aria-describedby.
+        </p>
       </div>
     );
   },
@@ -118,6 +122,7 @@ export const Loading: Story = {
   args: {
     options: [],
     loading: true,
+    loadingText: "Loading fruits…",
     placeholder: "Loading data...",
   },
   render: (args) => (

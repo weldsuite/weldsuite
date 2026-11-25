@@ -58,9 +58,8 @@ export function ScheduleDayView({
   timeOffByEmployee,
   timeFormat,
   canCreate,
-  canUpdate,
   onAddShift,
-  onEditShift,
+  onOpenShift,
 }: Readonly<{
   day: string;
   groups: RosterGroup[];
@@ -72,9 +71,9 @@ export function ScheduleDayView({
   timeOffByEmployee: Map<string, TimeOff[]>;
   timeFormat: TimeFormat;
   canCreate: boolean;
-  canUpdate: boolean;
   onAddShift: (employee: RosterEmployee, day: string) => void;
-  onEditShift: (shift: HrShift) => void;
+  /** Opens the shift's details panel. */
+  onOpenShift: (shift: HrShift) => void;
 }>) {
   const t = useTranslations();
   const timeOffText = useTimeOffText();
@@ -277,7 +276,7 @@ export function ScheduleDayView({
                       key={shift.id}
                       shift={shift}
                       timeFormat={timeFormat}
-                      onClick={canUpdate ? () => onEditShift(shift) : undefined}
+                      onClick={() => onOpenShift(shift)}
                       // A fixed-height button centres its content; keep the text at the top like a calendar event.
                       className="absolute left-1 right-1 flex w-auto flex-col justify-start overflow-hidden"
                       style={{ top: top + 1, height: height - 2 }}

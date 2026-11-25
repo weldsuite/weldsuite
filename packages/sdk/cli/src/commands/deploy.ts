@@ -37,14 +37,14 @@ const MIME_TYPES: Record<string, string> = {
   '.woff2': 'font/woff2',
 };
 
-function mimeType(path: string): string {
+export function mimeType(path: string): string {
   const dot = path.lastIndexOf('.');
   const extension = dot === -1 ? '' : path.slice(dot).toLowerCase();
   return MIME_TYPES[extension] ?? 'application/octet-stream';
 }
 
 /** Pick the package runner matching the project's lockfile. */
-function detectRunner(cwd: string): string {
+export function detectRunner(cwd: string): string {
   if (existsSync(join(cwd, 'pnpm-lock.yaml'))) {
     return 'pnpm';
   }
@@ -54,7 +54,7 @@ function detectRunner(cwd: string): string {
   return 'npm';
 }
 
-function runBuild(runner: string, cwd: string): Promise<void> {
+export function runBuild(runner: string, cwd: string): Promise<void> {
   return new Promise((resolvePromise, rejectPromise) => {
     const child = spawn(runner, ['run', 'build'], {
       cwd,
@@ -74,13 +74,13 @@ function runBuild(runner: string, cwd: string): Promise<void> {
   });
 }
 
-interface BundleFile {
+export interface BundleFile {
   /** Bundle-relative path with forward slashes — becomes the uploaded file name. */
   path: string;
   bytes: Buffer;
 }
 
-async function collectFiles(root: string, dir = root): Promise<BundleFile[]> {
+export async function collectFiles(root: string, dir = root): Promise<BundleFile[]> {
   const files: BundleFile[] = [];
   const entries = await readdir(dir, { withFileTypes: true });
   for (const entry of entries) {
@@ -97,7 +97,7 @@ async function collectFiles(root: string, dir = root): Promise<BundleFile[]> {
   return files;
 }
 
-function formatBytes(total: number): string {
+export function formatBytes(total: number): string {
   if (total < 1024) {
     return `${total} B`;
   }

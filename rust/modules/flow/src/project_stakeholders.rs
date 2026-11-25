@@ -33,13 +33,19 @@ use axum::body::Bytes;
 use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, patch, post, put};
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, Condition, DbErr, EntityTrait, PaginatorTrait, QueryFilter,
+    QueryOrder, QuerySelect, TransactionTrait,
+};
 use serde_json::{Map, Value, json};
+use time::OffsetDateTime;
 use weldsuite_catalogs::entity_events::{
     EventName, PROJECT_STAKEHOLDER_CREATED, PROJECT_STAKEHOLDER_DELETED,
     PROJECT_STAKEHOLDER_UPDATED,
 };
-use weldsuite_db::js_row;
-use weldsuite_flow_domain::js::{js_date, parse_int};
+use weldsuite_db::{orm, utc_now};
+use weldsuite_flow_domain::js::{js_date, millis_of, parse_int};
 use weldsuite_flow_domain::stakeholders::{
     ALREADY_STAKEHOLDER, Assignment, CONTACT_NOT_FOUND, CONTACT_WITHOUT_EMAIL,
     DELIVERABLE_NOT_FOUND, MEMBER_NOT_FOUND, NOT_A_CONTACT, STAKEHOLDER_NOT_IN_PROJECT,
@@ -48,8 +54,12 @@ use weldsuite_flow_domain::stakeholders::{
 };
 use weldsuite_kit::{Created, Data, NoContent, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::{
+    project_deliverables, project_raci, project_stakeholders, projects,
+};
 
 use crate::project_status_reports::publish_project_updated;
+use crate::project_tabs::merged_settings;
 use crate::raid_body::parse_body;
 use crate::raid_store::live_project_exists;
 use crate::reporting_body::{
@@ -58,11 +68,12 @@ use crate::reporting_body::{
 };
 use crate::reporting_notify::{NotifyContext, send_portal_invitation};
 use crate::reporting_store::{
-    contact_exists, find_stakeholder, identities_of, load_report_project, member_exists,
+    contact_exists, find_stakeholder, identities_of, instant, load_report_project, member_exists,
     member_identities, stakeholders_of_project,
 };
 use crate::{
-    Caller, FlowState, Refusal, Reply, keyset_cursor, now_ms, outside, page, paged, reply,
+    Caller, FlowState, Refusal, Reply, fetch_limit, json_rows, keyset_cursor_tz, now_ms, outside,
+    page, paged, reply,
 };
 
 const PROJECT_DENIED: &str = "You are not a member of this project";
@@ -115,8 +126,14 @@ fn text<'a>(row: &'a Value, key: &str) -> Option<&'a str> {
     row.get(key).and_then(Value::as_str)
 }
 
-fn iso(ms: i64) -> String {
-    weldsuite_flow_domain::js::iso_from_millis(ms).unwrap_or_default()
+/// `new Date()` as the `timestamptz` columns take it (milliseconds).
+fn now_at() -> OffsetDateTime {
+    instant(now_ms())
+}
+
+/// A `toISOString()` text as the instant it names.
+fn at_of(iso: &str) -> Option<OffsetDateTime> {
+    millis_of(iso).map(instant)
 }
 
 fn parse_limit(raw: Option<&str>, fallback: i64, max: i64) -> i64 {
@@ -141,7 +158,7 @@ fn publish_stakeholder(
 }
 
 /// The stakeholder as every route answers it.
-async fn present_one(caller: &Caller, row: &Value) -> Result<Value, sqlx::Error> {
+async fn present_one(caller: &Caller, row: &Value) -> Result<Value, DbErr> {
     let identities = identities_of(&caller.db, std::slice::from_ref(row)).await?;
     let (name, email) = identities
         .get(text(row, "id").unwrap_or_default())
@@ -157,16 +174,17 @@ async fn write_settings_key(
     project_id: &str,
     key: &str,
     value: Value,
-) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "update projects set settings = (coalesce(settings, '{}'::jsonb) || $3::jsonb),
-             updated_at = $2::timestamptz where id = $1 and deleted_at is null",
-    )
-    .bind(project_id)
-    .bind(iso(now_ms()))
-    .bind(json!({ key: value }))
-    .execute(&caller.db)
-    .await?;
+) -> Result<(), DbErr> {
+    projects::Entity::update_many()
+        .col_expr(
+            projects::Column::Settings,
+            merged_settings(json!({ key: value })),
+        )
+        .col_expr(projects::Column::UpdatedAt, Expr::value(utc_now()))
+        .filter(projects::Column::Id.eq(project_id))
+        .filter(projects::Column::DeletedAt.is_null())
+        .exec(&orm(&caller.db))
+        .await?;
     publish_project_updated(state, caller, project_id, "").await
 }
 
@@ -249,14 +267,22 @@ async fn put_plan(
 async fn raci_rows(
     caller: &Caller,
     project_id: &str,
-) -> Result<Vec<(String, Option<String>, String, String)>, sqlx::Error> {
-    sqlx::query_as(
-        "select subject_type, subject_id, stakeholder_id, letter from project_raci
-         where project_id = $1 order by created_at asc, id asc",
-    )
-    .bind(project_id)
-    .fetch_all(&caller.db)
-    .await
+) -> Result<Vec<(String, Option<String>, String, String)>, DbErr> {
+    use project_raci::Column;
+    project_raci::Entity::find()
+        .select_only()
+        .columns([
+            Column::SubjectType,
+            Column::SubjectId,
+            Column::StakeholderId,
+            Column::Letter,
+        ])
+        .filter(Column::ProjectId.eq(project_id))
+        .order_by_asc(Column::CreatedAt)
+        .order_by_asc(Column::Id)
+        .into_tuple()
+        .all(&orm(&caller.db))
+        .await
 }
 
 async fn get_raci(caller: Caller, Path(project_id): Path<String>) -> Response {
@@ -268,13 +294,19 @@ async fn get_raci(caller: Caller, Path(project_id): Path<String>) -> Response {
             return Err(Refusal::not_found("Project", &project_id));
         }
         let register = stakeholders_of_project(&caller.db, &project_id).await?;
-        let deliverables: Vec<(String, i32, String)> = sqlx::query_as(
-            "select id, number, title from project_deliverables
-             where project_id = $1 and deleted_at is null order by position asc, number asc",
-        )
-        .bind(&project_id)
-        .fetch_all(&caller.db)
-        .await?;
+        let deliverables: Vec<(String, i32, String)> = {
+            use project_deliverables::Column;
+            project_deliverables::Entity::find()
+                .select_only()
+                .columns([Column::Id, Column::Number, Column::Title])
+                .filter(Column::ProjectId.eq(&project_id))
+                .filter(Column::DeletedAt.is_null())
+                .order_by_asc(Column::Position)
+                .order_by_asc(Column::Number)
+                .into_tuple()
+                .all(&orm(&caller.db))
+                .await?
+        };
         let rows = raci_rows(&caller, &project_id).await?;
         let order: Vec<String> = register
             .iter()
@@ -369,6 +401,47 @@ async fn put_raci(
     )
 }
 
+/// The subject's cells replaced in one transaction: the old ones deleted,
+/// the new ones inserted.
+async fn write_raci(
+    caller: &Caller,
+    project_id: &str,
+    subject_type: &str,
+    subject_id: Option<&str>,
+    assignments: &[Assignment],
+) -> Result<(), DbErr> {
+    use project_raci::Column;
+    let now = now_at();
+    // `subject_id is not distinct from subjectId`.
+    let subject = match subject_id {
+        Some(id) => Column::SubjectId.eq(id),
+        None => Column::SubjectId.is_null(),
+    };
+    let tx = orm(&caller.db).begin().await?;
+    project_raci::Entity::delete_many()
+        .filter(Column::ProjectId.eq(project_id))
+        .filter(Column::SubjectType.eq(subject_type))
+        .filter(subject)
+        .exec(&tx)
+        .await?;
+    if !assignments.is_empty() {
+        project_raci::Entity::insert_many(assignments.iter().map(|a| project_raci::ActiveModel {
+            id: Set(generate_id("rac")),
+            project_id: Set(project_id.to_owned()),
+            subject_type: Set(subject_type.to_owned()),
+            subject_id: Set(subject_id.map(str::to_owned)),
+            stakeholder_id: Set(a.stakeholder_id.clone()),
+            letter: Set(a.letter.clone()),
+            created_by: Set(caller.user_id.clone()),
+            created_at: Set(now),
+            updated_at: Set(now),
+        }))
+        .exec_without_returning(&tx)
+        .await?;
+    }
+    tx.commit().await
+}
+
 async fn replace_raci(
     state: &FlowState,
     caller: &Caller,
@@ -380,14 +453,16 @@ async fn replace_raci(
     let db = &caller.db;
     let mut deliverable: Option<(i32, String)> = None;
     if let Some(subject) = subject_id {
-        deliverable = sqlx::query_as(
-            "select number, title from project_deliverables
-             where id = $1 and project_id = $2 and deleted_at is null limit 1",
-        )
-        .bind(subject)
-        .bind(project_id)
-        .fetch_optional(db)
-        .await?;
+        use project_deliverables::Column;
+        deliverable = project_deliverables::Entity::find()
+            .select_only()
+            .columns([Column::Number, Column::Title])
+            .filter(Column::Id.eq(subject))
+            .filter(Column::ProjectId.eq(project_id))
+            .filter(Column::DeletedAt.is_null())
+            .into_tuple()
+            .one(&orm(db))
+            .await?;
         if deliverable.is_none() {
             return Err(Refusal::bad_request(DELIVERABLE_NOT_FOUND));
         }
@@ -409,41 +484,7 @@ async fn replace_raci(
             letter: r.3,
         })
         .collect();
-    let now = iso(now_ms());
-    let mut statements = vec![
-        sqlx::query(
-            "delete from project_raci where project_id = $1 and subject_type = $2
-             and subject_id is not distinct from $3::text",
-        )
-        .bind(project_id.to_owned())
-        .bind(subject_type.to_owned())
-        .bind(subject_id.map(str::to_owned)),
-    ];
-    if !assignments.is_empty() {
-        let ids: Vec<String> = assignments.iter().map(|_| generate_id("rac")).collect();
-        let stakeholders: Vec<String> = assignments
-            .iter()
-            .map(|a| a.stakeholder_id.clone())
-            .collect();
-        let letters: Vec<String> = assignments.iter().map(|a| a.letter.clone()).collect();
-        statements.push(
-            sqlx::query(
-                "insert into project_raci (id, project_id, subject_type, subject_id, stakeholder_id, letter,
-                     created_by, created_at, updated_at)
-                 select u.id, $1, $2, $3, u.sid, u.letter, $4, $5::timestamptz, $5::timestamptz
-                 from unnest($6::text[], $7::text[], $8::text[]) as u(id, sid, letter)",
-            )
-            .bind(project_id.to_owned())
-            .bind(subject_type.to_owned())
-            .bind(subject_id.map(str::to_owned))
-            .bind(caller.user_id.clone())
-            .bind(now)
-            .bind(ids)
-            .bind(stakeholders)
-            .bind(letters),
-        );
-    }
-    weldsuite_db::atomically(db, statements).await?;
+    write_raci(caller, project_id, subject_type, subject_id, assignments).await?;
 
     // A cell is a relation, not an entity: the stakeholders' events are its trail.
     let order: Vec<String> = register
@@ -485,15 +526,16 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
         Err(refused) => return outside(Err(refused)),
     };
     let limit = parse_limit(q.limit.as_deref(), 100, 200);
-    let checked: Result<Option<(String, String)>, Refusal> = async {
+    let checked: Result<Option<(OffsetDateTime, String)>, Refusal> = async {
         if !caller.can_access(&q.project_id).await? {
             return Err(Refusal::forbidden(PROJECT_DENIED));
         }
         Ok(match &q.cursor {
             Some(cursor) => {
-                keyset_cursor(
+                keyset_cursor_tz(
                     &caller.db,
-                    "select id, to_jsonb(created_at) #>> '{}' from project_stakeholders where id = $1 limit 1",
+                    project_stakeholders::Column::Id,
+                    project_stakeholders::Column::CreatedAt,
                     cursor,
                 )
                 .await?
@@ -516,29 +558,34 @@ async fn list_register(
     caller: &Caller,
     project_id: &str,
     limit: i64,
-    cursor: Option<(String, String)>,
+    cursor: Option<(OffsetDateTime, String)>,
 ) -> Reply {
+    use project_stakeholders::Column;
     let db = &caller.db;
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from project_stakeholders t
-         where t.deleted_at is null and t.project_id = $1
-           and ($2::timestamptz is null or t.created_at > $2::timestamptz
-                or (t.created_at = $2::timestamptz and t.id > $3))
-         order by t.created_at asc, t.id asc limit $4",
-    )
-    .bind(project_id)
-    .bind(cursor.as_ref().map(|c| c.0.as_str()))
-    .bind(cursor.as_ref().map(|c| c.1.as_str()))
-    .bind(limit + 1)
-    .fetch_all(db)
-    .await?;
-    let total: i64 = sqlx::query_scalar(
-        "select count(*) from project_stakeholders t where t.deleted_at is null and t.project_id = $1",
-    )
-    .bind(project_id)
-    .fetch_one(db)
-    .await?;
-    let (rows, has_more, next) = page(rows.into_iter().map(js_row).collect(), limit);
+    let live = || {
+        project_stakeholders::Entity::find()
+            .filter(Column::DeletedAt.is_null())
+            .filter(Column::ProjectId.eq(project_id))
+    };
+    let mut rows = live();
+    if let Some((at, id)) = &cursor {
+        // The rows after the cursor in `created_at asc, id asc` order.
+        rows = rows.filter(
+            Condition::any().add(Column::CreatedAt.gt(*at)).add(
+                Condition::all()
+                    .add(Column::CreatedAt.eq(*at))
+                    .add(Column::Id.gt(id.as_str())),
+            ),
+        );
+    }
+    let rows = rows
+        .order_by_asc(Column::CreatedAt)
+        .order_by_asc(Column::Id)
+        .limit(fetch_limit(limit)?)
+        .all(&orm(db))
+        .await?;
+    let total = i64::try_from(live().count(&orm(db)).await?).unwrap_or(i64::MAX);
+    let (rows, has_more, next) = page(json_rows(rows)?, limit);
     let identities = identities_of(db, &rows).await?;
     let items = rows
         .iter()
@@ -632,20 +679,10 @@ async fn add_stakeholder(
     {
         return Err(Refusal::bad_request(CONTACT_NOT_FOUND));
     }
-    let duplicate: Option<String> = sqlx::query_scalar(
-        "select id from project_stakeholders where project_id = $1 and deleted_at is null
-           and (($2::text is not null and member_id = $2) or ($3::text is not null and crm_contact_id = $3))
-         limit 1",
-    )
-    .bind(project_id)
-    .bind(member)
-    .bind(contact)
-    .fetch_optional(db)
-    .await?;
-    if duplicate.is_some() {
+    if is_stakeholder(db, project_id, member, contact).await? {
         return Err(Refusal::conflict(ALREADY_STAKEHOLDER));
     }
-    let now = iso(now_ms());
+    let now = now_at();
     let id = generate_id("stk");
     let opt = |key: &str| input.get(key).and_then(Value::as_str).map(str::to_owned);
     let scale = |key: &str| {
@@ -654,26 +691,27 @@ async fn add_stakeholder(
             .and_then(Value::as_i64)
             .map_or(3, |n| i16::try_from(n).unwrap_or(3))
     };
-    sqlx::query(
-        "insert into project_stakeholders (id, project_id, member_id, crm_contact_id, organisation, role,
-             influence, interest, attitude, engagement, notes, last_contact_at, created_by, created_at, updated_at)
-         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::timestamptz, $13, $14::timestamptz, $14::timestamptz)",
-    )
-    .bind(&id)
-    .bind(project_id)
-    .bind(member)
-    .bind(contact)
-    .bind(opt("organisation"))
-    .bind(opt("role"))
-    .bind(scale("influence"))
-    .bind(scale("interest"))
-    .bind(opt("attitude").unwrap_or_else(|| "neutral".to_owned()))
-    .bind(opt("engagement").unwrap_or_else(|| "neutral".to_owned()))
-    .bind(opt("notes"))
-    .bind(opt("lastContactAt").and_then(|d| js_date(&d)))
-    .bind(&caller.user_id)
-    .bind(now)
-    .execute(db)
+    project_stakeholders::Entity::insert(project_stakeholders::ActiveModel {
+        id: Set(id.clone()),
+        project_id: Set(project_id.to_owned()),
+        member_id: Set(member.map(str::to_owned)),
+        crm_contact_id: Set(contact.map(str::to_owned)),
+        organisation: Set(opt("organisation")),
+        role: Set(opt("role")),
+        influence: Set(scale("influence")),
+        interest: Set(scale("interest")),
+        attitude: Set(opt("attitude").unwrap_or_else(|| "neutral".to_owned())),
+        engagement: Set(opt("engagement").unwrap_or_else(|| "neutral".to_owned())),
+        notes: Set(opt("notes")),
+        last_contact_at: Set(opt("lastContactAt")
+            .and_then(|d| js_date(&d))
+            .and_then(|d| at_of(&d))),
+        created_by: Set(caller.user_id.clone()),
+        created_at: Set(now),
+        updated_at: Set(now),
+        ..Default::default()
+    })
+    .exec_without_returning(&orm(db))
     .await?;
     let Some(row) = find_stakeholder(db, &id).await? else {
         return Err(Refusal::Internal(
@@ -684,10 +722,35 @@ async fn add_stakeholder(
     Ok(Created(present_one(caller, &row).await?).into_response())
 }
 
-/// A value bound to the dynamic update.
-enum Arg {
-    Text(Option<String>),
-    Int(i16),
+/// A live stakeholder of the project for the member or the contact.
+async fn is_stakeholder(
+    db: &weldsuite_db::PgPool,
+    project_id: &str,
+    member: Option<&str>,
+    contact: Option<&str>,
+) -> Result<bool, DbErr> {
+    use project_stakeholders::Column;
+    // `memberId` or `crmContactId`, whichever is set.
+    let mut same = Condition::any();
+    if let Some(member) = member {
+        same = same.add(Column::MemberId.eq(member));
+    }
+    if let Some(contact) = contact {
+        same = same.add(Column::CrmContactId.eq(contact));
+    }
+    if member.is_none() && contact.is_none() {
+        return Ok(false);
+    }
+    let duplicate: Option<String> = project_stakeholders::Entity::find()
+        .select_only()
+        .column(Column::Id)
+        .filter(Column::ProjectId.eq(project_id))
+        .filter(Column::DeletedAt.is_null())
+        .filter(same)
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
+    Ok(duplicate.is_some())
 }
 
 async fn update(
@@ -725,49 +788,37 @@ async fn update_stakeholder(
     id: &str,
     input: &Map<String, Value>,
 ) -> Reply {
-    let mut sets: Vec<String> = Vec::new();
-    let mut args: Vec<Arg> = Vec::new();
-    let mut set = |column: &str, cast: &str, arg: Arg| {
-        args.push(arg);
-        sets.push(format!("{column} = ${}{cast}", args.len() + 2));
-    };
+    use project_stakeholders::Column;
+    let mut update = project_stakeholders::Entity::update_many()
+        .col_expr(Column::UpdatedAt, Expr::value(now_at()));
     for (key, column) in [
-        ("organisation", "organisation"),
-        ("role", "role"),
-        ("attitude", "attitude"),
-        ("engagement", "engagement"),
-        ("notes", "notes"),
+        ("organisation", Column::Organisation),
+        ("role", Column::Role),
+        ("attitude", Column::Attitude),
+        ("engagement", Column::Engagement),
+        ("notes", Column::Notes),
     ] {
         if let Some(value) = input.get(key) {
-            set(column, "", Arg::Text(value.as_str().map(str::to_owned)));
+            update = update.col_expr(column, Expr::value(value.as_str().map(str::to_owned)));
         }
     }
-    for key in ["influence", "interest"] {
+    for (key, column) in [
+        ("influence", Column::Influence),
+        ("interest", Column::Interest),
+    ] {
         if let Some(value) = input.get(key).and_then(Value::as_i64) {
-            set(key, "", Arg::Int(i16::try_from(value).unwrap_or(3)));
+            update = update.col_expr(column, Expr::value(i16::try_from(value).unwrap_or(3)));
         }
     }
     if let Some(value) = input.get("lastContactAt") {
-        set(
-            "last_contact_at",
-            "::timestamptz",
-            Arg::Text(value.as_str().and_then(js_date)),
-        );
+        let at = value.as_str().and_then(js_date).and_then(|d| at_of(&d));
+        update = update.col_expr(Column::LastContactAt, Expr::value(at));
     }
-    let mut query = sqlx::query(sqlx::AssertSqlSafe(format!(
-        "update project_stakeholders set updated_at = $2::timestamptz{}{} where id = $1 and deleted_at is null",
-        if sets.is_empty() { "" } else { ", " },
-        sets.join(", ")
-    )))
-    .bind(id.to_owned())
-    .bind(iso(now_ms()));
-    for arg in args {
-        query = match arg {
-            Arg::Text(value) => query.bind(value),
-            Arg::Int(value) => query.bind(value),
-        };
-    }
-    query.execute(&caller.db).await?;
+    update
+        .filter(Column::Id.eq(id))
+        .filter(Column::DeletedAt.is_null())
+        .exec(&orm(&caller.db))
+        .await?;
     let Some(row) = find_stakeholder(&caller.db, id).await? else {
         return Err(Refusal::not_found(LABEL, id));
     };
@@ -784,24 +835,14 @@ async fn remove(
         let Some(existing) = find_stakeholder(&caller.db, &id).await? else {
             return Err(Refusal::not_found(LABEL, &id));
         };
-        if !caller.can_write(text(&existing, "projectId").unwrap_or_default()).await? {
+        if !caller
+            .can_write(text(&existing, "projectId").unwrap_or_default())
+            .await?
+        {
             return Err(Refusal::forbidden(PROJECT_WRITE_DENIED));
         }
         // The person leaves the register together with their RACI cells and their portal access.
-        let now = iso(now_ms());
-        weldsuite_db::atomically(
-            &caller.db,
-            [
-                sqlx::query("delete from project_raci where stakeholder_id = $1").bind(id.clone()),
-                sqlx::query(
-                    "update project_stakeholders set deleted_at = $2::timestamptz, updated_at = $2::timestamptz,
-                         portal_access = false where id = $1 and deleted_at is null",
-                )
-                .bind(id.clone())
-                .bind(now),
-            ],
-        )
-        .await?;
+        leave_register(&caller, &id).await?;
         let mut gone = existing.clone();
         gone["portalAccess"] = Value::Bool(false);
         publish_stakeholder(&state, &caller, PROJECT_STAKEHOLDER_DELETED, &gone, None);
@@ -809,6 +850,27 @@ async fn remove(
     }
     .await;
     reply(result, "Failed to delete stakeholder")
+}
+
+/// The RACI cells deleted and the stakeholder soft-deleted without portal
+/// access, in one transaction.
+async fn leave_register(caller: &Caller, id: &str) -> Result<(), DbErr> {
+    use project_stakeholders::Column;
+    let now = now_at();
+    let tx = orm(&caller.db).begin().await?;
+    project_raci::Entity::delete_many()
+        .filter(project_raci::Column::StakeholderId.eq(id))
+        .exec(&tx)
+        .await?;
+    project_stakeholders::Entity::update_many()
+        .col_expr(Column::DeletedAt, Expr::value(Some(now)))
+        .col_expr(Column::UpdatedAt, Expr::value(now))
+        .col_expr(Column::PortalAccess, Expr::value(false))
+        .filter(Column::Id.eq(id))
+        .filter(Column::DeletedAt.is_null())
+        .exec(&tx)
+        .await?;
+    tx.commit().await
 }
 
 // ── Portal access ───────────────────────────────────────────────────────────
@@ -851,15 +913,21 @@ async fn invite(state: &FlowState, caller: &Caller, id: &str, existing: &Value) 
     let Some(email) = email.filter(|e| !e.is_empty()) else {
         return Err(Refusal::bad_request(CONTACT_WITHOUT_EMAIL));
     };
-    let now = iso(now_ms());
-    sqlx::query(
-        "update project_stakeholders set portal_access = true, portal_invited_at = $2::timestamptz,
-             updated_at = $2::timestamptz where id = $1 and deleted_at is null",
-    )
-    .bind(id.to_owned())
-    .bind(now)
-    .execute(db)
-    .await?;
+    let now = now_at();
+    project_stakeholders::Entity::update_many()
+        .col_expr(
+            project_stakeholders::Column::PortalAccess,
+            Expr::value(true),
+        )
+        .col_expr(
+            project_stakeholders::Column::PortalInvitedAt,
+            Expr::value(Some(now)),
+        )
+        .col_expr(project_stakeholders::Column::UpdatedAt, Expr::value(now))
+        .filter(project_stakeholders::Column::Id.eq(id))
+        .filter(project_stakeholders::Column::DeletedAt.is_null())
+        .exec(&orm(db))
+        .await?;
     let Some(row) = find_stakeholder(db, id).await? else {
         return Err(Refusal::not_found(LABEL, id));
     };
@@ -906,14 +974,19 @@ async fn portal_revoke(
         {
             return Err(Refusal::forbidden(PROJECT_MANAGE_DENIED));
         }
-        sqlx::query(
-            "update project_stakeholders set portal_access = false, updated_at = $2::timestamptz
-             where id = $1 and deleted_at is null",
-        )
-        .bind(id.clone())
-        .bind(iso(now_ms()))
-        .execute(&caller.db)
-        .await?;
+        project_stakeholders::Entity::update_many()
+            .col_expr(
+                project_stakeholders::Column::PortalAccess,
+                Expr::value(false),
+            )
+            .col_expr(
+                project_stakeholders::Column::UpdatedAt,
+                Expr::value(now_at()),
+            )
+            .filter(project_stakeholders::Column::Id.eq(&id))
+            .filter(project_stakeholders::Column::DeletedAt.is_null())
+            .exec(&orm(&caller.db))
+            .await?;
         let Some(row) = find_stakeholder(&caller.db, &id).await? else {
             return Err(Refusal::not_found(LABEL, &id));
         };

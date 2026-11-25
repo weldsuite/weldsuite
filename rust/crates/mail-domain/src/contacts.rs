@@ -6,11 +6,14 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use weldsuite_db::PgPool;
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::generate_id;
 use weldsuite_ports::{DynFileStore, PutOptions};
+use weldsuite_schema::tenant::people;
 
-use crate::outbound::clock::{iso, now_ms};
+use crate::outbound::clock::{now_ms, timestamp};
 
 /// `MailContactAddress`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -106,11 +109,50 @@ pub fn initials_avatar_svg(name: &str) -> String {
     .concat()
 }
 
+/// The `people` row a new address becomes: its names derived from the
+/// display name or the address, `nullif(name, '')` for an empty part.
+fn new_person(
+    id: &str,
+    email: &str,
+    name: Option<&str>,
+    now: time::PrimitiveDateTime,
+) -> people::ActiveModel {
+    let (first, last) = derive_names(email, name);
+    let full = if last.is_empty() {
+        first.clone()
+    } else {
+        format!("{first} {last}").trim().to_owned()
+    };
+    let display = {
+        let combined = format!("{first} {last}").trim().to_owned();
+        if combined.is_empty() {
+            email.to_owned()
+        } else {
+            combined
+        }
+    };
+    let part = |text: String| Some(text).filter(|text| !text.is_empty());
+    people::ActiveModel {
+        id: Set(id.to_owned()),
+        first_name: Set(part(first)),
+        last_name: Set(part(last)),
+        full_name: Set(part(full)),
+        display_name: Set(display),
+        email: Set(Some(email.to_owned())),
+        status: Set("active".to_owned()),
+        in_crm: Set(false),
+        created_at: Set(now),
+        updated_at: Set(now),
+        version: Set(1),
+        ..Default::default()
+    }
+}
+
 /// `upsertMailContactsBatch(db, addresses)`: `(contact id, email, created)`.
 async fn upsert_batch(
     db: &PgPool,
     addresses: &[ContactAddress],
-) -> Result<Vec<(String, String, bool)>, sqlx::Error> {
+) -> Result<Vec<(String, String, bool)>, DbErr> {
     let mut by_email: Vec<(String, Option<String>)> = Vec::new();
     for address in addresses {
         let Some(email) = normalize_email(&address.email) else {
@@ -128,17 +170,26 @@ async fn upsert_batch(
         return Ok(Vec::new());
     }
     let emails: Vec<String> = by_email.iter().map(|(e, _)| e.clone()).collect();
-    let existing: Vec<(String, Option<String>)> = sqlx::query_as(
-        "select id, email from people where lower(email) = any($1) and deleted_at is null",
-    )
-    .bind(&emails)
-    .fetch_all(db)
-    .await?;
+    let conn = orm(db);
+    let existing: Vec<(String, Option<String>)> = people::Entity::find()
+        .select_only()
+        .columns([people::Column::Id, people::Column::Email])
+        .filter(sea_orm::ExprTrait::is_in(
+            Expr::from(Func::lower(Expr::col((
+                people::Entity,
+                people::Column::Email,
+            )))),
+            emails,
+        ))
+        .filter(people::Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&conn)
+        .await?;
     let existing: HashMap<String, String> = existing
         .into_iter()
         .filter_map(|(id, email)| email.map(|e| (e.to_lowercase(), id)))
         .collect();
-    let now = iso(now_ms());
+    let now = timestamp(now_ms());
     let mut results = Vec::new();
     let mut rows = Vec::new();
     for (email, name) in by_email {
@@ -147,48 +198,24 @@ async fn upsert_batch(
             continue;
         }
         let id = generate_id("person");
-        let (first, last) = derive_names(&email, name.as_deref());
-        let full = if last.is_empty() {
-            first.clone()
-        } else {
-            format!("{first} {last}").trim().to_owned()
-        };
-        let display = {
-            let combined = format!("{first} {last}").trim().to_owned();
-            if combined.is_empty() {
-                email.clone()
-            } else {
-                combined
-            }
-        };
-        rows.push((id.clone(), first, last, full, display, email.clone()));
+        rows.push((new_person(&id, &email, name.as_deref(), now), email.clone()));
         results.push((id, email, true));
     }
-    for (id, first, last, full, display, email) in rows {
+    for (person, email) in rows {
         // Row by row, as the batch's per-row fallback: a concurrent insert of
         // the same address loses to the winner.
-        let inserted = sqlx::query(
-            "insert into people (id, first_name, last_name, full_name, display_name, email, status,
-                                 in_crm, created_at, updated_at, version)
-             values ($1, nullif($2, ''), nullif($3, ''), nullif($4, ''), $5, $6, 'active', false,
-                     $7::timestamp, $7::timestamp, 1)",
-        )
-        .bind(&id)
-        .bind(&first)
-        .bind(&last)
-        .bind(&full)
-        .bind(&display)
-        .bind(&email)
-        .bind(&now)
-        .execute(db)
-        .await;
+        let inserted = people::Entity::insert(person)
+            .exec_without_returning(&conn)
+            .await;
         if inserted.is_err() {
-            let winner: Option<String> = sqlx::query_scalar(
-                "select id from people where email = $1 and deleted_at is null limit 1",
-            )
-            .bind(&email)
-            .fetch_optional(db)
-            .await?;
+            let winner: Option<String> = people::Entity::find()
+                .select_only()
+                .column(people::Column::Id)
+                .filter(people::Column::Email.eq(&email))
+                .filter(people::Column::DeletedAt.is_null())
+                .into_tuple()
+                .one(&conn)
+                .await?;
             if let (Some(winner), Some(at)) = (
                 winner,
                 results
@@ -247,10 +274,10 @@ pub async fn upsert_mail_contacts(
             continue;
         }
         let url = format!("{public_url}/{key}");
-        if let Err(error) = sqlx::query("update people set avatar_url = $2 where id = $1")
-            .bind(&contact_id)
-            .bind(&url)
-            .execute(db)
+        if let Err(error) = people::Entity::update_many()
+            .col_expr(people::Column::AvatarUrl, Expr::value(url))
+            .filter(people::Column::Id.eq(&contact_id))
+            .exec(&orm(db))
             .await
         {
             tracing::error!(%error, email, "[mail-contacts] Failed to save avatar");

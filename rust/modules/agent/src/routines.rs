@@ -9,12 +9,21 @@
 //! workspace's routines are re-indexed whenever its sweep runs, as the worker
 //! does, so a missed write is repaired.
 
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, Condition, DbErr, EntityTrait, JoinType, QueryFilter,
+    QueryOrder, QuerySelect, RelationDef,
+};
 use serde_json::{Value, json};
 use sqlx::PgPool;
 use time::OffsetDateTime;
-use weldsuite_db::js_row;
-use weldsuite_events::iso_timestamp;
+use weldsuite_db::orm;
 use weldsuite_kit::generate_id;
+use weldsuite_schema::tenant::weldagent_agents as agents;
+use weldsuite_schema::tenant::weldagent_routine_runs as routine_runs;
+use weldsuite_schema::tenant::weldagent_routines::{self as routines, Column};
+
+use crate::agents::{js, now_tz, row_limit};
 
 /// The `workspace_due_index` kind of the routine sweep.
 pub const DUE_KIND: &str = "weldagent_routine";
@@ -24,11 +33,27 @@ pub const DUE_KIND: &str = "weldagent_routine";
 pub const ROUTINE_RESULT_SYSTEM: &str = "Your final reply is posted in the user's chat with you as this routine's result, and they are notified. \
 Write it as the message they should read (for a digest: the digest itself), not a report about running the routine.";
 
-fn iso_of_ms(ms: i64) -> String {
+/// `new Date(ms)`, as it is written to a `timestamp with time zone` column.
+fn at_ms(ms: i64) -> OffsetDateTime {
     let nanos = i128::from(ms) * 1_000_000;
-    iso_timestamp(
-        OffsetDateTime::from_unix_timestamp_nanos(nanos).unwrap_or(OffsetDateTime::UNIX_EPOCH),
-    )
+    OffsetDateTime::from_unix_timestamp_nanos(nanos).unwrap_or(OffsetDateTime::UNIX_EPOCH)
+}
+
+/// `(extract(epoch from at) * 1000)::bigint`: milliseconds since the epoch,
+/// rounded half away from zero as Postgres rounds the numeric.
+fn epoch_ms(at: OffsetDateTime) -> i64 {
+    let micros = at.unix_timestamp_nanos().div_euclid(1_000);
+    let millis = micros.div_euclid(1_000);
+    let rest = micros.rem_euclid(1_000);
+    let rounded = if millis < 0 {
+        // Away from zero for a negative value: -1.5 → -2.
+        if rest > 500 { millis + 1 } else { millis }
+    } else if rest >= 500 {
+        millis + 1
+    } else {
+        millis
+    };
+    i64::try_from(rounded).unwrap_or_default()
 }
 
 /// `computeNextHourlyRun(from)`: the top of the next UTC hour, the fallback
@@ -85,8 +110,8 @@ pub fn routine_schedule_error(
 }
 
 /// `serializeRoutine(row)`.
-fn serialize(row: Value) -> Value {
-    let row = js_row(row);
+fn serialize(routine: routines::Model) -> Value {
+    let row = js(routine);
     let pick = |key: &str| row.get(key).cloned().unwrap_or(Value::Null);
     json!({
         "id": pick("id"), "agentId": pick("agentId"), "name": pick("name"),
@@ -100,6 +125,22 @@ fn serialize(row: Value) -> Value {
     })
 }
 
+/// `join weldagent_agents a on a.id = r.agent_id`.
+fn of_agent() -> RelationDef {
+    routines::Entity::belongs_to(agents::Entity)
+        .from(Column::AgentId)
+        .to(agents::Column::Id)
+        .into()
+}
+
+/// The routine's agent is live: active and not deleted. Pausing an agent
+/// pauses its schedule.
+fn agent_is_live() -> Condition {
+    Condition::all()
+        .add(agents::Column::Status.eq("active"))
+        .add(agents::Column::DeletedAt.is_null())
+}
+
 /// `listDueCronRoutines(db, asOf)`: enabled cron routines whose `next_run_at`
 /// has passed. Routines of paused, draft or deleted agents are skipped:
 /// pausing an agent pauses its schedule.
@@ -107,17 +148,20 @@ fn serialize(row: Value) -> Value {
 /// # Errors
 ///
 /// The tenant database fails.
-pub async fn list_due_cron_routines(db: &PgPool, as_of_ms: i64) -> Result<Vec<Value>, sqlx::Error> {
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(r) from weldagent_routines r join weldagent_agents a on a.id = r.agent_id
-         where r.enabled = true and r.schedule_kind = 'cron' and r.deleted_at is null
-           and r.next_run_at <= $1::timestamptz and a.status = 'active' and a.deleted_at is null
-         limit 50",
-    )
-    .bind(iso_of_ms(as_of_ms))
-    .fetch_all(db)
-    .await?;
-    Ok(rows.into_iter().map(serialize).collect())
+pub async fn list_due_cron_routines(db: &PgPool, as_of_ms: i64) -> Result<Vec<Value>, DbErr> {
+    Ok(routines::Entity::find()
+        .join(JoinType::InnerJoin, of_agent())
+        .filter(Column::Enabled.eq(true))
+        .filter(Column::ScheduleKind.eq("cron"))
+        .filter(Column::DeletedAt.is_null())
+        .filter(Column::NextRunAt.lte(at_ms(as_of_ms)))
+        .filter(agent_is_live())
+        .limit(50)
+        .all(&orm(db))
+        .await?
+        .into_iter()
+        .map(serialize)
+        .collect())
 }
 
 /// `findEventRoutines(db, eventKey)`: enabled event routines (of active
@@ -126,16 +170,19 @@ pub async fn list_due_cron_routines(db: &PgPool, as_of_ms: i64) -> Result<Vec<Va
 /// # Errors
 ///
 /// The tenant database fails.
-pub async fn find_event_routines(db: &PgPool, event_key: &str) -> Result<Vec<Value>, sqlx::Error> {
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(r) from weldagent_routines r join weldagent_agents a on a.id = r.agent_id
-         where r.enabled = true and r.schedule_kind = 'event' and r.event_key = $1 and r.deleted_at is null
-           and a.status = 'active' and a.deleted_at is null",
-    )
-    .bind(event_key)
-    .fetch_all(db)
-    .await?;
-    Ok(rows.into_iter().map(serialize).collect())
+pub async fn find_event_routines(db: &PgPool, event_key: &str) -> Result<Vec<Value>, DbErr> {
+    Ok(routines::Entity::find()
+        .join(JoinType::InnerJoin, of_agent())
+        .filter(Column::Enabled.eq(true))
+        .filter(Column::ScheduleKind.eq("event"))
+        .filter(Column::EventKey.eq(event_key))
+        .filter(Column::DeletedAt.is_null())
+        .filter(agent_is_live())
+        .all(&orm(db))
+        .await?
+        .into_iter()
+        .map(serialize)
+        .collect())
 }
 
 /// `claimDueRoutine(db, routine, asOf)`: atomically advance a due cron
@@ -146,28 +193,22 @@ pub async fn find_event_routines(db: &PgPool, event_key: &str) -> Result<Vec<Val
 /// # Errors
 ///
 /// The tenant database fails.
-pub async fn claim_due_routine(
-    db: &PgPool,
-    routine: &Value,
-    as_of_ms: i64,
-) -> Result<bool, sqlx::Error> {
+pub async fn claim_due_routine(db: &PgPool, routine: &Value, as_of_ms: i64) -> Result<bool, DbErr> {
     let next = compute_routine_next_run(
         routine["cronExpr"].as_str(),
         routine["timezone"].as_str(),
         as_of_ms,
     );
-    let claimed = sqlx::query(
-        "update weldagent_routines
-         set last_run_at = $3::timestamptz, next_run_at = $4::timestamptz, updated_at = $3::timestamptz
-         where id = $1 and next_run_at <= $2::timestamptz",
-    )
-    .bind(routine["id"].as_str())
-    .bind(iso_of_ms(as_of_ms))
-    .bind(crate::now())
-    .bind(iso_of_ms(next))
-    .execute(db)
-    .await?;
-    Ok(claimed.rows_affected() > 0)
+    let now = now_tz();
+    let claimed = routines::Entity::update_many()
+        .col_expr(Column::LastRunAt, Expr::value(now))
+        .col_expr(Column::NextRunAt, Expr::value(at_ms(next)))
+        .col_expr(Column::UpdatedAt, Expr::value(now))
+        .filter(Column::Id.eq(routine["id"].as_str().unwrap_or_default()))
+        .filter(Column::NextRunAt.lte(at_ms(as_of_ms)))
+        .exec(&orm(db))
+        .await?;
+    Ok(claimed.rows_affected > 0)
 }
 
 /// `releaseRoutineClaim(db, routineId, dueAt)`: give back a claimed occurrence
@@ -180,12 +221,12 @@ pub async fn release_routine_claim(
     db: &PgPool,
     routine_id: &str,
     due_at_ms: i64,
-) -> Result<(), sqlx::Error> {
-    sqlx::query("update weldagent_routines set next_run_at = $2::timestamptz, updated_at = $3::timestamptz where id = $1")
-        .bind(routine_id)
-        .bind(iso_of_ms(due_at_ms))
-        .bind(crate::now())
-        .execute(db)
+) -> Result<(), DbErr> {
+    routines::Entity::update_many()
+        .col_expr(Column::NextRunAt, Expr::value(at_ms(due_at_ms)))
+        .col_expr(Column::UpdatedAt, Expr::value(now_tz()))
+        .filter(Column::Id.eq(routine_id))
+        .exec(&orm(db))
         .await?;
     Ok(())
 }
@@ -200,25 +241,25 @@ pub async fn mark_routine_scheduled(
     db: &PgPool,
     routine: &Value,
     now_ms: i64,
-) -> Result<(), sqlx::Error> {
+) -> Result<(), DbErr> {
     let is_cron = routine["scheduleKind"].as_str().unwrap_or("cron") == "cron";
-    let next = is_cron.then(|| {
-        iso_of_ms(compute_routine_next_run(
+    let now = now_tz();
+    let mut update = routines::Entity::update_many()
+        .col_expr(Column::LastRunAt, Expr::value(now))
+        .col_expr(Column::UpdatedAt, Expr::value(now));
+    // `next_run_at = coalesce(next, next_run_at)`: only a cron routine moves on.
+    if is_cron {
+        let next = compute_routine_next_run(
             routine["cronExpr"].as_str(),
             routine["timezone"].as_str(),
             now_ms,
-        ))
-    });
-    sqlx::query(
-        "update weldagent_routines
-         set last_run_at = $2::timestamptz, next_run_at = coalesce($3::timestamptz, next_run_at), updated_at = $2::timestamptz
-         where id = $1",
-    )
-    .bind(routine["id"].as_str())
-    .bind(crate::now())
-    .bind(next)
-    .execute(db)
-    .await?;
+        );
+        update = update.col_expr(Column::NextRunAt, Expr::value(at_ms(next)));
+    }
+    update
+        .filter(Column::Id.eq(routine["id"].as_str().unwrap_or_default()))
+        .exec(&orm(db))
+        .await?;
     Ok(())
 }
 
@@ -232,18 +273,18 @@ pub async fn create_routine_run(
     routine_id: &str,
     agent_id: &str,
     trigger: &str,
-) -> Result<String, sqlx::Error> {
+) -> Result<String, DbErr> {
     let id = generate_id("rrn");
-    sqlx::query(
-        "insert into weldagent_routine_runs (id, routine_id, agent_id, status, trigger, started_at)
-         values ($1, $2, $3, 'queued', $4, $5::timestamptz)",
-    )
-    .bind(&id)
-    .bind(routine_id)
-    .bind(agent_id)
-    .bind(trigger)
-    .bind(crate::now())
-    .execute(db)
+    routine_runs::Entity::insert(routine_runs::ActiveModel {
+        id: Set(id.clone()),
+        routine_id: Set(routine_id.to_owned()),
+        agent_id: Set(agent_id.to_owned()),
+        status: Set("queued".to_owned()),
+        trigger: Set(trigger.to_owned()),
+        started_at: Set(Some(now_tz())),
+        ..Default::default()
+    })
+    .exec_without_returning(&orm(db))
     .await?;
     Ok(id)
 }
@@ -260,20 +301,17 @@ pub async fn complete_routine_run(
     summary: Option<&str>,
     error: Option<&str>,
     agent_run_id: Option<&str>,
-) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "update weldagent_routine_runs
-         set status = $2, summary = $3, error = $4, agent_run_id = $5, completed_at = $6::timestamptz
-         where id = $1",
-    )
-    .bind(run_id)
-    .bind(status)
-    .bind(summary)
-    .bind(error)
-    .bind(agent_run_id)
-    .bind(crate::now())
-    .execute(db)
-    .await?;
+) -> Result<(), DbErr> {
+    use routine_runs::Column as Run;
+    routine_runs::Entity::update_many()
+        .col_expr(Run::Status, Expr::value(status))
+        .col_expr(Run::Summary, Expr::value(summary))
+        .col_expr(Run::Error, Expr::value(error))
+        .col_expr(Run::AgentRunId, Expr::value(agent_run_id))
+        .col_expr(Run::CompletedAt, Expr::value(now_tz()))
+        .filter(Run::Id.eq(run_id))
+        .exec(&orm(db))
+        .await?;
     Ok(())
 }
 
@@ -286,14 +324,17 @@ pub async fn has_routine_run_for_trigger(
     db: &PgPool,
     routine_id: &str,
     trigger: &str,
-) -> Result<bool, sqlx::Error> {
-    sqlx::query_scalar(
-        "select exists (select 1 from weldagent_routine_runs where routine_id = $1 and trigger = $2)",
-    )
-    .bind(routine_id)
-    .bind(trigger)
-    .fetch_one(db)
-    .await
+) -> Result<bool, DbErr> {
+    use routine_runs::Column as Run;
+    let found: Option<String> = routine_runs::Entity::find()
+        .select_only()
+        .column(Run::Id)
+        .filter(Run::RoutineId.eq(routine_id))
+        .filter(Run::Trigger.eq(trigger))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
+    Ok(found.is_some())
 }
 
 /// The earliest `next_run_at` of a workspace's live cron routines (enabled,
@@ -303,17 +344,21 @@ pub async fn has_routine_run_for_trigger(
 /// # Errors
 ///
 /// The tenant database fails.
-pub async fn earliest_due(db: &PgPool, now_ms: i64) -> Result<Option<OffsetDateTime>, sqlx::Error> {
-    let live: Vec<Option<i64>> = sqlx::query_scalar(
-        "select (extract(epoch from r.next_run_at) * 1000)::bigint from weldagent_routines r join weldagent_agents a on a.id = r.agent_id
-         where r.enabled = true and r.schedule_kind = 'cron' and r.deleted_at is null
-           and a.status = 'active' and a.deleted_at is null",
-    )
-    .fetch_all(db)
-    .await?;
+pub async fn earliest_due(db: &PgPool, now_ms: i64) -> Result<Option<OffsetDateTime>, DbErr> {
+    let live: Vec<Option<OffsetDateTime>> = routines::Entity::find()
+        .select_only()
+        .column(Column::NextRunAt)
+        .join(JoinType::InnerJoin, of_agent())
+        .filter(Column::Enabled.eq(true))
+        .filter(Column::ScheduleKind.eq("cron"))
+        .filter(Column::DeletedAt.is_null())
+        .filter(agent_is_live())
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     Ok(live
         .into_iter()
-        .map(|at| at.unwrap_or(now_ms))
+        .map(|at| at.map_or(now_ms, epoch_ms))
         .min()
         .map(|ms| {
             OffsetDateTime::from_unix_timestamp_nanos(i128::from(ms) * 1_000_000)
@@ -338,7 +383,7 @@ pub async fn run_routine_sweep_for_tenant(
     workspace_id: &str,
     actor_user_id: Option<&str>,
     now_ms: i64,
-) -> Result<usize, sqlx::Error> {
+) -> Result<usize, DbErr> {
     let due = list_due_cron_routines(db, now_ms).await?;
     let mut started = 0;
     for routine in due {
@@ -452,14 +497,12 @@ pub async fn run_routine_sweep(
 /// # Errors
 ///
 /// The tenant database fails.
-pub async fn get_routine(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(r) from weldagent_routines r where r.id = $1 and r.deleted_at is null",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(serialize))
+pub async fn get_routine(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
+    Ok(routines::Entity::find_by_id(id.to_owned())
+        .filter(Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?
+        .map(serialize))
 }
 
 /// `listRoutines(db, agentId?)`: newest change first.
@@ -467,15 +510,18 @@ pub async fn get_routine(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::E
 /// # Errors
 ///
 /// The tenant database fails.
-pub async fn list_routines(db: &PgPool, agent_id: Option<&str>) -> Result<Vec<Value>, sqlx::Error> {
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(r) from weldagent_routines r
-         where r.deleted_at is null and ($1::text is null or r.agent_id = $1) order by r.updated_at desc",
-    )
-    .bind(agent_id)
-    .fetch_all(db)
-    .await?;
-    Ok(rows.into_iter().map(serialize).collect())
+pub async fn list_routines(db: &PgPool, agent_id: Option<&str>) -> Result<Vec<Value>, DbErr> {
+    let mut query = routines::Entity::find().filter(Column::DeletedAt.is_null());
+    if let Some(agent_id) = agent_id {
+        query = query.filter(Column::AgentId.eq(agent_id));
+    }
+    Ok(query
+        .order_by_desc(Column::UpdatedAt)
+        .all(&orm(db))
+        .await?
+        .into_iter()
+        .map(serialize)
+        .collect())
 }
 
 /// What `createRoutine` takes.
@@ -500,7 +546,7 @@ pub struct NewRoutine {
 /// # Errors
 ///
 /// The tenant database fails.
-pub async fn create_routine(db: &PgPool, input: NewRoutine) -> Result<Value, sqlx::Error> {
+pub async fn create_routine(db: &PgPool, input: NewRoutine) -> Result<Value, DbErr> {
     let id = generate_id("rtn");
     let kind = input.schedule_kind.unwrap_or_else(|| "cron".to_owned());
     let cron = input
@@ -508,33 +554,30 @@ pub async fn create_routine(db: &PgPool, input: NewRoutine) -> Result<Value, sql
         .or_else(|| (kind == "cron").then(|| "0 * * * *".to_owned()));
     let timezone = input.timezone.unwrap_or_else(|| "UTC".to_owned());
     let next = (kind == "cron").then(|| {
-        iso_of_ms(compute_routine_next_run(
+        at_ms(compute_routine_next_run(
             cron.as_deref(),
             Some(&timezone),
             now_ms(),
         ))
     });
-    sqlx::query(
-        "insert into weldagent_routines
-             (id, agent_id, name, instructions, skill_id, schedule_kind, cron_expr, timezone, event_key,
-              connector_config, enabled, require_approval, next_run_at, created_by)
-         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11, $12, $13::timestamptz, $14)",
-    )
-    .bind(&id)
-    .bind(&input.agent_id)
-    .bind(input.name.trim())
-    .bind(input.instructions.trim())
-    .bind(&input.skill_id)
-    .bind(&kind)
-    .bind(&cron)
-    .bind(&timezone)
-    .bind(&input.event_key)
-    .bind(&input.connector_config)
-    .bind(input.enabled.unwrap_or(true))
-    .bind(input.require_approval.unwrap_or(false))
-    .bind(next)
-    .bind(&input.created_by)
-    .execute(db)
+    routines::Entity::insert(routines::ActiveModel {
+        id: Set(id.clone()),
+        agent_id: Set(input.agent_id),
+        name: Set(input.name.trim().to_owned()),
+        instructions: Set(input.instructions.trim().to_owned()),
+        skill_id: Set(input.skill_id),
+        schedule_kind: Set(kind),
+        cron_expr: Set(cron),
+        timezone: Set(timezone),
+        event_key: Set(input.event_key),
+        connector_config: Set(input.connector_config),
+        enabled: Set(input.enabled.unwrap_or(true)),
+        require_approval: Set(input.require_approval.unwrap_or(false)),
+        next_run_at: Set(next),
+        created_by: Set(input.created_by),
+        ..Default::default()
+    })
+    .exec_without_returning(&orm(db))
     .await?;
     Ok(get_routine(db, &id).await?.unwrap_or(Value::Null))
 }
@@ -549,7 +592,7 @@ pub async fn update_routine(
     db: &PgPool,
     id: &str,
     input: &serde_json::Map<String, Value>,
-) -> Result<Option<Value>, sqlx::Error> {
+) -> Result<Option<Value>, DbErr> {
     let Some(existing) = get_routine(db, id).await? else {
         return Ok(None);
     };
@@ -565,14 +608,14 @@ pub async fn update_routine(
         || input.contains_key("cronExpr")
         || input.contains_key("timezone");
     // `Some(Some(x))` sets, `Some(None)` clears, `None` leaves.
-    let next: Option<Option<String>> = if kind == "cron" && schedule_changed {
+    let next: Option<Option<OffsetDateTime>> = if kind == "cron" && schedule_changed {
         let cron = if input.contains_key("cronExpr") {
             text("cronExpr")
         } else {
             existing["cronExpr"].as_str().map(str::to_owned)
         };
         let zone = text("timezone").or_else(|| existing["timezone"].as_str().map(str::to_owned));
-        Some(Some(iso_of_ms(compute_routine_next_run(
+        Some(Some(at_ms(compute_routine_next_run(
             cron.as_deref(),
             zone.as_deref(),
             now_ms(),
@@ -582,17 +625,16 @@ pub async fn update_routine(
     } else {
         None
     };
-    let mut query: sqlx::QueryBuilder<sqlx::Postgres> =
-        sqlx::QueryBuilder::new("update weldagent_routines set updated_at = ");
-    query.push_bind(crate::now()).push("::timestamptz");
+    let mut update =
+        routines::Entity::update_many().col_expr(Column::UpdatedAt, Expr::value(now_tz()));
     for (key, column) in [
-        ("name", "name"),
-        ("instructions", "instructions"),
-        ("skillId", "skill_id"),
-        ("scheduleKind", "schedule_kind"),
-        ("cronExpr", "cron_expr"),
-        ("timezone", "timezone"),
-        ("eventKey", "event_key"),
+        ("name", Column::Name),
+        ("instructions", Column::Instructions),
+        ("skillId", Column::SkillId),
+        ("scheduleKind", Column::ScheduleKind),
+        ("cronExpr", Column::CronExpr),
+        ("timezone", Column::Timezone),
+        ("eventKey", Column::EventKey),
     ] {
         if let Some(value) = input.get(key) {
             let value = value.as_str().map(|v| {
@@ -602,31 +644,27 @@ pub async fn update_routine(
                     v.to_owned()
                 }
             });
-            query.push(format!(", {column} = ")).push_bind(value);
+            update = update.col_expr(column, Expr::value(value));
         }
     }
     if let Some(config) = input.get("connectorConfig") {
-        query
-            .push(", connector_config = ")
-            .push_bind((!config.is_null()).then(|| config.clone()))
-            .push("::jsonb");
+        update = update.col_expr(
+            Column::ConnectorConfig,
+            Expr::value((!config.is_null()).then(|| config.clone())),
+        );
     }
     for (key, column) in [
-        ("enabled", "enabled"),
-        ("requireApproval", "require_approval"),
+        ("enabled", Column::Enabled),
+        ("requireApproval", Column::RequireApproval),
     ] {
         if let Some(flag) = input.get(key).and_then(Value::as_bool) {
-            query.push(format!(", {column} = ")).push_bind(flag);
+            update = update.col_expr(column, Expr::value(flag));
         }
     }
     if let Some(next) = next {
-        query
-            .push(", next_run_at = ")
-            .push_bind(next)
-            .push("::timestamptz");
+        update = update.col_expr(Column::NextRunAt, Expr::value(next));
     }
-    query.push(" where id = ").push_bind(id.to_owned());
-    query.build().execute(db).await?;
+    update.filter(Column::Id.eq(id)).exec(&orm(db)).await?;
     get_routine(db, id).await
 }
 
@@ -635,17 +673,18 @@ pub async fn update_routine(
 /// # Errors
 ///
 /// The tenant database fails.
-pub async fn delete_routine(db: &PgPool, id: &str) -> Result<bool, sqlx::Error> {
+pub async fn delete_routine(db: &PgPool, id: &str) -> Result<bool, DbErr> {
     if get_routine(db, id).await?.is_none() {
         return Ok(false);
     }
-    sqlx::query(
-        "update weldagent_routines set deleted_at = $2::timestamptz, updated_at = $2::timestamptz, enabled = false where id = $1",
-    )
-    .bind(id)
-    .bind(crate::now())
-    .execute(db)
-    .await?;
+    let now = now_tz();
+    routines::Entity::update_many()
+        .col_expr(Column::DeletedAt, Expr::value(now))
+        .col_expr(Column::UpdatedAt, Expr::value(now))
+        .col_expr(Column::Enabled, Expr::value(false))
+        .filter(Column::Id.eq(id))
+        .exec(&orm(db))
+        .await?;
     Ok(true)
 }
 
@@ -658,15 +697,16 @@ pub async fn list_routine_runs(
     db: &PgPool,
     routine_id: &str,
     limit: i64,
-) -> Result<Vec<Value>, sqlx::Error> {
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(r) from weldagent_routine_runs r where r.routine_id = $1 order by r.created_at desc limit $2",
-    )
-    .bind(routine_id)
-    .bind(limit)
-    .fetch_all(db)
-    .await?;
-    Ok(rows.into_iter().map(js_row).collect())
+) -> Result<Vec<Value>, DbErr> {
+    Ok(routine_runs::Entity::find()
+        .filter(routine_runs::Column::RoutineId.eq(routine_id))
+        .order_by_desc(routine_runs::Column::CreatedAt)
+        .limit(row_limit(limit)?)
+        .all(&orm(db))
+        .await?
+        .into_iter()
+        .map(js)
+        .collect())
 }
 
 /// `findConnectorRoutines(db, input)`: enabled connector routines that match a
@@ -682,13 +722,13 @@ pub async fn find_connector_routines(
     repo: Option<&str>,
     event: Option<&str>,
     text: Option<&str>,
-) -> Result<Vec<Value>, sqlx::Error> {
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(r) from weldagent_routines r
-         where r.enabled = true and r.schedule_kind = 'connector' and r.deleted_at is null",
-    )
-    .fetch_all(db)
-    .await?;
+) -> Result<Vec<Value>, DbErr> {
+    let rows = routines::Entity::find()
+        .filter(Column::Enabled.eq(true))
+        .filter(Column::ScheduleKind.eq("connector"))
+        .filter(Column::DeletedAt.is_null())
+        .all(&orm(db))
+        .await?;
     Ok(rows
         .into_iter()
         .map(serialize)
@@ -750,6 +790,16 @@ mod tests {
                 .contains("Unknown timezone")
         );
         assert_eq!(routine_schedule_error(None, None, now), None);
+    }
+
+    #[test]
+    fn epoch_milliseconds_round_like_postgres() {
+        let at = |nanos: i128| OffsetDateTime::from_unix_timestamp_nanos(nanos).unwrap();
+        assert_eq!(epoch_ms(at(1_700_000_000_123_000_000)), 1_700_000_000_123);
+        assert_eq!(epoch_ms(at(1_700_000_000_123_499_000)), 1_700_000_000_123);
+        assert_eq!(epoch_ms(at(1_700_000_000_123_500_000)), 1_700_000_000_124);
+        assert_eq!(epoch_ms(at(-1_500_000)), -2);
+        assert_eq!(epoch_ms(at_ms(1_700_000_000_000)), 1_700_000_000_000);
     }
 
     #[test]

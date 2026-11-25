@@ -14,7 +14,7 @@
  *   - Sidebar: person chat (locked-open in fullscreen).
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   Archive,
@@ -47,6 +47,7 @@ import {
   useObjectPanelShell,
   useObjectPanelTabConfig,
   type ObjectPanelComponentProps,
+  type ObjectPanelTabDescriptor,
 } from '@/components/object-panel';
 import {
   DropdownMenu,
@@ -118,6 +119,22 @@ import { PERSON_TABS, type PersonTab } from './person-tabs';
 import type { Person } from '@weldsuite/core-api-client/schemas/people';
 
 const PERSON_PANEL_WIDTH = 400;
+
+/**
+ * A tab a page that shows the person puts in front of the person's own tabs,
+ * such as WeldDesk's Ticket tab for the conversation beside it. Always shown
+ * and opened first; it isn't in the "Configure tabs" list.
+ */
+export interface PersonPanelExtraTab {
+  id: string;
+  label: string;
+  icon: ObjectPanelTabDescriptor['icon'];
+  content: ReactNode;
+}
+
+export interface PersonPanelProps extends ObjectPanelComponentProps {
+  extraTabs?: readonly PersonPanelExtraTab[];
+}
 
 // ─── Header ────────────────────────────────────────────────────────────────
 
@@ -310,30 +327,28 @@ function PersonPanelTabsBar({
   setActiveTab,
   companyCount,
   isTabVisible,
+  extraTabs,
 }: Readonly<{
-  activeTab: PersonTab['id'];
-  setActiveTab: (id: PersonTab['id']) => void;
+  activeTab: string;
+  setActiveTab: (id: string) => void;
   companyCount: number;
   isTabVisible: (id: string) => boolean;
+  extraTabs?: readonly PersonPanelExtraTab[];
 }>) {
   const tabs = useMemo(
-    () =>
-      PERSON_TABS.filter((t) => isTabVisible(t.id)).map((t) => ({
+    () => [
+      ...(extraTabs ?? []).map((t) => ({ id: t.id, label: t.label, icon: t.icon })),
+      ...PERSON_TABS.filter((t) => isTabVisible(t.id)).map((t) => ({
         id: t.id,
         label: t.label,
         icon: t.icon,
         count: t.id === 'companies' ? companyCount : undefined,
       })),
-    [isTabVisible, companyCount],
+    ],
+    [extraTabs, isTabVisible, companyCount],
   );
 
-  return (
-    <ObjectPanelTabs
-      tabs={tabs}
-      activeTab={activeTab}
-      onChange={(id) => setActiveTab(id as PersonTab['id'])}
-    />
-  );
+  return <ObjectPanelTabs tabs={tabs} activeTab={activeTab} onChange={setActiveTab} />;
 }
 
 // ─── Details body ──────────────────────────────────────────────────────────
@@ -669,7 +684,7 @@ function PersonCompaniesTab({
 
 // ─── Panel ─────────────────────────────────────────────────────────────────
 
-export function PersonPanel(props: Readonly<ObjectPanelComponentProps>) {
+export function PersonPanel({ extraTabs, ...props }: Readonly<PersonPanelProps>) {
   const st = useTranslations();
   const { id, onClose, initialTab } = props;
   const personQuery = usePerson(id);
@@ -729,13 +744,14 @@ export function PersonPanel(props: Readonly<ObjectPanelComponentProps>) {
     });
   }, [person, archiveMut, unarchiveMut, st]);
 
-  const initial: PersonTab['id'] = useMemo(() => {
+  const initial: string = useMemo(() => {
     if (initialTab && PERSON_TABS.some((t) => t.id === initialTab)) {
-      return initialTab as PersonTab['id'];
+      return initialTab;
     }
-    return 'overview';
-  }, [initialTab]);
-  const [activeTab, setActiveTab] = useState<PersonTab['id']>(initial);
+    return extraTabs?.[0]?.id ?? 'overview';
+  }, [initialTab, extraTabs]);
+  const [activeTab, setActiveTab] = useState<string>(initial);
+  const isExtraTab = (extraTabs ?? []).some((t) => t.id === activeTab);
 
   // Tab visibility config — lifted here (like the company panel) so the
   // "Configure tabs" control lives in the header's kebab menu while the tab
@@ -765,10 +781,10 @@ export function PersonPanel(props: Readonly<ObjectPanelComponentProps>) {
   });
 
   useEffect(() => {
-    if (isTabVisible(activeTab)) return;
-    const fallback = PERSON_TABS.find((t) => isTabVisible(t.id));
+    if (isExtraTab || isTabVisible(activeTab)) return;
+    const fallback = extraTabs?.[0] ?? PERSON_TABS.find((t) => isTabVisible(t.id));
     if (fallback && fallback.id !== activeTab) setActiveTab(fallback.id);
-  }, [activeTab, isTabVisible]);
+  }, [activeTab, isExtraTab, isTabVisible, extraTabs]);
 
   const chatSidebar = (
     <PersonChat personId={id} personName={person?.displayName} />
@@ -811,6 +827,7 @@ export function PersonPanel(props: Readonly<ObjectPanelComponentProps>) {
           setActiveTab={setActiveTab}
           companyCount={employments.length}
           isTabVisible={isTabVisible}
+          extraTabs={extraTabs}
         />
       }
       sidebarFitContent={chatIsEmpty}
@@ -824,6 +841,7 @@ export function PersonPanel(props: Readonly<ObjectPanelComponentProps>) {
       sidebarDefaultOpen
       sidebarLocked={mode === 'fullscreen'}
     >
+      {extraTabs?.map((tab) => activeTab === tab.id && <Fragment key={tab.id}>{tab.content}</Fragment>)}
       {person && activeTab === 'overview' && (
         <PersonDetailsTab
           person={person}

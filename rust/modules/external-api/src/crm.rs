@@ -8,6 +8,8 @@ use axum::body::Bytes;
 use axum::extract::{Path, RawQuery, State};
 use axum::routing::get;
 use http::HeaderMap;
+use sea_orm::sea_query::Query;
+use sea_orm::{ActiveValue::Set, ColumnTrait, Condition, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events::{
     ACTIVITY_COMPLETED, ACTIVITY_CREATED, ACTIVITY_DELETED, ACTIVITY_UPDATED, COMPANY_CREATED,
@@ -17,17 +19,22 @@ use weldsuite_catalogs::entity_events::{
     PIPELINE_CREATED, PIPELINE_DELETED, PIPELINE_STAGE_CREATED, PIPELINE_STAGE_DELETED,
     PIPELINE_STAGE_UPDATED, PIPELINE_UPDATED,
 };
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm, utc_timestamp};
 use weldsuite_kit::id::generate_id;
 use weldsuite_kit::validation::js_trim;
+use weldsuite_schema::tenant::{
+    companies, crm_activities, crm_leads, crm_opportunities, crm_pipeline_stages, crm_pipelines,
+    crm_quotes, list_members, lists, people, person_companies,
+};
 
 use crate::ExternalApiState;
 use crate::crud::{
     Answer, Caller, Fail, changes, created, dates, field, field_or, flag, get_live, like,
-    live_or_404, no_content, now, ok, page, pick, soft_delete, table_list_sql, text, to_date,
-    with_id, with_updated,
+    live_or_404, no_content, now, ok, page, pick, soft_delete, text, to_date, with_id,
+    with_updated,
 };
 use crate::custom_fields;
+use crate::list::{like_any, when, when_flag};
 use crate::schemas::{CREATE_QUOTE, LIST_QUOTES, UPDATE_QUOTE};
 use crate::schemas_gen::{
     CREATE_ACTIVITY, CREATE_COMPANY, CREATE_LEAD, CREATE_OPPORTUNITY, CREATE_PERSON,
@@ -206,21 +213,65 @@ fn join_names(parts: &[Option<&str>]) -> String {
 // People
 // ---------------------------------------------------------------------------
 
-const PEOPLE_LIST: (&str, &str) = table_list_sql!(
-    people,
-    "t.deleted_at is null \
-     and ($3->>'search' is null or t.display_name like $3->>'search' or t.full_name like $3->>'search' \
-          or t.first_name like $3->>'search' or t.last_name like $3->>'search' or t.email like $3->>'search') \
-     and ($3->>'status' is null or t.status = $3->>'status') \
-     and ($3->>'ownerId' is null or t.owner_id = $3->>'ownerId') \
-     and ($3->>'isSupplier' is null or t.is_supplier = ($3->>'isSupplier')::boolean) \
-     and ($3->>'isLead' is null or t.is_lead = ($3->>'isLead')::boolean) \
-     and ($3->>'companyId' is null or t.id in (select pc.person_id from person_companies pc \
-          where pc.company_id = $3->>'companyId' and pc.ended_at is null)) \
-     and ($3->>'listId' is null or t.id in (select lm.entity_id from list_members lm \
-          where lm.list_id = $3->>'listId' and exists (select 1 from lists l \
-          where l.id = $3->>'listId' and l.deleted_at is null and l.kind = 'person')))"
-);
+/// The people list's conditions; `companyId` is a current employment
+/// (`person_companies` not ended), `listId` a membership of a live people
+/// list.
+fn people_list(f: &Value) -> Condition {
+    use people::Column;
+    Condition::all()
+        .add(Column::DeletedAt.is_null())
+        .add_option(when(f, "search", |v| {
+            like_any(
+                &[
+                    Column::DisplayName,
+                    Column::FullName,
+                    Column::FirstName,
+                    Column::LastName,
+                    Column::Email,
+                ],
+                &v,
+            )
+        }))
+        .add_option(when(f, "status", |v| Column::Status.eq(v)))
+        .add_option(when(f, "ownerId", |v| Column::OwnerId.eq(v)))
+        .add_option(when_flag(f, "isSupplier", |flag| {
+            Column::IsSupplier.eq(flag)
+        }))
+        .add_option(when_flag(f, "isLead", |flag| Column::IsLead.eq(flag)))
+        .add_option(when(f, "companyId", |v| {
+            Column::Id.in_subquery(
+                Query::select()
+                    .column(person_companies::Column::PersonId)
+                    .from(person_companies::Entity)
+                    .and_where(person_companies::Column::CompanyId.eq(v))
+                    .and_where(person_companies::Column::EndedAt.is_null())
+                    .to_owned(),
+            )
+        }))
+        .add_option(when(f, "listId", |v| in_list(Column::Id, v, "person")))
+}
+
+/// `t.id in (select lm.entity_id from list_members lm where lm.list_id =
+/// $listId and exists (select 1 from lists l where l.id = $listId and
+/// l.deleted_at is null and l.kind = $kind))`: a member of a live list of
+/// `kind`.
+fn in_list<C: ColumnTrait>(id: C, list_id: String, kind: &str) -> sea_orm::sea_query::Expr {
+    let live_list = Query::select()
+        .expr(sea_orm::sea_query::Expr::val(1))
+        .from(lists::Entity)
+        .and_where(lists::Column::Id.eq(list_id.clone()))
+        .and_where(lists::Column::DeletedAt.is_null())
+        .and_where(lists::Column::Kind.eq(kind))
+        .to_owned();
+    id.in_subquery(
+        Query::select()
+            .column(list_members::Column::EntityId)
+            .from(list_members::Entity)
+            .and_where(list_members::Column::ListId.eq(list_id))
+            .and_where(sea_orm::sea_query::Expr::exists(live_list))
+            .to_owned(),
+    )
+}
 
 /// `deriveDisplayName` for people: the composed name, else the full name,
 /// the email, or `Unnamed`.
@@ -271,7 +322,7 @@ async fn list_people(caller: Caller, RawQuery(raw): RawQuery) -> Answer {
         "listId": text(&q, "listId"),
     });
     // Custom fields are read from the typed values table, as WeldCRM reads them.
-    custom_fields::page(&caller.db, PEOPLE_LIST, &PEOPLE, &q, filters, "person").await
+    custom_fields::page(&caller.db, people_list, &PEOPLE, &q, filters, "person").await
 }
 
 /// `GET /people/custom-fields`: the slugs a person's `customFields` takes.
@@ -319,11 +370,14 @@ async fn check_employers(db: &PgPool, ids: &[String]) -> Result<(), Fail> {
     if ids.is_empty() {
         return Ok(());
     }
-    let found: Vec<String> =
-        sqlx::query_scalar("select id from companies where id = any($1) and deleted_at is null")
-            .bind(ids)
-            .fetch_all(db)
-            .await?;
+    let found: Vec<String> = companies::Entity::find()
+        .filter(companies::Column::Id.is_in(ids.iter().cloned()))
+        .filter(companies::Column::DeletedAt.is_null())
+        .select_only()
+        .column(companies::Column::Id)
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     let missing: Vec<&String> = ids.iter().filter(|id| !found.contains(id)).collect();
     if missing.is_empty() {
         return Ok(());
@@ -345,7 +399,10 @@ async fn create_person(State(state): S, caller: Caller, headers: HeaderMap, body
     let definitions = custom_fields::definitions(&caller.db, "person").await?;
     custom_fields::check(&definitions, custom_fields::sent(&body))?;
     check_employers(&caller.db, &employers).await?;
-    let stamp = now();
+    // One instant: the row's text stamps and the employments' timestamps.
+    let now_at = time::OffsetDateTime::now_utc();
+    let stamp = weldsuite_events::iso_timestamp(now_at);
+    let at = utc_timestamp(now_at);
     let id = generate_id("person");
     let first = str_of(body.get("firstName"));
     let last = str_of(body.get("lastName"));
@@ -378,16 +435,16 @@ async fn create_person(State(state): S, caller: Caller, headers: HeaderMap, body
     )
     .await?;
     for company_id in &employers {
-        sqlx::query(
-            "insert into person_companies (id, created_at, updated_at, person_id, company_id, is_primary)
-             values ($1, $2::timestamp, $2::timestamp, $3, $4, $5)",
-        )
-        .bind(generate_id("pc"))
-        .bind(&stamp)
-        .bind(&id)
-        .bind(company_id)
-        .bind(primary.as_deref() == Some(company_id.as_str()))
-        .execute(&caller.db)
+        person_companies::Entity::insert(person_companies::ActiveModel {
+            id: Set(generate_id("pc")),
+            created_at: Set(at),
+            updated_at: Set(at),
+            person_id: Set(id.clone()),
+            company_id: Set(company_id.clone()),
+            is_primary: Set(primary.as_deref() == Some(company_id.as_str())),
+            ..Default::default()
+        })
+        .exec_without_returning(&orm(&caller.db))
         .await?;
     }
     caller.publish(&state.events, PERSON_CREATED, &id, person_event(&id, &row));
@@ -497,20 +554,31 @@ async fn delete_person(State(state): S, caller: Caller, Path(id): Path<String>) 
 // Companies
 // ---------------------------------------------------------------------------
 
-const COMPANIES_LIST: (&str, &str) = table_list_sql!(
-    companies,
-    "t.deleted_at is null \
-     and ($3->>'search' is null or t.display_name like $3->>'search' or t.name like $3->>'search' \
-          or t.trading_name like $3->>'search' or t.email like $3->>'search' or t.vat_number like $3->>'search') \
-     and ($3->>'status' is null or t.status = $3->>'status') \
-     and ($3->>'ownerId' is null or t.owner_id = $3->>'ownerId') \
-     and ($3->>'industry' is null or t.industry = $3->>'industry') \
-     and ($3->>'isSupplier' is null or t.is_supplier = ($3->>'isSupplier')::boolean) \
-     and ($3->>'isLead' is null or t.is_lead = ($3->>'isLead')::boolean) \
-     and ($3->>'listId' is null or t.id in (select lm.entity_id from list_members lm \
-          where lm.list_id = $3->>'listId' and exists (select 1 from lists l \
-          where l.id = $3->>'listId' and l.deleted_at is null and l.kind = 'company')))"
-);
+fn companies_list(f: &Value) -> Condition {
+    use companies::Column;
+    Condition::all()
+        .add(Column::DeletedAt.is_null())
+        .add_option(when(f, "search", |v| {
+            like_any(
+                &[
+                    Column::DisplayName,
+                    Column::Name,
+                    Column::TradingName,
+                    Column::Email,
+                    Column::VatNumber,
+                ],
+                &v,
+            )
+        }))
+        .add_option(when(f, "status", |v| Column::Status.eq(v)))
+        .add_option(when(f, "ownerId", |v| Column::OwnerId.eq(v)))
+        .add_option(when(f, "industry", |v| Column::Industry.eq(v)))
+        .add_option(when_flag(f, "isSupplier", |flag| {
+            Column::IsSupplier.eq(flag)
+        }))
+        .add_option(when_flag(f, "isLead", |flag| Column::IsLead.eq(flag)))
+        .add_option(when(f, "listId", |v| in_list(Column::Id, v, "company")))
+}
 
 /// `deriveDisplayName` for companies: the trading name, the name, or
 /// `Unnamed Company`.
@@ -542,7 +610,7 @@ async fn list_companies(caller: Caller, RawQuery(raw): RawQuery) -> Answer {
     // Custom fields are read from the typed values table, as WeldCRM reads them.
     custom_fields::page(
         &caller.db,
-        COMPANIES_LIST,
+        companies_list,
         &COMPANIES,
         &q,
         filters,
@@ -683,17 +751,30 @@ async fn delete_company(State(state): S, caller: Caller, Path(id): Path<String>)
 // Leads
 // ---------------------------------------------------------------------------
 
-const LEADS_LIST: (&str, &str) = table_list_sql!(
-    crm_leads,
-    "t.deleted_at is null \
-     and ($3->>'search' is null or t.email like $3->>'search' or t.full_name like $3->>'search' \
-          or t.company_name like $3->>'search' or t.first_name like $3->>'search' or t.last_name like $3->>'search') \
-     and ($3->>'status' is null or t.status = $3->>'status') \
-     and ($3->>'source' is null or t.source = $3->>'source') \
-     and ($3->>'rating' is null or t.rating = $3->>'rating') \
-     and ($3->>'ownerId' is null or t.owner_id = $3->>'ownerId') \
-     and ($3->>'isQualified' is null or t.is_qualified = ($3->>'isQualified')::boolean)"
-);
+fn leads_list(f: &Value) -> Condition {
+    use crm_leads::Column;
+    Condition::all()
+        .add(Column::DeletedAt.is_null())
+        .add_option(when(f, "search", |v| {
+            like_any(
+                &[
+                    Column::Email,
+                    Column::FullName,
+                    Column::CompanyName,
+                    Column::FirstName,
+                    Column::LastName,
+                ],
+                &v,
+            )
+        }))
+        .add_option(when(f, "status", |v| Column::Status.eq(v)))
+        .add_option(when(f, "source", |v| Column::Source.eq(v)))
+        .add_option(when(f, "rating", |v| Column::Rating.eq(v)))
+        .add_option(when(f, "ownerId", |v| Column::OwnerId.eq(v)))
+        .add_option(when_flag(f, "isQualified", |flag| {
+            Column::IsQualified.eq(flag)
+        }))
+}
 
 fn lead_event(id: &str, row: &Value) -> Value {
     json!({
@@ -718,7 +799,7 @@ async fn list_leads(caller: Caller, RawQuery(raw): RawQuery) -> Answer {
         "ownerId": text(&q, "ownerId"),
         "isQualified": flag(&q, "isQualified"),
     });
-    page(&caller.db, LEADS_LIST, &CRM_LEADS, &q, filters).await
+    page(&caller.db, leads_list, &CRM_LEADS, &q, filters).await
 }
 
 async fn get_lead(caller: Caller, Path(id): Path<String>) -> Answer {
@@ -831,16 +912,19 @@ async fn delete_lead(State(state): S, caller: Caller, Path(id): Path<String>) ->
 // Opportunities
 // ---------------------------------------------------------------------------
 
-const OPPORTUNITIES_LIST: (&str, &str) = table_list_sql!(
-    crm_opportunities,
-    "t.deleted_at is null \
-     and ($3->>'search' is null or t.name like $3->>'search' or t.customer_name like $3->>'search') \
-     and ($3->>'status' is null or t.status = $3->>'status') \
-     and ($3->>'stage' is null or t.stage = $3->>'stage') \
-     and ($3->>'pipeline' is null or t.pipeline = $3->>'pipeline') \
-     and ($3->>'ownerId' is null or t.owner_id = $3->>'ownerId') \
-     and ($3->>'customerId' is null or t.customer_id = $3->>'customerId')"
-);
+fn opportunities_list(f: &Value) -> Condition {
+    use crm_opportunities::Column;
+    Condition::all()
+        .add(Column::DeletedAt.is_null())
+        .add_option(when(f, "search", |v| {
+            like_any(&[Column::Name, Column::CustomerName], &v)
+        }))
+        .add_option(when(f, "status", |v| Column::Status.eq(v)))
+        .add_option(when(f, "stage", |v| Column::Stage.eq(v)))
+        .add_option(when(f, "pipeline", |v| Column::Pipeline.eq(v)))
+        .add_option(when(f, "ownerId", |v| Column::OwnerId.eq(v)))
+        .add_option(when(f, "customerId", |v| Column::CustomerId.eq(v)))
+}
 
 const NUMERIC_FIELDS: [&str; 3] = ["amount", "expectedRevenue", "recurringRevenue"];
 const OPPORTUNITY_DATES: [&str; 3] = ["closeDate", "startDate", "nextStepDate"];
@@ -905,7 +989,7 @@ async fn list_opportunities(caller: Caller, RawQuery(raw): RawQuery) -> Answer {
     });
     page(
         &caller.db,
-        OPPORTUNITIES_LIST,
+        opportunities_list,
         &CRM_OPPORTUNITIES,
         &q,
         filters,
@@ -1048,12 +1132,14 @@ async fn delete_opportunity(State(state): S, caller: Caller, Path(id): Path<Stri
 // Pipelines and their stages
 // ---------------------------------------------------------------------------
 
-const PIPELINES_LIST: (&str, &str) = table_list_sql!(
-    crm_pipelines,
-    "t.deleted_at is null \
-     and ($3->>'search' is null or t.name like $3->>'search') \
-     and ($3->>'archived' is null or t.is_archived = ($3->>'archived')::boolean)"
-);
+fn pipelines_list(f: &Value) -> Condition {
+    Condition::all()
+        .add(crm_pipelines::Column::DeletedAt.is_null())
+        .add_option(when(f, "search", |v| crm_pipelines::Column::Name.like(v)))
+        .add_option(when_flag(f, "archived", |flag| {
+            crm_pipelines::Column::IsArchived.eq(flag)
+        }))
+}
 
 async fn list_pipelines(caller: Caller, RawQuery(raw): RawQuery) -> Answer {
     let q = zod::query(&LIST_PIPELINES, raw.as_deref())?;
@@ -1063,7 +1149,7 @@ async fn list_pipelines(caller: Caller, RawQuery(raw): RawQuery) -> Answer {
         _ => Value::Null,
     };
     let filters = json!({ "search": like(&q, "search"), "archived": archived });
-    page(&caller.db, PIPELINES_LIST, &CRM_PIPELINES, &q, filters).await
+    page(&caller.db, pipelines_list, &CRM_PIPELINES, &q, filters).await
 }
 
 async fn get_pipeline(caller: Caller, Path(id): Path<String>) -> Answer {
@@ -1137,15 +1223,18 @@ async fn delete_pipeline(State(state): S, caller: Caller, Path(id): Path<String>
     no_content()
 }
 
-const STAGES_LIST: (&str, &str) = table_list_sql!(
-    crm_pipeline_stages,
-    "t.deleted_at is null and ($3->>'pipeline' is null or t.pipeline = $3->>'pipeline')"
-);
+fn stages_list(f: &Value) -> Condition {
+    Condition::all()
+        .add(crm_pipeline_stages::Column::DeletedAt.is_null())
+        .add_option(when(f, "pipeline", |v| {
+            crm_pipeline_stages::Column::Pipeline.eq(v)
+        }))
+}
 
 async fn list_stages(caller: Caller, RawQuery(raw): RawQuery) -> Answer {
     let q = zod::query(&LIST_PIPELINE_STAGES, raw.as_deref())?;
     let filters = json!({ "pipeline": text(&q, "pipeline") });
-    page(&caller.db, STAGES_LIST, &CRM_PIPELINE_STAGES, &q, filters).await
+    page(&caller.db, stages_list, &CRM_PIPELINE_STAGES, &q, filters).await
 }
 
 async fn get_stage(caller: Caller, Path(id): Path<String>) -> Answer {
@@ -1218,18 +1307,21 @@ async fn delete_stage(State(state): S, caller: Caller, Path(id): Path<String>) -
 // Activities
 // ---------------------------------------------------------------------------
 
-const ACTIVITIES_LIST: (&str, &str) = table_list_sql!(
-    crm_activities,
-    "t.deleted_at is null \
-     and ($3->>'search' is null or t.subject like $3->>'search' or t.description like $3->>'search') \
-     and ($3->>'type' is null or t.type = $3->>'type') \
-     and ($3->>'status' is null or t.status = $3->>'status') \
-     and ($3->>'assignedToId' is null or t.assigned_to_id = $3->>'assignedToId') \
-     and ($3->>'customerId' is null or t.customer_id = $3->>'customerId') \
-     and ($3->>'contactId' is null or t.contact_id = $3->>'contactId') \
-     and ($3->>'leadId' is null or t.lead_id = $3->>'leadId') \
-     and ($3->>'opportunityId' is null or t.opportunity_id = $3->>'opportunityId')"
-);
+fn activities_list(f: &Value) -> Condition {
+    use crm_activities::Column;
+    Condition::all()
+        .add(Column::DeletedAt.is_null())
+        .add_option(when(f, "search", |v| {
+            like_any(&[Column::Subject, Column::Description], &v)
+        }))
+        .add_option(when(f, "type", |v| Column::Type.eq(v)))
+        .add_option(when(f, "status", |v| Column::Status.eq(v)))
+        .add_option(when(f, "assignedToId", |v| Column::AssignedToId.eq(v)))
+        .add_option(when(f, "customerId", |v| Column::CustomerId.eq(v)))
+        .add_option(when(f, "contactId", |v| Column::ContactId.eq(v)))
+        .add_option(when(f, "leadId", |v| Column::LeadId.eq(v)))
+        .add_option(when(f, "opportunityId", |v| Column::OpportunityId.eq(v)))
+}
 
 const ACTIVITY_DATES: [&str; 4] = ["dueDate", "startTime", "endTime", "followUpDate"];
 
@@ -1245,7 +1337,7 @@ async fn list_activities(caller: Caller, RawQuery(raw): RawQuery) -> Answer {
         "leadId": text(&q, "leadId"),
         "opportunityId": text(&q, "opportunityId"),
     });
-    page(&caller.db, ACTIVITIES_LIST, &CRM_ACTIVITIES, &q, filters).await
+    page(&caller.db, activities_list, &CRM_ACTIVITIES, &q, filters).await
 }
 
 async fn get_activity(caller: Caller, Path(id): Path<String>) -> Answer {
@@ -1389,15 +1481,16 @@ async fn delete_activity(State(state): S, caller: Caller, Path(id): Path<String>
 // Quotes (no entity events)
 // ---------------------------------------------------------------------------
 
-const QUOTES_LIST: (&str, &str) = table_list_sql!(
-    crm_quotes,
-    "t.deleted_at is null and ($3->>'search' is null or t.name like $3->>'search')"
-);
+fn quotes_list(f: &Value) -> Condition {
+    Condition::all()
+        .add(crm_quotes::Column::DeletedAt.is_null())
+        .add_option(when(f, "search", |v| crm_quotes::Column::Name.like(v)))
+}
 
 async fn list_quotes(caller: Caller, RawQuery(raw): RawQuery) -> Answer {
     let q = zod::query(&LIST_QUOTES, raw.as_deref())?;
     let filters = json!({ "search": like(&q, "search") });
-    page(&caller.db, QUOTES_LIST, &CRM_QUOTES, &q, filters).await
+    page(&caller.db, quotes_list, &CRM_QUOTES, &q, filters).await
 }
 
 async fn get_quote(caller: Caller, Path(id): Path<String>) -> Answer {

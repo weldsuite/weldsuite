@@ -10,13 +10,15 @@
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::Value;
-use weldsuite_db::{PgPool, js_row};
+use weldsuite_db::{PgPool, orm};
 use weldsuite_payroll_domain::ordered::OrderedMap;
 use weldsuite_payroll_domain::types::Ytd;
 use weldsuite_payroll_domain::us::US_OT_CARRY_PREFIX;
+use weldsuite_schema::tenant::hr_payslips;
 
-use super::runs::payslip_sql;
+use super::runs::payslip_rows;
 use crate::HrError;
 
 /// `numberKey(number)`: `2026-0007` → (2026, 7); `None` for a draft.
@@ -102,19 +104,21 @@ pub(crate) async fn final_payslips_by_employee(
     employer_id: &str,
     tax_year: i64,
 ) -> Result<HashMap<String, Vec<Value>>, HrError> {
+    use hr_payslips::Column;
     let mut out: HashMap<String, Vec<Value>> = HashMap::new();
     if employee_ids.is_empty() {
         return Ok(out);
     }
-    let rows: Vec<Value> = sqlx::query_scalar(payslip_sql(
-        "s.employee_id = any($1) and s.employer_id = $2 and s.tax_year = $3 and s.status = 'final'",
-    ))
-    .bind(employee_ids)
-    .bind(employer_id)
-    .bind(i32::try_from(tax_year).unwrap_or_default())
-    .fetch_all(db)
+    let rows = payslip_rows(
+        &orm(db),
+        hr_payslips::Entity::find()
+            .filter(Column::EmployeeId.is_in(employee_ids.iter().map(String::as_str)))
+            .filter(Column::EmployerId.eq(employer_id))
+            .filter(Column::TaxYear.eq(i32::try_from(tax_year).unwrap_or_default()))
+            .filter(Column::Status.eq("final")),
+    )
     .await?;
-    for row in rows.into_iter().map(js_row) {
+    for row in rows {
         let employee = row["employeeId"].as_str().unwrap_or("").to_owned();
         out.entry(employee).or_default().push(row);
     }
@@ -127,15 +131,19 @@ pub(crate) async fn employees_with_final_payslips(
     employee_ids: &[String],
     employer_id: &str,
 ) -> Result<HashSet<String>, HrError> {
+    use hr_payslips::Column;
     if employee_ids.is_empty() {
         return Ok(HashSet::new());
     }
-    let rows: Vec<String> = sqlx::query_scalar(
-        "select distinct employee_id from hr_payslips where employee_id = any($1) and employer_id = $2 and status = 'final'",
-    )
-    .bind(employee_ids)
-    .bind(employer_id)
-    .fetch_all(db)
-    .await?;
+    let rows: Vec<String> = hr_payslips::Entity::find()
+        .select_only()
+        .column(Column::EmployeeId)
+        .distinct()
+        .filter(Column::EmployeeId.is_in(employee_ids.iter().map(String::as_str)))
+        .filter(Column::EmployerId.eq(employer_id))
+        .filter(Column::Status.eq("final"))
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     Ok(rows.into_iter().collect())
 }

@@ -48,6 +48,7 @@ servers later; only this OpenTofu module is replaced by Talos on bare metal.
 | weldsuite | this repository | `app.<domain>` (the platform SPA and its API on one origin), `api.<domain>`, and `widget.<domain>` (WeldDesk's helpdesk widget, which sites embed), 2-6 replicas |
 | weldsuite sign portal | this repository | `sign.<domain>`, 2 replicas (Node; ADR FE-017) |
 | weldsuite forms portal | this repository | `forms.<domain>`, 2 replicas (Node; ADR FORMS-002) |
+| weldsuite storefront renderer (off) | this repository | WeldCommerce's online stores: the server's storefront edge takes every shop host (`*.<shop domain>`, merchants' own domains CNAMEd to `shops.<domain>`) and proxies builder shops to the renderer, 2 replicas (Node; ADR COM-015), reached only by the edge. On once the shop domain is picked (`STOREFRONT_ENABLED`, "DNS" below) |
 | LiveKit | chart 1.9.0 (livekit-server v1.13.10) | WeldMeet and WeldChat calls: one pod on each of two general workers, host network; `livekit.<domain>` and TURN at `turn.<domain>` ("Video" below) |
 | weldsuite MTA | this repository (`weldsuite mta`) | Outgoing mail from the mail nodes' own addresses, pools `system` and `customer`; bounce MX at `bounces.<domain>` ("Mail" below) |
 | kube-prometheus-stack | chart 92.3.1 | Prometheus (30 days), Alertmanager, Grafana at `grafana.<domain>` ("Monitoring, alerts and logs" below) |
@@ -233,12 +234,18 @@ a time.
 ## 5. DNS
 
 Create the records `tofu output dns_records` prints (A and AAAA for `app.`,
-`api.`, `mcp.`, `auth.`, `sign.`, `forms.`, `admin.`, `widget.`, `grafana.`, `livekit.`, `turn.`, `collect.`, and `mx.` with
+`api.`, `mcp.`, `auth.`, `sign.`, `forms.`, `admin.`, `widget.`, `grafana.`, `livekit.`, `turn.`, `collect.`, `shops.`, and `mx.` with
 `mx_node_port` → the ingress load balancer) at the DNS provider. cert-manager
 issues certificates once they resolve. `collect.` is what customers point
 WeldPanel's own collection domains at (ADR PANEL-014); turn them on with
 `config.panel.customDomains.enabled` in `flux/apps/eu/values/weldsuite.yaml`
-once it resolves. (external-dns is not installed: a
+once it resolves. `shops.` is the same for WeldCommerce's shops on merchants'
+own domains (`STOREFRONT_CUSTOM_DOMAINS` in the cluster's settings). The free
+shop addresses live on a domain of their own, not under `<domain>`: a
+wildcard `*.<shop domain>` record to the load balancer, and a wildcard
+certificate from a DNS-01 issuer in the Secret
+`weldsuite-storefront-wildcard-tls` (HTTP-01 can't issue wildcards), then
+`STOREFRONT_ENABLED` and `STOREFRONT_BASE_DOMAIN`. (external-dns is not installed: a
 handful of static records doesn't need it.) Media needs no record: LiveKit
 gives clients the nodes' addresses itself. The mail records are in "Mail" below.
 
@@ -346,6 +353,7 @@ default) organisation:
      `weldcrm://sso-callback`, `welddesk://sso-callback`,
      `weldflow://sso-callback`, `weldhr://sso-callback`,
      `weldmail://sso-callback`, `weldmeet://sso-callback`,
+     `weldpass://sso-callback`,
      `weldsocial://sso-callback` and `weldstash://sso-callback` (the
      route the apps already use for Clerk's SSO). Under *Token settings*
      turn on **User roles inside ID Token** and **User Info inside ID
@@ -367,6 +375,15 @@ default) organisation:
      `https://app.<domain>/auth` too, like `platform`'s. Its client id is
      `ZITADEL_DESKTOP_CLIENT_ID` (optional); until it is set the desktop app
      signs in inside its own window with the web application.
+   - **2d. User Agent application** `extension` in the same project, for
+     the WeldPass browser extension, which signs in from its service worker
+     (ADR PASS-009, `apps/web/weldpass-extension/README.md`): type *User
+     Agent*, authentication *PKCE*, refresh tokens on, **Auth token type:
+     JWT**, the same token settings as `platform`, and one redirect URI per
+     extension id, `https://<extension id>.chromiumapp.org/` with the
+     trailing slash (the README lists the ids). Its client id goes in
+     `config.auth.oidc.extensionClientId` (`OIDC_EXTENSION_CLIENT_ID`,
+     optional); until it is set the extension can't sign in to the cluster.
 3. **Scopes** the platform asks for: `openid profile email offline_access`,
    `urn:zitadel:iam:org:project:id:<project id>:aud` (puts the project in
    `aud`), `urn:zitadel:iam:org:projects:roles`, and
@@ -1526,9 +1543,73 @@ a path that holds another server's WAL. For `master`:
                 serverName: master-2
 ```
 
+This replays all the archived WAL. To stop at a moment instead (point-in-time
+recovery), add a target under `recovery`; Postgres stops just before the
+first transaction that committed after it:
+
+```yaml
+            recovery:
+              source: previous
+              recoveryTarget:
+                targetTime: "2026-11-20 13:59:00+00"
+```
+
+Any moment inside the recovery window works: from the oldest base backup
+still kept (30 days) until the last archived WAL, at most `archive_timeout`
+(5 minutes) behind. The ObjectStore's status shows the window per
+`serverName` (`kubectl -n postgres get objectstore master-backups -o
+jsonpath='{.status.serverRecoveryWindow}'`).
+
 The bootstrap only matters when the `Cluster` is created. Practise it: build
 a throwaway cluster from the backups now and then, check the data, and tear
 it down (WeldSuite does this monthly).
+
+### Restoring one workspace
+
+A tenant shard holds many workspaces, so recovering `tenants-1` to a moment
+rolls all of them back. To take one workspace back, use
+`flux/scripts/restore-workspace.sh`, from any machine with kubectl access to
+the cluster:
+
+```bash
+S=rust/deploy/flux/scripts/restore-workspace.sh
+$S list    --workspace ws_123                    # its databases and the recovery window
+$S restore --workspace ws_123 --to 2026-11-20T13:59:00Z
+$S swap    --workspace ws_123 --database ws_ws_123_pitr_20261120135900
+$S drop    --workspace ws_123 --database ws_ws_123_pre_20261122093000
+```
+
+- `restore` recovers the workspace's shard to that time in a temporary
+  `Cluster` (`<shard>-pitr-<time>`, one instance, archiving nothing), copies
+  the workspace's database out of it into `ws_<id>_pitr_<time>` next to the
+  live one (same owner, `PUBLIC` revoked, compared table for table), and
+  deletes the temporary `Cluster`. The workspace keeps running on its live
+  database: look at the copy, or copy rows back by hand if only a few
+  records are missing.
+- `swap` makes a copy the live database: one transaction renames the live
+  database `ws_<id>_pre_<now>` and the copy `ws_<id>`, so the workspace's
+  stored URL (role, name, pooler) still holds and nothing in the master
+  changes. Then it runs `weldsuite migrate --tenants --only <id>` in the
+  `weldsuite` Deployment, for migrations newer than the restored time. That
+  workspace gets errors for a few seconds. Swapping the `_pre_` database
+  back undoes it.
+- `drop` drops a copy once you no longer need it; it never drops the live
+  database. Copies stay until you drop them and take space on the shard.
+
+What goes back is the tenant database only. The workspace's master rows
+(members, plan, the settings kept there), its files in object storage and
+anything already sent (mail, webhooks, events other modules consumed) stay
+as they are.
+
+The temporary `Cluster` copies the shard's image, storage size, resources
+and node placement, so the Postgres nodes need room for one more instance of
+the shard while it runs: CPU and memory as one shard instance, and free disk
+for the shard's data (not just the workspace's). Recovery replays WAL from
+the last nightly base backup before the target, so a target late in the day
+takes longer. The copy streams through the machine the script runs on
+(`pg_dump | pg_restore`); for a large workspace run it close to the cluster.
+`--keep` leaves the temporary `Cluster` running, and a second restore to the
+same time on the same shard reuses it.
 
 ### Offsite copy
 

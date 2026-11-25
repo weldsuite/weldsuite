@@ -15,8 +15,12 @@ use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use http::{HeaderMap, HeaderValue, StatusCode, header};
+use sea_orm::ActiveValue::Set;
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 use serde_json::{Map, Value, json};
 use sqlx::PgPool;
+use time::PrimitiveDateTime;
 use weldsuite_books_domain::entity_context::resolve_entity_id;
 use weldsuite_books_domain::guards::{AuditInput, change, is_kor_active, write_accounting_audit};
 use weldsuite_books_domain::http::{
@@ -24,10 +28,10 @@ use weldsuite_books_domain::http::{
 };
 use weldsuite_books_domain::js;
 use weldsuite_books_domain::jurisdictions::features;
-use weldsuite_books_domain::tables::{ENTITIES, VAT_RETURNS};
 use weldsuite_catalogs::entity_events::{
     VAT_RETURN_CREATED, VAT_RETURN_DELETED, VAT_RETURN_UPDATED,
 };
+use weldsuite_db::{OrmConn, orm, utc_now};
 use weldsuite_kit::generate_id;
 use weldsuite_kit::validation::{Issues, Number, Presence, Text};
 use weldsuite_legal_entities::{EntityRecordGuard, EntityTable};
@@ -41,6 +45,8 @@ use crate::filing::{
     overlapping_period, parse_period, submit_filing,
 };
 use crate::nl::{self, Rubrieken, VatXmlInput, compute_rubrieken, recompute_totals};
+use crate::orm_bridge::{day_of, now_and_stamp, timestamp_of_iso, to_json, to_json_rows};
+use weldsuite_schema::tenant::{entities, vat_returns};
 
 pub(crate) fn router<S, Q>(state: BooksState, gate: &Arc<PermissionGate<Q>>) -> Router<S>
 where
@@ -97,34 +103,23 @@ const SUPPLETIE_NOT_DELIVERED: &str = "A suppletie can't be sent through Digipoo
 const PHONE_REQUIRED: &str = "A telephone number is required in the BTW-aangifte message. Add it to the entity contact details first.";
 
 /// A live return, as Drizzle returns it.
-async fn find(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(vat_returns),
-        " from vat_returns t where t.id = $1 and t.deleted_at is null limit 1"
-    ))
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(|row| VAT_RETURNS.js(row)))
+async fn find(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
+    vat_returns::Entity::find()
+        .filter(vat_returns::Column::Id.eq(id))
+        .filter(vat_returns::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?
+        .map(to_json)
+        .transpose()
 }
 
-/// The entity row; `live` adds `deleted_at is null`.
-pub(crate) async fn entity_row(
-    db: &PgPool,
-    id: &str,
-    live: bool,
-) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(entities),
-        " from entities t where t.id = $1 and ($2 = false or t.deleted_at is null) limit 1"
-    ))
-    .bind(id)
-    .bind(live)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(|row| ENTITIES.js(row)))
+/// The entity row as Drizzle returns it; `live` adds `deleted_at is null`.
+pub(crate) async fn entity_row(db: &PgPool, id: &str, live: bool) -> Result<Option<Value>, DbErr> {
+    let mut find = entities::Entity::find().filter(entities::Column::Id.eq(id));
+    if live {
+        find = find.filter(entities::Column::DeletedAt.is_null());
+    }
+    find.one(&orm(db)).await?.map(to_json).transpose()
 }
 
 fn text<'a>(row: &'a Value, key: &str) -> Option<&'a str> {
@@ -191,19 +186,15 @@ async fn list_returns(caller: &Caller) -> Reply {
     let Some(entity_id) = resolve_entity_id(caller).await? else {
         return Err(Refusal::bad_request("No accounting entity resolved"));
     };
-    let rows: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(vat_returns),
-        " from vat_returns t where t.deleted_at is null and t.entity_id = $1 \
-         order by t.period_start desc"
-    ))
-    .bind(&entity_id)
-    .fetch_all(&caller.db)
-    .await?;
+    let rows = vat_returns::Entity::find()
+        .filter(vat_returns::Column::DeletedAt.is_null())
+        .filter(vat_returns::Column::EntityId.eq(&entity_id))
+        .order_by_desc(vat_returns::Column::PeriodStart)
+        .all(&orm(&caller.db))
+        .await
+        .and_then(to_json_rows)?;
     Ok(ok(Value::Array(
-        rows.into_iter()
-            .map(|row| nl::with_normalized(VAT_RETURNS.js(row)))
-            .collect(),
+        rows.into_iter().map(nl::with_normalized).collect(),
     )))
 }
 
@@ -295,35 +286,39 @@ async fn calculate_return(caller: &Caller, state: &BooksState, data: PeriodBody)
     // with another return of the entity; recalculating the same period is fine.
     let (start, end) = parse_period(&data.period_start, &data.period_end, &data.period_type)
         .map_err(Refusal::bad_request)?;
-    let periods: Vec<(String, String)> = sqlx::query_as(
-        "select to_char(period_start, 'YYYY-MM-DD'), to_char(period_end, 'YYYY-MM-DD') \
-         from vat_returns where entity_id = $1 and period_start <= $3::timestamp \
-         and period_end >= $2::timestamp and correction_of_id is null and deleted_at is null",
-    )
-    .bind(&entity_id)
-    .bind(&start)
-    .bind(&end)
-    .fetch_all(db)
-    .await?;
+    let (start_at, end_at) = (timestamp_of_iso(&start)?, timestamp_of_iso(&end)?);
+    let periods: Vec<(PrimitiveDateTime, PrimitiveDateTime)> = vat_returns::Entity::find()
+        .select_only()
+        .column(vat_returns::Column::PeriodStart)
+        .column(vat_returns::Column::PeriodEnd)
+        .filter(vat_returns::Column::EntityId.eq(&entity_id))
+        .filter(vat_returns::Column::PeriodStart.lte(end_at))
+        .filter(vat_returns::Column::PeriodEnd.gte(start_at))
+        .filter(vat_returns::Column::CorrectionOfId.is_null())
+        .filter(vat_returns::Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
+    let periods: Vec<(String, String)> = periods
+        .into_iter()
+        .map(|(from, to)| (day_of(from), day_of(to)))
+        .collect();
     if let Some(clash) = overlapping_period(&periods, &start, &end) {
         return Err(Refusal::bad_request(format!(
             "This period overlaps the BTW-aangifte of {clash}."
         )));
     }
 
-    let existing: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(vat_returns),
-        " from vat_returns t where t.entity_id = $1 and t.period_start = $2::timestamp \
-         and t.period_end = $3::timestamp and t.correction_of_id is null and t.deleted_at is null \
-         order by t.created_at desc limit 1"
-    ))
-    .bind(&entity_id)
-    .bind(&start)
-    .bind(&end)
-    .fetch_optional(db)
-    .await?;
-    let existing = existing.map(|row| VAT_RETURNS.js(row));
+    let existing = vat_returns::Entity::find()
+        .filter(vat_returns::Column::EntityId.eq(&entity_id))
+        .filter(vat_returns::Column::PeriodStart.eq(start_at))
+        .filter(vat_returns::Column::PeriodEnd.eq(end_at))
+        .filter(vat_returns::Column::CorrectionOfId.is_null())
+        .filter(vat_returns::Column::DeletedAt.is_null())
+        .order_by_desc(vat_returns::Column::CreatedAt)
+        .one(&orm(db))
+        .await
+        .and_then(|row| row.map(to_json).transpose())?;
     if let Some(existing) = &existing
         && !is_unfiled(text(existing, "status").unwrap_or_default())
     {
@@ -349,41 +344,60 @@ async fn calculate_return(caller: &Caller, state: &BooksState, data: PeriodBody)
         None => calculated,
     };
 
-    let now = now();
+    let stamp = utc_now();
     let label = data.period_label.filter(|l| !l.is_empty());
     let id = match &existing {
         Some(existing) => {
             let id = text(existing, "id").unwrap_or_default().to_owned();
-            sqlx::query(
-                "update vat_returns set period_type = $1, period_label = $2, status = 'calculated', \
-                 rubrieken = $3, xml_content = null, rejected_at = null, rejection_reason = null, \
-                 updated_at = $4::timestamp where id = $5",
-            )
-            .bind(&data.period_type)
-            .bind(label.as_deref().or_else(|| text(existing, "periodLabel")))
-            .bind(rubrieken.to_value())
-            .bind(&now)
-            .bind(&id)
-            .execute(db)
-            .await?;
+            let label = label
+                .as_deref()
+                .or_else(|| text(existing, "periodLabel"))
+                .map(str::to_owned);
+            vat_returns::Entity::update_many()
+                .col_expr(
+                    vat_returns::Column::PeriodType,
+                    Expr::value(data.period_type.clone()),
+                )
+                .col_expr(vat_returns::Column::PeriodLabel, Expr::value(label))
+                .col_expr(vat_returns::Column::Status, Expr::value("calculated"))
+                .col_expr(
+                    vat_returns::Column::Rubrieken,
+                    Expr::value(rubrieken.to_value()),
+                )
+                .col_expr(
+                    vat_returns::Column::XmlContent,
+                    Expr::value(Option::<String>::None),
+                )
+                .col_expr(
+                    vat_returns::Column::RejectedAt,
+                    Expr::value(Option::<PrimitiveDateTime>::None),
+                )
+                .col_expr(
+                    vat_returns::Column::RejectionReason,
+                    Expr::value(Option::<String>::None),
+                )
+                .col_expr(vat_returns::Column::UpdatedAt, Expr::value(stamp))
+                .filter(vat_returns::Column::Id.eq(&id))
+                .exec(&orm(db))
+                .await?;
             id
         }
         None => {
             let id = generate_id("vat");
-            sqlx::query(
-                "insert into vat_returns (id, entity_id, period_type, period_start, period_end, \
-                 period_label, status, rubrieken, created_at, updated_at) \
-                 values ($1, $2, $3, $4::timestamp, $5::timestamp, $6, 'calculated', $7, $8::timestamp, $8::timestamp)",
-            )
-            .bind(&id)
-            .bind(&entity_id)
-            .bind(&data.period_type)
-            .bind(&start)
-            .bind(&end)
-            .bind(label.as_deref())
-            .bind(rubrieken.to_value())
-            .bind(&now)
-            .execute(db)
+            vat_returns::Entity::insert(vat_returns::ActiveModel {
+                id: Set(id.clone()),
+                entity_id: Set(entity_id.clone()),
+                period_type: Set(data.period_type.clone()),
+                period_start: Set(start_at),
+                period_end: Set(end_at),
+                period_label: Set(label.clone()),
+                status: Set("calculated".to_owned()),
+                rubrieken: Set(Some(rubrieken.to_value())),
+                created_at: Set(stamp),
+                updated_at: Set(stamp),
+                ..Default::default()
+            })
+            .exec_without_returning(&orm(db))
             .await?;
             id
         }
@@ -474,7 +488,7 @@ async fn update_return(caller: &Caller, state: &BooksState, id: &str, data: Patc
             "Filed VAT returns are immutable — file a correction (suppletie) instead",
         ));
     }
-    let now = now();
+    let (now, stamp) = now_and_stamp();
     let mut update = Map::new();
     update.insert("status".into(), json!("reviewed"));
     update.insert("updatedAt".into(), json!(now));
@@ -495,19 +509,19 @@ async fn update_return(caller: &Caller, state: &BooksState, id: &str, data: Patc
     if let Some(notes) = &data.notes {
         update.insert("notes".into(), json!(notes));
     }
-    sqlx::query(
-        "update vat_returns set status = 'reviewed', updated_at = $1::timestamp, \
-         rubrieken = case when $2 then $3 else rubrieken end, \
-         notes = case when $4 then $5 else notes end where id = $6",
-    )
-    .bind(&now)
-    .bind(new_rubrieken.is_some())
-    .bind(new_rubrieken.clone())
-    .bind(data.notes.is_some())
-    .bind(data.notes.as_deref())
-    .bind(id)
-    .execute(db)
-    .await?;
+    let mut review = vat_returns::Entity::update_many()
+        .col_expr(vat_returns::Column::Status, Expr::value("reviewed"))
+        .col_expr(vat_returns::Column::UpdatedAt, Expr::value(stamp));
+    if let Some(value) = &new_rubrieken {
+        review = review.col_expr(vat_returns::Column::Rubrieken, Expr::value(value.clone()));
+    }
+    if let Some(notes) = &data.notes {
+        review = review.col_expr(vat_returns::Column::Notes, Expr::value(notes.clone()));
+    }
+    review
+        .filter(vat_returns::Column::Id.eq(id))
+        .exec(&orm(db))
+        .await?;
 
     let changes = new_rubrieken.as_ref().map(|value| {
         let mut changes = Map::new();
@@ -610,23 +624,41 @@ async fn file_return(caller: &Caller, state: &BooksState, id: &str) -> Reply {
         None => ("filed", submit_filing(&btw, &xml, "Omzetbelasting")),
     };
 
-    let now = now();
+    let stamp = utc_now();
     let mut tx = db.begin().await?;
-    sqlx::query(
-        "update vat_returns set status = $8, rubrieken = $1, xml_content = $2, \
-         filing_reference = $3, digipoort_response = $4, filed_at = $5::timestamp, filed_by = $6, \
-         rejected_at = null, rejection_reason = null, updated_at = $5::timestamp where id = $7",
-    )
-    .bind(rubrieken.to_value())
-    .bind(&xml)
-    .bind(Some(&submission.kenmerk).filter(|k| !k.is_empty()))
-    .bind(&submission.stored)
-    .bind(&now)
-    .bind(caller.user())
-    .bind(id)
-    .bind(filed_status)
-    .execute(&mut *tx)
-    .await?;
+    vat_returns::Entity::update_many()
+        .col_expr(vat_returns::Column::Status, Expr::value(filed_status))
+        .col_expr(
+            vat_returns::Column::Rubrieken,
+            Expr::value(rubrieken.to_value()),
+        )
+        .col_expr(vat_returns::Column::XmlContent, Expr::value(xml.clone()))
+        .col_expr(
+            vat_returns::Column::FilingReference,
+            Expr::value(Some(submission.kenmerk.clone()).filter(|k| !k.is_empty())),
+        )
+        .col_expr(
+            vat_returns::Column::DigipoortResponse,
+            Expr::value(submission.stored.clone()),
+        )
+        .col_expr(vat_returns::Column::FiledAt, Expr::value(stamp))
+        .col_expr(
+            vat_returns::Column::FiledBy,
+            Expr::value(caller.user().map(str::to_owned)),
+        )
+        // Filing again after a rejection clears it.
+        .col_expr(
+            vat_returns::Column::RejectedAt,
+            Expr::value(Option::<PrimitiveDateTime>::None),
+        )
+        .col_expr(
+            vat_returns::Column::RejectionReason,
+            Expr::value(Option::<String>::None),
+        )
+        .col_expr(vat_returns::Column::UpdatedAt, Expr::value(stamp))
+        .filter(vat_returns::Column::Id.eq(id))
+        .exec(&OrmConn::new(&mut tx))
+        .await?;
     // A suppletie corrects an already-stamped period; only regular returns stamp rows.
     if text(&ret, "correctionOfId").is_none() {
         file_period(
@@ -787,21 +819,29 @@ async fn mark_filed_return(
     };
 
     let reference = reference.filter(|r| !r.is_empty());
-    let now = now();
-    let filed_at = filed_at.unwrap_or_else(|| now.clone());
+    let (now, stamp) = now_and_stamp();
+    let filed_at = filed_at.unwrap_or(now);
+    let filed_stamp = timestamp_of_iso(&filed_at)?;
     let mut tx = db.begin().await?;
-    sqlx::query(
-        "update vat_returns set status = 'filed', rubrieken = $1, filing_reference = $2, \
-         filed_at = $3::timestamp, filed_by = $4, updated_at = $5::timestamp where id = $6",
-    )
-    .bind(rubrieken.to_value())
-    .bind(reference.as_deref())
-    .bind(&filed_at)
-    .bind(caller.user())
-    .bind(&now)
-    .bind(id)
-    .execute(&mut *tx)
-    .await?;
+    vat_returns::Entity::update_many()
+        .col_expr(vat_returns::Column::Status, Expr::value("filed"))
+        .col_expr(
+            vat_returns::Column::Rubrieken,
+            Expr::value(rubrieken.to_value()),
+        )
+        .col_expr(
+            vat_returns::Column::FilingReference,
+            Expr::value(reference.clone()),
+        )
+        .col_expr(vat_returns::Column::FiledAt, Expr::value(filed_stamp))
+        .col_expr(
+            vat_returns::Column::FiledBy,
+            Expr::value(caller.user().map(str::to_owned)),
+        )
+        .col_expr(vat_returns::Column::UpdatedAt, Expr::value(stamp))
+        .filter(vat_returns::Column::Id.eq(id))
+        .exec(&OrmConn::new(&mut tx))
+        .await?;
     // A suppletie corrects an already-stamped period; only regular returns stamp rows.
     if text(&ret, "correctionOfId").is_none() {
         file_period(
@@ -916,24 +956,24 @@ async fn create_suppletie(caller: &Caller, state: &BooksState, id: &str) -> Repl
     let notes = format!(
         "Suppletie of {of}: net difference €{diff_text} vs the filed return. Must be filed by {deadline_day} (8 weeks after discovery)."
     );
-    sqlx::query(
-        "insert into vat_returns (id, entity_id, period_type, period_start, period_end, period_label, \
-         status, rubrieken, correction_of_id, suppletie_deadline, notes, created_at, updated_at) \
-         values ($1, $2, $3, $4::timestamp, $5::timestamp, $6, 'calculated', $7, $8, $9::timestamp, $10, \
-         $11::timestamp, $11::timestamp)",
-    )
-    .bind(&suppletie_id)
-    .bind(&entity_id)
-    .bind(text(&original, "periodType"))
-    .bind(&start)
-    .bind(&end)
-    .bind(&period_label)
-    .bind(recalculated.to_value())
-    .bind(id)
-    .bind(&deadline)
-    .bind(&notes)
-    .bind(&now)
-    .execute(db)
+    let stamp = timestamp_of_iso(&now)?;
+    vat_returns::Entity::insert(vat_returns::ActiveModel {
+        id: Set(suppletie_id.clone()),
+        entity_id: Set(entity_id.clone()),
+        period_type: Set(text(&original, "periodType").unwrap_or_default().to_owned()),
+        period_start: Set(timestamp_of_iso(&start)?),
+        period_end: Set(timestamp_of_iso(&end)?),
+        period_label: Set(Some(period_label)),
+        status: Set("calculated".to_owned()),
+        rubrieken: Set(Some(recalculated.to_value())),
+        correction_of_id: Set(Some(id.to_owned())),
+        suppletie_deadline: Set(Some(timestamp_of_iso(&deadline)?)),
+        notes: Set(Some(notes)),
+        created_at: Set(stamp),
+        updated_at: Set(stamp),
+        ..Default::default()
+    })
+    .exec_without_returning(&orm(db))
     .await?;
 
     let mut changes = Map::new();
@@ -1097,15 +1137,14 @@ async fn remove(
                     "A filed VAT return can not be deleted — correct it with a suppletie instead",
                 ));
             }
-            let now = now();
-            sqlx::query(
-                "update vat_returns set deleted_at = $1::timestamp, updated_at = $1::timestamp \
-                 where id = $2 and status <> 'filed'",
-            )
-            .bind(&now)
-            .bind(&id)
-            .execute(db)
-            .await?;
+            let stamp = utc_now();
+            vat_returns::Entity::update_many()
+                .col_expr(vat_returns::Column::DeletedAt, Expr::value(stamp))
+                .col_expr(vat_returns::Column::UpdatedAt, Expr::value(stamp))
+                .filter(vat_returns::Column::Id.eq(&id))
+                .filter(vat_returns::Column::Status.ne("filed"))
+                .exec(&orm(db))
+                .await?;
             let mut changes = Map::new();
             changes.insert("status".into(), change(json!(status), json!("deleted")));
             write_accounting_audit(

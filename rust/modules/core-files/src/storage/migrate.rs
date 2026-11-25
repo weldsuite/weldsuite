@@ -4,9 +4,15 @@
 //! then delete the public copy. The order makes a crash at any point safe to
 //! run again.
 
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ColumnTrait, Condition, DbErr, EntityTrait, FromQueryResult, QueryFilter, QueryOrder,
+    QuerySelect,
+};
 use serde_json::{Value, json};
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_ports::{DynFileStore, PortError, PutOptions};
+use weldsuite_schema::tenant::files;
 
 use super::PRIVATE_OBJECT_PATH;
 use crate::{private_object_url, workspace_of_key};
@@ -17,12 +23,12 @@ pub(crate) const MIGRATION_BATCH_SIZE: i64 = 25;
 /// Why a row failed: the database or a bucket.
 #[derive(Debug)]
 pub(crate) enum MigrationError {
-    Database(sqlx::Error),
+    Database(DbErr),
     Storage(PortError),
 }
 
-impl From<sqlx::Error> for MigrationError {
-    fn from(error: sqlx::Error) -> Self {
+impl From<DbErr> for MigrationError {
+    fn from(error: DbErr) -> Self {
         Self::Database(error)
     }
 }
@@ -78,7 +84,7 @@ impl MigrationBatch {
     }
 }
 
-#[derive(sqlx::FromRow)]
+#[derive(FromQueryResult)]
 struct Row {
     id: String,
     file_key: Option<String>,
@@ -115,21 +121,32 @@ pub(crate) async fn migrate_private_files_batch(
 ) -> Result<MigrationBatch, MigrationError> {
     // `params.cursor ? gt(files.id, cursor) : undefined`: '' is no cursor.
     let cursor = batch.cursor.filter(|cursor| !cursor.is_empty());
-    let rows: Vec<Row> = sqlx::query_as(
-        "select id, file_key, storage_path, file_name, folder_id, file_type
-           from files
-          where is_public = false
-            and entity_type is null
-            and (url is null or url not like $1)
-            and ($2::text is null or id > $2)
-          order by id asc
-          limit $3",
-    )
-    .bind(format!("%{PRIVATE_OBJECT_PATH}%"))
-    .bind(cursor)
-    .bind(MIGRATION_BATCH_SIZE)
-    .fetch_all(db)
-    .await?;
+    let mut query = files::Entity::find()
+        .select_only()
+        .columns([
+            files::Column::Id,
+            files::Column::FileKey,
+            files::Column::StoragePath,
+            files::Column::FileName,
+            files::Column::FolderId,
+            files::Column::FileType,
+        ])
+        .filter(files::Column::IsPublic.eq(false))
+        .filter(files::Column::EntityType.is_null())
+        .filter(
+            Condition::any()
+                .add(files::Column::Url.is_null())
+                .add(files::Column::Url.not_like(format!("%{PRIVATE_OBJECT_PATH}%"))),
+        );
+    if let Some(cursor) = cursor {
+        query = query.filter(files::Column::Id.gt(cursor));
+    }
+    let rows: Vec<Row> = query
+        .order_by_asc(files::Column::Id)
+        .limit(MIGRATION_BATCH_SIZE.unsigned_abs())
+        .into_model::<Row>()
+        .all(&orm(db))
+        .await?;
 
     let mut result = MigrationBatch::default();
     for row in &rows {
@@ -226,10 +243,11 @@ async fn migrate_row(
             .put_boxed(key, object.bytes, &options)
             .await?;
     }
-    sqlx::query("update files set url = $2, bucket = 'private' where id = $1")
-        .bind(&row.id)
-        .bind(&url)
-        .execute(db)
+    files::Entity::update_many()
+        .col_expr(files::Column::Url, Expr::value(&url))
+        .col_expr(files::Column::Bucket, Expr::value("private"))
+        .filter(files::Column::Id.eq(&row.id))
+        .exec(&orm(db))
         .await?;
     buckets.public.delete_boxed(key).await?;
     Ok(outcome(url))

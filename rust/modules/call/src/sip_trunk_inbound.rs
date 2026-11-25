@@ -25,10 +25,13 @@
 //! event of a trunk connection proves nothing by itself: the workspace it
 //! names must own that connection (`owns_trunk_connection`).
 
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::Value;
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm, utc_now};
+use weldsuite_schema::tenant::{voip_phone_numbers, voip_sip_trunks as trunks};
 
-use crate::{js, now};
+use crate::js;
 
 /// `isTrunkCall(env, payload)`: whether an event's payload came in over a
 /// customer's trunk: it names a connection that is not one of ours. Without
@@ -59,16 +62,26 @@ pub(crate) enum Admission {
 type TrunkRow = (String, Option<String>, String);
 
 /// `recordError(db, trunkId, message, now)`.
-async fn record_error(db: &PgPool, trunk_id: &str, message: &str) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "update voip_sip_trunks set last_error = $2, updated_at = $3::timestamp where id = $1",
-    )
-    .bind(trunk_id)
-    .bind(message)
-    .bind(now())
-    .execute(db)
-    .await?;
+async fn record_error(db: &PgPool, trunk_id: &str, message: &str) -> Result<(), DbErr> {
+    trunks::Entity::update_many()
+        .col_expr(trunks::Column::LastError, Expr::value(message))
+        .col_expr(trunks::Column::UpdatedAt, Expr::value(utc_now()))
+        .filter(trunks::Column::Id.eq(trunk_id))
+        .exec(&orm(db))
+        .await?;
     Ok(())
+}
+
+/// The trunk that owns the connection, when this workspace has one.
+async fn trunk_on_connection(db: &PgPool, connection_id: &str) -> Result<Option<String>, DbErr> {
+    trunks::Entity::find()
+        .select_only()
+        .column(trunks::Column::Id)
+        .filter(trunks::Column::ProviderConnectionId.eq(connection_id))
+        .limit(1)
+        .into_tuple()
+        .one(&orm(db))
+        .await
 }
 
 /// `admitTrunkCall(db, { payload, phoneRow, toNumber })`: whether a call to
@@ -79,7 +92,7 @@ pub(crate) async fn admit_trunk_call(
     payload: &Value,
     sip_trunk_id: &str,
     to_number: &str,
-) -> Result<Admission, sqlx::Error> {
+) -> Result<Admission, DbErr> {
     // `String(payload.connection_id ?? '')`.
     let connection_id = match &payload["connection_id"] {
         Value::Null => String::new(),
@@ -87,12 +100,18 @@ pub(crate) async fn admit_trunk_call(
     };
     let refused = |reason: String| Ok(Admission::Refused { reason });
 
-    let trunk: Option<TrunkRow> = sqlx::query_as(
-        "select id, provider_connection_id, status from voip_sip_trunks where id = $1 limit 1",
-    )
-    .bind(sip_trunk_id)
-    .fetch_optional(db)
-    .await?;
+    let trunk: Option<TrunkRow> = trunks::Entity::find()
+        .select_only()
+        .columns([
+            trunks::Column::Id,
+            trunks::Column::ProviderConnectionId,
+            trunks::Column::Status,
+        ])
+        .filter(trunks::Column::Id.eq(sip_trunk_id))
+        .limit(1)
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     let Some((trunk_id, provider_connection_id, status)) = trunk else {
         return refused(format!("The phone system of {to_number} no longer exists"));
     };
@@ -106,12 +125,7 @@ pub(crate) async fn admit_trunk_call(
         let by_connection: Option<String> = if connection_id.is_empty() {
             None
         } else {
-            sqlx::query_scalar(
-                "select id from voip_sip_trunks where provider_connection_id = $1 limit 1",
-            )
-            .bind(&connection_id)
-            .fetch_optional(db)
-            .await?
+            trunk_on_connection(db, &connection_id).await?
         };
         if let Some(other) = by_connection {
             let reason = format!(
@@ -143,14 +157,8 @@ fn connection_of(payload: &Value) -> String {
 
 /// `hasTrunkOnConnection(db, connectionId)`: whether a phone system of this
 /// workspace has the connection.
-async fn has_trunk_on_connection(db: &PgPool, connection_id: &str) -> Result<bool, sqlx::Error> {
-    let trunk: Option<String> = sqlx::query_scalar(
-        "select id from voip_sip_trunks where provider_connection_id = $1 limit 1",
-    )
-    .bind(connection_id)
-    .fetch_optional(db)
-    .await?;
-    Ok(trunk.is_some())
+async fn has_trunk_on_connection(db: &PgPool, connection_id: &str) -> Result<bool, DbErr> {
+    Ok(trunk_on_connection(db, connection_id).await?.is_some())
 }
 
 /// `admitTrunkCallToHostedNumber(db, { payload, phoneRow })`: whether a call
@@ -161,7 +169,7 @@ pub(crate) async fn admit_trunk_call_to_hosted_number(
     db: &PgPool,
     payload: &Value,
     number_connection: Option<&str>,
-) -> Result<bool, sqlx::Error> {
+) -> Result<bool, DbErr> {
     let connection_id = connection_of(payload);
     if connection_id.is_empty() {
         return Ok(false);
@@ -178,10 +186,7 @@ pub(crate) async fn admit_trunk_call_to_hosted_number(
 /// `admit_trunk_call_to_hosted_number` let in on the number's own
 /// connection). The gate for a client state that names this workspace on
 /// such an event.
-pub(crate) async fn owns_trunk_connection(
-    db: &PgPool,
-    payload: &Value,
-) -> Result<bool, sqlx::Error> {
+pub(crate) async fn owns_trunk_connection(db: &PgPool, payload: &Value) -> Result<bool, DbErr> {
     let connection_id = connection_of(payload);
     if connection_id.is_empty() {
         return Ok(false);
@@ -189,28 +194,32 @@ pub(crate) async fn owns_trunk_connection(
     if has_trunk_on_connection(db, &connection_id).await? {
         return Ok(true);
     }
-    let number: Option<String> = sqlx::query_scalar(
-        "select id from voip_phone_numbers
-         where provider_connection_id = $1 and deleted_at is null limit 1",
-    )
-    .bind(&connection_id)
-    .fetch_optional(db)
-    .await?;
+    let number: Option<String> = voip_phone_numbers::Entity::find()
+        .select_only()
+        .column(voip_phone_numbers::Column::Id)
+        .filter(voip_phone_numbers::Column::ProviderConnectionId.eq(&connection_id))
+        .filter(voip_phone_numbers::Column::DeletedAt.is_null())
+        .limit(1)
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     Ok(number.is_some())
 }
 
 /// `recordTrunkInbound(db, trunkId, now)`: a call came in over the trunk,
 /// the sign that its setup works.
-pub(crate) async fn record_trunk_inbound(db: &PgPool, trunk_id: &str) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "update voip_sip_trunks set last_inbound_at = $2::timestamp, last_error = null,
-             updated_at = $2::timestamp
-         where id = $1",
-    )
-    .bind(trunk_id)
-    .bind(now())
-    .execute(db)
-    .await?;
+pub(crate) async fn record_trunk_inbound(db: &PgPool, trunk_id: &str) -> Result<(), DbErr> {
+    let now = utc_now();
+    trunks::Entity::update_many()
+        .col_expr(trunks::Column::LastInboundAt, Expr::value(now))
+        .col_expr(
+            trunks::Column::LastError,
+            Expr::value(Option::<String>::None),
+        )
+        .col_expr(trunks::Column::UpdatedAt, Expr::value(now))
+        .filter(trunks::Column::Id.eq(trunk_id))
+        .exec(&orm(db))
+        .await?;
     Ok(())
 }
 

@@ -23,8 +23,10 @@ use base64::alphabet::URL_SAFE;
 use base64::engine::DecodePaddingMode;
 use base64::engine::general_purpose::{GeneralPurpose, GeneralPurposeConfig, URL_SAFE_NO_PAD};
 use regex::Regex;
-use sqlx::PgPool;
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
+use weldsuite_db::{PgPool, orm};
 use weldsuite_ports::DynCache;
+use weldsuite_schema::master::{user_app_installs, user_apps};
 
 /// How long a link stays valid (12 hours).
 pub(crate) const BUNDLE_LINK_TTL_SECONDS: i64 = 12 * 60 * 60;
@@ -170,19 +172,19 @@ pub(crate) async fn workspace_may_use_bundle(
     app_id: &str,
     owner_workspace_id: &str,
     workspace_id: &str,
-) -> Result<bool, sqlx::Error> {
+) -> Result<bool, DbErr> {
     if owner_workspace_id == workspace_id {
         return Ok(true);
     }
-    let install: Option<String> = sqlx::query_scalar(
-        "select id from user_app_installs
-         where app_id = $1 and workspace_id = $2 and status = 'active'
-         limit 1",
-    )
-    .bind(app_id)
-    .bind(workspace_id)
-    .fetch_optional(master)
-    .await?;
+    let install: Option<String> = user_app_installs::Entity::find()
+        .select_only()
+        .column(user_app_installs::Column::Id)
+        .filter(user_app_installs::Column::AppId.eq(app_id))
+        .filter(user_app_installs::Column::WorkspaceId.eq(workspace_id))
+        .filter(user_app_installs::Column::Status.eq("active"))
+        .into_tuple()
+        .one(&orm(master))
+        .await?;
     Ok(install.is_some())
 }
 
@@ -193,7 +195,7 @@ pub(crate) async fn workspace_may_use_bundle_cached(
     cache: &dyn DynCache,
     app_id: &str,
     workspace_id: &str,
-) -> Result<bool, sqlx::Error> {
+) -> Result<bool, DbErr> {
     let key = bundle_access_cache_key(app_id, workspace_id);
     match cache.get_boxed(&key).await {
         Ok(Some(value)) if value == "1" => return Ok(true),
@@ -203,11 +205,13 @@ pub(crate) async fn workspace_may_use_bundle_cached(
             tracing::error!(%error, "core-apps: bundle access cache read failed");
         }
     }
-    let owner: Option<String> =
-        sqlx::query_scalar("select owner_workspace_id from user_apps where id = $1 limit 1")
-            .bind(app_id)
-            .fetch_optional(master)
-            .await?;
+    let owner: Option<String> = user_apps::Entity::find()
+        .select_only()
+        .column(user_apps::Column::OwnerWorkspaceId)
+        .filter(user_apps::Column::Id.eq(app_id))
+        .into_tuple()
+        .one(&orm(master))
+        .await?;
     let allowed = match owner {
         Some(owner) => workspace_may_use_bundle(master, app_id, &owner, workspace_id).await?,
         None => false,

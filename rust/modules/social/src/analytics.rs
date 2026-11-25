@@ -7,16 +7,26 @@ use axum::Router;
 use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
+use sea_orm::{
+    ActiveEnum, ColumnTrait, Condition, DbErr, EntityTrait, PaginatorTrait, QueryFilter,
+    QuerySelect,
+};
 use serde_json::{Value, json};
-use time::OffsetDateTime;
+use time::{OffsetDateTime, PrimitiveDateTime};
 use weldsuite_catalogs::permission_keys as perm;
 use weldsuite_core_domain::js::{number_value, slice_utf16};
+use weldsuite_db::orm;
 use weldsuite_events::iso_timestamp;
 use weldsuite_kit::{ApiError, Data};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::enums::{
+    SocialAccountStatus, SocialAnalyticsSnapshotPeriod, SocialPlatform, SocialPostStatus,
+};
+use weldsuite_schema::tenant::{social_accounts, social_analytics, social_campaigns, social_posts};
 use weldsuite_social_domain::publishing::{PublishError, sync_analytics};
 
 use crate::js::query_param;
+use crate::table::iso;
 use crate::{Caller, SocialState};
 
 pub(crate) fn routes<Q: PermissionQueries + 'static>(
@@ -39,7 +49,11 @@ async fn sync(
     caller: Caller,
     Path(post_id): Path<String>,
 ) -> Response {
-    match sync_analytics(&caller.db, &caller.context(&state), &post_id).await {
+    let context = match caller.postpeer(&state).await {
+        Ok(context) => context,
+        Err(response) => return *response,
+    };
+    match sync_analytics(&caller.db, &context, &post_id).await {
         Ok(result) => Data(result).into_response(),
         Err(PublishError::NotConfigured) => {
             ApiError::bad_request("Social publishing is not configured").into_response()
@@ -71,13 +85,29 @@ async fn overview(caller: Caller) -> Response {
     }
 }
 
-async fn overview_of(caller: &Caller) -> Result<Value, sqlx::Error> {
-    let analytics: Vec<Totals> = sqlx::query_as(
-        "select impressions, reach, total_engagement, clicks from social_analytics
-         where snapshot_period = 'lifetime'",
-    )
-    .fetch_all(&caller.db)
-    .await?;
+/// `eq(status, 'active'), isNull(deletedAt)` on `social_accounts`.
+fn active_accounts() -> Condition {
+    Condition::all()
+        .add(social_accounts::Column::Status.eq(SocialAccountStatus::Active))
+        .add(social_accounts::Column::DeletedAt.is_null())
+}
+
+async fn overview_of(caller: &Caller) -> Result<Value, DbErr> {
+    let db = orm(&caller.db);
+    let analytics: Vec<Totals> = social_analytics::Entity::find()
+        .select_only()
+        .columns([
+            social_analytics::Column::Impressions,
+            social_analytics::Column::Reach,
+            social_analytics::Column::TotalEngagement,
+            social_analytics::Column::Clicks,
+        ])
+        .filter(
+            social_analytics::Column::SnapshotPeriod.eq(SocialAnalyticsSnapshotPeriod::Lifetime),
+        )
+        .into_tuple()
+        .all(&db)
+        .await?;
     let (mut impressions, mut reach, mut engagement, mut clicks) = (0.0, 0.0, 0.0, 0.0);
     for (i, r, e, c) in analytics {
         #[allow(clippy::cast_precision_loss)]
@@ -93,17 +123,25 @@ async fn overview_of(caller: &Caller) -> Result<Value, sqlx::Error> {
     } else {
         0.0
     };
-    let accounts: Vec<(String, String, Option<i32>)> = sqlx::query_as(
-        "select id, platform::text, follower_count from social_accounts
-         where status = 'active' and deleted_at is null",
-    )
-    .fetch_all(&caller.db)
-    .await?;
-    let posts: Vec<Option<Value>> = sqlx::query_scalar(
-        "select target_account_ids from social_posts where status = 'published' and deleted_at is null",
-    )
-    .fetch_all(&caller.db)
-    .await?;
+    let accounts: Vec<(String, SocialPlatform, Option<i32>)> = social_accounts::Entity::find()
+        .select_only()
+        .columns([
+            social_accounts::Column::Id,
+            social_accounts::Column::Platform,
+            social_accounts::Column::FollowerCount,
+        ])
+        .filter(active_accounts())
+        .into_tuple()
+        .all(&db)
+        .await?;
+    let posts: Vec<Option<Value>> = social_posts::Entity::find()
+        .select_only()
+        .column(social_posts::Column::TargetAccountIds)
+        .filter(social_posts::Column::Status.eq(SocialPostStatus::Published))
+        .filter(social_posts::Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&db)
+        .await?;
     let stats: Vec<Value> = accounts
         .iter()
         .map(|(id, platform, followers)| {
@@ -117,7 +155,7 @@ async fn overview_of(caller: &Caller) -> Result<Value, sqlx::Error> {
                 })
                 .count();
             json!({
-                "platform": platform,
+                "platform": platform.to_value(),
                 "followers": followers.filter(|f| *f != 0).unwrap_or(0),
                 "posts": count,
                 "engagement": 0,
@@ -139,17 +177,23 @@ async fn overview_of(caller: &Caller) -> Result<Value, sqlx::Error> {
 /// connected accounts.
 async fn stats(caller: Caller) -> Response {
     let result = async {
-        let posts: Vec<(String, Option<Value>)> = sqlx::query_as(
-            "select status::text, to_jsonb(published_at) from social_posts where deleted_at is null",
-        )
-        .fetch_all(&caller.db)
-        .await?;
-        let accounts: Option<i32> = sqlx::query_scalar(
-            "select count(*)::int from social_accounts where status = 'active' and deleted_at is null",
-        )
-        .fetch_one(&caller.db)
-        .await?;
-        Ok::<_, sqlx::Error>((posts, accounts))
+        let db = orm(&caller.db);
+        let posts: Vec<(SocialPostStatus, Option<PrimitiveDateTime>)> =
+            social_posts::Entity::find()
+                .select_only()
+                .columns([
+                    social_posts::Column::Status,
+                    social_posts::Column::PublishedAt,
+                ])
+                .filter(social_posts::Column::DeletedAt.is_null())
+                .into_tuple()
+                .all(&db)
+                .await?;
+        let accounts = social_accounts::Entity::find()
+            .filter(active_accounts())
+            .count(&db)
+            .await?;
+        Ok::<_, DbErr>((posts, accounts))
     }
     .await;
     let (posts, accounts) = match result {
@@ -157,25 +201,21 @@ async fn stats(caller: Caller) -> Response {
         Err(error) => return crate::internal(&error, "Failed to fetch stats"),
     };
     let week_ago = iso_timestamp(OffsetDateTime::now_utc() - time::Duration::days(7));
-    let count = |status: &str| posts.iter().filter(|(s, _)| s == status).count();
+    let count = |status: SocialPostStatus| posts.iter().filter(|(s, _)| *s == status).count();
     let published_this_week = posts
         .iter()
         .filter(|(status, published_at)| {
-            status == "published"
-                && published_at
-                    .as_ref()
-                    .and_then(Value::as_str)
-                    .and_then(weldsuite_db::js_timestamp)
-                    .is_some_and(|at| at >= week_ago)
+            *status == SocialPostStatus::Published
+                && published_at.is_some_and(|at| iso(at) >= week_ago)
         })
         .count();
     Data(json!({
         "totalPosts": posts.len(),
-        "scheduledPosts": count("scheduled"),
+        "scheduledPosts": count(SocialPostStatus::Scheduled),
         "publishedThisWeek": published_this_week,
-        "pendingApproval": count("pending_approval"),
+        "pendingApproval": count(SocialPostStatus::PendingApproval),
         "totalEngagement": 0,
-        "connectedAccounts": accounts.filter(|n| *n != 0).unwrap_or(0),
+        "connectedAccounts": accounts,
     }))
     .into_response()
 }
@@ -194,15 +234,26 @@ async fn search(caller: Caller, RawQuery(query): RawQuery) -> Response {
     }
 }
 
-async fn search_for(caller: &Caller, term: &str) -> Result<Vec<Value>, sqlx::Error> {
+async fn search_for(caller: &Caller, term: &str) -> Result<Vec<Value>, DbErr> {
+    let db = orm(&caller.db);
     let mut results = Vec::new();
-    let posts: Vec<(String, Option<String>, String)> = sqlx::query_as(
-        "select id, title, content from social_posts
-         where deleted_at is null and (title ilike $1 or content ilike $1) limit 5",
-    )
-    .bind(term)
-    .fetch_all(&caller.db)
-    .await?;
+    let posts: Vec<(String, Option<String>, String)> = social_posts::Entity::find()
+        .select_only()
+        .columns([
+            social_posts::Column::Id,
+            social_posts::Column::Title,
+            social_posts::Column::Content,
+        ])
+        .filter(social_posts::Column::DeletedAt.is_null())
+        .filter(
+            Condition::any()
+                .add(social_posts::Column::Title.ilike(term))
+                .add(social_posts::Column::Content.ilike(term)),
+        )
+        .limit(5)
+        .into_tuple()
+        .all(&db)
+        .await?;
     for (id, title, content) in posts {
         results.push(json!({
             "type": "post",
@@ -212,13 +263,23 @@ async fn search_for(caller: &Caller, term: &str) -> Result<Vec<Value>, sqlx::Err
             "url": format!("/social/posts/{id}"),
         }));
     }
-    let campaigns: Vec<(String, String, Option<String>)> = sqlx::query_as(
-        "select id, name, description from social_campaigns
-         where deleted_at is null and (name ilike $1 or description ilike $1) limit 5",
-    )
-    .bind(term)
-    .fetch_all(&caller.db)
-    .await?;
+    let campaigns: Vec<(String, String, Option<String>)> = social_campaigns::Entity::find()
+        .select_only()
+        .columns([
+            social_campaigns::Column::Id,
+            social_campaigns::Column::Name,
+            social_campaigns::Column::Description,
+        ])
+        .filter(social_campaigns::Column::DeletedAt.is_null())
+        .filter(
+            Condition::any()
+                .add(social_campaigns::Column::Name.ilike(term))
+                .add(social_campaigns::Column::Description.ilike(term)),
+        )
+        .limit(5)
+        .into_tuple()
+        .all(&db)
+        .await?;
     for (id, name, description) in campaigns {
         let mut hit = json!({ "type": "campaign", "id": id, "title": name, "url": format!("/social/campaigns/{id}") });
         if let Some(description) = description.filter(|d| !d.is_empty()) {
@@ -226,14 +287,27 @@ async fn search_for(caller: &Caller, term: &str) -> Result<Vec<Value>, sqlx::Err
         }
         results.push(hit);
     }
-    let accounts: Vec<(String, String, Option<String>, String)> = sqlx::query_as(
-        "select id, name, username, platform::text from social_accounts
-         where deleted_at is null and (name ilike $1 or username ilike $1) limit 5",
-    )
-    .bind(term)
-    .fetch_all(&caller.db)
-    .await?;
+    let accounts: Vec<(String, String, Option<String>, SocialPlatform)> =
+        social_accounts::Entity::find()
+            .select_only()
+            .columns([
+                social_accounts::Column::Id,
+                social_accounts::Column::Name,
+                social_accounts::Column::Username,
+                social_accounts::Column::Platform,
+            ])
+            .filter(social_accounts::Column::DeletedAt.is_null())
+            .filter(
+                Condition::any()
+                    .add(social_accounts::Column::Name.ilike(term))
+                    .add(social_accounts::Column::Username.ilike(term)),
+            )
+            .limit(5)
+            .into_tuple()
+            .all(&db)
+            .await?;
     for (id, name, username, platform) in accounts {
+        let platform = platform.to_value();
         results.push(json!({
             "type": "account",
             "id": id,

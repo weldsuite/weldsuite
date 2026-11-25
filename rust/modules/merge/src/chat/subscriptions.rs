@@ -25,17 +25,22 @@ use axum::body::Bytes;
 use axum::extract::{Path, RawQuery, State};
 use axum::response::IntoResponse;
 use http::HeaderMap;
+use sea_orm::ActiveValue::{Set, Unchanged};
+use sea_orm::{
+    ActiveModelTrait, ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect,
+};
 use serde_json::{Map, Value, json};
 use time::OffsetDateTime;
-use weldsuite_db::{PgPool, js_row};
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::validation::{Field, Issues, Number, Presence};
 use weldsuite_kit::{Created, Data, NoContent, generate_id};
+use weldsuite_schema::tenant::{merge_chat_subscriptions, merge_repositories, merge_teams};
 
-use crate::db::{Row, col, int, rows_of, text};
+use crate::db::{Row, col, int, int4, json_row, json_rows, now_at, text};
 use crate::issues::diff_fields;
 use crate::schemas::nothing_to_update;
 use crate::{
-    Answer, Caller, MergeState, PendingEvent, Refusal, all, now, publish, validate, validate_query,
+    Answer, Caller, MergeState, PendingEvent, Refusal, all, publish, validate, validate_query,
 };
 
 /// The due index kind of the daily digest.
@@ -118,14 +123,17 @@ fn unique_events(events: Vec<String>) -> Vec<String> {
 
 // ── Reading ─────────────────────────────────────────────────────────────────
 
-async fn find_subscription(db: &PgPool, id: &str) -> Result<Option<Row>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(s) from merge_chat_subscriptions s where s.id = $1 and s.deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(js_row))
+fn subscription_row(subscription: merge_chat_subscriptions::Model) -> Result<Row, DbErr> {
+    json_row(serde_json::to_value(subscription))
+}
+
+async fn find_subscription(db: &PgPool, id: &str) -> Result<Option<Row>, DbErr> {
+    merge_chat_subscriptions::Entity::find_by_id(id.to_owned())
+        .filter(merge_chat_subscriptions::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?
+        .map(subscription_row)
+        .transpose()
 }
 
 /// What an event is about, to match subscriptions against (`EventScope`).
@@ -167,17 +175,21 @@ pub(crate) fn subscribed_channels(rows: &[Row], scope: &EventScope) -> Vec<Strin
 }
 
 /// The live subscriptions to `event`, oldest first.
-async fn subscriptions_to(db: &PgPool, event: &str) -> Result<Vec<Row>, sqlx::Error> {
-    Ok(rows_of(
-        sqlx::query_scalar(
-            "select to_jsonb(s) from merge_chat_subscriptions s \
-             where s.deleted_at is null and s.events @> $1::jsonb \
-             order by s.created_at asc, s.id asc",
-        )
-        .bind(json!([event]))
-        .fetch_all(db)
-        .await?,
-    ))
+async fn subscriptions_to(db: &PgPool, event: &str) -> Result<Vec<Row>, DbErr> {
+    json_rows(
+        merge_chat_subscriptions::Entity::find()
+            .filter(merge_chat_subscriptions::Column::DeletedAt.is_null())
+            .filter(sea_orm::sea_query::extension::postgres::PgExpr::contains(
+                merge_chat_subscriptions::Column::Events.into_expr(),
+                json!([event]),
+            ))
+            .order_by_asc(merge_chat_subscriptions::Column::CreatedAt)
+            .order_by_asc(merge_chat_subscriptions::Column::Id)
+            .all(&orm(db))
+            .await?
+            .into_iter()
+            .map(serde_json::to_value),
+    )
 }
 
 /// `channelsFor(db, event, scope)`: the channels subscribed to `event` for
@@ -186,7 +198,7 @@ pub(crate) async fn channels_for(
     db: &PgPool,
     event: &str,
     scope: &EventScope,
-) -> Result<Vec<String>, sqlx::Error> {
+) -> Result<Vec<String>, DbErr> {
     Ok(subscribed_channels(
         &subscriptions_to(db, event).await?,
         scope,
@@ -194,7 +206,7 @@ pub(crate) async fn channels_for(
 }
 
 /// `digestSubscriptions(db)`: the subscriptions that post a daily digest.
-pub(crate) async fn digest_subscriptions(db: &PgPool) -> Result<Vec<Row>, sqlx::Error> {
+pub(crate) async fn digest_subscriptions(db: &PgPool) -> Result<Vec<Row>, DbErr> {
     subscriptions_to(db, "daily_digest").await
 }
 
@@ -229,18 +241,23 @@ pub(crate) async fn list(caller: Caller, RawQuery(query): RawQuery) -> Answer {
         )
     })?;
     let truthy = |value: Option<String>| value.filter(|v| !v.is_empty());
-    let rows = rows_of(
-        sqlx::query_scalar(
-            "select to_jsonb(s) from merge_chat_subscriptions s where s.deleted_at is null \
-             and ($1::text is null or s.channel_id = $1) \
-             and ($2::text is null or s.team_id = $2) \
-             order by s.created_at asc, s.id asc",
-        )
-        .bind(truthy(channel_id))
-        .bind(truthy(team_id))
-        .fetch_all(&caller.db)
-        .await?,
-    );
+    let mut select = merge_chat_subscriptions::Entity::find()
+        .filter(merge_chat_subscriptions::Column::DeletedAt.is_null());
+    if let Some(channel_id) = truthy(channel_id) {
+        select = select.filter(merge_chat_subscriptions::Column::ChannelId.eq(channel_id));
+    }
+    if let Some(team_id) = truthy(team_id) {
+        select = select.filter(merge_chat_subscriptions::Column::TeamId.eq(team_id));
+    }
+    let rows = json_rows(
+        select
+            .order_by_asc(merge_chat_subscriptions::Column::CreatedAt)
+            .order_by_asc(merge_chat_subscriptions::Column::Id)
+            .all(&orm(&caller.db))
+            .await?
+            .into_iter()
+            .map(serde_json::to_value),
+    )?;
     Ok(all(rows.iter().map(subscription_dto).collect()))
 }
 
@@ -313,25 +330,28 @@ async fn check_refs(
     db: &PgPool,
     team_id: Option<&str>,
     repository_id: Option<&str>,
-) -> Result<Option<Refusal>, sqlx::Error> {
+) -> Result<Option<Refusal>, DbErr> {
+    let db = orm(db);
     if let Some(team) = team_id.filter(|t| !t.is_empty()) {
-        let found: Option<String> = sqlx::query_scalar(
-            "select id from merge_teams where id = $1 and deleted_at is null limit 1",
-        )
-        .bind(team)
-        .fetch_optional(db)
-        .await?;
+        let found = merge_teams::Entity::find_by_id(team.to_owned())
+            .select_only()
+            .column(merge_teams::Column::Id)
+            .filter(merge_teams::Column::DeletedAt.is_null())
+            .into_tuple::<String>()
+            .one(&db)
+            .await?;
         if found.is_none() {
             return Ok(Some(Refusal::not_found("Team", None)));
         }
     }
     if let Some(repository) = repository_id.filter(|r| !r.is_empty()) {
-        let found: Option<String> = sqlx::query_scalar(
-            "select id from merge_repositories where id = $1 and deleted_at is null limit 1",
-        )
-        .bind(repository)
-        .fetch_optional(db)
-        .await?;
+        let found = merge_repositories::Entity::find_by_id(repository.to_owned())
+            .select_only()
+            .column(merge_repositories::Column::Id)
+            .filter(merge_repositories::Column::DeletedAt.is_null())
+            .into_tuple::<String>()
+            .one(&db)
+            .await?;
         if found.is_none() {
             return Ok(Some(Refusal::not_found("Repository", None)));
         }
@@ -373,26 +393,25 @@ pub(crate) async fn create(
     if let Some(refusal) = check_refs(db, team_id.as_deref(), repository_id.as_deref()).await? {
         return Err(refusal);
     }
-    let now = now();
-    let row: Value = sqlx::query_scalar(
-        "insert into merge_chat_subscriptions \
-           (id, channel_id, team_id, repository_id, events, digest_hour, created_by_user_id, created_at, updated_at) \
-         values ($1, $2, $3, $4, $5, $6, $7, $8::timestamptz, $8::timestamptz) \
-         returning to_jsonb(merge_chat_subscriptions.*)",
-    )
-    .bind(generate_id("mcs"))
-    .bind(&input.channel_id)
-    .bind(team_id)
-    .bind(repository_id)
-    .bind(json!(unique_events(
-        input.events.into_option().unwrap_or_default()
-    )))
-    .bind(input.digest_hour.into_option().unwrap_or(9))
-    .bind(&caller.user_id)
-    .bind(&now)
-    .fetch_one(db)
-    .await?;
-    let row = js_row(row);
+    let (_, at) = now_at();
+    let row = subscription_row(
+        merge_chat_subscriptions::Entity::insert(merge_chat_subscriptions::ActiveModel {
+            id: Set(generate_id("mcs")),
+            channel_id: Set(input.channel_id.clone()),
+            team_id: Set(team_id),
+            repository_id: Set(repository_id),
+            events: Set(json!(unique_events(
+                input.events.into_option().unwrap_or_default()
+            ))),
+            digest_hour: Set(int4(input.digest_hour.into_option().unwrap_or(9))?),
+            created_by_user_id: Set(caller.user_id.clone()),
+            created_at: Set(at),
+            updated_at: Set(at),
+            ..Default::default()
+        })
+        .exec_with_returning(&orm(db))
+        .await?,
+    )?;
     publish(
         &state,
         &caller.events,
@@ -435,31 +454,26 @@ pub(crate) async fn update(
     {
         return Err(refusal);
     }
-    let (set_team, team) = patch(&input.team_id);
-    let (set_repository, repository) = patch(&input.repository_id);
-    let events = input
-        .events
-        .as_set()
-        .map(|events| json!(unique_events(events.clone())));
-    let row: Value = sqlx::query_scalar(
-        "update merge_chat_subscriptions set updated_at = $2::timestamptz, \
-           team_id = case when $3 then $4 else team_id end, \
-           repository_id = case when $5 then $6 else repository_id end, \
-           events = case when $7::jsonb is null then events else $7 end, \
-           digest_hour = case when $8::int is null then digest_hour else $8 end \
-         where id = $1 returning to_jsonb(merge_chat_subscriptions.*)",
-    )
-    .bind(&id)
-    .bind(now())
-    .bind(set_team)
-    .bind(team)
-    .bind(set_repository)
-    .bind(repository)
-    .bind(events)
-    .bind(input.digest_hour.as_set().copied())
-    .fetch_one(db)
-    .await?;
-    let row = js_row(row);
+    let (_, at) = now_at();
+    // Only the fields the input sends change.
+    let mut subscription = merge_chat_subscriptions::ActiveModel {
+        id: Unchanged(id.clone()),
+        updated_at: Set(at),
+        ..Default::default()
+    };
+    if let (true, team) = patch(&input.team_id) {
+        subscription.team_id = Set(team);
+    }
+    if let (true, repository) = patch(&input.repository_id) {
+        subscription.repository_id = Set(repository);
+    }
+    if let Some(events) = input.events.as_set() {
+        subscription.events = Set(json!(unique_events(events.clone())));
+    }
+    if let Some(hour) = input.digest_hour.as_set() {
+        subscription.digest_hour = Set(int4(*hour)?);
+    }
+    let row = subscription_row(subscription.update(&orm(db)).await?)?;
     let changes = diff_fields(&before, &row, &SUBSCRIPTION_CHANGE_FIELDS);
     publish(
         &state,
@@ -476,18 +490,24 @@ pub(crate) async fn remove(
     caller: Caller,
     Path(id): Path<String>,
 ) -> Answer {
-    let now = now();
-    let row: Option<Value> = sqlx::query_scalar(
-        "update merge_chat_subscriptions set deleted_at = $2::timestamptz, updated_at = $2::timestamptz \
-         where id = $1 and deleted_at is null returning to_jsonb(merge_chat_subscriptions.*)",
-    )
-    .bind(&id)
-    .bind(&now)
-    .fetch_optional(&caller.db)
-    .await?;
-    let Some(row) = row.map(js_row) else {
+    let (_, at) = now_at();
+    let removed = merge_chat_subscriptions::Entity::update_many()
+        .col_expr(
+            merge_chat_subscriptions::Column::DeletedAt,
+            sea_orm::sea_query::Expr::value(at),
+        )
+        .col_expr(
+            merge_chat_subscriptions::Column::UpdatedAt,
+            sea_orm::sea_query::Expr::value(at),
+        )
+        .filter(merge_chat_subscriptions::Column::Id.eq(&id))
+        .filter(merge_chat_subscriptions::Column::DeletedAt.is_null())
+        .exec_with_returning(&orm(&caller.db))
+        .await?;
+    let Some(row) = removed.into_iter().next() else {
         return Err(Refusal::not_found("Chat subscription", Some(&id)));
     };
+    let row = subscription_row(row)?;
     publish(
         &state,
         &caller.events,

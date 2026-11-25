@@ -10,11 +10,20 @@ use axum::extract::{FromRequestParts, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use http::request::Parts;
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{
+    ColumnTrait, Condition, DbErr, EntityTrait, JoinType, QueryFilter, QueryOrder, QuerySelect,
+    RelationDef,
+};
 use serde_json::{Value, json};
 use weldsuite_auth::AuthContext;
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::{ApiError, Data};
 use weldsuite_mail_domain::access::is_admin_or_owner;
+use weldsuite_schema::master::enums::MembershipStatus;
+use weldsuite_schema::master::{user_workspaces, workspaces};
+use weldsuite_schema::tenant::enums::{MailAccountStatus, MailProvider};
+use weldsuite_schema::tenant::mail_accounts::{self, Column};
 
 use crate::caller::Bindings;
 use crate::{MailState, RequestTenantDatabases};
@@ -86,9 +95,9 @@ type MailboxRow = (
     String,
     Option<String>,
     String,
-    Option<String>,
+    MailProvider,
     Option<bool>,
-    String,
+    MailAccountStatus,
 );
 
 /// A membership: Clerk org id, workspace id, name, slug, image, role.
@@ -103,22 +112,44 @@ type MembershipRow = (
 
 /// `accountsForWorkspace`: the first 100 mailboxes the user may open there
 /// (`listMailAccounts(db, userId, { limit: 100 })`), as directory entries.
-async fn accounts(db: &PgPool, user_id: &str) -> Result<Vec<Value>, sqlx::Error> {
+async fn accounts(db: &PgPool, user_id: &str) -> Result<Vec<Value>, DbErr> {
     let admin = is_admin_or_owner(db, user_id).await?;
-    let rows: Vec<MailboxRow> =
-        sqlx::query_as(
-            "select a.id, a.email, a.display_name, a.name, a.provider::text, a.is_default,
-               a.status::text
-             from mail_accounts a
-             where a.deleted_at is null and (a.is_shared = true
-               or a.assigned_user_ids @> jsonb_build_array($1::text)
-               or ($2 and coalesce(a.assigned_user_ids, '[]'::jsonb) in ('[]'::jsonb, 'null'::jsonb)))
-             order by a.created_at desc, a.id desc
-             limit 101",
-        )
-        .bind(user_id)
-        .bind(admin)
-        .fetch_all(db)
+    // Shared, assigned to the user (`assigned_user_ids @> [user]`), or, for
+    // an admin or owner, assigned to nobody (`coalesce(…, '[]')` is `[]` or
+    // JSON `null`).
+    let mut open = Condition::any().add(Column::IsShared.eq(true)).add(
+        sea_orm::sea_query::extension::postgres::PgExpr::contains(
+            Expr::col(Column::AssignedUserIds),
+            Expr::value(json!([user_id])),
+        ),
+    );
+    if admin {
+        open = open.add(sea_orm::ExprTrait::is_in(
+            Expr::from(Func::coalesce([
+                Expr::col(Column::AssignedUserIds),
+                Expr::value(json!([])),
+            ])),
+            [json!([]), Value::Null],
+        ));
+    }
+    let rows: Vec<MailboxRow> = mail_accounts::Entity::find()
+        .select_only()
+        .columns([
+            Column::Id,
+            Column::Email,
+            Column::DisplayName,
+            Column::Name,
+            Column::Provider,
+            Column::IsDefault,
+            Column::Status,
+        ])
+        .filter(Column::DeletedAt.is_null())
+        .filter(open)
+        .order_by_desc(Column::CreatedAt)
+        .order_by_desc(Column::Id)
+        .limit(101)
+        .into_tuple()
+        .all(&orm(db))
         .await?;
     Ok(rows
         .into_iter()
@@ -138,21 +169,35 @@ async fn accounts(db: &PgPool, user_id: &str) -> Result<Vec<Value>, sqlx::Error>
         .collect())
 }
 
+/// `innerJoin(workspaces, eq(userWorkspaces.workspaceId, workspaces.id))`.
+fn membership_workspace() -> RelationDef {
+    user_workspaces::Entity::belongs_to(workspaces::Entity)
+        .from(user_workspaces::Column::WorkspaceId)
+        .to(workspaces::Column::Id)
+        .into()
+}
+
 /// `GET /` (`listUserMailboxes`).
 async fn list(State(state): State<MailState>, caller: SignedIn) -> Response {
     let Some(master) = caller.bindings.master(&state) else {
         tracing::error!("[app-api/mailboxes] list failed: no master database");
         return Data(json!([])).into_response();
     };
-    let rows: Result<Vec<MembershipRow>, sqlx::Error> = sqlx::query_as(
-        "select w.clerk_org_id, w.id, w.name, w.slug, w.image_url, uw.role
-             from user_workspaces uw
-             inner join workspaces w on uw.workspace_id = w.id
-             where uw.user_id = $1 and uw.status = 'ACTIVE' and w.is_active = true",
-    )
-    .bind(&caller.user_id)
-    .fetch_all(&master)
-    .await;
+    let rows: Result<Vec<MembershipRow>, DbErr> = user_workspaces::Entity::find()
+        .select_only()
+        .column(workspaces::Column::ClerkOrgId)
+        .column(workspaces::Column::Id)
+        .column(workspaces::Column::Name)
+        .column(workspaces::Column::Slug)
+        .column(workspaces::Column::ImageUrl)
+        .column(user_workspaces::Column::Role)
+        .join(JoinType::InnerJoin, membership_workspace())
+        .filter(user_workspaces::Column::UserId.eq(&caller.user_id))
+        .filter(user_workspaces::Column::Status.eq(MembershipStatus::ACTIVE))
+        .filter(workspaces::Column::IsActive.eq(true))
+        .into_tuple()
+        .all(&orm(&master))
+        .await;
     let rows = match rows {
         Ok(rows) => rows,
         Err(error) => {

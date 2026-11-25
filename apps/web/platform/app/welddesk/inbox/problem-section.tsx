@@ -74,8 +74,8 @@ export function ProblemSection({ conversation }: Readonly<{ conversation: DeskCo
   const busy = setProblem.isPending || create.isPending;
 
   return (
-    <div className="px-4 py-3 border-b border-border/60" data-testid="desk-inbox-problem">
-      <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-1">{t.title}</p>
+    <section className="space-y-2" data-testid="desk-inbox-problem">
+      <h3 className="text-sm font-semibold text-foreground">{t.title}</h3>
 
       {problem ? (
         <div className="space-y-2 py-1">
@@ -137,6 +137,6 @@ export function ProblemSection({ conversation }: Readonly<{ conversation: DeskCo
         notice={notice ? <InfoBanner variant="warning">{notice}</InfoBanner> : undefined}
         onPick={link}
       />
-    </div>
+    </section>
   );
 }

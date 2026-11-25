@@ -11,22 +11,28 @@ use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use http::{HeaderMap, StatusCode};
+use sea_orm::sea_query::{Expr, OnConflict};
+use sea_orm::{ActiveValue::Set, ColumnTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 use serde_json::{Value, json};
 use sqlx::PgPool;
 use weldsuite_catalogs::entity_events::{
     REACH_DOMAIN_CONNECTED, REACH_DOMAIN_DISCONNECTED, REACH_DOMAIN_UPDATED,
 };
 use weldsuite_catalogs::permission_keys as perm;
+use weldsuite_db::orm;
 use weldsuite_kit::validation::{Presence, Text};
 use weldsuite_kit::{Data, List, NoContent, Pagination, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 use weldsuite_ports::OutboundHttp;
 use weldsuite_reach_domain::schemas::Limits;
 use weldsuite_reach_domain::{EventSink, ReachError, ReachEvent, ReachResult, domains, iso, text};
+use weldsuite_schema::master::reach_routes;
+use weldsuite_schema::tenant::enums::HostDnsProvider;
+use weldsuite_schema::tenant::{dns_zones, domains as host_domains, reach_domains};
 
 use crate::dnscheck::{DnsLookupError, evaluate, footprint};
-use crate::mailpool::{Mailpool, id_text, not_configured, upstream};
-use crate::{Caller, ReachState, account_workspace, respond, validate};
+use crate::mailpool::{Mailpool, id_text, not_configured, outside_eu, upstream};
+use crate::{Caller, ReachState, account_workspace, db_error, respond, row_json, validate};
 
 pub(crate) fn routes<Q: PermissionQueries + 'static>(
     gate: &Arc<PermissionGate<Q>>,
@@ -58,14 +64,20 @@ fn listed(items: Vec<Value>) -> Response {
     List::new(items, Pagination::new(n, false, None)).into_response()
 }
 
-/// `createMailpoolClient(c.env)`, or 503 without the key.
-pub(crate) fn mailpool_of(caller: &Caller, state: &ReachState) -> ReachResult<Mailpool> {
-    Mailpool::new(
+/// `createMailpoolClient(c.env)`, or 503 without the key. Mailpool is outside
+/// the EU (ADR OPS-026): on the EU edition a workspace that hasn't switched
+/// it on gets 403 `OUTSIDE_EU_SERVICE_OFF` and nothing is called.
+pub(crate) async fn mailpool_of(caller: &Caller, state: &ReachState) -> ReachResult<Mailpool> {
+    let mailpool = Mailpool::new(
         caller.env("MAILPOOL_API_KEY"),
         caller.env("MAILPOOL_API_URL"),
         caller.http(state),
     )
-    .ok_or_else(not_configured)
+    .ok_or_else(not_configured)?;
+    weldsuite_outside_eu::require(&caller.db, weldsuite_outside_eu::ServiceId::Mailpool)
+        .await
+        .map_err(|error| outside_eu(&error))?;
+    Ok(mailpool)
 }
 
 async fn list(caller: Caller) -> Response {
@@ -88,19 +100,27 @@ struct Guards {
 }
 
 async fn guards(db: &PgPool, host_ids: &[String]) -> ReachResult<Guards> {
-    let connected: Vec<String> = sqlx::query_scalar("select host_domain_id from reach_domains")
-        .fetch_all(db)
-        .await?;
+    let connected: Vec<String> = reach_domains::Entity::find()
+        .select_only()
+        .column(reach_domains::Column::HostDomainId)
+        .into_tuple()
+        .all(&orm(db))
+        .await
+        .map_err(db_error)?;
     let zones: Vec<String> = if host_ids.is_empty() {
         Vec::new()
     } else {
-        sqlx::query_scalar(
-            "select domain_id from dns_zones where domain_id = any($1) and provider::text = 'cloudflare'
-                 and external_zone_id is not null and deleted_at is null",
-        )
-        .bind(host_ids)
-        .fetch_all(db)
-        .await?
+        dns_zones::Entity::find()
+            .select_only()
+            .column(dns_zones::Column::DomainId)
+            .filter(dns_zones::Column::DomainId.is_in(host_ids))
+            .filter(dns_zones::Column::Provider.eq(HostDnsProvider::Cloudflare))
+            .filter(dns_zones::Column::ExternalZoneId.is_not_null())
+            .filter(dns_zones::Column::DeletedAt.is_null())
+            .into_tuple()
+            .all(&orm(db))
+            .await
+            .map_err(db_error)?
     };
     Ok(Guards {
         connected_count: connected.len() as i64,
@@ -183,17 +203,26 @@ async fn candidates(State(state): State<ReachState>, caller: Caller) -> Response
     respond(
         async {
             let (_, limits) = account_workspace(&caller)?;
-            let hosts = weldsuite_reach_domain::js_rows(
-                sqlx::query_scalar("select to_jsonb(t) from domains t where t.deleted_at is null order by t.full_domain")
-                    .fetch_all(&caller.db)
-                    .await?,
-            );
-            let ids: Vec<String> = hosts.iter().filter_map(|h| text(h, "id").map(str::to_owned)).collect();
+            let hosts = host_domains::Entity::find()
+                .filter(host_domains::Column::DeletedAt.is_null())
+                .order_by_asc(host_domains::Column::FullDomain)
+                .all(&orm(&caller.db))
+                .await
+                .map_err(db_error)?
+                .into_iter()
+                .map(row_json)
+                .collect::<ReachResult<Vec<Value>>>()?;
+            let ids: Vec<String> = hosts
+                .iter()
+                .filter_map(|h| text(h, "id").map(str::to_owned))
+                .collect();
             let g = guards(&caller.db, &ids).await?;
             let http = caller.http(&state);
             let mut out = Vec::with_capacity(hosts.len());
             for host in &hosts {
-                let reason = ineligible_reason(host, &g, &limits, &http, false).await.unwrap_or(None);
+                let reason = ineligible_reason(host, &g, &limits, &http, false)
+                    .await
+                    .unwrap_or(None);
                 out.push(json!({
                     "hostDomainId": text(host, "id"),
                     "name": text(host, "fullDomain"),
@@ -232,7 +261,7 @@ async fn connect(
         async {
             let (workspace_id, limits) = account_workspace(&caller)?;
             let master = crate::require_master(&caller, &state)?;
-            let mailpool = mailpool_of(&caller, &state)?;
+            let mailpool = mailpool_of(&caller, &state).await?;
             let row = connect_domain(
                 &caller,
                 &state,
@@ -266,13 +295,14 @@ async fn connect_domain(
 ) -> ReachResult<Value> {
     let db = &caller.db;
     let now = caller.now();
-    let host: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from domains t where t.id = $1 and t.deleted_at is null limit 1",
-    )
-    .bind(host_domain_id)
-    .fetch_optional(db)
-    .await?;
-    let Some(host) = host.map(weldsuite_db::js_row) else {
+    let host = host_domains::Entity::find_by_id(host_domain_id.to_owned())
+        .filter(host_domains::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await
+        .map_err(db_error)?
+        .map(row_json)
+        .transpose()?;
+    let Some(host) = host else {
         return Err(ReachError::new(
             404,
             "DOMAIN_NOT_FOUND",
@@ -323,52 +353,59 @@ async fn connect_domain(
         "connecting"
     };
     let domain_id = generate_id("rdom");
-    let inserted: Result<Value, sqlx::Error> = sqlx::query_scalar(
-        "insert into reach_domains (id, host_domain_id, name, mailpool_domain_id, status, forced_by, connected_at, connected_by)
-         values ($1, $2, $3, $4, $5, $6, $7::timestamptz, $8) returning to_jsonb(reach_domains)",
-    )
-    .bind(&domain_id)
-    .bind(&host_id)
-    .bind(&name)
-    .bind(&mailpool_domain_id)
-    .bind(status)
-    .bind(forced.then_some("admin_console"))
-    .bind(iso(now))
-    .bind(&caller.user_id)
-    .fetch_one(db)
+    let inserted = reach_domains::Entity::insert(reach_domains::ActiveModel {
+        id: Set(domain_id.clone()),
+        host_domain_id: Set(host_id.clone()),
+        name: Set(name.clone()),
+        mailpool_domain_id: Set(Some(mailpool_domain_id.clone())),
+        status: Set(status.to_owned()),
+        forced_by: Set(forced.then(|| "admin_console".to_owned())),
+        connected_at: Set(Some(now)),
+        connected_by: Set(Some(caller.user_id.clone())),
+        ..Default::default()
+    })
+    .exec_with_returning(&orm(db))
     .await;
     let row = match inserted {
-        Ok(row) => weldsuite_db::js_row(row),
+        Ok(row) => row_json(row)?,
         Err(error) => {
             drop_from_mailpool(mailpool, &mailpool_domain_id).await;
             if weldsuite_db::is_unique_violation(&error) {
                 return Err(ineligible_error("already_connected"));
             }
-            return Err(error.into());
+            return Err(db_error(error));
         }
     };
-    let routed: Result<Vec<String>, sqlx::Error> = sqlx::query_scalar(
-        "insert into reach_routes (id, kind, external_id, workspace_id, clerk_org_id, tenant_entity_id, status)
-         values ($1, 'mailpool_domain', $2, $3, $4, $5, 'active')
-         on conflict (kind, external_id) do update set tenant_entity_id = $5, clerk_org_id = $4, status = 'active',
-             updated_at = $6::timestamptz
-         where reach_routes.workspace_id = $3
-         returning id",
+    let routed = reach_routes::Entity::insert(reach_routes::ActiveModel {
+        id: Set(generate_id("rrt")),
+        kind: Set("mailpool_domain".to_owned()),
+        external_id: Set(mailpool_domain_id.clone()),
+        workspace_id: Set(workspace_id.to_owned()),
+        clerk_org_id: Set(caller.clerk_org_id.clone()),
+        tenant_entity_id: Set(domain_id.clone()),
+        status: Set("active".to_owned()),
+        ..Default::default()
+    })
+    .on_conflict(
+        OnConflict::columns([reach_routes::Column::Kind, reach_routes::Column::ExternalId])
+            .value(
+                reach_routes::Column::TenantEntityId,
+                Expr::value(&domain_id),
+            )
+            .value(
+                reach_routes::Column::ClerkOrgId,
+                Expr::value(&caller.clerk_org_id),
+            )
+            .value(reach_routes::Column::Status, Expr::value("active"))
+            .value(reach_routes::Column::UpdatedAt, Expr::value(now))
+            .action_and_where(reach_routes::Column::WorkspaceId.eq(workspace_id))
+            .to_owned(),
     )
-    .bind(generate_id("rrt"))
-    .bind(&mailpool_domain_id)
-    .bind(workspace_id)
-    .bind(&caller.clerk_org_id)
-    .bind(&domain_id)
-    .bind(iso(now))
-    .fetch_all(master)
+    .exec_with_returning_many(&orm(master))
     .await;
     match routed {
         Ok(rows) if rows.is_empty() => {
-            sqlx::query("delete from reach_domains where id = $1")
-                .bind(&domain_id)
-                .execute(db)
-                .await?;
+            delete_domain_row(db, &domain_id).await?;
             Err(ReachError::new(
                 409,
                 "DOMAIN_IN_USE",
@@ -377,14 +414,20 @@ async fn connect_domain(
         }
         Ok(_) => Ok(row),
         Err(error) => {
-            sqlx::query("delete from reach_domains where id = $1")
-                .bind(&domain_id)
-                .execute(db)
-                .await?;
+            delete_domain_row(db, &domain_id).await?;
             drop_from_mailpool(mailpool, &mailpool_domain_id).await;
-            Err(error.into())
+            Err(db_error(error))
         }
     }
+}
+
+/// `delete from reach_domains where id = …`.
+async fn delete_domain_row(db: &PgPool, id: &str) -> ReachResult<()> {
+    reach_domains::Entity::delete_by_id(id.to_owned())
+        .exec(&orm(db))
+        .await
+        .map_err(db_error)?;
+    Ok(())
 }
 
 async fn drop_from_mailpool(mailpool: &Mailpool, mailpool_domain_id: &str) {
@@ -422,19 +465,31 @@ async fn refresh_dns(
         async {
             account_workspace(&caller)?;
             crate::require_master(&caller, &state)?;
-            let mailpool = mailpool_of(&caller, &state)?;
+            let mailpool = mailpool_of(&caller, &state).await?;
             let db = &caller.db;
             let row = domains::require(db, &id).await?;
             let Some(mailpool_id) = text(&row, "mailpoolDomainId").map(str::to_owned) else {
-                return Err(ReachError::new(409, "DOMAIN_NOT_CONNECTED", "The domain is not connected yet."));
+                return Err(ReachError::new(
+                    409,
+                    "DOMAIN_NOT_CONNECTED",
+                    "The domain is not connected yet.",
+                ));
             };
             let remote = mailpool.get_domain(&mailpool_id).await;
             let records = mailpool.get_domain_dns(&mailpool_id).await;
-            let (remote, records) = (remote.map_err(|e| upstream(&e))?, records.map_err(|e| upstream(&e))?);
+            let (remote, records) = (
+                remote.map_err(|e| upstream(&e))?,
+                records.map_err(|e| upstream(&e))?,
+            );
             let now = caller.now();
-            let dns_status = evaluate(&caller.http(&state), text(&row, "name").unwrap_or_default(), &records, &iso(now))
-                .await
-                .map_err(DnsLookupError::into_reach)?;
+            let dns_status = evaluate(
+                &caller.http(&state),
+                text(&row, "name").unwrap_or_default(),
+                &records,
+                &iso(now),
+            )
+            .await
+            .map_err(DnsLookupError::into_reach)?;
             let current = text(&row, "status").unwrap_or_default();
             let (status, last_error) = if current == "disconnecting" {
                 (current.to_owned(), None)
@@ -454,21 +509,26 @@ async fn refresh_dns(
                     _ => ("connecting".to_owned(), None),
                 }
             };
-            let policy = dmarc_policy_of(&records).or_else(|| text(&row, "dmarcPolicy").map(str::to_owned));
-            let updated: Option<Value> = sqlx::query_scalar(
-                "update reach_domains set status = $2, last_error = $3, dns_status = $4, dmarc_policy = $5,
-                     updated_at = $6::timestamptz where id = $1 returning to_jsonb(reach_domains)",
-            )
-            .bind(&id)
-            .bind(&status)
-            .bind(&last_error)
-            .bind(&dns_status)
-            .bind(&policy)
-            .bind(iso(caller.now()))
-            .fetch_optional(db)
-            .await?;
-            let updated = updated.map_or(row, weldsuite_db::js_row);
-            caller.sink(&state).emit(ReachEvent::new(REACH_DOMAIN_UPDATED, &id, updated.clone()));
+            let policy =
+                dmarc_policy_of(&records).or_else(|| text(&row, "dmarcPolicy").map(str::to_owned));
+            let updated = reach_domains::Entity::update_many()
+                .col_expr(reach_domains::Column::Status, Expr::value(&status))
+                .col_expr(reach_domains::Column::LastError, Expr::value(last_error))
+                .col_expr(reach_domains::Column::DnsStatus, Expr::value(dns_status))
+                .col_expr(reach_domains::Column::DmarcPolicy, Expr::value(policy))
+                .col_expr(reach_domains::Column::UpdatedAt, Expr::value(caller.now()))
+                .filter(reach_domains::Column::Id.eq(&id))
+                .exec_with_returning(&orm(db))
+                .await
+                .map_err(db_error)?
+                .into_iter()
+                .next()
+                .map(row_json)
+                .transpose()?;
+            let updated = updated.unwrap_or(row);
+            caller
+                .sink(&state)
+                .emit(ReachEvent::new(REACH_DOMAIN_UPDATED, &id, updated.clone()));
             Ok(Data(domains::get(db, text(&updated, "id").unwrap_or(&id)).await?).into_response())
         }
         .await,
@@ -484,7 +544,7 @@ async fn disconnect(
         async {
             let (workspace_id, _) = account_workspace(&caller)?;
             let master = crate::require_master(&caller, &state)?;
-            let mailpool = mailpool_of(&caller, &state)?;
+            let mailpool = mailpool_of(&caller, &state).await?;
             let db = &caller.db;
             let row = domains::require(db, &id).await?;
             let count = domains::mailbox_counts(db, std::slice::from_ref(&id))
@@ -499,38 +559,51 @@ async fn disconnect(
                 )
                 .with_details(json!({ "mailboxCount": count })));
             }
-            let at = iso(caller.now());
-            sqlx::query("update reach_domains set status = 'disconnecting', updated_at = $2::timestamptz where id = $1")
-                .bind(&id)
-                .bind(&at)
-                .execute(db)
-                .await?;
+            let at = caller.now();
+            set_domain_status(db, &id, Some("disconnecting"), at).await?;
             if let Some(mailpool_id) = text(&row, "mailpoolDomainId") {
                 if let Err(error) = mailpool.delete_domain(mailpool_id).await
                     && !error.is_not_found()
                 {
-                    sqlx::query("update reach_domains set status = $2, updated_at = $3::timestamptz where id = $1")
-                        .bind(&id)
-                        .bind(text(&row, "status"))
-                        .bind(&at)
-                        .execute(db)
-                        .await?;
+                    set_domain_status(db, &id, text(&row, "status"), at).await?;
                     return Err(upstream(&error));
                 }
-                sqlx::query(
-                    "update reach_routes set status = 'deleted', updated_at = $3::timestamptz
-                     where kind = 'mailpool_domain' and external_id = $1 and workspace_id = $2",
-                )
-                .bind(mailpool_id)
-                .bind(&workspace_id)
-                .bind(&at)
-                .execute(&master)
-                .await?;
+                reach_routes::Entity::update_many()
+                    .col_expr(reach_routes::Column::Status, Expr::value("deleted"))
+                    .col_expr(reach_routes::Column::UpdatedAt, Expr::value(at))
+                    .filter(reach_routes::Column::Kind.eq("mailpool_domain"))
+                    .filter(reach_routes::Column::ExternalId.eq(mailpool_id))
+                    .filter(reach_routes::Column::WorkspaceId.eq(&workspace_id))
+                    .exec(&orm(&master))
+                    .await
+                    .map_err(db_error)?;
             }
-            sqlx::query("delete from reach_domains where id = $1").bind(&id).execute(db).await?;
-            caller.sink(&state).emit(ReachEvent::new(REACH_DOMAIN_DISCONNECTED, &id, row));
+            delete_domain_row(db, &id).await?;
+            caller
+                .sink(&state)
+                .emit(ReachEvent::new(REACH_DOMAIN_DISCONNECTED, &id, row));
             Ok(NoContent.into_response())
         }
         .await,
     )
+}
+
+/// `update reach_domains set status = …, updated_at = … where id = …`.
+async fn set_domain_status(
+    db: &PgPool,
+    id: &str,
+    status: Option<&str>,
+    at: time::OffsetDateTime,
+) -> ReachResult<()> {
+    reach_domains::Entity::update_many()
+        .col_expr(
+            reach_domains::Column::Status,
+            Expr::value(status.map(str::to_owned)),
+        )
+        .col_expr(reach_domains::Column::UpdatedAt, Expr::value(at))
+        .filter(reach_domains::Column::Id.eq(id))
+        .exec(&orm(db))
+        .await
+        .map_err(db_error)?;
+    Ok(())
 }

@@ -23,6 +23,8 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use http::HeaderMap;
+use sea_orm::sea_query::Order;
+use sea_orm::{ColumnTrait, Condition};
 use serde_json::{Map, Value, json};
 use weldsuite_books_domain::sales_tax::tax_codes::{is_stripe_tax_code, is_weld_tax_code};
 use weldsuite_catalogs::entity_events::{PRODUCT_CREATED, PRODUCT_DELETED, PRODUCT_UPDATED};
@@ -32,9 +34,12 @@ use weldsuite_catalogs::permission_keys::{
 use weldsuite_kit::validation::{Field, Issues, Presence, Text, js_trim};
 use weldsuite_kit::{ApiError, Created, Data, NoContent, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::products;
 
-use crate::args::{Arg, bind_scalar, created_cursor, cursor_sql, page_list, sliced};
-use crate::js::{js_limit, query_param, query_set, sql_limit};
+use crate::args::{
+    all_on, before, cursor_row, limit_plus_one, page_list, pushed, sliced, table_count, table_rows,
+};
+use crate::js::{js_limit, query_param, query_set};
 use crate::table::WriteError;
 use crate::tables::PRODUCTS;
 use crate::{Caller, CommerceState, Refusal, internal, now, validate};
@@ -229,22 +234,14 @@ fn deleted_event(id: &str, existing: &Value) -> Value {
 
 // ── list ────────────────────────────────────────────────────────────────────
 
-const LIST_SQL: &str = concat!(
-    "select ",
-    row_of!(products),
-    " from \"products\" t where (not $1::boolean or t.deleted_at is null)",
-    " and (not $2::boolean or t.status = $3)",
-    " and (not $4::boolean or (t.name like $5 or t.slug like $5 or t.sku like $5 or t.barcode like $5))",
-    " and (not $6::boolean or (t.created_at < $7::timestamp or (t.created_at = $7::timestamp and t.id < $8)))",
-    " order by t.created_at desc, t.id desc limit $9"
-);
-
-const COUNT_SQL: &str = concat!(
-    "select count(*) from \"products\" t where (not $1::boolean or t.deleted_at is null)",
-    " and (not $2::boolean or t.status = $3)",
-    " and (not $4::boolean or (t.name like $5 or t.slug like $5 or t.sku like $5 or t.barcode like $5))",
-    " and (not $6::boolean or (t.created_at < $7::timestamp or (t.created_at = $7::timestamp and t.id < $8)))"
-);
+/// `like(t.name, s) or like(t.slug, s) or like(t.sku, s) or like(t.barcode, s)`.
+fn search_condition(pattern: &str) -> Condition {
+    Condition::any()
+        .add(products::Column::Name.like(pattern))
+        .add(products::Column::Slug.like(pattern))
+        .add(products::Column::Sku.like(pattern))
+        .add(products::Column::Barcode.like(pattern))
+}
 
 /// `GET /`: live products newest first, `eq(t.status, q.status)` when set,
 /// then `like` on name, slug, SKU and barcode.
@@ -254,48 +251,47 @@ async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
     let cursor = query_set(query, "cursor");
     let status = query_set(query, "status");
     let search = query_set(query, "search").map(|search| format!("%{search}%"));
-    let mut slots: Vec<(bool, Vec<Arg>)> = vec![
-        (true, Vec::new()),
-        (status.is_some(), vec![Arg::Text(status)]),
-        (search.is_some(), vec![Arg::Text(search)]),
-    ];
     // The cursor lookup runs before the route's `try`: a failure is the
     // app's 500.
-    let cursor_slot = match &cursor {
-        None => (false, vec![Arg::Text(None), Arg::Text(None)]),
-        Some(cursor) => match created_cursor(&caller.db, cursor_sql!("products"), cursor).await {
-            Ok(Some((created_at, id))) => (true, vec![Arg::text(created_at), Arg::text(id)]),
-            Ok(None) => (false, vec![Arg::Text(None), Arg::Text(None)]),
+    let cursor_row = match &cursor {
+        None => None,
+        Some(cursor) => match cursor_row::<products::Entity>(
+            &caller.db,
+            products::Column::CreatedAt,
+            products::Column::Id,
+            cursor,
+        )
+        .await
+        {
+            Ok(row) => row,
             Err(error) => {
                 tracing::error!(%error, "commerce: cursor lookup failed");
                 return ApiError::internal().into_response();
             }
         },
     };
-    slots.push(cursor_slot);
-    let on: Vec<bool> = slots.iter().map(|(on, _)| *on).collect();
+    let slots = [
+        Some(Condition::all().add(products::Column::DeletedAt.is_null())),
+        status.map(|status| Condition::all().add(products::Column::Status.eq(status))),
+        search.as_deref().map(search_condition),
+        cursor_row
+            .as_ref()
+            .map(|row| before(products::Column::CreatedAt, products::Column::Id, row)),
+    ];
+    let on = pushed(&slots);
     let count_on = sliced(on.clone(), cursor.is_some());
-    let args = |on: &[bool]| -> Vec<Arg> {
-        slots
-            .iter()
-            .zip(on)
-            .flat_map(|((_, args), on)| std::iter::once(Arg::Bool(*on)).chain(args.iter().cloned()))
-            .collect()
-    };
-    let mut page_args = args(&on);
-    page_args.push(Arg::Int(sql_limit(limit)));
-    let rows: Result<Vec<Value>, _> = bind_scalar(sqlx::query_scalar(LIST_SQL), page_args)
-        .fetch_all(&caller.db)
-        .await;
-    let total: Result<i64, _> = bind_scalar(sqlx::query_scalar(COUNT_SQL), args(&count_on))
-        .fetch_one(&caller.db)
-        .await;
+    let mut select = PRODUCTS.entity.select();
+    select
+        .cond_where(all_on(&slots, &on))
+        .order_by(products::Column::CreatedAt, Order::Desc)
+        .order_by(products::Column::Id, Order::Desc);
+    limit_plus_one(&mut select, limit);
+    let mut counted = PRODUCTS.entity.select();
+    counted.cond_where(all_on(&slots, &count_on));
+    let rows = table_rows(&caller.db, &PRODUCTS, &select).await;
+    let total = table_count(&caller.db, &PRODUCTS, &counted).await;
     match (rows, total) {
-        (Ok(rows), Ok(total)) => page_list(
-            rows.into_iter().map(|row| PRODUCTS.js(row)).collect(),
-            limit,
-            total,
-        ),
+        (Ok(rows), Ok(total)) => page_list(rows, limit, total),
         (Err(error), _) | (_, Err(error)) => internal(&error, LIST_FAILED),
     }
 }

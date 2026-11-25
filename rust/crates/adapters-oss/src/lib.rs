@@ -15,6 +15,7 @@
 //! | `LedgerStore` | [`ValkeyLedgerStore`] (one Lua script per commit) | the `OutboundLedger` / `OutboundPlatformBudget` Durable Objects |
 //! | `Identity` | [`ZitadelIdentity`]; [`WeldIdIdentity`] (WeldID's admin API, WeldSuite's own memberships) | Clerk's Backend API |
 //! | `SsoDirectory` | [`WeldIdSso`] (WeldID's SSO connections, over [`WeldIdIdentity`]'s admin client) | Clerk's SAML connections |
+//! | `WorkspaceSelections` | [`WeldIdWorkspaceSelections`] (WeldID's tenant selection for MCP sign-ins, over [`WeldIdIdentity`]'s admin client) | Clerk's organization picker at OAuth consent |
 //! | `SignInProvider` | [`ZitadelSignIn`] (Zitadel's session API, as its login client) | Clerk's sign-in, which Global's browser calls itself |
 //! | `OutboundHttp` | [`ReqwestOutbound`] | a Worker's `fetch` to third parties |
 //! | `DatabaseProvisioner` | [`CnpgProvisioner`] (CloudNativePG shards behind `PgBouncer`) | Neon provisioning |
@@ -25,11 +26,6 @@
 //!
 //! Adapters take their settings as arguments; the server reads them from the
 //! environment.
-
-#![allow(
-    clippy::disallowed_methods,
-    reason = "not converted to the ORM yet (ADR DATA-019)"
-)]
 
 mod clamd;
 mod cnpg;
@@ -50,6 +46,7 @@ mod valkey_lease;
 mod valkey_ledger;
 mod weldid;
 mod weldid_sso;
+mod weldid_workspace_selection;
 mod zitadel;
 mod zitadel_api;
 mod zitadel_sign_in;
@@ -85,5 +82,6 @@ pub use weldid::{
     WELDID_ADMIN_SCOPES, WeldIdIdentity, WeldIdOptions,
 };
 pub use weldid_sso::{WELDID_SSO_TENANTS_PATH, WeldIdSso};
+pub use weldid_workspace_selection::{WELDID_TENANT_SELECTIONS_PATH, WeldIdWorkspaceSelections};
 pub use zitadel::{ZitadelIdentity, ZitadelOptions};
 pub use zitadel_sign_in::{ZitadelSignIn, ZitadelSignInOptions};

@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { FileIcon, Download, X } from 'lucide-react';
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { ChevronLeft, ChevronRight, FileIcon, Download, X } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import {
   Dialog,
@@ -30,6 +30,26 @@ function formatFileSize(bytes: number): string {
   return (bytes / 1048576).toFixed(1) + ' MB';
 }
 
+/** One image the lightbox can step to. */
+interface GalleryImage {
+  url: string;
+  fileName: string;
+}
+
+/**
+ * The images of the conversation the clicked thumbnail sits in, in the order
+ * they show (inline images, galleries and forwards alike), and where the clicked
+ * one is. A conversation's list marks itself `data-chat-image-scope`, so the main
+ * list and an open thread each page through their own images; a thumbnail
+ * outside one (a pinned message) shows just itself.
+ */
+function galleryFrom(trigger: HTMLElement): { images: GalleryImage[]; index: number } {
+  const scope = trigger.closest('[data-chat-image-scope]');
+  const thumbnails = scope ? Array.from(scope.querySelectorAll<HTMLElement>('[data-chat-image-url]')) : [trigger];
+  const images = thumbnails.map((el) => ({ url: el.dataset.chatImageUrl ?? '', fileName: el.dataset.chatImageName ?? '' }));
+  return { images, index: Math.max(0, thumbnails.indexOf(trigger)) };
+}
+
 function inferClipType(
   attachment: FilePreviewProps['attachment'],
 ): ChatClipAttachment['clipType'] | null {
@@ -51,6 +71,38 @@ function inferClipType(
 export function FilePreview({ attachment, channelId, messageId }: Readonly<FilePreviewProps>) {
   const t = useTranslations();
   const [lightboxOpen, setLightboxOpen] = useState(false);
+  const thumbnailRef = useRef<HTMLButtonElement>(null);
+  const [gallery, setGallery] = useState<{ images: GalleryImage[]; index: number }>({ images: [], index: 0 });
+  const shown = gallery.images[gallery.index] ?? { url: attachment.url, fileName: attachment.fileName };
+  const hasPrevious = gallery.index > 0;
+  const hasNext = gallery.index < gallery.images.length - 1;
+
+  // Fetch the neighbours while this one is on screen, so stepping to them shows them at once.
+  useEffect(() => {
+    if (!lightboxOpen) return;
+    for (const neighbour of [gallery.images[gallery.index - 1], gallery.images[gallery.index + 1]]) {
+      if (neighbour) new Image().src = neighbour.url;
+    }
+  }, [lightboxOpen, gallery]);
+
+  function openLightbox() {
+    setGallery(thumbnailRef.current ? galleryFrom(thumbnailRef.current) : { images: [], index: 0 });
+    setLightboxOpen(true);
+  }
+
+  function step(direction: -1 | 1) {
+    setGallery((current) => {
+      const index = current.index + direction;
+      return index < 0 || index >= current.images.length ? current : { ...current, index };
+    });
+  }
+
+  function onLightboxKeyDown(event: KeyboardEvent) {
+    if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+      event.preventDefault();
+      step(event.key === 'ArrowLeft' ? -1 : 1);
+    }
+  }
 
   const clipType = inferClipType(attachment);
   if (clipType) {
@@ -75,9 +127,13 @@ export function FilePreview({ attachment, channelId, messageId }: Readonly<FileP
     return (
       <>
         <Button
+          ref={thumbnailRef}
           type="button"
           variant="ghost"
-          onClick={() => setLightboxOpen(true)}
+          onClick={openLightbox}
+          // Read by the lightbox to page through the conversation's images.
+          data-chat-image-url={attachment.url}
+          data-chat-image-name={attachment.fileName}
           className="block h-auto max-w-[300px] rounded-lg overflow-hidden border hover:opacity-90 transition cursor-zoom-in p-0"
         >
           <img
@@ -90,10 +146,16 @@ export function FilePreview({ attachment, channelId, messageId }: Readonly<FileP
           <DialogContent
             showCloseButton={false}
             onClick={(e) => e.stopPropagation()}
+            onKeyDown={onLightboxKeyDown}
             className="group max-w-none w-screen h-screen sm:max-w-none rounded-none border-0 bg-black/95 p-0 gap-0 grid-rows-[1fr] flex items-center justify-center duration-200 ease-out data-[state=open]:zoom-in-100 data-[state=closed]:zoom-out-100"
           >
             <DialogTitle className="absolute top-4 left-4 z-10 text-white text-sm font-normal max-w-[60vw] truncate group-data-[state=open]:animate-in group-data-[state=closed]:animate-out group-data-[state=open]:fade-in-0 group-data-[state=closed]:fade-out-0 duration-200 ease-out">
-              {attachment.fileName}
+              {shown.fileName}
+              {gallery.images.length > 1 && (
+                <span className="ml-2 text-white/60 tabular-nums">
+                  {t('sweep.weldchat.filePreview.position', { current: gallery.index + 1, total: gallery.images.length })}
+                </span>
+              )}
             </DialogTitle>
 
             <Button
@@ -104,14 +166,48 @@ export function FilePreview({ attachment, channelId, messageId }: Readonly<FileP
                 setLightboxOpen(false);
               }}
               aria-label={t('sweep.weldchat.filePreview.closePreview')}
-              className="absolute inset-0 cursor-zoom-out rounded-none p-0"
+              // A click anywhere beside the image closes it. `h-full w-full` beat the button's own `h-9`,
+              // which left this a 36px strip at the top; no hover tint over the whole screen.
+              className="absolute inset-0 h-full w-full cursor-zoom-out rounded-none p-0 hover:bg-transparent dark:hover:bg-transparent"
             />
 
             <img
-              src={attachment.url}
-              alt={attachment.fileName}
+              src={shown.url}
+              alt={shown.fileName}
               className="relative max-h-[90vh] max-w-[90vw] object-contain rounded shadow-2xl group-data-[state=open]:animate-in group-data-[state=closed]:animate-out group-data-[state=open]:fade-in-0 group-data-[state=closed]:fade-out-0 group-data-[state=open]:zoom-in-95 group-data-[state=closed]:zoom-out-95 duration-200 ease-out"
             />
+
+            {/* Previous and next image of the conversation; the arrow keys do the same. */}
+            {hasPrevious && (
+              <Button
+                type="button"
+                variant="secondary"
+                size="icon"
+                className="absolute left-4 top-1/2 z-10 h-11 w-11 -translate-y-1/2 rounded-full border-0 bg-white/10 text-white hover:bg-white/20"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  step(-1);
+                }}
+                aria-label={t('sweep.weldchat.filePreview.previous')}
+              >
+                <ChevronLeft className="h-5 w-5" />
+              </Button>
+            )}
+            {hasNext && (
+              <Button
+                type="button"
+                variant="secondary"
+                size="icon"
+                className="absolute right-4 top-1/2 z-10 h-11 w-11 -translate-y-1/2 rounded-full border-0 bg-white/10 text-white hover:bg-white/20"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  step(1);
+                }}
+                aria-label={t('sweep.weldchat.filePreview.next')}
+              >
+                <ChevronRight className="h-5 w-5" />
+              </Button>
+            )}
 
             <div className="absolute top-4 right-4 flex items-center gap-2 z-10 group-data-[state=open]:animate-in group-data-[state=closed]:animate-out group-data-[state=open]:fade-in-0 group-data-[state=closed]:fade-out-0 duration-200 ease-out">
               <Button
@@ -122,8 +218,8 @@ export function FilePreview({ attachment, channelId, messageId }: Readonly<FileP
                 onClick={(e) => e.stopPropagation()}
               >
                 <a
-                  href={attachment.url}
-                  download={attachment.fileName}
+                  href={shown.url}
+                  download={shown.fileName}
                   target="_blank"
                   rel="noopener noreferrer"
                   aria-label={t('sweep.weldchat.filePreview.download')}

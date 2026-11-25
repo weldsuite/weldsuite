@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
-import { Check, ChevronDown, ChevronLeft, Loader2, UserCheck, UserMinus, UserPlus, X } from 'lucide-react';
+import { Check, ChevronLeft, Loader2, UserCheck, UserMinus, UserPlus } from 'lucide-react';
 import { useUser } from '@/lib/auth';
 import { useRouter } from '@/lib/router';
 import { getTranslations } from '@/lib/i18n';
 import { Button } from '@weldsuite/ui/components/button';
+import { HeaderIconButton } from '@weldsuite/ui/components/header-icon-button';
+import { CloseDoneButtons } from '@weldsuite/ui/components/close-done-buttons';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import { Popover, PopoverContent, PopoverTrigger } from '@weldsuite/ui/components/popover';
 import {
@@ -17,9 +19,9 @@ import {
 import { useManageDeskConversation, type DeskConversation, type DeskMessage } from '@/hooks/queries/use-desk-queries';
 import { useDeskWorkspaceMembers } from '@/hooks/queries/use-desk-workspace-members';
 import { DeskSlaBadge } from './sla-badge';
-import { TranslateToggle } from './translation/translate-toggle';
-import { CreateArticleAction } from './create-article-action';
+import { TranslateLanguageBadge } from './translation/translate-toggle';
 import { ConversationLinkMenu } from './conversation-link-menu';
+import { CreateTicketAction } from './create-ticket-action';
 import { DeskCallButton } from '@/components/welddesk/phone/desk-call-button';
 
 interface ConversationHeaderProps {
@@ -85,29 +87,14 @@ export function ConversationHeader({ conversation, messages, liveCall = false, v
         >
           <ChevronLeft className="h-5 w-5 text-gray-600 dark:text-muted-foreground" />
         </Button>
-        <div className="hidden md:flex items-center border border-border rounded-md overflow-hidden">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="p-1.5 hover:bg-gray-100 dark:hover:bg-secondary transition-colors"
-            onClick={() => router.push('/welddesk/inbox')}
-            aria-label={t.header.backToList}
-          >
-            <X className="h-3.5 w-3.5 text-gray-500 dark:text-muted-foreground" />
-          </Button>
-          <div className="w-px h-5 bg-border" />
-          <Button
-            variant="ghost"
-            size="icon"
-            className="p-1.5 hover:bg-gray-100 dark:hover:bg-secondary transition-colors"
-            onClick={() => void toggleClose()}
-            disabled={manage.isPending}
-            title={isClosed ? t.header.reopen : t.header.close}
-            aria-label={isClosed ? t.header.reopen : t.header.close}
-          >
-            <Check className="h-3.5 w-3.5 text-gray-500 dark:text-muted-foreground" />
-          </Button>
-        </div>
+        <CloseDoneButtons
+          className="hidden md:flex"
+          onClose={() => router.push('/welddesk/inbox')}
+          closeLabel={t.header.backToList}
+          onDone={() => void toggleClose()}
+          doneLabel={isClosed ? t.header.reopen : t.header.close}
+          doneDisabled={manage.isPending}
+        />
         <h1 className="text-sm md:text-lg font-semibold text-gray-900 dark:text-foreground md:ml-2 truncate">
           {displayTitle}
         </h1>
@@ -130,61 +117,37 @@ export function ConversationHeader({ conversation, messages, liveCall = false, v
             {t.header.liveCall}
           </span>
         )}
-        {conversation.email && (
-          <span className="hidden md:inline text-sm text-gray-500 dark:text-muted-foreground truncate">
-            {conversation.email}
-          </span>
-        )}
       </div>
       <div className="flex items-center gap-0.5 md:gap-1 flex-shrink-0">
         <DeskCallButton conversation={conversation} messages={messages} />
-        <TranslateToggle conversation={conversation} />
-        <CreateArticleAction conversationId={conversation.id} />
-        {user?.id && conversation.assigneeId !== user.id && (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="hidden md:flex h-8 px-2 gap-1.5 text-gray-600 dark:text-muted-foreground hover:bg-gray-100 dark:hover:bg-secondary"
-            onClick={() => void assign(user.id)}
-            disabled={manage.isPending}
-            title={t.header.assignToMe}
-            aria-label={t.header.assignToMe}
-          >
-            <UserCheck className="h-4 w-4" />
-            <span className="hidden @3xl/desk-header:inline">{t.header.assignToMe}</span>
-          </Button>
-        )}
+        <TranslateLanguageBadge conversation={conversation} />
+        <CreateTicketAction conversation={conversation} />
         <Popover open={assignOpen} onOpenChange={setAssignOpen}>
           <PopoverTrigger asChild>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-8 px-2 gap-1.5 text-gray-600 dark:text-muted-foreground hover:bg-gray-100 dark:hover:bg-secondary"
-              title={assignedMember?.name ?? t.header.assign}
-              aria-label={assignedMember?.name ?? t.header.assign}
-            >
+            {/* The assignee's avatar once someone has it, otherwise the assign icon. */}
+            <HeaderIconButton label={assignedMember?.name ?? t.header.assign}>
               {assignedMember ? (
-                <>
-                  <Avatar className="h-4 w-4">
-                    {assignedMember.picture && <AvatarImage src={assignedMember.picture} />}
-                    <AvatarFallback className="text-[9px]">{assignedMember.name.slice(0, 1).toUpperCase()}</AvatarFallback>
-                  </Avatar>
-                  <span className="hidden @2xl/desk-header:inline max-w-[100px] truncate">{assignedMember.name}</span>
-                </>
+                <Avatar className="h-4 w-4">
+                  {assignedMember.picture && <AvatarImage src={assignedMember.picture} />}
+                  <AvatarFallback className="text-[9px]">{assignedMember.name.slice(0, 1).toUpperCase()}</AvatarFallback>
+                </Avatar>
               ) : (
-                <>
-                  <UserPlus className="h-4 w-4" />
-                  <span className="hidden @3xl/desk-header:inline">{t.header.assign}</span>
-                </>
+                <UserPlus />
               )}
-              <ChevronDown className="h-3 w-3 opacity-50" />
-            </Button>
+            </HeaderIconButton>
           </PopoverTrigger>
           <PopoverContent align="end" className="w-72 p-0">
             <Command shouldFilter={false}>
               <CommandInput placeholder={t.header.assignSearchPlaceholder} value={query} onValueChange={setQuery} />
               <CommandList className="max-h-64">
                 <CommandEmpty>{t.header.assignNoMembers}</CommandEmpty>
+                {/* "Assign to me" lives in this menu: one Assign button, me first. */}
+                {user?.id && conversation.assigneeId !== user.id && !query && (
+                  <CommandItem value="__assign_to_me__" onSelect={() => void assign(user.id)} disabled={manage.isPending}>
+                    <UserCheck className="h-3.5 w-3.5" />
+                    <span className="truncate flex-1">{t.header.assignToMe}</span>
+                  </CommandItem>
+                )}
                 {filteredMembers.map((member) => (
                   <CommandItem key={member.userId} value={member.userId} onSelect={() => void assign(member.userId)}>
                     <Avatar className="h-5 w-5">

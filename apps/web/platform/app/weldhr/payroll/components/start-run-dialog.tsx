@@ -93,7 +93,7 @@ export function StartRunDialog({ onClose, defaultEmployerId }: Readonly<{ onClos
   return (
     <Dialog open onOpenChange={(open) => !open && !createRun.isPending && onClose()}>
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
-        <DialogHeader>
+        <DialogHeader className="mb-2">
           <DialogTitle>{t('weldhr.payroll.runs.start.title')}</DialogTitle>
           <DialogDescription>{t('weldhr.payroll.runs.start.description')}</DialogDescription>
         </DialogHeader>

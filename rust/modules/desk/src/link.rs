@@ -6,11 +6,12 @@
 //! system message into the conversation and publishes it to the
 //! conversation room. Never fails the request: each half logs its error.
 
-use sea_orm::TransactionTrait;
-use serde_json::{Map, Value, json};
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder, TransactionTrait};
+use serde_json::{Map, json};
 use weldsuite_db::PgPool;
 use weldsuite_desk_domain::realtime::{conversation_system, defined};
 use weldsuite_kit::generate_id;
+use weldsuite_schema::tenant::helpdesk_conversation_messages;
 
 use crate::DeskState;
 use crate::js::{or_else, text};
@@ -42,20 +43,20 @@ pub(crate) async fn link_conversation_to_ticket(state: &DeskState, db: &PgPool, 
 /// 1. The public transcript, oldest first, as ticket messages (one insert
 ///    for all, as Drizzle's multi-row insert).
 async fn copy_transcript(db: &PgPool, link: &Link<'_>) -> Result<(), crate::table::WriteError> {
-    let messages: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(m) from helpdesk_conversation_messages m
-         where m.conversation_id = $1 and m.is_public = true and m.deleted_at is null
-         order by m.created_at asc",
-    )
-    .bind(link.conversation_id)
-    .fetch_all(db)
-    .await?;
+    let messages = helpdesk_conversation_messages::Entity::find()
+        .filter(helpdesk_conversation_messages::Column::ConversationId.eq(link.conversation_id))
+        .filter(helpdesk_conversation_messages::Column::IsPublic.eq(true))
+        .filter(helpdesk_conversation_messages::Column::DeletedAt.is_null())
+        .order_by_asc(helpdesk_conversation_messages::Column::CreatedAt)
+        .all(&weldsuite_db::orm(db))
+        .await?;
     if messages.is_empty() {
         return Ok(());
     }
     let tx = weldsuite_db::orm(db).begin().await?;
     for message in messages {
-        let message = HELPDESK_CONVERSATION_MESSAGES.js(message);
+        let message = serde_json::to_value(message)
+            .map_err(|error| sea_orm::DbErr::Json(error.to_string()))?;
         let mut values = Map::new();
         let table = &HELPDESK_TICKET_MESSAGES;
         table.set(&mut values, "id", json!(generate_id("tkm")));

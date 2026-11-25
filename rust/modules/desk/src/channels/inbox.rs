@@ -15,10 +15,11 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, patch, post};
 use http::HeaderMap;
 use http::header::CONTENT_TYPE;
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events as ev;
 use weldsuite_catalogs::permission_keys as perm;
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_desk_domain::notify::EntityKind;
 use weldsuite_desk_domain::realtime::{conversation_publish, now_ms};
 use weldsuite_kit::validation::{Field, Format, Issues, Number, Presence, Text, query_values};
@@ -30,6 +31,7 @@ use weldsuite_mail_domain::outbound::{
 };
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 use weldsuite_ports::{PutOptions, RealtimeMessage};
+use weldsuite_schema::tenant::{desk_conversations, workspace_members};
 
 use super::Ctx;
 use super::attributes;
@@ -571,11 +573,12 @@ async fn upload(
     else {
         return ApiError::unavailable("File upload is not configured").into_response();
     };
-    let exists: Result<Option<String>, sqlx::Error> =
-        sqlx::query_scalar("select id from desk_conversations where id = $1 limit 1")
-            .bind(&id)
-            .fetch_optional(&ctx.caller.db)
-            .await;
+    let exists: Result<Option<String>, _> = desk_conversations::Entity::find_by_id(&id)
+        .select_only()
+        .column(desk_conversations::Column::Id)
+        .into_tuple()
+        .one(&orm(&ctx.caller.db))
+        .await;
     match exists {
         Ok(Some(_)) => {}
         Ok(None) => return ApiError::not_found("Conversation", Some(&id)).into_response(),
@@ -655,11 +658,13 @@ pub(super) async fn load_author(
     let Some(user_id) = user_id.filter(|u| !u.is_empty()) else {
         return authors;
     };
-    let member: Result<Option<Option<String>>, sqlx::Error> =
-        sqlx::query_scalar("select name from workspace_members where user_id = $1 limit 1")
-            .bind(user_id)
-            .fetch_optional(db)
-            .await;
+    let member: Result<Option<Option<String>>, _> = workspace_members::Entity::find()
+        .select_only()
+        .column(workspace_members::Column::Name)
+        .filter(workspace_members::Column::UserId.eq(user_id))
+        .into_tuple()
+        .one(&orm(db))
+        .await;
     match member {
         Ok(Some(name)) => {
             let picture = weldsuite_db::load_account_picture(master, user_id).await;
@@ -1313,11 +1318,12 @@ async fn manage(
         Err(refusal) => return refusal.respond("Failed to update conversation"),
     };
     let caller = &ctx.caller;
-    let before: Result<Option<Option<String>>, sqlx::Error> =
-        sqlx::query_scalar("select assignee_id from desk_conversations where id = $1 limit 1")
-            .bind(&id)
-            .fetch_optional(&caller.db)
-            .await;
+    let before: Result<Option<Option<String>>, _> = desk_conversations::Entity::find_by_id(&id)
+        .select_only()
+        .column(desk_conversations::Column::AssigneeId)
+        .into_tuple()
+        .one(&orm(&caller.db))
+        .await;
     let before = match before {
         Ok(before) => before.flatten(),
         Err(error) => return Refusal::from(error).respond("Failed to update conversation"),

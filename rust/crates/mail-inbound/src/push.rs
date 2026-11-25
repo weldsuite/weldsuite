@@ -5,9 +5,12 @@
 
 use std::time::Duration;
 
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_ports::{HttpRequest, OutboundHttp};
+use weldsuite_schema::tenant::device_tokens;
 
 use crate::context::InboundContext;
 use crate::parsed::ParsedEmail;
@@ -108,7 +111,7 @@ async fn send_expo_push(
 
 /// `workspaceInboxUnread(db, userId)`: the unread inbox count across the
 /// mailboxes the member may open.
-async fn inbox_unread(db: &PgPool, user_id: &str) -> Result<i64, sqlx::Error> {
+async fn inbox_unread(db: &PgPool, user_id: &str) -> Result<i64, sea_orm::DbErr> {
     let accounts = weldsuite_mail_domain::access::accessible_account_ids(db, user_id).await?;
     let stats = weldsuite_mail_domain::messages::message_stats(db, &accounts).await?;
     Ok(stats["inboxUnread"].as_i64().unwrap_or(0))
@@ -126,13 +129,16 @@ pub async fn send_new_email_push(
 ) {
     let result = async {
         let db = ctx.tenants.tenant_db(&account.workspace_id).await?;
-        let tokens: Vec<String> = sqlx::query_scalar(
-            "select token from device_tokens
-             where user_id = $1 and app_code = 'weldmail' and is_active is null",
-        )
-        .bind(user_id)
-        .fetch_all(&db)
-        .await?;
+        let conn = orm(&db);
+        let tokens: Vec<String> = device_tokens::Entity::find()
+            .select_only()
+            .column(device_tokens::Column::Token)
+            .filter(device_tokens::Column::UserId.eq(user_id))
+            .filter(device_tokens::Column::AppCode.eq("weldmail"))
+            .filter(device_tokens::Column::IsActive.is_null())
+            .into_tuple()
+            .all(&conn)
+            .await?;
         if tokens.is_empty() {
             return Ok::<(), Box<dyn std::error::Error + Send + Sync>>(());
         }
@@ -208,17 +214,13 @@ pub async fn send_new_email_push(
             "[PushNotify] Sent"
         );
         if !invalid.is_empty() {
-            let now = weldsuite_mail_domain::outbound::clock::iso(
-                weldsuite_mail_domain::outbound::clock::now_ms(),
-            );
+            let now = crate::store::timestamp(weldsuite_mail_domain::outbound::clock::now_ms());
             for token in invalid {
-                if let Err(error) = sqlx::query(
-                    "update device_tokens set is_active = $2::timestamp where token = $1",
-                )
-                .bind(&token)
-                .bind(&now)
-                .execute(&db)
-                .await
+                if let Err(error) = device_tokens::Entity::update_many()
+                    .col_expr(device_tokens::Column::IsActive, Expr::value(now))
+                    .filter(device_tokens::Column::Token.eq(&token))
+                    .exec(&conn)
+                    .await
                 {
                     tracing::error!(%error, "[PushNotify] Failed to deactivate token");
                 }

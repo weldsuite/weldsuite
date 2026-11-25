@@ -6,11 +6,18 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, PoisonError};
 
+use sea_orm::sea_query::Expr;
+use sea_orm::{ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
-use weldsuite_db::PgPool;
+use time::PrimitiveDateTime;
+use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_ports::{DynRealtimePublisher, RealtimeMessage};
+use weldsuite_schema::tenant::{
+    workflow_error_logs as error_logs, workflow_execution_steps as step_rows,
+    workflow_executions as runs_table,
+};
 
-use super::{engine_id, now_ms, now_text};
+use super::{engine_id, epoch_ms, now_ms, now_text};
 use crate::js::js_string;
 
 /// A step's outcome (`StepOutcome`).
@@ -159,45 +166,46 @@ impl Hooks {
         .await;
     }
 
-    async fn write_progress(&self) -> Result<(), sqlx::Error> {
+    async fn write_progress(&self) -> Result<(), DbErr> {
         let finished = i32::try_from(self.with(|s| s.finished.len())).unwrap_or(i32::MAX);
-        sqlx::query(
-            "update workflow_executions set current_step_index = $2, updated_at = $3::timestamp where id = $1",
-        )
-        .bind(&self.execution_id)
-        .bind(finished)
-        .bind(now_text())
-        .execute(&self.db)
-        .await?;
+        runs_table::Entity::update_many()
+            .col_expr(runs_table::Column::CurrentStepIndex, Expr::value(finished))
+            .col_expr(runs_table::Column::UpdatedAt, Expr::value(utc_now()))
+            .filter(runs_table::Column::Id.eq(&self.execution_id))
+            .exec(&orm(&self.db))
+            .await?;
         Ok(())
     }
 
     /// `recordStepError`: best effort.
     async fn record_error(&self, step: &Value, outcome: &Outcome) {
         let name = step.get("name").and_then(Value::as_str);
-        let inserted = sqlx::query(
-            "insert into workflow_error_logs
-                (id, workflow_id, execution_id, error_message, error_type, severity, step_id, step_name,
-                 step_type, input, occurred_at)
-             values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::timestamp)",
-        )
-        .bind(engine_id("wel"))
-        .bind(&self.workflow_id)
-        .bind(&self.execution_id)
-        .bind(outcome.error.as_deref().unwrap_or("Unknown error"))
-        .bind(outcome.error_type.as_deref().map(|t| clip(t, 100)))
-        .bind(if outcome.continued { "warning" } else { "error" })
-        .bind(clip(&js_string(step.get("id")), 50))
-        .bind(name.map(|n| clip(n, 255)))
-        .bind(clip(&js_string(step.get("type")), 100))
-        .bind(
-            outcome
+        let inserted = error_logs::Entity::insert(error_logs::ActiveModel {
+            id: Set(engine_id("wel")),
+            workflow_id: Set(Some(self.workflow_id.clone())),
+            execution_id: Set(Some(self.execution_id.clone())),
+            error_message: Set(outcome
+                .error
+                .clone()
+                .unwrap_or_else(|| "Unknown error".to_owned())),
+            error_type: Set(outcome.error_type.as_deref().map(|t| clip(t, 100))),
+            severity: Set(if outcome.continued {
+                "warning"
+            } else {
+                "error"
+            }
+            .to_owned()),
+            step_id: Set(Some(clip(&js_string(step.get("id")), 50))),
+            step_name: Set(name.map(|n| clip(n, 255))),
+            step_type: Set(Some(clip(&js_string(step.get("type")), 100))),
+            input: Set(outcome
                 .error_details
                 .as_ref()
-                .map(|details| json!({ "details": details })),
-        )
-        .bind(now_text())
-        .execute(&self.db)
+                .map(|details| json!({ "details": details }))),
+            occurred_at: Set(utc_now()),
+            ..Default::default()
+        })
+        .exec_without_returning(&orm(&self.db))
         .await;
         if let Err(error) = inserted {
             tracing::warn!(%error, "[ExecutionHooks] could not write error log");
@@ -219,22 +227,27 @@ impl Hooks {
     }
 
     /// `onStepStart(step, index)`.
-    pub(crate) async fn on_step_start(
-        &self,
-        step: &Value,
-        index: usize,
-    ) -> Result<(), sqlx::Error> {
-        let existing: Option<(String, String, Option<f64>, Option<Value>)> = sqlx::query_as(
-            "select id, status, extract(epoch from started_at)::float8 * 1000, logs
-             from workflow_execution_steps where execution_id = $1 and step_index = $2 limit 1",
-        )
-        .bind(&self.execution_id)
-        .bind(i32::try_from(index + 1).unwrap_or(i32::MAX))
-        .fetch_optional(&self.db)
-        .await?;
+    pub(crate) async fn on_step_start(&self, step: &Value, index: usize) -> Result<(), DbErr> {
+        let db = orm(&self.db);
+        let existing: Option<(String, String, Option<PrimitiveDateTime>, Option<Value>)> =
+            step_rows::Entity::find()
+                .select_only()
+                .columns([
+                    step_rows::Column::Id,
+                    step_rows::Column::Status,
+                    step_rows::Column::StartedAt,
+                    step_rows::Column::Logs,
+                ])
+                .filter(step_rows::Column::ExecutionId.eq(&self.execution_id))
+                .filter(
+                    step_rows::Column::StepIndex.eq(i32::try_from(index + 1).unwrap_or(i32::MAX)),
+                )
+                .into_tuple()
+                .one(&db)
+                .await?;
         if let Some((id, status, started_at, logs)) = existing {
             #[allow(clippy::cast_possible_truncation)]
-            let started = started_at.map_or_else(now_ms, |ms| ms.round() as i64);
+            let started = started_at.map_or_else(now_ms, |at| epoch_ms(at).round() as i64);
             self.with(|s| {
                 s.row_ids.insert(index, id);
                 s.started_at.insert(index, started);
@@ -261,20 +274,19 @@ impl Hooks {
             s.started_at.insert(index, now_ms());
             s.logs.insert(index, logs.clone());
         });
-        sqlx::query(
-            "insert into workflow_execution_steps
-                (id, execution_id, step_id, step_name, step_type, step_index, status, started_at, logs)
-             values ($1, $2, $3, $4, $5, $6, 'running', $7::timestamp, $8)",
-        )
-        .bind(&row_id)
-        .bind(&self.execution_id)
-        .bind(&id)
-        .bind(name)
-        .bind(&kind)
-        .bind(i32::try_from(index + 1).unwrap_or(i32::MAX))
-        .bind(now_text())
-        .bind(Value::Array(logs))
-        .execute(&self.db)
+        step_rows::Entity::insert(step_rows::ActiveModel {
+            id: Set(row_id),
+            execution_id: Set(self.execution_id.clone()),
+            step_id: Set(id),
+            step_name: Set(name.map(str::to_owned)),
+            step_type: Set(Some(kind)),
+            step_index: Set(i32::try_from(index + 1).unwrap_or(i32::MAX)),
+            status: Set("running".to_owned()),
+            started_at: Set(Some(utc_now())),
+            logs: Set(Some(Value::Array(logs))),
+            ..Default::default()
+        })
+        .exec_without_returning(&db)
         .await?;
         let mut payload = self.base_payload(step, index);
         payload.insert(
@@ -291,7 +303,7 @@ impl Hooks {
         step: &Value,
         index: usize,
         outcome: &Outcome,
-    ) -> Result<(), sqlx::Error> {
+    ) -> Result<(), DbErr> {
         let finished = matches!(outcome.status, "completed" | "skipped")
             || (outcome.status == "failed" && outcome.continued);
         if self.with(|s| s.replayed.contains(&index)) {
@@ -323,22 +335,23 @@ impl Hooks {
             });
             let mut logs = logs;
             logs.push(outcome_log(outcome, duration));
-            sqlx::query(
-                "update workflow_execution_steps
-                 set status = $2, completed_at = $3::timestamp, duration = $4, output = $5, error = $6,
-                     retry_count = $7, logs = $8
-                 where id = $1",
-            )
-            .bind(&row_id)
-            .bind(outcome.status)
-            .bind(now_text())
-            .bind(duration.map(|d| i32::try_from(d).unwrap_or(i32::MAX)))
-            .bind(output)
-            .bind(error)
-            .bind(i32::try_from(outcome.attempts.saturating_sub(1)).unwrap_or(0))
-            .bind(Value::Array(logs))
-            .execute(&self.db)
-            .await?;
+            step_rows::Entity::update_many()
+                .col_expr(step_rows::Column::Status, Expr::value(outcome.status))
+                .col_expr(step_rows::Column::CompletedAt, Expr::value(utc_now()))
+                .col_expr(
+                    step_rows::Column::Duration,
+                    Expr::value(duration.map(|d| i32::try_from(d).unwrap_or(i32::MAX))),
+                )
+                .col_expr(step_rows::Column::Output, Expr::value(output))
+                .col_expr(step_rows::Column::Error, Expr::value(error))
+                .col_expr(
+                    step_rows::Column::RetryCount,
+                    Expr::value(i32::try_from(outcome.attempts.saturating_sub(1)).unwrap_or(0)),
+                )
+                .col_expr(step_rows::Column::Logs, Expr::value(Value::Array(logs)))
+                .filter(step_rows::Column::Id.eq(&row_id))
+                .exec(&orm(&self.db))
+                .await?;
         }
         if outcome.status == "failed" {
             self.record_error(step, outcome).await;
@@ -364,22 +377,24 @@ impl Hooks {
         &self,
         index: usize,
         output: Option<&Value>,
-    ) -> Result<(), sqlx::Error> {
+    ) -> Result<(), DbErr> {
         let row_id = self.with(|s| {
             s.finished.insert(index);
             s.row_ids.get(&index).cloned()
         });
         if let Some(row_id) = row_id {
-            sqlx::query(
-                "update workflow_execution_steps
-                 set status = 'completed', completed_at = $2::timestamp, output = coalesce($3, output)
-                 where id = $1 and status = 'waiting_for_input'",
-            )
-            .bind(&row_id)
-            .bind(now_text())
-            .bind(output)
-            .execute(&self.db)
-            .await?;
+            let mut update = step_rows::Entity::update_many()
+                .col_expr(step_rows::Column::Status, Expr::value("completed"))
+                .col_expr(step_rows::Column::CompletedAt, Expr::value(utc_now()));
+            // `coalesce($output, output)`.
+            if let Some(output) = output {
+                update = update.col_expr(step_rows::Column::Output, Expr::value(output.clone()));
+            }
+            update
+                .filter(step_rows::Column::Id.eq(&row_id))
+                .filter(step_rows::Column::Status.eq("waiting_for_input"))
+                .exec(&orm(&self.db))
+                .await?;
         }
         self.write_progress().await
     }
@@ -390,7 +405,7 @@ impl Hooks {
         step: &Value,
         index: usize,
         message: &str,
-    ) -> Result<(), sqlx::Error> {
+    ) -> Result<(), DbErr> {
         let Some((row_id, start, logs)) = self.with(|s| {
             s.row_ids.get(&index).cloned().map(|id| {
                 (
@@ -410,19 +425,23 @@ impl Hooks {
         };
         let mut logs = logs;
         logs.push(outcome_log(&failed, duration));
-        let updated = sqlx::query(
-            "update workflow_execution_steps
-             set status = 'failed', completed_at = $2::timestamp, duration = $3, error = $4, logs = $5
-             where id = $1 and status = 'waiting_for_input'",
-        )
-        .bind(&row_id)
-        .bind(now_text())
-        .bind(duration.map(|d| i32::try_from(d).unwrap_or(i32::MAX)))
-        .bind(json!({ "message": message }))
-        .bind(Value::Array(logs))
-        .execute(&self.db)
-        .await?;
-        if updated.rows_affected() == 0 {
+        let updated = step_rows::Entity::update_many()
+            .col_expr(step_rows::Column::Status, Expr::value("failed"))
+            .col_expr(step_rows::Column::CompletedAt, Expr::value(utc_now()))
+            .col_expr(
+                step_rows::Column::Duration,
+                Expr::value(duration.map(|d| i32::try_from(d).unwrap_or(i32::MAX))),
+            )
+            .col_expr(
+                step_rows::Column::Error,
+                Expr::value(json!({ "message": message })),
+            )
+            .col_expr(step_rows::Column::Logs, Expr::value(Value::Array(logs)))
+            .filter(step_rows::Column::Id.eq(&row_id))
+            .filter(step_rows::Column::Status.eq("waiting_for_input"))
+            .exec(&orm(&self.db))
+            .await?;
+        if updated.rows_affected == 0 {
             return Ok(());
         }
         let outcome = Outcome {

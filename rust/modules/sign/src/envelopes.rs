@@ -6,18 +6,30 @@ use axum::body::Bytes;
 use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use http::HeaderMap;
+use sea_orm::ActiveValue::Set;
+use sea_orm::sea_query::{Expr, Query, SelectStatement};
+use sea_orm::{
+    ColumnTrait, Condition, DbErr, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder,
+    QuerySelect,
+};
+use serde::Serialize;
 use serde_json::{Map, Value, json};
-use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
+use time::{Duration, OffsetDateTime};
 use weldsuite_catalogs::entity_events::{
     SIGN_ENVELOPE_CREATED, SIGN_ENVELOPE_DELETED, SIGN_ENVELOPE_UPDATED,
 };
 use weldsuite_catalogs::permission_keys::{
     SIGN_ENVELOPES_MANAGE, SIGN_ENVELOPES_SEND, SIGN_ENVELOPES_UPDATE, SIGN_ENVELOPES_VOID,
 };
-use weldsuite_db::{PgPool, js_row};
+use weldsuite_db::{PgPool, orm};
+use weldsuite_events::iso_timestamp;
 use weldsuite_kit::validation::{Field, Format, Number, Presence, Text};
 use weldsuite_kit::{Created, Data, NoContent, generate_id};
+use weldsuite_schema::tenant::{
+    sign_documents, sign_envelopes, sign_events, sign_fields, sign_recipients, sign_settings,
+    workspace_members,
+};
 
 use crate::sources;
 use crate::{
@@ -46,6 +58,26 @@ fn folder_statuses(folder: &str) -> Option<&'static [&'static str]> {
     }
 }
 
+// ── Rows ───────────────────────────────────────────────────────────────────
+
+/// An entity row as Drizzle returns it: the entity serializes as Drizzle did.
+pub(crate) fn row_json<M: Serialize>(model: M) -> Result<Value, DbErr> {
+    serde_json::to_value(model).map_err(|error| DbErr::Json(error.to_string()))
+}
+
+/// Entity rows as Drizzle returns them.
+pub(crate) fn json_rows<M: Serialize>(rows: Vec<M>) -> SignResult<Vec<Value>> {
+    Ok(rows.into_iter().map(row_json).collect::<Result<_, _>>()?)
+}
+
+/// The first row an `update … returning` gave back; none is the error
+/// `fetch_one` raised (a 500).
+pub(crate) fn returned<M>(rows: Vec<M>, table: &str) -> Result<M, DbErr> {
+    rows.into_iter()
+        .next()
+        .ok_or_else(|| DbErr::RecordNotFound(table.to_owned()))
+}
+
 // ── Viewer and loading ─────────────────────────────────────────────────────
 
 /// Who is asking, and whether they see every envelope (`SignViewer`).
@@ -62,13 +94,17 @@ pub(crate) async fn member_profile(
     db: &PgPool,
     user_id: &str,
 ) -> SignResult<(Option<String>, Option<String>)> {
-    let row: Option<(Option<String>, Option<String>)> = sqlx::query_as(
-        "select name, email from workspace_members
-         where user_id = $1 and deleted_at is null limit 1",
-    )
-    .bind(user_id)
-    .fetch_optional(db)
-    .await?;
+    let row: Option<(Option<String>, Option<String>)> = workspace_members::Entity::find()
+        .select_only()
+        .columns([
+            workspace_members::Column::Name,
+            workspace_members::Column::Email,
+        ])
+        .filter(workspace_members::Column::UserId.eq(user_id))
+        .filter(workspace_members::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     let (name, email) = row.unwrap_or_default();
     let name = name
         .filter(|n| !n.is_empty())
@@ -108,15 +144,13 @@ pub(crate) fn is_open_request_at(envelope: &Value, now: OffsetDateTime) -> bool 
 }
 
 async fn find_envelope(db: &PgPool, id: &str, kind: &str) -> SignResult<Option<Value>> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(e) from sign_envelopes e
-         where id = $1 and kind = $2 and deleted_at is null limit 1",
-    )
-    .bind(id)
-    .bind(kind)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(js_row))
+    let row = sign_envelopes::Entity::find()
+        .filter(sign_envelopes::Column::Id.eq(id))
+        .filter(sign_envelopes::Column::Kind.eq(kind))
+        .filter(sign_envelopes::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?;
+    Ok(row.map(row_json).transpose()?)
 }
 
 /// An envelope the viewer may see, or `not_found`: their own, any with
@@ -131,13 +165,14 @@ pub(crate) async fn load_envelope(db: &PgPool, id: &str, viewer: &Viewer) -> Sig
     if text(&row, "status") != "draft"
         && let Some(email) = &viewer.email
     {
-        let recipient: Option<String> = sqlx::query_scalar(
-            "select id from sign_recipients where envelope_id = $1 and email = $2 limit 1",
-        )
-        .bind(id)
-        .bind(email)
-        .fetch_optional(db)
-        .await?;
+        let recipient: Option<String> = sign_recipients::Entity::find()
+            .select_only()
+            .column(sign_recipients::Column::Id)
+            .filter(sign_recipients::Column::EnvelopeId.eq(id))
+            .filter(sign_recipients::Column::Email.eq(email.as_str()))
+            .into_tuple()
+            .one(&orm(db))
+            .await?;
         if recipient.is_some() {
             return Ok(row);
         }
@@ -171,10 +206,10 @@ pub(crate) async fn load_template(db: &PgPool, id: &str) -> SignResult<Value> {
 
 /// Bump `updated_at` after a change to anything hanging off the envelope.
 pub(crate) async fn touch_envelope(db: &PgPool, id: &str) -> SignResult<()> {
-    sqlx::query("update sign_envelopes set updated_at = $2::timestamptz where id = $1")
-        .bind(id)
-        .bind(now())
-        .execute(db)
+    sign_envelopes::Entity::update_many()
+        .col_expr(sign_envelopes::Column::UpdatedAt, Expr::value(now()))
+        .filter(sign_envelopes::Column::Id.eq(id))
+        .exec(&orm(db))
         .await?;
     Ok(())
 }
@@ -322,48 +357,59 @@ fn summary(row: &Value, document_count: i64, recipients: &[&Value]) -> Map<Strin
     out
 }
 
-async fn rows(db: &PgPool, sql: &'static str, id: &str) -> SignResult<Vec<Value>> {
-    let rows: Vec<Value> = sqlx::query_scalar(sql).bind(id).fetch_all(db).await?;
-    Ok(rows.into_iter().map(js_row).collect())
+/// The envelope's documents in order, as rows.
+pub(crate) async fn document_rows(
+    db: &PgPool,
+    envelope_id: &str,
+) -> SignResult<Vec<sign_documents::Model>> {
+    Ok(sign_documents::Entity::find()
+        .filter(sign_documents::Column::EnvelopeId.eq(envelope_id))
+        .order_by_asc(sign_documents::Column::Position)
+        .all(&orm(db))
+        .await?)
 }
 
 pub(crate) async fn list_documents(db: &PgPool, envelope_id: &str) -> SignResult<Vec<Value>> {
-    rows(
-        db,
-        "select to_jsonb(d) from sign_documents d where envelope_id = $1 order by position asc",
-        envelope_id,
-    )
-    .await
+    json_rows(document_rows(db, envelope_id).await?)
 }
 
 pub(crate) async fn list_recipients(db: &PgPool, envelope_id: &str) -> SignResult<Vec<Value>> {
-    rows(
-        db,
-        "select to_jsonb(r) from sign_recipients r where envelope_id = $1
-         order by routing_order asc, created_at asc",
-        envelope_id,
-    )
-    .await
+    let rows = sign_recipients::Entity::find()
+        .filter(sign_recipients::Column::EnvelopeId.eq(envelope_id))
+        .order_by_asc(sign_recipients::Column::RoutingOrder)
+        .order_by_asc(sign_recipients::Column::CreatedAt)
+        .all(&orm(db))
+        .await?;
+    json_rows(rows)
+}
+
+/// The envelope's fields, oldest first, as rows.
+pub(crate) async fn field_rows(
+    db: &PgPool,
+    envelope_id: &str,
+) -> SignResult<Vec<sign_fields::Model>> {
+    Ok(sign_fields::Entity::find()
+        .filter(sign_fields::Column::EnvelopeId.eq(envelope_id))
+        .order_by_asc(sign_fields::Column::CreatedAt)
+        .all(&orm(db))
+        .await?)
 }
 
 pub(crate) async fn list_fields(db: &PgPool, envelope_id: &str) -> SignResult<Vec<Value>> {
-    rows(
-        db,
-        "select to_jsonb(f) from sign_fields f where envelope_id = $1 order by created_at asc",
-        envelope_id,
-    )
-    .await
+    json_rows(field_rows(db, envelope_id).await?)
 }
 
 /// The last filing of a completed request (`latestFiling`).
 pub(crate) async fn latest_filing(db: &PgPool, envelope_id: &str) -> SignResult<Value> {
-    let row: Option<(Option<Value>, Value)> = sqlx::query_as(
-        "select details, to_jsonb(created_at) from sign_events
-         where envelope_id = $1 and type = 'filed' order by created_at desc limit 1",
-    )
-    .bind(envelope_id)
-    .fetch_optional(db)
-    .await?;
+    let row: Option<(Option<Value>, OffsetDateTime)> = sign_events::Entity::find()
+        .select_only()
+        .columns([sign_events::Column::Details, sign_events::Column::CreatedAt])
+        .filter(sign_events::Column::EnvelopeId.eq(envelope_id))
+        .filter(sign_events::Column::Type.eq("filed"))
+        .order_by_desc(sign_events::Column::CreatedAt)
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     let Some((details, created_at)) = row else {
         return Ok(Value::Null);
     };
@@ -376,7 +422,7 @@ pub(crate) async fn latest_filing(db: &PgPool, envelope_id: &str) -> SignResult<
         Some(kind @ ("company" | "person")) => json!(kind),
         _ => Value::Null,
     };
-    let filed_at = js_row(json!({ "filedAt": created_at }))["filedAt"].clone();
+    let filed_at = iso_timestamp(created_at);
     Ok(json!({
         "driveFileId": string("driveFileId"),
         "driveFolderId": string("driveFolderId"),
@@ -500,17 +546,16 @@ pub(crate) async fn record_event(
     kind: &str,
     actor: (&str, Option<&str>, Option<&str>),
 ) -> SignResult<()> {
-    sqlx::query(
-        "insert into sign_events (id, envelope_id, type, actor_user_id, actor_name, actor_email)
-         values ($1, $2, $3, $4, $5, $6)",
-    )
-    .bind(generate_id("sge"))
-    .bind(envelope_id)
-    .bind(kind)
-    .bind(actor.0)
-    .bind(actor.1)
-    .bind(actor.2)
-    .execute(db)
+    sign_events::Entity::insert(sign_events::ActiveModel {
+        id: Set(generate_id("sge")),
+        envelope_id: Set(envelope_id.to_owned()),
+        type_: Set(kind.to_owned()),
+        actor_user_id: Set(Some(actor.0.to_owned())),
+        actor_name: Set(actor.1.map(str::to_owned)),
+        actor_email: Set(actor.2.map(str::to_owned)),
+        ..Default::default()
+    })
+    .exec_without_returning(&orm(db))
     .await?;
     Ok(())
 }
@@ -571,60 +616,94 @@ async fn list_envelopes(caller: &Caller, query: Option<&str>) -> SignResult<Resp
     })?;
     let folder = folder.into_option().unwrap_or_else(|| "all".to_owned());
     let viewer = viewer_of(caller).await?;
-    let statuses: Option<Vec<String>> =
-        folder_statuses(&folder).map(|s| s.iter().map(|s| (*s).to_owned()).collect());
     let pattern = search.as_deref().map(like_pattern);
     let awaiting = folder == "action_required";
 
-    // The page and the count share one WHERE; a flag turns each part off.
-    let page: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(e) from sign_envelopes e
-         where e.kind = 'envelope' and e.deleted_at is null
-           and ($1 or e.sender_user_id = $2
-                or ($3::text is not null and e.status <> 'draft'
-                    and e.id in (select envelope_id from sign_recipients where email = $3)))
-           and (not $4 or ($3::text is not null
-                and e.id in (select envelope_id from sign_recipients
-                             where email = $3 and role = 'signer' and status in ('sent', 'opened'))))
-           and ($5::text[] is null or e.status = any($5))
-           and ($6::text is null or e.title ilike $6)
-         order by e.updated_at desc, e.id desc
-         limit $7 offset $8",
-    )
-    .bind(viewer.manage_all)
-    .bind(&viewer.user_id)
-    .bind(viewer.email.as_deref())
-    .bind(awaiting)
-    .bind(statuses.as_deref())
-    .bind(pattern.as_deref())
-    .bind(limit)
-    .bind(offset)
-    .fetch_all(&caller.db)
-    .await?;
-    let total: i64 = sqlx::query_scalar(
-        "select count(*) from sign_envelopes e
-         where e.kind = 'envelope' and e.deleted_at is null
-           and ($1 or e.sender_user_id = $2
-                or ($3::text is not null and e.status <> 'draft'
-                    and e.id in (select envelope_id from sign_recipients where email = $3)))
-           and (not $4 or ($3::text is not null
-                and e.id in (select envelope_id from sign_recipients
-                             where email = $3 and role = 'signer' and status in ('sent', 'opened'))))
-           and ($5::text[] is null or e.status = any($5))
-           and ($6::text is null or e.title ilike $6)",
-    )
-    .bind(viewer.manage_all)
-    .bind(&viewer.user_id)
-    .bind(viewer.email.as_deref())
-    .bind(awaiting)
-    .bind(statuses.as_deref())
-    .bind(pattern.as_deref())
-    .fetch_one(&caller.db)
-    .await?;
+    // The page and the count share one WHERE.
+    let Some(condition) = list_condition(
+        &viewer,
+        awaiting,
+        folder_statuses(&folder),
+        pattern.as_deref(),
+    ) else {
+        return Ok(offset_page(Vec::new(), 0, offset));
+    };
+    let db = &orm(&caller.db);
+    let page = sign_envelopes::Entity::find()
+        .filter(condition.clone())
+        .order_by_desc(sign_envelopes::Column::UpdatedAt)
+        .order_by_desc(sign_envelopes::Column::Id)
+        .limit(u64::try_from(limit).unwrap_or(0))
+        .offset(u64::try_from(offset).unwrap_or(0))
+        .all(db)
+        .await?;
+    let total = sign_envelopes::Entity::find()
+        .filter(condition)
+        .count(db)
+        .await?;
 
-    let page: Vec<Value> = page.into_iter().map(js_row).collect();
+    let page = json_rows(page)?;
     let rows = summaries(&caller.db, &page).await?;
-    Ok(offset_page(rows, total, offset))
+    Ok(offset_page(
+        rows,
+        i64::try_from(total).unwrap_or(i64::MAX),
+        offset,
+    ))
+}
+
+/// The listing's WHERE: live envelopes the viewer sees (all of them with
+/// `manage_all`, else their own and the sent ones they are a recipient of),
+/// in the folder (`action_required`: their turn to sign), matching the
+/// search. `None` when nothing can match: their turn, without an email.
+fn list_condition(
+    viewer: &Viewer,
+    awaiting: bool,
+    statuses: Option<&[&str]>,
+    pattern: Option<&str>,
+) -> Option<Condition> {
+    let email = viewer.email.as_deref();
+    let mut condition = Condition::all()
+        .add(sign_envelopes::Column::Kind.eq("envelope"))
+        .add(sign_envelopes::Column::DeletedAt.is_null());
+    if !viewer.manage_all {
+        let mut visible =
+            Condition::any().add(sign_envelopes::Column::SenderUserId.eq(viewer.user_id.as_str()));
+        if let Some(email) = email {
+            visible = visible.add(
+                Condition::all()
+                    .add(sign_envelopes::Column::Status.ne("draft"))
+                    .add(sign_envelopes::Column::Id.in_subquery(envelopes_of(email, false))),
+            );
+        }
+        condition = condition.add(visible);
+    }
+    if awaiting {
+        condition =
+            condition.add(sign_envelopes::Column::Id.in_subquery(envelopes_of(email?, true)));
+    }
+    if let Some(statuses) = statuses {
+        condition = condition.add(sign_envelopes::Column::Status.is_in(statuses.iter().copied()));
+    }
+    if let Some(pattern) = pattern {
+        condition = condition.add(sign_envelopes::Column::Title.ilike(pattern));
+    }
+    Some(condition)
+}
+
+/// `select envelope_id from sign_recipients where email = …`; with
+/// `awaiting`, only where it is that signer's turn.
+fn envelopes_of(email: &str, awaiting: bool) -> SelectStatement {
+    let mut query = Query::select();
+    query
+        .column(sign_recipients::Column::EnvelopeId)
+        .from(sign_recipients::Entity)
+        .and_where(sign_recipients::Column::Email.eq(email));
+    if awaiting {
+        query
+            .and_where(sign_recipients::Column::Role.eq("signer"))
+            .and_where(sign_recipients::Column::Status.is_in(["sent", "opened"]));
+    }
+    query
 }
 
 /// The rows' document counts and recipients, then their summaries.
@@ -632,20 +711,22 @@ async fn summaries(db: &PgPool, page: &[Value]) -> SignResult<Vec<Value>> {
     if page.is_empty() {
         return Ok(Vec::new());
     }
-    let ids: Vec<String> = page.iter().map(|r| text(r, "id").to_owned()).collect();
-    let counts: Vec<(String, i64)> = sqlx::query_as(
-        "select envelope_id, count(*) from sign_documents
-         where envelope_id = any($1) group by envelope_id",
-    )
-    .bind(&ids)
-    .fetch_all(db)
-    .await?;
-    let recipients: Vec<Value> =
-        sqlx::query_scalar("select to_jsonb(r) from sign_recipients r where envelope_id = any($1)")
-            .bind(&ids)
-            .fetch_all(db)
-            .await?;
-    let recipients: Vec<Value> = recipients.into_iter().map(js_row).collect();
+    let db = &orm(db);
+    let ids: Vec<&str> = page.iter().map(|r| text(r, "id")).collect();
+    let counts: Vec<(String, i64)> = sign_documents::Entity::find()
+        .select_only()
+        .column(sign_documents::Column::EnvelopeId)
+        .column_as(sign_documents::Column::Id.count(), "count")
+        .filter(sign_documents::Column::EnvelopeId.is_in(ids.iter().copied()))
+        .group_by(sign_documents::Column::EnvelopeId)
+        .into_tuple()
+        .all(db)
+        .await?;
+    let recipients = sign_recipients::Entity::find()
+        .filter(sign_recipients::Column::EnvelopeId.is_in(ids.iter().copied()))
+        .all(db)
+        .await?;
+    let recipients = json_rows(recipients)?;
     Ok(page
         .iter()
         .map(|row| {
@@ -712,28 +793,25 @@ async fn create_envelope(
         .as_set()
         .map(|s| json!({ "entityType": s.entity_type, "entityId": s.entity_id }));
 
-    let envelope: Value = sqlx::query_scalar(
-        "insert into sign_envelopes
-             (id, kind, status, title, message, sender_user_id, sender_name, sender_email,
-              reminder_after_days, reminder_every_days, reminder_max_count, source,
-              file_back_folder_id)
-         values ($1, 'envelope', 'draft', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-         returning to_jsonb(sign_envelopes)",
-    )
-    .bind(generate_id("sgn"))
-    .bind(title.into_option().unwrap_or_default())
-    .bind(message.into_option())
-    .bind(user_id)
-    .bind(&name)
-    .bind(&email)
-    .bind(settings.after_days)
-    .bind(settings.every_days)
-    .bind(settings.max_count)
-    .bind(source_json)
-    .bind(folder_id)
-    .fetch_one(db)
+    let envelope = sign_envelopes::Entity::insert(sign_envelopes::ActiveModel {
+        id: Set(generate_id("sgn")),
+        kind: Set("envelope".to_owned()),
+        status: Set("draft".to_owned()),
+        title: Set(title.into_option().unwrap_or_default()),
+        message: Set(message.into_option()),
+        sender_user_id: Set(user_id.to_owned()),
+        sender_name: Set(name.clone()),
+        sender_email: Set(email.clone()),
+        reminder_after_days: Set(settings.after_days),
+        reminder_every_days: Set(settings.every_days),
+        reminder_max_count: Set(settings.max_count),
+        source: Set(source_json),
+        file_back_folder_id: Set(folder_id),
+        ..Default::default()
+    })
+    .exec_with_returning(&orm(db))
     .await?;
-    let envelope = js_row(envelope);
+    let envelope = row_json(envelope)?;
     let id = text(&envelope, "id").to_owned();
     record_event(
         db,
@@ -775,13 +853,17 @@ pub(crate) struct SignDefaults {
 }
 
 pub(crate) async fn load_sign_settings(db: &PgPool) -> SignResult<SignDefaults> {
-    let row: Option<SettingsRow> = sqlx::query_as(
-        "select default_expiry_days, default_reminder_after_days, default_reminder_every_days,
-                default_reminder_max_count
-         from sign_settings limit 1",
-    )
-    .fetch_optional(db)
-    .await?;
+    let row: Option<SettingsRow> = sign_settings::Entity::find()
+        .select_only()
+        .columns([
+            sign_settings::Column::DefaultExpiryDays,
+            sign_settings::Column::DefaultReminderAfterDays,
+            sign_settings::Column::DefaultReminderEveryDays,
+            sign_settings::Column::DefaultReminderMaxCount,
+        ])
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     // `SIGN_DEFAULTS` until the workspace saves its own.
     let (expiry, after, every, max) = row.unwrap_or((Some(30), Some(3), Some(3), Some(3)));
     Ok(SignDefaults {
@@ -870,13 +952,54 @@ pub(crate) fn read_changes(
     })
 }
 
-/// `(set, value)` for `set col = case when set then value else col end`.
-fn change<T: Clone>(field: &Field<T>) -> (bool, Option<T>) {
+/// What a field the body sent writes (`set col = case when $set then $value
+/// else col end`): `None` when it was left out, so the column keeps its
+/// value; a null for an explicit null.
+pub(crate) fn sent<T, V>(field: &Field<T>, to: impl FnOnce(&T) -> V) -> Option<sea_orm::Value>
+where
+    Option<V>: Into<sea_orm::Value>,
+{
     match field {
-        Field::Absent => (false, None),
-        Field::Null => (true, None),
-        Field::Set(value) => (true, Some(value.clone())),
+        Field::Absent => None,
+        Field::Null => Some(None::<V>.into()),
+        Field::Set(value) => Some(Some(to(value)).into()),
     }
+}
+
+/// A number the schema bounds, as the `int` column takes it (`$n::int`).
+pub(crate) fn int(n: i64) -> i32 {
+    i32::try_from(n).unwrap_or(i32::MAX)
+}
+
+/// `$n::timestamptz` for a value `Format::DatetimeOffset` let through
+/// (`YYYY-MM-DDTHH:MM[:SS[.fraction]]`, then `Z` or `±HH[:]MM`), read as
+/// Postgres reads it: the fraction rounded to the microsecond.
+fn offset_datetime(text: &str) -> Option<OffsetDateTime> {
+    let (date_time, offset) = if let Some(date_time) = text.strip_suffix('Z') {
+        (date_time, "Z".to_owned())
+    } else {
+        let (date_time, offset) = text.split_at(text.rfind(['+', '-'])?);
+        let offset = if offset.len() == 5 {
+            format!("{}:{}", &offset[..3], &offset[3..])
+        } else {
+            offset.to_owned()
+        };
+        (date_time, offset)
+    };
+    let time = date_time.split_once('T')?.1;
+    let seconds = if time.matches(':').count() == 1 {
+        ":00"
+    } else {
+        ""
+    };
+    let at = OffsetDateTime::parse(&format!("{date_time}{seconds}{offset}"), &Rfc3339).ok()?;
+    let nanos = at.nanosecond() % 1000;
+    let at = at - Duration::nanoseconds(i64::from(nanos));
+    Some(if nanos >= 500 {
+        at + Duration::microseconds(1)
+    } else {
+        at
+    })
 }
 
 /// Draft settings (`updateEnvelope`); only a draft can be changed.
@@ -885,52 +1008,58 @@ pub(crate) async fn update_envelope(
     envelope: &Value,
     changes: &EnvelopeChanges,
 ) -> SignResult<Value> {
+    use sign_envelopes::Column;
     if text(envelope, "status") != "draft" {
         return Err(SignError::not_a_draft());
     }
-    let (set_title, title) = change(&changes.title);
-    let (set_message, message) = change(&changes.message);
-    let (set_order, order) = change(&changes.signing_order);
-    let (set_expires, expires) = change(&changes.expires_at);
-    let (set_after, after) = change(&changes.reminder_after);
-    let (set_every, every) = change(&changes.reminder_every);
-    let (set_max, max) = change(&changes.reminder_max);
-    let (set_folder, folder) = change(&changes.folder);
-    let row: Value = sqlx::query_scalar(
-        "update sign_envelopes set
-             title = case when $2 then $3 else title end,
-             message = case when $4 then $5 else message end,
-             signing_order_enabled = case when $6 then $7 else signing_order_enabled end,
-             expires_at = case when $8 then $9::timestamptz else expires_at end,
-             reminder_after_days = case when $10 then $11::int else reminder_after_days end,
-             reminder_every_days = case when $12 then $13::int else reminder_every_days end,
-             reminder_max_count = case when $14 then $15::int else reminder_max_count end,
-             file_back_folder_id = case when $16 then $17 else file_back_folder_id end,
-             updated_at = $18::timestamptz
-         where id = $1
-         returning to_jsonb(sign_envelopes)",
-    )
-    .bind(text(envelope, "id"))
-    .bind(set_title)
-    .bind(title)
-    .bind(set_message)
-    .bind(message)
-    .bind(set_order)
-    .bind(order)
-    .bind(set_expires)
-    .bind(expires)
-    .bind(set_after)
-    .bind(after)
-    .bind(set_every)
-    .bind(every)
-    .bind(set_max)
-    .bind(max)
-    .bind(set_folder)
-    .bind(folder)
-    .bind(now())
-    .fetch_one(db)
-    .await?;
-    Ok(js_row(row))
+    let expires = match &changes.expires_at {
+        Field::Set(at) => Some(
+            Some(
+                offset_datetime(at)
+                    .ok_or_else(|| SignError::Internal(format!("sign: unreadable expiry {at}")))?,
+            )
+            .into(),
+        ),
+        other => sent(other, |_| OffsetDateTime::UNIX_EPOCH),
+    };
+    let values: [(Column, Option<sea_orm::Value>); 9] = [
+        (Column::Title, sent(&changes.title, Clone::clone)),
+        (Column::Message, sent(&changes.message, Clone::clone)),
+        (
+            Column::SigningOrderEnabled,
+            sent(&changes.signing_order, |on| *on),
+        ),
+        (Column::ExpiresAt, expires),
+        (
+            Column::ReminderAfterDays,
+            sent(&changes.reminder_after, |n| int(*n)),
+        ),
+        (
+            Column::ReminderEveryDays,
+            sent(&changes.reminder_every, |n| int(*n)),
+        ),
+        (
+            Column::ReminderMaxCount,
+            sent(&changes.reminder_max, |n| int(*n)),
+        ),
+        (
+            Column::FileBackFolderId,
+            sent(&changes.folder, Clone::clone),
+        ),
+        (Column::UpdatedAt, Some(now().into())),
+    ];
+    let update = values.into_iter().fold(
+        sign_envelopes::Entity::update_many(),
+        |update, (column, value)| match value {
+            Some(value) => update.col_expr(column, Expr::value(value)),
+            None => update,
+        },
+    );
+    let rows = update
+        .filter(Column::Id.eq(text(envelope, "id")))
+        .exec_with_returning(&orm(db))
+        .await?;
+    Ok(row_json(returned(rows, "sign_envelopes")?)?)
 }
 
 pub(crate) async fn update(
@@ -961,27 +1090,43 @@ pub(crate) async fn delete_draft(db: &PgPool, envelope: &Value) -> SignResult<Ve
         return Err(SignError::not_a_draft());
     }
     let id = text(envelope, "id");
-    let mut keys: Vec<String> =
-        sqlx::query_scalar("select storage_key from sign_documents where envelope_id = $1")
-            .bind(id)
-            .fetch_all(db)
-            .await?;
-    let signatures: Vec<String> = sqlx::query_scalar(
-        "select signature_key from sign_fields where envelope_id = $1 and signature_key is not null",
-    )
-    .bind(id)
-    .fetch_all(db)
-    .await?;
+    let db = &orm(db);
+    let mut keys: Vec<String> = sign_documents::Entity::find()
+        .select_only()
+        .column(sign_documents::Column::StorageKey)
+        .filter(sign_documents::Column::EnvelopeId.eq(id))
+        .into_tuple()
+        .all(db)
+        .await?;
+    let signatures: Vec<String> = sign_fields::Entity::find()
+        .select_only()
+        .column(sign_fields::Column::SignatureKey)
+        .filter(sign_fields::Column::EnvelopeId.eq(id))
+        .filter(sign_fields::Column::SignatureKey.is_not_null())
+        .into_tuple()
+        .all(db)
+        .await?;
     keys.extend(signatures.into_iter().filter(|k| !k.is_empty()));
-    for sql in [
-        "delete from sign_fields where envelope_id = $1",
-        "delete from sign_recipients where envelope_id = $1",
-        "delete from sign_documents where envelope_id = $1",
-        "delete from sign_events where envelope_id = $1",
-        "delete from sign_envelopes where id = $1",
-    ] {
-        sqlx::query(sql).bind(id).execute(db).await?;
-    }
+    sign_fields::Entity::delete_many()
+        .filter(sign_fields::Column::EnvelopeId.eq(id))
+        .exec(db)
+        .await?;
+    sign_recipients::Entity::delete_many()
+        .filter(sign_recipients::Column::EnvelopeId.eq(id))
+        .exec(db)
+        .await?;
+    sign_documents::Entity::delete_many()
+        .filter(sign_documents::Column::EnvelopeId.eq(id))
+        .exec(db)
+        .await?;
+    sign_events::Entity::delete_many()
+        .filter(sign_events::Column::EnvelopeId.eq(id))
+        .exec(db)
+        .await?;
+    sign_envelopes::Entity::delete_many()
+        .filter(sign_envelopes::Column::Id.eq(id))
+        .exec(db)
+        .await?;
     Ok(keys)
 }
 
@@ -1018,13 +1163,13 @@ pub(crate) async fn events(caller: Caller, Path(id): Path<String>) -> Response {
 
 /// The trail with recipient names (`listEvents`).
 async fn list_events(db: &PgPool, envelope_id: &str) -> SignResult<Value> {
-    let events = rows(
-        db,
-        "select to_jsonb(e) from sign_events e where envelope_id = $1
-         order by created_at asc, id asc",
-        envelope_id,
-    )
-    .await?;
+    let events = sign_events::Entity::find()
+        .filter(sign_events::Column::EnvelopeId.eq(envelope_id))
+        .order_by_asc(sign_events::Column::CreatedAt)
+        .order_by_asc(sign_events::Column::Id)
+        .all(&orm(db))
+        .await?;
+    let events = json_rows(events)?;
     let recipients = list_recipients(db, envelope_id).await?;
     Ok(events
         .iter()
@@ -1049,4 +1194,37 @@ async fn list_events(db: &PgPool, envelope_id: &str) -> SignResult<Value> {
             })
         })
         .collect())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// What `'…'::timestamptz` makes of the expiry forms the schema lets through.
+    #[test]
+    fn expiries_read_like_postgres() {
+        let at = |text: &str| offset_datetime(text).map(iso_timestamp);
+        assert_eq!(
+            at("2026-10-29T07:00:00Z").as_deref(),
+            Some("2026-10-29T07:00:00.000Z")
+        );
+        assert_eq!(
+            at("2026-10-29T07:00Z").as_deref(),
+            Some("2026-10-29T07:00:00.000Z")
+        );
+        assert_eq!(
+            at("2026-10-29T07:00:00.123+02:00").as_deref(),
+            Some("2026-10-29T05:00:00.123Z")
+        );
+        assert_eq!(
+            at("2026-10-29T07:00:00-0530").as_deref(),
+            Some("2026-10-29T12:30:00.000Z")
+        );
+        // Microseconds, rounded: `.1239996` is `.124000`.
+        assert_eq!(
+            at("2026-10-29T07:00:00.1239996Z").as_deref(),
+            Some("2026-10-29T07:00:00.124Z")
+        );
+        assert_eq!(at("2026-10-29"), None);
+    }
 }

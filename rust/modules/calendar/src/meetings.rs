@@ -6,11 +6,16 @@
 
 use std::collections::HashSet;
 
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events::MEETING_UPDATED;
-use weldsuite_db::{PgPool, js_row};
+use weldsuite_db::{PgPool, orm};
 use weldsuite_events::EntityEvent;
+use weldsuite_schema::tenant::meetings;
 
+use crate::access::row_json;
+use crate::events::timestamp_at;
 use crate::js::{iso, millis_of};
 use crate::{CalendarState, Caller, now, text};
 
@@ -151,19 +156,22 @@ pub(crate) async fn link(
     meeting_id: &str,
     event_id: &str,
     user_id: &str,
-) -> Result<Option<MeetingChange>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "update meetings set calendar_event_id = $2, updated_at = $4::timestamp
-         where id = $1 and deleted_at is null and organizer_id = $3
-         returning to_jsonb(meetings)",
-    )
-    .bind(meeting_id)
-    .bind(event_id)
-    .bind(user_id)
-    .bind(now())
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(js_row).map(|row| {
+) -> Result<Option<MeetingChange>, DbErr> {
+    let row = meetings::Entity::update_many()
+        .col_expr(
+            meetings::Column::CalendarEventId,
+            Expr::value(event_id.to_owned()),
+        )
+        .col_expr(meetings::Column::UpdatedAt, Expr::value(now()))
+        .filter(meetings::Column::Id.eq(meeting_id))
+        .filter(meetings::Column::DeletedAt.is_null())
+        .filter(meetings::Column::OrganizerId.eq(user_id))
+        .exec_with_returning(&orm(db))
+        .await?
+        .into_iter()
+        .next();
+    let row = row.map(row_json).transpose()?;
+    Ok(row.map(|row| {
         let status = text(&row, "status").to_owned();
         MeetingChange {
             id: text(&row, "id").to_owned(),
@@ -176,26 +184,37 @@ pub(crate) async fn link(
     }))
 }
 
-async fn scheduled_for_event(db: &PgPool, event_id: &str) -> Result<Vec<Value>, sqlx::Error> {
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(m) from meetings m
-         where calendar_event_id = $1 and deleted_at is null and status = 'scheduled'",
-    )
-    .bind(event_id)
-    .fetch_all(db)
-    .await?;
-    Ok(rows.into_iter().map(js_row).collect())
+/// The event's live meetings in `status`.
+async fn for_event(db: &PgPool, event_id: &str, status: &str) -> Result<Vec<Value>, DbErr> {
+    meetings::Entity::find()
+        .filter(meetings::Column::CalendarEventId.eq(event_id))
+        .filter(meetings::Column::DeletedAt.is_null())
+        .filter(meetings::Column::Status.eq(status))
+        .all(&orm(db))
+        .await?
+        .into_iter()
+        .map(row_json)
+        .collect()
 }
 
-async fn cancel(db: &PgPool, row: &Value) -> Result<MeetingChange, sqlx::Error> {
-    sqlx::query(
-        "update meetings set status = 'cancelled', updated_at = $2::timestamp
-         where id = $1 and status = 'scheduled'",
-    )
-    .bind(text(row, "id"))
-    .bind(now())
-    .execute(db)
-    .await?;
+async fn scheduled_for_event(db: &PgPool, event_id: &str) -> Result<Vec<Value>, DbErr> {
+    for_event(db, event_id, "scheduled").await
+}
+
+/// `update meetings set status = <to> where id = … and status = <from>`.
+async fn set_status(db: &PgPool, id: &str, from: &str, to: &str) -> Result<(), DbErr> {
+    meetings::Entity::update_many()
+        .col_expr(meetings::Column::Status, Expr::value(to.to_owned()))
+        .col_expr(meetings::Column::UpdatedAt, Expr::value(now()))
+        .filter(meetings::Column::Id.eq(id))
+        .filter(meetings::Column::Status.eq(from))
+        .exec(&orm(db))
+        .await?;
+    Ok(())
+}
+
+async fn cancel(db: &PgPool, row: &Value) -> Result<MeetingChange, DbErr> {
+    set_status(db, text(row, "id"), "scheduled", "cancelled").await?;
     Ok(MeetingChange {
         id: text(row, "id").to_owned(),
         title: row["title"].clone(),
@@ -222,7 +241,7 @@ fn lost_link(row: &Value, meeting_url: &Value) -> bool {
 pub(crate) async fn cancel_for_event(
     db: &PgPool,
     event_id: &str,
-) -> Result<Vec<MeetingChange>, sqlx::Error> {
+) -> Result<Vec<MeetingChange>, DbErr> {
     let mut out = Vec::new();
     for row in scheduled_for_event(db, event_id).await? {
         out.push(cancel(db, &row).await?);
@@ -235,17 +254,20 @@ pub(crate) async fn cancel_for_event(
 pub(crate) async fn event_ids_with_scheduled_meetings(
     db: &PgPool,
     event_ids: &[String],
-) -> Result<Vec<String>, sqlx::Error> {
+) -> Result<Vec<String>, DbErr> {
     if event_ids.is_empty() {
         return Ok(Vec::new());
     }
-    let rows: Vec<Option<String>> = sqlx::query_scalar(
-        "select distinct calendar_event_id from meetings
-         where calendar_event_id = any($1) and deleted_at is null and status = 'scheduled'",
-    )
-    .bind(event_ids)
-    .fetch_all(db)
-    .await?;
+    let rows: Vec<Option<String>> = meetings::Entity::find()
+        .select_only()
+        .column(meetings::Column::CalendarEventId)
+        .distinct()
+        .filter(meetings::Column::CalendarEventId.is_in(event_ids.iter().cloned()))
+        .filter(meetings::Column::DeletedAt.is_null())
+        .filter(meetings::Column::Status.eq("scheduled"))
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     Ok(rows
         .into_iter()
         .flatten()
@@ -255,27 +277,14 @@ pub(crate) async fn event_ids_with_scheduled_meetings(
 
 /// Put an event's cancelled meetings back on, when the event still carries
 /// their link (`restoreMeetingsForEvent`).
-async fn restore_for_event(db: &PgPool, event: &Value) -> Result<Vec<String>, sqlx::Error> {
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(m) from meetings m
-         where calendar_event_id = $1 and deleted_at is null and status = 'cancelled'",
-    )
-    .bind(text(event, "id"))
-    .fetch_all(db)
-    .await?;
+async fn restore_for_event(db: &PgPool, event: &Value) -> Result<Vec<String>, DbErr> {
+    let rows = for_event(db, text(event, "id"), "cancelled").await?;
     let mut restored = Vec::new();
-    for row in rows.into_iter().map(js_row) {
+    for row in rows {
         if lost_link(&row, &event["meetingUrl"]) {
             continue;
         }
-        sqlx::query(
-            "update meetings set status = 'scheduled', updated_at = $2::timestamp
-             where id = $1 and status = 'cancelled'",
-        )
-        .bind(text(&row, "id"))
-        .bind(now())
-        .execute(db)
-        .await?;
+        set_status(db, text(&row, "id"), "cancelled", "scheduled").await?;
         restored.push(text(&row, "id").to_owned());
     }
     Ok(restored)
@@ -287,7 +296,7 @@ pub(crate) async fn sync_from_event(
     db: &PgPool,
     before: &Value,
     after: &Value,
-) -> Result<Vec<MeetingChange>, sqlx::Error> {
+) -> Result<Vec<MeetingChange>, DbErr> {
     let after_deleted = !after["deletedAt"].is_null();
     let uncancelled =
         before["status"] == "cancelled" && after["status"] != "cancelled" && !after_deleted;
@@ -320,27 +329,37 @@ pub(crate) async fn sync_from_event(
             continue;
         }
         if changed {
-            sqlx::query(
-                "update meetings set
-                     title = case when $2 then $3 else title end,
-                     scheduled_start = case when $4 then $5::timestamp else scheduled_start end,
-                     scheduled_end = case when $6 then $7::timestamp else scheduled_end end,
-                     attendees = case when $8 then $9::jsonb else attendees end,
-                     updated_at = $10::timestamp
-                 where id = $1 and status = 'scheduled'",
-            )
-            .bind(&id)
-            .bind(set_title)
-            .bind(after["title"].as_str())
-            .bind(set_start)
-            .bind(millis_of(&after["startTime"]).map(iso))
-            .bind(set_end)
-            .bind(millis_of(&after["endTime"]).map(iso))
-            .bind(attendees_changed)
-            .bind(Value::Array(attendees))
-            .bind(now())
-            .execute(db)
-            .await?;
+            let mut update = meetings::Entity::update_many();
+            if set_title {
+                update = update.col_expr(
+                    meetings::Column::Title,
+                    Expr::value(after["title"].as_str().map(str::to_owned)),
+                );
+            }
+            if set_start {
+                update = update.col_expr(
+                    meetings::Column::ScheduledStart,
+                    Expr::value(millis_of(&after["startTime"]).map(timestamp_at)),
+                );
+            }
+            if set_end {
+                update = update.col_expr(
+                    meetings::Column::ScheduledEnd,
+                    Expr::value(millis_of(&after["endTime"]).map(timestamp_at)),
+                );
+            }
+            if attendees_changed {
+                update = update.col_expr(
+                    meetings::Column::Attendees,
+                    Expr::value(Value::Array(attendees)),
+                );
+            }
+            update
+                .col_expr(meetings::Column::UpdatedAt, Expr::value(now()))
+                .filter(meetings::Column::Id.eq(id.as_str()))
+                .filter(meetings::Column::Status.eq("scheduled"))
+                .exec(&orm(db))
+                .await?;
         }
         let title = if set_title {
             after["title"].clone()

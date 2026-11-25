@@ -9,13 +9,17 @@
 
 use std::collections::{HashMap, HashSet};
 
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect,
+};
 use serde_json::Value;
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_kit::generate_id;
+use weldsuite_schema::tenant::{companies, parties, people, person_companies};
 
-use crate::http::now;
+use crate::db_values::to_json_rows;
 use crate::jurisdictions::js_trim;
-use crate::tables::PEOPLE;
 
 /// `BILLING_CONTACT_ROLE`.
 pub const BILLING_CONTACT_ROLE: &str = "billing";
@@ -35,33 +39,35 @@ fn distinct(ids: &[String]) -> Vec<String> {
 pub async fn load_billing_contacts(
     db: &PgPool,
     company_ids: &[String],
-) -> Result<HashMap<String, Value>, sqlx::Error> {
+) -> Result<HashMap<String, Value>, DbErr> {
     let ids = distinct(company_ids);
     if ids.is_empty() {
         return Ok(HashMap::new());
     }
-    let links: Vec<(String, String)> = sqlx::query_as(
-        "select company_id, person_id from person_companies \
-         where company_id = any($1) and role = 'billing' and ended_at is null \
-         order by updated_at desc",
-    )
-    .bind(&ids)
-    .fetch_all(db)
-    .await?;
+    let db = orm(db);
+    let links: Vec<(String, String)> = person_companies::Entity::find()
+        .select_only()
+        .columns([
+            person_companies::Column::CompanyId,
+            person_companies::Column::PersonId,
+        ])
+        .filter(person_companies::Column::CompanyId.is_in(ids))
+        .filter(person_companies::Column::Role.eq(BILLING_CONTACT_ROLE))
+        .filter(person_companies::Column::EndedAt.is_null())
+        .order_by_desc(person_companies::Column::UpdatedAt)
+        .into_tuple()
+        .all(&db)
+        .await?;
     if links.is_empty() {
         return Ok(HashMap::new());
     }
     let person_ids = distinct(&links.iter().map(|(_, p)| p.clone()).collect::<Vec<_>>());
-    let people: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        crate::books_row!(people),
-        " from people t where t.id = any($1) and t.deleted_at is null"
-    ))
-    .bind(&person_ids)
-    .fetch_all(db)
-    .await?;
-    let by_id: HashMap<String, Value> = PEOPLE
-        .js_rows(people)
+    let people = people::Entity::find()
+        .filter(people::Column::Id.is_in(person_ids))
+        .filter(people::Column::DeletedAt.is_null())
+        .all(&db)
+        .await?;
+    let by_id: HashMap<String, Value> = to_json_rows(people)?
         .into_iter()
         .filter_map(|row| Some((row["id"].as_str()?.to_owned(), row)))
         .collect();
@@ -96,39 +102,43 @@ pub async fn set_billing_contact(
     db: &PgPool,
     company_id: &str,
     person_id: &str,
-) -> Result<BillingContactLink, sqlx::Error> {
-    let now = now();
-    let demoted: Vec<String> = sqlx::query_scalar(
-        "update person_companies set role = null, updated_at = $3::timestamp \
-         where company_id = $1 and role = 'billing' and ended_at is null and person_id <> $2 \
-         returning person_id",
-    )
-    .bind(company_id)
-    .bind(person_id)
-    .bind(&now)
-    .fetch_all(db)
-    .await?;
+) -> Result<BillingContactLink, DbErr> {
+    use person_companies::Column;
+    let now = utc_now();
+    let db = orm(db);
+    let demoted: Vec<String> = person_companies::Entity::update_many()
+        .col_expr(Column::Role, Expr::value(Option::<String>::None))
+        .col_expr(Column::UpdatedAt, Expr::value(now))
+        .filter(Column::CompanyId.eq(company_id))
+        .filter(Column::Role.eq(BILLING_CONTACT_ROLE))
+        .filter(Column::EndedAt.is_null())
+        .filter(Column::PersonId.ne(person_id))
+        .exec_with_returning(&db)
+        .await?
+        .into_iter()
+        .map(|link| link.person_id)
+        .collect();
 
-    let link: Option<(String, Option<String>)> = sqlx::query_as(
-        "select id, role from person_companies \
-         where company_id = $1 and person_id = $2 and ended_at is null \
-         order by updated_at desc limit 1",
-    )
-    .bind(company_id)
-    .bind(person_id)
-    .fetch_optional(db)
-    .await?;
+    let link: Option<(String, Option<String>)> = person_companies::Entity::find()
+        .select_only()
+        .columns([Column::Id, Column::Role])
+        .filter(Column::CompanyId.eq(company_id))
+        .filter(Column::PersonId.eq(person_id))
+        .filter(Column::EndedAt.is_null())
+        .order_by_desc(Column::UpdatedAt)
+        .into_tuple()
+        .one(&db)
+        .await?;
 
     if let Some((link_id, role)) = link {
         let role_changed = role.as_deref() != Some(BILLING_CONTACT_ROLE);
         if role_changed {
-            sqlx::query(
-                "update person_companies set role = 'billing', updated_at = $2::timestamp where id = $1",
-            )
-            .bind(&link_id)
-            .bind(&now)
-            .execute(db)
-            .await?;
+            person_companies::Entity::update_many()
+                .col_expr(Column::Role, Expr::value(BILLING_CONTACT_ROLE))
+                .col_expr(Column::UpdatedAt, Expr::value(now))
+                .filter(Column::Id.eq(&link_id))
+                .exec(&db)
+                .await?;
         }
         let changed = role_changed || !demoted.is_empty();
         return Ok(BillingContactLink {
@@ -139,23 +149,27 @@ pub async fn set_billing_contact(
         });
     }
 
-    let primary: Option<String> = sqlx::query_scalar(
-        "select id from person_companies where person_id = $1 and is_primary = true and ended_at is null limit 1",
-    )
-    .bind(person_id)
-    .fetch_optional(db)
-    .await?;
+    let primary: Option<String> = person_companies::Entity::find()
+        .select_only()
+        .column(Column::Id)
+        .filter(Column::PersonId.eq(person_id))
+        .filter(Column::IsPrimary.eq(true))
+        .filter(Column::EndedAt.is_null())
+        .into_tuple()
+        .one(&db)
+        .await?;
     let id = generate_id("pc");
-    sqlx::query(
-        "insert into person_companies (id, created_at, updated_at, person_id, company_id, role, is_primary) \
-         values ($1, $2::timestamp, $2::timestamp, $3, $4, 'billing', $5)",
-    )
-    .bind(&id)
-    .bind(&now)
-    .bind(person_id)
-    .bind(company_id)
-    .bind(primary.is_none())
-    .execute(db)
+    person_companies::Entity::insert(person_companies::ActiveModel {
+        id: Set(id.clone()),
+        created_at: Set(now),
+        updated_at: Set(now),
+        person_id: Set(person_id.to_owned()),
+        company_id: Set(company_id.to_owned()),
+        role: Set(Some(BILLING_CONTACT_ROLE.to_owned())),
+        is_primary: Set(primary.is_none()),
+        ..Default::default()
+    })
+    .exec_without_returning(&db)
     .await?;
     Ok(BillingContactLink {
         link_id: id,
@@ -167,18 +181,17 @@ pub async fn set_billing_contact(
 
 /// `clearBillingContact(db, companyId)`: who lost the role (they stay
 /// linked).
-pub async fn clear_billing_contact(
-    db: &PgPool,
-    company_id: &str,
-) -> Result<Vec<String>, sqlx::Error> {
-    sqlx::query_scalar(
-        "update person_companies set role = null, updated_at = $2::timestamp \
-         where company_id = $1 and role = 'billing' and ended_at is null returning person_id",
-    )
-    .bind(company_id)
-    .bind(now())
-    .fetch_all(db)
-    .await
+pub async fn clear_billing_contact(db: &PgPool, company_id: &str) -> Result<Vec<String>, DbErr> {
+    use person_companies::Column;
+    let cleared = person_companies::Entity::update_many()
+        .col_expr(Column::Role, Expr::value(Option::<String>::None))
+        .col_expr(Column::UpdatedAt, Expr::value(utc_now()))
+        .filter(Column::CompanyId.eq(company_id))
+        .filter(Column::Role.eq(BILLING_CONTACT_ROLE))
+        .filter(Column::EndedAt.is_null())
+        .exec_with_returning(&orm(db))
+        .await?;
+    Ok(cleared.into_iter().map(|link| link.person_id).collect())
 }
 
 /// `ContactSnapshot`: what a document keeps of its contact.
@@ -198,27 +211,34 @@ fn filled(value: Option<String>) -> Option<String> {
 pub async fn load_contact_snapshot(
     db: &PgPool,
     contact_id: Option<&str>,
-) -> Result<ContactSnapshot, sqlx::Error> {
+) -> Result<ContactSnapshot, DbErr> {
     let Some(contact_id) = contact_id.filter(|id| !id.is_empty()) else {
         return Ok(ContactSnapshot::default());
     };
-    let party: Option<(Option<String>, Option<String>, Option<String>)> = sqlx::query_as(
-        "select display_name, company_id, person_id from parties where id = $1 limit 1",
-    )
-    .bind(contact_id)
-    .fetch_optional(db)
-    .await?;
+    let party: Option<(Option<String>, Option<String>, Option<String>)> = parties::Entity::find()
+        .select_only()
+        .columns([
+            parties::Column::DisplayName,
+            parties::Column::CompanyId,
+            parties::Column::PersonId,
+        ])
+        .filter(parties::Column::Id.eq(contact_id))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     let Some((display_name, company_id, person_id)) = party else {
         return Ok(ContactSnapshot::default());
     };
 
     let mut identity: Option<(Option<String>, Option<String>)> = None;
     if let Some(company_id) = company_id.as_deref().filter(|id| !id.is_empty()) {
-        identity =
-            sqlx::query_as("select display_name, email from companies where id = $1 limit 1")
-                .bind(company_id)
-                .fetch_optional(db)
-                .await?;
+        identity = companies::Entity::find()
+            .select_only()
+            .columns([companies::Column::DisplayName, companies::Column::Email])
+            .filter(companies::Column::Id.eq(company_id))
+            .into_tuple()
+            .one(&orm(db))
+            .await?;
         // A company without an email of its own is reached through its contact person.
         if let Some((name, email)) = &identity
             && filled(email.clone()).is_none()
@@ -233,9 +253,12 @@ pub async fn load_contact_snapshot(
             }
         }
     } else if let Some(person_id) = person_id.as_deref().filter(|id| !id.is_empty()) {
-        identity = sqlx::query_as("select display_name, email from people where id = $1 limit 1")
-            .bind(person_id)
-            .fetch_optional(db)
+        identity = people::Entity::find()
+            .select_only()
+            .columns([people::Column::DisplayName, people::Column::Email])
+            .filter(people::Column::Id.eq(person_id))
+            .into_tuple()
+            .one(&orm(db))
             .await?;
     }
 
@@ -261,7 +284,7 @@ pub async fn document_contact_fields(
     contact_id: Option<&str>,
     sent_name: Option<&str>,
     sent_email: Option<&str>,
-) -> Result<ContactSnapshot, sqlx::Error> {
+) -> Result<ContactSnapshot, DbErr> {
     let name = sent_text(sent_name);
     let email = sent_text(sent_email);
     if name.is_some() && email.is_some() {
@@ -276,7 +299,7 @@ pub async fn document_contact_fields(
 
 /// `withContactEmail(db, row)`: `contactEmail` filled on a document stored
 /// without one, from its contact's current address (the PDF does the same).
-pub async fn with_contact_email(db: &PgPool, mut row: Value) -> Result<Value, sqlx::Error> {
+pub async fn with_contact_email(db: &PgPool, mut row: Value) -> Result<Value, DbErr> {
     let email_set = row["contactEmail"]
         .as_str()
         .is_some_and(|email| !js_trim(email).is_empty());
@@ -297,10 +320,7 @@ pub async fn with_contact_email(db: &PgPool, mut row: Value) -> Result<Value, sq
 
 /// `withContactNames(db, rows)`: `contactName` filled on documents stored
 /// without one, from their contacts' current names (one query for the lot).
-pub async fn with_contact_names(
-    db: &PgPool,
-    mut rows: Vec<Value>,
-) -> Result<Vec<Value>, sqlx::Error> {
+pub async fn with_contact_names(db: &PgPool, mut rows: Vec<Value>) -> Result<Vec<Value>, DbErr> {
     let missing = |row: &Value| -> Option<String> {
         let name_set = row["contactName"].as_str().is_some_and(|n| !n.is_empty());
         if name_set {
@@ -315,11 +335,13 @@ pub async fn with_contact_names(
     if ids.is_empty() {
         return Ok(rows);
     }
-    let parties: Vec<(String, Option<String>)> =
-        sqlx::query_as("select id, display_name from parties where id = any($1)")
-            .bind(&ids)
-            .fetch_all(db)
-            .await?;
+    let parties: Vec<(String, Option<String>)> = parties::Entity::find()
+        .select_only()
+        .columns([parties::Column::Id, parties::Column::DisplayName])
+        .filter(parties::Column::Id.is_in(ids))
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     let names: HashMap<String, String> = parties
         .into_iter()
         .filter_map(|(id, name)| Some((id, name?)))

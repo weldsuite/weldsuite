@@ -1,0 +1,17 @@
+@import 'tailwindcss';
+@import '@weldsuite/storefront-theme/styles.css';
+
+/* Self-hosted fonts (never a font CDN). Each is an @font-face declaration
+   only: the browser downloads a font file when the theme's settings use that
+   family, so shops pay for the fonts they show and nothing else. */
+@import '@fontsource-variable/inter';
+@import '@fontsource-variable/dm-sans';
+@import '@fontsource-variable/fraunces';
+@import '@fontsource-variable/lora';
+
+/* The theme's components are drawn from the theme package: scan it too. */
+@source '../../../packages/design/storefront-theme/src';
+
+/* The image build has no .gitignore: never scan the client build's output
+   (as forms-portal/styles.css explains). */
+@source not './dist';

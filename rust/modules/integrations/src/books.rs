@@ -234,6 +234,7 @@ fn describe(error: &ServiceError) -> String {
         ServiceError::Service(code, message) => format!("{code}: {message}"),
         ServiceError::Database(error) => error.to_string(),
         ServiceError::Other(message) => message.clone(),
+        ServiceError::OutsideEu(error) => error.to_string(),
     }
 }
 

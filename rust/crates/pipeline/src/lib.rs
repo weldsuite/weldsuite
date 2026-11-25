@@ -4,11 +4,6 @@
 //! licence-gate.ts`, `read-only.ts`, `app-access.ts` and
 //! `middleware/feature-flags.ts`.
 
-#![allow(
-    clippy::disallowed_methods,
-    reason = "not converted to the ORM yet (ADR DATA-019)"
-)]
-
 mod app_access;
 mod flags;
 mod licence;

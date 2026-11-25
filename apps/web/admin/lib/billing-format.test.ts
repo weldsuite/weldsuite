@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { isLiveSubscription, keepsRequestId } from './billing-format';
+import { actionLabel, isLiveSubscription, keepsRequestId } from './billing-format';
+import { adminCopy } from './i18n';
 
 describe('keepsRequestId', () => {
   it('keeps the idempotency key when the write may have happened', () => {
@@ -12,6 +13,16 @@ describe('keepsRequestId', () => {
     for (const code of ['BAD_REQUEST', 'NOT_FOUND', 'CONFLICT', 'NOT_CONFIGURED', 'STRIPE_REJECTED', undefined]) {
       expect(keepsRequestId(code)).toBe(false);
     }
+  });
+});
+
+describe('actionLabel', () => {
+  it('labels the Mollie card’s seat price change in the activity log', () => {
+    expect(actionLabel(adminCopy(), 'workspace.billing.seat_price')).toBe('Seat price changed');
+  });
+
+  it('leaves an action it doesn’t know as it is', () => {
+    expect(actionLabel(adminCopy(), 'workspace.billing.unknown')).toBe('workspace.billing.unknown');
   });
 });
 

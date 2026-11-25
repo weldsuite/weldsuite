@@ -29,11 +29,13 @@ import {
   Tags,
   Shuffle,
   Timer,
+  Database,
   Grid3x3,
   ConciergeBell,
   Laptop,
   Route,
   Sparkles,
+  Globe,
 } from 'lucide-react';
 import { isDesktop } from '@/lib/desktop';
 import { getAppLogo, getAppLucideIcon, resolveAppCode } from '@/lib/apps/app-registry';
@@ -72,6 +74,7 @@ const APP_SETTINGS_ITEMS = [
   { appCode: 'weldcommerce', title: 'WeldCommerce', href: '/settings/apps/weldcommerce' },
   { appCode: 'weldstash', title: 'WeldStash', href: '/settings/apps/weldstash' },
   { appCode: 'weldmerge', title: 'WeldMerge', href: '/settings/apps/weldmerge' },
+  { appCode: 'weldpass', title: 'WeldPass', href: '/settings/apps/weldpass' },
   { appCode: 'weldpanel', title: 'WeldPanel', href: '/settings/apps/weldpanel' },
   { appCode: 'weldreach', title: 'WeldReach', href: '/settings/apps/weldreach' },
   { appCode: 'social', title: 'WeldSocial', href: '/settings/apps/social' },
@@ -84,8 +87,9 @@ const APP_SETTINGS_ITEMS = [
 function welddeskSettingsSubItems(
   td: TranslationsType['settings']['welddesk'],
   th: TranslationsType['helpdesk'],
+  tb: TranslationsType['deskBi'],
 ): MenuItemProps[] {
-  return [
+  const items: MenuItemProps[] = [
     { title: td.chatWidgetTitle, href: '/settings/apps/welddesk/chat-widget', icon: MessagesSquare },
     { title: td.emailTitle, href: '/settings/apps/welddesk/email', icon: Mail },
     { title: td.phoneTitle, href: '/settings/apps/welddesk/phone', icon: Phone },
@@ -99,7 +103,10 @@ function welddeskSettingsSubItems(
     { title: td.priorityMatrixTitle, href: '/settings/apps/welddesk/priority-matrix', icon: Grid3x3 },
     { title: td.serviceCatalogueTitle, href: '/settings/apps/welddesk/service-catalogue', icon: ConciergeBell },
     { title: th.assets.settingsTitle, href: '/settings/apps/welddesk/asset-register', icon: Laptop },
+    { title: tb.title, href: '/settings/apps/welddesk/bi-connector', icon: Database },
   ];
+  // Like the overview page: no links to pages this edition doesn't serve.
+  return items.filter((item) => isRouteOffered(item.href));
 }
 
 // WeldSuite itself is always shown — it's the platform, not an installable app.
@@ -149,7 +156,8 @@ export function useSettingsSidebarItems(enabled: boolean) {
           (item) =>
             installedAppCodes.has(item.appCode) &&
             (item.appCode !== 'weldstash' || isFeatureAvailable('stash-replenishment')) &&
-            (item.appCode !== 'weldcommerce' || isFeatureAvailable('commerce')),
+            (item.appCode !== 'weldcommerce' || isFeatureAvailable('commerce')) &&
+            (item.appCode !== 'weldpass' || isFeatureAvailable('weldpass-offline')),
         )
         .map(({ appCode, title, href, icon }): MenuItemProps => ({
           title,
@@ -157,7 +165,7 @@ export function useSettingsSidebarItems(enabled: boolean) {
           icon,
           // WeldDesk opens up to its own settings pages while one of them is open.
           ...(appCode === 'welddesk' && (pathname ?? '').startsWith('/settings/apps/welddesk')
-            ? { subItems: welddeskSettingsSubItems(ts.welddesk, t.helpdesk) }
+            ? { subItems: welddeskSettingsSubItems(ts.welddesk, t.helpdesk, t.deskBi) }
             : {}),
         })),
     ];
@@ -183,6 +191,8 @@ export function useSettingsSidebarItems(enabled: boolean) {
           { title: ts.menu.sso, href: '/settings/sso', icon: Fingerprint },
           // Kubernetes editions with AI configured (hidden elsewhere by the edition check below).
           ...(canManageAi ? [{ title: ts.menu.ai, href: '/settings/ai', icon: Sparkles }] : []),
+          // The EU edition only (ADR OPS-026; hidden elsewhere by the edition check below).
+          { title: ts.menu.outsideEu, href: '/settings/outside-eu', icon: Globe },
           { title: ts.menu.plans, href: '/settings/plans', icon: CreditCard },
           { title: ts.menu.billing, href: '/settings/billing', icon: Receipt },
           { title: ts.menu.businessSettings, href: '/settings/business', icon: Building, isActive: pathname === '/settings/business' || pathname === '/settings/general' },
@@ -208,7 +218,7 @@ export function useSettingsSidebarItems(enabled: boolean) {
     // Edition flags (4.F3): only pages this deployment serves (no billing,
     // SSO, integrations, … where the backend lacks them).
     return groups.map((group) => ({ ...group, items: group.items.filter((item) => isRouteOffered(item.href)) }));
-  }, [enabled, ts, t.helpdesk, pathname, installedAppCodes, hasEntityApps, canManageAi]);
+  }, [enabled, ts, t.helpdesk, t.deskBi, pathname, installedAppCodes, hasEntityApps, canManageAi]);
 
   const sidebarProps = React.useMemo(
     () => ({ appName: ts.title, showBackButton: true, onBack: handleBack }),

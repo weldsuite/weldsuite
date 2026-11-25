@@ -13,24 +13,32 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use http::{HeaderMap, StatusCode};
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, EntityTrait, JoinType, QueryFilter, QueryOrder, QuerySelect,
+    RelationDef,
+};
 use serde_json::{Value, json};
-use time::OffsetDateTime;
+use time::{OffsetDateTime, PrimitiveDateTime};
 use weldsuite_catalogs::entity_events::{EMAIL_DELETED, EMAIL_EMAIL_SCHEDULED, EMAIL_EMAIL_SENT};
 use weldsuite_catalogs::permission_keys::{
     MESSAGES_CREATE, MESSAGES_DELETE, MESSAGES_READ, MESSAGES_UPDATE,
 };
-use weldsuite_db::js_row;
+use weldsuite_db::{orm, utc_now, utc_timestamp};
 use weldsuite_kit::validation::{Format, Presence, Text};
 use weldsuite_kit::{ApiError, Created, Data, generate_id};
 use weldsuite_mail_domain::access::{accessible_account_ids, check_account_access};
-use weldsuite_mail_domain::messages::{iso, message_account_id, message_record};
+use weldsuite_mail_domain::messages::{message_account_id, message_record};
 use weldsuite_mail_domain::outbound::clock::{iso as iso_ms, parse_iso};
 use weldsuite_mail_domain::send::{SendError, SendInput, collapse_whitespace, prepare_body};
 use weldsuite_mail_domain::text::{js_trim, utf16_prefix};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::{mail_accounts, mail_attachments, mail_messages};
 
 use crate::routes::mail_accounts::email_event_data;
+use crate::routes::mail_attachments::refresh_count;
 use crate::routes::mail_labels::NO_ACCESS;
+use crate::routes::mail_messages::message_json;
 use crate::scheduled::{
     ScheduledPatch, ScheduledRuns, apply_scheduled_patch, deliver, load_scheduled, now_millis,
     run_params,
@@ -98,6 +106,21 @@ fn workflow_missing() -> MailError {
     )
 }
 
+/// `new Date(ms)` as Drizzle writes it to a `timestamp` column.
+pub(crate) fn ms_timestamp(ms: i64) -> PrimitiveDateTime {
+    let at = OffsetDateTime::from_unix_timestamp_nanos(i128::from(ms) * 1_000_000)
+        .unwrap_or(OffsetDateTime::UNIX_EPOCH);
+    utc_timestamp(at)
+}
+
+/// `join(mailMessages, eq(mailMessages.id, mailAttachments.messageId))`.
+fn attachment_message() -> RelationDef {
+    mail_attachments::Entity::belongs_to(mail_messages::Entity)
+        .from(mail_attachments::Column::MessageId)
+        .to(mail_messages::Column::Id)
+        .into()
+}
+
 /// `assertScheduleWindow(scheduledFor)`.
 fn assert_window(at: i64) -> MailResult<()> {
     let now = now_millis();
@@ -139,19 +162,17 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
         if ids.is_empty() {
             return Ok(Data(json!([])).into_response());
         }
-        let rows: Vec<Value> = sqlx::query_scalar(
-            "select to_jsonb(m) - (case when m.threats is null then 'threats' else '' end) from mail_messages m
-             where m.deleted_at is null and m.send_status = 'scheduled'
-               and m.account_id = any($1::text[])
-             order by m.scheduled_for",
-        )
-        .bind(&ids)
-        .fetch_all(&caller.db)
-        .await?;
+        let rows = mail_messages::Entity::find()
+            .filter(mail_messages::Column::DeletedAt.is_null())
+            .filter(mail_messages::Column::SendStatus.eq("scheduled"))
+            .filter(mail_messages::Column::AccountId.is_in(ids))
+            .order_by_asc(mail_messages::Column::ScheduledFor)
+            .all(&orm(&caller.db))
+            .await?;
         let rows: Vec<Value> = rows
             .into_iter()
-            .map(|r| message_record(js_row(r), true))
-            .collect();
+            .map(|row| message_json(row).map(|row| message_record(row, true)))
+            .collect::<Result<_, _>>()?;
         Ok(Data(rows).into_response())
     }
     .await;
@@ -248,14 +269,16 @@ async fn movable_attachment_ids(caller: &Caller, ids: &[String]) -> MailResult<V
             unique.push(id.clone());
         }
     }
-    let rows: Vec<(String, String)> = sqlx::query_as(
-        "select a.id, m.account_id from mail_attachments a
-         join mail_messages m on m.id = a.message_id
-         where a.id = any($1::text[]) and a.deleted_at is null",
-    )
-    .bind(&unique)
-    .fetch_all(&caller.db)
-    .await?;
+    let rows: Vec<(String, String)> = mail_attachments::Entity::find()
+        .select_only()
+        .column(mail_attachments::Column::Id)
+        .column(mail_messages::Column::AccountId)
+        .join(JoinType::InnerJoin, attachment_message())
+        .filter(mail_attachments::Column::Id.is_in(unique))
+        .filter(mail_attachments::Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&orm(&caller.db))
+        .await?;
     let mut access: Vec<(String, bool)> = Vec::new();
     let mut movable = Vec::new();
     for (id, account) in rows {
@@ -361,21 +384,29 @@ async fn schedule(
         let Some(runs) = caller.bindings.scheduled_runs(&state) else {
             return Err(workflow_missing());
         };
-        let account: Option<(String, Option<String>)> = sqlx::query_as(
-            "select email, display_name from mail_accounts where id = $1 and deleted_at is null limit 1",
-        )
-        .bind(&data.account_id)
-        .fetch_optional(&caller.db)
-        .await?;
+        let account: Option<(String, Option<String>)> =
+            mail_accounts::Entity::find_by_id(data.account_id.clone())
+                .select_only()
+                .columns([
+                    mail_accounts::Column::Email,
+                    mail_accounts::Column::DisplayName,
+                ])
+                .filter(mail_accounts::Column::DeletedAt.is_null())
+                .into_tuple()
+                .one(&orm(&caller.db))
+                .await?;
         let Some((email, display_name)) = account else {
-            return Err(scheduled_error("ACCOUNT_NOT_FOUND", "Mail account not found"));
+            return Err(scheduled_error(
+                "ACCOUNT_NOT_FOUND",
+                "Mail account not found",
+            ));
         };
         let validated = validate_attachments(&state, &caller, &org, &data.send).await?;
         let reparented = movable_attachment_ids(&caller, &data.attachment_ids).await?;
 
         let message_id = generate_id("msg");
         let smtp = format!("<{message_id}@scheduled.weldsuite.org>");
-        let now = iso(OffsetDateTime::now_utc());
+        let now = utc_now();
         let (html, text) = prepare_body(&data.send);
         let preview = utf16_prefix(
             js_trim(&collapse_whitespace(text.as_deref().unwrap_or_default())),
@@ -392,83 +423,92 @@ async fn schedule(
                 .map(|v| Value::Array(v.iter().map(|e| json!({ "email": e })).collect()))
         };
         let scheduled_iso = iso_ms(at);
-        sqlx::query(
-            "insert into mail_messages (id, account_id, message_id, thread_id, \"from\", \"to\", cc, bcc,
-               subject, preview, text_body, html_body, sent_date, is_read, labels, is_spam,
-               is_starred, is_important, is_trash, in_reply_to, \"references\", is_reply,
-               send_status, scheduled_for, source, has_attachments, attachment_count,
-               created_at, updated_at)
-             values ($1, $2, $3, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::timestamp, true,
-               '[\"SENT\",\"SCHEDULED\"]'::jsonb, false, false, false, false, $13, $14, $15,
-               'scheduled', $16::timestamp, 'sent', $17, $18, $12::timestamp, $12::timestamp)",
-        )
-        .bind(&message_id)
-        .bind(&data.account_id)
-        .bind(&smtp)
-        .bind(&from)
-        .bind(list(&Some(data.send.to.clone())))
-        .bind(list(&data.send.cc))
-        .bind(list(&data.send.bcc))
-        .bind(
-            data.send
-                .subject
-                .clone()
-                .filter(|s| !s.is_empty())
-                .unwrap_or_else(|| "(No subject)".to_owned()),
-        )
-        .bind(&preview)
-        .bind(&text)
-        .bind(&html)
-        .bind(&now)
-        .bind(&data.send.in_reply_to)
-        .bind(data.send.references.as_ref().map(|r| json!(r)))
-        .bind(data.send.in_reply_to.as_deref().is_some_and(|s| !s.is_empty()))
-        .bind(&scheduled_iso)
-        .bind(!validated.is_empty())
-        .bind(i32::try_from(validated.len()).unwrap_or(i32::MAX))
-        .execute(&caller.db)
+        mail_messages::Entity::insert(mail_messages::ActiveModel {
+            id: Set(message_id.clone()),
+            account_id: Set(data.account_id.clone()),
+            message_id: Set(smtp.clone()),
+            thread_id: Set(Some(smtp.clone())),
+            from: Set(from),
+            to: Set(list(&Some(data.send.to.clone())).unwrap_or_default()),
+            cc: Set(list(&data.send.cc)),
+            bcc: Set(list(&data.send.bcc)),
+            subject: Set(Some(
+                data.send
+                    .subject
+                    .clone()
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or_else(|| "(No subject)".to_owned()),
+            )),
+            preview: Set(Some(preview)),
+            text_body: Set(text),
+            html_body: Set(html),
+            sent_date: Set(now),
+            is_read: Set(true),
+            labels: Set(Some(json!(["SENT", "SCHEDULED"]))),
+            is_spam: Set(Some(false)),
+            is_starred: Set(Some(false)),
+            is_important: Set(Some(false)),
+            is_trash: Set(Some(false)),
+            in_reply_to: Set(data.send.in_reply_to.clone()),
+            references: Set(data.send.references.as_ref().map(|r| json!(r))),
+            is_reply: Set(Some(
+                data.send
+                    .in_reply_to
+                    .as_deref()
+                    .is_some_and(|s| !s.is_empty()),
+            )),
+            send_status: Set(Some("scheduled".to_owned())),
+            scheduled_for: Set(Some(ms_timestamp(at))),
+            source: Set(Some("sent".to_owned())),
+            has_attachments: Set(!validated.is_empty()),
+            attachment_count: Set(Some(i32::try_from(validated.len()).unwrap_or(i32::MAX))),
+            created_at: Set(now),
+            updated_at: Set(now),
+            ..Default::default()
+        })
+        .exec_without_returning(&orm(&caller.db))
         .await?;
         for (filename, content_type, size, key) in &validated {
-            sqlx::query(
-                "insert into mail_attachments (id, message_id, file_name, content_type, size,
-                   storage_path, is_inline, created_at, updated_at)
-                 values ($1, $2, $3, $4, $5, $6, false, $7::timestamp, $7::timestamp)",
-            )
-            .bind(generate_id("attach"))
-            .bind(&message_id)
-            .bind(filename)
-            .bind(content_type.clone().unwrap_or_else(|| "application/octet-stream".to_owned()))
-            .bind(size)
-            .bind(key)
-            .bind(&now)
-            .execute(&caller.db)
+            mail_attachments::Entity::insert(mail_attachments::ActiveModel {
+                id: Set(generate_id("attach")),
+                message_id: Set(message_id.clone()),
+                file_name: Set(filename.clone()),
+                content_type: Set(Some(
+                    content_type
+                        .clone()
+                        .unwrap_or_else(|| "application/octet-stream".to_owned()),
+                )),
+                // At most `MAX_EMAIL_SIZE_BYTES`.
+                size: Set(i32::try_from(*size).unwrap_or(i32::MAX)),
+                storage_path: Set(Some(key.clone())),
+                is_inline: Set(Some(false)),
+                created_at: Set(now),
+                updated_at: Set(now),
+                ..Default::default()
+            })
+            .exec_without_returning(&orm(&caller.db))
             .await?;
         }
         if !reparented.is_empty() {
-            sqlx::query(
-                "update mail_attachments set message_id = $1, updated_at = $3::timestamp
-                 where id = any($2::text[]) and deleted_at is null",
-            )
-            .bind(&message_id)
-            .bind(&reparented)
-            .bind(&now)
-            .execute(&caller.db)
-            .await?;
-            sqlx::query(
-                "update mail_messages set
-                   attachment_count = coalesce((select count(*)::int from mail_attachments
-                     where message_id = $1 and deleted_at is null), 0),
-                   has_attachments = exists (select 1 from mail_attachments
-                     where message_id = $1 and deleted_at is null),
-                   updated_at = $2::timestamp
-                 where id = $1",
-            )
-            .bind(&message_id)
-            .bind(&now)
-            .execute(&caller.db)
-            .await?;
+            mail_attachments::Entity::update_many()
+                .col_expr(
+                    mail_attachments::Column::MessageId,
+                    Expr::value(message_id.clone()),
+                )
+                .col_expr(mail_attachments::Column::UpdatedAt, Expr::value(now))
+                .filter(mail_attachments::Column::Id.is_in(reparented))
+                .filter(mail_attachments::Column::DeletedAt.is_null())
+                .exec(&orm(&caller.db))
+                .await?;
+            refresh_count(&caller.db, &message_id, now).await?;
         }
-        let params = run_params(&org, &caller.user_id, &message_id, &data.account_id, &scheduled_iso);
+        let params = run_params(
+            &org,
+            &caller.user_id,
+            &message_id,
+            &data.account_id,
+            &scheduled_iso,
+        );
         let run = runs.create(&message_id, &params).await.map_err(|error| {
             tracing::error!("[mail-scheduled] could not start the run: {error}");
             MailError::api(ApiError::internal().with_message("Failed to schedule email"))

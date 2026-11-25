@@ -21,7 +21,7 @@ use crate::records::{
 };
 use crate::routes::{editable_sheet, find_sheet};
 use crate::sheet_data::{self, REFRESH, aborts};
-use crate::{Caller, Refusal, SheetsState, answer, now, validate};
+use crate::{Caller, Refusal, SheetsState, answer, validate};
 
 const NO_READ: &str = "You cannot read this kind of record";
 
@@ -196,7 +196,7 @@ pub(crate) async fn create(
                     refresh: &input.refresh,
                     created_by_id: &caller.user_id,
                 },
-                &now(),
+                weldsuite_db::utc_now(),
             )
             .await?;
             caller.publish(
@@ -267,7 +267,7 @@ pub(crate) async fn update(
                     created_by_id: definition.as_ref().map(|_| caller.user_id.as_str()),
                     refresh: refresh.as_deref(),
                 },
-                &now(),
+                weldsuite_db::utc_now(),
             )
             .await?
             else {
@@ -401,9 +401,15 @@ async fn refresh_now(
     } else {
         0
     };
-    let row = records::record_refresh(&caller.db, source, &now(), row_count, failure.as_deref())
-        .await?
-        .unwrap_or_else(|| source.clone());
+    let row = records::record_refresh(
+        &caller.db,
+        source,
+        weldsuite_db::utc_now(),
+        row_count,
+        failure.as_deref(),
+    )
+    .await?
+    .unwrap_or_else(|| source.clone());
     caller.publish(
         state,
         SHEET_DATA_SOURCE_UPDATED,

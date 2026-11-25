@@ -1,9 +1,12 @@
 //! The room tools: `message_agent` and `create_agent_group_chat`
 //! (`tools.ts`, `chat.*`).
 
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Value, json};
 use weldsuite_chat_domain::members::{AddMembers, NewChannel, add_channel_members, create_channel};
 use weldsuite_chat_domain::policy::merge_agent_room_policy;
+use weldsuite_db::orm;
+use weldsuite_schema::tenant::{chat_channel_members, weldagent_agents};
 
 use super::{ToolContext, ToolError, ToolSpec};
 use crate::rooms::{RoomCtx, RoomInput, dispatch_agent_room_replies, post_agent_text};
@@ -69,23 +72,28 @@ async fn message_agent(ctx: &ToolContext, args: &Value) -> Result<Value, ToolErr
     if hop > ctx.max_agent_hops {
         return Ok(json!({ "error": format!("Agent hop limit reached ({})", ctx.max_agent_hops) }));
     }
-    let member: Option<String> = sqlx::query_scalar(
-        "select id from chat_channel_members where channel_id = $1 and user_id = $2 and member_type = 'agent' limit 1",
-    )
-    .bind(channel_id)
-    .bind(agent_id)
-    .fetch_optional(&ctx.db)
-    .await?;
+    let conn = orm(&ctx.db);
+    let member: Option<String> = chat_channel_members::Entity::find()
+        .select_only()
+        .column(chat_channel_members::Column::Id)
+        .filter(chat_channel_members::Column::ChannelId.eq(channel_id))
+        .filter(chat_channel_members::Column::UserId.eq(agent_id))
+        .filter(chat_channel_members::Column::MemberType.eq("agent"))
+        .into_tuple()
+        .one(&conn)
+        .await?;
     if member.is_none() {
         return Ok(json!({ "error": "Target agent is not a member of this channel" }));
     }
     // Any status: a draft or paused agent still answers when mentioned.
-    let target: Option<String> = sqlx::query_scalar(
-        "select name from weldagent_agents where id = $1 and deleted_at is null",
-    )
-    .bind(agent_id)
-    .fetch_optional(&ctx.db)
-    .await?;
+    let target: Option<String> = weldagent_agents::Entity::find()
+        .select_only()
+        .column(weldagent_agents::Column::Name)
+        .filter(weldagent_agents::Column::Id.eq(agent_id))
+        .filter(weldagent_agents::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&conn)
+        .await?;
     let Some(name) = target else {
         return Ok(json!({ "error": "Target agent not found" }));
     };
@@ -116,11 +124,14 @@ async fn create_group(ctx: &ToolContext, args: &Value) -> Result<Value, ToolErro
             agent_ids.push(id.clone());
         }
     }
-    let active: Vec<(String, String)> = sqlx::query_as(
-        "select id, name from weldagent_agents where status = 'active' and deleted_at is null",
-    )
-    .fetch_all(&ctx.db)
-    .await?;
+    let active: Vec<(String, String)> = weldagent_agents::Entity::find()
+        .select_only()
+        .columns([weldagent_agents::Column::Id, weldagent_agents::Column::Name])
+        .filter(weldagent_agents::Column::Status.eq("active"))
+        .filter(weldagent_agents::Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&orm(&ctx.db))
+        .await?;
     let missing: Vec<&String> = agent_ids
         .iter()
         .filter(|id| !active.iter().any(|(a, _)| a == *id))

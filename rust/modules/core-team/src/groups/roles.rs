@@ -25,10 +25,15 @@ use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, post, put};
 use http::HeaderMap;
+use sea_orm::ActiveValue::Set;
+use sea_orm::sea_query::{Asterisk, Expr, Func};
+use sea_orm::{
+    ColumnTrait, Condition, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect, QueryTrait,
+};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::permission_keys::{ROLES_CREATE, ROLES_DELETE, ROLES_READ, ROLES_UPDATE};
 use weldsuite_catalogs::{PermissionObject, permissions as catalog};
-use weldsuite_db::{PgPool, js_row};
+use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_kit::validation::{Issues, Presence, Text};
 use weldsuite_kit::{ApiError, Created, Data, NoContent, generate_id};
 use weldsuite_permissions::{
@@ -36,8 +41,13 @@ use weldsuite_permissions::{
     role_row_permissions,
 };
 use weldsuite_ports::{DynRealtimePublisher, RealtimeMessage, Room};
+use weldsuite_schema::tenant::{
+    chat_channel_members as channel_members, chat_channel_role_links as role_links, chat_channels,
+    custom_objects, roles, workspace_installed_apps as installed, workspace_members as members,
+};
 
-use crate::{Caller, CoreTeamState, TeamError, TeamResult, answer, now, validate};
+use crate::access::js;
+use crate::{Caller, CoreTeamState, TeamError, TeamResult, answer, validate};
 
 pub(crate) fn router<Q>(gate: &Arc<PermissionGate<Q>>) -> Router<CoreTeamState>
 where
@@ -199,30 +209,28 @@ fn compare_roles(a: &RoleRecord, b: &RoleRecord) -> Ordering {
     locale_base_compare(a.name(), b.name())
 }
 
-async fn live_roles(db: &PgPool) -> Result<Vec<RoleRecord>, sqlx::Error> {
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(r) from roles r where deleted_at is null order by name",
-    )
-    .fetch_all(db)
-    .await?;
-    Ok(rows
+async fn live_roles(db: &PgPool) -> Result<Vec<RoleRecord>, DbErr> {
+    roles::Entity::find()
+        .filter(roles::Column::DeletedAt.is_null())
+        .order_by_asc(roles::Column::Name)
+        .all(&orm(db))
+        .await?
         .into_iter()
-        .map(|row| RoleRecord(js_row(row)))
-        .collect())
+        .map(|role| js(role).map(RoleRecord))
+        .collect()
 }
 
-async fn find_role(db: &PgPool, role_id: &str) -> Result<Option<RoleRecord>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(r) from roles r where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(role_id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(|row| RoleRecord(js_row(row))))
+async fn find_role(db: &PgPool, role_id: &str) -> Result<Option<RoleRecord>, DbErr> {
+    roles::Entity::find_by_id(role_id)
+        .filter(roles::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?
+        .map(|role| js(role).map(RoleRecord))
+        .transpose()
 }
 
 /// `ensureSeeded`: the four system roles when the workspace has no role yet.
-async fn ensure_seeded(db: &PgPool) -> Result<Vec<RoleRecord>, sqlx::Error> {
+async fn ensure_seeded(db: &PgPool) -> Result<Vec<RoleRecord>, DbErr> {
     let roles = live_roles(db).await?;
     if !roles.is_empty() {
         return Ok(roles);
@@ -232,17 +240,18 @@ async fn ensure_seeded(db: &PgPool) -> Result<Vec<RoleRecord>, sqlx::Error> {
         let Some(role) = system.get(code) else {
             continue;
         };
-        let stamp = now();
-        sqlx::query(
-            "insert into roles (id, name, description, is_system, permissions, created_at, updated_at)
-             values ($1, $2, $3, true, $4, $5::timestamptz, $5::timestamptz)",
-        )
-        .bind(generate_id("role"))
-        .bind(&role.name)
-        .bind(&role.description)
-        .bind(json!(role.permissions))
-        .bind(stamp)
-        .execute(db)
+        let stamp = utc_now().assume_utc();
+        roles::Entity::insert(roles::ActiveModel {
+            id: Set(generate_id("role")),
+            name: Set(role.name.clone()),
+            description: Set(Some(role.description.clone())),
+            is_system: Set(true),
+            permissions: Set(Some(json!(role.permissions))),
+            created_at: Set(stamp),
+            updated_at: Set(stamp),
+            ..Default::default()
+        })
+        .exec_without_returning(&orm(db))
         .await?;
     }
     live_roles(db).await
@@ -250,17 +259,18 @@ async fn ensure_seeded(db: &PgPool) -> Result<Vec<RoleRecord>, sqlx::Error> {
 
 /// `countMembersByRole`: an active member counts for their live custom role,
 /// else for the system role of their tier.
-async fn member_counts(
-    db: &PgPool,
-    roles: &[RoleRecord],
-) -> Result<HashMap<String, i64>, sqlx::Error> {
-    let groups: Vec<(Option<String>, Option<String>, i64)> = sqlx::query_as(
-        "select role, role_id, count(*) from workspace_members
-         where status = 'ACTIVE' and deleted_at is null
-         group by role, role_id",
-    )
-    .fetch_all(db)
-    .await?;
+async fn member_counts(db: &PgPool, roles: &[RoleRecord]) -> Result<HashMap<String, i64>, DbErr> {
+    let groups: Vec<(Option<String>, Option<String>, i64)> = members::Entity::find()
+        .select_only()
+        .columns([members::Column::Role, members::Column::RoleId])
+        .column_as(Expr::from(Func::count(Expr::col(Asterisk))), "count")
+        .filter(members::Column::Status.eq("ACTIVE"))
+        .filter(members::Column::DeletedAt.is_null())
+        .group_by(members::Column::Role)
+        .group_by(members::Column::RoleId)
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     let live: std::collections::HashSet<&str> = roles.iter().map(RoleRecord::id).collect();
     let system_by_tier: HashMap<String, &str> = roles
         .iter()
@@ -285,7 +295,7 @@ async fn member_counts(
 }
 
 /// `getRole`: one live role with its member count.
-async fn role_view(db: &PgPool, role_id: &str) -> Result<Option<Value>, sqlx::Error> {
+async fn role_view(db: &PgPool, role_id: &str) -> Result<Option<Value>, DbErr> {
     let Some(role) = find_role(db, role_id).await? else {
         return Ok(None);
     };
@@ -297,7 +307,7 @@ async fn role_view(db: &PgPool, role_id: &str) -> Result<Option<Value>, sqlx::Er
 // ── GET / ───────────────────────────────────────────────────────────────────
 
 async fn list(caller: Caller) -> Response {
-    let result: Result<Value, sqlx::Error> = async {
+    let result: Result<Value, DbErr> = async {
         let mut roles = ensure_seeded(&caller.db).await?;
         roles.sort_by(compare_roles);
         let counts = member_counts(&caller.db, &roles).await?;
@@ -397,12 +407,18 @@ async fn permission_catalog(caller: Caller) -> Response {
 
     // A tenant from before custom_objects still edits roles: the static
     // catalog alone.
-    let custom: Result<Vec<(String, String)>, sqlx::Error> = sqlx::query_as(
-        "select slug, label_plural from custom_objects where deleted_at is null
-         order by sort_order asc, label_plural asc",
-    )
-    .fetch_all(&caller.db)
-    .await;
+    let custom: Result<Vec<(String, String)>, DbErr> = custom_objects::Entity::find()
+        .select_only()
+        .columns([
+            custom_objects::Column::Slug,
+            custom_objects::Column::LabelPlural,
+        ])
+        .filter(custom_objects::Column::DeletedAt.is_null())
+        .order_by_asc(custom_objects::Column::SortOrder)
+        .order_by_asc(custom_objects::Column::LabelPlural)
+        .into_tuple()
+        .all(&orm(&caller.db))
+        .await;
     let custom_objects: Vec<Value> = match custom {
         Ok(rows) => rows
             .iter()
@@ -451,11 +467,14 @@ async fn permission_catalog(caller: Caller) -> Response {
 // ── GET /installable-apps ───────────────────────────────────────────────────
 
 async fn installable_apps(caller: Caller) -> Response {
-    let codes: Result<Vec<String>, sqlx::Error> = sqlx::query_scalar(
-        "select app_code from workspace_installed_apps where is_active = true and deleted_at is null",
-    )
-    .fetch_all(&caller.db)
-    .await;
+    let codes: Result<Vec<String>, DbErr> = installed::Entity::find()
+        .select_only()
+        .column(installed::Column::AppCode)
+        .filter(installed::Column::IsActive.eq(true))
+        .filter(installed::Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&orm(&caller.db))
+        .await;
     match codes {
         Ok(codes) => Data(Value::Array(
             codes
@@ -541,15 +560,18 @@ async fn name_problem(
     db: &PgPool,
     name: &str,
     except: Option<&str>,
-) -> Result<Option<&'static str>, sqlx::Error> {
+) -> Result<Option<&'static str>, DbErr> {
     let wanted = normalise(name);
     if SYSTEM_ROLE_ORDER.contains(&wanted.as_str()) {
         return Ok(Some("reserved"));
     }
-    let live: Vec<(String, String)> =
-        sqlx::query_as("select id, name from roles where deleted_at is null")
-            .fetch_all(db)
-            .await?;
+    let live: Vec<(String, String)> = roles::Entity::find()
+        .select_only()
+        .columns([roles::Column::Id, roles::Column::Name])
+        .filter(roles::Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     let clash = live
         .iter()
         .any(|(id, name)| Some(id.as_str()) != except && normalise(name) == wanted);
@@ -619,18 +641,19 @@ async fn create_role(caller: &Caller, headers: &HeaderMap, body: &Bytes) -> Team
         refuse_ungrantable(caller, &permissions, &[])?;
 
         let id = generate_id("role");
-        let stamp = now();
-        sqlx::query(
-            "insert into roles (id, name, description, permissions, apps, is_system, created_at, updated_at)
-             values ($1, $2, $3, $4, $5, false, $6::timestamptz, $6::timestamptz)",
-        )
-        .bind(&id)
-        .bind(&name)
-        .bind(&input.description)
-        .bind(json!(permissions))
-        .bind(&apps)
-        .bind(stamp)
-        .execute(db)
+        let stamp = utc_now().assume_utc();
+        roles::Entity::insert(roles::ActiveModel {
+            id: Set(id.clone()),
+            name: Set(name.clone()),
+            description: Set(input.description.clone()),
+            permissions: Set(Some(json!(permissions))),
+            apps: Set(Some(apps)),
+            is_system: Set(false),
+            created_at: Set(stamp),
+            updated_at: Set(stamp),
+            ..Default::default()
+        })
+        .exec_without_returning(&orm(db))
         .await?;
         let role = role_view(db, &id).await?.unwrap_or(Value::Null);
         Ok(Created(role).into_response())
@@ -688,27 +711,26 @@ async fn update_role(
         if let Some(permissions) = &input.permissions {
             refuse_ungrantable(caller, permissions, &existing.permissions())?;
         }
-        sqlx::query(
-            "update roles set
-                 updated_at = $2::timestamptz,
-                 name = case when $3 then $4 else name end,
-                 description = case when $5 then $6 else description end,
-                 permissions = case when $7 then $8 else permissions end,
-                 apps = case when $9 then $10 else apps end
-             where id = $1",
-        )
-        .bind(role_id)
-        .bind(now())
-        .bind(name.is_some())
-        .bind(&name)
-        .bind(input.description.is_some())
-        .bind(&input.description)
-        .bind(input.permissions.is_some())
-        .bind(input.permissions.as_ref().map(|p| json!(p)))
-        .bind(input.apps.is_some())
-        .bind(input.apps.as_ref().map(|a| json!(a)))
-        .execute(db)
-        .await?;
+        let mut write = roles::Entity::update_many().col_expr(
+            roles::Column::UpdatedAt,
+            Expr::value(utc_now().assume_utc()),
+        );
+        if let Some(name) = name {
+            write = write.col_expr(roles::Column::Name, Expr::value(name));
+        }
+        if let Some(description) = &input.description {
+            write = write.col_expr(roles::Column::Description, Expr::value(description));
+        }
+        if let Some(permissions) = &input.permissions {
+            write = write.col_expr(roles::Column::Permissions, Expr::value(json!(permissions)));
+        }
+        if let Some(apps) = &input.apps {
+            write = write.col_expr(roles::Column::Apps, Expr::value(json!(apps)));
+        }
+        write
+            .filter(roles::Column::Id.eq(role_id))
+            .exec(&orm(db))
+            .await?;
         let role = role_view(db, role_id).await?.unwrap_or(Value::Null);
         Ok(Data(role).into_response())
     }
@@ -732,13 +754,13 @@ async fn remove(
                 .with_message("Cannot delete system roles")
                 .into());
         }
-        sqlx::query(
-            "update roles set deleted_at = $2::timestamptz, updated_at = $2::timestamptz where id = $1",
-        )
-        .bind(&role_id)
-        .bind(now())
-        .execute(&caller.db)
-        .await?;
+        let stamp = utc_now().assume_utc();
+        roles::Entity::update_many()
+            .col_expr(roles::Column::DeletedAt, Expr::value(stamp))
+            .col_expr(roles::Column::UpdatedAt, Expr::value(stamp))
+            .filter(roles::Column::Id.eq(&role_id))
+            .exec(&orm(&caller.db))
+            .await?;
 
         // Best effort: the role is gone whatever happens to its chat links.
         match cleanup_chat_links(&caller.db, &role_id).await {
@@ -758,51 +780,65 @@ async fn remove(
 async fn cleanup_chat_links(
     db: &PgPool,
     role_id: &str,
-) -> Result<Vec<(String, Vec<String>)>, sqlx::Error> {
-    let channels: Vec<String> =
-        sqlx::query_scalar("select channel_id from chat_channel_role_links where role_id = $1")
-            .bind(role_id)
-            .fetch_all(db)
-            .await?;
+) -> Result<Vec<(String, Vec<String>)>, DbErr> {
+    let db = orm(db);
+    let channels: Vec<String> = role_links::Entity::find()
+        .select_only()
+        .column(role_links::Column::ChannelId)
+        .filter(role_links::Column::RoleId.eq(role_id))
+        .into_tuple()
+        .all(&db)
+        .await?;
     let mut changes = Vec::new();
     for channel in channels {
-        let _name: Option<String> =
-            sqlx::query_scalar("select name from chat_channels where id = $1 limit 1")
-                .bind(&channel)
-                .fetch_optional(db)
-                .await?;
-        sqlx::query("delete from chat_channel_role_links where channel_id = $1 and role_id = $2")
-            .bind(&channel)
-            .bind(role_id)
-            .execute(db)
+        let _name: Option<String> = chat_channels::Entity::find_by_id(&channel)
+            .select_only()
+            .column(chat_channels::Column::Name)
+            .into_tuple()
+            .one(&db)
             .await?;
-        let removed: Vec<String> = sqlx::query_scalar(
-            "select user_id from chat_channel_members where channel_id = $1 and added_by_role_id = $2",
-        )
-        .bind(&channel)
-        .bind(role_id)
-        .fetch_all(db)
-        .await?;
+        role_links::Entity::delete_many()
+            .filter(role_links::Column::ChannelId.eq(&channel))
+            .filter(role_links::Column::RoleId.eq(role_id))
+            .exec(&db)
+            .await?;
+        let added_by_role = || {
+            Condition::all()
+                .add(channel_members::Column::ChannelId.eq(&channel))
+                .add(channel_members::Column::AddedByRoleId.eq(role_id))
+        };
+        let removed: Vec<String> = channel_members::Entity::find()
+            .select_only()
+            .column(channel_members::Column::UserId)
+            .filter(added_by_role())
+            .into_tuple()
+            .all(&db)
+            .await?;
         if removed.is_empty() {
             continue;
         }
-        sqlx::query(
-            "delete from chat_channel_members where channel_id = $1 and added_by_role_id = $2",
-        )
-        .bind(&channel)
-        .bind(role_id)
-        .execute(db)
-        .await?;
-        sqlx::query(
-            "update chat_channels set
-                 member_count = (select count(*)::int from chat_channel_members where channel_id = $1),
-                 updated_at = $2::timestamp
-             where id = $1",
-        )
-        .bind(&channel)
-        .bind(now())
-        .execute(db)
-        .await?;
+        channel_members::Entity::delete_many()
+            .filter(added_by_role())
+            .exec(&db)
+            .await?;
+        // `(select count(*)::int from chat_channel_members where channel_id = $1)`.
+        let member_count = channel_members::Entity::find()
+            .select_only()
+            .expr(sea_orm::ExprTrait::cast_as(
+                Func::count(Expr::col(Asterisk)),
+                "int",
+            ))
+            .filter(channel_members::Column::ChannelId.eq(&channel))
+            .into_query();
+        chat_channels::Entity::update_many()
+            .col_expr(
+                chat_channels::Column::MemberCount,
+                Expr::SubQuery(None, Box::new(member_count.into())),
+            )
+            .col_expr(chat_channels::Column::UpdatedAt, Expr::value(utc_now()))
+            .filter(chat_channels::Column::Id.eq(&channel))
+            .exec(&db)
+            .await?;
         changes.push((channel, removed));
     }
     Ok(changes)

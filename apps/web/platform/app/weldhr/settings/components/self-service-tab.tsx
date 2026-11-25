@@ -68,7 +68,8 @@ export function SelfServiceTab() {
     >
       <ErrorBanner error={failure} onDismiss={() => setFailure(null)} />
 
-      <SettingsSection title={t('weldhr.settings.selfService.title')}>
+      {/* Its own heading: the page title above already says "My HR self-service". */}
+      <SettingsSection title={t('weldhr.settings.selfService.permissionsTitle')}>
         <SettingRow label={t('weldhr.settings.selfService.clockIn')}>
           <Switch checked={state.employeeSelfClockIn} onCheckedChange={(checked) => patch('employeeSelfClockIn', checked)} />
         </SettingRow>

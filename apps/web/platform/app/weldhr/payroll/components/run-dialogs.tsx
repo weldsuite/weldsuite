@@ -39,7 +39,7 @@ export function EditRunDialog({ run, onClose }: Readonly<{ run: HrPayRunDetail; 
   return (
     <Dialog open onOpenChange={(open) => !open && !updateRun.isPending && onClose()}>
       <DialogContent className="sm:max-w-md">
-        <DialogHeader>
+        <DialogHeader className="mb-2">
           <DialogTitle>{t('weldhr.payroll.run.editTitle')}</DialogTitle>
           <DialogDescription>{t('weldhr.payroll.run.editDescription')}</DialogDescription>
         </DialogHeader>
@@ -85,7 +85,7 @@ export function MarkPaidDialog({ run, onClose }: Readonly<{ run: HrPayRunDetail;
   return (
     <Dialog open onOpenChange={(open) => !open && !markPaid.isPending && onClose()}>
       <DialogContent className="sm:max-w-md">
-        <DialogHeader>
+        <DialogHeader className="mb-2">
           <DialogTitle>{t('weldhr.payroll.run.markPaidTitle')}</DialogTitle>
           <DialogDescription>{t('weldhr.payroll.run.markPaidDescription')}</DialogDescription>
         </DialogHeader>

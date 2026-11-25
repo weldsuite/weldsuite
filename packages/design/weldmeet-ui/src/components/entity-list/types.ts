@@ -148,6 +148,13 @@ export interface EntityListProps<T extends { id: string }> {
   // its own filter control in `leftActionButtons`.
   hideFilter?: boolean;
 
+  /**
+   * On phones the filter and `leftActionButtons` get a row of their own under
+   * the search. Set false for a list that already shows its own phone
+   * controls (a filter menu, a folder picker), so they don't show twice.
+   */
+  mobileToolbarRow?: boolean;
+
   // Search
   searchPlaceholder?: string;
   searchFields?: (keyof T)[];

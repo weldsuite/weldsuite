@@ -4,13 +4,14 @@
 
 use std::sync::{Arc, Mutex};
 
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Value, json};
 use weldsuite_catalogs::entity_events::{
     PROJECT_BASELINE_CREATED, PROJECT_CHANGE_REQUEST_APPROVED, PROJECT_CHANGE_REQUEST_REJECTED,
     PROJECT_DECISION_CREATED, PROJECT_DECISION_DECIDED, PROJECT_DELIVERABLE_CREATED,
     PROJECT_DELIVERABLE_DELETED, PROJECT_DELIVERABLE_UPDATED, PROJECT_MILESTONE_UPDATED,
 };
-use weldsuite_db::{PgPool, js_row};
+use weldsuite_db::{PgPool, orm};
 use weldsuite_flow_domain::approvals::{
     ApprovalFuture, ApprovalResolutionContext, ApprovalSubjectHandler, ResolvedApprovalOutcome,
     register_approval_subject,
@@ -21,8 +22,10 @@ use weldsuite_flow_domain::changes::{
     find_change_request, record_rejected_change,
 };
 
+use weldsuite_schema::tenant::{milestones, project_deliverables, projects};
+
 use crate::approvals::announce::{AftermathFuture, AftermathInfo, register_aftermath};
-use crate::{Caller, FlowState};
+use crate::{Caller, FlowState, row_json};
 
 /// What the handler wrote, for the aftermath of the same answer to publish
 /// (the handler has no request, the aftermath no handle on the handler's
@@ -58,7 +61,7 @@ impl ApprovalSubjectHandler for ChangeHandler {
         subject_id: &'a str,
         outcome: ResolvedApprovalOutcome,
         context: &'a ApprovalResolutionContext,
-    ) -> ApprovalFuture<'a, Result<(), sqlx::Error>> {
+    ) -> ApprovalFuture<'a, Result<(), sea_orm::DbErr>> {
         Box::pin(async move {
             let actor = context.actor.as_ref().map(|a| a.id.as_str());
             let result = match outcome {
@@ -129,6 +132,37 @@ fn array<'a>(value: &'a Value, key: &str) -> &'a [Value] {
         .map_or(&[], Vec::as_slice)
 }
 
+/// The project's live milestones: id, name and status.
+async fn live_milestones(
+    db: &PgPool,
+    project_id: &str,
+) -> Result<Vec<(String, String, String)>, DbErr> {
+    use milestones::Column;
+    milestones::Entity::find()
+        .select_only()
+        .columns([Column::Id, Column::Name, Column::Status])
+        .filter(Column::ProjectId.eq(project_id))
+        .filter(Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&orm(db))
+        .await
+}
+
+/// The project's deliverables (deleted ones too): id, number, title and status.
+async fn project_deliverables_of(
+    db: &PgPool,
+    project_id: &str,
+) -> Result<Vec<(String, i32, String, String)>, DbErr> {
+    use project_deliverables::Column;
+    project_deliverables::Entity::find()
+        .select_only()
+        .columns([Column::Id, Column::Number, Column::Title, Column::Status])
+        .filter(Column::ProjectId.eq(project_id))
+        .into_tuple()
+        .all(&orm(db))
+        .await
+}
+
 /// The events of an approved change, in order: the change, what it moved and
 /// added, the project, the baseline and the decision.
 async fn publish_applied(
@@ -136,7 +170,7 @@ async fn publish_applied(
     caller: &Caller,
     change: &Value,
     result: &AppliedChange,
-) -> Result<(), sqlx::Error> {
+) -> Result<(), DbErr> {
     let db = &caller.db;
     let project_id = change["projectId"].as_str().unwrap_or_default();
     caller.publish(
@@ -153,12 +187,7 @@ async fn publish_applied(
         .filter_map(|m| m["milestoneId"].as_str())
         .collect();
     if !moved.is_empty() {
-        let rows: Vec<(String, String, String)> = sqlx::query_as(
-            "select id, name, status from milestones where project_id = $1 and deleted_at is null",
-        )
-        .bind(project_id)
-        .fetch_all(db)
-        .await?;
+        let rows = live_milestones(db, project_id).await?;
         for id in moved {
             if let Some((_, name, status)) = rows.iter().find(|(rid, _, _)| rid == id) {
                 caller.publish(
@@ -171,12 +200,7 @@ async fn publish_applied(
         }
     }
 
-    let deliverables: Vec<(String, i32, String, String)> = sqlx::query_as(
-        "select id, number, title, status from project_deliverables where project_id = $1",
-    )
-    .bind(project_id)
-    .fetch_all(db)
-    .await?;
+    let deliverables = project_deliverables_of(db, project_id).await?;
     let deliverable_event = |event, id: &str| {
         if let Some((_, number, title, status)) = deliverables.iter().find(|(rid, ..)| rid == id) {
             caller.publish(
@@ -207,15 +231,12 @@ async fn publish_applied(
     let cost_moves =
         weldsuite_flow_domain::changes::amount_of(&change["costDelta"]).is_some_and(|d| d != 0.0);
     if plan["goLive"].as_str().is_some_and(|g| !g.is_empty()) || cost_moves {
-        let row: Option<Value> = sqlx::query_scalar(concat!(
-            "select ",
-            project_json!("p"),
-            " from projects p where p.id = $1 limit 1"
-        ))
-        .bind(project_id)
-        .fetch_optional(db)
-        .await?;
-        if let Some(Value::Object(fields)) = row.map(js_row) {
+        let row = projects::Entity::find_by_id(project_id)
+            .one(&orm(db))
+            .await?
+            .map(row_json)
+            .transpose()?;
+        if let Some(Value::Object(fields)) = row {
             caller.publish(
                 state,
                 weldsuite_catalogs::entity_events::PROJECT_UPDATED,

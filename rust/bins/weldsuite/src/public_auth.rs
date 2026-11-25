@@ -12,9 +12,11 @@
 //! | `workspaceSource` | `claim` | `header`: every request names its workspace in `X-Weld-Workspace` |
 //! | `orgClaim` | `OIDC_ORG_CLAIM` | `null`: no claim names the workspace |
 //!
-//! Either mode: `clientId`, `mobileClientId` and `desktopClientId` are the
-//! platform's, the mobile apps' and the desktop app's clients
-//! (`OIDC_WEB_CLIENT_ID`, `OIDC_MOBILE_CLIENT_ID`, `OIDC_DESKTOP_CLIENT_ID`).
+//! Either mode: `clientId`, `mobileClientId`, `desktopClientId` and
+//! `extensionClientId` are the platform's, the mobile apps', the desktop
+//! app's and the WeldPass browser extension's clients (`OIDC_WEB_CLIENT_ID`,
+//! `OIDC_MOBILE_CLIENT_ID`, `OIDC_DESKTOP_CLIENT_ID`,
+//! `OIDC_EXTENSION_CLIENT_ID`).
 //!
 //! The claim mode values are the ones the clients used before the server
 //! sent any (`DEFAULT_OIDC_SCOPES`, `ZITADEL_AUDIENCE_SCOPE` and
@@ -44,6 +46,10 @@ pub(crate) struct OidcClients<'a> {
     /// `OIDC_DESKTOP_CLIENT_ID`: the desktop app, which signs in through the
     /// system browser with a loopback redirect (RFC 8252).
     pub(crate) desktop_client_id: Option<&'a str>,
+    /// `OIDC_EXTENSION_CLIENT_ID`: the WeldPass browser extension, which signs
+    /// in from its service worker with a `chromiumapp.org` redirect (ADR
+    /// PASS-009).
+    pub(crate) extension_client_id: Option<&'a str>,
     /// `OIDC_SIGN_IN=platform`.
     pub(crate) platform_sign_in: bool,
     /// `IDENTITY_PROVIDER=weldid`: WeldID's account pages exist.
@@ -77,6 +83,8 @@ pub(crate) fn oidc_public_auth(clients: &OidcClients<'_>) -> Value {
         "mobileClientId": clients.mobile_client_id,
         // The desktop app's native client (apps/desktop/docs/auth-handoff.md).
         "desktopClientId": clients.desktop_client_id,
+        // The WeldPass browser extension's client (apps/web/weldpass-extension).
+        "extensionClientId": clients.extension_client_id,
         "audience": settings.audiences.first(),
         // Header mode reads no organization claim.
         "orgClaim": (!header).then_some(settings.org_claim.as_str()),
@@ -115,6 +123,7 @@ mod tests {
             web_client_id: Some("300300"),
             mobile_client_id: None,
             desktop_client_id: None,
+            extension_client_id: None,
             platform_sign_in: true,
             weldid: false,
         });
@@ -126,6 +135,7 @@ mod tests {
                 "clientId": "300300",
                 "mobileClientId": null,
                 "desktopClientId": null,
+                "extensionClientId": null,
                 "audience": "300100",
                 "orgClaim": "urn:zitadel:iam:org:id",
                 "scopes": ["openid", "profile", "email", "offline_access", "urn:zitadel:iam:org:projects:roles"],
@@ -147,6 +157,7 @@ mod tests {
             web_client_id: Some("weldsuite-web"),
             mobile_client_id: Some("weldsuite-mobile"),
             desktop_client_id: Some("weldsuite-desktop"),
+            extension_client_id: Some("weldsuite-extension"),
             platform_sign_in: false,
             weldid: true,
         });
@@ -161,6 +172,7 @@ mod tests {
         assert_eq!(public["identityProvider"], "weldid");
         assert_eq!(public["workspaceSource"], "header");
         assert_eq!(public["desktopClientId"], "weldsuite-desktop");
+        assert_eq!(public["extensionClientId"], "weldsuite-extension");
         assert!(public.get("signIn").is_none());
 
         // A customer's own provider in membership mode: no account pages.
@@ -169,6 +181,7 @@ mod tests {
             web_client_id: None,
             mobile_client_id: None,
             desktop_client_id: None,
+            extension_client_id: None,
             platform_sign_in: false,
             weldid: false,
         });

@@ -9,25 +9,68 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::IntoResponse;
 use axum::routing::{delete, get, patch, post};
 use http::HeaderMap;
+use sea_orm::sea_query::{Asterisk, Expr, Func, OnConflict};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, EntityTrait, FromQueryResult, JoinType, QueryFilter, QueryOrder,
+    QuerySelect,
+};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events::{
     HR_CHECKLIST_COMPLETED, HR_CHECKLIST_CREATED, HR_CHECKLIST_DELETED, HR_CHECKLIST_UPDATED,
     HR_EMPLOYEE_OFFBOARDED, HR_EMPLOYEE_ONBOARDED,
 };
 use weldsuite_catalogs::permission_keys::{EMPLOYEES_MANAGE, EMPLOYEES_READ, EMPLOYEES_UPDATE};
-use weldsuite_db::{PgPool, js_row};
+use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_kit::validation::{Field, Issues, Presence};
 use weldsuite_kit::{Created, Data, NoContent, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::{
+    hr_checklist_tasks as tasks, hr_checklist_templates as templates, hr_checklists as checklists,
+    hr_employees,
+};
 
 use crate::assignments::end_assignments_for;
-use crate::employees::{display_name_of, require_employee};
+use crate::employees::{display_name, no_row, pg_date, pg_date_opt, require_employee, to_json};
 use crate::entity_scope::{Scope, guard, via_employee};
 use crate::fields::{Fields, change, id, int, iso_date, short_text, text_max};
 use crate::{
-    Caller, HrError, HrResult, HrState, add_days, hr_json, member_names, now, query_text,
-    query_values, text, today_iso,
+    Caller, HrError, HrResult, HrState, add_days, hr_json, member_names, query_text, query_values,
+    text, today_iso,
 };
+
+/// `update hr_checklists set status = <status>, … where id = $1`.
+async fn set_checklist_status(
+    db: &PgPool,
+    checklist_id: &str,
+    status: &str,
+    completed_at: Option<time::PrimitiveDateTime>,
+    now: time::PrimitiveDateTime,
+) -> Result<(), HrError> {
+    checklists::Entity::update_many()
+        .col_expr(checklists::Column::Status, Expr::value(status))
+        .col_expr(checklists::Column::CompletedAt, Expr::value(completed_at))
+        .col_expr(checklists::Column::UpdatedAt, Expr::value(now))
+        .filter(checklists::Column::Id.eq(checklist_id))
+        .exec(&orm(db))
+        .await?;
+    Ok(())
+}
+
+/// `update hr_employees set status = <status>, updated_at = now where id = $1`.
+async fn set_employee_status(
+    db: &PgPool,
+    employee_id: &str,
+    status: &str,
+    now: time::PrimitiveDateTime,
+) -> Result<(), HrError> {
+    hr_employees::Entity::update_many()
+        .col_expr(hr_employees::Column::Status, Expr::value(status))
+        .col_expr(hr_employees::Column::UpdatedAt, Expr::value(now))
+        .filter(hr_employees::Column::Id.eq(employee_id))
+        .exec(&orm(db))
+        .await?;
+    Ok(())
+}
 
 const KINDS: [&str; 2] = ["onboarding", "offboarding"];
 const ROLES: [&str; 5] = ["hr", "manager", "it", "employee", "other"];
@@ -84,12 +127,12 @@ where
         .route_layer(guard(
             "/checklists",
             "Checklist",
-            via_employee!("hr_checklists"),
+            via_employee!(hr_checklists),
         ))
         .route_layer(guard(
             "/checklists/tasks",
             "Checklist task",
-            via_employee!("hr_checklist_tasks"),
+            via_employee!(hr_checklist_tasks),
         ))
 }
 
@@ -98,26 +141,25 @@ where
 // ---------------------------------------------------------------------------
 
 async fn list_templates(db: &PgPool, kind: Option<&str>) -> Result<Vec<Value>, HrError> {
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from hr_checklist_templates t
-         where t.deleted_at is null and ($1::text is null or t.kind = $1)
-         order by t.kind asc, t.name asc",
-    )
-    .bind(kind)
-    .fetch_all(db)
-    .await?;
-    Ok(rows.into_iter().map(js_row).collect())
+    let mut select = templates::Entity::find().filter(templates::Column::DeletedAt.is_null());
+    if let Some(kind) = kind {
+        select = select.filter(templates::Column::Kind.eq(kind));
+    }
+    let rows = select
+        .order_by_asc(templates::Column::Kind)
+        .order_by_asc(templates::Column::Name)
+        .all(&orm(db))
+        .await?;
+    rows.into_iter().map(to_json).collect()
 }
 
 async fn require_template(db: &PgPool, id: &str) -> Result<Value, HrError> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from hr_checklist_templates t where t.id = $1 and t.deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    row.map(js_row)
-        .ok_or_else(|| HrError::not_found("Checklist template", id))
+    let row = templates::Entity::find()
+        .filter(templates::Column::Id.eq(id))
+        .filter(templates::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?;
+    to_json(row.ok_or_else(|| HrError::not_found("Checklist template", id))?)
 }
 
 async fn list_templates_route(caller: Caller, RawQuery(query): RawQuery) -> HrResult {
@@ -189,15 +231,15 @@ fn template_input(issues: &mut Issues, fields: &Fields, partial: bool) -> Templa
 
 /// `clearDefault(db, kind, exceptId?)`.
 async fn clear_default(db: &PgPool, kind: &str, except_id: Option<&str>) -> Result<(), HrError> {
-    sqlx::query(
-        "update hr_checklist_templates set is_default = false, updated_at = $3::timestamp
-         where kind = $1 and is_default = true and ($2::text is null or id <> $2)",
-    )
-    .bind(kind)
-    .bind(except_id)
-    .bind(now())
-    .execute(db)
-    .await?;
+    let mut update = templates::Entity::update_many()
+        .col_expr(templates::Column::IsDefault, Expr::value(false))
+        .col_expr(templates::Column::UpdatedAt, Expr::value(utc_now()))
+        .filter(templates::Column::Kind.eq(kind))
+        .filter(templates::Column::IsDefault.eq(true));
+    if let Some(except_id) = except_id {
+        update = update.filter(templates::Column::Id.ne(except_id));
+    }
+    update.exec(&orm(db)).await?;
     Ok(())
 }
 
@@ -209,21 +251,21 @@ async fn create_template(caller: Caller, headers: HeaderMap, body: Bytes) -> HrR
     if input.is_default.as_set() == Some(&true) {
         clear_default(&caller.db, &kind, None).await?;
     }
-    let row: Value = sqlx::query_scalar(
-        "insert into hr_checklist_templates (id, name, description, kind, department_id, items, is_default)
-         values ($1, $2, $3, $4, $5, $6, coalesce($7, false))
-         returning to_jsonb(hr_checklist_templates)",
-    )
-    .bind(generate_id("hrctp"))
-    .bind(input.name.as_set())
-    .bind(input.description.as_set())
-    .bind(&kind)
-    .bind(input.department_id.as_set())
-    .bind(Value::Array(input.items.as_set().cloned().unwrap_or_default()))
-    .bind(input.is_default.as_set())
-    .fetch_one(&caller.db)
+    let row = templates::Entity::insert(templates::ActiveModel {
+        id: Set(generate_id("hrctp")),
+        name: Set(input.name.as_set().cloned().unwrap_or_default()),
+        description: Set(input.description.as_set().cloned()),
+        kind: Set(kind),
+        department_id: Set(input.department_id.as_set().cloned()),
+        items: Set(Value::Array(
+            input.items.as_set().cloned().unwrap_or_default(),
+        )),
+        is_default: Set(input.is_default.as_set().copied().unwrap_or(false)),
+        ..Default::default()
+    })
+    .exec_with_returning(&orm(&caller.db))
     .await?;
-    Ok(Created(js_row(row)).into_response())
+    Ok(Created(to_json(row)?).into_response())
 }
 
 async fn update_template(
@@ -244,51 +286,45 @@ async fn update_template(
             .unwrap_or_else(|| text(&existing, "kind").to_owned());
         clear_default(&caller.db, &kind, Some(&id)).await?;
     }
-    let (set_name, name) = change(&input.name);
-    let (set_description, description) = change(&input.description);
-    let (set_kind, kind) = change(&input.kind);
-    let (set_department, department) = change(&input.department_id);
-    let (set_items, items) = change(&input.items);
-    let (set_default, default) = change(&input.is_default);
-    let row: Value = sqlx::query_scalar(
-        "update hr_checklist_templates set
-             name = case when $2 then $3 else name end,
-             description = case when $4 then $5 else description end,
-             kind = case when $6 then $7 else kind end,
-             department_id = case when $8 then $9 else department_id end,
-             items = case when $10 then $11 else items end,
-             is_default = case when $12 then $13 else is_default end,
-             updated_at = $14::timestamp
-         where id = $1 returning to_jsonb(hr_checklist_templates)",
-    )
-    .bind(&id)
-    .bind(set_name)
-    .bind(name)
-    .bind(set_description)
-    .bind(description)
-    .bind(set_kind)
-    .bind(kind)
-    .bind(set_department)
-    .bind(department)
-    .bind(set_items)
-    .bind(items.map(Value::Array))
-    .bind(set_default)
-    .bind(default)
-    .bind(now())
-    .fetch_one(&caller.db)
-    .await?;
-    Ok(Data(js_row(row)).into_response())
+    let mut update = templates::Entity::update_many();
+    for (column, field) in [
+        (templates::Column::Name, &input.name),
+        (templates::Column::Description, &input.description),
+        (templates::Column::Kind, &input.kind),
+        (templates::Column::DepartmentId, &input.department_id),
+    ] {
+        if let (true, value) = change(field) {
+            update = update.col_expr(column, Expr::value(value));
+        }
+    }
+    if let (true, items) = change(&input.items) {
+        update = update.col_expr(
+            templates::Column::Items,
+            Expr::value(items.map(Value::Array)),
+        );
+    }
+    if let (true, default) = change(&input.is_default) {
+        update = update.col_expr(templates::Column::IsDefault, Expr::value(default));
+    }
+    let row = update
+        .col_expr(templates::Column::UpdatedAt, Expr::value(utc_now()))
+        .filter(templates::Column::Id.eq(id.as_str()))
+        .exec_with_returning(&orm(&caller.db))
+        .await?
+        .pop()
+        .ok_or_else(|| no_row("hr_checklist_templates"))?;
+    Ok(Data(to_json(row)?).into_response())
 }
 
 async fn delete_template(caller: Caller, Path(id): Path<String>) -> HrResult {
     require_template(&caller.db, &id).await?;
-    sqlx::query(
-        "update hr_checklist_templates set deleted_at = $2::timestamp, updated_at = $2::timestamp where id = $1",
-    )
-    .bind(&id)
-    .bind(now())
-    .execute(&caller.db)
-    .await?;
+    let now = utc_now();
+    templates::Entity::update_many()
+        .col_expr(templates::Column::DeletedAt, Expr::value(now))
+        .col_expr(templates::Column::UpdatedAt, Expr::value(now))
+        .filter(templates::Column::Id.eq(id.as_str()))
+        .exec(&orm(&caller.db))
+        .await?;
     Ok(NoContent.into_response())
 }
 
@@ -298,24 +334,18 @@ async fn delete_template(caller: Caller, Path(id): Path<String>) -> HrResult {
 
 /// `requireChecklist(db, id)`.
 pub(crate) async fn require_checklist(db: &PgPool, id: &str) -> Result<Value, HrError> {
-    let row: Option<Value> =
-        sqlx::query_scalar("select to_jsonb(t) from hr_checklists t where t.id = $1 limit 1")
-            .bind(id)
-            .fetch_optional(db)
-            .await?;
-    row.map(js_row)
-        .ok_or_else(|| HrError::not_found("Checklist", id))
+    let row = checklists::Entity::find_by_id(id.to_owned())
+        .one(&orm(db))
+        .await?;
+    to_json(row.ok_or_else(|| HrError::not_found("Checklist", id))?)
 }
 
 /// `requireTask(db, id)`.
 pub(crate) async fn require_task(db: &PgPool, id: &str) -> Result<Value, HrError> {
-    let row: Option<Value> =
-        sqlx::query_scalar("select to_jsonb(t) from hr_checklist_tasks t where t.id = $1 limit 1")
-            .bind(id)
-            .fetch_optional(db)
-            .await?;
-    row.map(js_row)
-        .ok_or_else(|| HrError::not_found("Checklist task", id))
+    let row = tasks::Entity::find_by_id(id.to_owned())
+        .one(&orm(db))
+        .await?;
+    to_json(row.ok_or_else(|| HrError::not_found("Checklist task", id))?)
 }
 
 /// `listChecklists(db, filters)`: with their tasks, newest first; `scope` is
@@ -327,41 +357,50 @@ pub(crate) async fn list_checklists(
     kind: Option<&str>,
     scope: &Scope,
 ) -> Result<Vec<Value>, HrError> {
-    let checklists: Vec<(Value, Value)> = sqlx::query_as(
-        "select to_jsonb(c), jsonb_build_object('firstName', e.first_name, 'lastName', e.last_name,
-                 'preferredName', e.preferred_name)
-         from hr_checklists c
-         join hr_employees e on e.id = c.employee_id
-         where e.deleted_at is null
-           and ($1::text is null or c.employee_id = $1)
-           and ($2::text is null or c.status = $2)
-           and ($3::text is null or c.kind = $3)
-           and ($4::text[] is null or e.legal_entity_id = any($4)
-                or ($5::boolean and e.legal_entity_id is null))
-         order by c.started_at desc",
-    )
-    .bind(employee_id)
-    .bind(status)
-    .bind(kind)
-    .bind(scope.ids())
-    .bind(scope.unassigned())
-    .fetch_all(db)
-    .await?;
+    let mut select = checklists::Entity::find()
+        .column_as(hr_employees::Column::FirstName, "employee_first_name")
+        .column_as(hr_employees::Column::LastName, "employee_last_name")
+        .column_as(
+            hr_employees::Column::PreferredName,
+            "employee_preferred_name",
+        )
+        .join(
+            JoinType::InnerJoin,
+            checklists::Entity::belongs_to(hr_employees::Entity)
+                .from(checklists::Column::EmployeeId)
+                .to(hr_employees::Column::Id)
+                .into(),
+        )
+        .filter(hr_employees::Column::DeletedAt.is_null());
+    if let Some(employee_id) = employee_id {
+        select = select.filter(checklists::Column::EmployeeId.eq(employee_id));
+    }
+    if let Some(status) = status {
+        select = select.filter(checklists::Column::Status.eq(status));
+    }
+    if let Some(kind) = kind {
+        select = select.filter(checklists::Column::Kind.eq(kind));
+    }
+    let checklists: Vec<ChecklistWithEmployee> = select
+        .filter(scope.condition(hr_employees::Column::LegalEntityId))
+        .order_by_desc(checklists::Column::StartedAt)
+        .into_model()
+        .all(&orm(db))
+        .await?;
     if checklists.is_empty() {
         return Ok(Vec::new());
     }
-    let ids: Vec<String> = checklists
+    let ids: Vec<&str> = checklists
         .iter()
-        .map(|(c, _)| c["id"].as_str().unwrap_or_default().to_owned())
+        .map(|row| row.checklist.id.as_str())
         .collect();
-    let tasks: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from hr_checklist_tasks t where t.checklist_id = any($1)
-         order by t.sort_order asc, t.due_date asc",
-    )
-    .bind(&ids)
-    .fetch_all(db)
-    .await?;
-    let tasks: Vec<Value> = tasks.into_iter().map(js_row).collect();
+    let tasks = tasks::Entity::find()
+        .filter(tasks::Column::ChecklistId.is_in(ids))
+        .order_by_asc(tasks::Column::SortOrder)
+        .order_by_asc(tasks::Column::DueDate)
+        .all(&orm(db))
+        .await?;
+    let tasks: Vec<Value> = tasks.into_iter().map(to_json).collect::<Result<_, _>>()?;
     let people: Vec<Option<&str>> = tasks
         .iter()
         .flat_map(|task| {
@@ -390,10 +429,10 @@ pub(crate) async fn list_checklists(
         }
         by_checklist.entry(checklist_id).or_default().push(task);
     }
-    Ok(checklists
+    checklists
         .into_iter()
-        .map(|(checklist, employee)| {
-            let mut checklist = js_row(checklist);
+        .map(|row| {
+            let mut checklist = to_json(&row.checklist)?;
             let list = by_checklist
                 .remove(text(&checklist, "id"))
                 .unwrap_or_default();
@@ -403,16 +442,33 @@ pub(crate) async fn list_checklists(
                 .count();
             let total = list.len();
             if let Some(map) = checklist.as_object_mut() {
-                map.insert("employeeName".to_owned(), json!(display_name_of(&employee)));
+                map.insert(
+                    "employeeName".to_owned(),
+                    json!(display_name(
+                        &row.employee_first_name,
+                        &row.employee_last_name,
+                        row.employee_preferred_name.as_deref(),
+                    )),
+                );
                 map.insert("tasks".to_owned(), Value::Array(list));
                 map.insert(
                     "progress".to_owned(),
                     json!({ "done": done, "total": total }),
                 );
             }
-            checklist
+            Ok(checklist)
         })
-        .collect())
+        .collect()
+}
+
+/// A checklist of the list with its employee's name.
+#[derive(Debug, FromQueryResult)]
+struct ChecklistWithEmployee {
+    #[sea_orm(nested)]
+    checklist: checklists::Model,
+    employee_first_name: String,
+    employee_last_name: String,
+    employee_preferred_name: Option<String>,
 }
 
 async fn list_checklists_route(caller: Caller, RawQuery(query): RawQuery) -> HrResult {
@@ -456,11 +512,13 @@ async fn manager_user_id_of(db: &PgPool, employee: &Value) -> Result<Option<Stri
     let Some(manager_id) = employee["managerId"].as_str().filter(|id| !id.is_empty()) else {
         return Ok(None);
     };
-    let user: Option<Option<String>> =
-        sqlx::query_scalar("select user_id from hr_employees where id = $1 limit 1")
-            .bind(manager_id)
-            .fetch_optional(db)
-            .await?;
+    let user: Option<Option<String>> = hr_employees::Entity::find()
+        .select_only()
+        .column(hr_employees::Column::UserId)
+        .filter(hr_employees::Column::Id.eq(manager_id))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     Ok(user.flatten())
 }
 
@@ -487,13 +545,7 @@ pub(crate) async fn start_checklist(
     if kind == "offboarding" {
         assert_can_offboard(&employee, anchor_date, force)?;
     }
-    let running: Option<String> = sqlx::query_scalar(
-        "select id from hr_checklists where employee_id = $1 and kind = $2 and status = 'in_progress' limit 1",
-    )
-    .bind(employee_id)
-    .bind(&kind)
-    .fetch_optional(db)
-    .await?;
+    let running = in_progress_checklist(db, employee_id, &kind, None).await?;
     if running.is_some() {
         return Err(HrError::conflict(format!(
             "This employee already has an {kind} checklist in progress"
@@ -508,81 +560,55 @@ pub(crate) async fn start_checklist(
         .or(fallback)
         .map_or_else(today_iso, str::to_owned);
     let checklist_id = generate_id("hrchk");
-    let checklist: Value = sqlx::query_scalar(
-        "insert into hr_checklists (id, employee_id, template_id, kind, name, status, anchor_date, started_by)
-         values ($1, $2, $3, $4, $5, 'in_progress', $6::date, $7)
-         returning to_jsonb(hr_checklists)",
-    )
-    .bind(&checklist_id)
-    .bind(employee_id)
-    .bind(text(&template, "id"))
-    .bind(&kind)
-    .bind(text(&template, "name"))
-    .bind(&anchor)
-    .bind(started_by)
-    .fetch_one(db)
+    let checklist = checklists::Entity::insert(checklists::ActiveModel {
+        id: Set(checklist_id.clone()),
+        employee_id: Set(employee_id.to_owned()),
+        template_id: Set(Some(text(&template, "id").to_owned())),
+        kind: Set(kind.clone()),
+        name: Set(text(&template, "name").to_owned()),
+        status: Set("in_progress".to_owned()),
+        anchor_date: Set(Some(pg_date(&anchor)?)),
+        started_by: Set(Some(started_by.to_owned())),
+        ..Default::default()
+    })
+    .exec_with_returning(&orm(db))
     .await?;
     let manager_user_id = manager_user_id_of(db, &employee).await?;
     let items = template["items"].as_array().cloned().unwrap_or_default();
     if !items.is_empty() {
-        let mut ids = Vec::new();
-        let mut titles = Vec::new();
-        let mut descriptions: Vec<Option<String>> = Vec::new();
-        let mut roles = Vec::new();
-        let mut assignees: Vec<Option<String>> = Vec::new();
-        let mut dues = Vec::new();
-        let mut visibles = Vec::new();
-        let mut orders = Vec::new();
+        let mut rows = Vec::with_capacity(items.len());
         for (index, item) in items.iter().enumerate() {
             let role = text(item, "assigneeRole").to_owned();
-            ids.push(generate_id("hrtsk"));
-            titles.push(text(item, "title").to_owned());
-            descriptions.push(item["description"].as_str().map(str::to_owned));
-            assignees.push(match role.as_str() {
+            let assignee = match role.as_str() {
                 "manager" => manager_user_id.clone(),
                 "employee" => employee["userId"].as_str().map(str::to_owned),
                 _ => None,
-            });
-            roles.push(role);
+            };
             #[allow(clippy::cast_possible_truncation)]
             let offset = item["dueOffsetDays"].as_f64().unwrap_or(0.0) as i64;
-            dues.push(add_days(&anchor, offset));
-            visibles.push(item["visibleToEmployee"] == true);
-            orders.push(i32::try_from(index).unwrap_or(i32::MAX));
+            rows.push(tasks::ActiveModel {
+                id: Set(generate_id("hrtsk")),
+                checklist_id: Set(checklist_id.clone()),
+                employee_id: Set(employee_id.to_owned()),
+                title: Set(text(item, "title").to_owned()),
+                description: Set(item["description"].as_str().map(str::to_owned)),
+                assignee_role: Set(role),
+                assignee_user_id: Set(assignee),
+                due_date: Set(Some(pg_date(&add_days(&anchor, offset))?)),
+                visible_to_employee: Set(item["visibleToEmployee"] == true),
+                sort_order: Set(i32::try_from(index).unwrap_or(i32::MAX)),
+                ..Default::default()
+            });
         }
-        sqlx::query(
-            "insert into hr_checklist_tasks
-                 (id, checklist_id, employee_id, title, description, assignee_role, assignee_user_id,
-                  due_date, visible_to_employee, sort_order)
-             select u.id, $2, $3, u.title, u.description, u.role, u.assignee, u.due::date, u.visible, u.ord
-             from unnest($1::varchar[], $4::varchar[], $5::text[], $6::varchar[], $7::varchar[],
-                         $8::text[], $9::boolean[], $10::int[])
-                  as u(id, title, description, role, assignee, due, visible, ord)",
-        )
-        .bind(&ids)
-        .bind(&checklist_id)
-        .bind(employee_id)
-        .bind(&titles)
-        .bind(&descriptions)
-        .bind(&roles)
-        .bind(&assignees)
-        .bind(&dues)
-        .bind(&visibles)
-        .bind(&orders)
-        .execute(db)
-        .await?;
+        // One statement for every task, as the route's `insert … select from unnest(…)`.
+        tasks::Entity::insert_many(rows)
+            .exec_without_returning(&orm(db))
+            .await?;
     }
     if let Some(status) = status_when_starting(&kind, text(&employee, "status")) {
-        sqlx::query(
-            "update hr_employees set status = $2, updated_at = $3::timestamp where id = $1",
-        )
-        .bind(employee_id)
-        .bind(status)
-        .bind(now())
-        .execute(db)
-        .await?;
+        set_employee_status(db, employee_id, status, utc_now()).await?;
     }
-    Ok(js_row(checklist))
+    to_json(checklist)
 }
 
 /// `restoreStatusAfterOffboarding(db, checklist)`.
@@ -595,23 +621,12 @@ async fn restore_status_after_offboarding(db: &PgPool, checklist: &Value) -> Res
         return Ok(());
     }
     let employee_id = text(&employee, "id");
-    let other: Option<String> = sqlx::query_scalar(
-        "select id from hr_checklists where employee_id = $1 and kind = 'offboarding'
-           and status = 'in_progress' and id <> $2 limit 1",
-    )
-    .bind(employee_id)
-    .bind(text(checklist, "id"))
-    .fetch_optional(db)
-    .await?;
+    let other =
+        in_progress_checklist(db, employee_id, "offboarding", Some(text(checklist, "id"))).await?;
     if other.is_some() {
         return Ok(());
     }
-    let onboarding: Option<String> = sqlx::query_scalar(
-        "select id from hr_checklists where employee_id = $1 and kind = 'onboarding' and status = 'in_progress' limit 1",
-    )
-    .bind(employee_id)
-    .fetch_optional(db)
-    .await?;
+    let onboarding = in_progress_checklist(db, employee_id, "onboarding", None).await?;
     let not_started = employee["startDate"]
         .as_str()
         .is_some_and(|start| start > today_iso().as_str());
@@ -620,13 +635,28 @@ async fn restore_status_after_offboarding(db: &PgPool, checklist: &Value) -> Res
     } else {
         "active"
     };
-    sqlx::query("update hr_employees set status = $2, updated_at = $3::timestamp where id = $1")
-        .bind(employee_id)
-        .bind(status)
-        .bind(now())
-        .execute(db)
-        .await?;
+    set_employee_status(db, employee_id, status, utc_now()).await?;
     Ok(())
+}
+
+/// `select id from hr_checklists where employee_id = $1 and kind = $2 and
+/// status = 'in_progress' [and id <> $3] limit 1`.
+async fn in_progress_checklist(
+    db: &PgPool,
+    employee_id: &str,
+    kind: &str,
+    except_id: Option<&str>,
+) -> Result<Option<String>, HrError> {
+    let mut select = checklists::Entity::find()
+        .select_only()
+        .column(checklists::Column::Id)
+        .filter(checklists::Column::EmployeeId.eq(employee_id))
+        .filter(checklists::Column::Kind.eq(kind))
+        .filter(checklists::Column::Status.eq("in_progress"));
+    if let Some(except_id) = except_id {
+        select = select.filter(checklists::Column::Id.ne(except_id));
+    }
+    Ok(select.into_tuple().one(&orm(db)).await?)
 }
 
 /// `ChecklistOutcome`.
@@ -665,31 +695,28 @@ pub(crate) async fn settle_checklist(
     if checklist["status"] == "cancelled" {
         return Ok(outcome);
     }
-    let (total, open): (i64, i64) = sqlx::query_as(
-        "select count(*), count(*) filter (where completed_at is null)
-         from hr_checklist_tasks where checklist_id = $1",
-    )
-    .bind(checklist_id)
-    .fetch_one(db)
-    .await?;
-    let now = now();
-    if total > 0 && open == 0 && checklist["status"] != "completed" {
-        sqlx::query(
-            "update hr_checklists set status = 'completed', completed_at = $2::timestamp, updated_at = $2::timestamp
-             where id = $1",
+    let (total, open): (i64, i64) = tasks::Entity::find()
+        .select_only()
+        .column_as(Expr::from(Func::count(Expr::col(Asterisk))), "total")
+        .column_as(
+            Expr::from(Func::count(Expr::case(
+                tasks::Column::CompletedAt.is_null(),
+                1,
+            ))),
+            "open",
         )
-        .bind(checklist_id)
-        .bind(&now)
-        .execute(db)
-        .await?;
+        .filter(tasks::Column::ChecklistId.eq(checklist_id))
+        .into_tuple()
+        .one(&orm(db))
+        .await?
+        .unwrap_or((0, 0));
+    let now = utc_now();
+    if total > 0 && open == 0 && checklist["status"] != "completed" {
+        set_checklist_status(db, checklist_id, "completed", Some(now), now).await?;
         outcome.checklist_completed = true;
         let employee = require_employee(db, &outcome.employee_id).await?;
         if outcome.kind == "onboarding" && employee["status"] == "onboarding" {
-            sqlx::query("update hr_employees set status = 'active', updated_at = $2::timestamp where id = $1")
-                .bind(&outcome.employee_id)
-                .bind(&now)
-                .execute(db)
-                .await?;
+            set_employee_status(db, &outcome.employee_id, "active", now).await?;
             outcome.employee_status = Some("active");
         }
         if outcome.kind == "offboarding" {
@@ -697,27 +724,21 @@ pub(crate) async fn settle_checklist(
                 .as_str()
                 .or_else(|| checklist["anchorDate"].as_str())
                 .map_or_else(today_iso, str::to_owned);
-            sqlx::query(
-                "update hr_employees set status = 'terminated', end_date = $2::date, updated_at = $3::timestamp
-                 where id = $1",
-            )
-            .bind(&outcome.employee_id)
-            .bind(&end_date)
-            .bind(&now)
-            .execute(db)
-            .await?;
+            hr_employees::Entity::update_many()
+                .col_expr(hr_employees::Column::Status, Expr::value("terminated"))
+                .col_expr(
+                    hr_employees::Column::EndDate,
+                    Expr::value(pg_date(&end_date)?),
+                )
+                .col_expr(hr_employees::Column::UpdatedAt, Expr::value(now))
+                .filter(hr_employees::Column::Id.eq(outcome.employee_id.as_str()))
+                .exec(&orm(db))
+                .await?;
             end_assignments_for(db, &outcome.employee_id, &end_date).await?;
             outcome.employee_status = Some("terminated");
         }
     } else if open > 0 && checklist["status"] == "completed" {
-        sqlx::query(
-            "update hr_checklists set status = 'in_progress', completed_at = null, updated_at = $2::timestamp
-             where id = $1",
-        )
-        .bind(checklist_id)
-        .bind(&now)
-        .execute(db)
-        .await?;
+        set_checklist_status(db, checklist_id, "in_progress", None, now).await?;
     }
     Ok(outcome)
 }
@@ -796,16 +817,16 @@ async fn cancel_route(
     Path(id): Path<String>,
 ) -> HrResult {
     let existing = require_checklist(&caller.db, &id).await?;
-    let row: Value = sqlx::query_scalar(
-        "update hr_checklists set status = 'cancelled', updated_at = $2::timestamp where id = $1
-         returning to_jsonb(hr_checklists)",
-    )
-    .bind(&id)
-    .bind(now())
-    .fetch_one(&caller.db)
-    .await?;
+    let row = checklists::Entity::update_many()
+        .col_expr(checklists::Column::Status, Expr::value("cancelled"))
+        .col_expr(checklists::Column::UpdatedAt, Expr::value(utc_now()))
+        .filter(checklists::Column::Id.eq(id.as_str()))
+        .exec_with_returning(&orm(&caller.db))
+        .await?
+        .pop()
+        .ok_or_else(|| no_row("hr_checklists"))?;
     restore_status_after_offboarding(&caller.db, &existing).await?;
-    let row = js_row(row);
+    let row = to_json(row)?;
     caller.emit(
         &state,
         HR_CHECKLIST_UPDATED,
@@ -825,13 +846,13 @@ async fn delete_checklist_route(
 ) -> HrResult {
     let checklist = require_checklist(&caller.db, &id).await?;
     let existing = require_checklist(&caller.db, &id).await?;
-    sqlx::query("delete from hr_checklist_tasks where checklist_id = $1")
-        .bind(&id)
-        .execute(&caller.db)
+    let db = &orm(&caller.db);
+    tasks::Entity::delete_many()
+        .filter(tasks::Column::ChecklistId.eq(id.as_str()))
+        .exec(db)
         .await?;
-    sqlx::query("delete from hr_checklists where id = $1")
-        .bind(&id)
-        .execute(&caller.db)
+    checklists::Entity::delete_by_id(id.clone())
+        .exec(db)
         .await?;
     restore_status_after_offboarding(&caller.db, &existing).await?;
     caller.emit(
@@ -892,42 +913,39 @@ async fn add_task_route(
     })?;
     let db = &caller.db;
     let checklist = require_checklist(db, &checklist_id).await?;
-    let max: i64 = sqlx::query_scalar(
-        "select coalesce(max(sort_order), -1)::bigint from hr_checklist_tasks where checklist_id = $1",
-    )
-    .bind(&checklist_id)
-    .fetch_one(db)
-    .await?;
-    let row: Value = sqlx::query_scalar(
-        "insert into hr_checklist_tasks
-             (id, checklist_id, employee_id, title, description, assignee_role, assignee_user_id,
-              due_date, visible_to_employee, sort_order)
-         values ($1, $2, $3, $4, $5, $6, $7, $8::date, $9, $10)
-         returning to_jsonb(hr_checklist_tasks)",
-    )
-    .bind(generate_id("hrtsk"))
-    .bind(&checklist_id)
-    .bind(text(&checklist, "employeeId"))
-    .bind(input.title.as_set())
-    .bind(input.description.as_set())
-    .bind(input.assignee_role.as_set().map_or("hr", String::as_str))
-    .bind(input.assignee_user_id.as_set())
-    .bind(input.due_date.as_set())
-    .bind(input.visible.as_set().copied().unwrap_or(false))
-    .bind(i32::try_from(max + 1).unwrap_or(i32::MAX))
-    .fetch_one(db)
+    // `coalesce(max(sort_order), -1)`.
+    let max: Option<i32> = tasks::Entity::find()
+        .select_only()
+        .column_as(tasks::Column::SortOrder.max(), "max")
+        .filter(tasks::Column::ChecklistId.eq(checklist_id.as_str()))
+        .into_tuple()
+        .one(&orm(db))
+        .await?
+        .flatten();
+    let max = max.map_or(-1, i64::from);
+    let row = tasks::Entity::insert(tasks::ActiveModel {
+        id: Set(generate_id("hrtsk")),
+        checklist_id: Set(checklist_id.clone()),
+        employee_id: Set(text(&checklist, "employeeId").to_owned()),
+        title: Set(input.title.as_set().cloned().unwrap_or_default()),
+        description: Set(input.description.as_set().cloned()),
+        assignee_role: Set(input
+            .assignee_role
+            .as_set()
+            .map_or("hr", String::as_str)
+            .to_owned()),
+        assignee_user_id: Set(input.assignee_user_id.as_set().cloned()),
+        due_date: Set(pg_date_opt(input.due_date.as_set().map(String::as_str))?),
+        visible_to_employee: Set(input.visible.as_set().copied().unwrap_or(false)),
+        sort_order: Set(i32::try_from(max + 1).unwrap_or(i32::MAX)),
+        ..Default::default()
+    })
+    .exec_with_returning(&orm(db))
     .await?;
     if checklist["status"] == "completed" {
-        sqlx::query(
-            "update hr_checklists set status = 'in_progress', completed_at = null, updated_at = $2::timestamp
-             where id = $1",
-        )
-        .bind(&checklist_id)
-        .bind(now())
-        .execute(db)
-        .await?;
+        set_checklist_status(db, &checklist_id, "in_progress", None, utc_now()).await?;
     }
-    let task = js_row(row);
+    let task = to_json(row)?;
     caller.emit(
         &state,
         HR_CHECKLIST_UPDATED,
@@ -945,55 +963,45 @@ pub(crate) async fn update_task(
     actor_id: &str,
 ) -> Result<(Value, ChecklistOutcome), HrError> {
     let task = require_task(db, task_id).await?;
-    let now = now();
-    // `completed: true` stamps a task not done yet; `false` clears the stamp.
-    let (set_completed, completed_at, completed_by) = match input.completed {
-        Some(true) if task["completedAt"].is_null() => {
-            (true, Some(now.clone()), Some(actor_id.to_owned()))
+    let now = utc_now();
+    let mut update = tasks::Entity::update_many();
+    for (column, field) in [
+        (tasks::Column::Title, &input.title),
+        (tasks::Column::Description, &input.description),
+        (tasks::Column::AssigneeRole, &input.assignee_role),
+        (tasks::Column::AssigneeUserId, &input.assignee_user_id),
+    ] {
+        if let (true, value) = change(field) {
+            update = update.col_expr(column, Expr::value(value));
         }
-        Some(false) => (true, None, None),
-        _ => (false, None, None),
+    }
+    if let (true, due) = change(&input.due_date) {
+        let due = pg_date_opt(due.as_deref())?;
+        update = update.col_expr(tasks::Column::DueDate, Expr::value(due));
+    }
+    if let (true, visible) = change(&input.visible) {
+        update = update.col_expr(tasks::Column::VisibleToEmployee, Expr::value(visible));
+    }
+    // `completed: true` stamps a task not done yet; `false` clears the stamp.
+    let completed = match input.completed {
+        Some(true) if task["completedAt"].is_null() => Some((Some(now), Some(actor_id))),
+        Some(false) => Some((None, None)),
+        _ => None,
     };
-    let (set_title, title) = change(&input.title);
-    let (set_description, description) = change(&input.description);
-    let (set_role, role) = change(&input.assignee_role);
-    let (set_assignee, assignee) = change(&input.assignee_user_id);
-    let (set_due, due) = change(&input.due_date);
-    let (set_visible, visible) = change(&input.visible);
-    let row: Value = sqlx::query_scalar(
-        "update hr_checklist_tasks set
-             title = case when $2 then $3 else title end,
-             description = case when $4 then $5 else description end,
-             assignee_role = case when $6 then $7 else assignee_role end,
-             assignee_user_id = case when $8 then $9 else assignee_user_id end,
-             due_date = case when $10 then $11::date else due_date end,
-             visible_to_employee = case when $12 then $13 else visible_to_employee end,
-             completed_at = case when $14 then $15::timestamp else completed_at end,
-             completed_by = case when $14 then $16 else completed_by end,
-             updated_at = $17::timestamp
-         where id = $1 returning to_jsonb(hr_checklist_tasks)",
-    )
-    .bind(task_id)
-    .bind(set_title)
-    .bind(title)
-    .bind(set_description)
-    .bind(description)
-    .bind(set_role)
-    .bind(role)
-    .bind(set_assignee)
-    .bind(assignee)
-    .bind(set_due)
-    .bind(due)
-    .bind(set_visible)
-    .bind(visible)
-    .bind(set_completed)
-    .bind(completed_at)
-    .bind(completed_by)
-    .bind(&now)
-    .fetch_one(db)
-    .await?;
+    if let Some((completed_at, completed_by)) = completed {
+        update = update
+            .col_expr(tasks::Column::CompletedAt, Expr::value(completed_at))
+            .col_expr(tasks::Column::CompletedBy, Expr::value(completed_by));
+    }
+    let row = update
+        .col_expr(tasks::Column::UpdatedAt, Expr::value(now))
+        .filter(tasks::Column::Id.eq(task_id))
+        .exec_with_returning(&orm(db))
+        .await?
+        .pop()
+        .ok_or_else(|| no_row("hr_checklist_tasks"))?;
     let outcome = settle_checklist(db, text(&task, "checklistId")).await?;
-    Ok((js_row(row), outcome))
+    Ok((to_json(row)?, outcome))
 }
 
 /// The fields `updateTask` takes.
@@ -1047,9 +1055,8 @@ async fn delete_task_route(
     let task = require_task(&caller.db, &task_id).await?;
     // deleteTask reads the task again before deleting it.
     require_task(&caller.db, &task_id).await?;
-    sqlx::query("delete from hr_checklist_tasks where id = $1")
-        .bind(&task_id)
-        .execute(&caller.db)
+    tasks::Entity::delete_by_id(task_id.clone())
+        .exec(&orm(&caller.db))
         .await?;
     let checklist_id = text(&task, "checklistId").to_owned();
     let outcome = settle_checklist(&caller.db, &checklist_id).await?;
@@ -1066,11 +1073,14 @@ async fn delete_task_route(
 /// `ensureDefaultTemplates(db)`: a first onboarding and offboarding
 /// template for a new workspace, with fixed ids so racing requests seed one.
 pub(crate) async fn ensure_default_templates(db: &PgPool) -> Result<(), HrError> {
-    let existing: Option<String> = sqlx::query_scalar(
-        "select id from hr_checklist_templates where deleted_at is null limit 1",
-    )
-    .fetch_optional(db)
-    .await?;
+    let db = &orm(db);
+    let existing: Option<String> = templates::Entity::find()
+        .select_only()
+        .column(templates::Column::Id)
+        .filter(templates::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(db)
+        .await?;
     if existing.is_some() {
         return Ok(());
     }
@@ -1106,15 +1116,30 @@ pub(crate) async fn ensure_default_templates(db: &PgPool) -> Result<(), HrError>
         item("Revoke system access", "it", 0, false),
         item("Final pay and documents", "hr", 7, false),
     ]);
-    sqlx::query(
-        "insert into hr_checklist_templates (id, name, kind, is_default, items)
-         values ('hrctp_default_onboarding', 'Standard onboarding', 'onboarding', true, $1),
-                ('hrctp_default_offboarding', 'Standard offboarding', 'offboarding', true, $2)
-         on conflict do nothing",
-    )
-    .bind(onboarding)
-    .bind(offboarding)
-    .execute(db)
+    let template = |id: &str, name: &str, kind: &str, items: Value| templates::ActiveModel {
+        id: Set(id.to_owned()),
+        name: Set(name.to_owned()),
+        kind: Set(kind.to_owned()),
+        is_default: Set(true),
+        items: Set(items),
+        ..Default::default()
+    };
+    templates::Entity::insert_many([
+        template(
+            "hrctp_default_onboarding",
+            "Standard onboarding",
+            "onboarding",
+            onboarding,
+        ),
+        template(
+            "hrctp_default_offboarding",
+            "Standard offboarding",
+            "offboarding",
+            offboarding,
+        ),
+    ])
+    .on_conflict(OnConflict::new().do_nothing().to_owned())
+    .exec_without_returning(db)
     .await?;
     Ok(())
 }

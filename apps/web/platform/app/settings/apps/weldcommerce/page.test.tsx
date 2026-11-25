@@ -5,6 +5,7 @@ import type { CommerceSettings } from '@/hooks/queries/use-commerce-orders-queri
 
 const env = vi.hoisted(() => ({
   allowed: new Set<string>(['commerce_settings:read', 'commerce_settings:update']),
+  permissionsLoading: false,
   available: true,
   access: { isInstalled: true, isLoading: false },
   settings: { data: undefined, isPending: false, isError: false, refetch: vi.fn() } as {
@@ -14,7 +15,7 @@ const env = vi.hoisted(() => ({
     refetch: () => void;
   },
   update: vi.fn(),
-  search: {} as { tab?: string; channel?: string; mollie?: string; reason?: string },
+  search: {} as { tab?: string; channel?: string; mollie?: string; reason?: string; site?: string },
   navigate: vi.fn(),
 }));
 const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }));
@@ -27,6 +28,16 @@ vi.mock('@tanstack/react-router', () => ({
 vi.mock('./channels-tab', () => ({
   ChannelsTab: ({ channelId }: { channelId?: string }) => <p>channels tab {channelId ?? 'list'}</p>,
 }));
+vi.mock('./online-store-tab', () => ({
+  OnlineStoreTab: ({ siteId, onSelectSite }: { siteId?: string; onSelectSite: (id: string) => void }) => (
+    <div>
+      <p>online store tab {siteId ?? 'first'}</p>
+      <button type="button" onClick={() => onSelectSite('sfs_2')}>
+        other store
+      </button>
+    </div>
+  ),
+}));
 vi.mock('./payments-tab', () => ({
   PaymentsTab: ({ callback, onCallbackHandled }: { callback?: { mollie?: string; reason?: string }; onCallbackHandled: () => void }) => (
     <div>
@@ -38,7 +49,11 @@ vi.mock('./payments-tab', () => ({
   ),
 }));
 vi.mock('@weldsuite/permissions/react', () => ({
-  usePermissionsMaybe: () => ({ can: (permission: string) => env.allowed.has(permission) }),
+  // Like the real provider, can() is false while the permissions load.
+  usePermissionsMaybe: () => ({
+    can: (permission: string) => !env.permissionsLoading && env.allowed.has(permission),
+    isLoading: env.permissionsLoading,
+  }),
 }));
 vi.mock('@/lib/edition', () => ({ isFeatureAvailable: () => env.available }));
 vi.mock('@/hooks/use-app-access', () => ({ useAppAccess: () => env.access }));
@@ -54,6 +69,7 @@ const stored: CommerceSettings = { orderNumberPrefix: 'WC-', nextOrderNumber: 10
 
 beforeEach(() => {
   env.allowed = new Set(['commerce_settings:read', 'commerce_settings:update']);
+  env.permissionsLoading = false;
   env.available = true;
   env.access = { isInstalled: true, isLoading: false };
   env.settings = { data: { data: stored }, isPending: false, isError: false, refetch: vi.fn() };
@@ -172,6 +188,25 @@ describe('WeldCommerceSettingsPage', () => {
     expect(env.navigate).toHaveBeenCalledWith({ to: '/settings/apps/weldcommerce', search: { tab: 'payments' }, replace: true });
   });
 
+  it('shows the Online store tab from ?tab=online-store for a member who may read websites', async () => {
+    env.allowed.add('websites:read');
+    env.search = { tab: 'online-store', site: 'sfs_1' };
+    const user = userEvent.setup();
+    render(<WeldCommerceSettingsPage />);
+    expect(screen.getByRole('tab', { name: 'Online store' })).toBeTruthy();
+    expect(screen.getByText('online store tab sfs_1')).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: 'other store' }));
+    expect(env.navigate).toHaveBeenCalledWith({ to: '/settings/apps/weldcommerce', search: { tab: 'online-store', site: 'sfs_2' } });
+  });
+
+  it('has no Online store tab without websites:read, and ?tab=online-store falls back to General', () => {
+    env.search = { tab: 'online-store' };
+    render(<WeldCommerceSettingsPage />);
+    expect(screen.queryByRole('tab', { name: 'Online store' })).toBeNull();
+    expect(screen.queryByText(/online store tab/)).toBeNull();
+    expect(screen.getByLabelText('Order number prefix')).toBeTruthy();
+  });
+
   it('falls back to General for ?tab=channels without channel access', () => {
     env.search = { tab: 'channels' };
     render(<WeldCommerceSettingsPage />);
@@ -225,6 +260,21 @@ describe('WeldCommerceSettingsPage', () => {
     expect(screen.queryByRole('button', { name: 'Save' })).toBeNull();
     // Disabled by the fieldset around the form.
     expect(screen.getByLabelText('Order number prefix').matches(':disabled')).toBe(true);
+  });
+
+  it('says there is no access, not that loading failed, for a member who may not read the settings', () => {
+    env.allowed = new Set();
+    render(<WeldCommerceSettingsPage />);
+    expect(screen.getByText('You do not have access to the WeldCommerce settings.')).toBeTruthy();
+    expect(screen.queryByText('Could not load the WeldCommerce settings.')).toBeNull();
+  });
+
+  it('waits for the permissions instead of saying anything about access', () => {
+    env.permissionsLoading = true;
+    render(<WeldCommerceSettingsPage />);
+    expect(screen.queryByText('Could not load the WeldCommerce settings.')).toBeNull();
+    expect(screen.queryByText('You do not have access to the WeldCommerce settings.')).toBeNull();
+    expect(screen.queryByLabelText('Order number prefix')).toBeNull();
   });
 
   it('shows an error with a retry when the settings cannot be loaded', async () => {

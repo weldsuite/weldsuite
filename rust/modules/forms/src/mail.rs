@@ -9,8 +9,10 @@
 
 use std::sync::Arc;
 
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::Value;
 use sqlx::PgPool;
+use weldsuite_db::orm;
 use weldsuite_emails::forms::{DigestItem, InviteProps, QuestionAnswer};
 use weldsuite_emails::{EmailBrand, EmailLocale, RenderedEmail, SystemEmail, send_system_email};
 use weldsuite_mail_domain::outbound::{
@@ -18,6 +20,11 @@ use weldsuite_mail_domain::outbound::{
     check_outbound, commit_outbound, release_outbound,
 };
 use weldsuite_ports::{DynSystemMail, Mailbox};
+use weldsuite_schema::master::workspaces;
+use weldsuite_schema::tenant::{
+    form_settings, form_themes, form_versions, user_preferences, workspace_members,
+    workspace_settings,
+};
 
 use crate::common::{Ctx, Env, FormsResult, text, workspace_app_url};
 use crate::engine::FormThemeTokens;
@@ -42,43 +49,42 @@ pub(crate) async fn workspace_name(ctx: &Ctx) -> FormsResult<Option<String>> {
     let Some(master) = ctx.master.as_ref() else {
         return Ok(None);
     };
-    Ok(
-        sqlx::query_scalar::<_, Option<String>>(
-            "select name from workspaces where id = $1 limit 1",
-        )
-        .bind(&ctx.workspace_id)
-        .fetch_optional(master)
-        .await?
-        .flatten(),
-    )
+    Ok(workspaces::Entity::find_by_id(ctx.workspace_id.as_str())
+        .select_only()
+        .column(workspaces::Column::Name)
+        .into_tuple()
+        .one(&orm(master))
+        .await?)
 }
 
 /// `formsBrand(ctx, form)`: the workspace's name and, when the form has one,
 /// its logo and button colour.
 pub(crate) async fn forms_brand(ctx: &Ctx, form: Option<&Value>) -> FormsResult<FormsBrand> {
     let name = workspace_name(ctx).await?;
-    let sender: Option<Option<String>> =
-        sqlx::query_scalar("select sender_name from form_settings limit 1")
-            .fetch_optional(&ctx.db)
-            .await?;
+    let db = orm(&ctx.db);
+    let sender: Option<Option<String>> = form_settings::Entity::find()
+        .select_only()
+        .column(form_settings::Column::SenderName)
+        .into_tuple()
+        .one(&db)
+        .await?;
     let mut tokens: Option<Value> = None;
     if let Some(form) = form {
         if let Some(version) = form["publishedVersionId"].as_str() {
-            tokens = sqlx::query_scalar::<_, Option<Value>>(
-                "select theme from form_versions where id = $1 limit 1",
-            )
-            .bind(version)
-            .fetch_optional(&ctx.db)
-            .await?
-            .flatten();
+            tokens = form_versions::Entity::find_by_id(version)
+                .select_only()
+                .column(form_versions::Column::Theme)
+                .into_tuple::<Option<Value>>()
+                .one(&db)
+                .await?
+                .flatten();
         } else if let Some(theme) = form["themeId"].as_str() {
-            tokens = sqlx::query_scalar::<_, Option<Value>>(
-                "select tokens from form_themes where id = $1 limit 1",
-            )
-            .bind(theme)
-            .fetch_optional(&ctx.db)
-            .await?
-            .flatten();
+            tokens = form_themes::Entity::find_by_id(theme)
+                .select_only()
+                .column(form_themes::Column::Tokens)
+                .into_tuple::<Value>()
+                .one(&db)
+                .await?;
         }
     }
     let theme = tokens.and_then(|tokens| FormThemeTokens::parse(&tokens).ok());
@@ -460,22 +466,29 @@ pub(crate) async fn send_response_notification_mail(
         return;
     };
     let lookup = async {
-        let email: Option<Option<String>> =
-            sqlx::query_scalar("select email from workspace_members where user_id = $1 limit 1")
-                .bind(user_id)
-                .fetch_optional(db)
-                .await?;
-        let language: Option<Option<String>> =
-            sqlx::query_scalar("select language from user_preferences where user_id = $1 limit 1")
-                .bind(user_id)
-                .fetch_optional(db)
-                .await?;
-        let workspace: Option<Option<String>> = sqlx::query_scalar(
-            "select language from workspace_settings where deleted_at is null limit 1",
-        )
-        .fetch_optional(db)
-        .await?;
-        Ok::<_, sqlx::Error>((email.flatten(), language.flatten(), workspace.flatten()))
+        let db = orm(db);
+        let email: Option<Option<String>> = workspace_members::Entity::find()
+            .select_only()
+            .column(workspace_members::Column::Email)
+            .filter(workspace_members::Column::UserId.eq(user_id))
+            .into_tuple()
+            .one(&db)
+            .await?;
+        let language: Option<String> = user_preferences::Entity::find()
+            .select_only()
+            .column(user_preferences::Column::Language)
+            .filter(user_preferences::Column::UserId.eq(user_id))
+            .into_tuple()
+            .one(&db)
+            .await?;
+        let workspace: Option<Option<String>> = workspace_settings::Entity::find()
+            .select_only()
+            .column(workspace_settings::Column::Language)
+            .filter(workspace_settings::Column::DeletedAt.is_null())
+            .into_tuple()
+            .one(&db)
+            .await?;
+        Ok::<_, sea_orm::DbErr>((email.flatten(), language, workspace.flatten()))
     };
     let (email, language, workspace) = match lookup.await {
         Ok(found) => found,

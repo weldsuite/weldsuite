@@ -23,17 +23,20 @@ use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Response};
 use http::header::{CACHE_CONTROL, CONTENT_DISPOSITION, CONTENT_TYPE, X_CONTENT_TYPE_OPTIONS};
 use http::{HeaderMap, HeaderValue, StatusCode};
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Value, json};
 use time::OffsetDateTime;
 use weldsuite_catalogs::entity_events::{SIGN_ENVELOPE_SENT, SIGN_ENVELOPE_VOIDED};
-use weldsuite_db::js_row;
+use weldsuite_db::orm;
 use weldsuite_kit::validation::{Format, Presence, Text};
 use weldsuite_kit::{ApiError, Data};
+use weldsuite_schema::tenant::{sign_envelopes, sign_recipients};
 
 use crate::envelopes::{
-    detail_for, event_data, is_open_request, is_open_request_at, list_recipients, load_draft,
-    load_envelope, load_own_envelope, member_profile, publish_updated, recipient_dto,
-    touch_envelope, viewer_of,
+    detail_for, event_data, is_open_request, is_open_request_at, json_rows, list_recipients,
+    load_draft, load_envelope, load_own_envelope, member_profile, publish_updated, recipient_dto,
+    returned, row_json, touch_envelope, viewer_of,
 };
 use crate::links::{
     LinkTarget, create_link, revoke_envelope_links, revoke_recipient_links, signing_link,
@@ -106,18 +109,17 @@ async fn void_request(
     let recipients = open_recipients(ctx, envelope).await?;
     let id = text(envelope, "id");
     let now = crate::now();
-    let voided: Option<Value> = sqlx::query_scalar(
-        "update sign_envelopes
-         set status = 'voided', voided_at = $2::timestamptz, voided_reason = $3, updated_at = $2::timestamptz
-         where id = $1 and status in ('sent', 'in_progress')
-         returning to_jsonb(sign_envelopes)",
-    )
-    .bind(id)
-    .bind(&now)
-    .bind(reason)
-    .fetch_optional(&ctx.db)
-    .await?;
-    let voided = js_row(voided.ok_or_else(closed)?);
+    // Only an open request is voided, once.
+    let voided = sign_envelopes::Entity::update_many()
+        .col_expr(sign_envelopes::Column::Status, Expr::value("voided"))
+        .col_expr(sign_envelopes::Column::VoidedAt, Expr::value(now))
+        .col_expr(sign_envelopes::Column::VoidedReason, Expr::value(reason))
+        .col_expr(sign_envelopes::Column::UpdatedAt, Expr::value(now))
+        .filter(sign_envelopes::Column::Id.eq(id))
+        .filter(sign_envelopes::Column::Status.is_in(["sent", "in_progress"]))
+        .exec_with_returning(&orm(&ctx.db))
+        .await?;
+    let voided = row_json(voided.into_iter().next().ok_or_else(closed)?)?;
     revoke_envelope_links(&ctx.master, &ctx.workspace_id, id).await?;
     record_sign_event(
         &ctx.db,
@@ -144,20 +146,23 @@ async fn void_request(
 async fn mark_reminded(
     ctx: &SendContext,
     ids: &[String],
-    at: &str,
+    at: OffsetDateTime,
     automatic: bool,
 ) -> SignResult<()> {
-    sqlx::query(
-        "update sign_recipients
-         set last_reminded_at = $2::timestamptz, updated_at = $2::timestamptz,
-             reminders_sent = case when $3 then reminders_sent + 1 else reminders_sent end
-         where id = any($1)",
-    )
-    .bind(ids)
-    .bind(at)
-    .bind(automatic)
-    .execute(&ctx.db)
-    .await?;
+    let mut update = sign_recipients::Entity::update_many()
+        .col_expr(sign_recipients::Column::LastRemindedAt, Expr::value(at))
+        .col_expr(sign_recipients::Column::UpdatedAt, Expr::value(at));
+    // Only an automatic reminder counts towards the maximum.
+    if automatic {
+        update = update.col_expr(
+            sign_recipients::Column::RemindersSent,
+            sea_orm::ExprTrait::add(Expr::col(sign_recipients::Column::RemindersSent), 1),
+        );
+    }
+    update
+        .filter(sign_recipients::Column::Id.is_in(ids.iter().map(String::as_str)))
+        .exec(&orm(&ctx.db))
+        .await?;
     Ok(())
 }
 
@@ -190,7 +195,7 @@ async fn remind_now(ctx: &SendContext, envelope: &Value, actor: &Actor) -> SignR
     let Mailed::Sent { sent, .. } = mail_new_links(ctx, envelope, &due, true).await? else {
         return Err(SignError::invalid(EMAIL_LIMIT_MESSAGE));
     };
-    mark_reminded(ctx, &ids_of(&due), &crate::now(), false).await?;
+    mark_reminded(ctx, &ids_of(&due), crate::now(), false).await?;
     for recipient in &due {
         let (email, delivered) = delivery(recipient, &sent);
         record_sign_event(
@@ -233,14 +238,14 @@ async fn resend_link(
     else {
         return Err(SignError::invalid(EMAIL_LIMIT_MESSAGE));
     };
-    let row: Value = sqlx::query_scalar(
-        "update sign_recipients set last_reminded_at = $2::timestamptz, updated_at = $2::timestamptz
-         where id = $1 returning to_jsonb(sign_recipients)",
-    )
-    .bind(text(&recipient, "id"))
-    .bind(crate::now())
-    .fetch_one(&ctx.db)
-    .await?;
+    let now = crate::now();
+    let rows = sign_recipients::Entity::update_many()
+        .col_expr(sign_recipients::Column::LastRemindedAt, Expr::value(now))
+        .col_expr(sign_recipients::Column::UpdatedAt, Expr::value(now))
+        .filter(sign_recipients::Column::Id.eq(text(&recipient, "id")))
+        .exec_with_returning(&orm(&ctx.db))
+        .await?;
+    let row = returned(rows, "sign_recipients")?;
     let (email, delivered) = delivery(&recipient, &sent);
     record_sign_event(
         &ctx.db,
@@ -253,7 +258,7 @@ async fn resend_link(
         },
     )
     .await?;
-    Ok(js_row(row))
+    Ok(row_json(row)?)
 }
 
 /// `correctRecipientSchema`, read.
@@ -325,23 +330,29 @@ async fn correct_recipient(
         )
         .await?;
     }
-    let row: Value = sqlx::query_scalar(
-        "update sign_recipients
-         set name = $2, email = $3, updated_at = $5::timestamptz,
-             status = case when $4 then 'sent' else status end,
-             sent_at = case when $4 then $5::timestamptz else sent_at end,
-             opened_at = case when $4 then null else opened_at end,
-             last_reminded_at = case when $4 then null else last_reminded_at end,
-             reminders_sent = case when $4 then 0 else reminders_sent end
-         where id = $1 returning to_jsonb(sign_recipients)",
-    )
-    .bind(recipient_id)
-    .bind(name.as_str())
-    .bind(email)
-    .bind(restart)
-    .bind(crate::now())
-    .fetch_one(&ctx.db)
-    .await?;
+    let now = crate::now();
+    let mut update = sign_recipients::Entity::update_many()
+        .col_expr(
+            sign_recipients::Column::Name,
+            Expr::value(name.as_str().map(str::to_owned)),
+        )
+        .col_expr(sign_recipients::Column::Email, Expr::value(email))
+        .col_expr(sign_recipients::Column::UpdatedAt, Expr::value(now));
+    // A signer at a new address starts over.
+    if restart {
+        let never = || Expr::value(Option::<OffsetDateTime>::None);
+        update = update
+            .col_expr(sign_recipients::Column::Status, Expr::value("sent"))
+            .col_expr(sign_recipients::Column::SentAt, Expr::value(now))
+            .col_expr(sign_recipients::Column::OpenedAt, never())
+            .col_expr(sign_recipients::Column::LastRemindedAt, never())
+            .col_expr(sign_recipients::Column::RemindersSent, Expr::value(0));
+    }
+    let rows = update
+        .filter(sign_recipients::Column::Id.eq(recipient_id))
+        .exec_with_returning(&orm(&ctx.db))
+        .await?;
+    let row = returned(rows, "sign_recipients")?;
     record_sign_event(
         &ctx.db,
         SignEvent {
@@ -362,7 +373,7 @@ async fn correct_recipient(
     if restart {
         schedule_lifecycle(ctx).await;
     }
-    Ok(js_row(row))
+    Ok(row_json(row)?)
 }
 
 /// A fresh link for a member whose turn it is to sign, by their email, for
@@ -379,15 +390,16 @@ async fn member_signing_link(
     if !is_open_request(envelope) {
         return Err(not_your_turn());
     }
-    let recipient: Option<String> = sqlx::query_scalar(
-        "select id from sign_recipients
-         where envelope_id = $1 and email = $2 and role = 'signer' and status in ('sent', 'opened')
-         limit 1",
-    )
-    .bind(text(envelope, "id"))
-    .bind(email)
-    .fetch_optional(&ctx.db)
-    .await?;
+    let recipient: Option<String> = sign_recipients::Entity::find()
+        .select_only()
+        .column(sign_recipients::Column::Id)
+        .filter(sign_recipients::Column::EnvelopeId.eq(text(envelope, "id")))
+        .filter(sign_recipients::Column::Email.eq(email))
+        .filter(sign_recipients::Column::Role.eq("signer"))
+        .filter(sign_recipients::Column::Status.is_in(["sent", "opened"]))
+        .into_tuple()
+        .one(&orm(&ctx.db))
+        .await?;
     let recipient = recipient.ok_or_else(not_your_turn)?;
     let token = create_link(
         &ctx.master,
@@ -396,7 +408,7 @@ async fn member_signing_link(
             clerk_org_id: &ctx.clerk_org_id,
             envelope_id: text(envelope, "id"),
             recipient_id: &recipient,
-            expires_at: envelope["expiresAt"].as_str(),
+            expires_at: timestamp(&envelope["expiresAt"]),
         },
     )
     .await?;
@@ -409,17 +421,16 @@ async fn member_signing_link(
 /// revoked, the sender told who had not signed. A request where everyone
 /// signed is left to finalizing (`expireDue`).
 pub(crate) async fn expire_due(ctx: &SendContext, now: OffsetDateTime) -> SignResult<Vec<Value>> {
-    let at = weldsuite_events::iso_timestamp(now);
-    let due: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(e) from sign_envelopes e
-         where kind = 'envelope' and status in ('sent', 'in_progress') and deleted_at is null
-           and expires_at <= $1::timestamptz",
-    )
-    .bind(&at)
-    .fetch_all(&ctx.db)
-    .await?;
+    let at = crate::millis(now);
+    let due = sign_envelopes::Entity::find()
+        .filter(sign_envelopes::Column::Kind.eq("envelope"))
+        .filter(sign_envelopes::Column::Status.is_in(["sent", "in_progress"]))
+        .filter(sign_envelopes::Column::DeletedAt.is_null())
+        .filter(sign_envelopes::Column::ExpiresAt.lte(at))
+        .all(&orm(&ctx.db))
+        .await?;
     let mut expired = Vec::new();
-    for envelope in due.into_iter().map(js_row) {
+    for envelope in json_rows(due)? {
         let id = text(&envelope, "id");
         let recipients = list_recipients(&ctx.db, id).await?;
         let signers: Vec<&Value> = recipients
@@ -429,16 +440,15 @@ pub(crate) async fn expire_due(ctx: &SendContext, now: OffsetDateTime) -> SignRe
         if all_signed(&signers) {
             continue;
         }
-        let row: Option<Value> = sqlx::query_scalar(
-            "update sign_envelopes set status = 'expired', updated_at = $2::timestamptz
-             where id = $1 and status in ('sent', 'in_progress')
-             returning to_jsonb(sign_envelopes)",
-        )
-        .bind(id)
-        .bind(&at)
-        .fetch_optional(&ctx.db)
-        .await?;
-        let Some(row) = row.map(js_row) else {
+        // Only while still open: one expiry per request.
+        let rows = sign_envelopes::Entity::update_many()
+            .col_expr(sign_envelopes::Column::Status, Expr::value("expired"))
+            .col_expr(sign_envelopes::Column::UpdatedAt, Expr::value(at))
+            .filter(sign_envelopes::Column::Id.eq(id))
+            .filter(sign_envelopes::Column::Status.is_in(["sent", "in_progress"]))
+            .exec_with_returning(&orm(&ctx.db))
+            .await?;
+        let Some(row) = rows.into_iter().next().map(row_json).transpose()? else {
             continue;
         };
         revoke_envelope_links(&ctx.master, &ctx.workspace_id, id).await?;
@@ -476,7 +486,7 @@ pub(crate) async fn send_due_reminders(
     now: OffsetDateTime,
 ) -> SignResult<usize> {
     let mut reminded = 0;
-    let at = weldsuite_events::iso_timestamp(now);
+    let at = crate::millis(now);
     for (envelope, signers) in open_requests(&ctx.db).await? {
         let refs: Vec<&Value> = signers.iter().collect();
         if !is_open_request_at(&envelope, now) || all_signed(&refs) {
@@ -497,10 +507,10 @@ pub(crate) async fn send_due_reminders(
                 envelope_id = text(&envelope, "id"),
                 "sign: reminders refused by the outbound guard"
             );
-            mark_reminded(ctx, &ids_of(&due), &at, false).await?;
+            mark_reminded(ctx, &ids_of(&due), at, false).await?;
             continue;
         };
-        mark_reminded(ctx, &ids_of(&due), &at, true).await?;
+        mark_reminded(ctx, &ids_of(&due), at, true).await?;
         for signer in &due {
             let (email, delivered) = delivery(signer, &sent);
             record_sign_event(

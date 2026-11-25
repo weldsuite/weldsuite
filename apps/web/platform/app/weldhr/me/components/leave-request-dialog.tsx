@@ -17,7 +17,6 @@ import {
   FormLabel,
   FormMessage,
 } from '@weldsuite/ui/components/form';
-import { Input } from '@weldsuite/ui/components/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@weldsuite/ui/components/select';
 import { Textarea } from '@weldsuite/ui/components/textarea';
 import { useTranslations } from '@weldsuite/i18n/client';
@@ -26,6 +25,7 @@ import { useMyHrRequestLeave } from '@/hooks/queries/use-weldhr-queries';
 import { errorMessage, todayIso } from '../../components/shared';
 import { ColorDot } from './shared';
 import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
+import { HrDateInput } from '@/app/weldhr/components/date-fields';
 
 function buildSchema(t: (path: string) => string) {
   const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, t('weldhr.me.leave.form.errors.date'));
@@ -58,6 +58,8 @@ export function LeaveRequestDialog({
 
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
+    // Errors show as you go, since Submit stays disabled until the form is valid.
+    mode: 'onChange',
     defaultValues: { leaveTypeId: '', startDate: todayIso(), endDate: todayIso(), reason: '' },
   });
 
@@ -85,7 +87,7 @@ export function LeaveRequestDialog({
   return (
     <Dialog open onOpenChange={(open) => !open && !isSubmitting && onClose()}>
       <DialogContent className="sm:max-w-md">
-        <DialogHeader>
+        <DialogHeader className="mb-2">
           <DialogTitle>{t('weldhr.me.leave.form.title')}</DialogTitle>
         </DialogHeader>
 
@@ -136,7 +138,7 @@ export function LeaveRequestDialog({
                   <FormItem>
                     <FormLabel>{t('weldhr.me.leave.form.startDate')}</FormLabel>
                     <FormControl>
-                      <Input type="date" {...field} />
+                      <HrDateInput {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -149,7 +151,7 @@ export function LeaveRequestDialog({
                   <FormItem>
                     <FormLabel>{t('weldhr.me.leave.form.endDate')}</FormLabel>
                     <FormControl>
-                      <Input type="date" min={startDate || undefined} {...field} />
+                      <HrDateInput min={startDate || undefined} {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -175,7 +177,7 @@ export function LeaveRequestDialog({
               <Button type="button" variant="outline" onClick={onClose} disabled={isSubmitting}>
                 {t('weldhr.common.cancel')}
               </Button>
-              <Button type="submit" disabled={isSubmitting}>
+              <Button type="submit" disabled={isSubmitting || !form.formState.isValid}>
                 {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 {isSubmitting ? t('weldhr.me.leave.form.submitting') : t('weldhr.me.leave.form.submit')}
               </Button>

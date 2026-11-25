@@ -1054,7 +1054,9 @@
   "parcel": [
     "created",
     "updated",
-    "deleted"
+    "deleted",
+    "shipped",
+    "delivered"
   ],
   "parcel_box": [
     "created",
@@ -1550,6 +1552,38 @@
     "added",
     "updated",
     "removed"
+  ],
+  "storefront_deployment": [
+    "created",
+    "promoted",
+    "deleted"
+  ],
+  "storefront_host": [
+    "created",
+    "updated",
+    "deleted",
+    "verified",
+    "failed"
+  ],
+  "storefront_menu": [
+    "updated",
+    "deleted"
+  ],
+  "storefront_page": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "storefront_redirect": [
+    "created",
+    "deleted"
+  ],
+  "storefront_site": [
+    "created",
+    "updated",
+    "deleted",
+    "published",
+    "restored"
   ],
   "supplier": [
     "created",

@@ -376,6 +376,16 @@ jobs:
           load: true
           tags: weldsuite-forms-portal:dev
           cache-from: type=gha,scope=rust-image
+      # WeldCommerce's online store renderer's Node container (ADR COM-015).
+      - name: Build the storefront renderer's image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: rust/Dockerfile
+          target: storefront
+          load: true
+          tags: weldsuite-storefront:dev
+          cache-from: type=gha,scope=rust-image
       # The staff admin console's Node container (ADR FE-018).
       - name: Build the admin console's image
         uses: docker/build-push-action@v6
@@ -462,7 +472,9 @@ jobs:
     needs: [changes]
     if: ${{ !cancelled() && needs.changes.outputs.crossbuild != 'false' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 75
+    # Ninety, as rust-image: the release build missing the cache took about
+    # 45 minutes before memory ran out, and a link that swaps is slower.
+    timeout-minutes: 90
     steps:
       - name: Free disk space
         run: |
@@ -470,6 +482,58 @@ jobs:
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
           sudo docker image prune --all --force > /dev/null
           df -h /
+      # The release build's last step, the `weldsuite` binary with thin LTO
+      # in one codegen unit, cross-compiled for aarch64, needs more than the
+      # runner's 16 GB; the amd64 build of the same binary still fits. When
+      # rustc runs out of memory there ("cannot allocate memory", SIGKILL), no
+      # main build passes CI and EU production stops following test. Swap
+      # lets it finish without changing what ships; BuildKit's container has
+      # no memory limit, so it swaps with the host. 8 GiB of it was enough
+      # until every crate moved onto the SeaORM entities (#1700, 2026-11-24).
+      - name: Add swap
+        run: |
+          set -euo pipefail
+          free -h
+          # Up to 32 GiB of swap. On a scratch disk mounted on /mnt, leaving
+          # 4 GiB there. Without one (ubuntu-26.04 has none), on the root
+          # disk, which the build itself fills (BuildKit's layers, the Rust
+          # target), leaving 40 GiB: it has about 110 GiB free by now.
+          if mountpoint -q /mnt; then
+            dir=/mnt cap=32 headroom=4
+          else
+            dir=/ cap=32 headroom=40
+          fi
+          file="${dir%/}/swapfile"
+          avail_gib=$(( $(df --output=avail -k "$dir" | tail -1) / 1048576 ))
+          size_gib=$(( avail_gib - headroom ))
+          if [ "$size_gib" -gt "$cap" ]; then size_gib=$cap; fi
+          if [ "$size_gib" -lt 4 ]; then
+            echo "::warning::only ${avail_gib} GiB free on $dir; no extra swap"
+            exit 0
+          fi
+          sudo swapoff -a
+          sudo rm -f "$file"
+          sudo fallocate -l "${size_gib}G" "$file"
+          sudo chmod 600 "$file"
+          sudo mkswap "$file" > /dev/null
+          sudo swapon "$file"
+          free -h
+      # Memory and swap in use every 15 seconds, with each process holding
+      # more than 1 GiB (resident plus swapped), so the last step shows how
+      # close the build came to running out.
+      - name: Watch memory
+        run: |
+          log="$RUNNER_TEMP/memory.log"
+          nohup bash -c '
+            while :; do
+              mem=$(free -m | awk "/^Mem:/ {m = \$3} /^Swap:/ {s = \$3} END {print m, s}")
+              procs=$(cat /proc/[0-9]*/status 2> /dev/null | awk "
+                /^Name:/ {name = \$2; rss = 0}
+                /^VmRSS:/ {rss = \$2}
+                /^VmSwap:/ {if (rss + \$2 > 1048576) printf \" %s=%dM\", name, (rss + \$2) / 1024}")
+              echo "$(date -u +%T) $mem$procs"
+              sleep 15
+            done' > "$log" 2>&1 &
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
         with:
@@ -485,6 +549,23 @@ jobs:
           build-args: CARGO_PROFILE=${{ github.event_name == 'pull_request' && 'ci-image' || 'release' }}
           cache-from: type=gha,scope=rust-image-arm64
           cache-to: ${{ github.event_name != 'pull_request' && 'type=gha,mode=max,scope=rust-image-arm64' || '' }}
+      - name: Memory used
+        if: ${{ always() }}
+        run: |
+          log="$RUNNER_TEMP/memory.log"
+          df -h /
+          swapon --show
+          [ -s "$log" ] || exit 0
+          # Columns: time, MiB of memory in use, MiB of swap in use, then
+          # the processes over 1 GiB.
+          awk '{if ($2 + $3 > peak) {peak = $2 + $3; line = $0}}
+            END {printf "Peak: %d MiB of memory and swap in use at %s\n", peak, line}' "$log"
+          echo "::group::Every sample"
+          cat "$log"
+          echo "::endgroup::"
+          if [ "${{ job.status }}" != success ]; then
+            sudo dmesg | grep -iE 'out of memory|oom-kill|killed process' | tail -20 || true
+          fi
 
   # The EU deploy configuration (rust/deploy): OpenTofu for Hetzner validated,
   # every Flux layer built and schema-checked, every pinned chart rendered with
@@ -979,6 +1060,14 @@ jobs:
       # The admin console's pure-logic tests (apps/web/admin/lib/*.test.ts).
       - name: Admin console unit tests
         run: pnpm --filter admin test
+      # The WeldPass extension (fill policy, form detection, the save queue,
+      # the worker) and the OIDC session it shares with the mobile apps. Its
+      # Playwright run needs a browser and runs on a release tag
+      # (release-weldpass-extension.yml).
+      - name: WeldPass extension and mobile-platform unit tests
+        run: |
+          pnpm --filter weldpass-extension test
+          pnpm --filter @weldsuite/mobile-platform test
       # The console's Node build for Kubernetes (ADR FE-018), and its check that
       # no Clerk, Neon driver or Cloudflare runtime module got into it.
       - name: Admin console Node build

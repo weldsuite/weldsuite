@@ -32,6 +32,7 @@
       "/api/invitations",
       "/api/legal-entities",
       "/api/me",
+      "/api/mcp",
       "/api/member-limits",
       "/api/my-role",
       "/api/notification-preferences",
@@ -39,6 +40,7 @@
       "/api/object-templates",
       "/api/objects",
       "/api/onboarding",
+      "/api/outside-eu-services",
       "/api/partner",
       "/api/prepaid-seats",
       "/api/push-tokens",
@@ -312,7 +314,9 @@
       "/api/commerce-payments",
       "/api/commerce-settings",
       "/api/discounts",
-      "/api/orders"
+      "/api/online-store",
+      "/api/orders",
+      "/api/storefront-hosts"
     ],
     "rust": true,
     "rustOnly": true,
@@ -328,9 +332,11 @@
     "id": "stash",
     "prefixes": [
       "/api/boxes",
+      "/api/carriers",
       "/api/cycle-counts",
       "/api/inventory",
       "/api/inventory-movements",
+      "/api/parcels",
       "/api/pick-lists",
       "/api/pickers",
       "/api/product-suppliers",

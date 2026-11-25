@@ -17,15 +17,21 @@ use axum::body::Bytes;
 use axum::extract::{Path, Query};
 use axum::response::{IntoResponse, Response};
 use http::HeaderMap;
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect,
+};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use sqlx::PgPool;
-use weldsuite_db::js_row;
+use weldsuite_db::orm;
 use weldsuite_kit::validation::{Presence, Text};
 use weldsuite_kit::{ApiError, Data, generate_id};
+use weldsuite_schema::tenant::weldagent_approvals::{self as approvals, Column};
+use weldsuite_schema::tenant::{chat_channels, weldagent_conversations, weldagent_messages};
 
 use crate::access::can_edit_agent;
-use crate::agents::get_agent;
+use crate::agents::{get_agent, js, now_tz};
 use crate::grants::granter_holds;
 use crate::tools::{ToolContext, ToolError};
 use crate::{Caller, failed, now, validate};
@@ -293,8 +299,8 @@ pub fn approval_recipients(
 // ── Rows ────────────────────────────────────────────────────────────────────
 
 /// `serializeApproval(row)`.
-fn serialize(row: Value) -> Value {
-    let row = js_row(row);
+fn serialize(approval: approvals::Model) -> Value {
+    let row = js(approval);
     let pick = |key: &str| row.get(key).cloned().unwrap_or(Value::Null);
     json!({
         "id": pick("id"),
@@ -326,20 +332,20 @@ pub async fn create_approval(
     tool_name: &str,
     args: &Value,
     created_by: Option<&str>,
-) -> Result<Value, sqlx::Error> {
+) -> Result<Value, DbErr> {
     let id = generate_id("apr");
-    sqlx::query(
-        "insert into weldagent_approvals (id, agent_id, conversation_id, tool_name, args, risk_level, status, created_by)
-         values ($1, $2, $3, $4, $5::jsonb, $6, 'pending', $7)",
-    )
-    .bind(&id)
-    .bind(agent_id)
-    .bind(conversation_id)
-    .bind(tool_name)
-    .bind(args)
-    .bind(tool_risk_level(tool_name, None))
-    .bind(created_by)
-    .execute(db)
+    approvals::Entity::insert(approvals::ActiveModel {
+        id: Set(id.clone()),
+        agent_id: Set(agent_id.to_owned()),
+        conversation_id: Set(conversation_id.map(str::to_owned)),
+        tool_name: Set(tool_name.to_owned()),
+        args: Set(args.clone()),
+        risk_level: Set(tool_risk_level(tool_name, None).to_owned()),
+        status: Set("pending".to_owned()),
+        created_by: Set(created_by.map(str::to_owned)),
+        ..Default::default()
+    })
+    .exec_without_returning(&orm(db))
     .await?;
     Ok(get_approval(db, &id).await?.unwrap_or(Value::Null))
 }
@@ -353,17 +359,22 @@ pub async fn list_approvals(
     db: &PgPool,
     agent_id: Option<&str>,
     status: Option<&str>,
-) -> Result<Vec<Value>, sqlx::Error> {
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(a) from weldagent_approvals a
-         where ($1::text is null or a.agent_id = $1) and ($2::text is null or a.status = $2)
-         order by a.created_at desc limit 100",
-    )
-    .bind(agent_id)
-    .bind(status)
-    .fetch_all(db)
-    .await?;
-    Ok(rows.into_iter().map(serialize).collect())
+) -> Result<Vec<Value>, DbErr> {
+    let mut query = approvals::Entity::find();
+    if let Some(agent_id) = agent_id {
+        query = query.filter(Column::AgentId.eq(agent_id));
+    }
+    if let Some(status) = status {
+        query = query.filter(Column::Status.eq(status));
+    }
+    Ok(query
+        .order_by_desc(Column::CreatedAt)
+        .limit(100)
+        .all(&orm(db))
+        .await?
+        .into_iter()
+        .map(serialize)
+        .collect())
 }
 
 /// `getApproval(db, id)`.
@@ -371,13 +382,11 @@ pub async fn list_approvals(
 /// # Errors
 ///
 /// The tenant database fails.
-pub async fn get_approval(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> =
-        sqlx::query_scalar("select to_jsonb(a) from weldagent_approvals a where a.id = $1")
-            .bind(id)
-            .fetch_optional(db)
-            .await?;
-    Ok(row.map(serialize))
+pub async fn get_approval(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
+    Ok(approvals::Entity::find_by_id(id.to_owned())
+        .one(&orm(db))
+        .await?
+        .map(serialize))
 }
 
 /// `decideApproval(db, id, { decision, decidedBy, reason })`: `None` when it
@@ -392,21 +401,20 @@ pub async fn decide_approval(
     decision: &str,
     decided_by: &str,
     reason: Option<&str>,
-) -> Result<Option<Value>, sqlx::Error> {
+) -> Result<Option<Value>, DbErr> {
     // Conditional on still-pending so a double click can't run the action twice.
-    let claimed = sqlx::query(
-        "update weldagent_approvals
-         set status = $2, decided_by = $3, decided_at = $5::timestamptz, reason = $4, updated_at = $5::timestamptz
-         where id = $1 and status = 'pending'",
-    )
-    .bind(id)
-    .bind(decision)
-    .bind(decided_by)
-    .bind(reason)
-    .bind(now())
-    .execute(db)
-    .await?;
-    if claimed.rows_affected() == 0 {
+    let now = now_tz();
+    let claimed = approvals::Entity::update_many()
+        .col_expr(Column::Status, Expr::value(decision))
+        .col_expr(Column::DecidedBy, Expr::value(decided_by))
+        .col_expr(Column::DecidedAt, Expr::value(now))
+        .col_expr(Column::Reason, Expr::value(reason))
+        .col_expr(Column::UpdatedAt, Expr::value(now))
+        .filter(Column::Id.eq(id))
+        .filter(Column::Status.eq("pending"))
+        .exec(&orm(db))
+        .await?;
+    if claimed.rows_affected == 0 {
         return Ok(None);
     }
     get_approval(db, id).await
@@ -422,14 +430,17 @@ pub async fn find_prior_approval(
     db: &PgPool,
     agent_id: &str,
     tool_name: &str,
-) -> Result<bool, sqlx::Error> {
-    sqlx::query_scalar(
-        "select exists (select 1 from weldagent_approvals where agent_id = $1 and tool_name = $2 and status = 'approved')",
-    )
-    .bind(agent_id)
-    .bind(tool_name)
-    .fetch_one(db)
-    .await
+) -> Result<bool, DbErr> {
+    let found: Option<String> = approvals::Entity::find()
+        .select_only()
+        .column(Column::Id)
+        .filter(Column::AgentId.eq(agent_id))
+        .filter(Column::ToolName.eq(tool_name))
+        .filter(Column::Status.eq("approved"))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
+    Ok(found.is_some())
 }
 
 // ── Running a decided approval (services/weldagent/approvals.ts) ───────────
@@ -466,24 +477,29 @@ enum Origin {
 
 /// Where the approval was requested: a WeldAgent conversation (chat panel) or
 /// a WeldChat room (`conversationId` then holds the channel id).
-async fn resolve_origin(db: &PgPool, id: Option<&str>) -> Result<Origin, sqlx::Error> {
+async fn resolve_origin(db: &PgPool, id: Option<&str>) -> Result<Origin, DbErr> {
     let Some(id) = id.filter(|i| !i.is_empty()) else {
         return Ok(Origin::None);
     };
-    let conversation: Option<String> = sqlx::query_scalar(
-        "select id from weldagent_conversations where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
+    let conn = orm(db);
+    let conversation: Option<String> = weldagent_conversations::Entity::find()
+        .select_only()
+        .column(weldagent_conversations::Column::Id)
+        .filter(weldagent_conversations::Column::Id.eq(id))
+        .filter(weldagent_conversations::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&conn)
+        .await?;
     if conversation.is_some() {
         return Ok(Origin::Conversation(id.to_owned()));
     }
-    let channel: Option<String> =
-        sqlx::query_scalar("select id from chat_channels where id = $1 limit 1")
-            .bind(id)
-            .fetch_optional(db)
-            .await?;
+    let channel: Option<String> = chat_channels::Entity::find()
+        .select_only()
+        .column(chat_channels::Column::Id)
+        .filter(chat_channels::Column::Id.eq(id))
+        .into_tuple()
+        .one(&conn)
+        .await?;
     Ok(channel.map_or(Origin::None, Origin::Channel))
 }
 
@@ -499,7 +515,8 @@ pub async fn persist_assistant_message(
     content: &str,
     tool_invocations: Option<&Value>,
     metadata: Option<&Value>,
-) -> Result<Value, sqlx::Error> {
+) -> Result<Value, DbErr> {
+    use weldagent_conversations::Column as Conversation;
     let ran_tools = tool_invocations
         .and_then(Value::as_array)
         .is_some_and(|a| !a.is_empty());
@@ -510,36 +527,41 @@ pub async fn persist_assistant_message(
         trimmed
     };
     let message_id = generate_id("msg");
-    sqlx::query(
-        "insert into weldagent_messages (id, conversation_id, role, content, tool_invocations, metadata)
-         values ($1, $2, 'assistant', $3, $4::jsonb, $5::jsonb)",
-    )
-    .bind(&message_id)
-    .bind(conversation_id)
-    .bind(content)
-    .bind(tool_invocations)
-    .bind(metadata)
-    .execute(db)
+    let conn = orm(db);
+    weldagent_messages::Entity::insert(weldagent_messages::ActiveModel {
+        id: Set(message_id.clone()),
+        conversation_id: Set(conversation_id.to_owned()),
+        role: Set("assistant".to_owned()),
+        content: Set(content.to_owned()),
+        tool_invocations: Set(tool_invocations.cloned()),
+        metadata: Set(metadata.cloned()),
+        ..Default::default()
+    })
+    .exec_without_returning(&conn)
     .await?;
-    sqlx::query(
-        "update weldagent_conversations
-         set last_message_at = $2::timestamptz, message_count = message_count + 1, updated_at = $2::timestamptz
-         where id = $1",
-    )
-    .bind(conversation_id)
-    .bind(now())
-    .execute(db)
-    .await?;
-    let row: Option<Value> =
-        sqlx::query_scalar("select to_jsonb(m) from weldagent_messages m where m.id = $1")
-            .bind(&message_id)
-            .fetch_optional(db)
-            .await?;
-    Ok(row.map_or(Value::Null, js_row))
+    let now = now_tz();
+    weldagent_conversations::Entity::update_many()
+        .col_expr(Conversation::LastMessageAt, Expr::value(now))
+        .col_expr(
+            Conversation::MessageCount,
+            sea_orm::ExprTrait::add(Expr::col(Conversation::MessageCount), 1),
+        )
+        .col_expr(Conversation::UpdatedAt, Expr::value(now))
+        .filter(Conversation::Id.eq(conversation_id))
+        .exec(&conn)
+        .await?;
+    let row = weldagent_messages::Entity::find_by_id(message_id)
+        .one(&conn)
+        .await?;
+    Ok(row.map_or(Value::Null, js))
 }
 
 /// The agent's reply that carried this approval in a room (`metadata.approvals`)
 /// learns the decision, so its Approve / Reject buttons go away. Never fails.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "rewrites one element of a jsonb array in place (jsonb_agg over jsonb_array_elements), which the ORM can't express"
+)]
 async fn mark_channel_approval_decided(
     db: &PgPool,
     channel_id: &str,
@@ -560,7 +582,8 @@ async fn mark_channel_approval_decided(
     .bind(status)
     .bind(now())
     .execute(db)
-    .await;
+    .await
+    .map_err(weldsuite_db::orm_error);
     if let Err(error) = result {
         tracing::error!(%error, "[weldagent/approvals] updating the room message failed");
     }
@@ -837,7 +860,7 @@ pub(crate) async fn decide(
         || ApiError::not_found("Approval not found or already decided", None).into_response();
     let result = async {
         let Some(pending) = get_approval(&caller.db, &id).await? else {
-            return Ok::<_, sqlx::Error>(Err(not_found()));
+            return Ok::<_, DbErr>(Err(not_found()));
         };
         let agent = get_agent(&caller.db, pending["agentId"].as_str().unwrap_or_default()).await?;
         let viewer = caller.viewer();

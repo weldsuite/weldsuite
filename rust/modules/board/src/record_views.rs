@@ -12,14 +12,19 @@ use axum::body::Bytes;
 use axum::response::{IntoResponse, Response};
 use http::header::CACHE_CONTROL;
 use http::{HeaderMap, HeaderValue};
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::permission_keys::{
     CONTACTS_READ, OPPORTUNITIES_READ, PROJECTS_READ, PROJECTS_SCOPE_ALL, TASKS_READ, TICKETS_READ,
 };
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_flow_domain::access::member_project_ids;
 use weldsuite_kit::Data;
 use weldsuite_kit::validation::{Presence, Text};
+use weldsuite_schema::tenant::{
+    companies, crm_opportunities, helpdesk_tickets, people, projects, tasks,
+};
 
 use crate::{Caller, Refusal, answer, validate};
 
@@ -114,6 +119,7 @@ async fn resolve_records(
     viewer: &Viewer<'_>,
     refs: &[(String, String)],
 ) -> Result<Map<String, Value>, Refusal> {
+    let orm = &orm(db);
     let mut out = Map::new();
     for (kind, id) in refs {
         out.insert(record_key(kind, id), Value::Null);
@@ -164,13 +170,22 @@ async fn resolve_records(
             Option<String>,
             Option<String>,
             Option<String>,
-        )> = sqlx::query_as(
-            "select id, title, status, number, project_id, reporter_id, assignee_id
-                   from tasks where id = any($1) and deleted_at is null",
-        )
-        .bind(&task_ids)
-        .fetch_all(db)
-        .await?;
+        )> = tasks::Entity::find()
+            .select_only()
+            .columns([
+                tasks::Column::Id,
+                tasks::Column::Title,
+                tasks::Column::Status,
+                tasks::Column::Number,
+                tasks::Column::ProjectId,
+                tasks::Column::ReporterId,
+                tasks::Column::AssigneeId,
+            ])
+            .filter(tasks::Column::Id.is_in(&task_ids))
+            .filter(tasks::Column::DeletedAt.is_null())
+            .into_tuple()
+            .all(orm)
+            .await?;
         for (id, title, status, number, project_id, reporter, assignee) in rows {
             // A personal task (no project) is its reporter's and assignee's.
             let mine = reporter.as_deref() == Some(viewer.user_id)
@@ -188,52 +203,82 @@ async fn resolve_records(
         }
     }
     if !project_ids.is_empty() {
-        let rows: Vec<Fields> = sqlx::query_as(
-            "select id, name, status, code from projects where id = any($1) and deleted_at is null",
-        )
-        .bind(&project_ids)
-        .fetch_all(db)
-        .await?;
+        let rows: Vec<Fields> = projects::Entity::find()
+            .select_only()
+            .columns([
+                projects::Column::Id,
+                projects::Column::Name,
+                projects::Column::Status,
+                projects::Column::Code,
+            ])
+            .filter(projects::Column::Id.is_in(&project_ids))
+            .filter(projects::Column::DeletedAt.is_null())
+            .into_tuple()
+            .all(orm)
+            .await?;
         for (id, name, status, code) in rows {
             if project_open(Some(&id)) {
                 put("project", &id, json!(name), json!(code), json!(status));
             }
         }
     }
-    let companies = ids_of("company");
-    if !companies.is_empty() {
-        let rows: Vec<Fields> = sqlx::query_as(
-            "select id, display_name, email, status from companies
-              where id = any($1) and deleted_at is null",
-        )
-        .bind(&companies)
-        .fetch_all(db)
-        .await?;
+    let company_ids = ids_of("company");
+    if !company_ids.is_empty() {
+        let rows: Vec<Fields> = companies::Entity::find()
+            .select_only()
+            .columns([
+                companies::Column::Id,
+                companies::Column::DisplayName,
+                companies::Column::Email,
+                companies::Column::Status,
+            ])
+            .filter(companies::Column::Id.is_in(&company_ids))
+            .filter(companies::Column::DeletedAt.is_null())
+            .into_tuple()
+            .all(orm)
+            .await?;
         for (id, name, email, status) in rows {
             put("company", &id, json!(name), json!(email), json!(status));
         }
     }
-    let people = ids_of("person");
-    if !people.is_empty() {
-        let rows: Vec<(String, Option<String>, Option<String>)> = sqlx::query_as(
-            "select id, display_name, email from people where id = any($1) and deleted_at is null",
-        )
-        .bind(&people)
-        .fetch_all(db)
-        .await?;
+    let person_ids = ids_of("person");
+    if !person_ids.is_empty() {
+        let rows: Vec<(String, Option<String>, Option<String>)> = people::Entity::find()
+            .select_only()
+            .columns([
+                people::Column::Id,
+                people::Column::DisplayName,
+                people::Column::Email,
+            ])
+            .filter(people::Column::Id.is_in(&person_ids))
+            .filter(people::Column::DeletedAt.is_null())
+            .into_tuple()
+            .all(orm)
+            .await?;
         for (id, name, email) in rows {
             put("person", &id, json!(name), json!(email), Value::Null);
         }
     }
     let opportunities = ids_of("opportunity");
     if !opportunities.is_empty() {
-        let rows: Vec<Fields> = sqlx::query_as(
-            "select id, name, amount::text, status from crm_opportunities
-              where id = any($1) and deleted_at is null",
-        )
-        .bind(&opportunities)
-        .fetch_all(db)
-        .await?;
+        use crm_opportunities::Column;
+        let rows: Vec<Fields> = crm_opportunities::Entity::find()
+            .select_only()
+            .columns([Column::Id, Column::Name])
+            // `amount::text`: the numeric as Postgres prints it.
+            .column_as(
+                Expr::from(Func::cast_as(
+                    Expr::col((crm_opportunities::Entity, Column::Amount)),
+                    "text",
+                )),
+                "amount",
+            )
+            .column(Column::Status)
+            .filter(Column::Id.is_in(&opportunities))
+            .filter(Column::DeletedAt.is_null())
+            .into_tuple()
+            .all(orm)
+            .await?;
         for (id, name, amount, status) in rows {
             // `r.amount && Number(r.amount) ? String(r.amount) : null`.
             let subtitle = amount
@@ -244,13 +289,19 @@ async fn resolve_records(
     }
     let tickets = ids_of("ticket");
     if !tickets.is_empty() {
-        let rows: Vec<Fields> = sqlx::query_as(
-            "select id, subject, ticket_number, status from helpdesk_tickets
-              where id = any($1) and deleted_at is null",
-        )
-        .bind(&tickets)
-        .fetch_all(db)
-        .await?;
+        let rows: Vec<Fields> = helpdesk_tickets::Entity::find()
+            .select_only()
+            .columns([
+                helpdesk_tickets::Column::Id,
+                helpdesk_tickets::Column::Subject,
+                helpdesk_tickets::Column::TicketNumber,
+                helpdesk_tickets::Column::Status,
+            ])
+            .filter(helpdesk_tickets::Column::Id.is_in(&tickets))
+            .filter(helpdesk_tickets::Column::DeletedAt.is_null())
+            .into_tuple()
+            .all(orm)
+            .await?;
         for (id, subject, number, status) in rows {
             put("ticket", &id, json!(subject), json!(number), json!(status));
         }

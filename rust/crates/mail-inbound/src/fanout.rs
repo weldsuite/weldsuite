@@ -4,8 +4,12 @@
 //! accounting inboxes (`processAccountingInboxEmail`). Best effort: a
 //! failure is logged and never fails the delivery.
 
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, JoinType, QueryFilter, QuerySelect,
+};
 use serde_json::{Value, json};
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_desk_domain::email::{IngestEmail, find_desk_email_conversation, ingest_desk_email};
 use weldsuite_desk_domain::notify::{
     EntityKind, PREVIEW_MAX, customer_reply, preview as helpdesk_preview,
@@ -14,6 +18,9 @@ use weldsuite_desk_domain::realtime::{conversation_publish, now_ms};
 use weldsuite_events::{EntityEvent, EventContext, EventSource, EventType};
 use weldsuite_notifications::{NewNotification, Notifier, create_and_deliver};
 use weldsuite_ports::{PutOptions, RealtimeMessage};
+use weldsuite_schema::master::{mail_account_registry as registry, workspaces};
+use weldsuite_schema::tenant::enums::MailAccountStatus;
+use weldsuite_schema::tenant::{documents, mail_accounts, workspace_members};
 
 use crate::context::InboundContext;
 use crate::deliver::upsert_contacts;
@@ -25,7 +32,7 @@ pub const MAX_DESK_ATTACHMENTS: usize = 20;
 /// Total bytes kept per email.
 pub const MAX_DESK_ATTACHMENT_BYTES: usize = 25 * 1024 * 1024;
 const NOTIFY_BATCH: usize = 10;
-const MAX_RECIPIENTS: i64 = 200;
+const MAX_RECIPIENTS: u64 = 200;
 
 /// A helpdesk inbox the message is for.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -297,6 +304,31 @@ fn notifier(ctx: &InboundContext) -> Notifier {
     }
 }
 
+/// Active internal teammates who can work the inbox: `upper(member_type) =
+/// 'INTERNAL'` and not `upper(coalesce(role, '')) = 'VIEWER'`.
+async fn desk_teammates(db: &PgPool) -> Result<Vec<String>, DbErr> {
+    use sea_orm::ExprTrait as _;
+    use workspace_members::Column as W;
+    let upper = |expr: Expr| Expr::expr(Func::upper(expr));
+    workspace_members::Entity::find()
+        .select_only()
+        .column(W::UserId)
+        .filter(W::DeletedAt.is_null())
+        .filter(W::Status.eq("ACTIVE"))
+        .filter(upper(W::MemberType.into_expr()).eq("INTERNAL"))
+        .filter(
+            upper(Expr::expr(Func::coalesce([
+                W::Role.into_expr(),
+                Expr::val(""),
+            ])))
+            .ne("VIEWER"),
+        )
+        .limit(MAX_RECIPIENTS)
+        .into_tuple()
+        .all(&orm(db))
+        .await
+}
+
 /// `notifyDeskOfEmail`: the assignee, else every active internal teammate
 /// who can work the inbox, in batches.
 async fn notify_desk(
@@ -315,15 +347,7 @@ async fn notify_desk(
         vec![assignee.to_owned()]
     } else {
         {
-            let rows: Result<Vec<String>, sqlx::Error> = sqlx::query_scalar(
-                "select user_id from workspace_members
-                 where deleted_at is null and status = 'ACTIVE'
-                   and upper(member_type) = 'INTERNAL' and upper(coalesce(role, '')) <> 'VIEWER'
-                 limit $1",
-            )
-            .bind(MAX_RECIPIENTS)
-            .fetch_all(db)
-            .await;
+            let rows: Result<Vec<String>, DbErr> = desk_teammates(db).await;
             match rows {
                 Ok(rows) => {
                     let mut out: Vec<String> = Vec::new();
@@ -749,7 +773,7 @@ pub async fn process_helpdesk_inbox(
     ctx: &InboundContext,
     email: &ParsedEmail,
     attachments: &[ParsedAttachment],
-) -> Result<Vec<String>, sqlx::Error> {
+) -> Result<Vec<String>, DbErr> {
     if !ctx.fan_out.desk {
         return Ok(Vec::new());
     }
@@ -758,15 +782,31 @@ pub async fn process_helpdesk_inbox(
         return Ok(Vec::new());
     }
     let recipients = collect_recipient_emails(email);
-    let rows: Vec<(String, String, Option<String>, Option<String>)> = sqlx::query_as(
-        "select r.email, r.account_id, r.workspace_id, w.clerk_org_id
-         from mail_account_registry r
-         inner join workspaces w on w.id = r.workspace_id
-         where r.email = any($1) and r.is_active = true",
-    )
-    .bind(&recipients)
-    .fetch_all(&ctx.master)
-    .await?;
+    // `email = any('{}')` matches nothing.
+    let rows: Vec<(String, String, Option<String>, Option<String>)> = if recipients.is_empty() {
+        Vec::new()
+    } else {
+        registry::Entity::find()
+            .select_only()
+            .columns([
+                registry::Column::Email,
+                registry::Column::AccountId,
+                registry::Column::WorkspaceId,
+            ])
+            .column(workspaces::Column::ClerkOrgId)
+            .join(
+                JoinType::InnerJoin,
+                registry::Entity::belongs_to(workspaces::Entity)
+                    .from(registry::Column::WorkspaceId)
+                    .to(workspaces::Column::Id)
+                    .into(),
+            )
+            .filter(registry::Column::Email.is_in(recipients))
+            .filter(registry::Column::IsActive.eq(true))
+            .into_tuple()
+            .all(&orm(&ctx.master))
+            .await?
+    };
     let inboxes: Vec<HelpdeskInbox> = rows
         .into_iter()
         .filter_map(|(email, account_id, workspace_id, clerk_org_id)| {
@@ -791,15 +831,20 @@ pub async fn process_helpdesk_inbox(
         }
         let flagged = async {
             let db = ctx.tenants.tenant_db(&reg.workspace_id).await?;
-            let id: Option<String> = sqlx::query_scalar(
-                "select id from mail_accounts
-                 where email = $1 and status = 'active' and deleted_at is null
-                   and metadata->>'helpdeskEnabled' = 'true'
-                 limit 1",
-            )
-            .bind(&reg.email)
-            .fetch_optional(&db)
-            .await?;
+            let helpdesk_enabled = sea_orm::sea_query::extension::postgres::PgExpr::cast_json_field(
+                mail_accounts::Column::Metadata.into_expr(),
+                "helpdeskEnabled",
+            );
+            let id: Option<String> = mail_accounts::Entity::find()
+                .select_only()
+                .column(mail_accounts::Column::Id)
+                .filter(mail_accounts::Column::Email.eq(&reg.email))
+                .filter(mail_accounts::Column::Status.eq(MailAccountStatus::Active))
+                .filter(mail_accounts::Column::DeletedAt.is_null())
+                .filter(sea_orm::ExprTrait::eq(helpdesk_enabled, "true"))
+                .into_tuple()
+                .one(&orm(&db))
+                .await?;
             Ok::<_, Box<dyn std::error::Error + Send + Sync>>(id)
         };
         match flagged.await {
@@ -850,18 +895,24 @@ pub async fn process_accounting_inbox(
     ctx: &InboundContext,
     email: &ParsedEmail,
     attachments: &[ParsedAttachment],
-) -> Result<Vec<String>, sqlx::Error> {
+) -> Result<Vec<String>, DbErr> {
     if !ctx.fan_out.books {
         return Ok(Vec::new());
     }
     let recipients = collect_recipient_emails(email);
-    let rows: Vec<(String, Option<String>)> = sqlx::query_as(
-        "select account_id, workspace_id from mail_account_registry
-         where email = any($1) and is_active = true",
-    )
-    .bind(&recipients)
-    .fetch_all(&ctx.master)
-    .await?;
+    // `email = any('{}')` matches nothing.
+    let rows: Vec<(String, Option<String>)> = if recipients.is_empty() {
+        Vec::new()
+    } else {
+        registry::Entity::find()
+            .select_only()
+            .columns([registry::Column::AccountId, registry::Column::WorkspaceId])
+            .filter(registry::Column::Email.is_in(recipients))
+            .filter(registry::Column::IsActive.eq(true))
+            .into_tuple()
+            .all(&orm(&ctx.master))
+            .await?
+    };
     let mut ids = Vec::new();
     for (account_id, workspace_id) in rows {
         let Some(workspace_id) = workspace_id.filter(|_| account_id.starts_with("acct_inbox_"))
@@ -869,10 +920,8 @@ pub async fn process_accounting_inbox(
             continue;
         };
         let result = async {
-            let db = ctx.tenants.tenant_db(&workspace_id).await?;
-            let now = weldsuite_mail_domain::outbound::clock::iso(
-                weldsuite_mail_domain::outbound::clock::now_ms(),
-            );
+            let db = orm(&ctx.tenants.tenant_db(&workspace_id).await?);
+            let now = crate::store::timestamp(weldsuite_mail_domain::outbound::clock::now_ms());
             for att in attachments {
                 let Some(mime) = accounting_attachment_type(&att.content_type, &att.file_name)
                 else {
@@ -901,22 +950,28 @@ pub async fn process_accounting_inbox(
                         "useandom-26T198340PX75pxJACKVERYMINDBUSHWOLF_GQZbfghjklqvwyzrict",
                     )
                 );
-                sqlx::query(
-                    "insert into documents
-                        (id, type, file_name, original_file_name, file_key, file_size, mime_type,
-                         source, status, email_from, email_subject, created_at, updated_at)
-                     values ($1, $2, $3, $3, $4, $5, $6, 'email', 'pending', $7, $8, $9::timestamp, $9::timestamp)",
-                )
-                .bind(&id)
-                .bind(if mime == "application/pdf" { "purchase_invoice" } else { "receipt" })
-                .bind(&att.file_name)
-                .bind(&key)
-                .bind(i32::try_from(att.content.len()).unwrap_or(i32::MAX))
-                .bind(&mime)
-                .bind(&email.from.email)
-                .bind(&email.subject)
-                .bind(&now)
-                .execute(&db)
+                let kind = if mime == "application/pdf" {
+                    "purchase_invoice"
+                } else {
+                    "receipt"
+                };
+                documents::Entity::insert(documents::ActiveModel {
+                    id: Set(id.clone()),
+                    type_: Set(kind.to_owned()),
+                    file_name: Set(att.file_name.clone()),
+                    original_file_name: Set(Some(att.file_name.clone())),
+                    file_key: Set(key),
+                    file_size: Set(Some(i32::try_from(att.content.len()).unwrap_or(i32::MAX))),
+                    mime_type: Set(Some(mime)),
+                    source: Set("email".to_owned()),
+                    status: Set("pending".to_owned()),
+                    email_from: Set(Some(email.from.email.clone())),
+                    email_subject: Set(Some(email.subject.clone())),
+                    created_at: Set(now),
+                    updated_at: Set(now),
+                    ..Default::default()
+                })
+                .exec_without_returning(&db)
                 .await?;
                 ids.push(id);
             }
@@ -933,20 +988,25 @@ pub async fn process_accounting_inbox(
                 } else {
                     email.subject.as_str()
                 };
-                sqlx::query(
-                    "insert into documents
-                        (id, type, file_name, original_file_name, file_key, mime_type,
-                         source, status, email_from, email_subject, created_at, updated_at)
-                     values ($1, 'purchase_invoice', $2, $3, $4, 'text/html', 'email', 'pending', $5, $6, $7::timestamp, $7::timestamp)",
-                )
-                .bind(&id)
-                .bind(format!("email-{}.html", email.email_id))
-                .bind(format!("{subject}.html"))
-                .bind(format!("workspaces/{workspace_id}/accounting/inbox/{}/email.html", email.email_id))
-                .bind(&email.from.email)
-                .bind(&email.subject)
-                .bind(&now)
-                .execute(&db)
+                documents::Entity::insert(documents::ActiveModel {
+                    id: Set(id.clone()),
+                    type_: Set("purchase_invoice".to_owned()),
+                    file_name: Set(format!("email-{}.html", email.email_id)),
+                    original_file_name: Set(Some(format!("{subject}.html"))),
+                    file_key: Set(format!(
+                        "workspaces/{workspace_id}/accounting/inbox/{}/email.html",
+                        email.email_id
+                    )),
+                    mime_type: Set(Some("text/html".to_owned())),
+                    source: Set("email".to_owned()),
+                    status: Set("pending".to_owned()),
+                    email_from: Set(Some(email.from.email.clone())),
+                    email_subject: Set(Some(email.subject.clone())),
+                    created_at: Set(now),
+                    updated_at: Set(now),
+                    ..Default::default()
+                })
+                .exec_without_returning(&db)
                 .await?;
                 ids.push(id);
             }

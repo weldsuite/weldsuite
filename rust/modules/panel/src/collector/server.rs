@@ -33,9 +33,12 @@ use axum::body::Body;
 use axum::extract::State;
 use axum::response::{IntoResponse, Response};
 use http::{HeaderMap, StatusCode};
+use sea_orm::{ColumnTrait, EntityTrait, JoinType, QueryFilter, QuerySelect};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
+use weldsuite_db::orm;
 use weldsuite_ports::{Cache, PortError};
+use weldsuite_schema::master::{panel_key_registry as keys, panel_project_registry as projects};
 
 use super::project::{apply_people, filled, identify, limit_groups, people_object};
 use super::proxy::header;
@@ -138,17 +141,27 @@ async fn authenticate(
     };
     // What panel-api keeps in the cache: active keys of live projects, with
     // the project's status.
-    let row: Option<(String, String, String, String)> = sqlx::query_as(
-        "select k.id, k.workspace_id, k.project_id, p.status
-         from panel_key_registry k
-         join panel_project_registry p on p.project_id = k.project_id and p.deleted_at is null
-         where k.key_hash = $1 and k.revoked_at is null
-         limit 1",
-    )
-    .bind(&hash)
-    .fetch_optional(&master)
-    .await
-    .map_err(PortError::backend)?;
+    let project = keys::Entity::belongs_to(projects::Entity)
+        .from(keys::Column::ProjectId)
+        .to(projects::Column::ProjectId)
+        .into();
+    let row: Option<(String, String, String, String)> = keys::Entity::find()
+        .select_only()
+        .columns([
+            keys::Column::Id,
+            keys::Column::WorkspaceId,
+            keys::Column::ProjectId,
+        ])
+        .column(projects::Column::Status)
+        .join(JoinType::InnerJoin, project)
+        // The join's `p.deleted_at is null`: the same rows in the `where`.
+        .filter(projects::Column::DeletedAt.is_null())
+        .filter(keys::Column::KeyHash.eq(&hash))
+        .filter(keys::Column::RevokedAt.is_null())
+        .into_tuple()
+        .one(&orm(&master))
+        .await
+        .map_err(PortError::backend)?;
     let Some((key_id, workspace_id, project_id, status)) = row else {
         return Ok(None);
     };

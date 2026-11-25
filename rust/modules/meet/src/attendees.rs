@@ -6,8 +6,10 @@
 
 use std::collections::{HashMap, HashSet};
 
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm};
+use weldsuite_schema::tenant::workspace_members;
 
 use crate::js::text;
 use crate::participants::{self, AvatarStore, Input};
@@ -35,7 +37,7 @@ pub(crate) async fn resolve_writes(
     workspace_key: &str,
     inputs: &[Attendee],
     stored: &[Attendee],
-) -> Result<Vec<Attendee>, sqlx::Error> {
+) -> Result<Vec<Attendee>, DbErr> {
     let mut stored_by_email: HashMap<String, &Attendee> = HashMap::new();
     for attendee in stored {
         stored_by_email.insert(normalize_email(text_of(attendee, "email")), attendee);
@@ -112,11 +114,16 @@ pub(crate) async fn resolve_writes(
         }
     }
     if !member_ids.is_empty() {
-        let rows: Vec<(String, String)> =
-            sqlx::query_as("select id, user_id from workspace_members where id = any($1)")
-                .bind(&member_ids)
-                .fetch_all(db)
-                .await?;
+        let rows: Vec<(String, String)> = workspace_members::Entity::find()
+            .select_only()
+            .columns([
+                workspace_members::Column::Id,
+                workspace_members::Column::UserId,
+            ])
+            .filter(workspace_members::Column::Id.is_in(member_ids))
+            .into_tuple()
+            .all(&orm(db))
+            .await?;
         let by_member: HashMap<String, String> = rows.into_iter().collect();
         for attendee in &mut resolved {
             let member = non_empty(attendee, "workspaceMemberId").map(str::to_owned);
@@ -175,11 +182,18 @@ pub(crate) async fn with_organizer(
     master: Option<&PgPool>,
     attendees: Vec<Attendee>,
     organizer_id: &str,
-) -> Result<Vec<Attendee>, sqlx::Error> {
+) -> Result<Vec<Attendee>, DbErr> {
     let member: Option<(String, Option<String>, Option<String>)> =
-        sqlx::query_as("select id, name, email from workspace_members where user_id = $1 limit 1")
-            .bind(organizer_id)
-            .fetch_optional(db)
+        workspace_members::Entity::find()
+            .select_only()
+            .columns([
+                workspace_members::Column::Id,
+                workspace_members::Column::Name,
+                workspace_members::Column::Email,
+            ])
+            .filter(workspace_members::Column::UserId.eq(organizer_id))
+            .into_tuple()
+            .one(&orm(db))
             .await?;
     let Some((member_id, name, email)) = member else {
         return Ok(attendees);

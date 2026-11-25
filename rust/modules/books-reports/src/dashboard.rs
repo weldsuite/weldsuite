@@ -9,20 +9,23 @@ use std::sync::Arc;
 use axum::Router;
 use axum::response::Response;
 use axum::routing::get;
+use sea_orm::sea_query::Condition;
+use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect};
 use serde_json::{Value, json};
 use weldsuite_books_domain::dates::last_day_of_month;
 use weldsuite_books_domain::entity_context::resolve_entity_id;
 use weldsuite_books_domain::http::{BooksState, Caller, Refusal, Reply, reply};
 use weldsuite_books_domain::js::{days_from_civil, parse_float};
 use weldsuite_books_domain::reports_basis::{
-    AggregateOptions, DateRange, LedgerFilters, LedgerRange, ReportColumn, create_ledger, iso,
-    money, resolve_basis, today_for,
+    AggregateOptions, DateRange, LedgerFilters, LedgerRange, ReportColumn, create_ledger, money,
+    resolve_basis, today_for,
 };
-use weldsuite_books_domain::tables::{ENTITIES, INVOICES, PAYMENTS};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::{bank_accounts, documents, entities, invoices, payments};
 
 use crate::ordered::Json;
 use crate::reports::build::{self, BuildError, balance_in_base};
+use crate::rows::{js, js_rows, money_text, timestamp_of_millis};
 
 pub(crate) fn router<S, Q>(state: BooksState, gate: &Arc<PermissionGate<Q>>) -> Router<S>
 where
@@ -64,7 +67,7 @@ type BankAccountRow = (
     String,
     String,
     Option<String>,
-    Option<String>,
+    Option<sea_orm::prelude::BigDecimal>,
     Option<String>,
     Option<String>,
 );
@@ -87,18 +90,15 @@ async fn dashboard(caller: Caller) -> Response {
 #[allow(clippy::too_many_lines)] // the route's one handler
 async fn build_dashboard(caller: &Caller) -> Reply {
     let db = &caller.db;
+    let orm = weldsuite_db::orm(db);
     let Some(entity_id) = resolve_entity_id(caller).await? else {
         return Err(Refusal::bad_request("No accounting entity resolved"));
     };
-    let entity: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(entities),
-        " from entities t where t.id = $1 and t.deleted_at is null limit 1"
-    ))
-    .bind(&entity_id)
-    .fetch_optional(db)
-    .await?;
-    let Some(entity) = entity.map(|row| ENTITIES.js(row)) else {
+    let entity = entities::Entity::find_by_id(entity_id.clone())
+        .filter(entities::Column::DeletedAt.is_null())
+        .one(&orm)
+        .await?;
+    let Some(entity) = entity.map(|row| js!(row)).transpose()? else {
         return Err(Refusal::not_found("Accounting entity", &entity_id));
     };
     let base_currency = entity
@@ -149,15 +149,16 @@ async fn build_dashboard(caller: &Caller) -> Reply {
     let current_month = &trend[trend.len() - 1].key;
 
     // Posted standard invoices issued this month.
-    let issued_this_month: i32 = sqlx::query_scalar(
-        "select count(*)::int from invoices where entity_id = $1 and deleted_at is null \
-         and issue_date >= $2::timestamp and type = 'standard' \
-         and status not in ('draft', 'cancelled', 'void')",
-    )
-    .bind(&entity_id)
-    .bind(iso(month_start))
-    .fetch_one(db)
-    .await?;
+    let issued_this_month = invoices::Entity::find()
+        .filter(invoices::Column::EntityId.eq(&entity_id))
+        .filter(invoices::Column::DeletedAt.is_null())
+        .filter(invoices::Column::IssueDate.gte(timestamp_of_millis(month_start)?))
+        .filter(invoices::Column::Type.eq("standard"))
+        .filter(invoices::Column::Status.is_not_in(["draft", "cancelled", "void"]))
+        .count(&orm)
+        .await?;
+    // `count(*)::int`.
+    let issued_this_month = i32::try_from(issued_this_month).unwrap_or(i32::MAX);
 
     // Receivables and payables: the aged reports' documents, in base currency.
     let aged_receivables = build::build_aged_report(db, &entity_id, true, &today)
@@ -190,13 +191,22 @@ async fn build_dashboard(caller: &Caller) -> Reply {
     };
 
     // Bank balances (entity-scoped).
-    let bank_accounts: Vec<BankAccountRow> = sqlx::query_as(
-        "select id, name, iban, current_balance::text, currency, ledger_account_id from bank_accounts \
-             where entity_id = $1 and deleted_at is null and is_active = true",
-    )
-    .bind(&entity_id)
-    .fetch_all(db)
-    .await?;
+    let bank_accounts: Vec<BankAccountRow> = bank_accounts::Entity::find()
+        .select_only()
+        .columns([
+            bank_accounts::Column::Id,
+            bank_accounts::Column::Name,
+            bank_accounts::Column::Iban,
+            bank_accounts::Column::CurrentBalance,
+            bank_accounts::Column::Currency,
+            bank_accounts::Column::LedgerAccountId,
+        ])
+        .filter(bank_accounts::Column::EntityId.eq(&entity_id))
+        .filter(bank_accounts::Column::DeletedAt.is_null())
+        .filter(bank_accounts::Column::IsActive.eq(true))
+        .into_tuple()
+        .all(&orm)
+        .await?;
 
     // Cash: the ledger balance of the money accounts. `currentBalance` above
     // moves only with bank transactions, so a payment recorded without a
@@ -209,13 +219,15 @@ async fn build_dashboard(caller: &Caller) -> Reply {
             money_account_ids.push(id.clone());
         }
     }
-    let any_linked_bank: Option<String> = sqlx::query_scalar(
-        "select id from bank_accounts where entity_id = $1 and deleted_at is null \
-         and ledger_account_id is not null limit 1",
-    )
-    .bind(&entity_id)
-    .fetch_optional(db)
-    .await?;
+    let any_linked_bank: Option<String> = bank_accounts::Entity::find()
+        .select_only()
+        .column(bank_accounts::Column::Id)
+        .filter(bank_accounts::Column::EntityId.eq(&entity_id))
+        .filter(bank_accounts::Column::DeletedAt.is_null())
+        .filter(bank_accounts::Column::LedgerAccountId.is_not_null())
+        .into_tuple()
+        .one(&orm)
+        .await?;
     if any_linked_bank.is_none() {
         // No bank account is linked to the ledger: payments post to the
         // chart's bank account (see `resolve_money_account`).
@@ -272,37 +284,40 @@ async fn build_dashboard(caller: &Caller) -> Reply {
     };
 
     // Recent payments (last 10).
-    let recent_payments: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(payments),
-        " from payments t where t.entity_id = $1 and t.deleted_at is null \
-         order by t.date desc limit 10"
-    ))
-    .bind(&entity_id)
-    .fetch_all(db)
-    .await?;
+    let recent_payments = payments::Entity::find()
+        .filter(payments::Column::EntityId.eq(&entity_id))
+        .filter(payments::Column::DeletedAt.is_null())
+        .order_by_desc(payments::Column::Date)
+        .limit(10)
+        .all(&orm)
+        .await?;
+    let recent_payments = js_rows!(recent_payments)?;
 
     // Upcoming due invoices (next 30 days): posted, no credit notes, in base
     // currency.
-    let upcoming: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(invoices),
-        " from invoices t where t.entity_id = $1 and t.deleted_at is null \
-         and t.balance_due::numeric > 0 \
-         and t.status not in ('draft', 'cancelled', 'void', 'paid', 'uncollectible', 'written_off') \
-         and t.type not in ('credit_note', 'proforma') \
-         and t.due_date <= $2::timestamp and t.due_date >= $3::timestamp \
-         order by t.due_date limit 10"
-    ))
-    .bind(&entity_id)
-    .bind(iso(now + 30 * 24 * 60 * 60 * 1000))
-    .bind(iso(now))
-    .fetch_all(db)
-    .await?;
+    let upcoming = invoices::Entity::find()
+        .filter(invoices::Column::EntityId.eq(&entity_id))
+        .filter(invoices::Column::DeletedAt.is_null())
+        .filter(invoices::Column::BalanceDue.gt(0))
+        .filter(invoices::Column::Status.is_not_in([
+            "draft",
+            "cancelled",
+            "void",
+            "paid",
+            "uncollectible",
+            "written_off",
+        ]))
+        .filter(invoices::Column::Type.is_not_in(["credit_note", "proforma"]))
+        .filter(invoices::Column::DueDate.lte(timestamp_of_millis(now + 30 * 24 * 60 * 60 * 1000)?))
+        .filter(invoices::Column::DueDate.gte(timestamp_of_millis(now)?))
+        .order_by_asc(invoices::Column::DueDate)
+        .limit(10)
+        .all(&orm)
+        .await?;
+    let upcoming = js_rows!(upcoming)?;
     let upcoming_due: Vec<Value> = upcoming
         .into_iter()
         .map(|row| {
-            let row = INVOICES.js(row);
             let balance = weldsuite_books_domain::js::numeric(&row["balanceDue"]);
             json!({
                 "id": row["id"],
@@ -321,13 +336,18 @@ async fn build_dashboard(caller: &Caller) -> Reply {
 
     // Documents to process: the entity's, and the ones that name no entity (an upload or an
     // emailed document is not filed under one), as the documents inbox lists them.
-    let pending_documents: i32 = sqlx::query_scalar(
-        "select count(*)::int from documents where (entity_id = $1 or entity_id is null) \
-         and deleted_at is null and status in ('pending', 'processing', 'processed')",
-    )
-    .bind(&entity_id)
-    .fetch_one(db)
-    .await?;
+    let pending_documents = documents::Entity::find()
+        .filter(
+            Condition::any()
+                .add(documents::Column::EntityId.eq(&entity_id))
+                .add(documents::Column::EntityId.is_null()),
+        )
+        .filter(documents::Column::DeletedAt.is_null())
+        .filter(documents::Column::Status.is_in(["pending", "processing", "processed"]))
+        .count(&orm)
+        .await?;
+    // `count(*)::int`.
+    let pending_documents = i32::try_from(pending_documents).unwrap_or(i32::MAX);
 
     let value = |set: &build::ValueSet, key: &str| set.value(key).map_or(Value::Null, |v| json!(v));
     let last_twelve = &trend[trend.len() - 12..];
@@ -351,10 +371,10 @@ async fn build_dashboard(caller: &Caller) -> Reply {
             "id": id,
             "name": name,
             "iban": iban,
-            "currentBalance": balance,
+            "currentBalance": balance.as_ref().map(money_text),
             "currency": currency,
         })).collect::<Vec<_>>(),
-        "recentPayments": PAYMENTS.js_rows(recent_payments),
+        "recentPayments": recent_payments,
         "upcomingDue": upcoming_due,
         "pendingDocuments": pending_documents,
         "monthlyRevenue": last_twelve.iter().map(|c| json!({

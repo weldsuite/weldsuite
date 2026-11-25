@@ -26,8 +26,10 @@ use std::future::Future;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
-use weldsuite_db::PgPool;
+use sea_orm::{ColumnTrait, Condition, DbErr, EntityTrait, QueryFilter, QuerySelect};
+use weldsuite_db::{PgPool, orm};
 use weldsuite_ports::{BoxFuture, DynCache};
+use weldsuite_schema::master::{mail_account_registry, workspaces};
 
 use super::clock::{iso, now_ms};
 use super::content_screen::{ContentScreenInput, ScreenAttachment, screen_outbound_content};
@@ -296,12 +298,17 @@ async fn resolve_subject(guard: &OutboundGuard, input: &SubjectInput) -> Option<
         } => Some(LedgerSubject::workspace(workspace_id, Some(clerk_org_id))),
         SubjectInput::Workspace { clerk_org_id, .. } => {
             let master = guard.master.as_ref()?;
-            let found: Result<Option<String>, sqlx::Error> = sqlx::query_scalar(
-                "select id from workspaces where clerk_org_id = $1 or id = $1 limit 1",
-            )
-            .bind(clerk_org_id)
-            .fetch_optional(master)
-            .await;
+            let found: Result<Option<String>, DbErr> = workspaces::Entity::find()
+                .select_only()
+                .column(workspaces::Column::Id)
+                .filter(
+                    Condition::any()
+                        .add(workspaces::Column::ClerkOrgId.eq(clerk_org_id))
+                        .add(workspaces::Column::Id.eq(clerk_org_id)),
+                )
+                .into_tuple()
+                .one(&orm(master))
+                .await;
             match found {
                 Ok(Some(id)) => Some(LedgerSubject::workspace(&id, Some(clerk_org_id))),
                 Ok(None) => {
@@ -376,14 +383,21 @@ async fn lookup_ownership(
     master: &PgPool,
     subject: &LedgerSubject,
     address: &str,
-) -> Result<SenderOwnership, sqlx::Error> {
-    let exact: Option<(Option<String>, Option<String>)> = sqlx::query_as(
-        "select workspace_id, personal_account_id from mail_account_registry
-         where email = $1 and is_active = true limit 1",
-    )
-    .bind(address)
-    .fetch_optional(master)
-    .await?;
+) -> Result<SenderOwnership, DbErr> {
+    use mail_account_registry::Column;
+    let conn = orm(master);
+    // `select workspace_id, personal_account_id … where <email> and is_active`.
+    let owners = |email: sea_orm::sea_query::Expr| {
+        mail_account_registry::Entity::find()
+            .select_only()
+            .columns([Column::WorkspaceId, Column::PersonalAccountId])
+            .filter(email)
+            .filter(Column::IsActive.eq(true))
+    };
+    let exact: Option<(Option<String>, Option<String>)> = owners(Column::Email.eq(address))
+        .into_tuple()
+        .one(&conn)
+        .await?;
     if let Some((workspace, personal)) = exact {
         return Ok(
             if owned_by(subject, workspace.as_deref(), personal.as_deref()) {
@@ -397,13 +411,12 @@ async fn lookup_ownership(
     if is_shared_weldmail_domain(domain) {
         return Ok(SenderOwnership::Unregistered);
     }
-    let rows: Vec<(Option<String>, Option<String>)> = sqlx::query_as(
-        "select workspace_id, personal_account_id from mail_account_registry
-         where email like $1 and is_active = true limit 50",
-    )
-    .bind(format!("%@{}", escape_like(domain)))
-    .fetch_all(master)
-    .await?;
+    let rows: Vec<(Option<String>, Option<String>)> =
+        owners(Column::Email.like(format!("%@{}", escape_like(domain))))
+            .limit(50)
+            .into_tuple()
+            .all(&conn)
+            .await?;
     Ok(
         if rows.is_empty()
             || rows

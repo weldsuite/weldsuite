@@ -550,8 +550,11 @@ export function useShipWeldstashPickList() {
       }>>(`/pick-lists/${id}/ship`, {});
     },
     onSuccess: (_, id) => {
-      qc.invalidateQueries({ queryKey: weldstashKeys.pickLists() });
-      qc.invalidateQueries({ queryKey: weldstashKeys.pickList(id) });
+      void qc.invalidateQueries({ queryKey: weldstashKeys.pickLists() });
+      void qc.invalidateQueries({ queryKey: weldstashKeys.pickList(id) });
+      // Shipping a labelled list moves its parcels to `shipped` (shipments page, Rust editions).
+      void qc.invalidateQueries({ queryKey: [...weldstashKeys.all, 'parcels'] });
+      void qc.invalidateQueries({ queryKey: [...weldstashKeys.all, 'shipping'] });
     },
   });
 }

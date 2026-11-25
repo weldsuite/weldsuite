@@ -1,12 +1,13 @@
 /**
- * My HR → Schedule: open shifts you can sign up for. A sign-up goes to your
- * manager, who approves it (the shift lands on your rooster) or turns it down.
- * Your own pending sign-up can be withdrawn.
+ * My HR → Schedule → Open shifts: shifts that still need people, your sign-ups
+ * first. A sign-up goes to your manager, who approves it (the shift lands on
+ * your schedule) or turns it down; a pending one can be withdrawn. Signing up
+ * and withdrawing sit in the row menu and the shift's panel.
  */
 
-import { useState, type ReactNode } from 'react';
+import { useState } from 'react';
 import { toast } from 'sonner';
-import { Loader2 } from 'lucide-react';
+import { Hand, Loader2, Undo2, Users } from 'lucide-react';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Button } from '@weldsuite/ui/components/button';
 import {
@@ -17,117 +18,250 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@weldsuite/ui/components/dialog';
+import { DropdownMenuItem } from '@weldsuite/ui/components/dropdown-menu';
 import { Label } from '@weldsuite/ui/components/label';
 import { Textarea } from '@weldsuite/ui/components/textarea';
 import { useTranslations } from '@weldsuite/i18n/client';
 import type { HrSelfOpenShift } from '@weldsuite/app-api-client/domains/weldhr';
+import { formatClockRange, useTimeFormat } from '@/app/weldcalendar/lib/calendar-format';
+import { useObjectPanel } from '@/components/object-panel';
+import { MY_OPEN_SHIFT_PANEL_TYPE } from '@/components/objects/hr-my-hr/types';
+import {
+  PanelEntityList,
+  type ActiveFilter,
+  type ColumnDef,
+  type FilterConfig,
+  type GroupConfig,
+} from '@/components/panel-entity-list';
 import {
   useMyHrCancelShiftRequest,
   useMyHrOpenShifts,
   useMyHrSignUpForOpenShift,
 } from '@/hooks/queries/use-weldhr-queries';
-import { EmptyText } from '@weldsuite/ui/components/empty-state';
-import { SectionCard } from '@weldsuite/ui/components/section-card';
 import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
-import { errorMessage, formatDateTime, useFormatTime } from '../../components/shared';
-import { TabLoading } from './shared';
+import { cn } from '@/lib/utils';
+import { HR_COL, HrListContainer, emptyIcon } from '../../components/page-kit';
+import { errorMessage, listLoadError, formatDateTime, formatWeekdayDate, useFormatTime } from '../../components/shared';
 
 const REQUEST_TONE = { approved: 'default', rejected: 'destructive' } as const;
 
 /** My sign-up for the shift, unless it was withdrawn (then it is as if I never signed up). */
-function activeRequest(shift: HrSelfOpenShift) {
+export function activeRequest(shift: HrSelfOpenShift) {
   return shift.myRequest && shift.myRequest.status !== 'cancelled' ? shift.myRequest : null;
 }
 
-export function OpenShiftsCard() {
+/** "2 spots left", "1 spot left" or "Full". */
+export function useSpotsLabel() {
   const t = useTranslations();
-  const formatTime = useFormatTime();
-  const { data, isLoading, error } = useMyHrOpenShifts();
-  const cancelRequest = useMyHrCancelShiftRequest();
-  const [signUpTarget, setSignUpTarget] = useState<HrSelfOpenShift | null>(null);
-
-  async function withdraw(requestId: string) {
-    try {
-      await cancelRequest.mutateAsync(requestId);
-      toast.success(t('weldhr.me.openShifts.withdrawnToast'));
-    } catch (err) {
-      toast.error(errorMessage(err, t('weldhr.me.openShifts.withdrawFailed')));
-    }
-  }
-
-  function spotsLabel(spotsLeft: number): string {
+  return (spotsLeft: number) => {
     if (spotsLeft === 0) return t('weldhr.me.openShifts.full');
     return t(spotsLeft === 1 ? 'weldhr.me.openShifts.spotsLeft' : 'weldhr.me.openShifts.spotsLeftPlural', { count: spotsLeft });
-  }
+  };
+}
 
-  let body: ReactNode;
-  if (isLoading) body = <TabLoading />;
-  else if (!data) body = <ErrorBanner error={errorMessage(error, t('weldhr.me.openShifts.loadFailed'))} />;
-  else if (data.length === 0) body = <EmptyText>{t('weldhr.me.openShifts.empty')}</EmptyText>;
-  else {
-    body = (
-      <ul className="divide-y">
-        {data.map((shift) => {
-          const request = activeRequest(shift);
-          const details = [shift.workType, shift.companyName, shift.departmentName].filter(Boolean).join(' · ');
-          return (
-            <li key={shift.id} className="flex flex-col gap-3 py-3 first:pt-0 last:pb-0 sm:flex-row sm:items-start sm:justify-between">
-              <div className="min-w-0 space-y-0.5 text-sm">
-                <p className="font-medium tabular-nums">
-                  {formatDateTime(shift.startsAt)} – {formatTime(shift.endsAt)}
-                </p>
-                {details && <p className="text-muted-foreground">{details}</p>}
-                {shift.notes && <p className="whitespace-pre-wrap break-words text-muted-foreground">{shift.notes}</p>}
-                <p className="text-xs text-muted-foreground">{spotsLabel(shift.spotsLeft)}</p>
-                {request?.status === 'rejected' && request.reviewNote && (
-                  <p className="text-xs text-muted-foreground">{t('weldhr.me.openShifts.reviewNote', { note: request.reviewNote })}</p>
-                )}
-              </div>
+/** Withdraws a pending sign-up, with a toast for the outcome. */
+export function useWithdrawSignUp() {
+  const t = useTranslations();
+  const cancelRequest = useMyHrCancelShiftRequest();
+  return {
+    isPending: cancelRequest.isPending,
+    withdraw: async (requestId: string) => {
+      try {
+        await cancelRequest.mutateAsync(requestId);
+        toast.success(t('weldhr.me.openShifts.withdrawnToast'));
+      } catch (err) {
+        toast.error(errorMessage(err, t('weldhr.me.openShifts.withdrawFailed')));
+      }
+    },
+  };
+}
 
-              <div className="flex shrink-0 flex-wrap items-center gap-2 sm:justify-end">
-                {request ? (
-                  <>
-                    <Badge variant={REQUEST_TONE[request.status as keyof typeof REQUEST_TONE] ?? 'outline'}>
-                      {t(`weldhr.me.openShifts.status.${request.status}`)}
-                    </Badge>
-                    {request.status === 'pending' && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={cancelRequest.isPending}
-                        onClick={() => void withdraw(request.id)}
-                      >
-                        {cancelRequest.isPending && cancelRequest.variables === request.id && <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />}
-                        {t('weldhr.me.openShifts.withdraw')}
-                      </Button>
-                    )}
-                  </>
-                ) : (
-                  <Button size="sm" disabled={shift.spotsLeft === 0} onClick={() => setSignUpTarget(shift)}>
-                    {t('weldhr.me.openShifts.signUp')}
-                  </Button>
-                )}
-              </div>
-            </li>
-          );
-        })}
-      </ul>
+/** Your sign-up's state as a badge: waiting, on the shift, or not approved. */
+export function SignUpBadge({ shift }: Readonly<{ shift: HrSelfOpenShift }>) {
+  const t = useTranslations();
+  const request = activeRequest(shift);
+  if (!request) return null;
+  return (
+    <Badge variant={REQUEST_TONE[request.status as keyof typeof REQUEST_TONE] ?? 'outline'}>
+      {t(`weldhr.me.openShifts.status.${request.status}`)}
+    </Badge>
+  );
+}
+
+/** The menu items for a shift: sign up while there is room, or withdraw a pending sign-up. */
+export function OpenShiftMenuItems({
+  shift,
+  onSignUp,
+  onWithdraw,
+  withdrawing,
+}: Readonly<{ shift: HrSelfOpenShift; onSignUp: () => void; onWithdraw: (requestId: string) => void; withdrawing: boolean }>) {
+  const t = useTranslations();
+  const request = activeRequest(shift);
+  if (request?.status === 'pending') {
+    return (
+      <DropdownMenuItem variant="destructive" disabled={withdrawing} onClick={() => onWithdraw(request.id)}>
+        <Undo2 />
+        {t('weldhr.me.openShifts.withdraw')}
+      </DropdownMenuItem>
     );
   }
+  if (!request && shift.spotsLeft > 0) {
+    return (
+      <DropdownMenuItem onClick={onSignUp}>
+        <Hand />
+        {t('weldhr.me.openShifts.signUp')}
+      </DropdownMenuItem>
+    );
+  }
+  return null;
+}
+
+type OpenShiftState = 'available' | 'signedUp' | 'full';
+
+function stateOf(shift: HrSelfOpenShift): OpenShiftState {
+  if (activeRequest(shift)) return 'signedUp';
+  return shift.spotsLeft > 0 ? 'available' : 'full';
+}
+
+export function MyOpenShiftsList() {
+  const t = useTranslations();
+  const timeFormat = useTimeFormat();
+  const { data, isLoading, error } = useMyHrOpenShifts();
+  const { open: openPanel } = useObjectPanel();
+  const withdrawal = useWithdrawSignUp();
+  const spotsLabel = useSpotsLabel();
+  const [signUpTarget, setSignUpTarget] = useState<HrSelfOpenShift | null>(null);
+  const shifts = [...(data ?? [])].sort((a, b) => a.startsAt.localeCompare(b.startsAt));
+
+  const groups: GroupConfig<HrSelfOpenShift>[] = [
+    { id: 'mine', label: t('weldhr.me.schedule.groups.mine'), sortOrder: 1, filter: (s) => !!activeRequest(s) },
+    { id: 'open', label: t('weldhr.me.schedule.groups.open'), sortOrder: 2, filter: (s) => !activeRequest(s) },
+  ];
+
+  const clients = [...new Set(shifts.map((s) => s.companyName).filter((name): name is string => !!name))].sort((a, b) => a.localeCompare(b));
+  const filters: FilterConfig[] = [
+    {
+      field: 'state',
+      label: t('weldhr.me.schedule.filters.status'),
+      operators: ['is'],
+      options: (['available', 'signedUp', 'full'] as const).map((state) => ({
+        value: state,
+        label: t(`weldhr.me.schedule.filters.${state}`),
+      })),
+    },
+    ...(clients.length > 0
+      ? [
+          {
+            field: 'client',
+            label: t('weldhr.me.schedule.filters.client'),
+            operators: ['is'],
+            options: clients.map((name) => ({ value: name, label: name })),
+          },
+        ]
+      : []),
+  ];
+
+  const applyFilters = (rows: HrSelfOpenShift[], active: ActiveFilter[]) =>
+    active.reduce((list, filter) => {
+      if (!filter.value) return list;
+      if (filter.field === 'state') return list.filter((s) => stateOf(s) === filter.value);
+      if (filter.field === 'client') return list.filter((s) => s.companyName === filter.value);
+      return list;
+    }, rows);
+
+  const timeRange = (s: HrSelfOpenShift) => formatClockRange(new Date(s.startsAt), new Date(s.endsAt), timeFormat);
+
+  const columns: ColumnDef<HrSelfOpenShift>[] = [
+    {
+      id: 'date',
+      header: t('weldhr.me.schedule.table.date'),
+      width: HR_COL.main,
+      render: (s) => (
+        <div className="min-w-0">
+          <p className="truncate font-medium tabular-nums">{formatWeekdayDate(s.startsAt)}</p>
+          {/* What the hidden columns would show, once the list is too narrow for them. */}
+          <p className="truncate text-xs text-muted-foreground tabular-nums @lg:hidden">
+            {[timeRange(s), s.workType, spotsLabel(s.spotsLeft)].filter(Boolean).join(' · ')}
+          </p>
+        </div>
+      ),
+    },
+    {
+      id: 'time',
+      header: t('weldhr.me.schedule.table.time'),
+      width: cn(HR_COL.fixed, HR_COL.hideSm, 'w-[170px]'),
+      render: (s) => <span className="block truncate tabular-nums">{timeRange(s)}</span>,
+    },
+    {
+      id: 'workType',
+      header: t('weldhr.me.schedule.table.workType'),
+      width: cn(HR_COL.fixed, HR_COL.hideMd, 'w-[150px]'),
+      render: (s) => <span className="block truncate">{s.workType ?? '—'}</span>,
+    },
+    {
+      id: 'client',
+      header: t('weldhr.me.schedule.table.client'),
+      width: cn(HR_COL.fixed, HR_COL.hideXl, 'w-[160px]'),
+      render: (s) => <span className="block truncate text-muted-foreground">{s.companyName ?? '—'}</span>,
+    },
+    {
+      id: 'spots',
+      header: t('weldhr.me.schedule.table.spots'),
+      width: cn(HR_COL.fixed, HR_COL.hideLg, 'w-[110px]'),
+      render: (s) => (
+        <span className={cn('block truncate tabular-nums', s.spotsLeft === 0 && 'text-muted-foreground')}>{spotsLabel(s.spotsLeft)}</span>
+      ),
+    },
+    {
+      id: 'signUp',
+      header: t('weldhr.me.schedule.table.signUp'),
+      width: cn(HR_COL.fixed, HR_COL.hideSm, 'w-[170px]'),
+      render: (s) => <SignUpBadge shift={s} />,
+    },
+  ];
 
   return (
     <>
-      <SectionCard title={t('weldhr.me.openShifts.title')}>
-        <p className="-mt-1 mb-3 text-sm text-muted-foreground">{t('weldhr.me.openShifts.description')}</p>
-        {body}
-      </SectionCard>
+      <HrListContainer>
+        <PanelEntityList<HrSelfOpenShift>
+          items={shifts}
+          isLoading={isLoading}
+          error={listLoadError(data, error, t('weldhr.me.openShifts.loadFailed'))}
+          columns={columns}
+          onRowClick={(s) => openPanel({ type: MY_OPEN_SHIFT_PANEL_TYPE, id: s.id })}
+          objectPanel={{ type: MY_OPEN_SHIFT_PANEL_TYPE }}
+          // The row's "⋮" menu (on hover): signing up, or withdrawing a pending sign-up.
+          rowMenu={(s) => {
+            const request = activeRequest(s);
+            if (request ? request.status !== 'pending' : s.spotsLeft === 0) return null;
+            return (
+              <OpenShiftMenuItems
+                shift={s}
+                onSignUp={() => setSignUpTarget(s)}
+                onWithdraw={(id) => void withdrawal.withdraw(id)}
+                withdrawing={withdrawal.isPending}
+              />
+            );
+          }}
+          groups={groups}
+          filters={filters}
+          applyFilters={applyFilters}
+          searchFields={['workType', 'companyName', 'departmentName', 'notes']}
+          searchPlaceholder={t('weldhr.me.schedule.search.openShifts')}
+          emptyState={{
+            icon: emptyIcon(Users),
+            title: t('weldhr.me.schedule.empty.openShifts.title'),
+            description: t('weldhr.me.schedule.empty.openShifts.description'),
+          }}
+        />
+      </HrListContainer>
 
       {signUpTarget && <SignUpDialog shift={signUpTarget} onClose={() => setSignUpTarget(null)} />}
     </>
   );
 }
 
-function SignUpDialog({ shift, onClose }: Readonly<{ shift: HrSelfOpenShift; onClose: () => void }>) {
+export function SignUpDialog({ shift, onClose }: Readonly<{ shift: HrSelfOpenShift; onClose: () => void }>) {
   const t = useTranslations();
   const formatTime = useFormatTime();
   const signUp = useMyHrSignUpForOpenShift();
@@ -148,7 +282,7 @@ function SignUpDialog({ shift, onClose }: Readonly<{ shift: HrSelfOpenShift; onC
   return (
     <Dialog open onOpenChange={(open) => !open && !signUp.isPending && onClose()}>
       <DialogContent className="sm:max-w-md">
-        <DialogHeader>
+        <DialogHeader className="mb-2">
           <DialogTitle>{t('weldhr.me.openShifts.signUpTitle')}</DialogTitle>
           <DialogDescription className="tabular-nums">
             {formatDateTime(shift.startsAt)} – {formatTime(shift.endsAt)}

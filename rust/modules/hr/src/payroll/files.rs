@@ -5,8 +5,10 @@
 
 use std::collections::HashMap;
 
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 use serde_json::{Value, json};
-use weldsuite_db::{Keyring, PgPool, decrypt_field, js_row};
+use weldsuite_db::{Keyring, PgPool, decrypt_field, orm};
 use weldsuite_payroll_domain::documents::Lang;
 use weldsuite_payroll_domain::labels::payslip_line_label;
 use weldsuite_payroll_domain::money::{from_cents, to_cents_text};
@@ -17,17 +19,18 @@ use weldsuite_payroll_domain::sepa::{
     SepaParty, SepaSalaryBatchInput, SepaSalaryPayment, SepaTaxPayment, build_sepa_salary_batch,
 };
 use weldsuite_payroll_domain::types::PayrollIssue;
+use weldsuite_schema::tenant::{hr_payroll_filings, hr_payslips};
 
 use super::Deps;
 use super::common::{
     csv_number, csv_text, engine_error, incomplete, invalid_with, num, safe_id, salary_remittance,
     sort_issues,
 };
-use super::employees::{bank_of, decrypt_sensitive, same_bank};
+use super::employees::{bank_of, decrypt_sensitive, employee_rows, jsonb_row, same_bank};
 use super::employer_context::{find_employer_for_payroll, load_employer_for_payroll};
 use super::employers::read_employer_bank;
 use super::notifier::language_of;
-use super::runs::{payslip_sql, require_run, s};
+use super::runs::{payslip_rows, require_run, s};
 use crate::employees::display_name_of;
 use crate::{HrError, locale_compare, today_iso};
 
@@ -128,14 +131,16 @@ pub(crate) async fn build_payment_file(
         .await?
         .row;
     let bank = read_employer_bank(&employer, &deps.keyring)?;
-    let slips: Vec<Value> = sqlx::query_scalar(payslip_sql("s.run_id = $1 and s.status = 'final'"))
-        .bind(run_id)
-        .fetch_all(db)
-        .await?
-        .into_iter()
-        .map(js_row)
-        .filter(|x| to_cents_text(x["netPay"].as_str()).unwrap_or(0.0) > 0.0)
-        .collect();
+    let slips: Vec<Value> = payslip_rows(
+        &orm(db),
+        hr_payslips::Entity::find()
+            .filter(hr_payslips::Column::RunId.eq(run_id))
+            .filter(hr_payslips::Column::Status.eq("final")),
+    )
+    .await?
+    .into_iter()
+    .filter(|x| to_cents_text(x["netPay"].as_str()).unwrap_or(0.0) > 0.0)
+    .collect();
     if slips.is_empty() {
         return Err(HrError::payroll(
             "NOTHING_TO_PAY",
@@ -144,14 +149,7 @@ pub(crate) async fn build_payment_file(
         ));
     }
     let ids: Vec<&str> = slips.iter().map(|x| s(x, "employeeId")).collect();
-    let people: Vec<Value> =
-        sqlx::query_scalar("select to_jsonb(e) from hr_employees e where e.id = any($1)")
-            .bind(&ids)
-            .fetch_all(db)
-            .await?
-            .into_iter()
-            .map(js_row)
-            .collect();
+    let people = employee_rows(db, &ids).await?;
     let person_of = |id: &str| people.iter().find(|p| p["id"] == id);
     let mut sensitive: HashMap<String, Value> = HashMap::new();
     let mut warnings = vec![];
@@ -219,16 +217,16 @@ async fn tax_payment_for(
     let pay_date = s(run, "payDate");
     let month: i32 = pay_date.get(5..7).and_then(|m| m.parse().ok()).unwrap_or(1);
     let year: i32 = pay_date.get(0..4).and_then(|y| y.parse().ok()).unwrap_or(0);
-    let filing: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(f) || jsonb_build_object('amount_due', f.amount_due::text) from hr_payroll_filings f
-         where f.employer_id = $1 and f.kind = 'nl_loonaangifte' and f.tax_year = $2 and f.period = $3 limit 1",
-    )
-    .bind(s(employer, "id"))
-    .bind(if month == 1 { year - 1 } else { year })
-    .bind(if month == 1 { 12 } else { month - 1 })
-    .fetch_optional(db)
-    .await?;
-    let Some(filing) = filing.map(js_row) else {
+    let orm = orm(db);
+    let filing = hr_payroll_filings::Entity::find()
+        .filter(hr_payroll_filings::Column::EmployerId.eq(s(employer, "id")))
+        .filter(hr_payroll_filings::Column::Kind.eq("nl_loonaangifte"))
+        .filter(hr_payroll_filings::Column::TaxYear.eq(if month == 1 { year - 1 } else { year }))
+        .filter(hr_payroll_filings::Column::Period.eq(if month == 1 { 12 } else { month - 1 }))
+        .one(&orm)
+        .await?;
+    // `amountDue` is the `numeric(14, 2)` text, as `amount_due::text` read it.
+    let Some(filing) = filing.map(jsonb_row).transpose()? else {
         return Ok(None);
     };
     let entries = filing["taxPayments"]
@@ -262,23 +260,24 @@ async fn tax_payment_for(
         "runId": run["id"], "version": filing["version"],
         "cents": weldsuite_core_domain::js::number_value(amount), "reference": reference,
     }));
-    let claimed: Vec<String> = sqlx::query_scalar(
-        "update hr_payroll_filings set tax_payments = $2
-         where id = $1 and version = $3 and status = any($4) and tax_payments = $5 returning id",
-    )
-    .bind(s(&filing, "id"))
-    .bind(Value::Array(next))
-    .bind(
-        filing["version"]
-            .as_i64()
-            .and_then(|v| i32::try_from(v).ok())
-            .unwrap_or_default(),
-    )
-    .bind(CARRYING_STATUSES.to_vec())
-    .bind(Value::Array(entries))
-    .fetch_all(db)
-    .await?;
-    if claimed.is_empty() {
+    // The claim: only while the filing still carries exactly what was read.
+    let claimed = hr_payroll_filings::Entity::update_many()
+        .col_expr(
+            hr_payroll_filings::Column::TaxPayments,
+            Expr::value(Value::Array(next)),
+        )
+        .filter(hr_payroll_filings::Column::Id.eq(s(&filing, "id")))
+        .filter(
+            hr_payroll_filings::Column::Version.eq(filing["version"]
+                .as_i64()
+                .and_then(|v| i32::try_from(v).ok())
+                .unwrap_or_default()),
+        )
+        .filter(hr_payroll_filings::Column::Status.is_in(CARRYING_STATUSES))
+        .filter(hr_payroll_filings::Column::TaxPayments.eq(Value::Array(entries)))
+        .exec(&orm)
+        .await?;
+    if claimed.rows_affected == 0 {
         return Ok(None);
     }
     Ok(Some((amount, reference.to_owned())))
@@ -526,24 +525,16 @@ pub(crate) async fn build_run_report(
     } else {
         Lang::En
     };
-    let slips: Vec<Value> = sqlx::query_scalar(payslip_sql("s.run_id = $1"))
-        .bind(run_id)
-        .fetch_all(db)
-        .await?
-        .into_iter()
-        .map(js_row)
-        .collect();
+    let slips = payslip_rows(
+        &orm(db),
+        hr_payslips::Entity::find().filter(hr_payslips::Column::RunId.eq(run_id)),
+    )
+    .await?;
     let ids: Vec<&str> = slips.iter().map(|x| s(x, "employeeId")).collect();
     let people: Vec<Value> = if ids.is_empty() {
         vec![]
     } else {
-        sqlx::query_scalar("select to_jsonb(e) from hr_employees e where e.id = any($1)")
-            .bind(&ids)
-            .fetch_all(db)
-            .await?
-            .into_iter()
-            .map(js_row)
-            .collect()
+        employee_rows(db, &ids).await?
     };
     let name_of = |id: &str| {
         people

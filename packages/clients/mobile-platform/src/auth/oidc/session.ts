@@ -37,7 +37,13 @@
  * The access token lives in memory only. After a restart the active
  * workspace's refresh token gets a new one on the first API call; offline,
  * the person stays signed in with the cached profile until a refresh is
- * refused (`invalid_grant`).
+ * refused (`invalid_grant`). A host whose JS context restarts often (the
+ * WeldPass browser extension's service worker, ADR PASS-009) passes
+ * `accessTokenStore`, a store that is never written to disk, so a restart
+ * reuses the unexpired token instead of spending a refresh.
+ *
+ * React-free: the browser extension imports it on its own subpath
+ * (`@weldsuite/mobile-platform/oidc-session`).
  */
 
 import {
@@ -94,6 +100,12 @@ export interface OidcSessionDeps {
   loadWorkspaces?: (token: string) => Promise<OidcOrganization[] | null>;
   /** Waits between attempts at a first workspace read; tests pass 0. */
   retryDelaysMs?: readonly number[];
+  /**
+   * Keeps the access token across restarts of the JS context. Absent (the
+   * mobile apps): memory only. Must not persist to disk; the browser
+   * extension passes `chrome.storage.session`.
+   */
+  accessTokenStore?: KeyValueStore;
   now?: () => number;
 }
 
@@ -220,6 +232,8 @@ export class OidcMobileSession {
   private readonly profileKey: string;
   /** Set by a sign-out: the next sign-in asks for the provider's form. */
   private readonly promptLoginKey: string;
+  /** `deps.accessTokenStore` only. */
+  private readonly accessKey: string;
   private readonly now: () => number;
   private stored: StoredTokens | null = null;
   private profile: CachedProfile | null = null;
@@ -258,6 +272,7 @@ export class OidcMobileSession {
     this.secureKey = `weldsuite.oidc.${config.storageId}`;
     this.profileKey = `weldsuite:oidc-profile:${config.storageId}`;
     this.promptLoginKey = `weldsuite:oidc-prompt-login:${config.storageId}`;
+    this.accessKey = `weldsuite:oidc-access:${config.storageId}`;
     this.now = deps.now ?? Date.now;
   }
 
@@ -278,6 +293,7 @@ export class OidcMobileSession {
         this.stored = stored;
         this.profile = profile;
         this.activeWorkspaceId = profile.activeWorkspaceId ?? null;
+        this.access = await this.readAccess(stored);
       } else if (stored || profile) {
         await this.clearStorage();
       }
@@ -736,10 +752,40 @@ export class OidcMobileSession {
     }
   }
 
+  /** The kept access token, when it belongs to this person and a workspace key they still hold. */
+  private async readAccess(stored: StoredTokens): Promise<AccessToken | null> {
+    const store = this.deps.accessTokenStore;
+    if (!store) return null;
+    try {
+      const raw = await store.getItem(this.accessKey);
+      if (!raw) return null;
+      const parsed: unknown = JSON.parse(raw);
+      if (
+        !isRecord(parsed) ||
+        parsed.sub !== stored.sub ||
+        typeof parsed.token !== 'string' ||
+        typeof parsed.expiresAt !== 'number' ||
+        typeof parsed.key !== 'string' ||
+        !stored.tokens[parsed.key]
+      ) {
+        return null;
+      }
+      return { token: parsed.token, expiresAt: parsed.expiresAt, key: parsed.key };
+    } catch {
+      return null;
+    }
+  }
+
   private async persist(): Promise<void> {
     try {
       if (this.stored) await this.deps.secureStore.setItemAsync(this.secureKey, JSON.stringify(this.stored));
       if (this.profile) await this.deps.cacheStore.setItem(this.profileKey, JSON.stringify(this.profile));
+      const store = this.deps.accessTokenStore;
+      if (store && this.stored && this.access) {
+        await store.setItem(this.accessKey, JSON.stringify({ ...this.access, sub: this.stored.sub }));
+      } else if (store) {
+        await store.removeItem(this.accessKey);
+      }
     } catch {
       // The session lasts for this run only.
     }
@@ -748,6 +794,7 @@ export class OidcMobileSession {
   private async clearStorage(): Promise<void> {
     await this.deps.secureStore.deleteItemAsync(this.secureKey).catch(() => undefined);
     await this.deps.cacheStore.removeItem(this.profileKey).catch(() => undefined);
+    await this.deps.accessTokenStore?.removeItem(this.accessKey).catch(() => undefined);
   }
 
   private async forget(): Promise<void> {

@@ -2,17 +2,23 @@
 //! company) appears when a user adds a thread to the CRM; everything goes
 //! through `weldsuite-crm-domain`, so the rows and events are WeldCRM's own.
 
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
 use sqlx::PgPool;
 use weldsuite_catalogs::entity_events::{
     ACTIVITY_CREATED, COMPANY_CREATED, OPPORTUNITY_CREATED, PERSON_CREATED,
 };
 use weldsuite_crm_domain::DomainError;
+use weldsuite_db::{orm, utc_timestamp};
 use weldsuite_kit::generate_id;
 use weldsuite_reach_domain::schemas::{email_domain, is_consumer_email};
-use weldsuite_reach_domain::{
-    EventSink, ReachError, ReachEvent, ReachResult, iso, js_slice, now, text,
+use weldsuite_reach_domain::{EventSink, ReachError, ReachEvent, ReachResult, js_slice, now, text};
+use weldsuite_schema::tenant::{
+    companies, people, person_companies, reach_prospects, workspace_members,
 };
+
+use crate::db_error;
 
 /// The prospect side of a hand-off (`CrmProspect`).
 pub(crate) struct CrmProspect {
@@ -51,9 +57,9 @@ impl From<ReachError> for HandoffError {
     }
 }
 
-impl From<sqlx::Error> for HandoffError {
-    fn from(error: sqlx::Error) -> Self {
-        Self::Failed(error.into())
+impl From<DbErr> for HandoffError {
+    fn from(error: DbErr) -> Self {
+        Self::Failed(db_error(error))
     }
 }
 
@@ -64,12 +70,15 @@ fn crm_failure(error: DomainError) -> HandoffError {
 
 /// `isValidWorkspaceMember(db, userId)`.
 async fn is_member(db: &PgPool, user_id: &str) -> ReachResult<bool> {
-    let row: Option<String> = sqlx::query_scalar(
-        "select user_id from workspace_members where user_id = $1 and deleted_at is null limit 1",
-    )
-    .bind(user_id)
-    .fetch_optional(db)
-    .await?;
+    let row: Option<String> = workspace_members::Entity::find()
+        .select_only()
+        .column(workspace_members::Column::UserId)
+        .filter(workspace_members::Column::UserId.eq(user_id))
+        .filter(workspace_members::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await
+        .map_err(db_error)?;
     Ok(row.is_some())
 }
 
@@ -130,12 +139,23 @@ async fn find_company(
     name: Option<&str>,
 ) -> ReachResult<Option<(String, String)>> {
     if !domain.is_empty() && !is_consumer_email(&format!("x@{domain}")) {
-        let candidates: Vec<(String, String, Option<String>)> = sqlx::query_as(
-            "select id, name, website from companies where deleted_at is null and lower(website) like $1 limit 25",
-        )
-        .bind(format!("%{domain}%"))
-        .fetch_all(db)
-        .await?;
+        let candidates: Vec<(String, String, Option<String>)> = companies::Entity::find()
+            .select_only()
+            .columns([
+                companies::Column::Id,
+                companies::Column::Name,
+                companies::Column::Website,
+            ])
+            .filter(companies::Column::DeletedAt.is_null())
+            .filter(sea_orm::ExprTrait::like(
+                Expr::from(Func::lower(Expr::col(companies::Column::Website))),
+                format!("%{domain}%"),
+            ))
+            .limit(25)
+            .into_tuple()
+            .all(&orm(db))
+            .await
+            .map_err(db_error)?;
         if let Some((id, name, _)) = candidates
             .into_iter()
             .find(|(_, _, w)| host_of(w.as_deref()) == domain)
@@ -147,12 +167,18 @@ async fn find_company(
         .map(weldsuite_reach_domain::text::js_trim)
         .filter(|n| !n.is_empty())
     {
-        let found: Option<(String, String)> = sqlx::query_as(
-            "select id, name from companies where deleted_at is null and lower(name) = $1 limit 1",
-        )
-        .bind(name.to_lowercase())
-        .fetch_optional(db)
-        .await?;
+        let found: Option<(String, String)> = companies::Entity::find()
+            .select_only()
+            .columns([companies::Column::Id, companies::Column::Name])
+            .filter(companies::Column::DeletedAt.is_null())
+            .filter(sea_orm::ExprTrait::eq(
+                Expr::from(Func::lower(Expr::col(companies::Column::Name))),
+                name.to_lowercase(),
+            ))
+            .into_tuple()
+            .one(&orm(db))
+            .await
+            .map_err(db_error)?;
         return Ok(found);
     }
     Ok(None)
@@ -244,29 +270,36 @@ async fn ensure_company(
 }
 
 async fn link_person_to_company(db: &PgPool, person_id: &str, company_id: &str) -> ReachResult<()> {
-    let links: Vec<(String, Option<bool>, Option<String>)> = sqlx::query_as(
-        "select company_id, is_primary, ended_at::text from person_companies where person_id = $1",
-    )
-    .bind(person_id)
-    .fetch_all(db)
-    .await?;
-    let active: Vec<&(String, Option<bool>, Option<String>)> =
-        links.iter().filter(|l| l.2.is_none()).collect();
+    type Link = (String, Option<bool>, Option<time::PrimitiveDateTime>);
+    let links: Vec<Link> = person_companies::Entity::find()
+        .select_only()
+        .columns([
+            person_companies::Column::CompanyId,
+            person_companies::Column::IsPrimary,
+            person_companies::Column::EndedAt,
+        ])
+        .filter(person_companies::Column::PersonId.eq(person_id))
+        .into_tuple()
+        .all(&orm(db))
+        .await
+        .map_err(db_error)?;
+    let active: Vec<&Link> = links.iter().filter(|l| l.2.is_none()).collect();
     if active.iter().any(|l| l.0 == company_id) {
         return Ok(());
     }
-    let at = iso(now());
-    sqlx::query(
-        "insert into person_companies (id, created_at, updated_at, person_id, company_id, is_primary)
-         values ($1, $2::timestamptz, $2::timestamptz, $3, $4, $5)",
-    )
-    .bind(generate_id("pc"))
-    .bind(&at)
-    .bind(person_id)
-    .bind(company_id)
-    .bind(!active.iter().any(|l| l.1 == Some(true)))
-    .execute(db)
-    .await?;
+    let at = utc_timestamp(now());
+    person_companies::Entity::insert(person_companies::ActiveModel {
+        id: Set(generate_id("pc")),
+        created_at: Set(at),
+        updated_at: Set(at),
+        person_id: Set(person_id.to_owned()),
+        company_id: Set(company_id.to_owned()),
+        is_primary: Set(!active.iter().any(|l| l.1 == Some(true))),
+        ..Default::default()
+    })
+    .exec_without_returning(&orm(db))
+    .await
+    .map_err(db_error)?;
     Ok(())
 }
 
@@ -279,12 +312,17 @@ async fn ensure_person(
     owner: Option<&str>,
     company_id: Option<&str>,
 ) -> Result<(String, bool), HandoffError> {
-    let existing: Option<(String, Option<bool>)> = sqlx::query_as(
-        "select id, in_crm from people where lower(email) = $1 and deleted_at is null limit 1",
-    )
-    .bind(prospect.email.to_lowercase())
-    .fetch_optional(db)
-    .await?;
+    let existing: Option<(String, Option<bool>)> = people::Entity::find()
+        .select_only()
+        .columns([people::Column::Id, people::Column::InCrm])
+        .filter(sea_orm::ExprTrait::eq(
+            Expr::from(Func::lower(Expr::col(people::Column::Email))),
+            prospect.email.to_lowercase(),
+        ))
+        .filter(people::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     if let Some((id, in_crm)) = existing {
         if in_crm != Some(true) {
             weldsuite_crm_domain::people::add_person_to_crm(db, &id, owner.or(acting_user), None)
@@ -365,14 +403,13 @@ async fn ensure_contact(
         link_person_to_company(db, &person_id, company_id).await?;
     }
     if let Some(prospect_id) = &prospect.id {
-        sqlx::query(
-            "update reach_prospects set person_id = $2, updated_at = $3::timestamptz where id = $1 and person_id is null",
-        )
-        .bind(prospect_id)
-        .bind(&person_id)
-        .bind(iso(now()))
-        .execute(db)
-        .await?;
+        reach_prospects::Entity::update_many()
+            .col_expr(reach_prospects::Column::PersonId, Expr::value(&person_id))
+            .col_expr(reach_prospects::Column::UpdatedAt, Expr::value(now()))
+            .filter(reach_prospects::Column::Id.eq(prospect_id))
+            .filter(reach_prospects::Column::PersonId.is_null())
+            .exec(&orm(db))
+            .await?;
     }
     Ok((person_id, company.map(|(id, _)| id)))
 }

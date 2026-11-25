@@ -8,6 +8,10 @@ license.workspace = true
 repository.workspace = true
 publish.workspace = true
 
+[features]
+# Test-only, from the binary's `conformance` feature: see weldsuite-crm-domain's.
+conformance = ["weldsuite-crm-domain/conformance"]
+
 [dependencies]
 weldsuite-auth = { workspace = true }
 weldsuite-catalogs = { workspace = true }
@@ -27,6 +31,8 @@ sqlx = { workspace = true }
 time = { workspace = true }
 tracing = { workspace = true }
 url = { workspace = true }
+sea-orm = { workspace = true }
+weldsuite-schema = { workspace = true }
 
 [lints]
 workspace = true

@@ -8,7 +8,14 @@ import { useTranslations } from '@weldsuite/i18n/client';
 import { usePermissions } from '@weldsuite/permissions/react';
 import type { HrDeclarationListItem } from '@weldsuite/app-api-client/domains/weldhr';
 import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
-import { PanelEntityList, type ColumnDef, type GroupConfig } from '@/components/panel-entity-list';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@weldsuite/ui/components/tooltip';
+import {
+  PanelEntityList,
+  type ActiveFilter,
+  type ColumnDef,
+  type FilterConfig,
+  type GroupConfig,
+} from '@/components/panel-entity-list';
 import {
   useCancelHrDeclaration,
   useDeleteHrDeclaration,
@@ -21,7 +28,9 @@ import { StatusBadge, errorMessage, formatDate, formatMoney } from '../component
 import { DeclarationDialog } from './components/declaration-dialog';
 import { DeclarationReviewDialog } from './components/review-dialog';
 
-const KNOWN_STATUSES = new Set(['pending', 'approved', 'rejected', 'paid', 'cancelled']);
+const STATUSES = ['pending', 'approved', 'rejected', 'paid', 'cancelled'] as const;
+const KNOWN_STATUSES = new Set<string>(STATUSES);
+const CATEGORIES = ['travel', 'meals', 'accommodation', 'equipment', 'training', 'other'] as const;
 
 export default function WeldHrDeclarationsPage() {
   const t = useTranslations();
@@ -60,6 +69,38 @@ export default function WeldHrDeclarationsPage() {
     { id: 'other', label: t('weldhr.declarations.groups.other'), sortOrder: 5, filter: (d) => !KNOWN_STATUSES.has(d.status) },
   ];
 
+  const rows = declarations ?? [];
+  const employees = [...new Set(rows.map((d) => d.employeeName).filter((name): name is string => !!name))].sort((a, b) => a.localeCompare(b));
+  const filters: FilterConfig[] = [
+    {
+      field: 'status',
+      label: t('weldhr.declarations.table.status'),
+      operators: ['is'],
+      options: STATUSES.map((status) => ({ value: status, label: t(`weldhr.status.declaration.${status}`) })),
+    },
+    {
+      field: 'category',
+      label: t('weldhr.declarations.form.category'),
+      operators: ['is'],
+      options: CATEGORIES.map((category) => ({ value: category, label: t(`weldhr.declarations.category.${category}`) })),
+    },
+    {
+      field: 'employee',
+      label: t('weldhr.declarations.table.employee'),
+      operators: ['is'],
+      searchable: true,
+      options: employees.map((name) => ({ value: name, label: name })),
+    },
+  ];
+  const applyFilters = (list: HrDeclarationListItem[], active: ActiveFilter[]) =>
+    active.reduce((rowsLeft, filter) => {
+      if (!filter.value) return rowsLeft;
+      if (filter.field === 'status') return rowsLeft.filter((d) => d.status === filter.value);
+      if (filter.field === 'category') return rowsLeft.filter((d) => d.category === filter.value);
+      if (filter.field === 'employee') return rowsLeft.filter((d) => d.employeeName === filter.value);
+      return rowsLeft;
+    }, list);
+
   const columns: ColumnDef<HrDeclarationListItem>[] = [
     {
       id: 'employee',
@@ -74,15 +115,13 @@ export default function WeldHrDeclarationsPage() {
       render: (d) => <span className="tabular-nums">{formatDate(d.expenseDate)}</span>,
     },
     {
-      id: 'description',
-      header: t('weldhr.declarations.table.description'),
+      id: 'category',
+      header: t('weldhr.declarations.form.category'),
       width: 'flex-1',
-      // Category and description share the one flexible column, so the text keeps its room on a narrow screen.
+      // The category only: the description made the rows busy. Hover shows it; search still finds it.
       render: (d) => (
-        <span className="block truncate text-muted-foreground" title={d.description}>
-          <span className="text-foreground">{t(`weldhr.declarations.category.${d.category}`)}</span>
-          {' · '}
-          {d.description}
+        <span className="block truncate" title={d.description}>
+          {t(`weldhr.declarations.category.${d.category}`)}
         </span>
       ),
     },
@@ -98,20 +137,28 @@ export default function WeldHrDeclarationsPage() {
       width: 'w-[70px]',
       render: (d) =>
         d.hasReceipt ? (
-          <Button
-            size="icon"
-            variant="ghost"
-            className="h-7 w-7"
-            title={t('weldhr.declarations.downloadReceipt')}
-            aria-label={t('weldhr.declarations.downloadReceipt')}
-            disabled={openReceipt.isPending}
-            onClick={(e) => {
-              e.stopPropagation();
-              downloadReceipt(d);
-            }}
-          >
-            <Paperclip className="h-3.5 w-3.5" />
-          </Button>
+          // The file name on hover, so you know what you are about to open.
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                size="icon"
+                variant="ghost"
+                className="h-7 w-7"
+                aria-label={[t('weldhr.declarations.downloadReceipt'), d.receiptFileName].filter(Boolean).join(': ')}
+                disabled={openReceipt.isPending}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  downloadReceipt(d);
+                }}
+              >
+                <Paperclip className="h-3.5 w-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              <p className="font-medium">{t('weldhr.declarations.downloadReceipt')}</p>
+              {d.receiptFileName && <p className="max-w-64 truncate opacity-80">{d.receiptFileName}</p>}
+            </TooltipContent>
+          </Tooltip>
         ) : (
           <span className="text-muted-foreground">—</span>
         ),
@@ -164,13 +211,15 @@ export default function WeldHrDeclarationsPage() {
   return (
     <>
       <PanelEntityList<HrDeclarationListItem>
-        items={declarations ?? []}
+        items={rows}
         isLoading={isLoading}
         error={error}
         columns={columns}
         groups={groups}
-        filters={[]}
+        filters={filters}
+        applyFilters={applyFilters}
         searchFields={['employeeName', 'description']}
+        searchPlaceholder={t('weldhr.declarations.searchPlaceholder')}
         onEdit={canUpdate ? edit : undefined}
         onDelete={canDelete ? (d) => setDeleteTarget(d) : undefined}
         createButton={canCreate ? { label: t('weldhr.declarations.newDeclaration'), onClick: () => setCreating(true) } : undefined}

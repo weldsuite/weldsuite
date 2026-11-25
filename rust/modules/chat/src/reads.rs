@@ -1,80 +1,93 @@
 //! Read state (`services/chat/channel-reads.ts`): per-message read rows for
 //! the "seen by" avatars, and the member's read cursor.
 
+use sea_orm::sea_query::{Expr, OnConflict};
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect, Set};
 use serde_json::{Value, json};
-use sqlx::PgPool;
+use time::{Duration, PrimitiveDateTime};
+use weldsuite_db::{PgPool, orm, utc_now, utc_timestamp};
 use weldsuite_kit::generate_id;
+use weldsuite_schema::tenant::{
+    chat_channel_members as members, chat_message_reads as reads, chat_messages as messages,
+};
 
-use crate::util::{ms_timestamp, now};
+/// A `timestamp` as Drizzle hands it back (`toISOString()`).
+fn iso(at: PrimitiveDateTime) -> String {
+    weldsuite_events::iso_timestamp(at.assume_utc())
+}
 
 /// `markChannelRead`: every live message read, the cursor on the newest.
 pub(crate) async fn mark_read(
     db: &PgPool,
     channel_id: &str,
     user_id: &str,
-) -> Result<Value, sqlx::Error> {
-    let all: Vec<String> = sqlx::query_scalar(
-        "select id from chat_messages where channel_id = $1 and deleted_at is null
-         order by created_at desc",
-    )
-    .bind(channel_id)
-    .fetch_all(db)
-    .await?;
-    let existing: Vec<String> = sqlx::query_scalar(
-        "select message_id from chat_message_reads where channel_id = $1 and user_id = $2",
-    )
-    .bind(channel_id)
-    .bind(user_id)
-    .fetch_all(db)
-    .await?;
+) -> Result<Value, DbErr> {
+    let orm = orm(db);
+    let all: Vec<String> = messages::Entity::find()
+        .select_only()
+        .column(messages::Column::Id)
+        .filter(messages::Column::ChannelId.eq(channel_id))
+        .filter(messages::Column::DeletedAt.is_null())
+        .order_by_desc(messages::Column::CreatedAt)
+        .into_tuple()
+        .all(&orm)
+        .await?;
+    let existing: Vec<String> = reads::Entity::find()
+        .select_only()
+        .column(reads::Column::MessageId)
+        .filter(reads::Column::ChannelId.eq(channel_id))
+        .filter(reads::Column::UserId.eq(user_id))
+        .into_tuple()
+        .all(&orm)
+        .await?;
     let unread: Vec<String> = all
         .iter()
         .filter(|id| !existing.contains(id))
         .cloned()
         .collect();
-    let at = now();
+    let at = utc_now();
     let latest = all.first().cloned();
-    let previous: Option<Option<String>> = sqlx::query_scalar(
-        "select last_read_at::text from chat_channel_members
-         where channel_id = $1 and user_id = $2 limit 1",
-    )
-    .bind(channel_id)
-    .bind(user_id)
-    .fetch_optional(db)
-    .await?;
-    for batch in unread.chunks(100) {
-        let ids: Vec<String> = batch.iter().map(|_| generate_id("cmr")).collect();
-        sqlx::query(
-            "insert into chat_message_reads (id, message_id, channel_id, user_id, read_at)
-             select r.id, r.message_id, $3, $4, $5::timestamp
-             from unnest($1::varchar[], $2::varchar[]) with ordinality as r(id, message_id, n)
-             order by r.n
-             on conflict do nothing",
-        )
-        .bind(&ids)
-        .bind(batch)
-        .bind(channel_id)
-        .bind(user_id)
-        .bind(&at)
-        .execute(db)
+    let previous: Option<Option<PrimitiveDateTime>> = members::Entity::find()
+        .select_only()
+        .column(members::Column::LastReadAt)
+        .filter(members::Column::ChannelId.eq(channel_id))
+        .filter(members::Column::UserId.eq(user_id))
+        .into_tuple()
+        .one(&orm)
         .await?;
+    for batch in unread.chunks(100) {
+        let rows: Vec<reads::ActiveModel> = batch
+            .iter()
+            .map(|message_id| reads::ActiveModel {
+                id: Set(generate_id("cmr")),
+                message_id: Set(message_id.clone()),
+                channel_id: Set(channel_id.to_owned()),
+                user_id: Set(user_id.to_owned()),
+                read_at: Set(at),
+                ..Default::default()
+            })
+            .collect();
+        reads::Entity::insert_many(rows)
+            .on_conflict(OnConflict::new().do_nothing().to_owned())
+            .exec_without_returning(&orm)
+            .await?;
     }
-    sqlx::query(
-        "update chat_channel_members set last_read_at = $3::timestamp, last_read_message_id = $4,
-            unread_mention_count = 0
-         where channel_id = $1 and user_id = $2",
-    )
-    .bind(channel_id)
-    .bind(user_id)
-    .bind(&at)
-    .bind(&latest)
-    .execute(db)
-    .await?;
+    members::Entity::update_many()
+        .col_expr(members::Column::LastReadAt, Expr::value(at))
+        .col_expr(
+            members::Column::LastReadMessageId,
+            Expr::value(latest.clone()),
+        )
+        .col_expr(members::Column::UnreadMentionCount, Expr::value(0))
+        .filter(members::Column::ChannelId.eq(channel_id))
+        .filter(members::Column::UserId.eq(user_id))
+        .exec(&orm)
+        .await?;
     Ok(json!({
         "channelId": channel_id,
-        "lastReadAt": at,
+        "lastReadAt": iso(at),
         "lastReadMessageId": latest,
-        "previousLastReadAt": previous.flatten().map(|p| ms_timestamp(&p)),
+        "previousLastReadAt": previous.flatten().map(iso),
     }))
 }
 
@@ -85,71 +98,65 @@ pub(crate) async fn mark_unread_from(
     channel_id: &str,
     user_id: &str,
     before: &str,
-) -> Result<Option<Value>, sqlx::Error> {
-    let anchor: Option<String> = sqlx::query_scalar(
-        "select created_at::text from chat_messages where id = $1 and channel_id = $2 limit 1",
-    )
-    .bind(before)
-    .bind(channel_id)
-    .fetch_optional(db)
-    .await?;
-    let Some(anchor) = anchor.map(|a| ms_timestamp(&a)) else {
+) -> Result<Option<Value>, DbErr> {
+    let orm = orm(db);
+    let anchor: Option<PrimitiveDateTime> = messages::Entity::find()
+        .select_only()
+        .column(messages::Column::CreatedAt)
+        .filter(messages::Column::Id.eq(before))
+        .filter(messages::Column::ChannelId.eq(channel_id))
+        .into_tuple()
+        .one(&orm)
+        .await?;
+    // The anchor's `Date`, to the millisecond, as the TypeScript route binds it.
+    let Some(anchor) = anchor.map(|at| utc_timestamp(at.assume_utc())) else {
         return Ok(None);
     };
-    let to_unread: Vec<String> = sqlx::query_scalar(
-        "select id from chat_messages where channel_id = $1 and created_at >= $2::timestamp",
-    )
-    .bind(channel_id)
-    .bind(&anchor)
-    .fetch_all(db)
-    .await?;
-    for batch in to_unread.chunks(100) {
-        sqlx::query(
-            "delete from chat_message_reads
-             where channel_id = $1 and user_id = $2 and message_id = any($3)",
-        )
-        .bind(channel_id)
-        .bind(user_id)
-        .bind(batch)
-        .execute(db)
+    let to_unread: Vec<String> = messages::Entity::find()
+        .select_only()
+        .column(messages::Column::Id)
+        .filter(messages::Column::ChannelId.eq(channel_id))
+        .filter(messages::Column::CreatedAt.gte(anchor))
+        .into_tuple()
+        .all(&orm)
         .await?;
+    for batch in to_unread.chunks(100) {
+        reads::Entity::delete_many()
+            .filter(reads::Column::ChannelId.eq(channel_id))
+            .filter(reads::Column::UserId.eq(user_id))
+            .filter(reads::Column::MessageId.is_in(batch))
+            .exec(&orm)
+            .await?;
     }
-    let previous: Option<(String, String)> = sqlx::query_as(
-        "select id, created_at::text from chat_messages
-         where channel_id = $1 and deleted_at is null and created_at < $2::timestamp
-         order by created_at desc limit 1",
-    )
-    .bind(channel_id)
-    .bind(&anchor)
-    .fetch_optional(db)
-    .await?;
+    let previous: Option<(String, PrimitiveDateTime)> = messages::Entity::find()
+        .select_only()
+        .column(messages::Column::Id)
+        .column(messages::Column::CreatedAt)
+        .filter(messages::Column::ChannelId.eq(channel_id))
+        .filter(messages::Column::DeletedAt.is_null())
+        .filter(messages::Column::CreatedAt.lt(anchor))
+        .order_by_desc(messages::Column::CreatedAt)
+        .into_tuple()
+        .one(&orm)
+        .await?;
+    // `new Date(anchor.getTime() - 1)` without an earlier message.
     let (previous_id, last_read_at) = match previous {
-        Some((id, at)) => (Some(id), ms_timestamp(&at)),
-        None => (None, one_ms_before(&anchor)),
+        Some((id, at)) => (Some(id), utc_timestamp(at.assume_utc())),
+        None => (None, anchor.saturating_sub(Duration::milliseconds(1))),
     };
-    sqlx::query(
-        "update chat_channel_members set last_read_at = $3::timestamp, last_read_message_id = $4
-         where channel_id = $1 and user_id = $2",
-    )
-    .bind(channel_id)
-    .bind(user_id)
-    .bind(&last_read_at)
-    .bind(&previous_id)
-    .execute(db)
-    .await?;
+    members::Entity::update_many()
+        .col_expr(members::Column::LastReadAt, Expr::value(last_read_at))
+        .col_expr(
+            members::Column::LastReadMessageId,
+            Expr::value(previous_id.clone()),
+        )
+        .filter(members::Column::ChannelId.eq(channel_id))
+        .filter(members::Column::UserId.eq(user_id))
+        .exec(&orm)
+        .await?;
     Ok(Some(json!({
         "channelId": channel_id,
-        "lastReadAt": last_read_at,
+        "lastReadAt": iso(last_read_at),
         "lastReadMessageId": previous_id,
     })))
-}
-
-/// `new Date(at.getTime() - 1).toISOString()`.
-fn one_ms_before(at: &str) -> String {
-    let parsed =
-        time::OffsetDateTime::parse(at, &time::format_description::well_known::Rfc3339).ok();
-    parsed.map_or_else(
-        || at.to_owned(),
-        |at| weldsuite_events::iso_timestamp(at - time::Duration::milliseconds(1)),
-    )
 }

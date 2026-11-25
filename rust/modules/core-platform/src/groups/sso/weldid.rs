@@ -24,6 +24,7 @@
 use axum::body::Bytes;
 use axum::response::{IntoResponse, Response};
 use http::{HeaderMap, StatusCode};
+use sea_orm::{ColumnTrait, Condition};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events::WORKSPACE_SETTINGS_UPDATED;
 use weldsuite_db::PgPool;
@@ -34,10 +35,11 @@ use weldsuite_ports::{
     IdentityError, NewSsoConnection, SamlMetadata, SsoConnection, SsoConnectionChanges,
     SsoDirectory, SsoProtocol,
 };
+use weldsuite_schema::master::workspaces;
 
 use super::{
-    Context, HTTPS_URL, PUBLIC_EMAIL_DOMAINS, Workspace, WorkspaceRow, changed_meanwhile,
-    domain_in_use, domain_not_verified, normalize_sso_domain, refusal, require_entitled,
+    Context, HTTPS_URL, PUBLIC_EMAIL_DOMAINS, changed_meanwhile, domain_in_use,
+    domain_not_verified, normalize_sso_domain, refusal, require_entitled,
 };
 use crate::{Caller, CorePlatformState, PlatformError, PlatformResult, validate};
 
@@ -57,36 +59,13 @@ struct Loaded {
 
 /// `loadSsoContext` by `workspaces.id` (the tenant WeldID knows).
 async fn context_by_id(master: &PgPool, workspace_id: &str) -> PlatformResult<Context> {
-    let workspace: Option<WorkspaceRow> = sqlx::query_as(
-        "select id, clerk_org_id, plan_id, is_active, deleted_at is not null
-         from workspaces where id = $1 limit 1",
-    )
-    .bind(workspace_id)
-    .fetch_optional(master)
-    .await?;
-    let Some((id, clerk_org_id, plan_id, is_active, deleted)) = workspace else {
-        return Err(refusal(
+    let filter = Condition::all().add(workspaces::Column::Id.eq(workspace_id));
+    super::context_where(master, filter).await?.ok_or_else(|| {
+        refusal(
             StatusCode::NOT_FOUND,
             "WORKSPACE_NOT_FOUND",
             "Workspace not found.",
-        ));
-    };
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(s) from workspace_sso s where workspace_id = $1 limit 1",
-    )
-    .bind(&id)
-    .fetch_optional(master)
-    .await?;
-    let plan_includes_sso = super::plan_includes_sso(master, plan_id.as_deref()).await?;
-    Ok(Context {
-        workspace: Workspace {
-            id,
-            clerk_org_id,
-            is_active,
-            deleted,
-        },
-        row: row.map(|row| super::SsoRow::from_row(&weldsuite_db::js_row(row))),
-        plan_includes_sso,
+        )
     })
 }
 

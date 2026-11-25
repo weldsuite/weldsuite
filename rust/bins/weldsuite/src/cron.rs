@@ -116,6 +116,10 @@
 //!   and the custom collector domains still pending
 //!   (`apps/workers/panel-api/src/scheduled.ts`, `crate::panel_monitor`).
 //!   Nothing while panel is not served.
+//! - `storefront-hosts` (every 10 minutes): WeldCommerce's custom shop
+//!   domains still pending (ownership record, routing, certificate), from the
+//!   master `storefront_hosts` alone (`crate::storefront`). Nothing while
+//!   custom shop domains are off.
 //! - `sandbox-cleanup` (every 5 minutes): deletes WeldAgent's sandbox pods
 //!   that are done: their agent exited when idle, Kubernetes stopped them at
 //!   their lifetime, or they never started (`weldsuite_sandbox::Sandboxes::cleanup`).
@@ -126,6 +130,11 @@
 //!   `weldsuite_stash::replenishment::run_replenishment_sweep`). The runs go
 //!   to Restate when it is configured; otherwise they run in this process,
 //!   which waits for them. Nothing while stash is not served.
+//! - `stash-parcel-tracking` (every 20 minutes): polls PostNL and DHL Parcel
+//!   for the parcels whose next check has come, in the workspaces the
+//!   `stash_parcel_tracking` due index lists (ADR STASH-013;
+//!   `weldsuite_stash::shipping::run_tracking_sweep`). Nothing while stash is
+//!   not served.
 //! - `mail-attachment-scan` (every 5 minutes): WeldMail's attachments the
 //!   virus scanner couldn't take at delivery, for the workspaces the
 //!   `mail_attachment_scan` due index lists
@@ -194,7 +203,7 @@ impl weldsuite_forms::TenantResolver for WorkspaceTenants {
     }
 }
 
-const JOBS: &str = "jobs: sign-lifecycle, identity-sync, workspace-deletion, workspace-teardown, mail-outbound-ledgers, calendar-replan, flow-file-purge, flow-approval-due, flow-benefit-measure, flow-status-reports, flow-finance-snapshot, books-sweep, digipoort-status, domain-auto-renew, desk-sla-sweep, desk-report-sweep, asset-import-sweep, reach-send-sweep, reach-warmup-sweep, reach-slot-reconciliation, reach-warmup-dispatch, reach-warmup-plan, reach-warmup-daily, bank-feed-due, crm-due, ad-sync, workflow-polls, workflow-schedules, connector-catchup, moneybird-push, merge-digest-sweep, forms-reminders, forms-digest, weldagent-routines, sandbox-cleanup, billing-renewals, panel-usage, panel-maintenance, panel-schedule, stash-replenishment";
+const JOBS: &str = "jobs: sign-lifecycle, identity-sync, workspace-deletion, workspace-teardown, mail-outbound-ledgers, calendar-replan, flow-file-purge, flow-approval-due, flow-benefit-measure, flow-status-reports, flow-finance-snapshot, books-sweep, digipoort-status, domain-auto-renew, desk-sla-sweep, desk-report-sweep, asset-import-sweep, reach-send-sweep, reach-warmup-sweep, reach-slot-reconciliation, reach-warmup-dispatch, reach-warmup-plan, reach-warmup-daily, bank-feed-due, crm-due, ad-sync, workflow-polls, workflow-schedules, connector-catchup, moneybird-push, merge-digest-sweep, forms-reminders, forms-digest, weldagent-routines, sandbox-cleanup, billing-renewals, panel-usage, panel-maintenance, panel-schedule, stash-replenishment, storefront-hosts";
 
 /// `weldsuite cron <job>`.
 #[allow(clippy::too_many_lines)] // one arm per job
@@ -239,7 +248,8 @@ pub(crate) fn main(job: Option<&str>) -> ExitCode {
         | "panel-usage"
         | "panel-maintenance"
         | "panel-schedule"
-        | "stash-replenishment"),
+        | "stash-replenishment"
+        | "storefront-hosts"),
     ) = job
     else {
         eprintln!("usage: weldsuite cron <job>\n{JOBS}");
@@ -276,14 +286,14 @@ pub(crate) fn main(job: Option<&str>) -> ExitCode {
             "flow-status-reports" => flow_status_reports(config).await,
             "flow-finance-snapshot" => flow_finance_snapshot(config).await,
             "workflow-schedules" => workflow_schedules(config).await,
-            "books-sweep" => books_sweep(config).await,
+            "books-sweep" => Box::pin(books_sweep(config)).await,
             "digipoort-status" => digipoort_status(config).await,
             "domain-auto-renew" => {
                 domain_auto_renew();
                 Ok(())
             }
             "desk-sla-sweep" => Box::pin(desk_sla_sweep(config)).await,
-            "desk-report-sweep" => desk_report_sweep(config).await,
+            "desk-report-sweep" => Box::pin(desk_report_sweep(config)).await,
             "asset-import-sweep" => asset_import_sweep(config).await,
             "reach-send-sweep" => reach_send_sweep(config).await,
             "reach-warmup-sweep" | "reach-slot-reconciliation" => reach_warmup(config, job).await,
@@ -296,7 +306,7 @@ pub(crate) fn main(job: Option<&str>) -> ExitCode {
             "connector-catchup" | "moneybird-push" => connectors(config, job).await,
             "workflow-polls" => workflow_polls(config).await,
             "merge-digest-sweep" => merge_digest_sweep(config).await,
-            "forms-reminders" | "forms-digest" => forms_sweep(config, job).await,
+            "forms-reminders" | "forms-digest" => Box::pin(forms_sweep(config, job)).await,
             "weldagent-routines" => Box::pin(weldagent_routines(config)).await,
             "sandbox-cleanup" => sandbox_cleanup(config).await,
             "billing-renewals" => Box::pin(billing_renewals(config)).await,
@@ -304,6 +314,8 @@ pub(crate) fn main(job: Option<&str>) -> ExitCode {
             "panel-maintenance" => Box::pin(panel_maintenance(config)).await,
             "panel-schedule" => Box::pin(crate::panel_monitor::panel_schedule(config)).await,
             "stash-replenishment" => stash_replenishment(config).await,
+            "stash-parcel-tracking" => Box::pin(stash_parcel_tracking(config)).await,
+            "storefront-hosts" => Box::pin(crate::storefront::sweep(config)).await,
             "mail-attachment-scan" => mail_attachment_scan(config).await,
             "mail-threat-feeds" => mail_threat_feeds(config).await,
             _ => sign_lifecycle(config).await,
@@ -999,6 +1011,75 @@ async fn stash_replenishment(config: Config) -> Result<(), Box<dyn std::error::E
         .is_err()
     {
         tracing::warn!("stopped with planning runs still in flight");
+    }
+    Ok(())
+}
+
+/// `weldsuite cron stash-parcel-tracking`: one tick of WeldStash's parcel
+/// tracking sweep (ADR STASH-013), for the workspaces the
+/// `stash_parcel_tracking` due index lists. Events go out through the
+/// infra's publisher; the tick waits for them before it exits.
+async fn stash_parcel_tracking(config: Config) -> Result<(), Box<dyn std::error::Error>> {
+    if !crate::routes::mounts("stash") {
+        println!(
+            "{}",
+            serde_json::json!({ "job": "stash-parcel-tracking", "result": { "skipped": "stash is not served" } })
+        );
+        return Ok(());
+    }
+    let master =
+        weldsuite_db::master_pool(&config.master_database_url, config.master_max_connections)?;
+    let workspaces = Arc::new(Workspaces::new(
+        master.clone(),
+        config.keyring.clone(),
+        config.workspaces.clone(),
+    ));
+    let tracker = weldsuite_events::TaskTracker::new();
+    #[cfg(not(feature = "conformance"))]
+    let infra =
+        crate::infra::connect(&config.infra, &master, &config.keyring, tracker.clone()).await?;
+    #[cfg(feature = "conformance")]
+    let (infra, _) = crate::conformance::infra(tracker.clone());
+    let http = weldsuite_adapters_oss::ReqwestOutbound::new(Duration::from_secs(20))
+        .map(|client| weldsuite_ports::OutboundHttp(Arc::new(client)))?;
+    let sweep = weldsuite_stash::shipping::TrackingSweep {
+        master: master.clone(),
+        tenants: Arc::new(move |reference: String| {
+            let workspaces = Arc::clone(&workspaces);
+            Box::pin(async move {
+                let tenant = workspaces
+                    .tenant(&reference)
+                    .await
+                    .map_err(|error| error.to_string())?;
+                Ok((tenant.db, tenant.clerk_org_id))
+            })
+        }),
+        http,
+        events: infra.events.clone(),
+        env: Arc::new(|name: &str| std::env::var(name).ok()),
+    };
+    let started = std::time::Instant::now();
+    let result =
+        weldsuite_stash::shipping::run_tracking_sweep(&sweep, time::OffsetDateTime::now_utc())
+            .await;
+    weldsuite_ports::record_job_run(
+        "stash.parcel_tracking",
+        result.failed == 0,
+        started.elapsed(),
+    );
+    println!(
+        "{}",
+        serde_json::json!({
+            "job": "stash-parcel-tracking",
+            "result": { "due": result.due, "processed": result.processed, "failed": result.failed },
+        })
+    );
+    tracker.close();
+    if tokio::time::timeout(Duration::from_mins(5), tracker.wait())
+        .await
+        .is_err()
+    {
+        tracing::warn!("stopped with parcel events still in flight");
     }
     Ok(())
 }

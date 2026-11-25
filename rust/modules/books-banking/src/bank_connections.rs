@@ -19,6 +19,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, post};
 use axum::{Extension, Router};
 use http::{HeaderMap, StatusCode};
+use sea_orm::{EntityTrait, QuerySelect};
 use serde_json::{Map, Value, json};
 use weldsuite_auth::AuthContext;
 use weldsuite_books_domain::bank_feeds::connections::{
@@ -37,10 +38,12 @@ use weldsuite_catalogs::entity_events::{
     BANK_CONNECTION_CREATED, BANK_CONNECTION_DELETED, BANK_CONNECTION_SYNCED,
     BANK_CONNECTION_UPDATED,
 };
+use weldsuite_db::orm;
 use weldsuite_kit::ApiError;
 use weldsuite_kit::validation::{Format, Issues, Presence, Text};
 use weldsuite_legal_entities::{EntityRecordGuard, EntityTable};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::entities;
 
 use crate::common::text;
 
@@ -129,6 +132,7 @@ fn failure(error: ServiceError) -> Refusal {
         },
         ServiceError::Database(error) => Refusal::Database(error),
         ServiceError::Other(message) => Refusal::Internal(message),
+        ServiceError::OutsideEu(error) => error.to_api_error().into(),
     }
 }
 
@@ -168,11 +172,12 @@ async fn providers(caller: Caller, State(state): State<BooksState>) -> Response 
         if country.as_deref().is_none_or(str::is_empty)
             && let Some(entity_id) = resolve_entity_id(&caller).await?
         {
-            let code: Option<Option<String>> =
-                sqlx::query_scalar("select jurisdiction_code from entities where id = $1 limit 1")
-                    .bind(&entity_id)
-                    .fetch_optional(&caller.db)
-                    .await?;
+            let code = entities::Entity::find_by_id(entity_id)
+                .select_only()
+                .column(entities::Column::JurisdictionCode)
+                .into_tuple::<Option<String>>()
+                .one(&orm(&caller.db))
+                .await?;
             country = code.flatten().map(|c| c.to_uppercase());
         }
         let country = country.unwrap_or_else(|| "US".to_owned());
@@ -551,9 +556,18 @@ async fn sync(
             .is_ok_and(|b| b.get("refresh") == Some(&Value::Bool(true)));
         let entity_id = resolve_entity_id(&caller).await?;
         let ctx = feed_context(&caller, &state);
-        require_connection(&ctx.db, &id, entity_id.as_deref())
+        let row = require_connection(&ctx.db, &id, entity_id.as_deref())
             .await
             .map_err(failure)?;
+        // "Sync now" on a provider outside the EU the workspace hasn't
+        // switched on is a 403 (ADR OPS-026); the sweeps skip it instead.
+        ctx.outside_eu(
+            row.get("provider")
+                .and_then(Value::as_str)
+                .unwrap_or_default(),
+        )
+        .await
+        .map_err(|error| failure(error.into()))?;
         let options = SyncOptions {
             refresh,
             // The member's address: Ponto synchronizes only with the customer present.

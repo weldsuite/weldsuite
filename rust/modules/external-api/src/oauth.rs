@@ -9,10 +9,14 @@ use axum::body::Bytes;
 use axum::extract::{Request, State};
 use axum::response::{IntoResponse, Response};
 use http::StatusCode;
+use sea_orm::ActiveValue::Set;
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, JoinType, QueryFilter, QuerySelect};
 use serde_json::{Value, json};
-use time::OffsetDateTime;
-use weldsuite_events::iso_timestamp;
+use weldsuite_db::orm;
 use weldsuite_kit::id::{generate_id, random_string};
+use weldsuite_schema::master::{
+    user_app_installs, user_app_oauth_clients, user_app_tokens, user_apps,
+};
 
 use crate::auth::sha256_hex;
 use crate::{ExternalApiState, master_db};
@@ -190,16 +194,27 @@ async fn mint(
     client_id: &str,
     client_secret: &str,
     workspace_id: &str,
-) -> Result<Response, sqlx::Error> {
-    let client: Option<(String, String)> = sqlx::query_as(
-        "select c.app_id, c.client_secret_hash from user_app_oauth_clients c
-           join user_apps a on a.id = c.app_id
-          where c.client_id = $1 and a.is_active = true and a.deleted_at is null
-          limit 1",
-    )
-    .bind(client_id)
-    .fetch_optional(master)
-    .await?;
+) -> Result<Response, DbErr> {
+    let master = orm(master);
+    let client: Option<(String, String)> = user_app_oauth_clients::Entity::find()
+        .join(
+            JoinType::InnerJoin,
+            user_app_oauth_clients::Entity::belongs_to(user_apps::Entity)
+                .from(user_app_oauth_clients::Column::AppId)
+                .to(user_apps::Column::Id)
+                .into(),
+        )
+        .select_only()
+        .columns([
+            user_app_oauth_clients::Column::AppId,
+            user_app_oauth_clients::Column::ClientSecretHash,
+        ])
+        .filter(user_app_oauth_clients::Column::ClientId.eq(client_id))
+        .filter(user_apps::Column::IsActive.eq(true))
+        .filter(user_apps::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&master)
+        .await?;
     let secret_hash = sha256_hex(client_secret);
     let Some((app_id, _)) = client
         .as_ref()
@@ -211,15 +226,18 @@ async fn mint(
             "Unknown client or invalid client secret",
         ));
     };
-    let install: Option<(String, Option<Value>)> = sqlx::query_as(
-        "select id, granted_scopes from user_app_installs
-          where app_id = $1 and workspace_id = $2 and status = 'active'
-          limit 1",
-    )
-    .bind(app_id)
-    .bind(workspace_id)
-    .fetch_optional(master)
-    .await?;
+    let install: Option<(String, Option<Value>)> = user_app_installs::Entity::find()
+        .select_only()
+        .columns([
+            user_app_installs::Column::Id,
+            user_app_installs::Column::GrantedScopes,
+        ])
+        .filter(user_app_installs::Column::AppId.eq(app_id.as_str()))
+        .filter(user_app_installs::Column::WorkspaceId.eq(workspace_id))
+        .filter(user_app_installs::Column::Status.eq("active"))
+        .into_tuple()
+        .one(&master)
+        .await?;
     let Some((install_id, granted)) = install else {
         return Ok(oauth_error(
             StatusCode::BAD_REQUEST,
@@ -228,28 +246,29 @@ async fn mint(
         ));
     };
     let token = format!("wsat_{}", random_string(40, "0123456789abcdef"));
-    let now = OffsetDateTime::now_utc();
+    // `timestamptz` columns, written as Drizzle writes a `Date`: to the
+    // millisecond.
+    let now = weldsuite_db::utc_now().assume_utc();
     let expires_at = now + time::Duration::seconds(TOKEN_TTL_SECONDS);
     // `?? []`: a null column is no scopes.
     let scopes = match granted {
         Some(Value::Array(items)) => items,
         _ => Vec::new(),
     };
-    sqlx::query(
-        "insert into user_app_tokens
-           (id, install_id, app_id, workspace_id, token_hash, token_prefix, token_type, scopes, expires_at, created_at)
-         values ($1, $2, $3, $4, $5, $6, 'session', $7, $8::timestamptz, $9::timestamptz)",
-    )
-    .bind(generate_id("uat"))
-    .bind(&install_id)
-    .bind(app_id)
-    .bind(workspace_id)
-    .bind(sha256_hex(&token))
-    .bind(&token[..12])
-    .bind(Value::Array(scopes.clone()))
-    .bind(iso_timestamp(expires_at))
-    .bind(iso_timestamp(now))
-    .execute(master)
+    user_app_tokens::Entity::insert(user_app_tokens::ActiveModel {
+        id: Set(generate_id("uat")),
+        install_id: Set(install_id),
+        app_id: Set(app_id.clone()),
+        workspace_id: Set(workspace_id.to_owned()),
+        token_hash: Set(sha256_hex(&token)),
+        token_prefix: Set(token[..12].to_owned()),
+        token_type: Set("session".to_owned()),
+        scopes: Set(Some(Value::Array(scopes.clone()))),
+        expires_at: Set(Some(expires_at)),
+        created_at: Set(now),
+        ..Default::default()
+    })
+    .exec_without_returning(&master)
     .await?;
     let scope = scopes
         .iter()

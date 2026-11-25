@@ -1,6 +1,6 @@
 import { Loader2, Phone } from 'lucide-react';
 import { toast } from 'sonner';
-import { Button } from '@weldsuite/ui/components/button';
+import { HeaderIconButton } from '@weldsuite/ui/components/header-icon-button';
 import { useCan } from '@weldsuite/permissions/react';
 import { getTranslations } from '@/lib/i18n';
 import { useCall } from '@/contexts/call-context';
@@ -55,18 +55,13 @@ function CallButton({
 
   const busy = isDialing || Boolean(callState);
   return (
-    <Button
-      variant="ghost"
-      size="sm"
-      className="h-8 px-2 text-gray-600 dark:text-muted-foreground hover:bg-gray-100 dark:hover:bg-secondary"
+    <HeaderIconButton
+      label={t.title.replace('{number}', formatPhoneDisplay(toNumber))}
       onClick={() => void place()}
       disabled={busy}
-      title={t.title.replace('{number}', formatPhoneDisplay(toNumber))}
-      aria-label={t.title.replace('{number}', formatPhoneDisplay(toNumber))}
       data-testid="desk-inbox-call"
     >
-      {isDialing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Phone className="h-4 w-4" />}
-      <span className="hidden @3xl/desk-header:inline">{t.button}</span>
-    </Button>
+      {isDialing ? <Loader2 className="animate-spin" /> : <Phone />}
+    </HeaderIconButton>
   );
 }

@@ -13,25 +13,36 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use http::HeaderMap;
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, Condition, DbErr, EntityTrait, PaginatorTrait, QueryFilter,
+    QueryOrder, QuerySelect,
+};
 use serde_json::{Map, Value, json};
+use time::PrimitiveDateTime;
 use weldsuite_catalogs::entity_events::{
     PROJECT_FILE_CREATED, PROJECT_FILE_DELETED, PROJECT_FILE_UPDATED,
 };
-use weldsuite_db::{PgPool, js_row};
+use weldsuite_db::record::JsonTable;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::validation::{Issues, Presence, Text};
 use weldsuite_kit::{ApiError, Created, Data, NoContent, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::project_files::{self, Column};
 
 use crate::projects::{bindable, writable};
 use crate::{
-    Caller, FlowState, Query, Refusal, Reply, access_scope, forbidden, now, outside, page, paged,
-    reply, validate,
+    Caller, FlowState, Query, Refusal, Reply, access_scope, forbidden, in_accessible, json_rows,
+    now, outside, page, paged, reply, row_json, validate,
 };
 
 const PROJECT_DENIED: &str = "You are not a member of this project";
 const PROJECT_WRITE_DENIED: &str = "You do not have write access to this project";
 const STORAGE_KEY_REJECTED: &str =
     "storagePath / fileKey must be an unused upload key of this project";
+
+/// `project_files`, written from a body.
+const FILES: JsonTable = JsonTable::of::<project_files::Entity>();
 
 /// `WRITABLE_FILE_COLUMNS`.
 const WRITABLE: [&str; 14] = [
@@ -76,16 +87,45 @@ where
         .with_state(state)
 }
 
-async fn file_row(db: &PgPool, id: &str, live: bool) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(f) from project_files f
-         where f.id = $1 and (not $2 or f.deleted_at is null) limit 1",
-    )
-    .bind(id)
-    .bind(live)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(js_row))
+/// The body's camelCase keys as the columns they write (`{ column: value }`).
+fn by_column(values: Value) -> Map<String, Value> {
+    let Value::Object(values) = values else {
+        return Map::new();
+    };
+    values
+        .into_iter()
+        .map(|(key, value)| {
+            let mut column = String::with_capacity(key.len() + 4);
+            for c in key.chars() {
+                if c.is_ascii_uppercase() {
+                    column.push('_');
+                    column.push(c.to_ascii_lowercase());
+                } else {
+                    column.push(c);
+                }
+            }
+            (column, value)
+        })
+        .collect()
+}
+
+async fn file_row(db: &PgPool, id: &str, live: bool) -> Result<Option<Value>, DbErr> {
+    let mut find = project_files::Entity::find_by_id(id);
+    if live {
+        find = find.filter(Column::DeletedAt.is_null());
+    }
+    find.one(&orm(db)).await?.map(row_json).transpose()
+}
+
+/// `{ isFolder, projectId }` of a live file.
+async fn folder_of(db: &PgPool, id: &str) -> Result<Option<(bool, Option<String>)>, DbErr> {
+    project_files::Entity::find_by_id(id)
+        .select_only()
+        .columns([Column::IsFolder, Column::ProjectId])
+        .filter(Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await
 }
 
 /// Why a parent folder is refused (`assertValidParent`).
@@ -99,13 +139,8 @@ async fn check_parent(
     db: &PgPool,
     parent_id: &str,
     project_id: Option<&str>,
-) -> Result<ParentCheck, sqlx::Error> {
-    let parent: Option<(bool, Option<String>)> = sqlx::query_as(
-        "select is_folder, project_id from project_files where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(parent_id)
-    .fetch_optional(db)
-    .await?;
+) -> Result<ParentCheck, DbErr> {
+    let parent = folder_of(db, parent_id).await?;
     let Some((true, parent_project)) = parent else {
         return Ok(ParentCheck::NotFound);
     };
@@ -122,11 +157,11 @@ enum FolderError {
     Required,
     ParentNotFound,
     CrossProject,
-    Database(sqlx::Error),
+    Database(DbErr),
 }
 
-impl From<sqlx::Error> for FolderError {
-    fn from(error: sqlx::Error) -> Self {
+impl From<DbErr> for FolderError {
+    fn from(error: DbErr) -> Self {
         Self::Database(error)
     }
 }
@@ -146,33 +181,32 @@ async fn create_project_folder(
     }
     let parent_id = parent_id.filter(|p| !p.is_empty());
     if let Some(parent_id) = parent_id {
-        let parent: Option<(bool, Option<String>)> = sqlx::query_as(
-            "select is_folder, project_id from project_files where id = $1 and deleted_at is null limit 1",
-        )
-        .bind(parent_id)
-        .fetch_optional(db)
-        .await?;
+        let parent = folder_of(db, parent_id).await?;
         match parent {
             Some((true, parent_project)) if parent_project.as_deref() == Some(project_id) => {}
             Some((true, _)) => return Err(FolderError::CrossProject),
             _ => return Err(FolderError::ParentNotFound),
         }
     }
-    sqlx::query(
-        "insert into project_files
-             (id, project_id, parent_id, file_name, original_name, mime_type, file_size,
-              storage_path, storage_provider, file_type, is_folder, uploaded_by_id,
-              created_at, updated_at)
-         values ($1, $2, $3, $4, $4, 'inode/directory', 0, '', 'r2', 'folder', true, $5,
-                 $6::timestamp, $6::timestamp)",
-    )
-    .bind(&id)
-    .bind(project_id)
-    .bind(parent_id)
-    .bind(name)
-    .bind(uploaded_by.filter(|u| !u.is_empty()))
-    .bind(now())
-    .execute(db)
+    let now = weldsuite_db::utc_now();
+    project_files::Entity::insert(project_files::ActiveModel {
+        id: Set(id.clone()),
+        project_id: Set(Some(project_id.to_owned())),
+        parent_id: Set(parent_id.map(str::to_owned)),
+        file_name: Set(name.to_owned()),
+        original_name: Set(Some(name.to_owned())),
+        mime_type: Set("inode/directory".to_owned()),
+        file_size: Set(0),
+        storage_path: Set(String::new()),
+        storage_provider: Set("r2".to_owned()),
+        file_type: Set("folder".to_owned()),
+        is_folder: Set(true),
+        uploaded_by_id: Set(uploaded_by.filter(|u| !u.is_empty()).map(str::to_owned)),
+        created_at: Set(now),
+        updated_at: Set(now),
+        ..Default::default()
+    })
+    .exec_without_returning(&orm(db))
     .await?;
     Ok(file_row(db, &id, false).await?.unwrap_or(Value::Null))
 }
@@ -224,15 +258,19 @@ fn is_unguessable_segment(segment: &str) -> bool {
 }
 
 /// Is `key` the object of a project file other than `except`?
-async fn key_in_use(db: &PgPool, key: &str, except: Option<&str>) -> Result<bool, sqlx::Error> {
-    let found: Option<String> = sqlx::query_scalar(
-        "select id from project_files
-         where (storage_path = $1 or file_key = $1) and ($2::text is null or id <> $2) limit 1",
-    )
-    .bind(key)
-    .bind(except)
-    .fetch_optional(db)
-    .await?;
+async fn key_in_use(db: &PgPool, key: &str, except: Option<&str>) -> Result<bool, DbErr> {
+    let mut find = project_files::Entity::find()
+        .select_only()
+        .column(Column::Id)
+        .filter(
+            Condition::any()
+                .add(Column::StoragePath.eq(key))
+                .add(Column::FileKey.eq(key)),
+        );
+    if let Some(except) = except {
+        find = find.filter(Column::Id.ne(except));
+    }
+    let found: Option<String> = find.into_tuple().one(&orm(db)).await?;
     Ok(found.is_some())
 }
 
@@ -245,7 +283,7 @@ async fn keys_acceptable(
     workspace_id: Option<&str>,
     project_id: Option<&str>,
     existing: Option<(&str, &Value, &Value)>,
-) -> Result<bool, sqlx::Error> {
+) -> Result<bool, DbErr> {
     let mut sent: Vec<&Value> = Vec::new();
     for key in ["storagePath", "fileKey"] {
         if let Some(value) = data.get(key)
@@ -312,22 +350,40 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
     outside(list_files(&caller, &q).await)
 }
 
-/// The list's `where`, each condition behind a flag (see [`list_files`]).
-macro_rules! file_filters {
-    () => {
-        concat!(
-            "($1::bool is not true or f.deleted_at is null)",
-            " and ($2::text is null or f.project_id = $2)",
-            " and ($3::text is null or f.uploaded_by_id = $3)",
-            " and ($4::text is null or f.file_type = $4)",
-            " and ($5::bool is not true or f.parent_id is null)",
-            " and ($6::text is null or f.parent_id = $6)",
-            " and ($7::bool is not true or f.is_folder = true)",
-            " and ($8::bool is not true or ",
-            in_accessible!("f.project_id", "$9", "$10"),
-            ")"
+/// The keyset cursor row: `isFolder`, `createdAt` as Drizzle reads it back
+/// (milliseconds) and the id.
+async fn file_cursor(
+    db: &PgPool,
+    cursor: &str,
+) -> Result<Option<(bool, PrimitiveDateTime, String)>, DbErr> {
+    let row: Option<(bool, String, PrimitiveDateTime)> = project_files::Entity::find_by_id(cursor)
+        .select_only()
+        .columns([Column::IsFolder, Column::Id, Column::CreatedAt])
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
+    Ok(row.map(|(folder, id, created)| {
+        (
+            folder,
+            weldsuite_db::utc_timestamp(created.assume_utc()),
+            id,
         )
-    };
+    }))
+}
+
+/// `isFolder < folder or (isFolder = folder and (createdAt < at or
+/// (createdAt = at and id < cursor)))`: the rows after the cursor in
+/// `isFolder desc, createdAt desc, id desc` order.
+fn after_file((folder, at, id): (bool, PrimitiveDateTime, String)) -> Condition {
+    Condition::any().add(Column::IsFolder.lt(folder)).add(
+        Condition::all().add(Column::IsFolder.eq(folder)).add(
+            Condition::any().add(Column::CreatedAt.lt(at)).add(
+                Condition::all()
+                    .add(Column::CreatedAt.eq(at))
+                    .add(Column::Id.lt(id)),
+            ),
+        ),
+    )
 }
 
 #[allow(clippy::too_many_lines)]
@@ -353,92 +409,73 @@ async fn list_files(caller: &Caller, q: &Query) -> Reply {
         _ => (false, None),
     };
     let folders_only = q.get("foldersOnly") == Some("true");
-    let (scoped, all, ids) = if let Some(project_id) = &project_id {
+    let scope = if let Some(project_id) = &project_id {
         if !caller.can_access(project_id).await? {
             return Err(Refusal::forbidden(PROJECT_DENIED));
         }
-        (false, true, Vec::new())
+        None
     } else {
-        let (all, ids) = access_scope(caller).await?;
-        (true, all, ids)
+        Some(access_scope(caller).await?)
     };
-    let mut cursor: Option<(bool, String, String)> = None;
-    if let Some(at) = q.present("cursor") {
-        let row: Option<(bool, String, Option<String>)> = sqlx::query_as(
-            "select is_folder, id, to_jsonb(created_at) #>> '{}' from project_files where id = $1 limit 1",
-        )
-        .bind(at)
-        .fetch_optional(db)
-        .await?;
-        if let Some((folder, id, created)) = row {
-            let created = created
-                .as_deref()
-                .and_then(weldsuite_db::js_timestamp)
-                .unwrap_or_default();
-            cursor = Some((folder, created, id));
-        }
-    }
+    let cursor = match q.present("cursor") {
+        Some(at) => file_cursor(db, at).await?,
+        None => None,
+    };
     // The conditions in TypeScript's order; with a cursor the count leaves
     // out the last one (`conditions.slice(0, -1)`): the cursor's own, or,
     // when its row is unknown, the last filter.
-    let mut flags = [
-        true,
-        project_id.is_some(),
-        uploaded_by.is_some(),
-        file_type.is_some(),
-        parent_null,
-        parent_eq.is_some(),
-        folders_only,
-        scoped,
-    ];
-    let row_flags = flags;
-    if q.present("cursor").is_some()
-        && cursor.is_none()
-        && let Some(last) = flags.iter().rposition(|on| *on)
-    {
-        flags[last] = false;
+    let mut filters = vec![Condition::all().add(Column::DeletedAt.is_null())];
+    if let Some(project_id) = &project_id {
+        filters.push(Condition::all().add(Column::ProjectId.eq(project_id.as_str())));
     }
+    if let Some(uploaded_by) = &uploaded_by {
+        filters.push(Condition::all().add(Column::UploadedById.eq(uploaded_by.as_str())));
+    }
+    if let Some(file_type) = &file_type {
+        filters.push(Condition::all().add(Column::FileType.eq(file_type.as_str())));
+    }
+    if parent_null {
+        filters.push(Condition::all().add(Column::ParentId.is_null()));
+    }
+    if let Some(parent) = &parent_eq {
+        filters.push(Condition::all().add(Column::ParentId.eq(parent.as_str())));
+    }
+    if folders_only {
+        filters.push(Condition::all().add(Column::IsFolder.eq(true)));
+    }
+    if let Some(scope) = &scope {
+        filters.push(in_accessible(Column::ProjectId, scope));
+    }
+    let mut counted = filters.clone();
+    if q.present("cursor").is_some() && cursor.is_none() {
+        counted.pop();
+    }
+    let all_of = |conditions: Vec<Condition>| {
+        conditions
+            .into_iter()
+            .fold(Condition::all(), Condition::add)
+    };
     let result = async {
-        let rows: Vec<Value> = sqlx::query_scalar(concat!(
-            "select to_jsonb(f) from project_files f where ",
-            file_filters!(),
-            " and ($11::bool is null or f.is_folder < $11 or (f.is_folder = $11 and",
-            " (f.created_at < $12::timestamp or (f.created_at = $12::timestamp and f.id < $13))))",
-            " order by f.is_folder desc, f.created_at desc, f.id desc limit $14"
-        ))
-        .bind(row_flags[0])
-        .bind(project_id.as_deref())
-        .bind(uploaded_by.as_deref())
-        .bind(file_type.as_deref())
-        .bind(row_flags[4])
-        .bind(parent_eq.as_deref())
-        .bind(row_flags[6])
-        .bind(row_flags[7])
-        .bind(all)
-        .bind(&ids)
-        .bind(cursor.as_ref().map(|c| c.0))
-        .bind(cursor.as_ref().map(|c| c.1.as_str()))
-        .bind(cursor.as_ref().map(|c| c.2.as_str()))
-        .bind(limit + 1)
-        .fetch_all(db)
-        .await?;
-        let total: i64 = sqlx::query_scalar(concat!(
-            "select count(*) from project_files f where ",
-            file_filters!()
-        ))
-        .bind(flags[0])
-        .bind(project_id.as_deref().filter(|_| flags[1]))
-        .bind(uploaded_by.as_deref().filter(|_| flags[2]))
-        .bind(file_type.as_deref().filter(|_| flags[3]))
-        .bind(flags[4])
-        .bind(parent_eq.as_deref().filter(|_| flags[5]))
-        .bind(flags[6])
-        .bind(flags[7])
-        .bind(all)
-        .bind(&ids)
-        .fetch_one(db)
-        .await?;
-        let (rows, has_more, next) = page(rows.into_iter().map(js_row).collect(), limit);
+        let orm = &orm(db);
+        let mut rows = all_of(filters);
+        if let Some(cursor) = cursor {
+            rows = rows.add(after_file(cursor));
+        }
+        let rows = project_files::Entity::find()
+            .filter(rows)
+            .order_by_desc(Column::IsFolder)
+            .order_by_desc(Column::CreatedAt)
+            .order_by_desc(Column::Id)
+            .limit(u64::try_from(limit + 1).unwrap_or(0))
+            .all(orm)
+            .await?;
+        let total = project_files::Entity::find()
+            .filter(all_of(counted))
+            .count(orm)
+            .await?;
+        let total = i64::try_from(total).unwrap_or(i64::MAX);
+        let rows = json_rows(rows)?;
+        let (rows, has_more, next) = page(rows, limit);
         Ok(paged(rows, total, has_more, next))
     }
     .await;
@@ -623,7 +660,7 @@ async fn create_file(
         )
         .await
         .map_err(|error| match error {
-            FolderError::Database(error) => Refusal::Database(error),
+            FolderError::Database(error) => Refusal::from(error),
             FolderError::Required => Refusal::Internal("Folder name is required".to_owned()),
             FolderError::ParentNotFound => Refusal::Internal("Parent folder not found".to_owned()),
             FolderError::CrossProject => {
@@ -669,47 +706,33 @@ async fn create_file(
         parent_id.map_or(Value::Null, Value::String),
     );
     let id = generate_id("pfile");
-    sqlx::query(concat!(
-        "insert into project_files (id, project_id, uploaded_by_id, created_at, updated_at,",
-        " parent_id, file_name, original_name, mime_type, file_size, storage_path, file_key, url,",
-        " thumbnail_url, storage_provider, file_type, is_public, client_visible, metadata)",
-        " values ($2, $3, $4, $5::timestamp, $5::timestamp, ",
-        val_text!("parentId", "null"),
-        ", ",
-        val_text!("fileName", "null"),
-        ", ",
-        val_text!("originalName", "null"),
-        ", ",
-        val_text!("mimeType", "null"),
-        ", ",
-        val_int!("fileSize", "null"),
-        ", ",
-        val_text!("storagePath", "null"),
-        ", ",
-        val_text!("fileKey", "null"),
-        ", ",
-        val_text!("url", "null"),
-        ", ",
-        val_text!("thumbnailUrl", "null"),
-        ", ",
-        val_text!("storageProvider", "'r2'"),
-        ", ",
-        val_text!("fileType", "'file'"),
-        ", ",
-        val_bool!("isPublic", "false"),
-        ", ",
-        val_bool!("clientVisible", "false"),
-        ", ",
-        val_json!("metadata", "null"),
-        ")"
-    ))
-    .bind(bindable(&columns))
-    .bind(&id)
-    .bind(project_id.as_deref())
-    .bind(uploaded_by.as_deref())
-    .bind(now())
-    .execute(db)
-    .await?;
+    // Every column named: a field left out is null, or its fallback.
+    let mut values = Map::new();
+    for (column, fallback) in [
+        ("file_name", Value::Null),
+        ("original_name", Value::Null),
+        ("mime_type", Value::Null),
+        ("file_size", Value::Null),
+        ("storage_path", Value::Null),
+        ("file_key", Value::Null),
+        ("url", Value::Null),
+        ("thumbnail_url", Value::Null),
+        ("storage_provider", json!("r2")),
+        ("file_type", json!("file")),
+        ("is_public", json!(false)),
+        ("client_visible", json!(false)),
+        ("metadata", Value::Null),
+    ] {
+        values.insert(column.to_owned(), fallback);
+    }
+    values.extend(by_column(bindable(&columns)));
+    let now = now();
+    values.insert("id".to_owned(), json!(id));
+    values.insert("project_id".to_owned(), json!(project_id));
+    values.insert("uploaded_by_id".to_owned(), json!(uploaded_by));
+    values.insert("created_at".to_owned(), json!(now));
+    values.insert("updated_at".to_owned(), json!(now));
+    FILES.insert(&orm(db), values).await?;
     let file_type = match data.get("fileType") {
         None | Some(Value::Null) => json!("file"),
         Some(file_type) => file_type.clone(),
@@ -749,7 +772,7 @@ async fn would_create_cycle(
     db: &PgPool,
     folder_id: &str,
     new_parent: Option<&str>,
-) -> Result<bool, sqlx::Error> {
+) -> Result<bool, DbErr> {
     let Some(new_parent) = new_parent.filter(|p| !p.is_empty()) else {
         return Ok(false);
     };
@@ -762,12 +785,13 @@ async fn would_create_cycle(
         if at == folder_id || seen.contains(&at) {
             return Ok(true);
         }
-        let parent: Option<Option<String>> = sqlx::query_scalar(
-            "select parent_id from project_files where id = $1 and deleted_at is null limit 1",
-        )
-        .bind(&at)
-        .fetch_optional(db)
-        .await?;
+        let parent: Option<Option<String>> = project_files::Entity::find_by_id(at.as_str())
+            .select_only()
+            .column(Column::ParentId)
+            .filter(Column::DeletedAt.is_null())
+            .into_tuple()
+            .one(&orm(db))
+            .await?;
         seen.push(at);
         current = parent.flatten();
     }
@@ -827,42 +851,10 @@ async fn update_file(
         return Err(Refusal::bad_request(STORAGE_KEY_REJECTED));
     }
     let old_key = replaced_key(&existing, &update);
-    sqlx::query(concat!(
-        "update project_files set ",
-        set_text!("fileName", "file_name"),
-        ", ",
-        set_text!("originalName", "original_name"),
-        ", ",
-        set_text!("mimeType", "mime_type"),
-        ", ",
-        set_int!("fileSize", "file_size"),
-        ", ",
-        set_text!("storagePath", "storage_path"),
-        ", ",
-        set_text!("fileKey", "file_key"),
-        ", ",
-        set_text!("url", "url"),
-        ", ",
-        set_text!("thumbnailUrl", "thumbnail_url"),
-        ", ",
-        set_text!("storageProvider", "storage_provider"),
-        ", ",
-        set_text!("fileType", "file_type"),
-        ", ",
-        set_bool!("isPublic", "is_public"),
-        ", ",
-        set_bool!("clientVisible", "client_visible"),
-        ", ",
-        set_json!("metadata", "metadata"),
-        ", ",
-        set_text!("parentId", "parent_id"),
-        ", updated_at = $3::timestamp where id = $2 and deleted_at is null"
-    ))
-    .bind(bindable(&update))
-    .bind(id)
-    .bind(now())
-    .execute(db)
-    .await?;
+    // The fields sent change; the others keep their values.
+    let mut set = by_column(bindable(&update));
+    set.insert("updated_at".to_owned(), json!(now()));
+    FILES.update(&orm(db), id, set, true).await?;
     if let Some(old_key) = old_key {
         delete_replaced_object(
             state,
@@ -938,13 +930,9 @@ async fn remove(
 
 async fn remove_file(state: &FlowState, caller: &Caller, id: &str) -> Reply {
     let db = &caller.db;
-    let existing: Option<(Option<String>, bool)> = sqlx::query_as(
-        "select project_id, is_folder from project_files where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    let Some((project, is_folder)) = existing else {
+    let orm = &orm(db);
+    let existing = folder_of(db, id).await?;
+    let Some((is_folder, project)) = existing else {
         return Err(Refusal::not_found("Project file", id));
     };
     if let Some(project) = project.as_deref().filter(|p| !p.is_empty())
@@ -953,18 +941,25 @@ async fn remove_file(state: &FlowState, caller: &Caller, id: &str) -> Reply {
         return Err(Refusal::forbidden(PROJECT_WRITE_DENIED));
     }
     let now_at = time::OffsetDateTime::now_utc();
-    let now = weldsuite_events::iso_timestamp(now_at);
+    let now = weldsuite_db::utc_timestamp(now_at);
+    let soft_delete = || {
+        project_files::Entity::update_many()
+            .col_expr(Column::DeletedAt, Expr::value(now))
+            .col_expr(Column::UpdatedAt, Expr::value(now))
+    };
     let deleted: Vec<String> = if is_folder {
         // `softDeleteProjectFolderCascade`: the folder and everything under it.
         let mut ids = vec![id.to_owned()];
         let mut frontier = vec![id.to_owned()];
         while !frontier.is_empty() {
-            let children: Vec<String> = sqlx::query_scalar(
-                "select id from project_files where parent_id = any($1) and deleted_at is null",
-            )
-            .bind(&frontier)
-            .fetch_all(db)
-            .await?;
+            let children: Vec<String> = project_files::Entity::find()
+                .select_only()
+                .column(Column::Id)
+                .filter(Column::ParentId.is_in(frontier))
+                .filter(Column::DeletedAt.is_null())
+                .into_tuple()
+                .all(orm)
+                .await?;
             frontier = Vec::new();
             for child in children {
                 if !ids.contains(&child) {
@@ -973,22 +968,13 @@ async fn remove_file(state: &FlowState, caller: &Caller, id: &str) -> Reply {
                 }
             }
         }
-        sqlx::query(
-            "update project_files set deleted_at = $2::timestamp, updated_at = $2::timestamp where id = any($1)",
-        )
-        .bind(&ids)
-        .bind(&now)
-        .execute(db)
-        .await?;
+        soft_delete()
+            .filter(Column::Id.is_in(ids.iter().map(String::as_str)))
+            .exec(orm)
+            .await?;
         ids
     } else {
-        sqlx::query(
-            "update project_files set deleted_at = $2::timestamp, updated_at = $2::timestamp where id = $1",
-        )
-        .bind(id)
-        .bind(&now)
-        .execute(db)
-        .await?;
+        soft_delete().filter(Column::Id.eq(id)).exec(orm).await?;
         vec![id.to_owned()]
     };
     mark_purge_due(state, caller, now_at).await;

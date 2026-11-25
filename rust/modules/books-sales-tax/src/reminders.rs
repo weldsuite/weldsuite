@@ -18,14 +18,16 @@ use std::fmt::Write;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
+use sea_orm::ActiveValue::Set;
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
-use weldsuite_books_domain::books_row;
 use weldsuite_books_domain::js::{number_text, to_fixed};
-use weldsuite_books_domain::tables::ENTITIES;
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_ports::{BoxFuture, DynCache, DynRealtimePublisher, RealtimeMessage};
+use weldsuite_schema::tenant::{entities, notifications, workspace_members};
 
 use crate::common::{day_in, text};
+use crate::returns::common::rows_json;
 
 /// Platform routes the reminders link to.
 pub const SALES_TAX_PATH: &str = "/weldbooks/sales-tax";
@@ -231,32 +233,34 @@ impl ReminderNotifier for InAppNotifier {
     ) -> BoxFuture<'a, Result<(), String>> {
         Box::pin(async move {
             let id = weldsuite_kit::generate_id("notif");
-            let now = weldsuite_events::iso_timestamp(time::OffsetDateTime::now_utc());
+            // `new Date()`: to the millisecond, as the row and the publish carry it.
+            let at = time::OffsetDateTime::now_utc();
+            let at = at.replace_millisecond(at.millisecond()).unwrap_or(at);
+            let now = weldsuite_events::iso_timestamp(at);
             let notification_type = notice.notification_type();
             let data = if notice.data.is_empty() {
                 None
             } else {
                 Some(Value::Object(notice.data_json()))
             };
-            sqlx::query(
-                "insert into notifications \
-                    (id, user_id, title, body, category, notification_type, entity_type, entity_id, \
-                     action_url, actor_type, severity, data, delivered_in_app, created_at) \
-                 values ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'system', $10, $11, true, $12::timestamptz)",
-            )
-            .bind(&id)
-            .bind(user_id)
-            .bind(js_slice(&notice.title, 255))
-            .bind(&notice.body)
-            .bind(REMINDER_CATEGORY)
-            .bind(notification_type)
-            .bind(js_slice(notice.entity_type, 50))
-            .bind(js_slice(&notice.entity_id, 30))
-            .bind(notice.action_url)
-            .bind(notice.severity)
-            .bind(data)
-            .bind(&now)
-            .execute(&self.db)
+            notifications::Entity::insert(notifications::ActiveModel {
+                id: Set(id.clone()),
+                user_id: Set(user_id.to_owned()),
+                title: Set(js_slice(&notice.title, 255)),
+                body: Set(Some(notice.body.clone())),
+                category: Set(REMINDER_CATEGORY.to_owned()),
+                notification_type: Set(notification_type.to_owned()),
+                entity_type: Set(Some(js_slice(notice.entity_type, 50))),
+                entity_id: Set(Some(js_slice(&notice.entity_id, 30))),
+                action_url: Set(Some(notice.action_url.to_owned())),
+                actor_type: Set(Some("system".to_owned())),
+                severity: Set(notice.severity.to_owned()),
+                data: Set(data),
+                delivered_in_app: Set(true),
+                created_at: Set(at),
+                ..Default::default()
+            })
+            .exec_without_returning(&orm(&self.db))
             .await
             .map_err(|error| error.to_string())?;
             let Some(realtime) = &self.realtime else {
@@ -327,7 +331,7 @@ pub struct TaxReminderOptions<'a> {
 /// Why the run stopped: the database, or the marker store.
 #[derive(Debug)]
 pub enum ReminderError {
-    Database(sqlx::Error),
+    Database(DbErr),
     Markers(String),
 }
 
@@ -342,8 +346,8 @@ impl std::fmt::Display for ReminderError {
 
 impl std::error::Error for ReminderError {}
 
-impl From<sqlx::Error> for ReminderError {
-    fn from(error: sqlx::Error) -> Self {
+impl From<DbErr> for ReminderError {
+    fn from(error: DbErr) -> Self {
         Self::Database(error)
     }
 }
@@ -377,7 +381,7 @@ async fn sales_tax_candidates(
     db: &PgPool,
     entity: &Value,
     today: &str,
-) -> Result<Vec<Candidate>, sqlx::Error> {
+) -> Result<Vec<Candidate>, DbErr> {
     let entity_id = s(entity, "id");
     let mut out = Vec::new();
     let agencies: Vec<Value> = crate::returns::common::load_agencies(db, entity_id)
@@ -453,7 +457,7 @@ async fn calendar_candidates(
     db: &PgPool,
     entity: &Value,
     today: &str,
-) -> Result<Vec<Candidate>, sqlx::Error> {
+) -> Result<Vec<Candidate>, DbErr> {
     let year: i64 = today.get(0..4).and_then(|y| y.parse().ok()).unwrap_or(0);
     let years = if today.get(5..7) == Some("12") {
         vec![year, year + 1]
@@ -512,7 +516,7 @@ async fn certificate_candidates(
     db: &PgPool,
     entity: &Value,
     today: &str,
-) -> Result<Vec<Candidate>, sqlx::Error> {
+) -> Result<Vec<Candidate>, DbErr> {
     let report = crate::reports::expiring_certificates(db, entity, 30, today).await?;
     Ok(report["certificates"]
         .as_array()
@@ -555,7 +559,7 @@ async fn nexus_candidates(
     db: &PgPool,
     entity: &Value,
     today: &str,
-) -> Result<Vec<Candidate>, sqlx::Error> {
+) -> Result<Vec<Candidate>, DbErr> {
     let overview = crate::nexus::nexus_overview(db, s(entity, "id"), today).await?;
     let as_of = s(&overview, "asOf");
     Ok(overview["rows"]
@@ -609,13 +613,17 @@ async fn nexus_candidates(
 }
 
 /// `reminderRecipients(db)`: the active owners and admins.
-pub async fn reminder_recipients(db: &PgPool) -> Result<Vec<String>, sqlx::Error> {
-    let rows: Vec<String> = sqlx::query_scalar(
-        "select user_id from workspace_members \
-         where role in ('OWNER', 'ADMIN') and status = 'ACTIVE' and deleted_at is null",
-    )
-    .fetch_all(db)
-    .await?;
+pub async fn reminder_recipients(db: &PgPool) -> Result<Vec<String>, DbErr> {
+    use workspace_members::Column;
+    let rows: Vec<String> = workspace_members::Entity::find()
+        .select_only()
+        .column(Column::UserId)
+        .filter(Column::Role.is_in(["OWNER", "ADMIN"]))
+        .filter(Column::Status.eq("ACTIVE"))
+        .filter(Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     let mut out: Vec<String> = Vec::new();
     for user in rows {
         if !out.contains(&user) {
@@ -636,15 +644,12 @@ pub async fn run_tax_reminders(
     options: &TaxReminderOptions<'_>,
 ) -> Result<TaxReminderResult, ReminderError> {
     let mut result = TaxReminderResult::default();
-    let rows: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        books_row!(entities),
-        " from entities t where t.jurisdiction_code = 'US' and t.deleted_at is null"
-    ))
-    .fetch_all(db)
-    .await?;
-    let active: Vec<Value> = ENTITIES
-        .js_rows(rows)
+    let rows = entities::Entity::find()
+        .filter(entities::Column::JurisdictionCode.eq("US"))
+        .filter(entities::Column::DeletedAt.is_null())
+        .all(&orm(db))
+        .await?;
+    let active: Vec<Value> = rows_json(rows)?
         .into_iter()
         .filter(|e| e["isActive"] != Value::Bool(false))
         .collect();
@@ -667,7 +672,7 @@ pub async fn run_tax_reminders(
         let today = day_in(now, text(entity, "timezone"));
         let entity_id = s(entity, "id");
         let mut candidates: Vec<Candidate> = Vec::new();
-        let mut attempt = |label: &str, run: Result<Vec<Candidate>, sqlx::Error>| match run {
+        let mut attempt = |label: &str, run: Result<Vec<Candidate>, DbErr>| match run {
             Ok(found) => candidates.extend(found),
             Err(error) => {
                 result.failed += 1;

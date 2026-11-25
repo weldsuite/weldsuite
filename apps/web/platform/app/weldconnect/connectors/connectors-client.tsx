@@ -619,7 +619,7 @@ function ConnectorCard({ connector, onConnect, onOpenDetails, canConnect }: Read
 
       <CardContent className="text-muted-foreground flex-1 space-y-1 pb-3 text-xs">
         <p>
-          {tc.syncsLabel}: {connector.syncs.map((s) => s.settingKey).join(', ')}
+          {tc.syncsLabel}: {[...new Set(connector.syncs.map((s) => s.settingKey))].join(', ')}
         </p>
         {live.length === 0 ? (
           <p>{tc.noStores}</p>

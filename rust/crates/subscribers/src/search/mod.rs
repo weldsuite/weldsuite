@@ -27,8 +27,11 @@ mod documents;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use weldsuite_db::PgPool;
+use sea_orm::sea_query::{Expr, OnConflict, Query};
+use sea_orm::{ColumnTrait, ConnectionTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
+use weldsuite_db::{PgPool, orm};
 use weldsuite_ports::{BatchHandler, BoxFuture, Delivery, Disposition, Embeddings};
+use weldsuite_schema::tenant::search_index;
 
 pub use chunks::{MAX_CHUNKS_PER_ENTITY, chunk_text, compose, hash_content};
 pub use documents::{
@@ -61,13 +64,14 @@ pub async fn remove_from_index(
     db: &PgPool,
     entity_type: &str,
     entity_id: &str,
-) -> Result<usize, sqlx::Error> {
-    let removed = sqlx::query("delete from search_index where entity_type = $1 and entity_id = $2")
-        .bind(entity_type)
-        .bind(entity_id)
-        .execute(db)
+) -> Result<usize, DbErr> {
+    use search_index::Column;
+    let removed = search_index::Entity::delete_many()
+        .filter(Column::EntityType.eq(entity_type))
+        .filter(Column::EntityId.eq(entity_id))
+        .exec(&orm(db))
         .await?;
-    Ok(usize::try_from(removed.rows_affected()).unwrap_or(usize::MAX))
+    Ok(usize::try_from(removed.rows_affected).unwrap_or(usize::MAX))
 }
 
 /// `pgvector`'s text form, `[0.1,0.2,…]`.
@@ -98,14 +102,18 @@ pub async fn index_document(
         return Ok(result);
     }
 
-    let existing: Vec<(i32, String, String)> = sqlx::query_as(
-        "select chunk_index, content_hash, embed_model from search_index \
-         where entity_type = $1 and entity_id = $2",
-    )
-    .bind(&doc.entity_type)
-    .bind(&doc.entity_id)
-    .fetch_all(db)
-    .await?;
+    let existing: Vec<(i32, String, String)> = search_index::Entity::find()
+        .select_only()
+        .columns([
+            search_index::Column::ChunkIndex,
+            search_index::Column::ContentHash,
+            search_index::Column::EmbedModel,
+        ])
+        .filter(search_index::Column::EntityType.eq(doc.entity_type.as_str()))
+        .filter(search_index::Column::EntityId.eq(doc.entity_id.as_str()))
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     let model = embeddings.model();
     let hashes: Vec<String> = chunks.iter().map(|chunk| hash_content(chunk)).collect();
 
@@ -130,11 +138,11 @@ pub async fn index_document(
         .filter(|chunk_index| *chunk_index >= count)
         .collect();
     if !surplus.is_empty() {
-        sqlx::query("delete from search_index where entity_type = $1 and entity_id = $2 and chunk_index = any($3)")
-            .bind(&doc.entity_type)
-            .bind(&doc.entity_id)
-            .bind(&surplus)
-            .execute(db)
+        search_index::Entity::delete_many()
+            .filter(search_index::Column::EntityType.eq(doc.entity_type.as_str()))
+            .filter(search_index::Column::EntityId.eq(doc.entity_id.as_str()))
+            .filter(search_index::Column::ChunkIndex.is_in(surplus.iter().copied()))
+            .exec(&orm(db))
             .await?;
         result.removed = surplus.len();
     }
@@ -156,43 +164,93 @@ pub async fn index_document(
         .into());
     }
 
-    let ids: Vec<String> = stale
+    let rows: Vec<StaleChunk<'_>> = stale
         .iter()
-        .map(|_| weldsuite_kit::generate_id("sidx"))
+        .zip(&vectors)
+        .map(|((index, content, hash), vector)| StaleChunk {
+            index: *index,
+            content,
+            hash,
+            embedding: vector_text(vector),
+        })
         .collect();
-    let indexes: Vec<i32> = stale.iter().map(|(index, _, _)| *index).collect();
-    let hashes: Vec<String> = stale
-        .iter()
-        .map(|(_, _, hash)| (*hash).to_owned())
-        .collect();
-    let vectors: Vec<String> = vectors.iter().map(|v| vector_text(v)).collect();
-    // One statement for every chunk, as Drizzle's multi-row insert.
-    sqlx::query(
-        "insert into search_index (id, entity_type, entity_id, chunk_index, content, content_hash, \
-         embedding, embed_model, title, subtitle, url) \
-         select t.id, $2, $3, t.chunk_index, t.content, t.content_hash, t.embedding::vector, $4, $5, $6, $7 \
-         from unnest($1::text[], $8::int[], $9::text[], $10::text[], $11::text[]) \
-         as t(id, chunk_index, content, content_hash, embedding) \
-         on conflict (entity_type, entity_id, chunk_index) do update set \
-         content = excluded.content, content_hash = excluded.content_hash, \
-         embedding = excluded.embedding, embed_model = excluded.embed_model, \
-         title = excluded.title, subtitle = excluded.subtitle, url = excluded.url, updated_at = now()",
-    )
-    .bind(&ids)
-    .bind(&doc.entity_type)
-    .bind(&doc.entity_id)
-    .bind(model)
-    .bind(js::slice_to(&doc.title, 500))
-    .bind(doc.subtitle.as_deref().map(|subtitle| js::slice_to(subtitle, 500)))
-    .bind(js::slice_to(&doc.url, 500))
-    .bind(&indexes)
-    .bind(&texts)
-    .bind(&hashes)
-    .bind(&vectors)
-    .execute(db)
-    .await?;
+    upsert_chunks(db, doc, model, rows).await?;
     result.embedded = stale.len();
     Ok(result)
+}
+
+/// A chunk to (re)write, with its embedding as `pgvector` text.
+struct StaleChunk<'a> {
+    index: i32,
+    content: &'a str,
+    hash: &'a str,
+    embedding: String,
+}
+
+/// The chunks' rows, in one statement for every chunk, as Drizzle's
+/// multi-row insert: `on conflict (entity_type, entity_id, chunk_index) do
+/// update`.
+async fn upsert_chunks(
+    db: &PgPool,
+    doc: &IndexableDocument,
+    model: &str,
+    chunks: Vec<StaleChunk<'_>>,
+) -> Result<(), DbErr> {
+    use sea_orm::ExprTrait as _;
+    use search_index::Column;
+    let title = js::slice_to(&doc.title, 500);
+    let subtitle = doc
+        .subtitle
+        .as_deref()
+        .map(|subtitle| js::slice_to(subtitle, 500));
+    let url = js::slice_to(&doc.url, 500);
+    let mut insert = Query::insert();
+    insert.into_table(search_index::Entity).columns([
+        Column::Id,
+        Column::EntityType,
+        Column::EntityId,
+        Column::ChunkIndex,
+        Column::Content,
+        Column::ContentHash,
+        Column::Embedding,
+        Column::EmbedModel,
+        Column::Title,
+        Column::Subtitle,
+        Column::Url,
+    ]);
+    for chunk in chunks {
+        insert
+            .values([
+                Expr::value(weldsuite_kit::generate_id("sidx")),
+                Expr::value(doc.entity_type.clone()),
+                Expr::value(doc.entity_id.clone()),
+                Expr::value(chunk.index),
+                Expr::value(chunk.content.to_owned()),
+                Expr::value(chunk.hash.to_owned()),
+                Expr::val(chunk.embedding).cast_as("vector"),
+                Expr::value(model.to_owned()),
+                Expr::value(title.clone()),
+                Expr::value(subtitle.clone()),
+                Expr::value(url.clone()),
+            ])
+            .map_err(|error| DbErr::Custom(error.to_string()))?;
+    }
+    insert.on_conflict(
+        OnConflict::columns([Column::EntityType, Column::EntityId, Column::ChunkIndex])
+            .update_columns([
+                Column::Content,
+                Column::ContentHash,
+                Column::Embedding,
+                Column::EmbedModel,
+                Column::Title,
+                Column::Subtitle,
+                Column::Url,
+            ])
+            .value(Column::UpdatedAt, Expr::current_timestamp())
+            .to_owned(),
+    );
+    orm(db).execute(&insert).await?;
+    Ok(())
 }
 
 /// `indexEntity`: re-read the record and index it, or drop its chunks when

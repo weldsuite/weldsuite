@@ -4,11 +4,12 @@
 //! Best effort, as the route calls it: a failure is logged and never fails
 //! the ticket-type write.
 
+use sea_orm::sea_query::Expr;
+use sea_orm::{ActiveValue, ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value};
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_kit::generate_id;
-
-use crate::now;
+use weldsuite_schema::tenant::custom_field_definitions;
 
 /// A ticket-type field's `type` as a custom-field `fieldType` (`mapFieldType`).
 fn field_type(kind: Option<&Value>) -> &'static str {
@@ -53,7 +54,19 @@ struct Wanted {
     field_type: &'static str,
     options: Option<Value>,
     required: bool,
+    /// As JavaScript prints it into the statement: Postgres refuses one that
+    /// is not an integer.
     sort_order: String,
+}
+
+impl Wanted {
+    /// `sort_order` as the integer column takes it; the statement fails on
+    /// anything else (`'1.5'::integer`).
+    fn sort_order(&self) -> Result<i32, SyncError> {
+        self.sort_order
+            .parse()
+            .map_err(|_| SyncError::Field(Unwritable("order")))
+    }
 }
 
 /// Why a field can't be written: the TypeScript helper throws (and the
@@ -125,7 +138,7 @@ pub(crate) async fn sync_definitions(db: &PgPool, ticket_type_id: &str, fields: 
 #[derive(Debug)]
 enum SyncError {
     Field(Unwritable),
-    Database(sqlx::Error),
+    Database(DbErr),
 }
 
 impl std::fmt::Display for SyncError {
@@ -137,8 +150,8 @@ impl std::fmt::Display for SyncError {
     }
 }
 
-impl From<sqlx::Error> for SyncError {
-    fn from(error: sqlx::Error) -> Self {
+impl From<DbErr> for SyncError {
+    fn from(error: DbErr) -> Self {
         Self::Database(error)
     }
 }
@@ -154,14 +167,18 @@ async fn sync(db: &PgPool, ticket_type_id: &str, fields: Option<&Value>) -> Resu
             .collect(),
         Some(_) => return Err(SyncError::Field(Unwritable("fields"))),
     };
-    let existing: Vec<(String, String)> = sqlx::query_as(
-        "select id, slug from custom_field_definitions
-         where entity_type = 'ticket' and ticket_type_id = $1 and deleted_at is null",
-    )
-    .bind(ticket_type_id)
-    .fetch_all(db)
-    .await?;
-    let now = now();
+    let db = orm(db);
+    let existing: Vec<(String, String)> = custom_field_definitions::Entity::find()
+        .select_only()
+        .column(custom_field_definitions::Column::Id)
+        .column(custom_field_definitions::Column::Slug)
+        .filter(custom_field_definitions::Column::EntityType.eq("ticket"))
+        .filter(custom_field_definitions::Column::TicketTypeId.eq(ticket_type_id))
+        .filter(custom_field_definitions::Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&db)
+        .await?;
+    let now = utc_now();
     let mut desired = Vec::with_capacity(custom.len());
     for field in custom {
         desired.push(wanted(field).map_err(SyncError::Field)?);
@@ -169,41 +186,55 @@ async fn sync(db: &PgPool, ticket_type_id: &str, fields: Option<&Value>) -> Resu
     for field in &desired {
         let prior = existing.iter().find(|(_, slug)| *slug == field.slug);
         if let Some((id, _)) = prior {
-            sqlx::query(
-                "update custom_field_definitions set
-                   name = case when $2::boolean then $3::varchar else name end,
-                   field_type = $4, options = $5::jsonb, required = $6,
-                   sort_order = $7::text::integer, updated_at = $8::timestamp
-                 where id = $1",
-            )
-            .bind(id)
-            .bind(field.name.is_some())
-            .bind(field.name.as_deref())
-            .bind(field.field_type)
-            .bind(field.options.as_ref())
-            .bind(field.required)
-            .bind(&field.sort_order)
-            .bind(&now)
-            .execute(db)
-            .await?;
+            let mut update = custom_field_definitions::Entity::update_many();
+            if let Some(name) = &field.name {
+                update = update.col_expr(custom_field_definitions::Column::Name, Expr::value(name));
+            }
+            update
+                .col_expr(
+                    custom_field_definitions::Column::FieldType,
+                    Expr::value(field.field_type),
+                )
+                .col_expr(
+                    custom_field_definitions::Column::Options,
+                    Expr::value(field.options.clone()),
+                )
+                .col_expr(
+                    custom_field_definitions::Column::Required,
+                    Expr::value(field.required),
+                )
+                .col_expr(
+                    custom_field_definitions::Column::SortOrder,
+                    Expr::value(field.sort_order()?),
+                )
+                .col_expr(
+                    custom_field_definitions::Column::UpdatedAt,
+                    Expr::value(now),
+                )
+                .filter(custom_field_definitions::Column::Id.eq(id))
+                .exec(&db)
+                .await?;
         } else {
-            sqlx::query(
-                "insert into custom_field_definitions
-                   (id, entity_type, ticket_type_id, name, slug, field_type, options,
-                    required, sort_order, created_at, updated_at)
-                 values ($1, 'ticket', $2, $3, $4, $5, $6::jsonb, $7, $8::text::integer,
-                         $9::timestamp, $9::timestamp)",
-            )
-            .bind(generate_id("cfld"))
-            .bind(ticket_type_id)
-            .bind(field.name.as_deref())
-            .bind(&field.slug)
-            .bind(field.field_type)
-            .bind(field.options.as_ref())
-            .bind(field.required)
-            .bind(&field.sort_order)
-            .bind(&now)
-            .execute(db)
+            // A missing label is a NULL name, which the column refuses.
+            let name = field
+                .name
+                .clone()
+                .map_or(ActiveValue::NotSet, ActiveValue::Set);
+            custom_field_definitions::Entity::insert(custom_field_definitions::ActiveModel {
+                id: ActiveValue::Set(generate_id("cfld")),
+                entity_type: ActiveValue::Set("ticket".to_owned()),
+                ticket_type_id: ActiveValue::Set(Some(ticket_type_id.to_owned())),
+                name,
+                slug: ActiveValue::Set(field.slug.clone()),
+                field_type: ActiveValue::Set(field.field_type.to_owned()),
+                options: ActiveValue::Set(field.options.clone()),
+                required: ActiveValue::Set(Some(field.required)),
+                sort_order: ActiveValue::Set(Some(field.sort_order()?)),
+                created_at: ActiveValue::Set(now),
+                updated_at: ActiveValue::Set(now),
+                ..Default::default()
+            })
+            .exec_without_returning(&db)
             .await?;
         }
     }
@@ -211,14 +242,18 @@ async fn sync(db: &PgPool, ticket_type_id: &str, fields: Option<&Value>) -> Resu
         if desired.iter().any(|field| field.slug == *slug) {
             continue;
         }
-        sqlx::query(
-            "update custom_field_definitions set deleted_at = $2::timestamp, updated_at = $2::timestamp
-             where id = $1",
-        )
-        .bind(id)
-        .bind(&now)
-        .execute(db)
-        .await?;
+        custom_field_definitions::Entity::update_many()
+            .col_expr(
+                custom_field_definitions::Column::DeletedAt,
+                Expr::value(now),
+            )
+            .col_expr(
+                custom_field_definitions::Column::UpdatedAt,
+                Expr::value(now),
+            )
+            .filter(custom_field_definitions::Column::Id.eq(id))
+            .exec(&db)
+            .await?;
     }
     Ok(())
 }

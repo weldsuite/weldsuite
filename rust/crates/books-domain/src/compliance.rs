@@ -6,9 +6,12 @@
 use std::collections::BTreeSet;
 use std::sync::LazyLock;
 
+use sea_orm::sea_query::Query;
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::Value;
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_ports::OutboundHttp;
+use weldsuite_schema::tenant::{companies, invoice_items, parties, tax_rates};
 
 use crate::js::truthy;
 use crate::jurisdictions::js_trim;
@@ -143,7 +146,7 @@ pub async fn check_vat_number(
     db: &PgPool,
     http: Option<&OutboundHttp>,
     vat_number: &str,
-) -> Result<ViesCheck, sqlx::Error> {
+) -> Result<ViesCheck, DbErr> {
     let result = crate::vies::check_vat_number(db, http, vat_number).await?;
     Ok(ViesCheck {
         available: result.available,
@@ -156,7 +159,7 @@ pub async fn check_vat_number_on(
     conn: &mut sqlx::PgConnection,
     http: Option<&OutboundHttp>,
     vat_number: &str,
-) -> Result<ViesCheck, sqlx::Error> {
+) -> Result<ViesCheck, DbErr> {
     let result = crate::vies::check_vat_number_on(conn, http, vat_number).await?;
     Ok(ViesCheck {
         available: result.available,
@@ -205,7 +208,7 @@ pub async fn validate_invoice_for_finalize(
     entity: &Value,
     invoice: &Value,
     categories: &BTreeSet<String>,
-) -> Result<ComplianceCheck, sqlx::Error> {
+) -> Result<ComplianceCheck, DbErr> {
     let mut check = ComplianceCheck::default();
     let code = entity["jurisdictionCode"].as_str().unwrap_or_default();
     if crate::jurisdictions::has_adapter(code) {
@@ -264,7 +267,7 @@ pub async fn validate_invoice_for_finalize(
 }
 
 /// `invoiceHasBuyerName(db, invoice)`.
-async fn invoice_has_buyer_name(db: &PgPool, invoice: &Value) -> Result<bool, sqlx::Error> {
+async fn invoice_has_buyer_name(db: &PgPool, invoice: &Value) -> Result<bool, DbErr> {
     if invoice["contactName"]
         .as_str()
         .is_some_and(|n| !js_trim(n).is_empty())
@@ -274,11 +277,13 @@ async fn invoice_has_buyer_name(db: &PgPool, invoice: &Value) -> Result<bool, sq
     let Some(contact_id) = invoice["contactId"].as_str().filter(|id| !id.is_empty()) else {
         return Ok(false);
     };
-    let name: Option<Option<String>> =
-        sqlx::query_scalar("select display_name from parties where id = $1 limit 1")
-            .bind(contact_id)
-            .fetch_optional(db)
-            .await?;
+    let name: Option<Option<String>> = parties::Entity::find()
+        .select_only()
+        .column(parties::Column::DisplayName)
+        .filter(parties::Column::Id.eq(contact_id))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     Ok(name.flatten().is_some_and(|n| !js_trim(&n).is_empty()))
 }
 
@@ -287,23 +292,28 @@ async fn invoice_has_buyer_name(db: &PgPool, invoice: &Value) -> Result<bool, sq
 pub async fn get_contact_vat_number(
     db: &PgPool,
     party_id: Option<&str>,
-) -> Result<Option<String>, sqlx::Error> {
+) -> Result<Option<String>, DbErr> {
     let Some(party_id) = party_id.filter(|id| !id.is_empty()) else {
         return Ok(None);
     };
-    let company: Option<Option<String>> =
-        sqlx::query_scalar("select company_id from parties where id = $1 limit 1")
-            .bind(party_id)
-            .fetch_optional(db)
-            .await?;
+    let db = orm(db);
+    let company: Option<Option<String>> = parties::Entity::find()
+        .select_only()
+        .column(parties::Column::CompanyId)
+        .filter(parties::Column::Id.eq(party_id))
+        .into_tuple()
+        .one(&db)
+        .await?;
     let Some(company_id) = company.flatten().filter(|id| !id.is_empty()) else {
         return Ok(None);
     };
-    let vat: Option<Option<String>> =
-        sqlx::query_scalar("select vat_number from companies where id = $1 limit 1")
-            .bind(company_id)
-            .fetch_optional(db)
-            .await?;
+    let vat: Option<Option<String>> = companies::Entity::find()
+        .select_only()
+        .column(companies::Column::VatNumber)
+        .filter(companies::Column::Id.eq(company_id))
+        .into_tuple()
+        .one(&db)
+        .await?;
     Ok(vat.flatten())
 }
 
@@ -312,15 +322,21 @@ pub async fn get_contact_vat_number(
 pub async fn collect_invoice_tax_categories(
     db: &PgPool,
     invoice_id: &str,
-) -> Result<BTreeSet<String>, sqlx::Error> {
-    let codes: Vec<Option<String>> = sqlx::query_scalar(
-        "select r.tax_category_code from tax_rates r where r.id in ( \
-           select i.tax_rate_id from invoice_items i \
-           where i.invoice_id = $1 and i.deleted_at is null and i.tax_rate_id <> '')",
-    )
-    .bind(invoice_id)
-    .fetch_all(db)
-    .await?;
+) -> Result<BTreeSet<String>, DbErr> {
+    let rates_used = Query::select()
+        .column(invoice_items::Column::TaxRateId)
+        .from(invoice_items::Entity)
+        .and_where(invoice_items::Column::InvoiceId.eq(invoice_id))
+        .and_where(invoice_items::Column::DeletedAt.is_null())
+        .and_where(invoice_items::Column::TaxRateId.ne(""))
+        .to_owned();
+    let codes: Vec<Option<String>> = tax_rates::Entity::find()
+        .select_only()
+        .column(tax_rates::Column::TaxCategoryCode)
+        .filter(tax_rates::Column::Id.in_subquery(rates_used))
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     Ok(codes
         .into_iter()
         .flatten()

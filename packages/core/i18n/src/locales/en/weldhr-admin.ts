@@ -15,6 +15,7 @@ export const weldhrAdmin = {
 
     selfService: {
       title: 'My HR self-service',
+      permissionsTitle: 'What employees can do',
       description: 'What employees can do for themselves in My HR. Reporting sick is always possible.',
       clockIn: 'Employees can clock in and out',
       leaveRequests: 'Employees can request leave',

@@ -7,19 +7,20 @@
 
 import { useMemo, useState, type ReactNode } from 'react';
 import { format } from 'date-fns';
-import { ChevronLeft, ChevronRight, Plus, Search } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Plus } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@weldsuite/ui/components/select';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { usePermissions } from '@weldsuite/permissions/react';
 import type { HrShift } from '@weldsuite/app-api-client/domains/weldhr';
 import { useTimeFormat } from '@/app/weldcalendar/lib/calendar-format';
-import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { FilterPills, type ActiveFilter, type FilterConfig } from '@/components/entity-list';
 import { PageLoader } from '@weldsuite/ui/components/page-loader';
-import { useDeleteHrShift, useHrAbsences, useHrEmployees, useHrLeaveRequests, useHrShifts } from '@/hooks/queries/use-weldhr-queries';
-import { cn } from '@/lib/utils';
+import { useObjectPanel } from '@/components/object-panel';
+import { HR_SHIFT_PANEL_TYPE } from '@/components/objects/hr-shift/types';
+import { useHrAbsences, useHrEmployees, useHrLeaveRequests, useHrShifts } from '@/hooks/queries/use-weldhr-queries';
 import { errorMessage, shiftIsoDate, todayIso } from '../../components/shared';
+import { RosterSearchInput } from './schedule-parts';
 import { ShiftDialog } from './shift-dialog';
 import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
 import {
@@ -45,76 +46,11 @@ import { ScheduleWeekView } from './schedule-week-view';
 /** Sick reports come newest first without a date filter; this many reach back well past the periods people page through. */
 const ABSENCE_LIMIT = 200;
 
-/** The collapsing search box from WeldCalendar's toolbar: an icon button that opens into an input. */
-function RosterSearchInput({
-  open,
-  query,
-  placeholder,
-  toggleLabel,
-  onOpenChange,
-  onQueryChange,
-}: Readonly<{
-  open: boolean;
-  query: string;
-  placeholder: string;
-  toggleLabel: string;
-  onOpenChange: (open: boolean) => void;
-  onQueryChange: (query: string) => void;
-}>) {
-  return (
-    <div className="relative flex items-center">
-      <div className={cn('flex items-center transition-all duration-200 ease-out', open ? 'w-36 md:w-48' : 'w-8')}>
-        <Button
-          variant="outline"
-          size="sm"
-          className={cn(
-            'h-8 w-8 flex-shrink-0 p-0 shadow-none transition-opacity duration-200',
-            open && 'pointer-events-none absolute opacity-0',
-          )}
-          onClick={() => onOpenChange(true)}
-          aria-label={toggleLabel}
-          tabIndex={open ? -1 : 0}
-        >
-          <Search className="h-4 w-4" />
-        </Button>
-        <div
-          className={cn(
-            'relative transition-all duration-200 ease-out',
-            open ? 'w-36 opacity-100 md:w-48' : 'pointer-events-none w-0 opacity-0',
-          )}
-        >
-          <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-          <input
-            type="text"
-            placeholder={placeholder}
-            aria-label={placeholder}
-            value={query}
-            onChange={(e) => onQueryChange(e.target.value)}
-            onBlur={() => !query && onOpenChange(false)}
-            onKeyDown={(e) => {
-              if (e.key === 'Escape') {
-                onQueryChange('');
-                onOpenChange(false);
-              }
-            }}
-            ref={(el) => {
-              if (el && open) el.focus();
-            }}
-            className="h-8 w-full rounded-md border border-gray-200 bg-white pl-8 pr-3 text-sm focus:outline-none dark:border-border dark:bg-background"
-          />
-        </div>
-      </div>
-    </div>
-  );
-}
-
 export function ScheduleTab() {
   const t = useTranslations();
   const timeFormat = useTimeFormat();
   const { can } = usePermissions();
   const canCreate = can('attendance:create');
-  const canUpdate = can('attendance:update');
-  const canDelete = can('attendance:delete');
 
   const [view, setView] = useState<RosterView>('week');
   const [anchor, setAnchor] = useState(todayIso);
@@ -144,10 +80,10 @@ export function ScheduleTab() {
     { enabled: can('leave:read'), keepPreviousData: true },
   );
   const { data: absences } = useHrAbsences({ limit: ABSENCE_LIMIT }, { enabled: can('absences:read') });
-  const deleteShift = useDeleteHrShift();
+  const { open: openPanel } = useObjectPanel();
 
-  const [dialog, setDialog] = useState<{ employee?: RosterEmployee; date?: string; shift?: HrShift } | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<HrShift | null>(null);
+  /** A new shift; an existing one opens in its panel, which edits and deletes it. */
+  const [dialog, setDialog] = useState<{ employee?: RosterEmployee; date?: string } | null>(null);
 
   /** Shifts in the visible period that pass the client-account filter. */
   const periodShifts = useMemo(() => {
@@ -302,7 +238,7 @@ export function ScheduleTab() {
   }
 
   const addShift = (employee: RosterEmployee, day: string) => setDialog({ employee, date: day });
-  const editShift = (shift: HrShift) => setDialog({ shift });
+  const openShift = (shift: HrShift) => openPanel({ type: HR_SHIFT_PANEL_TYPE, id: shift.id });
 
   let scheduleContent: ReactNode;
   if (shiftsLoading || employeesLoading) {
@@ -334,9 +270,8 @@ export function ScheduleTab() {
         timeOffByEmployee={timeOffByEmployee}
         timeFormat={timeFormat}
         canCreate={canCreate}
-        canUpdate={canUpdate}
         onAddShift={addShift}
-        onEditShift={editShift}
+        onOpenShift={openShift}
       />
     );
   } else if (view === 'month') {
@@ -355,9 +290,8 @@ export function ScheduleTab() {
         dayStats={dayStats}
         timeFormat={timeFormat}
         canCreate={canCreate}
-        canUpdate={canUpdate}
         onAddShift={addShift}
-        onEditShift={editShift}
+        onOpenShift={openShift}
         onOpenDay={openDay}
       />
     );
@@ -454,31 +388,9 @@ export function ScheduleTab() {
           defaultEmployeeName={dialog.employee?.name}
           defaultWorkType={dialog.employee?.jobTitle}
           defaultDate={dialog.date}
-          shift={dialog.shift}
           onClose={() => setDialog(null)}
-          onDelete={
-            canDelete && dialog.shift
-              ? () => {
-                  setDeleteTarget(dialog.shift!);
-                }
-              : undefined
-          }
         />
       )}
-
-      <ConfirmDialog
-        open={Boolean(deleteTarget)}
-        onOpenChange={(open) => !open && setDeleteTarget(null)}
-        title={t('weldhr.attendance.schedule.deleteConfirmTitle')}
-        description={t('weldhr.attendance.schedule.deleteConfirmDescription')}
-        variant="destructive"
-        onConfirm={async () => {
-          if (!deleteTarget) return;
-          await deleteShift.mutateAsync(deleteTarget.id);
-          setDeleteTarget(null);
-          setDialog(null);
-        }}
-      />
     </div>
   );
 }

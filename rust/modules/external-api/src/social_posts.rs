@@ -13,24 +13,28 @@ use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::routing::{get, patch, post};
 use http::HeaderMap;
+use sea_orm::{ColumnTrait, Condition, EntityTrait, QuerySelect};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events::{
     SOCIAL_POST_CANCELLED, SOCIAL_POST_CREATED, SOCIAL_POST_DELETED, SOCIAL_POST_FAILED,
     SOCIAL_POST_PUBLISHED, SOCIAL_POST_SCHEDULED, SOCIAL_POST_UPDATED,
 };
-use weldsuite_db::PgPool;
-use weldsuite_kit::RequestEnv;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::id::generate_id;
+use weldsuite_kit::{ApiError, RequestEnv};
 use weldsuite_ports::{
     BoxFuture, DynOutboundHttp, HttpRequest, HttpResponse, OutboundHttp, PortError,
 };
+use weldsuite_schema::master::workspaces;
+use weldsuite_schema::tenant::social_posts;
 use weldsuite_social_domain::publishing::{self, Context, PublishError, PublishOptions};
 
 use crate::ExternalApiState;
 use crate::crud::{
     Answer, Caller, Fail, created, dates, field, get_live, no_content, now, ok, page, soft_delete,
-    table_list_sql, text, with_updated,
+    text, with_updated,
 };
+use crate::list::{label_eq, when};
 use crate::schemas::{LIST_SOCIAL_POSTS, SCHEDULE_SOCIAL_POST};
 use crate::schemas_gen::{CREATE_SOCIAL_POST, UPDATE_SOCIAL_POST};
 use crate::session::{bad_request, conflict, internal_with, not_found};
@@ -88,17 +92,23 @@ fn strip_server_fields(values: &mut Map<String, Value>) {
     }
 }
 
-const POSTS_LIST: (&str, &str) = table_list_sql!(
-    social_posts,
-    "t.deleted_at is null \
-     and ($3->>'status' is null or t.status::text = $3->>'status') \
-     and ($3->>'campaignId' is null or t.campaign_id = $3->>'campaignId')"
-);
+/// The posts list: live, the status filter compared by label
+/// (`status::text`).
+fn posts_list(f: &Value) -> Condition {
+    Condition::all()
+        .add(social_posts::Column::DeletedAt.is_null())
+        .add_option(when(f, "status", |v| {
+            label_eq(social_posts::Column::Status, v)
+        }))
+        .add_option(when(f, "campaignId", |v| {
+            social_posts::Column::CampaignId.eq(v)
+        }))
+}
 
 async fn list_posts(caller: Caller, RawQuery(raw): RawQuery) -> Answer {
     let q = zod::query(&LIST_SOCIAL_POSTS, raw.as_deref())?;
     let filters = json!({ "status": text(&q, "status"), "campaignId": text(&q, "campaignId") });
-    page(&caller.db, POSTS_LIST, &SOCIAL_POSTS, &q, filters).await
+    page(&caller.db, posts_list, &SOCIAL_POSTS, &q, filters).await
 }
 
 async fn get_post(caller: Caller, Path(id): Path<String>) -> Answer {
@@ -202,6 +212,26 @@ fn context(
     }
 }
 
+/// PostPeer is outside the EU (ADR OPS-026): on the EU edition a workspace
+/// that hasn't switched it on is never sent to it.
+async fn postpeer_switch(caller: &Caller) -> Result<(), weldsuite_outside_eu::OutsideEuError> {
+    weldsuite_outside_eu::require(&caller.db, weldsuite_outside_eu::ServiceId::PostPeer).await
+}
+
+/// For cancel and delete, which call PostPeer only for a post scheduled
+/// there: with PostPeer switched off the context loses its key (a draft goes
+/// ahead, a scheduled post is refused) and the refusal is returned.
+async fn postpeer_off(
+    caller: &Caller,
+    ctx: &mut Context,
+) -> Option<weldsuite_outside_eu::OutsideEuError> {
+    let off = postpeer_switch(caller).await.err();
+    if off.is_some() {
+        ctx.api_key = None;
+    }
+    off
+}
+
 /// A deployment without an HTTP client: every call fails like a `fetch`
 /// that can't connect.
 struct Unreachable;
@@ -218,9 +248,11 @@ impl DynOutboundHttp for Unreachable {
 /// master database; a failed read is the worker's 500.
 pub(crate) async fn clerk_org_id(master: &PgPool, caller: &Caller) -> Result<Option<String>, Fail> {
     let org: Option<Option<String>> =
-        sqlx::query_scalar("select clerk_org_id from workspaces where id = $1 limit 1")
-            .bind(&caller.session.workspace_id)
-            .fetch_optional(master)
+        workspaces::Entity::find_by_id(caller.session.workspace_id.clone())
+            .select_only()
+            .column(workspaces::Column::ClerkOrgId)
+            .into_tuple()
+            .one(&orm(master))
             .await?;
     Ok(org.flatten())
 }
@@ -304,6 +336,9 @@ async fn publish_or_schedule(
     require_post(caller, id).await?;
     let master = crate::master_db_of(state, caller);
     let org = require_org(&master, caller).await?;
+    postpeer_switch(caller)
+        .await
+        .map_err(|error| error.to_api_error())?;
     let ctx = context(
         state,
         caller,
@@ -373,16 +408,23 @@ async fn cancel(
 ) -> Answer {
     let master = crate::master_db_of(&state, &caller);
     let org = require_org(&master, &caller).await?;
-    let ctx = context(
+    let mut ctx = context(
         &state,
         &caller,
         env.as_ref().map(|Extension(env)| env),
         http.map(|Extension(http)| http),
     );
+    let off = postpeer_off(&caller, &mut ctx).await;
     match publishing::cancel_post(&caller.db, &ctx, Some(&org), &id).await {
         Ok(true) => {}
         Ok(false) => return Err(not_found("SocialPost", &id).into()),
         Err(PublishError::Conflict(message)) => return Err(conflict(message).into()),
+        // A scheduled post's PostPeer delivery, with PostPeer switched off.
+        Err(PublishError::CancelUpstream(_)) if off.is_some() => {
+            return Err(off
+                .map_or_else(ApiError::internal, |e| e.to_api_error())
+                .into());
+        }
         Err(error) => {
             let message = error.to_string();
             tracing::error!(%message, "[external-api/social-posts] cancel failed");
@@ -409,15 +451,20 @@ async fn delete_post(
     // Stop the upstream delivery before the row goes away; fail closed.
     let master = crate::master_db_of(&state, &caller);
     let org = require_org(&master, &caller).await?;
-    let ctx = context(
+    let mut ctx = context(
         &state,
         &caller,
         env.as_ref().map(|Extension(env)| env),
         http.map(|Extension(http)| http),
     );
+    let off = postpeer_off(&caller, &mut ctx).await;
     if let Err(error) =
         publishing::cancel_delivery_before_delete(&caller.db, &ctx, Some(&org), &id).await
     {
+        // A scheduled post's PostPeer delivery, with PostPeer switched off.
+        if let (PublishError::CancelUpstream(_), Some(off)) = (&error, off) {
+            return Err(off.to_api_error().into());
+        }
         let message = error.to_string();
         tracing::error!(%message, "[external-api/social-posts] failed to cancel delivery before deleting {id}");
         return Err(internal_with(message).into());

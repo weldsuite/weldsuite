@@ -18,11 +18,6 @@
 //! the tenant pool and answer [`LegalEntityError`] with TypeScript's codes and
 //! messages.
 
-#![allow(
-    clippy::disallowed_methods,
-    reason = "not converted to the ORM yet (ADR DATA-019)"
-)]
-
 pub mod access;
 pub mod extensions;
 pub mod guard;
@@ -39,7 +34,9 @@ pub use access::{
 pub use extensions::{
     LegalEntityApp, LegalEntityCoreChange, enabled_apps_by_entity, locked_core_change,
 };
-pub use guard::{EntityRecordGuard, EntityRecordGuardLayer, EntityTable, records_in_entity};
+pub use guard::{
+    EntityRecordGuard, EntityRecordGuardLayer, EntityTable, RecordLookup, records_in_entity,
+};
 pub use middleware::{
     ACCOUNTING_ENTITY_HEADER, EntityScopeCondition, LEGAL_ENTITY_HEADER, LegalEntityContextLayer,
     LegalEntityContextOptions, RequestEntity, default_entity_id_for, entity_scope_condition,

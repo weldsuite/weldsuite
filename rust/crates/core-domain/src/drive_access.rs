@@ -22,8 +22,12 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::Value;
-use weldsuite_db::{PgPool, js_row};
+use weldsuite_db::{PgPool, orm};
+use weldsuite_schema::tenant::{drive_shares, files, folders, workspace_members};
+
+use crate::files::js;
 
 /// Folders walked up from an item before giving up; guards against a loop
 /// already in the data.
@@ -148,11 +152,19 @@ pub struct DriveAccessIndex {
 pub async fn load_drive_access(
     db: &PgPool,
     caller: DriveCaller,
-) -> Result<DriveAccessIndex, sqlx::Error> {
-    let rows: Vec<(String, Option<String>, Option<String>, String)> =
-        sqlx::query_as("select id, parent_id, created_by_id, general_access from folders")
-            .fetch_all(db)
-            .await?;
+) -> Result<DriveAccessIndex, DbErr> {
+    let db = orm(db);
+    let rows: Vec<(String, Option<String>, Option<String>, String)> = folders::Entity::find()
+        .select_only()
+        .columns([
+            folders::Column::Id,
+            folders::Column::ParentId,
+            folders::Column::CreatedById,
+            folders::Column::GeneralAccess,
+        ])
+        .into_tuple()
+        .all(&db)
+        .await?;
     let folders = rows
         .into_iter()
         .map(|(id, parent_id, created_by_id, general_access)| {
@@ -169,11 +181,17 @@ pub async fn load_drive_access(
     let mut file_shares = HashMap::new();
     let mut folder_shares = HashMap::new();
     if let Some(user_id) = &caller.user_id {
-        let shares: Vec<(Option<String>, Option<String>, String)> =
-            sqlx::query_as("select file_id, folder_id, role from drive_shares where user_id = $1")
-                .bind(user_id)
-                .fetch_all(db)
-                .await?;
+        let shares: Vec<(Option<String>, Option<String>, String)> = drive_shares::Entity::find()
+            .select_only()
+            .columns([
+                drive_shares::Column::FileId,
+                drive_shares::Column::FolderId,
+                drive_shares::Column::Role,
+            ])
+            .filter(drive_shares::Column::UserId.eq(user_id))
+            .into_tuple()
+            .all(&db)
+            .await?;
         for (file_id, folder_id, role) in shares {
             let Some(role) = DriveRole::from_share(&role) else {
                 continue;
@@ -477,13 +495,15 @@ pub fn ancestor_folder_ids(index: &DriveAccessIndex, parent_id: Option<&str>) ->
 // ── Callers ────────────────────────────────────────────────────────────────
 
 /// Is `user_id` a workspace OWNER or ADMIN (`isWorkspaceAdmin`)?
-pub async fn is_workspace_admin(db: &PgPool, user_id: &str) -> Result<bool, sqlx::Error> {
-    let role: Option<Option<String>> = sqlx::query_scalar(
-        "select role from workspace_members where user_id = $1 and deleted_at is null limit 1",
-    )
-    .bind(user_id)
-    .fetch_optional(db)
-    .await?;
+pub async fn is_workspace_admin(db: &PgPool, user_id: &str) -> Result<bool, DbErr> {
+    let role: Option<Option<String>> = workspace_members::Entity::find()
+        .select_only()
+        .column(workspace_members::Column::Role)
+        .filter(workspace_members::Column::UserId.eq(user_id))
+        .filter(workspace_members::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     let role = role.flatten().map(|role| role.to_uppercase());
     Ok(matches!(role.as_deref(), Some("OWNER" | "ADMIN")))
 }
@@ -493,7 +513,7 @@ pub async fn is_workspace_admin(db: &PgPool, user_id: &str) -> Result<bool, sqlx
 pub async fn load_drive_access_for_user(
     db: &PgPool,
     user_id: Option<&str>,
-) -> Result<DriveAccessIndex, sqlx::Error> {
+) -> Result<DriveAccessIndex, DbErr> {
     let is_admin = match user_id {
         Some(user_id) => is_workspace_admin(db, user_id).await?,
         None => false,
@@ -510,14 +530,16 @@ pub async fn load_drive_access_for_user(
 
 /// May `user_id` be shared with: an active member of this workspace
 /// (`isShareableMember`)?
-pub async fn is_shareable_member(db: &PgPool, user_id: &str) -> Result<bool, sqlx::Error> {
-    let member: Option<String> = sqlx::query_scalar(
-        "select id from workspace_members
-         where user_id = $1 and status = 'ACTIVE' and deleted_at is null limit 1",
-    )
-    .bind(user_id)
-    .fetch_optional(db)
-    .await?;
+pub async fn is_shareable_member(db: &PgPool, user_id: &str) -> Result<bool, DbErr> {
+    let member: Option<String> = workspace_members::Entity::find()
+        .select_only()
+        .column(workspace_members::Column::Id)
+        .filter(workspace_members::Column::UserId.eq(user_id))
+        .filter(workspace_members::Column::Status.eq("ACTIVE"))
+        .filter(workspace_members::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     Ok(member.is_some())
 }
 
@@ -534,7 +556,7 @@ pub struct DriveFile {
 }
 
 impl DriveFile {
-    /// Build from a [`js_row`] of `files`.
+    /// Build from a `files` row as Drizzle returns it.
     pub fn from_row(row: Value) -> Self {
         let text = |key: &str| row[key].as_str().map(str::to_owned);
         let r#ref = DriveFileRef {
@@ -556,14 +578,12 @@ impl DriveFile {
 }
 
 /// A live (not deleted) file by id, or `None`.
-pub async fn get_file(db: &PgPool, file_id: &str) -> Result<Option<DriveFile>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(f) from files f where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(file_id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(|row| DriveFile::from_row(js_row(row))))
+pub async fn get_file(db: &PgPool, file_id: &str) -> Result<Option<DriveFile>, DbErr> {
+    let row = files::Entity::find_by_id(file_id.to_owned())
+        .filter(files::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?;
+    row.map(|row| js(row).map(DriveFile::from_row)).transpose()
 }
 
 #[cfg(test)]

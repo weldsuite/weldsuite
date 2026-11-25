@@ -155,16 +155,55 @@ paths.
   can't know to ask for. Until `/mcp` can be told the workspace some other
   way, MCP on a Zitadel edition is for accounts in one workspace.
 - **An MCP client on WeldID (membership mode,
-  `OIDC_WORKSPACE_SOURCE=header`).** The token names no workspace, and an
-  MCP client can't send the platform's `X-Weld-Workspace`, so the server URL
-  names it: `/mcp/w/<workspace>` (its `workspaces.id`, slug or organization
-  id, in URL-unreserved characters), checked against the master
-  `user_workspaces` by the same `WorkspaceSelector` as the header. A plain
-  `/mcp` takes the user's only workspace; with several it answers 403 and
-  names the URL to use, with none 403 too. A workspace the user isn't an
-  active member of is 403, unknown or foreign alike. With a token that
-  names its workspace (claim mode, Clerk) a workspace URL must name that
-  one, by id or organization id.
+  `OIDC_WORKSPACE_SOURCE=header`): the workspace is picked while signing
+  in.** A platform token names no workspace (SEC-019), and an MCP client
+  can't send the platform's `X-Weld-Workspace`. So WeldID's tenant
+  selection asks: for an authorization request with an RFC 8707
+  `resource` (every MCP client sends the server's URL), WeldID sends the
+  browser after its consent screen to `tenant_selection_url`, the
+  platform's `/auth/mcp-workspace?challenge=…`. That page calls
+  `GET /api/mcp/workspace-selections/{challenge}` (`src/selection.rs`;
+  signed in, no workspace) for the app's name and the person's workspaces,
+  and `POST` with `{ workspaceId }` (or `{ decision: "deny" }`) to record
+  the answer through WeldID's admin API (`weldid:tenants`,
+  `WorkspaceSelections` port, `WeldIdWorkspaceSelections` adapter); the
+  browser then goes back to WeldID, which gives the client its code. Every
+  access token of that grant, refreshed ones included, carries the choice
+  as the `tenant` claim (`workspaces.id`, opaque to WeldID), and every
+  request checks it against the master `user_workspaces` with the same
+  `WorkspaceSelector` as the header: someone who leaves the workspace loses
+  the connection (403). A challenge that is unknown, expired, used or
+  another person's is one 404. The page continues without asking when the
+  resource names a workspace the person is in (`/mcp/w/<workspace>`), or
+  the person has only one. A malformed `tenant` claim is 403.
+- **The workspace URL still works**: `/mcp/w/<workspace>` (its
+  `workspaces.id`, slug or organization id, in URL-unreserved characters)
+  names the workspace for a client set up that way, or one whose sign-in
+  had no workspace step; with a `tenant` claim too, both must name the same
+  workspace (403 otherwise). A token with neither takes the user's only
+  workspace; with none it answers 403. A workspace the user isn't an active
+  member of is 403, unknown or foreign alike. With a token that names its
+  workspace (claim mode, Clerk) a workspace URL must name that one, by id or
+  organization id.
+- **The workspace picker** (`src/picker.rs`). A connection whose token
+  names no workspace (made before the workspace step, or by a client that
+  sends no `resource`) for an account in several workspaces connects
+  anyway, since a refusal shows the person only "Couldn't connect"
+  (claude.ai, 2026-11-22): `initialize` tells the assistant that no
+  workspace was chosen, and `tools/list` has one tool, `list_workspaces`,
+  which lists the account's live, active workspaces by name and says to
+  disconnect and connect again (signing in then asks which workspace),
+  with each workspace's `/mcp/w/<slug>` address as the alternative (the id
+  where the slug isn't a URL segment; at most 50). Where signing in doesn't
+  ask (no WeldID), it says to connect with an address. It never acts in a
+  workspace: no other tool or resource, no tenant database, no permission
+  lookup, no rate limit. The list is the master `workspaces` and
+  `user_workspaces` through the ORM
+  (`WorkspaceSelector::member_workspace_list`).
+- **Refusals are logged.** Every 401 and 403 of `/mcp` logs its reason
+  (`mcp auth: 401`, `mcp auth: 403`, field `diagnostic`), since the client
+  shows none of it; the metrics count them per status
+  (`weldsuite_http_requests_total{route="/mcp"}`).
 - **Clients on WeldID register themselves.** Unlike Zitadel, WeldID takes
   MCP clients without anyone setting them up, on the platform issuer only
   (WeldID's `ARCHITECTURE.md`, "Registered clients"): a client ID metadata

@@ -18,10 +18,18 @@
 //!    issued, or nobody took it), then issues the invoices of paid charges
 //!    the issuer couldn't take earlier, emailing each as it is issued.
 
+use sea_orm::sea_query::extension::postgres as pg;
+use sea_orm::sea_query::{Expr, LockBehavior, LockType, Query};
+use sea_orm::{
+    ColumnTrait, Condition, ConnectionTrait, DbErr, EntityTrait, JoinType, QueryFilter, QueryOrder,
+    QuerySelect,
+};
 use serde_json::{Value, json};
 use time::OffsetDateTime;
+use weldsuite_db::{OrmConn, PgPool, orm, utc_timestamp};
 use weldsuite_kit::generate_id;
 use weldsuite_mollie::PaymentStatus;
+use weldsuite_schema::master::{billing_accounts, billing_payments, plans, workspaces};
 
 use crate::account::{self, Account};
 use crate::buyer::{self, BillingDetails};
@@ -160,16 +168,7 @@ async fn end_comps(
     now: OffsetDateTime,
     report: &mut RenewalReport,
 ) -> BillingResult<()> {
-    let ended: Vec<(String, bool)> = sqlx::query_as(
-        "update workspaces w set comp_granted_at = null, comp_ends_at = null, comp_granted_by = null,
-             comp_reason = null, updated_at = now()
-         where comp_granted_at is not null and comp_ends_at is not null and comp_ends_at <= $1::timestamp
-         returning w.id, exists (select 1 from billing_accounts a
-                                 where a.workspace_id = w.id and a.next_charge_at is not null)",
-    )
-    .bind(iso(now))
-    .fetch_all(&state.master)
-    .await?;
+    let ended = clear_ended_comps(&state.master, now).await?;
     for (workspace_id, paying) in ended {
         report.comps_ended += 1;
         if !paying {
@@ -179,6 +178,49 @@ async fn end_comps(
     Ok(())
 }
 
+/// Clears every comp whose `comp_ends_at` passed, in one statement, and
+/// says for each workspace whether a paid subscription runs under it (a
+/// `billing_accounts` row with a next charge).
+async fn clear_ended_comps(
+    master: &PgPool,
+    now: OffsetDateTime,
+) -> Result<Vec<(String, bool)>, DbErr> {
+    use workspaces::Column as W;
+    let paying = Query::select()
+        .column((billing_accounts::Entity, billing_accounts::Column::Id))
+        .from(billing_accounts::Entity)
+        .and_where(sea_orm::ExprTrait::equals(
+            Expr::col((
+                billing_accounts::Entity,
+                billing_accounts::Column::WorkspaceId,
+            )),
+            (workspaces::Entity, W::Id),
+        ))
+        .and_where(billing_accounts::Column::NextChargeAt.is_not_null())
+        .to_owned();
+    let update = Query::update()
+        .table(workspaces::Entity)
+        .value(W::CompGrantedAt, Expr::null())
+        .value(W::CompEndsAt, Expr::null())
+        .value(W::CompGrantedBy, Expr::null())
+        .value(W::CompReason, Expr::null())
+        .value(W::UpdatedAt, Expr::current_timestamp())
+        .and_where(W::CompGrantedAt.is_not_null())
+        .and_where(W::CompEndsAt.is_not_null())
+        .and_where(W::CompEndsAt.lte(utc_timestamp(now)))
+        .returning(
+            Query::returning()
+                .exprs([Expr::col((workspaces::Entity, W::Id)), Expr::exists(paying)]),
+        )
+        .to_owned();
+    orm(master)
+        .query_all(&update)
+        .await?
+        .iter()
+        .map(|row| Ok((row.try_get_by_index(0)?, row.try_get_by_index(1)?)))
+        .collect()
+}
+
 /// Past due beyond the grace period: the plan ends. Halfway: a reminder.
 async fn sweep_past_due(
     state: &BillingState,
@@ -186,17 +228,41 @@ async fn sweep_past_due(
     report: &mut RenewalReport,
 ) -> BillingResult<()> {
     let grace = time::Duration::days(state.settings.grace_days);
-    let expired: Vec<(String, Option<String>)> = sqlx::query_as(
-        "select a.workspace_id, a.past_due_payment_id from billing_accounts a
-         where a.past_due_since is not null and a.past_due_since <= $1::timestamp
-           and not exists (select 1 from workspaces w
-                           where w.id = a.workspace_id and w.comp_granted_at is not null
-                             and (w.comp_ends_at is null or w.comp_ends_at > $2::timestamp))",
-    )
-    .bind(iso(now - grace))
-    .bind(iso(now))
-    .fetch_all(&state.master)
-    .await?;
+    // `exists (select 1 from workspaces w where w.id = a.workspace_id and
+    // w.comp_granted_at is not null and (w.comp_ends_at is null or
+    // w.comp_ends_at > now))`: a comp in force pays what is open.
+    let comped = Query::select()
+        .column((workspaces::Entity, workspaces::Column::Id))
+        .from(workspaces::Entity)
+        .cond_where(
+            Condition::all()
+                .add(sea_orm::ExprTrait::equals(
+                    Expr::col((workspaces::Entity, workspaces::Column::Id)),
+                    (
+                        billing_accounts::Entity,
+                        billing_accounts::Column::WorkspaceId,
+                    ),
+                ))
+                .add(workspaces::Column::CompGrantedAt.is_not_null())
+                .add(
+                    Condition::any()
+                        .add(workspaces::Column::CompEndsAt.is_null())
+                        .add(workspaces::Column::CompEndsAt.gt(utc_timestamp(now))),
+                ),
+        )
+        .to_owned();
+    let expired: Vec<(String, Option<String>)> = billing_accounts::Entity::find()
+        .select_only()
+        .columns([
+            billing_accounts::Column::WorkspaceId,
+            billing_accounts::Column::PastDuePaymentId,
+        ])
+        .filter(billing_accounts::Column::PastDueSince.is_not_null())
+        .filter(billing_accounts::Column::PastDueSince.lte(utc_timestamp(now - grace)))
+        .filter(Expr::not_exists(comped))
+        .into_tuple()
+        .all(&orm(&state.master))
+        .await?;
     for (workspace_id, open) in expired {
         engine::end_subscription(state, &state.master, &workspace_id, now).await?;
         report.ended += 1;
@@ -205,16 +271,24 @@ async fn sweep_past_due(
                 settle::mail(state, &workspace_id, &open, BillingMailKind::PlanEnded, now).await;
         }
     }
-    let due: Vec<(String, String)> = sqlx::query_as(
-        "update billing_accounts set dunning_reminded_at = $2::timestamp, updated_at = now()
-         where past_due_since is not null and past_due_payment_id is not null
-           and dunning_reminded_at is null and past_due_since <= $1::timestamp
-         returning workspace_id, past_due_payment_id",
-    )
-    .bind(iso(now - grace / 2))
-    .bind(iso(now))
-    .fetch_all(&state.master)
-    .await?;
+    let due: Vec<(String, String)> = billing_accounts::Entity::update_many()
+        .col_expr(
+            billing_accounts::Column::DunningRemindedAt,
+            Expr::value(utc_timestamp(now)),
+        )
+        .col_expr(
+            billing_accounts::Column::UpdatedAt,
+            Expr::current_timestamp(),
+        )
+        .filter(billing_accounts::Column::PastDueSince.is_not_null())
+        .filter(billing_accounts::Column::PastDuePaymentId.is_not_null())
+        .filter(billing_accounts::Column::DunningRemindedAt.is_null())
+        .filter(billing_accounts::Column::PastDueSince.lte(utc_timestamp(now - grace / 2)))
+        .exec_with_returning(&orm(&state.master))
+        .await?
+        .into_iter()
+        .filter_map(|account| Some((account.workspace_id, account.past_due_payment_id?)))
+        .collect();
     for (workspace_id, open) in due {
         let _ = settle::mail(
             state,
@@ -244,27 +318,7 @@ async fn warn_without_payment_method(
     let master = &state.master;
     let window_end = now + time::Duration::days(state.settings.renewal_notice_days);
     // What master can rule out; `payment_method_needed` decides the rest.
-    let candidates: Vec<String> = sqlx::query_scalar(
-        "select a.workspace_id from billing_accounts a join workspaces w on w.id = a.workspace_id
-         where a.next_charge_at is not null and a.past_due_since is null
-           and (a.customer_id is null or a.mandate_id is null)
-           and w.subscription_current_period_end > $1::timestamp
-           and w.subscription_current_period_end <= $2::timestamp
-           and a.dunning_reminded_at is distinct from w.subscription_current_period_end
-           and not w.subscription_cancel_at_period_end
-           and w.subscription_status in ('active', 'trialing', 'past_due')
-           and w.billing_mode <> 'partner'
-           and not (w.comp_granted_at is not null
-                    and (w.comp_ends_at is null or w.comp_ends_at > $1::timestamp))
-           and exists (select 1 from plans p where p.id = w.plan_id and p.slug <> 'free')
-         order by w.subscription_current_period_end
-         limit $3",
-    )
-    .bind(iso(now))
-    .bind(iso(window_end))
-    .bind(i64::try_from(BATCH).unwrap_or(i64::MAX))
-    .fetch_all(master)
-    .await?;
+    let candidates = renewing_without_method(master, now, window_end).await?;
     for workspace_id in candidates {
         let (Some(workspace), Some(account)) = (
             Workspace::load(master, &workspace_id).await?,
@@ -290,23 +344,7 @@ async fn warn_without_payment_method(
         if needed.past_due {
             continue;
         }
-        let claimed = sqlx::query(
-            "update billing_accounts a set dunning_reminded_at = w.subscription_current_period_end,
-                 updated_at = now()
-             from workspaces w
-             where a.workspace_id = $1 and w.id = a.workspace_id
-               and a.past_due_since is null and (a.customer_id is null or a.mandate_id is null)
-               and w.subscription_current_period_end > $2::timestamp
-               and w.subscription_current_period_end <= $3::timestamp
-               and a.dunning_reminded_at is distinct from w.subscription_current_period_end",
-        )
-        .bind(&workspace_id)
-        .bind(iso(now))
-        .bind(iso(window_end))
-        .execute(master)
-        .await?
-        .rows_affected();
-        if claimed == 0 {
+        if !claim_method_notice(master, &workspace_id, now, window_end).await? {
             continue;
         }
         let details = details_for(state, &workspace).await?;
@@ -338,6 +376,161 @@ async fn warn_without_payment_method(
     Ok(())
 }
 
+/// `w.subscription_current_period_end` within `(now, window_end]`, and
+/// `a.dunning_reminded_at is distinct from w.subscription_current_period_end`
+/// (the period end is never null inside the window): a renewal no warning
+/// was sent for yet. `a` is `billing_accounts`, `w` is `workspaces`.
+fn unwarned_renewal(now: OffsetDateTime, window_end: OffsetDateTime) -> Condition {
+    let period_end = || {
+        Expr::col((
+            workspaces::Entity,
+            workspaces::Column::SubscriptionCurrentPeriodEnd,
+        ))
+    };
+    let reminded = || {
+        Expr::col((
+            billing_accounts::Entity,
+            billing_accounts::Column::DunningRemindedAt,
+        ))
+    };
+    Condition::all()
+        .add(sea_orm::ExprTrait::gt(period_end(), utc_timestamp(now)))
+        .add(sea_orm::ExprTrait::lte(
+            period_end(),
+            utc_timestamp(window_end),
+        ))
+        .add(
+            Condition::any()
+                .add(sea_orm::ExprTrait::is_null(reminded()))
+                .add(sea_orm::ExprTrait::ne(reminded(), period_end())),
+        )
+}
+
+/// No payment method to charge: `a.customer_id is null or a.mandate_id is
+/// null`.
+fn without_method() -> Condition {
+    Condition::any()
+        .add(billing_accounts::Column::CustomerId.is_null())
+        .add(billing_accounts::Column::MandateId.is_null())
+}
+
+/// The accounts of paid plans renewing by `window_end` without a payment
+/// method and not warned yet, the soonest renewal first: `select
+/// a.workspace_id from billing_accounts a join workspaces w on w.id =
+/// a.workspace_id where … order by w.subscription_current_period_end limit
+/// BATCH`.
+async fn renewing_without_method(
+    master: &PgPool,
+    now: OffsetDateTime,
+    window_end: OffsetDateTime,
+) -> Result<Vec<String>, DbErr> {
+    use workspaces::Column as W;
+    // `exists (select 1 from plans p where p.id = w.plan_id and p.slug <>
+    // 'free')`.
+    let paid_plan = Query::select()
+        .column((plans::Entity, plans::Column::Id))
+        .from(plans::Entity)
+        .and_where(sea_orm::ExprTrait::equals(
+            Expr::col((plans::Entity, plans::Column::Id)),
+            (workspaces::Entity, W::PlanId),
+        ))
+        .and_where(plans::Column::Slug.ne("free"))
+        .to_owned();
+    // `not (w.comp_granted_at is not null and (w.comp_ends_at is null or
+    // w.comp_ends_at > now))`: no comp in force.
+    let comped = Condition::all().add(W::CompGrantedAt.is_not_null()).add(
+        Condition::any()
+            .add(W::CompEndsAt.is_null())
+            .add(W::CompEndsAt.gt(utc_timestamp(now))),
+    );
+    billing_accounts::Entity::find()
+        .select_only()
+        .column(billing_accounts::Column::WorkspaceId)
+        .join(
+            JoinType::InnerJoin,
+            billing_accounts::Entity::belongs_to(workspaces::Entity)
+                .from(billing_accounts::Column::WorkspaceId)
+                .to(W::Id)
+                .into(),
+        )
+        .filter(
+            Condition::all()
+                .add(billing_accounts::Column::NextChargeAt.is_not_null())
+                .add(billing_accounts::Column::PastDueSince.is_null())
+                .add(without_method())
+                .add(unwarned_renewal(now, window_end))
+                .add(W::SubscriptionCancelAtPeriodEnd.eq(false))
+                .add(W::SubscriptionStatus.is_in(["active", "trialing", "past_due"]))
+                .add(W::BillingMode.ne("partner"))
+                .add(comped.not())
+                .add(Expr::exists(paid_plan)),
+        )
+        .order_by_asc(W::SubscriptionCurrentPeriodEnd)
+        .limit(u64::try_from(BATCH).unwrap_or(u64::MAX))
+        .into_tuple()
+        .all(&orm(master))
+        .await
+}
+
+/// Claims the warning for the account's coming renewal in one statement,
+/// so overlapping runs send it once: `update billing_accounts a set
+/// dunning_reminded_at = w.subscription_current_period_end, updated_at =
+/// now() from workspaces w where a.workspace_id = $1 and w.id =
+/// a.workspace_id and …`, the workspace read through subqueries (its `id`
+/// is its key). Whether this run claimed it.
+async fn claim_method_notice(
+    master: &PgPool,
+    workspace_id: &str,
+    now: OffsetDateTime,
+    window_end: OffsetDateTime,
+) -> Result<bool, DbErr> {
+    let own_workspace = || {
+        sea_orm::ExprTrait::equals(
+            Expr::col((workspaces::Entity, workspaces::Column::Id)),
+            (
+                billing_accounts::Entity,
+                billing_accounts::Column::WorkspaceId,
+            ),
+        )
+    };
+    let period_end = Query::select()
+        .column((
+            workspaces::Entity,
+            workspaces::Column::SubscriptionCurrentPeriodEnd,
+        ))
+        .from(workspaces::Entity)
+        .and_where(own_workspace())
+        .to_owned();
+    let renewal_due = Query::select()
+        .column((workspaces::Entity, workspaces::Column::Id))
+        .from(workspaces::Entity)
+        .cond_where(
+            Condition::all()
+                .add(own_workspace())
+                .add(unwarned_renewal(now, window_end)),
+        )
+        .to_owned();
+    let claimed = billing_accounts::Entity::update_many()
+        .col_expr(
+            billing_accounts::Column::DunningRemindedAt,
+            Expr::from(period_end),
+        )
+        .col_expr(
+            billing_accounts::Column::UpdatedAt,
+            Expr::current_timestamp(),
+        )
+        .filter(
+            Condition::all()
+                .add(billing_accounts::Column::WorkspaceId.eq(workspace_id))
+                .add(billing_accounts::Column::PastDueSince.is_null())
+                .add(without_method())
+                .add(Expr::exists(renewal_due)),
+        )
+        .exec(&orm(master))
+        .await?;
+    Ok(claimed.rows_affected > 0)
+}
+
 /// What one anchor came to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Outcome {
@@ -366,15 +559,39 @@ pub(crate) async fn details_for(
             }
         }
     }
-    let last: Option<Value> = sqlx::query_scalar(
-        "select metadata -> 'customer' from billing_payments
-         where workspace_id = $1 and provider = 'mollie' and metadata ? 'customer'
-         order by created_at desc limit 1",
-    )
-    .bind(&workspace.id)
-    .fetch_optional(&state.master)
-    .await?;
+    // `metadata ? 'customer'` on the object: the key is there.
+    let customer =
+        || pg::PgExpr::get_json_field(Expr::col(billing_payments::Column::Metadata), "customer");
+    let last: Option<Value> = billing_payments::Entity::find()
+        .select_only()
+        .column_as(customer(), "customer")
+        .filter(billing_payments::Column::WorkspaceId.eq(&workspace.id))
+        .filter(billing_payments::Column::Provider.eq("mollie"))
+        .filter(sea_orm::ExprTrait::is_not_null(customer()))
+        .order_by_desc(billing_payments::Column::CreatedAt)
+        .into_tuple()
+        .one(&orm(&state.master))
+        .await?;
     Ok(last.and_then(|value| serde_json::from_value(value).ok()))
+}
+
+/// `select workspace_id from billing_accounts where next_charge_at <= now
+/// order by next_charge_at limit 1 for update skip locked`: the next due
+/// account, claimed for the rest of `tx`.
+async fn claim_due(
+    tx: &impl ConnectionTrait,
+    now: OffsetDateTime,
+) -> Result<Option<String>, DbErr> {
+    billing_accounts::Entity::find()
+        .select_only()
+        .column(billing_accounts::Column::WorkspaceId)
+        .filter(billing_accounts::Column::NextChargeAt.is_not_null())
+        .filter(billing_accounts::Column::NextChargeAt.lte(utc_timestamp(now)))
+        .order_by_asc(billing_accounts::Column::NextChargeAt)
+        .lock_with_behavior(LockType::Update, LockBehavior::SkipLocked)
+        .into_tuple()
+        .one(tx)
+        .await
 }
 
 /// Claims the next due account and renews it. `None`: nothing due.
@@ -382,33 +599,26 @@ pub(crate) async fn details_for(
 async fn renew_next(state: &BillingState, now: OffsetDateTime) -> BillingResult<Option<Outcome>> {
     let master = &state.master;
     let mut tx = master.begin().await?;
-    let workspace_id: Option<String> = sqlx::query_scalar(
-        "select workspace_id from billing_accounts
-         where next_charge_at is not null and next_charge_at <= $1::timestamp
-         order by next_charge_at limit 1 for update skip locked",
-    )
-    .bind(iso(now))
-    .fetch_optional(&mut *tx)
-    .await?;
+    let workspace_id = claim_due(&OrmConn::new(&mut tx), now).await?;
     let Some(workspace_id) = workspace_id else {
         return Ok(None);
     };
-    let Some(account) = Account::lock(&mut tx, &workspace_id).await? else {
+    let Some(account) = Account::lock(&OrmConn::new(&mut tx), &workspace_id).await? else {
         return Ok(Some(Outcome::Skipped));
     };
     let Some(anchor_at) = account.next_charge() else {
         return Ok(Some(Outcome::Skipped));
     };
     let anchor = account.anchor();
-    let Some(workspace) = Workspace::lock(&mut tx, &workspace_id).await? else {
-        account::set_next_charge(&mut tx, &workspace_id, None).await?;
+    let Some(workspace) = Workspace::lock(&OrmConn::new(&mut tx), &workspace_id).await? else {
+        account::set_next_charge(&OrmConn::new(&mut tx), &workspace_id, None).await?;
         tx.commit().await?;
         return Ok(Some(Outcome::Skipped));
     };
     let running = crate::workspace::RUNNING_STATUSES
         .contains(&workspace.subscription_status.as_deref().unwrap_or_default());
     if !running {
-        account::set_next_charge(&mut tx, &workspace_id, None).await?;
+        account::set_next_charge(&OrmConn::new(&mut tx), &workspace_id, None).await?;
         tx.commit().await?;
         return Ok(Some(Outcome::Skipped));
     }
@@ -432,7 +642,7 @@ async fn renew_next(state: &BillingState, now: OffsetDateTime) -> BillingResult<
     // A comp pays the plan: no charge, credits still come.
     if workspace.comp_active(now) {
         credits::grant_monthly(
-            &mut tx,
+            &OrmConn::new(&mut tx),
             &workspace_id,
             plan_credits(current_plan.as_ref()),
             due,
@@ -447,18 +657,21 @@ async fn renew_next(state: &BillingState, now: OffsetDateTime) -> BillingResult<
             && end <= anchor_at + time::Duration::minutes(1)
         {
             let renewed = add_months_on_anchor(end, workspace.cycle().months(), anchor);
-            sqlx::query(
-                "update workspaces set subscription_current_period_start = $2::timestamp,
-                     subscription_current_period_end = $3::timestamp, updated_at = now()
-                 where id = $1",
-            )
-            .bind(&workspace_id)
-            .bind(iso(end))
-            .bind(iso(renewed))
-            .execute(&mut *tx)
-            .await?;
+            workspaces::Entity::update_many()
+                .col_expr(
+                    workspaces::Column::SubscriptionCurrentPeriodStart,
+                    Expr::value(utc_timestamp(end)),
+                )
+                .col_expr(
+                    workspaces::Column::SubscriptionCurrentPeriodEnd,
+                    Expr::value(utc_timestamp(renewed)),
+                )
+                .col_expr(workspaces::Column::UpdatedAt, Expr::current_timestamp())
+                .filter(workspaces::Column::Id.eq(&workspace_id))
+                .exec(&OrmConn::new(&mut tx))
+                .await?;
         }
-        account::set_next_charge(&mut tx, &workspace_id, Some(next_anchor)).await?;
+        account::set_next_charge(&OrmConn::new(&mut tx), &workspace_id, Some(next_anchor)).await?;
         tx.commit().await?;
         return Ok(Some(Outcome::CreditedOnly));
     }
@@ -466,7 +679,7 @@ async fn renew_next(state: &BillingState, now: OffsetDateTime) -> BillingResult<
     // grace period ends the plan.
     if account.past_due_payment_id.is_some() {
         account::set_next_charge(
-            &mut tx,
+            &OrmConn::new(&mut tx),
             &workspace_id,
             Some(anchor_at + time::Duration::days(1)),
         )
@@ -475,7 +688,7 @@ async fn renew_next(state: &BillingState, now: OffsetDateTime) -> BillingResult<
         return Ok(Some(Outcome::Skipped));
     }
     let Some((_, period_end)) = workspace.period() else {
-        account::set_next_charge(&mut tx, &workspace_id, None).await?;
+        account::set_next_charge(&OrmConn::new(&mut tx), &workspace_id, None).await?;
         tx.commit().await?;
         return Ok(Some(Outcome::Skipped));
     };
@@ -509,7 +722,7 @@ async fn renew_next(state: &BillingState, now: OffsetDateTime) -> BillingResult<
     }
     let Some(plan) = plan else {
         tracing::error!(workspace = %workspace_id, "billing-renewals: the plan is gone");
-        account::set_next_charge(&mut tx, &workspace_id, None).await?;
+        account::set_next_charge(&OrmConn::new(&mut tx), &workspace_id, None).await?;
         tx.commit().await?;
         return Ok(Some(Outcome::Skipped));
     };
@@ -522,7 +735,7 @@ async fn renew_next(state: &BillingState, now: OffsetDateTime) -> BillingResult<
     let Some(details) = details_for(state, &workspace).await? else {
         tracing::error!(workspace = %workspace_id, "billing-renewals: no billing details to invoice, retried tomorrow");
         account::set_next_charge(
-            &mut tx,
+            &OrmConn::new(&mut tx),
             &workspace_id,
             Some(anchor_at + time::Duration::days(1)),
         )
@@ -557,7 +770,7 @@ async fn renew_next(state: &BillingState, now: OffsetDateTime) -> BillingResult<
     // Advance first (in this transaction): plan, period and anchor.
     if plan_due {
         crate::workspace::set_subscription(
-            &mut tx,
+            &OrmConn::new(&mut tx),
             &workspace_id,
             &plan.id,
             seats_count,
@@ -567,18 +780,18 @@ async fn renew_next(state: &BillingState, now: OffsetDateTime) -> BillingResult<
             now,
         )
         .await?;
-        account::set_unit_amount(&mut tx, &workspace_id, unit).await?;
-        account::schedule(&mut tx, &workspace_id, None).await?;
+        account::set_unit_amount(&OrmConn::new(&mut tx), &workspace_id, unit).await?;
+        account::schedule(&OrmConn::new(&mut tx), &workspace_id, None).await?;
     }
     credits::grant_monthly(
-        &mut tx,
+        &OrmConn::new(&mut tx),
         &workspace_id,
         plan_credits(Some(&plan)),
         due,
         next_anchor,
     )
     .await?;
-    account::set_next_charge(&mut tx, &workspace_id, Some(next_anchor)).await?;
+    account::set_next_charge(&OrmConn::new(&mut tx), &workspace_id, Some(next_anchor)).await?;
 
     if lines.is_empty() {
         tx.commit().await?;
@@ -608,7 +821,7 @@ async fn renew_next(state: &BillingState, now: OffsetDateTime) -> BillingResult<
     // The charge row commits with the period it pays for: if Mollie can't
     // be reached, or this run stops before the call, `resend_unsent` sends it.
     let key = format!("renewal:{workspace_id}:{}", iso(due));
-    let row = ChargeRow::create_in(&mut tx, &workspace_id, &key, &meta).await?;
+    let row = ChargeRow::create_in(&OrmConn::new(&mut tx), &workspace_id, &key, &meta).await?;
     tx.commit().await?;
     if plan_due
         && scheduled
@@ -647,8 +860,8 @@ async fn resend_unsent(
     let Some(http) = state.http.clone() else {
         return Ok(());
     };
-    let before = iso(now - time::Duration::minutes(5));
-    for row in ChargeRow::unsent_renewals(master, &before, 50).await? {
+    let before = now - time::Duration::minutes(5);
+    for row in ChargeRow::unsent_renewals(master, before, 50).await? {
         let Some(meta) = row.meta() else {
             continue;
         };
@@ -707,7 +920,7 @@ async fn charge_row(
             } else {
                 let mut tx = master.begin().await?;
                 ChargeRow::record(
-                    &mut tx,
+                    &OrmConn::new(&mut tx),
                     &row.id,
                     status_of(&payment.status),
                     &payment.details,
@@ -736,14 +949,20 @@ async fn charge_row(
     };
     tracing::warn!(workspace = workspace_id, row = %row.id, reason = %refused, "billing-renewals: charge refused, past due");
     let mut tx = master.begin().await?;
-    sqlx::query(
-        "update billing_payments set status = 'failed', failure_message = $2, updated_at = now() where id = $1",
-    )
-    .bind(&row.id)
-    .bind(&refused)
-    .execute(&mut *tx)
-    .await?;
-    go_past_due(&mut tx, workspace_id, &row.id, now).await?;
+    billing_payments::Entity::update_many()
+        .col_expr(billing_payments::Column::Status, Expr::value("failed"))
+        .col_expr(
+            billing_payments::Column::FailureMessage,
+            Expr::value(refused.clone()),
+        )
+        .col_expr(
+            billing_payments::Column::UpdatedAt,
+            Expr::current_timestamp(),
+        )
+        .filter(billing_payments::Column::Id.eq(&row.id))
+        .exec(&OrmConn::new(&mut tx))
+        .await?;
+    go_past_due(&OrmConn::new(&mut tx), workspace_id, &row.id, now).await?;
     tx.commit().await?;
     settle::notify_failed(state, workspace_id, &row.id, now).await;
     Ok(Some(Outcome::PastDue))

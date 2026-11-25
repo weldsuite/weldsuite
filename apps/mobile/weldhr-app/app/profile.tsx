@@ -38,7 +38,7 @@ import { PersonAvatar } from '@/components/PersonAvatar';
 import { CountBadge } from '@/components/Row';
 import { Screen, Segments } from '@/components/Screen';
 import { WorkspaceList } from '@/components/WorkspaceMenu';
-import { lockMethodLabel, useAppLock } from '@/contexts/AppLockContext';
+import { lockMethodLabel, useAppLock } from '@weldsuite/mobile-ui/contexts/AppLockContext';
 import { usePalette } from '@/hooks/use-palette';
 import { useHrAccess, useOverview, usePayslips } from '@/hooks/use-weldhr-queries';
 import { formatDate } from '@/lib/format';
@@ -148,7 +148,7 @@ function Settings() {
   const { t, format, language, setLanguage } = useI18n();
   const { signOut } = useAuthSession();
   const lock = useAppLock();
-  const method = lockMethodLabel(t, lock.method);
+  const method = lockMethodLabel(t.lock, lock.method);
   const [deleting, setDeleting] = useState(false);
   // WeldSuite deletes the account on Clerk; elsewhere the person does it at the identity provider.
   const onClerk = useAuthProvider() === 'clerk';

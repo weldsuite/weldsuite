@@ -9,13 +9,20 @@
 //! the outbound HTTP port ([`OutboundHttp`]); without one, VIES reads as
 //! unavailable.
 
+use sea_orm::sea_query::{Expr, OnConflict};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, FromQueryResult, QueryFilter, QuerySelect,
+};
 use serde_json::{Value, json};
 use sqlx::PgConnection;
-use weldsuite_db::PgPool;
+use time::PrimitiveDateTime;
+use weldsuite_db::{OrmConn, PgPool, orm_error};
 use weldsuite_kit::generate_id;
 use weldsuite_ports::{HttpRequest, OutboundHttp};
+use weldsuite_schema::tenant::vies_checks;
 
-use crate::http::{now, now_ms};
+use crate::db_values::{iso_of, now_and_stamp};
+use crate::http::now_ms;
 use crate::vendor_tax::iso_millis;
 
 /// `VIES_API_URL`.
@@ -202,8 +209,8 @@ fn js_prefix(value: &str, n: usize) -> String {
     out
 }
 
-/// One `vies_checks` row.
-#[derive(Debug, sqlx::FromRow)]
+/// One `vies_checks` row, `checked_at` as `toISOString()`.
+#[derive(Debug)]
 struct Cached {
     valid: bool,
     country_code: String,
@@ -211,6 +218,30 @@ struct Cached {
     trader_address: Option<String>,
     consultation_number: Option<String>,
     checked_at: String,
+}
+
+/// The `vies_checks` columns [`Cached`] reads.
+#[derive(Debug, FromQueryResult)]
+struct CachedRow {
+    valid: bool,
+    country_code: String,
+    trader_name: Option<String>,
+    trader_address: Option<String>,
+    consultation_number: Option<String>,
+    checked_at: PrimitiveDateTime,
+}
+
+impl From<CachedRow> for Cached {
+    fn from(row: CachedRow) -> Self {
+        Self {
+            valid: row.valid,
+            country_code: row.country_code,
+            trader_name: row.trader_name,
+            trader_address: row.trader_address,
+            consultation_number: row.consultation_number,
+            checked_at: iso_of(row.checked_at),
+        }
+    }
 }
 
 fn from_cache(cached: &Cached, vat_number: &str) -> ViesResult {
@@ -227,14 +258,58 @@ fn from_cache(cached: &Cached, vat_number: &str) -> ViesResult {
     }
 }
 
+/// The cached answer for a normalized VAT number.
+async fn cached_check(db: &OrmConn<'_>, vat_number: &str) -> Result<Option<Cached>, DbErr> {
+    let row = vies_checks::Entity::find()
+        .select_only()
+        .columns([
+            vies_checks::Column::Valid,
+            vies_checks::Column::CountryCode,
+            vies_checks::Column::TraderName,
+            vies_checks::Column::TraderAddress,
+            vies_checks::Column::ConsultationNumber,
+            vies_checks::Column::CheckedAt,
+        ])
+        .filter(vies_checks::Column::VatNumber.eq(vat_number))
+        .into_model::<CachedRow>()
+        .one(db)
+        .await?;
+    Ok(row.map(Cached::from))
+}
+
+/// The answer into the cache: a new row, or the VAT number's row with the
+/// new answer (its country stays), `updated_at` the check's time.
+async fn store_check(
+    db: &OrmConn<'_>,
+    check: vies_checks::ActiveModel,
+    checked_at: PrimitiveDateTime,
+) -> Result<(), DbErr> {
+    vies_checks::Entity::insert(check)
+        .on_conflict(
+            OnConflict::column(vies_checks::Column::VatNumber)
+                .update_columns([
+                    vies_checks::Column::Valid,
+                    vies_checks::Column::TraderName,
+                    vies_checks::Column::TraderAddress,
+                    vies_checks::Column::ConsultationNumber,
+                    vies_checks::Column::CheckedAt,
+                ])
+                .value(vies_checks::Column::UpdatedAt, Expr::val(checked_at))
+                .to_owned(),
+        )
+        .exec_without_returning(db)
+        .await?;
+    Ok(())
+}
+
 /// `checkVatNumber(db, raw)`: an EU VAT number against VIES, through the
 /// tenant's cache. Takes a connection of the pool for the call.
 pub async fn check_vat_number(
     db: &PgPool,
     http: Option<&OutboundHttp>,
     raw: &str,
-) -> Result<ViesResult, sqlx::Error> {
-    let mut conn = db.acquire().await?;
+) -> Result<ViesResult, DbErr> {
+    let mut conn = db.acquire().await.map_err(orm_error)?;
     check_vat_number_on(&mut conn, http, raw).await
 }
 
@@ -245,8 +320,8 @@ pub async fn check_vat_number_on(
     conn: &mut PgConnection,
     http: Option<&OutboundHttp>,
     raw: &str,
-) -> Result<ViesResult, sqlx::Error> {
-    let checked_now = now();
+) -> Result<ViesResult, DbErr> {
+    let (checked_now, checked_stamp) = now_and_stamp();
     let Some(normalized) = normalize_vat_number(raw) else {
         return Ok(ViesResult {
             available: true,
@@ -261,14 +336,8 @@ pub async fn check_vat_number_on(
         });
     };
 
-    let cached: Option<Cached> = sqlx::query_as(
-        "select valid, country_code, trader_name, trader_address, consultation_number, \
-         to_char(checked_at, 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"') as checked_at \
-         from vies_checks where vat_number = $1 limit 1",
-    )
-    .bind(&normalized.full)
-    .fetch_optional(&mut *conn)
-    .await?;
+    let db = OrmConn::new(conn);
+    let cached = cached_check(&db, &normalized.full).await?;
     if let Some(cached) = &cached {
         let age = now_ms() - iso_millis(&cached.checked_at).unwrap_or(0);
         let ttl = if cached.valid {
@@ -317,22 +386,21 @@ pub async fn check_vat_number_on(
         .and_then(Value::as_str)
         .map(|v| js_prefix(v, 50));
 
-    sqlx::query(
-        "insert into vies_checks (id, vat_number, country_code, valid, trader_name, trader_address, consultation_number, checked_at) \
-         values ($1, $2, $3, $4, $5, $6, $7, $8::timestamp) \
-         on conflict (vat_number) do update set valid = excluded.valid, trader_name = excluded.trader_name, \
-         trader_address = excluded.trader_address, consultation_number = excluded.consultation_number, \
-         checked_at = excluded.checked_at, updated_at = $8::timestamp",
+    store_check(
+        &db,
+        vies_checks::ActiveModel {
+            id: Set(generate_id("vies")),
+            vat_number: Set(normalized.full.clone()),
+            country_code: Set(normalized.country_code.clone()),
+            valid: Set(valid),
+            trader_name: Set(trader_name.clone()),
+            trader_address: Set(trader_address.clone()),
+            consultation_number: Set(consultation_number.clone()),
+            checked_at: Set(checked_stamp),
+            ..Default::default()
+        },
+        checked_stamp,
     )
-    .bind(generate_id("vies"))
-    .bind(&normalized.full)
-    .bind(&normalized.country_code)
-    .bind(valid)
-    .bind(&trader_name)
-    .bind(&trader_address)
-    .bind(&consultation_number)
-    .bind(&checked_now)
-    .execute(&mut *conn)
     .await?;
 
     Ok(ViesResult {

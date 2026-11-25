@@ -10,18 +10,25 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, patch, post, put};
 use http::HeaderMap;
+use sea_orm::sea_query::{Asterisk, Expr, Func, Order};
+use sea_orm::{ColumnTrait, Condition, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events::{PICKER_CREATED, PICKER_DELETED, PICKER_UPDATED};
 use weldsuite_catalogs::permission_keys::{
     WAREHOUSES_CREATE, WAREHOUSES_DELETE, WAREHOUSES_READ, WAREHOUSES_UPDATE,
 };
+use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_kit::validation::{Field, Format, Issues, Presence, Text};
 use weldsuite_kit::{ApiError, Created, Data, NoContent, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::{pick_lists, warehouse_workers};
 
-use crate::args::{Arg, bind_scalar, created_cursor, cursor_sql, page_body, sliced};
+use crate::args::{
+    CursorRow, all_on, before, cursor_row, limit_plus_one, page_body, pushed, sliced, table_count,
+    table_rows,
+};
 use crate::crud::{cursor_failed, soft_delete, write_failed};
-use crate::js::{js_limit, number_text, query_param, query_set, sql_limit};
+use crate::js::{js_limit, number_text, query_param, query_set};
 use crate::tables::{PICK_LISTS, WAREHOUSE_WORKERS};
 use crate::{Caller, Refusal, StashState, internal, now, validate};
 
@@ -50,32 +57,26 @@ where
         .route("/{id}/status", patch(set_status).route_layer(update()))
 }
 
-macro_rules! conditions {
-    () => {
-        "(not $1::boolean or t.deleted_at is null) and (not $2::boolean or (t.name like $3 or t.email like $3)) \
-         and (not $4::boolean or t.status = $5) and (not $6::boolean or t.warehouse_id = $7) \
-         and (not $8::boolean or t.role = $9) \
-         and (not $10::boolean or (t.created_at < $11::timestamp or (t.created_at = $11::timestamp and t.id < $12)))"
-    };
-}
-
-const LIST_SQL: &str = concat!(
-    "select to_jsonb(t) from warehouse_workers t where ",
-    conditions!(),
-    " order by t.created_at desc, t.id desc limit $13"
-);
-
-const COUNT_SQL: &str = concat!(
-    "select count(*) from warehouse_workers t where ",
-    conditions!()
-);
-
 /// The status stats: live rows, optionally one warehouse's.
-const STATS_SQL: &str = "select jsonb_build_object('total', count(*)::int, \
-    'active', count(*) filter (where t.status = 'active')::int, \
-    'inactive', count(*) filter (where t.status = 'inactive')::int, \
-    'on_break', count(*) filter (where t.status = 'on_break')::int) \
-    from warehouse_workers t where t.deleted_at is null and (not $1::boolean or t.warehouse_id = $2)";
+async fn status_stats(db: &PgPool, warehouse: Option<String>) -> Result<Value, DbErr> {
+    use warehouse_workers::{Column, Entity};
+    let status = |status: &str| Expr::from(Func::count(Expr::case(Column::Status.eq(status), 1)));
+    let mut select = Entity::find()
+        .select_only()
+        .column_as(Expr::from(Func::count(Expr::col(Asterisk))), "total")
+        .column_as(status("active"), "active")
+        .column_as(status("inactive"), "inactive")
+        .column_as(status("on_break"), "on_break")
+        .filter(Column::DeletedAt.is_null());
+    if let Some(warehouse) = warehouse {
+        select = select.filter(Column::WarehouseId.eq(warehouse));
+    }
+    Ok(select
+        .into_json()
+        .one(&orm(db))
+        .await?
+        .unwrap_or_else(|| json!({})))
+}
 
 /// A filter that is set and not `all`.
 fn set_not_all(query: Option<&str>, name: &str) -> Option<String> {
@@ -83,95 +84,111 @@ fn set_not_all(query: Option<&str>, name: &str) -> Option<String> {
 }
 
 async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
+    use warehouse_workers::{Column, Entity};
     let query = query.as_deref();
     let limit = js_limit(query_param(query, "limit").as_deref(), 25.0, 100.0);
-    let search = query_set(query, "search").map(|search| format!("%{search}%"));
-    let status = set_not_all(query, "status");
-    let warehouse = set_not_all(query, "warehouseId");
-    let role = set_not_all(query, "role");
     let cursor_given = query_set(query, "cursor");
     let cursor = match &cursor_given {
         Some(cursor) => {
-            match created_cursor(&caller.db, cursor_sql!("warehouse_workers"), cursor).await {
+            match cursor_row::<Entity>(&caller.db, Column::CreatedAt, Column::Id, cursor).await {
                 Ok(cursor) => cursor,
                 Err(error) => return cursor_failed(&error),
             }
         }
         None => None,
     };
-    let on = vec![
-        true,
-        search.is_some(),
-        status.is_some(),
-        warehouse.is_some(),
-        role.is_some(),
-        cursor.is_some(),
-    ];
-    let args = |on: &[bool]| {
-        vec![
-            Arg::Bool(on[0]),
-            Arg::Bool(on[1]),
-            Arg::Text(search.clone()),
-            Arg::Bool(on[2]),
-            Arg::Text(status.clone()),
-            Arg::Bool(on[3]),
-            Arg::Text(warehouse.clone()),
-            Arg::Bool(on[4]),
-            Arg::Text(role.clone()),
-            Arg::Bool(on[5]),
-            Arg::opt(cursor.as_ref().map(|(at, _)| at.as_str())),
-            Arg::opt(cursor.as_ref().map(|(_, id)| id.as_str())),
-        ]
-    };
-    let mut page = args(&on);
-    page.push(Arg::Int(sql_limit(limit)));
-    let count_on = sliced(on.clone(), cursor_given.is_some());
     let message = "Failed to list pickers";
-    let rows: Vec<Value> = match bind_scalar(sqlx::query_scalar(LIST_SQL), page)
-        .fetch_all(&caller.db)
-        .await
-    {
-        Ok(rows) => rows,
-        Err(error) => return internal(&error, message),
-    };
-    let total: i64 = match bind_scalar(sqlx::query_scalar(COUNT_SQL), args(&count_on))
-        .fetch_one(&caller.db)
-        .await
-    {
-        Ok(total) => total,
-        Err(error) => return internal(&error, message),
-    };
-    let by_status: Value = match sqlx::query_scalar(STATS_SQL)
-        .bind(false)
-        .bind(None::<&str>)
-        .fetch_one(&caller.db)
-        .await
-    {
-        Ok(counts) => counts,
-        Err(error) => return internal(&error, message),
-    };
-    page_body(
-        rows.into_iter()
-            .map(|row| WAREHOUSE_WORKERS.js(row))
-            .collect(),
+    match fetch(
+        &caller.db,
+        query,
+        cursor_given.is_some(),
+        cursor.as_ref(),
         limit,
-        total,
-        "stats",
-        by_status,
     )
+    .await
+    {
+        Ok((rows, total, by_status)) => page_body(rows, limit, total, "stats", by_status),
+        Err(error) => internal(&error, message),
+    }
+}
+
+/// The page, its count and the status stats of every live picker.
+async fn fetch(
+    db: &PgPool,
+    query: Option<&str>,
+    cursor_given: bool,
+    cursor: Option<&CursorRow>,
+    limit: f64,
+) -> Result<(Vec<Value>, i64, Value), DbErr> {
+    use warehouse_workers::{Column, Entity};
+    let eq = |value: Option<String>, column: Column| {
+        value.map(|value| Condition::all().add(column.eq(value)))
+    };
+    let search = query_set(query, "search").map(|search| {
+        let term = format!("%{search}%");
+        Condition::any()
+            .add(Column::Name.like(term.as_str()))
+            .add(Column::Email.like(term.as_str()))
+    });
+    let slots = vec![
+        Some(Condition::all().add(Column::DeletedAt.is_null())),
+        search,
+        eq(set_not_all(query, "status"), Column::Status),
+        eq(set_not_all(query, "warehouseId"), Column::WarehouseId),
+        eq(set_not_all(query, "role"), Column::Role),
+        cursor.map(|cursor| before(Column::CreatedAt, Column::Id, cursor)),
+    ];
+    let on = pushed(&slots);
+    let count_on = sliced(on.clone(), cursor_given);
+    let mut page = WAREHOUSE_WORKERS.entity.select();
+    page.cond_where(all_on(&slots, &on))
+        .order_by((Entity, Column::CreatedAt), Order::Desc)
+        .order_by((Entity, Column::Id), Order::Desc);
+    limit_plus_one(&mut page, limit);
+    let mut counted = WAREHOUSE_WORKERS.entity.select();
+    counted.cond_where(all_on(&slots, &count_on));
+    let rows = table_rows(db, &WAREHOUSE_WORKERS, &page).await?;
+    let total = table_count(db, &WAREHOUSE_WORKERS, &counted).await?;
+    let by_status = status_stats(db, None).await?;
+    Ok((rows, total, by_status))
 }
 
 async fn stats(caller: Caller, RawQuery(query): RawQuery) -> Response {
     let warehouse = set_not_all(query.as_deref(), "warehouseId");
-    match sqlx::query_scalar::<_, Value>(STATS_SQL)
-        .bind(warehouse.is_some())
-        .bind(warehouse)
-        .fetch_one(&caller.db)
-        .await
-    {
+    match status_stats(&caller.db, warehouse).await {
         Ok(stats) => Data(stats).into_response(),
         Err(error) => internal(&error, "Failed to fetch picker stats"),
     }
+}
+
+/// A picker's pick performance: their live pick lists, the completed
+/// ones, and the items on them and picked.
+async fn performance(db: &PgPool, id: &str) -> Result<Value, DbErr> {
+    use pick_lists::{Column, Entity};
+    let sum = |column: Column| {
+        Expr::from(Func::coalesce([
+            Expr::from(Func::sum(Expr::col((Entity, column)))),
+            Expr::val(0),
+        ]))
+    };
+    Ok(Entity::find()
+        .select_only()
+        .column_as(
+            Expr::from(Func::count(Expr::col(Asterisk))),
+            "totalPicklists",
+        )
+        .column_as(
+            Expr::from(Func::count(Expr::case(Column::Status.eq("completed"), 1))),
+            "completedPicklists",
+        )
+        .column_as(sum(Column::TotalItems), "totalItems")
+        .column_as(sum(Column::PickedItems), "pickedItems")
+        .filter(Column::AssignedTo.eq(id))
+        .filter(Column::DeletedAt.is_null())
+        .into_json()
+        .one(&orm(db))
+        .await?
+        .unwrap_or_else(|| json!({})))
 }
 
 async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
@@ -181,17 +198,7 @@ async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
         Ok(None) => return Refusal::not_found("Picker", &id).respond(message),
         Err(error) => return internal(&error, message),
     };
-    let performance: Value = match sqlx::query_scalar(
-        "select jsonb_build_object('totalPicklists', count(*)::int, \
-         'completedPicklists', count(*) filter (where t.status = 'completed')::int, \
-         'totalItems', coalesce(sum(t.total_items), 0)::int, \
-         'pickedItems', coalesce(sum(t.picked_items), 0)::int) \
-         from pick_lists t where t.assigned_to = $1 and t.deleted_at is null",
-    )
-    .bind(&id)
-    .fetch_one(&caller.db)
-    .await
-    {
+    let performance = match performance(&caller.db, &id).await {
         Ok(performance) => performance,
         Err(error) => return internal(&error, message),
     };
@@ -204,23 +211,21 @@ async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
 }
 
 async fn pick_lists(caller: Caller, Path(id): Path<String>, RawQuery(query): RawQuery) -> Response {
+    use pick_lists::{Column, Entity};
     let status = set_not_all(query.as_deref(), "status");
-    let rows: Result<Vec<Value>, _> = sqlx::query_scalar(
-        "select to_jsonb(t) from pick_lists t where t.assigned_to = $1 and t.deleted_at is null \
-         and (not $2::boolean or t.status = $3) order by t.created_at desc limit 50",
-    )
-    .bind(&id)
-    .bind(status.is_some())
-    .bind(status)
-    .fetch_all(&caller.db)
-    .await;
-    match rows {
-        Ok(rows) => Data(
-            rows.into_iter()
-                .map(|row| PICK_LISTS.js(row))
-                .collect::<Vec<_>>(),
-        )
-        .into_response(),
+    let mut condition = Condition::all()
+        .add(Column::AssignedTo.eq(id))
+        .add(Column::DeletedAt.is_null());
+    if let Some(status) = status {
+        condition = condition.add(Column::Status.eq(status));
+    }
+    let mut select = PICK_LISTS.entity.select();
+    select
+        .cond_where(condition)
+        .order_by((Entity, Column::CreatedAt), Order::Desc)
+        .limit(50);
+    match table_rows(&caller.db, &PICK_LISTS, &select).await {
+        Ok(rows) => Data(rows).into_response(),
         Err(error) => internal(&error, "Failed to fetch picker picklists"),
     }
 }
@@ -465,15 +470,13 @@ async fn set_status(
         Value::Number(number) => number_text(number.as_f64().unwrap_or(f64::NAN)),
         other => other.to_string(),
     };
-    let updated = sqlx::query(
-        "update warehouse_workers set status = $2, updated_at = $3::timestamp \
-         where id = $1 and deleted_at is null",
-    )
-    .bind(&id)
-    .bind(&text)
-    .bind(now())
-    .execute(&caller.db)
-    .await;
+    let updated = warehouse_workers::Entity::update_many()
+        .col_expr(warehouse_workers::Column::Status, Expr::value(text))
+        .col_expr(warehouse_workers::Column::UpdatedAt, Expr::value(utc_now()))
+        .filter(warehouse_workers::Column::Id.eq(id.as_str()))
+        .filter(warehouse_workers::Column::DeletedAt.is_null())
+        .exec(&orm(&caller.db))
+        .await;
     if let Err(error) = updated {
         return internal(&error, message);
     }

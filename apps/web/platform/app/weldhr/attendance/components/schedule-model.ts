@@ -4,7 +4,7 @@
  * to the shifts. No React here, so it can be unit tested.
  */
 
-import { addDays, addMonths, endOfMonth, format, getDaysInMonth, isWeekend, startOfMonth } from 'date-fns';
+import { addDays, addMonths, endOfMonth, format, getDaysInMonth, startOfMonth } from 'date-fns';
 import type { HrAbsence, HrLeaveRequest, HrShift } from '@weldsuite/app-api-client/domains/weldhr';
 import { shiftIsoDate } from '../../components/shared';
 
@@ -298,7 +298,7 @@ export function timeOffSpans(items: TimeOff[], days: string[]): TimeOffSpan[] {
 export interface DayStats {
   /** Employees with at least one shift that day. */
   working: RosterEmployee[];
-  /** Employees on approved leave or sick that day (at weekends only those who also had a shift). */
+  /** Employees on approved leave or sick that day, weekends included (as the week view's bars run through them). */
   away: Array<{ employee: RosterEmployee; item: TimeOff }>;
   /** Employees with a leave request waiting for approval that day, and not otherwise away. */
   requested: Array<{ employee: RosterEmployee; item: TimeOff }>;
@@ -306,13 +306,8 @@ export interface DayStats {
   hours: number;
 }
 
-/**
- * What keeps someone from work on `day`: approved leave or sickness first,
- * else a pending request. Nothing when the day doesn't count for them
- * (`counts` is false at weekends without a shift).
- */
-function timeOffOnDay(items: TimeOff[], day: string, counts: boolean): { away?: TimeOff; requested?: TimeOff } {
-  if (!counts) return {};
+/** What keeps someone from work on `day`: approved leave or sickness first, else a pending request. */
+function timeOffOnDay(items: TimeOff[], day: string): { away?: TimeOff; requested?: TimeOff } {
   const covering = items.filter((item) => timeOffCovers(item, day));
   const away = covering.find((item) => !item.pending);
   return away ? { away } : { requested: covering.find((item) => item.pending) };
@@ -327,13 +322,12 @@ export function buildDayStats(
 ): Map<string, DayStats> {
   const stats = new Map<string, DayStats>();
   for (const day of days) {
-    const weekend = isWeekend(new Date(`${day}T12:00:00`));
     const entry: DayStats = { working: [], away: [], requested: [], hours: 0 };
     for (const employee of employees) {
       const shifts = shiftsByCell.get(`${employee.id}|${day}`) ?? [];
       if (shifts.length > 0) entry.working.push(employee);
       for (const shift of shifts) entry.hours += shiftHours(shift);
-      const { away, requested } = timeOffOnDay(timeOffByEmployee.get(employee.id) ?? [], day, !weekend || shifts.length > 0);
+      const { away, requested } = timeOffOnDay(timeOffByEmployee.get(employee.id) ?? [], day);
       if (away) entry.away.push({ employee, item: away });
       else if (requested) entry.requested.push({ employee, item: requested });
     }

@@ -42,3 +42,33 @@ interface RoleLike {
 export function assignableEntityRoles<T extends RoleLike>(roles: readonly T[]): T[] {
   return roles.filter((role) => !(role.isSystemRole && role.name.toLowerCase() === 'owner'));
 }
+
+interface SelfAccess {
+  /** The signed-in member's user id. */
+  userId: string | null | undefined;
+  /** Whether they are a workspace owner (owners see every entity). */
+  isOwner: boolean;
+  /** The entity's member list. */
+  members: ReadonlyArray<{ userId: string }>;
+}
+
+/**
+ * Whether switching Restricted on hides the entity from the signed-in member:
+ * they are not an owner and not listed (admins included).
+ */
+export function restrictingHidesFromSelf({ userId, isOwner, members }: SelfAccess): boolean {
+  if (isOwner) return false;
+  return !userId || !members.some((member) => member.userId === userId);
+}
+
+/**
+ * Whether removing `removedUserId` from a restricted entity hides it from the
+ * signed-in member: they remove themselves and are not an owner.
+ */
+export function removingHidesFromSelf(
+  { userId, isOwner }: Omit<SelfAccess, 'members'>,
+  restricted: boolean,
+  removedUserId: string,
+): boolean {
+  return restricted && !isOwner && Boolean(userId) && removedUserId === userId;
+}

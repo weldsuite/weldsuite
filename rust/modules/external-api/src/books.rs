@@ -11,17 +11,25 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{MethodRouter, get, patch, post};
 use http::HeaderMap;
+use sea_orm::{ColumnTrait, Condition, DbErr, EntityTrait, QueryFilter};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events::{
     ACCOUNTING_CONTACT_CREATED, ACCOUNTING_CONTACT_DELETED, ACCOUNTING_CONTACT_UPDATED,
 };
+use weldsuite_db::orm;
 use weldsuite_kit::id::generate_id;
+use weldsuite_schema::tenant::{
+    accounts, bank_accounts, bank_transactions, bills, documents, entities, fiscal_periods,
+    icp_declarations, invoices, journal_entries, parties, payments, reconciliation_rules,
+    recurring_invoices, settings as accounting_settings, tax_rates, vat_returns,
+};
 
 use crate::ExternalApiState;
 use crate::crud::{
     Answer, Caller, created, get_live, like, live_or_404, no_content, now, ok, page, soft_delete,
-    table_list_sql, text,
+    text,
 };
+use crate::list::{Filter, like_any, when};
 use crate::schemas::{LIST_ACCOUNTING_CONTACTS, LIST_READ_ONLY};
 use crate::schemas_gen::{CREATE_ACCOUNTING_CONTACT, UPDATE_ACCOUNTING_CONTACT};
 use crate::session::{ApiSession, internal_with, not_found, unauthorized};
@@ -45,16 +53,20 @@ struct ReadOnly {
     label: &'static str,
     /// The 405's noun (`invoices`).
     noun: &'static str,
-    sql: (&'static str, &'static str),
+    /// The list's conditions: live rows, of the `entityId` filter's entity
+    /// where the resource filters on it.
+    filter: Filter,
 }
 
-/// With `entity_id`: the list filters on it.
+/// With `entity_id`: the list filters on it (`t.deleted_at is null and
+/// ($3->>'entityId' is null or t.entity_id = $3->>'entityId')`).
 macro_rules! by_entity {
     ($table:ident) => {
-        table_list_sql!(
-            $table,
-            "t.deleted_at is null and ($3->>'entityId' is null or t.entity_id = $3->>'entityId')"
-        )
+        |f| {
+            Condition::all()
+                .add($table::Column::DeletedAt.is_null())
+                .add_option(when(f, "entityId", |v| $table::Column::EntityId.eq(v)))
+        }
     };
 }
 
@@ -65,10 +77,8 @@ static READ_ONLY: [ReadOnly; 16] = [
         table: &ENTITIES,
         label: "Accounting entity",
         noun: "accounting entities",
-        sql: table_list_sql!(
-            entities,
-            "t.deleted_at is null and ($3->>'entityId' is null or true)"
-        ),
+        // `$3->>'entityId' is null or true`: the filter is read, not applied.
+        filter: |_| Condition::all().add(entities::Column::DeletedAt.is_null()),
     },
     ReadOnly {
         path: "/gl-accounts",
@@ -76,7 +86,7 @@ static READ_ONLY: [ReadOnly; 16] = [
         table: &ACCOUNTS,
         label: "GL account",
         noun: "GL accounts",
-        sql: by_entity!(accounts),
+        filter: by_entity!(accounts),
     },
     ReadOnly {
         path: "/invoices",
@@ -84,7 +94,7 @@ static READ_ONLY: [ReadOnly; 16] = [
         table: &INVOICES,
         label: "Invoice",
         noun: "invoices",
-        sql: by_entity!(invoices),
+        filter: by_entity!(invoices),
     },
     ReadOnly {
         path: "/bills",
@@ -92,7 +102,7 @@ static READ_ONLY: [ReadOnly; 16] = [
         table: &BILLS,
         label: "Bill",
         noun: "bills",
-        sql: by_entity!(bills),
+        filter: by_entity!(bills),
     },
     ReadOnly {
         path: "/journal-entries",
@@ -100,7 +110,7 @@ static READ_ONLY: [ReadOnly; 16] = [
         table: &JOURNAL_ENTRIES,
         label: "Journal entry",
         noun: "journal entries",
-        sql: by_entity!(journal_entries),
+        filter: by_entity!(journal_entries),
     },
     ReadOnly {
         path: "/payments",
@@ -108,7 +118,7 @@ static READ_ONLY: [ReadOnly; 16] = [
         table: &PAYMENTS,
         label: "Payment",
         noun: "payments",
-        sql: by_entity!(payments),
+        filter: by_entity!(payments),
     },
     ReadOnly {
         path: "/bank-accounts",
@@ -116,7 +126,7 @@ static READ_ONLY: [ReadOnly; 16] = [
         table: &BANK_ACCOUNTS,
         label: "Bank account",
         noun: "bank accounts",
-        sql: by_entity!(bank_accounts),
+        filter: by_entity!(bank_accounts),
     },
     ReadOnly {
         path: "/bank-transactions",
@@ -124,7 +134,7 @@ static READ_ONLY: [ReadOnly; 16] = [
         table: &BANK_TRANSACTIONS,
         label: "Bank transaction",
         noun: "bank transactions",
-        sql: by_entity!(bank_transactions),
+        filter: by_entity!(bank_transactions),
     },
     ReadOnly {
         path: "/tax-rates",
@@ -132,7 +142,7 @@ static READ_ONLY: [ReadOnly; 16] = [
         table: &TAX_RATES,
         label: "Tax rate",
         noun: "tax rates",
-        sql: by_entity!(tax_rates),
+        filter: by_entity!(tax_rates),
     },
     ReadOnly {
         path: "/recurring-invoices",
@@ -140,7 +150,7 @@ static READ_ONLY: [ReadOnly; 16] = [
         table: &RECURRING_INVOICES,
         label: "Recurring invoice",
         noun: "recurring invoices",
-        sql: by_entity!(recurring_invoices),
+        filter: by_entity!(recurring_invoices),
     },
     ReadOnly {
         path: "/reconciliation-rules",
@@ -148,7 +158,7 @@ static READ_ONLY: [ReadOnly; 16] = [
         table: &RECONCILIATION_RULES,
         label: "Reconciliation rule",
         noun: "reconciliation rules",
-        sql: by_entity!(reconciliation_rules),
+        filter: by_entity!(reconciliation_rules),
     },
     ReadOnly {
         path: "/fiscal-periods",
@@ -156,7 +166,7 @@ static READ_ONLY: [ReadOnly; 16] = [
         table: &FISCAL_PERIODS,
         label: "Fiscal period",
         noun: "fiscal periods",
-        sql: by_entity!(fiscal_periods),
+        filter: by_entity!(fiscal_periods),
     },
     ReadOnly {
         path: "/fx-rates",
@@ -164,7 +174,8 @@ static READ_ONLY: [ReadOnly; 16] = [
         table: &FX_RATES,
         label: "FX rate",
         noun: "FX rates",
-        sql: table_list_sql!(fx_rates, "$3->>'entityId' is null or true"),
+        // No `deleted_at`, and the filter is read, not applied.
+        filter: |_| Condition::all(),
     },
     ReadOnly {
         path: "/vat-returns",
@@ -172,7 +183,7 @@ static READ_ONLY: [ReadOnly; 16] = [
         table: &VAT_RETURNS,
         label: "VAT return",
         noun: "VAT returns",
-        sql: by_entity!(vat_returns),
+        filter: by_entity!(vat_returns),
     },
     ReadOnly {
         path: "/icp-declarations",
@@ -180,7 +191,7 @@ static READ_ONLY: [ReadOnly; 16] = [
         table: &ICP_DECLARATIONS,
         label: "ICP declaration",
         noun: "ICP declarations",
-        sql: by_entity!(icp_declarations),
+        filter: by_entity!(icp_declarations),
     },
     ReadOnly {
         path: "/accounting-documents",
@@ -188,7 +199,7 @@ static READ_ONLY: [ReadOnly; 16] = [
         table: &DOCUMENTS,
         label: "Accounting document",
         noun: "accounting documents",
-        sql: by_entity!(documents),
+        filter: by_entity!(documents),
     },
 ];
 
@@ -231,7 +242,7 @@ pub(crate) fn routes(router: Router<ExternalApiState>) -> Router<ExternalApiStat
             let q = zod::query(&LIST_READ_ONLY, raw.as_deref())?;
             page(
                 &caller.db,
-                spec.sql,
+                spec.filter,
                 spec.table,
                 &q,
                 filters(&[F::Eq("entityId")], &q),
@@ -280,13 +291,13 @@ pub(crate) fn routes(router: Router<ExternalApiState>) -> Router<ExternalApiStat
 
 /// `GET /accounting-settings`: the live settings row, never created here.
 async fn settings(caller: Caller) -> Answer {
-    let row: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        crate::tables_gen::row!(settings),
-        " from settings t where t.deleted_at is null limit 1"
-    ))
-    .fetch_optional(&caller.db)
-    .await?;
+    let row = accounting_settings::Entity::find()
+        .filter(accounting_settings::Column::DeletedAt.is_null())
+        .one(&orm(&caller.db))
+        .await?
+        .map(serde_json::to_value)
+        .transpose()
+        .map_err(|error| DbErr::Json(error.to_string()))?;
     match row {
         Some(row) => ok(SETTINGS.js(row)),
         None => Err(crate::session::not_found_resource("Accounting settings").into()),
@@ -297,12 +308,17 @@ async fn settings(caller: Caller) -> Answer {
 // Accounting contacts (`parties`)
 // ---------------------------------------------------------------------------
 
-const CONTACTS_LIST: (&str, &str) = table_list_sql!(
-    parties,
-    "t.deleted_at is null \
-     and ($3->>'search' is null or t.display_name like $3->>'search' or t.party_code like $3->>'search') \
-     and ($3->>'role' is null or t.role = $3->>'role')"
-);
+fn contacts_list(f: &Value) -> Condition {
+    Condition::all()
+        .add(parties::Column::DeletedAt.is_null())
+        .add_option(when(f, "search", |v| {
+            like_any(
+                &[parties::Column::DisplayName, parties::Column::PartyCode],
+                &v,
+            )
+        }))
+        .add_option(when(f, "role", |v| parties::Column::Role.eq(v)))
+}
 
 /// `toPartyColumns(body)`: `name` is the display name, `type` the role.
 fn party_columns(body: &Map<String, Value>) -> Map<String, Value> {
@@ -333,9 +349,9 @@ async fn list_contacts(caller: Caller, RawQuery(raw): RawQuery) -> Answer {
     let filters = json!({ "search": like(&q, "search"), "role": text(&q, "role") });
     let mut page = crate::list::list_rows(
         &caller.db,
-        CONTACTS_LIST,
+        &PARTIES.entity,
+        contacts_list(&filters),
         &crate::crud::list_query(&q),
-        &filters,
     )
     .await?;
     page.rows = page

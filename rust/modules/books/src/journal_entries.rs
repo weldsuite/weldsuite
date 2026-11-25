@@ -12,7 +12,13 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::Response;
 use axum::routing::{get, post};
 use http::HeaderMap;
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ColumnTrait, Condition, DbErr, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder,
+    QuerySelect,
+};
 use serde_json::{Map, Value, json};
+use time::{OffsetDateTime, PrimitiveDateTime};
 use weldsuite_books_domain::entity_context::{
     SequenceType, next_entity_number, resolve_entity_base_currency, resolve_entity_id,
 };
@@ -32,9 +38,14 @@ use weldsuite_books_domain::tables::{JOURNAL_ENTRIES, JOURNAL_LINES};
 use weldsuite_catalogs::entity_events::{
     JOURNAL_ENTRY_CREATED, JOURNAL_ENTRY_DELETED, JOURNAL_ENTRY_UPDATED,
 };
+use weldsuite_db::orm;
 use weldsuite_kit::generate_id;
 use weldsuite_kit::validation::{Field, Issues, Number, Presence};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::journal_entries::{self, Column};
+use weldsuite_schema::tenant::journal_lines;
+
+use crate::orm_bridge::to_json;
 
 pub(crate) fn router<S, Q>(state: BooksState, gate: &Arc<PermissionGate<Q>>) -> Router<S>
 where
@@ -172,6 +183,17 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
     )
 }
 
+/// `new Date(text)` as its `toISOString()` was bound to a `$n::timestamp`:
+/// UTC, to the millisecond. `None` for an invalid date (Drizzle's
+/// `toISOString()` throws) and for a year Postgres refused to read back (0,
+/// or past 9999), both the route's 500.
+fn js_moment(text: &str) -> Option<PrimitiveDateTime> {
+    weldsuite_books_domain::js::js_date(text)?;
+    let millis = weldsuite_books_domain::js::js_date_millis(text)?;
+    let at = OffsetDateTime::from_unix_timestamp_nanos(i128::from(millis) * 1_000_000).ok()?;
+    (at.year() >= 1).then(|| weldsuite_db::utc_timestamp(at))
+}
+
 /// `Number.parseInt(q[key] || fallback, 10)`.
 fn int_or(q: &Query, key: &str, fallback: i64) -> Option<i64> {
     parse_int(q.present(key).unwrap_or(&fallback.to_string()))
@@ -185,73 +207,86 @@ async fn list_entries(caller: &Caller, q: &Query) -> Reply {
     };
     // `new Date(q.from)`: an invalid date makes the statement throw.
     let from = match q.present("from") {
-        Some(raw) => Some(
-            weldsuite_books_domain::js::js_date(raw)
-                .ok_or_else(|| Refusal::Internal("Invalid time value".to_owned()))?,
-        ),
+        Some(raw) => {
+            Some(js_moment(raw).ok_or_else(|| Refusal::Internal("Invalid time value".to_owned()))?)
+        }
         None => None,
     };
     let to = match q.present("to") {
-        Some(raw) => Some(
-            weldsuite_books_domain::js::js_date(raw)
-                .ok_or_else(|| Refusal::Internal("Invalid time value".to_owned()))?,
-        ),
+        Some(raw) => {
+            Some(js_moment(raw).ok_or_else(|| Refusal::Internal("Invalid time value".to_owned()))?)
+        }
         None => None,
     };
     let (Some(page), Some(page_size)) = (page, page_size) else {
         return Err(Refusal::Internal("page is NaN".to_owned()));
     };
-    let rows: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(journal_entries),
-        " from journal_entries t where t.deleted_at is null and t.entity_id = $1 \
-         and ($2::text is null or t.status = $2) and ($3::text is null or t.source_type = $3) \
-         and ($4::timestamp is null or t.date >= $4::timestamp) \
-         and ($5::timestamp is null or t.date <= $5::timestamp) \
-         order by t.date desc, t.id desc limit $6 offset $7"
-    ))
-    .bind(&entity_id)
-    .bind(q.present("status"))
-    .bind(q.present("sourceType"))
-    .bind(&from)
-    .bind(&to)
-    .bind(page_size)
-    .bind((page - 1) * page_size)
-    .fetch_all(&caller.db)
-    .await?;
-    let total: i64 = sqlx::query_scalar(
-        "select count(*)::int8 from journal_entries t where t.deleted_at is null and t.entity_id = $1 \
-         and ($2::text is null or t.status = $2) and ($3::text is null or t.source_type = $3) \
-         and ($4::timestamp is null or t.date >= $4::timestamp) \
-         and ($5::timestamp is null or t.date <= $5::timestamp)",
-    )
-    .bind(&entity_id)
-    .bind(q.present("status"))
-    .bind(q.present("sourceType"))
-    .bind(&from)
-    .bind(&to)
-    .fetch_one(&caller.db)
-    .await?;
-    Ok(paged(
-        JOURNAL_ENTRIES.js_rows(rows),
-        total,
-        page * page_size < total,
-        None,
-    ))
+    // A negative `limit` or `offset` is Postgres's error: the route's 500.
+    let (Ok(limit), Ok(offset)) = (
+        u64::try_from(page_size),
+        u64::try_from((page - 1) * page_size),
+    ) else {
+        return Err(Refusal::Internal("OFFSET must not be negative".to_owned()));
+    };
+    let mut filters = Condition::all()
+        .add(Column::DeletedAt.is_null())
+        .add(Column::EntityId.eq(entity_id.as_str()));
+    if let Some(status) = q.present("status") {
+        filters = filters.add(Column::Status.eq(status));
+    }
+    if let Some(source) = q.present("sourceType") {
+        filters = filters.add(Column::SourceType.eq(source));
+    }
+    if let Some(from) = from {
+        filters = filters.add(Column::Date.gte(from));
+    }
+    if let Some(to) = to {
+        filters = filters.add(Column::Date.lte(to));
+    }
+    let db = orm(&caller.db);
+    let rows = journal_entries::Entity::find()
+        .filter(filters.clone())
+        .order_by_desc(Column::Date)
+        .order_by_desc(Column::Id)
+        .limit(limit)
+        .offset(offset)
+        .all(&db)
+        .await?;
+    let total = journal_entries::Entity::find()
+        .filter(filters)
+        .count(&db)
+        .await?;
+    let total = i64::try_from(total).unwrap_or(i64::MAX);
+    let rows = rows
+        .into_iter()
+        .map(to_json)
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(paged(rows, total, page * page_size < total, None))
 }
 
 // ── GET /:id ────────────────────────────────────────────────────────────────
 
-async fn find_entry(caller: &Caller, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(journal_entries),
-        " from journal_entries t where t.id = $1 and t.deleted_at is null limit 1"
-    ))
-    .bind(id)
-    .fetch_optional(&caller.db)
-    .await?;
-    Ok(row.map(|row| JOURNAL_ENTRIES.js(row)))
+async fn find_entry(caller: &Caller, id: &str) -> Result<Option<Value>, DbErr> {
+    journal_entries::Entity::find()
+        .filter(Column::Id.eq(id))
+        .filter(Column::DeletedAt.is_null())
+        .one(&orm(&caller.db))
+        .await?
+        .map(to_json)
+        .transpose()
+}
+
+/// The entry's live lines, by `sortOrder`.
+async fn entry_lines(caller: &Caller, id: &str) -> Result<Vec<Value>, DbErr> {
+    journal_lines::Entity::find()
+        .filter(journal_lines::Column::JournalEntryId.eq(id))
+        .filter(journal_lines::Column::DeletedAt.is_null())
+        .order_by_asc(journal_lines::Column::SortOrder)
+        .all(&orm(&caller.db))
+        .await?
+        .into_iter()
+        .map(to_json)
+        .collect()
 }
 
 async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
@@ -259,16 +294,8 @@ async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
         let Some(mut entry) = find_entry(&caller, &id).await? else {
             return Err(Refusal::not_found("Journal entry", &id));
         };
-        let lines: Vec<Value> = sqlx::query_scalar(concat!(
-            "select ",
-            weldsuite_books_domain::books_row!(journal_lines),
-            " from journal_lines t where t.journal_entry_id = $1 and t.deleted_at is null \
-             order by t.sort_order"
-        ))
-        .bind(&id)
-        .fetch_all(&caller.db)
-        .await?;
-        entry["lines"] = Value::Array(JOURNAL_LINES.js_rows(lines));
+        let lines = entry_lines(&caller, &id).await?;
+        entry["lines"] = Value::Array(lines);
         Ok(ok(entry))
     }
     .await;
@@ -432,7 +459,7 @@ async fn create_entry(
             for values in line_values {
                 JOURNAL_LINES.insert_raw(&mut *conn, values).await?;
             }
-            Ok::<_, sqlx::Error>(())
+            Ok::<_, Refusal>(())
         })
     })
     .await?;
@@ -596,12 +623,14 @@ async fn post_entry(
 ) -> Response {
     let result = async {
         let db = &caller.db;
-        let exists: Option<String> = sqlx::query_scalar(
-            "select id from journal_entries where id = $1 and deleted_at is null limit 1",
-        )
-        .bind(&id)
-        .fetch_optional(db)
-        .await?;
+        let exists: Option<String> = journal_entries::Entity::find()
+            .select_only()
+            .column(Column::Id)
+            .filter(Column::Id.eq(id.as_str()))
+            .filter(Column::DeletedAt.is_null())
+            .into_tuple()
+            .one(&orm(db))
+            .await?;
         if exists.is_none() {
             return Err(Refusal::not_found("Journal entry", &id));
         }
@@ -719,14 +748,13 @@ async fn remove(
                 "Posted journal entries cannot be deleted — create a reversal via POST /:id/reverse instead",
             ));
         }
-        let at = now();
-        sqlx::query(
-            "update journal_entries set deleted_at = $1::timestamp, updated_at = $1::timestamp where id = $2",
-        )
-        .bind(&at)
-        .bind(&id)
-        .execute(db)
-        .await?;
+        let at = weldsuite_db::utc_now();
+        journal_entries::Entity::update_many()
+            .col_expr(Column::DeletedAt, Expr::value(at))
+            .col_expr(Column::UpdatedAt, Expr::value(at))
+            .filter(Column::Id.eq(id.as_str()))
+            .exec(&orm(db))
+            .await?;
         write_accounting_audit(
             &caller,
             db,

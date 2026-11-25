@@ -18,14 +18,16 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use sea_orm::sea_query::{Asterisk, Expr, Func};
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
 use sqlx::PgPool;
 use time::OffsetDateTime;
 use weldsuite_catalogs::entity_events::{
     EventName, REACH_MAILBOX_SUSPENDED, REACH_MAILBOX_UPDATED,
 };
-use weldsuite_db::Keyring;
 use weldsuite_db::due_index::{self, SweepResult};
+use weldsuite_db::{Keyring, orm};
 use weldsuite_events::{EntityEvent, EntityEventPublisher, EventContext, EventSource};
 use weldsuite_ports::OutboundHttp;
 use weldsuite_reach_domain::access::{utc_day_start, utc_tomorrow};
@@ -35,9 +37,12 @@ use weldsuite_reach_domain::schemas::{WELDREACH_APP_CODE, sending};
 use weldsuite_reach_domain::warmup::gate;
 use weldsuite_reach_domain::warmup_pool::{self, PoolView};
 use weldsuite_reach_domain::{ReachError, ReachResult, epoch_ms, int, iso, parse_iso, text};
+use weldsuite_schema::master::reach_routes;
+use weldsuite_schema::tenant::{domains as host_domains, reach_domains, reach_mailboxes};
 
-use crate::mailboxes::{PoolDeps, register_in_pool};
+use crate::mailboxes::{PoolDeps, patch_mailbox, register_in_pool};
 use crate::mailpool::{Mailpool, imap_credentials_of, smtp_credentials_of};
+use crate::{db_error, row_json};
 
 /// The due-index kind.
 pub const WARMUP_DUE_KIND: &str = "reach_warmup";
@@ -149,6 +154,18 @@ async fn visit(
         return Ok(None);
     }
     let tenant = (engine.tenants)(workspace.to_owned()).await?;
+    // Mailpool is outside the EU (ADR OPS-026): its mailboxes neither warm
+    // up nor provision for a workspace that has it switched off; looked at
+    // again tomorrow.
+    if !weldsuite_outside_eu::allowed(
+        &tenant.db,
+        weldsuite_outside_eu::ServiceId::Mailpool,
+        &format!("reach warmup {workspace}"),
+    )
+    .await
+    {
+        return Ok(Some(utc_tomorrow(at)));
+    }
     process_workspace(engine, mailpool, &tenant, at)
         .await
         .map_err(|e| e.message)
@@ -162,28 +179,39 @@ async fn process_workspace(
     now: OffsetDateTime,
 ) -> ReachResult<Option<OffsetDateTime>> {
     let db = &tenant.db;
-    let mailboxes: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from reach_mailboxes t
-         where t.deleted_at is null and t.status in ('provisioning', 'warming', 'active', 'paused', 'error')",
-    )
-    .fetch_all(db)
-    .await?;
+    let mailboxes = reach_mailboxes::Entity::find()
+        .filter(reach_mailboxes::Column::DeletedAt.is_null())
+        .filter(reach_mailboxes::Column::Status.is_in([
+            "provisioning",
+            "warming",
+            "active",
+            "paused",
+            "error",
+        ]))
+        .all(&orm(db))
+        .await
+        .map_err(db_error)?;
     if mailboxes.is_empty() {
         return Ok(None);
     }
-    let mailboxes: Vec<Value> = mailboxes.into_iter().map(weldsuite_db::js_row).collect();
+    let mailboxes = mailboxes
+        .into_iter()
+        .map(row_json)
+        .collect::<ReachResult<Vec<Value>>>()?;
     let domain_ids: Vec<String> = weldsuite_reach_domain::unique(
         &mailboxes
             .iter()
             .map(|m| text(m, "domainId").unwrap_or_default().to_owned())
             .collect::<Vec<_>>(),
     );
-    let domains: Vec<Value> =
-        sqlx::query_scalar("select to_jsonb(t) from reach_domains t where t.id = any($1)")
-            .bind(&domain_ids)
-            .fetch_all(db)
-            .await?;
-    let domains: Vec<Value> = domains.into_iter().map(weldsuite_db::js_row).collect();
+    let domains = reach_domains::Entity::find()
+        .filter(reach_domains::Column::Id.is_in(&domain_ids))
+        .all(&orm(db))
+        .await
+        .map_err(db_error)?
+        .into_iter()
+        .map(row_json)
+        .collect::<ReachResult<Vec<Value>>>()?;
     let host_ids: Vec<String> = weldsuite_reach_domain::unique(
         &domains
             .iter()
@@ -193,10 +221,14 @@ async fn process_workspace(
     let hosts: Vec<Value> = if host_ids.is_empty() {
         Vec::new()
     } else {
-        sqlx::query_scalar("select to_jsonb(t) from domains t where t.id = any($1)")
-            .bind(&host_ids)
-            .fetch_all(db)
-            .await?
+        host_domains::Entity::find()
+            .filter(host_domains::Column::Id.is_in(&host_ids))
+            .all(&orm(db))
+            .await
+            .map_err(db_error)?
+            .into_iter()
+            .map(row_json)
+            .collect::<ReachResult<Vec<Value>>>()?
     };
     let clerk_org_id = tenant
         .clerk_org_id
@@ -217,7 +249,6 @@ async fn process_workspace(
             .collect(),
         hosts: hosts
             .into_iter()
-            .map(weldsuite_db::js_row)
             .map(|h| (text(&h, "id").unwrap_or_default().to_owned(), h))
             .collect(),
         pool: pool
@@ -298,31 +329,17 @@ async fn save(
     patch: Value,
     event: EventName,
 ) -> ReachResult<Value> {
-    if patch.as_object().is_none_or(Map::is_empty) {
+    let Some(patch) = patch.as_object().filter(|patch| !patch.is_empty()) else {
         return Ok(mailbox.clone());
-    }
-    let row: Option<Value> = sqlx::query_scalar(
-        "update reach_mailboxes m set
-             status = case when $2::jsonb ? 'status' then $2::jsonb->>'status' else m.status end,
-             paused_reason = case when $2::jsonb ? 'pausedReason' then $2::jsonb->>'pausedReason' else m.paused_reason end,
-             last_error = case when $2::jsonb ? 'lastError' then $2::jsonb->>'lastError' else m.last_error end,
-             smtp_credentials = case when $2::jsonb ? 'smtpCredentials' then $2::jsonb->>'smtpCredentials' else m.smtp_credentials end,
-             imap_credentials = case when $2::jsonb ? 'imapCredentials' then $2::jsonb->>'imapCredentials' else m.imap_credentials end,
-             warmup_started_at = case when $2::jsonb ? 'warmupStartedAt' then ($2::jsonb->>'warmupStartedAt')::timestamptz else m.warmup_started_at end,
-             warmup_status = case when $2::jsonb ? 'warmupStatus' then $2::jsonb->>'warmupStatus' else m.warmup_status end,
-             warmup_day = case when $2::jsonb ? 'warmupDay' then ($2::jsonb->>'warmupDay')::int else m.warmup_day end,
-             warmup_inbox_rate = case when $2::jsonb ? 'warmupInboxRate' then ($2::jsonb->>'warmupInboxRate')::numeric else m.warmup_inbox_rate end,
-             ramp_current = case when $2::jsonb ? 'rampCurrent' then ($2::jsonb->>'rampCurrent')::int else m.ramp_current end,
-             ramp_updated_at = case when $2::jsonb ? 'rampUpdatedAt' then ($2::jsonb->>'rampUpdatedAt')::timestamptz else m.ramp_updated_at end,
-             updated_at = $3::timestamptz
-         where m.id = $1 returning to_jsonb(m)",
+    };
+    let row = patch_mailbox(
+        pass.db,
+        text(mailbox, "id").unwrap_or_default(),
+        patch,
+        pass.now,
     )
-    .bind(text(mailbox, "id"))
-    .bind(&patch)
-    .bind(iso(pass.now))
-    .fetch_optional(pass.db)
     .await?;
-    let row = row.map_or_else(|| mailbox.clone(), weldsuite_db::js_row);
+    let row = row.unwrap_or_else(|| mailbox.clone());
     if text(&row, "status") != text(mailbox, "status") {
         let context = EventContext::new(pass.clerk_org_id.as_str(), "system", EventSource::System);
         pass.engine.events.publish(
@@ -692,14 +709,18 @@ pub async fn run_slot_reconciliation(engine: &WarmupEngine) -> Result<Option<Val
         tracing::warn!("[ReachSlots] MAILPOOL_API_KEY is not set; skipping");
         return Ok(None);
     };
-    let rows: Vec<(String, i64)> = sqlx::query_as(
-        "select mailbox_type, count(*) from reach_routes
-         where kind = 'mailpool_mailbox' and status = 'active' and mailbox_type is not null
-         group by mailbox_type",
-    )
-    .fetch_all(&engine.master)
-    .await
-    .map_err(|e| e.to_string())?;
+    let rows: Vec<(String, i64)> = reach_routes::Entity::find()
+        .select_only()
+        .column(reach_routes::Column::MailboxType)
+        .column_as(Expr::from(Func::count(Expr::col(Asterisk))), "count")
+        .filter(reach_routes::Column::Kind.eq("mailpool_mailbox"))
+        .filter(reach_routes::Column::Status.eq("active"))
+        .filter(reach_routes::Column::MailboxType.is_not_null())
+        .group_by(reach_routes::Column::MailboxType)
+        .into_tuple()
+        .all(&orm(&engine.master))
+        .await
+        .map_err(|e| e.to_string())?;
     let need: HashMap<String, i64> = rows.into_iter().collect();
     let (mailboxes, slots) = mailpool.get_slots().await.map_err(|e| format!("{e:?}"))?;
     let adjustments = compute_slot_adjustments(&need, &mailboxes, &slots);

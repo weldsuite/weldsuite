@@ -12,49 +12,6 @@
 //! TypeScript worker's; its tests run against this crate in the `social`
 //! conformance suite (`rust/conformance/suites.json`).
 
-#![allow(
-    clippy::disallowed_methods,
-    reason = "not converted to the ORM yet (ADR DATA-019)"
-)]
-
-/// The keyset condition at parameters `$a` (skip), `$b` (createdAt), `$c` (id).
-macro_rules! cursor {
-    ($a:literal, $b:literal, $c:literal) => {
-        concat!(
-            "($",
-            $a,
-            "::boolean or (t.created_at < $",
-            $b,
-            "::timestamp or (t.created_at = $",
-            $b,
-            "::timestamp and t.id < $",
-            $c,
-            "::text)))"
-        )
-    };
-}
-
-/// The list statement of a table: `$1` skips the live-only condition, each
-/// filter takes `(skip, value)`, the cursor `(skip, createdAt, id)`, then
-/// the limit; and its count.
-macro_rules! listing {
-    ($table:literal; $($cond:literal),*; $a:literal, $b:literal, $c:literal; $limit:literal) => {
-        (
-            concat!(
-                "select to_jsonb(t) from \"", $table, "\" t where ($1::boolean or t.deleted_at is null)",
-                $(" and ", $cond,)*
-                " and ", cursor!($a, $b, $c),
-                " order by t.created_at desc, t.id desc limit ", $limit
-            ),
-            concat!(
-                "select count(*) from \"", $table, "\" t where ($1::boolean or t.deleted_at is null)",
-                $(" and ", $cond,)*
-                " and ", cursor!($a, $b, $c)
-            ),
-        )
-    };
-}
-
 mod accounts;
 mod analytics;
 mod approvals;
@@ -191,6 +148,36 @@ impl Caller {
         )
     }
 
+    /// [`context`](Self::context) for a route that calls PostPeer. PostPeer
+    /// is outside the EU (ADR OPS-026): on the EU edition a workspace that
+    /// hasn't switched it on gets the 403 `OUTSIDE_EU_SERVICE_OFF` answer
+    /// instead, and nothing is called. Without enforcement this is
+    /// `context`.
+    pub(crate) async fn postpeer(&self, state: &SocialState) -> Result<Context, Box<Response>> {
+        postpeer_switch(&self.db)
+            .await
+            .map_err(|error| Box::new(error.to_api_error().into_response()))?;
+        Ok(self.context(state))
+    }
+
+    /// [`context`](Self::context) for a route that calls PostPeer only for a
+    /// post already scheduled there (cancel, delete): with PostPeer switched
+    /// off (OPS-026) the context has no key, so a draft goes ahead and a
+    /// scheduled post is refused; the refusal is returned to answer with.
+    pub(crate) async fn postpeer_if_on(
+        &self,
+        state: &SocialState,
+    ) -> (Context, Option<weldsuite_outside_eu::OutsideEuError>) {
+        let mut context = self.context(state);
+        match postpeer_switch(&self.db).await {
+            Ok(()) => (context, None),
+            Err(error) => {
+                context.api_key = None;
+                (context, Some(error))
+            }
+        }
+    }
+
     #[allow(dead_code)]
     pub(crate) fn cache(&self, state: &SocialState) -> Option<Arc<dyn DynCache>> {
         if self.env.is_some() {
@@ -198,6 +185,13 @@ impl Caller {
         }
         state.cache.clone()
     }
+}
+
+/// PostPeer's outside-EU switch for the workspace (ADR OPS-026).
+pub(crate) async fn postpeer_switch(
+    db: &PgPool,
+) -> Result<(), weldsuite_outside_eu::OutsideEuError> {
+    weldsuite_outside_eu::require(db, weldsuite_outside_eu::ServiceId::PostPeer).await
 }
 
 /// `c.env.<name>`: the request's env (conformance), else the process's.

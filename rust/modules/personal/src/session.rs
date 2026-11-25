@@ -9,9 +9,12 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use axum::extract::{Request, State};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
 use weldsuite_auth::SessionVerifier;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::ApiError;
+use weldsuite_schema::master::personal_accounts;
 
 use crate::PersonalState;
 
@@ -32,6 +35,27 @@ impl Account {
             "displayName": self.display_name,
         })
     }
+}
+
+/// The user's `personal_accounts` row (master), keyed by the session's
+/// subject.
+pub(crate) async fn find_account(master: &PgPool, user_id: &str) -> Result<Option<Account>, DbErr> {
+    let row: Option<(String, String, Option<String>)> = personal_accounts::Entity::find()
+        .select_only()
+        .columns([
+            personal_accounts::Column::Id,
+            personal_accounts::Column::ClerkUserId,
+            personal_accounts::Column::DisplayName,
+        ])
+        .filter(personal_accounts::Column::ClerkUserId.eq(user_id))
+        .into_tuple()
+        .one(&orm(master))
+        .await?;
+    Ok(row.map(|(id, clerk_user_id, display_name)| Account {
+        id,
+        clerk_user_id,
+        display_name,
+    }))
 }
 
 /// `PersonalEntitlements`.
@@ -324,24 +348,14 @@ pub(crate) async fn session(
         .or_else(|| state.master.clone());
     let lookup = async {
         let Some(master) = master else {
-            return Err(sqlx::Error::Configuration(
+            return Err(weldsuite_db::orm_error(sqlx::Error::Configuration(
                 "DATABASE_URL_MASTER secret is not set".into(),
-            ));
+            )));
         };
-        sqlx::query_as::<_, (String, String, Option<String>)>(
-            "select id, clerk_user_id, display_name from personal_accounts
-             where clerk_user_id = $1 limit 1",
-        )
-        .bind(&user_id)
-        .fetch_optional(&master)
-        .await
+        find_account(&master, &user_id).await
     };
     let account = match lookup.await {
-        Ok(row) => row.map(|(id, clerk_user_id, display_name)| Account {
-            id,
-            clerk_user_id,
-            display_name,
-        }),
+        Ok(account) => account,
         Err(error) => {
             tracing::error!(%error, "[personal-account] lookup failed");
             return ApiError::internal()

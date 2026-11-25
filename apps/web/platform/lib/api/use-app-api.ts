@@ -61,11 +61,14 @@ import { createMailSendingApi } from '@weldsuite/app-api-client/domains/mail-sen
 import { createMailAiApi } from '@weldsuite/app-api-client/domains/mail-ai';
 import { createAiApi } from '@weldsuite/app-api-client/domains/ai';
 import { createAiSettingsApi } from '@weldsuite/app-api-client/domains/ai-settings';
+import { createOutsideEuServicesApi } from '@weldsuite/app-api-client/domains/outside-eu-services';
+import { createMcpWorkspaceSelectionsApi } from '@weldsuite/app-api-client/domains/mcp-workspace-selections';
 import { createCrmSettingsApi } from '@weldsuite/app-api-client/domains/crm-settings';
 import { createWmsSuppliersApi } from '@weldsuite/app-api-client/domains/wms-suppliers';
 import { createProductSuppliersApi } from '@weldsuite/app-api-client/domains/product-suppliers';
 import { createPurchaseOrdersApi } from '@weldsuite/app-api-client/domains/purchase-orders';
 import { createReplenishmentApi } from '@weldsuite/app-api-client/domains/replenishment';
+import { createShippingApi } from '@weldsuite/app-api-client/domains/shipping';
 import { createFeatureFlagsApi } from '@weldsuite/app-api-client/domains/feature-flags';
 import { createWeldAgentApi } from '@weldsuite/app-api-client/domains/weldagent';
 import { createWeldAgentParityApi } from '@weldsuite/app-api-client/domains/weldagent-parity';
@@ -79,6 +82,7 @@ import { createAccessRequestsApi } from '@weldsuite/app-api-client/domains/acces
 import { createPartnersApi } from '@weldsuite/app-api-client/domains/partners';
 import { createWeldPassApi } from '@weldsuite/app-api-client/domains/weldpass';
 import { createWeldPassPasswordsApi } from '@weldsuite/app-api-client/domains/weldpass-passwords';
+import { createWeldPassDevicesApi } from '@weldsuite/app-api-client/domains/weldpass-devices';
 import { createWeldHrApi } from '@weldsuite/app-api-client/domains/weldhr';
 import { createReachApi } from '@weldsuite/app-api-client/domains/reach';
 import { createSheetsApi } from '@weldsuite/app-api-client/domains/sheets';
@@ -233,6 +237,8 @@ export function useAppApi() {
       purchaseOrders: createPurchaseOrdersApi(lazyClient),
       productSuppliers: createProductSuppliersApi(lazyClient),
       replenishment: createReplenishmentApi(lazyClient),
+      // WeldStash carrier shipping (Rust backend only).
+      shipping: createShippingApi(lazyClient),
       featureFlags: createFeatureFlagsApi(lazyClient),
       weldAgent: createWeldAgentApi(lazyClient),
       weldAgentParity: createWeldAgentParityApi(lazyClient),
@@ -257,6 +263,10 @@ export function useAppApi() {
       accessRequests: createAccessRequestsApi(lazyClient),
       // Workspace AI settings (Kubernetes editions): providers, per-feature models, keys, usage.
       aiSettings: createAiSettingsApi(lazyClient),
+      // Services outside the EU (EU edition, ADR OPS-026): the workspace's opt-ins.
+      outsideEuServices: createOutsideEuServicesApi(lazyClient),
+      // The workspace step of connecting an AI app (Kubernetes editions on WeldID), org-less.
+      mcpWorkspaceSelections: createMcpWorkspaceSelectionsApi(lazyClient),
       // WeldCRM settings (Kubernetes editions): auto-add people and companies.
       crmSettings: createCrmSettingsApi(lazyClient),
       // Reseller licensing: workspace-facing calls (managed billing, territory
@@ -265,6 +275,7 @@ export function useAppApi() {
       partners: createPartnersApi(lazyClient),
       weldpass: createWeldPassApi(lazyClient),
       weldpassPasswords: createWeldPassPasswordsApi(lazyClient),
+      weldpassDevices: createWeldPassDevicesApi(lazyClient),
       // WeldReach (reach-api) and the on-request access flow (app-api).
       reach: createReachApi(lazyClient),
       // WeldSheets records (sheets-api); a sheet's content goes over its room socket.

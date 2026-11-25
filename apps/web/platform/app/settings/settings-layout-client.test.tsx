@@ -14,6 +14,7 @@ vi.mock('@/lib/i18n/provider', () => ({
         assets: { settingsTitle: 'Asset register' },
       },
       weldbooksUs: { settingsPage: { tabs: { paymentRuns: 'Payment runs' } } },
+      deskBi: { title: 'BI connector' },
     },
   }),
 }));

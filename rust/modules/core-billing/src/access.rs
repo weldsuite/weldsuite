@@ -99,7 +99,7 @@ pub enum BillingError {
     Response(Box<Response>),
     /// Logged, answered with a 500 and the message.
     Internal(&'static str, String),
-    Database(sqlx::Error),
+    Database(sea_orm::DbErr),
 }
 
 impl BillingError {
@@ -124,9 +124,16 @@ impl BillingError {
     }
 }
 
+impl From<sea_orm::DbErr> for BillingError {
+    fn from(error: sea_orm::DbErr) -> Self {
+        Self::Database(error)
+    }
+}
+
+/// A transaction's `begin`/`commit`, or a crate not converted to the ORM yet.
 impl From<sqlx::Error> for BillingError {
     fn from(error: sqlx::Error) -> Self {
-        Self::Database(error)
+        Self::Database(weldsuite_db::orm_error(error))
     }
 }
 

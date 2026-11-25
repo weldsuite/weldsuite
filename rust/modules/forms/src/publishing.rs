@@ -6,12 +6,20 @@
 use std::sync::LazyLock;
 
 use regex::Regex;
+use sea_orm::sea_query::{Asterisk, Expr, Func, OnConflict};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, EntityTrait, FromQueryResult, QueryFilter, QueryOrder,
+    QuerySelect,
+};
 use serde_json::{Value, json};
-use sqlx::types::Json;
+use time::OffsetDateTime;
+use weldsuite_db::{OrmConn, atomically_with, orm};
+use weldsuite_schema::master::form_link_registry;
+use weldsuite_schema::tenant::{form_responses, form_themes, form_versions, forms};
 
 use crate::common::{
-    Ctx, FormsResult, all, forms_error, forms_error_with, iso, js_slice, not_found, one, opt_text,
-    text,
+    Ctx, FormsResult, forms_error, forms_error_with, instant, js_slice, not_found, opt_text,
+    row_json, text,
 };
 use crate::engine::{FormDefinition, fields_of, parse_definition};
 use crate::forms::load_row;
@@ -96,11 +104,18 @@ pub(crate) fn screen_form(title: &str, def: &FormDefinition) -> Option<String> {
 /// The theme a new version is published with: the form's own, else the
 /// workspace default, else the defaults.
 async fn theme_snapshot(ctx: &Ctx, form: &Value) -> FormsResult<Value> {
+    let theme_tokens = || {
+        form_themes::Entity::find()
+            .select_only()
+            .column(form_themes::Column::Tokens)
+    };
+    let db = orm(&ctx.db);
     let chosen: Option<Value> = match opt_text(form, "themeId") {
         Some(id) => {
-            sqlx::query_scalar("select tokens from form_themes where id = $1 limit 1")
-                .bind(id)
-                .fetch_optional(&ctx.db)
+            theme_tokens()
+                .filter(form_themes::Column::Id.eq(id))
+                .into_tuple()
+                .one(&db)
                 .await?
         }
         None => None,
@@ -108,8 +123,10 @@ async fn theme_snapshot(ctx: &Ctx, form: &Value) -> FormsResult<Value> {
     let tokens = match chosen {
         Some(tokens) => Some(tokens),
         None => {
-            sqlx::query_scalar("select tokens from form_themes where is_default = true limit 1")
-                .fetch_optional(&ctx.db)
+            theme_tokens()
+                .filter(form_themes::Column::IsDefault.eq(true))
+                .into_tuple()
+                .one(&db)
                 .await?
         }
     };
@@ -121,18 +138,22 @@ async fn theme_snapshot(ctx: &Ctx, form: &Value) -> FormsResult<Value> {
 async fn allocate_link(ctx: &Ctx, form_id: &str) -> FormsResult<String> {
     for _ in 0..8 {
         let public_id = weldsuite_kit::random_string(10, weldsuite_kit::id::ALPHANUMERIC);
-        let inserted: Option<String> = sqlx::query_scalar(
-            "insert into form_link_registry (id, public_id, workspace_id, clerk_org_id, form_id) \
-             values ($1, $2, $3, $4, $5) on conflict (public_id) do nothing returning id",
+        let inserted = form_link_registry::Entity::insert(form_link_registry::ActiveModel {
+            id: Set(weldsuite_kit::generate_id("fln")),
+            public_id: Set(public_id.clone()),
+            workspace_id: Set(ctx.workspace_id.clone()),
+            clerk_org_id: Set(ctx.clerk_org_id.clone()),
+            form_id: Set(form_id.to_owned()),
+            ..Default::default()
+        })
+        .on_conflict(
+            OnConflict::column(form_link_registry::Column::PublicId)
+                .do_nothing()
+                .to_owned(),
         )
-        .bind(weldsuite_kit::generate_id("fln"))
-        .bind(&public_id)
-        .bind(&ctx.workspace_id)
-        .bind(&ctx.clerk_org_id)
-        .bind(form_id)
-        .fetch_optional(ctx.master()?)
+        .exec_without_returning(&orm(ctx.master()?))
         .await?;
-        if inserted.is_some() {
+        if inserted > 0 {
             return Ok(public_id);
         }
     }
@@ -174,54 +195,64 @@ pub(crate) async fn publish_form(
         Some(public_id) => public_id,
         None => allocate_link(ctx, &form_id).await?,
     };
-    let latest: Option<i32> =
-        sqlx::query_scalar("select max(number) from form_versions where form_id = $1")
-            .bind(&form_id)
-            .fetch_one(&ctx.db)
-            .await?;
+    let latest: Option<i32> = form_versions::Entity::find()
+        .select_only()
+        .column_as(
+            Expr::from(Func::max(Expr::col(form_versions::Column::Number))),
+            "max",
+        )
+        .filter(form_versions::Column::FormId.eq(&form_id))
+        .into_tuple::<Option<i32>>()
+        .one(&orm(&ctx.db))
+        .await?
+        .flatten();
     let number = i64::from(latest.unwrap_or(0)) + 1;
     let version_id = weldsuite_kit::generate_id("fve");
-    let now = iso(ctx.now_ms());
+    let now = instant(ctx.now_ms());
     let theme = theme_snapshot(ctx, form).await?;
     let stored = serde_json::to_value(&definition)?;
-    weldsuite_db::atomically(
-        &ctx.db,
-        [
-            sqlx::query(
-                "insert into form_versions (id, form_id, number, definition, theme, published_by_user_id, published_at) \
-                 values ($1, $2, $3, $4, $5, $6, $7::timestamptz)",
-            )
-            .bind(version_id.clone())
-            .bind(form_id.clone())
-            .bind(i32::try_from(number).unwrap_or(i32::MAX))
-            .bind(Json(stored))
-            .bind(Json(theme))
-            .bind(user_id.to_owned())
-            .bind(now.clone()),
-            sqlx::query(
-                "update forms set status = 'published', public_id = $2, published_version_id = $3, \
-                 published_at = $4::timestamptz, closed_at = null, has_unpublished_changes = false, \
-                 updated_at = $4::timestamptz where id = $1",
-            )
-            .bind(form_id.clone())
-            .bind(public_id.clone())
-            .bind(version_id.clone())
-            .bind(now.clone()),
-        ],
-    )
+    let version = form_versions::ActiveModel {
+        id: Set(version_id.clone()),
+        form_id: Set(form_id.clone()),
+        number: Set(i32::try_from(number).unwrap_or(i32::MAX)),
+        definition: Set(stored),
+        theme: Set(Some(theme)),
+        published_by_user_id: Set(user_id.to_owned()),
+        published_at: Set(now),
+    };
+    let publish = forms::Entity::update_many()
+        .col_expr(forms::Column::Status, Expr::value("published"))
+        .col_expr(forms::Column::PublicId, Expr::value(public_id.clone()))
+        .col_expr(
+            forms::Column::PublishedVersionId,
+            Expr::value(version_id.clone()),
+        )
+        .col_expr(forms::Column::PublishedAt, Expr::value(now))
+        .col_expr(forms::Column::ClosedAt, Expr::value(None::<OffsetDateTime>))
+        .col_expr(forms::Column::HasUnpublishedChanges, Expr::value(false))
+        .col_expr(forms::Column::UpdatedAt, Expr::value(now))
+        .filter(forms::Column::Id.eq(form_id.clone()));
+    atomically_with(&ctx.db, |tx| {
+        Box::pin(async move {
+            let db = OrmConn::new(tx);
+            form_versions::Entity::insert(version)
+                .exec_without_returning(&db)
+                .await?;
+            publish.exec(&db).await?;
+            FormsResult::Ok(())
+        })
+    })
     .await?;
     let row = load_row(ctx, &form_id).await?;
 
     // The content screen holds a suspicious form for staff; it never un-holds one.
     if let Some(reason) = screen_form(text(&row, "title"), &definition) {
-        sqlx::query(
-            "update form_link_registry set held_at = $2::timestamptz, held_reason = $3 where public_id = $1",
-        )
-        .bind(&public_id)
-        .bind(&now)
-        .bind(reason)
-        .execute(ctx.master()?)
-        .await?;
+        form_link_registry::Entity::update_many()
+            .col_expr(form_link_registry::Column::HeldAt, Expr::value(now))
+            .col_expr(form_link_registry::Column::HeldReason, Expr::value(reason))
+            .filter(form_link_registry::Column::PublicId.eq(&public_id))
+            .exec(&orm(ctx.master()?))
+            .await?;
     }
     refresh_public_cache(ctx, &row).await?;
     Ok((row, json!({ "id": version_id, "number": number })))
@@ -236,11 +267,13 @@ pub(crate) async fn close_form(ctx: &Ctx, form: &Value) -> FormsResult<Value> {
             "Only a published form can be closed.",
         ));
     }
-    let now = iso(ctx.now_ms());
-    sqlx::query("update forms set status = 'closed', closed_at = $2::timestamptz, updated_at = $2::timestamptz where id = $1")
-        .bind(text(form, "id"))
-        .bind(&now)
-        .execute(&ctx.db)
+    let now = instant(ctx.now_ms());
+    forms::Entity::update_many()
+        .col_expr(forms::Column::Status, Expr::value("closed"))
+        .col_expr(forms::Column::ClosedAt, Expr::value(now))
+        .col_expr(forms::Column::UpdatedAt, Expr::value(now))
+        .filter(forms::Column::Id.eq(text(form, "id")))
+        .exec(&orm(&ctx.db))
         .await?;
     let row = load_row(ctx, text(form, "id")).await?;
     refresh_public_cache(ctx, &row).await?;
@@ -256,10 +289,12 @@ pub(crate) async fn reopen_form(ctx: &Ctx, form: &Value) -> FormsResult<Value> {
             "Only a closed form can be reopened.",
         ));
     }
-    sqlx::query("update forms set status = 'published', closed_at = null, updated_at = $2::timestamptz where id = $1")
-        .bind(text(form, "id"))
-        .bind(iso(ctx.now_ms()))
-        .execute(&ctx.db)
+    forms::Entity::update_many()
+        .col_expr(forms::Column::Status, Expr::value("published"))
+        .col_expr(forms::Column::ClosedAt, Expr::value(None::<OffsetDateTime>))
+        .col_expr(forms::Column::UpdatedAt, Expr::value(instant(ctx.now_ms())))
+        .filter(forms::Column::Id.eq(text(form, "id")))
+        .exec(&orm(&ctx.db))
         .await?;
     let row = load_row(ctx, text(form, "id")).await?;
     refresh_public_cache(ctx, &row).await?;
@@ -268,6 +303,7 @@ pub(crate) async fn reopen_form(ctx: &Ctx, form: &Value) -> FormsResult<Value> {
 
 /// `discardChanges(ctx, form)`: the draft goes back to the published version.
 pub(crate) async fn discard_changes(ctx: &Ctx, form: &Value) -> FormsResult<Value> {
+    use sea_orm::ExprTrait as _;
     let Some(version_id) = opt_text(form, "publishedVersionId") else {
         return Err(forms_error(
             409,
@@ -275,23 +311,31 @@ pub(crate) async fn discard_changes(ctx: &Ctx, form: &Value) -> FormsResult<Valu
             "This form has no published version to go back to.",
         ));
     };
-    let definition: Option<Value> =
-        sqlx::query_scalar("select definition from form_versions where id = $1 limit 1")
-            .bind(&version_id)
-            .fetch_optional(&ctx.db)
-            .await?;
+    let db = orm(&ctx.db);
+    let definition: Option<Value> = form_versions::Entity::find()
+        .select_only()
+        .column(form_versions::Column::Definition)
+        .filter(form_versions::Column::Id.eq(&version_id))
+        .into_tuple()
+        .one(&db)
+        .await?;
     let Some(definition) = definition else {
         return Err(not_found("Version"));
     };
-    sqlx::query(
-        "update forms set definition = $2, has_unpublished_changes = false, revision = revision + 1, \
-         updated_at = $3::timestamptz where id = $1",
-    )
-    .bind(text(form, "id"))
-    .bind(Json(parsed_definition(&definition)))
-    .bind(iso(ctx.now_ms()))
-    .execute(&ctx.db)
-    .await?;
+    forms::Entity::update_many()
+        .col_expr(
+            forms::Column::Definition,
+            Expr::value(parsed_definition(&definition)),
+        )
+        .col_expr(forms::Column::HasUnpublishedChanges, Expr::value(false))
+        .col_expr(
+            forms::Column::Revision,
+            Expr::col(forms::Column::Revision).add(1),
+        )
+        .col_expr(forms::Column::UpdatedAt, Expr::value(instant(ctx.now_ms())))
+        .filter(forms::Column::Id.eq(text(form, "id")))
+        .exec(&db)
+        .await?;
     load_row(ctx, text(form, "id")).await
 }
 
@@ -299,25 +343,46 @@ pub(crate) async fn discard_changes(ctx: &Ctx, form: &Value) -> FormsResult<Valu
 // Versions
 // ---------------------------------------------------------------------------
 
+/// A version as the list shows it.
+#[derive(Debug, FromQueryResult, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct VersionSummary {
+    id: String,
+    number: i32,
+    #[serde(with = "weldsuite_schema::js::timestamptz")]
+    published_at: OffsetDateTime,
+    published_by_user_id: String,
+}
+
 /// `listVersions(ctx, formId)`: newest first, with who published each and
 /// how many responses it has.
 pub(crate) async fn list_versions(ctx: &Ctx, form_id: &str) -> FormsResult<Vec<Value>> {
-    let versions = all(
-        &ctx.db,
-        sqlx::query_scalar(
-            "select jsonb_build_object('id', id, 'number', number, 'published_at', published_at, \
-             'published_by_user_id', published_by_user_id) from form_versions \
-             where form_id = $1 order by number desc",
-        )
-        .bind(form_id),
-    )
-    .await?;
-    let counts: Vec<(String, i64)> = sqlx::query_as(
-        "select version_id, count(*)::int8 from form_responses where form_id = $1 group by version_id",
-    )
-    .bind(form_id)
-    .fetch_all(&ctx.db)
-    .await?;
+    let db = orm(&ctx.db);
+    let versions = form_versions::Entity::find()
+        .select_only()
+        .columns([
+            form_versions::Column::Id,
+            form_versions::Column::Number,
+            form_versions::Column::PublishedAt,
+            form_versions::Column::PublishedByUserId,
+        ])
+        .filter(form_versions::Column::FormId.eq(form_id))
+        .order_by_desc(form_versions::Column::Number)
+        .into_model::<VersionSummary>()
+        .all(&db)
+        .await?
+        .into_iter()
+        .map(row_json)
+        .collect::<FormsResult<Vec<Value>>>()?;
+    let counts: Vec<(String, i64)> = form_responses::Entity::find()
+        .select_only()
+        .column(form_responses::Column::VersionId)
+        .column_as(Expr::from(Func::count(Expr::col(Asterisk))), "count")
+        .filter(form_responses::Column::FormId.eq(form_id))
+        .group_by(form_responses::Column::VersionId)
+        .into_tuple()
+        .all(&db)
+        .await?;
     let refs = member_refs(
         ctx,
         &versions
@@ -351,13 +416,12 @@ pub(crate) async fn get_version(ctx: &Ctx, form_id: &str, version_id: &str) -> F
     let Some(mut summary) = summaries.into_iter().find(|v| v["id"] == version_id) else {
         return Err(not_found("Version"));
     };
-    let row = one(
-        &ctx.db,
-        sqlx::query_scalar("select to_jsonb(v) from form_versions v where id = $1 limit 1")
-            .bind(version_id),
-    )
-    .await?
-    .ok_or_else(|| not_found("Version"))?;
+    let row = form_versions::Entity::find_by_id(version_id)
+        .one(&orm(&ctx.db))
+        .await?
+        .map(row_json)
+        .transpose()?
+        .ok_or_else(|| not_found("Version"))?;
     if let Value::Object(fields) = &mut summary {
         fields.insert(
             "definition".to_owned(),

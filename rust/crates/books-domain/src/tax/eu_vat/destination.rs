@@ -7,9 +7,13 @@
 //! carts; an invoice built from an order). `calculate_document_tax` itself
 //! keeps its rate-table, US, India and Brazil behaviour.
 
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, Condition, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Value, json};
-use sqlx::{PgConnection, PgPool};
+use sqlx::PgConnection;
+use weldsuite_db::{OrmConn, PgPool};
 use weldsuite_ports::OutboundHttp;
+use weldsuite_schema::tenant::{entities, legal_entity_registrations as registrations};
 
 use super::decide::{
     self, BuyerVat, DestinationInput, DestinationLine, EuVatResult, SupplyKind, ZeroRatedGross,
@@ -29,7 +33,7 @@ pub enum EuVatError {
     /// The buyer's country is missing or not an ISO alpha-2 code.
     InvalidBuyerCountry(String),
     Rate(RateError),
-    Database(sqlx::Error),
+    Database(DbErr),
 }
 
 impl std::fmt::Display for EuVatError {
@@ -56,8 +60,8 @@ impl From<RateError> for EuVatError {
     }
 }
 
-impl From<sqlx::Error> for EuVatError {
-    fn from(error: sqlx::Error) -> Self {
+impl From<DbErr> for EuVatError {
+    fn from(error: DbErr) -> Self {
         Self::Database(error)
     }
 }
@@ -93,12 +97,14 @@ pub struct EuTaxArgs<'a> {
 
 /// The entity's country, from `entities.jurisdiction_code`.
 async fn seller_country(conn: &mut PgConnection, entity_id: &str) -> Result<String, EuVatError> {
-    let code: Option<String> = sqlx::query_scalar(
-        "select jurisdiction_code from entities where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(entity_id)
-    .fetch_optional(&mut *conn)
-    .await?;
+    let code: Option<String> = entities::Entity::find()
+        .select_only()
+        .column(entities::Column::JurisdictionCode)
+        .filter(entities::Column::Id.eq(entity_id))
+        .filter(entities::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&OrmConn::new(conn))
+        .await?;
     let code = code.ok_or_else(|| EuVatError::EntityNotFound(entity_id.to_owned()))?;
     if rates::is_eu_member(&code) {
         Ok(code.to_ascii_uppercase())
@@ -112,17 +118,32 @@ async fn oss_registered(
     conn: &mut PgConnection,
     entity_id: &str,
     date: &str,
-) -> Result<bool, sqlx::Error> {
-    sqlx::query_scalar(
-        "select exists(select 1 from legal_entity_registrations \
-         where entity_id = $1 and type = 'oss' and deleted_at is null \
-         and (valid_from is null or valid_from <= $2::date) \
-         and (valid_to is null or valid_to >= $2::date))",
-    )
-    .bind(entity_id)
-    .bind(date)
-    .fetch_one(&mut *conn)
-    .await
+) -> Result<bool, DbErr> {
+    use sea_orm::ExprTrait as _;
+    let day = || Expr::val(date).cast_as("date");
+    let found: Option<String> = registrations::Entity::find()
+        .select_only()
+        .column(registrations::Column::Id)
+        .filter(
+            Condition::all()
+                .add(registrations::Column::EntityId.eq(entity_id))
+                .add(registrations::Column::Type.eq("oss"))
+                .add(registrations::Column::DeletedAt.is_null())
+                .add(
+                    Condition::any()
+                        .add(registrations::Column::ValidFrom.is_null())
+                        .add(Expr::col(registrations::Column::ValidFrom).lte(day())),
+                )
+                .add(
+                    Condition::any()
+                        .add(registrations::Column::ValidTo.is_null())
+                        .add(Expr::col(registrations::Column::ValidTo).gte(day())),
+                ),
+        )
+        .into_tuple()
+        .one(&OrmConn::new(conn))
+        .await?;
+    Ok(found.is_some())
 }
 
 /// What VIES says about the buyer, for a sale to another member state.
@@ -132,7 +153,7 @@ async fn buyer_vat(
     seller: &str,
     buyer_country: &str,
     vat_number: Option<&str>,
-) -> Result<BuyerVat, sqlx::Error> {
+) -> Result<BuyerVat, DbErr> {
     let Some(number) = vat_number.map(str::trim).filter(|n| !n.is_empty()) else {
         return Ok(BuyerVat::None);
     };
@@ -174,7 +195,7 @@ pub async fn calculate_eu_destination_tax(
     http: Option<&OutboundHttp>,
     args: &EuTaxArgs<'_>,
 ) -> Result<EuVatResult, EuVatError> {
-    let mut conn = db.acquire().await?;
+    let mut conn = db.acquire().await.map_err(weldsuite_db::orm_error)?;
     calculate_eu_destination_tax_on(&mut conn, http, args).await
 }
 

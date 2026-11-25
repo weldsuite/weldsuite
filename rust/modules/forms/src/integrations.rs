@@ -12,10 +12,19 @@
 //! becomes that member, so nobody can widen what another member's access
 //! writes.
 
+use sea_orm::ActiveValue::Set;
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect};
 use serde_json::{Map, Value, json};
 use sqlx::PgPool;
+use weldsuite_db::orm;
+use weldsuite_schema::tenant::{
+    form_integrations, helpdesk_departments, lists, projects, workspace_members,
+};
 
-use crate::common::{Ctx, FormsResult, all, forms_error, forms_error_with, iso, one, text};
+use crate::common::{
+    Ctx, FormsResult, forms_error, forms_error_with, instant, row_json, rows_json, text,
+};
 use crate::engine::{FormDefinition, RecallKind, find_field, find_field_by_ref, recall_tokens};
 use crate::integration_config::{
     CrmConfig, DeskConfig, FlowConfig, IntegrationConfig, parse_config,
@@ -76,14 +85,13 @@ fn to_integration(row: &Value, created_by: &Value) -> Value {
 
 /// `listIntegrations(ctx, formId)`: oldest first.
 pub(crate) async fn list_integrations(ctx: &Ctx, form_id: &str) -> FormsResult<Vec<Value>> {
-    let rows = all(
-        &ctx.db,
-        sqlx::query_scalar(
-            "select to_jsonb(i) from form_integrations i where form_id = $1 order by created_at asc",
-        )
-        .bind(form_id),
-    )
-    .await?;
+    let rows = rows_json(
+        form_integrations::Entity::find()
+            .filter(form_integrations::Column::FormId.eq(form_id))
+            .order_by_asc(form_integrations::Column::CreatedAt)
+            .all(&orm(&ctx.db))
+            .await?,
+    )?;
     let ids: Vec<String> = rows
         .iter()
         .map(|row| text(row, "createdByUserId").to_owned())
@@ -103,16 +111,13 @@ pub(crate) async fn list_integrations(ctx: &Ctx, form_id: &str) -> FormsResult<V
 
 /// `getIntegration(ctx, formId, id)`: 404 `Integration not found`.
 pub(crate) async fn get_integration(ctx: &Ctx, form_id: &str, id: &str) -> FormsResult<Value> {
-    one(
-        &ctx.db,
-        sqlx::query_scalar(
-            "select to_jsonb(i) from form_integrations i where id = $1 and form_id = $2 limit 1",
-        )
-        .bind(id)
-        .bind(form_id),
-    )
-    .await?
-    .ok_or_else(|| forms_error(404, "NOT_FOUND", "Integration not found"))
+    form_integrations::Entity::find_by_id(id)
+        .filter(form_integrations::Column::FormId.eq(form_id))
+        .one(&orm(&ctx.db))
+        .await?
+        .map(row_json)
+        .transpose()?
+        .ok_or_else(|| forms_error(404, "NOT_FOUND", "Integration not found"))
 }
 
 /// `presentIntegration(ctx, row)`.
@@ -260,12 +265,13 @@ async fn check_crm(
         }
     }
     if let Some(list_id) = &config.list_id {
-        let kind: Option<String> = sqlx::query_scalar(
-            "select kind from lists where id = $1 and deleted_at is null limit 1",
-        )
-        .bind(list_id)
-        .fetch_optional(&ctx.db)
-        .await?;
+        let kind: Option<String> = lists::Entity::find_by_id(list_id.as_str())
+            .select_only()
+            .column(lists::Column::Kind)
+            .filter(lists::Column::DeletedAt.is_null())
+            .into_tuple()
+            .one(&orm(&ctx.db))
+            .await?;
         if kind.as_deref() != Some("person") {
             problems.set("listId", "Choose a list of people".to_owned());
         }
@@ -289,13 +295,14 @@ async fn check_desk(
     check_template("subject", &config.subject, definition, problems);
     check_template("body", &config.body, definition, problems);
     if let Some(department_id) = &config.department_id {
-        let active: Option<Option<bool>> = sqlx::query_scalar(
-            "select is_active from helpdesk_departments where id = $1 and deleted_at is null limit 1",
-        )
-        .bind(department_id)
-        .fetch_optional(&ctx.db)
-        .await?;
-        if matches!(active, None | Some(Some(false))) {
+        let active: Option<bool> = helpdesk_departments::Entity::find_by_id(department_id.as_str())
+            .select_only()
+            .column(helpdesk_departments::Column::IsActive)
+            .filter(helpdesk_departments::Column::DeletedAt.is_null())
+            .into_tuple()
+            .one(&orm(&ctx.db))
+            .await?;
+        if matches!(active, None | Some(false)) {
             problems.set(
                 "departmentId",
                 "That team does not exist or is inactive".to_owned(),
@@ -321,23 +328,26 @@ async fn check_flow(
     check_template("title", &config.title, definition, problems);
     check_template("description", &config.description, definition, problems);
     if let Some(project_id) = &config.project_id {
-        let found: Option<String> = sqlx::query_scalar(
-            "select id from projects where id = $1 and deleted_at is null limit 1",
-        )
-        .bind(project_id)
-        .fetch_optional(&ctx.db)
-        .await?;
+        let found: Option<String> = projects::Entity::find_by_id(project_id.as_str())
+            .select_only()
+            .column(projects::Column::Id)
+            .filter(projects::Column::DeletedAt.is_null())
+            .into_tuple()
+            .one(&orm(&ctx.db))
+            .await?;
         if found.is_none() {
             problems.set("projectId", "That project does not exist".to_owned());
         }
     }
     if let Some(user_id) = &config.assignee_user_id {
-        let found: Option<String> = sqlx::query_scalar(
-            "select id from workspace_members where user_id = $1 and deleted_at is null limit 1",
-        )
-        .bind(user_id)
-        .fetch_optional(&ctx.db)
-        .await?;
+        let found: Option<String> = workspace_members::Entity::find()
+            .select_only()
+            .column(workspace_members::Column::Id)
+            .filter(workspace_members::Column::UserId.eq(user_id.as_str()))
+            .filter(workspace_members::Column::DeletedAt.is_null())
+            .into_tuple()
+            .one(&orm(&ctx.db))
+            .await?;
         if found.is_none() {
             problems.set(
                 "assigneeUserId",
@@ -415,11 +425,10 @@ pub(crate) async fn create_integration(
     enabled: bool,
     raw_config: &Value,
 ) -> FormsResult<Value> {
-    let existing: i64 =
-        sqlx::query_scalar("select count(*) from form_integrations where form_id = $1")
-            .bind(text(form, "id"))
-            .fetch_one(&ctx.db)
-            .await?;
+    let existing = form_integrations::Entity::find()
+        .filter(form_integrations::Column::FormId.eq(text(form, "id")))
+        .count(&orm(&ctx.db))
+        .await?;
     if usize::try_from(existing).unwrap_or(usize::MAX) >= MAX_INTEGRATIONS {
         return Err(forms_error(
             422,
@@ -428,25 +437,21 @@ pub(crate) async fn create_integration(
         ));
     }
     let config = check_config(ctx, kind, raw_config, &draft_definition(form)?).await?;
-    let now = iso(ctx.now_ms());
-    let row = one(
-        &ctx.db,
-        sqlx::query_scalar(
-            "insert into form_integrations (id, form_id, kind, config, enabled, created_by_user_id, created_at, updated_at) \
-             values ($1, $2, $3, $4, $5, $6, $7::timestamptz, $7::timestamptz) returning to_jsonb(form_integrations.*)",
-        )
-        .bind(weldsuite_kit::generate_id("fig"))
-        .bind(text(form, "id"))
-        .bind(kind)
-        .bind(&config)
-        .bind(enabled)
-        .bind(user_id)
-        .bind(&now),
-    )
-    .await?;
-    row.ok_or_else(|| {
-        crate::common::Fail::Internal("forms: the integration insert returned nothing".to_owned())
+    let now = instant(ctx.now_ms());
+    let row = form_integrations::Entity::insert(form_integrations::ActiveModel {
+        id: Set(weldsuite_kit::generate_id("fig")),
+        form_id: Set(text(form, "id").to_owned()),
+        kind: Set(kind.to_owned()),
+        config: Set(config),
+        enabled: Set(enabled),
+        created_by_user_id: Set(user_id.to_owned()),
+        created_at: Set(now),
+        updated_at: Set(now),
+        ..Default::default()
     })
+    .exec_with_returning(&orm(&ctx.db))
+    .await?;
+    row_json(row)
 }
 
 /// `updateIntegration(ctx, form, row, userId, input)`.
@@ -464,35 +469,46 @@ pub(crate) async fn update_integration(
         }
         None => None,
     };
-    let now = iso(ctx.now_ms());
+    let mut update = form_integrations::Entity::update_many().col_expr(
+        form_integrations::Column::UpdatedAt,
+        Expr::value(instant(ctx.now_ms())),
+    );
+    if let Some(enabled) = enabled {
+        update = update.col_expr(form_integrations::Column::Enabled, Expr::value(enabled));
+    }
     // Whoever decides what it writes writes it with their own access; the old error is no longer true.
-    let updated = one(
-        &ctx.db,
-        sqlx::query_scalar(
-            "update form_integrations set updated_at = $2::timestamptz, \
-             enabled = coalesce($3, enabled), \
-             config = coalesce($4, config), \
-             created_by_user_id = case when $4::jsonb is null then created_by_user_id else $5 end, \
-             last_error = case when $4::jsonb is null then last_error else null end \
-             where id = $1 returning to_jsonb(form_integrations.*)",
-        )
-        .bind(text(row, "id"))
-        .bind(&now)
-        .bind(enabled)
-        .bind(config)
-        .bind(user_id),
-    )
-    .await?;
-    updated.ok_or_else(|| {
-        crate::common::Fail::Internal("forms: the integration update returned nothing".to_owned())
-    })
+    if let Some(config) = config {
+        update = update
+            .col_expr(form_integrations::Column::Config, Expr::value(config))
+            .col_expr(
+                form_integrations::Column::CreatedByUserId,
+                Expr::value(user_id),
+            )
+            .col_expr(
+                form_integrations::Column::LastError,
+                Expr::value(Option::<String>::None),
+            );
+    }
+    let updated = update
+        .filter(form_integrations::Column::Id.eq(text(row, "id")))
+        .exec_with_returning(&orm(&ctx.db))
+        .await?;
+    updated
+        .into_iter()
+        .next()
+        .map(row_json)
+        .transpose()?
+        .ok_or_else(|| {
+            crate::common::Fail::Internal(
+                "forms: the integration update returned nothing".to_owned(),
+            )
+        })
 }
 
 /// `deleteIntegration(ctx, row)`.
 pub(crate) async fn delete_integration(ctx: &Ctx, row: &Value) -> FormsResult<()> {
-    sqlx::query("delete from form_integrations where id = $1")
-        .bind(text(row, "id"))
-        .execute(&ctx.db)
+    form_integrations::Entity::delete_by_id(text(row, "id"))
+        .exec(&orm(&ctx.db))
         .await?;
     Ok(())
 }

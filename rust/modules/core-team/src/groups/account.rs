@@ -17,14 +17,18 @@ use axum::extract::State;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use http::{HeaderMap, StatusCode};
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, JoinType, QueryFilter, QuerySelect, RelationDef};
 use serde_json::{Value, json};
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_kit::Data;
 use weldsuite_kit::validation::json_body;
 use weldsuite_ports::with_identity;
+use weldsuite_schema::master::enums::MembershipStatus;
+use weldsuite_schema::master::{user_workspaces, users, workspaces};
 
 use super::zod_issues::{ZodIssues, object};
-use crate::{AccountCaller, CoreTeamState, TeamError, TeamResult, answer, now};
+use crate::{AccountCaller, CoreTeamState, TeamError, TeamResult, answer};
 
 /// `DELETE_ACCOUNT_CONFIRMATION`: what the user types to confirm.
 const CONFIRMATION: &str = "DELETE";
@@ -56,19 +60,30 @@ impl DeletionStatus {
     }
 }
 
-async fn compute_deletion_status(
-    db: &PgPool,
-    user_id: &str,
-) -> Result<DeletionStatus, sqlx::Error> {
-    let memberships: Vec<(String, String, String)> = sqlx::query_as(
-        "select uw.workspace_id, uw.role, w.name
-         from user_workspaces uw
-         inner join workspaces w on uw.workspace_id = w.id
-         where uw.user_id = $1 and uw.status = 'ACTIVE' and w.is_active = true",
-    )
-    .bind(user_id)
-    .fetch_all(db)
-    .await?;
+/// `innerJoin(workspaces, eq(userWorkspaces.workspaceId, workspaces.id))`.
+fn membership_workspace() -> RelationDef {
+    user_workspaces::Entity::belongs_to(workspaces::Entity)
+        .from(user_workspaces::Column::WorkspaceId)
+        .to(workspaces::Column::Id)
+        .into()
+}
+
+async fn compute_deletion_status(db: &PgPool, user_id: &str) -> Result<DeletionStatus, DbErr> {
+    let db = orm(db);
+    let memberships: Vec<(String, String, String)> = user_workspaces::Entity::find()
+        .select_only()
+        .columns([
+            user_workspaces::Column::WorkspaceId,
+            user_workspaces::Column::Role,
+        ])
+        .column(workspaces::Column::Name)
+        .join(JoinType::InnerJoin, membership_workspace())
+        .filter(user_workspaces::Column::UserId.eq(user_id))
+        .filter(user_workspaces::Column::Status.eq(MembershipStatus::ACTIVE))
+        .filter(workspaces::Column::IsActive.eq(true))
+        .into_tuple()
+        .all(&db)
+        .await?;
 
     let mut blockers = Vec::new();
     let mut to_delete = Vec::new();
@@ -79,14 +94,18 @@ async fn compute_deletion_status(
         });
     }
     let ids: Vec<String> = memberships.iter().map(|m| m.0.clone()).collect();
-    let others: Vec<(String, String)> = sqlx::query_as(
-        "select workspace_id, role from user_workspaces
-         where workspace_id = any($1) and user_id <> $2 and status = 'ACTIVE'",
-    )
-    .bind(&ids)
-    .bind(user_id)
-    .fetch_all(db)
-    .await?;
+    let others: Vec<(String, String)> = user_workspaces::Entity::find()
+        .select_only()
+        .columns([
+            user_workspaces::Column::WorkspaceId,
+            user_workspaces::Column::Role,
+        ])
+        .filter(user_workspaces::Column::WorkspaceId.is_in(ids))
+        .filter(user_workspaces::Column::UserId.ne(user_id))
+        .filter(user_workspaces::Column::Status.eq(MembershipStatus::ACTIVE))
+        .into_tuple()
+        .all(&db)
+        .await?;
 
     for (workspace_id, role, name) in memberships {
         let other_roles: Vec<&str> = others
@@ -166,11 +185,12 @@ async fn run_delete(
     body: &Bytes,
 ) -> TeamResult<Response> {
     read_confirmation(headers, body)?;
-    let db = caller.master(state);
+    let master = caller.master(state);
+    let db = orm(&master);
     let failed =
         |error: &dyn std::fmt::Display| TeamError::internal("Failed to delete account", error);
 
-    let status = compute_deletion_status(&db, &caller.user_id)
+    let status = compute_deletion_status(&master, &caller.user_id)
         .await
         .map_err(|e| failed(&e))?;
     if !status.blockers.is_empty() {
@@ -186,12 +206,13 @@ async fn run_delete(
 
     let identity = caller.identity(state);
     for (workspace_id, _) in &status.to_delete {
-        let row: Option<Option<String>> =
-            sqlx::query_scalar("select clerk_org_id from workspaces where id = $1")
-                .bind(workspace_id)
-                .fetch_optional(&db)
-                .await
-                .map_err(|e| failed(&e))?;
+        let row: Option<Option<String>> = workspaces::Entity::find_by_id(workspace_id)
+            .select_only()
+            .column(workspaces::Column::ClerkOrgId)
+            .into_tuple()
+            .one(&db)
+            .await
+            .map_err(|e| failed(&e))?;
         let mut org_deleted = false;
         if let Some(org) = row.flatten() {
             match with_identity(identity.as_ref(), |i| i.delete_organization(&org)).await {
@@ -203,19 +224,22 @@ async fn run_delete(
                 ),
             }
         }
-        sqlx::query(
-            "update workspaces
-             set is_active = false,
-                 deleted_at = case when $2 then coalesce(deleted_at, $3::timestamp) else deleted_at end,
-                 updated_at = $3::timestamp
-             where id = $1",
-        )
-        .bind(workspace_id)
-        .bind(org_deleted)
-        .bind(now())
-        .execute(&db)
-        .await
-        .map_err(|e| failed(&e))?;
+        let stamp = utc_now();
+        let mut deactivate = workspaces::Entity::update_many()
+            .col_expr(workspaces::Column::IsActive, Expr::value(false));
+        if org_deleted {
+            deactivate = deactivate.col_expr(
+                workspaces::Column::DeletedAt,
+                Func::coalesce([Expr::col(workspaces::Column::DeletedAt), Expr::value(stamp)])
+                    .into(),
+            );
+        }
+        deactivate
+            .col_expr(workspaces::Column::UpdatedAt, Expr::value(stamp))
+            .filter(workspaces::Column::Id.eq(workspace_id))
+            .exec(&db)
+            .await
+            .map_err(|e| failed(&e))?;
     }
 
     // Removes credentials, sessions and the remaining memberships.
@@ -223,22 +247,28 @@ async fn run_delete(
         .await
         .map_err(|e| failed(&e))?;
 
-    sqlx::query(
-        "update users
-         set is_active = false, email = $2, first_name = null, last_name = null,
-             image_url = null, phone = null, nickname = null, job_title = null, bio = null,
-             updated_at = $3::timestamp
-         where id = $1",
-    )
-    .bind(&caller.user_id)
-    .bind(format!("{}@deleted.weldsuite.org", caller.user_id))
-    .bind(now())
-    .execute(&db)
-    .await
-    .map_err(|e| failed(&e))?;
-    sqlx::query("delete from user_workspaces where user_id = $1")
-        .bind(&caller.user_id)
-        .execute(&db)
+    let cleared = || Expr::value(Option::<String>::None);
+    users::Entity::update_many()
+        .col_expr(users::Column::IsActive, Expr::value(false))
+        .col_expr(
+            users::Column::Email,
+            Expr::value(format!("{}@deleted.weldsuite.org", caller.user_id)),
+        )
+        .col_expr(users::Column::FirstName, cleared())
+        .col_expr(users::Column::LastName, cleared())
+        .col_expr(users::Column::ImageUrl, cleared())
+        .col_expr(users::Column::Phone, cleared())
+        .col_expr(users::Column::Nickname, cleared())
+        .col_expr(users::Column::JobTitle, cleared())
+        .col_expr(users::Column::Bio, cleared())
+        .col_expr(users::Column::UpdatedAt, Expr::value(utc_now()))
+        .filter(users::Column::Id.eq(&caller.user_id))
+        .exec(&db)
+        .await
+        .map_err(|e| failed(&e))?;
+    user_workspaces::Entity::delete_many()
+        .filter(user_workspaces::Column::UserId.eq(&caller.user_id))
+        .exec(&db)
         .await
         .map_err(|e| failed(&e))?;
 

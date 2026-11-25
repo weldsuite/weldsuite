@@ -5,7 +5,7 @@
  * (+ `/keys`, `/shipping-rates`) and `/products/:id/prices`.
  *
  * - Channels:  GET / POST /commerce-channels, GET / PATCH / DELETE /:id
- * - Keys:      GET / POST /:id/keys, PATCH /:id/keys/:keyId,
+ * - Keys:      GET / POST /:id/keys (publishable, private or deploy), PATCH /:id/keys/:keyId,
  *              POST /:id/keys/:keyId/rotate and /revoke. The secret comes back
  *              once, from the create and the rotate call, and is never cached:
  *              the mutations return it to the caller and nothing else.
@@ -72,7 +72,8 @@ export interface ChannelInput {
   connectionId?: string | null;
 }
 
-export type ChannelKeyKind = 'publishable' | 'private';
+/** Deploy keys (`wcd_`) upload a shop the merchant builds themselves to its online store; they have no origins. */
+export type ChannelKeyKind = 'publishable' | 'private' | 'deploy';
 
 export interface ChannelKey {
   id: string;

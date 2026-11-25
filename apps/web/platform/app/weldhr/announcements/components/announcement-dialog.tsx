@@ -5,7 +5,6 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Loader2 } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
-import { Checkbox } from '@weldsuite/ui/components/checkbox';
 import {
   Dialog,
   DialogContent,
@@ -74,7 +73,7 @@ export function AnnouncementDialog({ announcement, onClose }: Readonly<{ announc
   return (
     <Dialog open onOpenChange={(open) => !open && !pending && onClose()}>
       <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-xl">
-        <DialogHeader>
+        <DialogHeader className="mb-2">
           <DialogTitle>{announcement ? t('weldhr.announcements.editTitle') : t('weldhr.announcements.addTitle')}</DialogTitle>
         </DialogHeader>
 
@@ -151,14 +150,15 @@ export function AnnouncementDialog({ announcement, onClose }: Readonly<{ announc
                 control={form.control}
                 name="notify"
                 render={({ field }) => (
-                  <FormItem className="flex items-start gap-3 rounded-md border p-3">
-                    <FormControl>
-                      <Checkbox checked={field.value ?? false} onCheckedChange={(checked) => field.onChange(checked === true)} className="mt-0.5" />
-                    </FormControl>
+                  // The same option card as "Pin to the top": text left, switch right.
+                  <FormItem className="flex items-start justify-between gap-4 rounded-md border p-3">
                     <div className="space-y-1">
                       <FormLabel>{t('weldhr.announcements.form.notify')}</FormLabel>
                       <p className="text-xs text-muted-foreground">{t('weldhr.announcements.form.notifyHint')}</p>
                     </div>
+                    <FormControl>
+                      <Switch checked={field.value ?? false} onCheckedChange={field.onChange} />
+                    </FormControl>
                   </FormItem>
                 )}
               />

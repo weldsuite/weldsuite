@@ -40,6 +40,17 @@ pub(crate) fn upstream(error: &MailpoolError) -> ReachError {
     )
 }
 
+/// A service outside the EU the workspace hasn't switched on (ADR OPS-026)
+/// as the routes answer it: the platform's 403 `OUTSIDE_EU_SERVICE_OFF`.
+pub(crate) fn outside_eu(error: &weldsuite_outside_eu::OutsideEuError) -> ReachError {
+    let api = error.to_api_error();
+    let refusal = ReachError::new(api.status().as_u16(), api.code(), api.message());
+    match api.details() {
+        Some(details) => refusal.with_details(details.clone()),
+        None => refusal,
+    }
+}
+
 /// `MailpoolNotConfiguredError` as the routes answer it.
 pub(crate) fn not_configured() -> ReachError {
     ReachError::new(

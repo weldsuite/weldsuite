@@ -15,8 +15,10 @@
 use axum::extract::{Path, RawQuery};
 use axum::response::{IntoResponse, Response};
 use http::header::{CONTENT_DISPOSITION, CONTENT_TYPE};
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 use serde_json::{Map, Value, json};
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm};
+use weldsuite_schema::tenant::{helpdesk_analytics_charts, helpdesk_analytics_reports};
 
 use super::reports::{self, ChartQuery, date_key, is_breakdown};
 use crate::js::query_param;
@@ -252,42 +254,43 @@ pub(super) async fn load_saved_report(
     db: &PgPool,
     report_id: &str,
     now: i64,
-) -> Result<Option<SavedReport>, sqlx::Error> {
-    let report: Option<(String, String)> = sqlx::query_as(
-        "select id, title from helpdesk_analytics_reports where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(report_id)
-    .fetch_optional(db)
-    .await?;
+) -> Result<Option<SavedReport>, DbErr> {
+    let orm_db = orm(db);
+    let report: Option<(String, String)> = helpdesk_analytics_reports::Entity::find()
+        .select_only()
+        .column(helpdesk_analytics_reports::Column::Id)
+        .column(helpdesk_analytics_reports::Column::Title)
+        .filter(helpdesk_analytics_reports::Column::Id.eq(report_id))
+        .filter(helpdesk_analytics_reports::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm_db)
+        .await?;
     let Some((id, title)) = report else {
         return Ok(None);
     };
-    let charts: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from helpdesk_analytics_charts t
-         where t.report_id = $1 and t.deleted_at is null
-         order by t.sort_index asc, t.created_at asc",
-    )
-    .bind(report_id)
-    .fetch_all(db)
-    .await?;
+    let charts = helpdesk_analytics_charts::Entity::find()
+        .filter(helpdesk_analytics_charts::Column::ReportId.eq(report_id))
+        .filter(helpdesk_analytics_charts::Column::DeletedAt.is_null())
+        .order_by_asc(helpdesk_analytics_charts::Column::SortIndex)
+        .order_by_asc(helpdesk_analytics_charts::Column::CreatedAt)
+        .all(&orm_db)
+        .await?;
     let mut with_data = Vec::with_capacity(charts.len());
-    for chart in &charts {
+    for chart in charts {
         // The stored value, or the builder's default where the column is null.
-        let or = |column: &str, fallback: &str| match &chart[column] {
-            Value::Null => json!(fallback),
-            value => value.clone(),
-        };
+        let or =
+            |value: Option<String>, fallback: &str| json!(value.as_deref().unwrap_or(fallback));
         let mut query = Map::new();
-        query.insert("metric".to_owned(), chart["metric"].clone());
-        query.insert("timeRange".to_owned(), or("time_range", "last_30_days"));
-        query.insert("groupBy".to_owned(), or("group_by", "day"));
-        query.insert("aggregation".to_owned(), or("aggregation", "sum"));
-        query.insert("sortOrder".to_owned(), chart["sort_order"].clone());
-        query.insert("limit".to_owned(), chart["limit"].clone());
+        query.insert("metric".to_owned(), json!(chart.metric));
+        query.insert("timeRange".to_owned(), or(chart.time_range, "last_30_days"));
+        query.insert("groupBy".to_owned(), or(chart.group_by, "day"));
+        query.insert("aggregation".to_owned(), or(chart.aggregation, "sum"));
+        query.insert("sortOrder".to_owned(), json!(chart.sort_order));
+        query.insert("limit".to_owned(), json!(chart.limit));
         let points = reports::chart_data(db, &ChartQuery::from_fields(&query), now).await?;
         with_data.push(SavedChart {
-            title: chart["title"].as_str().unwrap_or_default().to_owned(),
-            breakdown: chart["metric"].as_str().is_some_and(is_breakdown),
+            breakdown: is_breakdown(&chart.metric),
+            title: chart.title,
             points,
         });
     }

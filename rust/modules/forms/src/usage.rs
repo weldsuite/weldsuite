@@ -2,11 +2,14 @@
 //! calendar month against what the workspace's plan allows, counted from
 //! `form_responses.submitted_at`.
 
+use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter};
 use serde_json::{Value, json};
 use time::OffsetDateTime;
 use weldsuite_core_domain::plan_limits::{
     PlanLimitTable, WorkspacePlan, load_workspace_plan, plan_limit, utc_month_range,
 };
+use weldsuite_db::orm;
+use weldsuite_schema::tenant::form_responses;
 
 use crate::common::{Ctx, FormsResult, iso};
 
@@ -59,21 +62,19 @@ fn ms_of(at: OffsetDateTime) -> i64 {
 /// `loadUsage(ctx, now)`.
 pub(crate) async fn load_usage(ctx: &Ctx, now_ms: i64) -> FormsResult<Usage> {
     let (start, end) = utc_month_range(at(now_ms));
-    let (start, end) = (iso(ms_of(start)), iso(ms_of(end)));
+    let (start_ms, end_ms) = (ms_of(start), ms_of(end));
     let plan = load_workspace_plan(ctx.master()?, &ctx.workspace_id).await?;
-    let used: i64 = sqlx::query_scalar(
-        "select count(*)::int8 from form_responses where status = 'completed' \
-         and submitted_at >= $1::timestamptz and submitted_at < $2::timestamptz",
-    )
-    .bind(&start)
-    .bind(&end)
-    .fetch_one(&ctx.db)
-    .await?;
+    let used = form_responses::Entity::find()
+        .filter(form_responses::Column::Status.eq("completed"))
+        .filter(form_responses::Column::SubmittedAt.gte(at(start_ms)))
+        .filter(form_responses::Column::SubmittedAt.lt(at(end_ms)))
+        .count(&orm(&ctx.db))
+        .await?;
     Ok(Usage {
         limit: plan_limit(FORM_RESPONSE_QUOTAS, &plan),
-        period_start: start,
-        period_end: end,
-        used,
+        period_start: iso(start_ms),
+        period_end: iso(end_ms),
+        used: i64::try_from(used).unwrap_or(i64::MAX),
         workspace_plan: plan,
     })
 }

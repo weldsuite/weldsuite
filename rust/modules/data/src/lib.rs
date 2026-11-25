@@ -10,11 +10,6 @@
 //! TypeScript worker's; its tests run against this crate in the `data`
 //! conformance suite (`rust/conformance/suites.json`).
 
-#![allow(
-    clippy::disallowed_methods,
-    reason = "not converted to the ORM yet (ADR DATA-019)"
-)]
-
 mod actions;
 mod enrich;
 mod enrich_fields;
@@ -216,11 +211,6 @@ impl<S: Send + Sync> FromRequestParts<S> for Caller {
         };
         std::future::ready(caller)
     }
-}
-
-/// `new Date()` as Drizzle writes it.
-pub(crate) fn now() -> String {
-    weldsuite_events::iso_timestamp(time::OffsetDateTime::now_utc())
 }
 
 /// `zValidator('json', schema)`: the body read by `read`, or the 400 (bad

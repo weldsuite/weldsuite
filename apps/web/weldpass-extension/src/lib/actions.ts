@@ -10,12 +10,17 @@
 
 import type {
   WeldPassItem,
-  WeldPassPasswordsApi,
+  WeldPassRevealedItem,
 } from '@weldsuite/app-api-client/domains/weldpass-passwords';
 import type { PageCommand, PageResult } from '../page/page-agent';
 import { evaluateFill, pageContext, type FillBlock, type PageBlock } from './fill-policy';
 
 /** The active tab, as far as the actions need it. Implemented over `chrome.*` in chrome-page.ts. */
+/** What the actions need from the API: one reveal. */
+export interface RevealApi {
+  revealItem(vaultId: string, itemId: string): Promise<{ data: WeldPassRevealedItem }>;
+}
+
 export interface PagePort {
   /** The tab's current URL, read now — not the one the popup saw when it opened. */
   currentUrl(tabId: number): Promise<string | null>;
@@ -60,7 +65,7 @@ async function runOnPage(
  * On the first step of a two-step login the username from the list is enough.
  */
 export async function fillLogin(
-  api: Pick<WeldPassPasswordsApi, 'revealItem'>,
+  api: RevealApi,
   page: PagePort,
   item: WeldPassItem,
   tabId: number,
@@ -111,7 +116,7 @@ export async function fillLogin(
 
 /** The item's password, fetched for this one use. Null if the item has none. */
 export async function revealPassword(
-  api: Pick<WeldPassPasswordsApi, 'revealItem'>,
+  api: RevealApi,
   item: WeldPassItem,
 ): Promise<string | null> {
   const { fields } = (await api.revealItem(item.vaultId, item.id)).data;

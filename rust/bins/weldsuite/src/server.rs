@@ -916,6 +916,9 @@ mod tests {
         assert!(lacks.contains(&json!("agent-sandbox")));
         // WeldPanel's store is there: its analytics are offered.
         assert!(!lacks.contains(&json!("panel-analytics")));
+        // The EU edition: services outside the EU are a workspace opt-in
+        // (ADR OPS-026), so the settings page is offered.
+        assert!(!lacks.contains(&json!("outside-eu-services")));
     }
 
     /// The app state with an OIDC verifier over the auth crate's fixture keys.
@@ -937,6 +940,7 @@ mod tests {
             "issuer": fixture["issuer"],
             "clientId": "300000000000000300",
             "mobileClientId": "300000000000000400",
+            "extensionClientId": "300000000000000600",
         })));
         (state, fixture)
     }
@@ -990,6 +994,23 @@ mod tests {
         ) -> weldsuite_db::MembershipsFuture<'a> {
             let found = if user_id == self.0 {
                 vec!["org_member".to_owned()]
+            } else {
+                Vec::new()
+            };
+            Box::pin(std::future::ready(Ok(found)))
+        }
+
+        fn member_workspace_list<'a>(
+            &'a self,
+            user_id: &'a str,
+            _limit: u64,
+        ) -> weldsuite_db::MemberWorkspacesFuture<'a> {
+            let found = if user_id == self.0 {
+                vec![weldsuite_db::MemberWorkspace {
+                    id: "ws_member".to_owned(),
+                    slug: "member".to_owned(),
+                    name: "Member".to_owned(),
+                }]
             } else {
                 Vec::new()
             };
@@ -1083,6 +1104,7 @@ mod tests {
         assert_eq!(body["auth"]["issuer"], fixture["issuer"]);
         assert_eq!(body["auth"]["clientId"], "300000000000000300");
         assert_eq!(body["auth"]["mobileClientId"], "300000000000000400");
+        assert_eq!(body["auth"]["extensionClientId"], "300000000000000600");
     }
 
     #[tokio::test]

@@ -14,11 +14,6 @@
 //! they may not see is a 404. Only the owner changes an envelope, and only a
 //! draft (409 otherwise). Templates belong to the workspace.
 
-#![allow(
-    clippy::disallowed_methods,
-    reason = "not converted to the ORM yet (ADR DATA-019)"
-)]
-
 mod documents;
 mod envelopes;
 mod fields;
@@ -70,7 +65,7 @@ use weldsuite_catalogs::permission_keys::{
     SIGN_TEMPLATES_READ, SIGN_TEMPLATES_UPDATE,
 };
 use weldsuite_db::{PgPool, Tenant};
-use weldsuite_events::{EntityEventPublisher, EventContext, iso_timestamp, publish_entity_event};
+use weldsuite_events::{EntityEventPublisher, EventContext, publish_entity_event};
 use weldsuite_kit::validation::{Issues, json_body, query_values};
 use weldsuite_kit::{ApiError, RequestEnv};
 use weldsuite_permissions::{PermissionGate, PermissionQueries, Permissions};
@@ -512,7 +507,7 @@ pub(crate) enum SignError {
     Invalid(String),
     /// A response the route wrote itself (validation, 401).
     Response(Box<Response>),
-    Database(sqlx::Error),
+    Database(sea_orm::DbErr),
     /// Anything else that fails (the file store); logged, answered with a 500.
     Internal(String),
 }
@@ -546,9 +541,17 @@ impl SignError {
     }
 }
 
+impl From<sea_orm::DbErr> for SignError {
+    fn from(error: sea_orm::DbErr) -> Self {
+        Self::Database(error)
+    }
+}
+
+/// SQL that stays SQL, and the shared crates not on the ORM yet, report
+/// through the same error (`weldsuite_db::orm_error`).
 impl From<sqlx::Error> for SignError {
     fn from(error: sqlx::Error) -> Self {
-        Self::Database(error)
+        Self::Database(weldsuite_db::orm_error(error))
     }
 }
 
@@ -559,10 +562,16 @@ pub(crate) fn answer(result: SignResult<Response>) -> Response {
     result.unwrap_or_else(SignError::respond)
 }
 
-/// `new Date()` as Drizzle writes it: UTC with milliseconds. Bound as text
-/// and cast with `::timestamptz`.
-pub(crate) fn now() -> String {
-    iso_timestamp(OffsetDateTime::now_utc())
+/// `new Date()` as Drizzle writes it to a `timestamptz` column: UTC, to the
+/// millisecond.
+pub(crate) fn now() -> OffsetDateTime {
+    millis(OffsetDateTime::now_utc())
+}
+
+/// A moment as a JavaScript `Date` holds it (and Drizzle writes it): UTC, to
+/// the millisecond.
+pub(crate) fn millis(at: OffsetDateTime) -> OffsetDateTime {
+    weldsuite_db::utc_timestamp(at).assume_utc()
 }
 
 /// `zValidator('json', schema)`: the body read by `read`, or the 400.

@@ -109,7 +109,8 @@ export const PERMISSION_CATALOG_OBJECTS: ObjectDefinition[] = [
       {
         key: 'legal_entities:manage',
         label: 'Manage access per legal entity',
-        description: 'Restrict a legal entity and choose who sees it, and with which role. Holders always see every legal entity.',
+        description:
+          'Restrict a legal entity and choose who sees it, and with which role. Holders see a restricted entity only when they are listed on it.',
       },
     ],
   },
@@ -258,7 +259,10 @@ export const PERMISSION_CATALOG_OBJECTS: ObjectDefinition[] = [
   objectPermissions('commerce_settings', 'Commerce settings', ['read', 'update']),
   // WeldCommerce sales channels, their storefront keys and shipping rates.
   objectPermissions('commerce_channels', 'Sales channels', ['read', 'create', 'update', 'delete']),
-  objectPermissions('websites',      'Websites',             ['read', 'create', 'update', 'delete', 'manage']),
+  // WeldCommerce's online store: sites, pages, menus, redirects and
+  // deployments; `manage` publishes, restores, sets the visibility, manages
+  // shop domains and promotes deployments.
+  objectPermissions('websites',      'Online store',         ['read', 'create', 'update', 'delete', 'manage']),
 
   // ── Accounting (WeldBooks) ────────────────────────────────────────────
   objectPermissions('entities',      'Legal Entities',       ['read', 'create', 'update', 'delete', 'manage']),
@@ -1001,6 +1005,13 @@ const LEGACY_ADMIN_PERMISSIONS: string[] = [
   'reach_inbox:read', 'reach_inbox:update', 'reach_inbox:reply',
   'reach_mailboxes:read', 'reach_mailboxes:create', 'reach_mailboxes:update', 'reach_mailboxes:delete',
   'reach_settings:read', 'reach_settings:update',
+  // WeldCommerce — its own objects; products, orders, companies and people
+  // come with the lines above. Without these an admin can't open its settings.
+  'categories:read', 'categories:create', 'categories:update', 'categories:delete',
+  'discounts:read', 'discounts:create', 'discounts:update', 'discounts:delete',
+  'commerce_settings:read', 'commerce_settings:update',
+  'commerce_channels:read', 'commerce_channels:create', 'commerce_channels:update', 'commerce_channels:delete',
+  'websites:read', 'websites:create', 'websites:update', 'websites:delete', 'websites:manage',
 ];
 
 const LEGACY_MEMBER_PERMISSIONS: string[] = [
@@ -1148,6 +1159,13 @@ const LEGACY_MEMBER_PERMISSIONS: string[] = [
   'reach_prospects:read', 'reach_prospects:create', 'reach_prospects:update', 'reach_prospects:delete',
   'reach_inbox:read', 'reach_inbox:update', 'reach_inbox:reply',
   'reach_mailboxes:read', 'reach_settings:read',
+  // WeldCommerce — keep the catalogue's categories; discount codes, sales
+  // channels (and their keys) and the settings are read-only
+  'categories:read', 'categories:create', 'categories:update',
+  'discounts:read', 'commerce_channels:read', 'commerce_settings:read',
+  // The online store: edit content and pages; publishing, domains and
+  // visibility stay with admins
+  'websites:read', 'websites:create', 'websites:update',
 ];
 
 const LEGACY_VIEWER_PERMISSIONS: string[] = [
@@ -1184,6 +1202,9 @@ const LEGACY_VIEWER_PERMISSIONS: string[] = [
   'merge_issues:read', 'merge_pull_requests:read', 'merge_releases:read', 'merge_teams:read', 'merge_connections:read',
   // WeldReach — read-only
   'reach_campaigns:read', 'reach_prospects:read', 'reach_inbox:read', 'reach_mailboxes:read',
+  // WeldCommerce — read-only
+  'categories:read', 'discounts:read', 'commerce_channels:read', 'commerce_settings:read',
+  'websites:read',
 ];
 
 export const SYSTEM_ROLES: Record<string, SystemRoleDefinition> = {

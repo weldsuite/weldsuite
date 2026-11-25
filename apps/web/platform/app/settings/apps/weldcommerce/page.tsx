@@ -1,8 +1,9 @@
 /**
- * Settings → Apps → WeldCommerce, in tabs (`?tab=general|channels|payments`):
+ * Settings → Apps → WeldCommerce, in tabs (`?tab=general|channels|payments|online-store`):
  * General (the order number and the default currency), Channels (sales
- * channels, their keys and shipping rates) and Payments (the Mollie
- * connection). They live here, not in WeldCommerce itself
+ * channels, their keys and shipping rates), Payments (the Mollie
+ * connection) and Online store (addresses, visibility and deployments of
+ * the online stores). They live here, not in WeldCommerce itself
  * (AGENTS.md, "App settings live in Settings"). WeldCommerce is Rust-only, so
  * on Global the page says it is not available.
  */
@@ -19,26 +20,29 @@ import { getTranslations } from '@/lib/i18n';
 import { ChannelsTab } from './channels-tab';
 import { GeneralTab } from './general-tab';
 import { PaymentsTab } from './payments-tab';
+import { OnlineStoreTab } from './online-store-tab';
 
-type SettingsTab = 'general' | 'channels' | 'payments';
+type SettingsTab = 'general' | 'channels' | 'payments' | 'online-store';
 
 /** The tab from `?tab=`, or General when it is unknown or the member may not see it. */
-function pickTab(requested: string | undefined, showChannels: boolean, showPayments: boolean): SettingsTab {
+function pickTab(requested: string | undefined, showChannels: boolean, showPayments: boolean, showOnlineStore: boolean): SettingsTab {
   if (requested === 'channels' && showChannels) return 'channels';
   if (requested === 'payments' && showPayments) return 'payments';
+  if (requested === 'online-store' && showOnlineStore) return 'online-store';
   return 'general';
 }
 
 function SettingsContent() {
   const t = getTranslations('commerce');
   const permissions = usePermissionsMaybe();
-  const search = useSearch({ strict: false }) as { tab?: string; channel?: string; mollie?: string; reason?: string };
+  const search = useSearch({ strict: false }) as { tab?: string; channel?: string; mollie?: string; reason?: string; site?: string };
   const navigate = useNavigate();
   const showChannels = permissions?.can('commerce_channels:read') ?? false;
   const showPayments = permissions?.can('commerce_settings:read') ?? false;
-  const activeTab = pickTab(search.tab, showChannels, showPayments);
+  const showOnlineStore = permissions?.can('websites:read') ?? false;
+  const activeTab = pickTab(search.tab, showChannels, showPayments, showOnlineStore);
 
-  const go = (next: { tab?: SettingsTab; channel?: string }) =>
+  const go = (next: { tab?: SettingsTab; channel?: string; site?: string }) =>
     void navigate({ to: '/settings/apps/weldcommerce', search: next.tab && next.tab !== 'general' ? next : {} });
 
   // The Mollie callback result is read once by the Payments tab; then the query string is cleaned (no history entry).
@@ -51,6 +55,7 @@ function SettingsContent() {
     { id: 'general', label: t.channels.tabs.general },
     ...(showChannels ? [{ id: 'channels', label: t.channels.tabs.channels }] : []),
     ...(showPayments ? [{ id: 'payments', label: t.channels.tabs.payments }] : []),
+    ...(showOnlineStore ? [{ id: 'online-store', label: t.onlineStore.settingsTab.tab }] : []),
   ];
 
   return (
@@ -69,6 +74,7 @@ function SettingsContent() {
         {activeTab === 'payments' && (
           <PaymentsTab callback={{ mollie: search.mollie, reason: search.reason }} onCallbackHandled={clearCallback} />
         )}
+        {activeTab === 'online-store' && <OnlineStoreTab siteId={search.site} onSelectSite={(site) => go({ tab: 'online-store', site })} />}
       </div>
     </div>
   );

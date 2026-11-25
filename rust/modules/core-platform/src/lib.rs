@@ -11,6 +11,7 @@
 //! | Router | Prefix | TypeScript |
 //! |---|---|---|
 //! | [`ai_settings`] | `/api/ai-settings` | none: Rust only (ADR AI-012) |
+//! | [`outside_eu`] | `/api/outside-eu-services` | none: Rust only (ADR OPS-026) |
 //! | [`notifications`] | `/api/notifications` | `routes/notifications` |
 //! | [`audit_logs`] | `/api/audit-logs` | `routes/audit-logs` |
 //! | [`audit_log_streams`] | `/api/audit-log-streams` | `routes/audit-log-streams` |
@@ -31,11 +32,6 @@
 //! [`top_up_webhooks`] serves Mollie's webhook ([`topup`]). The identity
 //! provider (Clerk in the Global edition) is the [`weldsuite_ports::Identity`]
 //! port.
-
-#![allow(
-    clippy::disallowed_methods,
-    reason = "not converted to the ORM yet (ADR DATA-019)"
-)]
 
 mod access;
 mod groups;
@@ -116,6 +112,11 @@ group_router!(
     /// `/api/ai-settings`: the workspace's AI providers, keys, per-feature
     /// models and usage (Rust only; mounted when the install has AI).
     ai_settings
+);
+group_router!(
+    /// `/api/outside-eu-services`: which services outside the EU the
+    /// workspace has switched on (Rust only, ADR OPS-026).
+    outside_eu
 );
 group_router!(
     /// `/api/notifications`: the caller's own notifications.

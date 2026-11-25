@@ -19,20 +19,27 @@ use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, patch, post};
 use http::HeaderMap;
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect,
+};
 use serde_json::{Map, Value, json};
+use time::{OffsetDateTime, PrimitiveDateTime};
 use weldsuite_catalogs::entity_events as ev;
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm, utc_timestamp};
 use weldsuite_desk_domain::report_schedule::{
     DUE_KIND, Frequency, ReportTiming, is_time_zone, next_report_run,
 };
 use weldsuite_desk_domain::sla::instant;
+use weldsuite_events::iso_timestamp;
 use weldsuite_kit::validation::{Field, Format, Issues, Number, Presence, Text};
 use weldsuite_kit::{Created, Data, NoContent, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::helpdesk_analytics_reports;
+use weldsuite_schema::tenant::helpdesk_report_schedules::{self, Column};
 
 use super::report_mail::{Mailer, SendOutcome, send_scheduled_report};
-use super::reports::{self, iso_of, range_of};
-use crate::table::js_date;
+use super::reports::{self, range_of};
 use crate::{Caller, DeskState, Refusal, validate};
 
 /// `HELPDESK_REPORT_RANGES`.
@@ -80,8 +87,8 @@ where
 #[derive(Debug, Clone)]
 pub(crate) struct ScheduleRow {
     pub(crate) id: String,
-    /// The row as `to_jsonb` returns it, for the API shape.
-    raw: Value,
+    created_at: Option<PrimitiveDateTime>,
+    updated_at: Option<PrimitiveDateTime>,
     pub(crate) name: String,
     pub(crate) report_id: Option<String>,
     pub(crate) range: String,
@@ -90,41 +97,57 @@ pub(crate) struct ScheduleRow {
     pub(crate) day_of_month: Option<i64>,
     pub(crate) hour: i64,
     pub(crate) timezone: String,
+    recipients: Value,
     pub(crate) attach_csv: bool,
     pub(crate) locale: String,
     pub(crate) enabled: bool,
     pub(crate) created_by_id: Option<String>,
-    /// `next_run_at` as Postgres writes it, to the microsecond: what the
+    /// `next_run_at` as Postgres holds it, to the microsecond: what the
     /// sweep's claim compares.
-    pub(crate) next_run_at: Option<String>,
+    pub(crate) next_run_at: Option<PrimitiveDateTime>,
+    last_run_at: Option<PrimitiveDateTime>,
+    last_status: Option<String>,
+    last_error: Option<String>,
+}
+
+/// A moment the report clock gives (milliseconds) as its `timestamp`
+/// column holds it: `$n::timestamp` of `iso_of(ms)`.
+fn timestamp_of(ms: i64) -> PrimitiveDateTime {
+    let at = OffsetDateTime::from_unix_timestamp_nanos(i128::from(ms) * 1_000_000)
+        .unwrap_or(OffsetDateTime::UNIX_EPOCH);
+    utc_timestamp(at)
 }
 
 impl ScheduleRow {
-    /// A row selected as `to_jsonb(t)`.
-    pub(crate) fn from_json(raw: Value) -> Self {
-        let text = |key: &str| raw[key].as_str().map(str::to_owned);
+    /// The entity's row.
+    pub(crate) fn from_model(row: helpdesk_report_schedules::Model) -> Self {
         Self {
-            id: text("id").unwrap_or_default(),
-            name: text("name").unwrap_or_default(),
-            report_id: text("report_id"),
-            range: text("range").unwrap_or_default(),
-            frequency: text("frequency").unwrap_or_default(),
-            day_of_week: raw["day_of_week"].as_i64(),
-            day_of_month: raw["day_of_month"].as_i64(),
-            hour: raw["hour"].as_i64().unwrap_or_default(),
-            timezone: text("timezone").unwrap_or_default(),
-            attach_csv: raw["attach_csv"].as_bool().unwrap_or(false),
-            locale: text("locale").unwrap_or_default(),
-            enabled: raw["enabled"].as_bool().unwrap_or(false),
-            created_by_id: text("created_by_id"),
-            next_run_at: text("next_run_at"),
-            raw,
+            id: row.id,
+            created_at: Some(row.created_at),
+            updated_at: Some(row.updated_at),
+            name: row.name,
+            report_id: row.report_id,
+            range: row.range,
+            frequency: row.frequency,
+            day_of_week: row.day_of_week.map(i64::from),
+            day_of_month: row.day_of_month.map(i64::from),
+            hour: i64::from(row.hour),
+            timezone: row.timezone,
+            recipients: row.recipients,
+            attach_csv: row.attach_csv,
+            locale: row.locale,
+            enabled: row.enabled,
+            created_by_id: row.created_by_id,
+            next_run_at: row.next_run_at,
+            last_run_at: row.last_run_at,
+            last_status: row.last_status,
+            last_error: row.last_error,
         }
     }
 
     /// The addresses the report goes to.
     pub(crate) fn recipient_list(&self) -> Vec<String> {
-        self.raw["recipients"]
+        self.recipients
             .as_array()
             .map(|items| {
                 items
@@ -149,15 +172,14 @@ impl ScheduleRow {
 
     /// `scheduleDto(row, reportTitle)`: the row as the API returns it.
     fn dto(&self, report_title: Option<&str>) -> Value {
-        let stamp = |key: &str| {
-            self.raw[key]
-                .as_str()
-                .map_or(Value::Null, |text| json!(js_date(text)))
+        // `toISOString()` of the `Date` Drizzle read: UTC, to the millisecond.
+        let stamp = |at: Option<PrimitiveDateTime>| {
+            at.map_or(Value::Null, |at| json!(iso_timestamp(at.assume_utc())))
         };
         json!({
             "id": self.id,
-            "createdAt": stamp("created_at"),
-            "updatedAt": stamp("updated_at"),
+            "createdAt": stamp(self.created_at),
+            "updatedAt": stamp(self.updated_at),
             "name": self.name,
             "reportId": self.report_id,
             "reportTitle": report_title,
@@ -167,36 +189,35 @@ impl ScheduleRow {
             "dayOfMonth": self.day_of_month,
             "hour": self.hour,
             "timezone": self.timezone,
-            "recipients": self.raw["recipients"],
+            "recipients": self.recipients,
             "attachCsv": self.attach_csv,
             "locale": if self.locale == "nl" { "nl" } else { "en" },
             "enabled": self.enabled,
             "createdById": self.created_by_id,
-            "nextRunAt": stamp("next_run_at"),
-            "lastRunAt": stamp("last_run_at"),
-            "lastStatus": self.raw["last_status"],
-            "lastError": self.raw["last_error"],
+            "nextRunAt": stamp(self.next_run_at),
+            "lastRunAt": stamp(self.last_run_at),
+            "lastStatus": self.last_status,
+            "lastError": self.last_error,
         })
     }
 }
 
 /// Whether a live (not deleted) saved report has this id.
-async fn report_exists(db: &PgPool, report_id: &str) -> Result<bool, sqlx::Error> {
-    let found: Option<String> = sqlx::query_scalar(
-        "select id from helpdesk_analytics_reports where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(report_id)
-    .fetch_optional(db)
-    .await?;
+async fn report_exists(db: &PgPool, report_id: &str) -> Result<bool, DbErr> {
+    let found: Option<String> = helpdesk_analytics_reports::Entity::find()
+        .select_only()
+        .column(helpdesk_analytics_reports::Column::Id)
+        .filter(helpdesk_analytics_reports::Column::Id.eq(report_id))
+        .filter(helpdesk_analytics_reports::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     Ok(found.is_some())
 }
 
 /// `reportTitles(db, reportIds)`: the titles of the saved reports the
 /// schedules point at (deleted ones are absent).
-async fn report_titles(
-    db: &PgPool,
-    rows: &[ScheduleRow],
-) -> Result<Vec<(String, String)>, sqlx::Error> {
+async fn report_titles(db: &PgPool, rows: &[ScheduleRow]) -> Result<Vec<(String, String)>, DbErr> {
     let mut ids: Vec<String> = Vec::new();
     for id in rows.iter().filter_map(|row| row.report_id.as_deref()) {
         if !id.is_empty() && !ids.iter().any(|known| known == id) {
@@ -206,12 +227,15 @@ async fn report_titles(
     if ids.is_empty() {
         return Ok(Vec::new());
     }
-    sqlx::query_as(
-        "select id, title from helpdesk_analytics_reports where id = any($1) and deleted_at is null",
-    )
-    .bind(&ids)
-    .fetch_all(db)
-    .await
+    helpdesk_analytics_reports::Entity::find()
+        .select_only()
+        .column(helpdesk_analytics_reports::Column::Id)
+        .column(helpdesk_analytics_reports::Column::Title)
+        .filter(helpdesk_analytics_reports::Column::Id.is_in(ids))
+        .filter(helpdesk_analytics_reports::Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&orm(db))
+        .await
 }
 
 fn title_of<'a>(titles: &'a [(String, String)], row: &ScheduleRow) -> Option<&'a str> {
@@ -223,23 +247,17 @@ fn title_of<'a>(titles: &'a [(String, String)], row: &ScheduleRow) -> Option<&'a
 }
 
 /// `dtoOf(db, row)`.
-async fn dto_of(db: &PgPool, row: &ScheduleRow) -> Result<Value, sqlx::Error> {
+async fn dto_of(db: &PgPool, row: &ScheduleRow) -> Result<Value, DbErr> {
     let titles = report_titles(db, std::slice::from_ref(row)).await?;
     Ok(row.dto(title_of(&titles, row)))
 }
 
 /// `findSchedule(db, id)`.
-pub(crate) async fn find_schedule(
-    db: &PgPool,
-    id: &str,
-) -> Result<Option<ScheduleRow>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from helpdesk_report_schedules t where t.id = $1 limit 1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(ScheduleRow::from_json))
+pub(crate) async fn find_schedule(db: &PgPool, id: &str) -> Result<Option<ScheduleRow>, DbErr> {
+    let row = helpdesk_report_schedules::Entity::find_by_id(id.to_owned())
+        .one(&orm(db))
+        .await?;
+    Ok(row.map(ScheduleRow::from_model))
 }
 
 /// `markDeskReportDue(c, nextRunAt)` (`lib/report-due.ts`): tell the report
@@ -415,14 +433,14 @@ fn day_column(day: Option<i64>) -> Option<i32> {
 /// schedules), so it is not paginated.
 async fn list(caller: Caller) -> Response {
     let listed = async {
-        let rows: Vec<Value> = sqlx::query_scalar(
-            "select to_jsonb(t) from helpdesk_report_schedules t order by t.created_at desc, t.id desc",
-        )
-        .fetch_all(&caller.db)
-        .await?;
-        let rows: Vec<ScheduleRow> = rows.into_iter().map(ScheduleRow::from_json).collect();
+        let rows = helpdesk_report_schedules::Entity::find()
+            .order_by_desc(Column::CreatedAt)
+            .order_by_desc(Column::Id)
+            .all(&orm(&caller.db))
+            .await?;
+        let rows: Vec<ScheduleRow> = rows.into_iter().map(ScheduleRow::from_model).collect();
         let titles = report_titles(&caller.db, &rows).await?;
-        Ok::<_, sqlx::Error>(
+        Ok::<_, DbErr>(
             rows.iter()
                 .map(|row| row.dto(title_of(&titles, row)))
                 .collect::<Vec<_>>(),
@@ -442,8 +460,8 @@ enum WriteFailure {
     Timing(String),
 }
 
-impl From<sqlx::Error> for WriteFailure {
-    fn from(error: sqlx::Error) -> Self {
+impl From<DbErr> for WriteFailure {
+    fn from(error: DbErr) -> Self {
         Self::Refusal(Refusal::from(error))
     }
 }
@@ -516,33 +534,31 @@ async fn insert(
     } else {
         None
     };
-    let created: Value = sqlx::query_scalar(
-        "insert into helpdesk_report_schedules as t
-           (id, created_at, updated_at, name, report_id, range, frequency, day_of_week, day_of_month,
-            hour, timezone, recipients, attach_csv, locale, enabled, created_by_id, next_run_at)
-         values ($1, $2::timestamp, $2::timestamp, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
-                 $14, $15, $16::timestamp)
-         returning to_jsonb(t)",
-    )
-    .bind(generate_id("rsch"))
-    .bind(iso_of(now))
-    .bind(data.name.unwrap_or_default())
-    .bind(&report_id)
-    .bind(data.range.as_deref().unwrap_or("last_7_days"))
-    .bind(timing.frequency.as_str())
-    .bind(day_column(timing.day_of_week))
-    .bind(day_column(timing.day_of_month))
-    .bind(i32::try_from(timing.hour).unwrap_or_default())
-    .bind(&timing.timezone)
-    .bind(json!(data.recipients.unwrap_or_default()))
-    .bind(data.attach_csv.unwrap_or(true))
-    .bind(data.locale.as_deref().unwrap_or("en"))
-    .bind(enabled)
-    .bind(&caller.user_id)
-    .bind(next_run_at.map(iso_of))
-    .fetch_one(db)
-    .await?;
-    let created = ScheduleRow::from_json(created);
+    let at = timestamp_of(now);
+    let created =
+        helpdesk_report_schedules::Entity::insert(helpdesk_report_schedules::ActiveModel {
+            id: Set(generate_id("rsch")),
+            created_at: Set(at),
+            updated_at: Set(at),
+            name: Set(data.name.unwrap_or_default()),
+            report_id: Set(report_id),
+            range: Set(data.range.unwrap_or_else(|| "last_7_days".to_owned())),
+            frequency: Set(timing.frequency.as_str().to_owned()),
+            day_of_week: Set(day_column(timing.day_of_week)),
+            day_of_month: Set(day_column(timing.day_of_month)),
+            hour: Set(i32::try_from(timing.hour).unwrap_or_default()),
+            timezone: Set(timing.timezone.clone()),
+            recipients: Set(json!(data.recipients.unwrap_or_default())),
+            attach_csv: Set(data.attach_csv.unwrap_or(true)),
+            locale: Set(data.locale.unwrap_or_else(|| "en".to_owned())),
+            enabled: Set(enabled),
+            created_by_id: Set(Some(caller.user_id.clone())),
+            next_run_at: Set(next_run_at.map(timestamp_of)),
+            ..Default::default()
+        })
+        .exec_with_returning(&orm(db))
+        .await?;
+    let created = ScheduleRow::from_model(created);
     let dto = dto_of(db, &created).await?;
     mark_report_due(state, caller, next_run_at);
     caller.publish(
@@ -639,53 +655,59 @@ async fn apply(
     // The next run as the statement takes it: none while disabled, the new
     // one, or the stored one as it is.
     let next_run_at = if enabled {
-        moved.map(iso_of).or_else(|| existing.next_run_at.clone())
+        moved.map(timestamp_of).or(existing.next_run_at)
     } else {
         None
     };
-    let report_id = match &data.report_id {
-        Field::Set(report_id) => Some(report_id.as_str()),
-        _ => None,
-    };
-    let updated: Option<Value> = sqlx::query_scalar(
-        "update helpdesk_report_schedules as t set
-           updated_at = $2::timestamp,
-           name = case when $3::boolean then $4 else t.name end,
-           report_id = case when $5::boolean then $6 else t.report_id end,
-           range = case when $7::boolean then $8 else t.range end,
-           frequency = $9, day_of_week = $10, day_of_month = $11, hour = $12, timezone = $13,
-           recipients = case when $14::boolean then $15 else t.recipients end,
-           attach_csv = case when $16::boolean then $17 else t.attach_csv end,
-           locale = case when $18::boolean then $19 else t.locale end,
-           enabled = $20,
-           next_run_at = $21::timestamp
-         where t.id = $1
-         returning to_jsonb(t)",
-    )
-    .bind(id)
-    .bind(iso_of(now))
-    .bind(data.name.is_some())
-    .bind(data.name.as_deref())
-    .bind(!data.report_id.is_absent())
-    .bind(report_id)
-    .bind(data.range.is_some())
-    .bind(data.range.as_deref())
-    .bind(timing.frequency.as_str())
-    .bind(day_column(timing.day_of_week))
-    .bind(day_column(timing.day_of_month))
-    .bind(i32::try_from(timing.hour).unwrap_or_default())
-    .bind(&timing.timezone)
-    .bind(data.recipients.is_some())
-    .bind(json!(data.recipients.as_deref().unwrap_or_default()))
-    .bind(data.attach_csv.is_some())
-    .bind(data.attach_csv)
-    .bind(data.locale.is_some())
-    .bind(data.locale.as_deref())
-    .bind(enabled)
-    .bind(&next_run_at)
-    .fetch_optional(db)
-    .await?;
-    let updated = updated.map(ScheduleRow::from_json).ok_or_else(not_found)?;
+    // Only the fields the body sent, besides the timing, `enabled` and the next run.
+    let mut update = helpdesk_report_schedules::Entity::update_many()
+        .col_expr(Column::UpdatedAt, Expr::value(timestamp_of(now)));
+    if let Some(name) = &data.name {
+        update = update.col_expr(Column::Name, Expr::value(name));
+    }
+    match &data.report_id {
+        Field::Set(report_id) => update = update.col_expr(Column::ReportId, Expr::value(report_id)),
+        Field::Null => update = update.col_expr(Column::ReportId, Expr::value(None::<String>)),
+        Field::Absent => {}
+    }
+    if let Some(range) = &data.range {
+        update = update.col_expr(Column::Range, Expr::value(range));
+    }
+    update = update
+        .col_expr(Column::Frequency, Expr::value(timing.frequency.as_str()))
+        .col_expr(
+            Column::DayOfWeek,
+            Expr::value(day_column(timing.day_of_week)),
+        )
+        .col_expr(
+            Column::DayOfMonth,
+            Expr::value(day_column(timing.day_of_month)),
+        )
+        .col_expr(
+            Column::Hour,
+            Expr::value(i32::try_from(timing.hour).unwrap_or_default()),
+        )
+        .col_expr(Column::Timezone, Expr::value(&timing.timezone));
+    if let Some(recipients) = &data.recipients {
+        update = update.col_expr(Column::Recipients, Expr::value(json!(recipients)));
+    }
+    if let Some(attach_csv) = data.attach_csv {
+        update = update.col_expr(Column::AttachCsv, Expr::value(attach_csv));
+    }
+    if let Some(locale) = &data.locale {
+        update = update.col_expr(Column::Locale, Expr::value(locale));
+    }
+    let updated = update
+        .col_expr(Column::Enabled, Expr::value(enabled))
+        .col_expr(Column::NextRunAt, Expr::value(next_run_at))
+        .filter(Column::Id.eq(id))
+        .exec_with_returning(&orm(db))
+        .await?;
+    let updated = updated
+        .into_iter()
+        .next()
+        .map(ScheduleRow::from_model)
+        .ok_or_else(not_found)?;
     let dto = dto_of(db, &updated).await?;
     // The run the due index should know about: a new one, or the one kept.
     let due = if enabled {
@@ -716,13 +738,13 @@ async fn remove(
     Path(id): Path<String>,
 ) -> Response {
     let message = "Failed to delete report schedule";
-    let deleted: Result<Option<String>, sqlx::Error> =
-        sqlx::query_scalar("delete from helpdesk_report_schedules where id = $1 returning id")
-            .bind(&id)
-            .fetch_optional(&caller.db)
-            .await;
+    let deleted = helpdesk_report_schedules::Entity::delete_many()
+        .filter(Column::Id.eq(&id))
+        .exec(&orm(&caller.db))
+        .await
+        .map(|done| done.rows_affected > 0);
     match deleted {
-        Ok(Some(_)) => {
+        Ok(true) => {
             caller.publish(
                 &state,
                 ev::HELPDESK_REPORT_SCHEDULE_DELETED,
@@ -731,7 +753,7 @@ async fn remove(
             );
             NoContent.into_response()
         }
-        Ok(None) => Refusal::not_found("Report schedule", &id).respond(message),
+        Ok(false) => Refusal::not_found("Report schedule", &id).respond(message),
         Err(error) => Refusal::from(error).respond(message),
     }
 }
@@ -774,7 +796,7 @@ async fn send_now(
         if let Some(error) = error {
             result.insert("error".to_owned(), json!(error));
         }
-        Ok::<_, sqlx::Error>(Some(Value::Object(result)))
+        Ok::<_, DbErr>(Some(Value::Object(result)))
     }
     .await;
     match sent {
@@ -791,20 +813,15 @@ pub(crate) async fn record_run(
     now: i64,
     status: &str,
     error: Option<&str>,
-) -> Result<Option<ScheduleRow>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "update helpdesk_report_schedules as t
-         set last_run_at = $2::timestamp, last_status = $3, last_error = $4
-         where t.id = $1
-         returning to_jsonb(t)",
-    )
-    .bind(id)
-    .bind(iso_of(now))
-    .bind(status)
-    .bind(error)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(ScheduleRow::from_json))
+) -> Result<Option<ScheduleRow>, DbErr> {
+    let rows = helpdesk_report_schedules::Entity::update_many()
+        .col_expr(Column::LastRunAt, Expr::value(timestamp_of(now)))
+        .col_expr(Column::LastStatus, Expr::value(status))
+        .col_expr(Column::LastError, Expr::value(error))
+        .filter(Column::Id.eq(id))
+        .exec_with_returning(&orm(db))
+        .await?;
+    Ok(rows.into_iter().next().map(ScheduleRow::from_model))
 }
 
 #[cfg(test)]
@@ -961,29 +978,38 @@ mod tests {
     }
 
     #[test]
+    fn report_clock_moments_are_stored_to_the_millisecond() {
+        // `$n::timestamp` of `iso_of(ms)`.
+        assert_eq!(
+            timestamp_of(1_773_576_000_123).to_string(),
+            "2026-03-15 12:00:00.123"
+        );
+    }
+
+    #[test]
     fn rows_answer_as_the_api_does() {
-        let row = ScheduleRow::from_json(json!({
-            "id": "rsch_1",
-            "created_at": "2026-03-15T12:00:00",
-            "updated_at": "2026-03-15T12:00:00.5",
-            "name": "Weekly",
-            "report_id": null,
-            "range": "forever",
-            "frequency": "weekly",
-            "day_of_week": 1,
-            "day_of_month": null,
-            "hour": 9,
-            "timezone": "Europe/Amsterdam",
-            "recipients": ["lead@example.com"],
-            "attach_csv": true,
-            "locale": "fr",
-            "enabled": true,
-            "created_by_id": "user_1",
-            "next_run_at": "2026-03-16T08:00:00",
-            "last_run_at": null,
-            "last_status": null,
-            "last_error": null,
-        }));
+        let row = ScheduleRow::from_model(helpdesk_report_schedules::Model {
+            id: "rsch_1".to_owned(),
+            created_at: time::macros::datetime!(2026-03-15 12:00:00),
+            updated_at: time::macros::datetime!(2026-03-15 12:00:00.5004),
+            name: "Weekly".to_owned(),
+            report_id: None,
+            range: "forever".to_owned(),
+            frequency: "weekly".to_owned(),
+            day_of_week: Some(1),
+            day_of_month: None,
+            hour: 9,
+            timezone: "Europe/Amsterdam".to_owned(),
+            recipients: json!(["lead@example.com"]),
+            attach_csv: true,
+            locale: "fr".to_owned(),
+            enabled: true,
+            created_by_id: Some("user_1".to_owned()),
+            next_run_at: Some(time::macros::datetime!(2026-03-16 08:00:00)),
+            last_run_at: None,
+            last_status: None,
+            last_error: None,
+        });
         let dto = row.dto(None);
         assert_eq!(dto["createdAt"], "2026-03-15T12:00:00.000Z");
         assert_eq!(dto["updatedAt"], "2026-03-15T12:00:00.500Z");

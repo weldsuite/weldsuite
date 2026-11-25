@@ -18,15 +18,19 @@
 
 use std::collections::HashMap;
 
+use time::PrimitiveDateTime;
+
+use sea_orm::{ColumnTrait, Condition, DbErr, EntityTrait, JoinType, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
-use sqlx::PgPool;
 use weldsuite_books_domain::dates::add_days;
 use weldsuite_books_domain::js::millis_of;
 use weldsuite_books_domain::nacha::{aba_checksum_valid, is_ach_banking_day};
-use weldsuite_books_domain::tables::PARTIES;
+use weldsuite_db::{PgPool, orm};
+use weldsuite_schema::tenant::{parties, payment_runs, payments};
 
 use super::runs::{RunItem, compute_run_withholding, has_backup_withholding_account};
 use super::settings::AchSettings;
+use crate::rows::{iso_of, js_rows};
 
 pub(crate) const HOLD_CODES: [&str; 7] = [
     "no_bank_details",
@@ -330,7 +334,7 @@ pub(crate) async fn load_ach_history(
     db: &PgPool,
     entity_id: &str,
     party_ids: &[String],
-) -> Result<HashMap<String, AchHistory>, sqlx::Error> {
+) -> Result<HashMap<String, AchHistory>, DbErr> {
     let mut result: HashMap<String, AchHistory> = party_ids
         .iter()
         .map(|id| (id.clone(), AchHistory::default()))
@@ -338,33 +342,50 @@ pub(crate) async fn load_ach_history(
     if party_ids.is_empty() {
         return Ok(result);
     }
-    let payments: Vec<(String, Option<String>, Option<String>)> = sqlx::query_as(
-        "select p.contact_id, to_char(p.date, 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"'), \
-         to_char(r.file_generated_at, 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"') \
-         from payments p left join payment_runs r on r.id = p.payment_run_id \
-         where p.entity_id = $1 and p.type = 'sent' and p.payment_method = 'ach' and p.deleted_at is null \
-         and p.contact_id = any($2) and (p.payment_run_id is null or r.status in ('exported', 'completed'))",
-    )
-    .bind(entity_id)
-    .bind(party_ids)
-    .fetch_all(db)
-    .await?;
+    let db = orm(db);
+    let sent = ["exported", "completed"];
+    // A payment counts once its run's file went out (`to_char(…, ISO)`).
+    let payments: Vec<(String, PrimitiveDateTime, Option<PrimitiveDateTime>)> =
+        payments::Entity::find()
+            .select_only()
+            .columns([payments::Column::ContactId, payments::Column::Date])
+            .column(payment_runs::Column::FileGeneratedAt)
+            .join(JoinType::LeftJoin, super::checks::payment_run())
+            .filter(payments::Column::EntityId.eq(entity_id))
+            .filter(payments::Column::Type.eq("sent"))
+            .filter(payments::Column::PaymentMethod.eq("ach"))
+            .filter(payments::Column::DeletedAt.is_null())
+            .filter(payments::Column::ContactId.is_in(party_ids))
+            .filter(
+                Condition::any()
+                    .add(payments::Column::PaymentRunId.is_null())
+                    .add(payment_runs::Column::Status.is_in(sent)),
+            )
+            .into_tuple()
+            .all(&db)
+            .await?;
     for (contact, date, file_generated_at) in payments {
         if let Some(entry) = result.get_mut(&contact)
-            && let Some(at) = file_generated_at.or(date).as_deref().and_then(millis_of)
+            && let Some(at) = millis_of(&iso_of(file_generated_at.unwrap_or(date)))
         {
             entry.live_payments.push(at);
         }
     }
-    let runs: Vec<(Option<Value>, Option<String>)> = sqlx::query_as(
-        "select holds, to_char(file_generated_at, 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"') from payment_runs \
-         where entity_id = $1 and method = 'ach' and deleted_at is null and status in ('exported', 'completed')",
-    )
-    .bind(entity_id)
-    .fetch_all(db)
-    .await?;
+    let runs: Vec<(Option<Value>, Option<PrimitiveDateTime>)> = payment_runs::Entity::find()
+        .select_only()
+        .columns([
+            payment_runs::Column::Holds,
+            payment_runs::Column::FileGeneratedAt,
+        ])
+        .filter(payment_runs::Column::EntityId.eq(entity_id))
+        .filter(payment_runs::Column::Method.eq("ach"))
+        .filter(payment_runs::Column::DeletedAt.is_null())
+        .filter(payment_runs::Column::Status.is_in(sent))
+        .into_tuple()
+        .all(&db)
+        .await?;
     for (holds, file_generated_at) in runs {
-        let Some(at) = file_generated_at.as_deref().and_then(millis_of) else {
+        let Some(at) = file_generated_at.map(iso_of).as_deref().and_then(millis_of) else {
             continue;
         };
         for hold in decode_holds(holds.as_ref()) {
@@ -396,19 +417,15 @@ pub(crate) struct EvaluateHolds<'a> {
 }
 
 /// The parties of a list of ids, in the order the database returns them.
-pub(crate) async fn load_parties(db: &PgPool, ids: &[String]) -> Result<Vec<Value>, sqlx::Error> {
+pub(crate) async fn load_parties(db: &PgPool, ids: &[String]) -> Result<Vec<Value>, DbErr> {
     if ids.is_empty() {
         return Ok(Vec::new());
     }
-    let rows: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(parties),
-        " from parties t where t.id = any($1)"
-    ))
-    .bind(ids)
-    .fetch_all(db)
-    .await?;
-    Ok(PARTIES.js_rows(rows))
+    let rows = parties::Entity::find()
+        .filter(parties::Column::Id.is_in(ids))
+        .all(&orm(db))
+        .await?;
+    js_rows!(rows)
 }
 
 /// The distinct party ids of items, in order.
@@ -428,7 +445,7 @@ pub(crate) fn party_ids_of(items: &[RunItem]) -> Vec<String> {
 pub(crate) async fn evaluate_holds(
     db: &PgPool,
     args: EvaluateHolds<'_>,
-) -> Result<Vec<RunHold>, sqlx::Error> {
+) -> Result<Vec<RunHold>, DbErr> {
     let now = weldsuite_books_domain::http::now_ms();
     let party_ids = party_ids_of(args.items);
     if party_ids.is_empty() {
@@ -544,13 +561,7 @@ pub(crate) async fn evaluate_holds(
     }
 
     // Bills already in another open run.
-    let other_runs: Vec<(String, Option<Value>)> = sqlx::query_as(
-        "select id, items from payment_runs where entity_id = $1 and deleted_at is null \
-         and status in ('draft', 'pending_approval')",
-    )
-    .bind(args.entity_id)
-    .fetch_all(db)
-    .await?;
+    let other_runs = super::runs::open_run_items(db, args.entity_id).await?;
     let mut bill_run: HashMap<String, String> = HashMap::new();
     for (run_id, items) in &other_runs {
         if Some(run_id.as_str()) == args.run_id {

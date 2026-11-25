@@ -26,9 +26,11 @@
 
 use std::sync::Arc;
 
+use sea_orm::sea_query::OnConflict;
+use sea_orm::{ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde::Serialize;
 use serde_json::{Value, json};
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_panel_domain::query::scope::{
     ScopeOptions, events_scope, replay_chunks_table, scope_conds,
 };
@@ -36,6 +38,8 @@ use weldsuite_panel_domain::query::sql::{in_list, ts};
 use weldsuite_panel_domain::query::time::resolve_range;
 use weldsuite_panel_domain::query::{PanelQueryContext, PanelSqlQuery, Runner};
 use weldsuite_ports::{BoxFuture, DynFileStore, PortError};
+use weldsuite_schema::master::panel_erasure_ledger as ledger;
+use weldsuite_schema::tenant::{panel_ai_summaries as summaries, panel_session_favorites};
 
 use crate::Caller;
 use crate::engine::Engine;
@@ -122,22 +126,33 @@ impl MasterErasureLedger {
 impl ErasureQueue for MasterErasureLedger {
     fn send<'a>(&'a self, message: &'a EraseMessage) -> BoxFuture<'a, Result<(), PortError>> {
         Box::pin(async move {
-            sqlx::query(
-                "insert into panel_erasure_ledger
-                   (workspace_id, project_id, erased_id, requested_at, applied_at)
-                 select $1, $2, id, now(), null from unnest($3::text[]) as id
-                 on conflict (project_id, erased_id) do update set
-                   workspace_id = excluded.workspace_id,
-                   requested_at = excluded.requested_at,
-                   applied_at = null",
-            )
-            .bind(&message.workspace_id)
-            .bind(&message.project_id)
-            .bind(&message.ids)
-            .execute(&self.master)
-            .await
-            .map(|_| ())
-            .map_err(PortError::backend)
+            if message.ids.is_empty() {
+                // `unnest('{}')`: nothing to record.
+                return Ok(());
+            }
+            // `requested_at` is left to its default, `now()`, so the
+            // conflict sets it again from `excluded`.
+            let rows = message.ids.iter().map(|id| ledger::ActiveModel {
+                workspace_id: Set(message.workspace_id.clone()),
+                project_id: Set(message.project_id.clone()),
+                erased_id: Set(id.clone()),
+                applied_at: Set(None),
+                ..Default::default()
+            });
+            ledger::Entity::insert_many(rows)
+                .on_conflict(
+                    OnConflict::columns([ledger::Column::ProjectId, ledger::Column::ErasedId])
+                        .update_columns([
+                            ledger::Column::WorkspaceId,
+                            ledger::Column::RequestedAt,
+                            ledger::Column::AppliedAt,
+                        ])
+                        .to_owned(),
+                )
+                .exec_without_returning(&orm(&self.master))
+                .await
+                .map(|_| ())
+                .map_err(PortError::backend)
         })
     }
 }
@@ -266,15 +281,16 @@ async fn delete_favorites(
     caller: &Caller,
     project_id: &str,
     session_ids: &[String],
-) -> Result<(), sqlx::Error> {
+) -> Result<(), DbErr> {
+    let db = orm(&caller.db);
     for batch in session_ids.chunks(500) {
-        sqlx::query(
-            "delete from panel_session_favorites where project_id = $1 and session_id = any($2)",
-        )
-        .bind(project_id)
-        .bind(batch)
-        .execute(&caller.db)
-        .await?;
+        panel_session_favorites::Entity::delete_many()
+            .filter(panel_session_favorites::Column::ProjectId.eq(project_id))
+            .filter(
+                panel_session_favorites::Column::SessionId.is_in(batch.iter().map(String::as_str)),
+            )
+            .exec(&db)
+            .await?;
     }
     Ok(())
 }
@@ -292,23 +308,24 @@ async fn delete_ai_summaries(
     caller: &Caller,
     project_id: &str,
     session_ids: &[String],
-) -> Result<(), sqlx::Error> {
+) -> Result<(), DbErr> {
+    let db = orm(&caller.db);
     for batch in session_ids.chunks(500) {
-        sqlx::query(
-            "delete from panel_ai_summaries
-             where project_id = $1 and scope = 'session' and session_id = any($2)",
-        )
-        .bind(project_id)
-        .bind(batch)
-        .execute(&caller.db)
-        .await?;
+        summaries::Entity::delete_many()
+            .filter(summaries::Column::ProjectId.eq(project_id))
+            .filter(summaries::Column::Scope.eq("session"))
+            .filter(summaries::Column::SessionId.is_in(batch.iter().map(String::as_str)))
+            .exec(&db)
+            .await?;
     }
-    let sets: Vec<(String, Value)> = sqlx::query_as(
-        "select id, summary from panel_ai_summaries where project_id = $1 and scope = 'set'",
-    )
-    .bind(project_id)
-    .fetch_all(&caller.db)
-    .await?;
+    let sets: Vec<(String, Value)> = summaries::Entity::find()
+        .select_only()
+        .columns([summaries::Column::Id, summaries::Column::Summary])
+        .filter(summaries::Column::ProjectId.eq(project_id))
+        .filter(summaries::Column::Scope.eq("set"))
+        .into_tuple()
+        .all(&db)
+        .await?;
     let needles: Vec<String> = session_ids.iter().map(|id| json_inner(id)).collect();
     let doomed: Vec<String> = sets
         .into_iter()
@@ -319,10 +336,10 @@ async fn delete_ai_summaries(
         .map(|(id, _)| id)
         .collect();
     for batch in doomed.chunks(500) {
-        sqlx::query("delete from panel_ai_summaries where project_id = $1 and id = any($2)")
-            .bind(project_id)
-            .bind(batch)
-            .execute(&caller.db)
+        summaries::Entity::delete_many()
+            .filter(summaries::Column::ProjectId.eq(project_id))
+            .filter(summaries::Column::Id.is_in(batch.iter().map(String::as_str)))
+            .exec(&db)
             .await?;
     }
     Ok(())

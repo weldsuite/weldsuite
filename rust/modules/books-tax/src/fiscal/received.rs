@@ -11,6 +11,11 @@ use axum::extract::{FromRequest, Multipart, Path, State};
 use axum::response::Response;
 use axum::routing::{get, post};
 use http::HeaderMap;
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{
+    ColumnTrait, Condition, DbErr, EntityTrait, JoinType, PaginatorTrait, QueryFilter, QueryOrder,
+    QuerySelect,
+};
 use serde_json::{Map, Value, json};
 use sqlx::PgPool;
 use weldsuite_books_domain::accounting_entity::upsert_accounting_entity_settings;
@@ -33,16 +38,21 @@ use weldsuite_books_domain::tax::{
 use weldsuite_catalogs::entity_events::{
     BILL_CREATED, RECEIVED_FISCAL_DOCUMENT_CREATED, RECEIVED_FISCAL_DOCUMENT_UPDATED,
 };
+use weldsuite_db::{orm, utc_now};
 use weldsuite_kit::generate_id;
 use weldsuite_kit::validation::{Issues, Presence, Text};
 use weldsuite_legal_entities::{EntityRecordGuard, EntityTable};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::{
+    companies, entities, parties, received_fiscal_documents as received, tax_rates,
+};
 
 use super::documents::normalize_cnpj;
 use super::focus::Focus;
 use super::nfe_xml::{XmlError, parse_nfe};
 use super::settings::{client_for, environment_of, settings_of};
 use super::{FiscalError, page_of, require_entity, require_fiscal_entity, str_of};
+use crate::orm_bridge::{timestamp_of_iso, to_json, to_json_rows};
 
 /// `MAX_NFE_XML_BYTES`.
 const MAX_XML_BYTES: usize = 2 * 1024 * 1024;
@@ -155,34 +165,24 @@ async fn audit_and_publish(
 }
 
 async fn find(db: &PgPool, entity_id: &str, id: &str) -> Result<Value, FiscalError> {
-    let row: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(received_fiscal_documents),
-        " from received_fiscal_documents t where t.id = $1 and t.entity_id = $2 limit 1"
-    ))
-    .bind(id)
-    .bind(entity_id)
-    .fetch_optional(db)
-    .await?;
-    row.map(|row| RECEIVED_FISCAL_DOCUMENTS.js(row))
+    let row = received::Entity::find()
+        .filter(received::Column::Id.eq(id))
+        .filter(received::Column::EntityId.eq(entity_id))
+        .one(&orm(db))
+        .await?;
+    row.map(to_json)
+        .transpose()?
         .ok_or_else(|| FiscalError::status("Received fiscal document not found", 404, None))
 }
 
-async fn find_by_key(
-    db: &PgPool,
-    entity_id: &str,
-    key: &str,
-) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(received_fiscal_documents),
-        " from received_fiscal_documents t where t.entity_id = $1 and t.access_key = $2 limit 1"
-    ))
-    .bind(entity_id)
-    .bind(key)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(|row| RECEIVED_FISCAL_DOCUMENTS.js(row)))
+async fn find_by_key(db: &PgPool, entity_id: &str, key: &str) -> Result<Option<Value>, DbErr> {
+    received::Entity::find()
+        .filter(received::Column::EntityId.eq(entity_id))
+        .filter(received::Column::AccessKey.eq(key))
+        .one(&orm(db))
+        .await?
+        .map(to_json)
+        .transpose()
 }
 
 async fn patch(db: &PgPool, id: &str, props: &Map<String, Value>) -> Result<Value, FiscalError> {
@@ -281,40 +281,35 @@ async fn list(caller: Caller) -> Response {
             let Some(entity_id) = resolve_entity_id(&caller).await? else {
                 return Ok(paged(Vec::new(), 0, false, None));
             };
+            use received::Column;
             let status = q.present("status").map(str::to_owned);
             let term = q.present("search").map(|s| format!("%{s}%"));
-            let rows: Vec<Value> = sqlx::query_scalar(concat!(
-                "select ",
-                weldsuite_books_domain::books_row!(received_fiscal_documents),
-                " from received_fiscal_documents t where t.entity_id = $1 \
-                 and ($2::text is null or t.status = $2) \
-                 and ($3::text is null or (t.issuer_name like $3 or t.number like $3 \
-                 or t.access_key like $3 or t.issuer_tax_id like $3)) \
-                 order by t.issue_date desc, t.created_at desc limit $4 offset $5"
-            ))
-            .bind(&entity_id)
-            .bind(&status)
-            .bind(&term)
-            .bind(size)
-            .bind((page - 1) * size)
-            .fetch_all(&caller.db)
-            .await?;
-            let total: i64 = sqlx::query_scalar(
-                "select count(*)::int8 from received_fiscal_documents where entity_id = $1 \
-                 and ($2::text is null or status = $2) \
-                 and ($3::text is null or (issuer_name like $3 or number like $3 \
-                 or access_key like $3 or issuer_tax_id like $3))",
-            )
-            .bind(&entity_id)
-            .bind(&status)
-            .bind(&term)
-            .fetch_one(&caller.db)
-            .await?;
-            let rows = RECEIVED_FISCAL_DOCUMENTS
-                .js_rows(rows)
-                .iter()
-                .map(summary)
-                .collect();
+            let mut find = received::Entity::find().filter(Column::EntityId.eq(&entity_id));
+            if let Some(status) = status {
+                find = find.filter(Column::Status.eq(status));
+            }
+            if let Some(term) = term {
+                find = find.filter(
+                    Condition::any()
+                        .add(Column::IssuerName.like(&term))
+                        .add(Column::Number.like(&term))
+                        .add(Column::AccessKey.like(&term))
+                        .add(Column::IssuerTaxId.like(&term)),
+                );
+            }
+            let db = orm(&caller.db);
+            let rows = find
+                .clone()
+                .order_by_desc(Column::IssueDate)
+                .order_by_desc(Column::CreatedAt)
+                .limit(u64::try_from(size).unwrap_or(0))
+                .offset(u64::try_from((page - 1) * size).unwrap_or(0))
+                .all(&db)
+                .await
+                .and_then(to_json_rows)?;
+            let total = find.count(&db).await?;
+            let total = i64::try_from(total).unwrap_or(i64::MAX);
+            let rows = rows.iter().map(summary).collect();
             Ok(paged(rows, total, page * size < total, None))
         }
         .await,
@@ -459,11 +454,14 @@ async fn sync_received(
         next.insert("receivedNfeVersion".into(), js::number_value(version));
         next.insert("receivedNfeVersionEnv".into(), json!(environment));
         let next = Value::Object(next);
-        sqlx::query("update entities set jurisdiction_settings = $1, updated_at = $2::timestamp where id = $3")
-            .bind(&next)
-            .bind(now())
-            .bind(entity_id)
-            .execute(db)
+        entities::Entity::update_many()
+            .col_expr(
+                entities::Column::JurisdictionSettings,
+                Expr::value(next.clone()),
+            )
+            .col_expr(entities::Column::UpdatedAt, Expr::value(utc_now()))
+            .filter(entities::Column::Id.eq(entity_id))
+            .exec(&orm(db))
             .await?;
         // Release 1 mirror: the WeldBooks extension holds the same values.
         let mut mirror = Map::new();
@@ -1071,6 +1069,33 @@ fn bill_lines(parsed: &Value, tax_rate_id: Option<&str>) -> Vec<BillLine> {
     lines
 }
 
+/// The live supplier whose company VAT number, without punctuation and in
+/// capitals, is `cnpj` (`upper(regexp_replace(companies.vat_number,
+/// '[^0-9A-Za-z]', '', 'g'))`).
+async fn supplier_by_cnpj(db: &PgPool, cnpj: &str) -> Result<Option<String>, DbErr> {
+    let vat_number = Func::upper(Func::cust("regexp_replace").args([
+        Expr::col((companies::Entity, companies::Column::VatNumber)),
+        Expr::value("[^0-9A-Za-z]"),
+        Expr::value(""),
+        Expr::value("g"),
+    ]));
+    parties::Entity::find()
+        .select_only()
+        .column(parties::Column::Id)
+        .join(
+            JoinType::InnerJoin,
+            parties::Entity::belongs_to(companies::Entity)
+                .from(parties::Column::CompanyId)
+                .to(companies::Column::Id)
+                .into(),
+        )
+        .filter(parties::Column::DeletedAt.is_null())
+        .filter(sea_orm::ExprTrait::eq(Expr::from(vat_number), cnpj))
+        .into_tuple()
+        .one(&orm(db))
+        .await
+}
+
 /// `createBillFromReceived(db, env, entity, doc, args)`: (bill with its
 /// items, the linked note, the engine's warnings).
 #[allow(clippy::too_many_lines)] // the bill, built as the TypeScript service builds it
@@ -1106,14 +1131,7 @@ async fn bill_from_received(
     if contact_id.is_none()
         && let Some(tax_id) = issuer_tax_id
     {
-        contact_id = sqlx::query_scalar(
-            "select parties.id from parties inner join companies on companies.id = parties.company_id \
-             where parties.deleted_at is null \
-             and upper(regexp_replace(companies.vat_number, '[^0-9A-Za-z]', '', 'g')) = $1 limit 1",
-        )
-        .bind(normalize_cnpj(tax_id))
-        .fetch_optional(db)
-        .await?;
+        contact_id = supplier_by_cnpj(db, &normalize_cnpj(tax_id)).await?;
     }
     let Some(contact_id) = contact_id else {
         let message = format!(
@@ -1134,12 +1152,16 @@ async fn bill_from_received(
         };
         return Err(FiscalError::bad(collapsed));
     };
-    let contact: Option<(String, String, Option<String>)> = sqlx::query_as(
-        "select id, display_name, role from parties where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(&contact_id)
-    .fetch_optional(db)
-    .await?;
+    let contact: Option<(String, String, Option<String>)> = parties::Entity::find()
+        .select_only()
+        .column(parties::Column::Id)
+        .column(parties::Column::DisplayName)
+        .column(parties::Column::Role)
+        .filter(parties::Column::Id.eq(&contact_id))
+        .filter(parties::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     let Some((_, contact_name, contact_role)) = contact else {
         return Err(FiscalError::status("Contact not found", 404, None));
     };
@@ -1158,13 +1180,16 @@ async fn bill_from_received(
     } else {
         "compra_sem_credito"
     };
-    let rates: Vec<(String, Option<Value>)> = sqlx::query_as(
-        "select id, jurisdiction_metadata from tax_rates where entity_id = $1 and is_active = true \
-         and deleted_at is null",
-    )
-    .bind(&entity_id)
-    .fetch_all(db)
-    .await?;
+    let rates: Vec<(String, Option<Value>)> = tax_rates::Entity::find()
+        .select_only()
+        .column(tax_rates::Column::Id)
+        .column(tax_rates::Column::JurisdictionMetadata)
+        .filter(tax_rates::Column::EntityId.eq(&entity_id))
+        .filter(tax_rates::Column::IsActive.eq(true))
+        .filter(tax_rates::Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     let purchase_rate = rates.into_iter().find_map(|(id, metadata)| {
         (profile_of(metadata.as_ref()).and_then(|p| p["profile"].as_str()) == Some(profile_name))
             .then_some(id)
@@ -1340,11 +1365,17 @@ async fn bill_from_received(
     }
     let role = contact_role.unwrap_or_else(|| "none".into());
     if role == "none" || role == "customer" {
-        sqlx::query("update parties set role = $1, updated_at = $2::timestamp where id = $3")
-            .bind(if role == "none" { "supplier" } else { "both" })
-            .bind(&now)
-            .bind(&contact_id)
-            .execute(db)
+        parties::Entity::update_many()
+            .col_expr(
+                parties::Column::Role,
+                Expr::value(if role == "none" { "supplier" } else { "both" }),
+            )
+            .col_expr(
+                parties::Column::UpdatedAt,
+                Expr::value(timestamp_of_iso(&now)?),
+            )
+            .filter(parties::Column::Id.eq(&contact_id))
+            .exec(&orm(db))
             .await?;
     }
     let mut props = Map::new();

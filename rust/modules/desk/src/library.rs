@@ -3,6 +3,7 @@
 //! workflows. Schemas from `@weldsuite/core-api-client/schemas/*` (all
 //! `.passthrough()`).
 
+use sea_orm::{ColumnTrait, Condition};
 use serde_json::{Map, Value};
 use weldsuite_catalogs::entity_events as ev;
 use weldsuite_catalogs::permission_keys as perm;
@@ -10,6 +11,10 @@ use weldsuite_kit::validation::{Format, Issues, Number, Presence, Text};
 
 use crate::crud::{Changed, Crud, Filter, Gates, Hook, Messages, Partial};
 use crate::tables;
+use weldsuite_schema::tenant::{
+    helpdesk_agents, helpdesk_article_folders, helpdesk_canned_responses, helpdesk_ticket_types,
+    helpdesk_workflows,
+};
 
 pub(crate) const ARTICLES: Gates = Gates {
     read: perm::ARTICLES_READ,
@@ -38,29 +43,6 @@ pub(crate) const DEPARTMENTS: Gates = Gates {
     update: perm::DEPARTMENTS_UPDATE,
     delete: perm::DEPARTMENTS_DELETE,
 };
-
-const FOLDER_LIST: (&str, &str) = listing!("helpdesk_article_folders";
-    "($2::boolean or t.parent_id = $3::text)", "($4::boolean or t.name like $5::text)";
-    6, 7, 8; "$9");
-const TICKET_TYPE_LIST: (&str, &str) = listing!("helpdesk_ticket_types";
-    "($2::boolean or t.name like $3::text)";
-    4, 5, 6; "$7");
-const AGENT_LIST: (&str, &str) = listing_as!(
-    "(to_jsonb(t) || jsonb_build_object('satisfaction_score', t.\"satisfaction_score\"::text))";
-    "helpdesk_agents";
-    "($2::boolean or t.department_id = $3::text)", "($4::boolean or t.user_id = $5::text)",
-    "($6::boolean or t.status = $7::text)",
-    "($8::boolean or (t.name like $9::text or t.email like $9::text))";
-    10, 11, 12; "$13");
-const CANNED_LIST: (&str, &str) = listing!("helpdesk_canned_responses";
-    "($2::boolean or t.department_id = $3::text)", "($4::boolean or t.category = $5::text)",
-    "($6::boolean or (t.name like $7::text or t.subject like $7::text))";
-    8, 9, 10; "$11");
-const WORKFLOW_LIST: (&str, &str) = listing_as!(
-    "(to_jsonb(t) || jsonb_build_object('average_execution_time', t.\"average_execution_time\"::text))";
-    "helpdesk_workflows";
-    "($2::boolean or t.name like $3::text)";
-    4, 5, 6; "$7");
 
 const fn messages(
     list: &'static str,
@@ -219,9 +201,14 @@ pub(crate) static ARTICLE_FOLDERS: Crud = Crud {
         "Failed to delete article folder",
     ),
     schema: folder_schema,
-    filters: &[Filter::eq("parentId"), Filter::like("search")],
-    list_sql: FOLDER_LIST.0,
-    count_sql: FOLDER_LIST.1,
+    filters: &[
+        Filter::eq("parentId", |v| {
+            Condition::all().add(helpdesk_article_folders::Column::ParentId.eq(v))
+        }),
+        Filter::like("search", |v| {
+            Condition::all().add(helpdesk_article_folders::Column::Name.like(v))
+        }),
+    ],
     slice_count: true,
     created: ev::HELPDESK_FOLDER_CREATED,
     created_fields: &["name", "parentId"],
@@ -247,9 +234,9 @@ pub(crate) static TICKET_TYPES: Crud = Crud {
         "Failed to delete ticket type",
     ),
     schema: ticket_type_schema,
-    filters: &[Filter::like("search")],
-    list_sql: TICKET_TYPE_LIST.0,
-    count_sql: TICKET_TYPE_LIST.1,
+    filters: &[Filter::like("search", |v| {
+        Condition::all().add(helpdesk_ticket_types::Column::Name.like(v))
+    })],
     slice_count: true,
     created: ev::HELPDESK_TICKET_TYPE_CREATED,
     created_fields: &["name"],
@@ -273,13 +260,21 @@ pub(crate) static HELPDESK_AGENTS: Crud = Crud {
     ),
     schema: agent_schema,
     filters: &[
-        Filter::eq("departmentId"),
-        Filter::eq("userId"),
-        Filter::eq("status"),
-        Filter::like("search"),
+        Filter::eq("departmentId", |v| {
+            Condition::all().add(helpdesk_agents::Column::DepartmentId.eq(v))
+        }),
+        Filter::eq("userId", |v| {
+            Condition::all().add(helpdesk_agents::Column::UserId.eq(v))
+        }),
+        Filter::eq("status", |v| {
+            Condition::all().add(helpdesk_agents::Column::Status.eq(v))
+        }),
+        Filter::like("search", |v| {
+            Condition::any()
+                .add(helpdesk_agents::Column::Name.like(v.clone()))
+                .add(helpdesk_agents::Column::Email.like(v))
+        }),
     ],
-    list_sql: AGENT_LIST.0,
-    count_sql: AGENT_LIST.1,
     // The count takes the filters only, whatever the cursor.
     slice_count: false,
     created: ev::HELPDESK_AGENT_CREATED,
@@ -308,12 +303,18 @@ pub(crate) static CANNED_RESPONSES: Crud = Crud {
     ),
     schema: canned_schema,
     filters: &[
-        Filter::eq("departmentId"),
-        Filter::eq("category"),
-        Filter::like("search"),
+        Filter::eq("departmentId", |v| {
+            Condition::all().add(helpdesk_canned_responses::Column::DepartmentId.eq(v))
+        }),
+        Filter::eq("category", |v| {
+            Condition::all().add(helpdesk_canned_responses::Column::Category.eq(v))
+        }),
+        Filter::like("search", |v| {
+            Condition::any()
+                .add(helpdesk_canned_responses::Column::Name.like(v.clone()))
+                .add(helpdesk_canned_responses::Column::Subject.like(v))
+        }),
     ],
-    list_sql: CANNED_LIST.0,
-    count_sql: CANNED_LIST.1,
     slice_count: true,
     created: ev::CANNED_RESPONSE_CREATED,
     created_fields: &["name", "subject", "departmentId"],
@@ -340,9 +341,9 @@ pub(crate) static WORKFLOWS: Crud = Crud {
         "Failed to delete workflow",
     ),
     schema: workflow_schema,
-    filters: &[Filter::like("search")],
-    list_sql: WORKFLOW_LIST.0,
-    count_sql: WORKFLOW_LIST.1,
+    filters: &[Filter::like("search", |v| {
+        Condition::all().add(helpdesk_workflows::Column::Name.like(v))
+    })],
     slice_count: true,
     created: ev::HELPDESK_WORKFLOW_CREATED,
     created_fields: &["name"],
@@ -366,9 +367,6 @@ pub(crate) static DEPARTMENTS_CRUD: Crud = Crud {
     ),
     schema: department_schema,
     filters: &[],
-    // Unused: the department list is its own route (`departments.rs`).
-    list_sql: TICKET_TYPE_LIST.0,
-    count_sql: TICKET_TYPE_LIST.1,
     slice_count: true,
     created: ev::DEPARTMENT_CREATED,
     created_fields: &["name", "email"],

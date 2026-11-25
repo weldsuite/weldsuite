@@ -1,211 +1,280 @@
-/** My HR → Reviews: coaching sessions and evaluations, with an Acknowledge action for the open ones. */
+/**
+ * My HR → Performance → Evaluations and Coaching: what your manager and
+ * coach shared with you, the ones to acknowledge first. Acknowledging sits in
+ * the row menu and the panel; the panel shows the whole evaluation or session.
+ */
 
-import { toast } from 'sonner';
-import { Square, SquareCheck } from 'lucide-react';
+import { useState } from 'react';
+import { CheckCheck, ClipboardCheck, MessagesSquare } from 'lucide-react';
 import { Badge } from '@weldsuite/ui/components/badge';
-import { Progress } from '@weldsuite/ui/components/progress';
+import { DropdownMenuItem } from '@weldsuite/ui/components/dropdown-menu';
 import { useTranslations } from '@weldsuite/i18n/client';
 import type { HrSelfCoachingLog, HrSelfEvaluation } from '@weldsuite/app-api-client/domains/weldhr';
+import { useObjectPanel } from '@/components/object-panel';
+import { MY_COACHING_PANEL_TYPE, MY_EVALUATION_PANEL_TYPE } from '@/components/objects/hr-my-hr/types';
 import {
-  useMyHrAcknowledgeCoaching,
-  useMyHrAcknowledgeEvaluation,
-  useMyHrCoaching,
-  useMyHrEvaluations,
-} from '@/hooks/queries/use-weldhr-queries';
-import { EmptyText } from '@weldsuite/ui/components/empty-state';
-import { SectionCard } from '@weldsuite/ui/components/section-card';
-import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
-import { ScoreBadge, StatusBadge, errorMessage, formatDate } from '../../components/shared';
-import { AcknowledgeControl } from './acknowledge-control';
-import { Meta, TabLoading } from './shared';
+  PanelEntityList,
+  type ActiveFilter,
+  type ColumnDef,
+  type FilterConfig,
+  type GroupConfig,
+} from '@/components/panel-entity-list';
+import { useMyHrCoaching, useMyHrEvaluations } from '@/hooks/queries/use-weldhr-queries';
+import { cn } from '@/lib/utils';
+import { HR_COL, HrListContainer, emptyIcon } from '../../components/page-kit';
+import { ScoreBadge, StatusBadge, listLoadError, formatDate } from '../../components/shared';
+import { AcknowledgeDialog, type AcknowledgeTarget } from './acknowledge-dialog';
 
-export function MyReviewsTab() {
+/** An evaluation shared with you that you have not acknowledged yet. */
+export function evaluationToAcknowledge(evaluation: HrSelfEvaluation): boolean {
+  return evaluation.status === 'submitted' && !evaluation.acknowledgedAt;
+}
+
+/** A coaching session you have not acknowledged yet. */
+export function coachingToAcknowledge(log: HrSelfCoachingLog): boolean {
+  return !log.acknowledgedAt;
+}
+
+/** "1 Oct 2026 – 31 Dec 2026", or a dash without a period. */
+export function evaluationPeriod(evaluation: HrSelfEvaluation): string {
+  return evaluation.periodStart || evaluation.periodEnd
+    ? `${formatDate(evaluation.periodStart)} – ${formatDate(evaluation.periodEnd)}`
+    : '—';
+}
+
+/** "Acknowledge" for the row and panel menus. */
+export function AcknowledgeMenuItem({ onSelect }: Readonly<{ onSelect: () => void }>) {
   const t = useTranslations();
-  const coaching = useMyHrCoaching();
-  const evaluations = useMyHrEvaluations();
-  const acknowledgeCoaching = useMyHrAcknowledgeCoaching();
-  const acknowledgeEvaluation = useMyHrAcknowledgeEvaluation();
-
-  async function onAcknowledgeCoaching(id: string, comment: string | null) {
-    await acknowledgeCoaching.mutateAsync({ id, comment });
-    toast.success(t('weldhr.me.reviews.acknowledgedToast'));
-  }
-
-  async function onAcknowledgeEvaluation(id: string, comment: string | null) {
-    await acknowledgeEvaluation.mutateAsync({ id, comment });
-    toast.success(t('weldhr.me.reviews.acknowledgedToast'));
-  }
-
   return (
-    <div className="space-y-4">
-      <SectionCard title={t('weldhr.me.reviews.evaluations.title')}>
-        {evaluations.isLoading && <TabLoading />}
-        {!evaluations.isLoading && !evaluations.data && (
-          <ErrorBanner error={errorMessage(evaluations.error, t('weldhr.me.reviews.evaluations.loadFailed'))} />
-        )}
-        {evaluations.data &&
-          (evaluations.data.length === 0 ? (
-            <EmptyText>{t('weldhr.me.reviews.evaluations.empty')}</EmptyText>
-          ) : (
-            <div className="space-y-3">
-              {evaluations.data.map((evaluation) => (
-                <EvaluationCard key={evaluation.id} evaluation={evaluation} onAcknowledge={onAcknowledgeEvaluation} />
-              ))}
-            </div>
-          ))}
-      </SectionCard>
-
-      <SectionCard title={t('weldhr.me.reviews.coaching.title')}>
-        {coaching.isLoading && <TabLoading />}
-        {!coaching.isLoading && !coaching.data && (
-          <ErrorBanner error={errorMessage(coaching.error, t('weldhr.me.reviews.coaching.loadFailed'))} />
-        )}
-        {coaching.data &&
-          (coaching.data.length === 0 ? (
-            <EmptyText>{t('weldhr.me.reviews.coaching.empty')}</EmptyText>
-          ) : (
-            <div className="space-y-3">
-              {coaching.data.map((log) => (
-                <CoachingCard key={log.id} log={log} onAcknowledge={onAcknowledgeCoaching} />
-              ))}
-            </div>
-          ))}
-      </SectionCard>
-    </div>
+    <DropdownMenuItem onClick={onSelect}>
+      <CheckCheck />
+      {t('weldhr.me.reviews.acknowledge')}
+    </DropdownMenuItem>
   );
 }
 
-function AcknowledgedLine({ acknowledgedAt, comment }: Readonly<{ acknowledgedAt: string; comment: string | null }>) {
+/** Distinct non-empty values, sorted, as filter options. */
+function optionsOf(values: Array<string | null>): Array<{ value: string; label: string }> {
+  return [...new Set(values.filter((v): v is string => !!v))].sort((a, b) => a.localeCompare(b)).map((value) => ({ value, label: value }));
+}
+
+export function MyEvaluationsList() {
   const t = useTranslations();
+  const { data, isLoading, error } = useMyHrEvaluations();
+  const { open: openPanel } = useObjectPanel();
+  const [acknowledging, setAcknowledging] = useState<AcknowledgeTarget | null>(null);
+  const evaluations = data ?? [];
+
+  const groups: GroupConfig<HrSelfEvaluation>[] = [
+    { id: 'toAcknowledge', label: t('weldhr.me.reviews.groups.toAcknowledge'), sortOrder: 1, filter: evaluationToAcknowledge },
+    { id: 'earlier', label: t('weldhr.me.reviews.groups.earlier'), sortOrder: 2, filter: (e) => !evaluationToAcknowledge(e) },
+  ];
+
+  const evaluators = optionsOf(evaluations.map((e) => e.evaluatorName));
+  const filters: FilterConfig[] = [
+    {
+      field: 'status',
+      label: t('weldhr.me.reviews.evaluations.table.status'),
+      operators: ['is'],
+      options: (['submitted', 'acknowledged'] as const).map((status) => ({ value: status, label: t(`weldhr.status.evaluation.${status}`) })),
+    },
+    ...(evaluators.length > 0
+      ? [{ field: 'evaluator', label: t('weldhr.me.reviews.evaluations.table.evaluator'), operators: ['is'], options: evaluators }]
+      : []),
+  ];
+
+  const applyFilters = (rows: HrSelfEvaluation[], active: ActiveFilter[]) =>
+    active.reduce((list, filter) => {
+      if (!filter.value) return list;
+      if (filter.field === 'status') return list.filter((e) => e.status === filter.value);
+      if (filter.field === 'evaluator') return list.filter((e) => e.evaluatorName === filter.value);
+      return list;
+    }, rows);
+
+  const columns: ColumnDef<HrSelfEvaluation>[] = [
+    {
+      id: 'evaluation',
+      header: t('weldhr.me.reviews.evaluations.table.evaluation'),
+      width: HR_COL.main,
+      render: (e) => (
+        <div className="min-w-0">
+          <p className="truncate font-medium">{e.formName ?? t('weldhr.me.reviews.evaluations.untitled')}</p>
+          {/* What the hidden columns would show, once the list is too narrow for them. */}
+          <p className="truncate text-xs text-muted-foreground tabular-nums @lg:hidden">{evaluationPeriod(e)}</p>
+        </div>
+      ),
+    },
+    {
+      id: 'evaluator',
+      header: t('weldhr.me.reviews.evaluations.table.evaluator'),
+      width: cn(HR_COL.fixed, HR_COL.hideLg, 'w-[160px]'),
+      render: (e) => <span className="block truncate text-muted-foreground">{e.evaluatorName ?? '—'}</span>,
+    },
+    {
+      id: 'period',
+      header: t('weldhr.me.reviews.evaluations.table.period'),
+      width: cn(HR_COL.fixed, HR_COL.hideSm, 'w-[200px]'),
+      render: (e) => <span className="block truncate tabular-nums">{evaluationPeriod(e)}</span>,
+    },
+    {
+      id: 'score',
+      header: t('weldhr.me.reviews.evaluations.table.score'),
+      width: cn(HR_COL.fixed, HR_COL.hideMd, 'w-[80px]'),
+      render: (e) => <ScoreBadge score={e.overallScore} />,
+    },
+    {
+      id: 'status',
+      header: t('weldhr.me.reviews.evaluations.table.status'),
+      width: cn(HR_COL.fixed, HR_COL.hideSm, 'w-[120px]'),
+      render: (e) => <StatusBadge group="evaluation" status={e.status} />,
+    },
+  ];
+
   return (
-    <div className="space-y-1">
-      <Meta>{t('weldhr.me.reviews.acknowledgedOn', { date: formatDate(acknowledgedAt) })}</Meta>
-      {comment && (
-        <p className="text-sm">
-          <span className="text-muted-foreground">{t('weldhr.me.reviews.yourComment')}: </span>
-          {comment}
-        </p>
-      )}
-    </div>
+    <>
+      <HrListContainer>
+        <PanelEntityList<HrSelfEvaluation>
+          items={evaluations}
+          isLoading={isLoading}
+          error={listLoadError(data, error, t('weldhr.me.reviews.evaluations.loadFailed'))}
+          columns={columns}
+          onRowClick={(e) => openPanel({ type: MY_EVALUATION_PANEL_TYPE, id: e.id })}
+          objectPanel={{ type: MY_EVALUATION_PANEL_TYPE }}
+          // The row's "⋮" menu (on hover): acknowledging one shared with you.
+          rowMenu={(e) =>
+            evaluationToAcknowledge(e) ? <AcknowledgeMenuItem onSelect={() => setAcknowledging({ kind: 'evaluation', id: e.id })} /> : null
+          }
+          groups={groups}
+          filters={filters}
+          applyFilters={applyFilters}
+          searchFields={['formName', 'evaluatorName', 'summary']}
+          searchPlaceholder={t('weldhr.me.reviews.evaluations.searchPlaceholder')}
+          emptyState={{
+            icon: emptyIcon(ClipboardCheck),
+            title: t('weldhr.me.reviews.evaluations.listEmpty.title'),
+            description: t('weldhr.me.reviews.evaluations.listEmpty.description'),
+          }}
+        />
+      </HrListContainer>
+      {acknowledging && <AcknowledgeDialog target={acknowledging} onClose={() => setAcknowledging(null)} />}
+    </>
   );
 }
 
-function CoachingCard({
-  log,
-  onAcknowledge,
-}: Readonly<{
-  log: HrSelfCoachingLog;
-  onAcknowledge: (id: string, comment: string | null) => Promise<void>;
-}>) {
+export function MyCoachingList() {
   const t = useTranslations();
+  const { data, isLoading, error } = useMyHrCoaching();
+  const { open: openPanel } = useObjectPanel();
+  const [acknowledging, setAcknowledging] = useState<AcknowledgeTarget | null>(null);
+  const logs = [...(data ?? [])].sort((a, b) => b.sessionDate.localeCompare(a.sessionDate));
+
+  const groups: GroupConfig<HrSelfCoachingLog>[] = [
+    { id: 'toAcknowledge', label: t('weldhr.me.reviews.groups.toAcknowledge'), sortOrder: 1, filter: coachingToAcknowledge },
+    { id: 'acknowledged', label: t('weldhr.me.reviews.groups.acknowledged'), sortOrder: 2, filter: (l) => !coachingToAcknowledge(l) },
+  ];
+
+  const topicOf = (log: HrSelfCoachingLog) => log.topic || t(`weldhr.status.coachingCategory.${log.category}`);
+  const categories = [...new Set(logs.map((l) => l.category))];
+  const coaches = optionsOf(logs.map((l) => l.coachName));
+  const filters: FilterConfig[] = [
+    {
+      field: 'category',
+      label: t('weldhr.me.reviews.coaching.table.category'),
+      operators: ['is'],
+      options: categories.map((category) => ({ value: category, label: t(`weldhr.status.coachingCategory.${category}`) })),
+    },
+    {
+      field: 'status',
+      label: t('weldhr.me.reviews.coaching.table.status'),
+      operators: ['is'],
+      options: (['open', 'acknowledged', 'closed'] as const).map((status) => ({ value: status, label: t(`weldhr.status.coaching.${status}`) })),
+    },
+    ...(coaches.length > 0 ? [{ field: 'coach', label: t('weldhr.me.reviews.coaching.table.coach'), operators: ['is'], options: coaches }] : []),
+  ];
+
+  const applyFilters = (rows: HrSelfCoachingLog[], active: ActiveFilter[]) =>
+    active.reduce((list, filter) => {
+      if (!filter.value) return list;
+      if (filter.field === 'category') return list.filter((l) => l.category === filter.value);
+      if (filter.field === 'status') return list.filter((l) => l.status === filter.value);
+      if (filter.field === 'coach') return list.filter((l) => l.coachName === filter.value);
+      return list;
+    }, rows);
+
+  const columns: ColumnDef<HrSelfCoachingLog>[] = [
+    {
+      id: 'topic',
+      header: t('weldhr.me.reviews.coaching.table.topic'),
+      width: HR_COL.main,
+      render: (l) => (
+        <div className="min-w-0">
+          <p className="truncate font-medium">{topicOf(l)}</p>
+          {/* What the hidden columns would show, once the list is too narrow for them. */}
+          <p className="truncate text-xs text-muted-foreground tabular-nums @lg:hidden">
+            {[formatDate(l.sessionDate), l.coachName].filter(Boolean).join(' · ')}
+          </p>
+        </div>
+      ),
+    },
+    {
+      id: 'date',
+      header: t('weldhr.me.reviews.coaching.table.date'),
+      width: cn(HR_COL.fixed, HR_COL.hideSm, 'w-[110px]'),
+      render: (l) => <span className="tabular-nums">{formatDate(l.sessionDate)}</span>,
+    },
+    {
+      id: 'category',
+      header: t('weldhr.me.reviews.coaching.table.category'),
+      width: cn(HR_COL.fixed, HR_COL.hideMd, 'w-[130px]'),
+      render: (l) => <Badge variant="secondary">{t(`weldhr.status.coachingCategory.${l.category}`)}</Badge>,
+    },
+    {
+      id: 'coach',
+      header: t('weldhr.me.reviews.coaching.table.coach'),
+      width: cn(HR_COL.fixed, HR_COL.hideLg, 'w-[150px]'),
+      render: (l) => <span className="block truncate text-muted-foreground">{l.coachName ?? '—'}</span>,
+    },
+    {
+      id: 'followUp',
+      header: t('weldhr.me.reviews.coaching.table.followUp'),
+      width: cn(HR_COL.fixed, HR_COL.hideXl, 'w-[110px]'),
+      render: (l) => <span className="tabular-nums text-muted-foreground">{l.followUpDate ? formatDate(l.followUpDate) : '—'}</span>,
+    },
+    {
+      id: 'status',
+      header: t('weldhr.me.reviews.coaching.table.status'),
+      width: cn(HR_COL.fixed, HR_COL.hideSm, 'w-[120px]'),
+      render: (l) => <StatusBadge group="coaching" status={l.status} />,
+    },
+  ];
+
   return (
-    <div className="space-y-3 rounded-lg border p-4">
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div className="min-w-0 space-y-0.5">
-          <p className="text-xs tabular-nums">{formatDate(log.sessionDate)}</p>
-          <h3 className="text-sm font-medium">{log.topic || t(`weldhr.status.coachingCategory.${log.category}`)}</h3>
-          {log.coachName && <Meta>{t('weldhr.me.reviews.coaching.coach', { name: log.coachName })}</Meta>}
-        </div>
-        <div className="flex items-center gap-2">
-          <Badge variant="secondary">{t(`weldhr.status.coachingCategory.${log.category}`)}</Badge>
-          <StatusBadge group="coaching" status={log.status} />
-        </div>
-      </div>
-
-      {log.notes && <p className="whitespace-pre-wrap text-sm">{log.notes}</p>}
-
-      {log.actionItems.length > 0 && (
-        <div className="space-y-1">
-          <p className="text-xs font-medium text-muted-foreground">{t('weldhr.me.reviews.coaching.actionItems')}</p>
-          <ul className="space-y-1 text-sm">
-            {log.actionItems.map((item) => (
-              <li key={item.id} className="flex items-start gap-2">
-                {item.done ? (
-                  <SquareCheck className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
-                ) : (
-                  <Square className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-                )}
-                <span className={item.done ? 'text-muted-foreground line-through' : undefined}>{item.text}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      {log.followUpDate && <Meta>{t('weldhr.me.reviews.coaching.followUp', { date: formatDate(log.followUpDate) })}</Meta>}
-
-      {log.acknowledgedAt ? (
-        <AcknowledgedLine acknowledgedAt={log.acknowledgedAt} comment={log.employeeComment} />
-      ) : (
-        <AcknowledgeControl onAcknowledge={(comment) => onAcknowledge(log.id, comment)} />
-      )}
-    </div>
-  );
-}
-
-function EvaluationCard({
-  evaluation,
-  onAcknowledge,
-}: Readonly<{
-  evaluation: HrSelfEvaluation;
-  onAcknowledge: (id: string, comment: string | null) => Promise<void>;
-}>) {
-  const t = useTranslations();
-  const hasPeriod = Boolean(evaluation.periodStart || evaluation.periodEnd);
-
-  return (
-    <div className="space-y-3 rounded-lg border p-4">
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div className="min-w-0 space-y-0.5">
-          <h3 className="text-sm font-medium">{evaluation.formName ?? t('weldhr.me.reviews.evaluations.untitled')}</h3>
-          {hasPeriod && (
-            <p className="text-xs tabular-nums">
-              {formatDate(evaluation.periodStart)} – {formatDate(evaluation.periodEnd)}
-            </p>
-          )}
-          {evaluation.evaluatorName && (
-            <Meta>{t('weldhr.me.reviews.evaluations.evaluator', { name: evaluation.evaluatorName })}</Meta>
-          )}
-        </div>
-        <div className="flex items-center gap-2">
-          <ScoreBadge score={evaluation.overallScore} />
-          <StatusBadge group="evaluation" status={evaluation.status} />
-        </div>
-      </div>
-
-      {evaluation.criteria.length > 0 && (
-        <div className="space-y-3">
-          <p className="text-xs font-medium text-muted-foreground">{t('weldhr.me.reviews.evaluations.criteria')}</p>
-          {evaluation.criteria.map((criterion) => {
-            const scored = evaluation.scores.find((score) => score.criterionId === criterion.id);
-            const percent = scored && criterion.maxScore > 0 ? Math.min(100, (scored.score / criterion.maxScore) * 100) : 0;
-            return (
-              <div key={criterion.id} className="space-y-1">
-                <div className="flex items-center justify-between gap-2 text-sm">
-                  <span>{criterion.label}</span>
-                  <span className="tabular-nums text-muted-foreground">
-                    {scored ? scored.score : '—'} / {criterion.maxScore}
-                  </span>
-                </div>
-                <Progress value={percent} className="h-1.5" />
-                {scored?.comment && <Meta>{scored.comment}</Meta>}
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {evaluation.summary && (
-        <div className="space-y-1">
-          <p className="text-xs font-medium text-muted-foreground">{t('weldhr.me.reviews.evaluations.summary')}</p>
-          <p className="whitespace-pre-wrap text-sm">{evaluation.summary}</p>
-        </div>
-      )}
-
-      {evaluation.acknowledgedAt && <AcknowledgedLine acknowledgedAt={evaluation.acknowledgedAt} comment={evaluation.employeeComment} />}
-      {!evaluation.acknowledgedAt && evaluation.status === 'submitted' && (
-        <AcknowledgeControl onAcknowledge={(comment) => onAcknowledge(evaluation.id, comment)} />
-      )}
-    </div>
+    <>
+      <HrListContainer>
+        <PanelEntityList<HrSelfCoachingLog>
+          items={logs}
+          isLoading={isLoading}
+          error={listLoadError(data, error, t('weldhr.me.reviews.coaching.loadFailed'))}
+          columns={columns}
+          onRowClick={(l) => openPanel({ type: MY_COACHING_PANEL_TYPE, id: l.id })}
+          objectPanel={{ type: MY_COACHING_PANEL_TYPE }}
+          // The row's "⋮" menu (on hover): acknowledging a session.
+          rowMenu={(l) =>
+            coachingToAcknowledge(l) ? <AcknowledgeMenuItem onSelect={() => setAcknowledging({ kind: 'coaching', id: l.id })} /> : null
+          }
+          groups={groups}
+          filters={filters}
+          applyFilters={applyFilters}
+          searchFields={['topic', 'notes', 'coachName']}
+          searchPlaceholder={t('weldhr.me.reviews.coaching.searchPlaceholder')}
+          emptyState={{
+            icon: emptyIcon(MessagesSquare),
+            title: t('weldhr.me.reviews.coaching.listEmpty.title'),
+            description: t('weldhr.me.reviews.coaching.listEmpty.description'),
+          }}
+        />
+      </HrListContainer>
+      {acknowledging && <AcknowledgeDialog target={acknowledging} onClose={() => setAcknowledging(null)} />}
+    </>
   );
 }

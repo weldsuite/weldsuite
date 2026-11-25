@@ -79,7 +79,7 @@ enum Stop {
 pub async fn rescan_due(
     ctx: &RescanContext,
     now: OffsetDateTime,
-) -> Result<RescanReport, sqlx::Error> {
+) -> Result<RescanReport, sea_orm::DbErr> {
     let rows = due_index::list_due(&ctx.master, RESCAN_KIND, now, WORKSPACES_PER_TICK).await?;
     let mut report = RescanReport::default();
     for row in rows {

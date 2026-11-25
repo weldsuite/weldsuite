@@ -32,6 +32,7 @@ describe('WeldDesk settings page', () => {
     expect(screen.getByRole('heading', { name: td.sections.channels })).toBeTruthy();
     expect(screen.getByRole('heading', { name: td.sections.ai })).toBeTruthy();
     expect(screen.getByRole('heading', { name: td.sections.ticketsRouting })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: td.sections.reports })).toBeTruthy();
   });
 
   it('links each setting to its page inside Settings', () => {
@@ -52,6 +53,7 @@ describe('WeldDesk settings page', () => {
       '/settings/apps/welddesk/sla-policies',
       '/settings/apps/welddesk/priority-matrix',
       '/settings/apps/welddesk/service-catalogue',
+      '/settings/apps/welddesk/bi-connector',
     ]);
   });
 

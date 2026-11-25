@@ -11,13 +11,17 @@ use axum::extract::Path;
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use http::HeaderMap;
+use sea_orm::sea_query::Expr;
+use sea_orm::{ActiveValue::Set, ColumnTrait, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::permission_keys::GENERAL_READ;
+use weldsuite_db::{orm, utc_now};
 use weldsuite_kit::validation::{Issues, Number, Presence};
 use weldsuite_kit::{Data, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::grid_views::{self, Column};
 
-use crate::{Answer, Caller, CoreObjectsState, answer, now, validate};
+use crate::{Answer, Caller, CoreObjectsState, answer, validate};
 
 const WORKSPACE_SHARED_GRIDS: [&str; 1] = ["customer"];
 const WORKSPACE_GRID_USER_ID: &str = "__workspace__";
@@ -53,13 +57,14 @@ fn or_empty(value: Option<Value>) -> Value {
 async fn read(caller: Caller, Path(grid_name): Path<String>) -> Response {
     let user = grid_user(&grid_name, &caller.user_id);
     let result: Answer = async {
-        let view: Option<(Option<Value>, Option<Value>)> = sqlx::query_as(
-            "select column_visibility, column_widths from grid_views where user_id = $1 and grid_name = $2 limit 1",
-        )
-        .bind(user)
-        .bind(&grid_name)
-        .fetch_optional(&caller.db)
-        .await?;
+        let view: Option<(Option<Value>, Option<Value>)> = grid_views::Entity::find()
+            .select_only()
+            .columns([Column::ColumnVisibility, Column::ColumnWidths])
+            .filter(Column::UserId.eq(user))
+            .filter(Column::GridName.eq(&grid_name))
+            .into_tuple()
+            .one(&orm(&caller.db))
+            .await?;
         let data = view.map_or(Value::Null, |(visibility, widths)| {
             json!({ "columnVisibility": or_empty(visibility), "columnWidths": or_empty(widths) })
         });
@@ -104,36 +109,34 @@ async fn write(
     };
     let user = grid_user(&grid_name, &caller.user_id);
     let result: Answer = async {
-        let db = &caller.db;
-        let existing: Option<String> =
-            sqlx::query_scalar("select id from grid_views where user_id = $1 and grid_name = $2 limit 1")
-                .bind(user)
-                .bind(&grid_name)
-                .fetch_optional(db)
-                .await?;
+        let db = &orm(&caller.db);
+        let existing: Option<String> = grid_views::Entity::find()
+            .select_only()
+            .column(Column::Id)
+            .filter(Column::UserId.eq(user))
+            .filter(Column::GridName.eq(&grid_name))
+            .into_tuple()
+            .one(db)
+            .await?;
         let stored_widths = crate::js::whole_numbers(&widths);
         if let Some(id) = existing {
-            sqlx::query(
-                "update grid_views set column_visibility = $2, column_widths = $3, updated_at = $4::timestamptz
-                  where id = $1",
-            )
-            .bind(&id)
-            .bind(&visibility)
-            .bind(&stored_widths)
-            .bind(now())
-            .execute(db)
-            .await?;
+            grid_views::Entity::update_many()
+                .col_expr(Column::ColumnVisibility, Expr::value(visibility.clone()))
+                .col_expr(Column::ColumnWidths, Expr::value(stored_widths))
+                .col_expr(Column::UpdatedAt, Expr::value(utc_now().assume_utc()))
+                .filter(Column::Id.eq(id))
+                .exec(db)
+                .await?;
         } else {
-            sqlx::query(
-                "insert into grid_views (id, user_id, grid_name, column_visibility, column_widths)
-                 values ($1, $2, $3, $4, $5)",
-            )
-            .bind(generate_id("gv"))
-            .bind(user)
-            .bind(&grid_name)
-            .bind(&visibility)
-            .bind(&stored_widths)
-            .execute(db)
+            grid_views::Entity::insert(grid_views::ActiveModel {
+                id: Set(generate_id("gv")),
+                user_id: Set(user.to_owned()),
+                grid_name: Set(grid_name.clone()),
+                column_visibility: Set(visibility.clone()),
+                column_widths: Set(stored_widths),
+                ..Default::default()
+            })
+            .exec_without_returning(db)
             .await?;
         }
         Ok(Data(json!({ "columnVisibility": visibility, "columnWidths": widths })).into_response())

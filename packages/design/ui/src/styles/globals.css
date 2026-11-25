@@ -3,7 +3,6 @@
 @source "../../../apps/**/*.{ts,tsx}";
 @source "../../../components/**/*.{ts,tsx}";
 @source "../**/*.{ts,tsx}";
-@source "../../site-components/src/**/*.{ts,tsx}";
 
 
 @custom-variant dark (&:is(.dark *));

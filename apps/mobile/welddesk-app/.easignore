@@ -26,7 +26,7 @@ apps/workers/analytics-worker
 apps/workers/audit-log-worker
 apps/workers/integration-webhook-worker
 apps/workers/realtime-worker
-apps/web/sites
+apps/web/storefront
 apps/web/helpcenter
 apps/tools/migrate-databases
 apps/mobile/weldbooks-app
@@ -40,3 +40,4 @@ apps/mobile/weldstash-app
 apps/mobile/weldagent-app
 apps/mobile/weldcalendar-app
 apps/mobile/weldhr-app
+apps/mobile/weldpass-app

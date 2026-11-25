@@ -17,7 +17,7 @@
  */
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import * as Updates from 'expo-updates';
+import { reloadAppAsync } from 'expo';
 import { DevSettings } from 'react-native';
 import { signOutActive } from '../auth/active';
 import { normaliseServerAddress } from './address';
@@ -82,11 +82,17 @@ export async function checkServerOrigin(origin: string, app: MobileAppIdentity):
   return { ok: true, origin, config: fetched.config };
 }
 
+/**
+ * Restart on the same JavaScript bundle. `expo`'s `reloadAppAsync` works in
+ * release builds without `expo-updates` (WeldPass ships no EAS Update) as
+ * well as in the apps that still take OTAs, where a server switch needs no
+ * new update anyway.
+ */
 async function reloadApp(): Promise<void> {
   try {
-    await Updates.reloadAsync();
+    await reloadAppAsync('Server changed');
   } catch {
-    // Development builds without expo-updates enabled.
+    // A native side that can't reload from JS.
     DevSettings.reload();
   }
 }

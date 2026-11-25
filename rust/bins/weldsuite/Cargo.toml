@@ -11,7 +11,7 @@ publish.workspace = true
 [features]
 # Test-only: /api takes the test's context from a header instead of a session
 # token (src/conformance.rs). Never in a release image.
-conformance = ["dep:form_urlencoded", "reqwest/query"]
+conformance = ["dep:form_urlencoded", "reqwest/query", "weldsuite-crm/conformance"]
 
 [dependencies]
 weldsuite-adapters-oss = { workspace = true }
@@ -34,6 +34,8 @@ weldsuite-core-files = { workspace = true }
 weldsuite-core-platform = { workspace = true }
 weldsuite-core-team = { workspace = true }
 weldsuite-commerce = { workspace = true }
+# Custom shop domains (storefronts plan).
+weldsuite-custom-domains = { workspace = true }
 weldsuite-crm = { workspace = true }
 weldsuite-data = { workspace = true }
 weldsuite-db = { workspace = true }
@@ -74,6 +76,7 @@ weldsuite-forms = { workspace = true }
 weldsuite-notifications = { workspace = true }
 weldsuite-panel = { workspace = true }
 weldsuite-migrations = { workspace = true }
+weldsuite-outside-eu = { workspace = true }
 weldsuite-sign = { workspace = true }
 weldsuite-staff-domain = { workspace = true }
 weldsuite-reach = { workspace = true }
@@ -114,6 +117,8 @@ tower-http = { workspace = true, features = ["cors", "fs", "trace"] }
 tracing = { workspace = true }
 tracing-opentelemetry = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter", "fmt", "json", "registry"] }
+sea-orm = { workspace = true }
+weldsuite-schema = { workspace = true }
 
 [dev-dependencies]
 http-body-util = { workspace = true }

@@ -18,10 +18,6 @@
 //! TypeScript worker's; its tests run against this crate in the `connect`
 //! conformance suites (`rust/conformance/suites.json`).
 
-#![allow(
-    clippy::disallowed_methods,
-    reason = "not converted to the ORM yet (ADR DATA-019)"
-)]
 // Handlers mirror the TypeScript routes one for one; the long ones stay whole.
 #![allow(
     clippy::too_many_lines,
@@ -496,12 +492,20 @@ impl<S: Send + Sync> FromRequestParts<S> for Caller {
 /// its 500 with its own message.
 pub(crate) enum Refusal {
     Response(Box<Response>),
-    Database(sqlx::Error),
+    Database(sea_orm::DbErr),
 }
 
+impl From<sea_orm::DbErr> for Refusal {
+    fn from(error: sea_orm::DbErr) -> Self {
+        Self::Database(error)
+    }
+}
+
+/// SQL that stays SQL, and the crates not converted yet, through
+/// [`weldsuite_db::orm_error`].
 impl From<sqlx::Error> for Refusal {
     fn from(error: sqlx::Error) -> Self {
-        Self::Database(error)
+        Self::Database(weldsuite_db::orm_error(error))
     }
 }
 

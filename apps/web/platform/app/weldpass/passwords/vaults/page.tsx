@@ -25,7 +25,7 @@ import { errorMessage, isKeyUnavailable } from '../../components/shared';
 import { CreateVaultDialog } from '../components/create-vault-dialog';
 import { PasswordsGate } from '../components/passwords-gate';
 import { VaultSettingsDialog } from '../components/vault-settings-dialog';
-import { canAdministerVault, filterVaults, isNonMemberView } from '../lib/items';
+import { canAdministerVault, filterVaults, isNonMemberView } from '@weldsuite/app-api-client/schemas/weldpass-items';
 import { usePasswordsT } from '../lib/use-passwords-t';
 
 export default function WeldPassVaultsPage() {

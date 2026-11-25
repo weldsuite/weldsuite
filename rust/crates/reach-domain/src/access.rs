@@ -1,13 +1,16 @@
 //! `access.ts`: what a workspace may do in WeldReach right now (the access
 //! summary with live usage, and whether sending may run).
 
+use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter};
 use serde_json::{Value, json};
 use sqlx::PgPool;
 use time::OffsetDateTime;
+use weldsuite_db::orm;
+use weldsuite_schema::tenant::{reach_domains, reach_mailboxes, reach_messages};
 
 use crate::inbox::AccessState;
 use crate::schemas::resolve_limits;
-use crate::{ReachResult, epoch_ms, iso, parse_iso};
+use crate::{ReachResult, epoch_ms, parse_iso, stamp};
 
 /// `BILLING_GRACE_DAYS`.
 pub const BILLING_GRACE_DAYS: i64 = 7;
@@ -45,20 +48,19 @@ pub fn utc_tomorrow(now: OffsetDateTime) -> OffsetDateTime {
 
 /// `getReachUsage(db, now)`.
 pub async fn usage(db: &PgPool, now: OffsetDateTime) -> ReachResult<Value> {
-    let domains: i64 = sqlx::query_scalar("select count(*) from reach_domains")
-        .fetch_one(db)
+    let db = orm(db);
+    let domains = reach_domains::Entity::find().count(&db).await?;
+    let mailboxes = reach_mailboxes::Entity::find()
+        .filter(reach_mailboxes::Column::Status.ne("deleted"))
+        .filter(reach_mailboxes::Column::DeletedAt.is_null())
+        .count(&db)
         .await?;
-    let mailboxes: i64 = sqlx::query_scalar(
-        "select count(*) from reach_mailboxes where status <> 'deleted' and deleted_at is null",
-    )
-    .fetch_one(db)
-    .await?;
-    let sends: i64 = sqlx::query_scalar(
-        "select count(*) from reach_messages where direction = 'out' and status = 'sent' and sent_at >= $1::timestamptz",
-    )
-    .bind(iso(utc_day_start(now)))
-    .fetch_one(db)
-    .await?;
+    let sends = reach_messages::Entity::find()
+        .filter(reach_messages::Column::Direction.eq("out"))
+        .filter(reach_messages::Column::Status.eq("sent"))
+        .filter(reach_messages::Column::SentAt.gte(stamp(utc_day_start(now))))
+        .count(&db)
+        .await?;
     Ok(json!({ "domains": domains, "mailboxes": mailboxes, "sendsToday": sends }))
 }
 

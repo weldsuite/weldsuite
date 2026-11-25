@@ -20,6 +20,7 @@ import type { HrEmployeeSensitive } from '@weldsuite/app-api-client/domains/weld
 import { useHrEmployeeSensitive, useUpdateHrEmployeeSensitive } from '@/hooks/queries/use-weldhr-queries';
 import { errorMessage, formatDate, formatKpiValue, formatMoney, todayIso } from '../../components/shared';
 import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
+import { HrDateInput } from '@/app/weldhr/components/date-fields';
 
 export function SensitivePanel({ employeeId }: Readonly<{ employeeId: string }>) {
   const t = useTranslations();
@@ -203,12 +204,12 @@ function SensitiveForm({
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
         <div className="space-y-1.5">
           <Label htmlFor={fieldId('dateOfBirth')}>{t('weldhr.employees.detail.personalTab.fields.dateOfBirth')}</Label>
-          <Input
+          <HrDateInput
             id={fieldId('dateOfBirth')}
-            type="date"
+            yearPicker
             max={today}
             value={form.dateOfBirth ?? ''}
-            onChange={(e) => set('dateOfBirth', e.target.value)}
+            onChange={(value) => set('dateOfBirth', value)}
             aria-invalid={birthInFuture || undefined}
             aria-describedby={birthInFuture ? fieldId('dateOfBirth-error') : undefined}
           />

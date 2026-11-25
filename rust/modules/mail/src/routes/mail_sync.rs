@@ -10,16 +10,22 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, patch, post};
 use http::HeaderMap;
+use sea_orm::sea_query::Expr;
+use sea_orm::{ActiveEnum, ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Value, json};
+use time::PrimitiveDateTime;
 use weldsuite_catalogs::permission_keys::{ACCOUNTS_READ, ACCOUNTS_UPDATE};
+use weldsuite_db::{orm, utc_now};
 use weldsuite_kit::Data;
 use weldsuite_kit::validation::Presence;
 use weldsuite_mail_domain::access::check_account_access;
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::enums::MailSyncStatus;
+use weldsuite_schema::tenant::mail_accounts;
 
 use crate::routes::mail_labels::NO_ACCESS;
 use crate::util::{
-    MailError, MailResult, answer, bump_mailbox_directory, now, unhandled, validate, validate_query,
+    MailError, MailResult, answer, bump_mailbox_directory, unhandled, validate, validate_query,
 };
 use crate::{Caller, MailState};
 
@@ -62,14 +68,20 @@ async fn allowed(caller: &Caller, account: &str) -> Result<(), Response> {
     }
 }
 
-async fn live_account(caller: &Caller, account: &str) -> Result<bool, sqlx::Error> {
-    let found: Option<String> = sqlx::query_scalar(
-        "select id from mail_accounts where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(account)
-    .fetch_optional(&caller.db)
-    .await?;
+async fn live_account(caller: &Caller, account: &str) -> Result<bool, DbErr> {
+    let found: Option<String> = mail_accounts::Entity::find_by_id(account)
+        .select_only()
+        .column(mail_accounts::Column::Id)
+        .filter(mail_accounts::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(&caller.db))
+        .await?;
     Ok(found.is_some())
+}
+
+/// `sync_status = <status>`: the value as the `mail_sync_status` enum.
+fn sync_status_value(status: MailSyncStatus) -> Expr {
+    mail_accounts::Column::SyncStatus.save_as(Expr::val(status))
 }
 
 /// `beginSync(db, accountId)`.
@@ -77,10 +89,14 @@ async fn begin_sync(state: &MailState, caller: &Caller, account: &str) -> MailRe
     if !live_account(caller, account).await? {
         return Err(MailError::not_found("Mail account", None));
     }
-    sqlx::query("update mail_accounts set sync_status = 'syncing', updated_at = $2::timestamp where id = $1")
-        .bind(account)
-        .bind(now())
-        .execute(&caller.db)
+    mail_accounts::Entity::update_many()
+        .col_expr(
+            mail_accounts::Column::SyncStatus,
+            sync_status_value(MailSyncStatus::Syncing),
+        )
+        .col_expr(mail_accounts::Column::UpdatedAt, Expr::value(utc_now()))
+        .filter(mail_accounts::Column::Id.eq(account))
+        .exec(&orm(&caller.db))
         .await?;
     bump_mailbox_directory(caller, state).await;
     Ok(json!({ "accountId": account, "status": "syncing", "syncedMessages": 0 }))
@@ -161,19 +177,27 @@ async fn sync_status(caller: Caller, Path(account): Path<String>) -> Response {
         return response;
     }
     let result = async {
-        let row: Option<(Option<String>, Option<String>)> = sqlx::query_as(
-            "select sync_status::text,
-               to_char(last_sync_at, 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"')
-             from mail_accounts where id = $1 and deleted_at is null limit 1",
-        )
-        .bind(&account)
-        .fetch_optional(&caller.db)
-        .await?;
+        let row: Option<(Option<MailSyncStatus>, Option<PrimitiveDateTime>)> =
+            mail_accounts::Entity::find_by_id(&account)
+                .select_only()
+                .columns([
+                    mail_accounts::Column::SyncStatus,
+                    mail_accounts::Column::LastSyncAt,
+                ])
+                .filter(mail_accounts::Column::DeletedAt.is_null())
+                .into_tuple()
+                .one(&orm(&caller.db))
+                .await?;
         let Some((status, last)) = row else {
             return Err(MailError::not_found("Mail account", Some(&account)));
         };
+        // `lastSyncAt` as `toISOString()` (UTC, milliseconds, `Z`).
+        let last = last.map_or(Value::Null, |at| {
+            weldsuite_schema::js::timestamp::serialize(&at, serde_json::value::Serializer)
+                .unwrap_or(Value::Null)
+        });
         Ok(Data(json!({
-            "status": status.unwrap_or_else(|| "idle".to_owned()),
+            "status": status.map_or_else(|| "idle".to_owned(), |status| status.to_value()),
             "lastSyncAt": last,
         }))
         .into_response())
@@ -221,16 +245,18 @@ async fn set_sync_status(
                 weldsuite_kit::log_safe(&message)
             );
         }
-        sqlx::query(
-            "update mail_accounts set sync_status = $2::mail_sync_status, updated_at = $3::timestamp,
-               last_sync_at = case when $2 = 'idle' then $3::timestamp else last_sync_at end
-             where id = $1",
-        )
-        .bind(&account)
-        .bind(&status)
-        .bind(now())
-        .execute(&caller.db)
-        .await?;
+        let value = MailSyncStatus::try_from_value(&status)?;
+        let at = utc_now();
+        let mut update = mail_accounts::Entity::update_many()
+            .col_expr(mail_accounts::Column::SyncStatus, sync_status_value(value))
+            .col_expr(mail_accounts::Column::UpdatedAt, Expr::value(at));
+        if value == MailSyncStatus::Idle {
+            update = update.col_expr(mail_accounts::Column::LastSyncAt, Expr::value(at));
+        }
+        update
+            .filter(mail_accounts::Column::Id.eq(&account))
+            .exec(&orm(&caller.db))
+            .await?;
         bump_mailbox_directory(&caller, &state).await;
         Ok(Data(json!({ "id": account, "status": status })).into_response())
     }

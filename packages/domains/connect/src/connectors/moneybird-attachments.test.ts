@@ -1,6 +1,10 @@
 import { describe, it, expect, vi } from 'vitest';
 import type { MoneybirdClient } from '@weldsuite/connectors';
 import {
+  attachmentIdsFromKeys,
+  attachmentIdsFromRecord,
+  sameIdSet,
+  moneybirdFilesWanted,
   MONEYBIRD_ATTACHMENT_DOWNLOAD_BUDGET,
   syncMoneybirdDocumentAttachments,
   type MoneybirdAttachmentSyncContext,
@@ -126,6 +130,56 @@ describe('syncMoneybirdDocumentAttachments', () => {
 
     expect(keys).toBeNull();
     expect(client.downloadSalesInvoicePdf).not.toHaveBeenCalled();
+  });
+
+  it('returns null, not a partial key list, when the budget runs out part-way through a document', async () => {
+    const ctx: MoneybirdAttachmentSyncContext = {
+      client: mockClient(),
+      storage: mockStorage(),
+      workspaceId: 'ws_1',
+      budget: { remaining: 1 },
+    };
+    const keys = await syncMoneybirdDocumentAttachments({
+      ctx,
+      externalEntityType: 'moneybird_purchase_invoice',
+      externalId: 'pi-1',
+      record: { id: 'pi-1', attachments: [{ id: 'a1' }, { id: 'a2' }] },
+    });
+    expect(keys).toBeNull();
+  });
+
+  it('compares the attachment ids of stored keys and a record', () => {
+    const stored = attachmentIdsFromKeys([
+      'workspaces/ws_1/connectors/moneybird/adm/moneybird_receipt/r1/attachments/a1/scan.pdf',
+      'workspaces/ws_1/connectors/moneybird/adm/moneybird_receipt/r1/attachments/a2/other.pdf',
+    ]);
+    expect([...stored].sort()).toEqual(['a1', 'a2']);
+    expect(sameIdSet(stored, attachmentIdsFromRecord({ attachments: [{ id: 'a2' }, { id: 'a1' }] }))).toBe(true);
+    expect(sameIdSet(stored, attachmentIdsFromRecord({ attachments: [{ id: 'a1' }] }))).toBe(false);
+    expect(sameIdSet(new Set(), attachmentIdsFromRecord({ attachments: [] }))).toBe(true);
+    // Same size, different ids; a key without an attachment segment names none.
+    expect(sameIdSet(stored, new Set(['a1', 'a3']))).toBe(false);
+    expect([...attachmentIdsFromKeys(['workspaces/ws_1/connectors/moneybird/adm/moneybird_sales_invoice/s1/invoice.pdf'])]).toEqual([]);
+  });
+
+  it("decides when a document's files are downloaded (again)", () => {
+    const stored = ['k/moneybird_purchase_invoice/p1/attachments/a1/scan.pdf'];
+    const record = { attachments: [{ id: 'a1' }] };
+    const wanted = (over: Partial<Parameters<typeof moneybirdFilesWanted>[0]>) =>
+      moneybirdFilesWanted({ stored, changed: true, externalEntityType: 'moneybird_purchase_invoice', record, ...over });
+    // Never fetched: always, changed or not.
+    expect(wanted({ stored: null, changed: false })).toBe(true);
+    expect(wanted({ stored: undefined, changed: false })).toBe(true);
+    // Fetched and unchanged: never.
+    expect(wanted({ changed: false })).toBe(false);
+    expect(wanted({ stored: [], changed: false })).toBe(false);
+    // Changed purchase invoice or receipt: only when its attachments differ.
+    expect(wanted({})).toBe(false);
+    expect(wanted({ record: { attachments: [{ id: 'a1' }, { id: 'a2' }] } })).toBe(true);
+    expect(wanted({ externalEntityType: 'moneybird_receipt', record: { attachments: [] } })).toBe(true);
+    expect(wanted({ externalEntityType: 'moneybird_receipt' })).toBe(false);
+    // Changed sales invoice: its PDF is rendered from it, so always.
+    expect(wanted({ externalEntityType: 'moneybird_sales_invoice' })).toBe(true);
   });
 
   it('does not throw when the sales invoice PDF download fails', async () => {

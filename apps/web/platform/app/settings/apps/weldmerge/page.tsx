@@ -12,6 +12,7 @@ import { TeamsSection } from '@/app/weldmerge/settings/teams-section';
 import { useAppAccess } from '@/hooks/use-app-access';
 import { useI18n } from '@/lib/i18n/provider';
 import { useSearchParams } from '@/lib/router';
+import { OutsideEuNotice } from '@/components/outside-eu/outside-eu-notice';
 
 type SettingsTab = 'providers' | 'teams' | 'labels' | 'accounts' | 'notifications';
 
@@ -69,6 +70,8 @@ function WeldMergeSettings() {
       </div>
       <PageTabs tabs={tabs} activeTab={active} onTabChange={(id) => setTab(id as SettingsTab)} overflow="dropdown" />
       {readOnly && <InfoBanner variant="neutral">{tm.settings.noAccess}</InfoBanner>}
+      {/* EU edition: each git provider is a service outside the EU (ADR OPS-026). */}
+      {active === 'providers' && <OutsideEuNotice services={['github', 'gitlab', 'bitbucket', 'azure_devops']} />}
       {active === 'providers' && (
         <ProvidersSection installed={search.get('installed') === '1'} installError={search.get('error')} />
       )}

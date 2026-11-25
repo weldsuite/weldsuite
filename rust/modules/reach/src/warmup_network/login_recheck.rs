@@ -15,12 +15,16 @@
 //! records the error and backs off 6 hours. Only the engine's own
 //! `login_failed` state is ever lifted.
 
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, Condition, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use sqlx::PgPool;
+use weldsuite_db::orm;
 use weldsuite_ports::ImapConfig;
+use weldsuite_schema::master::reach_warmup_mailboxes::{self as pool, Column};
 
 use super::WarmupNetwork;
 use super::clock::HOUR_MS;
-use super::db::{PoolMailbox, clip, open_login, pool_columns, ts};
+use super::db::{PoolMailbox, at, clip, open_login, pool_mailboxes, pool_query};
 use super::pool_state::{CREDENTIALS_UNAVAILABLE_REASON, LOGIN_FAILED_REASON, mark_reach_due};
 
 /// Mailboxes tried per run.
@@ -35,20 +39,19 @@ pub struct RecheckResult {
     pub healed: usize,
 }
 
-async fn load_candidates(master: &PgPool, now: i64) -> sqlx::Result<Vec<PoolMailbox>> {
-    sqlx::query_as(concat!(
-        "select ",
-        pool_columns!(),
-        " from reach_warmup_mailboxes
-         where status = 'error' and paused_reason = $1
-           and (last_login_error is null or (last_login_error like 'imap:%' and last_login_error_at < $2::timestamptz))
-         limit $3"
-    ))
-    .bind(LOGIN_FAILED_REASON)
-    .bind(ts(now - RECHECK_BACKOFF_MS))
-    .bind(RECHECK_LIMIT)
-    .fetch_all(master)
-    .await
+async fn load_candidates(master: &PgPool, now: i64) -> Result<Vec<PoolMailbox>, DbErr> {
+    let query = pool_query()
+        .filter(Column::Status.eq("error"))
+        .filter(Column::PausedReason.eq(LOGIN_FAILED_REASON))
+        .filter(
+            Condition::any().add(Column::LastLoginError.is_null()).add(
+                Condition::all()
+                    .add(Column::LastLoginError.like("imap:%"))
+                    .add(Column::LastLoginErrorAt.lt(at(now - RECHECK_BACKOFF_MS))),
+            ),
+        )
+        .limit(u64::try_from(RECHECK_LIMIT).unwrap_or_default());
+    pool_mailboxes(master, query).await
 }
 
 /// `stillBroken(...)`: note why and start the back-off. The sweep is only
@@ -58,40 +61,40 @@ async fn still_broken(
     mailbox: &PoolMailbox,
     detail: &str,
     now: i64,
-) -> sqlx::Result<()> {
-    sqlx::query(
-        "update reach_warmup_mailboxes set last_login_error = $2, last_login_error_at = $3::timestamptz
-         where id = $1",
-    )
-    .bind(&mailbox.id)
-    .bind(clip(&format!("imap: {detail}"), 300))
-    .bind(ts(now))
-    .execute(master)
-    .await?;
+) -> Result<(), DbErr> {
+    pool::Entity::update_many()
+        .col_expr(
+            Column::LastLoginError,
+            Expr::value(clip(&format!("imap: {detail}"), 300)),
+        )
+        .col_expr(Column::LastLoginErrorAt, Expr::value(at(now)))
+        .filter(Column::Id.eq(&mailbox.id))
+        .exec(&orm(master))
+        .await?;
     if mailbox.last_login_error.is_none() {
         mark_reach_due(master, &mailbox.workspace_id, now).await;
     }
     Ok(())
 }
 
-async fn bring_back(master: &PgPool, mailbox: &PoolMailbox, now: i64) -> sqlx::Result<()> {
-    sqlx::query(
-        "update reach_warmup_mailboxes set status = $2, paused_reason = null, last_login_error = null,
-           last_login_error_at = null, updated_at = $3::timestamptz
-         where id = $1 and status = 'error' and paused_reason = $4",
-    )
-    .bind(&mailbox.id)
-    .bind(mailbox.unpaused_status())
-    .bind(ts(now))
-    .bind(LOGIN_FAILED_REASON)
-    .execute(master)
-    .await?;
+async fn bring_back(master: &PgPool, mailbox: &PoolMailbox, now: i64) -> Result<(), DbErr> {
+    pool::Entity::update_many()
+        .col_expr(Column::Status, Expr::value(mailbox.unpaused_status()))
+        .col_expr(Column::PausedReason, Expr::null())
+        .col_expr(Column::LastLoginError, Expr::null())
+        .col_expr(Column::LastLoginErrorAt, Expr::null())
+        .col_expr(Column::UpdatedAt, Expr::value(at(now)))
+        .filter(Column::Id.eq(&mailbox.id))
+        .filter(Column::Status.eq("error"))
+        .filter(Column::PausedReason.eq(LOGIN_FAILED_REASON))
+        .exec(&orm(master))
+        .await?;
     mark_reach_due(master, &mailbox.workspace_id, now).await;
     Ok(())
 }
 
 /// `tryLogin(...)`: one login; `true` when it worked.
-async fn try_login(net: &WarmupNetwork, mailbox: &PoolMailbox, now: i64) -> sqlx::Result<bool> {
+async fn try_login(net: &WarmupNetwork, mailbox: &PoolMailbox, now: i64) -> Result<bool, DbErr> {
     let Some(login) = open_login(net.warmup_key.as_deref(), &mailbox.imap_credentials) else {
         still_broken(&net.master, mailbox, CREDENTIALS_UNAVAILABLE_REASON, now).await?;
         return Ok(false);
@@ -110,7 +113,7 @@ async fn try_login(net: &WarmupNetwork, mailbox: &PoolMailbox, now: i64) -> sqlx
 }
 
 /// `recheckLogins(env, master, now)`.
-pub async fn recheck_logins(net: &WarmupNetwork, now: i64) -> sqlx::Result<RecheckResult> {
+pub async fn recheck_logins(net: &WarmupNetwork, now: i64) -> Result<RecheckResult, DbErr> {
     let candidates = load_candidates(&net.master, now).await?;
     let mut healed = 0;
     for mailbox in &candidates {

@@ -17,6 +17,7 @@ use axum::response::{IntoResponse, Response};
 use http::HeaderMap;
 use http::header::CONTENT_TYPE;
 use http::request::Parts;
+use sea_orm::DbErr;
 use serde_json::{Map, Value};
 use time::OffsetDateTime;
 use tokio::sync::OnceCell;
@@ -518,13 +519,21 @@ impl<S: Send + Sync> FromRequestParts<S> for Caller {
 #[derive(Debug)]
 pub enum Refusal {
     Response(Box<Response>),
-    Database(sqlx::Error),
+    Database(DbErr),
     Internal(String),
 }
 
+impl From<DbErr> for Refusal {
+    fn from(error: DbErr) -> Self {
+        Self::Database(error)
+    }
+}
+
+/// For the SQL that stays SQL (and the sqlx transactions around ORM
+/// statements): the same 500, through `weldsuite_db::orm_error`.
 impl From<sqlx::Error> for Refusal {
     fn from(error: sqlx::Error) -> Self {
-        Self::Database(error)
+        Self::Database(weldsuite_db::orm_error(error))
     }
 }
 

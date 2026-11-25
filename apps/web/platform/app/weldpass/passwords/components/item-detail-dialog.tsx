@@ -38,7 +38,7 @@ import {
 } from '@/hooks/queries/use-weldpass-passwords-queries';
 import { TimeAgo, errorMessage } from '../../components/shared';
 import { cn } from '@/lib/utils';
-import { safeHref } from '../lib/items';
+import { safeHref } from '@weldsuite/app-api-client/schemas/weldpass-items';
 import { usePasswordsT } from '../lib/use-passwords-t';
 import { CopyButton } from './copy-button';
 import { ItemHistoryPanel } from './item-history-panel';

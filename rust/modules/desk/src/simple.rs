@@ -3,6 +3,7 @@
 //! and satisfaction surveys. Schemas from
 //! `@weldsuite/core-api-client/schemas/*` (all `.passthrough()`).
 
+use sea_orm::{ColumnTrait, Condition};
 use serde_json::{Map, Value};
 use weldsuite_catalogs::entity_events as ev;
 use weldsuite_catalogs::permission_keys as perm;
@@ -10,6 +11,10 @@ use weldsuite_kit::validation::{Format, Issues, Number, Presence, Text};
 
 use crate::crud::{Changed, Crud, Filter, Gates, Hook, Messages, Partial};
 use crate::tables;
+use weldsuite_schema::tenant::{
+    helpdesk_announcements, helpdesk_faqs, helpdesk_feedback, helpdesk_news, helpdesk_reviews,
+    helpdesk_satisfaction_surveys, helpdesk_slas, helpdesk_ticket_messages, helpdesk_ticket_notes,
+};
 
 const ARTICLES: Gates = Gates {
     read: perm::ARTICLES_READ,
@@ -31,36 +36,6 @@ const SLAS: Gates = Gates {
     update: perm::SLAS_UPDATE,
     delete: perm::SLAS_DELETE,
 };
-
-const FAQ_LIST: (&str, &str) = listing!("helpdesk_faqs";
-    "($2::boolean or t.category = $3::text)";
-    4, 5, 6; "$7");
-const TITLE_SEARCH_NEWS: (&str, &str) = listing!("helpdesk_news";
-    "($2::boolean or t.title like $3::text)";
-    4, 5, 6; "$7");
-const TITLE_SEARCH_ANNOUNCEMENTS: (&str, &str) = listing!("helpdesk_announcements";
-    "($2::boolean or t.title like $3::text)";
-    4, 5, 6; "$7");
-const TITLE_SEARCH_FEEDBACK: (&str, &str) = listing!("helpdesk_feedback";
-    "($2::boolean or t.title like $3::text)";
-    4, 5, 6; "$7");
-const TITLE_SEARCH_REVIEWS: (&str, &str) = listing!("helpdesk_reviews";
-    "($2::boolean or t.title like $3::text)";
-    4, 5, 6; "$7");
-const SLA_LIST: (&str, &str) = listing!("helpdesk_slas";
-    "($2::boolean or t.name like $3::text)";
-    4, 5, 6; "$7");
-const NOTE_LIST: (&str, &str) = listing!("helpdesk_ticket_notes";
-    "($2::boolean or t.ticket_id = $3::text)", "($4::boolean or t.author_id = $5::text)";
-    6, 7, 8; "$9");
-const MESSAGE_LIST: (&str, &str) = listing!("helpdesk_ticket_messages";
-    "($2::boolean or t.ticket_id = $3::text)", "($4::boolean or t.author_id = $5::text)",
-    "($6::boolean or t.subject like $7::text)";
-    8, 9, 10; "$11");
-const SURVEY_LIST: (&str, &str) = listing!("helpdesk_satisfaction_surveys";
-    "($2::boolean or t.ticket_id = $3::text)", "($4::boolean or t.customer_id = $5::text)",
-    "($6::boolean or t.status = $7::text)";
-    8, 9, 10; "$11");
 
 const fn messages(
     list: &'static str,
@@ -424,9 +399,9 @@ pub(crate) static FAQS: Crud = Crud {
         "Failed to delete faq",
     ),
     schema: faq_schema,
-    filters: &[Filter::eq("category")],
-    list_sql: FAQ_LIST.0,
-    count_sql: FAQ_LIST.1,
+    filters: &[Filter::eq("category", |v| {
+        Condition::all().add(helpdesk_faqs::Column::Category.eq(v))
+    })],
     slice_count: true,
     created: ev::HELPDESK_FAQ_CREATED,
     created_fields: &["category"],
@@ -449,9 +424,9 @@ pub(crate) static NEWS: Crud = Crud {
         "Failed to delete news item",
     ),
     schema: news_schema,
-    filters: &[Filter::like("search")],
-    list_sql: TITLE_SEARCH_NEWS.0,
-    count_sql: TITLE_SEARCH_NEWS.1,
+    filters: &[Filter::like("search", |v| {
+        Condition::all().add(helpdesk_news::Column::Title.like(v))
+    })],
     slice_count: true,
     created: ev::HELPDESK_NEWS_CREATED,
     created_fields: &["title"],
@@ -474,9 +449,9 @@ pub(crate) static ANNOUNCEMENTS: Crud = Crud {
         "Failed to delete announcement",
     ),
     schema: announcement_schema,
-    filters: &[Filter::like("search")],
-    list_sql: TITLE_SEARCH_ANNOUNCEMENTS.0,
-    count_sql: TITLE_SEARCH_ANNOUNCEMENTS.1,
+    filters: &[Filter::like("search", |v| {
+        Condition::all().add(helpdesk_announcements::Column::Title.like(v))
+    })],
     slice_count: true,
     created: ev::HELPDESK_ANNOUNCEMENT_CREATED,
     created_fields: &["title"],
@@ -499,9 +474,9 @@ pub(crate) static FEEDBACK: Crud = Crud {
         "Failed to delete feedback",
     ),
     schema: feedback_schema,
-    filters: &[Filter::like("search")],
-    list_sql: TITLE_SEARCH_FEEDBACK.0,
-    count_sql: TITLE_SEARCH_FEEDBACK.1,
+    filters: &[Filter::like("search", |v| {
+        Condition::all().add(helpdesk_feedback::Column::Title.like(v))
+    })],
     slice_count: true,
     created: ev::HELPDESK_FEEDBACK_CREATED,
     created_fields: &["title"],
@@ -524,9 +499,9 @@ pub(crate) static REVIEWS: Crud = Crud {
         "Failed to delete review",
     ),
     schema: review_schema,
-    filters: &[Filter::like("search")],
-    list_sql: TITLE_SEARCH_REVIEWS.0,
-    count_sql: TITLE_SEARCH_REVIEWS.1,
+    filters: &[Filter::like("search", |v| {
+        Condition::all().add(helpdesk_reviews::Column::Title.like(v))
+    })],
     slice_count: true,
     created: ev::HELPDESK_REVIEW_CREATED,
     created_fields: &["title"],
@@ -549,9 +524,9 @@ pub(crate) static SLA: Crud = Crud {
         "Failed to delete sla",
     ),
     schema: sla_schema,
-    filters: &[Filter::like("search")],
-    list_sql: SLA_LIST.0,
-    count_sql: SLA_LIST.1,
+    filters: &[Filter::like("search", |v| {
+        Condition::all().add(helpdesk_slas::Column::Name.like(v))
+    })],
     slice_count: true,
     created: ev::SLA_CREATED,
     created_fields: &["name"],
@@ -574,9 +549,14 @@ pub(crate) static TICKET_NOTES: Crud = Crud {
         "Failed to delete ticket note",
     ),
     schema: note_schema,
-    filters: &[Filter::eq("ticketId"), Filter::eq("authorId")],
-    list_sql: NOTE_LIST.0,
-    count_sql: NOTE_LIST.1,
+    filters: &[
+        Filter::eq("ticketId", |v| {
+            Condition::all().add(helpdesk_ticket_notes::Column::TicketId.eq(v))
+        }),
+        Filter::eq("authorId", |v| {
+            Condition::all().add(helpdesk_ticket_notes::Column::AuthorId.eq(v))
+        }),
+    ],
     slice_count: true,
     created: ev::TICKET_NOTE_CREATED,
     created_fields: &["ticketId", "authorId"],
@@ -600,12 +580,16 @@ pub(crate) static TICKET_MESSAGES: Crud = Crud {
     ),
     schema: message_schema,
     filters: &[
-        Filter::eq("ticketId"),
-        Filter::eq("authorId"),
-        Filter::like("search"),
+        Filter::eq("ticketId", |v| {
+            Condition::all().add(helpdesk_ticket_messages::Column::TicketId.eq(v))
+        }),
+        Filter::eq("authorId", |v| {
+            Condition::all().add(helpdesk_ticket_messages::Column::AuthorId.eq(v))
+        }),
+        Filter::like("search", |v| {
+            Condition::all().add(helpdesk_ticket_messages::Column::Subject.like(v))
+        }),
     ],
-    list_sql: MESSAGE_LIST.0,
-    count_sql: MESSAGE_LIST.1,
     slice_count: true,
     created: ev::HELPDESK_MESSAGE_CREATED,
     created_fields: &["ticketId", "authorId", "subject"],
@@ -633,12 +617,16 @@ pub(crate) static SURVEYS: Crud = Crud {
     ),
     schema: survey_schema,
     filters: &[
-        Filter::eq("ticketId"),
-        Filter::eq("customerId"),
-        Filter::eq("status"),
+        Filter::eq("ticketId", |v| {
+            Condition::all().add(helpdesk_satisfaction_surveys::Column::TicketId.eq(v))
+        }),
+        Filter::eq("customerId", |v| {
+            Condition::all().add(helpdesk_satisfaction_surveys::Column::CustomerId.eq(v))
+        }),
+        Filter::eq("status", |v| {
+            Condition::all().add(helpdesk_satisfaction_surveys::Column::Status.eq(v))
+        }),
     ],
-    list_sql: SURVEY_LIST.0,
-    count_sql: SURVEY_LIST.1,
     slice_count: false,
     created: ev::SATISFACTION_SURVEY_CREATED,
     created_fields: &["ticketId", "customerId", "status"],

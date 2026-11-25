@@ -43,6 +43,8 @@ const ROUTE_REQUIREMENTS: ReadonlyArray<readonly [prefix: string, requirement: E
   // Settings pages backed by a module or a feature rather than core.
   ['/settings/sso', { feature: 'sso-connections' }],
   ['/settings/ai', { ai: true }],
+  // The EU edition's opt-in for services outside the EU (ADR OPS-026).
+  ['/settings/outside-eu', { feature: 'outside-eu-services' }],
   ['/settings/plans', { feature: 'billing' }],
   // Billing, or on the Kubernetes editions just the credit balance and its
   // top-up (Mollie).
@@ -74,7 +76,7 @@ const ROUTE_REQUIREMENTS: ReadonlyArray<readonly [prefix: string, requirement: E
   ['/settings/api-keys', { publicEnv: 'VITE_EXTERNAL_API_URL' }],
   // WeldDesk's BI connector is an OData feed on that same public API, read
   // with one of those keys.
-  ['/welddesk/reports/bi-connector', { modules: ['desk'], publicEnv: 'VITE_EXTERNAL_API_URL' }],
+  ['/settings/apps/welddesk/bi-connector', { modules: ['desk'], publicEnv: 'VITE_EXTERNAL_API_URL' }],
   // The public help center site runs on Global only (`{slug}.welddesk.org`).
   ['/settings/apps/welddesk/help-center', { modules: ['desk'], feature: 'helpcenter-hosting' }],
   ['/settings/webhooks', { modules: ['connect'] }],
@@ -88,6 +90,10 @@ const ROUTE_REQUIREMENTS: ReadonlyArray<readonly [prefix: string, requirement: E
   // (ADR OPS-025); its purchase orders keep their create, edit and delete on Global.
   ['/settings/apps/weldstash', { modules: ['stash'], feature: 'stash-replenishment' }],
   ['/weldstash/replenishment', { modules: ['stash'], feature: 'stash-replenishment' }],
+  // Carrier shipping (PostNL, DHL Parcel labels, tracking, returns) exists only on the Rust backend.
+  ['/weldstash/shipments', { modules: ['stash'], feature: 'stash-shipping' }],
+  // WeldPass's settings (the offline copy and its devices) exist only on the Rust backend (ADR PASS-010).
+  ['/settings/apps/weldpass', { modules: ['pass'], feature: 'weldpass-offline' }],
 ];
 
 function matchesPrefix(pathname: string, prefix: string): boolean {

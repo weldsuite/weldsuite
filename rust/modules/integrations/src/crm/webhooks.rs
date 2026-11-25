@@ -21,18 +21,26 @@ use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::post;
 use http::{HeaderMap, StatusCode};
+use sea_orm::ActiveValue::Set;
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 use weldsuite_catalogs::entity_events as events;
 use weldsuite_core_domain::js::{Js, js_string, number_text};
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_events::{EventContext, EventSource, publish_entity_event};
 use weldsuite_kit::generate_id;
 use weldsuite_ports::{HttpRequest, OutboundHttp};
+use weldsuite_schema::master::workspaces;
+use weldsuite_schema::tenant::{
+    companies, crm_activities, integration_connections as connections,
+    integration_entity_mappings as mappings, list_members, lists, people, person_companies,
+};
 
 use super::adapters::{form, hubspot_entity, json_of, millis_of, send};
 use super::engine::{
-    EntityTable, UpsertAction, find_mapping, insert_mapping, insert_row, now, touch_mapping,
+    EntityTable, UpsertAction, find_mapping, insert_mapping, insert_row, now_at, touch_mapping,
     update_row, upsert_by_mapping,
 };
 use super::mapper::truthy;
@@ -62,6 +70,22 @@ fn answer(status: StatusCode, body: Value) -> Response {
 
 fn error(status: StatusCode, message: &str) -> Response {
     answer(status, json!({ "error": message }))
+}
+
+/// ADR OPS-026: Attio, `HubSpot` and Google are outside the EU. A delivery
+/// for a workspace that has switched the provider off is acknowledged (so
+/// the provider doesn't retry it) and not followed up: no record is fetched
+/// and no sync started. `None` when it may go on.
+async fn outside_eu_skip(db: &PgPool, provider: &str, connection_id: &str) -> Option<Response> {
+    let service = weldsuite_outside_eu::ServiceId::for_integration(provider)?;
+    let context = format!("crm webhook {connection_id}");
+    if weldsuite_outside_eu::allowed(db, service, &context).await {
+        return None;
+    }
+    Some(answer(
+        StatusCode::OK,
+        json!({ "status": "skipped", "reason": "outside_eu" }),
+    ))
 }
 
 /// A truthy value as a template string reads it (`${value}`).
@@ -607,22 +631,24 @@ async fn upsert_person(
     )
     .await?;
     if let Some(company) = parent_company_id {
-        let existing: Option<String> = sqlx::query_scalar(
-            "select id from person_companies where person_id = $1 and company_id = $2 limit 1",
-        )
-        .bind(&id)
-        .bind(company)
-        .fetch_optional(db)
-        .await
-        .map_err(|e| db_message(&e))?;
+        let existing: Option<String> = person_companies::Entity::find()
+            .select_only()
+            .column(person_companies::Column::Id)
+            .filter(person_companies::Column::PersonId.eq(&id))
+            .filter(person_companies::Column::CompanyId.eq(company))
+            .into_tuple()
+            .one(&orm(db))
+            .await
+            .map_err(|e| db_message(&e))?;
         if existing.is_none() {
-            sqlx::query(
-                "insert into person_companies (id, person_id, company_id, is_primary) values ($1, $2, $3, true)",
-            )
-            .bind(generate_id("pc"))
-            .bind(&id)
-            .bind(company)
-            .execute(db)
+            person_companies::Entity::insert(person_companies::ActiveModel {
+                id: Set(generate_id("pc")),
+                person_id: Set(id.clone()),
+                company_id: Set(company.to_owned()),
+                is_primary: Set(true),
+                ..Default::default()
+            })
+            .exec_without_returning(&orm(db))
             .await
             .map_err(|e| db_message(&e))?;
         }
@@ -632,25 +658,35 @@ async fn upsert_person(
 
 /// `update <table> set deleted_at = now, updated_at = now where id = $1`.
 async fn soft_delete(db: &PgPool, table: &str, id: &str) -> Result<(), String> {
-    let at = now();
-    let query = match table {
+    let at = now_at();
+    let db = orm(db);
+    let done = match table {
         "companies" => {
-            "update companies set deleted_at = $2::timestamp, updated_at = $2::timestamp where id = $1"
+            companies::Entity::update_many()
+                .col_expr(companies::Column::DeletedAt, Expr::value(at))
+                .col_expr(companies::Column::UpdatedAt, Expr::value(at))
+                .filter(companies::Column::Id.eq(id))
+                .exec(&db)
+                .await
         }
         "people" => {
-            "update people set deleted_at = $2::timestamp, updated_at = $2::timestamp where id = $1"
+            people::Entity::update_many()
+                .col_expr(people::Column::DeletedAt, Expr::value(at))
+                .col_expr(people::Column::UpdatedAt, Expr::value(at))
+                .filter(people::Column::Id.eq(id))
+                .exec(&db)
+                .await
         }
         _ => {
-            "update crm_activities set deleted_at = $2::timestamp, updated_at = $2::timestamp where id = $1"
+            crm_activities::Entity::update_many()
+                .col_expr(crm_activities::Column::DeletedAt, Expr::value(at))
+                .col_expr(crm_activities::Column::UpdatedAt, Expr::value(at))
+                .filter(crm_activities::Column::Id.eq(id))
+                .exec(&db)
+                .await
         }
     };
-    sqlx::query(query)
-        .bind(id)
-        .bind(at)
-        .execute(db)
-        .await
-        .map(|_| ())
-        .map_err(|e| db_message(&e))
+    done.map(|_| ()).map_err(|e| db_message(&e))
 }
 
 /// `softDeleteByMapping(db, connectionId, externalEntityType, externalEntityId)`.
@@ -691,15 +727,18 @@ async fn resolve_entity(
     connection_id: &str,
     external_id: &str,
 ) -> Result<Option<(String, String)>, String> {
-    sqlx::query_as(
-        "select internal_entity_id, internal_entity_type from integration_entity_mappings
-         where connection_id = $1 and external_entity_id = $2 limit 1",
-    )
-    .bind(connection_id)
-    .bind(external_id)
-    .fetch_optional(db)
-    .await
-    .map_err(|e| db_message(&e))
+    mappings::Entity::find()
+        .select_only()
+        .columns([
+            mappings::Column::InternalEntityId,
+            mappings::Column::InternalEntityType,
+        ])
+        .filter(mappings::Column::ConnectionId.eq(connection_id))
+        .filter(mappings::Column::ExternalEntityId.eq(external_id))
+        .into_tuple()
+        .one(&orm(db))
+        .await
+        .map_err(|e| db_message(&e))
 }
 
 /// The parent/linked record's columns on an activity.
@@ -980,21 +1019,16 @@ async fn list_entry_event(ctx: &EventCtx<'_>, event: &WebhookEvent) -> Result<bo
             && let Some(mapping) =
                 find_mapping(db, ctx.connection_id, "list-entry", &event.list_entry_id).await?
         {
-            for query in [
-                "delete from list_members where id = $1",
-                "delete from integration_entity_mappings where id = $1",
-            ] {
-                let id = if query.contains("list_members") {
-                    &mapping.internal_entity_id
-                } else {
-                    &mapping.id
-                };
-                sqlx::query(query)
-                    .bind(id)
-                    .execute(db)
-                    .await
-                    .map_err(|e| db_message(&e))?;
-            }
+            list_members::Entity::delete_many()
+                .filter(list_members::Column::Id.eq(&mapping.internal_entity_id))
+                .exec(&orm(db))
+                .await
+                .map_err(|e| db_message(&e))?;
+            mappings::Entity::delete_many()
+                .filter(mappings::Column::Id.eq(&mapping.id))
+                .exec(&orm(db))
+                .await
+                .map_err(|e| db_message(&e))?;
         }
         return Ok(false);
     }
@@ -1062,37 +1096,40 @@ async fn list_entry_event(ctx: &EventCtx<'_>, event: &WebhookEvent) -> Result<bo
     #[allow(clippy::single_match_else)] // `if (listMapping) … else …`, kept as one expression
     let internal_list = match find_mapping(db, ctx.connection_id, "list", &list_id).await? {
         Some(mapping) => {
-            sqlx::query("update lists set name = $2, updated_at = $3::timestamp where id = $1")
-                .bind(&mapping.internal_entity_id)
-                .bind(&name)
-                .bind(now())
-                .execute(db)
+            lists::Entity::update_many()
+                .col_expr(lists::Column::Name, Expr::value(&name))
+                .col_expr(lists::Column::UpdatedAt, Expr::value(now_at()))
+                .filter(lists::Column::Id.eq(&mapping.internal_entity_id))
+                .exec(&orm(db))
                 .await
                 .map_err(|e| db_message(&e))?;
             mapping.internal_entity_id
         }
         None => {
             let id = generate_id("list");
-            sqlx::query(
-                "insert into lists (id, name, kind, type) values ($1, $2, 'company', 'static')",
-            )
-            .bind(&id)
-            .bind(&name)
-            .execute(db)
+            lists::Entity::insert(lists::ActiveModel {
+                id: Set(id.clone()),
+                name: Set(name.clone()),
+                kind: Set("company".to_owned()),
+                type_: Set("static".to_owned()),
+                ..Default::default()
+            })
+            .exec_without_returning(&orm(db))
             .await
             .map_err(|e| db_message(&e))?;
             insert_mapping(db, ctx.connection_id, "list", &list_id, "list", &id, None).await?;
             id
         }
     };
-    let member: Option<String> = sqlx::query_scalar(
-        "select id from list_members where list_id = $1 and entity_id = $2 limit 1",
-    )
-    .bind(&internal_list)
-    .bind(&company_id)
-    .fetch_optional(db)
-    .await
-    .map_err(|e| db_message(&e))?;
+    let member: Option<String> = list_members::Entity::find()
+        .select_only()
+        .column(list_members::Column::Id)
+        .filter(list_members::Column::ListId.eq(&internal_list))
+        .filter(list_members::Column::EntityId.eq(&company_id))
+        .into_tuple()
+        .one(&orm(db))
+        .await
+        .map_err(|e| db_message(&e))?;
     if let Some(member) = member {
         if find_mapping(db, ctx.connection_id, "list-entry", &entry_id)
             .await?
@@ -1112,13 +1149,15 @@ async fn list_entry_event(ctx: &EventCtx<'_>, event: &WebhookEvent) -> Result<bo
         return Ok(true);
     }
     let member = generate_id("lm");
-    sqlx::query("insert into list_members (id, list_id, entity_id) values ($1, $2, $3)")
-        .bind(&member)
-        .bind(&internal_list)
-        .bind(&company_id)
-        .execute(db)
-        .await
-        .map_err(|e| db_message(&e))?;
+    list_members::Entity::insert(list_members::ActiveModel {
+        id: Set(member.clone()),
+        list_id: Set(internal_list.clone()),
+        entity_id: Set(company_id.clone()),
+        ..Default::default()
+    })
+    .exec_without_returning(&orm(db))
+    .await
+    .map_err(|e| db_message(&e))?;
     insert_mapping(
         db,
         ctx.connection_id,
@@ -1233,22 +1272,32 @@ async fn add_stats(db: &PgPool, connection_id: &str, c: &Counters) -> Result<(),
     if c.companies == 0 && c.people == 0 && c.tasks == 0 && c.list_entries == 0 {
         return Ok(());
     }
-    sqlx::query(
-        "update integration_connections set updated_at = $2::timestamp,
-            companies_synced = companies_synced + $3, people_synced = people_synced + $4,
-            tasks_synced = tasks_synced + $5, lists_synced = lists_synced + $6
-         where id = $1",
-    )
-    .bind(connection_id)
-    .bind(now())
-    .bind(c.companies)
-    .bind(c.people)
-    .bind(c.tasks)
-    .bind(c.list_entries)
-    .execute(db)
-    .await
-    .map(|_| ())
-    .map_err(|e| db_message(&e))
+    let plus = |column: connections::Column, n: i32| {
+        sea_orm::ExprTrait::add(Expr::col((connections::Entity, column)), n)
+    };
+    connections::Entity::update_many()
+        .col_expr(connections::Column::UpdatedAt, Expr::value(now_at()))
+        .col_expr(
+            connections::Column::CompaniesSynced,
+            plus(connections::Column::CompaniesSynced, c.companies),
+        )
+        .col_expr(
+            connections::Column::PeopleSynced,
+            plus(connections::Column::PeopleSynced, c.people),
+        )
+        .col_expr(
+            connections::Column::TasksSynced,
+            plus(connections::Column::TasksSynced, c.tasks),
+        )
+        .col_expr(
+            connections::Column::ListsSynced,
+            plus(connections::Column::ListsSynced, c.list_entries),
+        )
+        .filter(connections::Column::Id.eq(connection_id))
+        .exec(&orm(db))
+        .await
+        .map(|_| ())
+        .map_err(|e| db_message(&e))
 }
 
 /// `getValidAccessToken(db, connection, env)`: the token, refreshed and
@@ -1368,15 +1417,16 @@ async fn valid_access_token(
             .or_else(|| truthy_value(tokens.get("tokenType")))
             .or_else(|| Some("Bearer".into())),
     );
-    sqlx::query(
-        "update integration_connections set oauth_tokens = $2, updated_at = $3::timestamp where id = $1",
-    )
-    .bind(connection_id)
-    .bind(Value::Object(fresh.clone()))
-    .bind(now())
-    .execute(db)
-    .await
-    .map_err(|e| db_message(&e))?;
+    connections::Entity::update_many()
+        .col_expr(
+            connections::Column::OauthTokens,
+            Expr::value(Value::Object(fresh.clone())),
+        )
+        .col_expr(connections::Column::UpdatedAt, Expr::value(now_at()))
+        .filter(connections::Column::Id.eq(connection_id))
+        .exec(&orm(db))
+        .await
+        .map_err(|e| db_message(&e))?;
     tracing::info!("[Token] Refreshed access token for connection {connection_id}");
     Ok(text(fresh.get("accessToken")))
 }
@@ -1386,14 +1436,19 @@ async fn load_connection(
     db: &PgPool,
     id: &str,
 ) -> Result<Option<(String, Option<String>, Option<Value>)>, String> {
-    sqlx::query_as(
-        "select provider, webhook_secret, oauth_tokens from integration_connections
-         where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await
-    .map_err(|e| db_message(&e))
+    connections::Entity::find()
+        .select_only()
+        .columns([
+            connections::Column::Provider,
+            connections::Column::WebhookSecret,
+            connections::Column::OauthTokens,
+        ])
+        .filter(connections::Column::Id.eq(id))
+        .filter(connections::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await
+        .map_err(|e| db_message(&e))
 }
 
 /// `WORKSPACE_CACHE.get(key, 'json')`.
@@ -1469,6 +1524,9 @@ async fn handle_connection_webhook(
         return Ok(error(StatusCode::BAD_REQUEST, "Unknown provider"));
     };
     let db = ctx.tenant_db(state, &workspace_id).await?;
+    if let Some(skipped) = outside_eu_skip(&db, &provider_name, connection_id).await {
+        return Ok(skipped);
+    }
     let Some((_, secret, tokens)) = load_connection(&db, connection_id).await? else {
         tracing::warn!("[Webhook] Connection not found in DB: {connection_id}");
         return Ok(error(StatusCode::NOT_FOUND, "Connection not found"));
@@ -1547,21 +1605,26 @@ async fn hubspot_target(
     let Some(master) = ctx.master(state) else {
         return Err("Neither DATABASE_URL_MASTER nor HYPERDRIVE_MASTER is configured".to_owned());
     };
-    let workspaces: Vec<String> = sqlx::query_scalar("select id from workspaces")
-        .fetch_all(&master)
+    let ids: Vec<String> = workspaces::Entity::find()
+        .select_only()
+        .column(workspaces::Column::Id)
+        .into_tuple()
+        .all(&orm(&master))
         .await
         .map_err(|e| db_message(&e))?;
-    for workspace in workspaces {
+    for workspace in ids {
         let Ok(db) = ctx.tenant_db(state, &workspace).await else {
             continue;
         };
-        let found: Result<Option<String>, _> = sqlx::query_scalar(
-            "select id from integration_connections
-             where provider = 'hubspot' and external_account_id = $1 and deleted_at is null limit 1",
-        )
-        .bind(portal)
-        .fetch_optional(&db)
-        .await;
+        let found: Result<Option<String>, DbErr> = connections::Entity::find()
+            .select_only()
+            .column(connections::Column::Id)
+            .filter(connections::Column::Provider.eq("hubspot"))
+            .filter(connections::Column::ExternalAccountId.eq(portal))
+            .filter(connections::Column::DeletedAt.is_null())
+            .into_tuple()
+            .one(&orm(&db))
+            .await;
         if let Ok(Some(connection)) = found {
             if let Some(cache) = ctx.cache(state) {
                 let value = format!(
@@ -1663,6 +1726,9 @@ async fn handle_hubspot(
         return Ok(error(StatusCode::NOT_FOUND, "Portal not connected"));
     };
     let db = ctx.tenant_db(state, &workspace_id).await?;
+    if let Some(skipped) = outside_eu_skip(&db, "hubspot", &connection_id).await {
+        return Ok(skipped);
+    }
     let Some((_, secret, tokens)) = load_connection(&db, &connection_id).await? else {
         if let Some(cache) = ctx.cache(state) {
             cache.delete_boxed(&key).await.map_err(|e| e.to_string())?;
@@ -1746,6 +1812,9 @@ async fn handle_gcal(
         return Ok(error(StatusCode::NOT_FOUND, "Connection not found"));
     };
     let db = ctx.tenant_db(state, &workspace_id).await?;
+    if let Some(skipped) = outside_eu_skip(&db, "google_calendar", connection_id).await {
+        return Ok(skipped);
+    }
     let Some((_, secret, _)) = load_connection(&db, connection_id).await? else {
         return Ok(error(StatusCode::NOT_FOUND, "Connection not found"));
     };

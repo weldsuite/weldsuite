@@ -204,7 +204,7 @@ export function toChannelInput(values: ChannelFormValues, mode: 'create' | 'edit
 // Keys
 // ---------------------------------------------------------------------------
 
-export const CHANNEL_KEY_KINDS: readonly ChannelKeyKind[] = ['publishable', 'private'];
+export const CHANNEL_KEY_KINDS: readonly ChannelKeyKind[] = ['publishable', 'private', 'deploy'];
 
 export function keyKindLabel(kind: ChannelKeyKind): string {
   return label(getTranslations('commerce').channels.keys.kind, kind);
@@ -250,7 +250,7 @@ export function buildKeyFormSchema() {
   const t = getTranslations('commerce').channels.keys.form;
   return z
     .object({
-      kind: z.enum(['publishable', 'private']),
+      kind: z.enum(['publishable', 'private', 'deploy']),
       name: z.string().trim().min(1, t.nameRequired).max(255),
       origins: z.string(),
     })

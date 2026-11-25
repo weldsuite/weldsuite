@@ -136,6 +136,10 @@ settings, which weldsuite.env adds.
 - name: OIDC_DESKTOP_CLIENT_ID
   value: {{ . | toString | quote }}
 {{- end }}
+{{- with .oidc.extensionClientId }}
+- name: OIDC_EXTENSION_CLIENT_ID
+  value: {{ . | toString | quote }}
+{{- end }}
 {{- $weldid := eq ($.Values.config.identity.provider | default "") "weldid" }}
 {{- with .oidc.signIn }}
 {{- if and (eq . "platform") $weldid }}
@@ -228,6 +232,7 @@ settings, which weldsuite.env adds.
 - name: NATS_PANEL_EVENTS_MAX_AGE_DAYS
   value: {{ .Values.config.panel.eventsMaxAgeDays | quote }}
 {{- include "weldsuite.panelDomainsEnv" . }}
+{{- include "weldsuite.storefrontEnv" . }}
 {{- with .Values.config.jobs }}
 {{- $ingressUrl := include "weldsuite.restate.ingressUrl" $ }}
 {{- $adminUrl := include "weldsuite.restate.adminUrl" $ }}
@@ -580,16 +585,150 @@ Service, which the Ingresses it creates route to, the issuer and the class.
 {{- end }}
 
 {{- /*
-A CEL condition: every label in .labels is on .object's metadata (default
-variables.target), for the panel domains' admission policy.
+WeldCommerce's custom shop domains (storefront.customDomains): "true" when
+the storefront is on and its custom domains are, with a CNAME target
+(templates/storefront.yaml fails without one).
 */}}
-{{- define "weldsuite.panelDomains.labelCheck" -}}
-{{- $object := .object | default "variables.target" }}
-{{- $checks := list }}
-{{- range $key, $value := .labels }}
-{{- $checks = append $checks (printf "'%s' in %s.metadata.labels && %s.metadata.labels['%s'] == '%s'" $key $object $object $key $value) }}
+{{- define "weldsuite.storefrontDomains.enabled" -}}
+{{- if .Values.storefront.enabled }}
+{{- with .Values.storefront.customDomains }}
+{{- if and .enabled .cnameTarget }}true{{ end }}
 {{- end }}
-{{- join " && " $checks }}
+{{- end }}
+{{- end }}
+
+{{- /*
+"true" when the server creates Certificates and Ingresses for customers' host
+names of any kind: the custom-domains Role, RoleBinding and admission policy
+(templates/custom-domains.yaml) and the service-account token.
+*/}}
+{{- define "weldsuite.customDomains.enabled" -}}
+{{- if or (eq (include "weldsuite.panelDomains.enabled" .) "true") (eq (include "weldsuite.storefrontDomains.enabled" .) "true") }}true{{ end }}
+{{- end }}
+
+{{- /*
+The kinds of custom domain that are on, as a JSON list of { component, issuer,
+issuerKind, admissionPolicy }: the component label the server's objects of
+that kind carry (keep in step with the profiles in Rust: LABELS in
+rust/modules/panel/src/monitor/cert_manager.rs, the storefront Profile in
+rust/bins/weldsuite/src/storefront.rs), and their issuer.
+*/}}
+{{- define "weldsuite.customDomains.profiles" -}}
+{{- $profiles := list }}
+{{- if eq (include "weldsuite.panelDomains.enabled" .) "true" }}
+{{- with .Values.config.panel.customDomains }}
+{{- $profiles = append $profiles (dict "component" "panel-collector-domain" "issuer" .issuerRef.name "issuerKind" .issuerRef.kind "admissionPolicy" (.admissionPolicy | default dict).enabled) }}
+{{- end }}
+{{- end }}
+{{- if eq (include "weldsuite.storefrontDomains.enabled" .) "true" }}
+{{- with .Values.storefront.customDomains }}
+{{- $profiles = append $profiles (dict "component" "storefront-host" "issuer" .issuerRef.name "issuerKind" .issuerRef.kind "admissionPolicy" (.admissionPolicy | default dict).enabled) }}
+{{- end }}
+{{- end }}
+{{- toJson $profiles }}
+{{- end }}
+
+{{- /*
+A CEL condition: .object (default variables.target) carries the server's
+managed-by label and the component label of one of .components, for the
+custom domains' admission policy.
+*/}}
+{{- define "weldsuite.customDomains.labelCheck" -}}
+{{- $o := .object | default "variables.target" }}
+{{- $quoted := list }}
+{{- range .components }}
+{{- $quoted = append $quoted (printf "'%s'" .) }}
+{{- end }}
+{{- $component := printf "%s.metadata.labels['app.kubernetes.io/component']" $o }}
+{{- $match := ternary (printf "%s == %s" $component (first $quoted)) (printf "%s in [%s]" $component (join ", " $quoted)) (eq (len $quoted) 1) }}
+{{- printf "has(%s.metadata.labels) && 'app.kubernetes.io/component' in %s.metadata.labels && %s && 'app.kubernetes.io/managed-by' in %s.metadata.labels && %s.metadata.labels['app.kubernetes.io/managed-by'] == 'weldsuite'" $o $o $match $o $o }}
+{{- end }}
+
+{{- /*
+storefront as the STOREFRONT_* settings every pod running the binary reads
+(rust/bins/weldsuite/src/storefront.rs): the free addresses' domain, the
+scheme and the custom shop domains, which the storefront-hosts job needs as
+much as the server. The edge's address, the renderer's URL and the editor's
+origins are the server's alone (templates/deployment.yaml), and
+STOREFRONT_RENDERER_SECRET comes from the Secret.
+*/}}
+{{- define "weldsuite.storefrontEnv" -}}
+{{- if .Values.storefront.enabled }}
+{{- with .Values.storefront.baseDomain }}
+- name: STOREFRONT_BASE_DOMAIN
+  value: {{ . | quote }}
+{{- end }}
+- name: STOREFRONT_SCHEME
+  value: {{ .Values.storefront.scheme | default "https" | quote }}
+{{- if eq (include "weldsuite.storefrontDomains.enabled" .) "true" }}
+{{- with .Values.storefront.customDomains }}
+- name: STOREFRONT_CUSTOM_DOMAINS
+  value: "cert-manager"
+- name: STOREFRONT_CNAME_TARGET
+  value: {{ .cnameTarget | quote }}
+{{- with .apexAddresses }}
+- name: STOREFRONT_APEX_ADDRESSES
+  value: {{ join "," . | quote }}
+{{- end }}
+- name: STOREFRONT_DOMAINS_NAMESPACE
+  value: {{ $.Release.Namespace | quote }}
+- name: STOREFRONT_DOMAINS_SERVICE
+  value: {{ include "weldsuite.fullname" $ | quote }}
+{{- /* The edge's listener, never the platform's port (templates/service.yaml). */}}
+- name: STOREFRONT_DOMAINS_SERVICE_PORT
+  value: "storefront"
+{{- with (.ingressClassName | default $.Values.storefront.ingress.className | default $.Values.ingress.className) }}
+- name: STOREFRONT_DOMAINS_INGRESS_CLASS
+  value: {{ . | quote }}
+{{- end }}
+- name: STOREFRONT_DOMAINS_ISSUER
+  value: {{ .issuerRef.name | quote }}
+- name: STOREFRONT_DOMAINS_ISSUER_KIND
+  value: {{ .issuerRef.kind | quote }}
+{{- with .dnsResolver }}
+- name: STOREFRONT_DNS_RESOLVER
+  value: {{ . | quote }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
+
+{{- define "weldsuite.storefront.fullname" -}}
+{{- printf "%s-storefront" (include "weldsuite.fullname" .) | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{- define "weldsuite.storefront.selectorLabels" -}}
+app.kubernetes.io/name: {{ include "weldsuite.name" . }}
+app.kubernetes.io/instance: {{ .Release.Name }}
+app.kubernetes.io/component: storefront
+{{- end }}
+
+{{- define "weldsuite.storefront.labels" -}}
+helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" }}
+{{ include "weldsuite.storefront.selectorLabels" . }}
+app.kubernetes.io/version: {{ .Values.storefront.renderer.image.tag | default .Chart.AppVersion | quote }}
+app.kubernetes.io/managed-by: {{ .Release.Service }}
+app.kubernetes.io/part-of: weldsuite
+{{- end }}
+
+{{- /* Where the edge reaches the renderer: its Service (STOREFRONT_RENDERER_URL). */ -}}
+{{- define "weldsuite.storefront.rendererUrl" -}}
+{{- printf "http://%s.%s.svc:3000" (include "weldsuite.storefront.fullname" .) .Release.Namespace }}
+{{- end }}
+
+{{- /* Where the renderer reaches the server: its Service's http port, unless set. */ -}}
+{{- define "weldsuite.storefront.apiUrl" -}}
+{{- default (printf "http://%s.%s.svc:%v" (include "weldsuite.fullname" .) .Release.Namespace .Values.service.port) .Values.storefront.renderer.apiUrl }}
+{{- end }}
+
+{{- /* Who may frame a preview (STOREFRONT_EDITOR_ORIGINS), the same for the server and the renderer: storefront.editorOrigins, else config.publicUrl. */ -}}
+{{- define "weldsuite.storefront.editorOrigins" -}}
+{{- if .Values.storefront.editorOrigins }}
+{{- join "," .Values.storefront.editorOrigins }}
+{{- else if .Values.config.publicUrl }}
+{{- trimSuffix "/" .Values.config.publicUrl }}
+{{- end }}
 {{- end }}
 
 {{- /* The sandbox pods' image; the admission policy admits only it. */}}
@@ -871,7 +1010,12 @@ Called with (list $ "valkey").
 {{- end }}
 
 {{- define "weldsuite.generatedSecretKeys" -}}
-{{- toJson (list "SIGN_SESSION_SECRET" "SIGN_PORTAL_SECRET" "STORAGE_SIGNING_KEY" "REALTIME_INTERNAL_SECRET" "WIDGET_TOKEN_SECRET" "COLLAB_ROOMS_SECRET" "INTERNAL_API_SECRET" "MAIL_INBOUND_SECRET" "OUTBOUND_ADMIN_SECRET" "SANDBOX_TOKEN_SECRET" "BILLING_PAY_LINK_KEY") }}
+{{- $keys := list "SIGN_SESSION_SECRET" "SIGN_PORTAL_SECRET" "STORAGE_SIGNING_KEY" "REALTIME_INTERNAL_SECRET" "WIDGET_TOKEN_SECRET" "COLLAB_ROOMS_SECRET" "INTERNAL_API_SECRET" "MAIL_INBOUND_SECRET" "OUTBOUND_ADMIN_SECRET" "SANDBOX_TOKEN_SECRET" "BILLING_PAY_LINK_KEY" }}
+{{- /* Only with the renderer: the server tells the platform a renderer exists when it has this key. */}}
+{{- if .Values.storefront.enabled }}
+{{- $keys = append $keys "STOREFRONT_RENDERER_SECRET" }}
+{{- end }}
+{{- toJson $keys }}
 {{- end }}
 
 {{- /*

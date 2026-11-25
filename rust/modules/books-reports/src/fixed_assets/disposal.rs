@@ -5,18 +5,21 @@
 //! gain or loss). Tax books post nothing; the result reports their gain and
 //! the section 1245 / 1250 recapture.
 
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter};
 use serde_json::{Value, json};
 use sqlx::PgPool;
 use weldsuite_books_domain::dates::{add_days, is_iso_date};
 use weldsuite_books_domain::depreciation::{DisposalGain, gain_on_disposal};
 use weldsuite_books_domain::guards::{PostingCheck, PostingLockKind, assert_posting_allowed};
-use weldsuite_books_domain::http::now;
 use weldsuite_books_domain::js::{math_round, number_value};
 use weldsuite_books_domain::posting::{
     AlsoWrite, PostJournalEntryInput, PostingLine, account_for_role, load_entity_accounts,
     post_journal_entry,
 };
 use weldsuite_books_domain::reports_basis::periods::fiscal_config_of;
+use weldsuite_db::OrmConn;
+use weldsuite_schema::tenant::{fixed_asset_depreciation, fixed_assets};
 
 use super::assets::{
     assert_posted_match, load_asset, load_books, load_entity, load_ledger_rows,
@@ -30,6 +33,7 @@ use super::schedules::{annual_schedule, business_use, ledger_rows};
 use super::shared::{
     Fail, bad, conflict, from_cents, money, not_found, num, opt, present, text, to_cents,
 };
+use crate::rows::{date_of, decimal_of};
 
 /// `DisposeInput`.
 pub(crate) struct DisposeInput {
@@ -294,35 +298,45 @@ pub(crate) async fn dispose_fixed_asset(
     }
 
     let stub_ids: Vec<String> = stub.iter().map(|p| text(&p.row, "id").to_owned()).collect();
-    let at = now();
+    let at = weldsuite_db::utc_now();
     let write_id = asset_id.to_owned();
-    let write_date = input.date.clone();
-    let write_proceeds = money(proceeds_cents);
+    // `$n::date` and `$n::numeric` of the texts the statement bound.
+    let write_date = date_of(&input.date)?;
+    let write_proceeds = decimal_of(&money(proceeds_cents))?;
     let also: AlsoWrite = Box::new(move |conn, entry| {
         Box::pin(async move {
-            if !stub_ids.is_empty() {
-                sqlx::query(
-                    "update fixed_asset_depreciation set journal_entry_id = $1 where id = any($2)",
-                )
-                .bind(&entry.journal_entry_id)
-                .bind(&stub_ids)
-                .execute(&mut *conn)
-                .await?;
+            let tx = OrmConn::new(conn);
+            let written: Result<(), DbErr> = async {
+                if !stub_ids.is_empty() {
+                    fixed_asset_depreciation::Entity::update_many()
+                        .col_expr(
+                            fixed_asset_depreciation::Column::JournalEntryId,
+                            Expr::value(entry.journal_entry_id.clone()),
+                        )
+                        .filter(fixed_asset_depreciation::Column::Id.is_in(stub_ids))
+                        .exec(&tx)
+                        .await?;
+                }
+                write_dimensions(&tx, &entry.journal_entry_id, &dimensions).await?;
+                fixed_assets::Entity::update_many()
+                    .col_expr(fixed_assets::Column::Status, Expr::value("disposed"))
+                    .col_expr(fixed_assets::Column::DisposalDate, Expr::value(write_date))
+                    .col_expr(
+                        fixed_assets::Column::DisposalProceeds,
+                        Expr::value(write_proceeds),
+                    )
+                    .col_expr(
+                        fixed_assets::Column::DisposalJournalEntryId,
+                        Expr::value(entry.journal_entry_id.clone()),
+                    )
+                    .col_expr(fixed_assets::Column::UpdatedAt, Expr::value(at))
+                    .filter(fixed_assets::Column::Id.eq(write_id))
+                    .exec(&tx)
+                    .await?;
+                Ok(())
             }
-            write_dimensions(conn, &entry.journal_entry_id, &dimensions).await?;
-            sqlx::query(
-                "update fixed_assets set status = 'disposed', disposal_date = $1::date, \
-                 disposal_proceeds = $2::numeric, disposal_journal_entry_id = $3, \
-                 updated_at = $4::timestamp where id = $5",
-            )
-            .bind(&write_date)
-            .bind(&write_proceeds)
-            .bind(&entry.journal_entry_id)
-            .bind(&at)
-            .bind(&write_id)
-            .execute(&mut *conn)
-            .await?;
-            Ok(())
+            .await;
+            written
         })
     });
     let posted = post_journal_entry(

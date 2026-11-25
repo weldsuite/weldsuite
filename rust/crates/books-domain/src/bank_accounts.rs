@@ -8,10 +8,12 @@
 //! leaves the server except through [`reveal_account_number`], which writes
 //! the reveal log first.
 
+use sea_orm::ActiveValue::Set;
+use sea_orm::{ColumnTrait, ConnectionTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
-use sqlx::PgPool;
-use weldsuite_db::{Keyring, decrypt_field, encrypt_field};
+use weldsuite_db::{Keyring, PgPool, decrypt_field, encrypt_field, orm};
 use weldsuite_kit::generate_id;
+use weldsuite_schema::tenant::{accounts, bank_accounts, entities, tax_id_reveals};
 
 use crate::document_posting::text;
 use crate::http::now;
@@ -42,11 +44,11 @@ pub enum BankAccountError {
     /// A stored number that does not open (wrong key, damaged blob): the
     /// route's own 500.
     Unreadable(String),
-    Database(sqlx::Error),
+    Database(DbErr),
 }
 
-impl From<sqlx::Error> for BankAccountError {
-    fn from(error: sqlx::Error) -> Self {
+impl From<DbErr> for BankAccountError {
+    fn from(error: DbErr) -> Self {
         Self::Database(error)
     }
 }
@@ -169,16 +171,17 @@ pub async fn reveal_account_number(
         ));
     };
     let keyring = require_keyring(keyring)?;
-    sqlx::query(
-        "insert into tax_id_reveals (id, entity_id, subject_type, subject_id, field, revealed_by, reason) \
-         values ($1, $2, 'bank_account', $3, 'account_number', $4, $5)",
-    )
-    .bind(generate_id("tir"))
-    .bind(text(account, "entityId"))
-    .bind(text(account, "id"))
-    .bind(user_id)
-    .bind(reason.map(|reason| slice_utf16(reason, 255)))
-    .execute(db)
+    tax_id_reveals::Entity::insert(tax_id_reveals::ActiveModel {
+        id: Set(generate_id("tir")),
+        entity_id: Set(text(account, "entityId").map(str::to_owned)),
+        subject_type: Set("bank_account".to_owned()),
+        subject_id: Set(text(account, "id").unwrap_or_default().to_owned()),
+        field: Set("account_number".to_owned()),
+        revealed_by: Set(user_id.to_owned()),
+        reason: Set(reason.map(|reason| slice_utf16(reason, 255))),
+        ..Default::default()
+    })
+    .exec_without_returning(&orm(db))
     .await?;
     let account_number = decrypt_field(encrypted, keyring)
         .map_err(|error| BankAccountError::Unreadable(format!("{error:?}")))?;
@@ -189,6 +192,23 @@ pub async fn reveal_account_number(
 }
 
 // ── Ledger account behind a bank account ────────────────────────────────────
+
+/// A row as Drizzle returns it.
+fn js<M: serde::Serialize>(model: M) -> Result<Value, DbErr> {
+    serde_json::to_value(model).map_err(|error| DbErr::Json(error.to_string()))
+}
+
+/// The entity's live chart of accounts, as Drizzle returns the rows.
+async fn load_chart(db: &PgPool, entity_id: &str) -> Result<Vec<Value>, DbErr> {
+    accounts::Entity::find()
+        .filter(accounts::Column::EntityId.eq(entity_id))
+        .filter(accounts::Column::DeletedAt.is_null())
+        .all(&orm(db))
+        .await?
+        .into_iter()
+        .map(js)
+        .collect()
+}
 
 /// `numericCode`: an all-digit code as a number.
 fn numeric_code(code: &str) -> Option<f64> {
@@ -273,22 +293,16 @@ pub async fn plan_bank_ledger_account(
     name: &str,
     account_type: &str,
     currency: &str,
-) -> Result<BankLedgerPlan, sqlx::Error> {
-    let chart: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        crate::books_row!(accounts),
-        " from accounts t where t.entity_id = $1 and t.deleted_at is null"
-    ))
-    .bind(entity_id)
-    .fetch_all(db)
-    .await?;
-    let chart = ACCOUNTS.js_rows(chart);
-    let linked: Vec<Option<String>> = sqlx::query_scalar(
-        "select ledger_account_id from bank_accounts where entity_id = $1 and deleted_at is null",
-    )
-    .bind(entity_id)
-    .fetch_all(db)
-    .await?;
+) -> Result<BankLedgerPlan, DbErr> {
+    let chart = load_chart(db, entity_id).await?;
+    let linked: Vec<Option<String>> = bank_accounts::Entity::find()
+        .select_only()
+        .column(bank_accounts::Column::LedgerAccountId)
+        .filter(bank_accounts::Column::EntityId.eq(entity_id))
+        .filter(bank_accounts::Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     let linked: Vec<String> = linked
         .into_iter()
         .flatten()
@@ -403,39 +417,44 @@ pub async fn plan_default_bank_ledger_account(
     name: &str,
     account_type: Option<&str>,
     currency: &str,
-) -> Result<BankLedgerPlan, sqlx::Error> {
+) -> Result<BankLedgerPlan, DbErr> {
     let given = account_type.filter(|t| !t.is_empty());
     let account_type = given.unwrap_or("checking");
     if given.is_none() {
-        let jurisdiction: Option<String> =
-            sqlx::query_scalar("select jurisdiction_code from entities where id = $1 limit 1")
-                .bind(entity_id)
-                .fetch_optional(db)
-                .await?;
+        let orm = orm(db);
+        let jurisdiction: Option<String> = entities::Entity::find()
+            .select_only()
+            .column(entities::Column::JurisdictionCode)
+            .filter(entities::Column::Id.eq(entity_id))
+            .into_tuple()
+            .one(&orm)
+            .await?;
         let code = if jurisdiction.as_deref() == Some("IN") {
             "1200"
         } else {
             "1100"
         };
-        let template: Vec<Value> = sqlx::query_scalar(concat!(
-            "select ",
-            crate::books_row!(accounts),
-            " from accounts t where t.entity_id = $1 and t.code = $2 and t.type = 'asset' \
-             and t.subtype = 'bank' and t.deleted_at is null limit 1"
-        ))
-        .bind(entity_id)
-        .bind(code)
-        .fetch_all(db)
-        .await?;
-        if let Some(template) = ACCOUNTS.js_rows(template).into_iter().next()
+        let template = accounts::Entity::find()
+            .filter(accounts::Column::EntityId.eq(entity_id))
+            .filter(accounts::Column::Code.eq(code))
+            .filter(accounts::Column::Type.eq("asset"))
+            .filter(accounts::Column::Subtype.eq("bank"))
+            .filter(accounts::Column::DeletedAt.is_null())
+            .one(&orm)
+            .await?
+            .map(js)
+            .transpose()?;
+        if let Some(template) = template
             && template.get("isActive") != Some(&Value::Bool(false))
         {
-            let taken: Option<i32> = sqlx::query_scalar(
-                "select 1 from bank_accounts where ledger_account_id = $1 and deleted_at is null limit 1",
-            )
-            .bind(text(&template, "id"))
-            .fetch_optional(db)
-            .await?;
+            let taken: Option<String> = bank_accounts::Entity::find()
+                .select_only()
+                .column(bank_accounts::Column::Id)
+                .filter(bank_accounts::Column::LedgerAccountId.eq(text(&template, "id")))
+                .filter(bank_accounts::Column::DeletedAt.is_null())
+                .into_tuple()
+                .one(&orm)
+                .await?;
             if taken.is_none() {
                 return Ok(BankLedgerPlan::Existing(template));
             }
@@ -444,12 +463,13 @@ pub async fn plan_default_bank_ledger_account(
     plan_bank_ledger_account(db, entity_id, name, account_type, currency).await
 }
 
-/// Insert a planned ledger account ([`BankLedgerPlan::New`]).
-pub async fn insert_ledger_account<'e>(
-    db: impl sqlx::PgExecutor<'e>,
+/// Insert a planned ledger account ([`BankLedgerPlan::New`]), on the
+/// caller's connection (`OrmConn` in its transaction).
+pub async fn insert_ledger_account<C: ConnectionTrait>(
+    db: &C,
     row: &Map<String, Value>,
-) -> Result<(), sqlx::Error> {
-    ACCOUNTS.insert_raw(db, ACCOUNTS.values(row)).await?;
+) -> Result<(), DbErr> {
+    ACCOUNTS.insert_raw_on(db, ACCOUNTS.values(row)).await?;
     Ok(())
 }
 
@@ -464,16 +484,8 @@ pub async fn create_ledger_account_for_bank(
     name: &str,
     account_type: &str,
     currency: &str,
-) -> Result<String, sqlx::Error> {
-    let rows: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        crate::books_row!(accounts),
-        " from accounts t where t.entity_id = $1 and t.deleted_at is null"
-    ))
-    .bind(entity_id)
-    .fetch_all(db)
-    .await?;
-    let rows = ACCOUNTS.js_rows(rows);
+) -> Result<String, DbErr> {
+    let rows = load_chart(db, entity_id).await?;
     let taken: Vec<&str> = rows.iter().filter_map(|r| text(r, "code")).collect();
     let liability = is_liability_account_type(Some(account_type));
     let codes_of = |accounts: Vec<&Value>| -> Vec<f64> {
@@ -552,12 +564,12 @@ pub async fn create_ledger_account_for_bank(
     );
     row.insert("createdAt".to_owned(), json!(stamp));
     row.insert("updatedAt".to_owned(), json!(stamp));
-    insert_ledger_account(db, &row).await?;
+    insert_ledger_account(&orm(db), &row).await?;
     Ok(id)
 }
 
 /// A live bank account as Drizzle returns it (`deleted_at is null`).
-pub async fn find_bank_account(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
+pub async fn find_bank_account(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
     BANK_ACCOUNTS.find_live(db, id).await
 }
 

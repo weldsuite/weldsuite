@@ -12,19 +12,21 @@ use axum::extract::{Path, RawQuery};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use http::HeaderMap;
+use sea_orm::DbErr;
 use serde_json::{Map, Value, json};
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm_error};
 use weldsuite_kit::ApiError;
 use weldsuite_kit::validation::{Format, Issues, Number, Presence, Text, string_or_number_issue};
 use weldsuite_ports::OutboundHttp;
 
 use crate::PersonalState;
+use crate::booking_pages::cursor_of;
 use crate::caller::{Caller, Failure, answer, created, data, rows, validate, validate_query};
 use crate::events::page;
 use crate::js::{js_trim, now_iso};
 use crate::mail_send::{
-    Compose, ForwardBody, ReplyBody, SendContext, forward_and_persist, reply_and_persist,
-    require_message, send_and_persist, send_error_response,
+    Compose, ForwardBody, ReplyBody, SendContext, forward_and_persist, message_row,
+    reply_and_persist, require_message, send_and_persist, send_error_response,
 };
 
 pub(crate) fn routes() -> Router<Arc<PersonalState>> {
@@ -123,48 +125,21 @@ async fn list_messages(caller: Caller, RawQuery(raw): RawQuery) -> Response {
     let ascending = thread.is_some();
     let result = async {
         let db = caller.personal()?;
-        let cursor = match truthy(&query.cursor) {
-            Some(cursor) => {
-                let found: Option<(Value, String)> = sqlx::query_as(
-                    "select to_jsonb(m.sent_date), m.id from personal_mail_messages m where m.id = $1 limit 1",
-                )
-                .bind(&cursor)
-                .fetch_optional(db)
-                .await?;
-                found.and_then(|(at, id)| at.as_str().and_then(weldsuite_db::js_timestamp).map(|at| (at, id)))
-            }
-            None => None,
-        };
-        let (cursor_at, cursor_id) = cursor.clone().unzip();
-        let found: Vec<Value> = sqlx::query_scalar(
-            "select to_jsonb(m) from personal_mail_messages m
-             where m.personal_account_id = $1 and m.deleted_at is null
-               and ($2::text is null or m.account_id = $2)
-               and ($3::jsonb is null or m.labels @> $3::jsonb)
-               and ($4::text is null or m.thread_id = $4)
-               and (not $5 or m.is_read = false)
-               and ($6::text is null or (m.subject ilike $6 or m.preview ilike $6
-                    or m.\"from\"->>'name' ilike $6 or m.\"from\"->>'email' ilike $6))
-               and ($7::timestamp is null or (case when $9
-                    then (m.sent_date > $7::timestamp or (m.sent_date = $7::timestamp and m.id > $8))
-                    else (m.sent_date < $7::timestamp or (m.sent_date = $7::timestamp and m.id < $8)) end))
-             order by
-               case when $9 then m.sent_date end asc, case when $9 then m.id end asc,
-               case when not $9 then m.sent_date end desc, case when not $9 then m.id end desc
-             limit $10",
+        let cursor = cursor_of(
+            db,
+            "select to_jsonb(m.sent_date), m.id from personal_mail_messages m where m.id = $1 limit 1",
+            truthy(&query.cursor).as_ref(),
         )
-        .bind(&account)
-        .bind(&mailbox)
-        .bind(label.as_ref().map(|label| json!([label])))
-        .bind(&thread)
-        .bind(query.unread_only)
-        .bind(&term)
-        .bind(&cursor_at)
-        .bind(&cursor_id)
-        .bind(ascending)
-        .bind(limit + 1)
-        .fetch_all(db)
         .await?;
+        let filters = Filters {
+            account: &account,
+            mailbox: mailbox.as_deref(),
+            label: label.as_ref().map(|label| json!([label])),
+            thread: thread.as_deref(),
+            unread_only: query.unread_only,
+            term: term.as_deref(),
+        };
+        let found = list_rows(db, &filters, &cursor, ascending, limit).await?;
 
         // `filters.cursor ? conditions.slice(0, -1) : conditions`: with a
         // cursor that matched no message, the last filter goes instead.
@@ -184,34 +159,102 @@ async fn list_messages(caller: Caller, RawQuery(raw): RawQuery) -> Response {
         if term.is_some() {
             active.push("search");
         }
-        let dropped = (truthy(&query.cursor).is_some() && cursor.is_none())
+        let dropped = (truthy(&query.cursor).is_some() && cursor.0.is_none())
             .then(|| active.last().copied())
             .flatten()
             .unwrap_or("");
-        let total: i64 = sqlx::query_scalar(
-            "select count(*)::int8 from personal_mail_messages m
-             where ($7 = 'account' or m.personal_account_id = $1)
-               and ($7 = 'deleted' or m.deleted_at is null)
-               and ($2::text is null or $7 = 'mailbox' or m.account_id = $2)
-               and ($3::jsonb is null or $7 = 'label' or m.labels @> $3::jsonb)
-               and ($4::text is null or $7 = 'thread' or m.thread_id = $4)
-               and (not $5 or $7 = 'unread' or m.is_read = false)
-               and ($6::text is null or $7 = 'search' or (m.subject ilike $6 or m.preview ilike $6
-                    or m.\"from\"->>'name' ilike $6 or m.\"from\"->>'email' ilike $6))",
-        )
-        .bind(&account)
-        .bind(&mailbox)
-        .bind(label.as_ref().map(|label| json!([label])))
-        .bind(&thread)
-        .bind(query.unread_only)
-        .bind(&term)
-        .bind(dropped)
-        .fetch_one(db)
-        .await?;
+        let total = count_rows(db, &filters, dropped).await?;
         Ok(page(rows(found), limit, total))
     }
     .await;
     answer(result, "Failed to list messages")
+}
+
+/// The list's filters, as the queries bind them.
+struct Filters<'a> {
+    account: &'a str,
+    mailbox: Option<&'a str>,
+    /// `[label]`, for `labels @>`.
+    label: Option<Value>,
+    thread: Option<&'a str>,
+    unread_only: bool,
+    /// The escaped `%search%`.
+    term: Option<&'a str>,
+}
+
+/// The live messages in the filters, newest first (a thread oldest first),
+/// after the cursor: one more than `limit`.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "the personal database has no entities: its schema is still Drizzle's and retires with the consumer product (ADR OPS-025)"
+)]
+async fn list_rows(
+    db: &PgPool,
+    filters: &Filters<'_>,
+    cursor: &(Option<String>, Option<String>),
+    ascending: bool,
+    limit: i64,
+) -> Result<Vec<Value>, DbErr> {
+    sqlx::query_scalar(
+        "select to_jsonb(m) from personal_mail_messages m
+         where m.personal_account_id = $1 and m.deleted_at is null
+           and ($2::text is null or m.account_id = $2)
+           and ($3::jsonb is null or m.labels @> $3::jsonb)
+           and ($4::text is null or m.thread_id = $4)
+           and (not $5 or m.is_read = false)
+           and ($6::text is null or (m.subject ilike $6 or m.preview ilike $6
+                or m.\"from\"->>'name' ilike $6 or m.\"from\"->>'email' ilike $6))
+           and ($7::timestamp is null or (case when $9
+                then (m.sent_date > $7::timestamp or (m.sent_date = $7::timestamp and m.id > $8))
+                else (m.sent_date < $7::timestamp or (m.sent_date = $7::timestamp and m.id < $8)) end))
+         order by
+           case when $9 then m.sent_date end asc, case when $9 then m.id end asc,
+           case when not $9 then m.sent_date end desc, case when not $9 then m.id end desc
+         limit $10",
+    )
+    .bind(filters.account)
+    .bind(filters.mailbox)
+    .bind(&filters.label)
+    .bind(filters.thread)
+    .bind(filters.unread_only)
+    .bind(filters.term)
+    .bind(&cursor.0)
+    .bind(&cursor.1)
+    .bind(ascending)
+    .bind(limit + 1)
+    .fetch_all(db)
+    .await
+    .map_err(orm_error)
+}
+
+/// The messages' total, without the filter named by `dropped` (a cursor
+/// that matched no message drops the last one; `""` drops none).
+#[allow(
+    clippy::disallowed_methods,
+    reason = "the personal database has no entities: its schema is still Drizzle's and retires with the consumer product (ADR OPS-025)"
+)]
+async fn count_rows(db: &PgPool, filters: &Filters<'_>, dropped: &str) -> Result<i64, DbErr> {
+    sqlx::query_scalar(
+        "select count(*)::int8 from personal_mail_messages m
+         where ($7 = 'account' or m.personal_account_id = $1)
+           and ($7 = 'deleted' or m.deleted_at is null)
+           and ($2::text is null or $7 = 'mailbox' or m.account_id = $2)
+           and ($3::jsonb is null or $7 = 'label' or m.labels @> $3::jsonb)
+           and ($4::text is null or $7 = 'thread' or m.thread_id = $4)
+           and (not $5 or $7 = 'unread' or m.is_read = false)
+           and ($6::text is null or $7 = 'search' or (m.subject ilike $6 or m.preview ilike $6
+                or m.\"from\"->>'name' ilike $6 or m.\"from\"->>'email' ilike $6))",
+    )
+    .bind(filters.account)
+    .bind(filters.mailbox)
+    .bind(&filters.label)
+    .bind(filters.thread)
+    .bind(filters.unread_only)
+    .bind(filters.term)
+    .bind(dropped)
+    .fetch_one(db)
+    .await
+    .map_err(orm_error)
 }
 
 /// `GET /api/mail/messages/unread-count`: the inbox badge, per mailbox.
@@ -221,15 +264,7 @@ async fn unread_count(caller: Caller) -> Response {
         Err(response) => return response,
     };
     let result = async {
-        let counts: Vec<(String, i64)> = sqlx::query_as(
-            "select account_id, count(*)::int8 from personal_mail_messages
-             where personal_account_id = $1 and is_read = false and is_trash = false
-               and deleted_at is null and labels @> '[\"INBOX\"]'::jsonb
-             group by account_id",
-        )
-        .bind(&account)
-        .fetch_all(caller.personal()?)
-        .await?;
+        let counts = unread_by_mailbox(caller.personal()?, &account).await?;
         let mut by_account = Map::new();
         let mut total = 0;
         for (mailbox, count) in counts {
@@ -240,6 +275,24 @@ async fn unread_count(caller: Caller) -> Response {
     }
     .await;
     answer(result, "Failed to count unread messages")
+}
+
+/// The account's unread inbox messages, per mailbox.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "the personal database has no entities: its schema is still Drizzle's and retires with the consumer product (ADR OPS-025)"
+)]
+async fn unread_by_mailbox(db: &PgPool, account: &str) -> Result<Vec<(String, i64)>, DbErr> {
+    sqlx::query_as(
+        "select account_id, count(*)::int8 from personal_mail_messages
+         where personal_account_id = $1 and is_read = false and is_trash = false
+           and deleted_at is null and labels @> '[\"INBOX\"]'::jsonb
+         group by account_id",
+    )
+    .bind(account)
+    .fetch_all(db)
+    .await
+    .map_err(orm_error)
 }
 
 /// The issues of the body's unions, each with the microtask turn it
@@ -549,19 +602,29 @@ async fn attachments(caller: Caller, Path(id): Path<String>) -> Response {
         return send_error_response(error, "Failed to list attachments");
     }
     let result = async {
-        let found: Vec<Value> = sqlx::query_scalar(
-            "select to_jsonb(a) from personal_mail_attachments a
-             where a.message_id = $1 and a.personal_account_id = $2 and a.deleted_at is null
-             order by a.created_at",
-        )
-        .bind(&id)
-        .bind(&account)
-        .fetch_all(&db)
-        .await?;
+        let found = attachment_rows(&db, &account, &id).await?;
         Ok(data(Value::Array(rows(found))))
     }
     .await;
     answer(result, "Failed to list attachments")
+}
+
+/// The message's live attachments, oldest first.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "the personal database has no entities: its schema is still Drizzle's and retires with the consumer product (ADR OPS-025)"
+)]
+async fn attachment_rows(db: &PgPool, account: &str, message: &str) -> Result<Vec<Value>, DbErr> {
+    sqlx::query_scalar(
+        "select to_jsonb(a) from personal_mail_attachments a
+         where a.message_id = $1 and a.personal_account_id = $2 and a.deleted_at is null
+         order by a.created_at",
+    )
+    .bind(message)
+    .bind(account)
+    .fetch_all(db)
+    .await
+    .map_err(orm_error)
 }
 
 /// `GET /api/mail/messages/:id`.
@@ -571,16 +634,8 @@ async fn get_one(caller: Caller, Path(id): Path<String>) -> Response {
         Err(response) => return response,
     };
     let result = async {
-        let found: Option<Value> = sqlx::query_scalar(
-            "select to_jsonb(m) from personal_mail_messages m
-             where m.id = $1 and m.personal_account_id = $2 and m.deleted_at is null limit 1",
-        )
-        .bind(&id)
-        .bind(&account)
-        .fetch_optional(caller.personal()?)
-        .await?;
-        match found {
-            Some(row) => Ok(data(weldsuite_db::js_row(row))),
+        match message_row(caller.personal()?, &account, &id).await? {
+            Some(row) => Ok(data(row)),
             None => Err(ApiError::not_found("Message", Some(&id)).into()),
         }
     }
@@ -693,15 +748,7 @@ async fn update(
     }
     let result = async {
         let db = caller.personal()?;
-        let existing: Option<Value> = sqlx::query_scalar(
-            "select coalesce(labels, '[]'::jsonb) from personal_mail_messages
-             where id = $1 and personal_account_id = $2 and deleted_at is null limit 1",
-        )
-        .bind(&id)
-        .bind(&account)
-        .fetch_optional(db)
-        .await?;
-        let Some(existing) = existing else {
+        let Some(existing) = labels_of(db, &account, &id).await? else {
             return Err(Failure::from(ApiError::not_found("Message", Some(&id))));
         };
         let current: Vec<String> = existing
@@ -715,27 +762,7 @@ async fn update(
             })
             .unwrap_or_default();
         let (is_spam, labels) = next_labels(&input, &current);
-        let updated: Value = sqlx::query_scalar(
-            "update personal_mail_messages m set
-               updated_at = $2::timestamp,
-               is_read = coalesce($3, is_read),
-               is_starred = coalesce($4, is_starred),
-               is_trash = coalesce($5, is_trash),
-               is_spam = coalesce($6, is_spam),
-               labels = case when $7 then $8::jsonb else labels end
-             where m.id = $1
-             returning to_jsonb(m)",
-        )
-        .bind(&id)
-        .bind(now_iso())
-        .bind(input.is_read)
-        .bind(input.is_starred)
-        .bind(input.is_trash)
-        .bind(is_spam)
-        .bind(labels.is_some())
-        .bind(labels.as_ref().map(|labels| json!(labels)))
-        .fetch_one(db)
-        .await?;
+        let updated = update_flags(db, &id, &input, is_spam, labels.as_deref()).await?;
         // `patchClearsUnreadBanner(patch)`.
         let clears = input.is_read == Some(true)
             || input.is_trash == Some(true)
@@ -750,6 +777,60 @@ async fn update(
     }
     .await;
     answer(result, "Failed to update message")
+}
+
+/// The live message's labels (`[]` when null), or `None`.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "the personal database has no entities: its schema is still Drizzle's and retires with the consumer product (ADR OPS-025)"
+)]
+async fn labels_of(db: &PgPool, account: &str, id: &str) -> Result<Option<Value>, DbErr> {
+    sqlx::query_scalar(
+        "select coalesce(labels, '[]'::jsonb) from personal_mail_messages
+         where id = $1 and personal_account_id = $2 and deleted_at is null limit 1",
+    )
+    .bind(id)
+    .bind(account)
+    .fetch_optional(db)
+    .await
+    .map_err(orm_error)
+}
+
+/// The flags the body set and the labels `buildMessagePatch` worked out, as
+/// `to_jsonb` writes the row.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "the personal database has no entities: its schema is still Drizzle's and retires with the consumer product (ADR OPS-025)"
+)]
+async fn update_flags(
+    db: &PgPool,
+    id: &str,
+    input: &MessageUpdate,
+    is_spam: Option<bool>,
+    labels: Option<&[String]>,
+) -> Result<Value, DbErr> {
+    sqlx::query_scalar(
+        "update personal_mail_messages m set
+           updated_at = $2::timestamp,
+           is_read = coalesce($3, is_read),
+           is_starred = coalesce($4, is_starred),
+           is_trash = coalesce($5, is_trash),
+           is_spam = coalesce($6, is_spam),
+           labels = case when $7 then $8::jsonb else labels end
+         where m.id = $1
+         returning to_jsonb(m)",
+    )
+    .bind(id)
+    .bind(now_iso())
+    .bind(input.is_read)
+    .bind(input.is_starred)
+    .bind(input.is_trash)
+    .bind(is_spam)
+    .bind(labels.is_some())
+    .bind(labels.map(|labels| json!(labels)))
+    .fetch_one(db)
+    .await
+    .map_err(orm_error)
 }
 
 /// `IDS_PER_PUSH`.
@@ -800,25 +881,11 @@ async fn send_personal_read_push(
         return;
     }
     let run = async {
-        let tokens: Vec<String> = sqlx::query_scalar(
-            "select token from personal_device_tokens
-             where clerk_user_id = $1 and app_code = 'weldmail' and is_active is null",
-        )
-        .bind(user)
-        .fetch_all(db)
-        .await?;
+        let tokens = push_tokens(db, user).await?;
         if tokens.is_empty() {
-            return Ok::<(), sqlx::Error>(());
+            return Ok::<(), DbErr>(());
         }
-        let unread = match sqlx::query_scalar::<_, i64>(
-            "select count(*)::int8 from personal_mail_messages
-             where personal_account_id = $1 and is_read = false and is_trash = false
-               and deleted_at is null and labels @> '[\"INBOX\"]'::jsonb",
-        )
-        .bind(account)
-        .fetch_one(db)
-        .await
-        {
+        let unread = match inbox_unread(db, account).await {
             Ok(count) => Some(count),
             Err(error) => {
                 tracing::error!(%error, "[MailReadPush] Failed to count unread inbox messages");
@@ -834,16 +901,7 @@ async fn send_personal_read_push(
             }
         }
         for token in invalid {
-            let now = now_iso();
-            if let Err(error) = sqlx::query(
-                "update personal_device_tokens set is_active = $2::timestamp, updated_at = $2::timestamp
-                 where token = $1",
-            )
-            .bind(&token)
-            .bind(&now)
-            .execute(db)
-            .await
-            {
+            if let Err(error) = deactivate_token(db, &token).await {
                 tracing::error!(%error, "[MailReadPush] Failed to deactivate token");
             }
         }
@@ -852,6 +910,58 @@ async fn send_personal_read_push(
     if let Err(error) = run.await {
         tracing::error!(%error, "[MailReadPush] Personal push failed for {user}");
     }
+}
+
+/// The user's active WeldMail push tokens.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "the personal database has no entities: its schema is still Drizzle's and retires with the consumer product (ADR OPS-025)"
+)]
+async fn push_tokens(db: &PgPool, user: &str) -> Result<Vec<String>, DbErr> {
+    sqlx::query_scalar(
+        "select token from personal_device_tokens
+         where clerk_user_id = $1 and app_code = 'weldmail' and is_active is null",
+    )
+    .bind(user)
+    .fetch_all(db)
+    .await
+    .map_err(orm_error)
+}
+
+/// The account's unread inbox messages (the badge).
+#[allow(
+    clippy::disallowed_methods,
+    reason = "the personal database has no entities: its schema is still Drizzle's and retires with the consumer product (ADR OPS-025)"
+)]
+async fn inbox_unread(db: &PgPool, account: &str) -> Result<i64, DbErr> {
+    sqlx::query_scalar(
+        "select count(*)::int8 from personal_mail_messages
+         where personal_account_id = $1 and is_read = false and is_trash = false
+           and deleted_at is null and labels @> '[\"INBOX\"]'::jsonb",
+    )
+    .bind(account)
+    .fetch_one(db)
+    .await
+    .map_err(orm_error)
+}
+
+/// A token Expo refused, deactivated now.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "the personal database has no entities: its schema is still Drizzle's and retires with the consumer product (ADR OPS-025)"
+)]
+async fn deactivate_token(db: &PgPool, token: &str) -> Result<(), DbErr> {
+    let now = now_iso();
+    sqlx::query(
+        "update personal_device_tokens set is_active = $2::timestamp, updated_at = $2::timestamp
+         where token = $1",
+    )
+    .bind(token)
+    .bind(&now)
+    .execute(db)
+    .await
+    .map_err(orm_error)?;
+    Ok(())
 }
 
 #[cfg(test)]

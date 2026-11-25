@@ -749,6 +749,7 @@ export function settingsCommands(
     { code: 'weldcommerce', title: 'WeldCommerce', keywords: 'weldcommerce commerce orders order numbers prefix currency settings', href: '/settings/apps/weldcommerce' },
     { code: 'weldstash', title: 'WeldStash', keywords: 'weldstash warehouse replenishment reorder forecast sales history import settings', href: '/settings/apps/weldstash' },
     { code: 'weldmerge', title: 'WeldMerge', keywords: 'weldmerge git providers repositories teams labels settings', href: '/settings/apps/weldmerge' },
+    { code: 'weldpass', title: 'WeldPass', keywords: 'weldpass passwords vaults offline copy phones devices autofill settings', href: '/settings/apps/weldpass' },
     { code: 'weldpanel', title: 'WeldPanel', keywords: 'weldpanel analytics usage exports api mcp settings', href: '/settings/apps/weldpanel' },
     { code: 'weldreach', title: 'WeldReach', keywords: 'weldreach outreach sender sending defaults suppressions settings', href: '/settings/apps/weldreach' },
     { code: 'weldhr', title: search.weldhrSettings, keywords: `${search.weldhrSettings} ${search.configureWeldhr} weldhr payroll pay schedules`, href: '/settings/apps/weldhr' },
@@ -761,6 +762,8 @@ export function settingsCommands(
   const installedApps = new Set([...installed].map(resolveAppCode));
   for (const app of appSettings) {
     if (!installedApps.has(resolveAppCode(app.code))) continue;
+    // WeldPass's settings (the offline copy) are built only in Rust.
+    if (app.code === 'weldpass' && !isFeatureAvailable('weldpass-offline')) continue;
     links.push({
       id: `settings-app:${app.code}`,
       title: app.title,

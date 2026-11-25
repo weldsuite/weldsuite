@@ -154,6 +154,12 @@ export interface MenuGroupProps {
   group: string;
   items: MenuItemProps[];
   customContent?: React.ReactNode;
+  /**
+   * Keep the group at the top of the sidebar while the menu below it scrolls,
+   * for a context switcher every screen of the module depends on (WeldHR's
+   * legal entity), so it is never scrolled out of view or cut in half.
+   */
+  sticky?: boolean;
   onAdd?: () => void;
   /**
    * Hide the hover "+" in the group header while `onAdd` stays set, e.g. when
@@ -1199,7 +1205,8 @@ interface SidebarMenuGroupProps {
 
 function SidebarMenuGroup({ group, pathname, allMenuItems }: Readonly<SidebarMenuGroupProps>) {
   return (
-    <SidebarGroup>
+    // The same panel tone as the sidebar's inner surface, so the pinned group shows no band of its own.
+    <SidebarGroup className={group.sticky ? 'sticky top-0 z-10 bg-[var(--shell-panel)]' : undefined}>
       <SidebarGroupHeader group={group} />
       <SidebarGroupContent>
         {group.customContent ? (
@@ -1474,7 +1481,10 @@ export function AppSidebarLayout({
             // in globals.css — invisible by default, fades in on hover, no
             // gutter reserved so content uses the full sidebar width.
             : "sidebar-hover-scrollbar",
-          isScrollable && "[&_[data-sidebar=group]]:pr-0"
+          isScrollable && "[&_[data-sidebar=group]]:pr-0",
+          // A sticky group covers the top of the scroll area: keep a focused or
+          // scrolled-to item below it (WCAG 2.4.11).
+          menuItems.some((group) => group.sticky) && "scroll-pt-16"
         )}
       >
         <DndContext sensors={dndSensors} collisionDetection={closestCenter} onDragEnd={handleGlobalDragEnd} accessibility={dndAccessibility}>

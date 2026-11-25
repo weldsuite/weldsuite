@@ -11,6 +11,8 @@ use axum::extract::State;
 use axum::response::Response;
 use axum::routing::{get, post};
 use http::HeaderMap;
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, EntityTrait, FromQueryResult, QueryFilter, QueryOrder, QuerySelect};
 use serde_json::{Map, Value, json};
 use weldsuite_books_domain::accounting_entity::upsert_accounting_entity_settings;
 use weldsuite_books_domain::address::normalize_postal_address;
@@ -29,11 +31,14 @@ use weldsuite_books_domain::tax::{
     resolve_gst_bill_supply, resolve_gst_supply,
 };
 use weldsuite_catalogs::entity_events::ACCOUNTING_ENTITY_UPDATED;
+use weldsuite_db::{orm, utc_now};
 use weldsuite_kit::validation::{Field, Issues, Presence};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::{entities, sales_tax_agencies};
 
 use crate::br_fiscal;
 use crate::common::{num, refuse, text};
+use crate::returns::common::row_json;
 
 pub(crate) fn router<S, Q>(state: BooksState, gate: &Arc<PermissionGate<Q>>) -> Router<S>
 where
@@ -100,21 +105,53 @@ fn engine_error(error: weldsuite_books_domain::sales_tax::errors::EngineError) -
     Refusal::Response(Box::new(SalesTaxError::Engine(error).response()))
 }
 
+/// An agency as the settings list it (`registeredFrom`/`registeredUntil` as
+/// the `date` text).
+#[derive(Debug, FromQueryResult, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AgencySummary {
+    id: String,
+    state_code: String,
+    level: String,
+    name: String,
+    status: String,
+    #[serde(with = "weldsuite_schema::js::date::option")]
+    registered_from: Option<time::Date>,
+    #[serde(with = "weldsuite_schema::js::date::option")]
+    registered_until: Option<time::Date>,
+    provider_registration_ref: Option<String>,
+}
+
 /// `settingsPayload(db, entity)`.
-async fn settings_payload(caller: &Caller, entity: &Value) -> Result<Value, sqlx::Error> {
+async fn settings_payload(caller: &Caller, entity: &Value) -> Result<Value, Refusal> {
+    use sales_tax_agencies::Column;
     let engine = text(entity, "salesTaxEngine")
         .filter(|e| ENGINES.contains(e))
         .unwrap_or("manual");
     let config = &entity["salesTaxEngineConfig"];
-    let agencies: Vec<Value> = sqlx::query_scalar(
-        "select jsonb_build_object('id', id, 'stateCode', state_code, 'level', level, 'name', name, \
-         'status', status, 'registeredFrom', registered_from::text, 'registeredUntil', registered_until::text, \
-         'providerRegistrationRef', provider_registration_ref) from sales_tax_agencies \
-         where entity_id = $1 and deleted_at is null order by state_code asc, name asc",
-    )
-    .bind(text(entity, "id"))
-    .fetch_all(&caller.db)
-    .await?;
+    let agencies = sales_tax_agencies::Entity::find()
+        .select_only()
+        .columns([
+            Column::Id,
+            Column::StateCode,
+            Column::Level,
+            Column::Name,
+            Column::Status,
+            Column::RegisteredFrom,
+            Column::RegisteredUntil,
+            Column::ProviderRegistrationRef,
+        ])
+        .filter(Column::EntityId.eq(text(entity, "id").map(str::to_owned)))
+        .filter(Column::DeletedAt.is_null())
+        .order_by_asc(Column::StateCode)
+        .order_by_asc(Column::Name)
+        .into_model::<AgencySummary>()
+        .all(&orm(&caller.db))
+        .await?;
+    let agencies: Vec<Value> = agencies
+        .into_iter()
+        .map(row_json)
+        .collect::<Result<_, _>>()?;
     let credentials_engine = config.get("credentialsEngine").and_then(Value::as_str);
     let has_credentials = text(entity, "salesTaxCredentialsEncrypted")
         .is_some_and(|c| !c.is_empty())
@@ -330,17 +367,23 @@ async fn update_settings(caller: &Caller, state: &BooksState, data: SettingsBody
             400,
         ));
     }
-    sqlx::query(
-        "update entities set sales_tax_engine = $1, sales_tax_engine_config = $2, \
-         sales_tax_credentials_encrypted = $3, updated_at = $4::timestamp where id = $5",
-    )
-    .bind(&data.engine)
-    .bind(Value::Object(next.clone()))
-    .bind(&blob)
-    .bind(now())
-    .bind(&entity_id)
-    .execute(&caller.db)
-    .await?;
+    entities::Entity::update_many()
+        .col_expr(
+            entities::Column::SalesTaxEngine,
+            Expr::value(data.engine.clone()),
+        )
+        .col_expr(
+            entities::Column::SalesTaxEngineConfig,
+            Expr::value(Value::Object(next.clone())),
+        )
+        .col_expr(
+            entities::Column::SalesTaxCredentialsEncrypted,
+            Expr::value(blob.clone()),
+        )
+        .col_expr(entities::Column::UpdatedAt, Expr::value(utc_now()))
+        .filter(entities::Column::Id.eq(entity_id.as_str()))
+        .exec(&orm(&caller.db))
+        .await?;
     // Release 1 mirror: the WeldBooks extension holds the same values.
     let mut mirror = Map::new();
     mirror.insert("salesTaxEngine".into(), json!(data.engine));

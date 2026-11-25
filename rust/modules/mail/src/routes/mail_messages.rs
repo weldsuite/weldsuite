@@ -11,16 +11,19 @@ use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, patch, post};
 use http::HeaderMap;
-use serde_json::json;
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
+use serde_json::{Value, json};
 use weldsuite_catalogs::entity_events::EMAIL_REPLY_SENT;
 use weldsuite_catalogs::permission_keys::{
     MESSAGES_CREATE, MESSAGES_DELETE, MESSAGES_READ, MESSAGES_UPDATE,
 };
+use weldsuite_db::orm;
 use weldsuite_kit::validation::{Issues, Presence, json_body};
 use weldsuite_kit::{ApiError, Data};
 use weldsuite_mail_domain::access::check_account_access;
 use weldsuite_mail_domain::send::{ReplyInput, SendOptions, reply_and_persist};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::mail_messages;
 
 use crate::routes::mail_accounts::email_event_data;
 use crate::send::{RequestDoh, SendContext, attachments, optional_text, send_error_response};
@@ -115,14 +118,28 @@ fn read_reply_body(headers: &HeaderMap, body: &Bytes) -> Result<ReplyInput, Resp
     })
 }
 
+/// A `mail_messages` row as the mailbox store reads it (`to_jsonb(m)`):
+/// `threats` (EU and self-hosted only, ADR MAIL-014) is left out while null,
+/// so a message without threats reads exactly as on Global.
+pub(crate) fn message_json(message: mail_messages::Model) -> Result<Value, DbErr> {
+    let mut row = serde_json::to_value(message).map_err(|error| DbErr::Json(error.to_string()))?;
+    if let Value::Object(fields) = &mut row
+        && fields.get("threats").is_some_and(Value::is_null)
+    {
+        fields.remove("threats");
+    }
+    Ok(row)
+}
+
 /// `messages.getMessageAccountId(db, id)`.
-async fn message_account(caller: &Caller, id: &str) -> Result<Option<String>, sqlx::Error> {
-    sqlx::query_scalar(
-        "select account_id from mail_messages where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(&caller.db)
-    .await
+async fn message_account(caller: &Caller, id: &str) -> Result<Option<String>, DbErr> {
+    mail_messages::Entity::find_by_id(id.to_owned())
+        .select_only()
+        .column(mail_messages::Column::AccountId)
+        .filter(mail_messages::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(&caller.db))
+        .await
 }
 
 /// The send's guard checks before the body: the account of the message, and

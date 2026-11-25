@@ -55,6 +55,7 @@ weldsuite-commerce-domain = { path = "crates/commerce-domain" }
 weldsuite-crm = { path = "modules/crm" }
 weldsuite-crm-domain = { path = "crates/crm-domain" }
 weldsuite-data = { path = "modules/data" }
+weldsuite-custom-domains = { path = "crates/custom-domains" }
 weldsuite-db = { path = "crates/db" }
 weldsuite-digipoort = { path = "crates/digipoort" }
 weldsuite-desk = { path = "modules/desk" }
@@ -92,6 +93,7 @@ weldsuite-pass = { path = "modules/pass" }
 weldsuite-payroll-domain = { path = "crates/payroll-domain" }
 weldsuite-migrations = { path = "crates/migrations" }
 weldsuite-mollie = { path = "crates/mollie" }
+weldsuite-outside-eu = { path = "crates/outside-eu" }
 weldsuite-sign = { path = "modules/sign" }
 weldsuite-social = { path = "modules/social" }
 weldsuite-staff-domain = { path = "crates/staff-domain" }
@@ -110,6 +112,7 @@ weldsuite-reach = { path = "modules/reach" }
 weldsuite-reach-domain = { path = "crates/reach-domain" }
 weldsuite-sandbox = { path = "crates/sandbox" }
 weldsuite-schema = { path = "crates/schema" }
+weldsuite-shipping-domain = { path = "crates/shipping-domain" }
 
 aes-gcm = { version = "0.11.1", default-features = false, features = ["aes", "alloc"] }
 # WeldPanel's lakehouse (crates/lakehouse, ADR EVT-019). Pre-1.0 and breaking
@@ -153,6 +156,9 @@ lopdf = { version = "0.46.0", default-features = false }
 metrics = { version = "0.24.6", default-features = false }
 metrics-exporter-prometheus = { version = "0.18.3", default-features = false }
 png = "0.18.1"
+# The Public Suffix List, compiled in: WeldPass matches a login to a page only
+# above a public suffix (`github.io`, `co.uk`), as tldts does in TypeScript.
+psl = "2.1.249"
 # Pix QR codes on Brazilian invoices: Nayuki's generator, which uqr ports (books-domain).
 qrcodegen = "1.8.0"
 lettre = { version = "0.11.24", default-features = false, features = ["builder", "hostname", "pool", "smtp-transport", "tokio1-rustls", "aws-lc-rs", "rustls-platform-verifier"] }

@@ -2,11 +2,10 @@
 //! agent of a department that has auto-assignment on (round robin over the
 //! alphabetical roster, or the least loaded agent).
 
-use serde_json::Value;
-use weldsuite_db::PgPool;
-
-use crate::now;
-use crate::tables::HELPDESK_AGENTS;
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
+use weldsuite_db::{PgPool, orm, utc_now};
+use weldsuite_schema::tenant::{helpdesk_agents, helpdesk_conversations, helpdesk_departments};
 
 /// `autoAssignConversation(db, departmentId, conversationId)`: the agent's
 /// user id and name, or `None` when nothing was assigned.
@@ -14,32 +13,37 @@ pub(crate) async fn auto_assign(
     db: &PgPool,
     department_id: &str,
     conversation_id: &str,
-) -> Result<Option<(String, String)>, sqlx::Error> {
-    let department: Option<(Option<bool>, Option<bool>)> = sqlx::query_as(
-        "select auto_assignment, round_robin_assignment from helpdesk_departments
-         where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(department_id)
-    .fetch_optional(db)
-    .await?;
+) -> Result<Option<(String, String)>, DbErr> {
+    let db = orm(db);
+    let department: Option<(Option<bool>, Option<bool>)> = helpdesk_departments::Entity::find()
+        .select_only()
+        .column(helpdesk_departments::Column::AutoAssignment)
+        .column(helpdesk_departments::Column::RoundRobinAssignment)
+        .filter(helpdesk_departments::Column::Id.eq(department_id))
+        .filter(helpdesk_departments::Column::DeletedAt.is_null())
+        .limit(1)
+        .into_tuple()
+        .one(&db)
+        .await?;
     let Some((Some(true), round_robin)) = department else {
         return Ok(None);
     };
-    let agents: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(a) from helpdesk_agents a where a.status = 'active' and a.deleted_at is null",
-    )
-    .fetch_all(db)
-    .await?;
-    let load = |agent: &Value| agent["currentActiveTickets"].as_f64().unwrap_or(0.0);
-    let eligible: Vec<Value> = agents
+    let agents = helpdesk_agents::Entity::find()
+        .filter(helpdesk_agents::Column::Status.eq("active"))
+        .filter(helpdesk_agents::Column::DeletedAt.is_null())
+        .all(&db)
+        .await?;
+    let load = |agent: &helpdesk_agents::Model| agent.current_active_tickets.unwrap_or(0);
+    let eligible: Vec<helpdesk_agents::Model> = agents
         .into_iter()
-        .map(|agent| HELPDESK_AGENTS.js(agent))
         .filter(|agent| {
-            let in_department = agent["departmentId"].as_str() == Some(department_id)
-                || agent["teamIds"]
-                    .as_array()
+            let in_department = agent.department_id.as_deref() == Some(department_id)
+                || agent
+                    .team_ids
+                    .as_ref()
+                    .and_then(serde_json::Value::as_array)
                     .is_some_and(|teams| teams.iter().any(|t| t.as_str() == Some(department_id)));
-            let cap = agent["maxActiveTickets"].as_f64().unwrap_or(10.0);
+            let cap = agent.max_active_tickets.unwrap_or(10);
             in_department && load(agent) < cap
         })
         .collect();
@@ -47,21 +51,21 @@ pub(crate) async fn auto_assign(
         return Ok(None);
     }
     let selected = if round_robin == Some(true) {
-        let last: Option<Option<String>> = sqlx::query_scalar(
-            "select assignee_id from helpdesk_conversations
-             where department_id = $1 and deleted_at is null and assignee_id is not null
-             order by updated_at desc limit 1",
-        )
-        .bind(department_id)
-        .fetch_optional(db)
-        .await?;
+        let last: Option<Option<String>> = helpdesk_conversations::Entity::find()
+            .select_only()
+            .column(helpdesk_conversations::Column::AssigneeId)
+            .filter(helpdesk_conversations::Column::DepartmentId.eq(department_id))
+            .filter(helpdesk_conversations::Column::DeletedAt.is_null())
+            .filter(helpdesk_conversations::Column::AssigneeId.is_not_null())
+            .order_by_desc(helpdesk_conversations::Column::UpdatedAt)
+            .limit(1)
+            .into_tuple()
+            .one(&db)
+            .await?;
         let mut sorted = eligible;
         // `a.name.localeCompare(b.name)`: letters before case.
         sorted.sort_by(|a, b| {
-            let (a, b) = (
-                a["name"].as_str().unwrap_or_default(),
-                b["name"].as_str().unwrap_or_default(),
-            );
+            let (a, b) = (a.name.as_str(), b.name.as_str());
             a.to_lowercase()
                 .cmp(&b.to_lowercase())
                 .then_with(|| b.cmp(a))
@@ -69,7 +73,7 @@ pub(crate) async fn auto_assign(
         let next = match last.flatten() {
             Some(last) => sorted
                 .iter()
-                .position(|a| a["userId"].as_str() == Some(last.as_str()))
+                .position(|a| a.user_id == last)
                 .map_or(0, |i| (i + 1) % sorted.len()),
             None => 0,
         };
@@ -83,25 +87,28 @@ pub(crate) async fn auto_assign(
         }
         eligible[best].clone()
     };
-    let user_id = selected["userId"].as_str().unwrap_or_default().to_owned();
-    let name = selected["name"].as_str().unwrap_or_default().to_owned();
-    let now = now();
-    sqlx::query(
-        "update helpdesk_conversations set assignee_id = $2, assignee_name = $3, updated_at = $4::timestamp where id = $1",
-    )
-    .bind(conversation_id)
-    .bind(&user_id)
-    .bind(&name)
-    .bind(&now)
-    .execute(db)
-    .await?;
-    sqlx::query(
-        "update helpdesk_agents set current_active_tickets = current_active_tickets + 1, updated_at = $2::timestamp
-         where id = $1",
-    )
-    .bind(selected["id"].as_str().unwrap_or_default())
-    .bind(&now)
-    .execute(db)
-    .await?;
-    Ok(Some((user_id, name)))
+    let now = utc_now();
+    helpdesk_conversations::Entity::update_many()
+        .col_expr(
+            helpdesk_conversations::Column::AssigneeId,
+            Expr::value(&selected.user_id),
+        )
+        .col_expr(
+            helpdesk_conversations::Column::AssigneeName,
+            Expr::value(&selected.name),
+        )
+        .col_expr(helpdesk_conversations::Column::UpdatedAt, Expr::value(now))
+        .filter(helpdesk_conversations::Column::Id.eq(conversation_id))
+        .exec(&db)
+        .await?;
+    helpdesk_agents::Entity::update_many()
+        .col_expr(
+            helpdesk_agents::Column::CurrentActiveTickets,
+            sea_orm::ExprTrait::add(Expr::col(helpdesk_agents::Column::CurrentActiveTickets), 1),
+        )
+        .col_expr(helpdesk_agents::Column::UpdatedAt, Expr::value(now))
+        .filter(helpdesk_agents::Column::Id.eq(&selected.id))
+        .exec(&db)
+        .await?;
+    Ok(Some((selected.user_id, selected.name)))
 }

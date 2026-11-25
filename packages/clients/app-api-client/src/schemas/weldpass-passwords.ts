@@ -4,6 +4,7 @@
  * (what counts as a weak password, which host a URL belongs to). Zod v3.
  */
 
+import { parse as parseHost } from 'tldts';
 import { z } from 'zod';
 
 // ---------------------------------------------------------------------------
@@ -45,12 +46,29 @@ export type WeldPassItemType = z.infer<typeof weldpassItemTypeSchema>;
 const title = z.string().trim().min(1).max(200);
 const notes = z.string().max(20_000).default('');
 
+/** An Android application id: dot-separated segments that start with a letter. */
+export const ANDROID_PACKAGE_PATTERN = /^[A-Za-z]\w*(\.[A-Za-z]\w*)+$/;
+export const MAX_LOGIN_APPS = 20;
+
+export const androidPackageSchema = z
+  .string()
+  .min(1)
+  .max(255)
+  .regex(ANDROID_PACKAGE_PATTERN, 'Not an Android package name');
+
 export const loginFieldsSchema = z.object({
   username: z.string().max(255).default(''),
   password: z.string().max(4096).default(''),
   /** A base32 secret or a full `otpauth://` URI. Empty when 2FA is not stored. */
   totp: z.string().trim().max(2048).default(''),
   notes,
+  /**
+   * The Android apps this login signs in to, by package name
+   * (`com.example.app`). Sealed with the rest of the item and matched only on
+   * the phone, by its autofill service (ADR PASS-010). Left out when there
+   * are none, so a login without apps seals the same text as before.
+   */
+  apps: z.array(androidPackageSchema).max(MAX_LOGIN_APPS).optional(),
 });
 
 export const noteFieldsSchema = z.object({
@@ -133,17 +151,34 @@ export function hostOf(url: string | null | undefined): string | null {
   return host.includes('.') || host === 'localhost' ? host.slice(0, 255) : null;
 }
 
+/** The Public Suffix List with its private section (`github.io`, `blogspot.com`). */
+const PSL = { allowPrivateDomains: true } as const;
+
+/**
+ * Whether `host` is a public suffix: a name under which anyone can register a
+ * site of their own (`com`, `co.uk`, `github.io`), from the Public Suffix List
+ * including its private section. An IP address is not one. The Rust backend's
+ * `is_public_suffix` (`rust/modules/pass/src/schemas.rs`, on the `psl` crate)
+ * answers the same; `rust/modules/pass/tools/fixtures.mts` checks it.
+ */
+export function isPublicSuffix(host: string): boolean {
+  const parsed = parseHost(host, PSL);
+  return !parsed.isIp && parsed.publicSuffix === host;
+}
+
 /**
  * Whether a login saved for `itemHost` belongs on a page at `pageHost`: the
  * same host, or one is a subdomain of the other (`accounts.example.com` and
- * `example.com`). There is no public-suffix list here, so the shared part has
- * to be at least two labels — `co.uk` alone never matches anything.
+ * `example.com`). The shorter one must not be a public suffix, so a login for
+ * `a.github.io` is never offered on `github.io` (nor on `b.github.io`), nor
+ * one for `example.co.uk` on `co.uk`. An IP address matches only itself.
  */
 export function hostsMatch(itemHost: string, pageHost: string): boolean {
   if (itemHost === pageHost) return true;
   const [short, long] =
     itemHost.length < pageHost.length ? [itemHost, pageHost] : [pageHost, itemHost];
-  return short.split('.').length >= 2 && long.endsWith(`.${short}`);
+  if (!short.includes('.') || !long.endsWith(`.${short}`)) return false;
+  return !parseHost(long, PSL).isIp && !isPublicSuffix(short);
 }
 
 // ---------------------------------------------------------------------------

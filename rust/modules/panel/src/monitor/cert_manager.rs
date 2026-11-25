@@ -38,31 +38,30 @@
 //! namespaces and names but never labels; the chart's admission policy
 //! holds the server's service account to it.
 //!
-//! The Kubernetes API is plain REST with the service account's token, read
-//! on every call because the kubelet rotates it, over a client that trusts
-//! only the cluster's CA (the binary makes it, as for WeldAgent's sandbox).
+//! The Kubernetes machinery is shared with WeldCommerce's shop domains, in
+//! `weldsuite-custom-domains`; this module is WeldPanel's profile of it and
+//! its environment.
 
-use serde_json::{Map, Value, json};
-use sha2::{Digest as _, Sha256};
-use weldsuite_ports::{BoxFuture, HttpRequest, HttpResponse, OutboundHttp};
+use weldsuite_custom_domains::{CertManagerHosts, ClusterSettings, Profile, Routes, Target};
+pub use weldsuite_custom_domains::{
+    DEFAULT_DNS_RESOLVER, KubeToken, SSL_FAILED, SSL_ISSUING, TOKEN_FILE, normalize_host,
+};
+use weldsuite_ports::{BoxFuture, OutboundHttp};
 
 use super::domains::{CollectorDomains, DomainError, HostnameState};
 
 /// The labels on every object the adapter creates. It reads as its own, and
 /// deletes, only objects that carry all of them.
 pub const LABELS: [(&str, &str); 2] = [
-    ("app.kubernetes.io/managed-by", "weldsuite"),
-    ("app.kubernetes.io/component", "panel-collector-domain"),
+    weldsuite_custom_domains::MANAGED_BY,
+    (
+        weldsuite_custom_domains::COMPONENT_LABEL,
+        "panel-collector-domain",
+    ),
 ];
 
 /// The annotation naming the host name an object is for.
 pub const HOSTNAME_ANNOTATION: &str = "weldsuite.org/panel-hostname";
-
-/// Cloudflare's public resolver, which the backend's other DNS checks ask.
-pub const DEFAULT_DNS_RESOLVER: &str = "https://cloudflare-dns.com/dns-query";
-
-/// The mounted service account's token.
-pub const TOKEN_FILE: &str = "/var/run/secrets/kubernetes.io/serviceaccount/token";
 
 /// What a customer's host name serves: the collector's routes at the root of
 /// a host (`collector::root_router`), as `(path, pathType)`. Keep in step
@@ -80,50 +79,8 @@ pub const COLLECTOR_PATHS: [(&str, &str); 9] = [
     ("/v1/import", "Exact"),
 ];
 
-/// DNS's type codes for A and CNAME records.
-const TYPE_A: i64 = 1;
-const TYPE_CNAME: i64 = 5;
-
-/// `sslStatus` while cert-manager issues the certificate.
-pub const SSL_ISSUING: &str = "issuing";
-/// `sslStatus` once issuance failed (`domain_status_of` reads it as `failed`).
-pub const SSL_FAILED: &str = "failed";
-
-/// Where the bearer token for the Kubernetes API comes from.
-#[derive(Clone)]
-pub enum KubeToken {
-    /// A file, read on every call: the mounted service account's token,
-    /// which the kubelet rotates.
-    File(String),
-    /// A fixed token (tests).
-    Static(String),
-}
-
-impl std::fmt::Debug for KubeToken {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::File(path) => f.debug_tuple("File").field(path).finish(),
-            Self::Static(_) => f.write_str("Static(..)"),
-        }
-    }
-}
-
-impl KubeToken {
-    fn read(&self) -> Result<String, DomainError> {
-        match self {
-            Self::Static(token) => Ok(token.clone()),
-            Self::File(path) => std::fs::read_to_string(path)
-                .map(|token| token.trim().to_owned())
-                .map_err(|error| DomainError {
-                    message: format!(
-                        "The service account's token {path} can't be read ({error}); the chart \
-                         mounts it with config.panel.customDomains.enabled"
-                    ),
-                    status: None,
-                }),
-        }
-    }
-}
+/// The start of every object's name.
+const NAME_PREFIX: &str = "weldpanel";
 
 /// How the adapter reaches the cluster and what it creates there.
 #[derive(Debug, Clone)]
@@ -188,21 +145,13 @@ impl CertManagerSettings {
                 "PANEL_COLLECTOR_HOST must be a host name such as collect.example.com, not {collector_host:?}"
             ));
         }
-        let host = value("KUBERNETES_SERVICE_HOST").ok_or_else(|| {
+        let api_url = ClusterSettings::api_url_from_env(&get).ok_or_else(|| {
             "PANEL_CUSTOM_DOMAINS=cert-manager needs the Kubernetes API: run in the cluster \
              (KUBERNETES_SERVICE_HOST)"
                 .to_owned()
         })?;
-        let port = value("KUBERNETES_SERVICE_PORT_HTTPS")
-            .or_else(|| value("KUBERNETES_SERVICE_PORT"))
-            .unwrap_or_else(|| "443".to_owned());
-        let host = if host.contains(':') {
-            format!("[{host}]")
-        } else {
-            host
-        };
         Ok(Some(Self {
-            api_url: format!("https://{host}:{port}"),
+            api_url,
             namespace: required("PANEL_DOMAINS_NAMESPACE")?,
             token: KubeToken::File(TOKEN_FILE.to_owned()),
             collector_host,
@@ -218,48 +167,19 @@ impl CertManagerSettings {
     }
 }
 
-/// Lower case, without a trailing dot.
-fn normalize_host(host: &str) -> String {
-    let host = host.trim().to_ascii_lowercase();
-    host.strip_suffix('.').map(str::to_owned).unwrap_or(host)
-}
-
 /// The name of a host name's `Certificate` and `Ingress`: readable, unique
 /// (a digest of the host name) and at most 61 characters, so cert-manager
 /// can use it as a label value.
 pub fn object_name(hostname: &str) -> String {
-    let digest = Sha256::digest(hostname.as_bytes());
-    let mut slug: String = hostname
-        .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() {
-                c.to_ascii_lowercase()
-            } else {
-                '-'
-            }
-        })
-        .collect();
-    slug.truncate(40);
-    format!(
-        "weldpanel-{}-{}",
-        slug.trim_matches('-'),
-        hex::encode(&digest[..5])
-    )
+    weldsuite_custom_domains::object_name(NAME_PREFIX, hostname)
 }
 
-/// The Secret the certificate is issued into.
-fn secret_name(name: &str) -> String {
-    format!("{name}-tls")
-}
+#[cfg(test)]
+use serde_json::{Map, Value, json};
+#[cfg(test)]
+use weldsuite_ports::{HttpRequest, HttpResponse};
 
-/// Carries every one of [`LABELS`].
-fn is_ours(object: &Value) -> bool {
-    let labels = &object["metadata"]["labels"];
-    LABELS
-        .iter()
-        .all(|(key, value)| labels[*key].as_str() == Some(*value))
-}
-
+#[cfg(test)]
 fn labels() -> Value {
     Value::Object(
         LABELS
@@ -269,53 +189,19 @@ fn labels() -> Value {
     )
 }
 
-/// The two kinds the adapter manages.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Kind {
-    Certificate,
-    Ingress,
-}
-
-impl Kind {
-    fn api(self) -> &'static str {
-        match self {
-            Self::Certificate => "apis/cert-manager.io/v1",
-            Self::Ingress => "apis/networking.k8s.io/v1",
-        }
-    }
-
-    fn plural(self) -> &'static str {
-        match self {
-            Self::Certificate => "certificates",
-            Self::Ingress => "ingresses",
-        }
-    }
-
-    fn name(self) -> &'static str {
-        match self {
-            Self::Certificate => "Certificate",
-            Self::Ingress => "Ingress",
-        }
-    }
-}
-
-/// Where a host name's CNAME leads.
-#[derive(Debug, PartialEq, Eq)]
-enum Pointing {
-    /// Its CNAME chain reaches the collector host.
-    Collector,
-    /// It resolves, but not through the collector host: why, for `lastError`.
-    Elsewhere(String),
-    /// It doesn't resolve (yet).
-    Nowhere,
+/// Carries every one of [`LABELS`].
+#[cfg(test)]
+fn is_ours(object: &Value) -> bool {
+    let labels = &object["metadata"]["labels"];
+    LABELS
+        .iter()
+        .all(|(key, value)| labels[*key].as_str() == Some(*value))
 }
 
 /// Custom collector domains through cert-manager (ADR PANEL-014).
 pub struct CertManagerDomains {
     settings: CertManagerSettings,
-    /// The Kubernetes API's client: the cluster's CA only.
     kube: OutboundHttp,
-    /// The resolver's client.
     dns: OutboundHttp,
 }
 
@@ -338,379 +224,66 @@ impl CertManagerDomains {
         }
     }
 
-    /// The collector host, or a name under the install's own domain (what
-    /// the collector host is under, `weldsuite.eu` for
-    /// `collect.weldsuite.eu`): never a customer's.
-    fn is_own_host(&self, hostname: &str) -> bool {
-        let collector = self.settings.collector_host.as_str();
-        if hostname == collector {
-            return true;
-        }
-        collector
+    /// The shared machinery with WeldPanel's profile: cheap to make, so it
+    /// is made per call from the settings.
+    fn hosts(&self) -> CertManagerHosts {
+        let settings = &self.settings;
+        let collector_host = settings.collector_host.clone();
+        // The collector host, and every name under the install's own domain
+        // (what the collector host is under, `weldsuite.eu` for
+        // `collect.weldsuite.eu`): never a customer's.
+        let refused = collector_host
             .split_once('.')
             .map(|(_, parent)| parent)
             .filter(|parent| parent.contains('.'))
-            .is_some_and(|parent| {
-                hostname == parent
-                    || hostname
-                        .strip_suffix(parent)
-                        .is_some_and(|rest| rest.ends_with('.'))
-            })
-    }
-
-    fn own_host_refused(&self) -> DomainError {
-        DomainError {
-            message: format!(
-                "This host name belongs to this install ({}); use one of your own",
-                self.settings.collector_host
-            ),
-            status: Some(400),
-        }
-    }
-
-    // ── The Kubernetes API ──────────────────────────────────────────────
-
-    fn url(&self, kind: Kind, name: Option<&str>) -> String {
-        let collection = format!(
-            "{}/{}/namespaces/{}/{}",
-            self.settings.api_url,
-            kind.api(),
-            self.settings.namespace,
-            kind.plural()
-        );
-        match name {
-            Some(name) => format!("{collection}/{name}"),
-            None => collection,
-        }
-    }
-
-    async fn call(
-        &self,
-        method: &str,
-        url: String,
-        body: Option<&Value>,
-    ) -> Result<HttpResponse, DomainError> {
-        let token = self.settings.token.read()?;
-        let request = match body {
-            Some(body) => HttpRequest::json(method, url, body),
-            None => HttpRequest::empty(method, url),
-        }
-        .header("authorization", format!("Bearer {token}"))
-        .header("accept", "application/json");
-        self.kube.send(request).await.map_err(|error| DomainError {
-            message: format!("The Kubernetes API could not be reached: {error}"),
-            status: None,
-        })
-    }
-
-    /// An answer the API refused, with its `Status` message.
-    fn refused(&self, kind: Kind, name: &str, response: &HttpResponse) -> DomainError {
-        let body = response.json();
-        let message = body["message"].as_str().map_or_else(
-            || response.text().chars().take(300).collect(),
-            str::to_owned,
-        );
-        DomainError {
-            message: format!(
-                "Kubernetes refused the {} {name} in {}: {message}",
-                kind.name(),
-                self.settings.namespace
-            ),
-            status: Some(response.status),
-        }
-    }
-
-    fn not_ours(&self, kind: Kind, name: &str) -> DomainError {
-        DomainError {
-            message: format!(
-                "A {} named {name} in {} isn't WeldPanel's (it lacks the labels), so it was left alone",
-                kind.name(),
-                self.settings.namespace
-            ),
-            status: Some(409),
-        }
-    }
-
-    /// The object, `None` when there is none.
-    async fn read(&self, kind: Kind, name: &str) -> Result<Option<Value>, DomainError> {
-        let response = self.call("GET", self.url(kind, Some(name)), None).await?;
-        match response.status {
-            200 => Ok(Some(response.json())),
-            404 => Ok(None),
-            _ => Err(self.refused(kind, name, &response)),
-        }
-    }
-
-    fn owned(&self, kind: Kind, name: &str, found: Value) -> Result<Value, DomainError> {
-        if is_ours(&found) {
-            Ok(found)
-        } else {
-            Err(self.not_ours(kind, name))
-        }
-    }
-
-    /// The object, created from `manifest` when there is none; an error,
-    /// never the object, when one of that name isn't ours.
-    async fn ensure(&self, kind: Kind, name: &str, manifest: &Value) -> Result<Value, DomainError> {
-        if let Some(found) = self.read(kind, name).await? {
-            return self.owned(kind, name, found);
-        }
-        let response = self
-            .call("POST", self.url(kind, None), Some(manifest))
-            .await?;
-        match response.status {
-            200..=202 => Ok(response.json()),
-            // Made since the read (another pod's check): it will do if it's ours.
-            409 => match self.read(kind, name).await? {
-                Some(found) => self.owned(kind, name, found),
-                None => Err(self.refused(kind, name, &response)),
+            .map(|parent| vec![parent.to_owned()])
+            .unwrap_or_default();
+        CertManagerHosts::new(
+            ClusterSettings {
+                api_url: settings.api_url.clone(),
+                namespace: settings.namespace.clone(),
+                token: settings.token.clone(),
+                service: settings.service.clone(),
+                service_port: settings.service_port.clone(),
+                ingress_class: settings.ingress_class.clone(),
+                issuer: settings.issuer.clone(),
+                issuer_kind: settings.issuer_kind.clone(),
+                dns_resolver: settings.dns_resolver.clone(),
             },
-            _ => Err(self.refused(kind, name, &response)),
-        }
-    }
-
-    /// Deletes the object when it is ours; one that is gone, or isn't ours,
-    /// is passed by.
-    async fn remove(&self, kind: Kind, name: &str) -> Result<(), DomainError> {
-        let Some(found) = self.read(kind, name).await? else {
-            return Ok(());
-        };
-        if !is_ours(&found) {
-            tracing::warn!(
-                kind = kind.name(),
-                name,
-                namespace = %self.settings.namespace,
-                "[panel] not deleting an object without WeldPanel's labels"
-            );
-            return Ok(());
-        }
-        let body = json!({
-            "apiVersion": "v1",
-            "kind": "DeleteOptions",
-            "propagationPolicy": "Background",
-            // Only the object just read, never one made in its place since.
-            "preconditions": { "uid": found["metadata"]["uid"] },
-        });
-        let response = self
-            .call("DELETE", self.url(kind, Some(name)), Some(&body))
-            .await?;
-        match response.status {
-            200 | 202 | 404 => Ok(()),
-            _ => Err(self.refused(kind, name, &response)),
-        }
-    }
-
-    // ── What is created ─────────────────────────────────────────────────
-
-    fn metadata(&self, name: &str, hostname: &str) -> Value {
-        json!({
-            "name": name,
-            "namespace": self.settings.namespace,
-            "labels": labels(),
-            "annotations": { HOSTNAME_ANNOTATION: hostname },
-        })
-    }
-
-    fn certificate(&self, name: &str, hostname: &str) -> Value {
-        json!({
-            "apiVersion": "cert-manager.io/v1",
-            "kind": "Certificate",
-            "metadata": self.metadata(name, hostname),
-            "spec": {
-                "secretName": secret_name(name),
-                "dnsNames": [hostname],
-                "issuerRef": {
-                    "group": "cert-manager.io",
-                    "kind": self.settings.issuer_kind,
-                    "name": self.settings.issuer,
-                },
-                "privateKey": { "rotationPolicy": "Always" },
-                // The Secret is recognisable as WeldPanel's too.
-                "secretTemplate": {
-                    "labels": labels(),
-                    "annotations": { HOSTNAME_ANNOTATION: hostname },
-                },
+            Profile {
+                owner: "WeldPanel",
+                component: LABELS[1].1,
+                annotation: HOSTNAME_ANNOTATION,
+                name_prefix: NAME_PREFIX,
+                chart_switch: "config.panel.customDomains.enabled",
+                routes: Routes::Paths(&COLLECTOR_PATHS),
             },
-        })
-    }
-
-    fn ingress(&self, name: &str, hostname: &str) -> Value {
-        let port = self.settings.service_port.parse::<u16>().map_or_else(
-            |_| json!({ "name": self.settings.service_port }),
-            |number| json!({ "number": number }),
-        );
-        let paths: Vec<Value> = COLLECTOR_PATHS
-            .iter()
-            .map(|(path, kind)| {
-                json!({
-                    "path": path,
-                    "pathType": kind,
-                    "backend": { "service": { "name": self.settings.service, "port": port } },
-                })
-            })
-            .collect();
-        let mut spec = json!({
-            "tls": [{ "hosts": [hostname], "secretName": secret_name(name) }],
-            "rules": [{ "host": hostname, "http": { "paths": paths } }],
-        });
-        if let Some(class) = &self.settings.ingress_class {
-            spec["ingressClassName"] = json!(class);
-        }
-        json!({
-            "apiVersion": "networking.k8s.io/v1",
-            "kind": "Ingress",
-            "metadata": self.metadata(name, hostname),
-            "spec": spec,
-        })
-    }
-
-    // ── DNS ─────────────────────────────────────────────────────────────
-
-    /// The answers to `name`'s A query, CNAMEs of the chain included, as
-    /// (type, data) with the data lower case and without a trailing dot.
-    async fn lookup(&self, name: &str) -> Result<Vec<(i64, String)>, DomainError> {
-        let failed = |why: String| DomainError {
-            message: format!("The DNS lookup of {name} failed: {why}"),
-            status: None,
-        };
-        let encoded: String = url::form_urlencoded::byte_serialize(name.as_bytes()).collect();
-        let request = HttpRequest::empty(
-            "GET",
-            format!("{}?name={encoded}&type=A", self.settings.dns_resolver),
+            Target {
+                host: collector_host,
+                apex_addresses: Vec::new(),
+                refused,
+            },
+            self.kube.clone(),
+            self.dns.clone(),
         )
-        .header("accept", "application/dns-json");
-        let response = self
-            .dns
-            .send(request)
-            .await
-            .map_err(|error| failed(error.to_string()))?;
-        if !response.ok() {
-            return Err(failed(format!("status {}", response.status)));
-        }
-        let body = response.json();
-        match body["Status"].as_i64() {
-            // NOERROR, or NXDOMAIN (the chain may still name the collector host).
-            Some(0 | 3) => {}
-            Some(code) => return Err(failed(format!("response code {code}"))),
-            None => return Err(failed("not a DNS answer".to_owned())),
-        }
-        Ok(body["Answer"]
-            .as_array()
-            .map(|answers| {
-                answers
-                    .iter()
-                    .map(|answer| {
-                        (
-                            answer["type"].as_i64().unwrap_or_default(),
-                            normalize_host(answer["data"].as_str().unwrap_or_default()),
-                        )
-                    })
-                    .collect()
-            })
-            .unwrap_or_default())
-    }
-
-    async fn points_at(&self, hostname: &str) -> Result<Pointing, DomainError> {
-        let answers = self.lookup(hostname).await?;
-        let target = self.settings.collector_host.as_str();
-        let cnames: Vec<&str> = answers
-            .iter()
-            .filter(|(kind, _)| *kind == TYPE_CNAME)
-            .map(|(_, data)| data.as_str())
-            .collect();
-        if cnames.contains(&target) {
-            return Ok(Pointing::Collector);
-        }
-        Ok(match cnames.first() {
-            Some(other) => Pointing::Elsewhere(format!(
-                "{hostname} points at {other}, not at {target}: change its CNAME record"
-            )),
-            None if answers.iter().any(|(kind, _)| *kind == TYPE_A) => {
-                Pointing::Elsewhere(format!(
-                    "{hostname} has an address record, not a CNAME record pointing at {target}"
-                ))
-            }
-            None => Pointing::Nowhere,
-        })
-    }
-
-    // ── Checks ──────────────────────────────────────────────────────────
-
-    /// Where the host name stands, moving it along: its objects created once
-    /// its CNAME points here, its status read from its certificate after.
-    async fn reconcile(&self, name: &str, hostname: &str) -> Result<HostnameState, DomainError> {
-        if self.is_own_host(hostname) {
-            return Err(self.own_host_refused());
-        }
-        if let Some(found) = self.read(Kind::Certificate, name).await? {
-            let certificate = self.owned(Kind::Certificate, name, found)?;
-            self.ensure(Kind::Ingress, name, &self.ingress(name, hostname))
-                .await?;
-            return Ok(certificate_state(name, hostname, &certificate));
-        }
-        match self.points_at(hostname).await? {
-            Pointing::Collector => {
-                // The certificate first: a check that fails between the two
-                // finds it next time and adds the route.
-                let certificate = self
-                    .ensure(Kind::Certificate, name, &self.certificate(name, hostname))
-                    .await?;
-                self.ensure(Kind::Ingress, name, &self.ingress(name, hostname))
-                    .await?;
-                Ok(certificate_state(name, hostname, &certificate))
-            }
-            Pointing::Elsewhere(why) => Ok(HostnameState {
-                errors: vec![why],
-                ..pending(name, hostname)
-            }),
-            Pointing::Nowhere => Ok(pending(name, hostname)),
-        }
     }
 }
 
-/// Waiting for the CNAME: nothing in the cluster yet.
-fn pending(name: &str, hostname: &str) -> HostnameState {
+fn state_of(state: weldsuite_custom_domains::HostState) -> HostnameState {
     HostnameState {
-        id: name.to_owned(),
-        hostname: hostname.to_owned(),
-        status: "pending".to_owned(),
+        id: state.name,
+        hostname: state.hostname,
+        status: state.status,
+        ssl_status: state.ssl_status,
+        errors: state.errors,
         ..HostnameState::default()
     }
 }
 
-/// A `Certificate`'s conditions as a host name's state: `Ready` is active,
-/// `Issuing` false with reason `Failed` is failed (with cert-manager's
-/// message), anything else is still issuing.
-fn certificate_state(name: &str, hostname: &str, certificate: &Value) -> HostnameState {
-    let conditions = certificate["status"]["conditions"]
-        .as_array()
-        .map(Vec::as_slice)
-        .unwrap_or_default();
-    let condition = |kind: &str| conditions.iter().find(|c| c["type"] == kind);
-    let state = pending(name, hostname);
-    if condition("Ready").is_some_and(|c| c["status"] == "True") {
-        return HostnameState {
-            status: "active".to_owned(),
-            ssl_status: Some("active".to_owned()),
-            ..state
-        };
-    }
-    if let Some(issuing) =
-        condition("Issuing").filter(|c| c["status"] == "False" && c["reason"] == "Failed")
-    {
-        let message = issuing["message"]
-            .as_str()
-            .filter(|m| !m.is_empty())
-            .unwrap_or("cert-manager could not issue the certificate");
-        return HostnameState {
-            ssl_status: Some(SSL_FAILED.to_owned()),
-            errors: vec![message.to_owned()],
-            ..state
-        };
-    }
-    HostnameState {
-        ssl_status: Some(SSL_ISSUING.to_owned()),
-        ..state
+fn error_of(error: weldsuite_custom_domains::DomainError) -> DomainError {
+    DomainError {
+        message: error.message,
+        status: error.status,
     }
 }
 
@@ -728,15 +301,24 @@ impl CollectorDomains for CertManagerDomains {
         _metadata: &'a [(&'a str, String)],
     ) -> BoxFuture<'a, Result<HostnameState, DomainError>> {
         Box::pin(async move {
-            if self.is_own_host(hostname) {
-                return Err(self.own_host_refused());
+            let hosts = self.hosts();
+            if hosts.is_install_host(&normalize_host(hostname)) {
+                return Err(DomainError {
+                    message: format!(
+                        "This host name belongs to this install ({}); use one of your own",
+                        self.settings.collector_host
+                    ),
+                    status: Some(400),
+                });
             }
-            let name = object_name(hostname);
-            Ok(match self.reconcile(&name, hostname).await {
-                Ok(state) => state,
+            Ok(match hosts.reconcile(hostname).await {
+                Ok(state) => state_of(state),
                 Err(error) => HostnameState {
+                    id: object_name(hostname),
+                    hostname: hostname.to_owned(),
+                    status: "pending".to_owned(),
                     errors: vec![error.message],
-                    ..pending(&name, hostname)
+                    ..HostnameState::default()
                 },
             })
         })
@@ -744,20 +326,22 @@ impl CollectorDomains for CertManagerDomains {
 
     fn get<'a>(
         &'a self,
-        id: &'a str,
+        _id: &'a str,
         hostname: &'a str,
     ) -> BoxFuture<'a, Result<Option<HostnameState>, DomainError>> {
-        Box::pin(async move { self.reconcile(id, hostname).await.map(Some) })
+        Box::pin(async move {
+            self.hosts()
+                .reconcile(hostname)
+                .await
+                .map(|state| Some(state_of(state)))
+                .map_err(error_of)
+        })
     }
 
     /// Deletes the route first, so the host stops serving, then the
-    /// certificate. The issued Secret stays (cert-manager keeps it unless
-    /// it runs with `--enable-certificate-owner-ref`); it carries the labels.
+    /// certificate. The issued Secret stays; it carries the labels.
     fn delete<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<(), DomainError>> {
-        Box::pin(async move {
-            self.remove(Kind::Ingress, id).await?;
-            self.remove(Kind::Certificate, id).await
-        })
+        Box::pin(async move { self.hosts().remove_named(id).await.map_err(error_of) })
     }
 }
 

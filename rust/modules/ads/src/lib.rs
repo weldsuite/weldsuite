@@ -9,14 +9,10 @@
 //! TypeScript worker's; its tests run against this crate in the `ads`
 //! conformance suite (`rust/conformance/suites.json`).
 
-#![allow(
-    clippy::disallowed_methods,
-    reason = "not converted to the ORM yet (ADR DATA-019)"
-)]
-
 mod accounts;
 mod campaigns;
 mod connections;
+mod orm_bridge;
 
 use std::sync::Arc;
 
@@ -28,6 +24,7 @@ use axum::routing::{delete, get, patch, post};
 use http::HeaderMap;
 use http::header::CONTENT_TYPE;
 use http::request::Parts;
+use sea_orm::DbErr;
 use serde_json::{Map, Value};
 use weldsuite_auth::AuthContext;
 use weldsuite_catalogs::entity_events::EventName;
@@ -266,7 +263,9 @@ pub(crate) fn query_param(query: &Map<String, Value>, name: &str) -> Option<Stri
     }
 }
 
-/// `select to_jsonb(t)` rows as Drizzle returns them.
-pub(crate) fn rows(values: Vec<Value>) -> Vec<Value> {
-    values.into_iter().map(weldsuite_db::js_row).collect()
+/// A row read through its entity that serde could not turn into JSON (the
+/// entity serializes as Drizzle returned the row), as the statement's error.
+#[allow(clippy::needless_pass_by_value, reason = "a `map_err` callback")]
+pub(crate) fn json_error(error: serde_json::Error) -> DbErr {
+    DbErr::Json(error.to_string())
 }

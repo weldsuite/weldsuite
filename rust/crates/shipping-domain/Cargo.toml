@@ -1,0 +1,25 @@
+[package]
+name = "weldsuite-shipping-domain"
+description = "Parcel carriers behind one port (ADR STASH-011): PostNL and DHL Parcel NL/BE labels, service points, returns, customs and tracking, for WeldStash"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+weldsuite-ports = { workspace = true }
+base64 = { workspace = true }
+form_urlencoded = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+time = { workspace = true, features = ["formatting", "parsing", "macros"] }
+tracing = { workspace = true }
+uuid = { workspace = true, features = ["v4"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt"] }
+
+[lints]
+workspace = true

@@ -4,8 +4,10 @@
 
 use std::collections::HashSet;
 
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, EntityTrait, JoinType, QueryFilter, QueryOrder, QuerySelect};
 use serde_json::{Value, json};
-use weldsuite_db::{PgPool, js_row};
+use weldsuite_db::{PgPool, orm};
 use weldsuite_payroll_domain::documents::Lang;
 use weldsuite_payroll_domain::nl::annual_statement::{
     AnnualEmployee, AnnualEmployer, AnnualPayslip, NlAnnualStatementInput, nl_annual_statement,
@@ -16,14 +18,15 @@ use weldsuite_payroll_domain::types::{NlFilingData, UsFilingData};
 use weldsuite_payroll_domain::us::forms::{
     UsEmployeeForForms, UsEmployerForForms, UsEmployerStateAccounts, UsPayslipForForms, form_w2,
 };
+use weldsuite_schema::tenant::{hr_payroll_employers, hr_payslips};
 
 use super::Deps;
 use super::common::{address_lines, annual_statement_file_name, engine_error, mask_ssn};
-use super::employees::decrypt_sensitive;
+use super::employees::{decrypt_sensitive, profile_of};
 use super::employer_context::find_employer_for_payroll;
 use super::notifier::language_of;
 use super::payslips::employee_by_id;
-use super::runs::{payslip_sql, s};
+use super::runs::{payslip_rows, s};
 use super::ytd::{compare_number_order, ytd_of};
 use crate::employees::display_name_of;
 use crate::{HrError, locale_compare};
@@ -33,14 +36,28 @@ pub(crate) async fn list_annual_statements(
     db: &PgPool,
     employee_id: &str,
 ) -> Result<Vec<Value>, HrError> {
-    let rows: Vec<(i32, String, String, String)> = sqlx::query_as(
-        "select s.tax_year, s.employer_id, e.name, e.country from hr_payslips s
-         join hr_payroll_employers e on e.id = s.employer_id
-         where s.employee_id = $1 and s.status = 'final'",
-    )
-    .bind(employee_id)
-    .fetch_all(db)
-    .await?;
+    let rows: Vec<(i32, String, String, String)> = hr_payslips::Entity::find()
+        .select_only()
+        .columns([
+            hr_payslips::Column::TaxYear,
+            hr_payslips::Column::EmployerId,
+        ])
+        .columns([
+            hr_payroll_employers::Column::Name,
+            hr_payroll_employers::Column::Country,
+        ])
+        .join(
+            JoinType::InnerJoin,
+            hr_payslips::Entity::belongs_to(hr_payroll_employers::Entity)
+                .from(hr_payslips::Column::EmployerId)
+                .to(hr_payroll_employers::Column::Id)
+                .into(),
+        )
+        .filter(hr_payslips::Column::EmployeeId.eq(employee_id))
+        .filter(hr_payslips::Column::Status.eq("final"))
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     let mut seen: HashSet<String> = HashSet::new();
     let mut out: Vec<(i32, String, Value)> = vec![];
     for (year, employer_id, name, country) in rows {
@@ -69,13 +86,22 @@ pub(crate) async fn us_employer_for_forms(
     db: &PgPool,
     employer: &Value,
 ) -> Result<UsEmployerForForms, HrError> {
-    let text: Option<String> = sqlx::query_scalar(
-        "select (us_settings -> 'states')::text from hr_payroll_employers where id = $1",
-    )
-    .bind(s(employer, "id"))
-    .fetch_optional(db)
-    .await?
-    .flatten();
+    // `(us_settings -> 'states')::text`: the stored key order.
+    let states_text = sea_orm::ExprTrait::cast_as(
+        sea_orm::sea_query::extension::postgres::PgExpr::get_json_field(
+            Expr::col(hr_payroll_employers::Column::UsSettings),
+            "states",
+        ),
+        "text",
+    );
+    let text: Option<String> = hr_payroll_employers::Entity::find()
+        .select_only()
+        .column_as(states_text, "states")
+        .filter(hr_payroll_employers::Column::Id.eq(s(employer, "id")))
+        .into_tuple::<Option<String>>()
+        .one(&orm(db))
+        .await?
+        .flatten();
     let states: OrderedMap<Value> = text
         .and_then(|t| serde_json::from_str(&t).ok())
         .unwrap_or_default();
@@ -144,29 +170,22 @@ pub(crate) async fn annual_statement_pdf(
     let (Some(employer), Some(employee)) = (employer, employee) else {
         return Err(not_found());
     };
-    let mut slips: Vec<Value> = sqlx::query_scalar(payslip_sql(
-        "s.employee_id = $1 and s.employer_id = $2 and s.tax_year = $3 and s.status = 'final' order by s.pay_date asc",
-    ))
-    .bind(employee_id)
-    .bind(employer_id)
-    .bind(i32::try_from(year).unwrap_or_default())
-    .fetch_all(db)
-    .await?
-    .into_iter()
-    .map(js_row)
-    .collect();
+    let mut slips = payslip_rows(
+        &orm(db),
+        hr_payslips::Entity::find()
+            .filter(hr_payslips::Column::EmployeeId.eq(employee_id))
+            .filter(hr_payslips::Column::EmployerId.eq(employer_id))
+            .filter(hr_payslips::Column::TaxYear.eq(i32::try_from(year).unwrap_or_default()))
+            .filter(hr_payslips::Column::Status.eq("final"))
+            .order_by_asc(hr_payslips::Column::PayDate),
+    )
+    .await?;
     slips.sort_by(compare_number_order);
     if slips.is_empty() {
         return Err(not_found());
     }
     let sensitive = decrypt_sensitive(&employee, &deps.keyring)?;
-    let profile: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from hr_payroll_profiles t where t.employee_id = $1 limit 1",
-    )
-    .bind(employee_id)
-    .fetch_optional(db)
-    .await?;
-    let profile = profile.map(js_row);
+    let profile = profile_of(db, employee_id).await?;
     let lang = if language_of(&employer) == "nl" {
         Lang::Nl
     } else {

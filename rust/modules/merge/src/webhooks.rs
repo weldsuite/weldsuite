@@ -10,16 +10,19 @@
 //! key into a workspace. Removing the repository undoes all of it. GitHub
 //! delivers through the App and registers nothing.
 
-use serde_json::Value;
-use weldsuite_db::{Keyring, PgPool, decrypt_field, encrypt_field, js_row};
+use sea_orm::sea_query::{Expr, OnConflict};
+use sea_orm::{ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, QueryFilter};
+use weldsuite_db::{Keyring, PgPool, decrypt_field, encrypt_field, orm, utc_now};
 use weldsuite_kit::id::ALPHANUMERIC;
 use weldsuite_kit::{generate_id, random_string};
+use weldsuite_schema::master::merge_provider_index;
+use weldsuite_schema::tenant::merge_repositories;
 
 use crate::credentials::adapter_context;
-use crate::db::{Row, opt_text, text};
+use crate::db::{Row, json_row, opt_text, text};
 use crate::providers::shared::trim_trailing_slashes;
 use crate::providers::{self, AdapterContext, RepositoryRef, WebhookTarget};
-use crate::{MergeError, MergeState, Overrides, now};
+use crate::{MergeError, MergeState, Overrides};
 
 pub(crate) const WEBHOOK_KEY_LENGTH: usize = 40;
 pub(crate) const WEBHOOK_SECRET_LENGTH: usize = 48;
@@ -38,19 +41,30 @@ pub(crate) async fn put_webhook_index(
     provider: &str,
     key: &str,
     workspace_id: &str,
-) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "insert into merge_provider_index (id, provider, kind, external_key, workspace_id, created_at, updated_at) \
-         values ($1, $2, 'webhook', $3, $4, $5::timestamptz, $5::timestamptz) \
-         on conflict (provider, kind, external_key) do update set workspace_id = excluded.workspace_id, \
-           updated_at = excluded.updated_at",
+) -> Result<(), DbErr> {
+    let at = utc_now().assume_utc();
+    merge_provider_index::Entity::insert(merge_provider_index::ActiveModel {
+        id: Set(generate_id("mpi")),
+        provider: Set(provider.to_owned()),
+        kind: Set("webhook".to_owned()),
+        external_key: Set(key.to_owned()),
+        workspace_id: Set(workspace_id.to_owned()),
+        created_at: Set(at),
+        updated_at: Set(at),
+    })
+    .on_conflict(
+        OnConflict::columns([
+            merge_provider_index::Column::Provider,
+            merge_provider_index::Column::Kind,
+            merge_provider_index::Column::ExternalKey,
+        ])
+        .update_columns([
+            merge_provider_index::Column::WorkspaceId,
+            merge_provider_index::Column::UpdatedAt,
+        ])
+        .to_owned(),
     )
-    .bind(generate_id("mpi"))
-    .bind(provider)
-    .bind(key)
-    .bind(workspace_id)
-    .bind(now())
-    .execute(master)
+    .exec_without_returning(&orm(master))
     .await?;
     Ok(())
 }
@@ -61,14 +75,13 @@ pub(crate) async fn delete_webhook_index(
     master: &PgPool,
     provider: &str,
     key: &str,
-) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "delete from merge_provider_index where provider = $1 and kind = 'webhook' and external_key = $2",
-    )
-    .bind(provider)
-    .bind(key)
-    .execute(master)
-    .await?;
+) -> Result<(), DbErr> {
+    merge_provider_index::Entity::delete_many()
+        .filter(merge_provider_index::Column::Provider.eq(provider))
+        .filter(merge_provider_index::Column::Kind.eq("webhook"))
+        .filter(merge_provider_index::Column::ExternalKey.eq(key))
+        .exec(&orm(master))
+        .await?;
     Ok(())
 }
 
@@ -108,18 +121,29 @@ pub(crate) async fn register_repository_webhook(
         put_webhook_index(&master, &provider, &key, workspace_id).await?;
         let sealed = encrypt_field(&secret, &ctx.overrides.keyring(&ctx.state))
             .map_err(|error| MergeError::Unexpected(error.to_string()))?;
-        let row: Value = sqlx::query_scalar(
-            "update merge_repositories set webhook_id = $2, webhook_key = $3, webhook_secret = $4, \
-               updated_at = $5::timestamptz where id = $1 returning to_jsonb(merge_repositories.*)",
-        )
-        .bind(text(repository, "id"))
-        .bind(&webhook_id)
-        .bind(&key)
-        .bind(sealed)
-        .bind(now())
-        .fetch_one(db)
-        .await?;
-        Ok::<Row, MergeError>(js_row(row))
+        let rows = merge_repositories::Entity::update_many()
+            .col_expr(
+                merge_repositories::Column::WebhookId,
+                Expr::value(webhook_id.clone()),
+            )
+            .col_expr(merge_repositories::Column::WebhookKey, Expr::value(key))
+            .col_expr(
+                merge_repositories::Column::WebhookSecret,
+                Expr::value(sealed),
+            )
+            .col_expr(
+                merge_repositories::Column::UpdatedAt,
+                Expr::value(utc_now().assume_utc()),
+            )
+            .filter(merge_repositories::Column::Id.eq(text(repository, "id")))
+            .exec_with_returning(&orm(db))
+            .await?;
+        // `fetch_one`: no row is the statement's error (the route's 500).
+        let row = rows
+            .into_iter()
+            .next()
+            .ok_or_else(|| DbErr::RecordNotFound("merge_repositories".to_owned()))?;
+        Ok::<Row, MergeError>(json_row(serde_json::to_value(row))?)
     }
     .await;
     match stored {

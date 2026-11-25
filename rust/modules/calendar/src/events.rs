@@ -7,16 +7,27 @@ use axum::body::Bytes;
 use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use http::HeaderMap;
+use sea_orm::ActiveValue::Set;
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{
+    ColumnTrait, Condition, DbErr, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder,
+    QuerySelect, Select,
+};
 use serde_json::{Map, Value, json};
+use time::{OffsetDateTime, PrimitiveDateTime};
 use weldsuite_catalogs::entity_events::{
     CALENDAR_EVENT_CREATED, CALENDAR_EVENT_DELETED, CALENDAR_EVENT_UPDATED,
 };
-use weldsuite_db::{PgPool, js_row};
+use weldsuite_db::{PgPool, orm, utc_timestamp};
 use weldsuite_events::EntityEvent;
 use weldsuite_kit::validation::Field;
 use weldsuite_kit::{Created, Data, NoContent, generate_id};
+use weldsuite_schema::tenant::{
+    calendar_booking_pages, calendar_bookings, calendar_events as events, crm_activities, tasks,
+};
 
 use crate::access;
+use crate::access::row_json;
 use crate::event_input::{
     AttendeeIn, EventInput, read_event, read_list_query, read_range_query, read_reschedule,
     read_upcoming_query,
@@ -31,15 +42,29 @@ use crate::{
 
 const NOT_FOUND: &str = "Calendar event";
 
-/// A live event by id.
-async fn event_row(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(e) from calendar_events e where id = $1 and deleted_at is null limit 1",
+/// `new Date(millis)` as a `timestamp` column takes it (`toISOString()`
+/// bound as text and cast with `::timestamp`).
+pub(crate) fn timestamp_at(millis: i64) -> PrimitiveDateTime {
+    utc_timestamp(
+        OffsetDateTime::from_unix_timestamp_nanos(i128::from(millis) * 1_000_000)
+            .unwrap_or(OffsetDateTime::UNIX_EPOCH),
     )
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(js_row))
+}
+
+/// A `timestamp` column's value as JavaScript reads it: milliseconds (UTC).
+pub(crate) fn millis_at(at: PrimitiveDateTime) -> i64 {
+    i64::try_from(at.assume_utc().unix_timestamp_nanos().div_euclid(1_000_000)).unwrap_or(0)
+}
+
+/// A live event by id.
+async fn event_row(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
+    events::Entity::find()
+        .filter(events::Column::Id.eq(id))
+        .filter(events::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?
+        .map(row_json)
+        .transpose()
 }
 
 /// The event, when it is live and on a calendar the caller can see: 404
@@ -81,10 +106,20 @@ fn time_range_error(
 
 /// `new Date(text)` bound for a timestamp column: `Err` (500) for an Invalid
 /// Date, which the driver refuses.
-fn date_param(text: &str) -> Outcome<String> {
+fn date_param(text: &str) -> Outcome<PrimitiveDateTime> {
     parse_date(text)
-        .map(iso)
+        .map(timestamp_at)
         .ok_or_else(|| Refusal::Internal(format!("invalid date: {text}")))
+}
+
+/// A value for a `NOT NULL` column: `Err` (500) when there is none, which
+/// Postgres refuses (a not-null violation).
+fn not_null<T>(value: Option<T>, column: &str) -> Outcome<T> {
+    value.ok_or_else(|| {
+        Refusal::Internal(format!(
+            "null value in column \"{column}\" of relation \"calendar_events\""
+        ))
+    })
 }
 
 /// `q.limit` as `.limit(n)` binds it: a fraction is refused by the driver.
@@ -108,12 +143,15 @@ pub(crate) async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response 
     };
     let result = async {
         let calendar_ids =
-            access::resolve_requested(&caller.db, &caller.user_id, q.calendar_ids.as_deref()).await?;
+            access::resolve_requested(&caller.db, &caller.user_id, q.calendar_ids.as_deref())
+                .await?;
         if calendar_ids.is_empty() {
             return Ok(page(Vec::new(), 0, false, None));
         }
         let non_empty = |v: &Option<String>| v.clone().filter(|v| !v.is_empty());
-        let start_date = non_empty(&q.start_date).map(|d| date_param(&d)).transpose()?;
+        let start_date = non_empty(&q.start_date)
+            .map(|d| date_param(&d))
+            .transpose()?;
         let end_date = non_empty(&q.end_date).map(|d| date_param(&d)).transpose()?;
         let search = non_empty(&q.search).map(|s| {
             let mut term = String::from("%");
@@ -131,47 +169,37 @@ pub(crate) async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response 
             None => None,
         };
         let limit = limit_param(q.limit)?;
-        let rows: Vec<Value> = sqlx::query_scalar(
-            "select to_jsonb(e) from calendar_events e
-             where deleted_at is null and calendar_id = any($1)
-               and ($2::text is null or type = $2)
-               and ($3::text is null or status = $3)
-               and ($4::timestamp is null or coalesce(end_time, start_time) >= $4::timestamp)
-               and ($5::timestamp is null or start_time <= $5::timestamp)
-               and ($6::text is null or title ilike $6 or description ilike $6 or location ilike $6)
-               and ($7::timestamp is null or (created_at < $7::timestamp or (created_at = $7::timestamp and id < $8)))
-             order by created_at desc, id desc
-             limit $9",
-        )
-        .bind(&calendar_ids)
-        .bind(non_empty(&q.kind))
-        .bind(non_empty(&q.status))
-        .bind(&start_date)
-        .bind(&end_date)
-        .bind(&search)
-        .bind(cursor.as_ref().map(|(at, _)| at.clone()))
-        .bind(cursor.as_ref().map(|(_, id)| id.clone()))
-        .bind(limit + 1)
-        .fetch_all(&caller.db)
-        .await?;
-        let total: i64 = sqlx::query_scalar(
-            "select count(*) from calendar_events
-             where deleted_at is null and calendar_id = any($1)
-               and ($2::text is null or type = $2)
-               and ($3::text is null or status = $3)
-               and ($4::timestamp is null or coalesce(end_time, start_time) >= $4::timestamp)
-               and ($5::timestamp is null or start_time <= $5::timestamp)
-               and ($6::text is null or title ilike $6 or description ilike $6 or location ilike $6)",
-        )
-        .bind(&calendar_ids)
-        .bind(non_empty(&q.kind))
-        .bind(non_empty(&q.status))
-        .bind(&start_date)
-        .bind(&end_date)
-        .bind(&search)
-        .fetch_one(&caller.db)
-        .await?;
-        let mut rows: Vec<Value> = rows.into_iter().map(js_row).collect();
+        let filters = ListFilters {
+            calendar_ids: &calendar_ids,
+            kind: non_empty(&q.kind),
+            status: non_empty(&q.status),
+            start: start_date,
+            end: end_date,
+            search,
+        };
+        let db = orm(&caller.db);
+        let mut rows = filters.select();
+        if let Some((at, id)) = &cursor {
+            rows = rows.filter(
+                Condition::any().add(events::Column::CreatedAt.lt(*at)).add(
+                    Condition::all()
+                        .add(events::Column::CreatedAt.eq(*at))
+                        .add(events::Column::Id.lt(id.as_str())),
+                ),
+            );
+        }
+        let rows = rows
+            .order_by_desc(events::Column::CreatedAt)
+            .order_by_desc(events::Column::Id)
+            .limit(u64::try_from(limit + 1).unwrap_or(0))
+            .all(&db)
+            .await?;
+        let total = filters.select().count(&db).await?;
+        let total = i64::try_from(total).unwrap_or(i64::MAX);
+        let mut rows = rows
+            .into_iter()
+            .map(row_json)
+            .collect::<Result<Vec<_>, _>>()?;
         let take = usize::try_from(limit).unwrap_or(0);
         let has_more = rows.len() > take;
         rows.truncate(take);
@@ -186,42 +214,93 @@ pub(crate) async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response 
     result.unwrap_or_else(|refused: Refusal| refused.respond("Failed to list calendar events"))
 }
 
+/// The list's filters (`conditions`, the keyset aside): the rows and their
+/// count share them.
+struct ListFilters<'a> {
+    calendar_ids: &'a [String],
+    kind: Option<String>,
+    status: Option<String>,
+    start: Option<PrimitiveDateTime>,
+    end: Option<PrimitiveDateTime>,
+    /// An `ilike` pattern, its wildcards escaped.
+    search: Option<String>,
+}
+
+impl ListFilters<'_> {
+    fn select(&self) -> Select<events::Entity> {
+        let mut select = events::Entity::find()
+            .filter(events::Column::DeletedAt.is_null())
+            .filter(events::Column::CalendarId.is_in(self.calendar_ids.iter().cloned()));
+        if let Some(kind) = &self.kind {
+            select = select.filter(events::Column::Type.eq(kind.as_str()));
+        }
+        if let Some(status) = &self.status {
+            select = select.filter(events::Column::Status.eq(status.as_str()));
+        }
+        if let Some(start) = self.start {
+            select = select.filter(sea_orm::ExprTrait::gte(ends_at(), start));
+        }
+        if let Some(end) = self.end {
+            select = select.filter(events::Column::StartTime.lte(end));
+        }
+        if let Some(search) = &self.search {
+            select = select.filter(
+                Condition::any()
+                    .add(events::Column::Title.ilike(search.as_str()))
+                    .add(events::Column::Description.ilike(search.as_str()))
+                    .add(events::Column::Location.ilike(search.as_str())),
+            );
+        }
+        select
+    }
+}
+
+/// `coalesce(end_time, start_time)`: when the event is over.
+fn ends_at() -> Expr {
+    Expr::expr(Func::coalesce([
+        Expr::col(events::Column::EndTime),
+        Expr::col(events::Column::StartTime),
+    ]))
+}
+
 /// The keyset of the row after which the next page starts: its `createdAt`
-/// (as JavaScript reads it, milliseconds) and id.
+/// (as JavaScript reads it, to the millisecond) and id.
 pub(crate) async fn cursor_of(
     db: &PgPool,
     table: &str,
     id: &str,
-) -> Result<Option<(String, String)>, sqlx::Error> {
-    let created: Option<Value> = match table {
+) -> Result<Option<(PrimitiveDateTime, String)>, DbErr> {
+    let db = orm(db);
+    let created: Option<PrimitiveDateTime> = match table {
         "calendar_events" => {
-            sqlx::query_scalar(
-                "select to_jsonb(created_at) from calendar_events where id = $1 limit 1",
-            )
-            .bind(id)
-            .fetch_optional(db)
-            .await?
+            events::Entity::find()
+                .select_only()
+                .column(events::Column::CreatedAt)
+                .filter(events::Column::Id.eq(id))
+                .into_tuple()
+                .one(&db)
+                .await?
         }
         "calendar_bookings" => {
-            sqlx::query_scalar(
-                "select to_jsonb(created_at) from calendar_bookings where id = $1 limit 1",
-            )
-            .bind(id)
-            .fetch_optional(db)
-            .await?
+            calendar_bookings::Entity::find()
+                .select_only()
+                .column(calendar_bookings::Column::CreatedAt)
+                .filter(calendar_bookings::Column::Id.eq(id))
+                .into_tuple()
+                .one(&db)
+                .await?
         }
         _ => {
-            sqlx::query_scalar(
-                "select to_jsonb(created_at) from calendar_booking_pages where id = $1 limit 1",
-            )
-            .bind(id)
-            .fetch_optional(db)
-            .await?
+            calendar_booking_pages::Entity::find()
+                .select_only()
+                .column(calendar_booking_pages::Column::CreatedAt)
+                .filter(calendar_booking_pages::Column::Id.eq(id))
+                .into_tuple()
+                .one(&db)
+                .await?
         }
     };
-    Ok(created
-        .and_then(|value| value.as_str().and_then(weldsuite_db::js_timestamp))
-        .map(|at| (at, id.to_owned())))
+    Ok(created.map(|at| (utc_timestamp(at.assume_utc()), id.to_owned())))
 }
 
 // ── GET /range ──────────────────────────────────────────────────────────────
@@ -239,19 +318,19 @@ pub(crate) async fn range(caller: Caller, RawQuery(query): RawQuery) -> Response
         }
         let start = date_param(&start)?;
         let end = date_param(&end)?;
-        let rows: Vec<Value> = sqlx::query_scalar(
-            "select to_jsonb(e) from calendar_events e
-             where deleted_at is null and calendar_id = any($1)
-               and coalesce(end_time, start_time) >= $2::timestamp
-               and start_time <= $3::timestamp
-             order by start_time asc",
+        let rows = events::Entity::find()
+            .filter(events::Column::DeletedAt.is_null())
+            .filter(events::Column::CalendarId.is_in(ids))
+            .filter(sea_orm::ExprTrait::gte(ends_at(), start))
+            .filter(events::Column::StartTime.lte(end))
+            .order_by_asc(events::Column::StartTime)
+            .all(&orm(&caller.db))
+            .await?;
+        Ok::<_, Refusal>(
+            rows.into_iter()
+                .map(row_json)
+                .collect::<Result<Vec<_>, _>>()?,
         )
-        .bind(&ids)
-        .bind(&start)
-        .bind(&end)
-        .fetch_all(&caller.db)
-        .await?;
-        Ok::<_, Refusal>(rows.into_iter().map(js_row).collect::<Vec<_>>())
     }
     .await;
     match result {
@@ -277,21 +356,21 @@ pub(crate) async fn upcoming(caller: Caller, RawQuery(query): RawQuery) -> Respo
         #[allow(clippy::cast_possible_truncation)]
         let end = now + (days.trunc() as i64) * DAY_MS;
         let limit = limit_param(limit)?;
-        let rows: Vec<Value> = sqlx::query_scalar(
-            "select to_jsonb(e) from calendar_events e
-             where deleted_at is null and calendar_id = any($1)
-               and start_time >= $2::timestamp and start_time <= $3::timestamp
-               and status = 'confirmed'
-             order by start_time asc
-             limit $4",
+        let rows = events::Entity::find()
+            .filter(events::Column::DeletedAt.is_null())
+            .filter(events::Column::CalendarId.is_in(ids))
+            .filter(events::Column::StartTime.gte(timestamp_at(now)))
+            .filter(events::Column::StartTime.lte(timestamp_at(end)))
+            .filter(events::Column::Status.eq("confirmed"))
+            .order_by_asc(events::Column::StartTime)
+            .limit(u64::try_from(limit).unwrap_or(0))
+            .all(&orm(&caller.db))
+            .await?;
+        Ok::<_, Refusal>(
+            rows.into_iter()
+                .map(row_json)
+                .collect::<Result<Vec<_>, _>>()?,
         )
-        .bind(&ids)
-        .bind(iso(now))
-        .bind(iso(end))
-        .bind(limit)
-        .fetch_all(&caller.db)
-        .await?;
-        Ok::<_, Refusal>(rows.into_iter().map(js_row).collect::<Vec<_>>())
     }
     .await;
     match result {
@@ -374,8 +453,6 @@ async fn create_event(
     if let Some(message) = time_range_error(start, end, all_day) {
         return Err(Refusal::bad_request(message));
     }
-    let start_iso = start.map(iso);
-    let end_iso = end.flatten().map(iso);
     let meeting_url = text_field(&input.meeting_url)
         .map(str::trim)
         .filter(|u| !u.is_empty());
@@ -385,43 +462,37 @@ async fn create_event(
     let priority = text_field(&input.priority)
         .filter(|p| !p.is_empty())
         .unwrap_or("normal");
-    sqlx::query(
-        "insert into calendar_events
-             (id, calendar_id, title, description, type, start_time, end_time, all_day, timezone,
-              location, is_virtual, meeting_url, status, priority, color, recurrence_rule,
-              recurrence_id, organizer_id, attendees, reminders, customer_id, contact_id, notes,
-              tags, created_at, updated_at)
-         values ($1, $2, $3, $4, $5, $6::timestamp, $7::timestamp, coalesce($8, false), $9,
-                 $10, coalesce($11, false), $12, $13, $14, $15, $16,
-                 $17, $18, $19::jsonb, $20::jsonb, $21, $22, $23,
-                 $24::jsonb, $25::timestamp, $25::timestamp)",
-    )
-    .bind(&id)
-    .bind(&calendar_id)
-    .bind(text_field(&input.title))
-    .bind(text_field(&input.description))
-    .bind(text_field(&input.kind))
-    .bind(&start_iso)
-    .bind(&end_iso)
-    .bind(input.all_day.as_set().copied())
-    .bind(text_field(&input.timezone))
-    .bind(text_field(&input.location))
-    .bind(input.is_virtual.as_set().copied())
-    .bind(meeting_url)
-    .bind(status)
-    .bind(priority)
-    .bind(text_field(&input.color))
-    .bind(text_field(&input.recurrence_rule))
-    .bind(text_field(&input.recurrence_id))
-    .bind(&caller.user_id)
-    .bind(json_list(&input.attendees, attendee_value))
-    .bind(json_list(&input.reminders, Clone::clone))
-    .bind(text_field(&input.customer_id))
-    .bind(text_field(&input.contact_id))
-    .bind(text_field(&input.notes))
-    .bind(json_list(&input.tags, |t| Value::String(t.clone())))
-    .bind(&now)
-    .execute(&caller.db)
+    let owned = |field: &Field<String>| text_field(field).map(str::to_owned);
+    events::Entity::insert(events::ActiveModel {
+        id: Set(id.clone()),
+        calendar_id: Set(calendar_id.clone()),
+        title: Set(not_null(owned(&input.title), "title")?),
+        description: Set(owned(&input.description)),
+        type_: Set(not_null(owned(&input.kind), "type")?),
+        start_time: Set(not_null(start.map(timestamp_at), "start_time")?),
+        end_time: Set(end.flatten().map(timestamp_at)),
+        all_day: Set(Some(input.all_day.as_set().copied().unwrap_or(false))),
+        timezone: Set(owned(&input.timezone)),
+        location: Set(owned(&input.location)),
+        is_virtual: Set(Some(input.is_virtual.as_set().copied().unwrap_or(false))),
+        meeting_url: Set(meeting_url.map(str::to_owned)),
+        status: Set(status.to_owned()),
+        priority: Set(Some(priority.to_owned())),
+        color: Set(owned(&input.color)),
+        recurrence_rule: Set(owned(&input.recurrence_rule)),
+        recurrence_id: Set(owned(&input.recurrence_id)),
+        organizer_id: Set(caller.user_id.clone()),
+        attendees: Set(json_list(&input.attendees, attendee_value)),
+        reminders: Set(json_list(&input.reminders, Clone::clone)),
+        customer_id: Set(owned(&input.customer_id)),
+        contact_id: Set(owned(&input.contact_id)),
+        notes: Set(owned(&input.notes)),
+        tags: Set(json_list(&input.tags, |t| Value::String(t.clone()))),
+        created_at: Set(now),
+        updated_at: Set(now),
+        ..Default::default()
+    })
+    .exec_without_returning(&orm(&caller.db))
     .await?;
 
     caller.publish(
@@ -545,12 +616,11 @@ async fn link_meeting(
 /// Re-read the event and bring its meetings in line (`syncLinkedMeetings`).
 async fn sync_linked_meetings(state: &CalendarState, caller: &Caller, before: &Value) {
     let result = async {
-        let after: Option<Value> =
-            sqlx::query_scalar("select to_jsonb(e) from calendar_events e where id = $1 limit 1")
-                .bind(text(before, "id"))
-                .fetch_optional(&caller.db)
-                .await?;
-        let Some(after) = after.map(js_row) else {
+        let after = events::Entity::find()
+            .filter(events::Column::Id.eq(text(before, "id")))
+            .one(&orm(&caller.db))
+            .await?;
+        let Some(after) = after.map(row_json).transpose()? else {
             return Ok(Vec::new());
         };
         meetings::sync_from_event(&caller.db, before, &after).await
@@ -595,24 +665,78 @@ pub(crate) async fn update(
         .unwrap_or_else(|refused| refused.respond("Failed to update calendar event"))
 }
 
-/// `(set, value)` of a text column for `case when $set then $value else col end`.
-fn change_text(field: &Field<String>) -> (bool, Option<String>) {
+/// The value a sent text field writes (`null` clears it); `None` when the
+/// body left it out (`case when $set then $value else col end`).
+fn change_text(field: &Field<String>) -> Option<Expr> {
     match field {
-        Field::Absent => (false, None),
-        Field::Null => (true, None),
-        Field::Set(value) => (true, Some(value.clone())),
+        Field::Absent => None,
+        Field::Null => Some(Expr::value(Option::<String>::None)),
+        Field::Set(value) => Some(Expr::value(value.clone())),
     }
 }
 
-fn change_json<T>(field: &Field<Vec<T>>, to_value: impl Fn(&T) -> Value) -> (bool, Option<Value>) {
+fn change_json<T>(field: &Field<Vec<T>>, to_value: impl Fn(&T) -> Value) -> Option<Expr> {
     match field {
-        Field::Absent => (false, None),
-        Field::Null => (true, None),
-        Field::Set(items) => (
-            true,
-            Some(Value::Array(items.iter().map(to_value).collect())),
-        ),
+        Field::Absent => None,
+        Field::Null => Some(Expr::value(Option::<Value>::None)),
+        Field::Set(items) => Some(Expr::value(Value::Array(
+            items.iter().map(to_value).collect(),
+        ))),
     }
+}
+
+/// `update(calendarEvents).set({ ...data, updatedAt })`: the columns the body
+/// sent, a `null` clearing one.
+async fn write_event(db: &PgPool, id: &str, input: &EventInput) -> Result<(), DbErr> {
+    use events::Column as E;
+    let instant = |field: &Field<String>| {
+        (!field.is_absent())
+            .then(|| Expr::value(text_field(field).and_then(parse_date).map(timestamp_at)))
+    };
+    let flag =
+        |field: &Field<bool>| (!field.is_absent()).then(|| Expr::value(field.as_set().copied()));
+    let meeting_url = match &input.meeting_url {
+        Field::Set(url) if url.is_empty() => Some(Expr::value(Option::<String>::None)),
+        other => change_text(other),
+    };
+    let sets = [
+        (E::CalendarId, change_text(&input.calendar_id)),
+        (E::Title, change_text(&input.title)),
+        (E::Description, change_text(&input.description)),
+        (E::Type, change_text(&input.kind)),
+        (E::StartTime, instant(&input.start_time)),
+        (E::EndTime, instant(&input.end_time)),
+        (E::AllDay, flag(&input.all_day)),
+        (E::Timezone, change_text(&input.timezone)),
+        (E::Location, change_text(&input.location)),
+        (E::IsVirtual, flag(&input.is_virtual)),
+        (E::MeetingUrl, meeting_url),
+        (E::Status, change_text(&input.status)),
+        (E::Priority, change_text(&input.priority)),
+        (E::Color, change_text(&input.color)),
+        (E::RecurrenceRule, change_text(&input.recurrence_rule)),
+        (E::Attendees, change_json(&input.attendees, attendee_value)),
+        (E::Reminders, change_json(&input.reminders, Clone::clone)),
+        (E::CustomerId, change_text(&input.customer_id)),
+        (E::ContactId, change_text(&input.contact_id)),
+        (E::Notes, change_text(&input.notes)),
+        (
+            E::Tags,
+            change_json(&input.tags, |t| Value::String(t.clone())),
+        ),
+    ];
+    let mut update = events::Entity::update_many().col_expr(E::UpdatedAt, Expr::value(now()));
+    for (column, value) in sets {
+        if let Some(value) = value {
+            update = update.col_expr(column, value);
+        }
+    }
+    update
+        .filter(E::Id.eq(id))
+        .filter(E::DeletedAt.is_null())
+        .exec(&orm(db))
+        .await?;
+    Ok(())
 }
 
 #[allow(clippy::too_many_lines)] // the route, step by step as TypeScript has it
@@ -662,100 +786,7 @@ async fn update_event(
         }
     }
 
-    let (set_calendar, calendar) = change_text(&input.calendar_id);
-    let (set_title, title) = change_text(&input.title);
-    let (set_description, description) = change_text(&input.description);
-    let (set_type, kind) = change_text(&input.kind);
-    let start = text_field(&input.start_time).and_then(parse_date).map(iso);
-    let end = text_field(&input.end_time).and_then(parse_date).map(iso);
-    let (set_timezone, timezone) = change_text(&input.timezone);
-    let (set_location, location) = change_text(&input.location);
-    let (set_url, meeting_url) = match &input.meeting_url {
-        Field::Set(url) if url.is_empty() => (true, None),
-        other => change_text(other),
-    };
-    let (set_status, status) = change_text(&input.status);
-    let (set_priority, priority) = change_text(&input.priority);
-    let (set_color, color) = change_text(&input.color);
-    let (set_rule, rule) = change_text(&input.recurrence_rule);
-    let (set_attendees, attendees) = change_json(&input.attendees, attendee_value);
-    let (set_reminders, reminders) = change_json(&input.reminders, Clone::clone);
-    let (set_customer, customer) = change_text(&input.customer_id);
-    let (set_contact, contact) = change_text(&input.contact_id);
-    let (set_notes, notes) = change_text(&input.notes);
-    let (set_tags, tags) = change_json(&input.tags, |t| Value::String(t.clone()));
-    sqlx::query(
-        "update calendar_events set
-             updated_at = $2::timestamp,
-             calendar_id = case when $3 then $4 else calendar_id end,
-             title = case when $5 then $6 else title end,
-             description = case when $7 then $8 else description end,
-             type = case when $9 then $10 else type end,
-             start_time = case when $11 then $12::timestamp else start_time end,
-             end_time = case when $13 then $14::timestamp else end_time end,
-             all_day = case when $15 then $16 else all_day end,
-             timezone = case when $17 then $18 else timezone end,
-             location = case when $19 then $20 else location end,
-             is_virtual = case when $21 then $22 else is_virtual end,
-             meeting_url = case when $23 then $24 else meeting_url end,
-             status = case when $25 then $26 else status end,
-             priority = case when $27 then $28 else priority end,
-             color = case when $29 then $30 else color end,
-             recurrence_rule = case when $31 then $32 else recurrence_rule end,
-             attendees = case when $33 then $34::jsonb else attendees end,
-             reminders = case when $35 then $36::jsonb else reminders end,
-             customer_id = case when $37 then $38 else customer_id end,
-             contact_id = case when $39 then $40 else contact_id end,
-             notes = case when $41 then $42 else notes end,
-             tags = case when $43 then $44::jsonb else tags end
-         where id = $1 and deleted_at is null",
-    )
-    .bind(id)
-    .bind(now())
-    .bind(set_calendar)
-    .bind(&calendar)
-    .bind(set_title)
-    .bind(&title)
-    .bind(set_description)
-    .bind(&description)
-    .bind(set_type)
-    .bind(&kind)
-    .bind(!input.start_time.is_absent())
-    .bind(&start)
-    .bind(!input.end_time.is_absent())
-    .bind(&end)
-    .bind(!input.all_day.is_absent())
-    .bind(input.all_day.as_set().copied())
-    .bind(set_timezone)
-    .bind(&timezone)
-    .bind(set_location)
-    .bind(&location)
-    .bind(!input.is_virtual.is_absent())
-    .bind(input.is_virtual.as_set().copied())
-    .bind(set_url)
-    .bind(&meeting_url)
-    .bind(set_status)
-    .bind(&status)
-    .bind(set_priority)
-    .bind(&priority)
-    .bind(set_color)
-    .bind(&color)
-    .bind(set_rule)
-    .bind(&rule)
-    .bind(set_attendees)
-    .bind(&attendees)
-    .bind(set_reminders)
-    .bind(&reminders)
-    .bind(set_customer)
-    .bind(&customer)
-    .bind(set_contact)
-    .bind(&contact)
-    .bind(set_notes)
-    .bind(&notes)
-    .bind(set_tags)
-    .bind(&tags)
-    .execute(&caller.db)
-    .await?;
+    write_event(&caller.db, id, &input).await?;
 
     let event = EntityEvent::new(
         CALENDAR_EVENT_UPDATED,
@@ -963,14 +994,13 @@ pub(crate) async fn remove(
     let result = async {
         let existing = visible_event(&caller, &id).await?;
         let now = now();
-        sqlx::query(
-            "update calendar_events set deleted_at = $2::timestamp, updated_at = $2::timestamp
-             where id = $1 and deleted_at is null",
-        )
-        .bind(&id)
-        .bind(&now)
-        .execute(&caller.db)
-        .await?;
+        events::Entity::update_many()
+            .col_expr(events::Column::DeletedAt, Expr::value(now))
+            .col_expr(events::Column::UpdatedAt, Expr::value(now))
+            .filter(events::Column::Id.eq(id.as_str()))
+            .filter(events::Column::DeletedAt.is_null())
+            .exec(&orm(&caller.db))
+            .await?;
         caller.publish(
             &state,
             CALENDAR_EVENT_DELETED,
@@ -1013,14 +1043,13 @@ pub(crate) async fn cancel(
 ) -> Response {
     let result = async {
         let existing = visible_event(&caller, &id).await?;
-        sqlx::query(
-            "update calendar_events set status = 'cancelled', updated_at = $2::timestamp
-             where id = $1 and deleted_at is null",
-        )
-        .bind(&id)
-        .bind(now())
-        .execute(&caller.db)
-        .await?;
+        events::Entity::update_many()
+            .col_expr(events::Column::Status, Expr::value("cancelled"))
+            .col_expr(events::Column::UpdatedAt, Expr::value(now()))
+            .filter(events::Column::Id.eq(id.as_str()))
+            .filter(events::Column::DeletedAt.is_null())
+            .exec(&orm(&caller.db))
+            .await?;
         let mut changes = Map::new();
         changes.insert(
             "status".to_owned(),
@@ -1087,22 +1116,20 @@ pub(crate) async fn reschedule(
         if let Some(message) = time_range_error(new_start, end_for_check, all_day) {
             return Err(Refusal::bad_request(message));
         }
-        let start_iso = new_start.map(iso);
-        let end_iso = new_end.flatten().map(iso);
-        sqlx::query(
-            "update calendar_events set
-                 start_time = $2::timestamp,
-                 updated_at = $3::timestamp,
-                 end_time = case when $4 then $5::timestamp else end_time end
-             where id = $1 and deleted_at is null",
-        )
-        .bind(&id)
-        .bind(&start_iso)
-        .bind(now())
-        .bind(end_iso.is_some())
-        .bind(&end_iso)
-        .execute(&caller.db)
-        .await?;
+        let mut update = events::Entity::update_many()
+            .col_expr(
+                events::Column::StartTime,
+                Expr::value(new_start.map(timestamp_at)),
+            )
+            .col_expr(events::Column::UpdatedAt, Expr::value(now()));
+        if let Some(end) = new_end.flatten() {
+            update = update.col_expr(events::Column::EndTime, Expr::value(timestamp_at(end)));
+        }
+        update
+            .filter(events::Column::Id.eq(id.as_str()))
+            .filter(events::Column::DeletedAt.is_null())
+            .exec(&orm(&caller.db))
+            .await?;
         if input.manual {
             pin_rescheduled_source(&caller.db, &existing, new_start.unwrap_or_default(), new_end.flatten())
                 .await?;
@@ -1151,48 +1178,48 @@ async fn pin_rescheduled_source(
     event: &Value,
     start: i64,
     end: Option<i64>,
-) -> Result<(), sqlx::Error> {
+) -> Result<(), DbErr> {
     let Some(source_id) = event["sourceId"].as_str().filter(|s| !s.is_empty()) else {
         return Ok(());
     };
     let now = now();
+    let db = orm(db);
     match event["sourceType"].as_str() {
         Some("task") => {
-            sqlx::query(
-                "update tasks set start_date = $2::timestamp, updated_at = $3::timestamp where id = $1",
-            )
-            .bind(source_id)
-            .bind(iso(start))
-            .bind(&now)
-            .execute(db)
-            .await?;
+            tasks::Entity::update_many()
+                .col_expr(tasks::Column::StartDate, Expr::value(timestamp_at(start)))
+                .col_expr(tasks::Column::UpdatedAt, Expr::value(now))
+                .filter(tasks::Column::Id.eq(source_id))
+                .exec(&db)
+                .await?;
         }
         Some("activity") => {
             // Activities need a concrete end; 30 minutes like legacy.
             let end = end.unwrap_or(start + 30 * 60_000);
-            sqlx::query(
-                "update crm_activities set start_time = $2::timestamp, end_time = $3::timestamp,
-                     updated_at = $4::timestamp
-                 where id = $1",
-            )
-            .bind(source_id)
-            .bind(iso(start))
-            .bind(iso(end))
-            .bind(&now)
-            .execute(db)
-            .await?;
+            crm_activities::Entity::update_many()
+                .col_expr(
+                    crm_activities::Column::StartTime,
+                    Expr::value(timestamp_at(start)),
+                )
+                .col_expr(
+                    crm_activities::Column::EndTime,
+                    Expr::value(timestamp_at(end)),
+                )
+                .col_expr(crm_activities::Column::UpdatedAt, Expr::value(now))
+                .filter(crm_activities::Column::Id.eq(source_id))
+                .exec(&db)
+                .await?;
         }
         _ => {}
     }
     if event["autoScheduled"] == true {
-        sqlx::query(
-            "update calendar_events set auto_scheduled = false, updated_at = $2::timestamp
-             where id = $1 and deleted_at is null",
-        )
-        .bind(text(event, "id"))
-        .bind(&now)
-        .execute(db)
-        .await?;
+        events::Entity::update_many()
+            .col_expr(events::Column::AutoScheduled, Expr::value(false))
+            .col_expr(events::Column::UpdatedAt, Expr::value(now))
+            .filter(events::Column::Id.eq(text(event, "id")))
+            .filter(events::Column::DeletedAt.is_null())
+            .exec(&db)
+            .await?;
     }
     Ok(())
 }
@@ -1231,63 +1258,58 @@ pub(crate) async fn unpin(
 
 /// Hand an event back to the auto-scheduler (`unpinEvent`).
 async fn unpin_event(db: &PgPool, event: &Value) -> Outcome<()> {
-    sqlx::query(
-        "update calendar_events set auto_scheduled = true, updated_at = $2::timestamp
-         where id = $1 and deleted_at is null",
-    )
-    .bind(text(event, "id"))
-    .bind(now())
-    .execute(db)
-    .await?;
+    let orm_db = orm(db);
+    events::Entity::update_many()
+        .col_expr(events::Column::AutoScheduled, Expr::value(true))
+        .col_expr(events::Column::UpdatedAt, Expr::value(now()))
+        .filter(events::Column::Id.eq(text(event, "id")))
+        .filter(events::Column::DeletedAt.is_null())
+        .exec(&orm_db)
+        .await?;
     let Some(source_id) = event["sourceId"].as_str().filter(|s| !s.is_empty()) else {
         return Ok(());
     };
+    let no_stamp = || Expr::value(Option::<PrimitiveDateTime>::None);
     match event["sourceType"].as_str() {
         Some("task") => {
-            sqlx::query(
-                "update tasks set start_date = null, updated_at = $2::timestamp where id = $1",
-            )
-            .bind(source_id)
-            .bind(now())
-            .execute(db)
-            .await?;
-            let due: Option<Option<Value>> =
-                sqlx::query_scalar("select to_jsonb(due_date) from tasks where id = $1 limit 1")
-                    .bind(source_id)
-                    .fetch_optional(db)
-                    .await?;
-            let due = due
-                .flatten()
-                .and_then(|value| value.as_str().and_then(weldsuite_db::js_timestamp));
+            tasks::Entity::update_many()
+                .col_expr(tasks::Column::StartDate, no_stamp())
+                .col_expr(tasks::Column::UpdatedAt, Expr::value(now()))
+                .filter(tasks::Column::Id.eq(source_id))
+                .exec(&orm_db)
+                .await?;
+            let due: Option<Option<PrimitiveDateTime>> = tasks::Entity::find()
+                .select_only()
+                .column(tasks::Column::DueDate)
+                .filter(tasks::Column::Id.eq(source_id))
+                .into_tuple()
+                .one(&orm_db)
+                .await?;
             weldsuite_calendar_domain::update_calendar_event_for_task(
                 db,
                 &weldsuite_calendar_domain::EventUpdate {
                     calendar_event_id: text(event, "id").to_owned(),
                     #[allow(clippy::cast_precision_loss)]
-                    due_date: due
-                        .and_then(|iso| parse_date(&iso))
-                        .map(|ms| Some(ms as f64)),
+                    due_date: due.flatten().map(|at| Some(millis_at(at) as f64)),
                     ..Default::default()
                 },
             )
             .await
             .map_err(|error| match error {
-                weldsuite_calendar_domain::SyncError::Database(error) => Refusal::Database(error),
+                weldsuite_calendar_domain::SyncError::Database(error) => Refusal::from(error),
                 weldsuite_calendar_domain::SyncError::Invalid(message) => {
                     Refusal::Internal(message)
                 }
             })?;
         }
         Some("activity") => {
-            sqlx::query(
-                "update crm_activities set start_time = null, end_time = null,
-                     updated_at = $2::timestamp
-                 where id = $1",
-            )
-            .bind(source_id)
-            .bind(now())
-            .execute(db)
-            .await?;
+            crm_activities::Entity::update_many()
+                .col_expr(crm_activities::Column::StartTime, no_stamp())
+                .col_expr(crm_activities::Column::EndTime, no_stamp())
+                .col_expr(crm_activities::Column::UpdatedAt, Expr::value(now()))
+                .filter(crm_activities::Column::Id.eq(source_id))
+                .exec(&orm_db)
+                .await?;
         }
         _ => {}
     }

@@ -24,6 +24,7 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::Response;
 use axum::routing::{get, post};
 use http::{HeaderMap, HeaderValue, header};
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, FromQueryResult, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
 use weldsuite_books_domain::entity_context::resolve_entity_id;
 use weldsuite_books_domain::guards::{AuditInput, change, write_accounting_audit};
@@ -38,6 +39,7 @@ use weldsuite_catalogs::entity_events::{
 use weldsuite_kit::validation::{Field, Format, Issues, Number, Presence, Text};
 use weldsuite_legal_entities::{EntityRecordGuard, EntityTable};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::tax_returns;
 
 use self::calculate::{CalculationInput, calculate_return};
 use self::common::{
@@ -333,6 +335,31 @@ async fn create(
 
 // ── GET /:id ────────────────────────────────────────────────────────────────
 
+/// An amendment of a return as the detail lists it.
+#[derive(Debug, FromQueryResult, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Amendment {
+    id: String,
+    status: String,
+    /// `to_char(filed_at, 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`.
+    #[serde(with = "weldsuite_schema::js::timestamp::option")]
+    filed_at: Option<time::PrimitiveDateTime>,
+}
+
+/// The live returns amending `return_id`.
+async fn amendments_of(db: &weldsuite_db::PgPool, return_id: &str) -> Result<Vec<Value>, DbErr> {
+    use tax_returns::Column;
+    let rows = tax_returns::Entity::find()
+        .select_only()
+        .columns([Column::Id, Column::Status, Column::FiledAt])
+        .filter(Column::AmendsReturnId.eq(return_id))
+        .filter(Column::DeletedAt.is_null())
+        .into_model::<Amendment>()
+        .all(&weldsuite_db::orm(db))
+        .await?;
+    rows.into_iter().map(common::row_json).collect()
+}
+
 async fn fetch(
     caller: Caller,
     State(state): State<BooksState>,
@@ -345,14 +372,7 @@ async fn fetch(
                 ret,
                 agency,
             } = return_context(&caller, &id).await?;
-            let amendments: Vec<Value> = sqlx::query_scalar(
-                "select jsonb_build_object('id', id, 'status', status, 'filedAt', \
-                 case when filed_at is null then null else to_char(filed_at, 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"') end) \
-                 from tax_returns where amends_return_id = $1 and deleted_at is null",
-            )
-            .bind(s(&ret, "id"))
-            .fetch_all(&caller.db)
-            .await?;
+            let amendments = amendments_of(&caller.db, s(&ret, "id")).await?;
             let today = today_of(&caller, &state, &entity);
             let due = text(&ret, "dueDate").filter(|d| !d.is_empty());
             let overdue = !is_filed(&ret)

@@ -20,6 +20,7 @@ import { useCreateHrOpenShift, useHrDepartments, useUpdateHrOpenShift } from '@/
 import { CompanyPicker, errorMessage, instantAt } from '../../components/shared';
 import { dateOf, shiftWindow, timeOf } from './shift-dialog';
 import { ErrorBanner } from '@weldsuite/ui/components/error-banner';
+import { HrDateInput, HrTimeInput } from '@/app/weldhr/components/date-fields';
 
 /** Value of the department select that means "everyone". */
 const EVERYONE = '__everyone';
@@ -91,7 +92,7 @@ export function OpenShiftDialog({ shift, onClose }: Readonly<{ shift?: HrOpenShi
   return (
     <Dialog open onOpenChange={(open) => !open && !pending && onClose()}>
       <DialogContent className="max-h-[85vh] overflow-y-auto">
-        <DialogHeader>
+        <DialogHeader className="mb-2">
           <DialogTitle>{shift ? t('weldhr.attendance.openShifts.editTitle') : t('weldhr.attendance.openShifts.addTitle')}</DialogTitle>
         </DialogHeader>
 
@@ -142,17 +143,17 @@ export function OpenShiftDialog({ shift, onClose }: Readonly<{ shift?: HrOpenShi
 
           <div className="space-y-1.5">
             <Label htmlFor="hr-open-shift-date">{t('weldhr.attendance.openShifts.form.date')}</Label>
-            <Input id="hr-open-shift-date" type="date" value={date} disabled={timesLocked} onChange={(e) => setDate(e.target.value)} />
+            <HrDateInput id="hr-open-shift-date" value={date} disabled={timesLocked} onChange={setDate} />
           </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label htmlFor="hr-open-shift-start">{t('weldhr.attendance.openShifts.form.start')}</Label>
-              <Input id="hr-open-shift-start" type="time" value={start} disabled={timesLocked} onChange={(e) => setStart(e.target.value)} />
+              <HrTimeInput id="hr-open-shift-start" value={start} disabled={timesLocked} onChange={setStart} />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="hr-open-shift-end">{t('weldhr.attendance.openShifts.form.end')}</Label>
-              <Input id="hr-open-shift-end" type="time" value={end} disabled={timesLocked} onChange={(e) => setEnd(e.target.value)} />
+              <HrTimeInput id="hr-open-shift-end" value={end} disabled={timesLocked} onChange={setEnd} />
               {endsNextDay && <p className="text-xs text-muted-foreground">{t('weldhr.attendance.openShifts.form.nextDay')}</p>}
             </div>
           </div>
@@ -161,24 +162,24 @@ export function OpenShiftDialog({ shift, onClose }: Readonly<{ shift?: HrOpenShi
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label htmlFor="hr-open-shift-break-start">{t('weldhr.attendance.openShifts.form.breakStart')}</Label>
-                <Input
+                <HrTimeInput
                   id="hr-open-shift-break-start"
-                  type="time"
+                  clearable
                   value={breakStart}
                   disabled={timesLocked}
                   aria-invalid={!breakValid}
-                  onChange={(e) => setBreakStart(e.target.value)}
+                  onChange={setBreakStart}
                 />
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="hr-open-shift-break-end">{t('weldhr.attendance.openShifts.form.breakEnd')}</Label>
-                <Input
+                <HrTimeInput
                   id="hr-open-shift-break-end"
-                  type="time"
+                  clearable
                   value={breakEnd}
                   disabled={timesLocked}
                   aria-invalid={!breakValid}
-                  onChange={(e) => setBreakEnd(e.target.value)}
+                  onChange={setBreakEnd}
                 />
               </div>
             </div>

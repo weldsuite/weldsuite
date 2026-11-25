@@ -255,6 +255,23 @@ describe('MoneybirdClient', () => {
     await expect(client.getSalesInvoice('si2')).rejects.toBeInstanceOf(ConnectorApiError);
   });
 
+  it('asks for every year of financial mutations, listing and counting', async () => {
+    const urls: string[] = [];
+    const fetchImpl: typeof fetch = async (input, init) => {
+      urls.push(`${init?.method ?? 'GET'} ${String(input)}`);
+      return jsonResponse([{ id: '1', version: 1700000000 }]);
+    };
+    const client = new MoneybirdClient({ accessToken: 'tok', administrationId: '123' }, { fetchImpl });
+    await client.listFinancialMutations({ page: 1, perPage: 10 });
+    expect(await client.countResource('bankTransactions')).toBe(1);
+    await client.countResource('contacts');
+    const sync = 'https://moneybird.com/api/v2/123';
+    expect(urls[0]).toBe(`GET ${sync}/financial_mutations/synchronization.json?filter=state%3Aall`);
+    expect(urls[1]).toBe(`POST ${sync}/financial_mutations/synchronization.json`);
+    expect(urls[2]).toBe(`GET ${sync}/financial_mutations/synchronization.json?filter=state%3Aall`);
+    expect(urls[3]).toBe(`GET ${sync}/contacts/synchronization.json`);
+  });
+
   it('reads financial mutations by id through the synchronisation API', async () => {
     const bodies: unknown[] = [];
     const fetchImpl: typeof fetch = async (input, init) => {

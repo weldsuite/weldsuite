@@ -47,6 +47,11 @@ pub(crate) enum AuthConfig {
         /// port, RFC 8252), told to the platform by `/config.json`. Without
         /// it the desktop app signs in inside its window with the web client.
         desktop_client_id: Option<String>,
+        /// `OIDC_EXTENSION_CLIENT_ID`: the WeldPass browser extension's public
+        /// client (PKCE, `https://<extension id>.chromiumapp.org/` redirects,
+        /// ADR PASS-009), told to the extension by `/config.json`. Without it
+        /// the extension can't sign in to this server.
+        extension_client_id: Option<String>,
         /// `OIDC_SIGN_IN=platform`: the platform shows its own sign-in
         /// screens and this server is the provider's login client behind
         /// them (`/api/sign-in`, ADR SEC-016). Unset or `provider`: the
@@ -69,6 +74,7 @@ impl fmt::Debug for AuthConfig {
                 web_client_id,
                 mobile_client_id,
                 desktop_client_id,
+                extension_client_id,
                 platform_sign_in,
             } => f
                 .debug_struct("Oidc")
@@ -76,6 +82,7 @@ impl fmt::Debug for AuthConfig {
                 .field("web_client_id", web_client_id)
                 .field("mobile_client_id", mobile_client_id)
                 .field("desktop_client_id", desktop_client_id)
+                .field("extension_client_id", extension_client_id)
                 .field("platform_sign_in", platform_sign_in)
                 .finish(),
         }
@@ -127,6 +134,7 @@ impl AuthConfig {
                     web_client_id: lookup("OIDC_WEB_CLIENT_ID"),
                     mobile_client_id: lookup("OIDC_MOBILE_CLIENT_ID"),
                     desktop_client_id: lookup("OIDC_DESKTOP_CLIENT_ID"),
+                    extension_client_id: lookup("OIDC_EXTENSION_CLIENT_ID"),
                     platform_sign_in,
                 }
             }
@@ -1278,6 +1286,7 @@ abc",
             ("OIDC_WEB_CLIENT_ID", "300000000000000300"),
             ("OIDC_MOBILE_CLIENT_ID", "300000000000000400"),
             ("OIDC_DESKTOP_CLIENT_ID", "300000000000000500"),
+            ("OIDC_EXTENSION_CLIENT_ID", "300000000000000600"),
         ])
         .expect("valid");
         let AuthConfig::Oidc {
@@ -1285,6 +1294,7 @@ abc",
             web_client_id,
             mobile_client_id,
             desktop_client_id,
+            extension_client_id,
             platform_sign_in,
         } = &oidc.auth
         else {
@@ -1301,6 +1311,7 @@ abc",
         assert_eq!(web_client_id.as_deref(), Some("300000000000000300"));
         assert_eq!(mobile_client_id.as_deref(), Some("300000000000000400"));
         assert_eq!(desktop_client_id.as_deref(), Some("300000000000000500"));
+        assert_eq!(extension_client_id.as_deref(), Some("300000000000000600"));
 
         let error = config(&[
             ("DATABASE_URL_MASTER", "postgres://master"),

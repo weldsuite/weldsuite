@@ -73,6 +73,37 @@ describe('route availability', () => {
     expect(isRouteOffered('/weldstash/replenishment?plan=x')).toBe(true);
   });
 
+  it('hides WeldStash Shipments where stash-shipping is missing, such as Global', () => {
+    expect(routeRequirement('/weldstash/shipments')).toEqual({ modules: ['stash'], feature: 'stash-shipping' });
+    expect(routeRequirement('/weldstash/shipments?status=delivered')).toEqual({ modules: ['stash'], feature: 'stash-shipping' });
+    // Global has no runtime config: GLOBAL_UNAVAILABLE_FEATURES lists the feature.
+    expect(isRouteOffered('/weldstash/shipments')).toBe(false);
+    expect(isRouteOffered('/weldstash/packing')).toBe(true);
+    setRuntimeConfig({ backend: 'rust', modules: ['core', 'stash'], unavailableFeatures: [] });
+    expect(isRouteOffered('/weldstash/shipments')).toBe(true);
+    setRuntimeConfig({ backend: 'rust', modules: ['core', 'stash'], unavailableFeatures: ['stash-shipping'] });
+    expect(isRouteOffered('/weldstash/shipments')).toBe(false);
+  });
+
+  it('hides WeldPass settings (the offline copy) on Global and offers them on Rust (ADR PASS-010)', () => {
+    expect(routeRequirement('/settings/apps/weldpass')).toEqual({ modules: ['pass'], feature: 'weldpass-offline' });
+    // Global has no runtime config: GLOBAL_UNAVAILABLE_FEATURES lists the feature.
+    expect(isRouteOffered('/settings/apps/weldpass')).toBe(false);
+    setRuntimeConfig({ backend: 'rust', modules: ['core', 'pass'], unavailableFeatures: [] });
+    expect(isRouteOffered('/settings/apps/weldpass')).toBe(true);
+  });
+
+  it('offers the services-outside-the-EU settings on the EU edition only (ADR OPS-026)', () => {
+    expect(routeRequirement('/settings/outside-eu')).toEqual({ feature: 'outside-eu-services' });
+    // Global: in GLOBAL_UNAVAILABLE_FEATURES.
+    expect(isRouteOffered('/settings/outside-eu')).toBe(false);
+    // Self-hosted lists it as unavailable; the EU edition doesn't.
+    setRuntimeConfig({ backend: 'rust', edition: 'self-hosted', unavailableFeatures: ['outside-eu-services'] });
+    expect(isRouteOffered('/settings/outside-eu')).toBe(false);
+    setRuntimeConfig({ backend: 'rust', edition: 'eu', unavailableFeatures: [] });
+    expect(isRouteOffered('/settings/outside-eu')).toBe(true);
+  });
+
   it('needs only core for platform pages', () => {
     for (const path of ['/', '/settings', '/settings/team', '/appstore', '/apps/my-app', '/objects/machines', '/documents/f_1', '/settings/apps/weldsuite']) {
       expect(routeRequirement(path), path).toBeNull();
@@ -194,12 +225,12 @@ describe('route availability', () => {
   });
 
   it("offers WeldDesk's BI connector only where the public API it feeds from is named", () => {
-    expect(isRouteOffered('/welddesk/reports/bi-connector')).toBe(true);
+    expect(isRouteOffered('/settings/apps/welddesk/bi-connector')).toBe(true);
     setRuntimeConfig({ backend: 'rust', modules: ['core', 'desk'] });
-    expect(isRouteOffered('/welddesk/reports/bi-connector')).toBe(false);
-    expect(isRouteOffered('/welddesk/reports')).toBe(true);
+    expect(isRouteOffered('/settings/apps/welddesk/bi-connector')).toBe(false);
+    expect(isRouteOffered('/settings/apps/welddesk')).toBe(true);
     setRuntimeConfig({ backend: 'rust', modules: ['core', 'desk'], env: { VITE_EXTERNAL_API_URL: 'https://api.example.eu' } });
-    expect(isRouteOffered('/welddesk/reports/bi-connector')).toBe(true);
+    expect(isRouteOffered('/settings/apps/welddesk/bi-connector')).toBe(true);
   });
 
   it('hides the help center settings where the edition hosts no help center, and only those', () => {

@@ -1,4 +1,6 @@
+import { AlarmClock, Gauge } from 'lucide-react';
 import { getTranslations } from '@/lib/i18n';
+import { SelectPropertyRow } from '@/components/objects/_shared/select-property-row';
 import {
   DESK_LEVELS,
   useDeskAttributeOptions,
@@ -7,10 +9,9 @@ import {
   type DeskLevel,
 } from '@/hooks/queries/use-desk-queries';
 import { priorityFromMatrix } from '@/hooks/queries/use-desk-priority-matrix-queries';
-import { FieldRow, PickOne } from './ticket-fields';
 
 /**
- * Impact and urgency (ITIL) in the ticket fields. With the workspace's
+ * Impact and urgency (ITIL) in the ticket fields, as property rows. With the workspace's
  * priority matrix on, the server sets the priority from them whenever either
  * changes; the line under them says whether the priority follows the grid or
  * was set by hand.
@@ -34,26 +35,25 @@ export function ImpactUrgencyFields({
 
   return (
     <>
-      <FieldRow label={t.impact}>
-        <PickOne
-          value={conversation.impact}
-          noneLabel={t.notSet}
-          items={levels}
-          onChange={(impact) => save({ impact: impact as DeskLevel | null })}
-          testId="desk-ticket-impact"
-        />
-      </FieldRow>
-      <FieldRow label={t.urgency}>
-        <PickOne
-          value={conversation.urgency}
-          noneLabel={t.notSet}
-          items={levels}
-          onChange={(urgency) => save({ urgency: urgency as DeskLevel | null })}
-          testId="desk-ticket-urgency"
-        />
-      </FieldRow>
+      <SelectPropertyRow
+        icon={Gauge}
+        label={t.impact}
+        value={conversation.impact}
+        options={levels}
+        onChange={(impact) => save({ impact: impact as DeskLevel | null })}
+        placeholder={t.notSet}
+      />
+      <SelectPropertyRow
+        icon={AlarmClock}
+        label={t.urgency}
+        value={conversation.urgency}
+        options={levels}
+        onChange={(urgency) => save({ urgency: urgency as DeskLevel | null })}
+        placeholder={t.notSet}
+      />
       {hint && (
-        <p className="text-xs text-muted-foreground text-right pb-1" data-testid="desk-ticket-priority-source">
+        // Lined up under the values: the 120px label column plus the row's gap.
+        <p className="pl-[128px] pb-1 text-xs text-muted-foreground" data-testid="desk-ticket-priority-source">
           {hint}
         </p>
       )}

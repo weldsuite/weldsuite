@@ -11,11 +11,20 @@ use axum::Router;
 use axum::extract::RawQuery;
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{
+    ColumnTrait, Condition, DatabaseConnection, DbErr, EntityTrait, PaginatorTrait, QueryFilter,
+    QueryOrder, QuerySelect,
+};
 use serde_json::{Value, json};
+use time::PrimitiveDateTime;
+use weldsuite_db::orm;
 use weldsuite_kit::{ApiError, Data};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::helpdesk_departments::{self, Column};
+use weldsuite_schema::tenant::{desk_conversations, helpdesk_agents, helpdesk_conversations};
 
-use crate::crud::{Slots, item_routes, page_list};
+use crate::crud::{CursorRow, Slots, before, item_routes, page_list};
 use crate::js::{js_limit, query_param, sql_limit};
 use crate::library::DEPARTMENTS_CRUD;
 use crate::tables::HELPDESK_DEPARTMENTS;
@@ -28,16 +37,17 @@ pub(crate) async fn recheck_escalations(
     state: &DeskState,
     caller: &Caller,
     department_id: &str,
-) -> Result<(), sqlx::Error> {
-    let touched: Vec<String> = sqlx::query_scalar(
-        "update desk_conversations set escalation_check_at = $2::timestamp
-         where department_id = $1 and state = 'open' returning id",
-    )
-    .bind(department_id)
-    .bind(weldsuite_desk_domain::webchat::now())
-    .fetch_all(&caller.db)
-    .await?;
-    if !touched.is_empty() {
+) -> Result<(), DbErr> {
+    let touched = desk_conversations::Entity::update_many()
+        .col_expr(
+            desk_conversations::Column::EscalationCheckAt,
+            Expr::value(weldsuite_db::utc_now()),
+        )
+        .filter(desk_conversations::Column::DepartmentId.eq(department_id))
+        .filter(desk_conversations::Column::State.eq("open"))
+        .exec(&orm(&caller.db))
+        .await?;
+    if touched.rows_affected > 0 {
         crate::mark_sla_due(
             state,
             caller,
@@ -46,25 +56,6 @@ pub(crate) async fn recheck_escalations(
     }
     Ok(())
 }
-
-/// `$1` live-only skip, `($2, $3)` search, `($4, $5)` isActive, the cursor
-/// `($6, $7 sortOrder, $8 createdAt, $9 id)`, `$10` the limit.
-const LIST: &str = "select to_jsonb(t) from helpdesk_departments t
-    where ($1::boolean or t.deleted_at is null)
-      and ($2::boolean or (t.name like $3::text or t.email like $3::text))
-      and ($4::boolean or t.is_active = $5::boolean)
-      and ($6::boolean or (coalesce(t.sort_order, 0) > $7::integer
-           or (coalesce(t.sort_order, 0) = $7::integer
-               and (t.created_at < $8::timestamp or (t.created_at = $8::timestamp and t.id < $9::text)))))
-    order by coalesce(t.sort_order, 0), t.created_at desc, t.id desc limit $10";
-
-const COUNT: &str = "select count(*) from helpdesk_departments t
-    where ($1::boolean or t.deleted_at is null)
-      and ($2::boolean or (t.name like $3::text or t.email like $3::text))
-      and ($4::boolean or t.is_active = $5::boolean)
-      and ($6::boolean or (coalesce(t.sort_order, 0) > $7::integer
-           or (coalesce(t.sort_order, 0) = $7::integer
-               and (t.created_at < $8::timestamp or (t.created_at = $8::timestamp and t.id < $9::text)))))";
 
 pub(crate) fn routes<Q>(gate: &Arc<PermissionGate<Q>>) -> Router<DeskState>
 where
@@ -76,21 +67,71 @@ where
         .route("/inbox-counts", get(inbox_counts).route_layer(read()))
 }
 
-/// The cursor row: `(sortOrder ?? 0, createdAt, id)`.
-type CursorRow = (i32, String, String);
+/// The cursor row: `sortOrder ?? 0`, then the keyset's `(createdAt, id)`.
+type DepartmentCursor = (i32, CursorRow);
 
-async fn cursor_row(db: &weldsuite_db::PgPool, id: &str) -> Result<Option<CursorRow>, sqlx::Error> {
-    let row: Option<(Option<i32>, Option<String>, String)> = sqlx::query_as(
-        "select sort_order, to_jsonb(created_at)#>>'{}', id from helpdesk_departments where id = $1 limit 1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.and_then(|(sort, created_at, id)| {
-        created_at
-            .and_then(|stamp| weldsuite_db::js_timestamp(&stamp))
-            .map(|stamp| (sort.unwrap_or(0), stamp, id))
+async fn cursor_row(db: &DatabaseConnection, id: &str) -> Result<Option<DepartmentCursor>, DbErr> {
+    let row: Option<(Option<i32>, PrimitiveDateTime, String)> =
+        helpdesk_departments::Entity::find_by_id(id.to_owned())
+            .select_only()
+            .column(Column::SortOrder)
+            .column(Column::CreatedAt)
+            .column(Column::Id)
+            .into_tuple()
+            .one(db)
+            .await?;
+    Ok(row.map(|(sort, created_at, id)| {
+        // JavaScript reads the stamp to the millisecond.
+        let created_at = weldsuite_db::utc_timestamp(created_at.assume_utc());
+        (sort.unwrap_or(0), (created_at, id))
     }))
+}
+
+/// `coalesce(t.sortOrder, 0)`.
+fn sort_order() -> Expr {
+    Expr::from(Func::coalesce([Expr::col(Column::SortOrder), Expr::val(0)]))
+}
+
+/// The list's conditions the slots keep: live only, the search, `isActive`,
+/// then the cursor (after it in `sortOrder`, then newest first).
+fn conditions(
+    slots: &Slots,
+    search: Option<&str>,
+    active: Option<bool>,
+    cursor: Option<&DepartmentCursor>,
+) -> Result<Condition, DbErr> {
+    let mut all = Condition::all();
+    if !slots.skip[0] {
+        all = all.add(Column::DeletedAt.is_null());
+    }
+    if !slots.skip[1]
+        && let Some(search) = search
+    {
+        all = all.add(
+            Condition::any()
+                .add(Column::Name.like(search))
+                .add(Column::Email.like(search)),
+        );
+    }
+    if !slots.skip[2]
+        && let Some(active) = active
+    {
+        all = all.add(Column::IsActive.eq(active));
+    }
+    if !slots.skip[3]
+        && let Some((sort, keyset)) = cursor
+    {
+        all = all.add(
+            Condition::any()
+                .add(sea_orm::ExprTrait::gt(sort_order(), *sort))
+                .add(
+                    Condition::all()
+                        .add(sea_orm::ExprTrait::eq(sort_order(), *sort))
+                        .add(before(&HELPDESK_DEPARTMENTS, keyset)?),
+                ),
+        );
+    }
+    Ok(all)
 }
 
 async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
@@ -104,9 +145,10 @@ async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
         "false" => Some(false),
         _ => None,
     });
+    let db = orm(&caller.db);
     let cursor = query_param(query, "cursor").filter(|c| !c.is_empty());
     let cursor_row = match &cursor {
-        Some(cursor) => match cursor_row(&caller.db, cursor).await {
+        Some(cursor) => match cursor_row(&db, cursor).await {
             Ok(row) => row,
             Err(error) => {
                 tracing::error!(%error, "desk: department cursor lookup failed");
@@ -123,76 +165,85 @@ async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
         cursor_row.is_some(),
     ];
     let (page, count) = Slots::page_and_count(&active_slots, cursor.is_some());
-    let (sort, created_at, id) = match &cursor_row {
-        Some((sort, created_at, id)) => (Some(*sort), Some(created_at.as_str()), Some(id.as_str())),
-        None => (None, None, None),
-    };
-    let rows: Result<Vec<Value>, _> = sqlx::query_scalar(LIST)
-        .bind(page.skip[0])
-        .bind(page.skip[1])
-        .bind(search.as_deref())
-        .bind(page.skip[2])
-        .bind(active)
-        .bind(page.skip[3])
-        .bind(sort)
-        .bind(created_at)
-        .bind(id)
-        .bind(sql_limit(limit))
-        .fetch_all(&caller.db)
-        .await;
-    let total: Result<i64, _> = sqlx::query_scalar(COUNT)
-        .bind(count.skip[0])
-        .bind(count.skip[1])
-        .bind(search.as_deref())
-        .bind(count.skip[2])
-        .bind(active)
-        .bind(count.skip[3])
-        .bind(sort)
-        .bind(created_at)
-        .bind(id)
-        .fetch_one(&caller.db)
-        .await;
-    let agents: Result<Vec<(Option<String>, i32)>, _> = sqlx::query_as(
-        "select department_id, count(*)::int from helpdesk_agents
-         where deleted_at is null group by department_id",
+    match read_list(
+        &db,
+        &page,
+        &count,
+        search.as_deref(),
+        active,
+        cursor_row.as_ref(),
+        limit,
     )
-    .fetch_all(&caller.db)
-    .await;
-    let (rows, total, agents) = match (rows, total, agents) {
-        (Ok(rows), Ok(total), Ok(agents)) => (rows, total, agents),
-        (Err(error), _, _) | (_, Err(error), _) | (_, _, Err(error)) => {
-            return Refusal::from(error).respond(message);
-        }
-    };
-    let by_department: HashMap<Option<String>, i32> = agents.into_iter().collect();
+    .await
+    {
+        Ok((rows, total)) => page_list(rows, limit, total),
+        Err(error) => Refusal::from(error).respond(message),
+    }
+}
+
+/// The page (each department with its `agentCount`) and the count.
+async fn read_list(
+    db: &DatabaseConnection,
+    page: &Slots,
+    count: &Slots,
+    search: Option<&str>,
+    active: Option<bool>,
+    cursor: Option<&DepartmentCursor>,
+    limit: f64,
+) -> Result<(Vec<Value>, i64), DbErr> {
+    let mut rows = helpdesk_departments::Entity::find()
+        .filter(conditions(page, search, active, cursor)?)
+        .order_by_asc(sort_order())
+        .order_by_desc(Column::CreatedAt)
+        .order_by_desc(Column::Id);
+    if let Some(limit) = sql_limit(limit) {
+        rows = rows.limit(u64::try_from(limit).unwrap_or(0));
+    }
+    let rows = rows.all(db).await?;
+    let total = helpdesk_departments::Entity::find()
+        .filter(conditions(count, search, active, cursor)?)
+        .count(db)
+        .await?;
+    let agents: Vec<(Option<String>, i64)> = helpdesk_agents::Entity::find()
+        .select_only()
+        .column(helpdesk_agents::Column::DepartmentId)
+        .column_as(helpdesk_agents::Column::Id.count(), "count")
+        .filter(helpdesk_agents::Column::DeletedAt.is_null())
+        .group_by(helpdesk_agents::Column::DepartmentId)
+        .into_tuple()
+        .all(db)
+        .await?;
+    let by_department: HashMap<Option<String>, i64> = agents.into_iter().collect();
     let rows = rows
         .into_iter()
-        .map(|row| {
-            let mut row = HELPDESK_DEPARTMENTS.js(row);
-            let count = row
-                .get("id")
-                .and_then(Value::as_str)
-                .and_then(|id| by_department.get(&Some(id.to_owned())))
+        .map(|department| {
+            let count = by_department
+                .get(&Some(department.id.clone()))
                 .copied()
                 .unwrap_or(0);
+            let mut row =
+                serde_json::to_value(department).map_err(|error| DbErr::Json(error.to_string()))?;
             if let Value::Object(fields) = &mut row {
                 fields.insert("agentCount".to_owned(), json!(count));
             }
-            row
+            Ok(row)
         })
-        .collect();
-    page_list(rows, limit, total)
+        .collect::<Result<_, DbErr>>()?;
+    Ok((rows, i64::try_from(total).unwrap_or(i64::MAX)))
 }
 
 async fn inbox_counts(caller: Caller) -> Response {
-    let rows: Result<Vec<(Option<String>, i32)>, _> = sqlx::query_as(
-        "select department_id, count(*)::int from helpdesk_conversations
-         where deleted_at is null and department_id is not null
-           and status not in ('archived', 'closed')
-         group by department_id",
-    )
-    .fetch_all(&caller.db)
-    .await;
+    let rows: Result<Vec<(Option<String>, i64)>, DbErr> = helpdesk_conversations::Entity::find()
+        .select_only()
+        .column(helpdesk_conversations::Column::DepartmentId)
+        .column_as(helpdesk_conversations::Column::Id.count(), "count")
+        .filter(helpdesk_conversations::Column::DeletedAt.is_null())
+        .filter(helpdesk_conversations::Column::DepartmentId.is_not_null())
+        .filter(helpdesk_conversations::Column::Status.is_not_in(["archived", "closed"]))
+        .group_by(helpdesk_conversations::Column::DepartmentId)
+        .into_tuple()
+        .all(&orm(&caller.db))
+        .await;
     match rows {
         Ok(rows) => Data(Value::Array(
             rows.into_iter()

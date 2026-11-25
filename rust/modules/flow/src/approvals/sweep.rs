@@ -12,25 +12,27 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{ColumnTrait, Condition, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 use serde_json::{Value, json};
-use sqlx::PgPool;
 use time::OffsetDateTime;
 use weldsuite_catalogs::entity_events::FLOW_APPROVAL_OVERDUE;
 use weldsuite_db::due_index::run_sweep;
-use weldsuite_db::js_row;
+use weldsuite_db::{PgPool, orm, utc_timestamp};
 use weldsuite_events::{EntityEvent, EntityEventPublisher, EventContext, EventSource};
 use weldsuite_flow_domain::approval_views::approval_event_data;
 use weldsuite_flow_domain::approvals::{ApprovalRow, is_step_active, list_subject_approvals};
 use weldsuite_notifications::Notifier;
 use weldsuite_ports::{BoxFuture, DynRealtimePublisher, DynSystemMail};
+use weldsuite_schema::tenant::flow_approvals as approvals;
 
 use super::announce::{NoticeKind, NotifyBase, SubjectLabel, send_approval_notification};
-use super::store::{load_subject_info, project_names};
+use super::store::{approval_rows, at_millis, load_subject_info, project_names};
 
 /// The due index kind.
 pub const APPROVAL_DUE_KIND: &str = "approval_due";
 const RETRY_AFTER: time::Duration = time::Duration::hours(6);
-const ROWS_PER_TICK: i64 = 200;
+const ROWS_PER_TICK: u64 = 200;
 const SWEEP_LIMIT: i64 = 200;
 const DAY_MS: i64 = 86_400_000;
 
@@ -74,11 +76,7 @@ impl ApprovalSweepResult {
     }
 }
 
-fn iso(ms: i64) -> String {
-    weldsuite_flow_domain::js::iso_from_millis(ms).unwrap_or_default()
-}
-
-async fn is_actionable(db: &PgPool, row: &ApprovalRow) -> Result<bool, sqlx::Error> {
+async fn is_actionable(db: &PgPool, row: &ApprovalRow) -> Result<bool, DbErr> {
     Ok(is_step_active(
         row,
         &list_subject_approvals(db, &row.subject_type, &row.subject_id).await?,
@@ -91,7 +89,7 @@ struct Labels {
 }
 
 impl Labels {
-    async fn load(db: &PgPool, rows: &[ApprovalRow]) -> Result<Self, sqlx::Error> {
+    async fn load(db: &PgPool, rows: &[ApprovalRow]) -> Result<Self, DbErr> {
         let info = load_subject_info(db, rows).await?;
         let mut ids: Vec<Option<String>> = rows.iter().map(|r| r.project_id.clone()).collect();
         ids.extend(info.values().map(|i| i.project_id.clone()));
@@ -119,22 +117,25 @@ impl Labels {
     }
 }
 
+/// The pending live rows due by `until` that `unsent` (a notice not sent
+/// yet) selects, soonest first, a tick's worth.
 async fn rows(
     db: &PgPool,
-    sql: &'static str,
-    bind_a: &str,
-    bind_b: Option<&str>,
-) -> Result<Vec<ApprovalRow>, sqlx::Error> {
-    let found: Vec<Value> = sqlx::query_scalar(sql)
-        .bind(bind_a)
-        .bind(bind_b)
-        .bind(ROWS_PER_TICK)
-        .fetch_all(db)
+    unsent: approvals::Column,
+    due: Condition,
+) -> Result<Vec<ApprovalRow>, DbErr> {
+    let found = approvals::Entity::find()
+        .filter(approvals::Column::Decision.eq("pending"))
+        .filter(approvals::Column::DeletedAt.is_null())
+        .filter(unsent.is_null())
+        .filter(approvals::Column::DueAt.is_not_null())
+        .filter(due)
+        .order_by_asc(approvals::Column::DueAt)
+        .order_by_asc(approvals::Column::Id)
+        .limit(ROWS_PER_TICK)
+        .all(&orm(db))
         .await?;
-    Ok(found
-        .into_iter()
-        .filter_map(|v| ApprovalRow::from_json(&js_row(v)))
-        .collect())
+    approval_rows(found)
 }
 
 /// `sweepWorkspaceApprovals(env, db, orgId, now)`: `(reminded, overdue)`.
@@ -144,7 +145,7 @@ pub async fn sweep_workspace(
     db: &PgPool,
     org_id: &str,
     now: i64,
-) -> Result<(usize, usize), sqlx::Error> {
+) -> Result<(usize, usize), DbErr> {
     let base = NotifyBase {
         db: db.clone(),
         notifier: Notifier {
@@ -157,16 +158,14 @@ pub async fn sweep_workspace(
         org_id: org_id.to_owned(),
     };
     let (mut reminded, mut overdue) = (0, 0);
-    let (now_iso, soon_iso) = (iso(now), iso(now + DAY_MS));
+    let (now_at, soon_at) = (at_millis(now)?, at_millis(now + DAY_MS)?);
 
     let due_soon = rows(
         db,
-        "select to_jsonb(a) from flow_approvals a
-         where a.decision = 'pending' and a.deleted_at is null and a.reminded_at is null
-           and a.due_at is not null and a.due_at <= $2::timestamptz and a.due_at > $1::timestamptz
-         order by a.due_at asc, a.id asc limit $3",
-        &now_iso,
-        Some(&soon_iso),
+        approvals::Column::RemindedAt,
+        Condition::all()
+            .add(approvals::Column::DueAt.lte(soon_at))
+            .add(approvals::Column::DueAt.gt(now_at)),
     )
     .await?;
     if !due_soon.is_empty() {
@@ -187,14 +186,12 @@ pub async fn sweep_workspace(
                     .await;
                     reminded += 1;
                 }
-                sqlx::query(
-                    "update flow_approvals set reminded_at = $2::timestamptz where id = $1",
-                )
-                .bind(&row.id)
-                .bind(&now_iso)
-                .execute(db)
-                .await?;
-                Ok::<_, sqlx::Error>(())
+                approvals::Entity::update_many()
+                    .col_expr(approvals::Column::RemindedAt, Expr::value(now_at))
+                    .filter(approvals::Column::Id.eq(&row.id))
+                    .exec(&orm(db))
+                    .await?;
+                Ok::<_, DbErr>(())
             }
             .await;
             if let Err(error) = sent {
@@ -205,12 +202,8 @@ pub async fn sweep_workspace(
 
     let late = rows(
         db,
-        "select to_jsonb(a) from flow_approvals a
-         where a.decision = 'pending' and a.deleted_at is null and a.overdue_notified_at is null
-           and a.due_at is not null and a.due_at <= $1::timestamptz and $2::text is null
-         order by a.due_at asc, a.id asc limit $3",
-        &now_iso,
-        None,
+        approvals::Column::OverdueNotifiedAt,
+        Condition::all().add(approvals::Column::DueAt.lte(now_at)),
     )
     .await?;
     if !late.is_empty() {
@@ -243,15 +236,20 @@ pub async fn sweep_workspace(
                         .await;
                     overdue += 1;
                 }
-                sqlx::query(
-                    "update flow_approvals set overdue_notified_at = $2::timestamptz,
-                         reminded_at = coalesce(reminded_at, $2::timestamptz) where id = $1",
-                )
-                .bind(&row.id)
-                .bind(&now_iso)
-                .execute(db)
-                .await?;
-                Ok::<_, sqlx::Error>(())
+                approvals::Entity::update_many()
+                    .col_expr(approvals::Column::OverdueNotifiedAt, Expr::value(now_at))
+                    .col_expr(
+                        approvals::Column::RemindedAt,
+                        Func::coalesce([
+                            Expr::col((approvals::Entity, approvals::Column::RemindedAt)),
+                            Expr::value(now_at),
+                        ])
+                        .into(),
+                    )
+                    .filter(approvals::Column::Id.eq(&row.id))
+                    .exec(&orm(db))
+                    .await?;
+                Ok::<_, DbErr>(())
             }
             .await;
             if let Err(error) = sent {
@@ -263,20 +261,41 @@ pub async fn sweep_workspace(
 }
 
 /// `nextApprovalDueAt`: when the workspace next has a reminder or overdue notice (None: none).
-pub async fn next_due_at(db: &PgPool) -> Result<Option<OffsetDateTime>, sqlx::Error> {
-    let next: Option<String> = sqlx::query_scalar(
-        "select to_jsonb(min(case when reminded_at is null then due_at - interval '1 day' else due_at end)) #>> '{}'
-         from flow_approvals
-         where decision = 'pending' and deleted_at is null and due_at is not null and overdue_notified_at is null",
-    )
-    .fetch_one(db)
-    .await?;
-    Ok(next
-        .as_deref()
-        .and_then(weldsuite_db::js_timestamp)
-        .and_then(|at| {
-            OffsetDateTime::parse(&at, &time::format_description::well_known::Rfc3339).ok()
-        }))
+///
+/// `min(case when reminded_at is null then due_at - 1 day else due_at end)`,
+/// as the earliest due date of each kind, worked out here; to the
+/// millisecond, as JavaScript read it back.
+pub async fn next_due_at(db: &PgPool) -> Result<Option<OffsetDateTime>, DbErr> {
+    let earliest = |reminded: Expr| {
+        Expr::from(Func::min(Expr::case(
+            reminded,
+            Expr::col((approvals::Entity, approvals::Column::DueAt)),
+        )))
+    };
+    let due: Option<(Option<OffsetDateTime>, Option<OffsetDateTime>)> = approvals::Entity::find()
+        .select_only()
+        .column_as(
+            earliest(approvals::Column::RemindedAt.is_null()),
+            "unreminded",
+        )
+        .column_as(
+            earliest(approvals::Column::RemindedAt.is_not_null()),
+            "reminded",
+        )
+        .filter(approvals::Column::Decision.eq("pending"))
+        .filter(approvals::Column::DeletedAt.is_null())
+        .filter(approvals::Column::DueAt.is_not_null())
+        .filter(approvals::Column::OverdueNotifiedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
+    let (to_remind, to_flag) = due.unwrap_or_default();
+    let reminder = to_remind.map(|at| at - time::Duration::DAY);
+    let next = match (reminder, to_flag) {
+        (Some(a), Some(b)) => Some(a.min(b)),
+        (a, b) => a.or(b),
+    };
+    Ok(next.map(|at| utc_timestamp(at).assume_utc()))
 }
 
 /// `runApprovalReminders(env, now)`: one tick.

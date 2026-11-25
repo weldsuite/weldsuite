@@ -12,16 +12,23 @@ use axum::body::Bytes;
 use axum::extract::{Path, Query, State};
 use axum::response::{IntoResponse, Response};
 use http::HeaderMap;
+use sea_orm::sea_query::{Expr, Func, OnConflict, Query as SqlQuery};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, Order, QueryFilter, QueryOrder, QuerySelect,
+};
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
 use sqlx::PgPool;
-use weldsuite_db::js_row;
+use weldsuite_db::orm;
 use weldsuite_kit::validation::{Number, Presence};
 use weldsuite_kit::{ApiError, Created, Data, NoContent, generate_id};
+use weldsuite_schema::tenant::weldagent_conversations::{self as conversations, Column};
+use weldsuite_schema::tenant::weldagent_messages::{self, Column as Message};
 
 use crate::access::AgentAccess;
+use crate::agents::{js, now_tz, row_limit};
 use crate::run::{TurnParams, agent_turn, unavailable};
-use crate::{AgentState, Caller, failed, now, validate};
+use crate::{AgentState, Caller, failed, validate};
 
 const CONTEXT: &str = "weldagent";
 
@@ -44,18 +51,14 @@ async fn conversation_row(
     id: &str,
     user_id: &str,
     live_only: bool,
-) -> Result<Option<Value>, sqlx::Error> {
-    let sql = if live_only {
-        "select to_jsonb(c) from weldagent_conversations c where c.id = $1 and c.user_id = $2 and c.deleted_at is null"
-    } else {
-        "select to_jsonb(c) from weldagent_conversations c where c.id = $1 and c.user_id = $2"
-    };
-    Ok(sqlx::query_scalar::<_, Value>(sql)
-        .bind(id)
-        .bind(user_id)
-        .fetch_optional(db)
-        .await?
-        .map(js_row))
+) -> Result<Option<Value>, DbErr> {
+    let mut query = conversations::Entity::find()
+        .filter(Column::Id.eq(id))
+        .filter(Column::UserId.eq(user_id));
+    if live_only {
+        query = query.filter(Column::DeletedAt.is_null());
+    }
+    Ok(query.one(&orm(db)).await?.map(js))
 }
 
 /// `getOrCreateMainConversation(db, { userId, agentId, agentName })`: the
@@ -66,35 +69,42 @@ pub(crate) async fn get_or_create_main(
     user_id: &str,
     agent_id: &str,
     agent_name: &str,
-) -> Result<Value, sqlx::Error> {
+) -> Result<Value, DbErr> {
+    let conn = orm(db);
     let find = || async {
-        Ok::<_, sqlx::Error>(
-            sqlx::query_scalar::<_, Value>(
-                "select to_jsonb(c) from weldagent_conversations c
-                 where c.user_id = $1 and c.agent_id = $2 and c.is_main = true and c.deleted_at is null limit 1",
-            )
-            .bind(user_id)
-            .bind(agent_id)
-            .fetch_optional(db)
-            .await?
-            .map(js_row),
+        Ok::<_, DbErr>(
+            conversations::Entity::find()
+                .filter(Column::UserId.eq(user_id))
+                .filter(Column::AgentId.eq(agent_id))
+                .filter(Column::IsMain.eq(true))
+                .filter(Column::DeletedAt.is_null())
+                .one(&conn)
+                .await?
+                .map(js),
         )
     };
     if let Some(existing) = find().await? {
         return Ok(existing);
     }
     let name: String = agent_name.chars().take(255).collect();
-    sqlx::query(
-        "insert into weldagent_conversations (id, user_id, agent_id, name, is_main)
-         values ($1, $2, $3, $4, true) on conflict do nothing",
-    )
-    .bind(generate_id("conv"))
-    .bind(user_id)
-    .bind(agent_id)
-    .bind(if name.is_empty() { "Agent" } else { &name })
-    .execute(db)
+    conversations::Entity::insert(conversations::ActiveModel {
+        id: Set(generate_id("conv")),
+        user_id: Set(user_id.to_owned()),
+        agent_id: Set(Some(agent_id.to_owned())),
+        name: Set(if name.is_empty() {
+            "Agent".to_owned()
+        } else {
+            name
+        }),
+        is_main: Set(true),
+        ..Default::default()
+    })
+    .on_conflict(OnConflict::new().do_nothing().to_owned())
+    .exec_without_returning(&conn)
     .await?;
-    find().await?.ok_or(sqlx::Error::RowNotFound)
+    find()
+        .await?
+        .ok_or_else(|| DbErr::RecordNotFound("weldagent_conversations".to_owned()))
 }
 
 // ── GET /conversations ──────────────────────────────────────────────────────
@@ -124,28 +134,35 @@ fn limit_of(text: Option<&str>, default: i64, max: i64) -> i64 {
 pub(crate) async fn list(caller: Caller, Query(query): Query<ListQuery>) -> Response {
     let limit = limit_of(query.limit.as_deref(), 50, 100);
     let agent = query.agent_id.as_deref().filter(|a| !a.is_empty());
-    // `agentId=none`: personal assistant chats only (the home sidebar's "Recent").
-    let (filter, bind) = match agent {
-        Some("none") => (" and c.agent_id is null", None),
-        Some(id) => (" and c.agent_id = $3", Some(id)),
-        None => ("", None),
-    };
-    // A bare DESC sorts NULLs first, so a never-used placeholder falls back to
-    // its creation time and can't outrank freshly-used chats.
-    let sql = format!(
-        "select to_jsonb(c) from weldagent_conversations c where c.user_id = $1 and c.deleted_at is null{filter}
-         order by c.is_pinned desc, coalesce(c.last_message_at, c.created_at) desc limit $2"
-    );
-    let mut q = sqlx::query_scalar::<_, Value>(sqlx::AssertSqlSafe(sql))
-        .bind(&caller.user_id)
-        .bind(limit);
-    if let Some(id) = bind {
-        q = q.bind(id);
+    let rows = async {
+        let mut find = conversations::Entity::find()
+            .filter(Column::UserId.eq(&caller.user_id))
+            .filter(Column::DeletedAt.is_null());
+        // `agentId=none`: personal assistant chats only (the home sidebar's "Recent").
+        find = match agent {
+            Some("none") => find.filter(Column::AgentId.is_null()),
+            Some(id) => find.filter(Column::AgentId.eq(id)),
+            None => find,
+        };
+        // A bare DESC sorts NULLs first, so a never-used placeholder falls back to
+        // its creation time and can't outrank freshly-used chats.
+        find.order_by_desc(Column::IsPinned)
+            .order_by(
+                Expr::from(Func::coalesce([
+                    Expr::col(Column::LastMessageAt),
+                    Expr::col(Column::CreatedAt),
+                ])),
+                Order::Desc,
+            )
+            .limit(row_limit(limit)?)
+            .all(&orm(&caller.db))
+            .await
     }
-    match q.fetch_all(&caller.db).await {
+    .await;
+    match rows {
         Ok(rows) => Data(
             rows.into_iter()
-                .map(|r| summary(&js_row(r)))
+                .map(|r| summary(&js(r)))
                 .collect::<Vec<_>>(),
         )
         .into_response(),
@@ -195,27 +212,36 @@ pub(crate) async fn create(caller: Caller, headers: HeaderMap, body: Bytes) -> R
                 None => false,
             };
             if !allowed {
-                return Ok::<_, sqlx::Error>(Err(agent_id.to_owned()));
+                return Ok::<_, DbErr>(Err(agent_id.to_owned()));
             }
         }
         let id = generate_id("conv");
-        let name = data.name.filter(|n| !n.is_empty()).unwrap_or_else(|| "New Conversation".to_owned());
+        let name = data
+            .name
+            .filter(|n| !n.is_empty())
+            .unwrap_or_else(|| "New Conversation".to_owned());
         // Seed lastMessageAt so a brand-new conversation sorts by recency
         // from the moment it's created.
-        sqlx::query(
-            "insert into weldagent_conversations
-                 (id, user_id, name, module_key, agent_id, is_pinned, message_count, last_message_at)
-             values ($1, $2, $3, $4, $5, false, 0, $6::timestamptz)",
-        )
-        .bind(&id)
-        .bind(&caller.user_id)
-        .bind(&name)
-        .bind(data.module_key.filter(|m| !m.is_empty()))
-        .bind(data.agent_id.filter(|a| !a.is_empty()))
-        .bind(now())
-        .execute(&caller.db)
+        conversations::Entity::insert(conversations::ActiveModel {
+            id: Set(id.clone()),
+            user_id: Set(caller.user_id.clone()),
+            name: Set(name),
+            module_key: Set(data.module_key.filter(|m| !m.is_empty())),
+            agent_id: Set(data.agent_id.filter(|a| !a.is_empty())),
+            is_pinned: Set(false),
+            message_count: Set(0),
+            last_message_at: Set(Some(now_tz())),
+            ..Default::default()
+        })
+        .exec_without_returning(&orm(&caller.db))
         .await?;
-        Ok(Ok(conversation_row(&caller.db, &id, &caller.user_id, false).await?))
+        Ok(Ok(conversation_row(
+            &caller.db,
+            &id,
+            &caller.user_id,
+            false,
+        )
+        .await?))
     }
     .await;
     match result {
@@ -257,45 +283,40 @@ pub(crate) async fn messages(
 ) -> Response {
     let limit = limit_of(query.limit.as_deref(), 100, 200);
     let result = async {
-        if conversation_row(&caller.db, &conversation_id, &caller.user_id, false).await?.is_none() {
-            return Ok::<_, sqlx::Error>(None);
+        if conversation_row(&caller.db, &conversation_id, &caller.user_id, false)
+            .await?
+            .is_none()
+        {
+            return Ok::<_, DbErr>(None);
         }
-        let fetch = |sql: String, bind: Option<String>, extra: Option<i64>| {
-            let db = caller.db.clone();
-            let conversation_id = conversation_id.clone();
-            async move {
-                let mut q = sqlx::query_scalar::<_, Value>(sqlx::AssertSqlSafe(sql)).bind(conversation_id).bind(limit);
-                if let Some(bind) = bind {
-                    q = q.bind(bind);
-                }
-                if let Some(extra) = extra {
-                    q = q.bind(extra);
-                }
-                Ok::<_, sqlx::Error>(q.fetch_all(&db).await?.into_iter().map(js_row).collect::<Vec<_>>())
-            }
-        };
+        let conn = orm(&caller.db);
+        let live = weldagent_messages::Entity::find()
+            .filter(Message::ConversationId.eq(&conversation_id))
+            .filter(Message::DeletedAt.is_null());
+        let rows =
+            |found: Vec<weldagent_messages::Model>| found.into_iter().map(js).collect::<Vec<_>>();
         // `before=<messageId>`: the page just older than that message (scrolling
         // back through a long continuous chat), in chronological order.
         if let Some(before) = query.before.as_deref().filter(|b| !b.is_empty()) {
-            let anchor: Option<String> = sqlx::query_scalar(
-                "select id from weldagent_messages where id = $1 and conversation_id = $2 limit 1",
-            )
-            .bind(before)
-            .bind(&conversation_id)
-            .fetch_optional(&caller.db)
-            .await?;
+            let anchor: Option<String> = weldagent_messages::Entity::find()
+                .select_only()
+                .column(Message::Id)
+                .filter(Message::Id.eq(before))
+                .filter(Message::ConversationId.eq(&conversation_id))
+                .into_tuple()
+                .one(&conn)
+                .await?;
             let Some(anchor) = anchor else {
                 return Ok(Some(Vec::new()));
             };
-            let mut older = fetch(
-                "select to_jsonb(m) from weldagent_messages m where m.conversation_id = $1 and m.deleted_at is null
-                 and (m.created_at, m.id) < (select a.created_at, a.id from weldagent_messages a where a.id = $3)
-                 order by m.created_at desc, m.id desc limit $2"
-                    .to_owned(),
-                Some(anchor),
-                None,
-            )
-            .await?;
+            let mut older = rows(
+                live.filter(before_message(anchor, false))
+                    .order_by_desc(Message::CreatedAt)
+                    .order_by_desc(Message::Id)
+                    .limit(row_limit(limit)?)
+                    .all(&conn)
+                    .await?,
+            );
             older.reverse();
             return Ok(Some(older));
         }
@@ -303,24 +324,23 @@ pub(crate) async fn messages(
         // latest `limit` messages, still in chronological order.
         if let Some(offset) = query.offset.as_deref() {
             let offset = limit_of(Some(offset), 0, i64::MAX).max(0);
-            let page = fetch(
-                "select to_jsonb(m) from weldagent_messages m where m.conversation_id = $1 and m.deleted_at is null
-                 order by m.created_at, m.id limit $2 offset $3"
-                    .to_owned(),
-                None,
-                Some(offset),
-            )
-            .await?;
+            let page = rows(
+                live.order_by_asc(Message::CreatedAt)
+                    .order_by_asc(Message::Id)
+                    .limit(row_limit(limit)?)
+                    .offset(row_limit(offset)?)
+                    .all(&conn)
+                    .await?,
+            );
             return Ok(Some(page));
         }
-        let mut latest = fetch(
-            "select to_jsonb(m) from weldagent_messages m where m.conversation_id = $1 and m.deleted_at is null
-             order by m.created_at desc, m.id desc limit $2"
-                .to_owned(),
-            None,
-            None,
-        )
-        .await?;
+        let mut latest = rows(
+            live.order_by_desc(Message::CreatedAt)
+                .order_by_desc(Message::Id)
+                .limit(row_limit(limit)?)
+                .all(&conn)
+                .await?,
+        );
         latest.reverse();
         Ok(Some(latest))
     }
@@ -329,6 +349,26 @@ pub(crate) async fn messages(
         Ok(Some(rows)) => Data(rows).into_response(),
         Ok(None) => ApiError::not_found("Conversation", Some(&conversation_id)).into_response(),
         Err(error) => failed(&error, CONTEXT, "Failed to get messages"),
+    }
+}
+
+/// `(m.created_at, m.id) < (select a.created_at, a.id from weldagent_messages a
+/// where a.id = $anchor)`, or `<=` with `through`: the messages before (or up
+/// to) one of them, in the `created_at, id` order.
+pub(crate) fn before_message(anchor: String, through: bool) -> sea_orm::sea_query::Expr {
+    let at = SqlQuery::select()
+        .columns([Message::CreatedAt, Message::Id])
+        .from(weldagent_messages::Entity)
+        .and_where(sea_orm::ExprTrait::eq(Expr::col(Message::Id), anchor))
+        .to_owned();
+    let row = Expr::tuple([
+        Expr::col((weldagent_messages::Entity, Message::CreatedAt)),
+        Expr::col((weldagent_messages::Entity, Message::Id)),
+    ]);
+    if through {
+        sea_orm::ExprTrait::lte(row, Expr::from(at))
+    } else {
+        sea_orm::ExprTrait::lt(row, Expr::from(at))
     }
 }
 
@@ -373,37 +413,30 @@ pub(crate) async fn append_message(
         Err(response) => return response,
     };
     let result = async {
-        if conversation_row(&caller.db, &conversation_id, &caller.user_id, false).await?.is_none() {
-            return Ok::<_, sqlx::Error>(None);
+        if conversation_row(&caller.db, &conversation_id, &caller.user_id, false)
+            .await?
+            .is_none()
+        {
+            return Ok::<_, DbErr>(None);
         }
+        let conn = orm(&caller.db);
         let message_id = generate_id("msg");
-        sqlx::query(
-            "insert into weldagent_messages (id, conversation_id, role, content, tool_invocations, form_state)
-             values ($1, $2, $3, $4, $5::jsonb, $6::jsonb)",
-        )
-        .bind(&message_id)
-        .bind(&conversation_id)
-        .bind(&data.role)
-        .bind(&data.content)
-        .bind(data.tool_invocations)
-        .bind(data.form_state)
-        .execute(&caller.db)
+        weldagent_messages::Entity::insert(weldagent_messages::ActiveModel {
+            id: Set(message_id.clone()),
+            conversation_id: Set(conversation_id.clone()),
+            role: Set(data.role),
+            content: Set(data.content),
+            tool_invocations: Set(data.tool_invocations),
+            form_state: Set(data.form_state),
+            ..Default::default()
+        })
+        .exec_without_returning(&conn)
         .await?;
-        let stamp = now();
-        sqlx::query(
-            "update weldagent_conversations
-             set last_message_at = $2::timestamptz, message_count = message_count + 1, updated_at = $2::timestamptz
-             where id = $1",
-        )
-        .bind(&conversation_id)
-        .bind(&stamp)
-        .execute(&caller.db)
-        .await?;
-        let saved: Option<Value> = sqlx::query_scalar("select to_jsonb(m) from weldagent_messages m where m.id = $1")
-            .bind(&message_id)
-            .fetch_optional(&caller.db)
+        touch_conversation(&conn, &conversation_id).await?;
+        let saved = weldagent_messages::Entity::find_by_id(message_id)
+            .one(&conn)
             .await?;
-        Ok(saved.map(js_row))
+        Ok(saved.map(js))
     }
     .await;
     match result {
@@ -411,6 +444,26 @@ pub(crate) async fn append_message(
         Ok(None) => ApiError::not_found("Conversation", Some(&conversation_id)).into_response(),
         Err(error) => failed(&error, CONTEXT, "Failed to save message"),
     }
+}
+
+/// A message went into the conversation: `last_message_at`, `message_count`
+/// and `updated_at` move.
+pub(crate) async fn touch_conversation(
+    conn: &impl sea_orm::ConnectionTrait,
+    conversation_id: &str,
+) -> Result<(), DbErr> {
+    let stamp = now_tz();
+    conversations::Entity::update_many()
+        .col_expr(Column::LastMessageAt, Expr::value(stamp))
+        .col_expr(
+            Column::MessageCount,
+            sea_orm::ExprTrait::add(Expr::col(Column::MessageCount), 1),
+        )
+        .col_expr(Column::UpdatedAt, Expr::value(stamp))
+        .filter(Column::Id.eq(conversation_id))
+        .exec(conn)
+        .await?;
+    Ok(())
 }
 
 // ── POST /conversations/:id/complete-turn ───────────────────────────────────
@@ -503,18 +556,20 @@ pub(crate) async fn update(
         Err(response) => return response,
     };
     let result = async {
-        sqlx::query(
-            "update weldagent_conversations
-             set updated_at = $3::timestamptz, name = coalesce($4, name), is_pinned = coalesce($5, is_pinned)
-             where id = $1 and user_id = $2",
-        )
-        .bind(&conversation_id)
-        .bind(&caller.user_id)
-        .bind(now())
-        .bind(&data.name)
-        .bind(data.is_pinned)
-        .execute(&caller.db)
-        .await?;
+        // `coalesce($new, column)`: only what the body sent changes.
+        let mut update =
+            conversations::Entity::update_many().col_expr(Column::UpdatedAt, Expr::value(now_tz()));
+        if let Some(name) = &data.name {
+            update = update.col_expr(Column::Name, Expr::value(name));
+        }
+        if let Some(pinned) = data.is_pinned {
+            update = update.col_expr(Column::IsPinned, Expr::value(pinned));
+        }
+        update
+            .filter(Column::Id.eq(&conversation_id))
+            .filter(Column::UserId.eq(&caller.user_id))
+            .exec(&orm(&caller.db))
+            .await?;
         conversation_row(&caller.db, &conversation_id, &caller.user_id, false).await
     }
     .await;
@@ -559,26 +614,32 @@ pub(crate) async fn auto_title(
         Err(response) => return response,
     };
     let result = async {
-        let Some(existing) = conversation_row(&caller.db, &conversation_id, &caller.user_id, false).await? else {
-            return Ok::<_, sqlx::Error>(None);
+        let Some(existing) =
+            conversation_row(&caller.db, &conversation_id, &caller.user_id, false).await?
+        else {
+            return Ok::<_, DbErr>(None);
         };
         let name = existing["name"].as_str().unwrap_or_default();
         if !(name.is_empty() || name == "New Chat" || name == "New Conversation") {
-            return Ok(Some(json!({ "id": existing["id"], "name": name, "generated": false })));
+            return Ok(Some(
+                json!({ "id": existing["id"], "name": name, "generated": false }),
+            ));
         }
         let collapsed = first.split_whitespace().collect::<Vec<_>>().join(" ");
         let mut title: String = collapsed.trim().chars().take(60).collect();
         if title.is_empty() {
             "New Chat".clone_into(&mut title);
         }
-        sqlx::query("update weldagent_conversations set name = $3, updated_at = $4::timestamptz where id = $1 and user_id = $2")
-            .bind(&conversation_id)
-            .bind(&caller.user_id)
-            .bind(&title)
-            .bind(now())
-            .execute(&caller.db)
+        conversations::Entity::update_many()
+            .col_expr(Column::Name, Expr::value(&title))
+            .col_expr(Column::UpdatedAt, Expr::value(now_tz()))
+            .filter(Column::Id.eq(&conversation_id))
+            .filter(Column::UserId.eq(&caller.user_id))
+            .exec(&orm(&caller.db))
             .await?;
-        Ok(Some(json!({ "id": conversation_id, "name": title, "generated": true })))
+        Ok(Some(
+            json!({ "id": conversation_id, "name": title, "generated": true }),
+        ))
     }
     .await;
     match result {
@@ -593,13 +654,18 @@ pub(crate) async fn auto_title(
 /// `DELETE /conversations/:conversationId`: soft delete.
 pub(crate) async fn remove(caller: Caller, Path(conversation_id): Path<String>) -> Response {
     let result = async {
-        if conversation_row(&caller.db, &conversation_id, &caller.user_id, false).await?.is_none() {
-            return Ok::<_, sqlx::Error>(false);
+        if conversation_row(&caller.db, &conversation_id, &caller.user_id, false)
+            .await?
+            .is_none()
+        {
+            return Ok::<_, DbErr>(false);
         }
-        sqlx::query("update weldagent_conversations set deleted_at = $2::timestamptz, updated_at = $2::timestamptz where id = $1")
-            .bind(&conversation_id)
-            .bind(now())
-            .execute(&caller.db)
+        let now = now_tz();
+        conversations::Entity::update_many()
+            .col_expr(Column::DeletedAt, Expr::value(now))
+            .col_expr(Column::UpdatedAt, Expr::value(now))
+            .filter(Column::Id.eq(&conversation_id))
+            .exec(&orm(&caller.db))
             .await?;
         Ok(true)
     }

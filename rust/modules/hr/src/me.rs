@@ -12,6 +12,8 @@ use axum::extract::{Path, RawQuery, Request, State};
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use http::HeaderMap;
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, EntityTrait, JoinType, QueryFilter, QueryOrder, QuerySelect};
 use serde_json::{Value, json};
 use weldsuite_catalogs::entity_events::{
     HR_ABSENCE_CREATED, HR_ABSENCE_RECOVERED, HR_ATTENDANCE_CREATED, HR_ATTENDANCE_UPDATED,
@@ -19,14 +21,18 @@ use weldsuite_catalogs::entity_events::{
     HR_DECLARATION_CREATED, HR_DECLARATION_UPDATED, HR_EMPLOYEE_ONBOARDED,
     HR_EVALUATION_ACKNOWLEDGED, HR_SHIFT_REQUEST_CREATED, HR_SHIFT_REQUEST_UPDATED,
 };
-use weldsuite_db::{PgPool, js_row};
+use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_kit::validation::{Field, Presence};
 use weldsuite_kit::{Created, Data};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::{
+    hr_checklist_tasks as tasks, hr_checklists as checklists, hr_compensations, hr_departments,
+    hr_employees,
+};
 
 use crate::employees::{
-    active_clients_for, display_name_of, employee_for_user, link_invited_employees,
-    require_employee,
+    active_clients_for, display_name, display_name_of, employee_for_user, link_invited_employees,
+    require_employee, to_json,
 };
 use crate::entity_scope::Scope;
 use crate::fields::{id, iso_date, iso_date_time, number, short_text, text_max};
@@ -42,7 +48,7 @@ use crate::timekeeping::{
 };
 use crate::work_locations::{GeoPoint, clock_place_for};
 use crate::{
-    Caller, HrError, HrResult, HrState, add_days, hr_json, js_number, now, query_date, query_param,
+    Caller, HrError, HrResult, HrState, add_days, hr_json, js_number, query_date, query_param,
     query_values, text, today_iso, year_of,
 };
 
@@ -145,26 +151,34 @@ async fn employee_profile(db: &PgPool, employee_id: &str) -> Result<Value, HrErr
     let e = require_employee(db, employee_id).await?;
     let department: Option<String> = match e["departmentId"].as_str().filter(|d| !d.is_empty()) {
         Some(department) => {
-            sqlx::query_scalar("select name from hr_departments where id = $1 limit 1")
-                .bind(department)
-                .fetch_optional(db)
+            hr_departments::Entity::find()
+                .select_only()
+                .column(hr_departments::Column::Name)
+                .filter(hr_departments::Column::Id.eq(department))
+                .into_tuple()
+                .one(&orm(db))
                 .await?
         }
         None => None,
     };
-    let manager: Option<Value> = match e["managerId"].as_str().filter(|m| !m.is_empty()) {
-        Some(manager) => {
-            sqlx::query_scalar(
-                "select jsonb_build_object('firstName', first_name, 'lastName', last_name,
-                 'preferredName', preferred_name, 'email', email)
-             from hr_employees where id = $1 limit 1",
-            )
-            .bind(manager)
-            .fetch_optional(db)
-            .await?
-        }
-        None => None,
-    };
+    let manager: Option<(String, String, Option<String>, String)> =
+        match e["managerId"].as_str().filter(|m| !m.is_empty()) {
+            Some(manager) => {
+                hr_employees::Entity::find()
+                    .select_only()
+                    .columns([
+                        hr_employees::Column::FirstName,
+                        hr_employees::Column::LastName,
+                        hr_employees::Column::PreferredName,
+                        hr_employees::Column::Email,
+                    ])
+                    .filter(hr_employees::Column::Id.eq(manager))
+                    .into_tuple()
+                    .one(&orm(db))
+                    .await?
+            }
+            None => None,
+        };
     let id = text(&e, "id").to_owned();
     let clients = active_clients_for(db, std::slice::from_ref(&id), None).await?;
     Ok(json!({
@@ -182,27 +196,39 @@ async fn employee_profile(db: &PgPool, employee_id: &str) -> Result<Value, HrErr
         "startDate": e["startDate"],
         "location": e["location"],
         "departmentName": department,
-        "manager": manager.map(|m| json!({ "displayName": display_name_of(&m), "email": m["email"] })),
+        "manager": manager.map(|(first, last, preferred, email)| json!({
+            "displayName": display_name(&first, &last, preferred.as_deref()),
+            "email": email,
+        })),
         "clients": clients.get(&id).cloned().unwrap_or_default(),
     }))
 }
 
 /// `employeeTasks(db, employeeId)`.
 async fn employee_tasks(db: &PgPool, employee_id: &str) -> Result<Vec<Value>, HrError> {
-    let rows: Vec<(Value, String, String, String)> = sqlx::query_as(
-        "select to_jsonb(t), c.name, c.kind, c.status from hr_checklist_tasks t
-         join hr_checklists c on c.id = t.checklist_id
-         where t.employee_id = $1 and t.visible_to_employee = true and c.status in ('in_progress', 'completed')
-         order by t.due_date asc, t.sort_order asc",
-    )
-    .bind(employee_id)
-    .fetch_all(db)
-    .await?;
-    Ok(rows
-        .into_iter()
-        .map(|(task, name, kind, status)| {
-            let task = js_row(task);
-            json!({
+    let rows: Vec<(tasks::Model, Option<checklists::Model>)> = tasks::Entity::find()
+        .select_also(checklists::Entity)
+        .join(
+            JoinType::InnerJoin,
+            tasks::Entity::belongs_to(checklists::Entity)
+                .from(tasks::Column::ChecklistId)
+                .to(checklists::Column::Id)
+                .into(),
+        )
+        .filter(tasks::Column::EmployeeId.eq(employee_id))
+        .filter(tasks::Column::VisibleToEmployee.eq(true))
+        .filter(checklists::Column::Status.is_in(["in_progress", "completed"]))
+        .order_by_asc(tasks::Column::DueDate)
+        .order_by_asc(tasks::Column::SortOrder)
+        .all(&orm(db))
+        .await?;
+    rows.into_iter()
+        .map(|(task, checklist)| {
+            let (name, kind, status) = checklist
+                .map(|c| (c.name, c.kind, c.status))
+                .unwrap_or_default();
+            let task = to_json(task)?;
+            Ok(json!({
                 "id": task["id"],
                 "title": task["title"],
                 "description": task["description"],
@@ -212,9 +238,9 @@ async fn employee_tasks(db: &PgPool, employee_id: &str) -> Result<Vec<Value>, Hr
                 "canComplete": task["assigneeRole"] == "employee" && status == "in_progress",
                 "checklistName": name,
                 "checklistKind": kind,
-            })
+            }))
         })
-        .collect())
+        .collect()
 }
 
 async fn me(State(state): State<HrState>, caller: Caller) -> HrResult {
@@ -315,14 +341,13 @@ async fn complete_task(
     let employee_id = self_employee_id(&state, &caller).await?;
     let done = query_param(&query_values(query.as_deref()), "undo").as_deref() != Some("true");
     let db = &caller.db;
-    let task: Option<Value> =
-        sqlx::query_scalar("select to_jsonb(t) from hr_checklist_tasks t where t.id = $1 limit 1")
-            .bind(&task_id)
-            .fetch_optional(db)
-            .await?;
-    let Some(task) = task
-        .map(js_row)
-        .filter(|t| t["employeeId"] == employee_id.as_str() && t["visibleToEmployee"] == true)
+    let task = tasks::Entity::find_by_id(task_id.clone())
+        .one(&orm(db))
+        .await?
+        .map(to_json)
+        .transpose()?;
+    let Some(task) =
+        task.filter(|t| t["employeeId"] == employee_id.as_str() && t["visibleToEmployee"] == true)
     else {
         return Err(HrError::not_found("Task", &task_id));
     };
@@ -331,17 +356,17 @@ async fn complete_task(
             "This task is completed by your team, not by you",
         ));
     }
-    let now = now();
-    sqlx::query(
-        "update hr_checklist_tasks set completed_at = $2::timestamp, completed_by = $3, updated_at = $4::timestamp
-         where id = $1",
-    )
-    .bind(&task_id)
-    .bind(done.then(|| now.clone()))
-    .bind(done.then(|| caller.user_id.clone()))
-    .bind(&now)
-    .execute(db)
-    .await?;
+    let now = utc_now();
+    tasks::Entity::update_many()
+        .col_expr(tasks::Column::CompletedAt, Expr::value(done.then_some(now)))
+        .col_expr(
+            tasks::Column::CompletedBy,
+            Expr::value(done.then(|| caller.user_id.clone())),
+        )
+        .col_expr(tasks::Column::UpdatedAt, Expr::value(now))
+        .filter(tasks::Column::Id.eq(task_id.as_str()))
+        .exec(&orm(db))
+        .await?;
     let checklist_id = text(&task, "checklistId").to_owned();
     let outcome = settle_checklist(db, &checklist_id).await?;
     let event = if outcome.checklist_completed {
@@ -426,12 +451,14 @@ async fn employee_attendance(
     };
     let (records, ..) = list_attendance(db, &filters).await?;
     let shifts = list_shifts(db, from, to, Some(employee_id), None, &Scope::ALL).await?;
-    let compensations: Vec<Value> =
-        sqlx::query_scalar("select to_jsonb(t) from hr_compensations t where t.employee_id = $1")
-            .bind(employee_id)
-            .fetch_all(db)
-            .await?;
-    let compensations: Vec<Value> = compensations.into_iter().map(js_row).collect();
+    let compensations = hr_compensations::Entity::find()
+        .filter(hr_compensations::Column::EmployeeId.eq(employee_id))
+        .all(&orm(db))
+        .await?;
+    let compensations: Vec<Value> = compensations
+        .into_iter()
+        .map(to_json)
+        .collect::<Result<_, _>>()?;
     let requests = crate::shift_requests::list_shift_requests(
         db,
         None,

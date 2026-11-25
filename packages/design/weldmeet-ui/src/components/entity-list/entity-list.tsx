@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@weldsuite/ui/lib/utils';
 import { FilterPills } from './filter-pills';
+import { useIsMobile } from '../../hooks/use-is-mobile';
 import type {
   EntityListProps,
   ActiveFilter,
@@ -93,6 +94,7 @@ export function EntityList<T extends { id: string }>({
   // Left action buttons
   leftActionButtons,
   hideFilter,
+  mobileToolbarRow = true,
 
   // Search
   searchPlaceholder = 'Search...',
@@ -124,6 +126,10 @@ export function EntityList<T extends { id: string }>({
   columnGap,
   stickyOffset = 0,
 }: Readonly<EntityListProps<T>>) {
+  // The filter and the left-hand buttons render once: in the top bar, or on
+  // phones in their own row under the search. Hiding one copy with CSS alone
+  // would leave two of each in the page (two open popovers, doubled controls).
+  const isMobile = useIsMobile();
   const [searchOpen, setSearchOpen] = useState(false);
   const [internalSearchQuery, setInternalSearchQuery] = useState('');
   const [internalActiveFilters, setInternalActiveFilters] = useState<ActiveFilter[]>([]);
@@ -280,8 +286,9 @@ export function EntityList<T extends { id: string }>({
       <div className="absolute inset-0 bg-muted/50 pointer-events-none" />
       {leadingContent && <div className="relative flex items-center">{leadingContent}</div>}
       <span className="relative text-xs font-medium text-muted-foreground">{label}</span>
-      <span className="relative text-[10px] font-mono text-muted-foreground bg-muted border border-border w-[16px] h-[16px] flex items-center justify-center rounded-[5px] -translate-y-px">
-        <span className="translate-y-[1px]">{count}</span>
+      <span className="relative text-[10px] font-mono text-muted-foreground bg-muted border border-border min-w-[16px] h-[16px] px-1 flex items-center justify-center rounded-[5px] -translate-y-px">
+        {/* Rows are still being paged in: the count covers the loaded rows only, so it reads "N+". */}
+        <span className="translate-y-[1px]">{hasMore ? `${count}+` : count}</span>
       </span>
       {rightContent && <div className="relative ml-auto flex items-center">{rightContent}</div>}
     </div>
@@ -367,7 +374,7 @@ export function EntityList<T extends { id: string }>({
       {!hideTopBar && (
       <div className={cn("flex items-center justify-between px-3 md:px-4 h-[53px] border-b border-border", topBarClassName)}>
         <div className="hidden md:flex items-center gap-2">
-          {!hideFilter && (
+          {!isMobile && !hideFilter && (
             <FilterPills
               filters={activeFilters}
               filterConfigs={filterConfigs}
@@ -375,7 +382,7 @@ export function EntityList<T extends { id: string }>({
               onFiltersChange={setActiveFilters}
             />
           )}
-          {leftActionButtons}
+          {!isMobile && leftActionButtons}
         </div>
 
         {/* Mobile: search always visible */}
@@ -452,6 +459,23 @@ export function EntityList<T extends { id: string }>({
           )}
         </div>
       </div>
+      )}
+
+      {/* Mobile: the filter and the left-hand buttons (a view switch, a period)
+          get their own row under the search, instead of disappearing below md.
+          It scrolls sideways when they don't fit. */}
+      {isMobile && mobileToolbarRow && !hideTopBar && ((!hideFilter && filterConfigs.length > 0) || leftActionButtons) && (
+        <div className="md:hidden flex items-center gap-2 overflow-x-auto px-3 py-2 border-b border-border [&>*]:shrink-0">
+          {!hideFilter && filterConfigs.length > 0 && (
+            <FilterPills
+              filters={activeFilters}
+              filterConfigs={filterConfigs}
+              maxFilters={maxFilters}
+              onFiltersChange={setActiveFilters}
+            />
+          )}
+          {leftActionButtons}
+        </div>
       )}
 
       <ListFrame className={listClassName}>

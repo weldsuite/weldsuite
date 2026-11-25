@@ -11,28 +11,35 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::IntoResponse;
 use axum::routing::{get, patch, post};
 use http::HeaderMap;
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, Condition, EntityTrait, JoinType, QueryFilter, QueryOrder,
+    QuerySelect,
+};
 use serde_json::{Value, json};
+use time::OffsetDateTime;
 use weldsuite_catalogs::entity_events::{
     HR_OPEN_SHIFT_CANCELLED, HR_OPEN_SHIFT_CREATED, HR_OPEN_SHIFT_UPDATED, HR_SHIFT_REQUEST_UPDATED,
 };
 use weldsuite_catalogs::permission_keys::{
     ATTENDANCE_CREATE, ATTENDANCE_DELETE, ATTENDANCE_READ, ATTENDANCE_UPDATE,
 };
-use weldsuite_db::{PgPool, js_row};
+use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_kit::validation::{Field, Issues, Presence};
 use weldsuite_kit::{Created, Data, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::{hr_departments, hr_open_shifts, hr_shift_requests, hr_shifts};
 
 use crate::departments::department_lineage;
-use crate::employees::require_employee;
+use crate::employees::{no_row, pg_date, require_employee, to_json};
 use crate::fields::{Fields, id, int, iso_date_time, short_text, text_max};
 use crate::timekeeping::{
-    assert_shift_break, assert_shift_window, instant, iso, now_ms, resolve_instant, row_instant,
+    assert_shift_break, assert_shift_window, instant, now_ms, resolve_instant, row_instant,
     work_type_value,
 };
 use crate::{
-    Caller, HrError, HrResult, HrState, company_names, hr_json, js_trim, now, query_date,
-    query_text, query_values, text,
+    Caller, HrError, HrResult, HrState, company_names, hr_json, js_trim, query_date, query_text,
+    query_values, text,
 };
 
 pub(crate) const OPEN_SHIFT_FULL_NOTE: &str = "All spots on this shift were filled";
@@ -62,15 +69,16 @@ where
         )
 }
 
+/// An instant (milliseconds) as the `timestamptz` the SQL bound as
+/// `iso(ms)::timestamptz`.
+fn at(ms: i64) -> OffsetDateTime {
+    OffsetDateTime::UNIX_EPOCH + time::Duration::milliseconds(ms)
+}
+
 /// `requireOpenShift(db, id)`.
 pub(crate) async fn require_open_shift(db: &PgPool, id: &str) -> Result<Value, HrError> {
-    let row: Option<Value> =
-        sqlx::query_scalar("select to_jsonb(t) from hr_open_shifts t where t.id = $1 limit 1")
-            .bind(id)
-            .fetch_optional(db)
-            .await?;
-    row.map(js_row)
-        .ok_or_else(|| HrError::not_found("Open shift", id))
+    let row = hr_open_shifts::Entity::find_by_id(id).one(&orm(db)).await?;
+    to_json(row.ok_or_else(|| HrError::not_found("Open shift", id))?)
 }
 
 /// `openShiftCounts(db, ids)`: approved sign-ups whose shift still exists, and pending ones.
@@ -81,16 +89,31 @@ pub(crate) async fn open_shift_counts(
     if ids.is_empty() {
         return Ok(HashMap::new());
     }
-    let rows: Vec<(Option<String>, i64, i64)> = sqlx::query_as(
-        "select r.open_shift_id,
-                count(*) filter (where r.status = 'approved' and s.id is not null),
-                count(*) filter (where r.status = 'pending')
-         from hr_shift_requests r left join hr_shifts s on s.id = r.shift_id
-         where r.open_shift_id = any($1) group by r.open_shift_id",
-    )
-    .bind(ids)
-    .fetch_all(db)
-    .await?;
+    // `count(*) filter (where c)`: `count(case when c then 1 end)`.
+    let filled = Expr::case(
+        Condition::all()
+            .add(hr_shift_requests::Column::Status.eq("approved"))
+            .add(hr_shifts::Column::Id.is_not_null()),
+        1,
+    );
+    let pending = Expr::case(hr_shift_requests::Column::Status.eq("pending"), 1);
+    let rows: Vec<(Option<String>, i64, i64)> = hr_shift_requests::Entity::find()
+        .select_only()
+        .column(hr_shift_requests::Column::OpenShiftId)
+        .column_as(Expr::expr(Func::count(filled)), "filled")
+        .column_as(Expr::expr(Func::count(pending)), "pending")
+        .join(
+            JoinType::LeftJoin,
+            hr_shift_requests::Entity::belongs_to(hr_shifts::Entity)
+                .from(hr_shift_requests::Column::ShiftId)
+                .to(hr_shifts::Column::Id)
+                .into(),
+        )
+        .filter(hr_shift_requests::Column::OpenShiftId.is_in(ids))
+        .group_by(hr_shift_requests::Column::OpenShiftId)
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     Ok(rows
         .into_iter()
         .filter_map(|(id, filled, pending)| id.map(|id| (id, (filled, pending))))
@@ -125,14 +148,15 @@ async fn with_details(db: &PgPool, rows: Vec<Value>) -> Result<Vec<Value>, HrErr
     let department_name: HashMap<String, String> = if departments.is_empty() {
         HashMap::new()
     } else {
-        sqlx::query_as::<_, (String, String)>(
-            "select id, name from hr_departments where id = any($1)",
-        )
-        .bind(&departments)
-        .fetch_all(db)
-        .await?
-        .into_iter()
-        .collect()
+        hr_departments::Entity::find()
+            .select_only()
+            .columns([hr_departments::Column::Id, hr_departments::Column::Name])
+            .filter(hr_departments::Column::Id.is_in(&departments))
+            .into_tuple::<(String, String)>()
+            .all(&orm(db))
+            .await?
+            .into_iter()
+            .collect()
     };
     Ok(rows
         .into_iter()
@@ -170,21 +194,34 @@ async fn list_open_shifts(
     let statuses: Option<Vec<String>> = status
         .filter(|s| !s.is_empty())
         .map(|s| s.split(',').map(str::to_owned).collect());
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from hr_open_shifts t
-         where ($1::text is null or t.id = $1)
-           and ($2::text is null or t.starts_at >= $2::timestamptz)
-           and ($3::text is null or t.starts_at <= $3::timestamptz)
-           and ($4::text[] is null or t.status = any($4))
-         order by t.starts_at asc limit 1000",
-    )
-    .bind(id)
-    .bind(from.map(|f| format!("{f}T00:00:00Z")))
-    .bind(to.map(|t| format!("{t}T23:59:59Z")))
-    .bind(&statuses)
-    .fetch_all(db)
-    .await?;
-    with_details(db, rows.into_iter().map(js_row).collect()).await
+    let mut query = hr_open_shifts::Entity::find()
+        .order_by_asc(hr_open_shifts::Column::StartsAt)
+        .limit(1000);
+    if let Some(id) = id {
+        query = query.filter(hr_open_shifts::Column::Id.eq(id));
+    }
+    // `${from}T00:00:00Z` and `${to}T23:59:59Z` as `timestamptz`.
+    if let Some(from) = from {
+        let start = pg_date(from)?.midnight().assume_utc();
+        query = query.filter(hr_open_shifts::Column::StartsAt.gte(start));
+    }
+    if let Some(to) = to {
+        let end = pg_date(to)?
+            .with_hms(23, 59, 59)
+            .map_err(|error| HrError::internal(error.to_string()))?
+            .assume_utc();
+        query = query.filter(hr_open_shifts::Column::StartsAt.lte(end));
+    }
+    if let Some(statuses) = statuses {
+        query = query.filter(hr_open_shifts::Column::Status.is_in(statuses));
+    }
+    let rows = query
+        .all(&orm(db))
+        .await?
+        .into_iter()
+        .map(to_json)
+        .collect::<Result<Vec<_>, _>>()?;
+    with_details(db, rows).await
 }
 
 /// `openShiftWithDetails(db, id)`.
@@ -213,11 +250,13 @@ async fn assert_department(db: &PgPool, department_id: Option<&str>) -> Result<(
     let Some(department_id) = department_id.filter(|d| !d.is_empty()) else {
         return Ok(());
     };
-    let found: Option<String> =
-        sqlx::query_scalar("select id from hr_departments where id = $1 limit 1")
-            .bind(department_id)
-            .fetch_optional(db)
-            .await?;
+    let found: Option<String> = hr_departments::Entity::find()
+        .select_only()
+        .column(hr_departments::Column::Id)
+        .filter(hr_departments::Column::Id.eq(department_id))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     if found.is_none() {
         return Err(HrError::not_found("Department", department_id));
     }
@@ -296,27 +335,24 @@ async fn create(
     let be = resolve_instant(&input.break_ends_at, None);
     assert_shift_break(starts, ends, bs, be)?;
     assert_department(db, input.department_id.as_set().map(String::as_str)).await?;
-    let row: Value = sqlx::query_scalar(
-        "insert into hr_open_shifts (id, company_id, department_id, starts_at, ends_at, work_type,
-             break_starts_at, break_ends_at, notes, spots, status, created_by)
-         values ($1, $2, $3, $4::timestamptz, $5::timestamptz, $6, $7::timestamptz, $8::timestamptz, $9,
-                 $10::int, 'open', $11)
-         returning to_jsonb(hr_open_shifts)",
-    )
-    .bind(generate_id("hrosh"))
-    .bind(input.company_id.as_set())
-    .bind(input.department_id.as_set())
-    .bind(iso(starts))
-    .bind(iso(ends))
-    .bind(work_type_value(&input.work_type))
-    .bind(bs.map(iso))
-    .bind(be.map(iso))
-    .bind(notes_value(&input.notes))
-    .bind(input.spots.as_set().map_or(1, |s| *s as i32))
-    .bind(&caller.user_id)
-    .fetch_one(db)
+    let row = hr_open_shifts::Entity::insert(hr_open_shifts::ActiveModel {
+        id: Set(generate_id("hrosh")),
+        company_id: Set(input.company_id.as_set().cloned()),
+        department_id: Set(input.department_id.as_set().cloned()),
+        starts_at: Set(at(starts)),
+        ends_at: Set(at(ends)),
+        work_type: Set(work_type_value(&input.work_type)),
+        break_starts_at: Set(bs.map(at)),
+        break_ends_at: Set(be.map(at)),
+        notes: Set(notes_value(&input.notes)),
+        spots: Set(input.spots.as_set().map_or(1, |s| *s as i32)),
+        status: Set("open".to_owned()),
+        created_by: Set(Some(caller.user_id.clone())),
+        ..Default::default()
+    })
+    .exec_with_returning(&orm(db))
     .await?;
-    let row = js_row(row);
+    let row = to_json(row)?;
     let id = text(&row, "id").to_owned();
     caller.emit(
         &state,
@@ -380,50 +416,63 @@ async fn update(
             "{filled} people are already on this shift, so it needs at least {filled} spots"
         )));
     }
-    let now = now();
-    let row: Value = sqlx::query_scalar(
-        "update hr_open_shifts set
-             company_id = case when $2 then $3 else company_id end,
-             department_id = case when $4 then $5 else department_id end,
-             work_type = case when $6 then $7 else work_type end,
-             notes = case when $8 then $9 else notes end,
-             spots = coalesce($10::int, spots),
-             starts_at = $11::timestamptz, ends_at = $12::timestamptz,
-             break_starts_at = $13::timestamptz, break_ends_at = $14::timestamptz,
-             updated_at = $15::timestamp
-         where id = $1 returning to_jsonb(hr_open_shifts)",
-    )
-    .bind(&id)
-    .bind(!input.company_id.is_absent())
-    .bind(input.company_id.as_set())
-    .bind(!input.department_id.is_absent())
-    .bind(input.department_id.as_set())
-    .bind(!input.work_type.is_absent())
-    .bind(work_type_value(&input.work_type))
-    .bind(!input.notes.is_absent())
-    .bind(notes_value(&input.notes))
-    .bind(input.spots.as_set().map(|s| *s as i32))
-    .bind(iso(starts))
-    .bind(iso(ends))
-    .bind(bs.map(iso))
-    .bind(be.map(iso))
-    .bind(&now)
-    .fetch_one(db)
-    .await?;
-    if times_moved {
-        sqlx::query(
-            "update hr_shift_requests set starts_at = $2::timestamptz, ends_at = $3::timestamptz,
-                 updated_at = $4::timestamp
-             where open_shift_id = $1 and status = 'pending'",
-        )
-        .bind(&id)
-        .bind(iso(starts))
-        .bind(iso(ends))
-        .bind(&now)
-        .execute(db)
-        .await?;
+    let now = utc_now();
+    let orm = orm(db);
+    // `case when $set then $value else column end`: only what the body sent.
+    let mut update = hr_open_shifts::Entity::update_many();
+    if !input.company_id.is_absent() {
+        update = update.col_expr(
+            hr_open_shifts::Column::CompanyId,
+            Expr::value(input.company_id.as_set().cloned()),
+        );
     }
-    let row = js_row(row);
+    if !input.department_id.is_absent() {
+        update = update.col_expr(
+            hr_open_shifts::Column::DepartmentId,
+            Expr::value(input.department_id.as_set().cloned()),
+        );
+    }
+    if !input.work_type.is_absent() {
+        update = update.col_expr(
+            hr_open_shifts::Column::WorkType,
+            Expr::value(work_type_value(&input.work_type)),
+        );
+    }
+    if !input.notes.is_absent() {
+        update = update.col_expr(
+            hr_open_shifts::Column::Notes,
+            Expr::value(notes_value(&input.notes)),
+        );
+    }
+    if let Some(spots) = input.spots.as_set() {
+        update = update.col_expr(hr_open_shifts::Column::Spots, Expr::value(*spots as i32));
+    }
+    let row = update
+        .col_expr(hr_open_shifts::Column::StartsAt, Expr::value(at(starts)))
+        .col_expr(hr_open_shifts::Column::EndsAt, Expr::value(at(ends)))
+        .col_expr(
+            hr_open_shifts::Column::BreakStartsAt,
+            Expr::value(bs.map(at)),
+        )
+        .col_expr(hr_open_shifts::Column::BreakEndsAt, Expr::value(be.map(at)))
+        .col_expr(hr_open_shifts::Column::UpdatedAt, Expr::value(now))
+        .filter(hr_open_shifts::Column::Id.eq(id.as_str()))
+        .exec_with_returning(&orm)
+        .await?
+        .into_iter()
+        .next()
+        .ok_or_else(|| no_row("hr_open_shifts"))?;
+    if times_moved {
+        hr_shift_requests::Entity::update_many()
+            .col_expr(hr_shift_requests::Column::StartsAt, Expr::value(at(starts)))
+            .col_expr(hr_shift_requests::Column::EndsAt, Expr::value(at(ends)))
+            .col_expr(hr_shift_requests::Column::UpdatedAt, Expr::value(now))
+            .filter(hr_shift_requests::Column::OpenShiftId.eq(id.as_str()))
+            .filter(hr_shift_requests::Column::Status.eq("pending"))
+            .exec(&orm)
+            .await?;
+    }
+    let row = to_json(row)?;
     caller.emit(
         &state,
         HR_OPEN_SHIFT_UPDATED,
@@ -442,18 +491,20 @@ async fn close_pending_requests(
     note: &str,
     by: &str,
 ) -> Result<Vec<(String, String, String)>, HrError> {
-    Ok(sqlx::query_as(
-        "update hr_shift_requests set status = $2, review_note = $3, reviewed_by = $4,
-             reviewed_at = $5::timestamp, updated_at = $5::timestamp
-         where open_shift_id = $1 and status = 'pending' returning id, employee_id, status",
-    )
-    .bind(open_shift_id)
-    .bind(status)
-    .bind(note)
-    .bind(by)
-    .bind(now())
-    .fetch_all(db)
-    .await?)
+    let at = utc_now();
+    Ok(hr_shift_requests::Entity::update_many()
+        .col_expr(hr_shift_requests::Column::Status, Expr::value(status))
+        .col_expr(hr_shift_requests::Column::ReviewNote, Expr::value(note))
+        .col_expr(hr_shift_requests::Column::ReviewedBy, Expr::value(by))
+        .col_expr(hr_shift_requests::Column::ReviewedAt, Expr::value(at))
+        .col_expr(hr_shift_requests::Column::UpdatedAt, Expr::value(at))
+        .filter(hr_shift_requests::Column::OpenShiftId.eq(open_shift_id))
+        .filter(hr_shift_requests::Column::Status.eq("pending"))
+        .exec_with_returning(&orm(db))
+        .await?
+        .into_iter()
+        .map(|request| (request.id, request.employee_id, request.status))
+        .collect())
 }
 
 async fn cancel(State(state): State<HrState>, caller: Caller, Path(id): Path<String>) -> HrResult {
@@ -462,14 +513,15 @@ async fn cancel(State(state): State<HrState>, caller: Caller, Path(id): Path<Str
     if existing["status"] == "cancelled" {
         return Err(HrError::conflict("This open shift was already withdrawn"));
     }
-    let row: Value = sqlx::query_scalar(
-        "update hr_open_shifts set status = 'cancelled', updated_at = $2::timestamp where id = $1
-         returning to_jsonb(hr_open_shifts)",
-    )
-    .bind(&id)
-    .bind(now())
-    .fetch_one(db)
-    .await?;
+    let row = hr_open_shifts::Entity::update_many()
+        .col_expr(hr_open_shifts::Column::Status, Expr::value("cancelled"))
+        .col_expr(hr_open_shifts::Column::UpdatedAt, Expr::value(utc_now()))
+        .filter(hr_open_shifts::Column::Id.eq(id.as_str()))
+        .exec_with_returning(&orm(db))
+        .await?
+        .into_iter()
+        .next()
+        .ok_or_else(|| no_row("hr_open_shifts"))?;
     let closed = close_pending_requests(
         db,
         &id,
@@ -478,7 +530,7 @@ async fn cancel(State(state): State<HrState>, caller: Caller, Path(id): Path<Str
         &caller.user_id,
     )
     .await?;
-    let row = js_row(row);
+    let row = to_json(row)?;
     caller.emit(
         &state,
         HR_OPEN_SHIFT_CANCELLED,
@@ -543,31 +595,41 @@ pub(crate) async fn open_shifts_for_employee(
 ) -> Result<Vec<Value>, HrError> {
     let employee = require_employee(db, employee_id).await?;
     let lineage = department_lineage(db, employee["departmentId"].as_str()).await?;
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from hr_open_shifts t where t.status = 'open' and t.starts_at > $1::timestamptz
-         order by t.starts_at asc limit 500",
-    )
-    .bind(iso(now_ms()))
-    .fetch_all(db)
-    .await?;
-    let rows: Vec<Value> = rows
-        .into_iter()
-        .map(js_row)
-        .filter(|r| visible_to(r, &lineage))
-        .collect();
+    let rows = hr_open_shifts::Entity::find()
+        .filter(hr_open_shifts::Column::Status.eq("open"))
+        .filter(hr_open_shifts::Column::StartsAt.gt(at(now_ms())))
+        .order_by_asc(hr_open_shifts::Column::StartsAt)
+        .limit(500)
+        .all(&orm(db))
+        .await?;
+    let mut visible = Vec::with_capacity(rows.len());
+    for row in rows {
+        let row = to_json(row)?;
+        if visible_to(&row, &lineage) {
+            visible.push(row);
+        }
+    }
+    let rows = visible;
     if rows.is_empty() {
         return Ok(Vec::new());
     }
     let ids: Vec<String> = rows.iter().map(|r| text(r, "id").to_owned()).collect();
     let detailed = with_details(db, rows).await?;
-    let mine: Vec<(String, Option<String>, String, Option<String>)> = sqlx::query_as(
-        "select id, open_shift_id, status, review_note from hr_shift_requests
-         where employee_id = $1 and open_shift_id = any($2) order by created_at asc",
-    )
-    .bind(employee_id)
-    .bind(&ids)
-    .fetch_all(db)
-    .await?;
+    let mine: Vec<(String, Option<String>, String, Option<String>)> =
+        hr_shift_requests::Entity::find()
+            .select_only()
+            .columns([
+                hr_shift_requests::Column::Id,
+                hr_shift_requests::Column::OpenShiftId,
+                hr_shift_requests::Column::Status,
+                hr_shift_requests::Column::ReviewNote,
+            ])
+            .filter(hr_shift_requests::Column::EmployeeId.eq(employee_id))
+            .filter(hr_shift_requests::Column::OpenShiftId.is_in(&ids))
+            .order_by_asc(hr_shift_requests::Column::CreatedAt)
+            .into_tuple()
+            .all(&orm(db))
+            .await?;
     let mut my_request: HashMap<String, Value> = HashMap::new();
     for (id, open_shift, status, note) in mine {
         if let Some(open_shift) = open_shift {
@@ -617,14 +679,15 @@ pub(crate) async fn assert_can_sign_up(
     if row_instant(&shift, "startsAt").unwrap_or(0) <= now_ms() {
         return Err(HrError::validation("This shift has already started"));
     }
-    let already: Option<String> = sqlx::query_scalar(
-        "select status from hr_shift_requests where employee_id = $1 and open_shift_id = $2
-           and status in ('pending', 'approved') limit 1",
-    )
-    .bind(employee_id)
-    .bind(open_shift_id)
-    .fetch_optional(db)
-    .await?;
+    let already: Option<String> = hr_shift_requests::Entity::find()
+        .select_only()
+        .column(hr_shift_requests::Column::Status)
+        .filter(hr_shift_requests::Column::EmployeeId.eq(employee_id))
+        .filter(hr_shift_requests::Column::OpenShiftId.eq(open_shift_id))
+        .filter(hr_shift_requests::Column::Status.is_in(["pending", "approved"]))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     if let Some(status) = already {
         return Err(HrError::conflict(if status == "approved" {
             "You are already on this shift"

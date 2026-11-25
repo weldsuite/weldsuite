@@ -1,0 +1,10 @@
+# dependencies
+node_modules
+
+# build output
+dist/
+*.tsbuildinfo
+
+# env files: real values never go in git; the example does
+.env*
+!.env.example

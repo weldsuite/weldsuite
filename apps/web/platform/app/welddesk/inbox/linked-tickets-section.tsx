@@ -104,9 +104,9 @@ export function LinkedTicketsSection({ conversation }: Readonly<{ conversation: 
   const exclude = [conversation.id, ...links.children.map((child) => child.id), ...(links.parent ? [links.parent.id] : [])];
 
   return (
-    <div className="px-4 py-3 border-b border-border/60" data-testid="desk-inbox-linked-tickets">
-      <div className="flex items-center justify-between mb-1 gap-2">
-        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{t.title}</p>
+    <section className="space-y-2" data-testid="desk-inbox-linked-tickets">
+      <div className="flex items-center justify-between gap-2">
+        <h3 className="text-sm font-semibold text-foreground">{t.title}</h3>
         {incident && (
           <SoftBadge tone="danger" className="gap-1">
             <Siren className="h-3 w-3" />
@@ -192,6 +192,6 @@ export function LinkedTicketsSection({ conversation }: Readonly<{ conversation: 
         notice={refusal ? <InfoBanner variant="warning">{refusal}</InfoBanner> : undefined}
         onPick={onPick}
       />
-    </div>
+    </section>
   );
 }

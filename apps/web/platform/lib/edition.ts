@@ -186,6 +186,32 @@ export const EDITION_FEATURES = [
    */
   'stash-replenishment',
   /**
+   * WeldStash carrier shipping (ADR STASH-011): PostNL and DHL Parcel
+   * accounts, labels for a packed pick list, service points, return labels,
+   * customs and tracking (`/api/carriers`, `/api/parcels`,
+   * `/api/pick-lists/:id/labels`). Built only in Rust, so it is in
+   * `GLOBAL_UNAVAILABLE_FEATURES`; on Global a pick list ships without a
+   * carrier, as before.
+   */
+  'stash-shipping',
+  /**
+   * Services outside the EU (ADR OPS-026, `/api/outside-eu-services`): on the
+   * EU edition each is off until a workspace admin switches it on under
+   * Settings › Services outside the EU, and the integrations that use one
+   * carry a "Leaves the EU" label. A self-hosted install lists it as
+   * unavailable (its operator decides), and Global has it in
+   * `GLOBAL_UNAVAILABLE_FEATURES` (nothing changes there).
+   */
+  'outside-eu-services',
+  /**
+   * WeldPass deploy-target sync: pushing a project's secrets to Cloudflare and
+   * Vercel (the Sync tab, `/api/weldpass/projects/:id/credentials` and
+   * `/sync-targets`). Off on the EU edition for now: the server answers 403
+   * `SYNC_UNAVAILABLE` and skips auto-sync, and the platform hides the tab.
+   * Self-hosted installs keep it.
+   */
+  'weldpass-sync',
+  /**
    * The rebuilt WeldCommerce (ADR COM-009): a Rust-only module, so it is in
    * `GLOBAL_UNAVAILABLE_FEATURES` and Global hides the whole module.
    */
@@ -228,6 +254,13 @@ export const EDITION_FEATURES = [
    * Rust, so it is in `GLOBAL_UNAVAILABLE_FEATURES`.
    */
   'kvk-digipoort',
+  /**
+   * WeldPass's encrypted offline copy on registered phones (ADR PASS-010):
+   * `/api/weldpass/devices` and `/api/weldpass/settings`, and the Settings →
+   * Apps → WeldPass page that lists the devices. Built only in Rust, so it is
+   * in `GLOBAL_UNAVAILABLE_FEATURES` and Global hides the page.
+   */
+  'weldpass-offline',
 ] as const;
 
 export type EditionFeature = (typeof EDITION_FEATURES)[number];

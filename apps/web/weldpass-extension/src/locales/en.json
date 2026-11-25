@@ -1,111 +1,420 @@
 {
-  "extName": { "message": "WeldPass" },
-  "extDescription": { "message": "Fill and save your team's WeldPass logins." },
-  "actionTitle": { "message": "WeldPass" },
-
-  "loading": { "message": "Loading…" },
-  "retry": { "message": "Try again" },
-  "cancel": { "message": "Cancel" },
-  "openWebApp": { "message": "Open WeldSuite" },
-
-  "notConfiguredTitle": { "message": "Extension not configured" },
-  "notConfiguredBody": {
-    "message": "This build is missing settings: $1. Rebuild the extension with these values set.",
-    "description": "$1 is a comma-separated list of environment variable names."
+  "extName": {
+    "message": "WeldPass"
   },
-  "signedOutTitle": { "message": "Sign in to WeldSuite" },
+  "extDescription": {
+    "message": "Fill and save your team's WeldPass logins, right in the fields where you need them."
+  },
+  "actionTitle": {
+    "message": "WeldPass"
+  },
+  "loading": {
+    "message": "Loading…"
+  },
+  "retry": {
+    "message": "Try again"
+  },
+  "cancel": {
+    "message": "Cancel"
+  },
+  "openWebApp": {
+    "message": "Open WeldSuite"
+  },
+  "signedOutTitle": {
+    "message": "Sign in to WeldPass"
+  },
   "signedOutBody": {
-    "message": "WeldPass uses your WeldSuite session. Sign in to the web app in this browser, then open this popup again."
+    "message": "Sign in with your WeldSuite account on $1."
   },
-  "noWorkspaceTitle": { "message": "No workspace selected" },
+  "noWorkspaceTitle": {
+    "message": "No workspace yet"
+  },
   "noWorkspaceBody": {
-    "message": "Open WeldSuite and choose a workspace. WeldPass shows the logins of the workspace that is active there."
+    "message": "Your account has no workspace on this server yet. Create or join one in WeldSuite."
   },
-  "authFailedTitle": { "message": "Can't check your sign-in" },
-  "authSlow": {
-    "message": "Still waiting for the sign-in service. If this keeps happening, this extension may not be registered with it yet."
+  "authFailedTitle": {
+    "message": "Can't check your sign-in"
   },
-
-  "tabLogins": { "message": "Logins" },
-  "tabSave": { "message": "Save" },
-  "tabGenerator": { "message": "Generator" },
-
-  "searchLabel": { "message": "Search logins" },
-  "forHost": { "message": "For $1", "description": "$1 is the host of the current page." },
-  "allLogins": { "message": "All logins" },
-  "searchResults": { "message": "Results" },
-  "noMatches": { "message": "No saved logins for this site." },
-  "noResults": { "message": "No logins match your search." },
-  "noItems": { "message": "No logins saved yet." },
-  "saveForSite": { "message": "Save login for this site" },
-
-  "fill": { "message": "Fill" },
-  "fillItem": { "message": "Fill $1", "description": "$1 is the title of a login." },
-  "copyUsername": { "message": "Copy username" },
-  "copyPassword": { "message": "Copy password" },
-  "copyTotp": { "message": "Copy 2FA code" },
-  "openSite": { "message": "Open site" },
-
-  "usernameCopied": { "message": "Username copied." },
-  "passwordCopied": { "message": "Password copied." },
+  "tabLogins": {
+    "message": "Logins"
+  },
+  "tabSave": {
+    "message": "Save"
+  },
+  "tabGenerator": {
+    "message": "Generator"
+  },
+  "searchLabel": {
+    "message": "Search logins"
+  },
+  "forHost": {
+    "message": "For $1",
+    "description": "$1 is the host of the current page."
+  },
+  "allLogins": {
+    "message": "All logins"
+  },
+  "searchResults": {
+    "message": "Results"
+  },
+  "noMatches": {
+    "message": "No saved logins for this site."
+  },
+  "noResults": {
+    "message": "No logins match your search."
+  },
+  "noItems": {
+    "message": "No logins saved yet."
+  },
+  "saveForSite": {
+    "message": "Save login for this site"
+  },
+  "fill": {
+    "message": "Fill"
+  },
+  "fillItem": {
+    "message": "Fill $1",
+    "description": "$1 is the title of a login."
+  },
+  "copyUsername": {
+    "message": "Copy username"
+  },
+  "copyPassword": {
+    "message": "Copy password"
+  },
+  "copyTotp": {
+    "message": "Copy 2FA code"
+  },
+  "openSite": {
+    "message": "Open site"
+  },
+  "usernameCopied": {
+    "message": "Username copied."
+  },
+  "passwordCopied": {
+    "message": "Password copied."
+  },
   "totpCopied": {
     "message": "2FA code copied. Valid for $1 more seconds.",
     "description": "$1 is a number of seconds."
   },
-  "noPassword": { "message": "This login has no password." },
-  "copyFailed": { "message": "Couldn't copy to the clipboard." },
-
-  "filledBoth": { "message": "Filled the username and password." },
-  "filledPassword": { "message": "Filled the password." },
+  "noPassword": {
+    "message": "This login has no password."
+  },
+  "copyFailed": {
+    "message": "Couldn't copy to the clipboard."
+  },
+  "filledBoth": {
+    "message": "Filled the username and password."
+  },
+  "filledPassword": {
+    "message": "Filled the password."
+  },
   "filledUsername": {
     "message": "Filled the username. Continue to the password step, then press Fill again."
   },
-  "fillNoFields": { "message": "No login form found on this page." },
-  "fillInsecure": { "message": "For your safety, WeldPass only fills on https pages." },
-  "fillUnsupported": { "message": "WeldPass can't fill on this page." },
-  "fillNoPage": { "message": "No page to fill. Open the site and try again." },
-  "fillHostMismatch": { "message": "This login belongs to a different site." },
-  "fillPageChanged": { "message": "The page changed while filling. Nothing was filled." },
-  "fillFailed": { "message": "Couldn't reach the page. Reload it and try again." },
-
-  "saveRead": { "message": "Taken from the form on the page. Check it before saving." },
-  "saveReadNothing": { "message": "Nothing is typed in the page's login form yet. Enter the details here." },
-  "saveNoPage": { "message": "Open the site's login page to fill this in automatically." },
-  "fieldTitle": { "message": "Title" },
-  "fieldUrl": { "message": "Website" },
-  "fieldUsername": { "message": "Username" },
-  "fieldPassword": { "message": "Password" },
-  "fieldVault": { "message": "Vault" },
-  "personalVault": { "message": "Personal" },
-  "showPassword": { "message": "Show password" },
-  "hidePassword": { "message": "Hide password" },
-  "save": { "message": "Save login" },
-  "saving": { "message": "Saving…" },
-  "saved": { "message": "Login saved." },
-  "noWritableVault": { "message": "You don't have a vault you can add logins to." },
-  "validationFailed": { "message": "Check the fields and try again." },
-
-  "genPassword": { "message": "Generated password" },
-  "genLength": { "message": "Length" },
-  "genUppercase": { "message": "Uppercase letters" },
-  "genDigits": { "message": "Digits" },
-  "genSymbols": { "message": "Symbols" },
-  "genRegenerate": { "message": "New password" },
-  "genCopy": { "message": "Copy" },
-  "genFill": { "message": "Fill into page" },
+  "fillNoFields": {
+    "message": "No login form found on this page."
+  },
+  "fillInsecure": {
+    "message": "For your safety, WeldPass only fills on https pages."
+  },
+  "fillUnsupported": {
+    "message": "WeldPass can't fill on this page."
+  },
+  "fillNoPage": {
+    "message": "No page to fill. Open the site and try again."
+  },
+  "fillHostMismatch": {
+    "message": "This login belongs to a different site."
+  },
+  "fillPageChanged": {
+    "message": "The page changed while filling. Nothing was filled."
+  },
+  "fillFailed": {
+    "message": "Couldn't reach the page. Reload it and try again."
+  },
+  "saveRead": {
+    "message": "Taken from the form on the page. Check it before saving."
+  },
+  "saveReadNothing": {
+    "message": "Nothing is typed in the page's login form yet. Enter the details here."
+  },
+  "saveNoPage": {
+    "message": "Open the site's login page to fill this in automatically."
+  },
+  "fieldTitle": {
+    "message": "Title"
+  },
+  "fieldUrl": {
+    "message": "Website"
+  },
+  "fieldUsername": {
+    "message": "Username"
+  },
+  "fieldPassword": {
+    "message": "Password"
+  },
+  "fieldVault": {
+    "message": "Vault"
+  },
+  "personalVault": {
+    "message": "Personal"
+  },
+  "showPassword": {
+    "message": "Show password"
+  },
+  "hidePassword": {
+    "message": "Hide password"
+  },
+  "save": {
+    "message": "Save login"
+  },
+  "saving": {
+    "message": "Saving…"
+  },
+  "saved": {
+    "message": "Login saved."
+  },
+  "noWritableVault": {
+    "message": "You don't have a vault you can add logins to."
+  },
+  "validationFailed": {
+    "message": "Check the fields and try again."
+  },
+  "genPassword": {
+    "message": "Generated password"
+  },
+  "genLength": {
+    "message": "Length"
+  },
+  "genUppercase": {
+    "message": "Uppercase letters"
+  },
+  "genDigits": {
+    "message": "Digits"
+  },
+  "genSymbols": {
+    "message": "Symbols"
+  },
+  "genRegenerate": {
+    "message": "New password"
+  },
+  "genCopy": {
+    "message": "Copy"
+  },
+  "genFill": {
+    "message": "Fill into page"
+  },
   "genFilled": {
     "message": "Filled $1 password field(s).",
     "description": "$1 is a number of fields."
   },
-  "genNoFields": { "message": "No new-password field found on this page." },
-  "strengthLabel": { "message": "Strength" },
-  "strengthWeak": { "message": "Weak" },
-  "strengthFair": { "message": "Fair" },
-  "strengthStrong": { "message": "Strong" },
-
-  "errorSession": { "message": "Your session has expired. Open WeldSuite and sign in again." },
-  "errorForbidden": { "message": "You don't have access to the password manager in this workspace." },
-  "errorNotFound": { "message": "That login no longer exists." },
-  "errorNetwork": { "message": "Can't reach WeldSuite. Check your connection." },
-  "errorGeneric": { "message": "Something went wrong. Try again." }
+  "genNoFields": {
+    "message": "No new-password field found on this page."
+  },
+  "strengthLabel": {
+    "message": "Strength"
+  },
+  "strengthWeak": {
+    "message": "Weak"
+  },
+  "strengthFair": {
+    "message": "Fair"
+  },
+  "strengthStrong": {
+    "message": "Strong"
+  },
+  "errorSession": {
+    "message": "Your session has expired. Sign in again."
+  },
+  "errorForbidden": {
+    "message": "You don't have access to the password manager in this workspace."
+  },
+  "errorNotFound": {
+    "message": "That login no longer exists."
+  },
+  "errorNetwork": {
+    "message": "Can't reach WeldSuite. Check your connection."
+  },
+  "errorGeneric": {
+    "message": "Something went wrong. Try again."
+  },
+  "close": {
+    "message": "Close"
+  },
+  "errorServer": {
+    "message": "WeldPass can't reach its background service. Close this and try again."
+  },
+  "inlineOpen": {
+    "message": "Open WeldPass"
+  },
+  "inlineMenuTitle": {
+    "message": "WeldPass logins"
+  },
+  "loadingWorkspaces": {
+    "message": "Loading your workspaces…"
+  },
+  "menuExpired": {
+    "message": "This menu has closed. Click the field again."
+  },
+  "menuFrameOrigin": {
+    "message": "Fills into $1, a frame inside this page."
+  },
+  "menuListLabel": {
+    "message": "Saved logins for this site"
+  },
+  "menuNoTotp": {
+    "message": "No 2FA codes saved for this site."
+  },
+  "menuTotpFor": {
+    "message": "2FA code for $1"
+  },
+  "menuUnsupported": {
+    "message": "This browser can't confirm that the menu is visible, so WeldPass won't fill from it. Use the toolbar button instead."
+  },
+  "menuUseGenerated": {
+    "message": "Use this password"
+  },
+  "pickWorkspaceTitle": {
+    "message": "Choose a workspace"
+  },
+  "promptExpired": {
+    "message": "This login is no longer waiting to be saved."
+  },
+  "promptNever": {
+    "message": "Never for this site"
+  },
+  "promptNoUsername": {
+    "message": "No username"
+  },
+  "promptNotNow": {
+    "message": "Not now"
+  },
+  "promptSaveTitle": {
+    "message": "Save login for $1?"
+  },
+  "promptTitle": {
+    "message": "Save login with WeldPass"
+  },
+  "promptUpdate": {
+    "message": "Update"
+  },
+  "promptUpdateTitle": {
+    "message": "Update the password of $1?"
+  },
+  "serverAddressEmpty": {
+    "message": "Enter your server's address."
+  },
+  "serverAddressInsecure": {
+    "message": "Use an https address. Plain http only works for localhost."
+  },
+  "serverAddressInvalid": {
+    "message": "That isn't a server address."
+  },
+  "serverChange": {
+    "message": "Use another server"
+  },
+  "serverGrant": {
+    "message": "Allow access"
+  },
+  "serverNoExtensionSignIn": {
+    "message": "This server doesn't support signing in from the WeldPass extension yet. Ask its administrator to set OIDC_EXTENSION_CLIENT_ID."
+  },
+  "serverNoPermission": {
+    "message": "WeldPass needs your permission to reach this server and its sign-in page."
+  },
+  "serverNoWeldPass": {
+    "message": "This server doesn't offer WeldPass."
+  },
+  "serverNotWeldSuite": {
+    "message": "That address isn't a WeldSuite server, or it runs an edition WeldPass can't use."
+  },
+  "serverUnreachable": {
+    "message": "Can't reach the server. Check your connection and try again."
+  },
+  "settingsAccount": {
+    "message": "Your account"
+  },
+  "settingsAddSite": {
+    "message": "Add site"
+  },
+  "settingsInline": {
+    "message": "Menus in login fields"
+  },
+  "settingsInlineMenus": {
+    "message": "Show WeldPass in login fields"
+  },
+  "settingsInlineMenusHelp": {
+    "message": "An icon in login, sign-up and 2FA fields opens your saved logins for the site. Never on the sites listed here."
+  },
+  "settingsManageAccount": {
+    "message": "Manage your account"
+  },
+  "settingsNoSites": {
+    "message": "No sites excluded."
+  },
+  "settingsRemoveSite": {
+    "message": "Remove $1"
+  },
+  "settingsSave": {
+    "message": "Offers to save"
+  },
+  "settingsSavePrompts": {
+    "message": "Offer to save and update logins"
+  },
+  "settingsSavePromptsHelp": {
+    "message": "After you sign in somewhere, WeldPass asks whether to save the login. Sites where you chose Never are listed here."
+  },
+  "settingsServer": {
+    "message": "WeldSuite server"
+  },
+  "settingsServerBack": {
+    "message": "Use WeldSuite EU again"
+  },
+  "settingsServerConnect": {
+    "message": "Connect"
+  },
+  "settingsServerCurrent": {
+    "message": "WeldPass uses $1."
+  },
+  "settingsServerDefault": {
+    "message": "(the default)"
+  },
+  "settingsServerHelp": {
+    "message": "For a self-hosted WeldSuite. WeldPass asks for permission to reach it, then you sign in there."
+  },
+  "settingsServerIssuer": {
+    "message": "This server signs you in at $1. Allow WeldPass to reach that too."
+  },
+  "settingsServerOwn": {
+    "message": "Use your own server"
+  },
+  "settingsSignedInAs": {
+    "message": "Signed in as $1 on $2."
+  },
+  "settingsTitle": {
+    "message": "Settings"
+  },
+  "settingsWorkspace": {
+    "message": "Workspace: $1"
+  },
+  "signIn": {
+    "message": "Sign in"
+  },
+  "signInFailed": {
+    "message": "Signing in didn't work. Try again."
+  },
+  "signInUnreachable": {
+    "message": "The sign-in page couldn't be opened. Check your connection and try again."
+  },
+  "signOut": {
+    "message": "Sign out"
+  },
+  "signingIn": {
+    "message": "Signing in…"
+  },
+  "workspaceLabel": {
+    "message": "Workspace"
+  }
 }

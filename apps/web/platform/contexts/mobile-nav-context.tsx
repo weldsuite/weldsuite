@@ -4,6 +4,7 @@ import { createContext, useContext, useState, useCallback, useRef, useEffect } f
 import type { LucideIcon } from 'lucide-react';
 import type { MenuGroupProps, AppLogo } from '@/components/app-sidebar-layout';
 import { useWeldAgentDrawerOpen } from '@/hooks/use-weldagent-drawer-open';
+import { isPageSidePanelOpen } from '@/hooks/use-page-side-panel';
 
 export interface ModuleInfo {
   name: string;
@@ -102,7 +103,11 @@ export function MobileNavProvider({ children }: Readonly<{ children: React.React
   const showWeldAgentRef = useRef(showWeldAgent);
   useEffect(() => { showWeldAgentRef.current = showWeldAgent; }, [showWeldAgent]);
 
+  // Taking the place of a page's own side panel (the inbox's customer panel)
+  // is a swap, not a slide-in: the agent appears at once, the page hides its panel.
   const setShowWeldAgent = useCallback((show: boolean) => {
+    if (show && isPageSidePanelOpen()) setWeldAgentSkipAnimationState(true);
+    if (!show) setWeldAgentSkipAnimationState(false);
     setShowWeldAgentInternal(show);
     if (show) {
       window.dispatchEvent(new CustomEvent('close-detail-panels'));
@@ -111,6 +116,8 @@ export function MobileNavProvider({ children }: Readonly<{ children: React.React
 
   const toggleWeldAgent = useCallback(() => {
     const next = !showWeldAgentRef.current;
+    if (next && isPageSidePanelOpen()) setWeldAgentSkipAnimationState(true);
+    if (!next) setWeldAgentSkipAnimationState(false);
     setShowWeldAgentInternal(next);
     if (next) {
       window.dispatchEvent(new CustomEvent('close-detail-panels'));

@@ -14,16 +14,13 @@
 //!   `passwords:use` opens the door, the role on the vault decides the rest;
 //!   a vault the caller cannot see is a 404, one they can see but not touch
 //!   a 403.
+//! - a registered phone keeps an encrypted offline copy of its owner's
+//!   vaults ([`devices`], ADR PASS-010). Those routes exist only here.
 //!
 //! Every value is encrypted under the envelope of [`envelope`], bit for bit
 //! the worker's, so the two backends read each other's rows. No entity
 //! events: WeldPass writes its own trail (`weldpass_audit_events`,
 //! `weldpass_vault_events`), reveals and 2FA codes included.
-
-#![allow(
-    clippy::disallowed_methods,
-    reason = "not converted to the ORM yet (ADR DATA-019)"
-)]
 
 mod audit;
 #[cfg(test)]
@@ -31,6 +28,7 @@ mod cases;
 mod credentials;
 #[cfg(test)]
 mod db_tests;
+mod devices;
 mod dotenv;
 pub mod envelope;
 mod health;
@@ -41,6 +39,8 @@ mod password_items;
 mod password_vaults;
 mod projects;
 mod providers;
+pub mod rotation;
+mod routes_devices;
 mod routes_passwords;
 mod routes_projects;
 mod schemas;
@@ -86,12 +86,19 @@ pub struct PassState {
     pub root_keys: RootKeyring,
     /// Outbound calls to the deploy targets.
     pub http: Arc<dyn HttpTransport>,
+    /// Whether secrets may be pushed to deploy targets (Cloudflare, Vercel).
+    /// Off on the hosted EU install for now (weldsuite-documentation
+    /// `plans/weldpass-eu.md`, decision 3): the routes that store a
+    /// provider token or call a provider answer 403 `SYNC_UNAVAILABLE`, and
+    /// writes skip auto-sync. Lists and deletes still work.
+    pub sync: bool,
 }
 
 impl std::fmt::Debug for PassState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("PassState")
             .field("root_keys", &self.root_keys)
+            .field("sync", &self.sync)
             .finish_non_exhaustive()
     }
 }
@@ -106,9 +113,10 @@ impl PassState {
             v2: read("WELDPASS_ROOT_KEY_V2"),
         };
         // Every vault and project route answers 500 CRYPTO_ERROR without a
-        // usable key; say why once, at start. Wrapping a throwaway vault key
-        // is the check those routes run. The error names no key value.
-        if let Err(error) = envelope::create_vault_key(&root_keys, "startup-check") {
+        // usable key; say why once, at start. Wrapping and opening a
+        // throwaway vault key is the check those routes run (`weldsuite
+        // doctor` runs the same). The error names no key value.
+        if let Err(error) = rotation::self_check(&root_keys) {
             tracing::error!(
                 %error,
                 "WeldPass has no usable root key: vaults and secrets projects answer CRYPTO_ERROR \
@@ -118,6 +126,7 @@ impl PassState {
         Self {
             root_keys,
             http: Arc::new(ReqwestTransport::new()),
+            sync: true,
         }
     }
 }
@@ -131,12 +140,14 @@ where
     S: Clone + Send + Sync + 'static,
     Q: PermissionQueries + 'static,
 {
+    use routes_devices as rd;
     use routes_passwords as pw;
     use routes_projects as rp;
 
     const SECRETS: &str = "/projects/{projectId}/environments/{environmentId}/secrets";
     const VAULT: &str = "/vaults/{vaultId}";
     const ITEM: &str = "/vaults/{vaultId}/items/{itemId}";
+    const DEVICE: &str = "/devices/{deviceId}";
     let need = |keys: &[&'static str]| gate.require(keys.iter().copied());
 
     Router::new()
@@ -348,6 +359,33 @@ where
             const_format(ITEM, "/move"),
             post(pw::move_item).route_layer(need(&[PASSWORDS_USE])),
         )
+        // Password manager: devices and their offline copy (ADR PASS-010)
+        .route(
+            "/devices",
+            get(rd::list_devices)
+                .post(rd::register_device)
+                .route_layer(need(&[PASSWORDS_USE])),
+        )
+        .route(
+            DEVICE,
+            delete(rd::revoke_device).route_layer(need(&[PASSWORDS_USE])),
+        )
+        .route(
+            const_format(DEVICE, "/sync"),
+            post(rd::sync_device).route_layer(need(&[PASSWORDS_USE])),
+        )
+        .route(
+            const_format(DEVICE, "/events"),
+            post(rd::device_events).route_layer(need(&[PASSWORDS_USE])),
+        )
+        .route(
+            "/settings",
+            get(rd::get_settings).route_layer(need(&[PASSWORDS_USE])),
+        )
+        .route(
+            "/settings",
+            patch(rd::update_settings).route_layer(need(&[PASSWORDS_MANAGE])),
+        )
         .with_state(state)
 }
 
@@ -513,14 +551,30 @@ impl PassError {
     }
 }
 
-impl From<sqlx::Error> for PassError {
+impl From<sea_orm::DbErr> for PassError {
     /// The database's own message when it has one, as Drizzle's error
-    /// carries it (a push records it as the failed run's error).
+    /// carries it (a push records it as the failed run's error); else the
+    /// driver's error as it reads, else SeaORM's.
+    fn from(error: sea_orm::DbErr) -> Self {
+        use sea_orm::{DbErr, RuntimeErr};
+        let message = match &error {
+            DbErr::Query(RuntimeErr::SqlxError(sqlx))
+            | DbErr::Exec(RuntimeErr::SqlxError(sqlx))
+            | DbErr::Conn(RuntimeErr::SqlxError(sqlx)) => sqlx.as_database_error().map_or_else(
+                || sqlx.to_string(),
+                |database| database.message().to_owned(),
+            ),
+            _ => error.to_string(),
+        };
+        Self::Internal(message)
+    }
+}
+
+impl From<sqlx::Error> for PassError {
+    /// `atomically_with` and the crates not converted yet: through
+    /// [`weldsuite_db::orm_error`], as the ORM's own errors.
     fn from(error: sqlx::Error) -> Self {
-        Self::Internal(error.as_database_error().map_or_else(
-            || error.to_string(),
-            |database| database.message().to_owned(),
-        ))
+        Self::from(weldsuite_db::orm_error(error))
     }
 }
 
@@ -572,24 +626,29 @@ pub(crate) fn json_value(headers: &HeaderMap, body: &Bytes) -> PassResult<Value>
     json_body(content_type, body).map_err(|bad| PassError::Response(Box::new(bad.into_response())))
 }
 
-/// `new Date()` as Drizzle writes it: UTC with milliseconds, bound as text.
-pub(crate) fn now() -> String {
-    weldsuite_events::iso_timestamp(OffsetDateTime::now_utc())
+/// `new Date()` as Drizzle writes it to a `timestamptz` column: UTC, to the
+/// millisecond.
+pub(crate) fn now() -> OffsetDateTime {
+    millis(OffsetDateTime::now_utc())
 }
 
-/// A row built with `jsonb_build_object`, with its timestamp keys as
-/// `toISOString()` prints them.
-pub(crate) fn dated(mut row: Value, keys: &[&str]) -> Value {
-    if let Value::Object(fields) = &mut row {
-        for key in keys {
-            if let Some(Value::String(text)) = fields.get(*key)
-                && let Some(stamp) = weldsuite_db::js_timestamp(text)
-            {
-                fields.insert((*key).to_owned(), Value::String(stamp));
-            }
-        }
-    }
-    row
+/// A moment as a JS `Date` holds it: UTC, to the millisecond (a column read
+/// and written back, as the worker round-trips it through a `Date`).
+pub(crate) fn millis(at: OffsetDateTime) -> OffsetDateTime {
+    weldsuite_db::utc_timestamp(at).assume_utc()
+}
+
+/// A row as the routes return it, as `jsonb_build_object` built it: the
+/// partial-row struct's camelCase keys, its timestamps as `toISOString()`
+/// prints them (`weldsuite_schema::js`).
+pub(crate) fn row_json(row: &impl serde::Serialize) -> Value {
+    // Strings, numbers, booleans, JSON and timestamps: it always serializes.
+    serde_json::to_value(row).unwrap_or_default()
+}
+
+/// A number bound as `$n::integer`: Postgres's own refusal past `int4`.
+pub(crate) fn int4(value: i64) -> PassResult<i32> {
+    i32::try_from(value).map_err(|_| PassError::Internal("integer out of range".to_owned()))
 }
 
 /// `{ data }` with status 200.

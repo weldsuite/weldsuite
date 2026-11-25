@@ -26,12 +26,21 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use http::{HeaderMap, StatusCode};
+use sea_orm::sea_query::{Asterisk, Expr, Func, OnConflict};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, Condition, DbErr, EntityTrait, FromQueryResult, JoinType,
+    PaginatorTrait, QueryFilter, QueryOrder, QuerySelect,
+};
 use serde_json::{Map, Value, json};
 use time::{Date, Duration, Month, OffsetDateTime, PrimitiveDateTime, Time};
-use weldsuite_db::{PgPool, js_row};
+use weldsuite_db::{PgPool, orm};
+use weldsuite_events::iso_timestamp;
 use weldsuite_kit::validation::{Format, Issues, Number, Presence, Text};
 use weldsuite_kit::{ApiError, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::master::{
+    credit_packages, credit_transactions, partners, plans, workspace_credits, workspaces,
+};
 
 use crate::topup::{Buyer, CheckoutInput};
 use crate::{Caller, CorePlatformState, PlatformError, answer, validate, validate_query};
@@ -136,15 +145,15 @@ fn js_round(number: f64) -> f64 {
     }
 }
 
-/// A number column of a [`js_row`] (`|| 0` reads null as 0).
+/// A number column of a wallet row (`|| 0` reads null as 0).
 fn int(row: &Value, key: &str) -> i64 {
     row.get(key).and_then(Value::as_i64).unwrap_or(0)
 }
 
 // ── the wallet row ──────────────────────────────────────────────────────────
 
-/// The first instants of this UTC month and the next, as `toISOString()`.
-fn current_period(now: OffsetDateTime) -> (String, String) {
+/// The first instants of this UTC month and the next.
+fn current_period(now: OffsetDateTime) -> (OffsetDateTime, OffsetDateTime) {
     let year = now.year();
     let month = now.month();
     let (next_year, next_month) = if month == Month::December {
@@ -152,57 +161,63 @@ fn current_period(now: OffsetDateTime) -> (String, String) {
     } else {
         (year, month.next())
     };
-    let first =
-        |year: i32, month: Month| format!("{year:04}-{:02}-01T00:00:00.000Z", u8::from(month));
+    let first = |year: i32, month: Month| {
+        Date::from_calendar_date(year, month, 1)
+            .unwrap_or(now.date())
+            .midnight()
+            .assume_utc()
+    };
     (first(year, month), first(next_year, next_month))
+}
+
+/// The wallet row of `workspace_id`, as `to_jsonb` through `js_row` read it.
+async fn wallet_row(master: &PgPool, workspace_id: &str) -> Result<Option<Value>, DbErr> {
+    let row = workspace_credits::Entity::find()
+        .filter(workspace_credits::Column::WorkspaceId.eq(workspace_id))
+        .one(&orm(master))
+        .await?;
+    Ok(row.map(|row| serde_json::to_value(row).unwrap_or(Value::Null)))
 }
 
 /// `getOrCreateWorkspaceCredits(masterDb, workspaceId)`: the wallet row,
 /// created empty for this month on the first read (a concurrent creator wins
 /// on the unique `workspace_id`; the row is read again after).
-async fn wallet(master: &PgPool, workspace_id: &str) -> Result<Value, sqlx::Error> {
-    const SELECT: &str =
-        "select to_jsonb(c) from workspace_credits c where c.workspace_id = $1 limit 1";
-    let existing: Option<Value> = sqlx::query_scalar(SELECT)
-        .bind(workspace_id)
-        .fetch_optional(master)
-        .await?;
-    if let Some(row) = existing {
-        return Ok(js_row(row));
+async fn wallet(master: &PgPool, workspace_id: &str) -> Result<Value, DbErr> {
+    if let Some(row) = wallet_row(master, workspace_id).await? {
+        return Ok(row);
     }
     let (start, end) = current_period(OffsetDateTime::now_utc());
     let id = generate_id("wcr");
-    sqlx::query(
-        "insert into workspace_credits
-           (id, workspace_id, current_balance, plan_credits, subscribed_credits,
-            monthly_allocation, rolled_over_credits, rollover_cap, period_start, period_end,
-            last_reset_at)
-         values ($1, $2, 0, 0, 0, 0, 0, null, $3::timestamptz, $4::timestamptz, null)
-         on conflict do nothing",
-    )
-    .bind(&id)
-    .bind(workspace_id)
-    .bind(&start)
-    .bind(&end)
-    .execute(master)
-    .await?;
-    let row: Option<Value> = sqlx::query_scalar(SELECT)
-        .bind(workspace_id)
-        .fetch_optional(master)
+    let empty = workspace_credits::ActiveModel {
+        id: Set(id.clone()),
+        workspace_id: Set(workspace_id.to_owned()),
+        current_balance: Set(0),
+        plan_credits: Set(0),
+        subscribed_credits: Set(0),
+        monthly_allocation: Set(0),
+        rolled_over_credits: Set(0),
+        rollover_cap: Set(None),
+        period_start: Set(start),
+        period_end: Set(end),
+        last_reset_at: Set(None),
+        ..Default::default()
+    };
+    workspace_credits::Entity::insert(empty)
+        .on_conflict(OnConflict::new().do_nothing().to_owned())
+        .exec_without_returning(&orm(master))
         .await?;
-    Ok(row.map_or_else(
-        || {
-            json!({
-                "id": id, "workspaceId": workspace_id, "currentBalance": 0, "planCredits": 0,
-                "subscribedCredits": 0, "monthlyAllocation": 0, "rolledOverCredits": 0,
-                "rolloverCap": null, "periodStart": start, "periodEnd": end, "lastResetAt": null,
-            })
-        },
-        js_row,
-    ))
+    let row = wallet_row(master, workspace_id).await?;
+    Ok(row.unwrap_or_else(|| {
+        json!({
+            "id": id, "workspaceId": workspace_id, "currentBalance": 0, "planCredits": 0,
+            "subscribedCredits": 0, "monthlyAllocation": 0, "rolledOverCredits": 0,
+            "rolloverCap": null, "periodStart": iso_timestamp(start),
+            "periodEnd": iso_timestamp(end), "lastResetAt": null,
+        })
+    }))
 }
 
-/// The milliseconds since the epoch of a [`js_row`] timestamp
+/// The milliseconds since the epoch of a wallet row's timestamp
 /// (`2026-10-01T00:00:00.000Z`).
 fn epoch_millis(iso: &str) -> Option<i128> {
     let part = |range: std::ops::Range<usize>| iso.get(range)?.parse::<u16>().ok();
@@ -460,7 +475,7 @@ async fn transactions(
     let Some(workspace) = workspace_of(&caller) else {
         return org_required();
     };
-    let master = caller.master(&state);
+    let master = orm(&caller.master(&state));
     let (from, to) = match (
         query.from.as_deref().map(js_date),
         query.to.as_deref().map(js_date),
@@ -468,52 +483,36 @@ async fn transactions(
         (Some(None), _) | (_, Some(None)) => return failed(FAILED, &"Invalid time value"),
         (from, to) => (from.flatten(), to.flatten()),
     };
-    let count: Result<Option<i32>, sqlx::Error> = sqlx::query_scalar(
-        "select count(*)::int from credit_transactions t
-         where t.workspace_id = $1
-           and ($2::text is null or t.type = $2::text)
-           and ($3::text is null or t.service_type = $3::text)
-           and ($4::timestamptz is null or t.created_at >= $4::timestamptz)
-           and ($5::timestamptz is null or t.created_at <= $5::timestamptz)",
-    )
-    .bind(workspace)
-    .bind(&query.kind)
-    .bind(&query.service_type)
-    .bind(&from)
-    .bind(&to)
-    .fetch_one(&master)
-    .await;
+    let filter = transaction_filter(workspace, &query, from, to);
+    let count = credit_transactions::Entity::find()
+        .filter(filter.clone())
+        .count(&master)
+        .await;
     let total = match count {
-        Ok(count) => f64::from(count.unwrap_or(0)),
+        #[allow(clippy::cast_precision_loss)]
+        Ok(count) => count as f64,
         Err(error) => return failed(FAILED, &error),
     };
     let total_pages = (total / query.page_size).ceil();
     let offset = (query.page - 1.0) * query.page_size;
-    let (Some(limit), Some(offset)) = (bigint(query.page_size), bigint(offset)) else {
+    let whole = |number: f64| bigint(number).and_then(|n| u64::try_from(n).ok());
+    let (Some(limit), Some(offset)) = (whole(query.page_size), whole(offset)) else {
         return failed(FAILED, &"limit or offset is not a whole number");
     };
-    let rows: Result<Vec<Value>, sqlx::Error> = sqlx::query_scalar(
-        "select to_jsonb(t) || jsonb_build_object('amount_paid', t.amount_paid::text)
-         from credit_transactions t
-         where t.workspace_id = $1
-           and ($2::text is null or t.type = $2::text)
-           and ($3::text is null or t.service_type = $3::text)
-           and ($4::timestamptz is null or t.created_at >= $4::timestamptz)
-           and ($5::timestamptz is null or t.created_at <= $5::timestamptz)
-         order by t.created_at desc
-         limit $6 offset $7",
-    )
-    .bind(workspace)
-    .bind(&query.kind)
-    .bind(&query.service_type)
-    .bind(&from)
-    .bind(&to)
-    .bind(limit)
-    .bind(offset)
-    .fetch_all(&master)
-    .await;
+    // The entity writes `amount_paid` as its text, as the old
+    // `|| jsonb_build_object('amount_paid', t.amount_paid::text)` did.
+    let rows = credit_transactions::Entity::find()
+        .filter(filter)
+        .order_by_desc(credit_transactions::Column::CreatedAt)
+        .limit(limit)
+        .offset(offset)
+        .all(&master)
+        .await;
     let rows = match rows {
-        Ok(rows) => rows.into_iter().map(js_row).collect::<Vec<_>>(),
+        Ok(rows) => rows
+            .into_iter()
+            .map(|row| serde_json::to_value(row).unwrap_or(Value::Null))
+            .collect::<Vec<_>>(),
         Err(error) => return failed(FAILED, &error),
     };
     Json(json!({
@@ -528,6 +527,33 @@ async fn transactions(
         },
     }))
     .into_response()
+}
+
+/// The transactions' filters: the workspace, then `type`, `serviceType`,
+/// `from` and `to` when given (`$n::timestamptz`: Postgres reads the ISO
+/// text as before).
+fn transaction_filter(
+    workspace: &str,
+    query: &TransactionsQuery,
+    from: Option<String>,
+    to: Option<String>,
+) -> Condition {
+    use credit_transactions::Column as T;
+    let at = |text: String| sea_orm::ExprTrait::cast_as(Expr::value(text), "timestamptz");
+    let mut filter = Condition::all().add(T::WorkspaceId.eq(workspace));
+    if let Some(kind) = &query.kind {
+        filter = filter.add(T::Type.eq(kind));
+    }
+    if let Some(service_type) = &query.service_type {
+        filter = filter.add(T::ServiceType.eq(service_type));
+    }
+    if let Some(from) = from {
+        filter = filter.add(sea_orm::ExprTrait::gte(Expr::col(T::CreatedAt), at(from)));
+    }
+    if let Some(to) = to {
+        filter = filter.add(sea_orm::ExprTrait::lte(Expr::col(T::CreatedAt), at(to)));
+    }
+    filter
 }
 
 // ── POST /check ─────────────────────────────────────────────────────────────
@@ -591,12 +617,19 @@ type PackageRow = (
 );
 
 async fn packages(State(state): State<CorePlatformState>, caller: Caller) -> Response {
-    let rows: Result<Vec<PackageRow>, sqlx::Error> = sqlx::query_as(
-        "select id, name, description, credits, price::text, currency, stripe_price_id, is_popular
-         from credit_packages where is_active = 1 order by sort_order",
-    )
-    .fetch_all(&caller.master(&state))
-    .await;
+    use credit_packages::Column as P;
+    // `price::text`: the numeric as Postgres writes it.
+    let price = sea_orm::ExprTrait::cast_as(Expr::col(P::Price), "text");
+    let rows: Result<Vec<PackageRow>, DbErr> = credit_packages::Entity::find()
+        .select_only()
+        .columns([P::Id, P::Name, P::Description, P::Credits])
+        .expr_as(price, "price")
+        .columns([P::Currency, P::StripePriceId, P::IsPopular])
+        .filter(P::IsActive.eq(1))
+        .order_by_asc(P::SortOrder)
+        .into_tuple()
+        .all(&orm(&caller.master(&state)))
+        .await;
     let rows = match rows {
         Ok(rows) => rows,
         Err(error) => return failed("Failed to fetch packages", &error),
@@ -644,21 +677,26 @@ fn default_rates() -> Map<String, Value> {
 
 /// The plan's `features.creditRates` over the defaults; `Err` falls back to
 /// the defaults as the workers' `catch` does.
-async fn plan_rates(master: &PgPool, workspace: &str) -> Result<Map<String, Value>, sqlx::Error> {
+async fn plan_rates(master: &PgPool, workspace: &str) -> Result<Map<String, Value>, DbErr> {
     let mut rates = default_rates();
-    let plan: Option<Option<String>> =
-        sqlx::query_scalar("select plan_id from workspaces where id = $1")
-            .bind(workspace)
-            .fetch_optional(master)
-            .await?;
+    let db = orm(master);
+    let plan: Option<Option<String>> = workspaces::Entity::find()
+        .select_only()
+        .column(workspaces::Column::PlanId)
+        .filter(workspaces::Column::Id.eq(workspace))
+        .into_tuple()
+        .one(&db)
+        .await?;
     let Some(plan) = plan.flatten().filter(|id| !id.is_empty()) else {
         return Ok(rates);
     };
-    let features: Option<Option<Value>> =
-        sqlx::query_scalar("select features from plans where id = $1")
-            .bind(&plan)
-            .fetch_optional(master)
-            .await?;
+    let features: Option<Option<Value>> = plans::Entity::find()
+        .select_only()
+        .column(plans::Column::Features)
+        .filter(plans::Column::Id.eq(&plan))
+        .into_tuple()
+        .one(&db)
+        .await?;
     let features = features.flatten().unwrap_or(Value::Null);
     match features.get("creditRates") {
         Some(Value::Object(custom)) => {
@@ -705,16 +743,7 @@ async fn usage(State(state): State<CorePlatformState>, caller: Caller) -> Respon
         Ok(credits) => credits,
         Err(error) => return failed(FAILED, &error),
     };
-    let rows: Result<Vec<UsageRow>, sqlx::Error> = sqlx::query_as(
-        "select service_type, sum(abs(amount))::int, count(*)::int
-             from credit_transactions
-             where workspace_id = $1 and type = 'consumption' and created_at >= $2::timestamptz
-             group by service_type",
-    )
-    .bind(workspace)
-    .bind(credits["periodStart"].as_str())
-    .fetch_all(&master)
-    .await;
+    let rows = usage_rows(&master, workspace, credits["periodStart"].as_str()).await;
     let rows = match rows {
         Ok(rows) => rows,
         Err(error) => return failed(FAILED, &error),
@@ -740,6 +769,35 @@ async fn usage(State(state): State<CorePlatformState>, caller: Caller) -> Respon
         "totalRemaining": credits["currentBalance"],
         "byService": by_service,
     }))
+}
+
+/// This period's consumption by service: `select service_type,
+/// sum(abs(amount))::int, count(*)::int … group by service_type`, from the
+/// wallet's `periodStart` (`$n::timestamptz`, as Postgres reads the text).
+async fn usage_rows(
+    master: &PgPool,
+    workspace: &str,
+    since: Option<&str>,
+) -> Result<Vec<UsageRow>, DbErr> {
+    use credit_transactions::Column as T;
+    let since = sea_orm::ExprTrait::cast_as(Expr::value(since.map(str::to_owned)), "timestamptz");
+    let total = sea_orm::ExprTrait::cast_as(
+        Expr::from(Func::sum(Func::abs(Expr::col(T::Amount)))),
+        "int",
+    );
+    let count = sea_orm::ExprTrait::cast_as(Expr::from(Func::count(Expr::col(Asterisk))), "int");
+    credit_transactions::Entity::find()
+        .select_only()
+        .column(T::ServiceType)
+        .expr_as(total, "total")
+        .expr_as(count, "count")
+        .filter(T::WorkspaceId.eq(workspace))
+        .filter(T::Type.eq("consumption"))
+        .filter(sea_orm::ExprTrait::gte(Expr::col(T::CreatedAt), since))
+        .group_by(T::ServiceType)
+        .into_tuple()
+        .all(&orm(master))
+        .await
 }
 
 // ── GET /subscription ───────────────────────────────────────────────────────
@@ -830,22 +888,49 @@ fn read_checkout(
     }
 }
 
+/// `partnerPublicInfo`: what a member may see of the partner billing their
+/// workspace.
+#[derive(Debug, FromQueryResult, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PartnerPublicInfo {
+    id: String,
+    name: String,
+    logo_url: Option<String>,
+    website_url: Option<String>,
+    support_email: Option<String>,
+    support_url: Option<String>,
+}
+
 /// `getManagedContext(...).partner`: the partner billing a partner-managed
 /// workspace, as `partnerPublicInfo`.
-async fn managing_partner(master: &PgPool, org_ref: &str) -> Result<Option<Value>, sqlx::Error> {
-    let partner: Option<Value> = sqlx::query_scalar(
-        "select jsonb_build_object(
-                  'id', p.id, 'name', p.name, 'logoUrl', p.logo_url,
-                  'websiteUrl', p.website_url, 'supportEmail', p.support_email,
-                  'supportUrl', p.support_url)
-         from workspaces w join partners p on p.id = w.partner_id
-         where (w.id = $1 or w.clerk_org_id = $1) and w.billing_mode = 'partner'
-         limit 1",
-    )
-    .bind(org_ref)
-    .fetch_optional(master)
-    .await?;
-    Ok(partner)
+async fn managing_partner(master: &PgPool, org_ref: &str) -> Result<Option<Value>, DbErr> {
+    use partners::Column as P;
+    let partner = workspaces::Entity::belongs_to(partners::Entity)
+        .from(workspaces::Column::PartnerId)
+        .to(P::Id);
+    let partner: Option<PartnerPublicInfo> = workspaces::Entity::find()
+        .select_only()
+        .column_as(P::Id, "id")
+        .column_as(P::Name, "name")
+        .column_as(P::LogoUrl, "logo_url")
+        .column_as(P::WebsiteUrl, "website_url")
+        .column_as(P::SupportEmail, "support_email")
+        .column_as(P::SupportUrl, "support_url")
+        .join(JoinType::InnerJoin, partner.into())
+        .filter(
+            Condition::any()
+                .add(workspaces::Column::Id.eq(org_ref))
+                .add(workspaces::Column::ClerkOrgId.eq(org_ref)),
+        )
+        .filter(workspaces::Column::BillingMode.eq("partner"))
+        .into_model()
+        .one(&orm(master))
+        .await?;
+    partner
+        .map(|partner| {
+            serde_json::to_value(partner).map_err(|error| DbErr::Json(error.to_string()))
+        })
+        .transpose()
 }
 
 async fn checkout(
@@ -952,15 +1037,16 @@ mod tests {
                 .expect("a date")
                 .assume_utc()
         };
+        let (start, end) = current_period(at("2026-10-29T13:00"));
         assert_eq!(
-            current_period(at("2026-10-29T13:00")),
+            (iso_timestamp(start), iso_timestamp(end)),
             (
                 "2026-10-01T00:00:00.000Z".to_owned(),
                 "2026-11-01T00:00:00.000Z".to_owned()
             )
         );
         assert_eq!(
-            current_period(at("2026-12-31T23:59")).1,
+            iso_timestamp(current_period(at("2026-12-31T23:59")).1),
             "2027-01-01T00:00:00.000Z"
         );
     }

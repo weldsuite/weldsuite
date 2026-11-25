@@ -73,7 +73,7 @@ async fn dispatch_to_agent(ctx: &EventContext<'_>, agent: &Value, task: Option<A
             tracing::info!(
                 "[weldagent/dispatch] Skipping duplicate event {event_id} for agent {agent_id}"
             );
-            return Ok::<_, sqlx::Error>(());
+            return Ok::<_, sea_orm::DbErr>(());
         }
         let mut stored = ctx.base_trigger.clone();
         if let Some(map) = stored.as_object_mut() {
@@ -140,7 +140,7 @@ async fn dispatch_to_routine(ctx: &EventContext<'_>, routine: &Value) {
         if ctx.message.event_id.is_some()
             && has_routine_run_for_trigger(ctx.db, routine_id, &trigger).await?
         {
-            return Ok::<_, sqlx::Error>(());
+            return Ok::<_, sea_orm::DbErr>(());
         }
         let agent_id = routine["agentId"].as_str().unwrap_or_default();
         let routine_run_id = create_routine_run(ctx.db, routine_id, agent_id, &trigger).await?;
@@ -300,7 +300,7 @@ pub async fn dispatch_agents_for_event(
             agents = find_agents_for_event(db, &alt_key).await?;
         }
         let routines = find_event_routines(db, &event_key).await?;
-        Ok::<_, sqlx::Error>((agents, routines))
+        Ok::<_, sea_orm::DbErr>((agents, routines))
     }
     .await;
     let (agents, routines) = match found {

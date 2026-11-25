@@ -13,13 +13,18 @@
 
 use std::collections::HashMap;
 
+use sea_orm::sea_query::Expr;
+use sea_orm::{ActiveValue, ColumnTrait, Condition, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
-use weldsuite_db::PgPool;
+use time::PrimitiveDateTime;
+use weldsuite_db::{PgPool, orm};
+use weldsuite_events::iso_timestamp;
 use weldsuite_kit::generate_id;
 use weldsuite_kit::validation::js_number;
+use weldsuite_schema::tenant::{custom_field_definitions, custom_field_values};
 
+use crate::crud::js_date_time;
 use crate::js::js_date_iso;
-use crate::table::js_date;
 
 /// A live `custom_field_definitions` row, the parts the value code reads.
 #[derive(Debug, Clone)]
@@ -54,40 +59,41 @@ impl Column {
     }
 }
 
-/// `getDefinitionsForTicket(db, ticketTypeId)`.
+/// `getDefinitionsForTicket(db, ticketTypeId)`: the global ticket
+/// definitions, and the ticket type's when it has one.
 pub(crate) async fn definitions_for_ticket(
     db: &PgPool,
     ticket_type_id: Option<&str>,
-) -> Result<Vec<Definition>, sqlx::Error> {
-    let rows: Vec<(String, String, String, Option<Value>)> = sqlx::query_as(
-        "select id, slug, field_type, options from custom_field_definitions
-         where entity_type = 'ticket'
-           and (case when $1::text is not null and $1 <> '' then (ticket_type_id = $1 or ticket_type_id is null)
-                     else ticket_type_id is null end)
-           and deleted_at is null",
-    )
-    .bind(ticket_type_id)
-    .fetch_all(db)
-    .await?;
-    Ok(rows
-        .into_iter()
-        .map(|(id, slug, field_type, options)| Definition {
-            id,
-            slug,
-            field_type,
-            options,
-        })
-        .collect())
+) -> Result<Vec<Definition>, DbErr> {
+    let scope = match ticket_type_id.filter(|id| !id.is_empty()) {
+        Some(id) => Condition::any()
+            .add(custom_field_definitions::Column::TicketTypeId.eq(id))
+            .add(custom_field_definitions::Column::TicketTypeId.is_null()),
+        None => Condition::all().add(custom_field_definitions::Column::TicketTypeId.is_null()),
+    };
+    definitions(db, scope).await
 }
 
 /// `getDefinitionsForEntityType(db, 'ticket')`: every live ticket definition.
-pub(crate) async fn definitions_for_tickets(db: &PgPool) -> Result<Vec<Definition>, sqlx::Error> {
-    let rows: Vec<(String, String, String, Option<Value>)> = sqlx::query_as(
-        "select id, slug, field_type, options from custom_field_definitions
-         where entity_type = 'ticket' and deleted_at is null",
-    )
-    .fetch_all(db)
-    .await?;
+pub(crate) async fn definitions_for_tickets(db: &PgPool) -> Result<Vec<Definition>, DbErr> {
+    definitions(db, Condition::all()).await
+}
+
+/// The live ticket definitions within `scope`.
+async fn definitions(db: &PgPool, scope: Condition) -> Result<Vec<Definition>, DbErr> {
+    let rows: Vec<(String, String, String, Option<Value>)> =
+        custom_field_definitions::Entity::find()
+            .select_only()
+            .column(custom_field_definitions::Column::Id)
+            .column(custom_field_definitions::Column::Slug)
+            .column(custom_field_definitions::Column::FieldType)
+            .column(custom_field_definitions::Column::Options)
+            .filter(custom_field_definitions::Column::EntityType.eq("ticket"))
+            .filter(scope)
+            .filter(custom_field_definitions::Column::DeletedAt.is_null())
+            .into_tuple()
+            .all(&orm(db))
+            .await?;
     Ok(rows
         .into_iter()
         .map(|(id, slug, field_type, options)| Definition {
@@ -101,10 +107,7 @@ pub(crate) async fn definitions_for_tickets(db: &PgPool) -> Result<Vec<Definitio
 
 /// `hydrateCustomFields(db, 'ticket', rows)`: each row's `customFields` blob
 /// with its typed values laid over it; a row without values keeps its blob.
-pub(crate) async fn hydrate_tickets(
-    db: &PgPool,
-    rows: Vec<Value>,
-) -> Result<Vec<Value>, sqlx::Error> {
+pub(crate) async fn hydrate_tickets(db: &PgPool, rows: Vec<Value>) -> Result<Vec<Value>, DbErr> {
     if rows.is_empty() {
         return Ok(rows);
     }
@@ -118,20 +121,18 @@ pub(crate) async fn hydrate_tickets(
         .iter()
         .filter_map(|row| row["id"].as_str().map(str::to_owned))
         .collect();
-    let values: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(v) from custom_field_values v where v.entity_type = 'ticket' and v.entity_id = any($1)",
-    )
-    .bind(&ids)
-    .fetch_all(db)
-    .await?;
+    let values = custom_field_values::Entity::find()
+        .filter(custom_field_values::Column::EntityType.eq("ticket"))
+        .filter(custom_field_values::Column::EntityId.is_in(ids))
+        .all(&orm(db))
+        .await?;
     let mut by_entity: HashMap<String, Map<String, Value>> = HashMap::new();
     for value in values {
-        let Some(definition) = value["field_id"].as_str().and_then(|id| by_id.get(id)) else {
+        let Some(definition) = by_id.get(value.field_id.as_str()) else {
             continue;
         };
-        let entity = value["entity_id"].as_str().unwrap_or_default().to_owned();
         by_entity
-            .entry(entity)
+            .entry(value.entity_id.clone())
             .or_default()
             .insert(definition.slug.clone(), read_value(definition, &value));
     }
@@ -154,18 +155,28 @@ pub(crate) async fn hydrate_tickets(
         .collect())
 }
 
-/// `readValue(def, row)` over a `to_jsonb` value row.
-fn read_value(definition: &Definition, row: &Value) -> Value {
+/// `readValue(def, row)`.
+fn read_value(definition: &Definition, row: &custom_field_values::Model) -> Value {
     match Column::of(&definition.field_type) {
-        Column::Number => row["value_number"].clone(),
-        Column::Date => row["value_date"]
-            .as_str()
-            .map_or(Value::Null, |text| Value::String(js_date(text))),
-        Column::Bool => row["value_bool"].clone(),
-        Column::Json => row["value_json"].clone(),
-        Column::Ref => row["value_ref"].clone(),
-        Column::Text => row["value_text"].clone(),
+        Column::Number => row.value_number.map_or(Value::Null, number_value),
+        Column::Date => row.value_date.map_or(Value::Null, |at| {
+            Value::String(iso_timestamp(at.assume_utc()))
+        }),
+        Column::Bool => row.value_bool.map_or(Value::Null, Value::Bool),
+        Column::Json => row.value_json.clone().unwrap_or(Value::Null),
+        Column::Ref => row.value_ref.clone().map_or(Value::Null, Value::String),
+        Column::Text => row.value_text.clone().map_or(Value::Null, Value::String),
     }
+}
+
+/// A `double precision` as `to_jsonb` and the driver hand it on: a whole
+/// number without a fraction.
+fn number_value(number: f64) -> Value {
+    #[allow(clippy::cast_possible_truncation)]
+    if number.fract() == 0.0 && number.abs() < 9e15 {
+        return json!(number as i64);
+    }
+    json!(number)
 }
 
 /// A value ready to store, in its column.
@@ -189,7 +200,7 @@ pub(crate) async fn sync_ticket(
     ticket_id: &str,
     custom_fields: Option<&Value>,
     definitions: &[Definition],
-    now: &str,
+    now: PrimitiveDateTime,
 ) {
     let Some(custom_fields) = custom_fields else {
         return;
@@ -208,8 +219,8 @@ impl std::fmt::Display for SyncError {
     }
 }
 
-impl From<sqlx::Error> for SyncError {
-    fn from(error: sqlx::Error) -> Self {
+impl From<DbErr> for SyncError {
+    fn from(error: DbErr) -> Self {
         Self(error.to_string())
     }
 }
@@ -220,19 +231,22 @@ async fn set_values(
     ticket_id: &str,
     custom_fields: &Value,
     definitions: &[Definition],
-    now: &str,
+    now: PrimitiveDateTime,
 ) -> Result<(), SyncError> {
     if definitions.is_empty() {
         return Ok(());
     }
     // `customFields ?? {}`; a non-object reads no slugs.
     let values = custom_fields.as_object().cloned().unwrap_or_default();
-    let existing: Vec<(String, String)> = sqlx::query_as(
-        "select id, field_id from custom_field_values where entity_type = 'ticket' and entity_id = $1",
-    )
-    .bind(ticket_id)
-    .fetch_all(db)
-    .await?;
+    let existing: Vec<(String, String)> = custom_field_values::Entity::find()
+        .select_only()
+        .column(custom_field_values::Column::Id)
+        .column(custom_field_values::Column::FieldId)
+        .filter(custom_field_values::Column::EntityType.eq("ticket"))
+        .filter(custom_field_values::Column::EntityId.eq(ticket_id))
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     let prior: HashMap<String, String> = existing
         .into_iter()
         .map(|(id, field)| (field, id))
@@ -391,7 +405,7 @@ fn as_text(value: &Value) -> String {
 type Cells = (
     Option<String>,
     Option<f64>,
-    Option<String>,
+    Option<PrimitiveDateTime>,
     Option<bool>,
     Option<Value>,
     Option<String>,
@@ -404,59 +418,64 @@ async fn persist(
     definition: &Definition,
     stored: Stored,
     prior: Option<&String>,
-    now: &str,
-) -> Result<(), sqlx::Error> {
+    now: PrimitiveDateTime,
+) -> Result<(), SyncError> {
+    let db = orm(db);
     let (text, number, date, flag, json, reference): Cells = match stored {
         Stored::Clear => {
             if let Some(prior) = prior {
-                sqlx::query("delete from custom_field_values where id = $1")
-                    .bind(prior)
-                    .execute(db)
+                custom_field_values::Entity::delete_by_id(prior.clone())
+                    .exec(&db)
                     .await?;
             }
             return Ok(());
         }
         Stored::Text(text) => (Some(text), None, None, None, None, None),
         Stored::Number(number) => (None, Some(number), None, None, None, None),
-        Stored::Date(date) => (None, None, Some(date), None, None, None),
+        Stored::Date(date) => {
+            // An ISO string Postgres would cast to `timestamp` (the zone dropped).
+            let at = js_date_time(&date)
+                .ok_or_else(|| SyncError(format!("invalid timestamp: {date}")))?;
+            (None, None, Some(at), None, None, None)
+        }
         Stored::Bool(flag) => (None, None, None, Some(flag), None, None),
         Stored::Json(json) => (None, None, None, None, Some(json), None),
         Stored::Ref(reference) => (None, None, None, None, None, Some(reference)),
     };
     if let Some(prior) = prior {
-        sqlx::query(
-            "update custom_field_values set value_text = $2, value_number = $3, value_date = $4::timestamp,
-                 value_bool = $5, value_json = $6, value_ref = $7, updated_at = $8::timestamp
-             where id = $1",
-        )
-        .bind(prior)
-        .bind(text)
-        .bind(number)
-        .bind(date)
-        .bind(flag)
-        .bind(json)
-        .bind(reference)
-        .bind(now)
-        .execute(db)
-        .await?;
+        custom_field_values::Entity::update_many()
+            .col_expr(custom_field_values::Column::ValueText, Expr::value(text))
+            .col_expr(
+                custom_field_values::Column::ValueNumber,
+                Expr::value(number),
+            )
+            .col_expr(custom_field_values::Column::ValueDate, Expr::value(date))
+            .col_expr(custom_field_values::Column::ValueBool, Expr::value(flag))
+            .col_expr(custom_field_values::Column::ValueJson, Expr::value(json))
+            .col_expr(
+                custom_field_values::Column::ValueRef,
+                Expr::value(reference),
+            )
+            .col_expr(custom_field_values::Column::UpdatedAt, Expr::value(now))
+            .filter(custom_field_values::Column::Id.eq(prior))
+            .exec(&db)
+            .await?;
     } else {
-        sqlx::query(
-            "insert into custom_field_values
-                 (id, field_id, entity_type, entity_id, created_at, updated_at,
-                  value_text, value_number, value_date, value_bool, value_json, value_ref)
-             values ($1, $2, 'ticket', $3, $4::timestamp, $4::timestamp, $5, $6, $7::timestamp, $8, $9, $10)",
-        )
-        .bind(generate_id("cfv"))
-        .bind(&definition.id)
-        .bind(ticket_id)
-        .bind(now)
-        .bind(text)
-        .bind(number)
-        .bind(date)
-        .bind(flag)
-        .bind(json)
-        .bind(reference)
-        .execute(db)
+        custom_field_values::Entity::insert(custom_field_values::ActiveModel {
+            id: ActiveValue::Set(generate_id("cfv")),
+            field_id: ActiveValue::Set(definition.id.clone()),
+            entity_type: ActiveValue::Set("ticket".to_owned()),
+            entity_id: ActiveValue::Set(ticket_id.to_owned()),
+            created_at: ActiveValue::Set(now),
+            updated_at: ActiveValue::Set(now),
+            value_text: ActiveValue::Set(text),
+            value_number: ActiveValue::Set(number),
+            value_date: ActiveValue::Set(date),
+            value_bool: ActiveValue::Set(flag),
+            value_json: ActiveValue::Set(json),
+            value_ref: ActiveValue::Set(reference),
+        })
+        .exec_without_returning(&db)
         .await?;
     }
     Ok(())

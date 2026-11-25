@@ -14,13 +14,23 @@
 use std::future::Future;
 use std::pin::Pin;
 
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{
+    ColumnTrait, ConnectionTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect,
+};
 use serde_json::{Map, Value, json};
-use sqlx::{PgConnection, PgPool};
+use sqlx::PgConnection;
+use time::PrimitiveDateTime;
+use weldsuite_db::{OrmConn, PgPool, orm, utc_now};
 use weldsuite_kit::generate_id;
+use weldsuite_schema::tenant::{
+    accounting_dimension_values, accounts, journal_entries, journal_lines, projects, tax_lines,
+    tax_rates,
+};
 
+use crate::db_values::{decimal_of, now_and_stamp, to_json, to_json_rows};
 use crate::entity_context::{SequenceType, next_entity_number};
 use crate::guards::{GuardError, PostingCheck, PostingLockKind, assert_posting_allowed};
-use crate::http::now;
 use crate::js::{round_money, to_fixed};
 use crate::tables::{JOURNAL_ENTRIES, JOURNAL_LINES, TAX_LINES};
 
@@ -36,12 +46,21 @@ pub enum PostError {
     /// `PostingError` (and `MissingExchangeRateError`, its subclass).
     Posting(String),
     Guard(GuardError),
-    Database(sqlx::Error),
+    Database(DbErr),
 }
 
+impl From<DbErr> for PostError {
+    fn from(error: DbErr) -> Self {
+        Self::Database(error)
+    }
+}
+
+/// For the transactions posting opens (`atomically_with` answers its own
+/// `BEGIN` / `COMMIT` failures as `sqlx::Error`) and the SQL that stays SQL:
+/// the same failure, through `weldsuite_db::orm_error`.
 impl From<sqlx::Error> for PostError {
     fn from(error: sqlx::Error) -> Self {
-        Self::Database(error)
+        Self::Database(weldsuite_db::orm_error(error))
     }
 }
 
@@ -135,9 +154,10 @@ pub struct Posted {
 }
 
 /// A boxed future of the transaction's connection.
-pub type WriteFuture<'c> = Pin<Box<dyn Future<Output = Result<(), sqlx::Error>> + Send + 'c>>;
+pub type WriteFuture<'c> = Pin<Box<dyn Future<Output = Result<(), DbErr>> + Send + 'c>>;
 
-/// `alsoWrite`: statements written in the same transaction as the entry.
+/// `alsoWrite`: statements written in the same transaction as the entry
+/// (`OrmConn::new(conn)` makes the connection a SeaORM one).
 pub type AlsoWrite =
     Box<dyn for<'c> FnOnce(&'c mut PgConnection, &'c Posted) -> WriteFuture<'c> + Send>;
 
@@ -221,10 +241,16 @@ fn normalize_lines(lines: Vec<PostingLine>) -> Result<Vec<NormalizedLine>, PostE
 async fn find_by_posting_key(
     db: &PgPool,
     posting_key: &str,
-) -> Result<Option<(String, Option<String>)>, sqlx::Error> {
-    sqlx::query_as("select id, entry_number from journal_entries where posting_key = $1 limit 1")
-        .bind(posting_key)
-        .fetch_optional(db)
+) -> Result<Option<(String, Option<String>)>, DbErr> {
+    journal_entries::Entity::find()
+        .select_only()
+        .columns([
+            journal_entries::Column::Id,
+            journal_entries::Column::EntryNumber,
+        ])
+        .filter(journal_entries::Column::PostingKey.eq(posting_key))
+        .into_tuple()
+        .one(&orm(db))
         .await
 }
 
@@ -248,13 +274,15 @@ async fn assert_accounts_belong_to_entity(
     if unique.is_empty() {
         return Ok(());
     }
-    let found: Vec<String> = sqlx::query_scalar(
-        "select id from accounts where entity_id = $1 and id = any($2) and deleted_at is null",
-    )
-    .bind(entity_id)
-    .bind(&unique)
-    .fetch_all(db)
-    .await?;
+    let found: Vec<String> = accounts::Entity::find()
+        .select_only()
+        .column(accounts::Column::Id)
+        .filter(accounts::Column::EntityId.eq(entity_id))
+        .filter(accounts::Column::Id.is_in(unique.clone()))
+        .filter(accounts::Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     let missing: Vec<&str> = unique
         .iter()
         .filter(|id| !found.contains(id))
@@ -283,14 +311,17 @@ pub async fn assert_accounts_active(
     if ids.is_empty() {
         return Ok(());
     }
-    let inactive: Vec<(String, String)> = sqlx::query_as(
-        "select code, name from accounts where entity_id = $1 and id = any($2) \
-         and deleted_at is null and is_active = false order by code",
-    )
-    .bind(entity_id)
-    .bind(&ids)
-    .fetch_all(db)
-    .await?;
+    let inactive: Vec<(String, String)> = accounts::Entity::find()
+        .select_only()
+        .columns([accounts::Column::Code, accounts::Column::Name])
+        .filter(accounts::Column::EntityId.eq(entity_id))
+        .filter(accounts::Column::Id.is_in(ids))
+        .filter(accounts::Column::DeletedAt.is_null())
+        .filter(accounts::Column::IsActive.eq(false))
+        .order_by_asc(accounts::Column::Code)
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     if inactive.is_empty() {
         return Ok(());
     }
@@ -336,15 +367,16 @@ pub async fn assert_dimensions_belong_to_entity(
         if ids.is_empty() {
             continue;
         }
-        let found: Vec<String> = sqlx::query_scalar(
-            "select id from accounting_dimension_values where entity_id = $1 and dimension = $2 \
-             and id = any($3) and deleted_at is null",
-        )
-        .bind(entity_id)
-        .bind(dimension)
-        .bind(&ids)
-        .fetch_all(db)
-        .await?;
+        let found: Vec<String> = accounting_dimension_values::Entity::find()
+            .select_only()
+            .column(accounting_dimension_values::Column::Id)
+            .filter(accounting_dimension_values::Column::EntityId.eq(entity_id))
+            .filter(accounting_dimension_values::Column::Dimension.eq(dimension))
+            .filter(accounting_dimension_values::Column::Id.is_in(ids.clone()))
+            .filter(accounting_dimension_values::Column::DeletedAt.is_null())
+            .into_tuple()
+            .all(&orm(db))
+            .await?;
         let missing: Vec<&str> = ids
             .iter()
             .filter(|id| !found.contains(id))
@@ -382,11 +414,14 @@ pub async fn assert_projects_exist(
     if ids.is_empty() {
         return Ok(());
     }
-    let found: Vec<String> =
-        sqlx::query_scalar("select id from projects where id = any($1) and deleted_at is null")
-            .bind(&ids)
-            .fetch_all(db)
-            .await?;
+    let found: Vec<String> = projects::Entity::find()
+        .select_only()
+        .column(projects::Column::Id)
+        .filter(projects::Column::Id.is_in(ids.clone()))
+        .filter(projects::Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     let missing: Vec<&str> = ids
         .iter()
         .filter(|id| !found.contains(id))
@@ -428,24 +463,28 @@ fn net_by_account<'a>(lines: impl IntoIterator<Item = (&'a str, f64)>) -> Vec<(S
     out
 }
 
-async fn apply_balances(
-    conn: &mut PgConnection,
+/// `update accounts set current_balance = coalesce(current_balance, 0) +
+/// net, updated_at = at where id = …`, one account at a time.
+async fn apply_balances<C: ConnectionTrait>(
+    db: &C,
     nets: &[(String, f64)],
-    at: &str,
-) -> Result<(), sqlx::Error> {
+    at: PrimitiveDateTime,
+) -> Result<(), DbErr> {
+    use sea_orm::ExprTrait as _;
     for (account_id, net) in nets {
         if *net == 0.0 {
             continue;
         }
-        sqlx::query(
-            "update accounts set current_balance = (coalesce(current_balance, 0)::numeric + $1::numeric), \
-             updated_at = $2::timestamp where id = $3",
-        )
-        .bind(to_fixed(*net, 2))
-        .bind(at)
-        .bind(account_id)
-        .execute(&mut *conn)
-        .await?;
+        let balance = Func::coalesce([Expr::col(accounts::Column::CurrentBalance), Expr::val(0)]);
+        accounts::Entity::update_many()
+            .col_expr(
+                accounts::Column::CurrentBalance,
+                balance.add(decimal_of(&to_fixed(*net, 2))?),
+            )
+            .col_expr(accounts::Column::UpdatedAt, Expr::value(at))
+            .filter(accounts::Column::Id.eq(account_id))
+            .exec(db)
+            .await?;
     }
     Ok(())
 }
@@ -524,7 +563,7 @@ pub async fn post_journal_entry(
         .await?
         .formatted;
     let journal_entry_id = generate_id("je");
-    let at = now();
+    let (at, stamp) = now_and_stamp();
     let tax_date = date.get(..10).unwrap_or(&date).to_owned();
 
     let mut entry = Map::new();
@@ -657,25 +696,29 @@ pub async fn post_journal_entry(
     let also_write = input.also_write;
     let result = weldsuite_db::atomically_with(db, move |conn| {
         Box::pin(async move {
-            JOURNAL_ENTRIES.insert_raw(&mut *conn, entry_row).await?;
-            for row in line_rows {
-                JOURNAL_LINES.insert_raw(&mut *conn, row).await?;
+            {
+                let tx = OrmConn::new(&mut *conn);
+                JOURNAL_ENTRIES.insert_raw_on(&tx, entry_row).await?;
+                for row in line_rows {
+                    JOURNAL_LINES.insert_raw_on(&tx, row).await?;
+                }
+                for row in tax_rows {
+                    TAX_LINES.insert_raw_on(&tx, row).await?;
+                }
+                apply_balances(&tx, &nets, stamp).await?;
             }
-            for row in tax_rows {
-                TAX_LINES.insert_raw(&mut *conn, row).await?;
-            }
-            apply_balances(conn, &nets, &at).await?;
             for write in also_write {
                 write(&mut *conn, &posted).await?;
             }
-            Ok::<_, sqlx::Error>(())
+            Ok::<_, PostError>(())
         })
     })
     .await;
     if let Err(error) = result {
         // Lost a race with an identical posting: the other request's entry stands.
         if let Some(key) = input.posting_key.as_deref()
-            && weldsuite_db::is_unique_violation(&error)
+            && let PostError::Database(failed) = &error
+            && weldsuite_db::is_unique_violation(failed)
             && let Some((id, number)) = find_by_posting_key(db, key).await?
         {
             return Ok(PostedEntry {
@@ -684,13 +727,33 @@ pub async fn post_journal_entry(
                 already_posted: true,
             });
         }
-        return Err(error.into());
+        return Err(error);
     }
     Ok(PostedEntry {
         journal_entry_id: Some(journal_entry_id),
         entry_number: Some(entry_number),
         already_posted: false,
     })
+}
+
+/// The live journal entry `id`, as Drizzle returns it.
+async fn live_entry(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
+    journal_entries::Entity::find_by_id(id.to_owned())
+        .filter(journal_entries::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?
+        .map(to_json)
+        .transpose()
+}
+
+/// The live lines of the journal entry `id`, as Drizzle returns them.
+async fn live_lines(db: &PgPool, id: &str) -> Result<Vec<Value>, DbErr> {
+    let rows = journal_lines::Entity::find()
+        .filter(journal_lines::Column::JournalEntryId.eq(id))
+        .filter(journal_lines::Column::DeletedAt.is_null())
+        .all(&orm(db))
+        .await?;
+    to_json_rows(rows)
 }
 
 /// `negated(value)`: `String(-Number(value))`, `0` for zero, null kept.
@@ -767,15 +830,8 @@ pub async fn reverse_journal_entry(
     db: &PgPool,
     args: ReverseArgs,
 ) -> Result<PostedEntry, PostError> {
-    let entry: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        crate::books_row!(journal_entries),
-        " from journal_entries t where t.id = $1 and t.deleted_at is null limit 1"
-    ))
-    .bind(&args.entry_id)
-    .fetch_optional(db)
-    .await?;
-    let Some(entry) = entry.map(|row| JOURNAL_ENTRIES.js(row)) else {
+    let entry = live_entry(db, &args.entry_id).await?;
+    let Some(entry) = entry else {
         return Err(posting("Journal entry not found"));
     };
     let status = text(&entry, "status");
@@ -786,26 +842,15 @@ pub async fn reverse_journal_entry(
         return Err(posting("Can only reverse posted journal entries"));
     }
     let entry_id = text(&entry, "id").unwrap_or_default();
-    let lines: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        crate::books_row!(journal_lines),
-        " from journal_lines t where t.journal_entry_id = $1 and t.deleted_at is null"
-    ))
-    .bind(&entry_id)
-    .fetch_all(db)
-    .await?;
-    let tax_rows: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        crate::books_row!(tax_lines),
-        " from tax_lines t where t.journal_entry_id = $1"
-    ))
-    .bind(&entry_id)
-    .fetch_all(db)
-    .await?;
+    let lines = live_lines(db, &entry_id).await?;
+    let tax_rows = tax_lines::Entity::find()
+        .filter(tax_lines::Column::JournalEntryId.eq(&entry_id))
+        .all(&orm(db))
+        .await?;
+    let tax_rows = to_json_rows(tax_rows)?;
 
     let lines: Vec<PostingLine> = lines
         .into_iter()
-        .map(|row| JOURNAL_LINES.js(row))
         .map(|line| PostingLine {
             account_id: text(&line, "accountId").unwrap_or_default(),
             debit: number(&line, "credit"),
@@ -833,7 +878,6 @@ pub async fn reverse_journal_entry(
         .collect();
     let tax_lines: Vec<PostingTaxLine> = tax_rows
         .into_iter()
-        .map(|row| TAX_LINES.js(row))
         .map(|tax| PostingTaxLine {
             source_line_id: text(&tax, "sourceLineId"),
             direction: text(&tax, "direction").unwrap_or_default(),
@@ -863,15 +907,16 @@ pub async fn reverse_journal_entry(
     let original = entry_id.clone();
     let mut also_write: Vec<AlsoWrite> = vec![Box::new(move |conn, posted| {
         Box::pin(async move {
-            sqlx::query(
-                "update journal_entries set status = 'reversed', reversed_by_id = $1, \
-                 updated_at = $2::timestamp where id = $3",
-            )
-            .bind(&posted.journal_entry_id)
-            .bind(now())
-            .bind(&original)
-            .execute(&mut *conn)
-            .await?;
+            journal_entries::Entity::update_many()
+                .col_expr(journal_entries::Column::Status, Expr::value("reversed"))
+                .col_expr(
+                    journal_entries::Column::ReversedById,
+                    Expr::value(posted.journal_entry_id.clone()),
+                )
+                .col_expr(journal_entries::Column::UpdatedAt, Expr::value(utc_now()))
+                .filter(journal_entries::Column::Id.eq(&original))
+                .exec(&OrmConn::new(conn))
+                .await?;
             Ok(())
         })
     })];
@@ -916,15 +961,8 @@ pub async fn post_draft_journal_entry(
     entry_id: &str,
     user_id: Option<&str>,
 ) -> Result<Value, PostError> {
-    let entry: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        crate::books_row!(journal_entries),
-        " from journal_entries t where t.id = $1 and t.deleted_at is null limit 1"
-    ))
-    .bind(entry_id)
-    .fetch_optional(db)
-    .await?;
-    let Some(mut entry) = entry.map(|row| JOURNAL_ENTRIES.js(row)) else {
+    let entry = live_entry(db, entry_id).await?;
+    let Some(mut entry) = entry else {
         return Err(posting("Journal entry not found"));
     };
     if text(&entry, "status").as_deref() != Some("draft") {
@@ -932,15 +970,7 @@ pub async fn post_draft_journal_entry(
     }
     let id = text(&entry, "id").unwrap_or_default();
     let entity_id = text(&entry, "entityId").unwrap_or_default();
-    let lines: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        crate::books_row!(journal_lines),
-        " from journal_lines t where t.journal_entry_id = $1 and t.deleted_at is null"
-    ))
-    .bind(&id)
-    .fetch_all(db)
-    .await?;
-    let lines: Vec<Value> = lines.into_iter().map(|row| JOURNAL_LINES.js(row)).collect();
+    let lines = live_lines(db, &id).await?;
 
     let total_debit = round_money(lines.iter().fold(0.0, |sum, l| sum + number(l, "debit")));
     let total_credit = round_money(lines.iter().fold(0.0, |sum, l| sum + number(l, "credit")));
@@ -962,18 +992,12 @@ pub async fn post_draft_journal_entry(
     let rates: Vec<Value> = if tax_rate_ids.is_empty() {
         Vec::new()
     } else {
-        let rows: Vec<Value> = sqlx::query_scalar(concat!(
-            "select ",
-            crate::books_row!(tax_rates),
-            " from tax_rates t where t.entity_id = $1 and t.id = any($2)"
-        ))
-        .bind(&entity_id)
-        .bind(&tax_rate_ids)
-        .fetch_all(db)
-        .await?;
-        rows.into_iter()
-            .map(|row| crate::tables::TAX_RATES.js(row))
-            .collect()
+        let rows = tax_rates::Entity::find()
+            .filter(tax_rates::Column::EntityId.eq(&entity_id))
+            .filter(tax_rates::Column::Id.is_in(tax_rate_ids.clone()))
+            .all(&orm(db))
+            .await?;
+        to_json_rows(rows)?
     };
     let rate_of = |id: &str| rates.iter().find(|r| r["id"].as_str() == Some(id));
     let missing: Vec<&str> = tax_rate_ids
@@ -1018,7 +1042,7 @@ pub async fn post_draft_journal_entry(
     )
     .await?;
 
-    let at = now();
+    let (at, stamp) = now_and_stamp();
     let tax_date = date.get(..10).unwrap_or(&date).to_owned();
     let tax_rows: Vec<Map<String, Value>> = lines
         .iter()
@@ -1075,26 +1099,28 @@ pub async fn post_draft_journal_entry(
             number(l, "debit") - number(l, "credit"),
         )
     }));
-    let (debit_text, credit_text) = (to_fixed(total_debit, 2), to_fixed(total_credit, 2));
+    let (debit, credit) = (
+        decimal_of(&to_fixed(total_debit, 2))?,
+        decimal_of(&to_fixed(total_credit, 2))?,
+    );
     let entry_for_tx = id.clone();
     weldsuite_db::atomically_with(db, move |conn| {
         Box::pin(async move {
-            sqlx::query(
-                "update journal_entries set status = 'posted', total_debit = $1::numeric, \
-                 total_credit = $2::numeric, updated_at = $3::timestamp \
-                 where id = $4 and status = 'draft'",
-            )
-            .bind(&debit_text)
-            .bind(&credit_text)
-            .bind(&at)
-            .bind(&entry_for_tx)
-            .execute(&mut *conn)
-            .await?;
+            let tx = OrmConn::new(conn);
+            journal_entries::Entity::update_many()
+                .col_expr(journal_entries::Column::Status, Expr::value("posted"))
+                .col_expr(journal_entries::Column::TotalDebit, Expr::value(debit))
+                .col_expr(journal_entries::Column::TotalCredit, Expr::value(credit))
+                .col_expr(journal_entries::Column::UpdatedAt, Expr::value(stamp))
+                .filter(journal_entries::Column::Id.eq(&entry_for_tx))
+                .filter(journal_entries::Column::Status.eq("draft"))
+                .exec(&tx)
+                .await?;
             for row in tax_rows {
-                TAX_LINES.insert_raw(&mut *conn, row).await?;
+                TAX_LINES.insert_raw_on(&tx, row).await?;
             }
-            apply_balances(conn, &nets, &at).await?;
-            Ok::<_, sqlx::Error>(())
+            apply_balances(&tx, &nets, stamp).await?;
+            Ok::<_, PostError>(())
         })
     })
     .await?;
@@ -1149,23 +1175,14 @@ impl EntityAccounts {
 }
 
 /// `loadEntityAccounts(db, entityId)`.
-pub async fn load_entity_accounts(
-    db: &PgPool,
-    entity_id: &str,
-) -> Result<EntityAccounts, sqlx::Error> {
-    let rows: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        crate::books_row!(accounts),
-        " from accounts t where t.entity_id = $1 and t.deleted_at is null"
-    ))
-    .bind(entity_id)
-    .fetch_all(db)
-    .await?;
+pub async fn load_entity_accounts(db: &PgPool, entity_id: &str) -> Result<EntityAccounts, DbErr> {
+    let rows = accounts::Entity::find()
+        .filter(accounts::Column::EntityId.eq(entity_id))
+        .filter(accounts::Column::DeletedAt.is_null())
+        .all(&orm(db))
+        .await?;
     Ok(EntityAccounts {
-        rows: rows
-            .into_iter()
-            .map(|row| crate::tables::ACCOUNTS.js(row))
-            .collect(),
+        rows: to_json_rows(rows)?,
     })
 }
 

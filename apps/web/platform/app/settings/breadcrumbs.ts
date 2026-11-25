@@ -50,6 +50,7 @@ export interface BreadcrumbMenuLabels {
   webhooks: string;
   sso: string;
   ai: string;
+  outsideEu: string;
   customFields: string;
   objectTemplates: string;
   integrations: string;
@@ -85,6 +86,7 @@ function getSegmentLabels(menu: BreadcrumbMenuLabels): Record<string, string> {
     webhooks: menu.webhooks,
     sso: menu.sso,
     ai: menu.ai,
+    'outside-eu': menu.outsideEu,
     'custom-fields': menu.customFields,
     'object-templates': menu.objectTemplates,
     integrations: menu.integrations,

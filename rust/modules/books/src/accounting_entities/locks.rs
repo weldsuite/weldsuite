@@ -7,19 +7,25 @@ use axum::body::Bytes;
 use axum::extract::{Path, State};
 use axum::response::Response;
 use http::HeaderMap;
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, Condition, DbErr, EntityTrait, QueryFilter, QueryOrder};
 use serde_json::{Map, Value, json};
+use sqlx::PgPool;
 use weldsuite_books_domain::accounting_entity::upsert_accounting_entity_settings;
 use weldsuite_books_domain::guards::{AuditInput, change, write_accounting_audit};
 use weldsuite_books_domain::http::{
     BooksState, Caller, Refusal, created, now, now_ms, ok, reply, validate,
 };
-use weldsuite_books_domain::tables::{ENTITIES, LOCK_DATE_EXCEPTIONS};
+use weldsuite_books_domain::tables::LOCK_DATE_EXCEPTIONS;
 use weldsuite_catalogs::entity_events::ACCOUNTING_ENTITY_UPDATED;
+use weldsuite_db::orm;
 use weldsuite_kit::generate_id;
 use weldsuite_kit::validation::{Field, Format, Issues, Presence, Text};
+use weldsuite_schema::tenant::{entities, lock_date_exceptions};
 
 use super::{find_active, serialize};
 use crate::entity_setup::today_in;
+use crate::orm_bridge::{pg_date, to_json};
 
 const LOCK_FIELDS: [&str; 5] = [
     "salesLockDate",
@@ -27,6 +33,15 @@ const LOCK_FIELDS: [&str; 5] = [
     "taxLockDate",
     "periodLockDate",
     "hardLockDate",
+];
+
+/// The column of each of [`LOCK_FIELDS`].
+const LOCK_COLUMNS: [entities::Column; 5] = [
+    entities::Column::SalesLockDate,
+    entities::Column::PurchaseLockDate,
+    entities::Column::TaxLockDate,
+    entities::Column::PeriodLockDate,
+    entities::Column::HardLockDate,
 ];
 
 const HARD_LOCK_FORWARD_ONLY: &str = "The hard lock date can only move forward";
@@ -90,6 +105,45 @@ fn read_lock_dates(issues: &mut Issues, body: &Map<String, Value>) -> Map<String
     out
 }
 
+/// Write the lock dates in `patch` (a date, or `null` to clear it) to the
+/// live entity `id`. The hard-lock guard is repeated in the statement, so two
+/// requests can't move it backwards between the read and the write. The row
+/// as Drizzle returns it, or `None` when the guard (or nothing) matched.
+async fn write_lock_dates(
+    db: &PgPool,
+    id: &str,
+    patch: &Map<String, Value>,
+) -> Result<Option<Value>, DbErr> {
+    let mut update = entities::Entity::update_many();
+    for (field, column) in LOCK_FIELDS.into_iter().zip(LOCK_COLUMNS) {
+        if let Some(value) = patch.get(field) {
+            let day = value.as_str().map(pg_date).transpose()?;
+            update = update.col_expr(column, Expr::value(day));
+        }
+    }
+    update = update
+        .col_expr(
+            entities::Column::UpdatedAt,
+            Expr::value(weldsuite_db::utc_now()),
+        )
+        .filter(entities::Column::Id.eq(id))
+        .filter(entities::Column::DeletedAt.is_null());
+    if let Some(hard) = patch.get("hardLockDate").and_then(Value::as_str) {
+        update = update.filter(
+            Condition::any()
+                .add(entities::Column::HardLockDate.is_null())
+                .add(entities::Column::HardLockDate.lte(pg_date(hard)?)),
+        );
+    }
+    update
+        .exec_with_returning(&orm(db))
+        .await?
+        .into_iter()
+        .next()
+        .map(to_json)
+        .transpose()
+}
+
 #[allow(clippy::too_many_lines)] // the worker's steps, in its order
 pub(crate) async fn lock_dates(
     caller: Caller,
@@ -123,7 +177,9 @@ pub(crate) async fn lock_dates(
                     return Err(Refusal::bad_request(HARD_LOCK_FORWARD_ONLY));
                 }
                 if hard > today_in(existing.get("timezone").and_then(Value::as_str)).as_str() {
-                    return Err(Refusal::bad_request("The hard lock date can't be in the future"));
+                    return Err(Refusal::bad_request(
+                        "The hard lock date can't be in the future",
+                    ));
                 }
             }
         }
@@ -143,45 +199,18 @@ pub(crate) async fn lock_dates(
             .map(|(field, value)| {
                 (
                     field.clone(),
-                    change(existing.get(field.as_str()).cloned().unwrap_or(Value::Null), value.clone()),
+                    change(
+                        existing.get(field.as_str()).cloned().unwrap_or(Value::Null),
+                        value.clone(),
+                    ),
                 )
             })
             .collect();
         if changes.is_empty() {
             return Ok(ok(serialize(&existing)));
         }
-        // The hard-lock guard is repeated in the statement, so two requests
-        // can't move it backwards between the read and the write.
-        let hard = patch.get("hardLockDate").and_then(Value::as_str);
-        let set = |key: &str| patch.get(key).cloned();
-        let updated: Option<Value> = sqlx::query_scalar(concat!(
-            "update entities as t set \
-               sales_lock_date = case when $2 then $3::date else t.sales_lock_date end, \
-               purchase_lock_date = case when $4 then $5::date else t.purchase_lock_date end, \
-               tax_lock_date = case when $6 then $7::date else t.tax_lock_date end, \
-               period_lock_date = case when $8 then $9::date else t.period_lock_date end, \
-               hard_lock_date = case when $10 then $11::date else t.hard_lock_date end, \
-               updated_at = $12::timestamp \
-             where t.id = $1 and t.deleted_at is null \
-               and ($11::text is null or t.hard_lock_date is null or t.hard_lock_date <= $11::date) \
-             returning ",
-            weldsuite_books_domain::books_row!(entities)
-        ))
-        .bind(&id)
-        .bind(set("salesLockDate").is_some())
-        .bind(set("salesLockDate").and_then(|v| v.as_str().map(str::to_owned)))
-        .bind(set("purchaseLockDate").is_some())
-        .bind(set("purchaseLockDate").and_then(|v| v.as_str().map(str::to_owned)))
-        .bind(set("taxLockDate").is_some())
-        .bind(set("taxLockDate").and_then(|v| v.as_str().map(str::to_owned)))
-        .bind(set("periodLockDate").is_some())
-        .bind(set("periodLockDate").and_then(|v| v.as_str().map(str::to_owned)))
-        .bind(hard.is_some())
-        .bind(hard)
-        .bind(now())
-        .fetch_optional(&caller.db)
-        .await?;
-        let Some(updated) = updated.map(|row| ENTITIES.js(row)) else {
+        let updated = write_lock_dates(&caller.db, &id, &patch).await?;
+        let Some(updated) = updated else {
             return Err(Refusal::bad_request(HARD_LOCK_FORWARD_ONLY));
         };
         // The extension holds the lock dates too (release 1 writes both).
@@ -223,15 +252,17 @@ pub(crate) async fn list_exceptions(caller: Caller, Path(id): Path<String>) -> R
         if find_active(&caller, &id).await?.is_none() {
             return Err(Refusal::not_found("Entity", &id));
         }
-        let rows: Vec<Value> = sqlx::query_scalar(concat!(
-            "select ",
-            weldsuite_books_domain::books_row!(lock_date_exceptions),
-            " from lock_date_exceptions t where t.entity_id = $1 order by t.created_at desc, t.id desc"
-        ))
-        .bind(&id)
-        .fetch_all(&caller.db)
-        .await?;
-        Ok(ok(Value::Array(LOCK_DATE_EXCEPTIONS.js_rows(rows))))
+        let rows = lock_date_exceptions::Entity::find()
+            .filter(lock_date_exceptions::Column::EntityId.eq(id.as_str()))
+            .order_by_desc(lock_date_exceptions::Column::CreatedAt)
+            .order_by_desc(lock_date_exceptions::Column::Id)
+            .all(&orm(&caller.db))
+            .await?;
+        let rows = rows
+            .into_iter()
+            .map(to_json)
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(ok(Value::Array(rows)))
     }
     .await;
     reply(result, "Failed to fetch lock date exceptions")
@@ -362,54 +393,61 @@ pub(crate) async fn create_exception(
     reply(result, "Failed to create lock date exception")
 }
 
+/// The lock date exception `id` as Drizzle returns it; with `entity_id`, only
+/// when it belongs to that entity.
+async fn find_exception(
+    db: &PgPool,
+    id: &str,
+    entity_id: Option<&str>,
+) -> Result<Option<Value>, DbErr> {
+    let mut select =
+        lock_date_exceptions::Entity::find().filter(lock_date_exceptions::Column::Id.eq(id));
+    if let Some(entity_id) = entity_id {
+        select = select.filter(lock_date_exceptions::Column::EntityId.eq(entity_id));
+    }
+    select.one(&orm(db)).await?.map(to_json).transpose()
+}
+
 pub(crate) async fn revoke_exception(
     caller: Caller,
     State(state): State<BooksState>,
     Path((id, exception_id)): Path<(String, String)>,
 ) -> Response {
     let result = async {
-        let find = |only_entity: bool| {
-            let db = caller.db.clone();
-            let exception_id = exception_id.clone();
-            let id = id.clone();
-            async move {
-                let row: Option<Value> = sqlx::query_scalar(concat!(
-                    "select ",
-                    weldsuite_books_domain::books_row!(lock_date_exceptions),
-                    " from lock_date_exceptions t where t.id = $1 and (not $3 or t.entity_id = $2) limit 1"
-                ))
-                .bind(&exception_id)
-                .bind(&id)
-                .bind(only_entity)
-                .fetch_optional(&db)
-                .await?;
-                Ok::<_, sqlx::Error>(row.map(|row| LOCK_DATE_EXCEPTIONS.js(row)))
-            }
-        };
-        let Some(existing) = find(true).await? else {
+        let Some(existing) = find_exception(&caller.db, &exception_id, Some(&id)).await? else {
             return Err(Refusal::not_found("Lock date exception", &exception_id));
         };
         // Already revoked: the first revocation stays on record.
         if !existing["revokedAt"].is_null() {
             return Ok(ok(existing));
         }
-        let revoked: Option<Value> = sqlx::query_scalar(concat!(
-            "update lock_date_exceptions as t set revoked_at = $2::timestamp, revoked_by = $3 \
-             where t.id = $1 and t.revoked_at is null returning ",
-            weldsuite_books_domain::books_row!(lock_date_exceptions)
-        ))
-        .bind(&exception_id)
-        .bind(now())
-        .bind(&caller.user_id)
-        .fetch_optional(&caller.db)
-        .await?;
-        let Some(revoked) = revoked.map(|row| LOCK_DATE_EXCEPTIONS.js(row)) else {
+        let revoked = lock_date_exceptions::Entity::update_many()
+            .col_expr(
+                lock_date_exceptions::Column::RevokedAt,
+                Expr::value(weldsuite_db::utc_now()),
+            )
+            .col_expr(
+                lock_date_exceptions::Column::RevokedBy,
+                Expr::value(caller.user_id.as_str()),
+            )
+            .filter(lock_date_exceptions::Column::Id.eq(exception_id.as_str()))
+            .filter(lock_date_exceptions::Column::RevokedAt.is_null())
+            .exec_with_returning(&orm(&caller.db))
+            .await?
+            .into_iter()
+            .next()
+            .map(to_json)
+            .transpose()?;
+        let Some(revoked) = revoked else {
             // Lost a race with another revoke: the row as it now stands.
-            let current = find(false).await?;
+            let current = find_exception(&caller.db, &exception_id, None).await?;
             return Ok(ok(current.unwrap_or(existing)));
         };
         let mut changes = Map::new();
-        changes.insert("revokedAt".to_owned(), change(Value::Null, revoked["revokedAt"].clone()));
+        changes.insert(
+            "revokedAt".to_owned(),
+            change(Value::Null, revoked["revokedAt"].clone()),
+        );
         write_accounting_audit(
             &caller,
             &caller.db,

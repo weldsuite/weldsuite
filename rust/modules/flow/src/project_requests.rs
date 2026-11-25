@@ -25,6 +25,7 @@
 
 mod store;
 
+use std::str::FromStr;
 use std::sync::Arc;
 
 use axum::Router;
@@ -32,13 +33,21 @@ use axum::body::Bytes;
 use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, patch, post, put};
+use sea_orm::prelude::BigDecimal;
+use sea_orm::sea_query::{Asterisk, Expr, Func, OnConflict};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, Condition, DbErr, EntityTrait, Order, PaginatorTrait,
+    QueryFilter, QueryOrder, QuerySelect,
+};
 use serde_json::{Map, Value, json};
+use time::Date;
+use time::macros::format_description;
 use weldsuite_catalogs::entity_events::{
     EventName, FLOW_WORKSPACE_SETTINGS_UPDATED, PROJECT_REQUEST_CONVERTED, PROJECT_REQUEST_CREATED,
     PROJECT_REQUEST_DELETED, PROJECT_REQUEST_SUBMITTED, PROJECT_REQUEST_UPDATED,
     RESOURCE_BOOKING_DELETED, RESOURCE_BOOKING_UPDATED,
 };
-use weldsuite_db::js_row;
+use weldsuite_db::{OrmConn, orm};
 use weldsuite_flow_domain::approvals::ResolvedApprovalOutcome;
 use weldsuite_flow_domain::capacity::{
     NeededSkill, PROJECT_REQUEST_STATUSES, fit_range, present_booking, roadmap_range, rollup_load,
@@ -54,10 +63,14 @@ use weldsuite_flow_domain::js::{contains_pattern, number_value, numeric, to_fixe
 use weldsuite_flow_domain::numbering::allocate_number;
 use weldsuite_kit::{Created, Data, NoContent, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::project_requests::{self, Column};
+use weldsuite_schema::tenant::{
+    flow_approvals, flow_workspace_settings, projects, resource_bookings,
+};
 
 use self::store::{
-    board_of, clear_approvals, find_project_request, list_subject_approvals, load_settings,
-    model_of, request_approvals, request_json,
+    board_of, clear_approvals, find_project_request, instant, list_subject_approvals,
+    load_settings, model_of, request_approvals,
 };
 use crate::approvals::announce::{
     AftermathFuture, AftermathInfo, SubjectLabel, announce_approvals_cancelled,
@@ -67,13 +80,21 @@ use crate::capacity::body::{
     Body, parse_body, project_requests_query, read_convert, read_create_project_request,
     read_score, read_settings, read_update_project_request, roadmap_query,
 };
-use crate::capacity::store::{booking_json, load_capacity};
-use crate::capacity::{iso_now, parse_limit, today_utc};
+use crate::capacity::store::load_capacity;
+use crate::capacity::{parse_limit, today_utc};
 use crate::raid_store::live_project_exists;
-use crate::{Caller, FlowState, Refusal, Reply, outside, page, paged, reply};
+use crate::{Caller, FlowState, Refusal, Reply, json_rows, outside, page, paged, reply, row_json};
 
 /// A request as the roadmap query reads it.
-type RequestRow = (String, i32, String, String, Option<String>, String, String);
+type RequestRow = (
+    String,
+    i32,
+    String,
+    String,
+    Option<BigDecimal>,
+    String,
+    String,
+);
 
 const REQUEST_LABEL: &str = "Project request";
 const MANAGE: &str = "portfolio:manage";
@@ -138,6 +159,25 @@ fn stored_score(row: &Value) -> Option<f64> {
     }
 }
 
+/// A `numeric` column's value from its text (`$n::numeric`).
+fn decimal(text: Option<String>) -> Result<Option<BigDecimal>, DbErr> {
+    text.map(|text| {
+        BigDecimal::from_str(&text).map_err(|_| {
+            DbErr::Custom(format!("invalid input syntax for type numeric: \"{text}\""))
+        })
+    })
+    .transpose()
+}
+
+/// A `date` column's value from its `YYYY-MM-DD` text (`$n::date`).
+fn day(text: Option<&str>) -> Result<Option<Date>, DbErr> {
+    text.map(|text| {
+        Date::parse(text, format_description!("[year]-[month]-[day]"))
+            .map_err(|_| DbErr::Custom(format!("date/time field value out of range: \"{text}\"")))
+    })
+    .transpose()
+}
+
 fn same_score(a: Option<f64>, b: Option<f64>) -> bool {
     match (a, b) {
         (None, None) => true,
@@ -167,15 +207,25 @@ async fn request_or_404(caller: &Caller, id: &str) -> Result<Value, Refusal> {
 
 // ── GET / ───────────────────────────────────────────────────────────────────
 
-/// The list's `where`, without the cursor.
-macro_rules! request_filters {
-    () => {
-        concat!(
-            "t.deleted_at is null",
-            " and ($1::text is null or t.status = $1)",
-            " and ($2::text is null or t.title ilike $2 or t.business_case ilike $2)"
-        )
-    };
+/// The list's `where`, without the cursor: the status and the search.
+fn request_filters(status: Option<&str>, search: Option<&str>) -> Condition {
+    let mut filters = Condition::all().add(Column::DeletedAt.is_null());
+    if let Some(status) = status {
+        filters = filters.add(Column::Status.eq(status));
+    }
+    if let Some(search) = search {
+        filters = filters.add(
+            Condition::any()
+                .add(Column::Title.ilike(search))
+                .add(Column::BusinessCase.ilike(search)),
+        );
+    }
+    filters
+}
+
+/// `coalesce(t.score, -1)`: the rank, requests without a score last.
+fn ranked_score() -> Expr {
+    Expr::expr(Func::coalesce([Expr::col(Column::Score), Expr::value(-1)]))
 }
 
 async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
@@ -185,16 +235,18 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
     };
     let limit = parse_limit(limit.as_deref(), 100, 200);
     // Ranked: the highest score first, requests without one last, ties by number.
-    let cursor: Option<(String, i32)> = match &cursor {
+    let cursor: Option<(BigDecimal, i32)> = match &cursor {
         Some(cursor) => {
-            let found: Result<Option<(i32, String)>, sqlx::Error> = sqlx::query_as(
-                "select number, coalesce(score, -1)::text from project_requests where id = $1 limit 1",
-            )
-            .bind(cursor)
-            .fetch_optional(&caller.db)
-            .await;
+            let found: Result<Option<(i32, Option<BigDecimal>)>, DbErr> =
+                project_requests::Entity::find_by_id(cursor.as_str())
+                    .select_only()
+                    .columns([Column::Number, Column::Score])
+                    .into_tuple()
+                    .one(&orm(&caller.db))
+                    .await;
             match found {
-                Ok(found) => found.map(|(number, score)| (score, number)),
+                Ok(found) => found
+                    .map(|(number, score)| (score.unwrap_or_else(|| BigDecimal::from(-1)), number)),
                 Err(error) => return outside(Err(error.into())),
             }
         }
@@ -217,34 +269,34 @@ async fn list_rows(
     caller: &Caller,
     (status, search): (Option<&str>, Option<&str>),
     limit: i64,
-    cursor: Option<(String, i32)>,
+    cursor: Option<(BigDecimal, i32)>,
 ) -> Reply {
-    let db = &caller.db;
-    let rows: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        request_json!("t"),
-        " from project_requests t where ",
-        request_filters!(),
-        " and ($3::text is null or (coalesce(t.score, -1) < $3::numeric",
-        " or (coalesce(t.score, -1) = $3::numeric and t.number > $4::int)))",
-        " order by coalesce(t.score, -1) desc, t.number asc limit $5"
-    ))
-    .bind(status)
-    .bind(search)
-    .bind(cursor.as_ref().map(|c| c.0.as_str()))
-    .bind(cursor.as_ref().map(|c| c.1))
-    .bind(limit + 1)
-    .fetch_all(db)
-    .await?;
-    let total: i64 = sqlx::query_scalar(concat!(
-        "select count(*) from project_requests t where ",
-        request_filters!()
-    ))
-    .bind(status)
-    .bind(search)
-    .fetch_one(db)
-    .await?;
-    let (rows, has_more, next) = page(rows.into_iter().map(js_row).collect(), limit);
+    use sea_orm::ExprTrait as _;
+
+    let db = &orm(&caller.db);
+    let mut select = project_requests::Entity::find().filter(request_filters(status, search));
+    if let Some((score, number)) = cursor {
+        select = select.filter(
+            Condition::any().add(ranked_score().lt(score.clone())).add(
+                Condition::all()
+                    .add(ranked_score().eq(score))
+                    .add(Column::Number.gt(number)),
+            ),
+        );
+    }
+    let rows = select
+        .order_by(ranked_score(), Order::Desc)
+        .order_by_asc(Column::Number)
+        .limit(u64::try_from(limit + 1).unwrap_or(0))
+        .all(db)
+        .await?;
+    let total = project_requests::Entity::find()
+        .filter(request_filters(status, search))
+        .count(db)
+        .await?;
+    let total = i64::try_from(total).unwrap_or(i64::MAX);
+    let rows = json_rows(rows)?;
+    let (rows, has_more, next) = page(rows, limit);
     let items = rows.iter().map(present_project_request).collect();
     Ok(paged(items, total, has_more, next))
 }
@@ -259,28 +311,37 @@ async fn funnel(caller: Caller) -> Response {
 }
 
 async fn read_funnel(caller: &Caller) -> Reply {
-    let db = &caller.db;
+    let db = &orm(&caller.db);
     let now_ms = crate::now_ms();
-    let week_ago =
-        weldsuite_flow_domain::js::iso_from_millis(now_ms - 7 * DAY_MS).unwrap_or_default();
-    let by_status: Vec<(String, i64)> = sqlx::query_as(
-        "select status, count(*)::int8 from project_requests where deleted_at is null group by status",
-    )
-    .fetch_all(db)
-    .await?;
-    let recent: i64 = sqlx::query_scalar(
-        "select count(*)::int8 from project_requests
-         where deleted_at is null and status = 'new' and created_at >= $1::timestamptz",
-    )
-    .bind(week_ago)
-    .fetch_one(db)
-    .await?;
-    let oldest: Option<i64> = sqlx::query_scalar(
-        "select floor(extract(epoch from min(submitted_at)) * 1000)::int8 from project_requests
-         where deleted_at is null and status = 'assessing'",
-    )
-    .fetch_one(db)
-    .await?;
+    let week_ago = instant(now_ms - 7 * DAY_MS);
+    let by_status: Vec<(String, i64)> = project_requests::Entity::find()
+        .select_only()
+        .column(Column::Status)
+        .column_as(Expr::expr(Func::count(Expr::col(Asterisk))), "count")
+        .filter(Column::DeletedAt.is_null())
+        .group_by(Column::Status)
+        .into_tuple()
+        .all(db)
+        .await?;
+    let recent = project_requests::Entity::find()
+        .filter(Column::DeletedAt.is_null())
+        .filter(Column::Status.eq("new"))
+        .filter(Column::CreatedAt.gte(week_ago))
+        .count(db)
+        .await?;
+    let recent = i64::try_from(recent).unwrap_or(i64::MAX);
+    // `floor(extract(epoch from min(submitted_at)) * 1000)`: milliseconds.
+    let oldest: Option<Option<time::OffsetDateTime>> = project_requests::Entity::find()
+        .select_only()
+        .column_as(Column::SubmittedAt.min(), "oldest")
+        .filter(Column::DeletedAt.is_null())
+        .filter(Column::Status.eq("assessing"))
+        .into_tuple()
+        .one(db)
+        .await?;
+    let oldest = oldest.flatten().map(|at| {
+        i64::try_from(at.unix_timestamp_nanos().div_euclid(1_000_000)).unwrap_or_default()
+    });
     let mut counts = Map::new();
     for status in PROJECT_REQUEST_STATUSES {
         counts.insert(status.to_owned(), json!(0));
@@ -315,37 +376,93 @@ async fn roadmap(caller: Caller, RawQuery(raw): RawQuery) -> Response {
     )
 }
 
+/// `to_char(at, 'YYYY-MM-DD')`.
+fn day_text(at: Expr) -> Expr {
+    Func::cust("to_char").arg(at).arg("YYYY-MM-DD").into()
+}
+
+/// `least(start, end)::date <= to and greatest(start, end)::date >= from`:
+/// the span between two dates (either may be missing) overlaps the range.
+fn overlaps<C: ColumnTrait>(start: C, end: C, from: &str, to: &str) -> Condition {
+    use sea_orm::ExprTrait as _;
+
+    let date = |text: &str| Expr::value(text.to_owned()).cast_as("date");
+    Condition::all()
+        .add(
+            Expr::expr(Func::least([Expr::col(start), Expr::col(end)]))
+                .cast_as("date")
+                .lte(date(to)),
+        )
+        .add(
+            Expr::expr(Func::greatest([Expr::col(start), Expr::col(end)]))
+                .cast_as("date")
+                .gte(date(from)),
+        )
+}
+
+#[allow(clippy::too_many_lines)]
 async fn build_roadmap(caller: &Caller, from: &str, to: &str, tentative: bool) -> Reply {
+    use projects::Column as Project;
+
     let db = &caller.db;
-    let projects: Vec<(String, String, String, String, String)> = sqlx::query_as(
-        "select p.id, p.name, p.status,
-                to_char(least(p.start_date, p.end_date), 'YYYY-MM-DD'),
-                to_char(greatest(p.start_date, p.end_date), 'YYYY-MM-DD')
-         from projects p
-         where p.deleted_at is null and p.status = any($3)
-           and least(p.start_date, p.end_date)::date <= $2::date
-           and greatest(p.start_date, p.end_date)::date >= $1::date
-         order by p.id",
-    )
-    .bind(from)
-    .bind(to)
-    .bind(CURRENT_PROJECT_STATUSES.as_slice())
-    .fetch_all(db)
-    .await?;
-    let requests: Vec<RequestRow> = sqlx::query_as(
-        "select r.id, r.number, r.title, r.status, r.score::text,
-                to_char(least(r.desired_start, r.desired_end), 'YYYY-MM-DD'),
-                to_char(greatest(r.desired_start, r.desired_end), 'YYYY-MM-DD')
-         from project_requests r
-         where r.deleted_at is null and r.status in ('assessing', 'approved')
-           and least(r.desired_start, r.desired_end)::date <= $2::date
-           and greatest(r.desired_start, r.desired_end)::date >= $1::date
-         order by r.id",
-    )
-    .bind(from)
-    .bind(to)
-    .fetch_all(db)
-    .await?;
+    let projects: Vec<(String, String, String, String, String)> = projects::Entity::find()
+        .select_only()
+        .columns([Project::Id, Project::Name, Project::Status])
+        .column_as(
+            day_text(
+                Func::least([Expr::col(Project::StartDate), Expr::col(Project::EndDate)]).into(),
+            ),
+            "starts_on",
+        )
+        .column_as(
+            day_text(
+                Func::greatest([Expr::col(Project::StartDate), Expr::col(Project::EndDate)]).into(),
+            ),
+            "ends_on",
+        )
+        .filter(Project::DeletedAt.is_null())
+        .filter(Project::Status.is_in(CURRENT_PROJECT_STATUSES))
+        .filter(overlaps(Project::StartDate, Project::EndDate, from, to))
+        .order_by_asc(Project::Id)
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
+    let requests: Vec<RequestRow> = project_requests::Entity::find()
+        .select_only()
+        .columns([
+            Column::Id,
+            Column::Number,
+            Column::Title,
+            Column::Status,
+            Column::Score,
+        ])
+        .column_as(
+            day_text(
+                Func::least([
+                    Expr::col(Column::DesiredStart),
+                    Expr::col(Column::DesiredEnd),
+                ])
+                .into(),
+            ),
+            "starts_on",
+        )
+        .column_as(
+            day_text(
+                Func::greatest([
+                    Expr::col(Column::DesiredStart),
+                    Expr::col(Column::DesiredEnd),
+                ])
+                .into(),
+            ),
+            "ends_on",
+        )
+        .filter(Column::DeletedAt.is_null())
+        .filter(Column::Status.is_in(["assessing", "approved"]))
+        .filter(overlaps(Column::DesiredStart, Column::DesiredEnd, from, to))
+        .order_by_asc(Column::Id)
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     let accessible = caller.accessible_project_ids().await?;
 
     let mut items: Vec<Value> = projects
@@ -376,7 +493,10 @@ async fn build_roadmap(caller: &Caller, from: &str, to: &str, tentative: bool) -
                 "status": status,
                 "startsOn": starts_on,
                 "endsOn": ends_on,
-                "score": score.map_or(Value::Null, |s| number_value(numeric(&Value::String(s)))),
+                // `score::text`: two decimals, as JavaScript reads the number.
+                "score": score.map_or(Value::Null, |s| {
+                    number_value(numeric(&Value::String(s.with_scale(2).to_plain_string())))
+                }),
             })
         },
     ));
@@ -437,7 +557,7 @@ async fn write_settings(
     model: Option<&[Criterion]>,
 ) -> Reply {
     let db = &caller.db;
-    let now = iso_now();
+    let now = instant(crate::now_ms());
     // The board once each, in the order given.
     let board: Option<Vec<String>> = input
         .get("portfolioBoardIds")
@@ -452,20 +572,21 @@ async fn write_settings(
             seen
         });
     let limit_given = input.contains_key("expenseApprovalLimit");
-    let limit = amount_text(input.get("expenseApprovalLimit").and_then(Value::as_f64));
+    let limit = decimal(amount_text(
+        input.get("expenseApprovalLimit").and_then(Value::as_f64),
+    ))?;
 
     // A new model re-ranks every open request: the stored scores follow it.
     let mut rescored: Vec<(String, Option<f64>)> = Vec::new();
     if let Some(model) = model {
-        let open: Vec<Value> = sqlx::query_scalar(concat!(
-            "select ",
-            request_json!("t"),
-            " from project_requests t where t.deleted_at is null",
-            " and t.status in ('new', 'assessing') order by t.number"
-        ))
-        .fetch_all(db)
-        .await?;
-        for row in open.into_iter().map(js_row) {
+        let open = project_requests::Entity::find()
+            .filter(Column::DeletedAt.is_null())
+            .filter(Column::Status.is_in(["new", "assessing"]))
+            .order_by_asc(Column::Number)
+            .all(&orm(db))
+            .await?;
+        for row in open.into_iter().map(row_json) {
+            let row = row?;
             let score = score_request(model, &scores_of(&row));
             if !same_score(score, stored_score(&row)) {
                 rescored.push((row["id"].as_str().unwrap_or_default().to_owned(), score));
@@ -474,42 +595,27 @@ async fn write_settings(
     }
 
     let model_json = model.map(|m| Value::Array(m.iter().map(Criterion::to_json).collect()));
-    let mut statements = vec![
-        sqlx::query(
-            "insert into flow_workspace_settings (id, singleton, scoring_model, portfolio_board_ids,
-                 expense_approval_limit, updated_by, created_at, updated_at)
-             values ($1, true, coalesce($2::jsonb, $3::jsonb), coalesce($4::jsonb, '[]'::jsonb),
-                 $5::numeric, $6, $7::timestamptz, $7::timestamptz)
-             on conflict (singleton) do update set
-                 scoring_model = coalesce($2::jsonb, flow_workspace_settings.scoring_model),
-                 portfolio_board_ids = coalesce($4::jsonb, flow_workspace_settings.portfolio_board_ids),
-                 expense_approval_limit = case when $8::bool then $5::numeric
-                     else flow_workspace_settings.expense_approval_limit end,
-                 updated_by = $6, updated_at = $7::timestamptz",
-        )
-        .bind(generate_id("fws"))
-        .bind(model_json)
-        .bind(Value::Array(
-            default_scoring_model().iter().map(Criterion::to_json).collect(),
-        ))
-        .bind(board.map(|ids| json!(ids)))
-        .bind(limit)
-        .bind(caller.user_id.clone())
-        .bind(now.clone())
-        .bind(limit_given),
-    ];
-    for (id, score) in &rescored {
-        statements.push(
-            sqlx::query(
-                "update project_requests set score = $2::numeric, updated_at = $3::timestamptz
-                 where id = $1",
-            )
-            .bind(id.clone())
-            .bind(score_text(*score))
-            .bind(now.clone()),
-        );
-    }
-    weldsuite_db::atomically(db, statements).await?;
+    let upsert = upsert_settings(caller, model_json, board, (limit, limit_given), now);
+    let score_updates = rescored
+        .iter()
+        .map(|(id, score)| {
+            Ok(project_requests::Entity::update_many()
+                .col_expr(Column::Score, Expr::value(decimal(score_text(*score))?))
+                .col_expr(Column::UpdatedAt, Expr::value(now))
+                .filter(Column::Id.eq(id.as_str())))
+        })
+        .collect::<Result<Vec<_>, DbErr>>()?;
+    weldsuite_db::atomically_with(db, |tx| {
+        Box::pin(async move {
+            let tx = OrmConn::new(tx);
+            upsert.exec_without_returning(&tx).await?;
+            for update in score_updates {
+                update.exec(&tx).await?;
+            }
+            Ok::<_, Refusal>(())
+        })
+    })
+    .await?;
     let Some(settings) = load_settings(db).await? else {
         return Err(Refusal::Internal("the settings are missing".to_owned()));
     };
@@ -526,6 +632,53 @@ async fn write_settings(
         }
     }
     Ok(Data(shown).into_response())
+}
+
+/// The settings row written as sent: created on the first save (the default
+/// model and an empty board unless sent), else only the fields sent change
+/// (`on conflict (singleton) do update`).
+fn upsert_settings(
+    caller: &Caller,
+    model: Option<Value>,
+    board: Option<Vec<String>>,
+    (limit, limit_given): (Option<BigDecimal>, bool),
+    now: time::OffsetDateTime,
+) -> sea_orm::Insert<flow_workspace_settings::ActiveModel> {
+    use flow_workspace_settings::Column as Settings;
+
+    let mut changed = vec![Settings::UpdatedBy, Settings::UpdatedAt];
+    if model.is_some() {
+        changed.push(Settings::ScoringModel);
+    }
+    if board.is_some() {
+        changed.push(Settings::PortfolioBoardIds);
+    }
+    if limit_given {
+        changed.push(Settings::ExpenseApprovalLimit);
+    }
+    flow_workspace_settings::Entity::insert(flow_workspace_settings::ActiveModel {
+        id: Set(generate_id("fws")),
+        singleton: Set(true),
+        scoring_model: Set(model.unwrap_or_else(|| {
+            Value::Array(
+                default_scoring_model()
+                    .iter()
+                    .map(Criterion::to_json)
+                    .collect(),
+            )
+        })),
+        portfolio_board_ids: Set(board.map_or_else(|| json!([]), |ids| json!(ids))),
+        expense_approval_limit: Set(limit),
+        updated_by: Set(Some(caller.user_id.clone())),
+        created_at: Set(now),
+        updated_at: Set(now),
+        ..Default::default()
+    })
+    .on_conflict(
+        OnConflict::column(Settings::Singleton)
+            .update_columns(changed)
+            .to_owned(),
+    )
 }
 
 // ── GET /:id ────────────────────────────────────────────────────────────────
@@ -634,28 +787,34 @@ async fn create(State(state): State<FlowState>, caller: Caller, body: Bytes) -> 
 async fn insert_request(state: &FlowState, caller: &Caller, input: &Body) -> Reply {
     let db = &caller.db;
     let id = generate_id("prq");
-    let number = allocate_number(db, &REQUEST_SEQUENCE).await?;
-    weldsuite_db::atomically(
-        db,
-        [sqlx::query(
-            "insert into project_requests (id, number, title, requested_by, business_case,
-                 estimated_cost, estimated_value, scores, score, needed_skills, desired_start,
-                 desired_end, status, created_by, created_at, updated_at)
-             values ($1, $2::int, $3, $4, $5, $6::numeric, $7::numeric, '{}'::jsonb, null, $8::jsonb,
-                 $9::date, $10::date, 'new', $4, $11::timestamptz, $11::timestamptz)",
-        )
-        .bind(id.clone())
-        .bind(number)
-        .bind(text(input, "title").unwrap_or_default().to_owned())
-        .bind(caller.user_id.clone())
-        .bind(text(input, "businessCase").map(str::to_owned))
-        .bind(amount_text(input.get("estimatedCost").and_then(Value::as_f64)))
-        .bind(amount_text(input.get("estimatedValue").and_then(Value::as_f64)))
-        .bind(needed_skills_json(input))
-        .bind(text(input, "desiredStart").map(str::to_owned))
-        .bind(text(input, "desiredEnd").map(str::to_owned))
-        .bind(iso_now())],
-    )
+    let number = allocate_number(&orm(db), &REQUEST_SEQUENCE).await?;
+    let number = i32::try_from(number)
+        .map_err(|_| DbErr::Custom(format!("integer out of range: {number}")))?;
+    let now = instant(crate::now_ms());
+    project_requests::Entity::insert(project_requests::ActiveModel {
+        id: Set(id.clone()),
+        number: Set(number),
+        title: Set(text(input, "title").unwrap_or_default().to_owned()),
+        requested_by: Set(caller.user_id.clone()),
+        business_case: Set(text(input, "businessCase").map(str::to_owned)),
+        estimated_cost: Set(decimal(amount_text(
+            input.get("estimatedCost").and_then(Value::as_f64),
+        ))?),
+        estimated_value: Set(decimal(amount_text(
+            input.get("estimatedValue").and_then(Value::as_f64),
+        ))?),
+        scores: Set(json!({})),
+        score: Set(None),
+        needed_skills: Set(needed_skills_json(input)),
+        desired_start: Set(day(text(input, "desiredStart"))?),
+        desired_end: Set(day(text(input, "desiredEnd"))?),
+        status: Set("new".to_owned()),
+        created_by: Set(caller.user_id.clone()),
+        created_at: Set(now),
+        updated_at: Set(now),
+        ..Default::default()
+    })
+    .exec_without_returning(&orm(db))
     .await?;
     let Some(row) = find_project_request(db, &id).await? else {
         return Err(Refusal::Internal("the new request is missing".to_owned()));
@@ -729,30 +888,31 @@ async fn write_update(
             .cloned()
             .unwrap_or_else(|| json!([]))
     };
-    weldsuite_db::atomically(
-        &caller.db,
-        [sqlx::query(
-            "update project_requests set title = $2, business_case = $3, estimated_cost = $4::numeric,
-                 estimated_value = $5::numeric, needed_skills = $6::jsonb, desired_start = $7::date,
-                 desired_end = $8::date, updated_at = $9::timestamptz
-             where id = $1 and deleted_at is null",
+    let title = text(input, "title")
+        .or_else(|| row_text(existing, "title"))
+        .unwrap_or_default();
+    project_requests::Entity::update_many()
+        .col_expr(Column::Title, Expr::value(title))
+        .col_expr(
+            Column::BusinessCase,
+            Expr::value(merged_text(input, existing, "businessCase")),
         )
-        .bind(id.to_owned())
-        .bind(
-            text(input, "title")
-                .or_else(|| row_text(existing, "title"))
-                .unwrap_or_default()
-                .to_owned(),
+        .col_expr(
+            Column::EstimatedCost,
+            Expr::value(decimal(merged_amount(input, existing, "estimatedCost"))?),
         )
-        .bind(merged_text(input, existing, "businessCase"))
-        .bind(merged_amount(input, existing, "estimatedCost"))
-        .bind(merged_amount(input, existing, "estimatedValue"))
-        .bind(needed)
-        .bind(start)
-        .bind(end)
-        .bind(iso_now())],
-    )
-    .await?;
+        .col_expr(
+            Column::EstimatedValue,
+            Expr::value(decimal(merged_amount(input, existing, "estimatedValue"))?),
+        )
+        .col_expr(Column::NeededSkills, Expr::value(needed))
+        .col_expr(Column::DesiredStart, Expr::value(day(start.as_deref())?))
+        .col_expr(Column::DesiredEnd, Expr::value(day(end.as_deref())?))
+        .col_expr(Column::UpdatedAt, Expr::value(instant(crate::now_ms())))
+        .filter(Column::Id.eq(id))
+        .filter(Column::DeletedAt.is_null())
+        .exec(&orm(&caller.db))
+        .await?;
     let Some(row) = find_project_request(&caller.db, id).await? else {
         return Err(Refusal::not_found(REQUEST_LABEL, id));
     };
@@ -786,42 +946,48 @@ async fn remove(
 async fn delete_request(state: &FlowState, caller: &Caller, id: &str, existing: &Value) -> Reply {
     let db = &caller.db;
     // Bookings held for the request and the board's open reviews go with it.
-    let held: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        booking_json!("b"),
-        " from resource_bookings b where b.request_id = $1 and b.deleted_at is null order by b.id"
-    ))
-    .bind(id)
-    .fetch_all(db)
-    .await?;
+    let held = resource_bookings::Entity::find()
+        .filter(resource_bookings::Column::RequestId.eq(id))
+        .filter(resource_bookings::Column::DeletedAt.is_null())
+        .order_by_asc(resource_bookings::Column::Id)
+        .all(&orm(db))
+        .await?;
+    let held = json_rows(held)?;
     let reviews = list_subject_approvals(db, id).await?;
-    let now = iso_now();
-    weldsuite_db::atomically(
-        db,
-        [
-            sqlx::query(
-                "update project_requests set deleted_at = $2::timestamptz, updated_at = $2::timestamptz
-                 where id = $1 and deleted_at is null",
-            )
-            .bind(id.to_owned())
-            .bind(now.clone()),
-            sqlx::query(
-                "update resource_bookings set deleted_at = $2::timestamptz, updated_at = $2::timestamptz
-                 where request_id = $1 and deleted_at is null",
-            )
-            .bind(id.to_owned())
-            .bind(now.clone()),
-            sqlx::query(
-                "update flow_approvals set deleted_at = $2::timestamptz, updated_at = $2::timestamptz
-                 where subject_type = 'project_request' and subject_id = $1 and deleted_at is null",
-            )
-            .bind(id.to_owned())
-            .bind(now),
-        ],
-    )
+    let now = instant(crate::now_ms());
+    let id_owned = id.to_owned();
+    weldsuite_db::atomically_with(db, |tx| {
+        Box::pin(async move {
+            let tx = OrmConn::new(tx);
+            let id = id_owned.as_str();
+            project_requests::Entity::update_many()
+                .col_expr(Column::DeletedAt, Expr::value(now))
+                .col_expr(Column::UpdatedAt, Expr::value(now))
+                .filter(Column::Id.eq(id))
+                .filter(Column::DeletedAt.is_null())
+                .exec(&tx)
+                .await?;
+            resource_bookings::Entity::update_many()
+                .col_expr(resource_bookings::Column::DeletedAt, Expr::value(now))
+                .col_expr(resource_bookings::Column::UpdatedAt, Expr::value(now))
+                .filter(resource_bookings::Column::RequestId.eq(id))
+                .filter(resource_bookings::Column::DeletedAt.is_null())
+                .exec(&tx)
+                .await?;
+            flow_approvals::Entity::update_many()
+                .col_expr(flow_approvals::Column::DeletedAt, Expr::value(now))
+                .col_expr(flow_approvals::Column::UpdatedAt, Expr::value(now))
+                .filter(flow_approvals::Column::SubjectType.eq("project_request"))
+                .filter(flow_approvals::Column::SubjectId.eq(id))
+                .filter(flow_approvals::Column::DeletedAt.is_null())
+                .exec(&tx)
+                .await?;
+            Ok::<_, Refusal>(())
+        })
+    })
     .await?;
     publish_request(state, caller, PROJECT_REQUEST_DELETED, existing);
-    for booking in held.into_iter().map(js_row) {
+    for booking in held {
         let booking_id = booking["id"].as_str().unwrap_or_default();
         caller.publish(
             state,
@@ -882,19 +1048,14 @@ async fn write_score(
     scores: &Map<String, Value>,
 ) -> Reply {
     let computed = score_request(model, scores);
-    weldsuite_db::atomically(
-        &caller.db,
-        [sqlx::query(
-            "update project_requests set scores = $2::jsonb, score = $3::numeric,
-                 updated_at = $4::timestamptz
-             where id = $1 and deleted_at is null",
-        )
-        .bind(id.to_owned())
-        .bind(Value::Object(scores.clone()))
-        .bind(score_text(computed))
-        .bind(iso_now())],
-    )
-    .await?;
+    project_requests::Entity::update_many()
+        .col_expr(Column::Scores, Expr::value(Value::Object(scores.clone())))
+        .col_expr(Column::Score, Expr::value(decimal(score_text(computed))?))
+        .col_expr(Column::UpdatedAt, Expr::value(instant(crate::now_ms())))
+        .filter(Column::Id.eq(id))
+        .filter(Column::DeletedAt.is_null())
+        .exec(&orm(&caller.db))
+        .await?;
     let Some(row) = find_project_request(&caller.db, id).await? else {
         return Err(Refusal::not_found(REQUEST_LABEL, id));
     };
@@ -950,18 +1111,18 @@ async fn submit(
 async fn ask_board(state: &FlowState, caller: &Caller, id: &str, board: &[String]) -> Reply {
     let db = &caller.db;
     let now_ms = crate::now_ms();
-    let now = weldsuite_flow_domain::js::iso_from_millis(now_ms).unwrap_or_default();
+    let now = instant(now_ms);
     // Only a new request moves, so two submits at once cannot both ask the board.
-    let claimed: Option<String> = sqlx::query_scalar(
-        "update project_requests set status = 'assessing', submitted_at = $2::timestamptz,
-             updated_at = $2::timestamptz
-         where id = $1 and status = 'new' and deleted_at is null returning id",
-    )
-    .bind(id)
-    .bind(now)
-    .fetch_optional(db)
-    .await?;
-    if claimed.is_none() {
+    let claimed = project_requests::Entity::update_many()
+        .col_expr(Column::Status, Expr::value("assessing"))
+        .col_expr(Column::SubmittedAt, Expr::value(now))
+        .col_expr(Column::UpdatedAt, Expr::value(now))
+        .filter(Column::Id.eq(id))
+        .filter(Column::Status.eq("new"))
+        .filter(Column::DeletedAt.is_null())
+        .exec(&orm(db))
+        .await?;
+    if claimed.rows_affected == 0 {
         return Err(Refusal::conflict(intake_messages::NOT_NEW));
     }
     let asked = async {
@@ -1003,15 +1164,17 @@ async fn ask_board(state: &FlowState, caller: &Caller, id: &str, board: &[String
             if let Err(error) = clear_approvals(db, id).await {
                 tracing::error!(%error, "[flow-api/project-requests] approval rollback failed");
             }
-            let undone = sqlx::query(
-                "update project_requests set status = 'new', submitted_at = null,
-                     updated_at = $2::timestamptz
-                 where id = $1 and status = 'assessing'",
-            )
-            .bind(id)
-            .bind(iso_now())
-            .execute(db)
-            .await;
+            let undone = project_requests::Entity::update_many()
+                .col_expr(Column::Status, Expr::value("new"))
+                .col_expr(
+                    Column::SubmittedAt,
+                    Expr::value(Option::<time::OffsetDateTime>::None),
+                )
+                .col_expr(Column::UpdatedAt, Expr::value(instant(crate::now_ms())))
+                .filter(Column::Id.eq(id))
+                .filter(Column::Status.eq("assessing"))
+                .exec(&orm(db))
+                .await;
             if let Err(error) = undone {
                 tracing::error!(%error, "[flow-api/project-requests] submit rollback failed");
             }
@@ -1041,12 +1204,14 @@ async fn convert(
         if row_text(&existing, "status") != Some("approved") {
             return Err(Refusal::conflict(intake_messages::NOT_APPROVED));
         }
-        let linked: Option<String> = sqlx::query_scalar(
-            "select id from project_requests where project_id = $1 and deleted_at is null limit 1",
-        )
-        .bind(&project_id)
-        .fetch_optional(&caller.db)
-        .await?;
+        let linked: Option<String> = project_requests::Entity::find()
+            .select_only()
+            .column(Column::Id)
+            .filter(Column::ProjectId.eq(project_id.as_str()))
+            .filter(Column::DeletedAt.is_null())
+            .into_tuple()
+            .one(&orm(&caller.db))
+            .await?;
         if linked.is_some() {
             return Err(Refusal::conflict(intake_messages::PROJECT_LINKED));
         }
@@ -1064,51 +1229,57 @@ async fn convert(
 }
 
 async fn link_project(state: &FlowState, caller: &Caller, id: &str, project_id: &str) -> Reply {
+    use resource_bookings::Column as Booking;
+
     let db = &caller.db;
     // The people held tentatively for the request move onto the project.
-    let held: Vec<String> = sqlx::query_scalar(
-        "select id from resource_bookings where request_id = $1 and deleted_at is null order by id",
-    )
-    .bind(id)
-    .fetch_all(db)
-    .await?;
-    let now = iso_now();
-    weldsuite_db::atomically(
-        db,
-        [
-            sqlx::query(
-                "update project_requests set status = 'converted', project_id = $2,
-                     updated_at = $3::timestamptz
-                 where id = $1 and status = 'approved' and deleted_at is null",
-            )
-            .bind(id.to_owned())
-            .bind(project_id.to_owned())
-            .bind(now.clone()),
-            sqlx::query(
-                "update resource_bookings set project_id = $2, request_id = null,
-                     updated_at = $3::timestamptz
-                 where request_id = $1 and deleted_at is null",
-            )
-            .bind(id.to_owned())
-            .bind(project_id.to_owned())
-            .bind(now),
-        ],
-    )
+    let held: Vec<String> = resource_bookings::Entity::find()
+        .select_only()
+        .column(Booking::Id)
+        .filter(Booking::RequestId.eq(id))
+        .filter(Booking::DeletedAt.is_null())
+        .order_by_asc(Booking::Id)
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
+    let now = instant(crate::now_ms());
+    let (id_owned, project_owned) = (id.to_owned(), project_id.to_owned());
+    weldsuite_db::atomically_with(db, |tx| {
+        Box::pin(async move {
+            let tx = OrmConn::new(tx);
+            let (id, project_id) = (id_owned.as_str(), project_owned.as_str());
+            project_requests::Entity::update_many()
+                .col_expr(Column::Status, Expr::value("converted"))
+                .col_expr(Column::ProjectId, Expr::value(project_id))
+                .col_expr(Column::UpdatedAt, Expr::value(now))
+                .filter(Column::Id.eq(id))
+                .filter(Column::Status.eq("approved"))
+                .filter(Column::DeletedAt.is_null())
+                .exec(&tx)
+                .await?;
+            resource_bookings::Entity::update_many()
+                .col_expr(Booking::ProjectId, Expr::value(project_id))
+                .col_expr(Booking::RequestId, Expr::value(Option::<String>::None))
+                .col_expr(Booking::UpdatedAt, Expr::value(now))
+                .filter(Booking::RequestId.eq(id))
+                .filter(Booking::DeletedAt.is_null())
+                .exec(&tx)
+                .await?;
+            Ok::<_, Refusal>(())
+        })
+    })
     .await?;
     let Some(row) = find_project_request(db, id).await? else {
         return Err(Refusal::not_found(REQUEST_LABEL, id));
     };
     publish_request(state, caller, PROJECT_REQUEST_CONVERTED, &row);
     for booking_id in &held {
-        let moved: Option<Value> = sqlx::query_scalar(concat!(
-            "select ",
-            booking_json!("b"),
-            " from resource_bookings b where b.id = $1 limit 1"
-        ))
-        .bind(booking_id)
-        .fetch_optional(db)
-        .await?;
-        if let Some(moved) = moved.map(js_row) {
+        let moved = resource_bookings::Entity::find_by_id(booking_id.as_str())
+            .one(&orm(db))
+            .await?
+            .map(row_json)
+            .transpose()?;
+        if let Some(moved) = moved {
             caller.publish(
                 state,
                 RESOURCE_BOOKING_UPDATED,
@@ -1147,7 +1318,7 @@ async fn publish_project_request_outcome(
     caller: &Caller,
     request_id: &str,
     outcome: ResolvedApprovalOutcome,
-) -> Result<(), sqlx::Error> {
+) -> Result<(), DbErr> {
     let Some(row) = find_project_request(&caller.db, request_id).await? else {
         return Ok(());
     };

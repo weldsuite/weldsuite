@@ -1,6 +1,6 @@
 //! What the `/api` route groups share: the route error with its 500
-//! fallback, `zValidator` for bodies and query strings, list envelopes,
-//! timestamps and the mailbox-directory bump.
+//! fallback, `zValidator` for bodies and query strings, list envelopes and
+//! the mailbox-directory bump.
 
 use std::collections::HashMap;
 
@@ -9,8 +9,6 @@ use axum::response::{IntoResponse, Response};
 use http::HeaderMap;
 use http::header::CONTENT_TYPE;
 use serde_json::{Map, Value};
-use time::OffsetDateTime;
-use weldsuite_events::iso_timestamp;
 use weldsuite_kit::validation::{Issues, json_body, query_values};
 use weldsuite_kit::{ApiError, List, Pagination};
 
@@ -21,7 +19,7 @@ use crate::{Caller, MailState};
 #[derive(Debug)]
 pub(crate) enum MailError {
     Response(Box<Response>),
-    Database(sqlx::Error),
+    Database(sea_orm::DbErr),
 }
 
 impl MailError {
@@ -59,8 +57,8 @@ impl MailError {
     }
 }
 
-impl From<sqlx::Error> for MailError {
-    fn from(error: sqlx::Error) -> Self {
+impl From<sea_orm::DbErr> for MailError {
+    fn from(error: sea_orm::DbErr) -> Self {
         Self::Database(error)
     }
 }
@@ -131,11 +129,6 @@ pub(crate) fn query_map(raw: Option<&str>) -> HashMap<String, String> {
             .or_insert_with(|| value.into_owned());
     }
     out
-}
-
-/// `new Date()` as Drizzle writes it (UTC, milliseconds).
-pub(crate) fn now() -> String {
-    iso_timestamp(OffsetDateTime::now_utc())
 }
 
 /// `list(c, rows, cursorPagination(totalCount, hasMore, cursor))`.

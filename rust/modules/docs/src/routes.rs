@@ -6,6 +6,7 @@ use axum::response::{IntoResponse, Response};
 use http::header::{CACHE_CONTROL, CONTENT_LENGTH, CONTENT_TYPE};
 use http::{HeaderMap, HeaderValue, StatusCode};
 use serde_json::{Map, Value, json};
+use time::OffsetDateTime;
 use weldsuite_catalogs::entity_events::{
     DOC_CREATED, DOC_DELETED, DOC_UPDATED, FILE_CREATED, FILE_DELETED, FILE_MOVED, FILE_UPDATED,
 };
@@ -15,6 +16,8 @@ use weldsuite_core_domain::drive_access::{
 use weldsuite_core_domain::files::{
     Change, FileUpdate, NewFile, UpdatedFile, create_file, soft_delete_file, update_file,
 };
+use weldsuite_db::utc_timestamp;
+use weldsuite_events::iso_timestamp;
 use weldsuite_kit::validation::{Number, Presence, Text};
 use weldsuite_kit::{ApiError, Created, Data, List, NoContent, Pagination, generate_id};
 use weldsuite_ports::files::PutOptions;
@@ -248,7 +251,9 @@ async fn save_new_doc(
             tracing::error!(%error, "[docs-api] writing a checkpoint failed");
             Refusal::from(ApiError::internal())
         })?;
-    let now = now();
+    // `new Date()`: the drive file takes its text, the document row its `timestamp`.
+    let at = OffsetDateTime::now_utc();
+    let now = iso_timestamp(at);
     let file = create_file(
         &caller.db,
         &NewFile {
@@ -269,7 +274,15 @@ async fn save_new_doc(
     )
     .await?;
     let file_id = file["id"].as_str().unwrap_or_default().to_owned();
-    records::insert_doc(&caller.db, &doc_id, &file_id, &key, &caller.user_id, &now).await?;
+    records::insert_doc(
+        &caller.db,
+        &doc_id,
+        &file_id,
+        &key,
+        &caller.user_id,
+        utc_timestamp(at),
+    )
+    .await?;
     let Some(created) = records::get_doc(&caller.db, &doc_id).await? else {
         tracing::error!(doc_id, "[docs-api] a document vanished after insert");
         return Err(ApiError::internal().into());

@@ -105,7 +105,7 @@ async fn notify_assignee(
     assignee: &str,
     assigned_by: &str,
     task: &Value,
-) -> Result<(), sqlx::Error> {
+) -> Result<(), sea_orm::DbErr> {
     if assignee == assigned_by {
         return Ok(());
     }

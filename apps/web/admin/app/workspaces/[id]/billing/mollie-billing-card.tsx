@@ -1,25 +1,43 @@
+import { useState } from 'react';
 import { CreditCard, Terminal } from 'lucide-react';
 import { Badge } from '@weldsuite/ui/components/badge';
+import { Button } from '@weldsuite/ui/components/button';
 import { Card, CardContent } from '@weldsuite/ui/components/card';
 import { fill } from '@/lib/i18n';
 import { formatDay } from '@/lib/billing-format';
 import { mollieBillingCopy } from '@/lib/mollie-billing-copy';
 import { BILLING_CLI_PREFIX, billingCliCommands, mandateSummary, mollieAccountSummary } from '@/lib/mollie-billing';
-import type { MollieBillingAccount, WorkspaceBilling } from '@/lib/billing-types';
+import { canAdjustSeatPrice, listSeatPrice } from '@/lib/seat-price';
+import type { MollieBillingAccount, PlanOption, WorkspaceBilling } from '@/lib/billing-types';
 import { Notice } from './subscription-card';
+import { SeatPriceDialog } from './seat-price-dialog';
 
 /**
  * The Mollie side of a paying workspace on a Kubernetes edition (master
- * `billing_accounts`, ADR BILL-014). Read-only: changes run from the
- * `weldsuite admin billing` CLI, which the card lists.
+ * `billing_accounts`, ADR BILL-014). Staff can set the seat price here (a
+ * discount); every other change runs from the `weldsuite admin billing` CLI,
+ * which the card lists.
  */
 export function MollieBillingCard({
   workspaceId,
   account,
   billing,
-}: Readonly<{ workspaceId: string; account: MollieBillingAccount; billing: WorkspaceBilling }>) {
+  plans,
+  canWrite,
+}: Readonly<{
+  workspaceId: string;
+  account: MollieBillingAccount;
+  billing: WorkspaceBilling;
+  /** Every plan, for the list price the seat price is compared with. */
+  plans: PlanOption[];
+  canWrite: boolean;
+}>) {
   const c = mollieBillingCopy();
-  const summary = mollieAccountSummary(c, account, billing.subscriptionCycle);
+  const [adjusting, setAdjusting] = useState(false);
+  const plan = plans.find((p) => p.id === billing.planId) ?? null;
+  const listPrice = listSeatPrice(plan, billing.subscriptionCycle);
+  const summary = mollieAccountSummary(c, account, billing.subscriptionCycle, listPrice);
+  const adjustable = canWrite && canAdjustSeatPrice(account, billing, new Date());
 
   const rows: Array<[string, React.ReactNode]> = [
     [c.rows.customer, <span key="customer" className="font-mono text-xs">{account.customerId ?? '—'}</span>],
@@ -30,7 +48,15 @@ export function MollieBillingCard({
         {account.mandateId && <span className="font-mono text-[11px] text-muted-foreground">{account.mandateId}</span>}
       </span>,
     ],
-    [c.rows.seatPrice, summary.seatPrice],
+    [
+      c.rows.seatPrice,
+      <span key="seat-price" className="inline-flex flex-col items-end">
+        <span>{summary.seatPrice}</span>
+        {summary.seatPriceNote && (
+          <span className="text-[11px] text-amber-600 dark:text-amber-400">{summary.seatPriceNote}</span>
+        )}
+      </span>,
+    ],
     [c.rows.nextCharge, summary.nextCharge],
   ];
   if (summary.billingDay) rows.push([c.rows.billingDay, summary.billingDay]);
@@ -45,6 +71,11 @@ export function MollieBillingCard({
             <h2 className="text-sm font-medium">{c.title}</h2>
             {pastDue && <Badge variant="destructive">{c.pastDueBadge}</Badge>}
           </div>
+          {adjustable && (
+            <Button type="button" size="sm" variant="outline" onClick={() => setAdjusting(true)}>
+              {c.adjustSeatPrice}
+            </Button>
+          )}
         </div>
 
         {pastDue && (
@@ -85,6 +116,16 @@ export function MollieBillingCard({
           </ul>
         </div>
       </CardContent>
+      {adjusting && (
+        <SeatPriceDialog
+          workspaceId={workspaceId}
+          account={account}
+          billing={billing}
+          planName={plan?.name ?? billing.planName ?? billing.planId ?? '—'}
+          listPrice={listPrice}
+          onClose={() => setAdjusting(false)}
+        />
+      )}
     </Card>
   );
 }

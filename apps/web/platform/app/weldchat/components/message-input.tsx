@@ -9,11 +9,13 @@ import { Button } from '@weldsuite/ui/components/button';
 import {
   ComposerActions,
   ComposerFrame,
+  ComposerNotice,
   ComposerSendButton,
   composerFieldClass,
   composerIconButtonClass,
 } from '@weldsuite/ui/components/composer';
 import { EmojiPicker } from './emoji-picker';
+import { channelOffersThreads } from '../lib/message-menu-rules';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { useSendMessage, useEditMessage, useWorkspaceMembers, useChannel, useChannelMembers } from '@/hooks/queries/use-weldchat-queries';
@@ -384,7 +386,8 @@ export function MessageInput({
     !editingMessage &&
     !!threadRootId &&
     (replyTo?.depth ?? 0) >= THREAD_SUGGESTION_DEPTH &&
-    channelData?.data?.threadsEnabled !== false &&
+    // Not in a DM, where threads aren't offered.
+    channelOffersThreads(channelData?.data) &&
     !dismissedThreadSuggestions.has(threadRootId);
 
   const continueInThread = useCallback(() => {
@@ -1026,8 +1029,9 @@ export function MessageInput({
   const isStripUploading = uploadingCount > inlineUploadingCount;
   const canSend = Boolean(hasContent) && !isPending && !isUploading;
 
-  let containerTopPadding = 'pt-[10px]';
-  if (replyTo || attachments.length > 0 || isStripUploading) containerTopPadding = 'pt-[20px]';
+  // Room above attachment thumbnails for their remove buttons; a reply or edit
+  // strip sits at the box's own 10px padding.
+  const containerTopPadding = attachments.length > 0 || isStripUploading ? 'pt-[20px]' : 'pt-[10px]';
 
   return (
     <div className="px-2 pb-2 md:px-4 md:pb-4 flex-shrink-0 relative">
@@ -1128,72 +1132,47 @@ export function MessageInput({
       >
         {/* ============ Normal Message Input ============ */}
           {editingMessage && (
-              <div className="mx-1.5 -mt-1 mb-1 rounded-lg bg-gray-100 dark:bg-secondary/60">
-                <div className="flex items-start gap-2 px-3 py-2.5">
-                  <Pencil className="h-3.5 w-3.5 text-gray-900 dark:text-foreground mt-0.5 shrink-0" />
-                  <p className="flex-1 min-w-0 text-[13px] text-gray-900 dark:text-foreground leading-snug">
-                    {t.weldchat.messageContextMenu.editMessage}
-                  </p>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    onClick={cancelEditing}
-                    className="shrink-0 p-1.5 -m-1 -mr-[6px] rounded-lg hover:bg-gray-200 dark:hover:bg-accent transition-colors"
-                  >
-                    <X className="h-3.5 w-3.5 text-gray-900 dark:text-foreground" />
-                  </Button>
-                </div>
-              </div>
-            )}
+            <ComposerNotice
+              icon={<Pencil />}
+              onDismiss={cancelEditing}
+              dismissLabel={t.weldchat.messageInput.cancelEditing}
+            >
+              {t.weldchat.messageContextMenu.editMessage}
+            </ComposerNotice>
+          )}
 
             {/* Long reply chain → suggest continuing in a thread */}
             {showThreadSuggestion && (
-              <div className="mx-1.5 -mt-1 mb-1 rounded-lg bg-gray-100 dark:bg-secondary/60">
-                <div className="flex items-center gap-2 px-3 py-2">
-                  <MessageSquare className="h-3.5 w-3.5 text-gray-900 dark:text-foreground shrink-0" />
-                  <p className="flex-1 min-w-0 text-[13px] text-gray-900 dark:text-foreground leading-snug">
-                    {t.weldchat.messageInput.threadSuggestion}
-                  </p>
+              <ComposerNotice
+                icon={<MessageSquare />}
+                onDismiss={dismissThreadSuggestion}
+                dismissLabel={t.weldchat.messageInput.dismissThreadSuggestion}
+                actions={
                   <Button
                     type="button"
                     size="sm"
                     onClick={continueInThread}
-                    className="h-7 shrink-0 rounded-lg px-2.5 text-[12px]"
+                    className="h-6 shrink-0 rounded-md px-2 text-[12px]"
                   >
                     {t.weldchat.messageInput.createThread}
                   </Button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    onClick={dismissThreadSuggestion}
-                    aria-label={t.weldchat.messageInput.dismissThreadSuggestion}
-                    title={t.weldchat.messageInput.dismissThreadSuggestion}
-                    className="shrink-0 p-1.5 -m-1 -mr-[6px] rounded-lg hover:bg-gray-200 dark:hover:bg-accent transition-colors"
-                  >
-                    <X className="h-3.5 w-3.5 text-gray-900 dark:text-foreground" />
-                  </Button>
-                </div>
-              </div>
+                }
+              >
+                {t.weldchat.messageInput.threadSuggestion}
+              </ComposerNotice>
             )}
 
             {/* Reply preview */}
             {replyTo && (
-              <div className="mx-1.5 -mt-1 mb-1 rounded-lg bg-gray-100 dark:bg-secondary/60">
-                <div className="flex items-start gap-2 px-3 py-2.5">
-                  <CornerDownRight className="h-3.5 w-3.5 text-gray-900 dark:text-foreground mt-0.5 shrink-0" />
-                  <p className="flex-1 min-w-0 text-[13px] text-gray-900 dark:text-foreground line-clamp-2 leading-snug">
-                    &ldquo;{renderReplyPreview(replyTo.content, membersMap.current)}&rdquo;
-                  </p>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    onClick={() => setReplyTo(null)}
-                    className="shrink-0 p-1.5 -m-1 -mr-[6px] rounded-lg hover:bg-gray-200 dark:hover:bg-accent transition-colors"
-                  >
-                    <X className="h-3.5 w-3.5 text-gray-900 dark:text-foreground" />
-                  </Button>
-                </div>
-              </div>
+              <ComposerNotice
+                icon={<CornerDownRight />}
+                onDismiss={() => setReplyTo(null)}
+                dismissLabel={t.weldchat.messageInput.cancelReply}
+              >
+                <p className="line-clamp-2">
+                  &ldquo;{renderReplyPreview(replyTo.content, membersMap.current)}&rdquo;
+                </p>
+              </ComposerNotice>
             )}
 
             {/* Attachment previews */}
@@ -1310,11 +1289,12 @@ export function MessageInput({
                           size="icon"
                           onMouseDown={(e) => { e.preventDefault(); applyFormat(command); }}
                           aria-pressed={activeFormats.has(command)}
+                          // Hovered and switched on look the same (as the row below's
+                          // toggles do), so pointing at a format previews its "on".
                           className={cn(
-                            "size-7 rounded-md transition-colors",
-                            activeFormats.has(command)
-                              ? "bg-gray-200 text-gray-800 dark:bg-accent dark:text-foreground"
-                              : "text-gray-500 hover:bg-gray-100 hover:text-gray-700 dark:text-muted-foreground dark:hover:bg-accent dark:hover:text-foreground"
+                            composerIconButtonClass,
+                            "size-7 rounded-md",
+                            activeFormats.has(command) && "bg-gray-100 text-gray-700 dark:bg-accent dark:text-foreground"
                           )}
                           title={title}
                         >

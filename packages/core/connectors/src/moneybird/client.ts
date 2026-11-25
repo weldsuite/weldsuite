@@ -315,6 +315,8 @@ export class MoneybirdClient implements ConnectorProviderClient {
     const perPage = options.perPage ?? DEFAULT_PER_PAGE;
     const { data: versions } = await this.request<Array<{ id?: unknown; version?: unknown }>>(
       'financial_mutations/synchronization',
+      // No filter defaults to period:this_year; any filter without a period has no date limit.
+      { search: { filter: 'state:all' } },
     );
     const rows = Array.isArray(versions) ? versions : [];
     const sinceMs = options.updatedAfter ? Date.parse(options.updatedAfter) : Number.NaN;
@@ -403,7 +405,9 @@ export class MoneybirdClient implements ConnectorProviderClient {
   }
 
   private async countPath(path: string): Promise<number> {
-    const { data } = await this.request<Array<{ id?: unknown }>>(`${path}/synchronization`);
+    const { data } = await this.request<Array<{ id?: unknown }>>(`${path}/synchronization`, {
+      search: path === 'financial_mutations' ? { filter: 'state:all' } : undefined,
+    });
     return Array.isArray(data) ? data.length : 0;
   }
 

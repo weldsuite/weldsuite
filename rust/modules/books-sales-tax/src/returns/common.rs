@@ -6,14 +6,16 @@
 use axum::Json;
 use axum::response::IntoResponse;
 use http::StatusCode;
+use sea_orm::prelude::BigDecimal;
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder};
 use serde_json::{Map, Value, json};
 use weldsuite_books_domain::entity_context::resolve_entity_id;
 use weldsuite_books_domain::http::{BooksState, Caller, Refusal};
 use weldsuite_books_domain::js::iso_from_millis;
 use weldsuite_books_domain::sales_tax::{from_cents, to_cents};
-use weldsuite_books_domain::tables::{ENTITIES, SALES_TAX_AGENCIES, TAX_RETURNS};
 use weldsuite_books_domain::tax_calendar::AgencyInput;
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm};
+use weldsuite_schema::tenant::{entities, sales_tax_agencies, tax_returns};
 
 use crate::common::{now_of, text};
 
@@ -131,6 +133,62 @@ pub(crate) fn add_months(day: &str, months: i64) -> String {
     weldsuite_books_domain::dates::add_months(day, months).unwrap_or_default()
 }
 
+/// A `YYYY-MM-DD` day bound as `$n::date`; a day Postgres can't read fails
+/// the statement (the route's 500).
+pub(crate) fn parse_day(day: &str) -> Result<time::Date, DbErr> {
+    time::Date::parse(
+        day,
+        time::macros::format_description!("[year]-[month]-[day]"),
+    )
+    .map_err(|error| {
+        DbErr::Custom(format!(
+            "invalid input syntax for type date: \"{day}\" ({error})"
+        ))
+    })
+}
+
+/// A `date` as Postgres prints it (`::text`): `2026-10-29`.
+pub(crate) fn day_text(day: time::Date) -> String {
+    day.format(time::macros::format_description!("[year]-[month]-[day]"))
+        .unwrap_or_default()
+}
+
+/// `startOfDay(day)` bound as `$n::timestamp`: midnight of the day.
+pub(crate) fn day_start(day: &str) -> Result<time::PrimitiveDateTime, DbErr> {
+    parse_day(day).map(time::Date::midnight)
+}
+
+/// An instant bound as `$n::timestamp` (`toISOString()` text, or a day): the
+/// wall time it names, any zone ignored as Postgres ignores it for a
+/// `timestamp`; text Postgres can't read fails the statement.
+pub(crate) fn parse_instant(text: &str) -> Result<time::PrimitiveDateTime, DbErr> {
+    if text.len() == 10 {
+        return day_start(text);
+    }
+    time::OffsetDateTime::parse(text, &time::format_description::well_known::Rfc3339)
+        .map(|at| time::PrimitiveDateTime::new(at.date(), at.time()))
+        .map_err(|error| {
+            DbErr::Custom(format!(
+                "invalid input syntax for type timestamp: \"{text}\" ({error})"
+            ))
+        })
+}
+
+/// A money amount written as `$n::numeric` from its text (`toFixed(2)`);
+/// text Postgres can't read fails the statement.
+pub(crate) fn decimal(text: &str) -> Result<BigDecimal, DbErr> {
+    text.parse::<BigDecimal>().map_err(|error| {
+        DbErr::Custom(format!(
+            "invalid input syntax for type numeric: \"{text}\" ({error})"
+        ))
+    })
+}
+
+/// `Number(value)` of a `numeric` column read as text (`num`), 0 for null.
+pub(crate) fn decimal_num(value: Option<&BigDecimal>) -> f64 {
+    value.map_or(0.0, |value| num(&Value::String(value.to_plain_string())))
+}
+
 /// The request's `new Date()` as `toISOString()`.
 pub(crate) fn now_iso(caller: &Caller, state: &BooksState) -> String {
     iso_from_millis(now_of(caller, state).as_millisecond()).unwrap_or_default()
@@ -208,18 +266,27 @@ pub(crate) fn agency_to_input(agency: &Value) -> AgencyInput {
     }
 }
 
+/// A row as Drizzle returned it: the entity serializes so.
+pub(crate) fn row_json(model: impl serde::Serialize) -> Result<Value, DbErr> {
+    serde_json::to_value(model).map_err(|error| DbErr::Json(error.to_string()))
+}
+
+/// Rows as Drizzle returned them.
+pub(crate) fn rows_json<M: serde::Serialize>(models: Vec<M>) -> Result<Vec<Value>, DbErr> {
+    models.into_iter().map(row_json).collect()
+}
+
 /// `loadAgencies(db, entityId)`: the entity's live agencies by state and name.
-pub(crate) async fn load_agencies(db: &PgPool, entity_id: &str) -> Result<Vec<Value>, sqlx::Error> {
-    let rows: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(sales_tax_agencies),
-        " from sales_tax_agencies t where t.entity_id = $1 and t.deleted_at is null \
-         order by t.state_code, t.name"
-    ))
-    .bind(entity_id)
-    .fetch_all(db)
-    .await?;
-    Ok(SALES_TAX_AGENCIES.js_rows(rows))
+pub(crate) async fn load_agencies(db: &PgPool, entity_id: &str) -> Result<Vec<Value>, DbErr> {
+    use sales_tax_agencies::Column;
+    let rows = sales_tax_agencies::Entity::find()
+        .filter(Column::EntityId.eq(entity_id))
+        .filter(Column::DeletedAt.is_null())
+        .order_by_asc(Column::StateCode)
+        .order_by_asc(Column::Name)
+        .all(&orm(db))
+        .await?;
+    rows_json(rows)
 }
 
 /// `loadAgency(db, entityId, agencyId)`.
@@ -228,16 +295,15 @@ pub(crate) async fn load_agency(
     entity_id: &str,
     agency_id: &str,
 ) -> Result<Value, Refusal> {
-    let row: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(sales_tax_agencies),
-        " from sales_tax_agencies t where t.id = $1 and t.entity_id = $2 and t.deleted_at is null limit 1"
-    ))
-    .bind(agency_id)
-    .bind(entity_id)
-    .fetch_optional(db)
-    .await?;
-    row.map(|r| SALES_TAX_AGENCIES.js(r))
+    use sales_tax_agencies::Column;
+    let row = sales_tax_agencies::Entity::find()
+        .filter(Column::Id.eq(agency_id))
+        .filter(Column::EntityId.eq(entity_id))
+        .filter(Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?;
+    row.map(row_json)
+        .transpose()?
         .ok_or_else(|| not_found(format!("Sales tax agency {agency_id} not found")))
 }
 
@@ -253,15 +319,13 @@ pub(crate) async fn entity_id_of(caller: &Caller) -> Result<String, Refusal> {
 
 /// `loadUsEntity(db, entityId)`.
 pub(crate) async fn load_us_entity(db: &PgPool, entity_id: &str) -> Result<Value, Refusal> {
-    let row: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(entities),
-        " from entities t where t.id = $1 and t.deleted_at is null limit 1"
-    ))
-    .bind(entity_id)
-    .fetch_optional(db)
-    .await?;
-    let Some(entity) = row.map(|r| ENTITIES.js(r)) else {
+    use entities::Column;
+    let row = entities::Entity::find()
+        .filter(Column::Id.eq(entity_id))
+        .filter(Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?;
+    let Some(entity) = row.map(row_json).transpose()? else {
         return Err(not_found(format!(
             "Accounting entity {entity_id} not found"
         )));
@@ -281,30 +345,25 @@ pub(crate) async fn us_entity_of(caller: &Caller) -> Result<Value, Refusal> {
 }
 
 /// A `tax_returns` row by id, as Drizzle returns it.
-pub(crate) async fn return_by_id(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(tax_returns),
-        " from tax_returns t where t.id = $1 limit 1"
-    ))
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(|r| TAX_RETURNS.js(r)))
+pub(crate) async fn return_by_id(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
+    tax_returns::Entity::find_by_id(id.to_owned())
+        .one(&orm(db))
+        .await?
+        .map(row_json)
+        .transpose()
 }
 
 /// `loadReturn(db, entityId, id)`.
 pub(crate) async fn load_return(db: &PgPool, entity_id: &str, id: &str) -> Result<Value, Refusal> {
-    let row: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(tax_returns),
-        " from tax_returns t where t.id = $1 and t.entity_id = $2 and t.deleted_at is null limit 1"
-    ))
-    .bind(id)
-    .bind(entity_id)
-    .fetch_optional(db)
-    .await?;
-    row.map(|r| TAX_RETURNS.js(r))
+    use tax_returns::Column;
+    let row = tax_returns::Entity::find()
+        .filter(Column::Id.eq(id))
+        .filter(Column::EntityId.eq(entity_id))
+        .filter(Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?;
+    row.map(row_json)
+        .transpose()?
         .ok_or_else(|| not_found(format!("Tax return {id} not found")))
 }
 
@@ -313,18 +372,17 @@ pub(crate) async fn load_agency_returns(
     db: &PgPool,
     entity_id: &str,
     agency_id: &str,
-) -> Result<Vec<Value>, sqlx::Error> {
-    let rows: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(tax_returns),
-        " from tax_returns t where t.entity_id = $1 and t.agency_id = $2 and t.deleted_at is null \
-         order by t.period_end desc, t.created_at desc"
-    ))
-    .bind(entity_id)
-    .bind(agency_id)
-    .fetch_all(db)
-    .await?;
-    Ok(TAX_RETURNS.js_rows(rows))
+) -> Result<Vec<Value>, DbErr> {
+    use tax_returns::Column;
+    let rows = tax_returns::Entity::find()
+        .filter(Column::EntityId.eq(entity_id))
+        .filter(Column::AgencyId.eq(agency_id))
+        .filter(Column::DeletedAt.is_null())
+        .order_by_desc(Column::PeriodEnd)
+        .order_by_desc(Column::CreatedAt)
+        .all(&orm(db))
+        .await?;
+    rows_json(rows)
 }
 
 /// `ReturnContext`: the entity, the return and its agency.

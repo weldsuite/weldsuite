@@ -29,6 +29,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@weldsuite/ui/components/select';
+import { MultiSelect } from '@weldsuite/ui/components/multi-select';
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -41,6 +42,7 @@ import {
   SidebarContent,
   SidebarGroup,
   SidebarGroupContent,
+  SidebarGroupLabel,
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
@@ -471,6 +473,7 @@ export function GroupSettingsDialog({ open, onOpenChange, target }: Readonly<Gro
           <Sidebar collapsible="none" className="hidden md:flex border-r">
             <SidebarContent>
               <SidebarGroup>
+                <SidebarGroupLabel>{t.weldchat.groupSettings.nav.heading}</SidebarGroupLabel>
                 <SidebarGroupContent>
                   <SidebarMenu>
                     {visibleNav.map((item) => (
@@ -965,12 +968,15 @@ export function GroupSettingsDialog({ open, onOpenChange, target }: Readonly<Gro
                 <div className="space-y-6">
                   <div className="space-y-2">
                     <div>
-                      <Label className="text-sm font-medium">{t.weldchat.groupSettings.display.primarySort}</Label>
+                      <Label htmlFor="group-settings-primary-sort" className="text-sm font-medium">
+                        {t.weldchat.groupSettings.display.primarySort}
+                      </Label>
                       <p className="text-xs text-muted-foreground mt-0.5 pb-[3px]">
                         {t.weldchat.groupSettings.display.primarySortHint}
                       </p>
                     </div>
-                    <SortOptionGrid
+                    <SortSelect
+                      id="group-settings-primary-sort"
                       value={draft.sortBy ?? 'recent'}
                       onChange={(v) => update('sortBy', v)}
                     />
@@ -980,15 +986,19 @@ export function GroupSettingsDialog({ open, onOpenChange, target }: Readonly<Gro
 
                   <div className="space-y-2">
                     <div>
-                      <Label className="text-sm font-medium">{t.weldchat.groupSettings.display.moveToTop}</Label>
+                      <Label htmlFor="group-settings-move-to-top" className="text-sm font-medium">
+                        {t.weldchat.groupSettings.display.moveToTop}
+                      </Label>
                       <p className="text-xs text-muted-foreground mt-0.5 pb-[3px]">
                         {t.weldchat.groupSettings.display.moveToTopHint}
                       </p>
                     </div>
-                    <ChipToggleGroup
+                    <ToggleMultiSelect
+                      id="group-settings-move-to-top"
+                      placeholder={t.weldchat.groupSettings.display.noneChosen}
                       options={BOOST_OPTIONS.map((o) => ({ ...o, label: { boostActiveCall: t.weldchat.groupSettings.display.boostOptions.activeCalls, boostPinned: t.weldchat.groupSettings.display.boostOptions.pinned, boostFavorite: t.weldchat.groupSettings.display.boostOptions.favorited, boostMentions: t.weldchat.groupSettings.display.boostOptions.mentions, boostUnread: t.weldchat.groupSettings.display.boostOptions.unread }[o.key] ?? o.label }))}
                       isOn={(key) => !!draft[key]}
-                      onToggle={(key) => update(key, !draft[key])}
+                      onChange={(key, on) => update(key, on)}
                     />
                   </div>
 
@@ -996,15 +1006,19 @@ export function GroupSettingsDialog({ open, onOpenChange, target }: Readonly<Gro
 
                   <div className="space-y-2">
                     <div>
-                      <Label className="text-sm font-medium">{t.weldchat.groupSettings.display.moveToBottom}</Label>
+                      <Label htmlFor="group-settings-move-to-bottom" className="text-sm font-medium">
+                        {t.weldchat.groupSettings.display.moveToBottom}
+                      </Label>
                       <p className="text-xs text-muted-foreground mt-0.5 pb-[3px]">
                         {t.weldchat.groupSettings.display.moveToBottomHint}
                       </p>
                     </div>
-                    <ChipToggleGroup
+                    <ToggleMultiSelect
+                      id="group-settings-move-to-bottom"
+                      placeholder={t.weldchat.groupSettings.display.noneChosen}
                       options={SINK_OPTIONS.map((o) => ({ ...o, label: { sinkRead: t.weldchat.groupSettings.display.sinkOptions.alreadyRead, sinkInactive: t.weldchat.groupSettings.display.sinkOptions.inactive, sinkEmpty: t.weldchat.groupSettings.display.sinkOptions.noMessages, sinkMuted: t.weldchat.groupSettings.display.sinkOptions.muted, sinkArchived: t.weldchat.groupSettings.display.sinkOptions.archived }[o.key] ?? o.label }))}
                       isOn={(key) => !!draft[key]}
-                      onToggle={(key) => update(key, !draft[key])}
+                      onChange={(key, on) => update(key, on)}
                     />
                   </div>
 
@@ -1712,7 +1726,12 @@ const PEEK_OPTIONS: { key: PeekKey; label: string; icon: React.ComponentType<{ c
   { key: 'peekRecentlyActive', label: 'Recently active', icon: Clock },
 ];
 
-function SortOptionGrid({ value, onChange }: Readonly<{ value: SortBy; onChange: (v: SortBy) => void }>) {
+/** The primary sort, as one select: the current order with its icon, every order in the list. */
+function SortSelect({
+  id,
+  value,
+  onChange,
+}: Readonly<{ id: string; value: SortBy; onChange: (v: SortBy) => void }>) {
   const { t } = useI18n();
   const sortLabels: Record<string, string> = {
     'name-asc': t.weldchat.groupSettings.display.sortOptions.nameAsc,
@@ -1727,28 +1746,59 @@ function SortOptionGrid({ value, onChange }: Readonly<{ value: SortBy; onChange:
     'mentions-count': t.weldchat.groupSettings.display.sortOptions.mentionsCount,
   };
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-      {SORT_OPTIONS.map((opt) => {
-        const Icon = opt.icon;
-        const active = value === opt.value;
-        return (
-          <Button
-            key={opt.value}
-            type="button"
-            variant="ghost"
-            onClick={() => onChange(opt.value)}
-            className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm transition-colors h-auto font-normal ${
-              active
-                ? 'border-primary bg-primary/5 text-foreground font-medium'
-                : 'border-border hover:bg-accent text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            <Icon className="h-3.5 w-3.5 shrink-0" />
-            <span className="truncate">{sortLabels[opt.value] ?? opt.label}</span>
-          </Button>
-        );
-      })}
-    </div>
+    <Select value={value} onValueChange={(v) => onChange(v as SortBy)}>
+      <SelectTrigger id={id} className="w-full sm:w-64">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        {SORT_OPTIONS.map((opt) => (
+          <SelectItem key={opt.value} value={opt.value}>
+            <opt.icon />
+            {sortLabels[opt.value] ?? opt.label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
+
+/**
+ * Several on/off settings as one multi-select (Move to top, Move to bottom):
+ * the ones switched on show as chips in the field, each option has a box in
+ * the list.
+ */
+function ToggleMultiSelect<K extends string>({
+  id,
+  options,
+  isOn,
+  onChange,
+  placeholder,
+}: Readonly<{
+  id: string;
+  options: { key: K; label: string; icon: React.ComponentType<{ className?: string }> }[];
+  isOn: (key: K) => boolean;
+  /** Each option, switched on or off. */
+  onChange: (key: K, on: boolean) => void;
+  placeholder: string;
+}>) {
+  const value = options.filter((o) => isOn(o.key)).map((o) => o.key);
+  return (
+    <MultiSelect
+      id={id}
+      // Inside the dialog: keeps the portaled list clickable.
+      modal
+      searchable={false}
+      placeholder={placeholder}
+      className="w-full sm:w-[420px]"
+      options={options.map((o) => ({ value: o.key, label: o.label, icon: <o.icon className="size-4" /> }))}
+      value={value}
+      onChange={(next) => {
+        for (const o of options) {
+          const on = next.includes(o.key);
+          if (on !== isOn(o.key)) onChange(o.key, on);
+        }
+      }}
+    />
   );
 }
 

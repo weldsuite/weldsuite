@@ -9,12 +9,14 @@ use axum::Router;
 use axum::extract::State;
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::json;
-use weldsuite_db::TenantPermissionQueries;
+use weldsuite_db::{TenantPermissionQueries, orm};
 use weldsuite_kit::{ApiError, Data};
 use weldsuite_permissions::{
     PermissionGate, PermissionQueries, has_app_permission, resolve_effective_permissions,
 };
+use weldsuite_schema::tenant::workspace_members as members;
 
 use crate::{Caller, CoreTeamState};
 
@@ -30,12 +32,14 @@ async fn my_role(State(_state): State<CoreTeamState>, caller: Caller) -> Respons
     if caller.org_id.is_none() {
         return ApiError::org_required().into_response();
     }
-    let role: Result<Option<String>, sqlx::Error> = sqlx::query_scalar(
-        "select role from workspace_members where user_id = $1 and deleted_at is null limit 1",
-    )
-    .bind(&caller.user_id)
-    .fetch_optional(&caller.db)
-    .await;
+    let role: Result<Option<String>, DbErr> = members::Entity::find()
+        .select_only()
+        .column(members::Column::Role)
+        .filter(members::Column::UserId.eq(&caller.user_id))
+        .filter(members::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(&caller.db))
+        .await;
     let role = match role {
         Ok(Some(role)) => role,
         Ok(None) => {

@@ -20,7 +20,7 @@ const EU_CONFIG = {
   backend: 'rust',
   edition: 'eu',
   modules: ['core', 'know', 'sign', 'pass', 'calendar'],
-  unavailableFeatures: ['sso-connections', 'billing', 'reach-billing', 'credit-top-up', 'paid-apps', 'desktop-sign-in', 'analytics', 'search-reindex', 'company-logos', 'mail-domains', 'mail-free-addresses', 'mail-ai', 'chat-calls', 'helpcenter-custom-domains', 'helpcenter-hosting', 'payroll-digipoort', 'books-ocr', 'phone-number-purchase', 'vat-digipoort', 'domain-purchase', 'meet-transcription', 'meet-recordings', 'weldconnect-ai', 'agent-ai', 'desk-ai', 'forms-ai', 'data-regions', 'collab-rooms', 'assistant-ai', 'agent-sandbox', 'panel-analytics', 'integration-sync'],
+  unavailableFeatures: ['sso-connections', 'billing', 'reach-billing', 'credit-top-up', 'paid-apps', 'desktop-sign-in', 'analytics', 'search-reindex', 'company-logos', 'mail-domains', 'mail-free-addresses', 'mail-ai', 'chat-calls', 'helpcenter-custom-domains', 'helpcenter-hosting', 'payroll-digipoort', 'books-ocr', 'phone-number-purchase', 'vat-digipoort', 'domain-purchase', 'meet-transcription', 'meet-recordings', 'weldconnect-ai', 'agent-ai', 'desk-ai', 'forms-ai', 'data-regions', 'collab-rooms', 'assistant-ai', 'agent-sandbox', 'panel-analytics', 'integration-sync', 'weldpass-sync'],
 };
 
 afterEach(() => setRuntimeConfig(null));
@@ -233,5 +233,24 @@ describe('stash-replenishment', () => {
     expect(isFeatureAvailable('stash-replenishment')).toBe(true);
     setRuntimeConfig({ backend: 'rust', modules: ['core', 'stash'], unavailableFeatures: ['billing'] });
     expect(isFeatureAvailable('stash-replenishment')).toBe(true);
+  });
+});
+
+describe('stash-shipping', () => {
+  it('is hidden on Global, which has no runtime config', () => {
+    setRuntimeConfig(null);
+    expect(isFeatureAvailable('stash-shipping')).toBe(false);
+  });
+
+  it('is offered by a Rust backend that does not list it as unavailable', () => {
+    setRuntimeConfig(EU_CONFIG);
+    expect(isFeatureAvailable('stash-shipping')).toBe(true);
+    setRuntimeConfig({ backend: 'rust', modules: ['core', 'stash'], unavailableFeatures: ['billing'] });
+    expect(isFeatureAvailable('stash-shipping')).toBe(true);
+  });
+
+  it('is hidden by a Rust backend that lists it as unavailable', () => {
+    setRuntimeConfig({ backend: 'rust', modules: ['core', 'stash'], unavailableFeatures: ['stash-shipping'] });
+    expect(isFeatureAvailable('stash-shipping')).toBe(false);
   });
 });

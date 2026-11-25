@@ -12,15 +12,22 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, post};
 use axum::{Extension, Router};
 use http::HeaderMap;
+use sea_orm::sea_query::Expr;
+use sea_orm::sea_query::extension::postgres as pg;
+use sea_orm::{ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
+use time::PrimitiveDateTime;
 use weldsuite_catalogs::entity_events as ev;
-use weldsuite_db::{PgPool, Tenant};
+use weldsuite_db::{PgPool, Tenant, orm, utc_now};
 use weldsuite_kit::validation::{Format, Presence, Text};
 use weldsuite_kit::{ApiError, Created, Data, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::master::mail_account_registry as registry;
+use weldsuite_schema::tenant::enums::{MailAccountStatus, MailDomainDnsStatus, MailProvider};
+use weldsuite_schema::tenant::{mail_accounts, mail_domains};
 
-use super::{js_stamp, master, truthy};
-use crate::{Caller, DeskState, Refusal, now, validate};
+use super::{master, truthy};
+use crate::{Caller, DeskState, Refusal, validate};
 
 pub(super) fn routes<Q>(gate: &Arc<PermissionGate<Q>>) -> Router<DeskState>
 where
@@ -47,6 +54,23 @@ where
         .route("/domains", get(domains).route_layer(need("settings:read")))
 }
 
+/// A `timestamp` as the route's `Date` serializes: `toISOString()`.
+fn js_date(at: PrimitiveDateTime) -> Value {
+    weldsuite_schema::js::timestamp::serialize(&at, serde_json::value::Serializer)
+        .unwrap_or(Value::Null)
+}
+
+/// `metadata->>'helpdeskEnabled' = 'true'`.
+fn helpdesk_enabled() -> Expr {
+    sea_orm::ExprTrait::eq(
+        pg::PgExpr::cast_json_field(
+            Expr::col(mail_accounts::Column::Metadata),
+            "helpdeskEnabled",
+        ),
+        "true",
+    )
+}
+
 /// `getMasterDb(c.env)` inside the route's `try`: without one the route
 /// answers its 500.
 #[allow(clippy::result_large_err)] // the response is the route's answer
@@ -65,37 +89,53 @@ async fn addresses(
         Err(response) => return response,
     };
     #[allow(clippy::type_complexity)] // the registry row's columns
-    let registry: Result<Vec<(String, String, String, bool, Option<String>)>, _> = sqlx::query_as(
-        "select id, email, account_id, is_active, to_jsonb(created_at)#>>'{}' from mail_account_registry
-         where workspace_id = $1 and account_id like 'helpdesk_%'",
-    )
-    .bind(&tenant.workspace_id)
-    .fetch_all(&master)
-    .await;
-    let registry = match registry {
+    let entries: Result<Vec<(String, String, String, bool, PrimitiveDateTime)>, _> =
+        registry::Entity::find()
+            .select_only()
+            .columns([
+                registry::Column::Id,
+                registry::Column::Email,
+                registry::Column::AccountId,
+                registry::Column::IsActive,
+                registry::Column::CreatedAt,
+            ])
+            .filter(registry::Column::WorkspaceId.eq(&tenant.workspace_id))
+            .filter(registry::Column::AccountId.like("helpdesk_%"))
+            .into_tuple()
+            .all(&orm(&master))
+            .await;
+    let entries = match entries {
         Ok(rows) => rows,
         Err(error) => return Refusal::from(error).respond(message),
     };
-    let accounts: Result<Vec<(String, String, Option<String>)>, _> = sqlx::query_as(
-        "select id, email, to_jsonb(created_at)#>>'{}' from mail_accounts
-         where status = 'active' and deleted_at is null and metadata->>'helpdeskEnabled' = 'true'",
-    )
-    .fetch_all(&caller.db)
-    .await;
+    let accounts: Result<Vec<(String, String, PrimitiveDateTime)>, _> =
+        mail_accounts::Entity::find()
+            .select_only()
+            .columns([
+                mail_accounts::Column::Id,
+                mail_accounts::Column::Email,
+                mail_accounts::Column::CreatedAt,
+            ])
+            .filter(mail_accounts::Column::Status.eq(MailAccountStatus::Active))
+            .filter(mail_accounts::Column::DeletedAt.is_null())
+            .filter(helpdesk_enabled())
+            .into_tuple()
+            .all(&orm(&caller.db))
+            .await;
     let accounts = match accounts {
         Ok(rows) => rows,
         Err(error) => return Refusal::from(error).respond(message),
     };
     let mut seen = std::collections::HashSet::new();
     let mut out = Vec::new();
-    for (id, email, account_id, is_active, created_at) in registry {
+    for (id, email, account_id, is_active, created_at) in entries {
         if seen.insert(email.clone()) {
             out.push(json!({
                 "id": id,
                 "email": email,
                 "accountId": account_id,
                 "isActive": is_active,
-                "createdAt": js_stamp(created_at),
+                "createdAt": js_date(created_at),
                 "source": "registry",
             }));
         }
@@ -107,7 +147,7 @@ async fn addresses(
                 "email": email,
                 "accountId": format!("helpdesk_mail_{id}"),
                 "isActive": true,
-                "createdAt": js_stamp(created_at),
+                "createdAt": js_date(created_at),
                 "source": "mail_account",
             }));
         }
@@ -121,16 +161,26 @@ async fn mail_accounts(caller: Caller) -> Response {
         String,
         String,
         Option<String>,
-        String,
-        String,
+        MailProvider,
+        MailAccountStatus,
         Option<Value>,
     );
-    let rows: Result<Vec<Row>, _> = sqlx::query_as(
-        "select id, name, email, display_name, provider::text, status::text, metadata from mail_accounts
-         where status = 'active' and deleted_at is null",
-    )
-    .fetch_all(&caller.db)
-    .await;
+    let rows: Result<Vec<Row>, _> = mail_accounts::Entity::find()
+        .select_only()
+        .columns([
+            mail_accounts::Column::Id,
+            mail_accounts::Column::Name,
+            mail_accounts::Column::Email,
+            mail_accounts::Column::DisplayName,
+            mail_accounts::Column::Provider,
+            mail_accounts::Column::Status,
+            mail_accounts::Column::Metadata,
+        ])
+        .filter(mail_accounts::Column::Status.eq(MailAccountStatus::Active))
+        .filter(mail_accounts::Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&orm(&caller.db))
+        .await;
     match rows {
         Ok(rows) => Data(Value::Array(
             rows.into_iter()
@@ -161,12 +211,21 @@ async fn mail_accounts(caller: Caller) -> Response {
 
 async fn domains(caller: Caller) -> Response {
     #[allow(clippy::type_complexity)] // the domain row's columns
-    let rows: Result<Vec<(String, String, Option<String>, bool)>, _> = sqlx::query_as(
-        "select id, domain_name, dns_status::text, is_active from mail_domains
-         where is_active = true and dns_status = 'verified' and deleted_at is null",
-    )
-    .fetch_all(&caller.db)
-    .await;
+    let rows: Result<Vec<(String, String, Option<MailDomainDnsStatus>, bool)>, _> =
+        mail_domains::Entity::find()
+            .select_only()
+            .columns([
+                mail_domains::Column::Id,
+                mail_domains::Column::DomainName,
+                mail_domains::Column::DnsStatus,
+                mail_domains::Column::IsActive,
+            ])
+            .filter(mail_domains::Column::IsActive.eq(true))
+            .filter(mail_domains::Column::DnsStatus.eq(MailDomainDnsStatus::Verified))
+            .filter(mail_domains::Column::DeletedAt.is_null())
+            .into_tuple()
+            .all(&orm(&caller.db))
+            .await;
     match rows {
         Ok(rows) => Data(Value::Array(
             rows.into_iter()
@@ -185,23 +244,57 @@ async fn domains(caller: Caller) -> Response {
     }
 }
 
+/// The registry entry with `email` (`limit 1`); `helpdesk_only` keeps the
+/// active `helpdesk_…` accounts.
+async fn registry_entry(
+    master: &PgPool,
+    email: &str,
+    helpdesk_only: bool,
+) -> Result<Option<String>, DbErr> {
+    let mut find = registry::Entity::find()
+        .select_only()
+        .column(registry::Column::Id)
+        .filter(registry::Column::Email.eq(email));
+    if helpdesk_only {
+        find = find
+            .filter(registry::Column::AccountId.like("helpdesk_%"))
+            .filter(registry::Column::IsActive.eq(true));
+    }
+    find.into_tuple().one(&orm(master)).await
+}
+
+/// `update(mailAccounts).set({ metadata, updatedAt: new Date() })` of the
+/// account `id`.
+async fn set_metadata(db: &PgPool, id: &str, metadata: Map<String, Value>) -> Result<(), DbErr> {
+    mail_accounts::Entity::update_many()
+        .col_expr(
+            mail_accounts::Column::Metadata,
+            Expr::value(Value::Object(metadata)),
+        )
+        .col_expr(mail_accounts::Column::UpdatedAt, Expr::value(utc_now()))
+        .filter(mail_accounts::Column::Id.eq(id))
+        .exec(&orm(db))
+        .await?;
+    Ok(())
+}
+
 /// Insert a helpdesk registry entry for `email`; its id and account id.
 async fn register(
     master: &PgPool,
     workspace_id: &str,
     email: &str,
-) -> Result<(String, String), sqlx::Error> {
+) -> Result<(String, String), DbErr> {
     let id = generate_id("mreg");
     let account_id = format!("helpdesk_{}", generate_id("hd"));
-    sqlx::query(
-        "insert into mail_account_registry (id, email, workspace_id, account_id, is_active)
-         values ($1, $2, $3, $4, true)",
-    )
-    .bind(&id)
-    .bind(email)
-    .bind(workspace_id)
-    .bind(&account_id)
-    .execute(master)
+    registry::Entity::insert(registry::ActiveModel {
+        id: Set(id.clone()),
+        email: Set(email.to_owned()),
+        workspace_id: Set(Some(workspace_id.to_owned())),
+        account_id: Set(account_id.clone()),
+        is_active: Set(true),
+        ..Default::default()
+    })
+    .exec_without_returning(&orm(master))
     .await?;
     Ok((id, account_id))
 }
@@ -251,15 +344,17 @@ async fn connect_address(
     master: &PgPool,
     workspace_id: &str,
     email: &str,
-) -> Result<Response, sqlx::Error> {
+) -> Result<Response, DbErr> {
     // An active WeldMail account with this address.
-    let account: Option<(String, Option<Value>)> = sqlx::query_as(
-        "select id, metadata from mail_accounts
-         where email = $1 and status = 'active' and deleted_at is null limit 1",
-    )
-    .bind(email)
-    .fetch_optional(&caller.db)
-    .await?;
+    let account: Option<(String, Option<Value>)> = mail_accounts::Entity::find()
+        .select_only()
+        .columns([mail_accounts::Column::Id, mail_accounts::Column::Metadata])
+        .filter(mail_accounts::Column::Email.eq(email))
+        .filter(mail_accounts::Column::Status.eq(MailAccountStatus::Active))
+        .filter(mail_accounts::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(&caller.db))
+        .await?;
     if let Some((id, metadata)) = account {
         let mut meta = match metadata {
             Some(Value::Object(fields)) => fields,
@@ -269,18 +364,8 @@ async fn connect_address(
             return Ok(already_connected(email));
         }
         meta.insert("helpdeskEnabled".to_owned(), Value::Bool(true));
-        sqlx::query("update mail_accounts set metadata = $2::jsonb, updated_at = $3::timestamp where id = $1")
-            .bind(&id)
-            .bind(Value::Object(meta))
-            .bind(now())
-            .execute(&caller.db)
-            .await?;
-        let registered: Option<String> =
-            sqlx::query_scalar("select id from mail_account_registry where email = $1 limit 1")
-                .bind(email)
-                .fetch_optional(master)
-                .await?;
-        if registered.is_none() {
+        set_metadata(&caller.db, &id, meta).await?;
+        if registry_entry(master, email, false).await?.is_none() {
             register(master, workspace_id, email).await?;
         }
         caller.publish(
@@ -298,25 +383,21 @@ async fn connect_address(
         }))
         .into_response());
     }
-    let connected: Option<String> = sqlx::query_scalar(
-        "select id from mail_account_registry
-         where email = $1 and account_id like 'helpdesk_%' and is_active = true limit 1",
-    )
-    .bind(email)
-    .fetch_optional(master)
-    .await?;
-    if connected.is_some() {
+    if registry_entry(master, email, true).await?.is_some() {
         return Ok(already_connected(email));
     }
     // `emailLower.split('@')[1]`
     let domain = email.split('@').nth(1).unwrap_or_default();
-    let verified: Option<String> = sqlx::query_scalar(
-        "select id from mail_domains
-         where domain_name = $1 and is_active = true and dns_status = 'verified' and deleted_at is null limit 1",
-    )
-    .bind(domain)
-    .fetch_optional(&caller.db)
-    .await?;
+    let verified: Option<String> = mail_domains::Entity::find()
+        .select_only()
+        .column(mail_domains::Column::Id)
+        .filter(mail_domains::Column::DomainName.eq(domain))
+        .filter(mail_domains::Column::IsActive.eq(true))
+        .filter(mail_domains::Column::DnsStatus.eq(MailDomainDnsStatus::Verified))
+        .filter(mail_domains::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(&caller.db))
+        .await?;
     if verified.is_none() {
         return Ok(ApiError::bad_request(format!(
             "Domain \"{domain}\" is not verified. Please verify it in Mail settings first."
@@ -362,30 +443,35 @@ async fn disconnect_address(
     master: &PgPool,
     workspace_id: &str,
     id: &str,
-) -> Result<Response, sqlx::Error> {
-    let entry: Option<String> = sqlx::query_scalar(
-        "select id from mail_account_registry
-         where id = $1 and workspace_id = $2 and account_id like 'helpdesk_%' limit 1",
-    )
-    .bind(id)
-    .bind(workspace_id)
-    .fetch_optional(master)
-    .await?;
+) -> Result<Response, DbErr> {
+    let master = orm(master);
+    let entry: Option<String> = registry::Entity::find()
+        .select_only()
+        .column(registry::Column::Id)
+        .filter(registry::Column::Id.eq(id))
+        .filter(registry::Column::WorkspaceId.eq(workspace_id))
+        .filter(registry::Column::AccountId.like("helpdesk_%"))
+        .into_tuple()
+        .one(&master)
+        .await?;
     if entry.is_some() {
-        sqlx::query("update mail_account_registry set is_active = false, updated_at = $2::timestamp where id = $1")
-            .bind(id)
-            .bind(now())
-            .execute(master)
+        registry::Entity::update_many()
+            .col_expr(registry::Column::IsActive, Expr::value(false))
+            .col_expr(registry::Column::UpdatedAt, Expr::value(utc_now()))
+            .filter(registry::Column::Id.eq(id))
+            .exec(&master)
             .await?;
         caller.publish(state, ev::HELPDESK_EMAIL_DELETED, id, &json!({ "id": id }));
         return Ok(Data(json!({ "id": id, "isActive": false })).into_response());
     }
-    let account: Option<(String, Option<Value>)> = sqlx::query_as(
-        "select id, metadata from mail_accounts where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(&caller.db)
-    .await?;
+    let account: Option<(String, Option<Value>)> = mail_accounts::Entity::find()
+        .select_only()
+        .columns([mail_accounts::Column::Id, mail_accounts::Column::Metadata])
+        .filter(mail_accounts::Column::Id.eq(id))
+        .filter(mail_accounts::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(&caller.db))
+        .await?;
     if let Some((_, metadata)) = account {
         // `{ ...metadata }` without `helpdeskEnabled`: a null blob becomes `{}`.
         let mut meta = match metadata {
@@ -393,12 +479,7 @@ async fn disconnect_address(
             _ => Map::new(),
         };
         meta.remove("helpdeskEnabled");
-        sqlx::query("update mail_accounts set metadata = $2::jsonb, updated_at = $3::timestamp where id = $1")
-            .bind(id)
-            .bind(Value::Object(meta))
-            .bind(now())
-            .execute(&caller.db)
-            .await?;
+        set_metadata(&caller.db, id, meta).await?;
         caller.publish(state, ev::HELPDESK_EMAIL_DELETED, id, &json!({ "id": id }));
         return Ok(Data(json!({ "id": id, "isActive": false })).into_response());
     }

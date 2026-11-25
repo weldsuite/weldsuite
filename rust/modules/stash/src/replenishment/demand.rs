@@ -38,8 +38,16 @@
 
 use std::collections::{HashMap, HashSet};
 
-use sqlx::PgPool;
-use time::{Date, Duration};
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{
+    ColumnTrait, Condition, DatabaseConnection, DbErr, EntityTrait, FromQueryResult, JoinType,
+    Order, QueryFilter, QueryOrder, QuerySelect, Select,
+};
+use time::{Date, Duration, PrimitiveDateTime};
+use weldsuite_db::{PgPool, orm, orm_error};
+use weldsuite_schema::tenant::{
+    inventory, product_suppliers, product_variants, products, stash_reorder_rules, suppliers,
+};
 
 use super::engine::{
     EngineInput, EngineOutput, ExpectedReceipt, MAX_QUANTITY, Position, RuleMethod, SupplierTerms,
@@ -131,6 +139,86 @@ pub(crate) struct Link {
     pub(crate) min_order_qty: Option<i64>,
     pub(crate) order_multiple: i64,
     pub(crate) supplier_lead_time_days: Option<i64>,
+}
+
+/// A live product supplier as [`link_query`] reads it.
+#[derive(Debug, FromQueryResult)]
+pub(crate) struct LinkRow {
+    pub(crate) id: String,
+    pub(crate) product_id: String,
+    pub(crate) variant_id: Option<String>,
+    pub(crate) supplier_id: String,
+    pub(crate) unit_cost: Option<f64>,
+    pub(crate) lead_time_days: Option<i32>,
+    pub(crate) min_order_qty: Option<i32>,
+    pub(crate) order_multiple: Option<i32>,
+    pub(crate) supplier_lead_time_days: Option<i32>,
+}
+
+impl LinkRow {
+    pub(crate) fn link(self) -> Link {
+        Link {
+            id: self.id,
+            product_id: self.product_id,
+            // `nullif(variant_id, '')`.
+            variant_id: self.variant_id.filter(|variant| !variant.is_empty()),
+            supplier_id: self.supplier_id,
+            unit_cost: self.unit_cost,
+            lead_time_days: self.lead_time_days.map(i64::from),
+            min_order_qty: self.min_order_qty.map(i64::from),
+            order_multiple: self.order_multiple.map_or(1, i64::from).max(1),
+            supplier_lead_time_days: self.supplier_lead_time_days.map(i64::from),
+        }
+    }
+}
+
+/// The live product suppliers of `products` with a live supplier, preferred
+/// first, then oldest, as [`LinkRow`]s (`unit_cost` as a float, as the
+/// planner reads it).
+pub(crate) fn link_query(products: &[String]) -> Select<product_suppliers::Entity> {
+    use sea_orm::ExprTrait as _;
+    let supplier = product_suppliers::Entity::belongs_to(suppliers::Entity)
+        .from(product_suppliers::Column::SupplierId)
+        .to(suppliers::Column::Id)
+        .on_condition(|_, right| {
+            Condition::all().add(sea_orm::ExprTrait::is_null(Expr::col((
+                right,
+                suppliers::Column::DeletedAt,
+            ))))
+        })
+        .into();
+    product_suppliers::Entity::find()
+        .select_only()
+        .columns([
+            product_suppliers::Column::Id,
+            product_suppliers::Column::ProductId,
+            product_suppliers::Column::VariantId,
+            product_suppliers::Column::SupplierId,
+        ])
+        .column_as(
+            Expr::col((
+                product_suppliers::Entity,
+                product_suppliers::Column::UnitCost,
+            ))
+            .cast_as("float8"),
+            "unit_cost",
+        )
+        .columns([
+            product_suppliers::Column::LeadTimeDays,
+            product_suppliers::Column::MinOrderQty,
+            product_suppliers::Column::OrderMultiple,
+        ])
+        .column_as(
+            suppliers::Column::DefaultLeadTimeDays,
+            "supplier_lead_time_days",
+        )
+        .join(JoinType::InnerJoin, supplier)
+        .filter(product_suppliers::Column::DeletedAt.is_null())
+        .filter(product_suppliers::Column::ProductId.is_in(products.iter().map(String::as_str)))
+        .order_by(product_suppliers::Column::ProductId, Order::Asc)
+        .order_by(product_suppliers::Column::IsPreferred, Order::Desc)
+        .order_by(product_suppliers::Column::CreatedAt, Order::Asc)
+        .order_by(product_suppliers::Column::Id, Order::Asc)
 }
 
 /// A reorder rule.
@@ -260,14 +348,6 @@ const DEMAND: &str = "with picked as ( \
      group by 1, 2, 3, 4 having sum(quantity) <> 0 \
      order by 1, 2, 3, 4";
 
-/// On hand and allocated per item, sellable buckets only.
-const STOCK: &str = "select product_id, nullif(variant_id, ''), warehouse_id, \
-     coalesce(sum(quantity_on_hand), 0)::bigint, coalesce(sum(coalesce(quantity_allocated, 0)), 0)::bigint \
-     from inventory where deleted_at is null and product_id = any($1) \
-     and not coalesce(is_quarantined, false) \
-     and coalesce(status, 'available') not in ('quarantine', 'damaged', 'expired') \
-     group by 1, 2, 3";
-
 /// Unfulfilled quantity of open orders on no pick list, per product and
 /// variant, at `$1`–`$3`: the products, the open statuses, the first day.
 /// (A pick list for such an order is made after it, so only the pick lists
@@ -288,52 +368,24 @@ const OPEN_DEMAND: &str = "with picked as ( \
      group by 1, 2 \
      having sum(greatest(i.quantity - coalesce(i.fulfilled_quantity, 0), 0)) > 0";
 
-const RULES: &str = "select item_key, method, min_qty::bigint, max_qty::bigint, \
-     service_level::float8, review_period_days::bigint, lead_time_days_override::bigint, \
-     product_supplier_id from stash_reorder_rules where product_id = any($1)";
-
-const LINKS: &str = "select ps.id, ps.product_id, nullif(ps.variant_id, ''), ps.supplier_id, \
-     ps.unit_cost::float8, ps.lead_time_days::bigint, ps.min_order_qty::bigint, \
-     ps.order_multiple::bigint, s.default_lead_time_days::bigint \
-     from product_suppliers ps join suppliers s on s.id = ps.supplier_id and s.deleted_at is null \
-     where ps.deleted_at is null and ps.product_id = any($1) \
-     order by ps.product_id, ps.is_preferred desc, ps.created_at, ps.id";
-
-/// Per product (no variant) and variant: the day it was created and its
-/// cost price (a variant's own, else the product's).
-const FACTS: &str = "select p.id, null::text, to_char(p.created_at, 'YYYY-MM-DD'), \
-     p.cost_price::float8 from products p where p.id = any($1) \
-     union all \
-     select v.product_id, v.id, to_char(v.created_at, 'YYYY-MM-DD'), \
-     coalesce(v.cost_price, p.cost_price)::float8 \
-     from product_variants v join products p on p.id = v.product_id where v.product_id = any($1)";
-
 type DemandRow = (String, Option<String>, String, String, i64);
-type StockRow = (String, Option<String>, String, i64, i64);
 type RuleRow = (
     String,
     String,
-    Option<i64>,
-    Option<i64>,
+    Option<i32>,
+    Option<i32>,
     Option<f64>,
-    Option<i64>,
-    Option<i64>,
+    Option<i32>,
+    Option<i32>,
     Option<String>,
 );
-type LinkRow = (
-    String,
-    String,
-    Option<String>,
-    String,
-    Option<f64>,
-    Option<i64>,
-    Option<i64>,
-    Option<i64>,
-    Option<i64>,
-);
-type FactRow = (String, Option<String>, Option<String>, Option<f64>);
 
 /// The demand days of `products` in `[from, to)`, per item key.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "a report over sales history: CTEs, `distinct on`, pick lists' jsonb order ids \
+              expanded with `jsonb_array_elements_text`, a `union all` grouped again"
+)]
 pub(crate) async fn demand_days(
     db: &PgPool,
     products: &[String],
@@ -341,7 +393,7 @@ pub(crate) async fn demand_days(
     to: Date,
     demand_warehouse: Option<&str>,
     cutover: Option<Date>,
-) -> Result<HashMap<String, Vec<(Date, i64)>>, sqlx::Error> {
+) -> Result<HashMap<String, Vec<(Date, i64)>>, DbErr> {
     let rows: Vec<DemandRow> = sqlx::query_as(DEMAND)
         .bind(products)
         .bind(ymd(from))
@@ -350,7 +402,8 @@ pub(crate) async fn demand_days(
         .bind(cutover.map(ymd))
         .bind(&NOT_DEMAND[..])
         .fetch_all(db)
-        .await?;
+        .await
+        .map_err(orm_error)?;
     let mut out: HashMap<String, Vec<(Date, i64)>> = HashMap::new();
     for (product, variant, warehouse, day, quantity) in rows {
         if let Some(day) = parse_date(&day) {
@@ -362,47 +415,123 @@ pub(crate) async fn demand_days(
     Ok(out)
 }
 
-/// Sellable on hand and allocated per item key.
+/// On hand and allocated per item key, sellable buckets only: not
+/// quarantined, damaged or expired. Grouped by `variant_id` as stored, the
+/// `null` and `''` groups (`nullif(variant_id, '')`, the product itself)
+/// added up here.
 async fn stock(
-    db: &PgPool,
+    db: &DatabaseConnection,
     products: &[String],
-) -> Result<HashMap<String, (i64, i64)>, sqlx::Error> {
-    let rows: Vec<StockRow> = sqlx::query_as(STOCK).bind(products).fetch_all(db).await?;
-    Ok(rows
-        .into_iter()
-        .map(|(product, variant, warehouse, on_hand, allocated)| {
-            (
-                item_key(&product, variant.as_deref(), &warehouse),
-                (on_hand, allocated),
-            )
-        })
-        .collect())
+) -> Result<HashMap<String, (i64, i64)>, DbErr> {
+    use sea_orm::ExprTrait as _;
+    // `coalesce(sum(<expr>), 0)::bigint`.
+    let total = |expr: Expr| {
+        Expr::from(Func::coalesce([Expr::from(Func::sum(expr)), Expr::val(0)])).cast_as("bigint")
+    };
+    let rows: Vec<(String, Option<String>, String, i64, i64)> = inventory::Entity::find()
+        .select_only()
+        .columns([
+            inventory::Column::ProductId,
+            inventory::Column::VariantId,
+            inventory::Column::WarehouseId,
+        ])
+        .column_as(
+            total(Expr::col(inventory::Column::QuantityOnHand)),
+            "on_hand",
+        )
+        .column_as(
+            total(
+                Func::coalesce([
+                    Expr::col(inventory::Column::QuantityAllocated),
+                    Expr::val(0),
+                ])
+                .into(),
+            ),
+            "allocated",
+        )
+        .filter(inventory::Column::DeletedAt.is_null())
+        .filter(inventory::Column::ProductId.is_in(products.iter().map(String::as_str)))
+        // `not coalesce(is_quarantined, false)`.
+        .filter(
+            Condition::any()
+                .add(inventory::Column::IsQuarantined.is_null())
+                .add(inventory::Column::IsQuarantined.eq(false)),
+        )
+        // `coalesce(status, 'available') not in (…)`.
+        .filter(
+            Condition::any()
+                .add(inventory::Column::Status.is_null())
+                .add(inventory::Column::Status.is_not_in(["quarantine", "damaged", "expired"])),
+        )
+        .group_by(inventory::Column::ProductId)
+        .group_by(inventory::Column::VariantId)
+        .group_by(inventory::Column::WarehouseId)
+        .into_tuple()
+        .all(db)
+        .await?;
+    let mut out: HashMap<String, (i64, i64)> = HashMap::new();
+    for (product, variant, warehouse, on_hand, allocated) in rows {
+        let variant = variant.filter(|variant| !variant.is_empty());
+        let sums = out
+            .entry(item_key(&product, variant.as_deref(), &warehouse))
+            .or_default();
+        sums.0 = sums.0.saturating_add(on_hand);
+        sums.1 = sums.1.saturating_add(allocated);
+    }
+    Ok(out)
 }
 
 /// Open demand per `(product, variant)`.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "orders on no pick list: a CTE over pick lists' jsonb order ids expanded with \
+              `jsonb_array_elements_text`, `not exists` against it, a grouped sum"
+)]
 async fn open_demand(
     db: &PgPool,
     products: &[String],
     since: Date,
-) -> Result<HashMap<(String, Option<String>), i64>, sqlx::Error> {
+) -> Result<HashMap<(String, Option<String>), i64>, DbErr> {
     let rows: Vec<(String, Option<String>, i64)> = sqlx::query_as(OPEN_DEMAND)
         .bind(products)
         .bind(&OPEN_ORDER[..])
         .bind(ymd(since))
         .fetch_all(db)
-        .await?;
+        .await
+        .map_err(orm_error)?;
     Ok(rows
         .into_iter()
         .map(|(product, variant, quantity)| ((product, variant), quantity))
         .collect())
 }
 
-/// The rules of `products`, per item key.
+/// The rules of `products`, per item key (`service_level` as a float).
 pub(crate) async fn rules(
-    db: &PgPool,
+    db: &DatabaseConnection,
     products: &[String],
-) -> Result<HashMap<String, Rule>, sqlx::Error> {
-    let rows: Vec<RuleRow> = sqlx::query_as(RULES).bind(products).fetch_all(db).await?;
+) -> Result<HashMap<String, Rule>, DbErr> {
+    use sea_orm::ExprTrait as _;
+    let rows: Vec<RuleRow> = stash_reorder_rules::Entity::find()
+        .select_only()
+        .columns([
+            stash_reorder_rules::Column::ItemKey,
+            stash_reorder_rules::Column::Method,
+            stash_reorder_rules::Column::MinQty,
+            stash_reorder_rules::Column::MaxQty,
+        ])
+        .column_as(
+            Expr::col(stash_reorder_rules::Column::ServiceLevel).cast_as("float8"),
+            "service_level",
+        )
+        .columns([
+            stash_reorder_rules::Column::ReviewPeriodDays,
+            stash_reorder_rules::Column::LeadTimeDaysOverride,
+            stash_reorder_rules::Column::ProductSupplierId,
+        ])
+        .filter(stash_reorder_rules::Column::ProductId.is_in(products.iter().map(String::as_str)))
+        .into_tuple()
+        .all(db)
+        .await?;
     Ok(rows
         .into_iter()
         .map(
@@ -411,11 +540,11 @@ pub(crate) async fn rules(
                     key,
                     Rule {
                         method,
-                        min_qty,
-                        max_qty,
+                        min_qty: min_qty.map(i64::from),
+                        max_qty: max_qty.map(i64::from),
                         service_level,
-                        review_period_days: review,
-                        lead_time_days_override: lead,
+                        review_period_days: review.map(i64::from),
+                        lead_time_days_override: lead.map(i64::from),
                         product_supplier_id,
                     },
                 )
@@ -426,51 +555,68 @@ pub(crate) async fn rules(
 
 /// The live product suppliers of `products` (live suppliers only),
 /// preferred first, then oldest.
-pub(crate) async fn links(db: &PgPool, products: &[String]) -> Result<Vec<Link>, sqlx::Error> {
-    let rows: Vec<LinkRow> = sqlx::query_as(LINKS).bind(products).fetch_all(db).await?;
-    Ok(rows
-        .into_iter()
-        .map(
-            |(
-                id,
-                product_id,
-                variant_id,
-                supplier_id,
-                unit_cost,
-                lead_time_days,
-                min_order_qty,
-                order_multiple,
-                supplier_lead_time_days,
-            )| Link {
-                id,
-                product_id,
-                variant_id,
-                supplier_id,
-                unit_cost,
-                lead_time_days,
-                min_order_qty,
-                order_multiple: order_multiple.unwrap_or(1).max(1),
-                supplier_lead_time_days,
-            },
-        )
-        .collect())
+pub(crate) async fn links(
+    db: &DatabaseConnection,
+    products: &[String],
+) -> Result<Vec<Link>, DbErr> {
+    let rows = link_query(products).into_model::<LinkRow>().all(db).await?;
+    Ok(rows.into_iter().map(LinkRow::link).collect())
 }
 
-/// Creation day and cost price per `(product, variant)`.
+/// Creation day and cost price per `(product, variant)`: the products',
+/// then their variants' (a variant's own cost price, else the product's).
 async fn facts(
-    db: &PgPool,
+    db: &DatabaseConnection,
     products: &[String],
-) -> Result<HashMap<(String, Option<String>), (Option<Date>, Option<f64>)>, sqlx::Error> {
-    let rows: Vec<FactRow> = sqlx::query_as(FACTS).bind(products).fetch_all(db).await?;
-    Ok(rows
+) -> Result<HashMap<(String, Option<String>), (Option<Date>, Option<f64>)>, DbErr> {
+    use sea_orm::ExprTrait as _;
+    let own: Vec<(String, PrimitiveDateTime, Option<f64>)> = products::Entity::find()
+        .select_only()
+        .columns([products::Column::Id, products::Column::CreatedAt])
+        .column_as(
+            Expr::col(products::Column::CostPrice).cast_as("float8"),
+            "cost_price",
+        )
+        .filter(products::Column::Id.is_in(products.iter().map(String::as_str)))
+        .into_tuple()
+        .all(db)
+        .await?;
+    let cost = Func::coalesce([
+        Expr::col((
+            product_variants::Entity,
+            product_variants::Column::CostPrice,
+        )),
+        Expr::col((products::Entity, products::Column::CostPrice)),
+    ]);
+    let variants: Vec<(String, String, PrimitiveDateTime, Option<f64>)> =
+        product_variants::Entity::find()
+            .select_only()
+            .columns([
+                product_variants::Column::ProductId,
+                product_variants::Column::Id,
+                product_variants::Column::CreatedAt,
+            ])
+            .column_as(Expr::from(cost).cast_as("float8"), "cost_price")
+            .join(
+                JoinType::InnerJoin,
+                product_variants::Entity::belongs_to(products::Entity)
+                    .from(product_variants::Column::ProductId)
+                    .to(products::Column::Id)
+                    .into(),
+            )
+            .filter(product_variants::Column::ProductId.is_in(products.iter().map(String::as_str)))
+            .into_tuple()
+            .all(db)
+            .await?;
+    let own = own
+        .into_iter()
+        .map(|(product, created, cost)| ((product, None), (Some(created.date()), cost)));
+    let variants = variants
         .into_iter()
         .map(|(product, variant, created, cost)| {
-            (
-                (product, variant),
-                (created.as_deref().and_then(parse_date), cost),
-            )
-        })
-        .collect())
+            ((product, Some(variant)), (Some(created.date()), cost))
+        });
+    Ok(own.chain(variants).collect())
 }
 
 // ── Planning ────────────────────────────────────────────────────────────────
@@ -482,7 +628,7 @@ pub(crate) async fn plan_items(
     db: &PgPool,
     planning: &Planning,
     items: Vec<Item>,
-) -> Result<Vec<ItemPlan>, sqlx::Error> {
+) -> Result<Vec<ItemPlan>, DbErr> {
     if items.is_empty() {
         return Ok(Vec::new());
     }
@@ -506,12 +652,13 @@ pub(crate) async fn plan_items(
         settings.cutover,
     )
     .await?;
-    let stock = stock(db, &products).await?;
+    let conn = orm(db);
+    let stock = stock(&conn, &products).await?;
     let open_since = today - Duration::days(settings.lookback_days.clamp(1, SERIES_DAYS));
     let open = open_demand(db, &products, open_since).await?;
-    let rules = rules(db, &products).await?;
-    let links = links(db, &products).await?;
-    let facts = facts(db, &products).await?;
+    let rules = rules(&conn, &products).await?;
+    let links = links(&conn, &products).await?;
+    let facts = facts(&conn, &products).await?;
     let open_lines = incoming_lines(
         db,
         &IncomingQuery {

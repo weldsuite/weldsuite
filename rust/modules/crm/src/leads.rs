@@ -6,6 +6,11 @@ use axum::body::Bytes;
 use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use http::HeaderMap;
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ColumnTrait, Condition, DbErr, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder,
+    QuerySelect,
+};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events::{
     COMPANY_CREATED, LEAD_CONVERTED, LEAD_CREATED, LEAD_DELETED, LEAD_QUALIFIED, LEAD_UPDATED,
@@ -14,16 +19,25 @@ use weldsuite_catalogs::entity_events::{
 use weldsuite_catalogs::permission_keys::LEADS_SCOPE_ALL;
 use weldsuite_crm_domain::leads::{create_lead, js_truthy, lead_event_fields};
 use weldsuite_crm_domain::tables::{CRM_LEADS, CRM_OPPORTUNITIES, PARTIES};
-use weldsuite_crm_domain::{drizzle_row, insert_sql, update_sql};
+use weldsuite_db::record::JsonTable;
+use weldsuite_db::{orm, utc_now, utc_timestamp};
 use weldsuite_kit::validation::js_trim;
 use weldsuite_kit::{ApiError, Created, Data, NoContent, generate_id};
+use weldsuite_schema::tenant::{crm_leads, crm_opportunities, parties};
 
+use crate::orm_rows::{before, cursor_row, insert_values, json, probe_limit, set_values};
 use crate::schema::{Kind, NULLISH, OPT, REQ, STRINGS, Spec, extend, int, partial, s};
 use crate::{
     Answer, Caller, CrmState, Refusal, answer, cut, js_limit, now, page, query_map, validate_specs,
 };
 
 const LOG: &str = "leads";
+
+/// `crm_leads`, written from a body as Drizzle wrote it.
+const LEADS: JsonTable = JsonTable::of::<crm_leads::Entity>();
+/// `parties` and `crm_opportunities`, as a conversion inserts them.
+const PARTY_ROWS: JsonTable = JsonTable::of::<parties::Entity>();
+const OPPORTUNITY_ROWS: JsonTable = JsonTable::of::<crm_opportunities::Entity>();
 
 /// `createLeadSchema`.
 const CREATE: [Spec; 25] = [
@@ -70,20 +84,72 @@ const CONVERT: [Spec; 2] = [
     Spec::new("createOpportunity", Kind::Bool, OPT).with_default("false"),
 ];
 
-async fn live(
-    caller: &Caller,
-    id: &str,
-    scope: Option<&str>,
-) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from crm_leads t
-         where id = $1 and deleted_at is null and ($2::text is null or owner_id = $2) limit 1",
-    )
-    .bind(id)
-    .bind(scope)
-    .fetch_optional(&caller.db)
-    .await?;
-    Ok(row.map(drizzle_row))
+/// The live lead, within the owner scope.
+async fn live(caller: &Caller, id: &str, scope: Option<&str>) -> Result<Option<Value>, DbErr> {
+    use crm_leads::Column;
+    let mut find = crm_leads::Entity::find_by_id(id.to_owned()).filter(Column::DeletedAt.is_null());
+    if let Some(scope) = scope {
+        find = find.filter(Column::OwnerId.eq(scope));
+    }
+    let row = find.one(&orm(&caller.db)).await?;
+    row.map(|row| json(serde_json::to_value(row))).transpose()
+}
+
+/// The list's filter values, in TypeScript's order of conditions.
+struct ListFilters {
+    scope: Option<String>,
+    status: Option<String>,
+    source: Option<String>,
+    rating: Option<String>,
+    owner_id: Option<String>,
+    qualified: Option<bool>,
+    /// `%search%`.
+    search: Option<String>,
+}
+
+impl ListFilters {
+    /// `isNull(deletedAt)` when `deleted`, then each condition that is `on`.
+    fn conditions(&self, deleted: bool, on: [bool; 7]) -> Condition {
+        use crm_leads::Column;
+        let mut filters = Condition::all();
+        if deleted {
+            filters = filters.add(Column::DeletedAt.is_null());
+        }
+        for (index, (value, column)) in [
+            (&self.scope, Column::OwnerId),
+            (&self.status, Column::Status),
+            (&self.source, Column::Source),
+            (&self.rating, Column::Rating),
+            (&self.owner_id, Column::OwnerId),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            if on[index]
+                && let Some(value) = value
+            {
+                filters = filters.add(column.eq(value.as_str()));
+            }
+        }
+        if on[5]
+            && let Some(qualified) = self.qualified
+        {
+            filters = filters.add(Column::IsQualified.eq(qualified));
+        }
+        if on[6]
+            && let Some(term) = &self.search
+        {
+            filters = filters.add(
+                Condition::any()
+                    .add(Column::Email.like(term.as_str()))
+                    .add(Column::FullName.like(term.as_str()))
+                    .add(Column::CompanyName.like(term.as_str()))
+                    .add(Column::FirstName.like(term.as_str()))
+                    .add(Column::LastName.like(term.as_str())),
+            );
+        }
+        filters
+    }
 }
 
 fn object(value: &Value) -> Map<String, Value> {
@@ -101,20 +167,14 @@ pub(crate) async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response 
 }
 
 async fn run_list(caller: &Caller, query: Option<&str>) -> Answer {
+    use crm_leads::{Column, Entity};
     let q = query_map(query);
     let limit = js_limit(q.get("limit"), 25, 100);
     let scope = caller.scope(LEADS_SCOPE_ALL);
     let param = |key: &str| q.get(key).filter(|v| !v.is_empty()).cloned();
-    let mut cursor: Option<(String, String)> = None;
+    let mut cursor = None;
     if let Some(id) = param("cursor") {
-        cursor = sqlx::query_as(
-            "select to_char(date_trunc('milliseconds', created_at), 'YYYY-MM-DD\"T\"HH24:MI:SS.MS'), id
-             from crm_leads where id = $1 limit 1",
-        )
-        .bind(id)
-        .fetch_optional(&caller.db)
-        .await
-        .map_err(|e| Refusal::Failed(e.to_string()))?;
+        cursor = cursor_row::<Entity>(&caller.db, Column::CreatedAt, Column::Id, &id).await?;
     }
     let limit = limit.ok_or_else(|| Refusal::Failed("limit is NaN".to_owned()))?;
     // `q.isQualified !== undefined`: any value filters, `'true'` for true.
@@ -142,66 +202,41 @@ async fn run_list(caller: &Caller, query: Option<&str>) -> Answer {
     // `isNull(deletedAt)` comes first; it is the one dropped when nothing
     // else is on.
     let deleted_on = !(cursor_given && cursor.is_none() && page_on.iter().all(|f| !*f));
-    let (cursor_at, cursor_id) = cursor.unzip();
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from crm_leads t
-         where deleted_at is null
-           and ($1::text is null or owner_id = $1)
-           and ($2::text is null or status = $2)
-           and ($3::text is null or source = $3)
-           and ($4::text is null or rating = $4)
-           and ($5::text is null or owner_id = $5)
-           and ($6::bool is null or is_qualified = $6)
-           and ($7::text is null or email like $7 or full_name like $7 or company_name like $7
-                or first_name like $7 or last_name like $7)
-           and ($8::timestamp is null
-                or created_at < $8::timestamp or (created_at = $8::timestamp and id < $9))
-         order by created_at desc, id desc
-         limit $10",
-    )
-    .bind(&scope)
-    .bind(param("status"))
-    .bind(param("source"))
-    .bind(param("rating"))
-    .bind(param("ownerId"))
-    .bind(qualified)
-    .bind(&search)
-    .bind(&cursor_at)
-    .bind(&cursor_id)
-    .bind(limit + 1)
-    .fetch_all(&caller.db)
-    .await?;
-    let total: i64 = sqlx::query_scalar(
-        "select count(*) from crm_leads
-         where (not $8 or deleted_at is null)
-           and (not $9 or owner_id = $1)
-           and (not $10 or status = $2)
-           and (not $11 or source = $3)
-           and (not $12 or rating = $4)
-           and (not $13 or owner_id = $5)
-           and (not $14 or is_qualified = $6::bool)
-           and (not $15 or email like $7 or full_name like $7 or company_name like $7
-                or first_name like $7 or last_name like $7)",
-    )
-    .bind(&scope)
-    .bind(param("status"))
-    .bind(param("source"))
-    .bind(param("rating"))
-    .bind(param("ownerId"))
-    .bind(qualified)
-    .bind(&search)
-    .bind(deleted_on)
-    .bind(on[0])
-    .bind(on[1])
-    .bind(on[2])
-    .bind(on[3])
-    .bind(on[4])
-    .bind(on[5])
-    .bind(on[6])
-    .fetch_one(&caller.db)
-    .await?;
-    let (data, has_more, next) = cut(rows.into_iter().map(drizzle_row).collect(), limit);
-    Ok(page(data, total, has_more, next))
+    let filters = ListFilters {
+        scope,
+        status: param("status"),
+        source: param("source"),
+        rating: param("rating"),
+        owner_id: param("ownerId"),
+        qualified,
+        search,
+    };
+    let mut rows = Entity::find().filter(filters.conditions(true, page_on));
+    if let Some(cursor) = &cursor {
+        rows = rows.filter(before(Column::CreatedAt, Column::Id, cursor));
+    }
+    let db = orm(&caller.db);
+    let rows = rows
+        .order_by_desc(Column::CreatedAt)
+        .order_by_desc(Column::Id)
+        .limit(probe_limit(limit)?)
+        .all(&db)
+        .await?;
+    let total = Entity::find()
+        .filter(filters.conditions(deleted_on, on))
+        .count(&db)
+        .await?;
+    let rows = rows
+        .into_iter()
+        .map(|row| json(serde_json::to_value(row)))
+        .collect::<Result<Vec<_>, DbErr>>()?;
+    let (data, has_more, next) = cut(rows, limit);
+    Ok(page(
+        data,
+        i64::try_from(total).unwrap_or(i64::MAX),
+        has_more,
+        next,
+    ))
 }
 
 // ── GET /:id ────────────────────────────────────────────────────────────────
@@ -294,14 +329,9 @@ async fn run_update(
             },
         );
     }
-    sqlx::query(update_sql!(
-        crm_leads,
-        "where t.id = $1 and t.deleted_at is null"
-    ))
-    .bind(id)
-    .bind(CRM_LEADS.set(&update))
-    .execute(&caller.db)
-    .await?;
+    LEADS
+        .update(&orm(&caller.db), id, set_values(&CRM_LEADS, &update), true)
+        .await?;
     let mut merged = object(&existing);
     for (key, value) in &update {
         merged.insert(key.clone(), value.clone());
@@ -345,13 +375,13 @@ pub(crate) async fn remove(
         let Some(existing) = live(&caller, &id, scope.as_deref()).await? else {
             return Ok(ApiError::not_found("Lead", Some(&id)).into_response());
         };
-        sqlx::query(
-            "update crm_leads set deleted_at = $2::timestamp, updated_at = $2::timestamp where id = $1",
-        )
-        .bind(&id)
-        .bind(now())
-        .execute(&caller.db)
-        .await?;
+        let at = utc_now();
+        crm_leads::Entity::update_many()
+            .col_expr(crm_leads::Column::DeletedAt, Expr::value(at))
+            .col_expr(crm_leads::Column::UpdatedAt, Expr::value(at))
+            .filter(crm_leads::Column::Id.eq(id.as_str()))
+            .exec(&orm(&caller.db))
+            .await?;
         caller.publish(
             &state,
             LEAD_DELETED,
@@ -380,15 +410,15 @@ pub(crate) async fn qualify(
         let Some(existing) = live(&caller, &id, scope.as_deref()).await? else {
             return Ok(ApiError::not_found("Lead", Some(&id)).into_response());
         };
-        sqlx::query(
-            "update crm_leads set is_qualified = true, qualified_at = $2::timestamp,
-                 status = 'qualified', updated_at = $2::timestamp
-             where id = $1",
-        )
-        .bind(&id)
-        .bind(now())
-        .execute(&caller.db)
-        .await?;
+        let at = utc_now();
+        crm_leads::Entity::update_many()
+            .col_expr(crm_leads::Column::IsQualified, Expr::value(true))
+            .col_expr(crm_leads::Column::QualifiedAt, Expr::value(at))
+            .col_expr(crm_leads::Column::Status, Expr::value("qualified"))
+            .col_expr(crm_leads::Column::UpdatedAt, Expr::value(at))
+            .filter(crm_leads::Column::Id.eq(id.as_str()))
+            .exec(&orm(&caller.db))
+            .await?;
         caller.publish(
             &state,
             LEAD_QUALIFIED,
@@ -432,7 +462,10 @@ async fn run_convert(
     let Some(lead) = live(caller, id, scope.as_deref()).await? else {
         return Ok(ApiError::not_found("Lead", Some(id)).into_response());
     };
-    let now = now();
+    // One instant: the rows' text and the lead's `timestamp`.
+    let at = time::OffsetDateTime::now_utc();
+    let now = weldsuite_events::iso_timestamp(at);
+    let db = orm(&caller.db);
     let flag = |key: &str| options.get(key).and_then(Value::as_bool).unwrap_or(false);
     let text = |key: &str| lead.get(key).and_then(Value::as_str).map(str::to_owned);
     let owner = text("ownerId").unwrap_or_else(|| caller.user_id.clone());
@@ -456,9 +489,8 @@ async fn run_convert(
         values.insert("ownerId".into(), json!(owner));
         values.insert("createdAt".into(), json!(now));
         values.insert("updatedAt".into(), json!(now));
-        sqlx::query(insert_sql!(parties))
-            .bind(PARTIES.values(&values))
-            .execute(&caller.db)
+        PARTY_ROWS
+            .insert(&db, insert_values(&PARTIES, &values))
             .await?;
         customer_id = Some(party_id);
     }
@@ -502,24 +534,27 @@ async fn run_convert(
         }
         values.insert("createdAt".into(), json!(now));
         values.insert("updatedAt".into(), json!(now));
-        sqlx::query(insert_sql!(crm_opportunities))
-            .bind(CRM_OPPORTUNITIES.values(&values))
-            .execute(&caller.db)
+        OPPORTUNITY_ROWS
+            .insert(&db, insert_values(&CRM_OPPORTUNITIES, &values))
             .await?;
         opportunity_id = Some(deal_id);
     }
-    sqlx::query(
-        "update crm_leads set status = 'converted', converted_at = $2::timestamp,
-             converted_to_customer_id = $3, converted_to_opportunity_id = $4,
-             updated_at = $2::timestamp
-         where id = $1",
-    )
-    .bind(id)
-    .bind(&now)
-    .bind(&customer_id)
-    .bind(&opportunity_id)
-    .execute(&caller.db)
-    .await?;
+    let stamp = utc_timestamp(at);
+    crm_leads::Entity::update_many()
+        .col_expr(crm_leads::Column::Status, Expr::value("converted"))
+        .col_expr(crm_leads::Column::ConvertedAt, Expr::value(stamp))
+        .col_expr(
+            crm_leads::Column::ConvertedToCustomerId,
+            Expr::value(customer_id.clone()),
+        )
+        .col_expr(
+            crm_leads::Column::ConvertedToOpportunityId,
+            Expr::value(opportunity_id.clone()),
+        )
+        .col_expr(crm_leads::Column::UpdatedAt, Expr::value(stamp))
+        .filter(crm_leads::Column::Id.eq(id))
+        .exec(&db)
+        .await?;
     caller.publish(
         state,
         LEAD_CONVERTED,

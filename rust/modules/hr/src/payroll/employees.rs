@@ -2,12 +2,24 @@
 //! elections and payment details (`services/weldhr/payroll/employees.ts`).
 
 use std::collections::HashMap;
+use std::str::FromStr as _;
 
+use sea_orm::prelude::BigDecimal;
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, JoinType, PaginatorTrait, QueryFilter,
+    QueryOrder, QuerySelect,
+};
+use serde::Serialize;
 use serde_json::{Map, Value, json};
-use weldsuite_db::{Keyring, PgPool, decrypt_field, js_row};
+use weldsuite_db::{Keyring, OrmConn, PgPool, atomically_with, decrypt_field, orm, utc_now};
 use weldsuite_kit::generate_id;
 use weldsuite_payroll_domain::components::{ComponentEntry, ParamType, component_def};
 use weldsuite_payroll_domain::us::states::state_module;
+use weldsuite_schema::tenant::{
+    hr_compensations, hr_employees, hr_pay_components, hr_pay_schedules, hr_payroll_employers,
+    hr_payroll_profiles, hr_payslips, hr_tax_elections,
+};
 
 use super::common::{
     age_on_date, decimal2, decimal4, employee_issue, is_iso_date, is_valid_iban,
@@ -18,9 +30,11 @@ use super::common::{
 use super::employer_context::{find_employer_for_payroll, resolve_employers};
 use super::employers::{employer_issues, read_employer_bank, work_states_of};
 use super::schema::{has, str_of};
-use crate::employees::{display_name_of, encrypt_sensitive, require_employee};
+use crate::employees::{
+    display_name_of, encrypt_sensitive, pg_date, pg_date_opt, require_employee, to_json,
+};
 use crate::entity_scope::Scope;
-use crate::{HrError, add_days, assert_date_order, locale_compare, now, today_iso};
+use crate::{HrError, add_days, assert_date_order, locale_compare, today_iso};
 
 /// What a payslip needs to know about one employee
 /// (`EmployeePayrollData`). Rows are Drizzle-shaped JSON.
@@ -86,11 +100,50 @@ pub(crate) fn same_bank(a: Option<&Value>, b: Option<&Value>) -> bool {
     norm(a) == norm(b)
 }
 
-/// The rows of the payroll tables for `ids`, Drizzle-shaped, with numeric
-/// columns as the text Drizzle reads.
-async fn rows(db: &PgPool, sql: &'static str, ids: &[String]) -> Result<Vec<Value>, HrError> {
-    let rows: Vec<Value> = sqlx::query_scalar(sql).bind(ids).fetch_all(db).await?;
-    Ok(rows.into_iter().map(js_row).collect())
+/// A row as `to_jsonb(t)` and `js_row` read it, from the entity: numeric
+/// columns as the text Drizzle reads (the entity's serializers, what the
+/// SQL's `amount::text` gave), and a whole `double precision`
+/// (`weekly_hours`, `hours_per_week`) as an integer, as `to_jsonb` writes
+/// `40` where the model has `40.0`.
+pub(crate) fn jsonb_row<T: Serialize>(model: T) -> Result<Value, HrError> {
+    let mut row = to_json(model)?;
+    if let Some(columns) = row.as_object_mut() {
+        for value in columns.values_mut() {
+            if let Some(number) = value.as_f64().filter(|_| value.is_f64()) {
+                *value = weldsuite_core_domain::js::number_value(number);
+            }
+        }
+    }
+    Ok(row)
+}
+
+/// [`jsonb_row`] of every model.
+pub(crate) fn jsonb_rows<T: Serialize>(models: Vec<T>) -> Result<Vec<Value>, HrError> {
+    models.into_iter().map(jsonb_row).collect()
+}
+
+/// `select to_jsonb(e) from hr_employees e where e.id = any($1)`: deleted
+/// employees too, in the database's order.
+pub(crate) async fn employee_rows(
+    db: &PgPool,
+    ids: &[impl AsRef<str>],
+) -> Result<Vec<Value>, HrError> {
+    jsonb_rows(
+        hr_employees::Entity::find()
+            .filter(hr_employees::Column::Id.is_in(ids.iter().map(AsRef::as_ref)))
+            .all(&orm(db))
+            .await?,
+    )
+}
+
+/// A money amount the SQL bound as text for `$n::numeric`: a text Postgres
+/// can't read fails the statement, as it did (the router's 500).
+pub(crate) fn pg_numeric(text: &str) -> Result<BigDecimal, HrError> {
+    BigDecimal::from_str(text).map_err(|_| {
+        HrError::Database(DbErr::Custom(format!(
+            "invalid input syntax for type numeric: \"{text}\""
+        )))
+    })
 }
 
 /// `loadEmployeePayrollData(db, employeeIds, keyring)`, in the order the
@@ -103,39 +156,43 @@ pub(crate) async fn load_employee_payroll_data(
     if employee_ids.is_empty() {
         return Ok(vec![]);
     }
-    let employees = rows(
-        db,
-        "select to_jsonb(t) from hr_employees t where t.id = any($1) and t.deleted_at is null",
-        employee_ids,
-    )
-    .await?;
-    let profiles = rows(
-        db,
-        "select to_jsonb(t) from hr_payroll_profiles t where t.employee_id = any($1)",
-        employee_ids,
-    )
-    .await?;
-    let compensations = rows(
-        db,
-        "select to_jsonb(t) || jsonb_build_object('amount', t.amount::text) from hr_compensations t
-         where t.employee_id = any($1) order by t.effective_from desc",
-        employee_ids,
-    )
-    .await?;
-    let components = rows(
-        db,
-        "select to_jsonb(t) || jsonb_build_object('amount', t.amount::text) from hr_pay_components t
-         where t.employee_id = any($1) and t.deleted_at is null order by t.effective_from asc",
-        employee_ids,
-    )
-    .await?;
-    let elections = rows(
-        db,
-        "select to_jsonb(t) from hr_tax_elections t where t.employee_id = any($1)
-         order by t.effective_from desc, t.created_at desc",
-        employee_ids,
-    )
-    .await?;
+    let orm = orm(db);
+    let employees = jsonb_rows(
+        hr_employees::Entity::find()
+            .filter(hr_employees::Column::Id.is_in(employee_ids))
+            .filter(hr_employees::Column::DeletedAt.is_null())
+            .all(&orm)
+            .await?,
+    )?;
+    let profiles = jsonb_rows(
+        hr_payroll_profiles::Entity::find()
+            .filter(hr_payroll_profiles::Column::EmployeeId.is_in(employee_ids))
+            .all(&orm)
+            .await?,
+    )?;
+    let compensations = jsonb_rows(
+        hr_compensations::Entity::find()
+            .filter(hr_compensations::Column::EmployeeId.is_in(employee_ids))
+            .order_by_desc(hr_compensations::Column::EffectiveFrom)
+            .all(&orm)
+            .await?,
+    )?;
+    let components = jsonb_rows(
+        hr_pay_components::Entity::find()
+            .filter(hr_pay_components::Column::EmployeeId.is_in(employee_ids))
+            .filter(hr_pay_components::Column::DeletedAt.is_null())
+            .order_by_asc(hr_pay_components::Column::EffectiveFrom)
+            .all(&orm)
+            .await?,
+    )?;
+    let elections = jsonb_rows(
+        hr_tax_elections::Entity::find()
+            .filter(hr_tax_elections::Column::EmployeeId.is_in(employee_ids))
+            .order_by_desc(hr_tax_elections::Column::EffectiveFrom)
+            .order_by_desc(hr_tax_elections::Column::CreatedAt)
+            .all(&orm)
+            .await?,
+    )?;
     let employer_ids: Vec<String> = profiles
         .iter()
         .filter_map(|p| p["employerId"].as_str().map(str::to_owned))
@@ -143,12 +200,12 @@ pub(crate) async fn load_employee_payroll_data(
     let employers: Vec<Value> = if employer_ids.is_empty() {
         vec![]
     } else {
-        let raw = rows(
-            db,
-            "select to_jsonb(t) from hr_payroll_employers t where t.id = any($1)",
-            &employer_ids,
-        )
-        .await?;
+        let raw = jsonb_rows(
+            hr_payroll_employers::Entity::find()
+                .filter(hr_payroll_employers::Column::Id.is_in(&employer_ids))
+                .all(&orm)
+                .await?,
+        )?;
         resolve_employers(db, raw, keyring)
             .await?
             .into_iter()
@@ -210,6 +267,28 @@ pub(crate) async fn load_one(
 
 fn s<'a>(row: &'a Value, key: &str) -> &'a str {
     row[key].as_str().unwrap_or("")
+}
+
+/// `select to_jsonb(t) from hr_payroll_profiles t where t.employee_id = $1
+/// limit 1`.
+pub(crate) async fn profile_of(db: &PgPool, employee_id: &str) -> Result<Option<Value>, HrError> {
+    hr_payroll_profiles::Entity::find()
+        .filter(hr_payroll_profiles::Column::EmployeeId.eq(employee_id))
+        .one(&orm(db))
+        .await?
+        .map(jsonb_row)
+        .transpose()
+}
+
+/// `select employer_id from hr_payroll_profiles where employee_id = $1 limit 1`.
+async fn profile_employer_id(db: &PgPool, employee_id: &str) -> Result<Option<String>, HrError> {
+    Ok(hr_payroll_profiles::Entity::find()
+        .select_only()
+        .column(hr_payroll_profiles::Column::EmployerId)
+        .filter(hr_payroll_profiles::Column::EmployeeId.eq(employee_id))
+        .into_tuple()
+        .one(&orm(db))
+        .await?)
 }
 
 /// `compensationOn(rows, date)`.
@@ -450,12 +529,13 @@ async fn employer_issue_map(
         .iter()
         .filter_map(|e| e["id"].as_str().map(str::to_owned))
         .collect();
-    let profiles = rows(
-        db,
-        "select to_jsonb(t) from hr_payroll_profiles t where t.employer_id = any($1) and t.status = 'active'",
-        &ids,
-    )
-    .await?;
+    let profiles = jsonb_rows(
+        hr_payroll_profiles::Entity::find()
+            .filter(hr_payroll_profiles::Column::EmployerId.is_in(&ids))
+            .filter(hr_payroll_profiles::Column::Status.eq("active"))
+            .all(&orm(db))
+            .await?,
+    )?;
     for employer in employers {
         let bank = read_employer_bank(employer, keyring)?;
         let mine: Vec<Value> = profiles
@@ -484,25 +564,33 @@ pub(crate) async fn list_payroll_employees(
     keyring: &Keyring,
     today: &str,
 ) -> Result<Vec<Value>, HrError> {
-    let mut ids: Vec<String> = sqlx::query_scalar(
-        "select id from hr_employees where deleted_at is null and status <> 'terminated'
-           and ($1::text[] is null or legal_entity_id = any($1)
-                or ($2::boolean and legal_entity_id is null))",
-    )
-    .bind(scope.ids())
-    .bind(scope.unassigned())
-    .fetch_all(db)
-    .await?;
-    let still_paid: Vec<String> = sqlx::query_scalar(
-        "select e.id from hr_employees e join hr_payroll_profiles p on p.employee_id = e.id
-         where e.deleted_at is null and e.status = 'terminated' and p.status <> 'ended'
-           and ($1::text[] is null or e.legal_entity_id = any($1)
-                or ($2::boolean and e.legal_entity_id is null))",
-    )
-    .bind(scope.ids())
-    .bind(scope.unassigned())
-    .fetch_all(db)
-    .await?;
+    let orm = orm(db);
+    let mut ids: Vec<String> = hr_employees::Entity::find()
+        .select_only()
+        .column(hr_employees::Column::Id)
+        .filter(hr_employees::Column::DeletedAt.is_null())
+        .filter(hr_employees::Column::Status.ne("terminated"))
+        .filter(scope.condition(hr_employees::Column::LegalEntityId))
+        .into_tuple()
+        .all(&orm)
+        .await?;
+    let still_paid: Vec<String> = hr_employees::Entity::find()
+        .select_only()
+        .column(hr_employees::Column::Id)
+        .join(
+            JoinType::InnerJoin,
+            hr_employees::Entity::belongs_to(hr_payroll_profiles::Entity)
+                .from(hr_employees::Column::Id)
+                .to(hr_payroll_profiles::Column::EmployeeId)
+                .into(),
+        )
+        .filter(hr_employees::Column::DeletedAt.is_null())
+        .filter(hr_employees::Column::Status.eq("terminated"))
+        .filter(hr_payroll_profiles::Column::Status.ne("ended"))
+        .filter(scope.condition(hr_employees::Column::LegalEntityId))
+        .into_tuple()
+        .all(&orm)
+        .await?;
     for id in still_paid {
         if !ids.contains(&id) {
             ids.push(id);
@@ -531,14 +619,15 @@ pub(crate) async fn list_payroll_employees(
     let schedule_names: HashMap<String, String> = if schedule_ids.is_empty() {
         HashMap::new()
     } else {
-        sqlx::query_as::<_, (String, String)>(
-            "select id, name from hr_pay_schedules where id = any($1)",
-        )
-        .bind(&schedule_ids)
-        .fetch_all(db)
-        .await?
-        .into_iter()
-        .collect()
+        hr_pay_schedules::Entity::find()
+            .select_only()
+            .columns([hr_pay_schedules::Column::Id, hr_pay_schedules::Column::Name])
+            .filter(hr_pay_schedules::Column::Id.is_in(&schedule_ids))
+            .into_tuple::<(String, String)>()
+            .all(&orm)
+            .await?
+            .into_iter()
+            .collect()
     };
     let mut items: Vec<(String, Value)> = vec![];
     for d in &data {
@@ -628,12 +717,16 @@ async fn profiles_of_employer(
     db: &PgPool,
     employer_id: &str,
 ) -> Result<Vec<(String, Value)>, HrError> {
-    Ok(sqlx::query_as::<_, (String, Value)>(
-        "select employee_id, nl from hr_payroll_profiles where employer_id = $1",
-    )
-    .bind(employer_id)
-    .fetch_all(db)
-    .await?)
+    Ok(hr_payroll_profiles::Entity::find()
+        .select_only()
+        .columns([
+            hr_payroll_profiles::Column::EmployeeId,
+            hr_payroll_profiles::Column::Nl,
+        ])
+        .filter(hr_payroll_profiles::Column::EmployerId.eq(employer_id))
+        .into_tuple()
+        .all(&orm(db))
+        .await?)
 }
 
 /// `nextIncomeRelationshipNumber(db, employerId, exceptEmployeeId)`.
@@ -661,13 +754,7 @@ pub(crate) async fn transition_income_relationship_number(
     db: &PgPool,
     employee_id: &str,
 ) -> Result<Option<f64>, HrError> {
-    let profile: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from hr_payroll_profiles t where t.employee_id = $1 limit 1",
-    )
-    .bind(employee_id)
-    .fetch_optional(db)
-    .await?;
-    let Some(profile) = profile.map(js_row) else {
+    let Some(profile) = profile_of(db, employee_id).await? else {
         return Ok(None);
     };
     if let Some(n) = profile["nl"]["transitionIncomeRelationshipNumber"]
@@ -688,11 +775,17 @@ pub(crate) async fn transition_income_relationship_number(
         "transitionIncomeRelationshipNumber".into(),
         weldsuite_core_domain::js::number_value(number),
     );
-    sqlx::query("update hr_payroll_profiles set nl = $2, updated_at = $3::timestamp where id = $1")
-        .bind(s(&profile, "id"))
-        .bind(Value::Object(nl))
-        .bind(now())
-        .execute(db)
+    hr_payroll_profiles::Entity::update_many()
+        .col_expr(
+            hr_payroll_profiles::Column::Nl,
+            Expr::value(Value::Object(nl)),
+        )
+        .col_expr(
+            hr_payroll_profiles::Column::UpdatedAt,
+            Expr::value(utc_now()),
+        )
+        .filter(hr_payroll_profiles::Column::Id.eq(s(&profile, "id")))
+        .exec(&orm(db))
         .await?;
     Ok(Some(number))
 }
@@ -726,13 +819,12 @@ pub(crate) async fn upsert_profile(
         ));
     }
     if let Some(schedule_id) = truthy_str(input, "payScheduleId") {
-        let schedule: Option<Value> = sqlx::query_scalar(
-            "select to_jsonb(t) from hr_pay_schedules t where t.id = $1 and t.deleted_at is null limit 1",
-        )
-        .bind(schedule_id)
-        .fetch_optional(db)
-        .await?;
-        match schedule.map(js_row) {
+        let schedule = hr_pay_schedules::Entity::find()
+            .filter(hr_pay_schedules::Column::Id.eq(schedule_id))
+            .filter(hr_pay_schedules::Column::DeletedAt.is_null())
+            .one(&orm(db))
+            .await?;
+        match schedule.map(jsonb_row).transpose()? {
             Some(schedule) if schedule["employerId"] == employer["id"] => {
                 if schedule["isActive"] != true {
                     return Err(HrError::validation("This pay schedule is not active"));
@@ -750,22 +842,15 @@ pub(crate) async fn upsert_profile(
         str_of(input, "endDate"),
         "Payroll",
     )?;
-    let existing: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from hr_payroll_profiles t where t.employee_id = $1 limit 1",
-    )
-    .bind(employee_id)
-    .fetch_optional(db)
-    .await?;
-    let existing = existing.map(js_row);
+    let existing = profile_of(db, employee_id).await?;
     if let Some(existing) = &existing
         && existing["employerId"] != employer["id"]
     {
-        let finals: i64 = sqlx::query_scalar(
-            "select count(*) from hr_payslips where employee_id = $1 and status = 'final'",
-        )
-        .bind(employee_id)
-        .fetch_one(db)
-        .await?;
+        let finals = hr_payslips::Entity::find()
+            .filter(hr_payslips::Column::EmployeeId.eq(employee_id))
+            .filter(hr_payslips::Column::Status.eq("final"))
+            .count(&orm(db))
+            .await?;
         if finals > 0 {
             return Err(HrError::conflict(
                 "This employee has payslips under another employer. End that payroll and start a new one.",
@@ -817,9 +902,10 @@ pub(crate) async fn upsert_profile(
             );
         }
         if nl.get("contractHoursPerWeek").is_none_or(Value::is_null) {
+            // As `to_jsonb` read the column: `40`, not the model's `40.0`.
             nl.insert(
                 "contractHoursPerWeek".into(),
-                employee["weeklyHours"].clone(),
+                weldsuite_core_domain::js::whole_numbers(&employee["weeklyHours"]),
             );
         }
     }
@@ -837,52 +923,67 @@ pub(crate) async fn upsert_profile(
         .cloned()
         .or_else(|| existing.as_ref().map(|e| e["status"].clone()))
         .unwrap_or(json!("active"));
-    let start = pick("startDate", previous("startDate"));
-    let end = pick("endDate", previous("endDate"));
-    let at = now();
+    let start = pg_date_opt(pick("startDate", previous("startDate")).as_str())?;
+    let end = pg_date_opt(pick("endDate", previous("endDate")).as_str())?;
+    let schedule = schedule.as_str().map(str::to_owned);
+    // `status = $n`: a status that isn't text is a null the column refuses.
+    let status = status.as_str().map(str::to_owned).ok_or_else(|| {
+        HrError::Database(DbErr::Custom(
+            "null value in column \"status\" of relation \"hr_payroll_profiles\"".into(),
+        ))
+    })?;
+    let at = utc_now();
+    let orm = orm(db);
     let id = if let Some(existing) = &existing {
-        sqlx::query(
-            "update hr_payroll_profiles set employer_id = $2, pay_schedule_id = $3, status = $4, start_date = $5::date,
-             end_date = $6::date, nl = $7, us = $8, updated_at = $9::timestamp where id = $1",
-        )
-        .bind(s(existing, "id"))
-        .bind(s(&employer, "id"))
-        .bind(schedule.as_str())
-        .bind(status.as_str())
-        .bind(start.as_str())
-        .bind(end.as_str())
-        .bind(Value::Object(nl))
-        .bind(Value::Object(us))
-        .bind(&at)
-        .execute(db)
-        .await?;
+        hr_payroll_profiles::Entity::update_many()
+            .col_expr(
+                hr_payroll_profiles::Column::EmployerId,
+                Expr::value(s(&employer, "id")),
+            )
+            .col_expr(
+                hr_payroll_profiles::Column::PayScheduleId,
+                Expr::value(schedule),
+            )
+            .col_expr(hr_payroll_profiles::Column::Status, Expr::value(status))
+            .col_expr(hr_payroll_profiles::Column::StartDate, Expr::value(start))
+            .col_expr(hr_payroll_profiles::Column::EndDate, Expr::value(end))
+            .col_expr(
+                hr_payroll_profiles::Column::Nl,
+                Expr::value(Value::Object(nl)),
+            )
+            .col_expr(
+                hr_payroll_profiles::Column::Us,
+                Expr::value(Value::Object(us)),
+            )
+            .col_expr(hr_payroll_profiles::Column::UpdatedAt, Expr::value(at))
+            .filter(hr_payroll_profiles::Column::Id.eq(s(existing, "id")))
+            .exec(&orm)
+            .await?;
         s(existing, "id").to_owned()
     } else {
         let id = generate_id("hrpp");
-        sqlx::query(
-            "insert into hr_payroll_profiles (id, employee_id, employer_id, pay_schedule_id, status, start_date, end_date,
-             nl, us, updated_at) values ($1, $2, $3, $4, $5, $6::date, $7::date, $8, $9, $10::timestamp)",
-        )
-        .bind(&id)
-        .bind(employee_id)
-        .bind(s(&employer, "id"))
-        .bind(schedule.as_str())
-        .bind(status.as_str())
-        .bind(start.as_str())
-        .bind(end.as_str())
-        .bind(Value::Object(nl))
-        .bind(Value::Object(us))
-        .bind(&at)
-        .execute(db)
+        hr_payroll_profiles::Entity::insert(hr_payroll_profiles::ActiveModel {
+            id: Set(id.clone()),
+            employee_id: Set(employee_id.to_owned()),
+            employer_id: Set(s(&employer, "id").to_owned()),
+            pay_schedule_id: Set(schedule),
+            status: Set(status),
+            start_date: Set(start),
+            end_date: Set(end),
+            nl: Set(Value::Object(nl)),
+            us: Set(Value::Object(us)),
+            updated_at: Set(at),
+            ..Default::default()
+        })
+        .exec_without_returning(&orm)
         .await?;
         id
     };
-    let row: Value =
-        sqlx::query_scalar("select to_jsonb(t) from hr_payroll_profiles t where t.id = $1")
-            .bind(&id)
-            .fetch_one(db)
-            .await?;
-    Ok(to_profile_dto(&js_row(row)))
+    let row = hr_payroll_profiles::Entity::find_by_id(id.as_str())
+        .one(&orm)
+        .await?
+        .ok_or_else(|| crate::employees::no_row("hr_payroll_profiles"))?;
+    Ok(to_profile_dto(&jsonb_row(row)?))
 }
 
 /// `lastApprovedPeriodEnd(db, employeeId)`.
@@ -890,33 +991,39 @@ pub(crate) async fn last_approved_period_end(
     db: &PgPool,
     employee_id: &str,
 ) -> Result<Option<String>, HrError> {
-    Ok(sqlx::query_scalar::<_, Option<String>>(
-        "select max(period_end)::text from hr_payslips where employee_id = $1 and status = 'final'",
-    )
-    .bind(employee_id)
-    .fetch_one(db)
-    .await?)
+    let max: Option<Option<String>> = hr_payslips::Entity::find()
+        .select_only()
+        .column_as(
+            sea_orm::ExprTrait::cast_as(
+                Expr::expr(Func::max(Expr::col(hr_payslips::Column::PeriodEnd))),
+                "text",
+            ),
+            "max",
+        )
+        .filter(hr_payslips::Column::EmployeeId.eq(employee_id))
+        .filter(hr_payslips::Column::Status.eq("final"))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
+    Ok(max.flatten())
 }
 
 async fn compensation_row(db: &PgPool, id: &str) -> Result<Option<Value>, HrError> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) || jsonb_build_object('amount', t.amount::text) from hr_compensations t where t.id = $1 limit 1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(js_row))
+    hr_compensations::Entity::find_by_id(id)
+        .one(&orm(db))
+        .await?
+        .map(jsonb_row)
+        .transpose()
 }
 
 async fn compensations_of(db: &PgPool, employee_id: &str) -> Result<Vec<Value>, HrError> {
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) || jsonb_build_object('amount', t.amount::text) from hr_compensations t
-         where t.employee_id = $1 order by t.effective_from desc",
+    jsonb_rows(
+        hr_compensations::Entity::find()
+            .filter(hr_compensations::Column::EmployeeId.eq(employee_id))
+            .order_by_desc(hr_compensations::Column::EffectiveFrom)
+            .all(&orm(db))
+            .await?,
     )
-    .bind(employee_id)
-    .fetch_all(db)
-    .await?;
-    Ok(rows.into_iter().map(js_row).collect())
 }
 
 /// `createCompensation(db, employeeId, input, ctx)`.
@@ -927,12 +1034,7 @@ pub(crate) async fn create_compensation(
     created_by: &str,
 ) -> Result<Value, HrError> {
     let employee = require_employee(db, employee_id).await?;
-    let profile_employer: Option<String> = sqlx::query_scalar(
-        "select employer_id from hr_payroll_profiles where employee_id = $1 limit 1",
-    )
-    .bind(employee_id)
-    .fetch_optional(db)
-    .await?;
+    let profile_employer = profile_employer_id(db, employee_id).await?;
     let currency_of_employer: Option<String> = match profile_employer {
         Some(employer_id) => find_employer_for_payroll(db, &employer_id, &Keyring::default())
             .await?
@@ -975,7 +1077,7 @@ pub(crate) async fn create_compensation(
             409,
         ));
     }
-    let at = now();
+    let at = utc_now();
     let id = generate_id("hrcmp");
     let currency = str_of(input, "currency")
         .map(str::to_owned)
@@ -986,32 +1088,48 @@ pub(crate) async fn create_compensation(
         Some(Value::Number(n)) => n.as_f64(),
         _ => employee["weeklyHours"].as_f64(),
     };
-    let mut tx = db.begin().await?;
-    if let Some(latest) = existing.first().filter(|l| l["effectiveTo"].is_null()) {
-        sqlx::query("update hr_compensations set effective_to = $2::date, updated_at = $3::timestamp where id = $1")
-            .bind(s(latest, "id"))
-            .bind(add_days(from, -1))
-            .bind(&at)
-            .execute(&mut *tx)
-            .await?;
-    }
-    sqlx::query(
-        "insert into hr_compensations (id, employee_id, effective_from, effective_to, pay_type, amount, period, currency,
-         hours_per_week, reason, created_by) values ($1, $2, $3::date, null, $4, $5::numeric, $6, $7, $8, $9, $10)",
-    )
-    .bind(&id)
-    .bind(employee_id)
-    .bind(from)
-    .bind(pay_type)
-    .bind(decimal4(input["amount"].as_f64().unwrap_or(0.0)))
-    .bind(period)
-    .bind(&currency)
-    .bind(hours)
-    .bind(str_of(input, "reason"))
-    .bind(created_by)
-    .execute(&mut *tx)
+    // The latest compensation ends the day before the new one starts.
+    let close = match existing.first().filter(|l| l["effectiveTo"].is_null()) {
+        Some(latest) => Some((s(latest, "id").to_owned(), pg_date(&add_days(from, -1))?)),
+        None => None,
+    };
+    let record = hr_compensations::ActiveModel {
+        id: Set(id.clone()),
+        employee_id: Set(employee_id.to_owned()),
+        effective_from: Set(pg_date(from)?),
+        effective_to: Set(None),
+        pay_type: Set(pay_type.to_owned()),
+        amount: Set(pg_numeric(&decimal4(
+            input["amount"].as_f64().unwrap_or(0.0),
+        ))?),
+        period: Set(period.to_owned()),
+        currency: Set(currency),
+        hours_per_week: Set(hours),
+        reason: Set(str_of(input, "reason").map(str::to_owned)),
+        created_by: Set(Some(created_by.to_owned())),
+        ..Default::default()
+    };
+    atomically_with(db, |tx| {
+        Box::pin(async move {
+            let tx = OrmConn::new(tx);
+            if let Some((latest, day_before)) = close {
+                hr_compensations::Entity::update_many()
+                    .col_expr(
+                        hr_compensations::Column::EffectiveTo,
+                        Expr::value(day_before),
+                    )
+                    .col_expr(hr_compensations::Column::UpdatedAt, Expr::value(at))
+                    .filter(hr_compensations::Column::Id.eq(latest))
+                    .exec(&tx)
+                    .await?;
+            }
+            hr_compensations::Entity::insert(record)
+                .exec_without_returning(&tx)
+                .await?;
+            Ok::<_, HrError>(())
+        })
+    })
     .await?;
-    tx.commit().await?;
     let row = compensation_row(db, &id)
         .await?
         .ok_or_else(|| HrError::internal("compensation vanished"))?;
@@ -1041,31 +1159,36 @@ pub(crate) async fn delete_compensation(db: &PgPool, id: &str) -> Result<String,
         .await?
         .into_iter()
         .find(|r| r["id"] != id && r["effectiveTo"].as_str() == Some(day_before.as_str()));
-    let mut tx = db.begin().await?;
-    sqlx::query("delete from hr_compensations where id = $1")
-        .bind(id)
-        .execute(&mut *tx)
-        .await?;
-    if let Some(previous) = previous {
-        sqlx::query("update hr_compensations set effective_to = null, updated_at = $2::timestamp where id = $1")
-            .bind(s(&previous, "id"))
-            .bind(now())
-            .execute(&mut *tx)
-            .await?;
-    }
-    tx.commit().await?;
+    let id = id.to_owned();
+    let previous = previous.map(|row| s(&row, "id").to_owned());
+    atomically_with(db, |tx| {
+        Box::pin(async move {
+            let tx = OrmConn::new(tx);
+            hr_compensations::Entity::delete_many()
+                .filter(hr_compensations::Column::Id.eq(id))
+                .exec(&tx)
+                .await?;
+            if let Some(previous) = previous {
+                hr_compensations::Entity::update_many()
+                    .col_expr(
+                        hr_compensations::Column::EffectiveTo,
+                        Expr::value(Option::<time::Date>::None),
+                    )
+                    .col_expr(hr_compensations::Column::UpdatedAt, Expr::value(utc_now()))
+                    .filter(hr_compensations::Column::Id.eq(previous))
+                    .exec(&tx)
+                    .await?;
+            }
+            Ok::<_, HrError>(())
+        })
+    })
+    .await?;
     Ok(employee_id)
 }
 
 /// `employerCountryOf(db, employeeId)`.
 async fn employer_country_of(db: &PgPool, employee_id: &str) -> Result<String, HrError> {
-    let profile: Option<String> = sqlx::query_scalar(
-        "select employer_id from hr_payroll_profiles where employee_id = $1 limit 1",
-    )
-    .bind(employee_id)
-    .fetch_optional(db)
-    .await?;
-    let Some(employer_id) = profile else {
+    let Some(employer_id) = profile_employer_id(db, employee_id).await? else {
         return Err(HrError::validation("Put the employee on payroll first"));
     };
     let employer = find_employer_for_payroll(db, &employer_id, &Keyring::default()).await?;
@@ -1143,14 +1266,11 @@ fn validate_component(
 }
 
 async fn component_row(db: &PgPool, id: &str, live: bool) -> Result<Option<Value>, HrError> {
-    let sql = if live {
-        "select to_jsonb(t) || jsonb_build_object('amount', t.amount::text) from hr_pay_components t
-         where t.id = $1 and t.deleted_at is null limit 1"
-    } else {
-        "select to_jsonb(t) || jsonb_build_object('amount', t.amount::text) from hr_pay_components t where t.id = $1 limit 1"
-    };
-    let row: Option<Value> = sqlx::query_scalar(sql).bind(id).fetch_optional(db).await?;
-    Ok(row.map(js_row))
+    let mut query = hr_pay_components::Entity::find().filter(hr_pay_components::Column::Id.eq(id));
+    if live {
+        query = query.filter(hr_pay_components::Column::DeletedAt.is_null());
+    }
+    query.one(&orm(db)).await?.map(jsonb_row).transpose()
 }
 
 /// `createComponent(db, employeeId, input, ctx)`.
@@ -1176,20 +1296,19 @@ pub(crate) async fn create_component(
         "Component",
     )?;
     let id = generate_id("hrpc");
-    sqlx::query(
-        "insert into hr_pay_components (id, employee_id, code, label, amount, params, effective_from, effective_to, created_by)
-         values ($1, $2, $3, $4, $5::numeric, $6, $7::date, $8::date, $9)",
-    )
-    .bind(&id)
-    .bind(employee_id)
-    .bind(code)
-    .bind(str_of(input, "label"))
-    .bind(amount.map(decimal2))
-    .bind(input.get("params").cloned().unwrap_or_else(|| json!({})))
-    .bind(str_of(input, "effectiveFrom"))
-    .bind(str_of(input, "effectiveTo"))
-    .bind(created_by)
-    .execute(db)
+    hr_pay_components::Entity::insert(hr_pay_components::ActiveModel {
+        id: Set(id.clone()),
+        employee_id: Set(employee_id.to_owned()),
+        code: Set(code.to_owned()),
+        label: Set(str_of(input, "label").map(str::to_owned)),
+        amount: Set(amount.map(|a| pg_numeric(&decimal2(a))).transpose()?),
+        params: Set(input.get("params").cloned().unwrap_or_else(|| json!({}))),
+        effective_from: Set(pg_date(str_of(input, "effectiveFrom").unwrap_or_default())?),
+        effective_to: Set(pg_date_opt(str_of(input, "effectiveTo"))?),
+        created_by: Set(Some(created_by.to_owned())),
+        ..Default::default()
+    })
+    .exec_without_returning(&orm(db))
     .await?;
     let row = component_row(db, &id, false)
         .await?
@@ -1228,28 +1347,43 @@ pub(crate) async fn update_component(
         row["effectiveTo"].as_str()
     };
     assert_date_order(Some(from), to, "Component")?;
-    sqlx::query(
-        "update hr_pay_components set
-           label = case when $2 then $3 else label end,
-           amount = case when $4 then $5::numeric else amount end,
-           params = coalesce($6, params),
-           effective_from = coalesce($7::date, effective_from),
-           effective_to = case when $8 then $9::date else effective_to end,
-           updated_at = $10::timestamp
-         where id = $1",
-    )
-    .bind(id)
-    .bind(has(input, "label"))
-    .bind(str_of(input, "label"))
-    .bind(has(input, "amount"))
-    .bind(input.get("amount").and_then(Value::as_f64).map(decimal2))
-    .bind(input.get("params"))
-    .bind(str_of(input, "effectiveFrom"))
-    .bind(has(input, "effectiveTo"))
-    .bind(str_of(input, "effectiveTo"))
-    .bind(now())
-    .execute(db)
-    .await?;
+    let mut update = hr_pay_components::Entity::update_many();
+    if has(input, "label") {
+        update = update.col_expr(
+            hr_pay_components::Column::Label,
+            Expr::value(str_of(input, "label").map(str::to_owned)),
+        );
+    }
+    if has(input, "amount") {
+        let amount = input.get("amount").and_then(Value::as_f64);
+        update = update.col_expr(
+            hr_pay_components::Column::Amount,
+            Expr::value(amount.map(|a| pg_numeric(&decimal2(a))).transpose()?),
+        );
+    }
+    if let Some(params) = input.get("params") {
+        update = update.col_expr(
+            hr_pay_components::Column::Params,
+            Expr::value(params.clone()),
+        );
+    }
+    if let Some(from) = str_of(input, "effectiveFrom") {
+        update = update.col_expr(
+            hr_pay_components::Column::EffectiveFrom,
+            Expr::value(pg_date(from)?),
+        );
+    }
+    if has(input, "effectiveTo") {
+        update = update.col_expr(
+            hr_pay_components::Column::EffectiveTo,
+            Expr::value(pg_date_opt(str_of(input, "effectiveTo"))?),
+        );
+    }
+    update
+        .col_expr(hr_pay_components::Column::UpdatedAt, Expr::value(utc_now()))
+        .filter(hr_pay_components::Column::Id.eq(id))
+        .exec(&orm(db))
+        .await?;
     let row = component_row(db, id, false)
         .await?
         .ok_or_else(|| HrError::internal("component vanished"))?;
@@ -1259,11 +1393,12 @@ pub(crate) async fn update_component(
 /// `deleteComponent(db, id)`: the employee it belonged to.
 pub(crate) async fn delete_component(db: &PgPool, id: &str) -> Result<String, HrError> {
     let row = require_component(db, id).await?;
-    let at = now();
-    sqlx::query("update hr_pay_components set deleted_at = $2::timestamp, updated_at = $2::timestamp where id = $1")
-        .bind(id)
-        .bind(&at)
-        .execute(db)
+    let at = utc_now();
+    hr_pay_components::Entity::update_many()
+        .col_expr(hr_pay_components::Column::DeletedAt, Expr::value(at))
+        .col_expr(hr_pay_components::Column::UpdatedAt, Expr::value(at))
+        .filter(hr_pay_components::Column::Id.eq(id))
+        .exec(&orm(db))
         .await?;
     Ok(s(&row, "employeeId").to_owned())
 }
@@ -1271,17 +1406,15 @@ pub(crate) async fn delete_component(db: &PgPool, id: &str) -> Result<String, Hr
 /// `listElections(db, employeeId)`.
 pub(crate) async fn list_elections(db: &PgPool, employee_id: &str) -> Result<Vec<Value>, HrError> {
     require_employee(db, employee_id).await?;
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from hr_tax_elections t where t.employee_id = $1 order by t.effective_from desc, t.created_at desc",
-    )
-    .bind(employee_id)
-    .fetch_all(db)
-    .await?;
-    Ok(rows
-        .into_iter()
-        .map(js_row)
-        .map(|r| to_election_dto(&r))
-        .collect())
+    let rows = jsonb_rows(
+        hr_tax_elections::Entity::find()
+            .filter(hr_tax_elections::Column::EmployeeId.eq(employee_id))
+            .order_by_desc(hr_tax_elections::Column::EffectiveFrom)
+            .order_by_desc(hr_tax_elections::Column::CreatedAt)
+            .all(&orm(db))
+            .await?,
+    )?;
+    Ok(rows.iter().map(to_election_dto).collect())
 }
 
 /// `createElection(db, employeeId, input, ctx)`.
@@ -1322,30 +1455,29 @@ pub(crate) async fn create_election(
     if signature.is_empty() {
         return Err(HrError::validation("The signature name is required"));
     }
-    let at = now();
+    let at = utc_now();
     let id = generate_id("hrte");
-    sqlx::query(
-        "insert into hr_tax_elections (id, employee_id, kind, state, effective_from, data, signed_by, signature_name, signed_at,
-         source, created_at) values ($1, $2, $3, $4, $5::date, $6, $7, $8, $9::timestamp, $10, $9::timestamp)",
-    )
-    .bind(&id)
-    .bind(employee_id)
-    .bind(kind)
-    .bind(state)
-    .bind(str_of(input, "effectiveFrom"))
-    .bind(&input["data"])
-    .bind(signed_by)
-    .bind(signature)
-    .bind(&at)
-    .bind(source)
-    .execute(db)
+    let orm = orm(db);
+    hr_tax_elections::Entity::insert(hr_tax_elections::ActiveModel {
+        id: Set(id.clone()),
+        employee_id: Set(employee_id.to_owned()),
+        kind: Set(kind.to_owned()),
+        state: Set(state.map(str::to_owned)),
+        effective_from: Set(pg_date(str_of(input, "effectiveFrom").unwrap_or_default())?),
+        data: Set(input["data"].clone()),
+        signed_by: Set(Some(signed_by.to_owned())),
+        signature_name: Set(Some(signature.to_owned())),
+        signed_at: Set(Some(at)),
+        source: Set(source.to_owned()),
+        created_at: Set(at),
+    })
+    .exec_without_returning(&orm)
     .await?;
-    let row: Value =
-        sqlx::query_scalar("select to_jsonb(t) from hr_tax_elections t where t.id = $1")
-            .bind(&id)
-            .fetch_one(db)
-            .await?;
-    Ok(to_election_dto(&js_row(row)))
+    let row = hr_tax_elections::Entity::find_by_id(id.as_str())
+        .one(&orm)
+        .await?
+        .ok_or_else(|| crate::employees::no_row("hr_tax_elections"))?;
+    Ok(to_election_dto(&jsonb_row(row)?))
 }
 
 /// `writeSensitive(db, id, patch, keyring)`: the fields that changed.
@@ -1370,11 +1502,14 @@ pub(crate) async fn write_sensitive(
         return Ok(changed);
     }
     let sealed = encrypt_sensitive(&Value::Object(next), keyring)?;
-    sqlx::query("update hr_employees set sensitive_encrypted = $2, updated_at = $3::timestamp where id = $1")
-        .bind(id)
-        .bind(sealed)
-        .bind(now())
-        .execute(db)
+    hr_employees::Entity::update_many()
+        .col_expr(
+            hr_employees::Column::SensitiveEncrypted,
+            Expr::value(sealed),
+        )
+        .col_expr(hr_employees::Column::UpdatedAt, Expr::value(utc_now()))
+        .filter(hr_employees::Column::Id.eq(id))
+        .exec(&orm(db))
         .await?;
     Ok(changed)
 }
@@ -1396,12 +1531,7 @@ pub(crate) async fn set_payment_details(
     self_service: bool,
 ) -> Result<PaymentDetailsResult, HrError> {
     require_employee(db, employee_id).await?;
-    let profile_employer: Option<String> = sqlx::query_scalar(
-        "select employer_id from hr_payroll_profiles where employee_id = $1 limit 1",
-    )
-    .bind(employee_id)
-    .fetch_optional(db)
-    .await?;
+    let profile_employer = profile_employer_id(db, employee_id).await?;
     let country: Option<String> = match profile_employer {
         Some(employer_id) => find_employer_for_payroll(db, &employer_id, &Keyring::default())
             .await?

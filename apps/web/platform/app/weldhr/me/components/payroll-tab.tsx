@@ -223,7 +223,7 @@ export function MyPayrollTab({ employeeName }: Readonly<{ employeeName: string }
       {editing && country && (
         <Dialog open onOpenChange={(open) => !open && !updateDetails.isPending && setEditing(false)}>
           <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-2xl">
-            <DialogHeader>
+            <DialogHeader className="mb-2">
               <DialogTitle>{t('weldhr.payroll.details.editTitle')}</DialogTitle>
               <DialogDescription>{t('weldhr.payroll.details.editDescriptionSelf')}</DialogDescription>
             </DialogHeader>

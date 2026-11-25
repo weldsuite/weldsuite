@@ -8,14 +8,16 @@
 use std::collections::HashMap;
 use std::fmt::Write as _;
 
+use sea_orm::{EntityTrait, QueryFilter, QuerySelect};
 use serde_json::Value;
+use weldsuite_db::orm;
+use weldsuite_schema::tenant::form_responses;
 
-use crate::common::{Ctx, FormsResult, all, iso, text};
+use crate::common::{Ctx, FormsResult, iso, rows_json, text};
 use crate::engine::js::{js_round, number_text};
 use crate::response_model::{
-    Bind, Column, MAX_EXPORT_ROWS, ResponseFilter, VersionInfo, answer_cell, bind_all,
-    build_columns, is_abandoned, js_string, latest_fields, load_versions, response_conditions,
-    response_order,
+    Column, MAX_EXPORT_ROWS, ResponseFilter, VersionInfo, answer_cell, build_columns, is_abandoned,
+    js_string, latest_fields, load_versions, response_conditions, response_order,
 };
 
 /// One cell: `string | number | null`.
@@ -93,18 +95,14 @@ pub(crate) async fn export_table(
         versions.iter().map(|v| (v.id.as_str(), v)).collect();
     let fallback = latest_fields(&versions);
     let columns = build_columns(&versions);
-    let mut w = response_conditions(form_id, filter, &fallback)?;
-    let limit = w.param(Bind::Int(MAX_EXPORT_ROWS));
-    let sql = format!(
-        "select to_jsonb(r) from form_responses r where {} order by {} limit {limit}",
-        w.sql(),
-        response_order(Some(sort.unwrap_or("oldest")))
-    );
-    let rows = all(
-        &ctx.db,
-        bind_all(sqlx::query_scalar(sqlx::AssertSqlSafe(sql)), &w.binds),
-    )
-    .await?;
+    let conditions = response_conditions(form_id, filter, &fallback)?;
+    let find = form_responses::Entity::find().filter(conditions);
+    let rows = rows_json(
+        response_order(find, Some(sort.unwrap_or("oldest")))
+            .limit(u64::try_from(MAX_EXPORT_ROWS).unwrap_or(0))
+            .all(&orm(&ctx.db))
+            .await?,
+    )?;
     let now = ctx.now_ms();
     let table = rows
         .iter()

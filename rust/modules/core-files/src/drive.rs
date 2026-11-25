@@ -13,8 +13,14 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 
 use axum::extract::{Path, RawQuery, State};
 use axum::response::Response;
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{
+    ColumnTrait, Condition, DatabaseConnection, DbErr, EntityTrait, FromQueryResult, JoinType,
+    PaginatorTrait, QueryFilter, QuerySelect, Select,
+};
+use serde::Serialize;
 use serde_json::{Map, Value, json};
-use time::OffsetDateTime;
+use time::{OffsetDateTime, PrimitiveDateTime};
 use weldsuite_catalogs::entity_events::{
     FILE_PURGED, FILE_RESTORED, FOLDER_PURGED, FOLDER_RESTORED,
 };
@@ -25,8 +31,13 @@ use weldsuite_core_domain::drive_sharing::{
     list_shared_with_user, with_file_access, with_folder_access, with_share_fields,
 };
 use weldsuite_core_domain::{files as files_db, folders as folders_db};
-use weldsuite_db::{PgPool, js_row};
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::validation::{Issues, Number, Presence};
+use weldsuite_schema::tenant::enums::SocialMediaStatus;
+use weldsuite_schema::tenant::{
+    files, mail_accounts, mail_attachments, mail_messages, meeting_bot_sessions, project_documents,
+    project_files, project_whiteboards, social_media, voip_calls,
+};
 
 use crate::search::{SearchType, build_result_url};
 use crate::{
@@ -410,53 +421,112 @@ fn normalize_social_media(rows: &[Value]) -> Vec<Value> {
         .collect()
 }
 
+// ── The sources ────────────────────────────────────────────────────────────
+
+/// Rows as Drizzle returned them (`to_jsonb`): each entity serializes as
+/// Drizzle did.
+async fn js_rows<E>(query: Select<E>, db: &DatabaseConnection) -> Result<Vec<Value>, DbErr>
+where
+    E: EntityTrait,
+    E::Model: serde::Serialize,
+{
+    query
+        .all(db)
+        .await?
+        .into_iter()
+        .map(|row| serde_json::to_value(row).map_err(|error| DbErr::Json(error.to_string())))
+        .collect()
+}
+
+/// How many rows a source has (`count(*)`).
+async fn count<E>(query: Select<E>, db: &DatabaseConnection) -> Result<i64, DbErr>
+where
+    E: EntityTrait,
+    E::Model: Sync,
+{
+    Ok(i64::try_from(query.count(db).await?).unwrap_or(i64::MAX))
+}
+
+/// Project files that are not folders.
+fn project_file_rows() -> Select<project_files::Entity> {
+    project_files::Entity::find()
+        .filter(project_files::Column::DeletedAt.is_null())
+        .filter(project_files::Column::IsFolder.eq(false))
+}
+
+fn project_document_rows() -> Select<project_documents::Entity> {
+    project_documents::Entity::find().filter(project_documents::Column::DeletedAt.is_null())
+}
+
+fn whiteboard_rows() -> Select<project_whiteboards::Entity> {
+    project_whiteboards::Entity::find().filter(project_whiteboards::Column::DeletedAt.is_null())
+}
+
+/// Calls with a recording.
+fn voip_recording_rows() -> Select<voip_calls::Entity> {
+    voip_calls::Entity::find().filter(voip_calls::Column::IsRecorded.eq(true))
+}
+
+/// Meeting bot sessions with a recording.
+fn meeting_recording_rows() -> Select<meeting_bot_sessions::Entity> {
+    meeting_bot_sessions::Entity::find()
+        .filter(meeting_bot_sessions::Column::RecordingStorageUrl.is_not_null())
+}
+
+fn social_media_rows() -> Select<social_media::Entity> {
+    social_media::Entity::find().filter(social_media::Column::Status.ne(SocialMediaStatus::Deleted))
+}
+
 // ── Mail attachment access ─────────────────────────────────────────────────
 
 /// `isAdminOrOwner` (`@weldsuite/mail-domain/access`).
-async fn is_admin_or_owner(db: &PgPool, user_id: &str) -> Result<bool, sqlx::Error> {
+async fn is_admin_or_owner(db: &PgPool, user_id: &str) -> Result<bool, DbErr> {
     weldsuite_core_domain::drive_access::is_workspace_admin(db, user_id).await
 }
 
-async fn rows(db: &PgPool, sql: &'static str) -> Result<Vec<Value>, sqlx::Error> {
-    let rows: Vec<Value> = sqlx::query_scalar(sql).fetch_all(db).await?;
-    Ok(rows.into_iter().map(js_row).collect())
-}
-
 /// The live attachments of mailboxes `user_id` may open
-/// (`accessibleMailAttachments` + `userAccessCondition`).
-async fn mail_attachments(db: &PgPool, user_id: &str) -> Result<Vec<Value>, sqlx::Error> {
+/// (`accessibleMailAttachments` + `userAccessCondition`): shared ones, those
+/// assigned to them, and for an admin those assigned to no one.
+async fn mail_attachment_rows(
+    db: &PgPool,
+    user_id: &str,
+) -> Result<Select<mail_attachments::Entity>, DbErr> {
+    use sea_orm::sea_query::extension::postgres::PgExpr;
     let admin = is_admin_or_owner(db, user_id).await?;
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(a) from mail_attachments a
-         join mail_messages m on m.id = a.message_id
-         join mail_accounts acc on acc.id = m.account_id
-         where a.deleted_at is null and acc.deleted_at is null
-           and (acc.is_shared = true
-                or acc.assigned_user_ids @> $1::jsonb
-                or ($2 and coalesce(acc.assigned_user_ids, '[]'::jsonb) in ('[]'::jsonb, 'null'::jsonb)))",
-    )
-    .bind(json!([user_id]))
-    .bind(admin)
-    .fetch_all(db)
-    .await?;
-    Ok(rows.into_iter().map(js_row).collect())
-}
-
-async fn mail_attachment_count(db: &PgPool, user_id: &str) -> Result<i64, sqlx::Error> {
-    let admin = is_admin_or_owner(db, user_id).await?;
-    sqlx::query_scalar(
-        "select count(*) from mail_attachments a
-         join mail_messages m on m.id = a.message_id
-         join mail_accounts acc on acc.id = m.account_id
-         where a.deleted_at is null and acc.deleted_at is null
-           and (acc.is_shared = true
-                or acc.assigned_user_ids @> $1::jsonb
-                or ($2 and coalesce(acc.assigned_user_ids, '[]'::jsonb) in ('[]'::jsonb, 'null'::jsonb)))",
-    )
-    .bind(json!([user_id]))
-    .bind(admin)
-    .fetch_one(db)
-    .await
+    let assigned = || {
+        Expr::col((
+            mail_accounts::Entity,
+            mail_accounts::Column::AssignedUserIds,
+        ))
+    };
+    let mut access = Condition::any()
+        .add(mail_accounts::Column::IsShared.eq(true))
+        .add(PgExpr::contains(assigned(), Expr::val(json!([user_id]))));
+    if admin {
+        // `coalesce(assigned_user_ids, '[]'::jsonb) in ('[]'::jsonb, 'null'::jsonb)`
+        access = access.add(sea_orm::ExprTrait::is_in(
+            Expr::from(Func::coalesce([assigned(), Expr::val(json!([]))])),
+            [json!([]), Value::Null],
+        ));
+    }
+    Ok(mail_attachments::Entity::find()
+        .join(
+            JoinType::InnerJoin,
+            mail_attachments::Entity::belongs_to(mail_messages::Entity)
+                .from(mail_attachments::Column::MessageId)
+                .to(mail_messages::Column::Id)
+                .into(),
+        )
+        .join(
+            JoinType::InnerJoin,
+            mail_messages::Entity::belongs_to(mail_accounts::Entity)
+                .from(mail_messages::Column::AccountId)
+                .to(mail_accounts::Column::Id)
+                .into(),
+        )
+        .filter(mail_attachments::Column::DeletedAt.is_null())
+        .filter(mail_accounts::Column::DeletedAt.is_null())
+        .filter(access))
 }
 
 // ── /all ───────────────────────────────────────────────────────────────────
@@ -468,13 +538,14 @@ async fn aggregate_all_files(
     source: Option<&str>,
     access: &DriveAccessIndex,
     bases: &UrlBases,
-) -> Result<Vec<Value>, sqlx::Error> {
+) -> Result<Vec<Value>, DbErr> {
     let wants = |s: &str| source.is_none_or(|source| source.is_empty() || source == s);
+    let conn = &orm(db);
     let mut out = Vec::new();
     if wants("drive") {
-        let drive = rows(
-            db,
-            "select to_jsonb(f) from files f where deleted_at is null",
+        let drive = js_rows(
+            files::Entity::find().filter(files::Column::DeletedAt.is_null()),
+            conn,
         )
         .await?;
         out.extend(normalize_generic_files(
@@ -483,57 +554,38 @@ async fn aggregate_all_files(
         ));
     }
     if wants("projects") {
-        let found = rows(
-            db,
-            "select to_jsonb(p) from project_files p where deleted_at is null and is_folder = false",
-        )
-        .await?;
-        out.extend(normalize_project_files(&found));
-    }
-    if wants("documents") {
-        let found = rows(
-            db,
-            "select to_jsonb(d) from project_documents d where deleted_at is null",
-        )
-        .await?;
-        out.extend(normalize_project_documents(&found));
-    }
-    if wants("whiteboards") {
-        let found = rows(
-            db,
-            "select to_jsonb(w) from project_whiteboards w where deleted_at is null",
-        )
-        .await?;
-        out.extend(normalize_whiteboards(&found));
-    }
-    if wants("mail") {
-        out.extend(normalize_mail_attachments(
-            &mail_attachments(db, user_id).await?,
+        out.extend(normalize_project_files(
+            &js_rows(project_file_rows(), conn).await?,
         ));
     }
+    if wants("documents") {
+        out.extend(normalize_project_documents(
+            &js_rows(project_document_rows(), conn).await?,
+        ));
+    }
+    if wants("whiteboards") {
+        out.extend(normalize_whiteboards(
+            &js_rows(whiteboard_rows(), conn).await?,
+        ));
+    }
+    if wants("mail") {
+        let rows = mail_attachment_rows(db, user_id).await?;
+        out.extend(normalize_mail_attachments(&js_rows(rows, conn).await?));
+    }
     if wants("voip") {
-        let found = rows(
-            db,
-            "select to_jsonb(v) from voip_calls v where is_recorded = true",
-        )
-        .await?;
-        out.extend(normalize_voip_recordings(&found));
+        out.extend(normalize_voip_recordings(
+            &js_rows(voip_recording_rows(), conn).await?,
+        ));
     }
     if wants("meetings") {
-        let found = rows(
-            db,
-            "select to_jsonb(s) from meeting_bot_sessions s where recording_storage_url is not null",
-        )
-        .await?;
-        out.extend(normalize_meeting_recordings(&found));
+        out.extend(normalize_meeting_recordings(
+            &js_rows(meeting_recording_rows(), conn).await?,
+        ));
     }
     if wants("social") {
-        let found = rows(
-            db,
-            "select to_jsonb(s) from social_media s where status <> 'deleted'",
-        )
-        .await?;
-        out.extend(normalize_social_media(&found));
+        out.extend(normalize_social_media(
+            &js_rows(social_media_rows(), conn).await?,
+        ));
     }
     Ok(out)
 }
@@ -768,51 +820,56 @@ pub(crate) async fn all(
 
 // ── /stats ─────────────────────────────────────────────────────────────────
 
-async fn count(db: &PgPool, sql: &'static str) -> Result<i64, sqlx::Error> {
-    sqlx::query_scalar(sql).fetch_one(db).await
+/// What the counters need of a Drive file (`jsonb_build_object` of these).
+#[derive(Debug, FromQueryResult, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DriveStatRow {
+    id: String,
+    uploaded_by_id: Option<String>,
+    folder_id: Option<String>,
+    general_access: String,
+    entity_type: Option<String>,
+    #[serde(with = "weldsuite_schema::js::timestamp")]
+    created_at: PrimitiveDateTime,
+}
+
+/// The live Drive files, as the counters read them.
+async fn drive_stat_rows(db: &DatabaseConnection) -> Result<Vec<Value>, DbErr> {
+    use files::Column;
+    files::Entity::find()
+        .select_only()
+        .columns([
+            Column::Id,
+            Column::UploadedById,
+            Column::FolderId,
+            Column::GeneralAccess,
+            Column::EntityType,
+            Column::CreatedAt,
+        ])
+        .filter(Column::DeletedAt.is_null())
+        .into_model::<DriveStatRow>()
+        .all(db)
+        .await?
+        .into_iter()
+        .map(|row| serde_json::to_value(row).map_err(|error| DbErr::Json(error.to_string())))
+        .collect()
 }
 
 pub(crate) async fn stats(caller: Caller) -> Response {
     answer(
         async {
             let db = &caller.db;
+            let conn = &orm(db);
             let user_id = caller.user_id.clone().unwrap_or_default();
             let access = caller.drive_access().await?;
-            let drive_rows = rows(
-                db,
-                "select jsonb_build_object('id', id, 'uploadedById', uploaded_by_id,
-                        'folderId', folder_id, 'generalAccess', general_access,
-                        'entityType', entity_type, 'createdAt', created_at)
-                 from files where deleted_at is null",
-            )
-            .await?;
-            let projects = count(
-                db,
-                "select count(*) from project_files where deleted_at is null and is_folder = false",
-            )
-            .await?;
-            let documents = count(
-                db,
-                "select count(*) from project_documents where deleted_at is null",
-            )
-            .await?;
-            let whiteboards = count(
-                db,
-                "select count(*) from project_whiteboards where deleted_at is null",
-            )
-            .await?;
-            let mail = mail_attachment_count(db, &user_id).await?;
-            let voip = count(db, "select count(*) from voip_calls where is_recorded = true").await?;
-            let meetings = count(
-                db,
-                "select count(*) from meeting_bot_sessions where recording_storage_url is not null",
-            )
-            .await?;
-            let social = count(
-                db,
-                "select count(*) from social_media where status <> 'deleted'",
-            )
-            .await?;
+            let drive_rows = drive_stat_rows(conn).await?;
+            let projects = count(project_file_rows(), conn).await?;
+            let documents = count(project_document_rows(), conn).await?;
+            let whiteboards = count(whiteboard_rows(), conn).await?;
+            let mail = count(mail_attachment_rows(db, &user_id).await?, conn).await?;
+            let voip = count(voip_recording_rows(), conn).await?;
+            let meetings = count(meeting_recording_rows(), conn).await?;
+            let social = count(social_media_rows(), conn).await?;
             let visible = with_file_access(&access, drive_rows);
             let week_ago = OffsetDateTime::now_utc() - time::Duration::days(7);
             let week_ago = weldsuite_events::iso_timestamp(week_ago);

@@ -118,6 +118,7 @@ pub(crate) async fn install_url(
             )
             .into_option()
     })?;
+    crate::require_provider(&caller.db, "github", None).await?;
     let overrides = &caller.overrides;
     let (Some(slug), Some(cache)) = (
         overrides.env_set(&state, "GITHUB_APP_SLUG"),
@@ -324,6 +325,16 @@ pub(crate) async fn setup(
         ));
     }
 
+    // ADR OPS-026: no installation is recorded while GitHub is off.
+    if !weldsuite_outside_eu::allowed(
+        &tenant.db,
+        weldsuite_outside_eu::ServiceId::GitHub,
+        &format!("merge github setup {}", tenant.workspace_id),
+    )
+    .await
+    {
+        return fail("outside_eu_service_off");
+    }
     let Some(http) = overrides.outbound(&state) else {
         return fail("internal_error");
     };

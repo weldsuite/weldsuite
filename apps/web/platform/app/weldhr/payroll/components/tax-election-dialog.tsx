@@ -61,7 +61,7 @@ export function TaxElectionDialog(props: Readonly<DialogProps>) {
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-xl">
-        <DialogHeader>
+        <DialogHeader className="mb-2">
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>{mode === 'self' ? t('weldhr.payroll.elections.selfDescription') : t('weldhr.payroll.elections.hrDescription')}</DialogDescription>
         </DialogHeader>

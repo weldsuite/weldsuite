@@ -114,6 +114,7 @@ import { Route as AppsAppCodeRouteRouteImport } from './routes/apps/$appCode/rou
 import { Route as WeldstashWarehousesIndexRouteImport } from './routes/weldstash/warehouses/index'
 import { Route as WeldstashSuppliersIndexRouteImport } from './routes/weldstash/suppliers/index'
 import { Route as WeldstashStockIndexRouteImport } from './routes/weldstash/stock/index'
+import { Route as WeldstashShipmentsIndexRouteImport } from './routes/weldstash/shipments/index'
 import { Route as WeldstashReplenishmentIndexRouteImport } from './routes/weldstash/replenishment/index'
 import { Route as WeldstashPurchaseOrdersIndexRouteImport } from './routes/weldstash/purchase-orders/index'
 import { Route as WeldstashProductsIndexRouteImport } from './routes/weldstash/products/index'
@@ -221,6 +222,7 @@ import { Route as WeldconnectAnalyticsIndexRouteImport } from './routes/weldconn
 import { Route as WeldconnectActionsIndexRouteImport } from './routes/weldconnect/actions/index'
 import { Route as WeldcommerceProductsIndexRouteImport } from './routes/weldcommerce/products/index'
 import { Route as WeldcommerceOrdersIndexRouteImport } from './routes/weldcommerce/orders/index'
+import { Route as WeldcommerceOnlineStoreIndexRouteImport } from './routes/weldcommerce/online-store/index'
 import { Route as WeldcommerceDiscountsIndexRouteImport } from './routes/weldcommerce/discounts/index'
 import { Route as WeldcommerceCategoriesIndexRouteImport } from './routes/weldcommerce/categories/index'
 import { Route as WeldchatRecordsIndexRouteImport } from './routes/weldchat/records/index'
@@ -278,6 +280,7 @@ import { Route as SettingsSecurityIndexRouteImport } from './routes/settings/sec
 import { Route as SettingsRolesIndexRouteImport } from './routes/settings/roles/index'
 import { Route as SettingsPrivacyIndexRouteImport } from './routes/settings/privacy/index'
 import { Route as SettingsPlansIndexRouteImport } from './routes/settings/plans/index'
+import { Route as SettingsOutsideEuIndexRouteImport } from './routes/settings/outside-eu/index'
 import { Route as SettingsObjectTemplatesIndexRouteImport } from './routes/settings/object-templates/index'
 import { Route as SettingsNotificationsIndexRouteImport } from './routes/settings/notifications/index'
 import { Route as SettingsLegalEntitiesIndexRouteImport } from './routes/settings/legal-entities/index'
@@ -310,6 +313,7 @@ import { Route as ObjectsSlugIndexRouteImport } from './routes/objects/$slug/ind
 import { Route as InviteAcceptIndexRouteImport } from './routes/invite/accept/index'
 import { Route as AuthSsoCallbackIndexRouteImport } from './routes/auth/sso-callback/index'
 import { Route as AuthResetPasswordIndexRouteImport } from './routes/auth/reset-password/index'
+import { Route as AuthMcpWorkspaceIndexRouteImport } from './routes/auth/mcp-workspace/index'
 import { Route as AuthForgotPasswordIndexRouteImport } from './routes/auth/forgot-password/index'
 import { Route as AuthErrorIndexRouteImport } from './routes/auth/error/index'
 import { Route as AuthDesktopHandoffIndexRouteImport } from './routes/auth/desktop-handoff/index'
@@ -334,7 +338,6 @@ import { Route as WeldformsFormIdDesignRouteImport } from './routes/weldforms/$f
 import { Route as WelddeskReportsWallboardRouteImport } from './routes/welddesk/reports/wallboard'
 import { Route as WelddeskReportsSchedulesRouteImport } from './routes/welddesk/reports/schedules'
 import { Route as WelddeskReportsPhoneRouteImport } from './routes/welddesk/reports/phone'
-import { Route as WelddeskReportsBiConnectorRouteImport } from './routes/welddesk/reports/bi-connector'
 import { Route as WelddeskProblemsProblemIdRouteImport } from './routes/welddesk/problems/$problemId'
 import { Route as WeldconnectIntegrationsCallbackRouteImport } from './routes/weldconnect/integrations/callback'
 import { Route as WeldconnectConnectorsCallbackRouteImport } from './routes/weldconnect/connectors/callback'
@@ -343,6 +346,7 @@ import { Route as WeldchatDmUserIdRouteImport } from './routes/weldchat/dm/$user
 import { Route as SettingsCustomObjectsObjectIdRouteImport } from './routes/settings/custom-objects/$objectId'
 import { Route as SettingsAppsWeldstashRouteImport } from './routes/settings/apps/weldstash'
 import { Route as SettingsAppsWeldreachRouteImport } from './routes/settings/apps/weldreach'
+import { Route as SettingsAppsWeldpassRouteImport } from './routes/settings/apps/weldpass'
 import { Route as SettingsAppsWeldpanelRouteImport } from './routes/settings/apps/weldpanel'
 import { Route as SettingsAppsWeldmergeRouteImport } from './routes/settings/apps/weldmerge'
 import { Route as SettingsAppsWeldhrRouteImport } from './routes/settings/apps/weldhr'
@@ -508,6 +512,10 @@ import { Route as PreviewSettingsTeamIndexRouteImport } from './routes/preview/s
 import { Route as PreviewAppstoreCodeIndexRouteImport } from './routes/preview/appstore/$code/index'
 import { Route as WelddeskReportsCustomBuilderRouteImport } from './routes/welddesk/reports/custom/builder'
 import { Route as WelddeskReportsCustomIdRouteImport } from './routes/welddesk/reports/custom/$id'
+import { Route as WeldcommerceOnlineStoreSiteIdEditorRouteImport } from './routes/weldcommerce_/online-store/$siteId/editor'
+import { Route as WeldcommerceOnlineStoreSiteIdRedirectsRouteImport } from './routes/weldcommerce/online-store/$siteId/redirects'
+import { Route as WeldcommerceOnlineStoreSiteIdPagesRouteImport } from './routes/weldcommerce/online-store/$siteId/pages'
+import { Route as WeldcommerceOnlineStoreSiteIdMenusRouteImport } from './routes/weldcommerce/online-store/$siteId/menus'
 import { Route as WeldchatDmGroupChannelIdRouteImport } from './routes/weldchat/dm/group/$channelId'
 import { Route as WeldchatChannelIdThreadMessageIdRouteImport } from './routes/weldchat/$channelId/thread/$messageId'
 import { Route as SettingsIntegrationsHubspotCallbackRouteImport } from './routes/settings/integrations/hubspot/callback'
@@ -605,6 +613,7 @@ import { Route as SettingsAppsWelddeskPhoneIndexRouteImport } from './routes/set
 import { Route as SettingsAppsWelddeskHelpCenterIndexRouteImport } from './routes/settings/apps/welddesk/help-center/index'
 import { Route as SettingsAppsWelddeskEmailIndexRouteImport } from './routes/settings/apps/welddesk/email/index'
 import { Route as SettingsAppsWelddeskChatWidgetIndexRouteImport } from './routes/settings/apps/welddesk/chat-widget/index'
+import { Route as SettingsAppsWelddeskBiConnectorIndexRouteImport } from './routes/settings/apps/welddesk/bi-connector/index'
 import { Route as SettingsAppsWelddeskAssignmentIndexRouteImport } from './routes/settings/apps/welddesk/assignment/index'
 import { Route as SettingsAppsWelddeskAssetRegisterIndexRouteImport } from './routes/settings/apps/welddesk/asset-register/index'
 import { Route as SettingsAppsPhoneNumbersPortIndexRouteImport } from './routes/settings/apps/phone-numbers/port/index'
@@ -1173,6 +1182,11 @@ const WeldstashStockIndexRoute = WeldstashStockIndexRouteImport.update({
   path: '/stock/',
   getParentRoute: () => WeldstashRouteRoute,
 } as any)
+const WeldstashShipmentsIndexRoute = WeldstashShipmentsIndexRouteImport.update({
+  id: '/shipments/',
+  path: '/shipments/',
+  getParentRoute: () => WeldstashRouteRoute,
+} as any)
 const WeldstashReplenishmentIndexRoute =
   WeldstashReplenishmentIndexRouteImport.update({
     id: '/replenishment/',
@@ -1731,6 +1745,12 @@ const WeldcommerceOrdersIndexRoute = WeldcommerceOrdersIndexRouteImport.update({
   path: '/orders/',
   getParentRoute: () => WeldcommerceRouteRoute,
 } as any)
+const WeldcommerceOnlineStoreIndexRoute =
+  WeldcommerceOnlineStoreIndexRouteImport.update({
+    id: '/online-store/',
+    path: '/online-store/',
+    getParentRoute: () => WeldcommerceRouteRoute,
+  } as any)
 const WeldcommerceDiscountsIndexRoute =
   WeldcommerceDiscountsIndexRouteImport.update({
     id: '/discounts/',
@@ -2026,6 +2046,11 @@ const SettingsPlansIndexRoute = SettingsPlansIndexRouteImport.update({
   path: '/plans/',
   getParentRoute: () => SettingsRouteRoute,
 } as any)
+const SettingsOutsideEuIndexRoute = SettingsOutsideEuIndexRouteImport.update({
+  id: '/outside-eu/',
+  path: '/outside-eu/',
+  getParentRoute: () => SettingsRouteRoute,
+} as any)
 const SettingsObjectTemplatesIndexRoute =
   SettingsObjectTemplatesIndexRouteImport.update({
     id: '/object-templates/',
@@ -2193,6 +2218,11 @@ const AuthResetPasswordIndexRoute = AuthResetPasswordIndexRouteImport.update({
   path: '/reset-password/',
   getParentRoute: () => AuthRouteRoute,
 } as any)
+const AuthMcpWorkspaceIndexRoute = AuthMcpWorkspaceIndexRouteImport.update({
+  id: '/mcp-workspace/',
+  path: '/mcp-workspace/',
+  getParentRoute: () => AuthRouteRoute,
+} as any)
 const AuthForgotPasswordIndexRoute = AuthForgotPasswordIndexRouteImport.update({
   id: '/forgot-password/',
   path: '/forgot-password/',
@@ -2318,12 +2348,6 @@ const WelddeskReportsPhoneRoute = WelddeskReportsPhoneRouteImport.update({
   path: '/reports/phone',
   getParentRoute: () => WelddeskRouteRoute,
 } as any)
-const WelddeskReportsBiConnectorRoute =
-  WelddeskReportsBiConnectorRouteImport.update({
-    id: '/reports/bi-connector',
-    path: '/reports/bi-connector',
-    getParentRoute: () => WelddeskRouteRoute,
-  } as any)
 const WelddeskProblemsProblemIdRoute =
   WelddeskProblemsProblemIdRouteImport.update({
     id: '/problems/$problemId',
@@ -2366,6 +2390,11 @@ const SettingsAppsWeldstashRoute = SettingsAppsWeldstashRouteImport.update({
 const SettingsAppsWeldreachRoute = SettingsAppsWeldreachRouteImport.update({
   id: '/apps/weldreach',
   path: '/apps/weldreach',
+  getParentRoute: () => SettingsRouteRoute,
+} as any)
+const SettingsAppsWeldpassRoute = SettingsAppsWeldpassRouteImport.update({
+  id: '/apps/weldpass',
+  path: '/apps/weldpass',
   getParentRoute: () => SettingsRouteRoute,
 } as any)
 const SettingsAppsWeldpanelRoute = SettingsAppsWeldpanelRouteImport.update({
@@ -3321,6 +3350,30 @@ const WelddeskReportsCustomIdRoute = WelddeskReportsCustomIdRouteImport.update({
   path: '/reports/custom/$id',
   getParentRoute: () => WelddeskRouteRoute,
 } as any)
+const WeldcommerceOnlineStoreSiteIdEditorRoute =
+  WeldcommerceOnlineStoreSiteIdEditorRouteImport.update({
+    id: '/weldcommerce_/online-store/$siteId/editor',
+    path: '/weldcommerce/online-store/$siteId/editor',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const WeldcommerceOnlineStoreSiteIdRedirectsRoute =
+  WeldcommerceOnlineStoreSiteIdRedirectsRouteImport.update({
+    id: '/online-store/$siteId/redirects',
+    path: '/online-store/$siteId/redirects',
+    getParentRoute: () => WeldcommerceRouteRoute,
+  } as any)
+const WeldcommerceOnlineStoreSiteIdPagesRoute =
+  WeldcommerceOnlineStoreSiteIdPagesRouteImport.update({
+    id: '/online-store/$siteId/pages',
+    path: '/online-store/$siteId/pages',
+    getParentRoute: () => WeldcommerceRouteRoute,
+  } as any)
+const WeldcommerceOnlineStoreSiteIdMenusRoute =
+  WeldcommerceOnlineStoreSiteIdMenusRouteImport.update({
+    id: '/online-store/$siteId/menus',
+    path: '/online-store/$siteId/menus',
+    getParentRoute: () => WeldcommerceRouteRoute,
+  } as any)
 const WeldchatDmGroupChannelIdRoute =
   WeldchatDmGroupChannelIdRouteImport.update({
     id: '/dm/group/$channelId',
@@ -3901,6 +3954,12 @@ const SettingsAppsWelddeskChatWidgetIndexRoute =
     path: '/chat-widget/',
     getParentRoute: () => SettingsAppsWelddeskRouteRoute,
   } as any)
+const SettingsAppsWelddeskBiConnectorIndexRoute =
+  SettingsAppsWelddeskBiConnectorIndexRouteImport.update({
+    id: '/bi-connector/',
+    path: '/bi-connector/',
+    getParentRoute: () => SettingsAppsWelddeskRouteRoute,
+  } as any)
 const SettingsAppsWelddeskAssignmentIndexRoute =
   SettingsAppsWelddeskAssignmentIndexRouteImport.update({
     id: '/assignment/',
@@ -4266,6 +4325,7 @@ export interface FileRoutesByFullPath {
   '/settings/apps/weldhr': typeof SettingsAppsWeldhrRoute
   '/settings/apps/weldmerge': typeof SettingsAppsWeldmergeRoute
   '/settings/apps/weldpanel': typeof SettingsAppsWeldpanelRoute
+  '/settings/apps/weldpass': typeof SettingsAppsWeldpassRoute
   '/settings/apps/weldreach': typeof SettingsAppsWeldreachRoute
   '/settings/apps/weldstash': typeof SettingsAppsWeldstashRoute
   '/settings/custom-objects/$objectId': typeof SettingsCustomObjectsObjectIdRoute
@@ -4274,7 +4334,6 @@ export interface FileRoutesByFullPath {
   '/weldconnect/connectors/callback': typeof WeldconnectConnectorsCallbackRoute
   '/weldconnect/integrations/callback': typeof WeldconnectIntegrationsCallbackRoute
   '/welddesk/problems/$problemId': typeof WelddeskProblemsProblemIdRoute
-  '/welddesk/reports/bi-connector': typeof WelddeskReportsBiConnectorRoute
   '/welddesk/reports/phone': typeof WelddeskReportsPhoneRoute
   '/welddesk/reports/schedules': typeof WelddeskReportsSchedulesRoute
   '/welddesk/reports/wallboard': typeof WelddeskReportsWallboardRoute
@@ -4299,6 +4358,7 @@ export interface FileRoutesByFullPath {
   '/auth/desktop-handoff/': typeof AuthDesktopHandoffIndexRoute
   '/auth/error/': typeof AuthErrorIndexRoute
   '/auth/forgot-password/': typeof AuthForgotPasswordIndexRoute
+  '/auth/mcp-workspace/': typeof AuthMcpWorkspaceIndexRoute
   '/auth/reset-password/': typeof AuthResetPasswordIndexRoute
   '/auth/sso-callback/': typeof AuthSsoCallbackIndexRoute
   '/invite/accept/': typeof InviteAcceptIndexRoute
@@ -4331,6 +4391,7 @@ export interface FileRoutesByFullPath {
   '/settings/legal-entities/': typeof SettingsLegalEntitiesIndexRoute
   '/settings/notifications/': typeof SettingsNotificationsIndexRoute
   '/settings/object-templates/': typeof SettingsObjectTemplatesIndexRoute
+  '/settings/outside-eu/': typeof SettingsOutsideEuIndexRoute
   '/settings/plans/': typeof SettingsPlansIndexRoute
   '/settings/privacy/': typeof SettingsPrivacyIndexRoute
   '/settings/roles/': typeof SettingsRolesIndexRoute
@@ -4388,6 +4449,7 @@ export interface FileRoutesByFullPath {
   '/weldchat/records/': typeof WeldchatRecordsIndexRoute
   '/weldcommerce/categories/': typeof WeldcommerceCategoriesIndexRoute
   '/weldcommerce/discounts/': typeof WeldcommerceDiscountsIndexRoute
+  '/weldcommerce/online-store/': typeof WeldcommerceOnlineStoreIndexRoute
   '/weldcommerce/orders/': typeof WeldcommerceOrdersIndexRoute
   '/weldcommerce/products/': typeof WeldcommerceProductsIndexRoute
   '/weldconnect/actions/': typeof WeldconnectActionsIndexRoute
@@ -4495,6 +4557,7 @@ export interface FileRoutesByFullPath {
   '/weldstash/products/': typeof WeldstashProductsIndexRoute
   '/weldstash/purchase-orders/': typeof WeldstashPurchaseOrdersIndexRoute
   '/weldstash/replenishment/': typeof WeldstashReplenishmentIndexRoute
+  '/weldstash/shipments/': typeof WeldstashShipmentsIndexRoute
   '/weldstash/stock/': typeof WeldstashStockIndexRoute
   '/weldstash/suppliers/': typeof WeldstashSuppliersIndexRoute
   '/weldstash/warehouses/': typeof WeldstashWarehousesIndexRoute
@@ -4519,6 +4582,10 @@ export interface FileRoutesByFullPath {
   '/settings/integrations/hubspot/callback': typeof SettingsIntegrationsHubspotCallbackRoute
   '/weldchat/$channelId/thread/$messageId': typeof WeldchatChannelIdThreadMessageIdRoute
   '/weldchat/dm/group/$channelId': typeof WeldchatDmGroupChannelIdRoute
+  '/weldcommerce/online-store/$siteId/menus': typeof WeldcommerceOnlineStoreSiteIdMenusRoute
+  '/weldcommerce/online-store/$siteId/pages': typeof WeldcommerceOnlineStoreSiteIdPagesRoute
+  '/weldcommerce/online-store/$siteId/redirects': typeof WeldcommerceOnlineStoreSiteIdRedirectsRoute
+  '/weldcommerce/online-store/$siteId/editor': typeof WeldcommerceOnlineStoreSiteIdEditorRoute
   '/welddesk/reports/custom/$id': typeof WelddeskReportsCustomIdRoute
   '/welddesk/reports/custom/builder': typeof WelddeskReportsCustomBuilderRoute
   '/preview/appstore/$code/': typeof PreviewAppstoreCodeIndexRoute
@@ -4676,6 +4743,7 @@ export interface FileRoutesByFullPath {
   '/settings/apps/phone-numbers/port/': typeof SettingsAppsPhoneNumbersPortIndexRoute
   '/settings/apps/welddesk/asset-register/': typeof SettingsAppsWelddeskAssetRegisterIndexRoute
   '/settings/apps/welddesk/assignment/': typeof SettingsAppsWelddeskAssignmentIndexRoute
+  '/settings/apps/welddesk/bi-connector/': typeof SettingsAppsWelddeskBiConnectorIndexRoute
   '/settings/apps/welddesk/chat-widget/': typeof SettingsAppsWelddeskChatWidgetIndexRoute
   '/settings/apps/welddesk/email/': typeof SettingsAppsWelddeskEmailIndexRoute
   '/settings/apps/welddesk/help-center/': typeof SettingsAppsWelddeskHelpCenterIndexRoute
@@ -4851,6 +4919,7 @@ export interface FileRoutesByTo {
   '/settings/apps/weldhr': typeof SettingsAppsWeldhrRoute
   '/settings/apps/weldmerge': typeof SettingsAppsWeldmergeRoute
   '/settings/apps/weldpanel': typeof SettingsAppsWeldpanelRoute
+  '/settings/apps/weldpass': typeof SettingsAppsWeldpassRoute
   '/settings/apps/weldreach': typeof SettingsAppsWeldreachRoute
   '/settings/apps/weldstash': typeof SettingsAppsWeldstashRoute
   '/settings/custom-objects/$objectId': typeof SettingsCustomObjectsObjectIdRoute
@@ -4859,7 +4928,6 @@ export interface FileRoutesByTo {
   '/weldconnect/connectors/callback': typeof WeldconnectConnectorsCallbackRoute
   '/weldconnect/integrations/callback': typeof WeldconnectIntegrationsCallbackRoute
   '/welddesk/problems/$problemId': typeof WelddeskProblemsProblemIdRoute
-  '/welddesk/reports/bi-connector': typeof WelddeskReportsBiConnectorRoute
   '/welddesk/reports/phone': typeof WelddeskReportsPhoneRoute
   '/welddesk/reports/schedules': typeof WelddeskReportsSchedulesRoute
   '/welddesk/reports/wallboard': typeof WelddeskReportsWallboardRoute
@@ -4884,6 +4952,7 @@ export interface FileRoutesByTo {
   '/auth/desktop-handoff': typeof AuthDesktopHandoffIndexRoute
   '/auth/error': typeof AuthErrorIndexRoute
   '/auth/forgot-password': typeof AuthForgotPasswordIndexRoute
+  '/auth/mcp-workspace': typeof AuthMcpWorkspaceIndexRoute
   '/auth/reset-password': typeof AuthResetPasswordIndexRoute
   '/auth/sso-callback': typeof AuthSsoCallbackIndexRoute
   '/invite/accept': typeof InviteAcceptIndexRoute
@@ -4916,6 +4985,7 @@ export interface FileRoutesByTo {
   '/settings/legal-entities': typeof SettingsLegalEntitiesIndexRoute
   '/settings/notifications': typeof SettingsNotificationsIndexRoute
   '/settings/object-templates': typeof SettingsObjectTemplatesIndexRoute
+  '/settings/outside-eu': typeof SettingsOutsideEuIndexRoute
   '/settings/plans': typeof SettingsPlansIndexRoute
   '/settings/privacy': typeof SettingsPrivacyIndexRoute
   '/settings/roles': typeof SettingsRolesIndexRoute
@@ -4973,6 +5043,7 @@ export interface FileRoutesByTo {
   '/weldchat/records': typeof WeldchatRecordsIndexRoute
   '/weldcommerce/categories': typeof WeldcommerceCategoriesIndexRoute
   '/weldcommerce/discounts': typeof WeldcommerceDiscountsIndexRoute
+  '/weldcommerce/online-store': typeof WeldcommerceOnlineStoreIndexRoute
   '/weldcommerce/orders': typeof WeldcommerceOrdersIndexRoute
   '/weldcommerce/products': typeof WeldcommerceProductsIndexRoute
   '/weldconnect/actions': typeof WeldconnectActionsIndexRoute
@@ -5080,6 +5151,7 @@ export interface FileRoutesByTo {
   '/weldstash/products': typeof WeldstashProductsIndexRoute
   '/weldstash/purchase-orders': typeof WeldstashPurchaseOrdersIndexRoute
   '/weldstash/replenishment': typeof WeldstashReplenishmentIndexRoute
+  '/weldstash/shipments': typeof WeldstashShipmentsIndexRoute
   '/weldstash/stock': typeof WeldstashStockIndexRoute
   '/weldstash/suppliers': typeof WeldstashSuppliersIndexRoute
   '/weldstash/warehouses': typeof WeldstashWarehousesIndexRoute
@@ -5097,6 +5169,10 @@ export interface FileRoutesByTo {
   '/settings/integrations/hubspot/callback': typeof SettingsIntegrationsHubspotCallbackRoute
   '/weldchat/$channelId/thread/$messageId': typeof WeldchatChannelIdThreadMessageIdRoute
   '/weldchat/dm/group/$channelId': typeof WeldchatDmGroupChannelIdRoute
+  '/weldcommerce/online-store/$siteId/menus': typeof WeldcommerceOnlineStoreSiteIdMenusRoute
+  '/weldcommerce/online-store/$siteId/pages': typeof WeldcommerceOnlineStoreSiteIdPagesRoute
+  '/weldcommerce/online-store/$siteId/redirects': typeof WeldcommerceOnlineStoreSiteIdRedirectsRoute
+  '/weldcommerce/online-store/$siteId/editor': typeof WeldcommerceOnlineStoreSiteIdEditorRoute
   '/welddesk/reports/custom/$id': typeof WelddeskReportsCustomIdRoute
   '/welddesk/reports/custom/builder': typeof WelddeskReportsCustomBuilderRoute
   '/preview/appstore/$code': typeof PreviewAppstoreCodeIndexRoute
@@ -5254,6 +5330,7 @@ export interface FileRoutesByTo {
   '/settings/apps/phone-numbers/port': typeof SettingsAppsPhoneNumbersPortIndexRoute
   '/settings/apps/welddesk/asset-register': typeof SettingsAppsWelddeskAssetRegisterIndexRoute
   '/settings/apps/welddesk/assignment': typeof SettingsAppsWelddeskAssignmentIndexRoute
+  '/settings/apps/welddesk/bi-connector': typeof SettingsAppsWelddeskBiConnectorIndexRoute
   '/settings/apps/welddesk/chat-widget': typeof SettingsAppsWelddeskChatWidgetIndexRoute
   '/settings/apps/welddesk/email': typeof SettingsAppsWelddeskEmailIndexRoute
   '/settings/apps/welddesk/help-center': typeof SettingsAppsWelddeskHelpCenterIndexRoute
@@ -5483,6 +5560,7 @@ export interface FileRoutesById {
   '/settings/apps/weldhr': typeof SettingsAppsWeldhrRoute
   '/settings/apps/weldmerge': typeof SettingsAppsWeldmergeRoute
   '/settings/apps/weldpanel': typeof SettingsAppsWeldpanelRoute
+  '/settings/apps/weldpass': typeof SettingsAppsWeldpassRoute
   '/settings/apps/weldreach': typeof SettingsAppsWeldreachRoute
   '/settings/apps/weldstash': typeof SettingsAppsWeldstashRoute
   '/settings/custom-objects/$objectId': typeof SettingsCustomObjectsObjectIdRoute
@@ -5491,7 +5569,6 @@ export interface FileRoutesById {
   '/weldconnect/connectors/callback': typeof WeldconnectConnectorsCallbackRoute
   '/weldconnect/integrations/callback': typeof WeldconnectIntegrationsCallbackRoute
   '/welddesk/problems/$problemId': typeof WelddeskProblemsProblemIdRoute
-  '/welddesk/reports/bi-connector': typeof WelddeskReportsBiConnectorRoute
   '/welddesk/reports/phone': typeof WelddeskReportsPhoneRoute
   '/welddesk/reports/schedules': typeof WelddeskReportsSchedulesRoute
   '/welddesk/reports/wallboard': typeof WelddeskReportsWallboardRoute
@@ -5516,6 +5593,7 @@ export interface FileRoutesById {
   '/auth/desktop-handoff/': typeof AuthDesktopHandoffIndexRoute
   '/auth/error/': typeof AuthErrorIndexRoute
   '/auth/forgot-password/': typeof AuthForgotPasswordIndexRoute
+  '/auth/mcp-workspace/': typeof AuthMcpWorkspaceIndexRoute
   '/auth/reset-password/': typeof AuthResetPasswordIndexRoute
   '/auth/sso-callback/': typeof AuthSsoCallbackIndexRoute
   '/invite/accept/': typeof InviteAcceptIndexRoute
@@ -5548,6 +5626,7 @@ export interface FileRoutesById {
   '/settings/legal-entities/': typeof SettingsLegalEntitiesIndexRoute
   '/settings/notifications/': typeof SettingsNotificationsIndexRoute
   '/settings/object-templates/': typeof SettingsObjectTemplatesIndexRoute
+  '/settings/outside-eu/': typeof SettingsOutsideEuIndexRoute
   '/settings/plans/': typeof SettingsPlansIndexRoute
   '/settings/privacy/': typeof SettingsPrivacyIndexRoute
   '/settings/roles/': typeof SettingsRolesIndexRoute
@@ -5605,6 +5684,7 @@ export interface FileRoutesById {
   '/weldchat/records/': typeof WeldchatRecordsIndexRoute
   '/weldcommerce/categories/': typeof WeldcommerceCategoriesIndexRoute
   '/weldcommerce/discounts/': typeof WeldcommerceDiscountsIndexRoute
+  '/weldcommerce/online-store/': typeof WeldcommerceOnlineStoreIndexRoute
   '/weldcommerce/orders/': typeof WeldcommerceOrdersIndexRoute
   '/weldcommerce/products/': typeof WeldcommerceProductsIndexRoute
   '/weldconnect/actions/': typeof WeldconnectActionsIndexRoute
@@ -5712,6 +5792,7 @@ export interface FileRoutesById {
   '/weldstash/products/': typeof WeldstashProductsIndexRoute
   '/weldstash/purchase-orders/': typeof WeldstashPurchaseOrdersIndexRoute
   '/weldstash/replenishment/': typeof WeldstashReplenishmentIndexRoute
+  '/weldstash/shipments/': typeof WeldstashShipmentsIndexRoute
   '/weldstash/stock/': typeof WeldstashStockIndexRoute
   '/weldstash/suppliers/': typeof WeldstashSuppliersIndexRoute
   '/weldstash/warehouses/': typeof WeldstashWarehousesIndexRoute
@@ -5736,6 +5817,10 @@ export interface FileRoutesById {
   '/settings/integrations/hubspot/callback': typeof SettingsIntegrationsHubspotCallbackRoute
   '/weldchat/$channelId/thread/$messageId': typeof WeldchatChannelIdThreadMessageIdRoute
   '/weldchat/dm/group/$channelId': typeof WeldchatDmGroupChannelIdRoute
+  '/weldcommerce/online-store/$siteId/menus': typeof WeldcommerceOnlineStoreSiteIdMenusRoute
+  '/weldcommerce/online-store/$siteId/pages': typeof WeldcommerceOnlineStoreSiteIdPagesRoute
+  '/weldcommerce/online-store/$siteId/redirects': typeof WeldcommerceOnlineStoreSiteIdRedirectsRoute
+  '/weldcommerce_/online-store/$siteId/editor': typeof WeldcommerceOnlineStoreSiteIdEditorRoute
   '/welddesk/reports/custom/$id': typeof WelddeskReportsCustomIdRoute
   '/welddesk/reports/custom/builder': typeof WelddeskReportsCustomBuilderRoute
   '/preview/appstore/$code/': typeof PreviewAppstoreCodeIndexRoute
@@ -5893,6 +5978,7 @@ export interface FileRoutesById {
   '/settings/apps/phone-numbers/port/': typeof SettingsAppsPhoneNumbersPortIndexRoute
   '/settings/apps/welddesk/asset-register/': typeof SettingsAppsWelddeskAssetRegisterIndexRoute
   '/settings/apps/welddesk/assignment/': typeof SettingsAppsWelddeskAssignmentIndexRoute
+  '/settings/apps/welddesk/bi-connector/': typeof SettingsAppsWelddeskBiConnectorIndexRoute
   '/settings/apps/welddesk/chat-widget/': typeof SettingsAppsWelddeskChatWidgetIndexRoute
   '/settings/apps/welddesk/email/': typeof SettingsAppsWelddeskEmailIndexRoute
   '/settings/apps/welddesk/help-center/': typeof SettingsAppsWelddeskHelpCenterIndexRoute
@@ -6123,6 +6209,7 @@ export interface FileRouteTypes {
     | '/settings/apps/weldhr'
     | '/settings/apps/weldmerge'
     | '/settings/apps/weldpanel'
+    | '/settings/apps/weldpass'
     | '/settings/apps/weldreach'
     | '/settings/apps/weldstash'
     | '/settings/custom-objects/$objectId'
@@ -6131,7 +6218,6 @@ export interface FileRouteTypes {
     | '/weldconnect/connectors/callback'
     | '/weldconnect/integrations/callback'
     | '/welddesk/problems/$problemId'
-    | '/welddesk/reports/bi-connector'
     | '/welddesk/reports/phone'
     | '/welddesk/reports/schedules'
     | '/welddesk/reports/wallboard'
@@ -6156,6 +6242,7 @@ export interface FileRouteTypes {
     | '/auth/desktop-handoff/'
     | '/auth/error/'
     | '/auth/forgot-password/'
+    | '/auth/mcp-workspace/'
     | '/auth/reset-password/'
     | '/auth/sso-callback/'
     | '/invite/accept/'
@@ -6188,6 +6275,7 @@ export interface FileRouteTypes {
     | '/settings/legal-entities/'
     | '/settings/notifications/'
     | '/settings/object-templates/'
+    | '/settings/outside-eu/'
     | '/settings/plans/'
     | '/settings/privacy/'
     | '/settings/roles/'
@@ -6245,6 +6333,7 @@ export interface FileRouteTypes {
     | '/weldchat/records/'
     | '/weldcommerce/categories/'
     | '/weldcommerce/discounts/'
+    | '/weldcommerce/online-store/'
     | '/weldcommerce/orders/'
     | '/weldcommerce/products/'
     | '/weldconnect/actions/'
@@ -6352,6 +6441,7 @@ export interface FileRouteTypes {
     | '/weldstash/products/'
     | '/weldstash/purchase-orders/'
     | '/weldstash/replenishment/'
+    | '/weldstash/shipments/'
     | '/weldstash/stock/'
     | '/weldstash/suppliers/'
     | '/weldstash/warehouses/'
@@ -6376,6 +6466,10 @@ export interface FileRouteTypes {
     | '/settings/integrations/hubspot/callback'
     | '/weldchat/$channelId/thread/$messageId'
     | '/weldchat/dm/group/$channelId'
+    | '/weldcommerce/online-store/$siteId/menus'
+    | '/weldcommerce/online-store/$siteId/pages'
+    | '/weldcommerce/online-store/$siteId/redirects'
+    | '/weldcommerce/online-store/$siteId/editor'
     | '/welddesk/reports/custom/$id'
     | '/welddesk/reports/custom/builder'
     | '/preview/appstore/$code/'
@@ -6533,6 +6627,7 @@ export interface FileRouteTypes {
     | '/settings/apps/phone-numbers/port/'
     | '/settings/apps/welddesk/asset-register/'
     | '/settings/apps/welddesk/assignment/'
+    | '/settings/apps/welddesk/bi-connector/'
     | '/settings/apps/welddesk/chat-widget/'
     | '/settings/apps/welddesk/email/'
     | '/settings/apps/welddesk/help-center/'
@@ -6708,6 +6803,7 @@ export interface FileRouteTypes {
     | '/settings/apps/weldhr'
     | '/settings/apps/weldmerge'
     | '/settings/apps/weldpanel'
+    | '/settings/apps/weldpass'
     | '/settings/apps/weldreach'
     | '/settings/apps/weldstash'
     | '/settings/custom-objects/$objectId'
@@ -6716,7 +6812,6 @@ export interface FileRouteTypes {
     | '/weldconnect/connectors/callback'
     | '/weldconnect/integrations/callback'
     | '/welddesk/problems/$problemId'
-    | '/welddesk/reports/bi-connector'
     | '/welddesk/reports/phone'
     | '/welddesk/reports/schedules'
     | '/welddesk/reports/wallboard'
@@ -6741,6 +6836,7 @@ export interface FileRouteTypes {
     | '/auth/desktop-handoff'
     | '/auth/error'
     | '/auth/forgot-password'
+    | '/auth/mcp-workspace'
     | '/auth/reset-password'
     | '/auth/sso-callback'
     | '/invite/accept'
@@ -6773,6 +6869,7 @@ export interface FileRouteTypes {
     | '/settings/legal-entities'
     | '/settings/notifications'
     | '/settings/object-templates'
+    | '/settings/outside-eu'
     | '/settings/plans'
     | '/settings/privacy'
     | '/settings/roles'
@@ -6830,6 +6927,7 @@ export interface FileRouteTypes {
     | '/weldchat/records'
     | '/weldcommerce/categories'
     | '/weldcommerce/discounts'
+    | '/weldcommerce/online-store'
     | '/weldcommerce/orders'
     | '/weldcommerce/products'
     | '/weldconnect/actions'
@@ -6937,6 +7035,7 @@ export interface FileRouteTypes {
     | '/weldstash/products'
     | '/weldstash/purchase-orders'
     | '/weldstash/replenishment'
+    | '/weldstash/shipments'
     | '/weldstash/stock'
     | '/weldstash/suppliers'
     | '/weldstash/warehouses'
@@ -6954,6 +7053,10 @@ export interface FileRouteTypes {
     | '/settings/integrations/hubspot/callback'
     | '/weldchat/$channelId/thread/$messageId'
     | '/weldchat/dm/group/$channelId'
+    | '/weldcommerce/online-store/$siteId/menus'
+    | '/weldcommerce/online-store/$siteId/pages'
+    | '/weldcommerce/online-store/$siteId/redirects'
+    | '/weldcommerce/online-store/$siteId/editor'
     | '/welddesk/reports/custom/$id'
     | '/welddesk/reports/custom/builder'
     | '/preview/appstore/$code'
@@ -7111,6 +7214,7 @@ export interface FileRouteTypes {
     | '/settings/apps/phone-numbers/port'
     | '/settings/apps/welddesk/asset-register'
     | '/settings/apps/welddesk/assignment'
+    | '/settings/apps/welddesk/bi-connector'
     | '/settings/apps/welddesk/chat-widget'
     | '/settings/apps/welddesk/email'
     | '/settings/apps/welddesk/help-center'
@@ -7339,6 +7443,7 @@ export interface FileRouteTypes {
     | '/settings/apps/weldhr'
     | '/settings/apps/weldmerge'
     | '/settings/apps/weldpanel'
+    | '/settings/apps/weldpass'
     | '/settings/apps/weldreach'
     | '/settings/apps/weldstash'
     | '/settings/custom-objects/$objectId'
@@ -7347,7 +7452,6 @@ export interface FileRouteTypes {
     | '/weldconnect/connectors/callback'
     | '/weldconnect/integrations/callback'
     | '/welddesk/problems/$problemId'
-    | '/welddesk/reports/bi-connector'
     | '/welddesk/reports/phone'
     | '/welddesk/reports/schedules'
     | '/welddesk/reports/wallboard'
@@ -7372,6 +7476,7 @@ export interface FileRouteTypes {
     | '/auth/desktop-handoff/'
     | '/auth/error/'
     | '/auth/forgot-password/'
+    | '/auth/mcp-workspace/'
     | '/auth/reset-password/'
     | '/auth/sso-callback/'
     | '/invite/accept/'
@@ -7404,6 +7509,7 @@ export interface FileRouteTypes {
     | '/settings/legal-entities/'
     | '/settings/notifications/'
     | '/settings/object-templates/'
+    | '/settings/outside-eu/'
     | '/settings/plans/'
     | '/settings/privacy/'
     | '/settings/roles/'
@@ -7461,6 +7567,7 @@ export interface FileRouteTypes {
     | '/weldchat/records/'
     | '/weldcommerce/categories/'
     | '/weldcommerce/discounts/'
+    | '/weldcommerce/online-store/'
     | '/weldcommerce/orders/'
     | '/weldcommerce/products/'
     | '/weldconnect/actions/'
@@ -7568,6 +7675,7 @@ export interface FileRouteTypes {
     | '/weldstash/products/'
     | '/weldstash/purchase-orders/'
     | '/weldstash/replenishment/'
+    | '/weldstash/shipments/'
     | '/weldstash/stock/'
     | '/weldstash/suppliers/'
     | '/weldstash/warehouses/'
@@ -7592,6 +7700,10 @@ export interface FileRouteTypes {
     | '/settings/integrations/hubspot/callback'
     | '/weldchat/$channelId/thread/$messageId'
     | '/weldchat/dm/group/$channelId'
+    | '/weldcommerce/online-store/$siteId/menus'
+    | '/weldcommerce/online-store/$siteId/pages'
+    | '/weldcommerce/online-store/$siteId/redirects'
+    | '/weldcommerce_/online-store/$siteId/editor'
     | '/welddesk/reports/custom/$id'
     | '/welddesk/reports/custom/builder'
     | '/preview/appstore/$code/'
@@ -7749,6 +7861,7 @@ export interface FileRouteTypes {
     | '/settings/apps/phone-numbers/port/'
     | '/settings/apps/welddesk/asset-register/'
     | '/settings/apps/welddesk/assignment/'
+    | '/settings/apps/welddesk/bi-connector/'
     | '/settings/apps/welddesk/chat-widget/'
     | '/settings/apps/welddesk/email/'
     | '/settings/apps/welddesk/help-center/'
@@ -7920,6 +8033,7 @@ export interface RootRouteChildren {
   InviteAcceptIndexRoute: typeof InviteAcceptIndexRoute
   ObjectsSlugIndexRoute: typeof ObjectsSlugIndexRoute
   PreviewHelpDocsIndexRoute: typeof PreviewHelpDocsIndexRoute
+  WeldcommerceOnlineStoreSiteIdEditorRoute: typeof WeldcommerceOnlineStoreSiteIdEditorRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -8657,6 +8771,13 @@ declare module '@tanstack/react-router' {
       path: '/stock'
       fullPath: '/weldstash/stock/'
       preLoaderRoute: typeof WeldstashStockIndexRouteImport
+      parentRoute: typeof WeldstashRouteRoute
+    }
+    '/weldstash/shipments/': {
+      id: '/weldstash/shipments/'
+      path: '/shipments'
+      fullPath: '/weldstash/shipments/'
+      preLoaderRoute: typeof WeldstashShipmentsIndexRouteImport
       parentRoute: typeof WeldstashRouteRoute
     }
     '/weldstash/replenishment/': {
@@ -9408,6 +9529,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WeldcommerceOrdersIndexRouteImport
       parentRoute: typeof WeldcommerceRouteRoute
     }
+    '/weldcommerce/online-store/': {
+      id: '/weldcommerce/online-store/'
+      path: '/online-store'
+      fullPath: '/weldcommerce/online-store/'
+      preLoaderRoute: typeof WeldcommerceOnlineStoreIndexRouteImport
+      parentRoute: typeof WeldcommerceRouteRoute
+    }
     '/weldcommerce/discounts/': {
       id: '/weldcommerce/discounts/'
       path: '/discounts'
@@ -9807,6 +9935,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsPlansIndexRouteImport
       parentRoute: typeof SettingsRouteRoute
     }
+    '/settings/outside-eu/': {
+      id: '/settings/outside-eu/'
+      path: '/outside-eu'
+      fullPath: '/settings/outside-eu/'
+      preLoaderRoute: typeof SettingsOutsideEuIndexRouteImport
+      parentRoute: typeof SettingsRouteRoute
+    }
     '/settings/object-templates/': {
       id: '/settings/object-templates/'
       path: '/object-templates'
@@ -10031,6 +10166,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthResetPasswordIndexRouteImport
       parentRoute: typeof AuthRouteRoute
     }
+    '/auth/mcp-workspace/': {
+      id: '/auth/mcp-workspace/'
+      path: '/mcp-workspace'
+      fullPath: '/auth/mcp-workspace/'
+      preLoaderRoute: typeof AuthMcpWorkspaceIndexRouteImport
+      parentRoute: typeof AuthRouteRoute
+    }
     '/auth/forgot-password/': {
       id: '/auth/forgot-password/'
       path: '/forgot-password'
@@ -10199,13 +10341,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WelddeskReportsPhoneRouteImport
       parentRoute: typeof WelddeskRouteRoute
     }
-    '/welddesk/reports/bi-connector': {
-      id: '/welddesk/reports/bi-connector'
-      path: '/reports/bi-connector'
-      fullPath: '/welddesk/reports/bi-connector'
-      preLoaderRoute: typeof WelddeskReportsBiConnectorRouteImport
-      parentRoute: typeof WelddeskRouteRoute
-    }
     '/welddesk/problems/$problemId': {
       id: '/welddesk/problems/$problemId'
       path: '/problems/$problemId'
@@ -10260,6 +10395,13 @@ declare module '@tanstack/react-router' {
       path: '/apps/weldreach'
       fullPath: '/settings/apps/weldreach'
       preLoaderRoute: typeof SettingsAppsWeldreachRouteImport
+      parentRoute: typeof SettingsRouteRoute
+    }
+    '/settings/apps/weldpass': {
+      id: '/settings/apps/weldpass'
+      path: '/apps/weldpass'
+      fullPath: '/settings/apps/weldpass'
+      preLoaderRoute: typeof SettingsAppsWeldpassRouteImport
       parentRoute: typeof SettingsRouteRoute
     }
     '/settings/apps/weldpanel': {
@@ -11417,6 +11559,34 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WelddeskReportsCustomIdRouteImport
       parentRoute: typeof WelddeskRouteRoute
     }
+    '/weldcommerce_/online-store/$siteId/editor': {
+      id: '/weldcommerce_/online-store/$siteId/editor'
+      path: '/weldcommerce/online-store/$siteId/editor'
+      fullPath: '/weldcommerce/online-store/$siteId/editor'
+      preLoaderRoute: typeof WeldcommerceOnlineStoreSiteIdEditorRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/weldcommerce/online-store/$siteId/redirects': {
+      id: '/weldcommerce/online-store/$siteId/redirects'
+      path: '/online-store/$siteId/redirects'
+      fullPath: '/weldcommerce/online-store/$siteId/redirects'
+      preLoaderRoute: typeof WeldcommerceOnlineStoreSiteIdRedirectsRouteImport
+      parentRoute: typeof WeldcommerceRouteRoute
+    }
+    '/weldcommerce/online-store/$siteId/pages': {
+      id: '/weldcommerce/online-store/$siteId/pages'
+      path: '/online-store/$siteId/pages'
+      fullPath: '/weldcommerce/online-store/$siteId/pages'
+      preLoaderRoute: typeof WeldcommerceOnlineStoreSiteIdPagesRouteImport
+      parentRoute: typeof WeldcommerceRouteRoute
+    }
+    '/weldcommerce/online-store/$siteId/menus': {
+      id: '/weldcommerce/online-store/$siteId/menus'
+      path: '/online-store/$siteId/menus'
+      fullPath: '/weldcommerce/online-store/$siteId/menus'
+      preLoaderRoute: typeof WeldcommerceOnlineStoreSiteIdMenusRouteImport
+      parentRoute: typeof WeldcommerceRouteRoute
+    }
     '/weldchat/dm/group/$channelId': {
       id: '/weldchat/dm/group/$channelId'
       path: '/dm/group/$channelId'
@@ -12096,6 +12266,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsAppsWelddeskChatWidgetIndexRouteImport
       parentRoute: typeof SettingsAppsWelddeskRouteRoute
     }
+    '/settings/apps/welddesk/bi-connector/': {
+      id: '/settings/apps/welddesk/bi-connector/'
+      path: '/bi-connector'
+      fullPath: '/settings/apps/welddesk/bi-connector/'
+      preLoaderRoute: typeof SettingsAppsWelddeskBiConnectorIndexRouteImport
+      parentRoute: typeof SettingsAppsWelddeskRouteRoute
+    }
     '/settings/apps/welddesk/assignment/': {
       id: '/settings/apps/welddesk/assignment/'
       path: '/assignment'
@@ -12415,6 +12592,7 @@ interface AuthRouteRouteChildren {
   AuthDesktopHandoffIndexRoute: typeof AuthDesktopHandoffIndexRoute
   AuthErrorIndexRoute: typeof AuthErrorIndexRoute
   AuthForgotPasswordIndexRoute: typeof AuthForgotPasswordIndexRoute
+  AuthMcpWorkspaceIndexRoute: typeof AuthMcpWorkspaceIndexRoute
   AuthResetPasswordIndexRoute: typeof AuthResetPasswordIndexRoute
   AuthSsoCallbackIndexRoute: typeof AuthSsoCallbackIndexRoute
   AuthLoginTasksSplatRoute: typeof AuthLoginTasksSplatRoute
@@ -12427,6 +12605,7 @@ const AuthRouteRouteChildren: AuthRouteRouteChildren = {
   AuthDesktopHandoffIndexRoute: AuthDesktopHandoffIndexRoute,
   AuthErrorIndexRoute: AuthErrorIndexRoute,
   AuthForgotPasswordIndexRoute: AuthForgotPasswordIndexRoute,
+  AuthMcpWorkspaceIndexRoute: AuthMcpWorkspaceIndexRoute,
   AuthResetPasswordIndexRoute: AuthResetPasswordIndexRoute,
   AuthSsoCallbackIndexRoute: AuthSsoCallbackIndexRoute,
   AuthLoginTasksSplatRoute: AuthLoginTasksSplatRoute,
@@ -12441,6 +12620,7 @@ interface SettingsAppsWelddeskRouteRouteChildren {
   SettingsAppsWelddeskIndexRoute: typeof SettingsAppsWelddeskIndexRoute
   SettingsAppsWelddeskAssetRegisterIndexRoute: typeof SettingsAppsWelddeskAssetRegisterIndexRoute
   SettingsAppsWelddeskAssignmentIndexRoute: typeof SettingsAppsWelddeskAssignmentIndexRoute
+  SettingsAppsWelddeskBiConnectorIndexRoute: typeof SettingsAppsWelddeskBiConnectorIndexRoute
   SettingsAppsWelddeskChatWidgetIndexRoute: typeof SettingsAppsWelddeskChatWidgetIndexRoute
   SettingsAppsWelddeskEmailIndexRoute: typeof SettingsAppsWelddeskEmailIndexRoute
   SettingsAppsWelddeskHelpCenterIndexRoute: typeof SettingsAppsWelddeskHelpCenterIndexRoute
@@ -12462,6 +12642,8 @@ const SettingsAppsWelddeskRouteRouteChildren: SettingsAppsWelddeskRouteRouteChil
       SettingsAppsWelddeskAssetRegisterIndexRoute,
     SettingsAppsWelddeskAssignmentIndexRoute:
       SettingsAppsWelddeskAssignmentIndexRoute,
+    SettingsAppsWelddeskBiConnectorIndexRoute:
+      SettingsAppsWelddeskBiConnectorIndexRoute,
     SettingsAppsWelddeskChatWidgetIndexRoute:
       SettingsAppsWelddeskChatWidgetIndexRoute,
     SettingsAppsWelddeskEmailIndexRoute: SettingsAppsWelddeskEmailIndexRoute,
@@ -12502,6 +12684,7 @@ interface SettingsRouteRouteChildren {
   SettingsAppsWeldhrRoute: typeof SettingsAppsWeldhrRoute
   SettingsAppsWeldmergeRoute: typeof SettingsAppsWeldmergeRoute
   SettingsAppsWeldpanelRoute: typeof SettingsAppsWeldpanelRoute
+  SettingsAppsWeldpassRoute: typeof SettingsAppsWeldpassRoute
   SettingsAppsWeldreachRoute: typeof SettingsAppsWeldreachRoute
   SettingsAppsWeldstashRoute: typeof SettingsAppsWeldstashRoute
   SettingsCustomObjectsObjectIdRoute: typeof SettingsCustomObjectsObjectIdRoute
@@ -12523,6 +12706,7 @@ interface SettingsRouteRouteChildren {
   SettingsLegalEntitiesIndexRoute: typeof SettingsLegalEntitiesIndexRoute
   SettingsNotificationsIndexRoute: typeof SettingsNotificationsIndexRoute
   SettingsObjectTemplatesIndexRoute: typeof SettingsObjectTemplatesIndexRoute
+  SettingsOutsideEuIndexRoute: typeof SettingsOutsideEuIndexRoute
   SettingsPlansIndexRoute: typeof SettingsPlansIndexRoute
   SettingsPrivacyIndexRoute: typeof SettingsPrivacyIndexRoute
   SettingsRolesIndexRoute: typeof SettingsRolesIndexRoute
@@ -12575,6 +12759,7 @@ const SettingsRouteRouteChildren: SettingsRouteRouteChildren = {
   SettingsAppsWeldhrRoute: SettingsAppsWeldhrRoute,
   SettingsAppsWeldmergeRoute: SettingsAppsWeldmergeRoute,
   SettingsAppsWeldpanelRoute: SettingsAppsWeldpanelRoute,
+  SettingsAppsWeldpassRoute: SettingsAppsWeldpassRoute,
   SettingsAppsWeldreachRoute: SettingsAppsWeldreachRoute,
   SettingsAppsWeldstashRoute: SettingsAppsWeldstashRoute,
   SettingsCustomObjectsObjectIdRoute: SettingsCustomObjectsObjectIdRoute,
@@ -12596,6 +12781,7 @@ const SettingsRouteRouteChildren: SettingsRouteRouteChildren = {
   SettingsLegalEntitiesIndexRoute: SettingsLegalEntitiesIndexRoute,
   SettingsNotificationsIndexRoute: SettingsNotificationsIndexRoute,
   SettingsObjectTemplatesIndexRoute: SettingsObjectTemplatesIndexRoute,
+  SettingsOutsideEuIndexRoute: SettingsOutsideEuIndexRoute,
   SettingsPlansIndexRoute: SettingsPlansIndexRoute,
   SettingsPrivacyIndexRoute: SettingsPrivacyIndexRoute,
   SettingsRolesIndexRoute: SettingsRolesIndexRoute,
@@ -13016,8 +13202,12 @@ interface WeldcommerceRouteRouteChildren {
   WeldcommerceOrdersNewRoute: typeof WeldcommerceOrdersNewRoute
   WeldcommerceCategoriesIndexRoute: typeof WeldcommerceCategoriesIndexRoute
   WeldcommerceDiscountsIndexRoute: typeof WeldcommerceDiscountsIndexRoute
+  WeldcommerceOnlineStoreIndexRoute: typeof WeldcommerceOnlineStoreIndexRoute
   WeldcommerceOrdersIndexRoute: typeof WeldcommerceOrdersIndexRoute
   WeldcommerceProductsIndexRoute: typeof WeldcommerceProductsIndexRoute
+  WeldcommerceOnlineStoreSiteIdMenusRoute: typeof WeldcommerceOnlineStoreSiteIdMenusRoute
+  WeldcommerceOnlineStoreSiteIdPagesRoute: typeof WeldcommerceOnlineStoreSiteIdPagesRoute
+  WeldcommerceOnlineStoreSiteIdRedirectsRoute: typeof WeldcommerceOnlineStoreSiteIdRedirectsRoute
 }
 
 const WeldcommerceRouteRouteChildren: WeldcommerceRouteRouteChildren = {
@@ -13025,8 +13215,15 @@ const WeldcommerceRouteRouteChildren: WeldcommerceRouteRouteChildren = {
   WeldcommerceOrdersNewRoute: WeldcommerceOrdersNewRoute,
   WeldcommerceCategoriesIndexRoute: WeldcommerceCategoriesIndexRoute,
   WeldcommerceDiscountsIndexRoute: WeldcommerceDiscountsIndexRoute,
+  WeldcommerceOnlineStoreIndexRoute: WeldcommerceOnlineStoreIndexRoute,
   WeldcommerceOrdersIndexRoute: WeldcommerceOrdersIndexRoute,
   WeldcommerceProductsIndexRoute: WeldcommerceProductsIndexRoute,
+  WeldcommerceOnlineStoreSiteIdMenusRoute:
+    WeldcommerceOnlineStoreSiteIdMenusRoute,
+  WeldcommerceOnlineStoreSiteIdPagesRoute:
+    WeldcommerceOnlineStoreSiteIdPagesRoute,
+  WeldcommerceOnlineStoreSiteIdRedirectsRoute:
+    WeldcommerceOnlineStoreSiteIdRedirectsRoute,
 }
 
 const WeldcommerceRouteRouteWithChildren =
@@ -13158,7 +13355,6 @@ interface WelddeskRouteRouteChildren {
   WelddeskSplatRoute: typeof WelddeskSplatRoute
   WelddeskIndexRoute: typeof WelddeskIndexRoute
   WelddeskProblemsProblemIdRoute: typeof WelddeskProblemsProblemIdRoute
-  WelddeskReportsBiConnectorRoute: typeof WelddeskReportsBiConnectorRoute
   WelddeskReportsPhoneRoute: typeof WelddeskReportsPhoneRoute
   WelddeskReportsSchedulesRoute: typeof WelddeskReportsSchedulesRoute
   WelddeskReportsWallboardRoute: typeof WelddeskReportsWallboardRoute
@@ -13194,7 +13390,6 @@ const WelddeskRouteRouteChildren: WelddeskRouteRouteChildren = {
   WelddeskSplatRoute: WelddeskSplatRoute,
   WelddeskIndexRoute: WelddeskIndexRoute,
   WelddeskProblemsProblemIdRoute: WelddeskProblemsProblemIdRoute,
-  WelddeskReportsBiConnectorRoute: WelddeskReportsBiConnectorRoute,
   WelddeskReportsPhoneRoute: WelddeskReportsPhoneRoute,
   WelddeskReportsSchedulesRoute: WelddeskReportsSchedulesRoute,
   WelddeskReportsWallboardRoute: WelddeskReportsWallboardRoute,
@@ -14011,6 +14206,7 @@ interface WeldstashRouteRouteChildren {
   WeldstashProductsIndexRoute: typeof WeldstashProductsIndexRoute
   WeldstashPurchaseOrdersIndexRoute: typeof WeldstashPurchaseOrdersIndexRoute
   WeldstashReplenishmentIndexRoute: typeof WeldstashReplenishmentIndexRoute
+  WeldstashShipmentsIndexRoute: typeof WeldstashShipmentsIndexRoute
   WeldstashStockIndexRoute: typeof WeldstashStockIndexRoute
   WeldstashSuppliersIndexRoute: typeof WeldstashSuppliersIndexRoute
   WeldstashWarehousesIndexRoute: typeof WeldstashWarehousesIndexRoute
@@ -14024,6 +14220,7 @@ const WeldstashRouteRouteChildren: WeldstashRouteRouteChildren = {
   WeldstashProductsIndexRoute: WeldstashProductsIndexRoute,
   WeldstashPurchaseOrdersIndexRoute: WeldstashPurchaseOrdersIndexRoute,
   WeldstashReplenishmentIndexRoute: WeldstashReplenishmentIndexRoute,
+  WeldstashShipmentsIndexRoute: WeldstashShipmentsIndexRoute,
   WeldstashStockIndexRoute: WeldstashStockIndexRoute,
   WeldstashSuppliersIndexRoute: WeldstashSuppliersIndexRoute,
   WeldstashWarehousesIndexRoute: WeldstashWarehousesIndexRoute,
@@ -14418,6 +14615,8 @@ const rootRouteChildren: RootRouteChildren = {
   InviteAcceptIndexRoute: InviteAcceptIndexRoute,
   ObjectsSlugIndexRoute: ObjectsSlugIndexRoute,
   PreviewHelpDocsIndexRoute: PreviewHelpDocsIndexRoute,
+  WeldcommerceOnlineStoreSiteIdEditorRoute:
+    WeldcommerceOnlineStoreSiteIdEditorRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

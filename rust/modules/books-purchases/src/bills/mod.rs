@@ -14,6 +14,12 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, patch, post};
 use http::HeaderMap;
+use sea_orm::prelude::BigDecimal;
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ColumnTrait, Condition, DbErr, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder,
+    QuerySelect,
+};
 use serde_json::{Map, Value, json};
 use weldsuite_books_domain::address::normalize_postal_address;
 use weldsuite_books_domain::contacts::{document_contact_fields, with_contact_names};
@@ -40,7 +46,7 @@ use weldsuite_books_domain::roles::{PromoteTo, promote_accounting_role};
 use weldsuite_books_domain::sales_tax::document_tax::{
     DocumentContext, DocumentKind, IssueDate, Runtime, load_sales_tax_entity, uses_sales_tax,
 };
-use weldsuite_books_domain::tables::{BILL_ITEMS, BILLS, DOCUMENTS, PAYMENTS};
+use weldsuite_books_domain::tables::{BILL_ITEMS, BILLS};
 use weldsuite_books_domain::tax::gst::{is_gst_entity, resolve_gst_bill_supply};
 use weldsuite_books_domain::tax::{
     CalculatedDocumentTax, Direction, DocumentTaxItem, TaxArgs, calculate_document_tax,
@@ -49,14 +55,19 @@ use weldsuite_books_domain::tax::{
 use weldsuite_catalogs::entity_events::{
     BILL_CREATED, BILL_DELETED, BILL_UPDATED, JOURNAL_ENTRY_CREATED, PAYMENT_CREATED,
 };
+use weldsuite_db::{OrmConn, PgPool, orm, utc_now};
 use weldsuite_kit::generate_id;
 use weldsuite_kit::validation::{Field, Issues};
 use weldsuite_legal_entities::{EntityRecordGuard, EntityTable};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::{
+    bill_items, bills, documents, parties, payment_allocations, payments,
+};
 
 use body::{BillBody, BillLine, read_bill, read_bill_payment};
 
 use crate::ocr::{line_items_for_bill, normalize_ocr_result};
+use crate::rows::{js, js_rows, money_text, timestamp_or_err};
 
 pub(crate) fn router<S, Q>(state: BooksState, gate: &Arc<PermissionGate<Q>>) -> Router<S>
 where
@@ -134,43 +145,25 @@ fn post_refusal(error: PostError) -> Refusal {
 }
 
 /// The live bill `id`.
-async fn find_bill(db: &sqlx::PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(bills),
-        " from bills t where t.id = $1 and t.deleted_at is null limit 1"
-    ))
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(|row| BILLS.js(row)))
+async fn find_bill(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
+    bills::Entity::find()
+        .filter(bills::Column::Id.eq(id))
+        .filter(bills::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?
+        .map(|row| js!(row))
+        .transpose()
 }
 
-async fn live_items(
-    db: &sqlx::PgPool,
-    bill_id: &str,
-    sorted: bool,
-) -> Result<Vec<Value>, sqlx::Error> {
-    let rows: Vec<Value> = if sorted {
-        sqlx::query_scalar(concat!(
-            "select ",
-            weldsuite_books_domain::books_row!(bill_items),
-            " from bill_items t where t.bill_id = $1 and t.deleted_at is null order by t.sort_order"
-        ))
-        .bind(bill_id)
-        .fetch_all(db)
-        .await?
-    } else {
-        sqlx::query_scalar(concat!(
-            "select ",
-            weldsuite_books_domain::books_row!(bill_items),
-            " from bill_items t where t.bill_id = $1 and t.deleted_at is null"
-        ))
-        .bind(bill_id)
-        .fetch_all(db)
-        .await?
-    };
-    Ok(BILL_ITEMS.js_rows(rows))
+async fn live_items(db: &PgPool, bill_id: &str, sorted: bool) -> Result<Vec<Value>, DbErr> {
+    let mut items = bill_items::Entity::find()
+        .filter(bill_items::Column::BillId.eq(bill_id))
+        .filter(bill_items::Column::DeletedAt.is_null());
+    if sorted {
+        items = items.order_by_asc(bill_items::Column::SortOrder);
+    }
+    let rows = items.all(&orm(db)).await?;
+    js_rows!(rows)
 }
 
 // ── GET / ───────────────────────────────────────────────────────────────────
@@ -193,10 +186,43 @@ fn date_filter(q: &Query, key: &str) -> Result<Option<String>, Refusal> {
 
 /// The list filters: entity, status, contact, issue-date range and search
 /// (number, name, reference, or the contact's own name).
-macro_rules! bills_where {
-    () => {
-        "t.deleted_at is null and t.entity_id = $1 \n         and ($2::text is null or t.status = $2) \n         and ($3::text is null or t.contact_id = $3) \n         and ($4::timestamp is null or t.issue_date >= $4::timestamp) \n         and ($5::timestamp is null or t.issue_date <= $5::timestamp) \n         and ($6::text is null or t.bill_number like $6 or t.contact_name like $6 or t.external_reference like $6 \n              or t.contact_id in (select p.id from parties p where p.display_name like $6))"
-    };
+fn bills_where(
+    entity_id: &str,
+    q: &Query,
+    from: Option<&str>,
+    to: Option<&str>,
+    search: Option<&str>,
+) -> Result<Condition, DbErr> {
+    let mut condition = Condition::all()
+        .add(bills::Column::DeletedAt.is_null())
+        .add(bills::Column::EntityId.eq(entity_id));
+    if let Some(status) = q.present("status") {
+        condition = condition.add(bills::Column::Status.eq(status));
+    }
+    if let Some(contact_id) = q.present("contactId") {
+        condition = condition.add(bills::Column::ContactId.eq(contact_id));
+    }
+    if let Some(from) = from {
+        condition = condition.add(bills::Column::IssueDate.gte(timestamp_or_err(from)?));
+    }
+    if let Some(to) = to {
+        condition = condition.add(bills::Column::IssueDate.lte(timestamp_or_err(to)?));
+    }
+    if let Some(search) = search {
+        let named = sea_orm::sea_query::Query::select()
+            .column(parties::Column::Id)
+            .from(parties::Entity)
+            .and_where(parties::Column::DisplayName.like(search))
+            .to_owned();
+        condition = condition.add(
+            Condition::any()
+                .add(bills::Column::BillNumber.like(search))
+                .add(bills::Column::ContactName.like(search))
+                .add(bills::Column::ExternalReference.like(search))
+                .add(bills::Column::ContactId.in_subquery(named)),
+        );
+    }
+    Ok(condition)
 }
 
 async fn list_bills(caller: &Caller, q: &Query) -> Reply {
@@ -213,36 +239,29 @@ async fn list_bills(caller: &Caller, q: &Query) -> Reply {
     let from = date_filter(q, "from")?;
     let to = date_filter(q, "to")?;
     let search = q.present("search").map(|s| format!("%{s}%"));
-    let rows: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(bills),
-        " from bills t where ",
-        bills_where!(),
-        " order by t.issue_date desc, t.created_at desc, t.id desc limit $7 offset $8"
-    ))
-    .bind(&entity_id)
-    .bind(q.present("status"))
-    .bind(q.present("contactId"))
-    .bind(&from)
-    .bind(&to)
-    .bind(&search)
-    .bind(size)
-    .bind((page - 1) * size)
-    .fetch_all(&caller.db)
-    .await?;
-    let total: i64 = sqlx::query_scalar(concat!(
-        "select count(*)::bigint from bills t where ",
-        bills_where!()
-    ))
-    .bind(&entity_id)
-    .bind(q.present("status"))
-    .bind(q.present("contactId"))
-    .bind(&from)
-    .bind(&to)
-    .bind(&search)
-    .fetch_one(&caller.db)
-    .await?;
-    let rows = with_contact_names(&caller.db, BILLS.js_rows(rows)).await?;
+    let listed = || {
+        bills_where(
+            &entity_id,
+            q,
+            from.as_deref(),
+            to.as_deref(),
+            search.as_deref(),
+        )
+    };
+    let db = orm(&caller.db);
+    let rows = bills::Entity::find()
+        .filter(listed()?)
+        .order_by_desc(bills::Column::IssueDate)
+        .order_by_desc(bills::Column::CreatedAt)
+        .order_by_desc(bills::Column::Id)
+        .limit(u64::try_from(size).unwrap_or(0))
+        .offset(u64::try_from((page - 1) * size).unwrap_or(0))
+        .all(&db)
+        .await?;
+    let total = bills::Entity::find().filter(listed()?).count(&db).await?;
+    let total = i64::try_from(total).unwrap_or(i64::MAX);
+    let rows = js_rows!(rows)?;
+    let rows = with_contact_names(&caller.db, rows).await?;
     Ok(paged(rows, total, page * size < total, None))
 }
 
@@ -257,26 +276,34 @@ async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
         let items = live_items(db, &id, true).await?;
         // Payments that settle this bill: directly (older single-bill payments)
         // or through an allocation (a payment covering several bills).
-        let allocations: Vec<(String, String)> = sqlx::query_as(
-            "select payment_id, amount::text from payment_allocations \
-             where bill_id = $1 and deleted_at is null",
-        )
-        .bind(&id)
-        .fetch_all(db)
-        .await?;
+        let allocations: Vec<(String, BigDecimal)> = payment_allocations::Entity::find()
+            .select_only()
+            .columns([
+                payment_allocations::Column::PaymentId,
+                payment_allocations::Column::Amount,
+            ])
+            .filter(payment_allocations::Column::BillId.eq(id.as_str()))
+            .filter(payment_allocations::Column::DeletedAt.is_null())
+            .into_tuple()
+            .all(&orm(db))
+            .await?;
+        // `amount::text`.
+        let allocations: Vec<(String, String)> = allocations
+            .into_iter()
+            .map(|(payment, amount)| (payment, money_text(&amount)))
+            .collect();
         let allocated_ids: Vec<String> = allocations.iter().map(|(p, _)| p.clone()).collect();
-        let payments: Vec<Value> = sqlx::query_scalar(concat!(
-            "select ",
-            weldsuite_books_domain::books_row!(payments),
-            " from payments t where t.deleted_at is null and (t.bill_id = $1 or t.id = any($2)) \
-             order by t.date desc"
-        ))
-        .bind(&id)
-        .bind(&allocated_ids)
-        .fetch_all(db)
-        .await?;
-        let payments: Vec<Value> = PAYMENTS
-            .js_rows(payments)
+        let payments = payments::Entity::find()
+            .filter(payments::Column::DeletedAt.is_null())
+            .filter(
+                Condition::any()
+                    .add(payments::Column::BillId.eq(id.as_str()))
+                    .add(payments::Column::Id.is_in(&allocated_ids)),
+            )
+            .order_by_desc(payments::Column::Date)
+            .all(&orm(db))
+            .await?;
+        let payments: Vec<Value> = js_rows!(payments)?
             .into_iter()
             .map(|mut payment| {
                 let amount = payment["id"]
@@ -338,6 +365,30 @@ async fn default_expense_account(caller: Caller) -> Response {
 
 // ── POST /:id/record-payment ────────────────────────────────────────────────
 
+/// `select amount_paid::text, balance_due::text, status from bills`: the
+/// bill after a payment, `null`s when it is gone.
+async fn paid_state(db: &PgPool, id: &str) -> Result<(Value, Value, Value), DbErr> {
+    let updated: Option<(Option<BigDecimal>, Option<BigDecimal>, String)> = bills::Entity::find()
+        .select_only()
+        .columns([
+            bills::Column::AmountPaid,
+            bills::Column::BalanceDue,
+            bills::Column::Status,
+        ])
+        .filter(bills::Column::Id.eq(id))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
+    Ok(match updated {
+        Some((paid, balance, status)) => (
+            json!(paid.as_ref().map(money_text)),
+            json!(balance.as_ref().map(money_text)),
+            json!(status),
+        ),
+        None => (Value::Null, Value::Null, Value::Null),
+    })
+}
+
 /// Pay this bill (posted: Dr payable / Cr bank, and the bill's paid amount
 /// and status updated). Overpaying is refused.
 async fn record_bill_payment(
@@ -387,16 +438,7 @@ async fn record_bill_payment(
         )
         .await
         .map_err(post_refusal)?;
-        let updated: Option<(Option<String>, Option<String>, String)> = sqlx::query_as(
-            "select amount_paid::text, balance_due::text, status from bills where id = $1 limit 1",
-        )
-        .bind(&id)
-        .fetch_optional(db)
-        .await?;
-        let (paid, balance, status) = match updated {
-            Some((paid, balance, status)) => (json!(paid), json!(balance), json!(status)),
-            None => (Value::Null, Value::Null, Value::Null),
-        };
+        let (paid, balance, status) = paid_state(db, &id).await?;
         let mut changes = Map::new();
         changes.insert(
             "amountPaid".into(),
@@ -450,16 +492,24 @@ async fn attachment(
     Path((id, index)): Path<(String, String)>,
 ) -> Response {
     let result: Reply = async {
-        let keys: Option<Option<Value>> = sqlx::query_scalar(
-            "select to_jsonb(attachment_keys) from bills where id = $1 and deleted_at is null limit 1",
-        )
-        .bind(&id)
-        .fetch_optional(&caller.db)
-        .await?;
+        let keys: Option<Option<Value>> = bills::Entity::find()
+            .select_only()
+            .column(bills::Column::AttachmentKeys)
+            .filter(bills::Column::Id.eq(id.as_str()))
+            .filter(bills::Column::DeletedAt.is_null())
+            .into_tuple()
+            .one(&orm(&caller.db))
+            .await?;
         let Some(keys) = keys else {
             return Err(Refusal::not_found("Bill", &id));
         };
-        weldsuite_books_domain::attachments::stream_document_attachment(&caller, &state, keys.as_ref(), &index).await
+        weldsuite_books_domain::attachments::stream_document_attachment(
+            &caller,
+            &state,
+            keys.as_ref(),
+            &index,
+        )
+        .await
     }
     .await;
     reply(result, "Failed to download attachment")
@@ -839,15 +889,17 @@ async fn create_bill(caller: &Caller, state: &BooksState, data: BillBody) -> Rep
         }
     }
     if let Some(document_id) = data.source_document_id.as_deref().filter(|d| !d.is_empty()) {
-        sqlx::query(
-            "update documents set status = 'linked', linked_entity_type = 'bill', linked_entity_id = $2, \
-             updated_at = $3::timestamp where id = $1",
-        )
-        .bind(document_id)
-        .bind(&bill_id)
-        .bind(weldsuite_books_domain::http::now())
-        .execute(db)
-        .await?;
+        documents::Entity::update_many()
+            .col_expr(documents::Column::Status, Expr::value("linked"))
+            .col_expr(documents::Column::LinkedEntityType, Expr::value("bill"))
+            .col_expr(
+                documents::Column::LinkedEntityId,
+                Expr::value(bill_id.as_str()),
+            )
+            .col_expr(documents::Column::UpdatedAt, Expr::value(utc_now()))
+            .filter(documents::Column::Id.eq(document_id))
+            .exec(&orm(db))
+            .await?;
     }
     if let Some(contact_id) = data.contact_id.as_deref() {
         promote_accounting_role(db, contact_id, PromoteTo::Supplier).await?;
@@ -887,15 +939,9 @@ async fn create_bill(caller: &Caller, state: &BooksState, data: BillBody) -> Rep
 
 async fn from_document(caller: Caller, Path(document_id): Path<String>) -> Response {
     let result: Reply = async {
-        let row: Option<Value> = sqlx::query_scalar(concat!(
-            "select ",
-            weldsuite_books_domain::books_row!(documents),
-            " from documents t where t.id = $1 and t.deleted_at is null limit 1"
-        ))
-        .bind(&document_id)
-        .fetch_optional(&caller.db)
-        .await?;
-        let Some(doc) = row.map(|row| DOCUMENTS.js(row)) else {
+        let Some(doc) =
+            crate::accounting_documents::find_document(&caller.db, &document_id).await?
+        else {
             return Err(Refusal::not_found("Document", &document_id));
         };
         let Some(stored) = doc.get("ocrResult").filter(|v| !v.is_null()) else {
@@ -931,7 +977,7 @@ async fn from_document(caller: Caller, Path(document_id): Path<String>) -> Respo
 /// `refreshBillUseTax(db, bill, items, runtime)`: a US bill's use tax
 /// recalculated for what is saved now.
 async fn refresh_bill_use_tax(
-    db: &sqlx::PgPool,
+    db: &PgPool,
     bill: &Value,
     items: &[Value],
     runtime: &Runtime,
@@ -951,11 +997,14 @@ async fn refresh_bill_use_tax(
     let calc = calculate_document_tax(db, &args)
         .await
         .map_err(Refusal::from)?;
-    sqlx::query("update bills set tax_breakdown = $2, updated_at = $3::timestamp where id = $1")
-        .bind(text(bill, "id").unwrap_or_default())
-        .bind(json!(calc.tax_breakdown))
-        .bind(now())
-        .execute(db)
+    bills::Entity::update_many()
+        .col_expr(
+            bills::Column::TaxBreakdown,
+            Expr::value(json!(calc.tax_breakdown)),
+        )
+        .col_expr(bills::Column::UpdatedAt, Expr::value(utc_now()))
+        .filter(bills::Column::Id.eq(text(bill, "id").unwrap_or_default()))
+        .exec(&orm(db))
         .await?;
     let mut ready = bill.clone();
     ready["taxBreakdown"] = json!(calc.tax_breakdown);
@@ -1455,10 +1504,11 @@ async fn update_bill(caller: &Caller, state: &BooksState, id: &str, data: BillBo
         .patch_raw(&mut *tx, id, BILLS.values(&set), false)
         .await?;
     if let Some(items) = &new_items {
-        sqlx::query("update bill_items set deleted_at = $2::timestamp where bill_id = $1 and deleted_at is null")
-            .bind(id)
-            .bind(now())
-            .execute(&mut *tx)
+        bill_items::Entity::update_many()
+            .col_expr(bill_items::Column::DeletedAt, Expr::value(utc_now()))
+            .filter(bill_items::Column::BillId.eq(id))
+            .filter(bill_items::Column::DeletedAt.is_null())
+            .exec(&OrmConn::new(&mut tx))
             .await?;
         for item in items {
             if let Value::Object(item) = item {
@@ -1528,14 +1578,13 @@ async fn remove(
         if text(&bill, "status") != Some("draft") {
             return Err(Refusal::bad_request("Can only delete draft bills"));
         }
-        let now = now();
-        sqlx::query(
-            "update bills set deleted_at = $2::timestamp, updated_at = $2::timestamp where id = $1",
-        )
-        .bind(&id)
-        .bind(&now)
-        .execute(db)
-        .await?;
+        let at = utc_now();
+        bills::Entity::update_many()
+            .col_expr(bills::Column::DeletedAt, Expr::value(at))
+            .col_expr(bills::Column::UpdatedAt, Expr::value(at))
+            .filter(bills::Column::Id.eq(id.as_str()))
+            .exec(&orm(db))
+            .await?;
         write_accounting_audit(
             &caller,
             db,

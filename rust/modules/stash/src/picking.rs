@@ -5,11 +5,21 @@
 
 use std::fmt::Write as _;
 
+use sea_orm::sea_query::{Expr, Func, NullOrdering, Order};
+use sea_orm::{
+    ActiveValue, ColumnTrait, DbErr, EntityTrait, JoinType, QueryFilter, QueryOrder, QuerySelect,
+};
 use serde_json::{Map, Value, json};
-use weldsuite_db::PgPool;
+use time::PrimitiveDateTime;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::generate_id;
 use weldsuite_kit::validation::js_trim;
+use weldsuite_schema::tenant::{
+    inventory, order_items, orders, pick_list_items, pick_lists, product_variants, products,
+    warehouse_locations, warehouses,
+};
 
+use crate::args::{millis, now_stamped, table_rows};
 use crate::js::{int, text, time_number, truthy};
 use crate::ledger::{
     Issue, LedgerError, allocate_stock, issue_allocated_stock, release_allocation,
@@ -30,7 +40,7 @@ pub(crate) enum PickError {
     },
     /// `StockLedgerError`.
     Ledger(LedgerError),
-    Database(sqlx::Error),
+    Database(DbErr),
     Write(WriteError),
 }
 
@@ -45,8 +55,8 @@ impl std::fmt::Display for PickError {
     }
 }
 
-impl From<sqlx::Error> for PickError {
-    fn from(error: sqlx::Error) -> Self {
+impl From<DbErr> for PickError {
+    fn from(error: DbErr) -> Self {
         Self::Database(error)
     }
 }
@@ -101,15 +111,17 @@ fn line_requires_carrier(value: Option<i32>) -> bool {
 pub(crate) async fn order_requires_carrier(
     db: &PgPool,
     order_id: Option<&str>,
-) -> Result<bool, sqlx::Error> {
+) -> Result<bool, DbErr> {
     let Some(order_id) = order_id else {
         return Ok(true);
     };
-    let lines: Vec<Option<i32>> =
-        sqlx::query_scalar("select requires_shipping from order_items where order_id = $1")
-            .bind(order_id)
-            .fetch_all(db)
-            .await?;
+    let lines: Vec<Option<i32>> = order_items::Entity::find()
+        .select_only()
+        .column(order_items::Column::RequiresShipping)
+        .filter(order_items::Column::OrderId.eq(order_id))
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     if lines.is_empty() {
         return Ok(true);
     }
@@ -148,27 +160,23 @@ async fn write_activity(
 }
 
 /// `loadPickList`: the live row.
-pub(crate) async fn load_pick_list(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
+pub(crate) async fn load_pick_list(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
     PICK_LISTS.find_live(db, id).await
 }
 
 /// `loadItems`: the lines, in pick order.
-pub(crate) async fn load_items(db: &PgPool, pick_list_id: &str) -> Result<Vec<Value>, sqlx::Error> {
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from pick_list_items t where t.pick_list_id = $1 \
-         order by t.pick_sequence asc, t.created_at asc",
-    )
-    .bind(pick_list_id)
-    .fetch_all(db)
-    .await?;
-    Ok(rows
-        .into_iter()
-        .map(|row| PICK_LIST_ITEMS.js(row))
-        .collect())
+pub(crate) async fn load_items(db: &PgPool, pick_list_id: &str) -> Result<Vec<Value>, DbErr> {
+    use pick_list_items::{Column, Entity};
+    let mut select = PICK_LIST_ITEMS.entity.select();
+    select
+        .and_where(Column::PickListId.eq(pick_list_id))
+        .order_by((Entity, Column::PickSequence), Order::Asc)
+        .order_by((Entity, Column::CreatedAt), Order::Asc);
+    table_rows(db, &PICK_LIST_ITEMS, &select).await
 }
 
 /// `getPickListWithItems`.
-pub(crate) async fn with_items(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
+pub(crate) async fn with_items(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
     let Some(row) = load_pick_list(db, id).await? else {
         return Ok(None);
     };
@@ -193,29 +201,33 @@ pub(crate) struct Generate {
 
 /// Requested warehouse, else the default one, else any live warehouse.
 async fn resolve_warehouse(db: &PgPool, requested: Option<&str>) -> Result<String, PickError> {
+    use warehouses::{Column, Entity};
+    let db = &orm(db);
+    let live = || {
+        Entity::find()
+            .select_only()
+            .column(Column::Id)
+            .filter(Column::DeletedAt.is_null())
+    };
     let mut warehouse = requested.filter(|id| !id.is_empty()).map(str::to_owned);
     if warehouse.is_none() {
-        warehouse = sqlx::query_scalar(
-            "select id from warehouses where is_default = true and deleted_at is null limit 1",
-        )
-        .fetch_optional(db)
-        .await?;
+        warehouse = live()
+            .filter(Column::IsDefault.eq(true))
+            .into_tuple()
+            .one(db)
+            .await?;
     }
     if warehouse.is_none() {
-        warehouse =
-            sqlx::query_scalar("select id from warehouses where deleted_at is null limit 1")
-                .fetch_optional(db)
-                .await?;
+        warehouse = live().into_tuple().one(db).await?;
     }
     let Some(warehouse) = warehouse.filter(|id| !id.is_empty()) else {
         return Err(pick("WAREHOUSE_NOT_FOUND", "No warehouse available"));
     };
-    let found: Option<String> = sqlx::query_scalar(
-        "select id from warehouses where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(&warehouse)
-    .fetch_optional(db)
-    .await?;
+    let found: Option<String> = live()
+        .filter(Column::Id.eq(warehouse.as_str()))
+        .into_tuple()
+        .one(db)
+        .await?;
     if found.is_none() {
         return Err(pick(
             "WAREHOUSE_NOT_FOUND",
@@ -225,17 +237,119 @@ async fn resolve_warehouse(db: &PgPool, requested: Option<&str>) -> Result<Strin
     Ok(warehouse)
 }
 
+/// An order line as `generatePickList` reads it.
+type OrderLine = (
+    String,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    String,
+    i32,
+    Option<i32>,
+    Option<i32>,
+);
+
+/// The bucket a line picks from: its id, location and code, lot, batch,
+/// expiry, and the location's picking sequence.
+type Bucket = (
+    String,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<PrimitiveDateTime>,
+    Option<i32>,
+);
+
+/// The order's fulfillment and approval status.
+async fn order_statuses(
+    db: &PgPool,
+    order_id: &str,
+) -> Result<Option<(Option<String>, Option<String>)>, DbErr> {
+    orders::Entity::find()
+        .select_only()
+        .columns([
+            orders::Column::FulfillmentStatus,
+            orders::Column::ApprovalStatus,
+        ])
+        .filter(orders::Column::Id.eq(order_id))
+        .filter(orders::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await
+}
+
+/// An open pick list (`pending` up to `packed`) of the order.
+async fn open_pick_list(db: &PgPool, order_id: &str) -> Result<Option<String>, DbErr> {
+    use pick_lists::{Column, Entity};
+    Entity::find()
+        .select_only()
+        .column(Column::Id)
+        .filter(Column::DeletedAt.is_null())
+        .filter(Column::Status.is_in(OPEN_STATUSES.iter().copied()))
+        .filter(sea_orm::sea_query::extension::postgres::PgExpr::contains(
+            Expr::col((Entity, Column::OrderIds)),
+            Expr::val(json!([order_id])),
+        ))
+        .into_tuple()
+        .one(&orm(db))
+        .await
+}
+
+/// The best bucket that can cover `remaining` units of the line: on a
+/// primary pick location first, then by picking sequence (none last).
+async fn best_bucket(
+    db: &PgPool,
+    product: &str,
+    warehouse_id: &str,
+    variant: Option<&str>,
+    remaining: i64,
+) -> Result<Option<Bucket>, DbErr> {
+    use inventory::Column;
+    use sea_orm::ExprTrait as _;
+    let available = Column::QuantityOnHand.into_expr().sub(Func::coalesce([
+        Column::QuantityAllocated.into_expr(),
+        Expr::val(0),
+    ]));
+    inventory::Entity::find()
+        .select_only()
+        .columns([Column::Id, Column::LocationId])
+        .column(warehouse_locations::Column::Code)
+        .columns([Column::LotNumber, Column::BatchNumber, Column::ExpiryDate])
+        .column(warehouse_locations::Column::PickingSequence)
+        .join(
+            JoinType::LeftJoin,
+            inventory::Entity::belongs_to(warehouse_locations::Entity)
+                .from(Column::LocationId)
+                .to(warehouse_locations::Column::Id)
+                .into(),
+        )
+        .filter(Column::ProductId.eq(product))
+        .filter(Column::WarehouseId.eq(warehouse_id))
+        .filter(Column::DeletedAt.is_null())
+        .filter(available.gte(remaining))
+        .filter(Column::VariantId.eq(variant))
+        .order_by(
+            Into::<Expr>::into(
+                Expr::case(warehouse_locations::Column::IsPrimaryPick.eq(true), 0).finally(1),
+            ),
+            Order::Asc,
+        )
+        .order_by_with_nulls(
+            warehouse_locations::Column::PickingSequence,
+            Order::Asc,
+            NullOrdering::Last,
+        )
+        .into_tuple()
+        .one(&orm(db))
+        .await
+}
+
 /// `generatePickList`: one line per shippable order item, each from the
 /// best bucket that can cover it; the stock is allocated.
 #[allow(clippy::too_many_lines)] // one statement per step, as the TypeScript
 pub(crate) async fn generate(db: &PgPool, params: &Generate) -> Result<Value, PickError> {
-    let order: Option<(Option<String>, Option<String>)> = sqlx::query_as(
-        "select fulfillment_status, approval_status from orders          where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(&params.order_id)
-    .fetch_optional(db)
-    .await?;
-    let Some((fulfillment, approval)) = order else {
+    let Some((fulfillment, approval)) = order_statuses(db, &params.order_id).await? else {
         return Err(pick(
             "ORDER_NOT_FOUND",
             format!("Order {} not found", params.order_id),
@@ -267,28 +381,27 @@ pub(crate) async fn generate(db: &PgPool, params: &Generate) -> Result<Value, Pi
     if crate::ledger::warehouse_is_managed(db, &warehouse_id).await? {
         return Err(PickError::Ledger(crate::ledger::managed_warehouse()));
     }
-    let open: Option<String> = sqlx::query_scalar(
-        "select id from pick_lists where deleted_at is null and status = any($1) \
-         and order_ids @> $2::jsonb limit 1",
-    )
-    .bind(OPEN_STATUSES)
-    .bind(json!([params.order_id]))
-    .fetch_optional(db)
-    .await?;
-    if let Some(open) = open {
+    if let Some(open) = open_pick_list(db, &params.order_id).await? {
         return Err(pick(
             "ALREADY_PICKING",
             format!("Order already has an open pick list ({open})"),
         ));
     }
-    #[allow(clippy::type_complexity)]
-    let lines: Vec<(String, Option<String>, Option<String>, Option<String>, String, i32, Option<i32>, Option<i32>)> =
-        sqlx::query_as(
-            "select id, product_id, variant_id, sku, name, quantity, fulfilled_quantity, requires_shipping \
-             from order_items where order_id = $1",
-        )
-        .bind(&params.order_id)
-        .fetch_all(db)
+    let lines: Vec<OrderLine> = order_items::Entity::find()
+        .select_only()
+        .columns([
+            order_items::Column::Id,
+            order_items::Column::ProductId,
+            order_items::Column::VariantId,
+            order_items::Column::Sku,
+            order_items::Column::Name,
+            order_items::Column::Quantity,
+            order_items::Column::FulfilledQuantity,
+            order_items::Column::RequiresShipping,
+        ])
+        .filter(order_items::Column::OrderId.eq(params.order_id.as_str()))
+        .into_tuple()
+        .all(&orm(db))
         .await?;
     let shippable: Vec<_> = lines
         .into_iter()
@@ -306,7 +419,7 @@ pub(crate) async fn generate(db: &PgPool, params: &Generate) -> Result<Value, Pi
             "Order has no remaining shippable items",
         ));
     }
-    let now = crate::now();
+    let (now, stamp) = now_stamped();
     let pick_list_id = generate_id("pl");
     let pick_list_number = time_number("PL");
     let assigned = params
@@ -314,31 +427,14 @@ pub(crate) async fn generate(db: &PgPool, params: &Generate) -> Result<Value, Pi
         .as_deref()
         .is_some_and(|to| !to.is_empty());
     let status = if assigned { "assigned" } else { "pending" };
-    let mut rows: Vec<(i64, Map<String, Value>)> = Vec::new();
+    let mut rows: Vec<(i64, pick_list_items::ActiveModel, String, i64)> = Vec::new();
     let mut sequence = 0_i64;
     let mut total_quantity = 0_i64;
     for (line_id, product, variant, sku, name, quantity, fulfilled, _) in &shippable {
         let remaining = i64::from(*quantity) - i64::from(fulfilled.unwrap_or(0));
         let product = product.clone().unwrap_or_default();
         let variant_key = variant.as_deref().filter(|variant| !variant.is_empty());
-        #[allow(clippy::type_complexity)]
-        let bucket: Option<(String, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, Option<i32>)> =
-            sqlx::query_as(
-                "select i.id, i.location_id, l.code, i.lot_number, i.batch_number, \
-                 to_jsonb(i.expiry_date)#>>'{}', l.picking_sequence from inventory i \
-                 left join warehouse_locations l on i.location_id = l.id \
-                 where i.product_id = $1 and i.warehouse_id = $2 and i.deleted_at is null \
-                 and i.quantity_on_hand - coalesce(i.quantity_allocated, 0) >= $3 \
-                 and (case when $4::text is null then i.variant_id is null else i.variant_id = $4 end) \
-                 order by case when l.is_primary_pick = true then 0 else 1 end, \
-                 l.picking_sequence asc nulls last limit 1",
-            )
-            .bind(&product)
-            .bind(&warehouse_id)
-            .bind(remaining)
-            .bind(variant_key)
-            .fetch_optional(db)
-            .await?;
+        let bucket = best_bucket(db, &product, &warehouse_id, variant_key, remaining).await?;
         let Some((inventory_id, location_id, location_code, lot, batch, expiry, picking_sequence)) =
             bucket
         else {
@@ -351,42 +447,43 @@ pub(crate) async fn generate(db: &PgPool, params: &Generate) -> Result<Value, Pi
         sequence += 1;
         total_quantity += remaining;
         let pick_sequence = picking_sequence.map_or(sequence, i64::from);
-        let mut row = Map::new();
-        row.insert("id".to_owned(), json!(generate_id("pli")));
-        row.insert("pick_list_id".to_owned(), json!(pick_list_id));
-        row.insert("order_id".to_owned(), json!(params.order_id));
-        row.insert("order_item_id".to_owned(), json!(line_id));
-        row.insert("product_id".to_owned(), json!(product));
-        row.insert("variant_id".to_owned(), json!(variant));
-        row.insert("sku".to_owned(), json!(sku));
-        row.insert("name".to_owned(), json!(name));
-        row.insert("location_id".to_owned(), json!(location_id));
-        row.insert("location_code".to_owned(), json!(location_code));
-        row.insert("inventory_id".to_owned(), json!(inventory_id));
-        row.insert("quantity_required".to_owned(), json!(remaining));
-        row.insert("quantity_picked".to_owned(), json!(0));
-        row.insert("quantity_short".to_owned(), json!(0));
-        row.insert("lot_number".to_owned(), json!(lot));
-        row.insert("batch_number".to_owned(), json!(batch));
-        row.insert(
-            "expiry_date".to_owned(),
-            json!(expiry.and_then(|stamp| weldsuite_db::js_timestamp(&stamp))),
-        );
-        row.insert("status".to_owned(), json!("pending"));
-        row.insert("created_at".to_owned(), json!(now));
-        row.insert("updated_at".to_owned(), json!(now));
-        rows.push((pick_sequence, row));
+        let row = pick_list_items::ActiveModel {
+            id: ActiveValue::Set(generate_id("pli")),
+            pick_list_id: ActiveValue::Set(pick_list_id.clone()),
+            order_id: ActiveValue::Set(Some(params.order_id.clone())),
+            order_item_id: ActiveValue::Set(Some(line_id.clone())),
+            product_id: ActiveValue::Set(product),
+            variant_id: ActiveValue::Set(variant.clone()),
+            sku: ActiveValue::Set(sku.clone()),
+            name: ActiveValue::Set(name.clone()),
+            location_id: ActiveValue::Set(location_id),
+            location_code: ActiveValue::Set(location_code),
+            inventory_id: ActiveValue::Set(Some(inventory_id.clone())),
+            quantity_required: ActiveValue::Set(
+                i32::try_from(remaining).map_err(|_| out_of_range("quantity_required"))?,
+            ),
+            quantity_picked: ActiveValue::Set(Some(0)),
+            quantity_short: ActiveValue::Set(Some(0)),
+            lot_number: ActiveValue::Set(lot),
+            batch_number: ActiveValue::Set(batch),
+            expiry_date: ActiveValue::Set(expiry.map(millis)),
+            status: ActiveValue::Set(Some("pending".to_owned())),
+            created_at: ActiveValue::Set(stamp),
+            updated_at: ActiveValue::Set(stamp),
+            ..Default::default()
+        };
+        rows.push((pick_sequence, row, inventory_id, remaining));
     }
     // A stable sort, as `Array.prototype.sort`, then renumbered.
-    rows.sort_by_key(|(sequence, _)| *sequence);
-    let items: Vec<Value> = rows
-        .into_iter()
-        .enumerate()
-        .map(|(i, (_, mut row))| {
-            row.insert("pick_sequence".to_owned(), json!(i + 1));
-            Value::Object(row)
-        })
-        .collect();
+    rows.sort_by_key(|(sequence, ..)| *sequence);
+    let mut items = Vec::with_capacity(rows.len());
+    let mut allocations = Vec::with_capacity(rows.len());
+    for (i, (_, mut row, inventory_id, remaining)) in rows.into_iter().enumerate() {
+        row.pick_sequence = ActiveValue::Set(Some(i32::try_from(i + 1).unwrap_or(i32::MAX)));
+        items.push(row);
+        allocations.push((inventory_id, remaining));
+    }
+    let item_count = items.len();
     let list = json!({
         "id": pick_list_id,
         "pickListNumber": pick_list_number,
@@ -396,7 +493,7 @@ pub(crate) async fn generate(db: &PgPool, params: &Generate) -> Result<Value, Pi
         "assignedTo": params.assigned_to,
         "assignedToName": params.assigned_to_name,
         "assignedAt": if assigned { json!(now) } else { Value::Null },
-        "totalItems": items.len(),
+        "totalItems": item_count,
         "pickedItems": 0,
         "totalQuantity": total_quantity,
         "pickedQuantity": 0,
@@ -414,47 +511,33 @@ pub(crate) async fn generate(db: &PgPool, params: &Generate) -> Result<Value, Pi
             &["assignedAt", "createdAt", "updatedAt"],
         )
         .await?;
-    sqlx::query(
-        "insert into pick_list_items (id, pick_list_id, order_id, order_item_id, product_id, variant_id, \
-         sku, name, location_id, location_code, inventory_id, quantity_required, quantity_picked, \
-         quantity_short, lot_number, batch_number, expiry_date, status, pick_sequence, created_at, \
-         updated_at) select r.id, r.pick_list_id, r.order_id, r.order_item_id, r.product_id, \
-         r.variant_id, r.sku, r.name, r.location_id, r.location_code, r.inventory_id, \
-         r.quantity_required, r.quantity_picked, r.quantity_short, r.lot_number, r.batch_number, \
-         r.expiry_date, r.status, r.pick_sequence, r.created_at, r.updated_at \
-         from jsonb_populate_recordset(null::pick_list_items, $1::jsonb) r",
-    )
-    .bind(Value::Array(items.clone()))
-    .execute(db)
-    .await?;
-    for item in &items {
-        let inventory = item
-            .get("inventory_id")
-            .and_then(Value::as_str)
-            .filter(|id| !id.is_empty());
-        let quantity = item
-            .get("quantity_required")
-            .and_then(Value::as_i64)
-            .unwrap_or(0);
-        if let Some(inventory) = inventory
-            && quantity != 0
-        {
-            allocate_stock(db, inventory, quantity).await?;
+    pick_list_items::Entity::insert_many(items)
+        .exec_without_returning(&orm(db))
+        .await?;
+    for (inventory, quantity) in &allocations {
+        if !inventory.is_empty() && *quantity != 0 {
+            allocate_stock(db, inventory, *quantity).await?;
         }
     }
     if fulfillment.as_deref() == Some("unfulfilled") {
-        sqlx::query("update orders set fulfillment_status = 'picking', updated_at = $2::timestamp where id = $1")
-            .bind(&params.order_id)
-            .bind(&now)
-            .execute(db)
+        orders::Entity::update_many()
+            .col_expr(orders::Column::FulfillmentStatus, Expr::value("picking"))
+            .col_expr(orders::Column::UpdatedAt, Expr::value(stamp))
+            .filter(orders::Column::Id.eq(params.order_id.as_str()))
+            .exec(&orm(db))
             .await?;
     }
     Ok(json!({
         "id": pick_list_id,
         "pickListNumber": pick_list_number,
         "status": status,
-        "itemCount": items.len(),
+        "itemCount": item_count,
     }))
+}
+
+/// A value the column cannot take: Postgres's refusal, the route's 500.
+fn out_of_range(what: &str) -> DbErr {
+    DbErr::Type(format!("{what}: integer out of range"))
 }
 
 /// `assignPickList`.
@@ -473,21 +556,24 @@ pub(crate) async fn assign(
             format!("Cannot assign a pick list in status {}", status_text(&row)),
         ));
     }
-    let now = crate::now();
+    let now = weldsuite_db::utc_now();
     let assigned = assigned_to.is_some_and(|to| !to.is_empty());
     let next = if assigned { "assigned" } else { "pending" };
-    sqlx::query(
-        "update pick_lists set assigned_to = $2, assigned_to_name = $3, assigned_at = $4::timestamp, \
-         status = $5, updated_at = $6::timestamp where id = $1",
-    )
-    .bind(id)
-    .bind(assigned_to)
-    .bind(assigned_to_name)
-    .bind(assigned.then_some(now.as_str()))
-    .bind(next)
-    .bind(&now)
-    .execute(db)
-    .await?;
+    pick_lists::Entity::update_many()
+        .col_expr(pick_lists::Column::AssignedTo, Expr::value(assigned_to))
+        .col_expr(
+            pick_lists::Column::AssignedToName,
+            Expr::value(assigned_to_name),
+        )
+        .col_expr(
+            pick_lists::Column::AssignedAt,
+            Expr::value(assigned.then_some(now)),
+        )
+        .col_expr(pick_lists::Column::Status, Expr::value(next))
+        .col_expr(pick_lists::Column::UpdatedAt, Expr::value(now))
+        .filter(pick_lists::Column::Id.eq(id))
+        .exec(&orm(db))
+        .await?;
     Ok(Some(json!({ "id": id, "status": next })))
 }
 
@@ -511,16 +597,20 @@ pub(crate) async fn start(db: &PgPool, id: &str) -> Result<Option<Value>, PickEr
 }
 
 /// `status: 'in_progress', startedAt: row.startedAt ?? now`.
-async fn mark_in_progress(db: &PgPool, id: &str) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "update pick_lists set status = 'in_progress', started_at = coalesce(started_at, $2::timestamp), \
-         updated_at = $2::timestamp where id = $1",
-    )
-    .bind(id)
-    .bind(crate::now())
-    .execute(db)
-    .await
-    .map(|_| ())
+async fn mark_in_progress(db: &PgPool, id: &str) -> Result<(), DbErr> {
+    use pick_lists::Column;
+    let now = weldsuite_db::utc_now();
+    pick_lists::Entity::update_many()
+        .col_expr(Column::Status, Expr::value("in_progress"))
+        .col_expr(
+            Column::StartedAt,
+            Func::coalesce([Column::StartedAt.into_expr(), Expr::val(now)]).into(),
+        )
+        .col_expr(Column::UpdatedAt, Expr::value(now))
+        .filter(Column::Id.eq(id))
+        .exec(&orm(db))
+        .await
+        .map(|_| ())
 }
 
 /// `normalizeScan`.
@@ -528,61 +618,67 @@ fn normalize_scan(value: &str) -> String {
     js_trim(value).to_lowercase()
 }
 
+/// A barcode and a code (sku), as scans compare them: set ones only.
+fn scan_codes(codes: Option<(Option<String>, Option<String>)>) -> Vec<String> {
+    let Some((barcode, code)) = codes else {
+        return Vec::new();
+    };
+    [barcode, code]
+        .into_iter()
+        .flatten()
+        .filter(|code| !code.is_empty())
+        .map(|code| normalize_scan(&code))
+        .collect()
+}
+
 /// `barcodesForItem`: the location and product codes a scan may match.
-async fn barcodes_for_item(
-    db: &PgPool,
-    item: &Value,
-) -> Result<(Vec<String>, Vec<String>), sqlx::Error> {
+async fn barcodes_for_item(db: &PgPool, item: &Value) -> Result<(Vec<String>, Vec<String>), DbErr> {
+    let db = &orm(db);
     let mut location = Vec::new();
     if let Some(code) = truthy(item, "locationCode") {
         location.push(normalize_scan(code));
     }
     if let Some(location_id) = truthy(item, "locationId") {
-        let row: Option<(Option<String>, Option<String>)> =
-            sqlx::query_as("select barcode, code from warehouse_locations where id = $1 limit 1")
-                .bind(location_id)
-                .fetch_optional(db)
-                .await?;
-        if let Some((barcode, code)) = row {
-            location.extend(
-                barcode
-                    .filter(|b| !b.is_empty())
-                    .map(|b| normalize_scan(&b)),
-            );
-            location.extend(code.filter(|c| !c.is_empty()).map(|c| normalize_scan(&c)));
-        }
+        let row = warehouse_locations::Entity::find()
+            .select_only()
+            .columns([
+                warehouse_locations::Column::Barcode,
+                warehouse_locations::Column::Code,
+            ])
+            .filter(warehouse_locations::Column::Id.eq(location_id))
+            .into_tuple::<(Option<String>, Option<String>)>()
+            .one(db)
+            .await?;
+        location.extend(scan_codes(row));
     }
     let mut product = Vec::new();
     if let Some(sku) = truthy(item, "sku") {
         product.push(normalize_scan(sku));
     }
-    let row: Option<(Option<String>, Option<String>)> =
-        sqlx::query_as("select barcode, sku from products where id = $1 limit 1")
-            .bind(text(item, "productId"))
-            .fetch_optional(db)
+    // `eq(products.id, item.productId)`: a line without a product matches
+    // none.
+    if let Some(product_id) = text(item, "productId") {
+        let row = products::Entity::find()
+            .select_only()
+            .columns([products::Column::Barcode, products::Column::Sku])
+            .filter(products::Column::Id.eq(product_id))
+            .into_tuple::<(Option<String>, Option<String>)>()
+            .one(db)
             .await?;
-    if let Some((barcode, sku)) = row {
-        product.extend(
-            barcode
-                .filter(|b| !b.is_empty())
-                .map(|b| normalize_scan(&b)),
-        );
-        product.extend(sku.filter(|s| !s.is_empty()).map(|s| normalize_scan(&s)));
+        product.extend(scan_codes(row));
     }
     if let Some(variant) = truthy(item, "variantId") {
-        let row: Option<(Option<String>, Option<String>)> =
-            sqlx::query_as("select barcode, sku from product_variants where id = $1 limit 1")
-                .bind(variant)
-                .fetch_optional(db)
-                .await?;
-        if let Some((barcode, sku)) = row {
-            product.extend(
-                barcode
-                    .filter(|b| !b.is_empty())
-                    .map(|b| normalize_scan(&b)),
-            );
-            product.extend(sku.filter(|s| !s.is_empty()).map(|s| normalize_scan(&s)));
-        }
+        let row = product_variants::Entity::find()
+            .select_only()
+            .columns([
+                product_variants::Column::Barcode,
+                product_variants::Column::Sku,
+            ])
+            .filter(product_variants::Column::Id.eq(variant))
+            .into_tuple::<(Option<String>, Option<String>)>()
+            .one(db)
+            .await?;
+        product.extend(scan_codes(row));
     }
     Ok((location, product))
 }
@@ -610,14 +706,16 @@ pub(crate) async fn confirm(db: &PgPool, params: &Confirm) -> Result<Option<Valu
             format!("Cannot pick a list in status {}", status_text(&list)),
         ));
     }
-    let item: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from pick_list_items t where t.id = $1 and t.pick_list_id = $2 limit 1",
-    )
-    .bind(&params.item_id)
-    .bind(&params.pick_list_id)
-    .fetch_optional(db)
-    .await?;
-    let Some(item) = item.map(|item| PICK_LIST_ITEMS.js(item)) else {
+    let item = {
+        use pick_list_items::Column;
+        let mut select = PICK_LIST_ITEMS.entity.select();
+        select
+            .and_where(Column::Id.eq(params.item_id.as_str()))
+            .and_where(Column::PickListId.eq(params.pick_list_id.as_str()))
+            .limit(1);
+        table_rows(db, &PICK_LIST_ITEMS, &select).await?
+    };
+    let Some(item) = item.into_iter().next() else {
         return Err(pick("ITEM_NOT_FOUND", "Pick list item not found"));
     };
     if TERMINAL_ITEM.contains(&status_of(&item)) {
@@ -659,19 +757,20 @@ pub(crate) async fn confirm(db: &PgPool, params: &Confirm) -> Result<Option<Valu
     };
     let quantity_short = (required - qty).max(0);
     let item_id = text(&item, "id").unwrap_or_default().to_owned();
-    let now = crate::now();
-    sqlx::query(
-        "update pick_list_items set quantity_picked = $2, quantity_short = $3, status = $4, \
-         picked_at = $5::timestamp, picked_by = $6, updated_at = $5::timestamp where id = $1",
-    )
-    .bind(&item_id)
-    .bind(qty)
-    .bind(quantity_short)
-    .bind(next)
-    .bind(&now)
-    .bind(&params.user_id)
-    .execute(db)
-    .await?;
+    let now = weldsuite_db::utc_now();
+    {
+        use pick_list_items::Column;
+        pick_list_items::Entity::update_many()
+            .col_expr(Column::QuantityPicked, Expr::value(qty))
+            .col_expr(Column::QuantityShort, Expr::value(quantity_short))
+            .col_expr(Column::Status, Expr::value(next))
+            .col_expr(Column::PickedAt, Expr::value(now))
+            .col_expr(Column::PickedBy, Expr::value(params.user_id.as_str()))
+            .col_expr(Column::UpdatedAt, Expr::value(now))
+            .filter(Column::Id.eq(item_id.as_str()))
+            .exec(&orm(db))
+            .await?;
+    }
     if let Some(inventory) = truthy(&item, "inventoryId")
         && quantity_short > 0
     {
@@ -687,15 +786,22 @@ pub(crate) async fn confirm(db: &PgPool, params: &Confirm) -> Result<Option<Valu
         .filter(|i| TERMINAL_ITEM.contains(&status_of(i)))
         .count();
     let picked_quantity: i64 = items.iter().map(|i| int(i, "quantityPicked")).sum();
-    sqlx::query(
-        "update pick_lists set picked_items = $2, picked_quantity = $3, updated_at = $4::timestamp where id = $1",
-    )
-    .bind(&list_id)
-    .bind(i64::try_from(picked_items).unwrap_or(0))
-    .bind(picked_quantity)
-    .bind(crate::now())
-    .execute(db)
-    .await?;
+    pick_lists::Entity::update_many()
+        .col_expr(
+            pick_lists::Column::PickedItems,
+            Expr::value(i64::try_from(picked_items).unwrap_or(0)),
+        )
+        .col_expr(
+            pick_lists::Column::PickedQuantity,
+            Expr::value(picked_quantity),
+        )
+        .col_expr(
+            pick_lists::Column::UpdatedAt,
+            Expr::value(weldsuite_db::utc_now()),
+        )
+        .filter(pick_lists::Column::Id.eq(list_id.as_str()))
+        .exec(&orm(db))
+        .await?;
     let label = truthy(&item, "sku")
         .or_else(|| text(&item, "name"))
         .unwrap_or("undefined");
@@ -746,15 +852,14 @@ pub(crate) async fn complete(
             format!("{unfinished} line(s) still pending — pick, short, or skip them first"),
         ));
     }
-    let now = crate::now();
-    sqlx::query(
-        "update pick_lists set status = 'completed', completed_at = $2::timestamp, \
-         updated_at = $2::timestamp where id = $1",
-    )
-    .bind(id)
-    .bind(&now)
-    .execute(db)
-    .await?;
+    let now = weldsuite_db::utc_now();
+    pick_lists::Entity::update_many()
+        .col_expr(pick_lists::Column::Status, Expr::value("completed"))
+        .col_expr(pick_lists::Column::CompletedAt, Expr::value(now))
+        .col_expr(pick_lists::Column::UpdatedAt, Expr::value(now))
+        .filter(pick_lists::Column::Id.eq(id))
+        .exec(&orm(db))
+        .await?;
     write_activity(
         db,
         "pick",
@@ -793,21 +898,53 @@ fn nullish(value: Option<&Value>) -> Value {
     value.cloned().unwrap_or(Value::Null)
 }
 
-/// The order a pick list ships, as the routes read it.
-pub(crate) async fn order_contact(
-    db: &PgPool,
-    order_id: &str,
-) -> Result<Option<Value>, sqlx::Error> {
-    sqlx::query_scalar(
-        "select jsonb_build_object('orderNumber', order_number, 'customerName', customer_name, \
-         'customerEmail', customer_email, 'customerPhone', customer_phone, \
-         'shippingAddress', shipping_address, 'trackingNumber', tracking_number, \
-         'trackingUrl', tracking_url, 'shippingCarrier', shipping_carrier) \
-         from orders where id = $1 limit 1",
-    )
-    .bind(order_id)
-    .fetch_optional(db)
-    .await
+/// An order's contact and shipping fields, as the routes read them.
+type Contact = (
+    String,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<Value>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+);
+
+/// The order a pick list ships, as the routes read it: `{ orderNumber,
+/// customerName, customerEmail, customerPhone, shippingAddress,
+/// trackingNumber, trackingUrl, shippingCarrier }`.
+pub(crate) async fn order_contact(db: &PgPool, order_id: &str) -> Result<Option<Value>, DbErr> {
+    use orders::Column;
+    let row: Option<Contact> = orders::Entity::find()
+        .select_only()
+        .columns([
+            Column::OrderNumber,
+            Column::CustomerName,
+            Column::CustomerEmail,
+            Column::CustomerPhone,
+            Column::ShippingAddress,
+            Column::TrackingNumber,
+            Column::TrackingUrl,
+            Column::ShippingCarrier,
+        ])
+        .filter(Column::Id.eq(order_id))
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
+    Ok(row.map(
+        |(number, name, email, phone, address, tracking, url, carrier)| {
+            json!({
+                "orderNumber": number,
+                "customerName": name,
+                "customerEmail": email,
+                "customerPhone": phone,
+                "shippingAddress": address,
+                "trackingNumber": tracking,
+                "trackingUrl": url,
+                "shippingCarrier": carrier,
+            })
+        },
+    ))
 }
 
 /// The recipient `GET /api/pick-lists/:id` answers.
@@ -906,7 +1043,7 @@ pub(crate) async fn pack(db: &PgPool, id: &str, user_id: &str) -> Result<Option<
             recipient_address = Value::Object(address);
         }
     }
-    let now = crate::now();
+    let (now, stamp) = now_stamped();
     let parcel_id = generate_id("par");
     let number = text(&list, "pickListNumber").unwrap_or_default();
     let parcel = json!({
@@ -930,16 +1067,18 @@ pub(crate) async fn pack(db: &PgPool, id: &str, user_id: &str) -> Result<Option<
             &["createdAt", "updatedAt"],
         )
         .await?;
-    sqlx::query(
-        "update pick_lists set status = 'packed', packed_at = $2::timestamp, packed_by = $3, \
-         parcel_id = $4, updated_at = $2::timestamp where id = $1",
-    )
-    .bind(id)
-    .bind(&now)
-    .bind(user_id)
-    .bind(&parcel_id)
-    .execute(db)
-    .await?;
+    pick_lists::Entity::update_many()
+        .col_expr(pick_lists::Column::Status, Expr::value("packed"))
+        .col_expr(pick_lists::Column::PackedAt, Expr::value(stamp))
+        .col_expr(pick_lists::Column::PackedBy, Expr::value(user_id))
+        .col_expr(
+            pick_lists::Column::ParcelId,
+            Expr::value(parcel_id.as_str()),
+        )
+        .col_expr(pick_lists::Column::UpdatedAt, Expr::value(stamp))
+        .filter(pick_lists::Column::Id.eq(id))
+        .exec(&orm(db))
+        .await?;
     write_activity(
         db,
         "pack",
@@ -978,20 +1117,28 @@ pub(crate) async fn ship(db: &PgPool, id: &str, user_id: &str) -> Result<Option<
     }
     let order_id = first_order_id(&list);
     let items = load_items(db, id).await?;
-    let now = crate::now();
+    let (now, stamp) = now_stamped();
     let existing_shipment = truthy(&list, "shipmentId").map(str::to_owned);
     let shipment_id = existing_shipment
         .clone()
         .unwrap_or_else(|| generate_id("shp"));
     let parcel_id = truthy(&list, "parcelId").map(str::to_owned);
+    // The other labelled pieces of a multi-collo pick list (Rust only; none
+    // without carrier labels).
+    let extra = crate::shipping::labels::extra_pieces(db, id, parcel_id.as_deref()).await?;
+    let all_parcels: Vec<String> = parcel_id
+        .iter()
+        .cloned()
+        .chain(extra.iter().cloned())
+        .collect();
     if existing_shipment.is_none() {
         let shipment = json!({
             "id": shipment_id,
             "shipmentNumber": time_number("SHP"),
             "status": "shipped",
             "type": "outbound",
-            "parcelIds": parcel_id.iter().collect::<Vec<_>>(),
-            "totalParcels": i32::from(parcel_id.is_some()),
+            "parcelIds": all_parcels,
+            "totalParcels": i32::try_from(all_parcels.len()).unwrap_or(i32::MAX),
             "shippedAt": now,
             "createdAt": now,
             "updatedAt": now,
@@ -1021,6 +1168,23 @@ pub(crate) async fn ship(db: &PgPool, id: &str, user_id: &str) -> Result<Option<
             )
             .await?;
     }
+    for extra_id in &extra {
+        let change = json!({
+            "shipmentId": shipment_id,
+            "status": "shipped",
+            "shippedAt": now,
+            "updatedAt": now,
+        });
+        PARCELS
+            .patch(
+                db,
+                extra_id,
+                crate::putaway::values_of(&PARCELS, &change),
+                false,
+                &["shippedAt", "updatedAt"],
+            )
+            .await?;
+    }
     let number = text(&list, "pickListNumber").unwrap_or_default().to_owned();
     for item in &items {
         let qty = int(item, "quantityPicked");
@@ -1042,27 +1206,35 @@ pub(crate) async fn ship(db: &PgPool, id: &str, user_id: &str) -> Result<Option<
             .await?;
         }
         if let Some(order_item) = truthy(item, "orderItemId") {
-            sqlx::query(
-                "update order_items set fulfilled_quantity = coalesce(fulfilled_quantity, 0) + $2 where id = $1",
-            )
-            .bind(order_item)
-            .bind(qty)
-            .execute(db)
-            .await?;
+            use sea_orm::ExprTrait as _;
+            let fulfilled = Func::coalesce([
+                order_items::Column::FulfilledQuantity.into_expr(),
+                Expr::val(0),
+            ]);
+            order_items::Entity::update_many()
+                .col_expr(
+                    order_items::Column::FulfilledQuantity,
+                    Expr::from(fulfilled).add(qty),
+                )
+                .filter(order_items::Column::Id.eq(order_item))
+                .exec(&orm(db))
+                .await?;
         }
     }
     if let Some(order_id) = &order_id {
         mark_order_shipped(db, order_id, &now).await?;
     }
-    sqlx::query(
-        "update pick_lists set status = 'shipped', shipped_at = $2::timestamp, shipment_id = $3, \
-         updated_at = $2::timestamp where id = $1",
-    )
-    .bind(id)
-    .bind(&now)
-    .bind(&shipment_id)
-    .execute(db)
-    .await?;
+    pick_lists::Entity::update_many()
+        .col_expr(pick_lists::Column::Status, Expr::value("shipped"))
+        .col_expr(pick_lists::Column::ShippedAt, Expr::value(stamp))
+        .col_expr(
+            pick_lists::Column::ShipmentId,
+            Expr::value(shipment_id.as_str()),
+        )
+        .col_expr(pick_lists::Column::UpdatedAt, Expr::value(stamp))
+        .filter(pick_lists::Column::Id.eq(id))
+        .exec(&orm(db))
+        .await?;
     write_activity(
         db,
         "ship",
@@ -1087,11 +1259,16 @@ pub(crate) async fn ship(db: &PgPool, id: &str, user_id: &str) -> Result<Option<
 /// `markOrderShipped`: partial or fulfilled. Tracking details already on the
 /// order stay.
 async fn mark_order_shipped(db: &PgPool, order_id: &str, now: &str) -> Result<(), PickError> {
-    let lines: Vec<(i32, Option<i32>)> =
-        sqlx::query_as("select quantity, fulfilled_quantity from order_items where order_id = $1")
-            .bind(order_id)
-            .fetch_all(db)
-            .await?;
+    let lines: Vec<(i32, Option<i32>)> = order_items::Entity::find()
+        .select_only()
+        .columns([
+            order_items::Column::Quantity,
+            order_items::Column::FulfilledQuantity,
+        ])
+        .filter(order_items::Column::OrderId.eq(order_id))
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     let remaining = lines
         .iter()
         .any(|(quantity, fulfilled)| i64::from(*quantity) - i64::from(fulfilled.unwrap_or(0)) > 0);
@@ -1147,13 +1324,15 @@ pub(crate) async fn cancel(db: &PgPool, id: &str) -> Result<(), PickError> {
             Err(error) => return Err(error.into()),
         }
     }
-    sqlx::query(
-        "update pick_lists set status = 'cancelled', updated_at = $2::timestamp where id = $1",
-    )
-    .bind(id)
-    .bind(crate::now())
-    .execute(db)
-    .await?;
+    pick_lists::Entity::update_many()
+        .col_expr(pick_lists::Column::Status, Expr::value("cancelled"))
+        .col_expr(
+            pick_lists::Column::UpdatedAt,
+            Expr::value(weldsuite_db::utc_now()),
+        )
+        .filter(pick_lists::Column::Id.eq(id))
+        .exec(&orm(db))
+        .await?;
     Ok(())
 }
 

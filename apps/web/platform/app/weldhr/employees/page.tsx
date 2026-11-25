@@ -88,10 +88,7 @@ export default function WeldHrEmployeesPage() {
         <span className="flex min-w-0 items-center gap-2">
           <EmployeeAvatar name={emp.displayName} src={emp.avatarUrl} className="h-6 w-6 shrink-0" />
           <span className="min-w-0 flex-1">
-            <span className="flex min-w-0 items-baseline gap-2">
-              <span className="min-w-0 truncate font-medium">{emp.displayName}</span>
-              <span className="hidden min-w-0 truncate text-xs text-muted-foreground @2xl:inline">{emp.email}</span>
-            </span>
+            <span className="block min-w-0 truncate font-medium">{emp.displayName}</span>
             {/* Narrow list (phone): the job title, status and start date stack under the name. */}
             <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground @4xl:hidden">
               {emp.jobTitle && <span className="min-w-0 truncate">{emp.jobTitle}</span>}

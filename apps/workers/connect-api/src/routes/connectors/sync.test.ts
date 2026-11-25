@@ -12,7 +12,7 @@
 
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Hono } from 'hono';
-import { asc, eq } from 'drizzle-orm';
+import { asc, eq, inArray } from 'drizzle-orm';
 import { getDefaultConnectorFieldMappings } from '@weldsuite/connectors';
 import { conformanceTenantDb, createTestApp, permissions } from '@weldsuite/worker-kit/testing';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
@@ -275,6 +275,36 @@ function moneybird(url: URL, method: string): Response {
   return json({ error: 'not found' }, {}, 404);
 }
 
+// A second Moneybird administration: bills, void and linked statement lines.
+const mbAdm2MutationQueries: string[] = [];
+
+function moneybirdAdm2(url: URL, method: string): Response {
+  const path = url.pathname.replace('/api/v2/adm2/', '').replace(/\.json$/, '');
+  if (path === 'contacts') return json([MB_CONTACT]);
+  if (path === 'documents/purchase_invoices') {
+    return json([
+      { id: 'pi1', reference: 'INK-1', contact_id: 'c1', contact: MB_CONTACT, state: 'open', date: '2026-03-02', due_date: '2026-03-30', currency: 'EUR', total_price_excl_tax: '100.0', total_price_incl_tax: '121.0', details: [], attachments: [], updated_at: '2026-03-02T10:00:00.000Z' },
+      // An unprocessed inbox document: no contact yet.
+      { id: 'pi2', reference: 'INK-2', contact_id: null, state: 'new', date: '2026-03-03', currency: 'EUR', total_price_excl_tax: '10.0', total_price_incl_tax: '12.1', details: [], attachments: [], updated_at: '2026-03-03T10:00:00.000Z' },
+    ]);
+  }
+  if (path === 'documents/receipts') return json([]);
+  if (path === 'financial_accounts') {
+    return json([{ id: 'fa1', name: 'Business', identifier: 'NL91ABNA0417164300', currency: 'EUR', type: 'BankAccount', provider: 'ABN AMRO', active: true }]);
+  }
+  if (path === 'financial_mutations/synchronization' && method === 'GET') {
+    mbAdm2MutationQueries.push(url.search);
+    return json([{ id: 'v1', version: 1767225600 }, { id: 'v2', version: 1767225700 }]);
+  }
+  if (path === 'financial_mutations/synchronization' && method === 'POST') {
+    return json([
+      { id: 'v1', financial_account_id: 'fa1', amount: '-5.00', date: '2026-03-06', message: 'Cancelled payment', state: 'unprocessed', settlement_state: 'cancelled', payments: [{ invoice_type: 'Document', invoice_id: 'pi1' }], updated_at: '2026-03-06T10:00:00.000Z' },
+      { id: 'v2', financial_account_id: 'fa1', amount: '-121.00', date: '2026-03-07', message: 'INK-1', state: 'processed', payments: [{ invoice_type: 'Document', invoice_id: 'pi1' }], updated_at: '2026-03-07T10:00:00.000Z' },
+    ]);
+  }
+  return json({ error: 'not found' }, {}, 404);
+}
+
 // ── Stripe ───────────────────────────────────────────────────────────────
 
 function stripe(url: URL): Response {
@@ -338,6 +368,7 @@ beforeEach(() => {
       if (url.hostname === 'orders.example') return wooOrders(url);
       if (url.hostname === 'acme.myshopify.com') return shopify(url);
       if (url.hostname === 'acme.picqer.com') return picqer(url);
+      if (url.hostname === 'moneybird.com' && url.pathname.startsWith('/api/v2/adm2/')) return moneybirdAdm2(url, method);
       if (url.hostname === 'moneybird.com') return moneybird(url, method);
       if (url.hostname === 'api.stripe.com') return stripe(url);
       return new Response('not found', { status: 404 });
@@ -364,6 +395,7 @@ beforeAll(async () => {
     connection({ id: 'ccn_syncshop00001', provider: 'shopify', displayName: 'Acme Shopify', credentials: { shopDomain: 'acme', accessToken: 'shpat_1' }, externalAccountId: 'https://acme.myshopify.com', enabledSyncs: ['products'] }),
     connection({ id: 'ccn_syncpq0000001', provider: 'picqer', displayName: 'Picqer', credentials: { subdomain: 'acme', apiKey: 'pq_1' }, enabledSyncs: ['products', 'inventory', 'warehouses', 'suppliers'] }),
     connection({ id: 'ccn_syncmb0000001', provider: 'moneybird', displayName: 'Moneybird', credentials: { accessToken: 'mb-token', administrationId: 'adm1', entityId: 'ent_books0000001' }, externalAccountId: 'adm1', enabledSyncs: ['contacts', 'invoices', 'bankTransactions'] }),
+    connection({ id: 'ccn_syncmb0000002', provider: 'moneybird', displayName: 'Moneybird bills', credentials: { accessToken: 'mb-token', administrationId: 'adm2', entityId: 'ent_books0000001' }, externalAccountId: 'adm2', enabledSyncs: ['contacts', 'bills', 'bankTransactions'] }),
     connection({ id: 'ccn_syncstripe001', provider: 'stripe', displayName: 'Stripe', credentials: { apiKey: 'rk_live_1', entityId: 'ent_books0000001' }, externalAccountId: 'acct_1', enabledSyncs: ['invoices', 'bankAccounts', 'bankTransactions'] }),
     connection({ id: 'ccn_syncpaused001', provider: 'woocommerce', status: 'paused', credentials: { storeUrl: 'https://shop.example', consumerKey: 'ck_1', consumerSecret: 'cs_1' } }),
     connection({ id: 'ccn_syncout000001', provider: 'shopify', credentials: { shopDomain: 'acme', accessToken: 'shpat_1' }, direction: 'outbound', enabledSyncs: ['products'] }),
@@ -633,6 +665,31 @@ describe('POST /connections/:id/sync', () => {
     const after = await connectionRow('ccn_syncmb0000001');
     expect(after).toMatchObject({ lastSyncStatus: 'success', status: 'active' });
     expect(after.syncWatermarks).toEqual({ MoneybirdContact: '2026-03-01T09:00:00.000Z', MoneybirdFinancialMutation: '2026-03-07T10:00:00.000Z' });
+  });
+
+  it('imports Moneybird bills without a contact as skipped, voids cancelled lines and links paid bills', async () => {
+    await app()('/api/connectors/connections/ccn_syncmb0000002/sync', post());
+    await settled('ccn_syncmb0000002', 5);
+
+    // A: the statement-line listing is not limited to this year.
+    expect(mbAdm2MutationQueries.length).toBeGreaterThan(0);
+    expect(mbAdm2MutationQueries.every((query) => new URLSearchParams(query).get('filter') === 'state:all')).toBe(true);
+
+    // F: the bill without a contact is skipped, not failed, and the run is a success.
+    const mbRuns = await runs('ccn_syncmb0000002');
+    const billRun = mbRuns.find((r) => r.syncName === 'moneybird-purchase-invoices')!;
+    expect([billRun.status, billRun.recordsCreated, billRun.recordsSkipped, billRun.recordsFailed, billRun.error]).toEqual(['success', 1, 1, 0, null]);
+    expect(billRun.errorSamples ?? []).toEqual([]);
+    const bills = await db.select().from(schema.bills).where(eq(schema.bills.billNumber, 'INK-2'));
+    expect(bills).toEqual([]);
+
+    // C and D: the cancelled line is excluded and unlinked; the processed one links to its bill.
+    const [bill] = await db.select().from(schema.bills).where(eq(schema.bills.billNumber, 'INK-1'));
+    const txns = await db.select().from(schema.bankTransactions).where(inArray(schema.bankTransactions.externalId, ['v1', 'v2'])).orderBy(asc(schema.bankTransactions.externalId));
+    expect(txns.map((t) => [t.externalId, t.status, t.reconciledBillId, t.reconciliationType])).toEqual([
+      ['v1', 'excluded', null, null],
+      ['v2', 'reconciled', bill!.id, 'auto'],
+    ]);
   });
 
   it('imports Stripe invoices, balances and payout lines, reconciling the charge', async () => {

@@ -15,11 +15,14 @@
 //! one-time seed of every workspace has no equivalent: these editions have
 //! the write-path marks from their first release.
 
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
 use weldsuite_core_domain::js::{Js, js_date, js_string};
 use weldsuite_db::due_index::{SweepResult, run_sweep};
-use weldsuite_db::{Keyring, PgPool};
+use weldsuite_db::{Keyring, PgPool, orm};
 use weldsuite_ports::{HttpRequest, OutboundHttp};
+use weldsuite_schema::tenant::{workflow_integrations as integrations, workflows};
 
 use crate::crm::adapters::{form, json_of, send};
 use crate::crm::mapper::truthy;
@@ -145,6 +148,9 @@ pub struct PollDeps<'a> {
     pub workspace: &'a str,
 }
 
+/// `(id, type, credentials, oauth_tokens, settings)` of a connected integration.
+type IntegrationRow = (String, String, Option<Value>, Option<Value>, Option<Value>);
+
 /// The connected integrations, as the pass changes their settings.
 struct Integrations(Vec<Value>);
 
@@ -174,6 +180,25 @@ fn settings_of(row: &Value) -> Map<String, Value> {
         .unwrap_or_default()
 }
 
+/// `db.update(workflowIntegrations).set({ <column>: value, updatedAt: new Date() })`.
+async fn set_integration(
+    db: &PgPool,
+    id: &str,
+    column: integrations::Column,
+    value: Value,
+) -> Result<(), DbErr> {
+    integrations::Entity::update_many()
+        .col_expr(column, Expr::value(value))
+        .col_expr(
+            integrations::Column::UpdatedAt,
+            Expr::value(crate::crm::engine::now_at()),
+        )
+        .filter(integrations::Column::Id.eq(id))
+        .exec(&orm(db))
+        .await
+        .map(|_| ())
+}
+
 /// `saveSettings(integration, settings)`, and the row's own copy.
 async fn save_settings(
     deps: &PollDeps<'_>,
@@ -182,13 +207,12 @@ async fn save_settings(
     settings: Map<String, Value>,
 ) -> Result<(), String> {
     let id = id_of(&rows.0[index]);
-    sqlx::query(
-        "update workflow_integrations set settings = $2, updated_at = $3::timestamp where id = $1",
+    set_integration(
+        deps.db,
+        &id,
+        integrations::Column::Settings,
+        Value::Object(settings.clone()),
     )
-    .bind(&id)
-    .bind(Value::Object(settings.clone()))
-    .bind(crate::crm::engine::now())
-    .execute(deps.db)
     .await
     .map_err(|e| db_message(&e))?;
     rows.0[index]["settings"] = Value::Object(settings);
@@ -282,13 +306,12 @@ async fn google_token(deps: &PollDeps<'_>, row: &Value) -> Result<Option<String>
                 let at = (now_millis() as f64 + seconds * 1000.0) as i64;
                 next.insert("expiresAt".to_owned(), json!(iso_of_millis(at)));
             }
-            sqlx::query(
-                "update workflow_integrations set oauth_tokens = $2, updated_at = $3::timestamp where id = $1",
+            set_integration(
+                deps.db,
+                &id_of(row),
+                integrations::Column::OauthTokens,
+                Value::Object(next),
             )
-            .bind(id_of(row))
-            .bind(Value::Object(next))
-            .bind(crate::crm::engine::now())
-            .execute(deps.db)
             .await
             .map_err(|e| db_message(&e))?;
         }
@@ -653,13 +676,16 @@ async fn poll_airtable(
 /// `pollWorkspaceIntegrations`: the events dispatched, and whether the
 /// workspace still has poll triggers.
 pub async fn poll_workspace(deps: &PollDeps<'_>) -> Result<(usize, bool), String> {
-    let workflows: Vec<Option<Value>> = sqlx::query_scalar(
-        "select triggers from workflows where status = 'active' and deleted_at is null",
-    )
-    .fetch_all(deps.db)
-    .await
-    .map_err(|e| db_message(&e))?;
-    let triggers: Vec<Value> = workflows
+    let active: Vec<Option<Value>> = workflows::Entity::find()
+        .select_only()
+        .column(workflows::Column::Triggers)
+        .filter(workflows::Column::Status.eq("active"))
+        .filter(workflows::Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&orm(deps.db))
+        .await
+        .map_err(|e| db_message(&e))?;
+    let triggers: Vec<Value> = active
         .into_iter()
         .flatten()
         .filter_map(|t| t.as_array().cloned())
@@ -680,13 +706,36 @@ pub async fn poll_workspace(deps: &PollDeps<'_>) -> Result<(usize, bool), String
     if !includes_workflow_poll(&triggers) && buckets.iter().all(Vec::is_empty) {
         return Ok((0, false));
     }
-    let connected: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from workflow_integrations t where t.status = 'connected' and t.deleted_at is null",
-    )
-    .fetch_all(deps.db)
-    .await
-    .map_err(|e| db_message(&e))?;
-    let mut rows = Integrations(connected);
+    let connected: Vec<IntegrationRow> = integrations::Entity::find()
+        .select_only()
+        .columns([
+            integrations::Column::Id,
+            integrations::Column::Type,
+            integrations::Column::Credentials,
+            integrations::Column::OauthTokens,
+            integrations::Column::Settings,
+        ])
+        .filter(integrations::Column::Status.eq("connected"))
+        .filter(integrations::Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&orm(deps.db))
+        .await
+        .map_err(|e| db_message(&e))?;
+    // The row's columns the polls read, under `to_jsonb(t)`'s keys.
+    let mut rows = Integrations(
+        connected
+            .into_iter()
+            .map(|(id, kind, credentials, oauth_tokens, settings)| {
+                json!({
+                    "id": id,
+                    "type": kind,
+                    "credentials": credentials,
+                    "oauth_tokens": oauth_tokens,
+                    "settings": settings,
+                })
+            })
+            .collect(),
+    );
     let mut dispatched = 0;
     for t in &buckets[0] {
         dispatched += poll_sheets(deps, &mut rows, t).await?;

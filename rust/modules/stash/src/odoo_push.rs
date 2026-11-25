@@ -33,23 +33,30 @@ use axum::Router;
 use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::post;
+use sea_orm::sea_query::{Expr, Func, OnConflict};
+use sea_orm::{
+    ActiveValue, ColumnTrait, ConnectionTrait, DbErr, EntityTrait, JoinType, QueryFilter,
+    QueryOrder, QuerySelect,
+};
 use serde_json::{Value, json};
 use sqlx::PgConnection;
 use weldsuite_catalogs::entity_events::PURCHASE_ORDER_UPDATED;
 use weldsuite_catalogs::permission_keys::PURCHASE_ORDERS_UPDATE;
 use weldsuite_connect_domain::clients::{ConnectorError, Kind, decrypt_credentials};
 use weldsuite_connect_domain::odoo::{Odoo, mapping_types};
-use weldsuite_db::{Keyring, PgPool};
+use weldsuite_db::{Keyring, OrmConn, PgPool, orm, utc_now};
 use weldsuite_kit::{ApiError, Data, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 use weldsuite_ports::OutboundHttp;
+use weldsuite_schema::tenant::{
+    connector_connections as connections, integration_entity_mappings as mappings,
+    purchase_order_items as items, purchase_orders as orders, warehouses,
+};
 
+use crate::po_actions::{lock_order, order_json};
 use crate::po_guard::is_odoo_managed;
-use crate::rows::purchase_order_row;
-use crate::tables::PURCHASE_ORDERS;
 use crate::{Caller, Refusal, StashState, now};
 
-const ORDER: &str = "Purchase order";
 const NOT_MANAGED: &str = "This purchase order's warehouse is not managed by an Odoo connection";
 
 pub(crate) fn routes<Q>(gate: &Arc<PermissionGate<Q>>) -> Router<StashState>
@@ -112,25 +119,24 @@ struct Item {
 }
 
 /// The Odoo id a WeldStash row is mapped to by this connection.
-async fn odoo_id_of(
-    db: &mut PgConnection,
+async fn odoo_id_of<C: ConnectionTrait>(
+    db: &C,
     connection_id: &str,
     external_type: &str,
     internal_type: &str,
     internal_id: &str,
-) -> Result<Option<i64>, sqlx::Error> {
-    let found: Option<String> = sqlx::query_scalar(
-        "select external_entity_id from integration_entity_mappings
-         where connection_id = $1 and external_entity_type = $2 and internal_entity_type = $3
-           and internal_entity_id = $4
-         order by updated_at desc limit 1",
-    )
-    .bind(connection_id)
-    .bind(external_type)
-    .bind(internal_type)
-    .bind(internal_id)
-    .fetch_optional(db)
-    .await?;
+) -> Result<Option<i64>, DbErr> {
+    let found: Option<String> = mappings::Entity::find()
+        .select_only()
+        .column(mappings::Column::ExternalEntityId)
+        .filter(mappings::Column::ConnectionId.eq(connection_id))
+        .filter(mappings::Column::ExternalEntityType.eq(external_type))
+        .filter(mappings::Column::InternalEntityType.eq(internal_type))
+        .filter(mappings::Column::InternalEntityId.eq(internal_id))
+        .order_by_desc(mappings::Column::UpdatedAt)
+        .into_tuple()
+        .one(db)
+        .await?;
     Ok(found.and_then(|id| id.parse().ok()))
 }
 
@@ -160,15 +166,17 @@ async fn odoo_refusal(db: &PgPool, connection_id: &str, error: ConnectorError) -
             Refusal::bad_request(error.message)
         }
         Kind::Permanent => {
-            let noted = sqlx::query(
-                "update connector_connections set last_error = $2, last_error_at = $3::timestamp,
-                   updated_at = $3::timestamp where id = $1",
-            )
-            .bind(connection_id)
-            .bind(&error.message)
-            .bind(now())
-            .execute(db)
-            .await;
+            let now = utc_now();
+            let noted = connections::Entity::update_many()
+                .col_expr(
+                    connections::Column::LastError,
+                    Expr::value(error.message.as_str()),
+                )
+                .col_expr(connections::Column::LastErrorAt, Expr::value(now))
+                .col_expr(connections::Column::UpdatedAt, Expr::value(now))
+                .filter(connections::Column::Id.eq(connection_id))
+                .exec(&orm(db))
+                .await;
             if let Err(db_error) = noted {
                 tracing::warn!(error = %db_error, "[stash/odoo-push] could not note the error");
             }
@@ -190,13 +198,14 @@ type ItemRow = (
     Option<String>,
     String,
     i32,
-    String,
+    sea_orm::prelude::BigDecimal,
 );
 
 /// Everything the RFQ needs, checked before Odoo is called.
 struct Prepared {
     order: Value,
-    connection: Value,
+    /// The connection's stored (encrypted) credentials.
+    credentials: Option<Value>,
     connection_id: String,
     odoo_warehouse: i64,
     partner: i64,
@@ -214,7 +223,7 @@ pub(crate) async fn send_to_odoo(
 ) -> Result<Sent, Refusal> {
     let mut tx = db.begin().await?;
     let prepared = prepare(&mut tx, id).await?;
-    let credentials = decrypt_credentials(prepared.connection.get("credentials"), keyring);
+    let credentials = decrypt_credentials(prepared.credentials.as_ref(), keyring);
     let client = match Odoo::from_credentials(&credentials) {
         Ok(client) => client,
         Err(error) => {
@@ -264,18 +273,9 @@ fn rfq_origin(order: &Value, id: &str) -> String {
 /// The purchase order (its row locked until the transaction ends), its
 /// Odoo connection and its mappings, or why it cannot be sent. Checked
 /// after taking the lock, so a request that waited on another sees it sent.
-async fn prepare(db: &mut PgConnection, id: &str) -> Result<Prepared, Refusal> {
-    let row: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        purchase_order_row!(),
-        " from purchase_orders t where t.id = $1 and t.deleted_at is null for update"
-    ))
-    .bind(id)
-    .fetch_optional(&mut *db)
-    .await?;
-    let Some(order) = row.map(|row| PURCHASE_ORDERS.js(row)) else {
-        return Err(Refusal::not_found(ORDER, id));
-    };
+async fn prepare(conn: &mut PgConnection, id: &str) -> Result<Prepared, Refusal> {
+    let db = &OrmConn::new(conn);
+    let order = lock_order(db, id).await?;
     if is_odoo_managed(&order) {
         return Err(Refusal::bad_request(
             "This purchase order was already sent to Odoo",
@@ -290,19 +290,24 @@ async fn prepare(db: &mut PgConnection, id: &str) -> Result<Prepared, Refusal> {
     let Some(warehouse_id) = order["warehouseId"].as_str().filter(|w| !w.is_empty()) else {
         return Err(Refusal::bad_request(NOT_MANAGED));
     };
-    let connection: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(c) from warehouses w
-         join connector_connections c on c.id = w.managed_by_connection_id
-           and c.deleted_at is null and c.provider = 'odoo'
-         where w.id = $1 and w.deleted_at is null",
-    )
-    .bind(warehouse_id)
-    .fetch_optional(&mut *db)
-    .await?;
+    let connection = connections::Entity::find()
+        .join(
+            JoinType::InnerJoin,
+            connections::Entity::belongs_to(warehouses::Entity)
+                .from(connections::Column::Id)
+                .to(warehouses::Column::ManagedByConnectionId)
+                .into(),
+        )
+        .filter(connections::Column::DeletedAt.is_null())
+        .filter(connections::Column::Provider.eq("odoo"))
+        .filter(warehouses::Column::Id.eq(warehouse_id))
+        .filter(warehouses::Column::DeletedAt.is_null())
+        .one(db)
+        .await?;
     let Some(connection) = connection else {
         return Err(Refusal::bad_request(NOT_MANAGED));
     };
-    let connection_id = connection["id"].as_str().unwrap_or_default().to_owned();
+    let connection_id = connection.id;
     let Some(odoo_warehouse) = odoo_id_of(
         db,
         &connection_id,
@@ -340,7 +345,7 @@ async fn prepare(db: &mut PgConnection, id: &str) -> Result<Prepared, Refusal> {
     let (items, products) = resolve_items(db, &connection_id, id).await?;
     Ok(Prepared {
         order,
-        connection,
+        credentials: connection.credentials,
         connection_id,
         odoo_warehouse,
         partner,
@@ -351,19 +356,27 @@ async fn prepare(db: &mut PgConnection, id: &str) -> Result<Prepared, Refusal> {
 
 /// The items, each with its Odoo product, or the 400 that lists the ones
 /// without (by SKU, else name).
-async fn resolve_items(
-    db: &mut PgConnection,
+async fn resolve_items<C: ConnectionTrait>(
+    db: &C,
     connection_id: &str,
     id: &str,
 ) -> Result<(Vec<Item>, Vec<i64>), Refusal> {
-    let rows: Vec<ItemRow> =
-        sqlx::query_as(
-            "select i.id, i.product_id, i.variant_id, i.sku, i.name, i.quantity_ordered, i.unit_price::text
-             from purchase_order_items i where i.purchase_order_id = $1
-             order by i.created_at, i.id",
-        )
-        .bind(id)
-        .fetch_all(&mut *db)
+    let rows: Vec<ItemRow> = items::Entity::find()
+        .select_only()
+        .columns([
+            items::Column::Id,
+            items::Column::ProductId,
+            items::Column::VariantId,
+            items::Column::Sku,
+            items::Column::Name,
+            items::Column::QuantityOrdered,
+            items::Column::UnitPrice,
+        ])
+        .filter(items::Column::PurchaseOrderId.eq(id))
+        .order_by_asc(items::Column::CreatedAt)
+        .order_by_asc(items::Column::Id)
+        .into_tuple()
+        .all(db)
         .await?;
     if rows.is_empty() {
         return Err(Refusal::bad_request(
@@ -379,7 +392,8 @@ async fn resolve_items(
                 variant_id,
                 label: sku.filter(|s| !s.is_empty()).unwrap_or(name),
                 quantity,
-                unit_price: price.parse().unwrap_or(0.0),
+                // `unit_price::text`, read as a JavaScript number.
+                unit_price: price.to_plain_string().parse().unwrap_or(0.0),
             },
         )
         .collect();
@@ -434,54 +448,85 @@ async fn record(
     odoo_name: String,
     line_ids: &[i64],
 ) -> Result<Sent, Refusal> {
+    let db = &OrmConn::new(tx);
     let connection_id = &prepared.connection_id;
     let items = &prepared.items;
-    sqlx::query(
-        "insert into integration_entity_mappings
-           (id, connection_id, external_entity_type, external_entity_id, internal_entity_type,
-            internal_entity_id, last_synced_at)
-         values ($1, $2, $3, $4, 'purchase_order', $5, $6::timestamp)
-         on conflict (connection_id, external_entity_type, external_entity_id) do update set
-           internal_entity_type = excluded.internal_entity_type,
-           internal_entity_id = excluded.internal_entity_id,
-           last_synced_at = excluded.last_synced_at, updated_at = excluded.last_synced_at",
-    )
-    .bind(generate_id("iem"))
-    .bind(connection_id)
-    .bind(mapping_types::PURCHASE_ORDER)
-    .bind(odoo_id.to_string())
-    .bind(id)
-    .bind(now())
-    .execute(&mut *tx)
-    .await?;
+    let mapping = mappings::ActiveModel {
+        id: ActiveValue::Set(generate_id("iem")),
+        connection_id: ActiveValue::Set(connection_id.clone()),
+        external_entity_type: ActiveValue::Set(mapping_types::PURCHASE_ORDER.to_owned()),
+        external_entity_id: ActiveValue::Set(odoo_id.to_string()),
+        internal_entity_type: ActiveValue::Set("purchase_order".to_owned()),
+        internal_entity_id: ActiveValue::Set(id.to_owned()),
+        last_synced_at: ActiveValue::Set(Some(utc_now())),
+        ..Default::default()
+    };
+    mappings::Entity::insert(mapping)
+        .on_conflict(
+            OnConflict::columns([
+                mappings::Column::ConnectionId,
+                mappings::Column::ExternalEntityType,
+                mappings::Column::ExternalEntityId,
+            ])
+            .update_columns([
+                mappings::Column::InternalEntityType,
+                mappings::Column::InternalEntityId,
+                mappings::Column::LastSyncedAt,
+            ])
+            .value(
+                mappings::Column::UpdatedAt,
+                Expr::col((
+                    sea_orm::sea_query::Alias::new("excluded"),
+                    mappings::Column::LastSyncedAt,
+                )),
+            )
+            .to_owned(),
+        )
+        .exec_without_returning(db)
+        .await?;
+    // `coalesce(metadata, '{}'::jsonb) || <object>`.
+    let merged = |column: Expr, object: Value| {
+        sea_orm::sea_query::extension::postgres::PgExpr::concat(
+            Expr::from(Func::coalesce([column, Expr::val(json!({}))])),
+            Expr::val(object),
+        )
+    };
     // Odoo keeps the lines in the order they were sent (`sequence, id`).
     if line_ids.len() == items.len() {
         for (item, line) in items.iter().zip(line_ids) {
-            sqlx::query(
-                "update purchase_order_items set metadata = coalesce(metadata, '{}'::jsonb)
-                   || jsonb_build_object('odooLineId', $2::text), updated_at = $3::timestamp
-                 where id = $1",
-            )
-            .bind(&item.id)
-            .bind(line.to_string())
-            .bind(now())
-            .execute(&mut *tx)
-            .await?;
+            items::Entity::update_many()
+                .col_expr(
+                    items::Column::Metadata,
+                    merged(
+                        items::Column::Metadata.into_expr(),
+                        json!({ "odooLineId": line.to_string() }),
+                    ),
+                )
+                .col_expr(items::Column::UpdatedAt, Expr::value(utc_now()))
+                .filter(items::Column::Id.eq(item.id.as_str()))
+                .exec(db)
+                .await?;
         }
     }
-    let updated: Value = sqlx::query_scalar(concat!(
-        "update purchase_orders t set status = 'pending', updated_at = $3::timestamp,
-           metadata = coalesce(t.metadata, '{}'::jsonb) || jsonb_build_object('odoo', $2::jsonb)
-         where t.id = $1 returning ",
-        purchase_order_row!()
-    ))
-    .bind(id)
-    .bind(json!({ "id": odoo_id, "name": odoo_name, "sentAt": now() }))
-    .bind(now())
-    .fetch_one(&mut *tx)
-    .await?;
+    let odoo = json!({ "id": odoo_id, "name": odoo_name, "sentAt": now() });
+    let updated = orders::Entity::update_many()
+        .col_expr(orders::Column::Status, Expr::value("pending"))
+        .col_expr(orders::Column::UpdatedAt, Expr::value(utc_now()))
+        .col_expr(
+            orders::Column::Metadata,
+            merged(
+                orders::Column::Metadata.into_expr(),
+                json!({ "odoo": odoo }),
+            ),
+        )
+        .filter(orders::Column::Id.eq(id))
+        .exec_with_returning(db)
+        .await?
+        .into_iter()
+        .next()
+        .ok_or_else(|| DbErr::RecordNotFound(format!("purchase order {id}")))?;
     Ok(Sent {
-        purchase_order: PURCHASE_ORDERS.js(updated),
+        purchase_order: order_json(updated)?,
         odoo_id,
         odoo_name,
     })
@@ -631,6 +676,7 @@ async fn create_rfq(
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used, clippy::too_many_lines)]
+    #![allow(clippy::disallowed_methods, reason = "test fixtures")]
 
     use std::sync::Arc;
 

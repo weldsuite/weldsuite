@@ -4,7 +4,7 @@
 *
 
 # The pnpm workspace, for the platform SPA, the sign and forms portals, the
-# admin console and the helpdesk widget.
+# admin console, the storefront renderer and the helpdesk widget.
 !package.json
 !pnpm-lock.yaml
 !pnpm-workspace.yaml
@@ -15,6 +15,7 @@
 !apps/web/sign-portal
 !apps/web/forms-portal
 !apps/web/admin
+!apps/web/storefront
 !apps/web/helpdesk-widget
 # The collab-rooms service bundles the workers' room classes.
 !apps/tools/collab-rooms

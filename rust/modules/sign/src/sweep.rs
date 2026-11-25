@@ -21,13 +21,15 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QuerySelect};
 use serde::Serialize;
 use serde_json::json;
 use time::OffsetDateTime;
 use weldsuite_catalogs::entity_events::SIGN_ENVELOPE_EXPIRED;
-use weldsuite_db::PgPool;
 use weldsuite_db::due_index::{mark_due, run_sweep};
+use weldsuite_db::{PgPool, orm};
 use weldsuite_events::{EntityEvent, EventContext, EventSource, iso_timestamp};
+use weldsuite_schema::master::sign_link_registry;
 
 use crate::finalize::TenantResolver;
 use crate::lifecycle::{expire_due, send_due_reminders};
@@ -68,12 +70,15 @@ async fn seed(master: &PgPool, services: &Services, now: OffsetDateTime) -> Resu
     {
         return Ok(0);
     }
-    let ids: Vec<String> = sqlx::query_scalar(
-        "select distinct workspace_id from sign_link_registry where revoked_at is null",
-    )
-    .fetch_all(master)
-    .await
-    .map_err(|e| e.to_string())?;
+    let ids: Vec<String> = sign_link_registry::Entity::find()
+        .select_only()
+        .column(sign_link_registry::Column::WorkspaceId)
+        .distinct()
+        .filter(sign_link_registry::Column::RevokedAt.is_null())
+        .into_tuple()
+        .all(&orm(master))
+        .await
+        .map_err(|e| e.to_string())?;
     for id in &ids {
         mark_due(master, LIFECYCLE_KIND, id, now).await;
     }

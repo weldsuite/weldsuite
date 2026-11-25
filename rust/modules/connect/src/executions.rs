@@ -11,26 +11,115 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, patch, post};
 use http::HeaderMap;
+use sea_orm::sea_query::extension::postgres as pg;
+use sea_orm::sea_query::{Alias, Expr, Func, Query};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder,
+    QuerySelect,
+};
 use serde_json::{Map, Value, json};
+use time::{OffsetDateTime, PrimitiveDateTime};
 use weldsuite_catalogs::entity_events::{
     WORKFLOW_EXECUTION_CANCELLED, WORKFLOW_EXECUTION_CREATED, WORKFLOW_EXECUTION_UPDATED,
 };
 use weldsuite_catalogs::permission_keys as perm;
-use weldsuite_db::{PgPool, js_row};
+use weldsuite_db::record::JsonTable;
+use weldsuite_db::{PgPool, orm, utc_now, utc_timestamp};
 use weldsuite_kit::validation::{Presence, Text, js_date_iso};
 use weldsuite_kit::{ApiError, Created, Data, List, NoContent, Pagination, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::{
+    workflow_execution_steps as steps_table, workflow_executions as runs_table, workflows,
+    workspace_members,
+};
 
-use crate::js::{next_cursor, page, page_limit, query_param, query_truthy, total};
+use crate::js::{next_cursor, page, page_limit, query_param, query_truthy};
 use crate::runs::{RESUME_SIGNAL, WorkflowRuns};
 use crate::{Caller, ConnectState, Refusal, internal, now, validate};
 
-/// `notSequenceRun` over the alias `e`.
-pub(crate) const NOT_SEQUENCE_RUN: &str = "not exists (select 1 from workflows sw
-    where sw.id = e.workflow_id and coalesce(sw.tags, '[]'::jsonb) ? '__type:sequence')";
+/// `coalesce(<tags>, '[]'::jsonb) ? '__type:sequence'`: the tags of a
+/// WeldReach sequence's workflow. The tags are a jsonb array of strings, so
+/// containment (`@> '["__type:sequence"]'`) is the same test; it is written
+/// with an operator, not `jsonb_exists(…)`, because Postgres estimates an
+/// operator as it does `?` and a function call differently, and the plan
+/// decides the order of rows that tie on `started_at`.
+pub(crate) fn sequence_tagged(tags: Expr) -> Expr {
+    pg::PgExpr::contains(
+        Expr::from(Func::coalesce([tags, Expr::val(json!([]))])),
+        Expr::val(json!(["__type:sequence"])),
+    )
+}
 
-/// `notTestRun` over the alias `e`.
-pub(crate) const NOT_TEST_RUN: &str = "coalesce(e.execution_context->>'isTest', 'false') <> 'true'";
+/// `notSequence` over `workflows`: not a sequence's workflow.
+pub(crate) fn not_sequence() -> Expr {
+    sea_orm::ExprTrait::not(sequence_tagged(Expr::col((
+        workflows::Entity,
+        workflows::Column::Tags,
+    ))))
+}
+
+/// `not exists (select 1 from workflows sw where sw.id = <workflow id> and
+/// <sw is a sequence>)`.
+pub(crate) fn not_sequence_of(workflow_id: Expr) -> Expr {
+    let sw = Alias::new("sw");
+    Expr::not_exists(
+        Query::select()
+            .expr(Expr::val(1))
+            .from_as(workflows::Entity, sw.clone())
+            .and_where(sea_orm::ExprTrait::eq(
+                Expr::col((sw.clone(), workflows::Column::Id)),
+                workflow_id,
+            ))
+            .and_where(sequence_tagged(Expr::col((sw, workflows::Column::Tags))))
+            .to_owned(),
+    )
+}
+
+/// `notSequenceRun` over `workflow_executions`.
+pub(crate) fn not_sequence_run() -> Expr {
+    not_sequence_of(Expr::col((
+        runs_table::Entity,
+        runs_table::Column::WorkflowId,
+    )))
+}
+
+/// `coalesce(<execution_context>->>'isTest', 'false')`.
+pub(crate) fn test_flag(execution_context: Expr) -> Expr {
+    Func::coalesce([
+        pg::PgExpr::cast_json_field(execution_context, "isTest"),
+        Expr::val("false"),
+    ])
+    .into()
+}
+
+/// `notTestRun` over `workflow_executions`.
+pub(crate) fn not_test_run() -> Expr {
+    sea_orm::ExprTrait::ne(
+        test_flag(Expr::col((
+            runs_table::Entity,
+            runs_table::Column::ExecutionContext,
+        ))),
+        "true",
+    )
+}
+
+/// A row as Drizzle returns it.
+pub(crate) fn js<M: serde::Serialize>(model: M) -> Result<Value, DbErr> {
+    serde_json::to_value(model).map_err(|error| DbErr::Json(error.to_string()))
+}
+
+/// Rows as Drizzle returns them.
+fn js_rows<M: serde::Serialize>(models: Vec<M>) -> Result<Vec<Value>, DbErr> {
+    models.into_iter().map(js).collect()
+}
+
+/// An ISO time as `$n::timestamp` reads it; `None` where Postgres would
+/// refuse it.
+fn timestamp_of(iso: &str) -> Option<PrimitiveDateTime> {
+    let ms = crate::cron::parse_ms(iso)?;
+    let at = OffsetDateTime::from_unix_timestamp_nanos(i128::from(ms) * 1_000_000).ok()?;
+    Some(utc_timestamp(at))
+}
 
 pub(crate) fn routes<Q: PermissionQueries + 'static>(
     gate: &Arc<PermissionGate<Q>>,
@@ -59,13 +148,12 @@ pub(crate) fn routes<Q: PermissionQueries + 'static>(
         .route("/{id}/retry", post(retry).route_layer(create()))
 }
 
-async fn get_execution(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> =
-        sqlx::query_scalar("select to_jsonb(e) from workflow_executions e where e.id = $1 limit 1")
-            .bind(id)
-            .fetch_optional(db)
-            .await?;
-    Ok(row.map(js_row))
+async fn get_execution(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
+    runs_table::Entity::find_by_id(id)
+        .one(&orm(db))
+        .await?
+        .map(js)
+        .transpose()
 }
 
 async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
@@ -90,41 +178,50 @@ async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
         return internal(&"Invalid time value", "Failed to list workflow executions");
     };
     let cursor = query_truthy(query, "cursor");
-    let filter = format!(
-        "($1::text is not null and e.workflow_id = $1 or $1::text is null and {NOT_SEQUENCE_RUN})
-         and (cardinality($2::text[]) = 0 or e.status = any($2))
-         and ($3::text is null or e.trigger_type = $3)
-         and ($4::text is null or e.started_at >= $4::timestamp)
-         and ($5::text is null or e.started_at <= $5::timestamp)"
-    );
-    let rows: Result<Vec<Value>, sqlx::Error> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-        "select to_jsonb(e) from workflow_executions e where {filter} and ($6::text is null or e.id < $6)
-         order by e.started_at desc, e.id desc limit $7"
-    )))
-    .bind(&workflow_id)
-    .bind(&statuses)
-    .bind(&trigger_type)
-    .bind(&start)
-    .bind(&end)
-    .bind(&cursor)
-    .bind(limit + 1)
-    .fetch_all(&caller.db)
-    .await;
-    let count: Result<i64, sqlx::Error> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-        "select count(*) from workflow_executions e where {filter}"
-    )))
-    .bind(&workflow_id)
-    .bind(&statuses)
-    .bind(&trigger_type)
-    .bind(&start)
-    .bind(&end)
-    .fetch_one(&caller.db)
-    .await;
+    let parsed = |text: Option<String>| match text {
+        None => Some(None),
+        Some(text) => timestamp_of(&text).map(Some),
+    };
+    let (Some(start), Some(end)) = (parsed(start), parsed(end)) else {
+        return internal(
+            &"date/time field value out of range",
+            "Failed to list workflow executions",
+        );
+    };
+    let mut filtered = runs_table::Entity::find().filter(match &workflow_id {
+        Some(workflow_id) => runs_table::Column::WorkflowId.eq(workflow_id),
+        None => not_sequence_run(),
+    });
+    if !statuses.is_empty() {
+        filtered = filtered.filter(runs_table::Column::Status.is_in(statuses.clone()));
+    }
+    if let Some(trigger_type) = &trigger_type {
+        filtered = filtered.filter(runs_table::Column::TriggerType.eq(trigger_type));
+    }
+    if let Some(start) = start {
+        filtered = filtered.filter(runs_table::Column::StartedAt.gte(start));
+    }
+    if let Some(end) = end {
+        filtered = filtered.filter(runs_table::Column::StartedAt.lte(end));
+    }
+    let db = orm(&caller.db);
+    let mut rows = filtered.clone();
+    if let Some(cursor) = &cursor {
+        rows = rows.filter(runs_table::Column::Id.lt(cursor));
+    }
+    let rows = rows
+        .order_by_desc(runs_table::Column::StartedAt)
+        .order_by_desc(runs_table::Column::Id)
+        .limit(u64::try_from(limit + 1).unwrap_or(0))
+        .all(&db)
+        .await
+        .and_then(js_rows);
+    let count = filtered.count(&db).await;
     match (rows, count) {
         (Ok(rows), Ok(count)) => {
-            let (data, has_more) = page(rows.into_iter().map(js_row).collect(), limit);
+            let (data, has_more) = page(rows, limit);
             let cursor = next_cursor(&data, has_more, "id");
-            List::new(data, Pagination::new(total(count), has_more, cursor)).into_response()
+            List::new(data, Pagination::new(count, has_more, cursor)).into_response()
         }
         (Err(error), _) | (_, Err(error)) => internal(&error, "Failed to list workflow executions"),
     }
@@ -132,15 +229,15 @@ async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
 
 async fn recent(caller: Caller, RawQuery(query): RawQuery) -> Response {
     let limit = page_limit(query.as_deref(), 10, 100);
-    let rows: Result<Vec<Value>, sqlx::Error> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-        "select to_jsonb(e) from workflow_executions e where {NOT_SEQUENCE_RUN}
-         order by e.started_at desc limit $1"
-    )))
-    .bind(limit)
-    .fetch_all(&caller.db)
-    .await;
+    let rows = runs_table::Entity::find()
+        .filter(not_sequence_run())
+        .order_by_desc(runs_table::Column::StartedAt)
+        .limit(u64::try_from(limit).unwrap_or(0))
+        .all(&orm(&caller.db))
+        .await
+        .and_then(js_rows);
     match rows {
-        Ok(rows) => Data(rows.into_iter().map(js_row).collect::<Vec<_>>()).into_response(),
+        Ok(rows) => Data(rows).into_response(),
         Err(error) => internal(&error, "Failed to fetch recent executions"),
     }
 }
@@ -157,22 +254,43 @@ async fn trends(caller: Caller, RawQuery(query): RawQuery) -> Response {
     };
     let now_ms = i64::try_from(time::OffsetDateTime::now_utc().unix_timestamp_nanos() / 1_000_000)
         .unwrap_or_default();
-    let start = crate::cron::iso(now_ms - days * DAY_MS).unwrap_or_default();
-    let rows: Result<Vec<(String, Option<String>)>, sqlx::Error> =
-        sqlx::query_as(sqlx::AssertSqlSafe(format!(
-            "select e.status, to_char(e.started_at, 'YYYY-MM-DD') from workflow_executions e
-         where e.started_at >= $1::timestamp and {NOT_SEQUENCE_RUN} and {NOT_TEST_RUN}"
-        )))
-        .bind(&start)
-        .fetch_all(&caller.db)
+    let Some(start) =
+        OffsetDateTime::from_unix_timestamp_nanos(i128::from(now_ms - days * DAY_MS) * 1_000_000)
+            .ok()
+            .map(utc_timestamp)
+    else {
+        return internal(
+            &"invalid input syntax for type timestamp",
+            "Failed to fetch execution trends",
+        );
+    };
+    let rows: Result<Vec<(String, Option<PrimitiveDateTime>)>, DbErr> = runs_table::Entity::find()
+        .select_only()
+        .columns([runs_table::Column::Status, runs_table::Column::StartedAt])
+        .filter(runs_table::Column::StartedAt.gte(start))
+        .filter(not_sequence_run())
+        .filter(not_test_run())
+        .into_tuple()
+        .all(&orm(&caller.db))
         .await;
     let rows = match rows {
         Ok(rows) => rows,
         Err(error) => return internal(&error, "Failed to fetch execution trends"),
     };
     let mut buckets: Vec<(String, i64, i64, i64)> = Vec::new();
-    for (status, day) in rows {
-        let Some(day) = day else { continue };
+    for (status, started_at) in rows {
+        // `to_char(started_at, 'YYYY-MM-DD')`.
+        let Some(day) = started_at.map(|at| {
+            let date = at.date();
+            format!(
+                "{:04}-{:02}-{:02}",
+                date.year(),
+                u8::from(date.month()),
+                date.day()
+            )
+        }) else {
+            continue;
+        };
         let date = if period == "year" {
             format!("{}-01", &day[..7])
         } else {
@@ -204,16 +322,18 @@ async fn trends(caller: Caller, RawQuery(query): RawQuery) -> Response {
 
 async fn slow(caller: Caller, RawQuery(query): RawQuery) -> Response {
     let limit = page_limit(query.as_deref(), 10, 50);
-    let rows: Result<Vec<Value>, sqlx::Error> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-        "select to_jsonb(e) from workflow_executions e
-         where e.status = 'completed' and e.duration is not null and {NOT_SEQUENCE_RUN} and {NOT_TEST_RUN}
-         order by e.duration desc limit $1"
-    )))
-    .bind(limit)
-    .fetch_all(&caller.db)
-    .await;
+    let rows = runs_table::Entity::find()
+        .filter(runs_table::Column::Status.eq("completed"))
+        .filter(runs_table::Column::Duration.is_not_null())
+        .filter(not_sequence_run())
+        .filter(not_test_run())
+        .order_by_desc(runs_table::Column::Duration)
+        .limit(u64::try_from(limit).unwrap_or(0))
+        .all(&orm(&caller.db))
+        .await
+        .and_then(js_rows);
     match rows {
-        Ok(rows) => Data(rows.into_iter().map(js_row).collect::<Vec<_>>()).into_response(),
+        Ok(rows) => Data(rows).into_response(),
         Err(error) => internal(&error, "Failed to fetch slow executions"),
     }
 }
@@ -226,14 +346,13 @@ async fn get_one(caller: Caller, Path(id): Path<String>) -> Response {
     }
 }
 
-async fn step_rows(db: &PgPool, id: &str) -> Result<Vec<Value>, sqlx::Error> {
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(s) from workflow_execution_steps s where s.execution_id = $1 order by s.step_index",
-    )
-    .bind(id)
-    .fetch_all(db)
-    .await?;
-    Ok(rows.into_iter().map(js_row).collect())
+async fn step_rows(db: &PgPool, id: &str) -> Result<Vec<Value>, DbErr> {
+    steps_table::Entity::find()
+        .filter(steps_table::Column::ExecutionId.eq(id))
+        .order_by_asc(steps_table::Column::StepIndex)
+        .all(&orm(db))
+        .await
+        .and_then(js_rows)
 }
 
 async fn steps(caller: Caller, Path(id): Path<String>) -> Response {
@@ -300,16 +419,16 @@ async fn cancel(
             .with_details(json!({ "reason": "not_cancellable", "status": status }))
             .into());
         }
-        let stamp = now();
-        sqlx::query(
-            "update workflow_executions set status = 'cancelled', completed_at = $2::timestamp,
-                updated_at = $2::timestamp where id = $1 and status = any($3)",
-        )
-        .bind(&id)
-        .bind(&stamp)
-        .bind(CANCELLABLE)
-        .execute(&caller.db)
-        .await?;
+        let stamp = utc_now();
+        let db = orm(&caller.db);
+        runs_table::Entity::update_many()
+            .col_expr(runs_table::Column::Status, Expr::value("cancelled"))
+            .col_expr(runs_table::Column::CompletedAt, Expr::value(stamp))
+            .col_expr(runs_table::Column::UpdatedAt, Expr::value(stamp))
+            .filter(runs_table::Column::Id.eq(&id))
+            .filter(runs_table::Column::Status.is_in(CANCELLABLE.iter().copied()))
+            .exec(&db)
+            .await?;
         if let (Some(instance), Some(runs)) = (
             execution["cfWorkflowInstanceId"]
                 .as_str()
@@ -319,15 +438,13 @@ async fn cancel(
         {
             tracing::warn!(%error, "[connect-api/workflow-executions] terminate failed");
         }
-        if let Err(error) = sqlx::query(
-            "update workflow_execution_steps set status = 'cancelled', completed_at = $2::timestamp
-             where execution_id = $1 and status = any($3)",
-        )
-        .bind(&id)
-        .bind(&stamp)
-        .bind(["pending", "running", "waiting_for_input"])
-        .execute(&caller.db)
-        .await
+        if let Err(error) = steps_table::Entity::update_many()
+            .col_expr(steps_table::Column::Status, Expr::value("cancelled"))
+            .col_expr(steps_table::Column::CompletedAt, Expr::value(stamp))
+            .filter(steps_table::Column::ExecutionId.eq(&id))
+            .filter(steps_table::Column::Status.is_in(["pending", "running", "waiting_for_input"]))
+            .exec(&db)
+            .await
         {
             tracing::warn!(%error, "[connect-api/workflow-executions] could not settle in-flight steps");
         }
@@ -357,23 +474,22 @@ struct PendingApproval {
 async fn pending_approval(
     db: &PgPool,
     execution_id: &str,
-) -> Result<Option<PendingApproval>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(s) from workflow_execution_steps s
-         where s.execution_id = $1 and s.status = 'waiting_for_input' and s.step_type = 'manual_step'
-         order by s.step_index desc limit 1",
-    )
-    .bind(execution_id)
-    .fetch_optional(db)
-    .await?;
+) -> Result<Option<PendingApproval>, DbErr> {
+    let row = steps_table::Entity::find()
+        .filter(steps_table::Column::ExecutionId.eq(execution_id))
+        .filter(steps_table::Column::Status.eq("waiting_for_input"))
+        .filter(steps_table::Column::StepType.eq("manual_step"))
+        .order_by_desc(steps_table::Column::StepIndex)
+        .one(&orm(db))
+        .await?;
     Ok(row.map(|row| {
-        let output = crate::js::bag(row.get("output"));
+        let output = crate::js::bag(row.output.as_ref());
         PendingApproval {
-            row_id: row["id"].as_str().unwrap_or_default().to_owned(),
-            step_id: row["step_id"].clone(),
+            row_id: row.id,
+            step_id: json!(row.step_id),
             title: match output.get("title") {
                 Some(t @ Value::String(_)) => t.clone(),
-                _ => row["step_name"].clone(),
+                _ => json!(row.step_name),
             },
             description: match output.get("description") {
                 Some(d @ Value::String(_)) => d.clone(),
@@ -488,13 +604,22 @@ async fn decision(
             .filter(|c| !c.is_empty())
             .map(|c| c.encode_utf16().take(2000).collect::<Vec<u16>>())
             .map(|units| String::from_utf16_lossy(&units));
-        let decided_by_name: Option<String> = sqlx::query_as::<_, (Option<String>, Option<String>)>(
-            "select name, email from workspace_members where user_id = $1 and deleted_at is null limit 1",
-        )
-        .bind(&caller.user_id)
-        .fetch_optional(&caller.db)
-        .await?
-        .and_then(|(name, email)| name.filter(|n| !n.is_empty()).or(email.filter(|e| !e.is_empty())));
+        let db = orm(&caller.db);
+        let decided_by_name: Option<String> = workspace_members::Entity::find()
+            .select_only()
+            .columns([
+                workspace_members::Column::Name,
+                workspace_members::Column::Email,
+            ])
+            .filter(workspace_members::Column::UserId.eq(&caller.user_id))
+            .filter(workspace_members::Column::DeletedAt.is_null())
+            .into_tuple::<(Option<String>, Option<String>)>()
+            .one(&db)
+            .await?
+            .and_then(|(name, email)| {
+                name.filter(|n| !n.is_empty())
+                    .or(email.filter(|e| !e.is_empty()))
+            });
         let payload = json!({
             "stepId": approval.step_id,
             "approved": decision == "approved",
@@ -504,27 +629,20 @@ async fn decision(
             "decidedByName": decided_by_name,
             "decidedAt": now(),
         });
-        let claimed: Option<String> = sqlx::query_scalar(
-            "update workflow_execution_steps
-             set output = coalesce(output, '{}'::jsonb) || jsonb_build_object('decision', $2::jsonb)
-             where id = $1 and status = 'waiting_for_input' and (output -> 'decision') is null
-             returning id",
-        )
-        .bind(&approval.row_id)
-        .bind(&payload)
-        .fetch_optional(&caller.db)
-        .await?;
-        if claimed.is_none() {
+        let claimed = claim_decision(&db, &approval.row_id, &payload).await?;
+        if !claimed {
             return Err(ApiError::conflict("Someone already decided on this approval").into());
         }
         if let Err(error) = runs.send_event(instance, RESUME_SIGNAL, &payload).await {
-            if let Err(release) = sqlx::query(
-                "update workflow_execution_steps set output = output - 'decision'
-                 where id = $1 and status = 'waiting_for_input'",
-            )
-            .bind(&approval.row_id)
-            .execute(&caller.db)
-            .await
+            if let Err(release) = steps_table::Entity::update_many()
+                .col_expr(
+                    steps_table::Column::Output,
+                    sea_orm::ExprTrait::sub(Expr::col(steps_table::Column::Output), "decision"),
+                )
+                .filter(steps_table::Column::Id.eq(&approval.row_id))
+                .filter(steps_table::Column::Status.eq("waiting_for_input"))
+                .exec(&db)
+                .await
             {
                 tracing::error!(%release, "[workflow-approvals] could not release the decision");
             }
@@ -546,6 +664,33 @@ async fn decision(
         .unwrap_or_else(|refusal: Refusal| refusal.respond("Failed to record the decision"))
 }
 
+/// The decision on the waiting step, unless one is there already: `output =
+/// coalesce(output, '{}') || {decision}` while `output -> 'decision'` is null.
+async fn claim_decision(
+    db: &sea_orm::DatabaseConnection,
+    row_id: &str,
+    payload: &Value,
+) -> Result<bool, DbErr> {
+    let output = || Expr::col(steps_table::Column::Output);
+    let claimed = steps_table::Entity::update_many()
+        .col_expr(
+            steps_table::Column::Output,
+            pg::PgExpr::concat(
+                Func::coalesce([output(), Expr::val(json!({}))]),
+                Expr::val(json!({ "decision": payload })),
+            ),
+        )
+        .filter(steps_table::Column::Id.eq(row_id))
+        .filter(steps_table::Column::Status.eq("waiting_for_input"))
+        .filter(sea_orm::ExprTrait::is_null(pg::PgExpr::get_json_field(
+            output(),
+            "decision",
+        )))
+        .exec(db)
+        .await?;
+    Ok(claimed.rows_affected > 0)
+}
+
 /// A run that never started: `insertSkippedWorkflowExecution`.
 pub(crate) struct Skipped<'a> {
     pub(crate) workflow_id: &'a str,
@@ -559,29 +704,38 @@ pub(crate) struct Skipped<'a> {
     pub(crate) message: String,
 }
 
-pub(crate) async fn insert_skipped(db: &PgPool, input: Skipped<'_>) -> Result<String, sqlx::Error> {
+pub(crate) async fn insert_skipped(db: &PgPool, input: Skipped<'_>) -> Result<String, DbErr> {
     let id = generate_id("wex");
-    sqlx::query(
-        "insert into workflow_executions
-            (id, workflow_id, workflow_version, workflow_name, status, triggered_by, trigger_type,
-             trigger_id, trigger_data, started_at, completed_at, total_steps, current_step_index,
-             error, created_at, updated_at)
-         values ($1, $2, $3, $4, 'skipped', $5, $6, $7, $8, $9::timestamp, $9::timestamp, 0, 0, $10,
-                 $9::timestamp, $9::timestamp)",
-    )
-    .bind(&id)
-    .bind(input.workflow_id)
-    .bind(input.workflow_version.unwrap_or(1))
-    .bind(input.workflow_name)
-    .bind(input.triggered_by.unwrap_or("system"))
-    .bind(input.trigger_type)
-    .bind(input.trigger_id)
-    .bind(input.trigger_data)
-    .bind(now())
-    .bind(json!({ "message": input.message, "code": input.reason }))
-    .execute(db)
+    let stamp = utc_now();
+    runs_table::Entity::insert(runs_table::ActiveModel {
+        id: Set(id.clone()),
+        workflow_id: Set(input.workflow_id.to_owned()),
+        workflow_version: Set(version_of(input.workflow_version)),
+        workflow_name: Set(input.workflow_name.map(str::to_owned)),
+        status: Set("skipped".to_owned()),
+        triggered_by: Set(Some(input.triggered_by.unwrap_or("system").to_owned())),
+        trigger_type: Set(Some(input.trigger_type.to_owned())),
+        trigger_id: Set(input.trigger_id.map(str::to_owned)),
+        trigger_data: Set(input.trigger_data.cloned()),
+        started_at: Set(Some(stamp)),
+        completed_at: Set(Some(stamp)),
+        total_steps: Set(Some(0)),
+        current_step_index: Set(Some(0)),
+        error: Set(Some(
+            json!({ "message": input.message, "code": input.reason }),
+        )),
+        created_at: Set(stamp),
+        updated_at: Set(stamp),
+        ..Default::default()
+    })
+    .exec_without_returning(&orm(db))
     .await?;
     Ok(id)
+}
+
+/// `workflow.version ?? 1` as the `integer` column takes it.
+fn version_of(version: Option<i64>) -> i32 {
+    i32::try_from(version.unwrap_or(1)).unwrap_or(i32::MAX)
 }
 
 /// `isAtWorkflowConcurrencyLimit(db, workflowId, settings)`.
@@ -589,7 +743,7 @@ pub(crate) async fn at_concurrency_limit(
     db: &PgPool,
     workflow_id: &str,
     settings: Option<&Value>,
-) -> Result<bool, sqlx::Error> {
+) -> Result<bool, DbErr> {
     let limit = settings
         .and_then(|s| s.get("maxConcurrentRuns"))
         .and_then(Value::as_f64)
@@ -598,13 +752,11 @@ pub(crate) async fn at_concurrency_limit(
     let Some(limit) = limit else {
         return Ok(false);
     };
-    let active: i64 = sqlx::query_scalar(
-        "select count(*) from workflow_executions
-         where workflow_id = $1 and status = any(array['queued', 'running', 'waiting_for_input'])",
-    )
-    .bind(workflow_id)
-    .fetch_one(db)
-    .await?;
+    let active = runs_table::Entity::find()
+        .filter(runs_table::Column::WorkflowId.eq(workflow_id))
+        .filter(runs_table::Column::Status.is_in(["queued", "running", "waiting_for_input"]))
+        .count(&orm(db))
+        .await?;
     #[allow(clippy::cast_precision_loss)]
     Ok(active as f64 >= limit)
 }
@@ -632,7 +784,7 @@ pub(crate) struct Started {
 /// Why `startRun` failed.
 #[derive(Debug)]
 pub(crate) enum StartError {
-    Database(sqlx::Error),
+    Database(DbErr),
     /// The binding threw (its message).
     Runtime(String),
 }
@@ -646,8 +798,8 @@ impl std::fmt::Display for StartError {
     }
 }
 
-impl From<sqlx::Error> for StartError {
-    fn from(error: sqlx::Error) -> Self {
+impl From<DbErr> for StartError {
+    fn from(error: DbErr) -> Self {
         Self::Database(error)
     }
 }
@@ -687,30 +839,32 @@ pub(crate) async fn start_run(
         });
     }
     let execution_id = generate_id("wex");
-    let stamp = now();
+    let stamp = utc_now();
     let steps = crate::js::array(workflow.get("steps")).len();
-    sqlx::query(
-        "insert into workflow_executions
-            (id, workflow_id, workflow_version, workflow_name, status, triggered_by, trigger_type,
-             trigger_id, trigger_data, started_at, total_steps, current_step_index,
-             parent_execution_id, retry_count, execution_context, created_at, updated_at)
-         values ($1, $2, $3, $4, 'queued', $5, $6, $7, $8, $9::timestamp, $10, 0, $11, $12, $13,
-                 $9::timestamp, $9::timestamp)",
-    )
-    .bind(&execution_id)
-    .bind(workflow_id)
-    .bind(version.unwrap_or(1))
-    .bind(name)
-    .bind(input.user_id)
-    .bind(input.trigger_type)
-    .bind(input.trigger_id)
-    .bind(&input.trigger_data)
-    .bind(&stamp)
-    .bind(i32::try_from(steps).unwrap_or(i32::MAX))
-    .bind(input.parent.map(|(id, _)| id))
-    .bind(input.parent.map_or(0, |(_, count)| count + 1))
-    .bind(input.is_test.then(|| json!({ "isTest": true })))
-    .execute(db)
+    let db = orm(db);
+    runs_table::Entity::insert(runs_table::ActiveModel {
+        id: Set(execution_id.clone()),
+        workflow_id: Set(workflow_id.to_owned()),
+        workflow_version: Set(version_of(version)),
+        workflow_name: Set(name.map(str::to_owned)),
+        status: Set("queued".to_owned()),
+        triggered_by: Set(Some(input.user_id.to_owned())),
+        trigger_type: Set(Some(input.trigger_type.to_owned())),
+        trigger_id: Set(input.trigger_id.map(str::to_owned)),
+        trigger_data: Set(Some(input.trigger_data.clone())),
+        started_at: Set(Some(stamp)),
+        total_steps: Set(Some(i32::try_from(steps).unwrap_or(i32::MAX))),
+        current_step_index: Set(Some(0)),
+        parent_execution_id: Set(input.parent.map(|(id, _)| id.to_owned())),
+        retry_count: Set(Some(
+            i32::try_from(input.parent.map_or(0, |(_, count)| count + 1)).unwrap_or(i32::MAX),
+        )),
+        execution_context: Set(input.is_test.then(|| json!({ "isTest": true }))),
+        created_at: Set(stamp),
+        updated_at: Set(stamp),
+        ..Default::default()
+    })
+    .exec_without_returning(&db)
     .await?;
     let mut params = json!({
         "workspaceId": input.workspace_id,
@@ -729,13 +883,14 @@ pub(crate) async fn start_run(
     }
     match runs.create(&params).await {
         Ok(instance) => {
-            if let Err(error) = sqlx::query(
-                "update workflow_executions set cf_workflow_instance_id = $2 where id = $1",
-            )
-            .bind(&execution_id)
-            .bind(&instance)
-            .execute(db)
-            .await
+            if let Err(error) = runs_table::Entity::update_many()
+                .col_expr(
+                    runs_table::Column::CfWorkflowInstanceId,
+                    Expr::value(&instance),
+                )
+                .filter(runs_table::Column::Id.eq(&execution_id))
+                .exec(&db)
+                .await
             {
                 tracing::warn!(%error, "[workflow-executions] could not link the workflow instance");
             }
@@ -745,16 +900,20 @@ pub(crate) async fn start_run(
             })
         }
         Err(message) => {
-            let failed = now();
-            if let Err(error) = sqlx::query(
-                "update workflow_executions set status = 'failed', completed_at = $2::timestamp,
-                    error = $3, updated_at = $2::timestamp where id = $1",
-            )
-            .bind(&execution_id)
-            .bind(&failed)
-            .bind(json!({ "message": format!("Could not start the run: {message}") }))
-            .execute(db)
-            .await
+            let failed = utc_now();
+            if let Err(error) = runs_table::Entity::update_many()
+                .col_expr(runs_table::Column::Status, Expr::value("failed"))
+                .col_expr(runs_table::Column::CompletedAt, Expr::value(failed))
+                .col_expr(
+                    runs_table::Column::Error,
+                    Expr::value(
+                        json!({ "message": format!("Could not start the run: {message}") }),
+                    ),
+                )
+                .col_expr(runs_table::Column::UpdatedAt, Expr::value(failed))
+                .filter(runs_table::Column::Id.eq(&execution_id))
+                .exec(&db)
+                .await
             {
                 tracing::error!(%error, "[workflow-executions] could not mark the unstarted run failed");
             }
@@ -968,6 +1127,9 @@ const COLUMNS: &[(&str, &str)] = &[
     ("retryCount", "retry_count"),
 ];
 
+/// `workflow_executions` written from a passthrough body.
+const RUNS: JsonTable = JsonTable::of::<runs_table::Entity>();
+
 /// Timestamp columns: Drizzle refuses anything but a `Date` there.
 const DATE_COLUMNS: &[&str] = &["startedAt", "completedAt"];
 
@@ -991,7 +1153,7 @@ fn execution_body(
 
 /// The body's column values as a `jsonb_populate_record` input, and the
 /// columns set (`undefined` values left out).
-fn column_values(data: &Map<String, Value>) -> Result<(Vec<&'static str>, Value), ()> {
+fn column_values(data: &Map<String, Value>) -> Result<(Vec<&'static str>, Map<String, Value>), ()> {
     let mut columns = Vec::new();
     let mut record = Map::new();
     for (key, value) in data {
@@ -1003,7 +1165,7 @@ fn column_values(data: &Map<String, Value>) -> Result<(Vec<&'static str>, Value)
             record.insert((*column).to_owned(), value.clone());
         }
     }
-    Ok((columns, Value::Object(record)))
+    Ok((columns, record))
 }
 
 async fn create_route(
@@ -1019,26 +1181,19 @@ async fn create_route(
         Err(refusal) => return refusal.respond("Failed to create workflow execution"),
     };
     let id = generate_id("wfex");
-    let Ok((mut columns, mut record)) = column_values(&data) else {
+    let Ok((columns, mut record)) = column_values(&data) else {
         return internal(
             &"value.toISOString is not a function",
             "Failed to create workflow execution",
         );
     };
     if !columns.contains(&"id") {
-        columns.push("id");
-        record["id"] = json!(id);
+        record.insert("id".to_owned(), json!(id));
     }
     let stamp = now();
-    let list = columns.join(", ");
-    let inserted = sqlx::query(sqlx::AssertSqlSafe(format!(
-        "insert into workflow_executions ({list}, created_at, updated_at)
-         select {list}, $2::timestamp, $2::timestamp from jsonb_populate_record(null::workflow_executions, $1)"
-    )))
-    .bind(&record)
-    .bind(&stamp)
-    .execute(&caller.db)
-    .await;
+    record.insert("created_at".to_owned(), json!(stamp));
+    record.insert("updated_at".to_owned(), json!(stamp));
+    let inserted = RUNS.insert(&orm(&caller.db), record).await;
     if let Err(error) = inserted {
         return internal(&error, "Failed to create workflow execution");
     }
@@ -1072,27 +1227,15 @@ async fn update_route(
         let Some(existing) = get_execution(&caller.db, &id).await? else {
             return Err(Refusal::not_found("Workflow execution", &id));
         };
-        let Ok((columns, record)) = column_values(&data) else {
+        let Ok((_, record)) = column_values(&data) else {
             return Err(Refusal::Response(Box::new(internal(
                 &"value.toISOString is not a function",
                 "Failed to update workflow execution",
             ))));
         };
-        let assignments: Vec<String> = columns.iter().map(|c| format!("{c} = r.{c}")).collect();
-        let set = if assignments.is_empty() {
-            String::new()
-        } else {
-            format!(", {}", assignments.join(", "))
-        };
-        sqlx::query(sqlx::AssertSqlSafe(format!(
-            "update workflow_executions t set updated_at = $3::timestamp{set}
-             from jsonb_populate_record(null::workflow_executions, $2) r where t.id = $1"
-        )))
-        .bind(&id)
-        .bind(&record)
-        .bind(now())
-        .execute(&caller.db)
-        .await?;
+        let mut record = record;
+        record.insert("updated_at".to_owned(), json!(now()));
+        RUNS.update(&orm(&caller.db), &id, record, false).await?;
         let status = data
             .get("status")
             .filter(|s| !s.is_null())
@@ -1120,9 +1263,8 @@ async fn delete_route(
         let Some(existing) = get_execution(&caller.db, &id).await? else {
             return Err(Refusal::not_found("Workflow execution", &id));
         };
-        sqlx::query("delete from workflow_executions where id = $1")
-            .bind(&id)
-            .execute(&caller.db)
+        runs_table::Entity::delete_by_id(id.as_str())
+            .exec(&orm(&caller.db))
             .await?;
         caller.publish(
             &state,

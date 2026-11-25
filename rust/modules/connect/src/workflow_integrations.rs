@@ -14,25 +14,47 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, patch, post};
 use http::HeaderMap;
+use sea_orm::ActiveValue::Set;
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ColumnTrait, Condition, DbErr, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder,
+    QuerySelect,
+};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events::{
     WORKFLOW_INTEGRATION_CREATED, WORKFLOW_INTEGRATION_DELETED, WORKFLOW_INTEGRATION_UPDATED,
 };
 use weldsuite_catalogs::permission_keys as perm;
-use weldsuite_db::{Keyring, PgPool, js_row};
+use weldsuite_db::{Keyring, PgPool, orm, utc_now};
 use weldsuite_kit::validation::{Field, Issues, Presence, Text};
 use weldsuite_kit::{ApiError, Created, Data, List, NoContent, Pagination, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 use weldsuite_ports::{DynCache, HttpRequest, OutboundHttp};
+use weldsuite_schema::tenant::workflow_integrations::{self, Column};
 
 use crate::catalog::{integration, integrations};
 use crate::crypto::{maybe_decrypt, seal_if_keyed};
 use crate::github_app::{AppCredentials, installation_token, list_available_repos};
-use crate::js::{next_cursor, page, page_limit, query_truthy, total};
-use crate::{Caller, ConnectState, Refusal, internal, now, validate};
+use crate::js::{next_cursor, page, page_limit, query_truthy};
+use crate::{Caller, ConnectState, Refusal, internal, validate};
 
 const GOOGLE_TYPES: &[&str] = &["google_sheets", "gmail", "google_calendar"];
 const STATE_TTL: Duration = Duration::from_secs(600);
+
+/// ADR OPS-026: an integration whose company is outside the EU is created,
+/// connected, tested and called only once the workspace switched it on
+/// (enforced on the EU edition; elsewhere this never reads the database).
+/// EU and unknown types pass. Removing one stays open.
+async fn outside_eu(db: &PgPool, kind: &str) -> Result<(), Refusal> {
+    weldsuite_outside_eu::require_integration(db, kind)
+        .await
+        .map_err(|error| Refusal::from(error.to_api_error()))
+}
+
+/// [`outside_eu`] for a stored integration's `type`.
+async fn outside_eu_row(db: &PgPool, row: &Value) -> Result<(), Refusal> {
+    outside_eu(db, row["type"].as_str().unwrap_or_default()).await
+}
 
 pub(crate) fn routes<Q: PermissionQueries + 'static>(
     gate: &Arc<PermissionGate<Q>>,
@@ -137,26 +159,19 @@ fn strip(mut row: Value) -> Value {
     row
 }
 
-async fn integration_row(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from workflow_integrations t where t.id = $1 and t.deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(integration_js_row))
+/// A `workflow_integrations` row as Drizzle reads it (`is_oauth` is the
+/// property `isOAuth`): the entity's JSON.
+fn integration_json(model: workflow_integrations::Model) -> Result<Value, DbErr> {
+    serde_json::to_value(model).map_err(|error| DbErr::Json(error.to_string()))
 }
 
-/// A `workflow_integrations` row as Drizzle reads it: `is_oauth` is the
-/// property `isOAuth`, not the camel case of its column.
-fn integration_js_row(row: Value) -> Value {
-    let mut row = js_row(row);
-    if let Value::Object(map) = &mut row
-        && let Some(value) = map.remove("isOauth")
-    {
-        map.insert("isOAuth".into(), value);
-    }
-    row
+async fn integration_row(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
+    workflow_integrations::Entity::find_by_id(id.to_owned())
+        .filter(Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?
+        .map(integration_json)
+        .transpose()
 }
 
 async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
@@ -167,41 +182,44 @@ async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
     let status = query_truthy(query, "status");
     let kind = query_truthy(query, "type");
     let cursor = query_truthy(query, "cursor");
-    const FILTER: &str = "t.deleted_at is null and ($1::text is null or t.name like $1)
-        and ($2::text is null or t.category = $2) and ($3::text is null or t.status = $3)
-        and ($4::text is null or t.type = $4)";
-    let rows: Result<Vec<Value>, sqlx::Error> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-        "select to_jsonb(t) from workflow_integrations t where {FILTER} and ($5::text is null or t.id < $5)
-         order by t.updated_at desc, t.id desc limit $6"
-    )))
-    .bind(&search)
-    .bind(&category)
-    .bind(&status)
-    .bind(&kind)
-    .bind(&cursor)
-    .bind(limit + 1)
-    .fetch_all(&caller.db)
-    .await;
-    let count: Result<i64, sqlx::Error> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-        "select count(*) from workflow_integrations t where {FILTER}"
-    )))
-    .bind(&search)
-    .bind(&category)
-    .bind(&status)
-    .bind(&kind)
-    .fetch_one(&caller.db)
-    .await;
+    let mut filter = Condition::all().add(Column::DeletedAt.is_null());
+    if let Some(search) = &search {
+        filter = filter.add(Column::Name.like(search));
+    }
+    for (value, column) in [
+        (&category, Column::Category),
+        (&status, Column::Status),
+        (&kind, Column::Type),
+    ] {
+        if let Some(value) = value {
+            filter = filter.add(column.eq(value));
+        }
+    }
+    let db = orm(&caller.db);
+    let mut rows = workflow_integrations::Entity::find().filter(filter.clone());
+    if let Some(cursor) = &cursor {
+        rows = rows.filter(Column::Id.lt(cursor));
+    }
+    let rows = rows
+        .order_by_desc(Column::UpdatedAt)
+        .order_by_desc(Column::Id)
+        .limit(u64::try_from(limit + 1).unwrap_or(0))
+        .all(&db)
+        .await
+        .and_then(|rows| {
+            rows.into_iter()
+                .map(integration_json)
+                .collect::<Result<Vec<_>, _>>()
+        });
+    let count = workflow_integrations::Entity::find()
+        .filter(filter)
+        .count(&db)
+        .await;
     match (rows, count) {
         (Ok(rows), Ok(count)) => {
-            let (data, has_more) = page(
-                rows.into_iter()
-                    .map(integration_js_row)
-                    .map(strip)
-                    .collect(),
-                limit,
-            );
+            let (data, has_more) = page(rows.into_iter().map(strip).collect(), limit);
             let cursor = next_cursor(&data, has_more, "id");
-            List::new(data, Pagination::new(total(count), has_more, cursor)).into_response()
+            List::new(data, Pagination::new(count, has_more, cursor)).into_response()
         }
         (Err(error), _) | (_, Err(error)) => {
             internal(&error, "Failed to list workflow integrations")
@@ -210,10 +228,13 @@ async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
 }
 
 async fn categories(caller: Caller) -> Response {
-    let rows: Result<Vec<Option<String>>, sqlx::Error> =
-        sqlx::query_scalar("select category from workflow_integrations where deleted_at is null")
-            .fetch_all(&caller.db)
-            .await;
+    let rows: Result<Vec<Option<String>>, DbErr> = workflow_integrations::Entity::find()
+        .select_only()
+        .column(Column::Category)
+        .filter(Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&orm(&caller.db))
+        .await;
     let rows = match rows {
         Ok(rows) => rows,
         Err(error) => return internal(&error, "Failed to fetch integration categories"),
@@ -310,33 +331,35 @@ async fn create(
         Ok(data) => data,
         Err(refusal) => return refusal.respond("Failed to create integration"),
     };
+    let kind = data
+        .kind
+        .as_set()
+        .cloned()
+        .unwrap_or_else(|| "custom".into());
+    if let Err(refusal) = outside_eu(&caller.db, &kind).await {
+        return refusal.respond("Failed to create integration");
+    }
     let result = async {
         let id = generate_id("int");
-        let stamp = now();
+        let stamp = utc_now();
         let name = data.name.as_set().cloned().unwrap_or_default();
-        let kind = data
-            .kind
-            .as_set()
-            .cloned()
-            .unwrap_or_else(|| "custom".into());
-        sqlx::query(
-            "insert into workflow_integrations
-                (id, name, description, type, category, icon, credentials, settings, is_oauth,
-                 oauth_provider, status, created_at, updated_at)
-             values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'disconnected', $11::timestamp, $11::timestamp)",
-        )
-        .bind(&id)
-        .bind(&name)
-        .bind(data.description.as_set())
-        .bind(&kind)
-        .bind(data.category.as_set())
-        .bind(data.icon.as_set())
-        .bind(data.credentials.as_set())
-        .bind(data.settings.as_set())
-        .bind(data.is_oauth.as_set().copied().unwrap_or(false))
-        .bind(data.oauth_provider.as_set())
-        .bind(&stamp)
-        .execute(&caller.db)
+        workflow_integrations::Entity::insert(workflow_integrations::ActiveModel {
+            id: Set(id.clone()),
+            name: Set(name.clone()),
+            description: Set(data.description.as_set().cloned()),
+            type_: Set(kind.clone()),
+            category: Set(data.category.as_set().cloned()),
+            icon: Set(data.icon.as_set().cloned()),
+            credentials: Set(data.credentials.as_set().cloned()),
+            settings: Set(data.settings.as_set().cloned()),
+            is_oauth: Set(data.is_oauth.as_set().copied().unwrap_or(false)),
+            oauth_provider: Set(data.oauth_provider.as_set().cloned()),
+            status: Set("disconnected".to_owned()),
+            created_at: Set(stamp),
+            updated_at: Set(stamp),
+            ..Default::default()
+        })
+        .exec_without_returning(&orm(&caller.db))
         .await?;
         let row = integration_row(&caller.db, &id)
             .await?
@@ -346,7 +369,7 @@ async fn create(
             event["category"] = json!(category);
         }
         caller.publish(&state, WORKFLOW_INTEGRATION_CREATED, &id, &event);
-        Ok::<_, sqlx::Error>(Created(strip(row)).into_response())
+        Ok::<_, DbErr>(Created(strip(row)).into_response())
     };
     result
         .await
@@ -370,41 +393,42 @@ async fn update_route(
         if integration_row(&caller.db, &id).await?.is_none() {
             return Err(Refusal::not_found("Integration", &id));
         }
-        sqlx::query(
-            "update workflow_integrations set updated_at = $2::timestamp,
-                name = case when $3 then $4 else name end,
-                description = case when $5 then $6 else description end,
-                category = case when $7 then $8 else category end,
-                icon = case when $9 then $10 else icon end,
-                credentials = case when $11 then $12 else credentials end,
-                settings = case when $13 then $14 else settings end,
-                type = case when $15 then $16 else type end,
-                is_oauth = case when $17 then $18 else is_oauth end,
-                oauth_provider = case when $19 then $20 else oauth_provider end
-             where id = $1",
-        )
-        .bind(&id)
-        .bind(now())
-        .bind(!data.name.is_absent())
-        .bind(data.name.as_set())
-        .bind(!data.description.is_absent())
-        .bind(data.description.as_set())
-        .bind(!data.category.is_absent())
-        .bind(data.category.as_set())
-        .bind(!data.icon.is_absent())
-        .bind(data.icon.as_set())
-        .bind(!data.credentials.is_absent())
-        .bind(data.credentials.as_set())
-        .bind(!data.settings.is_absent())
-        .bind(data.settings.as_set())
-        .bind(!data.kind.is_absent())
-        .bind(data.kind.as_set())
-        .bind(!data.is_oauth.is_absent())
-        .bind(data.is_oauth.as_set().copied())
-        .bind(!data.oauth_provider.is_absent())
-        .bind(data.oauth_provider.as_set())
-        .execute(&caller.db)
-        .await?;
+        if let Some(kind) = data.kind.as_set() {
+            outside_eu(&caller.db, kind).await?;
+        }
+        // `updated_at`, and only the fields that were sent (`null` clears).
+        let mut update = workflow_integrations::Entity::update_many()
+            .col_expr(Column::UpdatedAt, Expr::value(utc_now()));
+        for (field, column) in [
+            (&data.name, Column::Name),
+            (&data.description, Column::Description),
+            (&data.category, Column::Category),
+            (&data.icon, Column::Icon),
+            (&data.kind, Column::Type),
+            (&data.oauth_provider, Column::OauthProvider),
+        ] {
+            if !field.is_absent() {
+                update = update.col_expr(column, Expr::value(field.as_set().cloned()));
+            }
+        }
+        for (field, column) in [
+            (&data.credentials, Column::Credentials),
+            (&data.settings, Column::Settings),
+        ] {
+            if !field.is_absent() {
+                update = update.col_expr(column, Expr::value(field.as_set().cloned()));
+            }
+        }
+        if !data.is_oauth.is_absent() {
+            update = update.col_expr(
+                Column::IsOauth,
+                Expr::value(data.is_oauth.as_set().copied()),
+            );
+        }
+        update
+            .filter(Column::Id.eq(&id))
+            .exec(&orm(&caller.db))
+            .await?;
         let row = integration_row(&caller.db, &id)
             .await?
             .unwrap_or(Value::Null);
@@ -435,21 +459,27 @@ async fn connect(
         Err(refusal) => return refusal.respond("Failed to connect integration"),
     };
     let result = async {
-        if integration_row(&caller.db, &id).await?.is_none() {
+        let Some(row) = integration_row(&caller.db, &id).await? else {
             return Err(Refusal::not_found("Integration", &id));
+        };
+        outside_eu_row(&caller.db, &row).await?;
+        let stamp = utc_now();
+        let mut update = workflow_integrations::Entity::update_many()
+            .col_expr(Column::Status, Expr::value("connected"))
+            .col_expr(Column::ConnectedAt, Expr::value(Some(stamp)))
+            .col_expr(
+                Column::ConnectedBy,
+                Expr::value(Some(caller.user_id.clone())),
+            )
+            .col_expr(Column::UpdatedAt, Expr::value(stamp));
+        // `credentials`, when the body sent some.
+        if let Some(credentials) = &credentials {
+            update = update.col_expr(Column::Credentials, Expr::value(credentials.clone()));
         }
-        sqlx::query(
-            "update workflow_integrations set status = 'connected', connected_at = $2::timestamp,
-                connected_by = $3, updated_at = $2::timestamp,
-                credentials = case when $4::jsonb is not null then $4 else credentials end
-             where id = $1",
-        )
-        .bind(&id)
-        .bind(now())
-        .bind(&caller.user_id)
-        .bind(&credentials)
-        .execute(&caller.db)
-        .await?;
+        update
+            .filter(Column::Id.eq(&id))
+            .exec(&orm(&caller.db))
+            .await?;
         caller.publish(
             &state,
             WORKFLOW_INTEGRATION_UPDATED,
@@ -465,9 +495,10 @@ async fn connect(
 
 /// `c.env.WORKSPACE_CACHE`, which the OAuth flows require.
 fn kv(caller: &Caller, state: &ConnectState) -> Result<Arc<dyn DynCache>, Refusal> {
-    caller.overrides.kv(state).ok_or_else(|| {
-        Refusal::Database(sqlx::Error::Protocol("WORKSPACE_CACHE is not bound".into()))
-    })
+    caller
+        .overrides
+        .kv(state)
+        .ok_or_else(|| Refusal::from(sqlx::Error::Protocol("WORKSPACE_CACHE is not bound".into())))
 }
 
 async fn disconnect(
@@ -479,14 +510,15 @@ async fn disconnect(
         let Some(existing) = integration_row(&caller.db, &id).await? else {
             return Err(Refusal::not_found("Integration", &id));
         };
-        sqlx::query("update workflow_integrations set status = 'disconnected', updated_at = $2::timestamp where id = $1")
-            .bind(&id)
-            .bind(now())
-            .execute(&caller.db)
+        workflow_integrations::Entity::update_many()
+            .col_expr(Column::Status, Expr::value("disconnected"))
+            .col_expr(Column::UpdatedAt, Expr::value(utc_now()))
+            .filter(Column::Id.eq(&id))
+            .exec(&orm(&caller.db))
             .await?;
         let cache = kv(&caller, &state)?;
         let gone = |error: weldsuite_ports::PortError| {
-            Refusal::Database(sqlx::Error::Protocol(error.to_string()))
+            Refusal::from(sqlx::Error::Protocol(error.to_string()))
         };
         cache
             .delete_boxed(&format!("intconn:{id}"))
@@ -584,6 +616,7 @@ async fn test(
         let Some(row) = integration_row(&caller.db, &id).await? else {
             return Err(Refusal::not_found("Integration", &id));
         };
+        outside_eu_row(&caller.db, &row).await?;
         let http = caller.http(&state);
         let kind = row["type"].as_str().unwrap_or_default();
         if kind == "github" {
@@ -707,6 +740,7 @@ async fn slack_channels(
         if row["type"].as_str() != Some("slack") {
             return Err(Refusal::bad_request("Not a Slack integration"));
         }
+        outside_eu_row(&caller.db, &row).await?;
         let Some(token) = row["oauthTokens"]["accessToken"]
             .as_str()
             .filter(|t| !t.is_empty())
@@ -739,6 +773,7 @@ async fn github_repos(
         if row["type"].as_str() != Some("github") {
             return Err(Refusal::bad_request("Not a GitHub integration"));
         }
+        outside_eu_row(&caller.db, &row).await?;
         let Some(creds) = caller.github_app(&state) else {
             return Err(ApiError::internal()
                 .with_message("GitHub App is not configured")
@@ -779,6 +814,7 @@ async fn google_token(
             "Not a {expected} integration"
         )));
     }
+    outside_eu_row(&caller.db, &row).await?;
     let Some(token) = row["oauthTokens"]["accessToken"]
         .as_str()
         .filter(|t| !t.is_empty())
@@ -968,11 +1004,12 @@ async fn delete(
         if integration_row(&caller.db, &id).await?.is_none() {
             return Err(Refusal::not_found("Integration", &id));
         }
-        let stamp = now();
-        sqlx::query("update workflow_integrations set deleted_at = $2::timestamp, updated_at = $2::timestamp where id = $1")
-            .bind(&id)
-            .bind(&stamp)
-            .execute(&caller.db)
+        let stamp = utc_now();
+        workflow_integrations::Entity::update_many()
+            .col_expr(Column::DeletedAt, Expr::value(Some(stamp)))
+            .col_expr(Column::UpdatedAt, Expr::value(stamp))
+            .filter(Column::Id.eq(&id))
+            .exec(&orm(&caller.db))
             .await?;
         caller.publish(
             &state,
@@ -1000,6 +1037,11 @@ fn redirect_uri(caller: &Caller, state: &ConnectState) -> String {
         "{}/weldconnect/integrations/callback",
         base.strip_suffix('/').unwrap_or(&base)
     )
+}
+
+/// A text field of an integration's catalog definition (`def.label`, …).
+fn def_text(def: &Value, key: &str) -> Option<String> {
+    def[key].as_str().map(str::to_owned)
 }
 
 fn env_named(caller: &Caller, state: &ConnectState, def: &Value, field: &str) -> Option<String> {
@@ -1056,6 +1098,9 @@ async fn authorize(
     if def["auth"]["kind"].as_str() != Some("oauth2") {
         return ApiError::bad_request(format!("Integration \"{provider}\" does not use OAuth"))
             .into_response();
+    }
+    if let Err(refusal) = outside_eu(&caller.db, &provider).await {
+        return refusal.respond("Failed to authorize");
     }
     let Some(client_id) = env_named(&caller, &state, def, "clientIdEnv") else {
         return ApiError::internal()
@@ -1117,7 +1162,7 @@ async fn put_mapping(cache: &Arc<dyn DynCache>, key: &str, value: &str) -> Resul
     cache
         .put_boxed(key, value, None)
         .await
-        .map_err(|error| Refusal::Database(sqlx::Error::Protocol(error.to_string())))
+        .map_err(|error| Refusal::from(sqlx::Error::Protocol(error.to_string())))
 }
 
 async fn callback(
@@ -1144,6 +1189,7 @@ async fn callback(
             Some(def) if def["auth"]["kind"].as_str() == Some("oauth2") => def,
             _ => return Err(Refusal::not_found("Integration", &provider)),
         };
+        outside_eu(&caller.db, &provider).await?;
         let cache = kv(&caller, &state)?;
         let key = format!("wf_oauth_state:{oauth_state}");
         let stored: Value = cache
@@ -1182,9 +1228,9 @@ async fn callback(
             .http(&state)
             .send(request)
             .await
-            .map_err(|error| Refusal::Database(sqlx::Error::Protocol(error.to_string())))?;
+            .map_err(|error| Refusal::from(sqlx::Error::Protocol(error.to_string())))?;
         let token =
-            json_of(&response).map_err(|error| Refusal::Database(sqlx::Error::Protocol(error)))?;
+            json_of(&response).map_err(|error| Refusal::from(sqlx::Error::Protocol(error)))?;
         let token_error = token.get("error").filter(|e| crate::js::truthy(e));
         if token["ok"] == json!(false) || token_error.is_some() || !response.ok() {
             let reason = token_error.map_or_else(
@@ -1201,7 +1247,7 @@ async fn callback(
         let keyring = caller.keyring(&state);
         let seal = |value: &str| {
             seal_if_keyed(value, &keyring)
-                .map_err(|error| Refusal::Database(sqlx::Error::Protocol(error)))
+                .map_err(|error| Refusal::from(sqlx::Error::Protocol(error)))
         };
         let mut oauth_tokens = Map::new();
         oauth_tokens.insert("accessToken".into(), json!(seal(access_token)?));
@@ -1235,58 +1281,66 @@ async fn callback(
             .filter(|i| !i.is_empty())
             .map(str::to_owned);
         if integration_id.is_none() {
-            integration_id = sqlx::query_scalar(
-                "select id from workflow_integrations where type = $1 and deleted_at is null limit 1",
-            )
-            .bind(def["type"].as_str())
-            .fetch_optional(&caller.db)
-            .await?;
+            integration_id = workflow_integrations::Entity::find()
+                .select_only()
+                .column(Column::Id)
+                .filter(Column::Type.eq(def_text(def, "type")))
+                .filter(Column::DeletedAt.is_null())
+                .into_tuple()
+                .one(&orm(&caller.db))
+                .await?;
         }
-        let stamp = now();
+        let stamp = utc_now();
         let scopes = def["auth"]["scopes"].clone();
+        let oauth_tokens = Value::Object(oauth_tokens);
         let id = if let Some(id) = integration_id {
-            sqlx::query(
-                "update workflow_integrations set name = $2, type = $3, category = $4, icon = $5,
-                    status = 'connected', is_oauth = true, oauth_provider = $6, oauth_scopes = $7,
-                    oauth_tokens = $8, settings = case when $9::jsonb is not null then $9 else settings end,
-                    connected_at = $10::timestamp, connected_by = $11, updated_at = $10::timestamp
-                 where id = $1",
-            )
-            .bind(&id)
-            .bind(def["label"].as_str())
-            .bind(def["type"].as_str())
-            .bind(def["category"].as_str())
-            .bind(def["icon"].as_str())
-            .bind(&provider)
-            .bind(&scopes)
-            .bind(Value::Object(oauth_tokens))
-            .bind(&settings)
-            .bind(&stamp)
-            .bind(&caller.user_id)
-            .execute(&caller.db)
-            .await?;
+            let mut update = workflow_integrations::Entity::update_many()
+                .col_expr(Column::Name, Expr::value(def_text(def, "label")))
+                .col_expr(Column::Type, Expr::value(def_text(def, "type")))
+                .col_expr(Column::Category, Expr::value(def_text(def, "category")))
+                .col_expr(Column::Icon, Expr::value(def_text(def, "icon")))
+                .col_expr(Column::Status, Expr::value("connected"))
+                .col_expr(Column::IsOauth, Expr::value(true))
+                .col_expr(Column::OauthProvider, Expr::value(provider.clone()))
+                .col_expr(Column::OauthScopes, Expr::value(scopes))
+                .col_expr(Column::OauthTokens, Expr::value(oauth_tokens));
+            // `settings`, when the provider named a team or bot.
+            if let Some(settings) = &settings {
+                update = update.col_expr(Column::Settings, Expr::value(settings.clone()));
+            }
+            update
+                .col_expr(Column::ConnectedAt, Expr::value(Some(stamp)))
+                .col_expr(
+                    Column::ConnectedBy,
+                    Expr::value(Some(caller.user_id.clone())),
+                )
+                .col_expr(Column::UpdatedAt, Expr::value(stamp))
+                .filter(Column::Id.eq(&id))
+                .exec(&orm(&caller.db))
+                .await?;
             id
         } else {
             let id = generate_id("int");
-            sqlx::query(
-                "insert into workflow_integrations
-                    (id, created_at, name, type, category, icon, status, is_oauth, oauth_provider, oauth_scopes,
-                     oauth_tokens, settings, connected_at, connected_by, updated_at)
-                 values ($1, $2::timestamp, $3, $4, $5, $6, 'connected', true, $7, $8, $9, $10, $2::timestamp, $11,
-                         $2::timestamp)",
-            )
-            .bind(&id)
-            .bind(&stamp)
-            .bind(def["label"].as_str())
-            .bind(def["type"].as_str())
-            .bind(def["category"].as_str())
-            .bind(def["icon"].as_str())
-            .bind(&provider)
-            .bind(&scopes)
-            .bind(Value::Object(oauth_tokens))
-            .bind(&settings)
-            .bind(&caller.user_id)
-            .execute(&caller.db)
+            workflow_integrations::Entity::insert(workflow_integrations::ActiveModel {
+                id: Set(id.clone()),
+                created_at: Set(stamp),
+                // The catalog names every integration's label and type.
+                name: Set(def_text(def, "label").unwrap_or_default()),
+                type_: Set(def_text(def, "type").unwrap_or_default()),
+                category: Set(def_text(def, "category")),
+                icon: Set(def_text(def, "icon")),
+                status: Set("connected".to_owned()),
+                is_oauth: Set(true),
+                oauth_provider: Set(Some(provider.clone())),
+                oauth_scopes: Set(Some(scopes)),
+                oauth_tokens: Set(Some(oauth_tokens)),
+                settings: Set(settings),
+                connected_at: Set(Some(stamp)),
+                connected_by: Set(Some(caller.user_id.clone())),
+                updated_at: Set(stamp),
+                ..Default::default()
+            })
+            .exec_without_returning(&orm(&caller.db))
             .await?;
             id
         };
@@ -1351,29 +1405,32 @@ async fn apikey(
             Some(def) if def["auth"]["kind"].as_str() == Some("api_key") => def,
             _ => return Err(Refusal::not_found("Integration", &provider)),
         };
+        outside_eu(&caller.db, &provider).await?;
         let keyring = caller.keyring(&state);
         let mut sealed = Map::new();
         for (key, value) in &credentials {
             let value = seal_if_keyed(value, &keyring)
-                .map_err(|error| Refusal::Database(sqlx::Error::Protocol(error)))?;
+                .map_err(|error| Refusal::from(sqlx::Error::Protocol(error)))?;
             sealed.insert(key.clone(), json!(value));
         }
         let id = generate_id("int");
-        let stamp = now();
-        sqlx::query(
-            "insert into workflow_integrations
-                (id, created_at, updated_at, name, type, category, icon, status, credentials, connected_at, connected_by)
-             values ($1, $2::timestamp, $2::timestamp, $3, $4, $5, $6, 'connected', $7, $2::timestamp, $8)",
-        )
-        .bind(&id)
-        .bind(&stamp)
-        .bind(def["label"].as_str())
-        .bind(def["type"].as_str())
-        .bind(def["category"].as_str())
-        .bind(def["icon"].as_str())
-        .bind(Value::Object(sealed))
-        .bind(&caller.user_id)
-        .execute(&caller.db)
+        let stamp = utc_now();
+        workflow_integrations::Entity::insert(workflow_integrations::ActiveModel {
+            id: Set(id.clone()),
+            created_at: Set(stamp),
+            updated_at: Set(stamp),
+            // The catalog names every integration's label and type.
+            name: Set(def_text(def, "label").unwrap_or_default()),
+            type_: Set(def_text(def, "type").unwrap_or_default()),
+            category: Set(def_text(def, "category")),
+            icon: Set(def_text(def, "icon")),
+            status: Set("connected".to_owned()),
+            credentials: Set(Some(Value::Object(sealed))),
+            connected_at: Set(Some(stamp)),
+            connected_by: Set(Some(caller.user_id.clone())),
+            ..Default::default()
+        })
+        .exec_without_returning(&orm(&caller.db))
         .await?;
         let cache = kv(&caller, &state)?;
         put_mapping(
@@ -1422,6 +1479,9 @@ async fn link(
     let Some(org_id) = caller.org_id.clone() else {
         return ApiError::bad_request("No active workspace").into_response();
     };
+    if let Err(refusal) = outside_eu(&caller.db, &provider).await {
+        return refusal.respond("Failed to link");
+    }
     let result = async {
         // The workspace's GitHub App installation, a WeldMerge connection
         // (`getConnectionByWorkspace`: the newest active one first).
@@ -1438,36 +1498,47 @@ async fn link(
             "ownerType": connection["ownerType"],
             "appSlug": connection["appSlug"],
         });
-        let stamp = now();
-        let existing: Option<String> =
-            sqlx::query_scalar("select id from workflow_integrations where type = 'github' and deleted_at is null limit 1")
-                .fetch_optional(&caller.db)
-                .await?;
-        let id = if let Some(id) = existing {
-            sqlx::query(
-                "update workflow_integrations set status = 'connected', settings = $2, connected_at = $3::timestamp,
-                    connected_by = $4, updated_at = $3::timestamp where id = $1",
-            )
-            .bind(&id)
-            .bind(&settings)
-            .bind(&stamp)
-            .bind(&caller.user_id)
-            .execute(&caller.db)
+        let stamp = utc_now();
+        let db = orm(&caller.db);
+        let existing: Option<String> = workflow_integrations::Entity::find()
+            .select_only()
+            .column(Column::Id)
+            .filter(Column::Type.eq("github"))
+            .filter(Column::DeletedAt.is_null())
+            .into_tuple()
+            .one(&db)
             .await?;
+        let id = if let Some(id) = existing {
+            workflow_integrations::Entity::update_many()
+                .col_expr(Column::Status, Expr::value("connected"))
+                .col_expr(Column::Settings, Expr::value(settings))
+                .col_expr(Column::ConnectedAt, Expr::value(Some(stamp)))
+                .col_expr(
+                    Column::ConnectedBy,
+                    Expr::value(Some(caller.user_id.clone())),
+                )
+                .col_expr(Column::UpdatedAt, Expr::value(stamp))
+                .filter(Column::Id.eq(&id))
+                .exec(&db)
+                .await?;
             id
         } else {
             let id = generate_id("int");
-            sqlx::query(
-                "insert into workflow_integrations
-                    (id, created_at, updated_at, name, type, category, icon, status, settings, connected_at, connected_by)
-                 values ($1, $2::timestamp, $2::timestamp, 'GitHub', 'github', 'developer', 'github', 'connected', $3,
-                         $2::timestamp, $4)",
-            )
-            .bind(&id)
-            .bind(&stamp)
-            .bind(&settings)
-            .bind(&caller.user_id)
-            .execute(&caller.db)
+            workflow_integrations::Entity::insert(workflow_integrations::ActiveModel {
+                id: Set(id.clone()),
+                created_at: Set(stamp),
+                updated_at: Set(stamp),
+                name: Set("GitHub".to_owned()),
+                type_: Set("github".to_owned()),
+                category: Set(Some("developer".to_owned())),
+                icon: Set(Some("github".to_owned())),
+                status: Set("connected".to_owned()),
+                settings: Set(Some(settings)),
+                connected_at: Set(Some(stamp)),
+                connected_by: Set(Some(caller.user_id.clone())),
+                ..Default::default()
+            })
+            .exec_without_returning(&db)
             .await?;
             id
         };

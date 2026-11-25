@@ -43,7 +43,8 @@ export default function WeldHrLayout({ children }: Readonly<{ children: React.Re
       <EntityPermissionScope entityId={entityId}>
         <div className="flex-1 flex flex-col min-h-0 h-full overflow-hidden">
           <AppHeader />
-          <ModuleContent>{children}</ModuleContent>
+          {/* The content scrolls (as WeldBooks' and WeldDesk's): a list page without tabs has no scroll area of its own. */}
+          <ModuleContent className="overflow-y-auto">{children}</ModuleContent>
         </div>
       </EntityPermissionScope>
     </BreadcrumbProvider>

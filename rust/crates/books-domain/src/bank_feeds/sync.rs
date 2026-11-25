@@ -9,11 +9,19 @@
 //! overlapping.
 
 use std::collections::HashMap;
-use std::sync::OnceLock;
+use std::str::FromStr;
 
+use sea_orm::ActiveValue::Set;
+use sea_orm::prelude::BigDecimal;
+use sea_orm::sea_query::{Expr, Func, OnConflict};
+use sea_orm::{ColumnTrait, Condition, DbErr, EntityTrait, QueryFilter};
 use serde_json::{Map, Value, json};
-use sqlx::PgPool;
+use time::{Date, PrimitiveDateTime};
+use weldsuite_db::{OrmConn, PgPool, orm};
 use weldsuite_kit::generate_id;
+use weldsuite_schema::tenant::{
+    bank_accounts, bank_connections, bank_feed_pending_transactions as pending, bank_transactions,
+};
 
 use super::connections::{load_connection, stored_feed_accounts, stored_warnings, to_stored};
 use super::normalize::{
@@ -22,11 +30,10 @@ use super::normalize::{
 };
 use super::{
     FeedContext, FeedError, FeedTransaction, INACTIVE_STATUSES, MAX_WARNINGS, Provider,
-    SYNC_LOCK_MINUTES, ServiceError, StoredConnection, SyncResult,
+    SYNC_LOCK_MINUTES, ServiceError, StoredConnection, SyncResult, instant, js, now_both, stamp,
 };
-use crate::http::now;
 use crate::js::{iso_from_millis, millis_of, slice_utf16};
-use crate::tables::{BANK_FEED_PENDING_TRANSACTIONS, BANK_TRANSACTIONS};
+use crate::tables::BANK_TRANSACTIONS;
 
 const ID_CHUNK: usize = 400;
 const MAX_PAGES: usize = 200;
@@ -41,7 +48,9 @@ fn text<'a>(row: &'a Value, key: &str) -> Option<&'a str> {
 pub struct SyncOutcome {
     pub connection_id: String,
     pub status: String,
-    /// `not_found`, `not_active`, `in_progress` or `no_mapped_accounts`.
+    /// `not_found`, `not_active`, `in_progress` or `no_mapped_accounts`;
+    /// `outside_eu` when the provider is outside the EU and the workspace
+    /// hasn't switched it on (ADR OPS-026).
     pub skipped: Option<&'static str>,
     pub added: usize,
     pub updated: usize,
@@ -109,35 +118,85 @@ fn start_of_day(date: &str) -> String {
     format!("{date}T00:00:00.000Z")
 }
 
+/// A feed date (`YYYY-MM-DD`) as the `date` column reads it; text Postgres
+/// would not read is refused as it would refuse it.
+fn feed_day(date: &str) -> Result<Date, DbErr> {
+    Date::parse(
+        date,
+        time::macros::format_description!("[year]-[month]-[day]"),
+    )
+    .map_err(|_| DbErr::Type(format!("invalid input syntax for type date: \"{date}\"")))
+}
+
+/// A decimal amount as the `numeric` column reads it.
+fn decimal(amount: &str) -> Result<BigDecimal, DbErr> {
+    BigDecimal::from_str(amount).map_err(|error| DbErr::Type(error.to_string()))
+}
+
+/// `coalesce(metadata, '{}'::jsonb)`.
+fn metadata_or_empty() -> Expr {
+    Expr::expr(Func::coalesce([
+        Expr::col(bank_connections::Column::Metadata),
+        Expr::val(json!({})),
+    ]))
+}
+
+/// `(coalesce(metadata, '{}'::jsonb) - 'syncLockUntil') || patch`: the
+/// connection's metadata with `patch` merged in and the lock dropped.
+fn unlocked_metadata(patch: Value) -> Expr {
+    use sea_orm::ExprTrait as _;
+    sea_orm::sea_query::extension::postgres::PgExpr::concat(
+        metadata_or_empty().sub("syncLockUntil"),
+        Expr::val(patch),
+    )
+}
+
 // ── Lock ───────────────────────────────────────────────────────────────────
 
-async fn acquire_lock(db: &PgPool, id: &str, at: &str) -> Result<bool, sqlx::Error> {
+async fn acquire_lock(db: &PgPool, id: &str, at: &str) -> Result<bool, DbErr> {
+    use sea_orm::ExprTrait as _;
     let until = iso_from_millis(millis_of(at).unwrap_or(0) + SYNC_LOCK_MINUTES * 60_000)
         .unwrap_or_default();
-    let rows: Vec<String> = sqlx::query_scalar(
-        "update bank_connections set metadata = jsonb_set(coalesce(metadata, '{}'::jsonb), '{syncLockUntil}', to_jsonb($2::text)) \
-         where id = $1 and (metadata->>'syncLockUntil' is null or (metadata->>'syncLockUntil')::timestamptz < $3::timestamptz) \
-         returning id",
-    )
-    .bind(id)
-    .bind(&until)
-    .bind(at)
-    .fetch_all(db)
-    .await?;
-    Ok(!rows.is_empty())
+    // `jsonb_set(coalesce(metadata, '{}'::jsonb), '{syncLockUntil}', to_jsonb($2::text))`.
+    let locked = Func::cust("jsonb_set")
+        .arg(metadata_or_empty())
+        .arg(Expr::val(vec!["syncLockUntil".to_owned()]))
+        .arg(Expr::val(json!(until)));
+    let lock_until = || {
+        sea_orm::sea_query::extension::postgres::PgExpr::cast_json_field(
+            Expr::col(bank_connections::Column::Metadata),
+            "syncLockUntil",
+        )
+    };
+    let free = Condition::any().add(lock_until().is_null()).add(
+        lock_until()
+            .cast_as("timestamptz")
+            .lt(Expr::val(instant(at)?)),
+    );
+    let done = bank_connections::Entity::update_many()
+        .col_expr(bank_connections::Column::Metadata, Expr::expr(locked))
+        .filter(
+            Condition::all()
+                .add(bank_connections::Column::Id.eq(id))
+                .add(free),
+        )
+        .exec(&orm(db))
+        .await?;
+    Ok(done.rows_affected > 0)
 }
 
 /// `releasingMetadata(patch)`: merge `patch` and drop the lock in one
 /// statement.
-async fn release(db: &PgPool, id: &str, patch: &Value) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "update bank_connections set metadata = ((coalesce(metadata, '{}'::jsonb) - 'syncLockUntil') || $2::jsonb) where id = $1",
-    )
-    .bind(id)
-    .bind(patch.to_string())
-    .execute(db)
-    .await
-    .map(|_| ())
+async fn release(db: &PgPool, id: &str, patch: &Value) -> Result<(), DbErr> {
+    bank_connections::Entity::update_many()
+        .col_expr(
+            bank_connections::Column::Metadata,
+            unlocked_metadata(patch.clone()),
+        )
+        .filter(bank_connections::Column::Id.eq(id))
+        .exec(&orm(db))
+        .await
+        .map(|_| ())
 }
 
 // ── Page application ───────────────────────────────────────────────────────
@@ -175,6 +234,8 @@ struct Run<'a> {
     connection_id: String,
     by_feed_id: ByFeedId,
     timestamp: String,
+    /// `timestamp` as the columns hold it.
+    stamp: PrimitiveDateTime,
     occurrences: HashMap<String, usize>,
     pending_pool: Option<Vec<PendingCandidate>>,
     warnings: Vec<Value>,
@@ -205,17 +266,16 @@ fn needs_update(existing: &Value, tx: &FeedTransaction) -> bool {
 async fn load_pending_pool(
     db: &PgPool,
     connection_id: &str,
-) -> Result<Vec<PendingCandidate>, sqlx::Error> {
-    let rows: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        crate::books_row!(bank_feed_pending_transactions),
-        " from bank_feed_pending_transactions t where t.connection_id = $1 and t.voided_at is null"
-    ))
-    .bind(connection_id)
-    .fetch_all(db)
-    .await?;
-    Ok(BANK_FEED_PENDING_TRANSACTIONS
-        .js_rows(rows)
+) -> Result<Vec<PendingCandidate>, DbErr> {
+    let rows = pending::Entity::find()
+        .filter(pending::Column::ConnectionId.eq(connection_id))
+        .filter(pending::Column::VoidedAt.is_null())
+        .all(&orm(db))
+        .await?
+        .into_iter()
+        .map(js)
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(rows
         .iter()
         .map(|r| PendingCandidate {
             id: text(r, "providerTransactionId")
@@ -233,21 +293,45 @@ async fn load_pending_pool(
         .collect())
 }
 
-/// `insert … onConflictDoNothing()` of one bank transaction.
-fn insert_ignoring_conflicts() -> &'static str {
-    static SQL: OnceLock<String> = OnceLock::new();
-    SQL.get_or_init(|| {
-        BANK_TRANSACTIONS
-            .insert
-            .replacen(" returning ", " on conflict do nothing returning ", 1)
-    })
+/// The bank transactions of `account_ids` from `provider` with these
+/// provider ids, as Drizzle returns them; `live_only` skips removed ones.
+async fn feed_transactions(
+    db: &PgPool,
+    account_ids: &[String],
+    provider_id: &str,
+    ids: &[String],
+    live_only: bool,
+) -> Result<Vec<Value>, DbErr> {
+    let mut condition = Condition::all()
+        .add(bank_transactions::Column::BankAccountId.is_in(account_ids.iter().map(String::as_str)))
+        .add(bank_transactions::Column::FeedProvider.eq(provider_id))
+        .add(
+            bank_transactions::Column::ProviderTransactionId.is_in(ids.iter().map(String::as_str)),
+        );
+    if live_only {
+        condition = condition.add(bank_transactions::Column::DeletedAt.is_null());
+    }
+    bank_transactions::Entity::find()
+        .filter(condition)
+        .all(&orm(db))
+        .await?
+        .into_iter()
+        .map(js)
+        .collect()
 }
 
+/// `insert … onConflictDoNothing()` of one bank transaction.
 struct Insert {
-    values: Map<String, Value>,
+    row: bank_transactions::ActiveModel,
     bank_account_id: String,
     first_fingerprint: String,
-    day: String,
+    day: Date,
+}
+
+/// A JSON value as `jsonb_populate_record` writes it to a `jsonb` column:
+/// `null` is SQL `NULL`.
+fn jsonb(value: Option<&Value>) -> Option<Value> {
+    value.filter(|v| !v.is_null()).cloned()
 }
 
 /// `applyPage(db, run, page)`.
@@ -257,9 +341,10 @@ async fn apply_page(
     run: &mut Run<'_>,
     outcome: &mut SyncOutcome,
     page: &SyncResult,
-) -> Result<(), sqlx::Error> {
+) -> Result<(), DbErr> {
     let provider_id = run.provider.id;
     let timestamp = run.timestamp.clone();
+    let at = run.stamp;
     let mut account_ids: Vec<String> = Vec::new();
     for (_, account) in run.by_feed_id.iter() {
         let id = text(account, "id").unwrap_or_default().to_owned();
@@ -287,7 +372,7 @@ async fn apply_page(
     }
 
     let mut posted: Vec<(&FeedTransaction, Value)> = Vec::new();
-    let mut pending_rows: Vec<Map<String, Value>> = Vec::new();
+    let mut pending_rows: Vec<pending::ActiveModel> = Vec::new();
     for id in &order {
         let tx = latest[id];
         let Some(account) = run.by_feed_id.get(&tx.account_id) else {
@@ -299,34 +384,22 @@ async fn apply_page(
             continue;
         }
         if tx.pending {
-            let mut row = Map::new();
-            for (key, value) in [
-                ("id", json!(generate_id("bfp"))),
-                (
-                    "entityId",
-                    account.get("entityId").cloned().unwrap_or(Value::Null),
-                ),
-                (
-                    "bankAccountId",
-                    account.get("id").cloned().unwrap_or(Value::Null),
-                ),
-                ("connectionId", json!(run.connection_id)),
-                ("provider", json!(provider_id)),
-                ("providerTransactionId", json!(tx.provider_transaction_id)),
-                ("date", json!(tx.date)),
-                (
-                    "amount",
-                    json!(minor_to_decimal(tx.amount_minor, &tx.currency)),
-                ),
-                ("currency", json!(tx.currency)),
-                ("description", json!(tx.description)),
-                ("merchantName", json!(tx.merchant_name)),
-                ("createdAt", json!(timestamp)),
-                ("updatedAt", json!(timestamp)),
-            ] {
-                BANK_FEED_PENDING_TRANSACTIONS.set(&mut row, key, value);
-            }
-            pending_rows.push(row);
+            pending_rows.push(pending::ActiveModel {
+                id: Set(generate_id("bfp")),
+                entity_id: Set(text(account, "entityId").unwrap_or_default().to_owned()),
+                bank_account_id: Set(text(account, "id").unwrap_or_default().to_owned()),
+                connection_id: Set(run.connection_id.clone()),
+                provider: Set(provider_id.to_owned()),
+                provider_transaction_id: Set(tx.provider_transaction_id.clone()),
+                date: Set(feed_day(&tx.date)?),
+                amount: Set(decimal(&minor_to_decimal(tx.amount_minor, &tx.currency))?),
+                currency: Set(tx.currency.clone()),
+                description: Set(Some(tx.description.clone())),
+                merchant_name: Set(tx.merchant_name.clone()),
+                created_at: Set(at),
+                updated_at: Set(at),
+                ..Default::default()
+            });
         } else {
             posted.push((tx, account.clone()));
         }
@@ -339,18 +412,8 @@ async fn apply_page(
         .collect();
     let mut existing_by_key: HashMap<String, Value> = HashMap::new();
     for ids in posted_ids.chunks(ID_CHUNK) {
-        let rows: Vec<Value> = sqlx::query_scalar(concat!(
-            "select ",
-            crate::books_row!(bank_transactions),
-            " from bank_transactions t where t.bank_account_id = any($1) and t.feed_provider = $2 \
-             and t.provider_transaction_id = any($3)"
-        ))
-        .bind(&account_ids)
-        .bind(provider_id)
-        .bind(ids)
-        .fetch_all(db)
-        .await?;
-        for row in BANK_TRANSACTIONS.js_rows(rows) {
+        let rows = feed_transactions(db, &account_ids, provider_id, ids, false).await?;
+        for row in rows {
             let key = format!(
                 "{}|{}",
                 text(&row, "bankAccountId").unwrap_or_default(),
@@ -396,29 +459,33 @@ async fn apply_page(
 
         match existing_by_key.get(&format!("{account_id}|{}", tx.provider_transaction_id)) {
             None => {
-                let mut values = Map::new();
-                for (key, value) in [
-                    ("id", json!(generate_id("bt"))),
-                    (
-                        "entityId",
-                        account.get("entityId").cloned().unwrap_or(Value::Null),
-                    ),
-                    ("bankAccountId", json!(account_id)),
-                    ("status", json!("unreconciled")),
-                    ("source", json!("feed")),
-                    ("feedProvider", json!(provider_id)),
-                    ("providerTransactionId", json!(tx.provider_transaction_id)),
-                    ("createdAt", json!(timestamp)),
-                    ("updatedAt", json!(timestamp)),
-                ] {
-                    values.insert(key.to_owned(), value);
-                }
-                values.extend(fields);
+                let day = feed_day(&tx.date)?;
+                let row = bank_transactions::ActiveModel {
+                    id: Set(generate_id("bt")),
+                    entity_id: Set(text(account, "entityId").unwrap_or_default().to_owned()),
+                    bank_account_id: Set(account_id.clone()),
+                    status: Set("unreconciled".to_owned()),
+                    source: Set(Some("feed".to_owned())),
+                    feed_provider: Set(Some(provider_id.to_owned())),
+                    provider_transaction_id: Set(Some(tx.provider_transaction_id.clone())),
+                    created_at: Set(at),
+                    updated_at: Set(at),
+                    date: Set(day.midnight()),
+                    description: Set(Some(tx.description.clone())),
+                    amount: Set(decimal(&minor_to_decimal(tx.amount_minor, &tx.currency))?),
+                    counterparty_name: Set(tx.merchant_name.clone()),
+                    check_number: Set(tx.check_number.clone()),
+                    merchant_name: Set(tx.merchant_name.clone()),
+                    feed_category: Set(jsonb(tx.category.as_ref())),
+                    raw_data: Set(jsonb(Some(&tx.raw))),
+                    fingerprint: Set(Some(fingerprint)),
+                    ..Default::default()
+                };
                 inserts.push(Insert {
-                    values,
+                    row,
                     bank_account_id: account_id,
                     first_fingerprint,
-                    day: tx.date.clone(),
+                    day,
                 });
             }
             Some(existing) if existing.get("deletedAt").is_some_and(|d| !d.is_null()) => {
@@ -448,7 +515,7 @@ async fn apply_page(
 
     // Lines the same account already has from a file import: flag, never merge.
     if !inserts.is_empty() {
-        let mut days: Vec<&str> = inserts.iter().map(|i| i.day.as_str()).collect();
+        let mut days: Vec<Date> = inserts.iter().map(|i| i.day).collect();
         days.sort_unstable();
         let mut insert_accounts: Vec<String> = Vec::new();
         for insert in &inserts {
@@ -456,17 +523,24 @@ async fn apply_page(
                 insert_accounts.push(insert.bank_account_id.clone());
             }
         }
-        let candidates: Vec<Value> = sqlx::query_scalar(concat!(
-            "select ",
-            crate::books_row!(bank_transactions),
-            " from bank_transactions t where t.bank_account_id = any($1) and t.deleted_at is null \
-             and (t.source is null or t.source <> 'feed') and t.date >= $2::timestamp and t.date <= $3::timestamp"
-        ))
-        .bind(&insert_accounts)
-        .bind(start_of_day(days[0]))
-        .bind(format!("{}T23:59:59.999Z", days[days.len() - 1]))
-        .fetch_all(db)
-        .await?;
+        let last = days[days.len() - 1]
+            .with_hms_milli(23, 59, 59, 999)
+            .map_err(|error| DbErr::Type(error.to_string()))?;
+        let candidates = bank_transactions::Entity::find()
+            .filter(
+                Condition::all()
+                    .add(bank_transactions::Column::BankAccountId.is_in(insert_accounts))
+                    .add(bank_transactions::Column::DeletedAt.is_null())
+                    .add(
+                        Condition::any()
+                            .add(bank_transactions::Column::Source.is_null())
+                            .add(bank_transactions::Column::Source.ne("feed")),
+                    )
+                    .add(bank_transactions::Column::Date.gte(days[0].midnight()))
+                    .add(bank_transactions::Column::Date.lte(last)),
+            )
+            .all(&orm(db))
+            .await?;
         let currency_of = |account_id: &str| -> String {
             run.by_feed_id
                 .iter()
@@ -476,7 +550,8 @@ async fn apply_page(
                 .unwrap_or_else(|| "USD".to_owned())
         };
         let mut imported: HashMap<String, String> = HashMap::new();
-        for candidate in BANK_TRANSACTIONS.js_rows(candidates) {
+        for candidate in candidates.into_iter().map(js) {
+            let candidate = candidate?;
             let account_id = text(&candidate, "bankAccountId").unwrap_or_default();
             let fingerprint = text(&candidate, "fingerprint").map_or_else(
                 || {
@@ -504,9 +579,7 @@ async fn apply_page(
                 ))
                 .filter(|d| !d.is_empty())
             {
-                insert
-                    .values
-                    .insert("possibleDuplicateOfId".to_owned(), json!(duplicate));
+                insert.row.possible_duplicate_of_id = Set(Some(duplicate.clone()));
                 outcome.possible_duplicates += 1;
             }
         }
@@ -561,18 +634,8 @@ async fn apply_page(
     // ── Removals ──
     let mut soft_delete: Vec<String> = Vec::new();
     for ids in removal_ids.chunks(ID_CHUNK) {
-        let rows: Vec<Value> = sqlx::query_scalar(concat!(
-            "select ",
-            crate::books_row!(bank_transactions),
-            " from bank_transactions t where t.bank_account_id = any($1) and t.feed_provider = $2 \
-             and t.provider_transaction_id = any($3) and t.deleted_at is null"
-        ))
-        .bind(&account_ids)
-        .bind(provider_id)
-        .bind(ids)
-        .fetch_all(db)
-        .await?;
-        for row in BANK_TRANSACTIONS.js_rows(rows) {
+        let rows = feed_transactions(db, &account_ids, provider_id, ids, true).await?;
+        for row in rows {
             if text(&row, "status") == Some("unreconciled")
                 && text(&row, "journalEntryId").is_none_or(str::is_empty)
             {
@@ -608,51 +671,75 @@ async fn apply_page(
     {
         return Ok(());
     }
-    let mut handle = db.begin().await?;
+    let mut handle = db.begin().await.map_err(weldsuite_db::orm_error)?;
+    {
+        let conn = OrmConn::new(&mut handle);
+        write_page(&conn, inserts, updates).await?;
+        for row in pending_rows {
+            pending::Entity::insert(row)
+                .on_conflict(
+                    OnConflict::columns([
+                        pending::Column::Provider,
+                        pending::Column::ProviderTransactionId,
+                    ])
+                    .update_columns([
+                        pending::Column::BankAccountId,
+                        pending::Column::Date,
+                        pending::Column::Amount,
+                        pending::Column::Currency,
+                        pending::Column::Description,
+                        pending::Column::MerchantName,
+                    ])
+                    .value(
+                        pending::Column::VoidedAt,
+                        Expr::val(Option::<PrimitiveDateTime>::None),
+                    )
+                    .value(pending::Column::UpdatedAt, Expr::val(at))
+                    .to_owned(),
+                )
+                .exec_without_returning(&conn)
+                .await?;
+        }
+        for ids in pending_deletes.chunks(ID_CHUNK) {
+            pending::Entity::delete_many()
+                .filter(pending::Column::Provider.eq(provider_id))
+                .filter(
+                    pending::Column::ProviderTransactionId.is_in(ids.iter().map(String::as_str)),
+                )
+                .exec(&conn)
+                .await?;
+        }
+        for ids in soft_delete.chunks(ID_CHUNK) {
+            bank_transactions::Entity::update_many()
+                .col_expr(bank_transactions::Column::DeletedAt, Expr::val(at))
+                .col_expr(bank_transactions::Column::UpdatedAt, Expr::val(at))
+                .filter(bank_transactions::Column::Id.is_in(ids.iter().map(String::as_str)))
+                .exec(&conn)
+                .await?;
+        }
+    }
+    handle.commit().await.map_err(weldsuite_db::orm_error)
+}
+
+/// The page's new bank transactions (a line already there is left alone)
+/// and its changed ones, inside the page's transaction.
+async fn write_page(
+    conn: &OrmConn<'_>,
+    inserts: Vec<Insert>,
+    updates: Vec<(String, Map<String, Value>)>,
+) -> Result<(), DbErr> {
     for insert in inserts {
-        let values = BANK_TRANSACTIONS.values(&insert.values);
-        let _: Option<Value> = sqlx::query_scalar(insert_ignoring_conflicts())
-            .bind(Value::Object(values))
-            .fetch_optional(&mut *handle)
+        bank_transactions::Entity::insert(insert.row)
+            .on_conflict(OnConflict::new().do_nothing().to_owned())
+            .exec_without_returning(conn)
             .await?;
     }
     for (id, values) in updates {
         BANK_TRANSACTIONS
-            .patch_raw(&mut *handle, &id, BANK_TRANSACTIONS.values(&values), false)
+            .patch_raw_on(conn, &id, BANK_TRANSACTIONS.values(&values), false)
             .await?;
     }
-    for row in pending_rows {
-        sqlx::query(
-            "insert into bank_feed_pending_transactions as t (id, created_at, updated_at, entity_id, bank_account_id, \
-             connection_id, provider, provider_transaction_id, date, amount, currency, description, merchant_name) \
-             select r.id, r.created_at, r.updated_at, r.entity_id, r.bank_account_id, r.connection_id, r.provider, \
-             r.provider_transaction_id, r.date, r.amount, r.currency, r.description, r.merchant_name \
-             from jsonb_populate_record(null::bank_feed_pending_transactions, $1::jsonb) r \
-             on conflict (provider, provider_transaction_id) do update set bank_account_id = excluded.bank_account_id, \
-             date = excluded.date, amount = excluded.amount, currency = excluded.currency, \
-             description = excluded.description, merchant_name = excluded.merchant_name, voided_at = null, \
-             updated_at = $2::timestamp",
-        )
-        .bind(Value::Object(row))
-        .bind(&timestamp)
-        .execute(&mut *handle)
-        .await?;
-    }
-    for ids in pending_deletes.chunks(ID_CHUNK) {
-        sqlx::query("delete from bank_feed_pending_transactions where provider = $1 and provider_transaction_id = any($2)")
-            .bind(provider_id)
-            .bind(ids)
-            .execute(&mut *handle)
-            .await?;
-    }
-    for ids in soft_delete.chunks(ID_CHUNK) {
-        sqlx::query("update bank_transactions set deleted_at = $2::timestamp, updated_at = $2::timestamp where id = any($1)")
-            .bind(ids)
-            .bind(&timestamp)
-            .execute(&mut *handle)
-            .await?;
-    }
-    handle.commit().await
+    Ok(())
 }
 
 // ── Entry point ────────────────────────────────────────────────────────────
@@ -662,8 +749,8 @@ enum RunError {
     Other(ServiceError),
 }
 
-impl From<sqlx::Error> for RunError {
-    fn from(error: sqlx::Error) -> Self {
+impl From<DbErr> for RunError {
+    fn from(error: DbErr) -> Self {
         Self::Other(ServiceError::Database(error))
     }
 }
@@ -727,17 +814,30 @@ pub async fn sync_connection_with(
             });
         }
     };
-    let timestamp = now();
+    // ADR OPS-026: a provider outside the EU is called only for a
+    // workspace that switched it on; the sweeps and webhooks skip the rest.
+    if let Some(service) = super::outside_eu_service(provider.id)
+        && !weldsuite_outside_eu::allowed(
+            &ctx.db,
+            service,
+            &format!("bank feed sync {connection_id}"),
+        )
+        .await
+    {
+        return Ok(SyncOutcome::skipped(connection_id, &status, "outside_eu"));
+    }
+    let (timestamp, at) = now_both();
     let id = text(&row, "id").unwrap_or_default().to_owned();
     if !acquire_lock(&ctx.db, &id, &timestamp).await? {
         return Ok(SyncOutcome::skipped(connection_id, &status, "in_progress"));
     }
     let mut outcome = SyncOutcome::empty(connection_id, &status);
-    match run_sync(ctx, &provider, &row, &timestamp, &mut outcome, options).await {
+    let now = (timestamp.as_str(), at);
+    match run_sync(ctx, &provider, &row, now, &mut outcome, options).await {
         Ok(()) => Ok(outcome),
         Err(RunError::Feed(error)) => {
             keep_rotated_credentials(ctx, &provider, &row).await;
-            record_failure(ctx, &row, &error, &timestamp, outcome).await
+            record_failure(ctx, &row, &error, at, outcome).await
         }
         Err(RunError::Other(error)) => {
             keep_rotated_credentials(ctx, &provider, &row).await;
@@ -758,15 +858,16 @@ async fn keep_rotated_credentials(ctx: &FeedContext, provider: &Provider<'_>, ro
     };
     let id = text(row, "id").unwrap_or_default();
     let stored = match ctx.seal(&credentials) {
-        Ok(sealed) => {
-            sqlx::query("update bank_connections set credentials_encrypted = $2 where id = $1")
-                .bind(id)
-                .bind(sealed)
-                .execute(&ctx.db)
-                .await
-                .map(|_| ())
-                .map_err(|error| error.to_string())
-        }
+        Ok(sealed) => bank_connections::Entity::update_many()
+            .col_expr(
+                bank_connections::Column::CredentialsEncrypted,
+                Expr::val(sealed),
+            )
+            .filter(bank_connections::Column::Id.eq(id))
+            .exec(&orm(&ctx.db))
+            .await
+            .map(|_| ())
+            .map_err(|error| error.to_string()),
         Err(error) => Err(format!("{error:?}")),
     };
     if let Err(error) = stored {
@@ -779,22 +880,21 @@ async fn run_sync(
     ctx: &FeedContext,
     provider: &Provider<'_>,
     row: &Value,
-    timestamp: &str,
+    (timestamp, at): (&str, PrimitiveDateTime),
     outcome: &mut SyncOutcome,
     options: &SyncOptions,
 ) -> Result<(), RunError> {
     let db = &ctx.db;
     let id = text(row, "id").unwrap_or_default().to_owned();
-    let mapped: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        crate::books_row!(bank_accounts),
-        " from bank_accounts t where t.feed_connection_id = $1 and t.deleted_at is null"
-    ))
-    .bind(&id)
-    .fetch_all(db)
-    .await?;
-    let mapped: Vec<Value> = crate::tables::BANK_ACCOUNTS
-        .js_rows(mapped)
+    let mapped = bank_accounts::Entity::find()
+        .filter(bank_accounts::Column::FeedConnectionId.eq(id.as_str()))
+        .filter(bank_accounts::Column::DeletedAt.is_null())
+        .all(&orm(db))
+        .await?
+        .into_iter()
+        .map(js)
+        .collect::<Result<Vec<_>, _>>()?;
+    let mapped: Vec<Value> = mapped
         .into_iter()
         .filter(|a| text(a, "feedAccountId").is_some_and(|f| !f.is_empty()))
         .collect();
@@ -832,6 +932,7 @@ async fn run_sync(
         connection_id: id.clone(),
         by_feed_id,
         timestamp: timestamp.to_owned(),
+        stamp: at,
         occurrences: HashMap::new(),
         pending_pool: None,
         warnings: Vec::new(),
@@ -883,18 +984,9 @@ async fn run_sync(
 
     // Unmatched pending rows older than 14 days are void.
     let today = day_of(timestamp);
-    let voided: Vec<String> = sqlx::query_scalar(
-        "update bank_feed_pending_transactions set voided_at = $2::timestamp, updated_at = $2::timestamp \
-         where connection_id = $1 and voided_at is null and date < $3::date returning id",
-    )
-    .bind(&id)
-    .bind(timestamp)
-    .bind(add_days(&today, -14))
-    .fetch_all(db)
-    .await?;
-    outcome.pending_voided = voided.len();
+    outcome.pending_voided = void_stale_pending(db, &id, at, &add_days(&today, -14)).await?;
 
-    update_balances(db, provider, &stored, &run.by_feed_id, timestamp).await;
+    update_balances(db, provider, &stored, &run.by_feed_id, at).await;
 
     // Status: what the provider reported per account, else a clean read clears an earlier problem.
     let feed_accounts: Vec<Value> = stored_feed_accounts(row)
@@ -942,11 +1034,14 @@ async fn run_sync(
             continue;
         };
         if feed.get("status") != account.get("feedStatus") {
-            sqlx::query("update bank_accounts set feed_status = $2, updated_at = $3::timestamp where id = $1")
-                .bind(text(account, "id"))
-                .bind(text(feed, "status"))
-                .bind(timestamp)
-                .execute(db)
+            bank_accounts::Entity::update_many()
+                .col_expr(
+                    bank_accounts::Column::FeedStatus,
+                    Expr::val(text(feed, "status")),
+                )
+                .col_expr(bank_accounts::Column::UpdatedAt, Expr::val(at))
+                .filter(bank_accounts::Column::Id.eq(text(account, "id")))
+                .exec(&orm(db))
                 .await?;
         }
     }
@@ -997,24 +1092,17 @@ async fn run_sync(
             "pending": outcome.pending,
         },
     });
-    sqlx::query(
-        "update bank_connections set status = $2, \
-         sync_cursor = case when (metadata->>'resyncAt')::timestamptz > $3::timestamptz then null else $4::jsonb end, \
-         last_synced_at = $3::timestamp, last_error = null, \
-         credentials_encrypted = case when $5::text is null then credentials_encrypted else $5 end, \
-         consent_expires_at = case when $7::text is null then consent_expires_at else $7::timestamp end, \
-         metadata = ((case when (metadata->>'resyncAt')::timestamptz > $3::timestamptz then coalesce(metadata, '{}'::jsonb) \
-         else coalesce(metadata, '{}'::jsonb) - 'resyncAt' end - 'syncLockUntil') || $6::jsonb), \
-         updated_at = $3::timestamp where id = $1",
+    let consent_at = consent_reported.as_deref().map(stamp).transpose()?;
+    store_sync(
+        db,
+        &id,
+        &next_status,
+        (timestamp, at),
+        cursor,
+        sealed,
+        consent_at,
+        patch,
     )
-    .bind(&id)
-    .bind(&next_status)
-    .bind(timestamp)
-    .bind(cursor.to_string())
-    .bind(sealed)
-    .bind(patch.to_string())
-    .bind(consent_reported.as_deref())
-    .execute(db)
     .await?;
 
     let was_inactive = INACTIVE_STATUSES.contains(&text(row, "status").unwrap_or_default());
@@ -1032,6 +1120,89 @@ async fn run_sync(
     Ok(())
 }
 
+/// Unmatched pending rows dated before `before` are void: how many.
+async fn void_stale_pending(
+    db: &PgPool,
+    connection_id: &str,
+    at: PrimitiveDateTime,
+    before: &str,
+) -> Result<usize, DbErr> {
+    use sea_orm::ExprTrait as _;
+    let done = pending::Entity::update_many()
+        .col_expr(pending::Column::VoidedAt, Expr::val(at))
+        .col_expr(pending::Column::UpdatedAt, Expr::val(at))
+        .filter(
+            Condition::all()
+                .add(pending::Column::ConnectionId.eq(connection_id))
+                .add(pending::Column::VoidedAt.is_null())
+                .add(Expr::col(pending::Column::Date).lt(Expr::val(before).cast_as("date"))),
+        )
+        .exec(&orm(db))
+        .await?;
+    Ok(usize::try_from(done.rows_affected).unwrap_or(usize::MAX))
+}
+
+/// The end of a run: the status, the cursor (none when the accounts were
+/// remapped during the run: `resyncAt` after its start), the credentials and
+/// consent the provider reported, and the metadata with `patch` merged in and
+/// the lock (and a handled `resyncAt`) dropped, in one statement.
+#[allow(clippy::too_many_arguments)] // the statement's parameters
+async fn store_sync(
+    db: &PgPool,
+    id: &str,
+    status: &str,
+    (timestamp, at): (&str, PrimitiveDateTime),
+    cursor: Value,
+    sealed: Option<String>,
+    consent: Option<PrimitiveDateTime>,
+    patch: Value,
+) -> Result<(), DbErr> {
+    use sea_orm::ExprTrait as _;
+    use sea_orm::sea_query::extension::postgres::PgExpr;
+    let started = instant(timestamp)?;
+    // `(metadata->>'resyncAt')::timestamptz > $3::timestamptz`
+    let resynced = || {
+        PgExpr::cast_json_field(Expr::col(bank_connections::Column::Metadata), "resyncAt")
+            .cast_as("timestamptz")
+            .gt(Expr::val(started))
+    };
+    let sync_cursor =
+        Expr::case(resynced(), Expr::val(Option::<Value>::None)).finally(Expr::val(cursor));
+    let kept =
+        Expr::case(resynced(), metadata_or_empty()).finally(metadata_or_empty().sub("resyncAt"));
+    let metadata = PgExpr::concat(Expr::expr(kept).sub("syncLockUntil"), Expr::val(patch));
+    let mut update = bank_connections::Entity::update_many()
+        .col_expr(bank_connections::Column::Status, Expr::val(status))
+        .col_expr(
+            bank_connections::Column::SyncCursor,
+            Expr::expr(sync_cursor),
+        )
+        .col_expr(bank_connections::Column::LastSyncedAt, Expr::val(at))
+        .col_expr(
+            bank_connections::Column::LastError,
+            Expr::val(Option::<String>::None),
+        );
+    if let Some(sealed) = sealed {
+        update = update.col_expr(
+            bank_connections::Column::CredentialsEncrypted,
+            Expr::val(sealed),
+        );
+    }
+    if let Some(consent) = consent {
+        update = update.col_expr(
+            bank_connections::Column::ConsentExpiresAt,
+            Expr::val(consent),
+        );
+    }
+    update
+        .col_expr(bank_connections::Column::Metadata, metadata)
+        .col_expr(bank_connections::Column::UpdatedAt, Expr::val(at))
+        .filter(bank_connections::Column::Id.eq(id))
+        .exec(&orm(db))
+        .await
+        .map(|_| ())
+}
+
 /// `updateBalances`: a nicety next to the transactions already stored, so
 /// failures are only logged.
 async fn update_balances(
@@ -1039,8 +1210,9 @@ async fn update_balances(
     provider: &Provider<'_>,
     stored: &StoredConnection,
     by_feed_id: &ByFeedId,
-    timestamp: &str,
+    at: PrimitiveDateTime,
 ) {
+    use sea_orm::ExprTrait as _;
     let balances = match provider.get_balances(stored).await {
         Ok(balances) => balances,
         Err(error) => {
@@ -1053,15 +1225,15 @@ async fn update_balances(
             continue;
         };
         let amount = minor_to_decimal(balance.current, &balance.currency);
-        if let Err(error) = sqlx::query(
-            "update bank_accounts set current_balance = $2::numeric, last_import_balance = $2::numeric, \
-             last_import_date = $3::timestamp, updated_at = $3::timestamp where id = $1",
-        )
-        .bind(text(account, "id"))
-        .bind(&amount)
-        .bind(timestamp)
-        .execute(db)
-        .await
+        let numeric = || Expr::val(amount.as_str()).cast_as("numeric");
+        if let Err(error) = bank_accounts::Entity::update_many()
+            .col_expr(bank_accounts::Column::CurrentBalance, numeric())
+            .col_expr(bank_accounts::Column::LastImportBalance, numeric())
+            .col_expr(bank_accounts::Column::LastImportDate, Expr::val(at))
+            .col_expr(bank_accounts::Column::UpdatedAt, Expr::val(at))
+            .filter(bank_accounts::Column::Id.eq(text(account, "id")))
+            .exec(&orm(db))
+            .await
         {
             tracing::warn!(%error, "[bank-feeds] balance read failed");
             return;
@@ -1074,7 +1246,7 @@ async fn record_failure(
     ctx: &FeedContext,
     row: &Value,
     error: &FeedError,
-    timestamp: &str,
+    at: PrimitiveDateTime,
     mut outcome: SyncOutcome,
 ) -> Result<SyncOutcome, ServiceError> {
     let mut status = text(row, "status").unwrap_or_default().to_owned();
@@ -1098,28 +1270,32 @@ async fn record_failure(
         patch.insert("feedAccounts".to_owned(), Value::Array(accounts));
     }
     let id = text(row, "id").unwrap_or_default();
-    sqlx::query(
-        "update bank_connections set status = $2, last_error = $3, \
-         metadata = ((coalesce(metadata, '{}'::jsonb) - 'syncLockUntil') || $4::jsonb), updated_at = $5::timestamp \
-         where id = $1",
-    )
-    .bind(id)
-    .bind(&status)
-    .bind(&message)
-    .bind(Value::Object(patch).to_string())
-    .bind(timestamp)
-    .execute(&ctx.db)
-    .await?;
-    if hard {
-        sqlx::query(
-            "update bank_accounts set feed_status = $2, updated_at = $3::timestamp \
-             where feed_connection_id = $1 and deleted_at is null",
+    let db = &orm(&ctx.db);
+    bank_connections::Entity::update_many()
+        .col_expr(bank_connections::Column::Status, Expr::val(status.as_str()))
+        .col_expr(
+            bank_connections::Column::LastError,
+            Expr::val(message.as_str()),
         )
-        .bind(id)
-        .bind(&status)
-        .bind(timestamp)
-        .execute(&ctx.db)
+        .col_expr(
+            bank_connections::Column::Metadata,
+            unlocked_metadata(Value::Object(patch)),
+        )
+        .col_expr(bank_connections::Column::UpdatedAt, Expr::val(at))
+        .filter(bank_connections::Column::Id.eq(id))
+        .exec(db)
         .await?;
+    if hard {
+        bank_accounts::Entity::update_many()
+            .col_expr(
+                bank_accounts::Column::FeedStatus,
+                Expr::val(status.as_str()),
+            )
+            .col_expr(bank_accounts::Column::UpdatedAt, Expr::val(at))
+            .filter(bank_accounts::Column::FeedConnectionId.eq(id))
+            .filter(bank_accounts::Column::DeletedAt.is_null())
+            .exec(db)
+            .await?;
         ctx.index_set_active(id, false, Some(&message)).await?;
     }
     outcome.status = status;
@@ -1146,6 +1322,5 @@ mod tests {
         assert_eq!(json["pendingVoided"], 0);
         let empty = SyncOutcome::empty("bkc_1", "active").to_json();
         assert!(empty.get("skipped").is_none() && empty.get("error").is_none());
-        assert!(insert_ignoring_conflicts().contains(" on conflict do nothing returning "));
     }
 }

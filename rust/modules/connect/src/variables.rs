@@ -9,18 +9,26 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use http::HeaderMap;
+use sea_orm::ActiveValue::Set;
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{
+    ColumnTrait, Condition, DbErr, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder,
+    QuerySelect, Select,
+};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events::{
     WORKFLOW_VARIABLE_CREATED, WORKFLOW_VARIABLE_DELETED, WORKFLOW_VARIABLE_UPDATED,
 };
 use weldsuite_catalogs::permission_keys as perm;
-use weldsuite_db::{PgPool, js_row};
+use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_kit::validation::{Field, Issues, Presence};
 use weldsuite_kit::{ApiError, Created, Data, List, NoContent, Pagination, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::workflow_variables::{self, Column};
+use weldsuite_schema::tenant::workflows;
 
-use crate::js::{next_cursor, page, page_limit, query_param, query_truthy, total};
-use crate::{Caller, ConnectState, Refusal, internal, now, validate};
+use crate::js::{next_cursor, page, page_limit, query_param, query_truthy};
+use crate::{Caller, ConnectState, Refusal, internal, validate};
 
 pub(crate) fn routes<Q: PermissionQueries + 'static>(
     gate: &Arc<PermissionGate<Q>>,
@@ -59,6 +67,35 @@ fn mask(mut row: Value) -> Value {
     row
 }
 
+/// The list's filters: not deleted, `name like %search%`, and the
+/// `workflowId`, `scope` and `isSecret` sent.
+fn filtered(
+    search: Option<&str>,
+    workflow_id: Option<&str>,
+    scope: Option<&str>,
+    secret: Option<bool>,
+) -> Select<workflow_variables::Entity> {
+    let mut filter = Condition::all().add(Column::DeletedAt.is_null());
+    if let Some(search) = search {
+        filter = filter.add(Column::Name.like(search));
+    }
+    if let Some(workflow_id) = workflow_id {
+        filter = filter.add(Column::WorkflowId.eq(workflow_id));
+    }
+    if let Some(scope) = scope {
+        filter = filter.add(Column::Scope.eq(scope));
+    }
+    if let Some(secret) = secret {
+        filter = filter.add(Column::IsSecret.eq(secret));
+    }
+    workflow_variables::Entity::find().filter(filter)
+}
+
+/// A row as Drizzle returned it.
+fn js(model: workflow_variables::Model) -> Value {
+    serde_json::to_value(model).unwrap_or(Value::Null)
+}
+
 async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
     let query = query.as_deref();
     let limit = page_limit(query, 25, 100);
@@ -67,67 +104,73 @@ async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
     let scope = query_truthy(query, "scope");
     let secret = query_param(query, "isSecret").map(|v| v == "true");
     let cursor = query_truthy(query, "cursor");
-    const FILTER: &str = "t.deleted_at is null and ($1::text is null or t.name like $1)
-        and ($2::text is null or t.workflow_id = $2) and ($3::text is null or t.scope = $3)
-        and ($4::boolean is null or t.is_secret = $4)";
-    let rows: Result<Vec<Value>, sqlx::Error> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-        "select to_jsonb(t) from workflow_variables t where {FILTER} and ($5::text is null or t.id < $5)
-         order by t.id desc limit $6"
-    )))
-    .bind(&search)
-    .bind(&workflow_id)
-    .bind(&scope)
-    .bind(secret)
-    .bind(&cursor)
-    .bind(limit + 1)
-    .fetch_all(&caller.db)
-    .await;
-    let count: Result<i64, sqlx::Error> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-        "select count(*) from workflow_variables t where {FILTER}"
-    )))
-    .bind(&search)
-    .bind(&workflow_id)
-    .bind(&scope)
-    .bind(secret)
-    .fetch_one(&caller.db)
-    .await;
+    let db = orm(&caller.db);
+    let filters = || {
+        filtered(
+            search.as_deref(),
+            workflow_id.as_deref(),
+            scope.as_deref(),
+            secret,
+        )
+    };
+    let mut rows = filters();
+    if let Some(cursor) = &cursor {
+        rows = rows.filter(Column::Id.lt(cursor));
+    }
+    let rows: Result<Vec<workflow_variables::Model>, DbErr> = rows
+        .order_by_desc(Column::Id)
+        .limit(u64::try_from(limit + 1).unwrap_or(0))
+        .all(&db)
+        .await;
+    let count = filters().count(&db).await;
     match (rows, count) {
         (Ok(rows), Ok(count)) => {
-            let (data, has_more) = page(rows.into_iter().map(js_row).collect(), limit);
+            let (data, has_more) = page(rows.into_iter().map(js).collect(), limit);
             let cursor = next_cursor(&data, has_more, "id");
             let data = data.into_iter().map(mask).collect();
-            List::new(data, Pagination::new(total(count), has_more, cursor)).into_response()
+            List::new(data, Pagination::new(count, has_more, cursor)).into_response()
         }
         (Err(error), _) | (_, Err(error)) => internal(&error, "Failed to list workflow variables"),
     }
 }
 
 async fn global(caller: Caller) -> Response {
-    let rows: Result<Vec<Value>, sqlx::Error> = sqlx::query_scalar(
-        "select to_jsonb(t) from workflow_variables t where t.scope = 'global' and t.deleted_at is null
-         order by t.name",
-    )
-    .fetch_all(&caller.db)
-    .await;
+    let rows = workflow_variables::Entity::find()
+        .filter(Column::Scope.eq("global"))
+        .filter(Column::DeletedAt.is_null())
+        .order_by_asc(Column::Name)
+        .all(&orm(&caller.db))
+        .await;
     match rows {
-        Ok(rows) => {
-            Data(rows.into_iter().map(js_row).map(mask).collect::<Vec<_>>()).into_response()
-        }
+        Ok(rows) => Data(rows.into_iter().map(js).map(mask).collect::<Vec<_>>()).into_response(),
         Err(error) => internal(&error, "Failed to fetch global variables"),
     }
 }
 
 async fn for_workflow(caller: Caller, Path(workflow_id): Path<String>) -> Response {
-    let rows: Result<Vec<Value>, sqlx::Error> = sqlx::query_scalar(
-        "select jsonb_build_object('name', t.name, 'type', t.type, 'isSecret', t.is_secret, 'scope', t.scope)
-         from workflow_variables t
-         where (t.workflow_id = $1 or t.scope = 'global') and t.deleted_at is null order by t.name",
-    )
-    .bind(&workflow_id)
-    .fetch_all(&caller.db)
-    .await;
+    let rows: Result<Vec<(String, String, bool, String)>, DbErr> =
+        workflow_variables::Entity::find()
+            .select_only()
+            .columns([Column::Name, Column::Type, Column::IsSecret, Column::Scope])
+            .filter(
+                Condition::any()
+                    .add(Column::WorkflowId.eq(&workflow_id))
+                    .add(Column::Scope.eq("global")),
+            )
+            .filter(Column::DeletedAt.is_null())
+            .order_by_asc(Column::Name)
+            .into_tuple()
+            .all(&orm(&caller.db))
+            .await;
     match rows {
-        Ok(rows) => Data(rows).into_response(),
+        Ok(rows) => Data(
+            rows.into_iter()
+                .map(|(name, kind, is_secret, scope)| {
+                    json!({ "name": name, "type": kind, "isSecret": is_secret, "scope": scope })
+                })
+                .collect::<Vec<_>>(),
+        )
+        .into_response(),
         Err(error) => {
             tracing::error!(%error, "[app-api/workflow-variables] workflow failed");
             Data(Vec::<Value>::new()).into_response()
@@ -135,14 +178,12 @@ async fn for_workflow(caller: Caller, Path(workflow_id): Path<String>) -> Respon
     }
 }
 
-async fn get_variable(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from workflow_variables t where t.id = $1 and t.deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(js_row).map(mask))
+async fn get_variable(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
+    let row = workflow_variables::Entity::find_by_id(id.to_owned())
+        .filter(Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?;
+    Ok(row.map(js).map(mask))
 }
 
 async fn get_one(caller: Caller, Path(id): Path<String>) -> Response {
@@ -179,18 +220,27 @@ async fn conflicting(
     name: &str,
     workflow_id: Option<&str>,
     exclude: Option<&str>,
-) -> Result<bool, sqlx::Error> {
-    let found: Option<String> = sqlx::query_scalar(
-        "select id from workflow_variables
-         where lower(name) = lower($1) and deleted_at is null and ($2::text is null or id <> $2)
-           and ($3::text is null or workflow_id is null or workflow_id = $3)
-         limit 1",
-    )
-    .bind(name)
-    .bind(exclude)
-    .bind(workflow_id)
-    .fetch_optional(db)
-    .await?;
+) -> Result<bool, DbErr> {
+    // `lower(name) = lower($1)`.
+    let mut found = workflow_variables::Entity::find()
+        .select_only()
+        .column(Column::Id)
+        .filter(sea_orm::ExprTrait::eq(
+            Func::lower(Expr::col(Column::Name)),
+            Func::lower(Expr::val(name)),
+        ))
+        .filter(Column::DeletedAt.is_null());
+    if let Some(exclude) = exclude {
+        found = found.filter(Column::Id.ne(exclude));
+    }
+    if let Some(workflow_id) = workflow_id {
+        found = found.filter(
+            Condition::any()
+                .add(Column::WorkflowId.is_null())
+                .add(Column::WorkflowId.eq(workflow_id)),
+        );
+    }
+    let found: Option<String> = found.limit(1).into_tuple().one(&orm(db)).await?;
     Ok(found.is_some())
 }
 
@@ -274,12 +324,15 @@ async fn create(
     };
     let result = async {
         if let Some(workflow_id) = &target {
-            let found: Option<String> = sqlx::query_scalar(
-                "select id from workflows where id = $1 and deleted_at is null limit 1",
-            )
-            .bind(workflow_id)
-            .fetch_optional(&caller.db)
-            .await?;
+            let found: Option<String> = workflows::Entity::find()
+                .select_only()
+                .column(workflows::Column::Id)
+                .filter(workflows::Column::Id.eq(workflow_id))
+                .filter(workflows::Column::DeletedAt.is_null())
+                .limit(1)
+                .into_tuple()
+                .one(&orm(&caller.db))
+                .await?;
             if found.is_none() {
                 return Err(Refusal::not_found("Workflow", workflow_id));
             }
@@ -288,28 +341,27 @@ async fn create(
             return Err(name_taken(&name));
         }
         let id = generate_id("var");
-        let stamp = now();
-        sqlx::query(
-            "insert into workflow_variables
-                (id, name, description, type, value, is_secret, scope, workflow_id, modified_by,
-                 created_at, updated_at)
-             values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::timestamp, $10::timestamp)",
-        )
-        .bind(&id)
-        .bind(&name)
-        .bind(&description)
-        .bind(kind.unwrap_or_else(|| "string".into()))
-        .bind(value.map_or(Value::Null, Value::String))
-        .bind(secret == Some(true))
-        .bind(if target.is_some() {
-            "workflow"
-        } else {
-            "global"
+        let stamp = utc_now();
+        workflow_variables::Entity::insert(workflow_variables::ActiveModel {
+            id: Set(id.clone()),
+            name: Set(name.clone()),
+            description: Set(description),
+            type_: Set(kind.unwrap_or_else(|| "string".into())),
+            value: Set(Some(value.map_or(Value::Null, Value::String))),
+            is_secret: Set(secret == Some(true)),
+            scope: Set(if target.is_some() {
+                "workflow"
+            } else {
+                "global"
+            }
+            .to_owned()),
+            workflow_id: Set(target),
+            modified_by: Set(Some(caller.user_id.clone())),
+            created_at: Set(stamp),
+            updated_at: Set(stamp),
+            ..Default::default()
         })
-        .bind(&target)
-        .bind(&caller.user_id)
-        .bind(&stamp)
-        .execute(&caller.db)
+        .exec_without_returning(&orm(&caller.db))
         .await?;
         caller.publish(
             &state,
@@ -362,27 +414,29 @@ async fn update(
         if get_variable(&caller.db, &id).await?.is_none() {
             return Err(Refusal::not_found("Workflow variable", &id));
         }
-        sqlx::query(
-            "update workflow_variables set updated_at = $2::timestamp, modified_by = $3,
-                name = case when $4 then $5 else name end,
-                description = case when $6 then $7 else description end,
-                type = case when $8 then $9 else type end,
-                value = case when $10 then $11 else value end
-             where id = $1",
-        )
-        .bind(&id)
-        .bind(now())
-        .bind(&caller.user_id)
-        .bind(!name.is_absent())
-        .bind(name.as_set())
-        .bind(!description.is_absent())
-        .bind(description.as_set())
-        .bind(!kind.is_absent())
-        .bind(kind.as_set())
-        .bind(!value.is_absent())
-        .bind(value.as_set().map(|v| Value::String(v.clone())))
-        .execute(&caller.db)
-        .await?;
+        let mut update = workflow_variables::Entity::update_many()
+            .col_expr(Column::UpdatedAt, Expr::value(utc_now()))
+            .col_expr(Column::ModifiedBy, Expr::value(&caller.user_id));
+        if !name.is_absent() {
+            update = update.col_expr(Column::Name, Expr::value(name.as_set().cloned()));
+        }
+        if !description.is_absent() {
+            update = update.col_expr(
+                Column::Description,
+                Expr::value(description.as_set().cloned()),
+            );
+        }
+        if !kind.is_absent() {
+            update = update.col_expr(Column::Type, Expr::value(kind.as_set().cloned()));
+        }
+        if !value.is_absent() {
+            let value = value.as_set().map(|v| Value::String(v.clone()));
+            update = update.col_expr(Column::Value, Expr::value(value));
+        }
+        update
+            .filter(Column::Id.eq(&id))
+            .exec(&orm(&caller.db))
+            .await?;
         caller.publish(&state, WORKFLOW_VARIABLE_UPDATED, &id, &json!({ "id": id }));
         Ok(Data(json!({ "id": id })).into_response())
     };
@@ -400,15 +454,14 @@ async fn delete(
         if get_variable(&caller.db, &id).await?.is_none() {
             return Err(Refusal::not_found("Workflow variable", &id));
         }
-        let stamp = now();
-        sqlx::query(
-            "update workflow_variables set deleted_at = $2::timestamp, updated_at = $2::timestamp
-             where id = $1 and deleted_at is null",
-        )
-        .bind(&id)
-        .bind(&stamp)
-        .execute(&caller.db)
-        .await?;
+        let stamp = utc_now();
+        workflow_variables::Entity::update_many()
+            .col_expr(Column::DeletedAt, Expr::value(stamp))
+            .col_expr(Column::UpdatedAt, Expr::value(stamp))
+            .filter(Column::Id.eq(&id))
+            .filter(Column::DeletedAt.is_null())
+            .exec(&orm(&caller.db))
+            .await?;
         caller.publish(&state, WORKFLOW_VARIABLE_DELETED, &id, &json!({ "id": id }));
         Ok(NoContent.into_response())
     };

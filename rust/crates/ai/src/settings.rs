@@ -25,21 +25,40 @@ use std::time::Duration;
 
 use aws_lc_rs::aead::{AES_256_GCM, Aad, LessSafeKey, NONCE_LEN, Nonce, UnboundKey};
 use aws_lc_rs::rand::{SecureRandom, SystemRandom};
+use sea_orm::sea_query::{Expr, OnConflict, Order, Query};
+use sea_orm::{
+    ColumnTrait, ConnectionTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
-use weldsuite_db::PgPool;
+use time::OffsetDateTime;
+use time::macros::format_description;
+use weldsuite_db::{PgPool, is_missing_table, orm, orm_error};
 use weldsuite_kit::generate_id;
 use weldsuite_ports::DynCache;
+use weldsuite_schema::tenant::{ai_provider_keys, ai_settings};
 
 use crate::catalog::{Feature, KeySource, ProviderId};
 use crate::error::AiError;
 
 /// An `ai_settings` row: providers, default provider, overrides, updated by,
 /// updated at.
-type SettingsRow = (Value, Option<String>, Value, Option<String>, Option<String>);
+type SettingsRow = (
+    Value,
+    Option<String>,
+    Value,
+    Option<String>,
+    Option<OffsetDateTime>,
+);
 /// An `ai_provider_keys` row without its ciphertext: provider, hint, status,
 /// last error, last checked at.
-type KeyRow = (String, String, String, Option<String>, Option<String>);
+type KeyRow = (
+    String,
+    String,
+    String,
+    Option<String>,
+    Option<OffsetDateTime>,
+);
 
 /// How long a workspace's settings are cached.
 pub const CACHE_TTL: Duration = Duration::from_secs(60);
@@ -109,13 +128,16 @@ pub fn cache_key(workspace_id: &str) -> String {
     format!("ai-settings:{workspace_id}")
 }
 
-/// `relation "…" does not exist`: an install whose tenant schema predates
-/// the AI settings runs on the install defaults.
-fn missing_table(error: &sqlx::Error) -> bool {
-    error
-        .as_database_error()
-        .and_then(sqlx::error::DatabaseError::code)
-        .is_some_and(|code| code == "42P01")
+/// `to_char(… at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`: UTC,
+/// milliseconds (truncated), `Z`.
+fn iso(at: OffsetDateTime) -> String {
+    let at = at.to_offset(time::UtcOffset::UTC);
+    let seconds = at
+        .format(format_description!(
+            "[year]-[month]-[day]T[hour]:[minute]:[second]"
+        ))
+        .unwrap_or_default();
+    format!("{seconds}.{:03}Z", at.millisecond())
 }
 
 /// The `providers` jsonb, keeping only providers and fields this build
@@ -154,20 +176,28 @@ pub(crate) fn parse_overrides(value: &Value) -> BTreeMap<Feature, FeatureOverrid
         .collect()
 }
 
-/// Reads the settings from the tenant database (no cache).
+/// Reads the settings from the tenant database (no cache). A tenant schema
+/// that predates the AI settings (`relation "…" does not exist`) runs on the
+/// install defaults.
 pub async fn read(tenant: &PgPool) -> Result<WorkspaceAiSettings, AiError> {
-    let row: Result<Option<SettingsRow>, _> = sqlx::query_as(
-        "select providers, default_provider, feature_overrides, updated_by,
-                    to_char(updated_at at time zone 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"')
-             from ai_settings
-             order by created_at asc
-             limit 1",
-    )
-    .fetch_optional(tenant)
-    .await;
+    use ai_settings::Column;
+    let db = orm(tenant);
+    let row = ai_settings::Entity::find()
+        .select_only()
+        .columns([
+            Column::Providers,
+            Column::DefaultProvider,
+            Column::FeatureOverrides,
+            Column::UpdatedBy,
+            Column::UpdatedAt,
+        ])
+        .order_by_asc(Column::CreatedAt)
+        .into_tuple::<SettingsRow>()
+        .one(&db)
+        .await;
     let row = match row {
         Ok(row) => row,
-        Err(error) if missing_table(&error) => {
+        Err(error) if is_missing_table(&error) => {
             tracing::warn!(
                 "[weldsuite-ai] ai_settings is missing; running on the install defaults"
             );
@@ -181,18 +211,23 @@ pub async fn read(tenant: &PgPool) -> Result<WorkspaceAiSettings, AiError> {
         settings.default_provider = default_provider.as_deref().and_then(ProviderId::parse);
         settings.feature_overrides = parse_overrides(&overrides);
         settings.updated_by = updated_by;
-        settings.updated_at = updated_at;
+        settings.updated_at = updated_at.map(iso);
     }
-    let keys: Result<Vec<KeyRow>, _> = sqlx::query_as(
-        "select provider, key_hint, status, last_error,
-                    to_char(last_checked_at at time zone 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"')
-             from ai_provider_keys",
-    )
-    .fetch_all(tenant)
-    .await;
+    let keys = ai_provider_keys::Entity::find()
+        .select_only()
+        .columns([
+            ai_provider_keys::Column::Provider,
+            ai_provider_keys::Column::KeyHint,
+            ai_provider_keys::Column::Status,
+            ai_provider_keys::Column::LastError,
+            ai_provider_keys::Column::LastCheckedAt,
+        ])
+        .into_tuple::<KeyRow>()
+        .all(&db)
+        .await;
     let keys = match keys {
         Ok(keys) => keys,
-        Err(error) if missing_table(&error) => Vec::new(),
+        Err(error) if is_missing_table(&error) => Vec::new(),
         Err(error) => return Err(error.into()),
     };
     settings.own_keys = keys
@@ -204,7 +239,7 @@ pub async fn read(tenant: &PgPool) -> Result<WorkspaceAiSettings, AiError> {
                     hint,
                     status,
                     last_error,
-                    last_checked_at,
+                    last_checked_at: last_checked_at.map(iso),
                 },
             ))
         })
@@ -276,37 +311,84 @@ pub async fn save_settings(
             )
         })
         .collect();
-    let updated = sqlx::query(
-        "update ai_settings
-         set providers = $1, default_provider = $2, feature_overrides = $3,
-             updated_by = $4, updated_at = now()
-         where id = (select id from ai_settings order by created_at asc limit 1)",
+    let default_provider = settings
+        .default_provider
+        .map(|provider| provider.as_str().to_owned());
+    let updated_by = updated_by.map(str::to_owned);
+    write_settings(
+        tenant,
+        Value::Object(providers),
+        default_provider,
+        Value::Object(overrides),
+        updated_by,
     )
-    .bind(Value::Object(providers.clone()))
-    .bind(settings.default_provider.map(ProviderId::as_str))
-    .bind(Value::Object(overrides.clone()))
-    .bind(updated_by)
-    .execute(tenant)
     .await?;
-    if updated.rows_affected() == 0 {
-        sqlx::query(
-            "insert into ai_settings
-                 (id, providers, default_provider, feature_overrides, updated_by, updated_at)
-             values ($1, $2, $3, $4, $5, now())
-             on conflict (id) do update set
-                 providers = excluded.providers,
-                 default_provider = excluded.default_provider,
-                 feature_overrides = excluded.feature_overrides,
-                 updated_by = excluded.updated_by,
-                 updated_at = excluded.updated_at",
+    Ok(())
+}
+
+/// The oldest `ai_settings` row gets the values, `updated_at = now()`; with
+/// none, the singleton row is inserted (or updated, if it appeared since).
+async fn write_settings(
+    tenant: &PgPool,
+    providers: Value,
+    default_provider: Option<String>,
+    overrides: Value,
+    updated_by: Option<String>,
+) -> Result<(), DbErr> {
+    use ai_settings::Column;
+    let db = orm(tenant);
+    // `where id = (select id from ai_settings order by created_at asc limit 1)`
+    let oldest = Query::select()
+        .column(Column::Id)
+        .from(ai_settings::Entity)
+        .order_by(Column::CreatedAt, Order::Asc)
+        .limit(1)
+        .to_owned();
+    let updated = ai_settings::Entity::update_many()
+        .col_expr(Column::Providers, Expr::value(providers.clone()))
+        .col_expr(
+            Column::DefaultProvider,
+            Expr::value(default_provider.clone()),
         )
-        .bind(SETTINGS_ROW_ID)
-        .bind(Value::Object(providers))
-        .bind(settings.default_provider.map(ProviderId::as_str))
-        .bind(Value::Object(overrides))
-        .bind(updated_by)
-        .execute(tenant)
+        .col_expr(Column::FeatureOverrides, Expr::value(overrides.clone()))
+        .col_expr(Column::UpdatedBy, Expr::value(updated_by.clone()))
+        .col_expr(Column::UpdatedAt, Expr::current_timestamp())
+        .filter(Column::Id.in_subquery(oldest))
+        .exec(&db)
         .await?;
+    if updated.rows_affected == 0 {
+        let insert = Query::insert()
+            .into_table(ai_settings::Entity)
+            .columns([
+                Column::Id,
+                Column::Providers,
+                Column::DefaultProvider,
+                Column::FeatureOverrides,
+                Column::UpdatedBy,
+                Column::UpdatedAt,
+            ])
+            .values([
+                Expr::value(SETTINGS_ROW_ID),
+                Expr::value(providers),
+                Expr::value(default_provider),
+                Expr::value(overrides),
+                Expr::value(updated_by),
+                Expr::current_timestamp(),
+            ])
+            .map_err(|error| DbErr::Custom(error.to_string()))?
+            .on_conflict(
+                OnConflict::column(Column::Id)
+                    .update_columns([
+                        Column::Providers,
+                        Column::DefaultProvider,
+                        Column::FeatureOverrides,
+                        Column::UpdatedBy,
+                        Column::UpdatedAt,
+                    ])
+                    .to_owned(),
+            )
+            .to_owned();
+        db.execute(&insert).await?;
     }
     Ok(())
 }
@@ -328,44 +410,78 @@ pub async fn put_key(
     }
     let ciphertext = seal_key(encryption_key, workspace_id, provider, key)?;
     let hint = key_hint(key);
-    let checked_at: Option<String> = sqlx::query_scalar(
-        "insert into ai_provider_keys
-             (id, provider, ciphertext, key_hint, status, last_error, last_checked_at,
-              created_by, created_at, updated_at)
-         values ($1, $2, $3, $4, 'ok', null, now(), $5, now(), now())
-         on conflict (provider) do update set
-             ciphertext = excluded.ciphertext,
-             key_hint = excluded.key_hint,
-             status = 'ok',
-             last_error = null,
-             last_checked_at = excluded.last_checked_at,
-             created_by = excluded.created_by,
-             updated_at = now()
-         returning to_char(last_checked_at at time zone 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"')",
-    )
-    .bind(generate_id("aipk"))
-    .bind(provider.as_str())
-    .bind(&ciphertext)
-    .bind(&hint)
-    .bind(created_by)
-    .fetch_one(tenant)
-    .await?;
+    let checked_at = upsert_key(tenant, provider, ciphertext, &hint, created_by).await?;
     Ok(OwnKeyStatus {
         hint,
         status: KEY_OK.to_owned(),
         last_error: None,
-        last_checked_at: checked_at,
+        last_checked_at: checked_at.map(iso),
     })
+}
+
+/// `insert … on conflict (provider) do update`: the key as `ok`, checked
+/// `now()`. Its `last_checked_at`.
+async fn upsert_key(
+    tenant: &PgPool,
+    provider: ProviderId,
+    ciphertext: String,
+    hint: &str,
+    created_by: Option<&str>,
+) -> Result<Option<OffsetDateTime>, DbErr> {
+    use ai_provider_keys::Column;
+    let insert = Query::insert()
+        .into_table(ai_provider_keys::Entity)
+        .columns([
+            Column::Id,
+            Column::Provider,
+            Column::Ciphertext,
+            Column::KeyHint,
+            Column::Status,
+            Column::LastError,
+            Column::LastCheckedAt,
+            Column::CreatedBy,
+            Column::CreatedAt,
+            Column::UpdatedAt,
+        ])
+        .values([
+            Expr::value(generate_id("aipk")),
+            Expr::value(provider.as_str()),
+            Expr::value(ciphertext),
+            Expr::value(hint.to_owned()),
+            Expr::value(KEY_OK),
+            Expr::value(None::<String>),
+            Expr::current_timestamp(),
+            Expr::value(created_by.map(str::to_owned)),
+            Expr::current_timestamp(),
+            Expr::current_timestamp(),
+        ])
+        .map_err(|error| DbErr::Custom(error.to_string()))?
+        .on_conflict(
+            OnConflict::column(Column::Provider)
+                .update_columns([Column::Ciphertext, Column::KeyHint])
+                .value(Column::Status, Expr::value(KEY_OK))
+                .value(Column::LastError, Expr::value(None::<String>))
+                .update_columns([Column::LastCheckedAt, Column::CreatedBy])
+                .value(Column::UpdatedAt, Expr::current_timestamp())
+                .to_owned(),
+        )
+        .returning_col(Column::LastCheckedAt)
+        .to_owned();
+    let row = orm(tenant)
+        .query_one(&insert)
+        .await?
+        .ok_or(DbErr::RecordNotInserted)?;
+    row.try_get("", "last_checked_at")
 }
 
 /// Removes an own key (`DELETE /api/ai-settings/keys/:provider`). Whether
 /// there was one.
 pub async fn delete_key(tenant: &PgPool, provider: ProviderId) -> Result<bool, AiError> {
-    let deleted = sqlx::query("delete from ai_provider_keys where provider = $1")
-        .bind(provider.as_str())
-        .execute(tenant)
+    let deleted = ai_provider_keys::Entity::delete_many()
+        .filter(ai_provider_keys::Column::Provider.eq(provider.as_str()))
+        .exec(&orm(tenant))
         .await?;
-    Ok(deleted.rows_affected() > 0)
+    Ok(deleted.rows_affected > 0)
 }
 
 /// The own key for `provider`, opened; `None` without one.
@@ -375,11 +491,13 @@ pub async fn own_key(
     workspace_id: &str,
     provider: ProviderId,
 ) -> Result<Option<String>, AiError> {
-    let ciphertext: Option<String> =
-        sqlx::query_scalar("select ciphertext from ai_provider_keys where provider = $1 limit 1")
-            .bind(provider.as_str())
-            .fetch_optional(tenant)
-            .await?;
+    let ciphertext: Option<String> = ai_provider_keys::Entity::find()
+        .select_only()
+        .column(ai_provider_keys::Column::Ciphertext)
+        .filter(ai_provider_keys::Column::Provider.eq(provider.as_str()))
+        .into_tuple()
+        .one(&orm(tenant))
+        .await?;
     ciphertext
         .map(|sealed| open_key(encryption_key, workspace_id, provider, &sealed))
         .transpose()
@@ -479,22 +597,21 @@ pub async fn mark_key(
     provider: ProviderId,
     failing: Option<&str>,
 ) -> Result<(), AiError> {
+    use ai_provider_keys::Column;
     let status = if failing.is_some() {
         KEY_FAILING
     } else {
         KEY_OK
     };
     let reason = failing.map(|reason| reason.chars().take(500).collect::<String>());
-    sqlx::query(
-        "update ai_provider_keys
-         set status = $2, last_error = $3, last_checked_at = now(), updated_at = now()
-         where provider = $1",
-    )
-    .bind(provider.as_str())
-    .bind(status)
-    .bind(reason)
-    .execute(tenant)
-    .await?;
+    ai_provider_keys::Entity::update_many()
+        .col_expr(Column::Status, Expr::value(status))
+        .col_expr(Column::LastError, Expr::value(reason))
+        .col_expr(Column::LastCheckedAt, Expr::current_timestamp())
+        .col_expr(Column::UpdatedAt, Expr::current_timestamp())
+        .filter(Column::Provider.eq(provider.as_str()))
+        .exec(&orm(tenant))
+        .await?;
     Ok(())
 }
 
@@ -523,6 +640,10 @@ pub struct UsageReport {
 
 /// Credits and tokens per provider, feature and key source, this month and
 /// last month (UTC), from the master `ai_provider_usage`.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "a report: the month bounds come from the database clock in a CTE (`date_trunc`), grouped by `split_part` of the model id"
+)]
 pub async fn usage(master: &PgPool, workspace_id: &str) -> Result<UsageReport, AiError> {
     type Row = (String, String, Option<String>, String, i64, i64, i64, i64);
     let rows: Vec<Row> = sqlx::query_as(
@@ -545,7 +666,8 @@ pub async fn usage(master: &PgPool, workspace_id: &str) -> Result<UsageReport, A
     )
     .bind(workspace_id)
     .fetch_all(master)
-    .await?;
+    .await
+    .map_err(orm_error)?;
     let mut report = UsageReport {
         this_month: Vec::new(),
         last_month: Vec::new(),

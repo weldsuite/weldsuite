@@ -70,6 +70,9 @@
  *     // OIDC_DESKTOP_CLIENT_ID: the desktop app's native client (system
  *     // browser, loopback redirect; apps/desktop/docs/auth-handoff.md)
  *     "desktopClientId": "300000000000000500",
+ *     // OIDC_EXTENSION_CLIENT_ID: the WeldPass browser extension's client
+ *     // (chromiumapp.org redirect; apps/web/weldpass-extension, ADR PASS-009)
+ *     "extensionClientId": "300000000000000600",
  *     "audience": "300000000000000100",         // first OIDC_AUDIENCE (Zitadel: the project id)
  *     "orgClaim": "urn:zitadel:iam:org:project:300000000000000100:roles", // OIDC_ORG_CLAIM
  *     // Optional, frontend only (defaults suit Zitadel):

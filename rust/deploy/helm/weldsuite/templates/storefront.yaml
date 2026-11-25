@@ -1,0 +1,207 @@
+{{- if .Values.storefront.enabled }}
+{{- with .Values.storefront }}
+{{- if not (or .baseDomain .customDomains.enabled) }}
+{{- fail "storefront.enabled needs storefront.baseDomain (free shop addresses), storefront.customDomains.enabled, or both" }}
+{{- end }}
+{{- if and .customDomains.enabled (not .customDomains.cnameTarget) }}
+{{- fail "storefront.customDomains.enabled needs storefront.customDomains.cnameTarget (e.g. shops.<domain>, pointing at the ingress load balancer)" }}
+{{- end }}
+{{- with .baseDomain }}
+{{- $base := lower . }}
+{{- if not (regexMatch "^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$" $base) }}
+{{- fail (printf "storefront.baseDomain must be a domain name such as shops.example.com (no scheme, port or wildcard), got %q" .) }}
+{{- end }}
+{{- /* The wildcard Ingress would take the platform's own host, and a shop could set its cookies. */}}
+{{- $hosts := list }}
+{{- range $.Values.ingress.hosts }}{{- $hosts = append $hosts (lower .host) }}{{- end }}
+{{- with $.Values.config.publicUrl }}{{- $hosts = append $hosts (regexReplaceAll "^https?://([^/:]+).*$" (lower .) "${1}") }}{{- end }}
+{{- range $hosts }}
+{{- if or (eq . $base) (hasSuffix (printf ".%s" $base) .) }}
+{{- fail (printf "storefront.baseDomain %s must be a domain of its own: the platform's host %s is under it" $base .) }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- $taken := list 8080 }}
+{{- if $.Values.metrics.enabled }}{{- $taken = append $taken (int $.Values.metrics.port) }}{{- end }}
+{{- if include "weldsuite.restate.ingressUrl" $ }}{{- $taken = append $taken (int $.Values.config.jobs.port) }}{{- end }}
+{{- if has (int .edgePort) $taken }}
+{{- fail (printf "storefront.edgePort %v is taken by another of the server's ports" .edgePort) }}
+{{- end }}
+{{- end }}
+{{- if and (not .Values.secret.generate) (not .Values.secret.existingSecret) (not (hasKey (.Values.secret.values | default dict) "STOREFRONT_RENDERER_SECRET")) }}
+{{- fail "storefront.enabled needs STOREFRONT_RENDERER_SECRET: set secret.generate, or put it in the Secret (secret.values or secret.existingSecret); the renderer and the server share it" }}
+{{- end }}
+{{- $renderer := .Values.storefront.renderer }}
+# WeldCommerce's storefront renderer (ADR COM-015): TanStack Start's Node
+# build, which draws the builder shops' pages. Only the server's storefront
+# edge calls it (STOREFRONT_RENDERER_URL), with STOREFRONT_RENDERER_SECRET in
+# a header (anything without it gets a 404, the probes' /healthz aside), and
+# it calls the server's /public/storefront and /storefront/v1 with the same
+# secret and the shop's host. No Ingress: shop hosts reach the edge, never
+# the renderer.
+{{- if .Values.serviceAccount.create }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "weldsuite.storefront.fullname" . }}
+  labels:
+    {{- include "weldsuite.storefront.labels" . | nindent 4 }}
+automountServiceAccountToken: false
+---
+{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "weldsuite.storefront.fullname" . }}
+  labels:
+    {{- include "weldsuite.storefront.labels" . | nindent 4 }}
+spec:
+  {{- if not $renderer.autoscaling.enabled }}
+  replicas: {{ $renderer.replicaCount }}
+  {{- end }}
+  revisionHistoryLimit: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      {{- include "weldsuite.storefront.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- if not .Values.secret.existingSecret }}
+      annotations:
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+      {{- end }}
+      labels:
+        {{- include "weldsuite.storefront.labels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ if .Values.serviceAccount.create }}{{ include "weldsuite.storefront.fullname" . }}{{ else }}{{ include "weldsuite.serviceAccountName" . }}{{ end }}
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 20
+      securityContext:
+        {{- toYaml ($renderer.podSecurityContext | default .Values.podSecurityContext) | nindent 8 }}
+      containers:
+        - name: storefront
+          image: "{{ $renderer.image.repository }}:{{ $renderer.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ $renderer.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+          env:
+            - name: PORT
+              value: "3000"
+            - name: STOREFRONT_API_URL
+              value: {{ include "weldsuite.storefront.apiUrl" . | quote }}
+            - name: STOREFRONT_RENDERER_SECRET
+              valueFrom:
+                {{- include "weldsuite.secretKeyRef" (dict "root" . "key" "STOREFRONT_RENDERER_SECRET") | nindent 16 }}
+            {{- with include "weldsuite.storefront.editorOrigins" . }}
+            - name: STOREFRONT_EDITOR_ORIGINS
+              value: {{ . | quote }}
+            {{- end }}
+            {{- /* Contact-form sections embed WeldForms' respondent page. */}}
+            {{- if .Values.formsPortal.enabled }}
+            {{- with .Values.config.forms.portalUrl }}
+            - name: FORMS_PORTAL_URL
+              value: {{ . | quote }}
+            {{- end }}
+            {{- end }}
+          startupProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 2
+            failureThreshold: 30
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 5
+            failureThreshold: 2
+          securityContext:
+            {{- toYaml ($renderer.securityContext | default .Values.securityContext) | nindent 12 }}
+          resources:
+            {{- toYaml $renderer.resources | nindent 12 }}
+      {{- if .Values.topologySpread.enabled }}
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              {{- include "weldsuite.storefront.selectorLabels" . | nindent 14 }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+---
+# Port 3000, as STOREFRONT_RENDERER_URL names it.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "weldsuite.storefront.fullname" . }}
+  labels:
+    {{- include "weldsuite.storefront.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - port: 3000
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "weldsuite.storefront.selectorLabels" . | nindent 4 }}
+{{- with $renderer.autoscaling }}
+{{- if .enabled }}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "weldsuite.storefront.fullname" $ }}
+  labels:
+    {{- include "weldsuite.storefront.labels" $ | nindent 4 }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "weldsuite.storefront.fullname" $ }}
+  minReplicas: {{ .minReplicas }}
+  maxReplicas: {{ .maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .targetCPUUtilizationPercentage }}
+{{- end }}
+{{- end }}
+{{- with $renderer.podDisruptionBudget }}
+{{- if .enabled }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "weldsuite.storefront.fullname" $ }}
+  labels:
+    {{- include "weldsuite.storefront.labels" $ | nindent 4 }}
+spec:
+  minAvailable: {{ .minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "weldsuite.storefront.selectorLabels" $ | nindent 6 }}
+{{- end }}
+{{- end }}
+{{- end }}

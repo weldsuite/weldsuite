@@ -22,21 +22,30 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use http::HeaderMap;
 use http::header::ACCEPT_LANGUAGE;
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, ConnectionTrait, DbErr, EntityTrait, QueryFilter, QueryOrder,
+    QuerySelect,
+};
 use serde_json::{Map, Value};
+use time::OffsetDateTime;
 use weldsuite_catalogs::entity_events::{
     EventName, PANEL_DASHBOARD_CREATED, PANEL_DASHBOARD_DELETED, PANEL_DASHBOARD_UPDATED,
     PANEL_REPORT_CREATED,
 };
-use weldsuite_db::PgPool;
+use weldsuite_db::{OrmConn, PgPool, orm, orm_error};
 use weldsuite_kit::{ApiError, Created, Data, List, NoContent, Pagination};
 use weldsuite_panel_domain::js;
 use weldsuite_permissions::Permissions;
+use weldsuite_schema::tenant::{
+    panel_dashboard_tiles as tiles, panel_dashboards as dashboards, panel_reports as reports,
+};
 use weldsuite_zod::{Keys, Z};
 
 use crate::saved::{
     Actor, PROJECT_ID, SCOPES, can_change, can_see, dashboard_detail, dashboard_dto,
-    dashboard_event_data, field, get_dashboard, get_report, list_tiles, project_exists,
-    report_event_data, rows, scope_condition, stored_filters, text, tile_dto,
+    dashboard_event_data, field, get_dashboard, get_report, js_row, list_tiles, project_exists,
+    report_event_data, scope_filter, stored_filters, text, tile_dto,
 };
 use crate::schemas_gen::{
     ADD_PANEL_DASHBOARD_TILE, CREATE_PANEL_DASHBOARD, CREATE_PANEL_DASHBOARD_FROM_TEMPLATE,
@@ -100,38 +109,42 @@ async fn update_dashboard(
     db: &PgPool,
     id: &str,
     input: &Map<String, Value>,
-) -> Result<Option<Value>, sqlx::Error> {
-    let filters = input
-        .get("filters")
-        .map(|filters| stored_filters(Some(filters)));
-    let row: Option<Value> = sqlx::query_scalar(
-        "update panel_dashboards as d set
-           name = coalesce($2, d.name),
-           description = case when $3 then $4 else d.description end,
-           visibility = coalesce($5, d.visibility),
-           filters = case when $6 then $7::jsonb else d.filters end,
-           updated_at = now()
-         where d.id = $1 and d.deleted_at is null
-         returning to_jsonb(d)",
-    )
-    .bind(id)
-    .bind(input.get("name").and_then(Value::as_str))
-    .bind(input.contains_key("description"))
-    .bind(input.get("description").and_then(Value::as_str))
-    .bind(input.get("visibility").and_then(Value::as_str))
-    .bind(filters.is_some())
-    .bind(filters.filter(|filters| !filters.is_null()))
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(weldsuite_db::js_row))
+) -> Result<Option<Value>, DbErr> {
+    let mut update = dashboards::Entity::update_many();
+    if let Some(name) = input.get("name").and_then(Value::as_str) {
+        update = update.col_expr(dashboards::Column::Name, Expr::value(name));
+    }
+    if input.contains_key("description") {
+        let description = input.get("description").and_then(Value::as_str);
+        update = update.col_expr(
+            dashboards::Column::Description,
+            Expr::value(description.map(str::to_owned)),
+        );
+    }
+    if let Some(visibility) = input.get("visibility").and_then(Value::as_str) {
+        update = update.col_expr(dashboards::Column::Visibility, Expr::value(visibility));
+    }
+    if let Some(filters) = input.get("filters") {
+        let filters = stored_filters(Some(filters));
+        update = update.col_expr(
+            dashboards::Column::Filters,
+            Expr::value((!filters.is_null()).then_some(filters)),
+        );
+    }
+    update
+        .col_expr(dashboards::Column::UpdatedAt, Expr::current_timestamp())
+        .filter(dashboards::Column::Id.eq(id))
+        .filter(dashboards::Column::DeletedAt.is_null())
+        .exec_with_returning(&orm(db))
+        .await?
+        .into_iter()
+        .next()
+        .map(js_row)
+        .transpose()
 }
 
 /// `updateDashboard(db, id, {})` after a tile change, and its `updated` event.
-async fn touch(
-    caller: &Caller,
-    state: &PanelState,
-    id: &str,
-) -> Result<Option<Value>, sqlx::Error> {
+async fn touch(caller: &Caller, state: &PanelState, id: &str) -> Result<Option<Value>, DbErr> {
     let dashboard = update_dashboard(&caller.db, id, &Map::new()).await?;
     if let Some(dashboard) = &dashboard {
         publish(caller, state, dashboard, PANEL_DASHBOARD_UPDATED);
@@ -150,22 +163,26 @@ pub(crate) async fn list(
         Err(response) => return response,
     };
     let actor = Actor::of(&caller, &permissions);
-    let sql = format!(
-        "select to_jsonb(d) from panel_dashboards d
-         where d.deleted_at is null and {}
-           and ($3::text is null or d.project_id = $3)
-         order by d.updated_at desc limit 500",
-        scope_condition("d")
-    );
-    let found: Result<Vec<Value>, sqlx::Error> = sqlx::query_scalar(sqlx::AssertSqlSafe(sql))
-        .bind(&actor.user_id)
-        .bind(query.text("scope").unwrap_or("all"))
-        .bind(query.text("projectId"))
-        .fetch_all(&caller.db)
-        .await;
+    let mut find = dashboards::Entity::find()
+        .filter(dashboards::Column::DeletedAt.is_null())
+        .filter(scope_filter(
+            dashboards::Column::OwnerUserId,
+            dashboards::Column::Visibility,
+            &actor.user_id,
+            query.text("scope").unwrap_or("all"),
+        ));
+    if let Some(project_id) = query.text("projectId") {
+        find = find.filter(dashboards::Column::ProjectId.eq(project_id));
+    }
+    let found = find
+        .order_by_desc(dashboards::Column::UpdatedAt)
+        .limit(500)
+        .all(&orm(&caller.db))
+        .await
+        .and_then(|found| found.into_iter().map(js_row).collect::<Result<Vec<_>, _>>());
     match found {
         Ok(found) => {
-            let dashboards: Vec<Value> = rows(found).iter().map(dashboard_dto).collect();
+            let dashboards: Vec<Value> = found.iter().map(dashboard_dto).collect();
             let count = dashboards.len() as u64;
             List::new(dashboards, Pagination::new(count, false, None)).into_response()
         }
@@ -194,24 +211,25 @@ pub(crate) async fn create(
         Err(error) => return unexpected(&error, "create dashboard"),
     }
     let filters = stored_filters(input.get("filters"));
-    let created: Result<Value, sqlx::Error> = sqlx::query_scalar(
-        "insert into panel_dashboards as d
-           (id, project_id, name, description, owner_user_id, visibility, filters, template)
-         values ($1, $2, $3, $4, $5, $6, $7::jsonb, null)
-         returning to_jsonb(d)",
-    )
-    .bind(weldsuite_kit::id::generate_id("pnd"))
-    .bind(&project_id)
-    .bind(input.text("name"))
-    .bind(input.get("description").and_then(Value::as_str))
-    .bind(&caller.user_id)
-    .bind(input.text("visibility").unwrap_or("private"))
-    .bind((!filters.is_null()).then_some(&filters))
-    .fetch_one(&caller.db)
-    .await;
+    let created = dashboards::Entity::insert(dashboards::ActiveModel {
+        id: Set(weldsuite_kit::id::generate_id("pnd")),
+        project_id: Set(project_id.clone()),
+        name: Set(input.text("name").unwrap_or_default().to_owned()),
+        description: Set(input
+            .get("description")
+            .and_then(Value::as_str)
+            .map(str::to_owned)),
+        owner_user_id: Set(caller.user_id.clone()),
+        visibility: Set(input.text("visibility").unwrap_or("private").to_owned()),
+        filters: Set((!filters.is_null()).then_some(filters)),
+        template: Set(None),
+        ..Default::default()
+    })
+    .exec_with_returning(&orm(&caller.db))
+    .await
+    .and_then(js_row);
     match created {
-        Ok(row) => {
-            let dashboard = weldsuite_db::js_row(row);
+        Ok(dashboard) => {
             publish(&caller, &state, &dashboard, PANEL_DASHBOARD_CREATED);
             Created(dashboard_dto(&dashboard)).into_response()
         }
@@ -304,7 +322,7 @@ async fn create_from_template(
     template: &Template,
     input: &Map<String, Value>,
     locale: &str,
-) -> Result<FromTemplate, sqlx::Error> {
+) -> Result<FromTemplate, DbErr> {
     let text_of = |key: &str| input.get(key).and_then(Value::as_str);
     let project_id = text_of("projectId").unwrap_or_default();
     let visibility = text_of("visibility").unwrap_or("private");
@@ -314,67 +332,112 @@ async fn create_from_template(
     let start = caller.now().unwrap_or_else(js::now_millis);
     let (tiles, new_reports) = plan_template(template, project_id, locale);
 
-    let mut tx = caller.db.begin().await?;
-    let mut reports = Vec::with_capacity(new_reports.len());
+    let mut tx = caller.db.begin().await.map_err(orm_error)?;
+    let written = {
+        let conn = OrmConn::new(&mut tx);
+        let written = Written {
+            caller,
+            template,
+            dashboard_id: &dashboard_id,
+            project_id,
+            visibility,
+            name,
+            locale,
+            start,
+        };
+        write_template(&conn, &written, tiles, new_reports).await?
+    };
+    tx.commit().await.map_err(orm_error)?;
+    Ok(written)
+}
+
+/// What every row a template writes shares.
+struct Written<'a> {
+    caller: &'a Caller,
+    template: &'a Template,
+    dashboard_id: &'a str,
+    project_id: &'a str,
+    visibility: &'a str,
+    name: &'a str,
+    locale: &'a str,
+    /// The first tile's creation time (milliseconds).
+    start: i64,
+}
+
+/// The template's reports, its dashboard and the tiles, in that order, on
+/// the transaction's connection.
+async fn write_template(
+    conn: &impl ConnectionTrait,
+    written: &Written<'_>,
+    tiles: Vec<NewTile>,
+    new_reports: Vec<NewReport>,
+) -> Result<FromTemplate, DbErr> {
+    let &Written {
+        caller,
+        template,
+        dashboard_id,
+        project_id,
+        visibility,
+        name,
+        locale,
+        start,
+    } = written;
+    let mut created = Vec::with_capacity(new_reports.len());
     for report in new_reports {
+        // `kind` is not null: a spec without one fails as the insert did.
         let kind = report
             .spec
             .get("kind")
             .and_then(Value::as_str)
-            .map(str::to_owned);
-        let row: Value = sqlx::query_scalar(
-            "insert into panel_reports as r
-               (id, project_id, kind, name, description, spec, owner_user_id, visibility)
-             values ($1, $2, $3, $4, null, $5, $6, $7)
-             returning to_jsonb(r)",
-        )
-        .bind(&report.id)
-        .bind(project_id)
-        .bind(kind)
-        .bind(report.name)
-        .bind(Value::Object(report.spec))
-        .bind(&caller.user_id)
-        .bind(visibility)
-        .fetch_one(&mut *tx)
+            .map(str::to_owned)
+            .ok_or_else(|| DbErr::Custom("a template report without a kind".to_owned()))?;
+        let row = reports::Entity::insert(reports::ActiveModel {
+            id: Set(report.id),
+            project_id: Set(project_id.to_owned()),
+            kind: Set(kind),
+            name: Set(report.name.to_owned()),
+            description: Set(None),
+            spec: Set(Value::Object(report.spec)),
+            owner_user_id: Set(caller.user_id.clone()),
+            visibility: Set(visibility.to_owned()),
+            ..Default::default()
+        })
+        .exec_with_returning(conn)
         .await?;
-        reports.push(weldsuite_db::js_row(row));
+        created.push(js_row(row)?);
     }
-    let dashboard: Value = sqlx::query_scalar(
-        "insert into panel_dashboards as d
-           (id, project_id, name, description, owner_user_id, visibility, filters, template)
-         values ($1, $2, $3, $4, $5, $6, null, $7)
-         returning to_jsonb(d)",
-    )
-    .bind(&dashboard_id)
-    .bind(project_id)
-    .bind(name)
-    .bind(template.description.get(locale))
-    .bind(&caller.user_id)
-    .bind(visibility)
-    .bind(template.id)
-    .fetch_one(&mut *tx)
+    let dashboard = dashboards::Entity::insert(dashboards::ActiveModel {
+        id: Set(dashboard_id.to_owned()),
+        project_id: Set(project_id.to_owned()),
+        name: Set(name.to_owned()),
+        description: Set(Some(template.description.get(locale).to_owned())),
+        owner_user_id: Set(caller.user_id.clone()),
+        visibility: Set(visibility.to_owned()),
+        filters: Set(None),
+        template: Set(Some(template.id.to_owned())),
+        ..Default::default()
+    })
+    .exec_with_returning(conn)
     .await?;
     for (offset, tile) in tiles.into_iter().enumerate() {
-        let created_at = js::iso_string(start + i64::try_from(offset).unwrap_or(0));
-        sqlx::query(
-            "insert into panel_dashboard_tiles
-               (id, dashboard_id, kind, report_id, text, layout, created_at)
-             values ($1, $2, $3, $4, $5, $6, $7::timestamptz)",
-        )
-        .bind(tile.id)
-        .bind(&dashboard_id)
-        .bind(tile.kind)
-        .bind(tile.report_id)
-        .bind(tile.text)
-        .bind(tile.layout)
-        .bind(created_at)
-        .execute(&mut *tx)
+        let millis = start + i64::try_from(offset).unwrap_or(0);
+        let created_at = OffsetDateTime::from_unix_timestamp_nanos(i128::from(millis) * 1_000_000)
+            .map_err(|error| DbErr::Custom(error.to_string()))?;
+        tiles::Entity::insert(tiles::ActiveModel {
+            id: Set(tile.id),
+            dashboard_id: Set(dashboard_id.to_owned()),
+            kind: Set(tile.kind.to_owned()),
+            report_id: Set(tile.report_id),
+            text: Set(tile.text.map(str::to_owned)),
+            layout: Set(tile.layout),
+            created_at: Set(created_at),
+        })
+        .exec_without_returning(conn)
         .await?;
     }
-    tx.commit().await?;
     Ok(FromTemplate {
-        dashboard: weldsuite_db::js_row(dashboard),
-        reports,
+        dashboard: js_row(dashboard)?,
+        reports: created,
     })
 }
 
@@ -483,22 +546,23 @@ pub(crate) async fn remove(
         Err(response) => return *response,
     };
     let found_id = text(&found, "id").to_owned();
-    let deleted: Result<Option<Value>, sqlx::Error> = sqlx::query_scalar(
-        "update panel_dashboards as d set deleted_at = now(), updated_at = now()
-         where d.id = $1 and d.deleted_at is null
-         returning to_jsonb(d)",
-    )
-    .bind(&found_id)
-    .fetch_optional(&caller.db)
-    .await;
+    let db = orm(&caller.db);
+    let deleted = dashboards::Entity::update_many()
+        .col_expr(dashboards::Column::DeletedAt, Expr::current_timestamp())
+        .col_expr(dashboards::Column::UpdatedAt, Expr::current_timestamp())
+        .filter(dashboards::Column::Id.eq(&found_id))
+        .filter(dashboards::Column::DeletedAt.is_null())
+        .exec_with_returning(&db)
+        .await
+        .and_then(|rows| rows.into_iter().next().map(js_row).transpose());
     let dashboard = match deleted {
-        Ok(Some(row)) => weldsuite_db::js_row(row),
+        Ok(Some(row)) => row,
         Ok(None) => return ApiError::not_found("Dashboard", Some(&found_id)).into_response(),
         Err(error) => return unexpected(&error, "delete dashboard"),
     };
-    if let Err(error) = sqlx::query("delete from panel_dashboard_tiles where dashboard_id = $1")
-        .bind(&found_id)
-        .execute(&caller.db)
+    if let Err(error) = tiles::Entity::delete_many()
+        .filter(tiles::Column::DashboardId.eq(&found_id))
+        .exec(&db)
         .await
     {
         return unexpected(&error, "delete dashboard");
@@ -547,21 +611,20 @@ pub(crate) async fn add_tile(
             _ => return ApiError::not_found("Report", Some(&wanted)).into_response(),
         }
     };
-    let added: Result<Value, sqlx::Error> = sqlx::query_scalar(
-        "insert into panel_dashboard_tiles as t (id, dashboard_id, kind, report_id, text, layout)
-         values ($1, $2, $3, $4, $5, $6)
-         returning to_jsonb(t)",
-    )
-    .bind(weldsuite_kit::id::generate_id("pnt"))
-    .bind(&dashboard_id)
-    .bind(kind)
-    .bind(report_id)
-    .bind(tile_text)
-    .bind(&layout)
-    .fetch_one(&caller.db)
-    .await;
+    let added = tiles::Entity::insert(tiles::ActiveModel {
+        id: Set(weldsuite_kit::id::generate_id("pnt")),
+        dashboard_id: Set(dashboard_id.clone()),
+        kind: Set(kind.to_owned()),
+        report_id: Set(report_id),
+        text: Set(tile_text),
+        layout: Set(layout),
+        ..Default::default()
+    })
+    .exec_with_returning(&orm(&caller.db))
+    .await
+    .and_then(js_row);
     let tile = match added {
-        Ok(row) => weldsuite_db::js_row(row),
+        Ok(row) => row,
         Err(error) => return unexpected(&error, "add tile"),
     };
     if let Err(error) = touch(&caller, &state, &dashboard_id).await {
@@ -570,20 +633,13 @@ pub(crate) async fn add_tile(
     Created(tile_dto(&tile)).into_response()
 }
 
-async fn get_tile(
-    db: &PgPool,
-    dashboard_id: &str,
-    tile_id: &str,
-) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from panel_dashboard_tiles t
-         where t.id = $1 and t.dashboard_id = $2 limit 1",
-    )
-    .bind(tile_id)
-    .bind(dashboard_id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(weldsuite_db::js_row))
+async fn get_tile(db: &PgPool, dashboard_id: &str, tile_id: &str) -> Result<Option<Value>, DbErr> {
+    tiles::Entity::find_by_id(tile_id)
+        .filter(tiles::Column::DashboardId.eq(dashboard_id))
+        .one(&orm(db))
+        .await?
+        .map(js_row)
+        .transpose()
 }
 
 /// `updateTile`: moves or resizes a tile, or changes a text tile's Markdown.
@@ -593,21 +649,27 @@ async fn update_tile(
     tile_id: &str,
     layout: Option<&Value>,
     tile_text: Option<&str>,
-) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "update panel_dashboard_tiles as t set
-           layout = coalesce($3, t.layout),
-           text = coalesce($4, t.text)
-         where t.id = $1 and t.dashboard_id = $2
-         returning to_jsonb(t)",
-    )
-    .bind(tile_id)
-    .bind(dashboard_id)
-    .bind(layout)
-    .bind(tile_text)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(weldsuite_db::js_row))
+) -> Result<Option<Value>, DbErr> {
+    if layout.is_none() && tile_text.is_none() {
+        // Nothing to set: the row as it is.
+        return get_tile(db, dashboard_id, tile_id).await;
+    }
+    let mut update = tiles::Entity::update_many();
+    if let Some(layout) = layout {
+        update = update.col_expr(tiles::Column::Layout, Expr::value(layout.clone()));
+    }
+    if let Some(tile_text) = tile_text {
+        update = update.col_expr(tiles::Column::Text, Expr::value(tile_text));
+    }
+    update
+        .filter(tiles::Column::Id.eq(tile_id))
+        .filter(tiles::Column::DashboardId.eq(dashboard_id))
+        .exec_with_returning(&orm(db))
+        .await?
+        .into_iter()
+        .next()
+        .map(js_row)
+        .transpose()
 }
 
 /// `PATCH /:id/tiles/:tileId`.
@@ -670,16 +732,14 @@ pub(crate) async fn remove_tile(
         Err(response) => return *response,
     };
     let dashboard_id = text(&found, "id").to_owned();
-    let removed: Result<Option<String>, sqlx::Error> = sqlx::query_scalar(
-        "delete from panel_dashboard_tiles where id = $1 and dashboard_id = $2 returning id",
-    )
-    .bind(&tile_id)
-    .bind(&dashboard_id)
-    .fetch_optional(&caller.db)
-    .await;
+    let removed = tiles::Entity::delete_many()
+        .filter(tiles::Column::Id.eq(&tile_id))
+        .filter(tiles::Column::DashboardId.eq(&dashboard_id))
+        .exec(&orm(&caller.db))
+        .await;
     match removed {
-        Ok(Some(_)) => {}
-        Ok(None) => return ApiError::not_found("Tile", Some(&tile_id)).into_response(),
+        Ok(done) if done.rows_affected > 0 => {}
+        Ok(_) => return ApiError::not_found("Tile", Some(&tile_id)).into_response(),
         Err(error) => return unexpected(&error, "remove tile"),
     }
     if let Err(error) = touch(&caller, &state, &dashboard_id).await {

@@ -6,6 +6,10 @@
 
 use std::collections::{HashMap, HashSet};
 
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ColumnTrait, ConnectionTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect,
+};
 use serde_json::{Map, Value, json};
 use sqlx::PgPool;
 use weldsuite_books_domain::address::normalize_postal_address;
@@ -16,13 +20,22 @@ use weldsuite_books_domain::form_1099::{
 };
 use weldsuite_books_domain::http::now;
 use weldsuite_books_domain::js::{math_round, number_value, to_fixed};
-use weldsuite_books_domain::tables::{FORM_1099_FILING_LINES, FORM_1099_FILINGS, PARTIES};
+use weldsuite_books_domain::tables::{FORM_1099_FILING_LINES, FORM_1099_FILINGS};
 use weldsuite_books_domain::vendor_tax::read_sensitive;
-use weldsuite_db::Keyring;
+use weldsuite_db::record::JsonTable;
+use weldsuite_db::{Keyring, OrmConn, orm};
 use weldsuite_kit::generate_id;
+use weldsuite_schema::tenant::{form_1099_filing_lines, form_1099_filings, parties};
 
 use super::Fail;
 use super::data::{compute_for_entity, opt, text, w9_text};
+use crate::rows::{js, js_rows, now_and_stamp};
+
+/// `form1099Filings`, written from `{ column: value }` objects as Drizzle's
+/// `insert` / `update` wrote them.
+const FILINGS: JsonTable = JsonTable::of::<form_1099_filings::Entity>();
+/// `form1099FilingLines`.
+const LINES: JsonTable = JsonTable::of::<form_1099_filing_lines::Entity>();
 
 /// `AUTO_EXCLUDED_PREFIX`.
 pub(crate) const AUTO_EXCLUDED_PREFIX: &str = "Not reportable: ";
@@ -124,15 +137,17 @@ fn filing_totals(filing: &Value, lines: &[Value]) -> Value {
     view
 }
 
-async fn party_names(db: &PgPool, ids: &[String]) -> Result<HashMap<String, String>, sqlx::Error> {
+async fn party_names(db: &PgPool, ids: &[String]) -> Result<HashMap<String, String>, DbErr> {
     if ids.is_empty() {
         return Ok(HashMap::new());
     }
-    let rows: Vec<(String, Option<String>)> =
-        sqlx::query_as("select id, display_name from parties where id = any($1)")
-            .bind(ids)
-            .fetch_all(db)
-            .await?;
+    let rows: Vec<(String, Option<String>)> = parties::Entity::find()
+        .select_only()
+        .columns([parties::Column::Id, parties::Column::DisplayName])
+        .filter(parties::Column::Id.is_in(ids.iter().cloned()))
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     Ok(rows
         .into_iter()
         .map(|(id, n)| (id, n.unwrap_or_default()))
@@ -145,30 +160,29 @@ pub(crate) async fn load_filing(
     entity_id: &str,
     filing_id: &str,
 ) -> Result<Value, Fail> {
-    let row: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(form_1099_filings),
-        " from form_1099_filings t where t.id = $1 and t.entity_id = $2 and t.deleted_at is null limit 1"
-    ))
-    .bind(filing_id)
-    .bind(entity_id)
-    .fetch_optional(db)
-    .await?;
-    row.map(|r| FORM_1099_FILINGS.js(r))
-        .ok_or_else(|| Fail::not_found(format!("1099 filing {filing_id} not found")))
+    let row = form_1099_filings::Entity::find()
+        .filter(form_1099_filings::Column::Id.eq(filing_id))
+        .filter(form_1099_filings::Column::EntityId.eq(entity_id))
+        .filter(form_1099_filings::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?;
+    match row {
+        Some(row) => Ok(js!(row)?),
+        None => Err(Fail::not_found(format!(
+            "1099 filing {filing_id} not found"
+        ))),
+    }
 }
 
 /// `loadLines(db, filingId)`, by creation.
-pub(crate) async fn load_lines(db: &PgPool, filing_id: &str) -> Result<Vec<Value>, sqlx::Error> {
-    let rows: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(form_1099_filing_lines),
-        " from form_1099_filing_lines t where t.filing_id = $1 order by t.created_at, t.id"
-    ))
-    .bind(filing_id)
-    .fetch_all(db)
-    .await?;
-    Ok(FORM_1099_FILING_LINES.js_rows(rows))
+pub(crate) async fn load_lines(db: &PgPool, filing_id: &str) -> Result<Vec<Value>, DbErr> {
+    let rows = form_1099_filing_lines::Entity::find()
+        .filter(form_1099_filing_lines::Column::FilingId.eq(filing_id))
+        .order_by_asc(form_1099_filing_lines::Column::CreatedAt)
+        .order_by_asc(form_1099_filing_lines::Column::Id)
+        .all(&orm(db))
+        .await?;
+    js_rows!(rows)
 }
 
 fn find_line(lines: &[Value], line_id: &str) -> Result<Value, Fail> {
@@ -208,34 +222,36 @@ pub(crate) async fn list_filings(
     tax_year: Option<i64>,
     form_type: Option<&str>,
     status: Option<&str>,
-) -> Result<Vec<Value>, sqlx::Error> {
-    let rows: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(form_1099_filings),
-        " from form_1099_filings t where t.entity_id = $1 and t.deleted_at is null \
-         and ($2::int is null or t.tax_year = $2) and ($3::text is null or t.form_type = $3) \
-         and ($4::text is null or t.status = $4) order by t.tax_year, t.form_type"
-    ))
-    .bind(entity_id)
-    .bind(tax_year.and_then(|y| i32::try_from(y).ok()))
-    .bind(form_type)
-    .bind(status)
-    .fetch_all(db)
-    .await?;
-    let filings = FORM_1099_FILINGS.js_rows(rows);
+) -> Result<Vec<Value>, DbErr> {
+    let orm = orm(db);
+    let mut rows = form_1099_filings::Entity::find()
+        .filter(form_1099_filings::Column::EntityId.eq(entity_id))
+        .filter(form_1099_filings::Column::DeletedAt.is_null());
+    // `$2::int is null or tax_year = $2`: a year past `int` binds null.
+    if let Some(year) = tax_year.and_then(|y| i32::try_from(y).ok()) {
+        rows = rows.filter(form_1099_filings::Column::TaxYear.eq(year));
+    }
+    if let Some(form_type) = form_type {
+        rows = rows.filter(form_1099_filings::Column::FormType.eq(form_type));
+    }
+    if let Some(status) = status {
+        rows = rows.filter(form_1099_filings::Column::Status.eq(status));
+    }
+    let rows = rows
+        .order_by_asc(form_1099_filings::Column::TaxYear)
+        .order_by_asc(form_1099_filings::Column::FormType)
+        .all(&orm)
+        .await?;
+    let filings = js_rows!(rows)?;
     if filings.is_empty() {
         return Ok(Vec::new());
     }
     let ids: Vec<String> = filings.iter().map(|f| text(f, "id").to_owned()).collect();
-    let rows: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(form_1099_filing_lines),
-        " from form_1099_filing_lines t where t.filing_id = any($1)"
-    ))
-    .bind(&ids)
-    .fetch_all(db)
-    .await?;
-    let lines = FORM_1099_FILING_LINES.js_rows(rows);
+    let rows = form_1099_filing_lines::Entity::find()
+        .filter(form_1099_filing_lines::Column::FilingId.is_in(ids))
+        .all(&orm)
+        .await?;
+    let lines = js_rows!(rows)?;
     Ok(filings
         .iter()
         .map(|filing| {
@@ -324,34 +340,35 @@ fn new_line(
     row
 }
 
-async fn insert_line(
-    conn: &mut sqlx::PgConnection,
-    line: &Map<String, Value>,
-) -> Result<(), sqlx::Error> {
-    FORM_1099_FILING_LINES
-        .insert_raw(&mut *conn, FORM_1099_FILING_LINES.values(line))
+/// `insert(form1099FilingLines).values(line)`: the line's properties as
+/// columns.
+async fn insert_line<C: ConnectionTrait>(db: &C, line: &Map<String, Value>) -> Result<(), DbErr> {
+    LINES
+        .insert(db, FORM_1099_FILING_LINES.values(line))
         .await
         .map(|_| ())
 }
 
-async fn patch_line(
-    conn: &mut sqlx::PgConnection,
+/// `update(form1099FilingLines).set(set).where(eq(id))`.
+async fn patch_line<C: ConnectionTrait>(
+    db: &C,
     id: &str,
     set: &Map<String, Value>,
-) -> Result<(), sqlx::Error> {
-    FORM_1099_FILING_LINES
-        .patch_raw(&mut *conn, id, FORM_1099_FILING_LINES.values(set), false)
+) -> Result<(), DbErr> {
+    LINES
+        .update(db, id, FORM_1099_FILING_LINES.values(set), false)
         .await
         .map(|_| ())
 }
 
-async fn patch_filing(
-    conn: &mut sqlx::PgConnection,
+/// `update(form1099Filings).set(set).where(eq(id))`.
+async fn patch_filing<C: ConnectionTrait>(
+    db: &C,
     id: &str,
     set: Map<String, Value>,
-) -> Result<(), sqlx::Error> {
-    FORM_1099_FILINGS
-        .patch_raw(&mut *conn, id, FORM_1099_FILINGS.values(&set), false)
+) -> Result<(), DbErr> {
+    FILINGS
+        .update(db, id, FORM_1099_FILINGS.values(&set), false)
         .await
         .map(|_| ())
 }
@@ -371,15 +388,16 @@ pub(crate) async fn create_filing(
     form: &str,
     user_id: &str,
 ) -> Result<(String, usize, Vec<String>), Fail> {
-    let existing: Option<String> = sqlx::query_scalar(
-        "select id from form_1099_filings where entity_id = $1 and tax_year = $2 and form_type = $3 \
-         and deleted_at is null limit 1",
-    )
-    .bind(entity_id)
-    .bind(i32::try_from(tax_year).unwrap_or(0))
-    .bind(form)
-    .fetch_optional(db)
-    .await?;
+    let existing: Option<String> = form_1099_filings::Entity::find()
+        .select_only()
+        .column(form_1099_filings::Column::Id)
+        .filter(form_1099_filings::Column::EntityId.eq(entity_id))
+        .filter(form_1099_filings::Column::TaxYear.eq(i32::try_from(tax_year).unwrap_or(0)))
+        .filter(form_1099_filings::Column::FormType.eq(form))
+        .filter(form_1099_filings::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     if let Some(id) = existing {
         return Err(Fail::Conflict(
             format!(
@@ -419,13 +437,14 @@ pub(crate) async fn create_filing(
         ("updatedAt", json!(at)),
     ]);
     let count = lines.len();
-    weldsuite_db::atomically_with::<_, (), sqlx::Error, _>(db, move |conn| {
+    weldsuite_db::atomically_with::<_, (), Fail, _>(db, move |conn| {
         Box::pin(async move {
-            FORM_1099_FILINGS
-                .insert_raw(&mut *conn, FORM_1099_FILINGS.values(&filing))
+            let tx = OrmConn::new(conn);
+            FILINGS
+                .insert(&tx, FORM_1099_FILINGS.values(&filing))
                 .await?;
             for line in &lines {
-                insert_line(conn, line).await?;
+                insert_line(&tx, line).await?;
             }
             Ok(())
         })
@@ -600,21 +619,23 @@ pub(crate) async fn refresh_filing(
     let at = now();
     let result = json!({ "warnings": warnings, "updated": updates.len(), "added": added.len() });
     let id = filing_id.to_owned();
-    weldsuite_db::atomically_with::<_, (), sqlx::Error, _>(db, move |conn| {
+    weldsuite_db::atomically_with::<_, (), Fail, _>(db, move |conn| {
         Box::pin(async move {
+            let tx = OrmConn::new(conn);
             for (line_id, mut fields) in updates {
                 fields.insert("updatedAt".into(), json!(at));
-                patch_line(conn, &line_id, &fields).await?;
+                patch_line(&tx, &line_id, &fields).await?;
             }
             for line in &added {
-                insert_line(conn, line).await?;
+                insert_line(&tx, line).await?;
             }
             patch_filing(
-                conn,
+                &tx,
                 &id,
                 set(&[("status", json!("draft")), ("updatedAt", json!(at))]),
             )
-            .await
+            .await?;
+            Ok(())
         })
     })
     .await?;
@@ -822,11 +843,13 @@ pub(crate) async fn update_line(
     let excluded_now = changes.get("status") == Some(&json!("excluded"));
     let (lid, fid) = (line_id.to_owned(), filing_id.to_owned());
     let stamp = at.clone();
-    weldsuite_db::atomically_with::<_, (), sqlx::Error, _>(db, move |conn| {
+    weldsuite_db::atomically_with::<_, (), Fail, _>(db, move |conn| {
         Box::pin(async move {
+            let tx = OrmConn::new(conn);
             changes.insert("updatedAt".into(), json!(stamp));
-            patch_line(conn, &lid, &changes).await?;
-            patch_filing(conn, &fid, set(&[("updatedAt", json!(stamp))])).await
+            patch_line(&tx, &lid, &changes).await?;
+            patch_filing(&tx, &fid, set(&[("updatedAt", json!(stamp))])).await?;
+            Ok(())
         })
     })
     .await?;
@@ -837,9 +860,8 @@ pub(crate) async fn update_line(
             .filter(|l| l["isCorrected"] == json!(true) && text(l, "status") == "included")
             .count();
         if remaining == 0 {
-            let mut conn = db.acquire().await?;
             patch_filing(
-                &mut conn,
+                &orm(db),
                 filing_id,
                 set(&[("status", json!("filed")), ("updatedAt", json!(at))]),
             )
@@ -878,9 +900,8 @@ pub(crate) async fn review_filing(
         )));
     }
     let lines = load_lines(db, filing_id).await?;
-    let mut conn = db.acquire().await?;
     patch_filing(
-        &mut conn,
+        &orm(db),
         filing_id,
         set(&[("status", json!("reviewed")), ("updatedAt", json!(now()))]),
     )
@@ -900,16 +921,11 @@ fn key_of(keyring: &Keyring) -> Result<&Keyring, Fail> {
     weldsuite_books_domain::vendor_tax::require_keyring(keyring).map_err(vendor_tax_fail)
 }
 
-async fn load_party(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(parties),
-        " from parties t where t.id = $1 limit 1"
-    ))
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(|r| PARTIES.js(r)))
+async fn load_party(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
+    let row = parties::Entity::find_by_id(id.to_owned())
+        .one(&orm(db))
+        .await?;
+    row.map(|row| js!(row)).transpose()
 }
 
 /// `generateFiling(db, env, entityId, filingId)`: the number of recipients.
@@ -974,11 +990,12 @@ pub(crate) async fn generate_filing(
     let count = included.len();
     let at = now();
     let id = filing_id.to_owned();
-    weldsuite_db::atomically_with::<_, (), sqlx::Error, _>(db, move |conn| {
+    weldsuite_db::atomically_with::<_, (), Fail, _>(db, move |conn| {
         Box::pin(async move {
+            let tx = OrmConn::new(conn);
             for (line_id, tin, recipient) in &sealed {
                 patch_line(
-                    conn,
+                    &tx,
                     line_id,
                     &set(&[
                         ("recipient", recipient.clone()),
@@ -989,7 +1006,7 @@ pub(crate) async fn generate_filing(
                 .await?;
             }
             patch_filing(
-                conn,
+                &tx,
                 &id,
                 set(&[
                     ("status", json!("generated")),
@@ -997,7 +1014,8 @@ pub(crate) async fn generate_filing(
                     ("updatedAt", json!(at)),
                 ]),
             )
-            .await
+            .await?;
+            Ok(())
         })
     })
     .await?;
@@ -1019,21 +1037,24 @@ pub(crate) async fn mark_filed(
             "Generate the filing first; this one is {status}."
         )));
     }
-    let at = now();
+    let (at, stamp) = now_and_stamp();
     let filed = filed_at.unwrap_or_else(|| at.clone());
     let (id, number) = (filing_id.to_owned(), confirmation_number.to_owned());
-    weldsuite_db::atomically_with::<_, (), sqlx::Error, _>(db, move |conn| {
+    weldsuite_db::atomically_with::<_, (), Fail, _>(db, move |conn| {
         Box::pin(async move {
-            sqlx::query(
-                "update form_1099_filing_lines set status = 'filed', updated_at = $1::timestamp \
-                 where filing_id = $2 and status = 'included'",
-            )
-            .bind(&at)
-            .bind(&id)
-            .execute(&mut *conn)
-            .await?;
+            let tx = OrmConn::new(conn);
+            form_1099_filing_lines::Entity::update_many()
+                .col_expr(form_1099_filing_lines::Column::Status, Expr::value("filed"))
+                .col_expr(
+                    form_1099_filing_lines::Column::UpdatedAt,
+                    Expr::value(stamp),
+                )
+                .filter(form_1099_filing_lines::Column::FilingId.eq(&id))
+                .filter(form_1099_filing_lines::Column::Status.eq("included"))
+                .exec(&tx)
+                .await?;
             patch_filing(
-                conn,
+                &tx,
                 &id,
                 set(&[
                     ("status", json!("filed")),
@@ -1042,7 +1063,8 @@ pub(crate) async fn mark_filed(
                     ("updatedAt", json!(at)),
                 ]),
             )
-            .await
+            .await?;
+            Ok(())
         })
     })
     .await?;
@@ -1158,15 +1180,17 @@ pub(crate) async fn correct_line(
         ("updatedAt", json!(at)),
     ]);
     let id = filing_id.to_owned();
-    weldsuite_db::atomically_with::<_, (), sqlx::Error, _>(db, move |conn| {
+    weldsuite_db::atomically_with::<_, (), Fail, _>(db, move |conn| {
         Box::pin(async move {
-            insert_line(conn, &row).await?;
+            let tx = OrmConn::new(conn);
+            insert_line(&tx, &row).await?;
             patch_filing(
-                conn,
+                &tx,
                 &id,
                 set(&[("status", json!("corrected")), ("updatedAt", json!(at))]),
             )
-            .await
+            .await?;
+            Ok(())
         })
     })
     .await?;
@@ -1193,12 +1217,13 @@ pub(crate) async fn mark_line_delivered(
         return Err(Fail::conflict("This recipient is not on the filing."));
     }
     if method == "email" {
-        let consent: Option<Option<String>> = sqlx::query_scalar(
-            "select form_1099_e_delivery_consent_at::text from parties where id = $1 limit 1",
-        )
-        .bind(text(&line, "partyId"))
-        .fetch_optional(db)
-        .await?;
+        let consent: Option<Option<time::PrimitiveDateTime>> = parties::Entity::find()
+            .select_only()
+            .column(parties::Column::Form1099EDeliveryConsentAt)
+            .filter(parties::Column::Id.eq(text(&line, "partyId")))
+            .into_tuple()
+            .one(&orm(db))
+            .await?;
         if consent.flatten().is_none() {
             return Err(Fail::conflict(
                 "The recipient has not agreed to electronic delivery. Record their consent first, or deliver a printed copy.",
@@ -1206,9 +1231,8 @@ pub(crate) async fn mark_line_delivered(
         }
     }
     let at = now();
-    let mut conn = db.acquire().await?;
     patch_line(
-        &mut conn,
+        &orm(db),
         line_id,
         &set(&[
             ("deliveryMethod", json!(method)),
@@ -1235,18 +1259,20 @@ pub(crate) async fn delete_filing(
     }
     let at = now();
     let id = filing_id.to_owned();
-    weldsuite_db::atomically_with::<_, (), sqlx::Error, _>(db, move |conn| {
+    weldsuite_db::atomically_with::<_, (), Fail, _>(db, move |conn| {
         Box::pin(async move {
-            sqlx::query("delete from form_1099_filing_lines where filing_id = $1")
-                .bind(&id)
-                .execute(&mut *conn)
+            let tx = OrmConn::new(conn);
+            form_1099_filing_lines::Entity::delete_many()
+                .filter(form_1099_filing_lines::Column::FilingId.eq(&id))
+                .exec(&tx)
                 .await?;
             patch_filing(
-                conn,
+                &tx,
                 &id,
                 set(&[("deletedAt", json!(at)), ("updatedAt", json!(at))]),
             )
-            .await
+            .await?;
+            Ok(())
         })
     })
     .await?;

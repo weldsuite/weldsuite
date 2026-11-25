@@ -15,14 +15,19 @@
 //! the address is suppressed and the sequence ends, as the opt-out rule does.
 //! A label a person (or the rule) set meanwhile is left alone.
 
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, Condition, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Value, json};
 use sqlx::PgPool;
 use weldsuite_ai::{Ai, AiCall, AiError, ChatRequest, Feature, Task, Tier};
 use weldsuite_catalogs::entity_events::REACH_REPLY_CLASSIFIED;
+use weldsuite_db::orm;
 use weldsuite_reach_domain::text::js_trim;
-use weldsuite_reach_domain::{EventSink, ReachEvent, iso, js_slice, text};
+use weldsuite_reach_domain::{EventSink, ReachEvent, js_slice, text};
+use weldsuite_schema::master::workspaces;
+use weldsuite_schema::tenant::reach_messages;
 
-use crate::effects::{Target, apply_label_effects, reply_event_data};
+use crate::effects::{Target, apply_label_effects, load_target_prospect, reply_event_data};
 
 /// `CLASSIFIABLE_LABELS`.
 pub const CLASSIFIABLE_LABELS: [&str; 8] = [
@@ -105,13 +110,18 @@ async fn workspace_id_of(master: Option<&PgPool>, reference: &str) -> String {
     let Some(master) = master else {
         return reference.to_owned();
     };
-    match sqlx::query_scalar::<_, String>(
-        "select id from workspaces where id = $1 or clerk_org_id = $1 limit 1",
-    )
-    .bind(reference)
-    .fetch_optional(master)
-    .await
-    {
+    let found: Result<Option<String>, _> = workspaces::Entity::find()
+        .select_only()
+        .column(workspaces::Column::Id)
+        .filter(
+            Condition::any()
+                .add(workspaces::Column::Id.eq(reference))
+                .add(workspaces::Column::ClerkOrgId.eq(reference)),
+        )
+        .into_tuple()
+        .one(&orm(master))
+        .await;
+    match found {
         Ok(Some(id)) => id,
         Ok(None) => reference.to_owned(),
         Err(error) => {
@@ -171,17 +181,28 @@ pub async fn classify_reply_text(
     }
 }
 
+/// `label_source is null or label_source = 'ai'`: no person or rule set
+/// the label.
+fn labelled_by_ai_or_nobody() -> Condition {
+    Condition::any()
+        .add(reach_messages::Column::LabelSource.is_null())
+        .add(reach_messages::Column::LabelSource.eq("ai"))
+}
+
 /// `classifyStoredReply` with the model unavailable: an unlabelled reply
 /// becomes `unclassified`.
 pub(crate) async fn settle_unclassified(db: &PgPool, id: &str) {
-    let result = sqlx::query(
-        "update reach_messages set label = 'unclassified', updated_at = $2::timestamptz
-         where id = $1 and (label_source is null or label_source = 'ai') and label is null",
-    )
-    .bind(id)
-    .bind(iso(weldsuite_reach_domain::now()))
-    .execute(db)
-    .await;
+    let result = reach_messages::Entity::update_many()
+        .col_expr(reach_messages::Column::Label, Expr::value("unclassified"))
+        .col_expr(
+            reach_messages::Column::UpdatedAt,
+            Expr::value(weldsuite_reach_domain::now()),
+        )
+        .filter(reach_messages::Column::Id.eq(id))
+        .filter(labelled_by_ai_or_nobody())
+        .filter(reach_messages::Column::Label.is_null())
+        .exec(&orm(db))
+        .await;
     if let Err(error) = result {
         tracing::error!(%error, "[reach-classify] could not record the outcome");
     }
@@ -236,31 +257,28 @@ async fn store_label(
     label: &'static str,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let id = text(message, "id").unwrap_or_default();
-    let now = iso(weldsuite_reach_domain::now());
-    let updated: Option<Value> = sqlx::query_scalar(
-        "update reach_messages set label = $2, label_source = 'ai', classified_at = $3::timestamptz,
-           updated_at = $3::timestamptz
-         where id = $1 and (label_source is null or label_source = 'ai')
-           and (label is null or label = 'unclassified')
-         returning to_jsonb(reach_messages.*)",
-    )
-    .bind(id)
-    .bind(label)
-    .bind(&now)
-    .fetch_optional(db)
-    .await?;
-    let Some(row) = updated.map(weldsuite_db::js_row) else {
+    let now = weldsuite_reach_domain::now();
+    let updated = reach_messages::Entity::update_many()
+        .col_expr(reach_messages::Column::Label, Expr::value(label))
+        .col_expr(reach_messages::Column::LabelSource, Expr::value("ai"))
+        .col_expr(reach_messages::Column::ClassifiedAt, Expr::value(now))
+        .col_expr(reach_messages::Column::UpdatedAt, Expr::value(now))
+        .filter(reach_messages::Column::Id.eq(id))
+        .filter(labelled_by_ai_or_nobody())
+        .filter(
+            Condition::any()
+                .add(reach_messages::Column::Label.is_null())
+                .add(reach_messages::Column::Label.eq("unclassified")),
+        )
+        .exec_with_returning(&orm(db))
+        .await?
+        .into_iter()
+        .next();
+    let Some(row) = updated.map(serde_json::to_value).transpose()? else {
         return Ok(());
     };
-    let prospect: Option<(String, String, Option<String>)> = match text(message, "prospectId") {
-        Some(prospect_id) => {
-            sqlx::query_as(
-                "select id, email, company_domain from reach_prospects where id = $1 limit 1",
-            )
-            .bind(prospect_id)
-            .fetch_optional(db)
-            .await?
-        }
+    let prospect = match text(message, "prospectId") {
+        Some(prospect_id) => load_target_prospect(db, prospect_id).await?,
         None => None,
     };
     let target = Target {

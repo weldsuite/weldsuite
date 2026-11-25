@@ -83,6 +83,7 @@ export const weldchat = {
       joinCall: 'Deelnemen aan gesprek',
     },
     calling: {
+      minimize: 'Minimaliseren',
       ringing: 'Gaat over…',
       connecting: 'Verbinden…',
       autoEnded: 'Gesprek automatisch beëindigd na 3 minuten alleen.',
@@ -177,6 +178,8 @@ export const weldchat = {
       threadSuggestion: 'Dit lijkt een gesprek. Verder in een thread?',
       createThread: 'Thread starten',
       dismissThreadSuggestion: 'Sluiten',
+      cancelReply: 'Antwoord annuleren',
+      cancelEditing: 'Bewerken annuleren',
     },
     channelEmptyState: {
       channelCreated: 'heeft dit kanaal aangemaakt',
@@ -333,6 +336,7 @@ export const weldchat = {
     },
     groupSettings: {
       nav: {
+        heading: 'Instellingen',
         general: 'Algemeen',
         visibility: 'Zichtbaarheid',
         channels: 'Kanalen',
@@ -432,6 +436,7 @@ export const weldchat = {
         moveToTopHint: 'Kanalen die aan een van deze voorwaarden voldoen, verschijnen bovenaan. Combineer meerdere naar wens.',
         moveToBottom: 'Naar onderen verplaatsen',
         moveToBottomHint: 'Kanalen die aan een van deze voorwaarden voldoen, verschijnen onderaan.',
+        noneChosen: 'Geen',
         channelLimit: 'Kanaallimiet',
         channelLimitHint: 'Toon alleen de bovenste N kanalen. Laat leeg om alles te tonen.',
         allChannels: 'Alle kanalen',
@@ -574,12 +579,13 @@ export const weldchat = {
     },
     pinDuration: {
       title: 'Bericht vastmaken',
-      description: 'Kies hoe lang je dit bericht wilt vastmaken.',
+      keepPinned: 'Vastgemaakt houden',
+      until: 'Tot {date}',
       unpinOn: 'Losmaken op',
       selectDate: 'Datum kiezen',
+      notify: 'Iedereen in de chat laten weten',
       cancel: 'Annuleren',
-      pinSilently: 'Stil vastmaken',
-      pinWithAlert: 'Vastmaken met melding',
+      pin: 'Vastmaken',
       durations: {
         h24: '24 uur',
         d7: '7 dagen',
@@ -610,6 +616,7 @@ export const weldchat = {
     unreadSeparator: 'Nieuwe berichten',
     messageItem: {
       forwardedFrom: 'Doorgestuurd van',
+      pinnedMessage: 'Heeft een bericht vastgemaakt.',
       commentOn: 'Opmerking bij {place}',
       aDirectMessage: 'een direct bericht',
       reply: 'antwoord',
@@ -870,8 +877,10 @@ export const weldchat = {
       meetingNamed: 'de vergadering "{title}"',
     },
     dropZone: {
-      uploadFile: 'Bestand uploaden',
-      dropToAttach: 'Laat los om bij je volgende bericht te voegen',
+      uploadFile: 'Bestanden uploaden',
+      uploadTo: 'Uploaden naar {name}',
+      dropToAttach: 'Ze wachten in je bericht, zodat je er nog iets bij kunt schrijven.',
+      thread: 'deze thread',
     },
     memberList: {
       header: 'Leden',

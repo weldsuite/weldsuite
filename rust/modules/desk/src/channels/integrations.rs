@@ -13,21 +13,25 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, post, put};
 use http::HeaderMap;
+use sea_orm::sea_query::Expr;
+use sea_orm::{ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder, Select};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::permission_keys as perm;
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm, utc_now, utc_timestamp};
 use weldsuite_kit::validation::{Field, Format, Issues, Number, Presence, Text};
 use weldsuite_kit::{ApiError, Created, Data, generate_id, random_string};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 use weldsuite_ports::DynCache;
+use weldsuite_schema::tenant::helpdesk_channel_integrations::{
+    ActiveModel, Column, Entity as Integration, Model,
+};
 
 use super::{
     Ctx, Urls, discord_guild_id, form_encode, js_number, json_object, kv_delete, kv_put, or_value,
     org_required, providers, sanitized, truthy,
 };
 use crate::js::query_param;
-use crate::tables::HELPDESK_CHANNEL_INTEGRATIONS as HCI;
-use crate::{DeskState, now, validate};
+use crate::{DeskState, validate};
 
 pub(super) fn routes<Q>(gate: &Arc<PermissionGate<Q>>) -> Router<DeskState>
 where
@@ -74,59 +78,66 @@ where
         .route("/{id}", get(by_provider).route_layer(read()))
 }
 
+/// ADR OPS-026: a route that connects, or calls, Slack or Discord answers
+/// 403 `OUTSIDE_EU_SERVICE_OFF` while the workspace has that service off
+/// (enforced on the EU edition; elsewhere this never reads the database).
+/// Other providers pass; listing, reading the settings and disconnecting
+/// stay open.
+async fn outside_eu(ctx: &Ctx, provider: &str) -> Option<Response> {
+    weldsuite_outside_eu::require_integration(&ctx.caller.db, provider)
+        .await
+        .err()
+        .map(|error| error.to_api_error().into_response())
+}
+
 // ── rows ──────────────────────────────────────────────────────────────────────
 
-async fn rows(db: &PgPool, sql: &'static str, bind: &str) -> Result<Vec<Value>, sqlx::Error> {
-    let rows: Vec<Value> = sqlx::query_scalar(sql).bind(bind).fetch_all(db).await?;
-    Ok(rows.into_iter().map(|row| HCI.js(row)).collect())
+/// A row as Drizzle's `select()` returns it.
+fn row(model: Model) -> Value {
+    serde_json::to_value(model).unwrap_or(Value::Null)
+}
+
+/// The live integrations.
+fn live() -> Select<Integration> {
+    Integration::find().filter(Column::DeletedAt.is_null())
 }
 
 /// `listIntegrations`: every live one, newest first.
-async fn list_all(db: &PgPool) -> Result<Vec<Value>, sqlx::Error> {
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from helpdesk_channel_integrations t where t.deleted_at is null order by t.created_at desc",
-    )
-    .fetch_all(db)
-    .await?;
-    Ok(rows.into_iter().map(|row| HCI.js(row)).collect())
+async fn list_all(db: &PgPool) -> Result<Vec<Value>, DbErr> {
+    let rows = live()
+        .order_by_desc(Column::CreatedAt)
+        .all(&orm(db))
+        .await?;
+    Ok(rows.into_iter().map(row).collect())
 }
 
 /// `findIntegrationByProvider`: the first live one (no order, as in TypeScript).
-async fn by_provider_row(db: &PgPool, provider: &str) -> Result<Option<Value>, sqlx::Error> {
-    Ok(rows(
-        db,
-        "select to_jsonb(t) from helpdesk_channel_integrations t where t.provider = $1 and t.deleted_at is null limit 1",
-        provider,
-    )
-    .await?
-    .into_iter()
-    .next())
+async fn by_provider_row(db: &PgPool, provider: &str) -> Result<Option<Value>, DbErr> {
+    let found = live()
+        .filter(Column::Provider.eq(provider))
+        .one(&orm(db))
+        .await?;
+    Ok(found.map(row))
 }
 
 /// `listIntegrationsByProvider`: newest first.
-async fn list_by_provider(db: &PgPool, provider: &str) -> Result<Vec<Value>, sqlx::Error> {
-    rows(
-        db,
-        "select to_jsonb(t) from helpdesk_channel_integrations t where t.provider = $1 and t.deleted_at is null order by t.created_at desc",
-        provider,
-    )
-    .await
+async fn list_by_provider(db: &PgPool, provider: &str) -> Result<Vec<Value>, DbErr> {
+    let rows = live()
+        .filter(Column::Provider.eq(provider))
+        .order_by_desc(Column::CreatedAt)
+        .all(&orm(db))
+        .await?;
+    Ok(rows.into_iter().map(row).collect())
 }
 
 /// `findIntegrationById`.
-async fn by_id(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    Ok(rows(
-        db,
-        "select to_jsonb(t) from helpdesk_channel_integrations t where t.id = $1 and t.deleted_at is null limit 1",
-        id,
-    )
-    .await?
-    .into_iter()
-    .next())
+async fn by_id(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
+    let found = live().filter(Column::Id.eq(id)).one(&orm(db)).await?;
+    Ok(found.map(row))
 }
 
 /// `findIntegrationByIdOrProvider`.
-async fn by_id_or_provider(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
+async fn by_id_or_provider(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
     match by_id(db, id).await? {
         Some(row) => Ok(Some(row)),
         None => by_provider_row(db, id).await,
@@ -137,7 +148,7 @@ async fn by_id_or_provider(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx:
 async fn resolve_discord(
     db: &PgPool,
     integration_id: Option<&str>,
-) -> Result<Option<Value>, sqlx::Error> {
+) -> Result<Option<Value>, DbErr> {
     if let Some(id) = integration_id.filter(|id| !id.is_empty()) {
         return Ok(by_id(db, id)
             .await?
@@ -163,12 +174,12 @@ fn guild_name(row: &Value, fallback: &str) -> Value {
     )
 }
 
-async fn set_config(db: &PgPool, id: &str, config: &Map<String, Value>) -> Result<(), sqlx::Error> {
-    sqlx::query("update helpdesk_channel_integrations set config = $2, updated_at = $3::timestamp where id = $1")
-        .bind(id)
-        .bind(Value::Object(config.clone()))
-        .bind(now())
-        .execute(db)
+async fn set_config(db: &PgPool, id: &str, config: &Map<String, Value>) -> Result<(), DbErr> {
+    Integration::update_many()
+        .col_expr(Column::Config, Expr::value(Value::Object(config.clone())))
+        .col_expr(Column::UpdatedAt, Expr::value(utc_now()))
+        .filter(Column::Id.eq(id))
+        .exec(&orm(db))
         .await?;
     Ok(())
 }
@@ -275,26 +286,29 @@ async fn save_token(ctx: Ctx, headers: HeaderMap, body: Bytes) -> Response {
     if ctx.org_id.is_none() {
         return org_required();
     }
+    if let Some(off) = outside_eu(&ctx, &data.provider).await {
+        return off;
+    }
     let db = &ctx.caller.db;
     let existing = match by_provider_row(db, &data.provider).await {
         Ok(existing) => existing,
         Err(error) => return internal("Save token error", error, None),
     };
-    let now = now();
+    let now = utc_now();
     if let Some(existing) = existing {
         let config = data
             .config
             .map_or_else(|| existing["config"].clone(), Value::Object);
-        let updated = sqlx::query(
-            "update helpdesk_channel_integrations set access_token = $2, status = 'connected', config = $3,
-             updated_at = $4::timestamp, last_sync_at = $4::timestamp, error_message = null where id = $1",
-        )
-        .bind(row_id(&existing))
-        .bind(&data.token)
-        .bind(config)
-        .bind(&now)
-        .execute(db)
-        .await;
+        let updated = Integration::update_many()
+            .col_expr(Column::AccessToken, Expr::value(data.token.as_str()))
+            .col_expr(Column::Status, Expr::value("connected"))
+            .col_expr(Column::Config, Expr::value(config))
+            .col_expr(Column::UpdatedAt, Expr::value(now))
+            .col_expr(Column::LastSyncAt, Expr::value(now))
+            .col_expr(Column::ErrorMessage, Expr::value(Option::<String>::None))
+            .filter(Column::Id.eq(row_id(&existing)))
+            .exec(&orm(db))
+            .await;
         if let Err(error) = updated {
             return internal("Save token error", error, None);
         }
@@ -303,18 +317,19 @@ async fn save_token(ctx: Ctx, headers: HeaderMap, body: Bytes) -> Response {
         return Data(Value::Object(answer)).into_response();
     }
     let id = generate_id("chi");
-    let inserted = sqlx::query(
-        "insert into helpdesk_channel_integrations
-           (id, provider, status, name, access_token, config, last_sync_at, created_at, updated_at)
-         values ($1, $2, 'connected', $3, $4, $5, $6::timestamp, $6::timestamp, $6::timestamp)",
-    )
-    .bind(&id)
-    .bind(&data.provider)
-    .bind(capitalized(&data.provider))
-    .bind(&data.token)
-    .bind(Value::Object(data.config.unwrap_or_default()))
-    .bind(&now)
-    .execute(db)
+    let inserted = Integration::insert(ActiveModel {
+        id: Set(id.clone()),
+        provider: Set(data.provider.clone()),
+        status: Set("connected".to_owned()),
+        name: Set(capitalized(&data.provider)),
+        access_token: Set(Some(data.token.clone())),
+        config: Set(Some(Value::Object(data.config.unwrap_or_default()))),
+        last_sync_at: Set(Some(now)),
+        created_at: Set(now),
+        updated_at: Set(now),
+        ..Default::default()
+    })
+    .exec_without_returning(&orm(db))
     .await;
     if let Err(error) = inserted {
         return internal("Save token error", error, None);
@@ -381,6 +396,9 @@ async fn discord_connect(State(state): State<DeskState>, ctx: Ctx, headers: Head
     let Some(org_id) = ctx.org_id.clone() else {
         return org_required();
     };
+    if let Some(off) = outside_eu(&ctx, "discord").await {
+        return off;
+    }
     let Some(client_id) = ctx
         .caller
         .env("DISCORD_CLIENT_ID")
@@ -411,6 +429,9 @@ async fn slack_connect(State(state): State<DeskState>, ctx: Ctx, headers: Header
     let Some(org_id) = ctx.org_id.clone() else {
         return org_required();
     };
+    if let Some(off) = outside_eu(&ctx, "slack").await {
+        return off;
+    }
     let Some(client_id) = ctx.caller.env("SLACK_CLIENT_ID").filter(|c| !c.is_empty()) else {
         return ApiError::internal()
             .with_message("Slack client ID not configured")
@@ -757,6 +778,9 @@ async fn update_discord_settings(
     let Some(org_id) = ctx.org_id.clone() else {
         return org_required();
     };
+    if let Some(off) = outside_eu(&ctx, "discord").await {
+        return off;
+    }
     let db = &ctx.caller.db;
     let integration = match resolve_discord(db, data.integration_id.as_deref()).await {
         Ok(Some(row)) => row,
@@ -819,6 +843,9 @@ async fn discord_channels(
 ) -> Response {
     if ctx.org_id.is_none() {
         return org_required();
+    }
+    if let Some(off) = outside_eu(&ctx, "discord").await {
+        return off;
     }
     let Some(token) = ctx
         .caller
@@ -904,6 +931,9 @@ async fn ticket_panel(
     body: Bytes,
 ) -> Response {
     const FAILED: &str = "Failed to post ticket panel";
+    if let Some(off) = outside_eu(&ctx, "discord").await {
+        return off;
+    }
     let data = match validate(&headers, &body, panel_request_schema) {
         Ok(data) => data,
         Err(refusal) => return refusal.respond(FAILED),
@@ -985,6 +1015,9 @@ async fn discord_send(
     body: Bytes,
 ) -> Response {
     const FAILED: &str = "Failed to send Discord message";
+    if let Some(off) = outside_eu(&ctx, "discord").await {
+        return off;
+    }
     let (channel, content) = match validate(&headers, &body, send_schema) {
         Ok(data) => data,
         Err(refusal) => return refusal.respond(FAILED),
@@ -1015,13 +1048,13 @@ async fn discord_send(
     let db = &ctx.caller.db;
     match by_provider_row(db, "discord").await {
         Ok(Some(integration)) => {
-            let stamped = sqlx::query(
-                "update helpdesk_channel_integrations set last_sync_at = $2::timestamp, updated_at = $2::timestamp where id = $1",
-            )
-            .bind(row_id(&integration))
-            .bind(now())
-            .execute(db)
-            .await;
+            let now = utc_now();
+            let stamped = Integration::update_many()
+                .col_expr(Column::LastSyncAt, Expr::value(now))
+                .col_expr(Column::UpdatedAt, Expr::value(now))
+                .filter(Column::Id.eq(row_id(&integration)))
+                .exec(&orm(db))
+                .await;
             if let Err(error) = stamped {
                 return internal("Send Discord message error", error, Some(FAILED));
             }
@@ -1140,6 +1173,9 @@ async fn slack_channels(State(state): State<DeskState>, ctx: Ctx) -> Response {
     if ctx.org_id.is_none() {
         return org_required();
     }
+    if let Some(off) = outside_eu(&ctx, "slack").await {
+        return off;
+    }
     let row = match slack_row(&ctx, "Get Slack channels error").await {
         Ok(row) => row,
         Err(response) => return response,
@@ -1183,6 +1219,9 @@ async fn slack_test(State(state): State<DeskState>, ctx: Ctx) -> Response {
     if ctx.org_id.is_none() {
         return org_required();
     }
+    if let Some(off) = outside_eu(&ctx, "slack").await {
+        return off;
+    }
     let row = match slack_row(&ctx, "Slack test error").await {
         Ok(row) => row,
         Err(response) => return response,
@@ -1219,6 +1258,9 @@ async fn provider_test(
 ) -> Response {
     if ctx.org_id.is_none() {
         return org_required();
+    }
+    if let Some(off) = outside_eu(&ctx, &provider).await {
+        return off;
     }
     if provider == "discord" {
         let Some(token) = ctx
@@ -1280,6 +1322,9 @@ async fn refresh(State(state): State<DeskState>, ctx: Ctx, Path(id): Path<String
         ))
         .into_response();
     }
+    if let Some(off) = outside_eu(&ctx, "discord").await {
+        return off;
+    }
     let client_id = ctx
         .caller
         .env("DISCORD_CLIENT_ID")
@@ -1314,19 +1359,26 @@ async fn refresh(State(state): State<DeskState>, ctx: Ctx, Path(id): Path<String
     };
     #[allow(clippy::cast_possible_truncation)]
     let expires_at = now_time + time::Duration::milliseconds((expires_in * 1000.0) as i64);
-    let now = weldsuite_events::iso_timestamp(now_time);
     let expires = weldsuite_events::iso_timestamp(expires_at);
-    let updated = sqlx::query(
-        "update helpdesk_channel_integrations set access_token = $2, refresh_token = $3, token_expires_at = $4::timestamp,
-         status = 'connected', error_message = null, updated_at = $5::timestamp where id = $1",
-    )
-    .bind(row_id(&integration))
-    .bind(tokens["access_token"].as_str())
-    .bind(tokens["refresh_token"].as_str())
-    .bind(&expires)
-    .bind(&now)
-    .execute(db)
-    .await;
+    let updated = Integration::update_many()
+        .col_expr(
+            Column::AccessToken,
+            Expr::value(tokens["access_token"].as_str().map(str::to_owned)),
+        )
+        .col_expr(
+            Column::RefreshToken,
+            Expr::value(tokens["refresh_token"].as_str().map(str::to_owned)),
+        )
+        .col_expr(
+            Column::TokenExpiresAt,
+            Expr::value(utc_timestamp(expires_at)),
+        )
+        .col_expr(Column::Status, Expr::value("connected"))
+        .col_expr(Column::ErrorMessage, Expr::value(Option::<String>::None))
+        .col_expr(Column::UpdatedAt, Expr::value(utc_timestamp(now_time)))
+        .filter(Column::Id.eq(row_id(&integration)))
+        .exec(&orm(db))
+        .await;
     if let Err(error) = updated {
         return internal("Refresh token error", error, Some(FAILED));
     }
@@ -1355,14 +1407,14 @@ async fn disconnect(State(state): State<DeskState>, ctx: Ctx, Path(id): Path<Str
     {
         return internal("Delete error", error, None);
     }
-    let now = now();
-    let updated = sqlx::query(
-        "update helpdesk_channel_integrations set deleted_at = $2::timestamp, status = 'disconnected', updated_at = $2::timestamp where id = $1",
-    )
-    .bind(row_id(&integration))
-    .bind(&now)
-    .execute(db)
-    .await;
+    let now = utc_now();
+    let updated = Integration::update_many()
+        .col_expr(Column::DeletedAt, Expr::value(now))
+        .col_expr(Column::Status, Expr::value("disconnected"))
+        .col_expr(Column::UpdatedAt, Expr::value(now))
+        .filter(Column::Id.eq(row_id(&integration)))
+        .exec(&orm(db))
+        .await;
     if let Err(error) = updated {
         return internal("Delete error", error, None);
     }

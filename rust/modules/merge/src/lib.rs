@@ -18,10 +18,6 @@
 //! TypeScript worker's; its tests run against this crate in the `merge`
 //! conformance suite (`rust/conformance/suites.json`).
 
-#![allow(
-    clippy::disallowed_methods,
-    reason = "not converted to the ORM yet (ADR DATA-019)"
-)]
 // The services mirror the worker's one for one, so some read long.
 #![allow(clippy::too_many_lines)]
 
@@ -715,7 +711,7 @@ pub(crate) fn publish(state: &MergeState, context: &EventContext, events: Vec<Pe
 /// and anything else as the module workers answer a thrown error.
 #[derive(Debug)]
 pub(crate) enum MergeError {
-    Db(sqlx::Error),
+    Db(sea_orm::DbErr),
     /// `GithubNotConfiguredError`.
     GithubNotConfigured,
     /// `GithubApiError`: GitHub answered with this status.
@@ -738,11 +734,59 @@ pub(crate) enum MergeError {
     },
     /// Anything else the worker would throw.
     Unexpected(String),
+    /// ADR OPS-026: the provider's company is outside the EU and the
+    /// workspace hasn't switched it on (403 `OUTSIDE_EU_SERVICE_OFF`).
+    OutsideEu(weldsuite_outside_eu::ServiceId),
 }
 
+/// The service outside the EU a provider connection sends data to (ADR
+/// OPS-026): GitHub, GitLab.com, Bitbucket (Atlassian) and Azure DevOps
+/// (Microsoft). `None` for a self-managed GitLab, the workspace's own
+/// server.
+pub(crate) fn provider_service(
+    provider: &str,
+    host: Option<&str>,
+) -> Option<weldsuite_outside_eu::ServiceId> {
+    if provider == "gitlab"
+        && let Ok(Some(_)) = oauth::normalize_gitlab_host(host)
+    {
+        return None;
+    }
+    weldsuite_outside_eu::ServiceId::for_integration(provider)
+}
+
+/// Whether the workspace may reach `provider` (ADR OPS-026; enforced on the
+/// EU edition, elsewhere this never reads the database).
+pub(crate) async fn require_provider(
+    db: &PgPool,
+    provider: &str,
+    host: Option<&str>,
+) -> Result<(), MergeError> {
+    let Some(service) = provider_service(provider, host) else {
+        return Ok(());
+    };
+    match weldsuite_outside_eu::require(db, service).await {
+        Ok(()) => Ok(()),
+        Err(weldsuite_outside_eu::OutsideEuError::Off(service)) => {
+            Err(MergeError::OutsideEu(service))
+        }
+        Err(weldsuite_outside_eu::OutsideEuError::Database(error)) => {
+            Err(MergeError::Unexpected(error.to_string()))
+        }
+    }
+}
+
+impl From<sea_orm::DbErr> for MergeError {
+    fn from(error: sea_orm::DbErr) -> Self {
+        Self::Db(error)
+    }
+}
+
+/// SQL that stays SQL, and the crates not converted yet, through
+/// [`weldsuite_db::orm_error`].
 impl From<sqlx::Error> for MergeError {
     fn from(error: sqlx::Error) -> Self {
-        Self::Db(error)
+        Self::Db(weldsuite_db::orm_error(error))
     }
 }
 
@@ -823,6 +867,9 @@ impl MergeError {
                 format!("{provider} does not support {capability}"),
             )
             .into_response(),
+            Self::OutsideEu(service) => weldsuite_outside_eu::OutsideEuError::Off(service)
+                .to_api_error()
+                .into_response(),
             Self::Db(error) => {
                 tracing::error!(%error, "merge: a statement failed");
                 unexpected()
@@ -855,9 +902,17 @@ impl From<MergeError> for Refusal {
     }
 }
 
+impl From<sea_orm::DbErr> for Refusal {
+    fn from(error: sea_orm::DbErr) -> Self {
+        Self::Error(MergeError::Db(error))
+    }
+}
+
+/// SQL that stays SQL, and the crates not converted yet, through
+/// [`weldsuite_db::orm_error`].
 impl From<sqlx::Error> for Refusal {
     fn from(error: sqlx::Error) -> Self {
-        Self::Error(MergeError::Db(error))
+        Self::Error(MergeError::Db(weldsuite_db::orm_error(error)))
     }
 }
 

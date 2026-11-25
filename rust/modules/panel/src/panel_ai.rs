@@ -59,6 +59,12 @@ impl From<Failure> for AiFailure {
     }
 }
 
+impl From<sea_orm::DbErr> for AiFailure {
+    fn from(error: sea_orm::DbErr) -> Self {
+        Self::Query(Failure::from(error))
+    }
+}
+
 impl From<sqlx::Error> for AiFailure {
     fn from(error: sqlx::Error) -> Self {
         Self::Query(Failure::from(error))

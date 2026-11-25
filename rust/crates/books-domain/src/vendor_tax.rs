@@ -14,13 +14,15 @@
 //! hold a vendor whose bank details are unverified.
 
 use base64::Engine as _;
+use sea_orm::{ActiveValue::Set, DbErr, EntityTrait, RuntimeErr};
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
-use weldsuite_db::{Keyring, PgPool, decrypt_field, encrypt_field};
+use weldsuite_db::{Keyring, PgPool, decrypt_field, encrypt_field, orm};
 use weldsuite_kit::generate_id;
 use weldsuite_kit::validation::{Field, Format, Issues, Presence, Text, js_date_iso};
+use weldsuite_schema::tenant::tax_id_reveals;
 
 use crate::http::now;
 use crate::jurisdictions::us::{tin_last4, validate_ein, validate_ssn};
@@ -447,9 +449,23 @@ impl std::fmt::Display for VendorTaxError {
     }
 }
 
+/// For the callers' own transactions (`commit`).
 impl From<sqlx::Error> for VendorTaxError {
     fn from(error: sqlx::Error) -> Self {
         Self::Internal(error.to_string())
+    }
+}
+
+/// A failed statement, with the text sqlx gave it (SeaORM's
+/// `Query Error: ` in front left out).
+impl From<DbErr> for VendorTaxError {
+    fn from(error: DbErr) -> Self {
+        Self::Internal(match error {
+            DbErr::Conn(RuntimeErr::SqlxError(inner))
+            | DbErr::Exec(RuntimeErr::SqlxError(inner))
+            | DbErr::Query(RuntimeErr::SqlxError(inner)) => inner.to_string(),
+            other => other.to_string(),
+        })
     }
 }
 
@@ -997,17 +1013,17 @@ pub async fn reveal_party_secret(
     }
     .filter(|v| !v.is_empty())
     .ok_or(VendorTaxError::SecretNotFound(field))?;
-    sqlx::query(
-        "insert into tax_id_reveals (id, entity_id, subject_type, subject_id, field, revealed_by, reason) \
-         values ($1, $2, 'party', $3, $4, $5, $6)",
-    )
-    .bind(generate_id("tir"))
-    .bind(entity_id)
-    .bind(text_of(party, "id").unwrap_or_default())
-    .bind(field.as_str())
-    .bind(user_id)
-    .bind(reason)
-    .execute(db)
+    tax_id_reveals::Entity::insert(tax_id_reveals::ActiveModel {
+        id: Set(generate_id("tir")),
+        entity_id: Set(entity_id.map(str::to_owned)),
+        subject_type: Set("party".to_owned()),
+        subject_id: Set(text_of(party, "id").unwrap_or_default().to_owned()),
+        field: Set(field.as_str().to_owned()),
+        revealed_by: Set(user_id.to_owned()),
+        reason: Set(reason.map(str::to_owned)),
+        ..Default::default()
+    })
+    .exec_without_returning(&orm(db))
     .await?;
     Ok(value)
 }

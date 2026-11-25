@@ -18,7 +18,7 @@ use weldsuite_permissions::{PermissionGate, PermissionQueries};
 
 use super::schema::{json_body, query, str_of};
 use super::{employees as svc, employers, schemas};
-use crate::entity_scope::{EMPLOYEE_RECORD, EMPLOYER_RECORD, guard, via_employee, via_employer};
+use crate::entity_scope::{employee_record, employer_record, guard, via_employee, via_employer};
 use crate::{Caller, HrResult, HrState, today_iso};
 
 pub(crate) fn routes<Q>(gate: &Arc<PermissionGate<Q>>) -> Router<HrState>
@@ -104,22 +104,22 @@ where
             "/components/{id}",
             delete(delete_component).route_layer(prepare()),
         )
-        .route_layer(guard("/employers", "Payroll employer", EMPLOYER_RECORD))
+        .route_layer(guard("/employers", "Payroll employer", employer_record()))
         .route_layer(guard(
             "/schedules",
             "Pay schedule",
-            via_employer!("hr_pay_schedules"),
+            via_employer!(hr_pay_schedules),
         ))
-        .route_layer(guard("/employees", "Employee", EMPLOYEE_RECORD))
+        .route_layer(guard("/employees", "Employee", employee_record()))
         .route_layer(guard(
             "/compensations",
             "Compensation",
-            via_employee!("hr_compensations"),
+            via_employee!(hr_compensations),
         ))
         .route_layer(guard(
             "/components",
             "Pay component",
-            via_employee!("hr_pay_components"),
+            via_employee!(hr_pay_components),
         ))
 }
 

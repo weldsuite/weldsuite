@@ -11,18 +11,28 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use http::HeaderMap;
+use sea_orm::sea_query::{CaseStatement, Expr, Func, OnConflict};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, Condition, DbErr, EntityTrait, QueryFilter, QueryOrder,
+    QuerySelect,
+};
 use serde_json::{Map, Value, json};
+use time::PrimitiveDateTime;
 use weldsuite_catalogs::entity_events::{
     PROJECT_PIPELINE_STAGE_CREATED, PROJECT_PIPELINE_STAGE_DELETED, PROJECT_PIPELINE_STAGE_UPDATED,
 };
-use weldsuite_db::{PgPool, js_row};
+use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_flow_domain::stage::{normalize_status_opt, normalize_task_status};
 use weldsuite_kit::validation::{Field, Presence, Text};
 use weldsuite_kit::{ApiError, Created, Data, NoContent, generate_id, random_string};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::project_pipeline_stages::{self as stages, Column as Stage};
+use weldsuite_schema::tenant::tasks::{self, Column as Task};
 
+use crate::tasks::{count_int, json_text, plus};
 use crate::{
-    Caller, FlowState, Query, Refusal, Reply, all_rows, forbidden, now, outside, reply, validate,
+    Caller, FlowState, Query, Refusal, Reply, all_rows, forbidden, outside, reply, row_json,
+    validate,
 };
 
 const PROJECT_DENIED: &str = "You are not a member of this project";
@@ -141,45 +151,129 @@ fn default_stage_id(project_id: &str, index: usize) -> String {
     }
 }
 
-async fn stage_row(db: &PgPool, id: &str, live: bool) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(s) from project_pipeline_stages s
-         where s.id = $1 and (not $2 or s.deleted_at is null) limit 1",
-    )
-    .bind(id)
-    .bind(live)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(js_row))
+async fn stage_row(db: &PgPool, id: &str, live: bool) -> Result<Option<Value>, DbErr> {
+    let mut select = stages::Entity::find_by_id(id.to_owned());
+    if live {
+        select = select.filter(Stage::DeletedAt.is_null());
+    }
+    select.one(&orm(db)).await?.map(row_json).transpose()
 }
 
 /// Tasks in a stage: by stage id, or (unassigned) a custom stage's id used
 /// as their status (`tasksInStage`).
-macro_rules! tasks_in_stage {
-    ($project:literal, $stage:literal) => {
-        concat!(
-            "project_id = ",
-            $project,
-            " and deleted_at is null and (stage_id = ",
-            $stage,
-            " or (stage_id is null and status = ",
-            $stage,
-            "))"
+fn tasks_in_stage(project_id: &str, stage_id: &str) -> Condition {
+    Condition::all()
+        .add(Task::ProjectId.eq(project_id))
+        .add(Task::DeletedAt.is_null())
+        .add(
+            Condition::any().add(Task::StageId.eq(stage_id)).add(
+                Condition::all()
+                    .add(Task::StageId.is_null())
+                    .add(Task::Status.eq(stage_id)),
+            ),
         )
+}
+
+/// The stage's tasks move to `target` with its status: `stage_id = target,
+/// status = status, completed_date = case when status = 'done' then
+/// coalesce(completed_date, now) end`.
+async fn move_stage_tasks(
+    db: &PgPool,
+    project_id: &str,
+    stage_id: &str,
+    target: &str,
+    status: &str,
+    at: PrimitiveDateTime,
+) -> Result<(), DbErr> {
+    let completed = if status == "done" {
+        Expr::from(Func::coalesce([
+            Expr::col(Task::CompletedDate),
+            Expr::value(at),
+        ]))
+    } else {
+        Expr::value(Option::<PrimitiveDateTime>::None)
     };
+    tasks::Entity::update_many()
+        .col_expr(Task::StageId, Expr::value(target))
+        .col_expr(Task::Status, Expr::value(status))
+        .col_expr(Task::CompletedDate, completed)
+        .col_expr(Task::UpdatedAt, Expr::value(at))
+        .filter(tasks_in_stage(project_id, stage_id))
+        .exec(&orm(db))
+        .await?;
+    Ok(())
 }
 
 // ── GET / ───────────────────────────────────────────────────────────────────
 
-async fn live_stages(db: &PgPool, project_id: &str) -> Result<Vec<Value>, sqlx::Error> {
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(s) from project_pipeline_stages s
-         where s.project_id = $1 and s.deleted_at is null order by s.position asc",
-    )
-    .bind(project_id)
-    .fetch_all(db)
-    .await?;
-    Ok(rows.into_iter().map(js_row).collect())
+async fn live_stages(db: &PgPool, project_id: &str) -> Result<Vec<Value>, DbErr> {
+    stages::Entity::find()
+        .filter(Stage::ProjectId.eq(project_id))
+        .filter(Stage::DeletedAt.is_null())
+        .order_by_asc(Stage::Position)
+        .all(&orm(db))
+        .await?
+        .into_iter()
+        .map(row_json)
+        .collect()
+}
+
+/// The default columns, inserted, or revived and reset where a first load
+/// already wrote them (`on conflict (id) do update`).
+async fn seed_stages(db: &PgPool, project_id: &str) -> Result<(), DbErr> {
+    let at = utc_now();
+    let rows = DEFAULT_STAGES
+        .iter()
+        .enumerate()
+        .map(|(i, (name, color, status))| stages::ActiveModel {
+            id: Set(default_stage_id(project_id, i)),
+            project_id: Set(project_id.to_owned()),
+            name: Set((*name).to_owned()),
+            color: Set(Some((*color).to_owned())),
+            position: Set(i32::try_from(i).unwrap_or(i32::MAX)),
+            system_status: Set((*status).to_owned()),
+            created_at: Set(at),
+            updated_at: Set(at),
+            ..Default::default()
+        });
+    stages::Entity::insert_many(rows)
+        .on_conflict(
+            OnConflict::column(Stage::Id)
+                .update_columns([
+                    Stage::Name,
+                    Stage::Color,
+                    Stage::Position,
+                    Stage::SystemStatus,
+                ])
+                .value(Stage::UpdatedAt, Expr::value(at))
+                .value(
+                    Stage::DeletedAt,
+                    Expr::value(Option::<PrimitiveDateTime>::None),
+                )
+                .to_owned(),
+        )
+        .exec_without_returning(&orm(db))
+        .await?;
+    Ok(())
+}
+
+/// The live tasks of the project per `(stage_id, status)`.
+async fn task_counts(
+    db: &PgPool,
+    project_id: &str,
+) -> Result<Vec<(Option<String>, Option<String>, i32)>, DbErr> {
+    tasks::Entity::find()
+        .select_only()
+        .column(Task::StageId)
+        .column(Task::Status)
+        .column_as(count_int(), "count")
+        .filter(Task::ProjectId.eq(project_id))
+        .filter(Task::DeletedAt.is_null())
+        .group_by(Task::StageId)
+        .group_by(Task::Status)
+        .into_tuple()
+        .all(&orm(db))
+        .await
 }
 
 async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
@@ -202,45 +296,12 @@ async fn list_stages(caller: &Caller, project_id: &str) -> Reply {
     let db = &caller.db;
     let mut stages = live_stages(db, project_id).await?;
     if stages.is_empty() {
-        let now = now();
-        let ids: Vec<String> = (0..DEFAULT_STAGES.len())
-            .map(|i| default_stage_id(project_id, i))
-            .collect();
-        let names: Vec<&str> = DEFAULT_STAGES.iter().map(|s| s.0).collect();
-        let colors: Vec<&str> = DEFAULT_STAGES.iter().map(|s| s.1).collect();
-        let statuses: Vec<&str> = DEFAULT_STAGES.iter().map(|s| s.2).collect();
-        let positions: Vec<i32> = (0..6).collect();
-        sqlx::query(
-            "insert into project_pipeline_stages
-                 (id, project_id, name, color, position, system_status, created_at, updated_at)
-             select s.id, $2, s.name, s.color, s.position, s.status, $7::timestamp, $7::timestamp
-             from unnest($1::varchar[], $3::varchar[], $4::varchar[], $5::int[], $6::varchar[])
-                  as s(id, name, color, position, status)
-             on conflict (id) do update set
-                 name = excluded.name, color = excluded.color, position = excluded.position,
-                 system_status = excluded.system_status, updated_at = $7::timestamp,
-                 deleted_at = null",
-        )
-        .bind(&ids)
-        .bind(project_id)
-        .bind(&names)
-        .bind(&colors)
-        .bind(&positions)
-        .bind(&statuses)
-        .bind(&now)
-        .execute(db)
-        .await?;
+        seed_stages(db, project_id).await?;
         stages = live_stages(db, project_id).await?;
     }
     // Task counts per stage; tasks without a stage match by status (a
     // custom stage's id, or a stage's system status).
-    let counts: Vec<(Option<String>, Option<String>, i32)> = sqlx::query_as(
-        "select stage_id, status, count(*)::int from tasks
-         where project_id = $1 and deleted_at is null group by stage_id, status",
-    )
-    .bind(project_id)
-    .fetch_all(db)
-    .await?;
+    let counts = task_counts(db, project_id).await?;
     let mut usage: HashMap<String, i64> = HashMap::new();
     for (stage_id, status, count) in counts {
         let mut target = stage_id.filter(|s| !s.is_empty());
@@ -361,48 +422,48 @@ async fn create(
 }
 
 async fn create_stage(state: &FlowState, caller: &Caller, input: &NewStage, id: &str) -> Reply {
-    let db = &caller.db;
-    let now = now();
+    let db = &orm(&caller.db);
+    let at = utc_now();
     let system_status = input.system_status.clone().unwrap_or_else(|| id.to_owned());
     let position = if let Some(position) = input.position {
         position
     } else {
-        let existing: Vec<(i32, Option<String>)> = sqlx::query_as(
-            "select position, system_status from project_pipeline_stages
-             where project_id = $1 and deleted_at is null",
-        )
-        .bind(&input.project_id)
-        .fetch_all(db)
-        .await?;
+        let existing: Vec<(i32, Option<String>)> = stages::Entity::find()
+            .select_only()
+            .column(Stage::Position)
+            .column(Stage::SystemStatus)
+            .filter(Stage::ProjectId.eq(&input.project_id))
+            .filter(Stage::DeletedAt.is_null())
+            .into_tuple()
+            .all(db)
+            .await?;
         let (position, shift_from) = position_for_new_stage(&existing, &system_status);
         if let Some(from) = shift_from {
-            sqlx::query(
-                "update project_pipeline_stages set position = position + 1, updated_at = $3::timestamp
-                 where project_id = $1 and deleted_at is null and position >= $2",
-            )
-            .bind(&input.project_id)
-            .bind(i32::try_from(from).unwrap_or(i32::MAX))
-            .bind(&now)
-            .execute(db)
-            .await?;
+            stages::Entity::update_many()
+                .col_expr(Stage::Position, plus(Stage::Position, 1))
+                .col_expr(Stage::UpdatedAt, Expr::value(at))
+                .filter(Stage::ProjectId.eq(&input.project_id))
+                .filter(Stage::DeletedAt.is_null())
+                .filter(Stage::Position.gte(i32::try_from(from).unwrap_or(i32::MAX)))
+                .exec(db)
+                .await?;
         }
         position
     };
-    sqlx::query(
-        "insert into project_pipeline_stages
-             (id, project_id, name, color, position, system_status, created_at, updated_at)
-         values ($1, $2, $3, $4, $5, $6, $7::timestamp, $7::timestamp)",
-    )
-    .bind(id)
-    .bind(&input.project_id)
-    .bind(&input.name)
-    .bind(input.color.as_deref())
-    .bind(i32::try_from(position).unwrap_or(i32::MAX))
-    .bind(&system_status)
-    .bind(&now)
-    .execute(db)
+    stages::Entity::insert(stages::ActiveModel {
+        id: Set(id.to_owned()),
+        project_id: Set(input.project_id.clone()),
+        name: Set(input.name.clone()),
+        color: Set(input.color.clone()),
+        position: Set(i32::try_from(position).unwrap_or(i32::MAX)),
+        system_status: Set(system_status),
+        created_at: Set(at),
+        updated_at: Set(at),
+        ..Default::default()
+    })
+    .exec_without_returning(db)
     .await?;
-    let created = stage_row(db, id, false).await?;
+    let created = stage_row(&caller.db, id, false).await?;
     caller.publish(
         state,
         PROJECT_PIPELINE_STAGE_CREATED,
@@ -438,13 +499,14 @@ async fn reorder(
     };
     reply(
         async {
-            let projects: Vec<Option<String>> = sqlx::query_scalar(
-                "select project_id from project_pipeline_stages
-                 where id = any($1) and deleted_at is null",
-            )
-            .bind(&ids)
-            .fetch_all(&caller.db)
-            .await?;
+            let projects: Vec<Option<String>> = stages::Entity::find()
+                .select_only()
+                .column(Stage::ProjectId)
+                .filter(Stage::Id.is_in(ids.iter().map(String::as_str)))
+                .filter(Stage::DeletedAt.is_null())
+                .into_tuple()
+                .all(&orm(&caller.db))
+                .await?;
             let mut unique: Vec<String> = Vec::new();
             for project in projects.into_iter().flatten() {
                 if !project.is_empty() && !unique.contains(&project) {
@@ -456,17 +518,22 @@ async fn reorder(
                     return Err(Refusal::forbidden(PROJECT_WRITE_DENIED));
                 }
             }
-            let positions: Vec<i32> = (0..i32::try_from(ids.len()).unwrap_or(i32::MAX)).collect();
-            sqlx::query(
-                "update project_pipeline_stages s set position = o.position, updated_at = $3::timestamp
-                 from unnest($1::varchar[], $2::int[]) as o(id, position)
-                 where s.id = o.id and s.deleted_at is null",
-            )
-            .bind(&ids)
-            .bind(&positions)
-            .bind(now())
-            .execute(&caller.db)
-            .await?;
+            // `update … from unnest(ids, positions)`: each stage takes its
+            // index in the list.
+            let mut position = CaseStatement::new();
+            for (index, stage) in ids.iter().enumerate() {
+                position = position.case(
+                    Stage::Id.eq(stage.as_str()),
+                    i32::try_from(index).unwrap_or(i32::MAX),
+                );
+            }
+            stages::Entity::update_many()
+                .col_expr(Stage::Position, Expr::Case(Box::new(position)))
+                .col_expr(Stage::UpdatedAt, Expr::value(utc_now()))
+                .filter(Stage::Id.is_in(ids.iter().map(String::as_str)))
+                .filter(Stage::DeletedAt.is_null())
+                .exec(&orm(&caller.db))
+                .await?;
             Ok(Data(json!({ "reordered": true })).into_response())
         }
         .await,
@@ -517,51 +584,45 @@ async fn update_stage(
     data: Map<String, Value>,
 ) -> Reply {
     let db = &caller.db;
-    let existing: Option<(String, String)> = sqlx::query_as(
-        "select project_id, system_status from project_pipeline_stages
-         where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
+    let existing: Option<(String, String)> = stages::Entity::find()
+        .select_only()
+        .column(Stage::ProjectId)
+        .column(Stage::SystemStatus)
+        .filter(Stage::Id.eq(id))
+        .filter(Stage::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     let Some((project_id, existing_status)) = existing else {
         return Err(Refusal::not_found("Project pipeline stage", id));
     };
     if !project_id.is_empty() && !caller.can_write(&project_id).await? {
         return Err(Refusal::forbidden(PROJECT_WRITE_DENIED));
     }
-    let now = now();
-    sqlx::query(concat!(
-        "update project_pipeline_stages set ",
-        set_text!("name", "name"),
-        ", ",
-        set_text!("color", "color"),
-        ", ",
-        set_text!("systemStatus", "system_status"),
-        ", updated_at = $3::timestamp where id = $2 and deleted_at is null"
-    ))
-    .bind(Value::Object(data.clone()))
-    .bind(id)
-    .bind(&now)
-    .execute(db)
-    .await?;
+    let at = utc_now();
+    // Only the keys the body sent.
+    let mut update = stages::Entity::update_many();
+    for (key, column) in [
+        ("name", Stage::Name),
+        ("color", Stage::Color),
+        ("systemStatus", Stage::SystemStatus),
+    ] {
+        if let Some(value) = data.get(key) {
+            update = update.col_expr(column, Expr::value(json_text(value)));
+        }
+    }
+    update
+        .col_expr(Stage::UpdatedAt, Expr::value(at))
+        .filter(Stage::Id.eq(id))
+        .filter(Stage::DeletedAt.is_null())
+        .exec(&orm(db))
+        .await?;
     // Tasks carry their stage's system status: a change re-labels them.
     if let Some(status) = data.get("systemStatus").and_then(Value::as_str)
         && status != existing_status
         && !project_id.is_empty()
     {
-        sqlx::query(concat!(
-            "update tasks set stage_id = $2, status = $3,",
-            " completed_date = case when $3 = 'done' then coalesce(completed_date, $4::timestamp) end,",
-            " updated_at = $4::timestamp where ",
-            tasks_in_stage!("$1", "$2")
-        ))
-        .bind(&project_id)
-        .bind(id)
-        .bind(normalize_task_status(status))
-        .bind(&now)
-        .execute(db)
-        .await?;
+        move_stage_tasks(db, &project_id, id, id, &normalize_task_status(status), at).await?;
     }
     let updated = stage_row(db, id, false).await?;
     let mut event = data;
@@ -599,32 +660,37 @@ async fn remove_stage(
     move_to: Option<&str>,
 ) -> Reply {
     let db = &caller.db;
-    let existing: Option<String> = sqlx::query_scalar(
-        "select project_id from project_pipeline_stages where id = $1 and deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
+    let existing: Option<String> = stages::Entity::find()
+        .select_only()
+        .column(Stage::ProjectId)
+        .filter(Stage::Id.eq(id))
+        .filter(Stage::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     let Some(project_id) = existing else {
         return Err(Refusal::not_found("Project pipeline stage", id));
     };
     if !project_id.is_empty() && !caller.can_write(&project_id).await? {
         return Err(Refusal::forbidden(PROJECT_WRITE_DENIED));
     }
-    let now = now();
+    let at = utc_now();
     let target: Option<(String, String)> = if let Some(move_to) = move_to {
         if move_to == id {
             return Err(Refusal::bad_request(
                 "Cannot move tasks to the stage being deleted",
             ));
         }
-        let requested: Option<(String, String, String)> = sqlx::query_as(
-            "select id, system_status, project_id from project_pipeline_stages
-             where id = $1 and deleted_at is null limit 1",
-        )
-        .bind(move_to)
-        .fetch_optional(db)
-        .await?;
+        let requested: Option<(String, String, String)> = stages::Entity::find()
+            .select_only()
+            .column(Stage::Id)
+            .column(Stage::SystemStatus)
+            .column(Stage::ProjectId)
+            .filter(Stage::Id.eq(move_to))
+            .filter(Stage::DeletedAt.is_null())
+            .into_tuple()
+            .one(&orm(db))
+            .await?;
         match requested {
             Some((target, status, project)) if project == project_id => Some((target, status)),
             _ => {
@@ -637,14 +703,17 @@ async fn remove_stage(
         None
     } else {
         // `findFallbackStage`: "To Do", else "Backlog", else the first left.
-        let remaining: Vec<(String, String)> = sqlx::query_as(
-            "select id, system_status from project_pipeline_stages
-             where project_id = $1 and deleted_at is null and id <> $2 order by position asc",
-        )
-        .bind(&project_id)
-        .bind(id)
-        .fetch_all(db)
-        .await?;
+        let remaining: Vec<(String, String)> = stages::Entity::find()
+            .select_only()
+            .column(Stage::Id)
+            .column(Stage::SystemStatus)
+            .filter(Stage::ProjectId.eq(&project_id))
+            .filter(Stage::DeletedAt.is_null())
+            .filter(Stage::Id.ne(id))
+            .order_by_asc(Stage::Position)
+            .into_tuple()
+            .all(&orm(db))
+            .await?;
         let by_status = |status: &str| {
             remaining
                 .iter()
@@ -658,40 +727,32 @@ async fn remove_stage(
     if !project_id.is_empty() {
         match &target {
             Some((target_id, status)) => {
-                sqlx::query(concat!(
-                    "update tasks set stage_id = $3, status = $4,",
-                    " completed_date = case when $4 = 'done' then coalesce(completed_date, $5::timestamp) end,",
-                    " updated_at = $5::timestamp where ",
-                    tasks_in_stage!("$1", "$2")
-                ))
-                .bind(&project_id)
-                .bind(id)
-                .bind(target_id)
-                .bind(normalize_task_status(status))
-                .bind(&now)
-                .execute(db)
+                move_stage_tasks(
+                    db,
+                    &project_id,
+                    id,
+                    target_id,
+                    &normalize_task_status(status),
+                    at,
+                )
                 .await?;
             }
             None => {
-                sqlx::query(concat!(
-                    "update tasks set stage_id = null, updated_at = $3::timestamp where ",
-                    tasks_in_stage!("$1", "$2")
-                ))
-                .bind(&project_id)
-                .bind(id)
-                .bind(&now)
-                .execute(db)
-                .await?;
+                tasks::Entity::update_many()
+                    .col_expr(Task::StageId, Expr::value(Option::<String>::None))
+                    .col_expr(Task::UpdatedAt, Expr::value(at))
+                    .filter(tasks_in_stage(&project_id, id))
+                    .exec(&orm(db))
+                    .await?;
             }
         }
     }
-    sqlx::query(
-        "update project_pipeline_stages set deleted_at = $2::timestamp, updated_at = $2::timestamp where id = $1",
-    )
-    .bind(id)
-    .bind(&now)
-    .execute(db)
-    .await?;
+    stages::Entity::update_many()
+        .col_expr(Stage::DeletedAt, Expr::value(at))
+        .col_expr(Stage::UpdatedAt, Expr::value(at))
+        .filter(Stage::Id.eq(id))
+        .exec(&orm(db))
+        .await?;
     caller.publish(
         state,
         PROJECT_PIPELINE_STAGE_DELETED,

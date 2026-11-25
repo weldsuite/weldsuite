@@ -11,6 +11,13 @@ spec:
       targetPort: http
       protocol: TCP
       name: http
+    {{- if .Values.storefront.enabled }}
+    {{- /* The storefront edge: the shop hosts' Ingresses (the wildcard one, and those the server makes per custom domain) name this port, never http. */}}
+    - port: {{ .Values.storefront.edgePort }}
+      targetPort: storefront
+      protocol: TCP
+      name: storefront
+    {{- end }}
     {{- /* For a ServiceMonitor; the Ingress names port http only. */}}
     {{- with include "weldsuite.metricsServicePort" . }}{{ . | nindent 4 }}{{- end }}
   selector:

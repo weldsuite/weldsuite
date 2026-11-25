@@ -22,6 +22,7 @@ import {
   UserCheck,
 } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
+import { CloseDoneButtons } from '@weldsuite/ui/components/close-done-buttons';
 import { WeldAgentInput, type AttachmentPreview } from '@weldsuite/ui/components/weldagent-input';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
@@ -1723,31 +1724,17 @@ export default function ConversationDetailClient({
               <ChevronLeft className="h-5 w-5 text-gray-600 dark:text-muted-foreground" />
             </Button>
             {/* Desktop close/done buttons */}
-            <div className="hidden md:flex items-center border border-border rounded-md overflow-hidden flex-shrink-0">
-              <Button
-                variant="ghost"
-                size="icon"
-                className="p-1.5 hover:bg-gray-100 dark:hover:bg-secondary transition-colors"
-                onClick={() => router.push('/welddesk/inbox/all')}
-                title={ti.backToInbox}
-              >
-                <X className="h-3.5 w-3.5 text-gray-500 dark:text-muted-foreground" />
-              </Button>
-              <div className="w-px h-5 bg-border" />
-              <Button
-                variant="ghost"
-                size="icon"
-                className="p-1.5 hover:bg-gray-100 dark:hover:bg-secondary transition-colors"
-                onClick={async () => {
-                  await handleClose();
-                  router.push('/welddesk/inbox/all');
-                }}
-                disabled={isPending || conversation.status === 'closed'}
-                title={conversation.status === 'closed' ? ti.alreadyClosed : ti.closeAndGoBack}
-              >
-                <Check className="h-3.5 w-3.5 text-gray-500 dark:text-muted-foreground" />
-              </Button>
-            </div>
+            <CloseDoneButtons
+              className="hidden md:flex"
+              onClose={() => router.push('/welddesk/inbox/all')}
+              closeLabel={ti.backToInbox}
+              onDone={async () => {
+                await handleClose();
+                router.push('/welddesk/inbox/all');
+              }}
+              doneLabel={conversation.status === 'closed' ? ti.alreadyClosed : ti.closeAndGoBack}
+              doneDisabled={isPending || conversation.status === 'closed'}
+            />
             {isEditingSubject ? (
               <input
                 ref={subjectInputRef}

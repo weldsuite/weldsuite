@@ -54,13 +54,22 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
+use sea_orm::sea_query::{Alias, Expr, Func, OnConflict};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, Condition, DbErr, EntityTrait, FromQueryResult, JoinType, Order,
+    PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Select,
+};
 use serde::Serialize;
 use serde_json::Value;
-use weldsuite_db::PgPool;
+use time::OffsetDateTime;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_ports::{
     DatabaseProvisioner, FeedEvent, Identity, IdentityChange, IdentityError, ListPage, Membership,
     Teardown, UserProfile,
 };
+use weldsuite_schema::master::enums::MembershipStatus;
+use weldsuite_schema::master::{system_settings, user_workspaces, users, workspaces};
+use weldsuite_schema::tenant::workspace_members as members;
 
 use crate::TenantDatabases;
 use crate::onboard::upsert_user_workspace;
@@ -216,12 +225,12 @@ pub struct IdentitySync {
     provisioner: Option<Arc<dyn DatabaseProvisioner>>,
 }
 
-/// A tenant member row, as the reconcile reads it.
-#[derive(Debug, sqlx::FromRow)]
+/// A tenant member row, as the reconcile reads it ([`member_rows`]).
+#[derive(Debug, FromQueryResult)]
 struct Member {
     id: String,
     role: String,
-    #[sqlx(rename = "member_type")]
+    #[sea_orm(from_alias = "member_type")]
     kind: String,
 }
 
@@ -240,27 +249,39 @@ impl IdentitySync {
         }
     }
 
-    async fn watermark(&self, key: &str) -> Result<Option<String>, sqlx::Error> {
-        let value: Option<Option<Value>> =
-            sqlx::query_scalar("select value from system_settings where key = $1 limit 1")
-                .bind(key)
-                .fetch_optional(&self.master)
-                .await?;
+    async fn watermark(&self, key: &str) -> Result<Option<String>, DbErr> {
+        let value: Option<Option<Value>> = system_settings::Entity::find()
+            .select_only()
+            .column(system_settings::Column::Value)
+            .filter(system_settings::Column::Key.eq(key))
+            .into_tuple()
+            .one(&orm(&self.master))
+            .await?;
         Ok(value
             .flatten()
             .and_then(|value| value.as_str().map(str::to_owned)))
     }
 
-    async fn store_watermark(&self, key: &str, at: &str) -> Result<(), sqlx::Error> {
-        sqlx::query(
-            "insert into system_settings (id, key, category, value, description, data_type)
-             values ($1, $2, 'integrations', $3, 'The identity sync has handled the provider''s changes up to here', 'string')
-             on conflict (key) do update set value = excluded.value, updated_at = now()",
+    async fn store_watermark(&self, key: &str, at: &str) -> Result<(), DbErr> {
+        use system_settings::Column;
+        system_settings::Entity::insert(system_settings::ActiveModel {
+            id: Set(weldsuite_kit::generate_id("sset")),
+            key: Set(key.to_owned()),
+            category: Set("integrations".to_owned()),
+            value: Set(Some(Value::String(at.to_owned()))),
+            description: Set(Some(
+                "The identity sync has handled the provider's changes up to here".to_owned(),
+            )),
+            data_type: Set(Some("string".to_owned())),
+            ..Default::default()
+        })
+        .on_conflict(
+            OnConflict::column(Column::Key)
+                .update_column(Column::Value)
+                .value(Column::UpdatedAt, Expr::current_timestamp())
+                .to_owned(),
         )
-        .bind(weldsuite_kit::generate_id("sset"))
-        .bind(key)
-        .bind(Value::String(at.to_owned()))
-        .execute(&self.master)
+        .exec_without_returning(&orm(&self.master))
         .await
         .map(drop)
     }
@@ -345,14 +366,19 @@ impl IdentitySync {
                 let Ok(tenant) = (self.tenants)(org.unwrap_or(workspace)).await else {
                     continue;
                 };
-                let _ = sqlx::query(
-                    "update workspace_members set email = $2, updated_at = now()
-                      where user_id = $1 and deleted_at is null and email is distinct from $2",
-                )
-                .bind(user_id)
-                .bind(email)
-                .execute(&tenant)
-                .await;
+                let _ = members::Entity::update_many()
+                    .col_expr(members::Column::Email, Expr::value(email))
+                    .col_expr(members::Column::UpdatedAt, Expr::current_timestamp())
+                    .filter(members::Column::UserId.eq(user_id))
+                    .filter(members::Column::DeletedAt.is_null())
+                    // `email is distinct from $2`, `$2` never null here.
+                    .filter(
+                        Condition::any()
+                            .add(members::Column::Email.is_null())
+                            .add(members::Column::Email.ne(email)),
+                    )
+                    .exec(&orm(&tenant))
+                    .await;
             }
         }
         Outcome::Done
@@ -362,14 +388,20 @@ impl IdentitySync {
     /// role for SSO members, then the master membership. Someone already in
     /// keeps their role; a workspace that is gone is skipped.
     async fn sso_join(&self, join: &SsoJoin) -> Outcome {
-        let workspace: Result<Option<(String, Option<String>)>, sqlx::Error> = sqlx::query_as(
-            "select id, clerk_org_id from workspaces
-              where (id = $1 or clerk_org_id = $1) and deleted_at is null
-              order by (id = $1) desc limit 1",
-        )
-        .bind(&join.tenant_ref)
-        .fetch_optional(&self.master)
-        .await;
+        let master = orm(&self.master);
+        let workspace: Result<Option<(String, Option<String>)>, DbErr> = workspaces::Entity::find()
+            .select_only()
+            .columns([workspaces::Column::Id, workspaces::Column::ClerkOrgId])
+            .filter(
+                Condition::any()
+                    .add(workspaces::Column::Id.eq(&join.tenant_ref))
+                    .add(workspaces::Column::ClerkOrgId.eq(&join.tenant_ref)),
+            )
+            .filter(workspaces::Column::DeletedAt.is_null())
+            .order_by(workspaces::Column::Id.eq(&join.tenant_ref), Order::Desc)
+            .into_tuple()
+            .one(&master)
+            .await;
         let (workspace_id, org) = match workspace {
             Ok(Some(workspace)) => workspace,
             Ok(None) => {
@@ -381,16 +413,21 @@ impl IdentitySync {
             }
             Err(error) => return error.into(),
         };
-        let master_role: Result<Option<(String, String)>, sqlx::Error> = sqlx::query_as(
-            "select status::text, role from user_workspaces where user_id = $1 and workspace_id = $2",
-        )
-        .bind(&join.user_id)
-        .bind(&workspace_id)
-        .fetch_optional(&self.master)
-        .await;
+        let master_role: Result<Option<(MembershipStatus, String)>, DbErr> =
+            user_workspaces::Entity::find()
+                .select_only()
+                .columns([
+                    user_workspaces::Column::Status,
+                    user_workspaces::Column::Role,
+                ])
+                .filter(user_workspaces::Column::UserId.eq(&join.user_id))
+                .filter(user_workspaces::Column::WorkspaceId.eq(&workspace_id))
+                .into_tuple()
+                .one(&master)
+                .await;
         let master_role = match master_role {
             Ok(row) => row
-                .filter(|(status, _)| status == "ACTIVE")
+                .filter(|(status, _)| *status == MembershipStatus::ACTIVE)
                 .map(|(_, role)| role),
             Err(error) => return error.into(),
         };
@@ -451,12 +488,18 @@ impl IdentitySync {
     /// provider no longer knows them.
     async fn sso_person(&self, user_id: &str) -> Result<Option<Person>, Outcome> {
         let person = |row: Option<Person>| row.filter(|p| !p.email.is_empty());
-        let stored: Option<Person> =
-            sqlx::query_as("select email, first_name, last_name from users where id = $1")
-                .bind(user_id)
-                .fetch_optional(&self.master)
-                .await
-                .map_err(Outcome::from)?;
+        let stored: Option<Person> = users::Entity::find()
+            .select_only()
+            .columns([
+                users::Column::Email,
+                users::Column::FirstName,
+                users::Column::LastName,
+            ])
+            .filter(users::Column::Id.eq(user_id))
+            .into_model()
+            .one(&orm(&self.master))
+            .await
+            .map_err(Outcome::from)?;
         if let Some(found) = person(stored) {
             return Ok(Some(found));
         }
@@ -589,29 +632,16 @@ impl IdentitySync {
     /// ADR SEC-020): members keep no copy.
     async fn store_profile(&self, user_id: &str, profile: &UserProfile) -> Result<(), Outcome> {
         let email = profile.primary_email().unwrap_or_default().to_owned();
-        sqlx::query(
-            "insert into users (id, email, first_name, last_name, image_url)
-             values ($1, $2, $3, $4, $5)
-             on conflict (id) do update
-                set email = case when excluded.email <> '' then excluded.email else users.email end,
-                    first_name = excluded.first_name, last_name = excluded.last_name,
-                    image_url = case
-                        -- A picture uploaded in WeldSuite (`PUT /settings/profile/avatar`,
-                        -- stored as `…/avatars/<user id>_<ms>.<ext>`) is never on the
-                        -- provider: it wins until the user uploads another.
-                        when strpos(coalesce(users.image_url, ''), '/avatars/' || users.id || '_') > 0
-                            then users.image_url
-                        -- Otherwise the provider's picture, when it has one.
-                        else coalesce(nullif(excluded.image_url, ''), users.image_url)
-                    end,
-                    updated_at = now()",
-        )
-        .bind(user_id)
-        .bind(&email)
-        .bind(&profile.first_name)
-        .bind(&profile.last_name)
-        .bind(&profile.image_url)
-        .execute(&self.master)
+        users::Entity::insert(users::ActiveModel {
+            id: Set(user_id.to_owned()),
+            email: Set(email),
+            first_name: Set(profile.first_name.clone()),
+            last_name: Set(profile.last_name.clone()),
+            image_url: Set(profile.image_url.clone()),
+            ..Default::default()
+        })
+        .on_conflict(profile_merge())
+        .exec_without_returning(&orm(&self.master))
         .await
         .map_err(Outcome::from)?;
         let full_name = [profile.first_name.as_deref(), profile.last_name.as_deref()]
@@ -634,49 +664,59 @@ impl IdentitySync {
             let Ok(tenant) = (self.tenants)(org.unwrap_or(workspace)).await else {
                 continue;
             };
-            let _ = sqlx::query(
-                "update workspace_members set name = $2, updated_at = now()
-                  where user_id = $1 and deleted_at is null",
-            )
-            .bind(user_id)
-            .bind(name)
-            .execute(&tenant)
-            .await;
+            let _ = members::Entity::update_many()
+                .col_expr(members::Column::Name, Expr::value(name))
+                .col_expr(members::Column::UpdatedAt, Expr::current_timestamp())
+                .filter(members::Column::UserId.eq(user_id))
+                .filter(members::Column::DeletedAt.is_null())
+                .exec(&orm(&tenant))
+                .await;
         }
     }
 
+    /// The workspaces a user is in (`user_workspaces` joined to
+    /// `workspaces`); none when the master can't be read.
     async fn workspaces_of(&self, user_id: &str) -> Vec<(String, Option<String>)> {
-        sqlx::query_as(
-            "select w.id, w.clerk_org_id from user_workspaces uw
-               join workspaces w on w.id = uw.workspace_id
-              where uw.user_id = $1",
-        )
-        .bind(user_id)
-        .fetch_all(&self.master)
-        .await
-        .unwrap_or_default()
+        user_workspaces::Entity::find()
+            .select_only()
+            .columns([workspaces::Column::Id, workspaces::Column::ClerkOrgId])
+            .join(
+                JoinType::InnerJoin,
+                user_workspaces::Entity::belongs_to(workspaces::Entity)
+                    .from(user_workspaces::Column::WorkspaceId)
+                    .to(workspaces::Column::Id)
+                    .into(),
+            )
+            .filter(user_workspaces::Column::UserId.eq(user_id))
+            .into_tuple()
+            .all(&orm(&self.master))
+            .await
+            .unwrap_or_default()
     }
 
     /// `handleUserDeleted`.
-    async fn user_deleted(&self, user_id: &str) -> Result<(), sqlx::Error> {
-        let workspaces = self.workspaces_of(user_id).await;
-        sqlx::query("update users set is_active = false, updated_at = now() where id = $1")
-            .bind(user_id)
-            .execute(&self.master)
+    async fn user_deleted(&self, user_id: &str) -> Result<(), DbErr> {
+        let joined = self.workspaces_of(user_id).await;
+        let master = orm(&self.master);
+        users::Entity::update_many()
+            .col_expr(users::Column::IsActive, Expr::value(false))
+            .col_expr(users::Column::UpdatedAt, Expr::current_timestamp())
+            .filter(users::Column::Id.eq(user_id))
+            .exec(&master)
             .await?;
-        sqlx::query("delete from user_workspaces where user_id = $1")
-            .bind(user_id)
-            .execute(&self.master)
+        user_workspaces::Entity::delete_many()
+            .filter(user_workspaces::Column::UserId.eq(user_id))
+            .exec(&master)
             .await?;
-        for (workspace, org) in workspaces {
+        for (workspace, org) in joined {
             if let Ok(tenant) = (self.tenants)(org.unwrap_or(workspace)).await {
-                let _ = sqlx::query(
-                    "update workspace_members set deleted_at = now(), updated_at = now()
-                      where user_id = $1 and deleted_at is null",
-                )
-                .bind(user_id)
-                .execute(&tenant)
-                .await;
+                let _ = members::Entity::update_many()
+                    .col_expr(members::Column::DeletedAt, Expr::current_timestamp())
+                    .col_expr(members::Column::UpdatedAt, Expr::current_timestamp())
+                    .filter(members::Column::UserId.eq(user_id))
+                    .filter(members::Column::DeletedAt.is_null())
+                    .exec(&orm(&tenant))
+                    .await;
             }
         }
         Ok(())
@@ -685,11 +725,15 @@ impl IdentitySync {
     // ── organizations ───────────────────────────────────────────────────
 
     async fn organization(&self, org: &str) -> Outcome {
-        let workspace: Result<Option<(String, Option<String>)>, sqlx::Error> =
-            sqlx::query_as("select id, slug from workspaces where clerk_org_id = $1 limit 1")
-                .bind(org)
-                .fetch_optional(&self.master)
-                .await;
+        use workspaces::Column;
+        let master = orm(&self.master);
+        let workspace: Result<Option<String>, DbErr> = workspaces::Entity::find()
+            .select_only()
+            .column(Column::Id)
+            .filter(Column::ClerkOrgId.eq(org))
+            .into_tuple()
+            .one(&master)
+            .await;
         let workspace = match workspace {
             Ok(Some(workspace)) => workspace,
             Ok(None) => return Outcome::Done,
@@ -697,18 +741,21 @@ impl IdentitySync {
         };
         match self.identity.organization(org).await {
             // `handleOrganizationUpdated`: the slug only when the provider
-            // keeps one.
-            Ok(organization) => sqlx::query(
-                "update workspaces set name = $2, slug = coalesce($3, slug), updated_at = now()
-                  where id = $1",
-            )
-            .bind(&workspace.0)
-            .bind(&organization.name)
-            .bind(organization.slug.filter(|s| !s.is_empty()))
-            .execute(&self.master)
-            .await
-            .map_or_else(Outcome::from, |_| Outcome::Done),
-            Err(error) if error.is_not_found() => self.organization_deleted(&workspace.0).await,
+            // keeps one (`slug = coalesce($3, slug)`).
+            Ok(organization) => {
+                let mut update = workspaces::Entity::update_many()
+                    .col_expr(Column::Name, Expr::value(organization.name));
+                if let Some(slug) = organization.slug.filter(|s| !s.is_empty()) {
+                    update = update.col_expr(Column::Slug, Expr::value(slug));
+                }
+                update
+                    .col_expr(Column::UpdatedAt, Expr::current_timestamp())
+                    .filter(Column::Id.eq(&workspace))
+                    .exec(&master)
+                    .await
+                    .map_or_else(Outcome::from, |_| Outcome::Done)
+            }
+            Err(error) if error.is_not_found() => self.organization_deleted(&workspace).await,
             Err(error) => retry_unless_refused(error),
         }
     }
@@ -718,30 +765,32 @@ impl IdentitySync {
     /// progress defers it all; a failed teardown is retried by the next run
     /// (the teardown sweep is the backstop).
     async fn organization_deleted(&self, workspace_id: &str) -> Outcome {
-        let moving: Result<bool, sqlx::Error> = sqlx::query_scalar(
-            "select exists (select 1 from workspace_database_moves
-                             where workspace_id = $1 and status = any($2))",
-        )
-        .bind(workspace_id)
-        .bind(crate::sweeps::active_move_statuses())
-        .fetch_one(&self.master)
-        .await;
-        match moving {
+        use workspaces::Column;
+        match crate::sweeps::has_active_move(&self.master, workspace_id).await {
             Ok(false) => {}
             Ok(true) => return Outcome::Retry("a database move is in progress".into()),
             Err(error) => return error.into(),
         }
+        let master = orm(&self.master);
         let marked = async {
-            sqlx::query(
-                "update workspaces set is_active = false, deleted_at = coalesce(deleted_at, now()),
-                        updated_at = now() where id = $1",
-            )
-            .bind(workspace_id)
-            .execute(&self.master)
-            .await?;
-            sqlx::query("delete from user_workspaces where workspace_id = $1")
-                .bind(workspace_id)
-                .execute(&self.master)
+            workspaces::Entity::update_many()
+                .col_expr(Column::IsActive, Expr::value(false))
+                // An earlier stamp is kept: `coalesce(deleted_at, now())`.
+                .col_expr(
+                    Column::DeletedAt,
+                    Func::coalesce([
+                        Expr::col((workspaces::Entity, Column::DeletedAt)),
+                        Expr::current_timestamp(),
+                    ])
+                    .into(),
+                )
+                .col_expr(Column::UpdatedAt, Expr::current_timestamp())
+                .filter(Column::Id.eq(workspace_id))
+                .exec(&master)
+                .await?;
+            user_workspaces::Entity::delete_many()
+                .filter(user_workspaces::Column::WorkspaceId.eq(workspace_id))
+                .exec(&master)
                 .await
         };
         if let Err(error) = marked.await {
@@ -762,12 +811,14 @@ impl IdentitySync {
     // ── memberships ─────────────────────────────────────────────────────
 
     async fn membership(&self, org: &str, user_id: &str) -> Outcome {
-        let workspace: Result<Option<String>, sqlx::Error> = sqlx::query_scalar(
-            "select id from workspaces where clerk_org_id = $1 and deleted_at is null limit 1",
-        )
-        .bind(org)
-        .fetch_optional(&self.master)
-        .await;
+        let workspace: Result<Option<String>, DbErr> = workspaces::Entity::find()
+            .select_only()
+            .column(workspaces::Column::Id)
+            .filter(workspaces::Column::ClerkOrgId.eq(org))
+            .filter(workspaces::Column::DeletedAt.is_null())
+            .into_tuple()
+            .one(&orm(&self.master))
+            .await;
         let workspace = match workspace {
             Ok(Some(workspace)) => workspace,
             Ok(None) => return Outcome::Done,
@@ -829,16 +880,20 @@ impl IdentitySync {
         };
         // The master's `users` row is the membership's parent.
         let written = async {
-            sqlx::query(
-                "insert into users (id, email, first_name, last_name, image_url)
-                 values ($1, $2, $3, $4, $5) on conflict (id) do nothing",
+            users::Entity::insert(users::ActiveModel {
+                id: Set(user_id.to_owned()),
+                email: Set(membership.user.identifier.clone()),
+                first_name: Set(membership.user.first_name.clone()),
+                last_name: Set(membership.user.last_name.clone()),
+                image_url: Set(membership.user.image_url.clone()),
+                ..Default::default()
+            })
+            .on_conflict(
+                OnConflict::column(users::Column::Id)
+                    .do_nothing()
+                    .to_owned(),
             )
-            .bind(user_id)
-            .bind(&membership.user.identifier)
-            .bind(&membership.user.first_name)
-            .bind(&membership.user.last_name)
-            .bind(&membership.user.image_url)
-            .execute(&self.master)
+            .exec_without_returning(&orm(&self.master))
             .await?;
             upsert_user_workspace(
                 &self.master,
@@ -885,58 +940,60 @@ impl IdentitySync {
             return Outcome::Done;
         };
         let role = display_role(role);
-        let existing: Result<Option<String>, sqlx::Error> = sqlx::query_scalar(
-            "select id from workspace_members
-              where lower(email) = lower($1)
-                and (status = 'PENDING' or user_id like 'pending_clerk_%' or user_id like 'invited_%')
-                and deleted_at is null
-              limit 1",
-        )
-        .bind(email)
-        .fetch_optional(&tenant)
-        .await;
+        let tenant = orm(&tenant);
+        let existing: Result<Option<String>, DbErr> = members::Entity::find()
+            .select_only()
+            .column(members::Column::Id)
+            .filter(pending_for(email))
+            .into_tuple()
+            .one(&tenant)
+            .await;
         let written = match existing {
             Ok(Some(id)) => {
-                sqlx::query(
-                    "update workspace_members
-                        set clerk_invitation_id = $2,
-                            invited_at = coalesce(invited_at, now()), updated_at = now(),
-                            role = case when role = 'OWNER' then role else $3 end
-                      where id = $1",
-                )
-                .bind(id)
-                .bind(invitation_id)
-                .bind(role)
-                .execute(&tenant)
-                .await
+                use members::Column;
+                let current = |column: Column| Expr::col((members::Entity, column));
+                // `case when role = 'OWNER' then role else $3 end`.
+                let kept = Expr::case(Column::Role.eq("OWNER"), current(Column::Role))
+                    .finally(Expr::val(role));
+                members::Entity::update_many()
+                    .col_expr(Column::ClerkInvitationId, Expr::value(invitation_id))
+                    .col_expr(
+                        Column::InvitedAt,
+                        Func::coalesce([current(Column::InvitedAt), Expr::current_timestamp()])
+                            .into(),
+                    )
+                    .col_expr(Column::UpdatedAt, Expr::current_timestamp())
+                    .col_expr(Column::Role, kept.into())
+                    .filter(Column::Id.eq(id))
+                    .exec(&tenant)
+                    .await
+                    .map(drop)
             }
-            Ok(None) => {
-                sqlx::query(
-                    "insert into workspace_members
-                       (id, user_id, email, role, status, clerk_invitation_id, invited_at)
-                     values ($1, $2, $3, $4, 'PENDING', $5, now())",
-                )
-                .bind(weldsuite_kit::generate_id("mbr"))
-                .bind(format!("pending_clerk_{invitation_id}"))
-                .bind(email)
-                .bind(role)
-                .bind(invitation_id)
-                .execute(&tenant)
-                .await
-            }
+            Ok(None) => members::Entity::insert(members::ActiveModel {
+                id: Set(weldsuite_kit::generate_id("mbr")),
+                user_id: Set(format!("pending_clerk_{invitation_id}")),
+                email: Set(Some(email.to_owned())),
+                role: Set(role.to_owned()),
+                status: Set("PENDING".to_owned()),
+                clerk_invitation_id: Set(Some(invitation_id.to_owned())),
+                invited_at: Set(Some(OffsetDateTime::now_utc())),
+                ..Default::default()
+            })
+            .exec_without_returning(&tenant)
+            .await
+            .map(drop),
             Err(error) => Err(error),
         };
-        written.map_or_else(Outcome::from, |_| Outcome::Done)
+        written.map_or_else(Outcome::from, |()| Outcome::Done)
     }
 
     /// `handleMembershipDeleted` (and a revoked invitation's PENDING row).
     async fn membership_removed(&self, workspace_id: &str, org: &str, user_id: &str) -> Outcome {
-        let removed =
-            sqlx::query("delete from user_workspaces where user_id = $1 and workspace_id = $2")
-                .bind(user_id)
-                .bind(workspace_id)
-                .execute(&self.master)
-                .await;
+        let removed = user_workspaces::Entity::delete_many()
+            .filter(user_workspaces::Column::UserId.eq(user_id))
+            .filter(user_workspaces::Column::WorkspaceId.eq(workspace_id))
+            .exec(&orm(&self.master))
+            .await;
         if let Err(error) = removed {
             return error.into();
         }
@@ -944,16 +1001,22 @@ impl IdentitySync {
             return Outcome::Done;
         };
         let pending = format!("{user_id}:%");
-        sqlx::query(
-            "update workspace_members set deleted_at = now(), updated_at = now()
-              where deleted_at is null
-                and (user_id = $1 or (status = 'PENDING' and clerk_invitation_id like $2))",
-        )
-        .bind(user_id)
-        .bind(pending)
-        .execute(&tenant)
-        .await
-        .map_or_else(Outcome::from, |_| Outcome::Done)
+        members::Entity::update_many()
+            .col_expr(members::Column::DeletedAt, Expr::current_timestamp())
+            .col_expr(members::Column::UpdatedAt, Expr::current_timestamp())
+            .filter(members::Column::DeletedAt.is_null())
+            .filter(
+                Condition::any()
+                    .add(members::Column::UserId.eq(user_id))
+                    .add(
+                        Condition::all()
+                            .add(members::Column::Status.eq("PENDING"))
+                            .add(members::Column::ClerkInvitationId.like(pending.as_str())),
+                    ),
+            )
+            .exec(&orm(&tenant))
+            .await
+            .map_or_else(Outcome::from, |_| Outcome::Done)
     }
 }
 
@@ -1001,16 +1064,43 @@ struct MemberIdentity<'a> {
     membership_id: &'a str,
 }
 
-const MEMBER_COLUMNS: &str = "id, role, member_type";
+/// The member rows as [`Member`] reads them: `id, role, member_type`.
+fn member_rows() -> Select<members::Entity> {
+    members::Entity::find().select_only().columns([
+        members::Column::Id,
+        members::Column::Role,
+        members::Column::MemberType,
+    ])
+}
 
-async fn active_member(tenant: &PgPool, user_id: &str) -> Result<Option<Member>, sqlx::Error> {
-    sqlx::query_as(sqlx::AssertSqlSafe(format!(
-        "select {MEMBER_COLUMNS} from workspace_members
-          where user_id = $1 and deleted_at is null limit 1"
-    )))
-    .bind(user_id)
-    .fetch_optional(tenant)
-    .await
+/// The invitation row for an email: `lower(email) = lower($1) and (status =
+/// 'PENDING' or user_id like 'pending_clerk_%' or user_id like 'invited_%')
+/// and deleted_at is null`.
+fn pending_for(email: &str) -> Condition {
+    Condition::all()
+        .add(sea_orm::ExprTrait::eq(
+            Expr::expr(Func::lower(Expr::col((
+                members::Entity,
+                members::Column::Email,
+            )))),
+            Func::lower(Expr::val(email)),
+        ))
+        .add(
+            Condition::any()
+                .add(members::Column::Status.eq("PENDING"))
+                .add(members::Column::UserId.like("pending_clerk_%"))
+                .add(members::Column::UserId.like("invited_%")),
+        )
+        .add(members::Column::DeletedAt.is_null())
+}
+
+async fn active_member(tenant: &PgPool, user_id: &str) -> Result<Option<Member>, DbErr> {
+    member_rows()
+        .filter(members::Column::UserId.eq(user_id))
+        .filter(members::Column::DeletedAt.is_null())
+        .into_model()
+        .one(&orm(tenant))
+        .await
 }
 
 /// `resolvePreservedRole`: an OWNER stays OWNER; guests and employees keep
@@ -1031,74 +1121,94 @@ async fn sync_tenant_member(
     tenant: &PgPool,
     existing: Option<Member>,
     identity: &MemberIdentity<'_>,
-) -> Result<(), sqlx::Error> {
+) -> Result<(), DbErr> {
+    use members::Column;
+    let db = orm(tenant);
     if let Some(existing) = existing {
-        sqlx::query(
-            "update workspace_members
-                set email = $2, name = coalesce($3, name),
-                    role = $4, status = 'ACTIVE', clerk_membership_id = $5, updated_at = now()
-              where id = $1",
-        )
-        .bind(&existing.id)
-        .bind(identity.email)
-        .bind(&identity.name)
-        .bind(preserved_role(&existing, identity.role))
-        .bind(identity.membership_id)
-        .execute(tenant)
-        .await?;
+        member_update(identity.name.as_deref())
+            .col_expr(Column::Email, Expr::value(identity.email))
+            .col_expr(
+                Column::Role,
+                Expr::value(preserved_role(&existing, identity.role)),
+            )
+            .col_expr(Column::Status, Expr::value("ACTIVE"))
+            .col_expr(
+                Column::ClerkMembershipId,
+                Expr::value(identity.membership_id),
+            )
+            .col_expr(Column::UpdatedAt, Expr::current_timestamp())
+            .filter(Column::Id.eq(existing.id))
+            .exec(&db)
+            .await?;
         return Ok(());
     }
     let pending: Option<Member> = if identity.email.is_empty() {
         None
     } else {
-        sqlx::query_as(sqlx::AssertSqlSafe(format!(
-            "select {MEMBER_COLUMNS} from workspace_members
-              where lower(email) = lower($1)
-                and (status = 'PENDING' or user_id like 'pending_clerk_%' or user_id like 'invited_%')
-                and deleted_at is null
-              limit 1"
-        )))
-        .bind(identity.email)
-        .fetch_optional(tenant)
-        .await?
+        member_rows()
+            .filter(pending_for(identity.email))
+            .into_model()
+            .one(&db)
+            .await?
     };
     release_removed_user_id(tenant, identity.user_id).await?;
     if let Some(pending) = pending {
-        sqlx::query(
-            "update workspace_members
-                set user_id = $2, name = coalesce($3, name),
-                    role = $4, status = 'ACTIVE', clerk_membership_id = $5,
-                    accepted_at = coalesce(accepted_at, now()), updated_at = now()
-              where id = $1",
-        )
-        .bind(&pending.id)
-        .bind(identity.user_id)
-        .bind(&identity.name)
-        .bind(preserved_role(&pending, identity.role))
-        .bind(identity.membership_id)
-        .execute(tenant)
-        .await?;
+        member_update(identity.name.as_deref())
+            .col_expr(Column::UserId, Expr::value(identity.user_id))
+            .col_expr(
+                Column::Role,
+                Expr::value(preserved_role(&pending, identity.role)),
+            )
+            .col_expr(Column::Status, Expr::value("ACTIVE"))
+            .col_expr(
+                Column::ClerkMembershipId,
+                Expr::value(identity.membership_id),
+            )
+            .col_expr(Column::AcceptedAt, accepted_now())
+            .col_expr(Column::UpdatedAt, Expr::current_timestamp())
+            .filter(Column::Id.eq(pending.id))
+            .exec(&db)
+            .await?;
         return Ok(());
     }
-    let count: i64 =
-        sqlx::query_scalar("select count(*) from workspace_members where deleted_at is null")
-            .fetch_one(tenant)
-            .await?;
+    let count = members::Entity::find()
+        .filter(Column::DeletedAt.is_null())
+        .count(&db)
+        .await?;
     let role = if count == 0 { "OWNER" } else { identity.role };
-    sqlx::query(
-        "insert into workspace_members
-           (id, user_id, email, name, role, status, clerk_membership_id)
-         values ($1, $2, $3, $4, $5, 'ACTIVE', $6)",
-    )
-    .bind(weldsuite_kit::generate_id("mbr"))
-    .bind(identity.user_id)
-    .bind(identity.email)
-    .bind(&identity.name)
-    .bind(role)
-    .bind(identity.membership_id)
-    .execute(tenant)
+    members::Entity::insert(members::ActiveModel {
+        id: Set(weldsuite_kit::generate_id("mbr")),
+        user_id: Set(identity.user_id.to_owned()),
+        email: Set(Some(identity.email.to_owned())),
+        name: Set(identity.name.clone()),
+        role: Set(role.to_owned()),
+        status: Set("ACTIVE".to_owned()),
+        clerk_membership_id: Set(Some(identity.membership_id.to_owned())),
+        ..Default::default()
+    })
+    .exec_without_returning(&db)
     .await
     .map(drop)
+}
+
+/// An update of member rows that sets `name = coalesce($name, name)`: the
+/// name only when there is one.
+fn member_update(name: Option<&str>) -> sea_orm::UpdateMany<members::Entity> {
+    let update = members::Entity::update_many();
+    match name {
+        Some(name) => update.col_expr(members::Column::Name, Expr::value(name)),
+        None => update,
+    }
+}
+
+/// `accepted_at = coalesce(accepted_at, now())`: an earlier acceptance is
+/// kept.
+fn accepted_now() -> Expr {
+    Func::coalesce([
+        Expr::col((members::Entity, members::Column::AcceptedAt)),
+        Expr::current_timestamp(),
+    ])
+    .into()
 }
 
 /// `mapRoleToClerk`: the master row's role for a workspace role.
@@ -1112,7 +1222,7 @@ fn provider_role(role: &str) -> &'static str {
 
 /// Who signed in, from the master `users` row. No picture: the member row
 /// keeps none (avatars are the account's, `users.image_url`).
-#[derive(Debug, sqlx::FromRow)]
+#[derive(Debug, FromQueryResult)]
 struct Person {
     email: String,
     first_name: Option<String>,
@@ -1127,7 +1237,8 @@ async fn add_sso_member(
     user_id: &str,
     person: &Person,
     role: &str,
-) -> Result<(), sqlx::Error> {
+) -> Result<(), DbErr> {
+    use members::Column;
     let name = [person.first_name.as_deref(), person.last_name.as_deref()]
         .into_iter()
         .flatten()
@@ -1136,55 +1247,100 @@ async fn add_sso_member(
         .join(" ");
     let name = Some(name).filter(|name| !name.is_empty());
     release_removed_user_id(tenant, user_id).await?;
-    let pending: Option<String> = sqlx::query_scalar(
-        "select id from workspace_members
-          where lower(email) = lower($1)
-            and (status = 'PENDING' or user_id like 'pending_clerk_%' or user_id like 'invited_%')
-            and deleted_at is null
-          limit 1",
-    )
-    .bind(&person.email)
-    .fetch_optional(tenant)
-    .await?;
-    if let Some(id) = pending {
-        sqlx::query(
-            "update workspace_members
-                set user_id = $2, name = coalesce($3, name),
-                    status = 'ACTIVE', accepted_at = coalesce(accepted_at, now()), updated_at = now()
-              where id = $1",
-        )
-        .bind(id)
-        .bind(user_id)
-        .bind(&name)
-        .execute(tenant)
+    let db = orm(tenant);
+    let pending: Option<String> = members::Entity::find()
+        .select_only()
+        .column(Column::Id)
+        .filter(pending_for(&person.email))
+        .into_tuple()
+        .one(&db)
         .await?;
+    if let Some(id) = pending {
+        member_update(name.as_deref())
+            .col_expr(Column::UserId, Expr::value(user_id))
+            .col_expr(Column::Status, Expr::value("ACTIVE"))
+            .col_expr(Column::AcceptedAt, accepted_now())
+            .col_expr(Column::UpdatedAt, Expr::current_timestamp())
+            .filter(Column::Id.eq(id))
+            .exec(&db)
+            .await?;
         return Ok(());
     }
-    sqlx::query(
-        "insert into workspace_members (id, user_id, email, name, role, status)
-         values ($1, $2, $3, $4, $5, 'ACTIVE')",
-    )
-    .bind(weldsuite_kit::generate_id("mbr"))
-    .bind(user_id)
-    .bind(&person.email)
-    .bind(&name)
-    .bind(role)
-    .execute(tenant)
+    members::Entity::insert(members::ActiveModel {
+        id: Set(weldsuite_kit::generate_id("mbr")),
+        user_id: Set(user_id.to_owned()),
+        email: Set(Some(person.email.clone())),
+        name: Set(name),
+        role: Set(role.to_owned()),
+        status: Set("ACTIVE".to_owned()),
+        ..Default::default()
+    })
+    .exec_without_returning(&db)
     .await
     .map(drop)
 }
 
 /// `releaseRemovedMemberUserId`: a removed row that still holds the user id
-/// gives it up, so the user's new row can take it.
-async fn release_removed_user_id(tenant: &PgPool, user_id: &str) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "update workspace_members set user_id = 'removed_' || id
-          where user_id = $1 and deleted_at is not null",
+/// gives it up (`user_id = 'removed_' || id`), so the user's new row can
+/// take it.
+async fn release_removed_user_id(tenant: &PgPool, user_id: &str) -> Result<(), DbErr> {
+    use members::Column;
+    members::Entity::update_many()
+        .col_expr(
+            Column::UserId,
+            sea_orm::sea_query::extension::postgres::PgExpr::concat(
+                Expr::val("removed_"),
+                Expr::col((members::Entity, Column::Id)),
+            ),
+        )
+        .filter(Column::UserId.eq(user_id))
+        .filter(Column::DeletedAt.is_not_null())
+        .exec(&orm(tenant))
+        .await
+        .map(drop)
+}
+
+/// `on conflict (id) do update` of the profile: the email unless the
+/// provider's is empty, the names, the picture, `updated_at`.
+fn profile_merge() -> OnConflict {
+    use sea_orm::sea_query::extension::postgres::PgExpr;
+    use users::Column;
+    let excluded = |column: Column| Expr::col((Alias::new("excluded"), column));
+    let current = |column: Column| Expr::col((users::Entity, column));
+    // `case when excluded.email <> '' then excluded.email else users.email end`.
+    let email = Expr::case(
+        sea_orm::ExprTrait::ne(excluded(Column::Email), ""),
+        excluded(Column::Email),
     )
-    .bind(user_id)
-    .execute(tenant)
-    .await
-    .map(drop)
+    .finally(current(Column::Email));
+    // A picture uploaded in WeldSuite (`PUT /settings/profile/avatar`, stored
+    // as `…/avatars/<user id>_<ms>.<ext>`) is never on the provider: it wins
+    // until the user uploads another (`strpos(coalesce(users.image_url, ''),
+    // '/avatars/' || users.id || '_') > 0`). Otherwise the provider's
+    // picture, when it has one (`coalesce(nullif(excluded.image_url, ''),
+    // users.image_url)`).
+    let marker = PgExpr::concat(
+        PgExpr::concat(Expr::val("/avatars/"), current(Column::Id)),
+        Expr::val("_"),
+    );
+    let uploaded = sea_orm::ExprTrait::gt(
+        Expr::expr(Func::cust("strpos").args([
+            Expr::expr(Func::coalesce([current(Column::ImageUrl), Expr::val("")])),
+            marker,
+        ])),
+        0,
+    );
+    let provider = Func::coalesce([
+        Expr::expr(Func::cust("nullif").args([excluded(Column::ImageUrl), Expr::val("")])),
+        current(Column::ImageUrl),
+    ]);
+    let image = Expr::case(uploaded, current(Column::ImageUrl)).finally(provider);
+    OnConflict::column(Column::Id)
+        .value(Column::Email, email)
+        .update_columns([Column::FirstName, Column::LastName])
+        .value(Column::ImageUrl, image)
+        .value(Column::UpdatedAt, Expr::current_timestamp())
+        .to_owned()
 }
 
 #[cfg(test)]

@@ -488,3 +488,70 @@ describe('OidcMobileSession in header mode: the workspace list', () => {
     expect(s.getSnapshot()).toMatchObject({ person: null, organizations: [], isLoadingWorkspaces: false });
   });
 });
+
+describe('OidcMobileSession with an access token store (the browser extension)', () => {
+  function withAccessStore(f: Fake): Map<string, string> {
+    const kept = new Map<string, string>();
+    f.deps.accessTokenStore = {
+      getItem: async (key) => kept.get(key) ?? null,
+      setItem: async (key, value) => {
+        kept.set(key, value);
+      },
+      removeItem: async (key) => {
+        kept.delete(key);
+      },
+    };
+    return kept;
+  }
+
+  it('reuses an unexpired access token after a restart instead of refreshing', async () => {
+    const f = fake();
+    withAccessStore(f);
+    f.tokenAnswers.push(tokens({ 'org-1': 'acme.example' }, 'rt-1'));
+    const first = session(f);
+    await first.signIn();
+    const token = await first.getToken();
+
+    const restarted = session(f);
+    await expect(restarted.getToken()).resolves.toBe(token);
+    expect(f.tokenCalls).toHaveLength(1);
+  });
+
+  it('refreshes once the kept token is about to expire', async () => {
+    const f = fake();
+    withAccessStore(f);
+    f.tokenAnswers.push(tokens({ 'org-1': 'acme.example' }, 'rt-1'));
+    await session(f).signIn();
+
+    f.now.value += 600_000;
+    const restarted = session(f);
+    f.tokenAnswers.push(tokens({ 'org-1': 'acme.example' }, 'rt-2'));
+    await expect(restarted.getToken()).resolves.toBeTruthy();
+    expect(f.tokenCalls[1]!.get('grant_type')).toBe('refresh_token');
+  });
+
+  it('ignores a kept token of someone else, and clears it on sign-out', async () => {
+    const f = fake();
+    const kept = withAccessStore(f);
+    f.tokenAnswers.push(tokens({ 'org-1': 'acme.example' }, 'rt-1'));
+    const s = session(f);
+    await s.signIn();
+    const [key, value] = [...kept.entries()][0]!;
+    kept.set(key, JSON.stringify({ ...JSON.parse(value), sub: 'user-2' }));
+
+    const restarted = session(f);
+    f.tokenAnswers.push(tokens({ 'org-1': 'acme.example' }, 'rt-2'));
+    await restarted.getToken();
+    expect(f.tokenCalls).toHaveLength(2);
+
+    await restarted.signOut();
+    expect(kept.size).toBe(0);
+  });
+
+  it('keeps nothing when the host passes no store (the mobile apps)', async () => {
+    const f = fake();
+    f.tokenAnswers.push(tokens({ 'org-1': 'acme.example' }, 'rt-1'));
+    await session(f).signIn();
+    expect([...f.cache.keys()].some((key) => key.includes('oidc-access'))).toBe(false);
+  });
+});

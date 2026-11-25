@@ -12,12 +12,16 @@
 //! renewed the credentials meanwhile: every write is conditional on the
 //! sealed credentials this request read.
 
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, Condition, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
-use weldsuite_db::{Keyring, PgPool, decrypt_field, encrypt_field};
+use time::OffsetDateTime;
+use weldsuite_db::{Keyring, PgPool, decrypt_field, encrypt_field, orm};
 use weldsuite_kit::validation::js_date_parse;
+use weldsuite_schema::tenant::{merge_connections, merge_provider_accounts};
 
-use crate::db::{Row, opt_text, text};
-use crate::{MergeError, MergeState, Overrides, now, now_ms, providers};
+use crate::db::{Row, instant, instant_opt, json_row, now_at, opt_text, same_or_null, text};
+use crate::{MergeError, MergeState, Overrides, now_ms, providers};
 
 /// `MergeStoredCredentials`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -169,17 +173,18 @@ pub(crate) async fn member_token(
     } else {
         Some(host.filter(|h| !h.is_empty()))
     };
-    let account: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(a) from merge_provider_accounts a where a.user_id = $1 and a.provider = $2 \
-         and (not $3 or (case when $4::text is null then a.host is null else a.host = $4 end)) limit 1",
-    )
-    .bind(user_id)
-    .bind(provider)
-    .bind(host.is_some())
-    .bind(host.flatten())
-    .fetch_optional(db)
-    .await?;
-    let Some(account) = account.map(weldsuite_db::js_row) else {
+    let mut select = merge_provider_accounts::Entity::find()
+        .filter(merge_provider_accounts::Column::UserId.eq(user_id))
+        .filter(merge_provider_accounts::Column::Provider.eq(provider));
+    if let Some(host) = host {
+        select = select.filter(same_or_null(merge_provider_accounts::Column::Host, host));
+    }
+    let account = select
+        .one(&orm(db))
+        .await?
+        .map(|account| json_row(serde_json::to_value(account)))
+        .transpose()?;
+    let Some(account) = account else {
         return Ok(None);
     };
     if account.get("verifiedAt").is_none_or(Value::is_null) {
@@ -206,34 +211,54 @@ pub(crate) async fn member_token(
             Ok(fresh) => credentials = fresh,
             Err(error) => {
                 tracing::error!(?error, provider, "merge: a member token refresh failed");
-                let dropped = sqlx::query(
-                    "update merge_provider_accounts set credentials = null, credentials_expire_at = null, \
-                       verified_at = null, updated_at = $2::timestamptz where id = $1 and credentials = $3",
-                )
-                .bind(text(&account, "id"))
-                .bind(now())
-                .bind(&sealed)
-                .execute(db)
-                .await?;
-                if dropped.rows_affected() > 0 {
+                let (_, at) = now_at();
+                let dropped = merge_provider_accounts::Entity::update_many()
+                    .col_expr(
+                        merge_provider_accounts::Column::Credentials,
+                        Expr::value(Option::<String>::None),
+                    )
+                    .col_expr(
+                        merge_provider_accounts::Column::CredentialsExpireAt,
+                        Expr::value(Option::<OffsetDateTime>::None),
+                    )
+                    .col_expr(
+                        merge_provider_accounts::Column::VerifiedAt,
+                        Expr::value(Option::<OffsetDateTime>::None),
+                    )
+                    .col_expr(merge_provider_accounts::Column::UpdatedAt, Expr::value(at))
+                    .filter(merge_provider_accounts::Column::Id.eq(text(&account, "id")))
+                    .filter(merge_provider_accounts::Column::Credentials.eq(&sealed))
+                    .exec(&orm(db))
+                    .await?;
+                if dropped.rows_affected > 0 {
                     return Ok(None);
                 }
                 return stored_member_token(db, &keyring, text(&account, "id")).await;
             }
         }
-        sqlx::query(
-            "update merge_provider_accounts set credentials = $2, credentials_expire_at = $3::timestamptz, \
-               verified_at = $4::timestamptz, updated_at = $5::timestamptz \
-             where id = $1 and (credentials = $6 or credentials is null)",
-        )
-        .bind(text(&account, "id"))
-        .bind(seal_credentials(&keyring, &credentials)?)
-        .bind(credentials.expiry())
-        .bind(text(&account, "verifiedAt"))
-        .bind(now())
-        .bind(&sealed)
-        .execute(db)
-        .await?;
+        let (_, at) = now_at();
+        merge_provider_accounts::Entity::update_many()
+            .col_expr(
+                merge_provider_accounts::Column::Credentials,
+                Expr::value(seal_credentials(&keyring, &credentials)?),
+            )
+            .col_expr(
+                merge_provider_accounts::Column::CredentialsExpireAt,
+                Expr::value(instant_opt(credentials.expiry().as_deref())?),
+            )
+            .col_expr(
+                merge_provider_accounts::Column::VerifiedAt,
+                Expr::value(instant(text(&account, "verifiedAt"))?),
+            )
+            .col_expr(merge_provider_accounts::Column::UpdatedAt, Expr::value(at))
+            .filter(merge_provider_accounts::Column::Id.eq(text(&account, "id")))
+            .filter(
+                Condition::any()
+                    .add(merge_provider_accounts::Column::Credentials.eq(&sealed))
+                    .add(merge_provider_accounts::Column::Credentials.is_null()),
+            )
+            .exec(&orm(db))
+            .await?;
     }
     Ok(Some(ResolvedToken {
         access_token: credentials.access_token,
@@ -248,16 +273,18 @@ async fn stored_member_token(
     keyring: &Keyring,
     account_id: &str,
 ) -> Result<Option<ResolvedToken>, MergeError> {
-    let account: Option<(Option<String>, Option<String>, bool)> = sqlx::query_as(
-        "select credentials, login, verified_at is not null from merge_provider_accounts \
-         where id = $1 limit 1",
-    )
-    .bind(account_id)
-    .fetch_optional(db)
-    .await?;
-    let Some((sealed, login, true)) = account else {
+    let account = merge_provider_accounts::Entity::find_by_id(account_id.to_owned())
+        .select_only()
+        .column(merge_provider_accounts::Column::Credentials)
+        .column(merge_provider_accounts::Column::Login)
+        .column(merge_provider_accounts::Column::VerifiedAt)
+        .into_tuple::<(Option<String>, String, Option<OffsetDateTime>)>()
+        .one(&orm(db))
+        .await?;
+    let Some((sealed, login, Some(_))) = account else {
         return Ok(None);
     };
+    let login = Some(login);
     Ok(
         open_credentials(keyring, sealed.as_deref()).map(|credentials| ResolvedToken {
             access_token: credentials.access_token,
@@ -300,16 +327,18 @@ pub(crate) async fn connection_token(
             Ok(fresh) => credentials = fresh,
             Err(error) => {
                 tracing::error!(?error, provider, "merge: a connection token refresh failed");
-                let flagged = sqlx::query(
-                    "update merge_connections set status = 'needs_attention', updated_at = $2::timestamptz \
-                     where id = $1 and credentials = $3",
-                )
-                .bind(text(connection, "id"))
-                .bind(now())
-                .bind(&sealed)
-                .execute(db)
-                .await?;
-                if flagged.rows_affected() > 0 {
+                let (_, at) = now_at();
+                let flagged = merge_connections::Entity::update_many()
+                    .col_expr(
+                        merge_connections::Column::Status,
+                        Expr::value("needs_attention"),
+                    )
+                    .col_expr(merge_connections::Column::UpdatedAt, Expr::value(at))
+                    .filter(merge_connections::Column::Id.eq(text(connection, "id")))
+                    .filter(merge_connections::Column::Credentials.eq(&sealed))
+                    .exec(&orm(db))
+                    .await?;
+                if flagged.rows_affected > 0 {
                     return Ok(None);
                 }
                 return stored_connection_token(db, &keyring, text(connection, "id")).await;
@@ -322,18 +351,22 @@ pub(crate) async fn connection_token(
         } else {
             text(connection, "status")
         };
-        sqlx::query(
-            "update merge_connections set credentials = $2, credentials_expire_at = $3::timestamptz, \
-               status = $4, updated_at = $5::timestamptz where id = $1 and credentials = $6",
-        )
-        .bind(text(connection, "id"))
-        .bind(seal_credentials(&keyring, &credentials)?)
-        .bind(credentials.expiry())
-        .bind(status)
-        .bind(now())
-        .bind(&sealed)
-        .execute(db)
-        .await?;
+        let (_, at) = now_at();
+        merge_connections::Entity::update_many()
+            .col_expr(
+                merge_connections::Column::Credentials,
+                Expr::value(seal_credentials(&keyring, &credentials)?),
+            )
+            .col_expr(
+                merge_connections::Column::CredentialsExpireAt,
+                Expr::value(instant_opt(credentials.expiry().as_deref())?),
+            )
+            .col_expr(merge_connections::Column::Status, Expr::value(status))
+            .col_expr(merge_connections::Column::UpdatedAt, Expr::value(at))
+            .filter(merge_connections::Column::Id.eq(text(connection, "id")))
+            .filter(merge_connections::Column::Credentials.eq(&sealed))
+            .exec(&orm(db))
+            .await?;
     }
     Ok(Some(ResolvedToken {
         access_token: credentials.access_token,
@@ -349,9 +382,11 @@ async fn stored_connection_token(
     connection_id: &str,
 ) -> Result<Option<ResolvedToken>, MergeError> {
     let sealed: Option<Option<String>> =
-        sqlx::query_scalar("select credentials from merge_connections where id = $1 limit 1")
-            .bind(connection_id)
-            .fetch_optional(db)
+        merge_connections::Entity::find_by_id(connection_id.to_owned())
+            .select_only()
+            .column(merge_connections::Column::Credentials)
+            .into_tuple()
+            .one(&orm(db))
             .await?;
     Ok(
         open_credentials(keyring, sealed.flatten().as_deref()).map(|credentials| ResolvedToken {
@@ -372,6 +407,14 @@ pub(crate) async fn adapter_context(
     connection: &Row,
     member_token: Option<String>,
 ) -> Result<providers::AdapterContext, MergeError> {
+    // ADR OPS-026: no call to a provider outside the EU the workspace
+    // hasn't switched on.
+    crate::require_provider(
+        db,
+        text(connection, "provider"),
+        opt_text(connection, "host").as_deref(),
+    )
+    .await?;
     let context = |member_token| providers::AdapterContext {
         state: state.clone(),
         overrides: overrides.clone(),

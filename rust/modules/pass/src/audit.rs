@@ -6,11 +6,18 @@
 //! caused it has usually committed already.
 
 use http::HeaderMap;
+use sea_orm::{
+    ColumnTrait, EntityTrait, FromQueryResult, JoinType, QueryFilter, QueryOrder, QuerySelect,
+    RelationDef, Set,
+};
+use serde::Serialize;
 use serde_json::{Map, Value, json};
-use sqlx::PgPool;
+use time::OffsetDateTime;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::generate_id;
+use weldsuite_schema::tenant::{weldpass_audit_events, weldpass_vault_events, workspace_members};
 
-use crate::js;
+use crate::{PassResult, js, row_json};
 
 /// `WeldPassAuditContext`: who asked, read once per request.
 #[derive(Debug, Clone, Default)]
@@ -84,22 +91,20 @@ impl<'a> AuditEntry<'a> {
 
 /// `recordAudit`.
 pub(crate) async fn record_audit(db: &PgPool, context: &AuditContext, entry: AuditEntry<'_>) {
-    let result = sqlx::query(
-        "insert into weldpass_audit_events \
-         (id, project_id, environment_id, secret_id, actor_id, action, target_key, metadata, ip, user_agent) \
-         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
-    )
-    .bind(generate_id("wpa"))
-    .bind(entry.project_id)
-    .bind(entry.environment_id)
-    .bind(entry.secret_id)
-    .bind(entry.actor_id)
-    .bind(entry.action)
-    .bind(entry.target_key)
-    .bind(&entry.metadata)
-    .bind(context.ip.as_deref())
-    .bind(context.user_agent.as_deref())
-    .execute(db)
+    let result = weldpass_audit_events::Entity::insert(weldpass_audit_events::ActiveModel {
+        id: Set(generate_id("wpa")),
+        project_id: Set(entry.project_id.to_owned()),
+        environment_id: Set(entry.environment_id.map(str::to_owned)),
+        secret_id: Set(entry.secret_id.map(str::to_owned)),
+        actor_id: Set(entry.actor_id.to_owned()),
+        action: Set(entry.action.to_owned()),
+        target_key: Set(entry.target_key.map(str::to_owned)),
+        metadata: Set(entry.metadata),
+        ip: Set(context.ip.clone()),
+        user_agent: Set(context.user_agent.clone()),
+        ..Default::default()
+    })
+    .exec_without_returning(&orm(db))
     .await;
     if let Err(error) = result {
         tracing::error!(
@@ -154,21 +159,19 @@ pub(crate) async fn record_vault_event(db: &PgPool, context: &AuditContext, entr
     let label = entry
         .target_label
         .map(|label| js::utf16_slice(label, 0, 255));
-    let result = sqlx::query(
-        "insert into weldpass_vault_events \
-         (id, vault_id, item_id, actor_id, action, target_label, metadata, ip, user_agent) \
-         values ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
-    )
-    .bind(generate_id("wpx"))
-    .bind(entry.vault_id)
-    .bind(entry.item_id)
-    .bind(entry.actor_id)
-    .bind(entry.action)
-    .bind(label)
-    .bind(&entry.metadata)
-    .bind(context.ip.as_deref())
-    .bind(context.user_agent.as_deref())
-    .execute(db)
+    let result = weldpass_vault_events::Entity::insert(weldpass_vault_events::ActiveModel {
+        id: Set(generate_id("wpx")),
+        vault_id: Set(entry.vault_id.to_owned()),
+        item_id: Set(entry.item_id.map(str::to_owned)),
+        actor_id: Set(entry.actor_id.to_owned()),
+        action: Set(entry.action.to_owned()),
+        target_label: Set(label),
+        metadata: Set(entry.metadata),
+        ip: Set(context.ip.clone()),
+        user_agent: Set(context.user_agent.clone()),
+        ..Default::default()
+    })
+    .exec_without_returning(&orm(db))
     .await;
     if let Err(error) = result {
         tracing::error!(
@@ -178,4 +181,112 @@ pub(crate) async fn record_vault_event(db: &PgPool, context: &AuditContext, entr
             "[weldpass] vault event write failed"
         );
     }
+}
+
+/// One trail row as the routes list it (`jsonb_build_object` in the worker's
+/// select): the actor's display name, when they are a member.
+#[derive(Debug, FromQueryResult, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct VaultEventRow {
+    id: String,
+    item_id: Option<String>,
+    actor_id: String,
+    actor_name: Option<String>,
+    action: String,
+    target_label: Option<String>,
+    metadata: Value,
+    #[serde(with = "weldsuite_schema::js::timestamptz")]
+    created_at: OffsetDateTime,
+}
+
+/// `leftJoin(workspaceMembers, eq(workspaceMembers.userId, events.actorId))`.
+fn actor() -> RelationDef {
+    weldpass_vault_events::Entity::belongs_to(workspace_members::Entity)
+        .from(weldpass_vault_events::Column::ActorId)
+        .to(workspace_members::Column::UserId)
+        .into()
+}
+
+/// A vault's trail, newest first, before `before` when given: `limit` rows
+/// (the route asks one more than its page).
+pub(crate) async fn list_vault_events(
+    db: &PgPool,
+    vault_id: &str,
+    before: Option<OffsetDateTime>,
+    limit: i64,
+) -> PassResult<Vec<Value>> {
+    use weldpass_vault_events::Column as Event;
+    let mut select = weldpass_vault_events::Entity::find()
+        .select_only()
+        .columns([Event::Id, Event::ItemId, Event::ActorId])
+        .column_as(workspace_members::Column::Name, "actor_name")
+        .columns([
+            Event::Action,
+            Event::TargetLabel,
+            Event::Metadata,
+            Event::CreatedAt,
+        ])
+        .join(JoinType::LeftJoin, actor())
+        .filter(Event::VaultId.eq(vault_id));
+    if let Some(before) = before {
+        select = select.filter(Event::CreatedAt.lt(before));
+    }
+    let rows = select
+        .order_by_desc(Event::CreatedAt)
+        .limit(u64::try_from(limit).unwrap_or_default())
+        .into_model::<VaultEventRow>()
+        .all(&orm(db))
+        .await?;
+    Ok(rows.iter().map(row_json).collect())
+}
+
+/// One `weldpass_audit_events` row as the audit route lists it.
+#[derive(Debug, FromQueryResult, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AuditRow {
+    id: String,
+    environment_id: Option<String>,
+    secret_id: Option<String>,
+    actor_id: String,
+    action: String,
+    target_key: Option<String>,
+    metadata: Value,
+    ip: Option<String>,
+    #[serde(with = "weldsuite_schema::js::timestamptz")]
+    created_at: OffsetDateTime,
+}
+
+/// A project's audit trail, newest first, before `before` when given:
+/// `limit` rows (the route asks one more than its page).
+pub(crate) async fn list_audit_events(
+    db: &PgPool,
+    project_id: &str,
+    before: Option<OffsetDateTime>,
+    limit: i64,
+) -> PassResult<Vec<Value>> {
+    use weldpass_audit_events::Column as Audit;
+    let mut select = weldpass_audit_events::Entity::find()
+        .select_only()
+        .columns([
+            Audit::Id,
+            Audit::EnvironmentId,
+            Audit::SecretId,
+            Audit::ActorId,
+            Audit::Action,
+            Audit::TargetKey,
+            Audit::Metadata,
+            Audit::Ip,
+            Audit::CreatedAt,
+        ])
+        .filter(Audit::ProjectId.eq(project_id));
+    if let Some(before) = before {
+        select = select.filter(Audit::CreatedAt.lt(before));
+    }
+    let rows = select
+        .order_by_desc(Audit::CreatedAt)
+        .limit(u64::try_from(limit).unwrap_or_default())
+        .into_model::<AuditRow>()
+        .all(&orm(db))
+        .await?;
+    Ok(rows.iter().map(row_json).collect())
 }

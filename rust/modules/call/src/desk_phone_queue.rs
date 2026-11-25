@@ -13,7 +13,11 @@
 //!   `call`                bridged to an agent, call recording on
 //! `record` is always `false` here: these flows start recordings themselves.
 
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, Condition, EntityTrait, QueryFilter};
 use serde_json::{Map, Value, json};
+use weldsuite_db::{orm, utc_now};
+use weldsuite_schema::tenant::voip_calls;
 
 use crate::desk_phone_audio::ringback_url;
 use crate::desk_phone_messages::post_phone_message;
@@ -26,7 +30,6 @@ use crate::desk_phone_ring::{
     staffed_agents,
 };
 use crate::js::Ordered;
-use crate::now;
 use crate::telnyx::{Recording, Speech, TelnyxError, encode_client_state};
 
 /// `callState(ctx, extra)`: the `client_state` for a command of these flows,
@@ -115,19 +118,18 @@ pub(crate) async fn start_agents_flow(
     }
     // The conditional update is the guard: a duplicate event finds the call
     // queued already.
-    let queued: Option<Value> = sqlx::query_scalar(
-        "update voip_calls set queue_entered_at = $2::timestamp, department_id = $3,
-             updated_at = $2::timestamp
-         where id = $1 and queue_entered_at is null and outcome is null
-         returning to_jsonb(voip_calls)",
-    )
-    .bind(flow.call_id)
-    .bind(now())
-    .bind(department_id)
-    .fetch_optional(db)
-    .await
-    .map_err(|error| error.to_string())?;
-    let Some(call) = queued.map(Call::from_row) else {
+    let now = utc_now();
+    let queued = voip_calls::Entity::update_many()
+        .col_expr(voip_calls::Column::QueueEnteredAt, Expr::value(now))
+        .col_expr(voip_calls::Column::DepartmentId, Expr::value(department_id))
+        .col_expr(voip_calls::Column::UpdatedAt, Expr::value(now))
+        .filter(voip_calls::Column::Id.eq(flow.call_id))
+        .filter(voip_calls::Column::QueueEnteredAt.is_null())
+        .filter(voip_calls::Column::Outcome.is_null())
+        .exec_with_returning(&orm(db))
+        .await
+        .map_err(|error| error.to_string())?;
+    let Some(call) = queued.into_iter().next().map(Call::from_model) else {
         return Ok(());
     };
     // Nobody staffed: waiting would be pointless.
@@ -177,17 +179,17 @@ pub(crate) async fn start_agents_flow(
 /// "no outcome" does anything.
 pub(crate) async fn handle_unanswered(flow: &Flow<'_>, reason: &str) -> Result<(), String> {
     let Phone { db, telnyx, .. } = flow.phone;
-    let missed: Option<Value> = sqlx::query_scalar(
-        "update voip_calls set outcome = 'missed', updated_at = $2::timestamp
-         where id = $1 and outcome is null and agent_answered_at is null and ended_at is null
-         returning to_jsonb(voip_calls)",
-    )
-    .bind(flow.call_id)
-    .bind(now())
-    .fetch_optional(db)
-    .await
-    .map_err(|error| error.to_string())?;
-    let Some(call) = missed.map(Call::from_row) else {
+    let missed = voip_calls::Entity::update_many()
+        .col_expr(voip_calls::Column::Outcome, Expr::value("missed"))
+        .col_expr(voip_calls::Column::UpdatedAt, Expr::value(utc_now()))
+        .filter(voip_calls::Column::Id.eq(flow.call_id))
+        .filter(voip_calls::Column::Outcome.is_null())
+        .filter(voip_calls::Column::AgentAnsweredAt.is_null())
+        .filter(voip_calls::Column::EndedAt.is_null())
+        .exec_with_returning(&orm(db))
+        .await
+        .map_err(|error| error.to_string())?;
+    let Some(call) = missed.into_iter().next().map(Call::from_model) else {
         return Ok(());
     };
     tracing::info!(call = flow.call_id, reason, "[desk-phone] call unanswered");
@@ -236,15 +238,15 @@ pub(crate) async fn start_voicemail(
             .await
             .map_err(|error| error.to_string())?;
     }
-    sqlx::query(
-        "update voip_calls set outcome = 'missed', updated_at = $2::timestamp
-         where id = $1 and outcome is null and agent_answered_at is null",
-    )
-    .bind(flow.call_id)
-    .bind(now())
-    .execute(db)
-    .await
-    .map_err(|error| error.to_string())?;
+    voip_calls::Entity::update_many()
+        .col_expr(voip_calls::Column::Outcome, Expr::value("missed"))
+        .col_expr(voip_calls::Column::UpdatedAt, Expr::value(utc_now()))
+        .filter(voip_calls::Column::Id.eq(flow.call_id))
+        .filter(voip_calls::Column::Outcome.is_null())
+        .filter(voip_calls::Column::AgentAnsweredAt.is_null())
+        .exec(&orm(db))
+        .await
+        .map_err(|error| error.to_string())?;
 
     if from_queue {
         best_effort("hold audio stop", telnyx.playback_stop(control).await);
@@ -345,17 +347,20 @@ pub(crate) async fn handle_voicemail_saved(
     url: &Value,
     duration: Option<i64>,
 ) -> Result<(), String> {
-    let saved: Option<String> = sqlx::query_scalar(
-        "update voip_calls set outcome = 'voicemail', updated_at = $2::timestamp
-         where id = $1 and (outcome is null or outcome = 'missed') returning id",
-    )
-    .bind(ev.call_id)
-    .bind(now())
-    .fetch_optional(ev.phone.db)
-    .await
-    .map_err(|error| error.to_string())?;
+    let saved = voip_calls::Entity::update_many()
+        .col_expr(voip_calls::Column::Outcome, Expr::value("voicemail"))
+        .col_expr(voip_calls::Column::UpdatedAt, Expr::value(utc_now()))
+        .filter(voip_calls::Column::Id.eq(ev.call_id))
+        .filter(
+            Condition::any()
+                .add(voip_calls::Column::Outcome.is_null())
+                .add(voip_calls::Column::Outcome.eq("missed")),
+        )
+        .exec(&orm(ev.phone.db))
+        .await
+        .map_err(|error| error.to_string())?;
     // A duplicate event finds the outcome set already: no second message.
-    if saved.is_some() {
+    if saved.rows_affected > 0 {
         let body = match duration.filter(|seconds| *seconds != 0) {
             Some(seconds) => format!("Voicemail ({seconds}s)"),
             None => "Voicemail".to_owned(),

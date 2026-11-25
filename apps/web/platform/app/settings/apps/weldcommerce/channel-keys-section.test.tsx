@@ -159,6 +159,29 @@ describe('ChannelKeysSection', () => {
     );
   });
 
+  it('creates a deploy key, which has no origins, for uploading a shop you build yourself', async () => {
+    env.create.mockResolvedValue({ data: { key: key({ id: 'k4', kind: 'deploy', name: 'CI', allowedOrigins: [] }), secret: 'wcd_SECRET' } });
+    const user = userEvent.setup();
+    render(<ChannelKeysSection channelId="ch_1" canUpdate />);
+    await user.click(screen.getByRole('button', { name: 'New key' }));
+    await user.click(screen.getByRole('combobox', { name: 'Kind' }));
+    await user.click(await screen.findByRole('option', { name: 'Deploy' }));
+    expect(screen.getByText('Deploy key, for uploading a shop you build yourself. It has no allowed origins.')).toBeTruthy();
+    expect(screen.queryByLabelText('Allowed origins')).toBeNull();
+    await user.type(screen.getByLabelText('Name'), 'CI');
+    await user.click(screen.getByRole('button', { name: 'Create key' }));
+    await waitFor(() => expect(env.create).toHaveBeenCalledWith({ channelId: 'ch_1', data: { kind: 'deploy', name: 'CI', allowedOrigins: [] } }));
+    expect(await screen.findByTestId('key-secret')).toHaveValue('wcd_SECRET');
+  });
+
+  it('labels a deploy key as such, without origins', () => {
+    env.keys = { ...env.keys, data: { data: [key({ kind: 'deploy', name: 'CI', keyPrefix: 'wcd_live_1234', allowedOrigins: [] })] } };
+    render(<ChannelKeysSection channelId="ch_1" canUpdate />);
+    expect(screen.getByText('Deploy')).toBeTruthy();
+    expect(screen.getByText('wcd_live_1234…')).toBeTruthy();
+    expect(screen.getByLabelText('No origins')).toBeTruthy();
+  });
+
   it('shows a failed revoke in a toast', async () => {
     env.revoke.mockRejectedValue(new Error('Server on fire'));
     const user = userEvent.setup();

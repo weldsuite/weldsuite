@@ -5,6 +5,7 @@ name: Rust images
 #   ghcr.io/weldsuite/weldsuite:sha-<12 characters of the commit>
 #   ghcr.io/weldsuite/weldsuite-sign-portal:sha-<same>
 #   ghcr.io/weldsuite/weldsuite-forms-portal:sha-<same>
+#   ghcr.io/weldsuite/weldsuite-storefront:sha-<same>
 #   ghcr.io/weldsuite/weldsuite-admin:sha-<same>
 #   ghcr.io/weldsuite/weldsuite-collab-rooms:sha-<same>
 #   ghcr.io/weldsuite/weldsuite-haraka:sha-<same>  (WeldMail's MX, rust/deploy/haraka)
@@ -42,6 +43,7 @@ on:
       - 'apps/web/platform/**'
       - 'apps/web/sign-portal/**'
       - 'apps/web/forms-portal/**'
+      - 'apps/web/storefront/**'
       - 'apps/web/admin/**'
       - 'apps/web/helpdesk-widget/**'
       # The collab-rooms image (WeldDocs', WeldSheets' and WeldBoard's rooms).
@@ -125,6 +127,19 @@ jobs:
           tags: ghcr.io/weldsuite/weldsuite-forms-portal:${{ steps.tag.outputs.tag }}
           labels: org.opencontainers.image.source=https://github.com/${{ github.repository }}
           cache-from: type=gha,scope=rust-image
+      # WeldCommerce's storefront renderer (ADR COM-015), behind the server's
+      # storefront edge (storefront in the chart's values).
+      - name: Build the storefront renderer's image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: rust/Dockerfile
+          target: storefront
+          platforms: linux/amd64
+          load: true
+          tags: ghcr.io/weldsuite/weldsuite-storefront:${{ steps.tag.outputs.tag }}
+          labels: org.opencontainers.image.source=https://github.com/${{ github.repository }}
+          cache-from: type=gha,scope=rust-image
       # The staff admin console (ADR FE-018), which the EU values turn on (admin).
       - name: Build the admin console's image
         uses: docker/build-push-action@v6
@@ -189,7 +204,7 @@ jobs:
           MOVE_MAIN: ${{ github.ref == 'refs/heads/main' }}
         run: |
           set -euo pipefail
-          images=(ghcr.io/weldsuite/weldsuite ghcr.io/weldsuite/weldsuite-sign-portal ghcr.io/weldsuite/weldsuite-forms-portal ghcr.io/weldsuite/weldsuite-admin ghcr.io/weldsuite/weldsuite-collab-rooms ghcr.io/weldsuite/weldsuite-haraka ghcr.io/weldsuite/weldsuite-sandbox)
+          images=(ghcr.io/weldsuite/weldsuite ghcr.io/weldsuite/weldsuite-sign-portal ghcr.io/weldsuite/weldsuite-forms-portal ghcr.io/weldsuite/weldsuite-storefront ghcr.io/weldsuite/weldsuite-admin ghcr.io/weldsuite/weldsuite-collab-rooms ghcr.io/weldsuite/weldsuite-haraka ghcr.io/weldsuite/weldsuite-sandbox)
           for image in "${images[@]}"; do
             docker push "$image:$TAG"
             if [ "$MOVE_MAIN" = "true" ]; then

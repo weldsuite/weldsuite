@@ -9,13 +9,15 @@
 
 use std::sync::Arc;
 
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use sqlx::PgConnection;
-use weldsuite_db::PgPool;
+use weldsuite_db::{OrmConn, PgPool};
 use weldsuite_emails::panel::{Meter, PanelUsage, UsageKind, usage};
 use weldsuite_emails::{
     EmailBrand, EmailLocale, SystemEmail, send_system_email, workspace_app_url,
 };
 use weldsuite_ports::{BoxFuture, DynSystemMail};
+use weldsuite_schema::tenant::workspace_members;
 
 use crate::public_share::WorkspaceTenants;
 use crate::usage_settlement::{UsageNotice, next_month_start};
@@ -32,17 +34,18 @@ pub struct Recipient {
 
 /// `membersWithRole(env, workspaceId, roles)`: the members with one of
 /// `roles` and an address.
-async fn members_with_role(
-    tenant: &mut PgConnection,
-    roles: &[&str],
-) -> Result<Vec<Recipient>, sqlx::Error> {
-    let roles: Vec<String> = roles.iter().map(|role| (*role).to_owned()).collect();
-    let rows: Vec<(Option<String>, Option<String>)> = sqlx::query_as(
-        "select email, name from workspace_members where role = any($1) and deleted_at is null",
-    )
-    .bind(roles)
-    .fetch_all(&mut *tenant)
-    .await?;
+async fn members_with_role(tenant: &OrmConn<'_>, roles: &[&str]) -> Result<Vec<Recipient>, DbErr> {
+    let rows: Vec<(Option<String>, Option<String>)> = workspace_members::Entity::find()
+        .select_only()
+        .columns([
+            workspace_members::Column::Email,
+            workspace_members::Column::Name,
+        ])
+        .filter(workspace_members::Column::Role.is_in(roles.iter().copied()))
+        .filter(workspace_members::Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(tenant)
+        .await?;
     Ok(rows
         .into_iter()
         .filter_map(|(email, name)| {
@@ -55,12 +58,13 @@ async fn members_with_role(
 
 /// `noticeRecipients`: the owners with an address, else the admins with one,
 /// read on a connection to the workspace's tenant database.
-pub async fn notice_recipients(tenant: &mut PgConnection) -> Result<Vec<Recipient>, sqlx::Error> {
-    let owners = members_with_role(tenant, &["OWNER"]).await?;
+pub async fn notice_recipients(tenant: &mut PgConnection) -> Result<Vec<Recipient>, DbErr> {
+    let tenant = OrmConn::new(tenant);
+    let owners = members_with_role(&tenant, &["OWNER"]).await?;
     if !owners.is_empty() {
         return Ok(owners);
     }
-    members_with_role(tenant, &["ADMIN"]).await
+    members_with_role(&tenant, &["ADMIN"]).await
 }
 
 /// `usageUrl(env, clerkOrgId)`: where the usage is shown in the platform.
@@ -133,7 +137,7 @@ pub async fn mail_notice(
 ) -> usize {
     let recipients = match tenant.acquire().await {
         Ok(mut connection) => notice_recipients(&mut connection).await,
-        Err(error) => Err(error),
+        Err(error) => Err(weldsuite_db::orm_error(error)),
     };
     match recipients {
         Ok(to) => send_usage_notice(transport, &to, notice, platform_url).await,

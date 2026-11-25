@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ReactNode } from 'react';
 
 const storage = new Map<string, string>();
-const reloadAsync = vi.fn(async () => {});
+const reloadAppAsync = vi.fn(async (_reason?: string) => {});
 const devReload = vi.fn();
 
 vi.mock('@react-native-async-storage/async-storage', () => ({
@@ -18,7 +18,7 @@ vi.mock('@react-native-async-storage/async-storage', () => ({
     },
   },
 }));
-vi.mock('expo-updates', () => ({ reloadAsync: () => reloadAsync() }));
+vi.mock('expo', () => ({ reloadAppAsync: (reason?: string) => reloadAppAsync(reason) }));
 vi.mock('react-native', () => ({ DevSettings: { reload: () => devReload() } }));
 vi.mock('expo-crypto', () => ({
   getRandomBytes: (size: number) => new Uint8Array(size),
@@ -395,9 +395,9 @@ describe('runtime entry', () => {
       kind: 'self-hosted',
       origin: 'https://weld.example.com',
     });
-    expect(reloadAsync).toHaveBeenCalledTimes(1);
+    expect(reloadAppAsync).toHaveBeenCalledTimes(1);
 
-    reloadAsync.mockRejectedValueOnce(new Error('not in development'));
+    reloadAppAsync.mockRejectedValueOnce(new Error('no native reload'));
     await runtime.switchServer({ kind: 'global' });
     expect(storage.has('weldsuite:server')).toBe(false);
     expect(devReload).toHaveBeenCalledTimes(1);

@@ -13,10 +13,14 @@ use std::sync::{Arc, LazyLock, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use regex::Regex;
+use sea_orm::sea_query::{Expr, OnConflict};
+use sea_orm::{ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use sqlx::PgPool;
+use weldsuite_db::orm;
 use weldsuite_reach_domain::text::{collapse_spaces, js_trim, js_trim_end};
+use weldsuite_schema::master::system_settings;
 
 use super::validate::parse_corpus_threads;
 
@@ -27,6 +31,9 @@ pub const CORPUS_LATEST_KEY: &str = "reach-warmup.corpus.latest";
 pub const CORPUS_PREVIOUS_KEY: &str = "reach-warmup.corpus.previous";
 /// `{ generatedAt }`: when the latest set was produced.
 pub const CORPUS_META_KEY: &str = "reach-warmup.corpus.meta";
+/// `{ attemptedAt }`: when a refresh was last tried, whether it worked or
+/// not ([`super::generate::CORPUS_RETRY_AFTER_MS`]).
+pub const CORPUS_ATTEMPT_KEY: &str = "reach-warmup.corpus.attempt";
 /// A stored set with fewer valid threads is ignored for the built-in one.
 pub const MIN_STORED_THREADS: usize = 30;
 /// How long a process keeps the loaded sets (`CORPUS_CACHE_TTL_MS`).
@@ -93,26 +100,41 @@ impl CorpusThread {
 }
 
 /// A `system_settings` value of the master database.
-pub(crate) async fn read_setting(master: &PgPool, key: &str) -> sqlx::Result<Option<Value>> {
-    let value: Option<Option<Value>> =
-        sqlx::query_scalar("select value from system_settings where key = $1 limit 1")
-            .bind(key)
-            .fetch_optional(master)
-            .await?;
+pub(crate) async fn read_setting(master: &PgPool, key: &str) -> Result<Option<Value>, DbErr> {
+    let value: Option<Option<Value>> = system_settings::Entity::find()
+        .select_only()
+        .column(system_settings::Column::Value)
+        .filter(system_settings::Column::Key.eq(key))
+        .into_tuple()
+        .one(&orm(master))
+        .await?;
     Ok(value.flatten())
 }
 
 /// Writes a `system_settings` value, creating the row on first use.
-pub(crate) async fn write_setting(master: &PgPool, key: &str, value: &Value) -> sqlx::Result<()> {
-    sqlx::query(
-        "insert into system_settings (id, key, category, value, description, data_type, updated_by)
-         values ($1, $2, 'general', $3, 'WeldReach warmup corpus (refreshed monthly)', 'json', 'reach-warmup')
-         on conflict (key) do update set value = excluded.value, updated_at = now()",
+pub(crate) async fn write_setting(master: &PgPool, key: &str, value: &Value) -> Result<(), DbErr> {
+    system_settings::Entity::insert(system_settings::ActiveModel {
+        id: Set(weldsuite_kit::generate_id("sset")),
+        key: Set(key.to_owned()),
+        category: Set("general".to_owned()),
+        value: Set(Some(value.clone())),
+        description: Set(Some(
+            "WeldReach warmup corpus (refreshed monthly)".to_owned(),
+        )),
+        data_type: Set(Some("json".to_owned())),
+        updated_by: Set(Some("reach-warmup".to_owned())),
+        ..Default::default()
+    })
+    .on_conflict(
+        OnConflict::column(system_settings::Column::Key)
+            .update_column(system_settings::Column::Value)
+            .value(
+                system_settings::Column::UpdatedAt,
+                Expr::current_timestamp(),
+            )
+            .to_owned(),
     )
-    .bind(weldsuite_kit::generate_id("sset"))
-    .bind(key)
-    .bind(value)
-    .execute(master)
+    .exec_without_returning(&orm(master))
     .await?;
     Ok(())
 }

@@ -3,7 +3,8 @@
 //! buckets and the inventory ledger behind every quantity change, movements,
 //! stock adjustments, putaway tasks, pick lists (generate from an order,
 //! scan-confirm, pack, ship), pickers, suppliers, purchase orders, cycle
-//! counts, boxes and the activity log.
+//! counts, boxes and the activity log. Carrier shipping ([`shipping`]:
+//! PostNL and DHL Parcel labels, parcels, tracking) is Rust only.
 //!
 //! Paths, bodies, status codes, messages and entity events are the
 //! TypeScript worker's; its tests run against this crate in the `stash`
@@ -11,11 +12,6 @@
 //! serves the product catalogue (`/api/products`); on the Rust backend that
 //! route moved to `weldsuite-commerce` (WeldCommerce phase 1), where the
 //! "stash: products" suite still checks it.
-
-#![allow(
-    clippy::disallowed_methods,
-    reason = "not converted to the ORM yet (ADR DATA-019)"
-)]
 
 mod activity;
 mod args;
@@ -39,7 +35,7 @@ mod purchase_order_items;
 mod purchasing_tests;
 mod putaway;
 pub mod replenishment;
-mod rows;
+pub mod shipping;
 mod stock_adjustments;
 mod table;
 #[rustfmt::skip]
@@ -96,13 +92,19 @@ where
 {
     Router::new()
         .nest("/boxes", crud::routes(&crud::BOXES, gate))
+        // Carrier shipping, Rust only (ADR STASH-011).
+        .nest("/carriers", shipping::carrier_routes(gate))
         .nest("/cycle-counts", crud::routes(&crud::CYCLE_COUNTS, gate))
         .nest("/inventory", inventory::routes(gate))
         .nest(
             "/inventory-movements",
             crud::routes(&crud::INVENTORY_MOVEMENTS, gate),
         )
-        .nest("/pick-lists", pick_lists::routes(gate))
+        .nest("/parcels", shipping::parcel_routes(gate))
+        .nest(
+            "/pick-lists",
+            pick_lists::routes(gate).merge(shipping::labels::routes(gate)),
+        )
         .nest("/pickers", pickers::routes(gate))
         .nest(
             "/purchase-orders",
@@ -230,13 +232,21 @@ impl<S: Send + Sync> FromRequestParts<S> for Caller {
 /// the route maps to its 500 with its own message.
 pub(crate) enum Refusal {
     Response(Box<Response>),
-    Database(sqlx::Error),
+    Database(sea_orm::DbErr),
     Write(WriteError),
 }
 
+impl From<sea_orm::DbErr> for Refusal {
+    fn from(error: sea_orm::DbErr) -> Self {
+        Self::Database(error)
+    }
+}
+
+/// SQL that stays SQL, and the code not on the entities yet, fail with
+/// `sqlx::Error`: the same 500.
 impl From<sqlx::Error> for Refusal {
     fn from(error: sqlx::Error) -> Self {
-        Self::Database(error)
+        Self::Database(weldsuite_db::orm_error(error))
     }
 }
 

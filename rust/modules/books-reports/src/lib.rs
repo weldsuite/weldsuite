@@ -8,11 +8,6 @@
 //! TypeScript worker's; its tests run against this crate in the `books:
 //! reports` conformance suite (`rust/conformance/suites.json`).
 
-#![allow(
-    clippy::disallowed_methods,
-    reason = "not converted to the ORM yet (ADR DATA-019)"
-)]
-
 mod annual_reports;
 mod dashboard;
 mod exports;
@@ -21,6 +16,7 @@ mod form_1099;
 mod ordered;
 mod payroll;
 mod reports;
+mod rows;
 
 use std::sync::Arc;
 

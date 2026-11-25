@@ -9,8 +9,9 @@ use std::sync::Arc;
 
 use axum::response::{IntoResponse, Response};
 use http::{HeaderValue, StatusCode};
+use sea_orm::{DbErr, RuntimeErr};
 use serde_json::{Value, json};
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm_error};
 use weldsuite_kit::ApiError;
 use weldsuite_mail_domain::outbound::{
     CheckOutboundInput, DenialCode, GuardedSendError, OutboundGuard, OutboundKind, Refusal,
@@ -54,9 +55,15 @@ impl SendError {
     }
 }
 
-impl From<sqlx::Error> for SendError {
-    fn from(error: sqlx::Error) -> Self {
-        Self::Internal(error.to_string())
+impl From<DbErr> for SendError {
+    /// The statement's own message, as `err.message` reads it.
+    fn from(error: DbErr) -> Self {
+        let message = match &error {
+            DbErr::Query(RuntimeErr::SqlxError(inner))
+            | DbErr::Exec(RuntimeErr::SqlxError(inner)) => inner.to_string(),
+            other => other.to_string(),
+        };
+        Self::Internal(message)
     }
 }
 
@@ -171,12 +178,16 @@ fn preview_from(text: Option<&str>, html: Option<&str>) -> Option<String> {
     (!raw.is_empty()).then(|| utf16_prefix(&raw, 500))
 }
 
-/// `requireAccount(db, personalAccountId, accountId)`.
-pub(crate) async fn require_account(
+/// The account's live mailbox, as Drizzle reads it.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "the personal database has no entities: its schema is still Drizzle's and retires with the consumer product (ADR OPS-025)"
+)]
+pub(crate) async fn mail_account_row(
     db: &PgPool,
     personal_account_id: &str,
     account_id: &str,
-) -> Result<Value, SendError> {
+) -> Result<Option<Value>, DbErr> {
     let found: Option<Value> = sqlx::query_scalar(
         "select to_jsonb(a) from personal_mail_accounts a
          where a.id = $1 and a.personal_account_id = $2 and a.deleted_at is null limit 1",
@@ -184,8 +195,41 @@ pub(crate) async fn require_account(
     .bind(account_id)
     .bind(personal_account_id)
     .fetch_optional(db)
-    .await?;
-    found.map(weldsuite_db::js_row).ok_or_else(|| {
+    .await
+    .map_err(orm_error)?;
+    Ok(found.map(weldsuite_db::js_row))
+}
+
+/// The account's live message, as Drizzle reads it.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "the personal database has no entities: its schema is still Drizzle's and retires with the consumer product (ADR OPS-025)"
+)]
+pub(crate) async fn message_row(
+    db: &PgPool,
+    personal_account_id: &str,
+    message_id: &str,
+) -> Result<Option<Value>, DbErr> {
+    let found: Option<Value> = sqlx::query_scalar(
+        "select to_jsonb(m) from personal_mail_messages m
+         where m.id = $1 and m.personal_account_id = $2 and m.deleted_at is null limit 1",
+    )
+    .bind(message_id)
+    .bind(personal_account_id)
+    .fetch_optional(db)
+    .await
+    .map_err(orm_error)?;
+    Ok(found.map(weldsuite_db::js_row))
+}
+
+/// `requireAccount(db, personalAccountId, accountId)`.
+pub(crate) async fn require_account(
+    db: &PgPool,
+    personal_account_id: &str,
+    account_id: &str,
+) -> Result<Value, SendError> {
+    let found = mail_account_row(db, personal_account_id, account_id).await?;
+    found.ok_or_else(|| {
         SendError::mail(
             "ACCOUNT_NOT_FOUND",
             format!("Mail account '{account_id}' not found"),
@@ -200,15 +244,8 @@ pub(crate) async fn require_message(
     personal_account_id: &str,
     message_id: &str,
 ) -> Result<Value, SendError> {
-    let found: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(m) from personal_mail_messages m
-         where m.id = $1 and m.personal_account_id = $2 and m.deleted_at is null limit 1",
-    )
-    .bind(message_id)
-    .bind(personal_account_id)
-    .fetch_optional(db)
-    .await?;
-    found.map(weldsuite_db::js_row).ok_or_else(|| {
+    let found = message_row(db, personal_account_id, message_id).await?;
+    found.ok_or_else(|| {
         SendError::mail(
             "MESSAGE_NOT_FOUND",
             format!("Message '{message_id}' not found"),
@@ -217,11 +254,16 @@ pub(crate) async fn require_message(
     })
 }
 
+/// The mailbox's message sent with the idempotency key, if any.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "the personal database has no entities: its schema is still Drizzle's and retires with the consumer product (ADR OPS-025)"
+)]
 async fn find_by_idempotency_key(
     db: &PgPool,
     account_id: &str,
     key: &str,
-) -> Result<Option<Value>, sqlx::Error> {
+) -> Result<Option<Value>, DbErr> {
     let found: Option<Value> = sqlx::query_scalar(
         "select to_jsonb(m) from personal_mail_messages m
          where m.account_id = $1 and m.idempotency_key = $2 limit 1",
@@ -229,12 +271,17 @@ async fn find_by_idempotency_key(
     .bind(account_id)
     .bind(key)
     .fetch_optional(db)
-    .await?;
+    .await
+    .map_err(orm_error)?;
     Ok(found.map(weldsuite_db::js_row))
 }
 
 /// `countSentToday(db, accountId)`: composed sends since UTC midnight.
-async fn count_sent_today(db: &PgPool, account_id: &str) -> Result<i64, sqlx::Error> {
+#[allow(
+    clippy::disallowed_methods,
+    reason = "the personal database has no entities: its schema is still Drizzle's and retires with the consumer product (ADR OPS-025)"
+)]
+async fn count_sent_today(db: &PgPool, account_id: &str) -> Result<i64, DbErr> {
     let day_ms = 24 * 60 * 60 * 1000;
     let day_start = iso(now_ms().div_euclid(day_ms) * day_ms);
     sqlx::query_scalar(
@@ -246,6 +293,51 @@ async fn count_sent_today(db: &PgPool, account_id: &str) -> Result<i64, sqlx::Er
     .bind(day_start)
     .fetch_one(db)
     .await
+    .map_err(orm_error)
+}
+
+/// The `thread_id` of the mailbox's first message whose message id or thread
+/// id is one of `lookup`.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "the personal database has no entities: its schema is still Drizzle's and retires with the consumer product (ADR OPS-025)"
+)]
+async fn thread_of(
+    db: &PgPool,
+    account_id: &str,
+    lookup: &[String],
+) -> Result<Option<Option<String>>, DbErr> {
+    sqlx::query_scalar(
+        "select thread_id from personal_mail_messages
+         where account_id = $1 and (message_id = any($2::text[]) or thread_id = any($2::text[]))
+         limit 1",
+    )
+    .bind(account_id)
+    .bind(lookup)
+    .fetch_optional(db)
+    .await
+    .map_err(orm_error)
+}
+
+/// The `source` of the mailbox's live message with the message id.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "the personal database has no entities: its schema is still Drizzle's and retires with the consumer product (ADR OPS-025)"
+)]
+async fn source_of(
+    db: &PgPool,
+    account_id: &str,
+    message_id: &str,
+) -> Result<Option<Option<String>>, DbErr> {
+    sqlx::query_scalar(
+        "select source from personal_mail_messages
+         where account_id = $1 and message_id = $2 and deleted_at is null limit 1",
+    )
+    .bind(account_id)
+    .bind(message_id)
+    .fetch_optional(db)
+    .await
+    .map_err(orm_error)
 }
 
 /// `resolveThreadId(db, accountId, input, fallback)`.
@@ -254,7 +346,7 @@ async fn resolve_thread_id(
     account_id: &str,
     input: &Compose,
     fallback: &str,
-) -> Result<String, sqlx::Error> {
+) -> Result<String, DbErr> {
     if let Some(thread) = input.thread_id.as_deref().filter(|t| !t.is_empty()) {
         return Ok(thread.to_owned());
     }
@@ -266,15 +358,7 @@ async fn resolve_thread_id(
     if lookup.is_empty() {
         return Ok(fallback.to_owned());
     }
-    let parent: Option<Option<String>> = sqlx::query_scalar(
-        "select thread_id from personal_mail_messages
-         where account_id = $1 and (message_id = any($2::text[]) or thread_id = any($2::text[]))
-         limit 1",
-    )
-    .bind(account_id)
-    .bind(&lookup)
-    .fetch_optional(db)
-    .await?;
+    let parent = thread_of(db, account_id, &lookup).await?;
     Ok(parent
         .flatten()
         .filter(|t| !t.is_empty())
@@ -288,18 +372,11 @@ async fn outbound_kind_of(
     db: &PgPool,
     account_id: &str,
     input: &Compose,
-) -> Result<OutboundKind, sqlx::Error> {
+) -> Result<OutboundKind, DbErr> {
     let Some(parent) = input.in_reply_to.as_deref().filter(|p| !p.is_empty()) else {
         return Ok(OutboundKind::NewThread);
     };
-    let found: Option<Option<String>> = sqlx::query_scalar(
-        "select source from personal_mail_messages
-         where account_id = $1 and message_id = $2 and deleted_at is null limit 1",
-    )
-    .bind(account_id)
-    .bind(bracket(parent))
-    .fetch_optional(db)
-    .await?;
+    let found = source_of(db, account_id, &bracket(parent)).await?;
     Ok(match found {
         Some(source) if source.as_deref() != Some("composed") => OutboundKind::Reply,
         _ => OutboundKind::NewThread,
@@ -495,65 +572,23 @@ pub(crate) async fn send_and_persist(
         format!("<{}@weldmail.com>", delivered.message_id)
     };
     let thread_id = resolve_thread_id(db, &account_id, input, &message_id).await?;
-    let addresses = |list: &[String]| -> Option<Value> {
-        (!list.is_empty())
-            .then(|| Value::Array(list.iter().map(|e| json!({ "email": e })).collect()))
-    };
     let name = account["displayName"]
         .as_str()
         .map(str::to_owned)
         .or_else(|| account["name"].as_str().map(str::to_owned));
     let now = now_iso();
-    let inserted: Result<Value, sqlx::Error> = sqlx::query_scalar(
-        "insert into personal_mail_messages
-           (id, personal_account_id, account_id, message_id, thread_id, \"from\", \"to\", cc, bcc,
-            subject, preview, text_body, html_body, sent_date, received_date, is_read, is_starred,
-            is_draft, is_spam, is_trash, has_attachments, in_reply_to, \"references\", is_reply,
-            labels, send_status, send_provider, provider_message_id, source, idempotency_key,
-            created_at, updated_at)
-         values ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8::jsonb, $9::jsonb, $10, $11, $12, $13,
-                 $14::timestamp, $14::timestamp, true, false, false, false, false, false, $15,
-                 $16::jsonb, $17, '[\"SENT\"]'::jsonb, $18, 'cloudflare', $19, 'composed', $20,
-                 $14::timestamp, $14::timestamp)
-         returning to_jsonb(personal_mail_messages)",
-    )
-    .bind(weldsuite_kit::generate_id("msg"))
-    .bind(ctx.personal_account_id)
-    .bind(&account_id)
-    .bind(&message_id)
-    .bind(&thread_id)
-    .bind(json!({ "email": email, "name": name }))
-    .bind(addresses(&input.to).unwrap_or_else(|| json!([])))
-    .bind(addresses(&input.cc))
-    .bind(addresses(&input.bcc))
-    .bind(&input.subject)
-    .bind(preview_from(input.text_body.as_deref(), html.as_deref()))
-    .bind(&input.text_body)
-    .bind(&html)
-    .bind(&now)
-    .bind(
-        input
-            .in_reply_to
-            .as_deref()
-            .filter(|p| !p.is_empty())
-            .map(bracket),
-    )
-    .bind(
-        input
-            .references
-            .as_ref()
-            .map(|r| Value::Array(r.iter().map(|id| Value::String(bracket(id))).collect())),
-    )
-    .bind(input.in_reply_to.as_deref().is_some_and(|p| !p.is_empty()))
-    .bind(if delivered.pending_verification {
-        "pending_verification"
-    } else {
-        "sent"
-    })
-    .bind(&delivered.message_id)
-    .bind(&input.idempotency_key)
-    .fetch_one(db)
-    .await;
+    let copy = SentCopy {
+        personal_account_id: ctx.personal_account_id,
+        account_id: &account_id,
+        message_id: &message_id,
+        thread_id: &thread_id,
+        from: json!({ "email": email, "name": name }),
+        input,
+        html: html.as_deref(),
+        now: &now,
+        delivered: &delivered,
+    };
+    let inserted = insert_sent_copy(db, &copy).await;
     let message = match inserted {
         Ok(row) => weldsuite_db::js_row(row),
         Err(error) => {
@@ -568,18 +603,112 @@ pub(crate) async fn send_and_persist(
     };
     // `bumpSentToday`: a best-effort display counter.
     let sent_today = account["sentToday"].as_i64().unwrap_or(0) + 1;
-    if let Err(error) = sqlx::query(
-        "update personal_mail_accounts set sent_today = $2, updated_at = $3::timestamp where id = $1",
-    )
-    .bind(&account_id)
-    .bind(i32::try_from(sent_today).unwrap_or(i32::MAX))
-    .bind(&now)
-    .execute(db)
-    .await
-    {
+    if let Err(error) = bump_sent_today(db, &account_id, sent_today, &now).await {
         tracing::error!(%error, "[personal-api/mail-send] sentToday bump failed");
     }
     Ok((message, delivered.pending_verification))
+}
+
+/// The SENT copy `sendAndPersist` stores.
+struct SentCopy<'a> {
+    personal_account_id: &'a str,
+    account_id: &'a str,
+    message_id: &'a str,
+    thread_id: &'a str,
+    /// `{ email, name }` of the mailbox.
+    from: Value,
+    input: &'a Compose,
+    /// The sanitised HTML.
+    html: Option<&'a str>,
+    now: &'a str,
+    delivered: &'a Delivered,
+}
+
+/// The SENT copy, as `to_jsonb` writes it.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "the personal database has no entities: its schema is still Drizzle's and retires with the consumer product (ADR OPS-025)"
+)]
+async fn insert_sent_copy(db: &PgPool, copy: &SentCopy<'_>) -> Result<Value, DbErr> {
+    let addresses = |list: &[String]| -> Option<Value> {
+        (!list.is_empty())
+            .then(|| Value::Array(list.iter().map(|e| json!({ "email": e })).collect()))
+    };
+    let input = copy.input;
+    sqlx::query_scalar(
+        "insert into personal_mail_messages
+           (id, personal_account_id, account_id, message_id, thread_id, \"from\", \"to\", cc, bcc,
+            subject, preview, text_body, html_body, sent_date, received_date, is_read, is_starred,
+            is_draft, is_spam, is_trash, has_attachments, in_reply_to, \"references\", is_reply,
+            labels, send_status, send_provider, provider_message_id, source, idempotency_key,
+            created_at, updated_at)
+         values ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8::jsonb, $9::jsonb, $10, $11, $12, $13,
+                 $14::timestamp, $14::timestamp, true, false, false, false, false, false, $15,
+                 $16::jsonb, $17, '[\"SENT\"]'::jsonb, $18, 'cloudflare', $19, 'composed', $20,
+                 $14::timestamp, $14::timestamp)
+         returning to_jsonb(personal_mail_messages)",
+    )
+    .bind(weldsuite_kit::generate_id("msg"))
+    .bind(copy.personal_account_id)
+    .bind(copy.account_id)
+    .bind(copy.message_id)
+    .bind(copy.thread_id)
+    .bind(&copy.from)
+    .bind(addresses(&input.to).unwrap_or_else(|| json!([])))
+    .bind(addresses(&input.cc))
+    .bind(addresses(&input.bcc))
+    .bind(&input.subject)
+    .bind(preview_from(input.text_body.as_deref(), copy.html))
+    .bind(&input.text_body)
+    .bind(copy.html)
+    .bind(copy.now)
+    .bind(
+        input
+            .in_reply_to
+            .as_deref()
+            .filter(|p| !p.is_empty())
+            .map(bracket),
+    )
+    .bind(
+        input
+            .references
+            .as_ref()
+            .map(|r| Value::Array(r.iter().map(|id| Value::String(bracket(id))).collect())),
+    )
+    .bind(input.in_reply_to.as_deref().is_some_and(|p| !p.is_empty()))
+    .bind(if copy.delivered.pending_verification {
+        "pending_verification"
+    } else {
+        "sent"
+    })
+    .bind(&copy.delivered.message_id)
+    .bind(&input.idempotency_key)
+    .fetch_one(db)
+    .await
+    .map_err(orm_error)
+}
+
+/// The mailbox's `sentToday`, as the send left it.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "the personal database has no entities: its schema is still Drizzle's and retires with the consumer product (ADR OPS-025)"
+)]
+async fn bump_sent_today(
+    db: &PgPool,
+    account_id: &str,
+    sent_today: i64,
+    now: &str,
+) -> Result<(), DbErr> {
+    sqlx::query(
+        "update personal_mail_accounts set sent_today = $2, updated_at = $3::timestamp where id = $1",
+    )
+    .bind(account_id)
+    .bind(i32::try_from(sent_today).unwrap_or(i32::MAX))
+    .bind(now)
+    .execute(db)
+    .await
+    .map_err(orm_error)?;
+    Ok(())
 }
 
 /// `{ email }` addresses of a stored message field.

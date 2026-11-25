@@ -6,8 +6,11 @@
 //! depend on each other and the flow port (its `weldsuite-flow-domain`
 //! crate) lands separately; fold it into that crate once both are merged.
 
+use sea_orm::sea_query::{Asterisk, Expr, Func};
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Value, json};
-use sqlx::PgPool;
+use weldsuite_db::{PgPool, orm};
+use weldsuite_schema::tenant::{milestones, project_members, projects, tasks, time_entries};
 
 /// `resolveProjectAccess(db, userId, { scopeAll }, projectId).canWrite`.
 pub(crate) async fn can_write_project(
@@ -15,22 +18,26 @@ pub(crate) async fn can_write_project(
     user_id: &str,
     scope_all: bool,
     project_id: &str,
-) -> Result<bool, sqlx::Error> {
-    let project: Option<(Option<String>, bool)> = sqlx::query_as(
-        "select project_manager_id, deleted_at is not null from projects where id = $1 limit 1",
-    )
-    .bind(project_id)
-    .fetch_optional(db)
-    .await?;
-    let member_role: Option<Option<String>> = sqlx::query_scalar(
-        "select role from project_members
-         where project_id = $1 and user_id = $2 and is_active = true and deleted_at is null
-         limit 1",
-    )
-    .bind(project_id)
-    .bind(user_id)
-    .fetch_optional(db)
-    .await?;
+) -> Result<bool, DbErr> {
+    let db = orm(db);
+    let project: Option<(Option<String>, bool)> = projects::Entity::find()
+        .select_only()
+        .column(projects::Column::ProjectManagerId)
+        .expr(projects::Column::DeletedAt.is_not_null())
+        .filter(projects::Column::Id.eq(project_id))
+        .into_tuple()
+        .one(&db)
+        .await?;
+    let member_role: Option<String> = project_members::Entity::find()
+        .select_only()
+        .column(project_members::Column::Role)
+        .filter(project_members::Column::ProjectId.eq(project_id))
+        .filter(project_members::Column::UserId.eq(user_id))
+        .filter(project_members::Column::IsActive.eq(true))
+        .filter(project_members::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&db)
+        .await?;
     let (manager, deleted) = project.unwrap_or((None, false));
     if deleted {
         return Ok(false);
@@ -39,7 +46,7 @@ pub(crate) async fn can_write_project(
         .as_deref()
         .is_some_and(|m| !m.is_empty() && m == user_id);
     let project_role = member_role
-        .map(|role| role.unwrap_or_default().to_lowercase())
+        .map(|role| role.to_lowercase())
         .filter(|role| !role.is_empty());
     let role = project_role.or_else(|| is_manager.then(|| "owner".to_owned()));
     let is_admin = scope_all || is_manager || matches!(role.as_deref(), Some("owner" | "admin"));
@@ -53,31 +60,52 @@ fn two_decimals(value: f64) -> String {
 
 /// `getProjectStats(db, [projectId]).get(projectId)`: the counters a
 /// project's detail overlays on its row.
-pub(crate) async fn project_stats(db: &PgPool, project_id: &str) -> Result<Value, sqlx::Error> {
-    let tasks: Option<(i32, i32, i32)> = sqlx::query_as(
-        "select count(*)::int,
-                (count(*) filter (where status = 'done'))::int,
-                (count(*) filter (where status = 'cancelled'))::int
-         from tasks where project_id = $1 and deleted_at is null group by project_id",
-    )
-    .bind(project_id)
-    .fetch_optional(db)
-    .await?;
-    let milestones: Option<(i32, i32)> = sqlx::query_as(
-        "select count(*)::int, (count(*) filter (where status = 'completed'))::int
-         from milestones where project_id = $1 and deleted_at is null group by project_id",
-    )
-    .bind(project_id)
-    .fetch_optional(db)
-    .await?;
-    let minutes: Option<Option<String>> = sqlx::query_scalar(
-        "select sum(duration)::text from time_entries
-         where project_id = $1 and deleted_at is null and status <> 'rejected'
-         group by project_id",
-    )
-    .bind(project_id)
-    .fetch_optional(db)
-    .await?;
+pub(crate) async fn project_stats(db: &PgPool, project_id: &str) -> Result<Value, DbErr> {
+    let db = orm(db);
+    // `count(*)::int` and `(count(*) filter (where …))::int`: the case is
+    // null for the rows it leaves out, which COUNT skips.
+    let int = |count: Expr| sea_orm::ExprTrait::cast_as(count, "int");
+    let all = || int(Func::count(Expr::col(Asterisk)).into());
+    let with_status = |column: Expr, status: &str| {
+        int(Func::count(Expr::case(sea_orm::ExprTrait::eq(column, status), 1)).into())
+    };
+    let tasks: Option<(i32, i32, i32)> = tasks::Entity::find()
+        .select_only()
+        .expr(all())
+        .expr(with_status(Expr::col(tasks::Column::Status), "done"))
+        .expr(with_status(Expr::col(tasks::Column::Status), "cancelled"))
+        .filter(tasks::Column::ProjectId.eq(project_id))
+        .filter(tasks::Column::DeletedAt.is_null())
+        .group_by(tasks::Column::ProjectId)
+        .into_tuple()
+        .one(&db)
+        .await?;
+    let milestones: Option<(i32, i32)> = milestones::Entity::find()
+        .select_only()
+        .expr(all())
+        .expr(with_status(
+            Expr::col(milestones::Column::Status),
+            "completed",
+        ))
+        .filter(milestones::Column::ProjectId.eq(project_id))
+        .filter(milestones::Column::DeletedAt.is_null())
+        .group_by(milestones::Column::ProjectId)
+        .into_tuple()
+        .one(&db)
+        .await?;
+    let minutes: Option<Option<String>> = time_entries::Entity::find()
+        .select_only()
+        .expr(sea_orm::ExprTrait::cast_as(
+            Func::sum(Expr::col(time_entries::Column::Duration)),
+            "text",
+        ))
+        .filter(time_entries::Column::ProjectId.eq(project_id))
+        .filter(time_entries::Column::DeletedAt.is_null())
+        .filter(time_entries::Column::Status.ne("rejected"))
+        .group_by(time_entries::Column::ProjectId)
+        .into_tuple()
+        .one(&db)
+        .await?;
     let (total, completed, cancelled) = tasks.unwrap_or((0, 0, 0));
     let (total_milestones, completed_milestones) = milestones.unwrap_or((0, 0));
     let countable = total - cancelled;

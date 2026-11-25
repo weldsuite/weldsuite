@@ -8,11 +8,18 @@
 
 use std::collections::HashMap;
 
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, JoinType, QueryFilter, QueryOrder, QuerySelect};
 use serde_json::Value;
 use sqlx::PgPool;
+use time::PrimitiveDateTime;
 use weldsuite_books_domain::js::{self, locale_compare, round_money as r2};
 use weldsuite_books_domain::jurisdictions::js_trim;
 use weldsuite_books_domain::posting::{account_for_role, load_entity_accounts};
+use weldsuite_db::{orm, orm_error};
+use weldsuite_schema::tenant::{accounts, journal_entries, journal_lines};
+
+use crate::apuracao::{line_entry, net_debit_text};
+use crate::orm_bridge::{column_text, iso_of, timestamp_of_iso};
 
 /// `EcdSignatory`, as the body validated it.
 #[derive(Debug, Clone)]
@@ -731,12 +738,19 @@ pub(crate) fn encode_latin1(content: &str) -> Vec<u8> {
 #[derive(Debug)]
 pub(crate) enum EcdError {
     User(String),
-    Database(sqlx::Error),
+    Database(DbErr),
 }
 
+impl From<DbErr> for EcdError {
+    fn from(error: DbErr) -> Self {
+        Self::Database(error)
+    }
+}
+
+/// A failure of `weldsuite-books-domain`, not converted to the ORM yet.
 impl From<sqlx::Error> for EcdError {
     fn from(error: sqlx::Error) -> Self {
-        Self::Database(error)
+        Self::Database(orm_error(error))
     }
 }
 
@@ -802,13 +816,17 @@ pub(crate) async fn build_entity_ecd(
     let (ty, tm, td) = js::civil_from_days(js::days_from_civil(ey, em, ed) + 1);
     let to = format!("{ty:04}-{tm:02}-{td:02}T00:00:00.000Z");
 
-    let account_rows: Vec<(String, String, String, String)> = sqlx::query_as(
-        "select \"id\", \"code\", \"name\", \"type\" from \"accounts\" \
-         where (\"accounts\".\"entity_id\" = $1 and \"accounts\".\"deleted_at\" is null)",
-    )
-    .bind(entity_id)
-    .fetch_all(db)
-    .await?;
+    let account_rows: Vec<(String, String, String, String)> = accounts::Entity::find()
+        .select_only()
+        .column(accounts::Column::Id)
+        .column(accounts::Column::Code)
+        .column(accounts::Column::Name)
+        .column(accounts::Column::Type)
+        .filter(accounts::Column::EntityId.eq(entity_id))
+        .filter(accounts::Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     // `new Map(...)`: a later row of the same key wins.
     let code_by_id: HashMap<&str, &str> = account_rows
         .iter()
@@ -829,17 +847,20 @@ pub(crate) async fn build_entity_ecd(
         ));
     };
 
-    let before: Vec<(String, String)> = sqlx::query_as(
-        "select \"journal_lines\".\"account_id\", (coalesce(sum(coalesce(\"journal_lines\".\"base_currency_debit\", \"journal_lines\".\"debit\") \
-         - coalesce(\"journal_lines\".\"base_currency_credit\", \"journal_lines\".\"credit\")), 0))::text \
-         from \"journal_lines\" inner join \"journal_entries\" on \"journal_lines\".\"journal_entry_id\" = \"journal_entries\".\"id\" \
-         where (\"journal_lines\".\"entity_id\" = $1 and \"journal_entries\".\"date\" < $2::timestamp \
-         and \"journal_entries\".\"status\" = 'posted') group by \"journal_lines\".\"account_id\"",
-    )
-    .bind(entity_id)
-    .bind(&from)
-    .fetch_all(db)
-    .await?;
+    // The opening balances: each account's net debit before the year,
+    // summed by Postgres and read as its `numeric` text.
+    let before: Vec<(String, String)> = journal_lines::Entity::find()
+        .select_only()
+        .column(journal_lines::Column::AccountId)
+        .column_as(net_debit_text(), "net")
+        .join(JoinType::InnerJoin, line_entry())
+        .filter(journal_lines::Column::EntityId.eq(entity_id))
+        .filter(journal_entries::Column::Date.lt(timestamp_of_iso(&from)?))
+        .filter(journal_entries::Column::Status.eq("posted"))
+        .group_by(journal_lines::Column::AccountId)
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     let mut opening: HashMap<String, f64> = HashMap::new();
     for (account_id, net) in &before {
         let Some(code) = code_by_id.get(account_id.as_str()) else {
@@ -854,17 +875,21 @@ pub(crate) async fn build_entity_ecd(
         *opening.entry(target).or_insert(0.0) += js::parse_float(net);
     }
 
-    let entry_rows: Vec<(String, Option<String>, Value, Option<String>)> = sqlx::query_as(
-        "select \"id\", \"entry_number\", to_jsonb(\"date\"), \"description\" from \"journal_entries\" \
-         where (\"journal_entries\".\"entity_id\" = $1 and \"journal_entries\".\"status\" = 'posted' \
-         and \"journal_entries\".\"date\" >= $2::timestamp and \"journal_entries\".\"date\" < $3::timestamp) \
-         order by \"journal_entries\".\"date\" asc",
-    )
-    .bind(entity_id)
-    .bind(&from)
-    .bind(&to)
-    .fetch_all(db)
-    .await?;
+    let entry_rows: Vec<(String, Option<String>, PrimitiveDateTime, Option<String>)> =
+        journal_entries::Entity::find()
+            .select_only()
+            .column(journal_entries::Column::Id)
+            .column(journal_entries::Column::EntryNumber)
+            .column(journal_entries::Column::Date)
+            .column(journal_entries::Column::Description)
+            .filter(journal_entries::Column::EntityId.eq(entity_id))
+            .filter(journal_entries::Column::Status.eq("posted"))
+            .filter(journal_entries::Column::Date.gte(timestamp_of_iso(&from)?))
+            .filter(journal_entries::Column::Date.lt(timestamp_of_iso(&to)?))
+            .order_by_asc(journal_entries::Column::Date)
+            .into_tuple()
+            .all(&orm(db))
+            .await?;
     let ids: Vec<String> = entry_rows.iter().map(|e| e.0.clone()).collect();
     type LineRow = (
         String,
@@ -877,22 +902,32 @@ pub(crate) async fn build_entity_ecd(
     );
     let mut line_rows: Vec<LineRow> = Vec::new();
     for chunk in ids.chunks(500) {
-        let rows: Vec<LineRow> = sqlx::query_as(
-            "select \"journal_entry_id\", \"account_id\", \"debit\"::text, \"credit\"::text, \
-             \"base_currency_debit\"::text, \"base_currency_credit\"::text, \"description\" \
-             from \"journal_lines\" where \"journal_lines\".\"journal_entry_id\" = any($1)",
-        )
-        .bind(chunk)
-        .fetch_all(db)
-        .await?;
+        // The amounts as their `numeric` text (`Number.parseFloat`).
+        let rows: Vec<LineRow> = journal_lines::Entity::find()
+            .select_only()
+            .column(journal_lines::Column::JournalEntryId)
+            .column(journal_lines::Column::AccountId)
+            .column_as(column_text(journal_lines::Column::Debit), "debit")
+            .column_as(column_text(journal_lines::Column::Credit), "credit")
+            .column_as(
+                column_text(journal_lines::Column::BaseCurrencyDebit),
+                "base_currency_debit",
+            )
+            .column_as(
+                column_text(journal_lines::Column::BaseCurrencyCredit),
+                "base_currency_credit",
+            )
+            .column(journal_lines::Column::Description)
+            .filter(journal_lines::Column::JournalEntryId.is_in(chunk.iter().map(String::as_str)))
+            .into_tuple()
+            .all(&orm(db))
+            .await?;
         line_rows.extend(rows);
     }
     let mut entries = Vec::new();
     for (id, number, date, description) in entry_rows {
-        let date = date
-            .as_str()
-            .and_then(weldsuite_db::js_timestamp)
-            .unwrap_or_default();
+        // `to_jsonb(date)` read back as `toISOString()`.
+        let date = iso_of(date);
         entries.push(Entry {
             id: number.unwrap_or_else(|| id.clone()),
             date: date.chars().take(10).collect(),

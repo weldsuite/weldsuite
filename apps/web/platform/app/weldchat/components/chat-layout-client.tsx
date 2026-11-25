@@ -21,6 +21,7 @@ import { BookmarksPanel } from './bookmarks-panel';
 import { ChatFiltersPanel } from './chat-filters-panel';
 import { parseWeldChatPath } from '../lib/route-segments';
 import { threadAfterChannelChange, threadMessageIdFor, type OpenThread } from '../lib/thread-state';
+import { sidePanelChannelId } from '../lib/side-panel';
 import { isInlineCall as isInlineCallFor } from '../lib/inline-call';
 import { ChatContext, requestComposerFocus, type RightPanel, type ReplyTo, type EditingMessage, type ChatFilters } from './chat-context';
 import { useEntitySheet } from '@/components/entity-sheet/use-entity-sheet';
@@ -151,6 +152,8 @@ export function ChatLayoutClient({ children }: Readonly<{ children: ReactNode }>
   // preserved untouched so the previous panel automatically returns when the
   // sheet closes.
   const effectiveRightPanel: RightPanel = isEntitySheetOpen ? null : rightPanel;
+  // The conversation the side panel is for; a DM's thread uses the DM's own id.
+  const panelChannelId = sidePanelChannelId(effectiveRightPanel, { currentChannelId, activeChannelId, isDmPage });
 
   // First time the entity sheet open state changes after mount, enable the
   // width transition so subsequent open/close animates instead of snapping.
@@ -284,8 +287,7 @@ export function ChatLayoutClient({ children }: Readonly<{ children: ReactNode }>
                   (FLOATING_DRAWER_WIDTH). When the chat area is narrower than
                   48rem that would squeeze the timeline to a few words per
                   line, so there the panel slides over it. */}
-              {effectiveRightPanel && currentChannelId && !isInlineCall &&
-                (!isDmPage || effectiveRightPanel === 'bookmarks' || effectiveRightPanel === 'filters') && (
+              {effectiveRightPanel && panelChannelId && !isInlineCall && (
                 <div
                   style={{ '--chat-side-panel-width': `${FLOATING_DRAWER_WIDTH}px` } as CSSProperties}
                   className="max-md:fixed max-md:inset-0 max-md:z-40 max-md:bg-background max-md:flex max-md:flex-col md:w-(--chat-side-panel-width) md:flex-shrink-0 md:border-l md:@max-3xl:absolute md:@max-3xl:inset-y-0 md:@max-3xl:right-0 md:@max-3xl:z-30 md:@max-3xl:max-w-full md:@max-3xl:bg-background md:@max-3xl:shadow-xl h-full overflow-hidden">
@@ -314,11 +316,11 @@ export function ChatLayoutClient({ children }: Readonly<{ children: ReactNode }>
                       makes the panel fill the remaining height below the
                       close bar. */}
                   <div className="max-md:flex-1 max-md:min-h-0 max-md:overflow-hidden md:contents">
-                    {effectiveRightPanel === 'pinned' && <PinnedMessagesPanel channelId={currentChannelId} />}
+                    {effectiveRightPanel === 'pinned' && <PinnedMessagesPanel channelId={panelChannelId} />}
                     {effectiveRightPanel === 'bookmarks' && <BookmarksPanel />}
                     {effectiveRightPanel === 'filters' && <ChatFiltersPanel />}
                     {effectiveRightPanel === 'thread' && threadMessageId && (
-                      <ThreadPanel key={`${currentChannelId}:${threadMessageId}`} channelId={currentChannelId} messageId={threadMessageId} />
+                      <ThreadPanel key={`${panelChannelId}:${threadMessageId}`} channelId={panelChannelId} messageId={threadMessageId} />
                     )}
                   </div>
                 </div>

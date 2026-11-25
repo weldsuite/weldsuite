@@ -17,8 +17,10 @@
 
 mod tables;
 
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
-use weldsuite_db::js_timestamp;
+use weldsuite_db::{PgPool, js_timestamp, orm, orm_error};
+use weldsuite_schema::tenant::mail_accounts;
 
 use super::{ActionCtx, ActionError, ActionResult};
 use crate::engine::template::strict_equals;
@@ -195,8 +197,86 @@ fn data_of(inputs: &Map<String, Value>, keys: [&str; 2]) -> Map<String, Value> {
     }
 }
 
-fn db_error(error: &sqlx::Error) -> ActionError {
-    ActionError::plain(&error.to_string())
+fn db_error(error: &DbErr) -> ActionError {
+    ActionError::database(error)
+}
+
+/// `db.insert(table).values(values).returning(getEntityColumns)`: the
+/// table's generated statement.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "the per-table statement tools/entity-tables.mts generates (insert … select from jsonb_populate_record with the snapshot's defaults), one statement"
+)]
+async fn insert_row(
+    db: &PgPool,
+    table: &EntityTable,
+    values: Map<String, Value>,
+) -> Result<Value, DbErr> {
+    sqlx::query_scalar(table.insert)
+        .bind(Value::Object(values))
+        .fetch_one(db)
+        .await
+        .map_err(orm_error)
+}
+
+/// `db.update(table).set(values).where(id, sharedMailboxCondition)`: the
+/// table's generated statement; the changed row.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "the per-table statement tools/entity-tables.mts generates (update … from jsonb_populate_record, id included, with the shared-mailbox condition of MAIL-003), one statement"
+)]
+async fn patch_row(
+    db: &PgPool,
+    table: &EntityTable,
+    values: Map<String, Value>,
+    id: &str,
+) -> Result<Option<Value>, DbErr> {
+    sqlx::query_scalar(table.patch)
+        .bind(Value::Object(values))
+        .bind(id)
+        .fetch_optional(db)
+        .await
+        .map_err(orm_error)
+}
+
+/// The table's generated delete: `statement` with the id, and the time a
+/// soft delete stamps.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "the per-table statements tools/entity-tables.mts generates (soft and hard delete with the shared-mailbox condition of MAIL-003)"
+)]
+async fn delete_row(
+    db: &PgPool,
+    statement: &'static str,
+    id: &str,
+    stamp: Option<String>,
+) -> Result<(), DbErr> {
+    let mut query = sqlx::query(statement).bind(id);
+    if let Some(stamp) = stamp {
+        query = query.bind(stamp);
+    }
+    query.execute(db).await.map_err(orm_error)?;
+    Ok(())
+}
+
+/// The table's generated list: its live rows (shared mailboxes only),
+/// `limit` from `offset`.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "the per-table statement tools/entity-tables.mts generates (to_jsonb rows with numerics as text and the shared-mailbox condition of MAIL-003)"
+)]
+async fn query_rows(
+    db: &PgPool,
+    statement: &'static str,
+    limit: i64,
+    offset: i64,
+) -> Result<Vec<Value>, DbErr> {
+    sqlx::query_scalar(statement)
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(db)
+        .await
+        .map_err(orm_error)
 }
 
 // ── Mail entities (MAIL-003) ────────────────────────────────────────────────
@@ -263,13 +343,15 @@ async fn assert_mail_write(
     let Some(account) = account.as_str().filter(|a| !a.is_empty()) else {
         return Err(ActionError::plain(&format!("{entity} requires {column}")));
     };
-    let shared: Option<Option<bool>> = sqlx::query_scalar(
-        "select is_shared from mail_accounts where id = $1 and deleted_at is null",
-    )
-    .bind(account)
-    .fetch_optional(ctx.db)
-    .await
-    .map_err(|e| db_error(&e))?;
+    let shared: Option<Option<bool>> = mail_accounts::Entity::find()
+        .select_only()
+        .column(mail_accounts::Column::IsShared)
+        .filter(mail_accounts::Column::Id.eq(account))
+        .filter(mail_accounts::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(ctx.db))
+        .await
+        .map_err(|e| db_error(&e))?;
     if shared.flatten() != Some(true) {
         return Err(ActionError::plain(&format!(
             "Mail account {account} is not a shared mailbox; a workflow may only write to shared mailboxes (MAIL-003)"
@@ -315,9 +397,7 @@ pub(super) async fn create_record(
     table.set(&mut values, "createdAt", json!(now));
     table.set(&mut values, "updatedAt", json!(now));
     table.set(&mut values, "workspaceId", json!(ctx.info.workspace_id));
-    let row: Value = sqlx::query_scalar(table.insert)
-        .bind(Value::Object(values))
-        .fetch_one(ctx.db)
+    let row = insert_row(ctx.db, table, values)
         .await
         .map_err(|e| db_error(&e))?;
     Ok(json!({ "created": true, "record": table.js(row) }))
@@ -341,10 +421,7 @@ pub(super) async fn update_record(
     // `.set({ ...data, updatedAt })`.
     let mut values = table.values(&data, &["updatedAt"])?;
     table.set(&mut values, "updatedAt", json!(super::now_text()));
-    let row: Option<Value> = sqlx::query_scalar(table.patch)
-        .bind(Value::Object(values))
-        .bind(&id)
-        .fetch_optional(ctx.db)
+    let row = patch_row(ctx.db, table, values, &id)
         .await
         .map_err(|e| db_error(&e))?;
     let Some(row) = row else {
@@ -367,19 +444,14 @@ pub(super) async fn delete_record(
     }
     let table = table_of(&entity)?;
     if inputs.get("hardDelete") == Some(&Value::Bool(true)) {
-        sqlx::query(table.hard_delete)
-            .bind(&id)
-            .execute(ctx.db)
+        delete_row(ctx.db, table.hard_delete, &id, None)
             .await
             .map_err(|e| db_error(&e))?;
     } else {
         let Some(statement) = table.soft_delete else {
             return Err(ActionError::plain("No values to set"));
         };
-        sqlx::query(statement)
-            .bind(&id)
-            .bind(super::now_text())
-            .execute(ctx.db)
+        delete_row(ctx.db, statement, &id, Some(super::now_text()))
             .await
             .map_err(|e| db_error(&e))?;
     }
@@ -438,10 +510,7 @@ pub(super) async fn query_data(inputs: &Map<String, Value>, ctx: &ActionCtx<'_>)
         // ` is null`, which the database refuses.
         return Err(ActionError::plain("syntax error at or near \"is\""));
     };
-    let rows: Vec<Value> = sqlx::query_scalar(statement)
-        .bind(limit)
-        .bind(offset)
-        .fetch_all(ctx.db)
+    let rows = query_rows(ctx.db, statement, limit, offset)
         .await
         .map_err(|e| db_error(&e))?;
     let mut records: Vec<Value> = rows.into_iter().map(|row| table.js(row)).collect();

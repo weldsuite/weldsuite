@@ -110,11 +110,15 @@ TypeScript worker.
 - TanStack Start on Cloudflare Workers: `admin` (3001, staff console, also a
   Node build for Kubernetes), `helpcenter` (3008), `sign-portal` (3023),
   `project-portal` (3024), `forms-portal` (3025).
-- Next.js: `sites` (3007, customer websites), `api-docs` (3009), `docs` (3010,
+- TanStack Start on Node, Kubernetes only: `storefront` (3031, WeldCommerce's
+  online store renderer: shops built in the platform's editor, served on the
+  shop's own host through the Rust server's storefront edge).
+- Next.js: `api-docs` (3009), `docs` (3010,
   help.weldsuite.org), `booking-portal` (3019), `meeting-portal` (3020),
   `commerce-starter` (3030, the MIT-licensed WeldCommerce starter shop on
   `@weldsuite/commerce-sdk`: a template to fork, never deployed, no internal
-  imports).
+  imports; its static Vite variant with a publishable key, for
+  `weld storefront deploy`, is `commerce-starter-static`, 3032).
 - Vite SPAs: `developer` (WeldApps developer portal), `partner` (3203,
   reseller portal), `weldmail` and `weldcalendar` (consumer apps on a personal
   Weld account, served by `personal-api`), `helpdesk-widget` (3100).
@@ -164,7 +168,9 @@ never by path:
   `api-client` (the HTTP transport), `core-api-client` (still load-bearing
   Zod schemas despite its name), `personal-api-client`, `mobile-platform`.
 - `design/`: `ui` (the shared component library), `mobile-ui`,
-  `site-components`, `weldmeet-ui`, `forms-renderer`.
+  `storefront-theme` (WeldCommerce's online store theme: the site document,
+  the section catalog the Rust backend validates against, the sections),
+  `weldmeet-ui`, `forms-renderer`.
 - `sdk/`: published, permissively licensed SDKs: `app-sdk`, `cli`,
   `helpdesk-widget-sdk`, `forms-embed`, `panel-sdk`, `cursor-plugin`,
   `commerce-sdk`.
@@ -379,7 +385,8 @@ skill in `.agents/skills/modern-web-guidance` and
 code: the user doesn't have to ask for it, and you don't ask whether to.
 
 - **When:** any change to HTML, CSS or browser-side JavaScript/TypeScript in a
-  web frontend: the platform, `@weldsuite/ui`, the portals and sites, admin,
+  web frontend: the platform, `@weldsuite/ui`, the portals and the storefront
+  renderer and theme, admin,
   partner, developer, docs, the helpdesk widget, the WeldPass extension and
   the hosted WeldApps. Not for backend, workers, Rust, SQL, CI, scripts,
   test-only, config, copy or translation changes, or the Expo apps (React

@@ -4,11 +4,13 @@
 //! a pick list, items imported before line ids were kept are matched and
 //! stamped, and the order gets the buyer's party as counterparty once.
 //! `sync.test.ts` checks the same through the sync route, on both backends.
+//! Also: which imported Moneybird documents still wait for their files.
 //!
 //! Needs `WELDSUITE_TEST_TENANT_URL`; skips without it. Rows carry a fresh
 //! suffix, so runs share the database with other tests.
 
 #![allow(clippy::unwrap_used, clippy::too_many_lines)]
+#![allow(clippy::disallowed_methods, reason = "test fixtures")]
 
 use serde_json::{Value, json};
 use sqlx::PgPool;
@@ -540,4 +542,96 @@ async fn imported_orders_carry_the_connections_channel() {
     .await
     .unwrap();
     assert_eq!(channels, 1);
+}
+
+/// A Moneybird bill of `connection_id` whose files were fetched (`keys`) or
+/// never were (`None`).
+async fn moneybird_bill(
+    db: &PgPool,
+    connection_id: &str,
+    external_type: &str,
+    sfx: &str,
+    keys: Option<Value>,
+) {
+    let bill_id = format!("bil_{sfx}");
+    sqlx::query(
+        "insert into bills (id, entity_id, contact_id, issue_date, due_date, attachment_keys)
+         values ($1, 'ent_backlog', 'party_backlog', now(), now(), $2)",
+    )
+    .bind(&bill_id)
+    .bind(keys)
+    .execute(db)
+    .await
+    .unwrap();
+    sqlx::query(
+        "insert into integration_entity_mappings (id, connection_id, external_entity_type,
+           external_entity_id, internal_entity_type, internal_entity_id, sync_checksum, last_synced_at)
+         values ($1, $2, $3, $4, 'bill', $5, 'seen', now())",
+    )
+    .bind(format!("iem_{sfx}"))
+    .bind(connection_id)
+    .bind(external_type)
+    .bind(format!("mb_{sfx}"))
+    .bind(&bill_id)
+    .execute(db)
+    .await
+    .unwrap();
+}
+
+#[tokio::test]
+async fn moneybird_documents_without_fetched_files_are_a_backlog() {
+    let Some(db) = tenant().await else { return };
+    let sfx = suffix();
+    let connection_id = format!("ccn_mb_{sfx}");
+    let backlog = |external_type: Option<&'static str>| {
+        let db = db.clone();
+        let connection_id = connection_id.clone();
+        async move {
+            super::moneybird_attachment_backlog(&db, &connection_id, external_type)
+                .await
+                .unwrap()
+        }
+    };
+    assert!(!backlog(None).await);
+    // Fetched, with or without files: no backlog.
+    moneybird_bill(
+        &db,
+        &connection_id,
+        "moneybird_purchase_invoice",
+        &format!("{sfx}a"),
+        Some(json!(["k/attachments/1/a.pdf"])),
+    )
+    .await;
+    moneybird_bill(
+        &db,
+        &connection_id,
+        "moneybird_receipt",
+        &format!("{sfx}b"),
+        Some(json!([])),
+    )
+    .await;
+    assert!(!backlog(None).await);
+    // A receipt the budget left: a backlog for receipts, not for purchase
+    // invoices; another connection's doesn't count.
+    moneybird_bill(
+        &db,
+        &connection_id,
+        "moneybird_receipt",
+        &format!("{sfx}c"),
+        None,
+    )
+    .await;
+    moneybird_bill(
+        &db,
+        &format!("{connection_id}x"),
+        "moneybird_purchase_invoice",
+        &format!("{sfx}d"),
+        None,
+    )
+    .await;
+    assert!(backlog(None).await);
+    assert!(backlog(Some("moneybird_receipt")).await);
+    assert!(!backlog(Some("moneybird_purchase_invoice")).await);
+    assert!(!backlog(Some("moneybird_sales_invoice")).await);
+    assert!(!backlog(Some("moneybird_contact")).await);
 }

@@ -3,11 +3,19 @@
 //! row with a checkpoint key) are listed or opened; a row with `BlockNote`
 //! `content` belongs to flow-api's `/api/documents`.
 
+use sea_orm::sea_query::{Expr, Func, Query};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, Condition, ConnectionTrait, DbErr, EntityTrait, FromQueryResult,
+    JoinType, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, RelationDef, Select,
+};
 use serde_json::{Value, json};
+use time::{OffsetDateTime, PrimitiveDateTime};
 use weldsuite_core_domain::drive_access::{
     DriveFileRef, DriveGeneralAccess, DriveRole, VisibleFiles,
 };
-use weldsuite_db::{PgPool, js_row};
+use weldsuite_db::{PgPool, orm, utc_timestamp};
+use weldsuite_events::iso_timestamp;
+use weldsuite_schema::tenant::{doc_versions, docs, files, workspace_members};
 
 /// The mime type of a WeldDocs file (`WELDDOC_MIME_TYPE`).
 pub(crate) const WELDDOC_MIME_TYPE: &str = "application/vnd.weldsuite.doc+json";
@@ -28,37 +36,71 @@ pub(crate) struct DocRecord {
     pub(crate) file: DriveFileRef,
 }
 
-fn text(row: &Value, key: &str) -> Option<String> {
-    row[key].as_str().map(str::to_owned)
+/// A `timestamp` as the `Date` Drizzle read it prints (`toISOString()`).
+fn iso(at: PrimitiveDateTime) -> String {
+    iso_timestamp(at.assume_utc())
+}
+
+/// A version's `toISOString()` stamp as the `timestamp` it names, as
+/// Postgres reads `'…Z'::timestamp`.
+fn timestamp_of(stamp: &str) -> Result<PrimitiveDateTime, DbErr> {
+    OffsetDateTime::parse(stamp, &time::format_description::well_known::Rfc3339)
+        .map(utc_timestamp)
+        .map_err(|error| {
+            DbErr::Type(format!(
+                "invalid input syntax for type timestamp: {stamp:?} ({error})"
+            ))
+        })
+}
+
+/// A row count as the `count(*)::bigint` it was.
+fn count_of(count: u64) -> i64 {
+    i64::try_from(count).unwrap_or(i64::MAX)
+}
+
+/// A `limit` / `offset` as SeaQuery takes it (the routes never send a
+/// negative one).
+fn rows_of(n: i64) -> u64 {
+    u64::try_from(n).unwrap_or(0)
+}
+
+/// The columns of a [`DocRecord`], on `docs` joined with `files`.
+#[derive(Debug, FromQueryResult)]
+struct DocRow {
+    id: String,
+    file_id: String,
+    name: String,
+    folder_id: Option<String>,
+    created_at: PrimitiveDateTime,
+    updated_at: PrimitiveDateTime,
+    created_by_id: Option<String>,
+    updated_by_id: Option<String>,
+    revision: i32,
+    snapshot_key: Option<String>,
+    general_access: String,
+    entity_type: Option<String>,
 }
 
 impl DocRecord {
-    fn from_row(row: Value) -> Self {
-        let row = js_row(row);
-        let id = text(&row, "id").unwrap_or_default();
-        let file_id = text(&row, "fileId").unwrap_or_default();
-        let folder_id = text(&row, "folderId");
-        let created_by_id = text(&row, "createdById");
+    fn from_row(row: DocRow) -> Self {
         Self {
             file: DriveFileRef {
-                id: file_id.clone(),
-                uploaded_by_id: created_by_id.clone(),
-                folder_id: folder_id.clone(),
-                general_access: DriveGeneralAccess::parse(
-                    row["generalAccess"].as_str().unwrap_or_default(),
-                ),
-                entity_type: text(&row, "entityType"),
+                id: row.file_id.clone(),
+                uploaded_by_id: row.created_by_id.clone(),
+                folder_id: row.folder_id.clone(),
+                general_access: DriveGeneralAccess::parse(&row.general_access),
+                entity_type: row.entity_type,
             },
-            id,
-            file_id,
-            name: text(&row, "name").unwrap_or_default(),
-            folder_id,
-            created_at: row["createdAt"].clone(),
-            updated_at: row["updatedAt"].clone(),
-            created_by_id,
-            updated_by_id: text(&row, "updatedById"),
-            revision: row["revision"].clone(),
-            snapshot_key: text(&row, "snapshotKey"),
+            id: row.id,
+            file_id: row.file_id,
+            name: row.name,
+            folder_id: row.folder_id,
+            created_at: Value::String(iso(row.created_at)),
+            updated_at: Value::String(iso(row.updated_at)),
+            created_by_id: row.created_by_id,
+            updated_by_id: row.updated_by_id,
+            revision: json!(row.revision),
+            snapshot_key: row.snapshot_key,
         }
     }
 
@@ -125,25 +167,74 @@ pub(crate) fn version_key_for(doc_snapshot_key: &str, version_id: &str) -> Strin
     format!("{head}versions/{version_id}.json.gz")
 }
 
-/// The columns of a [`DocRecord`], on `docs d` joined with `files f`.
-macro_rules! doc_columns {
-    () => {
-        "d.id, d.file_id, f.file_name as name, f.folder_id, d.created_at,
-         greatest(d.updated_at, f.updated_at) as updated_at,
-         f.uploaded_by_id as created_by_id, d.updated_by_id, d.revision, d.snapshot_key,
-         f.general_access, f.entity_type"
-    };
+/// `join(files, eq(files.id, docs.fileId))`.
+fn doc_file() -> RelationDef {
+    docs::Entity::belongs_to(files::Entity)
+        .from(docs::Column::FileId)
+        .to(files::Column::Id)
+        .into()
 }
 
-/// `visibleFilesCondition`, on `$1` (admin) … `$5` (open folders).
-macro_rules! visible {
-    () => {
-        "($1::bool or f.entity_type is not null
-          or ($2::text is not null and f.uploaded_by_id = $2)
-          or f.id = any($3::text[]) or f.folder_id = any($4::text[])
-          or (f.general_access <> 'restricted'
-              and (f.folder_id is null or f.folder_id = any($5::text[]))))"
-    };
+/// `greatest(d.updated_at, f.updated_at)`: when the document or its file
+/// last changed.
+fn changed() -> Expr {
+    Func::greatest([
+        Expr::col((docs::Entity, docs::Column::UpdatedAt)),
+        Expr::col((files::Entity, files::Column::UpdatedAt)),
+    ])
+    .into()
+}
+
+/// The [`DocRow`] columns of `docs` joined with `files`.
+fn doc_rows() -> Select<docs::Entity> {
+    docs::Entity::find()
+        .select_only()
+        .columns([docs::Column::Id, docs::Column::FileId])
+        .column_as(files::Column::FileName, "name")
+        .column(files::Column::FolderId)
+        .column(docs::Column::CreatedAt)
+        .column_as(changed(), "updated_at")
+        .column_as(files::Column::UploadedById, "created_by_id")
+        .columns([
+            docs::Column::UpdatedById,
+            docs::Column::Revision,
+            docs::Column::SnapshotKey,
+        ])
+        .columns([files::Column::GeneralAccess, files::Column::EntityType])
+        .join(JoinType::InnerJoin, doc_file())
+}
+
+/// `visibleFilesCondition`: a project's file, the caller's own, one shared
+/// with them, one in a folder that grants them a role, or one open to the
+/// workspace outside any folder or in an open one.
+fn visible_condition(visible: &VisibleFiles) -> Condition {
+    let mut any = Condition::any().add(files::Column::EntityType.is_not_null());
+    if let Some(user_id) = &visible.user_id {
+        any = any.add(files::Column::UploadedById.eq(user_id));
+    }
+    // `= any('{}')` matches nothing: an empty list adds no way in.
+    if !visible.file_share_ids.is_empty() {
+        any = any.add(files::Column::Id.is_in(&visible.file_share_ids));
+    }
+    if !visible.granted_folder_ids.is_empty() {
+        any = any.add(files::Column::FolderId.is_in(&visible.granted_folder_ids));
+    }
+    let mut folder = Condition::any().add(files::Column::FolderId.is_null());
+    if !visible.open_folder_ids.is_empty() {
+        folder = folder.add(files::Column::FolderId.is_in(&visible.open_folder_ids));
+    }
+    any.add(
+        Condition::all()
+            .add(files::Column::GeneralAccess.ne("restricted"))
+            .add(folder),
+    )
+}
+
+/// A WeldDocs document (one with a checkpoint) whose file is not trashed.
+fn live() -> Condition {
+    Condition::all()
+        .add(docs::Column::SnapshotKey.is_not_null())
+        .add(files::Column::DeletedAt.is_null())
 }
 
 /// The list's filters.
@@ -156,63 +247,54 @@ pub(crate) struct ListDocs {
     pub(crate) offset: i64,
 }
 
+/// `listDocs`' filter on `docs` ⨝ `files`: a live document, visible on the
+/// drive, matching the search.
+fn listed(params: &ListDocs) -> Condition {
+    let mut condition = live();
+    if let Some(visible) = &params.visible {
+        condition = condition.add(visible_condition(visible));
+    }
+    if let Some(search) = &params.search {
+        condition = condition.add(files::Column::FileName.ilike(search));
+    }
+    condition
+}
+
 /// Documents not in the trash, most recently changed first (`listDocs`).
 pub(crate) async fn list_docs(
     db: &PgPool,
     params: &ListDocs,
-) -> Result<(Vec<DocRecord>, i64), sqlx::Error> {
-    let visible = params.visible.clone().unwrap_or_default();
-    let admin = params.visible.is_none();
-    let rows: Vec<Value> = sqlx::query_scalar(concat!(
-        "select to_jsonb(r) from (select ",
-        doc_columns!(),
-        " from docs d join files f on f.id = d.file_id
-          where d.snapshot_key is not null and f.deleted_at is null and ",
-        visible!(),
-        " and ($6::text is null or f.file_name ilike $6)
-          order by greatest(d.updated_at, f.updated_at) desc, d.id desc
-          limit $7 offset $8) r
-         order by r.updated_at desc, r.id desc"
+) -> Result<(Vec<DocRecord>, i64), DbErr> {
+    let db = &orm(db);
+    let filter = listed(params);
+    let rows = doc_rows()
+        .filter(filter.clone())
+        .order_by_desc(changed())
+        .order_by_desc(docs::Column::Id)
+        .limit(rows_of(params.limit))
+        .offset(rows_of(params.offset))
+        .into_model::<DocRow>()
+        .all(db)
+        .await?;
+    let total = docs::Entity::find()
+        .join(JoinType::InnerJoin, doc_file())
+        .filter(filter)
+        .count(db)
+        .await?;
+    Ok((
+        rows.into_iter().map(DocRecord::from_row).collect(),
+        count_of(total),
     ))
-    .bind(admin)
-    .bind(&visible.user_id)
-    .bind(&visible.file_share_ids)
-    .bind(&visible.granted_folder_ids)
-    .bind(&visible.open_folder_ids)
-    .bind(&params.search)
-    .bind(params.limit)
-    .bind(params.offset)
-    .fetch_all(db)
-    .await?;
-    let total: i64 = sqlx::query_scalar(concat!(
-        "select count(*)::bigint from docs d join files f on f.id = d.file_id
-          where d.snapshot_key is not null and f.deleted_at is null and ",
-        visible!(),
-        " and ($6::text is null or f.file_name ilike $6)"
-    ))
-    .bind(admin)
-    .bind(&visible.user_id)
-    .bind(&visible.file_share_ids)
-    .bind(&visible.granted_folder_ids)
-    .bind(&visible.open_folder_ids)
-    .bind(&params.search)
-    .fetch_one(db)
-    .await?;
-    Ok((rows.into_iter().map(DocRecord::from_row).collect(), total))
 }
 
 /// A document not in the trash (`getDoc`).
-pub(crate) async fn get_doc(db: &PgPool, id: &str) -> Result<Option<DocRecord>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(concat!(
-        "select to_jsonb(r) from (select ",
-        doc_columns!(),
-        " from docs d join files f on f.id = d.file_id
-          where d.id = $1 and d.snapshot_key is not null and f.deleted_at is null
-          limit 1) r"
-    ))
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
+pub(crate) async fn get_doc(db: &PgPool, id: &str) -> Result<Option<DocRecord>, DbErr> {
+    let row = doc_rows()
+        .filter(docs::Column::Id.eq(id))
+        .filter(live())
+        .into_model::<DocRow>()
+        .one(&orm(db))
+        .await?;
     Ok(row.map(DocRecord::from_row))
 }
 
@@ -223,19 +305,21 @@ pub(crate) async fn insert_doc(
     file_id: &str,
     snapshot_key: &str,
     user_id: &str,
-    now: &str,
-) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "insert into docs (id, file_id, content, snapshot_key, revision, snapshot_revision,
-                           updated_by_id, created_at, updated_at)
-         values ($1, $2, null, $3, 0, 0, $4, $5::timestamp, $5::timestamp)",
-    )
-    .bind(id)
-    .bind(file_id)
-    .bind(snapshot_key)
-    .bind(user_id)
-    .bind(now)
-    .execute(db)
+    now: PrimitiveDateTime,
+) -> Result<(), DbErr> {
+    docs::Entity::insert(docs::ActiveModel {
+        id: Set(id.to_owned()),
+        file_id: Set(file_id.to_owned()),
+        content: Set(None),
+        snapshot_key: Set(Some(snapshot_key.to_owned())),
+        revision: Set(0),
+        snapshot_revision: Set(0),
+        updated_by_id: Set(Some(user_id.to_owned())),
+        created_at: Set(now),
+        updated_at: Set(now),
+        ..Default::default()
+    })
+    .exec_without_returning(&orm(db))
     .await?;
     Ok(())
 }
@@ -245,14 +329,16 @@ pub(crate) async fn member_profile(
     db: &PgPool,
     master: Option<&PgPool>,
     user_id: &str,
-) -> Result<(Option<String>, Option<String>), sqlx::Error> {
-    let row: Option<(Option<String>, Option<String>)> = sqlx::query_as(
-        "select name, email from workspace_members
-         where user_id = $1 and deleted_at is null limit 1",
-    )
-    .bind(user_id)
-    .fetch_optional(db)
-    .await?;
+) -> Result<(Option<String>, Option<String>), DbErr> {
+    use workspace_members::Column;
+    let row: Option<(Option<String>, Option<String>)> = workspace_members::Entity::find()
+        .select_only()
+        .columns([Column::Name, Column::Email])
+        .filter(Column::UserId.eq(user_id))
+        .filter(Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     let (name, email) = row.unwrap_or_default();
     let name = name
         .filter(|name| !name.is_empty())
@@ -264,20 +350,25 @@ pub(crate) async fn member_profile(
 
 // ── versions ────────────────────────────────────────────────────────────────
 
+/// A `doc_versions` row in the JSON Drizzle gave it (`to_jsonb`): the entity
+/// serializes as Drizzle did.
+fn version_json(row: doc_versions::Model) -> Result<Value, DbErr> {
+    serde_json::to_value(row).map_err(|error| DbErr::Json(error.to_string()))
+}
+
 /// A `doc_versions` row as Drizzle returns it.
 pub(crate) async fn get_version(
     db: &PgPool,
     doc_id: &str,
     version_id: &str,
-) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(v) from doc_versions v where doc_id = $1 and id = $2 limit 1",
-    )
-    .bind(doc_id)
-    .bind(version_id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(js_row))
+) -> Result<Option<Value>, DbErr> {
+    doc_versions::Entity::find()
+        .filter(doc_versions::Column::DocId.eq(doc_id))
+        .filter(doc_versions::Column::Id.eq(version_id))
+        .one(&orm(db))
+        .await?
+        .map(version_json)
+        .transpose()
 }
 
 /// `toVersion(row)`.
@@ -315,27 +406,49 @@ pub(crate) struct NewVersion<'a> {
     pub(crate) created_by_id: &'a str,
 }
 
+/// `($n::jsonb)::text::integer`: the room's JSON value as Postgres prints
+/// it, cast to an integer there, so what it accepts and refuses is
+/// Postgres's.
+fn json_int(value: &Value) -> Expr {
+    Func::cast_as(Func::cast_as(Expr::val(value.clone()), "text"), "integer").into()
+}
+
 pub(crate) async fn insert_version(
     db: &PgPool,
     version: &NewVersion<'_>,
-    now: &str,
-) -> Result<Value, sqlx::Error> {
-    let row: Value = sqlx::query_scalar(
-        "insert into doc_versions (id, doc_id, revision, name, snapshot_key, size, created_by_id, created_at)
-         values ($1, $2, ($3::jsonb)::text::integer, $4, $5, ($6::jsonb)::text::integer, $7, $8::timestamp)
-         returning to_jsonb(doc_versions)",
-    )
-    .bind(version.id)
-    .bind(version.doc_id)
-    .bind(version.revision)
-    .bind(version.name)
-    .bind(version.snapshot_key)
-    .bind(version.size)
-    .bind(version.created_by_id)
-    .bind(now)
-    .fetch_one(db)
-    .await?;
-    Ok(js_row(row))
+    now: PrimitiveDateTime,
+) -> Result<Value, DbErr> {
+    use doc_versions::Column;
+    let mut insert = Query::insert();
+    insert
+        .into_table(doc_versions::Entity)
+        .columns([
+            Column::Id,
+            Column::DocId,
+            Column::Revision,
+            Column::Name,
+            Column::SnapshotKey,
+            Column::Size,
+            Column::CreatedById,
+            Column::CreatedAt,
+        ])
+        .values([
+            Expr::val(version.id),
+            Expr::val(version.doc_id),
+            json_int(version.revision),
+            Expr::val(version.name.map(str::to_owned)),
+            Expr::val(version.snapshot_key),
+            json_int(version.size),
+            Expr::val(version.created_by_id),
+            Expr::val(now),
+        ])
+        .map_err(|error| DbErr::Custom(error.to_string()))?
+        .returning_all();
+    let row = orm(db)
+        .query_one(&insert)
+        .await?
+        .ok_or(DbErr::RecordNotInserted)?;
+    version_json(doc_versions::Model::from_query_result(&row, "")?)
 }
 
 /// A page of a document's versions, newest first, after the version `after`
@@ -345,36 +458,37 @@ pub(crate) async fn list_versions(
     doc_id: &str,
     limit: i64,
     after: Option<&Value>,
-) -> Result<Vec<Value>, sqlx::Error> {
-    let (after_at, after_id) = after.map_or((None, None), |last| {
-        (
-            last["createdAt"].as_str().map(str::to_owned),
-            last["id"].as_str().map(str::to_owned),
-        )
-    });
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(v) from doc_versions v
-         where doc_id = $1
-           and ($2::text is null
-                or created_at < $2::timestamp
-                or (created_at = $2::timestamp and id < $3))
-         order by created_at desc, id desc
-         limit $4",
-    )
-    .bind(doc_id)
-    .bind(after_at)
-    .bind(after_id)
-    .bind(limit + 1)
-    .fetch_all(db)
-    .await?;
-    Ok(rows.into_iter().map(js_row).collect())
+) -> Result<Vec<Value>, DbErr> {
+    use doc_versions::Column;
+    let mut query = doc_versions::Entity::find().filter(Column::DocId.eq(doc_id));
+    if let Some(last) = after
+        && let Some(stamp) = last["createdAt"].as_str()
+    {
+        let at = timestamp_of(stamp)?;
+        let id = last["id"].as_str().map(str::to_owned);
+        query = query.filter(
+            Condition::any().add(Column::CreatedAt.lt(at)).add(
+                Condition::all()
+                    .add(Column::CreatedAt.eq(at))
+                    .add(Column::Id.lt(id)),
+            ),
+        );
+    }
+    let rows = query
+        .order_by_desc(Column::CreatedAt)
+        .order_by_desc(Column::Id)
+        .limit(rows_of(limit.saturating_add(1)))
+        .all(&orm(db))
+        .await?;
+    rows.into_iter().map(version_json).collect()
 }
 
-pub(crate) async fn count_versions(db: &PgPool, doc_id: &str) -> Result<i64, sqlx::Error> {
-    sqlx::query_scalar("select count(*)::bigint from doc_versions where doc_id = $1")
-        .bind(doc_id)
-        .fetch_one(db)
-        .await
+pub(crate) async fn count_versions(db: &PgPool, doc_id: &str) -> Result<i64, DbErr> {
+    let count = doc_versions::Entity::find()
+        .filter(doc_versions::Column::DocId.eq(doc_id))
+        .count(&orm(db))
+        .await?;
+    Ok(count_of(count))
 }
 
 /// Renames a version (`renameVersion`).
@@ -383,17 +497,14 @@ pub(crate) async fn rename_version(
     doc_id: &str,
     version_id: &str,
     name: &str,
-) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "update doc_versions set name = $3 where doc_id = $1 and id = $2
-         returning to_jsonb(doc_versions)",
-    )
-    .bind(doc_id)
-    .bind(version_id)
-    .bind(name)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(js_row))
+) -> Result<Option<Value>, DbErr> {
+    let rows = doc_versions::Entity::update_many()
+        .col_expr(doc_versions::Column::Name, Expr::value(name))
+        .filter(doc_versions::Column::DocId.eq(doc_id))
+        .filter(doc_versions::Column::Id.eq(version_id))
+        .exec_with_returning(&orm(db))
+        .await?;
+    rows.into_iter().next().map(version_json).transpose()
 }
 
 #[cfg(test)]

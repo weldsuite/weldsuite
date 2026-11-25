@@ -20,11 +20,6 @@
 //! events are the TypeScript routes'; their tests run against this crate in
 //! the `core: objects` conformance suites.
 
-#![allow(
-    clippy::disallowed_methods,
-    reason = "not converted to the ORM yet (ADR DATA-019)"
-)]
-
 mod asset_sources;
 mod fields;
 mod grid_views;
@@ -47,11 +42,10 @@ use http::HeaderMap;
 use http::header::CONTENT_TYPE;
 use http::request::Parts;
 use serde_json::{Map, Value};
-use time::OffsetDateTime;
 use weldsuite_auth::AuthContext;
 use weldsuite_db::{PgPool, Tenant};
 use weldsuite_events::{
-    EntityEvent, EntityEventPublisher, EventContext, EventType, iso_timestamp, publish_entity_event,
+    EntityEvent, EntityEventPublisher, EventContext, EventType, publish_entity_event,
 };
 use weldsuite_kit::ApiError;
 use weldsuite_kit::validation::{Issues, json_body, query_values};
@@ -212,7 +206,7 @@ impl<S: Send + Sync> FromRequestParts<S> for Caller {
 /// becomes the route's 500.
 pub(crate) enum Refusal {
     Response(Box<Response>),
-    Database(sqlx::Error),
+    Database(sea_orm::DbErr),
 }
 
 impl Refusal {
@@ -243,9 +237,17 @@ impl Refusal {
     }
 }
 
+impl From<sea_orm::DbErr> for Refusal {
+    fn from(error: sea_orm::DbErr) -> Self {
+        Self::Database(error)
+    }
+}
+
+/// SQL that stays SQL, and the transactions `atomically_with` opens, report
+/// through the same error as the ORM queries.
 impl From<sqlx::Error> for Refusal {
     fn from(error: sqlx::Error) -> Self {
-        Self::Database(error)
+        Self::Database(weldsuite_db::orm_error(error))
     }
 }
 
@@ -266,12 +268,6 @@ pub(crate) type Answer = Result<Response, Refusal>;
 /// The route's response, or its refusal with `fallback` as the 500 message.
 pub(crate) fn answer(result: Answer, fallback: &str) -> Response {
     result.unwrap_or_else(|refusal| refusal.respond(fallback))
-}
-
-/// `new Date()` as Drizzle writes it: UTC with milliseconds. Bound as text
-/// and cast with `::timestamp` (or `::timestamptz`).
-pub(crate) fn now() -> String {
-    iso_timestamp(OffsetDateTime::now_utc())
 }
 
 /// A response a check answers with instead of the route (400, 403, 404).
@@ -348,8 +344,36 @@ pub(crate) fn row(value: Value, timestamps: &[&str]) -> Value {
     Value::Object(out)
 }
 
-/// The timestamp columns most tables have.
-pub(crate) const STAMPS: [&str; 3] = ["created_at", "updated_at", "deleted_at"];
+/// An entity row as Drizzle returns it: the entity serializes as the
+/// TypeScript route's row did.
+pub(crate) fn json_row(model: impl serde::Serialize) -> Result<Value, sea_orm::DbErr> {
+    serde_json::to_value(model).map_err(|error| sea_orm::DbErr::Json(error.to_string()))
+}
+
+/// A whole number for an `integer` column, as `$n::int` cast it: out of
+/// range is a database error (the route's 500), as Postgres refused it.
+pub(crate) fn int4(value: i64) -> Result<i32, sea_orm::DbErr> {
+    i32::try_from(value).map_err(|_| sea_orm::DbErr::Custom("integer out of range".to_owned()))
+}
+
+/// `toISOString()` text as the `timestamp` Drizzle wrote it as (`$n::timestamp`
+/// reads its UTC wall-clock time); text that is no time is the database error
+/// Postgres refused it with.
+pub(crate) fn timestamp(iso: &str) -> Result<time::PrimitiveDateTime, sea_orm::DbErr> {
+    time::OffsetDateTime::parse(iso, &time::format_description::well_known::Rfc3339)
+        .map(weldsuite_db::utc_timestamp)
+        .map_err(|_| {
+            sea_orm::DbErr::Type(format!(
+                "invalid input syntax for type timestamp: \"{iso}\""
+            ))
+        })
+}
+
+/// A `timestamp` column as the TypeScript route's `Date` serializes:
+/// `toISOString()` (Drizzle reads it as UTC).
+pub(crate) fn iso(at: time::PrimitiveDateTime) -> String {
+    weldsuite_events::iso_timestamp(at.assume_utc())
+}
 
 /// A list without paging: `list(c, rows, cursorPagination(rows.length, false, null))`.
 pub(crate) fn all(rows: Vec<Value>) -> Response {

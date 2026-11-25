@@ -11,9 +11,12 @@ use axum::Router;
 use axum::extract::State;
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Value, json};
+use weldsuite_db::orm;
 use weldsuite_kit::{ApiError, Data};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::master::{plans, workspace_licences as licences, workspaces};
 
 use crate::groups::seats::{accurate_member_count, identity, pending_seat_invitations};
 use crate::{Caller, CoreTeamState};
@@ -53,15 +56,20 @@ async fn prepaid_seats(
     caller: &Caller,
     state: &CoreTeamState,
     org_id: &str,
-) -> Result<Option<Value>, sqlx::Error> {
-    let master = caller.master(state);
-    let workspace: Option<WorkspaceRow> = sqlx::query_as(
-        "select id, plan_id, purchased_seats, billing_mode::text from workspaces
-         where clerk_org_id = $1",
-    )
-    .bind(org_id)
-    .fetch_optional(&master)
-    .await?;
+) -> Result<Option<Value>, DbErr> {
+    let master = orm(&caller.master(state));
+    let workspace: Option<WorkspaceRow> = workspaces::Entity::find()
+        .select_only()
+        .columns([
+            workspaces::Column::Id,
+            workspaces::Column::PlanId,
+            workspaces::Column::PurchasedSeats,
+            workspaces::Column::BillingMode,
+        ])
+        .filter(workspaces::Column::ClerkOrgId.eq(org_id))
+        .into_tuple()
+        .one(&master)
+        .await?;
     let Some((workspace_id, plan_id, purchased_seats, billing_mode)) = workspace else {
         return Ok(None);
     };
@@ -69,11 +77,13 @@ async fn prepaid_seats(
     // A partner-managed workspace has no prepaid seats: its licence's cap is
     // the limit (none = unlimited).
     if billing_mode == "partner" {
-        let licence: Option<Option<i32>> =
-            sqlx::query_scalar("select max_seats from workspace_licences where workspace_id = $1")
-                .bind(&workspace_id)
-                .fetch_optional(&master)
-                .await?;
+        let licence: Option<Option<i32>> = licences::Entity::find()
+            .select_only()
+            .column(licences::Column::MaxSeats)
+            .filter(licences::Column::WorkspaceId.eq(&workspace_id))
+            .into_tuple()
+            .one(&master)
+            .await?;
         let used = used_seats(caller, state, org_id, &workspace_id).await?;
         let Some(max_seats) = licence.flatten().map(i64::from) else {
             return Ok(Some(json!({
@@ -106,11 +116,12 @@ async fn prepaid_seats(
 
     let mut included_users = 1;
     if let Some(plan_id) = plan_id.filter(|id| !id.is_empty()) {
-        let plan: Option<Option<i32>> =
-            sqlx::query_scalar("select included_users from plans where id = $1")
-                .bind(plan_id)
-                .fetch_optional(&master)
-                .await?;
+        let plan: Option<Option<i32>> = plans::Entity::find_by_id(plan_id)
+            .select_only()
+            .column(plans::Column::IncludedUsers)
+            .into_tuple()
+            .one(&master)
+            .await?;
         if let Some(included) = plan {
             included_users = i64::from(included.unwrap_or(1));
         }
@@ -133,7 +144,7 @@ async fn used_seats(
     state: &CoreTeamState,
     org_id: &str,
     workspace_id: &str,
-) -> Result<i64, sqlx::Error> {
+) -> Result<i64, DbErr> {
     let idp = identity(caller, state);
     let members = accurate_member_count(caller, state, &*idp, org_id, workspace_id).await?;
     let pending = pending_seat_invitations(&*idp, org_id).await;

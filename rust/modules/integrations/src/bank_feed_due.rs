@@ -9,8 +9,12 @@
 //! owns the sync and deactivates the index row itself when a connection needs
 //! the user; the sweep only moves the schedule.
 
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, Condition, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 use serde_json::Value;
-use weldsuite_db::PgPool;
+use time::OffsetDateTime;
+use weldsuite_db::{PgPool, orm};
+use weldsuite_schema::master::bank_feed_connection_index as index;
 
 use crate::binding::{BindingRequest, ServiceBinding};
 
@@ -50,24 +54,35 @@ struct DueRow {
     sync_interval_hours: i32,
 }
 
-fn iso(at: time::OffsetDateTime) -> String {
-    weldsuite_events::iso_timestamp(at)
+/// A moment as the worker bound it (`toISOString()`): to the millisecond.
+fn millis(at: OffsetDateTime) -> OffsetDateTime {
+    at.replace_millisecond(at.millisecond()).unwrap_or(at)
 }
 
 async fn list_due(
     master: &PgPool,
-    now: time::OffsetDateTime,
+    now: OffsetDateTime,
     limit: usize,
-) -> Result<Vec<DueRow>, sqlx::Error> {
-    let rows: Vec<(String, String, String, i32)> = sqlx::query_as(
-        "select id, clerk_org_id, connection_id, sync_interval_hours from bank_feed_connection_index \
-         where is_active = true and (next_sync_at is null or next_sync_at <= $1::timestamptz) \
-         order by next_sync_at asc limit $2",
-    )
-    .bind(iso(now))
-    .bind(i64::try_from(limit).unwrap_or(i64::MAX))
-    .fetch_all(master)
-    .await?;
+) -> Result<Vec<DueRow>, DbErr> {
+    let rows: Vec<(String, String, String, i32)> = index::Entity::find()
+        .select_only()
+        .columns([
+            index::Column::Id,
+            index::Column::ClerkOrgId,
+            index::Column::ConnectionId,
+            index::Column::SyncIntervalHours,
+        ])
+        .filter(index::Column::IsActive.eq(true))
+        .filter(
+            Condition::any()
+                .add(index::Column::NextSyncAt.is_null())
+                .add(index::Column::NextSyncAt.lte(millis(now))),
+        )
+        .order_by_asc(index::Column::NextSyncAt)
+        .limit(u64::try_from(limit).unwrap_or(u64::MAX))
+        .into_tuple()
+        .all(&orm(master))
+        .await?;
     Ok(rows
         .into_iter()
         .map(
@@ -84,42 +99,48 @@ async fn list_due(
 async fn schedule(
     master: &PgPool,
     ids: &[String],
-    next_sync_at: time::OffsetDateTime,
-    last_triggered_at: time::OffsetDateTime,
+    next_sync_at: OffsetDateTime,
+    last_triggered_at: OffsetDateTime,
     last_error: Option<&str>,
-) -> Result<(), sqlx::Error> {
+) -> Result<(), DbErr> {
     if ids.is_empty() {
         return Ok(());
     }
-    sqlx::query(
-        "update bank_feed_connection_index set next_sync_at = $2::timestamptz, \
-         last_triggered_at = $3::timestamptz, last_error = $4, updated_at = $5::timestamptz \
-         where id = any($1)",
-    )
-    .bind(ids)
-    .bind(iso(next_sync_at))
-    .bind(iso(last_triggered_at))
-    .bind(last_error)
-    .bind(iso(time::OffsetDateTime::now_utc()))
-    .execute(master)
-    .await
-    .map(|_| ())
+    index::Entity::update_many()
+        .col_expr(index::Column::NextSyncAt, Expr::value(millis(next_sync_at)))
+        .col_expr(
+            index::Column::LastTriggeredAt,
+            Expr::value(millis(last_triggered_at)),
+        )
+        .col_expr(
+            index::Column::LastError,
+            Expr::value(last_error.map(str::to_owned)),
+        )
+        .col_expr(
+            index::Column::UpdatedAt,
+            Expr::value(millis(OffsetDateTime::now_utc())),
+        )
+        .filter(index::Column::Id.is_in(ids.iter().cloned()))
+        .exec(&orm(master))
+        .await
+        .map(|_| ())
 }
 
-async fn deactivate(master: &PgPool, ids: &[String], reason: &str) -> Result<(), sqlx::Error> {
+async fn deactivate(master: &PgPool, ids: &[String], reason: &str) -> Result<(), DbErr> {
     if ids.is_empty() {
         return Ok(());
     }
-    sqlx::query(
-        "update bank_feed_connection_index set is_active = false, last_error = $2, \
-         updated_at = $3::timestamptz where id = any($1)",
-    )
-    .bind(ids)
-    .bind(reason)
-    .bind(iso(time::OffsetDateTime::now_utc()))
-    .execute(master)
-    .await
-    .map(|_| ())
+    index::Entity::update_many()
+        .col_expr(index::Column::IsActive, Expr::value(false))
+        .col_expr(index::Column::LastError, Expr::value(reason))
+        .col_expr(
+            index::Column::UpdatedAt,
+            Expr::value(millis(OffsetDateTime::now_utc())),
+        )
+        .filter(index::Column::Id.is_in(ids.iter().cloned()))
+        .exec(&orm(master))
+        .await
+        .map(|_| ())
 }
 
 /// `.slice(0, 500)` in UTF-16 units.
@@ -143,9 +164,9 @@ enum Outcome {
 pub async fn run_bank_feed_due_sweep(
     master: &PgPool,
     books: Option<&dyn ServiceBinding>,
-    now: time::OffsetDateTime,
+    now: OffsetDateTime,
     limit: usize,
-) -> Result<BankFeedSweepResult, sqlx::Error> {
+) -> Result<BankFeedSweepResult, DbErr> {
     let mut result = BankFeedSweepResult::default();
     let Some(books) = books else {
         tracing::warn!("[BankFeedDue] BOOKS_INTERNAL binding not configured, skipping");

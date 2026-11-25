@@ -27,12 +27,19 @@ use axum::body::Bytes;
 use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, patch, post};
+use sea_orm::prelude::BigDecimal;
+use sea_orm::sea_query::{Asterisk, Expr, Func};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder,
+    QuerySelect, UpdateMany,
+};
 use serde_json::{Value, json};
+use time::{OffsetDateTime, PrimitiveDateTime};
 use weldsuite_catalogs::entity_events::{
     EventName, PROJECT_PHASE_CREATED, PROJECT_PHASE_DELETED, PROJECT_PHASE_GATE_REQUESTED,
     PROJECT_PHASE_PASSED, PROJECT_PHASE_REJECTED, PROJECT_PHASE_UPDATED,
 };
-use weldsuite_db::{PgPool, js_row};
+use weldsuite_db::{OrmConn, PgPool, orm};
 use weldsuite_flow_domain::approvals::{
     ApprovalFuture, ApprovalResolutionContext, ApprovalRow, ApprovalRowInput,
     ApprovalSubjectHandler, RequestApprovalsInput, RequestApprovalsResult, RequestRefusal,
@@ -50,15 +57,20 @@ use weldsuite_flow_domain::js::{iso_from_millis, js_date, millis_of, to_fixed};
 use weldsuite_kit::validation::{Issues, Presence, Text};
 use weldsuite_kit::{Created, Data, NoContent, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::project_phases::{self, Column};
+use weldsuite_schema::tenant::{
+    project_baselines, project_change_requests, project_decisions, project_deliverables,
+    project_raid_items, projects, tasks, time_entries,
+};
 
 use crate::approvals::announce::{
     AftermathFuture, AftermathInfo, SubjectLabel, announce_approvals_cancelled,
     announce_approvals_requested, register_aftermath,
 };
-use crate::project_schedule::{PROJECT_MANAGE_DENIED, find_live_project};
+use crate::project_schedule::{PROJECT_MANAGE_DENIED, find_live_project, merge_settings};
 use crate::raid::PROJECT_DENIED;
 use crate::raid_body::{Body, IDENTIFIER, Reader, iso_date_time, parse_body, read_query, whole};
-use crate::{Caller, FlowState, Refusal, Reply, now_ms, outside, reply};
+use crate::{Caller, FlowState, Refusal, Reply, now_ms, outside, reply, row_json};
 
 const LABEL: &str = "Phase";
 const DATES_REVERSED: &str = "The end date cannot be before the start date";
@@ -106,25 +118,26 @@ where
 
 // ── Rows ────────────────────────────────────────────────────────────────────
 
-async fn find_phase(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(p) from project_phases p where p.id = $1 and p.deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
-    Ok(row.map(js_row))
+async fn find_phase(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
+    project_phases::Entity::find_by_id(id)
+        .filter(Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?
+        .map(row_json)
+        .transpose()
 }
 
-async fn list_phases(db: &PgPool, project_id: &str) -> Result<Vec<Value>, sqlx::Error> {
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(p) from project_phases p
-         where p.project_id = $1 and p.deleted_at is null order by p.position asc, p.id asc",
-    )
-    .bind(project_id)
-    .fetch_all(db)
-    .await?;
-    Ok(rows.into_iter().map(js_row).collect())
+async fn list_phases(db: &PgPool, project_id: &str) -> Result<Vec<Value>, DbErr> {
+    project_phases::Entity::find()
+        .filter(Column::ProjectId.eq(project_id))
+        .filter(Column::DeletedAt.is_null())
+        .order_by_asc(Column::Position)
+        .order_by_asc(Column::Id)
+        .all(&orm(db))
+        .await?
+        .into_iter()
+        .map(row_json)
+        .collect()
 }
 
 fn phase_likes(rows: &[Value]) -> Vec<PhaseLike> {
@@ -156,6 +169,43 @@ fn iso(millis: i64) -> String {
     iso_from_millis(millis).unwrap_or_default()
 }
 
+/// `new Date(millis)`, as a `timestamptz` column stores it.
+fn instant(millis: i64) -> OffsetDateTime {
+    OffsetDateTime::from_unix_timestamp_nanos(i128::from(millis) * 1_000_000)
+        .unwrap_or(OffsetDateTime::UNIX_EPOCH)
+}
+
+/// An ISO timestamp from a body (`new Date(value)`), as the column stores it.
+fn instant_of(iso: Option<&str>) -> Result<Option<OffsetDateTime>, DbErr> {
+    iso.map(|text| {
+        millis_of(text).map(instant).ok_or_else(|| {
+            DbErr::Custom(format!(
+                "invalid input syntax for type timestamp: \"{text}\""
+            ))
+        })
+    })
+    .transpose()
+}
+
+/// The moment of a write: its ISO text (for the rows' JSON), as a
+/// `timestamptz` column stores it, and as a `timestamp` column does.
+struct Now {
+    text: String,
+    at: OffsetDateTime,
+    stamp: PrimitiveDateTime,
+}
+
+impl Now {
+    fn of(millis: i64) -> Self {
+        let at = instant(millis);
+        Self {
+            text: iso(millis),
+            at,
+            stamp: weldsuite_db::utc_timestamp(at),
+        }
+    }
+}
+
 // ── The gate's facts ────────────────────────────────────────────────────────
 
 fn two_decimals(value: Option<&str>) -> String {
@@ -171,28 +221,50 @@ async fn load_gate_facts(
     db: &PgPool,
     project_id: &str,
     criteria: &[Value],
-) -> Result<GateFacts, sqlx::Error> {
+) -> Result<GateFacts, DbErr> {
     let needed = gate_facts_needed(criteria);
     let mut facts = GateFacts::default();
+    let orm = &orm(db);
 
     if !needed.deliverable_ids.is_empty() {
-        let rows: Vec<(String, i32, String, String)> = sqlx::query_as(
-            "select id, number, title, status from project_deliverables
-             where project_id = $1 and id = any($2) and deleted_at is null",
-        )
-        .bind(project_id)
-        .bind(&needed.deliverable_ids)
-        .fetch_all(db)
-        .await?;
-        let counts: Vec<(Option<String>, i64, i64)> = sqlx::query_as(
-            "select deliverable_id, count(*), count(*) filter (where status = 'done') from tasks
-             where project_id = $1 and deliverable_id = any($2) and deleted_at is null
-               and status <> 'cancelled' group by deliverable_id",
-        )
-        .bind(project_id)
-        .bind(&needed.deliverable_ids)
-        .fetch_all(db)
-        .await?;
+        use project_deliverables::Column as Deliverable;
+        let rows: Vec<(String, i32, String, String)> = project_deliverables::Entity::find()
+            .select_only()
+            .columns([
+                Deliverable::Id,
+                Deliverable::Number,
+                Deliverable::Title,
+                Deliverable::Status,
+            ])
+            .filter(Deliverable::ProjectId.eq(project_id))
+            .filter(Deliverable::Id.is_in(needed.deliverable_ids.iter().map(String::as_str)))
+            .filter(Deliverable::DeletedAt.is_null())
+            .into_tuple()
+            .all(orm)
+            .await?;
+        // `count(*)` and `count(*) filter (where status = 'done')` per deliverable.
+        let counts: Vec<(Option<String>, i64, i64)> = tasks::Entity::find()
+            .select_only()
+            .column(tasks::Column::DeliverableId)
+            .column_as(Expr::expr(Func::count(Expr::col(Asterisk))), "total")
+            .column_as(
+                Expr::expr(Func::count(Expr::expr(Expr::case(
+                    tasks::Column::Status.eq("done"),
+                    1,
+                )))),
+                "done",
+            )
+            .filter(tasks::Column::ProjectId.eq(project_id))
+            .filter(
+                tasks::Column::DeliverableId
+                    .is_in(needed.deliverable_ids.iter().map(String::as_str)),
+            )
+            .filter(tasks::Column::DeletedAt.is_null())
+            .filter(tasks::Column::Status.ne("cancelled"))
+            .group_by(tasks::Column::DeliverableId)
+            .into_tuple()
+            .all(orm)
+            .await?;
         facts.deliverables = rows
             .into_iter()
             .map(|(id, number, title, status)| {
@@ -212,14 +284,18 @@ async fn load_gate_facts(
     }
 
     if needed.risks {
-        let rows: Vec<(String, i32, String, i32)> = sqlx::query_as(
-            "select id, number, title, score from project_raid_items
-             where project_id = $1 and kind = 'risk' and closed_at is null
-               and deleted_at is null and score is not null",
-        )
-        .bind(project_id)
-        .fetch_all(db)
-        .await?;
+        use project_raid_items::Column as Item;
+        let rows: Vec<(String, i32, String, i32)> = project_raid_items::Entity::find()
+            .select_only()
+            .columns([Item::Id, Item::Number, Item::Title, Item::Score])
+            .filter(Item::ProjectId.eq(project_id))
+            .filter(Item::Kind.eq("risk"))
+            .filter(Item::ClosedAt.is_null())
+            .filter(Item::DeletedAt.is_null())
+            .filter(Item::Score.is_not_null())
+            .into_tuple()
+            .all(orm)
+            .await?;
         facts.risks = rows
             .into_iter()
             .map(|(id, number, title, score)| GateRiskFact {
@@ -232,17 +308,18 @@ async fn load_gate_facts(
     }
 
     if !needed.decision_ids.is_empty() {
-        let rows: Vec<Value> = sqlx::query_scalar(
-            "select to_jsonb(d) from project_decisions d
-             where d.project_id = $1 and d.id = any($2) and d.deleted_at is null",
-        )
-        .bind(project_id)
-        .bind(&needed.decision_ids)
-        .fetch_all(db)
-        .await?;
+        use project_decisions::Column as Decision;
+        let rows = project_decisions::Entity::find()
+            .filter(Decision::ProjectId.eq(project_id))
+            .filter(Decision::Id.is_in(needed.decision_ids.iter().map(String::as_str)))
+            .filter(Decision::DeletedAt.is_null())
+            .all(orm)
+            .await?
+            .into_iter()
+            .map(row_json)
+            .collect::<Result<Vec<_>, _>>()?;
         facts.decisions = rows
             .into_iter()
-            .map(js_row)
             .map(|row| GateDecisionFact {
                 id: text(&row, "id").to_owned(),
                 number: row["number"].as_i64().unwrap_or_default(),
@@ -254,14 +331,17 @@ async fn load_gate_facts(
     }
 
     if needed.change_requests {
-        let rows: Vec<(String, i32, String)> = sqlx::query_as(
-            "select id, number, title from project_change_requests
-             where project_id = $1 and status = 'awaiting_approval' and deleted_at is null
-             order by number asc",
-        )
-        .bind(project_id)
-        .fetch_all(db)
-        .await?;
+        use project_change_requests::Column as Change;
+        let rows: Vec<(String, i32, String)> = project_change_requests::Entity::find()
+            .select_only()
+            .columns([Change::Id, Change::Number, Change::Title])
+            .filter(Change::ProjectId.eq(project_id))
+            .filter(Change::Status.eq("awaiting_approval"))
+            .filter(Change::DeletedAt.is_null())
+            .order_by_asc(Change::Number)
+            .into_tuple()
+            .all(orm)
+            .await?;
         facts.change_requests = rows
             .into_iter()
             .map(|(id, number, title)| GateChangeFact {
@@ -273,30 +353,48 @@ async fn load_gate_facts(
     }
 
     if needed.spend {
-        let spent: Option<String> = sqlx::query_scalar(
-            "select coalesce(sum(cost), 0)::text from time_entries
-             where project_id = $1 and deleted_at is null and status = any($2)",
-        )
-        .bind(project_id)
-        .bind(SPEND_TIME_ENTRY_STATUSES.as_slice())
-        .fetch_one(db)
-        .await?;
-        let baseline: Option<(i32, Option<String>, Option<String>)> = sqlx::query_as(
-            "select version, snapshot->>'budgetedAmount', snapshot->>'budgetCurrency'
-             from project_baselines where project_id = $1 order by version desc limit 1",
-        )
-        .bind(project_id)
-        .fetch_optional(db)
-        .await?;
-        let currency: Option<String> =
-            sqlx::query_scalar("select budget_currency from projects where id = $1 limit 1")
-                .bind(project_id)
-                .fetch_optional(db)
-                .await?
-                .flatten();
+        use sea_orm::sea_query::extension::postgres::PgExpr as _;
+        // `coalesce(sum(cost), 0)`.
+        let spent: Option<Option<BigDecimal>> = time_entries::Entity::find()
+            .select_only()
+            .column_as(time_entries::Column::Cost.sum(), "spent")
+            .filter(time_entries::Column::ProjectId.eq(project_id))
+            .filter(time_entries::Column::DeletedAt.is_null())
+            .filter(time_entries::Column::Status.is_in(SPEND_TIME_ENTRY_STATUSES))
+            .into_tuple()
+            .one(orm)
+            .await?;
+        let spent = spent
+            .flatten()
+            .map_or_else(|| "0".to_owned(), |sum| sum.to_plain_string());
+        let snapshot = || Expr::col(project_baselines::Column::Snapshot);
+        let baseline: Option<(i32, Option<String>, Option<String>)> =
+            project_baselines::Entity::find()
+                .select_only()
+                .column(project_baselines::Column::Version)
+                .column_as(
+                    snapshot().cast_json_field("budgetedAmount"),
+                    "budgeted_amount",
+                )
+                .column_as(
+                    snapshot().cast_json_field("budgetCurrency"),
+                    "budget_currency",
+                )
+                .filter(project_baselines::Column::ProjectId.eq(project_id))
+                .order_by_desc(project_baselines::Column::Version)
+                .into_tuple()
+                .one(orm)
+                .await?;
+        let currency: Option<String> = projects::Entity::find_by_id(project_id)
+            .select_only()
+            .column(projects::Column::BudgetCurrency)
+            .into_tuple::<Option<String>>()
+            .one(orm)
+            .await?
+            .flatten();
         let budget = baseline.as_ref().and_then(|b| b.1.clone());
         facts.spend = Some(GateSpendFact {
-            spent: two_decimals(spent.as_deref()),
+            spent: two_decimals(Some(spent.as_str())),
             budget: budget.as_deref().map(|b| two_decimals(Some(b))),
             currency: baseline.as_ref().and_then(|b| b.2.clone()).or(currency),
             baseline_version: baseline.map(|b| i64::from(b.0)),
@@ -308,7 +406,7 @@ async fn load_gate_facts(
 async fn check_phase(
     db: &PgPool,
     phase: &Value,
-) -> Result<weldsuite_flow_domain::gates::GateCheck, sqlx::Error> {
+) -> Result<weldsuite_flow_domain::gates::GateCheck, DbErr> {
     let criteria = criteria_of(phase);
     let facts = load_gate_facts(db, text(phase, "projectId"), &criteria).await?;
     Ok(check_gate(&criteria, &facts, &waivers_of(phase)))
@@ -328,7 +426,7 @@ fn present_approval(row: &ApprovalRow) -> Value {
     })
 }
 
-async fn phase_summary(db: &PgPool, row: &Value, gate_number: usize) -> Result<Value, sqlx::Error> {
+async fn phase_summary(db: &PgPool, row: &Value, gate_number: usize) -> Result<Value, DbErr> {
     let approvals = list_subject_approvals(db, "gate", text(row, "id")).await?;
     let mut out = present_phase(row);
     out["gateNumber"] = json!(gate_number);
@@ -337,7 +435,7 @@ async fn phase_summary(db: &PgPool, row: &Value, gate_number: usize) -> Result<V
     Ok(out)
 }
 
-async fn gate_number_of(db: &PgPool, row: &Value) -> Result<usize, sqlx::Error> {
+async fn gate_number_of(db: &PgPool, row: &Value) -> Result<usize, DbErr> {
     let all = list_phases(db, text(row, "projectId")).await?;
     Ok(all
         .iter()
@@ -361,7 +459,7 @@ fn gate_approvers(project: &Value) -> Vec<String> {
     gate_approver_ids(sponsor.as_deref(), &board)
 }
 
-async fn phase_gate(db: &PgPool, row: &Value, project: &Value) -> Result<Value, sqlx::Error> {
+async fn phase_gate(db: &PgPool, row: &Value, project: &Value) -> Result<Value, DbErr> {
     let number = gate_number_of(db, row).await?;
     let (mut out, check) = (
         phase_summary(db, row, number).await?,
@@ -380,7 +478,7 @@ async fn phase_gate(db: &PgPool, row: &Value, project: &Value) -> Result<Value, 
     Ok(out)
 }
 
-async fn lifecycle(db: &PgPool, project_id: &str) -> Result<Value, sqlx::Error> {
+async fn lifecycle(db: &PgPool, project_id: &str) -> Result<Value, DbErr> {
     let rows = list_phases(db, project_id).await?;
     let current = rows
         .iter()
@@ -399,31 +497,53 @@ fn publish_phase(state: &FlowState, caller: &Caller, event: EventName, row: &Val
 
 // ── Settings ────────────────────────────────────────────────────────────────
 
+/// `settings.currentPhaseId` of the project: a merge of this key only.
 fn current_phase_update(
     project_id: &str,
     phase_id: Option<&str>,
-    now: &str,
-) -> sqlx::query::Query<'static, sqlx::Postgres, sqlx::postgres::PgArguments> {
-    sqlx::query(
-        "update projects set
-             settings = coalesce(settings, '{}'::jsonb) || jsonb_build_object('currentPhaseId', $2::text),
-             updated_at = $3::timestamp
-         where id = $1",
-    )
-    .bind(project_id.to_owned())
-    .bind(phase_id.map(str::to_owned))
-    .bind(now.to_owned())
+    now: &Now,
+) -> UpdateMany<projects::Entity> {
+    projects::Entity::update_many()
+        .col_expr(
+            projects::Column::Settings,
+            merge_settings(json!({ "currentPhaseId": phase_id })),
+        )
+        .col_expr(projects::Column::UpdatedAt, Expr::value(now.stamp))
+        .filter(projects::Column::Id.eq(project_id))
 }
 
-fn set_status(
-    id: &str,
-    status: &str,
-    now: &str,
-) -> sqlx::query::Query<'static, sqlx::Postgres, sqlx::postgres::PgArguments> {
-    sqlx::query("update project_phases set status = $2, updated_at = $3::timestamptz where id = $1")
-        .bind(id.to_owned())
-        .bind(status.to_owned())
-        .bind(now.to_owned())
+fn set_status(id: &str, status: &str, now: &Now) -> UpdateMany<project_phases::Entity> {
+    project_phases::Entity::update_many()
+        .col_expr(Column::Status, Expr::value(status))
+        .col_expr(Column::UpdatedAt, Expr::value(now.at))
+        .filter(Column::Id.eq(id))
+}
+
+/// Run `phase` (the phase's own write), then the activation of another
+/// phase, then the project's `currentPhaseId`, in one transaction.
+async fn write_phases(
+    db: &PgPool,
+    phase: Option<UpdateMany<project_phases::Entity>>,
+    activate: Option<UpdateMany<project_phases::Entity>>,
+    current: Option<UpdateMany<projects::Entity>>,
+) -> Result<(), DbErr> {
+    weldsuite_db::atomically_with(db, |tx| {
+        Box::pin(async move {
+            let tx = OrmConn::new(tx);
+            for update in [phase, activate].into_iter().flatten() {
+                update.exec(&tx).await?;
+            }
+            if let Some(update) = current {
+                update.exec(&tx).await?;
+            }
+            Ok::<_, Refusal>(())
+        })
+    })
+    .await
+    .map_err(|refused| match refused {
+        Refusal::Database(error) => error,
+        other => DbErr::Custom(format!("{other:?}")),
+    })
 }
 
 // ── The gate subject handler ────────────────────────────────────────────────
@@ -437,8 +557,8 @@ impl ApprovalSubjectHandler for GateHandler {
         subject_id: &'a str,
         outcome: ResolvedApprovalOutcome,
         context: &'a ApprovalResolutionContext,
-    ) -> ApprovalFuture<'a, Result<(), sqlx::Error>> {
-        Box::pin(resolve_gate(db, subject_id, outcome, context.now_ms))
+    ) -> ApprovalFuture<'a, Result<(), DbErr>> {
+        Box::pin(async move { resolve_gate(db, subject_id, outcome, context.now_ms).await })
     }
 }
 
@@ -450,22 +570,24 @@ pub(crate) async fn resolve_gate(
     phase_id: &str,
     outcome: ResolvedApprovalOutcome,
     now_ms: i64,
-) -> Result<(), sqlx::Error> {
+) -> Result<(), DbErr> {
     let Some(phase) = find_phase(db, phase_id).await? else {
         return Ok(());
     };
-    let now = iso(now_ms);
+    let now = Now::of(now_ms);
     if outcome == ResolvedApprovalOutcome::Rejected {
         if text(&phase, "status") != "active" || phase["gateRequestedAt"].is_null() {
             return Ok(());
         }
-        sqlx::query(
-            "update project_phases set gate_requested_at = null, updated_at = $2::timestamptz where id = $1",
-        )
-        .bind(phase_id)
-        .bind(&now)
-        .execute(db)
-        .await?;
+        project_phases::Entity::update_many()
+            .col_expr(
+                Column::GateRequestedAt,
+                Expr::value(Option::<OffsetDateTime>::None),
+            )
+            .col_expr(Column::UpdatedAt, Expr::value(now.at))
+            .filter(Column::Id.eq(phase_id))
+            .exec(&orm(db))
+            .await?;
         return Ok(());
     }
     if text(&phase, "status") == "passed" {
@@ -478,22 +600,20 @@ pub(crate) async fn resolve_gate(
     let waivers = waivers_of(&phase);
     let facts = load_gate_facts(db, &project_id, &criteria).await?;
     let check = check_gate(&criteria, &facts, &waivers);
-    let result = gate_result_of(&check, &criteria, &waivers, &now);
-    let mut statements = vec![
-        sqlx::query(
-            "update project_phases set status = 'passed', passed_at = $2::timestamptz,
-                 gate_result = $3, updated_at = $2::timestamptz where id = $1",
-        )
-        .bind(phase_id.to_owned())
-        .bind(now.clone())
-        .bind(result),
-    ];
-    if let Some(next) = &next {
-        statements.push(set_status(next, "active", &now));
-    }
-    statements.push(current_phase_update(&project_id, next.as_deref(), &now));
-    weldsuite_db::atomically(db, statements).await?;
-    Ok(())
+    let result = gate_result_of(&check, &criteria, &waivers, &now.text);
+    let passed = project_phases::Entity::update_many()
+        .col_expr(Column::Status, Expr::value("passed"))
+        .col_expr(Column::PassedAt, Expr::value(now.at))
+        .col_expr(Column::GateResult, Expr::value(result))
+        .col_expr(Column::UpdatedAt, Expr::value(now.at))
+        .filter(Column::Id.eq(phase_id));
+    write_phases(
+        db,
+        Some(passed),
+        next.as_deref().map(|next| set_status(next, "active", &now)),
+        Some(current_phase_update(&project_id, next.as_deref(), &now)),
+    )
+    .await
 }
 
 /// Plug the `gate` subject in: its handler and its aftermath.
@@ -522,7 +642,7 @@ async fn publish_gate_resolution(
     caller: &Caller,
     phase_id: &str,
     outcome: ResolvedApprovalOutcome,
-) -> Result<(), sqlx::Error> {
+) -> Result<(), DbErr> {
     let db = &caller.db;
     let Some(phase) = find_phase(db, phase_id).await? else {
         return Ok(());
@@ -778,28 +898,27 @@ async fn criteria_refusal(
         return Err(Refusal::bad_request(message));
     }
     let needed = gate_facts_needed(criteria);
+    let orm = &orm(db);
     if !needed.deliverable_ids.is_empty() {
-        let found: i64 = sqlx::query_scalar(
-            "select count(*) from project_deliverables
-             where project_id = $1 and id = any($2) and deleted_at is null",
-        )
-        .bind(project_id)
-        .bind(&needed.deliverable_ids)
-        .fetch_one(db)
-        .await?;
+        use project_deliverables::Column as Deliverable;
+        let found = project_deliverables::Entity::find()
+            .filter(Deliverable::ProjectId.eq(project_id))
+            .filter(Deliverable::Id.is_in(needed.deliverable_ids.iter().map(String::as_str)))
+            .filter(Deliverable::DeletedAt.is_null())
+            .count(orm)
+            .await?;
         if usize::try_from(found).ok() != Some(needed.deliverable_ids.len()) {
             return Err(Refusal::bad_request(messages::DELIVERABLE_NOT_FOUND));
         }
     }
     if !needed.decision_ids.is_empty() {
-        let found: i64 = sqlx::query_scalar(
-            "select count(*) from project_decisions
-             where project_id = $1 and id = any($2) and deleted_at is null",
-        )
-        .bind(project_id)
-        .bind(&needed.decision_ids)
-        .fetch_one(db)
-        .await?;
+        use project_decisions::Column as Decision;
+        let found = project_decisions::Entity::find()
+            .filter(Decision::ProjectId.eq(project_id))
+            .filter(Decision::Id.is_in(needed.decision_ids.iter().map(String::as_str)))
+            .filter(Decision::DeletedAt.is_null())
+            .count(orm)
+            .await?;
         if usize::try_from(found).ok() != Some(needed.decision_ids.len()) {
             return Err(Refusal::bad_request(messages::DECISION_NOT_FOUND));
         }
@@ -916,7 +1035,7 @@ async fn create_phase(
     let db = &caller.db;
     let existing = list_phases(db, project_id).await?;
     let id = generate_id("phs");
-    let now = crate::now();
+    let now = Now::of(now_ms());
     let position = existing
         .iter()
         .filter_map(|row| row["position"].as_i64())
@@ -934,31 +1053,41 @@ async fn create_phase(
     } else {
         "upcoming"
     };
-    let mut statements = vec![
-        sqlx::query(
-            "insert into project_phases (id, project_id, position, name, planned_start, planned_end,
-                 status, gate_criteria, created_by, created_at, updated_at)
-             values ($1, $2, $3, $4, $5::timestamptz, $6::timestamptz, $7, $8, $9,
-                 $10::timestamptz, $10::timestamptz)",
-        )
-        .bind(id.clone())
-        .bind(project_id.to_owned())
-        .bind(i32::try_from(position).unwrap_or(i32::MAX))
-        .bind(text_of(input, "name"))
-        .bind(start)
-        .bind(end)
-        .bind(status.to_owned())
-        .bind(Value::Array(criteria))
-        .bind(caller.user_id.clone())
-        .bind(now.clone()),
-    ];
-    if let Some(other) = activate.as_deref().filter(|other| *other != id) {
-        statements.push(set_status(other, "active", &now));
-    }
-    if let Some(active) = &activate {
-        statements.push(current_phase_update(project_id, Some(active), &now));
-    }
-    weldsuite_db::atomically(db, statements).await?;
+    let insert = project_phases::Entity::insert(project_phases::ActiveModel {
+        id: Set(id.clone()),
+        project_id: Set(project_id.to_owned()),
+        position: Set(i32::try_from(position).unwrap_or(i32::MAX)),
+        name: Set(text_of(input, "name")),
+        planned_start: Set(instant_of(start.as_deref())?),
+        planned_end: Set(instant_of(end.as_deref())?),
+        status: Set(status.to_owned()),
+        gate_criteria: Set(Value::Array(criteria)),
+        created_by: Set(caller.user_id.clone()),
+        created_at: Set(now.at),
+        updated_at: Set(now.at),
+        ..Default::default()
+    });
+    let other = activate
+        .as_deref()
+        .filter(|other| *other != id)
+        .map(|other| set_status(other, "active", &now));
+    let current = activate
+        .as_deref()
+        .map(|active| current_phase_update(project_id, Some(active), &now));
+    weldsuite_db::atomically_with(db, |tx| {
+        Box::pin(async move {
+            let tx = OrmConn::new(tx);
+            insert.exec_without_returning(&tx).await?;
+            if let Some(other) = other {
+                other.exec(&tx).await?;
+            }
+            if let Some(current) = current {
+                current.exec(&tx).await?;
+            }
+            Ok::<_, Refusal>(())
+        })
+    })
+    .await?;
     let Some(row) = find_phase(db, &id).await? else {
         return Err(Refusal::Internal("the new phase is missing".to_owned()));
     };
@@ -1007,7 +1136,7 @@ async fn reorder_phases(
     if let Some(message) = reorder_error(&phase_likes(&existing), ids) {
         return Err(Refusal::bad_request(message));
     }
-    let now = crate::now();
+    let now = Now::of(now_ms());
     let moved: Vec<(String, usize)> = ids
         .iter()
         .enumerate()
@@ -1020,18 +1149,28 @@ async fn reorder_phases(
         .map(|(position, id)| (id.clone(), position))
         .collect();
     if !moved.is_empty() {
-        let statements: Vec<_> = moved
+        let updates: Vec<_> = moved
             .iter()
             .map(|(id, position)| {
-                sqlx::query(
-                    "update project_phases set position = $2, updated_at = $3::timestamptz where id = $1",
-                )
-                .bind(id.clone())
-                .bind(i32::try_from(*position).unwrap_or(i32::MAX))
-                .bind(now.clone())
+                project_phases::Entity::update_many()
+                    .col_expr(
+                        Column::Position,
+                        Expr::value(i32::try_from(*position).unwrap_or(i32::MAX)),
+                    )
+                    .col_expr(Column::UpdatedAt, Expr::value(now.at))
+                    .filter(Column::Id.eq(id.as_str()))
             })
             .collect();
-        weldsuite_db::atomically(db, statements).await?;
+        weldsuite_db::atomically_with(db, |tx| {
+            Box::pin(async move {
+                let tx = OrmConn::new(tx);
+                for update in updates {
+                    update.exec(&tx).await?;
+                }
+                Ok::<_, Refusal>(())
+            })
+        })
+        .await?;
         for (id, _) in &moved {
             if let Some(row) = find_phase(db, id).await? {
                 publish_phase(state, caller, PROJECT_PHASE_UPDATED, &row, json!({}));
@@ -1111,26 +1250,31 @@ async fn update_phase(
     criteria: Option<Vec<Value>>,
 ) -> Reply {
     let db = &caller.db;
-    sqlx::query(
-        "update project_phases set
-             name = coalesce($2, name),
-             planned_start = case when $3 then $4::timestamptz else planned_start end,
-             planned_end = case when $5 then $6::timestamptz else planned_end end,
-             gate_criteria = case when $7::jsonb is not null then $7::jsonb else gate_criteria end,
-             gate_result = case when $7::jsonb is not null then null else gate_result end,
-             updated_at = $8::timestamptz
-         where id = $1 and deleted_at is null",
-    )
-    .bind(id)
-    .bind(input.get("name").and_then(Value::as_str))
-    .bind(input.contains_key("plannedStart"))
-    .bind(start)
-    .bind(input.contains_key("plannedEnd"))
-    .bind(end)
-    .bind(criteria.map(Value::Array))
-    .bind(crate::now())
-    .execute(db)
-    .await?;
+    // Only what the body sent changes; new criteria clear the gate's result.
+    let mut update = project_phases::Entity::update_many();
+    if let Some(name) = input.get("name").and_then(Value::as_str) {
+        update = update.col_expr(Column::Name, Expr::value(name));
+    }
+    if input.contains_key("plannedStart") {
+        update = update.col_expr(
+            Column::PlannedStart,
+            Expr::value(instant_of(start.as_deref())?),
+        );
+    }
+    if input.contains_key("plannedEnd") {
+        update = update.col_expr(Column::PlannedEnd, Expr::value(instant_of(end.as_deref())?));
+    }
+    if let Some(criteria) = criteria {
+        update = update
+            .col_expr(Column::GateCriteria, Expr::value(Value::Array(criteria)))
+            .col_expr(Column::GateResult, Expr::value(Option::<Value>::None));
+    }
+    update
+        .col_expr(Column::UpdatedAt, Expr::value(instant(now_ms())))
+        .filter(Column::Id.eq(id))
+        .filter(Column::DeletedAt.is_null())
+        .exec(&orm(db))
+        .await?;
     let Some(row) = find_phase(db, id).await? else {
         return Err(Refusal::not_found(LABEL, id));
     };
@@ -1164,32 +1308,28 @@ async fn remove_phase(state: &FlowState, caller: &Caller, id: &str) -> Reply {
     if text(&existing, "status") == "passed" {
         return Err(Refusal::conflict(messages::PHASE_PASSED));
     }
-    let now_text = crate::now();
+    let now = Now::of(now_ms());
     let remaining: Vec<Value> = list_phases(db, &project_id)
         .await?
         .into_iter()
         .filter(|row| row["id"] != id)
         .collect();
     let activate = phase_to_activate(&phase_likes(&remaining));
-    let mut statements = vec![
-        sqlx::query(
-            "update project_phases set deleted_at = $2::timestamptz, updated_at = $2::timestamptz
-             where id = $1 and deleted_at is null",
-        )
-        .bind(id.to_owned())
-        .bind(now_text.clone()),
-    ];
-    if let Some(next) = &activate {
-        statements.push(set_status(next, "active", &now_text));
-    }
-    if text(&existing, "status") == "active" {
-        statements.push(current_phase_update(
-            &project_id,
-            activate.as_deref(),
-            &now_text,
-        ));
-    }
-    weldsuite_db::atomically(db, statements).await?;
+    let deleted = project_phases::Entity::update_many()
+        .col_expr(Column::DeletedAt, Expr::value(now.at))
+        .col_expr(Column::UpdatedAt, Expr::value(now.at))
+        .filter(Column::Id.eq(id))
+        .filter(Column::DeletedAt.is_null());
+    write_phases(
+        db,
+        Some(deleted),
+        activate
+            .as_deref()
+            .map(|next| set_status(next, "active", &now)),
+        (text(&existing, "status") == "active")
+            .then(|| current_phase_update(&project_id, activate.as_deref(), &now)),
+    )
+    .await?;
     // Nobody is asked about a gate that no longer exists.
     let cleared = cancel_pending_approvals(db, "gate", id, true, now_ms()).await?;
     announce_approvals_cancelled(state, caller, &cleared);
@@ -1259,7 +1399,7 @@ async fn tick_criterion(
 ) -> Reply {
     let db = &caller.db;
     let id = text(phase, "id");
-    let now = crate::now();
+    let now = Now::of(now_ms());
     let next: Vec<Value> = criteria
         .into_iter()
         .enumerate()
@@ -1268,22 +1408,20 @@ async fn tick_criterion(
                 json!({
                     "manual": entry["manual"],
                     "met": met,
-                    "metAt": if met { json!(now) } else { Value::Null },
+                    "metAt": if met { json!(now.text) } else { Value::Null },
                 })
             } else {
                 entry
             }
         })
         .collect();
-    sqlx::query(
-        "update project_phases set gate_criteria = $2, updated_at = $3::timestamptz
-         where id = $1 and deleted_at is null",
-    )
-    .bind(id)
-    .bind(Value::Array(next))
-    .bind(&now)
-    .execute(db)
-    .await?;
+    project_phases::Entity::update_many()
+        .col_expr(Column::GateCriteria, Expr::value(Value::Array(next)))
+        .col_expr(Column::UpdatedAt, Expr::value(now.at))
+        .filter(Column::Id.eq(id))
+        .filter(Column::DeletedAt.is_null())
+        .exec(&orm(db))
+        .await?;
     let project = find_live_project(db, text(phase, "projectId")).await?;
     let (Some(row), Some(project)) = (find_phase(db, id).await?, project) else {
         return Err(Refusal::not_found(LABEL, id));
@@ -1367,30 +1505,28 @@ async fn waive_criterion(
     if waivers.iter().any(|w| w.index == index) {
         return Err(Refusal::conflict(messages::ALREADY_WAIVED));
     }
-    let now = crate::now();
+    let now = Now::of(now_ms());
     let mut next = waivers;
     next.push(GateWaiver {
         index,
         note: note.to_owned(),
         by: caller.user_id.clone(),
-        at: now.clone(),
+        at: now.text.clone(),
     });
     let facts = load_gate_facts(db, text(phase, "projectId"), &criteria).await?;
     let result = gate_result_of(
         &check_gate(&criteria, &facts, &next),
         &criteria,
         &next,
-        &now,
+        &now.text,
     );
-    sqlx::query(
-        "update project_phases set gate_result = $2, updated_at = $3::timestamptz
-         where id = $1 and deleted_at is null",
-    )
-    .bind(id)
-    .bind(result)
-    .bind(&now)
-    .execute(db)
-    .await?;
+    project_phases::Entity::update_many()
+        .col_expr(Column::GateResult, Expr::value(result))
+        .col_expr(Column::UpdatedAt, Expr::value(now.at))
+        .filter(Column::Id.eq(id))
+        .filter(Column::DeletedAt.is_null())
+        .exec(&orm(db))
+        .await?;
     let Some(row) = find_phase(db, id).await? else {
         return Err(Refusal::not_found(LABEL, id));
     };
@@ -1501,16 +1637,23 @@ async fn ask_for_approval(
     };
 
     let criteria = criteria_of(phase);
-    let now = iso(now_millis);
-    sqlx::query(
-        "update project_phases set gate_requested_at = $2::timestamptz, gate_result = $3,
-             updated_at = $2::timestamptz where id = $1 and deleted_at is null",
-    )
-    .bind(id)
-    .bind(&now)
-    .bind(gate_result_of(&check, &criteria, &waivers_of(phase), &now))
-    .execute(db)
-    .await?;
+    let now = Now::of(now_millis);
+    project_phases::Entity::update_many()
+        .col_expr(Column::GateRequestedAt, Expr::value(now.at))
+        .col_expr(
+            Column::GateResult,
+            Expr::value(gate_result_of(
+                &check,
+                &criteria,
+                &waivers_of(phase),
+                &now.text,
+            )),
+        )
+        .col_expr(Column::UpdatedAt, Expr::value(now.at))
+        .filter(Column::Id.eq(id))
+        .filter(Column::DeletedAt.is_null())
+        .exec(&orm(db))
+        .await?;
     let Some(row) = find_phase(db, id).await? else {
         return Err(Refusal::not_found(LABEL, id));
     };

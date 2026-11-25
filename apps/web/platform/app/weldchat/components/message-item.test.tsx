@@ -10,7 +10,7 @@ vi.mock('@/lib/i18n/provider', () => ({
     t: {
       weldchat: {
         callRoom: { participant: 'Participant' },
-        messageItem: { viewProfile: 'View {name}\'s profile' },
+        messageItem: { viewProfile: 'View {name}\'s profile', pinnedMessage: 'Pinned a message.' },
         callHistory: {
           startedCall: 'Started a call.',
           startedCallLasted: 'Started a call that lasted {duration}.',
@@ -129,5 +129,41 @@ describe('call notice row', () => {
     callContext.callId = 'call_1';
     renderCall(base, true, { activeCallId: 'call_1' });
     expect(screen.queryByRole('button', { name: 'Join call' })).toBeNull();
+  });
+});
+
+describe('pin notice', () => {
+  const pinNotice = {
+    id: 'msg_pin',
+    type: 'system' as const,
+    content: '[system:msg_target] pinned a message',
+    authorId: 'user_gert',
+    authorName: 'Gert',
+    createdAt: '2026-10-23T09:00:00Z',
+  };
+
+  it('reads as a message from who pinned it', () => {
+    render(<MessageItem message={pinNotice} />);
+    const row = screen.getByTestId('chat-pin-notice');
+    expect(screen.getByRole('button', { name: 'Gert' })).toBeTruthy();
+    expect(row.textContent).toContain('Pinned a message.');
+    expect(row.textContent).not.toContain('pinned a message');
+  });
+
+  it('jumps to the pinned message', () => {
+    const target = document.createElement('div');
+    target.dataset.messageId = 'msg_target';
+    target.scrollIntoView = vi.fn();
+    document.body.appendChild(target);
+    render(<MessageItem message={pinNotice} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Pinned a message.' }));
+    expect(target.scrollIntoView).toHaveBeenCalled();
+    target.remove();
+  });
+
+  it('drops the header right under an earlier message from the same person', () => {
+    render(<MessageItem message={pinNotice} compact />);
+    expect(screen.queryByRole('button', { name: 'Gert' })).toBeNull();
+    expect(screen.getByTestId('chat-pin-notice').textContent).toContain('Pinned a message.');
   });
 });

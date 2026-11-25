@@ -35,13 +35,20 @@ use axum::body::Bytes;
 use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, patch, post, put};
+use sea_orm::sea_query::Expr;
+use sea_orm::sea_query::OnConflict;
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, Condition, DbErr, EntityTrait, PaginatorTrait, QueryFilter,
+    QueryOrder, QuerySelect,
+};
 use serde_json::{Value, json};
+use time::OffsetDateTime;
 use weldsuite_catalogs::entity_events::{
     EventName, FLOW_MEMBER_PROFILE_UPDATED, RESOURCE_BOOKING_CREATED, RESOURCE_BOOKING_DELETED,
     RESOURCE_BOOKING_UPDATED, RESOURCE_REQUEST_CREATED, RESOURCE_REQUEST_DELETED,
     RESOURCE_REQUEST_UPDATED,
 };
-use weldsuite_db::js_row;
+use weldsuite_db::{OrmConn, orm, utc_now};
 use weldsuite_flow_domain::capacity::{
     ResourceNeed, booking_target_error, capacity_range, fit_range, format_date, hours_text,
     messages, normalize_skills, period_error, present_booking, present_profile,
@@ -50,6 +57,10 @@ use weldsuite_flow_domain::capacity::{
 use weldsuite_flow_domain::js::{number_value, parse_int, to_fixed};
 use weldsuite_kit::{Created, Data, NoContent, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::{
+    flow_member_profiles as profiles, project_requests, resource_bookings as bookings,
+    resource_requests,
+};
 
 use self::body::{
     Body, bookings_query, capacity_query, parse_body, read_book, read_create_booking,
@@ -57,11 +68,14 @@ use self::body::{
     requests_query,
 };
 use self::store::{
-    ProjectLabel, booking_json, find_booking, find_profile, find_resource_request, label_of,
-    load_capacity, profile_json, project_labels, resource_request_json,
+    ProjectLabel, date, decimal, find_booking, find_profile, find_resource_request, label_of,
+    load_capacity, project_labels,
 };
 use crate::raid_store::live_project_exists;
-use crate::{Caller, FlowState, Refusal, Reply, keyset_cursor, outside, page, paged, reply};
+use crate::{
+    Caller, FlowState, Refusal, Reply, fetch_limit, json_rows, keyset_before, keyset_cursor_tz,
+    outside, page, paged, reply,
+};
 
 const BOOKING_LABEL: &str = "Booking";
 const REQUEST_LABEL: &str = "Resource request";
@@ -127,8 +141,9 @@ fn row_text<'a>(row: &'a Value, key: &str) -> Option<&'a str> {
     row.get(key).and_then(Value::as_str)
 }
 
-pub(crate) fn iso_now() -> String {
-    weldsuite_flow_domain::js::iso_from_millis(crate::now_ms()).unwrap_or_default()
+/// `new Date()` as the `timestamptz` it is written as (UTC, milliseconds).
+fn now_at() -> OffsetDateTime {
+    utc_now().assume_utc()
 }
 
 /// `todayUtc()`: today as `YYYY-MM-DD` (UTC).
@@ -154,7 +169,7 @@ async fn may_book(
     caller: &Caller,
     member_id: &str,
     project_id: Option<&str>,
-) -> Result<bool, sqlx::Error> {
+) -> Result<bool, DbErr> {
     if caller.can(MANAGE) {
         return Ok(true);
     }
@@ -168,10 +183,7 @@ async fn may_book(
 }
 
 /// `mayRequestFor(c, projectId)`: `portfolio:manage`, or a manager of the project.
-pub(crate) async fn may_request_for(
-    caller: &Caller,
-    project_id: &str,
-) -> Result<bool, sqlx::Error> {
+pub(crate) async fn may_request_for(caller: &Caller, project_id: &str) -> Result<bool, DbErr> {
     if caller.can(MANAGE) {
         return Ok(true);
     }
@@ -218,7 +230,7 @@ async fn present_load(
     from: &str,
     to: &str,
     tentative: bool,
-) -> Result<Value, sqlx::Error> {
+) -> Result<Value, DbErr> {
     let project_ids: Vec<String> = load
         .members
         .iter()
@@ -235,11 +247,16 @@ async fn present_load(
     let titles: HashMap<String, String> = if request_ids.is_empty() {
         HashMap::new()
     } else {
-        let rows: Vec<(String, String)> =
-            sqlx::query_as("select id, title from project_requests where id = any($1)")
-                .bind(&request_ids)
-                .fetch_all(&caller.db)
-                .await?;
+        let rows: Vec<(String, String)> = project_requests::Entity::find()
+            .select_only()
+            .columns([
+                project_requests::Column::Id,
+                project_requests::Column::Title,
+            ])
+            .filter(project_requests::Column::Id.is_in(request_ids))
+            .into_tuple()
+            .all(&orm(&caller.db))
+            .await?;
         rows.into_iter().collect()
     };
     let members: Vec<Value> = load
@@ -305,9 +322,10 @@ async fn list_bookings(caller: Caller, RawQuery(raw): RawQuery) -> Response {
     };
     let limit = parse_limit(q.limit.as_deref(), 50, 200);
     let cursor = match &q.cursor {
-        Some(cursor) => match keyset_cursor(
+        Some(cursor) => match keyset_cursor_tz(
             &caller.db,
-            "select id, to_jsonb(created_at) #>> '{}' from resource_bookings where id = $1 limit 1",
+            bookings::Column::Id,
+            bookings::Column::CreatedAt,
             cursor,
         )
         .await
@@ -324,57 +342,52 @@ async fn list_bookings(caller: Caller, RawQuery(raw): RawQuery) -> Response {
 }
 
 /// The list's `where`, without the cursor.
-macro_rules! booking_filters {
-    () => {
-        concat!(
-            "b.deleted_at is null",
-            " and ($1::text is null or b.member_id = $1)",
-            " and ($2::text is null or b.project_id = $2)",
-            " and ($3::text is null or b.request_id = $3)",
-            " and ($4::text is null or b.starts_on <= $4::date)",
-            " and ($5::text is null or b.ends_on >= $5::date)"
-        )
-    };
+fn booking_filters(q: &body::BookingsQuery) -> Result<Condition, DbErr> {
+    let mut filters = Condition::all().add(bookings::Column::DeletedAt.is_null());
+    for (value, column) in [
+        (&q.member_id, bookings::Column::MemberId),
+        (&q.project_id, bookings::Column::ProjectId),
+        (&q.request_id, bookings::Column::RequestId),
+    ] {
+        if let Some(value) = value.as_deref() {
+            filters = filters.add(column.eq(value));
+        }
+    }
+    if let Some(to) = q.to.as_deref() {
+        filters = filters.add(bookings::Column::StartsOn.lte(date(to)?));
+    }
+    if let Some(from) = q.from.as_deref() {
+        filters = filters.add(bookings::Column::EndsOn.gte(date(from)?));
+    }
+    Ok(filters)
 }
 
 async fn list_booking_rows(
     caller: &Caller,
     q: &body::BookingsQuery,
     limit: i64,
-    cursor: Option<(String, String)>,
+    cursor: Option<(OffsetDateTime, String)>,
 ) -> Reply {
-    let db = &caller.db;
-    let rows: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        booking_json!("b"),
-        " from resource_bookings b where ",
-        booking_filters!(),
-        " and ($6::timestamptz is null or b.created_at < $6::timestamptz",
-        " or (b.created_at = $6::timestamptz and b.id < $7))",
-        " order by b.created_at desc, b.id desc limit $8"
-    ))
-    .bind(q.member_id.as_deref())
-    .bind(q.project_id.as_deref())
-    .bind(q.request_id.as_deref())
-    .bind(q.to.as_deref())
-    .bind(q.from.as_deref())
-    .bind(cursor.as_ref().map(|c| c.0.as_str()))
-    .bind(cursor.as_ref().map(|c| c.1.as_str()))
-    .bind(limit + 1)
-    .fetch_all(db)
-    .await?;
-    let total: i64 = sqlx::query_scalar(concat!(
-        "select count(*) from resource_bookings b where ",
-        booking_filters!()
-    ))
-    .bind(q.member_id.as_deref())
-    .bind(q.project_id.as_deref())
-    .bind(q.request_id.as_deref())
-    .bind(q.to.as_deref())
-    .bind(q.from.as_deref())
-    .fetch_one(db)
-    .await?;
-    let (rows, has_more, next) = page(rows.into_iter().map(js_row).collect(), limit);
+    let db = orm(&caller.db);
+    let filters = booking_filters(q)?;
+    let mut page_filters = filters.clone();
+    if let Some(cursor) = &cursor {
+        page_filters = page_filters.add(keyset_before(
+            bookings::Column::Id,
+            bookings::Column::CreatedAt,
+            cursor,
+        ));
+    }
+    let rows = bookings::Entity::find()
+        .filter(page_filters)
+        .order_by_desc(bookings::Column::CreatedAt)
+        .order_by_desc(bookings::Column::Id)
+        .limit(fetch_limit(limit)?)
+        .all(&db)
+        .await?;
+    let total = bookings::Entity::find().filter(filters).count(&db).await?;
+    let total = i64::try_from(total).unwrap_or(i64::MAX);
+    let (rows, has_more, next) = page(json_rows(rows)?, limit);
     let items = rows.iter().map(present_booking).collect();
     Ok(paged(items, total, has_more, next))
 }
@@ -411,12 +424,14 @@ async fn create_booking(State(state): State<FlowState>, caller: Caller, body: By
             return Err(Refusal::not_found("Project", project));
         }
         if let Some(request) = request_id {
-            let status: Option<String> = sqlx::query_scalar(
-                "select status from project_requests where id = $1 and deleted_at is null limit 1",
-            )
-            .bind(request)
-            .fetch_optional(&caller.db)
-            .await?;
+            let status: Option<String> = project_requests::Entity::find()
+                .select_only()
+                .column(project_requests::Column::Status)
+                .filter(project_requests::Column::Id.eq(request))
+                .filter(project_requests::Column::DeletedAt.is_null())
+                .into_tuple()
+                .one(&orm(&caller.db))
+                .await?;
             let Some(status) = status else {
                 return Err(Refusal::not_found("Project request", request));
             };
@@ -444,26 +459,24 @@ async fn insert_booking(
     tentative: bool,
 ) -> Reply {
     let id = generate_id("bkg");
-    let now = iso_now();
-    weldsuite_db::atomically(
-        &caller.db,
-        [sqlx::query(
-            "insert into resource_bookings (id, member_id, project_id, request_id, starts_on, ends_on,
-                 hours_per_week, tentative, created_by, created_at, updated_at)
-             values ($1, $2, $3, $4, $5::date, $6::date, $7::numeric, $8, $9,
-                 $10::timestamptz, $10::timestamptz)",
-        )
-        .bind(id.clone())
-        .bind(text(input, "memberId").unwrap_or_default().to_owned())
-        .bind(text(input, "projectId").map(str::to_owned))
-        .bind(text(input, "requestId").map(str::to_owned))
-        .bind(text(input, "startsOn").unwrap_or_default().to_owned())
-        .bind(text(input, "endsOn").unwrap_or_default().to_owned())
-        .bind(hours_text(number(input, "hoursPerWeek").unwrap_or_default()))
-        .bind(tentative)
-        .bind(caller.user_id.clone())
-        .bind(now)],
-    )
+    let now = now_at();
+    bookings::Entity::insert(bookings::ActiveModel {
+        id: Set(id.clone()),
+        member_id: Set(text(input, "memberId").unwrap_or_default().to_owned()),
+        project_id: Set(text(input, "projectId").map(str::to_owned)),
+        request_id: Set(text(input, "requestId").map(str::to_owned)),
+        starts_on: Set(date(text(input, "startsOn").unwrap_or_default())?),
+        ends_on: Set(date(text(input, "endsOn").unwrap_or_default())?),
+        hours_per_week: Set(decimal(&hours_text(
+            number(input, "hoursPerWeek").unwrap_or_default(),
+        ))?),
+        tentative: Set(tentative),
+        created_by: Set(caller.user_id.clone()),
+        created_at: Set(now),
+        updated_at: Set(now),
+        ..Default::default()
+    })
+    .exec_without_returning(&orm(&caller.db))
     .await?;
     let Some(row) = find_booking(&caller.db, &id).await? else {
         return Err(Refusal::Internal("the new booking is missing".to_owned()));
@@ -525,21 +538,19 @@ async fn update_booking(
         Err(refused) => return outside(Err(refused)),
     };
     let result = async {
-        weldsuite_db::atomically(
-            &caller.db,
-            [sqlx::query(
-                "update resource_bookings set starts_on = $2::date, ends_on = $3::date,
-                     hours_per_week = $4::numeric, tentative = $5, updated_at = $6::timestamptz
-                 where id = $1 and deleted_at is null",
+        bookings::Entity::update_many()
+            .col_expr(bookings::Column::StartsOn, Expr::value(date(&starts_on)?))
+            .col_expr(bookings::Column::EndsOn, Expr::value(date(&ends_on)?))
+            .col_expr(
+                bookings::Column::HoursPerWeek,
+                Expr::value(decimal(&hours)?),
             )
-            .bind(id.clone())
-            .bind(starts_on)
-            .bind(ends_on)
-            .bind(hours)
-            .bind(tentative)
-            .bind(iso_now())],
-        )
-        .await?;
+            .col_expr(bookings::Column::Tentative, Expr::value(tentative))
+            .col_expr(bookings::Column::UpdatedAt, Expr::value(now_at()))
+            .filter(bookings::Column::Id.eq(&id))
+            .filter(bookings::Column::DeletedAt.is_null())
+            .exec(&orm(&caller.db))
+            .await?;
         let Some(row) = find_booking(&caller.db, &id).await? else {
             return Err(Refusal::not_found(BOOKING_LABEL, &id));
         };
@@ -567,32 +578,43 @@ async fn remove_booking(
 
 async fn delete_booking(state: &FlowState, caller: &Caller, id: &str, existing: &Value) -> Reply {
     // The request this booking filled opens again, in the same batch.
-    let reopened: Vec<String> = sqlx::query_scalar(
-        "select id from resource_requests
-         where booking_id = $1 and status = 'booked' and deleted_at is null order by id",
-    )
-    .bind(id)
-    .fetch_all(&caller.db)
-    .await?;
-    let now = iso_now();
-    weldsuite_db::atomically(
-        &caller.db,
-        [
-            sqlx::query(
-                "update resource_bookings set deleted_at = $2::timestamptz, updated_at = $2::timestamptz
-                 where id = $1 and deleted_at is null",
-            )
-            .bind(id.to_owned())
-            .bind(now.clone()),
-            sqlx::query(
-                "update resource_requests set status = 'open', booking_id = null,
-                     updated_at = $2::timestamptz
-                 where booking_id = $1 and status = 'booked' and deleted_at is null",
-            )
-            .bind(id.to_owned())
-            .bind(now),
-        ],
-    )
+    let reopened: Vec<String> = resource_requests::Entity::find()
+        .select_only()
+        .column(resource_requests::Column::Id)
+        .filter(resource_requests::Column::BookingId.eq(id))
+        .filter(resource_requests::Column::Status.eq("booked"))
+        .filter(resource_requests::Column::DeletedAt.is_null())
+        .order_by_asc(resource_requests::Column::Id)
+        .into_tuple()
+        .all(&orm(&caller.db))
+        .await?;
+    let now = now_at();
+    let booking = id.to_owned();
+    weldsuite_db::atomically_with(&caller.db, |tx| {
+        Box::pin(async move {
+            let tx = OrmConn::new(tx);
+            bookings::Entity::update_many()
+                .col_expr(bookings::Column::DeletedAt, Expr::value(now))
+                .col_expr(bookings::Column::UpdatedAt, Expr::value(now))
+                .filter(bookings::Column::Id.eq(&booking))
+                .filter(bookings::Column::DeletedAt.is_null())
+                .exec(&tx)
+                .await?;
+            resource_requests::Entity::update_many()
+                .col_expr(resource_requests::Column::Status, Expr::value("open"))
+                .col_expr(
+                    resource_requests::Column::BookingId,
+                    Expr::value(None::<String>),
+                )
+                .col_expr(resource_requests::Column::UpdatedAt, Expr::value(now))
+                .filter(resource_requests::Column::BookingId.eq(&booking))
+                .filter(resource_requests::Column::Status.eq("booked"))
+                .filter(resource_requests::Column::DeletedAt.is_null())
+                .exec(&tx)
+                .await?;
+            Ok::<_, Refusal>(())
+        })
+    })
     .await?;
     publish_booking(state, caller, RESOURCE_BOOKING_DELETED, existing);
     for request in &reopened {
@@ -605,17 +627,6 @@ async fn delete_booking(state: &FlowState, caller: &Caller, id: &str, existing: 
 
 // ── Resource requests ───────────────────────────────────────────────────────
 
-/// The list's `where`, without the cursor.
-macro_rules! request_filters {
-    () => {
-        concat!(
-            "r.deleted_at is null",
-            " and ($1::text is null or r.project_id = $1)",
-            " and ($2::text is null or r.status = $2)"
-        )
-    };
-}
-
 async fn list_requests(caller: Caller, RawQuery(raw): RawQuery) -> Response {
     let (project_id, status, cursor, limit) = match requests_query(raw.as_deref()) {
         Ok(q) => q,
@@ -623,9 +634,10 @@ async fn list_requests(caller: Caller, RawQuery(raw): RawQuery) -> Response {
     };
     let limit = parse_limit(limit.as_deref(), 50, 200);
     let cursor = match &cursor {
-        Some(cursor) => match keyset_cursor(
+        Some(cursor) => match keyset_cursor_tz(
             &caller.db,
-            "select id, to_jsonb(created_at) #>> '{}' from resource_requests where id = $1 limit 1",
+            resource_requests::Column::Id,
+            resource_requests::Column::CreatedAt,
             cursor,
         )
         .await
@@ -651,34 +663,38 @@ async fn list_request_rows(
     caller: &Caller,
     (project_id, status): (Option<&str>, Option<&str>),
     limit: i64,
-    cursor: Option<(String, String)>,
+    cursor: Option<(OffsetDateTime, String)>,
 ) -> Reply {
-    let db = &caller.db;
-    let rows: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        resource_request_json!("r"),
-        " from resource_requests r where ",
-        request_filters!(),
-        " and ($3::timestamptz is null or r.created_at < $3::timestamptz",
-        " or (r.created_at = $3::timestamptz and r.id < $4))",
-        " order by r.created_at desc, r.id desc limit $5"
-    ))
-    .bind(project_id)
-    .bind(status)
-    .bind(cursor.as_ref().map(|c| c.0.as_str()))
-    .bind(cursor.as_ref().map(|c| c.1.as_str()))
-    .bind(limit + 1)
-    .fetch_all(db)
-    .await?;
-    let total: i64 = sqlx::query_scalar(concat!(
-        "select count(*) from resource_requests r where ",
-        request_filters!()
-    ))
-    .bind(project_id)
-    .bind(status)
-    .fetch_one(db)
-    .await?;
-    let (rows, has_more, next) = page(rows.into_iter().map(js_row).collect(), limit);
+    let db = orm(&caller.db);
+    // The list's `where`, without the cursor.
+    let mut filters = Condition::all().add(resource_requests::Column::DeletedAt.is_null());
+    if let Some(project_id) = project_id {
+        filters = filters.add(resource_requests::Column::ProjectId.eq(project_id));
+    }
+    if let Some(status) = status {
+        filters = filters.add(resource_requests::Column::Status.eq(status));
+    }
+    let mut page_filters = filters.clone();
+    if let Some(cursor) = &cursor {
+        page_filters = page_filters.add(keyset_before(
+            resource_requests::Column::Id,
+            resource_requests::Column::CreatedAt,
+            cursor,
+        ));
+    }
+    let rows = resource_requests::Entity::find()
+        .filter(page_filters)
+        .order_by_desc(resource_requests::Column::CreatedAt)
+        .order_by_desc(resource_requests::Column::Id)
+        .limit(fetch_limit(limit)?)
+        .all(&db)
+        .await?;
+    let total = resource_requests::Entity::find()
+        .filter(filters)
+        .count(&db)
+        .await?;
+    let total = i64::try_from(total).unwrap_or(i64::MAX);
+    let (rows, has_more, next) = page(json_rows(rows)?, limit);
     let project_ids: Vec<String> = rows
         .iter()
         .filter_map(|row| row_text(row, "projectId").map(str::to_owned))
@@ -697,7 +713,7 @@ fn present_request_with(row: &Value, labels: &HashMap<String, ProjectLabel>) -> 
 }
 
 /// `presentRequestFor(c, row)`: the request named for the caller.
-async fn present_request_for(caller: &Caller, row: &Value) -> Result<Value, sqlx::Error> {
+async fn present_request_for(caller: &Caller, row: &Value) -> Result<Value, DbErr> {
     let project = row_text(row, "projectId").unwrap_or_default().to_owned();
     let labels = project_labels(caller, &[project]).await?;
     Ok(present_request_with(row, &labels))
@@ -735,23 +751,23 @@ async fn create_request(State(state): State<FlowState>, caller: Caller, body: By
 
 async fn insert_request(state: &FlowState, caller: &Caller, input: &Body) -> Reply {
     let id = generate_id("rrq");
-    weldsuite_db::atomically(
-        &caller.db,
-        [sqlx::query(
-            "insert into resource_requests (id, project_id, skill, hours_per_week, starts_on, ends_on,
-                 status, created_by, created_at, updated_at)
-             values ($1, $2, $3, $4::numeric, $5::date, $6::date, 'open', $7,
-                 $8::timestamptz, $8::timestamptz)",
-        )
-        .bind(id.clone())
-        .bind(text(input, "projectId").unwrap_or_default().to_owned())
-        .bind(text(input, "skill").unwrap_or_default().to_owned())
-        .bind(hours_text(number(input, "hoursPerWeek").unwrap_or_default()))
-        .bind(text(input, "startsOn").unwrap_or_default().to_owned())
-        .bind(text(input, "endsOn").unwrap_or_default().to_owned())
-        .bind(caller.user_id.clone())
-        .bind(iso_now())],
-    )
+    let now = now_at();
+    resource_requests::Entity::insert(resource_requests::ActiveModel {
+        id: Set(id.clone()),
+        project_id: Set(text(input, "projectId").unwrap_or_default().to_owned()),
+        skill: Set(text(input, "skill").unwrap_or_default().to_owned()),
+        hours_per_week: Set(decimal(&hours_text(
+            number(input, "hoursPerWeek").unwrap_or_default(),
+        ))?),
+        starts_on: Set(date(text(input, "startsOn").unwrap_or_default())?),
+        ends_on: Set(date(text(input, "endsOn").unwrap_or_default())?),
+        status: Set("open".to_owned()),
+        created_by: Set(caller.user_id.clone()),
+        created_at: Set(now),
+        updated_at: Set(now),
+        ..Default::default()
+    })
+    .exec_without_returning(&orm(&caller.db))
     .await?;
     let Some(row) = find_resource_request(&caller.db, &id).await? else {
         return Err(Refusal::Internal("the new request is missing".to_owned()));
@@ -806,23 +822,26 @@ async fn update_request(
         Err(refused) => return outside(Err(refused)),
     };
     let result = async {
-        weldsuite_db::atomically(
-            &caller.db,
-            [sqlx::query(
-                "update resource_requests set skill = $2, hours_per_week = $3::numeric,
-                     starts_on = $4::date, ends_on = $5::date, status = $6,
-                     updated_at = $7::timestamptz
-                 where id = $1 and deleted_at is null",
+        resource_requests::Entity::update_many()
+            .col_expr(resource_requests::Column::Skill, Expr::value(skill))
+            .col_expr(
+                resource_requests::Column::HoursPerWeek,
+                Expr::value(decimal(&hours)?),
             )
-            .bind(id.clone())
-            .bind(skill)
-            .bind(hours)
-            .bind(starts_on)
-            .bind(ends_on)
-            .bind(status)
-            .bind(iso_now())],
-        )
-        .await?;
+            .col_expr(
+                resource_requests::Column::StartsOn,
+                Expr::value(date(&starts_on)?),
+            )
+            .col_expr(
+                resource_requests::Column::EndsOn,
+                Expr::value(date(&ends_on)?),
+            )
+            .col_expr(resource_requests::Column::Status, Expr::value(status))
+            .col_expr(resource_requests::Column::UpdatedAt, Expr::value(now_at()))
+            .filter(resource_requests::Column::Id.eq(&id))
+            .filter(resource_requests::Column::DeletedAt.is_null())
+            .exec(&orm(&caller.db))
+            .await?;
         let Some(row) = find_resource_request(&caller.db, &id).await? else {
             return Err(Refusal::not_found(REQUEST_LABEL, &id));
         };
@@ -843,17 +862,14 @@ async fn remove_request(
         Err(refused) => return outside(Err(refused)),
     };
     let result = async {
-        let now = iso_now();
-        weldsuite_db::atomically(
-            &caller.db,
-            [sqlx::query(
-                "update resource_requests set deleted_at = $2::timestamptz, updated_at = $2::timestamptz
-                 where id = $1 and deleted_at is null",
-            )
-            .bind(id.clone())
-            .bind(now)],
-        )
-        .await?;
+        let now = now_at();
+        resource_requests::Entity::update_many()
+            .col_expr(resource_requests::Column::DeletedAt, Expr::value(now))
+            .col_expr(resource_requests::Column::UpdatedAt, Expr::value(now))
+            .filter(resource_requests::Column::Id.eq(&id))
+            .filter(resource_requests::Column::DeletedAt.is_null())
+            .exec(&orm(&caller.db))
+            .await?;
         publish_resource_request(&state, &caller, RESOURCE_REQUEST_DELETED, &existing);
         Ok(NoContent.into_response())
     }
@@ -935,39 +951,50 @@ async fn book(
     input: &Body,
 ) -> Reply {
     let booking_id = generate_id("bkg");
-    let now = iso_now();
+    let now = now_at();
     let tentative = input
         .get("tentative")
         .and_then(Value::as_bool)
         .unwrap_or(false);
-    weldsuite_db::atomically(
-        &caller.db,
-        [
-            sqlx::query(
-                "insert into resource_bookings (id, member_id, project_id, request_id, starts_on, ends_on,
-                     hours_per_week, tentative, created_by, created_at, updated_at)
-                 values ($1, $2, $3, null, $4::date, $5::date, $6::numeric, $7, $8,
-                     $9::timestamptz, $9::timestamptz)",
-            )
-            .bind(booking_id.clone())
-            .bind(text(input, "memberId").unwrap_or_default().to_owned())
-            .bind(row_text(request, "projectId").unwrap_or_default().to_owned())
-            .bind(row_text(request, "startsOn").unwrap_or_default().to_owned())
-            .bind(row_text(request, "endsOn").unwrap_or_default().to_owned())
-            .bind(row_text(request, "hoursPerWeek").unwrap_or_default().to_owned())
-            .bind(tentative)
-            .bind(caller.user_id.clone())
-            .bind(now.clone()),
-            sqlx::query(
-                "update resource_requests set status = 'booked', booking_id = $2,
-                     updated_at = $3::timestamptz
-                 where id = $1 and status = 'open' and deleted_at is null",
-            )
-            .bind(id.to_owned())
-            .bind(booking_id.clone())
-            .bind(now),
-        ],
-    )
+    let booking = bookings::ActiveModel {
+        id: Set(booking_id.clone()),
+        member_id: Set(text(input, "memberId").unwrap_or_default().to_owned()),
+        project_id: Set(Some(
+            row_text(request, "projectId")
+                .unwrap_or_default()
+                .to_owned(),
+        )),
+        request_id: Set(None),
+        starts_on: Set(date(row_text(request, "startsOn").unwrap_or_default())?),
+        ends_on: Set(date(row_text(request, "endsOn").unwrap_or_default())?),
+        hours_per_week: Set(decimal(
+            row_text(request, "hoursPerWeek").unwrap_or_default(),
+        )?),
+        tentative: Set(tentative),
+        created_by: Set(caller.user_id.clone()),
+        created_at: Set(now),
+        updated_at: Set(now),
+        ..Default::default()
+    };
+    let (request_id, filled_by) = (id.to_owned(), booking_id.clone());
+    weldsuite_db::atomically_with(&caller.db, |tx| {
+        Box::pin(async move {
+            let tx = OrmConn::new(tx);
+            bookings::Entity::insert(booking)
+                .exec_without_returning(&tx)
+                .await?;
+            resource_requests::Entity::update_many()
+                .col_expr(resource_requests::Column::Status, Expr::value("booked"))
+                .col_expr(resource_requests::Column::BookingId, Expr::value(filled_by))
+                .col_expr(resource_requests::Column::UpdatedAt, Expr::value(now))
+                .filter(resource_requests::Column::Id.eq(&request_id))
+                .filter(resource_requests::Column::Status.eq("open"))
+                .filter(resource_requests::Column::DeletedAt.is_null())
+                .exec(&tx)
+                .await?;
+            Ok::<_, Refusal>(())
+        })
+    })
     .await?;
     let booking = find_booking(&caller.db, &booking_id).await?;
     let updated = find_resource_request(&caller.db, id).await?;
@@ -985,18 +1012,50 @@ async fn book(
 
 // ── Member profiles ─────────────────────────────────────────────────────────
 
+/// Insert the member's profile (40 hours and no skills unless given), or set
+/// on the one there is only what was given.
+async fn upsert_profile(
+    caller: &Caller,
+    member_id: &str,
+    hours: Option<&str>,
+    skills: Option<Value>,
+) -> Result<(), DbErr> {
+    let hours = hours.map(decimal).transpose()?;
+    let now = now_at();
+    let mut kept = vec![profiles::Column::UpdatedAt];
+    if hours.is_some() {
+        kept.push(profiles::Column::WeeklyHours);
+    }
+    if skills.is_some() {
+        kept.push(profiles::Column::Skills);
+    }
+    profiles::Entity::insert(profiles::ActiveModel {
+        id: Set(generate_id("fmp")),
+        member_id: Set(member_id.to_owned()),
+        weekly_hours: Set(hours.unwrap_or_else(|| 40.into())),
+        skills: Set(skills.unwrap_or_else(|| json!([]))),
+        created_by: Set(caller.user_id.clone()),
+        created_at: Set(now),
+        updated_at: Set(now),
+    })
+    .on_conflict(
+        OnConflict::column(profiles::Column::MemberId)
+            .update_columns(kept)
+            .to_owned(),
+    )
+    .exec_without_returning(&orm(&caller.db))
+    .await?;
+    Ok(())
+}
+
 async fn list_profiles(caller: Caller) -> Response {
     let result = async {
-        let rows: Vec<Value> = sqlx::query_scalar(concat!(
-            "select ",
-            profile_json!("p"),
-            " from flow_member_profiles p order by p.member_id"
-        ))
-        .fetch_all(&caller.db)
-        .await?;
-        let items: Vec<Value> = rows
+        let rows = profiles::Entity::find()
+            .order_by_asc(profiles::Column::MemberId)
+            .all(&orm(&caller.db))
+            .await?;
+        let items: Vec<Value> = json_rows(rows)?
             .into_iter()
-            .map(js_row)
             .map(|row| {
                 let member = row_text(&row, "memberId").unwrap_or_default().to_owned();
                 present_profile(Some(&row), &member)
@@ -1043,26 +1102,7 @@ async fn save_profile(
             json!(normalize_skills(&given))
         });
         let hours: Option<String> = number(&input, "weeklyHours").map(|h| to_fixed(h, 2));
-        weldsuite_db::atomically(
-            &caller.db,
-            [sqlx::query(
-                "insert into flow_member_profiles (id, member_id, weekly_hours, skills, created_by,
-                     created_at, updated_at)
-                 values ($1, $2, coalesce($3::numeric, 40), coalesce($4::jsonb, '[]'::jsonb), $5,
-                     $6::timestamptz, $6::timestamptz)
-                 on conflict (member_id) do update set
-                     weekly_hours = coalesce($3::numeric, flow_member_profiles.weekly_hours),
-                     skills = coalesce($4::jsonb, flow_member_profiles.skills),
-                     updated_at = $6::timestamptz",
-            )
-            .bind(generate_id("fmp"))
-            .bind(member_id.clone())
-            .bind(hours)
-            .bind(skills)
-            .bind(caller.user_id.clone())
-            .bind(iso_now())],
-        )
-        .await?;
+        upsert_profile(&caller, &member_id, hours.as_deref(), skills).await?;
         let Some(row) = find_profile(&caller.db, &member_id).await? else {
             return Err(Refusal::Internal("the profile is missing".to_owned()));
         };

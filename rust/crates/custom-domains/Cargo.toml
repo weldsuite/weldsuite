@@ -1,0 +1,20 @@
+[package]
+name = "weldsuite-custom-domains"
+description = "Customers' own host names on the Kubernetes editions: a cert-manager Certificate and an Ingress per host name once its DNS points at the install (ADR PANEL-014), shared by WeldPanel's collector domains and WeldCommerce's shop domains."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+weldsuite-ports = { workspace = true }
+hex = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+tracing = { workspace = true }
+url = { workspace = true }
+
+[lints]
+workspace = true

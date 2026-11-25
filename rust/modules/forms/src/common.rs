@@ -34,9 +34,30 @@ pub(crate) enum Fail {
 
 pub(crate) type FormsResult<T> = Result<T, Fail>;
 
+/// A database error's text as sqlx wrote it, without SeaORM's wrapping: what
+/// the logs and, through the steps, an integration's `last_error` said
+/// before the ORM.
+pub(crate) fn db_error_text(error: &sea_orm::DbErr) -> String {
+    use sea_orm::{DbErr, RuntimeErr};
+    match error {
+        DbErr::Conn(RuntimeErr::SqlxError(inner))
+        | DbErr::Exec(RuntimeErr::SqlxError(inner))
+        | DbErr::Query(RuntimeErr::SqlxError(inner)) => inner.to_string(),
+        other => other.to_string(),
+    }
+}
+
+impl From<sea_orm::DbErr> for Fail {
+    fn from(error: sea_orm::DbErr) -> Self {
+        Self::Internal(format!("database: {}", db_error_text(&error)))
+    }
+}
+
+/// SQL that stays SQL, and the crates not converted to the ORM yet, report
+/// through SeaORM's error (`weldsuite_db::orm_error`).
 impl From<sqlx::Error> for Fail {
     fn from(error: sqlx::Error) -> Self {
-        Self::Internal(format!("database: {error}"))
+        Self::from(weldsuite_db::orm_error(error))
     }
 }
 
@@ -196,11 +217,20 @@ pub(crate) fn system_now_ms() -> i64 {
     i64::try_from(now.unix_timestamp_nanos() / 1_000_000).unwrap_or(i64::MAX)
 }
 
+/// `new Date(ms)`, as the `timestamptz` columns hold it.
+pub(crate) fn instant(ms: i64) -> OffsetDateTime {
+    OffsetDateTime::from_unix_timestamp_nanos(i128::from(ms) * 1_000_000)
+        .unwrap_or(OffsetDateTime::UNIX_EPOCH)
+}
+
+/// `date.getTime()` of a `timestamptz` value: milliseconds, the rest cut.
+pub(crate) fn epoch_ms(at: OffsetDateTime) -> i64 {
+    i64::try_from(at.unix_timestamp_nanos().div_euclid(1_000_000)).unwrap_or(i64::MAX)
+}
+
 /// `new Date(ms).toISOString()`.
 pub(crate) fn iso(ms: i64) -> String {
-    let at = OffsetDateTime::from_unix_timestamp_nanos(i128::from(ms) * 1_000_000)
-        .unwrap_or(OffsetDateTime::UNIX_EPOCH);
-    weldsuite_events::iso_timestamp(at)
+    weldsuite_events::iso_timestamp(instant(ms))
 }
 
 /// The `YYYY-MM-DD` of a UTC moment.
@@ -228,25 +258,15 @@ pub(crate) fn parse_ms(text: &str) -> Option<i64> {
 // Rows
 // ---------------------------------------------------------------------------
 
-/// The first row of `select to_jsonb(x) …`, as Drizzle returns it.
-pub(crate) async fn one(
-    db: &PgPool,
-    query: sqlx::query::QueryScalar<'_, sqlx::Postgres, Value, sqlx::postgres::PgArguments>,
-) -> FormsResult<Option<Value>> {
-    Ok(query.fetch_optional(db).await?.map(weldsuite_db::js_row))
+/// A row as Drizzle returns it: the entity's model, which serializes as the
+/// row did.
+pub(crate) fn row_json(model: impl serde::Serialize) -> FormsResult<Value> {
+    Ok(serde_json::to_value(model)?)
 }
 
-/// Every row of `select to_jsonb(x) …`, as Drizzle returns them.
-pub(crate) async fn all(
-    db: &PgPool,
-    query: sqlx::query::QueryScalar<'_, sqlx::Postgres, Value, sqlx::postgres::PgArguments>,
-) -> FormsResult<Vec<Value>> {
-    Ok(query
-        .fetch_all(db)
-        .await?
-        .into_iter()
-        .map(weldsuite_db::js_row)
-        .collect())
+/// Every row as Drizzle returns them ([`row_json`]).
+pub(crate) fn rows_json<M: serde::Serialize>(models: Vec<M>) -> FormsResult<Vec<Value>> {
+    models.into_iter().map(row_json).collect()
 }
 
 /// A string field of a row; `""` when null or missing.

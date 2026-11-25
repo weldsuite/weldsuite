@@ -11,17 +11,20 @@ use axum::body::Bytes;
 use axum::extract::{Path, State};
 use axum::response::IntoResponse;
 use http::HeaderMap;
-use serde_json::{Value, json};
+use sea_orm::ActiveValue::{Set, Unchanged};
+use sea_orm::{ActiveModelTrait, ColumnTrait, DbErr, EntityTrait, QueryFilter, QueryOrder};
+use serde_json::json;
 use weldsuite_catalogs::permission_keys::MERGE_ISSUES_DELETE;
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::validation::{Presence, Text};
 use weldsuite_kit::{Created, Data, NoContent, generate_id};
+use weldsuite_schema::tenant::merge_comments;
 
-use crate::db::{Row, one_by_id, rows_of, text};
+use crate::db::{Row, json_row, json_rows, now_at, text};
 use crate::hooks::{CommentChange, after_comment_changed};
 use crate::issues::{find_issue, team_key_of};
 use crate::mappers::comment_dto;
-use crate::{Answer, Caller, MergeState, PendingEvent, Refusal, all, now, publish, validate};
+use crate::{Answer, Caller, MergeState, PendingEvent, Refusal, all, publish, validate};
 
 fn comment_event(row: &Row, action: &'static str) -> PendingEvent {
     PendingEvent::new(
@@ -54,7 +57,7 @@ async fn comment_hooks(
     caller: &Caller,
     change: CommentChange,
     comment: &Row,
-) -> Result<(), sqlx::Error> {
+) -> Result<(), DbErr> {
     let Some(issue) = find_issue(&caller.db, text(comment, "issueId")).await? else {
         return Ok(());
     };
@@ -70,13 +73,71 @@ async fn comment_hooks(
     Ok(())
 }
 
-async fn find_comment(db: &PgPool, id: &str) -> Result<Option<Row>, sqlx::Error> {
-    one_by_id(
-        db,
-        "select to_jsonb(c) from merge_comments c where c.id = $1 and c.deleted_at is null limit 1",
-        id,
+/// A comment row as the services read it.
+pub(crate) fn comment_row(comment: merge_comments::Model) -> Result<Row, DbErr> {
+    json_row(serde_json::to_value(comment))
+}
+
+async fn find_comment(db: &PgPool, id: &str) -> Result<Option<Row>, DbErr> {
+    merge_comments::Entity::find_by_id(id.to_owned())
+        .filter(merge_comments::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?
+        .map(comment_row)
+        .transpose()
+}
+
+/// An issue's live comments, oldest first.
+pub(crate) async fn issue_comments(db: &PgPool, issue_id: &str) -> Result<Vec<Row>, DbErr> {
+    json_rows(
+        merge_comments::Entity::find()
+            .filter(merge_comments::Column::IssueId.eq(issue_id))
+            .filter(merge_comments::Column::DeletedAt.is_null())
+            .order_by_asc(merge_comments::Column::CreatedAt)
+            .order_by_asc(merge_comments::Column::Id)
+            .all(&orm(db))
+            .await?
+            .into_iter()
+            .map(serde_json::to_value),
     )
-    .await
+}
+
+/// A member's comment on an issue (`body` trimmed), as written.
+pub(crate) async fn insert_comment(
+    db: &PgPool,
+    issue_id: &str,
+    author_user_id: &str,
+    body: &str,
+) -> Result<Row, DbErr> {
+    let (_, at) = now_at();
+    comment_row(
+        merge_comments::Entity::insert(merge_comments::ActiveModel {
+            id: Set(generate_id("mcm")),
+            issue_id: Set(issue_id.to_owned()),
+            author_user_id: Set(Some(author_user_id.to_owned())),
+            body: Set(weldsuite_kit::validation::js_trim(body).to_owned()),
+            created_at: Set(at),
+            updated_at: Set(at),
+            ..Default::default()
+        })
+        .exec_with_returning(&orm(db))
+        .await?,
+    )
+}
+
+/// Soft-deletes a comment; the row as written.
+pub(crate) async fn soft_delete_comment(db: &PgPool, id: &str) -> Result<Row, DbErr> {
+    let (_, at) = now_at();
+    comment_row(
+        merge_comments::ActiveModel {
+            id: Unchanged(id.to_owned()),
+            deleted_at: Set(Some(at)),
+            updated_at: Set(at),
+            ..Default::default()
+        }
+        .update(&orm(db))
+        .await?,
+    )
 }
 
 /// `GET /issues/:id/comments`.
@@ -84,15 +145,7 @@ pub(crate) async fn list(caller: Caller, Path(id): Path<String>) -> Answer {
     if find_issue(&caller.db, &id).await?.is_none() {
         return Err(Refusal::not_found("Issue", Some(&id)));
     }
-    let rows = rows_of(
-        sqlx::query_scalar(
-            "select to_jsonb(c) from merge_comments c where c.issue_id = $1 and c.deleted_at is null \
-             order by c.created_at asc, c.id asc",
-        )
-        .bind(&id)
-        .fetch_all(&caller.db)
-        .await?,
-    );
+    let rows = issue_comments(&caller.db, &id).await?;
     Ok(all(rows.iter().map(comment_dto).collect()))
 }
 
@@ -108,20 +161,7 @@ pub(crate) async fn create(
     if find_issue(&caller.db, &id).await?.is_none() {
         return Err(Refusal::not_found("Issue", Some(&id)));
     }
-    let now = now();
-    let row: Value = sqlx::query_scalar(
-        "insert into merge_comments (id, issue_id, author_user_id, body, created_at, updated_at) \
-         values ($1, $2, $3, $4, $5::timestamptz, $5::timestamptz) \
-         returning to_jsonb(merge_comments.*)",
-    )
-    .bind(generate_id("mcm"))
-    .bind(&id)
-    .bind(&caller.user_id)
-    .bind(weldsuite_kit::validation::js_trim(&text_body))
-    .bind(&now)
-    .fetch_one(&caller.db)
-    .await?;
-    let row = weldsuite_db::js_row(row);
+    let row = insert_comment(&caller.db, &id, &caller.user_id, &text_body).await?;
     publish(&state, &caller.events, vec![comment_event(&row, "created")]);
     if let Some(issue) = find_issue(&caller.db, &id).await? {
         let team_key = team_key_of(&caller.db, text(&issue, "teamId")).await?;
@@ -152,16 +192,17 @@ pub(crate) async fn update(
     if text(&existing, "authorUserId") != caller.user_id {
         return Err(Refusal::forbidden("Only the author can edit a comment"));
     }
-    let row: Value = sqlx::query_scalar(
-        "update merge_comments set body = $2, updated_at = $3::timestamptz \
-         where id = $1 returning to_jsonb(merge_comments.*)",
-    )
-    .bind(&id)
-    .bind(weldsuite_kit::validation::js_trim(&text_body))
-    .bind(now())
-    .fetch_one(&caller.db)
-    .await?;
-    let row = weldsuite_db::js_row(row);
+    let (_, at) = now_at();
+    let row = comment_row(
+        merge_comments::ActiveModel {
+            id: Unchanged(id.clone()),
+            body: Set(weldsuite_kit::validation::js_trim(&text_body).to_owned()),
+            updated_at: Set(at),
+            ..Default::default()
+        }
+        .update(&orm(&caller.db))
+        .await?,
+    )?;
     publish(&state, &caller.events, vec![comment_event(&row, "updated")]);
     comment_hooks(&state, &caller, CommentChange::Updated, &row).await?;
     Ok(Data(comment_dto(&row)).into_response())
@@ -181,16 +222,7 @@ pub(crate) async fn remove(
             "Only the author, or someone who can delete issues, can delete a comment",
         ));
     }
-    let now = now();
-    let row: Value = sqlx::query_scalar(
-        "update merge_comments set deleted_at = $2::timestamptz, updated_at = $2::timestamptz \
-         where id = $1 returning to_jsonb(merge_comments.*)",
-    )
-    .bind(&id)
-    .bind(&now)
-    .fetch_one(&caller.db)
-    .await?;
-    let row = weldsuite_db::js_row(row);
+    let row = soft_delete_comment(&caller.db, &id).await?;
     publish(&state, &caller.events, vec![comment_event(&row, "deleted")]);
     comment_hooks(&state, &caller, CommentChange::Deleted, &row).await?;
     Ok(NoContent.into_response())

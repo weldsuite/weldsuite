@@ -9,6 +9,7 @@ use axum::body::Bytes;
 use axum::extract::{OriginalUri, Path, State};
 use axum::response::{IntoResponse, Response};
 use http::{HeaderMap, StatusCode};
+use sea_orm::{ColumnTrait, Condition, DbErr, EntityTrait, JoinType, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events::{
     CONNECTOR_CONNECTION_CONNECTED, CONNECTOR_CONNECTION_DISCONNECTED, CONNECTOR_CONNECTION_UPDATED,
@@ -33,8 +34,11 @@ use weldsuite_connect_domain::webhooks::{
     register_connection_webhooks, stripe_account_kv_key, unregister_connection_webhooks,
     webhook_base_url,
 };
+use weldsuite_db::orm;
 use weldsuite_kit::validation::{Issues, Presence, Text};
 use weldsuite_kit::{ApiError, Data};
+use weldsuite_schema::master::workspaces;
+use weldsuite_schema::tenant::{accounting_entity_settings as entity_settings, entities};
 
 use crate::connector_sync::{Background, spawn_sync, sync_env};
 use crate::{Caller, ConnectState, Overrides, validate};
@@ -57,6 +61,16 @@ pub(crate) fn auth_env(overrides: &Overrides, state: &ConnectState) -> AuthEnv {
             env("ENVIRONMENT").as_deref(),
         ),
     }
+}
+
+/// ADR OPS-026: a store outside the EU (Stripe, Shopify) is connected and
+/// called only once the workspace has switched it on; `Err` is the 403.
+/// Moneybird, Picqer, Odoo and `WooCommerce` pass.
+#[allow(clippy::result_large_err)] // the refusal is answered as it is
+async fn outside_eu(db: &weldsuite_db::PgPool, provider: &str) -> Result<(), Response> {
+    weldsuite_outside_eu::require_integration(db, provider)
+        .await
+        .map_err(|error| error.to_api_error().into_response())
 }
 
 /// Repairs a Moneybird connection's webhooks in the background
@@ -391,15 +405,22 @@ fn syncs_list(issues: &mut Issues, b: &Map<String, Value>) -> Option<Vec<String>
 
 /// `accountingEntityExists(db, id)`: a live legal entity WeldBooks is
 /// enabled for (it has an extension row).
-async fn entity_exists(db: &weldsuite_db::PgPool, id: &str) -> Result<bool, sqlx::Error> {
-    let found: Option<String> = sqlx::query_scalar(
-        "select e.id from entities e \
-         join accounting_entity_settings s on s.entity_id = e.id \
-         where e.id = $1 and e.deleted_at is null limit 1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
+async fn entity_exists(db: &weldsuite_db::PgPool, id: &str) -> Result<bool, DbErr> {
+    let found: Option<String> = entities::Entity::find()
+        .select_only()
+        .column(entities::Column::Id)
+        .join(
+            JoinType::InnerJoin,
+            entities::Entity::belongs_to(entity_settings::Entity)
+                .from(entities::Column::Id)
+                .to(entity_settings::Column::EntityId)
+                .into(),
+        )
+        .filter(entities::Column::Id.eq(id))
+        .filter(entities::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
     Ok(found.is_some())
 }
 
@@ -505,6 +526,9 @@ pub(crate) async fn connect(
         return ApiError::bad_request(message).into_response();
     }
     let db = caller.db.clone();
+    if let Err(refusal) = outside_eu(&db, &provider).await {
+        return refusal;
+    }
     if let Some(id) = entity.as_deref() {
         match entity_exists(&db, id).await {
             Ok(true) => {}
@@ -740,6 +764,9 @@ pub(crate) async fn authorize(
     if caller.clerk_org_id.is_empty() {
         return ApiError::org_required().into_response();
     }
+    if let Err(refusal) = outside_eu(&caller.db, &provider).await {
+        return refusal;
+    }
     let env = auth_env(&caller.overrides, &state);
     let enabled = normalize_enabled_syncs(&provider, syncs.as_deref());
     if provider != "woocommerce"
@@ -837,14 +864,19 @@ async fn tenant_for(
     };
     let db = tenants(clerk_org_id.clone()).await?;
     let workspace_id = match caller.overrides.master(state) {
-        Some(master) => sqlx::query_scalar::<_, String>(
-            "select id from workspaces where clerk_org_id = $1 or id = $1 limit 1",
-        )
-        .bind(&clerk_org_id)
-        .fetch_optional(&master)
-        .await
-        .map_err(|e| e.to_string())?
-        .unwrap_or(clerk_org_id),
+        Some(master) => workspaces::Entity::find()
+            .select_only()
+            .column(workspaces::Column::Id)
+            .filter(
+                Condition::any()
+                    .add(workspaces::Column::ClerkOrgId.eq(&clerk_org_id))
+                    .add(workspaces::Column::Id.eq(&clerk_org_id)),
+            )
+            .into_tuple::<String>()
+            .one(&orm(&master))
+            .await
+            .map_err(|e| e.to_string())?
+            .unwrap_or(clerk_org_id),
         None => clerk_org_id,
     };
     Ok(TenantRef { db, workspace_id })
@@ -877,6 +909,9 @@ pub(crate) async fn oauth_callback(
         Ok(read) => read,
         Err(refusal) => return refusal.respond("Connector request failed"),
     };
+    if let Err(refusal) = outside_eu(&caller.db, &provider).await {
+        return refusal;
+    }
     let env = auth_env(&caller.overrides, &state);
     let resolve = |org: String| tenant_for(&state, &caller, org);
     let result = if provider == "stripe" {
@@ -1024,6 +1059,11 @@ pub(crate) async fn patch_connection(
         weldsuite_kit::validation::Field::Absent => {}
     };
     if let Some(patch) = &body_credentials {
+        // New credentials are checked with the store: not one outside the
+        // EU the workspace has switched off (ADR OPS-026).
+        if let Err(refusal) = outside_eu(&db, &provider).await {
+            return refusal;
+        }
         if provider == "stripe" {
             if existing
                 .get("apiKey")
@@ -1184,7 +1224,15 @@ pub(crate) async fn delete_connection(
     };
     let env = auth_env(&caller.overrides, &state);
     let credentials = decrypt_credentials(row.get("credentials"), &env.sync.keyring);
-    unregister_connection_webhooks(env.sync.http.as_ref(), &row, &credentials).await;
+    // A store outside the EU the workspace has switched off is not called,
+    // not even to remove webhooks or revoke access (ADR OPS-026); the
+    // connection is still disconnected here.
+    let reachable = outside_eu(&db, row["provider"].as_str().unwrap_or_default())
+        .await
+        .is_ok();
+    if reachable {
+        unregister_connection_webhooks(env.sync.http.as_ref(), &row, &credentials).await;
+    }
     let Some(cache) = env.cache.clone() else {
         // `env.WORKSPACE_CACHE.delete(...)` without the binding throws.
         return ApiError::internal().into_response();
@@ -1221,7 +1269,8 @@ pub(crate) async fn delete_connection(
                     .as_deref()
                     .map(weldsuite_kit::validation::js_trim)
                     .filter(|c| !c.is_empty());
-                if let (false, Some(client_id), Some(secret)) = (still_used, client_id, secret)
+                if let (false, Some(client_id), Some(secret), true) =
+                    (still_used, client_id, secret, reachable)
                     && let Err(error) = weldsuite_connect_domain::stripe::deauthorize(
                         env.sync.http.as_ref(),
                         secret,

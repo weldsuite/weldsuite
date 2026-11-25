@@ -5,10 +5,19 @@
 //! tax lines, re-mapping tax lines, and what is frozen once the books rest
 //! on an entity.
 
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect, QueryTrait};
 use serde_json::{Map, Value, json};
 use sqlx::PgPool;
 use weldsuite_books_domain::jurisdictions::{br, us};
+use weldsuite_books_domain::table::TxError;
+use weldsuite_db::{OrmConn, orm};
 use weldsuite_kit::generate_id;
+use weldsuite_schema::tenant::{
+    accounts, bills, fiscal_periods, invoices, journal_entries, payments, tax_rates, vat_returns,
+};
+
+use crate::orm_bridge::{select_flags, to_json};
 
 /// `EntitySetupError`: the route answers 400 with the message.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -417,7 +426,7 @@ pub(crate) async fn apply_tax_lines(
     entity: &Value,
     overwrite: bool,
     tax_year: i64,
-) -> Result<Value, sqlx::Error> {
+) -> Result<Value, DbErr> {
     let entity_type = entity["entityType"].as_str();
     let classification = entity["taxClassification"].as_str();
     let form = form_of(entity_type, classification);
@@ -431,15 +440,14 @@ pub(crate) async fn apply_tax_lines(
             .find(|r| r["code"].as_str() == Some(code))
             .and_then(|r| r["taxLine"].as_str())
     };
-    let rows: Vec<Value> = sqlx::query_scalar(concat!(
-        "select ",
-        weldsuite_books_domain::books_row!(accounts),
-        " from accounts t where t.entity_id = $1 and t.deleted_at is null"
-    ))
-    .bind(entity["id"].as_str().unwrap_or_default())
-    .fetch_all(db)
-    .await?;
-    let accounts = weldsuite_books_domain::tables::ACCOUNTS.js_rows(rows);
+    let accounts = accounts::Entity::find()
+        .filter(accounts::Column::EntityId.eq(entity["id"].as_str().unwrap_or_default()))
+        .filter(accounts::Column::DeletedAt.is_null())
+        .all(&orm(db))
+        .await?
+        .into_iter()
+        .map(to_json)
+        .collect::<Result<Vec<_>, _>>()?;
 
     let (mut updated, mut unchanged, mut kept) = (0_i64, 0_i64, 0_i64);
     let mut changes: Vec<Value> = Vec::new();
@@ -509,21 +517,24 @@ pub(crate) async fn apply_tax_lines(
             unmapped.push(reference);
         }
     }
-    let at = weldsuite_books_domain::http::now();
+    let at = weldsuite_db::utc_now();
     for batch in remaps.chunks(100) {
-        let batch = batch.to_vec();
-        let at = at.clone();
+        let writes: Vec<_> = batch
+            .iter()
+            .map(|(id, tax_line)| {
+                accounts::Entity::update_many()
+                    .col_expr(accounts::Column::TaxLine, Expr::value(tax_line.clone()))
+                    .col_expr(accounts::Column::UpdatedAt, Expr::value(at))
+                    .filter(accounts::Column::Id.eq(id.as_str()))
+            })
+            .collect();
         weldsuite_db::atomically_with(db, move |conn| {
             Box::pin(async move {
-                for (id, tax_line) in batch {
-                    sqlx::query("update accounts set tax_line = $1, updated_at = $2::timestamp where id = $3")
-                        .bind(tax_line)
-                        .bind(&at)
-                        .bind(id)
-                        .execute(&mut *conn)
-                        .await?;
+                let tx = OrmConn::new(conn);
+                for write in writes {
+                    write.exec(&tx).await?;
                 }
-                Ok::<_, sqlx::Error>(())
+                Ok::<_, TxError>(())
             })
         })
         .await?;
@@ -546,15 +557,19 @@ pub(crate) async fn sync_br_tax_profiles(
     db: &PgPool,
     entity_id: &str,
     classification: Option<&str>,
-) -> Result<(), sqlx::Error> {
+) -> Result<(), DbErr> {
     let regime = br::regime_of(classification).to_owned();
-    let rates: Vec<(String, Option<Value>)> = sqlx::query_as(
-        "select id, jurisdiction_metadata from tax_rates where entity_id = $1 and deleted_at is null",
-    )
-    .bind(entity_id)
-    .fetch_all(db)
-    .await?;
-    let at = weldsuite_books_domain::http::now();
+    let db = orm(db);
+    let rates: Vec<(String, Option<Value>)> = tax_rates::Entity::find()
+        .select_only()
+        .column(tax_rates::Column::Id)
+        .column(tax_rates::Column::JurisdictionMetadata)
+        .filter(tax_rates::Column::EntityId.eq(entity_id))
+        .filter(tax_rates::Column::DeletedAt.is_null())
+        .into_tuple()
+        .all(&db)
+        .await?;
+    let at = weldsuite_db::utc_now();
     for (id, metadata) in rates {
         let Some(profile) = br::profile_of(metadata.as_ref()) else {
             continue;
@@ -562,33 +577,75 @@ pub(crate) async fn sync_br_tax_profiles(
         let active = profile["regimes"]
             .as_array()
             .is_some_and(|r| r.iter().any(|v| v.as_str() == Some(regime.as_str())));
-        sqlx::query(
-            "update tax_rates set is_active = $1, is_default = case when $1 then is_default else false end, \
-             updated_at = $2::timestamp where id = $3",
-        )
-        .bind(active)
-        .bind(&at)
-        .bind(id)
-        .execute(db)
-        .await?;
+        // `is_default = case when active then is_default else false end`
+        let mut update = tax_rates::Entity::update_many()
+            .col_expr(tax_rates::Column::IsActive, Expr::value(active));
+        if !active {
+            update = update.col_expr(tax_rates::Column::IsDefault, Expr::value(false));
+        }
+        update
+            .col_expr(tax_rates::Column::UpdatedAt, Expr::value(at))
+            .filter(tax_rates::Column::Id.eq(id))
+            .exec(&db)
+            .await?;
     }
     Ok(())
 }
 
+/// `exists (select 1 from <entity> where …)` of a `find()` with its filters.
+fn exists_in<E: EntityTrait>(find: sea_orm::Select<E>) -> Expr {
+    Expr::exists(find.select_only().expr(Expr::val(1)).into_query())
+}
+
+/// `exists` a posted (not draft) journal entry, invoice, bill or VAT return,
+/// or a payment, of the entity.
+fn has_postings(entity_id: &str) -> Expr {
+    let checks = [
+        exists_in(
+            journal_entries::Entity::find()
+                .filter(journal_entries::Column::EntityId.eq(entity_id))
+                .filter(journal_entries::Column::Status.ne("draft"))
+                .filter(journal_entries::Column::DeletedAt.is_null()),
+        ),
+        exists_in(
+            invoices::Entity::find()
+                .filter(invoices::Column::EntityId.eq(entity_id))
+                .filter(invoices::Column::Status.ne("draft"))
+                .filter(invoices::Column::DeletedAt.is_null()),
+        ),
+        exists_in(
+            bills::Entity::find()
+                .filter(bills::Column::EntityId.eq(entity_id))
+                .filter(bills::Column::Status.ne("draft"))
+                .filter(bills::Column::DeletedAt.is_null()),
+        ),
+        exists_in(
+            payments::Entity::find()
+                .filter(payments::Column::EntityId.eq(entity_id))
+                .filter(payments::Column::DeletedAt.is_null()),
+        ),
+        exists_in(
+            vat_returns::Entity::find()
+                .filter(vat_returns::Column::EntityId.eq(entity_id))
+                .filter(vat_returns::Column::Status.ne("draft"))
+                .filter(vat_returns::Column::DeletedAt.is_null()),
+        ),
+    ];
+    checks
+        .into_iter()
+        .reduce(sea_orm::ExprTrait::or)
+        .unwrap_or_else(|| Expr::val(false))
+}
+
 /// `EntityLockState`: `hasPostings`, `hasFiscalPeriods`, and what that freezes.
-pub(crate) async fn lock_state(db: &PgPool, entity_id: &str) -> Result<Value, sqlx::Error> {
-    let (has_postings, has_periods): (bool, bool) = sqlx::query_as(
-        "select \
-           exists (select 1 from journal_entries where entity_id = $1 and status <> 'draft' and deleted_at is null) \
-           or exists (select 1 from invoices where entity_id = $1 and status <> 'draft' and deleted_at is null) \
-           or exists (select 1 from bills where entity_id = $1 and status <> 'draft' and deleted_at is null) \
-           or exists (select 1 from payments where entity_id = $1 and deleted_at is null) \
-           or exists (select 1 from vat_returns where entity_id = $1 and status <> 'draft' and deleted_at is null), \
-           exists (select 1 from fiscal_periods where entity_id = $1 and deleted_at is null)",
-    )
-    .bind(entity_id)
-    .fetch_one(db)
-    .await?;
+pub(crate) async fn lock_state(db: &PgPool, entity_id: &str) -> Result<Value, DbErr> {
+    let has_periods = exists_in(
+        fiscal_periods::Entity::find()
+            .filter(fiscal_periods::Column::EntityId.eq(entity_id))
+            .filter(fiscal_periods::Column::DeletedAt.is_null()),
+    );
+    let [has_postings, has_periods] =
+        select_flags(&orm(db), [has_postings(entity_id), has_periods]).await?;
     Ok(json!({
         "hasPostings": has_postings,
         "hasFiscalPeriods": has_periods,

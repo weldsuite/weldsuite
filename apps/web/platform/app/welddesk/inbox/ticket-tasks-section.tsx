@@ -74,8 +74,8 @@ export function TicketTasksSection({ conversationId }: Readonly<{ conversationId
   if (!allowed || isError) return null;
 
   return (
-    <div className="px-4 py-3 border-b border-border/60" data-testid="desk-inbox-ticket-tasks">
-      <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-2">{t.title}</p>
+    <section className="space-y-2" data-testid="desk-inbox-ticket-tasks">
+      <h3 className="text-sm font-semibold text-foreground">{t.title}</h3>
       {isLoading && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
       {!isLoading && (tasks ?? []).length === 0 && <p className="text-sm text-muted-foreground">{t.empty}</p>}
       <ul className="space-y-1">
@@ -83,6 +83,6 @@ export function TicketTasksSection({ conversationId }: Readonly<{ conversationId
           <TicketTaskRow key={task.id} task={task} labels={statusLabels} />
         ))}
       </ul>
-    </div>
+    </section>
   );
 }

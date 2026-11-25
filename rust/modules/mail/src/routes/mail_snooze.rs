@@ -11,17 +11,19 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use http::HeaderMap;
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Value, json};
-use time::OffsetDateTime;
+use time::{OffsetDateTime, PrimitiveDateTime};
 use weldsuite_catalogs::permission_keys::{MESSAGES_READ, MESSAGES_UPDATE};
-use weldsuite_db::js_row;
+use weldsuite_db::{orm, utc_timestamp};
 use weldsuite_kit::Data;
 use weldsuite_kit::validation::{Format, Presence, Text};
 use weldsuite_mail_domain::access::{accessible_account_ids, check_account_access};
 use weldsuite_mail_domain::labels::{add_labels, labels_of, labels_value, remove_labels};
-use weldsuite_mail_domain::messages::iso;
 use weldsuite_mail_domain::outbound::clock::{self, parse_iso};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::{mail_accounts, mail_messages};
 
 use crate::routes::mail_labels::NO_ACCESS;
 use crate::util::{MailError, MailResult, answer, validate, validate_query};
@@ -58,21 +60,27 @@ where
 
 /// `listSnoozedMessages(db, { accountIds })`: the column first, the legacy
 /// custom-field blob second.
-async fn list_snoozed(caller: &Caller, account_ids: &[String]) -> Result<Vec<Value>, sqlx::Error> {
+async fn list_snoozed(caller: &Caller, account_ids: &[String]) -> Result<Vec<Value>, DbErr> {
     if account_ids.is_empty() {
         return Ok(Vec::new());
     }
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(m) - (case when m.threats is null then 'threats' else '' end) from mail_messages m
-         where m.account_id = any($1::text[]) and m.deleted_at is null
-           and m.labels @> '[\"SNOOZED\"]'::jsonb",
-    )
-    .bind(account_ids)
-    .fetch_all(&caller.db)
-    .await?;
+    let rows = mail_messages::Entity::find()
+        .filter(mail_messages::Column::AccountId.is_in(account_ids.iter().map(String::as_str)))
+        .filter(mail_messages::Column::DeletedAt.is_null())
+        // `labels @> '["SNOOZED"]'`.
+        .filter(sea_orm::sea_query::extension::postgres::PgExpr::contains(
+            Expr::col(mail_messages::Column::Labels),
+            Expr::value(json!(["SNOOZED"])),
+        ))
+        .all(&orm(&caller.db))
+        .await?;
+    let rows = rows
+        .into_iter()
+        .map(serde_json::to_value)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| DbErr::Json(error.to_string()))?;
     Ok(rows
         .into_iter()
-        .map(js_row)
         .map(|m| {
             let custom = &m["customFields"];
             let pick = |column: &str, legacy: &str| {
@@ -117,12 +125,13 @@ async fn snoozed(caller: Caller, RawQuery(raw): RawQuery) -> Response {
                 if !check_account_access(&caller.db, &account, &caller.user_id).await? {
                     return Err(MailError::forbidden(NO_ACCESS));
                 }
-                let live: Option<String> = sqlx::query_scalar(
-                    "select id from mail_accounts where id = $1 and deleted_at is null limit 1",
-                )
-                .bind(&account)
-                .fetch_optional(&caller.db)
-                .await?;
+                let live: Option<String> = mail_accounts::Entity::find_by_id(account)
+                    .select_only()
+                    .column(mail_accounts::Column::Id)
+                    .filter(mail_accounts::Column::DeletedAt.is_null())
+                    .into_tuple()
+                    .one(&orm(&caller.db))
+                    .await?;
                 live.into_iter().collect()
             }
             None => accessible_account_ids(&caller.db, &caller.user_id).await?,
@@ -152,21 +161,28 @@ fn read_until(headers: &HeaderMap, body: &Bytes) -> MailResult<i64> {
     })
 }
 
+/// The message's labels, `snoozed_until` and custom fields.
+type SnoozeFields = (Option<Value>, Option<PrimitiveDateTime>, Option<Value>);
+
 /// The message in this mailbox (`findMessage`): its labels and snooze
 /// fields, or `None`.
 async fn find_message(
     caller: &Caller,
     account: &str,
     id: &str,
-) -> Result<Option<(Option<Value>, Option<String>, Option<Value>)>, sqlx::Error> {
-    sqlx::query_as(
-        "select labels, snoozed_until::text, custom_fields from mail_messages
-         where id = $1 and account_id = $2 and deleted_at is null limit 1",
-    )
-    .bind(id)
-    .bind(account)
-    .fetch_optional(&caller.db)
-    .await
+) -> Result<Option<SnoozeFields>, DbErr> {
+    mail_messages::Entity::find_by_id(id)
+        .select_only()
+        .columns([
+            mail_messages::Column::Labels,
+            mail_messages::Column::SnoozedUntil,
+            mail_messages::Column::CustomFields,
+        ])
+        .filter(mail_messages::Column::AccountId.eq(account))
+        .filter(mail_messages::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(&caller.db))
+        .await
 }
 
 /// `snoozeMessage` / `resnoozeMessage`.
@@ -190,38 +206,43 @@ async fn apply_snooze(
         return Err(MailError::not_found("Message", None));
     };
     let until_iso = clock::iso(until);
-    if resnooze {
-        sqlx::query(
-            "update mail_messages set snoozed_until = $2::timestamp, resnoozed_at = $3::timestamp,
-               updated_at = $3::timestamp
-             where id = $1",
-        )
-        .bind(id)
-        .bind(&until_iso)
-        .bind(iso(now))
-        .execute(&caller.db)
-        .await?;
+    let until_at = OffsetDateTime::from_unix_timestamp_nanos(i128::from(until) * 1_000_000).ok();
+    let snoozed_until = utc_timestamp(until_at.unwrap_or(OffsetDateTime::UNIX_EPOCH));
+    let stamp = utc_timestamp(now);
+    let update = mail_messages::Entity::update_many();
+    let update = if resnooze {
+        update
+            .col_expr(
+                mail_messages::Column::SnoozedUntil,
+                Expr::value(snoozed_until),
+            )
+            .col_expr(mail_messages::Column::ResnoozedAt, Expr::value(stamp))
+            .col_expr(mail_messages::Column::UpdatedAt, Expr::value(stamp))
     } else {
         let labels = labels_of(labels.as_ref());
         let next = add_labels(
             &remove_labels(&labels, &["INBOX".to_owned()]),
             &["SNOOZED".to_owned()],
         );
-        sqlx::query(
-            "update mail_messages set labels = $2, is_read = true, snoozed_until = $3::timestamp,
-               snoozed_at = $4::timestamp, updated_at = $4::timestamp
-             where id = $1",
-        )
-        .bind(id)
-        .bind(labels_value(&next))
-        .bind(&until_iso)
-        .bind(iso(now))
-        .execute(&caller.db)
+        update
+            .col_expr(
+                mail_messages::Column::Labels,
+                Expr::value(labels_value(&next)),
+            )
+            .col_expr(mail_messages::Column::IsRead, Expr::value(true))
+            .col_expr(
+                mail_messages::Column::SnoozedUntil,
+                Expr::value(snoozed_until),
+            )
+            .col_expr(mail_messages::Column::SnoozedAt, Expr::value(stamp))
+            .col_expr(mail_messages::Column::UpdatedAt, Expr::value(stamp))
+    };
+    update
+        .filter(mail_messages::Column::Id.eq(id))
+        .exec(&orm(&caller.db))
         .await?;
-    }
     if let Some(master) = caller.bindings.master(state)
-        && let Some(at) =
-            OffsetDateTime::from_unix_timestamp_nanos(i128::from(until) * 1_000_000).ok()
+        && let Some(at) = until_at
     {
         weldsuite_db::due_index::mark_due(&master, SNOOZE_KIND, &caller.workspace_id, at).await;
     }
@@ -286,17 +307,27 @@ async fn unsnooze(caller: Caller, Path((account, id)): Path<(String, String)>) -
             &remove_labels(&labels, &["SNOOZED".to_owned()]),
             &["INBOX".to_owned()],
         );
-        sqlx::query(
-            "update mail_messages set labels = $2, is_read = false, snoozed_until = null,
-               unsnooze_trigger_run_id = null, unsnoozed_at = $3::timestamp, unsnoozed_early = true,
-               updated_at = $3::timestamp
-             where id = $1",
-        )
-        .bind(&id)
-        .bind(labels_value(&next))
-        .bind(iso(OffsetDateTime::now_utc()))
-        .execute(&caller.db)
-        .await?;
+        let stamp = weldsuite_db::utc_now();
+        mail_messages::Entity::update_many()
+            .col_expr(
+                mail_messages::Column::Labels,
+                Expr::value(labels_value(&next)),
+            )
+            .col_expr(mail_messages::Column::IsRead, Expr::value(false))
+            .col_expr(
+                mail_messages::Column::SnoozedUntil,
+                Expr::value(Option::<PrimitiveDateTime>::None),
+            )
+            .col_expr(
+                mail_messages::Column::UnsnoozeTriggerRunId,
+                Expr::value(Option::<String>::None),
+            )
+            .col_expr(mail_messages::Column::UnsnoozedAt, Expr::value(stamp))
+            .col_expr(mail_messages::Column::UnsnoozedEarly, Expr::value(true))
+            .col_expr(mail_messages::Column::UpdatedAt, Expr::value(stamp))
+            .filter(mail_messages::Column::Id.eq(&id))
+            .exec(&orm(&caller.db))
+            .await?;
         Ok(Data(json!({ "id": id })).into_response())
     }
     .await;

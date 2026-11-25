@@ -7,17 +7,27 @@ import { useTranslations } from '@weldsuite/i18n/client';
 import { usePermissions } from '@weldsuite/permissions/react';
 import type { HrAnnouncement } from '@weldsuite/app-api-client/domains/weldhr';
 import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
-import { PanelEntityList, type ColumnDef, type GroupConfig } from '@/components/panel-entity-list';
+import {
+  PanelEntityList,
+  type ActiveFilter,
+  type ColumnDef,
+  type FilterConfig,
+  type GroupConfig,
+} from '@/components/panel-entity-list';
+import { useObjectPanel, useObjectPanelUrlSync } from '@/components/object-panel';
+import { HR_ANNOUNCEMENT_PANEL_TYPE } from '@/components/objects/hr-announcement/types';
 import { useDeleteHrAnnouncement, useHrAnnouncements } from '@/hooks/queries/use-weldhr-queries';
 import { cn } from '@/lib/utils';
 import { HR_COL, HrListContainer, emptyIcon, useHrBreadcrumbs } from '../components/page-kit';
 import { errorMessage, formatDate } from '../components/shared';
 import { AnnouncementDialog } from './components/announcement-dialog';
-import { AnnouncementReadsSheet } from './components/announcement-reads-sheet';
 
 export default function WeldHrAnnouncementsPage() {
   const t = useTranslations();
   useHrBreadcrumbs({ label: t('weldhr.announcements.title') });
+  // An announcement opens in the object panel; `?stack=` keeps it deep-linkable.
+  useObjectPanelUrlSync('/weldhr/announcements');
+  const { open: openPanel } = useObjectPanel();
   const { can } = usePermissions();
   const canCreate = can('announcements:create');
   const canUpdate = can('announcements:update');
@@ -27,7 +37,6 @@ export default function WeldHrAnnouncementsPage() {
   const deleteAnnouncement = useDeleteHrAnnouncement();
   const [search, setSearch] = useState('');
   const [dialogState, setDialogState] = useState<'create' | HrAnnouncement | null>(null);
-  const [readsId, setReadsId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<HrAnnouncement | null>(null);
 
   const items = useMemo(() => {
@@ -35,8 +44,6 @@ export default function WeldHrAnnouncementsPage() {
     const query = search.trim().toLowerCase();
     return query ? all.filter((a) => a.title.toLowerCase().includes(query)) : all;
   }, [data, search]);
-  // Read from the list so the sheet's counts follow a refetch.
-  const readsTarget = readsId ? data?.find((a) => a.id === readsId) : undefined;
 
   const groups: GroupConfig<HrAnnouncement>[] = [
     { id: 'pinned', label: t('weldhr.announcements.groups.pinned'), sortOrder: 1, filter: (a) => a.pinned },
@@ -46,6 +53,44 @@ export default function WeldHrAnnouncementsPage() {
   function audienceLabel(a: HrAnnouncement): string {
     return a.departmentNames.length > 0 ? a.departmentNames.join(', ') : t('weldhr.announcements.everyone');
   }
+
+  const all = data ?? [];
+  const departments = [...new Set(all.flatMap((a) => a.departmentNames))].sort((a, b) => a.localeCompare(b));
+  const authors = [...new Set(all.map((a) => a.createdByName).filter((name): name is string => !!name))].sort((a, b) => a.localeCompare(b));
+  const filters: FilterConfig[] = [
+    {
+      field: 'audience',
+      label: t('weldhr.announcements.table.audience'),
+      operators: ['is'],
+      options: [
+        { value: '', label: t('weldhr.announcements.everyone') },
+        ...departments.map((name) => ({ value: name, label: name })),
+      ].map((option) => (option.value === '' ? { ...option, value: '__everyone' } : option)),
+    },
+    {
+      field: 'pinned',
+      label: t('weldhr.announcements.pinned'),
+      operators: ['is'],
+      options: [
+        { value: 'pinned', label: t('weldhr.announcements.pinned') },
+        { value: 'notPinned', label: t('weldhr.announcements.filters.notPinned') },
+      ],
+    },
+    ...(authors.length > 0
+      ? [{ field: 'postedBy', label: t('weldhr.announcements.panel.postedBy'), operators: ['is'], options: authors.map((name) => ({ value: name, label: name })) }]
+      : []),
+  ];
+  const applyFilters = (rows: HrAnnouncement[], active: ActiveFilter[]) =>
+    active.reduce((list, filter) => {
+      if (!filter.value) return list;
+      if (filter.field === 'audience') {
+        // "Everyone" is an announcement without departments; a department also matches when it is one of several.
+        return list.filter((a) => (filter.value === '__everyone' ? a.departmentNames.length === 0 : a.departmentNames.includes(filter.value)));
+      }
+      if (filter.field === 'pinned') return list.filter((a) => a.pinned === (filter.value === 'pinned'));
+      if (filter.field === 'postedBy') return list.filter((a) => a.createdByName === filter.value);
+      return list;
+    }, rows);
 
   const columns: ColumnDef<HrAnnouncement>[] = [
     {
@@ -61,7 +106,6 @@ export default function WeldHrAnnouncementsPage() {
               <BellRing className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-label={t('weldhr.announcements.pushSent')} />
             )}
           </div>
-          <p className="truncate text-xs text-muted-foreground">{a.body.replace(/\s+/g, ' ')}</p>
           {/* What the hidden columns would show, once the list is too narrow for them. */}
           <p className="truncate text-xs text-muted-foreground @4xl:hidden">
             {audienceLabel(a)} · {t('weldhr.announcements.readOf', { read: a.readCount, total: a.audienceCount })}
@@ -100,12 +144,14 @@ export default function WeldHrAnnouncementsPage() {
           error={error}
           columns={columns}
           groups={groups}
-          filters={[]}
+          filters={filters}
+          applyFilters={applyFilters}
           searchQuery={search}
           onSearchChange={setSearch}
           searchPlaceholder={t('weldhr.announcements.searchPlaceholder')}
-          // Opening a row shows who has read it; editing and deleting are in its menu.
-          onRowClick={(a) => setReadsId(a.id)}
+          // A row opens the announcement's panel (details and who has read it); editing and deleting are also in its menu.
+          onRowClick={(a) => openPanel({ type: HR_ANNOUNCEMENT_PANEL_TYPE, id: a.id })}
+          objectPanel={{ type: HR_ANNOUNCEMENT_PANEL_TYPE }}
           onEdit={canUpdate ? setDialogState : undefined}
           onDelete={canDelete ? setDeleteTarget : undefined}
           createButton={canCreate ? { label: t('weldhr.announcements.add'), onClick: () => setDialogState('create') } : undefined}
@@ -119,8 +165,6 @@ export default function WeldHrAnnouncementsPage() {
       </HrListContainer>
 
       {dialogState && <AnnouncementDialog announcement={dialogState === 'create' ? undefined : dialogState} onClose={() => setDialogState(null)} />}
-
-      {readsTarget && <AnnouncementReadsSheet announcement={readsTarget} onClose={() => setReadsId(null)} />}
 
       <ConfirmDialog
         open={Boolean(deleteTarget)}

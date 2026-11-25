@@ -39,15 +39,18 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::post;
 use futures_util::future::join_all;
 use http::{HeaderMap, StatusCode};
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 use serde_json::{Map, Value, json};
 use weldsuite_ai::{Ai, AiCall, AiError, ChatRequest, Feature, Served, Task, Tier};
 use weldsuite_catalogs::entity_events as ev;
 use weldsuite_catalogs::permission_keys as perm;
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::ApiError;
 use weldsuite_kit::validation::{Issues, Presence, Text, js_trim};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 use weldsuite_ports::DynCache;
+use weldsuite_schema::tenant::{desk_conversations, desk_messages};
 
 use super::Ctx;
 use crate::{DeskState, validate};
@@ -499,9 +502,9 @@ enum Failure {
     Database(sea_orm::DbErr),
 }
 
-impl From<sqlx::Error> for Failure {
-    fn from(error: sqlx::Error) -> Self {
-        Self::Database(weldsuite_db::orm_error(error))
+impl From<sea_orm::DbErr> for Failure {
+    fn from(error: sea_orm::DbErr) -> Self {
+        Self::Database(error)
     }
 }
 
@@ -540,7 +543,7 @@ impl Failure {
     /// The credit gate's refusal (402, or 503 without a provider).
     fn gate(error: AiError) -> Self {
         match error {
-            AiError::Database(error) => Self::Database(weldsuite_db::orm_error(error)),
+            AiError::Database(error) => Self::Database(error),
             other => Self::Answer(Box::new(other.into_api_error().into_response())),
         }
     }
@@ -603,21 +606,22 @@ impl Run {
     }
 
     /// Store what a call named as the customer's language, when it is news.
-    async fn adopt_language(&mut self, raw: Option<&str>) -> Result<(), sqlx::Error> {
+    async fn adopt_language(&mut self, raw: Option<&str>) -> Result<(), sea_orm::DbErr> {
         let Some(detected) = normalize_locale(raw) else {
             return Ok(());
         };
         if self.language.as_deref() == Some(detected.as_str()) {
             return Ok(());
         }
-        let updated: Option<String> = sqlx::query_scalar(
-            "update desk_conversations set language = $2 where id = $1 returning id",
-        )
-        .bind(&self.conversation_id)
-        .bind(&detected)
-        .fetch_optional(&self.db)
-        .await?;
-        if updated.is_some() {
+        let updated = desk_conversations::Entity::update_many()
+            .col_expr(
+                desk_conversations::Column::Language,
+                Expr::value(detected.clone()),
+            )
+            .filter(desk_conversations::Column::Id.eq(self.conversation_id.as_str()))
+            .exec(&orm(&self.db))
+            .await?;
+        if updated.rows_affected > 0 {
             self.language_change = Some((self.stored.clone(), detected.clone()));
         }
         self.language = Some(detected);
@@ -694,10 +698,12 @@ fn batches_of(messages: &[Message]) -> Vec<Vec<&Message>> {
 async fn conversation_language(
     db: &PgPool,
     id: &str,
-) -> Result<Option<Option<String>>, sqlx::Error> {
-    sqlx::query_scalar("select language from desk_conversations where id = $1 limit 1")
-        .bind(id)
-        .fetch_optional(db)
+) -> Result<Option<Option<String>>, sea_orm::DbErr> {
+    desk_conversations::Entity::find_by_id(id)
+        .select_only()
+        .column(desk_conversations::Column::Language)
+        .into_tuple()
+        .one(&orm(db))
         .await
 }
 
@@ -707,21 +713,23 @@ async fn load_messages(
     db: &PgPool,
     conversation_id: &str,
     message_ids: Option<&[String]>,
-) -> Result<Vec<Message>, sqlx::Error> {
+) -> Result<Vec<Message>, sea_orm::DbErr> {
+    use desk_messages::Column;
     let has_text = |body: &Option<String>| body.as_deref().is_some_and(|b| !js_trim(b).is_empty());
     if let Some(ids) = message_ids {
         if ids.is_empty() {
             return Ok(Vec::new());
         }
-        let rows: Vec<(String, String, String, Option<String>)> = sqlx::query_as(
-            "select id, kind, author_type, body from desk_messages
-             where conversation_id = $1 and id = any($2)
-             order by created_at asc, id asc",
-        )
-        .bind(conversation_id)
-        .bind(ids)
-        .fetch_all(db)
-        .await?;
+        let rows: Vec<(String, String, String, Option<String>)> = desk_messages::Entity::find()
+            .select_only()
+            .columns([Column::Id, Column::Kind, Column::AuthorType, Column::Body])
+            .filter(Column::ConversationId.eq(conversation_id))
+            .filter(Column::Id.is_in(ids))
+            .order_by_asc(Column::CreatedAt)
+            .order_by_asc(Column::Id)
+            .into_tuple()
+            .all(&orm(db))
+            .await?;
         return Ok(rows
             .into_iter()
             .filter(|(_, kind, _, body)| kind != "event" && has_text(body))
@@ -732,14 +740,17 @@ async fn load_messages(
             })
             .collect());
     }
-    let rows: Vec<(String, String, Option<String>)> = sqlx::query_as(
-        "select id, author_type, body from desk_messages
-         where conversation_id = $1 and author_type = 'visitor' and kind = 'message'
-         order by created_at asc, id asc",
-    )
-    .bind(conversation_id)
-    .fetch_all(db)
-    .await?;
+    let rows: Vec<(String, String, Option<String>)> = desk_messages::Entity::find()
+        .select_only()
+        .columns([Column::Id, Column::AuthorType, Column::Body])
+        .filter(Column::ConversationId.eq(conversation_id))
+        .filter(Column::AuthorType.eq("visitor"))
+        .filter(Column::Kind.eq("message"))
+        .order_by_asc(Column::CreatedAt)
+        .order_by_asc(Column::Id)
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     let mut messages: Vec<Message> = rows
         .into_iter()
         .filter(|(_, _, body)| has_text(body))

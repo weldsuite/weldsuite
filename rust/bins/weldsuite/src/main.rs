@@ -5,13 +5,10 @@
 //! Configuration is environment variables only (`config.rs`); the Helm chart
 //! in `rust/deploy/helm/weldsuite` sets them.
 
-#![allow(
-    clippy::disallowed_methods,
-    reason = "not converted to the ORM yet (ADR DATA-019)"
-)]
-
 mod admin;
 mod admin_billing;
+mod admin_outside_eu;
+mod admin_weldpass;
 mod ai;
 mod billing;
 mod collab;
@@ -60,6 +57,7 @@ mod routes;
 mod sandbox;
 mod server;
 mod spa;
+mod storefront;
 mod telemetry;
 
 use std::process::ExitCode;
@@ -122,6 +120,13 @@ fn main() -> ExitCode {
             weldsuite_notifications::platform_origin(|name| std::env::var(name).ok())
     {
         weldsuite_notifications::set_push_server(&origin);
+    }
+    // ADR OPS-026: on the EU edition a service outside the EU is called for
+    // a workspace only once its admin switched it on (serve, consume and
+    // cron alike). Not in conformance builds: Global's workers have no switch.
+    if !cfg!(feature = "conformance") {
+        weldsuite_outside_eu::Enforcement::for_edition(std::env::var("EDITION").ok().as_deref())
+            .install();
     }
     match args.first().map(String::as_str) {
         Some("serve") => serve(),
@@ -318,9 +323,26 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     let (stopping, stop) = tokio::sync::watch::channel(false);
     let jobs = serve_jobs(&config, &state, stop);
     let gateway = realtime::start(&config, &state).await?;
+    // The storefront edge: every shop host's traffic, on its own listener.
+    let edge = storefront::edge(&state);
     let app = realtime::mount(router(state), gateway.as_ref());
 
     let listener = tokio::net::TcpListener::bind(config.listen).await?;
+    if let Some((address, router)) = edge {
+        let edge_listener = tokio::net::TcpListener::bind(address).await?;
+        let mut edge_stop = stopping.subscribe();
+        tracing::info!(listen = %address, "serving the storefront edge");
+        tokio::spawn(async move {
+            let served = axum::serve(edge_listener, monitoring::track_http(router))
+                .with_graceful_shutdown(async move {
+                    let _ = edge_stop.changed().await;
+                })
+                .await;
+            if let Err(error) = served {
+                tracing::error!(%error, "the storefront edge stopped");
+            }
+        });
+    }
     tracing::info!(listen = %config.listen, version = env!("CARGO_PKG_VERSION"), "serving");
     axum::serve(listener, monitoring::track_http(spa::mount(app, sites)))
         .with_graceful_shutdown(async move {
@@ -373,6 +395,7 @@ fn session_verifier(
             web_client_id,
             mobile_client_id,
             desktop_client_id,
+            extension_client_id,
             platform_sign_in,
         } => {
             let public = public_auth::oidc_public_auth(&public_auth::OidcClients {
@@ -380,6 +403,7 @@ fn session_verifier(
                 web_client_id: web_client_id.as_deref(),
                 mobile_client_id: mobile_client_id.as_deref(),
                 desktop_client_id: desktop_client_id.as_deref(),
+                extension_client_id: extension_client_id.as_deref(),
                 platform_sign_in: *platform_sign_in,
                 weldid,
             });

@@ -7,6 +7,11 @@ use axum::body::Bytes;
 use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use http::HeaderMap;
+use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ColumnTrait, Condition, DbErr, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder,
+    QuerySelect,
+};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events::{
     ACTIVITY_COMPLETED, ACTIVITY_CREATED, ACTIVITY_DELETED, ACTIVITY_UPDATED,
@@ -15,15 +20,22 @@ use weldsuite_catalogs::permission_keys::ACTIVITIES_SCOPE_ALL;
 use weldsuite_core_domain::custom_field_values::{hydrate, hydrate_one, sync_values_for_entity};
 use weldsuite_crm_domain::activities::create_activity;
 use weldsuite_crm_domain::tables::CRM_ACTIVITIES;
-use weldsuite_crm_domain::{drizzle_row, to_iso, update_sql};
+use weldsuite_crm_domain::to_iso;
+use weldsuite_db::record::JsonTable;
+use weldsuite_db::{orm, utc_now};
 use weldsuite_kit::{ApiError, Created, Data, NoContent};
+use weldsuite_schema::tenant::crm_activities;
 
+use crate::orm_rows::{before, cursor_row, json, probe_limit, set_values};
 use crate::schema::{Kind, NULLISH, OPT, REQ, STRINGS, Spec, int, partial, s};
 use crate::{
     Answer, Caller, CrmState, Refusal, answer, cut, js_limit, now, page, query_map, validate_specs,
 };
 
 const LOG: &str = "activities";
+
+/// `crm_activities`, written from a body as Drizzle wrote it.
+const ACTIVITIES: JsonTable = JsonTable::of::<crm_activities::Entity>();
 
 const ACTIVITY_TYPES: &[&str] = &[
     "call",
@@ -98,20 +110,54 @@ fn create_schema() -> &'static [Spec] {
 /// The date fields a PATCH turns into timestamps (`DATE_FIELDS`).
 const DATE_FIELDS: [&str; 4] = ["dueDate", "startTime", "endTime", "followUpDate"];
 
-async fn live(
-    caller: &Caller,
-    id: &str,
-    scope: Option<&str>,
-) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from crm_activities t
-         where id = $1 and deleted_at is null and ($2::text is null or assigned_to_id = $2) limit 1",
-    )
-    .bind(id)
-    .bind(scope)
-    .fetch_optional(&caller.db)
-    .await?;
-    Ok(row.map(drizzle_row))
+/// The live activity, within the assignee scope.
+async fn live(caller: &Caller, id: &str, scope: Option<&str>) -> Result<Option<Value>, DbErr> {
+    use crm_activities::Column;
+    let mut find =
+        crm_activities::Entity::find_by_id(id.to_owned()).filter(Column::DeletedAt.is_null());
+    if let Some(scope) = scope {
+        find = find.filter(Column::AssignedToId.eq(scope));
+    }
+    let row = find.one(&orm(&caller.db)).await?;
+    row.map(|row| json(serde_json::to_value(row))).transpose()
+}
+
+/// The list's filters (its count's conditions), in TypeScript's order.
+fn list_filters(scope: Option<&String>, param: &dyn Fn(&str) -> Option<String>) -> Condition {
+    use crm_activities::Column;
+    let mut filters = Condition::all().add(Column::DeletedAt.is_null());
+    if let Some(scope) = scope {
+        filters = filters.add(Column::AssignedToId.eq(scope.as_str()));
+    }
+    for (key, column) in [
+        ("type", Column::Type),
+        ("status", Column::Status),
+        ("assignedToId", Column::AssignedToId),
+        ("customerId", Column::CustomerId),
+        ("contactId", Column::ContactId),
+        ("leadId", Column::LeadId),
+        ("opportunityId", Column::OpportunityId),
+    ] {
+        if let Some(value) = param(key) {
+            filters = filters.add(column.eq(value));
+        }
+    }
+    if let Some(person) = param("personId") {
+        filters = filters.add(
+            Condition::any()
+                .add(Column::PersonId.eq(person.as_str()))
+                .add(Column::ContactId.eq(person)),
+        );
+    }
+    if let Some(search) = param("search") {
+        let term = format!("%{search}%");
+        filters = filters.add(
+            Condition::any()
+                .add(Column::Subject.like(term.as_str()))
+                .add(Column::Description.like(term)),
+        );
+    }
+    filters
 }
 
 // ── GET / ───────────────────────────────────────────────────────────────────
@@ -125,87 +171,42 @@ pub(crate) async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response 
 }
 
 async fn run_list(caller: &Caller, query: Option<&str>) -> Answer {
+    use crm_activities::{Column, Entity};
     let q = query_map(query);
     let limit = js_limit(q.get("limit"), 25, 100);
     let scope = caller.scope(ACTIVITIES_SCOPE_ALL);
     let param = |key: &str| q.get(key).filter(|v| !v.is_empty()).cloned();
     // The cursor row, read before the list.
-    let mut cursor: Option<(String, String)> = None;
+    let mut cursor = None;
     if let Some(id) = param("cursor") {
-        cursor = sqlx::query_as(
-            "select to_char(date_trunc('milliseconds', created_at), 'YYYY-MM-DD\"T\"HH24:MI:SS.MS'), id
-             from crm_activities where id = $1 limit 1",
-        )
-        .bind(id)
-        .fetch_optional(&caller.db)
-        .await
-        .map_err(|e| Refusal::Failed(e.to_string()))?;
+        cursor = cursor_row::<Entity>(&caller.db, Column::CreatedAt, Column::Id, &id).await?;
     }
     let limit = limit.ok_or_else(|| Refusal::Failed("limit is NaN".to_owned()))?;
-    let search = param("search").map(|s| format!("%{s}%"));
-    let (cursor_at, cursor_id) = cursor.unzip();
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from crm_activities t
-         where deleted_at is null
-           and ($1::text is null or assigned_to_id = $1)
-           and ($2::text is null or type = $2)
-           and ($3::text is null or status = $3)
-           and ($4::text is null or assigned_to_id = $4)
-           and ($5::text is null or customer_id = $5)
-           and ($6::text is null or contact_id = $6)
-           and ($7::text is null or lead_id = $7)
-           and ($8::text is null or opportunity_id = $8)
-           and ($9::text is null or person_id = $9 or contact_id = $9)
-           and ($10::text is null or subject like $10 or description like $10)
-           and ($11::timestamp is null
-                or created_at < $11::timestamp or (created_at = $11::timestamp and id < $12))
-         order by created_at desc, id desc
-         limit $13",
-    )
-    .bind(&scope)
-    .bind(param("type"))
-    .bind(param("status"))
-    .bind(param("assignedToId"))
-    .bind(param("customerId"))
-    .bind(param("contactId"))
-    .bind(param("leadId"))
-    .bind(param("opportunityId"))
-    .bind(param("personId"))
-    .bind(&search)
-    .bind(&cursor_at)
-    .bind(&cursor_id)
-    .bind(limit + 1)
-    .fetch_all(&caller.db)
-    .await?;
-    let total: i64 = sqlx::query_scalar(
-        "select count(*) from crm_activities
-         where deleted_at is null
-           and ($1::text is null or assigned_to_id = $1)
-           and ($2::text is null or type = $2)
-           and ($3::text is null or status = $3)
-           and ($4::text is null or assigned_to_id = $4)
-           and ($5::text is null or customer_id = $5)
-           and ($6::text is null or contact_id = $6)
-           and ($7::text is null or lead_id = $7)
-           and ($8::text is null or opportunity_id = $8)
-           and ($9::text is null or person_id = $9 or contact_id = $9)
-           and ($10::text is null or subject like $10 or description like $10)",
-    )
-    .bind(&scope)
-    .bind(param("type"))
-    .bind(param("status"))
-    .bind(param("assignedToId"))
-    .bind(param("customerId"))
-    .bind(param("contactId"))
-    .bind(param("leadId"))
-    .bind(param("opportunityId"))
-    .bind(param("personId"))
-    .bind(&search)
-    .fetch_one(&caller.db)
-    .await?;
-    let (data, has_more, next) = cut(rows.into_iter().map(drizzle_row).collect(), limit);
+    let filters = list_filters(scope.as_ref(), &param);
+    let mut rows = Entity::find().filter(filters.clone());
+    if let Some(cursor) = &cursor {
+        rows = rows.filter(before(Column::CreatedAt, Column::Id, cursor));
+    }
+    let db = orm(&caller.db);
+    let rows = rows
+        .order_by_desc(Column::CreatedAt)
+        .order_by_desc(Column::Id)
+        .limit(probe_limit(limit)?)
+        .all(&db)
+        .await?;
+    let total = Entity::find().filter(filters).count(&db).await?;
+    let rows = rows
+        .into_iter()
+        .map(|row| json(serde_json::to_value(row)))
+        .collect::<Result<Vec<_>, DbErr>>()?;
+    let (data, has_more, next) = cut(rows, limit);
     let data = hydrate(&caller.db, "activity", data, None).await?;
-    Ok(page(data, total, has_more, next))
+    Ok(page(
+        data,
+        i64::try_from(total).unwrap_or(i64::MAX),
+        has_more,
+        next,
+    ))
 }
 
 // ── GET /:id ────────────────────────────────────────────────────────────────
@@ -298,14 +299,14 @@ async fn run_update(
         };
         update.insert(key.clone(), value);
     }
-    sqlx::query(update_sql!(
-        crm_activities,
-        "where t.id = $1 and t.deleted_at is null"
-    ))
-    .bind(id)
-    .bind(CRM_ACTIVITIES.set(&update))
-    .execute(&caller.db)
-    .await?;
+    ACTIVITIES
+        .update(
+            &orm(&caller.db),
+            id,
+            set_values(&CRM_ACTIVITIES, &update),
+            true,
+        )
+        .await?;
     sync_values_for_entity(&caller.db, "activity", id, data.get("customFields")).await;
     // `(update.x as T | undefined) ?? existing.x`
     let pick = |key: &str, from: &str| -> Value {
@@ -353,14 +354,13 @@ pub(crate) async fn remove(
         let Some(existing) = live(&caller, &id, scope.as_deref()).await? else {
             return Ok(ApiError::not_found("Activity", Some(&id)).into_response());
         };
-        sqlx::query(
-            "update crm_activities set deleted_at = $2::timestamp, updated_at = $2::timestamp
-             where id = $1",
-        )
-        .bind(&id)
-        .bind(now())
-        .execute(&caller.db)
-        .await?;
+        let at = utc_now();
+        crm_activities::Entity::update_many()
+            .col_expr(crm_activities::Column::DeletedAt, Expr::value(at))
+            .col_expr(crm_activities::Column::UpdatedAt, Expr::value(at))
+            .filter(crm_activities::Column::Id.eq(id.as_str()))
+            .exec(&orm(&caller.db))
+            .await?;
         caller.publish(
             &state,
             ACTIVITY_DELETED,

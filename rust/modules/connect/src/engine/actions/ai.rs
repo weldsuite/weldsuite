@@ -34,12 +34,15 @@
 //! Without an AI provider both steps fail as the worker without its gateway
 //! does (`GatewayConfigError`, after the input checks).
 
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{ColumnTrait, Condition, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
 use weldsuite_ai::{
     Ai, AiCall, AiError, BillingMode, ChatRequest, ChatResponse, Feature, KeySource, LedgerTag,
     Message, Task, Tier, Usage, billing,
 };
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm};
+use weldsuite_schema::master::{credit_transactions, workspaces};
 
 use super::{ActionCtx, ActionError, ActionResult, text_or};
 use crate::js::{as_text, coalesce, js_number, js_string};
@@ -83,12 +86,17 @@ impl Scope {
     async fn of(ctx: &ActionCtx<'_>) -> Self {
         let reference = &ctx.info.workspace_id;
         let internal = match &ctx.deps.master {
-            Some(master) => match sqlx::query_scalar::<_, String>(
-                "select id from workspaces where id = $1 or clerk_org_id = $1 limit 1",
-            )
-            .bind(reference)
-            .fetch_optional(master)
-            .await
+            Some(master) => match workspaces::Entity::find()
+                .select_only()
+                .column(workspaces::Column::Id)
+                .filter(
+                    Condition::any()
+                        .add(workspaces::Column::Id.eq(reference))
+                        .add(workspaces::Column::ClerkOrgId.eq(reference)),
+                )
+                .into_tuple::<String>()
+                .one(&orm(master))
+                .await
             {
                 Ok(found) => {
                     if found.is_none() {
@@ -201,17 +209,24 @@ async fn charged_this_run(
     master: &PgPool,
     workspace_id: &str,
     execution_id: &str,
-) -> Result<i64, sqlx::Error> {
-    sqlx::query_scalar(
-        "select coalesce(sum(abs(amount)), 0)::bigint from credit_transactions
-         where workspace_id = $1 and reference_id = $2 and reference_type = $3
-           and service_type = 'ai_tokens'",
-    )
-    .bind(workspace_id)
-    .bind(execution_id)
-    .bind(STEP_REFERENCE_TYPE)
-    .fetch_one(master)
-    .await
+) -> Result<i64, DbErr> {
+    let charged: Option<i64> = credit_transactions::Entity::find()
+        .select_only()
+        .expr(Func::cast_as(
+            Func::coalesce([
+                Func::sum(Func::abs(Expr::col(credit_transactions::Column::Amount))).into(),
+                Expr::val(0),
+            ]),
+            "bigint",
+        ))
+        .filter(credit_transactions::Column::WorkspaceId.eq(workspace_id))
+        .filter(credit_transactions::Column::ReferenceId.eq(execution_id))
+        .filter(credit_transactions::Column::ReferenceType.eq(STEP_REFERENCE_TYPE))
+        .filter(credit_transactions::Column::ServiceType.eq("ai_tokens"))
+        .into_tuple()
+        .one(&orm(master))
+        .await?;
+    Ok(charged.unwrap_or_default())
 }
 
 /// `assertWithinCreditCap(…)`: a no-op without a cap, without metering, or
@@ -231,7 +246,7 @@ async fn assert_within_cap(
     }
     let already = charged_this_run(master, &call.workspace_id, &scope.execution_id)
         .await
-        .map_err(|error| ActionError::plain(&error.to_string()))?;
+        .map_err(|error| ActionError::database(&error))?;
     let estimated = estimate.await?;
     if already + estimated > cap {
         return Err(ActionError::fatal_with(

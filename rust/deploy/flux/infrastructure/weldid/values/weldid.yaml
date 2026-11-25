@@ -105,6 +105,7 @@ clients:
       - weldhr://sso-callback
       - weldmail://sso-callback
       - weldmeet://sso-callback
+      - weldpass://sso-callback
       - weldsocial://sso-callback
       - weldstash://sso-callback
     grantTypes: [authorization_code, refresh_token]
@@ -123,6 +124,24 @@ clients:
     kind: public
     redirectUris:
       - http://127.0.0.1/callback
+    grantTypes: [authorization_code, refresh_token]
+    scopes: [openid, profile, email, offline_access]
+    audience: [weldsuite-api]
+    firstParty: true
+
+  # The WeldPass browser extension (apps/web/weldpass-extension, ADR
+  # PASS-009): one public client, PKCE from the extension's service worker
+  # through chrome.identity.launchWebAuthFlow, which redirects to
+  # https://<extension id>.chromiumapp.org/ (exact match, trailing slash
+  # included). One redirect per extension id: the pinned development id for
+  # now; the Chrome Web Store and Edge Add-ons ids are added once the store
+  # items exist. The refresh token sits in chrome.storage.local, so its
+  # lifetime is this install's tokens settings.
+  - id: weldsuite-extension
+    issuer: platform
+    kind: public
+    redirectUris:
+      - https://nlmnjlkgeoeklbahlemmlcfnlfgdimnp.chromiumapp.org/
     grantTypes: [authorization_code, refresh_token]
     scopes: [openid, profile, email, offline_access]
     audience: [weldsuite-api]

@@ -4,12 +4,13 @@
   "version": "0.0.0",
   "type": "module",
   "private": true,
-  "description": "Server choice (Global, EU, self-hosted), runtime config, auth facade and API client for the WeldSuite mobile apps. Uses the app's own @clerk/expo, expo-*, AsyncStorage, React and React Native (hoisted; Metro keeps one copy).",
+  "description": "Server choice (Global, EU, self-hosted), runtime config, auth facade and API client for the WeldSuite mobile apps. Uses the app's own @clerk/expo, expo-*, AsyncStorage, React and React Native (hoisted; Metro keeps one copy). ./oidc-session is React-free and also used by the WeldPass browser extension.",
   "exports": {
     "./runtime": "./src/runtime/index.ts",
     "./auth": "./src/auth/index.tsx",
     "./api": "./src/api/index.ts",
-    "./edition": "./src/edition/index.ts"
+    "./edition": "./src/edition/index.ts",
+    "./oidc-session": "./src/auth/oidc/session.ts"
   },
   "scripts": {
     "type-check": "tsc --noEmit",

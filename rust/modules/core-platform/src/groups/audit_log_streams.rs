@@ -25,18 +25,22 @@ use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, patch, post};
 use http::HeaderMap;
+use sea_orm::sea_query::{Expr, InsertStatement, Order, Query, SelectStatement, UpdateStatement};
+use sea_orm::{ConnectionTrait, DbErr, EntityTrait, PaginatorTrait, QueryResult, QuerySelect};
 use serde_json::{Map, Value, json};
+use time::PrimitiveDateTime;
 use weldsuite_catalogs::entity_events::{
     AUDIT_LOG_STREAM_CREATED, AUDIT_LOG_STREAM_DELETED, AUDIT_LOG_STREAM_UPDATED,
 };
 use weldsuite_catalogs::permission_keys::GENERAL_UPDATE;
-use weldsuite_db::{Keyring, encrypt_field};
+use weldsuite_db::{Keyring, encrypt_field, orm, utc_now};
 use weldsuite_kit::validation::{Field, Issues, Presence, Text};
 use weldsuite_kit::{ApiError, Created, Data, List, NoContent, Pagination, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 use weldsuite_ports::{BoxFuture, OutboundHttp};
+use weldsuite_schema::tenant::audit_log_streams;
 
-use crate::{Caller, CorePlatformState, PlatformError, PlatformResult, answer, now, validate};
+use crate::{Caller, CorePlatformState, PlatformError, PlatformResult, answer, validate};
 
 const RESOURCE: &str = "Audit log stream";
 
@@ -107,81 +111,191 @@ where
         .route("/{id}/test", post(send_test).route_layer(need()))
 }
 
-/// A timestamp column as `toISOString()` writes the `Date` Drizzle reads it
-/// as: cut to the millisecond, `null` when unset.
-macro_rules! iso {
-    ($column:literal) => {
-        concat!(
-            "to_char(date_trunc('milliseconds', ",
-            $column,
-            "), 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"')"
-        )
-    };
-}
-
 /// The row as the API shows it (`toView`): no `tokenEncrypted`, a `hasToken`
-/// flag in its place. The token column is never selected.
-macro_rules! view {
-    () => {
-        concat!(
-            "jsonb_build_object('id', s.id, 'name', s.name, 'type', s.type, 'url', s.url, \
-             'hasToken', s.token_encrypted is not null, 'settings', s.settings, \
-             'status', s.status, 'cursorCreatedAt', ",
-            iso!("s.cursor_created_at"),
-            ", 'lastDeliveredAt', ",
-            iso!("s.last_delivered_at"),
-            ", 'lastAttemptAt', ",
-            iso!("s.last_attempt_at"),
-            ", 'lastError', s.last_error, 'consecutiveFailures', s.consecutive_failures, \
-             'deliveredCount', s.delivered_count, 'createdById', s.created_by_id, 'createdAt', ",
-            iso!("s.created_at"),
-            ", 'updatedAt', ",
-            iso!("s.updated_at"),
-            ")"
-        )
-    };
+/// flag in its place. Timestamps as `toISOString()` writes the `Date`
+/// Drizzle reads them as (cut to the millisecond, `null` when unset).
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct StreamView {
+    id: String,
+    name: String,
+    #[serde(rename = "type")]
+    kind: String,
+    url: String,
+    has_token: bool,
+    settings: Option<Value>,
+    status: String,
+    #[serde(with = "weldsuite_schema::js::timestamp::option")]
+    cursor_created_at: Option<PrimitiveDateTime>,
+    #[serde(with = "weldsuite_schema::js::timestamp::option")]
+    last_delivered_at: Option<PrimitiveDateTime>,
+    #[serde(with = "weldsuite_schema::js::timestamp::option")]
+    last_attempt_at: Option<PrimitiveDateTime>,
+    last_error: Option<String>,
+    consecutive_failures: i32,
+    delivered_count: i32,
+    created_by_id: Option<String>,
+    #[serde(with = "weldsuite_schema::js::timestamp")]
+    created_at: PrimitiveDateTime,
+    #[serde(with = "weldsuite_schema::js::timestamp")]
+    updated_at: PrimitiveDateTime,
 }
 
-const LIST: &str = concat!(
-    "select ",
-    view!(),
-    " from audit_log_streams s order by s.created_at asc, s.id asc"
-);
+/// The view's columns, in [`StreamView::from_row`]'s order. The token
+/// column is never selected: `token_encrypted is not null` stands in for it.
+fn view_columns() -> Vec<Expr> {
+    use audit_log_streams::Column as S;
+    vec![
+        Expr::col(S::Id),
+        Expr::col(S::Name),
+        Expr::col(S::Type),
+        Expr::col(S::Url),
+        sea_orm::ExprTrait::is_not_null(Expr::col(S::TokenEncrypted)),
+        Expr::col(S::Settings),
+        Expr::col(S::Status),
+        Expr::col(S::CursorCreatedAt),
+        Expr::col(S::LastDeliveredAt),
+        Expr::col(S::LastAttemptAt),
+        Expr::col(S::LastError),
+        Expr::col(S::ConsecutiveFailures),
+        Expr::col(S::DeliveredCount),
+        Expr::col(S::CreatedById),
+        Expr::col(S::CreatedAt),
+        Expr::col(S::UpdatedAt),
+    ]
+}
 
-const SELECT: &str = concat!(
-    "select ",
-    view!(),
-    " from audit_log_streams s where s.id = $1 limit 1"
-);
+impl StreamView {
+    /// A row of [`view_columns`] (selected or returned), read by position.
+    fn from_row(row: &QueryResult) -> Result<Self, DbErr> {
+        Ok(Self {
+            id: row.try_get_by_index(0)?,
+            name: row.try_get_by_index(1)?,
+            kind: row.try_get_by_index(2)?,
+            url: row.try_get_by_index(3)?,
+            has_token: row.try_get_by_index(4)?,
+            settings: row.try_get_by_index(5)?,
+            status: row.try_get_by_index(6)?,
+            cursor_created_at: row.try_get_by_index(7)?,
+            last_delivered_at: row.try_get_by_index(8)?,
+            last_attempt_at: row.try_get_by_index(9)?,
+            last_error: row.try_get_by_index(10)?,
+            consecutive_failures: row.try_get_by_index(11)?,
+            delivered_count: row.try_get_by_index(12)?,
+            created_by_id: row.try_get_by_index(13)?,
+            created_at: row.try_get_by_index(14)?,
+            updated_at: row.try_get_by_index(15)?,
+        })
+    }
+
+    /// The view as JSON (`jsonb_build_object(…)` before).
+    fn json(row: &QueryResult) -> Result<Value, DbErr> {
+        serde_json::to_value(Self::from_row(row)?).map_err(|error| DbErr::Json(error.to_string()))
+    }
+}
+
+/// `select <view> from audit_log_streams s …`.
+fn view_select() -> SelectStatement {
+    let mut select = Query::select();
+    select.exprs(view_columns()).from(audit_log_streams::Entity);
+    select
+}
+
+/// The streams, oldest first.
+fn list_statement() -> SelectStatement {
+    let mut select = view_select();
+    select
+        .order_by(audit_log_streams::Column::CreatedAt, Order::Asc)
+        .order_by(audit_log_streams::Column::Id, Order::Asc);
+    select
+}
 
 /// A new stream starts at "now": the cursor is the creation time, so nothing
 /// older is sent.
-const INSERT: &str = concat!(
-    "insert into audit_log_streams as s \
-       (id, name, type, url, token_encrypted, settings, status, cursor_created_at, \
-        created_by_id, created_at, updated_at) \
-     values ($1, $2, $3, $4, $5, $6::jsonb, 'active', $7::timestamp, $8, $7::timestamp, \
-             $7::timestamp) \
-     returning ",
-    view!()
-);
+fn insert_statement(
+    id: &str,
+    body: &CreateBody,
+    url: &str,
+    token: Option<String>,
+    user_id: &str,
+) -> Result<InsertStatement, DbErr> {
+    use audit_log_streams::Column as S;
+    let at = utc_now();
+    let mut insert = Query::insert();
+    insert
+        .into_table(audit_log_streams::Entity)
+        .columns([
+            S::Id,
+            S::Name,
+            S::Type,
+            S::Url,
+            S::TokenEncrypted,
+            S::Settings,
+            S::Status,
+            S::CursorCreatedAt,
+            S::CreatedById,
+            S::CreatedAt,
+            S::UpdatedAt,
+        ])
+        .values([
+            Expr::value(id.to_owned()),
+            Expr::value(body.name.clone()),
+            Expr::value(body.kind.clone()),
+            Expr::value(url.to_owned()),
+            Expr::value(token),
+            Expr::value(body.settings.clone()),
+            Expr::value("active"),
+            Expr::value(at),
+            Expr::value(user_id.to_owned()),
+            Expr::value(at),
+            Expr::value(at),
+        ])
+        .map_err(|error| DbErr::Custom(error.to_string()))?
+        .returning(Query::returning().exprs(view_columns()));
+    Ok(insert)
+}
 
-/// The fields a body named, each behind its own flag; `$15` is "resumed":
-/// the failure count and the last error start over.
-const UPDATE: &str = concat!(
-    "update audit_log_streams as s set \
-       updated_at = $2::timestamp, \
-       name = case when $3 then $4 else s.name end, \
-       type = case when $5 then $6 else s.type end, \
-       url = case when $7 then $8 else s.url end, \
-       settings = case when $9 then $10::jsonb else s.settings end, \
-       token_encrypted = case when $11 then $12 else s.token_encrypted end, \
-       status = case when $13 then $14 else s.status end, \
-       consecutive_failures = case when $15 then 0 else s.consecutive_failures end, \
-       last_error = case when $15 then null else s.last_error end \
-     where s.id = $1 returning ",
-    view!()
-);
+/// The fields a body named; resuming (`status` back to `active`) starts the
+/// failure count and the last error over.
+fn update_statement(
+    id: &str,
+    body: &UpdateBody,
+    url: Option<String>,
+    token: Option<String>,
+) -> UpdateStatement {
+    use audit_log_streams::Column as S;
+    let mut update = Query::update();
+    update
+        .table(audit_log_streams::Entity)
+        .value(S::UpdatedAt, Expr::value(utc_now()));
+    if let Some(name) = &body.name {
+        update.value(S::Name, Expr::value(name.clone()));
+    }
+    if let Some(kind) = &body.kind {
+        update.value(S::Type, Expr::value(kind.clone()));
+    }
+    if let Some(url) = url {
+        update.value(S::Url, Expr::value(url));
+    }
+    if !body.settings.is_absent() {
+        update.value(S::Settings, Expr::value(body.settings.as_set().cloned()));
+    }
+    if !body.token.is_absent() {
+        update.value(S::TokenEncrypted, Expr::value(token));
+    }
+    if let Some(status) = &body.status {
+        update.value(S::Status, Expr::value(status.clone()));
+    }
+    if body.status.as_deref() == Some("active") {
+        update
+            .value(S::ConsecutiveFailures, Expr::value(0))
+            .value(S::LastError, Expr::value(Option::<String>::None));
+    }
+    update
+        .and_where(sea_orm::ExprTrait::eq(Expr::col(S::Id), id))
+        .returning(Query::returning().exprs(view_columns()));
+    update
+}
 
 fn not_found(id: &str) -> PlatformError {
     ApiError::not_found(RESOURCE, Some(id)).into()
@@ -210,10 +324,21 @@ fn seal(token: &str, caller: &Caller) -> PlatformResult<String> {
 }
 
 async fn view_of(caller: &Caller, id: &str) -> PlatformResult<Option<Value>> {
-    Ok(sqlx::query_scalar(SELECT)
-        .bind(id)
-        .fetch_optional(&caller.db)
-        .await?)
+    let mut select = view_select();
+    select
+        .and_where(sea_orm::ExprTrait::eq(
+            Expr::col(audit_log_streams::Column::Id),
+            id,
+        ))
+        .limit(1);
+    let row = orm(&caller.db).query_one(&select).await?;
+    Ok(row.as_ref().map(StreamView::json).transpose()?)
+}
+
+/// The view a write returned (`fetch_one`: no row is an error).
+fn written(row: Option<QueryResult>) -> PlatformResult<Value> {
+    let row = row.ok_or_else(|| DbErr::RecordNotFound("audit_log_streams".to_owned()))?;
+    Ok(StreamView::json(&row)?)
 }
 
 /// What an entity event carries about a stream, on create, update and
@@ -353,7 +478,11 @@ fn read_update(issues: &mut Issues, body: &Map<String, Value>) -> UpdateBody {
 async fn list(caller: Caller) -> Response {
     answer(
         async {
-            let rows: Vec<Value> = sqlx::query_scalar(LIST).fetch_all(&caller.db).await?;
+            let rows = orm(&caller.db).query_all(&list_statement()).await?;
+            let rows = rows
+                .iter()
+                .map(StreamView::json)
+                .collect::<Result<Vec<_>, _>>()?;
             let total = u64::try_from(rows.len()).unwrap_or(u64::MAX);
             Ok(List::new(rows, Pagination::new(total, false, None)).into_response())
         }
@@ -376,10 +505,9 @@ async fn create(
                 .check_url(&body.url)
                 .map_err(unsafe_url)?;
 
-            let count: i64 = sqlx::query_scalar("select count(*) from audit_log_streams")
-                .fetch_one(&caller.db)
-                .await?;
-            if count >= MAX_AUDIT_LOG_STREAMS {
+            let db = orm(&caller.db);
+            let count = audit_log_streams::Entity::find().count(&db).await?;
+            if i64::try_from(count).unwrap_or(i64::MAX) >= MAX_AUDIT_LOG_STREAMS {
                 return Err(ApiError::conflict(format!(
                     "A workspace can have at most {MAX_AUDIT_LOG_STREAMS} audit log streams"
                 ))
@@ -393,17 +521,8 @@ async fn create(
                 None => None,
             };
             let id = generate_id("als");
-            let view: Value = sqlx::query_scalar(INSERT)
-                .bind(&id)
-                .bind(&body.name)
-                .bind(&body.kind)
-                .bind(&url)
-                .bind(token)
-                .bind(body.settings.as_ref().map(Value::to_string))
-                .bind(now())
-                .bind(&caller.user_id)
-                .fetch_one(&caller.db)
-                .await?;
+            let insert = insert_statement(&id, &body, &url, token, &caller.user_id)?;
+            let view = written(db.query_one(&insert).await?)?;
             caller.publish(&state, AUDIT_LOG_STREAM_CREATED, &id, &event_data(&view));
             Ok(Created(view).into_response())
         }
@@ -434,25 +553,8 @@ async fn update(
                 Field::Absent | Field::Null => None,
             };
             // Resuming clears the failure count and the last error.
-            let resumed = body.status.as_deref() == Some("active");
-            let view: Value = sqlx::query_scalar(UPDATE)
-                .bind(&id)
-                .bind(now())
-                .bind(body.name.is_some())
-                .bind(body.name.as_deref())
-                .bind(body.kind.is_some())
-                .bind(body.kind.as_deref())
-                .bind(url.is_some())
-                .bind(url.as_deref())
-                .bind(!body.settings.is_absent())
-                .bind(body.settings.as_set().map(Value::to_string))
-                .bind(!body.token.is_absent())
-                .bind(token)
-                .bind(body.status.is_some())
-                .bind(body.status.as_deref())
-                .bind(resumed)
-                .fetch_one(&caller.db)
-                .await?;
+            let update = update_statement(&id, &body, url, token);
+            let view = written(orm(&caller.db).query_one(&update).await?)?;
             caller.publish(&state, AUDIT_LOG_STREAM_UPDATED, &id, &event_data(&view));
             Ok(Data(view).into_response())
         }
@@ -471,9 +573,8 @@ async fn remove(
             let Some(existing) = view_of(&caller, &id).await? else {
                 return Err(not_found(&id));
             };
-            sqlx::query("delete from audit_log_streams where id = $1")
-                .bind(&id)
-                .execute(&caller.db)
+            audit_log_streams::Entity::delete_by_id(id.clone())
+                .exec(&orm(&caller.db))
                 .await?;
             caller.publish(
                 &state,
@@ -497,13 +598,18 @@ async fn send_test(
 ) -> Response {
     answer(
         async {
-            let row: Option<(String, String, Option<String>, Option<String>)> = sqlx::query_as(
-                "select s.type, s.url, s.settings::text, s.token_encrypted \
-                 from audit_log_streams s where s.id = $1 limit 1",
-            )
-            .bind(&id)
-            .fetch_optional(&caller.db)
-            .await?;
+            use audit_log_streams::Column as S;
+            // `settings::text`: the JSON as Postgres writes it.
+            let settings = sea_orm::ExprTrait::cast_as(Expr::col(S::Settings), "text");
+            let row: Option<(String, String, Option<String>, Option<String>)> =
+                audit_log_streams::Entity::find_by_id(id.clone())
+                    .select_only()
+                    .columns([S::Type, S::Url])
+                    .expr_as(settings, "settings")
+                    .column(S::TokenEncrypted)
+                    .into_tuple()
+                    .one(&orm(&caller.db))
+                    .await?;
             let Some((kind, url, settings, token_encrypted)) = row else {
                 return Err(not_found(&id));
             };
@@ -691,15 +797,48 @@ mod tests {
 
     #[test]
     fn the_token_column_is_never_selected_into_a_view() {
-        for statement in [LIST, SELECT, INSERT, UPDATE] {
+        use sea_orm::sea_query::PostgresQueryBuilder;
+        let create = CreateBody {
+            name: "n".to_owned(),
+            kind: "http".to_owned(),
+            url: "https://example.com".to_owned(),
+            token: None,
+            settings: None,
+        };
+        let insert = insert_statement("als_1", &create, "https://example.com", None, "user_1")
+            .expect("an insert");
+        let update = update_statement(
+            "als_1",
+            &UpdateBody {
+                name: None,
+                kind: None,
+                url: None,
+                token: Field::Set("t".to_owned()),
+                settings: Field::Absent,
+                status: None,
+            },
+            None,
+            Some("sealed".to_owned()),
+        );
+        for statement in [
+            list_statement().to_string(PostgresQueryBuilder),
+            insert.to_string(PostgresQueryBuilder),
+            update.to_string(PostgresQueryBuilder),
+        ] {
             let view = statement
-                .split("jsonb_build_object(")
-                .nth(1)
-                .unwrap_or_default();
-            assert!(view.contains("'hasToken', s.token_encrypted is not null"));
+                .rsplit_once("RETURNING ")
+                .map_or(statement.as_str(), |(_, view)| view);
+            assert!(
+                view.contains(r#""token_encrypted" IS NOT NULL"#),
+                "{statement}"
+            );
             assert_eq!(view.matches("token_encrypted").count(), 1, "{statement}");
         }
-        assert!(LIST.ends_with("order by s.created_at asc, s.id asc"));
+        assert!(
+            list_statement()
+                .to_string(PostgresQueryBuilder)
+                .ends_with(r#"ORDER BY "created_at" ASC, "id" ASC"#)
+        );
     }
 
     #[test]

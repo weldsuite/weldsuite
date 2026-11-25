@@ -17,6 +17,8 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 sqlx = { workspace = true }
 time = { workspace = true }
+sea-orm = { workspace = true }
+weldsuite-schema = { workspace = true }
 
 [lints]
 workspace = true

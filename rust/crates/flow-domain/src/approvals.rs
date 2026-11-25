@@ -17,8 +17,8 @@
 //!    Every message returned here is sent to the client as it is, so both
 //!    backends answer alike.
 //! 2. Database functions, which take `now` (epoch milliseconds). Rows are read
-//!    as `weldsuite_db::js_row` gives them and parsed into [`ApprovalRow`];
-//!    times are epoch milliseconds (`Date#getTime()`).
+//!    through the entity, serialized as Drizzle returned them, and parsed into
+//!    [`ApprovalRow`]; times are epoch milliseconds (`Date#getTime()`).
 //!
 //! # Plugging in a subject type (for the slices that own one)
 //!
@@ -36,7 +36,7 @@
 //!         subject_id: &'a str,
 //!         outcome: ResolvedApprovalOutcome,
 //!         context: &'a ApprovalResolutionContext,
-//!     ) -> ApprovalFuture<'a, Result<(), sqlx::Error>> {
+//!     ) -> ApprovalFuture<'a, Result<(), DbErr>> {
 //!         Box::pin(async move { /* apply the outcome, idempotently */ Ok(()) })
 //!     }
 //! }
@@ -60,12 +60,17 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::{Arc, OnceLock, RwLock};
 
-use serde_json::{Map, Value, json};
-use sqlx::PgPool;
-use weldsuite_db::js_row;
+use sea_orm::ActiveValue::Set;
+use sea_orm::sea_query::{Expr, NullOrdering, Order};
+use sea_orm::{ColumnTrait, Condition, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
+use serde_json::{Value, json};
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::generate_id;
+use weldsuite_schema::tenant::{flow_approval_delegations as delegations, flow_approvals};
 
-use crate::js::{civil_from_days, days_from_civil, iso_from_millis, millis_of};
+use crate::js::{
+    civil_from_days, days_from_civil, instant, iso_from_millis, millis_of, row as entity_json,
+};
 
 // ── Vocabulary ──────────────────────────────────────────────────────────────
 
@@ -642,7 +647,7 @@ pub trait ApprovalSubjectHandler: Send + Sync {
         subject_id: &'a str,
         outcome: ResolvedApprovalOutcome,
         context: &'a ApprovalResolutionContext,
-    ) -> ApprovalFuture<'a, Result<(), sqlx::Error>>;
+    ) -> ApprovalFuture<'a, Result<(), DbErr>>;
 }
 
 type Registry = RwLock<HashMap<&'static str, Arc<dyn ApprovalSubjectHandler>>>;
@@ -694,22 +699,18 @@ pub fn resolve_subject_rows(subject_type: &str, rows: &[ApprovalRow]) -> Approva
 
 // ── Database ────────────────────────────────────────────────────────────────
 
-fn approval_rows(values: Vec<Value>) -> Vec<ApprovalRow> {
-    values
+fn approval_rows(models: Vec<flow_approvals::Model>) -> Vec<ApprovalRow> {
+    models
         .into_iter()
-        .filter_map(|value| ApprovalRow::from_json(&js_row(value)))
+        .filter_map(|model| ApprovalRow::from_json(&entity_json(model)))
         .collect()
 }
 
-fn delegation_rows(values: Vec<Value>) -> Vec<DelegationRow> {
-    values
+fn delegation_rows(models: Vec<delegations::Model>) -> Vec<DelegationRow> {
+    models
         .into_iter()
-        .filter_map(|value| DelegationRow::from_json(&js_row(value)))
+        .filter_map(|model| DelegationRow::from_json(&entity_json(model)))
         .collect()
-}
-
-fn iso(millis: i64) -> String {
-    iso_from_millis(millis).unwrap_or_default()
 }
 
 /// `listSubjectApprovals(db, subjectType, subjectId)`: a subject's live rows,
@@ -718,17 +719,26 @@ pub async fn list_subject_approvals(
     db: &PgPool,
     subject_type: &str,
     subject_id: &str,
-) -> Result<Vec<ApprovalRow>, sqlx::Error> {
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(a) from flow_approvals a
-         where a.subject_type = $1 and a.subject_id = $2 and a.deleted_at is null
-         order by a.step asc, a.created_at asc, a.id asc",
-    )
-    .bind(subject_type)
-    .bind(subject_id)
-    .fetch_all(db)
-    .await?;
+) -> Result<Vec<ApprovalRow>, DbErr> {
+    use flow_approvals::Column;
+    let rows = flow_approvals::Entity::find()
+        .filter(Column::SubjectType.eq(subject_type))
+        .filter(Column::SubjectId.eq(subject_id))
+        .filter(Column::DeletedAt.is_null())
+        .order_by_asc(Column::Step)
+        .order_by_asc(Column::CreatedAt)
+        .order_by_asc(Column::Id)
+        .all(&orm(db))
+        .await?;
     Ok(approval_rows(rows))
+}
+
+/// `d.starts_at <= now and d.ends_at > now`.
+fn in_force(now_ms: i64) -> Result<Condition, DbErr> {
+    let now = instant(now_ms)?;
+    Ok(Condition::all()
+        .add(delegations::Column::StartsAt.lte(now))
+        .add(delegations::Column::EndsAt.gt(now)))
 }
 
 /// The delegations in force for any of `member_ids` at `now_ms`.
@@ -736,16 +746,13 @@ async fn delegations_in_force(
     db: &PgPool,
     member_ids: &[String],
     now_ms: i64,
-) -> Result<Vec<DelegationRow>, sqlx::Error> {
-    let rows: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(d) from flow_approval_delegations d
-         where d.member_id = any($1) and d.deleted_at is null
-           and d.starts_at <= $2::timestamptz and d.ends_at > $2::timestamptz",
-    )
-    .bind(member_ids)
-    .bind(iso(now_ms))
-    .fetch_all(db)
-    .await?;
+) -> Result<Vec<DelegationRow>, DbErr> {
+    let rows = delegations::Entity::find()
+        .filter(delegations::Column::MemberId.is_in(member_ids))
+        .filter(delegations::Column::DeletedAt.is_null())
+        .filter(in_force(now_ms)?)
+        .all(&orm(db))
+        .await?;
     Ok(delegation_rows(rows))
 }
 
@@ -755,7 +762,7 @@ pub async fn find_active_delegation(
     db: &PgPool,
     member_id: &str,
     now_ms: i64,
-) -> Result<Option<DelegationRow>, sqlx::Error> {
+) -> Result<Option<DelegationRow>, DbErr> {
     let rows = delegations_in_force(db, &[member_id.to_owned()], now_ms).await?;
     Ok(active_delegation(&rows, member_id, now_ms).cloned())
 }
@@ -766,16 +773,17 @@ pub async fn list_active_delegators(
     db: &PgPool,
     delegate_id: &str,
     now_ms: i64,
-) -> Result<Vec<String>, sqlx::Error> {
-    let mut members: Vec<String> = sqlx::query_scalar(
-        "select distinct d.member_id from flow_approval_delegations d
-         where d.delegate_id = $1 and d.deleted_at is null
-           and d.starts_at <= $2::timestamptz and d.ends_at > $2::timestamptz",
-    )
-    .bind(delegate_id)
-    .bind(iso(now_ms))
-    .fetch_all(db)
-    .await?;
+) -> Result<Vec<String>, DbErr> {
+    let mut members: Vec<String> = delegations::Entity::find()
+        .select_only()
+        .column(delegations::Column::MemberId)
+        .distinct()
+        .filter(delegations::Column::DelegateId.eq(delegate_id))
+        .filter(delegations::Column::DeletedAt.is_null())
+        .filter(in_force(now_ms)?)
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     members.sort();
     Ok(members)
 }
@@ -818,7 +826,7 @@ pub enum RequestApprovalsResult {
 pub async fn request_approvals(
     db: &PgPool,
     input: &RequestApprovalsInput,
-) -> Result<RequestApprovalsResult, sqlx::Error> {
+) -> Result<RequestApprovalsResult, DbErr> {
     if let Some(message) = approval_request_error(&input.subject_type, &input.rows) {
         return Ok(RequestApprovalsResult::Refused {
             code: RequestRefusal::Invalid,
@@ -848,44 +856,34 @@ pub async fn request_approvals(
     };
 
     let planned = plan_approvers(&input.rows, &delegations, now);
-    let values: Vec<Value> = planned
-        .iter()
-        .enumerate()
-        .map(|(index, p)| {
-            // One millisecond apart, so a subject's rows list in the order they were planned.
-            let created = i64::try_from(index).map_or(now, |i| now + i);
-            let mut row = Map::new();
-            row.insert("id".to_owned(), json!(generate_id("apr")));
-            row.insert("project_id".to_owned(), json!(input.project_id));
-            row.insert("subject_type".to_owned(), json!(input.subject_type));
-            row.insert("subject_id".to_owned(), json!(input.subject_id));
-            row.insert("approver_kind".to_owned(), json!(p.approver_kind));
-            row.insert("approver_id".to_owned(), json!(p.approver_id));
-            row.insert("role_label".to_owned(), json!(p.role_label));
-            row.insert("step".to_owned(), json!(p.step));
-            row.insert("rule".to_owned(), p.rule.clone());
-            row.insert("decision".to_owned(), json!("pending"));
-            row.insert("due_at".to_owned(), json!(p.due_at.map(iso)));
-            row.insert("delegated_from".to_owned(), json!(p.delegated_from));
-            row.insert("created_by".to_owned(), json!(input.requested_by));
-            row.insert("created_at".to_owned(), json!(iso(created)));
-            row.insert("updated_at".to_owned(), json!(iso(now)));
-            Value::Object(row)
-        })
-        .collect();
-    let inserted: Vec<Value> = sqlx::query_scalar(
-        "insert into flow_approvals (id, project_id, subject_type, subject_id, approver_kind,
-             approver_id, role_label, step, rule, decision, due_at, delegated_from, created_by,
-             created_at, updated_at)
-         select p.id, p.project_id, p.subject_type, p.subject_id, p.approver_kind, p.approver_id,
-             p.role_label, p.step, p.rule, p.decision, p.due_at, p.delegated_from, p.created_by,
-             p.created_at, p.updated_at
-         from jsonb_populate_recordset(null::flow_approvals, $1) p
-         returning to_jsonb(flow_approvals.*)",
-    )
-    .bind(Value::Array(values))
-    .fetch_all(db)
-    .await?;
+    let mut models = Vec::with_capacity(planned.len());
+    for (index, p) in planned.iter().enumerate() {
+        // One millisecond apart, so a subject's rows list in the order they were planned.
+        let created = i64::try_from(index).map_or(now, |i| now + i);
+        let step = i32::try_from(p.step)
+            .map_err(|_| DbErr::Type("value is out of range for type integer".to_owned()))?;
+        models.push(flow_approvals::ActiveModel {
+            id: Set(generate_id("apr")),
+            project_id: Set(input.project_id.clone()),
+            subject_type: Set(input.subject_type.clone()),
+            subject_id: Set(input.subject_id.clone()),
+            approver_kind: Set(p.approver_kind.clone()),
+            approver_id: Set(p.approver_id.clone()),
+            role_label: Set(p.role_label.clone()),
+            step: Set(step),
+            rule: Set(p.rule.clone()),
+            decision: Set("pending".to_owned()),
+            due_at: Set(p.due_at.map(instant).transpose()?),
+            delegated_from: Set(p.delegated_from.clone()),
+            created_by: Set(input.requested_by.clone()),
+            created_at: Set(instant(created)?),
+            updated_at: Set(instant(now)?),
+            ..Default::default()
+        });
+    }
+    let inserted = flow_approvals::Entity::insert_many(models)
+        .exec_with_returning(&orm(db))
+        .await?;
     let mut rows = approval_rows(inserted);
     rows.sort_by_key(|row| row.step);
     Ok(RequestApprovalsResult::Requested(rows))
@@ -951,20 +949,18 @@ pub enum DecideApprovalResult {
 pub async fn decide_approval(
     db: &PgPool,
     input: &DecideApprovalInput,
-) -> Result<DecideApprovalResult, sqlx::Error> {
+) -> Result<DecideApprovalResult, DbErr> {
     let now = input.now_ms;
     let actor = &input.actor;
     let refused = |code: DecideRefusal, message: &'static str| {
         Ok(DecideApprovalResult::Refused { code, message })
     };
 
-    let found: Option<Value> = sqlx::query_scalar(
-        "select to_jsonb(a) from flow_approvals a where a.id = $1 and a.deleted_at is null limit 1",
-    )
-    .bind(&input.approval_id)
-    .fetch_optional(db)
-    .await?;
-    let Some(row) = found.and_then(|value| ApprovalRow::from_json(&js_row(value))) else {
+    let found = flow_approvals::Entity::find_by_id(input.approval_id.clone())
+        .filter(flow_approvals::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?;
+    let Some(row) = found.and_then(|model| ApprovalRow::from_json(&entity_json(model))) else {
         return refused(DecideRefusal::NotFound, messages::NOT_FOUND);
     };
 
@@ -1010,22 +1006,23 @@ pub async fn decide_approval(
         .as_deref()
         .map(str::trim)
         .filter(|note| !note.is_empty());
-    let updated: Option<Value> = sqlx::query_scalar(
-        "update flow_approvals set decision = $2, note = $3, decided_at = $4::timestamptz,
-             decided_by = $5, updated_at = $4::timestamptz
-         where id = $1 and deleted_at is null and decision = any($6)
-         returning to_jsonb(flow_approvals.*)",
-    )
-    .bind(&row.id)
-    .bind(&input.decision)
-    .bind(note)
-    .bind(iso(now))
-    .bind(&actor.id)
-    .bind(OPEN_DECISIONS.as_slice())
-    .fetch_optional(db)
-    .await?;
+    let decided_at = instant(now)?;
+    let updated = flow_approvals::Entity::update_many()
+        .col_expr(flow_approvals::Column::Decision, Expr::val(&input.decision))
+        .col_expr(flow_approvals::Column::Note, Expr::val(note))
+        .col_expr(flow_approvals::Column::DecidedAt, Expr::val(decided_at))
+        .col_expr(flow_approvals::Column::DecidedBy, Expr::val(&actor.id))
+        .col_expr(flow_approvals::Column::UpdatedAt, Expr::val(decided_at))
+        .filter(flow_approvals::Column::Id.eq(&row.id))
+        .filter(flow_approvals::Column::DeletedAt.is_null())
+        .filter(flow_approvals::Column::Decision.is_in(OPEN_DECISIONS))
+        .exec_with_returning(&orm(db))
+        .await?
+        .into_iter()
+        .next();
     // Someone answered between the read and the update.
-    let Some(updated) = updated.and_then(|value| ApprovalRow::from_json(&js_row(value))) else {
+    let Some(updated) = updated.and_then(|model| ApprovalRow::from_json(&entity_json(model)))
+    else {
         return refused(DecideRefusal::AlreadyDecided, messages::ALREADY_DECIDED);
     };
 
@@ -1071,7 +1068,7 @@ pub async fn resolve_approval_subject(
     subject_id: &str,
     actor: Option<ApprovalActor>,
     now_ms: i64,
-) -> Result<SubjectResolution, sqlx::Error> {
+) -> Result<SubjectResolution, DbErr> {
     let mut rows = list_subject_approvals(db, subject_type, subject_id).await?;
     let outcome = resolve_subject_rows(subject_type, &rows);
     let resolved = match outcome {
@@ -1120,20 +1117,19 @@ pub async fn cancel_pending_approvals(
     subject_id: &str,
     include_decided: bool,
     now_ms: i64,
-) -> Result<Vec<ApprovalRow>, sqlx::Error> {
-    let cleared: Vec<Value> = sqlx::query_scalar(
-        "update flow_approvals set deleted_at = $3::timestamptz, updated_at = $3::timestamptz
-         where subject_type = $1 and subject_id = $2 and deleted_at is null
-           and ($4::bool or decision = any($5))
-         returning to_jsonb(flow_approvals.*)",
-    )
-    .bind(subject_type)
-    .bind(subject_id)
-    .bind(iso(now_ms))
-    .bind(include_decided)
-    .bind(OPEN_DECISIONS.as_slice())
-    .fetch_all(db)
-    .await?;
+) -> Result<Vec<ApprovalRow>, DbErr> {
+    use flow_approvals::Column;
+    let now = instant(now_ms)?;
+    let mut clear = flow_approvals::Entity::update_many()
+        .col_expr(Column::DeletedAt, Expr::val(now))
+        .col_expr(Column::UpdatedAt, Expr::val(now))
+        .filter(Column::SubjectType.eq(subject_type))
+        .filter(Column::SubjectId.eq(subject_id))
+        .filter(Column::DeletedAt.is_null());
+    if !include_decided {
+        clear = clear.filter(Column::Decision.is_in(OPEN_DECISIONS));
+    }
+    let cleared = clear.exec_with_returning(&orm(db)).await?;
     Ok(approval_rows(cleared))
 }
 
@@ -1178,7 +1174,7 @@ pub async fn list_pending_for_approver(
     user_id: &str,
     filters: &PendingReviewFilters,
     now_ms: i64,
-) -> Result<Vec<PendingReview>, sqlx::Error> {
+) -> Result<Vec<PendingReview>, DbErr> {
     let kind = filters.approver_kind.as_deref().unwrap_or("member");
     let delegators = if kind == "member" && filters.include_delegated != Some(false) {
         list_active_delegators(db, user_id, now_ms).await?
@@ -1193,29 +1189,8 @@ pub async fn list_pending_for_approver(
         .unwrap_or_else(|| vec!["pending".to_owned()]);
     let limit = filters.limit.unwrap_or(200).clamp(1, 500);
 
-    let values: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(a) from flow_approvals a
-         where a.approver_kind = $1
-           and (a.approver_id = any($2) or ($1 = 'member' and a.delegated_from = $7))
-           and a.decision = any($3)
-           and a.deleted_at is null
-           and (cardinality($4::text[]) = 0 or a.subject_type = any($4))
-           and ($5::text is null or a.project_id = $5)
-           and ($8::text[] is null or a.project_id is null or a.project_id = any($8))
-         order by a.due_at asc nulls last, a.created_at asc, a.id asc
-         limit $6",
-    )
-    .bind(kind)
-    .bind(&approver_ids)
-    .bind(&decisions)
-    .bind(&filters.subject_types)
-    .bind(filters.project_id.as_deref())
-    .bind(limit)
-    .bind(user_id)
-    .bind(filters.accessible_project_ids.as_deref())
-    .fetch_all(db)
-    .await?;
-    let rows = approval_rows(values);
+    let found = pending_rows(db, user_id, kind, &approver_ids, &decisions, filters, limit).await?;
+    let rows = approval_rows(found);
     if rows.is_empty() {
         return Ok(Vec::new());
     }
@@ -1227,13 +1202,11 @@ pub async fn list_pending_for_approver(
             subject_ids.push(row.subject_id.clone());
         }
     }
-    let sibling_values: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(a) from flow_approvals a
-         where a.subject_id = any($1) and a.deleted_at is null",
-    )
-    .bind(&subject_ids)
-    .fetch_all(db)
-    .await?;
+    let sibling_values = flow_approvals::Entity::find()
+        .filter(flow_approvals::Column::SubjectId.is_in(&subject_ids))
+        .filter(flow_approvals::Column::DeletedAt.is_null())
+        .all(&orm(db))
+        .await?;
     let mut siblings: HashMap<String, Vec<ApprovalRow>> = HashMap::new();
     for sibling in approval_rows(sibling_values) {
         siblings
@@ -1264,12 +1237,61 @@ pub async fn list_pending_for_approver(
     Ok(reviews)
 }
 
+/// The inbox's rows: this person's (or their delegators') answers of the
+/// kinds asked for, earliest due date first.
+async fn pending_rows(
+    db: &PgPool,
+    user_id: &str,
+    kind: &str,
+    approver_ids: &[String],
+    decisions: &[String],
+    filters: &PendingReviewFilters,
+    limit: i64,
+) -> Result<Vec<flow_approvals::Model>, DbErr> {
+    use flow_approvals::Column;
+    let mut approver = Condition::any().add(Column::ApproverId.is_in(approver_ids));
+    if kind == "member" {
+        // A row stored for a delegate stays the member's to answer.
+        approver = approver.add(Column::DelegatedFrom.eq(user_id));
+    }
+    let mut wanted = Condition::all()
+        .add(Column::ApproverKind.eq(kind))
+        .add(approver)
+        .add(Column::Decision.is_in(decisions))
+        .add(Column::DeletedAt.is_null());
+    if !filters.subject_types.is_empty() {
+        wanted = wanted.add(Column::SubjectType.is_in(&filters.subject_types));
+    }
+    if let Some(project_id) = filters.project_id.as_deref() {
+        wanted = wanted.add(Column::ProjectId.eq(project_id));
+    }
+    if let Some(accessible) = &filters.accessible_project_ids {
+        wanted = wanted.add(
+            Condition::any()
+                .add(Column::ProjectId.is_null())
+                .add(Column::ProjectId.is_in(accessible)),
+        );
+    }
+    flow_approvals::Entity::find()
+        .filter(wanted)
+        .order_by_with_nulls(Column::DueAt, Order::Asc, NullOrdering::Last)
+        .order_by_asc(Column::CreatedAt)
+        .order_by_asc(Column::Id)
+        .limit(u64::try_from(limit).unwrap_or(1))
+        .all(&orm(db))
+        .await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn at(iso: &str) -> i64 {
         millis_of(iso).expect("a timestamp")
+    }
+
+    fn iso(millis: i64) -> String {
+        iso_from_millis(millis).unwrap_or_default()
     }
 
     fn now() -> i64 {
@@ -1820,7 +1842,7 @@ mod tests {
             _subject_id: &'a str,
             _outcome: ResolvedApprovalOutcome,
             _context: &'a ApprovalResolutionContext,
-        ) -> ApprovalFuture<'a, Result<(), sqlx::Error>> {
+        ) -> ApprovalFuture<'a, Result<(), DbErr>> {
             Box::pin(async { Ok(()) })
         }
     }

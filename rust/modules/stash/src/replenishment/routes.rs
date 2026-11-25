@@ -31,6 +31,11 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, patch, post, put};
 use http::request::Parts;
 use http::{HeaderMap, StatusCode};
+use sea_orm::sea_query::{Alias, Expr, OnConflict, Query};
+use sea_orm::{
+    ColumnTrait, Condition, ConnectionTrait, DatabaseConnection, DbBackend, DbErr, EntityTrait,
+    FromQueryResult, Iterable, Order, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Select,
+};
 use serde_json::{Map, Value, json};
 use time::OffsetDateTime;
 use weldsuite_catalogs::entity_events::{
@@ -38,20 +43,24 @@ use weldsuite_catalogs::entity_events::{
     REPLENISHMENT_SETTINGS_UPDATED,
 };
 use weldsuite_catalogs::permission_keys::{INVENTORY_MANAGE, INVENTORY_READ};
-use weldsuite_db::{MasterDb, PgPool, Tenant};
+use weldsuite_db::{MasterDb, PgPool, Tenant, orm, utc_now};
 use weldsuite_kit::validation::{Field, Issues, Number, Presence, Text};
 use weldsuite_kit::{ApiError, Data, List, NoContent, Pagination, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 use weldsuite_ports::DynJobs;
+use weldsuite_schema::tenant::{
+    product_suppliers, product_variants, products, stash_planning_runs, stash_reorder_rules,
+    stash_settings, warehouses,
+};
 
 use super::demand::item_key;
 use super::engine::MAX_QUANTITY;
 use super::run::{RunStart, SWEEP_KIND, StartError, Started, next_run_at, start_run};
-use super::settings::{SETTINGS_ID, from_json, settings_json};
+use super::settings::{SETTINGS_ID, from_json, model_json, settings_json};
 use super::{imports, orders, plans};
 use crate::incoming::{IncomingQuery, VariantFilter, incoming, parse_date};
 use crate::js::{query_param, query_set};
-use crate::{Caller, Refusal, StashState, internal, now, validate};
+use crate::{Caller, Refusal, StashState, internal, validate};
 
 /// What the replenishment routes need beyond [`StashState`]: the master
 /// database (the due index of the nightly runs) and the jobs port (runs).
@@ -187,12 +196,13 @@ pub(crate) fn variant_filter(query: Option<&str>) -> VariantFilter {
     }
 }
 
-/// The statement slots of a [`VariantFilter`]: mode and variant.
-pub(crate) fn variant_slots(filter: &VariantFilter) -> (&'static str, Option<&str>) {
+/// A [`VariantFilter`] on a `variant_id` column: any, none
+/// (`coalesce(variant_id, '') = ''`) or the one.
+pub(crate) fn variant_condition(column: impl ColumnTrait, filter: &VariantFilter) -> Condition {
     match filter {
-        VariantFilter::Any => ("any", None),
-        VariantFilter::None => ("none", None),
-        VariantFilter::Only(id) => ("only", Some(id.as_str())),
+        VariantFilter::Any => Condition::all(),
+        VariantFilter::None => Condition::any().add(column.is_null()).add(column.eq("")),
+        VariantFilter::Only(id) => Condition::all().add(column.eq(id.as_str())),
     }
 }
 
@@ -203,15 +213,29 @@ pub(crate) fn limit_param(query: Option<&str>, fallback: i64, max: i64) -> i64 {
         .map_or(fallback, |limit| limit.clamp(1, max))
 }
 
-/// Whether the live row `id` of `table` exists (`products`, `warehouses`, …).
-async fn exists(db: &PgPool, sql: &'static str, id: &str) -> Result<bool, sqlx::Error> {
-    sqlx::query_scalar(sql).bind(id).fetch_one(db).await
+/// `select exists(select 1 from … where …)`.
+async fn exists<E: EntityTrait>(db: &DatabaseConnection, query: Select<E>) -> Result<bool, DbErr>
+where
+    E::Model: Sync,
+{
+    Ok(query.count(db).await? > 0)
+}
+
+/// The live warehouse `id` exists.
+async fn warehouse_exists(db: &DatabaseConnection, id: &str) -> Result<bool, DbErr> {
+    exists(
+        db,
+        warehouses::Entity::find()
+            .filter(warehouses::Column::Id.eq(id))
+            .filter(warehouses::Column::DeletedAt.is_null()),
+    )
+    .await
 }
 
 // ── Settings ────────────────────────────────────────────────────────────────
 
 async fn get_settings(caller: Caller) -> Response {
-    match settings_json(&caller.db).await {
+    match settings_json(&orm(&caller.db)).await {
         Ok(row) => Data(row).into_response(),
         Err(error) => internal(&error, "Failed to fetch replenishment settings"),
     }
@@ -304,24 +328,87 @@ fn nullable_slot(field: &Field<String>) -> (bool, Option<String>) {
     }
 }
 
-const UPSERT_SETTINGS: &str = "insert into stash_settings as t (id, created_at, updated_at, \
-     replenishment_enabled, default_service_level, default_review_period_days, lookback_days, \
-     default_lead_time_days, demand_warehouse_id, history_cutover_date, run_hour_utc) \
-     values ('default', $1::timestamp, $1::timestamp, coalesce($2, false), \
-     coalesce($3::numeric, 0.950), coalesce($4, 7), coalesce($5, 365), coalesce($6, 14), \
-     case when $7 then $8 else null end, case when $9 then $10::date else null end, \
-     coalesce($11, 2)) \
-     on conflict (id) do update set updated_at = excluded.updated_at, \
-     replenishment_enabled = coalesce($2, t.replenishment_enabled), \
-     default_service_level = coalesce($3::numeric, t.default_service_level), \
-     default_review_period_days = coalesce($4, t.default_review_period_days), \
-     lookback_days = coalesce($5, t.lookback_days), \
-     default_lead_time_days = coalesce($6, t.default_lead_time_days), \
-     demand_warehouse_id = case when $7 then $8 else t.demand_warehouse_id end, \
-     history_cutover_date = case when $9 then $10::date else t.history_cutover_date end, \
-     run_hour_utc = coalesce($11, t.run_hour_utc) \
-     returning to_jsonb(t) || jsonb_build_object('default_service_level', \
-     t.default_service_level::text)";
+/// `insert … on conflict (id) do update`: the body's fields over the saved
+/// row, the column defaults over none. The row as Drizzle returns it.
+async fn upsert_settings(
+    db: &DatabaseConnection,
+    patch: &SettingsPatch,
+    (warehouse_given, warehouse): (bool, Option<String>),
+    (cutover_given, cutover): (bool, Option<String>),
+) -> Result<Value, DbErr> {
+    use sea_orm::ExprTrait as _;
+    use stash_settings::Column;
+    let now = utc_now();
+    // `coalesce($3::numeric, 0.950)`: the number as Postgres casts a float.
+    let service_level = match patch.service_level.as_set() {
+        Some(level) => Expr::val(*level).cast_as("numeric"),
+        None => Expr::val("0.950").cast_as("numeric"),
+    };
+    let mut update = vec![Column::UpdatedAt];
+    let mut set = |column: Column, given: bool| {
+        if given {
+            update.push(column);
+        }
+    };
+    set(Column::ReplenishmentEnabled, !patch.enabled.is_absent());
+    set(
+        Column::DefaultServiceLevel,
+        !patch.service_level.is_absent(),
+    );
+    set(
+        Column::DefaultReviewPeriodDays,
+        !patch.review_period_days.is_absent(),
+    );
+    set(Column::LookbackDays, !patch.lookback_days.is_absent());
+    set(
+        Column::DefaultLeadTimeDays,
+        !patch.lead_time_days.is_absent(),
+    );
+    set(Column::DemandWarehouseId, warehouse_given);
+    set(Column::HistoryCutoverDate, cutover_given);
+    set(Column::RunHourUtc, !patch.run_hour_utc.is_absent());
+    let mut insert = Query::insert();
+    insert
+        .into_table(stash_settings::Entity)
+        .columns([
+            Column::Id,
+            Column::CreatedAt,
+            Column::UpdatedAt,
+            Column::ReplenishmentEnabled,
+            Column::DefaultServiceLevel,
+            Column::DefaultReviewPeriodDays,
+            Column::LookbackDays,
+            Column::DefaultLeadTimeDays,
+            Column::DemandWarehouseId,
+            Column::HistoryCutoverDate,
+            Column::RunHourUtc,
+        ])
+        .values([
+            Expr::val(SETTINGS_ID),
+            Expr::val(now),
+            Expr::val(now),
+            Expr::val(patch.enabled.as_set().copied().unwrap_or(false)),
+            service_level,
+            Expr::val(patch.review_period_days.as_set().copied().unwrap_or(7)),
+            Expr::val(patch.lookback_days.as_set().copied().unwrap_or(365)),
+            Expr::val(patch.lead_time_days.as_set().copied().unwrap_or(14)),
+            Expr::val(warehouse),
+            Expr::val(cutover).cast_as("date"),
+            Expr::val(patch.run_hour_utc.as_set().copied().unwrap_or(2)),
+        ])
+        .map_err(|error| DbErr::Custom(error.to_string()))?
+        .on_conflict(
+            OnConflict::column(Column::Id)
+                .update_columns(update)
+                .to_owned(),
+        )
+        .returning_all();
+    let row = db
+        .query_one_raw(DbBackend::Postgres.build(&insert))
+        .await?
+        .ok_or(DbErr::RecordNotInserted)?;
+    model_json!(stash_settings::Model::from_query_result(&row, "")?)
+}
 
 async fn patch_settings(
     State(state): State<StashState>,
@@ -368,78 +455,50 @@ async fn save_settings(
     ctx: &Ctx,
     patch: &SettingsPatch,
 ) -> Result<(super::settings::Settings, Value), Refusal> {
-    let db = &ctx.caller.db;
-    let (warehouse_given, warehouse) = nullable_slot(&patch.demand_warehouse_id);
-    if let Some(id) = &warehouse
-        && !exists(
-            db,
-            "select exists(select 1 from warehouses where id = $1 and deleted_at is null)",
-            id,
-        )
-        .await?
+    let db = &orm(&ctx.caller.db);
+    let warehouse = nullable_slot(&patch.demand_warehouse_id);
+    if let Some(id) = &warehouse.1
+        && !warehouse_exists(db, id).await?
     {
         return Err(Refusal::not_found("Warehouse", id));
     }
-    let (cutover_given, cutover) = nullable_slot(&patch.cutover);
+    let cutover = nullable_slot(&patch.cutover);
     let before = from_json(&settings_json(db).await?);
-    let row: Value = sqlx::query_scalar(UPSERT_SETTINGS)
-        .bind(now())
-        .bind(patch.enabled.as_set().copied())
-        .bind(patch.service_level.as_set().copied())
-        .bind(patch.review_period_days.as_set().copied())
-        .bind(patch.lookback_days.as_set().copied())
-        .bind(patch.lead_time_days.as_set().copied())
-        .bind(warehouse_given)
-        .bind(warehouse)
-        .bind(cutover_given)
-        .bind(cutover)
-        .bind(patch.run_hour_utc.as_set().copied())
-        .fetch_one(db)
-        .await?;
-    Ok((before, weldsuite_db::js_row(row)))
+    let row = upsert_settings(db, patch, warehouse, cutover).await?;
+    Ok((before, row))
 }
 
 // ── Rules ───────────────────────────────────────────────────────────────────
-
-/// A rule as Drizzle returns it.
-macro_rules! rule_row {
-    () => {
-        "to_jsonb(r) || jsonb_build_object('service_level', r.service_level::text)"
-    };
-}
-pub(crate) use rule_row;
-
-const LIST_RULES: &str = concat!(
-    "select ",
-    rule_row!(),
-    " from stash_reorder_rules r where ($1::text is null or r.product_id = $1) \
-     and ($2::text = 'any' or ($2::text = 'none' and coalesce(r.variant_id, '') = '') \
-          or ($2::text = 'only' and r.variant_id = $3)) \
-     and ($4::text is null or r.warehouse_id = $4) \
-     order by r.created_at, r.id"
-);
 
 async fn list_rules(caller: Caller, RawQuery(query): RawQuery) -> Response {
     let query = query.as_deref();
     let product = query_set(query, "productId");
     let warehouse = query_set(query, "warehouseId");
     let variant = variant_filter(query);
-    let (mode, variant) = variant_slots(&variant);
-    let rows: Result<Vec<Value>, _> = sqlx::query_scalar(LIST_RULES)
-        .bind(product.as_deref())
-        .bind(mode)
-        .bind(variant)
-        .bind(warehouse.as_deref())
-        .fetch_all(&caller.db)
-        .await;
+    let mut rules = stash_reorder_rules::Entity::find().filter(variant_condition(
+        stash_reorder_rules::Column::VariantId,
+        &variant,
+    ));
+    if let Some(product) = product {
+        rules = rules.filter(stash_reorder_rules::Column::ProductId.eq(product));
+    }
+    if let Some(warehouse) = warehouse {
+        rules = rules.filter(stash_reorder_rules::Column::WarehouseId.eq(warehouse));
+    }
+    let rows = rules
+        .order_by(stash_reorder_rules::Column::CreatedAt, Order::Asc)
+        .order_by(stash_reorder_rules::Column::Id, Order::Asc)
+        .all(&orm(&caller.db))
+        .await
+        .and_then(|rows| {
+            rows.iter()
+                .map(|row| model_json!(row))
+                .collect::<Result<Vec<_>, _>>()
+        });
     match rows {
         Ok(rows) => {
             let total = u64::try_from(rows.len()).unwrap_or(u64::MAX);
-            List::new(
-                rows.into_iter().map(weldsuite_db::js_row).collect(),
-                Pagination::new(total, false, None),
-            )
-            .into_response()
+            List::new(rows, Pagination::new(total, false, None)).into_response()
         }
         Err(error) => internal(&error, "Failed to list reorder rules"),
     }
@@ -518,20 +577,83 @@ fn read_rule(issues: &mut Issues, body: &Map<String, Value>) -> Option<RuleBody>
     })
 }
 
-const UPSERT_RULE: &str = concat!(
-    "insert into stash_reorder_rules as r (id, created_at, updated_at, item_key, product_id, \
-     variant_id, warehouse_id, method, min_qty, max_qty, service_level, review_period_days, \
-     lead_time_days_override, product_supplier_id) values ($1, $2::timestamp, $2::timestamp, \
-     $3, $4, $5, $6, $7, $8, $9, $10::numeric, $11, $12, $13) \
-     on conflict (item_key) do update set updated_at = excluded.updated_at, \
-     method = excluded.method, min_qty = excluded.min_qty, max_qty = excluded.max_qty, \
-     service_level = excluded.service_level, review_period_days = excluded.review_period_days, \
-     lead_time_days_override = excluded.lead_time_days_override, \
-     product_supplier_id = excluded.product_supplier_id \
-     returning ",
-    rule_row!(),
-    ", (xmax = 0)"
-);
+/// `insert … on conflict (item_key) do update … returning *, (xmax = 0)`:
+/// the rule as Drizzle returns it, and whether the row is new (a row
+/// inserted by the statement has no `xmax`).
+async fn upsert_rule(db: &DatabaseConnection, rule: &RuleBody) -> Result<(Value, bool), DbErr> {
+    use sea_orm::ExprTrait as _;
+    use stash_reorder_rules::Column;
+    let now = utc_now();
+    let mut insert = Query::insert();
+    insert
+        .into_table(stash_reorder_rules::Entity)
+        .columns([
+            Column::Id,
+            Column::CreatedAt,
+            Column::UpdatedAt,
+            Column::ItemKey,
+            Column::ProductId,
+            Column::VariantId,
+            Column::WarehouseId,
+            Column::Method,
+            Column::MinQty,
+            Column::MaxQty,
+            Column::ServiceLevel,
+            Column::ReviewPeriodDays,
+            Column::LeadTimeDaysOverride,
+            Column::ProductSupplierId,
+        ])
+        .values([
+            Expr::val(generate_id("rrule")),
+            Expr::val(now),
+            Expr::val(now),
+            Expr::val(item_key(
+                &rule.product_id,
+                rule.variant_id.as_deref(),
+                &rule.warehouse_id,
+            )),
+            Expr::val(rule.product_id.as_str()),
+            Expr::val(rule.variant_id.clone()),
+            Expr::val(rule.warehouse_id.as_str()),
+            Expr::val(rule.method.as_str()),
+            Expr::val(rule.min_qty),
+            Expr::val(rule.max_qty),
+            // `$10::numeric`: the number as Postgres casts a float.
+            Expr::val(rule.service_level).cast_as("numeric"),
+            Expr::val(rule.review_period_days),
+            Expr::val(rule.lead_time_days_override),
+            Expr::val(rule.product_supplier_id.clone()),
+        ])
+        .map_err(|error| DbErr::Custom(error.to_string()))?
+        .on_conflict(
+            OnConflict::column(Column::ItemKey)
+                .update_columns([
+                    Column::UpdatedAt,
+                    Column::Method,
+                    Column::MinQty,
+                    Column::MaxQty,
+                    Column::ServiceLevel,
+                    Column::ReviewPeriodDays,
+                    Column::LeadTimeDaysOverride,
+                    Column::ProductSupplierId,
+                ])
+                .to_owned(),
+        )
+        .returning(
+            Query::returning().exprs(
+                Column::iter()
+                    .map(Expr::col)
+                    .chain([Expr::col(Alias::new("xmax")).eq(0)]),
+            ),
+        );
+    let row = db
+        .query_one_raw(DbBackend::Postgres.build(&insert))
+        .await?
+        .ok_or(DbErr::RecordNotInserted)?;
+    let inserted: bool = row.try_get_by_index(Column::iter().count())?;
+    let rule = stash_reorder_rules::Model::from_query_result(&row, "")?;
+    Ok((model_json!(rule)?, inserted))
+}
 
 /// The data of a `reorder_rule` event.
 fn rule_event(rule: &Value) -> Value {
@@ -573,74 +695,43 @@ async fn put_rule(
 
 /// The checks (404s), then the upsert: the rule and whether it is new.
 async fn save_rule(caller: &Caller, rule: &RuleBody) -> Result<(Value, bool), Refusal> {
-    let db = &caller.db;
-    if !exists(
-        db,
-        "select exists(select 1 from products where id = $1 and deleted_at is null)",
-        &rule.product_id,
-    )
-    .await?
-    {
+    let db = &orm(&caller.db);
+    let product = products::Entity::find()
+        .filter(products::Column::Id.eq(&rule.product_id))
+        .filter(products::Column::DeletedAt.is_null());
+    if !exists(db, product).await? {
         return Err(Refusal::not_found("Product", &rule.product_id));
     }
     if let Some(variant) = &rule.variant_id {
-        let found: bool = sqlx::query_scalar(
-            "select exists(select 1 from product_variants where id = $1 and product_id = $2 \
-             and deleted_at is null)",
-        )
-        .bind(variant)
-        .bind(&rule.product_id)
-        .fetch_one(db)
-        .await?;
-        if !found {
+        let found = product_variants::Entity::find()
+            .filter(product_variants::Column::Id.eq(variant))
+            .filter(product_variants::Column::ProductId.eq(&rule.product_id))
+            .filter(product_variants::Column::DeletedAt.is_null());
+        if !exists(db, found).await? {
             return Err(Refusal::not_found("Product variant", variant));
         }
     }
-    if !exists(
-        db,
-        "select exists(select 1 from warehouses where id = $1 and deleted_at is null)",
-        &rule.warehouse_id,
-    )
-    .await?
-    {
+    if !warehouse_exists(db, &rule.warehouse_id).await? {
         return Err(Refusal::not_found("Warehouse", &rule.warehouse_id));
     }
     if let Some(link) = &rule.product_supplier_id {
-        let found: bool = sqlx::query_scalar(
-            "select exists(select 1 from product_suppliers where id = $1 and product_id = $2 \
-             and (coalesce(variant_id, '') = '' or variant_id = $3) and deleted_at is null)",
-        )
-        .bind(link)
-        .bind(&rule.product_id)
-        .bind(rule.variant_id.as_deref())
-        .fetch_one(db)
-        .await?;
-        if !found {
+        // `coalesce(variant_id, '') = '' or variant_id = $3`.
+        let mut variant = Condition::any()
+            .add(product_suppliers::Column::VariantId.is_null())
+            .add(product_suppliers::Column::VariantId.eq(""));
+        if let Some(id) = &rule.variant_id {
+            variant = variant.add(product_suppliers::Column::VariantId.eq(id));
+        }
+        let found = product_suppliers::Entity::find()
+            .filter(product_suppliers::Column::Id.eq(link))
+            .filter(product_suppliers::Column::ProductId.eq(&rule.product_id))
+            .filter(variant)
+            .filter(product_suppliers::Column::DeletedAt.is_null());
+        if !exists(db, found).await? {
             return Err(Refusal::not_found("Product supplier", link));
         }
     }
-    let at = now();
-    let (row, inserted): (Value, bool) = sqlx::query_as(UPSERT_RULE)
-        .bind(generate_id("rrule"))
-        .bind(&at)
-        .bind(item_key(
-            &rule.product_id,
-            rule.variant_id.as_deref(),
-            &rule.warehouse_id,
-        ))
-        .bind(&rule.product_id)
-        .bind(rule.variant_id.as_deref())
-        .bind(&rule.warehouse_id)
-        .bind(&rule.method)
-        .bind(rule.min_qty)
-        .bind(rule.max_qty)
-        .bind(rule.service_level)
-        .bind(rule.review_period_days)
-        .bind(rule.lead_time_days_override)
-        .bind(rule.product_supplier_id.as_deref())
-        .fetch_one(db)
-        .await?;
-    Ok((weldsuite_db::js_row(row), inserted))
+    Ok(upsert_rule(db, rule).await?)
 }
 
 async fn delete_rule(
@@ -649,16 +740,13 @@ async fn delete_rule(
     Path(id): Path<String>,
 ) -> Response {
     const FAILED: &str = "Failed to delete reorder rule";
-    let row: Result<Option<Value>, _> = sqlx::query_scalar(concat!(
-        "delete from stash_reorder_rules r where r.id = $1 returning ",
-        rule_row!()
-    ))
-    .bind(&id)
-    .fetch_optional(&caller.db)
-    .await;
+    let row = stash_reorder_rules::Entity::delete_many()
+        .filter(stash_reorder_rules::Column::Id.eq(&id))
+        .exec_with_returning(&orm(&caller.db))
+        .await
+        .and_then(|rows| rows.first().map(|row| model_json!(row)).transpose());
     match row {
         Ok(Some(row)) => {
-            let row = weldsuite_db::js_row(row);
             caller.publish(&state, REORDER_RULE_DELETED, &id, &rule_event(&row));
             NoContent.into_response()
         }
@@ -672,25 +760,23 @@ async fn delete_rule(
 async fn list_runs(caller: Caller, RawQuery(query): RawQuery) -> Response {
     const FAILED: &str = "Failed to list planning runs";
     let limit = limit_param(query.as_deref(), 20, 100);
-    let rows: Result<Vec<Value>, _> = sqlx::query_scalar(
-        "select to_jsonb(t) from stash_planning_runs t order by t.started_at desc, t.id desc \
-         limit $1",
-    )
-    .bind(limit)
-    .fetch_all(&caller.db)
-    .await;
-    let total: Result<i64, _> = sqlx::query_scalar("select count(*) from stash_planning_runs")
-        .fetch_one(&caller.db)
-        .await;
+    let db = orm(&caller.db);
+    let rows = stash_planning_runs::Entity::find()
+        .order_by(stash_planning_runs::Column::StartedAt, Order::Desc)
+        .order_by(stash_planning_runs::Column::Id, Order::Desc)
+        .limit(u64::try_from(limit).ok())
+        .all(&db)
+        .await
+        .and_then(|rows| {
+            rows.iter()
+                .map(|row| model_json!(row))
+                .collect::<Result<Vec<_>, _>>()
+        });
+    let total = stash_planning_runs::Entity::find().count(&db).await;
     match (rows, total) {
         (Ok(rows), Ok(total)) => {
-            let total = u64::try_from(total).unwrap_or(0);
             let has_more = total > u64::try_from(rows.len()).unwrap_or(u64::MAX);
-            List::new(
-                rows.into_iter().map(weldsuite_db::js_row).collect(),
-                Pagination::new(total, has_more, None),
-            )
-            .into_response()
+            List::new(rows, Pagination::new(total, has_more, None)).into_response()
         }
         (Err(error), _) | (_, Err(error)) => internal(&error, FAILED),
     }
@@ -698,7 +784,7 @@ async fn list_runs(caller: Caller, RawQuery(query): RawQuery) -> Response {
 
 async fn start(State(state): State<StashState>, ctx: Ctx) -> Response {
     const FAILED: &str = "Failed to start planning run";
-    let settings = match super::settings::load_settings(&ctx.caller.db).await {
+    let settings = match super::settings::load_settings(&orm(&ctx.caller.db)).await {
         Ok(settings) => settings,
         Err(error) => return internal(&error, FAILED),
     };

@@ -22,7 +22,8 @@ import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import type { RoomClient } from '@weldsuite/realtime/client';
 import { useChatContext } from './chat-context';
-import { isSystemNotice } from '../lib/system-notice';
+import { isPinNotice, isSystemNotice } from '../lib/system-notice';
+import { cn } from '@/lib/utils';
 import { buildCallHistory } from '../lib/call-history';
 import { isFeatureAvailable } from '@/lib/edition';
 import { flashMessageWhenMounted } from '../lib/jump-to-message';
@@ -74,7 +75,6 @@ interface MessageListProps {
   parentId?: string;
   showChannel?: boolean;
   client?: RoomClient | null;
-  isDm?: boolean;
   /** Deep-link target (`?msg=`): scrolled to and highlighted once found; channel view only. */
   targetMessageId?: string;
   /** Called once the deep link has been handled (jumped to, or reported as not found): clear it from the URL. */
@@ -87,7 +87,6 @@ export function MessageList({
   channelId,
   parentId,
   showChannel,
-  isDm,
   targetMessageId,
   onTargetHandled,
   unreadMarker,
@@ -430,7 +429,9 @@ export function MessageList({
       }
     `}</style>
     <div ref={scrollContainerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-transparent hover:scrollbar-thumb-muted-foreground/20" style={{ scrollbarWidth: 'thin', scrollbarColor: 'transparent transparent' }} onMouseEnter={(e) => { e.currentTarget.style.scrollbarColor = 'rgba(150,150,150,0.2) transparent'; }} onMouseLeave={(e) => { e.currentTarget.style.scrollbarColor = 'transparent transparent'; }}>
-      <div data-testid="chat-message-list" className="flex flex-col min-h-full pt-4 pb-8">
+      {/* A thread starts with its first message right under the panel's header. */}
+      {/* data-chat-image-scope: the image lightbox pages through this list's images. */}
+      <div data-testid="chat-message-list" data-chat-image-scope className={cn('flex flex-col min-h-full pb-8', parentId ? 'pt-0' : 'pt-4')}>
         {/* Spacer pushes messages to bottom when content is shorter than viewport */}
         <div className="flex-1" />
         {hasNextPage && (
@@ -452,12 +453,13 @@ export function MessageList({
           <ChannelEmptyState channel={channel} />
         )}
         {threadParent && (
-          <div data-testid="chat-thread-parent" className="border-b pb-3 mb-2">
+          // No room outside the row: its hover area runs from the header's line
+          // to this one, the space inside it (`*:pb-3.5`, like its top).
+          <div data-testid="chat-thread-parent" className="mb-2 border-b *:pb-3.5">
             <MessageItem
               message={threadParent}
               channelId={channelId}
               membersMap={membersMap}
-              isDm={isDm}
               record={record}
             />
           </div>
@@ -485,8 +487,9 @@ export function MessageList({
             !replyToMessage &&
             !startsUnread &&
             prevMessage.authorId === message.authorId &&
-            // A call reads as a message from its caller, so it groups like one.
-            (!isSystemNotice(prevMessage) || callHistory.calls.has(prevMessage.id)) &&
+            // A call or a pin notice reads as a message from its caller or
+            // pinner, so it groups like one.
+            (!isSystemNotice(prevMessage) || callHistory.calls.has(prevMessage.id) || isPinNotice(prevMessage)) &&
             !showDate &&
             !Number.isNaN(timeDiff) &&
             timeDiff >= 0 &&
@@ -528,7 +531,6 @@ export function MessageList({
                 membersMap={membersMap}
                 replyToMessage={replyToMessage}
                 readBy={readByMap.get(message.id)}
-                isDm={isDm}
                 hasActiveCall={hasActiveCall && message.id === lastCallStartedId}
                 activeCallId={hasActiveCall && message.id === lastCallStartedId ? activeCallData?.data?.id : undefined}
                 call={callHistory.calls.get(message.id)}

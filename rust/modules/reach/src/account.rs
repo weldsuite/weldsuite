@@ -8,15 +8,19 @@ use axum::extract::State;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use http::HeaderMap;
+use sea_orm::sea_query::{Expr, OnConflict};
+use sea_orm::{ActiveValue::Set, ColumnTrait, EntityTrait, QueryFilter};
 use serde_json::{Map, Value, json};
 use sqlx::PgPool;
 use weldsuite_catalogs::permission_keys as perm;
+use weldsuite_db::orm;
 use weldsuite_kit::Data;
 use weldsuite_kit::validation::{Format, Issues, Number, Presence, Text};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
-use weldsuite_reach_domain::{ReachError, ReachResult, field, iso, now};
+use weldsuite_reach_domain::{ReachError, ReachResult, field, now, text};
+use weldsuite_schema::tenant::reach_settings;
 
-use crate::{Caller, ReachState, billing, respond, validate};
+use crate::{Caller, ReachState, billing, db_error, respond, row_json, validate};
 
 pub(crate) fn routes<Q: PermissionQueries + 'static>(
     gate: &Arc<PermissionGate<Q>>,
@@ -82,10 +86,14 @@ pub(crate) async fn get_or_create_settings(db: &PgPool) -> ReachResult<Value> {
     if let Some(row) = weldsuite_reach_domain::campaigns::load_settings(db).await? {
         return Ok(row);
     }
-    sqlx::query("insert into reach_settings (id) values ($1) on conflict do nothing")
-        .bind(SETTINGS_ID)
-        .execute(db)
-        .await?;
+    reach_settings::Entity::insert(reach_settings::ActiveModel {
+        id: Set(SETTINGS_ID.to_owned()),
+        ..Default::default()
+    })
+    .on_conflict(OnConflict::new().do_nothing().to_owned())
+    .exec_without_returning(&orm(db))
+    .await
+    .map_err(db_error)?;
     weldsuite_reach_domain::campaigns::load_settings(db)
         .await?
         .ok_or_else(|| ReachError::unexpected(&"reach_settings row could not be created"))
@@ -153,14 +161,15 @@ pub(crate) fn weekdays(
         .into_option()
 }
 
-/// The validated `updateReachSettingsSchema` body.
+/// The validated `updateReachSettingsSchema` body: the columns it sets.
 struct SettingsInput {
-    fields: Vec<(&'static str, Value)>,
+    fields: Vec<(reach_settings::Column, Expr)>,
     complete_onboarding: Option<bool>,
 }
 
 fn settings_input(issues: &mut Issues, body: &Map<String, Value>) -> SettingsInput {
-    let mut fields: Vec<(&'static str, Value)> = Vec::new();
+    use reach_settings::Column;
+    let mut fields: Vec<(Column, Expr)> = Vec::new();
     let text = |issues: &mut Issues, key: &str, rules: Text| {
         issues
             .text_with(body, key, Presence::Optional, rules)
@@ -171,23 +180,23 @@ fn settings_input(issues: &mut Issues, body: &Map<String, Value>) -> SettingsInp
         "senderCompanyName",
         Text::trimmed(Some(1), Some(200)),
     ) {
-        fields.push(("sender_company_name", json!(v)));
+        fields.push((Column::SenderCompanyName, Expr::value(v)));
     }
     if let Some(v) = text(issues, "senderAddress", Text::trimmed(Some(1), Some(1000))) {
-        fields.push(("sender_address", json!(v)));
+        fields.push((Column::SenderAddress, Expr::value(v)));
     }
     if let Some(v) = text(issues, "optOutText", Text::trimmed(Some(1), Some(500))) {
-        fields.push(("opt_out_text", json!(v)));
+        fields.push((Column::OptOutText, Expr::value(v)));
     }
     if let Some(v) = text(issues, "defaultTimezone", Text::length(Some(1), Some(64))) {
-        fields.push(("default_timezone", json!(v)));
+        fields.push((Column::DefaultTimezone, Expr::value(v)));
     }
     if let Some(v) = weekdays(issues, body, "defaultSendDays", Presence::Optional) {
-        fields.push(("default_send_days", json!(v)));
+        fields.push((Column::DefaultSendDays, Expr::value(json!(v))));
     }
     for (key, column) in [
-        ("defaultWindowStart", "default_window_start"),
-        ("defaultWindowEnd", "default_window_end"),
+        ("defaultWindowStart", Column::DefaultWindowStart),
+        ("defaultWindowEnd", Column::DefaultWindowEnd),
     ] {
         if let Some(v) = issues
             .pattern(
@@ -201,7 +210,7 @@ fn settings_input(issues: &mut Issues, body: &Map<String, Value>) -> SettingsInp
             )
             .into_option()
         {
-            fields.push((column, json!(v)));
+            fields.push((column, Expr::value(v)));
         }
     }
     if let Some(v) = issues
@@ -218,7 +227,10 @@ fn settings_input(issues: &mut Issues, body: &Map<String, Value>) -> SettingsInp
         )
         .into_option()
     {
-        fields.push(("default_mailbox_daily_cap", json!(v)));
+        fields.push((
+            Column::DefaultMailboxDailyCap,
+            Expr::value(i32::try_from(v).unwrap_or_default()),
+        ));
     }
     if let Some(v) = issues
         .choice(
@@ -229,7 +241,7 @@ fn settings_input(issues: &mut Issues, body: &Map<String, Value>) -> SettingsInp
         )
         .into_option()
     {
-        fields.push(("stop_on_reply_scope", json!(v)));
+        fields.push((Column::StopOnReplyScope, Expr::value(v)));
     }
     let complete_onboarding = issues
         .boolean(body, "completeOnboarding", Presence::Optional)
@@ -248,35 +260,32 @@ async fn update_settings(caller: Caller, headers: HeaderMap, body: Bytes) -> Res
     respond(
         async {
             let current = get_or_create_settings(&caller.db).await?;
-            let at = iso(now());
-            let mut patch = Map::new();
+            let at = now();
+            let mut update = reach_settings::Entity::update_many();
             for (column, value) in &input.fields {
-                patch.insert((*column).to_owned(), value.clone());
+                update = update.col_expr(*column, value.clone());
             }
-            if input.complete_onboarding == Some(true) && current.get("onboardingCompletedAt").is_none_or(Value::is_null) {
-                patch.insert("onboarding_completed_at".to_owned(), json!(at));
+            if input.complete_onboarding == Some(true)
+                && current
+                    .get("onboardingCompletedAt")
+                    .is_none_or(Value::is_null)
+            {
+                update = update.col_expr(
+                    reach_settings::Column::OnboardingCompletedAt,
+                    Expr::value(at),
+                );
             }
-            let row: Option<Value> = sqlx::query_scalar(
-                "update reach_settings s set
-                     sender_company_name = case when $2::jsonb ? 'sender_company_name' then $2::jsonb->>'sender_company_name' else s.sender_company_name end,
-                     sender_address = case when $2::jsonb ? 'sender_address' then $2::jsonb->>'sender_address' else s.sender_address end,
-                     opt_out_text = case when $2::jsonb ? 'opt_out_text' then $2::jsonb->>'opt_out_text' else s.opt_out_text end,
-                     default_timezone = case when $2::jsonb ? 'default_timezone' then $2::jsonb->>'default_timezone' else s.default_timezone end,
-                     default_send_days = case when $2::jsonb ? 'default_send_days' then $2::jsonb->'default_send_days' else s.default_send_days end,
-                     default_window_start = case when $2::jsonb ? 'default_window_start' then $2::jsonb->>'default_window_start' else s.default_window_start end,
-                     default_window_end = case when $2::jsonb ? 'default_window_end' then $2::jsonb->>'default_window_end' else s.default_window_end end,
-                     default_mailbox_daily_cap = case when $2::jsonb ? 'default_mailbox_daily_cap' then ($2::jsonb->>'default_mailbox_daily_cap')::int else s.default_mailbox_daily_cap end,
-                     stop_on_reply_scope = case when $2::jsonb ? 'stop_on_reply_scope' then $2::jsonb->>'stop_on_reply_scope' else s.stop_on_reply_scope end,
-                     onboarding_completed_at = case when $2::jsonb ? 'onboarding_completed_at' then ($2::jsonb->>'onboarding_completed_at')::timestamptz else s.onboarding_completed_at end,
-                     updated_at = $3::timestamptz
-                 where s.id = $1 returning to_jsonb(s)",
-            )
-            .bind(field(&current, "id").as_str())
-            .bind(Value::Object(patch))
-            .bind(&at)
-            .fetch_optional(&caller.db)
-            .await?;
-            let row = row.map_or(current, weldsuite_db::js_row);
+            let row = update
+                .col_expr(reach_settings::Column::UpdatedAt, Expr::value(at))
+                .filter(reach_settings::Column::Id.eq(text(&current, "id").unwrap_or_default()))
+                .exec_with_returning(&orm(&caller.db))
+                .await
+                .map_err(db_error)?
+                .into_iter()
+                .next()
+                .map(row_json)
+                .transpose()?;
+            let row = row.unwrap_or(current);
             Ok(Data(settings_dto(&row)).into_response())
         }
         .await,

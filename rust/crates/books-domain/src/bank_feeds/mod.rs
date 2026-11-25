@@ -15,11 +15,15 @@ pub mod ponto_signature;
 pub mod providers;
 pub mod sync;
 
+use sea_orm::ActiveValue::Set;
+use sea_orm::sea_query::{Expr, OnConflict};
+use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter};
 use serde_json::{Map, Value, json};
-use sqlx::PgPool;
-use weldsuite_db::{Keyring, decrypt_field, encrypt_field};
+use time::{OffsetDateTime, PrimitiveDateTime};
+use weldsuite_db::{Keyring, OrmConn, PgPool, decrypt_field, encrypt_field, orm, utc_timestamp};
 use weldsuite_kit::generate_id;
 use weldsuite_ports::OutboundHttp;
+use weldsuite_schema::master::bank_feed_connection_index as index;
 
 pub use providers::{FeedConfig, LinkInput, Provider};
 
@@ -63,14 +67,34 @@ impl std::fmt::Display for FeedError {
 pub enum ServiceError {
     /// `not_found`, `bad_request`, `conflict`, `upstream` or `unavailable`.
     Service(&'static str, String),
-    Database(sqlx::Error),
+    Database(DbErr),
     /// Anything else (a crypto failure): the route's 500.
     Other(String),
+    /// The provider is outside the EU and the workspace hasn't switched it
+    /// on (ADR OPS-026): the route's 403.
+    OutsideEu(weldsuite_outside_eu::OutsideEuError),
 }
 
-impl From<sqlx::Error> for ServiceError {
-    fn from(error: sqlx::Error) -> Self {
+impl From<DbErr> for ServiceError {
+    fn from(error: DbErr) -> Self {
         Self::Database(error)
+    }
+}
+
+impl From<weldsuite_outside_eu::OutsideEuError> for ServiceError {
+    fn from(error: weldsuite_outside_eu::OutsideEuError) -> Self {
+        Self::OutsideEu(error)
+    }
+}
+
+/// The service outside the EU a bank feed provider is (ADR OPS-026): Plaid,
+/// and Stripe Financial Connections. Ponto and Enable Banking are EU
+/// companies.
+pub fn outside_eu_service(provider_id: &str) -> Option<weldsuite_outside_eu::ServiceId> {
+    match providers::normalize_provider_id(provider_id).as_str() {
+        "plaid" => Some(weldsuite_outside_eu::ServiceId::Plaid),
+        "stripe_fc" => Some(weldsuite_outside_eu::ServiceId::Stripe),
+        _ => None,
     }
 }
 
@@ -88,6 +112,37 @@ impl From<FeedError> for ServiceError {
 
 pub(crate) fn service(code: &'static str, message: impl Into<String>) -> ServiceError {
     ServiceError::Service(code, message.into())
+}
+
+/// `new Date()` once: as the feeds keep it in JSON (`toISOString()`), and as
+/// the `timestamp` columns hold it.
+pub(crate) fn now_both() -> (String, PrimitiveDateTime) {
+    let at = OffsetDateTime::now_utc();
+    (weldsuite_events::iso_timestamp(at), utc_timestamp(at))
+}
+
+/// An ISO instant as `toISOString()` writes it (`$n::timestamptz`); text
+/// Postgres would not read is refused as it would refuse it.
+pub(crate) fn instant(iso: &str) -> Result<OffsetDateTime, DbErr> {
+    crate::js::js_date_millis(iso)
+        .and_then(|millis| {
+            OffsetDateTime::from_unix_timestamp_nanos(i128::from(millis) * 1_000_000).ok()
+        })
+        .ok_or_else(|| {
+            DbErr::Type(format!(
+                "invalid input syntax for type timestamp: \"{iso}\""
+            ))
+        })
+}
+
+/// [`instant`] as a `timestamp` column holds it (`$n::timestamp`: UTC).
+pub(crate) fn stamp(iso: &str) -> Result<PrimitiveDateTime, DbErr> {
+    instant(iso).map(utc_timestamp)
+}
+
+/// A row as Drizzle returns it.
+pub(crate) fn js<M: serde::Serialize>(model: M) -> Result<Value, DbErr> {
+    serde_json::to_value(model).map_err(|error| DbErr::Json(error.to_string()))
 }
 
 /// An account as the provider reports it (`FeedAccount`).
@@ -250,6 +305,19 @@ pub struct FeedContext {
 }
 
 impl FeedContext {
+    /// `Err` when `provider_id` is outside the EU and the workspace hasn't
+    /// switched it on (ADR OPS-026); `Ok` without enforcement and for the
+    /// EU providers.
+    pub async fn outside_eu(
+        &self,
+        provider_id: &str,
+    ) -> Result<(), weldsuite_outside_eu::OutsideEuError> {
+        match outside_eu_service(provider_id) {
+            Some(service) => weldsuite_outside_eu::require(&self.db, service).await,
+            None => Ok(()),
+        }
+    }
+
     /// `ctx.getProvider(id)`.
     pub fn provider(&self, id: &str) -> Result<Provider<'_>, FeedError> {
         Provider::create(
@@ -272,29 +340,52 @@ impl FeedContext {
         entity_id: &str,
         interval_hours: i64,
         next_sync_at: &str,
-    ) -> Result<(), sqlx::Error> {
+    ) -> Result<(), DbErr> {
         let Some(master) = &self.master else {
             return Ok(());
         };
-        let stamp = crate::http::now();
-        let mut tx = master.begin().await?;
-        for key in keys {
-            sqlx::query(
-                "insert into bank_feed_connection_index (id, provider, provider_connection_id, clerk_org_id, connection_id,                  entity_id, is_active, sync_interval_hours, next_sync_at, created_at, updated_at)                  values ($1, $2, $3, $4, $5, $6, true, $7, $8::timestamptz, $9::timestamptz, $9::timestamptz)                  on conflict (provider, provider_connection_id) do update set clerk_org_id = excluded.clerk_org_id,                  connection_id = excluded.connection_id, entity_id = excluded.entity_id, is_active = true,                  sync_interval_hours = excluded.sync_interval_hours, next_sync_at = excluded.next_sync_at,                  last_error = null, updated_at = $9::timestamptz",
-            )
-            .bind(generate_id("bfi"))
-            .bind(provider)
-            .bind(key)
-            .bind(&self.clerk_org_id)
-            .bind(connection_id)
-            .bind(entity_id)
-            .bind(i32::try_from(interval_hours).unwrap_or(24))
-            .bind(next_sync_at)
-            .bind(&stamp)
-            .execute(&mut *tx)
-            .await?;
+        let now = utc_timestamp(OffsetDateTime::now_utc()).assume_utc();
+        let next_sync_at = instant(next_sync_at)?;
+        let mut tx = master.begin().await.map_err(weldsuite_db::orm_error)?;
+        {
+            let conn = OrmConn::new(&mut tx);
+            for key in keys {
+                index::Entity::insert(index::ActiveModel {
+                    id: Set(generate_id("bfi")),
+                    provider: Set(provider.to_owned()),
+                    provider_connection_id: Set(key.clone()),
+                    clerk_org_id: Set(self.clerk_org_id.clone()),
+                    connection_id: Set(connection_id.to_owned()),
+                    entity_id: Set(entity_id.to_owned()),
+                    is_active: Set(true),
+                    sync_interval_hours: Set(i32::try_from(interval_hours).unwrap_or(24)),
+                    next_sync_at: Set(Some(next_sync_at)),
+                    created_at: Set(now),
+                    updated_at: Set(now),
+                    ..Default::default()
+                })
+                .on_conflict(
+                    OnConflict::columns([
+                        index::Column::Provider,
+                        index::Column::ProviderConnectionId,
+                    ])
+                    .update_columns([
+                        index::Column::ClerkOrgId,
+                        index::Column::ConnectionId,
+                        index::Column::EntityId,
+                        index::Column::SyncIntervalHours,
+                        index::Column::NextSyncAt,
+                    ])
+                    .value(index::Column::IsActive, Expr::val(true))
+                    .value(index::Column::LastError, Expr::val(Option::<String>::None))
+                    .value(index::Column::UpdatedAt, Expr::val(now))
+                    .to_owned(),
+                )
+                .exec_without_returning(&conn)
+                .await?;
+            }
         }
-        tx.commit().await
+        tx.commit().await.map_err(weldsuite_db::orm_error)
     }
 
     /// `index.setActive(connectionId, active, lastError)`.
@@ -303,30 +394,29 @@ impl FeedContext {
         connection_id: &str,
         active: bool,
         last_error: Option<&str>,
-    ) -> Result<(), sqlx::Error> {
+    ) -> Result<(), DbErr> {
         let Some(master) = &self.master else {
             return Ok(());
         };
-        sqlx::query(
-            "update bank_feed_connection_index set is_active = $2, last_error = $3, updated_at = $4::timestamptz              where connection_id = $1",
-        )
-        .bind(connection_id)
-        .bind(active)
-        .bind(last_error)
-        .bind(crate::http::now())
-        .execute(master)
-        .await
-        .map(|_| ())
+        let now = utc_timestamp(OffsetDateTime::now_utc()).assume_utc();
+        index::Entity::update_many()
+            .col_expr(index::Column::IsActive, Expr::val(active))
+            .col_expr(index::Column::LastError, Expr::val(last_error))
+            .col_expr(index::Column::UpdatedAt, Expr::val(now))
+            .filter(index::Column::ConnectionId.eq(connection_id))
+            .exec(&orm(master))
+            .await
+            .map(|_| ())
     }
 
     /// `index.remove(connectionId)`.
-    pub async fn index_remove(&self, connection_id: &str) -> Result<(), sqlx::Error> {
+    pub async fn index_remove(&self, connection_id: &str) -> Result<(), DbErr> {
         let Some(master) = &self.master else {
             return Ok(());
         };
-        sqlx::query("delete from bank_feed_connection_index where connection_id = $1")
-            .bind(connection_id)
-            .execute(master)
+        index::Entity::delete_many()
+            .filter(index::Column::ConnectionId.eq(connection_id))
+            .exec(&orm(master))
             .await
             .map(|_| ())
     }

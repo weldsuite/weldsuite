@@ -2,6 +2,7 @@ import { Settings2, Users } from 'lucide-react';
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import { PageTabs, type PageTab } from '@weldsuite/ui/components/page-tabs';
 import { getTranslations } from '@/lib/i18n';
+import { OutsideEuNotice } from '@/components/outside-eu/outside-eu-notice';
 import { SocialGeneralSettings } from './general-section';
 import { SocialTeamSettings } from './team-section';
 
@@ -30,6 +31,8 @@ export default function WeldSocialSettingsPage() {
         <h1 className="text-2xl font-semibold tracking-tight">{ts.social.title}</h1>
         <p className="text-muted-foreground">{ts.social.description}</p>
       </div>
+      {/* EU edition: publishing goes through PostPeer, outside the EU (ADR OPS-026). */}
+      <OutsideEuNotice services={['postpeer']} />
       <PageTabs
         tabs={tabs}
         activeTab={activeTab}

@@ -32,6 +32,7 @@ use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::post;
 use http::{HeaderMap, StatusCode};
+use sea_orm::{ColumnTrait, Condition, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
 use time::OffsetDateTime;
 use weldsuite_connect_domain::catchup::{self, Backoff};
@@ -40,8 +41,9 @@ use weldsuite_connect_domain::webhooks::{
     STRIPE_CONNECT_VERIFIED_HEADER, connection_kv_key, registration_kv_key, stripe_account_kv_key,
     verify,
 };
-use weldsuite_db::PgPool;
 use weldsuite_db::due_index::{SweepResult, run_sweep};
+use weldsuite_db::{PgPool, orm};
+use weldsuite_schema::master::workspaces;
 
 use crate::connect_internal::{ConnectCall, ConnectInternal};
 use crate::crm::due::WorkspaceOpener;
@@ -403,6 +405,10 @@ async fn request_catchup(
     }
 }
 
+/// How soon a Moneybird connection is due again while documents still wait
+/// for their attachments (each run fetches a budget of them).
+const ATTACHMENT_BACKLOG_RETRY_MS: i64 = 30 * 60_000;
+
 /// One workspace (`processConnectorCatchupRow` per due connection): probe
 /// what is due, catch up what changed, and say when the workspace is next
 /// due (`None`: no connection left to look after).
@@ -413,12 +419,65 @@ pub async fn catch_up_workspace(
     clerk_org_id: &str,
     now: i64,
     counts: &mut CatchupCounts,
-) -> Result<Option<i64>, sqlx::Error> {
+) -> Result<Option<i64>, DbErr> {
     let mut next: Option<i64> = None;
-    for connection in catchup::due_connections(db).await? {
-        let at = if connection.due_at <= now {
-            let interval = now + connection.interval_minutes * 60_000;
-            match catchup::probe_updates(&connection.row, env).await {
+    let connections = catchup::due_connections(db).await?;
+    for connection in connections {
+        // Moneybird documents still waiting for their files (a run's
+        // download budget ran out): caught up as changed, half an hour after
+        // the last sync instead of the usual interval, until none is left.
+        let backlog = connection.provider == "moneybird"
+            && connection.row["status"].as_str() == Some("active")
+            && weldsuite_connect_domain::ingest::moneybird_attachment_backlog(
+                db,
+                &connection.id,
+                None,
+            )
+            .await
+            .unwrap_or_else(|error| {
+                tracing::warn!(
+                    "[ConnectorCatchup] attachment backlog of {} failed: {error}",
+                    connection.id
+                );
+                false
+            });
+        let (due_at, interval_ms) = if backlog {
+            let last_sync = connection.due_at - connection.interval_minutes * 60_000;
+            (
+                connection
+                    .due_at
+                    .min(last_sync + ATTACHMENT_BACKLOG_RETRY_MS),
+                ATTACHMENT_BACKLOG_RETRY_MS,
+            )
+        } else {
+            (connection.due_at, connection.interval_minutes * 60_000)
+        };
+        let at = if due_at <= now {
+            let interval = now + interval_ms;
+            // ADR OPS-026: a store outside the EU (Stripe, Shopify) the
+            // workspace hasn't switched on is not probed; it stays scheduled.
+            let switched_off =
+                match weldsuite_outside_eu::ServiceId::for_integration(&connection.provider) {
+                    Some(service) => {
+                        !weldsuite_outside_eu::allowed(
+                            db,
+                            service,
+                            &format!("connector catch-up {} in {clerk_org_id}", connection.id),
+                        )
+                        .await
+                    }
+                    None => false,
+                };
+            if switched_off {
+                next = Some(next.map_or(interval, |n| n.min(interval)));
+                continue;
+            }
+            let probed = if backlog {
+                Ok(true)
+            } else {
+                catchup::probe_updates(&connection.row, env).await
+            };
+            match probed {
                 Ok(false) => {
                     counts.probed += 1;
                     interval
@@ -444,7 +503,7 @@ pub async fn catch_up_workspace(
                 }
             }
         } else {
-            connection.due_at
+            due_at
         };
         next = Some(next.map_or(at, |n| n.min(at)));
     }
@@ -556,14 +615,22 @@ pub async fn push_workspace(
 /// The Clerk org id connect-api's internal routes take (`X-Workspace-Id`),
 /// read off the master database; the tenant stays closed.
 async fn clerk_org_of(master: &PgPool, workspace_id: &str) -> Result<String, String> {
-    let found: Option<String> = sqlx::query_scalar(
-        "select coalesce(clerk_org_id, id) from workspaces where id = $1 or clerk_org_id = $1 limit 1",
-    )
-    .bind(workspace_id)
-    .fetch_optional(master)
-    .await
-    .map_err(|e| crate::crm::db_message(&e))?;
-    found.ok_or_else(|| format!("workspace {workspace_id} not found"))
+    let found: Option<(String, Option<String>)> = workspaces::Entity::find()
+        .select_only()
+        .columns([workspaces::Column::Id, workspaces::Column::ClerkOrgId])
+        .filter(
+            Condition::any()
+                .add(workspaces::Column::Id.eq(workspace_id))
+                .add(workspaces::Column::ClerkOrgId.eq(workspace_id)),
+        )
+        .into_tuple()
+        .one(&orm(master))
+        .await
+        .map_err(|e| crate::crm::db_message(&e))?;
+    // `coalesce(clerk_org_id, id)`.
+    found
+        .map(|(id, clerk_org_id)| clerk_org_id.unwrap_or(id))
+        .ok_or_else(|| format!("workspace {workspace_id} not found"))
 }
 
 /// `runMoneybirdPushSweep(env)`: every workspace with a Moneybird push

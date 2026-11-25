@@ -4,9 +4,14 @@
 //! an event of the owner, falls inside the minimum notice, lies beyond the
 //! booking horizon, or the day already has its maximum of bookings.
 
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{ColumnTrait, Condition, EntityTrait, PaginatorTrait, QueryFilter, QuerySelect};
 use serde_json::{Value, json};
-use weldsuite_db::PgPool;
+use time::PrimitiveDateTime;
+use weldsuite_db::{PgPool, orm};
+use weldsuite_schema::tenant::{calendar_bookings, calendar_events as events};
 
+use crate::events::{millis_at, timestamp_at};
 use crate::js::{DAY_MS, iso, parse_date, time_zone};
 use crate::{Outcome, Refusal, text};
 
@@ -65,12 +70,39 @@ fn template(value: &Value) -> String {
     }
 }
 
-/// A `timestamp` as `to_jsonb` writes it, in milliseconds (UTC).
-fn stamp(value: &Value) -> Option<i64> {
-    value
-        .as_str()
-        .and_then(weldsuite_db::js_timestamp)
-        .and_then(|iso| parse_date(&iso))
+/// The owner's busy events that overlap `[day_start, day_end)`: confirmed
+/// or tentative, organised by them or on one of their calendars, an event
+/// without an end taking 30 minutes. Their `(start, end)`.
+async fn busy_events(
+    db: &PgPool,
+    owner: &str,
+    owned_calendars: Vec<String>,
+    day_start: i64,
+    day_end: i64,
+) -> Result<Vec<(PrimitiveDateTime, Option<PrimitiveDateTime>)>, sea_orm::DbErr> {
+    // `coalesce(end_time, start_time + interval '30 minutes')`.
+    let ends_at = Func::coalesce([
+        Expr::col(events::Column::EndTime),
+        sea_orm::ExprTrait::add(
+            Expr::col(events::Column::StartTime),
+            sea_orm::ExprTrait::cast_as(Expr::value("30 minutes"), "interval"),
+        ),
+    ]);
+    events::Entity::find()
+        .select_only()
+        .columns([events::Column::StartTime, events::Column::EndTime])
+        .filter(events::Column::DeletedAt.is_null())
+        .filter(
+            Condition::any()
+                .add(events::Column::OrganizerId.eq(owner))
+                .add(events::Column::CalendarId.is_in(owned_calendars)),
+        )
+        .filter(events::Column::Status.is_in(["confirmed", "tentative"]))
+        .filter(events::Column::StartTime.lt(timestamp_at(day_end)))
+        .filter(sea_orm::ExprTrait::gt(ends_at, timestamp_at(day_start)))
+        .into_tuple()
+        .all(&orm(db))
+        .await
 }
 
 /// A nullable integer column as a number.
@@ -126,26 +158,13 @@ pub(crate) async fn available_slots(
 
     let owner = text(page, "ownerId");
     let owned_calendars = crate::access::owned_calendar_ids(db, owner).await?;
-    let events: Vec<(Value, Option<Value>)> = sqlx::query_as(
-        "select to_jsonb(start_time), to_jsonb(end_time) from calendar_events
-         where deleted_at is null
-           and (organizer_id = $1 or calendar_id = any($2))
-           and status in ('confirmed', 'tentative')
-           and start_time < $3::timestamp
-           and coalesce(end_time, start_time + interval '30 minutes') > $4::timestamp",
-    )
-    .bind(owner)
-    .bind(&owned_calendars)
-    .bind(iso(day_end))
-    .bind(iso(day_start))
-    .fetch_all(db)
-    .await?;
+    let events = busy_events(db, owner, owned_calendars, day_start, day_end).await?;
     let busy: Vec<(i64, i64)> = events
         .into_iter()
-        .filter_map(|(start, end)| {
-            let start = stamp(&start)?;
-            let end = end.as_ref().and_then(stamp).unwrap_or(start + 30 * 60_000);
-            Some((start, end))
+        .map(|(start, end)| {
+            let start = millis_at(start);
+            let end = end.map_or(start + 30 * 60_000, millis_at);
+            (start, end)
         })
         .collect();
 
@@ -170,16 +189,14 @@ pub(crate) async fn available_slots(
 
     let mut day_full = false;
     if let Some(cap) = number(&page["maxBookingsPerDay"]).filter(|cap| *cap > 0.0) {
-        let count: i64 = sqlx::query_scalar(
-            "select count(*) from calendar_bookings
-             where booking_page_id = $1 and deleted_at is null and status <> 'cancelled'
-               and start_time >= $2::timestamp and start_time < $3::timestamp",
-        )
-        .bind(text(page, "id"))
-        .bind(iso(day_start))
-        .bind(iso(day_end))
-        .fetch_one(db)
-        .await?;
+        let count = calendar_bookings::Entity::find()
+            .filter(calendar_bookings::Column::BookingPageId.eq(text(page, "id")))
+            .filter(calendar_bookings::Column::DeletedAt.is_null())
+            .filter(calendar_bookings::Column::Status.ne("cancelled"))
+            .filter(calendar_bookings::Column::StartTime.gte(timestamp_at(day_start)))
+            .filter(calendar_bookings::Column::StartTime.lt(timestamp_at(day_end)))
+            .count(&orm(db))
+            .await?;
         #[allow(clippy::cast_precision_loss)]
         {
             day_full = count as f64 >= cap;

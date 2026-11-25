@@ -12,21 +12,30 @@ use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, patch, post};
 use http::{HeaderMap, StatusCode};
+use sea_orm::{
+    ActiveEnum, ActiveValue::Set, ColumnTrait, Condition, DbErr, EntityTrait, QueryFilter,
+};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events::{DOMAIN_TRANSFER_CREATED, DOMAIN_TRANSFER_UPDATED};
+use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_kit::validation::{Field, Issues, Presence};
 use weldsuite_kit::{ApiError, Created, Data, List, Pagination, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+use weldsuite_schema::tenant::enums::{
+    HostDomainRegistrationStatus, HostDomainStatus, HostDomainTransferStatus,
+    HostDomainTransferType,
+};
+use weldsuite_schema::tenant::{domain_transfers, domains};
 
 use crate::dns_zones::limit_param;
 use crate::js::{parse_int, text};
-use crate::listing::{ListSql, keyset, list};
+use crate::listing::list;
 use crate::registrar::{
     Outcome, RealtimeRegistrar, RtrError, platform_contacts, privacy_protect_for_domain,
 };
-use crate::rows::{live_domain, one};
+use crate::rows::{js, js_option, live_domain, timestamp_of};
 use crate::weldreach::{domain_in_use, is_domain_name_used, is_domain_used};
-use crate::{Caller, HostState, error_response, internal, now, validate, validate_query};
+use crate::{Caller, HostState, error_response, internal, validate, validate_query};
 
 const TYPES: [&str; 2] = ["incoming", "outgoing"];
 const STATUSES: [&str; 8] = [
@@ -63,33 +72,27 @@ where
         )
 }
 
-const LIST: ListSql = ListSql {
-    cursor: "select to_jsonb(t.created_at)#>>'{}', t.id from domain_transfers t where t.id = $1 limit 1",
-    page: concat!(
-        "select to_jsonb(t) from domain_transfers t where ($1::boolean or true)",
-        " and ($2::boolean or t.domain_id = $3)",
-        " and ($4::boolean or t.status = $5::host_domain_transfer_status)",
-        " and ($6::boolean or t.type = $7::host_domain_transfer_type)",
-        " and ",
-        keyset!(8, 9, 10),
-        " order by t.created_at desc, t.id desc limit $11"
-    ),
-    count: concat!(
-        "select count(*)::int from domain_transfers t where ($1::boolean or true)",
-        " and ($2::boolean or t.domain_id = $3)",
-        " and ($4::boolean or t.status = $5::host_domain_transfer_status)",
-        " and ($6::boolean or t.type = $7::host_domain_transfer_type)",
-        " and ",
-        keyset!(8, 9, 10)
-    ),
-    live: false,
-};
-
 /// How long the webhook's process mapping lives (`expirationTtl`: 14 days).
 #[allow(clippy::duration_suboptimal_units)]
 const MAPPING_TTL: std::time::Duration = std::time::Duration::from_secs(14 * 86_400);
 
-const BY_ID: &str = "select to_jsonb(t) from domain_transfers t where t.id = $1 limit 1";
+/// A transfer by id.
+async fn by_id(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
+    let row = domain_transfers::Entity::find_by_id(id.to_owned())
+        .one(&orm(db))
+        .await?;
+    js_option!(row)
+}
+
+/// A validated `status` as the column's enum.
+fn transfer_status(status: &str) -> Result<HostDomainTransferStatus, DbErr> {
+    HostDomainTransferStatus::try_from_value(&status.to_owned())
+}
+
+/// A validated `type` as the column's enum.
+fn transfer_type(kind: &str) -> Result<HostDomainTransferType, DbErr> {
+    HostDomainTransferType::try_from_value(&kind.to_owned())
+}
 
 fn rtr_unconfigured() -> Response {
     error_response(
@@ -129,27 +132,40 @@ async fn list_transfers(caller: Caller, RawQuery(raw): RawQuery) -> Response {
         Err(response) => return *response,
     };
     let (domain_id, status, kind, cursor, limit) = query;
-    let filters = [
-        domain_id.filter(|v| !v.is_empty()),
-        status.filter(|v| !v.is_empty()),
-        kind.filter(|v| !v.is_empty()),
-    ];
-    match list(
-        &caller.db,
-        &LIST,
-        &filters,
-        cursor.as_deref().filter(|c| !c.is_empty()),
-        limit.unwrap_or(25).min(100),
-    )
-    .await
-    {
+    let page = async {
+        let status = status
+            .filter(|v| !v.is_empty())
+            .map(|status| transfer_status(&status))
+            .transpose()?;
+        let kind = kind
+            .filter(|v| !v.is_empty())
+            .map(|kind| transfer_type(&kind))
+            .transpose()?;
+        let conditions = vec![
+            domain_id
+                .filter(|v| !v.is_empty())
+                .map(|id| Condition::all().add(domain_transfers::Column::DomainId.eq(id))),
+            status.map(|status| Condition::all().add(domain_transfers::Column::Status.eq(status))),
+            kind.map(|kind| Condition::all().add(domain_transfers::Column::Type.eq(kind))),
+        ];
+        list::<domain_transfers::Entity>(
+            &caller.db,
+            (
+                domain_transfers::Column::CreatedAt,
+                domain_transfers::Column::Id,
+            ),
+            conditions,
+            cursor.as_deref().filter(|c| !c.is_empty()),
+            limit.unwrap_or(25).min(100),
+            |row| js!(row),
+        )
+        .await
+    }
+    .await;
+    match page {
         Ok(page) => List::new(
             page.rows,
-            Pagination::new(
-                u64::try_from(page.total).unwrap_or(0),
-                page.has_more,
-                page.cursor,
-            ),
+            Pagination::new(page.total, page.has_more, page.cursor),
         )
         .into_response(),
         Err(error) => internal(&error, "Failed to list domain transfers"),
@@ -157,7 +173,7 @@ async fn list_transfers(caller: Caller, RawQuery(raw): RawQuery) -> Response {
 }
 
 async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
-    match one(&caller.db, BY_ID, &id).await {
+    match by_id(&caller.db, &id).await {
         Ok(Some(row)) => Data(row).into_response(),
         Ok(None) => ApiError::not_found("Domain transfer", Some(&id)).into_response(),
         Err(error) => internal(&error, "Failed to fetch domain transfer"),
@@ -208,8 +224,8 @@ enum CreateError {
     Other(String),
 }
 
-impl From<sqlx::Error> for CreateError {
-    fn from(error: sqlx::Error) -> Self {
+impl From<DbErr> for CreateError {
+    fn from(error: DbErr) -> Self {
         Self::Other(error.to_string())
     }
 }
@@ -267,66 +283,65 @@ async fn start_incoming(
     let status = map_status(status);
     let external = result.process_id.to_string();
     let effective_privacy = result.privacy_protect;
-    let at = now();
+    let at = utc_now();
+    let db = orm(&caller.db);
     let mut domain_id = input.domain_id.clone();
     match domain_id.as_deref().filter(|id| !id.is_empty()) {
         None => {
             let parts: Vec<&str> = name.split('.').collect();
             let new_id = generate_id("dom");
-            sqlx::query(
-                "insert into domains (id, name, tld, full_domain, registrar, status,
-                   registration_status, privacy_protection, rtr_registrant_handle, rtr_process_id,
-                   auth_code, registrant_contact)
-                 values ($1, $2, $3, $4, 'realtimeregister', 'pending', 'pending_transfer', $5, $6,
-                   $7, $8, $9)",
-            )
-            .bind(&new_id)
-            .bind(parts.first().copied().unwrap_or_default())
-            .bind(parts.get(1..).map(|p| p.join(".")).unwrap_or_default())
-            .bind(&name)
-            .bind(effective_privacy)
-            .bind(&registrant)
-            .bind(&external)
-            .bind(input.auth_code.as_deref())
-            .bind(registrant_contact.filter(|c| !c.is_null()).cloned())
-            .execute(&caller.db)
-            .await?;
+            let domain = domains::ActiveModel {
+                id: Set(new_id.clone()),
+                name: Set(parts.first().copied().unwrap_or_default().to_owned()),
+                tld: Set(parts.get(1..).map(|p| p.join(".")).unwrap_or_default()),
+                full_domain: Set(name.clone()),
+                registrar: Set(Some("realtimeregister".to_owned())),
+                status: Set(HostDomainStatus::Pending),
+                registration_status: Set(Some(HostDomainRegistrationStatus::PendingTransfer)),
+                privacy_protection: Set(Some(effective_privacy)),
+                rtr_registrant_handle: Set(Some(registrant.clone())),
+                rtr_process_id: Set(Some(external.clone())),
+                auth_code: Set(input.auth_code.clone()),
+                registrant_contact: Set(registrant_contact.filter(|c| !c.is_null()).cloned()),
+                ..Default::default()
+            };
+            domains::Entity::insert(domain)
+                .exec_without_returning(&db)
+                .await?;
             domain_id = Some(new_id);
         }
         Some(existing) => {
-            let existing = existing.to_owned();
-            sqlx::query(
-                "update domains set registration_status = 'pending_transfer', rtr_process_id = $2,
-                   rtr_registrant_handle = $3, privacy_protection = $4,
-                   registrant_contact = case when $5 then $6 else registrant_contact end,
-                   updated_at = $7::timestamp
-                 where id = $1",
-            )
-            .bind(&existing)
-            .bind(&external)
-            .bind(&registrant)
-            .bind(effective_privacy)
-            .bind(registrant_contact.is_some_and(|c| crate::js::truthy(Some(c))))
-            .bind(registrant_contact.cloned())
-            .bind(&at)
-            .execute(&caller.db)
-            .await?;
+            let mut domain = domains::ActiveModel {
+                registration_status: Set(Some(HostDomainRegistrationStatus::PendingTransfer)),
+                rtr_process_id: Set(Some(external.clone())),
+                rtr_registrant_handle: Set(Some(registrant.clone())),
+                privacy_protection: Set(Some(effective_privacy)),
+                updated_at: Set(at),
+                ..Default::default()
+            };
+            if registrant_contact.is_some_and(|c| crate::js::truthy(Some(c))) {
+                domain.registrant_contact = Set(registrant_contact.cloned());
+            }
+            domains::Entity::update_many()
+                .set(domain)
+                .filter(domains::Column::Id.eq(existing))
+                .exec(&db)
+                .await?;
         }
     }
-    sqlx::query(
-        "update domain_transfers set domain_id = $2, status = $3::host_domain_transfer_status,
-           to_registrar = 'realtimeregister', external_transfer_id = $4, registrar_response = $5,
-           updated_at = $6::timestamp
-         where id = $1",
-    )
-    .bind(id)
-    .bind(domain_id)
-    .bind(status)
-    .bind(&external)
-    .bind(&result.response)
-    .bind(&at)
-    .execute(&caller.db)
-    .await?;
+    domain_transfers::Entity::update_many()
+        .set(domain_transfers::ActiveModel {
+            domain_id: Set(domain_id),
+            status: Set(transfer_status(status)?),
+            to_registrar: Set(Some("realtimeregister".to_owned())),
+            external_transfer_id: Set(Some(external)),
+            registrar_response: Set(Some(result.response)),
+            updated_at: Set(at),
+            ..Default::default()
+        })
+        .filter(domain_transfers::Column::Id.eq(id))
+        .exec(&db)
+        .await?;
     Ok(())
 }
 
@@ -372,20 +387,20 @@ async fn create(
             .to_registrar
             .clone()
             .or_else(|| (input.kind == "incoming").then(|| "realtimeregister".to_owned()));
-        sqlx::query(
-            "insert into domain_transfers (id, domain_id, domain_name, type, status, auth_code,
-               from_registrar, to_registrar)
-             values ($1, $2, $3, $4::host_domain_transfer_type, 'pending', $5, $6, $7)",
-        )
-        .bind(&id)
-        .bind(input.domain_id.as_deref())
-        .bind(input.domain_name.to_lowercase())
-        .bind(&input.kind)
-        .bind(input.auth_code.as_deref())
-        .bind(input.from_registrar.as_deref())
-        .bind(to_registrar)
-        .execute(&caller.db)
-        .await?;
+        let transfer = domain_transfers::ActiveModel {
+            id: Set(id.clone()),
+            domain_id: Set(input.domain_id.clone()),
+            domain_name: Set(input.domain_name.to_lowercase()),
+            type_: Set(transfer_type(&input.kind)?),
+            status: Set(HostDomainTransferStatus::Pending),
+            auth_code: Set(input.auth_code.clone()),
+            from_registrar: Set(input.from_registrar.clone()),
+            to_registrar: Set(to_registrar),
+            ..Default::default()
+        };
+        domain_transfers::Entity::insert(transfer)
+            .exec_without_returning(&orm(&caller.db))
+            .await?;
         if input.kind == "incoming"
             && let Some(rtr) = &providers.rtr
         {
@@ -404,19 +419,11 @@ async fn create(
                     CreateError::Registrar(e) => e.message.clone(),
                     CreateError::Other(message) => message.clone(),
                 };
-                sqlx::query(
-                    "update domain_transfers set status = 'failed', failure_reason = $2,
-                       updated_at = $3::timestamp where id = $1",
-                )
-                .bind(&id)
-                .bind(message)
-                .bind(now())
-                .execute(&caller.db)
-                .await?;
+                set_failed(&caller.db, &id, &message).await?;
                 return Err(error);
             }
         }
-        let row = one(&caller.db, BY_ID, &id).await?.unwrap_or(Value::Null);
+        let row = by_id(&caller.db, &id).await?.unwrap_or(Value::Null);
         if let (Some(external), Some(cache)) =
             (text(&row, "externalTransferId"), caller.cache(&state))
             && let Some(org) = caller.clerk_org_id.as_deref()
@@ -453,50 +460,52 @@ async fn create(
     }
 }
 
+/// `status = 'failed', failureReason = reason`.
+async fn set_failed(db: &PgPool, id: &str, reason: &str) -> Result<(), DbErr> {
+    domain_transfers::Entity::update_many()
+        .set(domain_transfers::ActiveModel {
+            status: Set(HostDomainTransferStatus::Failed),
+            failure_reason: Set(Some(reason.to_owned())),
+            updated_at: Set(utc_now()),
+            ..Default::default()
+        })
+        .filter(domain_transfers::Column::Id.eq(id))
+        .exec(&orm(db))
+        .await?;
+    Ok(())
+}
+
 /// `completeDomainTransfer`.
-pub(crate) async fn complete_transfer(
-    db: &weldsuite_db::PgPool,
-    id: &str,
-) -> Result<Option<Value>, sqlx::Error> {
-    if one(db, BY_ID, id).await?.is_none() {
+pub(crate) async fn complete_transfer(db: &PgPool, id: &str) -> Result<Option<Value>, DbErr> {
+    if by_id(db, id).await?.is_none() {
         return Ok(None);
     }
-    let at = now();
-    sqlx::query(
-        "update domain_transfers set status = 'completed', completed_at = $2::timestamp,
-           updated_at = $2::timestamp where id = $1",
-    )
-    .bind(id)
-    .bind(&at)
-    .execute(db)
-    .await?;
-    one(db, BY_ID, id).await
+    let at = utc_now();
+    domain_transfers::Entity::update_many()
+        .set(domain_transfers::ActiveModel {
+            status: Set(HostDomainTransferStatus::Completed),
+            completed_at: Set(Some(at)),
+            updated_at: Set(at),
+            ..Default::default()
+        })
+        .filter(domain_transfers::Column::Id.eq(id))
+        .exec(&orm(db))
+        .await?;
+    by_id(db, id).await
 }
 
 /// `failDomainTransfer`.
-async fn fail_transfer(
-    db: &weldsuite_db::PgPool,
-    id: &str,
-    reason: &str,
-) -> Result<Option<Value>, sqlx::Error> {
-    if one(db, BY_ID, id).await?.is_none() {
+async fn fail_transfer(db: &PgPool, id: &str, reason: &str) -> Result<Option<Value>, DbErr> {
+    if by_id(db, id).await?.is_none() {
         return Ok(None);
     }
-    sqlx::query(
-        "update domain_transfers set status = 'failed', failure_reason = $2,
-           updated_at = $3::timestamp where id = $1",
-    )
-    .bind(id)
-    .bind(reason)
-    .bind(now())
-    .execute(db)
-    .await?;
-    one(db, BY_ID, id).await
+    set_failed(db, id, reason).await?;
+    by_id(db, id).await
 }
 
 /// Why a registrar sync failed.
 pub(crate) enum SyncError {
-    Db(sqlx::Error),
+    Db(DbErr),
     Registrar(RtrError),
     /// `new Date(text)` was an Invalid Date.
     InvalidDate,
@@ -512,19 +521,19 @@ impl std::fmt::Display for SyncError {
     }
 }
 
-impl From<sqlx::Error> for SyncError {
-    fn from(error: sqlx::Error) -> Self {
+impl From<DbErr> for SyncError {
+    fn from(error: DbErr) -> Self {
         Self::Db(error)
     }
 }
 
 /// `syncTransferFromRegistrar`.
 pub(crate) async fn sync_from_registrar(
-    db: &weldsuite_db::PgPool,
+    db: &PgPool,
     rtr: &RealtimeRegistrar,
     id: &str,
 ) -> Result<Option<Value>, SyncError> {
-    let transfer = one(db, BY_ID, id).await?;
+    let transfer = by_id(db, id).await?;
     let Some(transfer) = transfer else {
         return Ok(None);
     };
@@ -548,34 +557,42 @@ pub(crate) async fn sync_from_registrar(
     let domain_name = text(&transfer, "domainName").unwrap_or_default();
     let remote = rtr.get_domain(domain_name).await.ok();
     if let Some(domain_id) = text(&transfer, "domainId") {
-        let at = now();
+        let at = utc_now();
         let expires = remote
             .as_ref()
             .and_then(|r| r.expires_at.as_deref())
             .filter(|e| !e.is_empty())
             .map(|e| weldsuite_kit::validation::js_date_iso(e).ok_or(SyncError::InvalidDate))
+            .transpose()?
+            .map(|iso| timestamp_of(&iso))
             .transpose()?;
-        sqlx::query(
-            "update domains set status = 'active', registration_status = 'transferred',
-               registrar = 'realtimeregister', external_registrar_id = $2,
-               registrar_synced_at = $3::timestamp, updated_at = $3::timestamp,
-               registrar_status = case when $4 then $5 else registrar_status end,
-               expires_at = case when $6 then $7::timestamp else expires_at end,
-               locked = case when $4 then $8 else locked end,
-               auto_renew = case when $4 then $9 else auto_renew end
-             where id = $1",
-        )
-        .bind(domain_id)
-        .bind(remote.as_ref().map_or(domain_name, |r| r.id.as_str()))
-        .bind(&at)
-        .bind(remote.is_some())
-        .bind(remote.as_ref().map(|r| r.status.join(",")))
-        .bind(expires.is_some())
-        .bind(expires)
-        .bind(remote.as_ref().map(|r| r.locked))
-        .bind(remote.as_ref().map(|r| r.auto_renew))
-        .execute(db)
-        .await?;
+        let mut domain = domains::ActiveModel {
+            status: Set(HostDomainStatus::Active),
+            registration_status: Set(Some(HostDomainRegistrationStatus::Transferred)),
+            registrar: Set(Some("realtimeregister".to_owned())),
+            external_registrar_id: Set(Some(
+                remote
+                    .as_ref()
+                    .map_or(domain_name, |r| r.id.as_str())
+                    .to_owned(),
+            )),
+            registrar_synced_at: Set(Some(at)),
+            updated_at: Set(at),
+            ..Default::default()
+        };
+        if let Some(remote) = &remote {
+            domain.registrar_status = Set(Some(remote.status.join(",")));
+            domain.locked = Set(Some(remote.locked));
+            domain.auto_renew = Set(Some(remote.auto_renew));
+        }
+        if let Some(expires) = expires {
+            domain.expires_at = Set(Some(expires));
+        }
+        domains::Entity::update_many()
+            .set(domain)
+            .filter(domains::Column::Id.eq(domain_id))
+            .exec(&orm(db))
+            .await?;
     }
     Ok(complete_transfer(db, id).await?)
 }

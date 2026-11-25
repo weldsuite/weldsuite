@@ -409,10 +409,7 @@ async fn insert_item(
     let mut values = item_values(order_id, line, amounts, properties, now);
     put(&mut values, &ORDER_ITEMS, "id", json!(generate_id("oitm")));
     put(&mut values, &ORDER_ITEMS, "createdAt", json!(now));
-    ORDER_ITEMS
-        .insert_raw(&mut *conn, values)
-        .await
-        .map_err(db::from_sqlx)?;
+    ORDER_ITEMS.insert_raw(&mut *conn, values).await?;
     Ok(())
 }
 
@@ -1614,15 +1611,11 @@ pub async fn import(conn: &mut PgConnection, import: &Import<'_>) -> Result<(), 
         let columns = ORDERS.values(&header);
         ORDERS
             .patch_raw(&mut *conn, import.id, columns, false)
-            .await
-            .map_err(db::from_sqlx)?;
+            .await?;
     } else {
         header.insert("id".to_owned(), json!(import.id));
         let columns = ORDERS.values(&header);
-        ORDERS
-            .insert_raw(&mut *conn, columns)
-            .await
-            .map_err(db::from_sqlx)?;
+        ORDERS.insert_raw(&mut *conn, columns).await?;
     }
     import_items(conn, import, &now).await?;
     if let Some(person_id) = import.person_id {
@@ -1710,8 +1703,7 @@ async fn import_items(
             }
             ORDER_ITEMS
                 .patch_raw(&mut *conn, &found.id, values, false)
-                .await
-                .map_err(db::from_sqlx)?;
+                .await?;
             continue;
         }
         put(&mut values, t, "id", json!(generate_id("oitm")));
@@ -1732,10 +1724,7 @@ async fn import_items(
             );
         }
         put(&mut values, t, "createdAt", json!(now));
-        ORDER_ITEMS
-            .insert_raw(&mut *conn, values)
-            .await
-            .map_err(db::from_sqlx)?;
+        ORDER_ITEMS.insert_raw(&mut *conn, values).await?;
     }
 
     let vanished: Vec<String> = existing
@@ -1782,8 +1771,7 @@ async fn import_items(
         put(&mut counts, &ORDERS, "totalQuantity", json!(total_quantity));
         ORDERS
             .patch_raw(&mut *conn, import.id, counts, false)
-            .await
-            .map_err(db::from_sqlx)?;
+            .await?;
     }
     Ok(())
 }

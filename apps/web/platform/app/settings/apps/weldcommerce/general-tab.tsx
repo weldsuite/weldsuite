@@ -206,7 +206,9 @@ export function GeneralTab() {
     if (canRead) void refetch();
   }, [canRead, refetch]);
 
-  if (!canRead) return <InfoBanner variant="info">{t.loadFailed}</InfoBanner>;
+  // `can()` is false until the permissions arrive: wait for them before saying there is no access.
+  if (permissions?.isLoading) return <PageLoader fullScreen={false} />;
+  if (!canRead) return <p className="text-sm text-muted-foreground">{t.noPermission}</p>;
   if (settings.isPending) return <PageLoader fullScreen={false} />;
   if (settings.isError || !settings.data) {
     return <ErrorState message={t.loadFailed} onRetry={() => void settings.refetch()} />;

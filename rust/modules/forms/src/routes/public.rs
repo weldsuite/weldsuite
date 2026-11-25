@@ -28,17 +28,18 @@ use axum::routing::{get, post, put};
 use http::header::AUTHORIZATION;
 use http::request::Parts;
 use http::{HeaderMap, StatusCode};
+use sea_orm::{ActiveValue::Set, EntityTrait};
 use serde_json::{Map, Value, json};
 use sqlx::PgPool;
-use weldsuite_db::Tenant;
+use weldsuite_db::{Tenant, orm};
 use weldsuite_kit::{ApiError, Created, Data};
+use weldsuite_schema::master::form_abuse_reports;
 
 use crate::FormsState;
 use crate::bot_check::{create_altcha_challenge, passes};
 use crate::codes::{check_code, send_code};
 use crate::common::{
-    Ctx, Fail, FormsResult, Svc, answer, forms_error, not_found, object, one, opt_text, parse_ms,
-    text,
+    Ctx, Fail, FormsResult, Svc, answer, forms_error, not_found, object, opt_text, parse_ms, text,
 };
 use crate::counters::{Counters, rate_limited, today};
 use crate::crypto::safe_equal;
@@ -482,19 +483,18 @@ async fn report(
                 REPORTS_PER_IP_PER_MINUTE,
             )
             .await?;
-            sqlx::query(
-                "insert into form_abuse_reports (id, public_id, workspace_id, form_id, reason, details, reporter_email, reporter_ip_hash) \
-                 values ($1, $2, $3, $4, $5, $6, $7, $8)",
-            )
-            .bind(weldsuite_kit::generate_id("fab"))
-            .bind(&link.public_id)
-            .bind(&link.workspace_id)
-            .bind(&link.form_id)
-            .bind(&input.reason)
-            .bind(&input.details)
-            .bind(&input.email)
-            .bind(&ip_hash)
-            .execute(&master)
+            form_abuse_reports::Entity::insert(form_abuse_reports::ActiveModel {
+                id: Set(weldsuite_kit::generate_id("fab")),
+                public_id: Set(link.public_id.clone()),
+                workspace_id: Set(link.workspace_id.clone()),
+                form_id: Set(link.form_id.clone()),
+                reason: Set(input.reason.clone()),
+                details: Set(input.details.clone()),
+                reporter_email: Set(input.email.clone()),
+                reporter_ip_hash: Set(ip_hash.clone()),
+                ..Default::default()
+            })
+            .exec_without_returning(&orm(&master))
             .await?;
             Ok(Created(json!({ "received": true })).into_response())
         }
@@ -583,13 +583,9 @@ async fn submit(portal: Portal, headers: HeaderMap, body: Bytes) -> Response {
             if input.website.as_deref().is_some_and(|w| !w.is_empty()) {
                 return Err(rejected());
             }
-            let form = one(
-                &ctx.db,
-                sqlx::query_scalar("select to_jsonb(f) from forms f where id = $1 limit 1")
-                    .bind(&session.form),
-            )
-            .await?
-            .ok_or_else(|| forms_error(404, "NOT_FOUND", "Form not found"))?;
+            let form = crate::access::form_row(&ctx.db, &session.form)
+                .await?
+                .ok_or_else(|| forms_error(404, "NOT_FOUND", "Form not found"))?;
             let existing = response_row(&ctx, &session.resp).await?;
             let seed = read_seed(&ctx.svc, &session.resp).await?;
 

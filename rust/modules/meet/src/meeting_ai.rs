@@ -23,13 +23,21 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, DatabaseConnection, DbErr, EntityTrait, QueryFilter, QueryOrder,
+    QuerySelect,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
+use time::PrimitiveDateTime;
 use weldsuite_ai::{Ai, AiCall, Audio, ChatRequest, Feature, Task, Tier};
 use weldsuite_catalogs::entity_events::MEETING_SESSION_UPDATED;
-use weldsuite_db::PgPool;
+use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::generate_id;
 use weldsuite_ports::{BoxFuture, DynJobs, Job, JobContext, JobError, JobRequest, StepRetry, step};
+use weldsuite_schema::tenant::crm_transcript_segments::{self as segments, Column as Seg};
+use weldsuite_schema::tenant::crm_transcriptions::{self, Column as Transcription};
 
 use crate::billing::{self, AiKind, Charge};
 use crate::js::text;
@@ -515,16 +523,15 @@ impl MeetingAiJob {
                     duration_seconds,
                 });
             }
-            let now = now();
-            sqlx::query(
-                "update crm_transcriptions set status = 'processing', \
-                 processing_started_at = $2::timestamp, updated_at = $2::timestamp where id = $1",
-            )
-            .bind(transcription_id)
-            .bind(&now)
-            .execute(&db)
-            .await
-            .map_err(failed)?;
+            let now = weldsuite_db::utc_now();
+            crm_transcriptions::Entity::update_many()
+                .col_expr(Transcription::Status, Expr::value("processing"))
+                .col_expr(Transcription::ProcessingStartedAt, Expr::value(now))
+                .col_expr(Transcription::UpdatedAt, Expr::value(now))
+                .filter(Transcription::Id.eq(transcription_id))
+                .exec(&orm(&db))
+                .await
+                .map_err(failed)?;
             self.emit(
                 &p.org_id,
                 &session,
@@ -827,26 +834,40 @@ pub(crate) struct SaveTranscript<'a> {
     pub(crate) metadata: Value,
 }
 
+/// The transcription row to write: `transcription_id`'s when given, else the
+/// session's.
+async fn transcription_row(
+    db: &DatabaseConnection,
+    transcription_id: Option<&str>,
+    session_id: &str,
+) -> Result<Option<String>, DbErr> {
+    let by = match transcription_id {
+        Some(id) => Transcription::Id.eq(id),
+        None => Transcription::ActivityId.eq(session_id),
+    };
+    crm_transcriptions::Entity::find()
+        .select_only()
+        .column(Transcription::Id)
+        .filter(by)
+        .into_tuple()
+        .one(db)
+        .await
+}
+
+/// A JSON number as Postgres reads it into a `real` column: `float4in` on
+/// its decimal text, as the worker's insert sent it.
+fn real(value: f64) -> f32 {
+    value.to_string().parse().unwrap_or(f32::NAN)
+}
+
 /// `saveCompletedTranscript(db, params)`: the transcription row `completed`
 /// (updated or inserted) and its segments replaced. The row's id.
 pub(crate) async fn save_completed_transcript(
     db: &PgPool,
     params: &SaveTranscript<'_>,
-) -> Result<String, sqlx::Error> {
-    let existing: Option<String> = match params.transcription_id {
-        Some(id) => {
-            sqlx::query_scalar("select id from crm_transcriptions where id = $1 limit 1")
-                .bind(id)
-                .fetch_optional(db)
-                .await?
-        }
-        None => {
-            sqlx::query_scalar("select id from crm_transcriptions where activity_id = $1 limit 1")
-                .bind(params.session_id)
-                .fetch_optional(db)
-                .await?
-        }
-    };
+) -> Result<String, DbErr> {
+    let db = &orm(db);
+    let existing = transcription_row(db, params.transcription_id, params.session_id).await?;
     let full_text = params
         .segments
         .iter()
@@ -857,91 +878,124 @@ pub(crate) async fn save_completed_transcript(
     let speakers: std::collections::BTreeSet<i32> =
         params.segments.iter().map(|s| s.speaker_id).collect();
     let speaker_count = i32::try_from(speakers.len()).unwrap_or(i32::MAX);
-    let now = now();
+    let now = weldsuite_db::utc_now();
     let id = if let Some(id) = existing {
-        sqlx::query(
-            "update crm_transcriptions set status = 'completed', full_text = $2, provider = $3, \
-                 model = $4, language = left(coalesce($5, language, 'en'), 10), word_count = $6, \
-                 speaker_count = $7, error_message = null, \
-                 processing_started_at = coalesce(processing_started_at, $8::timestamp), \
-                 processing_completed_at = $8::timestamp, metadata = $9::jsonb, \
-                 updated_at = $8::timestamp where id = $1",
-        )
-        .bind(&id)
-        .bind(&full_text)
-        .bind(params.provider)
-        .bind(params.model)
-        .bind(params.language)
-        .bind(word_count)
-        .bind(speaker_count)
-        .bind(&now)
-        .bind(&params.metadata)
-        .execute(db)
-        .await?;
+        // `left(coalesce($language, language, 'en'), 10)`.
+        let language = Func::cust("left")
+            .arg(Func::coalesce([
+                Expr::val(params.language.map(str::to_owned)),
+                Expr::col(Transcription::Language),
+                Expr::val("en"),
+            ]))
+            .arg(10);
+        crm_transcriptions::Entity::update_many()
+            .col_expr(Transcription::Status, Expr::value("completed"))
+            .col_expr(Transcription::FullText, Expr::value(full_text))
+            .col_expr(
+                Transcription::Provider,
+                Expr::value(params.provider.map(str::to_owned)),
+            )
+            .col_expr(
+                Transcription::Model,
+                Expr::value(params.model.map(str::to_owned)),
+            )
+            .col_expr(Transcription::Language, Expr::expr(language))
+            .col_expr(Transcription::WordCount, Expr::value(word_count))
+            .col_expr(Transcription::SpeakerCount, Expr::value(speaker_count))
+            .col_expr(
+                Transcription::ErrorMessage,
+                Expr::value(Option::<String>::None),
+            )
+            .col_expr(
+                Transcription::ProcessingStartedAt,
+                Expr::expr(Func::coalesce([
+                    Expr::col(Transcription::ProcessingStartedAt),
+                    Expr::val(now),
+                ])),
+            )
+            .col_expr(Transcription::ProcessingCompletedAt, Expr::value(now))
+            .col_expr(
+                Transcription::Metadata,
+                Expr::value(params.metadata.clone()),
+            )
+            .col_expr(Transcription::UpdatedAt, Expr::value(now))
+            .filter(Transcription::Id.eq(&id))
+            .exec(db)
+            .await?;
         id
     } else {
         let id = params
             .transcription_id
             .map_or_else(|| generate_id("trans"), str::to_owned);
-        sqlx::query(
-            "insert into crm_transcriptions (id, activity_id, status, full_text, provider, \
-                 model, language, word_count, speaker_count, error_message, processing_started_at, \
-                 processing_completed_at, metadata, created_at, updated_at) values ($1, $2, \
-                 'completed', $3, $4, $5, left(coalesce($6, 'en'), 10), $7, $8, null, \
-                 $9::timestamp, $9::timestamp, $10::jsonb, $9::timestamp, $9::timestamp)",
-        )
-        .bind(&id)
-        .bind(params.session_id)
-        .bind(&full_text)
-        .bind(params.provider)
-        .bind(params.model)
-        .bind(params.language)
-        .bind(word_count)
-        .bind(speaker_count)
-        .bind(&now)
-        .bind(&params.metadata)
-        .execute(db)
-        .await?;
+        let row = crm_transcriptions::ActiveModel {
+            id: Set(id.clone()),
+            activity_id: Set(params.session_id.to_owned()),
+            status: Set("completed".to_owned()),
+            full_text: Set(Some(full_text)),
+            provider: Set(params.provider.map(str::to_owned)),
+            model_: Set(params.model.map(str::to_owned)),
+            // `left(coalesce($language, 'en'), 10)`.
+            language: Set(Some(
+                params.language.unwrap_or("en").chars().take(10).collect(),
+            )),
+            word_count: Set(Some(word_count)),
+            speaker_count: Set(Some(speaker_count)),
+            error_message: Set(None),
+            processing_started_at: Set(Some(now)),
+            processing_completed_at: Set(Some(now)),
+            metadata: Set(Some(params.metadata.clone())),
+            created_at: Set(now),
+            updated_at: Set(now),
+            ..Default::default()
+        };
+        crm_transcriptions::Entity::insert(row)
+            .exec_without_returning(db)
+            .await?;
         id
     };
-    sqlx::query("delete from crm_transcript_segments where transcription_id = $1")
-        .bind(&id)
-        .execute(db)
+    segments::Entity::delete_many()
+        .filter(Seg::TranscriptionId.eq(&id))
+        .exec(db)
         .await?;
-    let rows: Vec<Value> = params
+    let rows: Vec<segments::ActiveModel> = params
         .segments
         .iter()
         .enumerate()
-        .map(|(index, segment)| {
-            json!({
-                "id": generate_id("seg"),
-                "transcription_id": id,
-                "speaker_id": segment.speaker_id,
-                "speaker_label": segment.speaker_label.chars().take(50).collect::<String>(),
-                "speaker_name": segment.speaker_name.as_ref().map(|n| n.chars().take(255).collect::<String>()),
-                "text": segment.text,
-                "start_time": segment.start,
-                "end_time": segment.end,
-                "timestamp": format_timestamp(segment.start),
-                "sequence_number": index,
-                "words": null,
-                "created_at": now,
-            })
-        })
+        .map(|(index, segment)| segment_row(&id, index, segment, now))
         .collect();
     for batch in rows.chunks(100) {
-        sqlx::query(
-            "insert into crm_transcript_segments (id, transcription_id, speaker_id, speaker_label, \
-             speaker_name, text, start_time, end_time, timestamp, sequence_number, words, created_at) \
-             select r.id, r.transcription_id, r.speaker_id, r.speaker_label, r.speaker_name, r.text, \
-             r.start_time, r.end_time, r.timestamp, r.sequence_number, r.words, r.created_at \
-             from jsonb_populate_recordset(null::crm_transcript_segments, $1::jsonb) r",
-        )
-        .bind(Value::Array(batch.to_vec()))
-        .execute(db)
-        .await?;
+        segments::Entity::insert_many(batch.to_vec())
+            .exec_without_returning(db)
+            .await?;
     }
     Ok(id)
+}
+
+/// Segment `index` of a transcript, as the worker's batch wrote it.
+fn segment_row(
+    transcription_id: &str,
+    index: usize,
+    segment: &Segment,
+    now: PrimitiveDateTime,
+) -> segments::ActiveModel {
+    segments::ActiveModel {
+        id: Set(generate_id("seg")),
+        transcription_id: Set(transcription_id.to_owned()),
+        speaker_id: Set(segment.speaker_id),
+        speaker_label: Set(Some(segment.speaker_label.chars().take(50).collect())),
+        speaker_name: Set(segment
+            .speaker_name
+            .as_ref()
+            .map(|n| n.chars().take(255).collect())),
+        text: Set(segment.text.clone()),
+        start_time: Set(real(segment.start)),
+        end_time: Set(real(segment.end)),
+        timestamp: Set(Some(format_timestamp(segment.start))),
+        sequence_number: Set(i32::try_from(index).unwrap_or(i32::MAX)),
+        words: Set(None),
+        created_at: Set(now),
+        ..Default::default()
+    }
 }
 
 /// `markTranscriptionFailed(db, sessionId, message, transcriptionId)`: the
@@ -951,45 +1005,33 @@ pub(crate) async fn mark_transcription_failed(
     session_id: &str,
     error: &str,
     transcription_id: Option<&str>,
-) -> Result<(), sqlx::Error> {
-    let now = now();
+) -> Result<(), DbErr> {
+    let db = &orm(db);
+    let now = weldsuite_db::utc_now();
     let clipped: String = error.chars().take(1000).collect();
-    let existing: Option<String> = match transcription_id {
-        Some(id) => {
-            sqlx::query_scalar("select id from crm_transcriptions where id = $1 limit 1")
-                .bind(id)
-                .fetch_optional(db)
-                .await?
-        }
-        None => {
-            sqlx::query_scalar("select id from crm_transcriptions where activity_id = $1 limit 1")
-                .bind(session_id)
-                .fetch_optional(db)
-                .await?
-        }
-    };
+    let existing = transcription_row(db, transcription_id, session_id).await?;
     if let Some(id) = existing {
-        sqlx::query(
-            "update crm_transcriptions set status = 'failed', error_message = $2, \
-             updated_at = $3::timestamp where id = $1",
-        )
-        .bind(&id)
-        .bind(&clipped)
-        .bind(&now)
-        .execute(db)
-        .await?;
+        crm_transcriptions::Entity::update_many()
+            .col_expr(Transcription::Status, Expr::value("failed"))
+            .col_expr(Transcription::ErrorMessage, Expr::value(clipped))
+            .col_expr(Transcription::UpdatedAt, Expr::value(now))
+            .filter(Transcription::Id.eq(&id))
+            .exec(db)
+            .await?;
         return Ok(());
     }
-    sqlx::query(
-        "insert into crm_transcriptions (id, activity_id, status, error_message, created_at, \
-         updated_at) values ($1, $2, 'failed', $3, $4::timestamp, $4::timestamp)",
-    )
-    .bind(transcription_id.map_or_else(|| generate_id("trans"), str::to_owned))
-    .bind(session_id)
-    .bind(&clipped)
-    .bind(&now)
-    .execute(db)
-    .await?;
+    let row = crm_transcriptions::ActiveModel {
+        id: Set(transcription_id.map_or_else(|| generate_id("trans"), str::to_owned)),
+        activity_id: Set(session_id.to_owned()),
+        status: Set("failed".to_owned()),
+        error_message: Set(Some(clipped)),
+        created_at: Set(now),
+        updated_at: Set(now),
+        ..Default::default()
+    };
+    crm_transcriptions::Entity::insert(row)
+        .exec_without_returning(db)
+        .await?;
     Ok(())
 }
 
@@ -998,14 +1040,15 @@ pub(crate) async fn mark_transcription_failed(
 pub(crate) async fn load_transcript_text(
     db: &PgPool,
     transcription_id: &str,
-) -> Result<(String, f64), sqlx::Error> {
-    let rows: Vec<(Option<String>, String, f32, f32)> = sqlx::query_as(
-        "select speaker_label, text, start_time, end_time from crm_transcript_segments \
-         where transcription_id = $1 order by sequence_number asc",
-    )
-    .bind(transcription_id)
-    .fetch_all(db)
-    .await?;
+) -> Result<(String, f64), DbErr> {
+    let rows: Vec<(Option<String>, String, f32, f32)> = segments::Entity::find()
+        .select_only()
+        .columns([Seg::SpeakerLabel, Seg::Text, Seg::StartTime, Seg::EndTime])
+        .filter(Seg::TranscriptionId.eq(transcription_id))
+        .order_by_asc(Seg::SequenceNumber)
+        .into_tuple()
+        .all(&orm(db))
+        .await?;
     Ok(transcript_text(&rows))
 }
 

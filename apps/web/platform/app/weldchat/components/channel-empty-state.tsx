@@ -1,10 +1,12 @@
 import { Hash, Lock, MessageCircle } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
-import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
+import { MemberAvatar } from '@/components/member-avatar';
 import { useWorkspaceMembers } from '@/hooks/queries/use-weldchat-queries';
 import type { ChatChannel, ChatChannelMember } from '@/hooks/queries/use-weldchat-queries';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
+import { useDateLocale } from '@/lib/i18n/date-locale';
+import { cn } from '@/lib/utils';
 import { useChatContext } from './chat-context';
 
 /** Channel row as `ChannelPage` reads it, extended with the DM-specific
@@ -17,18 +19,24 @@ interface ChannelEmptyStateProps {
   channel: ChannelEmptyStateChannel | null | undefined;
 }
 
-function formatCreationDate(iso: string | null | undefined): string {
+/** "November 21, 2026" / "21 november 2026", in the app's language. */
+function formatCreationDate(iso: string | null | undefined, locale: string): string {
   if (!iso) return '';
-  try {
-    return new Date(iso).toLocaleDateString(undefined, {
-      month: 'long',
-      day: 'numeric',
-      year: 'numeric',
-    });
-  } catch {
-    return '';
-  }
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '';
+  return new Intl.DateTimeFormat(locale, { month: 'long', day: 'numeric', year: 'numeric' }).format(date);
 }
+
+/**
+ * The start of an empty conversation, lined up with the messages that will
+ * follow it (their avatar column at 10px / 18px): the avatar or channel icon
+ * and the name on one row, and under it one line on who started it and when.
+ */
+const INTRO_CLASS = 'px-[10px] pt-8 pb-4 md:px-[18px]';
+const INTRO_ROW_CLASS = 'flex items-center gap-2';
+const INTRO_TILE_CLASS = 'flex size-6 shrink-0 items-center justify-center rounded-[8px] bg-muted';
+const INTRO_TITLE_CLASS = 'min-w-0 truncate text-xl font-semibold';
+const INTRO_TEXT_CLASS = 'mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground';
 
 interface Creator {
   userId: string;
@@ -36,25 +44,17 @@ interface Creator {
   picture?: string;
 }
 
-/** Inline avatar + name chip for whoever created the channel/DM; opens their profile. */
-function CreatorChip({ creator }: Readonly<{ creator: Creator }>) {
+/** Whoever created the channel or DM, named in the sentence; opens their profile. */
+function CreatorName({ creator }: Readonly<{ creator: Creator }>) {
   const { openUserProfile } = useChatContext();
   return (
     <Button
       variant="ghost"
       type="button"
       onClick={() => openUserProfile(creator.userId)}
-      className="inline-flex items-center gap-1.5 h-auto p-2 -ml-2 align-middle cursor-pointer focus-visible:outline-none"
+      className="inline h-auto p-0 align-baseline text-sm font-medium text-foreground hover:bg-transparent hover:underline focus-visible:underline"
     >
-      <Avatar className="h-4 w-4">
-        {creator.picture && (
-          <AvatarImage src={creator.picture} alt={creator.name} />
-        )}
-        <AvatarFallback className="text-[8px] font-medium">
-          {creator.name[0]!.toUpperCase()}
-        </AvatarFallback>
-      </Avatar>
-      <span className="font-medium leading-4 text-foreground hover:underline">{creator.name}</span>
+      {creator.name}
     </Button>
   );
 }
@@ -62,6 +62,7 @@ function CreatorChip({ creator }: Readonly<{ creator: Creator }>) {
 export function ChannelEmptyState({ channel }: Readonly<ChannelEmptyStateProps>) {
   const { t } = useI18n();
   const st = useTranslations();
+  const { intlLocale } = useDateLocale();
   const { data: membersData } = useWorkspaceMembers();
   const isPrivate = channel?.type === 'private';
   const isDm = channel?.type === 'dm';
@@ -75,7 +76,7 @@ export function ChannelEmptyState({ channel }: Readonly<ChannelEmptyStateProps>)
     if (!name) return null;
     return { userId: m.userId as string, name, picture: m.picture as string | undefined };
   })();
-  const dateStr = formatCreationDate(channel?.createdAt);
+  const dateStr = formatCreationDate(channel?.createdAt, intlLocale);
   const onDate = dateStr ? ` ${t.weldchat.channelEmptyState.channelCreatedOn} ${dateStr}` : '';
 
   // DM empty state — friendlier, no channel-style cards.
@@ -93,30 +94,33 @@ export function ChannelEmptyState({ channel }: Readonly<ChannelEmptyStateProps>)
         st('sweep.weldchat.channelEmptyState.directMessageFallback');
 
     return (
-      <div className="px-6 pt-10 pb-6 max-w-3xl">
-        <div className="flex items-center gap-3 mb-3">
+      <div className={INTRO_CLASS}>
+        <div className={INTRO_ROW_CLASS}>
           {isGroupDm ? (
-            <div className="h-8 w-8 rounded-lg bg-muted flex items-center justify-center flex-shrink-0">
-              <MessageCircle className="h-4 w-4 text-muted-foreground" />
+            <div className={INTRO_TILE_CLASS}>
+              <MessageCircle className="size-3.5 text-muted-foreground" />
             </div>
           ) : (
-            <Avatar className="h-8 w-8">
-              {other?.picture && <AvatarImage src={other.picture} />}
-              <AvatarFallback className="text-xs">
-                {(displayName || '?')[0].toUpperCase()}
-              </AvatarFallback>
-            </Avatar>
+            // Their current picture (yours in a DM with yourself), as everywhere else.
+            <MemberAvatar
+              userId={other?.userId ?? channel?.createdBy}
+              name={displayName}
+              picture={other?.picture}
+              className="size-6"
+              fallbackClassName="text-[11px] font-medium"
+              fallback={(displayName || '?')[0].toUpperCase()}
+            />
           )}
-          <h1 className="text-[22px] font-bold truncate">{displayName}</h1>
+          <h1 className={INTRO_TITLE_CLASS}>{displayName}</h1>
         </div>
-        <p className="text-sm text-muted-foreground leading-relaxed">
+        <p className={INTRO_TEXT_CLASS}>
           {isGroupDm ? (
             <>{t.weldchat.channelEmptyState.groupConversationBeginning}</>
           ) : (
             <>
               {creator ? (
                 <>
-                  <CreatorChip creator={creator} /> {t.weldchat.channelEmptyState.dmStarted}
+                  <CreatorName creator={creator} /> {t.weldchat.channelEmptyState.dmStarted}
                 </>
               ) : (
                 t.weldchat.channelEmptyState.dmStartedNoAuthor
@@ -133,15 +137,17 @@ export function ChannelEmptyState({ channel }: Readonly<ChannelEmptyStateProps>)
   const Icon = isPrivate ? Lock : Hash;
 
   return (
-    <div className="px-6 pt-10 pb-6">
-      <div className="flex items-center gap-2.5 mb-2">
-        <Icon className="h-6 w-6 text-foreground/80 flex-shrink-0" />
-        <h1 className="text-[22px] font-bold truncate">{channel?.name}</h1>
+    <div className={INTRO_CLASS}>
+      <div className={INTRO_ROW_CLASS}>
+        <div className={INTRO_TILE_CLASS}>
+          <Icon className="size-3.5 text-muted-foreground" />
+        </div>
+        <h1 className={INTRO_TITLE_CLASS}>{channel?.name}</h1>
       </div>
-      <p className="text-sm text-muted-foreground leading-relaxed">
+      <p className={INTRO_TEXT_CLASS}>
         {creator ? (
           <>
-            <CreatorChip creator={creator} /> {t.weldchat.channelEmptyState.channelCreated}
+            <CreatorName creator={creator} /> {t.weldchat.channelEmptyState.channelCreated}
           </>
         ) : (
           <>{t.weldchat.channelEmptyState.channelCreatedNoAuthor}</>
@@ -153,9 +159,7 @@ export function ChannelEmptyState({ channel }: Readonly<ChannelEmptyStateProps>)
         </strong>{' '}
         {t.weldchat.channelEmptyState.channel}
       </p>
-      {channel?.topic && (
-        <p className="text-sm text-muted-foreground mt-2 leading-relaxed">{channel.topic}</p>
-      )}
+      {channel?.topic && <p className={cn(INTRO_TEXT_CLASS, 'mt-1')}>{channel.topic}</p>}
     </div>
   );
 }

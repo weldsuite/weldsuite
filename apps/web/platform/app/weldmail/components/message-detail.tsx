@@ -27,15 +27,15 @@ import {
   Flag,
   Inbox,
   X,
-  Check,
   Clock,
   Pin,
   ChevronLeft,
-  ArrowLeft,
   FileText,
   PenLine,
 } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
+import { CloseDoneButtons } from '@weldsuite/ui/components/close-done-buttons';
+import { HeaderIconButton } from '@weldsuite/ui/components/header-icon-button';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Popover, PopoverContent, PopoverTrigger } from '@weldsuite/ui/components/popover';
@@ -1071,26 +1071,23 @@ function InlineAiBar({
 }
 
 /**
- * The desktop header's close button. Embedded outside WeldMail (`onClose`),
- * it is a back arrow to the embedding view; in WeldMail it closes the message.
+ * The desktop header's close/done pair. Embedded outside WeldMail (`onClose`),
+ * close is a back arrow to the embedding view; in WeldMail it closes the message.
  */
-function DesktopCloseButton({ onClose, backLabel, closeLabel }: Readonly<{ onClose?: () => void; backLabel: string; closeLabel: string }>) {
-  const label = onClose ? backLabel : closeLabel;
+function MessageCloseDoneButtons({
+  onClose,
+  onDone,
+  labels,
+}: Readonly<{ onClose?: () => void; onDone: () => void; labels: { back: string; close: string; done: string } }>) {
   return (
-    <Button
-      variant="ghost"
-      size="icon-sm"
-      className="h-full w-7 p-1 hover:bg-gray-100 dark:hover:bg-secondary transition-colors"
-      onClick={onClose ?? (() => window.history.back())}
-      aria-label={label}
-      title={label}
-    >
-      {onClose ? (
-        <ArrowLeft className="h-3.5 w-3.5 text-gray-500 dark:text-muted-foreground" />
-      ) : (
-        <X className="h-3.5 w-3.5 text-gray-500 dark:text-muted-foreground" />
-      )}
-    </Button>
+    <CloseDoneButtons
+      className="hidden md:flex"
+      onClose={onClose ?? (() => window.history.back())}
+      back={Boolean(onClose)}
+      closeLabel={onClose ? labels.back : labels.close}
+      onDone={onDone}
+      doneLabel={labels.done}
+    />
   );
 }
 
@@ -2341,20 +2338,11 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
             <ChevronLeft className="h-5 w-5 text-gray-600 dark:text-muted-foreground" />
           </Button>
           {/* Desktop close/done buttons */}
-          <div className="hidden md:flex h-7 items-center border border-border rounded-md overflow-hidden">
-            <DesktopCloseButton onClose={onClose} backLabel={t.mail.messageDetail.backToList} closeLabel={t.mail.toolbar.close} />
-            <div className="w-px h-4 bg-border" />
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              className="h-full w-7 p-1 hover:bg-gray-100 dark:hover:bg-secondary transition-colors"
-              onClick={handleArchiveAndNext}
-              aria-label={t.mail.messageDetail.markDone}
-              title={t.mail.messageDetail.markDone}
-            >
-              <Check className="h-3.5 w-3.5 text-gray-500 dark:text-muted-foreground" />
-            </Button>
-          </div>
+          <MessageCloseDoneButtons
+            onClose={onClose}
+            onDone={handleArchiveAndNext}
+            labels={{ back: t.mail.messageDetail.backToList, close: t.mail.toolbar.close, done: t.mail.messageDetail.markDone }}
+          />
           <h1 className="text-sm md:text-lg font-semibold text-gray-900 dark:text-foreground md:ml-2 truncate min-w-24" title={message.subject}>{message.subject}</h1>
           {/* Label badges - hidden on mobile */}
           {messageLabels.length > 0 && (
@@ -2363,50 +2351,31 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
         </div>
         <div className="flex items-center gap-0.5 md:gap-1 flex-shrink-0">
           {/* Essential actions visible on mobile */}
-          <Button
-            variant="ghost"
-            size="icon"
+          <HeaderIconButton
+            label={actionLabels.star}
             onClick={handleToggleStar}
-            aria-label={actionLabels.star}
-            title={actionLabels.star}
             aria-pressed={isStarred}
-            className={cn("md:size-7 p-1.5 hover:bg-gray-100 dark:hover:bg-secondary rounded-md transition-colors", isStarred && "text-yellow-500")}
+            className={cn(isStarred && "text-yellow-500 dark:text-yellow-500")}
           >
-            <Star className={cn("h-4 w-4", isStarred ? "fill-current" : "text-gray-500 dark:text-muted-foreground")} />
-          </Button>
+            <Star className={cn(isStarred && "fill-current")} />
+          </HeaderIconButton>
           {/* Pin button - hidden on mobile */}
-          <Button
-            variant="ghost"
-            size="icon"
+          <HeaderIconButton
+            label={actionLabels.pin}
             onClick={handleTogglePin}
-            className={cn("hidden md:flex md:size-7 p-1.5 hover:bg-gray-100 dark:hover:bg-secondary rounded-md transition-colors", isPinned && "text-blue-500")}
-            title={actionLabels.pin}
-            aria-label={actionLabels.pin}
+            className={cn("hidden md:flex", isPinned && "text-blue-500 dark:text-blue-500")}
           >
-            <Pin className={cn("h-4 w-4", isPinned ? "fill-current" : "text-gray-500 dark:text-muted-foreground")} />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={handleArchive}
-            className="md:size-7 p-1.5 hover:bg-gray-100 dark:hover:bg-secondary rounded-md transition-colors"
-            title={actionLabels.archive}
-            aria-label={actionLabels.archive}
-          >
-            <Archive className="h-4 w-4 text-gray-500 dark:text-muted-foreground" />
-          </Button>
+            <Pin className={cn(isPinned && "fill-current")} />
+          </HeaderIconButton>
+          <HeaderIconButton label={actionLabels.archive} onClick={handleArchive}>
+            <Archive />
+          </HeaderIconButton>
           {/* Snooze menu - hidden on mobile */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="hidden md:flex md:size-7 p-1.5 hover:bg-gray-100 dark:hover:bg-secondary data-[state=open]:bg-gray-100 dark:data-[state=open]:bg-secondary rounded-md transition-colors"
-                aria-label={t.mail.messageList.snooze}
-                title={t.mail.messageList.snooze}
-              >
-                <Clock className="h-4 w-4 text-gray-500 dark:text-muted-foreground" />
-              </Button>
+              <HeaderIconButton label={t.mail.messageList.snooze} className="hidden md:flex">
+                <Clock />
+              </HeaderIconButton>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-48">
               {SNOOZE_PRESETS.map((preset) => (
@@ -2448,16 +2417,9 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
               />
             </DropdownMenuContent>
           </DropdownMenu>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={handleDelete}
-            className="md:size-7 p-1.5 hover:bg-red-50 dark:hover:bg-red-950/30 rounded-md transition-colors group/delete"
-            title={actionLabels.remove}
-            aria-label={actionLabels.remove}
-          >
-            <Trash2 className="h-4 w-4 text-gray-500 dark:text-muted-foreground group-hover/delete:text-red-500 transition-colors" />
-          </Button>
+          <HeaderIconButton label={actionLabels.remove} onClick={handleDelete} destructive>
+            <Trash2 />
+          </HeaderIconButton>
         </div>
       </div>
 

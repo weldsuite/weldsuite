@@ -27,11 +27,6 @@
 //! TypeScript worker's; its tests run against this crate in the `host`
 //! conformance suite (`rust/conformance/suites.json`).
 
-#![allow(
-    clippy::disallowed_methods,
-    reason = "not converted to the ORM yet (ADR DATA-019)"
-)]
-
 mod cloudflare;
 mod cron;
 mod dns_host;
@@ -237,6 +232,22 @@ impl DnsProvider {
             Self::Cloudflare => "CLOUDFLARE_ERROR",
             Self::Hetzner => "HETZNER_DNS_ERROR",
         }
+    }
+}
+
+/// Whether the workspace's zones and records may go to `provider` (ADR
+/// OPS-026): Cloudflare is outside the EU, so on the EU edition only once
+/// the workspace has switched it on; `Err` is the 403 to answer. Hetzner is
+/// an EU company and needs no switch.
+#[allow(clippy::result_large_err)] // the refusal is answered as it is
+pub(crate) async fn dns_allowed(db: &PgPool, provider: DnsProvider) -> Result<(), Response> {
+    match provider {
+        DnsProvider::Cloudflare => {
+            weldsuite_outside_eu::require(db, weldsuite_outside_eu::ServiceId::Cloudflare)
+                .await
+                .map_err(|error| error.to_api_error().into_response())
+        }
+        DnsProvider::Hetzner => Ok(()),
     }
 }
 
