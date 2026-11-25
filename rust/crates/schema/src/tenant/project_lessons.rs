@@ -36,6 +36,11 @@ pub struct Model {
     #[sea_orm(column_type = "String(StringLen::N(30))")]
     #[serde(rename = "knowPageId")]
     pub know_page_id: Option<String>,
+    /// The sprint whose retro this card belongs to; null for a lesson of the
+    /// whole project. Left out of answers while null.
+    #[sea_orm(column_type = "String(StringLen::N(30))")]
+    #[serde(rename = "sprintId", skip_serializing_if = "Option::is_none")]
+    pub sprint_id: Option<String>,
     #[sea_orm(column_type = "String(StringLen::N(255))")]
     #[serde(rename = "createdBy")]
     pub created_by: String,
@@ -82,24 +87,37 @@ pub const DDL: Table = Table {
         },
     ],
     primary_key: None,
-    indexes: &[Index {
-        name: "project_lessons_project_category_idx",
-        columns: &[
-            IndexColumn {
-                expression: "project_id",
+    indexes: &[
+        Index {
+            name: "project_lessons_project_category_idx",
+            columns: &[
+                IndexColumn {
+                    expression: "project_id",
+                    is_expression: false,
+                    asc: true,
+                },
+                IndexColumn {
+                    expression: "category",
+                    is_expression: false,
+                    asc: true,
+                },
+            ],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+        Index {
+            name: "project_lessons_sprint_idx",
+            columns: &[IndexColumn {
+                expression: "sprint_id",
                 is_expression: false,
                 asc: true,
-            },
-            IndexColumn {
-                expression: "category",
-                is_expression: false,
-                asc: true,
-            },
-        ],
-        unique: false,
-        method: "btree",
-        filter: None,
-    }],
+            }],
+            unique: false,
+            method: "btree",
+            filter: None,
+        },
+    ],
     foreign_keys: &[ForeignKey {
         name: "project_lessons_project_id_projects_id_fk",
         columns: &["project_id"],
