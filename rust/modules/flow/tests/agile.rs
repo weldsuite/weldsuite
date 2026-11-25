@@ -801,6 +801,53 @@ async fn a_next_sprint_must_be_a_planned_one_of_the_project() {
     assert_eq!(fx.sprint_of(&open).await.as_deref(), Some(planned.as_str()));
 }
 
+#[tokio::test]
+async fn create_next_makes_a_new_sprint_even_with_one_planned() {
+    let Some(db) = tenant() else { return };
+    let fx = Fx::new(&db);
+    let h = harness(db.clone(), ALL);
+    let project = fx.project("prj_new").await;
+    let sprint = fx.sprint("spr_cur", &project, "Sprint 7", "planned").await;
+    let planned = fx.sprint("spr_pln", &project, "Sprint 9", "planned").await;
+    let open = fx
+        .task(
+            "t_new",
+            &project,
+            T {
+                sprint: Some(&sprint),
+                ..T::default()
+            },
+        )
+        .await;
+    h.call("POST", &format!("/api/sprints/{sprint}/start"), None)
+        .await;
+
+    let (status, body) = h
+        .call(
+            "POST",
+            &format!("/api/sprints/{sprint}/complete"),
+            Some(json!({ "createNext": true, "nextSprintId": planned })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(
+        message(&body),
+        "Send either nextSprintId or createNext, not both"
+    );
+
+    let (status, body) = h
+        .call(
+            "POST",
+            &format!("/api/sprints/{sprint}/complete"),
+            Some(json!({ "createNext": true })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let next = body["data"]["nextSprintId"].as_str().expect("a new sprint");
+    assert_ne!(next, planned.as_str());
+    assert_eq!(fx.sprint_of(&open).await.as_deref(), Some(next));
+}
+
 // ── Epics ───────────────────────────────────────────────────────────────────
 
 #[tokio::test]

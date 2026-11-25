@@ -203,7 +203,9 @@ export function CompleteSprintDialog({
     const input: CompleteSprintInput = {
       ...(sprint.goal ? { goalMet: goal === 'yes' } : {}),
       moveTo: target,
+      // A new sprint is asked for explicitly: without it the server picks the first planned one.
       ...(target === 'next' && nextSprintId !== NEW_SPRINT ? { nextSprintId } : {}),
+      ...(target === 'next' && nextSprintId === NEW_SPRINT ? { createNext: true } : {}),
       ...(Object.keys(overrides).length > 0
         ? { items: Object.entries(overrides).map(([taskId, moveTo]) => ({ taskId, moveTo })) }
         : {}),

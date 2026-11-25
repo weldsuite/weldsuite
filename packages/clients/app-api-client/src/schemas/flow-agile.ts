@@ -211,6 +211,8 @@ export const completeSprintInputSchema = z
     moveTo: z.enum(CARRY_OVER_TARGETS).optional(),
     /** A planned sprint of the project; else the first planned one, else a new one. */
     nextSprintId: z.string().optional(),
+    /** Put the items in a new sprint even when the project has a planned one. */
+    createNext: z.boolean().optional(),
     items: z
       .array(z.object({ taskId: z.string().min(1), moveTo: z.enum(CARRY_OVER_TARGETS) }).strict())
       .max(1000)

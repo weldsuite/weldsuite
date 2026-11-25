@@ -38,6 +38,8 @@ pub const SPRINT_ALREADY_ACTIVE: &str = "Another sprint is already active in thi
 pub const SPRINT_NOT_ACTIVE: &str = "Only an active sprint can be completed";
 pub const END_BEFORE_START: &str = "The end date must not be before the start date";
 pub const NEXT_SPRINT_INVALID: &str = "The next sprint must be a planned sprint of this project";
+/// `createNext` and `nextSprintId` together.
+pub const NEXT_SPRINT_OR_NEW: &str = "Send either nextSprintId or createNext, not both";
 pub const EPIC_WITHOUT_PROJECT: &str = "A task without a project cannot belong to an epic";
 pub const EPIC_ITSELF: &str = "A task cannot be its own epic";
 pub const EPIC_SUBTASK: &str = "A subtask cannot belong to an epic";

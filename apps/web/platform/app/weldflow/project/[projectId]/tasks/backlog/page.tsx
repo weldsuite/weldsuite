@@ -17,7 +17,7 @@ import { ListToolbar } from '@weldsuite/ui/components/list-toolbar';
 import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { SubNavSwitch, type SubNavItem } from '@/app/weldflow/components/sub-nav';
 import { useProjectPermissions } from '@/app/weldflow/contexts/project-permission-context';
-import { NO_EPIC, isFiltering, nextSprintDraft, typeChangeInput, type BacklogFilter } from '@/app/weldflow/lib/backlog';
+import { NO_EPIC, isFiltering, nextSprintDraft, quickCreateInput, typeChangeInput, type BacklogFilter } from '@/app/weldflow/lib/backlog';
 import { useObjectPanel } from '@/components/object-panel';
 import { useCreateItem, useDeleteItems } from '@/hooks/queries/use-flow-agile-backlog-queries';
 import {
@@ -149,7 +149,8 @@ export default function BacklogPage() {
 
   const createInSection = (sprintId: string | null) => async ({ title, type }: { title: string; type: ItemType }) => {
     try {
-      await createItem.mutateAsync({ title, type, sprintId, epicId: filter.epicId && filter.epicId !== NO_EPIC ? filter.epicId : null });
+      const filtered = filter.epicId && filter.epicId !== NO_EPIC ? epicsById.get(filter.epicId) : undefined;
+      await createItem.mutateAsync({ title, ...quickCreateInput(type, sprintId, filtered) });
     } catch (error) {
       toast.error(apiMessage(error, copy.quick.failed));
       throw error;

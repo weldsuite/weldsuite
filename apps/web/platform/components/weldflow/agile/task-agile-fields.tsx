@@ -280,7 +280,8 @@ function PointsField({ task }: Readonly<Props>) {
   const commit = () => {
     const text = draft.trim();
     const next = text === '' ? null : Number(text);
-    if (next !== null && (!Number.isFinite(next) || next < 0)) {
+    // `tasks.story_points` is a whole number.
+    if (next !== null && (!Number.isInteger(next) || next < 0)) {
       setDraft(stored === null ? '' : String(stored));
       return;
     }
@@ -292,9 +293,9 @@ function PointsField({ task }: Readonly<Props>) {
     <Row icon={<Target className="h-4 w-4 text-muted-foreground" />} label={copy.points}>
       <Input
         type="number"
-        inputMode="decimal"
+        inputMode="numeric"
         min={0}
-        step="any"
+        step={1}
         value={draft}
         placeholder={t.flowAgile.noEstimate}
         aria-label={copy.pointsInput}

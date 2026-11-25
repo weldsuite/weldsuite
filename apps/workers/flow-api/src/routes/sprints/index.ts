@@ -9,6 +9,7 @@ import { zValidator } from '@hono/zod-validator';
 import { and, desc, eq, ilike, inArray, isNull, sql, type SQL } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
+import { atomically } from '@weldsuite/worker-kit/atomically';
 import { createSprintSchema, updateSprintSchema } from '@weldsuite/core-api-client/schemas/sprints';
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
@@ -16,6 +17,8 @@ import { generateId } from '@weldsuite/worker-kit/id';
 import { schema } from '@weldsuite/worker-kit/db';
 import { accessibleProjectIds, canAccessProject, canWriteProject, projectNotDeleted } from '../../lib/project-access';
 import { containsPattern } from '../../lib/ilike-pattern';
+import { buildTaskChanges } from '../../lib/task-changes';
+import { taskAnalyticsPayload } from '../../lib/weldflow-analytics-payload';
 import {
   SPRINT_TIMESTAMP_FIELDS,
   SPRINT_WRITABLE_FIELDS,
@@ -235,12 +238,24 @@ app.delete('/:id', requirePermission('projects:delete'), async (c) => {
     if (existing.projectId && !(await canWriteProject(c, existing.projectId))) {
       return error.forbidden(c, PROJECT_WRITE_DENIED);
     }
-    await db.update(t).set({ deletedAt: new Date(), updatedAt: new Date() }).where(eq(t.id, id));
-    // Its tasks go back to the backlog.
-    await db
-      .update(schema.tasks)
-      .set({ sprintId: null, updatedAt: new Date() })
+    // Its tasks go back to the backlog: the sprint's delete and their
+    // unlinking in one transaction, then an update event per task.
+    const inSprint = await db
+      .select()
+      .from(schema.tasks)
       .where(and(eq(schema.tasks.sprintId, id), isNull(schema.tasks.deletedAt)));
+    const now = new Date();
+    await atomically(db, (handle) => [
+      handle.update(t).set({ deletedAt: now, updatedAt: now }).where(eq(t.id, id)),
+      ...(inSprint.length > 0
+        ? [
+            handle
+              .update(schema.tasks)
+              .set({ sprintId: null, updatedAt: now })
+              .where(inArray(schema.tasks.id, inSprint.map((task) => task.id))),
+          ]
+        : []),
+    ]);
     publishEntityEvent({
       c,
       entityType: 'project_sprint',
@@ -248,6 +263,17 @@ app.delete('/:id', requirePermission('projects:delete'), async (c) => {
       action: 'deleted',
       data: { id },
     });
+    for (const task of inSprint) {
+      const row = task as Record<string, unknown>;
+      publishEntityEvent({
+        c,
+        entityType: 'project_task',
+        entityId: task.id,
+        action: 'updated',
+        data: taskAnalyticsPayload(row, { sprintId: null }),
+        changes: buildTaskChanges(row, { sprintId: null }),
+      });
+    }
     return noContent(c);
   } catch (err) {
     console.error('[app-api/sprints] delete failed:', err);

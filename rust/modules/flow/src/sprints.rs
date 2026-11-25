@@ -22,7 +22,7 @@ use weldsuite_catalogs::entity_events::{
     PROJECT_SPRINT_STARTED, PROJECT_SPRINT_UPDATED,
 };
 use weldsuite_db::record::JsonTable;
-use weldsuite_db::{orm, utc_now};
+use weldsuite_db::{OrmConn, orm, utc_now};
 use weldsuite_flow_domain::js::contains_pattern;
 use weldsuite_kit::validation::{Issues, Presence};
 use weldsuite_kit::{ApiError, Created, Data, NoContent, generate_id};
@@ -474,25 +474,53 @@ async fn remove(
             {
                 return Err(Refusal::forbidden(PROJECT_WRITE_DENIED));
             }
-            let at = utc_now();
-            sprints::Entity::update_many()
-                .col_expr(sprints::Column::DeletedAt, Expr::value(Some(at)))
-                .col_expr(sprints::Column::UpdatedAt, Expr::value(at))
-                .filter(sprints::Column::Id.eq(&id))
-                .exec(&orm(&caller.db))
-                .await?;
-            // Its tasks go back to the backlog.
-            tasks::Entity::update_many()
-                .col_expr(tasks::Column::SprintId, Expr::value(Option::<String>::None))
-                .col_expr(tasks::Column::UpdatedAt, Expr::value(at))
+            // Its tasks go back to the backlog: the sprint's delete and their
+            // unlinking in one transaction, then an update event per task.
+            let in_sprint: Vec<tasks::Model> = tasks::Entity::find()
                 .filter(tasks::Column::SprintId.eq(&id))
                 .filter(tasks::Column::DeletedAt.is_null())
-                .exec(&orm(&caller.db))
+                .all(&orm(&caller.db))
                 .await?;
+            let unlinked: Vec<String> = in_sprint.iter().map(|task| task.id.clone()).collect();
+            let at = utc_now();
+            let (sprint_id, task_ids) = (id.clone(), unlinked.clone());
+            weldsuite_db::atomically_with(&caller.db, |tx| {
+                Box::pin(async move {
+                    let tx = OrmConn::new(tx);
+                    write_delete(&tx, &sprint_id, &task_ids, at).await
+                })
+            })
+            .await?;
             caller.publish(&state, PROJECT_SPRINT_DELETED, &id, &json!({ "id": id }));
+            crate::sprint_lifecycle::publish_moves(&state, &caller, &in_sprint, &unlinked, None);
             Ok(NoContent.into_response())
         }
         .await,
         "Failed to delete sprint",
     )
+}
+
+/// The delete's writes, in one transaction: the sprint is soft-deleted and
+/// the tasks that were in it lose their sprint.
+async fn write_delete(
+    tx: &OrmConn<'_>,
+    sprint_id: &str,
+    task_ids: &[String],
+    at: PrimitiveDateTime,
+) -> Result<(), Refusal> {
+    sprints::Entity::update_many()
+        .col_expr(sprints::Column::DeletedAt, Expr::value(Some(at)))
+        .col_expr(sprints::Column::UpdatedAt, Expr::value(at))
+        .filter(sprints::Column::Id.eq(sprint_id))
+        .exec(tx)
+        .await?;
+    if !task_ids.is_empty() {
+        tasks::Entity::update_many()
+            .col_expr(tasks::Column::SprintId, Expr::value(Option::<String>::None))
+            .col_expr(tasks::Column::UpdatedAt, Expr::value(at))
+            .filter(tasks::Column::Id.is_in(task_ids.iter().map(String::as_str)))
+            .exec(tx)
+            .await?;
+    }
+    Ok(())
 }

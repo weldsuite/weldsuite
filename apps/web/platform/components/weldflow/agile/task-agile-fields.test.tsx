@@ -282,6 +282,17 @@ describe('TaskAgileFields: story points', () => {
     expect(field()).toHaveValue(3);
   });
 
+  it('puts the stored value back for a fraction: story points are whole numbers', async () => {
+    const user = userEvent.setup();
+    renderFields(task({ storyPoints: 3 }));
+    await user.clear(field());
+    await user.type(field(), '0.5');
+    await user.tab();
+    expect(state.mutate).not.toHaveBeenCalled();
+    expect(field()).toHaveValue(3);
+    expect(field()).toHaveAttribute('step', '1');
+  });
+
   it('starts empty without an estimate', () => {
     renderFields(task({ storyPoints: null }));
     expect(field()).toHaveValue(null);

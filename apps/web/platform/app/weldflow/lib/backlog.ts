@@ -155,6 +155,24 @@ export function typeChangeInput(type: ItemType): TaskAgileInput {
   return type === 'epic' ? { type, sprintId: null, epicId: null } : { type };
 }
 
+/**
+ * Where a quick-created item goes: the section's sprint and the filtered epic,
+ * within the rules the server checks. Epics and features hold items, so they
+ * are never planned in a sprint; an epic belongs to no epic, and a feature
+ * only to an epic (not to a feature).
+ */
+export function quickCreateInput(
+  type: ItemType,
+  sectionSprintId: string | null,
+  filtered: { id: string; type: string } | null | undefined,
+): { type: ItemType; sprintId: string | null; epicId: string | null } {
+  if (type === 'epic') return { type, sprintId: null, epicId: null };
+  if (type === 'feature') {
+    return { type, sprintId: null, epicId: filtered?.type === 'epic' ? filtered.id : null };
+  }
+  return { type, sprintId: sectionSprintId, epicId: filtered?.id ?? null };
+}
+
 // ── New sprint ──────────────────────────────────────────────────────────────
 
 const DAY_MS = 24 * 60 * 60 * 1000;

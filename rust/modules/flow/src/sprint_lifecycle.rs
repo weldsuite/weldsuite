@@ -32,8 +32,8 @@ use weldsuite_db::{OrmConn, PgPool, orm, utc_timestamp};
 use weldsuite_events::iso_timestamp;
 use weldsuite_flow_domain::agile::{
     CARRY_TARGETS, CarriedOver, CarryTarget, Committed, END_BEFORE_START, NEXT_SPRINT_INVALID,
-    ReportInput, SPRINT_ALREADY_ACTIVE, SPRINT_NOT_ACTIVE, SPRINT_NOT_PLANNED, SprintDays,
-    SprintItem, carry_over_plan, day_of_date, is_finished, is_frozen, next_sprint_name,
+    NEXT_SPRINT_OR_NEW, ReportInput, SPRINT_ALREADY_ACTIVE, SPRINT_NOT_ACTIVE, SPRINT_NOT_PLANNED,
+    SprintDays, SprintItem, carry_over_plan, day_of_date, is_finished, is_frozen, next_sprint_name,
     sprint_length_days, sprint_report, start_report,
 };
 use weldsuite_flow_domain::analytics::task_analytics_payload;
@@ -106,13 +106,17 @@ fn sprint_event(sprint: &sprints::Model) -> Value {
     })
 }
 
-/// The live tasks in a sprint, subtasks included, by position.
+/// The live tasks in a sprint, subtasks included, by position. Only the
+/// sprint's own project: a task of another project that still points at
+/// the sprint is never counted or moved.
 async fn sprint_tasks(
     db: &impl ConnectionTrait,
     sprint_id: &str,
+    project_id: &str,
 ) -> Result<Vec<tasks::Model>, DbErr> {
     tasks::Entity::find()
         .filter(Task::SprintId.eq(sprint_id))
+        .filter(Task::ProjectId.eq(project_id))
         .filter(Task::DeletedAt.is_null())
         .order_by_asc(Task::Position)
         .order_by_asc(Task::CreatedAt)
@@ -334,7 +338,9 @@ async fn write_start(tx: &OrmConn<'_>, s: &Started) -> Result<(), Refusal> {
     if active > 0 {
         return Err(Refusal::conflict(SPRINT_ALREADY_ACTIVE));
     }
-    let committed = Committed::of(&items_of(&sprint_tasks(tx, &s.sprint_id).await?));
+    let committed = Committed::of(&items_of(
+        &sprint_tasks(tx, &s.sprint_id, &s.project_id).await?,
+    ));
     let mut update = sprints::Entity::update_many()
         .col_expr(Column::Status, Expr::value("active"))
         .col_expr(Column::StartedAt, Expr::value(s.at))
@@ -377,6 +383,8 @@ struct CompleteInput {
     goal_met: Option<bool>,
     move_to: CarryTarget,
     next_sprint_id: Option<String>,
+    /// A new sprint for the items even when the project has a planned one.
+    create_next: bool,
     items: Vec<(String, CarryTarget)>,
 }
 
@@ -392,13 +400,14 @@ fn read_carry_item(issues: &mut Issues, item: &Value) -> Option<Value> {
     Some(o.finish())
 }
 
-/// `{ goalMet?, moveTo?, nextSprintId?, items? }`, strict.
+/// `{ goalMet?, moveTo?, nextSprintId?, createNext?, items? }`, strict.
 fn read_complete(issues: &mut Issues, body: &Value) -> Option<Map<String, Value>> {
     let fields = issues.object(body)?;
     let mut o = Obj::new(issues, fields);
     o.boolean("goalMet", Presence::Nullish)
         .choice("moveTo", Presence::Optional, &CARRY_TARGETS)
         .text("nextSprintId", Presence::Optional, IDENTIFIER)
+        .boolean("createNext", Presence::Optional)
         .list("items", Presence::Optional, Some(1_000), read_carry_item);
     object(o.finish())
 }
@@ -420,8 +429,13 @@ fn complete_input(body: &Bytes) -> Result<CompleteInput, Refusal> {
             Some((task, target(item.get("moveTo"))?))
         })
         .collect();
+    let create_next = read.get("createNext").and_then(Value::as_bool) == Some(true);
+    if create_next && read.contains_key("nextSprintId") {
+        return Err(Refusal::bad_request(NEXT_SPRINT_OR_NEW));
+    }
     Ok(CompleteInput {
         goal_met: read.get("goalMet").and_then(Value::as_bool),
+        create_next,
         move_to: target(read.get("moveTo")).unwrap_or(CarryTarget::Next),
         next_sprint_id: read
             .get("nextSprintId")
@@ -495,6 +509,7 @@ async fn with_subtasks(
     db: &PgPool,
     roots: &[String],
     sprint_id: &str,
+    project_id: &str,
 ) -> Result<Vec<String>, DbErr> {
     let mut moved = roots.to_vec();
     let mut seen: HashSet<String> = roots.iter().cloned().collect();
@@ -507,6 +522,7 @@ async fn with_subtasks(
             .select_only()
             .columns([Task::Id, Task::SprintId])
             .filter(Task::ParentTaskId.is_in(frontier.iter().map(String::as_str)))
+            .filter(Task::ProjectId.eq(project_id))
             .filter(Task::DeletedAt.is_null())
             .into_tuple()
             .all(&orm(db))
@@ -609,7 +625,7 @@ async fn complete_sprint(state: &FlowState, caller: &Caller, id: &str, body: &By
     }
     let now = instant(caller);
     let today = day_of_instant(now);
-    let all = sprint_tasks(&orm(db), id).await?;
+    let all = sprint_tasks(&orm(db), id, &sprint.project_id).await?;
     let items = items_of(&all);
     let committed =
         Committed::from_report(sprint.report.as_ref()).unwrap_or_else(|| Committed::of(&items));
@@ -620,7 +636,12 @@ async fn complete_sprint(state: &FlowState, caller: &Caller, id: &str, body: &By
     let unfinished_ids: Vec<String> = unfinished.iter().map(|item| item.id.clone()).collect();
     let (next_roots, backlog_roots) = carry_over_plan(&unfinished_ids, input.move_to, &input.items);
 
-    let planned = planned_target(db, &sprint, input.next_sprint_id.as_deref()).await?;
+    // `createNext` asks for a new sprint even when one is planned.
+    let planned = if input.create_next {
+        None
+    } else {
+        planned_target(db, &sprint, input.next_sprint_id.as_deref()).await?
+    };
     let new_sprint = if planned.is_none() && !next_roots.is_empty() {
         let length = sprint_length(db, &sprint.project_id).await?;
         let start = sprint.end_date.unwrap_or_else(|| midnight(now));
@@ -634,8 +655,8 @@ async fn complete_sprint(state: &FlowState, caller: &Caller, id: &str, body: &By
         None
     };
     let next_id = planned.or_else(|| new_sprint.as_ref().map(|new| new.id.clone()));
-    let to_next = with_subtasks(db, &next_roots, id).await?;
-    let to_backlog = with_subtasks(db, &backlog_roots, id).await?;
+    let to_next = with_subtasks(db, &next_roots, id, &sprint.project_id).await?;
+    let to_backlog = with_subtasks(db, &backlog_roots, id, &sprint.project_id).await?;
 
     let left = left_points(db, &committed, &items).await?;
     let carried = CarriedOver {
@@ -716,7 +737,7 @@ async fn complete_sprint(state: &FlowState, caller: &Caller, id: &str, body: &By
 
 /// The `updated` event of every task moved out of the sprint, with its
 /// `sprintId` change.
-fn publish_moves(
+pub(crate) fn publish_moves(
     state: &FlowState,
     caller: &Caller,
     all: &[tasks::Model],
@@ -772,7 +793,7 @@ async fn report_of(caller: &Caller, id: &str) -> Reply {
         ("completed", Some(at)) => day(at),
         _ => day_of_instant(instant(caller)),
     };
-    let items = items_of(&sprint_tasks(&orm(db), id).await?);
+    let items = items_of(&sprint_tasks(&orm(db), id, &sprint.project_id).await?);
     let committed =
         Committed::from_report(sprint.report.as_ref()).unwrap_or_else(|| Committed::of(&items));
     let left = left_points(db, &committed, &items).await?;

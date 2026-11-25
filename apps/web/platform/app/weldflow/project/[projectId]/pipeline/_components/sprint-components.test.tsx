@@ -275,7 +275,8 @@ describe('Complete sprint dialog', () => {
     await submit(user);
     expect(state.complete).toHaveBeenCalledWith({
       id: 'A',
-      input: { goalMet: false, moveTo: 'next', items: [{ taskId: 't1', moveTo: 'backlog' }] },
+      // "A new sprint" is asked for explicitly: the server would otherwise take the planned one.
+      input: { goalMet: false, moveTo: 'next', createNext: true, items: [{ taskId: 't1', moveTo: 'backlog' }] },
     });
   });
 

@@ -12,6 +12,7 @@ import {
   NO_EPIC,
   sectionSprintId,
   sprintPlan,
+  quickCreateInput,
   typeChangeInput,
   type BacklogItem,
 } from './backlog';
@@ -224,5 +225,18 @@ describe('type changes', () => {
   it('takes an epic out of its sprint and epic', () => {
     expect(typeChangeInput('epic')).toEqual({ type: 'epic', sprintId: null, epicId: null });
     expect(typeChangeInput('bug')).toEqual({ type: 'bug' });
+  });
+
+  it('quick-creates items in the section and the filtered epic, containers outside both', () => {
+    const epic = { id: 'e1', type: 'epic' };
+    const feature = { id: 'f1', type: 'feature' };
+    expect(quickCreateInput('bug', 's1', epic)).toEqual({ type: 'bug', sprintId: 's1', epicId: 'e1' });
+    expect(quickCreateInput('story', 's1', feature)).toEqual({ type: 'story', sprintId: 's1', epicId: 'f1' });
+    expect(quickCreateInput('task', null, undefined)).toEqual({ type: 'task', sprintId: null, epicId: null });
+    // An epic is never planned in a sprint and belongs to no epic.
+    expect(quickCreateInput('epic', 's1', epic)).toEqual({ type: 'epic', sprintId: null, epicId: null });
+    // A feature belongs to an epic only, never to a feature, and not to a sprint.
+    expect(quickCreateInput('feature', 's1', epic)).toEqual({ type: 'feature', sprintId: null, epicId: 'e1' });
+    expect(quickCreateInput('feature', 's1', feature)).toEqual({ type: 'feature', sprintId: null, epicId: null });
   });
 });
