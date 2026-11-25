@@ -174,7 +174,7 @@ export function EcommerceConnectorSettingsPage({
         <div className="space-y-4">
           <div className="flex items-center justify-between gap-3">
             <h2 className="text-xl font-semibold">{tc.title}</h2>
-            {canConnect && connector ? (
+            {canConnect ? (
               <Button size="sm" onClick={() => setPendingConnect(connector)}>
                 <Plus className="mr-1.5 h-3.5 w-3.5" />
                 {connections.length > 0 ? tc.addStore : tc.connect}
