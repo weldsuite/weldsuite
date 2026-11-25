@@ -38,6 +38,7 @@ mod args_gen;
 pub mod auth;
 mod call;
 pub mod catalog;
+pub mod challenge;
 mod hooks;
 mod js;
 pub mod permissions;
@@ -60,6 +61,7 @@ use weldsuite_db::{PgPool, Workspaces};
 use weldsuite_ports::DynCache;
 
 pub use auth::{McpAuth, well_known_router};
+pub use challenge::{OPENAI_APPS_CHALLENGE_PATH, openai_apps_challenge_router};
 pub use selection::{SelectionState, selection_router};
 pub use transport::serve;
 
@@ -196,7 +198,7 @@ impl std::fmt::Debug for McpState {
 }
 
 /// The settings [`McpState::env`] holds.
-pub const ENV_KEYS: [&str; 2] = ["MCP_SERVER_URL", "ENVIRONMENT"];
+pub const ENV_KEYS: [&str; 3] = ["MCP_SERVER_URL", "ENVIRONMENT", "OPENAI_APPS_CHALLENGE"];
 
 impl McpState {
     /// The env settings this crate reads, from the process environment.

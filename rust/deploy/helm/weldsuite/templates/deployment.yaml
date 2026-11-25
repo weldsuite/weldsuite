@@ -121,6 +121,12 @@ spec:
             {{- $mcpUrl := .Values.config.mcp.serverUrl | default (printf "https://%s" (index .Values.ingress.hosts 0).host) }}
             - name: MCP_SERVER_URL
               value: {{ $mcpUrl | quote }}
+            {{- with .Values.config.mcp.openaiAppsChallenge }}
+            # OpenAI's domain verification token, served at
+            # /.well-known/openai-apps-challenge on the MCP host.
+            - name: OPENAI_APPS_CHALLENGE
+              value: {{ . | quote }}
+            {{- end }}
             # The platform SPA in the image, for every path the API doesn't
             # answer; empty serves the API alone.
             - name: SPA_DIR

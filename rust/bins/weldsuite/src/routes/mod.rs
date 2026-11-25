@@ -3415,6 +3415,11 @@ pub(crate) fn mcp(state: &AppState) -> Router {
                 && state.infra.workspace_selections.is_some(),
         })
     });
+    // OpenAI's domain verification for the ChatGPT plugin directory, on the
+    // MCP server's host (`OPENAI_APPS_CHALLENGE`; a 404 without it).
+    let challenge = weldsuite_mcp::openai_apps_challenge_router(
+        env.get("OPENAI_APPS_CHALLENGE").map(String::as_str),
+    );
     let mcp_state = weldsuite_mcp::McpState::new(
         v1,
         state.workspaces.master().clone(),
@@ -3441,6 +3446,7 @@ pub(crate) fn mcp(state: &AppState) -> Router {
         Some(auth) => endpoint.merge(weldsuite_mcp::well_known_router(auth)),
         None => endpoint,
     };
+    let router = router.merge(challenge);
     router.layer(
         tower_http::cors::CorsLayer::new()
             .allow_origin(tower_http::cors::Any)
