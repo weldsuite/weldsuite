@@ -1707,6 +1707,14 @@ cron:
       enabled: true
       schedule: "0 3 * * *"
       activeDeadlineSeconds: 3000
+    # WeldBooks: the statuses of the BTW-aangifte, Opgaaf ICP and KvK
+    # jaarrekening deliveries still open on Digipoort, for the workspaces the
+    # digipoort_status due index lists. Does nothing without a Digipoort
+    # connection (DIGIPOORT_MODE and the rest in the Secret).
+    digipoort-status:
+      enabled: true
+      schedule: "*/5 * * * *"
+      activeDeadlineSeconds: 290
     # WeldFlow: the weekly project finance snapshot of every workspace the
     # `finance_snapshot` due index lists (FLOW-019).
     flow-finance-snapshot:

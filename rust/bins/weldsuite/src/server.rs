@@ -875,6 +875,7 @@ mod tests {
             sandbox: false,
             panel_analytics: true,
             sso_connections: false,
+            digipoort: false,
         });
         let (_, _, body) = call(state, get("/config.json")).await;
         let body: Value = serde_json::from_str(&body).expect("json");

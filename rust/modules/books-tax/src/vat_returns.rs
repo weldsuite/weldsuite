@@ -3,8 +3,9 @@
 //! suppletie, its SBR/XBRL message, and India's GST worksheet
 //! (`GET /gst-worksheet`, computed on demand, nothing stored).
 //!
-//! Filing goes through Digipoort as the worker does without its certificate
-//! binding: a simulated submission ([`crate::filing`]).
+//! Filing goes through Digipoort when the install has a connection
+//! ([`crate::digipoort`]: `submitted`, then `accepted` or `rejected`);
+//! without one it is the worker's simulated submission ([`crate::filing`]).
 
 use std::sync::Arc;
 
@@ -36,9 +37,12 @@ use weldsuite_kit::validation::{Issues, Number, Presence, Text};
 use weldsuite_legal_entities::{EntityRecordGuard, EntityTable};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 
+use crate::digipoort::{
+    Filing, deliver, is_delivery, record_refusal, refresh, status_body, watch_statuses,
+};
 use crate::filing::{
-    file_period, filing_status, is_unfiled, iso_day, load_period_lines, overlapping_period,
-    parse_period, submit_filing,
+    Submission, file_period, filing_status, is_unfiled, iso_day, load_period_lines,
+    overlapping_period, parse_period, submit_filing,
 };
 use crate::nl::{self, Rubrieken, VatXmlInput, compute_rubrieken, recompute_totals};
 use crate::orm_bridge::{day_of, now_and_stamp, timestamp_of_iso, to_json, to_json_rows};
@@ -90,6 +94,10 @@ where
         )
         .with_state(state)
 }
+
+/// A suppletie needs the Belastingdienst's suppletie message, which this
+/// backend doesn't build yet; the aangifte message would be the wrong one.
+const SUPPLETIE_NOT_DELIVERED: &str = "A suppletie can't be sent through Digipoort yet. File the correction in Mijn Belastingdienst Zakelijk, then mark this suppletie as filed.";
 
 /// The phone number is a mandatory part of the aangifte message.
 const PHONE_REQUIRED: &str = "A telephone number is required in the BTW-aangifte message. Add it to the entity contact details first.";
@@ -581,12 +589,45 @@ async fn file_return(caller: &Caller, state: &BooksState, id: &str) -> Reply {
         return Err(Refusal::bad_request(PHONE_REQUIRED));
     }
     let xml = vat_xml(&ret, &entity, &btw, &rubrieken);
-    let submission = submit_filing(&btw, &xml, "Omzetbelasting");
+    // With the install's Digipoort connection the message is delivered and
+    // the return waits for the Belastingdienst (`submitted`); without one it
+    // is the worker's simulated submission, recorded as filed.
+    let (filed_status, submission) = match &state.digipoort {
+        Some(digipoort) => {
+            if text(&ret, "correctionOfId").is_some() {
+                return Err(Refusal::bad_request(SUPPLETIE_NOT_DELIVERED));
+            }
+            let at = time::OffsetDateTime::now_utc();
+            match deliver(
+                digipoort,
+                Filing::VatReturn,
+                &btw,
+                &format!("OB-{id}"),
+                &xml,
+                at,
+            )
+            .await
+            {
+                Ok(delivered) => (
+                    "submitted",
+                    Submission {
+                        kenmerk: delivered.kenmerk,
+                        stored: delivered.stored,
+                    },
+                ),
+                Err(refused) => {
+                    record_refusal(db, Filing::VatReturn, id, &refused.stored, &xml).await?;
+                    return Err(refused.refusal(Filing::VatReturn));
+                }
+            }
+        }
+        None => ("filed", submit_filing(&btw, &xml, "Omzetbelasting")),
+    };
 
     let stamp = utc_now();
     let mut tx = db.begin().await?;
     vat_returns::Entity::update_many()
-        .col_expr(vat_returns::Column::Status, Expr::value("filed"))
+        .col_expr(vat_returns::Column::Status, Expr::value(filed_status))
         .col_expr(
             vat_returns::Column::Rubrieken,
             Expr::value(rubrieken.to_value()),
@@ -604,6 +645,15 @@ async fn file_return(caller: &Caller, state: &BooksState, id: &str) -> Reply {
         .col_expr(
             vat_returns::Column::FiledBy,
             Expr::value(caller.user().map(str::to_owned)),
+        )
+        // Filing again after a rejection clears it.
+        .col_expr(
+            vat_returns::Column::RejectedAt,
+            Expr::value(Option::<PrimitiveDateTime>::None),
+        )
+        .col_expr(
+            vat_returns::Column::RejectionReason,
+            Expr::value(Option::<String>::None),
         )
         .col_expr(vat_returns::Column::UpdatedAt, Expr::value(stamp))
         .filter(vat_returns::Column::Id.eq(id))
@@ -624,7 +674,7 @@ async fn file_return(caller: &Caller, state: &BooksState, id: &str) -> Reply {
     tx.commit().await?;
 
     let mut changes = Map::new();
-    changes.insert("status".into(), change(json!(status), json!("filed")));
+    changes.insert("status".into(), change(json!(status), json!(filed_status)));
     write_accounting_audit(
         caller,
         db,
@@ -632,7 +682,7 @@ async fn file_return(caller: &Caller, state: &BooksState, id: &str) -> Reply {
             accounting_entity_id: Some(&entity_id),
             entity_type: "vat_return",
             entity_id: id,
-            action: "filed",
+            action: filed_status,
             changes: Some(changes),
         },
     )
@@ -641,8 +691,11 @@ async fn file_return(caller: &Caller, state: &BooksState, id: &str) -> Reply {
         state,
         VAT_RETURN_UPDATED,
         id,
-        json!({ "id": id, "status": "filed" }),
+        json!({ "id": id, "status": filed_status }),
     );
+    if filed_status == "submitted" {
+        watch_statuses(caller, state).await;
+    }
     let success = submission.stored.get("success") == Some(&Value::Bool(true));
     let simulated = submission.stored.get("simulated") == Some(&Value::Bool(true));
     // A simulated submission (no Digipoort link here) is recorded as filed but nothing was sent.
@@ -656,7 +709,7 @@ async fn file_return(caller: &Caller, state: &BooksState, id: &str) -> Reply {
     };
     Ok(ok(json!({
         "id": id,
-        "status": "filed",
+        "status": filed_status,
         "kenmerk": submission.kenmerk,
         "digipoortSuccess": success,
         "simulated": simulated,
@@ -959,7 +1012,11 @@ async fn create_suppletie(caller: &Caller, state: &BooksState, id: &str) -> Repl
 
 // ── GET /:id/filing-status ──────────────────────────────────────────────────
 
-async fn status(caller: Caller, Path(id): Path<String>) -> Response {
+async fn status(
+    caller: Caller,
+    State(state): State<BooksState>,
+    Path(id): Path<String>,
+) -> Response {
     reply(
         async {
             let Some(ret) = find(&caller.db, &id).await? else {
@@ -968,6 +1025,35 @@ async fn status(caller: Caller, Path(id): Path<String>) -> Response {
             let Some(reference) = text(&ret, "filingReference").filter(|r| !r.is_empty()) else {
                 return Err(Refusal::bad_request("VAT return has not been filed yet"));
             };
+            // A real delivery: read Digipoort's statuses and store them.
+            if let (Some(digipoort), true) =
+                (&state.digipoort, is_delivery(ret.get("digipoortResponse")))
+            {
+                let at = time::OffsetDateTime::now_utc();
+                let record = ret.get("digipoortResponse").cloned().unwrap_or(Value::Null);
+                let read = refresh(
+                    &caller.db,
+                    digipoort,
+                    Filing::VatReturn,
+                    &id,
+                    reference,
+                    &record,
+                    at,
+                )
+                .await
+                .map_err(|e| Refusal::Internal(e.to_string()))?;
+                if let Ok(refreshed) = &read
+                    && let Some(settled) = refreshed.settled
+                {
+                    caller.publish(
+                        &state,
+                        VAT_RETURN_UPDATED,
+                        &id,
+                        json!({ "id": id, "status": settled }),
+                    );
+                }
+                return Ok(ok(status_body(&id, reference, &read, at)));
+            }
             // The simulated status is `submitted`: nothing to persist.
             let mut body = Map::new();
             body.insert("id".into(), json!(id));

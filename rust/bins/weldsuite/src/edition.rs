@@ -93,13 +93,6 @@ pub(crate) const UNAVAILABLE_FEATURES: &[&str] = &[
     // checkouts through Global's billing-worker (`/api/telephony/phone-numbers/provision`,
     // `/api/porting/:id/submit`); numbers come from the Telnyx account (sync).
     "phone-number-purchase",
-    // WeldBooks VAT: sending the BTW-aangifte and the Opgaaf ICP to Digipoort
-    // needs the worker's PKIoverheid client certificate binding. Without it
-    // the worker builds the envelope and answers a simulated submission, as
-    // Rust always does (`POST /api/vat-returns/:id/file`,
-    // `/api/icp-declarations/:id/file`); the platform hides filing and the
-    // status check, and the XBRL download is filed by hand.
-    "vat-digipoort",
     // WeldHost: buying and renewing domains charge through Stripe, which
     // stays with Global (`POST /api/domains/checkout` and `/:id/renew` answer
     // "Stripe is not configured", as the worker without the key does).
@@ -254,6 +247,21 @@ pub(crate) const AGENT_SANDBOX_FEATURE: &str = "agent-sandbox";
 /// instructions, and redirects the rest to them.
 pub(crate) const PANEL_ANALYTICS_FEATURE: &str = "panel-analytics";
 
+/// WeldBooks: filing the BTW-aangifte and the Opgaaf ICP through Digipoort
+/// (`POST /api/vat-returns/:id/file`, `/api/icp-declarations/:id/file` and
+/// their status checks), signed and sent with the install's `PKIoverheid`
+/// certificate (`weldsuite_digipoort`). Unavailable without one
+/// (`DIGIPOORT_MODE` unset or `simulated`): the routes then answer the
+/// worker's simulated submission, so the platform hides filing and the
+/// return is filed by hand and marked as filed.
+pub(crate) const VAT_DIGIPOORT_FEATURE: &str = "vat-digipoort";
+
+/// WeldBooks: depositing the jaarrekening with the `KvK` through Digipoort
+/// (`POST /api/annual-reports/:id/file`), on the same connection as
+/// [`VAT_DIGIPOORT_FEATURE`]. Without it the XBRL is downloaded and
+/// deposited elsewhere, then marked as filed.
+pub(crate) const KVK_DIGIPOORT_FEATURE: &str = "kvk-digipoort";
+
 /// The public settings `PUBLIC_ENV` may carry into `/config.json`'s `env`,
 /// by the platform's name for them. Never add a secret: anyone can read the
 /// document.
@@ -307,6 +315,9 @@ pub(crate) struct EditionConfig {
     /// The identity provider manages SSO connections (WeldID, set by
     /// `Config` from `IDENTITY_PROVIDER`): [`SSO_CONNECTIONS_FEATURE`].
     pub(crate) sso_connections: bool,
+    /// A Digipoort connection with a usable certificate (`DIGIPOORT_*`):
+    /// [`VAT_DIGIPOORT_FEATURE`] and [`KVK_DIGIPOORT_FEATURE`].
+    pub(crate) digipoort: bool,
 }
 
 /// WeldMail's address features this deployment can serve.
@@ -357,6 +368,7 @@ impl Default for EditionConfig {
             sandbox: false,
             panel_analytics: false,
             sso_connections: false,
+            digipoort: false,
         }
     }
 }
@@ -400,9 +412,11 @@ impl EditionConfig {
                 false
             }
         };
+        let digipoort = digipoort_offered(lookup, problems);
         Self {
             credit_top_up,
             plan_billing,
+            digipoort,
             edition,
             public_env,
             video: weldsuite_video_rooms::client_settings(lookup),
@@ -481,6 +495,10 @@ impl EditionConfig {
         if !self.panel_analytics {
             features.push(PANEL_ANALYTICS_FEATURE);
         }
+        if !self.digipoort {
+            features.push(VAT_DIGIPOORT_FEATURE);
+            features.push(KVK_DIGIPOORT_FEATURE);
+        }
         if self.edition != Edition::Eu {
             features.push(OUTSIDE_EU_SERVICES_FEATURE);
         }
@@ -499,6 +517,29 @@ impl EditionConfig {
     pub(crate) fn offers(&self, module: &str) -> bool {
         (module != VIDEO_MODULE || self.video_configured)
             && (module != AI_MODULE || self.ai.is_some())
+    }
+}
+
+/// Whether the environment configures Digipoort with a certificate and key
+/// that load. `DIGIPOORT_MODE` set with the rest missing or unreadable is a
+/// problem: an operator who turned filing on wants to hear it at start.
+fn digipoort_offered(lookup: &impl Fn(&str) -> Option<String>, problems: &mut Vec<String>) -> bool {
+    match weldsuite_digipoort::DigipoortConfig::from_env(lookup) {
+        Ok(None) => false,
+        Ok(Some(config)) => match weldsuite_digipoort::signature::Signer::from_pem(
+            &config.certificate_pem,
+            &config.private_key_pem,
+        ) {
+            Ok(_) => true,
+            Err(error) => {
+                problems.push(format!("DIGIPOORT_CERT / DIGIPOORT_KEY: {error}"));
+                false
+            }
+        },
+        Err(error) => {
+            problems.push(error.0);
+            false
+        }
     }
 }
 
@@ -558,7 +599,7 @@ mod tests {
                 .as_array()
                 .map(Vec::len)
                 .unwrap_or_default(),
-            UNAVAILABLE_FEATURES.len() + AI_FEATURES.len() + 11
+            UNAVAILABLE_FEATURES.len() + AI_FEATURES.len() + 13
         );
         // Self-hosted: the operator decides about services outside the EU.
         assert!(
@@ -623,6 +664,45 @@ mod tests {
         };
         assert!(!on.unavailable_features().contains(&SSO_CONNECTIONS_FEATURE));
         assert!(!UNAVAILABLE_FEATURES.contains(&SSO_CONNECTIONS_FEATURE));
+    }
+
+    /// Filing through Digipoort follows the install's `PKIoverheid`
+    /// connection; turning it on half-way is a problem at start.
+    #[test]
+    fn offers_digipoort_filing_with_a_connection() {
+        let (off, problems) = read(&[("DIGIPOORT_MODE", "simulated")]);
+        assert!(problems.is_empty(), "{problems:?}");
+        let lacks = off.unavailable_features();
+        assert!(lacks.contains(&VAT_DIGIPOORT_FEATURE));
+        assert!(lacks.contains(&KVK_DIGIPOORT_FEATURE));
+        assert!(!UNAVAILABLE_FEATURES.contains(&VAT_DIGIPOORT_FEATURE));
+        let on = EditionConfig {
+            digipoort: true,
+            ..off
+        };
+        let lacks = on.unavailable_features();
+        assert!(!lacks.contains(&VAT_DIGIPOORT_FEATURE));
+        assert!(!lacks.contains(&KVK_DIGIPOORT_FEATURE));
+
+        let (half, problems) = read(&[
+            ("DIGIPOORT_MODE", "production"),
+            ("DIGIPOORT_AANLEVER_URL", "https://example.test/aanleveren"),
+        ]);
+        assert!(!half.digipoort);
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert!(problems[0].contains("DIGIPOORT_CERT"), "{problems:?}");
+        let (unreadable, problems) = read(&[
+            ("DIGIPOORT_MODE", "preprod"),
+            ("DIGIPOORT_AANLEVER_URL", "https://example.test/aanleveren"),
+            ("DIGIPOORT_STATUS_URL", "https://example.test/status"),
+            ("DIGIPOORT_CERT", "not a certificate"),
+            ("DIGIPOORT_KEY", "not a key"),
+        ]);
+        assert!(!unreadable.digipoort);
+        assert!(
+            problems[0].starts_with("DIGIPOORT_CERT / DIGIPOORT_KEY"),
+            "{problems:?}"
+        );
     }
 
     #[test]
@@ -691,6 +771,8 @@ mod tests {
             REACH_BILLING_FEATURE,
             AGENT_SANDBOX_FEATURE,
             PANEL_ANALYTICS_FEATURE,
+            VAT_DIGIPOORT_FEATURE,
+            KVK_DIGIPOORT_FEATURE,
             // Self-hosted: the operator decides about services outside the EU.
             OUTSIDE_EU_SERVICES_FEATURE,
         ]);

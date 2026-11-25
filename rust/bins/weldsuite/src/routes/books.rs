@@ -360,6 +360,8 @@ pub(crate) fn books_state(state: &AppState) -> BooksState {
         trusted_proxies: state.trusted_proxies,
         // Clerk sign-in only: `public_auth` is set exactly with OIDC.
         second_factor_step_up: state.public_auth.is_none(),
+        // Conformance answers the worker without its certificate binding.
+        digipoort: (!conformance).then(digipoort).flatten(),
         // Document OCR (`books-ocr`); `None` with AI off. A conformance
         // request carries the test's own.
         ai: state.ai.clone(),
@@ -379,6 +381,7 @@ pub(crate) fn sweep_state(master: &PgPool, keyring: &weldsuite_db::Keyring) -> B
     books.keyring = keyring.clone();
     books.env = books_env();
     books.rates = rate_cache();
+    books.digipoort = digipoort();
     books
 }
 
@@ -443,6 +446,49 @@ pub(crate) fn ponto_http() -> Option<weldsuite_ports::OutboundHttp> {
         }
     })
     .clone()
+}
+
+/// The install's Digipoort connection (`DIGIPOORT_*`): the `PKIoverheid`
+/// certificate signs every message and is presented for mutual TLS, with
+/// `DIGIPOORT_CA` added to the roots Digipoort's server certificate is
+/// checked against. Made once per process; `None` when Digipoort is off or
+/// its settings don't load (`/config.json` then lists `vat-digipoort` and
+/// `kvk-digipoort`, and a start with a broken setup is refused there).
+pub(crate) fn digipoort() -> Option<weldsuite_digipoort::Digipoort> {
+    static CLIENT: OnceLock<Option<weldsuite_digipoort::Digipoort>> = OnceLock::new();
+    CLIENT
+        .get_or_init(|| {
+            let config = match weldsuite_digipoort::DigipoortConfig::from_env(env_value) {
+                Ok(Some(config)) => config,
+                Ok(None) => return None,
+                Err(error) => {
+                    tracing::error!(%error, "books: Digipoort is not set up correctly");
+                    return None;
+                }
+            };
+            let http = match weldsuite_adapters_oss::ReqwestOutbound::with_client_certificate_and_roots(
+                std::time::Duration::from_secs(60),
+                config.identity_pem().as_bytes(),
+                config.ca_pem.as_deref().map(str::as_bytes),
+            ) {
+                Ok(client) => weldsuite_ports::OutboundHttp(Arc::new(client)),
+                Err(error) => {
+                    tracing::error!(%error, "books: the Digipoort client certificate does not load");
+                    return None;
+                }
+            };
+            match weldsuite_digipoort::Digipoort::new(&config, http) {
+                Ok(client) => {
+                    tracing::info!(mode = config.mode.as_str(), "books: Digipoort filing is on");
+                    Some(client)
+                }
+                Err(error) => {
+                    tracing::error!(%error, "books: the Digipoort signing key does not load");
+                    None
+                }
+            }
+        })
+        .clone()
 }
 
 /// The ECB rates cache, one per process (the worker's module-level cache).

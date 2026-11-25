@@ -8,6 +8,7 @@
 //! TypeScript worker's; its tests run against this crate in the `books:
 //! reports` conformance suite (`rust/conformance/suites.json`).
 
+mod annual_reports;
 mod dashboard;
 mod exports;
 mod fixed_assets;
@@ -19,6 +20,9 @@ mod rows;
 
 use std::sync::Arc;
 
+/// The open deposits with the Chamber of Commerce of a workspace, read once
+/// (`weldsuite cron digipoort-status`).
+pub use annual_reports::{AnnualReportPoll, poll_open_annual_reports};
 use axum::Router;
 pub use fixed_assets::{
     EntityRun as DepreciationRun, last_completed_month_end, run_monthly_depreciation,
@@ -48,6 +52,10 @@ where
     );
     vec![
         ("/accounting-reports", reports::router(state.clone(), gate)),
+        (
+            "/annual-reports",
+            annual_reports::router(state.clone(), gate),
+        ),
         (
             "/accounting-dashboard",
             dashboard::router(state.clone(), gate),

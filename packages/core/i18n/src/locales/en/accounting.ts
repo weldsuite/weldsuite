@@ -3244,6 +3244,7 @@ export const accounting = {
         reviewed: 'Reviewed',
         accepted: 'Accepted',
         rejected: 'Rejected',
+        submitted: 'Submitted',
       },
       // Recurring invoice statuses (recurring/[id]/page)
       recurringInvoice: {

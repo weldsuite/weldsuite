@@ -34,7 +34,12 @@ export function MarkVatFiledDialog({
   onOpenChange,
   pending,
   onSubmit,
+  title,
+  description,
 }: Readonly<{
+  /** Replace the VAT wording, for another kind of filing (the annual report). */
+  title?: string;
+  description?: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   pending: boolean;
@@ -63,8 +68,8 @@ export function MarkVatFiledDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>{st('sweep.weldbooks.records.markFiledTitle')}</DialogTitle>
-          <DialogDescription>{st('sweep.weldbooks.records.markFiledDescription')}</DialogDescription>
+          <DialogTitle>{title ?? st('sweep.weldbooks.records.markFiledTitle')}</DialogTitle>
+          <DialogDescription>{description ?? st('sweep.weldbooks.records.markFiledDescription')}</DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit(submit)} className="space-y-4">
           <div className="space-y-2">

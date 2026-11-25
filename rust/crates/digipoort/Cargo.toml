@@ -1,0 +1,28 @@
+[package]
+name = "weldsuite-digipoort"
+description = "Logius Digipoort over WUS: signed SOAP deliveries (aanleveren) and status reads (getStatussenProces) with the install's PKIoverheid certificate, for WeldBooks' VAT, ICP and KvK filings"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+weldsuite-ports = { workspace = true }
+base64 = { workspace = true }
+jsonwebtoken = { workspace = true }
+regex = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+time = { workspace = true, features = ["formatting", "macros"] }
+tracing = { workspace = true }
+uuid = { workspace = true, features = ["v4"] }
+
+[dev-dependencies]
+aws-lc-rs = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt"] }
+
+[lints]
+workspace = true

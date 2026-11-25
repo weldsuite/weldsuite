@@ -7550,6 +7550,7 @@ dependencies = [
  "weldsuite-desk",
  "weldsuite-desk-domain",
  "weldsuite-desk-widget",
+ "weldsuite-digipoort",
  "weldsuite-docs",
  "weldsuite-emails",
  "weldsuite-events",
@@ -7884,6 +7885,7 @@ dependencies = [
  "weldsuite-auth",
  "weldsuite-catalogs",
  "weldsuite-db",
+ "weldsuite-digipoort",
  "weldsuite-events",
  "weldsuite-kit",
  "weldsuite-legal-entities",
@@ -7940,6 +7942,7 @@ dependencies = [
  "weldsuite-books-domain",
  "weldsuite-catalogs",
  "weldsuite-db",
+ "weldsuite-digipoort",
  "weldsuite-events",
  "weldsuite-kit",
  "weldsuite-legal-entities",
@@ -8020,6 +8023,7 @@ dependencies = [
  "weldsuite-books-domain",
  "weldsuite-catalogs",
  "weldsuite-db",
+ "weldsuite-digipoort",
  "weldsuite-events",
  "weldsuite-kit",
  "weldsuite-legal-entities",
@@ -8738,6 +8742,24 @@ dependencies = [
  "weldsuite-notifications",
  "weldsuite-ports",
  "weldsuite-schema",
+]
+
+[[package]]
+name = "weldsuite-digipoort"
+version = "0.0.0"
+dependencies = [
+ "aws-lc-rs",
+ "base64 0.22.1",
+ "jsonwebtoken 11.1.0",
+ "regex",
+ "serde",
+ "serde_json",
+ "sha2 0.11.1",
+ "time",
+ "tokio",
+ "tracing",
+ "uuid",
+ "weldsuite-ports",
 ]
 
 [[package]]

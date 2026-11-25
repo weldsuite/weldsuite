@@ -331,6 +331,90 @@ describe('VatReturnPanel', () => {
     expect(screen.queryByRole('menuitem', { name: 'Recalculate' })).not.toBeInTheDocument();
   });
 
+  it('treats a submitted return as sent: no filing, but the status can be checked', async () => {
+    const user = userEvent.setup();
+    serve(vatReturn({ status: 'submitted', filingReference: 'K-9' }));
+    renderPanel();
+    expect(await screen.findByText('Sent, waiting for the Belastingdienst')).toBeInTheDocument();
+    expect(screen.getAllByText('Submitted').length).toBeGreaterThanOrEqual(1);
+    expect(screen.queryByRole('button', { name: 'File with the Dutch Tax Administration' })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'More actions' }));
+    expect(await screen.findByRole('menuitem', { name: 'Check status' })).toBeInTheDocument();
+    expect(screen.queryByRole('menuitem', { name: 'Delete' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('menuitem', { name: 'Recalculate' })).not.toBeInTheDocument();
+  });
+
+  it('shows the reason a return was rejected and lets it be filed again', async () => {
+    serve(vatReturn({ status: 'rejected', rejectionReason: 'Rubriek 1a does not add up', rejectedAt: '2026-04-05T09:00:00.000Z' }));
+    renderPanel();
+    expect(await screen.findByTestId('rejection-notice')).toHaveTextContent('Rubriek 1a does not add up');
+    expect(screen.getByText('date:2026-04-05T09:00:00.000Z')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'File with the Dutch Tax Administration' })).toBeInTheDocument();
+  });
+
+  it('badges a return that was filed in the test environment', async () => {
+    serve(vatReturn({ status: 'submitted', digipoortResponse: { environment: 'preprod' } }));
+    renderPanel();
+    expect(await screen.findByTestId('preprod-badge')).toHaveTextContent('Test environment (pre-production)');
+  });
+
+  it('says the return was sent, not filed, when Digipoort accepted the delivery', async () => {
+    const user = userEvent.setup();
+    api.post.mockResolvedValue({ data: { id: 'vr_1', status: 'submitted', kenmerk: 'K', digipoortSuccess: true, simulated: false, message: 'ok' } });
+    renderPanel();
+    await user.click(await screen.findByRole('button', { name: 'File with the Dutch Tax Administration' }));
+    expect(await screen.findByText('VAT return sent through Digipoort')).toBeInTheDocument();
+  });
+
+  it('lists the messages Digipoort reported after a status check', async () => {
+    const user = userEvent.setup();
+    api.get.mockImplementation(async (path: string) => {
+      if (path === '/vat-returns/vr_1') return { data: vatReturn({ status: 'submitted' }) };
+      if (path === '/vat-returns/vr_1/filing-status')
+        return {
+          data: {
+            id: 'vr_1',
+            kenmerk: 'K',
+            success: true,
+            simulated: false,
+            status: 'rejected',
+            reason: 'Invalid BSN',
+            statuses: [{ code: '300', at: '2026-04-02T10:00:00Z', description: 'Rejected', errorCode: 'E42', errorDescription: 'Invalid BSN' }],
+          },
+        };
+      return { data: [] };
+    });
+    renderPanel();
+    await user.click(await screen.findByRole('button', { name: 'More actions' }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Check status' }));
+    const summary = await screen.findByTestId('filing-status');
+    expect(within(summary).getByText('Error E42: Invalid BSN')).toBeInTheDocument();
+    expect(within(summary).getAllByText('Rejected')).toHaveLength(2);
+    // The return is read again so its new status shows.
+    await waitFor(() => expect(api.get.mock.calls.filter(([path]) => path === '/vat-returns/vr_1').length).toBeGreaterThan(1));
+  });
+
+  it('says why a status lookup failed', async () => {
+    const user = userEvent.setup();
+    api.get.mockImplementation(async (path: string) => {
+      if (path === '/vat-returns/vr_1') return { data: vatReturn({ status: 'submitted' }) };
+      if (path === '/vat-returns/vr_1/filing-status') return { data: { id: 'vr_1', success: false, status: 'unknown', error: 'No connection' } };
+      return { data: [] };
+    });
+    renderPanel();
+    await user.click(await screen.findByRole('button', { name: 'More actions' }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Check status' }));
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('No connection'));
+  });
+
+  it('shows the message when Digipoort refuses a filing, or when a correction cannot be sent', async () => {
+    api.post.mockRejectedValue(new Error('The BTW-aangifte was not filed: certificate expired'));
+    const user = userEvent.setup();
+    renderPanel();
+    await user.click(await screen.findByRole('button', { name: 'File with the Dutch Tax Administration' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('The BTW-aangifte was not filed: certificate expired');
+  });
+
   it('says so when the jurisdiction has no VAT return', async () => {
     jurisdiction.vatReturn = false;
     renderPanel();

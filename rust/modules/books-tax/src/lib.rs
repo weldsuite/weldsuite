@@ -26,6 +26,7 @@
 
 mod apuracao;
 mod brazil;
+mod digipoort;
 mod ecd;
 mod filing;
 mod fiscal;
@@ -41,6 +42,10 @@ use axum::Router;
 pub use weldsuite_books_domain::http::BooksState;
 use weldsuite_legal_entities::{LegalEntityApp, LegalEntityContextOptions, legal_entity_context};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+
+/// The open Digipoort deliveries of a workspace, read once
+/// (`weldsuite cron digipoort-status`).
+pub use digipoort::{PollSummary, poll_open_filings};
 
 /// Focus NFe's webhook (`/public/fiscal-webhooks/:token`), outside the
 /// session: `workspaces` opens the tenant a token leads to.
