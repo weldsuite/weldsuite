@@ -50,6 +50,7 @@ import {
 } from '@/components/task-detail';
 import { DescriptionField } from '@/components/task-detail/task-detail-content';
 import { TaskChat } from '@/components/task-detail/task-chat';
+import { TaskAgileFields, TaskAgileSections } from '@/components/weldflow/agile/task-agile-fields';
 import type { Task as CrmTask } from '@/hooks/use-crm-tasks';
 import { TaskDialog } from '@/app/weldcrm/task-dialog';
 import type { TaskRow } from '@weldsuite/app-api-client/domains/tasks';
@@ -801,6 +802,8 @@ export function TaskPanel(props: Readonly<ObjectPanelComponentProps>) {
             onAddDependency={projectId ? handleAddDependency : undefined}
             onRemoveDependency={projectId ? handleRemoveDependency : undefined}
             onSaveCustomFields={handleSaveCustomFields}
+            agileFields={projectId && apiTask ? <TaskAgileFields task={apiTask} /> : undefined}
+            agileSections={projectId && apiTask ? <TaskAgileSections task={apiTask} /> : undefined}
           />
       )}
       {task && (
