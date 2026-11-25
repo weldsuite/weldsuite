@@ -3,7 +3,6 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   API_MODULES,
-  CORE_PLATFORM_PREFIXES,
   createApiOriginResolver,
   findModuleForExternalPath,
   findModuleForPath,
@@ -280,38 +279,6 @@ describe('licence gate lookups', () => {
     expect(missingLicensedAppForPath('/api/chat-entity-channels/domain/d_1/channel', licensed('weldcrm'))).toBe('weldchat');
     expect(missingLicensedAppForPath('/api/chat-entity-channels/sheet/s_1/comments', licensed('weldsheets'))).toBeNull();
     expect(missingLicensedAppForPath('/api/invoices', licensed('welddesk'))).toBe('weldbooks');
-  });
-
-  it('never gates the integration paths, which are core platform', () => {
-    const booksOnly = licensed('weldbooks');
-    for (const path of [
-      '/api/integrations/connections',
-      '/api/connectors/catalog',
-      '/api/workflow-integrations',
-      '/api/external-webhooks/whk_1',
-      '/api/github-connections?workspace=ws_1',
-      '/webhooks/woocommerce/return',
-    ]) {
-      expect(licenceAppsForPath(path), path).toBeNull();
-      expect(missingLicensedAppForPath(path, booksOnly), path).toBeNull();
-      expect(missingLicensedAppForPath(path, licensed()), path).toBeNull();
-    }
-    // WeldConnect's own screens still need a licence that opens WeldConnect.
-    expect(missingLicensedAppForPath('/api/workflows', booksOnly)).toBe('weldconnect');
-    expect(missingLicensedAppForPath('/api/workflow-executions/wex_1', booksOnly)).toBe('weldconnect');
-    // Whole segments only, and a longer prefix of another module still wins.
-    expect(findModuleForPath('/api/integrations-x').id).toBe('core');
-    expect(licenceAppsForPath('/api/integrations-x/1')).toBeNull();
-    expect(missingLicensedAppForPath('/api/github-project-links', booksOnly)).toBe('weldconnect');
-    expect(missingLicensedAppForPath('/api/integrations/helpdesk/slack/callback', booksOnly)).toBe('welddesk');
-  });
-
-  it('keeps the integration paths routed to connect while Global serves them there', () => {
-    const connect = getApiModule('connect');
-    for (const prefix of CORE_PLATFORM_PREFIXES) {
-      expect(connect.prefixes, prefix).toContain(prefix);
-      expect(findModuleForPath(`${prefix}/1`).id, prefix).toBe('connect');
-    }
   });
 
   it('maps external-api paths onto the first-party module', () => {

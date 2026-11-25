@@ -5,7 +5,13 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { I18nProvider } from '@weldsuite/i18n/provider';
 import { en } from '@weldsuite/i18n/locales/en';
 import { ApiError } from '@weldsuite/api-client';
-import type { SignEnvelopeDetail, SignEventDto, SignFilingDto, SignRecipientDto } from '@weldsuite/app-api-client/schemas/weldsign';
+import type {
+  SignEnvelopeDetail,
+  SignEventDto,
+  SignFilingDto,
+  SignRecipientDto,
+  SignSignatureInfo,
+} from '@weldsuite/app-api-client/schemas/weldsign';
 
 const api = vi.hoisted(() => ({
   weldsign: {
@@ -16,11 +22,19 @@ const api = vi.hoisted(() => ({
     voidEnvelope: vi.fn(),
     events: vi.fn(),
     download: vi.fn(),
+    signatures: vi.fn(),
+    evidence: vi.fn(),
   },
 }));
+/** Whether the install offers advanced and qualified signatures (the `sign-eidas` edition feature). */
+const edition = vi.hoisted(() => ({ eidas: true }));
 vi.mock('@/lib/api/use-app-api', () => ({ useAppApi: () => api }));
 const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), info: vi.fn() }));
 vi.mock('sonner', () => ({ toast }));
+vi.mock('@/lib/edition', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/edition')>()),
+  isFeatureAvailable: (feature: string) => feature === 'sign-eidas' && edition.eidas,
+}));
 vi.mock('@/lib/router', () => ({
   Link: ({ href, children, ...rest }: { href: string; children?: React.ReactNode }) => (
     <a href={href} {...rest}>
@@ -152,6 +166,8 @@ beforeEach(() => {
   for (const fn of Object.values(api.weldsign)) fn.mockReset();
   for (const fn of Object.values(toast)) fn.mockReset();
   api.weldsign.events.mockResolvedValue({ data: [] });
+  api.weldsign.signatures.mockResolvedValue({ data: [] });
+  edition.eidas = true;
 });
 
 afterEach(() => {
@@ -700,5 +716,112 @@ describe('activity', () => {
     await user.click(await screen.findByRole('button', { name: to.activity.retry }));
 
     expect(await screen.findByText('Request created')).toBeInTheDocument();
+  });
+});
+
+describe('advanced and qualified signatures', () => {
+  const te = en.weldsign.eidas;
+  const sig = (overrides: Partial<SignSignatureInfo> = {}): SignSignatureInfo => ({
+    id: 'sig_1',
+    kind: 'signature',
+    level: 'qes',
+    recipientId: 'rcp_dan',
+    holderName: 'Daniel de Vries',
+    issuerName: 'Example Qualified CA',
+    provider: 'Signicat',
+    qualified: true,
+    signedAt: '2026-10-24T11:00:00.000Z',
+    timestampAt: null,
+    nameMismatch: false,
+    ...overrides,
+  });
+  const qualifiedDan = recipient({
+    id: 'rcp_dan',
+    name: 'Dan',
+    email: 'dan@example.com',
+    status: 'signed',
+    signedAt: '2026-10-24T11:00:00.000Z',
+    signatureLevel: 'qes',
+  });
+  const completed = (overrides: Partial<SignEnvelopeDetail> = {}) =>
+    envelope({ ...OWNER, status: 'completed', completedAt: '2026-10-24T11:00:00.000Z', recipientList: [qualifiedDan], ...overrides });
+
+  it('shows each signer\'s level', () => {
+    renderOverview(envelope({ recipientList: [recipient({ signatureLevel: 'aes' }), bob] }));
+    expect(within(screen.getByText('Ann').closest('li')!).getByText(te.badges.aes)).toBeInTheDocument();
+    expect(within(screen.getByText('Bob').closest('li')!).queryByText(te.badges.aes)).toBeNull();
+  });
+
+  it('shows the certificate holder, issuer and provider, and that it is qualified', async () => {
+    api.weldsign.signatures.mockResolvedValue({ data: [sig()] });
+    renderOverview(completed());
+    const row = within(screen.getByText('Dan').closest('li')!);
+    expect(await row.findByText(/Certificate in the name of Daniel de Vries/)).toBeInTheDocument();
+    expect(row.getByText(/Issued by Example Qualified CA/)).toBeInTheDocument();
+    expect(row.getByText(/Trust service: Signicat/)).toBeInTheDocument();
+    expect(row.getByText(new RegExp(te.signatures.qualified))).toBeInTheDocument();
+    expect(row.queryByRole('alert')).toBeNull();
+    expect(api.weldsign.signatures).toHaveBeenCalledWith('sgn_1');
+  });
+
+  it('warns when the name on the certificate differs from the name on the request', async () => {
+    api.weldsign.signatures.mockResolvedValue({ data: [sig({ nameMismatch: true })] });
+    renderOverview(completed());
+    const row = within(screen.getByText('Dan').closest('li')!);
+    expect(await row.findByRole('alert')).toHaveTextContent(
+      'The name on the certificate (Daniel de Vries) differs from the name on this request (Dan).',
+    );
+  });
+
+  it('only asks for signatures of a completed request, for its owner, with a level', async () => {
+    renderOverview(completed({ isOwner: false }));
+    renderOverview(completed({ status: 'sent' }));
+    renderOverview(completed({ recipientList: [dan] }));
+    await Promise.resolve();
+    expect(api.weldsign.signatures).not.toHaveBeenCalled();
+  });
+
+  it('does not ask where the feature is off', async () => {
+    edition.eidas = false;
+    renderOverview(completed());
+    await Promise.resolve();
+    expect(api.weldsign.signatures).not.toHaveBeenCalled();
+  });
+
+  it('says when the PDF was sealed', () => {
+    renderOverview(completed({ sealedAt: '2026-10-24T11:05:00.000Z' }));
+    expect(screen.getByText(/The PDF was sealed on/)).toBeInTheDocument();
+  });
+
+  it('says nothing about a seal when there is none', () => {
+    renderOverview(completed());
+    expect(screen.queryByText(/The PDF was sealed on/)).toBeNull();
+  });
+
+  it('downloads the evidence report when there is one', async () => {
+    const createObjectURL = vi.fn(() => 'blob:evidence');
+    Object.assign(URL, { createObjectURL, revokeObjectURL: vi.fn() });
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
+    api.weldsign.evidence.mockResolvedValue(new Response('%PDF', { status: 200 }));
+    const user = userEvent.setup();
+    renderOverview(completed({ hasEvidence: true }));
+
+    await user.click(screen.getByRole('button', { name: te.evidence }));
+
+    await waitFor(() => expect(api.weldsign.evidence).toHaveBeenCalledWith('sgn_1'));
+    await waitFor(() => expect(click).toHaveBeenCalled());
+  });
+
+  it('offers no evidence report without one', () => {
+    renderOverview(completed({ hasEvidence: false }));
+    expect(screen.queryByRole('button', { name: te.evidence })).toBeNull();
+  });
+
+  it('says when the evidence report could not be downloaded', async () => {
+    api.weldsign.evidence.mockResolvedValue(new Response('', { status: 404 }));
+    const user = userEvent.setup();
+    renderOverview(completed({ hasEvidence: true }));
+    await user.click(screen.getByRole('button', { name: te.evidence }));
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(te.evidenceFailed));
   });
 });

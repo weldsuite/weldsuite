@@ -28,6 +28,16 @@ export type SignRecipientRole = (typeof SIGN_RECIPIENT_ROLES)[number];
 export const SIGN_RECIPIENT_STATUSES = ['pending', 'sent', 'opened', 'signed', 'declined'] as const;
 export type SignRecipientStatus = (typeof SIGN_RECIPIENT_STATUSES)[number];
 
+/**
+ * How strongly a signer is identified (eIDAS). `ses` is a simple electronic
+ * signature (today's behaviour); `aes` and `qes` send the signer to a
+ * qualified trust service provider. Only on the EU and self-hosted editions.
+ */
+export const SIGN_SIGNATURE_LEVELS = ['ses', 'aes', 'qes'] as const;
+export type SignSignatureLevel = (typeof SIGN_SIGNATURE_LEVELS)[number];
+/** The levels a recipient can carry as a stored value; absent means `ses`. */
+export type SignTrustLevel = Exclude<SignSignatureLevel, 'ses'>;
+
 export const SIGN_AUTH_MODES = ['link', 'email_code', 'access_code'] as const;
 export type SignAuthMode = (typeof SIGN_AUTH_MODES)[number];
 
@@ -188,9 +198,17 @@ const recipientBase = z.object({
    * `access_code`). Write-only: it is stored as a keyed hash and never returned.
    */
   accessCode: z.string().trim().min(4).max(64).nullish(),
+  /** Signature level of a signer; omitted means simple. A copy recipient stays simple. */
+  signatureLevel: z.enum(SIGN_SIGNATURE_LEVELS),
 });
 
-export const createRecipientSchema = recipientBase.partial({ locale: true, routingOrder: true, authMode: true, role: true });
+export const createRecipientSchema = recipientBase.partial({
+  locale: true,
+  routingOrder: true,
+  authMode: true,
+  role: true,
+  signatureLevel: true,
+});
 export type CreateSignRecipientInput = z.infer<typeof createRecipientSchema>;
 
 export const updateRecipientSchema = recipientBase.partial();
@@ -257,6 +275,8 @@ export interface SignRecipientDto {
   authMode: SignAuthMode;
   /** Whether an access code is set; the code itself is never returned. */
   hasAccessCode: boolean;
+  /** Advanced or qualified signature; absent means simple (and always on Global). */
+  signatureLevel?: SignTrustLevel;
   status: SignRecipientStatus;
   sentAt: string | null;
   openedAt: string | null;
@@ -321,6 +341,14 @@ export interface SignEnvelopeDetail extends SignEnvelopeSummary {
   fields: SignFieldDto[];
   voidedReason: string | null;
   voidedAt: string | null;
+  /** `prepared`: the request runs on the sealed-PDF pipeline (advanced or qualified signers). */
+  pipeline?: 'prepared';
+  /** When the operator sealed the completed PDF. */
+  sealedAt?: string;
+  /** A separate evidence report can be downloaded. */
+  hasEvidence?: boolean;
+  /** Credits reserved when the request was sent. */
+  creditsReserved?: number;
   /** The file or CRM record the request started from, with its display name (null when it is gone). */
   source: SignSourceDto | null;
   /** The WeldDrive folder chosen for the signed copy; null files it in the default place. */
@@ -426,6 +454,7 @@ export const signRecipientDtoSchema = z.object({
   routingOrder: z.number().int(),
   authMode: z.enum(SIGN_AUTH_MODES),
   hasAccessCode: z.boolean(),
+  signatureLevel: z.enum(['aes', 'qes']).optional(),
   status: z.enum(SIGN_RECIPIENT_STATUSES),
   sentAt: timestamp.nullable(),
   openedAt: timestamp.nullable(),
@@ -500,6 +529,10 @@ export const signEnvelopeDetailSchema = signEnvelopeSummarySchema.extend({
   fields: z.array(signFieldDtoSchema),
   voidedReason: z.string().nullable(),
   voidedAt: timestamp.nullable(),
+  pipeline: z.literal('prepared').optional(),
+  sealedAt: timestamp.optional(),
+  hasEvidence: z.boolean().optional(),
+  creditsReserved: z.number().optional(),
   source: signSourceDtoSchema.nullable(),
   fileBackFolderId: z.string().nullable(),
   filing: signFilingDtoSchema.nullable(),
@@ -537,6 +570,7 @@ export const signTemplateRoleSummarySchema = z.object({
   id: z.string(),
   roleName: z.string(),
   role: z.enum(SIGN_RECIPIENT_ROLES),
+  signatureLevel: z.enum(['aes', 'qes']).optional(),
 });
 
 export const signTemplateSummarySchema = z.object({
@@ -548,6 +582,36 @@ export const signTemplateSummarySchema = z.object({
   createdAt: timestamp,
   updatedAt: timestamp,
 });
+
+/** What the install offers (`GET /api/sign/capabilities`). `levels` always holds `ses`; a price is credits per signer. */
+export const signCapabilitiesSchema = z.object({
+  seal: z.boolean(),
+  levels: z.array(z.enum(SIGN_SIGNATURE_LEVELS)),
+  provider: z.string().nullable(),
+  prices: z.object({ aes: z.number().nullable(), qes: z.number().nullable() }),
+});
+export type SignCapabilities = z.infer<typeof signCapabilitiesSchema>;
+
+export const SIGN_SIGNATURE_KINDS = ['signature', 'seal', 'document_timestamp'] as const;
+export type SignSignatureKind = (typeof SIGN_SIGNATURE_KINDS)[number];
+
+/** One signature, seal or timestamp found in a completed request's PDF (owners only). */
+export const signSignatureInfoSchema = z.object({
+  id: z.string(),
+  kind: z.enum(SIGN_SIGNATURE_KINDS),
+  level: z.enum(['aes', 'qes', 'seal']).nullable(),
+  recipientId: z.string().nullable(),
+  holderName: z.string().nullable(),
+  issuerName: z.string().nullable(),
+  provider: z.string().nullable(),
+  qualified: z.boolean(),
+  signedAt: timestamp.nullable(),
+  timestampAt: timestamp.nullable(),
+  /** The certificate holder's name differs from the name on the request. */
+  nameMismatch: z.boolean(),
+});
+export type SignSignatureInfo = z.infer<typeof signSignatureInfoSchema>;
+export const signSignatureListSchema = z.array(signSignatureInfoSchema);
 
 /** `{ data: T[] }` answers that are not paginated lists. */
 export const signDocumentListSchema = z.array(signDocumentDtoSchema);
@@ -645,10 +709,13 @@ const roleBase = z.object({
   /** Who usually fills the role; prefilled when the template is used. */
   name: z.string().trim().min(1).max(255).nullable(),
   email: z.string().trim().toLowerCase().email().max(320).nullable(),
+  /** Signature level of a signing role; omitted means simple. */
+  signatureLevel: z.enum(SIGN_SIGNATURE_LEVELS),
 });
 
 export const createTemplateRoleSchema = roleBase.partial({
   role: true,
+  signatureLevel: true,
   routingOrder: true,
   authMode: true,
   locale: true,
@@ -691,6 +758,7 @@ export interface SignTemplateRoleSummary {
   id: string;
   roleName: string;
   role: SignRecipientRole;
+  signatureLevel?: SignTrustLevel;
 }
 
 /** One row of the template list. */
@@ -828,6 +896,26 @@ export interface SignPortalEnvelope {
   disclosureVersion: string;
   documents: Pick<SignDocumentDto, 'id' | 'name' | 'pageCount' | 'pageSizes'>[];
   fields: SignPortalField[];
+  /** The signer confirms their identity with a trust service provider and signs with a certificate (EU and self-hosted only). */
+  signatureLevel?: SignTrustLevel;
+  /** Display name of that trust service provider. */
+  trustProvider?: string;
+  /** A separate evidence report can be downloaded once the request is completed. */
+  hasEvidence?: boolean;
+}
+
+/** Where the signer goes to identify themselves and sign, and the state that brings them back. */
+export interface SignPortalSignatureStart {
+  redirectUrl: string;
+  state: string;
+}
+
+/** What the trust service provider sent the browser back with (`/signature-callback`). */
+export interface SignPortalSignatureFinishInput {
+  state: string;
+  code?: string;
+  error?: string;
+  errorDescription?: string;
 }
 
 // The signer portal's answers as Zod, for the conformance suite: the Rust
@@ -866,6 +954,18 @@ export const signPortalEnvelopeSchema = z.object({
   disclosureVersion: z.string(),
   documents: z.array(signDocumentDtoSchema.pick({ id: true, name: true, pageCount: true, pageSizes: true })),
   fields: z.array(signFieldDtoSchema.omit({ recipientId: true }).extend({ value: z.string().nullable() })),
+  signatureLevel: z.enum(['aes', 'qes']).optional(),
+  trustProvider: z.string().optional(),
+  hasEvidence: z.boolean().optional(),
+});
+
+export const signPortalSignatureStartSchema = z.object({ redirectUrl: z.string().url(), state: z.string().min(1) });
+
+export const signPortalSignatureFinishInputSchema = z.object({
+  state: z.string().min(1),
+  code: z.string().optional(),
+  error: z.string().optional(),
+  errorDescription: z.string().optional(),
 });
 
 export const signPortalCodeSentSchema = z.object({ sent: z.literal(true) });

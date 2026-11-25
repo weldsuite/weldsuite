@@ -60,6 +60,10 @@ describe('createSignPortalClient', () => {
     await client.complete(meta, 'sess', { values: {}, signature: 'data:image/png;base64,AAAA' });
     await client.decline(meta, 'sess', { reason: 'no' });
     await client.download(meta, 'sess');
+    await client.signatureStart(meta, 'sess', { values: [] });
+    await client.signatureFinish(meta, 'sess', { state: 's1', code: 'c1' });
+    await client.signatureCancel(meta, 'sess', { state: 's1' });
+    await client.evidence(meta, 'sess');
 
     expect(seen.map((s) => `${s.method} ${s.url.replace('https://api.example.eu/public/sign-portal', '')}`)).toEqual([
       'POST /verify',
@@ -70,10 +74,16 @@ describe('createSignPortalClient', () => {
       'POST /complete',
       'POST /decline',
       'GET /download',
+      'POST /signature/start',
+      'POST /signature/finish',
+      'POST /signature/cancel',
+      'GET /evidence',
     ]);
     expect(seen.slice(2).every((s) => s.headers.get('authorization') === 'Bearer sess')).toBe(true);
     expect(seen.filter((s) => s.method === 'GET').every((s) => s.body === null)).toBe(true);
     expect(seen[5]!.body).toBe('{"values":{},"signature":"data:image/png;base64,AAAA"}');
+    expect(seen[9]!.body).toBe('{"state":"s1","code":"c1"}');
+    expect(seen[10]!.body).toBe('{"state":"s1"}');
   });
 
   it('passes the answer on as it is: status, error body, the headers a signer needs', async () => {

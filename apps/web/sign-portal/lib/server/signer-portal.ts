@@ -29,17 +29,40 @@ export interface SignerPortal {
   download(request: Request, session: string | undefined): Promise<Response>
 }
 
-let selected: SignerPortal | undefined
+/**
+ * The advanced and qualified signature operations (eIDAS): the Rust backend
+ * only. On the Worker / Global build they answer like an unknown route.
+ */
+export interface EidasSignerPortal {
+  signatureStart(request: Request, session: string | undefined, input: unknown): Promise<Response>
+  signatureFinish(request: Request, session: string | undefined, input: unknown): Promise<Response>
+  signatureCancel(request: Request, session: string | undefined, input: unknown): Promise<Response>
+  evidence(request: Request, session: string | undefined): Promise<Response>
+}
+
+export type FullSignerPortal = SignerPortal & EidasSignerPortal
+
+let selected: FullSignerPortal | undefined
 
 /** The configured signer operations, picked on first use. */
-export function signerPortal(): SignerPortal {
+export function signerPortal(): FullSignerPortal {
   selected ??= select()
   return selected
 }
 
-function select(): SignerPortal {
+const notFound = () => Promise.resolve(Response.json({ error: { code: 'NOT_FOUND', message: 'Not found' } }, { status: 404 }))
+
+function select(): FullSignerPortal {
   const client = signPortalClientFromEnv(runtimeEnv())
-  if (!client) return domainPortal()
+  if (!client) {
+    return {
+      ...domainPortal(),
+      signatureStart: notFound,
+      signatureFinish: notFound,
+      signatureCancel: notFound,
+      evidence: notFound,
+    }
+  }
   return {
     openSession: (request, input) => client.openSession(signerMeta(request), input),
     verify: (request, input) => client.verify(signerMeta(request), input),
@@ -50,5 +73,9 @@ function select(): SignerPortal {
     complete: (request, session, input) => client.complete(signerMeta(request), session, input),
     decline: (request, session, input) => client.decline(signerMeta(request), session, input),
     download: (request, session) => client.download(signerMeta(request), session),
+    signatureStart: (request, session, input) => client.signatureStart(signerMeta(request), session, input),
+    signatureFinish: (request, session, input) => client.signatureFinish(signerMeta(request), session, input),
+    signatureCancel: (request, session, input) => client.signatureCancel(signerMeta(request), session, input),
+    evidence: (request, session) => client.evidence(signerMeta(request), session),
   }
 }

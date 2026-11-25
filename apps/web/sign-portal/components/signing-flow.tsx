@@ -41,6 +41,16 @@ export function SigningFlow({ token, initialLocale, disclosureVersion }: Readonl
   const [locale, setLocale] = useState<Locale>(initialLocale);
   const pickedLocale = useRef(false);
   const renewing = useRef<Promise<SignPortalSessionResponse> | null>(null);
+  // Set when the trust service provider sent the signer back without a signature (`/signature-callback`).
+  const [returned, setReturned] = useState<'failed' | 'cancelled' | null>(null);
+
+  useEffect(() => {
+    const value = new URLSearchParams(window.location.search).get('signature');
+    if (value !== 'failed' && value !== 'cancelled') return;
+    setReturned(value);
+    // The notice is for this visit only: a reload must not show it again.
+    window.history.replaceState(null, '', window.location.pathname);
+  }, []);
 
   const loadEnvelope = useCallback(async () => {
     try {
@@ -177,6 +187,7 @@ export function SigningFlow({ token, initialLocale, disclosureVersion }: Readonl
             withSession={withSession}
             onEnvelope={update}
             onLocaleChange={changeLocale}
+            returned={returned}
           />
         );
       } else if (env.mode === 'completed') {

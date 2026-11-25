@@ -269,6 +269,14 @@ export const EDITION_FEATURES = [
    * shows WeldFlow as before.
    */
   'flow-agile',
+  /**
+   * WeldSign advanced and qualified electronic signatures (eIDAS): a signature
+   * level per signer, the signer confirming their identity with a trust service
+   * provider, sealed PDFs and the evidence report (`/api/sign/capabilities`,
+   * `/api/sign/envelopes/:id/signatures`). Built only in Rust, so it is in
+   * `GLOBAL_UNAVAILABLE_FEATURES` and Global never shows a level.
+   */
+  'sign-eidas',
 ] as const;
 
 export type EditionFeature = (typeof EDITION_FEATURES)[number];

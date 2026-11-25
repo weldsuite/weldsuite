@@ -33,7 +33,9 @@ import {
   type SignEnvelopeDetail,
   type SignLocale,
   type SignRecipientDto,
+  type SignCapabilities,
   type SignRecipientRole,
+  type SignSignatureLevel,
   type UpdateSignRecipientInput,
 } from '@weldsuite/app-api-client/schemas/weldsign';
 import { personSeedFromQuery } from '@/app/weldcrm/people/lib/person-seed';
@@ -46,11 +48,15 @@ import { cn } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n/provider';
 import {
   targetOf,
+  useSignCapabilities,
   useSignRecipientMutations,
   useSignRecipientSuggestions,
   useUpdateSignEnvelope,
 } from '@/hooks/queries/use-weldsign-queries';
 import { ChoiceField } from '../components/choice-field';
+import { SignatureLevelBadge } from '../components/signature-level-badge';
+import { SignatureLevelField } from '../components/signature-level-field';
+import { levelOf, offersTrustLevels } from '../lib/signature-levels';
 import { recipientColor, type RecipientColor } from '../lib/recipient-colors';
 import { apiErrorMessage } from '../lib/errors';
 import { PANEL_ROW } from './editor-frame';
@@ -67,6 +73,7 @@ export function RecipientsStep({ envelope, editable }: Readonly<{ envelope: Sign
   const updateEnvelope = useUpdateSignEnvelope(targetOf(envelope));
   const mutations = useSignRecipientMutations(envelope.id);
   const recipients = envelope.recipientList;
+  const { capabilities } = useSignCapabilities();
   // An order only means something with two people or more: the switch, the
   // numbers and the moves show from then on.
   const canOrder = recipients.length > 1;
@@ -126,6 +133,7 @@ export function RecipientsStep({ envelope, editable }: Readonly<{ envelope: Sign
                         color={recipientColor(i)}
                         heading
                         hasAccessCode={recipient.hasAccessCode}
+                        capabilities={capabilities}
                         submitLabel={t.common.actions.save}
                         busy={mutations.update.isPending}
                         onSubmit={(values) => saveEdit(recipient, values)}
@@ -153,7 +161,7 @@ export function RecipientsStep({ envelope, editable }: Readonly<{ envelope: Sign
         </div>
       )}
 
-      {editable ? <AddRecipient envelope={envelope} /> : recipients.length === 0 && <p className="text-sm text-muted-foreground">{tr.empty}</p>}
+      {editable ? <AddRecipient envelope={envelope} capabilities={capabilities} /> : recipients.length === 0 && <p className="text-sm text-muted-foreground">{tr.empty}</p>}
     </div>
   );
 }
@@ -166,6 +174,7 @@ interface RecipientValues {
   locale: SignLocale;
   authMode: SignAuthMode;
   accessCode: string;
+  signatureLevel: SignSignatureLevel;
 }
 
 const valuesOf = (recipient: SignRecipientDto): RecipientValues => ({
@@ -175,10 +184,14 @@ const valuesOf = (recipient: SignRecipientDto): RecipientValues => ({
   locale: recipient.locale,
   authMode: recipient.authMode,
   accessCode: '',
+  signatureLevel: levelOf(recipient),
 });
 
 /** Only someone who signs has an identity check; anyone else is sent the link. */
 const authModeOf = (values: RecipientValues): SignAuthMode => (values.role === 'signer' ? values.authMode : 'link');
+
+/** Only someone who signs has a signature level; a copy is always simple. */
+const levelOfValues = (values: RecipientValues): SignSignatureLevel => (values.role === 'signer' ? values.signatureLevel : 'ses');
 
 /** The fields the edit form changed, ready to save. */
 function changes(recipient: SignRecipientDto, values: RecipientValues): UpdateSignRecipientInput {
@@ -193,6 +206,8 @@ function changes(recipient: SignRecipientDto, values: RecipientValues): UpdateSi
     input.authMode = authMode;
     input.accessCode = values.accessCode;
   }
+  const level = levelOfValues(values);
+  if (level !== levelOf(recipient)) input.signatureLevel = level;
   return input;
 }
 
@@ -346,6 +361,7 @@ function RecipientRow({ recipient, color, position, editable, onEdit, onRemove, 
         )}
         <RecipientAvatar label={label} color={color} small />
         <span className="truncate text-sm font-medium text-foreground">{label}</span>
+        <SignatureLevelBadge level={recipient.signatureLevel} />
         {/* A request made from a template keeps the role each person fills. */}
         {recipient.roleName && (
           <Badge variant="secondary" className="shrink-0" title={format(tr.templateRole, { role: recipient.roleName })}>
@@ -371,6 +387,8 @@ interface RecipientFormProps {
   heading?: boolean;
   /** The signer has an access code already, so a new one is optional. */
   hasAccessCode?: boolean;
+  /** What the install offers; the signature type is asked only when it offers more than simple. */
+  capabilities: SignCapabilities | null;
   submitLabel: string;
   busy: boolean;
   onSubmit: (values: RecipientValues) => void;
@@ -378,7 +396,7 @@ interface RecipientFormProps {
 }
 
 /** Who (unless picked) and how: role, language, identity check and, for an access code, the code. */
-function RecipientForm({ initial, color, picked = false, heading = false, hasAccessCode = false, submitLabel, busy, onSubmit, onCancel }: Readonly<RecipientFormProps>) {
+function RecipientForm({ initial, color, picked = false, heading = false, hasAccessCode = false, capabilities, submitLabel, busy, onSubmit, onCancel }: Readonly<RecipientFormProps>) {
   const { t } = useI18n();
   const tr = t.weldsign.editor.recipients;
   const id = useId();
@@ -395,7 +413,7 @@ function RecipientForm({ initial, color, picked = false, heading = false, hasAcc
     if (!email.success) return void toast.error(tr.invalidEmail);
     const accessCode = values.accessCode.trim();
     if (asksCode && !hasAccessCode && accessCode.length < 4) return void toast.error(tr.accessCodeRequired);
-    onSubmit({ ...values, name, email: email.data.toLowerCase(), accessCode: asksCode ? accessCode : '' });
+    onSubmit({ ...values, name, email: email.data.toLowerCase(), accessCode: asksCode ? accessCode : '', signatureLevel: levelOfValues(values) });
   };
 
   return (
@@ -471,6 +489,14 @@ function RecipientForm({ initial, color, picked = false, heading = false, hasAcc
           />
         )}
       </div>
+
+      {signer && offersTrustLevels(capabilities) && (
+        <SignatureLevelField
+          value={values.signatureLevel}
+          capabilities={capabilities}
+          onChange={(signatureLevel) => set('signatureLevel', signatureLevel)}
+        />
+      )}
 
       {asksCode && (
         <div className="flex flex-col gap-1.5">
@@ -559,7 +585,7 @@ function useContactFor() {
  * recipient form. Someone new is put in the CRM (or linked to the contact
  * with their email) before they are added.
  */
-function AddRecipient({ envelope }: Readonly<{ envelope: SignEnvelopeDetail }>) {
+function AddRecipient({ envelope, capabilities }: Readonly<{ envelope: SignEnvelopeDetail; capabilities: SignCapabilities | null }>) {
   const { t, format, language } = useI18n();
   const tr = t.weldsign.editor.recipients;
   const { add } = useSignRecipientMutations(envelope.id);
@@ -626,6 +652,7 @@ function AddRecipient({ envelope }: Readonly<{ envelope: SignEnvelopeDetail }>) 
     const authMode = authModeOf(values);
     const input: CreateSignRecipientInput = { name: values.name, email: values.email, role: values.role, locale: values.locale, authMode, personId };
     if (authMode === 'access_code') input.accessCode = values.accessCode;
+    if (values.signatureLevel !== 'ses') input.signatureLevel = values.signatureLevel;
     add.mutate(input, { onSuccess: () => setDraft(null), onError: (err) => toast.error(apiErrorMessage(err)) });
   };
 
@@ -633,9 +660,10 @@ function AddRecipient({ envelope }: Readonly<{ envelope: SignEnvelopeDetail }>) 
     return (
       <div className="rounded-lg border p-3">
         <RecipientForm
-          initial={{ name: draft.name, email: draft.email, role: 'signer', locale, authMode: 'link', accessCode: '' }}
+          initial={{ name: draft.name, email: draft.email, role: 'signer', locale, authMode: 'link', accessCode: '', signatureLevel: 'ses' }}
           color={recipientColor(envelope.recipientList.length)}
           picked={draft.picked}
+          capabilities={capabilities}
           submitLabel={t.common.actions.add}
           busy={add.isPending || linking}
           onSubmit={(values) => void submit(values)}

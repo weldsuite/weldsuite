@@ -8,11 +8,20 @@ import { ApiError } from '@weldsuite/api-client';
 import type { SignEnvelopeDetail, SignRecipientDto } from '@weldsuite/app-api-client/schemas/weldsign';
 
 const api = vi.hoisted(() => ({
-  weldsign: { templates: { addRole: vi.fn(), updateRole: vi.fn(), removeRole: vi.fn(), update: vi.fn() } },
+  weldsign: {
+    capabilities: vi.fn(),
+    templates: { addRole: vi.fn(), updateRole: vi.fn(), removeRole: vi.fn(), update: vi.fn() },
+  },
 }));
+/** Whether the install offers advanced and qualified signatures (the `sign-eidas` edition feature). */
+const edition = vi.hoisted(() => ({ eidas: false }));
 const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), info: vi.fn() }));
 vi.mock('@/lib/api/use-app-api', () => ({ useAppApi: () => api }));
 vi.mock('sonner', () => ({ toast }));
+vi.mock('@/lib/edition', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/edition')>()),
+  isFeatureAvailable: (feature: string) => feature === 'sign-eidas' && edition.eidas,
+}));
 
 import { RolesStep } from './roles-step';
 
@@ -87,6 +96,11 @@ beforeAll(() => {
 beforeEach(() => {
   for (const fn of Object.values(api.weldsign.templates)) fn.mockReset();
   for (const fn of Object.values(toast)) fn.mockReset();
+  api.weldsign.capabilities.mockReset();
+  api.weldsign.capabilities.mockResolvedValue({
+    data: { seal: true, levels: ['ses', 'aes', 'qes'], provider: 'Signicat', prices: { aes: 2, qes: 5 } },
+  });
+  edition.eidas = false;
   api.weldsign.templates.updateRole.mockResolvedValue({ data: client });
   api.weldsign.templates.addRole.mockResolvedValue({ data: client });
   api.weldsign.templates.removeRole.mockResolvedValue(undefined);
@@ -338,5 +352,32 @@ describe('RolesStep', () => {
       expect(screen.queryByRole('button', { name: en.weldsign.editor.documents.moveUp })).toBeNull();
       for (const select of screen.getAllByRole('combobox')) expect(select).toBeDisabled();
     });
+  });
+});
+
+describe('RolesStep signature level', () => {
+  const te = en.weldsign.eidas;
+
+  it('offers no level where the feature is off (Global)', () => {
+    renderStep(template());
+    expect(screen.queryByRole('combobox', { name: te.level })).toBeNull();
+    expect(api.weldsign.capabilities).not.toHaveBeenCalled();
+  });
+
+  it('offers a level for each signing role, and none for a role that gets a copy', async () => {
+    edition.eidas = true;
+    renderStep(template());
+    // Client and Director sign; Accountant gets a copy.
+    await waitFor(() => expect(screen.getAllByRole('combobox', { name: te.level })).toHaveLength(2));
+  });
+
+  it('saves the chosen level on the role', async () => {
+    edition.eidas = true;
+    const user = userEvent.setup();
+    renderStep(template());
+    const [first] = await screen.findAllByRole('combobox', { name: te.level });
+    await user.click(first!);
+    await user.click(screen.getByRole('option', { name: /^Qualified/ }));
+    await waitFor(() => expect(api.weldsign.templates.updateRole).toHaveBeenCalledWith('sgt_1', 'sgr_client', { signatureLevel: 'qes' }));
   });
 });

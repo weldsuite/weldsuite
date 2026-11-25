@@ -19,17 +19,21 @@ export async function sessionCookieName(token: string): Promise<string> {
   return `${COOKIE}_${hex.slice(0, 16)}`
 }
 
-/** The signer session of the link this request is for, from its httpOnly cookie. */
-export async function sessionFor(request: Request): Promise<string | undefined> {
-  const link = request.headers.get(SIGN_LINK_HEADER)
-  if (!link) return undefined
-  const name = await sessionCookieName(link)
+/** The signer session of a link, from the request's cookies. */
+export async function sessionForToken(request: Request, token: string): Promise<string | undefined> {
+  const name = await sessionCookieName(token)
   const cookie = request.headers.get('cookie') ?? ''
   for (const part of cookie.split(';')) {
     const [key, ...value] = part.trim().split('=')
     if (key === name) return decodeURIComponent(value.join('='))
   }
   return undefined
+}
+
+/** The signer session of the link this request is for, from its httpOnly cookie. */
+export async function sessionFor(request: Request): Promise<string | undefined> {
+  const link = request.headers.get(SIGN_LINK_HEADER)
+  return link ? sessionForToken(request, link) : undefined
 }
 
 /** Signed documents and envelopes are private; never let a cache keep them. */

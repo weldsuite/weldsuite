@@ -6,6 +6,7 @@
  */
 
 import { useState } from 'react';
+import { ShieldCheck } from 'lucide-react';
 import type { SignEnvelopeDetail, SignRecipientDto } from '@weldsuite/app-api-client/schemas/weldsign';
 import { useI18n } from '@/lib/i18n/provider';
 import { cn } from '@/lib/utils';
@@ -44,6 +45,7 @@ export function EnvelopeOverview({ envelope, onViewDocuments }: Readonly<{ envel
       </div>
 
       <StatusNote envelope={envelope} />
+      <SealNote envelope={envelope} />
       <FilingNote envelope={envelope} />
       <RecipientList envelope={envelope} onCorrect={setCorrecting} />
       <ActivityTimeline envelopeId={envelope.id} enabled={envelope.isOwner} />
@@ -51,6 +53,19 @@ export function EnvelopeOverview({ envelope, onViewDocuments }: Readonly<{ envel
       <CorrectRecipientDialog envelopeId={envelope.id} recipient={correcting} onClose={() => setCorrecting(null)} />
       <VoidDialog envelopeId={envelope.id} title={envelope.title} open={voiding} onClose={() => setVoiding(false)} />
     </div>
+  );
+}
+
+/** A sealed PDF: when the operator sealed it, so a later change to the file shows. */
+function SealNote({ envelope }: Readonly<{ envelope: SignEnvelopeDetail }>) {
+  const { t, format } = useI18n();
+  const when = useDateTime();
+  if (!envelope.sealedAt) return null;
+  return (
+    <p className="flex items-center gap-2 text-sm text-muted-foreground">
+      <ShieldCheck className="size-4 shrink-0 text-emerald-600" aria-hidden />
+      {format(t.weldsign.eidas.sealedAt, { date: when(envelope.sealedAt) })}
+    </p>
   );
 }
 

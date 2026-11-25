@@ -7,15 +7,21 @@ import { en } from '@weldsuite/i18n/locales/en';
 import { ApiError } from '@weldsuite/api-client';
 import type { SignEnvelopeDetail, SignFieldDto, SignRecipientDto } from '@weldsuite/app-api-client/schemas/weldsign';
 
-const api = vi.hoisted(() => ({ weldsign: { update: vi.fn(), send: vi.fn() } }));
+const api = vi.hoisted(() => ({ weldsign: { update: vi.fn(), send: vi.fn(), capabilities: vi.fn() } }));
 const state = vi.hoisted(() => ({
   permissions: new Set<string>(['sign_envelopes:send']),
   folders: [] as { id: string; name: string; parentId: string | null; accessRole?: string }[],
   /** The `enabled` of every call to the folder hook. */
   folderLookups: [] as boolean[],
+  /** Whether the install offers advanced and qualified signatures (the `sign-eidas` edition feature). */
+  eidas: false,
 }));
 const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), info: vi.fn() }));
 vi.mock('@/lib/api/use-app-api', () => ({ useAppApi: () => api }));
+vi.mock('@/lib/edition', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/edition')>()),
+  isFeatureAvailable: (feature: string) => feature === 'sign-eidas' && state.eidas,
+}));
 vi.mock('@weldsuite/permissions/react', () => ({ useCan: (permission: string) => state.permissions.has(permission) }));
 vi.mock('sonner', () => ({ toast }));
 vi.mock('@/lib/router', () => ({
@@ -69,7 +75,7 @@ function renderStep(envelope: SignEnvelopeDetail, editable = true, beforeSend?: 
     <QueryClientProvider client={client}>
       <I18nProvider initialLanguage="en">
         <ReviewSettings envelope={envelope} editable={editable} />
-        <ReviewSummary counts={counts} />
+        <ReviewSummary counts={counts} envelope={envelope} />
         <SendButton envelope={envelope} editable={editable} problems={problems} beforeSend={beforeSend} />
       </I18nProvider>
     </QueryClientProvider>,
@@ -88,10 +94,12 @@ beforeEach(() => {
   state.permissions = new Set(['sign_envelopes:send']);
   state.folders = [];
   state.folderLookups = [];
+  state.eidas = false;
   for (const fn of Object.values(api.weldsign)) fn.mockReset();
   for (const fn of Object.values(toast)) fn.mockReset();
   api.weldsign.update.mockResolvedValue({ data: ready() });
   api.weldsign.send.mockResolvedValue({ data: ready({ status: 'sent' }) });
+  api.weldsign.capabilities.mockResolvedValue({ data: { seal: true, levels: ['ses', 'aes', 'qes'], provider: 'Signicat', prices: { aes: 2, qes: 5 } } });
 });
 
 afterEach(() => cleanup());
@@ -326,6 +334,73 @@ describe('review: settings, summary and Send', () => {
     await waitFor(() => expect(beforeSend).toHaveBeenCalledTimes(1));
     expect(screen.queryByText(tr.sendTitle)).toBeNull();
     expect(api.weldsign.send).not.toHaveBeenCalled();
+  });
+
+  describe('advanced and qualified signatures', () => {
+    const te = en.weldsign.eidas;
+    const bob = { ...ann, id: 'rcp_bob', name: 'Bob', email: 'bob@example.com', signatureLevel: 'qes' } as SignRecipientDto;
+    const annAes = { ...ann, signatureLevel: 'aes' } as SignRecipientDto;
+
+    it('adds up the credits the request will reserve', async () => {
+      state.eidas = true;
+      renderStep(ready({ recipientList: [annAes, bob] }));
+      expect(await screen.findByText(te.creditsNote)).toBeInTheDocument();
+      expect(screen.getByText('Advanced and qualified signers (2)')).toBeInTheDocument();
+      // 2 credits for the advanced signer, 5 for the qualified one.
+      expect(screen.getByText('7 credits')).toBeInTheDocument();
+    });
+
+    it('shows no credits for simple signatures', async () => {
+      state.eidas = true;
+      renderStep(ready());
+      await waitFor(() => expect(api.weldsign.capabilities).toHaveBeenCalled());
+      expect(screen.queryByText(te.creditsNote)).toBeNull();
+    });
+
+    it('never asks what the install offers where the feature is off (Global)', () => {
+      renderStep(ready({ recipientList: [annAes] }));
+      expect(api.weldsign.capabilities).not.toHaveBeenCalled();
+      expect(screen.queryByText(te.creditsNote)).toBeNull();
+    });
+
+    it('explains a 402 on send with the shortfall and a way to top up, and keeps the dialog open', async () => {
+      state.eidas = true;
+      api.weldsign.send.mockRejectedValue(
+        new ApiError('Insufficient credits', 402, {
+          error: { code: 'INSUFFICIENT_CREDITS', message: 'x', details: { required: 7, currentBalance: 3, shortfall: 4 } },
+        }),
+      );
+      const user = userEvent.setup();
+      renderStep(ready({ recipientList: [annAes, bob], fields: [signature, { ...signature, id: 'f_2', recipientId: 'rcp_bob' }] }));
+      await user.click(screen.getByRole('button', { name: tr.send }));
+      await user.click(screen.getByRole('button', { name: tr.sendConfirm }));
+
+      expect(await screen.findByText(te.insufficient.title)).toBeInTheDocument();
+      expect(screen.getByText('It needs 7 credits and your workspace has 3. Top up at least 4 credits and send it again.')).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: te.insufficient.topUp })).toHaveAttribute('href', '/settings/billing');
+      // The failure is told in the dialog, not as a toast.
+      expect(toast.error).not.toHaveBeenCalled();
+      expect(screen.getByText(tr.sendTitle)).toBeInTheDocument();
+    });
+
+    it('falls back to a general message when the 402 has no numbers', async () => {
+      api.weldsign.send.mockRejectedValue(new ApiError('Insufficient credits', 402, { error: { code: 'INSUFFICIENT_CREDITS' } }));
+      const user = userEvent.setup();
+      renderStep(ready());
+      await user.click(screen.getByRole('button', { name: tr.send }));
+      await user.click(screen.getByRole('button', { name: tr.sendConfirm }));
+      expect(await screen.findByText(te.insufficient.generic)).toBeInTheDocument();
+    });
+
+    it('treats another 402 (a plan limit) as an ordinary send failure', async () => {
+      api.weldsign.send.mockRejectedValue(new ApiError('Limit', 402, { error: { code: 'USAGE_LIMIT_REACHED', message: 'Limit' } }));
+      const user = userEvent.setup();
+      renderStep(ready());
+      await user.click(screen.getByRole('button', { name: tr.send }));
+      await user.click(screen.getByRole('button', { name: tr.sendConfirm }));
+      await waitFor(() => expect(toast.error).toHaveBeenCalled());
+      expect(screen.queryByText(te.insufficient.title)).toBeNull();
+    });
   });
 
   it('shows the server\'s reason when sending fails', async () => {

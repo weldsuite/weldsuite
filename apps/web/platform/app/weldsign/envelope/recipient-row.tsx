@@ -4,13 +4,14 @@
  * a signer a new link or correct an email address.
  */
 
-import { CheckCircle2, Circle, Clock, Eye, Mail, MoreHorizontal, Pencil, Send, XCircle, type LucideIcon } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Circle, Clock, Eye, Mail, MoreHorizontal, Pencil, Send, XCircle, type LucideIcon } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@weldsuite/ui/components/dropdown-menu';
-import type { SignRecipientDto, SignRecipientStatus } from '@weldsuite/app-api-client/schemas/weldsign';
+import type { SignRecipientDto, SignRecipientStatus, SignSignatureInfo } from '@weldsuite/app-api-client/schemas/weldsign';
 import { useI18n } from '@/lib/i18n/provider';
 import { cn } from '@/lib/utils';
 import { canCorrectEmail, isSigningNow } from '../lib/recipients';
+import { SignatureLevelBadge } from '../components/signature-level-badge';
 import { recipientColor } from '../lib/recipient-colors';
 import { useDateTime } from '../lib/use-date-time';
 
@@ -24,6 +25,8 @@ const STATUS_ICON: Record<SignRecipientStatus, { icon: LucideIcon; className: st
 
 interface RecipientRowProps {
   recipient: SignRecipientDto;
+  /** The certificate this signer signed with, once the request is completed (advanced and qualified signatures). */
+  signature?: SignSignatureInfo;
   colorIndex: number;
   /** Show the signing order (#2): the request has a signing order and this is a signer. */
   showOrder: boolean;
@@ -35,7 +38,7 @@ interface RecipientRowProps {
   onCorrect: (recipient: SignRecipientDto) => void;
 }
 
-export function RecipientRow({ recipient, colorIndex, showOrder, canRemind, resending, onResend, onCorrect }: Readonly<RecipientRowProps>) {
+export function RecipientRow({ recipient, signature, colorIndex, showOrder, canRemind, resending, onResend, onCorrect }: Readonly<RecipientRowProps>) {
   const { t, format } = useI18n();
   const to = t.weldsign.overview;
   const when = useDateTime();
@@ -57,7 +60,10 @@ export function RecipientRow({ recipient, colorIndex, showOrder, canRemind, rese
       <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 sm:grid-cols-[auto_minmax(0,1fr)_auto_auto]">
         <span className="size-2.5 shrink-0 rounded-full" style={{ background: recipientColor(colorIndex).border }} />
         <div className="min-w-0">
-          <p className="truncate text-sm font-medium">{name}</p>
+          <p className="flex min-w-0 items-center gap-2 text-sm font-medium">
+            <span className="truncate">{name}</span>
+            <SignatureLevelBadge level={recipient.signatureLevel} />
+          </p>
           <p className="truncate text-xs text-muted-foreground">{recipient.email}</p>
         </div>
         <div className="col-start-2 row-start-2 flex flex-wrap items-center gap-x-3 gap-y-1 sm:col-auto sm:row-auto sm:justify-end">
@@ -83,6 +89,7 @@ export function RecipientRow({ recipient, colorIndex, showOrder, canRemind, rese
         )}
       </div>
       <RecipientNotes recipient={recipient} />
+      {signature && <SignatureDetails signature={signature} name={name} />}
     </li>
   );
 }
@@ -109,6 +116,30 @@ function RecipientNotes({ recipient }: Readonly<{ recipient: SignRecipientDto }>
       {note}
     </p>
   ));
+}
+
+/** Under a signer: the certificate holder, who issued it, whether it is qualified, and a warning when the names differ. */
+function SignatureDetails({ signature, name }: Readonly<{ signature: SignSignatureInfo; name: string }>) {
+  const { t, format } = useI18n();
+  const ts = t.weldsign.eidas.signatures;
+  const lines = [
+    signature.holderName ? format(ts.holder, { name: signature.holderName }) : null,
+    signature.issuerName ? format(ts.issuer, { issuer: signature.issuerName }) : null,
+    signature.provider ? format(ts.provider, { provider: signature.provider }) : null,
+    signature.qualified ? ts.qualified : null,
+  ].filter((line): line is string => line !== null);
+
+  return (
+    <div className="flex flex-col gap-1 pl-[1.375rem]">
+      {lines.length > 0 && <p className="break-words text-xs text-muted-foreground">{lines.join(' · ')}</p>}
+      {signature.nameMismatch && (
+        <p role="alert" className="flex items-start gap-1.5 break-words text-xs text-amber-700 dark:text-amber-400">
+          <AlertTriangle className="mt-px size-3.5 shrink-0" aria-hidden />
+          {format(ts.nameMismatch, { holder: signature.holderName ?? '', name })}
+        </p>
+      )}
+    </div>
+  );
 }
 
 interface RecipientMenuProps {

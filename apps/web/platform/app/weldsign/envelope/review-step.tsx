@@ -12,14 +12,18 @@ import { toast } from 'sonner';
 import { useCan } from '@weldsuite/permissions/react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@weldsuite/ui/components/dialog';
+import { InfoBanner } from '@weldsuite/ui/components/info-banner';
 import { Input } from '@weldsuite/ui/components/input';
 import { Label } from '@weldsuite/ui/components/label';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@weldsuite/ui/components/tooltip';
 import type { SignEnvelopeDetail } from '@weldsuite/app-api-client/schemas/weldsign';
 import { useI18n } from '@/lib/i18n/provider';
-import { targetOf, useSendSignEnvelope, useUpdateSignEnvelope } from '@/hooks/queries/use-weldsign-queries';
+import { Link } from '@/lib/router';
+import { stripWorkspacePrefix } from '@/lib/workspace-url';
+import { targetOf, useSendSignEnvelope, useSignCapabilities, useUpdateSignEnvelope } from '@/hooks/queries/use-weldsign-queries';
 import type { ReadinessProblem } from '../lib/readiness';
 import { apiErrorMessage } from '../lib/errors';
+import { creditShortfallOf, creditsFor, type CreditShortfallDetails } from '../lib/signature-levels';
 import { describeProblem, MessageField, problemKey, ReminderSettings } from './settings-fields';
 import { SignedCopy } from './signed-copy';
 
@@ -43,10 +47,16 @@ export function ReviewSettings({ envelope, editable }: Readonly<{ envelope: Sign
   );
 }
 
-/** What the request holds, as the totals under an invoice. */
-export function ReviewSummary({ counts }: Readonly<{ counts: { documents: number; recipients: number; fields: number } }>) {
-  const { t } = useI18n();
+/** What the request holds, as the totals under an invoice; with advanced or qualified signers, also the credits it takes. */
+export function ReviewSummary({
+  counts,
+  envelope,
+}: Readonly<{ counts: { documents: number; recipients: number; fields: number }; envelope?: Pick<SignEnvelopeDetail, 'recipientList'> }>) {
+  const { t, format } = useI18n();
   const tr = t.weldsign.editor.review;
+  const te = t.weldsign.eidas;
+  const { capabilities } = useSignCapabilities();
+  const credits = envelope ? creditsFor(envelope, capabilities) : { signers: 0, credits: 0 };
   const rows = [
     { label: tr.summaryDocuments, value: counts.documents },
     { label: tr.summaryRecipients, value: counts.recipients },
@@ -60,6 +70,17 @@ export function ReviewSummary({ counts }: Readonly<{ counts: { documents: number
           <dd className="text-right font-medium tabular-nums">{row.value}</dd>
         </div>
       ))}
+      {capabilities && credits.signers > 0 && (
+        <>
+          <div className="flex justify-between gap-4 border-t pt-2">
+            <dt className="text-muted-foreground">{format(te.creditsLine, { count: credits.signers })}</dt>
+            <dd className="text-right font-medium tabular-nums">
+              {format(credits.credits === 1 ? te.creditsTotalOne : te.creditsTotalMany, { count: credits.credits })}
+            </dd>
+          </div>
+          <p className="text-xs text-muted-foreground">{te.creditsNote}</p>
+        </>
+      )}
     </dl>
   );
 }
@@ -104,6 +125,8 @@ export function SendButton({ envelope, editable, problems, beforeSend }: Readonl
   const [preparing, setPreparing] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [expiresOn, setExpiresOn] = useState(() => isoDay(DEFAULT_EXPIRY_DAYS));
+  // Set when the workspace lacks the credits for the advanced and qualified signers.
+  const [shortfall, setShortfall] = useState<CreditShortfallDetails | null>(null);
 
   if (!editable || !canSend) return null;
 
@@ -130,7 +153,14 @@ export function SendButton({ envelope, editable, problems, beforeSend }: Readonl
     <>
       {problems.length > 0 ? <MissingTooltip problems={problems}>{button}</MissingTooltip> : button}
 
-      <Dialog open={confirming} onOpenChange={(next) => !send.isPending && setConfirming(next)}>
+      <Dialog
+        open={confirming}
+        onOpenChange={(next) => {
+          if (send.isPending) return;
+          setConfirming(next);
+          if (!next) setShortfall(null);
+        }}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{tr.sendTitle}</DialogTitle>
@@ -146,6 +176,7 @@ export function SendButton({ envelope, editable, problems, beforeSend }: Readonl
               onChange={(e) => setExpiresOn(e.target.value)}
             />
           </div>
+          {shortfall && <InsufficientCredits shortfall={shortfall} />}
           <DialogFooter>
             <Button variant="outline" disabled={send.isPending} onClick={() => setConfirming(false)}>
               {t.common.actions.cancel}
@@ -161,7 +192,11 @@ export function SendButton({ envelope, editable, problems, beforeSend }: Readonl
                       setConfirming(false);
                       toast.success(tr.sent);
                     },
-                    onError: (err) => toast.error(`${tr.sendFailed}: ${apiErrorMessage(err)}`),
+                    onError: (err) => {
+                      const missing = creditShortfallOf(err);
+                      if (missing) setShortfall(missing);
+                      else toast.error(`${tr.sendFailed}: ${apiErrorMessage(err)}`);
+                    },
                   },
                 )
               }
@@ -173,5 +208,38 @@ export function SendButton({ envelope, editable, problems, beforeSend }: Readonl
         </DialogContent>
       </Dialog>
     </>
+  );
+}
+
+/** The workspace cannot pay for the advanced and qualified signers: what is missing, and a way to top up. */
+function InsufficientCredits({ shortfall }: Readonly<{ shortfall: CreditShortfallDetails }>) {
+  const { t, format } = useI18n();
+  const ti = t.weldsign.eidas.insufficient;
+  const known = shortfall.required !== null && shortfall.currentBalance !== null && shortfall.shortfall !== null;
+  return (
+    <InfoBanner
+      variant="danger"
+      title={ti.title}
+      action={
+        <Button asChild size="sm" variant="outline">
+          <Link
+            href="/settings/billing"
+            onClick={() => {
+              try {
+                sessionStorage.setItem('settings-return-url', stripWorkspacePrefix(globalThis.location.pathname) || '/');
+              } catch {
+                // Storage blocked: the Settings back button falls back to its default.
+              }
+            }}
+          >
+            {ti.topUp}
+          </Link>
+        </Button>
+      }
+    >
+      {known
+        ? format(ti.body, { required: shortfall.required, balance: shortfall.currentBalance, shortfall: shortfall.shortfall })
+        : ti.generic}
+    </InfoBanner>
   );
 }

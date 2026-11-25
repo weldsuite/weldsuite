@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as SignatureCallbackRouteImport } from './routes/signature-callback'
 import { Route as ApiResendCodeRouteImport } from './routes/api/resend-code'
 import { Route as ApiSessionRouteImport } from './routes/api/session'
 import { Route as ApiVerifyRouteImport } from './routes/api/verify'
@@ -19,6 +20,11 @@ import { Route as ApiPortalSplatRouteImport } from './routes/api/portal/$'
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SignatureCallbackRoute = SignatureCallbackRouteImport.update({
+  id: '/signature-callback',
+  path: '/signature-callback',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiResendCodeRoute = ApiResendCodeRouteImport.update({
@@ -49,6 +55,7 @@ const ApiPortalSplatRoute = ApiPortalSplatRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/signature-callback': typeof SignatureCallbackRoute
   '/api/resend-code': typeof ApiResendCodeRoute
   '/api/session': typeof ApiSessionRoute
   '/api/verify': typeof ApiVerifyRoute
@@ -57,6 +64,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/signature-callback': typeof SignatureCallbackRoute
   '/api/resend-code': typeof ApiResendCodeRoute
   '/api/session': typeof ApiSessionRoute
   '/api/verify': typeof ApiVerifyRoute
@@ -66,6 +74,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/signature-callback': typeof SignatureCallbackRoute
   '/api/resend-code': typeof ApiResendCodeRoute
   '/api/session': typeof ApiSessionRoute
   '/api/verify': typeof ApiVerifyRoute
@@ -76,6 +85,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/signature-callback'
     | '/api/resend-code'
     | '/api/session'
     | '/api/verify'
@@ -84,6 +94,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/signature-callback'
     | '/api/resend-code'
     | '/api/session'
     | '/api/verify'
@@ -92,6 +103,7 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
+    | '/signature-callback'
     | '/api/resend-code'
     | '/api/session'
     | '/api/verify'
@@ -101,6 +113,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  SignatureCallbackRoute: typeof SignatureCallbackRoute
   ApiResendCodeRoute: typeof ApiResendCodeRoute
   ApiSessionRoute: typeof ApiSessionRoute
   ApiVerifyRoute: typeof ApiVerifyRoute
@@ -115,6 +128,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/signature-callback': {
+      id: '/signature-callback'
+      path: '/signature-callback'
+      fullPath: '/signature-callback'
+      preLoaderRoute: typeof SignatureCallbackRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/resend-code': {
@@ -157,6 +177,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  SignatureCallbackRoute: SignatureCallbackRoute,
   ApiResendCodeRoute: ApiResendCodeRoute,
   ApiSessionRoute: ApiSessionRoute,
   ApiVerifyRoute: ApiVerifyRoute,

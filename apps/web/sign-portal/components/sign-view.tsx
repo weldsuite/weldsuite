@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowDown, Loader2, MoreVertical, Send, XCircle } from 'lucide-react';
+import { AlertTriangle, ArrowDown, Loader2, MoreVertical, Send, ShieldCheck, XCircle } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@weldsuite/ui/components/dropdown-menu';
-import type { SignPortalCompleteInput, SignPortalEnvelope } from '@weldsuite/app-api-client/schemas/weldsign';
+import type { SignPortalCompleteInput, SignPortalEnvelope, SignPortalSignatureStart } from '@weldsuite/app-api-client/schemas/weldsign';
 import { EMPTY_SIGNING_STATE, missingRequired, sortedFields, type SigningState } from '@/lib/fields';
 import type { Locale } from '@/lib/i18n';
 import { PortalApiError, PortalNetworkError, portalJson } from '@/lib/portal-client';
@@ -23,6 +23,8 @@ interface SignViewProps {
   withSession: <T>(run: () => Promise<T>) => Promise<T>;
   onEnvelope: (envelope: SignPortalEnvelope) => void;
   onLocaleChange: (locale: Locale) => void;
+  /** The signer came back from the trust service provider without having signed. */
+  returned?: 'failed' | 'cancelled' | null;
 }
 
 /** A text or checkbox field's value as the server expects it. */
@@ -32,7 +34,7 @@ function submittedValue(type: SignPortalEnvelope['fields'][number]['type'], raw:
 }
 
 /** The signer's turn: consent, then the document with its fields, then Finish. */
-export function SignView({ envelope, disclosureVersion, withSession, onEnvelope, onLocaleChange }: Readonly<SignViewProps>) {
+export function SignView({ envelope, disclosureVersion, withSession, onEnvelope, onLocaleChange, returned = null }: Readonly<SignViewProps>) {
   const { t, locale } = usePortal();
   const [consented, setConsented] = useState(envelope.recipient.consented);
   const [consentBusy, setConsentBusy] = useState(false);
@@ -53,6 +55,9 @@ export function SignView({ envelope, disclosureVersion, withSession, onEnvelope,
   const missing = useMemo(() => missingRequired(ordered, state), [ordered, state]);
   const hasSignatureField = envelope.fields.some((f) => f.type === 'signature');
   const hasInitialsField = envelope.fields.some((f) => f.type === 'initials');
+  // Advanced and qualified signatures: Finish sends the signer to the trust service provider instead of completing here.
+  const level = envelope.signatureLevel;
+  const provider = envelope.trustProvider ?? null;
 
   useEffect(
     () => () => {
@@ -60,6 +65,15 @@ export function SignView({ envelope, disclosureVersion, withSession, onEnvelope,
     },
     [],
   );
+
+  // Coming back with the browser's Back button restores this page as it was left, "opening" and all.
+  useEffect(() => {
+    const onShow = (event: PageTransitionEvent) => {
+      if (event.persisted) setFinishing(false);
+    };
+    window.addEventListener('pageshow', onShow);
+    return () => window.removeEventListener('pageshow', onShow);
+  }, []);
 
   const register = useCallback((id: string, el: HTMLElement | null) => {
     if (el) elements.current.set(id, el);
@@ -128,12 +142,20 @@ export function SignView({ envelope, disclosureVersion, withSession, onEnvelope,
       timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || null,
     };
     try {
+      if (level) {
+        const start = await withSession(() => portalJson<Pick<SignPortalSignatureStart, 'redirectUrl'>>('/api/portal/signature/start', body));
+        // The trust service provider has the signer from here; the callback page brings them back to this link.
+        if (!/^https?:\/\//i.test(start.redirectUrl)) throw new Error('Unexpected redirect');
+        window.location.assign(start.redirectUrl);
+        return;
+      }
       const next = await withSession(() => portalJson<SignPortalEnvelope>('/api/portal/complete', body));
       onEnvelope(next);
     } catch (err) {
       if (err instanceof PortalNetworkError) setFinishError(t.error.network);
       else if (err instanceof PortalApiError && err.status === 401) setFinishError(t.sign.sessionExpired);
       // Signed, but the request could not be finished yet: finishing again picks it up.
+      else if (level && err instanceof PortalApiError && err.status === 503) setFinishError(t.eidas.unavailable);
       else if (err instanceof PortalApiError && err.status === 503) setFinishError(t.sign.finishPending);
       else setFinishError(t.sign.finishFailed);
       setFinishing(false);
@@ -170,6 +192,8 @@ export function SignView({ envelope, disclosureVersion, withSession, onEnvelope,
           title={envelope.title}
           senderName={envelope.senderName}
           message={envelope.message}
+          level={level}
+          provider={provider ?? undefined}
           busy={consentBusy}
           error={consentError}
           onAgree={agree}
@@ -189,6 +213,21 @@ export function SignView({ envelope, disclosureVersion, withSession, onEnvelope,
             {envelope.senderName ? <p className="text-sm text-muted-foreground">{t.sign.from(envelope.senderName)}</p> : null}
             {envelope.message ? <p className="mt-2 whitespace-pre-line text-sm text-muted-foreground">{envelope.message}</p> : null}
           </div>
+          {returned ? (
+            <p role="alert" className="mt-3 flex items-start gap-2 rounded-xl border border-amber-600/30 bg-amber-600/5 p-3 text-sm">
+              <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-600" aria-hidden="true" />
+              {returned === 'cancelled' ? t.eidas.returnedCancelled : t.eidas.returnedFailed(provider)}
+            </p>
+          ) : null}
+          {level ? (
+            <p className="mt-3 flex items-start gap-2 text-sm text-muted-foreground">
+              <ShieldCheck className="mt-0.5 size-4 shrink-0 text-emerald-600" aria-hidden="true" />
+              <span>
+                <span className="font-medium text-foreground">{t.eidas.levelTitle[level]}. </span>
+                {provider ? t.eidas.confirmWith(provider) : t.eidas.confirmWithoutProvider}
+              </span>
+            </p>
+          ) : null}
         </div>
 
         <DocumentView
@@ -222,7 +261,7 @@ export function SignView({ envelope, disclosureVersion, withSession, onEnvelope,
             ) : null}
             <BrandButton className="flex-1 sm:flex-none" onClick={finish} disabled={missing.length > 0 || finishing}>
               {finishing ? <Loader2 className="animate-spin" aria-hidden="true" /> : <Send aria-hidden="true" />}
-              {finishing ? t.sign.finishing : t.sign.finish}
+              {finishing ? (level ? t.eidas.finishing : t.sign.finishing) : level ? t.eidas.finish(provider) : t.sign.finish}
             </BrandButton>
           </div>
         </div>
