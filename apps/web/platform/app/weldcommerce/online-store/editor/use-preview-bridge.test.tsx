@@ -40,8 +40,16 @@ beforeEach(() => {
 describe('usePreviewBridge', () => {
   async function ready() {
     const onMessage = vi.fn();
+    const listen = vi.spyOn(window, 'addEventListener');
     render(<Harness onMessage={onMessage} />);
     const frame = (await screen.findByTitle('preview')) as HTMLIFrameElement;
+    // The hook adds its message listener in an effect, which can run a moment
+    // after the frame appears; a message posted before then is simply lost.
+    try {
+      await waitFor(() => expect(listen).toHaveBeenCalledWith('message', expect.any(Function)));
+    } finally {
+      listen.mockRestore();
+    }
     expect(env.createLink).toHaveBeenCalledWith('sfs_1');
     expect(frame.getAttribute('src')).toBe(URL_);
     return { onMessage, frame };

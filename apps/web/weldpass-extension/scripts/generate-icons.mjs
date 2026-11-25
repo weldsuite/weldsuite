@@ -1,11 +1,12 @@
 /**
- * Rasterizes the WeldPass icon into the PNGs a Chrome manifest needs
+ * Rasterizes the WeldPass logo into the PNGs a Chrome manifest needs
  * (manifest icons cannot be SVG). The output is committed; re-run with
- * `pnpm --filter weldpass-extension icons` only when the source icon changes.
+ * `pnpm --filter weldpass-extension icons` only when the source logo changes.
  *
- * Source: apps/web/platform/public/assets/images/weldpass/icon.svg — the key
- * is drawn in white on an indigo tile so it stays legible at 16px on both
- * light and dark toolbars.
+ * Source: apps/web/platform/public/assets/images/weldpass/icon.svg, the
+ * asterisk. It is drawn in white on an indigo tile so it stays legible at 16px
+ * on both light and dark toolbars. The SVG is used as it is (strokes and all),
+ * with its colours turned white.
  */
 
 import { mkdir, readFile } from 'node:fs/promises';
@@ -21,21 +22,32 @@ const SIZES = [16, 32, 48, 128];
 const TILE = '#4f46e5';
 
 const svg = await readFile(source, 'utf8');
-const pathData = /<path[^>]*\sd="([^"]+)"/s.exec(svg)?.[1];
-const viewBox = /viewBox="([\d.\s-]+)"/.exec(svg)?.[1].trim().split(/\s+/).map(Number);
-if (!pathData || !viewBox || viewBox.length !== 4) {
-  throw new Error(`Could not read the icon path from ${source}`);
+const root = /<svg\b[^>]*>/.exec(svg)?.[0];
+const viewBox = /viewBox="([\d.\s-]+)"/.exec(root ?? '')?.[1].trim().split(/\s+/).map(Number);
+if (viewBox?.length !== 4) {
+  throw new Error(`Could not read the logo's viewBox from ${source}`);
 }
-const [, , width, height] = viewBox;
 
-// A square tile with the key centred at ~72% of its width.
+// The logo's <svg> element on its own (without the XML declaration and the
+// comment before it), in white: every colour it paints with, stroke or fill,
+// becomes #fff.
+const start = svg.indexOf('<svg');
+const end = svg.lastIndexOf('</svg>');
+if (start < 0 || end < start) {
+  throw new Error(`Could not find the <svg> element in ${source}`);
+}
+const white = svg
+  .slice(start, end + '</svg>'.length)
+  .replace(/(stroke|fill)="#[0-9a-fA-F]{3,8}"/g, '$1="#fff"');
+
+// A square tile with the logo centred at 66% of its width.
 const tile = 1000;
-const scale = (tile * 0.72) / Math.max(width, height);
-const dx = (tile - width * scale) / 2;
-const dy = (tile - height * scale) / 2;
+const box = tile * 0.66;
+const offset = (tile - box) / 2;
+const placed = white.replace(/<svg\b/, `<svg x="${offset}" y="${offset}" width="${box}" height="${box}"`);
 const icon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${tile} ${tile}">
   <rect width="${tile}" height="${tile}" rx="${tile * 0.22}" fill="${TILE}"/>
-  <path transform="translate(${dx} ${dy}) scale(${scale})" fill="#fff" fill-rule="evenodd" d="${pathData}"/>
+  ${placed}
 </svg>`;
 
 await mkdir(outDir, { recursive: true });

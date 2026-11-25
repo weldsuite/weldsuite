@@ -28,7 +28,8 @@
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#4F46E5"
+        "foregroundImage": "./assets/images/adaptive-icon.png",
+        "backgroundColor": "#FFFFFF"
       },
       "package": "com.weldsuite.weldpass",
       "allowBackup": false,

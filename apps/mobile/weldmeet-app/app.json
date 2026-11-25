@@ -24,7 +24,8 @@
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#7C3AED"
+        "foregroundImage": "./assets/images/adaptive-icon.png",
+        "backgroundColor": "#FFFFFF"
       },
       "edgeToEdgeEnabled": true,
       "package": "com.weldsuite.weldmeet",
