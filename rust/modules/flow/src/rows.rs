@@ -3,13 +3,17 @@
 //! returns `numeric` as a string), for `weldsuite_db::js_row`. `$a` is the
 //! table's alias. Everything else reads rows through the entities.
 
-/// A `tasks` row.
+/// A `tasks` row. `epic_id` (EU and self-hosted only, FLOW-023) is left out
+/// while null, as the entity leaves `epicId` out: the rows answer as
+/// TypeScript's do.
 macro_rules! task_json {
     ($a:literal) => {
         concat!(
-            "(to_jsonb(",
+            "((to_jsonb(",
             $a,
-            ") || jsonb_build_object(",
+            ") - (case when ",
+            $a,
+            ".epic_id is null then 'epic_id' else '' end)::text) || jsonb_build_object(",
             "'progress', ",
             $a,
             ".progress::text, ",

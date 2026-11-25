@@ -88,6 +88,11 @@ export function ProjectsHeader({ onWeldAgentToggle, onCalendarToggle, onNotifica
       'capacity': t.projects.projectLayout.routeLabels.capacity,
       'intake': t.projects.projectLayout.routeLabels.intake,
       'roadmap': t.projects.projectLayout.routeLabels.roadmap,
+      // Agile delivery (flow-agile): views and pages inside the existing tabs.
+      'backlog': t.flowAgile.views.backlog,
+      'epics': t.flowAgile.routeLabels.epics,
+      'report': t.flowAgile.views.report,
+      'retro': t.flowAgile.views.retro,
     };
 
     const result: BreadcrumbSegment[] = [

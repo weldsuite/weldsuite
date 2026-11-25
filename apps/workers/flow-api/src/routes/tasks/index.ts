@@ -1097,6 +1097,7 @@ const listQuerySchema = z.object({
   pageSize: z.coerce.number().min(1).max(200).default(50),
   // Scope
   projectId: z.string().optional(),
+  // A sprint's tasks, or `none` for the backlog (tasks in no sprint).
   sprintId: z.string().optional(),
   milestoneId: z.string().optional(),
   customerId: z.string().optional(),
@@ -1166,7 +1167,8 @@ function taskScopeFilters(q: ListQuery, projectScope: SQL | undefined): SQL[] {
   const filters: SQL[] = [];
   if (q.projectId) filters.push(eq(t.projectId, q.projectId));
   if (projectScope) filters.push(projectScope);
-  if (q.sprintId) filters.push(eq(t.sprintId, q.sprintId));
+  if (q.sprintId === 'none') filters.push(isNull(t.sprintId));
+  else if (q.sprintId) filters.push(eq(t.sprintId, q.sprintId));
   if (q.milestoneId) filters.push(eq(t.milestoneId, q.milestoneId));
   if (q.customerId) filters.push(eq(t.customerId, q.customerId));
   if (q.contactId) filters.push(eq(t.contactId, q.contactId));

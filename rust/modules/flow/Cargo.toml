@@ -38,6 +38,7 @@ weldsuite-schema = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt"] }
+tower = { workspace = true }
 
 [lints]
 workspace = true

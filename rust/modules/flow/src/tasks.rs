@@ -166,6 +166,11 @@ where
             post(task_writes::create).route_layer(need("tasks:create")),
         )
         .route("/reorder", patch(reorder).route_layer(need("tasks:update")))
+        // EU and self-hosted only (FLOW-023): a project's epics and features.
+        .route(
+            "/epics",
+            get(crate::task_epics::epics).route_layer(need("tasks:read")),
+        )
         .route(
             "/projects/{project_id}",
             post(task_writes::create_in_project).route_layer(need("tasks:create")),
@@ -360,6 +365,8 @@ struct ListQuery {
     page_size: f64,
     project_id: Option<String>,
     sprint_id: Option<String>,
+    /// EU and self-hosted only (FLOW-023).
+    epic_id: Option<String>,
     milestone_id: Option<String>,
     customer_id: Option<String>,
     contact_id: Option<String>,
@@ -396,6 +403,7 @@ fn read_list_query(issues: &mut Issues, f: &Map<String, Value>) -> ListQuery {
     let page_size = query_number(issues, f, "pageSize", Some(200.0), 50.0);
     let project_id = query_text(issues, f, "projectId");
     let sprint_id = query_text(issues, f, "sprintId");
+    let epic_id = query_text(issues, f, "epicId");
     let milestone_id = query_text(issues, f, "milestoneId");
     let customer_id = query_text(issues, f, "customerId");
     let contact_id = query_text(issues, f, "contactId");
@@ -448,6 +456,7 @@ fn read_list_query(issues: &mut Issues, f: &Map<String, Value>) -> ListQuery {
         page_size,
         project_id,
         sprint_id,
+        epic_id,
         milestone_id,
         customer_id,
         contact_id,
@@ -488,7 +497,9 @@ macro_rules! task_list_filters {
             " and not exists (select 1 from projects lp where lp.id = t.project_id and lp.deleted_at is not null)",
             " and ($1::text is null or t.project_id = $1)",
             " and ($2::bool is not true or t.project_id is null or t.project_id = any($3::text[]))",
-            " and ($4::text is null or t.sprint_id = $4)",
+            // `sprintId=none`: the backlog, tasks in no sprint.
+            " and ($4::text is null or (case when $4 = 'none' then t.sprint_id is null",
+            " else t.sprint_id = $4 end))",
             " and ($5::text is null or t.milestone_id = $5)",
             " and ($6::text is null or t.customer_id = $6)",
             " and ($7::text is null or t.contact_id = $7)",
@@ -526,7 +537,9 @@ macro_rules! task_list_filters {
             " and ($30::text is null or t.due_date >= $30::timestamp)",
             " and ($31::text is null or t.due_date < $31::timestamp)",
             " and ($32::text is null or t.source_type = $32)",
-            " and ($33::text is null or t.source_id = $33)"
+            " and ($33::text is null or t.source_id = $33)",
+            // EU and self-hosted only (FLOW-023): an epic's or feature's items.
+            " and ($34::text is null or t.epic_id = $34)"
         )
     };
 }
@@ -553,7 +566,7 @@ macro_rules! due_bucket {
 macro_rules! cursor_on {
     ($col:literal) => {
         concat!(
-            "(case when $36 = 'asc' then (case when cur.",
+            "(case when $37 = 'asc' then (case when cur.",
             $col,
             " is null then (t.",
             $col,
@@ -590,13 +603,13 @@ macro_rules! cursor_on {
 macro_rules! order_on {
     ($name:literal, $col:literal) => {
         concat!(
-            "(case when $35 = '",
+            "(case when $36 = '",
             $name,
-            "' and $36 = 'asc' then t.",
+            "' and $37 = 'asc' then t.",
             $col,
-            " end) asc, (case when $35 = '",
+            " end) asc, (case when $36 = '",
             $name,
-            "' and $36 = 'desc' then t.",
+            "' and $37 = 'desc' then t.",
             $col,
             " end) desc, "
         )
@@ -619,7 +632,7 @@ struct ListParams {
     due_to: Option<String>,
 }
 
-/// Binds `$1`–`$33` (the filters) on a query.
+/// Binds `$1`–`$34` (the filters) on a query.
 macro_rules! bind_filters {
     ($query:expr, $q:expr, $p:expr) => {{
         let bound = |ms: Option<i64>| ms.and_then(weldsuite_flow_domain::js::iso_from_millis);
@@ -657,6 +670,7 @@ macro_rules! bind_filters {
             .bind($p.due_to.as_deref())
             .bind(present(&$q.source_type))
             .bind(present(&$q.source_id))
+            .bind(present(&$q.epic_id))
     }};
 }
 
@@ -839,7 +853,7 @@ struct ListPage<'a> {
     offset: i64,
 }
 
-/// The page of tasks (`$34`–`$39`: the cursor row, the sort, the paging).
+/// The page of tasks (`$35`–`$40`: the cursor row, the sort, the paging).
 #[allow(
     clippy::disallowed_methods,
     reason = "the task list stays one statement: a recursive CTE finds parents of matching \
@@ -857,12 +871,12 @@ async fn list_rows(
             "with cur as (select id, title, status, priority, assignee_id,",
             " date_trunc('milliseconds', due_date) as due_date,",
             " date_trunc('milliseconds', created_at) as created_at, position",
-            " from tasks where id = $34)",
+            " from tasks where id = $35)",
             " select ",
             task_json!("t"),
             " from tasks t where ",
             task_list_filters!(),
-            " and ($34::text is null or exists (select 1 from cur where (case $35",
+            " and ($35::text is null or exists (select 1 from cur where (case $36",
             " when 'title' then ",
             cursor_on!("title"),
             " when 'status' then ",
@@ -886,10 +900,10 @@ async fn list_rows(
             order_on!("assignee", "assignee_id"),
             order_on!("createdAt", "created_at"),
             order_on!("position", "position"),
-            "(case when $37 then t.id end) desc,",
-            " (case when not $37 then t.created_at end) asc,",
-            " (case when not $37 then t.id end) asc",
-            " limit $38 offset $39"
+            "(case when $38 then t.id end) desc,",
+            " (case when not $38 then t.created_at end) asc,",
+            " (case when not $38 then t.id end) asc",
+            " limit $39 offset $40"
         )),
         q,
         params
@@ -1471,6 +1485,7 @@ async fn move_into(state: &FlowState, caller: &Caller, id: &str, dest: &str) -> 
             .col_expr(Task::SprintId, Expr::value(Option::<String>::None))
             .col_expr(Task::MilestoneId, Expr::value(Option::<String>::None))
             .col_expr(Task::DeliverableId, Expr::value(Option::<String>::None))
+            .col_expr(Task::EpicId, Expr::value(Option::<String>::None))
             .col_expr(Task::StageId, Expr::value(reset_stage.clone()))
             .col_expr(Task::Status, Expr::value(&reset_status))
             .col_expr(Task::Key, Expr::value(Option::<String>::None))
@@ -1493,6 +1508,16 @@ async fn move_into(state: &FlowState, caller: &Caller, id: &str, dest: &str) -> 
             .exec(&tx)
             .await?;
     }
+    // An epic stays inside one project too (FLOW-023): the items left
+    // behind let go of a moved epic or feature.
+    tasks::Entity::update_many()
+        .col_expr(Task::EpicId, Expr::value(Option::<String>::None))
+        .col_expr(Task::UpdatedAt, Expr::value(at))
+        .filter(Task::EpicId.is_in(all.iter().map(String::as_str)))
+        .filter(Task::Id.is_not_in(all.iter().map(String::as_str)))
+        .filter(Task::DeletedAt.is_null())
+        .exec(&tx)
+        .await?;
     tx.commit().await?;
     let moved = std::iter::once((id.to_owned(), title)).chain(descendants.iter().cloned());
     for (task_id, task_title) in moved {

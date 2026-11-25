@@ -243,3 +243,14 @@ export const TABLES = [
 
 /** Tables read without their ciphertext columns (`selectableColumns`). */
 export const OMIT_SENSITIVE: ReadonlySet<string> = new Set(['entities', 'bankAccounts', 'parties']);
+
+/**
+ * Columns only the SeaORM entities have: added after the Drizzle schema froze
+ * (ADR DATA-019), for features Global doesn't have. The public API doesn't
+ * read or write them, so they are listed as omitted, by table name.
+ */
+export const RUST_ONLY_COLUMNS: Readonly<Record<string, readonly string[]>> = {
+  // Agile delivery in WeldFlow (ADRs FLOW-023, FLOW-024).
+  tasks: ['epic_id'],
+  sprints: ['report'],
+};

@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect, beforeAll } from 'vitest';
-import { eq } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 import { sprintsRoutes } from './index';
 import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
@@ -69,5 +69,35 @@ describe('/api/sprints · pglite integration', () => {
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error: { message: string } };
     expect(body.error.message).toMatch(/projectId/);
+  });
+
+  it("DELETE /:id sends the sprint's tasks back to the backlog", async () => {
+    const projectId = await seedProject();
+    const now = new Date();
+    const sprintId = generateId('spr');
+    const otherSprintId = generateId('spr');
+    await db.insert(schema.sprints).values([
+      { id: sprintId, projectId, name: 'Sprint 9', createdAt: now, updatedAt: now },
+      { id: otherSprintId, projectId, name: 'Sprint 10', createdAt: now, updatedAt: now },
+    ]);
+    const inSprint = generateId('task');
+    const elsewhere = generateId('task');
+    await db.insert(schema.tasks).values([
+      { id: inSprint, title: 'In the sprint', projectId, sprintId },
+      { id: elsewhere, title: 'In the next sprint', projectId, sprintId: otherSprintId },
+    ] as (typeof schema.tasks.$inferInsert)[]);
+    const { request } = createTestApp('/api/sprints', sprintsRoutes, {
+      context: { permissions: permissions('projects:delete', 'projects:scope:all'), tenantDb: db },
+    });
+
+    const res = await request(`/api/sprints/${sprintId}`, { method: 'DELETE' });
+
+    expect(res.status).toBe(204);
+    const rows = await db
+      .select({ id: schema.tasks.id, sprintId: schema.tasks.sprintId })
+      .from(schema.tasks)
+      .where(inArray(schema.tasks.id, [inSprint, elsewhere]));
+    expect(rows.find((row) => row.id === inSprint)?.sprintId).toBeNull();
+    expect(rows.find((row) => row.id === elsewhere)?.sprintId).toBe(otherSprintId);
   });
 });

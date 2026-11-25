@@ -1,6 +1,7 @@
-﻿
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { useParams } from '@/lib/router';
+
+import { useParams, usePathname, useRouter, useSearchParams } from '@/lib/router';
+import { useState, useEffect, useCallback, useRef, useMemo, type ComponentProps } from 'react';
+
 import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import {
   DndContext,
@@ -77,10 +78,17 @@ import { FilterPills } from '@/components/entity-list';
 import type { FilterConfig, ActiveFilter } from '@/components/entity-list';
 import { useI18n } from '@/lib/i18n/provider';
 import { formatShortDateNow } from '@/lib/i18n/date-locale';
-import { useStageLabel } from '../../../lib/stage-labels';
+import { useStageLabel } from '@/app/weldflow/lib/stage-labels';
 import { useProjectPermissions } from '@/app/weldflow/contexts/project-permission-context';
 import { buildStatusToStageId } from '@/app/weldflow/lib/stage-resolution';
 import { persistStageChange } from '@/app/weldflow/lib/persist-stage-change';
+import { usePermissions } from '@weldsuite/permissions/react';
+import { NumberInput } from '@weldsuite/ui/components/number-input';
+import { useProjectDelivery, useUpdateProjectDelivery, useProjectSprints } from '@/hooks/queries/use-flow-agile-queries';
+import { TaskTypeBadge } from '@/components/weldflow/agile/task-type-badge';
+import { SprintBar } from './_components/sprint-bar';
+import { defaultSprintId } from '@/app/weldflow/lib/sprint-metrics';
+import { WIP_LIMIT_MAX } from '@weldsuite/app-api-client/schemas/flow-agile';
 
 // ---------- Types ----------
 
@@ -110,6 +118,10 @@ interface TaskFeature {
   commentsCount?: number;
   attachmentsCount?: number;
   labels?: string[];
+  /** Item type and estimate, for a project that uses item types. */
+  type?: string;
+  storyPoints?: number | null;
+  hasParent?: boolean;
 }
 
 function formatDuration(minutes: number): string {
@@ -175,6 +187,9 @@ interface RawPipelineTask {
   attachmentsCount?: number;
   _count?: { comments?: number; attachments?: number };
   labels?: string[];
+  type?: string;
+  storyPoints?: number | null;
+  parentTaskId?: string | null;
   assigneeId?: string;
   assigneeName?: string;
   assignee?: { id?: string; name?: string; avatar?: string; image?: string } | null;
@@ -227,6 +242,9 @@ function mapTaskToFeature(
     commentsCount: task.commentsCount || task._count?.comments || 0,
     attachmentsCount: task.attachmentsCount || task._count?.attachments || 0,
     labels: task.labels || undefined,
+    type: task.type,
+    storyPoints: task.storyPoints ?? null,
+    hasParent: !!task.parentTaskId,
   };
 }
 
@@ -297,8 +315,13 @@ function SortableStage({ id, disabled, children }: Readonly<{ id: string; disabl
 
 // ---------- TaskCard ----------
 
-function TaskCard({ feature, isDragging, onClick, availableLabels = [], canWrite = false }: Readonly<{ feature: TaskFeature; isDragging?: boolean; onClick?: () => void; availableLabels?: ProjectLabel[]; canWrite?: boolean }>) {
-  const { t } = useI18n();
+interface CardItemTypes {
+  naming: 'pbi' | 'story';
+  featureLevel: boolean;
+}
+
+function TaskCard({ feature, isDragging, onClick, availableLabels = [], canWrite = false, itemTypes }: Readonly<{ feature: TaskFeature; isDragging?: boolean; onClick?: () => void; availableLabels?: ProjectLabel[]; canWrite?: boolean; itemTypes?: CardItemTypes }>) {
+  const { t, plural } = useI18n();
   const { attributes, listeners, setNodeRef, transform, transition, isDragging: isSortableDragging } = useSortable({ id: feature.id, disabled: !canWrite });
 
   const style = {
@@ -337,9 +360,19 @@ function TaskCard({ feature, isDragging, onClick, availableLabels = [], canWrite
 
   const cardContent = (
     <>
-      {/* Task number */}
-      {feature.number != null && (
-        <TaskNumberBadge number={feature.number} className="mb-1" />
+      {/* Item type, task number and estimate */}
+      {(feature.number != null || itemTypes) && (
+        <div className="mb-1 flex items-center gap-1.5">
+          {itemTypes && (
+            <TaskTypeBadge type={feature.type} naming={itemTypes.naming} featureLevel={itemTypes.featureLevel} hasParent={feature.hasParent} />
+          )}
+          {feature.number != null && <TaskNumberBadge number={feature.number} />}
+          {itemTypes && feature.storyPoints != null && (
+            <span className="ml-auto rounded-full bg-muted px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-muted-foreground">
+              {plural(feature.storyPoints, t.flowAgile.points)}
+            </span>
+          )}
+        </div>
       )}
 
       {/* Title */}
@@ -478,9 +511,49 @@ function TaskCard({ feature, isDragging, onClick, availableLabels = [], canWrite
 
 // ---------- StageHeader ----------
 
-function PipelineStageHeader({ stage, taskCount, canWrite, onAddTask, onEditStage, onDeleteStage, onDuplicateStage, onMoveLeft, onMoveRight, isFirst, isLast }: Readonly<{
+/**
+ * A column's item count. With a WIP limit it reads "n / limit", and turns amber
+ * with a word ("At limit", "Over limit") from the limit up: the limit is soft,
+ * nothing is refused.
+ */
+function StageCount({ count, limit }: Readonly<{ count: number; limit?: number }>) {
+  const { t, format } = useI18n();
+  if (limit === undefined) {
+    return (
+      <span className="text-[10px] font-mono text-gray-400 bg-gray-100 dark:bg-secondary border border-gray-200 dark:border-border w-[16px] h-[16px] flex items-center justify-center rounded-[5px]">
+        {count}
+      </span>
+    );
+  }
+  const copy = t.flowAgileSprints.wip;
+  const warn = count >= limit;
+  return (
+    <>
+      <span
+        title={format(copy.limitLabel, { count, limit })}
+        className={cn(
+          'flex h-[16px] min-w-[16px] items-center justify-center rounded-[5px] border px-1 font-mono text-[10px] tabular-nums',
+          warn
+            ? 'border-amber-300 bg-amber-100 text-amber-800 dark:border-amber-500/40 dark:bg-amber-500/15 dark:text-amber-300'
+            : 'border-gray-200 bg-gray-100 text-gray-400 dark:border-border dark:bg-secondary',
+        )}
+      >
+        {format(copy.count, { count, limit })}
+      </span>
+      {warn && (
+        <span className="text-[11px] font-medium text-amber-700 dark:text-amber-400">
+          {count > limit ? copy.overLimit : copy.atLimit}
+        </span>
+      )}
+    </>
+  );
+}
+
+function PipelineStageHeader({ stage, taskCount, wipLimit, canWrite, onAddTask, onEditStage, onDeleteStage, onDuplicateStage, onMoveLeft, onMoveRight, isFirst, isLast }: Readonly<{
   stage: StageColumn;
   taskCount: number;
+  /** The column's soft WIP limit, when it has one. */
+  wipLimit?: number;
   canWrite: boolean;
   onAddTask: () => void;
   onEditStage: () => void;
@@ -516,9 +589,7 @@ function PipelineStageHeader({ stage, taskCount, canWrite, onAddTask, onEditStag
               <Button variant="ghost" className="flex items-center gap-2 ml-1 h-auto p-0">
                 <div className="w-3 h-3 rounded" style={{ backgroundColor: stage.color }} />
                 <h3 className="font-medium text-sm text-gray-900 dark:text-foreground">{stageLabel(stage.name, stage.systemStatus)}</h3>
-                <span className="text-[10px] font-mono text-gray-400 bg-gray-100 dark:bg-secondary border border-gray-200 dark:border-border w-[16px] h-[16px] flex items-center justify-center rounded-[5px]">
-                  {taskCount}
-                </span>
+                <StageCount count={taskCount} limit={wipLimit} />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent
@@ -556,9 +627,7 @@ function PipelineStageHeader({ stage, taskCount, canWrite, onAddTask, onEditStag
           <div className="flex items-center gap-2 ml-1">
             <div className="w-3 h-3 rounded" style={{ backgroundColor: stage.color }} />
             <h3 className="font-medium text-sm text-gray-900 dark:text-foreground">{stageLabel(stage.name, stage.systemStatus)}</h3>
-            <span className="text-[10px] font-mono text-gray-400 bg-gray-100 dark:bg-secondary border border-gray-200 dark:border-border w-[16px] h-[16px] flex items-center justify-center rounded-[5px]">
-              {taskCount}
-            </span>
+            <StageCount count={taskCount} limit={wipLimit} />
           </div>
         )}
         {canWrite && (
@@ -665,12 +734,72 @@ function reorderStages(stages: StageColumn[], fromId: string, toId: string): Sta
 
 // ---------- Main Pipeline Component ----------
 
-const PipelinePage = () => {
-  const params = useParams();
-  const projectId = params.projectId as string;
-  const { t } = useI18n();
+const EMPTY_LIMITS: Readonly<Record<string, number>> = {};
+
+export interface PipelineViewProps {
+  projectId: string;
+  /** The sprint to show; null or left out shows all open work. Only a project that uses sprints filters by it. */
+  sprintId?: string | null;
+  /** Inside the sprint page: no sprint picker and no sprint bar, the page's header has them. */
+  embedded?: boolean;
+  /** The picker's choice (null is all open work). Without it the picker is not shown. */
+  onSprintChange?: (sprintId: string | null) => void;
+}
+
+type ProjectDelivery = ReturnType<typeof useProjectDelivery>;
+
+/** What the project's delivery setting changes on the board: the sprint it filters by, the WIP limits and the card item types. */
+function boardDeliveryOf(delivery: ProjectDelivery, sprintId: string | null) {
+  return {
+    // Only a project that plans in sprints filters its board by one.
+    activeSprintId: delivery.usesSprints ? sprintId : null,
+    wipLimits: delivery.usesWipLimits ? delivery.settings.wipLimits : EMPTY_LIMITS,
+    itemTypes: delivery.usesItemTypes
+      ? { naming: delivery.settings.itemTypes.naming, featureLevel: delivery.settings.itemTypes.featureLevel }
+      : undefined,
+  };
+}
+
+/** The board's sprint; the items are loaded again when starting or completing it moves them. */
+function useBoardSprint(projectId: string, usesSprints: boolean, activeSprintId: string | null, reload: () => Promise<void>) {
+  const sprints = useProjectSprints(projectId, usesSprints);
+  const sprint = activeSprintId ? (sprints.data?.find((candidate) => candidate.id === activeSprintId) ?? null) : null;
+  const sprintStatus = sprint?.status;
+  const previousSprintStatus = useRef(sprintStatus);
+  useEffect(() => {
+    if (previousSprintStatus.current && previousSprintStatus.current !== sprintStatus) void reload();
+    previousSprintStatus.current = sprintStatus;
+  }, [sprintStatus, reload]);
+  return { sprints, sprint };
+}
+
+/** The row above the board with the sprint picker; nothing unless shown and the project has sprints. */
+function BoardSprintBar({
+  show,
+  projectId,
+  sprints,
+  sprint,
+  onSprintChange,
+}: Readonly<{
+  show: boolean;
+  projectId: string;
+  sprints: ComponentProps<typeof SprintBar>['sprints'] | undefined;
+  sprint: ComponentProps<typeof SprintBar>['sprint'];
+  onSprintChange?: (sprintId: string | null) => void;
+}>) {
+  if (!show || !sprints || sprints.length === 0) return null;
+  return <SprintBar projectId={projectId} sprints={sprints} sprint={sprint} onSprintChange={onSprintChange} />;
+}
+
+export function PipelineView({ projectId, sprintId = null, embedded = false, onSprintChange }: Readonly<PipelineViewProps>) {
+  const { t, format } = useI18n();
   const stageLabel = useStageLabel();
-  const { canWrite } = useProjectPermissions();
+  const { canWrite, isAdmin } = useProjectPermissions();
+  const { can } = usePermissions();
+  const delivery = useProjectDelivery(projectId);
+  const updateDelivery = useUpdateProjectDelivery(projectId);
+  const canManageDelivery = delivery.available && isAdmin && can('projects:update');
+  const { activeSprintId, wipLimits, itemTypes } = boardDeliveryOf(delivery, sprintId);
   const featureFallbacks = useMemo<FeatureFallbacks>(
     () => ({ untitled: t.projects.pipeline.untitledTask, unknown: t.common.labels.unknown }),
     [t],
@@ -679,6 +808,8 @@ const PipelinePage = () => {
   const [features, setFeatures] = useState<TaskFeature[]>([]);
   const [columns, setColumns] = useState<StageColumn[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  // The board stays up while another sprint loads; only the first load shows the full-page loader.
+  const [hasLoaded, setHasLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [selectedColumn, setSelectedColumn] = useState<string | null>(null);
@@ -704,6 +835,7 @@ const PipelinePage = () => {
   const [editingStage, setEditingStage] = useState<StageColumn | null>(null);
   const [editStageName, setEditStageName] = useState('');
   const [editStageColor, setEditStageColor] = useState('');
+  const [editStageWip, setEditStageWip] = useState<number | undefined>(undefined);
 
   // Calculation type per column
   const [columnCalculations, setColumnCalculations] = useState<Record<string, string>>({});
@@ -768,7 +900,7 @@ const PipelinePage = () => {
     try {
       const [tasksResult, membersResult, stagesResult] = await Promise.all([
         // Every page: a single `list` call stopped at 50 tasks.
-        tasksApi.listAllPages(projectId),
+        tasksApi.listAllPages(projectId, activeSprintId ? { sprintId: activeSprintId } : undefined),
         membersApi.list(projectId),
         stagesApi.list(projectId),
       ]);
@@ -791,14 +923,18 @@ const PipelinePage = () => {
       setError(t.projects.pipeline.failedToLoadData);
     } finally {
       setIsLoading(false);
+      setHasLoaded(true);
     }
     // `t` intentionally excluded — loadData is a dependency of the mount effect
     // below, and keying it on the translation object would re-fetch on every
     // locale switch instead of just re-translating the (rare) error string.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectId]);
+  }, [projectId, activeSprintId]);
 
   useEffect(() => { void loadData(); }, [loadData]);
+
+  // Starting or completing the sprint on the board moves its items: load them again.
+  const { sprints, sprint } = useBoardSprint(projectId, delivery.usesSprints, activeSprintId, loadData);
 
   // A task deleted from the task panel disappears from this list right away.
   useEffect(() => {
@@ -878,23 +1014,25 @@ const PipelinePage = () => {
     }
   };
 
-  const handleDragEnd = async (event: DragEndEvent) => {
-    const { active, over } = event;
-    setActiveDealId(null);
+  // Saves the card order. A failure tells the user and, when given, puts the previous list back.
+  const saveCardOrder = async (ordered: TaskFeature[], rollbackTo?: TaskFeature[]) => {
+    const result = await tasksApi.reorderTasks(projectId, ordered.map(f => f.id));
+    if (result.success) return;
+    if (rollbackTo) setFeatures(rollbackTo);
+    toast.error(t.projects.pipeline.taskReorderFailed);
+  };
 
-    if (!canWrite || !over) { setDraggedFeatureOriginalColumn(null); return; }
+  // Soft limit: moving into a column that is already at its limit still works, with a warning.
+  // Returns the limit when the move goes past it, else null.
+  const limitReachedBy = (targetStageId: string, movedId: string): number | null => {
+    const limit = wipLimits[targetStageId];
+    if (limit === undefined) return null;
+    const inColumn = filteredFeatures.filter(f => f.column === targetStageId && f.id !== movedId).length;
+    return inColumn >= limit ? limit : null;
+  };
 
-    const activeId = active.id as string;
-    const overId = over.id as string;
-
-    // Stage reordering
-    if (activeId.startsWith(STAGE_SORTABLE_PREFIX)) {
-      handleStageDrop(activeId, overId);
-      setDraggedFeatureOriginalColumn(null);
-      return;
-    }
-
-    // Task movement
+  // A card dropped on a column or on another card: where it lands, and the saves that follow.
+  const handleTaskDrop = async (overId: string) => {
     if (!draggedFeatureOriginalColumn) return;
     const movedFeature = features.find(f => f.id === draggedFeatureOriginalColumn.id);
     if (!movedFeature) { setDraggedFeatureOriginalColumn(null); return; }
@@ -915,13 +1053,11 @@ const PipelinePage = () => {
       // Ordering within a column: only the position changes.
       if (!overFeature) return;
       setFeatures(reordered);
-      const result = await tasksApi.reorderTasks(projectId, reordered.map(f => f.id));
-      if (!result.success) {
-        setFeatures(beforeDrop);
-        toast.error(t.projects.pipeline.taskReorderFailed);
-      }
+      await saveCardOrder(reordered, beforeDrop);
       return;
     }
+
+    const reachedLimit = limitReachedBy(targetStageId, movedFeature.id);
 
     // Optimistic update
     setFeatures(reordered);
@@ -941,11 +1077,31 @@ const PipelinePage = () => {
       return;
     }
     toast.success(t.projects.pipeline.taskMoved);
-    if (overFeature) {
-      const reorderResult = await tasksApi.reorderTasks(projectId, reordered.map(f => f.id));
-      if (!reorderResult.success) toast.error(t.projects.pipeline.taskReorderFailed);
+    if (reachedLimit !== null && targetStage) {
+      toast.warning(format(t.flowAgileSprints.wip.reached, { stage: stageLabel(targetStage.name, targetStage.systemStatus), limit: reachedLimit }));
     }
+    if (overFeature) await saveCardOrder(reordered);
     if (result.data?.nextTaskId) await showNextRecurringTask(result.data.nextTaskId);
+  };
+
+  const handleDragEnd = async (event: DragEndEvent) => {
+    const { active, over } = event;
+    setActiveDealId(null);
+
+    if (!canWrite || !over) { setDraggedFeatureOriginalColumn(null); return; }
+
+    const activeId = active.id as string;
+    const overId = over.id as string;
+
+    // Stage reordering
+    if (activeId.startsWith(STAGE_SORTABLE_PREFIX)) {
+      handleStageDrop(activeId, overId);
+      setDraggedFeatureOriginalColumn(null);
+      return;
+    }
+
+    // Task movement
+    await handleTaskDrop(overId);
   };
 
   const activeDeal = activeDealId ? features.find(f => f.id === activeDealId) : null;
@@ -984,6 +1140,8 @@ const PipelinePage = () => {
     try {
       const targetStage = columns.find(c => c.id === targetStageId);
       const result = await tasksApi.create(projectId, {
+        // New work on a sprint's board belongs to that sprint.
+        ...(activeSprintId ? { sprintId: activeSprintId } : {}),
         title: data.title,
         description: data.description,
         stageId: targetStageId,
@@ -1013,7 +1171,21 @@ const PipelinePage = () => {
     setEditingStage(stage);
     setEditStageName(stage.name);
     setEditStageColor(stage.color);
+    setEditStageWip(wipLimits[stage.id]);
     setShowEditStageDialog(true);
+  };
+
+  // The limit is part of the project's delivery setting, written whole.
+  const saveWipLimit = async (stageId: string, limit: number | undefined) => {
+    if (!canManageDelivery || limit === delivery.settings.wipLimits[stageId]) return;
+    const next = { ...delivery.settings.wipLimits };
+    if (limit === undefined) delete next[stageId];
+    else next[stageId] = limit;
+    try {
+      await updateDelivery.mutateAsync({ ...delivery.settings, wipLimits: next });
+    } catch {
+      toast.error(t.flowAgileSprints.wip.saveFailed);
+    }
   };
 
   const handleSaveEditStage = async () => {
@@ -1026,6 +1198,7 @@ const PipelinePage = () => {
       setShowEditStageDialog(false);
       setEditingStage(null);
       toast.success(t.projects.pipeline.stageUpdated);
+      await saveWipLimit(editingStage.id, editStageWip);
     } else {
       toast.error(t.projects.pipeline.stageUpdateFailed);
     }
@@ -1114,17 +1287,30 @@ const PipelinePage = () => {
     }
   };
 
+  const sprintControls = (
+    <BoardSprintBar
+      show={!embedded && delivery.usesSprints}
+      projectId={projectId}
+      sprints={sprints.data}
+      sprint={sprint}
+      onSprintChange={onSprintChange}
+    />
+  );
+
   // Loading / error states
-  if (isLoading) {
+  if (isLoading && !hasLoaded) {
     return <PageLoader fullScreen={false} />;
   }
 
   if (error) {
     return (
-      <div className="flex items-center justify-center h-full">
-        <div className="flex flex-col items-center gap-4">
-          <p className="text-destructive">{error}</p>
-          <Button onClick={loadData}>{t.projects.pipeline.retry}</Button>
+      <div className="flex flex-col h-full overflow-hidden">
+        {sprintControls}
+        <div className="flex flex-1 items-center justify-center">
+          <div role="alert" className="flex flex-col items-center gap-4">
+            <p className="text-destructive">{error}</p>
+            <Button onClick={loadData}>{t.projects.pipeline.retry}</Button>
+          </div>
         </div>
       </div>
     );
@@ -1132,6 +1318,7 @@ const PipelinePage = () => {
 
   return (
     <div ref={containerRef} className="flex flex-col h-full overflow-hidden">
+      {sprintControls}
       {/* Header */}
       <div className="flex-shrink-0">
         <div className="flex items-center justify-between px-4 h-[53px] border-b border-gray-200 dark:border-border">
@@ -1183,7 +1370,7 @@ const PipelinePage = () => {
       </div>
 
       {/* Kanban Board */}
-      <div className="flex-1 flex flex-col overflow-hidden pb-0 select-none">
+      <div aria-busy={isLoading} className={cn("flex-1 flex flex-col overflow-hidden pb-0 select-none transition-opacity", isLoading && "opacity-60")}>
         <DndContext sensors={sensors} collisionDetection={customCollisionDetection} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
           <div
             ref={stagesScrollRef}
@@ -1204,6 +1391,7 @@ const PipelinePage = () => {
                           <PipelineStageHeader
                             stage={column}
                             taskCount={stageFeatures.length}
+                            wipLimit={wipLimits[column.id]}
                             canWrite={canWrite}
                             onAddTask={() => handleOpenCreateDialog(column.id)}
                             onEditStage={() => handleOpenEditStage(column)}
@@ -1218,7 +1406,7 @@ const PipelinePage = () => {
                             <div className="space-y-2">
                               <SortableContext items={stageFeatures.map(d => d.id)} strategy={verticalListSortingStrategy}>
                                 {stageFeatures.map((feature) => (
-                                  <TaskCard key={feature.id} feature={feature} availableLabels={availableLabels} canWrite={canWrite} onClick={() => openFeature(feature)} />
+                                  <TaskCard key={feature.id} feature={feature} availableLabels={availableLabels} canWrite={canWrite} itemTypes={itemTypes} onClick={() => openFeature(feature)} />
                                 ))}
                               </SortableContext>
                             </div>
@@ -1397,6 +1585,22 @@ const PipelinePage = () => {
               <Label htmlFor="edit-stage-name">{t.projects.pipeline.stageName}</Label>
               <Input id="edit-stage-name" placeholder={t.projects.pipeline.stageNamePlaceholder} value={editStageName} onChange={(e) => setEditStageName(e.target.value)} className="focus-visible:ring-0 focus-visible:ring-offset-0 focus-visible:border-gray-400 dark:focus-visible:border-gray-500" />
             </div>
+            {canManageDelivery && (
+              <div className="space-y-2">
+                <Label htmlFor="edit-stage-wip">{t.flowAgileSprints.wip.field}</Label>
+                <NumberInput
+                  id="edit-stage-wip"
+                  min={1}
+                  max={WIP_LIMIT_MAX}
+                  className="w-32"
+                  placeholder={t.flowAgileSprints.wip.fieldPlaceholder}
+                  aria-describedby="edit-stage-wip-hint"
+                  value={editStageWip}
+                  onValueChange={(value) => setEditStageWip(value === undefined ? undefined : Math.min(Math.max(Math.round(value), 1), WIP_LIMIT_MAX))}
+                />
+                <p id="edit-stage-wip-hint" className="text-xs text-muted-foreground">{t.flowAgileSprints.wip.fieldHint}</p>
+              </div>
+            )}
             <div className="flex gap-2 flex-wrap">
               {stageColors.map((color) => (
                 <Button key={color} type="button" variant="ghost" className={`rounded-md transition-all flex-shrink-0 p-0 ${editStageColor === color ? 'ring-2 ring-primary ring-offset-2' : ''}`} style={{ backgroundColor: color, width: '31px', height: '31px' }} onClick={() => setEditStageColor(color)} />
@@ -1413,12 +1617,45 @@ const PipelinePage = () => {
       {/* Feature detail panel is now rendered globally via ObjectPanelHost. */}
     </div>
   );
-};
+}
 
+/** `?sprint=` value for "All open work"; no value means the project's default sprint. */
+const ALL_OPEN = 'all';
+
+/**
+ * The Pipeline tab. A project that plans in sprints shows one sprint at a time:
+ * the one in `?sprint=` (`all` for all open work), else the active sprint, else
+ * the next planned one.
+ */
 export default function Page() {
+  const params = useParams();
+  const projectId = params.projectId as string;
+  const pathname = usePathname();
+  const router = useRouter();
+  const search = useSearchParams();
+  const delivery = useProjectDelivery(projectId);
+  const sprints = useProjectSprints(projectId, delivery.usesSprints);
+  const chosen = search.get('sprint');
+
+  const sprintId = useMemo<string | null>(() => {
+    if (!delivery.usesSprints) return null;
+    if (chosen === ALL_OPEN) return null;
+    if (chosen) return chosen;
+    return defaultSprintId(sprints.data ?? []);
+  }, [delivery.usesSprints, chosen, sprints.data]);
+
+  const onSprintChange = useCallback(
+    (next: string | null) => router.replace(`${pathname}?sprint=${encodeURIComponent(next ?? ALL_OPEN)}`),
+    [router, pathname],
+  );
+
+  // Wait for the delivery setting and the sprint list, so the board loads once, for the right sprint.
+  const waiting = delivery.isLoading || (delivery.usesSprints && sprints.isLoading);
+  if (waiting) return <PageLoader fullScreen={false} />;
+
   return (
     <div className="h-full min-h-0 flex flex-col">
-      <PipelinePage />
+      <PipelineView projectId={projectId} sprintId={sprintId} onSprintChange={delivery.usesSprints ? onSprintChange : undefined} />
     </div>
   );
 }

@@ -33,7 +33,29 @@ pub const HANDOVER_BENEFIT: &str = "Benefit not found, or already closed, in thi
 // ── Lessons ─────────────────────────────────────────────────────────────────
 
 pub const LESSON_CATEGORIES: [&str; 3] = ["went_well", "went_badly", "do_differently"];
+/// The extra category of a sprint retro's cards (FLOW-024): what the team
+/// will do next sprint. Only a card with a sprint takes it.
+pub const RETRO_ACTION_CATEGORY: &str = "action";
+/// The categories of a sprint retro's cards.
+pub const RETRO_CATEGORIES: [&str; 4] = ["went_well", "went_badly", "do_differently", "action"];
 pub const LESSON_PAGE_LOCALES: [&str; 2] = ["en", "nl"];
+
+/// Whether a lesson may have this category: the three of every lesson, and
+/// `action` on a sprint's retro card.
+pub fn lesson_category_allowed(category: &str, has_sprint: bool) -> bool {
+    LESSON_CATEGORIES.contains(&category) || (has_sprint && category == RETRO_ACTION_CATEGORY)
+}
+
+/// `row` with its `sprintId` added to `out` when it has one: a project's
+/// own lessons answer as they always did.
+fn with_sprint(mut out: Value, row: &Value) -> Value {
+    if let Some(sprint) = row.text("sprintId").filter(|s| !s.is_empty())
+        && let Value::Object(map) = &mut out
+    {
+        map.insert("sprintId".to_owned(), Value::String(sprint.to_owned()));
+    }
+    out
+}
 
 /// The member ids that voted for a lesson.
 pub fn votes_of(row: &Value) -> Vec<&str> {
@@ -48,7 +70,7 @@ pub fn votes_of(row: &Value) -> Vec<&str> {
 pub fn present_lesson(row: &Value, user_id: Option<&str>) -> Value {
     let votes = votes_of(row);
     let voted_by_me = user_id.is_some_and(|user| !user.is_empty() && votes.contains(&user));
-    json!({
+    let out = json!({
         "id": row.at("id"),
         "projectId": row.at("projectId"),
         "category": row.at("category"),
@@ -60,20 +82,22 @@ pub fn present_lesson(row: &Value, user_id: Option<&str>) -> Value {
         "createdBy": row.at("createdBy"),
         "createdAt": row.at("createdAt"),
         "updatedAt": row.at("updatedAt"),
-    })
+    });
+    with_sprint(out, row)
 }
 
 /// The payload of a `project_lesson` event (`lessonEventData`): ids and
 /// counts, no free text.
 pub fn lesson_event_data(row: &Value) -> Value {
-    json!({
+    let out = json!({
         "id": row.at("id"),
         "projectId": row.at("projectId"),
         "category": row.at("category"),
         "authorId": row.at("authorId"),
         "voteCount": votes_of(row).len(),
         "knowPageId": row.at("knowPageId"),
-    })
+    });
+    with_sprint(out, row)
 }
 
 /// May this person edit or delete the lesson (`mayChangeLesson`): its author,
@@ -596,6 +620,23 @@ mod tests {
             .iter()
             .find(|check| check.key == key)
             .map_or("", |check| check.state)
+    }
+
+    #[test]
+    fn a_retro_card_carries_its_sprint_and_may_be_an_action() {
+        let project = lesson("les_p", &json!({}));
+        assert!(present_lesson(&project, None).get("sprintId").is_none());
+        assert!(lesson_event_data(&project).get("sprintId").is_none());
+        let card = lesson(
+            "les_s",
+            &json!({ "sprintId": "spr_1", "category": "action" }),
+        );
+        assert_eq!(present_lesson(&card, None)["sprintId"], json!("spr_1"));
+        assert_eq!(lesson_event_data(&card)["sprintId"], json!("spr_1"));
+        assert!(lesson_category_allowed("went_well", false));
+        assert!(lesson_category_allowed("action", true));
+        assert!(!lesson_category_allowed("action", false));
+        assert!(!lesson_category_allowed("meh", true));
     }
 
     #[test]

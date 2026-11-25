@@ -50,6 +50,13 @@ pub struct Model {
     pub story_points_committed: Option<i32>,
     #[serde(rename = "storyPointsCompleted")]
     pub story_points_completed: Option<i32>,
+    /// The sprint's numbers (ADR FLOW-024): what was committed when it
+    /// started, and the whole report, frozen when it completed. Null for a
+    /// sprint never started through `POST /api/sprints/:id/start`; left out
+    /// of answers while null.
+    #[sea_orm(column_type = "JsonBinary")]
+    #[serde(rename = "report", skip_serializing_if = "Option::is_none")]
+    pub report: Option<Json>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

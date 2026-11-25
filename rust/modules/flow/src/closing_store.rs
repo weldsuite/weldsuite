@@ -150,6 +150,8 @@ async fn read_tables(db: &PgPool, project_id: &str) -> Result<Tables, DbErr> {
             "published",
         )
         .filter(lessons::Column::ProjectId.eq(project_id))
+        // A sprint's retro cards (FLOW-024) are not the project's lessons.
+        .filter(lessons::Column::SprintId.is_null())
         .filter(lessons::Column::DeletedAt.is_null())
         .into_tuple()
         .one(&conn)

@@ -28,6 +28,16 @@ vi.mock('@/components/object-panel', () => ({
   useObjectPanelNavigationReporter: () => () => {},
 }));
 vi.mock('@/hooks/queries/use-feature-flags-queries', () => ({ useFeatureFlag: () => false }));
+// A CRM panel is no project: it never reads the delivery approach.
+vi.mock('@/hooks/queries/use-flow-agile-queries', () => ({
+  useProjectDelivery: () => ({
+    available: false,
+    usesItemTypes: false,
+    enabledTypes: [],
+    settings: { itemTypes: { naming: 'pbi', featureLevel: false } },
+  }),
+  useUpdateTaskAgile: () => ({ mutate: vi.fn() }),
+}));
 vi.mock('@/hooks/queries/use-settings-queries', () => ({
   useWorkspaceMemberDirectory: () => ({ data: { data: [] } }),
 }));

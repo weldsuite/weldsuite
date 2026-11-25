@@ -1,5 +1,7 @@
 //! `/api/sprints` (`routes/sprints/index.ts`): a project's sprints; the
-//! lifecycle stamps (`startedAt`, `completedAt`) follow the status.
+//! lifecycle stamps (`startedAt`, `completedAt`) follow the status. A
+//! deleted sprint's tasks go back to the backlog. Starting, completing and
+//! the report (EU and self-hosted only) are [`crate::sprint_lifecycle`].
 
 use std::sync::Arc;
 
@@ -20,12 +22,12 @@ use weldsuite_catalogs::entity_events::{
     PROJECT_SPRINT_STARTED, PROJECT_SPRINT_UPDATED,
 };
 use weldsuite_db::record::JsonTable;
-use weldsuite_db::{orm, utc_now};
+use weldsuite_db::{OrmConn, orm, utc_now};
 use weldsuite_flow_domain::js::contains_pattern;
 use weldsuite_kit::validation::{Issues, Presence};
 use weldsuite_kit::{ApiError, Created, Data, NoContent, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
-use weldsuite_schema::tenant::sprints;
+use weldsuite_schema::tenant::{sprints, tasks};
 
 use crate::projects::{bindable, writable};
 use crate::{
@@ -49,8 +51,8 @@ const COLUMNS: [(&str, &str); 9] = [
     ("storyPointsCompleted", "story_points_completed"),
 ];
 
-const PROJECT_DENIED: &str = "You are not a member of this project";
-const PROJECT_WRITE_DENIED: &str = "You do not have write access to this project";
+pub(crate) const PROJECT_DENIED: &str = "You are not a member of this project";
+pub(crate) const PROJECT_WRITE_DENIED: &str = "You do not have write access to this project";
 
 /// `SPRINT_WRITABLE_FIELDS`.
 const WRITABLE: [&str; 9] = [
@@ -86,6 +88,21 @@ where
         .route(
             "/{id}",
             axum::routing::delete(remove).route_layer(need("projects:delete")),
+        )
+        // The sprint lifecycle, EU and self-hosted only (FLOW-024).
+        .route(
+            "/{id}/start",
+            axum::routing::post(crate::sprint_lifecycle::start)
+                .route_layer(need("projects:update")),
+        )
+        .route(
+            "/{id}/complete",
+            axum::routing::post(crate::sprint_lifecycle::complete)
+                .route_layer(need("projects:update")),
+        )
+        .route(
+            "/{id}/report",
+            get(crate::sprint_lifecycle::report).route_layer(need("projects:read")),
         )
         .with_state(state)
 }
@@ -457,17 +474,53 @@ async fn remove(
             {
                 return Err(Refusal::forbidden(PROJECT_WRITE_DENIED));
             }
-            let at = utc_now();
-            sprints::Entity::update_many()
-                .col_expr(sprints::Column::DeletedAt, Expr::value(Some(at)))
-                .col_expr(sprints::Column::UpdatedAt, Expr::value(at))
-                .filter(sprints::Column::Id.eq(&id))
-                .exec(&orm(&caller.db))
+            // Its tasks go back to the backlog: the sprint's delete and their
+            // unlinking in one transaction, then an update event per task.
+            let in_sprint: Vec<tasks::Model> = tasks::Entity::find()
+                .filter(tasks::Column::SprintId.eq(&id))
+                .filter(tasks::Column::DeletedAt.is_null())
+                .all(&orm(&caller.db))
                 .await?;
+            let unlinked: Vec<String> = in_sprint.iter().map(|task| task.id.clone()).collect();
+            let at = utc_now();
+            let (sprint_id, task_ids) = (id.clone(), unlinked.clone());
+            weldsuite_db::atomically_with(&caller.db, |tx| {
+                Box::pin(async move {
+                    let tx = OrmConn::new(tx);
+                    write_delete(&tx, &sprint_id, &task_ids, at).await
+                })
+            })
+            .await?;
             caller.publish(&state, PROJECT_SPRINT_DELETED, &id, &json!({ "id": id }));
+            crate::sprint_lifecycle::publish_moves(&state, &caller, &in_sprint, &unlinked, None);
             Ok(NoContent.into_response())
         }
         .await,
         "Failed to delete sprint",
     )
+}
+
+/// The delete's writes, in one transaction: the sprint is soft-deleted and
+/// the tasks that were in it lose their sprint.
+async fn write_delete(
+    tx: &OrmConn<'_>,
+    sprint_id: &str,
+    task_ids: &[String],
+    at: PrimitiveDateTime,
+) -> Result<(), Refusal> {
+    sprints::Entity::update_many()
+        .col_expr(sprints::Column::DeletedAt, Expr::value(Some(at)))
+        .col_expr(sprints::Column::UpdatedAt, Expr::value(at))
+        .filter(sprints::Column::Id.eq(sprint_id))
+        .exec(tx)
+        .await?;
+    if !task_ids.is_empty() {
+        tasks::Entity::update_many()
+            .col_expr(tasks::Column::SprintId, Expr::value(Option::<String>::None))
+            .col_expr(tasks::Column::UpdatedAt, Expr::value(at))
+            .filter(tasks::Column::Id.is_in(task_ids.iter().map(String::as_str)))
+            .exec(tx)
+            .await?;
+    }
+    Ok(())
 }
