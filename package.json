@@ -22,6 +22,7 @@
     "secrets:sync": "npx tsx scripts/secrets/sync.ts",
     "secrets:dev": "npx tsx scripts/secrets/dev-vars.ts",
     "create:mobile-app": "node scripts/create-mobile-app.mjs",
+    "mobile:icons": "node scripts/mobile-app-icons.mjs",
     "create:module-api": "node scripts/create-module-api.mjs",
     "api:ownership": "node scripts/api-module-ownership.mjs",
     "db:generate": "cd rust && cargo run -q -p weldsuite-schema --bin weldsuite-schema -- generate tenant",
