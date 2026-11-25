@@ -24,7 +24,7 @@ const TILE = '#4f46e5';
 const svg = await readFile(source, 'utf8');
 const root = /<svg\b[^>]*>/.exec(svg)?.[0];
 const viewBox = /viewBox="([\d.\s-]+)"/.exec(root ?? '')?.[1].trim().split(/\s+/).map(Number);
-if (!root || !viewBox || viewBox.length !== 4) {
+if (viewBox?.length !== 4) {
   throw new Error(`Could not read the logo's viewBox from ${source}`);
 }
 
