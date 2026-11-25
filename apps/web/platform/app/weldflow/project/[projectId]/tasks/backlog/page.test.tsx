@@ -292,7 +292,7 @@ describe('BacklogPage', () => {
     await user.click(screen.getByRole('checkbox', { name: 'Select Beta' }));
     await user.click(screen.getByRole('checkbox', { name: 'Select Gamma' }));
     await user.click(screen.getByRole('checkbox', { name: 'Select Gamma' }));
-    expect(screen.queryByRole('toolbar', { name: 'Selected items' })).toBeInTheDocument();
+    expect(screen.getByRole('toolbar', { name: 'Selected items' })).toBeInTheDocument();
     await user.click(screen.getByRole('checkbox', { name: 'Select Gamma' }));
     fireEvent.contextMenu(screen.getByRole('button', { name: 'Open Beta' }));
     await user.click(await screen.findByRole('menuitem', { name: 'Delete' }));
