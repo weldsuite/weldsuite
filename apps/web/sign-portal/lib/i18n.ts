@@ -112,7 +112,9 @@ const en = {
     finishing: 'Opening',
     unavailable: 'Signing with a certificate is not available right now. Try again later, or ask the sender.',
     returnedFailed: (provider: string | null) =>
-      `Signing${provider ? ` with ${provider}` : ''} did not work. You can try again or decline to sign.`,
+      provider
+        ? `Signing with ${provider} did not work. You can try again or decline to sign.`
+        : 'Signing did not work. You can try again or decline to sign.',
     returnedCancelled: 'You stopped before signing. You can try again or decline to sign.',
     signedWith: {
       aes: 'Signed with an advanced electronic signature',
@@ -302,7 +304,9 @@ const nl: Dictionary = {
     finishing: 'Openen',
     unavailable: 'Ondertekenen met een certificaat is nu niet mogelijk. Probeer het later opnieuw of vraag het de afzender.',
     returnedFailed: (provider: string | null) =>
-      `Ondertekenen${provider ? ` met ${provider}` : ''} is niet gelukt. Je kunt het opnieuw proberen of weigeren te ondertekenen.`,
+      provider
+        ? `Ondertekenen met ${provider} is niet gelukt. Je kunt het opnieuw proberen of weigeren te ondertekenen.`
+        : 'Ondertekenen is niet gelukt. Je kunt het opnieuw proberen of weigeren te ondertekenen.',
     returnedCancelled: 'Je bent gestopt voordat je had ondertekend. Je kunt het opnieuw proberen of weigeren te ondertekenen.',
     signedWith: {
       aes: 'Ondertekend met een geavanceerde elektronische handtekening',

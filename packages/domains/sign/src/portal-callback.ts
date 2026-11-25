@@ -102,8 +102,10 @@ export interface SignatureCallbackResult {
   setCookie: string;
 }
 
-const linkPage = (token: string, back?: SignatureReturn) =>
-  `/r/${encodeURIComponent(token)}${back ? `?signature=${back}` : ''}`;
+const linkPage = (token: string, back?: SignatureReturn) => {
+  const page = `/r/${encodeURIComponent(token)}`;
+  return back ? `${page}?signature=${back}` : page;
+};
 
 /**
  * What to do with the provider's redirect back to `/signature-callback`.

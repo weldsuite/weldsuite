@@ -4,7 +4,7 @@ import { Button } from '@weldsuite/ui/components/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@weldsuite/ui/components/dropdown-menu';
 import type { SignPortalCompleteInput, SignPortalEnvelope, SignPortalSignatureStart } from '@weldsuite/app-api-client/schemas/weldsign';
 import { EMPTY_SIGNING_STATE, missingRequired, sortedFields, type SigningState } from '@/lib/fields';
-import type { Locale } from '@/lib/i18n';
+import type { Dictionary, Locale } from '@/lib/i18n';
 import { PortalApiError, PortalNetworkError, portalJson } from '@/lib/portal-client';
 import { initialsFromName } from '@/lib/signature';
 import type { AdoptedSignature } from '@/lib/signing-types';
@@ -31,6 +31,58 @@ interface SignViewProps {
 function submittedValue(type: SignPortalEnvelope['fields'][number]['type'], raw: string | undefined): string {
   if (type === 'checkbox') return raw === 'true' ? 'true' : 'false';
   return (raw ?? '').trim();
+}
+
+type Level = SignPortalEnvelope['signatureLevel'];
+
+/** What a failed Finish tells the signer. */
+function finishErrorMessage(err: unknown, level: Level, t: Dictionary): string {
+  if (err instanceof PortalNetworkError) return t.error.network;
+  if (!(err instanceof PortalApiError)) return t.sign.finishFailed;
+  if (err.status === 401) return t.sign.sessionExpired;
+  // Signed, but the request could not be finished yet: finishing again picks it up.
+  if (err.status === 503) return level ? t.eidas.unavailable : t.sign.finishPending;
+  return t.sign.finishFailed;
+}
+
+/** The Finish button's label. */
+function finishLabel(finishing: boolean, level: Level, provider: string | null, t: Dictionary): string {
+  if (level) return finishing ? t.eidas.finishing : t.eidas.finish(provider);
+  return finishing ? t.sign.finishing : t.sign.finish;
+}
+
+/** Send an advanced or qualified signer to their trust service provider. */
+async function startProviderSignature(
+  withSession: SignViewProps['withSession'],
+  body: SignPortalCompleteInput,
+): Promise<void> {
+  const start = await withSession(() => portalJson<Pick<SignPortalSignatureStart, 'redirectUrl'>>('/api/portal/signature/start', body));
+  // The trust service provider has the signer from here; the callback page brings them back to this link.
+  if (!/^https?:\/\//i.test(start.redirectUrl)) throw new Error('Unexpected redirect');
+  window.location.assign(start.redirectUrl);
+}
+
+/** Why the signer is back without having signed. */
+function ReturnedNotice({ returned, provider, t }: Readonly<{ returned: 'failed' | 'cancelled'; provider: string | null; t: Dictionary }>) {
+  return (
+    <p role="alert" className="mt-3 flex items-start gap-2 rounded-xl border border-amber-600/30 bg-amber-600/5 p-3 text-sm">
+      <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-600" aria-hidden="true" />
+      {returned === 'cancelled' ? t.eidas.returnedCancelled : t.eidas.returnedFailed(provider)}
+    </p>
+  );
+}
+
+/** Which signature level is asked, and where the signer confirms who they are. */
+function LevelNotice({ level, provider, t }: Readonly<{ level: NonNullable<Level>; provider: string | null; t: Dictionary }>) {
+  return (
+    <p className="mt-3 flex items-start gap-2 text-sm text-muted-foreground">
+      <ShieldCheck className="mt-0.5 size-4 shrink-0 text-emerald-600" aria-hidden="true" />
+      <span>
+        <span className="font-medium text-foreground">{t.eidas.levelTitle[level]}. </span>
+        {provider ? t.eidas.confirmWith(provider) : t.eidas.confirmWithoutProvider}
+      </span>
+    </p>
+  );
 }
 
 /** The signer's turn: consent, then the document with its fields, then Finish. */
@@ -143,21 +195,13 @@ export function SignView({ envelope, disclosureVersion, withSession, onEnvelope,
     };
     try {
       if (level) {
-        const start = await withSession(() => portalJson<Pick<SignPortalSignatureStart, 'redirectUrl'>>('/api/portal/signature/start', body));
-        // The trust service provider has the signer from here; the callback page brings them back to this link.
-        if (!/^https?:\/\//i.test(start.redirectUrl)) throw new Error('Unexpected redirect');
-        window.location.assign(start.redirectUrl);
+        await startProviderSignature(withSession, body);
         return;
       }
       const next = await withSession(() => portalJson<SignPortalEnvelope>('/api/portal/complete', body));
       onEnvelope(next);
     } catch (err) {
-      if (err instanceof PortalNetworkError) setFinishError(t.error.network);
-      else if (err instanceof PortalApiError && err.status === 401) setFinishError(t.sign.sessionExpired);
-      // Signed, but the request could not be finished yet: finishing again picks it up.
-      else if (level && err instanceof PortalApiError && err.status === 503) setFinishError(t.eidas.unavailable);
-      else if (err instanceof PortalApiError && err.status === 503) setFinishError(t.sign.finishPending);
-      else setFinishError(t.sign.finishFailed);
+      setFinishError(finishErrorMessage(err, level, t));
       setFinishing(false);
     }
   }
@@ -213,21 +257,8 @@ export function SignView({ envelope, disclosureVersion, withSession, onEnvelope,
             {envelope.senderName ? <p className="text-sm text-muted-foreground">{t.sign.from(envelope.senderName)}</p> : null}
             {envelope.message ? <p className="mt-2 whitespace-pre-line text-sm text-muted-foreground">{envelope.message}</p> : null}
           </div>
-          {returned ? (
-            <p role="alert" className="mt-3 flex items-start gap-2 rounded-xl border border-amber-600/30 bg-amber-600/5 p-3 text-sm">
-              <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-600" aria-hidden="true" />
-              {returned === 'cancelled' ? t.eidas.returnedCancelled : t.eidas.returnedFailed(provider)}
-            </p>
-          ) : null}
-          {level ? (
-            <p className="mt-3 flex items-start gap-2 text-sm text-muted-foreground">
-              <ShieldCheck className="mt-0.5 size-4 shrink-0 text-emerald-600" aria-hidden="true" />
-              <span>
-                <span className="font-medium text-foreground">{t.eidas.levelTitle[level]}. </span>
-                {provider ? t.eidas.confirmWith(provider) : t.eidas.confirmWithoutProvider}
-              </span>
-            </p>
-          ) : null}
+          {returned ? <ReturnedNotice returned={returned} provider={provider} t={t} /> : null}
+          {level ? <LevelNotice level={level} provider={provider} t={t} /> : null}
         </div>
 
         <DocumentView
@@ -261,7 +292,7 @@ export function SignView({ envelope, disclosureVersion, withSession, onEnvelope,
             ) : null}
             <BrandButton className="flex-1 sm:flex-none" onClick={finish} disabled={missing.length > 0 || finishing}>
               {finishing ? <Loader2 className="animate-spin" aria-hidden="true" /> : <Send aria-hidden="true" />}
-              {finishing ? (level ? t.eidas.finishing : t.sign.finishing) : level ? t.eidas.finish(provider) : t.sign.finish}
+              {finishLabel(finishing, level, provider, t)}
             </BrandButton>
           </div>
         </div>
