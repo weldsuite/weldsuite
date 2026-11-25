@@ -559,7 +559,8 @@ pub struct ReportInput<'a> {
     /// The current points of committed tasks no longer in the sprint
     /// (deleted ones included; a task not found counts 0).
     pub left_points: &'a HashMap<String, i64>,
-    /// `None` for a live report.
+    /// `None` for a live report: the unfinished items then show as carried
+    /// over, with no destination.
     pub carried_over: Option<&'a CarriedOver>,
     pub goal_met: Option<bool>,
     pub days: SprintDays,
@@ -661,7 +662,20 @@ pub fn sprint_report(input: &ReportInput<'_>) -> Value {
             })
         })
         .collect();
-    let carried = input.carried_over.cloned().unwrap_or_default();
+    // A live report carries over what is unfinished now: what completing the
+    // sprint would hand on, with no destination yet.
+    let carried = input.carried_over.cloned().unwrap_or_else(|| {
+        let unfinished: Vec<&&SprintItem> = counted
+            .iter()
+            .filter(|item| item.status != "done")
+            .collect();
+        CarriedOver {
+            task_ids: unfinished.iter().map(|item| item.id.clone()).collect(),
+            points: unfinished.iter().map(|item| item.points).sum(),
+            to_sprint_id: None,
+            to_backlog: 0,
+        }
+    });
     json!({
         "committed": input.committed.to_json(),
         "completed": completed,
@@ -1094,9 +1108,10 @@ mod tests {
             vec![json!(2), json!(2), Value::Null, Value::Null]
         );
         assert_eq!(report["burndown"][1]["ideal"], json!(1.33));
+        // Live: the unfinished items are what completing would carry over.
         assert_eq!(
             report["carriedOver"],
-            json!({ "points": 0, "count": 0, "taskIds": [], "toSprintId": null, "toBacklog": 0 })
+            json!({ "points": 2, "count": 1, "taskIds": ["a"], "toSprintId": null, "toBacklog": 0 })
         );
         assert_eq!(report["goalMet"], Value::Null);
     }

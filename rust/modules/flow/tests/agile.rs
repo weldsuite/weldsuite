@@ -537,7 +537,9 @@ async fn a_sprint_starts_once_and_one_at_a_time() {
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(body["data"]["committed"]["points"], 8);
     assert_eq!(body["data"]["goalMet"], Value::Null);
-    assert_eq!(body["data"]["carriedOver"]["count"], 0);
+    // Live: the two open items are what completing would carry over.
+    assert_eq!(body["data"]["carriedOver"]["count"], 2);
+    assert_eq!(body["data"]["carriedOver"]["points"], 8);
     assert_eq!(
         body["data"]["burndown"]
             .as_array()
