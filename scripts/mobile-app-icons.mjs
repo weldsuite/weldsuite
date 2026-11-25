@@ -100,9 +100,7 @@ async function build(app) {
     has('notification-icon.png') && ['notification-icon.png', () => silhouette(svg, 96, 0.78)],
   ].filter(Boolean);
 
-  for (const [file, render] of files) {
-    await (await render()).toFile(path.join(out, file));
-  }
+  await Promise.all(files.map(async ([file, render]) => (await render()).toFile(path.join(out, file))));
   console.log(`${app}: ${files.map(([file]) => file).join(', ')} from ${path.relative(root, source)}`);
 }
 
@@ -111,4 +109,4 @@ if (apps.length === 0) {
   console.error('usage: pnpm mobile:icons <app> [<app> ...]   e.g. weldpass-app');
   process.exit(1);
 }
-for (const app of apps) await build(app);
+await Promise.all(apps.map(build));
