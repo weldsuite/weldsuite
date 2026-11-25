@@ -478,14 +478,14 @@ pub(crate) async fn give_back(
     }
 }
 
-/// After the request went out: the prepared PDF on the row, the charge on
-/// the trail.
-pub(crate) async fn record_prepared(
-    ctx: &SendContext,
-    envelope_id: &str,
+/// The prepared PDF and the charge on the row, set in the same statement
+/// that flips the draft to sent (so only the winner of two racing sends
+/// writes them).
+pub(crate) fn with_prepared(
+    update: sea_orm::UpdateMany<sign_envelopes::Entity>,
     prepared: &Prepared,
-) -> SignResult<()> {
-    sign_envelopes::Entity::update_many()
+) -> sea_orm::UpdateMany<sign_envelopes::Entity> {
+    update
         .col_expr(sign_envelopes::Column::Pipeline, Expr::value(PREPARED))
         .col_expr(
             sign_envelopes::Column::PreparedStorageKey,
@@ -499,9 +499,15 @@ pub(crate) async fn record_prepared(
             sign_envelopes::Column::CreditsReserved,
             Expr::value(i32::try_from(prepared.credits).unwrap_or(i32::MAX)),
         )
-        .filter(sign_envelopes::Column::Id.eq(envelope_id))
-        .exec(&orm(&ctx.db))
-        .await?;
+}
+
+/// After the request went out: the charge per signer on the trail, which
+/// the refunds read.
+pub(crate) async fn record_prepared(
+    ctx: &SendContext,
+    envelope_id: &str,
+    prepared: &Prepared,
+) -> SignResult<()> {
     let credits: serde_json::Map<String, Value> = prepared
         .per_signer
         .iter()
