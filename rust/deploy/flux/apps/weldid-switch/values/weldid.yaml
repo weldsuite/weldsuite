@@ -17,6 +17,13 @@ ingress:
 # resource, and /mcp/w/<workspace> for one workspace; its first address,
 # https://app.${DOMAIN}/mcp, still answers for clients set up with it. An
 # entry ending in / covers every path under it.
+#
+# The workspace step (WeldID 0.1.0-alpha.4 and later, ADR SEC-021): after
+# the consent screen, a sign-in for one of these resources goes to the
+# platform's page below, which asks which workspace the connection is for
+# and records it through WeldID's admin API (weldid:tenants on the
+# weldsuite-backend client); the grant's access tokens then carry it as
+# the `tenant` claim. An older WeldID ignores the setting.
 registration:
   dynamic: true
   metadataDocuments: true
@@ -25,3 +32,4 @@ registration:
     - https://mcp.${DOMAIN}/mcp/
     - https://app.${DOMAIN}/mcp
     - https://app.${DOMAIN}/mcp/
+  tenantSelectionUrl: https://app.${DOMAIN}/auth/mcp-workspace
