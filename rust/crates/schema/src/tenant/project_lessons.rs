@@ -129,6 +129,7 @@ pub const DDL: Table = Table {
     uniques: &[],
     checks: &[Check {
         name: "project_lessons_category_check",
-        expression: "\"project_lessons\".\"category\" in ('went_well', 'went_badly', 'do_differently')",
+        // `action`: a sprint retro's actions (ADR FLOW-024); only sprint cards use it.
+        expression: "\"project_lessons\".\"category\" in ('went_well', 'went_badly', 'do_differently', 'action')",
     }],
 };
