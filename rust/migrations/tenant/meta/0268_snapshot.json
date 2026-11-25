@@ -1,5 +1,5 @@
 {
-  "id": "7d69d3b6-7c46-49bf-8c51-2b32974c638d",
+  "id": "2ace54e1-7be1-43e2-a7a4-209158d367e9",
   "prevId": "1a261072-072d-4a54-9eef-80f033ab1502",
   "version": "7",
   "dialect": "postgresql",
@@ -2200,6 +2200,204 @@
           "columns": [
             {
               "expression": "app",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.annual_reports": {
+      "name": "annual_reports",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "varchar(30)",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "deleted_at": {
+          "name": "deleted_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "entity_id": {
+          "name": "entity_id",
+          "type": "varchar(30)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "fiscal_year": {
+          "name": "fiscal_year",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "period_start": {
+          "name": "period_start",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "period_end": {
+          "name": "period_end",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "size_class": {
+          "name": "size_class",
+          "type": "varchar(10)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "varchar(15)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'draft'"
+        },
+        "figures": {
+          "name": "figures",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "disclosures": {
+          "name": "disclosures",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "adopted": {
+          "name": "adopted",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "adoption_date": {
+          "name": "adoption_date",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "xml_content": {
+          "name": "xml_content",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "filing_reference": {
+          "name": "filing_reference",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "digipoort_response": {
+          "name": "digipoort_response",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "filed_at": {
+          "name": "filed_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "filed_by": {
+          "name": "filed_by",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "accepted_at": {
+          "name": "accepted_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "rejected_at": {
+          "name": "rejected_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "rejection_reason": {
+          "name": "rejection_reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "notes": {
+          "name": "notes",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "annual_reports_entity_year_idx": {
+          "name": "annual_reports_entity_year_idx",
+          "columns": [
+            {
+              "expression": "entity_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "fiscal_year",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "annual_reports_status_idx": {
+          "name": "annual_reports_status_idx",
+          "columns": [
+            {
+              "expression": "status",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -61112,12 +61310,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "sprint_id": {
-          "name": "sprint_id",
-          "type": "varchar(30)",
-          "primaryKey": false,
-          "notNull": false
-        },
         "created_by": {
           "name": "created_by",
           "type": "varchar(255)",
@@ -61157,21 +61349,6 @@
             },
             {
               "expression": "category",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "project_lessons_sprint_idx": {
-          "name": "project_lessons_sprint_idx",
-          "columns": [
-            {
-              "expression": "sprint_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -72933,12 +73110,6 @@
           "type": "integer",
           "primaryKey": false,
           "notNull": false
-        },
-        "report": {
-          "name": "report",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
         }
       },
       "indexes": {
@@ -76548,12 +76719,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "epic_id": {
-          "name": "epic_id",
-          "type": "varchar(30)",
-          "primaryKey": false,
-          "notNull": false
-        },
         "stage_id": {
           "name": "stage_id",
           "type": "varchar(255)",
@@ -76894,21 +77059,6 @@
           "columns": [
             {
               "expression": "deliverable_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "tasks_epic_idx": {
-          "name": "tasks_epic_idx",
-          "columns": [
-            {
-              "expression": "epic_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"

@@ -380,8 +380,10 @@ config:
   # ES256 private key (PEM) goes in the Secret as WELDID_CLIENT_KEY; its
   # public key is in WeldID's client list (weldsuite-backend,
   # private_key_jwt, the scopes weldid:users.read weldid:users.write
-  # weldid:sessions weldid:events.read, and weldid:sso for the workspaces'
-  # SSO connections).
+  # weldid:sessions weldid:events.read, weldid:sso for the workspaces'
+  # SSO connections, and weldid:tenants for the workspace step of MCP
+  # sign-ins, with WeldID's registration.tenantSelectionUrl set to
+  # https://<app host>/auth/mcp-workspace).
   identity:
     # IDENTITY_PROVIDER: zitadel or weldid. Empty: zitadel when
     # zitadel.apiUrl is set, else no identity provider.
@@ -1705,6 +1707,14 @@ cron:
       enabled: true
       schedule: "0 3 * * *"
       activeDeadlineSeconds: 3000
+    # WeldBooks: the statuses of the BTW-aangifte, Opgaaf ICP and KvK
+    # jaarrekening deliveries still open on Digipoort, for the workspaces the
+    # digipoort_status due index lists. Does nothing without a Digipoort
+    # connection (DIGIPOORT_MODE and the rest in the Secret).
+    digipoort-status:
+      enabled: true
+      schedule: "*/5 * * * *"
+      activeDeadlineSeconds: 290
     # WeldFlow: the weekly project finance snapshot of every workspace the
     # `finance_snapshot` due index lists (FLOW-019).
     flow-finance-snapshot:

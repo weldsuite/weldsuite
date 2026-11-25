@@ -170,7 +170,9 @@ clients:
           "y": "${WELDID_BACKEND_KEY_Y}"
     grantTypes: [client_credentials]
     # weldid:sso: the workspaces' SSO connections, managed from /api/sso.
-    scopes: [weldid:users.read, weldid:users.write, weldid:sessions, weldid:events.read, weldid:sso]
+    # weldid:tenants: the workspace step of an MCP client's sign-in
+    # (/api/mcp/workspace-selections, WeldID 0.1.0-alpha.4 and later).
+    scopes: [weldid:users.read, weldid:users.write, weldid:sessions, weldid:events.read, weldid:sso, weldid:tenants]
     audience: [weldid-admin]
 
   # The staff admin console (admin.${DOMAIN}, ADR FE-018) on the staff

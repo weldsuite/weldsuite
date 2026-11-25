@@ -214,7 +214,7 @@ pub(crate) fn with_normalized(mut row: Value) -> Value {
 
 /// `NL_TAXONOMY_VERSIONS`: (year, NT release, folder).
 const TAXONOMY_VERSIONS: [(i64, &str, &str); 2] =
-    [(2026, "nt20", "20251210"), (2027, "nt21", "20261209.b")];
+    [(2026, "nt20", "20251210"), (2027, "nt21", "20261209")];
 
 /// `nlTaxonomyUris(periodStart)`.
 pub(crate) struct TaxonomyUris {

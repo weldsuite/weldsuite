@@ -65,6 +65,7 @@ import { sweep } from './sweep';
 import { developer } from './developer';
 import { weldbooksUs } from './weldbooks-us';
 import { weldbooksIn } from './weldbooks-in';
+import { weldbooksNl } from './weldbooks-nl';
 import { weldbooksBr } from './weldbooks-br';
 import { admin } from './admin';
 import { partner } from './partner';
@@ -154,6 +155,7 @@ export const nl = {
   developer,
   weldbooksUs,
   weldbooksIn,
+  weldbooksNl,
   weldbooksBr,
   admin,
   partner,

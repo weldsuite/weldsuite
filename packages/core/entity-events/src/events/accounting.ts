@@ -22,6 +22,8 @@ export const ACCOUNTING_ENTITY_EVENTS = {
   recurring_invoice: ['created', 'updated', 'deleted'],
   tax_rate: ['created', 'updated', 'deleted'],
   vat_return: ['created', 'updated', 'deleted', 'submitted'],
+  // The KvK jaarrekening (publicatiestukken), Rust backend only (rust/modules/books-reports).
+  annual_report: ['created', 'updated', 'deleted', 'submitted'],
   fiscal_period: ['created', 'updated', 'deleted', 'closed', 'reopened'],
   fx_rate: ['created', 'updated', 'deleted'],
   accounting_entity: ['created', 'updated', 'deleted'],

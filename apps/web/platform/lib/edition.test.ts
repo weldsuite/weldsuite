@@ -52,6 +52,22 @@ describe('AI edition flags', () => {
   });
 });
 
+describe('WeldBooks Rust-only features', () => {
+  it('hides the annual reports and the KvK deposit on Global', () => {
+    expect(isFeatureAvailable('annual-reports')).toBe(false);
+    expect(isFeatureAvailable('kvk-digipoort')).toBe(false);
+  });
+
+  it('offers annual reports on Rust, and the KvK deposit only with a Digipoort connection', () => {
+    setRuntimeConfig({ backend: 'rust', unavailableFeatures: ['kvk-digipoort'] });
+    expect(isFeatureAvailable('annual-reports')).toBe(true);
+    expect(isFeatureAvailable('kvk-digipoort')).toBe(false);
+    setRuntimeConfig({ backend: 'rust', unavailableFeatures: [] });
+    expect(isFeatureAvailable('kvk-digipoort')).toBe(true);
+    expect(isFeatureAvailable('vat-digipoort')).toBe(true);
+  });
+});
+
 describe('billing provider', () => {
   it('is Stripe on Global and when the config names none', () => {
     expect(billingProvider()).toBe('stripe');

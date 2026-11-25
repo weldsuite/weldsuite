@@ -1,6 +1,8 @@
+import { isFeatureAvailable } from '@/lib/edition';
 import type { JurisdictionFeatures } from './jurisdiction';
 
 export const WELDBOOKS_TAX_HREF = '/weldbooks/vat';
+export const WELDBOOKS_ANNUAL_REPORTS_HREF = '/weldbooks/annual-reports';
 export const WELDBOOKS_FORM_1099_HREF = '/weldbooks/form-1099';
 export const WELDBOOKS_RECEIVED_NFE_HREF = '/weldbooks/received-nfe';
 
@@ -27,6 +29,8 @@ export function isWeldbooksHrefVisible(
   { known, features }: Readonly<{ known: boolean; features: JurisdictionFeatures }>,
 ): boolean {
   if (href === WELDBOOKS_TAX_HREF) return known && (features.vatReturn || features.gstReturn || features.brTaxReturn);
+  // The KvK jaarrekening: Dutch entities only (the jurisdiction with the BTW return), on installs that have it.
+  if (href === WELDBOOKS_ANNUAL_REPORTS_HREF) return known && features.vatReturn && isFeatureAvailable('annual-reports');
   if (href === WELDBOOKS_RECEIVED_NFE_HREF) return known && features.fiscalDocuments;
   if (href === WELDBOOKS_FORM_1099_HREF) return known && features.form1099;
   if (WELDBOOKS_SALES_TAX_HREFS.has(href)) return known && features.salesTax;

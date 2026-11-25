@@ -35,8 +35,8 @@ export interface NlTaxonomyVersion {
  */
 export const NL_TAXONOMY_VERSIONS: readonly NlTaxonomyVersion[] = [
   { year: 2026, nt: 'nt20', release: '20251210' },
-  // NT21 final (20261209) is not published yet: this is its latest pre-release.
-  { year: 2027, nt: 'nt21', release: '20261209.b', provisional: true },
+  // NT21 final, published by the Belastingdienst on 5 November 2026 (SBR Light nt21_20261105).
+  { year: 2027, nt: 'nt21', release: '20261209' },
 ];
 
 const BASE = 'http://www.nltaxonomie.nl';

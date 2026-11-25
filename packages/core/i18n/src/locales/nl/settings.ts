@@ -606,6 +606,7 @@ export const settings = {
         account: 'Grootboekrekening',
         accounting_contact: 'Relatie (WeldBooks)',
         vat_return: 'Btw-aangifte',
+        annual_report: 'Jaarrekening',
         tax_return: 'Belastingaangifte',
         tax_rate: 'Btw-tarief',
         bank_account: 'Bankrekening',

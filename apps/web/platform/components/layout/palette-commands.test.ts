@@ -93,6 +93,18 @@ describe('WeldBooks pages follow the entity country', () => {
     expect(hrefs.some((href) => href.startsWith('/weldbooks/sales-tax/'))).toBe(false);
   });
 
+  it('offers annual reports to a Dutch entity only on an install that has them', () => {
+    expect(hrefsFor(true, nl)).not.toContain('/weldbooks/annual-reports');
+    setRuntimeConfig({ backend: 'rust', unavailableFeatures: [] });
+    try {
+      expect(hrefsFor(true, nl)).toContain('/weldbooks/annual-reports');
+      expect(hrefsFor(true, us)).not.toContain('/weldbooks/annual-reports');
+      expect(hrefsFor(false, nl)).not.toContain('/weldbooks/annual-reports');
+    } finally {
+      setRuntimeConfig(null);
+    }
+  });
+
   it('gives a US entity the US pages and no VAT or NF-e', () => {
     const hrefs = hrefsFor(true, us);
     expect(hrefs).toContain('/weldbooks/sales-tax');

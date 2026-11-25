@@ -330,6 +330,8 @@ export const platformSyncMap: EntitySyncMap = {
   recurring_invoice: inv(['accounting', 'recurring']),
   tax_rate: inv(['accounting', 'tax-rates']),
   vat_return: inv(['accounting', 'vat-returns']),
+  // KvK annual reports (`annualReportKeys`): the list and the open report.
+  annual_report: inv(['accounting', 'annual-reports']),
   accounting_entity: inv(['accounting', 'entities']),
   // Core legal entities (Settings → Legal entities, both entity switchers).
   // Access changes also change which WeldBooks entities a member sees.

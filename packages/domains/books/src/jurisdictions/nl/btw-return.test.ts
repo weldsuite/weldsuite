@@ -182,7 +182,8 @@ describe('generateVatXml', () => {
 describe('taxonomy versions', () => {
   it('selects the NT version by the period year', () => {
     expect(nlTaxonomyForPeriod('2026-04-01')).toMatchObject({ nt: 'nt20', release: '20251210' });
-    expect(nlTaxonomyForPeriod(new Date('2027-01-01T00:00:00Z'))).toMatchObject({ nt: 'nt21', provisional: true });
+    expect(nlTaxonomyForPeriod(new Date('2027-01-01T00:00:00Z'))).toMatchObject({ nt: 'nt21', release: '20261209' });
+    expect(nlTaxonomyForPeriod('2027-01-01').provisional).toBeUndefined();
     expect(nlTaxonomyUris('2026-01-01').icpEntrypoint).toBe(
       'http://www.nltaxonomie.nl/nt20/bd/20251210/entrypoints/bd-rpt-icp-opgaaf-2026.xsd',
     );

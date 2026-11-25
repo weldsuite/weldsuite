@@ -22,7 +22,7 @@ const LISTED_FEATURES: Readonly<Record<string, readonly EditionFeature[]>> = {
   weldmail: ['mail-ai'],
   weldforms: ['forms-ai'],
   weldconnect: ['weldconnect-ai'],
-  weldbooks: ['books-ocr', 'vat-digipoort'],
+  weldbooks: ['books-ocr', 'vat-digipoort', 'kvk-digipoort'],
   weldhr: ['payroll-digipoort'],
 };
 

@@ -65,6 +65,12 @@
     "updated",
     "deleted"
   ],
+  "annual_report": [
+    "created",
+    "updated",
+    "deleted",
+    "submitted"
+  ],
   "asset_source": [
     "created",
     "updated",
