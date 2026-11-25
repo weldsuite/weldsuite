@@ -1,7 +1,8 @@
 //! WeldConnect's store and accounting connectors: `@weldsuite/connect-domain`
 //! (`packages/domains/connect`) with what it needs of `@weldsuite/connectors`
-//! (`packages/core/connectors`), behind connect-api's `/api/connectors`
-//! routes (`weldsuite-connect`).
+//! (`packages/core/connectors`), behind the `/api/connectors` routes
+//! (`weldsuite-core-integrations`), and what the core integration routes
+//! share with WeldConnect (`weldsuite-connect`).
 //!
 //! - [`catalog`]: the connector catalog and default field mappings
 //!   (`rust/catalogs/connectors.json`, exported by `pnpm rust:catalogs`);
@@ -9,9 +10,14 @@
 //!   client's view of a connection, sync runs and imported records;
 //! - [`clients`]: the WooCommerce, Shopify and Picqer clients (product
 //!   writes, the credential test) with their retries and error kinds;
-//! - [`crypto`]: field encryption as connectors read it;
-//! - [`github_app`]: the WeldSuite GitHub App's JWT and installation tokens
-//!   (`github/app-auth`), which WeldConnect and WeldMerge share;
+//! - [`crypto`]: field encryption as the connectors and integrations read it;
+//! - [`github_app`]: the WeldSuite GitHub App's JWT, installation tokens and
+//!   repository list (`github/app-auth`), which WeldConnect, the core
+//!   integration routes and WeldMerge share;
+//! - [`github_connections`]: the workspace's GitHub App installation (a
+//!   WeldMerge connection) in the shape connect-api's routes answer;
+//! - [`workflow_catalog`]: the workflow integration definitions and the
+//!   outbound webhook events of `rust/catalogs/weldconnect.json`;
 //! - [`install_state`], [`github_user`]: the App's install redirect, its
 //!   single-use signed state and the proof that the installer can reach the
 //!   installation it names (`github/install-state`, `github/user-installations`);
@@ -28,7 +34,7 @@
 //!   replenishment, on this backend only.
 //!
 //! The Picqer push (`publish-picqer.ts`) is connect-api's own and lives in
-//! `weldsuite-connect` on [`clients::Picqer::send`].
+//! `weldsuite-core-integrations` on [`clients::Picqer::send`].
 
 // The sync engine and mappers mirror long TypeScript functions one for one,
 // and read JSON numbers as JavaScript does.
@@ -48,6 +54,7 @@ pub mod clients;
 pub mod connections;
 pub mod crypto;
 pub mod github_app;
+pub mod github_connections;
 pub mod github_user;
 pub mod ingest;
 pub mod install_state;
@@ -64,3 +71,4 @@ pub mod stripe_mappers;
 pub mod sync;
 pub mod tables;
 pub mod webhooks;
+pub mod workflow_catalog;

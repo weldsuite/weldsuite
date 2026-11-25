@@ -18,13 +18,13 @@ use weldsuite_db::PgPool;
 use weldsuite_kit::validation::{Presence, Text};
 use weldsuite_kit::{ApiError, Data};
 
-use crate::{Caller, ConnectState, Overrides, validate};
+use crate::{Caller, IntegrationsState, Overrides, validate};
 
 /// The env a sync reads: the keyring, the Stripe platform key, `STORAGE`,
 /// third-party HTTP, the event publisher, and the app's own master database
 /// for the connector catch-up's due index (the sync's workspace looked up;
 /// conformance builds have none, as Global's tests bind no D1 index).
-pub(crate) fn sync_env(overrides: &Overrides, state: &ConnectState) -> SyncEnv {
+pub(crate) fn sync_env(overrides: &Overrides, state: &IntegrationsState) -> SyncEnv {
     SyncEnv {
         keyring: weldsuite_connect_domain::connections::keyring(
             overrides.env(state, "DATABASE_ENCRYPTION_KEY"),
@@ -48,7 +48,7 @@ pub(crate) fn sync_env(overrides: &Overrides, state: &ConnectState) -> SyncEnv {
 /// a backlog (the Moneybird push).
 pub(crate) fn sync_env_for(
     overrides: &Overrides,
-    state: &ConnectState,
+    state: &IntegrationsState,
     workspace_id: &str,
 ) -> SyncEnv {
     let mut env = sync_env(overrides, state);
@@ -164,7 +164,7 @@ pub(crate) fn outside_eu_service(connection: &Value) -> Option<weldsuite_outside
 }
 
 /// `c.executionCtx.waitUntil(syncConnection(…).catch(log))`.
-pub(crate) fn spawn_sync(state: &ConnectState, job: Background, label: &'static str) {
+pub(crate) fn spawn_sync(state: &IntegrationsState, job: Background, label: &'static str) {
     state.events.tracker().spawn(async move {
         if let Err(error) = job.run().await {
             tracing::error!(%error, "[app-api/connectors] {label} failed");
@@ -174,7 +174,7 @@ pub(crate) fn spawn_sync(state: &ConnectState, job: Background, label: &'static 
 
 /// `POST /connections/:id/sync`.
 pub(crate) async fn sync_now(
-    State(state): State<ConnectState>,
+    State(state): State<IntegrationsState>,
     caller: Caller,
     Path(id): Path<String>,
     headers: HeaderMap,

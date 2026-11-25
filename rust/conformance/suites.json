@@ -2437,7 +2437,8 @@
         "packages/domains/connect/src/github/",
         "packages/core/db/src/lib/crypto.ts",
         "rust/modules/connect/",
-        "rust/crates/connect-domain/src/github_app.rs"
+        "rust/crates/connect-domain/",
+        "rust/modules/core-integrations/"
       ]
     },
     {
@@ -2465,11 +2466,10 @@
         "packages/domains/merge/src/installations.ts",
         "packages/domains/merge/src/member-token.ts",
         "rust/modules/connect/",
+        "rust/crates/connect-domain/",
+        "rust/modules/core-integrations/",
         "rust/modules/merge/src/installations.rs",
-        "rust/crates/merge-domain/src/",
-        "rust/crates/connect-domain/src/github_app.rs",
-        "rust/crates/connect-domain/src/github_user.rs",
-        "rust/crates/connect-domain/src/install_state.rs"
+        "rust/crates/merge-domain/src/"
       ]
     },
     {
@@ -2510,6 +2510,7 @@
         "rust/crates/ads-domain/",
         "rust/crates/connect-domain/",
         "rust/modules/connect/",
+        "rust/modules/core-integrations/",
         "packages/domains/connect/src/connectors/",
         "packages/domains/core/src/legal-entities/",
         "rust/crates/legal-entities/"

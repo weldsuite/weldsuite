@@ -90,6 +90,7 @@ pub(crate) fn api(state: &AppState) -> Router<AppState> {
         _ => router,
     };
     let router = core_apps(router, state);
+    let router = core_integrations(router, state);
     let router = if mounts("docs") {
         let docs = weldsuite_docs::DocsState {
             events: state.infra.events.clone(),
@@ -406,21 +407,50 @@ fn connect(router: Router<AppState>, state: &AppState) -> Router<AppState> {
 }
 
 /// WeldConnect's public routes (the workflow webhook receiver at
-/// `/api/workflows/webhook/:id`, WooCommerce's app-auth callback at
-/// `/webhooks/woocommerce/auth`). Conformance builds open the test's tenant
+/// `/api/workflows/webhook/:id`, the GitHub App's install callback, the
+/// internal workflow actions). Conformance builds open the test's tenant
 /// database for every workspace.
 fn connect_public(state: &AppState) -> Router<AppState> {
     if !mounts("connect") {
         return Router::new();
     }
-    let router = weldsuite_connect::public_router(connect_state(state))
-        .merge(weldsuite_connect::workflow_actions_router(
-            workflow_actions_state(state),
-        ))
-        .merge(weldsuite_connect::woocommerce_auth_router(
-            connect_state(state),
-            Some(Arc::clone(&state.workspaces)),
-        ));
+    let router = weldsuite_connect::public_router(connect_state(state)).merge(
+        weldsuite_connect::workflow_actions_router(workflow_actions_state(state)),
+    );
+    #[cfg(feature = "conformance")]
+    let router = router.route_layer(axum::middleware::from_fn_with_state(
+        Arc::clone(&state.conformance_pools),
+        crate::conformance::public_tenant,
+    ));
+    router
+}
+
+/// The integrations (`weldsuite-core-integrations`): connect-api's
+/// integration routes (`/integrations`, `/connectors`, `/external-webhooks`,
+/// `/github-connections`, `/workflow-integrations`), core platform
+/// functionality served wherever core is, whether or not WeldConnect is.
+/// The CRM sync starts on this deployment's `CRM_SYNC` job.
+fn core_integrations(router: Router<AppState>, state: &AppState) -> Router<AppState> {
+    if !mounts("core") {
+        return router;
+    }
+    router.merge(integrations::core_integrations_bindings(
+        weldsuite_core_integrations::router(core_integrations_state(state), &state.permissions),
+        state,
+    ))
+}
+
+/// The integrations' public route: WooCommerce's app-auth callback at
+/// `/webhooks/woocommerce/auth`. Conformance builds open the test's tenant
+/// database for every workspace.
+fn core_integrations_public(state: &AppState) -> Router<AppState> {
+    if !mounts("core") {
+        return Router::new();
+    }
+    let router = weldsuite_core_integrations::woocommerce_auth_router(
+        core_integrations_state(state),
+        Some(Arc::clone(&state.workspaces)),
+    );
     #[cfg(feature = "conformance")]
     let router = router.route_layer(axum::middleware::from_fn_with_state(
         Arc::clone(&state.conformance_pools),
@@ -430,7 +460,7 @@ fn connect_public(state: &AppState) -> Router<AppState> {
 }
 
 /// The workspaces' tenant databases, by `workspaces.id` or Clerk org id.
-fn connect_tenants(state: &AppState) -> weldsuite_connect::TenantDatabases {
+fn workspace_tenants(state: &AppState) -> weldsuite_connect::TenantDatabases {
     let workspaces = Arc::clone(&state.workspaces);
     Arc::new(move |reference: String| {
         let workspaces = Arc::clone(&workspaces);
@@ -463,21 +493,21 @@ fn workflow_actions_state(state: &AppState) -> weldsuite_connect::WorkflowAction
         // conformance builds.
         push_http: (!conformance).then(shared_outbound).flatten(),
         master: (!conformance).then(|| state.workspaces.master().clone()),
-        tenants: Some(connect_tenants(state)),
+        tenants: Some(workspace_tenants(state)),
         env: Arc::new(env),
     }
 }
 
-/// connect-api's internal integration routes (`X-Internal-Secret`), which
-/// share their paths with the member routes: the server sends a request
-/// there ahead of the session when `is_internal_integrations_call` says so.
-/// `None` while connect is not mounted. Conformance builds give them what
-/// the test shares, its tenant database included.
-pub(crate) fn connect_internal(state: &AppState) -> Option<Router<AppState>> {
-    if !mounts("connect") {
+/// The internal integration routes (`X-Internal-Secret`), which share their
+/// paths with the member routes: the server sends a request there ahead of
+/// the session when `is_internal_integrations_call` says so. `None` while
+/// core is not mounted. Conformance builds give them what the test shares,
+/// its tenant database included.
+pub(crate) fn core_integrations_internal(state: &AppState) -> Option<Router<AppState>> {
+    if !mounts("core") {
         return None;
     }
-    let router = weldsuite_connect::internal_integrations_router(connect_state(state));
+    let router = weldsuite_core_integrations::internal_router(core_integrations_state(state));
     #[cfg(feature = "conformance")]
     let router = router
         .route_layer(axum::middleware::from_fn_with_state(
@@ -491,41 +521,77 @@ pub(crate) fn connect_internal(state: &AppState) -> Option<Router<AppState>> {
     Some(router)
 }
 
-/// WeldConnect's handle for a cron run (no `AppState`): the same as
-/// [`connect_state`], with `jobs` (Restate) and the process's infra.
-pub(crate) fn cron_connect_state(
+/// The integrations' handle for a cron run (no `AppState`): the same as
+/// [`core_integrations_state`], with the process's infra.
+pub(crate) fn cron_core_integrations_state(
     infra: &crate::infra::Infra,
     workspaces: &Arc<weldsuite_db::Workspaces>,
     environment: &str,
-    jobs: Arc<dyn weldsuite_ports::DynJobs>,
-) -> weldsuite_connect::ConnectState {
+) -> weldsuite_core_integrations::IntegrationsState {
     let opener = Arc::clone(workspaces);
-    let tenants: weldsuite_connect::TenantDatabases = Arc::new(move |reference: String| {
-        let workspaces = Arc::clone(&opener);
-        Box::pin(async move {
-            workspaces
-                .tenant(&reference)
-                .await
-                .map(|tenant| tenant.db)
-                .map_err(|error| error.to_string())
-        })
-    });
-    let mut env = weldsuite_connect::env_from_process();
+    let tenants: weldsuite_core_integrations::TenantDatabases =
+        Arc::new(move |reference: String| {
+            let workspaces = Arc::clone(&opener);
+            Box::pin(async move {
+                workspaces
+                    .tenant(&reference)
+                    .await
+                    .map(|tenant| tenant.db)
+                    .map_err(|error| error.to_string())
+            })
+        });
+    let mut env = weldsuite_core_integrations::env_from_process();
     env.insert("ENVIRONMENT".to_owned(), environment.to_owned());
-    weldsuite_connect::ConnectState {
+    weldsuite_core_integrations::IntegrationsState {
         events: infra.events.clone(),
         cache: infra.cache.clone(),
         master: Some(workspaces.master().clone()),
         http: shared_outbound(),
-        jobs: Some(jobs),
         tenants: Some(tenants),
         env: Arc::new(env),
-        webhooks: connect_webhook_http(),
-        trusted_proxies: 1,
+        webhooks: integrations_webhook_http(),
         storage: infra.public_files.clone(),
-        // The cron jobs serve no AI route.
-        ai: None,
         connector_edition: "kubernetes",
+    }
+}
+
+/// The integrations' handle on the app: events, the cache (OAuth states,
+/// the webhook registry's), the master database, third-party HTTP, the
+/// workspaces' tenant databases, the outbound webhooks' client and the
+/// files store. Conformance builds take the test's KV, master database,
+/// fetch stub and buckets per request.
+pub(crate) fn core_integrations_state(
+    state: &AppState,
+) -> weldsuite_core_integrations::IntegrationsState {
+    static ENV: OnceLock<Arc<std::collections::HashMap<String, String>>> = OnceLock::new();
+    let conformance = cfg!(feature = "conformance");
+    weldsuite_core_integrations::IntegrationsState {
+        events: state.infra.events.clone(),
+        cache: if conformance {
+            None
+        } else {
+            state.infra.cache.clone()
+        },
+        master: (!conformance).then(|| state.workspaces.master().clone()),
+        http: if conformance { None } else { shared_outbound() },
+        tenants: Some(workspace_tenants(state)),
+        env: Arc::clone(ENV.get_or_init(|| {
+            let mut env = weldsuite_core_integrations::env_from_process();
+            env.insert("ENVIRONMENT".to_owned(), state.environment.clone());
+            Arc::new(env)
+        })),
+        webhooks: if conformance {
+            None
+        } else {
+            integrations_webhook_http()
+        },
+        storage: if conformance {
+            None
+        } else {
+            state.infra.public_files.clone()
+        },
+        // Conformance compares the catalog with Global's, which hides Odoo.
+        connector_edition: if conformance { "global" } else { "kubernetes" },
     }
 }
 
@@ -536,17 +602,6 @@ pub(crate) fn cron_connect_state(
 pub(crate) fn connect_state(state: &AppState) -> weldsuite_connect::ConnectState {
     static ENV: OnceLock<Arc<std::collections::HashMap<String, String>>> = OnceLock::new();
     let conformance = cfg!(feature = "conformance");
-    let workspaces = Arc::clone(&state.workspaces);
-    let tenants: weldsuite_connect::TenantDatabases = Arc::new(move |reference: String| {
-        let workspaces = Arc::clone(&workspaces);
-        Box::pin(async move {
-            workspaces
-                .tenant(&reference)
-                .await
-                .map(|tenant| tenant.db)
-                .map_err(|error| error.to_string())
-        })
-    });
     weldsuite_connect::ConnectState {
         events: state.infra.events.clone(),
         cache: if conformance {
@@ -557,34 +612,23 @@ pub(crate) fn connect_state(state: &AppState) -> weldsuite_connect::ConnectState
         master: (!conformance).then(|| state.workspaces.master().clone()),
         http: if conformance { None } else { shared_outbound() },
         jobs: (!conformance).then(|| Arc::clone(&state.infra.jobs)),
-        tenants: Some(tenants),
+        tenants: Some(workspace_tenants(state)),
         env: Arc::clone(ENV.get_or_init(|| {
             let mut env = weldsuite_connect::env_from_process();
             env.insert("ENVIRONMENT".to_owned(), state.environment.clone());
             Arc::new(env)
         })),
-        webhooks: if conformance {
-            None
-        } else {
-            connect_webhook_http()
-        },
         trusted_proxies: state.trusted_proxies,
-        storage: if conformance {
-            None
-        } else {
-            state.infra.public_files.clone()
-        },
         // "Generate with AI"; a conformance request carries the test's own.
         ai: state.ai.clone(),
-        // Conformance compares the catalog with Global's, which hides Odoo.
-        connector_edition: if conformance { "global" } else { "kubernetes" },
     }
 }
 
 /// The outbound webhooks' HTTP client, for the test delivery of
 /// `/api/external-webhooks/:id/test` (`WEBHOOK_ALLOW_PRIVATE_NETWORKS` as
 /// `weldsuite consume` reads it: private addresses are refused unless set).
-pub(crate) fn connect_webhook_http() -> Option<Arc<dyn weldsuite_subscribers::DeliveryAttempts>> {
+pub(crate) fn integrations_webhook_http() -> Option<Arc<dyn weldsuite_subscribers::DeliveryAttempts>>
+{
     static HTTP: OnceLock<Option<Arc<dyn weldsuite_subscribers::DeliveryAttempts>>> =
         OnceLock::new();
     HTTP.get_or_init(|| {
@@ -593,7 +637,7 @@ pub(crate) fn connect_webhook_http() -> Option<Arc<dyn weldsuite_subscribers::De
         match weldsuite_subscribers::WebhookHttp::new(allow_private) {
             Ok(http) => Some(Arc::new(http) as Arc<dyn weldsuite_subscribers::DeliveryAttempts>),
             Err(error) => {
-                tracing::error!(%error, "connect: the webhook HTTP client could not be built");
+                tracing::error!(%error, "integrations: the webhook HTTP client could not be built");
                 None
             }
         }
@@ -1063,9 +1107,10 @@ pub(crate) fn odoo_http() -> Option<weldsuite_ports::OutboundHttp> {
     .clone()
 }
 
-/// Sends every Odoo request through [`odoo_http`] (built on the first):
-/// WeldConnect's syncs, credential tests and catch-up probes and WeldStash's
-/// RFQ push, whichever module's HTTP client they hold. A client that could
+/// Sends every Odoo request through [`odoo_http`] (built on the first): the
+/// connector syncs, credential tests and catch-up probes (the core
+/// integrations) and WeldStash's RFQ push, whichever module's HTTP client
+/// they hold. A client that could
 /// not be built leaves Odoo unreachable, never on the unrestricted one.
 /// Conformance builds keep the test's fetch stub.
 pub(crate) fn install_odoo_http() {
@@ -2345,6 +2390,7 @@ pub(crate) fn public(state: &AppState) -> Router<AppState> {
         .merge(host::public(state))
         .merge(flow_public(state))
         .merge(connect_public(state))
+        .merge(core_integrations_public(state))
         .merge(merge_public(state))
         // The integration workers' webhook receivers (no module id: always).
         .merge(integrations::public(state));

@@ -2,8 +2,12 @@
 //! read it: stored connector credentials and the sales tax engines'
 //! credentials, sealed with the workspace keyring
 //! (`DATABASE_ENCRYPTION_KEY`, `_V2`).
+//!
+//! [`maybe_decrypt`] and [`seal_if_keyed`] are the integration routes' and
+//! the workflow engine's reading: integration tokens and credentials
+//! (`workflow_integrations`, the CRM connections).
 
-use weldsuite_db::{Keyring, decrypt_workspace_database_url};
+use weldsuite_db::{Keyring, decrypt_workspace_database_url, encrypt_field};
 
 /// `iv:ciphertext`, both non-empty hex.
 fn hex_pair(value: &str) -> bool {
@@ -55,6 +59,40 @@ pub fn maybe_decrypt_field(value: &str, keyring: &Keyring) -> String {
         return value.to_owned();
     }
     decrypt_field(value, keyring).unwrap_or_else(|_| value.to_owned())
+}
+
+/// A `prefix` followed by `iv:ciphertext`, the prefix in any case.
+fn versioned(value: &str, prefix: &str) -> bool {
+    value
+        .get(..prefix.len())
+        .is_some_and(|head| head.eq_ignore_ascii_case(prefix))
+        && hex_pair(&value[prefix.len()..])
+}
+
+/// `maybeDecryptField(value, keyring)` as the integration routes and the
+/// workflow engine read it: the plaintext of a sealed v1/v2 value the
+/// keyring opens; anything else (plain text, v3, a value the keyring has no
+/// key for or can't open) as it is. The version prefix matches in any case
+/// and the value opens through [`weldsuite_db::decrypt_field`].
+pub fn maybe_decrypt(value: &str, keyring: &Keyring) -> String {
+    let v2 = versioned(value, "v2:");
+    let v1 = hex_pair(value);
+    if !(v1 || v2) || versioned(value, "v3:") {
+        return value.to_owned();
+    }
+    if (v2 && keyring.v2.is_none()) || (v1 && keyring.v1.is_none()) {
+        return value.to_owned();
+    }
+    weldsuite_db::decrypt_field(value, keyring).unwrap_or_else(|_| value.to_owned())
+}
+
+/// `encryptField(value, keyring)` when the keyring has a key, else the value
+/// as it is (the connect flows' `enc`).
+pub fn seal_if_keyed(value: &str, keyring: &Keyring) -> Result<String, String> {
+    if keyring.v1.is_none() && keyring.v2.is_none() {
+        return Ok(value.to_owned());
+    }
+    encrypt_field(value, keyring).map_err(|error| error.to_string())
 }
 
 #[cfg(test)]

@@ -28,16 +28,14 @@ use weldsuite_kit::Data;
 use weldsuite_schema::master::workspaces;
 use weldsuite_schema::tenant::{ad_accounts, ad_platform_connections};
 
-use super::{
-    RequestCrmSyncRuns, WatchRenewal, action_response, renew_google_calendar_watch,
-    trigger_connection_sync,
-};
-use crate::{ConnectState, Overrides, internal as internal_error};
+use super::{WatchRenewal, action_response, renew_google_calendar_watch, trigger_connection_sync};
+use crate::runs::RequestCrmSyncRuns;
+use crate::{IntegrationsState, Overrides, internal as internal_error};
 
 const PREFIX: &str = "/api/integrations";
 
 /// The routes, at their full paths.
-pub(crate) fn router<S>(state: ConnectState) -> Router<S>
+pub(crate) fn router<S>(state: IntegrationsState) -> Router<S>
 where
     S: Clone + Send + Sync + 'static,
 {
@@ -133,7 +131,7 @@ struct Internal {
 impl Internal {
     /// `getWorkspaceForOrg(env, clerkOrgId).id`.
     #[allow(clippy::result_large_err)]
-    async fn workspace_id(&self, state: &ConnectState) -> Result<String, Response> {
+    async fn workspace_id(&self, state: &IntegrationsState) -> Result<String, Response> {
         if let Some(id) = &self.tenant_workspace {
             return Ok(id.clone());
         }
@@ -162,7 +160,7 @@ impl Internal {
 /// `resolveInternal`: the secret, then the tenant.
 #[allow(clippy::result_large_err)]
 async fn resolve(
-    state: &ConnectState,
+    state: &IntegrationsState,
     headers: &HeaderMap,
     extensions: &http::Extensions,
 ) -> Result<Internal, Response> {
@@ -234,14 +232,14 @@ async fn resolve(
     }
 }
 
-fn http_of(overrides: &Overrides, state: &ConnectState) -> weldsuite_ports::OutboundHttp {
+fn http_of(overrides: &Overrides, state: &IntegrationsState) -> weldsuite_ports::OutboundHttp {
     overrides
         .http(state)
         .unwrap_or_else(|| weldsuite_ports::OutboundHttp(Arc::new(crate::Unreachable)))
 }
 
 async fn sync(
-    State(state): State<ConnectState>,
+    State(state): State<IntegrationsState>,
     uri: http::Uri,
     headers: HeaderMap,
     extensions: http::Extensions,
@@ -277,7 +275,7 @@ async fn sync(
 /// store or accounting connector, run to the end; the connection's
 /// watermarks after it.
 async fn connector_catch_up(
-    State(state): State<ConnectState>,
+    State(state): State<IntegrationsState>,
     uri: http::Uri,
     headers: HeaderMap,
     extensions: http::Extensions,
@@ -342,7 +340,7 @@ async fn connector_catch_up(
 /// `POST /connections/:id/connector-event`: a store's webhook delivery,
 /// verified and ingested.
 async fn connector_event(
-    State(state): State<ConnectState>,
+    State(state): State<IntegrationsState>,
     uri: http::Uri,
     headers: HeaderMap,
     extensions: http::Extensions,
@@ -410,7 +408,7 @@ async fn connector_event(
 /// `POST /woocommerce-auth`: the shop's API keys for a WooCommerce
 /// authorisation (forwarded by the webhook ingress).
 async fn woocommerce_auth(
-    State(state): State<ConnectState>,
+    State(state): State<IntegrationsState>,
     headers: HeaderMap,
     extensions: http::Extensions,
     body: Bytes,
@@ -458,7 +456,7 @@ async fn woocommerce_auth(
 /// `POST /moneybird-push`: the cron's `moneybird_push` work row, another
 /// push pass for every Moneybird connection of the workspace.
 async fn moneybird_push(
-    State(state): State<ConnectState>,
+    State(state): State<IntegrationsState>,
     headers: HeaderMap,
     extensions: http::Extensions,
 ) -> Response {
@@ -478,7 +476,7 @@ async fn moneybird_push(
 }
 
 async fn renew_watch(
-    State(state): State<ConnectState>,
+    State(state): State<IntegrationsState>,
     uri: http::Uri,
     headers: HeaderMap,
     extensions: http::Extensions,
@@ -506,7 +504,7 @@ async fn renew_watch(
     action_response(result, &id, false, "Failed to renew watch channel")
 }
 
-fn keyring(overrides: &Overrides, state: &ConnectState) -> weldsuite_db::Keyring {
+fn keyring(overrides: &Overrides, state: &IntegrationsState) -> weldsuite_db::Keyring {
     let key = |name: &str| overrides.env(state, name).filter(|v| !v.is_empty());
     weldsuite_db::Keyring {
         v1: key("DATABASE_ENCRYPTION_KEY"),
@@ -515,7 +513,7 @@ fn keyring(overrides: &Overrides, state: &ConnectState) -> weldsuite_db::Keyring
 }
 
 async fn ad_connection_sync(
-    State(state): State<ConnectState>,
+    State(state): State<IntegrationsState>,
     uri: http::Uri,
     RawQuery(query): RawQuery,
     headers: HeaderMap,
@@ -604,7 +602,7 @@ fn ad_event(body: &Value) -> Option<(String, Option<String>)> {
 }
 
 async fn ad_events(
-    State(state): State<ConnectState>,
+    State(state): State<IntegrationsState>,
     headers: HeaderMap,
     extensions: http::Extensions,
     body: Bytes,

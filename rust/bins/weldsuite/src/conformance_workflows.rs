@@ -170,6 +170,13 @@ impl weldsuite_connect::ProjectSyncRuns for BridgedWorkflow {
     }
 }
 
+impl weldsuite_core_integrations::CrmSyncRuns for BridgedWorkflow {
+    /// `binding.create({ id, params })`.
+    fn create<'a>(&'a self, id: &'a str, params: &'a Value) -> BoxFuture<'a, Result<(), String>> {
+        Box::pin(self.call("create", id, json!({ "id": id, "params": params })))
+    }
+}
+
 impl weldsuite_integrations::WorkflowRuns for BridgedWorkflow {
     /// `binding.create({ id, params })`.
     fn create<'a>(&'a self, id: &'a str, params: &'a Value) -> BoxFuture<'a, Result<(), String>> {
@@ -341,13 +348,13 @@ impl WorkflowBridges {
     pub(crate) fn crm_sync_runs(
         &self,
         workflows: &HashMap<String, String>,
-    ) -> Option<Arc<dyn weldsuite_connect::ProjectSyncRuns>> {
+    ) -> Option<Arc<dyn weldsuite_core_integrations::CrmSyncRuns>> {
         workflows.get("CRM_SYNC").map(|bridge| {
             Arc::new(BridgedWorkflow {
                 bridge: bridge.trim_end_matches('/').to_owned(),
                 binding: "CRM_SYNC",
                 client: self.client.clone(),
-            }) as Arc<dyn weldsuite_connect::ProjectSyncRuns>
+            }) as Arc<dyn weldsuite_core_integrations::CrmSyncRuns>
         })
     }
 

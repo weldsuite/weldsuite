@@ -35,7 +35,7 @@ use weldsuite_schema::tenant::{
     warehouses,
 };
 
-use crate::{Caller, ConnectState, validate};
+use crate::{Caller, IntegrationsState, validate};
 
 /// `picqerPushSchema`'s entities.
 const ENTITIES: &[&str] = &[
@@ -316,7 +316,7 @@ struct Target<'a> {
 
 /// `loadPicqerClient(args)`.
 async fn load<'a>(
-    state: &ConnectState,
+    state: &IntegrationsState,
     caller: &'a Caller,
     connection_id: &'a str,
 ) -> Result<Target<'a>, PushError> {
@@ -751,7 +751,7 @@ struct PushBody {
 
 /// `POST /connections/:id/picqer/push`.
 pub(crate) async fn push(
-    State(state): State<ConnectState>,
+    State(state): State<IntegrationsState>,
     caller: Caller,
     Path(id): Path<String>,
     headers: HeaderMap,

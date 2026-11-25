@@ -41,10 +41,10 @@ use weldsuite_schema::master::workspaces;
 use weldsuite_schema::tenant::{accounting_entity_settings as entity_settings, entities};
 
 use crate::connector_sync::{Background, spawn_sync, sync_env};
-use crate::{Caller, ConnectState, Overrides, validate};
+use crate::{Caller, IntegrationsState, Overrides, validate};
 
 /// The flows' env, from the request's overrides and the state.
-pub(crate) fn auth_env(overrides: &Overrides, state: &ConnectState) -> AuthEnv {
+pub(crate) fn auth_env(overrides: &Overrides, state: &IntegrationsState) -> AuthEnv {
     let env = |name: &str| overrides.env(state, name);
     AuthEnv {
         sync: sync_env(overrides, state),
@@ -80,7 +80,7 @@ async fn outside_eu(db: &weldsuite_db::PgPool, provider: &str) -> Result<(), Res
 /// whose registration failed (or that predates the fix) starts receiving
 /// live updates without being reconnected.
 pub(crate) fn spawn_ensure_webhooks(
-    state: &ConnectState,
+    state: &IntegrationsState,
     overrides: &Overrides,
     db: weldsuite_db::PgPool,
     connection: Value,
@@ -123,7 +123,7 @@ pub(crate) fn spawn_ensure_webhooks(
 /// or gone at Moneybird ("Turn on live updates"). Answers the connection as
 /// it is after, and a warning when live updates are still off.
 pub(crate) async fn repair_live_updates(
-    State(state): State<ConnectState>,
+    State(state): State<IntegrationsState>,
     caller: Caller,
     Path(id): Path<String>,
 ) -> Response {
@@ -482,7 +482,7 @@ fn connect_request_error(connector: &Value, credentials: &Map<String, Value>) ->
 /// `POST /connect`.
 #[allow(clippy::too_many_lines)]
 pub(crate) async fn connect(
-    State(state): State<ConnectState>,
+    State(state): State<IntegrationsState>,
     caller: Caller,
     headers: HeaderMap,
     body: Bytes,
@@ -686,7 +686,7 @@ pub(crate) async fn connect(
 
 /// `POST /authorize`.
 pub(crate) async fn authorize(
-    State(state): State<ConnectState>,
+    State(state): State<IntegrationsState>,
     caller: Caller,
     OriginalUri(uri): OriginalUri,
     headers: HeaderMap,
@@ -849,7 +849,7 @@ fn request_origin(headers: &HeaderMap, uri: &http::Uri) -> Option<String> {
 /// The tenant an OAuth state names: the caller's own when it is the same
 /// workspace, else opened by the Clerk org id.
 async fn tenant_for(
-    state: &ConnectState,
+    state: &IntegrationsState,
     caller: &Caller,
     clerk_org_id: String,
 ) -> Result<TenantRef, String> {
@@ -884,7 +884,7 @@ async fn tenant_for(
 
 /// `POST /oauth/callback`.
 pub(crate) async fn oauth_callback(
-    State(state): State<ConnectState>,
+    State(state): State<IntegrationsState>,
     caller: Caller,
     headers: HeaderMap,
     body: Bytes,
@@ -927,7 +927,7 @@ pub(crate) async fn oauth_callback(
 
 /// `POST /connections/:id/select-account`.
 pub(crate) async fn select_account(
-    State(state): State<ConnectState>,
+    State(state): State<IntegrationsState>,
     caller: Caller,
     Path(id): Path<String>,
     headers: HeaderMap,
@@ -975,7 +975,7 @@ pub(crate) async fn select_account(
 /// `PATCH /connections/:id`.
 #[allow(clippy::too_many_lines)]
 pub(crate) async fn patch_connection(
-    State(state): State<ConnectState>,
+    State(state): State<IntegrationsState>,
     caller: Caller,
     Path(id): Path<String>,
     headers: HeaderMap,
@@ -1172,7 +1172,7 @@ pub(crate) async fn patch_connection(
 /// `afterSettingsChange(...)`: re-read Stripe from a new start date, send to
 /// Moneybird once enabled.
 fn after_settings_change(
-    state: &ConnectState,
+    state: &IntegrationsState,
     caller: &Caller,
     env: &AuthEnv,
     db: &weldsuite_db::PgPool,
@@ -1212,7 +1212,7 @@ fn after_settings_change(
 
 /// `DELETE /connections/:id`.
 pub(crate) async fn delete_connection(
-    State(state): State<ConnectState>,
+    State(state): State<IntegrationsState>,
     caller: Caller,
     Path(id): Path<String>,
 ) -> Response {

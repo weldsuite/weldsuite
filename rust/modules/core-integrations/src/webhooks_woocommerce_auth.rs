@@ -19,20 +19,20 @@ use weldsuite_connect_domain::auth::{TenantRef, complete_woo_app_auth};
 use weldsuite_db::Tenant;
 
 use crate::connector_auth::auth_env;
-use crate::{ConnectState, Overrides};
+use crate::{IntegrationsState, Overrides};
 
-/// What the callback needs beyond the connect state: the workspace
+/// What the callback needs beyond the integrations state: the workspace
 /// directory, which opens the authorising workspace's tenant database and
 /// names its `workspaces.id` (`getWorkspaceForOrg`).
 #[derive(Clone)]
 struct WooAuthState {
-    connect: ConnectState,
+    integrations: IntegrationsState,
     workspaces: Option<Arc<weldsuite_db::Workspaces>>,
 }
 
 /// The route at its full path.
 pub(crate) fn router<S>(
-    connect: ConnectState,
+    integrations: IntegrationsState,
     workspaces: Option<Arc<weldsuite_db::Workspaces>>,
 ) -> Router<S>
 where
@@ -41,7 +41,7 @@ where
     Router::new()
         .route("/webhooks/woocommerce/auth", post(callback))
         .with_state(WooAuthState {
-            connect,
+            integrations,
             workspaces,
         })
 }
@@ -53,7 +53,7 @@ async fn callback(
 ) -> Response {
     let overrides = Overrides::from_extensions(&extensions);
     // `completeWooCommerceAppAuth({ env: c.env, ... })`: connect-api's env.
-    let auth = auth_env(&overrides, &state.connect);
+    let auth = auth_env(&overrides, &state.integrations);
     let own = extensions.get::<Tenant>().cloned();
     let workspaces = state.workspaces.clone();
     let tenant_for = |org: String| async move {

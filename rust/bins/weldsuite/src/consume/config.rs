@@ -277,10 +277,12 @@ fn mail_served() -> bool {
         .any(|m| m.id == "mail" && m.rust)
 }
 
-fn connect_served() -> bool {
+/// Whether the Rust backend serves the core platform (`api-modules.json`),
+/// whose integrations run the Moneybird two-way sync's consumer here.
+fn core_served() -> bool {
     weldsuite_catalogs::api_modules()
         .iter()
-        .any(|m| m.id == "connect" && m.rust)
+        .any(|m| m.id == "core" && m.rust)
 }
 
 #[derive(Clone)]
@@ -505,7 +507,7 @@ impl ConsumeConfig {
                 .copied()
                 .chain(mail_inbound.is_some().then_some(MAIL_INBOUND))
                 .chain(mail_served().then_some(MAIL_SENDING_EVENTS))
-                .chain(connect_served().then_some(MONEYBIRD_SYNC))
+                .chain(core_served().then_some(MONEYBIRD_SYNC))
                 .chain(reach_send.then_some(REACH_SEND))
                 .chain(reach_warmup.then_some(REACH_WARMUP_SEND))
                 .chain(reach_warmup.then_some(REACH_WARMUP_ENGAGE))
@@ -731,7 +733,7 @@ mod tests {
         if mail_served() {
             expected.push(MAIL_SENDING_EVENTS);
         }
-        if connect_served() {
+        if core_served() {
             expected.push(MONEYBIRD_SYNC);
         }
         assert_eq!(config.subscribers, expected);

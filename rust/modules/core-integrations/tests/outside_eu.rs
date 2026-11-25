@@ -1,4 +1,4 @@
-//! ADR OPS-026 on WeldConnect's workflow integrations: with the EU
+//! ADR OPS-026 on the workflow integrations: with the EU
 //! edition's enforcement on, an integration whose company is outside the EU
 //! (Asana here) can't be created until the workspace switched it on, while
 //! EU and custom ones always can.
@@ -23,7 +23,7 @@ use http::{Request, StatusCode};
 use serde_json::{Value, json};
 use tower::ServiceExt;
 use weldsuite_auth::AuthContext;
-use weldsuite_connect::ConnectState;
+use weldsuite_core_integrations::IntegrationsState;
 use weldsuite_db::{PgPool, Tenant, WorkspaceRestrictions};
 use weldsuite_events::{EntityEventPublisher, TaskTracker};
 use weldsuite_outside_eu::store::SettingsSnapshot;
@@ -32,7 +32,7 @@ use weldsuite_permissions::{
     MemberRow, PermissionGate, PermissionQueries, Permissions, ResolvedPermissions,
 };
 
-const WORKSPACE: &str = "ws_outside_eu_connect_test";
+const WORKSPACE: &str = "ws_outside_eu_integrations_test";
 const USER: &str = "user_outside_eu_admin";
 
 struct NoQueries;
@@ -62,20 +62,17 @@ impl PermissionQueries for NoQueries {
     }
 }
 
-/// connect's routes as the server serves them, for an admin of `tenant`.
+/// The integration routes as the server serves them, for an admin of `tenant`.
 fn app(tenant: PgPool) -> Router {
-    let state = ConnectState {
+    let state = IntegrationsState {
         events: EntityEventPublisher::new(None, TaskTracker::new()),
         cache: None,
         master: None,
         http: None,
-        jobs: None,
         tenants: None,
         env: Arc::new(HashMap::new()),
         webhooks: None,
-        trusted_proxies: 0,
         storage: None,
-        ai: None,
         connector_edition: "kubernetes",
     };
     let gate = Arc::new(PermissionGate::new(|_| Ok(NoQueries)));
@@ -90,7 +87,7 @@ fn app(tenant: PgPool) -> Router {
         .collect(),
         ..ResolvedPermissions::default()
     };
-    weldsuite_connect::router(state, &gate).layer(axum::middleware::from_fn(
+    weldsuite_core_integrations::router(state, &gate).layer(axum::middleware::from_fn(
         move |mut request: axum::extract::Request, next: axum::middleware::Next| {
             let auth = AuthContext {
                 user_id: USER.to_owned(),

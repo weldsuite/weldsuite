@@ -119,9 +119,9 @@ pub(crate) const UNAVAILABLE_FEATURES: &[&str] = &[
     "data-regions",
     // Third-party integrations not offered here yet: the CRM sync (Attio,
     // HubSpot, Salesforce), Slack, Discord, GitHub and Google Calendar. The
-    // platform hides their pages under Settings › Integrations. WeldConnect's
-    // store and accounting connectors (WooCommerce, Shopify, Moneybird,
-    // Picqer) don't depend on this: `/api/connectors`, their webhooks
+    // platform hides their pages under Settings › Integrations. The core
+    // integrations' store and accounting connectors (WooCommerce, Shopify,
+    // Moneybird, Picqer) don't depend on this: `/api/connectors`, their webhooks
     // (`weldsuite_integrations::connectors`) and the `connector-catchup` and
     // `moneybird-push` cron jobs run here, so their pages stay.
     "integration-sync",

@@ -34,11 +34,11 @@ use weldsuite_schema::tenant::{custom_objects, external_webhooks, webhook_delive
 use weldsuite_subscribers::{DeliverInput, WEBHOOK_RETRY_KIND, WebhookRow};
 
 use crate::js::{next_cursor, page};
-use crate::{Caller, ConnectState, Refusal, internal, validate, validate_query};
+use crate::{Caller, IntegrationsState, Refusal, internal, validate, validate_query};
 
 pub(crate) fn routes<Q: PermissionQueries + 'static>(
     gate: &Arc<PermissionGate<Q>>,
-) -> Router<ConnectState> {
+) -> Router<IntegrationsState> {
     let read = || gate.require([perm::WEBHOOKS_READ]);
     let update = || gate.require([perm::WEBHOOKS_UPDATE]);
     Router::new()
@@ -224,7 +224,7 @@ fn event_entry(event: &str, label: Option<&str>) -> Value {
 }
 
 async fn events(caller: Caller) -> Response {
-    let mut events: Vec<Value> = crate::catalog::webhook_events()
+    let mut events: Vec<Value> = weldsuite_connect_domain::workflow_catalog::webhook_events()
         .iter()
         .filter_map(Value::as_str)
         .map(|event| event_entry(event, None))
@@ -644,7 +644,7 @@ async fn delete_one(caller: Caller, Path(id): Path<String>) -> Response {
 // ── POST /:id/test ──────────────────────────────────────────────────────────
 
 async fn send_test(
-    State(state): State<ConnectState>,
+    State(state): State<IntegrationsState>,
     caller: Caller,
     Path(id): Path<String>,
 ) -> Response {

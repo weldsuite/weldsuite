@@ -1,0 +1,42 @@
+[package]
+name = "weldsuite-core-integrations"
+description = "Core platform integrations: the CRM sync and MCP servers, the store and accounting connectors, the GitHub connection, outbound webhooks and the workflow integrations (connect-api's integration routes), served whether or not WeldConnect is"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+weldsuite-ads-domain = { workspace = true }
+weldsuite-auth = { workspace = true }
+weldsuite-catalogs = { workspace = true }
+weldsuite-connect-domain = { workspace = true }
+weldsuite-db = { workspace = true }
+weldsuite-desk-domain = { workspace = true }
+weldsuite-events = { workspace = true }
+weldsuite-kit = { workspace = true }
+weldsuite-outside-eu = { workspace = true }
+weldsuite-permissions = { workspace = true }
+weldsuite-ports = { workspace = true }
+weldsuite-schema = { workspace = true }
+weldsuite-subscribers = { workspace = true }
+axum = { workspace = true, features = ["json", "query"] }
+hex = { workspace = true }
+http = { workspace = true }
+sea-orm = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+sqlx = { workspace = true }
+time = { workspace = true }
+tracing = { workspace = true }
+url = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+tower = { workspace = true }
+
+[lints]
+workspace = true

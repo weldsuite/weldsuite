@@ -2097,7 +2097,7 @@ async fn workflow_polls(config: Config) -> Result<(), Box<dyn std::error::Error>
     if !crate::routes::mounts("connect") {
         println!(
             "{}",
-            serde_json::json!({ "job": "workflow-polls", "skipped": "connect is not served" })
+            serde_json::json!({ "job": "workflow-polls", "skipped": "core is not served" })
         );
         return Ok(());
     }
@@ -2152,9 +2152,9 @@ async fn workflow_polls(config: Config) -> Result<(), Box<dyn std::error::Error>
 }
 
 /// `ad-sync`: WeldAds connections whose metrics sync is due (the master
-/// `ad_sync_index`), synced through WeldConnect's internal route in this
+/// `ad_sync_index`), synced through the internal integration route in this
 /// process (integration-sync-worker's `runAdSyncSweep`). Nothing while
-/// connect is not served.
+/// core is not served.
 async fn ad_sync(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     let master =
         weldsuite_db::master_pool(&config.master_database_url, config.master_max_connections)?;
@@ -2170,16 +2170,13 @@ async fn ad_sync(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(feature = "conformance")]
     let (infra, _) = crate::conformance::infra(tracker.clone());
     let jobs = Arc::clone(&infra.jobs);
-    let connect = crate::routes::cron_connect_state(
-        &infra,
-        &workspaces,
-        &config.environment,
-        Arc::clone(&jobs),
-    );
-    let Some(binding) = crate::routes::integrations::cron_connect_internal(connect, jobs) else {
+    let integrations =
+        crate::routes::cron_core_integrations_state(&infra, &workspaces, &config.environment);
+    let Some(binding) = crate::routes::integrations::cron_connect_internal(integrations, jobs)
+    else {
         println!(
             "{}",
-            serde_json::json!({ "job": "ad-sync", "skipped": "connect is not served" })
+            serde_json::json!({ "job": "ad-sync", "skipped": "core is not served" })
         );
         return Ok(());
     };
@@ -2205,10 +2202,10 @@ async fn ad_sync(config: Config) -> Result<(), Box<dyn std::error::Error>> {
 
 /// `crm-due`: CRM connections whose next sync is due (the master
 /// `workspace_due_index`, kind `crm_sync`, where Global keeps the D1
-/// `crm_sync_index`), synced and their Google watches renewed through
-/// WeldConnect's internal routes in this process (integration-sync-worker's
+/// `crm_sync_index`), synced and their Google watches renewed through the
+/// internal integration routes in this process (integration-sync-worker's
 /// `runCrmDueSweep`). The syncs run on Restate; without
-/// `RESTATE_INGRESS_URL`, or while connect is not served, the run only logs a
+/// `RESTATE_INGRESS_URL`, or while core is not served, the run only logs a
 /// skip.
 async fn crm_due(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     let Some(ingress) = config.infra.jobs.restate_ingress_url.clone() else {
@@ -2234,16 +2231,13 @@ async fn crm_due(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     let jobs: Arc<dyn weldsuite_ports::DynJobs> = Arc::new(
         weldsuite_adapters_oss::RestateJobs::new(&ingress, reqwest::Client::new()),
     );
-    let connect = crate::routes::cron_connect_state(
-        &infra,
-        &workspaces,
-        &config.environment,
-        Arc::clone(&jobs),
-    );
-    let Some(binding) = crate::routes::integrations::cron_connect_internal(connect, jobs) else {
+    let integrations =
+        crate::routes::cron_core_integrations_state(&infra, &workspaces, &config.environment);
+    let Some(binding) = crate::routes::integrations::cron_connect_internal(integrations, jobs)
+    else {
         println!(
             "{}",
-            serde_json::json!({ "job": "crm-due", "skipped": "connect is not served" })
+            serde_json::json!({ "job": "crm-due", "skipped": "core is not served" })
         );
         return Ok(());
     };
@@ -2255,7 +2249,7 @@ async fn crm_due(config: Config) -> Result<(), Box<dyn std::error::Error>> {
                     .tenant(&reference)
                     .await
                     .map_err(|error| error.to_string())?;
-                // Connect's internal routes take the Clerk org id (`X-Workspace-Id`).
+                // The internal integration routes take the Clerk org id (`X-Workspace-Id`).
                 let org = tenant.clerk_org_id.clone().unwrap_or(tenant.workspace_id);
                 Ok((tenant.db, org))
             })
@@ -2287,10 +2281,10 @@ async fn crm_due(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// WeldConnect's store and accounting connectors (integration-sync-worker's
+/// The store and accounting connectors (integration-sync-worker's
 /// `runConnectorCatchupSweep`, integration-webhook-worker's
-/// `runMoneybirdPushSweep`), through WeldConnect's internal routes in this
-/// process; while connect is not served the run only logs a skip.
+/// `runMoneybirdPushSweep`), through the internal integration routes in this
+/// process; while core is not served the run only logs a skip.
 ///
 /// - `connector-catchup`: the workspaces whose connector catch-up is due
 ///   (the master `workspace_due_index`, kind `connector_catchup`, where
@@ -2313,16 +2307,13 @@ async fn connectors(config: Config, job: &str) -> Result<(), Box<dyn std::error:
     #[cfg(feature = "conformance")]
     let (infra, _) = crate::conformance::infra(tracker.clone());
     let jobs = Arc::clone(&infra.jobs);
-    let connect = crate::routes::cron_connect_state(
-        &infra,
-        &workspaces,
-        &config.environment,
-        Arc::clone(&jobs),
-    );
-    let Some(binding) = crate::routes::integrations::cron_connect_internal(connect, jobs) else {
+    let integrations =
+        crate::routes::cron_core_integrations_state(&infra, &workspaces, &config.environment);
+    let Some(binding) = crate::routes::integrations::cron_connect_internal(integrations, jobs)
+    else {
         println!(
             "{}",
-            serde_json::json!({ "job": job, "skipped": "connect is not served" })
+            serde_json::json!({ "job": job, "skipped": "core is not served" })
         );
         return Ok(());
     };
@@ -2344,7 +2335,7 @@ async fn connectors(config: Config, job: &str) -> Result<(), Box<dyn std::error:
                         .tenant(&reference)
                         .await
                         .map_err(|error| error.to_string())?;
-                    // Connect's internal routes take the Clerk org id (`X-Workspace-Id`).
+                    // The internal integration routes take the Clerk org id (`X-Workspace-Id`).
                     let org = tenant.clerk_org_id.clone().unwrap_or(tenant.workspace_id);
                     Ok((tenant.db, org))
                 })
