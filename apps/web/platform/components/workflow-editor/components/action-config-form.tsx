@@ -63,6 +63,7 @@ import { useTranslations } from '@weldsuite/i18n/client';
 import { useAiModelOptions } from '@/hooks/queries/use-ai-settings-queries';
 import { AiMetaBadge } from '@/components/ai/ai-meta-badge';
 import { useChannels } from '@/hooks/queries/use-weldchat-queries';
+import { IntegrationSettingsLink } from '@/app/settings/integrations/workflow/integration-settings-link';
 import {
   useWorkflowIntegrations,
   useSlackChannels,
@@ -1445,7 +1446,11 @@ function SlackPostMessageForm({
   return (
     <div className="space-y-4">
       {!connectionsLoading && connections.length === 0 && (
-        <p className="text-xs text-amber-600 dark:text-amber-400">{cf.noConnection}</p>
+        <p className="text-xs text-amber-600 dark:text-amber-400">
+          <IntegrationSettingsLink provider="slack" className="underline underline-offset-2">
+            {cf.noConnection}
+          </IntegrationSettingsLink>
+        </p>
       )}
 
       {connections.length > 1 && (
@@ -1582,7 +1587,11 @@ function GithubRepoField({
   return (
     <>
       {!connectionsLoading && connections.length === 0 && (
-        <p className="text-xs text-amber-600 dark:text-amber-400">{cf.noConnection}</p>
+        <p className="text-xs text-amber-600 dark:text-amber-400">
+          <IntegrationSettingsLink provider="github" className="underline underline-offset-2">
+            {cf.noConnection}
+          </IntegrationSettingsLink>
+        </p>
       )}
 
       {connections.length > 1 && (
@@ -1920,7 +1929,11 @@ function GoogleSheetsLocationFields({
   return (
     <>
       {!connectionsLoading && connections.length === 0 && (
-        <p className="text-xs text-amber-600 dark:text-amber-400">{cf.noConnection}</p>
+        <p className="text-xs text-amber-600 dark:text-amber-400">
+          <IntegrationSettingsLink provider="google_sheets" className="underline underline-offset-2">
+            {cf.noConnection}
+          </IntegrationSettingsLink>
+        </p>
       )}
       {connections.length > 1 && (
         <FormField label={cf.connection} required description={cf.connectionDesc}>
@@ -2141,7 +2154,11 @@ function GmailSendEmailForm({
   return (
     <div className="space-y-4">
       {!connectionsLoading && connections.length === 0 && (
-        <p className="text-xs text-amber-600 dark:text-amber-400">{cf.noConnection}</p>
+        <p className="text-xs text-amber-600 dark:text-amber-400">
+          <IntegrationSettingsLink provider="gmail" className="underline underline-offset-2">
+            {cf.noConnection}
+          </IntegrationSettingsLink>
+        </p>
       )}
       {connections.length > 1 && (
         <FormField label={cf.connection} required description={cf.connectionDesc}>
@@ -2249,7 +2266,11 @@ function GoogleCalendarCreateEventForm({
   return (
     <div className="space-y-4">
       {!connectionsLoading && connections.length === 0 && (
-        <p className="text-xs text-amber-600 dark:text-amber-400">{cf.noConnection}</p>
+        <p className="text-xs text-amber-600 dark:text-amber-400">
+          <IntegrationSettingsLink provider="google_calendar" className="underline underline-offset-2">
+            {cf.noConnection}
+          </IntegrationSettingsLink>
+        </p>
       )}
       {connections.length > 1 && (
         <FormField label={cf.connection} required description={cf.connectionDesc}>

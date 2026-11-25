@@ -48,7 +48,7 @@ vi.mock('@/hooks/queries/use-connector-queries', () => ({
 import { setRuntimeConfig } from '@/lib/runtime-config';
 import { MoneybirdPushSettingsPanel } from './moneybird-push-settings';
 
-const tp = en.weldconnect.connectors.moneybirdPush;
+const tp = en.settings.integrations.connectors.moneybirdPush;
 
 const SETTINGS: MoneybirdPushSettings = {
   enabled: true,

@@ -208,7 +208,6 @@ const CUSTOM_SIDEBAR_PAGES: Partial<Record<string, (t: TranslationsType) => Side
       { title: wc.workflows, href: '/weldconnect/workflows', icon: Workflow },
       { title: wc.executions, href: '/weldconnect/executions', icon: History },
       { title: wc.templates, href: '/weldconnect/templates', icon: LayoutTemplate },
-      { title: wc.integrations, href: '/weldconnect/integrations', icon: Plug },
       { title: wc.variables, href: '/weldconnect/variables', icon: Variable },
       { title: wc.webhooks, href: '/weldconnect/webhooks', icon: Webhook },
       { title: wc.analytics, href: '/weldconnect/analytics', icon: BarChart3 },

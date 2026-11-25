@@ -71,6 +71,13 @@ describe('WooCommerce application authentication', () => {
     expect(isAllowedConnectorReturnUrl('https://app.weldsuite.org/settings/billing')).toBe(false);
   });
 
+  it("allows every connector's Settings page, Stripe's and Odoo's too", () => {
+    expect(isAllowedConnectorReturnUrl('https://app.weldsuite.org/w/acme/settings/integrations/stripe')).toBe(true);
+    expect(isAllowedConnectorReturnUrl('https://app.weldsuite.org/settings/integrations/odoo')).toBe(true);
+    expect(isAllowedConnectorReturnUrl('https://app.weldsuite.org/settings/integrationsx/stripe')).toBe(false);
+    expect(isAllowedConnectorReturnUrl('https://app.weldsuite.org/settings/integrations')).toBe(false);
+  });
+
   it('allows the same pages behind a /w/{workspace} prefix, and nothing else', () => {
     expect(isAllowedConnectorReturnUrl('https://app.weldsuite.org/w/acme/weldconnect/connectors')).toBe(true);
     expect(

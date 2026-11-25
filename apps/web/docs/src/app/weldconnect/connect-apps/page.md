@@ -1,12 +1,10 @@
 ---
-title: Connect Slack, Google and GitHub
+title: 'App steps: Slack, Google and GitHub'
 nextjs:
   metadata:
-    title: Connect Slack, Google and GitHub
-    description: Connect Slack, Google Sheets, Gmail, Google Calendar and GitHub to WeldConnect and use their steps in workflows.
+    title: 'App steps: Slack, Google and GitHub'
+    description: Use Slack, Google Sheets, Gmail, Google Calendar and GitHub steps in workflows, once the apps are connected in Settings → Integrations.
 screenshots_todo:
-  - file: weldconnect-integrations-page.png
-    shows: WeldConnect Integrations page with Slack, Google Sheets, Gmail, Google Calendar and GitHub cards, at least one showing Connected
   - file: weldconnect-step-slack.png
     shows: 'Slack: Post Message step settings with the Channel picker open'
   - file: weldconnect-step-google-sheets.png
@@ -25,15 +23,15 @@ App steps let a workflow work outside WeldSuite: post to Slack, add rows to Goog
 - App steps act with that connection. They still follow the workflow [owner](/weldconnect#a-workflow-acts-as-its-owner) rule in one way: once the owner has left the workspace, the steps stop working.
 - A workflow with an app step can only be published while that app is connected. If you disconnect an app, workflows that use it fail at that step.
 
-To connect, disconnect or test an app you need permission to manage integrations (**Connect integrations**, **Disconnect integrations**). Ask a workspace admin if you don't see the buttons; see [Team and permissions](/settings/team-and-permissions).
+Apps are connected in **Settings** → **Integrations**, not in WeldConnect, so other parts of WeldSuite can use the same connection. To connect, disconnect or test an app you need permission to manage integrations (**Connect integrations**, **Disconnect integrations**). Ask a workspace admin if you don't see the buttons; see [Team and permissions](/settings/team-and-permissions).
 
 ---
 
-## Open the Integrations page
+## Where to connect
 
-Go to **WeldConnect** → **Integrations** (`/weldconnect/integrations` in the app). Each app has a card with **Connect**, and once connected, **Test** and **Disconnect**.
+Go to **Settings** → **Integrations** and open the app's page: **Slack**, **Gmail**, **Google Sheets**, **Google Calendar** or **GitHub**. On Slack's, Google Calendar's and GitHub's pages the workflow connection is under **Workflow actions**, next to the app's other uses. See [Integrations](/settings/integrations).
 
-The page also lists apps whose steps are not available in the editor yet, such as Microsoft Teams, Notion, Airtable, Asana and Twilio. Connecting them has no effect in workflows for now.
+If a step has no connection to use, its settings say so and link to the app's page.
 
 ---
 
@@ -41,9 +39,9 @@ The page also lists apps whose steps are not available in the editor yet, such a
 
 ### Connect
 
-1. On the **Slack** card, click **Connect**.
+1. In **Settings** → **Integrations** → **Slack**, under **Workflow actions**, click **Connect**.
 2. Slack asks which Slack workspace to connect and what WeldSuite may do. Click **Allow**.
-3. You return to **Integrations** and the card shows **Connected**.
+3. You return to the Slack page, which shows **Connected**.
 
 Click **Test** to check the connection; it shows the name of the connected Slack workspace.
 
@@ -60,13 +58,13 @@ Output: `ok`, `channel`, `ts` and `permalink`.
 Invite WeldSuite's Slack app to the channel before the workflow posts there: type `/invite @WeldSuite` in the channel. Private channels always need this. Without the invite, the step fails with "WeldSuite's Slack app hasn't been invited to this channel yet".
 {% /callout %}
 
-If the Slack connection is revoked or no longer valid, the step fails with a message asking you to reconnect from **WeldConnect** → **Integrations**.
+If the Slack connection is revoked or no longer valid, the step fails with a message asking you to reconnect it in **Settings** → **Integrations** → **Slack**.
 
 ---
 
 ## Google Sheets, Gmail and Google Calendar
 
-Google Sheets, Gmail and Google Calendar are three separate cards, each connected on its own. Each one asks Google only for what its steps need:
+Google Sheets, Gmail and Google Calendar are three separate apps in **Settings** → **Integrations**, each connected on its own. Each one asks Google only for what its steps need:
 
 | App | Google asks permission to |
 | --- | --- |
@@ -76,11 +74,11 @@ Google Sheets, Gmail and Google Calendar are three separate cards, each connecte
 
 ### Connect
 
-1. On the card (for example **Google Sheets**), click **Connect**.
+1. Open the app's page in **Settings** → **Integrations** (for example **Google Sheets**) and click **Connect**. For Google Calendar, it's under **Workflow actions**.
 2. Sign in with the Google account the workflows should use and allow the requested access.
-3. You return to **Integrations** and the card shows **Connected**. Click **Test** to check it.
+3. You return to the app's page, which shows **Connected**. Click **Test** to check it.
 
-If someone removes WeldSuite's access in their Google account, runs fail with a message asking you to reconnect. Click **Connect** on the card again.
+If someone removes WeldSuite's access in their Google account, runs fail with a message asking you to reconnect. Click **Connect** on the app's page again.
 
 ### Google Sheets: Append Row
 
@@ -124,7 +122,7 @@ The GitHub App must be installed for your workspace, with access to the reposito
 
 ### Connect
 
-1. On the **GitHub** card in **WeldConnect** → **Integrations**, click **Connect**. There is no redirect; the card shows **Connected** straight away.
+1. In **Settings** → **Integrations** → **GitHub**, under **Workflow actions**, click **Use in workflows**. There is no redirect; it shows **Connected** straight away.
 2. Click **Test**; it shows the GitHub account the app is installed on.
 
 If the app is not installed yet, you see "No GitHub App installation found for this workspace". Install it first as described above.
@@ -143,5 +141,6 @@ If GitHub refuses the request (an unknown assignee or label, a repository with i
 
 ## Next steps
 
+- [Integrations](/settings/integrations)
 - [WeldSuite steps](/weldconnect/weldsuite-steps)
 - [Runs and history](/weldconnect/runs-and-history)

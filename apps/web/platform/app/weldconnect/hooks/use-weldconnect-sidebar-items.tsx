@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { Home, Workflow, History, Variable, Webhook, BarChart3, LayoutTemplate, Plug } from 'lucide-react';
+import { Home, Workflow, History, Variable, Webhook, BarChart3, LayoutTemplate } from 'lucide-react';
 import type { MenuGroupProps } from '@/components/app-sidebar-layout';
 import { useI18n } from '@/lib/i18n/provider';
 
@@ -14,9 +14,9 @@ export function useWeldconnectSidebarItems(isActive: boolean): {
     if (!isActive) return [];
 
     // The action/trigger libraries stay hidden (WELDCONNECT_OUT_OF_SCOPE_SECTIONS
-    // in app/weldconnect/mvp.ts); their routes still exist. Integrations is where
-    // Slack, Google and GitHub get connected for workflow steps. Connectors (the
-    // e-commerce sync) has no entry here: Settings → Integrations shows it.
+    // in app/weldconnect/mvp.ts); their routes still exist. Integrations are
+    // core platform (ADR INT-014): Slack, Google, GitHub and the connectors
+    // are connected in Settings → Integrations, and workflows only use them.
     return [
       {
         group: groups.general,
@@ -30,7 +30,6 @@ export function useWeldconnectSidebarItems(isActive: boolean): {
         group: groups.library,
         items: [
           { title: wc.templates, href: '/weldconnect/templates', icon: LayoutTemplate },
-          { title: wc.integrations, href: '/weldconnect/integrations', icon: Plug },
           { title: wc.variables, href: '/weldconnect/variables', icon: Variable },
           { title: wc.webhooks, href: '/weldconnect/webhooks', icon: Webhook },
         ],

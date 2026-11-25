@@ -141,12 +141,12 @@ pub fn is_allowed_return_url(url: &str, public_app_url: Option<&str>) -> bool {
             (slash > 0).then(|| &rest[slash..])
         })
         .unwrap_or(pathname);
+    // Connectors are connected in Settings → Integrations (ADR INT-014), one
+    // page each; WeldConnect's old connectors page stays for flows started there.
     path == "/weldconnect/connectors"
         || path == "/weldconnect/connectors/"
         || path.starts_with("/weldconnect/connectors/")
-        || path.starts_with("/settings/integrations/woocommerce")
-        || path.starts_with("/settings/integrations/shopify")
-        || path.starts_with("/settings/integrations/moneybird")
+        || path.starts_with("/settings/integrations/")
 }
 
 fn https_origin(value: Option<&str>) -> Option<String> {
@@ -1157,6 +1157,23 @@ mod tests {
         ));
         assert!(!is_allowed_return_url(
             "https://app.weldsuite.org/settings/billing",
+            None
+        ));
+        // Every connector's Settings page, Stripe's and Odoo's too (ADR INT-014).
+        assert!(is_allowed_return_url(
+            "https://app.weldsuite.org/w/acme/settings/integrations/stripe",
+            None
+        ));
+        assert!(is_allowed_return_url(
+            "https://app.weldsuite.org/settings/integrations/odoo",
+            None
+        ));
+        assert!(!is_allowed_return_url(
+            "https://app.weldsuite.org/settings/integrationsx/stripe",
+            None
+        ));
+        assert!(!is_allowed_return_url(
+            "https://app.weldsuite.org/settings/integrations",
             None
         ));
         let state = WooState {

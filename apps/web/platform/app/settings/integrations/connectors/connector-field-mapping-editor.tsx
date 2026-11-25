@@ -95,7 +95,7 @@ const EXTERNAL_FIELDS: Record<string, Array<{ value: string; label: string }>> =
   ],
 };
 
-// Internal (WeldSuite) field keys; labels come from t.weldconnect.connectors.mappingFields.
+// Internal (WeldSuite) field keys; labels come from t.settings.integrations.connectors.mappingFields.
 const INTERNAL_FIELDS: Record<string, string[]> = {
   product: [
     'name',
@@ -335,7 +335,7 @@ export function ConnectorFieldMappingEditor({
   canManage: boolean;
 }>) {
   const { t } = useI18n();
-  const tc = t.weldconnect.connectors;
+  const tc = t.settings.integrations.connectors;
   const entityTypes = React.useMemo(() => {
     const seen = new Set<string>();
     return syncs

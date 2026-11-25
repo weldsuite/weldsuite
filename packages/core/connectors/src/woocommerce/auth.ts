@@ -219,12 +219,12 @@ export function isAllowedConnectorReturnUrl(url: string, publicAppUrl?: string |
   // A `/w/{workspace}/…` link names its workspace (FE-013); the page is the rest.
   const workspacePage = /^\/w\/[^/]+(\/.*)$/.exec(parsed.pathname);
   const path = workspacePage?.[1] ?? parsed.pathname;
+  // Connectors are connected in Settings → Integrations (ADR INT-014), one
+  // page each; WeldConnect's old connectors page stays for flows started there.
   return (
     path === '/weldconnect/connectors' ||
     path === '/weldconnect/connectors/' ||
     path.startsWith('/weldconnect/connectors/') ||
-    path.startsWith('/settings/integrations/woocommerce') ||
-    path.startsWith('/settings/integrations/shopify') ||
-    path.startsWith('/settings/integrations/moneybird')
+    path.startsWith('/settings/integrations/')
   );
 }

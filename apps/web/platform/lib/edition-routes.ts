@@ -31,6 +31,28 @@ export interface EditionRequirement {
 }
 
 /**
+ * Settings → Integrations pages every edition offers: the OAuth return page,
+ * the connectors and the providers workflow steps use (their APIs are core,
+ * ADR INT-014). Whether a connector appears also depends on the connector
+ * catalog the backend serves (Odoo only on the Kubernetes editions).
+ */
+export const CORE_INTEGRATION_PAGES: readonly string[] = [
+  'callback',
+  // Store, accounting and ERP connectors.
+  'woocommerce',
+  'shopify',
+  'moneybird',
+  'stripe',
+  'picqer',
+  'odoo',
+  // Providers workflow steps use; Slack and Google Calendar share their page.
+  'slack',
+  'google-calendar',
+  'gmail',
+  'google-sheets',
+];
+
+/**
  * Pages whose API isn't their first segment's module, longest prefix first
  * within a branch (the first match wins). Matching is on whole segments.
  */
@@ -60,17 +82,21 @@ const ROUTE_REQUIREMENTS: ReadonlyArray<readonly [prefix: string, requirement: E
   ['/weldmail/domains', { modules: ['mail'], feature: 'mail-domains' }],
   // MCP servers are WeldAgent's tools.
   ['/settings/integrations/mcp-servers', { modules: ['agent'] }],
-  // WeldConnect's store and accounting connectors: `/api/connectors`, their
-  // webhooks, the catch-up and the Moneybird push run on both backends.
-  // Shopify and WooCommerce also feed WeldCommerce's order hub.
-  ['/settings/integrations/woocommerce', { modules: ['connect'] }],
-  ['/settings/integrations/shopify', { modules: ['connect'] }],
-  ['/settings/integrations/moneybird', { modules: ['connect'] }],
-  ['/settings/integrations/picqer', { modules: ['connect'] }],
-  // The other integrations (CRM sync, Slack, Discord, GitHub, Google
-  // Calendar) need `integration-sync`, which the Kubernetes editions lack.
-  ['/settings/integrations/', { modules: ['connect'], feature: 'integration-sync' }],
-  ['/settings/integrations', { modules: ['connect'] }],
+  // Google Calendar's calendar sync returns here; the sync itself needs `integration-sync`.
+  ['/settings/integrations/google-calendar/callback', { feature: 'integration-sync' }],
+  // Integrations are core platform (ADR INT-014), served on both backends
+  // whatever the workspace has installed: the OAuth return page, the store,
+  // accounting and ERP connectors (`/api/connectors`), and the providers
+  // workflow steps use (`/api/workflow-integrations`). Slack's and Google
+  // Calendar's pages show their helpdesk channel and calendar sync only where
+  // `integration-sync` runs.
+  ...CORE_INTEGRATION_PAGES.map((page) => [`/settings/integrations/${page}`, {}] as const),
+  // The other integrations (CRM sync, Discord, GitHub) need `integration-sync`,
+  // which the Kubernetes editions lack.
+  ['/settings/integrations/', { feature: 'integration-sync' }],
+  // The old WeldConnect return URLs, which Global still sends: core too.
+  ['/weldconnect/connectors/callback', {}],
+  ['/weldconnect/integrations/callback', {}],
   // The public API (external-api) has no Kubernetes port yet: keys need the
   // origin they work against, which `/config.json` names once it has one.
   ['/settings/api-keys', { publicEnv: 'VITE_EXTERNAL_API_URL' }],
@@ -79,7 +105,6 @@ const ROUTE_REQUIREMENTS: ReadonlyArray<readonly [prefix: string, requirement: E
   ['/settings/apps/welddesk/bi-connector', { modules: ['desk'], publicEnv: 'VITE_EXTERNAL_API_URL' }],
   // The public help center site runs on Global only (`{slug}.welddesk.org`).
   ['/settings/apps/welddesk/help-center', { modules: ['desk'], feature: 'helpcenter-hosting' }],
-  ['/settings/webhooks', { modules: ['connect'] }],
   // WeldBooks entities and WeldHR payroll employers share the page.
   ['/settings/entities', { modules: ['books', 'hr'] }],
   ['/settings/weldcrm', { modules: ['crm'] }],

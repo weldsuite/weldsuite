@@ -14,6 +14,7 @@ import { Switch } from '@weldsuite/ui/components/switch';
 import { cn } from '@/lib/utils';
 import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { IntegrationDetailLayout } from '@/components/settings';
+import { WorkflowConnectionSection } from '../workflow/workflow-connection-section';
 import { toast } from 'sonner';
 import {
   Select,
@@ -591,6 +592,15 @@ export default function GithubSettingsPage() {
             {github.alreadyInstalled}
           </Button>
         )}
+
+        {/* WeldConnect workflows create issues and comments through this installation. */}
+        {connected ? (
+          <WorkflowConnectionSection
+            type="github"
+            providerName="GitHub"
+            connectLabel={t.integrations.workflowConnections.useInWorkflows}
+          />
+        ) : null}
       </IntegrationDetailLayout>
 
       <ConfirmDialog

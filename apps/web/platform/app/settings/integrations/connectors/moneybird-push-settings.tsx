@@ -69,7 +69,7 @@ function formatDateTime(value: string | null | undefined, language: string): str
 }
 
 type Translations = ReturnType<typeof useI18n>['t'];
-type ConnectorsTranslations = Translations['weldconnect']['connectors'];
+type ConnectorsTranslations = Translations['settings']['integrations']['connectors'];
 type MoneybirdPushTranslations = ConnectorsTranslations['moneybirdPush'];
 type FormatFn = ReturnType<typeof useI18n>['format'];
 
@@ -219,7 +219,7 @@ function SourceConnectionsField({ tp, connections, selected, disabled, onToggle 
           <p className="text-muted-foreground">{tp.noStripeConnections}</p>
           <p className="text-muted-foreground mt-1">
             {tp.noStripeConnectionsHint}{' '}
-            <Link href="/weldconnect/connectors" className="text-primary underline">
+            <Link href="/settings/integrations/stripe" className="text-primary underline">
               {tp.connectStripeLink}
             </Link>
           </p>
@@ -249,7 +249,7 @@ interface MoneybirdPushSettingsPanelProps {
 
 export function MoneybirdPushSettingsPanel({ connection, canManage }: Readonly<MoneybirdPushSettingsPanelProps>) {
   const { t, language, format } = useI18n();
-  const tc = t.weldconnect.connectors;
+  const tc = t.settings.integrations.connectors;
   const tp = tc.moneybirdPush;
 
   const twoWay = isFeatureAvailable('moneybirdTwoWay');
