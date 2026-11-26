@@ -1,5 +1,6 @@
+import { useEffect, useState } from 'react';
 import { useDesktopSettings } from '@/hooks/use-desktop-settings';
-import { isDesktop } from '@/lib/desktop';
+import { getDesktop, isDesktop } from '@/lib/desktop';
 import { Switch } from '@weldsuite/ui/components/switch';
 import { Label } from '@weldsuite/ui/components/label';
 import { Button } from '@weldsuite/ui/components/button';
@@ -23,6 +24,55 @@ const ROWS: Row[] = [
   { key: 'notificationsEnabled', copy: 'notificationsEnabled' },
   { key: 'hardwareAcceleration', copy: 'hardwareAcceleration', restartRequired: true },
 ];
+
+function hostOf(url: string): string | null {
+  try {
+    return new URL(url).host;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The server the shell opens, and "Change server…", which opens the shell's
+ * own window for it (shells 0.3.0 and later; older ones show the server only).
+ */
+export function DesktopServerRow() {
+  const { t, format } = useI18n();
+  const ts = t.common.desktop.settings.server;
+  const desktop = getDesktop();
+  const [host, setHost] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!desktop) return;
+    let cancelled = false;
+    desktop
+      .getAppInfo()
+      .then((info) => {
+        if (!cancelled) setHost(hostOf(info.appUrl));
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [desktop]);
+
+  if (!desktop || !host) return null;
+
+  return (
+    <div className="flex items-start justify-between gap-6 py-4">
+      <div className="space-y-1">
+        <p className="text-sm leading-none font-medium">{ts.label}</p>
+        <p className="text-sm text-muted-foreground">{format(ts.description, { host })}</p>
+      </div>
+      {typeof desktop.openServerSettings === 'function' && (
+        <Button variant="outline" size="sm" onClick={() => void desktop.openServerSettings?.()}>
+          {ts.change}
+        </Button>
+      )}
+    </div>
+  );
+}
 
 /**
  * Drop-in desktop settings card. Renders nothing when not running inside the
@@ -63,6 +113,7 @@ export function DesktopSettingsPanel() {
 
         {settings && (
           <div className="divide-y">
+            <DesktopServerRow />
             {ROWS.map((row) => (
               <div key={row.key} className="flex items-start justify-between gap-6 py-4">
                 <div className="space-y-1">

@@ -84,6 +84,12 @@ export interface WeldsuiteDesktopApi {
   /** Not in shells older than 0.3.0; feature-detect (`desktopBrowserSignIn` in `lib/desktop-auth.ts`). */
   oidcSignIn?: OidcSignInApi;
   reloadApp(): Promise<boolean>;
+  /**
+   * Open the shell's "Change server…" window, where the person picks the
+   * server (WeldSuite EU, or a self-hosted one). Not in shells older than
+   * 0.3.0; feature-detect.
+   */
+  openServerSettings?(): Promise<boolean>;
   relaunch(): Promise<boolean>;
   settings: SettingsApi;
   onDeepLink(listener: (url: string) => void): () => void;

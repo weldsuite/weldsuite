@@ -1103,6 +1103,11 @@ export const common = {
         restartNow: 'Restart now',
         restartRequired: 'restart required',
         loading: 'Loading settings…',
+        server: {
+          label: 'Server',
+          description: 'The app opens WeldSuite from {host}.',
+          change: 'Change server…',
+        },
         rows: {
           autoLaunch: {
             label: 'Launch at system startup',

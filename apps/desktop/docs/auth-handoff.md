@@ -221,7 +221,7 @@ native client's loopback redirect on any port (RFC 8252 section 7.3).
   picks, checks the authorization request before opening it, and answers
   only `GET /callback` with that `state` and its own `Host`. The check:
   - the endpoint is on the issuer's origin. Main reads the issuer itself from
-    `APP_URL`'s `/config.json` when the sign-in starts (https, or http to a
+    the server's `/config.json` when the sign-in starts (https, or http to a
     loopback provider in development), and opens the request rebuilt on that
     origin, so the page can't choose where the browser goes;
   - `response_type=code`, `code_challenge_method=S256`, a `state`, and its
@@ -233,7 +233,7 @@ native client's loopback redirect on any port (RFC 8252 section 7.3).
   window closes. Nothing logs a URL: the callback carries the code.
 - **IPC** (`window.weldsuiteDesktop.oidcSignIn`, shells 0.3.0 and later):
   `start()`, `authorize({ id, url, page })` and `cancel(id)`. Main answers
-  only the app view's main frame on `APP_URL`'s origin: a link that takes
+  only the app view's main frame on the server's origin: a link that takes
   the view elsewhere keeps the preload, so the bridge alone proves nothing.
 - **The platform** (`apps/web/platform`): `src/boot/runtime.tsx` picks the
   desktop client and the shell's sign-in (`desktopBrowserSignIn()`,

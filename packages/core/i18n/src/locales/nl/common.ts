@@ -1097,6 +1097,11 @@ export const common = {
         restartNow: 'Nu herstarten',
         restartRequired: 'herstart nodig',
         loading: 'Instellingen laden…',
+        server: {
+          label: 'Server',
+          description: 'De app opent WeldSuite vanaf {host}.',
+          change: 'Server wijzigen…',
+        },
         rows: {
           autoLaunch: {
             label: 'Starten bij het opstarten van het systeem',

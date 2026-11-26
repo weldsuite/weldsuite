@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src ws://localhost:*"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>WeldSuite</title>
+  </head>
+  <body>
+    <main class="page">
+      <form id="server-form" aria-labelledby="heading" novalidate>
+        <header class="intro">
+          <h1 id="heading" data-text="serverHeading"></h1>
+          <p class="lead" data-text="serverLead"></p>
+        </header>
+
+        <fieldset class="choices">
+          <legend class="visually-hidden" data-text="serverLegend"></legend>
+          <div class="option">
+            <input type="radio" id="choice-default" name="choice" value="default" checked />
+            <label for="choice-default">
+              <span class="option__title" data-text="defaultTitle"></span>
+              <span class="option__detail" id="default-host"></span>
+            </label>
+          </div>
+          <div class="option">
+            <input type="radio" id="choice-other" name="choice" value="other" />
+            <label for="choice-other">
+              <span class="option__title" data-text="otherTitle"></span>
+              <span class="option__detail" data-text="otherDetail"></span>
+            </label>
+          </div>
+        </fieldset>
+
+        <div class="field">
+          <label for="address" data-text="addressLabel"></label>
+          <input
+            id="address"
+            name="address"
+            type="text"
+            inputmode="url"
+            autocomplete="url"
+            autocapitalize="none"
+            autocorrect="off"
+            spellcheck="false"
+            enterkeyhint="go"
+            maxlength="2048"
+            aria-invalid="false"
+            aria-describedby="address-hint"
+            data-error="address-error"
+          />
+          <span id="address-hint" class="hint" data-text="addressHint"></span>
+          <span id="address-error" class="error" hidden></span>
+        </div>
+
+        <p id="locked" class="note" hidden></p>
+        <p id="status" class="status" role="status"></p>
+
+        <div class="actions">
+          <button type="button" id="cancel" class="button" data-text="cancel"></button>
+          <button type="submit" id="connect" class="button button--primary" data-text="connect"></button>
+        </div>
+      </form>
+    </main>
+    <script type="module" src="./server.ts"></script>
+  </body>
+</html>

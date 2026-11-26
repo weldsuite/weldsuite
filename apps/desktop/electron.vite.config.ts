@@ -19,6 +19,7 @@ export default defineConfig({
         input: {
           index: resolve(__dirname, 'src/preload/index.ts'),
           titlebar: resolve(__dirname, 'src/preload/titlebar.ts'),
+          server: resolve(__dirname, 'src/preload/server.ts'),
         },
         output: { format: 'cjs', entryFileNames: '[name].cjs' },
         external: ['electron'],
@@ -33,6 +34,8 @@ export default defineConfig({
         input: {
           index: resolve(__dirname, 'src/renderer/index.html'),
           titlebar: resolve(__dirname, 'src/renderer/titlebar/index.html'),
+          server: resolve(__dirname, 'src/renderer/server/index.html'),
+          offline: resolve(__dirname, 'src/renderer/offline/index.html'),
         },
       },
     },
