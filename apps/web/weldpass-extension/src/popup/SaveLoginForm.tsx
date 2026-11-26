@@ -25,7 +25,7 @@ import {
   SelectValue,
 } from '@weldsuite/ui/components/select';
 import { useAsync, type Notify } from './hooks';
-import { PopupAlert } from './list';
+import { PopupAlert, vaultLabel } from './list';
 
 interface Props {
   api: PopupApi;
@@ -195,7 +195,7 @@ export function SaveLoginForm({ api, tab, notify, onSaved, onCancel }: Props) {
           <SelectContent>
             {writable.map((vault) => (
               <SelectItem key={vault.id} value={vault.id}>
-                {vault.kind === 'personal' ? t('personalVault') : vault.name}
+                {vaultLabel(vault)}
               </SelectItem>
             ))}
           </SelectContent>

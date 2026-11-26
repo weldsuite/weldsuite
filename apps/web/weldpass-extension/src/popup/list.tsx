@@ -6,19 +6,23 @@
 
 import { useState, type ComponentProps, type ReactNode } from 'react';
 import { ChevronLeft, CircleAlert, Globe, Info, TriangleAlert } from 'lucide-react';
+import type { WeldPassVault } from '@weldsuite/app-api-client/domains/weldpass-passwords';
 import { Alert, AlertDescription } from '@weldsuite/ui/components/alert';
 import { Button, Button as UiButton } from '@weldsuite/ui/components/button';
+import { InlineSpinner } from '@weldsuite/ui/components/page-loader';
 import { cn } from '@weldsuite/ui/lib/utils';
 import { errorMessageKey } from '../lib/errors';
 import { faviconUrl, imageShape, type IconShape } from '../lib/favicon';
 import { t } from '../lib/i18n';
 
+const ALERT_ICON = { info: Info, warning: TriangleAlert, error: CircleAlert } as const;
+
 /** The library's `Alert` with an icon per tone: a note, a warning, an error. */
 export function PopupAlert({
   tone = 'info',
   children,
-}: Readonly<{ tone?: 'info' | 'warning' | 'error'; children: ReactNode }>) {
-  const Icon = tone === 'error' ? CircleAlert : tone === 'warning' ? TriangleAlert : Info;
+}: Readonly<{ tone?: keyof typeof ALERT_ICON; children: ReactNode }>) {
+  const Icon = ALERT_ICON[tone];
   return (
     <Alert
       variant={tone === 'error' ? 'destructive' : 'default'}
@@ -89,6 +93,20 @@ export function Section({
 
 export function Padded({ children }: { children: ReactNode }) {
   return <div className="px-3 py-3">{children}</div>;
+}
+
+/** The library's spinner, as a list's or a page's loading state. */
+export function Loading() {
+  return (
+    <Padded>
+      <InlineSpinner label={t('loading')} className="py-0" />
+    </Padded>
+  );
+}
+
+/** A vault's name as the platform shows it: the personal vault by its role. */
+export function vaultLabel(vault: Pick<WeldPassVault, 'kind' | 'name'>): string {
+  return vault.kind === 'personal' ? t('personalVault') : vault.name;
 }
 
 export function Empty({ children }: { children: ReactNode }) {

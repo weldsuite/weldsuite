@@ -50,6 +50,7 @@ import {
   type SortDirection,
   type SortField,
 } from '../lib/list-view';
+import { vaultLabel } from './list';
 
 type FilterConfig = ComponentProps<typeof FilterPills>['filterConfigs'][number];
 
@@ -74,6 +75,13 @@ interface Props {
   onFiltersChange: (filters: FilterPill[]) => void;
   /** The workspace's vaults, for the vault filter. Empty while loading. */
   vaults: WeldPassVault[];
+  /**
+   * Type-to-search is off: a login's details page covers the list. Its panel
+   * is no dialog and the list under it isn't hidden, so without this a letter
+   * typed there would open the search behind it, and Enter would fill the
+   * first match rather than the login on screen.
+   */
+  paused?: boolean;
 }
 
 export function LoginsToolbar({
@@ -85,6 +93,7 @@ export function LoginsToolbar({
   filters,
   onFiltersChange,
   vaults,
+  paused = false,
 }: Readonly<Props>) {
   const rootRef = useRef<HTMLDivElement>(null);
   const [searchOpen, setSearchOpen] = useState(query !== '');
@@ -92,7 +101,7 @@ export function LoginsToolbar({
 
   // Type to search.
   useEffect(() => {
-    if (open) return;
+    if (open || paused) return;
     function onKeyDown(event: KeyboardEvent) {
       if (event.defaultPrevented || event.isComposing || event.ctrlKey || event.metaKey || event.altKey) return;
       if (event.key.length !== 1 || event.key === ' ') return;
@@ -109,7 +118,7 @@ export function LoginsToolbar({
     }
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
-  }, [open, onQueryChange]);
+  }, [open, paused, onQueryChange]);
 
   const filterConfigs: FilterConfig[] = [
     {
@@ -117,7 +126,7 @@ export function LoginsToolbar({
       label: t('filterVault'),
       options: vaults.map((vault) => ({
         value: vault.id,
-        label: vault.kind === 'personal' ? t('personalVault') : vault.name,
+        label: vaultLabel(vault),
       })),
     },
     {

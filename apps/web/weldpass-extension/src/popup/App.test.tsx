@@ -434,6 +434,53 @@ describe('Vault', () => {
     expect(sent('items:list')).toHaveLength(2);
   });
 
+  it('searches as you type on the list, but not over the details page of a login', async () => {
+    replies['items:list'] = () =>
+      ok([
+        {
+          id: 'item_1',
+          vaultId: 'vault_1',
+          type: 'login',
+          title: 'GitHub',
+          subtitle: 'ada',
+          url: 'https://github.com/login',
+          host: 'github.com',
+          hasTotp: false,
+          passwordChangedAt: null,
+          version: 1,
+          createdBy: null,
+          updatedBy: null,
+          createdAt: '2026-01-01T00:00:00.000Z',
+          updatedAt: '2026-01-01T00:00:00.000Z',
+        },
+      ]);
+    await mount();
+    const search = () => document.querySelector<HTMLInputElement>('input[aria-label="Search logins"]');
+    /** A key pressed where the focus is, as the person types. */
+    async function press(key: string): Promise<void> {
+      await act(async () => {
+        (document.activeElement ?? document.body).dispatchEvent(
+          new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }),
+        );
+      });
+      await settle();
+    }
+
+    // The details page covers the list, and the focus stays on the row.
+    const row = button('Open GitHub');
+    await act(async () => row.focus());
+    await click(row);
+    expect(text()).toContain('History');
+    await press('g');
+    expect(search()).toBeNull();
+
+    // Back on the list, typing opens the search with that letter.
+    await click(button('Back'));
+    expect(text()).not.toContain('History');
+    await press('g');
+    expect(search()?.value).toBe('g');
+  });
+
   it('switches workspace from the header, and keeps the old one when that fails', async () => {
     replies['state:get'] = () => ok(extensionState({ workspaces: TWO_WORKSPACES }));
     replies['workspace:set'] = () => failure;

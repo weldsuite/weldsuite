@@ -37,9 +37,9 @@ import { errorMessageKey } from '../lib/errors';
 import { t, textLanguage, type MessageKey } from '../lib/i18n';
 import { safeExternalUrl } from '../lib/urls';
 import type { PopupApi } from './api';
+import { copyText } from './clipboard';
 import { useAsync, type Notify } from './hooks';
-import { InlineSpinner } from '@weldsuite/ui/components/page-loader';
-import { Empty, IconAction, LoadError, Padded, SiteIcon } from './list';
+import { Empty, IconAction, LoadError, Loading, SiteIcon } from './list';
 
 type Tab = 'details' | 'history';
 
@@ -96,14 +96,7 @@ export function LoginDetails({
     if (totp && totpSeconds === 0) setTotp(null);
   }, [totp, totpSeconds]);
 
-  async function copy(text: string, done: string) {
-    try {
-      await navigator.clipboard.writeText(text);
-      notify('ok', done);
-    } catch {
-      notify('error', t('copyFailed'));
-    }
-  }
+  const copy = (text: string, done: string) => copyText(text, done, notify);
 
   async function attempt(action: () => Promise<void>) {
     try {
@@ -210,30 +203,12 @@ export function LoginDetails({
           </PropertyRowLayout>
 
           {item.hasTotp && (
-            <PropertyRowLayout
-              icon={ShieldCheck}
-              label={t('filterTotp')}
-              accessory={
-                totp ? (
-                  <IconAction label={t('copyTotp')} onClick={() => void copy(totp.code, t('totpCopied', totpSeconds))}>
-                    <Copy className="size-3.5" />
-                  </IconAction>
-                ) : null
-              }
-            >
-              {totp ? (
-                <PropertyValue tabular className="gap-2 font-mono">
-                  {formatCode(totp.code)}
-                  <span className="ml-2 font-sans text-xs text-muted-foreground">{totpSeconds}s</span>
-                </PropertyValue>
-              ) : (
-                <PropertyValue>
-                  <Button variant="link" size="sm" className="h-auto p-0 text-[13px]" onClick={() => void showCode()}>
-                    {t('showCode')}
-                  </Button>
-                </PropertyValue>
-              )}
-            </PropertyRowLayout>
+            <TotpRow
+              code={totp?.code ?? null}
+              seconds={totpSeconds}
+              onShow={() => void showCode()}
+              onCopy={(code) => void copy(code, t('totpCopied', totpSeconds))}
+            />
           )}
 
           <PropertyRowLayout icon={Globe} label={t('fieldUrl')}>
@@ -272,19 +247,49 @@ export function LoginDetails({
   );
 }
 
+/** The 2FA code row: a "Show code" link, then the code with its countdown and Copy. */
+function TotpRow({
+  code,
+  seconds,
+  onShow,
+  onCopy,
+}: Readonly<{ code: string | null; seconds: number; onShow: () => void; onCopy: (code: string) => void }>) {
+  if (code === null) {
+    return (
+      <PropertyRowLayout icon={ShieldCheck} label={t('filterTotp')}>
+        <PropertyValue>
+          <Button variant="link" size="sm" className="h-auto p-0 text-[13px]" onClick={onShow}>
+            {t('showCode')}
+          </Button>
+        </PropertyValue>
+      </PropertyRowLayout>
+    );
+  }
+  return (
+    <PropertyRowLayout
+      icon={ShieldCheck}
+      label={t('filterTotp')}
+      accessory={
+        <IconAction label={t('copyTotp')} onClick={() => onCopy(code)}>
+          <Copy className="size-3.5" />
+        </IconAction>
+      }
+    >
+      <PropertyValue tabular className="gap-2 font-mono">
+        {formatCode(code)}
+        <span className="ml-2 font-sans text-xs text-muted-foreground">{seconds}s</span>
+      </PropertyValue>
+    </PropertyRowLayout>
+  );
+}
+
 function ItemHistory({ api, item }: Readonly<{ api: PopupApi; item: WeldPassItem }>) {
   const versions = useAsync(
     async () => (await api.itemVersions(item.vaultId, item.id)).data,
     `${item.vaultId}|${item.id}`,
   );
 
-  if (versions.loading) {
-    return (
-      <Padded>
-        <InlineSpinner label={t('loading')} className="py-0" />
-      </Padded>
-    );
-  }
+  if (versions.loading) return <Loading />;
   if (versions.error || !versions.data) return <LoadError error={versions.error} onRetry={versions.reload} />;
   if (versions.data.length === 0) return <Empty>{t('historyEmpty')}</Empty>;
 

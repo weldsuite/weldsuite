@@ -21,8 +21,7 @@ import { openTab } from '../lib/chrome-page';
 import { t, type MessageKey } from '../lib/i18n';
 import type { PopupApi } from './api';
 import { useAsync } from './hooks';
-import { Empty, LoadError, Padded, Section, SiteIcon } from './list';
-import { InlineSpinner } from '@weldsuite/ui/components/page-loader';
+import { Empty, LoadError, Loading, Section, SiteIcon } from './list';
 
 export type ToolView = 'generator' | 'health';
 
@@ -108,13 +107,7 @@ function Stat({ label, value, tone }: Readonly<{ label: string; value: ReactNode
 export function HealthView({ api, serverOrigin }: Readonly<{ api: PopupApi; serverOrigin: string }>) {
   const report = useAsync(async () => (await api.passwordHealth()).data, 'health');
 
-  if (report.loading) {
-    return (
-      <Padded>
-        <InlineSpinner label={t('loading')} className="py-0" />
-      </Padded>
-    );
-  }
+  if (report.loading) return <Loading />;
   if (report.error || !report.data) {
     return <LoadError error={report.error} onRetry={report.reload} />;
   }
@@ -130,33 +123,7 @@ export function HealthView({ api, serverOrigin }: Readonly<{ api: PopupApi; serv
       </div>
 
       <Section title={t('healthAttention')} count={items.length}>
-        {checked === 0 ? (
-          <Empty>{t('healthEmpty')}</Empty>
-        ) : items.length === 0 ? (
-          <Empty>{t('healthAllHealthy')}</Empty>
-        ) : (
-          <ul>
-            {items.map((entry) => (
-              <li
-                key={entry.id}
-                className="flex items-center gap-2.5 border-b border-border/70 px-3 py-2"
-              >
-                <SiteIcon url={entry.url} />
-                <div className="min-w-0 flex-1">
-                  <div className="truncate font-medium">{entry.title}</div>
-                  <div className="truncate text-xs text-muted-foreground">{entry.subtitle || entry.host || '—'}</div>
-                </div>
-                <div className="flex shrink-0 flex-col items-end gap-1">
-                  {ISSUE_ORDER.filter((issue) => entry.issues.includes(issue)).map((issue) => (
-                    <Badge key={issue} variant={ISSUE_VARIANT[issue]}>
-                      {issueLabel(entry, issue)}
-                    </Badge>
-                  ))}
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
+        <HealthIssues checked={checked} items={items} />
       </Section>
 
       {items.length > 0 && (
@@ -171,5 +138,31 @@ export function HealthView({ api, serverOrigin }: Readonly<{ api: PopupApi; serv
         </div>
       )}
     </div>
+  );
+}
+
+/** The logins that need attention, with their issues; or why there are none. */
+function HealthIssues({ checked, items }: Readonly<{ checked: number; items: WeldPassHealthEntry[] }>) {
+  if (checked === 0) return <Empty>{t('healthEmpty')}</Empty>;
+  if (items.length === 0) return <Empty>{t('healthAllHealthy')}</Empty>;
+  return (
+    <ul>
+      {items.map((entry) => (
+        <li key={entry.id} className="flex items-center gap-2.5 border-b border-border/70 px-3 py-2">
+          <SiteIcon url={entry.url} />
+          <div className="min-w-0 flex-1">
+            <div className="truncate font-medium">{entry.title}</div>
+            <div className="truncate text-xs text-muted-foreground">{entry.subtitle || entry.host || '—'}</div>
+          </div>
+          <div className="flex shrink-0 flex-col items-end gap-1">
+            {ISSUE_ORDER.filter((issue) => entry.issues.includes(issue)).map((issue) => (
+              <Badge key={issue} variant={ISSUE_VARIANT[issue]}>
+                {issueLabel(entry, issue)}
+              </Badge>
+            ))}
+          </div>
+        </li>
+      ))}
+    </ul>
   );
 }
