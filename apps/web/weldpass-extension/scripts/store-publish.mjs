@@ -69,6 +69,37 @@ function versionsOf(revision) {
 }
 
 /**
+ * Compares the item's status with the version to submit: returns the result
+ * to report when the store already has it, throws when it can't take it now,
+ * and returns null when it should be uploaded.
+ */
+function alreadyInChromeStore(current, version, log) {
+  const submitted = current.submittedItemRevisionStatus;
+  const inReview = versionsOf(submitted);
+  const live = versionsOf(current.publishedItemRevisionStatus);
+  if (inReview.includes(version)) {
+    log(`Chrome Web Store: ${version} is already submitted (${submitted.state}); nothing uploaded.`);
+    return { state: submitted.state, skipped: true };
+  }
+  if (live.includes(version)) {
+    log(`Chrome Web Store: ${version} is already published; nothing uploaded.`);
+    return { state: 'PUBLISHED', skipped: true };
+  }
+  if (submitted?.state === 'PENDING_REVIEW') {
+    throw new StoreError(
+      `Chrome Web Store: ${inReview.join(', ')} is still in review. Wait for the review, or cancel it in the developer dashboard, then re-run this job.`,
+    );
+  }
+  const newest = [...live, ...inReview].sort(compareVersions).at(-1);
+  if (newest && compareVersions(version, newest) <= 0) {
+    throw new StoreError(
+      `Chrome Web Store: ${version} is not higher than ${newest}, the store's newest. Bump version in apps/web/weldpass-extension/package.json.`,
+    );
+  }
+  return null;
+}
+
+/**
  * Chrome Web Store API v2: checks what the store already has, uploads the zip,
  * waits for the upload to be processed and submits it for review.
  * Returns `{ state, skipped }`; `state` is the store's item state.
@@ -96,29 +127,8 @@ export async function publishChrome({
     return body;
   }
 
-  const current = await status();
-  const submitted = current.submittedItemRevisionStatus;
-  const inReview = versionsOf(submitted);
-  const live = versionsOf(current.publishedItemRevisionStatus);
-  if (inReview.includes(version)) {
-    log(`Chrome Web Store: ${version} is already submitted (${submitted.state}); nothing uploaded.`);
-    return { state: submitted.state, skipped: true };
-  }
-  if (live.includes(version)) {
-    log(`Chrome Web Store: ${version} is already published; nothing uploaded.`);
-    return { state: 'PUBLISHED', skipped: true };
-  }
-  if (submitted?.state === 'PENDING_REVIEW') {
-    throw new StoreError(
-      `Chrome Web Store: ${inReview.join(', ')} is still in review. Wait for the review, or cancel it in the developer dashboard, then re-run this job.`,
-    );
-  }
-  const newest = [...live, ...inReview].sort(compareVersions).at(-1);
-  if (newest && compareVersions(version, newest) <= 0) {
-    throw new StoreError(
-      `Chrome Web Store: ${version} is not higher than ${newest}, the store's newest. Bump version in apps/web/weldpass-extension/package.json.`,
-    );
-  }
+  const already = alreadyInChromeStore(await status(), version, log);
+  if (already) return already;
 
   log(`Chrome Web Store: uploading ${version} (${(zip.length / 1024).toFixed(0)} KB)`);
   const upload = await fetch(`${CHROME_API}/upload/v2/publishers/${publisherId}/items/${itemId}:upload`, {
@@ -129,9 +139,11 @@ export async function publishChrome({
   const uploaded = await readBody(upload);
   if (!upload.ok) throw failure('Chrome Web Store upload', upload, uploaded);
   let state = uploaded.uploadState;
-  for (let waited = 0; state === 'IN_PROGRESS'; waited += pollIntervalMs) {
+  let waited = 0;
+  while (state === 'IN_PROGRESS') {
     if (waited >= timeoutMs) throw new StoreError('Chrome Web Store: the upload is still being processed; check the dashboard.');
     await sleep(pollIntervalMs);
+    waited += pollIntervalMs;
     state = (await status()).lastAsyncUploadState;
   }
   if (state !== 'SUCCEEDED') throw new StoreError(`Chrome Web Store: the upload ended ${state ?? 'without a state'}.`);
