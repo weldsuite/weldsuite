@@ -109,6 +109,10 @@ vi.mock('@/hooks/queries/use-weldbooks-banking-queries', () => ({
   useRecordBillPaymentWithTarget: () => ({ mutate: env.recordPayment, isPending: false }),
   useRecordInvoicePaymentWithTarget: () => ({ mutate: vi.fn(), isPending: false }),
 }));
+// Linking bank transactions has tests of its own (payment-bank-actions.test.tsx).
+vi.mock('@/components/accounting/payment-bank-actions', () => ({
+  usePaymentBankActions: () => ({ available: false, linkButton: null, menuFor: () => undefined, dialogs: null }),
+}));
 vi.mock('@/lib/weldbooks/use-jurisdiction', () => ({
   useCurrentJurisdiction: () => ({ code: env.us ? 'US' : 'NL' }),
   useJurisdictionLabels: () => ({

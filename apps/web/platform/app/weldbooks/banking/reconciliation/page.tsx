@@ -29,6 +29,8 @@ import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
 import { useCurrentJurisdiction } from '@/lib/weldbooks/use-jurisdiction';
 import { isUsJurisdictionCode } from '@/lib/weldbooks/us-entity';
 import { CategorizeBankTransactionPanel } from '@/components/accounting/categorize-bank-transaction-panel';
+import { isFeatureAvailable } from '@/lib/edition';
+import { MatchDocumentsPanel } from '../components/match-documents-panel';
 import { SuggestionList } from '../components/suggestion-list';
 import { maskedAccountNumber } from '../components/routing-number';
 
@@ -114,7 +116,10 @@ function MatchSuggestionsCard({
   onCategorize,
   excludePending,
   onExclude,
+  matchDocuments,
 }: Readonly<{
+  /** Searching any open document and matching several at once, where the edition offers it. */
+  matchDocuments?: ReactNode;
   selectedTxnId: string | null;
   suggestions: SuggestionListProps['suggestions'];
   formatAmount: SuggestionListProps['formatAmount'];
@@ -160,6 +165,7 @@ function MatchSuggestionsCard({
             {matchError ? (
               <p className="text-sm text-destructive" role="alert" data-testid="match-error">{matchError.message}</p>
             ) : null}
+            {matchDocuments}
             <CategorizeBankTransactionPanel
               key={selectedTxnId}
               accounts={ledgerAccounts}
@@ -214,6 +220,7 @@ export default function BankReconciliationPage() {
   const { can } = usePermissions();
   const { code: jurisdictionCode } = useCurrentJurisdiction();
   const isUs = isUsJurisdictionCode(jurisdictionCode);
+  const bankLinks = isFeatureAvailable('books-bank-links');
   const { formatMoney: fmt, formatDate, currency: entityCurrency } = useWeldbooksFormat();
 
   const { data: txnData, isLoading } = useBankLines(
@@ -399,6 +406,19 @@ export default function BankReconciliationPage() {
             onExclude={() => {
               if (selectedTxnId) excludeMutation.mutate(selectedTxnId);
             }}
+            matchDocuments={
+              bankLinks && selectedTxn ? (
+                <MatchDocumentsPanel
+                  key={selectedTxn.id}
+                  lineId={selectedTxn.id}
+                  lineAmount={selectedTxn.amount}
+                  currency={displayCurrency}
+                  ledgerAccounts={ledgerAccounts}
+                  readOnly={!can('banking:update')}
+                  onMatched={() => setSelectedTxnId(null)}
+                />
+              ) : null
+            }
           />
         </div>
       )}

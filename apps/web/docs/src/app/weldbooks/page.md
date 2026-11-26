@@ -34,6 +34,24 @@ Navigation groups sales, purchases, banking, and reporting in the module sidebar
 
 ---
 
+## Matching payments to invoices and bills
+
+You can match a bank transaction from either side:
+
+- **From the transaction**: open **Banking → Reconciliation** and select the transaction. Besides the suggestions, **Match to invoices** (money in) or **Match to bills or credit notes** (money out) lets you search every open document by number, contact or reference and tick one or more. One customer transfer can pay several invoices at once.
+- **From the invoice or bill**: open its **Payments** tab and choose **Link bank transaction**. WeldBooks lists the unmatched transactions that fit best first.
+
+When the amounts differ, you choose what happens to the difference:
+
+- **The transaction is less** (the bank kept a fee, the customer took a discount): leave the rest open, or mark the documents paid and book the difference to an account such as **Bank costs**.
+- **The transaction is more**: keep the rest as credit for the contact, or book it to an account.
+
+To undo a match, open the payment's menu on the **Payments** tab and choose **Undo bank match**. The transaction goes back to unmatched and, if the match created the payment, every document it paid is open again.
+
+Matching several documents, searching and booking the difference are available on the EU and self-hosted editions.
+
+---
+
 ## Money that is not a customer payment
 
 Do **not** create an invoice when the money did not come from a customer. A payment-processor settlement, fee refund, interest credit, or owner deposit is not sales.

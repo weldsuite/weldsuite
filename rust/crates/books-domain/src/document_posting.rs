@@ -1800,6 +1800,32 @@ pub struct PaymentPostingInput {
     pub money_account_id: Option<String>,
     /// US backup withholding on a payment to a vendor.
     pub backup_withholding_amount: Option<f64>,
+    /// A gap between the money and the documents it settles, booked to an
+    /// account in the same entry (bank costs, a payment discount, rounding).
+    /// Rust only: matching a bank line to documents sets it.
+    pub difference: Option<PaymentDifference>,
+}
+
+/// What a payment settles beyond (or short of) the money that moved: the
+/// documents' allocations add up to the payment amount plus `amount`.
+///
+/// `amount` is in the payment currency. Positive: the documents take more
+/// than the money (a customer paid €0.50 less, the bank kept a fee), so the
+/// account carries the cost on a payment received and the income (a
+/// discount received) on a payment sent. Negative: the money is more than
+/// the documents take, the other way round.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct PaymentDifference {
+    pub account_id: String,
+    pub amount: f64,
+    pub description: Option<String>,
+}
+
+impl PaymentDifference {
+    /// The difference when there is one worth booking (a cent or more).
+    pub fn booked(difference: Option<&Self>) -> Option<&Self> {
+        difference.filter(|d| !d.account_id.is_empty() && round_money(d.amount).abs() >= 0.01)
+    }
 }
 
 /// `buildPaymentPosting(db, payment, allocations)`: amounts in the payment
@@ -1914,7 +1940,43 @@ pub async fn build_payment_posting(
         line.contact_id = Some(allocation.contact_id.clone());
         counter_lines.push(line);
     }
-    let unallocated = round_money(total - allocated);
+    // A difference booked to an account covers what the money doesn't
+    // (positive) or takes what the documents don't (negative).
+    let mut difference_lines = Vec::new();
+    let mut covered = total;
+    if let Some(difference) = PaymentDifference::booked(payment.difference.as_ref()) {
+        let account = require_account(
+            accounts.by_id(Some(difference.account_id.as_str())),
+            "The difference account does not belong to this accounting entity",
+        )?;
+        let amount = to_base.apply(difference.amount.abs());
+        let signed = if difference.amount > 0.0 {
+            amount
+        } else {
+            -amount
+        };
+        covered = round_money(total + signed);
+        if covered < 0.0 {
+            return Err(posting("The difference is more than the payment can cover"));
+        }
+        let mut line = meta.line(
+            account,
+            difference
+                .description
+                .clone()
+                .filter(|d| !d.is_empty())
+                .unwrap_or_else(|| label("Payment difference", reference)),
+        );
+        line.contact_id = Some(payment.contact_id.clone());
+        // Received: a shortfall is a cost (debit), an excess income (credit);
+        // sent, the other way round.
+        difference_lines.push(if (signed > 0.0) == received {
+            debit(line, amount)
+        } else {
+            credit(line, amount)
+        });
+    }
+    let unallocated = round_money(covered - allocated);
     if unallocated < 0.0 {
         return Err(posting("Allocations exceed the payment amount"));
     }
@@ -1963,6 +2025,7 @@ pub async fn build_payment_posting(
     }];
     lines.extend(counter_lines);
     lines.extend(withholding_lines);
+    lines.extend(difference_lines);
     Ok(lines)
 }
 

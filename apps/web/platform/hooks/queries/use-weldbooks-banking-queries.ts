@@ -8,6 +8,8 @@ import {
   type DepositFilters,
   type ImportPreviewInput,
   type ImportStatementInput,
+  type LinesForDocumentQuery,
+  type MatchDocumentsInput,
   type ReconciliationHistoryFilters,
   type RecordBillPaymentInput,
   type RecordInvoicePaymentWithTarget,
@@ -15,6 +17,7 @@ import {
   type SaveReconciliationProgressInput,
   type StartReconciliationInput,
 } from '@/lib/api/domains/weldbooks-banking';
+import { accountingApi } from '@/lib/api/domains/weldbooks';
 import { accountingKeys } from './use-accounting-queries';
 
 // ============================================================================
@@ -29,6 +32,10 @@ export const bankingKeys = {
     all: [...accountingKeys.bankTransactions.all, 'lines'] as const,
     list: (filters?: BankLineFilters) => [...accountingKeys.bankTransactions.all, 'lines', filters] as const,
     suggestions: (id: string) => [...accountingKeys.bankTransactions.all, 'suggestions', id] as const,
+    openDocuments: (id: string, search: string) =>
+      [...accountingKeys.bankTransactions.all, 'open-documents', id, search] as const,
+    forDocument: (query: LinesForDocumentQuery | null) =>
+      [...accountingKeys.bankTransactions.all, 'for-document', query] as const,
   },
   importPreview: (parts: readonly unknown[]) => [...accountingKeys.bankTransactions.all, 'import-preview', ...parts] as const,
   deposits: {
@@ -227,6 +234,64 @@ export function useMatchBankLineToDeposit() {
     mutationFn: ({ lineId, depositId }: { lineId: string; depositId: string }) =>
       bankingApi.matchDeposit(lineId, depositId),
     onSuccess: () => invalidateAfterMatch(qc),
+  });
+}
+
+// ============================================================================
+// Matching lines and documents either way round (edition feature `books-bank-links`)
+// ============================================================================
+
+/** A match settles documents too: their balances, statuses and payments change. */
+function invalidateAfterDocumentMatch(qc: QueryClient) {
+  invalidateAfterMatch(qc);
+  void qc.invalidateQueries({ queryKey: accountingKeys.invoices.all });
+  void qc.invalidateQueries({ queryKey: accountingKeys.bills.all });
+}
+
+/** The open documents an unmatched line could settle, best fit first. */
+export function useOpenDocumentsForLine(lineId: string | null, search: string) {
+  return useQuery({
+    queryKey: bankingKeys.lines.openDocuments(lineId ?? '', search),
+    queryFn: async () => (await bankingApi.openDocuments(lineId!, search)).data,
+    enabled: !!lineId,
+    placeholderData: keepPreviousData,
+  });
+}
+
+/** The unmatched lines that could have paid a document, best fit first. */
+export function useBankLinesForDocument(query: LinesForDocumentQuery | null) {
+  return useQuery({
+    queryKey: bankingKeys.lines.forDocument(query),
+    queryFn: async () => (await bankingApi.linesForDocument(query!)).data,
+    enabled: !!query,
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useMatchBankLineToDocuments() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ lineId, data }: { lineId: string; data: MatchDocumentsInput }) =>
+      bankingApi.matchDocuments(lineId, data),
+    onSuccess: () => invalidateAfterDocumentMatch(qc),
+  });
+}
+
+/** Undo a line's match (a payment the match made is voided, so its documents open again). */
+export function useUnreconcileBankLine() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (lineId: string) => bankingApi.unreconcileLine(lineId),
+    onSuccess: () => invalidateAfterDocumentMatch(qc),
+  });
+}
+
+/** Delete (void) a payment that no bank line confirms. */
+export function useVoidPayment() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (paymentId: string) => accountingApi.deletePayment(paymentId),
+    onSuccess: () => invalidateAfterDocumentMatch(qc),
   });
 }
 

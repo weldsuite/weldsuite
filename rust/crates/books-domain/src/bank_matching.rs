@@ -29,7 +29,8 @@ use crate::js::{
     js_date_millis, math_round, millis_of, number_text, parse_float, round_money, to_fixed,
 };
 use crate::payments::{
-    AllocationInput, RecordPaymentInput, payment_net_amount, record_payment, void_payment,
+    AllocationInput, PaymentDifference, RecordPaymentInput, payment_net_amount, record_payment,
+    void_payment,
 };
 use crate::posting::{PostError, ReverseArgs, reverse_journal_entry};
 use crate::reconciliation_rules::{
@@ -1323,6 +1324,215 @@ pub async fn reconcile_to_deposit(
     Ok(Matched {
         id: text(&deposit, "id").unwrap_or_default().to_owned(),
         journal_entry_id: owned(&deposit, "journalEntryId"),
+    })
+}
+
+// ── Several documents, either way round (Rust only) ─────────────────────────
+
+/// How well a bank line fits one open document: the signals of
+/// [`find_matches`] (amount, the number in the reference, the IBAN, the
+/// name, the payment window), but any amount still counts, so a partial
+/// payment is listed too. Used from both sides: the documents a line could
+/// settle, and the lines that could have paid a document. `contact` is the
+/// document's contact (name, IBAN).
+pub fn score_line_for_document(
+    line: &Value,
+    doc: &Value,
+    invoice: bool,
+    contact: Option<(&str, Option<&str>)>,
+) -> (f64, Vec<String>) {
+    let line = Line(line);
+    let abs_amount = parse_float(line.filled("amount").unwrap_or("0")).abs();
+    let mut confidence = 0.0;
+    let mut reasons: Vec<String> = Vec::new();
+    if abs_amount > 0.0
+        && let Some((score, reason)) = score_amount(parse_amount(doc, "balanceDue"), abs_amount)
+    {
+        confidence += score;
+        reasons.push(reason.to_owned());
+    }
+    let reference = line
+        .filled("reference")
+        .or_else(|| line.filled("description"))
+        .unwrap_or_default();
+    if invoice {
+        let number = text(doc, "invoiceNumber").filter(|n| !n.is_empty());
+        if let Some(number) = number
+            && reference.contains(number)
+        {
+            confidence += 0.4;
+            reasons.push("invoice number in reference".to_owned());
+        }
+        if let (Some(e2e), Some(number)) = (line.filled("endToEndId"), number)
+            && e2e.contains(number)
+        {
+            confidence += 0.3;
+            reasons.push("invoice number in end-to-end ID".to_owned());
+        }
+    } else if let Some(external) = text(doc, "externalReference").filter(|r| !r.is_empty())
+        && reference.contains(external)
+    {
+        confidence += 0.4;
+        reasons.push("external reference in description".to_owned());
+    }
+    if let (Some(iban), Some(contact_iban)) = (
+        line.filled("counterpartyIban"),
+        contact.and_then(|c| c.1).filter(|i| !i.is_empty()),
+    ) && contact_iban == iban
+    {
+        confidence += 0.3;
+        reasons.push(format!(
+            "counterparty IBAN matches {}",
+            if invoice { "contact" } else { "vendor" }
+        ));
+    }
+    let contact_name = text(doc, "contactName")
+        .filter(|n| !n.is_empty())
+        .or_else(|| contact.map(|c| c.0));
+    if let Some((boost, reason)) = name_match(&line, contact_name) {
+        confidence += boost;
+        reasons.push(format!(
+            "{reason} the {}",
+            if invoice { "customer" } else { "vendor" }
+        ));
+    }
+    if let Some((boost, reason)) = payment_window(
+        line.text("date"),
+        text(doc, "issueDate"),
+        text(doc, "dueDate"),
+    ) {
+        confidence += boost;
+        reasons.push(reason.to_owned());
+    }
+    (confidence.clamp(0.0, 1.0), reasons)
+}
+
+/// One document a bank line settles in [`reconcile_to_documents`]: an
+/// invoice (a credit note too, refunded by money going out) or a bill, and
+/// the part of the line it takes, in the line's currency.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DocumentShare {
+    pub invoice: bool,
+    pub id: String,
+    pub amount: f64,
+}
+
+/// Where [`reconcile_to_documents`] books the gap between a line and its
+/// documents: an account (bank costs, a payment discount, rounding) and the
+/// journal line's description.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct DifferenceAccount {
+    pub account_id: String,
+    pub description: Option<String>,
+}
+
+/// Tie a line to one or more documents as one payment (money in against
+/// invoices; out against bills, or refunding credit notes), posted, settling
+/// the documents and the line in one go.
+///
+/// When the documents take more than the line, the gap goes to `difference`
+/// (refused without one); when they take less, the rest goes to `difference`
+/// or, without one, stays on the contact as an unapplied credit. One document
+/// for exactly the line links a payment recorded by hand before the line
+/// arrived, as [`reconcile_to_document`] does.
+pub async fn reconcile_to_documents(
+    db: &PgPool,
+    http: Option<&OutboundHttp>,
+    txn: &Value,
+    documents: &[DocumentShare],
+    difference: Option<DifferenceAccount>,
+    user_id: Option<String>,
+) -> Result<Matched, PostError> {
+    if text(txn, "status") != Some("unreconciled") {
+        return Err(posting("Transaction is already reconciled or excluded"));
+    }
+    let amount = parse_float(text(txn, "amount").unwrap_or("0"));
+    if amount == 0.0 || amount.is_nan() {
+        return Err(posting("A bank line without an amount can't be matched"));
+    }
+    if documents.is_empty() {
+        return Err(posting("Pick at least one invoice or bill"));
+    }
+    let received = amount > 0.0;
+    let paid = round_money(amount.abs());
+    let mut allocated = 0.0;
+    for share in documents {
+        if share.amount.is_nan() || round_money(share.amount) <= 0.0 {
+            return Err(posting("Every amount must be greater than zero"));
+        }
+        allocated = round_money(allocated + round_money(share.amount));
+    }
+    let gap = round_money(allocated - paid);
+    let difference = match difference.filter(|d| !d.account_id.is_empty()) {
+        Some(account) if gap.abs() >= 0.01 => Some(PaymentDifference {
+            account_id: account.account_id,
+            amount: gap,
+            description: account.description,
+        }),
+        _ => None,
+    };
+    if difference.is_none() && gap >= 0.01 {
+        return Err(posting(format!(
+            "The documents add up to {} but the bank line is {}. Lower an amount or book the difference to an account.",
+            to_fixed(allocated, 2),
+            to_fixed(paid, 2)
+        )));
+    }
+    let (currency, ledger_account_id) = line_bank(db, txn).await?;
+    // A payment recorded by hand for exactly this line is linked, not booked twice.
+    if let [share] = documents
+        && difference.is_none()
+        && gap.abs() < 0.01
+        && let Some(payment_id) = unlinked_payment_for(
+            db,
+            txn,
+            share.invoice,
+            &share.id,
+            paid,
+            ledger_account_id.as_deref(),
+        )
+        .await?
+    {
+        return reconcile_to_payment(db, txn, &payment_id).await;
+    }
+    let check_number = owned(txn, "checkNumber");
+    let has_check = check_number.as_deref().is_some_and(|c| !c.is_empty());
+    let result = record_payment(
+        db,
+        http,
+        RecordPaymentInput {
+            entity_id: text(txn, "entityId").unwrap_or_default().to_owned(),
+            received,
+            amount: paid,
+            currency: currency.flatten(),
+            date: text(txn, "date").unwrap_or_default().to_owned(),
+            payment_method: Some(if has_check { "check" } else { "bank_transfer" }.to_owned()),
+            check_number: check_number.clone(),
+            check_status: (!received && has_check).then(|| "cleared".to_owned()),
+            reference: owned(txn, "reference")
+                .or_else(|| owned(txn, "endToEndId"))
+                .or_else(|| owned(txn, "description")),
+            bank_account_id: owned(txn, "bankAccountId"),
+            bank_transaction_id: owned(txn, "id"),
+            deposit_to: Some("bank".to_owned()),
+            reconciliation_type: Some("manual".to_owned()),
+            allocations: documents
+                .iter()
+                .map(|share| AllocationInput {
+                    invoice_id: share.invoice.then(|| share.id.clone()),
+                    bill_id: (!share.invoice).then(|| share.id.clone()),
+                    amount: round_money(share.amount),
+                })
+                .collect(),
+            difference,
+            user_id,
+            ..RecordPaymentInput::default()
+        },
+    )
+    .await?;
+    Ok(Matched {
+        id: result.payment_id,
+        journal_entry_id: result.journal_entry_id,
     })
 }
 
