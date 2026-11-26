@@ -56,8 +56,8 @@
  *
  * **Step-up** (ADR SEC-022): before a sensitive action the API may want a
  * fresh sign-in or second factor (`MFA_REQUIRED` / `REVERIFICATION_REQUIRED`).
- * `stepUp` signs the same person in again with `prompt=login`, `max_age=0`
- * and, for a second factor, `acr_values=mfa`: in a popup, so the page and
+ * `stepUp` signs the same person in again with `prompt=login` and, for a
+ * second factor, `acr_values=mfa`: in a popup, so the page and
  * its unsaved input stay; through the system browser in the desktop shell;
  * and as a full redirect back to this page when the popup is blocked. The
  * popup comes back to the callback route, which hands the response to this
@@ -163,8 +163,6 @@ interface AuthorizationRequest {
   scope: string | undefined;
   prompt: string | undefined;
   ui_locales: string;
-  /** Step-up: how old the sign-in may be (0: sign in now). */
-  max_age?: number;
   /** Step-up: `mfa` to have the second factor confirmed too. */
   acr_values?: string;
   /** Step-up: the signed-in person's address, so the provider asks for that account. */
@@ -418,8 +416,10 @@ export class OidcSession {
         orgId: this.workspaceSource === 'claim' ? (this.snapshot.activeOrgId ?? undefined) : undefined,
       },
       scope: previous?.scope,
+      // A factor proven after this request. Not `max_age=0`: WeldID up to
+      // 0.1.0-alpha.5 can never meet it (the proof is always a moment old)
+      // and sends the person back to sign in again, round and round.
       prompt: 'login',
-      max_age: 0,
       acr_values: level === 'second_factor' ? 'mfa' : undefined,
       login_hint: typeof previous?.profile.email === 'string' ? previous.profile.email : undefined,
       ui_locales: getLocale(),

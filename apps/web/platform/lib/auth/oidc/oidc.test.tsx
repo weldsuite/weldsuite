@@ -861,7 +861,8 @@ describe('step-up before a sensitive action (ADR SEC-022)', () => {
     await waitFor(() => expect(popup.location.replace).toHaveBeenCalled());
     const authorize = new URL(String(popup.location.replace.mock.calls[0][0]));
     expect(authorize.searchParams.get('prompt')).toBe('login');
-    expect(authorize.searchParams.get('max_age')).toBe('0');
+    // Not `max_age=0`, which WeldID up to 0.1.0-alpha.5 can never meet.
+    expect(authorize.searchParams.has('max_age')).toBe(false);
     expect(authorize.searchParams.get('acr_values')).toBe('mfa');
     expect(authorize.searchParams.get('login_hint')).toBe('anna@acme.test');
     expect(authorize.searchParams.get('redirect_uri')).toBe(`${ORIGIN}/auth/sso-callback`);
