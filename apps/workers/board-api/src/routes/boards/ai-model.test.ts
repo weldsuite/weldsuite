@@ -18,9 +18,9 @@ import type { Database } from '@weldsuite/worker-kit';
 import { files, whiteboards } from '@weldsuite/db/schema';
 import type { BoardAiResult, BoardSummary } from '@weldsuite/app-api-client/schemas/boards';
 import { emptySnapshot, keysBetween, makeSticky, type BoardSnapshot } from '@weldsuite/board-engine';
-import type { Env, Variables } from '../../types';
-import { FakeBucket, liveRoomNamespace } from '../../test-support/fakes';
-import { boardEngineNamespace } from '../../engine-ops';
+import type { Env, Variables } from '@weldsuite/board-domain/types';
+import { FakeBucket, liveRoomNamespace } from '@weldsuite/board-domain/test-support/fakes';
+import { boardEngineNamespace } from '@weldsuite/board-domain/engine-ops';
 import boardRoutes from './index';
 
 let db: Database;

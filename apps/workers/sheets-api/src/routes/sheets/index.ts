@@ -59,11 +59,11 @@ import {
   type SheetImportResult,
   type SheetSession,
 } from '@weldsuite/app-api-client/schemas/sheets';
-import type { Env, Variables } from '../../types';
-import { adoptFileAsSheet, createSheet, getDriveFile, getSheet, listSheets, memberProfile, renameSheet, snapshotKeyFor, trashSheet, type SheetRecord } from '../../services/sheets';
-import { convertLegacyModel, readLegacyModel } from '../../services/legacy-project-sheet';
-import { writeSnapshot } from '../../room/snapshot';
-import { colorFor, newTabId } from '../../room/people';
+import type { Env, Variables } from '@weldsuite/sheets-domain/types';
+import { adoptFileAsSheet, createSheet, getDriveFile, getSheet, listSheets, memberProfile, renameSheet, snapshotKeyFor, trashSheet, type SheetRecord } from '@weldsuite/sheets-domain/services/sheets';
+import { convertLegacyModel, readLegacyModel } from '@weldsuite/sheets-domain/services/legacy-project-sheet';
+import { writeSnapshot } from '@weldsuite/sheets-domain/room/snapshot';
+import { colorFor, newTabId } from '@weldsuite/sheets-domain/room/people';
 import { VIEW_ONLY, eventData, findSheet, mayUpdate, projectRole, roomFor, roomMeta, sessionMode, toSummary, type Ctx } from './access';
 import { CONTENT_TYPES, attachment } from './download';
 import versionRoutes from './versions';

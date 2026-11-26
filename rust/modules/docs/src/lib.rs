@@ -178,7 +178,7 @@ impl Caller {
         self.call(state, DOC_ROOM, name, method, args).await
     }
 
-    /// The docs engine's `method` (`apps/workers/docs-api/src/engine-ops.ts`).
+    /// The docs engine's `method` (`packages/domains/docs/src/engine-ops.ts`).
     pub(crate) async fn engine(
         &self,
         state: &DocsState,

@@ -15,7 +15,7 @@ import { requirePermission } from '@weldsuite/permissions/server';
 import type { Env, Variables } from '../../types';
 import { error, success } from '@weldsuite/worker-kit/response';
 import { schema } from '@weldsuite/worker-kit/db';
-import { ACTION_TYPES, TRIGGER_TYPES, ENTITY_EVENTS } from './static-catalogs';
+import { ACTION_TYPES, TRIGGER_TYPES, ENTITY_EVENTS } from '@weldsuite/connect-domain/workflow-dashboard/static-catalogs';
 import { notSequenceRun, notTestRun } from '../../services/workflow-executions';
 import * as errorLogs from '../../services/workflow-error-logs';
 import type { ErrorAckStatus } from '../../services/workflow-error-logs';

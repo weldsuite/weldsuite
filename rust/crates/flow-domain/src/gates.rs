@@ -3,7 +3,7 @@
 //! weldflow-delivery-and-portfolio.md; ADR FLOW-017).
 //!
 //! A line-by-line port: the same fixtures
-//! (`packages/domains/flow/src/testing/gate-fixtures.json`) run in both
+//! (`rust/crates/flow-domain/fixtures/gate-fixtures.json`) run in both
 //! languages, and every message and fact shape is `gates.ts`'s. A criterion
 //! is a catalogue key with parameters, or a manual criterion (free text the
 //! project manager ticks); criteria are handled as the JSON they are stored
@@ -803,8 +803,7 @@ pub fn phase_event_data(row: &Value, extra: Value) -> Value {
 mod tests {
     use super::*;
 
-    const FIXTURES: &str =
-        include_str!("../../../../packages/domains/flow/src/testing/gate-fixtures.json");
+    const FIXTURES: &str = include_str!("../fixtures/gate-fixtures.json");
 
     fn str_of(value: &Value, key: &str) -> String {
         value[key].as_str().unwrap_or_default().to_owned()

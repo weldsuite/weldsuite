@@ -6,7 +6,8 @@
  *
  * Pure functions, no database and no clock. flow-api's `/api/project-schedule`
  * routes use them and the Rust flow-domain (`schedule.rs`) mirrors them one to
- * one: both run the same fixtures (`testing/schedule-fixtures.json`), so a
+ * one: both run the same fixtures
+ * (`rust/crates/flow-domain/fixtures/schedule-fixtures.json`), so a
  * change here is a change there.
  *
  * The model, in working days of the project calendar:

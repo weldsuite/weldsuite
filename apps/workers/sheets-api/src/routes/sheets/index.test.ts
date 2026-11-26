@@ -14,10 +14,10 @@ vi.mock('@weldsuite/worker-kit/db', async (importOriginal) => ({
 }));
 import { SHEET_IMPORT_MAX_BYTES, WELDSHEET_MIME_TYPE, type SheetImportResult, type SheetSession, type SheetSummary } from '@weldsuite/app-api-client/schemas/sheets';
 import { Engine, writeXlsx, writeZip } from '@weldsuite/sheets-engine';
-import type { Env, Variables } from '../../types';
-import { readSnapshot } from '../../room/snapshot';
-import { FakeBucket, fakeRoomNamespace } from '../../test-support/fakes';
-import { sheetEngineNamespace } from '../../engine-ops';
+import type { Env, Variables } from '@weldsuite/sheets-domain/types';
+import { readSnapshot } from '@weldsuite/sheets-domain/room/snapshot';
+import { FakeBucket, fakeRoomNamespace } from '@weldsuite/sheets-domain/test-support/fakes';
+import { sheetEngineNamespace } from '@weldsuite/sheets-domain/engine-ops';
 import sheetRoutes from './index';
 
 /** The sheets engine, for the Rust backend in conformance mode (rust/docs/collab-rooms.md); the routes run it in process. */

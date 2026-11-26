@@ -58,8 +58,8 @@ import {
   type AddToBoardResult,
   type EditBoardElementsResult,
 } from '@weldsuite/app-api-client/schemas/boards';
-import type { Env, Variables } from '../../types';
-import { getLiveBoard, legacyElements, listBoards, trashBoard, trashLegacy, updateBoard, type BoardRecord, type BoardScope, type LiveBoardRecord } from '../../services/boards';
+import type { Env, Variables } from '@weldsuite/board-domain/types';
+import { getLiveBoard, legacyElements, listBoards, trashBoard, trashLegacy, updateBoard, type BoardRecord, type BoardScope, type LiveBoardRecord } from '@weldsuite/board-domain/services/boards';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import { convertInPlace, saveNewBoard } from '../boards';
 import { driveRole, eventData, fileEventData, findBoard, mayEditBoard, mayOpenProject, projectAccess, roomFor, roomMeta } from '../boards/access';

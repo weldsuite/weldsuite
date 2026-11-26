@@ -46,7 +46,7 @@ import {
   type DocSessionMode,
   type DocSummary,
 } from '@weldsuite/app-api-client/schemas/docs';
-import type { Env, Variables } from '../../types';
+import type { Env, Variables } from '@weldsuite/docs-domain/types';
 import {
   createDoc,
   listDocs,
@@ -55,9 +55,9 @@ import {
   trashDoc,
   updateDoc,
   type DocRecord,
-} from '../../services/docs';
-import { writeSnapshot } from '../../room/snapshot';
-import { colorFor } from '../../room/people';
+} from '@weldsuite/docs-domain/services/docs';
+import { writeSnapshot } from '@weldsuite/docs-domain/room/snapshot';
+import { colorFor } from '@weldsuite/docs-domain/room/people';
 import { VIEW_ONLY, eventData, findDoc, mayEditDoc, mayUpdate, roomFor, roomMeta, type Ctx } from './access';
 import versionRoutes from './versions';
 

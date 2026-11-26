@@ -5,7 +5,17 @@
   "type": "module",
   "private": true,
   "exports": {
-    "./internal-client": "./src/internal-client.ts"
+    "./engine-ops": "./src/engine-ops.ts",
+    "./internal-client": "./src/internal-client.ts",
+    "./room/board-room": "./src/room/board-room.ts",
+    "./room/connect": "./src/room/connect.ts",
+    "./room/people": "./src/room/people.ts",
+    "./room/snapshot": "./src/room/snapshot.ts",
+    "./services/ai-plan": "./src/services/ai-plan.ts",
+    "./services/boards": "./src/services/boards.ts",
+    "./services/versions": "./src/services/versions.ts",
+    "./test-support/fakes": "./src/test-support/fakes.ts",
+    "./types": "./src/types.ts"
   },
   "scripts": {
     "type-check": "tsc --noEmit",
@@ -13,9 +23,22 @@
     "test": "vitest run",
     "test:watch": "vitest"
   },
+  "dependencies": {
+    "@weldsuite/app-api-client": "workspace:*",
+    "@weldsuite/board-engine": "workspace:*",
+    "@weldsuite/collab": "workspace:*",
+    "@weldsuite/core-domain": "workspace:*",
+    "@weldsuite/db": "workspace:*",
+    "@weldsuite/docs-engine": "workspace:*",
+    "@weldsuite/entity-events": "workspace:*",
+    "@weldsuite/worker-kit": "workspace:*",
+    "drizzle-orm": "^0.45.2"
+  },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250110.0",
+    "@electric-sql/pglite": "^0.4.5",
     "@types/node": "^20",
+    "@vitest/coverage-v8": "^4.1.12",
     "@weldsuite/typescript-config": "workspace:*",
     "typescript": "^5.9.2",
     "vitest": "^4.1.12"

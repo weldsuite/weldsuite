@@ -26,8 +26,8 @@ import {
   updateDocVersionSchema,
   type DocRestoreResult,
 } from '@weldsuite/app-api-client/schemas/docs';
-import type { Env, Variables } from '../../types';
-import { getDoc } from '../../services/docs';
+import type { Env, Variables } from '@weldsuite/docs-domain/types';
+import { getDoc } from '@weldsuite/docs-domain/services/docs';
 import {
   getVersion,
   insertVersion,
@@ -36,8 +36,8 @@ import {
   toVersion,
   versionEventData,
   versionKeyFor,
-} from '../../services/versions';
-import { readSnapshot } from '../../room/snapshot';
+} from '@weldsuite/docs-domain/services/versions';
+import { readSnapshot } from '@weldsuite/docs-domain/room/snapshot';
 import { VIEW_ONLY, eventData, findDoc, mayEditDoc, roomFor, roomMeta, type Ctx } from './access';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();

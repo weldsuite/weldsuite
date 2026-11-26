@@ -6,7 +6,7 @@ import {
   ODATA_NAMESPACE,
   type ODataEntitySet,
   type ODataProperty,
-} from './catalog';
+} from '@weldsuite/desk-domain/odata-catalog';
 import { encodeSkipToken, type SkipToken } from './query';
 
 export function xmlEscape(value: string): string {

@@ -2,11 +2,11 @@
   "extends": "@weldsuite/typescript-config/base.json",
   "compilerOptions": {
     "baseUrl": ".",
-    "lib": ["ES2022", "WebWorker"],
+    "lib": ["ES2022"],
     "module": "ESNext",
     "moduleResolution": "bundler",
     "noEmit": true,
-    "types": []
+    "types": ["@cloudflare/workers-types"]
   },
   "include": ["src"],
   "exclude": ["node_modules", "dist"]

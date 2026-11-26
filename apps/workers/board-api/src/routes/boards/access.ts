@@ -20,9 +20,9 @@ import { error } from '@weldsuite/worker-kit/response';
 import { canEdit, fileRole, loadDriveAccessForUser, type DriveAccessIndex, type DriveRole } from '@weldsuite/core-domain/drive-access';
 import { resolveProjectAccess, type ProjectAccess } from '@weldsuite/flow-domain/project-access';
 import type { BoardSessionMode, BoardSummary } from '@weldsuite/app-api-client/schemas/boards';
-import type { Env, Variables } from '../../types';
-import type { RoomMeta } from '../../room/board-room';
-import { getBoard, isLive, snapshotKeyFor, type BoardRecord, type LiveBoardRecord } from '../../services/boards';
+import type { Env, Variables } from '@weldsuite/board-domain/types';
+import type { RoomMeta } from '@weldsuite/board-domain/room/board-room';
+import { getBoard, isLive, snapshotKeyFor, type BoardRecord, type LiveBoardRecord } from '@weldsuite/board-domain/services/boards';
 
 export type Ctx = Context<{ Bindings: Env; Variables: Variables }>;
 

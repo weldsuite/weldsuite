@@ -26,10 +26,10 @@ import {
   updateBoardVersionSchema,
   type BoardRestoreResult,
 } from '@weldsuite/app-api-client/schemas/boards';
-import type { Env, Variables } from '../../types';
-import { getLiveBoard } from '../../services/boards';
-import { getVersion, insertVersion, listVersions, renameVersion, toVersion, versionEventData, versionKeyFor } from '../../services/versions';
-import { readSnapshot } from '../../room/snapshot';
+import type { Env, Variables } from '@weldsuite/board-domain/types';
+import { getLiveBoard } from '@weldsuite/board-domain/services/boards';
+import { getVersion, insertVersion, listVersions, renameVersion, toVersion, versionEventData, versionKeyFor } from '@weldsuite/board-domain/services/versions';
+import { readSnapshot } from '@weldsuite/board-domain/room/snapshot';
 import { editableBoard, eventData, findLiveBoard, roomFor, roomMeta, type Ctx } from './access';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();

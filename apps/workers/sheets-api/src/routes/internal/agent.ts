@@ -26,9 +26,9 @@ import { createDrizzlePermissionQueries, hasContextPermission, resolveEffectiveP
 import { error, success } from '@weldsuite/worker-kit/response';
 import { workspaceMovingResponse, workspaceReadOnlyBody } from '@weldsuite/worker-kit';
 import { fileRole, loadDriveAccessForUser, visibleFilesCondition } from '@weldsuite/core-domain/drive-access';
-import type { Env, Variables } from '../../types';
-import { listSheets } from '../../services/sheets';
-import { newTabId } from '../../room/people';
+import type { Env, Variables } from '@weldsuite/sheets-domain/types';
+import { listSheets } from '@weldsuite/sheets-domain/services/sheets';
+import { newTabId } from '@weldsuite/sheets-domain/room/people';
 import { findSheet, mayEditSheet, roomFor, roomMeta } from '../sheets/access';
 import { saveNewSheet } from '../sheets';
 

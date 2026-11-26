@@ -19,7 +19,7 @@
  * 10, 30 comparisons.
  */
 
-import { findProperty, type EdmType, type ODataEntitySet, type ODataProperty } from './catalog';
+import { findProperty, type EdmType, type ODataEntitySet, type ODataProperty } from '@weldsuite/desk-domain/odata-catalog';
 import { badRequest, notImplemented } from './errors';
 
 export const MAX_FILTER_LENGTH = 2000;

@@ -13,11 +13,11 @@ import type { Database } from '@weldsuite/worker-kit';
 import * as schema from '@weldsuite/db/schema';
 import type { SheetDataRefreshResult, SheetDataSource, SheetSession, SheetSummary, SheetVersion } from '@weldsuite/app-api-client/schemas/sheets';
 import { Engine, Sheet, Workbook, writeXlsx } from '@weldsuite/sheets-engine';
-import type { Env, Variables } from '../../types';
+import type { Env, Variables } from '@weldsuite/sheets-domain/types';
 import { conformanceTenantDb } from '@weldsuite/worker-kit/testing/conformance';
-import { FakeBucket, liveRoomNamespace } from '../../test-support/fakes';
-import { sheetEngineNamespace } from '../../engine-ops';
-import { META_SHEET, type LegacyModel } from '../../services/legacy-project-sheet';
+import { FakeBucket, liveRoomNamespace } from '@weldsuite/sheets-domain/test-support/fakes';
+import { sheetEngineNamespace } from '@weldsuite/sheets-domain/engine-ops';
+import { META_SHEET, type LegacyModel } from '@weldsuite/sheets-domain/services/legacy-project-sheet';
 import sheetRoutes from './index';
 import agentRoutes from '../internal/agent';
 

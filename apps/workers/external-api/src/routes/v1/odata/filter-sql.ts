@@ -9,7 +9,7 @@
  */
 
 import { sql, type SQL } from 'drizzle-orm';
-import { isPlainColumn, type EdmType, type ODataEntitySet, type ODataProperty } from './catalog';
+import { isPlainColumn, type EdmType, type ODataEntitySet, type ODataProperty } from '@weldsuite/desk-domain/odata-catalog';
 import type { CmpOp, FilterNode, Literal, TextFn } from './filter';
 
 const SQL_OPS: Record<Exclude<CmpOp, 'eq' | 'ne'>, SQL> = {

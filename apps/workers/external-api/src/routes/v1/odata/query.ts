@@ -18,7 +18,7 @@ import {
   isPlainColumn,
   type ODataEntitySet,
   type ODataProperty,
-} from './catalog';
+} from '@weldsuite/desk-domain/odata-catalog';
 import { badRequest, notImplemented, ODataError } from './errors';
 import { parseFilter, type FilterNode } from './filter';
 import { filterToSql, propExpr } from './filter-sql';

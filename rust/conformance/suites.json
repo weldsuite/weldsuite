@@ -444,6 +444,7 @@
       ],
       "paths": [
         "apps/workers/docs-api/src/",
+        "packages/domains/docs/src/",
         "packages/clients/app-api-client/src/schemas/docs.ts",
         "packages/core/worker-kit/src/testing/ledger-bridge.ts",
         "rust/modules/docs/",
@@ -461,6 +462,7 @@
       ],
       "paths": [
         "apps/workers/sheets-api/src/",
+        "packages/domains/sheets/src/",
         "packages/clients/app-api-client/src/schemas/sheets.ts",
         "packages/clients/app-api-client/src/schemas/sheet-data.ts",
         "packages/core/sheets-engine/src/",
@@ -483,6 +485,7 @@
       ],
       "paths": [
         "apps/workers/board-api/src/",
+        "packages/domains/board/src/",
         "packages/clients/app-api-client/src/schemas/boards.ts",
         "packages/core/board-engine/src/",
         "packages/core/worker-kit/src/testing/conformance-schemas-board.ts",
@@ -2373,6 +2376,7 @@
         "apps/workers/connect-api/src/routes/workflows/",
         "apps/workers/connect-api/src/routes/workflow-builder/",
         "apps/workers/connect-api/src/routes/workflow-dashboard/",
+        "packages/domains/connect/src/workflow-dashboard/",
         "apps/workers/connect-api/src/routes/workflow-executions/",
         "apps/workers/connect-api/src/routes/workflow-schedules/",
         "apps/workers/connect-api/src/routes/workflow-templates/",
@@ -3047,6 +3051,7 @@
       "workspace": "apps/workers/external-api",
       "paths": [
         "apps/workers/external-api/src/",
+        "packages/domains/desk/src/odata-catalog.ts",
         "rust/modules/external-api/"
       ],
       "tests": [

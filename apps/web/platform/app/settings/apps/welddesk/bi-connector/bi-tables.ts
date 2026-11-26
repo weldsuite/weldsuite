@@ -2,7 +2,7 @@ import { publicEnv } from '@/lib/runtime-config';
 
 /**
  * The tables the OData feed serves, in the order of its service document
- * (apps/workers/external-api/src/routes/v1/odata/catalog.ts). The one-line
+ * (packages/domains/desk/src/odata-catalog.ts). The one-line
  * descriptions are translations: `t.deskBi.tables.items`.
  */
 export const BI_TABLES = [

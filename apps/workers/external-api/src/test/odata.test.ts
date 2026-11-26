@@ -10,7 +10,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { sql } from 'drizzle-orm';
 import { createSeparatePgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { createExternalTestApp } from './harness';
-import { ODATA_ENTITY_SETS, type EdmType, type ODataEntitySet } from '../routes/v1/odata/catalog';
+import { ODATA_ENTITY_SETS, type EdmType, type ODataEntitySet } from '@weldsuite/desk-domain/odata-catalog';
 import { metadataXml, xmlEscape } from '../routes/v1/odata/metadata';
 import type { Database } from '../db';
 

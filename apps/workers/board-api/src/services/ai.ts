@@ -20,10 +20,10 @@ import { assertGatewayConfigured, billedModelId, createWeldAI, generateObject, j
 import { assertAiCredits, chargeAiUsage, type AiMetering } from '@weldsuite/core-domain/ai-billing';
 import type { Board } from '@weldsuite/board-engine';
 import type { BoardAiInput } from '@weldsuite/app-api-client/schemas/boards';
-import type { Env } from '../types';
-import { BoardAiError, boardAiAsk, boardAiPlan, checkBoardAi, type BoardAiPlan } from './ai-plan';
+import type { Env } from '@weldsuite/board-domain/types';
+import { BoardAiError, boardAiAsk, boardAiPlan, checkBoardAi, type BoardAiPlan } from '@weldsuite/board-domain/services/ai-plan';
 
-export { BoardAiError, type BoardAiPlan } from './ai-plan';
+export { BoardAiError, type BoardAiPlan } from '@weldsuite/board-domain/services/ai-plan';
 
 function getAi(env: Env): WeldAI {
   try {

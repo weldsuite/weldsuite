@@ -219,18 +219,18 @@ modules, each with conformance suites that reach every route:
   Digipoort, in `unavailableFeatures`)
 - **docs** (WeldDocs: documents as WeldDrive files, room sessions, the live
   snapshot, version history with restore). Live editing runs in the
-  collab-rooms service, the workers' own `DocRoom` on Node beside this
+  collab-rooms service, the same `DocRoom` the worker runs, on Node beside this
   server (`rust/docs/collab-rooms.md`, the chart's `collabRooms`): the
   server calls each room over HTTP on the pod that holds it and proxies the
   room sockets (`/api/docs/connect`); the engine stays TypeScript
 - **sheets** (WeldSheets: spreadsheets as WeldDrive files and WeldFlow
   project sheets, room sessions, .xlsx/.csv/.tsv imports and exports, the
   in-place conversion of old project sheets, version history with restore,
-  connected tables). Its rooms are the workers' own `SheetRoom` in the same
+  connected tables). Its rooms are the same `SheetRoom` the worker runs, in the same
   collab-rooms service, and the work its routes do without a room (a new
   workbook, reading an import, a version's .xlsx, a connected table's
   listing with the workspace's database) is the sheets engine there
-  (`SHEET_ENGINE`, `apps/workers/sheets-api/src/engine-ops.ts`); scheduled
+  (`SHEET_ENGINE`, `packages/domains/sheets/src/engine-ops.ts`); scheduled
   refreshes run on the rooms' alarms. Not ported: `/internal/agent/*` (the
   `SheetsInternal` entrypoint the WeldAgent tools call from agent-api,
   chat-api and app-api), which waits for those workers' ports
@@ -240,9 +240,9 @@ modules, each with conformance suites that reach every route:
   the live snapshot, the SVG render and thumbnail, version history with
   restore, record cards, stickies made WeldFlow tasks, and link previews
   fetched through `PublicLinks`: public addresses only, each redirect
-  checked). Its rooms are the workers' own `BoardRoom` in the collab-rooms
+  checked). Its rooms are the same `BoardRoom` the worker runs, in the collab-rooms
   service, and the work its routes do without a room is the board engine there
-  (`BOARD_ENGINE`, `apps/workers/board-api/src/engine-ops.ts`). The AI
+  (`BOARD_ENGINE`, `packages/domains/board/src/engine-ops.ts`). The AI
   actions answer 503 (`agent-ai` is unavailable and the editor hides them).
   Not ported: `/internal/boards/*` (the `BoardsInternal` entrypoint the
   WeldAgent tools and mcp-server call). `/v1/whiteboards` still serves

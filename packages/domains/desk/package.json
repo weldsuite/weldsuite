@@ -5,9 +5,10 @@
   "type": "module",
   "private": true,
   "exports": {
-    "./helpdesk-integrations": "./src/helpdesk-integrations.ts",
     "./catalog": "./src/catalog.ts",
-    "./inbox": "./src/inbox.ts"
+    "./helpdesk-integrations": "./src/helpdesk-integrations.ts",
+    "./inbox": "./src/inbox.ts",
+    "./odata-catalog": "./src/odata-catalog.ts"
   },
   "scripts": {
     "type-check": "tsc --noEmit",
@@ -27,6 +28,7 @@
     "@cloudflare/workers-types": "^4.20250110.0",
     "@electric-sql/pglite": "^0.4.5",
     "@types/node": "^20",
+    "@vitest/coverage-v8": "^4.1.12",
     "@weldsuite/typescript-config": "workspace:*",
     "typescript": "^5.9.2",
     "vitest": "^4.1.12"

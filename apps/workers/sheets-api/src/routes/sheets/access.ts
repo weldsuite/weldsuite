@@ -10,9 +10,9 @@ import { error } from '@weldsuite/worker-kit/response';
 import { canEdit, fileRole, loadDriveAccessForUser, type DriveRole } from '@weldsuite/core-domain/drive-access';
 import { resolveProjectAccess, type ProjectAccess } from '@weldsuite/flow-domain/project-access';
 import type { SheetSessionMode, SheetSummary } from '@weldsuite/app-api-client/schemas/sheets';
-import type { Env, Variables } from '../../types';
-import type { RoomMeta } from '../../room/sheet-room';
-import { getSheet, snapshotKeyFor, type SheetRecord } from '../../services/sheets';
+import type { Env, Variables } from '@weldsuite/sheets-domain/types';
+import type { RoomMeta } from '@weldsuite/sheets-domain/room/sheet-room';
+import { getSheet, snapshotKeyFor, type SheetRecord } from '@weldsuite/sheets-domain/services/sheets';
 
 export type Ctx = Context<{ Bindings: Env; Variables: Variables }>;
 

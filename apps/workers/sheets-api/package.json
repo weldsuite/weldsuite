@@ -25,6 +25,7 @@
     "@weldsuite/forms-engine": "workspace:*",
     "@weldsuite/notifications": "workspace:*",
     "@weldsuite/permissions": "workspace:*",
+    "@weldsuite/sheets-domain": "workspace:*",
     "@weldsuite/sheets-engine": "workspace:*",
     "@weldsuite/worker-kit": "workspace:*",
     "drizzle-orm": "^0.45.2",

@@ -9,12 +9,12 @@
 
 import { WorkerEntrypoint } from 'cloudflare:workers';
 import { apiAuth, createModuleApi } from '@weldsuite/worker-kit';
-import type { Env, Variables } from './types';
+import type { Env, Variables } from '@weldsuite/sheets-domain/types';
 import sheetsRoutes from './routes/sheets';
 import agentRoutes from './routes/internal/agent';
-import { connectToRoom, isConnectRequest } from './room/connect';
+import { connectToRoom, isConnectRequest } from '@weldsuite/sheets-domain/room/connect';
 
-export { SheetRoom } from './room/sheet-room';
+export { SheetRoom } from '@weldsuite/sheets-domain/room/sheet-room';
 
 const app = createModuleApi<Env, Variables>({ service: 'sheets-api' });
 

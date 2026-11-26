@@ -8,7 +8,7 @@
 import { describe, expect, it } from 'vitest';
 import type { SQL } from 'drizzle-orm';
 import { PgDialect } from 'drizzle-orm/pg-core';
-import { findEntitySet } from '../routes/v1/odata/catalog';
+import { findEntitySet } from '@weldsuite/desk-domain/odata-catalog';
 import { ODataError } from '../routes/v1/odata/errors';
 import { parseFilter } from '../routes/v1/odata/filter';
 import {

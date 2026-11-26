@@ -116,9 +116,9 @@ const API_PACKAGES = [
 
 /**
  * What the Rust jobs read besides rust/: personal-api's migrations, the
- * realtime parity test, and the collab-rooms image, which bundles the docs,
- * sheets and board rooms by relative path (so those folders are listed here,
- * not found in the graph).
+ * realtime parity test, and the collab-rooms image. That image bundles the
+ * docs, sheets and board rooms from their domain packages, which the package
+ * graph finds through collab-rooms' dependencies.
  */
 const RUST_PATHS = [
   'rust/',
@@ -126,13 +126,6 @@ const RUST_PATHS = [
   'packages/core/db/drizzle/',
   // The WeldForms engine's fixtures are also run by rust/modules/forms (ADR FORMS-003).
   'packages/core/forms-engine/',
-  'apps/workers/docs-api/src/room/',
-  'apps/workers/docs-api/src/engine-ops',
-  'apps/workers/sheets-api/src/room/',
-  'apps/workers/sheets-api/src/engine-ops',
-  'apps/workers/board-api/src/room/',
-  'apps/workers/board-api/src/engine-ops',
-  'apps/workers/board-api/src/services/',
 ];
 const RUST_PACKAGES = ['packages/core/realtime', 'apps/tools/collab-rooms'];
 
@@ -145,6 +138,15 @@ const RUST_PACKAGES = ['packages/core/realtime', 'apps/tools/collab-rooms'];
  */
 const MIGRATIONS_DIR = 'rust/migrations/';
 const MIGRATIONS_PACKAGE = 'packages/core/db';
+
+/**
+ * WeldFlow's schedule and gate parity fixtures. They live in the Rust crate
+ * that `include_str!`s them, and @weldsuite/flow-domain's schedule and gate
+ * tests read them from there. A changed fixture counts as a change to that
+ * package, so the TypeScript side runs too.
+ */
+const FLOW_FIXTURES_DIR = 'rust/crates/flow-domain/fixtures/';
+const FLOW_FIXTURES_PACKAGE = 'packages/domains/flow';
 
 /**
  * Under rust/, but read by no Rust build or test (no `include_str!`, no test
@@ -375,6 +377,7 @@ function decideAreas(files) {
     else if (isInert(file)) continue;
     if (file.startsWith('apps/workers/')) on('workers', file);
     if (file.startsWith(MIGRATIONS_DIR) && packages.has(MIGRATIONS_PACKAGE)) changed.add(MIGRATIONS_PACKAGE);
+    if (file.startsWith(FLOW_FIXTURES_DIR) && packages.has(FLOW_FIXTURES_PACKAGE)) changed.add(FLOW_FIXTURES_PACKAGE);
     const dir = packageOf(file, dirs);
     if (dir) changed.add(dir);
     else if (!rust) return allAreas(`${file} is outside every package and not known to be inert`);

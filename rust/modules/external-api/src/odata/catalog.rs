@@ -1,4 +1,4 @@
-//! The feed's catalogue (`routes/v1/odata/catalog.ts`): every entity set,
+//! The feed's catalogue (`@weldsuite/desk-domain/odata-catalog`): every entity set,
 //! its table and its properties, as data.
 //!
 //! The TypeScript catalogue is the one source: `pnpm rust:catalogs` exports

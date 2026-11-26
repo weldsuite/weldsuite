@@ -20,7 +20,7 @@
 import { Hono, type Context } from 'hono';
 import type { HonoEnv } from '../../../types';
 import { requireScope } from '../../../lib/scopes';
-import { findEntitySet } from './catalog';
+import { findEntitySet } from '@weldsuite/desk-domain/odata-catalog';
 import { ODataError } from './errors';
 import { contextUrl, metadataXml, nextLink, serviceDocument } from './metadata';
 import { countRows, fetchEntity, fetchPage, parseQueryOptions } from './query';

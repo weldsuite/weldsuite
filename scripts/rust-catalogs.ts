@@ -51,7 +51,7 @@ import {
   ACTION_TYPES as WELDCONNECT_ACTION_TYPES,
   ENTITY_EVENTS as WELDCONNECT_ENTITY_EVENTS,
   TRIGGER_TYPES as WELDCONNECT_TRIGGER_TYPES,
-} from '../apps/workers/connect-api/src/routes/workflow-dashboard/static-catalogs';
+} from '../packages/domains/connect/src/workflow-dashboard/static-catalogs';
 import { listIntegrations as listWorkflowIntegrations } from '../packages/core/workflow-integrations/src/registry';
 import { STARTER_TEMPLATES } from '../packages/core/forms-engine/src/templates';
 import { formDefinitionSchema } from '../packages/core/forms-engine/src/definition';
@@ -81,7 +81,7 @@ import {
   PROVIDER_MARKUP,
   WORKERS_AI_FALLBACK_PRICE,
 } from '../packages/core/ai/src/billing-rates';
-import { odataCatalogJson } from '../apps/workers/external-api/src/routes/v1/odata/catalog';
+import { odataCatalogJson } from '../packages/domains/desk/src/odata-catalog';
 import { buildPermissionCases } from './rust-permission-cases';
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -230,7 +230,7 @@ async function main(): Promise<void> {
     'catalogs/forms-templates.json': formsTemplatesCatalog(),
     'catalogs/ai.json': aiCatalog(),
     // The public API's OData feed (`/v1/odata`): its entity sets and properties,
-    // in order, as external-api exports them (rust/modules/external-api/src/odata).
+    // in order, as @weldsuite/desk-domain/odata-catalog exports them (rust/modules/external-api/src/odata).
     'catalogs/odata.json': JSON.parse(odataCatalogJson()),
     'catalogs/permissions.json': {
       objects: PERMISSION_CATALOG_OBJECTS,

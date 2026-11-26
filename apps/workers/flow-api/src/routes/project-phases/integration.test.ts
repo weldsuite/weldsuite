@@ -3,7 +3,7 @@
  * Runs against the TypeScript worker and, in conformance mode, the Rust
  * backend (rust/conformance/suites.json), so every status code, message and
  * event payload asserted here is the contract of both. The check itself is
- * covered by the shared fixtures of packages/domains/flow/src/testing/gate-fixtures.json;
+ * covered by the shared fixtures of rust/crates/flow-domain/fixtures/gate-fixtures.json;
  * what approving a gate does is in ../../services/project-phases.test.ts.
  */
 

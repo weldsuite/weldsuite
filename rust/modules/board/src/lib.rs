@@ -13,7 +13,7 @@
 //! room's checkpoints in the private bucket. The room is the collab-rooms
 //! service on Kubernetes (`rust/docs/collab-rooms.md`), reached through the
 //! [`CollabRooms`](weldsuite_ports::`CollabRooms`) port; so is the board
-//! engine (`BOARD_ENGINE`, `apps/workers/board-api/src/engine-ops.ts`) for
+//! engine (`BOARD_ENGINE`, `packages/domains/board/src/engine-ops.ts`) for
 //! the work the routes do without a room: a new board's first checkpoint,
 //! copies, imports, legacy conversions, the task cards and the SVG render.
 //!
@@ -273,7 +273,7 @@ impl Caller {
         self.master.clone().or_else(|| state.master.clone())
     }
 
-    /// The board engine's `method` (`apps/workers/board-api/src/engine-ops.ts`).
+    /// The board engine's `method` (`packages/domains/board/src/engine-ops.ts`).
     pub(crate) async fn engine(
         &self,
         state: &BoardState,
