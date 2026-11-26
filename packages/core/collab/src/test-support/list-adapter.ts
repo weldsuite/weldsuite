@@ -44,6 +44,11 @@ function transformList(a: ListOp, b: ListOp, aWins: boolean): ListOp {
     });
     return { type: 'batch', ops };
   }
+  return transformStep(a, b, aWins);
+}
+
+/** One step past another. */
+function transformStep(a: Step, b: Step, aWins: boolean): ListOp {
   if (a.type === 'ins') {
     if (b.type === 'ins') return a.at > b.at || (a.at === b.at && aWins) ? { ...a, at: a.at + 1 } : a;
     return a.at > b.at ? { ...a, at: a.at - 1 } : a;
