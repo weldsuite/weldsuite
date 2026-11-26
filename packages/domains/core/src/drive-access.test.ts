@@ -10,11 +10,13 @@ import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import {
   containerRole,
+  describeSharing,
   fileRole,
   folderRole,
   listSharedWithUser,
   loadDriveAccess,
   loadDriveAccessForUser,
+  removeShare,
   upsertShare,
   visibleFilesCondition,
   visibleFolderIds,
@@ -244,5 +246,80 @@ describe('listSharedWithUser', () => {
     expect(previousRole).toBe('viewer');
     expect(await roleOnFile(caller(BOB), 'fil_private_shared')).toBe('editor');
     await upsertShare(db, { kind: 'file', id: 'fil_private_shared' }, { userId: BOB, role: 'viewer', sharedBy: ANN });
+  });
+});
+
+describe('describeSharing', () => {
+  it('gives the owner and every direct and inherited share their account picture, looked up in one batch', async () => {
+    await file('fil_sharing', { folderId: 'fld_hr_2026' });
+    await upsertShare(db, { kind: 'file', id: 'fil_sharing' }, { userId: BOB, role: 'viewer', sharedBy: ANN });
+    const lookups: string[][] = [];
+    const loadPictures = async (userIds: string[]) => {
+      lookups.push(userIds);
+      return new Map<string, string | null>([
+        [ANN, 'https://img.test/ann.png'],
+        [CAROL, null],
+      ]);
+    };
+    try {
+      const sharing = await describeSharing(
+        db,
+        loadPictures,
+        await loadDriveAccess(db, caller(ANN)),
+        { kind: 'file', id: 'fil_sharing', ownerId: ANN, generalAccess: 'workspace_edit', parentId: 'fld_hr_2026' },
+        'owner',
+      );
+      expect(lookups).toHaveLength(1);
+      expect([...lookups[0]!].sort()).toEqual([ANN, BOB, CAROL].sort());
+      expect(sharing.owner).toEqual({ userId: ANN, name: null, email: `${ANN}@test.dev`, picture: 'https://img.test/ann.png' });
+      // Bob has no account picture (absent from the lookup), Carol's account has none (null).
+      expect(sharing.shares).toEqual([expect.objectContaining({ userId: BOB, role: 'viewer', picture: null })]);
+      expect(sharing.inherited).toEqual([
+        expect.objectContaining({ userId: CAROL, role: 'editor', folderId: 'fld_hr_2026', picture: null }),
+      ]);
+      expect(sharing.generalAccess).toBe('workspace_edit');
+      expect(sharing.effectiveGeneralAccess).toBe('restricted');
+      expect(sharing.accessRole).toBe('owner');
+    } finally {
+      await removeShare(db, { kind: 'file', id: 'fil_sharing' }, BOB);
+    }
+  });
+
+  it('asks for a person once when they have a share and an inherited one', async () => {
+    await file('fil_sharing_twice', { folderId: 'fld_hr_2026' });
+    await upsertShare(db, { kind: 'file', id: 'fil_sharing_twice' }, { userId: CAROL, role: 'viewer', sharedBy: ANN });
+    const lookups: string[][] = [];
+    try {
+      const sharing = await describeSharing(
+        db,
+        async (userIds) => {
+          lookups.push(userIds);
+          return new Map([[CAROL, 'https://img.test/carol.png']]);
+        },
+        await loadDriveAccess(db, caller(ANN)),
+        { kind: 'file', id: 'fil_sharing_twice', ownerId: ANN, generalAccess: 'workspace_edit', parentId: 'fld_hr_2026' },
+        'owner',
+      );
+      expect([...lookups[0]!].sort()).toEqual([ANN, CAROL].sort());
+      expect(sharing.shares[0]?.picture).toBe('https://img.test/carol.png');
+      expect(sharing.inherited[0]?.picture).toBe('https://img.test/carol.png');
+      expect(sharing.owner?.picture).toBeNull();
+    } finally {
+      await removeShare(db, { kind: 'file', id: 'fil_sharing_twice' }, CAROL);
+    }
+  });
+
+  it('leaves an item without an owner ownerless', async () => {
+    const sharing = await describeSharing(
+      db,
+      async () => new Map(),
+      await loadDriveAccess(db, caller(ADMIN, true)),
+      { kind: 'file', id: 'fil_orphan', ownerId: null, generalAccess: 'restricted', parentId: null },
+      'editor',
+    );
+    expect(sharing.owner).toBeNull();
+    expect(sharing.shares).toEqual([]);
+    expect(sharing.inherited).toEqual([]);
+    expect(sharing.effectiveGeneralAccess).toBe('restricted');
   });
 });
