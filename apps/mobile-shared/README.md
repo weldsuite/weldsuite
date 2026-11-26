@@ -21,3 +21,17 @@ the Swift package targets. Commit what it writes; CI runs
 
 Every string needs `en` and `nl`; the generator refuses a key or a
 placeholder that one locale lacks.
+
+## Changing the contract
+
+Apps already on phones keep reading the server's answers with the contract
+they were built with:
+
+- A new field in a response is safe. Don't mark a response object
+  `additionalProperties: false`: the Swift client then throws on any key it
+  doesn't know.
+- A new value in a response enum is not. Both clients throw on a value they
+  don't know, and the whole response fails (Android reads it as null only
+  where the field is nullable). Ship the apps that know the value first, then
+  raise `mobile.minVersions` in `/config.json` before the server sends it.
+- A field that becomes optional, or a type that changes, breaks both.

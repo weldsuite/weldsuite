@@ -52,7 +52,6 @@ val generateTasks = specs.map { (name, pkg) ->
                 "useCoroutines" to "true",
                 "dateLibrary" to "string",
                 "enumPropertyNaming" to "UPPERCASE",
-                "enumUnknownDefaultCase" to "true",
                 "sourceFolder" to "src/main/kotlin",
             ),
         )

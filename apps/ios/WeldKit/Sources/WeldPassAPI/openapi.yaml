@@ -368,8 +368,8 @@ components:
         `type`: a login has username, password, totp, notes and maybe apps;
         a note has content; a card has cardholder, number, expiry, cvc and
         notes. One object rather than a oneOf, so both generators read it the
-        same way.
-      additionalProperties: false
+        same way. Not `additionalProperties: false`: the Swift client would
+        throw on a field the server adds later.
       properties:
         username:
           type: string
