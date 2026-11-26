@@ -88,6 +88,10 @@ settings, which weldsuite.env adds.
 - name: PUBLIC_ENV
   value: {{ toJson . | quote }}
 {{- end }}
+{{- with (.Values.config.mobile | default dict).minVersions }}
+- name: MOBILE_MIN_VERSIONS
+  value: {{ toJson . | quote }}
+{{- end }}
 {{- with .Values.config.video }}
 {{- if eq (.provider | default "") "livekit" }}
 - name: VIDEO_PROVIDER

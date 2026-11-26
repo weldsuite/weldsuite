@@ -52,6 +52,17 @@ config:
   #   VITE_USER_APP_ISOLATE_COMMUNITY_APPS  "true": one origin per community app
   #   VITE_BOOKING_PORTAL_URL, VITE_MEETING_PORTAL_URL  public pages the platform links to
   publicEnv: {}
+  # The native apps (apps/ios, apps/android): the oldest version of each that
+  # still works with this server, by app code, served in /config.json's
+  # mobile.minVersions. An older app asks to be updated before it signs in.
+  # Raise it before the server sends something those apps can't read (a new
+  # enum value; apps/mobile-shared/README.md, "Changing the contract"). The
+  # server refuses to start on an app code outside the permission catalog or
+  # a version that isn't MAJOR.MINOR.PATCH. Empty: no minimum.
+  #   minVersions:
+  #     weldpass: "2.0.0"
+  mobile:
+    minVersions: {}
   # WeldMeet's video provider. livekit: a LiveKit server you run next to the
   # chart (not part of it; see rust/README.md, "WeldMeet on LiveKit"). The
   # server mints LiveKit join tokens with the key pair in the Secret

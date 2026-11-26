@@ -30,6 +30,9 @@
 //!   (`livekit` or `realtimekit`) and the `LiveKit` server it connects to,
 //!   from the same `VIDEO_PROVIDER`/`LIVEKIT_URL` the meet module reads
 //!   (`weldsuite_video_rooms::client_settings`).
+//! - `mobile.minVersions`: the oldest version of each native app that still
+//!   works with this server (`MOBILE_MIN_VERSIONS`); an older app asks to be
+//!   updated. Left out when none is set.
 //!
 //! The platform reads them in `apps/web/platform/lib/edition.ts` and
 //! `lib/runtime-config.ts`. Global serves no `/config.json` and offers
@@ -318,6 +321,9 @@ pub(crate) struct EditionConfig {
     /// A Digipoort connection with a usable certificate (`DIGIPOORT_*`):
     /// [`VAT_DIGIPOORT_FEATURE`] and [`KVK_DIGIPOORT_FEATURE`].
     pub(crate) digipoort: bool,
+    /// App code → the oldest native app version that still works with this
+    /// server (`MOBILE_MIN_VERSIONS`), `/config.json`'s `mobile.minVersions`.
+    pub(crate) mobile_min_versions: BTreeMap<String, String>,
 }
 
 /// WeldMail's address features this deployment can serve.
@@ -369,6 +375,7 @@ impl Default for EditionConfig {
             panel_analytics: false,
             sso_connections: false,
             digipoort: false,
+            mobile_min_versions: BTreeMap::new(),
         }
     }
 }
@@ -378,8 +385,9 @@ impl Default for EditionConfig {
 pub(crate) const VIDEO_MODULE: &str = "meet";
 
 impl EditionConfig {
-    /// `EDITION` and `PUBLIC_ENV` (a JSON object of strings, as the chart
-    /// writes `config.publicEnv`). A name outside [`PUBLIC_ENV_KEYS`] is a
+    /// `EDITION`, `PUBLIC_ENV` (a JSON object of strings, as the chart
+    /// writes `config.publicEnv`) and `MOBILE_MIN_VERSIONS` (likewise, from
+    /// `config.mobile.minVersions`). A name outside [`PUBLIC_ENV_KEYS`] is a
     /// problem, so a secret put there by mistake stops the start instead of
     /// being published.
     pub(crate) fn from_lookup(
@@ -413,12 +421,17 @@ impl EditionConfig {
             }
         };
         let digipoort = digipoort_offered(lookup, problems);
+        let mobile_min_versions = lookup("MOBILE_MIN_VERSIONS")
+            .filter(|raw| !raw.trim().is_empty())
+            .map(|raw| mobile_min_versions(&raw, problems))
+            .unwrap_or_default();
         Self {
             credit_top_up,
             plan_billing,
             digipoort,
             edition,
             public_env,
+            mobile_min_versions,
             video: weldsuite_video_rooms::client_settings(lookup),
             video_configured: weldsuite_video_rooms::configured(lookup),
             live_editing: lookup("COLLAB_ROOMS_URLS")
@@ -437,8 +450,8 @@ impl EditionConfig {
         }
     }
 
-    /// Adds `edition`, `unavailableFeatures` and, when set, `env` to the
-    /// `/config.json` body.
+    /// Adds `edition`, `unavailableFeatures` and, when set, `env` and
+    /// `mobile` to the `/config.json` body.
     pub(crate) fn describe(&self, body: &mut Value) {
         body["edition"] = json!(self.edition.as_str());
         body["unavailableFeatures"] = json!(self.unavailable_features());
@@ -456,6 +469,12 @@ impl EditionConfig {
             // The platform's switch for Mollie's flows (payment methods by
             // hosted checkout, the checkout return page); absent on Global.
             body["billingProvider"] = json!("mollie");
+        }
+        if !self.mobile_min_versions.is_empty() {
+            // The native apps' forced-update gate (`isBelowMinimumVersion` in
+            // their `ServerAssessment`); `apps/mobile-shared/openapi/core.yaml`,
+            // `RuntimeMobile`.
+            body["mobile"] = json!({ "minVersions": self.mobile_min_versions });
         }
     }
 }
@@ -566,6 +585,58 @@ fn public_env(raw: &str, problems: &mut Vec<String>) -> BTreeMap<String, String>
         }
     }
     out
+}
+
+/// `MOBILE_MIN_VERSIONS`: a JSON object from app code to the oldest app
+/// version that still works with this server, `{"weldpass": "2.0.0"}`. A code
+/// outside the permission catalog's apps is a problem, as a typo would gate
+/// nothing; so is a version that isn't a plain `MAJOR.MINOR.PATCH`
+/// ([`is_release_version`]).
+fn mobile_min_versions(raw: &str, problems: &mut Vec<String>) -> BTreeMap<String, String> {
+    let Ok(Value::Object(entries)) = serde_json::from_str::<Value>(raw) else {
+        problems.push(
+            "MOBILE_MIN_VERSIONS must be a JSON object from app code to version, like {\"weldpass\":\"2.0.0\"}"
+                .to_owned(),
+        );
+        return BTreeMap::new();
+    };
+    let catalog = weldsuite_catalogs::permissions();
+    let mut out = BTreeMap::new();
+    for (code, value) in entries {
+        if !catalog.apps.iter().any(|app| app.code == code) {
+            let hint = catalog
+                .app_code_aliases
+                .get(&code)
+                .map(|canonical| format!(" (did you mean {canonical}?)"))
+                .unwrap_or_default();
+            problems.push(format!(
+                "MOBILE_MIN_VERSIONS: {code} is not an app code{hint}"
+            ));
+            continue;
+        }
+        match value {
+            Value::String(version) if is_release_version(version.trim()) => {
+                out.insert(code, version.trim().to_owned());
+            }
+            other => problems.push(format!(
+                "MOBILE_MIN_VERSIONS: {code} must be a version like \"2.0.0\", not {other}"
+            )),
+        }
+    }
+    out
+}
+
+/// A semver release version, `MAJOR.MINOR.PATCH`: three numbers without
+/// leading zeros, small enough for the apps' `Int`. No pre-release or build
+/// suffix, which the apps would drop: `2.0.0-beta` would gate as `2.0.0`.
+fn is_release_version(version: &str) -> bool {
+    let parts: Vec<&str> = version.split('.').collect();
+    parts.len() == 3
+        && parts.iter().all(|part| {
+            part.bytes().all(|byte| byte.is_ascii_digit())
+                && (*part == "0" || !part.starts_with('0'))
+                && part.parse::<i32>().is_ok()
+        })
 }
 
 #[cfg(test)]
@@ -995,6 +1066,88 @@ mod tests {
 
         let (_, problems) = read(&[("PUBLIC_ENV", "[]")]);
         assert_eq!(problems, ["PUBLIC_ENV must be a JSON object of strings"]);
+    }
+
+    /// The native apps' forced-update gate: `mobile.minVersions` when the
+    /// install names a minimum, nothing at all when it doesn't.
+    #[test]
+    fn serves_the_mobile_minimum_versions_when_set() {
+        let (unset, _) = read(&[]);
+        let mut body = json!({});
+        unset.describe(&mut body);
+        assert!(body.get("mobile").is_none(), "no minimum, no mobile key");
+        let (blank, problems) = read(&[("MOBILE_MIN_VERSIONS", " ")]);
+        assert!(problems.is_empty(), "{problems:?}");
+        assert!(blank.mobile_min_versions.is_empty());
+        let (empty, problems) = read(&[("MOBILE_MIN_VERSIONS", "{}")]);
+        assert!(problems.is_empty(), "{problems:?}");
+        let mut body = json!({});
+        empty.describe(&mut body);
+        assert!(body.get("mobile").is_none(), "an empty map is none");
+
+        let (config, problems) = read(&[(
+            "MOBILE_MIN_VERSIONS",
+            r#"{"weldpass":"2.0.0","welddesk":" 10.4.12 "}"#,
+        )]);
+        assert!(problems.is_empty(), "{problems:?}");
+        let mut body = json!({});
+        config.describe(&mut body);
+        assert_eq!(
+            body["mobile"],
+            json!({ "minVersions": { "weldpass": "2.0.0", "welddesk": "10.4.12" } })
+        );
+    }
+
+    /// A typo'd app code would gate nothing, and the apps drop what follows a
+    /// `-`: both stop the start instead.
+    #[test]
+    fn refuses_unknown_apps_and_loose_versions() {
+        let (config, problems) = read(&[(
+            "MOBILE_MIN_VERSIONS",
+            r#"{"weldpas":"2.0.0","desk":"1.0.0","weldpass":"2.0"}"#,
+        )]);
+        assert_eq!(problems.len(), 3, "{problems:?}");
+        assert!(
+            problems
+                .iter()
+                .any(|p| p == "MOBILE_MIN_VERSIONS: weldpas is not an app code")
+        );
+        assert!(
+            problems
+                .iter()
+                .any(|p| p.contains("desk is not an app code (did you mean welddesk?)"))
+        );
+        assert!(
+            problems
+                .iter()
+                .any(|p| p.contains("weldpass must be a version like \"2.0.0\", not \"2.0\""))
+        );
+        assert!(config.mobile_min_versions.is_empty());
+
+        for version in [
+            json!("2.0.0-beta.1"),
+            json!("2.0.0+build"),
+            json!("v2.0.0"),
+            json!("02.0.0"),
+            json!("2.0.0.1"),
+            json!("2..0"),
+            json!("2.0.99999999999"),
+            json!(""),
+            json!(2),
+            json!(null),
+        ] {
+            let raw = json!({ "weldpass": version }).to_string();
+            let (config, problems) = read(&[("MOBILE_MIN_VERSIONS", raw.as_str())]);
+            assert_eq!(problems.len(), 1, "{raw}: {problems:?}");
+            assert!(config.mobile_min_versions.is_empty(), "{raw}");
+        }
+        for version in ["0.0.0", "2.0.0", "10.20.30"] {
+            assert!(is_release_version(version), "{version}");
+        }
+
+        let (_, problems) = read(&[("MOBILE_MIN_VERSIONS", r#"["weldpass"]"#)]);
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert!(problems[0].starts_with("MOBILE_MIN_VERSIONS must be a JSON object"));
     }
 
     #[test]
