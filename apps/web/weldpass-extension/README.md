@@ -53,7 +53,7 @@ Every id that signs in must have its redirect, `https://<id>.chromiumapp.org/`
 | Build | Id | Key |
 | --- | --- | --- |
 | Development, test, Playwright | `nlmnjlkgeoeklbahlemmlcfnlfgdimnp` | `src/manifest/dev-key.ts` (public half; the private half isn't needed and isn't in the repo) |
-| Chrome Web Store | not yet created | the store's |
+| Chrome Web Store | `mpdkemnoibiaicjfidmkpkfabodieedc` | the store's |
 | Edge Add-ons | not yet created | the store's |
 
 A self-hosted install with Zitadel adds the same redirects to a User Agent

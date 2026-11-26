@@ -133,15 +133,18 @@ clients:
   # PASS-009): one public client, PKCE from the extension's service worker
   # through chrome.identity.launchWebAuthFlow, which redirects to
   # https://<extension id>.chromiumapp.org/ (exact match, trailing slash
-  # included). One redirect per extension id: the pinned development id for
-  # now; the Chrome Web Store and Edge Add-ons ids are added once the store
-  # items exist. The refresh token sits in chrome.storage.local, so its
-  # lifetime is this install's tokens settings.
+  # included). One redirect per extension id, as listed in the extension's
+  # README: the pinned development id and the Chrome Web Store's; Edge
+  # Add-ons' is added once that store item exists. The refresh token sits in
+  # chrome.storage.local, so its lifetime is this install's tokens settings.
   - id: weldsuite-extension
     issuer: platform
     kind: public
     redirectUris:
+      # Development, test, Playwright (src/manifest/dev-key.ts).
       - https://nlmnjlkgeoeklbahlemmlcfnlfgdimnp.chromiumapp.org/
+      # The Chrome Web Store build.
+      - https://mpdkemnoibiaicjfidmkpkfabodieedc.chromiumapp.org/
     grantTypes: [authorization_code, refresh_token]
     scopes: [openid, profile, email, offline_access]
     audience: [weldsuite-api]

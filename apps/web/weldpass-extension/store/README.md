@@ -14,8 +14,10 @@ its justification change together. Chrome first, then Edge with the same zip
 
 - **Publisher account** under the WeldSuite company (Chrome Web Store
   developer account, then Microsoft Partner Center for Edge).
-- **Store item ids.** Create each store item first (upload the zip as a
-  draft), so its id exists. Each id's redirect,
+- **Store item ids.** Chrome Web Store: done,
+  `mpdkemnoibiaicjfidmkpkfabodieedc` (the README's table). Edge: create
+  the store item first (upload the zip as a draft), so its id exists. Each
+  id's redirect,
   `https://<id>.chromiumapp.org/`, goes on WeldID's `weldsuite-extension`
   client (`rust/deploy/flux/infrastructure/weldid/values/weldid.yaml`), and
   on step 7 "2d" of `rust/deploy/hetzner/README.md` for Zitadel installs.
