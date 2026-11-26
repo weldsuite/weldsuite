@@ -21,6 +21,14 @@ const fake = vi.hoisted(() => {
     revealItem: answer('revealItem'),
     generateTotp: answer('generateTotp'),
     createItem: answer('createItem'),
+    passwordHealth: answer('passwordHealth'),
+    listItemVersions: answer('listItemVersions'),
+    notifications: {
+      list: answer('notifications.list'),
+      unreadCount: answer('notifications.unreadCount'),
+      markRead: answer('notifications.markRead'),
+      markAllRead: answer('notifications.markAllRead'),
+    },
   };
   class FakeWorker {
     constructor(env: unknown) {
@@ -195,14 +203,28 @@ describe('routing', () => {
       [{ type: 'items:match', url: 'https://example.com' }, 'matchItems', ['https://example.com']],
       [{ type: 'items:list' }, 'listItems', [{ type: 'login' }]],
       [{ type: 'vaults:list' }, 'listVaults', []],
+      [{ type: 'health:get' }, 'passwordHealth', []],
+      [{ type: 'notifications:read', id: 'n' }, 'notifications.markRead', ['n']],
+      [{ type: 'notifications:read-all' }, 'notifications.markAllRead', []],
       [{ type: 'item:reveal', vaultId: 'v', itemId: 'i' }, 'revealItem', ['v', 'i']],
       [{ type: 'item:totp', vaultId: 'v', itemId: 'i' }, 'generateTotp', ['v', 'i']],
+      [{ type: 'item:versions', vaultId: 'v', itemId: 'i' }, 'listItemVersions', ['v', 'i']],
       [{ type: 'item:create', vaultId: 'v', input: { title: 'x' } }, 'createItem', ['v', { title: 'x' }]],
     ];
     for (const [message, method, args] of cases) {
       expect(await send(message, page)).toEqual({ ok: true, value: ['row'] });
       expect(lastCall()).toEqual([method, args]);
     }
+  });
+
+  it("lists the bell's notifications with the unread count", async () => {
+    fake.state.result = { data: { count: 2 } };
+    expect(await send({ type: 'notifications:list' }, page)).toEqual({
+      ok: true,
+      value: { items: { count: 2 }, unread: 2 },
+    });
+    expect(fake.calls).toContainEqual(['notifications.list', [{ limit: 20 }]]);
+    expect(fake.calls).toContainEqual(['notifications.unreadCount', []]);
   });
 
   it('answers a content script with its frame as the sender', async () => {

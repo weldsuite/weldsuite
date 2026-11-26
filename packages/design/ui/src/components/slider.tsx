@@ -5,12 +5,18 @@ import * as SliderPrimitive from "@radix-ui/react-slider"
 
 import { cn } from "../lib/utils"
 
+/**
+ * `aria-label` / `aria-labelledby` name the thumbs: a thumb is what carries
+ * `role="slider"`, so a label on the root alone leaves it unnamed.
+ */
 function Slider({
   className,
   defaultValue,
   value,
   min = 0,
   max = 100,
+  "aria-label": ariaLabel,
+  "aria-labelledby": ariaLabelledBy,
   ...props
 }: React.ComponentProps<typeof SliderPrimitive.Root>) {
   const _values = React.useMemo(
@@ -52,6 +58,8 @@ function Slider({
         <SliderPrimitive.Thumb
           data-slot="slider-thumb"
           key={index}
+          aria-label={ariaLabel}
+          aria-labelledby={ariaLabelledBy}
           className="border-primary bg-background ring-ring/50 block size-4 shrink-0 rounded-[4px] border shadow-sm transition-[color,box-shadow] hover:ring-4 focus-visible:ring-4 focus-visible:outline-hidden disabled:pointer-events-none disabled:opacity-50"
         />
       ))}

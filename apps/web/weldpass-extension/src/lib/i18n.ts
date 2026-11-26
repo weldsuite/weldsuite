@@ -21,3 +21,13 @@ export function t(key: MessageKey, ...substitutions: Array<string | number>): st
     typeof chrome !== 'undefined' && chrome.i18n ? chrome.i18n.getMessage(key, values) : '';
   return native || fallback(key, values);
 }
+
+/**
+ * The language the extension's words are in: Dutch, or English for every
+ * other browser language (the two it ships), so a date or time never reads in
+ * another language than the text around it.
+ */
+export function textLanguage(): 'nl' | 'en' {
+  const ui = typeof chrome !== 'undefined' && chrome.i18n ? chrome.i18n.getUILanguage() : '';
+  return ui.toLowerCase().startsWith('nl') ? 'nl' : 'en';
+}

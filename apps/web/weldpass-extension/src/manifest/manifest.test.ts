@@ -39,7 +39,7 @@ describe('buildManifest', () => {
 
   // ADR PASS-009. A change here is a change to that decision: amend the ADR first.
   it('asks for exactly the permissions PASS-009 allows', () => {
-    expect(manifest.permissions).toEqual(['activeTab', 'identity', 'scripting', 'storage']);
+    expect(manifest.permissions).toEqual(['activeTab', 'favicon', 'identity', 'scripting', 'storage']);
     expect(manifest.permissions).not.toContain('tabs');
     expect(manifest.permissions).not.toContain('cookies');
   });
@@ -182,6 +182,6 @@ describe('locales', () => {
   it('is actually translated', () => {
     const same = Object.keys(en).filter((key) => locales.en[key].message === locales.nl[key].message);
     // Brand names and words Dutch shares with English.
-    expect(same.sort()).toEqual(['actionTitle', 'extName', 'fieldUrl', 'tabGenerator', 'tabLogins']);
+    expect(same.sort()).toEqual(['actionTitle', 'extName', 'fieldUrl', 'filterIs', 'tabLogins']);
   });
 });

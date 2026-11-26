@@ -95,6 +95,7 @@ scripts can't be ES modules; the pages and the module service worker
 | `identity` | `launchWebAuthFlow`: the WeldID sign-in. |
 | `scripting` | The popup's Fill / Save / generator on the active tab, and the content script for tabs open at install. |
 | `activeTab` | The popup's tab URL, without `tabs`. |
+| `favicon` | Each login's site icon in the popup, from the browser's own favicon cache (`_favicon/`): no request to the site or a third party. Extension pages only; `_favicon/*` is not web accessible. |
 | host: `https://app.weldsuite.eu/*`, `https://auth.weldsuite.eu/*` | The default server's API and sign-in. |
 | optional host: `https://*/*`, `http://localhost/*` | A self-hosted server and its sign-in server, asked for when chosen. |
 | content script: `https://*/*`, `http://localhost/*`, all frames | Inline icons and menus, filling, noticing a submitted login. |

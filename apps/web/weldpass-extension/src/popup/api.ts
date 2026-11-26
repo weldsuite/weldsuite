@@ -5,13 +5,16 @@
  */
 
 import type {
+  WeldPassHealthReport,
   WeldPassItem,
   WeldPassItemInput,
+  WeldPassItemVersion,
   WeldPassRevealedItem,
   WeldPassTotpCode,
   WeldPassVault,
 } from '@weldsuite/app-api-client/domains/weldpass-passwords';
 import { request } from '../lib/messaging';
+import type { PageResponses } from '../lib/protocol';
 
 export interface PopupApi {
   matchItems(url: string): Promise<{ data: WeldPassItem[] }>;
@@ -20,6 +23,11 @@ export interface PopupApi {
   revealItem(vaultId: string, itemId: string): Promise<{ data: WeldPassRevealedItem }>;
   generateTotp(vaultId: string, itemId: string): Promise<{ data: WeldPassTotpCode }>;
   createItem(vaultId: string, input: WeldPassItemInput): Promise<{ data: WeldPassItem }>;
+  passwordHealth(): Promise<{ data: WeldPassHealthReport }>;
+  itemVersions(vaultId: string, itemId: string): Promise<{ data: WeldPassItemVersion[] }>;
+  notifications(): Promise<{ data: PageResponses['notifications:list'] }>;
+  markNotificationRead(id: string): Promise<unknown>;
+  markAllNotificationsRead(): Promise<unknown>;
 }
 
 export const popupApi: PopupApi = {
@@ -29,4 +37,9 @@ export const popupApi: PopupApi = {
   revealItem: async (vaultId, itemId) => ({ data: await request({ type: 'item:reveal', vaultId, itemId }) }),
   generateTotp: async (vaultId, itemId) => ({ data: await request({ type: 'item:totp', vaultId, itemId }) }),
   createItem: async (vaultId, input) => ({ data: await request({ type: 'item:create', vaultId, input }) }),
+  passwordHealth: async () => ({ data: await request({ type: 'health:get' }) }),
+  itemVersions: async (vaultId, itemId) => ({ data: await request({ type: 'item:versions', vaultId, itemId }) }),
+  notifications: async () => ({ data: await request({ type: 'notifications:list' }) }),
+  markNotificationRead: (id) => request({ type: 'notifications:read', id }),
+  markAllNotificationsRead: () => request({ type: 'notifications:read-all' }),
 };

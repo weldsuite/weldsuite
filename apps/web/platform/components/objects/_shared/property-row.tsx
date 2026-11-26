@@ -32,6 +32,7 @@ import { useTranslations } from '@weldsuite/i18n/client';
 import { cn } from '@/lib/utils';
 import { KEEP_CONTROLS_ABOVE_OVERLAY, RowOverlayButton } from '@/components/shared/row-overlay-button';
 import { Button } from '@weldsuite/ui/components/button';
+import { PROPERTY_VALUE_CLASS, PropertyRowLayout } from '@weldsuite/ui/components/property-row';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Popover, PopoverContent, PopoverTrigger } from '@weldsuite/ui/components/popover';
 import {
@@ -264,11 +265,7 @@ export function PropertyRow({
   };
 
   return (
-    <div className="grid grid-cols-[120px_minmax(0,1fr)_auto] gap-2 items-center group/row min-h-[32px]">
-      <div className="flex items-center gap-2 text-sm text-muted-foreground">
-        <Icon className="h-4 w-4" />
-        <span>{label}</span>
-      </div>
+    <PropertyRowLayout icon={Icon} label={label} accessory={!isEditing && accessory ? accessory : null}>
       <div
         ref={valueCellRef}
         className={cn(
@@ -276,7 +273,7 @@ export function PropertyRow({
           // (transparent at rest), so the hover border and the edit border
           // sit in exactly the same place and the text never shifts. 7px
           // padding + 1px border keeps the value on the column's left edge.
-          'text-sm min-w-0 flex items-center min-h-[32px] py-1 rounded-[9px] -mx-2 px-[7px] box-border border border-transparent',
+          PROPERTY_VALUE_CLASS,
           // Dates read in the same tabular figures as money totals.
           tabularValue && !isEditing && 'tabular-nums',
           // Editable values show that border on hover (no fill, no underline).
@@ -287,10 +284,7 @@ export function PropertyRow({
         {editable && !isEditing && <RowOverlayButton label={label} onClick={() => setIsEditing(true)} />}
         {isEditing ? renderEditor() : renderReadMode()}
       </div>
-      <div className="text-muted-foreground">
-        {!isEditing && accessory ? accessory : null}
-      </div>
-    </div>
+    </PropertyRowLayout>
   );
 }
 

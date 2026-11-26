@@ -58,6 +58,9 @@ function errorCode(error: unknown): { code: string; status?: number } {
   return { code: 'error' };
 }
 
+/** The bell lists the latest few; the web app has the rest. */
+const NOTIFICATIONS_SHOWN = 20;
+
 function handlePage(message: PageRequest): Promise<unknown> {
   switch (message.type) {
     case 'state:get':
@@ -82,6 +85,20 @@ function handlePage(message: PageRequest): Promise<unknown> {
       return worker.passwords().then(async (api) => (await api.listItems({ type: 'login' })).data);
     case 'vaults:list':
       return worker.passwords().then(async (api) => (await api.listVaults()).data);
+    case 'health:get':
+      return worker.passwords().then(async (api) => (await api.passwordHealth()).data);
+    case 'notifications:list':
+      return worker.passwords().then(async (api) => {
+        const [list, unread] = await Promise.all([
+          api.notifications.list({ limit: NOTIFICATIONS_SHOWN }),
+          api.notifications.unreadCount(),
+        ]);
+        return { items: list.data, unread: unread.data.count };
+      });
+    case 'notifications:read':
+      return worker.passwords().then(async (api) => (await api.notifications.markRead(String(message.id))).data);
+    case 'notifications:read-all':
+      return worker.passwords().then(async (api) => (await api.notifications.markAllRead()).data);
     case 'item:reveal':
       return worker
         .passwords()
@@ -90,6 +107,10 @@ function handlePage(message: PageRequest): Promise<unknown> {
       return worker
         .passwords()
         .then(async (api) => (await api.generateTotp(String(message.vaultId), String(message.itemId))).data);
+    case 'item:versions':
+      return worker
+        .passwords()
+        .then(async (api) => (await api.listItemVersions(String(message.vaultId), String(message.itemId))).data);
     case 'item:create':
       return worker
         .passwords()

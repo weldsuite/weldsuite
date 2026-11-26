@@ -1,17 +1,24 @@
-import { useMemo, useState, type ReactNode } from 'react';
-import { Copy, ExternalLink, KeyRound, Plus, Search, ShieldCheck, User } from 'lucide-react';
-import type { WeldPassItem } from '@weldsuite/app-api-client/domains/weldpass-passwords';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { Copy, KeyRound, Plus, ShieldCheck, User } from 'lucide-react';
+import type { WeldPassItem, WeldPassVault } from '@weldsuite/app-api-client/domains/weldpass-passwords';
+import type { FilterPill } from '@weldsuite/app-api-client/schemas/weldpass-items';
+import { Button } from '@weldsuite/ui/components/button';
 import { fillLogin, revealPassword } from '../lib/actions';
 import { chromePage, openTab, type ActiveTab } from '../lib/chrome-page';
 import { errorMessageKey } from '../lib/errors';
-import { evaluateFill, pageContext } from '../lib/fill-policy';
-import { t } from '../lib/i18n';
+import { evaluateFill, pageContext, type PageContext } from '../lib/fill-policy';
+import { SquareArrowUpRightExit } from '../lib/icons';
+import { t, type MessageKey } from '../lib/i18n';
+import { VAULT_FILTER, applyListView, isFiltered, type LoginSort } from '../lib/list-view';
 import { blockedMessageKey, fillMessageKey } from '../lib/messages';
 import { filterItems } from '../lib/search';
 import { safeExternalUrl } from '../lib/urls';
 import type { PopupApi } from './api';
-import { useAsync, type Notify } from './hooks';
-import { Button, IconButton, Notice, Spinner } from './ui';
+import { copyText } from './clipboard';
+import { useAsync, type AsyncState, type Notify } from './hooks';
+import { Empty, IconAction, LoadError, Loading, Padded, PopupAlert, Section, SiteIcon, vaultLabel } from './list';
+import { LoginDetails } from './LoginDetails';
+import { LoginsToolbar } from './LoginsToolbar';
 
 interface Props {
   api: PopupApi;
@@ -22,204 +29,279 @@ interface Props {
   onSave: () => void;
 }
 
-export function LoginsView({ api, tab, notify, revision, onSave }: Props) {
+type Logins = AsyncState<WeldPassItem[]>;
+type Row = (item: WeldPassItem) => ReactNode;
+
+/**
+ * The popup's home page: the logins saved for the page the popup was opened
+ * on, then all the others, or the search's matches. A row opens the login's
+ * details page.
+ */
+export function LoginsView({ api, tab, notify, revision, onSave }: Readonly<Props>) {
   const page = pageContext(tab?.url);
   const origin = page.ok ? page.origin : null;
 
   // Only the page's origin is sent, never its path or query string: the API
   // matches on the host alone.
-  const matches = useAsync(
-    async () => (origin ? (await api.matchItems(origin)).data : []),
-    `${tab === undefined ? 'pending' : (origin ?? 'none')}|${revision}`,
-  );
+  const matchKey = tab === undefined ? 'pending' : (origin ?? 'none');
+  const matches = useAsync(async () => (origin ? (await api.matchItems(origin)).data : []), `${matchKey}|${revision}`);
   const items = useAsync(async () => (await api.listItems({ type: 'login' })).data, `${revision}`);
+  const vaults = useAsync(async () => (await api.listVaults()).data, `${revision}`);
 
   const [query, setQuery] = useState('');
-  const [busy, setBusy] = useState<string | null>(null);
+  /** The login whose details page is open. */
+  const [opened, setOpened] = useState<WeldPassItem | null>(null);
+  const { sort, setSort, filters, setFilters } = useListControls(vaults.data);
+  const actions = useLoginActions(api, tab, notify);
   const searching = query.trim() !== '';
+  const filtering = isFiltered(filters);
 
-  const siteItems = matches.data ?? [];
-  const otherItems = useMemo(() => {
-    const onSite = new Set((matches.data ?? []).map((item) => item.id));
-    return (items.data ?? []).filter((item) => !onSite.has(item.id));
-  }, [items.data, matches.data]);
-  const results = useMemo(() => filterItems(items.data ?? [], query), [items.data, query]);
+  const siteItems = useMemo(() => applyListView(matches.data ?? [], filters, sort), [matches.data, filters, sort]);
+  const otherItems = useMemo(
+    () => applyListView(withoutItems(items.data, matches.data), filters, sort),
+    [items.data, matches.data, filters, sort],
+  );
+  const results = useMemo(
+    () => applyListView(filterItems(items.data ?? [], query), filters, sort),
+    [items.data, query, filters, sort],
+  );
 
-  /** One action at a time; an API failure becomes a status line, never an unhandled rejection. */
-  async function act(item: WeldPassItem, action: () => Promise<void>) {
-    if (busy) return;
-    setBusy(item.id);
-    try {
-      await action();
-    } catch (error) {
-      notify('error', t(errorMessageKey(error)));
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  async function copy(text: string, done: string) {
-    try {
-      await navigator.clipboard.writeText(text);
-      notify('ok', done);
-    } catch {
-      notify('error', t('copyFailed'));
-    }
-  }
-
-  const fill = (item: WeldPassItem) =>
-    act(item, async () => {
-      if (!tab) {
-        notify('error', t('fillNoPage'));
-        return;
-      }
-      const outcome = await fillLogin(api, chromePage, item, tab.id);
-      notify(outcome.ok ? 'ok' : 'error', t(fillMessageKey(outcome)));
-      // Done: get out of the way. A username-only fill stays open to explain the next step.
-      if (outcome.ok && outcome.password) window.setTimeout(() => window.close(), 700);
-    });
-
-  const copyPassword = (item: WeldPassItem) =>
-    act(item, async () => {
-      const password = await revealPassword(api, item);
-      if (password === null) notify('error', t('noPassword'));
-      else await copy(password, t('passwordCopied'));
-    });
-
-  const copyTotp = (item: WeldPassItem) =>
-    act(item, async () => {
-      const { code, expiresAt } = (await api.generateTotp(item.vaultId, item.id)).data;
-      const seconds = Math.max(0, Math.round((Date.parse(expiresAt) - Date.now()) / 1000));
-      await copy(code, t('totpCopied', seconds));
-    });
-
-  const row = (item: WeldPassItem) => (
+  const canFill = (item: WeldPassItem) => evaluateFill(item, tab?.url).ok;
+  const row: Row = (item) => (
     <ItemRow
       key={item.id}
       item={item}
-      canFill={evaluateFill(item, tab?.url).ok}
-      disabled={busy !== null}
-      onFill={() => fill(item)}
-      onCopyUsername={() => copy(item.subtitle ?? '', t('usernameCopied'))}
-      onCopyPassword={() => copyPassword(item)}
-      onCopyTotp={() => copyTotp(item)}
+      canFill={canFill(item)}
+      disabled={actions.busy}
+      onFill={() => actions.fill(item)}
+      onCopyUsername={() => actions.copyUsername(item)}
+      onCopyPassword={() => actions.copyPassword(item)}
+      onCopyTotp={() => actions.copyTotp(item)}
+      onOpen={() => setOpened(item)}
     />
   );
 
-  const firstFillable = (searching ? results : siteItems).find(
-    (item) => evaluateFill(item, tab?.url).ok,
-  );
+  // Enter in the search field fills the first login that may go into the page.
+  const firstFillable = (searching ? results : siteItems).find(canFill);
 
   return (
-    <div className="flex flex-col gap-3 p-3">
-      <label className="relative block">
-        <span className="sr-only">{t('searchLabel')}</span>
-        <Search
-          className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground"
-          aria-hidden
+    <div className="flex flex-col">
+      {opened && (
+        <LoginDetails
+          item={opened}
+          api={api}
+          vaultName={openedVaultName(vaults.data, opened)}
+          canFill={canFill(opened)}
+          onFill={() => void actions.fill(opened)}
+          onClose={() => setOpened(null)}
+          notify={notify}
         />
-        <input
-          type="search"
-          autoFocus
-          value={query}
-          placeholder={t('searchLabel')}
-          onChange={(event) => setQuery(event.target.value)}
-          onKeyDown={(event) => {
-            // Enter fills the first login that belongs on this page.
-            if (event.key === 'Enter' && firstFillable) void fill(firstFillable);
-          }}
-          className="h-8 w-full rounded-md border bg-card pl-7 pr-2 text-[13px] placeholder:text-muted-foreground"
-        />
-      </label>
+      )}
+      <LoginsToolbar
+        query={query}
+        onQueryChange={setQuery}
+        onSubmit={() => {
+          if (firstFillable) void actions.fill(firstFillable);
+        }}
+        sort={sort}
+        onSortChange={setSort}
+        filters={filters}
+        onFiltersChange={setFilters}
+        vaults={vaults.data ?? []}
+        paused={opened !== null}
+      />
 
       {searching ? (
-        <Section title={t('searchResults')}>
-          {items.loading ? (
-            <Spinner label={t('loading')} />
-          ) : items.error ? (
-            <LoadError error={items.error} onRetry={items.reload} />
-          ) : results.length === 0 ? (
-            <Empty>{t('noResults')}</Empty>
-          ) : (
-            <ul className="flex flex-col gap-1">{results.map(row)}</ul>
-          )}
-        </Section>
+        <SearchResults logins={items} shown={results} filtering={filtering} row={row} />
       ) : (
         <>
-          <Section
-            title={page.ok ? t('forHost', page.host) : t('tabLogins')}
-            action={
-              <Button variant="ghost" onClick={onSave} className="-mr-1.5 h-6 px-1.5">
-                <Plus className="size-3.5" aria-hidden />
-                {t('saveForSite')}
-              </Button>
-            }
-          >
-            {tab === undefined || matches.loading ? (
-              <Spinner label={t('loading')} />
-            ) : !page.ok ? (
-              <Notice tone={page.reason === 'insecure-page' ? 'warning' : 'info'}>
-                {t(blockedMessageKey(page.reason))}
-              </Notice>
-            ) : matches.error ? (
-              <LoadError error={matches.error} onRetry={matches.reload} />
-            ) : siteItems.length === 0 ? (
-              <Empty>{t('noMatches')}</Empty>
-            ) : (
-              <ul className="flex flex-col gap-1">{siteItems.map(row)}</ul>
-            )}
-          </Section>
-
-          <Section title={t('allLogins')}>
-            {items.loading ? (
-              <Spinner label={t('loading')} />
-            ) : items.error ? (
-              <LoadError error={items.error} onRetry={items.reload} />
-            ) : (items.data ?? []).length === 0 ? (
-              <Empty>{t('noItems')}</Empty>
-            ) : (
-              <ul className="flex flex-col gap-1">{otherItems.map(row)}</ul>
-            )}
-          </Section>
+          <SiteLogins tab={tab} page={page} logins={matches} shown={siteItems} filtering={filtering} row={row} onSave={onSave} />
+          <OtherLogins logins={items} shown={otherItems} filtering={filtering} row={row} />
         </>
       )}
     </div>
   );
 }
 
-function Section({
-  title,
-  action,
+/** The list's sort and filter pills. A vault pill for a vault that is gone (another workspace, access removed) goes. */
+function useListControls(vaults: WeldPassVault[] | undefined) {
+  const [sort, setSort] = useState<LoginSort | null>(null);
+  const [filters, setFilters] = useState<FilterPill[]>([]);
+  useEffect(() => {
+    if (vaults) setFilters((previous) => withKnownVaults(previous, vaults));
+  }, [vaults]);
+  return { sort, setSort, filters, setFilters };
+}
+
+function withKnownVaults(pills: FilterPill[], vaults: WeldPassVault[]): FilterPill[] {
+  const known = new Set(vaults.map((vault) => vault.id));
+  const kept = pills.filter((pill) => pill.field !== VAULT_FILTER || pill.value === '' || known.has(pill.value));
+  return kept.length === pills.length ? pills : kept;
+}
+
+/** All logins but the ones already listed for the page. */
+function withoutItems(all: WeldPassItem[] = [], listed: WeldPassItem[] = []): WeldPassItem[] {
+  const ids = new Set(listed.map((item) => item.id));
+  return all.filter((item) => !ids.has(item.id));
+}
+
+function openedVaultName(vaults: WeldPassVault[] | undefined, item: WeldPassItem): string | null {
+  const vault = vaults?.find((candidate) => candidate.id === item.vaultId);
+  return vault ? vaultLabel(vault) : null;
+}
+
+/** A row's actions, one at a time. An API failure becomes a status line, never an unhandled rejection. */
+function useLoginActions(api: PopupApi, tab: ActiveTab | null | undefined, notify: Notify) {
+  const [busy, setBusy] = useState(false);
+
+  async function act(action: () => Promise<void>) {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await action();
+    } catch (error) {
+      notify('error', t(errorMessageKey(error)));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return {
+    busy,
+    fill: (item: WeldPassItem) => act(() => fillInto(api, tab, item, notify)),
+    copyUsername: (item: WeldPassItem) => copyText(item.subtitle ?? '', t('usernameCopied'), notify),
+    copyPassword: (item: WeldPassItem) => act(() => copyPassword(api, item, notify)),
+    copyTotp: (item: WeldPassItem) => act(() => copyTotp(api, item, notify)),
+  };
+}
+
+async function fillInto(api: PopupApi, tab: ActiveTab | null | undefined, item: WeldPassItem, notify: Notify) {
+  if (!tab) {
+    notify('error', t('fillNoPage'));
+    return;
+  }
+  const outcome = await fillLogin(api, chromePage, item, tab.id);
+  notify(outcome.ok ? 'ok' : 'error', t(fillMessageKey(outcome)));
+  // Done: get out of the way. A username-only fill stays open to explain the next step.
+  if (outcome.ok && outcome.password) window.setTimeout(() => window.close(), 700);
+}
+
+async function copyPassword(api: PopupApi, item: WeldPassItem, notify: Notify) {
+  const password = await revealPassword(api, item);
+  if (password === null) notify('error', t('noPassword'));
+  else await copyText(password, t('passwordCopied'), notify);
+}
+
+async function copyTotp(api: PopupApi, item: WeldPassItem, notify: Notify) {
+  const { code, expiresAt } = (await api.generateTotp(item.vaultId, item.id)).data;
+  const seconds = Math.max(0, Math.round((Date.parse(expiresAt) - Date.now()) / 1000));
+  await copyText(code, t('totpCopied', seconds), notify);
+}
+
+/** Why a list shows nothing: the filters hide its logins, or there are none. `null` while it shows some. */
+function emptyNote(shown: readonly unknown[], filteredOut: boolean, none: MessageKey): MessageKey | null {
+  if (shown.length > 0) return null;
+  return filteredOut ? 'noFilterMatches' : none;
+}
+
+/** A list's body: its loading state, a load error, why it is empty, or its rows. */
+function ListBody({
+  logins,
+  empty,
   children,
-}: {
-  title: string;
-  action?: ReactNode;
-  children: ReactNode;
-}) {
+}: Readonly<{ logins: Logins; empty: MessageKey | null; children: ReactNode }>) {
+  if (logins.loading) return <Loading />;
+  if (logins.error) return <LoadError error={logins.error} onRetry={logins.reload} />;
+  if (empty) return <Empty>{t(empty)}</Empty>;
+  return <ul>{children}</ul>;
+}
+
+interface ListProps {
+  logins: Logins;
+  /** The logins after search, filters and sort. */
+  shown: WeldPassItem[];
+  filtering: boolean;
+  row: Row;
+}
+
+function SearchResults({ logins, shown, filtering, row }: Readonly<ListProps>) {
   return (
-    <section className="flex flex-col gap-1.5">
-      <div className="flex min-h-6 items-center justify-between gap-2">
-        <h2 className="truncate text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-          {title}
-        </h2>
-        {action}
-      </div>
-      {children}
-    </section>
+    <Section title={t('searchResults')} count={logins.data ? shown.length : undefined}>
+      <ListBody logins={logins} empty={emptyNote(shown, filtering, 'noResults')}>
+        {shown.map(row)}
+      </ListBody>
+    </Section>
   );
 }
 
-function Empty({ children }: { children: ReactNode }) {
-  return <p className="py-1 text-xs text-muted-foreground">{children}</p>;
+function SiteLogins({
+  tab,
+  page,
+  logins,
+  shown,
+  filtering,
+  row,
+  onSave,
+}: Readonly<ListProps & { tab: ActiveTab | null | undefined; page: PageContext; onSave: () => void }>) {
+  return (
+    <Section
+      title={page.ok ? t('forHost', page.host) : t('tabLogins')}
+      count={page.ok && logins.data ? shown.length : undefined}
+      action={
+        <Button variant="ghost" size="xs" onClick={onSave} className="-mr-1.5">
+          <Plus className="size-3.5" aria-hidden />
+          {t('saveForSite')}
+        </Button>
+      }
+    >
+      <SiteLoginsBody tab={tab} page={page} logins={logins} shown={shown} filtering={filtering} row={row} />
+    </Section>
+  );
 }
 
-function LoadError({ error, onRetry }: { error: unknown; onRetry: () => void }) {
+function SiteLoginsBody({
+  tab,
+  page,
+  logins,
+  shown,
+  filtering,
+  row,
+}: Readonly<ListProps & { tab: ActiveTab | null | undefined; page: PageContext }>) {
+  if (tab === undefined || logins.loading) return <Loading />;
+  if (!page.ok) {
+    return (
+      <Padded>
+        <PopupAlert tone={page.reason === 'insecure-page' ? 'warning' : 'info'}>
+          {t(blockedMessageKey(page.reason))}
+        </PopupAlert>
+      </Padded>
+    );
+  }
+  const filteredOut = filtering && (logins.data ?? []).length > 0;
   return (
-    <div className="flex flex-col items-start gap-2">
-      <Notice tone="error">{t(errorMessageKey(error))}</Notice>
-      <Button onClick={onRetry}>{t('retry')}</Button>
-    </div>
+    <ListBody logins={logins} empty={emptyNote(shown, filteredOut, 'noMatches')}>
+      {shown.map(row)}
+    </ListBody>
   );
+}
+
+function OtherLogins({ logins, shown, filtering, row }: Readonly<ListProps>) {
+  return (
+    <Section title={t('allLogins')} count={logins.data ? shown.length : undefined}>
+      <ListBody logins={logins} empty={otherLoginsNote(logins.data ?? [], shown, filtering)}>
+        {shown.map(row)}
+      </ListBody>
+    </Section>
+  );
+}
+
+/**
+ * No logins at all says so. With the filters on, an empty list says why;
+ * without them, every login is already listed for the page, and it says nothing.
+ */
+function otherLoginsNote(all: WeldPassItem[], shown: WeldPassItem[], filtering: boolean): MessageKey | null {
+  if (all.length === 0) return 'noItems';
+  return filtering ? emptyNote(shown, true, 'noItems') : null;
 }
 
 function ItemRow({
@@ -230,7 +312,8 @@ function ItemRow({
   onCopyUsername,
   onCopyPassword,
   onCopyTotp,
-}: {
+  onOpen,
+}: Readonly<{
   item: WeldPassItem;
   /** Whether this login may go into the current page — decided again when Fill is pressed. */
   canFill: boolean;
@@ -239,42 +322,62 @@ function ItemRow({
   onCopyUsername: () => void;
   onCopyPassword: () => void;
   onCopyTotp: () => void;
-}) {
+  /** Opens the login's details page: a click anywhere on the row that isn't one of its buttons. */
+  onOpen: () => void;
+}>) {
   const siteUrl = safeExternalUrl(item.url);
 
+  // A row in the platform's list style (EntityList): full width, a divider
+  // below, a light hover. The copy and open actions show on hover or keyboard
+  // focus, and always on touch screens; Fill stays visible. As in the
+  // platform's lists, a button stretched over the row opens its details; the
+  // row's own buttons sit above it.
   return (
-    <li className="flex items-center gap-1 rounded-md border bg-card px-2 py-1.5">
+    <li className="group relative flex cursor-pointer items-center gap-2.5 border-b border-border/70 px-3 py-2 transition-colors hover:bg-muted/40">
+      <button
+        type="button"
+        aria-label={t('openLogin', item.title)}
+        onClick={onOpen}
+        className="absolute inset-0 z-0 cursor-pointer focus-visible:outline-offset-[-2px]"
+      />
+      <SiteIcon url={item.url} />
       <div className="min-w-0 flex-1">
-        <div className="truncate font-medium">{item.title}</div>
+        <div className="flex min-w-0 items-center gap-1.5">
+          <span className="truncate font-medium">{item.title}</span>
+          {item.hasTotp && <ShieldCheck className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />}
+        </div>
         <div className="truncate text-xs text-muted-foreground">
           {item.subtitle || item.host || '—'}
         </div>
       </div>
 
-      {item.subtitle && (
-        <IconButton label={t('copyUsername')} disabled={disabled} onClick={onCopyUsername}>
-          <User className="size-3.5" aria-hidden />
-        </IconButton>
-      )}
-      <IconButton label={t('copyPassword')} disabled={disabled} onClick={onCopyPassword}>
-        <Copy className="size-3.5" aria-hidden />
-      </IconButton>
-      {item.hasTotp && (
-        <IconButton label={t('copyTotp')} disabled={disabled} onClick={onCopyTotp}>
-          <ShieldCheck className="size-3.5" aria-hidden />
-        </IconButton>
-      )}
-      {siteUrl && (
-        <IconButton label={t('openSite')} onClick={() => openTab(siteUrl)}>
-          <ExternalLink className="size-3.5" aria-hidden />
-        </IconButton>
-      )}
+      <div className="relative z-[1] flex shrink-0 items-center opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100">
+        {item.subtitle && (
+          <IconAction label={t('copyUsername')} disabled={disabled} onClick={onCopyUsername}>
+            <User className="size-3.5" aria-hidden />
+          </IconAction>
+        )}
+        <IconAction label={t('copyPassword')} disabled={disabled} onClick={onCopyPassword}>
+          <Copy className="size-3.5" aria-hidden />
+        </IconAction>
+        {item.hasTotp && (
+          <IconAction label={t('copyTotp')} disabled={disabled} onClick={onCopyTotp}>
+            <ShieldCheck className="size-3.5" aria-hidden />
+          </IconAction>
+        )}
+        {siteUrl && (
+          <IconAction label={t('openSite')} onClick={() => openTab(siteUrl)}>
+            <SquareArrowUpRightExit className="size-3.5" aria-hidden />
+          </IconAction>
+        )}
+      </div>
       {canFill && (
         <Button
-          variant="primary"
+          size="sm"
           disabled={disabled}
           onClick={onFill}
           aria-label={t('fillItem', item.title)}
+          className="relative z-[1] h-7 gap-1.5 px-2.5 text-xs"
         >
           <KeyRound className="size-3.5" aria-hidden />
           {t('fill')}

@@ -56,7 +56,7 @@ test('signs in through WeldID from the service worker and picks the only workspa
   const popup = await context.newPage();
   await popup.goto(`chrome-extension://${EXTENSION_ID}/popup.html`);
   await popup.getByRole('button', { name: 'Sign in' }).click();
-  await expect(popup.getByRole('searchbox', { name: 'Search logins' })).toBeVisible();
+  await expect(popup.getByRole('button', { name: 'Search logins' })).toBeVisible();
   await expect(popup.getByText('Local app')).toBeVisible();
   // Every API call named the workspace (header mode).
   expect(new Set(state.recorded.workspaceHeaders)).toEqual(new Set(['ws_1']));

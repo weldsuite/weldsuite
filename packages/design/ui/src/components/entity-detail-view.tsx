@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 
 import { cn } from "../lib/utils";
+import { useUiLabels } from "../providers/ui-labels-provider";
 import { Button } from "./button";
 
 export type EntityDetailMode = "panel" | "fullscreen";
@@ -46,6 +47,18 @@ export interface EntityDetailViewProps {
   isOpen?: boolean;
   onClose?: () => void;
   onBack?: () => void;
+  /**
+   * Where the back button sits: `inline`, before the avatar (the default), or
+   * `above`, on a row of its own over the avatar and title — for a narrow
+   * host such as the WeldPass extension's popup.
+   */
+  backPlacement?: "inline" | "above";
+  /**
+   * With `backPlacement="above"`: buttons at the right end of the back row,
+   * above the header's own actions (e.g. an "open in a new tab" icon over a
+   * primary action). Ignored otherwise.
+   */
+  backRowActions?: React.ReactNode;
   width?: number | string;
   /** Distance from viewport top (panel mode, and fullscreen-overlay mode). */
   topOffset?: number | string;
@@ -227,6 +240,8 @@ export function EntityDetailView(props: Readonly<EntityDetailViewProps>) {
     titleWrap: props.titleWrap,
     actions: props.actions,
     onBack: props.onBack,
+    backPlacement: props.backPlacement,
+    backRowActions: props.backRowActions,
     onClose: props.onClose,
     isExpanded,
     onToggleExpand: handleToggleExpand,
@@ -251,6 +266,8 @@ interface HeaderRenderProps {
   titleWrap?: boolean;
   actions?: React.ReactNode;
   onBack?: () => void;
+  backPlacement?: "inline" | "above";
+  backRowActions?: React.ReactNode;
   onClose?: () => void;
   isExpanded: boolean;
   onToggleExpand: () => void;
@@ -351,6 +368,8 @@ function HeaderRow({
   titleWrap,
   actions,
   onBack,
+  backPlacement = "inline",
+  backRowActions,
   onClose,
   isExpanded,
   onToggleExpand,
@@ -358,31 +377,37 @@ function HeaderRow({
   showCloseButton,
   navigation,
 }: Readonly<HeaderRenderProps>) {
-  return (
+  const labels = useUiLabels();
+  const backAbove = backPlacement === "above" && !!onBack;
+  const backButton = onBack ? (
+    <Button
+      variant="ghost"
+      size="icon-sm"
+      className="size-7"
+      onClick={onBack}
+      aria-label={labels.back}
+      title={labels.back}
+    >
+      <ChevronLeft className="size-4 text-muted-foreground" />
+    </Button>
+  ) : null;
+
+  const row = (
     <div
       className={cn(
         // 12px above + 13px below: with 28px controls the row is 53px and its
         // contents centre on a whole pixel (26px), the same line the page
         // toolbar next to the panel centres on (52px + 1px border).
         "flex gap-2 px-3 md:px-4 pt-3 pb-[13px] flex-shrink-0 min-h-[52px]",
+        // Under its own back row: that row already gives the space above.
+        backAbove && "pt-1",
         // A wrapping title makes the row taller than its controls, so pin the
         // avatar and buttons to the first line instead of floating them in the
         // vertical middle of a multi-line block.
         titleWrap ? "items-start" : "items-center",
       )}
     >
-      {onBack && (
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          className="size-7"
-          onClick={onBack}
-          aria-label="Back"
-          title="Back"
-        >
-          <ChevronLeft className="size-4 text-muted-foreground" />
-        </Button>
-      )}
+      {!backAbove && backButton}
       {avatar && <div className="flex-shrink-0">{avatar}</div>}
       <div className="flex-1 min-w-0">
         {title && (
@@ -413,6 +438,18 @@ function HeaderRow({
           navigation={navigation}
         />
       </div>
+    </div>
+  );
+
+  if (!backAbove) return row;
+  return (
+    <div className="flex flex-shrink-0 flex-col">
+      {/* -ml-1.5 lines the chevron up with the avatar's left edge below it. */}
+      <div className="flex items-center justify-between gap-2 px-3 pt-2 md:px-4">
+        <div className="-ml-1.5">{backButton}</div>
+        {backRowActions && <div className="flex items-center gap-1.5">{backRowActions}</div>}
+      </div>
+      {row}
     </div>
   );
 }
@@ -446,6 +483,8 @@ function AnimatedShell({
   mode,
   onClose,
   onBack,
+  backPlacement,
+  backRowActions,
   width = 500,
   topOffset = 60,
   leftOffset = 64,
@@ -508,6 +547,8 @@ function AnimatedShell({
       titleWrap={titleWrap}
       actions={actions}
       onBack={onBack}
+      backPlacement={backPlacement}
+      backRowActions={backRowActions}
       onClose={onClose}
       isExpanded={isExpanded}
       onToggleExpand={onToggleExpand}
@@ -1082,6 +1123,8 @@ function FullscreenBody({
 function InlineFullscreenLayout({
   onClose,
   onBack,
+  backPlacement,
+  backRowActions,
   title,
   titleWrap,
   avatar,
@@ -1113,6 +1156,8 @@ function InlineFullscreenLayout({
         titleWrap={titleWrap}
         actions={actions}
         onBack={onBack}
+        backPlacement={backPlacement}
+        backRowActions={backRowActions}
         onClose={onClose}
         isExpanded={isExpanded}
         onToggleExpand={onToggleExpand}

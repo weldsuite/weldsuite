@@ -4,11 +4,28 @@ import { hostOf, itemInputSchema } from '@weldsuite/app-api-client/schemas/weldp
 import { readLoginFromPage } from '../lib/actions';
 import { chromePage, type ActiveTab } from '../lib/chrome-page';
 import { errorMessageKey } from '../lib/errors';
-import { t, type MessageKey } from '../lib/i18n';
+import { t } from '../lib/i18n';
 import { pageUrlForSaving } from '../lib/urls';
 import type { PopupApi } from './api';
+import { Button } from '@weldsuite/ui/components/button';
+import { Input } from '@weldsuite/ui/components/input';
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupButton,
+  InputGroupInput,
+} from '@weldsuite/ui/components/input-group';
+import { Label } from '@weldsuite/ui/components/label';
+import { InlineSpinner } from '@weldsuite/ui/components/page-loader';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@weldsuite/ui/components/select';
 import { useAsync, type Notify } from './hooks';
-import { Button, IconButton, Notice, Spinner } from './ui';
+import { PopupAlert, vaultLabel } from './list';
 
 interface Props {
   api: PopupApi;
@@ -18,7 +35,8 @@ interface Props {
   onCancel: () => void;
 }
 
-const inputClass = 'h-8 w-full rounded-md border bg-card px-2 text-[13px]';
+/** The popup's controls are one size: the library's small (32px) field. */
+const FIELD = 'h-8 text-[13px]';
 
 /**
  * "Save login for this site". Opening it reads what is typed in the page's
@@ -40,30 +58,20 @@ export function SaveLoginForm({ api, tab, notify, onSaved, onCancel }: Props) {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [chosenVault, setChosenVault] = useState('');
-  const [hint, setHint] = useState<MessageKey | null>(null);
   const [saving, setSaving] = useState(false);
 
   const vaultId =
     chosenVault || (writable.find((vault) => vault.kind === 'personal') ?? writable[0])?.id || '';
 
+  // Fill in what is typed in the page's login form, if anything.
   useEffect(() => {
-    if (!tab) {
-      setHint('saveNoPage');
-      return;
-    }
+    if (!tab) return;
     let current = true;
     void readLoginFromPage(chromePage, tab.id).then((read) => {
-      if (!current) return;
-      if (!read.ok) {
-        setHint('saveNoPage');
-      } else if (!read.username && !read.password) {
-        setHint('saveReadNothing');
-      } else {
-        // Do not overwrite something the user has already started typing here.
-        setUsername((value) => value || read.username);
-        setPassword((value) => value || read.password);
-        setHint('saveRead');
-      }
+      if (!current || !read.ok) return;
+      // Do not overwrite something the user has already started typing here.
+      setUsername((value) => value || read.username);
+      setPassword((value) => value || read.password);
     });
     return () => {
       current = false;
@@ -97,35 +105,35 @@ export function SaveLoginForm({ api, tab, notify, onSaved, onCancel }: Props) {
   if (vaults.loading) {
     return (
       <div className="p-3">
-        <Spinner label={t('loading')} />
+        <InlineSpinner label={t('loading')} className="py-0" />
       </div>
     );
   }
   if (vaults.error) {
     return (
       <div className="flex flex-col items-start gap-2 p-3">
-        <Notice tone="error">{t(errorMessageKey(vaults.error))}</Notice>
-        <Button onClick={vaults.reload}>{t('retry')}</Button>
+        <PopupAlert tone="error">{t(errorMessageKey(vaults.error))}</PopupAlert>
+        <Button variant="outline" size="sm" onClick={vaults.reload}>
+          {t('retry')}
+        </Button>
       </div>
     );
   }
   if (writable.length === 0) {
     return (
       <div className="p-3">
-        <Notice tone="warning">{t('noWritableVault')}</Notice>
+        <PopupAlert tone="warning">{t('noWritableVault')}</PopupAlert>
       </div>
     );
   }
 
   return (
     <form onSubmit={submit} className="flex flex-col gap-2.5 p-3">
-      <h2 className="text-sm font-semibold">{t('saveForSite')}</h2>
-      {hint && <Notice>{t(hint)}</Notice>}
 
       <Field id={`${ids}-title`} label={t('fieldTitle')}>
-        <input
+        <Input
           id={`${ids}-title`}
-          className={inputClass}
+          className={FIELD}
           value={title}
           maxLength={200}
           required
@@ -134,9 +142,9 @@ export function SaveLoginForm({ api, tab, notify, onSaved, onCancel }: Props) {
         />
       </Field>
       <Field id={`${ids}-url`} label={t('fieldUrl')}>
-        <input
+        <Input
           id={`${ids}-url`}
-          className={inputClass}
+          className={FIELD}
           value={url}
           maxLength={2048}
           spellCheck={false}
@@ -144,9 +152,9 @@ export function SaveLoginForm({ api, tab, notify, onSaved, onCancel }: Props) {
         />
       </Field>
       <Field id={`${ids}-username`} label={t('fieldUsername')}>
-        <input
+        <Input
           id={`${ids}-username`}
-          className={inputClass}
+          className={FIELD}
           value={username}
           maxLength={255}
           autoComplete="off"
@@ -155,10 +163,10 @@ export function SaveLoginForm({ api, tab, notify, onSaved, onCancel }: Props) {
         />
       </Field>
       <Field id={`${ids}-password`} label={t('fieldPassword')}>
-        <div className="flex gap-1">
-          <input
+        <InputGroup className="h-8">
+          <InputGroupInput
             id={`${ids}-password`}
-            className={`${inputClass} font-mono`}
+            className="h-7.5 py-0 font-mono text-[13px]"
             type={showPassword ? 'text' : 'password'}
             value={password}
             maxLength={4096}
@@ -166,40 +174,39 @@ export function SaveLoginForm({ api, tab, notify, onSaved, onCancel }: Props) {
             spellCheck={false}
             onChange={(event) => setPassword(event.target.value)}
           />
-          <IconButton
-            label={showPassword ? t('hidePassword') : t('showPassword')}
-            aria-pressed={showPassword}
-            className="size-8"
-            onClick={() => setShowPassword((value) => !value)}
-          >
-            {showPassword ? (
-              <EyeOff className="size-3.5" aria-hidden />
-            ) : (
-              <Eye className="size-3.5" aria-hidden />
-            )}
-          </IconButton>
-        </div>
+          <InputGroupAddon align="inline-end" className="py-0">
+            <InputGroupButton
+              size="icon-xs"
+              aria-label={showPassword ? t('hidePassword') : t('showPassword')}
+              title={showPassword ? t('hidePassword') : t('showPassword')}
+              aria-pressed={showPassword}
+              onClick={() => setShowPassword((value) => !value)}
+            >
+              {showPassword ? <EyeOff aria-hidden /> : <Eye aria-hidden />}
+            </InputGroupButton>
+          </InputGroupAddon>
+        </InputGroup>
       </Field>
       <Field id={`${ids}-vault`} label={t('fieldVault')}>
-        <select
-          id={`${ids}-vault`}
-          className={inputClass}
-          value={vaultId}
-          onChange={(event) => setChosenVault(event.target.value)}
-        >
-          {writable.map((vault) => (
-            <option key={vault.id} value={vault.id}>
-              {vault.kind === 'personal' ? t('personalVault') : vault.name}
-            </option>
-          ))}
-        </select>
+        <Select value={vaultId} onValueChange={setChosenVault}>
+          <SelectTrigger id={`${ids}-vault`} size="sm" className={`w-full ${FIELD}`}>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {writable.map((vault) => (
+              <SelectItem key={vault.id} value={vault.id}>
+                {vaultLabel(vault)}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </Field>
 
       <div className="mt-1 flex justify-end gap-2">
-        <Button onClick={onCancel} disabled={saving}>
+        <Button variant="outline" size="sm" onClick={onCancel} disabled={saving}>
           {t('cancel')}
         </Button>
-        <Button variant="primary" type="submit" disabled={saving}>
+        <Button size="sm" type="submit" disabled={saving}>
           {saving ? t('saving') : t('save')}
         </Button>
       </div>
@@ -209,10 +216,10 @@ export function SaveLoginForm({ api, tab, notify, onSaved, onCancel }: Props) {
 
 function Field({ id, label, children }: { id: string; label: string; children: ReactNode }) {
   return (
-    <div className="flex flex-col gap-1">
-      <label htmlFor={id} className="text-xs font-medium text-muted-foreground">
+    <div className="flex flex-col gap-1.5">
+      <Label htmlFor={id} className="text-xs text-muted-foreground">
         {label}
-      </label>
+      </Label>
       {children}
     </div>
   );

@@ -10,8 +10,12 @@ import { fillNewPassword } from '../lib/actions';
 import { chromePage, type ActiveTab } from '../lib/chrome-page';
 import { t, type MessageKey } from '../lib/i18n';
 import { blockedMessageKey } from '../lib/messages';
+import { Button } from '@weldsuite/ui/components/button';
+import { Checkbox } from '@weldsuite/ui/components/checkbox';
+import { Label } from '@weldsuite/ui/components/label';
+import { Slider } from '@weldsuite/ui/components/slider';
+import { cn } from '@weldsuite/ui/lib/utils';
 import type { Notify } from './hooks';
-import { Button, cx } from './ui';
 
 const STRENGTH: Record<PasswordStrength, { label: MessageKey; className: string }> = {
   weak: { label: 'strengthWeak', className: 'text-destructive' },
@@ -78,7 +82,7 @@ export function Generator({ tab, notify }: { tab: ActiveTab | null; notify: Noti
           <span className="font-medium text-muted-foreground">{t('genPassword')}</span>
           <span>
             <span className="text-muted-foreground">{t('strengthLabel')}: </span>
-            <span className={cx('font-medium', strength.className)}>{t(strength.label)}</span>
+            <span className={cn('font-medium', strength.className)}>{t(strength.label)}</span>
           </span>
         </div>
         <output
@@ -90,47 +94,49 @@ export function Generator({ tab, notify }: { tab: ActiveTab | null; notify: Noti
       </div>
 
       <div className="flex flex-wrap gap-2">
-        <Button onClick={() => setPassword(generatePassword(options))}>
+        <Button variant="outline" size="sm" onClick={() => setPassword(generatePassword(options))}>
           <RefreshCw className="size-3.5" aria-hidden />
           {t('genRegenerate')}
         </Button>
-        <Button onClick={copy} autoFocus>
+        <Button variant="outline" size="sm" onClick={copy} autoFocus>
           <Copy className="size-3.5" aria-hidden />
           {t('genCopy')}
         </Button>
-        <Button variant="primary" onClick={fillIntoPage} disabled={filling}>
+        <Button size="sm" onClick={fillIntoPage} disabled={filling}>
           <KeyRound className="size-3.5" aria-hidden />
           {t('genFill')}
         </Button>
       </div>
 
-      <div className="flex flex-col gap-1">
-        <label htmlFor={`${ids}-length`} className="flex justify-between text-xs">
-          <span className="font-medium text-muted-foreground">{t('genLength')}</span>
+      <div className="flex flex-col gap-2.5">
+        <div className="flex justify-between text-xs">
+          <Label id={`${ids}-length`} className="text-xs text-muted-foreground">
+            {t('genLength')}
+          </Label>
           <span className="tabular-nums">{options.length}</span>
-        </label>
-        <input
-          id={`${ids}-length`}
-          type="range"
+        </div>
+        <Slider
+          aria-labelledby={`${ids}-length`}
           min={8}
           max={64}
-          value={options.length}
-          onChange={(event) => update({ length: Number(event.target.value) })}
-          className="w-full accent-primary"
+          step={1}
+          value={[options.length]}
+          onValueChange={([length]) => update({ length: length ?? options.length })}
         />
       </div>
 
-      <fieldset className="flex flex-col gap-1.5">
+      <fieldset className="flex flex-col gap-2">
         {CLASSES.map(({ option, label }) => (
-          <label key={option} className="flex items-center gap-2">
-            <input
-              type="checkbox"
+          <div key={option} className="flex items-center gap-2">
+            <Checkbox
+              id={`${ids}-${option}`}
               checked={options[option]}
-              onChange={(event) => update({ [option]: event.target.checked })}
-              className="size-3.5 accent-primary"
+              onCheckedChange={(checked) => update({ [option]: checked === true })}
             />
-            {t(label)}
-          </label>
+            <Label htmlFor={`${ids}-${option}`} className="text-[13px] font-normal">
+              {t(label)}
+            </Label>
+          </div>
         ))}
       </fieldset>
     </div>

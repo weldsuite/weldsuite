@@ -39,6 +39,15 @@ manifest can't drift apart silently.
 > Gives the toolbar popup the address of the tab it was opened on, to list the
 > logins saved for that site, without the broader `tabs` permission.
 
+**`favicon`**
+
+> Shows each saved login's website icon in the toolbar popup, so people can
+> spot the right login at a glance. The icons come from the browser's own
+> favicon cache, so showing them sends no request to those websites or to any
+> other service, and nothing about the person's saved logins leaves the
+> browser. Chrome may show "Read the icons of the websites you visit" when the
+> extension is installed.
+
 **Host permissions: `https://app.weldsuite.eu/*`, `https://auth.weldsuite.eu/*`**
 
 > WeldSuite EU's API (the person's saved logins) and its sign-in server. The

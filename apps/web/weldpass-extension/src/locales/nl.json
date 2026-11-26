@@ -38,12 +38,6 @@
   "tabLogins": {
     "message": "Logins"
   },
-  "tabSave": {
-    "message": "Opslaan"
-  },
-  "tabGenerator": {
-    "message": "Generator"
-  },
   "searchLabel": {
     "message": "Logins zoeken"
   },
@@ -133,15 +127,6 @@
   },
   "fillFailed": {
     "message": "De pagina is niet bereikbaar. Herlaad de pagina en probeer het opnieuw."
-  },
-  "saveRead": {
-    "message": "Overgenomen uit het formulier op de pagina. Controleer het voordat je opslaat."
-  },
-  "saveReadNothing": {
-    "message": "Er is nog niets ingevuld in het inlogformulier op de pagina. Vul de gegevens hier in."
-  },
-  "saveNoPage": {
-    "message": "Open de inlogpagina van de site om dit automatisch in te vullen."
   },
   "fieldTitle": {
     "message": "Titel"
@@ -416,5 +401,176 @@
   },
   "workspaceLabel": {
     "message": "Werkruimte"
+  },
+  "sortButton": {
+    "message": "Sorteren"
+  },
+  "sortClear": {
+    "message": "Sortering wissen"
+  },
+  "filterButton": {
+    "message": "Filteren"
+  },
+  "filterVault": {
+    "message": "Kluis"
+  },
+  "filterTotp": {
+    "message": "2FA-code"
+  },
+  "noFilterMatches": {
+    "message": "Geen logins die bij deze filters passen."
+  },
+  "sortFieldName": {
+    "message": "Naam"
+  },
+  "sortFieldUpdated": {
+    "message": "Laatst bijgewerkt"
+  },
+  "sortAscending": {
+    "message": "Oplopend"
+  },
+  "sortDescending": {
+    "message": "Aflopend"
+  },
+  "filterIs": {
+    "message": "is"
+  },
+  "filterIsNot": {
+    "message": "is niet"
+  },
+  "filterSelectCondition": {
+    "message": "Kies een voorwaarde"
+  },
+  "filterYes": {
+    "message": "Ja"
+  },
+  "filterNo": {
+    "message": "Nee"
+  },
+  "filterRemove": {
+    "message": "Filter verwijderen"
+  },
+  "toolsTitle": {
+    "message": "Hulpmiddelen"
+  },
+  "toolsBack": {
+    "message": "Terug naar hulpmiddelen"
+  },
+  "toolGenerator": {
+    "message": "Wachtwoordgenerator"
+  },
+  "toolGeneratorBody": {
+    "message": "Maak een sterk wachtwoord en vul het in."
+  },
+  "toolHealth": {
+    "message": "Wachtwoordgezondheid"
+  },
+  "toolHealthBody": {
+    "message": "Zwakke, hergebruikte en oude wachtwoorden in je kluizen."
+  },
+  "toolBreach": {
+    "message": "Datalekscanner"
+  },
+  "toolBreachBody": {
+    "message": "Zie of je logins in een datalek zijn opgedoken."
+  },
+  "comingSoon": {
+    "message": "Binnenkort"
+  },
+  "healthChecked": {
+    "message": "Gecontroleerd"
+  },
+  "healthHealthy": {
+    "message": "In orde"
+  },
+  "healthWeak": {
+    "message": "Zwak"
+  },
+  "healthReused": {
+    "message": "Hergebruikt"
+  },
+  "healthOld": {
+    "message": "Oud"
+  },
+  "healthReusedOn": {
+    "message": "Hergebruikt bij $1 logins"
+  },
+  "healthAttention": {
+    "message": "Aandacht nodig"
+  },
+  "healthAllHealthy": {
+    "message": "Alle wachtwoorden zien er in orde uit."
+  },
+  "healthEmpty": {
+    "message": "Voeg logins met een wachtwoord toe en ze worden hier gecontroleerd."
+  },
+  "healthFixInWebApp": {
+    "message": "Oplossen in WeldSuite"
+  },
+  "notificationsTitle": {
+    "message": "Meldingen"
+  },
+  "notificationsUnread": {
+    "message": "Meldingen, $1 ongelezen"
+  },
+  "notificationsMarkAllRead": {
+    "message": "Alles als gelezen markeren"
+  },
+  "notificationsEmpty": {
+    "message": "Je bent helemaal bij."
+  },
+  "notificationsNew": {
+    "message": "Nieuw"
+  },
+  "justNow": {
+    "message": "Zojuist"
+  },
+  "backToLogins": {
+    "message": "Terug naar logins"
+  },
+  "detailsTab": {
+    "message": "Gegevens"
+  },
+  "historyTab": {
+    "message": "Geschiedenis"
+  },
+  "openLogin": {
+    "message": "$1 openen"
+  },
+  "detailsUpdated": {
+    "message": "Laatst bijgewerkt"
+  },
+  "detailsPasswordChanged": {
+    "message": "Wachtwoord gewijzigd"
+  },
+  "showCode": {
+    "message": "Code tonen"
+  },
+  "historyEmpty": {
+    "message": "Geen eerdere versies."
+  },
+  "historyCurrent": {
+    "message": "huidig"
+  },
+  "historyCreated": {
+    "message": "Aangemaakt"
+  },
+  "historyUpdated": {
+    "message": "Bijgewerkt"
+  },
+  "historyRestored": {
+    "message": "Hersteld"
+  },
+  "historyDeleted": {
+    "message": "Verwijderd"
+  },
+  "historyVersion": {
+    "message": "Versie $1"
+  },
+  "workspaceCurrent": {
+    "message": "Werkruimte: $1"
+  },
+  "searchClear": {
+    "message": "Zoekopdracht wissen"
   }
 }
