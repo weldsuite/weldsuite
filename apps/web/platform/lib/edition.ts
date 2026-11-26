@@ -277,6 +277,16 @@ export const EDITION_FEATURES = [
    * `GLOBAL_UNAVAILABLE_FEATURES` and Global never shows a level.
    */
   'sign-eidas',
+  /**
+   * WeldBooks: matching bank transactions and documents either way round, as
+   * in Moneybird. One transaction settles several invoices or bills, any open
+   * document can be searched for, a gap is booked to an account (bank costs, a
+   * payment discount), and an invoice or bill links a transaction or undoes
+   * its match from its Payments tab (`/api/bank-transactions/:id/open-documents`,
+   * `/:id/match-documents`, `/for-document`). Built only in Rust, so it is in
+   * `GLOBAL_UNAVAILABLE_FEATURES` and Global keeps the suggestions only.
+   */
+  'books-bank-links',
 ] as const;
 
 export type EditionFeature = (typeof EDITION_FEATURES)[number];

@@ -149,6 +149,9 @@ export const GLOBAL_UNAVAILABLE_FEATURES: readonly string[] = [
   // WeldSign advanced and qualified signatures, sealed PDFs and the evidence
   // report (eIDAS), built only in Rust.
   'sign-eidas',
+  // WeldBooks: matching bank transactions and documents either way round
+  // (several documents per transaction, search, booking the difference).
+  'books-bank-links',
 ];
 
 const mod = (

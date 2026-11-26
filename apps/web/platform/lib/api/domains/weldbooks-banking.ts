@@ -281,6 +281,72 @@ export interface MatchSuggestion {
 }
 
 // ============================================================================
+// Matching lines and documents either way round (Rust only: `books-bank-links`)
+// ============================================================================
+
+export type OpenDocumentType = 'invoice' | 'credit_note' | 'bill';
+
+/** An open invoice, credit note or bill a bank line could settle (`GET /bank-transactions/:id/open-documents`). */
+export interface OpenDocument {
+  type: OpenDocumentType;
+  id: string;
+  number: string | null;
+  contactId: string | null;
+  contactName: string | null;
+  issueDate: string | null;
+  dueDate: string | null;
+  currency: string | null;
+  total: string;
+  /** What the document still takes. */
+  openAmount: string;
+  status: string | null;
+  /** 0 to 1: how well the line fits. */
+  confidence: number;
+  reasons: string[];
+}
+
+/** Body of `POST /bank-transactions/:id/match-documents`. */
+export interface MatchDocumentsInput {
+  /** Credit notes go as `invoice`. Amounts in the line's currency, as text. */
+  documents: Array<{ type: 'invoice' | 'bill'; id: string; amount: string }>;
+  /** Books the gap between the line and the documents to this ledger account. */
+  differenceAccountId?: string;
+  differenceDescription?: string;
+}
+
+export interface MatchDocumentsResult {
+  id: string;
+  status: string;
+  paymentId: string;
+  journalEntryId: string | null;
+}
+
+/** An unmatched bank line that could have paid a document (`GET /bank-transactions/for-document`). */
+export interface CandidateBankLine {
+  id: string;
+  bankAccountId: string;
+  bankAccountName: string | null;
+  currency: string | null;
+  date: string;
+  /** Signed: money in is positive. */
+  amount: string;
+  description: string | null;
+  counterpartyName: string | null;
+  counterpartyIban: string | null;
+  reference: string | null;
+  confidence: number;
+  reasons: string[];
+}
+
+export interface LinesForDocument {
+  document: OpenDocument;
+  openAmount: string;
+  lines: CandidateBankLine[];
+}
+
+export type LinesForDocumentQuery = ({ invoiceId: string } | { billId: string }) & { search?: string };
+
+// ============================================================================
 // Payments (deposit target)
 // ============================================================================
 
@@ -602,6 +668,20 @@ export const bankingApi = {
     weldbooksApi.post<Envelope<{ id: string; status: string; depositId: string; journalEntryId: string | null }>>(
       `/bank-transactions/${id}/match-deposit`,
       { depositId },
+    ),
+  /** Undo a line's match: a payment the match made is voided, a linked payment or deposit only unlinked. */
+  unreconcileLine: (id: string) =>
+    weldbooksApi.post<Envelope<{ id: string; status: string }>>(`/bank-transactions/${id}/unreconcile`),
+  getBankLine: (id: string) => weldbooksApi.get<Envelope<BankLine>>(`/bank-transactions/${id}`),
+  openDocuments: (id: string, search?: string) =>
+    weldbooksApi.get<Envelope<OpenDocument[]>>(
+      `/bank-transactions/${id}/open-documents${buildQuery({ search: search || undefined })}`,
+    ),
+  matchDocuments: (id: string, data: MatchDocumentsInput) =>
+    weldbooksApi.post<Envelope<MatchDocumentsResult>>(`/bank-transactions/${id}/match-documents`, data),
+  linesForDocument: (query: LinesForDocumentQuery) =>
+    weldbooksApi.get<Envelope<LinesForDocument>>(
+      `/bank-transactions/for-document${buildQuery({ ...query, search: query.search || undefined })}`,
     ),
 
   // Payments

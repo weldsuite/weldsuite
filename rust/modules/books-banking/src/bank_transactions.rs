@@ -52,6 +52,7 @@ use weldsuite_legal_entities::{EntityRecordGuard, EntityTable};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 use weldsuite_schema::tenant::{bank_accounts, bank_import_batches, bank_transactions};
 
+use crate::bank_links;
 use crate::common::{changes, field, find_transaction, posting_refusal, text};
 use crate::csv_format;
 use crate::import::{
@@ -82,6 +83,20 @@ where
         .route(
             "/auto-reconcile",
             post(auto_reconcile).route_layer(need("banking:update")),
+        )
+        // Rust only (edition feature `books-bank-links`): matching lines and
+        // documents either way round.
+        .route(
+            "/for-document",
+            get(bank_links::for_document).route_layer(need("banking:read")),
+        )
+        .route(
+            "/{id}/open-documents",
+            get(bank_links::open_documents).route_layer(need("banking:read")),
+        )
+        .route(
+            "/{id}/match-documents",
+            post(bank_links::match_documents).route_layer(need("banking:update")),
         )
         .route("/{id}", get(detail).route_layer(need("banking:read")))
         .route(
@@ -129,7 +144,7 @@ where
 
 /// `{ id, bankAccountId, amount: amount || '0', description, status }`: the
 /// bank-line event the matching routes publish.
-fn line_event(txn: &Value, status: &str) -> Value {
+pub(crate) fn line_event(txn: &Value, status: &str) -> Value {
     json!({
         "id": field(txn, "id"),
         "bankAccountId": field(txn, "bankAccountId"),
@@ -1140,7 +1155,7 @@ async fn suggestions(caller: Caller, Path(id): Path<String>) -> Response {
 // ── Matching a line ─────────────────────────────────────────────────────────
 
 /// `findLine(c, id)`: the live line of the resolved entity.
-async fn find_line(caller: &Caller, id: &str) -> Result<Option<Value>, DbErr> {
+pub(crate) async fn find_line(caller: &Caller, id: &str) -> Result<Option<Value>, DbErr> {
     let entity_id = resolve_entity_id(caller).await?;
     let txn = find_transaction(&caller.db, id).await?;
     Ok(txn.filter(|txn| {

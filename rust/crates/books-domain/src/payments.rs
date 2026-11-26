@@ -18,6 +18,7 @@ use crate::bad_debt::{
     find_recovery_entries, post_bad_debt_recovery, settle_written_off, written_off_balance,
 };
 use crate::currency::calculate_fx_gain_loss;
+pub use crate::document_posting::PaymentDifference;
 use crate::document_posting::{
     PaymentAllocationInput, PaymentPostingInput, amount_of, build_payment_posting, filled,
     find_default_bank_account, owned, settle, text,
@@ -151,6 +152,9 @@ pub struct RecordPaymentInput {
     pub payment_run_id: Option<String>,
     pub backup_withholding_amount: Option<f64>,
     pub allocations: Vec<AllocationInput>,
+    /// A gap between the money and the allocations, booked to an account
+    /// (Rust only; see [`PaymentDifference`]).
+    pub difference: Option<PaymentDifference>,
     pub user_id: Option<String>,
 }
 
@@ -785,7 +789,15 @@ pub async fn record_payment(
             contact_id: owned(&doc.row, "contactId").unwrap_or_default(),
         });
     }
-    if allocated_total > round_money(input.amount) + 0.005 {
+    // What the allocations may take: the money, plus a difference booked to
+    // an account.
+    let difference = PaymentDifference::booked(input.difference.as_ref()).cloned();
+    let covered =
+        round_money(input.amount + difference.as_ref().map_or(0.0, |d| round_money(d.amount)));
+    if covered < 0.0 {
+        return Err(posting("The difference is more than the payment can cover"));
+    }
+    if allocated_total > covered + 0.005 {
         return Err(posting("Allocations exceed the payment amount"));
     }
 
@@ -920,6 +932,7 @@ pub async fn record_payment(
                 None
             },
             backup_withholding_amount: (withheld > 0.0).then_some(withheld),
+            difference: difference.clone(),
         },
         &allocations,
     )
@@ -989,7 +1002,15 @@ pub async fn record_payment(
             .iter()
             .map(|(invoice, _)| invoice.clone())
             .collect(),
-        fully_allocated: !allocations.is_empty() && (allocated_total - input.amount).abs() < 0.005,
+        fully_allocated: !allocations.is_empty()
+            && (allocated_total
+                - if difference.is_some() {
+                    covered
+                } else {
+                    input.amount
+                })
+            .abs()
+                < 0.005,
         now: at,
         stamp,
     };

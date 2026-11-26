@@ -120,6 +120,10 @@ vi.mock('@/lib/api/domains/weldbooks', () => ({
   accountingApi: { getInvoiceAttachment: vi.fn(), listInvoiceTemplates: env.listTemplates },
 }));
 vi.mock('@/app/weldbooks/invoices/components/record-payment-dialog', () => ({ RecordPaymentDialog: () => null }));
+// Linking bank transactions has tests of its own (payment-bank-actions.test.tsx).
+vi.mock('@/components/accounting/payment-bank-actions', () => ({
+  usePaymentBankActions: () => ({ available: false, linkButton: null, menuFor: () => undefined, dialogs: null }),
+}));
 
 import { panelOpen } from '@/components/objects/_shared/object-panel-test-mock';
 import { InvoicePanel } from './invoice-panel';

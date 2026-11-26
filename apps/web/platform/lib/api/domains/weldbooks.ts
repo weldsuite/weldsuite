@@ -747,6 +747,8 @@ export interface Payment {
   invoiceId: string | null;
   billId: string | null;
   contactId: string;
+  /** The bank line the payment is matched to, if any. */
+  bankTransactionId?: string | null;
 }
 
 export interface RecurringInvoiceTemplateItem {
