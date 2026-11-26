@@ -21,8 +21,15 @@ its justification change together. Chrome first, then Edge with the same zip
   on step 7 "2d" of `rust/deploy/hetzner/README.md` for Zitadel installs.
   Until then a store build can't sign in.
 - **Privacy policy URL** on `weldsuite.eu`.
-- **Screenshots**: at least one, 1280×800 (up to five), and the 440×280
-  small promo tile.
+- **Screenshots**: done. The four 1280×800 screenshots and the 440×280 small
+  promo tile are in [`screenshots/`](screenshots). They show the real
+  extension against the Playwright fake server, on a made-up company's
+  sign-in page. To regenerate them after a UI change, run
+  `pnpm --filter weldpass-extension screenshots`
+  (`e2e/store-screenshots.ts`). The listing's 128×128 icon,
+  `screenshots/store-icon-128.png`, has the tile at 96×96 with transparent
+  space around it, as the store asks. It comes from `pnpm --filter
+  weldpass-extension icons`, together with the toolbar icons.
 
 ## Releasing a version
 

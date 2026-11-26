@@ -34,8 +34,12 @@ export interface FakeState {
   /** `evil`: the server answers a login for another site (a bug, or worse). */
   matches: 'normal' | 'evil';
   password: string;
+  /** The logins the server holds; each one's username is its subtitle. */
+  items: FakeItem[];
   recorded: Recorded;
 }
+
+export type FakeItem = typeof LOCAL_ITEM;
 
 function base64url(value: unknown): string {
   return Buffer.from(JSON.stringify(value)).toString('base64url');
@@ -43,7 +47,7 @@ function base64url(value: unknown): string {
 
 const jwt = (claims: Record<string, unknown>) => `${base64url({ alg: 'none' })}.${base64url(claims)}.sig`;
 
-const LOCAL_ITEM = {
+export const LOCAL_ITEM = {
   id: 'item-local',
   vaultId: 'vault-1',
   type: 'login',
@@ -166,18 +170,19 @@ function appRoutes(state: FakeState) {
 
       if (path === '/api/weldpass/items/match') {
         state.recorded.matchUrls.push(url.searchParams.get('url') ?? '');
-        return send(res, 200, { data: state.matches === 'evil' ? [EVIL_ITEM] : [LOCAL_ITEM] });
+        const host = new URL(url.searchParams.get('url') ?? APP).hostname;
+        return send(res, 200, { data: state.matches === 'evil' ? [EVIL_ITEM] : state.items.filter((item) => item.host === host) });
       }
-      if (path === '/api/weldpass/items') return send(res, 200, { data: [LOCAL_ITEM] });
+      if (path === '/api/weldpass/items') return send(res, 200, { data: state.items });
       if (path === '/api/weldpass/vaults') {
         return send(res, 200, { data: [{ id: 'vault-1', kind: 'personal', name: 'Personal', role: 'manager' }] });
       }
       const reveal = /^\/api\/weldpass\/vaults\/([^/]+)\/items\/([^/]+)\/reveal$/.exec(path);
       if (reveal) {
         state.recorded.reveals.push(reveal[2]!);
-        const item = reveal[2] === EVIL_ITEM.id ? EVIL_ITEM : LOCAL_ITEM;
+        const item = [EVIL_ITEM, ...state.items].find((candidate) => candidate.id === reveal[2]) ?? LOCAL_ITEM;
         return send(res, 200, {
-          data: { ...item, fields: { username: 'ada@example.com', password: state.password, totp: '', notes: '' } },
+          data: { ...item, fields: { username: item.subtitle, password: state.password, totp: '', notes: '' } },
         });
       }
       if (path === '/api/weldpass/vaults/vault-1/items' && method === 'POST') {
@@ -206,6 +211,7 @@ export function freshState(): FakeState {
   return {
     matches: 'normal',
     password: 'correct horse battery',
+    items: [LOCAL_ITEM],
     recorded: { reveals: [], created: [], updated: [], matchUrls: [], workspaceHeaders: [] },
   };
 }

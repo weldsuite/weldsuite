@@ -31,6 +31,17 @@ export class StoreError extends Error {}
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/**
+ * Waits, then calls `check`, until it returns something other than undefined.
+ * Each call depends on the last, so this recurses rather than looping.
+ */
+async function poll(check, { sleep, pollIntervalMs, timeoutMs, timeout }, waited = 0) {
+  if (waited >= timeoutMs) throw new StoreError(timeout);
+  await sleep(pollIntervalMs);
+  const result = await check();
+  return result === undefined ? poll(check, { sleep, pollIntervalMs, timeoutMs, timeout }, waited + pollIntervalMs) : result;
+}
+
 /** Compares Chrome extension versions (one to four dot-separated integers). */
 export function compareVersions(a, b) {
   const left = a.split('.').map(Number);
@@ -138,14 +149,19 @@ export async function publishChrome({
   });
   const uploaded = await readBody(upload);
   if (!upload.ok) throw failure('Chrome Web Store upload', upload, uploaded);
-  let state = uploaded.uploadState;
-  let waited = 0;
-  while (state === 'IN_PROGRESS') {
-    if (waited >= timeoutMs) throw new StoreError('Chrome Web Store: the upload is still being processed; check the dashboard.');
-    await sleep(pollIntervalMs);
-    waited += pollIntervalMs;
-    state = (await status()).lastAsyncUploadState;
-  }
+  const processed = async () => {
+    const next = (await status()).lastAsyncUploadState;
+    return next === 'IN_PROGRESS' ? undefined : (next ?? null);
+  };
+  const state =
+    uploaded.uploadState === 'IN_PROGRESS'
+      ? await poll(processed, {
+          sleep,
+          pollIntervalMs,
+          timeoutMs,
+          timeout: 'Chrome Web Store: the upload is still being processed; check the dashboard.',
+        })
+      : uploaded.uploadState;
   if (state !== 'SUCCEEDED') throw new StoreError(`Chrome Web Store: the upload ended ${state ?? 'without a state'}.`);
   if (uploaded.crxVersion && uploaded.crxVersion !== version) {
     throw new StoreError(`Chrome Web Store: the store read version ${uploaded.crxVersion} from the zip, not ${version}.`);
@@ -170,7 +186,7 @@ export async function publishChrome({
 
 /** An Edge operation id from a 202's Location header (bare, or the end of a URL). */
 function operationId(response, what) {
-  const id = (response.headers.get('location') ?? '').split('?')[0].split('/').filter(Boolean).at(-1);
+  const id = (response.headers.get('location') ?? '').split('?')[0].split('/').findLast(Boolean);
   if (!id) throw new StoreError(`${what}: the response had no Location header to follow.`);
   return id;
 }
@@ -196,20 +212,19 @@ export async function publishEdge({
   const product = `${EDGE_API}/v1/products/${productId}`;
   const auth = { Authorization: `ApiKey ${apiKey}`, 'X-ClientID': clientId };
 
-  async function follow(url, what) {
-    for (let waited = 0; ; waited += pollIntervalMs) {
-      const response = await fetch(url, { headers: auth });
-      const body = await readBody(response);
-      if (!response.ok) throw failure(what, response, body);
-      if (body.status === 'Succeeded') return body;
-      if (body.status !== 'InProgress') {
+  const follow = (url, what) =>
+    poll(
+      async () => {
+        const response = await fetch(url, { headers: auth });
+        const body = await readBody(response);
+        if (!response.ok) throw failure(what, response, body);
+        if (body.status === 'InProgress') return undefined;
+        if (body.status === 'Succeeded') return body;
         const hint = body.errorCode === 'InProgressSubmission' ? ' A submission is still in review; re-run this job once it is through.' : '';
         throw new StoreError(`${what} failed${storeSays(body)}.${hint}`);
-      }
-      if (waited >= timeoutMs) throw new StoreError(`${what} is still in progress; check Partner Center.`);
-      await sleep(pollIntervalMs);
-    }
-  }
+      },
+      { sleep, pollIntervalMs, timeoutMs, timeout: `${what} is still in progress; check Partner Center.` },
+    );
 
   log(`Edge Add-ons: uploading ${version} (${(zip.length / 1024).toFixed(0)} KB)`);
   const upload = await fetch(`${product}/submissions/draft/package`, {
@@ -293,9 +308,11 @@ export async function main(args, { env = process.env, fetch = globalThis.fetch, 
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  main(process.argv.slice(2)).catch((error) => {
+  try {
+    await main(process.argv.slice(2));
+  } catch (error) {
     const message = error instanceof StoreError ? error.message : `${error?.stack ?? error}`;
     console.error(process.env.GITHUB_ACTIONS ? `::error::${message}` : message);
     process.exit(1);
-  });
+  }
 }

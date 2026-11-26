@@ -29,7 +29,7 @@ describe('compareVersions', () => {
     expect(compareVersions('0.2.0', '0.1.9')).toBe(1);
     expect(compareVersions('0.10.0', '0.9.0')).toBe(1);
     expect(compareVersions('1.0', '1.0.0')).toBe(0);
-    expect(compareVersions('1.2.3.4', '1.2.3.5')).toBe(-1);
+    expect(compareVersions('0.2.0.400', '0.2.0.1000')).toBe(-1);
   });
 });
 
@@ -76,6 +76,15 @@ describe('publishChrome', () => {
     expect(sleep).toHaveBeenCalledTimes(2);
   });
 
+  it('gives up on an upload that stays in progress', async () => {
+    const { fetch, calls } = fakeStore({
+      [STATUS]: [json({}), json({ lastAsyncUploadState: 'IN_PROGRESS' })],
+      [UPLOAD]: [json({ uploadState: 'IN_PROGRESS' })],
+    });
+    await expect(run(fetch, { pollIntervalMs: 5, timeoutMs: 20 })).rejects.toThrow(/still being processed/);
+    expect(calls.filter((call) => call.method === 'GET')).toHaveLength(5);
+  });
+
   it('uploads nothing when the version is already submitted or published', async () => {
     const inReview = fakeStore({ [STATUS]: [json({ submittedItemRevisionStatus: revision('0.2.0', 'PENDING_REVIEW') })] });
     await expect(run(inReview.fetch)).resolves.toEqual({ state: 'PENDING_REVIEW', skipped: true });
@@ -100,9 +109,9 @@ describe('publishChrome', () => {
 
   it("passes on the store's error, never the token", async () => {
     const { fetch } = fakeStore({ [STATUS]: [json({ error: { code: 403, message: 'The caller does not have permission' } }, 403)] });
-    const error = await run(fetch).catch((caught) => caught);
-    expect(error.message).toMatch(/HTTP 403.*does not have permission/);
-    expect(error.message).not.toContain('secret-token');
+    const attempt = run(fetch);
+    await expect(attempt).rejects.toThrow(/HTTP 403.*does not have permission/);
+    await expect(attempt).rejects.not.toThrow('secret-token');
   });
 
   it('stops when the upload fails or the submission is rejected', async () => {
@@ -152,9 +161,9 @@ describe('publishEdge', () => {
 
   it("passes on a refused upload's status, never the key", async () => {
     const { fetch } = fakeStore({ [`POST ${PRODUCT}/submissions/draft/package`]: [json({ message: 'Unauthorized' }, 401)] });
-    const error = await run(fetch).catch((caught) => caught);
-    expect(error.message).toBe('Edge Add-ons upload failed (HTTP 401): Unauthorized');
-    expect(error.message).not.toContain('secret-key');
+    const attempt = run(fetch);
+    await expect(attempt).rejects.toThrow('Edge Add-ons upload failed (HTTP 401): Unauthorized');
+    await expect(attempt).rejects.not.toThrow('secret-key');
   });
 });
 

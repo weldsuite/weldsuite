@@ -12,6 +12,7 @@
     "type-check": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "test:e2e": "playwright test -c e2e/playwright.config.ts",
+    "screenshots": "playwright test -c e2e/screenshots.config.ts",
     "icons": "node scripts/generate-icons.mjs"
   },
   "dependencies": {
