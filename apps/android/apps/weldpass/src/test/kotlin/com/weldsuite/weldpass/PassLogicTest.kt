@@ -63,6 +63,16 @@ class PassLogicTest {
     }
 
     @Test
+    fun `a new item goes in the chosen vault, else the personal one, else none`() {
+        val personal = vault("p", Vault.Kind.PERSONAL, "Personal")
+        val shared = vault("s", Vault.Kind.SHARED, "Team", Vault.Role.EDITOR)
+        val viewer = vault("v", Vault.Kind.SHARED, "Read", Vault.Role.VIEWER)
+        assertEquals("s", PassLogic.defaultCreateVaultId(listOf(shared, personal), "s"))
+        assertEquals("p", PassLogic.defaultCreateVaultId(listOf(shared, personal), "v"))
+        assertNull(PassLogic.defaultCreateVaultId(listOf(viewer), null))
+    }
+
+    @Test
     fun `two-factor codes are split in the middle`() {
         assertEquals("123 456", PassLogic.formatTotpCode("123456"))
         assertEquals("1234 567", PassLogic.formatTotpCode("1234567"))

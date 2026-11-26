@@ -38,6 +38,7 @@ struct PassItem: Identifiable, Equatable {
 struct PassFields: Equatable {
     var username: String?
     var password: String?
+    var totp: String?
     var notes: String?
     var apps: [String]
     var content: String?
@@ -50,6 +51,27 @@ struct PassFields: Equatable {
 struct PassTotp: Equatable {
     let code: String
     let expiresAt: String
+}
+
+/// A login with something to fix, from the password health report.
+struct PassHealthEntry: Identifiable, Equatable {
+    enum Issue: String { case weak, reused, old }
+
+    let item: PassItem
+    let issues: [Issue]
+    /// How many of the caller's logins share this password, itself included.
+    let reuseCount: Int
+
+    var id: String { item.id }
+}
+
+struct PassHealthReport: Equatable {
+    let checked: Int
+    let healthy: Int
+    let weak: Int
+    let reused: Int
+    let old: Int
+    let entries: [PassHealthEntry]
 }
 
 /// A list as the screens show it: what was last loaded, and how loading went.
@@ -117,6 +139,7 @@ final class PassStore {
                 return PassFields(
                     username: fields.username,
                     password: fields.password,
+                    totp: fields.totp,
                     notes: fields.notes,
                     apps: fields.apps ?? [],
                     content: fields.content,
@@ -147,10 +170,127 @@ final class PassStore {
         }
     }
 
+    /// Add an item, then reload the lists.
+    func create(vaultID: String, input: PassItemInput) async throws {
+        do {
+            switch try await client().createItem(path: .init(vaultId: vaultID), body: .json(Self.generated(input))) {
+            case .created:
+                await refresh()
+            case let .default(status, response):
+                throw APIError(status: status, code: try? response.body.json.error.code)
+            }
+        } catch {
+            throw APIError.from(error)
+        }
+    }
+
+    /// Replace an item (every field of its type), then reload the lists.
+    func update(vaultID: String, itemID: String, input: PassItemInput) async throws {
+        do {
+            switch try await client().updateItem(path: .init(vaultId: vaultID, itemId: itemID), body: .json(Self.generated(input))) {
+            case .ok:
+                await refresh()
+            case let .default(status, response):
+                throw APIError(status: status, code: try? response.body.json.error.code)
+            }
+        } catch {
+            throw APIError.from(error)
+        }
+    }
+
+    func delete(vaultID: String, itemID: String) async throws {
+        do {
+            switch try await client().deleteItem(path: .init(vaultId: vaultID, itemId: itemID)) {
+            case .noContent:
+                await refresh()
+            case let .default(status, response):
+                throw APIError(status: status, code: try? response.body.json.error.code)
+            }
+        } catch {
+            throw APIError.from(error)
+        }
+    }
+
+    /// Weak, reused and old passwords; worked out on the server without sending a password.
+    func health() async throws -> PassHealthReport {
+        do {
+            switch try await client().passwordHealth() {
+            case let .ok(ok):
+                let report = try ok.body.json.data
+                return PassHealthReport(
+                    checked: report.checked,
+                    healthy: report.healthy,
+                    weak: report.weak,
+                    reused: report.reused,
+                    old: report.old,
+                    entries: report.items.map { entry in
+                        PassHealthEntry(
+                            item: Self.item(entry.value1),
+                            issues: entry.value2.issues.compactMap { PassHealthEntry.Issue(rawValue: $0.rawValue) },
+                            reuseCount: entry.value2.reuseCount
+                        )
+                    }
+                )
+            case let .default(status, response):
+                throw APIError(status: status, code: try? response.body.json.error.code)
+            }
+        } catch {
+            throw APIError.from(error)
+        }
+    }
+
     func clear() {
         workspace = nil
         vaults = Loadable()
         items = Loadable()
+    }
+
+    /// The generated request body. Unset fields stay out of the JSON.
+    private static func generated(_ input: PassItemInput) -> Components.Schemas.ItemInput {
+        let fields = input.fields
+        return Components.Schemas.ItemInput(
+            _type: {
+                switch input.kind {
+                case .login: return .login
+                case .note: return .note
+                case .card: return .card
+                }
+            }(),
+            title: input.title,
+            url: input.url,
+            fields: Components.Schemas.ItemFields(
+                username: fields.username,
+                password: fields.password,
+                totp: fields.totp,
+                notes: fields.notes,
+                apps: fields.apps.isEmpty ? nil : fields.apps,
+                content: fields.content,
+                cardholder: fields.cardholder,
+                number: fields.number,
+                expiry: fields.expiry,
+                cvc: fields.cvc
+            )
+        )
+    }
+
+    private static func item(_ item: Components.Schemas.Item) -> PassItem {
+        PassItem(
+            id: item.id,
+            vaultID: item.vaultId,
+            kind: {
+                switch item._type {
+                case .login: return .login
+                case .note: return .note
+                case .card: return .card
+                }
+            }(),
+            title: item.title,
+            subtitle: item.subtitle,
+            url: item.url,
+            host: item.host,
+            hasTotp: item.hasTotp,
+            updatedAt: item.updatedAt
+        )
     }
 
     private func fetchVaults() async throws -> [PassVault] {

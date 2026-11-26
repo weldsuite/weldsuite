@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.automirrored.outlined.StickyNote2
 import androidx.compose.material.icons.outlined.CreditCard
 import androidx.compose.material.icons.outlined.Key
@@ -65,6 +66,14 @@ fun ItemIcon(type: Item.Type, size: Dp = 40.dp) {
         contentAlignment = Alignment.Center,
     ) {
         Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(size * 0.5f))
+    }
+}
+
+/** "New item", in a top bar. */
+@Composable
+fun AddButton(onClick: () -> Unit, tag: String) {
+    IconButton(onClick = onClick, modifier = Modifier.tagged(tag)) {
+        Icon(Icons.Filled.Add, contentDescription = stringResource(R.string.weldpass_items_add))
     }
 }
 

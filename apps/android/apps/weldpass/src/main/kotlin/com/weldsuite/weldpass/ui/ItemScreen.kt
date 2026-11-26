@@ -15,8 +15,11 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.OpenInNew
 import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material.icons.outlined.VisibilityOff
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -26,6 +29,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -92,22 +96,47 @@ private fun ItemFields.valueOf(secret: Secret): String? = when (secret) {
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ItemScreen(env: AppEnvironment, repository: PassRepository, vaultId: String, itemId: String, onBack: () -> Unit) {
+fun ItemScreen(
+    env: AppEnvironment,
+    repository: PassRepository,
+    vaultId: String,
+    itemId: String,
+    onBack: () -> Unit,
+    onEdit: (vaultId: String, itemId: String) -> Unit,
+) {
+    val context = LocalContext.current
+    val notify = LocalNotify.current
+    val scope = rememberCoroutineScope()
     val items by repository.items.collectAsStateWithLifecycle()
     val vaults by repository.vaults.collectAsStateWithLifecycle()
     val item = items.data?.firstOrNull { it.id == itemId }
     val vault = vaults.data?.firstOrNull { it.id == vaultId }
+    val writable = PassLogic.canEditVault(vault)
+    var confirmDelete by remember { mutableStateOf(false) }
+    var deleting by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text(item?.title.orEmpty(), maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 navigationIcon = { BackButton(onBack) },
+                actions = {
+                    if (writable && item != null) {
+                        IconButton(onClick = { onEdit(vaultId, itemId) }, modifier = Modifier.tagged("edit-item")) {
+                            Icon(Icons.Outlined.Edit, contentDescription = stringResource(R.string.weldpass_common_edit))
+                        }
+                        IconButton(onClick = { confirmDelete = true }, enabled = !deleting, modifier = Modifier.tagged("delete-item")) {
+                            Icon(Icons.Outlined.Delete, contentDescription = stringResource(R.string.weldpass_common_delete))
+                        }
+                    }
+                },
             )
         },
     ) { padding ->
         if (item == null) {
-            if (!items.loading) EmptyState(stringResource(R.string.weldpass_item_not_found), modifier = Modifier.padding(padding))
+            if (!items.loading && !deleting) {
+                EmptyState(stringResource(R.string.weldpass_item_not_found), modifier = Modifier.padding(padding))
+            }
             return@Scaffold
         }
         ItemDetail(
@@ -116,6 +145,37 @@ fun ItemScreen(env: AppEnvironment, repository: PassRepository, vaultId: String,
             item = item,
             vaultName = vault?.let { vaultLabel(it) },
             modifier = Modifier.padding(padding),
+        )
+    }
+
+    if (confirmDelete && item != null) {
+        AlertDialog(
+            onDismissRequest = { confirmDelete = false },
+            title = { Text(stringResource(R.string.weldpass_item_delete_title, item.title)) },
+            text = { Text(stringResource(R.string.weldpass_item_delete_message)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        confirmDelete = false
+                        deleting = true
+                        scope.launch {
+                            try {
+                                repository.delete(vaultId, itemId)
+                                notify(context.getString(R.string.weldpass_item_deleted))
+                                onBack()
+                            } catch (error: ApiException) {
+                                notify(context.getString(passErrorMessage(error)))
+                            } finally {
+                                deleting = false
+                            }
+                        }
+                    },
+                    modifier = Modifier.tagged("confirm-delete"),
+                ) { Text(stringResource(R.string.weldpass_common_delete), color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmDelete = false }) { Text(stringResource(R.string.weldpass_common_cancel)) }
+            },
         )
     }
 }

@@ -34,6 +34,8 @@ struct SettingsView: View {
 
             Section {
                 Text(PassStrings.settingsLock(method: env.lock.biometryName ?? PassStrings.lockBiometrics))
+                NavigationLink(PassStrings.settingsHealth, value: HealthRoute())
+                    .accessibilityIdentifier("password-health")
             } header: {
                 Text(PassStrings.settingsSecurity)
             } footer: {

@@ -38,7 +38,7 @@ import org.weldsuite.ui.tagged
 /** The workspace, the server, the lock and the account. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(env: AppEnvironment, repository: PassRepository, session: SessionState.Ready) {
+fun SettingsScreen(env: AppEnvironment, repository: PassRepository, session: SessionState.Ready, onHealth: () -> Unit) {
     val scope = rememberCoroutineScope()
     var confirmSignOut by remember { mutableStateOf(false) }
     var switching by remember { mutableStateOf(false) }
@@ -65,6 +65,10 @@ fun SettingsScreen(env: AppEnvironment, repository: PassRepository, session: Ses
             ListItem(
                 headlineContent = { Text(stringResource(R.string.weldpass_settings_lock, stringResource(R.string.weldpass_lock_biometrics))) },
                 supportingContent = { Text(stringResource(R.string.weldpass_settings_lock_always_on)) },
+            )
+            ListItem(
+                headlineContent = { Text(stringResource(R.string.weldpass_settings_health)) },
+                modifier = Modifier.clickable(onClick = onHealth).tagged("password-health"),
             )
 
             Section(stringResource(R.string.weldpass_settings_account))

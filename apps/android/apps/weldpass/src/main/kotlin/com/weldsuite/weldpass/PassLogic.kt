@@ -55,6 +55,17 @@ object PassLogic {
     /** An admin looking at a shared vault they are not in: no items, only settings. */
     fun isNonMemberView(vault: Vault?): Boolean = vault != null && vault.role == null
 
+    /**
+     * Where a new item goes by default: the vault being looked at if the
+     * caller may write to it, else their personal vault, else the first vault
+     * they can write to.
+     */
+    fun defaultCreateVaultId(vaults: List<Vault>, selectedVaultId: String?): String? {
+        val writable = vaults.filter(::canEditVault)
+        writable.firstOrNull { it.id == selectedVaultId }?.let { return it.id }
+        return (writable.firstOrNull { it.kind == Vault.Kind.PERSONAL } ?: writable.firstOrNull())?.id
+    }
+
     /** "123456" → "123 456"; other lengths split in the middle. */
     fun formatTotpCode(code: String): String {
         if (code.length < 4) return code

@@ -40,6 +40,15 @@ enum PassLogic {
         return vault.role == nil
     }
 
+    /// Where a new item goes by default: the vault being looked at if the
+    /// caller may write to it, else their personal vault, else the first vault
+    /// they can write to.
+    static func defaultCreateVaultID(_ vaults: [PassVault], selected: String?) -> String? {
+        let writable = vaults.filter { canEdit($0) }
+        if let selected, writable.contains(where: { $0.id == selected }) { return selected }
+        return (writable.first { $0.kind == .personal } ?? writable.first)?.id
+    }
+
     /// "123456" → "123 456"; other lengths split in the middle.
     static func formatTotpCode(_ code: String) -> String {
         guard code.count >= 4 else { return code }

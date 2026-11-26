@@ -45,8 +45,15 @@ import org.weldsuite.ui.tagged
 /** Every item the person can open, across vaults. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ItemsScreen(repository: PassRepository, onOpen: (vaultId: String, itemId: String) -> Unit) {
-    Scaffold(topBar = { TopAppBar(title = { Text(stringResource(R.string.weldpass_items_title)) }) }) { padding ->
+fun ItemsScreen(repository: PassRepository, onOpen: (vaultId: String, itemId: String) -> Unit, onAdd: () -> Unit) {
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text(stringResource(R.string.weldpass_items_title)) },
+                actions = { AddButton(onAdd, "add-item") },
+            )
+        },
+    ) { padding ->
         ItemList(
             repository = repository,
             vaultId = null,

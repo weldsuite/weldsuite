@@ -76,14 +76,22 @@ class ApiException(val status: Int?, val code: String?, message: String?, cause:
 
 /** The body of a successful call, or an [ApiException]. */
 suspend fun <T> apiCall(block: suspend () -> retrofit2.Response<T>): T {
+    val response = send(block)
+    return response.body() ?: throw ApiException(response.code(), null, "Empty response")
+}
+
+/** A call that answers without a body (`204` after a delete), or an [ApiException]. */
+suspend fun apiCallNoContent(block: suspend () -> retrofit2.Response<Unit>) {
+    send(block)
+}
+
+private suspend fun <T> send(block: suspend () -> retrofit2.Response<T>): retrofit2.Response<T> {
     val response = try {
         block()
     } catch (exception: IOException) {
         throw ApiException(status = null, code = null, message = exception.message, cause = exception)
     }
-    if (response.isSuccessful) {
-        return response.body() ?: throw ApiException(response.code(), null, "Empty response")
-    }
+    if (response.isSuccessful) return response
     val error = response.errorBody()?.string()?.let {
         runCatching { WeldJson.decodeFromString(ErrorResponse.serializer(), it).error }.getOrNull()
     }

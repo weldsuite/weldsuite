@@ -123,6 +123,7 @@ fun VaultScreen(
     vaultId: String,
     onBack: () -> Unit,
     onOpen: (vaultId: String, itemId: String) -> Unit,
+    onAdd: (vaultId: String) -> Unit,
 ) {
     val vaults by repository.vaults.collectAsStateWithLifecycle()
     val vault = vaults.data?.firstOrNull { it.id == vaultId }
@@ -131,6 +132,7 @@ fun VaultScreen(
             TopAppBar(
                 title = { Text(vault?.let { vaultLabel(it) }.orEmpty(), maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 navigationIcon = { BackButton(onBack) },
+                actions = { if (PassLogic.canEditVault(vault)) AddButton({ onAdd(vaultId) }, "add-item-in-vault") },
             )
         },
     ) { padding ->

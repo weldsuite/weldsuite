@@ -51,6 +51,73 @@ paths:
                 $ref: '#/components/schemas/ItemList'
         default:
           $ref: '#/components/responses/Error'
+  /api/weldpass/vaults/{vaultId}/items:
+    post:
+      operationId: createItem
+      summary: Add an item to a vault. Needs the editor or manager role.
+      parameters:
+        - $ref: '#/components/parameters/VaultId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ItemInput'
+      responses:
+        '201':
+          description: The new item, without its secrets.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ItemResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/weldpass/vaults/{vaultId}/items/{itemId}:
+    put:
+      operationId: updateItem
+      summary: Replace the whole item. Send every field of its type, not only the changed ones.
+      parameters:
+        - $ref: '#/components/parameters/VaultId'
+        - $ref: '#/components/parameters/ItemId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ItemInput'
+      responses:
+        '200':
+          description: The changed item, without its secrets.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ItemResponse'
+        default:
+          $ref: '#/components/responses/Error'
+    delete:
+      operationId: deleteItem
+      summary: Delete the item for everyone in the vault.
+      parameters:
+        - $ref: '#/components/parameters/VaultId'
+        - $ref: '#/components/parameters/ItemId'
+      responses:
+        '204':
+          description: Deleted.
+        default:
+          $ref: '#/components/responses/Error'
+  /api/weldpass/password-health:
+    get:
+      operationId: passwordHealth
+      summary: Weak, reused and old passwords in the vaults the caller can open. No password is sent.
+      responses:
+        '200':
+          description: The report, worst first.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthReportResponse'
+        default:
+          $ref: '#/components/responses/Error'
   /api/weldpass/vaults/{vaultId}/items/{itemId}/reveal:
     get:
       operationId: revealItem
@@ -237,6 +304,73 @@ components:
           type: string
         cvc:
           type: string
+    ItemResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/Item'
+    ItemInput:
+      type: object
+      description: |
+        A whole item, as created or replaced. Send only the fields of its
+        `type` (see `ItemFields`); `url` is a login's only. The server's
+        `itemInputSchema` is the authority on lengths and formats.
+      required: [type, title, fields]
+      properties:
+        type:
+          type: string
+          enum: [login, note, card]
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+        url:
+          type: string
+          nullable: true
+          maxLength: 2048
+        fields:
+          $ref: '#/components/schemas/ItemFields'
+    HealthEntry:
+      allOf:
+        - $ref: '#/components/schemas/Item'
+        - type: object
+          required: [issues, reuseCount]
+          properties:
+            issues:
+              type: array
+              items:
+                type: string
+                enum: [weak, reused, old]
+            reuseCount:
+              type: integer
+              description: How many of the caller's logins share this password, itself included.
+    HealthReport:
+      type: object
+      required: [checked, healthy, weak, reused, old, items]
+      properties:
+        checked:
+          type: integer
+          description: Logins that have a password at all.
+        healthy:
+          type: integer
+        weak:
+          type: integer
+        reused:
+          type: integer
+        old:
+          type: integer
+        items:
+          type: array
+          description: Only the logins with something to fix, worst first.
+          items:
+            $ref: '#/components/schemas/HealthEntry'
+    HealthReportResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/HealthReport'
     RevealedItem:
       allOf:
         - $ref: '#/components/schemas/Item'

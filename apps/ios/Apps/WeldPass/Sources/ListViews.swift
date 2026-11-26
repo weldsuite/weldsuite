@@ -145,10 +145,11 @@ private struct VaultRow: View {
     }
 }
 
-/// One vault's items.
+/// One vault's items. Adding is offered where the person may write.
 struct VaultView: View {
     let store: PassStore
     let vaultID: String
+    let onAdd: (PassItem.Kind) -> Void
 
     var body: some View {
         let vault = store.vaults.data?.first { $0.id == vaultID }
@@ -167,6 +168,11 @@ struct VaultView: View {
         }
         .navigationTitle(vault.map(vaultLabel) ?? "")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            if PassLogic.canEdit(vault) {
+                ToolbarItem(placement: .primaryAction) { NewItemMenu(onChoose: onAdd) }
+            }
+        }
     }
 
     private func note(_ vault: PassVault?) -> String? {

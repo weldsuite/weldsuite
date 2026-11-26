@@ -5,12 +5,15 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import org.weldsuite.api.weldpass.apis.DefaultApi
+import org.weldsuite.api.weldpass.models.HealthReport
 import org.weldsuite.api.weldpass.models.Item
 import org.weldsuite.api.weldpass.models.ItemFields
+import org.weldsuite.api.weldpass.models.ItemInput
 import org.weldsuite.api.weldpass.models.TotpCode
 import org.weldsuite.api.weldpass.models.Vault
 import org.weldsuite.core.AppEnvironment
 import org.weldsuite.core.api.apiCall
+import org.weldsuite.core.api.apiCallNoContent
 
 /** A list as the screens show it: what was last loaded, and how loading went. */
 data class Loadable<T>(
@@ -64,6 +67,28 @@ class PassRepository(private val env: AppEnvironment) {
 
     suspend fun totp(vaultId: String, itemId: String): TotpCode =
         apiCall { api.generateTotp(vaultId, itemId) }.data
+
+    /** Add an item, then reload the lists. Returns the new item. */
+    suspend fun create(vaultId: String, input: ItemInput): Item {
+        val item = apiCall { api.createItem(vaultId, input) }.data
+        refresh()
+        return item
+    }
+
+    /** Replace an item (every field of its type), then reload the lists. */
+    suspend fun update(vaultId: String, itemId: String, input: ItemInput): Item {
+        val item = apiCall { api.updateItem(vaultId, itemId, input) }.data
+        refresh()
+        return item
+    }
+
+    suspend fun delete(vaultId: String, itemId: String) {
+        apiCallNoContent { api.deleteItem(vaultId, itemId) }
+        refresh()
+    }
+
+    /** Weak, reused and old passwords; worked out on the server without sending a password. */
+    suspend fun health(): HealthReport = apiCall { api.passwordHealth() }.data
 
     fun clear() {
         workspace = null

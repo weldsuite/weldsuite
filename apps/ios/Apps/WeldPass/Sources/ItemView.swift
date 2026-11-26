@@ -45,12 +45,16 @@ struct ItemView: View {
     let env: AppEnvironment
     let store: PassStore
     let route: ItemRoute
+    let onEdit: () -> Void
 
     @Environment(ToastCenter.self) private var toast
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.dismiss) private var dismiss
     @State private var fields: PassFields?
     @State private var shown: Set<Secret> = []
     @State private var revealing = false
+    @State private var confirmDelete = false
+    @State private var deleting = false
 
     var body: some View {
         let item = store.items.data?.first { $0.id == route.itemID }
@@ -58,17 +62,55 @@ struct ItemView: View {
         Group {
             if let item {
                 detail(item, vault: vault)
-            } else if !store.items.loading {
+            } else if !store.items.loading, !deleting {
                 ContentUnavailableView(PassStrings.itemNotFound, systemImage: "questionmark.folder")
             }
         }
         .navigationTitle(item?.title ?? "")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            if item != nil, PassLogic.canEdit(vault) {
+                ToolbarItem(placement: .primaryAction) {
+                    Button(PassStrings.commonEdit, action: onEdit)
+                        .accessibilityIdentifier("edit-item")
+                }
+                ToolbarItem(placement: .secondaryAction) {
+                    Button(PassStrings.commonDelete, role: .destructive) { confirmDelete = true }
+                        .disabled(deleting)
+                        .accessibilityIdentifier("delete-item")
+                }
+            }
+        }
+        .confirmationDialog(
+            PassStrings.itemDeleteTitle(title: item?.title ?? ""),
+            isPresented: $confirmDelete,
+            titleVisibility: .visible
+        ) {
+            Button(PassStrings.commonDelete, role: .destructive) { delete() }
+                .accessibilityIdentifier("confirm-delete")
+            Button(PassStrings.commonCancel, role: .cancel) {}
+        } message: {
+            Text(PassStrings.itemDeleteMessage)
+        }
         .onChange(of: scenePhase) { _, phase in
             // Back from the background: everything hidden again.
             if phase == .background {
                 fields = nil
                 shown = []
+            }
+        }
+    }
+
+    private func delete() {
+        deleting = true
+        Task {
+            do {
+                try await store.delete(vaultID: route.vaultID, itemID: route.itemID)
+                toast.show(PassStrings.itemDeleted)
+                dismiss()
+            } catch {
+                deleting = false
+                toast.show(passErrorMessage(error as? APIError))
             }
         }
     }
