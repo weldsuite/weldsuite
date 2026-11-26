@@ -30,6 +30,7 @@ use weldsuite_db::orm_error;
 
 use super::catalog::{EdmType, EntitySet, Property, is_plain_column};
 use super::filter::{CmpOp, Literal, Node, TextFn};
+use crate::list::escape_like;
 
 /// A value of the request, bound to the statement.
 #[derive(Debug, Clone, PartialEq)]
@@ -153,19 +154,6 @@ impl Statement {
     pub(crate) async fn count(self, db: &PgPool) -> Result<i64, DbErr> {
         self.bound().fetch_one(db).await.map_err(orm_error)
     }
-}
-
-/// `escapeLike(value)`: `%`, `_` and the escape character itself, so a LIKE
-/// pattern matches the text literally.
-pub(crate) fn escape_like(value: &str) -> String {
-    let mut escaped = String::with_capacity(value.len());
-    for ch in value.chars() {
-        if matches!(ch, '\\' | '%' | '_') {
-            escaped.push('\\');
-        }
-        escaped.push(ch);
-    }
-    escaped
 }
 
 /// `param(type, lit)`: a literal as a bound parameter and the cast to the

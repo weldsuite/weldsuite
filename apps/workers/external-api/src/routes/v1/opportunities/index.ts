@@ -1,6 +1,6 @@
 import { Hono, type Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
-import { and, eq, isNull, like, or, type SQL } from 'drizzle-orm';
+import { and, eq, isNull, type SQL } from 'drizzle-orm';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import { schema } from '../../../db';
 import type { HonoEnv } from '../../../types';
@@ -14,6 +14,7 @@ import {
   listOpportunitiesQuery,
 } from '@weldsuite/core-api-client/schemas/opportunities';
 import { asText } from '@weldsuite/text';
+import { searchAny } from '../../../lib/search';
 
 const table = schema.crmOpportunities;
 const app = new Hono<HonoEnv>();
@@ -71,10 +72,7 @@ app.get('/', requireScope('opportunities:read'), zValidator('query', listOpportu
   const db = c.get('tenantDb');
   const q = c.req.valid('query');
   const where: (SQL | undefined)[] = [];
-  if (q.search) {
-    const term = `%${q.search}%`;
-    where.push(or(like(table.name, term), like(table.customerName, term)));
-  }
+  if (q.search) where.push(searchAny(q.search, [table.name, table.customerName]));
   if (q.status) where.push(eq(table.status, q.status));
   if (q.stage) where.push(eq(table.stage, q.stage));
   if (q.pipeline) where.push(eq(table.pipeline, q.pipeline));

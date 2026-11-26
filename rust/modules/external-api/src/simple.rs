@@ -16,7 +16,7 @@ use weldsuite_kit::id::generate_id;
 
 use crate::ExternalApiState;
 use crate::crud::{
-    Answer, Caller, Fail, created, dates, flag, get_live, like, no_content, now, ok, page, pick,
+    Answer, Caller, Fail, created, dates, flag, get_live, no_content, now, ok, page, pick,
     soft_delete, text, to_date, with_id, with_updated,
 };
 use crate::list::Filter;
@@ -31,8 +31,9 @@ pub(crate) const ID_PLACEHOLDER: &str = "\u{0}id\u{0}";
 /// A list filter: the query key, and how it filters.
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum F {
-    /// `like(column, %term%)` when set.
-    Like(&'static str),
+    /// The search text when set, which the group's filter matches with
+    /// [`crate::list::search_any`].
+    Search(&'static str),
     /// `eq(column, value)` when set (not empty).
     Eq(&'static str),
     /// `eq(column, flag)` when present.
@@ -150,8 +151,7 @@ pub(crate) fn filters(spec_filters: &[F], parsed: &Parsed) -> Value {
     let mut out = Map::new();
     for filter in spec_filters {
         let (key, value) = match *filter {
-            F::Like(key) => (key, like(parsed, key)),
-            F::Eq(key) => (key, text(parsed, key)),
+            F::Search(key) | F::Eq(key) => (key, text(parsed, key)),
             F::Flag(key) => (key, flag(parsed, key)),
         };
         out.insert(key.to_owned(), value);

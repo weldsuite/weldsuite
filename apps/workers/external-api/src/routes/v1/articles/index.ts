@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
-import { and, eq, isNull, like, type SQL } from 'drizzle-orm';
+import { and, eq, isNull, type SQL } from 'drizzle-orm';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import { schema } from '../../../db';
 import type { HonoEnv } from '../../../types';
@@ -9,6 +9,7 @@ import { requireScope } from '../../../lib/scopes';
 import { generateId } from '../../../lib/id';
 import { error, list, noContent, success, cursorPagination } from '../../../lib/response';
 import { listWithCursor } from '../../../lib/list-helpers';
+import { searchAny } from '../../../lib/search';
 import {
   createArticleSchema,
   updateArticleSchema,
@@ -42,7 +43,7 @@ app.get('/', requireScope('articles:read'), zValidator('query', listArticlesQuer
   const db = c.get('tenantDb');
   const q = c.req.valid('query');
   const where: (SQL | undefined)[] = [];
-  if (q.search) where.push(like(table.title, `%${q.search}%`));
+  if (q.search) where.push(searchAny(q.search, [table.title]));
   if (q.status) where.push(eq(table.status, q.status));
   if (q.authorId) where.push(eq(table.authorId, q.authorId));
   const result = await listWithCursor({ db, table, where, cursor: q.cursor, limit: q.limit });

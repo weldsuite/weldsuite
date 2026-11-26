@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
-import { and, eq, isNull, like, or, type SQL } from 'drizzle-orm';
+import { and, eq, isNull, type SQL } from 'drizzle-orm';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import { schema } from '../../../db';
 import type { HonoEnv } from '../../../types';
@@ -8,6 +8,7 @@ import { requireScope } from '../../../lib/scopes';
 import { generateId } from '../../../lib/id';
 import { error, list, noContent, success, cursorPagination } from '../../../lib/response';
 import { listWithCursor } from '../../../lib/list-helpers';
+import { searchAny } from '../../../lib/search';
 import {
   createActivitySchema,
   updateActivitySchema,
@@ -24,10 +25,7 @@ app.get('/', requireScope('activities:read'), zValidator('query', listActivities
   const db = c.get('tenantDb');
   const q = c.req.valid('query');
   const where: (SQL | undefined)[] = [];
-  if (q.search) {
-    const term = `%${q.search}%`;
-    where.push(or(like(table.subject, term), like(table.description, term)));
-  }
+  if (q.search) where.push(searchAny(q.search, [table.subject, table.description]));
   if (q.type) where.push(eq(table.type, q.type));
   if (q.status) where.push(eq(table.status, q.status));
   if (q.assignedToId) where.push(eq(table.assignedToId, q.assignedToId));

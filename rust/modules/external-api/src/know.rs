@@ -28,7 +28,7 @@ use weldsuite_schema::tenant::{knowledge_pages, knowledge_spaces};
 
 use crate::ExternalApiState;
 use crate::crud::{Answer, Caller, Fail, created, field, list_query, no_content, now, ok};
-use crate::list::{like_any, list_page_mapped, one_of, when};
+use crate::list::{list_page_mapped, one_of, search_any, when};
 use crate::schemas::{
     CREATE_KNOWLEDGE_PAGE, LIST_KNOWLEDGE_PAGES, MOVE_KNOWLEDGE_PAGE, UPDATE_KNOWLEDGE_PAGE,
 };
@@ -476,7 +476,7 @@ fn pages_list(f: &Value) -> Condition {
         .add(one_of(f, "spaceIds", Column::SpaceId))
         .add_option(when(f, "parentId", |v| Column::ParentId.eq(v)))
         .add_option(when(f, "search", |v| {
-            like_any(&[Column::Title, Column::ContentText], &v)
+            search_any(&[Column::Title, Column::ContentText], &v)
         }))
 }
 
@@ -500,7 +500,7 @@ async fn list_pages(caller: Caller, RawQuery(raw): RawQuery) -> Answer {
     let filters = json!({
         "spaceIds": scope,
         "parentId": crate::crud::text(&q, "parentId"),
-        "search": crate::crud::like(&q, "search"),
+        "search": crate::crud::text(&q, "search"),
     });
     Ok(list_page_mapped(
         &caller.db,

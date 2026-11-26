@@ -1,6 +1,6 @@
 import { Hono, type Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
-import { and, eq, isNull, like, type SQL } from 'drizzle-orm';
+import { and, eq, isNull, type SQL } from 'drizzle-orm';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import { schema } from '../../../db';
 import type { HonoEnv } from '../../../types';
@@ -22,6 +22,7 @@ import {
   type DriveAccessIndex,
 } from '@weldsuite/core-domain/drive-access';
 import { getStoredObject, isWorkspaceObjectKey, locateStoredObject } from '@weldsuite/worker-kit/storage';
+import { searchAny } from '../../../lib/search';
 
 /**
  * Metadata CRUD, plus `GET /:id/content` to download the stored file. Private
@@ -88,7 +89,7 @@ app.get('/', requireScope('files:read'), zValidator('query', listFilesQuery), as
   const q = c.req.valid('query');
   const access = await loadDriveAccessForUser(db, c.get('apiSession').userId);
   const where: (SQL | undefined)[] = [visibleFilesCondition(access)];
-  if (q.search) where.push(like(table.fileName, `%${q.search}%`));
+  if (q.search) where.push(searchAny(q.search, [table.fileName]));
   if (q.type) where.push(eq(table.fileType, q.type));
   if (q.folderId) where.push(eq(table.folderId, q.folderId));
   const result = await listWithCursor({ db, table, where, cursor: undefined, limit: q.pageSize });

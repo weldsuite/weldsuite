@@ -1,12 +1,13 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
-import { and, count, eq, inArray, isNull, like, type SQL } from 'drizzle-orm';
+import { and, count, eq, inArray, isNull, type SQL } from 'drizzle-orm';
 import { schema } from '../../../db';
 import type { HonoEnv } from '../../../types';
 import { requireScope } from '../../../lib/scopes';
 import { error, list, success, cursorPagination } from '../../../lib/response';
 import { listWithCursor } from '../../../lib/list-helpers';
+import { searchAny } from '../../../lib/search';
 import {
   loadDriveAccessForUser,
   visibleFilesCondition,
@@ -50,7 +51,7 @@ app.get('/all', requireScope('drive:read'), zValidator('query', listAllQuery), a
   const table = schema.files;
   const access = await loadDriveAccessForUser(db, c.get('apiSession').userId);
   const where: (SQL | undefined)[] = [isNull(table.deletedAt), visibleFilesCondition(access)];
-  if (q.search) where.push(like(table.fileName, `%${q.search}%`));
+  if (q.search) where.push(searchAny(q.search, [table.fileName]));
   if (q.type) where.push(eq(table.fileType, q.type));
   if (q.folderId) where.push(eq(table.folderId, q.folderId));
   try {

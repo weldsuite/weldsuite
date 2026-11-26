@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
-import { and, eq, isNull, like, ne, or, sql, type SQL } from 'drizzle-orm';
+import { and, eq, isNull, ne, sql, type SQL } from 'drizzle-orm';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import { schema } from '../../../db';
 import type { HonoEnv } from '../../../types';
@@ -8,6 +8,7 @@ import { requireScope } from '../../../lib/scopes';
 import { generateId } from '../../../lib/id';
 import { error, list, noContent, success, cursorPagination } from '../../../lib/response';
 import { listWithCursor } from '../../../lib/list-helpers';
+import { searchAny } from '../../../lib/search';
 import {
   createDomainSchema,
   updateDomainSchema,
@@ -70,10 +71,7 @@ app.get('/', requireScope('domains:read'), zValidator('query', listDomainsQuery)
   const db = c.get('tenantDb');
   const q = c.req.valid('query');
   const where: (SQL | undefined)[] = [];
-  if (q.search) {
-    const term = `%${q.search}%`;
-    where.push(or(like(domainTable.fullDomain, term), like(domainTable.name, term)));
-  }
+  if (q.search) where.push(searchAny(q.search, [domainTable.fullDomain, domainTable.name]));
   if (q.status && q.status !== 'all') where.push(eq(domainTable.status, q.status as Exclude<typeof q.status, 'all'>));
   where.push(
     sql`${domainTable.registrationStatus} IS DISTINCT FROM 'pending_payment'`,

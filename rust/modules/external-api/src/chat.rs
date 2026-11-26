@@ -17,7 +17,7 @@ use weldsuite_schema::tenant::{
 use crate::ExternalApiState;
 use crate::crud::{Caller, Fail};
 use crate::desk::slugify;
-use crate::list::when;
+use crate::list::{search_any, when};
 use crate::schemas::{
     LIST_CHANNEL_MEMBERS, LIST_CHANNELS, LIST_CHAT_BOOKMARKS, LIST_CHAT_DRAFTS, LIST_CHAT_MESSAGES,
     LIST_CHAT_SECTIONS,
@@ -100,10 +100,12 @@ static CHANNELS: Simple = Simple {
     filter: |f| {
         Condition::all()
             .add(chat_channels::Column::DeletedAt.is_null())
-            .add_option(when(f, "search", |v| chat_channels::Column::Name.like(v)))
+            .add_option(when(f, "search", |v| {
+                search_any(&[chat_channels::Column::Name], &v)
+            }))
             .add_option(when(f, "type", |v| chat_channels::Column::Type.eq(v)))
     },
-    filters: &[F::Like("search"), F::Eq("type")],
+    filters: &[F::Search("search"), F::Eq("type")],
     dates: &[],
     events: Some([
         CHAT_CHANNEL_CREATED,
@@ -180,7 +182,7 @@ static MESSAGES: Simple = Simple {
         Condition::all()
             .add(chat_messages::Column::DeletedAt.is_null())
             .add_option(when(f, "search", |v| {
-                chat_messages::Column::Content.like(v)
+                search_any(&[chat_messages::Column::Content], &v)
             }))
             .add_option(when(f, "channelId", |v| {
                 chat_messages::Column::ChannelId.eq(v)
@@ -189,7 +191,7 @@ static MESSAGES: Simple = Simple {
                 chat_messages::Column::ParentId.eq(v)
             }))
     },
-    filters: &[F::Like("search"), F::Eq("channelId"), F::Eq("parentId")],
+    filters: &[F::Search("search"), F::Eq("channelId"), F::Eq("parentId")],
     dates: &[],
     events: Some([
         CHAT_MESSAGE_CREATED,
@@ -309,9 +311,11 @@ static SECTIONS: Simple = Simple {
     create: &CREATE_CHAT_SECTION,
     update: &UPDATE_CHAT_SECTION,
     filter: |f| {
-        Condition::all().add_option(when(f, "search", |v| chat_sections::Column::Name.like(v)))
+        Condition::all().add_option(when(f, "search", |v| {
+            search_any(&[chat_sections::Column::Name], &v)
+        }))
     },
-    filters: &[F::Like("search")],
+    filters: &[F::Search("search")],
     dates: &[],
     events: None,
     data: &[],

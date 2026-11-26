@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
-import { and, asc, eq, inArray, isNull, like, or, type SQL } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, type SQL } from 'drizzle-orm';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import { schema } from '../../../db';
 import type { HonoEnv } from '../../../types';
@@ -10,6 +10,7 @@ import { generateId } from '../../../lib/id';
 import { error, list, noContent, success, cursorPagination } from '../../../lib/response';
 import { listWithCursor } from '../../../lib/list-helpers';
 import { SpaceNotFoundError, readableSpaceIds, requireSpace } from '@weldsuite/know-domain/access';
+import { searchAny } from '../../../lib/search';
 
 const pages = schema.knowledgePages;
 const app = new Hono<HonoEnv>();
@@ -225,7 +226,7 @@ app.get('/', requireScope('knowledge:read'), zValidator('query', listPagesQuery)
   const where: (SQL | undefined)[] = [inArray(pages.spaceId, scope)];
   if (q.parentId) where.push(eq(pages.parentId, q.parentId));
   if (q.search) {
-    where.push(or(like(pages.title, `%${q.search}%`), like(pages.contentText, `%${q.search}%`)));
+    where.push(searchAny(q.search, [pages.title, pages.contentText]));
   }
   const result = await listWithCursor({ db, table: pages, where, cursor: q.cursor, limit: q.limit });
   return list(c, result.data as Record<string, unknown>[], cursorPagination(result.totalCount, result.hasMore, result.cursor));

@@ -48,7 +48,7 @@ use crate::crud::{
     Answer, Caller, Fail, created, dates, field, js_date, list_query, live_or_404, no_content, now,
     ok, soft_delete, to_date,
 };
-use crate::list::{cast, like_any, list_rows, one_of, param, when, when_flag};
+use crate::list::{cast, list_rows, one_of, param, search_any, when, when_flag};
 use crate::schemas::{
     CREATE_TIME_ENTRY, LIST_GOALS, LIST_MILESTONES, LIST_PROJECT_DOCUMENTS, LIST_PROJECT_FILES,
     LIST_PROJECT_LABELS, LIST_PROJECT_MEMBERS, LIST_PROJECT_MESSAGES, LIST_PROJECTS, LIST_SPRINTS,
@@ -137,7 +137,9 @@ static PROJECT_GROUP: Simple = Simple {
     filter: |f| {
         Condition::all()
             .add(projects::Column::DeletedAt.is_null())
-            .add_option(when(f, "search", |v| projects::Column::Name.like(v)))
+            .add_option(when(f, "search", |v| {
+                search_any(&[projects::Column::Name], &v)
+            }))
             .add_option(when(f, "ownerId", |v| {
                 projects::Column::ProjectManagerId.eq(v)
             }))
@@ -147,7 +149,7 @@ static PROJECT_GROUP: Simple = Simple {
             }))
     },
     filters: &[
-        F::Like("search"),
+        F::Search("search"),
         F::Eq("ownerId"),
         F::Eq("status"),
         F::Flag("isActive"),
@@ -173,13 +175,15 @@ static MILESTONE_GROUP: Simple = Simple {
     filter: |f| {
         Condition::all()
             .add(milestones::Column::DeletedAt.is_null())
-            .add_option(when(f, "search", |v| milestones::Column::Name.like(v)))
+            .add_option(when(f, "search", |v| {
+                search_any(&[milestones::Column::Name], &v)
+            }))
             .add_option(when(f, "projectId", |v| {
                 milestones::Column::ProjectId.eq(v)
             }))
             .add_option(when(f, "status", |v| milestones::Column::Status.eq(v)))
     },
-    filters: &[F::Like("search"), F::Eq("projectId"), F::Eq("status")],
+    filters: &[F::Search("search"), F::Eq("projectId"), F::Eq("status")],
     dates: &["dueDate", "completedAt"],
     events: Some([
         PROJECT_MILESTONE_CREATED,
@@ -235,11 +239,13 @@ static SPRINTS_GROUP: Simple = Simple {
     filter: |f| {
         Condition::all()
             .add(sprints::Column::DeletedAt.is_null())
-            .add_option(when(f, "search", |v| sprints::Column::Name.like(v)))
+            .add_option(when(f, "search", |v| {
+                search_any(&[sprints::Column::Name], &v)
+            }))
             .add_option(when(f, "projectId", |v| sprints::Column::ProjectId.eq(v)))
             .add_option(when(f, "status", |v| sprints::Column::Status.eq(v)))
     },
-    filters: &[F::Like("search"), F::Eq("projectId"), F::Eq("status")],
+    filters: &[F::Search("search"), F::Eq("projectId"), F::Eq("status")],
     dates: &["startDate", "endDate", "startedAt", "completedAt"],
     events: Some([
         PROJECT_SPRINT_CREATED,
@@ -291,11 +297,11 @@ static TASK_COMMENTS_GROUP: Simple = Simple {
         Condition::all()
             .add(task_comments::Column::DeletedAt.is_null())
             .add_option(when(f, "search", |v| {
-                task_comments::Column::Content.like(v)
+                search_any(&[task_comments::Column::Content], &v)
             }))
             .add_option(when(f, "taskId", |v| task_comments::Column::TaskId.eq(v)))
     },
-    filters: &[F::Like("search"), F::Eq("taskId")],
+    filters: &[F::Search("search"), F::Eq("taskId")],
     dates: &[],
     events: Some([
         TASK_COMMENT_CREATED,
@@ -334,10 +340,12 @@ static TASK_TAGS_GROUP: Simple = Simple {
     filter: |f| {
         Condition::all()
             .add(task_tags::Column::DeletedAt.is_null())
-            .add_option(when(f, "search", |v| task_tags::Column::Name.like(v)))
+            .add_option(when(f, "search", |v| {
+                search_any(&[task_tags::Column::Name], &v)
+            }))
             .add_option(when(f, "userId", |v| task_tags::Column::UserId.eq(v)))
     },
-    filters: &[F::Like("search"), F::Eq("userId")],
+    filters: &[F::Search("search"), F::Eq("userId")],
     dates: &[],
     events: Some([TASK_TAG_CREATED, TASK_TAG_UPDATED, TASK_TAG_DELETED]),
     data: &["name"],
@@ -360,7 +368,7 @@ static DOCUMENTS: Simple = Simple {
         Condition::all()
             .add(project_documents::Column::DeletedAt.is_null())
             .add_option(when(f, "search", |v| {
-                project_documents::Column::Title.like(v)
+                search_any(&[project_documents::Column::Title], &v)
             }))
             .add_option(when(f, "projectId", |v| {
                 project_documents::Column::ProjectId.eq(v)
@@ -369,7 +377,7 @@ static DOCUMENTS: Simple = Simple {
                 project_documents::Column::ParentId.eq(v)
             }))
     },
-    filters: &[F::Like("search"), F::Eq("projectId"), F::Eq("parentId")],
+    filters: &[F::Search("search"), F::Eq("projectId"), F::Eq("parentId")],
     dates: &[],
     events: Some([
         PROJECT_DOCUMENT_CREATED,
@@ -396,7 +404,7 @@ static FILES: Simple = Simple {
         Condition::all()
             .add(project_files::Column::DeletedAt.is_null())
             .add_option(when(f, "search", |v| {
-                project_files::Column::FileName.like(v)
+                search_any(&[project_files::Column::FileName], &v)
             }))
             .add_option(when(f, "projectId", |v| {
                 project_files::Column::ProjectId.eq(v)
@@ -405,7 +413,7 @@ static FILES: Simple = Simple {
                 project_files::Column::FileType.eq(v)
             }))
     },
-    filters: &[F::Like("search"), F::Eq("projectId"), F::Eq("fileType")],
+    filters: &[F::Search("search"), F::Eq("projectId"), F::Eq("fileType")],
     dates: &[],
     events: Some([
         PROJECT_FILE_CREATED,
@@ -440,12 +448,14 @@ static LABELS: Simple = Simple {
     filter: |f| {
         Condition::all()
             .add(project_labels::Column::DeletedAt.is_null())
-            .add_option(when(f, "search", |v| project_labels::Column::Name.like(v)))
+            .add_option(when(f, "search", |v| {
+                search_any(&[project_labels::Column::Name], &v)
+            }))
             .add_option(when(f, "projectId", |v| {
                 project_labels::Column::ProjectId.eq(v)
             }))
     },
-    filters: &[F::Like("search"), F::Eq("projectId")],
+    filters: &[F::Search("search"), F::Eq("projectId")],
     dates: &[],
     events: Some([
         PROJECT_LABEL_CREATED,
@@ -517,13 +527,13 @@ static MESSAGES: Simple = Simple {
         Condition::all()
             .add(project_messages::Column::DeletedAt.is_null())
             .add_option(when(f, "search", |v| {
-                project_messages::Column::Message.like(v)
+                search_any(&[project_messages::Column::Message], &v)
             }))
             .add_option(when(f, "projectId", |v| {
                 project_messages::Column::ProjectId.eq(v)
             }))
     },
-    filters: &[F::Like("search"), F::Eq("projectId")],
+    filters: &[F::Search("search"), F::Eq("projectId")],
     dates: &[],
     events: Some([
         PROJECT_MESSAGE_CREATED,
@@ -550,13 +560,13 @@ static WHITEBOARDS: Simple = Simple {
         Condition::all()
             .add(project_whiteboards::Column::DeletedAt.is_null())
             .add_option(when(f, "search", |v| {
-                project_whiteboards::Column::Name.like(v)
+                search_any(&[project_whiteboards::Column::Name], &v)
             }))
             .add_option(when(f, "projectId", |v| {
                 project_whiteboards::Column::ProjectId.eq(v)
             }))
     },
-    filters: &[F::Like("search"), F::Eq("projectId")],
+    filters: &[F::Search("search"), F::Eq("projectId")],
     dates: &[],
     events: Some([
         PROJECT_WHITEBOARD_CREATED,
@@ -606,11 +616,11 @@ fn tasks_list(f: &Value) -> Condition {
     Condition::all()
         .add(Column::DeletedAt.is_null())
         .add_option(when(f, "search", |v| {
-            like_any(&[Column::Title, Column::Description], &v).add_option(param(f, "number").map(
-                |number| {
+            Condition::any()
+                .add(search_any(&[Column::Title, Column::Description], &v))
+                .add_option(param(f, "number").map(|number| {
                     sea_orm::ExprTrait::eq(Column::Number.into_expr(), cast(number, "integer"))
-                },
-            ))
+                }))
         }))
         .add_option(when(f, "projectId", |v| Column::ProjectId.eq(v)))
         .add_option(when(f, "status", |_| one_of(f, "statuses", Column::Status)))
@@ -667,7 +677,7 @@ async fn list_tasks(caller: Caller, RawQuery(raw): RawQuery) -> Answer {
         .text("status")
         .map_or_else(|| json!([]), |status| json!(task_status_aliases(status)));
     let filters = json!({
-        "search": search.map_or(Value::Null, |term| json!(format!("%{term}%"))),
+        "search": search.map_or(Value::Null, |term| json!(term)),
         "number": search.and_then(number_search).map_or(Value::Null, Value::String),
         "projectId": crate::crud::text(&q, "projectId"),
         "status": crate::crud::text(&q, "status"),

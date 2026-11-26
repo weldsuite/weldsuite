@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
-import { and, eq, isNull, like, type SQL } from 'drizzle-orm';
+import { and, eq, isNull, type SQL } from 'drizzle-orm';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import { getProjectStats, withProjectStats } from '@weldsuite/flow-domain/project-stats';
 import { schema } from '../../../db';
@@ -10,6 +10,7 @@ import { requireScope } from '../../../lib/scopes';
 import { generateId } from '../../../lib/id';
 import { error, list, noContent, success, cursorPagination } from '../../../lib/response';
 import { listWithCursor } from '../../../lib/list-helpers';
+import { searchAny } from '../../../lib/search';
 import {
   createProjectSchema,
   updateProjectSchema,
@@ -40,7 +41,7 @@ app.get('/', requireScope('projects:read'), zValidator('query', listProjectsQuer
   const db = c.get('tenantDb');
   const q = c.req.valid('query');
   const where: (SQL | undefined)[] = [];
-  if (q.search) where.push(like(table.name, `%${q.search}%`));
+  if (q.search) where.push(searchAny(q.search, [table.name]));
   if (q.ownerId) where.push(eq(table.projectManagerId, q.ownerId));
   if (q.status) where.push(eq(table.status, q.status));
   if (q.isActive !== undefined) where.push(eq(table.isActive, q.isActive));

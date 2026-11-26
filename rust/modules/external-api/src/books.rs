@@ -26,10 +26,9 @@ use weldsuite_schema::tenant::{
 
 use crate::ExternalApiState;
 use crate::crud::{
-    Answer, Caller, created, get_live, like, live_or_404, no_content, now, ok, page, soft_delete,
-    text,
+    Answer, Caller, created, get_live, live_or_404, no_content, now, ok, page, soft_delete, text,
 };
-use crate::list::{Filter, like_any, when};
+use crate::list::{Filter, search_any, when};
 use crate::schemas::{LIST_ACCOUNTING_CONTACTS, LIST_READ_ONLY};
 use crate::schemas_gen::{CREATE_ACCOUNTING_CONTACT, UPDATE_ACCOUNTING_CONTACT};
 use crate::session::{ApiSession, internal_with, not_found, unauthorized};
@@ -312,7 +311,7 @@ fn contacts_list(f: &Value) -> Condition {
     Condition::all()
         .add(parties::Column::DeletedAt.is_null())
         .add_option(when(f, "search", |v| {
-            like_any(
+            search_any(
                 &[parties::Column::DisplayName, parties::Column::PartyCode],
                 &v,
             )
@@ -346,7 +345,7 @@ fn contact_response(row: Value) -> Value {
 
 async fn list_contacts(caller: Caller, RawQuery(raw): RawQuery) -> Answer {
     let q = zod::query(&LIST_ACCOUNTING_CONTACTS, raw.as_deref())?;
-    let filters = json!({ "search": like(&q, "search"), "role": text(&q, "role") });
+    let filters = json!({ "search": text(&q, "search"), "role": text(&q, "role") });
     let mut page = crate::list::list_rows(
         &caller.db,
         &PARTIES.entity,

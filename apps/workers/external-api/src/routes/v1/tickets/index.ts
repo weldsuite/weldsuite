@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
-import { and, eq, isNull, like, or, type SQL } from 'drizzle-orm';
+import { and, eq, isNull, type SQL } from 'drizzle-orm';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import { schema } from '../../../db';
 import type { HonoEnv } from '../../../types';
@@ -23,6 +23,7 @@ import {
 import { createTicketMessageSchema } from '@weldsuite/core-api-client/schemas/ticket-messages';
 import { openDeskApiConversation, DeskAttributeRejectedError } from '@weldsuite/desk-domain/inbox';
 import { deskInboxActor, deskInboxDeps } from '../conversations';
+import { searchAny } from '../../../lib/search';
 
 // Nested message create takes ticketId from the URL, not the body.
 const createMessageBody = createTicketMessageSchema.omit({ ticketId: true });
@@ -57,15 +58,8 @@ app.get('/', requireScope('tickets:read'), zValidator('query', listTicketsQuery)
   const q = c.req.valid('query');
   const where: (SQL | undefined)[] = [];
   if (q.search) {
-    const term = `%${q.search}%`;
-    where.push(
-      or(
-        like(ticketTable.subject, term),
-        like(ticketTable.customerEmail, term),
-        like(ticketTable.customerName, term),
-        like(ticketTable.ticketNumber, term),
-      ),
-    );
+    const columns = [ticketTable.subject, ticketTable.customerEmail, ticketTable.customerName, ticketTable.ticketNumber];
+    where.push(searchAny(q.search, columns));
   }
   if (q.status) where.push(eq(ticketTable.status, q.status));
   if (q.priority) where.push(eq(ticketTable.priority, q.priority));

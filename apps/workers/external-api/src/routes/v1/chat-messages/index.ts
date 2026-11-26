@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
-import { and, eq, isNull, like, type SQL } from 'drizzle-orm';
+import { and, eq, isNull, type SQL } from 'drizzle-orm';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import { schema } from '../../../db';
 import type { HonoEnv } from '../../../types';
@@ -9,6 +9,7 @@ import { requireScope } from '../../../lib/scopes';
 import { generateId } from '../../../lib/id';
 import { error, list, noContent, success, cursorPagination } from '../../../lib/response';
 import { listWithCursor } from '../../../lib/list-helpers';
+import { searchAny } from '../../../lib/search';
 import {
   createChatMessageSchema,
   updateChatMessageSchema,
@@ -29,7 +30,7 @@ app.get('/', requireScope('chat_messages:read'), zValidator('query', listChatMes
   const db = c.get('tenantDb');
   const q = c.req.valid('query');
   const where: (SQL | undefined)[] = [];
-  if (q.search) where.push(like(table.content, `%${q.search}%`));
+  if (q.search) where.push(searchAny(q.search, [table.content]));
   if (q.channelId) where.push(eq(table.channelId, q.channelId));
   if (q.parentId) where.push(eq(table.parentId, q.parentId));
   const result = await listWithCursor({ db, table, where, cursor: q.cursor, limit: q.limit });

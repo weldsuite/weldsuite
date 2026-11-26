@@ -187,6 +187,42 @@ describe('external-api · knowledge pages', () => {
     expect((await key.get(`/v1/knowledge-pages/${untitled.id}`)).status).toBe(404);
   });
 
+  it('finds pages by the words of a search, in any case and order', async () => {
+    const key = as(workspaceKey);
+    const space = await data<{ id: string }>(await key.post('/v1/knowledge-spaces', { name: 'Know ext search' }));
+    const reset = await data<{ id: string }>(
+      await key.post('/v1/knowledge-pages', {
+        spaceId: space.id,
+        title: 'Resetting your password',
+        content: 'Choose Forgot password on the sign-in page.',
+      }),
+    );
+    const invoices = await data<{ id: string }>(
+      await key.post('/v1/knowledge-pages', {
+        spaceId: space.id,
+        title: 'Invoices 100% paid_in_full',
+        content: 'Billing.',
+      }),
+    );
+    const found = async (search: string) =>
+      (
+        await data<{ id: string }[]>(
+          await key.get(`/v1/knowledge-pages?spaceId=${space.id}&search=${encodeURIComponent(search)}`),
+        )
+      ).map((p) => p.id);
+
+    // Every word has to appear, in any case, in the title or the text.
+    expect(await found('resetting a password')).toEqual([reset.id]);
+    expect(await found('PASSWORD reset')).toEqual([reset.id]);
+    expect(await found('forgot  Sign-In')).toEqual([reset.id]);
+    expect(await found('password billing')).toEqual([]);
+    // `%` and `_` match themselves, not any text.
+    expect(await found('100%')).toEqual([invoices.id]);
+    expect(await found('%')).toEqual([invoices.id]);
+    expect(await found('paid_in')).toEqual([invoices.id]);
+    expect(await found('p_ssword')).toEqual([]);
+  });
+
   it('keeps a viewer to reading', async () => {
     const owner = as(personalKey('user_know_ext'));
     const space = await data<{ id: string }>(await owner.post('/v1/knowledge-spaces', { name: 'Know ext viewers', visibility: 'open' }));

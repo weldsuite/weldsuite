@@ -37,10 +37,10 @@ use weldsuite_schema::tenant::{files, folders};
 
 use crate::ExternalApiState;
 use crate::crud::{
-    Answer, Caller, Fail, created, dates, field, like, no_content, now, ok, soft_delete, text,
+    Answer, Caller, Fail, created, dates, field, no_content, now, ok, soft_delete, text,
     with_updated,
 };
-use crate::list::{ListQuery, clamp_limit, list_page_mapped, when};
+use crate::list::{ListQuery, clamp_limit, list_page_mapped, search_any, when};
 use crate::schemas::LIST_DRIVE_ALL;
 use crate::schemas_gen::{
     CREATE_FILE, CREATE_FOLDER, LIST_FILES, LIST_FOLDERS, UPDATE_FILE, UPDATE_FOLDER,
@@ -206,7 +206,7 @@ fn files_list(visible: Condition, f: &Value) -> Condition {
     Condition::all()
         .add(Column::DeletedAt.is_null())
         .add(visible)
-        .add_option(when(f, "search", |v| Column::FileName.like(v)))
+        .add_option(when(f, "search", |v| search_any(&[Column::FileName], &v)))
         .add_option(when(f, "type", |v| Column::FileType.eq(v)))
         .add_option(when(f, "folderId", |v| Column::FolderId.eq(v)))
 }
@@ -215,7 +215,7 @@ async fn list_files(caller: Caller, RawQuery(raw): RawQuery) -> Answer {
     let q = zod::query(&LIST_FILES, raw.as_deref())?;
     let index = access(&caller).await?;
     let filters = json!({
-        "search": like(&q, "search"),
+        "search": text(&q, "search"),
         "type": text(&q, "type"),
         "folderId": text(&q, "folderId"),
     });
@@ -625,7 +625,7 @@ async fn drive_all(caller: Caller, RawQuery(raw): RawQuery) -> Answer {
     let result = async {
         let index = access(&caller).await?;
         let filters = json!({
-            "search": like(&q, "search"),
+            "search": text(&q, "search"),
             "type": text(&q, "type"),
             "folderId": text(&q, "folderId"),
         });

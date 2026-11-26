@@ -21,10 +21,10 @@ use weldsuite_schema::tenant::{
 
 use crate::ExternalApiState;
 use crate::crud::{
-    Answer, Caller, created, dates, field, flag, get_live, like, no_content, now, ok, page,
-    soft_delete, text, to_date, with_updated,
+    Answer, Caller, created, dates, field, flag, get_live, no_content, now, ok, page, soft_delete,
+    text, to_date, with_updated,
 };
-use crate::list::{always, like_any, when, when_flag};
+use crate::list::{always, search_any, when, when_flag};
 use crate::schemas::{
     CREATE_WEBHOOK, LIST_EXECUTIONS, LIST_SCHEDULES, LIST_WEBHOOKS, LIST_WORKFLOWS, UPDATE_WEBHOOK,
 };
@@ -230,7 +230,7 @@ fn workflows_list(f: &Value) -> Condition {
     Condition::all()
         .add(Column::DeletedAt.is_null())
         .add_option(when(f, "search", |v| {
-            like_any(&[Column::Name, Column::Description], &v)
+            search_any(&[Column::Name, Column::Description], &v)
         }))
         .add_option(when(f, "status", |v| Column::Status.eq(v)))
         .add_option(when(f, "folderId", |v| Column::FolderId.eq(v)))
@@ -239,7 +239,7 @@ fn workflows_list(f: &Value) -> Condition {
 async fn list_workflows(caller: Caller, RawQuery(raw): RawQuery) -> Answer {
     let q = zod::query(&LIST_WORKFLOWS, raw.as_deref())?;
     let filters = json!({
-        "search": like(&q, "search"),
+        "search": text(&q, "search"),
         "status": text(&q, "status"),
         "folderId": text(&q, "folderId"),
     });
