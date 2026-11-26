@@ -191,12 +191,10 @@ async function save(file: string, html: string, size: { width: number; height: n
   await page.close();
 }
 
-/** The extension's frame (`menu.html`, `prompt.html`) in `page`, once it has painted. */
+/** The extension's frame (`menu.html`, `prompt.html`) in `page`, once it has loaded. */
 async function extensionFrame(page: Page, file: string): Promise<Frame> {
   const find = () => page.frames().find((frame) => new URL(frame.url() || 'about:blank').pathname === `/${file}`);
   await expect.poll(() => Boolean(find())).toBe(true);
-  // Let the frame paint and finish its entrance.
-  await page.waitForTimeout(800);
   return find()!;
 }
 
@@ -204,7 +202,8 @@ test('1: the inline menu on a sign-in page', async () => {
   const page = await sitePage();
   await page.getByLabel('Email').click();
   const menu = await extensionFrame(page, 'menu.html');
-  await expect(menu.getByText('admin@northwind.example')).toBeVisible();
+  // Shot once the click guard has armed the menu: until then its logins are dimmed.
+  await expect(menu.getByRole('button', { name: /admin@northwind.example/ })).not.toHaveAttribute('aria-disabled', 'true');
   const shot = await page.screenshot();
   await page.close();
   await save(
@@ -234,6 +233,7 @@ test('3: the save bar after signing in', async () => {
   await page.waitForURL('**/welcome');
   const bar = await extensionFrame(page, 'prompt.html');
   await expect(bar.getByText('Save login for app.northwind.example?')).toBeVisible();
+  await expect(bar.getByRole('button', { name: 'Save login' })).not.toHaveAttribute('aria-disabled', 'true');
   const shot = await page.screenshot();
   await page.close();
   await save(
