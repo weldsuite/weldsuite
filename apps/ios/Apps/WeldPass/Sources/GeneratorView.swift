@@ -1,4 +1,5 @@
 import SwiftUI
+import WeldCore
 import WeldUI
 
 /// The password generator, on the system's secure random generator. Nothing
