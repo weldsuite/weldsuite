@@ -9,10 +9,10 @@
  *   pnpm --filter weldpass-extension screenshots   # → store/screenshots/
  */
 
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { chromium, expect, test, type BrowserContext, type Page } from '@playwright/test';
+import { chromium, expect, test, type BrowserContext, type Frame, type Page } from '@playwright/test';
 import { LOGO_PATH, LOGO_STROKE_WIDTH, LOGO_VIEW_BOX } from '../src/lib/logo';
 import { EXTENSION_ID, LOCAL_ITEM, freshState, startFakeServers, type FakeItem } from './fake-server';
 import { EXTENSION_DIR } from './global-setup';
@@ -191,18 +191,20 @@ async function save(file: string, html: string, size: { width: number; height: n
   await page.close();
 }
 
-const extensionFrameLoaded = async (page: Page, file: string) => {
-  await expect
-    .poll(() => page.frames().some((frame) => new URL(frame.url() || 'about:blank').pathname === `/${file}`))
-    .toBe(true);
+/** The extension's frame (`menu.html`, `prompt.html`) in `page`, once it has painted. */
+async function extensionFrame(page: Page, file: string): Promise<Frame> {
+  const find = () => page.frames().find((frame) => new URL(frame.url() || 'about:blank').pathname === `/${file}`);
+  await expect.poll(() => Boolean(find())).toBe(true);
   // Let the frame paint and finish its entrance.
   await page.waitForTimeout(800);
-};
+  return find()!;
+}
 
 test('1: the inline menu on a sign-in page', async () => {
   const page = await sitePage();
   await page.getByLabel('Email').click();
-  await extensionFrameLoaded(page, 'menu.html');
+  const menu = await extensionFrame(page, 'menu.html');
+  await expect(menu.getByText('admin@northwind.example')).toBeVisible();
   const shot = await page.screenshot();
   await page.close();
   await save(
@@ -230,7 +232,8 @@ test('3: the save bar after signing in', async () => {
   await page.getByLabel('Password').fill('a brand new secret');
   await page.getByRole('button', { name: 'Sign in' }).click();
   await page.waitForURL('**/welcome');
-  await extensionFrameLoaded(page, 'prompt.html');
+  const bar = await extensionFrame(page, 'prompt.html');
+  await expect(bar.getByText('Save login for app.northwind.example?')).toBeVisible();
   const shot = await page.screenshot();
   await page.close();
   await save(
@@ -243,7 +246,7 @@ test('3: the save bar after signing in', async () => {
 test('4: the password generator', async () => {
   const popup = await openPopup();
   await popup.getByRole('tab', { name: 'Generator' }).or(popup.getByRole('button', { name: 'Generator' })).first().click();
-  await popup.waitForTimeout(300);
+  await expect(popup.getByText('Generated password')).toBeVisible();
   const shot = await popup.screenshot();
   await popup.close();
   await save(
@@ -255,4 +258,5 @@ test('4: the password generator', async () => {
 
 test('the small promo tile', async () => {
   await save('promo-small.png', PROMO_TILE, { width: 440, height: 280 });
+  expect(statSync(path.join(OUT, 'promo-small.png')).size).toBeGreaterThan(0);
 });
