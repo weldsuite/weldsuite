@@ -408,49 +408,58 @@ export class OidcSession {
    */
   async stepUp(level: StepUpLevel): Promise<void> {
     const previous = this.user;
-    const request: AuthorizationRequest = {
-      state: {
-        returnTo: currentPath(),
-        // `claim` mode: the token stays on its workspace (Zitadel, which
-        // never asks for step-up; kept consistent all the same).
-        orgId: this.workspaceSource === 'claim' ? (this.snapshot.activeOrgId ?? undefined) : undefined,
-      },
-      scope: previous?.scope,
-      // A factor proven after this request. Not `max_age=0`: WeldID up to
-      // 0.1.0-alpha.5 can never meet it (the proof is always a moment old)
-      // and sends the person back to sign in again, round and round.
-      prompt: 'login',
-      acr_values: level === 'second_factor' ? 'mfa' : undefined,
-      login_hint: typeof previous?.profile.email === 'string' ? previous.profile.email : undefined,
-      ui_locales: getLocale(),
-    };
-    let user: User;
-    if (this.browserSignIn) {
-      user = await this.stepUpThroughBrowser(this.browserSignIn, request);
-    } else {
-      // Opened here, still inside the click, so a blocked popup is known now;
-      // the UserManager then navigates this same window by its name.
-      const popup = openStepUpWindow();
-      if (!popup) {
-        await this.manager.signinRedirect(request);
-        return new Promise<never>(() => undefined);
-      }
-      try {
-        user = await this.manager.signinPopup({
-          ...request,
-          popupWindowTarget: STEP_UP_WINDOW,
-          popupAbortOnClose: true,
-        });
-      } catch (err) {
-        if (!popup.closed) popup.close();
-        throw new StepUpError(err instanceof Error && /closed/i.test(err.message) ? 'cancelled' : 'failed');
-      }
-    }
+    const request = this.stepUpRequest(level);
+    const user = this.browserSignIn
+      ? await this.stepUpThroughBrowser(this.browserSignIn, request)
+      : await this.stepUpInPopup(request);
     if (previous && user.profile.sub !== previous.profile.sub) {
       // Someone else signed in: their session is the stored one now, so the
       // page starts over as them rather than acting on another account.
       if (typeof window !== 'undefined') window.location.assign('/');
       throw new StepUpError('other_account');
+    }
+  }
+
+  /** What a step-up asks the provider for: the same person, signed in again now. */
+  private stepUpRequest(level: StepUpLevel): AuthorizationRequest {
+    const email = this.user?.profile.email;
+    // `claim` mode: the token stays on its workspace (Zitadel, which never
+    // asks for step-up; kept consistent all the same).
+    const orgId = this.workspaceSource === 'claim' ? (this.snapshot.activeOrgId ?? undefined) : undefined;
+    return {
+      state: { returnTo: currentPath(), orgId },
+      scope: this.user?.scope,
+      // A factor proven after this request. Not `max_age=0`: WeldID up to
+      // 0.1.0-alpha.5 can never meet it (the proof is always a moment old)
+      // and sends the person back to sign in again, round and round.
+      prompt: 'login',
+      acr_values: level === 'second_factor' ? 'mfa' : undefined,
+      login_hint: typeof email === 'string' ? email : undefined,
+      ui_locales: getLocale(),
+    };
+  }
+
+  /**
+   * `stepUp` in a browser: the popup is opened here, still inside the click,
+   * so a blocked one is known at once (then the page goes to the provider
+   * and back, and this never resolves); the UserManager then navigates this
+   * same window by its name.
+   */
+  private async stepUpInPopup(request: AuthorizationRequest): Promise<User> {
+    const popup = openStepUpWindow();
+    if (!popup) {
+      await this.manager.signinRedirect(request);
+      return new Promise<never>(() => undefined);
+    }
+    try {
+      return await this.manager.signinPopup({
+        ...request,
+        popupWindowTarget: STEP_UP_WINDOW,
+        popupAbortOnClose: true,
+      });
+    } catch (err) {
+      if (!popup.closed) popup.close();
+      throw new StepUpError(err instanceof Error && /closed/i.test(err.message) ? 'cancelled' : 'failed');
     }
   }
 
