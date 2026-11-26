@@ -1225,6 +1225,7 @@ export default function CrmTasksClient() {
       )}
 
       <TaskDialog
+        allowCreateMore
         open={showAddDialog}
         onOpenChange={handleDialogClose}
         editingTask={editingTask}

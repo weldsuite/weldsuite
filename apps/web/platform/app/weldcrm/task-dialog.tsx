@@ -208,6 +208,12 @@ interface TaskDialogProps {
     } | null;
   }) => void;
   isPending: boolean;
+  /**
+   * Shows the "Create more" switch, which keeps the dialog open for the next task after a save:
+   * for a page that fills a list. Off by default, since a caller that moves on after a save (the
+   * timesheet opens the time entry for the new task) would get the dialog back on top.
+   */
+  allowCreateMore?: boolean;
 }
 
 /** Convert markdown image/link syntax to HTML for contentEditable display */
@@ -966,7 +972,13 @@ function RecordPopover({
       open={open}
       onOpenChange={(next) => {
         setOpen(next);
-        if (!next) setCreating(false);
+        if (next) return;
+        // The search box comes back empty next time: so does what it searched for.
+        setCreating(false);
+        if (query !== '') {
+          setQuery('');
+          onSearchChange?.('');
+        }
       }}
     >
       <PopoverTrigger asChild>
@@ -1237,6 +1249,7 @@ export function TaskDialog({
   onSave,
   onUpdate,
   isPending,
+  allowCreateMore = false,
 }: Readonly<TaskDialogProps>) {
   const tCrm = getTranslations('crm');
   const st = useTranslations();
@@ -1543,7 +1556,7 @@ export function TaskDialog({
     if (recordRequired && !record) return;
 
     isSubmittingRef.current = true;
-    carryOverRef.current = !editingTask && createMore;
+    carryOverRef.current = !editingTask && allowCreateMore && createMore;
 
     // Read latest description from contentEditable div
     const finalDescription = readDescriptionFromDiv();
@@ -1833,7 +1846,7 @@ export function TaskDialog({
             </div>
 
             <div className="mt-auto flex h-12 items-center justify-end gap-3 border-t border-border px-4">
-              {!editingTask && (
+              {!editingTask && allowCreateMore && (
                 <label className="mr-auto flex cursor-pointer items-center gap-2 text-xs text-muted-foreground select-none">
                   <Switch checked={createMore} onCheckedChange={setCreateMore} aria-label={tCrm.taskDialog.createMore} />
                   {tCrm.taskDialog.createMore}

@@ -59,9 +59,9 @@ import {
   ChevronRight,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { coloredSquareColors, findColoredSquareIconByLabel } from '@/components/app-sidebar-layout';
 import { toast } from 'sonner';
 import { tasksApi, labelsApi, projectsApi } from '../lib/api-client';
+import { createdProject, projectPickerOption, withCreatedProjects, type ProjectInfo } from './created-projects';
 import { projectKeys } from '@/hooks/queries/use-projects-queries';
 import { useCan } from '@weldsuite/permissions/react';
 import { useWorkspaceMemberDirectory } from '@/hooks/queries/use-settings-queries';
@@ -115,12 +115,6 @@ export interface ProjectLabel {
   projectId?: string | null;
 }
 
-interface ProjectInfo {
-  id: string;
-  name: string;
-  color?: string | null;
-  icon?: string | null;
-}
 
 interface MyTasksClientProps {
   initialTasks: Projects.ProjectTask[];
@@ -717,36 +711,22 @@ export function MyTasksClient({
 
   // Projects made from the task dialog's "Create project", usable before the list refetches.
   const [createdProjects, setCreatedProjects] = useState<ProjectInfo[]>([]);
-  const allProjects = useMemo(
-    () => [...projects, ...createdProjects.filter((c) => !projects.some((p) => p.id === c.id))],
-    [projects, createdProjects],
-  );
+  const allProjects = useMemo(() => withCreatedProjects(projects, createdProjects), [projects, createdProjects]);
   const canCreateProject = useCan('projects:create');
 
   // Same square the sidebar and project list draw, so the picker reads as a project.
-  const projectOptions = allProjects.map(p => ({
-    id: p.id,
-    name: p.name,
-    icon: (p.icon ? findColoredSquareIconByLabel(p.icon) : undefined) || FolderKanban,
-    iconColor: p.color || coloredSquareColors[0].value,
-  }));
+  const projectOptions = allProjects.map(projectPickerOption);
   const projectById = Object.fromEntries(allProjects.map(p => [p.id, p]));
 
   const handleCreateProject = useCallback(async (name: string) => {
-    const result = await projectsApi.create({ name });
-    if (!result.success || !result.data) {
+    const created = createdProject(await projectsApi.create({ name }), name);
+    if (!created) {
       toast.error(t.projects.sidebar.projectCreateFailed);
       return null;
     }
-    const created: ProjectInfo = { id: result.data.id, name: result.data.name || name, color: result.data.color ?? null, icon: result.data.icon ?? null };
     setCreatedProjects((prev) => [...prev, created]);
     void queryClient.invalidateQueries({ queryKey: projectKeys.lists() });
-    return {
-      id: created.id,
-      name: created.name,
-      icon: (created.icon ? findColoredSquareIconByLabel(created.icon) : undefined) || FolderKanban,
-      iconColor: created.color || coloredSquareColors[0].value,
-    };
+    return projectPickerOption(created);
   }, [queryClient, t.projects.sidebar.projectCreateFailed]);
 
   const handleSaveTask = (data: SaveTaskFormData) => {
@@ -1822,6 +1802,7 @@ export function MyTasksClient({
       )}
 
       <TaskDialog
+        allowCreateMore
         open={showTaskDialog}
         onOpenChange={(open) => {
           setShowTaskDialog(open);
