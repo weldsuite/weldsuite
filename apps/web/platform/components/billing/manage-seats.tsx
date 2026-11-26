@@ -40,8 +40,8 @@ export function ManageSeatsDialog({
   onSeatCountChange: (count: number) => void;
   min: number;
   max: number | undefined;
-  /** Per seat per `interval`, in cents. */
-  perSeatPrice: number;
+  /** Per seat per `interval`, in cents; 0 for free seats, null while unknown (no summary line). */
+  perSeatPrice: number | null;
   currency: string;
   interval: 'month' | 'year';
   processing: boolean;
@@ -50,8 +50,9 @@ export function ManageSeatsDialog({
   const t = useTranslations();
   // Shown per month; an annual price as its monthly equivalent, billed annually.
   const isAnnual = interval === 'year';
-  const perSeatMonthly = isAnnual ? Math.round(perSeatPrice / 12) : perSeatPrice;
-  const totalMonthly = isAnnual ? Math.round((seatCount * perSeatPrice) / 12) : seatCount * perSeatPrice;
+  const price = perSeatPrice ?? 0;
+  const perSeatMonthly = isAnnual ? Math.round(price / 12) : price;
+  const totalMonthly = isAnnual ? Math.round((seatCount * price) / 12) : seatCount * price;
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
@@ -97,7 +98,7 @@ export function ManageSeatsDialog({
           </div>
 
           {/* Summary line */}
-          {perSeatPrice > 0 && (
+          {perSeatPrice !== null && (
             <p className="text-sm text-muted-foreground">
               {t('sweep.settings.billing.manageSeatsDialog.seatCount', { count: seatCount })} &times;{' '}
               {formatPlanPrice(perSeatMonthly, currency)}/{t('sweep.settings.billing.seat')} ={' '}
@@ -129,7 +130,8 @@ export function ManageSeatsDialog({
  * "Manage seats" for a running paid plan: the button and the dialog, priced
  * at what a seat costs on the running period (`GET /billing/seat-price`).
  * More seats are charged at once (Mollie: a prorated charge on the mandate,
- * or a hosted payment page); fewer take effect at the period end on Mollie
+ * or a hosted payment page; nothing when staff made the seats free, which
+ * applies them at once); fewer take effect at the period end on Mollie
  * (ADR BILL-014, decision 7), which the toast says. The plan's maximum caps
  * the count; the server refuses fewer seats than members and invitations.
  */
@@ -189,7 +191,7 @@ export function ManageSeatsAction({
         onSeatCountChange={setSeatCount}
         min={min}
         max={max}
-        perSeatPrice={seatPrice?.amount ?? 0}
+        perSeatPrice={seatPrice?.amount ?? null}
         currency={seatPrice?.currency ?? 'EUR'}
         interval={seatPrice?.interval ?? (subscription?.cycle === 'yearly' ? 'year' : 'month')}
         processing={updateSeats.isPending}

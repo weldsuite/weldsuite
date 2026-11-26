@@ -288,6 +288,13 @@ describe('BillingSettingsPage seats', () => {
     );
   });
 
+  it('offers to manage seats when staff made them free (a seat price of zero)', async () => {
+    mocks.subscription.mockReturnValue({ ...PAID, pricePerCycle: 0 });
+    renderPage();
+
+    expect(await screen.findByRole('button', { name: 'sweep.settings.billing.manageSeatsButton' })).toBeInTheDocument();
+  });
+
   it('offers an upgrade on Mollie when no paid period runs (a comp, a trial, a grace period)', async () => {
     const { pricePerCycle: _price, ...comp } = PAID;
     mocks.subscription.mockReturnValue(comp);

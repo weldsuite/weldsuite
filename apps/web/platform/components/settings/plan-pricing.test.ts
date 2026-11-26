@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   countryName,
   formatPlanPrice,
-  hasPaidPlan,
+  hasRunningPlan,
   vatOfCents,
   vatRateText,
   type PlanOfSubscription,
@@ -15,29 +15,32 @@ const starter = (overrides: PlanOfSubscription): PlanOfSubscription => ({
   ...overrides,
 });
 
-describe('hasPaidPlan', () => {
+describe('hasRunningPlan', () => {
   it('reads Mollie’s price per cycle', () => {
-    expect(hasPaidPlan(starter({ provider: 'mollie', pricePerCycle: 1200 }))).toBe(true);
-    expect(hasPaidPlan(starter({ provider: 'mollie', pricePerCycle: 0 }))).toBe(false);
+    expect(hasRunningPlan(starter({ provider: 'mollie', pricePerCycle: 1200 }))).toBe(true);
+  });
+
+  it('is true on Mollie when staff made the seats free', () => {
+    expect(hasRunningPlan(starter({ provider: 'mollie', pricePerCycle: 0 }))).toBe(true);
   });
 
   it('is false on Mollie without a price: a comp, a trial, a plan in its grace period', () => {
-    expect(hasPaidPlan(starter({ provider: 'mollie' }))).toBe(false);
-    expect(hasPaidPlan(starter({ provider: 'mollie', status: 'canceled' }))).toBe(false);
+    expect(hasRunningPlan(starter({ provider: 'mollie' }))).toBe(false);
+    expect(hasRunningPlan(starter({ provider: 'mollie', status: 'canceled' }))).toBe(false);
   });
 
   it('falls back to an active or past-due plan on Global', () => {
-    expect(hasPaidPlan(starter({}))).toBe(true);
-    expect(hasPaidPlan(starter({ status: 'past_due' }))).toBe(true);
-    expect(hasPaidPlan(starter({ status: 'trialing' }))).toBe(false);
-    expect(hasPaidPlan(starter({ status: 'canceled' }))).toBe(false);
-    expect(hasPaidPlan(starter({ planSlug: 'free' }))).toBe(false);
-    expect(hasPaidPlan(starter({ planId: null }))).toBe(false);
+    expect(hasRunningPlan(starter({}))).toBe(true);
+    expect(hasRunningPlan(starter({ status: 'past_due' }))).toBe(true);
+    expect(hasRunningPlan(starter({ status: 'trialing' }))).toBe(false);
+    expect(hasRunningPlan(starter({ status: 'canceled' }))).toBe(false);
+    expect(hasRunningPlan(starter({ planSlug: 'free' }))).toBe(false);
+    expect(hasRunningPlan(starter({ planId: null }))).toBe(false);
   });
 
   it('is false without a subscription', () => {
-    expect(hasPaidPlan(null)).toBe(false);
-    expect(hasPaidPlan(undefined)).toBe(false);
+    expect(hasRunningPlan(null)).toBe(false);
+    expect(hasRunningPlan(undefined)).toBe(false);
   });
 });
 

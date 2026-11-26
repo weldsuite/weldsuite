@@ -83,6 +83,32 @@ describe('ManageSeatsAction', () => {
     expect(within(dialog).getByText('€20/sweep.settings.billing.monthBilledAnnually')).toBeInTheDocument();
   });
 
+  it('prices free seats at nothing, and adds one at once', async () => {
+    mocks.seatPrice.mockReturnValue({ amount: 0, currency: 'EUR', interval: 'month' });
+    mocks.updateSeats.mockResolvedValue({ success: true, purchasedSeats: 3 });
+    const user = userEvent.setup();
+    render(<ManageSeatsAction subscription={SUBSCRIPTION} planLimits={LIMITS} />);
+    await user.click(screen.getByRole('button', { name: 'sweep.settings.billing.manageSeatsButton' }));
+    const dialog = await screen.findByRole('dialog');
+    const [, plus] = within(dialog).getAllByRole('button').filter((b) => b.textContent === '');
+    await user.click(plus);
+
+    expect(within(dialog).getByText('€0/sweep.settings.billing.month')).toBeInTheDocument();
+    await user.click(within(dialog).getByRole('button', { name: 'sweep.settings.billing.updateSeats' }));
+    await waitFor(() => expect(mocks.updateSeats).toHaveBeenCalledWith({ seats: 3 }));
+    expect(mocks.toastSuccess).toHaveBeenCalledWith('sweep.settings.billing.toasts.seatsUpdated');
+  });
+
+  it('shows no price until the seat price is known', async () => {
+    mocks.seatPrice.mockReturnValue(undefined);
+    const user = userEvent.setup();
+    render(<ManageSeatsAction subscription={SUBSCRIPTION} planLimits={LIMITS} />);
+    await user.click(screen.getByRole('button', { name: 'sweep.settings.billing.manageSeatsButton' }));
+
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).queryByText('€', { exact: false })).not.toBeInTheDocument();
+  });
+
   it('stops at the plan’s maximum', async () => {
     const user = userEvent.setup();
     render(<ManageSeatsAction subscription={{ ...SUBSCRIPTION, purchasedSeats: 10 }} planLimits={LIMITS} />);
