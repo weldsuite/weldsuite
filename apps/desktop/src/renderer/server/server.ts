@@ -99,7 +99,8 @@ form.addEventListener('submit', async (event) => {
   }
 
   setBusy(true);
-  const checking = typed === null ? (defaultHost.textContent ?? '') : host(typed.includes('://') ? typed : `https://${typed}`);
+  let checking = defaultHost.textContent ?? '';
+  if (typed !== null) checking = host(typed.includes('://') ? typed : `https://${typed}`);
   status.textContent = text('checking', { host: checking });
   let result: UseResult;
   try {
