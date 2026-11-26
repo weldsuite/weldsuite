@@ -15,6 +15,7 @@ import {
   getAuthProvider,
   getAuthToken,
   canStepUp,
+  completeSignIn,
   isWeldIdProvider,
   redirectToSignIn,
   setAuthImplementation,
@@ -70,6 +71,8 @@ interface IssuerState {
   nonce?: string | null;
   tokenRequests: URLSearchParams[];
   revocations?: URLSearchParams[];
+  /** The ID token's subject; another person signing in when set. */
+  sub?: string;
 }
 
 function idToken(state: IssuerState) {
@@ -79,7 +82,7 @@ function idToken(state: IssuerState) {
   return jwt({
     iss: ISSUER,
     aud: [CLIENT_ID, PROJECT],
-    sub: 'user_2891',
+    sub: state.sub ?? 'user_2891',
     iat: now(),
     exp: now() + 300,
     name: 'Anna de Vries',
@@ -834,6 +837,30 @@ describe('inside the desktop shell (system browser, loopback redirect)', () => {
     expect(usesBrowserSignIn()).toBe(false);
     await expect(signInWithBrowser()).rejects.toMatchObject({ reason: 'failed' });
   });
+
+  it('confirms identity again through the system browser, without leaving the page (ADR SEC-022)', async () => {
+    const shell = desktop();
+    await signInWithBrowser();
+    assign.mockClear();
+    await stepUp('second_factor');
+    const authorize = shell.authorizeUrls[1];
+    expect(authorize.searchParams.get('prompt')).toBe('login');
+    expect(authorize.searchParams.get('acr_values')).toBe('mfa');
+    expect(authorize.searchParams.get('redirect_uri')).toBe(LOOPBACK);
+    await expect(getAuthToken()).resolves.toBe('at-2');
+    expect(assign).not.toHaveBeenCalled();
+  });
+
+  it('a step-up the person cancels in the browser is cancelled, and the shell stops listening', async () => {
+    let answers = 0;
+    const shell = desktop((authorize, redirectUri) =>
+      ++answers === 1 ? backWithCode(authorize, redirectUri) : new BrowserSignInError('cancelled'),
+    );
+    await signInWithBrowser();
+    await expect(stepUp('first_factor')).rejects.toMatchObject({ name: 'StepUpError', reason: 'cancelled' });
+    expect(shell.browserSignIn.cancel).toHaveBeenCalledWith('flow-2');
+    await expect(getAuthToken()).resolves.toBe('at-1');
+  });
 });
 
 describe('step-up before a sensitive action (ADR SEC-022)', () => {
@@ -912,6 +939,56 @@ describe('step-up before a sensitive action (ADR SEC-022)', () => {
     expect(authorize.searchParams.get('acr_values')).toBe('mfa');
     expect(next).toBe('/settings/api-keys?tab=workspace');
     await expect(getAuthToken()).resolves.toBe('at-2');
+    open.mockRestore();
+  });
+
+  it('finishes on the callback page of the popup, which hands the response to the opener', async () => {
+    await signedIn();
+    const popup = fakePopup();
+    const open = vi.spyOn(window, 'open').mockReturnValue(popup as unknown as Window);
+    const done = stepUp('second_factor');
+    await waitFor(() => expect(popup.location.replace).toHaveBeenCalled());
+    const authorize = new URL(String(popup.location.replace.mock.calls[0][0]));
+    issuer.challenge = authorize.searchParams.get('code_challenge');
+    // The popup window: the same app on the callback route, whose opener is this page.
+    const opener = {
+      postMessage: (data: unknown) => window.dispatchEvent(new MessageEvent('message', { origin: ORIGIN, data })),
+    };
+    Object.defineProperty(window, 'opener', { configurable: true, value: opener });
+    try {
+      stubLocation(`${ORIGIN}/auth/sso-callback?code=code-1&state=${authorize.searchParams.get('state')}`);
+      await expect(completeSignIn()).resolves.toBe('/');
+      await done;
+    } finally {
+      Object.defineProperty(window, 'opener', { configurable: true, value: null });
+    }
+    await expect(getAuthToken()).resolves.toBe('at-2');
+    expect(popup.close).toHaveBeenCalled();
+    open.mockRestore();
+  });
+
+  it('does not take a sign-in as someone else for a confirmation', async () => {
+    await signedIn();
+    const popup = fakePopup();
+    const open = vi.spyOn(window, 'open').mockReturnValue(popup as unknown as Window);
+    const done = stepUp('first_factor').catch((err: unknown) => err);
+    await waitFor(() => expect(popup.location.replace).toHaveBeenCalled());
+    const authorize = new URL(String(popup.location.replace.mock.calls[0][0]));
+    issuer.challenge = authorize.searchParams.get('code_challenge');
+    issuer.sub = 'user_other';
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        origin: ORIGIN,
+        data: {
+          source: 'oidc-client',
+          url: `${ORIGIN}/auth/sso-callback?code=code-1&state=${authorize.searchParams.get('state')}`,
+          keepOpen: false,
+        },
+      }),
+    );
+    await expect(done).resolves.toMatchObject({ name: 'StepUpError', reason: 'other_account' });
+    // The page starts over as the person now signed in.
+    expect(assign).toHaveBeenLastCalledWith('/');
     open.mockRestore();
   });
 

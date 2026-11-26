@@ -61,6 +61,39 @@ describe('StepUpDialogHost', () => {
     await expect(waiting).resolves.toBe(false);
   });
 
+  it('refuses, without asking again, when someone else signed in', async () => {
+    auth.stepUp.mockRejectedValue(new StepUpError('other_account'));
+    render(<StepUpDialogHost />);
+    let waiting!: Promise<boolean>;
+    act(() => {
+      waiting = confirmStepUp(signIn);
+    });
+    fireEvent.click(await screen.findByRole('button', { name: 'Continue' }));
+    await expect(waiting).resolves.toBe(false);
+    await waitFor(() => expect(screen.queryByText("Confirm it's you")).toBeNull());
+  });
+
+  it('says it failed and stays open when the provider fails', async () => {
+    auth.stepUp.mockRejectedValue(new Error('network'));
+    render(<StepUpDialogHost />);
+    act(() => {
+      void confirmStepUp(secondFactor);
+    });
+    fireEvent.click(await screen.findByRole('button', { name: 'Continue' }));
+    expect((await screen.findByRole('alert')).textContent).toBe("We couldn't confirm your identity. Try again.");
+  });
+
+  it('refuses what was waiting when it goes away', async () => {
+    const { unmount } = render(<StepUpDialogHost />);
+    let waiting!: Promise<boolean>;
+    act(() => {
+      waiting = confirmStepUp(secondFactor);
+    });
+    await screen.findByText("Confirm it's you");
+    unmount();
+    await expect(waiting).resolves.toBe(false);
+  });
+
   it('asks a person without a second factor to set one up', async () => {
     render(<StepUpDialogHost />);
     act(() => {

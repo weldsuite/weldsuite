@@ -4,6 +4,9 @@
   "version": "0.0.0",
   "type": "module",
   "private": true,
+  "scripts": {
+    "test": "vitest run"
+  },
   "exports": {
     ".": "./src/index.ts",
     "./client": "./src/client.ts",
@@ -14,7 +17,9 @@
     "@weldsuite/text": "workspace:*"
   },
   "devDependencies": {
+    "@vitest/coverage-v8": "^4.1.12",
     "@weldsuite/typescript-config": "workspace:*",
-    "typescript": "^5.9.2"
+    "typescript": "^5.9.2",
+    "vitest": "^4.1.12"
   }
 }
