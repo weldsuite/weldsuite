@@ -67,13 +67,13 @@ export function Section({
   count,
   action,
   children,
-}: {
+}: Readonly<{
   title: string;
   /** Left out while the rows are still loading. */
   count?: number;
   action?: ReactNode;
   children: ReactNode;
-}) {
+}>) {
   return (
     <section>
       <div className="sticky top-0 z-[1] flex h-8 items-center gap-2 border-b border-border/70 bg-background px-3">
@@ -91,7 +91,7 @@ export function Section({
   );
 }
 
-export function Padded({ children }: { children: ReactNode }) {
+export function Padded({ children }: Readonly<{ children: ReactNode }>) {
   return <div className="px-3 py-3">{children}</div>;
 }
 
@@ -109,11 +109,11 @@ export function vaultLabel(vault: Pick<WeldPassVault, 'kind' | 'name'>): string 
   return vault.kind === 'personal' ? t('personalVault') : vault.name;
 }
 
-export function Empty({ children }: { children: ReactNode }) {
+export function Empty({ children }: Readonly<{ children: ReactNode }>) {
   return <p className="border-b border-border/70 px-3 py-3 text-xs text-muted-foreground">{children}</p>;
 }
 
-export function LoadError({ error, onRetry }: { error: unknown; onRetry: () => void }) {
+export function LoadError({ error, onRetry }: Readonly<{ error: unknown; onRetry: () => void }>) {
   return (
     <div className="flex flex-col items-start gap-2 px-3 py-3">
       <PopupAlert tone="error">{t(errorMessageKey(error))}</PopupAlert>

@@ -66,5 +66,6 @@ export function applyListView(
   const kept = filterItems(items, { pills }).filter((item) => totpAccepts(pills, item));
   if (!sort) return kept;
   const compare = sort.field === 'name' ? byName : byUpdated;
-  return kept.sort((a, b) => (sort.direction === 'asc' ? compare(a, b) : compare(b, a)));
+  const sign = sort.direction === 'asc' ? 1 : -1;
+  return kept.sort((a, b) => sign * compare(a, b));
 }
