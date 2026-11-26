@@ -1,0 +1,41 @@
+{
+  "common": {
+    "cancel": "Annuleren",
+    "tryAgain": "Opnieuw proberen",
+    "continue": "Doorgaan",
+    "signOut": "Uitloggen",
+    "loading": "Laden…"
+  },
+  "signIn": {
+    "button": "Inloggen",
+    "createAccount": "Account aanmaken",
+    "server": "Server: {server}",
+    "failed": "Inloggen is niet gelukt. Probeer het opnieuw.",
+    "unreachable": "De inlogserver is niet bereikbaar. Controleer je verbinding en probeer het opnieuw."
+  },
+  "server": {
+    "unreachable": "{server} is niet bereikbaar. Controleer je verbinding en probeer het opnieuw.",
+    "notWeldsuite": "{server} is geen WeldSuite-server.",
+    "noMobileSignIn": "{server} staat de mobiele apps nog niet toe. Vraag het aan de beheerder.",
+    "appUnavailable": "{app} is niet beschikbaar op {server}."
+  },
+  "workspace": {
+    "choose": "Kies een werkruimte",
+    "loading": "Je werkruimtes laden…",
+    "noneTitle": "Nog geen werkruimte",
+    "noneDescription": "Je account zit nog niet in een WeldSuite-werkruimte. Maak er een aan op het web of vraag om een uitnodiging, en kijk dan opnieuw.",
+    "checkAgain": "Opnieuw kijken"
+  },
+  "lock": {
+    "title": "{app} is vergrendeld",
+    "unlock": "Ontgrendelen",
+    "noScreenLockTitle": "Stel een schermvergrendeling in",
+    "noScreenLockDescription": "{app} bewaart je gegevens achter de schermvergrendeling van je telefoon. Stel een toegangscode, pincode of patroon in bij Instellingen en kom dan terug.",
+    "openSettings": "Instellingen openen"
+  },
+  "update": {
+    "title": "{app} bijwerken",
+    "description": "Deze versie van {app} werkt niet meer met je server. Werk de app bij om verder te gaan.",
+    "button": "Open de store"
+  }
+}

@@ -1,0 +1,286 @@
+openapi: 3.0.3
+info:
+  title: WeldPass API (native apps)
+  version: 1.0.0
+  description: |
+    The WeldPass endpoints the native WeldPass app uses
+    (`rust/modules/pass`). It grows with the app.
+
+    Hand-written. The Rust server is the source of truth; its tests check
+    real responses against this file. Change both together.
+
+    Lists carry no secrets: a password only travels on `revealItem`.
+servers:
+  - url: https://app.weldsuite.eu
+paths:
+  /api/weldpass/vaults:
+    get:
+      operationId: listVaults
+      summary: The vaults the caller can see, with item and member counts.
+      responses:
+        '200':
+          description: The vaults.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VaultList'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/weldpass/items:
+    get:
+      operationId: listItems
+      summary: Every item the caller can open, across vaults. No secrets.
+      parameters:
+        - name: vaultId
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: type
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [login, note, card]
+      responses:
+        '200':
+          description: The items.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ItemList'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/weldpass/vaults/{vaultId}/items/{itemId}/reveal:
+    get:
+      operationId: revealItem
+      summary: One item with its secret fields. Audited.
+      parameters:
+        - $ref: '#/components/parameters/VaultId'
+        - $ref: '#/components/parameters/ItemId'
+      responses:
+        '200':
+          description: The item and its fields.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RevealedItemResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/weldpass/vaults/{vaultId}/items/{itemId}/totp:
+    post:
+      operationId: generateTotp
+      summary: The login's current two-factor code, minted by the server (PASS-007).
+      parameters:
+        - $ref: '#/components/parameters/VaultId'
+        - $ref: '#/components/parameters/ItemId'
+      responses:
+        '200':
+          description: The code and when it runs out.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TotpCodeResponse'
+        default:
+          $ref: '#/components/responses/Error'
+components:
+  securitySchemes:
+    bearer:
+      type: http
+      scheme: bearer
+  parameters:
+    VaultId:
+      name: vaultId
+      in: path
+      required: true
+      schema:
+        type: string
+    ItemId:
+      name: itemId
+      in: path
+      required: true
+      schema:
+        type: string
+  responses:
+    Error:
+      description: An error. `CRYPTO_ERROR` (500) means the server has no usable WeldPass key.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+  # Enums are written inline: the Kotlin generator marks a property that
+  # references an enum schema `@Contextual`, which kotlinx.serialization
+  # can't decode without a serializer registered by hand.
+  schemas:
+    Vault:
+      type: object
+      required: [id, kind, ownerId, name, description, createdBy, createdAt, updatedAt, role]
+      properties:
+        id:
+          type: string
+        kind:
+          type: string
+          enum: [personal, shared]
+        ownerId:
+          type: string
+          nullable: true
+        name:
+          type: string
+        description:
+          type: string
+          nullable: true
+        createdBy:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+        role:
+          description: |
+            The caller's role. Null for a workspace admin looking at a shared
+            vault they are not in: they can manage it, not read its items.
+          type: string
+          enum: [viewer, editor, manager]
+          nullable: true
+        itemCount:
+          type: integer
+        memberCount:
+          type: integer
+    VaultList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Vault'
+    Item:
+      type: object
+      required:
+        [id, vaultId, type, title, subtitle, url, host, hasTotp, passwordChangedAt, version, createdBy, updatedBy, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+        vaultId:
+          type: string
+        type:
+          type: string
+          enum: [login, note, card]
+        title:
+          type: string
+        subtitle:
+          type: string
+          nullable: true
+          description: The login's username, or "•••• 4242" for a card.
+        url:
+          type: string
+          nullable: true
+        host:
+          type: string
+          nullable: true
+        hasTotp:
+          type: boolean
+        passwordChangedAt:
+          type: string
+          nullable: true
+        version:
+          type: integer
+        createdBy:
+          type: string
+          nullable: true
+        updatedBy:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+    ItemList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Item'
+    ItemFields:
+      type: object
+      description: |
+        The sealed fields. Which ones are present depends on the item's
+        `type`: a login has username, password, totp, notes and maybe apps;
+        a note has content; a card has cardholder, number, expiry, cvc and
+        notes. One object rather than a oneOf, so both generators read it the
+        same way.
+      additionalProperties: false
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+        totp:
+          type: string
+        notes:
+          type: string
+        apps:
+          type: array
+          items:
+            type: string
+          description: Android package names this login signs in to.
+        content:
+          type: string
+        cardholder:
+          type: string
+        number:
+          type: string
+        expiry:
+          type: string
+        cvc:
+          type: string
+    RevealedItem:
+      allOf:
+        - $ref: '#/components/schemas/Item'
+        - type: object
+          required: [fields]
+          properties:
+            fields:
+              $ref: '#/components/schemas/ItemFields'
+    RevealedItemResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/RevealedItem'
+    TotpCode:
+      type: object
+      required: [code, period, expiresAt]
+      properties:
+        code:
+          type: string
+          pattern: '^\d{6,8}$'
+        period:
+          type: integer
+        expiresAt:
+          type: string
+    TotpCodeResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/TotpCode'
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          $ref: '#/components/schemas/ErrorBody'
+    ErrorBody:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+security:
+  - bearer: []

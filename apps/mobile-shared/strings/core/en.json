@@ -1,0 +1,41 @@
+{
+  "common": {
+    "cancel": "Cancel",
+    "tryAgain": "Try again",
+    "continue": "Continue",
+    "signOut": "Sign out",
+    "loading": "Loading…"
+  },
+  "signIn": {
+    "button": "Sign in",
+    "createAccount": "Create an account",
+    "server": "Server: {server}",
+    "failed": "Signing in didn’t work. Try again.",
+    "unreachable": "The sign-in server can’t be reached. Check your connection and try again."
+  },
+  "server": {
+    "unreachable": "{server} can’t be reached. Check your connection and try again.",
+    "notWeldsuite": "{server} isn’t a WeldSuite server.",
+    "noMobileSignIn": "{server} doesn’t allow the mobile apps yet. Ask its administrator.",
+    "appUnavailable": "{app} isn’t available on {server}."
+  },
+  "workspace": {
+    "choose": "Choose a workspace",
+    "loading": "Loading your workspaces…",
+    "noneTitle": "No workspace yet",
+    "noneDescription": "Your account isn’t in a WeldSuite workspace. Create one on the web, or ask to be invited, then check again.",
+    "checkAgain": "Check again"
+  },
+  "lock": {
+    "title": "{app} is locked",
+    "unlock": "Unlock",
+    "noScreenLockTitle": "Set up a screen lock",
+    "noScreenLockDescription": "{app} keeps your data behind your phone’s screen lock. Set a passcode, PIN or pattern in Settings, then come back.",
+    "openSettings": "Open Settings"
+  },
+  "update": {
+    "title": "Update {app}",
+    "description": "This version of {app} no longer works with your server. Update it to carry on.",
+    "button": "Open the store"
+  }
+}

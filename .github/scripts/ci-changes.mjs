@@ -33,6 +33,9 @@
  *   conformance  rust, api, or a file a conformance suite covers (CONFORMANCE_SUITES):
  *                Rust · conformance (the suites narrow it further)
  *   workers      a file under apps/workers/ changed: Rust · conformance coverage
+ *   native       the native apps or what they're built from changed
+ *                (NATIVE_PATHS): Native · Android and Native · iOS. Nothing
+ *                else reads those files, so they turn no other area on.
  *
  * A change to locale files only reaches the packages that read them (see
  * I18N_DIR). Files every job reads (the lockfile, workspace and turbo config,
@@ -54,7 +57,7 @@ import { fileURLToPath } from 'node:url';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
-const AREAS = ['api', 'platform', 'desktop', 'packages', 'rust', 'image', 'crossbuild', 'deploy', 'conformance', 'workers'];
+const AREAS = ['api', 'platform', 'desktop', 'packages', 'rust', 'image', 'crossbuild', 'deploy', 'conformance', 'workers', 'native'];
 
 /** Read by every job: a change here runs everything. */
 const GLOBAL = [
@@ -101,6 +104,13 @@ const isInert = (file) =>
   INERT_NAMES.has(path.posix.basename(file)) ||
   (!file.includes('/') && file.endsWith('.md')) ||
   startsWithAny(file, INERT);
+
+/**
+ * The native iOS and Android apps (plan native-mobile-apps.md), the OpenAPI
+ * files, strings and tokens they're built from, and their generator.
+ * Outside every package; only the Native jobs read them.
+ */
+const NATIVE_PATHS = ['apps/ios/', 'apps/android/', 'apps/mobile-shared/', 'scripts/mobile/'];
 
 /** What the api jobs type-check and test. Keep in step with ci.yml. */
 const API_PACKAGES = [
@@ -370,6 +380,10 @@ function decideAreas(files) {
   for (const file of files) {
     if (INERT_NAMES.has(path.posix.basename(file))) continue;
     if (startsWithAny(file, DEPLOY_PATHS)) on('deploy', file);
+    if (startsWithAny(file, NATIVE_PATHS)) {
+      on('native', file);
+      continue;
+    }
     // The image's files are decided in decide(), by IMAGE_PATHS.
     if (isRustNotCode(file)) continue;
     const rust = startsWithAny(file, RUST_PATHS);

@@ -64,6 +64,7 @@ jobs:
       deploy: ${{ steps.areas.outputs.deploy }}
       conformance: ${{ steps.areas.outputs.conformance }}
       workers: ${{ steps.areas.outputs.workers }}
+      native: ${{ steps.areas.outputs.native }}
     steps:
       # Full history without file contents, so the diff against the base
       # branch works and the checkout stays small.
@@ -591,6 +592,73 @@ jobs:
           sudo tar -xzf /tmp/kubeconform.tar.gz -C /usr/local/bin kubeconform
       - name: Validate
         run: rust/deploy/validate.sh
+
+  # ────────────────────────────────────────────
+  # The native apps (apps/android, apps/ios; plan native-mobile-apps.md in
+  # weldsuite-documentation). Both first check that the files generated from
+  # apps/mobile-shared (strings, tokens, the OpenAPI copies) are current.
+  # Not required checks yet.
+  # ────────────────────────────────────────────
+  native-android:
+    name: Native · Android
+    needs: [changes]
+    if: ${{ !cancelled() && needs.changes.outputs.native != 'false' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Generated files are current
+        run: node scripts/mobile/generate.mjs --check
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Unit tests, lint and the debug build
+        working-directory: apps/android
+        run: ./gradlew --no-daemon testDebugUnitTest lintDebug assembleDebug
+
+  native-ios:
+    name: Native · iOS
+    needs: [changes]
+    if: ${{ !cancelled() && needs.changes.outputs.native != 'false' }}
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Generated files are current
+        run: node scripts/mobile/generate.mjs --check
+      - uses: jdx/mise-action@v2
+        with:
+          working_directory: apps/ios
+      - name: Pick a simulator
+        run: |
+          udid=$(xcrun simctl list devices available --json \
+            | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8")).devices;
+                       const all=Object.entries(d).filter(([r])=>r.includes("iOS")).sort(([a],[b])=>b.localeCompare(a,undefined,{numeric:true})).flatMap(([,l])=>l);
+                       const phone=all.find(x=>x.name.startsWith("iPhone"));
+                       if(!phone){process.exit(1)} console.log(phone.udid)')
+          echo "SIMULATOR=$udid" >> "$GITHUB_ENV"
+      - name: WeldKit tests
+        working-directory: apps/ios/WeldKit
+        run: |
+          xcodebuild test -scheme WeldKit-Package -destination "id=$SIMULATOR" \
+            -skipPackagePluginValidation -skipMacroValidation | xcbeautify --renderer github-actions
+      - name: Generate the Xcode project
+        working-directory: apps/ios
+        run: tuist generate --no-open
+      - name: WeldPass tests and build
+        working-directory: apps/ios
+        run: |
+          xcodebuild test -workspace WeldSuite.xcworkspace -scheme WeldPass -destination "id=$SIMULATOR" \
+            -skipPackagePluginValidation -skipMacroValidation CODE_SIGNING_ALLOWED=NO \
+            | xcbeautify --renderer github-actions
 
   # Phase P2: the worker tests of every ported route run against a conformance
   # build of the Rust server and are compared with the Hono app (bodies,

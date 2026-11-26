@@ -8,6 +8,8 @@ read it before changing code there:
 |---|---|
 | [`apps/web/platform/AGENTS.md`](apps/web/platform/AGENTS.md) | The platform SPA: routing, auth facade, API client, UI library, E2E |
 | [`apps/mobile/AGENTS.md`](apps/mobile/AGENTS.md) | The Expo apps and the Global/EU/self-hosted server choice |
+| [`apps/ios/AGENTS.md`](apps/ios/AGENTS.md) | The native iOS apps (Swift, SwiftUI) replacing the Expo apps |
+| [`apps/android/AGENTS.md`](apps/android/AGENTS.md) | The native Android apps (Kotlin, Compose) replacing the Expo apps |
 | [`apps/workers/pass-api/AGENTS.md`](apps/workers/pass-api/AGENTS.md) | WeldPass: secret vaults and the password manager |
 | [`packages/sdk/AGENTS.md`](packages/sdk/AGENTS.md) | WeldApps and the published SDKs, whose protocols change in lockstep |
 | [`rust/AGENTS.md`](rust/AGENTS.md) | The Rust backend for the EU and self-hosted editions |
@@ -141,6 +143,11 @@ TypeScript worker.
   `discord-bot-worker`, `test-email-worker`.
 
 **`apps/mobile/`**: one Expo app per module, plus `_template` and `_shared`.
+They are being replaced by native apps, one at a time, WeldPass first
+(plan `weldsuite-documentation/plans/native-mobile-apps.md`): **`apps/ios/`**
+(Swift, SwiftUI, Tuist) and **`apps/android/`** (Kotlin, Compose, Gradle),
+both built from **`apps/mobile-shared/`** (the OpenAPI contract, strings and
+design tokens; `pnpm mobile:generate`).
 **`apps/desktop/`**: Electron shell around the platform.
 **`apps/tools/`**: `migrate-databases` (Global's tenant migration runner,
 no longer run by its deploy since ADR DATA-019),
