@@ -149,6 +149,8 @@ function DepositsPage() {
         items={deposits}
         isLoading={list.isLoading}
         columns={columns}
+        searchFields={['memo']}
+        searchPlaceholder={td.searchPlaceholder}
         getRowClassName={(deposit) => (deposit.status === 'void' ? 'opacity-60' : '')}
         onRowClick={(deposit) => openPanel({ type: 'deposit', id: deposit.id })}
         getRowLabel={(deposit) => deposit.memo || td.make.depositTitle}

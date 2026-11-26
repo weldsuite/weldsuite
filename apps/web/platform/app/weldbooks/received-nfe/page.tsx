@@ -247,6 +247,8 @@ function ReceivedNfeContent() {
         items={rows}
         isLoading={query.isLoading}
         columns={columns}
+        searchFields={['issuerName', 'issuerTaxId', 'number']}
+        searchPlaceholder={tr.searchPlaceholder}
         filters={filters}
         applyFilters={applyStatusFilters}
         getRowLabel={(doc) => doc.issuerName ?? doc.accessKey}

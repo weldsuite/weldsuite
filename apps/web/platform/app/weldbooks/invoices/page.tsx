@@ -2,13 +2,17 @@ import { useState } from 'react';
 import { useInfiniteAccountingInvoices } from '@/hooks/queries/use-accounting-queries';
 import { ReceiptText } from 'lucide-react';
 import { useRouter } from '@/lib/router';
-import { EmptyStateIllustration, type ColumnDef, type GroupConfig } from '@/components/entity-list';
+import { EmptyStateIllustration, type ActiveFilter, type ColumnDef, type FilterConfig, type GroupConfig } from '@/components/entity-list';
 import { useObjectPanel, useObjectPanelUrlSync } from '@/components/object-panel';
 import { WeldbooksEntityList } from '@/components/accounting/weldbooks-entity-list';
 import { ContactCell, RowAmount, RowDate, RowTitle, StatusChip } from '@/components/accounting/weldbooks-row-cells';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { useI18n } from '@/lib/i18n/provider';
 import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
+import { applyExclusions, pillValue } from '@/lib/weldbooks/list-filters';
+
+/** The statuses the Status filter offers, in the order an invoice moves through them. */
+const INVOICE_STATUSES = ['draft', 'finalized', 'sent', 'partial', 'overdue', 'paid', 'cancelled', 'uncollectible'] as const;
 
 interface InvoiceRow {
   id: string;
@@ -24,11 +28,16 @@ interface InvoiceRow {
 
 export default function InvoicesPage() {
   const [search, setSearch] = useState('');
+  const [activeFilters, setActiveFilters] = useState<ActiveFilter[]>([]);
   const router = useRouter();
   // A new invoice is written on its own page, next to a live preview of the PDF.
   const newInvoice = () => router.push('/weldbooks/invoices/add');
   // Credit notes have a list of their own: `type=invoice` is every invoice that is not a credit note.
-  const { data, isLoading, hasNextPage, isFetchingNextPage, fetchNextPage } = useInfiniteAccountingInvoices({ type: 'invoice', search });
+  const { data, isLoading, hasNextPage, isFetchingNextPage, fetchNextPage } = useInfiniteAccountingInvoices({
+    type: 'invoice',
+    search,
+    status: pillValue(activeFilters, 'status'),
+  });
   // Each invoice opens in the shared object panel (type 'invoice'), the same
   // panel/fullscreen shell as WeldCRM companies, synced to `?stack=`.
   const { open: openPanel } = useObjectPanel();
@@ -39,7 +48,11 @@ export default function InvoicesPage() {
   const tip = t.accounting.invoicesPage;
   const tsl = t.accounting.statusLabels.invoice;
 
-  const invoices = (data?.rows ?? []) as unknown as InvoiceRow[];
+  // The server filters on an `is` status; an `is not` one narrows the rows it sent.
+  const invoices = applyExclusions((data?.rows ?? []) as unknown as InvoiceRow[], activeFilters, { status: (inv) => inv.status });
+  const filterConfigs: FilterConfig[] = [
+    { field: 'status', label: tip.colStatus, options: INVOICE_STATUSES.map((value) => ({ value, label: tsl[value] })) },
+  ];
 
   // Group by lifecycle status, most-urgent first. The trailing "other" group is
   // an explicit catch-all: EntityList drops items matching no group, so any
@@ -110,7 +123,9 @@ export default function InvoicesPage() {
       onLoadMore={() => void fetchNextPage()}
       onRowClick={(inv) => openPanel({ type: 'invoice', id: inv.id })}
       getRowLabel={(inv) => inv.invoiceNumber ?? tip.colNumber}
-      filters={[]}
+      filters={filterConfigs}
+      activeFilters={activeFilters}
+      onFiltersChange={setActiveFilters}
       searchQuery={search}
       onSearchChange={setSearch}
       searchPlaceholder={tip.searchPlaceholder}

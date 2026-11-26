@@ -143,6 +143,8 @@ function AgenciesList() {
       items={rows}
       isLoading={agencies.isLoading}
       columns={columns}
+      searchFields={['name', 'stateCode', 'registrationNumber']}
+      searchPlaceholder={ta.searchPlaceholder}
       onRowClick={(agency) => openPanel({ type: 'sales_tax_agency', id: agency.id })}
       getRowLabel={(agency) => agency.name}
       filters={filters}

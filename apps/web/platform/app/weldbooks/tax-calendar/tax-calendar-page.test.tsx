@@ -42,6 +42,7 @@ vi.mock('@/hooks/queries/use-weldbooks-assets-queries', () => ({
 
 import TaxCalendarPage from './page';
 import { renderWithProviders } from '../fixed-assets/test-utils';
+import { addIsFilter } from '../payment-runs/test-utils';
 
 const deadline = (key: string, dueDate: string, extra: Partial<TaxDeadline> = {}): TaxDeadline => ({
   key,
@@ -113,6 +114,17 @@ describe('Tax calendar page', () => {
     expect(statusOf('filed')).toHaveAttribute('data-status', 'done');
     expect(statusOf('ticked')).toHaveAttribute('data-status', 'done');
     expect(statusOf('941')).toHaveAttribute('data-status', 'informational');
+  });
+
+  it('narrows the deadlines by status', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<TaxCalendarPage />);
+
+    await addIsFilter(user, 'Status', 'Overdue');
+
+    await waitFor(() => expect(screen.queryByTestId('deadline-soon')).not.toBeInTheDocument());
+    expect(screen.getByTestId('deadline-late')).toBeInTheDocument();
+    expect(screen.queryByTestId('deadline-filed')).not.toBeInTheDocument();
   });
 
   it('counts overdue, due soon, upcoming and done at the top', () => {

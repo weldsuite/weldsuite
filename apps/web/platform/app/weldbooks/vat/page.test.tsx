@@ -43,6 +43,7 @@ vi.mock('./br-apuracao-page', () => ({ default: () => null }));
 import VatReturnsPage from './page';
 import { panelOpen } from '@/components/objects/_shared/object-panel-test-mock';
 import { renderWithProviders } from '../fixed-assets/test-utils';
+import { addIsFilter } from '../payment-runs/test-utils';
 
 describe('VatReturnsPage', () => {
   beforeEach(() => {
@@ -97,6 +98,21 @@ describe('VatReturnsPage', () => {
     }
   });
 
+  it('narrows the returns by status and finds them by period', async () => {
+    returns.data = [
+      { id: 'vr_1', periodType: 'quarterly', periodStart: '2026-01-01', periodEnd: '2026-03-31', periodLabel: 'Q1 2026', status: 'calculated' },
+      { id: 'vr_2', periodType: 'monthly', periodStart: '2026-04-01', periodEnd: '2026-04-30', periodLabel: 'April 2026', status: 'filed' },
+    ];
+    const user = userEvent.setup();
+    renderWithProviders(<VatReturnsPage />);
+    expect(screen.getByText('April 2026')).toBeInTheDocument();
+
+    await addIsFilter(user, 'Status', 'Filed');
+
+    await waitFor(() => expect(screen.queryByText('Q1 2026')).not.toBeInTheDocument());
+    expect(screen.getByText('April 2026')).toBeInTheDocument();
+  });
+
   it('opens a return in its record panel by its row', async () => {
     const user = userEvent.setup();
     renderWithProviders(<VatReturnsPage />);
@@ -120,6 +136,18 @@ describe('VatReturnsPage › ICP declarations', () => {
     jurisdiction.icp = true;
     for (const fn of [...Object.values(api), ...Object.values(toast)]) fn.mockReset();
     api.get.mockImplementation(async (path: string) => (path === '/icp-declarations' ? { data: declarations } : { data: {} }));
+  });
+
+  it('narrows the declarations by status with the second list\'s Filter', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<VatReturnsPage />);
+    await screen.findByText('Q2 2026');
+
+    // The returns list comes first; the declarations have the second Filter button.
+    await addIsFilter(user, 'Status', 'Submitted', 1);
+
+    await waitFor(() => expect(screen.queryByText('Q1 2026')).not.toBeInTheDocument());
+    expect(screen.getByText('Q2 2026')).toBeInTheDocument();
   });
 
   it('files a calculated declaration through Digipoort and says it was sent', async () => {

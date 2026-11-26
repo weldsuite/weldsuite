@@ -22,7 +22,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@weldsuite/ui/components/select';
-import { EmptyStateIllustration, type ColumnDef } from '@/components/entity-list';
+import { EmptyStateIllustration, type ColumnDef, type FilterConfig } from '@/components/entity-list';
+import { applyPillFilters } from '@/lib/weldbooks/list-filters';
 import { WeldbooksEntityList } from '@/components/accounting/weldbooks-entity-list';
 import { RowChip, RowDate, RowText, RowTitle, StatusChip } from '@/components/accounting/weldbooks-row-cells';
 import type { useFiscalCalendar } from '@/hooks/queries/use-weldbooks-assets-queries';
@@ -39,6 +40,12 @@ type FiscalCalendar = NonNullable<FiscalCalendarResult['data']>;
 
 /** A planned period as a list row: its type and dates are its identity. */
 type FiscalListRow = PlannedFiscalPeriod & { id: string };
+
+/** Where a period stands, as the Status filter compares it: still to create, open or closed. */
+function periodStanding(period: PlannedFiscalPeriod): 'toCreate' | 'open' | 'closed' {
+  if (!period.existingId) return 'toCreate';
+  return period.existingStatus === 'closed' ? 'closed' : 'open';
+}
 
 /** Where the period stands: still to create, or its open / closed status once it exists. */
 function PeriodStatusChip({ period }: Readonly<{ period: PlannedFiscalPeriod }>) {
@@ -241,6 +248,22 @@ export function FiscalCalendarBody({
     ...period,
     id: `${period.type}-${period.startDate}-${period.endDate}`,
   }));
+  const filterConfigs: FilterConfig[] = [
+    {
+      field: 'type',
+      label: tf.columns.type,
+      options: (Object.keys(tf.types) as Array<keyof typeof tf.types>).map((value) => ({ value, label: tf.types[value] })),
+    },
+    {
+      field: 'status',
+      label: tf.columns.status,
+      options: [
+        { value: 'toCreate', label: tf.toCreate },
+        { value: 'open', label: tf.statuses.open },
+        { value: 'closed', label: tf.statuses.closed },
+      ],
+    },
+  ];
 
   return (
     <div>
@@ -256,7 +279,10 @@ export function FiscalCalendarBody({
         columns={columns}
         leftActionButtons={leftActionButtons}
         actionButtons={actionButtons}
-        filters={[]}
+        filters={filterConfigs}
+        applyFilters={(rows, active) => applyPillFilters(rows, active, { type: (row) => row.type, status: periodStanding })}
+        searchFields={['name']}
+        searchPlaceholder={tf.searchPlaceholder}
         emptyState={{
           icon: (
             <EmptyStateIllustration>

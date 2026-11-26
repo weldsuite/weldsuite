@@ -146,6 +146,7 @@ export const weldbooksUsSalesTaxCenter = {
 
   // -- Returns list ----------------------------------------------------------
   periodsPage: {
+    searchPlaceholder: 'Aangiften zoeken...',
     title: 'Aangiftes',
     subtitle: 'Elke aangifteperiode van elke instantie, met uiterste datum en aangifte.',
     agencyFilter: 'Instantie',

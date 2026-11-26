@@ -176,6 +176,8 @@ function CertificatesList() {
         items={rows}
         isLoading={loading}
         columns={columns}
+        searchFields={['certificateNumber']}
+        searchPlaceholder={tc.searchPlaceholder}
         onRowClick={(certificate) => openPanel({ type: 'tax_exemption_certificate', id: certificate.id })}
         getRowLabel={(certificate) =>
           [tc.reasons[certificate.reason] ?? certificate.reason, certificate.certificateNumber].filter(Boolean).join(' · ')

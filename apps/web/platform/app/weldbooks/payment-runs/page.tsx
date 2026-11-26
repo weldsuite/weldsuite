@@ -150,6 +150,8 @@ export default function PaymentRunsPage() {
         items={runs}
         isLoading={list.isLoading}
         columns={columns}
+        searchFields={['bankAccountName', 'fileName', 'notes']}
+        searchPlaceholder={tl.searchPlaceholder}
         getRowClassName={(run) => (run.status === 'cancelled' ? 'opacity-60' : '')}
         onRowClick={(run) => openPanel({ type: 'payment_run', id: run.id })}
         getRowLabel={(run) => formatDate(run.paymentDate)}

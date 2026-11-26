@@ -98,9 +98,17 @@ export function rowWith(text: string | RegExp): HTMLElement {
   return row;
 }
 
-/** Adds a finished `is` filter pill through the toolbar: "Filter" > field > "is" > value. */
-export async function addIsFilter(user: ReturnType<typeof userEvent.setup>, field: string, value: string): Promise<void> {
-  await user.click(screen.getByRole('button', { name: 'Filter' }));
+/**
+ * Adds a finished `is` filter pill through the toolbar: "Filter" > field > "is" > value.
+ * `listIndex` picks the list on a page with more than one (each has its own Filter button).
+ */
+export async function addIsFilter(
+  user: ReturnType<typeof userEvent.setup>,
+  field: string,
+  value: string,
+  listIndex = 0,
+): Promise<void> {
+  await user.click(screen.getAllByRole('button', { name: 'Filter' })[listIndex]!);
   await user.click(await screen.findByRole('button', { name: field }));
   await user.click(await screen.findByRole('button', { name: 'is' }));
   // The pill opens its value picker on a timer, and the focus returning to the operator

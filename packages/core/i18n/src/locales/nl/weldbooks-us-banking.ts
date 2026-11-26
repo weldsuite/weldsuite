@@ -319,6 +319,7 @@ export const weldbooksUsBanking = {
   },
 
   deposits: {
+    searchPlaceholder: 'Stortingen zoeken...',
     usOnly: {
       title: 'Stortingen zijn voor Amerikaanse entiteiten',
       description:

@@ -476,6 +476,7 @@ export const weldbooksBr = {
   },
 
   received: {
+    searchPlaceholder: 'Ontvangen NF-e zoeken...',
     issuerTaxId: 'CNPJ',
     noMatches: 'Geen NF-e gevonden voor dit filter',
     noMatchesDescription: 'Probeer een andere status',

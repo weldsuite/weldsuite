@@ -548,6 +548,8 @@ export default function DocumentInboxPage() {
         items={documents}
         isLoading={documentsQuery.isLoading}
         columns={columns}
+        searchFields={['fileName']}
+        searchPlaceholder={td.searchPlaceholder}
         onRowClick={(doc) => {
           if (canOpenDocument(doc)) setSelectedDoc(doc);
         }}

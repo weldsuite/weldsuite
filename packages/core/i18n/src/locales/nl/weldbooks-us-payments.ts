@@ -107,6 +107,7 @@ export const weldbooksUsPayments = {
   },
 
   list: {
+    searchPlaceholder: 'Betaalruns zoeken...',
     title: 'Betaalruns',
     subtitle: 'Betaal inkoopfacturen van leveranciers in een batch per cheque of ACH, met goedkeuring voordat er geld beweegt.',
     newRun: 'Nieuwe betaalrun',
@@ -537,6 +538,7 @@ export const weldbooksUsPayments = {
   },
 
   register: {
+    searchPlaceholder: 'Cheques zoeken...',
     title: 'Chequeregister',
     subtitle: 'Elke geschreven cheque, ook de ongeldige, op chequenummer.',
     emptyTitle: 'Nog geen cheques',

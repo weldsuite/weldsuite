@@ -27,6 +27,7 @@ vi.mock('@/hooks/queries/use-weldbooks-assets-queries', () => ({
 
 import FiscalPeriodsPage from './page';
 import { polyfillRadixSelect, renderWithProviders } from '../fixed-assets/test-utils';
+import { addIsFilter } from '../payment-runs/test-utils';
 
 /** The list row (a `group` div of the standard list) of a period, found by its name. */
 function rowOf(name: string): HTMLElement {
@@ -90,6 +91,18 @@ describe('Fiscal periods page', () => {
     const last = rowOf('FY2026 P12');
     expect(within(last).getByText('6')).toBeInTheDocument();
     expect(within(last).getByText('To create')).toBeInTheDocument();
+  });
+
+  it('narrows the periods by where they stand', async () => {
+    calendar.periods[1] = { ...calendar.periods[1]!, existingStatus: 'closed' };
+    const user = userEvent.setup();
+    renderWithProviders(<FiscalPeriodsPage />);
+
+    await addIsFilter(user, 'Status', 'Closed');
+
+    await waitFor(() => expect(screen.queryByText('FY2026 P01')).not.toBeInTheDocument());
+    expect(screen.getByText('FY2026 P02')).toBeInTheDocument();
+    expect(screen.queryByText('FY2026 P12')).not.toBeInTheDocument();
   });
 
   it('offers to create exactly the periods that do not exist yet', async () => {

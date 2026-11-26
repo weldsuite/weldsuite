@@ -107,6 +107,7 @@ export const weldbooksUsPayments = {
   },
 
   list: {
+    searchPlaceholder: 'Search payment runs...',
     title: 'Payment runs',
     subtitle: 'Pay vendor bills in a batch by check or ACH, with approval before any money moves.',
     newRun: 'New payment run',
@@ -536,6 +537,7 @@ export const weldbooksUsPayments = {
   },
 
   register: {
+    searchPlaceholder: 'Search checks...',
     title: 'Check register',
     subtitle: 'Every check written, voided ones included, in check number order.',
     emptyTitle: 'No checks yet',

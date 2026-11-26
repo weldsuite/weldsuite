@@ -11,7 +11,7 @@ import {
   RowText,
   RowTitle,
 } from '@/components/accounting/weldbooks-row-cells';
-import { EmptyStateIllustration, type ColumnDef } from '@/components/entity-list';
+import { EmptyStateIllustration, type ColumnDef, type FilterConfig } from '@/components/entity-list';
 import { useObjectPanel, useObjectPanelUrlSync } from '@/components/object-panel';
 import { useBankAccounts } from '@/hooks/queries/use-weldbooks-banking-queries';
 import { isLiabilityAccountType, type UsBankAccount } from '@/lib/api/domains/weldbooks-banking';
@@ -19,6 +19,7 @@ import { useI18n } from '@/lib/i18n/provider';
 import { useCurrentJurisdiction } from '@/lib/weldbooks/use-jurisdiction';
 import { isUsJurisdictionCode } from '@/lib/weldbooks/us-entity';
 import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
+import { applyPillFilters } from '@/lib/weldbooks/list-filters';
 import { BankFeedsStrip } from './feeds/bank-feeds-strip';
 import { useConnectBankLauncher } from './feeds/connect-bank-button';
 import { BankAccountFormDialog } from './components/bank-account-form-dialog';
@@ -48,6 +49,30 @@ export default function BankAccountsPage() {
   // empty state leads with it when this entity's country has a provider.
   const offerFeed = launcher.allowed && launcher.available;
   const awaitingProviders = !hasAccounts && launcher.allowed && launcher.loading;
+
+  // Filter options are the banks, currencies and (US) account types the accounts have.
+  const present = (read: (a: UsBankAccount) => string | null | undefined) =>
+    [...new Set(accounts.map(read).filter((value): value is string => !!value))].sort((a, b) => a.localeCompare(b));
+  const filterConfigs: FilterConfig[] = [
+    { field: 'bank', label: tbp.columns.bank, options: present((a) => a.bankName).map((value) => ({ value, label: value })) },
+    {
+      field: 'currency',
+      label: tbp.columns.currency,
+      options: present((a) => a.currency ?? entityCurrency).map((value) => ({ value, label: value })),
+    },
+    ...(isUs
+      ? [
+          {
+            field: 'type',
+            label: tb.accountList.type,
+            options: present((a) => a.accountType).map((value) => ({
+              value,
+              label: tb.accountTypes[value as keyof typeof tb.accountTypes] ?? value,
+            })),
+          },
+        ]
+      : []),
+  ];
 
   const columns: ColumnDef<UsBankAccount>[] = [
     {
@@ -137,6 +162,14 @@ export default function BankAccountsPage() {
         columns={columns}
         onRowClick={(a) => openPanel({ type: 'bank_account', id: a.id })}
         getRowLabel={(a) => a.name}
+        filters={filterConfigs}
+        applyFilters={(rows, active) =>
+          applyPillFilters(rows, active, {
+            bank: (a) => a.bankName,
+            currency: (a) => a.currency ?? entityCurrency,
+            type: (a) => a.accountType,
+          })
+        }
         searchFields={['name', 'iban', 'bankName']}
         searchPlaceholder={tbp.columns.name}
         createButton={{ label: tbp.addBankAccount, onClick: () => setCreateOpen(true) }}
