@@ -1,13 +1,23 @@
 import { useParams } from '@/lib/router';
-import { EcommerceConnectorSettingsPage } from '@/app/settings/integrations/connectors/ecommerce-connector-client';
+import {
+  EcommerceConnectorSettingsPage,
+  isConnectorProvider,
+} from '@/app/settings/integrations/connectors/ecommerce-connector-client';
+import { sharedPageProviderBySlug } from '@/app/settings/integrations/workflow/providers';
+import { WorkflowProviderPage } from '@/app/settings/integrations/workflow/workflow-provider-page';
 import { IntegrationDetailClient } from './integration-detail-client';
 
 export default function IntegrationDetailPage() {
   const params = useParams();
   const id = params.id as string;
 
-  if (id === 'woocommerce' || id === 'shopify' || id === 'moneybird' || id === 'picqer') {
+  if (isConnectorProvider(id)) {
     return <EcommerceConnectorSettingsPage provider={id} />;
+  }
+
+  const workflowProvider = sharedPageProviderBySlug(id);
+  if (workflowProvider) {
+    return <WorkflowProviderPage provider={workflowProvider} />;
   }
 
   return (

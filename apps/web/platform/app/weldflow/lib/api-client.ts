@@ -643,7 +643,12 @@ export const tasksApi = {
     status?: string;
     priority?: string;
     assigneeId?: string;
+    /** A sprint id, or `none` for the backlog (tasks in no sprint). */
     sprintId?: string;
+    /** The epic or feature the items belong to (Rust only). */
+    epicId?: string;
+    /** One item type (`tasks.type`), e.g. `epic`. */
+    type?: string;
     milestoneId?: string;
     search?: string;
     dueDateBucket?: string;
@@ -658,6 +663,8 @@ export const tasksApi = {
     if (params?.priority) qs.set('priority', params.priority);
     if (params?.assigneeId) qs.set('assigneeId', params.assigneeId);
     if (params?.sprintId) qs.set('sprintId', params.sprintId);
+    if (params?.epicId) qs.set('epicId', params.epicId);
+    if (params?.type) qs.set('type', params.type);
     if (params?.milestoneId) qs.set('milestoneId', params.milestoneId);
     if (params?.search) qs.set('search', params.search);
     if (params?.dueDateBucket) qs.set('dueDateBucket', params.dueDateBucket);
@@ -672,7 +679,7 @@ export const tasksApi = {
   // Every top-level task of a project. `list` returns a single page (the
   // server's default page size is 50), which silently cut longer projects off
   // the board; this walks the pages until one comes back short.
-  listAllPages: async (projectId: string, params?: { includeSubtasks?: boolean }): Promise<ApiResponse<ApiTask[]>> => {
+  listAllPages: async (projectId: string, params?: { includeSubtasks?: boolean; sprintId?: string; epicId?: string; type?: string }): Promise<ApiResponse<ApiTask[]>> => {
     const pageSize = 200;
     const maxPages = 50;
     const all: ApiTask[] = [];
@@ -701,6 +708,11 @@ export const tasksApi = {
     tags?: string[];
     labels?: string[];
     parentTaskId?: string;
+    /** Agile fields (Rust only for `epicId`): the item type, sprint, epic and estimate. */
+    type?: string;
+    sprintId?: string | null;
+    epicId?: string | null;
+    storyPoints?: number | null;
     repeat?: { frequency: string; interval?: number; unit?: string };
     customFields?: Record<string, unknown> | null;
   }) => appApiPost<ApiTask>(`/tasks/projects/${projectId}`, data),

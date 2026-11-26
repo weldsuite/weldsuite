@@ -46,6 +46,9 @@ export interface TaskRow {
   actualHours?: string | number | null;
   duration?: number | null;
   storyPoints?: number | null;
+  /** The epic or feature the item belongs to (EU and self-hosted only; ADR FLOW-023). */
+  epicId?: string | null;
+  acceptanceCriteria?: string | null;
   dependsOn?: string[] | null;
   blocks?: string[] | null;
   position?: number;

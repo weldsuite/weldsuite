@@ -200,6 +200,7 @@ paths.
   lookup, no rate limit. The list is the master `workspaces` and
   `user_workspaces` through the ORM
   (`WorkspaceSelector::member_workspace_list`).
+- **ChatGPT plugin directory verification.** OpenAI checks the MCP host for the token its dashboard hands out: `GET /.well-known/openai-apps-challenge` answers `OPENAI_APPS_CHALLENGE` (the chart's `config.mcp.openaiAppsChallenge`) as plain text, `src/challenge.rs`; unset, a 404. The EU ingress routes that one path on `mcp.<domain>`.
 - **Refusals are logged.** Every 401 and 403 of `/mcp` logs its reason
   (`mcp auth: 401`, `mcp auth: 403`, field `diagnostic`), since the client
   shows none of it; the metrics count them per status

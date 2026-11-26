@@ -167,9 +167,11 @@ describe('edition flags', () => {
     const hrefs = settingsCommands(en, new Set(['weldcrm'])).map((command) => command.href);
     expect(hrefs).toContain('/settings/team');
     // API keys only work once the deployment names its public API (TASK-1418).
-    for (const hidden of ['/settings/api-keys', '/settings/sso', '/settings/plans', '/settings/billing', '/settings/webhooks', '/settings/integrations', '/settings/apps/phone-numbers', '/settings/apps/weldcrm']) {
+    for (const hidden of ['/settings/api-keys', '/settings/sso', '/settings/plans', '/settings/billing', '/settings/apps/phone-numbers', '/settings/apps/weldcrm']) {
       expect(hrefs, hidden).not.toContain(hidden);
     }
+    // Integrations and outbound webhooks are core platform (ADR INT-014), whatever modules the install runs.
+    expect(hrefs).toEqual(expect.arrayContaining(['/settings/integrations', '/settings/webhooks']));
   });
 
   it('lists API keys once the deployment names its public API', () => {

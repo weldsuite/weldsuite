@@ -261,6 +261,14 @@ export const EDITION_FEATURES = [
    * in `GLOBAL_UNAVAILABLE_FEATURES` and Global hides the page.
    */
   'weldpass-offline',
+  /**
+   * WeldFlow agile delivery (ADRs FLOW-022 to FLOW-024): a project's delivery
+   * approach and item types, sprints with start, complete and reports, the
+   * Backlog view, epics, retros, WIP limits and sprints in Gantt › Phases.
+   * Built only in Rust, so it is in `GLOBAL_UNAVAILABLE_FEATURES` and Global
+   * shows WeldFlow as before.
+   */
+  'flow-agile',
 ] as const;
 
 export type EditionFeature = (typeof EDITION_FEATURES)[number];

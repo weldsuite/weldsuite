@@ -74,6 +74,7 @@ import {
 import { ScrollArea } from '@weldsuite/ui/components/scroll-area';
 import { EditorPanelHeader, EditorSidePanel } from '@weldsuite/ui/components/editor-side-panel';
 import { Link, useRouter, useSearchParams } from '@/lib/router';
+import { IntegrationSettingsLink } from '@/app/settings/integrations/workflow/integration-settings-link';
 import { toast } from 'sonner';
 import {
   automationKeys,
@@ -1517,9 +1518,9 @@ function IntegrationEventFields({ form, integrationTriggers, applyTriggerData }:
         {integrationTriggers.length === 0 && (
           <p className="text-xs text-muted-foreground">
             {tcd.integrationEvent.noEvents}{' '}
-            <Link href="/weldconnect/integrations" className="text-primary underline-offset-2 hover:underline">
-              {t.weldconnect.breadcrumbs.integrations}
-            </Link>
+            <IntegrationSettingsLink className="text-primary underline-offset-2 hover:underline">
+              {t.settings.integrationsLabel}
+            </IntegrationSettingsLink>
           </p>
         )}
         {form.integrationTriggerEventId && (

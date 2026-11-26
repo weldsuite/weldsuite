@@ -4,6 +4,7 @@ import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { useI18n } from '@/lib/i18n/provider';
 import { useParams } from '@/lib/router';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
+import { AnalyticsViewSwitch } from './_components/analytics-view-switch';
 
 export default function ProjectAnalyticsPage() {
   const { t } = useI18n();
@@ -27,6 +28,7 @@ export default function ProjectAnalyticsPage() {
       projectId={projectId}
       basePath={basePath}
       emptyStateClassName="min-h-[calc(100dvh-350px)]"
+      leftActionButtons={<AnalyticsViewSwitch projectId={projectId} />}
     />
   );
 }

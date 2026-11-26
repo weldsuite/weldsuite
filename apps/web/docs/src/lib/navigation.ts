@@ -107,7 +107,7 @@ export const navigation = [
       { title: 'Logic steps', href: '/weldconnect/logic-steps' },
       { title: 'WeldSuite steps', href: '/weldconnect/weldsuite-steps' },
       { title: 'AI steps', href: '/weldconnect/ai-steps' },
-      { title: 'Connect Slack, Google and GitHub', href: '/weldconnect/connect-apps' },
+      { title: 'App steps: Slack, Google and GitHub', href: '/weldconnect/connect-apps' },
       { title: 'Send Stripe sales to Moneybird', href: '/weldconnect/stripe-to-moneybird' },
       { title: 'Runs and history', href: '/weldconnect/runs-and-history' },
     ],
@@ -171,6 +171,7 @@ export const navigation = [
     links: [
       { title: 'Overview', href: '/settings' },
       { title: 'Team and permissions', href: '/settings/team-and-permissions' },
+      { title: 'Integrations', href: '/settings/integrations' },
       { title: 'Connect an AI assistant (MCP)', href: '/settings/mcp-server' },
       { title: 'Delete your account', href: '/settings/delete-account' },
     ],

@@ -1,0 +1,8 @@
+[
+  "/api/connectors",
+  "/api/external-webhooks",
+  "/api/github-connections",
+  "/api/integrations",
+  "/api/workflow-integrations",
+  "/webhooks/woocommerce"
+]

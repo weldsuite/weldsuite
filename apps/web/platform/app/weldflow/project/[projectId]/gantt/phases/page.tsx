@@ -14,6 +14,7 @@ import { GateCard } from './_components/gate-card';
 import { Lifecycle } from './_components/lifecycle';
 import { PastGates } from './_components/past-gates';
 import { PhaseEditor, type DecisionOption } from './_components/phase-editor';
+import { PhaseTimeline } from './_components/phase-timeline';
 
 /**
  * The project's decisions, for the "decision decided" criterion. Optional data (the decision log is another
@@ -127,6 +128,7 @@ export default function PhasesPage() {
         </div>
       ) : (
         <>
+          <PhaseTimeline projectId={projectId} phases={list} />
           <Lifecycle phases={list} />
           <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_22rem]">
             {gateCard}

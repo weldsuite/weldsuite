@@ -8,8 +8,9 @@ use serde_json::{Map, Value, json};
 use crate::js::{Js, stringify};
 use crate::task_enrich::assignee_ids_of;
 
-/// Columns worth an audit line, in display order.
-const TRACKED_FIELDS: [&str; 16] = [
+/// Columns worth an audit line, in display order; the last two are the
+/// agile fields (EU and self-hosted only, FLOW-023).
+const TRACKED_FIELDS: [&str; 18] = [
     "title",
     "description",
     "status",
@@ -26,6 +27,8 @@ const TRACKED_FIELDS: [&str; 16] = [
     "storyPoints",
     "estimatedHours",
     "isBillable",
+    "epicId",
+    "acceptanceCriteria",
 ];
 
 const MAX_TEXT_LENGTH: usize = 120;
@@ -184,7 +187,7 @@ pub(crate) fn build_task_changes(
         let before = normalise(field, row_js(existing, field).as_ref());
         let after = normalise(field, Some(next));
         if stringify(&before) != stringify(&after) {
-            let (old, new) = if field == "description" {
+            let (old, new) = if matches!(field, "description" | "acceptanceCriteria") {
                 (excerpt(&before), excerpt(&after))
             } else {
                 (before, after)

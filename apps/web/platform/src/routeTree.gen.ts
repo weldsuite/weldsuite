@@ -215,9 +215,7 @@ import { Route as WeldconnectWebhooksIndexRouteImport } from './routes/weldconne
 import { Route as WeldconnectVariablesIndexRouteImport } from './routes/weldconnect/variables/index'
 import { Route as WeldconnectTriggersIndexRouteImport } from './routes/weldconnect/triggers/index'
 import { Route as WeldconnectTemplatesIndexRouteImport } from './routes/weldconnect/templates/index'
-import { Route as WeldconnectIntegrationsIndexRouteImport } from './routes/weldconnect/integrations/index'
 import { Route as WeldconnectExecutionsIndexRouteImport } from './routes/weldconnect/executions/index'
-import { Route as WeldconnectConnectorsIndexRouteImport } from './routes/weldconnect/connectors/index'
 import { Route as WeldconnectAnalyticsIndexRouteImport } from './routes/weldconnect/analytics/index'
 import { Route as WeldconnectActionsIndexRouteImport } from './routes/weldconnect/actions/index'
 import { Route as WeldcommerceProductsIndexRouteImport } from './routes/weldcommerce/products/index'
@@ -339,10 +337,11 @@ import { Route as WelddeskReportsWallboardRouteImport } from './routes/welddesk/
 import { Route as WelddeskReportsSchedulesRouteImport } from './routes/welddesk/reports/schedules'
 import { Route as WelddeskReportsPhoneRouteImport } from './routes/welddesk/reports/phone'
 import { Route as WelddeskProblemsProblemIdRouteImport } from './routes/welddesk/problems/$problemId'
-import { Route as WeldconnectIntegrationsCallbackRouteImport } from './routes/weldconnect/integrations/callback'
-import { Route as WeldconnectConnectorsCallbackRouteImport } from './routes/weldconnect/connectors/callback'
+import { Route as WeldconnectIntegrationsCallbackRouteImport } from './routes/weldconnect_/integrations/callback'
+import { Route as WeldconnectConnectorsCallbackRouteImport } from './routes/weldconnect_/connectors/callback'
 import { Route as WeldcommerceOrdersNewRouteImport } from './routes/weldcommerce/orders/new'
 import { Route as WeldchatDmUserIdRouteImport } from './routes/weldchat/dm/$userId'
+import { Route as SettingsIntegrationsCallbackRouteImport } from './routes/settings/integrations/callback'
 import { Route as SettingsCustomObjectsObjectIdRouteImport } from './routes/settings/custom-objects/$objectId'
 import { Route as SettingsAppsWeldstashRouteImport } from './routes/settings/apps/weldstash'
 import { Route as SettingsAppsWeldreachRouteImport } from './routes/settings/apps/weldreach'
@@ -627,8 +626,11 @@ import { Route as PreviewWelddataListsIdIndexRouteImport } from './routes/previe
 import { Route as PreviewWeldcrmPipelineIdIndexRouteImport } from './routes/preview/weldcrm/pipeline/$id/index'
 import { Route as PreviewWeldcalendarSchedulingNewIndexRouteImport } from './routes/preview/weldcalendar/scheduling/new/index'
 import { Route as PreviewWeldcalendarSchedulingIdIndexRouteImport } from './routes/preview/weldcalendar/scheduling/$id/index'
+import { Route as WeldflowProjectProjectIdSprintsSprintIdRouteRouteImport } from './routes/weldflow/project/$projectId/sprints/$sprintId/route'
 import { Route as WeldflowProjectProjectIdWhiteboardWhiteboardIdIndexRouteImport } from './routes/weldflow/project/$projectId/whiteboard/$whiteboardId/index'
+import { Route as WeldflowProjectProjectIdTasksBacklogIndexRouteImport } from './routes/weldflow/project/$projectId/tasks/backlog/index'
 import { Route as WeldflowProjectProjectIdTableFileIdIndexRouteImport } from './routes/weldflow/project/$projectId/table/$fileId/index'
+import { Route as WeldflowProjectProjectIdSprintsSprintIdIndexRouteImport } from './routes/weldflow/project/$projectId/sprints/$sprintId/index'
 import { Route as WeldflowProjectProjectIdScopeValueIndexRouteImport } from './routes/weldflow/project/$projectId/scope/value/index'
 import { Route as WeldflowProjectProjectIdRaidIssuesIndexRouteImport } from './routes/weldflow/project/$projectId/raid/issues/index'
 import { Route as WeldflowProjectProjectIdRaidDependenciesIndexRouteImport } from './routes/weldflow/project/$projectId/raid/dependencies/index'
@@ -641,7 +643,9 @@ import { Route as WeldflowProjectProjectIdGanttPhasesIndexRouteImport } from './
 import { Route as WeldflowProjectProjectIdGanttDependenciesIndexRouteImport } from './routes/weldflow/project/$projectId/gantt/dependencies/index'
 import { Route as WeldflowProjectProjectIdFinanceForecastIndexRouteImport } from './routes/weldflow/project/$projectId/finance/forecast/index'
 import { Route as WeldflowProjectProjectIdFinanceCostsIndexRouteImport } from './routes/weldflow/project/$projectId/finance/costs/index'
+import { Route as WeldflowProjectProjectIdEpicsEpicIdIndexRouteImport } from './routes/weldflow/project/$projectId/epics/$epicId/index'
 import { Route as WeldflowProjectProjectIdDocumentsFileIdIndexRouteImport } from './routes/weldflow/project/$projectId/documents/$fileId/index'
+import { Route as WeldflowProjectProjectIdAnalyticsSprintsIndexRouteImport } from './routes/weldflow/project/$projectId/analytics/sprints/index'
 import { Route as WeldflowProjectProjectIdAnalyticsBuilderIndexRouteImport } from './routes/weldflow/project/$projectId/analytics/builder/index'
 import { Route as WeldflowProjectProjectIdAnalyticsIdIndexRouteImport } from './routes/weldflow/project/$projectId/analytics/$id/index'
 import { Route as WelddeskHelpCenterArticlesIdEditIndexRouteImport } from './routes/welddesk/help-center/articles/$id/edit/index'
@@ -654,6 +658,8 @@ import { Route as PreviewWeldmailAccountIdLabelSlugComposeIndexRouteImport } fro
 import { Route as PreviewWeldmailAccountIdLabelSlugMessageIdIndexRouteImport } from './routes/preview/weldmail/$accountId/$labelSlug/$messageId/index'
 import { Route as PreviewWeldflowProjectProjectIdTasksIndexRouteImport } from './routes/preview/weldflow/project/$projectId/tasks/index'
 import { Route as PreviewWeldcalendarSchedulingIdViewIndexRouteImport } from './routes/preview/weldcalendar/scheduling/$id/view/index'
+import { Route as WeldflowProjectProjectIdSprintsSprintIdRetroIndexRouteImport } from './routes/weldflow/project/$projectId/sprints/$sprintId/retro/index'
+import { Route as WeldflowProjectProjectIdSprintsSprintIdReportIndexRouteImport } from './routes/weldflow/project/$projectId/sprints/$sprintId/report/index'
 
 const NewChatRoute = NewChatRouteImport.update({
   id: '/new-chat',
@@ -1705,22 +1711,10 @@ const WeldconnectTemplatesIndexRoute =
     path: '/templates/',
     getParentRoute: () => WeldconnectRouteRoute,
   } as any)
-const WeldconnectIntegrationsIndexRoute =
-  WeldconnectIntegrationsIndexRouteImport.update({
-    id: '/integrations/',
-    path: '/integrations/',
-    getParentRoute: () => WeldconnectRouteRoute,
-  } as any)
 const WeldconnectExecutionsIndexRoute =
   WeldconnectExecutionsIndexRouteImport.update({
     id: '/executions/',
     path: '/executions/',
-    getParentRoute: () => WeldconnectRouteRoute,
-  } as any)
-const WeldconnectConnectorsIndexRoute =
-  WeldconnectConnectorsIndexRouteImport.update({
-    id: '/connectors/',
-    path: '/connectors/',
     getParentRoute: () => WeldconnectRouteRoute,
   } as any)
 const WeldconnectAnalyticsIndexRoute =
@@ -2356,15 +2350,15 @@ const WelddeskProblemsProblemIdRoute =
   } as any)
 const WeldconnectIntegrationsCallbackRoute =
   WeldconnectIntegrationsCallbackRouteImport.update({
-    id: '/integrations/callback',
-    path: '/integrations/callback',
-    getParentRoute: () => WeldconnectRouteRoute,
+    id: '/weldconnect_/integrations/callback',
+    path: '/weldconnect/integrations/callback',
+    getParentRoute: () => rootRouteImport,
   } as any)
 const WeldconnectConnectorsCallbackRoute =
   WeldconnectConnectorsCallbackRouteImport.update({
-    id: '/connectors/callback',
-    path: '/connectors/callback',
-    getParentRoute: () => WeldconnectRouteRoute,
+    id: '/weldconnect_/connectors/callback',
+    path: '/weldconnect/connectors/callback',
+    getParentRoute: () => rootRouteImport,
   } as any)
 const WeldcommerceOrdersNewRoute = WeldcommerceOrdersNewRouteImport.update({
   id: '/orders/new',
@@ -2376,6 +2370,12 @@ const WeldchatDmUserIdRoute = WeldchatDmUserIdRouteImport.update({
   path: '/dm/$userId',
   getParentRoute: () => WeldchatRouteRoute,
 } as any)
+const SettingsIntegrationsCallbackRoute =
+  SettingsIntegrationsCallbackRouteImport.update({
+    id: '/integrations/callback',
+    path: '/integrations/callback',
+    getParentRoute: () => SettingsRouteRoute,
+  } as any)
 const SettingsCustomObjectsObjectIdRoute =
   SettingsCustomObjectsObjectIdRouteImport.update({
     id: '/custom-objects/$objectId',
@@ -4038,10 +4038,22 @@ const PreviewWeldcalendarSchedulingIdIndexRoute =
     path: '/scheduling/$id/',
     getParentRoute: () => PreviewWeldcalendarRouteRoute,
   } as any)
+const WeldflowProjectProjectIdSprintsSprintIdRouteRoute =
+  WeldflowProjectProjectIdSprintsSprintIdRouteRouteImport.update({
+    id: '/sprints/$sprintId',
+    path: '/sprints/$sprintId',
+    getParentRoute: () => WeldflowProjectProjectIdRouteRoute,
+  } as any)
 const WeldflowProjectProjectIdWhiteboardWhiteboardIdIndexRoute =
   WeldflowProjectProjectIdWhiteboardWhiteboardIdIndexRouteImport.update({
     id: '/whiteboard/$whiteboardId/',
     path: '/whiteboard/$whiteboardId/',
+    getParentRoute: () => WeldflowProjectProjectIdRouteRoute,
+  } as any)
+const WeldflowProjectProjectIdTasksBacklogIndexRoute =
+  WeldflowProjectProjectIdTasksBacklogIndexRouteImport.update({
+    id: '/tasks/backlog/',
+    path: '/tasks/backlog/',
     getParentRoute: () => WeldflowProjectProjectIdRouteRoute,
   } as any)
 const WeldflowProjectProjectIdTableFileIdIndexRoute =
@@ -4049,6 +4061,12 @@ const WeldflowProjectProjectIdTableFileIdIndexRoute =
     id: '/table/$fileId/',
     path: '/table/$fileId/',
     getParentRoute: () => WeldflowProjectProjectIdRouteRoute,
+  } as any)
+const WeldflowProjectProjectIdSprintsSprintIdIndexRoute =
+  WeldflowProjectProjectIdSprintsSprintIdIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => WeldflowProjectProjectIdSprintsSprintIdRouteRoute,
   } as any)
 const WeldflowProjectProjectIdScopeValueIndexRoute =
   WeldflowProjectProjectIdScopeValueIndexRouteImport.update({
@@ -4122,10 +4140,22 @@ const WeldflowProjectProjectIdFinanceCostsIndexRoute =
     path: '/costs/',
     getParentRoute: () => WeldflowProjectProjectIdFinanceRouteRoute,
   } as any)
+const WeldflowProjectProjectIdEpicsEpicIdIndexRoute =
+  WeldflowProjectProjectIdEpicsEpicIdIndexRouteImport.update({
+    id: '/epics/$epicId/',
+    path: '/epics/$epicId/',
+    getParentRoute: () => WeldflowProjectProjectIdRouteRoute,
+  } as any)
 const WeldflowProjectProjectIdDocumentsFileIdIndexRoute =
   WeldflowProjectProjectIdDocumentsFileIdIndexRouteImport.update({
     id: '/documents/$fileId/',
     path: '/documents/$fileId/',
+    getParentRoute: () => WeldflowProjectProjectIdRouteRoute,
+  } as any)
+const WeldflowProjectProjectIdAnalyticsSprintsIndexRoute =
+  WeldflowProjectProjectIdAnalyticsSprintsIndexRouteImport.update({
+    id: '/analytics/sprints/',
+    path: '/analytics/sprints/',
     getParentRoute: () => WeldflowProjectProjectIdRouteRoute,
   } as any)
 const WeldflowProjectProjectIdAnalyticsBuilderIndexRoute =
@@ -4199,6 +4229,18 @@ const PreviewWeldcalendarSchedulingIdViewIndexRoute =
     id: '/scheduling/$id/view/',
     path: '/scheduling/$id/view/',
     getParentRoute: () => PreviewWeldcalendarRouteRoute,
+  } as any)
+const WeldflowProjectProjectIdSprintsSprintIdRetroIndexRoute =
+  WeldflowProjectProjectIdSprintsSprintIdRetroIndexRouteImport.update({
+    id: '/retro/',
+    path: '/retro/',
+    getParentRoute: () => WeldflowProjectProjectIdSprintsSprintIdRouteRoute,
+  } as any)
+const WeldflowProjectProjectIdSprintsSprintIdReportIndexRoute =
+  WeldflowProjectProjectIdSprintsSprintIdReportIndexRouteImport.update({
+    id: '/report/',
+    path: '/report/',
+    getParentRoute: () => WeldflowProjectProjectIdSprintsSprintIdRouteRoute,
   } as any)
 
 export interface FileRoutesByFullPath {
@@ -4329,6 +4371,7 @@ export interface FileRoutesByFullPath {
   '/settings/apps/weldreach': typeof SettingsAppsWeldreachRoute
   '/settings/apps/weldstash': typeof SettingsAppsWeldstashRoute
   '/settings/custom-objects/$objectId': typeof SettingsCustomObjectsObjectIdRoute
+  '/settings/integrations/callback': typeof SettingsIntegrationsCallbackRoute
   '/weldchat/dm/$userId': typeof WeldchatDmUserIdRoute
   '/weldcommerce/orders/new': typeof WeldcommerceOrdersNewRoute
   '/weldconnect/connectors/callback': typeof WeldconnectConnectorsCallbackRoute
@@ -4454,9 +4497,7 @@ export interface FileRoutesByFullPath {
   '/weldcommerce/products/': typeof WeldcommerceProductsIndexRoute
   '/weldconnect/actions/': typeof WeldconnectActionsIndexRoute
   '/weldconnect/analytics/': typeof WeldconnectAnalyticsIndexRoute
-  '/weldconnect/connectors/': typeof WeldconnectConnectorsIndexRoute
   '/weldconnect/executions/': typeof WeldconnectExecutionsIndexRoute
-  '/weldconnect/integrations/': typeof WeldconnectIntegrationsIndexRoute
   '/weldconnect/templates/': typeof WeldconnectTemplatesIndexRoute
   '/weldconnect/triggers/': typeof WeldconnectTriggersIndexRoute
   '/weldconnect/variables/': typeof WeldconnectVariablesIndexRoute
@@ -4730,6 +4771,7 @@ export interface FileRoutesByFullPath {
   '/weldreach/campaigns/$campaignId/': typeof WeldreachCampaignsCampaignIdIndexRoute
   '/weldsign/templates/$templateId/': typeof WeldsignTemplatesTemplateIdIndexRoute
   '/weldstash/purchase-orders/$orderId/': typeof WeldstashPurchaseOrdersOrderIdIndexRoute
+  '/weldflow/project/$projectId/sprints/$sprintId': typeof WeldflowProjectProjectIdSprintsSprintIdRouteRouteWithChildren
   '/preview/weldcalendar/scheduling/$id/': typeof PreviewWeldcalendarSchedulingIdIndexRoute
   '/preview/weldcalendar/scheduling/new/': typeof PreviewWeldcalendarSchedulingNewIndexRoute
   '/preview/weldcrm/pipeline/$id/': typeof PreviewWeldcrmPipelineIdIndexRoute
@@ -4832,7 +4874,9 @@ export interface FileRoutesByFullPath {
   '/welddesk/help-center/articles/$id/edit/': typeof WelddeskHelpCenterArticlesIdEditIndexRoute
   '/weldflow/project/$projectId/analytics/$id/': typeof WeldflowProjectProjectIdAnalyticsIdIndexRoute
   '/weldflow/project/$projectId/analytics/builder/': typeof WeldflowProjectProjectIdAnalyticsBuilderIndexRoute
+  '/weldflow/project/$projectId/analytics/sprints/': typeof WeldflowProjectProjectIdAnalyticsSprintsIndexRoute
   '/weldflow/project/$projectId/documents/$fileId/': typeof WeldflowProjectProjectIdDocumentsFileIdIndexRoute
+  '/weldflow/project/$projectId/epics/$epicId/': typeof WeldflowProjectProjectIdEpicsEpicIdIndexRoute
   '/weldflow/project/$projectId/finance/costs/': typeof WeldflowProjectProjectIdFinanceCostsIndexRoute
   '/weldflow/project/$projectId/finance/forecast/': typeof WeldflowProjectProjectIdFinanceForecastIndexRoute
   '/weldflow/project/$projectId/gantt/dependencies/': typeof WeldflowProjectProjectIdGanttDependenciesIndexRoute
@@ -4845,8 +4889,12 @@ export interface FileRoutesByFullPath {
   '/weldflow/project/$projectId/raid/dependencies/': typeof WeldflowProjectProjectIdRaidDependenciesIndexRoute
   '/weldflow/project/$projectId/raid/issues/': typeof WeldflowProjectProjectIdRaidIssuesIndexRoute
   '/weldflow/project/$projectId/scope/value/': typeof WeldflowProjectProjectIdScopeValueIndexRoute
+  '/weldflow/project/$projectId/sprints/$sprintId/': typeof WeldflowProjectProjectIdSprintsSprintIdIndexRoute
   '/weldflow/project/$projectId/table/$fileId/': typeof WeldflowProjectProjectIdTableFileIdIndexRoute
+  '/weldflow/project/$projectId/tasks/backlog/': typeof WeldflowProjectProjectIdTasksBacklogIndexRoute
   '/weldflow/project/$projectId/whiteboard/$whiteboardId/': typeof WeldflowProjectProjectIdWhiteboardWhiteboardIdIndexRoute
+  '/weldflow/project/$projectId/sprints/$sprintId/report/': typeof WeldflowProjectProjectIdSprintsSprintIdReportIndexRoute
+  '/weldflow/project/$projectId/sprints/$sprintId/retro/': typeof WeldflowProjectProjectIdSprintsSprintIdRetroIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -4923,6 +4971,7 @@ export interface FileRoutesByTo {
   '/settings/apps/weldreach': typeof SettingsAppsWeldreachRoute
   '/settings/apps/weldstash': typeof SettingsAppsWeldstashRoute
   '/settings/custom-objects/$objectId': typeof SettingsCustomObjectsObjectIdRoute
+  '/settings/integrations/callback': typeof SettingsIntegrationsCallbackRoute
   '/weldchat/dm/$userId': typeof WeldchatDmUserIdRoute
   '/weldcommerce/orders/new': typeof WeldcommerceOrdersNewRoute
   '/weldconnect/connectors/callback': typeof WeldconnectConnectorsCallbackRoute
@@ -5048,9 +5097,7 @@ export interface FileRoutesByTo {
   '/weldcommerce/products': typeof WeldcommerceProductsIndexRoute
   '/weldconnect/actions': typeof WeldconnectActionsIndexRoute
   '/weldconnect/analytics': typeof WeldconnectAnalyticsIndexRoute
-  '/weldconnect/connectors': typeof WeldconnectConnectorsIndexRoute
   '/weldconnect/executions': typeof WeldconnectExecutionsIndexRoute
-  '/weldconnect/integrations': typeof WeldconnectIntegrationsIndexRoute
   '/weldconnect/templates': typeof WeldconnectTemplatesIndexRoute
   '/weldconnect/triggers': typeof WeldconnectTriggersIndexRoute
   '/weldconnect/variables': typeof WeldconnectVariablesIndexRoute
@@ -5419,7 +5466,9 @@ export interface FileRoutesByTo {
   '/welddesk/help-center/articles/$id/edit': typeof WelddeskHelpCenterArticlesIdEditIndexRoute
   '/weldflow/project/$projectId/analytics/$id': typeof WeldflowProjectProjectIdAnalyticsIdIndexRoute
   '/weldflow/project/$projectId/analytics/builder': typeof WeldflowProjectProjectIdAnalyticsBuilderIndexRoute
+  '/weldflow/project/$projectId/analytics/sprints': typeof WeldflowProjectProjectIdAnalyticsSprintsIndexRoute
   '/weldflow/project/$projectId/documents/$fileId': typeof WeldflowProjectProjectIdDocumentsFileIdIndexRoute
+  '/weldflow/project/$projectId/epics/$epicId': typeof WeldflowProjectProjectIdEpicsEpicIdIndexRoute
   '/weldflow/project/$projectId/finance/costs': typeof WeldflowProjectProjectIdFinanceCostsIndexRoute
   '/weldflow/project/$projectId/finance/forecast': typeof WeldflowProjectProjectIdFinanceForecastIndexRoute
   '/weldflow/project/$projectId/gantt/dependencies': typeof WeldflowProjectProjectIdGanttDependenciesIndexRoute
@@ -5432,8 +5481,12 @@ export interface FileRoutesByTo {
   '/weldflow/project/$projectId/raid/dependencies': typeof WeldflowProjectProjectIdRaidDependenciesIndexRoute
   '/weldflow/project/$projectId/raid/issues': typeof WeldflowProjectProjectIdRaidIssuesIndexRoute
   '/weldflow/project/$projectId/scope/value': typeof WeldflowProjectProjectIdScopeValueIndexRoute
+  '/weldflow/project/$projectId/sprints/$sprintId': typeof WeldflowProjectProjectIdSprintsSprintIdIndexRoute
   '/weldflow/project/$projectId/table/$fileId': typeof WeldflowProjectProjectIdTableFileIdIndexRoute
+  '/weldflow/project/$projectId/tasks/backlog': typeof WeldflowProjectProjectIdTasksBacklogIndexRoute
   '/weldflow/project/$projectId/whiteboard/$whiteboardId': typeof WeldflowProjectProjectIdWhiteboardWhiteboardIdIndexRoute
+  '/weldflow/project/$projectId/sprints/$sprintId/report': typeof WeldflowProjectProjectIdSprintsSprintIdReportIndexRoute
+  '/weldflow/project/$projectId/sprints/$sprintId/retro': typeof WeldflowProjectProjectIdSprintsSprintIdRetroIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -5564,10 +5617,11 @@ export interface FileRoutesById {
   '/settings/apps/weldreach': typeof SettingsAppsWeldreachRoute
   '/settings/apps/weldstash': typeof SettingsAppsWeldstashRoute
   '/settings/custom-objects/$objectId': typeof SettingsCustomObjectsObjectIdRoute
+  '/settings/integrations/callback': typeof SettingsIntegrationsCallbackRoute
   '/weldchat/dm/$userId': typeof WeldchatDmUserIdRoute
   '/weldcommerce/orders/new': typeof WeldcommerceOrdersNewRoute
-  '/weldconnect/connectors/callback': typeof WeldconnectConnectorsCallbackRoute
-  '/weldconnect/integrations/callback': typeof WeldconnectIntegrationsCallbackRoute
+  '/weldconnect_/connectors/callback': typeof WeldconnectConnectorsCallbackRoute
+  '/weldconnect_/integrations/callback': typeof WeldconnectIntegrationsCallbackRoute
   '/welddesk/problems/$problemId': typeof WelddeskProblemsProblemIdRoute
   '/welddesk/reports/phone': typeof WelddeskReportsPhoneRoute
   '/welddesk/reports/schedules': typeof WelddeskReportsSchedulesRoute
@@ -5689,9 +5743,7 @@ export interface FileRoutesById {
   '/weldcommerce/products/': typeof WeldcommerceProductsIndexRoute
   '/weldconnect/actions/': typeof WeldconnectActionsIndexRoute
   '/weldconnect/analytics/': typeof WeldconnectAnalyticsIndexRoute
-  '/weldconnect/connectors/': typeof WeldconnectConnectorsIndexRoute
   '/weldconnect/executions/': typeof WeldconnectExecutionsIndexRoute
-  '/weldconnect/integrations/': typeof WeldconnectIntegrationsIndexRoute
   '/weldconnect/templates/': typeof WeldconnectTemplatesIndexRoute
   '/weldconnect/triggers/': typeof WeldconnectTriggersIndexRoute
   '/weldconnect/variables/': typeof WeldconnectVariablesIndexRoute
@@ -5965,6 +6017,7 @@ export interface FileRoutesById {
   '/weldreach/campaigns/$campaignId/': typeof WeldreachCampaignsCampaignIdIndexRoute
   '/weldsign/templates/$templateId/': typeof WeldsignTemplatesTemplateIdIndexRoute
   '/weldstash/purchase-orders/$orderId/': typeof WeldstashPurchaseOrdersOrderIdIndexRoute
+  '/weldflow/project/$projectId/sprints/$sprintId': typeof WeldflowProjectProjectIdSprintsSprintIdRouteRouteWithChildren
   '/preview/weldcalendar/scheduling/$id/': typeof PreviewWeldcalendarSchedulingIdIndexRoute
   '/preview/weldcalendar/scheduling/new/': typeof PreviewWeldcalendarSchedulingNewIndexRoute
   '/preview/weldcrm/pipeline/$id/': typeof PreviewWeldcrmPipelineIdIndexRoute
@@ -6067,7 +6120,9 @@ export interface FileRoutesById {
   '/welddesk/help-center/articles/$id/edit/': typeof WelddeskHelpCenterArticlesIdEditIndexRoute
   '/weldflow/project/$projectId/analytics/$id/': typeof WeldflowProjectProjectIdAnalyticsIdIndexRoute
   '/weldflow/project/$projectId/analytics/builder/': typeof WeldflowProjectProjectIdAnalyticsBuilderIndexRoute
+  '/weldflow/project/$projectId/analytics/sprints/': typeof WeldflowProjectProjectIdAnalyticsSprintsIndexRoute
   '/weldflow/project/$projectId/documents/$fileId/': typeof WeldflowProjectProjectIdDocumentsFileIdIndexRoute
+  '/weldflow/project/$projectId/epics/$epicId/': typeof WeldflowProjectProjectIdEpicsEpicIdIndexRoute
   '/weldflow/project/$projectId/finance/costs/': typeof WeldflowProjectProjectIdFinanceCostsIndexRoute
   '/weldflow/project/$projectId/finance/forecast/': typeof WeldflowProjectProjectIdFinanceForecastIndexRoute
   '/weldflow/project/$projectId/gantt/dependencies/': typeof WeldflowProjectProjectIdGanttDependenciesIndexRoute
@@ -6080,8 +6135,12 @@ export interface FileRoutesById {
   '/weldflow/project/$projectId/raid/dependencies/': typeof WeldflowProjectProjectIdRaidDependenciesIndexRoute
   '/weldflow/project/$projectId/raid/issues/': typeof WeldflowProjectProjectIdRaidIssuesIndexRoute
   '/weldflow/project/$projectId/scope/value/': typeof WeldflowProjectProjectIdScopeValueIndexRoute
+  '/weldflow/project/$projectId/sprints/$sprintId/': typeof WeldflowProjectProjectIdSprintsSprintIdIndexRoute
   '/weldflow/project/$projectId/table/$fileId/': typeof WeldflowProjectProjectIdTableFileIdIndexRoute
+  '/weldflow/project/$projectId/tasks/backlog/': typeof WeldflowProjectProjectIdTasksBacklogIndexRoute
   '/weldflow/project/$projectId/whiteboard/$whiteboardId/': typeof WeldflowProjectProjectIdWhiteboardWhiteboardIdIndexRoute
+  '/weldflow/project/$projectId/sprints/$sprintId/report/': typeof WeldflowProjectProjectIdSprintsSprintIdReportIndexRoute
+  '/weldflow/project/$projectId/sprints/$sprintId/retro/': typeof WeldflowProjectProjectIdSprintsSprintIdRetroIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -6213,6 +6272,7 @@ export interface FileRouteTypes {
     | '/settings/apps/weldreach'
     | '/settings/apps/weldstash'
     | '/settings/custom-objects/$objectId'
+    | '/settings/integrations/callback'
     | '/weldchat/dm/$userId'
     | '/weldcommerce/orders/new'
     | '/weldconnect/connectors/callback'
@@ -6338,9 +6398,7 @@ export interface FileRouteTypes {
     | '/weldcommerce/products/'
     | '/weldconnect/actions/'
     | '/weldconnect/analytics/'
-    | '/weldconnect/connectors/'
     | '/weldconnect/executions/'
-    | '/weldconnect/integrations/'
     | '/weldconnect/templates/'
     | '/weldconnect/triggers/'
     | '/weldconnect/variables/'
@@ -6614,6 +6672,7 @@ export interface FileRouteTypes {
     | '/weldreach/campaigns/$campaignId/'
     | '/weldsign/templates/$templateId/'
     | '/weldstash/purchase-orders/$orderId/'
+    | '/weldflow/project/$projectId/sprints/$sprintId'
     | '/preview/weldcalendar/scheduling/$id/'
     | '/preview/weldcalendar/scheduling/new/'
     | '/preview/weldcrm/pipeline/$id/'
@@ -6716,7 +6775,9 @@ export interface FileRouteTypes {
     | '/welddesk/help-center/articles/$id/edit/'
     | '/weldflow/project/$projectId/analytics/$id/'
     | '/weldflow/project/$projectId/analytics/builder/'
+    | '/weldflow/project/$projectId/analytics/sprints/'
     | '/weldflow/project/$projectId/documents/$fileId/'
+    | '/weldflow/project/$projectId/epics/$epicId/'
     | '/weldflow/project/$projectId/finance/costs/'
     | '/weldflow/project/$projectId/finance/forecast/'
     | '/weldflow/project/$projectId/gantt/dependencies/'
@@ -6729,8 +6790,12 @@ export interface FileRouteTypes {
     | '/weldflow/project/$projectId/raid/dependencies/'
     | '/weldflow/project/$projectId/raid/issues/'
     | '/weldflow/project/$projectId/scope/value/'
+    | '/weldflow/project/$projectId/sprints/$sprintId/'
     | '/weldflow/project/$projectId/table/$fileId/'
+    | '/weldflow/project/$projectId/tasks/backlog/'
     | '/weldflow/project/$projectId/whiteboard/$whiteboardId/'
+    | '/weldflow/project/$projectId/sprints/$sprintId/report/'
+    | '/weldflow/project/$projectId/sprints/$sprintId/retro/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -6807,6 +6872,7 @@ export interface FileRouteTypes {
     | '/settings/apps/weldreach'
     | '/settings/apps/weldstash'
     | '/settings/custom-objects/$objectId'
+    | '/settings/integrations/callback'
     | '/weldchat/dm/$userId'
     | '/weldcommerce/orders/new'
     | '/weldconnect/connectors/callback'
@@ -6932,9 +6998,7 @@ export interface FileRouteTypes {
     | '/weldcommerce/products'
     | '/weldconnect/actions'
     | '/weldconnect/analytics'
-    | '/weldconnect/connectors'
     | '/weldconnect/executions'
-    | '/weldconnect/integrations'
     | '/weldconnect/templates'
     | '/weldconnect/triggers'
     | '/weldconnect/variables'
@@ -7303,7 +7367,9 @@ export interface FileRouteTypes {
     | '/welddesk/help-center/articles/$id/edit'
     | '/weldflow/project/$projectId/analytics/$id'
     | '/weldflow/project/$projectId/analytics/builder'
+    | '/weldflow/project/$projectId/analytics/sprints'
     | '/weldflow/project/$projectId/documents/$fileId'
+    | '/weldflow/project/$projectId/epics/$epicId'
     | '/weldflow/project/$projectId/finance/costs'
     | '/weldflow/project/$projectId/finance/forecast'
     | '/weldflow/project/$projectId/gantt/dependencies'
@@ -7316,8 +7382,12 @@ export interface FileRouteTypes {
     | '/weldflow/project/$projectId/raid/dependencies'
     | '/weldflow/project/$projectId/raid/issues'
     | '/weldflow/project/$projectId/scope/value'
+    | '/weldflow/project/$projectId/sprints/$sprintId'
     | '/weldflow/project/$projectId/table/$fileId'
+    | '/weldflow/project/$projectId/tasks/backlog'
     | '/weldflow/project/$projectId/whiteboard/$whiteboardId'
+    | '/weldflow/project/$projectId/sprints/$sprintId/report'
+    | '/weldflow/project/$projectId/sprints/$sprintId/retro'
   id:
     | '__root__'
     | '/'
@@ -7447,10 +7517,11 @@ export interface FileRouteTypes {
     | '/settings/apps/weldreach'
     | '/settings/apps/weldstash'
     | '/settings/custom-objects/$objectId'
+    | '/settings/integrations/callback'
     | '/weldchat/dm/$userId'
     | '/weldcommerce/orders/new'
-    | '/weldconnect/connectors/callback'
-    | '/weldconnect/integrations/callback'
+    | '/weldconnect_/connectors/callback'
+    | '/weldconnect_/integrations/callback'
     | '/welddesk/problems/$problemId'
     | '/welddesk/reports/phone'
     | '/welddesk/reports/schedules'
@@ -7572,9 +7643,7 @@ export interface FileRouteTypes {
     | '/weldcommerce/products/'
     | '/weldconnect/actions/'
     | '/weldconnect/analytics/'
-    | '/weldconnect/connectors/'
     | '/weldconnect/executions/'
-    | '/weldconnect/integrations/'
     | '/weldconnect/templates/'
     | '/weldconnect/triggers/'
     | '/weldconnect/variables/'
@@ -7848,6 +7917,7 @@ export interface FileRouteTypes {
     | '/weldreach/campaigns/$campaignId/'
     | '/weldsign/templates/$templateId/'
     | '/weldstash/purchase-orders/$orderId/'
+    | '/weldflow/project/$projectId/sprints/$sprintId'
     | '/preview/weldcalendar/scheduling/$id/'
     | '/preview/weldcalendar/scheduling/new/'
     | '/preview/weldcrm/pipeline/$id/'
@@ -7950,7 +8020,9 @@ export interface FileRouteTypes {
     | '/welddesk/help-center/articles/$id/edit/'
     | '/weldflow/project/$projectId/analytics/$id/'
     | '/weldflow/project/$projectId/analytics/builder/'
+    | '/weldflow/project/$projectId/analytics/sprints/'
     | '/weldflow/project/$projectId/documents/$fileId/'
+    | '/weldflow/project/$projectId/epics/$epicId/'
     | '/weldflow/project/$projectId/finance/costs/'
     | '/weldflow/project/$projectId/finance/forecast/'
     | '/weldflow/project/$projectId/gantt/dependencies/'
@@ -7963,8 +8035,12 @@ export interface FileRouteTypes {
     | '/weldflow/project/$projectId/raid/dependencies/'
     | '/weldflow/project/$projectId/raid/issues/'
     | '/weldflow/project/$projectId/scope/value/'
+    | '/weldflow/project/$projectId/sprints/$sprintId/'
     | '/weldflow/project/$projectId/table/$fileId/'
+    | '/weldflow/project/$projectId/tasks/backlog/'
     | '/weldflow/project/$projectId/whiteboard/$whiteboardId/'
+    | '/weldflow/project/$projectId/sprints/$sprintId/report/'
+    | '/weldflow/project/$projectId/sprints/$sprintId/retro/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -8029,6 +8105,8 @@ export interface RootRouteChildren {
   WeldsocialIndexRoute: typeof WeldsocialIndexRoute
   ObjectsSlugRecordIdRoute: typeof ObjectsSlugRecordIdRoute
   SPanelTokenRoute: typeof SPanelTokenRoute
+  WeldconnectConnectorsCallbackRoute: typeof WeldconnectConnectorsCallbackRoute
+  WeldconnectIntegrationsCallbackRoute: typeof WeldconnectIntegrationsCallbackRoute
   AppsManageIndexRoute: typeof AppsManageIndexRoute
   InviteAcceptIndexRoute: typeof InviteAcceptIndexRoute
   ObjectsSlugIndexRoute: typeof ObjectsSlugIndexRoute
@@ -9480,25 +9558,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WeldconnectTemplatesIndexRouteImport
       parentRoute: typeof WeldconnectRouteRoute
     }
-    '/weldconnect/integrations/': {
-      id: '/weldconnect/integrations/'
-      path: '/integrations'
-      fullPath: '/weldconnect/integrations/'
-      preLoaderRoute: typeof WeldconnectIntegrationsIndexRouteImport
-      parentRoute: typeof WeldconnectRouteRoute
-    }
     '/weldconnect/executions/': {
       id: '/weldconnect/executions/'
       path: '/executions'
       fullPath: '/weldconnect/executions/'
       preLoaderRoute: typeof WeldconnectExecutionsIndexRouteImport
-      parentRoute: typeof WeldconnectRouteRoute
-    }
-    '/weldconnect/connectors/': {
-      id: '/weldconnect/connectors/'
-      path: '/connectors'
-      fullPath: '/weldconnect/connectors/'
-      preLoaderRoute: typeof WeldconnectConnectorsIndexRouteImport
       parentRoute: typeof WeldconnectRouteRoute
     }
     '/weldconnect/analytics/': {
@@ -10348,19 +10412,19 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WelddeskProblemsProblemIdRouteImport
       parentRoute: typeof WelddeskRouteRoute
     }
-    '/weldconnect/integrations/callback': {
-      id: '/weldconnect/integrations/callback'
-      path: '/integrations/callback'
+    '/weldconnect_/integrations/callback': {
+      id: '/weldconnect_/integrations/callback'
+      path: '/weldconnect/integrations/callback'
       fullPath: '/weldconnect/integrations/callback'
       preLoaderRoute: typeof WeldconnectIntegrationsCallbackRouteImport
-      parentRoute: typeof WeldconnectRouteRoute
+      parentRoute: typeof rootRouteImport
     }
-    '/weldconnect/connectors/callback': {
-      id: '/weldconnect/connectors/callback'
-      path: '/connectors/callback'
+    '/weldconnect_/connectors/callback': {
+      id: '/weldconnect_/connectors/callback'
+      path: '/weldconnect/connectors/callback'
       fullPath: '/weldconnect/connectors/callback'
       preLoaderRoute: typeof WeldconnectConnectorsCallbackRouteImport
-      parentRoute: typeof WeldconnectRouteRoute
+      parentRoute: typeof rootRouteImport
     }
     '/weldcommerce/orders/new': {
       id: '/weldcommerce/orders/new'
@@ -10375,6 +10439,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/weldchat/dm/$userId'
       preLoaderRoute: typeof WeldchatDmUserIdRouteImport
       parentRoute: typeof WeldchatRouteRoute
+    }
+    '/settings/integrations/callback': {
+      id: '/settings/integrations/callback'
+      path: '/integrations/callback'
+      fullPath: '/settings/integrations/callback'
+      preLoaderRoute: typeof SettingsIntegrationsCallbackRouteImport
+      parentRoute: typeof SettingsRouteRoute
     }
     '/settings/custom-objects/$objectId': {
       id: '/settings/custom-objects/$objectId'
@@ -12364,11 +12435,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PreviewWeldcalendarSchedulingIdIndexRouteImport
       parentRoute: typeof PreviewWeldcalendarRouteRoute
     }
+    '/weldflow/project/$projectId/sprints/$sprintId': {
+      id: '/weldflow/project/$projectId/sprints/$sprintId'
+      path: '/sprints/$sprintId'
+      fullPath: '/weldflow/project/$projectId/sprints/$sprintId'
+      preLoaderRoute: typeof WeldflowProjectProjectIdSprintsSprintIdRouteRouteImport
+      parentRoute: typeof WeldflowProjectProjectIdRouteRoute
+    }
     '/weldflow/project/$projectId/whiteboard/$whiteboardId/': {
       id: '/weldflow/project/$projectId/whiteboard/$whiteboardId/'
       path: '/whiteboard/$whiteboardId'
       fullPath: '/weldflow/project/$projectId/whiteboard/$whiteboardId/'
       preLoaderRoute: typeof WeldflowProjectProjectIdWhiteboardWhiteboardIdIndexRouteImport
+      parentRoute: typeof WeldflowProjectProjectIdRouteRoute
+    }
+    '/weldflow/project/$projectId/tasks/backlog/': {
+      id: '/weldflow/project/$projectId/tasks/backlog/'
+      path: '/tasks/backlog'
+      fullPath: '/weldflow/project/$projectId/tasks/backlog/'
+      preLoaderRoute: typeof WeldflowProjectProjectIdTasksBacklogIndexRouteImport
       parentRoute: typeof WeldflowProjectProjectIdRouteRoute
     }
     '/weldflow/project/$projectId/table/$fileId/': {
@@ -12377,6 +12462,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/weldflow/project/$projectId/table/$fileId/'
       preLoaderRoute: typeof WeldflowProjectProjectIdTableFileIdIndexRouteImport
       parentRoute: typeof WeldflowProjectProjectIdRouteRoute
+    }
+    '/weldflow/project/$projectId/sprints/$sprintId/': {
+      id: '/weldflow/project/$projectId/sprints/$sprintId/'
+      path: '/'
+      fullPath: '/weldflow/project/$projectId/sprints/$sprintId/'
+      preLoaderRoute: typeof WeldflowProjectProjectIdSprintsSprintIdIndexRouteImport
+      parentRoute: typeof WeldflowProjectProjectIdSprintsSprintIdRouteRoute
     }
     '/weldflow/project/$projectId/scope/value/': {
       id: '/weldflow/project/$projectId/scope/value/'
@@ -12462,11 +12554,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WeldflowProjectProjectIdFinanceCostsIndexRouteImport
       parentRoute: typeof WeldflowProjectProjectIdFinanceRouteRoute
     }
+    '/weldflow/project/$projectId/epics/$epicId/': {
+      id: '/weldflow/project/$projectId/epics/$epicId/'
+      path: '/epics/$epicId'
+      fullPath: '/weldflow/project/$projectId/epics/$epicId/'
+      preLoaderRoute: typeof WeldflowProjectProjectIdEpicsEpicIdIndexRouteImport
+      parentRoute: typeof WeldflowProjectProjectIdRouteRoute
+    }
     '/weldflow/project/$projectId/documents/$fileId/': {
       id: '/weldflow/project/$projectId/documents/$fileId/'
       path: '/documents/$fileId'
       fullPath: '/weldflow/project/$projectId/documents/$fileId/'
       preLoaderRoute: typeof WeldflowProjectProjectIdDocumentsFileIdIndexRouteImport
+      parentRoute: typeof WeldflowProjectProjectIdRouteRoute
+    }
+    '/weldflow/project/$projectId/analytics/sprints/': {
+      id: '/weldflow/project/$projectId/analytics/sprints/'
+      path: '/analytics/sprints'
+      fullPath: '/weldflow/project/$projectId/analytics/sprints/'
+      preLoaderRoute: typeof WeldflowProjectProjectIdAnalyticsSprintsIndexRouteImport
       parentRoute: typeof WeldflowProjectProjectIdRouteRoute
     }
     '/weldflow/project/$projectId/analytics/builder/': {
@@ -12552,6 +12658,20 @@ declare module '@tanstack/react-router' {
       fullPath: '/preview/weldcalendar/scheduling/$id/view/'
       preLoaderRoute: typeof PreviewWeldcalendarSchedulingIdViewIndexRouteImport
       parentRoute: typeof PreviewWeldcalendarRouteRoute
+    }
+    '/weldflow/project/$projectId/sprints/$sprintId/retro/': {
+      id: '/weldflow/project/$projectId/sprints/$sprintId/retro/'
+      path: '/retro'
+      fullPath: '/weldflow/project/$projectId/sprints/$sprintId/retro/'
+      preLoaderRoute: typeof WeldflowProjectProjectIdSprintsSprintIdRetroIndexRouteImport
+      parentRoute: typeof WeldflowProjectProjectIdSprintsSprintIdRouteRoute
+    }
+    '/weldflow/project/$projectId/sprints/$sprintId/report/': {
+      id: '/weldflow/project/$projectId/sprints/$sprintId/report/'
+      path: '/report'
+      fullPath: '/weldflow/project/$projectId/sprints/$sprintId/report/'
+      preLoaderRoute: typeof WeldflowProjectProjectIdSprintsSprintIdReportIndexRouteImport
+      parentRoute: typeof WeldflowProjectProjectIdSprintsSprintIdRouteRoute
     }
   }
 }
@@ -12688,6 +12808,7 @@ interface SettingsRouteRouteChildren {
   SettingsAppsWeldreachRoute: typeof SettingsAppsWeldreachRoute
   SettingsAppsWeldstashRoute: typeof SettingsAppsWeldstashRoute
   SettingsCustomObjectsObjectIdRoute: typeof SettingsCustomObjectsObjectIdRoute
+  SettingsIntegrationsCallbackRoute: typeof SettingsIntegrationsCallbackRoute
   SettingsActivityIndexRoute: typeof SettingsActivityIndexRoute
   SettingsAdvancedIndexRoute: typeof SettingsAdvancedIndexRoute
   SettingsAiIndexRoute: typeof SettingsAiIndexRoute
@@ -12763,6 +12884,7 @@ const SettingsRouteRouteChildren: SettingsRouteRouteChildren = {
   SettingsAppsWeldreachRoute: SettingsAppsWeldreachRoute,
   SettingsAppsWeldstashRoute: SettingsAppsWeldstashRoute,
   SettingsCustomObjectsObjectIdRoute: SettingsCustomObjectsObjectIdRoute,
+  SettingsIntegrationsCallbackRoute: SettingsIntegrationsCallbackRoute,
   SettingsActivityIndexRoute: SettingsActivityIndexRoute,
   SettingsAdvancedIndexRoute: SettingsAdvancedIndexRoute,
   SettingsAiIndexRoute: SettingsAiIndexRoute,
@@ -13231,13 +13353,9 @@ const WeldcommerceRouteRouteWithChildren =
 
 interface WeldconnectRouteRouteChildren {
   WeldconnectIndexRoute: typeof WeldconnectIndexRoute
-  WeldconnectConnectorsCallbackRoute: typeof WeldconnectConnectorsCallbackRoute
-  WeldconnectIntegrationsCallbackRoute: typeof WeldconnectIntegrationsCallbackRoute
   WeldconnectActionsIndexRoute: typeof WeldconnectActionsIndexRoute
   WeldconnectAnalyticsIndexRoute: typeof WeldconnectAnalyticsIndexRoute
-  WeldconnectConnectorsIndexRoute: typeof WeldconnectConnectorsIndexRoute
   WeldconnectExecutionsIndexRoute: typeof WeldconnectExecutionsIndexRoute
-  WeldconnectIntegrationsIndexRoute: typeof WeldconnectIntegrationsIndexRoute
   WeldconnectTemplatesIndexRoute: typeof WeldconnectTemplatesIndexRoute
   WeldconnectTriggersIndexRoute: typeof WeldconnectTriggersIndexRoute
   WeldconnectVariablesIndexRoute: typeof WeldconnectVariablesIndexRoute
@@ -13253,13 +13371,9 @@ interface WeldconnectRouteRouteChildren {
 
 const WeldconnectRouteRouteChildren: WeldconnectRouteRouteChildren = {
   WeldconnectIndexRoute: WeldconnectIndexRoute,
-  WeldconnectConnectorsCallbackRoute: WeldconnectConnectorsCallbackRoute,
-  WeldconnectIntegrationsCallbackRoute: WeldconnectIntegrationsCallbackRoute,
   WeldconnectActionsIndexRoute: WeldconnectActionsIndexRoute,
   WeldconnectAnalyticsIndexRoute: WeldconnectAnalyticsIndexRoute,
-  WeldconnectConnectorsIndexRoute: WeldconnectConnectorsIndexRoute,
   WeldconnectExecutionsIndexRoute: WeldconnectExecutionsIndexRoute,
-  WeldconnectIntegrationsIndexRoute: WeldconnectIntegrationsIndexRoute,
   WeldconnectTemplatesIndexRoute: WeldconnectTemplatesIndexRoute,
   WeldconnectTriggersIndexRoute: WeldconnectTriggersIndexRoute,
   WeldconnectVariablesIndexRoute: WeldconnectVariablesIndexRoute,
@@ -13592,6 +13706,27 @@ const WeldflowProjectProjectIdScopeRouteRouteWithChildren =
     WeldflowProjectProjectIdScopeRouteRouteChildren,
   )
 
+interface WeldflowProjectProjectIdSprintsSprintIdRouteRouteChildren {
+  WeldflowProjectProjectIdSprintsSprintIdIndexRoute: typeof WeldflowProjectProjectIdSprintsSprintIdIndexRoute
+  WeldflowProjectProjectIdSprintsSprintIdReportIndexRoute: typeof WeldflowProjectProjectIdSprintsSprintIdReportIndexRoute
+  WeldflowProjectProjectIdSprintsSprintIdRetroIndexRoute: typeof WeldflowProjectProjectIdSprintsSprintIdRetroIndexRoute
+}
+
+const WeldflowProjectProjectIdSprintsSprintIdRouteRouteChildren: WeldflowProjectProjectIdSprintsSprintIdRouteRouteChildren =
+  {
+    WeldflowProjectProjectIdSprintsSprintIdIndexRoute:
+      WeldflowProjectProjectIdSprintsSprintIdIndexRoute,
+    WeldflowProjectProjectIdSprintsSprintIdReportIndexRoute:
+      WeldflowProjectProjectIdSprintsSprintIdReportIndexRoute,
+    WeldflowProjectProjectIdSprintsSprintIdRetroIndexRoute:
+      WeldflowProjectProjectIdSprintsSprintIdRetroIndexRoute,
+  }
+
+const WeldflowProjectProjectIdSprintsSprintIdRouteRouteWithChildren =
+  WeldflowProjectProjectIdSprintsSprintIdRouteRoute._addFileChildren(
+    WeldflowProjectProjectIdSprintsSprintIdRouteRouteChildren,
+  )
+
 interface WeldflowProjectProjectIdRouteRouteChildren {
   WeldflowProjectProjectIdFinanceRouteRoute: typeof WeldflowProjectProjectIdFinanceRouteRouteWithChildren
   WeldflowProjectProjectIdGanttRouteRoute: typeof WeldflowProjectProjectIdGanttRouteRouteWithChildren
@@ -13599,6 +13734,7 @@ interface WeldflowProjectProjectIdRouteRouteChildren {
   WeldflowProjectProjectIdRaidRouteRoute: typeof WeldflowProjectProjectIdRaidRouteRouteWithChildren
   WeldflowProjectProjectIdScopeRouteRoute: typeof WeldflowProjectProjectIdScopeRouteRouteWithChildren
   WeldflowProjectProjectIdIndexRoute: typeof WeldflowProjectProjectIdIndexRoute
+  WeldflowProjectProjectIdSprintsSprintIdRouteRoute: typeof WeldflowProjectProjectIdSprintsSprintIdRouteRouteWithChildren
   WeldflowProjectProjectIdAnalyticsIndexRoute: typeof WeldflowProjectProjectIdAnalyticsIndexRoute
   WeldflowProjectProjectIdCalendarIndexRoute: typeof WeldflowProjectProjectIdCalendarIndexRoute
   WeldflowProjectProjectIdCloseIndexRoute: typeof WeldflowProjectProjectIdCloseIndexRoute
@@ -13618,9 +13754,12 @@ interface WeldflowProjectProjectIdRouteRouteChildren {
   WeldflowProjectProjectIdWorkloadIndexRoute: typeof WeldflowProjectProjectIdWorkloadIndexRoute
   WeldflowProjectProjectIdAnalyticsIdIndexRoute: typeof WeldflowProjectProjectIdAnalyticsIdIndexRoute
   WeldflowProjectProjectIdAnalyticsBuilderIndexRoute: typeof WeldflowProjectProjectIdAnalyticsBuilderIndexRoute
+  WeldflowProjectProjectIdAnalyticsSprintsIndexRoute: typeof WeldflowProjectProjectIdAnalyticsSprintsIndexRoute
   WeldflowProjectProjectIdDocumentsFileIdIndexRoute: typeof WeldflowProjectProjectIdDocumentsFileIdIndexRoute
+  WeldflowProjectProjectIdEpicsEpicIdIndexRoute: typeof WeldflowProjectProjectIdEpicsEpicIdIndexRoute
   WeldflowProjectProjectIdMembersMemberIdIndexRoute: typeof WeldflowProjectProjectIdMembersMemberIdIndexRoute
   WeldflowProjectProjectIdTableFileIdIndexRoute: typeof WeldflowProjectProjectIdTableFileIdIndexRoute
+  WeldflowProjectProjectIdTasksBacklogIndexRoute: typeof WeldflowProjectProjectIdTasksBacklogIndexRoute
   WeldflowProjectProjectIdWhiteboardWhiteboardIdIndexRoute: typeof WeldflowProjectProjectIdWhiteboardWhiteboardIdIndexRoute
 }
 
@@ -13637,6 +13776,8 @@ const WeldflowProjectProjectIdRouteRouteChildren: WeldflowProjectProjectIdRouteR
     WeldflowProjectProjectIdScopeRouteRoute:
       WeldflowProjectProjectIdScopeRouteRouteWithChildren,
     WeldflowProjectProjectIdIndexRoute: WeldflowProjectProjectIdIndexRoute,
+    WeldflowProjectProjectIdSprintsSprintIdRouteRoute:
+      WeldflowProjectProjectIdSprintsSprintIdRouteRouteWithChildren,
     WeldflowProjectProjectIdAnalyticsIndexRoute:
       WeldflowProjectProjectIdAnalyticsIndexRoute,
     WeldflowProjectProjectIdCalendarIndexRoute:
@@ -13675,12 +13816,18 @@ const WeldflowProjectProjectIdRouteRouteChildren: WeldflowProjectProjectIdRouteR
       WeldflowProjectProjectIdAnalyticsIdIndexRoute,
     WeldflowProjectProjectIdAnalyticsBuilderIndexRoute:
       WeldflowProjectProjectIdAnalyticsBuilderIndexRoute,
+    WeldflowProjectProjectIdAnalyticsSprintsIndexRoute:
+      WeldflowProjectProjectIdAnalyticsSprintsIndexRoute,
     WeldflowProjectProjectIdDocumentsFileIdIndexRoute:
       WeldflowProjectProjectIdDocumentsFileIdIndexRoute,
+    WeldflowProjectProjectIdEpicsEpicIdIndexRoute:
+      WeldflowProjectProjectIdEpicsEpicIdIndexRoute,
     WeldflowProjectProjectIdMembersMemberIdIndexRoute:
       WeldflowProjectProjectIdMembersMemberIdIndexRoute,
     WeldflowProjectProjectIdTableFileIdIndexRoute:
       WeldflowProjectProjectIdTableFileIdIndexRoute,
+    WeldflowProjectProjectIdTasksBacklogIndexRoute:
+      WeldflowProjectProjectIdTasksBacklogIndexRoute,
     WeldflowProjectProjectIdWhiteboardWhiteboardIdIndexRoute:
       WeldflowProjectProjectIdWhiteboardWhiteboardIdIndexRoute,
   }
@@ -14611,6 +14758,8 @@ const rootRouteChildren: RootRouteChildren = {
   WeldsocialIndexRoute: WeldsocialIndexRoute,
   ObjectsSlugRecordIdRoute: ObjectsSlugRecordIdRoute,
   SPanelTokenRoute: SPanelTokenRoute,
+  WeldconnectConnectorsCallbackRoute: WeldconnectConnectorsCallbackRoute,
+  WeldconnectIntegrationsCallbackRoute: WeldconnectIntegrationsCallbackRoute,
   AppsManageIndexRoute: AppsManageIndexRoute,
   InviteAcceptIndexRoute: InviteAcceptIndexRoute,
   ObjectsSlugIndexRoute: ObjectsSlugIndexRoute,

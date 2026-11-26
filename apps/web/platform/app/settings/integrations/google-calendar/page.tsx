@@ -13,6 +13,8 @@ import {
 import { Button } from '@weldsuite/ui/components/button';
 import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { IntegrationDetailLayout } from '@/components/settings';
+import { isFeatureAvailable } from '@/lib/edition';
+import { WorkflowConnectionSection } from '../workflow/workflow-connection-section';
 import {
   Table,
   TableBody,
@@ -95,7 +97,7 @@ const googleCalendarIcon = (
 );
 
 export default function GoogleCalendarSettingsPage() {
-  const { t } = useI18n();
+  const { t, format } = useI18n();
   const st = useTranslations();
   const ts = t.settings.integrations.googleCalendar;
   const [disconnectOpen, setDisconnectOpen] = React.useState(false);
@@ -152,15 +154,19 @@ export default function GoogleCalendarSettingsPage() {
   }
 
   const connected = !!gcalConnection;
+  // The calendar sync runs only where `integration-sync` does (not on the
+  // Kubernetes editions); the workflow connection below runs everywhere.
+  const syncAvailable = isFeatureAvailable('integration-sync');
 
   return (
     <>
       <IntegrationDetailLayout
         name={ts.title}
         description={ts.description}
-        category="Calendar"
+        category={t.settings.integrations.list.categories.calendar}
         icon={googleCalendarIcon}
         connected={connected}
+        canManage={syncAvailable}
         isWorking={connectMutation.isPending || disconnectMutation.isPending}
         connectLabel={ts.connectButton}
         disconnectLabel={t.settings.actions.disconnect}
@@ -171,7 +177,11 @@ export default function GoogleCalendarSettingsPage() {
           { label: st('sweep.settings.integrationConnectionCard.website'), href: 'https://calendar.google.com', icon: Globe },
           { label: st('sweep.settings.integrationConnectionCard.documentation'), href: 'https://developers.google.com/calendar', icon: FileText },
         ]}
-        overview={ts.connectDescription}
+        overview={
+          syncAvailable
+            ? ts.connectDescription
+            : format(t.settings.integrations.workflowConnections.overview, { provider: ts.title })
+        }
       >
         {connected && gcalConnection && (
           <div>
@@ -299,6 +309,7 @@ export default function GoogleCalendarSettingsPage() {
             </div>
           </div>
         )}
+        <WorkflowConnectionSection type="google_calendar" providerName={ts.title} />
       </IntegrationDetailLayout>
 
       {/* Disconnect confirmation */}

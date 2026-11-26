@@ -35,7 +35,7 @@ New invoices and payouts go over automatically, a few minutes after Stripe repor
 
 ## Connect Stripe
 
-1. Go to **WeldConnect** → **Connectors** and choose **Stripe**.
+1. Go to **Settings** → **Integrations** and choose **Stripe**.
 2. Pick the **WeldBooks entity** and the date to **import invoices from**. Older Stripe invoices are skipped, so nothing you already booked in Moneybird gets a duplicate.
 3. Click **Connect with Stripe** and approve in Stripe.
 

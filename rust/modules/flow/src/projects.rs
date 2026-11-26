@@ -76,6 +76,12 @@ where
             "/{id}/tabs",
             axum::routing::put(crate::project_tabs::put_tabs).route_layer(need(PROJECTS_UPDATE)),
         )
+        // EU and self-hosted only (FLOW-023): no TypeScript twin.
+        .route(
+            "/{id}/delivery",
+            axum::routing::put(crate::project_delivery::put_delivery)
+                .route_layer(need(PROJECTS_UPDATE)),
+        )
         .route(
             "/{id}/gantt/tasks",
             get(gantt_tasks).route_layer(need(TASKS_READ)),

@@ -19,6 +19,9 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '@weldsuite/ui/components/dropdown-menu';
 import {
@@ -50,6 +53,7 @@ import {
   Circle,
   Clock,
   Check,
+  Shapes,
   Pencil,
   Trash2,
   Copy,
@@ -75,6 +79,13 @@ import { ProjectPermissionContext } from '@/app/weldflow/contexts/project-permis
 import { EntityList, type HeaderColumn, type FilterConfig, type GroupConfig, type ActiveFilter, type SortState } from '@/components/entity-list';
 import { TabEmptyIllustration, TAB_EMPTY_STATE_TABLE_CLASS } from '@/components/objects/_shared/tab-empty-state';
 import { TaskDialog } from '@/app/weldcrm/task-dialog';
+import { SubNavSwitch, type SubNavItem } from '@/app/weldflow/components/sub-nav';
+import { TaskTypeBadge, useItemTypeLabel } from '@/components/weldflow/agile/task-type-badge';
+import { pickableTypes, typeChangeInput } from '@/app/weldflow/lib/backlog';
+import { itemTypeOf } from '@/app/weldflow/lib/item-types';
+import type { ItemType } from '@weldsuite/app-api-client/schemas/flow-agile';
+import { apiMessage } from '@/app/weldflow/project/[projectId]/close/_lib/api-error';
+import { useProjectDelivery, useUpdateTaskAgile } from '@/hooks/queries/use-flow-agile-queries';
 
 /** The priorities a task row can hold. */
 type TaskPriority = 'low' | 'medium' | 'high' | 'urgent';
@@ -101,6 +112,11 @@ interface Task {
   customFields?: Record<string, unknown>;
   attachmentCount?: number;
   parentTaskId?: string | null;
+  /** The item type (`tasks.type`), the sprint and epic it is in and its estimate: agile projects. */
+  type?: string;
+  sprintId?: string | null;
+  epicId?: string | null;
+  storyPoints?: number | null;
   dependsOn?: string[];
   blocks?: string[];
   subtaskCount?: number;
@@ -212,6 +228,10 @@ function transformApiTask(apiTask: RawApiTask): Task {
     customFields: apiTask.customFields || undefined,
     attachmentCount: apiTask.attachmentsCount || apiTask._count?.attachments || attachmentsFromCustomFields,
     parentTaskId: apiTask.parentTaskId || null,
+    type: apiTask.type || undefined,
+    sprintId: apiTask.sprintId ?? null,
+    epicId: apiTask.epicId ?? null,
+    storyPoints: apiTask.storyPoints ?? null,
     customerId: apiTask.customerId ?? null,
     projectId: apiTask.projectId ?? null,
     dependsOn: apiTask.dependsOn || [],
@@ -768,6 +788,23 @@ function SortableTaskRow({ id, isDragEnabled, children }: Readonly<{ id: string;
   );
 }
 
+/** The agile side of the Tasks tab: the project's delivery settings, the type label and the List · Backlog switch. */
+function useTasksAgile(isEntityMode: boolean, projectId: string) {
+  const { t } = useI18n();
+  const delivery = useProjectDelivery(isEntityMode ? '' : projectId);
+  const showAgile = !isEntityMode && delivery.available && delivery.usesItemTypes;
+  const itemTypeLabel = useItemTypeLabel();
+  const updateAgile = useUpdateTaskAgile(projectId);
+  const viewItems = useMemo<SubNavItem[]>(
+    () => [
+      { id: 'list', label: t.flowAgile.views.list, path: '' },
+      { id: 'backlog', label: t.flowAgile.views.backlog, path: '/backlog' },
+    ],
+    [t],
+  );
+  return { delivery, showAgile, itemTypeLabel, updateAgile, viewItems };
+}
+
 export function TasksClient({
   projectId,
   initialTasks,
@@ -782,7 +819,7 @@ export function TasksClient({
   onSortChange,
   entityScope,
 }: Readonly<TasksClientProps>) {
-  const { t } = useI18n();
+  const { t, plural } = useI18n();
   const st = useTranslations();
   const { formatShort } = useDateLocale();
   const stageLabel = useStageLabel();
@@ -797,6 +834,11 @@ export function TasksClient({
   // Entity mode has no project member list. Walk every cursor page of the
   // workspace directory only there; project boards keep using membersApi.list.
   const { data: workspaceMembersData } = useWorkspaceMemberDirectory(isEntityMode);
+
+  // Agile projects (Scrum, Kanban, Hybrid) give each task a type and an
+  // estimate, and the Tasks tab a second view, the Backlog. A task list, a CRM
+  // panel and the Global edition keep the list exactly as it was.
+  const { delivery, showAgile, itemTypeLabel, updateAgile, viewItems } = useTasksAgile(isEntityMode, projectId);
 
   const priorityConfig = useMemo(() => ({
     low: { label: t.projects.tasks.priorityLow, color: 'text-gray-600 dark:text-muted-foreground', bg: 'bg-gray-100 dark:bg-secondary' },
@@ -1740,6 +1782,22 @@ export function TasksClient({
     { id: 'assignee', header: t.projects.tasks.headerAssignee, width: cn('w-[120px]', byMode(isEntityMode, ENTITY_HIDE_WHEN_NARROW, PROJECT_HIDE_WHEN_NARROW)), sortable: true },
   ], [t, isEntityMode]);
 
+  // The row menu's "Change type": the item type shows at once and rolls back
+  // when the server refuses (an epic can't change with a conflicting state).
+  const changeItemType = useCallback((task: Task, next: ItemType) => {
+    const previous = task.type;
+    patchTaskEverywhere(task.id, { type: next, ...(next === 'epic' ? { sprintId: null, epicId: null } : {}) });
+    updateAgile.mutate(
+      { taskId: task.id, input: typeChangeInput(next) },
+      {
+        onError: (error) => {
+          patchTaskEverywhere(task.id, { type: previous });
+          toast.error(apiMessage(error, t.flowAgileBacklog.panel.typeFailed));
+        },
+      },
+    );
+  }, [patchTaskEverywhere, updateAgile, t.flowAgileBacklog.panel.typeFailed]);
+
   // Render a single task row (reused for top-level and subtask rows). `depth`
   // is the nesting level WITHIN the subtree (0 = direct child of a top-level
   // task). It's folded into paddingLeft so the row's hover background covers
@@ -1790,6 +1848,15 @@ export function TasksClient({
 
         {/* Task Title */}
         <div className={cn("min-w-[200px] flex-1 flex items-center gap-2 max-md:min-w-0 max-md:basis-[calc(100%-2rem)]", byMode(isEntityMode, ENTITY_NARROW_TITLE, PROJECT_NARROW_TITLE))}>
+          {showAgile && (
+            <TaskTypeBadge
+              type={task.type}
+              naming={delivery.settings.itemTypes.naming}
+              featureLevel={delivery.settings.itemTypes.featureLevel}
+              hasParent={isSubtask || !!task.parentTaskId}
+              className="flex-shrink-0"
+            />
+          )}
           {task.number != null && (
             <TaskNumberBadge number={task.number} className="h-[18px] flex-shrink-0 py-0" />
           )}
@@ -1815,6 +1882,14 @@ export function TasksClient({
                 .filter((l): l is NonNullable<typeof l> => !!l)
                 .map((l) => ({ id: l.id, name: l.name, color: l.color }))}
             />
+          )}
+          {showAgile && task.storyPoints != null && (
+            <span
+              className="inline-flex h-[18px] min-w-6 flex-shrink-0 items-center justify-center rounded-full bg-muted px-1.5 text-[11px] font-semibold tabular-nums text-foreground"
+              title={plural(task.storyPoints, t.flowAgile.points)}
+            >
+              {task.storyPoints}
+            </span>
           )}
           {task.repeat && (
             <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-medium bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400 flex-shrink-0">
@@ -1988,6 +2063,26 @@ export function TasksClient({
                   <Copy className="h-3.5 w-3.5 mr-0.5" />
                   {t.projects.tasks.duplicateTaskItem}
                 </DropdownMenuItem>
+                {showAgile && !isSubtask && !task.parentTaskId && (
+                  <DropdownMenuSub>
+                    <DropdownMenuSubTrigger>
+                      <Shapes className="h-3.5 w-3.5 mr-0.5" />
+                      {t.flowAgileBacklog.menu.changeType}
+                    </DropdownMenuSubTrigger>
+                    <DropdownMenuSubContent>
+                      {pickableTypes(delivery.enabledTypes).map((option) => (
+                        <DropdownMenuItem
+                          key={option}
+                          disabled={option === itemTypeOf(task.type, { featureLevel: delivery.settings.itemTypes.featureLevel })}
+                          onSelect={() => changeItemType(task, option)}
+                        >
+                          <TaskTypeBadge type={option} naming={delivery.settings.itemTypes.naming} featureLevel size="sm" />
+                          {itemTypeLabel(option, delivery.settings.itemTypes.naming)}
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuSubContent>
+                  </DropdownMenuSub>
+                )}
                 {showMoveTask && (
                   <DropdownMenuItem onClick={() => setMovingTaskId(task.id)}>
                     <FolderInput className="h-3.5 w-3.5 mr-0.5" />
@@ -2005,7 +2100,7 @@ export function TasksClient({
         </div>
       </div>
     );
-  }, [isPending, canWrite, availableLabels, expandedTaskIds, toggleExpandTask, handleStageChange, getTaskStage, projectStages, updateTaskInline, projectMembers, formatDateShort, startTransition, projectId, completingTaskIds, handleCheckboxToggle, showMoveTask, t, availableCompanies, isEntityMode, priorityConfig, statusConfig, openTaskPanel, stageLabel]);
+  }, [isPending, canWrite, availableLabels, expandedTaskIds, toggleExpandTask, handleStageChange, getTaskStage, projectStages, updateTaskInline, projectMembers, formatDateShort, startTransition, projectId, completingTaskIds, handleCheckboxToggle, showMoveTask, t, availableCompanies, isEntityMode, priorityConfig, statusConfig, openTaskPanel, stageLabel, showAgile, delivery, itemTypeLabel, changeItemType, plural]);
 
   // Subtask container — keeps the rows mounted and toggles visibility via
   // `hidden`. Unmounting/remounting dozens of nested rows on every click is
@@ -2096,8 +2191,19 @@ export function TasksClient({
     return rowContent;
   }, [renderTaskRow, renderSubtaskList, isDragEnabled]);
 
+  // List · Backlog, first in the toolbar; a phone's toolbar has no room, so it gets a row above.
+  const viewSwitch = showAgile ? (
+    <SubNavSwitch
+      label={t.flowAgileBacklog.switchLabel}
+      basePath={`/weldflow/project/${projectId}/tasks`}
+      items={viewItems}
+      activeId="list"
+    />
+  ) : null;
+
   return (
     <>
+      {viewSwitch ? <div className="overflow-x-auto border-b border-border px-3 py-2 md:hidden">{viewSwitch}</div> : null}
       <DndContext
         sensors={dndSensors}
         collisionDetection={closestCenter}
@@ -2123,7 +2229,16 @@ export function TasksClient({
             sortState={sortState}
             onSort={handleSort}
             renderRow={renderRow}
-            leftActionButtons={groupByMenu}
+            leftActionButtons={
+              viewSwitch ? (
+                <>
+                  {viewSwitch}
+                  {groupByMenu}
+                </>
+              ) : (
+                groupByMenu
+              )
+            }
             searchPlaceholder={t.projects.tasks.searchPlaceholder}
             searchFields={['title', 'description', 'assignee']}
             searchQuery={searchQueryProp}

@@ -1270,3 +1270,32 @@ describe('status changes move the pipeline stage · pglite integration', () => {
     expect(ids).toEqual(expect.arrayContaining(['task_ss_f_new', 'task_ss_f_old']));
   });
 });
+
+describe('the sprint filter · pglite integration', () => {
+  it('sprintId=none lists the backlog: the tasks in no sprint', async () => {
+    const now = new Date();
+    await db
+      .insert(schema.projects)
+      .values({ id: 'proj_backlog', name: 'Backlog', createdAt: now, updatedAt: now } as typeof schema.projects.$inferInsert);
+    await db
+      .insert(schema.sprints)
+      .values({ id: 'spr_backlog_1', projectId: 'proj_backlog', name: 'Sprint 1', createdAt: now, updatedAt: now });
+    await db.insert(schema.tasks).values([
+      { id: 'task_bl_free', title: 'In the backlog', projectId: 'proj_backlog' },
+      { id: 'task_bl_sprint', title: 'In the sprint', projectId: 'proj_backlog', sprintId: 'spr_backlog_1' },
+    ] as (typeof schema.tasks.$inferInsert)[]);
+    const { request } = createTestApp('/api/tasks', tasksRoutes, {
+      context: { permissions: permissions('tasks:read', 'projects:scope:all'), tenantDb: db },
+    });
+
+    const backlog = await request('/api/tasks?projectId=proj_backlog&sprintId=none&enrich=false');
+    expect(backlog.status).toBe(200);
+    const backlogIds = ((await backlog.json()) as { data: Array<{ id: string }> }).data.map((r) => r.id);
+    expect(backlogIds).toEqual(['task_bl_free']);
+
+    const sprint = await request('/api/tasks?projectId=proj_backlog&sprintId=spr_backlog_1&enrich=false');
+    expect(sprint.status).toBe(200);
+    const sprintIds = ((await sprint.json()) as { data: Array<{ id: string }> }).data.map((r) => r.id);
+    expect(sprintIds).toEqual(['task_bl_sprint']);
+  });
+});

@@ -535,7 +535,7 @@ pub(crate) const TASKS: Table = Table {
         Column { prop: "sourceId", name: "source_id", kind: Kind::Text, default_fn: false, on_update: false },
         Column { prop: "customFields", name: "custom_fields", kind: Kind::Json, default_fn: false, on_update: false },
     ],
-    omitted: &[],
+    omitted: &["epic_id"],
     soft_delete: true,
 };
 
@@ -610,7 +610,7 @@ pub(crate) const SPRINTS: Table = Table {
         Column { prop: "storyPointsCommitted", name: "story_points_committed", kind: Kind::Number, default_fn: false, on_update: false },
         Column { prop: "storyPointsCompleted", name: "story_points_completed", kind: Kind::Number, default_fn: false, on_update: false },
     ],
-    omitted: &[],
+    omitted: &["report"],
     soft_delete: true,
 };
 

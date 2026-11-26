@@ -14,7 +14,21 @@ const { idle } = vi.hoisted(() => ({ idle: () => ({ data: undefined, isLoading: 
 vi.mock('@/hooks/queries/use-integration-queries', () => ({ useIntegrationConnections: idle }));
 vi.mock('@/hooks/queries/use-helpdesk-integration-queries', () => ({ useChannelIntegrations: idle }));
 vi.mock('@/hooks/queries/use-github-queries', () => ({ useGithubConnection: idle }));
-vi.mock('@/hooks/queries/use-connector-queries', () => ({ useConnectorCatalog: idle }));
+// The connector catalog the backend serves: Odoo only on the Kubernetes editions.
+const connectorCatalog = vi.hoisted(() => ({ providers: [] as string[] }));
+vi.mock('@/hooks/queries/use-connector-queries', () => ({
+  useConnectorCatalog: () => ({
+    data: connectorCatalog.providers.length
+      ? { data: connectorCatalog.providers.map((provider) => ({ provider, connectionCount: 0 })) }
+      : undefined,
+    isLoading: false,
+  }),
+}));
+// The connections workflow steps use; a live Gmail one shows as connected.
+const workflowRows = vi.hoisted(() => ({ rows: [] as Array<{ type: string; status: string; connectedAt: string | null }> }));
+vi.mock('@/hooks/queries/use-workflow-integration-queries', () => ({
+  useWorkflowIntegrations: () => ({ data: { data: workflowRows.rows }, isLoading: false }),
+}));
 // The EU edition's outside-EU state (ADR OPS-026): the labels read it; Global never asks.
 const outsideEu = vi.hoisted(() => ({ data: undefined as OutsideEuServices | undefined, asked: 0 }));
 vi.mock('@/hooks/queries/use-outside-eu-queries', async (importOriginal) => {
@@ -37,7 +51,9 @@ import type { OutsideEuServices } from '@weldsuite/app-api-client/schemas/outsid
 import { setRuntimeConfig } from '@/lib/runtime-config';
 import { IntegrationsSection } from './integrations-section';
 
-const ALL = ['Attio', 'Salesforce', 'HubSpot', 'Discord', 'Slack', 'MCP Servers', 'Google Calendar', 'GitHub', 'WooCommerce', 'Shopify', 'Moneybird', 'Picqer'];
+const CONNECTORS = ['WooCommerce', 'Shopify', 'Moneybird', 'Picqer', 'Stripe'];
+const WORKFLOW_PROVIDERS = ['Gmail', 'Google Sheets'];
+const ALL = ['Attio', 'Salesforce', 'HubSpot', 'Discord', 'Slack', 'MCP Servers', 'Google Calendar', 'GitHub', ...CONNECTORS, 'Odoo', ...WORKFLOW_PROVIDERS];
 
 function shown(): string[] {
   return ALL.filter((name) => screen.queryByText(name, { selector: 'span' }) !== null);
@@ -47,27 +63,54 @@ afterEach(() => {
   setRuntimeConfig(null);
   outsideEu.data = undefined;
   outsideEu.asked = 0;
+  connectorCatalog.providers = [];
+  workflowRows.rows = [];
 });
 
 describe('IntegrationsSection', () => {
   it('lists every integration on Global', () => {
     render(<IntegrationsSection />);
-    expect(shown()).toEqual(ALL);
+    // Odoo only where the backend's connector catalog offers it.
+    expect(shown()).toEqual(ALL.filter((name) => name !== 'Odoo'));
     // Global has no outside-EU switches: nothing is asked, nothing is labelled.
     expect(outsideEu.asked).toBe(0);
     expect(screen.queryByText('Leaves the EU')).toBeNull();
   });
 
-  it('lists only the store and accounting connectors on a Kubernetes edition without integration-sync', () => {
+  it('lists the connectors and workflow providers on a Kubernetes edition without integration-sync', () => {
     setRuntimeConfig({ backend: 'rust', edition: 'eu', modules: ['core', 'connect'], unavailableFeatures: ['integration-sync'] });
     render(<IntegrationsSection />);
-    expect(shown()).toEqual(['WooCommerce', 'Shopify', 'Moneybird', 'Picqer']);
+    expect(shown()).toEqual(['Slack', 'Google Calendar', ...CONNECTORS, ...WORKFLOW_PROVIDERS]);
+  });
+
+  it('lists them whether or not WeldConnect is served: integrations are core platform', () => {
+    setRuntimeConfig({ backend: 'rust', edition: 'eu', modules: ['core'], unavailableFeatures: ['integration-sync'] });
+    render(<IntegrationsSection />);
+    expect(shown()).toEqual(['Slack', 'Google Calendar', ...CONNECTORS, ...WORKFLOW_PROVIDERS]);
+  });
+
+  it('adds Odoo where the connector catalog offers it', () => {
+    setRuntimeConfig({ backend: 'rust', edition: 'eu', modules: ['core', 'connect'], unavailableFeatures: ['integration-sync'] });
+    connectorCatalog.providers = ['woocommerce', 'shopify', 'moneybird', 'stripe', 'picqer', 'odoo'];
+    render(<IntegrationsSection />);
+    expect(shown()).toContain('Odoo');
+  });
+
+  it('marks a workflow provider connected only while its connection is live', () => {
+    workflowRows.rows = [
+      { type: 'gmail', status: 'connected', connectedAt: '2026-11-20T10:00:00Z' },
+      { type: 'google_sheets', status: 'disconnected', connectedAt: '2026-11-19T10:00:00Z' },
+    ];
+    render(<IntegrationsSection />);
+    const card = (name: string) => screen.getByText(name, { selector: 'span' }).closest('button');
+    expect(card('Gmail')).toHaveTextContent('Connected');
+    expect(card('Google Sheets')).not.toHaveTextContent('Connected');
   });
 
   it('adds MCP servers where WeldAgent is served', () => {
     setRuntimeConfig({ backend: 'rust', edition: 'eu', modules: ['core', 'connect', 'agent'], unavailableFeatures: ['integration-sync'] });
     render(<IntegrationsSection />);
-    expect(shown()).toEqual(['MCP Servers', 'WooCommerce', 'Shopify', 'Moneybird', 'Picqer']);
+    expect(shown()).toEqual(['Slack', 'MCP Servers', 'Google Calendar', ...CONNECTORS, ...WORKFLOW_PROVIDERS]);
   });
 
   it('labels a connector outside the EU on the EU edition, and says when it is switched off', () => {

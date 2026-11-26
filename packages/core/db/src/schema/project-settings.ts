@@ -109,6 +109,22 @@ export interface ProjectTabSettings {
   members: Array<{ userId: string; hidden: string[] }>;
 }
 
+/**
+ * `settings.delivery`: how the project delivers (ADR FLOW-022). It only sets
+ * defaults: what Tasks opens on, what the Pipeline shows, which item types
+ * are offered. Written whole by `PUT /api/projects/:id/delivery` (Rust only);
+ * the schema and lenient reader are `deliverySettingsInputSchema` and
+ * `readDeliverySettings` in `@weldsuite/app-api-client/schemas/flow-agile`.
+ */
+export interface ProjectDeliverySettings {
+  approach: 'tasklist' | 'predictive' | 'scrum' | 'kanban' | 'hybrid';
+  sprintLengthDays: number;
+  itemTypes: { naming: 'pbi' | 'story'; featureLevel: boolean; enabled: string[] };
+  /** Soft WIP limits by pipeline stage id. */
+  wipLimits: Record<string, number>;
+  definitionOfDone: string[];
+}
+
 export interface ProjectSettings {
   /** Which project tabs are hidden, for the project, per role and per member. */
   tabs?: ProjectTabSettings;
@@ -137,6 +153,8 @@ export interface ProjectSettings {
   closing?: ProjectClosingSettings;
   /** slice F: the project template this project was created from (`POST /api/project-templates/:id/instantiate`). */
   templateId?: string;
+  /** Agile delivery: the approach and its defaults (ADR FLOW-022). */
+  delivery?: ProjectDeliverySettings;
   /** Other features' keys. */
   [key: string]: unknown;
 }

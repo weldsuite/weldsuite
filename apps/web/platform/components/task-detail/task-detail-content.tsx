@@ -594,6 +594,10 @@ export interface TaskDetailContentProps {
    * the Details list.
    */
   onSaveCustomFields?: (next: Record<string, unknown>) => Promise<void>;
+  /** Rows a delivery approach adds to the Details list (Type, Epic, Sprint, Story points), right after Status. */
+  agileFields?: React.ReactNode;
+  /** Sections a delivery approach adds below the Details list (Acceptance criteria, Definition of Done). */
+  agileSections?: React.ReactNode;
 }
 
 type RelativeTimeLabels = TranslationsType['common']['agents']['relativeTime'];
@@ -1043,6 +1047,8 @@ export function TaskDetailContent({
   hiddenFields,
   alwaysShowFields,
   onSaveCustomFields,
+  agileFields,
+  agileSections,
 }: Readonly<TaskDetailContentProps>) {
 /* eslint-enable @typescript-eslint/no-unused-vars */
   const t = useTranslations();
@@ -1298,6 +1304,8 @@ export function TaskDetailContent({
             </Popover>
           </div>
           )}
+
+          {agileFields}
 
           {/* Priority */}
           {isFieldVisible('priority') && (
@@ -1698,6 +1706,8 @@ export function TaskDetailContent({
           )}
 
           </div>
+
+          {agileSections}
 
           {/* Subtasks — includes the parent-task row at the top when the
               selected task is a subtask. `currentTaskId` keeps the active

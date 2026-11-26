@@ -165,10 +165,16 @@ config:
   # provider). The origin its discovery documents name; empty: https:// and
   # the first ingress host. For a host of its own (the EU values:
   # mcp.<domain>), add it to ingress.hosts with the paths /mcp,
-  # /.well-known/oauth-protected-resource and
-  # /.well-known/oauth-authorization-server, and set its origin here.
+  # /.well-known/oauth-protected-resource,
+  # /.well-known/oauth-authorization-server and
+  # /.well-known/openai-apps-challenge, and set its origin here.
   mcp:
     serverUrl: ""
+    # OPENAI_APPS_CHALLENGE: the domain verification token OpenAI's dashboard
+    # gives when submitting to the ChatGPT plugin directory, served as plain
+    # text at /.well-known/openai-apps-challenge on the MCP host. Public, not
+    # a secret. Empty: that path is a 404.
+    openaiAppsChallenge: ""
   realtime:
     # The URL /config.json gives the frontends. Empty: the origin that
     # /config.json was requested on, with /ws (wss:// behind TLS), which is

@@ -5,6 +5,7 @@
 
 pub mod acceptance;
 pub mod access;
+pub mod agile;
 pub mod analytics;
 pub mod approval_views;
 pub mod approvals;

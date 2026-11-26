@@ -30,6 +30,7 @@ use weldsuite_catalogs::entity_events::{
     PROJECT_TASK_COMPLETED, PROJECT_TASK_CREATED, PROJECT_TASK_UPDATED,
 };
 use weldsuite_db::{OrmConn, PgPool, orm, utc_now};
+use weldsuite_flow_domain::agile::LinkedItem;
 use weldsuite_flow_domain::analytics::task_analytics_payload;
 use weldsuite_flow_domain::js::millis_of;
 use weldsuite_flow_domain::recurrence::is_completion;
@@ -50,6 +51,7 @@ use crate::calendar::{REPLAN_KIND, TaskCalendar, TaskEvent};
 use crate::js::{Js, parse_body};
 use crate::task_changes::{Update, assignee_ids_involved, build_task_changes};
 use crate::task_enrich::{TASK_ENTITY, assignee_names, enrich};
+use crate::task_epics::{EpicChange, Sent, clear_members, epic_error, patch_epic};
 use crate::tasks::{PROJECT_WRITE_DENIED, Written, guard_write, task_row, written};
 use crate::{Caller, FlowState, Refusal, Reply, custom_values, now, reply, validate};
 
@@ -259,7 +261,23 @@ fn read_create(issues: &mut Issues, f: &Map<String, Value>, raw: &Js) -> Update 
     put(&mut d, "sourceType", source_type);
     let source_id = text(issues, f, "sourceId", nullish, Some(30));
     put(&mut d, "sourceId", source_id);
+    read_agile_fields(issues, f, &mut d);
     d
+}
+
+/// The agile fields of a task (EU and self-hosted only, FLOW-023), after
+/// the shared ones: its epic or feature, and its acceptance criteria.
+fn read_agile_fields(issues: &mut Issues, f: &Map<String, Value>, d: &mut Update) {
+    let epic = text(issues, f, "epicId", Presence::Nullish, Some(30));
+    put(d, "epicId", epic);
+    let criteria = text(
+        issues,
+        f,
+        "acceptanceCriteria",
+        Presence::Nullish,
+        Some(10_000),
+    );
+    put(d, "acceptanceCriteria", criteria);
 }
 
 /// `updateTaskSchema` (unknown keys stripped).
@@ -327,6 +345,7 @@ fn read_update(issues: &mut Issues, f: &Map<String, Value>, raw: &Js) -> Update 
         let field = strings(issues, f, key, optional);
         put(&mut d, key, field);
     }
+    read_agile_fields(issues, f, &mut d);
     d
 }
 
@@ -676,7 +695,7 @@ async fn write_columns(db: &PgPool, id: &str, update: &Update, claim: bool) -> R
 }
 
 /// The task columns a body may write, by key.
-const WRITABLE: [(&str, Task, Written); 28] = [
+const WRITABLE: [(&str, Task, Written); 30] = [
     ("title", Task::Title, Written::Text),
     ("description", Task::Description, Written::Text),
     ("status", Task::Status, Written::Text),
@@ -713,6 +732,13 @@ const WRITABLE: [(&str, Task, Written); 28] = [
     ("repeat", Task::Repeat, Written::Json),
     ("customFields", Task::CustomFields, Written::Json),
     ("assigneeIds", Task::AssigneeIds, Written::Json),
+    // EU and self-hosted only (FLOW-023).
+    ("epicId", Task::EpicId, Written::Text),
+    (
+        "acceptanceCriteria",
+        Task::AcceptanceCriteria,
+        Written::Text,
+    ),
 ];
 
 /// [`write_columns`] on a connection (a transaction's).
@@ -805,6 +831,17 @@ async fn create_with(
         find_invalid_task_reference(db, project_id.as_deref(), &references(data, true)).await?
     {
         return Err(Refusal::bad_request(message));
+    }
+    if let Some(epic) = js_text(data, "epicId").filter(|e| !e.is_empty()) {
+        let item = LinkedItem {
+            id: None,
+            project_id: project_id.as_deref(),
+            kind: Some(js_text(data, "type").unwrap_or("task")),
+            parent_task_id: js_text(data, "parentTaskId"),
+        };
+        if let Some(message) = epic_error(db, &item, epic).await? {
+            return Err(Refusal::bad_request(message));
+        }
     }
     let fields = match data.to_value() {
         Value::Object(fields) => fields,
@@ -1243,8 +1280,8 @@ pub(crate) async fn dependencies(
 
 // ── PATCH /:id ──────────────────────────────────────────────────────────────
 
-/// `PATCHABLE_TASK_COLUMNS`.
-const PATCHABLE: [&str; 24] = [
+/// `PATCHABLE_TASK_COLUMNS`, and the agile fields (EU and self-hosted only).
+const PATCHABLE: [&str; 26] = [
     "title",
     "description",
     "status",
@@ -1269,6 +1306,8 @@ const PATCHABLE: [&str; 24] = [
     "isBillable",
     "repeat",
     "customFields",
+    "epicId",
+    "acceptanceCriteria",
 ];
 
 /// `buildTaskUpdate(data)`: the allow-listed columns (dates parsed) and the
@@ -1462,6 +1501,25 @@ async fn patch_task(state: &FlowState, caller: &Caller, id: &str, body: &Update)
     if let Some(message) = relation_error(db, &task, id, body).await? {
         return Err(Refusal::bad_request(message));
     }
+    let sent = |key: &str| -> Sent<'_> {
+        match body.get(key) {
+            None => Field::Absent,
+            Some(Js::String(text)) if !text.is_empty() => Field::Set(text.as_str()),
+            Some(_) => Field::Null,
+        }
+    };
+    let epic_change = match patch_epic(
+        db,
+        &task,
+        &sent("epicId"),
+        &sent("type"),
+        &sent("parentTaskId"),
+    )
+    .await?
+    {
+        Ok(change) => change,
+        Err(message) => return Err(Refusal::bad_request(message)),
+    };
     let links = LinkInput {
         depends_on: js_list(body, "dependsOn"),
         blocks: js_list(body, "blocks"),
@@ -1477,6 +1535,12 @@ async fn patch_task(state: &FlowState, caller: &Caller, id: &str, body: &Update)
     let mut data = body.clone();
     for key in ["projectId", "dependsOn", "blocks"] {
         data.remove(key);
+    }
+    // An empty `epicId` is no epic; a kept link the change breaks goes.
+    if epic_change == EpicChange::Clear
+        || matches!(data.get("epicId"), Some(Js::String(epic)) if epic.is_empty())
+    {
+        data.set("epicId", Js::Null);
     }
 
     let mut update = build_update(&data)?;
@@ -1523,6 +1587,11 @@ async fn patch_task(state: &FlowState, caller: &Caller, id: &str, body: &Update)
         tx.commit().await?;
     } else {
         write_columns(db, id, &update, false).await?;
+    }
+    // An epic or feature that changed type lets go of what it can no
+    // longer hold (FLOW-023).
+    if let Some(Js::String(kind)) = data.get("type") {
+        clear_members(db, id, text_of(&task, "type"), Some(kind)).await?;
     }
     custom_values::sync_values_for_entity(db, TASK_ENTITY, id, data.get("customFields")).await;
 

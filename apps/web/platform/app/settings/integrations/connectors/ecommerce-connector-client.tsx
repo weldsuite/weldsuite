@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { Globe, FileText, Plus, Settings } from 'lucide-react';
+import { Factory, Globe, FileText, Plus, Settings } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
+import { EmptyState } from '@weldsuite/ui/components/empty-state';
 import { IntegrationDetailLayout } from '@/components/settings';
 import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { toast } from 'sonner';
@@ -15,11 +16,7 @@ import {
   type ConnectorCatalogEntry,
   type ConnectorConnection,
 } from '@/hooks/queries/use-connector-queries';
-import {
-  ConnectDialog,
-  ConnectionDetails,
-  consumeWooCommerceAuthReturn,
-} from '@/app/weldconnect/connectors/connectors-client';
+import { ConnectDialog, ConnectionDetails, consumeWooCommerceAuthReturn } from './connect-dialog';
 
 function BrandLogo({ slug, alt }: Readonly<{ slug: string; alt: string }>) {
   return (
@@ -32,33 +29,48 @@ function BrandLogo({ slug, alt }: Readonly<{ slug: string; alt: string }>) {
   );
 }
 
-type EcommerceProvider = 'woocommerce' | 'shopify' | 'moneybird' | 'picqer';
+/** The connectors in the connector catalog (`/api/connectors/catalog`), each with its Settings page. */
+export const CONNECTOR_PROVIDERS = ['woocommerce', 'shopify', 'moneybird', 'stripe', 'picqer', 'odoo'] as const;
+export type ConnectorProvider = (typeof CONNECTOR_PROVIDERS)[number];
 
-const PROVIDER_CATEGORY: Record<EcommerceProvider, string> = {
-  woocommerce: 'E-Commerce',
-  shopify: 'E-Commerce',
-  moneybird: 'Accounting',
-  picqer: 'Warehouse',
-};
+export function isConnectorProvider(value: string): value is ConnectorProvider {
+  return (CONNECTOR_PROVIDERS as readonly string[]).includes(value);
+}
 
-const PROVIDER_DOCS_HREF: Record<EcommerceProvider, string> = {
+const PROVIDER_CATEGORY = {
+  woocommerce: 'ecommerce',
+  shopify: 'ecommerce',
+  moneybird: 'accounting',
+  stripe: 'accounting',
+  picqer: 'warehouse',
+  odoo: 'erp',
+} as const satisfies Record<ConnectorProvider, string>;
+
+const PROVIDER_DOCS_HREF: Record<ConnectorProvider, string> = {
   woocommerce:
     'https://developer.woocommerce.com/docs/apis/rest-api/authentication/#auto-generating-api-keys-using-our-application-authentication-endpoint',
   shopify:
     'https://shopify.dev/docs/apps/build/authentication-authorization/access-tokens/generate-app-access-tokens-admin',
   picqer: 'https://picqer.com/en/api',
   moneybird: 'https://developer.moneybird.com/authentication/',
+  stripe: 'https://docs.stripe.com/connect/oauth-reference',
+  odoo: 'https://www.odoo.com/documentation/latest/developer/reference/external_api.html',
 };
 
-const PROVIDER_WEBSITE_HREF: Record<EcommerceProvider, string> = {
+const PROVIDER_WEBSITE_HREF: Record<ConnectorProvider, string> = {
   woocommerce: 'https://woocommerce.com',
   shopify: 'https://www.shopify.com',
   picqer: 'https://picqer.com',
   moneybird: 'https://www.moneybird.com',
+  stripe: 'https://stripe.com',
+  odoo: 'https://www.odoo.com',
 };
 
-function ProviderIcon({ provider, alt }: Readonly<{ provider: EcommerceProvider; alt: string }>) {
-  if (provider === 'moneybird' || provider === 'picqer') {
+function ProviderIcon({ provider, alt }: Readonly<{ provider: ConnectorProvider; alt: string }>) {
+  if (provider === 'odoo') {
+    return <Factory className="h-7 w-7 text-muted-foreground" aria-label={alt} />;
+  }
+  if (provider === 'moneybird' || provider === 'picqer' || provider === 'stripe') {
     return (
       <img
         src={`https://icons.duckduckgo.com/ip3/${provider}.com.ico`}
@@ -73,11 +85,11 @@ function ProviderIcon({ provider, alt }: Readonly<{ provider: EcommerceProvider;
 export function EcommerceConnectorSettingsPage({
   provider,
 }: Readonly<{
-  provider: EcommerceProvider;
+  provider: ConnectorProvider;
 }>) {
   const { t, format } = useI18n();
   const copy = t.settings.integrations[provider];
-  const tc = t.weldconnect.connectors;
+  const tc = t.settings.integrations.connectors;
   const { canAny, isLoading: permissionsLoading } = usePermissions();
   const canConnect = canAny('integrations:create', 'weldconnect:integrations:create');
   const canManage = canAny('integrations:update', 'weldconnect:integrations:update');
@@ -120,7 +132,19 @@ export function EcommerceConnectorSettingsPage({
     return <PageLoader fullScreen={false} />;
   }
 
-  const category = PROVIDER_CATEGORY[provider];
+  // The backend's catalog leaves out what this edition doesn't run (Odoo on Global).
+  if (!connector) {
+    return (
+      <div className="mx-auto w-full max-w-4xl p-6">
+        <EmptyState
+          title={t.settings.integrations.list.noneOfferedTitle}
+          description={t.settings.integrations.list.noneOfferedDescription}
+        />
+      </div>
+    );
+  }
+
+  const category = t.settings.integrations.list.categories[PROVIDER_CATEGORY[provider]];
   const docsHref = PROVIDER_DOCS_HREF[provider];
   const websiteHref = PROVIDER_WEBSITE_HREF[provider];
 
@@ -150,7 +174,7 @@ export function EcommerceConnectorSettingsPage({
         <div className="space-y-4">
           <div className="flex items-center justify-between gap-3">
             <h2 className="text-xl font-semibold">{tc.title}</h2>
-            {canConnect && connector ? (
+            {canConnect ? (
               <Button size="sm" onClick={() => setPendingConnect(connector)}>
                 <Plus className="mr-1.5 h-3.5 w-3.5" />
                 {connections.length > 0 ? tc.addStore : tc.connect}

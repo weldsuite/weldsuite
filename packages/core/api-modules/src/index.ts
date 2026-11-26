@@ -144,6 +144,8 @@ export const GLOBAL_UNAVAILABLE_FEATURES: readonly string[] = [
   'kvk-digipoort',
   // WeldPass's encrypted offline copy on registered phones (ADR PASS-010).
   'weldpass-offline',
+  // WeldFlow agile delivery: sprints, backlog, epics, retros (ADRs FLOW-022 to FLOW-024).
+  'flow-agile',
 ];
 
 const mod = (
@@ -498,6 +500,8 @@ export const API_MODULES: readonly ApiModule[] = [
     '/public/webhooks/telnyx',
   ]),
   mod('connect', 8813, ['weldconnect', 'weldcrm', 'welddesk', 'weldstash', 'weldflow', 'weldcalendar'], [
+    // The integration prefixes among these are core platform and never
+    // licence-gated (`CORE_PLATFORM_PREFIXES`); they stay here for routing.
     '/api/connectors',
     '/api/external-webhooks',
     '/api/github-connections',
@@ -660,8 +664,40 @@ export const RECORD_CHAT_OWNER: Readonly<Record<string, ApiModuleId>> = {
   board: 'board',
 };
 
+/**
+ * Integrations are core platform (ADR INT-014): CRM sync, the store and
+ * accounting connectors, the GitHub connection, outbound webhooks and
+ * WeldConnect's workflow-step provider connections. A workspace reaches them
+ * whichever apps it is licensed for, WeldConnect or not.
+ *
+ * The prefixes stay on the `connect` entry because Global's connect-api
+ * serves them until it is deleted, and that entry is what routes Global's
+ * requests there. Once connect-api is gone they move into core's prefixes and
+ * this list goes away.
+ *
+ * Matching is on whole segments, and a longer prefix of another module still
+ * wins: `/api/integrations/helpdesk` stays WeldDesk's.
+ */
+export const CORE_PLATFORM_PREFIXES: readonly string[] = [
+  '/api/connectors',
+  '/api/external-webhooks',
+  '/api/github-connections',
+  '/api/integrations',
+  '/api/workflow-integrations',
+  '/webhooks/woocommerce',
+];
+
+const CORE_PLATFORM_PREFIX_SET: ReadonlySet<string> = new Set(CORE_PLATFORM_PREFIXES);
+
+/** Whether the prefix that owns `path` (longest match) is a core platform prefix. */
+function isCorePlatformPath(path: string): boolean {
+  const owner = PREFIX_INDEX.find((entry) => ownsPath(entry.prefix, path));
+  return owner !== undefined && CORE_PLATFORM_PREFIX_SET.has(owner.prefix);
+}
+
 /** The apps that open a first-party path for a licensed workspace; `null` when it is never gated. */
 export function licenceAppsForPath(path: string): readonly string[] | null {
+  if (isCorePlatformPath(path)) return null;
   const apps = findModuleForPath(path).apps;
   if (!apps || !path.startsWith(RECORD_CHAT_PREFIX)) return apps;
   const owner = RECORD_CHAT_OWNER[path.slice(RECORD_CHAT_PREFIX.length).split(/[/?]/)[0]!];
