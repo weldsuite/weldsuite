@@ -152,6 +152,7 @@ vi.mock('@/lib/i18n', () => ({
   }),
 }));
 vi.mock('@/hooks/queries/use-weldchat-queries', () => ({
+  useChannel: () => ({ data: undefined }),
   weldchatKeys: {
     activeCall: (channelId: string) => ['weldchat', 'active-call', channelId],
     channelDetail: (channelId: string) => ['weldchat', 'channels', channelId],
