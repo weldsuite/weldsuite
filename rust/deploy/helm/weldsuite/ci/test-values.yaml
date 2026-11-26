@@ -42,6 +42,9 @@ config:
     - { name: PUBLIC_API_URL, value: "https://api.example.org" }
   publicEnv:
     VITE_MAPBOX_ACCESS_TOKEN: pk.example
+  mobile:
+    minVersions:
+      weldpass: "2.0.0"
   sign:
     portalUrl: https://sign.example.org
   identity:

@@ -528,8 +528,9 @@ async fn config_json(State(state): State<AppState>, headers: axum::http::HeaderM
         "version": env!("CARGO_PKG_VERSION"),
         "modules": modules,
     });
-    // Edition flags (4.F3): the edition, the features this backend lacks
-    // and the public settings (`crate::edition`).
+    // Edition flags (4.F3): the edition, the features this backend lacks,
+    // the public settings and the native apps' minimum versions
+    // (`crate::edition`).
     state.edition.describe(&mut body);
     if let Some(auth) = &state.public_auth {
         body["auth"] = auth.as_ref().clone();
@@ -857,6 +858,7 @@ mod tests {
             assert!(lacks.contains(&json!(feature)), "{feature}");
         }
         assert!(body.get("env").is_none());
+        assert!(body.get("mobile").is_none(), "no app minimum configured");
 
         let mut state = state();
         state.edition = Arc::new(crate::edition::EditionConfig {
@@ -881,10 +883,18 @@ mod tests {
             panel_analytics: true,
             sso_connections: false,
             digipoort: false,
+            mobile_min_versions: [("weldpass".to_owned(), "2.0.0".to_owned())]
+                .into_iter()
+                .collect(),
         });
         let (_, _, body) = call(state, get("/config.json")).await;
         let body: Value = serde_json::from_str(&body).expect("json");
         assert_eq!(body["edition"], "eu");
+        // The native apps' forced-update gate.
+        assert_eq!(
+            body["mobile"],
+            json!({ "minVersions": { "weldpass": "2.0.0" } })
+        );
         // Plans billed through Mollie (ADR BILL-014): billing is offered and
         // the platform takes Mollie's flows; WeldReach inboxes are billed with
         // the plan.

@@ -272,7 +272,8 @@ pub(crate) struct Config {
     pub(crate) metrics_addr: Option<SocketAddr>,
     /// `ENVIRONMENT`, reported by `/health`.
     pub(crate) environment: String,
-    /// `EDITION` and `PUBLIC_ENV`, for `/config.json` (`edition.rs`).
+    /// `EDITION`, `PUBLIC_ENV` and `MOBILE_MIN_VERSIONS`, for `/config.json`
+    /// (`edition.rs`).
     pub(crate) edition: crate::edition::EditionConfig,
     pub(crate) master_database_url: String,
     pub(crate) master_max_connections: u32,
