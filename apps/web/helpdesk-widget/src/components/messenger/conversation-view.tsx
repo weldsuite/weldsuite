@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { ArrowUp, ChevronLeft, Loader2, Paperclip, X } from 'lucide-react';
+import { ArrowUp, ChevronLeft, Loader2, Paperclip, Plus, X } from 'lucide-react';
 import type { MessageAttachment, ThreadMessage, WidgetConfigResponse } from '@/lib/api/types';
 import { DRAFT_ID, type Messenger } from '@/hooks/use-messenger';
 import { useAvailability } from '@/hooks/use-availability';
@@ -13,7 +13,7 @@ import {
   isImageAttachment,
 } from '@/lib/utils/attachments';
 import { MessageAttachments } from './message-attachments';
-import { Avatar, AvatarStack, TypingDots, clockTime, readableOn } from './parts';
+import { Avatar, AvatarStack, TypingDots, readableOn } from './parts';
 import { EmailCapture } from './email-capture';
 import { RatingCard } from './rating-card';
 import { AwayNotice, replyTimeText } from './away-notice';
@@ -64,19 +64,35 @@ function MessageStatus({
       </button>
     );
   }
-  if (!lastInGroup) return null;
+  if (!lastInGroup || message.status !== 'sending') return null;
+  return <span className="mt-1 mx-1 text-[11px] text-gray-400">Sending…</span>;
+}
+
+/**
+ * An event (a teammate joined, closed, reopened, rated) as a divider across the
+ * thread: a line, the event, a line, with 20px above and below. Below is 8px
+ * here plus the 12px whatever comes next (message, card, another event) starts
+ * with; an event right after an event takes only 12px on top so the two sit
+ * 20px apart too.
+ */
+function EventDivider({
+  message,
+  prev,
+  rating,
+}: Readonly<{ message: ThreadMessage; prev: ThreadMessage | undefined; rating: number | null }>) {
+  const text = eventText(message, rating);
+  if (!text) return null;
   return (
-    <span className="mt-1 mx-1 text-[11px] text-gray-400">
-      {message.status === 'sending' ? 'Sending…' : clockTime(message.createdAt)}
-    </span>
+    <div className={cn('flex items-center gap-3 px-4 pb-2', prev?.kind === 'event' ? 'pt-3' : 'pt-5')}>
+      <span aria-hidden="true" className="h-px flex-1 bg-gray-200" />
+      <p className="max-w-[75%] text-center text-xs text-gray-500">{text}</p>
+      <span aria-hidden="true" className="h-px flex-1 bg-gray-200" />
+    </div>
   );
 }
 
 function MessageRow({ message, prev, next, color, onColor, rating, onRetry }: Readonly<MessageRowProps>) {
-  if (message.kind === 'event') {
-    const text = eventText(message, rating);
-    return text ? <p className="px-6 py-2 text-center text-xs text-gray-400">{text}</p> : null;
-  }
+  if (message.kind === 'event') return <EventDivider message={message} prev={prev} rating={rating} />;
   const mine = message.authorType === 'visitor';
   const grouped = groupedWith(prev, message);
   const lastInGroup = !groupedWith(message, next);
@@ -85,19 +101,16 @@ function MessageRow({ message, prev, next, color, onColor, rating, onRetry }: Re
   // Pictures on their own don't need a coloured bubble around them.
   const mediaOnly =
     !message.body && attachments.length > 0 && attachments.every((a) => isImageAttachment(a.contentType));
-  let bubble = 'px-3.5 py-2.5 rounded-bl-md bg-gray-100 text-gray-900';
+  // A message sent right after the one above it joins it: the corner where they meet is sharp too.
+  let bubble = cn('px-3.5 py-2.5 rounded-bl-md bg-gray-100 text-gray-900', grouped && 'rounded-tl-md');
   if (mediaOnly) bubble = '';
-  else if (mine) bubble = 'px-3.5 py-2.5 rounded-br-md';
+  else if (mine) bubble = cn('px-3.5 py-2.5 rounded-br-md', grouped && 'rounded-tr-md');
 
   return (
-    <div className={cn('flex items-end gap-2 px-4', grouped ? 'pt-0.5' : 'pt-3', mine && 'justify-end')}>
-      {!mine && (
-        <div className="w-7 flex-shrink-0">
-          {lastInGroup && <Avatar name={author} src={message.authorAvatar} size={28} />}
-        </div>
-      )}
+    <div className={cn('flex items-end px-4', grouped ? 'pt-0.5' : 'pt-3', mine && 'justify-end')}>
       <div className={cn('flex flex-col max-w-[78%] min-w-0', mine ? 'items-end' : 'items-start')}>
-        {!mine && !grouped && <span className="mb-1 ml-1 text-[11px] text-gray-500">{author}</span>}
+        {/* No avatar or name on screen: screen readers still hear who wrote it. */}
+        {!mine && !grouped && <span className="sr-only">{author}:</span>}
         <div
           className={cn(
             'text-sm whitespace-pre-wrap break-words rounded-2xl',
@@ -168,6 +181,10 @@ export function ConversationView({
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickRef = useRef(true);
+  // The reply field floats over the bottom of the thread, so the thread keeps
+  // that much room free below its last message.
+  const composerRef = useRef<HTMLFormElement>(null);
+  const [composerHeight, setComposerHeight] = useState(58);
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior) => {
     const el = scrollRef.current;
@@ -175,6 +192,19 @@ export function ConversationView({
     el.scrollTo({ top: el.scrollHeight, behavior });
     stickRef.current = true;
   }, []);
+
+  useLayoutEffect(() => {
+    const el = composerRef.current;
+    if (!el) return;
+    const observer = new ResizeObserver(() => setComposerHeight(el.offsetHeight));
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  // A taller reply field (a second line, attachments, suggestions) mustn't cover the newest message.
+  useLayoutEffect(() => {
+    if (stickRef.current) scrollToBottom('auto');
+  }, [composerHeight, scrollToBottom]);
 
   useLayoutEffect(() => {
     scrollToBottom('auto');
@@ -269,28 +299,25 @@ export function ConversationView({
   const suggestions = useArticleSuggestions(config.widgetId, draft, isDraft && messages.length === 0);
 
   return (
-    <div className="flex-1 min-h-0 flex flex-col" data-testid="chat-view">
-      <header
-        className="flex items-center gap-2 px-2 h-16 flex-shrink-0"
-        style={{ backgroundColor: color, color: onColor }}
-      >
+    <div className="relative flex-1 min-h-0 flex flex-col" data-testid="chat-view">
+      <header className="flex items-center gap-2 px-2 h-16 flex-shrink-0 border-b border-gray-100 bg-white text-gray-900">
         <button
           type="button"
           onClick={onBack}
           aria-label="Back"
           data-testid="back-button"
-          className="rounded-full p-1.5 opacity-90 hover:opacity-100 hover:bg-white/15 transition"
+          className="rounded-xl p-1.5 text-gray-500 hover:bg-gray-100 hover:text-gray-700 transition-colors"
         >
           <ChevronLeft className="h-5 w-5" />
         </button>
         {assignee ? (
-          <Avatar name={assignee.name} src={assignee.avatar} size={34} />
+          <Avatar name={assignee.name} src={assignee.avatar} size={32} />
         ) : (
-          <AvatarStack team={config.team} size={30} ring={color} />
+          <AvatarStack team={config.team} size={28} />
         )}
         <div className="min-w-0 flex-1 pl-1">
           <p className="text-[15px] font-semibold truncate leading-tight">{title}</p>
-          <p className="text-xs opacity-80 truncate" data-testid="chat-subtitle">
+          <p className="text-xs text-gray-500 truncate" data-testid="chat-subtitle">
             {subtitle}
           </p>
         </div>
@@ -300,7 +327,7 @@ export function ConversationView({
             onClick={onClose}
             aria-label="Close"
             data-testid="close-button"
-            className="rounded-full p-1.5 opacity-90 hover:opacity-100 hover:bg-white/15 transition"
+            className="rounded-xl p-1.5 text-gray-500 hover:bg-gray-100 hover:text-gray-700 transition-colors"
           >
             <X className="h-5 w-5" />
           </button>
@@ -313,7 +340,8 @@ export function ConversationView({
           const el = scrollRef.current;
           if (el) stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < STICK_THRESHOLD_PX;
         }}
-        className="flex-1 min-h-0 overflow-y-auto py-3"
+        className="widget-scrollbar flex-1 min-h-0 overflow-y-auto pt-3"
+        style={{ paddingBottom: composerHeight + 12 }}
         data-testid="message-list"
       >
         {loading ? (
@@ -323,8 +351,7 @@ export function ConversationView({
         ) : (
           <>
             {/* Greeting bubble so an empty thread never looks dead. */}
-            <div className="flex items-end gap-2 px-4 pb-1">
-              <Avatar name={config.team[0]?.name ?? 'Support'} src={config.team[0]?.avatar} size={28} />
+            <div className="flex items-end px-4 pb-1">
               <div className="max-w-[78%] rounded-2xl rounded-bl-md bg-gray-100 px-3.5 py-2.5 text-sm text-gray-900 whitespace-pre-wrap break-words">
                 {config.greeting}
               </div>
@@ -346,8 +373,7 @@ export function ConversationView({
             ))}
 
             {agentTyping && (
-              <div className="flex items-end gap-2 px-4 pt-3" data-testid="typing-indicator">
-                <Avatar name={agentTyping} src={assignee?.avatar} size={28} />
+              <div className="flex items-end px-4 pt-3" data-testid="typing-indicator">
                 <div className="rounded-2xl rounded-bl-md bg-gray-100 px-3.5 py-3">
                   <TypingDots />
                 </div>
@@ -357,28 +383,31 @@ export function ConversationView({
             {(hasVisitorMessage || away) && <EmailCapture messenger={messenger} color={color} away={away} />}
 
             {conversation?.state === 'closed' && (
-              <RatingCard
-                color={color}
-                rating={conversation.rating ?? null}
-                onSubmit={(rating, comment) => messenger.rate(conversation.id, rating, comment)}
-              />
+              <>
+                <RatingCard
+                  color={color}
+                  rating={conversation.rating ?? null}
+                  onSubmit={(rating, comment) => messenger.rate(conversation.id, rating, comment)}
+                />
+                <p className="px-4 pt-2 text-center text-xs text-gray-400">
+                  This conversation was closed. Send a message to reopen it.
+                </p>
+              </>
             )}
           </>
         )}
       </div>
 
-      {conversation?.state === 'closed' && (
-        <p className="px-4 pt-2 text-center text-xs text-gray-400">
-          This conversation was closed. Send a message to reopen it.
-        </p>
-      )}
-
       <form
+        ref={composerRef}
         onSubmit={(e) => {
           e.preventDefault();
           void submit();
         }}
-        className="flex-shrink-0 p-3"
+        className="absolute inset-x-0 bottom-0 px-3 pb-3"
+        // Messages show around the field's top corners only: white below it and
+        // around its bottom corners (12px padding + 23px corner radius).
+        style={{ background: 'linear-gradient(to top, #ffffff 35px, transparent 35px)' }}
       >
         <ArticleSuggestions hits={suggestions} color={color} />
         {pending.length > 0 && (
@@ -414,35 +443,7 @@ export function ConversationView({
             ))}
           </ul>
         )}
-        <div className="flex items-end gap-2 rounded-2xl border border-gray-200 bg-white pl-1.5 pr-1.5 py-1.5 focus-within:border-gray-300 focus-within:shadow-sm transition">
-          {canAttach ? (
-            <>
-              <input
-                ref={fileInputRef}
-                type="file"
-                multiple
-                accept={ATTACHMENT_ACCEPT}
-                className="hidden"
-                data-testid="file-input"
-                onChange={(e) => {
-                  addFiles(e.target.files);
-                  e.target.value = '';
-                }}
-              />
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                disabled={pending.length >= MAX_MESSAGE_ATTACHMENTS}
-                aria-label="Attach a file"
-                data-testid="attach-button"
-                className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-gray-500 transition hover:bg-gray-100 hover:text-gray-700 disabled:opacity-40"
-              >
-                <Paperclip className="h-4 w-4" />
-              </button>
-            </>
-          ) : (
-            <span className="w-2" aria-hidden="true" />
-          )}
+        <div className="flex items-end gap-1 rounded-[23px] bg-gray-100 py-[7px] pl-5 pr-[7px]">
           <textarea
             ref={inputRef}
             value={draft}
@@ -462,17 +463,43 @@ export function ConversationView({
             placeholder={isDraft ? 'Ask a question…' : 'Write a reply…'}
             aria-label="Message"
             data-testid="message-input"
-            className="flex-1 resize-none bg-transparent py-1.5 text-sm text-gray-900 outline-none focus-visible:outline-none placeholder:text-gray-400 max-h-[120px]"
+            className="flex-1 resize-none bg-transparent py-1.5 text-sm leading-5 text-gray-900 outline-none focus-visible:outline-none placeholder:text-gray-400 max-h-[120px]"
           />
+          {canAttach && (
+            <>
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                accept={ATTACHMENT_ACCEPT}
+                className="hidden"
+                data-testid="file-input"
+                onChange={(e) => {
+                  addFiles(e.target.files);
+                  e.target.value = '';
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={pending.length >= MAX_MESSAGE_ATTACHMENTS}
+                aria-label="Attach a file"
+                data-testid="attach-button"
+                className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-xl text-gray-500 transition-colors hover:bg-gray-200 hover:text-gray-700 disabled:opacity-40"
+              >
+                <Plus className="h-5 w-5" />
+              </button>
+            </>
+          )}
           <button
             type="submit"
             disabled={!canSend}
             aria-label="Send"
             data-testid="send-button"
-            className="flex h-8 w-8 items-center justify-center rounded-full transition disabled:opacity-30"
-            style={{ backgroundColor: color, color: onColor }}
+            className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full transition-colors disabled:bg-gray-200 disabled:text-gray-400"
+            style={canSend ? { backgroundColor: color, color: onColor } : undefined}
           >
-            <ArrowUp className="h-4 w-4" />
+            <ArrowUp className="h-5 w-5" />
           </button>
         </div>
       </form>

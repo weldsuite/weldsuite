@@ -1,10 +1,10 @@
-import { ChevronRight, Send, X } from 'lucide-react';
+import { ChevronRight, X } from 'lucide-react';
 import type { WidgetConfigResponse } from '@/lib/api/types';
 import type { Messenger } from '@/hooks/use-messenger';
 import { useAvailability } from '@/hooks/use-availability';
 import { useAnnouncements } from '@/hooks/use-self-service';
-import { Avatar, AvatarStack, readableOn, timeAgo } from './parts';
-import { AwayNotice, replyTimeText } from './away-notice';
+import { Avatar, AvatarStack, readableOn, SendArrowIcon, timeAgo } from './parts';
+import { AwayNotice } from './away-notice';
 import { EmailCapture } from './email-capture';
 import { Announcements } from './announcements';
 
@@ -25,7 +25,7 @@ export function HomeView({ config, messenger, onNewConversation, onOpenConversat
   const announcements = useAnnouncements(config.widgetId, messenger.visitorId);
 
   return (
-    <div className="flex-1 min-h-0 overflow-y-auto" data-testid="home-view">
+    <div className="widget-scrollbar flex-1 min-h-0 overflow-y-auto" data-testid="home-view">
       <div
         className="px-6 pt-6 pb-16"
         style={{ background: `linear-gradient(160deg, ${color} 0%, ${color}e6 60%, ${color}b3 100%)`, color: onColor }}
@@ -38,7 +38,7 @@ export function HomeView({ config, messenger, onNewConversation, onOpenConversat
               onClick={onClose}
               aria-label="Close"
               data-testid="close-button"
-              className="rounded-full p-1.5 opacity-80 hover:opacity-100 hover:bg-white/15 transition"
+              className="rounded-xl p-1.5 opacity-80 hover:opacity-100 hover:bg-white/15 transition"
             >
               <X className="h-5 w-5" />
             </button>
@@ -93,15 +93,10 @@ export function HomeView({ config, messenger, onNewConversation, onOpenConversat
           type="button"
           onClick={onNewConversation}
           data-testid="new-conversation"
-          className="group w-full text-left rounded-2xl bg-white p-4 shadow-[0_2px_12px_rgba(0,0,0,0.08)] border border-gray-100 hover:shadow-[0_4px_18px_rgba(0,0,0,0.12)] transition flex items-center gap-3"
+          className="w-full flex items-center justify-between gap-4 rounded-xl border border-gray-200 bg-white px-5 py-4 text-left text-sm font-semibold leading-5 text-gray-900 transition-colors hover:bg-gray-50"
         >
-          <div className="min-w-0 flex-1">
-            <p className="text-sm font-semibold text-gray-900">Send us a message</p>
-            <p className="text-xs text-gray-500 mt-0.5">
-              {replyTimeText(config) ?? "We'll get back to you as soon as we can"}
-            </p>
-          </div>
-          <Send className="h-4 w-4 flex-shrink-0 transition-transform group-hover:translate-x-0.5" style={{ color }} />
+          <span className="min-w-0 truncate">Send us a message</span>
+          <SendArrowIcon style={{ color }} />
         </button>
       </div>
     </div>

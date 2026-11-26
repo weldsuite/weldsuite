@@ -18,7 +18,7 @@ export function SignInRequired({
   const site = hostSiteName();
 
   return (
-    <div className="flex-1 min-h-0 overflow-y-auto" data-testid="sign-in-required">
+    <div className="widget-scrollbar flex-1 min-h-0 overflow-y-auto" data-testid="sign-in-required">
       <div
         className="px-6 pt-6 pb-16"
         style={{ background: `linear-gradient(160deg, ${color} 0%, ${color}e6 60%, ${color}b3 100%)`, color: onColor }}
@@ -31,7 +31,7 @@ export function SignInRequired({
               onClick={onClose}
               aria-label="Close"
               data-testid="close-button"
-              className="rounded-full p-1.5 opacity-80 hover:opacity-100 hover:bg-white/15 transition"
+              className="rounded-xl p-1.5 opacity-80 hover:opacity-100 hover:bg-white/15 transition"
             >
               <X className="h-5 w-5" />
             </button>

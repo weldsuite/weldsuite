@@ -39,7 +39,6 @@ test.describe('Office hours', () => {
     });
     await page.goto(MESSENGER_URL);
 
-    await expect(page.locator('[data-testid="new-conversation"]')).toContainText('Usually replies within an hour');
     await expect(page.locator('[data-testid="away-notice"]')).toHaveCount(0);
     await page.locator('[data-testid="new-conversation"]').click();
     await expect(page.locator('[data-testid="chat-subtitle"]')).toHaveText('Usually replies within an hour');

@@ -14,7 +14,7 @@ interface EmailCaptureProps {
 }
 
 /** Ask for the visitor's email so a reply reaches them after they leave; once given, say where it goes. */
-export function EmailCapture({ messenger, color, away = false, className = 'mx-4 my-2' }: Readonly<EmailCaptureProps>) {
+export function EmailCapture({ messenger, color, away = false, className = 'mx-4 mt-3 mb-2' }: Readonly<EmailCaptureProps>) {
   const [email, setEmail] = useState('');
   const [state, setState] = useState<'idle' | 'saving' | 'error'>('idle');
 
