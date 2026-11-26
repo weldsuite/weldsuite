@@ -79,6 +79,44 @@ pub struct Model {
     pub updated_at: TimeDateTimeWithTimeZone,
     #[serde(rename = "deletedAt", with = "crate::js::timestamptz::option")]
     pub deleted_at: Option<TimeDateTimeWithTimeZone>,
+    // eIDAS (plan weldsign-eidas, ADRs SIGN-006 to SIGN-009). Left out of the
+    // JSON while unset, so a simple request answers as it always did.
+    /// `prepared` when a signer signs at AES or QES (SIGN-009); unset: `flat`.
+    #[sea_orm(column_type = "String(StringLen::N(16))")]
+    #[serde(rename = "pipeline", skip_serializing_if = "Option::is_none")]
+    pub pipeline: Option<String>,
+    /// The prepared PDF with every revision so far.
+    #[sea_orm(column_type = "String(StringLen::N(1000))")]
+    #[serde(rename = "preparedStorageKey", skip_serializing_if = "Option::is_none")]
+    pub prepared_storage_key: Option<String>,
+    /// SHA-256 of the prepared PDF as it was sent.
+    #[sea_orm(column_type = "String(StringLen::N(64))")]
+    #[serde(rename = "preparedSha256", skip_serializing_if = "Option::is_none")]
+    pub prepared_sha256: Option<String>,
+    /// The sealed evidence report of a prepared request.
+    #[sea_orm(column_type = "String(StringLen::N(1000))")]
+    #[serde(rename = "evidenceStorageKey", skip_serializing_if = "Option::is_none")]
+    pub evidence_storage_key: Option<String>,
+    #[sea_orm(column_type = "String(StringLen::N(64))")]
+    #[serde(rename = "evidenceSha256", skip_serializing_if = "Option::is_none")]
+    pub evidence_sha256: Option<String>,
+    /// When the operator's seal went on the signed PDF (SIGN-006).
+    #[serde(
+        rename = "sealedAt",
+        with = "crate::js::timestamptz::option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub sealed_at: Option<TimeDateTimeWithTimeZone>,
+    /// When the last document timestamp needs renewing (B-LTA).
+    #[serde(
+        rename = "ltvRenewAt",
+        with = "crate::js::timestamptz::option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub ltv_renew_at: Option<TimeDateTimeWithTimeZone>,
+    /// Credits taken at sending for AES and QES signers (SIGN-008).
+    #[serde(rename = "creditsReserved", skip_serializing_if = "Option::is_none")]
+    pub credits_reserved: Option<i32>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

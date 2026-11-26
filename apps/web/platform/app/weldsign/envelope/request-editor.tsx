@@ -113,7 +113,7 @@ export function RequestEditor({ envelope, editable, back, banner }: Readonly<Req
           </PanelSection>
 
           <div className="space-y-3 px-5 py-5">
-            <ReviewSummary counts={{ documents: envelope.documents.length, recipients: envelope.recipientList.length, fields: editor.fields.length }} />
+            <ReviewSummary envelope={envelope} counts={{ documents: envelope.documents.length, recipients: envelope.recipientList.length, fields: editor.fields.length }} />
           </div>
         </aside>
       </div>

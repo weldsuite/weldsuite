@@ -145,7 +145,14 @@ async fn list_templates(db: &PgPool, query: Option<&str>) -> SignResult<Response
                         .find(|v| !v.is_null())
                         .cloned()
                         .unwrap_or_else(|| json!(""));
-                    json!({ "id": r["id"], "roleName": name, "role": r["role"] })
+                    {
+                        let mut summary =
+                            json!({ "id": r["id"], "roleName": name, "role": r["role"] });
+                        if let Some(level) = r["signatureLevel"].as_str() {
+                            summary["signatureLevel"] = json!(level);
+                        }
+                        summary
+                    }
                 })
                 .collect();
             json!({
@@ -278,6 +285,8 @@ struct RoleInput {
     locale: Field<String>,
     name: Field<String>,
     email: Field<String>,
+    /// eIDAS (plan weldsign-eidas): `ses`, `aes` or `qes`.
+    signature_level: Field<String>,
 }
 
 fn read_role(issues: &mut Issues, fields: &Map<String, Value>, create: bool) -> RoleInput {
@@ -304,6 +313,7 @@ fn read_role(issues: &mut Issues, fields: &Map<String, Value>, create: bool) -> 
         locale: issues.choice(fields, "locale", Presence::Optional, &LOCALES),
         name: issues.text_with(fields, "name", Presence::Nullish, NAME),
         email: issues.text_with(fields, "email", Presence::Nullish, EMAIL),
+        signature_level: crate::eidas::read_level(issues, fields),
     }
 }
 
@@ -357,6 +367,11 @@ pub(crate) async fn add_role(
                     "A template can have at most {MAX_RECIPIENTS} roles"
                 )));
             }
+            let level = crate::eidas::check_level(
+                &input.signature_level,
+                input.role.as_set().map_or("signer", String::as_str),
+                &state.eidas,
+            )?;
             let role_name = input.role_name.into_option().unwrap_or_default();
             assert_role_name_free(db, template_id, &role_name, None).await?;
             // A copy role signs nothing, so it opens by link alone; an access
@@ -395,7 +410,8 @@ pub(crate) async fn add_role(
             .await?;
             touch_envelope(db, template_id).await?;
             publish_template_updated(&caller, &state, &template);
-            Ok(Created(recipient_dto(&row_json(row)?)).into_response())
+            let row = crate::eidas::store_level(db, row_json(row)?, level).await?;
+            Ok(Created(recipient_dto(&row)).into_response())
         }
         .await,
     )
@@ -433,7 +449,9 @@ pub(crate) async fn update_role(
             } else {
                 input.auth_mode.as_set().cloned()
             };
+            let level = crate::eidas::check_level(&input.signature_level, &role, &state.eidas)?;
             let row = update_role_row(db, &role_id, &role, &input, auth_mode).await?;
+            let row = crate::eidas::store_level(db, row, level).await?;
             // A copy role fills nothing in: drop the fields it had as a signer.
             if role == "cc" && current["role"] != "cc" {
                 delete_fields_of(db, &role_id).await?;
@@ -824,6 +842,16 @@ async fn add_people(
                 access_code: if cc { None } else { person.access_code.clone() },
             },
             secret.as_deref(),
+        )
+        .await?;
+        // eIDAS: the role's level comes along; sending checks it is still offered.
+        let recipient = crate::eidas::store_level(
+            db,
+            recipient,
+            match role["signatureLevel"].as_str().filter(|_| !cc) {
+                Some(level) => crate::eidas::LevelChange::Level(level.to_owned()),
+                None => crate::eidas::LevelChange::Unchanged,
+            },
         )
         .await?;
         recipient_ids.push((

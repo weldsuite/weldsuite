@@ -15,6 +15,15 @@
  *   GET  /envelope                       GET  /download
  *   GET  /documents/:documentId
  *
+ * Advanced and qualified signatures (eIDAS, Rust only): the signer is sent to
+ * a trust service provider and comes back to the portal.
+ *
+ *   POST /signature/start   { values, signature, initials, timeZone } -> { redirectUrl, state }
+ *   POST /signature/finish  { state, code?, error?, errorDescription? } -> the answer of /complete,
+ *                           or another { redirectUrl, state } when a second round trip is needed
+ *   POST /signature/cancel  { state }
+ *   GET  /evidence          the evidence report PDF of a completed request
+ *
  * The signer session travels as `Authorization: Bearer <session>`. The
  * signer's IP and browser, for the evidence trail, travel as `X-Signer-Ip`
  * and `User-Agent` next to the shared `SIGN_PORTAL_SECRET` in
@@ -103,6 +112,13 @@ export function createSignPortalClient(options: SignPortalClientOptions) {
     decline: (meta: SignerMeta, session: string | undefined, input: unknown) =>
       call(meta, 'POST', '/decline', { session, body: input }),
     download: (meta: SignerMeta, session: string | undefined) => call(meta, 'GET', '/download', { session }),
+    signatureStart: (meta: SignerMeta, session: string | undefined, input: unknown) =>
+      call(meta, 'POST', '/signature/start', { session, body: input }),
+    signatureFinish: (meta: SignerMeta, session: string | undefined, input: unknown) =>
+      call(meta, 'POST', '/signature/finish', { session, body: input }),
+    signatureCancel: (meta: SignerMeta, session: string | undefined, input: unknown) =>
+      call(meta, 'POST', '/signature/cancel', { session, body: input }),
+    evidence: (meta: SignerMeta, session: string | undefined) => call(meta, 'GET', '/evidence', { session }),
   };
 }
 

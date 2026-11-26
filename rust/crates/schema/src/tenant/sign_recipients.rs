@@ -75,6 +75,11 @@ pub struct Model {
     pub created_at: TimeDateTimeWithTimeZone,
     #[serde(rename = "updatedAt", with = "crate::js::timestamptz")]
     pub updated_at: TimeDateTimeWithTimeZone,
+    /// `aes` or `qes`; unset is a simple signature (plan weldsign-eidas,
+    /// SIGN-008). Left out of the JSON while unset.
+    #[sea_orm(column_type = "String(StringLen::N(8))")]
+    #[serde(rename = "signatureLevel", skip_serializing_if = "Option::is_none")]
+    pub signature_level: Option<String>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

@@ -1,0 +1,26 @@
+[package]
+name = "weldsuite-trust-services"
+description = "WeldSign's trust services: the qualified trust service provider over the CSC API (signer credentials, the seal, timestamps), a key-file seal for self-hosted installs, and a local test CA; plus OCSP and CRL fetching for long-term validation"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+weldsuite-pades = { workspace = true }
+weldsuite-ports = { workspace = true }
+aws-lc-rs = { workspace = true }
+base64 = { workspace = true }
+serde_json = { workspace = true }
+time = { workspace = true }
+tokio = { workspace = true, features = ["sync"] }
+tracing = { workspace = true }
+
+[dev-dependencies]
+lopdf = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt"] }
+
+[lints]
+workspace = true

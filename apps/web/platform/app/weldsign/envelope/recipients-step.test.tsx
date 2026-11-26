@@ -7,8 +7,17 @@ import { en } from '@weldsuite/i18n/locales/en';
 import type { SignEnvelopeDetail, SignRecipientDto, SignRecipientSuggestion } from '@weldsuite/app-api-client/schemas/weldsign';
 
 const api = vi.hoisted(() => ({
-  weldsign: { update: vi.fn(), addRecipient: vi.fn(), updateRecipient: vi.fn(), removeRecipient: vi.fn(), recipientSuggestions: vi.fn() },
+  weldsign: {
+    update: vi.fn(),
+    addRecipient: vi.fn(),
+    updateRecipient: vi.fn(),
+    removeRecipient: vi.fn(),
+    recipientSuggestions: vi.fn(),
+    capabilities: vi.fn(),
+  },
 }));
+/** Whether the install offers advanced and qualified signatures (the `sign-eidas` edition feature). */
+const edition = vi.hoisted(() => ({ eidas: false }));
 const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), info: vi.fn() }));
 /** The CRM's contacts and the workspace's teammates the add search sees, and who may do what. */
 const directory = vi.hoisted(() => ({
@@ -21,6 +30,10 @@ const directory = vi.hoisted(() => ({
 }));
 vi.mock('@/lib/api/use-app-api', () => ({ useAppApi: () => api, useAppApiClient: () => ({ getClient: async () => ({ post: directory.resolve }) }) }));
 vi.mock('sonner', () => ({ toast }));
+vi.mock('@/lib/edition', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/edition')>()),
+  isFeatureAvailable: (feature: string) => feature === 'sign-eidas' && edition.eidas,
+}));
 vi.mock('@weldsuite/permissions/react', () => ({ useCan: (permission: string) => directory.permissions.has(permission) }));
 vi.mock('@/components/objects/person/use-person-data', () => ({
   usePersonSearch: (query: string, enabled: boolean) => ({ data: enabled && query.trim() ? { data: directory.people } : undefined }),
@@ -94,6 +107,8 @@ beforeEach(() => {
   api.weldsign.updateRecipient.mockResolvedValue({ data: recipient({}) });
   api.weldsign.addRecipient.mockResolvedValue({ data: recipient({}) });
   api.weldsign.recipientSuggestions.mockResolvedValue({ data: [] });
+  edition.eidas = false;
+  api.weldsign.capabilities.mockResolvedValue({ data: { seal: true, levels: ['ses', 'aes', 'qes'], provider: 'Signicat', prices: { aes: 2, qes: 5 } } });
   directory.people = [];
   directory.members = [];
   directory.createPerson.mockReset();
@@ -569,5 +584,90 @@ describe('recipients step', () => {
       expect(api.weldsign.recipientSuggestions).not.toHaveBeenCalled();
       expect(screen.queryByText(/^Suggested from/)).toBeNull();
     });
+  });
+});
+
+describe('signature level (advanced and qualified signatures)', () => {
+  const te = en.weldsign.eidas;
+  const advanced = `Advanced (${format(te.creditMany, { count: '2' })})`;
+  const qualified = `Qualified (${format(te.creditMany, { count: '5' })})`;
+
+  /** Opens "Add recipient" for someone new and fills in who they are. */
+  async function startNew(user: ReturnType<typeof userEvent.setup>) {
+    await search(user, '');
+    await user.click(screen.getByRole('option', { name: tr.newRecipient }));
+    await user.type(screen.getByLabelText(tr.name), 'Ann');
+    await user.type(screen.getByLabelText(tr.email), 'ann@example.com');
+  }
+
+  it('asks for no level where the feature is off (Global)', async () => {
+    const user = userEvent.setup();
+    renderStep(draft([]));
+    await startNew(user);
+    expect(screen.queryByRole('combobox', { name: te.level })).toBeNull();
+    expect(api.weldsign.capabilities).not.toHaveBeenCalled();
+  });
+
+  it('asks for no level when the install offers simple signatures only', async () => {
+    edition.eidas = true;
+    api.weldsign.capabilities.mockResolvedValue({ data: { seal: true, levels: ['ses'], provider: null, prices: { aes: null, qes: null } } });
+    const user = userEvent.setup();
+    renderStep(draft([]));
+    await waitFor(() => expect(api.weldsign.capabilities).toHaveBeenCalled());
+    await startNew(user);
+    expect(screen.queryByRole('combobox', { name: te.level })).toBeNull();
+  });
+
+  it('adds a signer at the chosen level, with its price on the options', async () => {
+    edition.eidas = true;
+    const user = userEvent.setup();
+    renderStep(draft([]));
+    await startNew(user);
+
+    await user.click(await screen.findByRole('combobox', { name: te.level }));
+    expect(screen.getByRole('option', { name: te.levels.ses })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: qualified })).toBeInTheDocument();
+    await user.click(screen.getByRole('option', { name: advanced }));
+    expect(screen.getByText(format(te.hints.aes, { provider: 'Signicat' }))).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: en.common.actions.add }));
+    await waitFor(() => expect(api.weldsign.addRecipient).toHaveBeenCalled());
+    expect(api.weldsign.addRecipient.mock.calls[0]![1]).toMatchObject({ name: 'Ann', email: 'ann@example.com', signatureLevel: 'aes' });
+  });
+
+  it('sends no level for a simple signer', async () => {
+    edition.eidas = true;
+    const user = userEvent.setup();
+    renderStep(draft([]));
+    await startNew(user);
+    await screen.findByRole('combobox', { name: te.level });
+    await user.click(screen.getByRole('button', { name: en.common.actions.add }));
+    await waitFor(() => expect(api.weldsign.addRecipient).toHaveBeenCalled());
+    expect(api.weldsign.addRecipient.mock.calls[0]![1]).not.toHaveProperty('signatureLevel');
+  });
+
+  it('shows the level on the row and changes it from the edit form', async () => {
+    edition.eidas = true;
+    const user = userEvent.setup();
+    renderStep(draft([recipient({ signatureLevel: 'aes' })]));
+    expect(within(rowOf('Ann')).getByText(te.badges.aes)).toBeInTheDocument();
+
+    await edit(user, 'Ann');
+    await choose(user, te.level, qualified);
+    await user.click(screen.getByRole('button', { name: en.common.actions.save }));
+    await waitFor(() => expect(api.weldsign.updateRecipient).toHaveBeenCalledWith('sgn_1', 'rcp_ann', { signatureLevel: 'qes' }));
+  });
+
+  it('goes back to a simple signature when someone is made a copy recipient', async () => {
+    edition.eidas = true;
+    const user = userEvent.setup();
+    renderStep(draft([recipient({ signatureLevel: 'qes' })]));
+    await edit(user, 'Ann');
+    await choose(user, tr.role, tr.roles.cc);
+    expect(screen.queryByRole('combobox', { name: te.level })).toBeNull();
+    await user.click(screen.getByRole('button', { name: en.common.actions.save }));
+    await waitFor(() =>
+      expect(api.weldsign.updateRecipient).toHaveBeenCalledWith('sgn_1', 'rcp_ann', { role: 'cc', signatureLevel: 'ses' }),
+    );
   });
 });

@@ -1,4 +1,5 @@
-import { Loader2 } from 'lucide-react';
+import { Loader2, ShieldCheck } from 'lucide-react';
+import type { SignTrustLevel } from '@weldsuite/app-api-client/schemas/weldsign';
 import { Button } from '@weldsuite/ui/components/button';
 import { BrandButton } from './brand-button';
 import { usePortal } from './portal-context';
@@ -7,6 +8,9 @@ interface ConsentStepProps {
   title: string;
   senderName: string | null;
   message: string | null;
+  /** Advanced or qualified signature: the signer confirms their identity with `provider` before signing. */
+  level?: SignTrustLevel;
+  provider?: string;
   busy: boolean;
   error: string | null;
   onAgree: () => void;
@@ -14,7 +18,7 @@ interface ConsentStepProps {
 }
 
 /** The e-signature disclosure the signer has to accept before seeing the fields. */
-export function ConsentStep({ title, senderName, message, busy, error, onAgree, onDecline }: Readonly<ConsentStepProps>) {
+export function ConsentStep({ title, senderName, message, level, provider, busy, error, onAgree, onDecline }: Readonly<ConsentStepProps>) {
   const { t } = usePortal();
   return (
     <main className="mx-auto flex w-full max-w-xl flex-1 flex-col gap-4 p-3 sm:p-6">
@@ -23,6 +27,20 @@ export function ConsentStep({ title, senderName, message, busy, error, onAgree, 
         <p className="text-sm">{senderName ? t.consent.intro(senderName, title) : t.consent.introNoSender(title)}</p>
         {message ? <p className="whitespace-pre-line rounded-md bg-muted/60 p-3 text-sm text-muted-foreground">{message}</p> : null}
       </section>
+
+      {level ? (
+        <section
+          className="flex flex-col gap-2 rounded-xl border border-emerald-600/30 bg-emerald-600/5 p-5 sm:p-6"
+          aria-labelledby="sign-level-title"
+        >
+          <h2 id="sign-level-title" className="flex items-center gap-2 text-base font-semibold">
+            <ShieldCheck className="size-5 shrink-0 text-emerald-600" aria-hidden="true" />
+            {t.eidas.levelTitle[level]}
+          </h2>
+          <p className="text-sm">{t.eidas.levelBody[level]}</p>
+          <p className="text-sm text-muted-foreground">{provider ? t.eidas.confirmWith(provider) : t.eidas.confirmWithoutProvider}</p>
+        </section>
+      ) : null}
 
       <section className="flex flex-col gap-3 rounded-xl border bg-card p-5 shadow-sm sm:p-6" aria-labelledby="sign-disclosure-title">
         <h2 id="sign-disclosure-title" className="text-base font-semibold">

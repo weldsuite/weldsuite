@@ -5,16 +5,18 @@ interface ChoiceFieldProps<T extends string> {
   value: T;
   options: { value: T; label: string }[];
   disabled: boolean;
+  /** Id of the text that describes the field, read out with it. */
+  describedBy?: string;
   onChange: (value: T) => void;
 }
 
 /** A labelled select that only reports a change when another option is picked. */
-export function ChoiceField<T extends string>({ label, value, options, disabled, onChange }: Readonly<ChoiceFieldProps<T>>) {
+export function ChoiceField<T extends string>({ label, value, options, disabled, describedBy, onChange }: Readonly<ChoiceFieldProps<T>>) {
   return (
     <div className="flex flex-col gap-1.5">
       <span className="text-sm font-medium">{label}</span>
       <Select value={value} disabled={disabled} onValueChange={(next) => next !== value && onChange(next as T)}>
-        <SelectTrigger aria-label={label} className="w-full">
+        <SelectTrigger aria-label={label} aria-describedby={describedBy} className="w-full">
           <SelectValue />
         </SelectTrigger>
         <SelectContent>

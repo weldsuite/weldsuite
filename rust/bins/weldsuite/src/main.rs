@@ -283,6 +283,7 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
         public_app_url: config.public_app_url.as_deref().map(Arc::from),
         project_portal_url: config.project_portal_url.as_deref().map(Arc::from),
         sign_portal_secret: config.sign_portal_secret.as_deref().map(Arc::from),
+        sign_eidas: sign_eidas(&config.environment)?,
         collab: (!config.collab_rooms_urls.is_empty()).then(|| {
             Arc::new(weldsuite_adapters_oss::collab::HttpCollabRooms::new(
                 config.collab_rooms_urls.clone(),
@@ -512,6 +513,38 @@ fn serve_jobs(
     }))
 }
 
+/// WeldSign's eIDAS services (plan weldsign-eidas): the trust service
+/// `SIGN_TRUST_MODE` names (off by default) and the credits an advanced or
+/// qualified signer costs when staff set no price list (`SIGN_AES_CREDITS`,
+/// `SIGN_QES_CREDITS`; 0, the default, is free, as on a self-hosted install).
+fn sign_eidas(environment: &str) -> Result<weldsuite_sign::Eidas, Box<dyn std::error::Error>> {
+    let get = |name: &str| std::env::var(name).ok();
+    let http = weldsuite_adapters_oss::ReqwestOutbound::new(std::time::Duration::from_secs(30))?;
+    let trust = weldsuite_trust_services::config::from_env(
+        get,
+        Some(weldsuite_ports::OutboundHttp(Arc::new(http))),
+        environment == "production",
+    )?;
+    if let Some(trust) = &trust {
+        tracing::info!(
+            provider = trust.provider(),
+            seals = trust.seals(),
+            "WeldSign trust service on"
+        );
+    }
+    let credits = |name: &str| {
+        std::env::var(name)
+            .ok()
+            .and_then(|v| v.trim().parse::<i64>().ok())
+            .filter(|n| *n >= 0)
+            .unwrap_or(0)
+    };
+    Ok(weldsuite_sign::Eidas {
+        trust,
+        aes_credits: credits("SIGN_AES_CREDITS"),
+        qes_credits: credits("SIGN_QES_CREDITS"),
+    })
+}
 #[cfg(test)]
 mod tests {
     use super::version;

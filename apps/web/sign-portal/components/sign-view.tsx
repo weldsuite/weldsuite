@@ -4,14 +4,16 @@ import { Button } from '@weldsuite/ui/components/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@weldsuite/ui/components/dropdown-menu';
 import type { SignPortalCompleteInput, SignPortalEnvelope } from '@weldsuite/app-api-client/schemas/weldsign';
 import { EMPTY_SIGNING_STATE, missingRequired, sortedFields, type SigningState } from '@/lib/fields';
+import { finishErrorMessage, finishLabel, startProviderSignature } from '@/lib/eidas';
 import type { Locale } from '@/lib/i18n';
-import { PortalApiError, PortalNetworkError, portalJson } from '@/lib/portal-client';
+import { PortalNetworkError, portalJson } from '@/lib/portal-client';
 import { initialsFromName } from '@/lib/signature';
 import type { AdoptedSignature } from '@/lib/signing-types';
 import { BrandButton } from './brand-button';
 import { ConsentStep } from './consent-step';
 import { DeclineDialog } from './decline-dialog';
 import { DocumentView } from './document-view';
+import { LevelNotice, ReturnedNotice } from './eidas-notices';
 import { usePortal } from './portal-context';
 import { PortalFrame } from './portal-frame';
 import { SignatureDialog } from './signature-dialog';
@@ -23,6 +25,8 @@ interface SignViewProps {
   withSession: <T>(run: () => Promise<T>) => Promise<T>;
   onEnvelope: (envelope: SignPortalEnvelope) => void;
   onLocaleChange: (locale: Locale) => void;
+  /** The signer came back from the trust service provider without having signed. */
+  returned?: 'failed' | 'cancelled' | null;
 }
 
 /** A text or checkbox field's value as the server expects it. */
@@ -31,8 +35,9 @@ function submittedValue(type: SignPortalEnvelope['fields'][number]['type'], raw:
   return (raw ?? '').trim();
 }
 
+
 /** The signer's turn: consent, then the document with its fields, then Finish. */
-export function SignView({ envelope, disclosureVersion, withSession, onEnvelope, onLocaleChange }: Readonly<SignViewProps>) {
+export function SignView({ envelope, disclosureVersion, withSession, onEnvelope, onLocaleChange, returned = null }: Readonly<SignViewProps>) {
   const { t, locale } = usePortal();
   const [consented, setConsented] = useState(envelope.recipient.consented);
   const [consentBusy, setConsentBusy] = useState(false);
@@ -53,6 +58,9 @@ export function SignView({ envelope, disclosureVersion, withSession, onEnvelope,
   const missing = useMemo(() => missingRequired(ordered, state), [ordered, state]);
   const hasSignatureField = envelope.fields.some((f) => f.type === 'signature');
   const hasInitialsField = envelope.fields.some((f) => f.type === 'initials');
+  // Advanced and qualified signatures: Finish sends the signer to the trust service provider instead of completing here.
+  const level = envelope.signatureLevel;
+  const provider = envelope.trustProvider ?? null;
 
   useEffect(
     () => () => {
@@ -60,6 +68,15 @@ export function SignView({ envelope, disclosureVersion, withSession, onEnvelope,
     },
     [],
   );
+
+  // Coming back with the browser's Back button restores this page as it was left, "opening" and all.
+  useEffect(() => {
+    const onShow = (event: PageTransitionEvent) => {
+      if (event.persisted) setFinishing(false);
+    };
+    window.addEventListener('pageshow', onShow);
+    return () => window.removeEventListener('pageshow', onShow);
+  }, []);
 
   const register = useCallback((id: string, el: HTMLElement | null) => {
     if (el) elements.current.set(id, el);
@@ -128,14 +145,14 @@ export function SignView({ envelope, disclosureVersion, withSession, onEnvelope,
       timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || null,
     };
     try {
+      if (level) {
+        await startProviderSignature(withSession, body);
+        return;
+      }
       const next = await withSession(() => portalJson<SignPortalEnvelope>('/api/portal/complete', body));
       onEnvelope(next);
     } catch (err) {
-      if (err instanceof PortalNetworkError) setFinishError(t.error.network);
-      else if (err instanceof PortalApiError && err.status === 401) setFinishError(t.sign.sessionExpired);
-      // Signed, but the request could not be finished yet: finishing again picks it up.
-      else if (err instanceof PortalApiError && err.status === 503) setFinishError(t.sign.finishPending);
-      else setFinishError(t.sign.finishFailed);
+      setFinishError(finishErrorMessage(err, level, t));
       setFinishing(false);
     }
   }
@@ -170,6 +187,8 @@ export function SignView({ envelope, disclosureVersion, withSession, onEnvelope,
           title={envelope.title}
           senderName={envelope.senderName}
           message={envelope.message}
+          level={level}
+          provider={provider ?? undefined}
           busy={consentBusy}
           error={consentError}
           onAgree={agree}
@@ -189,6 +208,8 @@ export function SignView({ envelope, disclosureVersion, withSession, onEnvelope,
             {envelope.senderName ? <p className="text-sm text-muted-foreground">{t.sign.from(envelope.senderName)}</p> : null}
             {envelope.message ? <p className="mt-2 whitespace-pre-line text-sm text-muted-foreground">{envelope.message}</p> : null}
           </div>
+          {returned ? <ReturnedNotice returned={returned} provider={provider} t={t} /> : null}
+          {level ? <LevelNotice level={level} provider={provider} t={t} /> : null}
         </div>
 
         <DocumentView
@@ -222,7 +243,7 @@ export function SignView({ envelope, disclosureVersion, withSession, onEnvelope,
             ) : null}
             <BrandButton className="flex-1 sm:flex-none" onClick={finish} disabled={missing.length > 0 || finishing}>
               {finishing ? <Loader2 className="animate-spin" aria-hidden="true" /> : <Send aria-hidden="true" />}
-              {finishing ? t.sign.finishing : t.sign.finish}
+              {finishLabel(finishing, level, provider, t)}
             </BrandButton>
           </div>
         </div>

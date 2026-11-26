@@ -23,8 +23,15 @@ import {
 } from '@weldsuite/app-api-client/schemas/weldsign';
 import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { useI18n } from '@/lib/i18n/provider';
-import { targetOf, useSignTemplateRoleMutations, useUpdateSignEnvelope } from '@/hooks/queries/use-weldsign-queries';
+import {
+  targetOf,
+  useSignCapabilities,
+  useSignTemplateRoleMutations,
+  useUpdateSignEnvelope,
+} from '@/hooks/queries/use-weldsign-queries';
 import { ChoiceField } from '../../components/choice-field';
+import { SignatureLevelField } from '../../components/signature-level-field';
+import { levelOf } from '../../lib/signature-levels';
 import { SigningOrderToggle } from '../../envelope/settings-fields';
 import { apiErrorMessage } from '../../lib/errors';
 import { recipientColor } from '../../lib/recipient-colors';
@@ -231,6 +238,7 @@ function RoleSettings({ role, editable, onSave }: Readonly<{ role: SignRecipient
   const { t } = useI18n();
   const tr = t.weldsign.editor.recipients;
   const isSigner = role.role === 'signer';
+  const { capabilities } = useSignCapabilities();
 
   return (
     <>
@@ -240,8 +248,10 @@ function RoleSettings({ role, editable, onSave }: Readonly<{ role: SignRecipient
           value={role.role}
           options={SIGN_RECIPIENT_ROLES.map((value) => ({ value, label: tr.roles[value] }))}
           disabled={!editable}
-          // A copy has no identity check, so it goes back to the plain link.
-          onChange={(next: SignRecipientRole) => onSave(role, next === 'cc' ? { role: next, authMode: 'link' } : { role: next })}
+          // A copy has no identity check, so it goes back to the plain link and a simple signature.
+          onChange={(next: SignRecipientRole) =>
+            onSave(role, next === 'cc' ? { role: next, authMode: 'link', ...(levelOf(role) !== 'ses' && { signatureLevel: 'ses' as const }) } : { role: next })
+          }
         />
         <ChoiceField
           label={tr.language}
@@ -260,6 +270,16 @@ function RoleSettings({ role, editable, onSave }: Readonly<{ role: SignRecipient
           />
         )}
       </div>
+      {isSigner && (
+        <div className="mt-3 grid">
+          <SignatureLevelField
+            value={levelOf(role)}
+            capabilities={capabilities}
+            disabled={!editable}
+            onChange={(signatureLevel) => onSave(role, { signatureLevel })}
+          />
+        </div>
+      )}
       {isSigner && role.authMode === 'access_code' && (
         <p className="mt-2 text-xs text-muted-foreground">{t.weldsign.templates.roles.accessCodeNote}</p>
       )}

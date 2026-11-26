@@ -290,6 +290,10 @@ pub(crate) fn recipient_dto(row: &Value) -> Value {
             "remindersSent",
         ],
     ));
+    // eIDAS: only when above simple, so a simple recipient answers as before.
+    if let Some(level) = row["signatureLevel"].as_str() {
+        dto.insert("signatureLevel".to_owned(), json!(level));
+    }
     Value::Object(dto)
 }
 
@@ -526,6 +530,7 @@ pub(crate) async fn envelope_detail(
         _ => Value::Null,
     };
     detail.insert("mySignerId".to_owned(), my_signer);
+    crate::eidas::extend_detail(&mut detail, envelope);
     Ok(Value::Object(detail))
 }
 

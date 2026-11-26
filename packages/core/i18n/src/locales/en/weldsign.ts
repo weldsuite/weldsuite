@@ -257,6 +257,55 @@ export const weldsign = {
     },
   },
 
+  /** Advanced and qualified electronic signatures (eIDAS); only on installs that offer them. */
+  eidas: {
+    level: 'Signature type',
+    levels: {
+      ses: 'Simple',
+      aes: 'Advanced',
+      qes: 'Qualified',
+    },
+    levelOption: '{level} ({price})',
+    creditOne: '{count} credit per signer',
+    creditMany: '{count} credits per signer',
+    hints: {
+      ses: 'The signer signs with an email link, as usual.',
+      aes: 'The signer proves who they are with {provider} and signs with a certificate in their name.',
+      qes: 'The signer proves who they are with {provider} and signs with a qualified certificate, legally equal to a handwritten signature in the EU.',
+      noProvider: 'a trust service provider',
+    },
+    badges: {
+      aes: 'Advanced signature',
+      qes: 'Qualified signature',
+    },
+    creditsTitle: 'Credits',
+    creditsLine: 'Advanced and qualified signers ({count})',
+    creditsTotalOne: '{count} credit',
+    creditsTotalMany: '{count} credits',
+    creditsNote: 'Reserved from your workspace balance when you send the request.',
+    insufficient: {
+      title: 'Not enough credits to send this request',
+      body: 'It needs {required} credits and your workspace has {balance}. Top up at least {shortfall} credits and send it again.',
+      generic: 'Your workspace does not have enough credits for the advanced and qualified signatures in this request.',
+      topUp: 'Top up credits',
+    },
+    signatures: {
+      title: 'Signatures',
+      holder: 'Certificate in the name of {name}',
+      issuer: 'Issued by {issuer}',
+      provider: 'Trust service: {provider}',
+      qualified: 'Qualified certificate',
+      signedOn: 'Signed {date}',
+      nameMismatch: 'The name on the certificate ({holder}) differs from the name on this request ({name}). Check that the right person signed.',
+      loadFailed: 'Could not load the signature details',
+    },
+    sealedAt: 'The PDF was sealed on {date}, so any later change to it shows.',
+    evidence: 'Evidence report',
+    evidenceFile: 'evidence report',
+    evidenceFailed: 'Could not download the evidence report',
+    saveLevelFailed: 'Could not save the signature type',
+  },
+
   overview: {
     recipients: 'Recipients',
     statuses: {

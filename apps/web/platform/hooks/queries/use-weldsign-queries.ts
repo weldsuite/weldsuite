@@ -19,6 +19,7 @@
 
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAppApi } from '@/lib/api/use-app-api';
+import { isFeatureAvailable } from '@/lib/edition';
 import type {
   CorrectSignRecipientInput,
   CreateSignEnvelopeInput,
@@ -44,6 +45,10 @@ export const weldsignKeys = {
   envelope: (id: string) => [...weldsignKeys.all, 'envelope', id] as const,
   /** Nested under the envelope: invalidating the envelope refreshes its activity too. */
   events: (id: string) => [...weldsignKeys.envelope(id), 'events'] as const,
+  /** Nested under the envelope: who signed with which certificate (advanced and qualified signatures). */
+  signatures: (id: string) => [...weldsignKeys.envelope(id), 'signatures'] as const,
+  /** What the install offers (levels, prices); it changes only with the install. */
+  capabilities: () => [...weldsignKeys.all, 'capabilities'] as const,
   /** Nested under the envelope too: adding or removing a recipient refreshes who is still suggested. */
   recipientSuggestions: (id: string) => [...weldsignKeys.envelope(id), 'recipient-suggestions'] as const,
   templateLists: () => [...weldsignKeys.all, 'template-list'] as const,
@@ -325,6 +330,17 @@ export function useSendSignEnvelope(id: string) {
   });
 }
 
+function saveBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
+}
+
+const fileSafe = (title: string, fallback: string) => title.replace(/[\\/:*?"<>|]+/g, ' ').trim() || fallback;
+
 /** Save the signed PDF of a completed request to the user's device. */
 export function useDownloadSignedPdf(id: string) {
   const { weldsign } = useAppApi();
@@ -332,13 +348,59 @@ export function useDownloadSignedPdf(id: string) {
     mutationFn: async (title: string) => {
       const res = await weldsign.download(id);
       if (!res.ok) throw new Error(`Download failed (${res.status})`);
-      const url = URL.createObjectURL(await res.blob());
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${title.replace(/[\\/:*?"<>|]+/g, ' ').trim() || 'signed'}.pdf`;
-      a.click();
-      setTimeout(() => URL.revokeObjectURL(url), 10_000);
+      saveBlob(await res.blob(), `${fileSafe(title, 'signed')}.pdf`);
     },
+  });
+}
+
+/**
+ * Save the evidence report of a request with advanced or qualified signers.
+ * The `suffix` is the file name's tail (the report's own title, translated).
+ */
+export function useDownloadSignEvidence(id: string) {
+  const { weldsign } = useAppApi();
+  return useMutation({
+    mutationFn: async ({ title, suffix }: { title: string; suffix: string }) => {
+      const res = await weldsign.evidence(id);
+      if (!res.ok) throw new Error(`Download failed (${res.status})`);
+      saveBlob(await res.blob(), `${fileSafe(title, 'signed')} - ${fileSafe(suffix, 'evidence')}.pdf`);
+    },
+  });
+}
+
+/**
+ * What this install offers for signature levels. Only fetched where the
+ * `sign-eidas` edition feature is available (never on Global); `capabilities`
+ * is null until it loads or when the feature is off, which the UI treats as
+ * "simple signatures only".
+ */
+export function useSignCapabilities() {
+  const { weldsign } = useAppApi();
+  const enabled = isFeatureAvailable('sign-eidas');
+  const query = useQuery({
+    queryKey: weldsignKeys.capabilities(),
+    queryFn: () => weldsign.capabilities(),
+    select: (res) => res.data,
+    enabled,
+    staleTime: 5 * 60_000,
+  });
+  return { ...query, capabilities: enabled ? (query.data ?? null) : null };
+}
+
+/**
+ * Every signature and seal of a request (certificate holder, issuer, whether
+ * it is qualified). Owners only, and only when the request has advanced or
+ * qualified signers, so callers pass `enabled`. Names stay out of the
+ * persisted cache.
+ */
+export function useSignEnvelopeSignatures(id: string, enabled: boolean) {
+  const { weldsign } = useAppApi();
+  return useQuery({
+    queryKey: weldsignKeys.signatures(id),
+    queryFn: () => weldsign.signatures(id),
+    select: (res) => res.data,
+    enabled: enabled && isFeatureAvailable('sign-eidas'),
+    meta: { persist: false },
   });
 }
 

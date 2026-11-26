@@ -146,6 +146,9 @@ export const GLOBAL_UNAVAILABLE_FEATURES: readonly string[] = [
   'weldpass-offline',
   // WeldFlow agile delivery: sprints, backlog, epics, retros (ADRs FLOW-022 to FLOW-024).
   'flow-agile',
+  // WeldSign advanced and qualified signatures, sealed PDFs and the evidence
+  // report (eIDAS), built only in Rust.
+  'sign-eidas',
 ];
 
 const mod = (

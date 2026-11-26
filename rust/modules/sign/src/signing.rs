@@ -528,7 +528,11 @@ fn storage_error(error: impl std::fmt::Display) -> SignError {
 
 /// The signer's own fields, in the table's order (no `order by`, as
 /// TypeScript reads them).
-async fn own_fields(db: &PgPool, envelope_id: &str, recipient_id: &str) -> SignResult<Vec<Value>> {
+pub(crate) async fn own_fields(
+    db: &PgPool,
+    envelope_id: &str,
+    recipient_id: &str,
+) -> SignResult<Vec<Value>> {
     let rows = sign_fields::Entity::find()
         .filter(sign_fields::Column::EnvelopeId.eq(envelope_id))
         .filter(sign_fields::Column::RecipientId.eq(recipient_id))

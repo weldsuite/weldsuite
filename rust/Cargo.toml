@@ -59,6 +59,7 @@ weldsuite-data = { path = "modules/data" }
 weldsuite-custom-domains = { path = "crates/custom-domains" }
 weldsuite-db = { path = "crates/db" }
 weldsuite-digipoort = { path = "crates/digipoort" }
+weldsuite-pades = { path = "crates/pades" }
 weldsuite-desk = { path = "modules/desk" }
 weldsuite-desk-domain = { path = "crates/desk-domain" }
 weldsuite-desk-widget = { path = "modules/desk-widget" }
@@ -96,6 +97,7 @@ weldsuite-migrations = { path = "crates/migrations" }
 weldsuite-mollie = { path = "crates/mollie" }
 weldsuite-outside-eu = { path = "crates/outside-eu" }
 weldsuite-sign = { path = "modules/sign" }
+weldsuite-trust-services = { path = "crates/trust-services" }
 weldsuite-social = { path = "modules/social" }
 weldsuite-staff-domain = { path = "crates/staff-domain" }
 weldsuite-social-domain = { path = "crates/social-domain" }

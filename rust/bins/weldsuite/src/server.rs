@@ -65,6 +65,8 @@ pub(crate) struct AppState {
     pub(crate) project_portal_url: Option<Arc<str>>,
     /// `SIGN_PORTAL_SECRET`, the signer portal's key.
     pub(crate) sign_portal_secret: Option<Arc<str>>,
+    /// WeldSign's trust service (AES, QES, the seal) and prices (`SIGN_TRUST_MODE`).
+    pub(crate) sign_eidas: weldsuite_sign::Eidas,
     /// WeldDocs and WeldSheets' rooms (`COLLAB_ROOMS_URLS`).
     pub(crate) collab: Option<Arc<weldsuite_adapters_oss::collab::HttpCollabRooms>>,
     /// `COLLAB_ROOMS_SECRET`, which the collab-rooms pods send to `/internal/collab`.
@@ -670,6 +672,7 @@ mod tests {
             public_app_url: None,
             project_portal_url: None,
             sign_portal_secret: None,
+            sign_eidas: weldsuite_sign::Eidas::default(),
             collab: None,
             collab_secret: None,
             mail_inbound_secret: None,

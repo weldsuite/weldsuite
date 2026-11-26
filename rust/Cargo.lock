@@ -7592,6 +7592,7 @@ dependencies = [
  "weldsuite-staff-domain",
  "weldsuite-stash",
  "weldsuite-subscribers",
+ "weldsuite-trust-services",
  "weldsuite-video-rooms",
 ]
 
@@ -9476,6 +9477,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "weldsuite-pades"
+version = "0.0.0"
+dependencies = [
+ "aws-lc-rs",
+ "base64 0.22.1",
+ "lopdf",
+ "time",
+]
+
+[[package]]
 name = "weldsuite-panel"
 version = "0.0.0"
 dependencies = [
@@ -9852,9 +9863,11 @@ dependencies = [
  "weldsuite-emails",
  "weldsuite-events",
  "weldsuite-kit",
+ "weldsuite-pades",
  "weldsuite-permissions",
  "weldsuite-ports",
  "weldsuite-schema",
+ "weldsuite-trust-services",
 ]
 
 [[package]]
@@ -9977,6 +9990,21 @@ dependencies = [
  "weldsuite-kit",
  "weldsuite-ports",
  "weldsuite-schema",
+]
+
+[[package]]
+name = "weldsuite-trust-services"
+version = "0.0.0"
+dependencies = [
+ "aws-lc-rs",
+ "base64 0.22.1",
+ "lopdf",
+ "serde_json",
+ "time",
+ "tokio",
+ "tracing",
+ "weldsuite-pades",
+ "weldsuite-ports",
 ]
 
 [[package]]

@@ -59,6 +59,8 @@ struct RecipientInput {
     routing_order: Field<i64>,
     auth_mode: Field<String>,
     access_code: Field<String>,
+    /// eIDAS (plan weldsign-eidas): `ses`, `aes` or `qes`.
+    signature_level: Field<String>,
 }
 
 fn read_recipient(
@@ -90,6 +92,7 @@ fn read_recipient(
             Presence::Nullish,
             Text::trimmed(Some(4), Some(64)),
         ),
+        signature_level: crate::eidas::read_level(issues, fields),
     }
 }
 
@@ -342,6 +345,11 @@ pub(crate) async fn create(
             let envelope = load_draft(&caller.db, &id, &viewer).await?;
             let envelope_id = text(&envelope, "id");
             let secret = caller.session_secret(&state);
+            let level = crate::eidas::check_level(
+                &input.signature_level,
+                input.role.as_set().map_or("signer", String::as_str),
+                &state.eidas,
+            )?;
             let input = NewRecipient {
                 role: input.role.into_option(),
                 role_name: None,
@@ -355,6 +363,7 @@ pub(crate) async fn create(
             };
             let recipient =
                 add_recipient(&caller.db, envelope_id, input, secret.as_deref()).await?;
+            let recipient = crate::eidas::store_level(&caller.db, recipient, level).await?;
             touch_envelope(&caller.db, envelope_id).await?;
             publish_updated(&caller, &state, &envelope);
             Ok(Created(recipient_dto(&recipient)).into_response())
@@ -379,6 +388,13 @@ pub(crate) async fn update(
             let envelope = load_draft(&caller.db, &id, &viewer).await?;
             let envelope_id = text(&envelope, "id");
             let secret = caller.session_secret(&state);
+            let current = get_recipient(&caller.db, envelope_id, &recipient_id).await?;
+            let role = input
+                .role
+                .as_set()
+                .cloned()
+                .unwrap_or_else(|| text(&current, "role").to_owned());
+            let level = crate::eidas::check_level(&input.signature_level, &role, &state.eidas)?;
             let recipient = update_recipient(
                 &caller.db,
                 envelope_id,
@@ -387,6 +403,7 @@ pub(crate) async fn update(
                 secret.as_deref(),
             )
             .await?;
+            let recipient = crate::eidas::store_level(&caller.db, recipient, level).await?;
             touch_envelope(&caller.db, envelope_id).await?;
             publish_updated(&caller, &state, &envelope);
             Ok(Data(recipient_dto(&recipient)).into_response())

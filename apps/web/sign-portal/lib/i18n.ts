@@ -94,6 +94,35 @@ const en = {
     review: 'Review the document',
   },
 
+  /** Advanced and qualified electronic signatures (eIDAS): the signer proves who they are with a trust service provider. */
+  eidas: {
+    levelTitle: {
+      aes: 'Advanced electronic signature',
+      qes: 'Qualified electronic signature',
+    },
+    levelBody: {
+      aes: 'This document needs an advanced electronic signature. It is linked to you alone and shows if the document changes afterwards.',
+      qes: 'This document needs a qualified electronic signature. In the EU it has the same legal force as a handwritten signature.',
+    },
+    confirmWith: (provider: string) =>
+      `You will confirm who you are with ${provider}. Keep your passport or ID card at hand: you may need to scan it with your phone.`,
+    confirmWithoutProvider:
+      'You will confirm who you are with a trust service provider. Keep your passport or ID card at hand: you may need to scan it with your phone.',
+    finish: (provider: string | null) => (provider ? `Continue to ${provider}` : 'Continue to identity check'),
+    finishing: 'Opening',
+    unavailable: 'Signing with a certificate is not available right now. Try again later, or ask the sender.',
+    returnedFailed: (provider: string | null) =>
+      provider
+        ? `Signing with ${provider} did not work. You can try again or decline to sign.`
+        : 'Signing did not work. You can try again or decline to sign.',
+    returnedCancelled: 'You stopped before signing. You can try again or decline to sign.',
+    signedWith: {
+      aes: 'Signed with an advanced electronic signature',
+      qes: 'Signed with a qualified electronic signature',
+    },
+    evidence: 'Download evidence report',
+  },
+
   sign: {
     from: (sender: string) => `From ${sender}`,
     page: (n: number, total: number) => `Page ${n} of ${total}`,
@@ -255,6 +284,35 @@ const nl: Dictionary = {
     agreeing: 'Opslaan',
     decline: 'Weigeren te ondertekenen',
     review: 'Bekijk het document',
+  },
+
+  /** Geavanceerde en gekwalificeerde elektronische handtekeningen (eIDAS): de ondertekenaar bewijst wie hij is bij een vertrouwensdienstverlener. */
+  eidas: {
+    levelTitle: {
+      aes: 'Geavanceerde elektronische handtekening',
+      qes: 'Gekwalificeerde elektronische handtekening',
+    },
+    levelBody: {
+      aes: 'Dit document vraagt een geavanceerde elektronische handtekening. Die is alleen aan jou gekoppeld en laat zien als het document daarna verandert.',
+      qes: 'Dit document vraagt een gekwalificeerde elektronische handtekening. In de EU heeft die dezelfde juridische kracht als een handgeschreven handtekening.',
+    },
+    confirmWith: (provider: string) =>
+      `Je bevestigt wie je bent bij ${provider}. Houd je paspoort of identiteitskaart bij de hand: misschien moet je die met je telefoon scannen.`,
+    confirmWithoutProvider:
+      'Je bevestigt wie je bent bij een vertrouwensdienstverlener. Houd je paspoort of identiteitskaart bij de hand: misschien moet je die met je telefoon scannen.',
+    finish: (provider: string | null) => (provider ? `Verder naar ${provider}` : 'Verder naar de identiteitscontrole'),
+    finishing: 'Openen',
+    unavailable: 'Ondertekenen met een certificaat is nu niet mogelijk. Probeer het later opnieuw of vraag het de afzender.',
+    returnedFailed: (provider: string | null) =>
+      provider
+        ? `Ondertekenen met ${provider} is niet gelukt. Je kunt het opnieuw proberen of weigeren te ondertekenen.`
+        : 'Ondertekenen is niet gelukt. Je kunt het opnieuw proberen of weigeren te ondertekenen.',
+    returnedCancelled: 'Je bent gestopt voordat je had ondertekend. Je kunt het opnieuw proberen of weigeren te ondertekenen.',
+    signedWith: {
+      aes: 'Ondertekend met een geavanceerde elektronische handtekening',
+      qes: 'Ondertekend met een gekwalificeerde elektronische handtekening',
+    },
+    evidence: 'Bewijsrapport downloaden',
   },
 
   sign: {

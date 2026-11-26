@@ -257,6 +257,55 @@ export const weldsign = {
     },
   },
 
+  /** Geavanceerde en gekwalificeerde elektronische handtekeningen (eIDAS); alleen waar de installatie ze aanbiedt. */
+  eidas: {
+    level: 'Soort handtekening',
+    levels: {
+      ses: 'Eenvoudig',
+      aes: 'Geavanceerd',
+      qes: 'Gekwalificeerd',
+    },
+    levelOption: '{level} ({price})',
+    creditOne: '{count} credit per ondertekenaar',
+    creditMany: '{count} credits per ondertekenaar',
+    hints: {
+      ses: 'De ondertekenaar tekent met een link in een e-mail, zoals gewoonlijk.',
+      aes: 'De ondertekenaar bewijst wie hij is bij {provider} en tekent met een certificaat op zijn naam.',
+      qes: 'De ondertekenaar bewijst wie hij is bij {provider} en tekent met een gekwalificeerd certificaat, in de EU juridisch gelijk aan een handgeschreven handtekening.',
+      noProvider: 'een vertrouwensdienstverlener',
+    },
+    badges: {
+      aes: 'Geavanceerde handtekening',
+      qes: 'Gekwalificeerde handtekening',
+    },
+    creditsTitle: 'Credits',
+    creditsLine: 'Geavanceerde en gekwalificeerde ondertekenaars ({count})',
+    creditsTotalOne: '{count} credit',
+    creditsTotalMany: '{count} credits',
+    creditsNote: 'Wordt van het saldo van je werkruimte gereserveerd zodra je het verzoek verstuurt.',
+    insufficient: {
+      title: 'Te weinig credits om dit verzoek te versturen',
+      body: 'Het kost {required} credits en je werkruimte heeft er {balance}. Waardeer minstens {shortfall} credits op en verstuur het opnieuw.',
+      generic: 'Je werkruimte heeft te weinig credits voor de geavanceerde en gekwalificeerde handtekeningen in dit verzoek.',
+      topUp: 'Credits opwaarderen',
+    },
+    signatures: {
+      title: 'Handtekeningen',
+      holder: 'Certificaat op naam van {name}',
+      issuer: 'Uitgegeven door {issuer}',
+      provider: 'Vertrouwensdienst: {provider}',
+      qualified: 'Gekwalificeerd certificaat',
+      signedOn: 'Getekend {date}',
+      nameMismatch: 'De naam op het certificaat ({holder}) wijkt af van de naam in dit verzoek ({name}). Controleer of de juiste persoon heeft getekend.',
+      loadFailed: 'Kon de gegevens van de handtekeningen niet laden',
+    },
+    sealedAt: 'De pdf is verzegeld op {date}, dus elke latere wijziging is zichtbaar.',
+    evidence: 'Bewijsrapport',
+    evidenceFile: 'bewijsrapport',
+    evidenceFailed: 'Kon het bewijsrapport niet downloaden',
+    saveLevelFailed: 'Kon het soort handtekening niet opslaan',
+  },
+
   overview: {
     recipients: 'Ontvangers',
     statuses: {

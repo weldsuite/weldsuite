@@ -3,6 +3,7 @@ import { AlertTriangle, Link2Off, Loader2 } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import type { SignPortalClosedReason, SignPortalEnvelope, SignPortalSessionResponse } from '@weldsuite/app-api-client/schemas/weldsign';
 import { readableOn, safeBrandColor } from '@/lib/brand';
+import { readSignatureReturn, type SignatureReturn } from '@/lib/eidas';
 import { dictionaries, type Locale } from '@/lib/i18n';
 import { PortalApiError, PortalNetworkError, portalJson, setSigningLink } from '@/lib/portal-client';
 import { CodeForm } from './code-form';
@@ -41,6 +42,16 @@ export function SigningFlow({ token, initialLocale, disclosureVersion }: Readonl
   const [locale, setLocale] = useState<Locale>(initialLocale);
   const pickedLocale = useRef(false);
   const renewing = useRef<Promise<SignPortalSessionResponse> | null>(null);
+  // Set when the trust service provider sent the signer back without a signature (`/signature-callback`).
+  const [returned, setReturned] = useState<SignatureReturn | null>(null);
+
+  useEffect(() => {
+    const value = readSignatureReturn(window.location.search);
+    if (!value) return;
+    setReturned(value);
+    // The notice is for this visit only: a reload must not show it again.
+    window.history.replaceState(null, '', window.location.pathname);
+  }, []);
 
   const loadEnvelope = useCallback(async () => {
     try {
@@ -177,6 +188,7 @@ export function SigningFlow({ token, initialLocale, disclosureVersion }: Readonl
             withSession={withSession}
             onEnvelope={update}
             onLocaleChange={changeLocale}
+            returned={returned}
           />
         );
       } else if (env.mode === 'completed') {

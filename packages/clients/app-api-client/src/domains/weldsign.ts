@@ -20,6 +20,7 @@ import type {
   ReorderSignDocumentsInput,
   ReplaceSignFieldsInput,
   SendSignEnvelopeInput,
+  SignCapabilities,
   SignDocumentDto,
   SignEnvelopeDetail,
   SignEnvelopeSummary,
@@ -28,6 +29,7 @@ import type {
   SignRecipientDto,
   SignRecipientSuggestion,
   SignRemindResult,
+  SignSignatureInfo,
   SignSigningLink,
   SignTemplateSummary,
   UpdateSignEnvelopeInput,
@@ -126,6 +128,22 @@ export function createWeldSignApi(api: ClientApi) {
     /** The request's activity, oldest first (owners only). */
     events(id: string): Promise<DataResponse<SignEventDto[]>> {
       return api.get(`${base}/${id}/events`);
+    },
+    /**
+     * What the install offers: signature levels with their prices in credits
+     * and whether PDFs are sealed. EU and self-hosted only; Global has no such
+     * route, so callers check the `sign-eidas` edition feature first.
+     */
+    capabilities(): Promise<DataResponse<SignCapabilities>> {
+      return api.get('/sign/capabilities');
+    },
+    /** Every signature and seal of a completed request, with the certificate holder (owners only). */
+    signatures(id: string): Promise<DataResponse<SignSignatureInfo[]>> {
+      return api.get(`${base}/${id}/signatures`);
+    },
+    /** The separate evidence report PDF; 404 unless the envelope's `hasEvidence` is true. */
+    evidence(id: string): Promise<Response> {
+      return api.getRaw(`${base}/${id}/evidence`);
     },
     /** A fresh link for the caller's own turn to sign. */
     signingLink(id: string): Promise<DataResponse<SignSigningLink>> {

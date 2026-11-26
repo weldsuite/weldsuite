@@ -248,6 +248,10 @@ async fn email_group(
 /// (`meterUsage`, the `USAGE_METER` Durable Object). The Kubernetes editions
 /// have no billing yet, so this behaves as the workers do without that
 /// binding: allowed, uncounted.
+#[allow(
+    clippy::too_many_lines,
+    reason = "one send, in order: checks, the eIDAS charge and its give-backs, mail, the status flip"
+)]
 pub(crate) async fn send_envelope(
     ctx: &SendContext,
     draft: &Value,
@@ -285,25 +289,57 @@ pub(crate) async fn send_envelope(
     envelope["expiresAt"] = expiry_text.clone().map_or(Value::Null, Value::from);
     let signing_order = draft["signingOrderEnabled"].as_bool().unwrap_or(false);
 
+    // AES/QES signers (plan weldsign-eidas): the prepared PDF and the credits,
+    // before anyone is emailed; given back if the emails don't go out.
+    let prepared = crate::eidas::prepare_for_send(ctx, draft, &recipients).await?;
+    let give_back = || async {
+        if let Some(prepared) = &prepared {
+            crate::eidas::give_back(ctx, id, prepared.credits, prepared.ledger_key.as_deref())
+                .await;
+        }
+    };
+
     let group = next_group(signing_order, &recipients);
-    if !email_group(ctx, &envelope, &group, Some(actor)).await? {
-        return Err(SignError::invalid(EMAIL_LIMIT_MESSAGE));
+    match email_group(ctx, &envelope, &group, Some(actor)).await {
+        Ok(true) => {}
+        Ok(false) => {
+            give_back().await;
+            return Err(SignError::invalid(EMAIL_LIMIT_MESSAGE));
+        }
+        Err(error) => {
+            give_back().await;
+            return Err(error);
+        }
     }
 
     let now = crate::now();
-    // Only a draft is sent, once.
-    let sent = sign_envelopes::Entity::update_many()
+    // Only a draft is sent, once. A prepared request's PDF and credits are
+    // set in the same statement, so of two racing sends only the winner's
+    // stand; the loser gives its charge back.
+    let mut update = sign_envelopes::Entity::update_many()
         .col_expr(sign_envelopes::Column::Status, Expr::value("sent"))
         .col_expr(sign_envelopes::Column::SentAt, Expr::value(now))
         .col_expr(sign_envelopes::Column::ExpiresAt, Expr::value(expiry))
-        .col_expr(sign_envelopes::Column::UpdatedAt, Expr::value(now))
+        .col_expr(sign_envelopes::Column::UpdatedAt, Expr::value(now));
+    if let Some(prepared) = &prepared {
+        update = crate::eidas::with_prepared(update, prepared);
+    }
+    let sent = match update
         .filter(sign_envelopes::Column::Id.eq(id))
         .filter(sign_envelopes::Column::Status.eq("draft"))
         .exec_with_returning(&orm(&ctx.db))
-        .await?
-        .into_iter()
-        .next();
-    record_sign_event(
+        .await
+    {
+        Ok(rows) => rows.into_iter().next(),
+        Err(error) => {
+            give_back().await;
+            return Err(error.into());
+        }
+    };
+    if sent.is_none() {
+        give_back().await;
+    }
+    let recorded = record_sign_event(
         &ctx.db,
         SignEvent {
             envelope_id: id,
@@ -315,7 +351,33 @@ pub(crate) async fn send_envelope(
             ..SignEvent::default()
         },
     )
-    .await?;
+    .await;
+    if let Err(error) = recorded {
+        // A prepared request that went out stays sent and paid for: its AES/QES
+        // signers can sign, so the charge stands and the trail gap is logged.
+        // Anything else answers as before.
+        if prepared.is_none() || sent.is_none() {
+            return Err(error);
+        }
+        tracing::error!(
+            ?error,
+            envelope_id = id,
+            "sign: the sent event was not written"
+        );
+    }
+    // Only the send that won: the charge per signer on the trail, which the
+    // refunds read. Without it they could not be worked out, so a failed
+    // write gives the whole charge back.
+    if let (Some(prepared), Some(_)) = (&prepared, &sent)
+        && let Err(error) = crate::eidas::record_prepared(ctx, id, prepared).await
+    {
+        tracing::error!(
+            ?error,
+            envelope_id = id,
+            "sign: the prepared event was not written; credits given back"
+        );
+        give_back().await;
+    }
     schedule_lifecycle(ctx).await;
     match sent {
         Some(sent) => Ok(row_json(sent)?),

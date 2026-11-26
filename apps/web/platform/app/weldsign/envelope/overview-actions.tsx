@@ -4,12 +4,12 @@
  * recipient who is not an owner sees the request and nothing to act on.
  */
 
-import { Ban, BellRing, Download, Eye, PenLine } from 'lucide-react';
+import { Ban, BellRing, Download, Eye, FileCheck2, PenLine } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@weldsuite/ui/components/button';
 import type { SignEnvelopeDetail } from '@weldsuite/app-api-client/schemas/weldsign';
 import { useI18n } from '@/lib/i18n/provider';
-import { useDownloadSignedPdf, useRemindSignEnvelope, useSignSigningLink } from '@/hooks/queries/use-weldsign-queries';
+import { useDownloadSignEvidence, useDownloadSignedPdf, useRemindSignEnvelope, useSignSigningLink } from '@/hooks/queries/use-weldsign-queries';
 import { isConflict, lifecycleErrorMessage } from '../lib/errors';
 
 interface OverviewActionsProps {
@@ -22,6 +22,7 @@ export function OverviewActions({ envelope, onViewDocuments, onVoid }: Readonly<
   const { t, format } = useI18n();
   const to = t.weldsign.overview;
   const download = useDownloadSignedPdf(envelope.id);
+  const evidence = useDownloadSignEvidence(envelope.id);
   const signLink = useSignSigningLink(envelope.id, (err) => toast.error(lifecycleErrorMessage(err, to.signNowFailed, to.notOpen)));
   // A 409 here almost always means everyone was reminded a moment ago.
   const remind = useRemindSignEnvelope(envelope.id, (err) =>
@@ -80,6 +81,22 @@ export function OverviewActions({ envelope, onViewDocuments, onVoid }: Readonly<
         >
           <Download />
           {to.download}
+        </Button>
+      )}
+      {envelope.hasEvidence && (
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={evidence.isPending}
+          onClick={() =>
+            evidence.mutate(
+              { title: envelope.title, suffix: t.weldsign.eidas.evidenceFile },
+              { onError: () => toast.error(t.weldsign.eidas.evidenceFailed) },
+            )
+          }
+        >
+          <FileCheck2 />
+          {t.weldsign.eidas.evidence}
         </Button>
       )}
     </div>
