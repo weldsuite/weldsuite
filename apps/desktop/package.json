@@ -28,7 +28,7 @@
     "@weldsuite/typescript-config": "workspace:*",
     "cross-env": "^10.0.0",
     "electron": "42.11.18",
-    "electron-builder": "^26.15.3",
+    "electron-builder": "^26.18.1",
     "electron-vite": "^2.3.0",
     "png-to-ico": "^3.0.0",
     "png2icons": "^2.0.1",
