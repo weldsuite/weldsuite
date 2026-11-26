@@ -34,3 +34,13 @@ xcodebuild test -workspace WeldSuite.xcworkspace -scheme WeldPass -destination '
 
 Strings, tokens and the API contract come from `apps/mobile-shared`; run
 `pnpm mobile:generate` from the repo root after changing them.
+
+## Release
+
+Store builds come from the **Mobile native release** workflow
+(`.github/workflows/mobile-native-release.yml`), run by hand on `main`. It
+archives with automatic signing through an App Store Connect API key from the
+`mobile-release` environment and uploads to TestFlight; submitting for review
+is done in App Store Connect. The version is `MARKETING_VERSION` in
+`Project.swift`; the workflow sets the build number
+(`CURRENT_PROJECT_VERSION`) for the app and its extension.

@@ -26,3 +26,12 @@ with the redirect `weldpass://sso-callback`.
 
 Strings, tokens and the API contract come from `apps/mobile-shared`; run
 `pnpm mobile:generate` from the repo root after changing them.
+
+## Release
+
+Store builds come from the **Mobile native release** workflow
+(`.github/workflows/mobile-native-release.yml`), run by hand on `main`. It
+signs the `.aab` with the upload key from the `mobile-release` environment
+and uploads it to the Play internal testing track; promoting it is done in
+Play Console. A release build signs only when `WELD_UPLOAD_KEYSTORE` and its
+passwords are set, and takes its version code from `-PweldVersionCode`.

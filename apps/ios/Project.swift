@@ -19,11 +19,18 @@ private func appSettings(base: SettingsDictionary) -> Settings {
     )
 }
 
-/// WeldPass's version, the same in the app and its extension.
+/// WeldPass's version, the same in the app and its extension: above the
+/// React Native app's 1.x, which this replaces in the App Store. The "Mobile
+/// native release" workflow passes a higher build number on the command line
+/// (`CURRENT_PROJECT_VERSION=`), which reaches both targets.
+private let weldPassVersionSettings: SettingsDictionary = [
+    "MARKETING_VERSION": "2.0.0",
+    "CURRENT_PROJECT_VERSION": "200",
+]
+
 private let weldPassVersion: [String: Plist.Value] = [
-    // Above the React Native app's 1.x, which this replaces in the App Store.
-    "CFBundleShortVersionString": "2.0.0",
-    "CFBundleVersion": "200",
+    "CFBundleShortVersionString": "$(MARKETING_VERSION)",
+    "CFBundleVersion": "$(CURRENT_PROJECT_VERSION)",
 ]
 
 /// The offline copy (ADR PASS-010) is shared with the AutoFill extension: its
@@ -68,7 +75,7 @@ let weldPass: Target = .target(
         .package(product: "WeldPassAPI"),
         .target(name: "WeldPassAutofill"),
     ],
-    settings: appSettings(base: [:])
+    settings: appSettings(base: weldPassVersionSettings)
 )
 
 /// WeldPass in Settings → Passwords → AutoFill: logins from the offline copy,
@@ -97,7 +104,7 @@ let weldPassAutofill: Target = .target(
     entitlements: .dictionary(weldPassSharing.merging([
         "com.apple.developer.authentication-services.autofill-credential-provider": true,
     ]) { _, new in new }),
-    settings: .settings(base: ["SWIFT_VERSION": "5.0"])
+    settings: .settings(base: weldPassVersionSettings.merging(["SWIFT_VERSION": "5.0"]) { _, new in new })
 )
 
 let weldPassTests: Target = .target(

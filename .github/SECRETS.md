@@ -43,10 +43,14 @@ deploys only to the environments named in the repository **variable**
 `ADMIN_WORKER_ENVS` (`test`, later `test,production`); its runtime secrets come
 from Doppler with `pnpm secrets:sync <env> admin`, not from GitHub.
 
-Store submission (`auto-submit` in `mobile-build.yml`) needs **no GitHub
-secrets** beyond `EXPO_TOKEN`: the App Store Connect API key and the Google
-service account key are stored on EAS, per app, with `eas credentials`. The
-workflow header lists the one-time setup.
+Store submission of the Expo apps (`auto-submit` in `mobile-build.yml`) needs
+**no GitHub secrets** beyond `EXPO_TOKEN`: the App Store Connect API key and
+the Google service account key are stored on EAS, per app, with
+`eas credentials`. The workflow header lists the one-time setup.
+
+The native apps (`mobile-native-release.yml`) sign and upload without EAS,
+with their own secrets in `mobile-release` (the table below). The workflow
+header says what each one is and the one-time setup per app.
 
 Optional frontend build secrets (on both environments if used):
 
@@ -151,8 +155,8 @@ branch (`weldsuite-documentation/plans/main-only-private-deploys.md`). Fill them
   deploys.
 
 The desktop signing secrets and `R2_DOWNLOADS_API_TOKEN` do not go there:
-`release-desktop.yml` and `mobile-build.yml` stay public and use their own
-public environments (below).
+`release-desktop.yml`, `mobile-build.yml` and `mobile-native-release.yml` stay
+public and use their own public environments (below).
 
 ### Hand-off environment (public)
 
@@ -170,11 +174,11 @@ handed off.
 
 ### Release environments (public)
 
-The two release workflows that stay public, run by hand, each read their own
+The release workflows that stay public, run by hand, each read their own
 environment, never `test` or `production`:
 
 | Environment | Branch | Workflow | Secrets |
 |---|---|---|---|
 | `desktop-release` | `main` | `release-desktop.yml` | `CLOUDFLARE_ACCOUNT_ID`, `R2_DOWNLOADS_API_TOKEN`, and optionally `MAC_CSC_LINK`, `MAC_CSC_KEY_PASSWORD`, `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID`, `WIN_CSC_LINK`, `WIN_CSC_KEY_PASSWORD` (signing degrades to unsigned without them) |
-| `mobile-release` | `main` | `mobile-build.yml`, channel `production` | `EXPO_TOKEN` |
+| `mobile-release` | `main` | `mobile-build.yml`, channel `production`; `mobile-native-release.yml` | `EXPO_TOKEN`; for the native apps `APP_STORE_CONNECT_API_KEY`, `APP_STORE_CONNECT_API_KEY_ID`, `APP_STORE_CONNECT_API_ISSUER_ID`, `APPLE_TEAM_ID` (iOS) and `ANDROID_UPLOAD_KEYSTORE`, `ANDROID_UPLOAD_KEYSTORE_PASSWORD`, `ANDROID_UPLOAD_KEY_ALIAS`, `ANDROID_UPLOAD_KEY_PASSWORD`, `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON` (Android) |
 | `mobile-preview` | `main` | `mobile-build.yml`, channel `preview` | `EXPO_TOKEN` |
