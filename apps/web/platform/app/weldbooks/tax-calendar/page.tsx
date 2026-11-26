@@ -5,7 +5,7 @@ import { usePermissions } from '@weldsuite/permissions/react';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Button } from '@weldsuite/ui/components/button';
 import { Card, CardContent } from '@weldsuite/ui/components/card';
-import { EmptyStateIllustration, type GroupConfig } from '@/components/entity-list';
+import { EmptyStateIllustration, type FilterConfig, type GroupConfig } from '@/components/entity-list';
 import { JurisdictionGate, JurisdictionUnavailable } from '@/components/accounting/jurisdiction-gate';
 import { WeldbooksEntityList } from '@/components/accounting/weldbooks-entity-list';
 import { useCompleteDeadline, useReopenDeadline, useTaxCalendar } from '@/hooks/queries/use-weldbooks-assets-queries';
@@ -17,7 +17,11 @@ import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
 import { errorMessage, fill } from '../fixed-assets/text';
 import { useDeadlineColumns, type DeadlineListRow } from './components/deadline-columns';
 import { MarkDoneDialog } from './components/mark-done-dialog';
-import { countStatuses, groupByMonth } from './deadline-status';
+import { countStatuses, deadlineStatus, groupByMonth, type DeadlineStatus } from './deadline-status';
+import { applyPillFilters } from '@/lib/weldbooks/list-filters';
+
+/** The statuses the Status filter offers, most urgent first. */
+const DEADLINE_STATUSES: DeadlineStatus[] = ['overdue', 'dueSoon', 'upcoming', 'done', 'informational'];
 
 /** The tax due-date calendar of a US entity: income tax, estimated tax, 1099s, payroll and every sales tax return. */
 function TaxCalendarPageContent() {
@@ -64,6 +68,16 @@ function TaxCalendarPageContent() {
       })),
     [monthGroups, monthName],
   );
+
+  const filterConfigs: FilterConfig[] = [
+    { field: 'status', label: tc.columns.status, options: DEADLINE_STATUSES.map((value) => ({ value, label: tc.status[value] })) },
+    {
+      field: 'kind',
+      label: tc.filterKind,
+      options: (Object.keys(tc.kinds) as Array<keyof typeof tc.kinds>).map((value) => ({ value, label: tc.kinds[value] })),
+    },
+  ];
+  const deadlineToday = data?.today ?? today();
 
   const canUpdate = can('taxes:update');
 
@@ -162,7 +176,12 @@ function TaxCalendarPageContent() {
           isLoading={calendar.isLoading}
           columns={columns}
           groups={groups}
-          filters={[]}
+          filters={filterConfigs}
+          applyFilters={(items, active) =>
+            applyPillFilters(items, active, { status: (row) => deadlineStatus(row, deadlineToday), kind: (row) => row.kind })
+          }
+          searchFields={['title']}
+          searchPlaceholder={tc.searchPlaceholder}
           leftActionButtons={yearNavigation}
           emptyState={{
             icon: (

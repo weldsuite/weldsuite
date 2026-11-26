@@ -111,6 +111,7 @@ export const weldbooksUsSalesTaxSetup = {
   // Agencies
   // ---------------------------------------------------------------------------
   agencies: {
+    searchPlaceholder: 'Search agencies...',
     title: 'Sales tax agencies',
     subtitle: 'The states where you are registered to collect sales tax, and the ones you are watching.',
     register: 'Register in a state',
@@ -586,6 +587,7 @@ export const weldbooksUsSalesTaxSetup = {
   // Exemption certificates
   // ---------------------------------------------------------------------------
   certificates: {
+    searchPlaceholder: 'Search certificates...',
     title: 'Exemption certificates',
     subtitle: 'The certificates your customers gave you, so you do not charge them sales tax.',
     add: 'Add certificate',

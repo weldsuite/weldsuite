@@ -111,6 +111,7 @@ export const weldbooksUsSalesTaxSetup = {
   // Instanties
   // ---------------------------------------------------------------------------
   agencies: {
+    searchPlaceholder: 'Instanties zoeken...',
     title: 'Sales tax-instanties',
     subtitle: 'De staten waar je geregistreerd bent om sales tax te innen, en de staten die je in de gaten houdt.',
     register: 'Registreren in een staat',
@@ -586,6 +587,7 @@ export const weldbooksUsSalesTaxSetup = {
   // Vrijstellingscertificaten
   // ---------------------------------------------------------------------------
   certificates: {
+    searchPlaceholder: 'Certificaten zoeken...',
     title: 'Vrijstellingscertificaten',
     subtitle: 'De certificaten die je klanten je hebben gegeven, zodat je hun geen sales tax rekent.',
     add: 'Certificaat toevoegen',

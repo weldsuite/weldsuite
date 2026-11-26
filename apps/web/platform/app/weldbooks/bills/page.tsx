@@ -6,12 +6,18 @@ import { WeldbooksEntityList } from '@/components/accounting/weldbooks-entity-li
 import { ContactCell, RowAmount, RowDate, RowTitle, StatusChip } from '@/components/accounting/weldbooks-row-cells';
 import {
   EmptyStateIllustration,
+  type ActiveFilter,
   type ColumnDef,
+  type FilterConfig,
   type GroupConfig,
 } from '@/components/entity-list';
 import { useObjectPanel, useObjectPanelUrlSync } from '@/components/object-panel';
 import { useI18n } from '@/lib/i18n/provider';
 import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
+import { applyExclusions, pillValue } from '@/lib/weldbooks/list-filters';
+
+/** The statuses the Status filter offers, in the order a bill moves through them. */
+const BILL_STATUSES = ['draft', 'pending_approval', 'approved', 'partial', 'overdue', 'paid', 'rejected', 'disputed', 'void', 'cancelled'] as const;
 
 interface BillRow {
   id: string;
@@ -27,7 +33,11 @@ interface BillRow {
 
 export default function BillsPage() {
   const [search, setSearch] = useState('');
-  const { data, isLoading, hasNextPage, isFetchingNextPage, fetchNextPage } = useInfiniteAccountingBills({ search });
+  const [activeFilters, setActiveFilters] = useState<ActiveFilter[]>([]);
+  const { data, isLoading, hasNextPage, isFetchingNextPage, fetchNextPage } = useInfiniteAccountingBills({
+    search,
+    status: pillValue(activeFilters, 'status'),
+  });
   const navigate = useNavigate();
   // Each bill opens in the shared object panel (type 'bill'), the same
   // panel/fullscreen shell as WeldCRM companies, synced to `?stack=`.
@@ -38,7 +48,11 @@ export default function BillsPage() {
   const tbp = t.accounting.billsPage;
   const tsl = t.accounting.statusLabels.bill as Record<string, string>;
 
-  const bills = (data?.rows ?? []) as unknown as BillRow[];
+  // The server filters on an `is` status; an `is not` one narrows the rows it sent.
+  const bills = applyExclusions((data?.rows ?? []) as unknown as BillRow[], activeFilters, { status: (bill) => bill.status });
+  const filterConfigs: FilterConfig[] = [
+    { field: 'status', label: tbp.colStatus, options: BILL_STATUSES.map((value) => ({ value, label: tsl[value] ?? value })) },
+  ];
 
   // Group by lifecycle status, most-urgent first. The trailing "other" group is
   // an explicit catch-all: EntityList drops items matching no group, so any
@@ -103,6 +117,9 @@ export default function BillsPage() {
       onLoadMore={() => void fetchNextPage()}
       onRowClick={(bill) => openPanel({ type: 'bill', id: bill.id })}
       getRowLabel={(bill) => bill.billNumber ?? bill.contactName ?? bill.id}
+      filters={filterConfigs}
+      activeFilters={activeFilters}
+      onFiltersChange={setActiveFilters}
       searchQuery={search}
       onSearchChange={setSearch}
       searchPlaceholder={tbp.searchPlaceholder}

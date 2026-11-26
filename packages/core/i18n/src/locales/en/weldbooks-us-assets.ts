@@ -560,6 +560,7 @@ const payroll = {
   required: 'Required.',
 
   list: {
+    searchPlaceholder: 'Search payroll imports...',
     title: 'Payroll imports',
     subtitle: 'Payroll runs in your payroll provider. Import each payroll’s journal here so the ledger carries it.',
     importCsv: 'Import CSV',
@@ -794,6 +795,8 @@ const payroll = {
 };
 
 const taxCalendar = {
+  filterKind: 'Type',
+  searchPlaceholder: 'Search deadlines...',
   columns: { deadline: 'Deadline', status: 'Status', actions: 'Actions' },
   title: 'Tax calendar',
   subtitle: 'Every tax due date of the year for this entity, with what is done and what is late.',
@@ -848,6 +851,7 @@ const taxCalendar = {
 };
 
 const fiscal = {
+  searchPlaceholder: 'Search periods...',
   title: 'Fiscal periods',
   subtitle: 'The periods of a fiscal year, as this entity’s fiscal year is set up. Create the ones that are missing so they can be closed and locked.',
   loadFailed: 'The fiscal calendar could not be loaded.',

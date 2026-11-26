@@ -560,6 +560,7 @@ const payroll = {
   required: 'Verplicht.',
 
   list: {
+    searchPlaceholder: 'Salarisimports zoeken...',
     title: 'Salarisimports',
     subtitle: 'Het salaris wordt verwerkt bij je salarisverwerker. Importeer hier het journaal van elke loonrun zodat het grootboek het bevat.',
     importCsv: 'CSV importeren',
@@ -794,6 +795,8 @@ const payroll = {
 };
 
 const taxCalendar = {
+  filterKind: 'Soort',
+  searchPlaceholder: 'Deadlines zoeken...',
   columns: { deadline: 'Termijn', status: 'Status', actions: 'Acties' },
   title: 'Belastingkalender',
   subtitle: 'Elke belastingdeadline van het jaar voor deze entiteit, met wat klaar is en wat te laat is.',
@@ -848,6 +851,7 @@ const taxCalendar = {
 };
 
 const fiscal = {
+  searchPlaceholder: 'Periodes zoeken...',
   title: 'Boekjaarperioden',
   subtitle: 'De perioden van een boekjaar, zoals het boekjaar van deze entiteit is ingesteld. Maak de ontbrekende aan zodat ze kunnen worden afgesloten en vergrendeld.',
   loadFailed: 'De fiscale kalender kon niet worden geladen.',

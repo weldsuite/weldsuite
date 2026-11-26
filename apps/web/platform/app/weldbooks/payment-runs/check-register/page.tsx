@@ -230,6 +230,8 @@ export default function CheckRegisterPage() {
           items={rows}
           isLoading={list.isLoading}
           columns={columns}
+          searchFields={['checkNumber', 'payeeName']}
+          searchPlaceholder={tr.searchPlaceholder}
           getRowClassName={(row) => (row.status === 'voided' ? 'opacity-60' : '')}
           renderRowMenu={renderRowMenu}
           filters={filterConfigs}

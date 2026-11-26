@@ -163,6 +163,8 @@ export default function ChartOfAccountsPage() {
       items={accounts}
       isLoading={isLoading}
       columns={columns}
+      searchFields={['code', 'name']}
+      searchPlaceholder={tap.searchPlaceholder}
       groups={groups}
       onRowClick={(acc) => openPanel({ type: 'ledger_account', id: acc.id })}
       getRowLabel={(acc) => `${acc.code} ${acc.name}`}

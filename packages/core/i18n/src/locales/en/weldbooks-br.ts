@@ -474,6 +474,7 @@ export const weldbooksBr = {
   },
 
   received: {
+    searchPlaceholder: 'Search received NF-e...',
     issuerTaxId: 'CNPJ',
     noMatches: 'No NF-e match this filter',
     noMatchesDescription: 'Try a different status',

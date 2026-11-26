@@ -13,11 +13,17 @@ import {
 } from '@/components/accounting/weldbooks-row-cells';
 import {
   EmptyStateIllustration,
+  type ActiveFilter,
   type ColumnDef,
+  type FilterConfig,
 } from '@/components/entity-list';
 import { useObjectPanel, useObjectPanelUrlSync } from '@/components/object-panel';
 import { useI18n } from '@/lib/i18n/provider';
 import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
+import { applyExclusions, pillValue } from '@/lib/weldbooks/list-filters';
+
+/** The statuses the Status filter offers. */
+const CREDIT_NOTE_STATUSES = ['draft', 'finalized', 'sent', 'partial', 'paid', 'cancelled'] as const;
 
 interface CreditNoteRow {
   id: string;
@@ -39,7 +45,12 @@ interface CreditNoteRow {
  */
 export default function CreditNotesPage() {
   const [search, setSearch] = useState('');
-  const { data, isLoading, hasNextPage, isFetchingNextPage, fetchNextPage } = useInfiniteAccountingInvoices({ type: 'credit_note', search });
+  const [activeFilters, setActiveFilters] = useState<ActiveFilter[]>([]);
+  const { data, isLoading, hasNextPage, isFetchingNextPage, fetchNextPage } = useInfiniteAccountingInvoices({
+    type: 'credit_note',
+    search,
+    status: pillValue(activeFilters, 'status'),
+  });
   // A credit note is an invoice of type 'credit_note': it opens in the invoice
   // panel, synced to `?stack=` on this page.
   const { open: openPanel } = useObjectPanel();
@@ -49,7 +60,11 @@ export default function CreditNotesPage() {
   const tsl = t.accounting.statusLabels.invoice;
   const { formatMoney, formatDate } = useWeldbooksFormat();
 
-  const creditNotes = (data?.rows ?? []) as unknown as CreditNoteRow[];
+  // The server filters on an `is` status; an `is not` one narrows the rows it sent.
+  const creditNotes = applyExclusions((data?.rows ?? []) as unknown as CreditNoteRow[], activeFilters, { status: (cn) => cn.status });
+  const filterConfigs: FilterConfig[] = [
+    { field: 'status', label: tcn.colStatus, options: CREDIT_NOTE_STATUSES.map((value) => ({ value, label: tsl[value] })) },
+  ];
 
   const columns: ColumnDef<CreditNoteRow>[] = [
     {
@@ -117,6 +132,9 @@ export default function CreditNotesPage() {
       onLoadMore={() => void fetchNextPage()}
       onRowClick={(cn) => openPanel({ type: 'invoice', id: cn.id })}
       getRowLabel={(cn) => cn.invoiceNumber ?? tcn.colNumber}
+      filters={filterConfigs}
+      activeFilters={activeFilters}
+      onFiltersChange={setActiveFilters}
       searchQuery={search}
       onSearchChange={setSearch}
       searchPlaceholder={tcn.searchPlaceholder}

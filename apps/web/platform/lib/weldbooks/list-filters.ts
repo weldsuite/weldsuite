@@ -22,6 +22,23 @@ export function dateBounds(active: ActiveFilter[], field: string): { from?: stri
 }
 
 /**
+ * Client-side filtering for a list that holds all its rows: keeps the rows that
+ * every finished `is` / `is not` pill matches. `accessors` read the value a
+ * field is compared on; a pill on a field without one is ignored.
+ */
+export function applyPillFilters<T>(
+  items: T[],
+  active: ActiveFilter[],
+  accessors: Record<string, (row: T) => string | null | undefined>,
+): T[] {
+  const pills = active.filter((f) => f.value !== '' && (f.operator === 'is' || f.operator === 'is not') && accessors[f.field]);
+  if (pills.length === 0) return items;
+  return items.filter((row) =>
+    pills.every((f) => (accessors[f.field](row) === f.value) === (f.operator === 'is')),
+  );
+}
+
+/**
  * Rows an `is not` pill rules out. The server cannot negate a filter, so this
  * runs on the rows loaded so far; `accessors` read the value a field is compared on.
  */

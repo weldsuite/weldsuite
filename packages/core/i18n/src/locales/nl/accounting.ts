@@ -2764,6 +2764,8 @@ export const accounting = {
 
     // VAT pages
     vat: {
+      icpSearchPlaceholder: 'Opgaven zoeken...',
+      searchPlaceholder: 'Aangiften zoeken...',
       emptyTitle: 'Nog geen btw-aangiftes',
       emptyDescription: 'Bereken je eerste btw-aangifte om te beginnen',
       icpEmptyDescription: 'Bereken je eerste ICP-opgaaf om te beginnen',
@@ -2894,6 +2896,7 @@ export const accounting = {
 
     // Documents page
     documents: {
+      searchPlaceholder: 'Documenten zoeken...',
       title: 'Documenten',
       upload: 'Uploaden',
       uploadDocument: 'Document uploaden',
@@ -3149,6 +3152,7 @@ export const accounting = {
 
     // Accounts (Chart of Accounts) page
     accountsPage: {
+      searchPlaceholder: 'Grootboekrekeningen zoeken...',
       emptyDescription: 'Maak je eerste rekening aan om te beginnen',
       filterTypeLabel: 'Type',
       filterAsset: 'Activa',

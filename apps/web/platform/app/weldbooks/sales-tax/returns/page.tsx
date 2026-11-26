@@ -43,6 +43,8 @@ interface PeriodListRow {
   id: string;
   agency: AgencyPeriods;
   period: PeriodRow;
+  /** The agency's name, what the search box matches. */
+  agencyName: string;
 }
 
 const PERIOD_STATE_TONE: Record<PeriodState, ChipTone> = {
@@ -111,7 +113,9 @@ function ReturnsContent() {
     [data],
   );
   const rows = useMemo<PeriodListRow[]>(
-    () => agencies.flatMap((agency) => agency.periods.map((period) => ({ id: period.key, agency, period }))),
+    () => agencies.flatMap((agency) =>
+      agency.periods.map((period) => ({ id: period.key, agency, period, agencyName: agency.agencyName })),
+    ),
     [agencies],
   );
 
@@ -290,6 +294,8 @@ function ReturnsContent() {
           items={rows}
           isLoading={query.isLoading}
           columns={columns}
+          searchFields={['agencyName']}
+          searchPlaceholder={tp.searchPlaceholder}
           groups={groups}
           onRowClick={({ period }) => {
             if (period.return) {

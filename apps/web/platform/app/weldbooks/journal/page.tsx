@@ -1,7 +1,8 @@
+import { useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { useAccountingJournalEntries } from '@/hooks/queries/use-accounting-queries';
 import { TextAlignStart } from 'lucide-react';
-import { EmptyStateIllustration, type ColumnDef, type GroupConfig } from '@/components/entity-list';
+import { EmptyStateIllustration, type ActiveFilter, type ColumnDef, type FilterConfig, type GroupConfig } from '@/components/entity-list';
 import { useObjectPanel, useObjectPanelUrlSync } from '@/components/object-panel';
 import { WeldbooksEntityList } from '@/components/accounting/weldbooks-entity-list';
 import {
@@ -15,6 +16,10 @@ import {
 import { useI18n } from '@/lib/i18n/provider';
 import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
 import { toCalendarDate } from '@/lib/weldbooks/format';
+import { applyExclusions, pillValue } from '@/lib/weldbooks/list-filters';
+
+/** The statuses the Status filter offers. */
+const JOURNAL_STATUSES = ['draft', 'posted', 'reversed'] as const;
 
 interface JournalEntryRow {
   id: string;
@@ -66,7 +71,8 @@ function buildMonthGroups(
 }
 
 export default function JournalEntriesPage() {
-  const { data, isLoading } = useAccountingJournalEntries();
+  const [activeFilters, setActiveFilters] = useState<ActiveFilter[]>([]);
+  const { data, isLoading } = useAccountingJournalEntries({ status: pillValue(activeFilters, 'status') });
   const navigate = useNavigate();
   // Each entry opens in the shared object panel (type 'journal_entry'), the
   // same panel/fullscreen shell as WeldCRM companies, synced to `?stack=`.
@@ -77,7 +83,11 @@ export default function JournalEntriesPage() {
   const statusLabels = t.accounting.statusLabels.journalEntry as Record<string, string>;
   const { formatMoney: fmt, formatDate, formatMonth } = useWeldbooksFormat();
 
-  const entries = (data?.data ?? []) as unknown as JournalEntryRow[];
+  // The server filters on an `is` status; an `is not` one narrows the rows it sent.
+  const entries = applyExclusions((data?.data ?? []) as unknown as JournalEntryRow[], activeFilters, { status: (e) => e.status });
+  const filterConfigs: FilterConfig[] = [
+    { field: 'status', label: tjp.colStatus, options: JOURNAL_STATUSES.map((value) => ({ value, label: statusLabels[value] ?? value })) },
+  ];
 
   // Entries made without a free-text reference are still identified by their entry number.
   const columns: ColumnDef<JournalEntryRow>[] = [
@@ -131,7 +141,9 @@ export default function JournalEntriesPage() {
       groups={buildMonthGroups(entries, tjp.ungrouped, formatMonth)}
       onRowClick={(e) => openPanel({ type: 'journal_entry', id: e.id })}
       getRowLabel={(e) => e.reference || e.entryNumber || e.id}
-      filters={[]}
+      filters={filterConfigs}
+      activeFilters={activeFilters}
+      onFiltersChange={setActiveFilters}
       searchFields={['reference', 'description']}
       createButton={{
         label: tjp.newEntry,

@@ -318,6 +318,7 @@ export const weldbooksUsBanking = {
   },
 
   deposits: {
+    searchPlaceholder: 'Search deposits...',
     usOnly: {
       title: 'Deposits are for US entities',
       description:

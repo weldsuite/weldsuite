@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ActiveFilter } from '@/components/entity-list';
-import { applyExclusions, dateBounds, pillValue } from './list-filters';
+import { applyExclusions, applyPillFilters, dateBounds, pillValue } from './list-filters';
 
 const pill = (field: string, operator: string, value: string): ActiveFilter => ({ id: `${field}-${operator}`, field, operator, value });
 
@@ -35,5 +35,32 @@ describe('applyExclusions', () => {
 
   it('leaves the rows alone for is pills and unfinished pills', () => {
     expect(applyExclusions(items, [pill('status', 'is', 'void'), pill('status', 'is not', '')], accessors)).toBe(items);
+  });
+});
+
+describe('applyPillFilters', () => {
+  const rows = [
+    { id: 'a', status: 'active', frequency: 'monthly' },
+    { id: 'b', status: 'paused', frequency: 'monthly' },
+    { id: 'c', status: 'active', frequency: 'yearly' },
+  ];
+  const read = { status: (row: (typeof rows)[number]) => row.status, frequency: (row: (typeof rows)[number]) => row.frequency };
+
+  it('keeps the rows an is pill matches', () => {
+    expect(applyPillFilters(rows, [pill('status', 'is', 'active')], read).map((row) => row.id)).toEqual(['a', 'c']);
+  });
+
+  it('drops the rows an is not pill matches', () => {
+    expect(applyPillFilters(rows, [pill('status', 'is not', 'active')], read).map((row) => row.id)).toEqual(['b']);
+  });
+
+  it('needs every pill to match', () => {
+    const active = [pill('status', 'is', 'active'), pill('frequency', 'is', 'monthly')];
+    expect(applyPillFilters(rows, active, read).map((row) => row.id)).toEqual(['a']);
+  });
+
+  it('ignores unfinished pills and fields it has no accessor for', () => {
+    const active = [pill('status', 'is', ''), pill('owner', 'is', 'ann'), pill('frequency', '', 'yearly')];
+    expect(applyPillFilters(rows, active, read)).toBe(rows);
   });
 });

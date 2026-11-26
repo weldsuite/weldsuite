@@ -180,6 +180,8 @@ export default function PayrollImportsPage() {
         items={imports}
         isLoading={list.isLoading}
         columns={columns}
+        searchFields={['sourceFileName', 'externalId']}
+        searchPlaceholder={tl.searchPlaceholder}
         getRowClassName={(row) => (row.status === 'reversed' ? 'opacity-60' : '')}
         onRowClick={(row) => openPanel({ type: 'payroll_run', id: row.id })}
         getRowLabel={(row) => formatDate(row.payDate)}

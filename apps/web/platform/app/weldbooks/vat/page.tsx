@@ -16,7 +16,8 @@ import {
   DialogFooter,
 } from '@weldsuite/ui/components/dialog';
 import { FileText, Receipt, ShieldCheck, Trash2 } from 'lucide-react';
-import { EmptyStateIllustration, type ColumnDef } from '@/components/entity-list';
+import { EmptyStateIllustration, type ColumnDef, type FilterConfig } from '@/components/entity-list';
+import { applyPillFilters } from '@/lib/weldbooks/list-filters';
 import { WeldbooksEntityList } from '@/components/accounting/weldbooks-entity-list';
 import {
   RowAmount,
@@ -297,6 +298,18 @@ export default function VatReturnsPage() {
     },
   ];
 
+  // Filter options are the statuses (and, for returns, the period types) the rows have.
+  const optionsOf = (values: string[], label: (value: string) => string) =>
+    [...new Set(values)].map((value) => ({ value, label: label(value) }));
+  const statusLabel = (status: string) => tslVat[status as keyof typeof tslVat] ?? status;
+  const returnFilters: FilterConfig[] = [
+    { field: 'status', label: tv.colStatus, options: optionsOf(returns.map((vr) => vr.status), statusLabel) },
+    { field: 'type', label: tv.colType, options: optionsOf(returns.map((vr) => vr.periodType), periodTypeLabel) },
+  ];
+  const icpFilters: FilterConfig[] = [
+    { field: 'status', label: tv.colStatus, options: optionsOf(icpDeclarations.map((d) => d.status), statusLabel) },
+  ];
+
   const icpColumns: ColumnDef<IcpDeclaration>[] = [
     {
       id: 'period',
@@ -384,7 +397,12 @@ export default function VatReturnsPage() {
         columns={returnColumns}
         onRowClick={(vr) => openPanel({ type: 'vat_return', id: vr.id })}
         getRowLabel={(vr) => vr.periodLabel || periodRange(vr.periodStart, vr.periodEnd)}
-        filters={[]}
+        filters={returnFilters}
+        applyFilters={(rows, active) =>
+          applyPillFilters(rows, active, { status: (vr) => vr.status, type: (vr) => vr.periodType })
+        }
+        searchFields={['periodLabel']}
+        searchPlaceholder={tv.searchPlaceholder}
         createButton={{ label: tv.listNewReturn, onClick: openVatDialog }}
         emptyState={{
           icon: (
@@ -411,7 +429,10 @@ export default function VatReturnsPage() {
             items={icpDeclarations}
             isLoading={false}
             columns={icpColumns}
-            filters={[]}
+            filters={icpFilters}
+            applyFilters={(rows, active) => applyPillFilters(rows, active, { status: (d) => d.status })}
+            searchFields={['periodLabel', 'filingReference', 'notes']}
+            searchPlaceholder={tv.icpSearchPlaceholder}
             createButton={{ label: tv.icpNew, onClick: openIcpDialog }}
             emptyState={{
               icon: (

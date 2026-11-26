@@ -2,13 +2,14 @@ import { useMemo } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { useAccountingContactNames, useAccountingRecurringInvoices } from '@/hooks/queries/use-accounting-queries';
 import { Repeat } from 'lucide-react';
-import { EmptyStateIllustration, type ColumnDef, type GroupConfig } from '@/components/entity-list';
+import { EmptyStateIllustration, type ColumnDef, type FilterConfig, type GroupConfig } from '@/components/entity-list';
 import { useObjectPanel, useObjectPanelUrlSync } from '@/components/object-panel';
 import { WeldbooksEntityList } from '@/components/accounting/weldbooks-entity-list';
 import { ContactCell, RowAmount, RowChip, RowDate, RowTitle, StatusChip } from '@/components/accounting/weldbooks-row-cells';
 import { useI18n } from '@/lib/i18n/provider';
 import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
 import { useDocumentTexts } from '@/lib/weldbooks/use-document-texts';
+import { applyPillFilters } from '@/lib/weldbooks/list-filters';
 import { RECURRING_FREQUENCIES, type RecurringFrequency } from './components/recurring-payload';
 
 /** A `recurring_invoices` row as the list endpoint returns it. */
@@ -94,6 +95,15 @@ export default function RecurringInvoicesPage() {
     { id: 'other', label: t.accounting.invoicesPage.groupOther, sortOrder: 4, filter: (r) => !knownStatuses.has(r.status) },
   ];
 
+  const filterConfigs: FilterConfig[] = [
+    { field: 'status', label: trp.colStatus, options: [...knownStatuses].map((value) => ({ value, label: statusLabels[value] })) },
+    {
+      field: 'frequency',
+      label: trp.frequency,
+      options: RECURRING_FREQUENCIES.map((value) => ({ value, label: td.recurring.frequencies[value] })),
+    },
+  ];
+
   const columns: ColumnDef<RecurringRow>[] = [
     {
       id: 'name',
@@ -146,7 +156,10 @@ export default function RecurringInvoicesPage() {
       groups={groups}
       onRowClick={(item) => openPanel({ type: 'recurring_invoice', id: item.id })}
       getRowLabel={(item) => item.title}
-      filters={[]}
+      filters={filterConfigs}
+      applyFilters={(rows, active) =>
+        applyPillFilters(rows, active, { status: (rec) => rec.status, frequency: (rec) => rec.frequency })
+      }
       searchFields={['title', 'contactName', 'frequencyLabel']}
       createButton={{
         label: trp.newRecurring,

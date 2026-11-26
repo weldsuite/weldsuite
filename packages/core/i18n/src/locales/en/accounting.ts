@@ -2730,6 +2730,8 @@ export const accounting = {
 
     // VAT pages
     vat: {
+      icpSearchPlaceholder: 'Search declarations...',
+      searchPlaceholder: 'Search returns...',
       emptyTitle: 'No VAT returns yet',
       emptyDescription: 'Calculate your first VAT return to get started',
       icpEmptyDescription: 'Calculate your first ICP declaration to get started',
@@ -2860,6 +2862,7 @@ export const accounting = {
 
     // Documents page
     documents: {
+      searchPlaceholder: 'Search documents...',
       title: 'Documents',
       upload: 'Upload',
       uploadDocument: 'Upload document',
@@ -3116,6 +3119,7 @@ export const accounting = {
 
     // Accounts (Chart of Accounts) page
     accountsPage: {
+      searchPlaceholder: 'Search accounts...',
       emptyDescription: 'Create your first account to get started',
       filterTypeLabel: 'Type',
       filterAsset: 'Asset',

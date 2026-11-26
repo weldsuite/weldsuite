@@ -145,6 +145,7 @@ export const weldbooksUsSalesTaxCenter = {
 
   // -- Returns list ----------------------------------------------------------
   periodsPage: {
+    searchPlaceholder: 'Search returns...',
     title: 'Returns',
     subtitle: 'Every filing period of each agency, with its due date and return.',
     agencyFilter: 'Agency',
