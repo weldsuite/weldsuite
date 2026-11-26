@@ -33,11 +33,16 @@ private let weldPassVersion: [String: Plist.Value] = [
     "CFBundleVersion": "$(CURRENT_PROJECT_VERSION)",
 ]
 
-/// The offline copy (ADR PASS-010) is shared with the AutoFill extension: its
-/// files through the App Group container, its key through a Keychain group.
-private let weldPassSharing: [String: Plist.Value] = [
+/// The app and its AutoFill extension have the same entitlements. The offline
+/// copy (ADR PASS-010) is shared between them: its files through the App
+/// Group container, its key through a Keychain group. App Store Connect
+/// refuses the upload (error 90729) unless the app, and not only the
+/// extension, has the AutoFill provider entitlement; the app needs it anyway
+/// to keep QuickType's suggestions (`ASCredentialIdentityStore`) in step.
+private let weldPassEntitlements: [String: Plist.Value] = [
     "com.apple.security.application-groups": ["group.com.weldsuite.weldpass"],
     "keychain-access-groups": ["$(AppIdentifierPrefix)com.weldsuite.weldpass.shared"],
+    "com.apple.developer.authentication-services.autofill-credential-provider": true,
 ]
 
 let weldPass: Target = .target(
@@ -68,7 +73,7 @@ let weldPass: Target = .target(
     ]) { _, new in new }),
     sources: ["Apps/WeldPass/Sources/**"],
     resources: ["Apps/WeldPass/Resources/**"],
-    entitlements: .dictionary(weldPassSharing),
+    entitlements: .dictionary(weldPassEntitlements),
     dependencies: [
         .package(product: "WeldCore"),
         .package(product: "WeldUI"),
@@ -101,9 +106,7 @@ let weldPassAutofill: Target = .target(
     // The app's generated strings, so the extension speaks English and Dutch too.
     sources: ["Apps/WeldPassAutofill/Sources/**", "Apps/WeldPass/Sources/Generated/PassStrings.swift"],
     resources: ["Apps/WeldPass/Resources/Localizable.xcstrings"],
-    entitlements: .dictionary(weldPassSharing.merging([
-        "com.apple.developer.authentication-services.autofill-credential-provider": true,
-    ]) { _, new in new }),
+    entitlements: .dictionary(weldPassEntitlements),
     settings: .settings(base: weldPassVersionSettings.merging(["SWIFT_VERSION": "5.0"]) { _, new in new })
 )
 
