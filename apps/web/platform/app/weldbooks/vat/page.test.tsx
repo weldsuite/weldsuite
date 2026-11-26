@@ -131,6 +131,13 @@ describe('VatReturnsPage › ICP declarations', () => {
     return screen.getByText(label).closest('div.group') as HTMLElement;
   }
 
+  beforeEach(() => {
+    returns.data = [];
+    jurisdiction.icp = true;
+    for (const fn of [...Object.values(api), ...Object.values(toast)]) fn.mockReset();
+    api.get.mockImplementation(async (path: string) => (path === '/icp-declarations' ? { data: declarations } : { data: {} }));
+  });
+
   it('narrows the declarations by status with the second list\'s Filter', async () => {
     const user = userEvent.setup();
     renderWithProviders(<VatReturnsPage />);
@@ -141,13 +148,6 @@ describe('VatReturnsPage › ICP declarations', () => {
 
     await waitFor(() => expect(screen.queryByText('Q1 2026')).not.toBeInTheDocument());
     expect(screen.getByText('Q2 2026')).toBeInTheDocument();
-  });
-
-  beforeEach(() => {
-    returns.data = [];
-    jurisdiction.icp = true;
-    for (const fn of [...Object.values(api), ...Object.values(toast)]) fn.mockReset();
-    api.get.mockImplementation(async (path: string) => (path === '/icp-declarations' ? { data: declarations } : { data: {} }));
   });
 
   it('files a calculated declaration through Digipoort and says it was sent', async () => {
