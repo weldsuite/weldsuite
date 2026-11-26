@@ -126,6 +126,10 @@ config:
   # there.
   mcp:
     serverUrl: https://mcp.${DOMAIN}
+    # OpenAI's domain verification for the WeldSuite app in ChatGPT, served
+    # at https://mcp.weldsuite.eu/.well-known/openai-apps-challenge. Public,
+    # not a secret; the test cluster serves it too, which does no harm.
+    openaiAppsChallenge: akfZSAXlxpdmamLU-dv0w8pbyhwJ212KS7bCtm5u2g4
   # AI on Mistral, in the EU (ADR AI-012, weldsuite-documentation/plans/eu-ai-mistral.md):
   # every AI feature runs there unless a workspace admin opts in to a
   # provider outside the EU. Keys in weldsuite-env: MISTRAL_API_KEY and
