@@ -23,6 +23,8 @@ public final class AppEnvironment {
     public let serverURL: URL
     public private(set) var session: OidcSession?
     public private(set) var api: APIConfiguration?
+    /// What the server says it doesn't offer (`unavailableFeatures` in `/config.json`).
+    public private(set) var unavailableFeatures: Set<String> = []
 
     private var boot: Boot = .loading
 
@@ -61,6 +63,7 @@ public final class AppEnvironment {
         case let .problem(problem):
             boot = .failed(problem)
         case let .loaded(config, _):
+            unavailableFeatures = Set(config.unavailableFeatures ?? [])
             let minimum = config.mobile?.minVersions?.additionalProperties[app.code]
             if isBelowMinimumVersion(app.version, minimum: minimum) {
                 boot = .outdated

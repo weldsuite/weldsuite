@@ -233,6 +233,7 @@ private fun ItemDetail(env: AppEnvironment, repository: PassRepository, item: It
             val value = ensureFields(copyPrompt)?.valueOf(secret)
             if (value.isNullOrEmpty()) return@launch
             SensitiveClipboard.copySecret(context, value)
+            repository.recordCopy(item.vaultId, item.id)
             notify(context.getString(R.string.weldpass_item_copied_secret, label))
         }
     }

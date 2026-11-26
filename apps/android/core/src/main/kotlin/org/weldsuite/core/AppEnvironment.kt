@@ -85,6 +85,10 @@ class AppEnvironment(context: Context, val app: AppIdentity, lockRequired: Boole
     lateinit var api: ApiClient
         private set
 
+    /** What the server says it doesn't offer (`unavailableFeatures` in `/config.json`). */
+    var unavailableFeatures: Set<String> = emptySet()
+        private set
+
     val state: StateFlow<SessionState> = combine(
         boot,
         sessionFlow.flatMapLatest { it?.snapshot ?: flowOf(AuthSnapshot()) },
@@ -106,6 +110,7 @@ class AppEnvironment(context: Context, val app: AppIdentity, lockRequired: Boole
             when (val result = configLoader.load(serverOrigin)) {
                 is ConfigResult.Problem -> boot.value = Boot.Failed(result.problem)
                 is ConfigResult.Loaded -> {
+                    unavailableFeatures = result.config.unavailableFeatures.orEmpty().toSet()
                     val minimum = result.config.mobile?.minVersions?.get(app.code)
                     if (isBelowMinimumVersion(app.versionName, minimum)) {
                         boot.value = Boot.Outdated

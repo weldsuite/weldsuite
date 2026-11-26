@@ -1,6 +1,7 @@
 package com.weldsuite.weldpass
 
 import android.app.Application
+import com.weldsuite.weldpass.offline.OfflineStore
 import org.weldsuite.core.AppEnvironment
 import org.weldsuite.core.AppIdentity
 
@@ -28,6 +29,6 @@ class WeldPassApplication : Application() {
             // after a minute in the background, and before a secret is shown or copied.
             lockRequired = true,
         )
-        passwords = PassRepository(env)
+        passwords = PassRepository(env, OfflineStore(this, env, BuildConfig.VERSION_NAME))
     }
 }

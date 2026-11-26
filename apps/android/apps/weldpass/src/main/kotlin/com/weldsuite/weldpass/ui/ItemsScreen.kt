@@ -11,6 +11,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.outlined.CloudOff
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.ui.Alignment
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -54,6 +57,8 @@ fun ItemsScreen(repository: PassRepository, onOpen: (vaultId: String, itemId: St
             )
         },
     ) { padding ->
+        val offline by repository.offline.snapshot.collectAsStateWithLifecycle()
+        val copy = offline.readable
         ItemList(
             repository = repository,
             vaultId = null,
@@ -61,6 +66,24 @@ fun ItemsScreen(repository: PassRepository, onOpen: (vaultId: String, itemId: St
             emptyDescription = stringResource(R.string.weldpass_items_empty_description),
             onOpen = onOpen,
             modifier = Modifier.padding(padding),
+            header = if (offline.offline && copy != null) {
+                {
+                    Row(
+                        Modifier.fillMaxWidth().padding(vertical = Tokens.Spacing.xs).tagged("offline-banner"),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(Tokens.Spacing.s),
+                    ) {
+                        Icon(Icons.Outlined.CloudOff, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(
+                            stringResource(R.string.weldpass_items_offline_banner, formatWhen(copy.syncedAt)),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            } else {
+                null
+            },
         )
     }
 }

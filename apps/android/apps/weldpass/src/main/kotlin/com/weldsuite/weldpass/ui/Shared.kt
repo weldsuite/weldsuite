@@ -69,6 +69,12 @@ fun ItemIcon(type: Item.Type, size: Dp = 40.dp) {
     }
 }
 
+/** A server timestamp as the phone shows dates and times ("26 Nov 2026, 17:40"). */
+fun formatWhen(iso: String): String = runCatching {
+    java.time.format.DateTimeFormatter.ofLocalizedDateTime(java.time.format.FormatStyle.MEDIUM, java.time.format.FormatStyle.SHORT)
+        .format(java.time.Instant.parse(iso).atZone(java.time.ZoneId.systemDefault()))
+}.getOrDefault(iso)
+
 /** "New item", in a top bar. */
 @Composable
 fun AddButton(onClick: () -> Unit, tag: String) {

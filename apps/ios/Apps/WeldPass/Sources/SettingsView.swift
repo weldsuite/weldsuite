@@ -42,6 +42,8 @@ struct SettingsView: View {
                 Text(PassStrings.settingsLockAlwaysOn)
             }
 
+            OfflineSection(offline: store.offline, person: person, workspace: workspace)
+
             Section(PassStrings.settingsAccount) {
                 VStack(alignment: .leading) {
                     Text(person.name ?? person.email ?? "")
@@ -65,7 +67,12 @@ struct SettingsView: View {
         .confirmationDialog(PassStrings.settingsSignOutTitle, isPresented: $confirmSignOut, titleVisibility: .visible) {
             Button(PassStrings.settingsSignOut, role: .destructive) {
                 store.clear()
-                Task { await env.signOut() }
+                Task {
+                    // Revoke this phone and wipe its copies and key first: signing
+                    // out takes the token the revoke needs.
+                    await store.offline.signOut()
+                    await env.signOut()
+                }
             }
             .accessibilityIdentifier("confirm-sign-out")
             Button(PassStrings.commonCancel, role: .cancel) {}

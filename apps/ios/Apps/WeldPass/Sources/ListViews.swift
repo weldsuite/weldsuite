@@ -19,6 +19,12 @@ struct ItemListView: View {
         let state = store.items
         let visible = PassLogic.filterItems(state.data ?? [], query: query, kind: kind, vaultID: vaultID)
         List {
+            if vaultID == nil, store.offline.isOffline, let copy = store.offline.readable {
+                Label(PassStrings.itemsOfflineBanner(time: formatWhen(copy.syncedAt)), systemImage: "icloud.slash")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("offline-banner")
+            }
             if let note {
                 Text(note).font(.subheadline).foregroundStyle(.secondary)
             }

@@ -59,8 +59,11 @@ struct ContentView: View {
             ItemFormView(env: env, store: store, mode: mode)
         }
         .task(id: workspace.id) {
+            // Shown only unlocked: open this workspace's copy (one Face ID opened
+            // both), then the lists come from it, or from the server without one.
             store.use(workspace: workspace.id)
-            await store.refresh()
+            await store.offline.open(person: person, workspace: workspace)
+            if store.offline.readable == nil { await store.refresh() }
         }
     }
 
@@ -93,6 +96,12 @@ func passErrorMessage(_ error: APIError?) -> String {
     case 404: return PassStrings.errorsNotFound
     default: return PassStrings.errorsGeneric
     }
+}
+
+/// A server timestamp as the phone shows dates and times.
+func formatWhen(_ iso: String) -> String {
+    guard let date = PassLogic.parseDate(iso) else { return iso }
+    return date.formatted(date: .abbreviated, time: .shortened)
 }
 
 /// The personal vault is named by what it is, not by its stored name.

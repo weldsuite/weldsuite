@@ -42,10 +42,17 @@ public final class AppLock {
         }
     }
 
+    /// The context the last unlock authenticated, until the app locks again.
+    /// A Keychain item behind the same check can be read with it without a
+    /// second prompt (WeldPass's offline copy key).
+    @ObservationIgnored public private(set) var unlockedContext: LAContext?
+
     public func unlock(reason: String) async -> Bool {
         guard isLocked else { return true }
-        let ok = await authenticate(reason: reason)
+        let context = LAContext()
+        let ok = await authenticate(reason: reason, context: context)
         if ok {
+            unlockedContext = context
             isLocked = false
             confirmedAt = Date()
         }
@@ -55,7 +62,7 @@ public final class AppLock {
     /// Ask before a secret is shown or copied, unless the last confirmation was moments ago.
     public func confirm(reason: String) async -> Bool {
         if Date().timeIntervalSince(confirmedAt) < confirmWindow { return true }
-        let ok = await authenticate(reason: reason)
+        let ok = await authenticate(reason: reason, context: LAContext())
         if ok { confirmedAt = Date() }
         return ok
     }
@@ -67,16 +74,21 @@ public final class AppLock {
     public func willEnterForeground() {
         guard let since = backgroundedAt else { return }
         backgroundedAt = nil
-        if required, Date().timeIntervalSince(since) >= grace { isLocked = true }
+        if required, Date().timeIntervalSince(since) >= grace { relock() }
     }
 
     public func lockNow() {
-        if required { isLocked = true }
+        if required { relock() }
         confirmedAt = .distantPast
     }
 
-    private func authenticate(reason: String) async -> Bool {
-        let context = LAContext()
+    private func relock() {
+        isLocked = true
+        unlockedContext?.invalidate()
+        unlockedContext = nil
+    }
+
+    private func authenticate(reason: String, context: LAContext) async -> Bool {
         do {
             return try await context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason)
         } catch {

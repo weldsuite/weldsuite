@@ -52,10 +52,18 @@ struct WeldPassApp: App {
         }
         .onChange(of: scenePhase) { _, phase in
             switch phase {
-            case .background: env.lock.didEnterBackground()
-            case .active: env.lock.willEnterForeground()
-            default: break
+            case .background:
+                env.lock.didEnterBackground()
+            case .active:
+                env.lock.willEnterForeground()
+                if !env.lock.isLocked { Task { await store.offline.syncIfDue() } }
+            default:
+                break
             }
+        }
+        .onChange(of: env.lock.isLocked) { _, locked in
+            // Locked again: the copy and its key leave memory until the next unlock.
+            if locked { store.offline.close() }
         }
     }
 }

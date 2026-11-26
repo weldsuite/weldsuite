@@ -71,6 +71,9 @@ fun SettingsScreen(env: AppEnvironment, repository: PassRepository, session: Ses
                 modifier = Modifier.clickable(onClick = onHealth).tagged("password-health"),
             )
 
+            Section(stringResource(R.string.weldpass_settings_offline))
+            OfflineSettings(repository.offline)
+
             Section(stringResource(R.string.weldpass_settings_account))
             ListItem(
                 headlineContent = { Text(session.person.name ?: session.person.email.orEmpty()) },
@@ -103,7 +106,12 @@ fun SettingsScreen(env: AppEnvironment, repository: PassRepository, session: Ses
                     onClick = {
                         confirmSignOut = false
                         repository.clear()
-                        scope.launch { env.signOut() }
+                        scope.launch {
+                            // Revoke this phone and wipe its copies and key first: signing
+                            // out takes the token the revoke needs.
+                            repository.offline.signOut()
+                            env.signOut()
+                        }
                     },
                     modifier = Modifier.tagged("confirm-sign-out"),
                 ) { Text(stringResource(R.string.weldpass_settings_sign_out)) }

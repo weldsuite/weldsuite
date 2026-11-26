@@ -248,6 +248,7 @@ struct ItemView: View {
                   let value = secret.value(in: fields), !value.isEmpty
             else { return }
             PassClipboard.copySecret(value)
+            store.recordCopy(vaultID: item.vaultID, itemID: item.id)
             toast.show(PassStrings.itemCopiedSecret(field: label))
         }
     }

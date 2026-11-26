@@ -118,6 +118,90 @@ paths:
                 $ref: '#/components/schemas/HealthReportResponse'
         default:
           $ref: '#/components/responses/Error'
+  /api/weldpass/devices:
+    post:
+      operationId: registerDevice
+      summary: Register this phone for an offline copy (PASS-010). Its id names it in every sync.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterDevice'
+      responses:
+        '201':
+          description: The device.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceResponse'
+        default:
+          $ref: '#/components/responses/Error'
+    get:
+      operationId: listDevices
+      summary: The caller's devices, newest first.
+      responses:
+        '200':
+          description: The devices.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceList'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/weldpass/devices/{deviceId}:
+    delete:
+      operationId: revokeDevice
+      summary: Revoke a device. Its copy is wiped at its next sync.
+      parameters:
+        - $ref: '#/components/parameters/DeviceId'
+      responses:
+        '204':
+          description: Revoked.
+        default:
+          $ref: '#/components/responses/Error'
+  /api/weldpass/devices/{deviceId}/sync:
+    post:
+      operationId: syncDevice
+      summary: Items changed since each vault's cursor, deletions, and the vaults to drop.
+      parameters:
+        - $ref: '#/components/parameters/DeviceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SyncRequest'
+      responses:
+        '200':
+          description: The changes.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SyncResponse'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/weldpass/devices/{deviceId}/events:
+    post:
+      operationId: uploadDeviceEvents
+      summary: What the device did with its copy (reveals, copies, autofills), into the vaults' trails.
+      parameters:
+        - $ref: '#/components/parameters/DeviceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeviceEvents'
+      responses:
+        '200':
+          description: How many were recorded.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RecordedResponse'
+        default:
+          $ref: '#/components/responses/Error'
   /api/weldpass/vaults/{vaultId}/items/{itemId}/reveal:
     get:
       operationId: revealItem
@@ -164,6 +248,12 @@ components:
         type: string
     ItemId:
       name: itemId
+      in: path
+      required: true
+      schema:
+        type: string
+    DeviceId:
+      name: deviceId
       in: path
       required: true
       schema:
@@ -402,6 +492,164 @@ components:
       properties:
         data:
           $ref: '#/components/schemas/TotpCode'
+    RegisterDevice:
+      type: object
+      required: [name, platform]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: What the person calls the phone.
+        platform:
+          type: string
+          enum: [ios, android, other]
+        appVersion:
+          type: string
+          nullable: true
+          maxLength: 40
+    Device:
+      type: object
+      required: [id, userId, name, platform, appVersion, createdAt, lastSyncAt, revokedAt, revokedBy]
+      properties:
+        id:
+          type: string
+        userId:
+          type: string
+        name:
+          type: string
+        platform:
+          type: string
+          enum: [ios, android, other]
+        appVersion:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+        lastSyncAt:
+          type: string
+          nullable: true
+        revokedAt:
+          type: string
+          nullable: true
+        revokedBy:
+          type: string
+          nullable: true
+    DeviceResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/Device'
+    DeviceList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Device'
+    SyncRequest:
+      type: object
+      required: [cursors]
+      properties:
+        cursors:
+          type: object
+          description: The cursor the device got for each vault it holds, by vault id. A vault left out comes in full.
+          additionalProperties:
+            type: string
+    SyncedItem:
+      allOf:
+        - $ref: '#/components/schemas/Item'
+        - type: object
+          required: [fields]
+          properties:
+            fields:
+              $ref: '#/components/schemas/ItemFields'
+      description: An item in the copy. A shared vault's login comes with `totp` emptied (PASS-007); `hasTotp` still says it has one.
+    SyncedVault:
+      type: object
+      required: [vault, cursor, full, items, deletedIds]
+      properties:
+        vault:
+          $ref: '#/components/schemas/Vault'
+        cursor:
+          type: string
+          description: Send this back next time.
+        full:
+          type: boolean
+          description: Every item of the vault came; replace, don't merge.
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/SyncedItem'
+        deletedIds:
+          type: array
+          items:
+            type: string
+    SyncResult:
+      type: object
+      required: [wipe, reason, syncedAt, vaults, removedVaultIds]
+      properties:
+        wipe:
+          type: boolean
+          description: Delete the whole copy (and the key).
+        reason:
+          type: string
+          enum: [revoked, disabled]
+          nullable: true
+        syncedAt:
+          type: string
+          description: The server's clock at the sync.
+        vaults:
+          type: array
+          description: Every vault the person can read now.
+          items:
+            $ref: '#/components/schemas/SyncedVault'
+        removedVaultIds:
+          type: array
+          items:
+            type: string
+    SyncResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/SyncResult'
+    DeviceEvents:
+      type: object
+      required: [events]
+      properties:
+        events:
+          type: array
+          minItems: 1
+          maxItems: 500
+          items:
+            $ref: '#/components/schemas/DeviceEvent'
+    DeviceEvent:
+      type: object
+      required: [vaultId, itemId, action, at]
+      properties:
+        vaultId:
+          type: string
+        itemId:
+          type: string
+        action:
+          type: string
+          enum: [revealed, copied, autofilled]
+        at:
+          type: string
+          description: When it happened on the device (ISO 8601).
+    RecordedResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          required: [recorded]
+          properties:
+            recorded:
+              type: integer
     ErrorResponse:
       type: object
       required: [error]

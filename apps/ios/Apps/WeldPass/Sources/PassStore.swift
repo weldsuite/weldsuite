@@ -81,19 +81,33 @@ struct Loadable<T> {
     var error: APIError?
 }
 
-/// Vaults and items for the active workspace. Lists carry no secrets; a
-/// revealed item is handed to the screen that asked and never kept here.
+/// Vaults and items for the active workspace: from the offline copy while
+/// it's open (ADR PASS-010), from the server otherwise. Lists carry no
+/// secrets; a revealed item is handed to the screen that asked and never kept
+/// here.
 @MainActor
 @Observable
 final class PassStore {
-    private(set) var vaults = Loadable<[PassVault]>()
-    private(set) var items = Loadable<[PassItem]>()
+    private var serverVaults = Loadable<[PassVault]>()
+    private var serverItems = Loadable<[PassItem]>()
+    let offline: OfflineStore
 
     @ObservationIgnored private let env: AppEnvironment
     @ObservationIgnored private var workspace: String?
 
     init(env: AppEnvironment) {
         self.env = env
+        offline = OfflineStore(env: env)
+    }
+
+    var vaults: Loadable<[PassVault]> {
+        if let copy = offline.readable { return Loadable(data: CopyRules.vaults(copy), loading: offline.syncing) }
+        return serverVaults
+    }
+
+    var items: Loadable<[PassItem]> {
+        if let copy = offline.readable { return Loadable(data: CopyRules.items(copy), loading: offline.syncing) }
+        return serverItems
     }
 
     private func client() throws -> Client {
@@ -105,14 +119,19 @@ final class PassStore {
     func use(workspace id: String) {
         guard workspace != id else { return }
         workspace = id
-        vaults = Loadable()
-        items = Loadable()
+        serverVaults = Loadable()
+        serverItems = Loadable()
     }
 
+    /// Sync the copy when it's open, else read the lists from the server.
     func refresh() async {
+        if offline.readable != nil {
+            await offline.sync()
+            return
+        }
         let forWorkspace = workspace
-        vaults.loading = true
-        items.loading = true
+        serverVaults.loading = true
+        serverItems.loading = true
         async let loadedVaults = fetchVaults()
         async let loadedItems = fetchItems()
         let vaultResult: Result<[PassVault], Error>
@@ -121,39 +140,38 @@ final class PassStore {
         do { itemResult = .success(try await loadedItems) } catch { itemResult = .failure(error) }
         guard workspace == forWorkspace else { return }
         switch vaultResult {
-        case let .success(list): vaults = Loadable(data: list)
-        case let .failure(error): vaults = Loadable(data: vaults.data, error: APIError.from(error))
+        case let .success(list): serverVaults = Loadable(data: list)
+        case let .failure(error): serverVaults = Loadable(data: serverVaults.data, error: APIError.from(error))
         }
         switch itemResult {
-        case let .success(list): items = Loadable(data: list)
-        case let .failure(error): items = Loadable(data: items.data, error: APIError.from(error))
+        case let .success(list): serverItems = Loadable(data: list)
+        case let .failure(error): serverItems = Loadable(data: serverItems.data, error: APIError.from(error))
         }
     }
 
-    /// The item's secret fields. Each call is a reveal the server audits.
+    /// The item's secret fields: from the copy when it holds the item (the
+    /// reveal is queued for the vault's trail), else from the server, which
+    /// audits it.
     func reveal(vaultID: String, itemID: String) async throws -> PassFields {
+        if let copy = offline.readable, let fields = CopyRules.fields(copy, vaultID: vaultID, itemID: itemID) {
+            offline.recordEvent(vaultID: vaultID, itemID: itemID, action: .revealed)
+            return fields
+        }
         do {
             switch try await client().revealItem(path: .init(vaultId: vaultID, itemId: itemID)) {
             case let .ok(ok):
-                let fields = try ok.body.json.data.value2.fields
-                return PassFields(
-                    username: fields.username,
-                    password: fields.password,
-                    totp: fields.totp,
-                    notes: fields.notes,
-                    apps: fields.apps ?? [],
-                    content: fields.content,
-                    cardholder: fields.cardholder,
-                    number: fields.number,
-                    expiry: fields.expiry,
-                    cvc: fields.cvc
-                )
+                return Self.fields(try ok.body.json.data.value2.fields)
             case let .default(status, response):
                 throw APIError(status: status, code: try? response.body.json.error.code)
             }
         } catch {
             throw APIError.from(error)
         }
+    }
+
+    /// A secret copied from the copy goes into the vault's trail at the next sync.
+    func recordCopy(vaultID: String, itemID: String) {
+        if offline.readable != nil { offline.recordEvent(vaultID: vaultID, itemID: itemID, action: .copied) }
     }
 
     func totp(vaultID: String, itemID: String) async throws -> PassTotp {
@@ -273,7 +291,8 @@ final class PassStore {
         )
     }
 
-    private static func item(_ item: Components.Schemas.Item) -> PassItem {
+    /// swift-openapi-generator escapes `type` as `_type`.
+    nonisolated static func item(_ item: Components.Schemas.Item) -> PassItem {
         PassItem(
             id: item.id,
             vaultID: item.vaultId,
@@ -296,22 +315,7 @@ final class PassStore {
     private func fetchVaults() async throws -> [PassVault] {
         switch try await client().listVaults() {
         case let .ok(ok):
-            return try ok.body.json.data.map { vault in
-                PassVault(
-                    id: vault.id,
-                    kind: vault.kind == .personal ? .personal : .shared,
-                    name: vault.name,
-                    role: vault.role.map { role -> PassVault.Role in
-                        switch role {
-                        case .viewer: return .viewer
-                        case .editor: return .editor
-                        case .manager: return .manager
-                        }
-                    },
-                    itemCount: vault.itemCount,
-                    memberCount: vault.memberCount
-                )
-            }
+            return try ok.body.json.data.map(Self.vault)
         case let .default(status, response):
             throw APIError(status: status, code: try? response.body.json.error.code)
         }
@@ -320,28 +324,41 @@ final class PassStore {
     private func fetchItems() async throws -> [PassItem] {
         switch try await client().listItems() {
         case let .ok(ok):
-            return try ok.body.json.data.map { item in
-                PassItem(
-                    id: item.id,
-                    vaultID: item.vaultId,
-                    // swift-openapi-generator escapes `type` as `_type`.
-                    kind: { () -> PassItem.Kind in
-                        switch item._type {
-                        case .login: return .login
-                        case .note: return .note
-                        case .card: return .card
-                        }
-                    }(),
-                    title: item.title,
-                    subtitle: item.subtitle,
-                    url: item.url,
-                    host: item.host,
-                    hasTotp: item.hasTotp,
-                    updatedAt: item.updatedAt
-                )
-            }
+            return try ok.body.json.data.map(Self.item)
         case let .default(status, response):
             throw APIError(status: status, code: try? response.body.json.error.code)
         }
+    }
+
+    nonisolated static func vault(_ vault: Components.Schemas.Vault) -> PassVault {
+        PassVault(
+            id: vault.id,
+            kind: vault.kind == .personal ? .personal : .shared,
+            name: vault.name,
+            role: vault.role.map { role -> PassVault.Role in
+                switch role {
+                case .viewer: return .viewer
+                case .editor: return .editor
+                case .manager: return .manager
+                }
+            },
+            itemCount: vault.itemCount,
+            memberCount: vault.memberCount
+        )
+    }
+
+    nonisolated static func fields(_ fields: Components.Schemas.ItemFields) -> PassFields {
+        PassFields(
+            username: fields.username,
+            password: fields.password,
+            totp: fields.totp,
+            notes: fields.notes,
+            apps: fields.apps ?? [],
+            content: fields.content,
+            cardholder: fields.cardholder,
+            number: fields.number,
+            expiry: fields.expiry,
+            cvc: fields.cvc
+        )
     }
 }
