@@ -760,7 +760,7 @@ async fn imported_moneybird_bank_accounts_get_a_ledger_account() {
         vec![online.clone(), revolut.clone(), director.clone()],
     )
     .await;
-    assert_eq!(first.created, 3, "{:?}", first.error_samples);
+    assert_eq!((first.created, first.failed), (3, 0));
 
     // Moneybird's own account gets one of its own, even while 1100 is free.
     let (online_id, ledger) = bank_ledger(&db, &connection_id, &format!("{sfx}1")).await;
@@ -820,7 +820,7 @@ async fn a_stripe_balance_gets_a_ledger_account_of_its_own() {
         vec![json!({ "id": format!("bal_{sfx}"), "currency": "eur", "available": 1000, "pending": 0 })],
     )
     .await;
-    assert_eq!(result.created, 1, "{:?}", result.error_samples);
+    assert_eq!((result.created, result.failed), (1, 0));
     let (_, ledger) = bank_ledger(&db, &connection_id, &format!("bal_{sfx}")).await;
     let ledger = ledger.expect("the Stripe balance is linked");
     assert_eq!(ledger["code"], json!("1201"));
