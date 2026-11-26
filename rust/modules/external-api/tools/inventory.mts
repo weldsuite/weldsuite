@@ -246,8 +246,11 @@ export const OMIT_SENSITIVE: ReadonlySet<string> = new Set(['entities', 'bankAcc
 
 /**
  * Columns only the SeaORM entities have: added after the Drizzle schema froze
- * (ADR DATA-019), for features Global doesn't have. The public API doesn't
- * read or write them, so they are listed as omitted, by table name.
+ * (ADR DATA-019), for features Global doesn't have. They are listed as
+ * omitted, by table name, so the generic table code never reads or writes
+ * them. `tasks.epic_id` is the exception the routes handle by hand
+ * (`src/flow.rs`): `/v1/tasks` links items to epics and shows `epicId` on a
+ * task that has one, which keeps every other answer exactly Global's.
  */
 export const RUST_ONLY_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   // Agile delivery in WeldFlow (ADRs FLOW-023, FLOW-024).

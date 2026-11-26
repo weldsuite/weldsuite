@@ -128,6 +128,8 @@ pub(crate) const LIST_TASKS: Z = list_query!(
     "parentTaskId",
     "dueDateFrom",
     "dueDateTo",
+    // Rust only (FLOW-023): Global has no epics.
+    "epicId",
 );
 pub(crate) const LIST_TIME_ENTRIES: Z = list_query!(
     "projectId",

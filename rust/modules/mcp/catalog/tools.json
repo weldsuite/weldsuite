@@ -6598,6 +6598,10 @@
        "type": "string",
        "description": "Filter by parent task ID"
       },
+      "epicId": {
+       "type": "string",
+       "description": "Filter by epic or feature ID: the items in it (EU and self-hosted editions only)"
+      },
       "dueDateFrom": {
        "type": "string",
        "description": "Filter by due date range start (ISO 8601)"
@@ -6670,7 +6674,7 @@
    "definition": {
     "name": "create_task",
     "title": "Create task",
-    "description": "Create a new WeldFlow task. Can be standalone or linked to a project, parent task, sprint, or CRM customer/contact.",
+    "description": "Create a new WeldFlow task. Can be standalone or linked to a project, parent task, sprint, epic, or CRM customer/contact.",
     "inputSchema": {
      "type": "object",
      "properties": {
@@ -6705,6 +6709,18 @@
         "string",
         "null"
        ]
+      },
+      "epicId": {
+       "anyOf": [
+        {
+         "type": "string",
+         "maxLength": 30
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The epic (or feature) this item belongs to, in the same project: a PBI, bug, task or spike under an epic, or a feature under an epic. Not a parent: a subtask is linked with parentTaskId. Agile projects on the EU and self-hosted editions only."
       },
       "stageId": {
        "type": [
@@ -6937,6 +6953,18 @@
         "string",
         "null"
        ]
+      },
+      "epicId": {
+       "anyOf": [
+        {
+         "type": "string",
+         "maxLength": 30
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The epic (or feature) this item belongs to, in the same project: a PBI, bug, task or spike under an epic, or a feature under an epic. Not a parent: a subtask is linked with parentTaskId. Agile projects on the EU and self-hosted editions only. Send null or an empty string to take the item out of its epic."
       },
       "assigneeId": {
        "type": [

@@ -56,6 +56,10 @@ export const createTaskSchema = z.object({
   // The deliverable the task counts toward (WeldFlow project control); at most one.
   deliverableId: z.string().nullish(),
   parentTaskId: z.string().nullish(),
+  // The epic or feature the item belongs to (WeldFlow agile, ADR FLOW-023;
+  // EU and self-hosted only, Global's backend has no such column and ignores
+  // it). Not a parent: a subtask is linked with `parentTaskId`.
+  epicId: z.string().max(30).nullish(),
   stageId: z.string().nullish(),
   assigneeId: z.string().nullish(),
   assigneeIds: z.array(z.string()).optional(),
@@ -117,6 +121,8 @@ export const updateTaskSchema = z.object({
   milestoneId: createTaskSchema.shape.milestoneId,
   deliverableId: createTaskSchema.shape.deliverableId,
   parentTaskId: createTaskSchema.shape.parentTaskId,
+  // null or '' unlinks the item from its epic.
+  epicId: createTaskSchema.shape.epicId,
   assigneeId: createTaskSchema.shape.assigneeId,
   // Clients send null to clear every assignee.
   assigneeIds: z.array(z.string()).nullish(),

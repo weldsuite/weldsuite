@@ -110,6 +110,10 @@ export const projectsTools: ToolDefinition[] = [
       sprintId: z.string().optional().describe('Filter by sprint ID'),
       milestoneId: z.string().optional().describe('Filter by milestone ID'),
       parentTaskId: z.string().optional().describe('Filter by parent task ID'),
+      epicId: z
+        .string()
+        .optional()
+        .describe('Filter by epic or feature ID: the items in it (EU and self-hosted editions only)'),
       dueDateFrom: z.string().optional().describe('Filter by due date range start (ISO 8601)'),
       dueDateTo: z.string().optional().describe('Filter by due date range end (ISO 8601)'),
     },
@@ -130,7 +134,8 @@ export const projectsTools: ToolDefinition[] = [
   {
     name: 'create_task',
     scope: 'tasks:write',
-    description: 'Create a new WeldFlow task. Can be standalone or linked to a project, parent task, sprint, or CRM customer/contact.',
+    description:
+      'Create a new WeldFlow task. Can be standalone or linked to a project, parent task, sprint, epic, or CRM customer/contact.',
     inputSchema: createTaskSchema.shape,
     method: 'POST',
     path: '/v1/tasks',

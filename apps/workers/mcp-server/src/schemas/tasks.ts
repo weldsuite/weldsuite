@@ -14,6 +14,11 @@ const TASK_STATUS_DESCRIPTION =
   'Task status: backlog, todo, in_progress, review, testing, done or cancelled (or a custom status of the project\'s board). ' +
   'Use "review" for In review; the older "in_review" is accepted and stored as "review".';
 
+const EPIC_DESCRIPTION =
+  'The epic (or feature) this item belongs to, in the same project: a PBI, bug, task or spike under an epic, ' +
+  'or a feature under an epic. Not a parent: a subtask is linked with parentTaskId. ' +
+  'Agile projects on the EU and self-hosted editions only.';
+
 export const createTaskSchema = z.object({
   title: z.string().min(1).max(500),
   description: z.string().optional(),
@@ -21,6 +26,7 @@ export const createTaskSchema = z.object({
   sprintId: z.string().nullish(),
   milestoneId: z.string().nullish(),
   parentTaskId: z.string().nullish(),
+  epicId: z.string().max(30).nullish().describe(EPIC_DESCRIPTION),
   stageId: z.string().nullish(),
   assigneeId: z.string().nullish(),
   assigneeIds: z.array(z.string()).optional(),
@@ -61,6 +67,11 @@ export const updateTaskSchema = z.object({
   sprintId: createTaskSchema.shape.sprintId,
   milestoneId: createTaskSchema.shape.milestoneId,
   parentTaskId: createTaskSchema.shape.parentTaskId,
+  epicId: z
+    .string()
+    .max(30)
+    .nullish()
+    .describe(`${EPIC_DESCRIPTION} Send null or an empty string to take the item out of its epic.`),
   assigneeId: createTaskSchema.shape.assigneeId,
   // Clients send null to clear every assignee.
   assigneeIds: z.array(z.string()).nullish(),

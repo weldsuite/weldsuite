@@ -31,6 +31,7 @@ use weldsuite_catalogs::entity_events::{
 };
 use weldsuite_db::{OrmConn, PgPool, orm, utc_now};
 use weldsuite_flow_domain::agile::LinkedItem;
+use weldsuite_flow_domain::agile_links::{EpicChange, Sent, clear_members, epic_error, patch_epic};
 use weldsuite_flow_domain::analytics::task_analytics_payload;
 use weldsuite_flow_domain::js::millis_of;
 use weldsuite_flow_domain::recurrence::is_completion;
@@ -51,7 +52,6 @@ use crate::calendar::{REPLAN_KIND, TaskCalendar, TaskEvent};
 use crate::js::{Js, parse_body};
 use crate::task_changes::{Update, assignee_ids_involved, build_task_changes};
 use crate::task_enrich::{TASK_ENTITY, assignee_names, enrich};
-use crate::task_epics::{EpicChange, Sent, clear_members, epic_error, patch_epic};
 use crate::tasks::{PROJECT_WRITE_DENIED, Written, guard_write, task_row, written};
 use crate::{Caller, FlowState, Refusal, Reply, custom_values, now, reply, validate};
 

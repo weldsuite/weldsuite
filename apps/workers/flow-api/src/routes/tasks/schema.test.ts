@@ -24,6 +24,7 @@ describe('updateTaskSchema', () => {
       sprintId: null,
       milestoneId: null,
       parentTaskId: 'p',
+      epicId: 'epic_1',
       assigneeId: 'u',
       assigneeIds: null,
       customerId: null,
@@ -43,6 +44,14 @@ describe('updateTaskSchema', () => {
       blocks: ['b1'],
     };
     expect(updateTaskSchema.parse(body)).toEqual(body);
+  });
+
+  it('takes an epic link, null or empty to unlink, at most 30 characters', () => {
+    expect(updateTaskSchema.parse({ epicId: 'epic_1' })).toEqual({ epicId: 'epic_1' });
+    expect(updateTaskSchema.parse({ epicId: null })).toEqual({ epicId: null });
+    expect(updateTaskSchema.parse({ epicId: '' })).toEqual({ epicId: '' });
+    expect(updateTaskSchema.safeParse({ epicId: 'x'.repeat(31) }).success).toBe(false);
+    expect(createTaskSchema.parse({ title: 't', epicId: 'epic_1' })).toMatchObject({ epicId: 'epic_1' });
   });
 
   it('accepts a null duration, which clears it, and rejects a non-number', () => {
