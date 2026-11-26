@@ -9,8 +9,9 @@
  */
 
 import { and, desc, eq, ilike, isNotNull, isNull, sql, type SQL } from 'drizzle-orm';
-import { schema, type Database } from '@weldsuite/worker-kit/db';
-import { generateId } from '@weldsuite/worker-kit/id';
+import * as schema from '@weldsuite/db/schema';
+import type { TenantDb as Database } from '@weldsuite/db/lib/any-db';
+import { generateId } from '@weldsuite/db/lib/id';
 import * as filesService from '@weldsuite/core-domain/files';
 import { WELDDOC_MIME_TYPE } from '@weldsuite/app-api-client/schemas/docs';
 import type { DriveFileRef } from '@weldsuite/core-domain/drive-access';
@@ -211,9 +212,6 @@ export async function recordCheckpoint(
   await db.update(files).set({ fileSize: params.size }).where(eq(files.id, row.fileId));
   return getDoc(db, docId);
 }
-
-/** Display name and account picture of a workspace member, for the room's peer list. */
-export { loadMemberProfile as memberProfile } from '@weldsuite/worker-kit/account-pictures';
 
 function escapeLike(text: string): string {
   return text.replace(/[\\%_]/g, (ch) => `\\${ch}`);

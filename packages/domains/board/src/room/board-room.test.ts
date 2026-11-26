@@ -1,4 +1,4 @@
-import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import type { Database } from '@weldsuite/worker-kit';
@@ -14,10 +14,12 @@ import { BoardRoom, type Admission } from './board-room';
 import { connectToRoom, isConnectRequest } from './connect';
 
 let db: Database;
-vi.mock('@weldsuite/worker-kit/db', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@weldsuite/worker-kit/db')>()),
-  getTenantDbForWorkspace: async () => db,
-}));
+/** The room as a host runs it, on this test's database. */
+class TestBoardRoom extends BoardRoom {
+  protected tenantDb() {
+    return Promise.resolve(db);
+  }
+}
 
 const WORKSPACE = 'org_room_test';
 const BOARD = 'brd_room';
@@ -66,7 +68,7 @@ beforeEach(async () => {
 
 describe('BoardRoom', () => {
   it('admits each ticket once', async () => {
-    const room = new BoardRoom(state.ctx, env);
+    const room = new TestBoardRoom(state.ctx, env);
     const ticket = await room.admit(admission('alice'));
     const secret = ticket.split('.')[1]!;
     expect(ticket.split('.')[0]).toBe('a'.repeat(64));
@@ -76,7 +78,7 @@ describe('BoardRoom', () => {
   });
 
   it('orders edits between people, logs them, and checkpoints with a thumbnail when everyone leaves', async () => {
-    const room = new BoardRoom(state.ctx, env);
+    const room = new TestBoardRoom(state.ctx, env);
     const alice = await join(room, 'alice');
     const bob = await join(room, 'bob');
     await send(room, alice, { type: 'hello', revision: null });
@@ -90,7 +92,7 @@ describe('BoardRoom', () => {
     expect(state.storage.alarm).not.toBeNull();
 
     // Evicted while both sockets stay open: a new instance picks up from checkpoint + log.
-    const woken = new BoardRoom(state.ctx, env);
+    const woken = new TestBoardRoom(state.ctx, env);
     await send(woken, bob, { type: 'submit', batchId: 'b:1', baseRevision: 1, op: { type: 'set', id: 's1', patch: { fill: '#bbf7d0' } } });
     expect(ofType(bob, 'ack').at(-1)).toMatchObject({ revision: 2 });
     expect(ofType(alice, 'op').at(-1)).toMatchObject({ revision: 2, batchId: 'b:1' });
@@ -108,7 +110,7 @@ describe('BoardRoom', () => {
   });
 
   it('lets a viewer only watch and a commenter only add and resolve comment pins', async () => {
-    const room = new BoardRoom(state.ctx, env);
+    const room = new TestBoardRoom(state.ctx, env);
     const viewer = await join(room, 'vera', false);
     const commenter = await join(room, 'carl', false, true);
     const editor = await join(room, 'alice');
@@ -131,7 +133,7 @@ describe('BoardRoom', () => {
   });
 
   it('lets a commenter vote for themselves in an open round, never for someone else', async () => {
-    const room = new BoardRoom(state.ctx, env);
+    const room = new TestBoardRoom(state.ctx, env);
     const editor = await join(room, 'alice');
     const commenter = await join(room, 'carl', false, true);
     for (const s of [editor, commenter]) await send(room, s, { type: 'hello', revision: null });
@@ -151,7 +153,7 @@ describe('BoardRoom', () => {
   });
 
   it("lets nobody, an editor included, vote in a colleague's name; ending a round still takes everyone's votes away", async () => {
-    const room = new BoardRoom(state.ctx, env);
+    const room = new TestBoardRoom(state.ctx, env);
     const alice = await join(room, 'alice');
     const bob = await join(room, 'bob');
     for (const s of [alice, bob]) await send(room, s, { type: 'hello', revision: null });
@@ -208,7 +210,7 @@ describe('BoardRoom', () => {
   });
 
   it('commits server writes and sends them to everyone connected', async () => {
-    const room = new BoardRoom(state.ctx, env);
+    const room = new TestBoardRoom(state.ctx, env);
     const alice = await join(room, 'alice');
     await send(room, alice, { type: 'hello', revision: null });
     const result = await room.applyOps(meta(), create(sticky('srv', 'From the API', 'bob')), 'bob');
@@ -227,7 +229,7 @@ describe('BoardRoom', () => {
   });
 
   it('saves versions and restores one, telling everyone', async () => {
-    const room = new BoardRoom(state.ctx, env);
+    const room = new TestBoardRoom(state.ctx, env);
     const alice = await join(room, 'alice');
     await send(room, alice, { type: 'hello', revision: null });
     await send(room, alice, { type: 'submit', batchId: 'a:1', baseRevision: 0, op: create(sticky('s1', 'First')) });

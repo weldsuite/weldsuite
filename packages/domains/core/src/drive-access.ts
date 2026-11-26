@@ -26,9 +26,9 @@
  */
 
 import { and, eq, inArray, isNotNull, isNull, ne, or, type SQL } from 'drizzle-orm';
-import { schema, type Database } from '@weldsuite/worker-kit/db';
-import { generateId } from '@weldsuite/worker-kit/id';
-import { accountPicture, loadAccountPictures, type AccountPictureEnv } from '@weldsuite/worker-kit/account-pictures';
+import * as schema from '@weldsuite/db/schema';
+import type { TenantDb as Database } from '@weldsuite/db/lib/any-db';
+import { generateId } from '@weldsuite/db/lib/id';
 import type { DriveGeneralAccess, DriveShareRole } from '@weldsuite/db/schema';
 
 const { files, folders, driveShares, workspaceMembers } = schema;
@@ -483,14 +483,18 @@ async function memberPerson(db: Database, userId: string): Promise<Omit<DriveSha
   return { userId, name: member?.name ?? null, email: member?.email ?? null };
 }
 
+/** User id → account picture URL (null when the account has none); ids without an account are absent. */
+export type LoadAccountPictures = (userIds: string[]) => Promise<ReadonlyMap<string, string | null>>;
+
 /**
  * Who an item is open to, for a caller whose role on it is `accessRole`.
- * Every person's picture is their account picture, resolved in one batch
- * (@weldsuite/worker-kit/account-pictures).
+ * Every person's picture is their account picture, which `loadPictures`
+ * resolves in one batch from the master database (on Global,
+ * `loadAccountPictures` from @weldsuite/worker-kit/account-pictures).
  */
 export async function describeSharing(
   db: Database,
-  env: AccountPictureEnv,
+  loadPictures: LoadAccountPictures,
   index: DriveAccessIndex,
   target: DriveSharingTarget,
   accessRole: DriveRole,
@@ -500,18 +504,16 @@ export async function describeSharing(
     listInheritedShares(db, ancestorFolderIds(index, target.parentId)),
     target.ownerId ? memberPerson(db, target.ownerId) : Promise.resolve(null),
   ]);
-  const pictures = await loadAccountPictures(env, [
-    owner?.userId,
-    ...shares.map((share) => share.userId),
-    ...inherited.map((share) => share.userId),
-  ]);
+  const people = [owner?.userId, ...shares.map((share) => share.userId), ...inherited.map((share) => share.userId)];
+  const pictures = await loadPictures([...new Set(people.filter((id): id is string => !!id))]);
+  const accountPicture = (userId: string | null | undefined) => (userId ? pictures.get(userId) ?? null : null);
   return {
-    owner: owner ? { ...owner, picture: accountPicture(pictures, owner.userId) } : null,
+    owner: owner ? { ...owner, picture: accountPicture(owner.userId) } : null,
     generalAccess: target.generalAccess,
     effectiveGeneralAccess: effectiveGeneralAccess(index, target.generalAccess, target.parentId),
     accessRole,
-    shares: shares.map((share) => ({ ...share, picture: accountPicture(pictures, share.userId) })),
-    inherited: inherited.map((share) => ({ ...share, picture: accountPicture(pictures, share.userId) })),
+    shares: shares.map((share) => ({ ...share, picture: accountPicture(share.userId) })),
+    inherited: inherited.map((share) => ({ ...share, picture: accountPicture(share.userId) })),
   };
 }
 

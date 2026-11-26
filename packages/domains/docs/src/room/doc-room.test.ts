@@ -14,10 +14,12 @@ import { DocRoom, replyCode, type Admission } from './doc-room';
 import { connectToRoom, isConnectRequest } from './connect';
 
 let db: Database;
-vi.mock('@weldsuite/worker-kit/db', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@weldsuite/worker-kit/db')>()),
-  getTenantDbForWorkspace: async () => db,
-}));
+/** The room as a host runs it, on this test's database. */
+class TestDocRoom extends DocRoom {
+  protected tenantDb() {
+    return Promise.resolve(db);
+  }
+}
 
 const WORKSPACE = 'org_room_test';
 
@@ -73,7 +75,7 @@ beforeEach(async () => {
 
 describe('DocRoom', () => {
   it('admits each ticket once', async () => {
-    const room = new DocRoom(state.ctx, env);
+    const room = new TestDocRoom(state.ctx, env);
     const ticket = await room.admit(admission('alice'));
     const secret = ticket.split('.')[1]!;
     expect(ticket.split('.')[0]).toBe('a'.repeat(64));
@@ -83,7 +85,7 @@ describe('DocRoom', () => {
   });
 
   it('orders edits between people, logs them and checkpoints when everyone leaves', async () => {
-    const room = new DocRoom(state.ctx, env);
+    const room = new TestDocRoom(state.ctx, env);
     const alice = await join(room, 'alice');
     const bob = await join(room, 'bob');
     await send(room, alice, { type: 'hello', revision: null });
@@ -98,7 +100,7 @@ describe('DocRoom', () => {
     expect(state.storage.alarm).not.toBeNull();
 
     // The object is evicted while both sockets stay open; a new instance picks up.
-    const woken = new DocRoom(state.ctx, env);
+    const woken = new TestDocRoom(state.ctx, env);
     await send(woken, bob, { type: 'submit', batchId: 'b:1', baseRevision: 1, op: typeAt(5, ' world') });
     expect(ofType(bob, 'ack').at(-1)).toMatchObject({ revision: 2 });
     expect(ofType(alice, 'op').at(-1)).toMatchObject({ revision: 2, batchId: 'b:1' });
@@ -115,13 +117,13 @@ describe('DocRoom', () => {
   });
 
   it('replays the log over the checkpoint after a restart', async () => {
-    const room = new DocRoom(state.ctx, env);
+    const room = new TestDocRoom(state.ctx, env);
     const alice = await join(room, 'alice');
     await send(room, alice, { type: 'hello', revision: null });
     await send(room, alice, { type: 'submit', batchId: 'a:1', baseRevision: 0, op: typeAt(0, 'one') });
     await send(room, alice, { type: 'submit', batchId: 'a:2', baseRevision: 1, op: typeAt(3, ' two') });
 
-    const restarted = new DocRoom(fakeObjectStateFrom(state), env);
+    const restarted = new TestDocRoom(fakeObjectStateFrom(state), env);
     const carol = await join(restarted, 'carol');
     await send(restarted, carol, { type: 'hello', revision: null });
     const welcome = ofType(carol, 'welcome')[0]!;
@@ -133,7 +135,7 @@ describe('DocRoom', () => {
   });
 
   it('answers a close without a code with a normal close', async () => {
-    const room = new DocRoom(state.ctx, env);
+    const room = new TestDocRoom(state.ctx, env);
     const alice = await join(room, 'alice');
     await room.webSocketClose(alice.asSocket(), 1005, '');
     expect(alice.closed).toEqual({ code: 1000, reason: '' });
@@ -141,7 +143,7 @@ describe('DocRoom', () => {
   });
 
   it('keeps viewers from editing', async () => {
-    const room = new DocRoom(state.ctx, env);
+    const room = new TestDocRoom(state.ctx, env);
     const viewer = await join(room, 'vic', false);
     await send(room, viewer, { type: 'hello', revision: null });
     expect(ofType(viewer, 'welcome')[0]!.canEdit).toBe(false);
@@ -151,7 +153,7 @@ describe('DocRoom', () => {
   });
 
   it('relays presence and refuses a malformed one', async () => {
-    const room = new DocRoom(state.ctx, env);
+    const room = new TestDocRoom(state.ctx, env);
     const alice = await join(room, 'alice');
     const bob = await join(room, 'bob');
     await send(room, alice, { type: 'hello', revision: null });
@@ -164,7 +166,7 @@ describe('DocRoom', () => {
   });
 
   it('refuses a garbled batch and logs nothing', async () => {
-    const room = new DocRoom(state.ctx, env);
+    const room = new TestDocRoom(state.ctx, env);
     const alice = await join(room, 'alice');
     await send(room, alice, { type: 'hello', revision: null });
     const garbled = { type: 'submit', batchId: 'a:1', baseRevision: 0, op: { type: 'insert', story: 'body', at: 'zero', content: { text: 5 } } };
@@ -177,7 +179,7 @@ describe('DocRoom', () => {
   });
 
   it('rebuilds itself when an op fails to apply', async () => {
-    const room = new DocRoom(state.ctx, env);
+    const room = new TestDocRoom(state.ctx, env);
     const alice = await join(room, 'alice');
     const bob = await join(room, 'bob');
     await send(room, alice, { type: 'hello', revision: null });
@@ -203,7 +205,7 @@ describe('DocRoom', () => {
   });
 
   it('joins a batch sent in parts', async () => {
-    const room = new DocRoom(state.ctx, env);
+    const room = new TestDocRoom(state.ctx, env);
     const alice = await join(room, 'alice');
     await send(room, alice, { type: 'hello', revision: null });
     const frames = toFrames(encode({ type: 'submit', batchId: 'a:big', baseRevision: 0, op: typeAt(0, 'lorem ipsum '.repeat(500)) }), 'p1', 1000);
@@ -215,7 +217,7 @@ describe('DocRoom', () => {
   const meta = () => ({ workspaceId: WORKSPACE, docId, snapshotKey: snapshotKeyFor(WORKSPACE, docId) });
 
   it('serves its live document, edits not checkpointed yet included', async () => {
-    const room = new DocRoom(state.ctx, env);
+    const room = new TestDocRoom(state.ctx, env);
     const alice = await join(room, 'alice');
     await send(room, alice, { type: 'hello', revision: null });
     await send(room, alice, { type: 'submit', batchId: 'a:1', baseRevision: 0, op: typeAt(0, 'Live text') });
@@ -228,7 +230,7 @@ describe('DocRoom', () => {
   });
 
   it('serves a document nobody has open, from its checkpoint', async () => {
-    const room = new DocRoom(state.ctx, env);
+    const room = new TestDocRoom(state.ctx, env);
     const live = await room.snapshot(meta());
     expect(live.revision).toBe(0);
     expect(JSON.parse(live.json)).toEqual(DocModel.create().toSnapshot());
@@ -236,7 +238,7 @@ describe('DocRoom', () => {
   });
 
   it('lets commenters comment, and nothing else', async () => {
-    const room = new DocRoom(state.ctx, env);
+    const room = new TestDocRoom(state.ctx, env);
     const alice = await join(room, 'alice');
     const cara = await join(room, 'cara', false, true);
     const vic = await join(room, 'vic', false);
@@ -270,7 +272,7 @@ describe('DocRoom', () => {
   });
 
   it('restores a version: saves the document as it was, replaces it and reloads everyone', async () => {
-    const room = new DocRoom(state.ctx, env);
+    const room = new TestDocRoom(state.ctx, env);
     const alice = await join(room, 'alice');
     const bob = await join(room, 'bob');
     await send(room, alice, { type: 'hello', revision: null });
@@ -310,14 +312,14 @@ describe('DocRoom', () => {
 
     // After a restart, an op of the replaced document left in the log is never replayed.
     state.storage.data.set('op:000000000002', { revision: 2, batchId: 'a:2', clientId: 'x', op: typeAt(0, 'ghost ') });
-    const restarted = new DocRoom(fakeObjectStateFrom(state), env);
+    const restarted = new TestDocRoom(fakeObjectStateFrom(state), env);
     const live = await restarted.snapshot(meta());
     expect(live.revision).toBe(4);
     expect(bodyText(JSON.parse(live.json))).toBe('First!\n');
   });
 
   it('refuses to restore a version whose snapshot is gone', async () => {
-    const room = new DocRoom(state.ctx, env);
+    const room = new TestDocRoom(state.ctx, env);
     const outcome = await room.restoreVersion({
       doc: meta(),
       versionId: 'docv_gone',

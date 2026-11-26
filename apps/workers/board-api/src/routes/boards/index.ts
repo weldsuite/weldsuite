@@ -66,6 +66,7 @@ import {
   type BoardTemplateCategory,
   type UpdateBoardInput,
 } from '@weldsuite/app-api-client/schemas/boards';
+import { loadMemberProfile as memberProfile } from '@weldsuite/worker-kit/account-pictures';
 import type { Env, Variables } from '@weldsuite/board-domain/types';
 import {
   convertLegacy,
@@ -73,7 +74,6 @@ import {
   getLiveBoard,
   legacyElements,
   listBoards,
-  memberProfile,
   projectExists,
   snapshotKeyFor,
   trashBoard,

@@ -60,7 +60,8 @@ import {
   type SheetSession,
 } from '@weldsuite/app-api-client/schemas/sheets';
 import type { Env, Variables } from '@weldsuite/sheets-domain/types';
-import { adoptFileAsSheet, createSheet, getDriveFile, getSheet, listSheets, memberProfile, renameSheet, snapshotKeyFor, trashSheet, type SheetRecord } from '@weldsuite/sheets-domain/services/sheets';
+import { adoptFileAsSheet, createSheet, getDriveFile, getSheet, listSheets, renameSheet, snapshotKeyFor, trashSheet, type SheetRecord } from '@weldsuite/sheets-domain/services/sheets';
+import { loadMemberProfile as memberProfile } from '@weldsuite/worker-kit/account-pictures';
 import { convertLegacyModel, readLegacyModel } from '@weldsuite/sheets-domain/services/legacy-project-sheet';
 import { writeSnapshot } from '@weldsuite/sheets-domain/room/snapshot';
 import { colorFor, newTabId } from '@weldsuite/sheets-domain/room/people';

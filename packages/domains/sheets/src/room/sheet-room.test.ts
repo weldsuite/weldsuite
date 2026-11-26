@@ -12,10 +12,12 @@ import { SheetRoom, replyCode, type Admission } from './sheet-room';
 import { connectToRoom, isConnectRequest } from './connect';
 
 let db: Database;
-vi.mock('@weldsuite/worker-kit/db', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@weldsuite/worker-kit/db')>()),
-  getTenantDbForWorkspace: async () => db,
-}));
+/** The room as a host runs it, on this test's database. */
+class TestSheetRoom extends SheetRoom {
+  protected tenantDb() {
+    return Promise.resolve(db);
+  }
+}
 
 const WORKSPACE = 'org_room_test';
 const TAB = 'sh_tab';
@@ -71,7 +73,7 @@ beforeEach(async () => {
 
 describe('SheetRoom', () => {
   it('admits each ticket once', async () => {
-    const room = new SheetRoom(state.ctx, env);
+    const room = new TestSheetRoom(state.ctx, env);
     const ticket = await room.admit(admission('alice'));
     const secret = ticket.split('.')[1]!;
     expect(ticket.split('.')[0]).toBe('a'.repeat(64));
@@ -81,7 +83,7 @@ describe('SheetRoom', () => {
   });
 
   it('orders edits between people, logs them and checkpoints when everyone leaves', async () => {
-    const room = new SheetRoom(state.ctx, env);
+    const room = new TestSheetRoom(state.ctx, env);
     const alice = await join(room, 'alice');
     const bob = await join(room, 'bob');
     await send(room, alice, { type: 'hello', revision: null });
@@ -96,7 +98,7 @@ describe('SheetRoom', () => {
     expect(state.storage.alarm).not.toBeNull();
 
     // The object is evicted while both sockets stay open; a new instance picks up.
-    const woken = new SheetRoom(state.ctx, env);
+    const woken = new TestSheetRoom(state.ctx, env);
     await send(woken, bob, { type: 'submit', batchId: 'b:1', baseRevision: 1, op: setCell(1, 8) });
     expect(ofType(bob, 'ack').at(-1)).toMatchObject({ revision: 2 });
     expect(ofType(alice, 'op').at(-1)).toMatchObject({ revision: 2, batchId: 'b:1' });
@@ -114,13 +116,13 @@ describe('SheetRoom', () => {
   });
 
   it('replays the log over the checkpoint after a restart', async () => {
-    const room = new SheetRoom(state.ctx, env);
+    const room = new TestSheetRoom(state.ctx, env);
     const alice = await join(room, 'alice');
     await send(room, alice, { type: 'hello', revision: null });
     await send(room, alice, { type: 'submit', batchId: 'a:1', baseRevision: 0, op: setCell(0, 1) });
     await send(room, alice, { type: 'submit', batchId: 'a:2', baseRevision: 1, op: setCell(0, 2) });
 
-    const restarted = new SheetRoom(fakeObjectStateFrom(state), env);
+    const restarted = new TestSheetRoom(fakeObjectStateFrom(state), env);
     const carol = await join(restarted, 'carol');
     await send(restarted, carol, { type: 'hello', revision: null });
     const welcome = ofType(carol, 'welcome')[0]!;
@@ -132,7 +134,7 @@ describe('SheetRoom', () => {
   });
 
   it('answers a close without a code with a normal close', async () => {
-    const room = new SheetRoom(state.ctx, env);
+    const room = new TestSheetRoom(state.ctx, env);
     const alice = await join(room, 'alice');
     await room.webSocketClose(alice.asSocket(), 1005, '');
     expect(alice.closed).toEqual({ code: 1000, reason: '' });
@@ -140,7 +142,7 @@ describe('SheetRoom', () => {
   });
 
   it('keeps viewers from editing', async () => {
-    const room = new SheetRoom(state.ctx, env);
+    const room = new TestSheetRoom(state.ctx, env);
     const viewer = await join(room, 'vic', false);
     await send(room, viewer, { type: 'hello', revision: null });
     expect(ofType(viewer, 'welcome')[0]!.canEdit).toBe(false);
@@ -150,7 +152,7 @@ describe('SheetRoom', () => {
   });
 
   it('refuses a garbled batch and logs nothing', async () => {
-    const room = new SheetRoom(state.ctx, env);
+    const room = new TestSheetRoom(state.ctx, env);
     const alice = await join(room, 'alice');
     await send(room, alice, { type: 'hello', revision: null });
     const garbled = { type: 'submit', batchId: 'a:1', baseRevision: 0, op: { type: 'batch', ops: [setCell(0, 5), { type: 'setNames', names: null }] } };
@@ -163,7 +165,7 @@ describe('SheetRoom', () => {
   });
 
   it('rebuilds itself when an op fails to apply', async () => {
-    const room = new SheetRoom(state.ctx, env);
+    const room = new TestSheetRoom(state.ctx, env);
     const alice = await join(room, 'alice');
     const bob = await join(room, 'bob');
     await send(room, alice, { type: 'hello', revision: null });
@@ -188,7 +190,7 @@ describe('SheetRoom', () => {
   });
 
   it('joins a batch sent in parts', async () => {
-    const room = new SheetRoom(state.ctx, env);
+    const room = new TestSheetRoom(state.ctx, env);
     const alice = await join(room, 'alice');
     await send(room, alice, { type: 'hello', revision: null });
     const cells = Array.from({ length: 200 }, (_, i) => [i, 1, { v: `value ${i}` }] as [number, number, { v: string }]);
@@ -202,7 +204,7 @@ describe('SheetRoom', () => {
   const text = (bytes: Uint8Array) => new TextDecoder('utf-8', { ignoreBOM: true, fatal: false }).decode(bytes);
 
   it('exports its live workbook, edits not checkpointed yet included', async () => {
-    const room = new SheetRoom(state.ctx, env);
+    const room = new TestSheetRoom(state.ctx, env);
     const alice = await join(room, 'alice');
     await send(room, alice, { type: 'hello', revision: null });
     await send(room, alice, { type: 'submit', batchId: 'a:1', baseRevision: 0, op: setCell(0, 7.5) });
@@ -219,7 +221,7 @@ describe('SheetRoom', () => {
   });
 
   it('exports a sheet nobody has open, from its checkpoint', async () => {
-    const room = new SheetRoom(state.ctx, env);
+    const room = new TestSheetRoom(state.ctx, env);
     const csv = await room.exportFile(meta(), { format: 'csv', tab: TAB });
     expect(text(csv!.bytes)).toBe('\uFEFF');
     expect(state.storage.data.get('meta')).toEqual(meta());

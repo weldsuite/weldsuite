@@ -46,11 +46,11 @@ import {
   type DocSessionMode,
   type DocSummary,
 } from '@weldsuite/app-api-client/schemas/docs';
+import { loadMemberProfile as memberProfile } from '@weldsuite/worker-kit/account-pictures';
 import type { Env, Variables } from '@weldsuite/docs-domain/types';
 import {
   createDoc,
   listDocs,
-  memberProfile,
   snapshotKeyFor,
   trashDoc,
   updateDoc,

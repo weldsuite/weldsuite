@@ -42,6 +42,7 @@ import {
   type DriveAccessIndex,
   type DriveRole,
 } from '@weldsuite/core-domain/drive-access';
+import { loadAccountPictures } from '@weldsuite/worker-kit/account-pictures';
 import { normalizeGenericFiles, queryArray, type UnifiedFile } from '../../services/drive-aggregation';
 import { DRIVE_MODULE_FILE, DRIVE_VIEW_ONLY, driveAccess } from '../../lib/drive-access';
 import { resolveStoredContent } from '../../lib/storage-upload';
@@ -84,7 +85,7 @@ function checkDestination(c: FilesContext, access: DriveAccessIndex, folderId: s
 function fileSharing(c: FilesContext, { row, access, role }: OpenedFile) {
   return describeSharing(
     c.get('tenantDb'),
-    c.env,
+    (userIds) => loadAccountPictures(c.env, userIds),
     access,
     { kind: 'file', id: row.id, ownerId: row.uploadedById, generalAccess: row.generalAccess, parentId: row.folderId },
     role,

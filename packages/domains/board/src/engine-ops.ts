@@ -36,7 +36,7 @@ import {
   type Op,
 } from '@weldsuite/board-engine';
 import { CachedMeasurer, MetricsMeasurer } from '@weldsuite/docs-engine';
-import { generateId } from '@weldsuite/worker-kit/id';
+import { generateId } from '@weldsuite/db/lib/id';
 import type { BoardAiInput } from '@weldsuite/app-api-client/schemas/boards';
 import { BoardAiError, boardAiAsk, boardAiPlan, checkBoardAi, type BoardAiAsk } from './services/ai-plan';
 

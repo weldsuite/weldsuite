@@ -7,6 +7,7 @@ import { schema } from '@weldsuite/worker-kit/db';
 import type { BoardSnapshot } from '@weldsuite/board-engine';
 import type { Env, Variables } from '@weldsuite/board-domain/types';
 import { FakeBucket, liveRoomNamespace } from '@weldsuite/board-domain/test-support/fakes';
+import { BoardRoom } from '../../room';
 import internalRoutes from './boards';
 
 let db: Database;
@@ -63,7 +64,7 @@ beforeEach(async () => {
   await db.delete(schema.projects);
   await db.delete(schema.workspaceMembers);
   bucket = new FakeBucket();
-  rooms = liveRoomNamespace(env);
+  rooms = liveRoomNamespace(env, BoardRoom);
   readOnly = false;
   const now = new Date();
   await db.insert(schema.projects).values({ id: 'prj_a', name: 'Apollo', status: 'active', createdAt: now, updatedAt: now });

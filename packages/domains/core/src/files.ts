@@ -6,8 +6,9 @@
  */
 
 import { and, desc, eq, inArray, isNotNull, isNull, ne, sql, type AnyColumn, type SQLWrapper } from 'drizzle-orm';
-import { schema, type Database } from '@weldsuite/worker-kit/db';
-import { generateId } from '@weldsuite/worker-kit/id';
+import * as schema from '@weldsuite/db/schema';
+import type { TenantDb as Database } from '@weldsuite/db/lib/any-db';
+import { generateId } from '@weldsuite/db/lib/id';
 
 const { files, folders, sheets, sheetVersions, docs, documentVersions, docVersions, whiteboards, boardVersions } = schema;
 

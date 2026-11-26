@@ -14,7 +14,7 @@ import sheetsRoutes from './routes/sheets';
 import agentRoutes from './routes/internal/agent';
 import { connectToRoom, isConnectRequest } from '@weldsuite/sheets-domain/room/connect';
 
-export { SheetRoom } from '@weldsuite/sheets-domain/room/sheet-room';
+export { SheetRoom } from './room';
 
 const app = createModuleApi<Env, Variables>({ service: 'sheets-api' });
 

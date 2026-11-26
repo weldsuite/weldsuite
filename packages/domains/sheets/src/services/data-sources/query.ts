@@ -16,7 +16,7 @@
 
 import { and, asc, desc, eq, gt, gte, ilike, isNotNull, isNull, lt, lte, ne, or, sql, type SQL } from 'drizzle-orm';
 import type { AnyPgColumn } from 'drizzle-orm/pg-core';
-import type { Database } from '@weldsuite/worker-kit/db';
+import type { TenantDb as Database } from '@weldsuite/db/lib/any-db';
 import {
   MAX_SHEET_DATA_ROWS,
   SHEET_DATA_OBJECTS,

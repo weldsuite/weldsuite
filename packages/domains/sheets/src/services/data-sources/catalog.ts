@@ -23,7 +23,7 @@
 
 import { eq, isNull, or, sql, type SQL } from 'drizzle-orm';
 import type { AnyPgColumn, PgTable } from 'drizzle-orm/pg-core';
-import { schema } from '@weldsuite/worker-kit/db';
+import * as schema from '@weldsuite/db/schema';
 import type { SheetDataFieldKey, SheetDataObjectKey } from '@weldsuite/app-api-client/schemas/sheet-data';
 
 /** What every listable table has: an id, a creation time and maybe a soft-delete stamp. */

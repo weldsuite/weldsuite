@@ -10,9 +10,10 @@
  */
 
 import { and, desc, eq, ilike, inArray, isNull, notExists, sql, type SQL } from 'drizzle-orm';
-import { atomically } from '@weldsuite/worker-kit/atomically';
-import { schema, type Database } from '@weldsuite/worker-kit/db';
-import { generateId } from '@weldsuite/worker-kit/id';
+import { atomically } from '@weldsuite/db/lib/atomically';
+import * as schema from '@weldsuite/db/schema';
+import type { TenantDb as Database } from '@weldsuite/db/lib/any-db';
+import { generateId } from '@weldsuite/db/lib/id';
 import * as filesService from '@weldsuite/core-domain/files';
 import { WELDBOARD_MIME_TYPE, type BoardTemplateCategory } from '@weldsuite/app-api-client/schemas/boards';
 import type { DriveFileRef } from '@weldsuite/core-domain/drive-access';
@@ -466,9 +467,6 @@ export async function recordCheckpoint(
   await db.update(files).set({ fileSize: params.size }).where(eq(files.id, row.fileId));
   return getLiveBoard(db, boardId);
 }
-
-/** Display name and account picture of a workspace member, for the room's peer list. */
-export { loadMemberProfile as memberProfile } from '@weldsuite/worker-kit/account-pictures';
 
 /** Whether a project exists and is not deleted. */
 export async function projectExists(db: Database, projectId: string): Promise<boolean> {

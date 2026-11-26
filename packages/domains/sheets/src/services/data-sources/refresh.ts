@@ -10,7 +10,8 @@
  */
 
 import { and, eq, isNull } from 'drizzle-orm';
-import { schema, type Database } from '@weldsuite/worker-kit/db';
+import * as schema from '@weldsuite/db/schema';
+import type { TenantDb as Database } from '@weldsuite/db/lib/any-db';
 import { hasPermission } from '@weldsuite/permissions';
 import { createDrizzlePermissionQueries, resolveEffectivePermissions } from '@weldsuite/permissions/server';
 import { canEdit, fileRole, loadDriveAccessForUser, type DriveFileRef } from '@weldsuite/core-domain/drive-access';

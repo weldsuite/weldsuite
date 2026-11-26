@@ -16,7 +16,8 @@
  */
 
 import { and, desc, eq } from 'drizzle-orm';
-import { schema, type Database } from '@weldsuite/worker-kit/db';
+import * as schema from '@weldsuite/db/schema';
+import type { TenantDb as Database } from '@weldsuite/db/lib/any-db';
 import { formDefinitionSchema, type FormDefinition } from '@weldsuite/forms-engine/definition';
 import {
   formColumns,

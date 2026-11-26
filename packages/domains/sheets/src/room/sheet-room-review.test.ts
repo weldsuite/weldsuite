@@ -18,10 +18,12 @@ import { readSnapshot, writeSnapshot } from './snapshot';
 import { SheetRoom, type Admission } from './sheet-room';
 
 let db: Database;
-vi.mock('@weldsuite/worker-kit/db', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@weldsuite/worker-kit/db')>()),
-  getTenantDbForWorkspace: async () => db,
-}));
+/** The room as a host runs it, on this test's database. */
+class TestSheetRoom extends SheetRoom {
+  protected tenantDb() {
+    return Promise.resolve(db);
+  }
+}
 const refreshes = vi.hoisted(() => ({ rows: [['Acme', 10]] as (string | number)[][], error: null as string | null }));
 vi.mock('../services/data-sources/refresh', () => ({
   buildRefresh: async (_db: unknown, source: { id: string }) =>
@@ -85,7 +87,7 @@ beforeEach(async () => {
 
 describe('commenters', () => {
   it('lets a commenter add their own comments and nothing else', async () => {
-    const room = new SheetRoom(state.ctx, env);
+    const room = new TestSheetRoom(state.ctx, env);
     const carol = await join(room, 'carol', 'comment');
     expect(ofType(carol, 'welcome')[0]!.canEdit).toBe(false);
     await send(room, carol, { type: 'submit', batchId: 'c:1', baseRevision: 0, op: comments([comment({ authorId: 'carol' })]) });
@@ -98,7 +100,7 @@ describe('commenters', () => {
 
 describe('versions', () => {
   it('saves the live workbook, and restores a version for everyone with an automatic version first', async () => {
-    const room = new SheetRoom(state.ctx, env);
+    const room = new TestSheetRoom(state.ctx, env);
     const alice = await join(room, 'alice');
     const bob = await join(room, 'bob');
     await send(room, alice, { type: 'submit', batchId: 'a:1', baseRevision: 0, op: { type: 'setCells', sheetId: TAB, cells: [[0, 0, { v: 1 }]] } });
@@ -124,7 +126,7 @@ describe('versions', () => {
     await send(room, alice, { type: 'submit', batchId: 'a:3', baseRevision: 3, op: { type: 'setCells', sheetId: TAB, cells: [[1, 0, { v: 5 }]] } });
     expect(ofType(alice, 'ack').at(-1)).toEqual({ type: 'ack', batchId: 'a:3', revision: 4 });
     // A restart replays nothing from before the restore.
-    const restarted = new SheetRoom(fakeObjectStateFrom(state), env);
+    const restarted = new TestSheetRoom(fakeObjectStateFrom(state), env);
     expect((await restarted.readRange(meta(), { range: 'A1:A2' }))).toMatchObject({ ok: true, values: [[1], [5]] });
     expect(await room.restoreVersion({ sheet: meta(), versionId: 'x', versionKey: 'missing', autoVersionId: 'y', userId: 'bob' })).toEqual({ ok: false, reason: 'missing_version' });
   });
@@ -132,7 +134,7 @@ describe('versions', () => {
 
 describe('server writes', () => {
   it('reads and writes ranges for agent tools, as an edit everyone sees', async () => {
-    const room = new SheetRoom(state.ctx, env);
+    const room = new TestSheetRoom(state.ctx, env);
     const alice = await join(room, 'alice');
     const written = await room.writeRange(meta(), { range: 'B2', values: [[1, 2], ['=B2+C2', null]], userId: 'agent-user' });
     expect(written).toEqual({ ok: true, revision: 1, range: { r1: 1, c1: 1, r2: 2, c2: 2 }, tabId: TAB });
@@ -145,7 +147,7 @@ describe('server writes', () => {
   });
 
   it('writes a connected table where it goes, and lets go of its block', async () => {
-    const room = new SheetRoom(state.ctx, env);
+    const room = new TestSheetRoom(state.ctx, env);
     expect(await room.writeDataTable(meta(), { id: 'ds1', at: { sheetId: TAB, row: 2, col: 0 }, header: ['Name'], rows: [['Acme'], ['Bolt']] }, 'alice')).toEqual({ ok: true, revision: 1 });
     expect(await room.readRange(meta(), { range: 'A3:A5' })).toMatchObject({ values: [['Name'], ['Acme'], ['Bolt']] });
     expect(await room.writeDataTable(meta(), { id: 'ds2', header: ['x'], rows: [] }, 'alice')).toEqual({ ok: false, error: 'The table has no place in the workbook' });
@@ -156,7 +158,7 @@ describe('server writes', () => {
   });
 
   it('refreshes due connected tables on its alarm, and sets the next one', async () => {
-    const room = new SheetRoom(state.ctx, env);
+    const room = new TestSheetRoom(state.ctx, env);
     await room.writeDataTable(meta(), { id: 'ds1', at: { sheetId: TAB, row: 0, col: 0 }, header: ['Name', 'Amount'], rows: [['Old', 1]] }, 'alice');
     const due = new Date(Date.now() - 1000);
     await db.insert(sheetDataSources).values({

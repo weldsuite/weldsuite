@@ -5270,6 +5270,9 @@ importers:
       '@types/node':
         specifier: ^20
         version: 20.19.43
+      '@vitest/coverage-v8':
+        specifier: ^4.1.12
+        version: 4.1.12(vitest@4.1.12)
       typescript:
         specifier: ^5.7
         version: 5.9.2
@@ -5943,6 +5946,9 @@ importers:
       '@types/node':
         specifier: ^20
         version: 20.19.43
+      '@vitest/coverage-v8':
+        specifier: ^4.1.12
+        version: 4.1.12(vitest@4.1.12)
       typescript:
         specifier: ^5.7
         version: 5.9.2
@@ -7537,6 +7543,9 @@ importers:
       '@types/node':
         specifier: ^20
         version: 20.19.43
+      '@vitest/coverage-v8':
+        specifier: ^4.1.12
+        version: 4.1.12(vitest@4.1.12)
       typescript:
         specifier: ^5.7
         version: 5.9.2
@@ -8291,6 +8300,9 @@ importers:
       '@types/ws':
         specifier: ^8.0.0
         version: 8.18.1
+      '@vitest/coverage-v8':
+        specifier: ^4.1.12
+        version: 4.1.12(vitest@4.1.12)
       '@weldsuite/eslint-config':
         specifier: workspace:*
         version: link:../../config/eslint-config
@@ -9710,6 +9722,9 @@ importers:
       '@types/node':
         specifier: ^20
         version: 20.19.43
+      '@vitest/coverage-v8':
+        specifier: ^4.1.12
+        version: 4.1.12(vitest@4.1.12)
       '@weldsuite/typescript-config':
         specifier: workspace:*
         version: link:../../config/typescript-config
