@@ -108,27 +108,41 @@ function argumentsOf(value) {
   return names;
 }
 
+/** Code-unit order, the same as `sort()` without a compare function, spelled out. */
+function compareText(a, b) {
+  if (a < b) return -1;
+  return a > b ? 1 : 0;
+}
+
+function sortedKeys(map) {
+  return [...map.keys()].sort(compareText);
+}
+
+/** What's wrong with one locale's table against the source locale's. */
+function localeProblems(source, locale, base, table) {
+  const problems = [];
+  for (const key of base.keys()) if (!table.has(key)) problems.push(`${source}/${locale}.json lacks ${key}`);
+  for (const key of table.keys()) if (!base.has(key)) problems.push(`${source}/${locale}.json has ${key}, which en.json lacks`);
+  for (const [key, value] of base) {
+    const other = table.get(key);
+    if (other === undefined) continue;
+    if (isPlural(value) !== isPlural(other)) problems.push(`${source}: ${key} is a plural in one locale only`);
+    const a = argumentsOf(value).sort(compareText).join(',');
+    const b = argumentsOf(other).sort(compareText).join(',');
+    if (a !== b) problems.push(`${source}: ${key} has placeholders {${a}} in en, {${b}} in ${locale}`);
+  }
+  return problems;
+}
+
 function loadSource(source) {
   const tables = new Map();
   for (const locale of LOCALES) {
     tables.set(locale, flatten(readJson(join(SHARED, 'strings', source, `${locale}.json`))));
   }
   const base = tables.get(SOURCE_LOCALE);
-  const problems = [];
-  for (const locale of LOCALES) {
-    if (locale === SOURCE_LOCALE) continue;
-    const table = tables.get(locale);
-    for (const key of base.keys()) if (!table.has(key)) problems.push(`${source}/${locale}.json lacks ${key}`);
-    for (const key of table.keys()) if (!base.has(key)) problems.push(`${source}/${locale}.json has ${key}, which en.json lacks`);
-    for (const [key, value] of base) {
-      const other = table.get(key);
-      if (other === undefined) continue;
-      if (isPlural(value) !== isPlural(other)) problems.push(`${source}: ${key} is a plural in one locale only`);
-      const a = argumentsOf(value).sort().join(',');
-      const b = argumentsOf(other).sort().join(',');
-      if (a !== b) problems.push(`${source}: ${key} has placeholders {${a}} in en, {${b}} in ${locale}`);
-    }
-  }
+  const problems = LOCALES.filter((locale) => locale !== SOURCE_LOCALE).flatMap((locale) =>
+    localeProblems(source, locale, base, tables.get(locale)),
+  );
   for (const [key, value] of base) {
     if (isPlural(value) && argumentsOf(value).some((name) => name !== 'count')) {
       problems.push(`${source}: plural ${key} may only use {count}`);
@@ -148,7 +162,7 @@ function orderFor(base, key) {
 /** A string with arguments goes through `String(format:)`, so its own `%` is doubled. */
 function iosFormat(text, order, plural) {
   const formatted = plural || order.length > 0;
-  return (formatted ? text.replace(/%/g, '%%') : text).replace(/\{([A-Za-z][A-Za-z0-9]*)\}/g, (_, name) => {
+  return (formatted ? text.replaceAll('%', '%%') : text).replace(/\{([A-Za-z][A-Za-z0-9]*)\}/g, (_, name) => {
     const spec = INTEGER_PLACEHOLDERS.has(name) ? 'lld' : '@';
     if (plural || order.length === 1) return `%${spec}`;
     return `%${order.indexOf(name) + 1}$${spec}`;
@@ -157,7 +171,7 @@ function iosFormat(text, order, plural) {
 
 function xcstrings({ base, tables }) {
   const strings = {};
-  for (const key of [...base.keys()].sort()) {
+  for (const key of sortedKeys(base)) {
     const order = orderFor(base, key);
     const localizations = {};
     for (const locale of LOCALES) {
@@ -190,12 +204,12 @@ function swiftAccessor({ base }, ios) {
     '',
     `${ios.access}enum ${ios.enumName} {`,
   ];
-  for (const key of [...base.keys()].sort()) {
+  for (const key of sortedKeys(base)) {
     const value = base.get(key);
     const name = swiftIdentifier(key);
     const order = orderFor(base, key);
     const doc = typeof value === 'string' ? value : value.other;
-    lines.push(`    /// ${doc.replace(/\n/g, ' ')}`);
+    lines.push(`    /// ${doc.replaceAll('\n', ' ')}`);
     if (isPlural(value)) {
       lines.push(`    ${ios.access}static func ${name}(_ count: Int) -> String { tr("${key}", count) }`);
     } else if (order.length === 0) {
@@ -229,19 +243,19 @@ function androidName(prefix, key) {
 
 function androidEscape(text) {
   return text
-    .replace(/\\/g, '\\\\')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/'/g, "\\'")
-    .replace(/"/g, '\\"')
-    .replace(/\n/g, '\\n')
-    .replace(/^([@?])/, '\\$1');
+    .replaceAll('\\', String.raw`\\`)
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll("'", String.raw`\'`)
+    .replaceAll('"', String.raw`\"`)
+    .replaceAll('\n', String.raw`\n`)
+    .replace(/^([@?])/, String.raw`\$1`);
 }
 
 function androidFormat(text, order) {
   const formatted = order.length > 0;
-  const escaped = androidEscape(formatted ? text.replace(/%/g, '%%') : text);
+  const escaped = androidEscape(formatted ? text.replaceAll('%', '%%') : text);
   return escaped.replace(/\{([A-Za-z][A-Za-z0-9]*)\}/g, (_, name) => {
     const spec = INTEGER_PLACEHOLDERS.has(name) ? 'd' : 's';
     return `%${order.indexOf(name) + 1}$${spec}`;
@@ -250,7 +264,7 @@ function androidFormat(text, order) {
 
 function stringsXml({ base, tables }, locale, prefix) {
   const lines = ['<?xml version="1.0" encoding="utf-8"?>', `<!-- ${BANNER} -->`, '<resources>'];
-  for (const key of [...base.keys()].sort()) {
+  for (const key of sortedKeys(base)) {
     const order = orderFor(base, key);
     const value = tables.get(locale).get(key);
     const name = androidName(prefix, key);
@@ -353,7 +367,7 @@ function outputs() {
 }
 
 function normalise(text) {
-  return text.replace(/\r\n/g, '\n');
+  return text.replaceAll('\r\n', '\n');
 }
 
 function main() {

@@ -627,6 +627,11 @@ jobs:
     if: ${{ !cancelled() && needs.changes.outputs.native != 'false' }}
     runs-on: macos-26
     timeout-minutes: 45
+    # pipefail: xcodebuild's output goes through xcbeautify, which would
+    # otherwise hide xcodebuild's exit code.
+    defaults:
+      run:
+        shell: bash -eo pipefail {0}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
