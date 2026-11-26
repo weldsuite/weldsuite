@@ -1,5 +1,6 @@
+// @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { faviconUrl, iconShape, type Pixel } from './favicon';
+import { faviconUrl, iconShape, imageShape, type Pixel } from './favicon';
 
 describe('faviconUrl', () => {
   beforeEach(() => {
@@ -67,5 +68,37 @@ describe('iconShape', () => {
     expect(iconShape(glyph)).toBe('glyph');
     expect(iconShape(whiteDiscWithMark)).toBe('glyph');
     expect(iconShape(() => CLEAR)).toBe('glyph');
+  });
+});
+
+describe('imageShape', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  /** A 2D context whose pixels are all `pixel`, as an icon the canvas could read. */
+  function contextOf(pixel: Pixel, drawImage: () => void = () => undefined) {
+    const data = new Uint8ClampedArray(32 * 32 * 4);
+    for (let i = 0; i < data.length; i += 4) data.set(pixel, i);
+    return { drawImage, getImageData: () => ({ data }) } as unknown as CanvasRenderingContext2D;
+  }
+
+  it('reads the loaded icon through a canvas', () => {
+    const getContext = vi
+      .spyOn(HTMLCanvasElement.prototype, 'getContext')
+      .mockReturnValue(contextOf([10, 102, 194, 255]));
+    expect(imageShape(new Image())).toBe('square');
+    expect(getContext).toHaveBeenCalledWith('2d', { willReadFrequently: true });
+  });
+
+  it('keeps an icon it cannot read in its tile', () => {
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+    expect(imageShape(new Image())).toBe('glyph');
+
+    // Another origin without CORS taints the canvas, and reading it throws.
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(
+      contextOf([0, 0, 0, 255], () => {
+        throw new DOMException('tainted', 'SecurityError');
+      }),
+    );
+    expect(imageShape(new Image())).toBe('glyph');
   });
 });
