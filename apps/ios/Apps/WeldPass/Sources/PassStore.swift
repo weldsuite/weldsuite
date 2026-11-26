@@ -184,8 +184,9 @@ final class PassStore {
                 PassItem(
                     id: item.id,
                     vaultID: item.vaultId,
+                    // swift-openapi-generator escapes `type` as `_type`.
                     kind: { () -> PassItem.Kind in
-                        switch item.type {
+                        switch item._type {
                         case .login: return .login
                         case .note: return .note
                         case .card: return .card
