@@ -19,6 +19,7 @@ use http::HeaderMap;
 use sea_orm::sea_query::{Expr, Query};
 use sea_orm::{ColumnTrait, ConnectionTrait, DbErr, EntityTrait, QueryFilter, QueryOrder};
 use serde_json::Value;
+use weldsuite_auth::{StepUp, StepUpGuard};
 use weldsuite_db::{orm, utc_now};
 use weldsuite_kit::{ApiError, Data, NoContent, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
@@ -142,6 +143,7 @@ async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
 async fn create(
     State(state): State<CorePlatformState>,
     caller: Caller,
+    step_up: StepUpGuard,
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
@@ -149,6 +151,7 @@ async fn create(
         async {
             let data = validate(&headers, &body, read_create)?;
             let org = org_of(&caller)?;
+            step_up.require(StepUp::Recent)?;
             let minted = generate_api_key()
                 .ok_or_else(|| PlatformError::internal(CREATE_FAILED, "no random"))?;
             let id = generate_id("wak");
@@ -165,6 +168,7 @@ async fn create(
 /// `PUT /:id`: rename or re-scope (PUT, as the settings UI calls it).
 async fn update(
     caller: Caller,
+    step_up: StepUpGuard,
     Path(id): Path<String>,
     headers: HeaderMap,
     body: Bytes,
@@ -177,6 +181,7 @@ async fn update(
             if live_key(&caller, &id).await.map_err(failed)?.is_none() {
                 return Err(ApiError::not_found(RESOURCE, Some(&id)).into());
             }
+            step_up.require(StepUp::Recent)?;
             let db = orm(&caller.db);
             let mut update = workspace_api_keys::Entity::update_many().col_expr(
                 workspace_api_keys::Column::UpdatedAt,
@@ -218,6 +223,7 @@ async fn update(
 async fn revoke(
     State(state): State<CorePlatformState>,
     caller: Caller,
+    step_up: StepUpGuard,
     Path(id): Path<String>,
 ) -> Response {
     answer(
@@ -227,6 +233,7 @@ async fn revoke(
             if live_key(&caller, &id).await.map_err(failed)?.is_none() {
                 return Err(ApiError::not_found(RESOURCE, Some(&id)).into());
             }
+            step_up.require(StepUp::Recent)?;
             let at = utc_now().assume_utc();
             workspace_api_keys::Entity::update_many()
                 .col_expr(workspace_api_keys::Column::DeletedAt, Expr::value(at))

@@ -55,6 +55,7 @@ use sea_orm::{
     QuerySelect,
 };
 use serde_json::{Value, json};
+use weldsuite_auth::{StepUp, StepUpGuard};
 use weldsuite_catalogs::entity_events::WORKSPACE_SETTINGS_UPDATED;
 use weldsuite_db::{PgPool, is_unique_violation, orm, utc_now};
 use weldsuite_kit::validation::{Format, Issues, Presence, Text, js_trim};
@@ -64,6 +65,16 @@ use weldsuite_ports::BoxFuture;
 use weldsuite_schema::master::{plans, workspace_sso, workspaces};
 
 use crate::{Caller, CorePlatformState, PlatformError, PlatformResult, answer, validate};
+
+/// SSO decides who signs in to the workspace and how: every change to a
+/// domain or the connection asks for a fresh confirmation first (ADR
+/// SEC-022). `Some` is the refusal to answer with.
+fn confirm(step_up: StepUpGuard) -> Option<Response> {
+    step_up
+        .require(StepUp::Recent)
+        .err()
+        .map(IntoResponse::into_response)
+}
 
 pub(crate) fn router<Q>(gate: &Arc<PermissionGate<Q>>) -> Router<CorePlatformState>
 where
@@ -815,9 +826,13 @@ async fn changed(
 async fn claim_domain(
     State(state): State<CorePlatformState>,
     caller: Caller,
+    step_up: StepUpGuard,
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
+    if let Some(refused) = confirm(step_up) {
+        return refused;
+    }
     if let Some(directory) = state.sso.clone() {
         return answer(
             async {
@@ -955,8 +970,15 @@ async fn set_domain(master: &PgPool, ctx: Context, input: &str, actor: &str) -> 
 }
 
 /// `DELETE /domain`.
-async fn remove_domain(State(state): State<CorePlatformState>, caller: Caller) -> Response {
+async fn remove_domain(
+    State(state): State<CorePlatformState>,
+    caller: Caller,
+    step_up: StepUpGuard,
+) -> Response {
     use workspace_sso::Column as S;
+    if let Some(refused) = confirm(step_up) {
+        return refused;
+    }
     if let Some(directory) = state.sso.clone() {
         return answer(weldid::remove_domain(&state, &caller, &*directory, None).await);
     }
@@ -1137,9 +1159,13 @@ fn read_connection_input(issues: &mut Issues, fields: &serde_json::Map<String, V
 async fn save_connection(
     State(state): State<CorePlatformState>,
     caller: Caller,
+    step_up: StepUpGuard,
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
+    if let Some(refused) = confirm(step_up) {
+        return refused;
+    }
     if let Some(directory) = state.sso.clone() {
         return answer(
             weldid::save_connection(&state, &caller, &*directory, &headers, &body).await,
@@ -1168,7 +1194,14 @@ async fn save_connection(
 }
 
 /// `DELETE /connection` (`removeSsoConnection`): deleting it is Clerk's.
-async fn remove_connection(State(state): State<CorePlatformState>, caller: Caller) -> Response {
+async fn remove_connection(
+    State(state): State<CorePlatformState>,
+    caller: Caller,
+    step_up: StepUpGuard,
+) -> Response {
+    if let Some(refused) = confirm(step_up) {
+        return refused;
+    }
     if let Some(directory) = state.sso.clone() {
         return answer(weldid::remove_connection(&state, &caller, &*directory).await);
     }
@@ -1186,7 +1219,14 @@ async fn remove_connection(State(state): State<CorePlatformState>, caller: Calle
 }
 
 /// `POST /connection/activate`.
-async fn activate(State(state): State<CorePlatformState>, caller: Caller) -> Response {
+async fn activate(
+    State(state): State<CorePlatformState>,
+    caller: Caller,
+    step_up: StepUpGuard,
+) -> Response {
+    if let Some(refused) = confirm(step_up) {
+        return refused;
+    }
     if let Some(directory) = state.sso.clone() {
         return answer(weldid::set_enabled(&state, &caller, &*directory, true).await);
     }
@@ -1194,7 +1234,14 @@ async fn activate(State(state): State<CorePlatformState>, caller: Caller) -> Res
 }
 
 /// `POST /connection/deactivate`.
-async fn deactivate(State(state): State<CorePlatformState>, caller: Caller) -> Response {
+async fn deactivate(
+    State(state): State<CorePlatformState>,
+    caller: Caller,
+    step_up: StepUpGuard,
+) -> Response {
+    if let Some(refused) = confirm(step_up) {
+        return refused;
+    }
     if let Some(directory) = state.sso.clone() {
         return answer(weldid::set_enabled(&state, &caller, &*directory, false).await);
     }
@@ -1207,9 +1254,13 @@ async fn deactivate(State(state): State<CorePlatformState>, caller: Caller) -> R
 async fn add_domain(
     State(state): State<CorePlatformState>,
     caller: Caller,
+    step_up: StepUpGuard,
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
+    if let Some(refused) = confirm(step_up) {
+        return refused;
+    }
     let Some(directory) = state.sso.clone() else {
         return weldid::not_offered();
     };
@@ -1226,8 +1277,12 @@ async fn add_domain(
 async fn remove_named_domain(
     State(state): State<CorePlatformState>,
     caller: Caller,
+    step_up: StepUpGuard,
     Path(domain): Path<String>,
 ) -> Response {
+    if let Some(refused) = confirm(step_up) {
+        return refused;
+    }
     let Some(directory) = state.sso.clone() else {
         return weldid::not_offered();
     };

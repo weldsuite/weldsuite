@@ -53,6 +53,15 @@
  * should land elsewhere (`/auth/login`, back on an invitation) puts that path
  * in the request's `state`, which the provider sends back; `init` then goes
  * on to it before the shell renders.
+ *
+ * **Step-up** (ADR SEC-022): before a sensitive action the API may want a
+ * fresh sign-in or second factor (`MFA_REQUIRED` / `REVERIFICATION_REQUIRED`).
+ * `stepUp` signs the same person in again with `prompt=login` and, for a
+ * second factor, `acr_values=mfa`: in a popup, so the page and
+ * its unsaved input stay; through the system browser in the desktop shell;
+ * and as a full redirect back to this page when the popup is blocked. The
+ * popup comes back to the callback route, which hands the response to this
+ * page (`completeSignIn`).
  */
 
 import { OidcClient, User, UserManager, WebStorageStateStore, type UserManagerSettings } from 'oidc-client-ts';
@@ -63,6 +72,7 @@ import { sameOriginPath } from '../same-origin-path';
 import { loadWorkspacesFromApi, type LoadWorkspaces, type WorkspaceDirectoryEntry } from './workspaces';
 import { endProviderSession } from './sign-in-api';
 import { BrowserSignInError, type BrowserSignIn } from './browser-sign-in';
+import { StepUpError, type StepUpLevel } from './step-up-error';
 import {
   activeOrganizationId,
   DEFAULT_OIDC_SCOPES as SHARED_DEFAULT_OIDC_SCOPES,
@@ -84,6 +94,10 @@ const MEMBERSHIPS_KEY = 'weldsuite:oidc:memberships';
 const DIRECTORY_KEY = 'weldsuite:oidc:workspaces';
 /** `workspaceSource: "header"` only: the locally chosen active workspace. */
 const ACTIVE_WORKSPACE_KEY = 'weldsuite:oidc:activeWorkspace';
+/** The step-up popup's window name: opened by `stepUp` itself, then reused by the UserManager. */
+const STEP_UP_WINDOW = 'weldsuite-step-up';
+const STEP_UP_WIDTH = 500;
+const STEP_UP_HEIGHT = 640;
 
 export type OidcSessionConfig = OidcAuthConfig & { clientId: string };
 
@@ -149,6 +163,10 @@ interface AuthorizationRequest {
   scope: string | undefined;
   prompt: string | undefined;
   ui_locales: string;
+  /** Step-up: `mfa` to have the second factor confirmed too. */
+  acr_values?: string;
+  /** Step-up: the signed-in person's address, so the provider asks for that account. */
+  login_hint?: string;
 }
 
 /** 128 random bits, hex: the desktop sign-in's `nonce`. */
@@ -183,6 +201,15 @@ export function defaultAccountUrl(issuer: string): string | undefined {
 
 function currentPath(): string {
   return typeof window === 'undefined' ? '/' : window.location.pathname + window.location.search;
+}
+
+/** The step-up popup, centred on this window; null when the browser blocked it. */
+function openStepUpWindow(): Window | null {
+  if (typeof window === 'undefined') return null;
+  const left = Math.max(0, window.screenX + (window.outerWidth - STEP_UP_WIDTH) / 2);
+  const top = Math.max(0, window.screenY + (window.outerHeight - STEP_UP_HEIGHT) / 2);
+  const features = `popup,width=${STEP_UP_WIDTH},height=${STEP_UP_HEIGHT},left=${Math.round(left)},top=${Math.round(top)}`;
+  return window.open('', STEP_UP_WINDOW, features);
 }
 
 export class OidcSession {
@@ -240,6 +267,8 @@ export class OidcSession {
       authority: config.issuer,
       client_id: config.clientId,
       redirect_uri: `${this.origin}${OIDC_CALLBACK_PATH}`,
+      // Step-up's popup comes back to the same registered route (`completeSignIn`).
+      popup_redirect_uri: `${this.origin}${OIDC_CALLBACK_PATH}`,
       // The desktop app signs out in the system browser, which then shows the
       // provider's own page: its client registers no post-logout URI.
       post_logout_redirect_uri: this.browserSignIn ? undefined : `${this.origin}/`,
@@ -355,13 +384,108 @@ export class OidcSession {
     return this.client;
   }
 
-  /** Finish the redirect on the callback route; resolves to the path to continue on. */
+  /**
+   * Finish the redirect on the callback route; resolves to the path to
+   * continue on. In a step-up popup the response goes to the page that
+   * opened it, which redeems it, and the popup closes itself.
+   */
   async completeSignIn(url?: string): Promise<string> {
-    const user = await this.manager.signinRedirectCallback(url);
+    const user = await this.manager.signinCallback(url);
+    if (!user) return '/';
     const state = user.state as SignInState | undefined;
     if (!state?.orgId) this.rememberMemberships(user);
     this.setUser(user, true);
     return sameOriginPath(state?.returnTo);
+  }
+
+  /**
+   * Step-up (ADR SEC-022): the signed-in person signs in again at the
+   * provider, with their second factor for `second_factor`, so the API takes
+   * a sensitive action. Call it straight from a click: the popup must open in
+   * the user's gesture. Resolves once the new tokens are stored; rejects with
+   * `StepUpError`. When the popup is blocked the page goes to the provider
+   * and comes back here instead, and this never resolves.
+   */
+  async stepUp(level: StepUpLevel): Promise<void> {
+    const previous = this.user;
+    const request = this.stepUpRequest(level);
+    const user = this.browserSignIn
+      ? await this.stepUpThroughBrowser(this.browserSignIn, request)
+      : await this.stepUpInPopup(request);
+    if (previous && user.profile.sub !== previous.profile.sub) {
+      // Someone else signed in: their session is the stored one now, so the
+      // page starts over as them rather than acting on another account.
+      if (typeof window !== 'undefined') window.location.assign('/');
+      throw new StepUpError('other_account');
+    }
+  }
+
+  /** What a step-up asks the provider for: the same person, signed in again now. */
+  private stepUpRequest(level: StepUpLevel): AuthorizationRequest {
+    const email = this.user?.profile.email;
+    // `claim` mode: the token stays on its workspace (Zitadel, which never
+    // asks for step-up; kept consistent all the same).
+    const orgId = this.workspaceSource === 'claim' ? (this.snapshot.activeOrgId ?? undefined) : undefined;
+    return {
+      state: { returnTo: currentPath(), orgId },
+      scope: this.user?.scope,
+      // A factor proven after this request. Not `max_age=0`: WeldID up to
+      // 0.1.0-alpha.5 can never meet it (the proof is always a moment old)
+      // and sends the person back to sign in again, round and round.
+      prompt: 'login',
+      acr_values: level === 'second_factor' ? 'mfa' : undefined,
+      login_hint: typeof email === 'string' ? email : undefined,
+      ui_locales: getLocale(),
+    };
+  }
+
+  /**
+   * `stepUp` in a browser: the popup is opened here, still inside the click,
+   * so a blocked one is known at once (then the page goes to the provider
+   * and back, and this never resolves); the UserManager then navigates this
+   * same window by its name.
+   */
+  private async stepUpInPopup(request: AuthorizationRequest): Promise<User> {
+    const popup = openStepUpWindow();
+    if (!popup) {
+      await this.manager.signinRedirect(request);
+      return new Promise<never>(() => undefined);
+    }
+    try {
+      return await this.manager.signinPopup({
+        ...request,
+        popupWindowTarget: STEP_UP_WINDOW,
+        popupAbortOnClose: true,
+      });
+    } catch (err) {
+      if (!popup.closed) popup.close();
+      throw new StepUpError(err instanceof Error && /closed/i.test(err.message) ? 'cancelled' : 'failed');
+    }
+  }
+
+  /** `stepUp` in the desktop shell: the system browser, then back on this page without navigating. */
+  private async stepUpThroughBrowser(browser: BrowserSignIn, request: AuthorizationRequest): Promise<User> {
+    const flow = await browser.start().catch(() => {
+      throw new StepUpError('failed');
+    });
+    this.browserFlow = flow.id;
+    try {
+      const signinRequest = await this.oidcClient().createSigninRequest({
+        ...request,
+        request_type: 'si:r',
+        redirect_uri: flow.redirectUri,
+        nonce: randomNonce(),
+      });
+      const callbackUrl = await browser.authorize(flow.id, signinRequest.url);
+      const user = await this.manager.signinRedirectCallback(callbackUrl);
+      this.setUser(user, true);
+      return user;
+    } catch (err) {
+      await browser.cancel(flow.id).catch(() => undefined);
+      throw new StepUpError(err instanceof BrowserSignInError && err.reason === 'cancelled' ? 'cancelled' : 'failed');
+    } finally {
+      if (this.browserFlow === flow.id) this.browserFlow = null;
+    }
   }
 
   async signOut(redirectUrl?: string): Promise<void> {

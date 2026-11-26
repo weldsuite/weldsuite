@@ -44,6 +44,7 @@
 import type { ReactNode } from 'react';
 import { clerkAuth } from './clerk-adapter';
 import { BrowserSignInError } from './oidc/browser-sign-in';
+import type { StepUpLevel } from './oidc/step-up-error';
 import type {
   AuthImplementation,
   AuthProviderName,
@@ -78,6 +79,7 @@ export type {
   UserState,
 } from './types';
 export { BrowserSignInError, type BrowserSignInFailure } from './oidc/browser-sign-in';
+export { StepUpError, type StepUpLevel } from './oidc/step-up-error';
 
 let active: AuthImplementation = clerkAuth;
 
@@ -174,6 +176,21 @@ export function cancelBrowserSignIn(): void {
 /** Finish a provider redirect on `/auth/sso-callback`; resolves to the path to continue on. */
 export async function completeSignIn(): Promise<string> {
   return active.completeSignIn ? active.completeSignIn() : '/';
+}
+
+/** Whether the provider can confirm the person's identity again in place (`stepUp`): OIDC. */
+export function canStepUp(): boolean {
+  return Boolean(active.stepUp);
+}
+
+/**
+ * Have the person confirm their identity again before a sensitive action
+ * (ADR SEC-022). Call it from a click; rejects with `StepUpError`, or with a
+ * plain error where the provider can't (`canStepUp()` false).
+ */
+export function stepUp(level: StepUpLevel): Promise<void> {
+  if (!active.stepUp) return Promise.reject(new Error('This sign-in provider cannot confirm identity again'));
+  return active.stepUp(level);
 }
 
 /** Where the person manages their account when the provider owns it (OIDC); undefined on Clerk. */

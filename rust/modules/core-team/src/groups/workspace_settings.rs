@@ -34,6 +34,7 @@ use sea_orm::{
     QuerySelect,
 };
 use serde_json::{Map, Value, json};
+use weldsuite_auth::{StepUp, StepUpGuard};
 use weldsuite_catalogs::entity_events::{
     LEGAL_ENTITY_CREATED, LEGAL_ENTITY_UPDATED, WORKSPACE_SETTINGS_DELETED,
     WORKSPACE_SETTINGS_UPDATED,
@@ -751,10 +752,11 @@ fn read_slug(body: &Value) -> TeamResult<String> {
 async fn change_slug(
     State(state): State<CoreTeamState>,
     caller: Caller,
+    step_up: StepUpGuard,
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    answer(run_change_slug(&state, &caller, &headers, &body).await)
+    answer(run_change_slug(&state, &caller, step_up, &headers, &body).await)
 }
 
 /// Point the help-center subdomain rows at `to` where they still say `from`.
@@ -816,6 +818,7 @@ fn slug_refusal_message(code: &str) -> &'static str {
 async fn run_change_slug(
     state: &CoreTeamState,
     caller: &Caller,
+    step_up: StepUpGuard,
     headers: &HeaderMap,
     body: &Bytes,
 ) -> TeamResult<Response> {
@@ -826,6 +829,8 @@ async fn run_change_slug(
             "Only the workspace owner can change the workspace slug.",
         )));
     }
+    // Every link to the workspace changes: a fresh confirmation (ADR SEC-022).
+    step_up.require(StepUp::Recent)?;
     let failed = |error: &dyn std::fmt::Display| {
         TeamError::internal("Failed to update workspace slug", error)
     };
@@ -960,15 +965,17 @@ async fn run_deletion_status(state: &CoreTeamState, caller: &Caller) -> TeamResu
 async fn delete_workspace(
     State(state): State<CoreTeamState>,
     caller: Caller,
+    step_up: StepUpGuard,
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    answer(run_delete(&state, &caller, &headers, &body).await)
+    answer(run_delete(&state, &caller, step_up, &headers, &body).await)
 }
 
 async fn run_delete(
     state: &CoreTeamState,
     caller: &Caller,
+    step_up: StepUpGuard,
     headers: &HeaderMap,
     body: &Bytes,
 ) -> TeamResult<Response> {
@@ -1001,6 +1008,8 @@ async fn run_delete(
             "Confirmation does not match the workspace identifier.",
         )));
     }
+    // Irreversible: a fresh confirmation (ADR SEC-022).
+    step_up.require(StepUp::Recent)?;
 
     // The Global edition cancels the Stripe subscription first; billing is
     // Global-only, so there is none to cancel here (the worker skips it too

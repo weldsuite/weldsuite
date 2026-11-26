@@ -28,6 +28,7 @@ use sea_orm::sea_query::Expr;
 use sea_orm::{ColumnTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
 use time::OffsetDateTime;
+use weldsuite_auth::{StepUp, StepUpGuard};
 use weldsuite_catalogs::permissions;
 use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_kit::validation::{Format, Issues, Presence, Text};
@@ -435,8 +436,13 @@ fn read_invite(issues: &mut Issues, fields: &Map<String, Value>) -> Option<Invit
     })
 }
 
-async fn invite(State(state): State<CoreTeamState>, caller: Caller, body: Bytes) -> Response {
-    answer(invite_member(&state, &caller, &body).await)
+async fn invite(
+    State(state): State<CoreTeamState>,
+    caller: Caller,
+    step_up: StepUpGuard,
+    body: Bytes,
+) -> Response {
+    answer(invite_member(&state, &caller, step_up, &body).await)
 }
 
 /// The role an invite writes: `None` when the requested role doesn't exist.
@@ -554,6 +560,7 @@ fn invitation_failure(error: &IdentityError) -> TeamError {
 async fn invite_member(
     state: &CoreTeamState,
     caller: &Caller,
+    step_up: StepUpGuard,
     body: &Bytes,
 ) -> TeamResult<Response> {
     let org = org_of(caller)?;
@@ -594,6 +601,8 @@ async fn invite_member(
     } else if let Some(refusal) = check_seats(state, caller, &*idp, &org).await {
         return Err(forbidden(refusal));
     }
+    // Someone new into the workspace: a fresh confirmation (ADR SEC-022).
+    step_up.require(StepUp::Recent)?;
 
     if is_guest
         && let Some(response) = add_existing_guest(caller, &*idp, &org, &body, clerk_role).await?
@@ -810,15 +819,17 @@ fn read_update(issues: &mut Issues, fields: &Map<String, Value>) -> Option<Updat
 async fn update(
     State(state): State<CoreTeamState>,
     caller: Caller,
+    step_up: StepUpGuard,
     Path(id): Path<String>,
     body: Bytes,
 ) -> Response {
-    answer(update_member(&state, &caller, &id, &body).await)
+    answer(update_member(&state, &caller, step_up, &id, &body).await)
 }
 
 async fn update_member(
     state: &CoreTeamState,
     caller: &Caller,
+    step_up: StepUpGuard,
     member_id: &str,
     body: &Bytes,
 ) -> TeamResult<Response> {
@@ -842,6 +853,15 @@ async fn update_member(
     }
 
     let role_id_set = body.role_id.as_deref().is_some_and(|id| !id.is_empty());
+    // What a member may do: a fresh confirmation (ADR SEC-022). A name or
+    // the hours per week need none.
+    if body.role.is_some()
+        || role_id_set
+        || body.permissions.is_some()
+        || body.permission_denies.is_some()
+    {
+        step_up.require(StepUp::Recent)?;
+    }
     let mut role_change: Option<(String, Option<String>)> = None;
     if body.role.is_some() || role_id_set {
         role_change =
@@ -993,12 +1013,18 @@ async fn remove_member(
 async fn resend_invite(
     State(state): State<CoreTeamState>,
     caller: Caller,
+    step_up: StepUpGuard,
     Path(id): Path<String>,
 ) -> Response {
-    answer(resend(&state, &caller, &id).await)
+    answer(resend(&state, &caller, step_up, &id).await)
 }
 
-async fn resend(state: &CoreTeamState, caller: &Caller, member_id: &str) -> TeamResult<Response> {
+async fn resend(
+    state: &CoreTeamState,
+    caller: &Caller,
+    step_up: StepUpGuard,
+    member_id: &str,
+) -> TeamResult<Response> {
     let org = org_of(caller)?;
     let Some(member) = live_member(&caller.db, member_id).await? else {
         return Err(TeamError::api(ApiError::not_found(
@@ -1017,6 +1043,7 @@ async fn resend(state: &CoreTeamState, caller: &Caller, member_id: &str) -> Team
             "Pending member has no email address.",
         )));
     }
+    step_up.require(StepUp::Recent)?;
     let idp = seats::identity(caller, state);
     let old = text(member.clerk_invitation_id.as_ref());
     if !old.is_empty() {

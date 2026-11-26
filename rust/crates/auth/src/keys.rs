@@ -132,6 +132,8 @@ impl Rules {
 pub struct SessionVerifier {
     keys: Keys,
     rules: Rules,
+    /// Sensitive actions ask for step-up ([`Self::with_step_up`]).
+    step_up: bool,
 }
 
 enum Keys {
@@ -151,6 +153,7 @@ impl std::fmt::Debug for SessionVerifier {
         f.debug_struct("SessionVerifier")
             .field("provider", &self.rules.provider())
             .field("keys", &kind)
+            .field("step_up", &self.step_up)
             .finish()
     }
 }
@@ -160,6 +163,7 @@ impl From<ClerkVerifier> for SessionVerifier {
         Self {
             keys: Keys::Fixed(verifier.keys),
             rules: Rules::Clerk(verifier.rules),
+            step_up: false,
         }
     }
 }
@@ -187,6 +191,7 @@ impl SessionVerifier {
                 bearer,
             })?)),
             rules: Rules::Clerk(ClerkRules::new(authorized_parties.as_deref())),
+            step_up: false,
         })
     }
 
@@ -218,6 +223,7 @@ impl SessionVerifier {
         Ok(Self {
             keys: Keys::Remote(Box::new(Remote::new(source)?)),
             rules: Rules::Oidc(OidcRules { settings }),
+            step_up: false,
         })
     }
 
@@ -228,6 +234,7 @@ impl SessionVerifier {
         Ok(Self {
             keys: Keys::Fixed(Arc::new(KeySet::from_jwks_signing(jwks)?)),
             rules: Rules::Oidc(OidcRules { settings }),
+            step_up: false,
         })
     }
 
@@ -255,6 +262,22 @@ impl SessionVerifier {
             remote.refetch_interval = interval;
         }
         self
+    }
+
+    /// Sensitive actions ask for step-up: the middleware puts
+    /// [`crate::StepUpEnabled`] on every request it lets through. For a
+    /// provider whose access tokens carry `auth_time` and `amr` and that
+    /// honours `max_age` and `acr_values` (WeldID). Zitadel's access tokens
+    /// carry neither, so no step-up could be met there.
+    #[must_use]
+    pub fn with_step_up(mut self, step_up: bool) -> Self {
+        self.step_up = step_up;
+        self
+    }
+
+    /// Whether sensitive actions ask for step-up ([`Self::with_step_up`]).
+    pub fn step_up(&self) -> bool {
+        self.step_up
     }
 
     /// `Clerk` or `OIDC`.

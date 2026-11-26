@@ -2,6 +2,8 @@
  * Shared API client interface — framework-agnostic.
  */
 
+import type { StepUpHandler } from './step-up.js';
+
 export interface ClientApiOptions {
   getToken: () => Promise<string | null>;
   /**
@@ -17,6 +19,13 @@ export interface ClientApiOptions {
    * send `X-Accounting-Entity-Id` when the user has switched administration.
    */
   getExtraHeaders?: () => Record<string, string> | Promise<Record<string, string>>;
+  /**
+   * Asks the user to confirm their identity when the API refuses a sensitive
+   * action with `MFA_REQUIRED` / `REVERIFICATION_REQUIRED` (`step-up.ts`).
+   * Resolving `true` sends the request once more, with a fresh token from
+   * `getToken`; without it, or on `false`, the refusal is thrown as usual.
+   */
+  onStepUp?: StepUpHandler;
 }
 
 export interface ClientApi {

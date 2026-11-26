@@ -19,6 +19,7 @@ use sea_orm::sea_query::{Expr, Func, Query};
 use sea_orm::{ColumnTrait, ConnectionTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use serde_json::{Map, Value, json};
 use time::PrimitiveDateTime;
+use weldsuite_auth::{StepUp, StepUpGuard};
 use weldsuite_catalogs::entity_events::{
     COMMERCE_PAYMENT_CONNECTION_CONNECTED, COMMERCE_PAYMENT_CONNECTION_DISCONNECTED,
     COMMERCE_PAYMENT_CONNECTION_UPDATED,
@@ -124,6 +125,7 @@ fn relative_path(path: &str) -> bool {
 async fn authorize(
     State(state): State<CommerceState>,
     caller: Caller,
+    step_up: StepUpGuard,
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
@@ -160,6 +162,9 @@ async fn authorize(
         )
         .into_response();
     };
+    if let Err(refused) = step_up.require(StepUp::SecondFactor) {
+        return refused.into_response();
+    }
     let mut claims = Map::new();
     claims.insert("workspaceId".to_owned(), json!(caller.workspace_id));
     claims.insert("userId".to_owned(), json!(caller.user_id));
@@ -183,6 +188,7 @@ fn key_invalid(message: &str) -> Response {
 async fn api_key(
     State(state): State<CommerceState>,
     caller: Caller,
+    step_up: StepUpGuard,
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
@@ -215,6 +221,9 @@ async fn api_key(
     let testmode = key.starts_with("test_");
     if !testmode && !key.starts_with("live_") {
         return key_invalid("A Mollie API key starts with live_ or test_");
+    }
+    if let Err(refused) = step_up.require(StepUp::SecondFactor) {
+        return refused.into_response();
     }
     let http = match http(&state) {
         Ok(http) => http,
@@ -492,6 +501,7 @@ async fn profiles(State(state): State<CommerceState>, caller: Caller) -> Respons
 async fn update_connection(
     State(state): State<CommerceState>,
     caller: Caller,
+    step_up: StepUpGuard,
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
@@ -515,6 +525,9 @@ async fn update_connection(
         Ok(values) => values,
         Err(refusal) => return refusal.respond(FAILED),
     };
+    if let Err(refused) = step_up.require(StepUp::SecondFactor) {
+        return refused.into_response();
+    }
     let result = async {
         let env = env(&state, &caller.db)?;
         let active = connection::active(&env).await.map_err(refuse)?;
@@ -629,8 +642,15 @@ async fn revoke_tokens(state: &CommerceState, db: &PgPool) {
     }
 }
 
-async fn disconnect(State(state): State<CommerceState>, caller: Caller) -> Response {
+async fn disconnect(
+    State(state): State<CommerceState>,
+    caller: Caller,
+    step_up: StepUpGuard,
+) -> Response {
     const FAILED: &str = "Failed to disconnect Mollie";
+    if let Err(refused) = step_up.require(StepUp::SecondFactor) {
+        return refused.into_response();
+    }
     let result = async {
         let row = connection::row(&caller.db)
             .await?

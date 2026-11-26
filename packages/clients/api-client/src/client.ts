@@ -6,6 +6,7 @@
  */
 
 import type { ClientApi, ClientApiOptions } from './types.js';
+import { sendWithStepUp } from './step-up.js';
 import { asText } from '@weldsuite/text';
 
 /**
@@ -49,6 +50,13 @@ export class ApiError extends Error {
   ) {
     super(message);
     this.name = 'ApiError';
+  }
+
+  /** The API's `error.code` (`NOT_FOUND`, `REVERIFICATION_REQUIRED`, …), when the body has one. */
+  get code(): string | null {
+    const error = this.body && typeof this.body === 'object' ? (this.body as { error?: unknown }).error : undefined;
+    const code = error && typeof error === 'object' ? (error as { code?: unknown }).code : undefined;
+    return typeof code === 'string' ? code : null;
   }
 }
 
@@ -112,7 +120,20 @@ async function handleResponse<T>(response: Response): Promise<T> {
 }
 
 export function createClientApi(options: ClientApiOptions): ClientApi {
-  const { getToken, baseUrl, apiPrefix = '/api', getExtraHeaders } = options;
+  const { getToken, baseUrl, apiPrefix = '/api', getExtraHeaders, onStepUp } = options;
+
+  /** One request, sent once more after the user confirms a step-up the API asked for. */
+  const send = (init: () => Promise<{ path: string; init: RequestInit }>) =>
+    sendWithStepUp(async () => {
+      const request = await init();
+      return safeFetch(url(request.path), request.init);
+    }, onStepUp);
+
+  const withBody = (method: string, path: string, data?: unknown) =>
+    send(async () => ({
+      path,
+      init: { method, headers: await getAuthHeaders(), body: data ? JSON.stringify(data) : undefined },
+    }));
 
   async function extraHeaders(): Promise<Record<string, string>> {
     return (await getExtraHeaders?.()) ?? {};
@@ -153,14 +174,12 @@ export function createClientApi(options: ClientApiOptions): ClientApi {
 
   return {
     async get<T>(path: string): Promise<T> {
-      const headers = await getAuthHeaders();
-      const response = await safeFetch(url(path), { method: 'GET', headers });
+      const response = await send(async () => ({ path, init: { method: 'GET', headers: await getAuthHeaders() } }));
       return handleResponse<T>(response);
     },
 
     async getRaw(path: string): Promise<Response> {
-      const headers = await getAuthHeaders();
-      const response = await safeFetch(url(path), { method: 'GET', headers });
+      const response = await send(async () => ({ path, init: { method: 'GET', headers: await getAuthHeaders() } }));
       if (!response.ok) {
         const error = await response.json().catch(() => ({ error: 'Request failed' }));
         throw new ApiError(formatErrorMessage(error, response.status), response.status, error);
@@ -169,48 +188,27 @@ export function createClientApi(options: ClientApiOptions): ClientApi {
     },
 
     async post<T>(path: string, data?: unknown): Promise<T> {
-      const headers = await getAuthHeaders();
-      const response = await safeFetch(url(path), {
-        method: 'POST',
-        headers,
-        body: data ? JSON.stringify(data) : undefined,
-      });
-      return handleResponse<T>(response);
+      return handleResponse<T>(await withBody('POST', path, data));
     },
 
     async put<T>(path: string, data?: unknown): Promise<T> {
-      const headers = await getAuthHeaders();
-      const response = await safeFetch(url(path), {
-        method: 'PUT',
-        headers,
-        body: data ? JSON.stringify(data) : undefined,
-      });
-      return handleResponse<T>(response);
+      return handleResponse<T>(await withBody('PUT', path, data));
     },
 
     async patch<T>(path: string, data?: unknown): Promise<T> {
-      const headers = await getAuthHeaders();
-      const response = await safeFetch(url(path), {
-        method: 'PATCH',
-        headers,
-        body: data ? JSON.stringify(data) : undefined,
-      });
-      return handleResponse<T>(response);
+      return handleResponse<T>(await withBody('PATCH', path, data));
     },
 
     async delete<T>(path: string): Promise<T> {
-      const headers = await getAuthHeaders();
-      const response = await safeFetch(url(path), { method: 'DELETE', headers });
+      const response = await send(async () => ({ path, init: { method: 'DELETE', headers: await getAuthHeaders() } }));
       return handleResponse<T>(response);
     },
 
     async postForm<T>(path: string, form: FormData): Promise<T> {
-      const headers = await getAuthHeadersNoContentType();
-      const response = await safeFetch(url(path), {
-        method: 'POST',
-        headers,
-        body: form,
-      });
+      const response = await send(async () => ({
+        path,
+        init: { method: 'POST', headers: await getAuthHeadersNoContentType(), body: form },
+      }));
       return handleResponse<T>(response);
     },
   };

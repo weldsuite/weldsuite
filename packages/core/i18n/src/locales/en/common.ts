@@ -808,6 +808,19 @@ export const common = {
         emailTaken: 'An account with this email address already exists. Sign in instead.',
         signUpDisabled: 'Sign-up is not open. Ask your administrator for an invitation.',
       },
+      stepUp: {
+        title: "Confirm it's you",
+        secondFactorDescription:
+          'To continue, confirm your identity with your authenticator app, passkey or recovery code. A sign-in window opens.',
+        firstFactorDescription: 'To continue, sign in again. A sign-in window opens.',
+        confirm: 'Continue',
+        mfaTitle: 'Set up two-step verification',
+        mfaDescription:
+          'This action needs two-step verification. Set up an authenticator app or a passkey to continue. A sign-in window opens.',
+        mfaConfirm: 'Set up',
+        cancelled: 'The sign-in window was closed before you confirmed. Try again.',
+        failed: "We couldn't confirm your identity. Try again.",
+      },
       error: {
         alertTitle: 'Error',
         tryAgain: 'Try again',

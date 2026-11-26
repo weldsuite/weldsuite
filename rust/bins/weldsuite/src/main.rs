@@ -370,7 +370,8 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
 /// The session verifier for the configured provider, and what `/config.json`
 /// tells the frontends about sign-in (nothing for Clerk, whose frontends
 /// carry their own key). `weldid`: WeldID is the identity provider
-/// (`IDENTITY_PROVIDER=weldid`), whose account pages `/config.json` names.
+/// (`IDENTITY_PROVIDER=weldid`), whose account pages `/config.json` names
+/// and whose tokens let sensitive actions ask for step-up.
 fn session_verifier(
     auth: &AuthConfig,
     weldid: bool,
@@ -408,8 +409,10 @@ fn session_verifier(
                 platform_sign_in: *platform_sign_in,
                 weldid,
             });
+            // Step-up for sensitive actions (ADR SEC-022): WeldID's access
+            // tokens carry `auth_time` and `amr`, Zitadel's don't.
             Ok((
-                SessionVerifier::oidc(settings.clone())?,
+                SessionVerifier::oidc(settings.clone())?.with_step_up(weldid),
                 Some(Arc::new(public)),
             ))
         }

@@ -808,6 +808,19 @@ export const common = {
         emailTaken: 'Er bestaat al een account met dit e-mailadres. Log in met dat account.',
         signUpDisabled: 'Registreren is niet mogelijk. Vraag je beheerder om een uitnodiging.',
       },
+      stepUp: {
+        title: 'Bevestig dat jij het bent',
+        secondFactorDescription:
+          'Bevestig je identiteit met je authenticator-app, passkey of herstelcode om door te gaan. Er opent een inlogvenster.',
+        firstFactorDescription: 'Log opnieuw in om door te gaan. Er opent een inlogvenster.',
+        confirm: 'Doorgaan',
+        mfaTitle: 'Stel tweestapsverificatie in',
+        mfaDescription:
+          'Voor deze actie is tweestapsverificatie nodig. Stel een authenticator-app of passkey in om door te gaan. Er opent een inlogvenster.',
+        mfaConfirm: 'Instellen',
+        cancelled: 'Het inlogvenster is gesloten voordat je bevestigde. Probeer het opnieuw.',
+        failed: 'We konden je identiteit niet bevestigen. Probeer het opnieuw.',
+      },
       error: {
         alertTitle: 'Fout',
         tryAgain: 'Opnieuw proberen',

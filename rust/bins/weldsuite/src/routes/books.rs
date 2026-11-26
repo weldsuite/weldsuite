@@ -358,7 +358,8 @@ pub(crate) fn books_state(state: &AppState) -> BooksState {
         env: books_env(),
         rates: rate_cache(),
         trusted_proxies: state.trusted_proxies,
-        // Clerk sign-in only: `public_auth` is set exactly with OIDC.
+        // Clerk sign-in: `public_auth` is set exactly with OIDC, where the
+        // session layer's step-up switch decides (WeldID).
         second_factor_step_up: state.public_auth.is_none(),
         // Conformance answers the worker without its certificate binding.
         digipoort: (!conformance).then(digipoort).flatten(),
