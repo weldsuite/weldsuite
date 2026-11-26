@@ -1028,7 +1028,8 @@ async fn delete(
 
 // ── OAuth and the other connect flows (`oauth.ts`) ─────────────────────────
 
-/// `redirectUri(env)`.
+/// `redirectUri(env)`, on the edition's return page
+/// (`weldsuite_connect_domain::oauth_callback`, ADR INT-014).
 fn redirect_uri(caller: &Caller, state: &IntegrationsState) -> String {
     let base = caller
         .overrides
@@ -1036,8 +1037,9 @@ fn redirect_uri(caller: &Caller, state: &IntegrationsState) -> String {
         .filter(|v| !v.is_empty())
         .unwrap_or_else(|| "https://app.weldsuite.org".to_owned());
     format!(
-        "{}/weldconnect/integrations/callback",
-        base.strip_suffix('/').unwrap_or(&base)
+        "{}{}",
+        base.strip_suffix('/').unwrap_or(&base),
+        weldsuite_connect_domain::oauth_callback::workflow_callback_path(state.connector_edition)
     )
 }
 
