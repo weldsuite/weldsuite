@@ -9496,6 +9496,9 @@ importers:
       '@types/node':
         specifier: ^20
         version: 20.19.43
+      '@vitest/coverage-v8':
+        specifier: ^4.1.12
+        version: 4.1.12(vitest@4.1.12)
       '@weldsuite/typescript-config':
         specifier: workspace:*
         version: link:../../config/typescript-config
@@ -9821,6 +9824,9 @@ importers:
       '@types/node':
         specifier: ^20
         version: 20.19.43
+      '@vitest/coverage-v8':
+        specifier: ^4.1.12
+        version: 4.1.12(vitest@4.1.12)
       '@weldsuite/typescript-config':
         specifier: workspace:*
         version: link:../../config/typescript-config
@@ -9867,6 +9873,9 @@ importers:
       '@types/node':
         specifier: ^20
         version: 20.19.43
+      '@vitest/coverage-v8':
+        specifier: ^4.1.12
+        version: 4.1.12(vitest@4.1.12)
       '@weldsuite/typescript-config':
         specifier: workspace:*
         version: link:../../config/typescript-config
@@ -10304,6 +10313,9 @@ importers:
       '@types/node':
         specifier: ^20
         version: 20.19.43
+      '@vitest/coverage-v8':
+        specifier: ^4.1.12
+        version: 4.1.12(vitest@4.1.12)
       '@weldsuite/typescript-config':
         specifier: workspace:*
         version: link:../../config/typescript-config

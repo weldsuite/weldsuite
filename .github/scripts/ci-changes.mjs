@@ -140,6 +140,15 @@ const MIGRATIONS_DIR = 'rust/migrations/';
 const MIGRATIONS_PACKAGE = 'packages/core/db';
 
 /**
+ * WeldFlow's schedule and gate parity fixtures. They live in the Rust crate
+ * that `include_str!`s them, and @weldsuite/flow-domain's schedule and gate
+ * tests read them from there. A changed fixture counts as a change to that
+ * package, so the TypeScript side runs too.
+ */
+const FLOW_FIXTURES_DIR = 'rust/crates/flow-domain/fixtures/';
+const FLOW_FIXTURES_PACKAGE = 'packages/domains/flow';
+
+/**
  * Under rust/, but read by no Rust build or test (no `include_str!`, no test
  * reads them): the deploy configuration (the "deploy" area, and the image
  * area for the chart), the image's Dockerfile and helpers (the image area),
@@ -368,6 +377,7 @@ function decideAreas(files) {
     else if (isInert(file)) continue;
     if (file.startsWith('apps/workers/')) on('workers', file);
     if (file.startsWith(MIGRATIONS_DIR) && packages.has(MIGRATIONS_PACKAGE)) changed.add(MIGRATIONS_PACKAGE);
+    if (file.startsWith(FLOW_FIXTURES_DIR) && packages.has(FLOW_FIXTURES_PACKAGE)) changed.add(FLOW_FIXTURES_PACKAGE);
     const dir = packageOf(file, dirs);
     if (dir) changed.add(dir);
     else if (!rust) return allAreas(`${file} is outside every package and not known to be inert`);
