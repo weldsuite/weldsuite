@@ -1700,11 +1700,11 @@ export function TaskDialog({
                 onDragLeave={handleDescriptionDragLeave}
                 onDrop={handleDescriptionDrop}
               >
-                <div
+                <div // NOSONAR: S6819, a rich-text field (images, links) that a <textarea> cannot be
                   ref={descriptionRef}
                   contentEditable
                   suppressContentEditableWarning
-                  role="textbox" // NOSONAR: S6819, a rich-text field (images, links) that a <textarea> cannot be
+                  role="textbox"
                   aria-multiline="true"
                   aria-label={tCrm.taskDialog.placeholderDescription}
                   tabIndex={0}
