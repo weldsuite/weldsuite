@@ -41,6 +41,8 @@ export const knowledgeTools: ToolDefinition[] = [
     method: 'PATCH',
     path: '/v1/knowledge-spaces/:id',
     pathParams: { id: 'id' },
+    // A new visibility can take the space and its pages away from its members.
+    annotations: { destructiveHint: true },
   },
 
   {
@@ -119,6 +121,8 @@ export const knowledgeTools: ToolDefinition[] = [
     method: 'PATCH',
     path: '/v1/knowledge-pages/:id',
     pathParams: { id: 'id' },
+    // `content` replaces the whole page body.
+    annotations: { destructiveHint: true },
   },
 
   {

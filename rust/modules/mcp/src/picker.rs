@@ -142,11 +142,7 @@ fn tool_definition() -> Value {
             "type": "object",
             "properties": {}
         },
-        "annotations": {
-            "title": "List workspaces",
-            "readOnlyHint": true,
-            "openWorldHint": false
-        },
+        "annotations": crate::annotations::read_only("List workspaces"),
         "execution": { "taskSupport": "forbidden" }
     })
 }

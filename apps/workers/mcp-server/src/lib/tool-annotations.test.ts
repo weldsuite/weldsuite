@@ -98,9 +98,13 @@ describe('MCP tool annotations', () => {
       const hints = tool.annotations;
       // Clerk's submit_feedback sets `title` on the tool, not in its hints.
       expect(hints?.title ?? tool.title, tool.name).toBeTruthy();
+      // OpenAI's app review asks for all three hints on every tool, reads too.
+      // Clerk's submit_feedback (Global only) brings its own.
+      if (tool.name === 'submit_feedback') continue;
       expect(typeof hints?.readOnlyHint, tool.name).toBe('boolean');
-      // The spec defaults destructiveHint to true for a write: always say so.
-      if (!hints?.readOnlyHint) expect(typeof hints?.destructiveHint, tool.name).toBe('boolean');
+      expect(typeof hints?.destructiveHint, tool.name).toBe('boolean');
+      expect(typeof hints?.openWorldHint, tool.name).toBe('boolean');
+      if (hints?.readOnlyHint) expect(hints.destructiveHint, tool.name).toBe(false);
     }
   });
 
@@ -117,6 +121,8 @@ describe('MCP tool annotations', () => {
     expect(byName.get('search_tasks')).toEqual({
       title: 'Search tasks',
       readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
       openWorldHint: false,
     });
     expect(byName.get('update_task')).toMatchObject({ readOnlyHint: false, destructiveHint: false, idempotentHint: true });
@@ -125,10 +131,28 @@ describe('MCP tool annotations', () => {
 
   it('keeps the hand-set overrides', async () => {
     const byName = new Map((await listTools()).map((t) => [t.name, t.annotations]));
-    for (const name of ['publish_social_post', 'schedule_social_post', 'launch_reach_campaign', 'add_conversation_message']) {
+    for (const name of [
+      'publish_social_post',
+      'schedule_social_post',
+      'cancel_social_post',
+      'launch_reach_campaign',
+      'add_conversation_message',
+      'create_article',
+      'update_article',
+      'create_file',
+      'update_file',
+      'create_webhook',
+      'update_webhook',
+    ]) {
       expect(byName.get(name), name).toMatchObject({ readOnlyHint: false, openWorldHint: true });
     }
-    for (const name of ['set_reach_campaign_steps', 'remove_reach_prospect_list_members']) {
+    for (const name of [
+      'set_reach_campaign_steps',
+      'remove_reach_prospect_list_members',
+      'cancel_social_post',
+      'update_knowledge_page',
+      'update_knowledge_space',
+    ]) {
       expect(byName.get(name), name).toMatchObject({ readOnlyHint: false, destructiveHint: true });
     }
   });

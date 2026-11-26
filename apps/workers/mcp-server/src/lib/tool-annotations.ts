@@ -12,15 +12,19 @@ import type { ToolAnnotations } from '@modelcontextprotocol/sdk/types.js';
  * - PATCH / PUT change fields of a record; repeating it changes nothing more.
  * - DELETE removes a record (`destructiveHint`).
  *
- * The spec defaults `destructiveHint` to true for a tool that isn't read-only,
- * so it is always set explicitly. `openWorldHint` is false: the tools work on
- * the workspace's own records. A tool whose effect leaves the workspace (it
- * mails a customer, publishes a post) sets it in its own `annotations`.
+ * Every tool sets `readOnlyHint`, `destructiveHint` and `openWorldHint`
+ * explicitly, reads included: the spec would let a read leave the other two
+ * out, but OpenAI's app review asks for all three on every tool.
+ * `openWorldHint` is false: the tools work on the workspace's own records. A
+ * tool whose effect leaves the workspace (it mails a customer, publishes a
+ * post, opens an endpoint outside systems call) sets it in its own
+ * `annotations`, and so does a write that replaces data or can't be undone
+ * with `destructiveHint`.
  */
 export type ToolMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 
 const METHOD_HINTS: Record<ToolMethod, Omit<ToolAnnotations, 'title'>> = {
-  GET: { readOnlyHint: true, openWorldHint: false },
+  GET: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   POST: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   PATCH: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   PUT: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },

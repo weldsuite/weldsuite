@@ -79,6 +79,8 @@
     "annotations": {
      "title": "Search contacts",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -119,6 +121,8 @@
     "annotations": {
      "title": "Get contact",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -725,6 +729,8 @@
     "annotations": {
      "title": "Search customers",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -765,6 +771,8 @@
     "annotations": {
      "title": "Get customer",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -1319,6 +1327,8 @@
     "annotations": {
      "title": "Search leads",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -1359,6 +1369,8 @@
     "annotations": {
      "title": "Get lead",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -1681,6 +1693,8 @@
     "annotations": {
      "title": "Search opportunities",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -1721,6 +1735,8 @@
     "annotations": {
      "title": "Get opportunity",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -2157,6 +2173,8 @@
     "annotations": {
      "title": "Search activities",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -2197,6 +2215,8 @@
     "annotations": {
      "title": "Get activity",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -2752,6 +2772,8 @@
     "annotations": {
      "title": "Search pipelines",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -2792,6 +2814,8 @@
     "annotations": {
      "title": "Get pipeline",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -3002,6 +3026,8 @@
     "annotations": {
      "title": "Search pipeline stages",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -3042,6 +3068,8 @@
     "annotations": {
      "title": "Get pipeline stage",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -3272,6 +3300,8 @@
     "annotations": {
      "title": "Search quotes",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -3312,6 +3342,8 @@
     "annotations": {
      "title": "Get quote",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -3668,6 +3700,8 @@
     "annotations": {
      "title": "Search articles",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -3708,6 +3742,8 @@
     "annotations": {
      "title": "Get article",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -3830,7 +3866,7 @@
      "readOnlyHint": false,
      "destructiveHint": false,
      "idempotentHint": false,
-     "openWorldHint": false
+     "openWorldHint": true
     },
     "execution": {
      "taskSupport": "forbidden"
@@ -3961,7 +3997,7 @@
      "readOnlyHint": false,
      "destructiveHint": false,
      "idempotentHint": true,
-     "openWorldHint": false
+     "openWorldHint": true
     },
     "execution": {
      "taskSupport": "forbidden"
@@ -4118,6 +4154,8 @@
     "annotations": {
      "title": "Search conversations",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -4165,6 +4203,8 @@
     "annotations": {
      "title": "Get conversation",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -4514,6 +4554,8 @@
     "annotations": {
      "title": "List knowledge spaces",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -4681,7 +4723,7 @@
     "annotations": {
      "title": "Update knowledge space",
      "readOnlyHint": false,
-     "destructiveHint": false,
+     "destructiveHint": true,
      "idempotentHint": true,
      "openWorldHint": false
     },
@@ -4757,6 +4799,8 @@
     "annotations": {
      "title": "Get knowledge page tree",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -4807,6 +4851,8 @@
     "annotations": {
      "title": "Search knowledge pages",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -4847,6 +4893,8 @@
     "annotations": {
      "title": "Get knowledge page",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -5002,7 +5050,7 @@
     "annotations": {
      "title": "Update knowledge page",
      "readOnlyHint": false,
-     "destructiveHint": false,
+     "destructiveHint": true,
      "idempotentHint": true,
      "openWorldHint": false
     },
@@ -5151,6 +5199,8 @@
     "annotations": {
      "title": "Search mail accounts",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -5191,6 +5241,8 @@
     "annotations": {
      "title": "Get mail account",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -5269,6 +5321,8 @@
     "annotations": {
      "title": "Search emails",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -5314,6 +5368,8 @@
     "annotations": {
      "title": "Get email",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -5541,6 +5597,8 @@
     "annotations": {
      "title": "List mail threads",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -5586,6 +5644,8 @@
     "annotations": {
      "title": "Get mail thread",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -5622,6 +5682,8 @@
     "annotations": {
      "title": "Search mail labels",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -5662,6 +5724,8 @@
     "annotations": {
      "title": "Get mail label",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -5885,6 +5949,8 @@
     "annotations": {
      "title": "Search mail folders",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -5927,6 +5993,8 @@
     "annotations": {
      "title": "Search mail drafts",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -5967,6 +6035,8 @@
     "annotations": {
      "title": "Get mail draft",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -6308,6 +6378,8 @@
     "annotations": {
      "title": "Search projects",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -6348,6 +6420,8 @@
     "annotations": {
      "title": "Get project",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -6617,6 +6691,8 @@
     "annotations": {
      "title": "Search tasks",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -6657,6 +6733,8 @@
     "annotations": {
      "title": "Get task",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -7195,6 +7273,8 @@
     "annotations": {
      "title": "Search task comments",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -7235,6 +7315,8 @@
     "annotations": {
      "title": "Get task comment",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -7437,6 +7519,8 @@
     "annotations": {
      "title": "Search task tags",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -7477,6 +7561,8 @@
     "annotations": {
      "title": "Get task tag",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -7664,6 +7750,8 @@
     "annotations": {
      "title": "Search sprints",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -7704,6 +7792,8 @@
     "annotations": {
      "title": "Get sprint",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -7921,6 +8011,8 @@
     "annotations": {
      "title": "Search milestones",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -7961,6 +8053,8 @@
     "annotations": {
      "title": "Get milestone",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -8164,6 +8258,8 @@
     "annotations": {
      "title": "Search goals",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -8204,6 +8300,8 @@
     "annotations": {
      "title": "Get goal",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -8432,6 +8530,8 @@
     "annotations": {
      "title": "Search project documents",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -8472,6 +8572,8 @@
     "annotations": {
      "title": "Get project document",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -8859,6 +8961,8 @@
     "annotations": {
      "title": "Search project files",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -8899,6 +9003,8 @@
     "annotations": {
      "title": "Get project file",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -9115,6 +9221,8 @@
     "annotations": {
      "title": "Search project labels",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -9155,6 +9263,8 @@
     "annotations": {
      "title": "Get project label",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -9354,6 +9464,8 @@
     "annotations": {
      "title": "Search project members",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -9394,6 +9506,8 @@
     "annotations": {
      "title": "Get project member",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -9580,6 +9694,8 @@
     "annotations": {
      "title": "Search project messages",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -9620,6 +9736,8 @@
     "annotations": {
      "title": "Get project message",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -9808,6 +9926,8 @@
     "annotations": {
      "title": "Search project sheets",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -9854,6 +9974,8 @@
     "annotations": {
      "title": "Search whiteboards",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -9894,6 +10016,8 @@
     "annotations": {
      "title": "Get whiteboard",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -10080,6 +10204,8 @@
     "annotations": {
      "title": "Search channels",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -10120,6 +10246,8 @@
     "annotations": {
      "title": "Get channel",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -10315,6 +10443,8 @@
     "annotations": {
      "title": "Search channel members",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -10355,6 +10485,8 @@
     "annotations": {
      "title": "Get channel member",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -10541,6 +10673,8 @@
     "annotations": {
      "title": "Search chat bookmarks",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -10581,6 +10715,8 @@
     "annotations": {
      "title": "Get chat bookmark",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -10779,6 +10915,8 @@
     "annotations": {
      "title": "Search chat drafts",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -10819,6 +10957,8 @@
     "annotations": {
      "title": "Get chat draft",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -11010,6 +11150,8 @@
     "annotations": {
      "title": "Search chat messages",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -11050,6 +11192,8 @@
     "annotations": {
      "title": "Get chat message",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -11252,6 +11396,8 @@
     "annotations": {
      "title": "Search chat sections",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -11292,6 +11438,8 @@
     "annotations": {
      "title": "Get chat section",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -11485,6 +11633,8 @@
     "annotations": {
      "title": "Search calendars",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -11525,6 +11675,8 @@
     "annotations": {
      "title": "Get calendar",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -11726,6 +11878,8 @@
     "annotations": {
      "title": "Search calendar events",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -11766,6 +11920,8 @@
     "annotations": {
      "title": "Get calendar event",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -12000,6 +12156,8 @@
     "annotations": {
      "title": "Search files",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -12040,6 +12198,8 @@
     "annotations": {
      "title": "Get file",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -12057,7 +12217,7 @@
    "definition": {
     "name": "create_file",
     "title": "Create file",
-    "description": "Create a new file metadata record.",
+    "description": "Register a file already uploaded to the workspace's storage (storagePath under the workspace) in WeldDrive. isPublic: true makes it reachable by anyone with its link.",
     "inputSchema": {
      "type": "object",
      "properties": {
@@ -12134,7 +12294,7 @@
      "readOnlyHint": false,
      "destructiveHint": false,
      "idempotentHint": false,
-     "openWorldHint": false
+     "openWorldHint": true
     },
     "execution": {
      "taskSupport": "forbidden"
@@ -12156,7 +12316,7 @@
    "definition": {
     "name": "update_file",
     "title": "Update file",
-    "description": "Update an existing file record.",
+    "description": "Update a WeldDrive file's name, folder or details. isPublic: true makes it reachable by anyone with its link; false takes the link away.",
     "inputSchema": {
      "type": "object",
      "properties": {
@@ -12193,7 +12353,7 @@
      "readOnlyHint": false,
      "destructiveHint": false,
      "idempotentHint": true,
-     "openWorldHint": false
+     "openWorldHint": true
     },
     "execution": {
      "taskSupport": "forbidden"
@@ -12277,6 +12437,8 @@
     "annotations": {
      "title": "Search folders",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -12317,6 +12479,8 @@
     "annotations": {
      "title": "Get folder",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -12524,6 +12688,8 @@
     "annotations": {
      "title": "Get drive all",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -12550,6 +12716,8 @@
     "annotations": {
      "title": "Get drive stats",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -12576,6 +12744,8 @@
     "annotations": {
      "title": "Get settings",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -12614,6 +12784,8 @@
     "annotations": {
      "title": "Get settings members",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -12654,6 +12826,8 @@
     "annotations": {
      "title": "Get settings member",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -12700,6 +12874,8 @@
     "annotations": {
      "title": "Search webhooks",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -12740,6 +12916,8 @@
     "annotations": {
      "title": "Get webhook",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -12757,7 +12935,7 @@
    "definition": {
     "name": "create_webhook",
     "title": "Create webhook",
-    "description": "Create a new workflow webhook.",
+    "description": "Create a webhook for a WeldConnect workflow: an endpoint that outside systems call to start the workflow.",
     "inputSchema": {
      "type": "object",
      "properties": {
@@ -12813,7 +12991,7 @@
      "readOnlyHint": false,
      "destructiveHint": false,
      "idempotentHint": false,
-     "openWorldHint": false
+     "openWorldHint": true
     },
     "execution": {
      "taskSupport": "forbidden"
@@ -12835,7 +13013,7 @@
    "definition": {
     "name": "update_webhook",
     "title": "Update webhook",
-    "description": "Update an existing workflow webhook.",
+    "description": "Update a WeldConnect workflow's webhook: the endpoint outside systems call to start the workflow.",
     "inputSchema": {
      "type": "object",
      "properties": {
@@ -12892,7 +13070,7 @@
      "readOnlyHint": false,
      "destructiveHint": false,
      "idempotentHint": true,
-     "openWorldHint": false
+     "openWorldHint": true
     },
     "execution": {
      "taskSupport": "forbidden"
@@ -12960,6 +13138,8 @@
     "annotations": {
      "title": "Get webhook events",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -13021,6 +13201,8 @@
     "annotations": {
      "title": "Search workflows",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -13061,6 +13243,8 @@
     "annotations": {
      "title": "Get workflow",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -13355,6 +13539,8 @@
     "annotations": {
      "title": "Search domains",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -13395,6 +13581,8 @@
     "annotations": {
      "title": "Get domain",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -13756,6 +13944,8 @@
     "annotations": {
      "title": "Search time entries",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -13796,6 +13986,8 @@
     "annotations": {
      "title": "Get time entry",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -14054,6 +14246,8 @@
     "annotations": {
      "title": "Search social posts",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -14094,6 +14288,8 @@
     "annotations": {
      "title": "Get social post",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -14485,9 +14681,9 @@
     "annotations": {
      "title": "Cancel social post",
      "readOnlyHint": false,
-     "destructiveHint": false,
+     "destructiveHint": true,
      "idempotentHint": false,
-     "openWorldHint": false
+     "openWorldHint": true
     },
     "execution": {
      "taskSupport": "forbidden"
@@ -14533,6 +14729,8 @@
     "annotations": {
      "title": "Search social accounts",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -14573,6 +14771,8 @@
     "annotations": {
      "title": "Get social account",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -14770,6 +14970,8 @@
     "annotations": {
      "title": "Search social media",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -14810,6 +15012,8 @@
     "annotations": {
      "title": "Get social media",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -15079,6 +15283,8 @@
     "annotations": {
      "title": "Search social approvals",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -15211,6 +15417,8 @@
     "annotations": {
      "title": "Search social campaigns",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -15251,6 +15459,8 @@
     "annotations": {
      "title": "Get social campaign",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -15458,6 +15668,8 @@
     "annotations": {
      "title": "Get social analytics",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -15484,6 +15696,8 @@
     "annotations": {
      "title": "Get reach access",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -15510,6 +15724,8 @@
     "annotations": {
      "title": "Get reach overview",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -15563,6 +15779,8 @@
     "annotations": {
      "title": "Search reach campaigns",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -15603,6 +15821,8 @@
     "annotations": {
      "title": "Get reach campaign",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -15643,6 +15863,8 @@
     "annotations": {
      "title": "Get reach campaign stats",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -16128,6 +16350,8 @@
     "annotations": {
      "title": "List reach campaign enrollments",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -16363,6 +16587,8 @@
     "annotations": {
      "title": "Search reach prospects",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -16403,6 +16629,8 @@
     "annotations": {
      "title": "Get reach prospect",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -16739,6 +16967,8 @@
     "annotations": {
      "title": "List reach prospect lists",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -16779,6 +17009,8 @@
     "annotations": {
      "title": "Get reach prospect list",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -17068,6 +17300,8 @@
     "annotations": {
      "title": "Search reach suppressions",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -17236,6 +17470,8 @@
     "annotations": {
      "title": "List reach threads",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -17276,6 +17512,8 @@
     "annotations": {
      "title": "Get reach thread",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -17323,6 +17561,8 @@
     "annotations": {
      "title": "Search reach mailboxes",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -17363,6 +17603,8 @@
     "annotations": {
      "title": "Get reach mailbox",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -17389,6 +17631,8 @@
     "annotations": {
      "title": "Search reach domains",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
@@ -17429,6 +17673,8 @@
     "annotations": {
      "title": "Get reach domain",
      "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
      "openWorldHint": false
     },
     "execution": {
