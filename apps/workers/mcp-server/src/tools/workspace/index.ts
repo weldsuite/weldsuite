@@ -357,9 +357,7 @@ export const workspaceTools: ToolDefinition[] = [
   {
     name: 'create_webhook',
     scope: 'webhooks:write',
-    description:
-      'Create a webhook for a WeldConnect workflow: an endpoint that outside systems call to start ' +
-      'the workflow.',
+    description: 'Create a webhook for a WeldConnect workflow: an endpoint that outside systems call to start the workflow.',
     inputSchema: {
       name: z.string().min(1).max(255),
       description: z.string().optional(),
