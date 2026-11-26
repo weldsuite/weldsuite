@@ -1,11 +1,10 @@
 /**
  * A sheet's checkpoint in R2: the whole workbook with the revision it is at,
- * as gzipped JSON. One object per sheet, overwritten by each checkpoint (an
- * R2 put replaces it atomically). The revision travels inside the object, so
- * a room that restarts between writing it and trimming its op log still
- * knows which logged ops the object already contains.
+ * as gzipped JSON (@weldsuite/collab/checkpoint), one object per sheet.
+ * Versions are stored the same way.
  */
 
+import { readCheckpoint, writeCheckpoint } from '@weldsuite/collab/checkpoint';
 import type { WorkbookSnapshot } from '@weldsuite/sheets-engine';
 
 export interface StoredSnapshot {
@@ -14,21 +13,11 @@ export interface StoredSnapshot {
 }
 
 /** Writes the checkpoint; returns its size in bytes. */
-export async function writeSnapshot(bucket: R2Bucket, key: string, snapshot: StoredSnapshot): Promise<number> {
-  const body = await gzip(JSON.stringify(snapshot));
-  await bucket.put(key, body, { httpMetadata: { contentType: 'application/gzip' }, customMetadata: { revision: String(snapshot.revision) } });
-  return body.byteLength;
+export function writeSnapshot(bucket: R2Bucket, key: string, snapshot: StoredSnapshot): Promise<number> {
+  return writeCheckpoint(bucket, key, snapshot);
 }
 
 /** The checkpoint, or null when none has been written. */
-export async function readSnapshot(bucket: R2Bucket, key: string): Promise<StoredSnapshot | null> {
-  const object = await bucket.get(key);
-  if (!object) return null;
-  const text = await new Response(object.body.pipeThrough(new DecompressionStream('gzip'))).text();
-  return JSON.parse(text) as StoredSnapshot;
-}
-
-async function gzip(text: string): Promise<ArrayBuffer> {
-  const stream = new Blob([text]).stream().pipeThrough(new CompressionStream('gzip'));
-  return new Response(stream).arrayBuffer();
+export function readSnapshot(bucket: R2Bucket, key: string): Promise<StoredSnapshot | null> {
+  return readCheckpoint<StoredSnapshot>(bucket, key);
 }

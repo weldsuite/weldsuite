@@ -8183,6 +8183,12 @@ importers:
 
   packages/core/collab:
     devDependencies:
+      '@cloudflare/workers-types':
+        specifier: ^4.20250110.0
+        version: 4.20260113.0
+      '@vitest/coverage-v8':
+        specifier: ^4.1.12
+        version: 4.1.12(vitest@4.1.12)
       '@weldsuite/typescript-config':
         specifier: workspace:*
         version: link:../../config/typescript-config
@@ -10276,6 +10282,9 @@ importers:
       '@weldsuite/app-api-client':
         specifier: workspace:*
         version: link:../../clients/app-api-client
+      '@weldsuite/collab':
+        specifier: workspace:*
+        version: link:../../core/collab
       '@weldsuite/core-domain':
         specifier: workspace:*
         version: link:../core
