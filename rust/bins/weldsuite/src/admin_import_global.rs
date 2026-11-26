@@ -160,6 +160,11 @@ fn parse(args: &[String], actor_env: Option<String>) -> Result<Parsed, String> {
             other => return Err(format!("unknown option {other:?}")),
         }
     }
+    // Only master and files can roll back or just list; anywhere else a
+    // "dry run" would quietly be a real one.
+    if options.dry_run && !matches!(step, Step::Master | Step::Files) {
+        return Err("--dry-run applies to master and files only".to_owned());
+    }
     let writes = matches!(step, Step::Master | Step::Tenants) && !options.dry_run;
     if writes {
         if options.actor.is_none() {
@@ -428,8 +433,9 @@ async fn run_master(sides: &Sides, options: &Options) -> Result<Outcome, ImportE
     let already = master::already_on_install(&sides.install, &selection.moving).await?;
     let moving: Vec<GlobalWorkspace> = selection
         .moving
-        .into_iter()
+        .iter()
         .filter(|ws| options.replace || !already.contains(&ws.id))
+        .cloned()
         .collect();
     let left_alone: Vec<&String> = already
         .iter()
@@ -447,10 +453,13 @@ async fn run_master(sides: &Sides, options: &Options) -> Result<Outcome, ImportE
     )
     .await?;
 
+    // Every selected workspace now on the install, the ones an earlier run
+    // copied too: if that run stopped before their billing account, this
+    // one opens it (`open_account` can run again).
     let billing = if options.dry_run {
         Vec::new()
     } else {
-        after_copy(sides, options, &actor, &moving).await?
+        after_copy(sides, options, &actor, &selection.moving, &moving).await?
     };
 
     let text = if options.json {
@@ -461,23 +470,27 @@ async fn run_master(sides: &Sides, options: &Options) -> Result<Outcome, ImportE
     Ok(Outcome { text, ok: true })
 }
 
-/// Once the master rows are in: each moved workspace's billing account
-/// (no payment method yet), and its audit row.
+/// Once the master rows are in: the billing account (no payment method yet)
+/// of every workspace in `billed`, and an audit row for each one `copied`
+/// in this run.
 async fn after_copy(
     sides: &Sides,
     options: &Options,
     actor: &str,
-    moving: &[GlobalWorkspace],
+    billed: &[GlobalWorkspace],
+    copied: &[GlobalWorkspace],
 ) -> Result<Vec<(String, MovedAccount)>, ImportError> {
     let now = OffsetDateTime::now_utc();
     let mut billing = Vec::new();
-    for ws in moving {
+    for ws in billed {
         let opened = weldsuite_core_billing::moved::open_account(&sides.install, &ws.id, now)
             .await
             .map_err(|error| {
                 ImportError::Failed(format!("{}: opening its billing account: {error}", ws.id))
             })?;
         billing.push((ws.id.clone(), opened));
+    }
+    for ws in copied {
         let entry = AuditEntry {
             workspace_id: Some(&ws.id),
             target_type: "workspace",
@@ -948,5 +961,20 @@ mod tests {
         assert!(parse(&args("files --from a"), None).is_err());
         assert!(parse(&args("check --plan scale"), None).is_err());
         assert!(matches!(parse(&args(""), None), Ok(Parsed::Help)));
+    }
+
+    #[test]
+    fn a_dry_run_is_only_for_the_steps_that_can_do_one() {
+        let actor = || Some("a@b.c".to_owned());
+        for line in [
+            "tenants --dry-run --reason cutover",
+            "check --dry-run",
+            "verify --dry-run",
+        ] {
+            let refused = parse(&args(line), actor()).expect_err(line);
+            assert!(refused.contains("--dry-run"), "{line}: {refused}");
+        }
+        assert!(parse(&args("master --dry-run"), actor()).is_ok());
+        assert!(parse(&args("files --from a --to b --dry-run"), actor()).is_ok());
     }
 }

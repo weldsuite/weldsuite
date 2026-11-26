@@ -438,3 +438,156 @@ async fn moves_a_workspace_from_global_into_the_install() {
         .await;
     }
 }
+
+/// Workspaces moved in batches (`--workspace`) that installed the same app:
+/// the second batch keeps the app the first one brought, and copying the
+/// first again (`--replace`) leaves the second one's install alone.
+#[tokio::test(flavor = "multi_thread")]
+#[allow(clippy::too_many_lines)] // three runs of the master step
+async fn moves_workspaces_in_batches_that_share_an_app() {
+    let Ok(admin_url) = std::env::var("WELDSUITE_TEST_DATABASE_URL") else {
+        eprintln!("WELDSUITE_TEST_DATABASE_URL is not set; skipping");
+        return;
+    };
+    let options = PgConnectOptions::from_str(&admin_url).expect("admin url");
+    let mut admin = options.connect().await.expect("admin");
+    let names = [unique("gi_batch_global_"), unique("gi_batch_install_")];
+    for name in &names {
+        sqlx::raw_sql(AssertSqlSafe(format!("create database {name}")))
+            .execute(&mut admin)
+            .await
+            .expect("create database");
+    }
+    let connect = |name: &str| options.clone().database(name);
+    let mut conn = connect(&names[0]).connect().await.expect("global master");
+    migrate(
+        &mut conn,
+        &Journal::embedded(Folder::Master).truncated(GLOBAL_MASTER_MIGRATIONS),
+    )
+    .await
+    .expect("global master schema");
+    conn.close().await.expect("close");
+    let mut conn = connect(&names[1]).connect().await.expect("install master");
+    migrate(&mut conn, Journal::embedded(Folder::Master))
+        .await
+        .expect("install master schema");
+    conn.close().await.expect("close");
+    let pool = |name: &str| {
+        PgPoolOptions::new()
+            .max_connections(4)
+            .connect_lazy_with(connect(name))
+    };
+    let global_master = pool(&names[0]);
+    let install = pool(&names[1]);
+
+    // A and B installed app X, which a deleted workspace owns; A owns app Y.
+    let a = unique("ws_ba");
+    let b = unique("ws_bb");
+    let gone = unique("ws_bgone");
+    let url = with_database(&admin_url, &names[0]);
+    run(
+        &global_master,
+        &format!(
+            "insert into workspaces (id, clerk_org_id, name, slug, database_url) values
+               ('{a}', 'org_{a}', 'A', '{a}', '{url}'), ('{b}', 'org_{b}', 'B', '{b}', '{url}');
+             insert into workspaces (id, clerk_org_id, name, slug, deleted_at)
+               values ('{gone}', 'org_{gone}', 'Gone', '{gone}', now());
+             insert into user_apps (id, code, name, owner_workspace_id, created_by) values
+               ('app_x_{a}', 'x-{a}', 'X', '{gone}', 'user_x'),
+               ('app_y_{a}', 'y-{a}', 'Y', '{a}', 'user_y');
+             insert into user_app_installs (id, app_id, workspace_id, installed_by) values
+               ('ins_ax_{a}', 'app_x_{a}', '{a}', 'user_x'),
+               ('ins_ay_{a}', 'app_y_{a}', '{a}', 'user_y'),
+               ('ins_bx_{a}', 'app_x_{a}', '{b}', 'user_x');"
+        ),
+    )
+    .await;
+
+    let global = Global::new(global_master.clone(), keyring(), None);
+    let plans = PlanMap::default();
+    let copy = |workspace: String, replace: bool| {
+        let global = &global;
+        let install = &install;
+        let plans = &plans;
+        async move {
+            let selection = select(
+                global.workspaces().await.expect("workspaces"),
+                std::slice::from_ref(&workspace),
+            )
+            .expect("select");
+            master::copy(
+                global,
+                install,
+                &selection.moving,
+                &MasterOptions {
+                    plans,
+                    replace,
+                    dry_run: false,
+                },
+            )
+            .await
+        }
+    };
+    let installs = |workspace: String| {
+        let install = &install;
+        async move {
+            scalar::<i64>(
+                install,
+                "select count(*) from user_app_installs where workspace_id = $1",
+                &workspace,
+            )
+            .await
+        }
+    };
+
+    copy(a.clone(), false).await.expect("first batch");
+    assert_eq!(installs(a.clone()).await, 2);
+
+    // Global still serves B and the app's owner: both apps change there.
+    run(
+        &global_master,
+        &format!(
+            "update user_apps set name = name || ' (new)' where id in ('app_x_{a}', 'app_y_{a}');"
+        ),
+    )
+    .await;
+    copy(b.clone(), false)
+        .await
+        .expect("the second batch keeps the app the first brought");
+    assert_eq!(installs(b.clone()).await, 1);
+    let x_name: String = scalar(
+        &install,
+        "select name from user_apps where id = $1",
+        &format!("app_x_{a}"),
+    )
+    .await;
+    assert_eq!(
+        x_name, "X",
+        "an app another workspace brought stays as it is"
+    );
+
+    copy(a.clone(), true).await.expect("first batch again");
+    assert_eq!(installs(a.clone()).await, 2);
+    assert_eq!(
+        installs(b.clone()).await,
+        1,
+        "B's install of the shared app survives A's --replace"
+    );
+    let y_name: String = scalar(
+        &install,
+        "select name from user_apps where id = $1",
+        &format!("app_y_{a}"),
+    )
+    .await;
+    assert_eq!(y_name, "Y (new)", "A's own app is brought up to date");
+
+    global_master.close().await;
+    install.close().await;
+    for name in &names {
+        let _ = sqlx::raw_sql(AssertSqlSafe(format!(
+            "drop database if exists {name} with (force)"
+        )))
+        .execute(&mut admin)
+        .await;
+    }
+}

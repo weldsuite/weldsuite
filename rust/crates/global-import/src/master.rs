@@ -84,12 +84,24 @@ const WORKSPACE_OR_ORG: Filter = Filter::Workspace(&["workspace_id", "clerk_org_
 const ORG: Filter = Filter::Workspace(&["clerk_org_id"]);
 
 /// The apps a moving workspace owns or has installed: an install needs its
-/// app.
+/// app. An app is shared by every workspace that installed it, so these
+/// rows are never deleted to be written again (that would take other
+/// workspaces' installs with them): see [`APP_TABLES`].
 const MOVING_APPS: &str = "owner_workspace_id = any($1) \
      or id in (select app_id from public.user_app_installs where workspace_id = any($1))";
 const OF_MOVING_APPS: &str = "app_id in (select id from public.user_apps \
      where owner_workspace_id = any($1) \
         or id in (select app_id from public.user_app_installs where workspace_id = any($1)))";
+
+/// The tables of apps, with the column naming the app. Like `users`, a row
+/// the install already has stays (another workspace that installed the app
+/// moved earlier, in its own batch); one of an app a moving workspace owns
+/// is brought up to date. None of them is deleted for `--replace`.
+const APP_TABLES: &[(&str, &str)] = &[
+    ("user_apps", "id"),
+    ("user_app_versions", "app_id"),
+    ("user_app_oauth_clients", "app_id"),
+];
 
 const PARTNERS: &str = "partners don't move: no Global workspace has one (inventory, \
      2026-11-20), and the partner portal follows in phase 9";
@@ -455,6 +467,21 @@ pub async fn copy(
         .filter_map(|ws| Some((ws.clerk_org_id.clone()?, ws.id.clone())))
         .collect();
     let users = member_ids(&mut source, &refs).await?;
+    let owned_apps: BTreeSet<String> = if global_tables.contains_key("user_apps") {
+        sql::distinct_values(
+            &mut source,
+            "user_apps",
+            "id",
+            "owner_workspace_id = any($1)",
+            &refs,
+        )
+        .await
+        .map_err(|error| ImportError::failed("reading Global's apps", error))?
+        .into_iter()
+        .collect()
+    } else {
+        BTreeSet::new()
+    };
 
     let mut tx = target
         .begin()
@@ -464,6 +491,7 @@ pub async fn copy(
         refs: &refs,
         users: &users,
         id_of_org: &id_of_org,
+        owned_apps: &owned_apps,
         options,
     };
     let mut outcomes = Vec::new();
@@ -509,6 +537,8 @@ struct Copying<'a> {
     refs: &'a [String],
     users: &'a [String],
     id_of_org: &'a BTreeMap<String, String>,
+    /// Apps the moving workspaces own.
+    owned_apps: &'a BTreeSet<String>,
     options: &'a MasterOptions<'a>,
 }
 
@@ -566,6 +596,32 @@ async fn copy_table(
         .await
         .map_err(|error| ImportError::failed(&format!("reading Global's {table}"), error))?;
     prepare(table, &mut rows, context.options.plans, context.id_of_org)?;
+    if let Some((_, app_column)) = APP_TABLES.iter().find(|(name, _)| *name == table) {
+        let (owned, shared) = split_by_app(rows, app_column, context.owned_apps);
+        let update: Vec<String> = columns
+            .common
+            .iter()
+            .filter(|column| column.as_str() != "id")
+            .cloned()
+            .collect();
+        let mut written = 0;
+        for (rows, on_conflict) in [
+            (&owned, OnConflict::Update("id", update)),
+            (&shared, OnConflict::Keep("id")),
+        ] {
+            written += sql::write_rows(tx, table, &columns.common, rows, &on_conflict)
+                .await
+                .map_err(|error| write_error(table, &error))?;
+        }
+        return Ok(TableOutcome {
+            table: table.to_owned(),
+            read: owned.len() + shared.len(),
+            written,
+            replaced: 0,
+            skipped: None,
+            dropped_columns: columns.dropped,
+        });
+    }
     let on_conflict = match table {
         "users" => OnConflict::Keep("id"),
         "workspaces" => OnConflict::Update(
@@ -601,6 +657,21 @@ async fn copy_table(
         dropped_columns: columns.dropped,
     })
 }
+
+/// Rows of an app table split by whose app they belong to: the moving
+/// workspaces' own (`owned`), and apps they only installed.
+fn split_by_app(
+    rows: Vec<Value>,
+    app_column: &str,
+    owned: &BTreeSet<String>,
+) -> (Vec<Value>, Vec<Value>) {
+    rows.into_iter().partition(|row| {
+        row.get(app_column)
+            .and_then(Value::as_str)
+            .is_some_and(|app| owned.contains(app))
+    })
+}
+
 /// A failed write, named by its table and the constraint it broke: a name
 /// or key the install already has for another workspace.
 fn write_error(table: &str, error: &sqlx::Error) -> ImportError {
@@ -805,6 +876,25 @@ mod tests {
         prepare("user_workspaces", &mut rows, &PlanMap::default(), &orgs).expect("prepare");
         assert_eq!(rows[0]["workspace_id"], "ws_1");
         assert_eq!(rows[1]["workspace_id"], "ws_1");
+    }
+
+    #[test]
+    fn app_rows_split_by_who_owns_the_app() {
+        let owned = BTreeSet::from(["app_mine".to_owned()]);
+        let rows = vec![
+            json!({ "id": "ver_1", "app_id": "app_mine" }),
+            json!({ "id": "ver_2", "app_id": "app_public" }),
+            json!({ "id": "ver_3", "app_id": null }),
+        ];
+        let (mine, shared) = split_by_app(rows, "app_id", &owned);
+        assert_eq!(mine, [json!({ "id": "ver_1", "app_id": "app_mine" })]);
+        assert_eq!(shared.len(), 2);
+        assert!(
+            APP_TABLES
+                .iter()
+                .all(|(table, _)| rule(table).is_some_and(|rule| matches!(rule, Rule::Copy(_)))),
+            "every app table is copied"
+        );
     }
 
     #[test]
