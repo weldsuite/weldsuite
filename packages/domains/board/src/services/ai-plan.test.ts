@@ -100,7 +100,7 @@ describe('boardAiPlan', () => {
     const answer = { root: 'Launch', branches: [{ text: 'Marketing', children: [{ text: 'Blog', children: [{ text: 'Post 1' }] }, { text: 'Ads' }] }, { text: 'Sales' }] };
     const plan = boardAiPlan(boardWith(), input('mindmap', { prompt: 'Launch', at: { x: 5000, y: 5000 } }), answer, AT);
     const elements = created(plan.op);
-    expect(plan.elementIds).toEqual(elements.map((e) => e.id));
+    expect([...plan.elementIds].sort()).toEqual(elements.map((e) => e.id).sort());
     expect(elements.map((e) => e.text?.text ?? e.name).filter(Boolean)).toEqual(expect.arrayContaining(['Launch', 'Marketing', 'Blog', 'Post 1', 'Ads', 'Sales']));
     expect(elements.every((e) => e.createdBy === 'alice')).toBe(true);
     expect(Math.min(...elements.map((e) => e.x))).toBeGreaterThanOrEqual(4000);
@@ -121,7 +121,7 @@ describe('boardAiPlan', () => {
     };
     const elements = created(boardAiPlan(boardWith(), input('diagram', { prompt: 'Orders' }), answer, AT).op);
     const shapes = elements.filter((e) => e.type === 'shape');
-    expect(shapes.map((e) => e.shape)).toEqual(['terminator', 'diamond', 'rounded']);
+    expect(Object.fromEntries(shapes.map((e) => [e.text?.text, e.shape]))).toEqual({ Start: 'terminator', 'Paid?': 'diamond', Ship: 'rounded' });
     expect(elements.filter((e) => e.type === 'connector')).toHaveLength(2);
     // Without arrows or a direction it still draws the steps, top to bottom.
     expect(created(boardAiPlan(boardWith(), input('diagram', { prompt: 'x' }), { steps: [{ key: 'a', text: 'Only' }] }, AT).op)).toHaveLength(1);
@@ -139,11 +139,14 @@ describe('boardAiPlan', () => {
       ],
     };
     const framed = created(boardAiPlan(boardWith(), input('stickies', { prompt: 'Retro' }), answer, AT).op);
-    const frames = framed.filter((e) => e.type === 'frame');
-    expect(frames.map((f) => f.name)).toEqual(['Keep', '2']);
-    const notes = framed.filter((e) => e.type === 'sticky');
-    expect(notes.map((n) => n.parent)).toEqual(frames.map((f) => f.id));
-    expect(notes[0]!.fill).not.toBe(notes[1]!.fill);
+    // Placed elements come in no set order: match notes to frames by name.
+    const frameName = new Map(framed.filter((e) => e.type === 'frame').map((f) => [f.id, f.name]));
+    expect([...frameName.values()].sort()).toEqual(['2', 'Keep']);
+    const notes = new Map(framed.filter((e) => e.type === 'sticky').map((n) => [n.text?.text, n]));
+    expect(frameName.get(notes.get('Standups')!.parent!)).toBe('Keep');
+    expect(frameName.get(notes.get('Demos')!.parent!)).toBe('2');
+    // A colour the palette has is used; one it does not have is not.
+    expect(notes.get('Standups')!.fill).not.toBe(notes.get('Demos')!.fill);
   });
 
   it('refuses an answer with nothing to place', () => {
@@ -163,7 +166,7 @@ describe('boardAiPlan', () => {
   it('adds ideas next to the notes, in their colour', () => {
     const plan = boardAiPlan(workshop(), input('ideas', { elementIds: ['n_loose'] }), { ideas: ['Light mode', 'High contrast'] }, AT);
     const ideas = created(plan.op);
-    expect(ideas.map((e) => e.text?.text)).toEqual(['Light mode', 'High contrast']);
+    expect(ideas.map((e) => e.text?.text).sort()).toEqual(['High contrast', 'Light mode']);
     expect(ideas.every((e) => e.fill === '#ffd')).toBe(true);
     // From a card alone they keep the default colour, and go wherever there is room.
     const fromCard = created(boardAiPlan(workshop(), input('ideas', { elementIds: ['card'] }), { ideas: ['Invoices'] }, AT).op);
