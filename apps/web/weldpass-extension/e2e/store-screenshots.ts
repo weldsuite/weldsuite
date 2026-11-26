@@ -174,9 +174,12 @@ async function sitePage(): Promise<Page> {
  */
 async function openPopup(): Promise<Page> {
   const popup = await context.newPage();
-  await popup.addInitScript({
-    content: `chrome.tabs.query = async (info) => (info && info.active ? [{ id: 1, url: ${JSON.stringify(`${SITE}/login`)} }] : []);`,
-  });
+  // A function and its argument, which Playwright serializes: no script built from strings.
+  await popup.addInitScript((url: string) => {
+    const tabs = (globalThis as unknown as { chrome: { tabs: { query: (info?: { active?: boolean }) => Promise<unknown[]> } } })
+      .chrome.tabs;
+    tabs.query = async (info) => (info?.active ? [{ id: 1, url }] : []);
+  }, `${SITE}/login`);
   await popup.setViewportSize({ width: 380, height: 540 });
   await popup.goto(`chrome-extension://${EXTENSION_ID}/popup.html`);
   return popup;
@@ -216,6 +219,8 @@ test('1: the inline menu on a sign-in page', async () => {
 test('2: every login from the toolbar', async () => {
   const popup = await openPopup();
   await expect(popup.getByText('Woodgrove Bank')).toBeVisible();
+  // The logins for the demo page come first, as on a real popup opened on it.
+  await expect(popup.getByRole('button', { name: 'Fill' }).first()).toBeVisible();
   const shot = await popup.screenshot();
   await popup.close();
   await save(
