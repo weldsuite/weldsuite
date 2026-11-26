@@ -10,6 +10,11 @@ info:
     together, and see "Changing the contract" in apps/mobile-shared/README.md
     for what apps already on phones can read.
 
+    Checked against the server: `getRuntimeConfig` in
+    rust/bins/weldsuite/src/server.rs, `listWorkspaces` in
+    rust/modules/core-team/tests/openapi_contract.rs. They fail when an
+    answer doesn't fit (status, required fields, nulls, types, enums).
+
     Every `/api` request carries `Authorization: Bearer <WeldID access token>`
     and names its workspace in `X-Weld-Workspace` (`workspaces.id`), except
     `GET /api/workspaces`, which lists them.
