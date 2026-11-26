@@ -50,6 +50,31 @@ describe('TaskDialog "Create more"', () => {
 });
 
 describe('TaskDialog record picker', () => {
+  it('forgets its search after making a record from it', async () => {
+    const user = userEvent.setup();
+    const onRecordSearchChange = vi.fn();
+    const onCreateRecord = vi.fn().mockResolvedValue({ id: 'proj_2', name: 'Acme' });
+    renderDialog({
+      hideRecord: false,
+      availableCompanies: [{ id: 'proj_1', name: 'Website' }],
+      onRecordSearchChange,
+      onCreateRecord,
+      createRecordLabels: { create: 'Create project', namePlaceholder: 'Project name' },
+      recordSearchPlaceholder: 'Search records',
+    });
+
+    await user.click(screen.getByRole('button', { name: /Linked to/ }));
+    await user.type(screen.getByPlaceholderText('Search records'), 'Acme');
+    await user.click(screen.getByRole('option', { name: 'Create project' }));
+    await user.type(screen.getByRole('textbox', { name: 'Project name' }), '{Enter}');
+    await waitFor(() => expect(onCreateRecord).toHaveBeenCalledWith('Acme'));
+    await waitFor(() => expect(onRecordSearchChange).toHaveBeenLastCalledWith(''));
+
+    await user.click(screen.getByRole('button', { name: /Linked to/ }));
+    await user.click(screen.getByRole('option', { name: 'Create project' }));
+    expect((screen.getByRole('textbox', { name: 'Project name' }) as HTMLInputElement).value).toBe('');
+  });
+
   it('forgets its search when it closes, here and in the server search', async () => {
     const user = userEvent.setup();
     const onRecordSearchChange = vi.fn();

@@ -951,6 +951,16 @@ function RecordPopover({
   const canCreate = !!onCreate && !!createLabels;
   // Nothing to pick or search yet (no projects at all): the menu is only "+ Create …".
   const nothingYet = canCreate && companies.length === 0 && query === '';
+  // Closing forgets the name field and the search (the box comes back empty, so does what it
+  // searched for, here and in the caller's server search), however the picker closes.
+  const close = () => {
+    setOpen(false);
+    setCreating(false);
+    if (query !== '') {
+      setQuery('');
+      onSearchChange?.('');
+    }
+  };
   const submitNew = async () => {
     const name = newName.trim();
     if (!onCreate || !name || busy) return;
@@ -959,9 +969,8 @@ function RecordPopover({
       const created = await onCreate(name);
       if (created) {
         onChange(created);
-        setCreating(false);
         setNewName('');
-        setOpen(false);
+        close();
       }
     } finally {
       setBusy(false);
@@ -970,16 +979,7 @@ function RecordPopover({
   return (
     <Popover
       open={open}
-      onOpenChange={(next) => {
-        setOpen(next);
-        if (next) return;
-        // The search box comes back empty next time: so does what it searched for.
-        setCreating(false);
-        if (query !== '') {
-          setQuery('');
-          onSearchChange?.('');
-        }
-      }}
+      onOpenChange={(next) => (next ? setOpen(true) : close())}
     >
       <PopoverTrigger asChild>
         <DetailRow icon={rowIcon} label={rowLabel}>
@@ -1704,7 +1704,7 @@ export function TaskDialog({
                   ref={descriptionRef}
                   contentEditable
                   suppressContentEditableWarning
-                  role="textbox"
+                  role="textbox" // NOSONAR: S6819, a rich-text field (images, links) that a <textarea> cannot be
                   aria-multiline="true"
                   aria-label={tCrm.taskDialog.placeholderDescription}
                   tabIndex={0}
