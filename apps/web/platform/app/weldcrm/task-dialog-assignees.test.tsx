@@ -54,7 +54,8 @@ describe('TaskDialog assignees', () => {
     expect(trigger).toBeInTheDocument();
 
     await user.click(trigger);
-    const grace = await screen.findByRole('button', { name: /Grace Hopper/ });
+    // The picker is a command list: members are its options.
+    const grace = await screen.findByRole('option', { name: /Grace Hopper/ });
     expect(grace).toBeInTheDocument();
 
     await user.click(grace);
@@ -71,7 +72,7 @@ describe('TaskDialog assignees', () => {
   it('does not pretend a missing directory entry is zero assignees', () => {
     renderDialog([]);
 
-    expect(screen.getByRole('button', { name: 'Assignees' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Assignees/ })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '0 assignees' })).not.toBeInTheDocument();
   });
 });

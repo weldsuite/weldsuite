@@ -2314,6 +2314,7 @@ export function TasksClient({
 
       {/* Add/Edit Task Dialog */}
       <TaskDialog
+        allowCreateMore
         open={showAddDialog}
         onOpenChange={(open) => {
           setShowAddDialog(open);

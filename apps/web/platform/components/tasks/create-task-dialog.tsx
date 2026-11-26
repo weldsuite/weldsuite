@@ -37,6 +37,7 @@ import {
   type RepeatFrequency,
   type RepeatUnit,
 } from '@/components/tasks/repeat-config';
+import { focusPickerList } from '@weldsuite/ui/components/picker-menu';
 
 import type { Priority as TaskPriority } from '@weldsuite/db/schema/tasks';
 
@@ -301,7 +302,7 @@ export function CreateTaskDialog({
                     : <span className="text-muted-foreground">{t('sweep.shared.noRepeat')}</span>}
                 </Button>
               </PopoverTrigger>
-              <PopoverContent className="w-auto p-1" align="start">
+              <PopoverContent className="w-64 p-0" align="start" onOpenAutoFocus={focusPickerList}>
                 <RepeatConfigMenu
                   repeat={repeat}
                   repeatInterval={repeatInterval}
@@ -311,7 +312,7 @@ export function CreateTaskDialog({
                   onUnitChange={setRepeatUnit}
                 />
                 {repeat === 'custom' && (
-                  <p className="text-[11px] text-muted-foreground px-2 py-1.5 border-t mt-1">
+                  <p className="text-[11px] text-muted-foreground px-2 py-1.5 border-t">
                     {t('sweep.shared.advancedRecurrenceHint')}
                   </p>
                 )}

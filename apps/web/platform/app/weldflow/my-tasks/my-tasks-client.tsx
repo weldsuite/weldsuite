@@ -59,9 +59,11 @@ import {
   ChevronRight,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { coloredSquareColors, findColoredSquareIconByLabel } from '@/components/app-sidebar-layout';
 import { toast } from 'sonner';
-import { tasksApi, labelsApi } from '../lib/api-client';
+import { tasksApi, labelsApi, projectsApi } from '../lib/api-client';
+import { createdProject, projectPickerOption, withCreatedProjects, type ProjectInfo } from './created-projects';
+import { projectKeys } from '@/hooks/queries/use-projects-queries';
+import { useCan } from '@weldsuite/permissions/react';
 import { useWorkspaceMemberDirectory } from '@/hooks/queries/use-settings-queries';
 import { buildEntityAssigneeDirectory, isPickableAssignee } from '../project/[projectId]/tasks/entity-assignees';
 import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
@@ -113,12 +115,6 @@ export interface ProjectLabel {
   projectId?: string | null;
 }
 
-interface ProjectInfo {
-  id: string;
-  name: string;
-  color?: string | null;
-  icon?: string | null;
-}
 
 interface MyTasksClientProps {
   initialTasks: Projects.ProjectTask[];
@@ -713,14 +709,25 @@ export function MyTasksClient({
   // Live task sync: useRealtimeSync(platformSyncMap) invalidates ['task'] /
   // ['projects'] — no parallel PlatformEvents / useTaskEvents bridge.
 
+  // Projects made from the task dialog's "Create project", usable before the list refetches.
+  const [createdProjects, setCreatedProjects] = useState<ProjectInfo[]>([]);
+  const allProjects = useMemo(() => withCreatedProjects(projects, createdProjects), [projects, createdProjects]);
+  const canCreateProject = useCan('projects:create');
+
   // Same square the sidebar and project list draw, so the picker reads as a project.
-  const projectOptions = projects.map(p => ({
-    id: p.id,
-    name: p.name,
-    icon: (p.icon ? findColoredSquareIconByLabel(p.icon) : undefined) || FolderKanban,
-    iconColor: p.color || coloredSquareColors[0].value,
-  }));
-  const projectById = Object.fromEntries(projects.map(p => [p.id, p]));
+  const projectOptions = allProjects.map(projectPickerOption);
+  const projectById = Object.fromEntries(allProjects.map(p => [p.id, p]));
+
+  const handleCreateProject = useCallback(async (name: string) => {
+    const created = createdProject(await projectsApi.create({ name }), name);
+    if (!created) {
+      toast.error(t.projects.sidebar.projectCreateFailed);
+      return null;
+    }
+    setCreatedProjects((prev) => [...prev, created]);
+    void queryClient.invalidateQueries({ queryKey: projectKeys.lists() });
+    return projectPickerOption(created);
+  }, [queryClient, t.projects.sidebar.projectCreateFailed]);
 
   const handleSaveTask = (data: SaveTaskFormData) => {
     // A task created here must belong to a project: the dialog marks the project
@@ -1795,6 +1802,7 @@ export function MyTasksClient({
       )}
 
       <TaskDialog
+        allowCreateMore
         open={showTaskDialog}
         onOpenChange={(open) => {
           setShowTaskDialog(open);
@@ -1813,6 +1821,10 @@ export function MyTasksClient({
         // Only on create: an existing task without a project can still be edited.
         recordRequired={!editingCrmTask}
         recordLabel={t.projects.myTasks.selectProject}
+        recordRowLabel={t.projects.myTasks.filterProject}
+        recordIcon={FolderKanban}
+        onCreateRecord={canCreateProject ? handleCreateProject : undefined}
+        createRecordLabels={{ create: t.projects.project.createProject, namePlaceholder: t.projects.project.projectName }}
         recordSearchPlaceholder={t.projects.project.searchProjects}
         recordEmptyLabel={t.projects.project.noProjects}
         onSave={handleSaveTask}
@@ -1898,6 +1910,8 @@ export function MyTasksClient({
         defaultAssignee={userId || undefined}
         hideRecord
         recordLabel={t.projects.myTasks.selectProject}
+        recordRowLabel={t.projects.myTasks.filterProject}
+        recordIcon={FolderKanban}
         recordSearchPlaceholder={t.projects.project.searchProjects}
         recordEmptyLabel={t.projects.project.noProjects}
         onSave={handleSaveSubtask}
