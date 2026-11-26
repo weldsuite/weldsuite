@@ -1,15 +1,15 @@
 
-import { Check, Trash2 } from 'lucide-react';
+import { Check, ChevronDown } from 'lucide-react';
 import { useTranslations } from '@weldsuite/i18n/client';
-import { Button } from '@weldsuite/ui/components/button';
-import { Input } from '@weldsuite/ui/components/input';
+import { Command, CommandGroup, CommandItem, CommandList } from '@weldsuite/ui/components/command';
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@weldsuite/ui/components/select';
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@weldsuite/ui/components/dropdown-menu';
+import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput, InputGroupText } from '@weldsuite/ui/components/input-group';
+import { PickerCheck } from '@weldsuite/ui/components/picker-menu';
 
 export type RepeatFrequency = 'daily' | 'weekly' | 'biweekly' | 'monthly' | 'yearly' | 'custom';
 export type RepeatUnit = 'days' | 'weeks' | 'months' | 'years';
@@ -46,12 +46,21 @@ interface RepeatConfigMenuProps {
   onRepeatChange: (value: RepeatFrequency | null) => void;
   onIntervalChange: (value: number) => void;
   onUnitChange: (value: RepeatUnit) => void;
+  /** The first line, for no repeat ("Never"); "No repeat" by default. */
+  noneLabel?: string;
+  /** Called after a choice that is complete on its own (no repeat or a preset), to close the popover. */
+  onDone?: () => void;
 }
 
+/** Keeps a key inside a field: the list would read Enter and the arrows as its own. */
+const keepKeys = (e: React.KeyboardEvent) => e.stopPropagation();
+
 /**
- * Popover-body contents for the repeat configuration picker.
- * Renders a list of preset frequencies, a custom row with interval + unit selects,
- * and a clear button. Intended to be placed inside a <PopoverContent>.
+ * Popover-body contents for the repeat picker, built like the platform's other field pickers:
+ * shadcn's Command list with a check on the right of the chosen line. "No repeat" first, the
+ * presets, then Custom, which shows "Every [n] [unit]" under the list as shadcn's input group
+ * (the number, and the unit in a dropdown at its end). Place it in a
+ * `<PopoverContent className="p-0">`.
  */
 export function RepeatConfigMenu({
   repeat,
@@ -60,78 +69,81 @@ export function RepeatConfigMenu({
   onRepeatChange,
   onIntervalChange,
   onUnitChange,
+  noneLabel,
+  onDone,
 }: Readonly<RepeatConfigMenuProps>) {
   const t = useTranslations();
   const labels = repeatLabels(t);
   const unitLabels = repeatUnitLabels(t);
+  const clear = () => {
+    onRepeatChange(null);
+    onIntervalChange(1);
+    onUnitChange('days');
+    onDone?.();
+  };
   return (
-    <>
-      {REPEAT_ORDER.map((key) => (
-        <Button
-          key={key}
-          type="button"
-          variant="ghost"
-          onClick={() => onRepeatChange(key)}
-          className="flex items-center justify-between w-full px-2 py-1.5 text-sm text-left hover:bg-gray-100 dark:hover:bg-secondary rounded h-auto"
-        >
-          <span>{labels[key]}</span>
-          {repeat === key && <Check className="h-3.5 w-3.5 text-primary" />}
-        </Button>
-      ))}
-      <div className="h-px bg-gray-200 dark:bg-accent my-1" />
-      <Button
-        type="button"
-        variant="ghost"
-        onClick={() => onRepeatChange('custom')}
-        className="flex items-center justify-between w-full px-2 py-1.5 text-sm text-left hover:bg-gray-100 dark:hover:bg-secondary rounded h-auto"
-      >
-        <span>{t('sweep.shared.custom')}</span>
-        {repeat === 'custom' && <Check className="h-3.5 w-3.5 text-primary" />}
-      </Button>
+    <Command className="outline-hidden">
+      <CommandList>
+        <CommandGroup>
+          <CommandItem value="none" onSelect={clear}>
+            {noneLabel ?? t('sweep.shared.noRepeat')}
+            <PickerCheck selected={!repeat} />
+          </CommandItem>
+          {REPEAT_ORDER.map((key) => (
+            <CommandItem
+              key={key}
+              value={key}
+              onSelect={() => {
+                onRepeatChange(key);
+                onDone?.();
+              }}
+            >
+              {labels[key]}
+              <PickerCheck selected={repeat === key} />
+            </CommandItem>
+          ))}
+          <CommandItem value="custom" onSelect={() => onRepeatChange('custom')}>
+            {t('sweep.shared.custom')}
+            <PickerCheck selected={repeat === 'custom'} />
+          </CommandItem>
+        </CommandGroup>
+      </CommandList>
       {repeat === 'custom' && (
-        <div className="flex items-center gap-2 px-2 py-2 mt-1">
-          <span className="text-sm text-muted-foreground">{t('sweep.shared.every')}</span>
-          <Input
-            type="number"
-            min={1}
-            value={repeatInterval}
-            onChange={(e) => onIntervalChange(Math.max(1, Number.parseInt(e.target.value) || 1))}
-            className="w-16 text-center"
-          />
-          <Select
-            value={repeatUnit}
-            onValueChange={(value) => onUnitChange(value as RepeatUnit)}
-          >
-            <SelectTrigger className="w-28">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {REPEAT_UNIT_ORDER.map((key) => (
-                <SelectItem key={key} value={key}>{unitLabels[key]}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+        <div className="border-t p-2">
+          <InputGroup>
+            <InputGroupAddon>
+              <InputGroupText>{t('sweep.shared.every')}</InputGroupText>
+            </InputGroupAddon>
+            <InputGroupInput
+              type="number"
+              min={1}
+              value={repeatInterval}
+              onChange={(e) => onIntervalChange(Math.max(1, Number.parseInt(e.target.value) || 1))}
+              onKeyDown={keepKeys}
+              aria-label={t('sweep.shared.every')}
+            />
+            <InputGroupAddon align="inline-end">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <InputGroupButton onKeyDown={keepKeys}>
+                    {unitLabels[repeatUnit]}
+                    <ChevronDown />
+                  </InputGroupButton>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" onKeyDown={keepKeys}>
+                  {REPEAT_UNIT_ORDER.map((key) => (
+                    <DropdownMenuItem key={key} onSelect={() => onUnitChange(key)}>
+                      {unitLabels[key]}
+                      <Check className={repeatUnit === key ? 'ml-auto' : 'ml-auto opacity-0'} />
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </InputGroupAddon>
+          </InputGroup>
         </div>
       )}
-      {repeat && (
-        <>
-          <div className="h-px bg-gray-200 dark:bg-accent my-1" />
-          <Button
-            type="button"
-            variant="ghost"
-            onClick={() => {
-              onRepeatChange(null);
-              onIntervalChange(1);
-              onUnitChange('days');
-            }}
-            className="flex items-center w-full px-2 py-1.5 text-sm text-left text-red-600 hover:bg-red-50 dark:hover:bg-red-950 rounded h-auto"
-          >
-            <Trash2 className="h-3.5 w-3.5 mr-2" />
-            <span>{t('sweep.shared.clear')}</span>
-          </Button>
-        </>
-      )}
-    </>
+    </Command>
   );
 }
 

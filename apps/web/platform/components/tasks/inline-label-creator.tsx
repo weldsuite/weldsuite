@@ -26,13 +26,15 @@ interface InlineLabelCreatorProps {
   onCreate: (data: { name: string; color: string }) => Promise<unknown>;
   /** Names that already exist, so a duplicate is not created by accident. */
   existingNames: string[];
+  /** Focus the name field on mount, for a creator opened from a "Create label" item. */
+  autoFocus?: boolean;
 }
 
 /**
  * Type-to-create row for label pickers: a name field plus a colour swatch row.
  * Pressing Enter (or the create button) saves the label.
  */
-export function InlineLabelCreator({ onCreate, existingNames }: Readonly<InlineLabelCreatorProps>) {
+export function InlineLabelCreator({ onCreate, existingNames, autoFocus }: Readonly<InlineLabelCreatorProps>) {
   const t = useTranslations();
   const [name, setName] = useState('');
   const [color, setColor] = useState<string>(INLINE_LABEL_COLORS[5]);
@@ -57,6 +59,7 @@ export function InlineLabelCreator({ onCreate, existingNames }: Readonly<InlineL
     <div className="flex flex-col gap-1.5 p-1">
       <Input
         value={name}
+        autoFocus={autoFocus}
         placeholder={t('sweep.shared.createLabelPlaceholder')}
         aria-label={t('sweep.shared.createLabelPlaceholder')}
         autoComplete="off"

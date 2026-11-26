@@ -1,5 +1,5 @@
 
-import { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useLayoutEffect, useCallback, type ComponentProps, type ReactNode } from 'react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Checkbox } from '@weldsuite/ui/components/checkbox';
 import {
@@ -8,6 +8,7 @@ import {
   DialogTitle,
 } from '@weldsuite/ui/components/dialog';
 import { Input } from '@weldsuite/ui/components/input';
+import { Switch } from '@weldsuite/ui/components/switch';
 import {
   Popover,
   PopoverContent,
@@ -21,10 +22,11 @@ import {
   CommandInput,
   CommandItem,
   CommandList,
+  CommandSeparator,
 } from '@weldsuite/ui/components/command';
 import { Calendar } from '@weldsuite/ui/components/calendar';
+import { PickerCheck, PickerScrollArea, focusPickerList } from '@weldsuite/ui/components/picker-menu';
 import {
-  Trash2,
   X,
   Check,
   Repeat2,
@@ -32,6 +34,14 @@ import {
   Paperclip,
   Upload,
   Github,
+  CircleDashed,
+  SignalHigh,
+  Tag,
+  Hourglass,
+  CalendarDays,
+  Users,
+  Link2,
+  Plus,
   type LucideIcon,
 } from 'lucide-react';
 import { ColoredSquareIcon } from '@/components/layout/colored-square-icon';
@@ -135,6 +145,14 @@ interface TaskDialogProps {
   /** Pre-selects the status field — e.g. the column a board "New task" button was clicked in. */
   defaultStatus?: Task['status'];
   recordLabel?: string;
+  /** What the record row is called ("Project" in WeldFlow); "Linked to" by default. */
+  recordRowLabel?: string;
+  /** The record row's icon; a link by default. */
+  recordIcon?: LucideIcon;
+  /** Lets the record picker create a record by name ("Create project"); returns the new option, or null when it failed. */
+  onCreateRecord?: (name: string) => Promise<CompanyOption | null>;
+  /** The record picker's create line and the name field's placeholder; needed with `onCreateRecord`. */
+  createRecordLabels?: { create: string; namePlaceholder: string };
   /** Override the record picker's search placeholder and empty state when it lists something other than CRM records (WeldFlow projects). */
   recordSearchPlaceholder?: string;
   recordEmptyLabel?: string;
@@ -250,6 +268,27 @@ function normalizeAssignee(a: string | AssigneeOption): AssigneeOption {
   return typeof a === 'string' ? { id: a, name: a, avatar: undefined } : a;
 }
 
+type RecordType = 'company' | 'person' | null;
+
+/** What kind of record a task is linked to. */
+function linkedRecordType(task: { linkedPerson?: unknown; linkedCompany?: unknown }): RecordType {
+  if (task.linkedPerson) return 'person';
+  if (task.linkedCompany) return 'company';
+  return null;
+}
+
+/** What kind of record a picked option is (a company unless it says person). */
+function optionRecordType(option: CompanyOption | null): RecordType {
+  if (!option) return null;
+  return option.type === 'person' ? 'person' : 'company';
+}
+
+/** The linked record as the API takes it: on the company or on the person side. */
+function linkedRecord(record: string | null, recordType: RecordType, name: string) {
+  const link = record ? { id: record, name } : null;
+  return recordType === 'person' ? { company: null, person: link } : { company: link, person: null };
+}
+
 function toggleValue(list: string[], value: string): string[] {
   return list.includes(value) ? list.filter((v) => v !== value) : [...list, value];
 }
@@ -317,7 +356,7 @@ function getInitialFormState(
     duration: editingTask.duration ?? null,
     record: editingTask.linkedPerson?.id || editingTask.linkedCompany?.id || null,
     recordName: editingTask.linkedPerson?.name || editingTask.linkedCompany?.name || null,
-    recordType: editingTask.linkedPerson ? 'person' : editingTask.linkedCompany ? 'company' : null,
+    recordType: linkedRecordType(editingTask),
     repeat: editingTask.repeat?.frequency || null,
     repeatInterval: editingTask.repeat?.interval || 1,
     repeatUnit: editingTask.repeat?.unit || 'days',
@@ -359,8 +398,34 @@ function scrollCaretIntoView(div: HTMLElement) {
 
 // ── Toolbar popovers ─────────────────────────────────────────────────────────
 
-const CLEAR_ITEM_CLASS =
-  'flex items-center w-full px-2 py-1.5 text-sm text-left text-red-600 hover:bg-red-50 dark:hover:bg-red-950 rounded';
+/**
+ * One row of the details column: an icon and what it is on the left, the
+ * value on the right. The whole row is the button that opens its picker
+ * (pass it as a `PopoverTrigger` child).
+ */
+function DetailRow({ icon: Icon, label, children, className, ...props }: Readonly<ComponentProps<'button'> & { icon: LucideIcon; label: string }>) {
+  return (
+    <button
+      type="button"
+      className={cn(
+        'flex h-11 w-full min-w-0 items-center justify-between gap-3 border-b border-border px-4 text-left text-sm outline-none transition-colors hover:bg-muted/50 focus-visible:bg-muted/50 focus-visible:ring-[3px] focus-visible:ring-inset focus-visible:ring-ring/50 disabled:cursor-default disabled:hover:bg-transparent',
+        className,
+      )}
+      {...props}
+    >
+      <span className="flex shrink-0 items-center gap-2 text-muted-foreground">
+        <Icon className="size-4" />
+        {label}
+      </span>
+      <span className="flex min-w-0 items-center justify-end gap-1.5">{children}</span>
+    </button>
+  );
+}
+
+/** A row's value when nothing is set: "None", "Never", "Unassigned". */
+function EmptyValue({ children }: Readonly<{ children: ReactNode }>) {
+  return <span className="truncate text-muted-foreground/70">{children}</span>;
+}
 
 function StatusPopover({
   status,
@@ -391,41 +456,39 @@ function StatusPopover({
     ? availableStatuses.map(s => ({ key: s.id, label: s.label, color: s.color }))
     : Object.entries(statusConfig).map(([key, config]) => ({ key, label: translatedStatusLabels[key] || config.label, color: undefined as string | undefined }));
 
+  const [open, setOpen] = useState(false);
+
   return (
-    <Popover>
+    <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button variant="outline" size="sm" className={cn("h-7 text-xs font-medium", !availableStatuses && builtIn?.btnColor)} style={availableStatuses ? { backgroundColor: (currentCustom?.color ?? '#e5e7eb') + '33', borderColor: currentCustom?.color } : undefined}>
-          {buttonLabel}
-        </Button>
+        <DetailRow icon={CircleDashed} label={tCrm.taskDialog.statusFallback}>
+          {currentCustom?.color && <span className="size-2 shrink-0 rounded-full" style={{ backgroundColor: currentCustom.color }} />}
+          <span className="truncate">{buttonLabel}</span>
+        </DetailRow>
       </PopoverTrigger>
-      <PopoverContent className="w-auto p-1" align="start">
-        {options.map(({ key, label, color }) => (
-          <Button
-            variant="ghost"
-            key={key}
-            onClick={() => onChange(key)}
-            className="flex items-center justify-between w-full px-2 py-1.5 text-sm text-left hover:bg-gray-100 dark:hover:bg-secondary rounded gap-2"
-          >
-            <span className="flex items-center gap-2">
-              {color && <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: color }} />}
-              <span>{label}</span>
-            </span>
-            {status === key && <Check className="h-3.5 w-3.5 text-primary" />}
-          </Button>
-        ))}
-        {!availableStatuses && status !== 'todo' && (
-          <>
-            <div className="h-px bg-gray-200 dark:bg-accent my-1" />
-            <Button
-              variant="ghost"
-              onClick={() => onChange('todo')}
-              className={CLEAR_ITEM_CLASS}
-            >
-              <Trash2 className="h-3.5 w-3.5 mr-2" />
-              <span>{tCrm.taskDialog.resetToDefault}</span>
-            </Button>
-          </>
-        )}
+      <PopoverContent className="w-52 p-0" align="start" onOpenAutoFocus={focusPickerList}>
+        <Command className="outline-hidden">
+          <CommandList className="max-h-none overflow-visible">
+            <PickerScrollArea>
+              <CommandGroup>
+                {options.map(({ key, label, color }) => (
+                  <CommandItem
+                    key={key}
+                    value={`${label} ${key}`}
+                    onSelect={() => {
+                      onChange(key);
+                      setOpen(false);
+                    }}
+                  >
+                    {color && <span className="size-2.5 shrink-0 rounded-full" style={{ backgroundColor: color }} />}
+                    {label}
+                    <PickerCheck selected={status === key} />
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            </PickerScrollArea>
+          </CommandList>
+        </Command>
       </PopoverContent>
     </Popover>
   );
@@ -442,38 +505,41 @@ function PriorityPopover({
     high: tCrm.tasks.priority.high,
     urgent: tCrm.tasks.priority.urgent,
   };
+  const [open, setOpen] = useState(false);
+  const pick = (next: PriorityValue | null) => {
+    onChange(next);
+    setOpen(false);
+  };
+
   return (
-    <Popover>
+    <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button variant="outline" size="sm" className={cn("h-7 text-xs font-medium", priority && priorityConfig[priority]?.btnColor)}>
-          {priority ? (translatedPriorityLabels[priority] || priorityConfig[priority]?.label) : tCrm.taskDialog.priorityFallback}
-        </Button>
+        <DetailRow icon={SignalHigh} label={tCrm.taskDialog.priorityFallback}>
+          {priority ? (
+            <span className="truncate">{translatedPriorityLabels[priority] || priorityConfig[priority]?.label}</span>
+          ) : (
+            <EmptyValue>{tCrm.taskDialog.none}</EmptyValue>
+          )}
+        </DetailRow>
       </PopoverTrigger>
-      <PopoverContent className="w-auto p-1" align="start">
-        {Object.entries(priorityConfig).filter(([key]) => key !== 'urgent').map(([key, config]) => (
-          <Button
-            variant="ghost"
-            key={key}
-            onClick={() => onChange(key as PriorityValue)}
-            className="flex items-center justify-between w-full px-2 py-1.5 text-sm text-left hover:bg-gray-100 dark:hover:bg-secondary rounded"
-          >
-            <span>{translatedPriorityLabels[key] || config.label}</span>
-            {priority === key && <Check className="h-3.5 w-3.5 text-primary" />}
-          </Button>
-        ))}
-        {priority && (
-          <>
-            <div className="h-px bg-gray-200 dark:bg-accent my-1" />
-            <Button
-              variant="ghost"
-              onClick={() => onChange(null)}
-              className={CLEAR_ITEM_CLASS}
-            >
-              <Trash2 className="h-3.5 w-3.5 mr-2" />
-              <span>{tCrm.taskDialog.clearPriority}</span>
-            </Button>
-          </>
-        )}
+      <PopoverContent className="w-48 p-0" align="start" onOpenAutoFocus={focusPickerList}>
+        <Command className="outline-hidden">
+          <CommandList>
+            <CommandGroup>
+              {/* "None" first, as in the duration picker. */}
+              <CommandItem value="none" onSelect={() => pick(null)}>
+                {tCrm.taskDialog.none}
+                <PickerCheck selected={!priority} />
+              </CommandItem>
+              {Object.entries(priorityConfig).filter(([key]) => key !== 'urgent').map(([key, config]) => (
+                <CommandItem key={key} value={key} onSelect={() => pick(key as PriorityValue)}>
+                  {translatedPriorityLabels[key] || config.label}
+                  <PickerCheck selected={priority === key} />
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </CommandList>
+        </Command>
       </PopoverContent>
     </Popover>
   );
@@ -498,11 +564,14 @@ function LabelsPopover({
   const visibleLabels = availableLabels.filter(
     (l) => !l.projectId || l.projectId === activeProjectId,
   );
+  const st = useTranslations();
+  // "+ Create label" opens the name field under the list.
+  const [creating, setCreating] = useState(false);
 
   return (
-    <Popover>
+    <Popover onOpenChange={(open) => !open && setCreating(false)}>
       <PopoverTrigger asChild>
-        <Button variant="outline" size="sm" className={cn("h-7 text-xs font-normal gap-1", selectedLabels.length > 0 && "px-1")}>
+        <DetailRow icon={Tag} label={tCrm.taskDialog.labelsFallback}>
           {selectedLabels.length > 0 ? (
             <span className="flex items-center gap-1">
               {selectedLabels.slice(0, 2).map((id) => {
@@ -523,132 +592,152 @@ function LabelsPopover({
               {selectedLabels.length > 2 && <span className="text-muted-foreground">+{selectedLabels.length - 2}</span>}
             </span>
           ) : (
-            tCrm.taskDialog.labelsFallback
+            <EmptyValue>{tCrm.taskDialog.none}</EmptyValue>
           )}
-        </Button>
+        </DetailRow>
       </PopoverTrigger>
-      <PopoverContent className="w-auto p-1 min-w-[200px]" align="start">
-        {visibleLabels.length === 0 ? (
-          <div className="px-2 py-1.5 text-xs text-muted-foreground">
-            {activeProjectId ? tCrm.taskDialog.noLabelsForProject : tCrm.taskDialog.selectProjectForLabels}
-          </div>
-        ) : (
-          visibleLabels.map((label) => {
-            const isSelected = selectedLabels.includes(label.id);
-            return (
-              <Button
-                variant="ghost"
-                key={label.id}
-                onClick={() => onChange((prev) => toggleValue(prev, label.id))}
-                className="flex items-center justify-between w-full px-2 py-1.5 text-sm text-left hover:bg-gray-100 dark:hover:bg-secondary rounded gap-2"
-              >
-                <span
-                  className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border-transparent"
-                  style={{
-                    backgroundColor: resolveLabelColor(label.color),
-                    color: readableLabelTextColor(resolveLabelColor(label.color)),
-                  }}
-                >
-                  {label.name}
-                </span>
-                {isSelected && <Check className="h-3.5 w-3.5 text-primary flex-shrink-0" />}
-              </Button>
-            );
-          })
-        )}
-        {onCreateLabel && (
-          <>
-            {visibleLabels.length > 0 && <div className="h-px bg-gray-200 dark:bg-accent my-1" />}
+      <PopoverContent className="w-60 p-0" align="start" onOpenAutoFocus={focusPickerList}>
+        <Command className="outline-hidden">
+          <CommandList className="max-h-none overflow-visible">
+            <PickerScrollArea>
+              {visibleLabels.length > 0 ? (
+                <CommandGroup>
+                  {/* "None" first, in place of a Clear all at the bottom. */}
+                  <CommandItem value="none" onSelect={() => onChange([])}>
+                    {tCrm.taskDialog.none}
+                    <PickerCheck selected={selectedLabels.length === 0} />
+                  </CommandItem>
+                  {visibleLabels.map((label) => {
+                    const isSelected = selectedLabels.includes(label.id);
+                    return (
+                      <CommandItem key={label.id} value={`${label.name} ${label.id}`} onSelect={() => onChange((prev) => toggleValue(prev, label.id))}>
+                        <span
+                          className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border-transparent"
+                          style={{
+                            backgroundColor: resolveLabelColor(label.color),
+                            color: readableLabelTextColor(resolveLabelColor(label.color)),
+                          }}
+                        >
+                          {label.name}
+                        </span>
+                        <PickerCheck selected={isSelected} />
+                      </CommandItem>
+                    );
+                  })}
+                </CommandGroup>
+              ) : (
+                !onCreateLabel && (
+                  <div className="px-2 py-6 text-center text-sm text-muted-foreground">
+                    {activeProjectId ? tCrm.taskDialog.noLabelsForProject : tCrm.taskDialog.selectProjectForLabels}
+                  </div>
+                )
+              )}
+            </PickerScrollArea>
+            {onCreateLabel && (
+              <>
+                {visibleLabels.length > 0 && <CommandSeparator />}
+                <CommandGroup>
+                  <CommandItem value="create-label" onSelect={() => setCreating(true)}>
+                    <Plus />
+                    {st('sweep.shared.createLabel')}
+                  </CommandItem>
+                </CommandGroup>
+              </>
+            )}
+          </CommandList>
+        </Command>
+        {/* Outside the list, so typing a new label's name is not read as list keys. */}
+        {onCreateLabel && creating && (
+          <div className="border-t p-1">
             <InlineLabelCreator
+              autoFocus
               existingNames={visibleLabels.map((l) => l.name)}
               onCreate={async (data) => {
                 const created = await onCreateLabel(data);
-                if (created) onChange((prev) => [...prev, created.id]);
+                if (created) {
+                  onChange((prev) => [...prev, created.id]);
+                  setCreating(false);
+                }
                 return created;
               }}
             />
-          </>
-        )}
-        {selectedLabels.length > 0 && (
-          <>
-            <div className="h-px bg-gray-200 dark:bg-accent my-1" />
-            <Button
-              variant="ghost"
-              onClick={() => onChange([])}
-              className={CLEAR_ITEM_CLASS}
-            >
-              <Trash2 className="h-3.5 w-3.5 mr-2" />
-              <span>{tCrm.taskDialog.clearAll}</span>
-            </Button>
-          </>
+          </div>
         )}
       </PopoverContent>
     </Popover>
   );
 }
 
+/**
+ * The duration picker, built like the platform's other field pickers: shadcn's Command list with
+ * a check on the right of the chosen line (None, the presets, Custom). Custom keeps the list
+ * open and shows a minutes field under it.
+ */
 function DurationPopover({
   duration,
   onChange,
 }: Readonly<{ duration: number | null; onChange: (duration: number | null) => void }>) {
   const tCrm = getTranslations('crm');
-  // A set estimate shows only "30m": the name and tooltip say what it is.
-  const estimateLabel = duration == null ? undefined : tCrm.taskDialog.durationLabel.replace('{duration}', formatMinutes(duration));
+  const [open, setOpen] = useState(false);
+  const [customOpen, setCustomOpen] = useState(false);
+  const isCustom = duration != null && !DURATION_PRESETS.includes(duration);
+  let selected = 'custom';
+  if (duration == null && !customOpen) selected = 'none';
+  else if (duration != null && !isCustom && !customOpen) selected = String(duration);
+  const pick = (next: number | null) => {
+    onChange(next);
+    setOpen(false);
+  };
   return (
-    <Popover>
+    <Popover
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (!next) setCustomOpen(false);
+      }}
+    >
       <PopoverTrigger asChild>
-        <Button
-          variant="outline"
-          size="sm"
-          aria-label={estimateLabel}
-          title={estimateLabel}
-          className={cn("h-7 text-xs font-normal gap-1", duration != null && "bg-cyan-100 text-cyan-800 border-cyan-200 hover:bg-cyan-200 dark:bg-cyan-900/30 dark:text-cyan-400 dark:border-cyan-800")}
-        >
-          {duration != null ? formatMinutes(duration) : tCrm.taskDialog.durationFallback}
-        </Button>
+        <DetailRow icon={Hourglass} label={tCrm.taskDialog.durationFallback}>
+          {duration != null ? <span className="tabular-nums">{formatMinutes(duration)}</span> : <EmptyValue>{tCrm.taskDialog.none}</EmptyValue>}
+        </DetailRow>
       </PopoverTrigger>
-      <PopoverContent className="w-48 p-1" align="start">
-        <div className="flex flex-col">
-          {DURATION_PRESETS.map((mins) => (
-            <Button
-              variant="ghost"
-              key={mins}
-              onClick={() => onChange(mins)}
-              className={cn(
-                "flex items-center justify-between px-2 py-1.5 text-sm rounded hover:bg-gray-100 dark:hover:bg-secondary",
-                duration === mins && "bg-gray-100 dark:bg-secondary"
-              )}
-            >
-              <span>{formatMinutes(mins)}</span>
-              {duration === mins && <Check className="h-3.5 w-3.5" />}
-            </Button>
-          ))}
-          <div className="h-px bg-gray-200 dark:bg-border my-1" />
-          <div className="px-2 py-1.5">
-            <label className="text-xs font-medium text-gray-500 dark:text-muted-foreground">{tCrm.taskDialog.customMinutes}</label>
-            <Input
-              type="number"
-              min="0"
-              value={duration != null && !DURATION_PRESETS.includes(duration) ? duration : ''}
-              onChange={(e) => onChange(e.target.value ? Number.parseInt(e.target.value, 10) : null)}
-              placeholder=""
-              className="h-7 text-sm mt-1"
-            />
-          </div>
-          {duration != null && (
-            <>
-              <div className="h-px bg-gray-200 dark:bg-border my-1" />
-              <Button
-                variant="ghost"
-                onClick={() => onChange(null)}
-                className={CLEAR_ITEM_CLASS}
-              >
-                <Trash2 className="h-3.5 w-3.5 mr-2" />
-                <span>{tCrm.taskDialog.clearDuration}</span>
-              </Button>
-            </>
+      <PopoverContent className="w-48 p-0" align="start" onOpenAutoFocus={focusPickerList}>
+        <Command>
+          <CommandList>
+            <CommandGroup>
+              <CommandItem value="none" onSelect={() => pick(null)}>
+                {tCrm.taskDialog.none}
+                <PickerCheck selected={selected === 'none'} />
+              </CommandItem>
+              {DURATION_PRESETS.map((mins) => (
+                <CommandItem key={mins} value={String(mins)} onSelect={() => pick(mins)}>
+                  {formatMinutes(mins)}
+                  <PickerCheck selected={selected === String(mins)} />
+                </CommandItem>
+              ))}
+              <CommandItem value="custom" onSelect={() => setCustomOpen(true)}>
+                {tCrm.taskDialog.custom}
+                <PickerCheck selected={selected === 'custom'} />
+              </CommandItem>
+            </CommandGroup>
+          </CommandList>
+          {(customOpen || isCustom) && (
+            <div className="border-t p-2">
+              <Input
+                type="number"
+                min="0"
+                autoFocus={customOpen}
+                value={isCustom ? duration : ''}
+                onChange={(e) => onChange(e.target.value ? Number.parseInt(e.target.value, 10) : null)}
+                // Keep the keys in the field: the list would read Enter and the arrows as its own.
+                onKeyDown={(e) => e.stopPropagation()}
+                placeholder={tCrm.taskDialog.minutes}
+                aria-label={tCrm.taskDialog.customMinutes}
+                className="h-8 text-sm"
+              />
+            </div>
           )}
-        </div>
+        </Command>
       </PopoverContent>
     </Popover>
   );
@@ -659,18 +748,41 @@ function DueDatePopover({
   onChange,
 }: Readonly<{ dueDate: Date | undefined; onChange: (date: Date | undefined) => void }>) {
   const tCrm = getTranslations('crm');
+  const [open, setOpen] = useState(false);
   return (
-    <Popover>
+    <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button variant="outline" size="sm" className="h-7 text-xs font-normal">
-          {dueDate ? format(dueDate, 'MMM d') : tCrm.taskDialog.dueDateFallback}
-        </Button>
+        <DetailRow icon={CalendarDays} label={tCrm.taskDialog.dueDateFallback}>
+          {dueDate ? <span className="tabular-nums">{format(dueDate, 'EEE, MMM d')}</span> : <EmptyValue>{tCrm.taskDialog.none}</EmptyValue>}
+        </DetailRow>
       </PopoverTrigger>
       <PopoverContent className="w-auto p-0" align="start">
+        {/* "None" first, as in the other pickers, in place of a Clear under the calendar. */}
+        <Command className="h-auto rounded-none border-b outline-hidden">
+          <CommandList>
+            <CommandGroup>
+              <CommandItem
+                value="none"
+                onSelect={() => {
+                  onChange(undefined);
+                  setOpen(false);
+                }}
+              >
+                {tCrm.taskDialog.none}
+                <PickerCheck selected={!dueDate} />
+              </CommandItem>
+            </CommandGroup>
+          </CommandList>
+        </Command>
+        {/* shadcn's calendar with month and year dropdowns: from this year to ten years ahead. */}
         <Calendar
           mode="single"
+          captionLayout="dropdown"
           selected={dueDate}
+          defaultMonth={dueDate}
           onSelect={onChange}
+          startMonth={new Date(new Date().getFullYear(), 0)}
+          endMonth={new Date(new Date().getFullYear() + 10, 11)}
           disabled={(date) => {
             const today = new Date();
             today.setHours(0, 0, 0, 0);
@@ -678,18 +790,6 @@ function DueDatePopover({
           }}
           autoFocus
         />
-        {dueDate && (
-          <div className="p-1 border-t border-gray-200 dark:border-border">
-            <Button
-              variant="ghost"
-              onClick={() => onChange(undefined)}
-              className={CLEAR_ITEM_CLASS}
-            >
-              <Trash2 className="h-3.5 w-3.5 mr-2" />
-              <span>{tCrm.taskDialog.clearDueDate}</span>
-            </Button>
-          </div>
-        )}
       </PopoverContent>
     </Popover>
   );
@@ -707,7 +807,7 @@ function AssigneesButtonContent({ selected }: Readonly<{ selected: AssigneeOptio
             {a.name.charAt(0).toUpperCase()}
           </AvatarFallback>
         </Avatar>
-        <span>{a.name}</span>
+        <span className="truncate">{a.name}</span>
       </>
     );
   }
@@ -751,56 +851,55 @@ function AssigneesPopover({
   return (
     <Popover open={open} onOpenChange={onOpenChange}>
       <PopoverTrigger asChild>
-        <Button variant="outline" size="sm" className={cn("h-7 text-xs font-medium gap-1.5", assigneeList.length > 0 ? "bg-blue-100 text-blue-800 border-blue-200 hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-400 dark:border-blue-800 pl-1" : "font-normal")}>
-          {selected.length > 0
-            ? <AssigneesButtonContent selected={selected} />
-            : tCrm.taskDialog.assigneesFallback}
-        </Button>
+        <DetailRow icon={Users} label={tCrm.taskDialog.assigneesFallback}>
+          {selected.length > 0 ? <AssigneesButtonContent selected={selected} /> : <EmptyValue>{tCrm.taskDialog.unassigned}</EmptyValue>}
+        </DetailRow>
       </PopoverTrigger>
-      <PopoverContent className="w-auto min-w-[220px] p-1" align="start">
-        {normalized.map(({ id, name, avatar, departed }) => {
-          const isSelected = assigneeList.includes(id);
-          // Someone who left the workspace can be unassigned, never newly picked.
-          if (departed && !isSelected) return null;
-          return (
-            <Button
-              variant="ghost"
-              key={id}
-              onClick={() => onChange(toggleValue(assigneeList, id))}
-              className="flex items-center justify-between w-full px-1.5 py-1.5 text-sm text-left hover:bg-gray-100 dark:hover:bg-secondary rounded gap-4"
-            >
-              <span className="flex items-center gap-2">
-                <Avatar className="h-5 w-5">
-                  {avatar && <AvatarImage src={avatar} alt={name} />}
-                  <AvatarFallback className="text-[10px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
-                    {name.charAt(0).toUpperCase()}
-                  </AvatarFallback>
-                </Avatar>
-                <span>{name}</span>
-              </span>
-              {isSelected && <Check className="h-3.5 w-3.5 text-primary" />}
-            </Button>
-          );
-        })}
-        {assigneeList.length > 0 && (
-          <>
-            <div className="h-px bg-gray-200 dark:bg-accent my-1" />
-            <Button
-              variant="ghost"
-              onClick={() => { onChange([]); onOpenChange(false); }}
-              className={CLEAR_ITEM_CLASS}
-            >
-              <Trash2 className="h-3.5 w-3.5 mr-2" />
-              <span>{tCrm.taskDialog.clearAll}</span>
-            </Button>
-          </>
-        )}
+      <PopoverContent className="w-60 p-0" align="start" onOpenAutoFocus={focusPickerList}>
+        <Command className="outline-hidden">
+          <CommandList className="max-h-none overflow-visible">
+            <PickerScrollArea>
+              <CommandGroup>
+                {/* "None" first, in place of a Clear all at the bottom. */}
+                <CommandItem
+                  value="none"
+                  onSelect={() => {
+                    onChange([]);
+                    onOpenChange(false);
+                  }}
+                >
+                  {tCrm.taskDialog.none}
+                  <PickerCheck selected={assigneeList.length === 0} />
+                </CommandItem>
+                {normalized.map(({ id, name, avatar, departed }) => {
+                  const isSelected = assigneeList.includes(id);
+                  // Someone who left the workspace can be unassigned, never newly picked.
+                  if (departed && !isSelected) return null;
+                  return (
+                    <CommandItem key={id} value={`${name} ${id}`} onSelect={() => onChange(toggleValue(assigneeList, id))}>
+                      <Avatar className="size-5">
+                        {avatar && <AvatarImage src={avatar} alt={name} />}
+                        <AvatarFallback className="text-[10px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
+                          {name.charAt(0).toUpperCase()}
+                        </AvatarFallback>
+                      </Avatar>
+                      <span className="truncate">{name}</span>
+                      <PickerCheck selected={isSelected} />
+                    </CommandItem>
+                  );
+                })}
+              </CommandGroup>
+            </PickerScrollArea>
+          </CommandList>
+        </Command>
       </PopoverContent>
     </Popover>
   );
 }
 
 function RecordPopover({
+  rowLabel,
+  rowIcon,
   record,
   companies,
   selectedCompany,
@@ -813,7 +912,12 @@ function RecordPopover({
   onSearchChange,
   onChange,
   showKind,
+  onCreate,
+  createLabels,
 }: Readonly<{
+  /** What the row says the record is ("Project", "Linked to"). */
+  rowLabel: string;
+  rowIcon: LucideIcon;
   record: string | null;
   companies: CompanyOption[];
   selectedCompany: CompanyOption | undefined;
@@ -827,16 +931,46 @@ function RecordPopover({
   onChange: (company: CompanyOption | null) => void;
   /** Badge each option as company/person; off when the caller passes no people (e.g. a project list). */
   showKind: boolean;
+  /** Creates a record by name ("Create project"); the picker selects what it returns. */
+  onCreate?: (name: string) => Promise<CompanyOption | null>;
+  createLabels?: { create: string; namePlaceholder: string };
 }>) {
   const tCrm = getTranslations('crm');
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  // "+ Create …" opens a name field under the list, filled in with the search.
+  const [creating, setCreating] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [busy, setBusy] = useState(false);
+  const canCreate = !!onCreate && !!createLabels;
+  // Nothing to pick or search yet (no projects at all): the menu is only "+ Create …".
+  const nothingYet = canCreate && companies.length === 0 && query === '';
+  const submitNew = async () => {
+    const name = newName.trim();
+    if (!onCreate || !name || busy) return;
+    setBusy(true);
+    try {
+      const created = await onCreate(name);
+      if (created) {
+        onChange(created);
+        setCreating(false);
+        setNewName('');
+        setOpen(false);
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
   return (
-    <Popover>
+    <Popover
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (!next) setCreating(false);
+      }}
+    >
       <PopoverTrigger asChild>
-        <Button variant="outline" size="sm" className={cn(
-          "h-7 text-xs font-normal gap-1.5",
-          record && "bg-purple-100 text-purple-800 border-purple-200 hover:bg-purple-200 dark:bg-purple-900/30 dark:text-purple-400 dark:border-purple-800 pl-1",
-          recordRequired && !record && "border-red-300 text-red-600 dark:border-red-900 dark:text-red-400",
-        )}>
+        <DetailRow icon={rowIcon} label={rowLabel}>
           {record && selectedCompany?.icon && (
             <ColoredSquareIcon icon={selectedCompany.icon} color={selectedCompany.iconColor} className="size-[18px] rounded-[7px]" />
           )}
@@ -850,79 +984,133 @@ function RecordPopover({
               </AvatarFallback>
             </Avatar>
           )}
-          <span>{selectedCompanyLabel || defaultLabel}{recordRequired && !record ? ' *' : ''}</span>
-        </Button>
+          {record ? (
+            <span className="truncate">{selectedCompanyLabel || defaultLabel}</span>
+          ) : (
+            <EmptyValue>
+              {defaultLabel}
+              {recordRequired && ' *'}
+            </EmptyValue>
+          )}
+        </DetailRow>
       </PopoverTrigger>
-      <PopoverContent className="w-[260px] p-0" align="start">
+      <PopoverContent className="w-[260px] p-0" align="start" onOpenAutoFocus={nothingYet ? focusPickerList : undefined}>
         <Command>
-          <CommandInput
-            placeholder={searchPlaceholder ?? tCrm.taskDialog.searchRecords}
-            className="h-9"
-            onValueChange={onSearchChange}
-          />
+          {!nothingYet && (
+            <CommandInput
+              placeholder={searchPlaceholder ?? tCrm.taskDialog.searchRecords}
+              className="h-9"
+              onValueChange={(value) => {
+                setQuery(value);
+                onSearchChange?.(value);
+              }}
+            />
+          )}
           <CommandList
             onWheel={(e) => {
               e.currentTarget.scrollTop += e.deltaY;
             }}
           >
-            <CommandEmpty>{isSearching ? tCrm.taskDialog.searchingRecords : (emptyLabel ?? tCrm.taskDialog.noRecordsFound)}</CommandEmpty>
-            <CommandGroup className="px-1 py-1">
-              {companies.map((company) => (
-                <CommandItem
-                  key={company.id}
-                  value={`${company.name} ${company.id}`}
-                  onSelect={() => onChange(company.id === record ? null : company)}
-                  className="flex items-center justify-between gap-2 px-1.5"
-                >
-                  <span className="flex items-center gap-2 min-w-0 flex-1">
-                    {company.icon ? (
-                      <ColoredSquareIcon icon={company.icon} color={company.iconColor} />
-                    ) : (
-                      <Avatar className="h-5 w-5 flex-shrink-0">
-                        {company.avatar && (
-                          <AvatarImage src={company.avatar} alt={company.name} />
-                        )}
-                        <AvatarFallback className="text-[10px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
-                          {company.name.charAt(0).toUpperCase()}
-                        </AvatarFallback>
-                      </Avatar>
+            {!nothingYet && (
+              <CommandEmpty>{isSearching ? tCrm.taskDialog.searchingRecords : (emptyLabel ?? tCrm.taskDialog.noRecordsFound)}</CommandEmpty>
+            )}
+            {/* No group at all when there is nothing to list: an empty one still takes 8px. */}
+            {companies.length > 0 && (
+              <CommandGroup className="px-1 py-1">
+                {companies.map((company) => (
+                  <CommandItem
+                    key={company.id}
+                    value={`${company.name} ${company.id}`}
+                    onSelect={() => onChange(company.id === record ? null : company)}
+                    className="flex items-center justify-between gap-2 px-1.5"
+                  >
+                    <span className="flex items-center gap-2 min-w-0 flex-1">
+                      {company.icon ? (
+                        <ColoredSquareIcon icon={company.icon} color={company.iconColor} />
+                      ) : (
+                        <Avatar className="h-5 w-5 flex-shrink-0">
+                          {company.avatar && (
+                            <AvatarImage src={company.avatar} alt={company.name} />
+                          )}
+                          <AvatarFallback className="text-[10px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
+                            {company.name.charAt(0).toUpperCase()}
+                          </AvatarFallback>
+                        </Avatar>
+                      )}
+                      <span className="truncate">{company.name}</span>
+                    </span>
+                    {/* Companies and people share this list: say which is which, same as the Notes record picker. */}
+                    {showKind && (company.type === 'company' || company.type === 'person') && (
+                      <RecordKindBadge kind={company.type} />
                     )}
-                    <span className="truncate">{company.name}</span>
-                  </span>
-                  {/* Companies and people share this list: say which is which, same as the Notes record picker. */}
-                  {showKind && (company.type === 'company' || company.type === 'person') && (
-                    <RecordKindBadge kind={company.type} />
-                  )}
-                  {record === company.id && <Check className="h-3.5 w-3.5 text-primary flex-shrink-0" />}
-                </CommandItem>
-              ))}
-            </CommandGroup>
+                    {record === company.id && <Check className="h-3.5 w-3.5 text-primary flex-shrink-0" />}
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            )}
+            {canCreate && (
+              <>
+                {companies.length > 0 && <CommandSeparator />}
+                {/* Always shown, whatever the search: it is how a first project gets made. */}
+                <CommandGroup forceMount>
+                  <CommandItem
+                    forceMount
+                    value="create-record"
+                    onSelect={() => {
+                      setNewName(query.trim());
+                      setCreating(true);
+                    }}
+                  >
+                    <Plus />
+                    {createLabels?.create}
+                  </CommandItem>
+                </CommandGroup>
+              </>
+            )}
           </CommandList>
         </Command>
+        {/* Outside the list, so typing the name is not read as list keys. */}
+        {canCreate && creating && (
+          <div className="grid gap-2 border-t p-2">
+            <Input
+              autoFocus
+              value={newName}
+              placeholder={createLabels?.namePlaceholder}
+              aria-label={createLabels?.namePlaceholder}
+              autoComplete="off"
+              className="h-8 text-sm"
+              onChange={(e) => setNewName(e.target.value)}
+              onKeyDown={(e) => {
+                e.stopPropagation();
+                if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
+                  e.preventDefault();
+                  void submitNew();
+                }
+              }}
+            />
+            <Button type="button" size="sm" className="h-8" disabled={!newName.trim() || busy} onClick={() => void submitNew()}>
+              {busy ? <Loader2 className="animate-spin" /> : <Plus />}
+              {createLabels?.create}
+            </Button>
+          </div>
+        )}
       </PopoverContent>
     </Popover>
   );
 }
 
-/** The record chip of `RecordPopover` in its selected state, without the picker. */
-function LockedRecordChip({ record }: Readonly<{ record: { id: string; name: string; avatar?: string } }>) {
+/** The record row of `RecordPopover` in its selected state, without the picker. */
+function LockedRecordRow({ record, rowLabel, rowIcon }: Readonly<{ record: { id: string; name: string; avatar?: string }; rowLabel: string; rowIcon: LucideIcon }>) {
   return (
-    <Button
-      asChild
-      variant="outline"
-      size="sm"
-      className="h-7 text-xs font-normal gap-1.5 pl-1 cursor-default bg-purple-100 text-purple-800 border-purple-200 hover:bg-purple-100 hover:text-purple-800 dark:bg-purple-900/30 dark:text-purple-400 dark:border-purple-800 dark:hover:bg-purple-900/30 dark:hover:text-purple-400"
-    >
-      <span>
-        <Avatar className="h-5 w-5">
-          {record.avatar && <AvatarImage src={record.avatar} alt={record.name} />}
-          <AvatarFallback className="text-[10px] font-medium bg-purple-200/60 dark:bg-purple-900/60 text-purple-800 dark:text-purple-300">
-            {(record.name || '?').charAt(0).toUpperCase()}
-          </AvatarFallback>
-        </Avatar>
-        <span className="truncate max-w-[180px]">{record.name}</span>
-      </span>
-    </Button>
+    <DetailRow icon={rowIcon} label={rowLabel} disabled>
+      <Avatar className="h-5 w-5">
+        {record.avatar && <AvatarImage src={record.avatar} alt={record.name} />}
+        <AvatarFallback className="text-[10px] font-medium bg-purple-200/60 dark:bg-purple-900/60 text-purple-800 dark:text-purple-300">
+          {(record.name || '?').charAt(0).toUpperCase()}
+        </AvatarFallback>
+      </Avatar>
+      <span className="truncate">{record.name}</span>
+    </DetailRow>
   );
 }
 
@@ -942,26 +1130,19 @@ function RepeatPopover({
   onUnitChange: (unit: RepeatUnitValue) => void;
 }>) {
   const tCrm = getTranslations('crm');
+  const [open, setOpen] = useState(false);
   return (
-    <Popover>
+    <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button
-          variant="outline"
-          size="sm"
-          // Icon-only until a repeat is set.
-          aria-label={repeat ? undefined : tCrm.taskDialog.repeatFallback}
-          title={tCrm.taskDialog.repeatFallback}
-          className={cn("h-[30px] gap-1 px-2", repeat && "bg-indigo-100 text-indigo-800 border-indigo-200 hover:bg-indigo-200 dark:bg-indigo-900/30 dark:text-indigo-400 dark:border-indigo-800")}
-        >
-          <Repeat2 className="h-3.5 w-3.5" />
-          {repeat && (
-            <span className="text-xs">
-              {repeatLabel(repeat as RepeatFrequency, repeatInterval, repeatUnit as RepeatUnit)}
-            </span>
+        <DetailRow icon={Repeat2} label={tCrm.taskDialog.repeatFallback}>
+          {repeat ? (
+            <span className="truncate">{repeatLabel(repeat as RepeatFrequency, repeatInterval, repeatUnit as RepeatUnit)}</span>
+          ) : (
+            <EmptyValue>{tCrm.taskDialog.never}</EmptyValue>
           )}
-        </Button>
+        </DetailRow>
       </PopoverTrigger>
-      <PopoverContent className="w-auto p-1" align="end">
+      <PopoverContent className="w-64 p-0" align="start" onOpenAutoFocus={focusPickerList}>
         <RepeatConfigMenu
           repeat={repeat as RepeatFrequency | null}
           repeatInterval={repeatInterval}
@@ -969,6 +1150,8 @@ function RepeatPopover({
           onRepeatChange={(v) => onRepeatChange(v)}
           onIntervalChange={onIntervalChange}
           onUnitChange={(v) => onUnitChange(v)}
+          noneLabel={tCrm.taskDialog.never}
+          onDone={() => setOpen(false)}
         />
       </PopoverContent>
     </Popover>
@@ -1041,6 +1224,10 @@ export function TaskDialog({
   defaultAssignee,
   defaultStatus,
   recordLabel = 'Select record',
+  recordRowLabel,
+  recordIcon = Link2,
+  onCreateRecord,
+  createRecordLabels,
   recordSearchPlaceholder,
   recordEmptyLabel,
   hideRecord,
@@ -1080,6 +1267,13 @@ export function TaskDialog({
   const titleTextareaRef = useRef<HTMLTextAreaElement>(null);
   const descriptionRef = useRef<HTMLDivElement>(null);
   const isSubmittingRef = useRef(false);
+  // "Create more": after a create the next task starts with the same details.
+  const [createMore, setCreateMore] = useState(false);
+  // Set by a create with "Create more" on. Callers close the dialog once the task is saved; while
+  // this is set the dialog stays on screen, asks to be reopened and keeps the form (name and
+  // description emptied) instead of resetting it.
+  const carryOverRef = useRef(false);
+  const wasOpenRef = useRef(open);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const recordSearchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const recordSearchSettleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1269,6 +1463,12 @@ export function TaskDialog({
 
   // Reset form when dialog opens/closes or editingTask changes
   useEffect(() => {
+    if (open && carryOverRef.current) {
+      // Reopened after a "Create more" save: keep the details, start the next name.
+      carryOverRef.current = false;
+      const timer = setTimeout(() => titleTextareaRef.current?.focus(), 0);
+      return () => clearTimeout(timer);
+    }
     if (open) {
       isSubmittingRef.current = false;
       const initial = getInitialFormState(editingTask, defaultAssignee, defaultRecord, defaultStatus);
@@ -1300,6 +1500,19 @@ export function TaskDialog({
     }
   }, [open, editingTask, defaultRecord, defaultAssignee, defaultStatus, syncDescriptionToDiv]);
 
+  // The caller closed the dialog after a "Create more" save: empty the name and description and
+  // ask to be opened again (the effect above then keeps the rest of the form).
+  useEffect(() => {
+    const wasOpen = wasOpenRef.current;
+    wasOpenRef.current = open;
+    if (!wasOpen || open || !carryOverRef.current) return;
+    isSubmittingRef.current = false;
+    setTitle('');
+    setDescription('');
+    syncDescriptionToDiv('');
+    onOpenChange(true);
+  }, [open, onOpenChange, syncDescriptionToDiv]);
+
   const resetForm = () => {
     setTitle('');
     setDescription('');
@@ -1320,6 +1533,7 @@ export function TaskDialog({
   };
 
   const handleClose = () => {
+    carryOverRef.current = false;
     onOpenChange(false);
     resetForm();
   };
@@ -1329,6 +1543,7 @@ export function TaskDialog({
     if (recordRequired && !record) return;
 
     isSubmittingRef.current = true;
+    carryOverRef.current = !editingTask && createMore;
 
     // Read latest description from contentEditable div
     const finalDescription = readDescriptionFromDiv();
@@ -1353,7 +1568,7 @@ export function TaskDialog({
       finalDescription,
     );
 
-    const isPersonRecord = recordType === 'person';
+    const linked = linkedRecord(record, recordType, selectedCompanyLabel || '');
 
     if (editingTask) {
       // An edit sends what the form holds, cleared fields included: `undefined`
@@ -1366,8 +1581,8 @@ export function TaskDialog({
         labels: selectedLabels,
         repeat: common.repeat ?? null,
         assigneeIds: assigneeList,
-        linkedCompany: record && !isPersonRecord ? { id: record, name: selectedCompanyLabel || '' } : null,
-        linkedPerson: record && isPersonRecord ? { id: record, name: selectedCompanyLabel || '' } : null,
+        linkedCompany: linked.company,
+        linkedPerson: linked.person,
       });
     } else {
       // TODO (GitHub: task_mo35kz3u7abmh1uo): plumb `createOnGithub` and `githubRepoLinkId` through
@@ -1379,8 +1594,8 @@ export function TaskDialog({
         ...common,
         assigneeId: assigneeList[0] || undefined,
         assigneeIds: assigneeList.length > 0 ? assigneeList : undefined,
-        linkedCompanyId: record && !isPersonRecord ? record : undefined,
-        personId: record && isPersonRecord ? record : undefined,
+        linkedCompanyId: linked.company?.id,
+        personId: linked.person?.id,
       });
     }
   };
@@ -1388,7 +1603,7 @@ export function TaskDialog({
   const handleRecordChange = (company: CompanyOption | null) => {
     setRecord(company?.id ?? null);
     setRecordName(company?.name ?? null);
-    setRecordType(company ? (company.type === 'person' ? 'person' : 'company') : null);
+    setRecordType(optionRecordType(company));
   };
 
   const resizeTextarea = useCallback((textarea: HTMLTextAreaElement | null, maxHeight: number) => {
@@ -1415,10 +1630,12 @@ export function TaskDialog({
 
   const submitLabel = editingTask ? tCrm.taskDialog.save : tCrm.taskDialog.createTask;
 
+  const rowLabel = recordRowLabel ?? tCrm.taskDialog.recordRow;
+
   return (
-    <Dialog open={open} onOpenChange={handleClose}>
+    <Dialog open={open || carryOverRef.current} onOpenChange={handleClose}>
       <DialogContent
-        className="sm:max-w-[600px] p-0 gap-0 overflow-hidden"
+        className="sm:max-w-[760px] p-0 gap-0 overflow-hidden"
         showCloseButton={false}
         onOpenAutoFocus={(e) => {
           // Focus the task name field when the dialog opens.
@@ -1440,200 +1657,197 @@ export function TaskDialog({
           </Button>
         </div>
 
-        {/* Task Name Row */}
-        <div className="px-4 py-[11px]">
-          <textarea
-            ref={titleTextareaRef}
-            value={title}
-            onChange={(e) => {
-              setTitle(e.target.value);
-              resizeTextarea(e.target, 200);
-            }}
-            onKeyDown={(e) => handleKeyDown(e, true)}
-            placeholder={tCrm.taskDialog.placeholderTaskName}
-            className="w-full text-sm font-medium border-none outline-none bg-transparent placeholder:text-gray-400 resize-none overflow-y-auto max-h-[200px] block break-words [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:bg-gray-200 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-gray-300 dark:[&::-webkit-scrollbar-thumb]:bg-gray-700"
-            rows={1}
-          />
-        </div>
-
-        <div className="border-b border-gray-100 dark:border-border" />
-
-        {/* Description Row */}
-        <div className="px-4 py-[11px] group relative min-w-0">
-          <div
-            className={cn(
-              'relative rounded-md transition-colors',
-              isDraggingFile && 'bg-primary/5 ring-1 ring-primary/30'
-            )}
-            onDragOver={handleDescriptionDragOver}
-            onDragLeave={handleDescriptionDragLeave}
-            onDrop={handleDescriptionDrop}
-          >
-            <div
-              ref={descriptionRef}
-              contentEditable
-              suppressContentEditableWarning
-              onInput={() => {
-                const div = descriptionRef.current;
-                if (!div) return;
-                setDescription(htmlToMarkdown(div.innerHTML));
-                scrollCaretIntoView(div);
-              }}
-              onKeyDown={(e) => handleKeyDown(e, false)}
-              onPaste={handleDescriptionPaste}
-              className="w-full text-sm text-gray-600 dark:text-muted-foreground border-none outline-none bg-transparent overflow-y-auto max-h-[350px] min-h-[20px] leading-5 break-words whitespace-pre-wrap [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:bg-gray-200 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-gray-300 dark:[&::-webkit-scrollbar-thumb]:bg-gray-700 [&_img]:max-w-full [&_img]:max-h-[200px] [&_img]:rounded-md [&_img]:my-1 [&_img]:block [&_a]:text-primary [&_a]:underline"
-            />
-            {!description && (
-              <span className="pointer-events-none absolute left-0 top-0 text-sm text-gray-400 leading-5">
-                {tCrm.taskDialog.placeholderDescription}
-              </span>
-            )}
-            {isDraggingFile && (
-              <div className="absolute inset-0 flex items-center justify-center bg-primary/5 rounded-md pointer-events-none">
-                <div className="flex items-center gap-1.5 text-xs text-primary">
-                  <Upload className="h-3.5 w-3.5" />
-                  {tCrm.taskDialog.dropFilesHere}
-                </div>
-              </div>
-            )}
-          </div>
-          {!description && !isDraggingFile && (
-            <Button
-              variant="ghost"
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                fileInputRef.current?.click();
-              }}
-              className="absolute right-4 top-1/2 -translate-y-1/2 text-xs text-gray-400 opacity-0 transition-opacity duration-200 group-hover:opacity-100 hover:underline hover:bg-transparent dark:hover:bg-transparent hover:text-gray-600 dark:hover:text-gray-300 cursor-pointer"
-            >
-              {tCrm.taskDialog.pasteOrDropFiles}
-            </Button>
-          )}
-
-          {/* Upload Progress */}
-          {isUploading && currentFileName && (
-            <div className="flex items-center gap-2 py-1 text-xs text-muted-foreground">
-              <Loader2 className="h-3 w-3 animate-spin flex-shrink-0" />
-              <span className="truncate flex-1">{tCrm.taskDialog.uploadingFile.replace('{fileName}', currentFileName || '')}</span>
-              <div className="w-16 h-1 bg-muted rounded-full overflow-hidden flex-shrink-0">
-                <div className="h-full bg-primary transition-all" style={{ width: `${progress}%` }} />
-              </div>
+        {/* The writing on the left, the task's details as rows on the right. */}
+        <div className="grid min-h-0 sm:grid-cols-[minmax(0,1fr)_280px]">
+          <div className="flex min-w-0 flex-col border-b border-border sm:border-b-0 sm:border-r">
+            {/* Task name */}
+            <div className="px-4 pt-4 pb-1">
+              <textarea
+                ref={titleTextareaRef}
+                value={title}
+                onChange={(e) => {
+                  setTitle(e.target.value);
+                  resizeTextarea(e.target, 200);
+                }}
+                onKeyDown={(e) => handleKeyDown(e, true)}
+                placeholder={tCrm.taskDialog.placeholderTaskName}
+                className="w-full text-base font-medium border-none outline-none bg-transparent placeholder:text-gray-400 resize-none overflow-y-auto max-h-[200px] block break-words [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:bg-gray-200 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-gray-300 dark:[&::-webkit-scrollbar-thumb]:bg-gray-700"
+                rows={1}
+              />
             </div>
-          )}
 
-          {/* Hidden file input */}
-          <input
-            ref={fileInputRef}
-            type="file"
-            multiple
-            onChange={(e) => {
-              void handleUploadFiles(e.target.files);
-              if (fileInputRef.current) fileInputRef.current.value = '';
-            }}
-            className="hidden"
-            accept="*/*"
-          />
-        </div>
+            {/* Description: fills the column; files dropped, pasted or attached land in it */}
+            <div className="flex min-h-[160px] min-w-0 flex-1 flex-col px-4 pt-1 pb-3">
+              <div
+                className={cn(
+                  'relative flex-1 rounded-md transition-colors',
+                  isDraggingFile && 'bg-primary/5 ring-1 ring-primary/30'
+                )}
+                onDragOver={handleDescriptionDragOver}
+                onDragLeave={handleDescriptionDragLeave}
+                onDrop={handleDescriptionDrop}
+              >
+                <div
+                  ref={descriptionRef}
+                  contentEditable
+                  suppressContentEditableWarning
+                  role="textbox"
+                  aria-multiline="true"
+                  aria-label={tCrm.taskDialog.placeholderDescription}
+                  tabIndex={0}
+                  onInput={() => {
+                    const div = descriptionRef.current;
+                    if (!div) return;
+                    setDescription(htmlToMarkdown(div.innerHTML));
+                    scrollCaretIntoView(div);
+                  }}
+                  onKeyDown={(e) => handleKeyDown(e, false)}
+                  onPaste={handleDescriptionPaste}
+                  className="h-full w-full text-sm text-gray-600 dark:text-muted-foreground border-none outline-none bg-transparent overflow-y-auto max-h-[350px] min-h-[120px] leading-5 break-words whitespace-pre-wrap [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:bg-gray-200 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-gray-300 dark:[&::-webkit-scrollbar-thumb]:bg-gray-700 [&_img]:max-w-full [&_img]:max-h-[200px] [&_img]:rounded-md [&_img]:my-1 [&_img]:block [&_a]:text-primary [&_a]:underline"
+                />
+                {!description && (
+                  <span className="pointer-events-none absolute left-0 top-0 text-sm text-gray-400 leading-5">
+                    {tCrm.taskDialog.placeholderDescription}
+                  </span>
+                )}
+                {isDraggingFile && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-primary/5 rounded-md pointer-events-none">
+                    <div className="flex items-center gap-1.5 text-xs text-primary">
+                      <Upload className="h-3.5 w-3.5" />
+                      {tCrm.taskDialog.dropFilesHere}
+                    </div>
+                  </div>
+                )}
+              </div>
 
-        {/* Bottom Bar */}
-        <div className="flex items-end justify-between px-4 py-2 border-t border-gray-100 dark:border-border gap-2 w-full">
-          <div
-            ref={buttonContainerRef}
-            className={cn(
-              "flex items-center gap-1 flex-wrap min-w-0 flex-shrink py-2.5",
-            )}>
-            <StatusPopover status={status} availableStatuses={availableStatuses} onChange={setStatus} />
+              {/* Upload Progress */}
+              {isUploading && currentFileName && (
+                <div className="flex items-center gap-2 py-1 text-xs text-muted-foreground">
+                  <Loader2 className="h-3 w-3 animate-spin flex-shrink-0" />
+                  <span className="truncate flex-1">{tCrm.taskDialog.uploadingFile.replace('{fileName}', currentFileName || '')}</span>
+                  <div className="w-16 h-1 bg-muted rounded-full overflow-hidden flex-shrink-0">
+                    <div className="h-full bg-primary transition-all" style={{ width: `${progress}%` }} />
+                  </div>
+                </div>
+              )}
 
-            <PriorityPopover priority={priority} onChange={setPriority} />
-
-            {/* Only labels of the active project (or workspace-wide ones) are offered. The project
-                comes from the `projectId` prop on project-scoped views (where `record` is hidden)
-                and falls back to `record` on cross-project views like My Tasks, where the
-                selected linked record is itself a project. */}
-            <LabelsPopover
-              selectedLabels={selectedLabels}
-              availableLabels={availableLabels}
-              activeProjectId={projectId ?? record}
-              onChange={setSelectedLabels}
-              onCreateLabel={onCreateLabel}
-            />
-
-            <DurationPopover duration={duration} onChange={setDuration} />
-
-            <div className="basis-full h-0" />
-
-            <DueDatePopover dueDate={dueDate} onChange={setDueDate} />
-
-            {/* Assignees (multi-select) */}
-            <AssigneesPopover
-              assigneeList={assigneeList}
-              availableAssignees={availableAssignees}
-              open={assigneePopoverOpen}
-              onOpenChange={setAssigneePopoverOpen}
-              onChange={setAssigneeList}
-            />
-
-            {/* Select Record */}
-            {lockedRecord && <LockedRecordChip record={lockedRecord} />}
-            {!lockedRecord && !hideRecord && (
-              <RecordPopover
-                record={record}
-                companies={recordOptions}
-                selectedCompany={selectedCompany}
-                selectedCompanyLabel={selectedCompanyLabel}
-                defaultLabel={effectiveRecordLabel}
-                searchPlaceholder={recordSearchPlaceholder}
-                emptyLabel={recordEmptyLabel}
-                recordRequired={recordRequired}
-                isSearching={isSearchingRecords}
-                onSearchChange={onRecordSearchChange ? handleRecordSearch : undefined}
-                onChange={handleRecordChange}
-                showKind={availablePeople !== NO_PEOPLE}
+              {/* Hidden file input */}
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                onChange={(e) => {
+                  void handleUploadFiles(e.target.files);
+                  if (fileInputRef.current) fileInputRef.current.value = '';
+                }}
+                className="hidden"
+                accept="*/*"
               />
-            )}
+            </div>
           </div>
 
-          <div className="flex items-center gap-2 flex-shrink-0 -translate-y-[10px]">
-            {/* Attach Files */}
-            <Button
-              variant="outline"
-              size="sm"
-              type="button"
-              className="h-[30px] gap-1 px-2"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={isUploading}
-              title={st('sweep.weldcrm.taskDialog.attachFileTooltip')}
-            >
-              <Paperclip className="h-3.5 w-3.5" />
-            </Button>
+          {/* Details: one row per field; a row opens its picker */}
+          <div className="flex min-w-0 flex-col">
+            <div ref={buttonContainerRef} className="flex flex-col [&>*:last-child]:border-b-0">
+              {lockedRecord && <LockedRecordRow record={lockedRecord} rowLabel={rowLabel} rowIcon={recordIcon} />}
+              {!lockedRecord && !hideRecord && (
+                <RecordPopover
+                  rowLabel={rowLabel}
+                  rowIcon={recordIcon}
+                  record={record}
+                  companies={recordOptions}
+                  selectedCompany={selectedCompany}
+                  selectedCompanyLabel={selectedCompanyLabel}
+                  defaultLabel={effectiveRecordLabel}
+                  searchPlaceholder={recordSearchPlaceholder}
+                  emptyLabel={recordEmptyLabel}
+                  recordRequired={recordRequired}
+                  isSearching={isSearchingRecords}
+                  onSearchChange={onRecordSearchChange ? handleRecordSearch : undefined}
+                  onChange={handleRecordChange}
+                  showKind={availablePeople !== NO_PEOPLE}
+                  onCreate={onCreateRecord}
+                  createLabels={createRecordLabels}
+                />
+              )}
 
-            {/* Repeat Task */}
-            <RepeatPopover
-              repeat={repeat}
-              repeatInterval={repeatInterval}
-              repeatUnit={repeatUnit}
-              onRepeatChange={setRepeat}
-              onIntervalChange={setRepeatInterval}
-              onUnitChange={setRepeatUnit}
-            />
-            {showGithubCheckbox && (
-              <GithubCreateOption
-                outboundRepos={outboundRepos}
-                createOnGithub={createOnGithub}
-                selectedRepoLinkId={selectedGithubRepoLinkId}
-                onCreateOnGithubChange={setCreateOnGithub}
-                onRepoLinkChange={setSelectedGithubRepoLinkId}
+              <StatusPopover status={status} availableStatuses={availableStatuses} onChange={setStatus} />
+
+              <PriorityPopover priority={priority} onChange={setPriority} />
+
+              <AssigneesPopover
+                assigneeList={assigneeList}
+                availableAssignees={availableAssignees}
+                open={assigneePopoverOpen}
+                onOpenChange={setAssigneePopoverOpen}
+                onChange={setAssigneeList}
               />
-            )}
-            <Button
-              size="sm"
-              onClick={handleSubmit}
-              disabled={!title.trim() || isPending || (recordRequired && !record)}
-              className="h-[30px] text-xs px-3 bg-primary text-primary-foreground hover:bg-primary/90"
-            >
-              {isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : submitLabel}
-            </Button>
+
+              <DueDatePopover dueDate={dueDate} onChange={setDueDate} />
+
+              <DurationPopover duration={duration} onChange={setDuration} />
+
+              {/* Only labels of the active project (or workspace-wide ones) are offered. The project
+                  comes from the `projectId` prop on project-scoped views (where `record` is hidden)
+                  and falls back to `record` on cross-project views like My Tasks, where the
+                  selected linked record is itself a project. */}
+              <LabelsPopover
+                selectedLabels={selectedLabels}
+                availableLabels={availableLabels}
+                activeProjectId={projectId ?? record}
+                onChange={setSelectedLabels}
+                onCreateLabel={onCreateLabel}
+              />
+
+              <RepeatPopover
+                repeat={repeat}
+                repeatInterval={repeatInterval}
+                repeatUnit={repeatUnit}
+                onRepeatChange={setRepeat}
+                onIntervalChange={setRepeatInterval}
+                onUnitChange={setRepeatUnit}
+              />
+
+              {/* Files go into the description, where they can also be dropped or pasted. */}
+              <DetailRow
+                icon={Paperclip}
+                label={tCrm.taskDialog.attachmentsRow}
+                title={st('sweep.weldcrm.taskDialog.attachFileTooltip')}
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isUploading}
+              >
+                {isUploading ? <Loader2 className="size-3.5 animate-spin text-muted-foreground" /> : <EmptyValue>{tCrm.taskDialog.addFiles}</EmptyValue>}
+              </DetailRow>
+
+              {showGithubCheckbox && (
+                <div className="flex min-h-11 items-center border-b border-border px-4 py-2">
+                  <GithubCreateOption
+                    outboundRepos={outboundRepos}
+                    createOnGithub={createOnGithub}
+                    selectedRepoLinkId={selectedGithubRepoLinkId}
+                    onCreateOnGithubChange={setCreateOnGithub}
+                    onRepoLinkChange={setSelectedGithubRepoLinkId}
+                  />
+                </div>
+              )}
+            </div>
+
+            <div className="mt-auto flex h-12 items-center justify-end gap-3 border-t border-border px-4">
+              {!editingTask && (
+                <label className="mr-auto flex cursor-pointer items-center gap-2 text-xs text-muted-foreground select-none">
+                  <Switch checked={createMore} onCheckedChange={setCreateMore} aria-label={tCrm.taskDialog.createMore} />
+                  {tCrm.taskDialog.createMore}
+                </label>
+              )}
+              <Button
+                size="sm"
+                onClick={handleSubmit}
+                disabled={!title.trim() || isPending || (recordRequired && !record)}
+                className="h-[30px] text-xs px-3 bg-primary text-primary-foreground hover:bg-primary/90"
+              >
+                {isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : submitLabel}
+              </Button>
+            </div>
           </div>
         </div>
       </DialogContent>
