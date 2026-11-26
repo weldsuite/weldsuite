@@ -5,7 +5,9 @@
   "type": "module",
   "private": true,
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./checkpoint": "./src/checkpoint.ts",
+    "./durable-room": "./src/durable-room.ts"
   },
   "scripts": {
     "type-check": "tsc --noEmit",
@@ -14,6 +16,8 @@
     "test:watch": "vitest"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250110.0",
+    "@vitest/coverage-v8": "^4.1.12",
     "@weldsuite/typescript-config": "workspace:*",
     "typescript": "^5.9.2",
     "vitest": "^4.1.12"

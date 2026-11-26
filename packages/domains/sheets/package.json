@@ -26,6 +26,7 @@
   },
   "dependencies": {
     "@weldsuite/app-api-client": "workspace:*",
+    "@weldsuite/collab": "workspace:*",
     "@weldsuite/core-domain": "workspace:*",
     "@weldsuite/db": "workspace:*",
     "@weldsuite/entity-events": "workspace:*",
