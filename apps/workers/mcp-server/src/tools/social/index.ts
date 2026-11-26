@@ -119,6 +119,9 @@ export const socialTools: ToolDefinition[] = [
     method: 'POST',
     path: '/v1/social-posts/:id/cancel',
     pathParams: { id: 'id' },
+    // Calls off the delivery held by the upstream scheduler; it can't be undone,
+    // only scheduled again.
+    annotations: { destructiveHint: true, openWorldHint: true },
   },
 
   // ── Social Accounts ───────────────────────────────────────────────────────

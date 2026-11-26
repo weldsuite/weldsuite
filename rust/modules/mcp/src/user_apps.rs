@@ -598,7 +598,7 @@ mod tests {
         assert_eq!(list["title"], "Stock: List items");
         assert_eq!(
             list["annotations"],
-            json!({ "title": "Stock: List items", "readOnlyHint": true, "openWorldHint": false })
+            crate::annotations::read_only("Stock: List items")
         );
         for (name, kind) in [
             ("add_item", "storage.create"),

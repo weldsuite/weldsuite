@@ -93,6 +93,8 @@ export const helpdeskTools: ToolDefinition[] = [
     inputSchema: createArticleSchema.shape,
     method: 'POST',
     path: '/v1/articles',
+    // A published article is on the public help center.
+    annotations: { openWorldHint: true },
   },
 
   {
@@ -106,6 +108,8 @@ export const helpdeskTools: ToolDefinition[] = [
     method: 'PATCH',
     path: '/v1/articles/:id',
     pathParams: { id: 'id' },
+    // A published article is on the public help center.
+    annotations: { openWorldHint: true },
   },
 
   {

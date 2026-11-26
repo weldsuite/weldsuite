@@ -22,14 +22,15 @@ pub(crate) fn tool_title(name: &str) -> String {
 
 /// `annotationsFor(method, title)`: GET reads; POST creates or starts
 /// something, again when repeated; PATCH and PUT change fields, nothing more
-/// when repeated; DELETE removes. The spec defaults `destructiveHint` to true
-/// for a write, so a write always sets it. A method the tool cannot know up
-/// front (a WeldApps tool's `api.request` with an unrecognised method) is a
-/// write that may destroy data, the spec's own default.
+/// when repeated; DELETE removes. Every tool sets `readOnlyHint`,
+/// `destructiveHint` and `openWorldHint`, reads included, as `OpenAI`'s app
+/// review asks. A method the tool cannot know up front (a WeldApps tool's
+/// `api.request` with an unrecognised method) is a write that may destroy
+/// data, the spec's own default.
 pub(crate) fn annotations_for(method: Option<&str>, title: &str) -> Value {
     let method = method.unwrap_or_default().to_uppercase();
     if method == "GET" {
-        return json!({ "title": title, "readOnlyHint": true, "openWorldHint": false });
+        return read_only(title);
     }
     let (destructive, idempotent) = match method.as_str() {
         "POST" => (false, false),
@@ -46,12 +47,23 @@ pub(crate) fn annotations_for(method: Option<&str>, title: &str) -> Value {
     })
 }
 
+/// A read's annotations: every hint said, none of them a warning.
+pub(crate) fn read_only(title: &str) -> Value {
+    json!({
+        "title": title,
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use http::Method;
     use serde_json::{Value, json};
 
-    use super::{annotations_for, tool_title};
+    use super::{annotations_for, read_only, tool_title};
     use crate::catalog::catalog;
 
     /// The tools whose annotations `registry.ts` sets by hand, over the method's.
@@ -61,8 +73,18 @@ mod tests {
             | "publish_social_post"
             | "schedule_social_post"
             | "launch_reach_campaign"
-            | "resume_reach_campaign" => json!({ "openWorldHint": true }),
-            "set_reach_campaign_steps" | "set_reach_campaign_mailboxes" => {
+            | "resume_reach_campaign"
+            | "create_article"
+            | "update_article"
+            | "create_file"
+            | "update_file"
+            | "create_webhook"
+            | "update_webhook" => json!({ "openWorldHint": true }),
+            "cancel_social_post" => json!({ "destructiveHint": true, "openWorldHint": true }),
+            "set_reach_campaign_steps"
+            | "set_reach_campaign_mailboxes"
+            | "update_knowledge_page"
+            | "update_knowledge_space" => {
                 json!({ "destructiveHint": true })
             }
             "remove_reach_prospect_list_members" => {
@@ -92,7 +114,13 @@ mod tests {
     fn hints_follow_the_method() {
         assert_eq!(
             annotations_for(Some("GET"), "Search tasks"),
-            json!({ "title": "Search tasks", "readOnlyHint": true, "openWorldHint": false })
+            json!({
+                "title": "Search tasks",
+                "readOnlyHint": true,
+                "destructiveHint": false,
+                "idempotentHint": true,
+                "openWorldHint": false,
+            })
         );
         assert_eq!(
             annotations_for(Some("POST"), "Send"),
@@ -153,9 +181,11 @@ mod tests {
             let listed = &tool.definition["annotations"];
             let name = tool.name.as_str();
             assert_eq!(listed["readOnlyHint"], tool.method == Method::GET, "{name}");
-            // The spec defaults destructiveHint to true for a write: always say so.
-            if tool.method != Method::GET {
-                assert!(listed["destructiveHint"].is_boolean(), "{name}");
+            // OpenAI's app review asks for all three hints on every tool.
+            assert!(listed["destructiveHint"].is_boolean(), "{name}");
+            assert!(listed["openWorldHint"].is_boolean(), "{name}");
+            if tool.method == Method::GET {
+                assert_eq!(listed["destructiveHint"], false, "{name}");
             }
             if tool.method == Method::DELETE {
                 assert_eq!(listed["destructiveHint"], true, "{name}");
@@ -168,10 +198,7 @@ mod tests {
                 assert_eq!(listed["destructiveHint"], false, "{name}");
             }
         }
-        assert_eq!(
-            hints("search_tasks"),
-            &json!({ "title": "Search tasks", "readOnlyHint": true, "openWorldHint": false })
-        );
+        assert_eq!(hints("search_tasks"), &read_only("Search tasks"));
         let update = hints("update_task");
         assert_eq!(update["readOnlyHint"], false);
         assert_eq!(update["destructiveHint"], false);
@@ -184,8 +211,15 @@ mod tests {
         for name in [
             "publish_social_post",
             "schedule_social_post",
+            "cancel_social_post",
             "launch_reach_campaign",
             "add_conversation_message",
+            "create_article",
+            "update_article",
+            "create_file",
+            "update_file",
+            "create_webhook",
+            "update_webhook",
         ] {
             assert_eq!(hints(name)["readOnlyHint"], false, "{name}");
             assert_eq!(hints(name)["openWorldHint"], true, "{name}");
@@ -193,6 +227,9 @@ mod tests {
         for name in [
             "set_reach_campaign_steps",
             "remove_reach_prospect_list_members",
+            "cancel_social_post",
+            "update_knowledge_page",
+            "update_knowledge_space",
         ] {
             assert_eq!(hints(name)["readOnlyHint"], false, "{name}");
             assert_eq!(hints(name)["destructiveHint"], true, "{name}");

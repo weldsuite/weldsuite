@@ -172,15 +172,21 @@ export const workspaceTools: ToolDefinition[] = [
   {
     name: 'create_file',
     scope: 'files:write',
-    description: 'Create a new file metadata record.',
+    description:
+      "Register a file already uploaded to the workspace's storage (storagePath under the workspace) " +
+      'in WeldDrive. isPublic: true makes it reachable by anyone with its link.',
     inputSchema: createFileSchema.shape,
     method: 'POST',
     path: '/v1/files',
+    // isPublic shares the file outside the workspace.
+    annotations: { openWorldHint: true },
   },
   {
     name: 'update_file',
     scope: 'files:write',
-    description: 'Update an existing file record.',
+    description:
+      "Update a WeldDrive file's name, folder or details. isPublic: true makes it reachable by anyone " +
+      'with its link; false takes the link away.',
     inputSchema: {
       id: z.string().describe('The file — its name, or the id from an earlier search'),
       ...updateFileSchema.shape,
@@ -188,6 +194,8 @@ export const workspaceTools: ToolDefinition[] = [
     method: 'PATCH',
     path: '/v1/files/:id',
     pathParams: { id: 'id' },
+    // isPublic shares the file outside the workspace.
+    annotations: { openWorldHint: true },
   },
   {
     name: 'delete_file',
@@ -349,7 +357,7 @@ export const workspaceTools: ToolDefinition[] = [
   {
     name: 'create_webhook',
     scope: 'webhooks:write',
-    description: 'Create a new workflow webhook.',
+    description: 'Create a webhook for a WeldConnect workflow: an endpoint that outside systems call to start the workflow.',
     inputSchema: {
       name: z.string().min(1).max(255),
       description: z.string().optional(),
@@ -363,11 +371,14 @@ export const workspaceTools: ToolDefinition[] = [
     },
     method: 'POST',
     path: '/v1/webhooks',
+    // Opens an endpoint that outside systems call.
+    annotations: { openWorldHint: true },
   },
   {
     name: 'update_webhook',
     scope: 'webhooks:write',
-    description: 'Update an existing workflow webhook.',
+    description:
+      "Update a WeldConnect workflow's webhook: the endpoint outside systems call to start the workflow.",
     inputSchema: {
       id: z.string().describe('The webhook — its name, or the id from an earlier search'),
       name: z.string().min(1).max(255).optional(),
@@ -381,6 +392,8 @@ export const workspaceTools: ToolDefinition[] = [
     method: 'PATCH',
     path: '/v1/webhooks/:id',
     pathParams: { id: 'id' },
+    // Changes an endpoint that outside systems call.
+    annotations: { openWorldHint: true },
   },
   {
     name: 'delete_webhook',
