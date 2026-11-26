@@ -244,8 +244,8 @@ export function useMatchBankLineToDeposit() {
 /** A match settles documents too: their balances, statuses and payments change. */
 function invalidateAfterDocumentMatch(qc: QueryClient) {
   invalidateAfterMatch(qc);
-  qc.invalidateQueries({ queryKey: accountingKeys.invoices.all });
-  qc.invalidateQueries({ queryKey: accountingKeys.bills.all });
+  void qc.invalidateQueries({ queryKey: accountingKeys.invoices.all });
+  void qc.invalidateQueries({ queryKey: accountingKeys.bills.all });
 }
 
 /** The open documents an unmatched line could settle, best fit first. */

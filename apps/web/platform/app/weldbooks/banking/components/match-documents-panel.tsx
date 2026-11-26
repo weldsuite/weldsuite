@@ -101,19 +101,15 @@ function OpenDocumentList({
               disabled={readOnly}
               onCheckedChange={(value) => onToggle(doc, value === true)}
             />
-            <label htmlFor={id} className="min-w-0 flex-1 cursor-pointer">
-              <span className="flex items-center justify-between gap-2">
-                <span className="truncate text-sm font-medium">
-                  {numberOf(doc, tl)}
-                  <span className="ml-1.5 text-xs font-normal text-muted-foreground">{tl.types[doc.type]}</span>
-                </span>
-                <span className="shrink-0 text-sm tabular-nums">{formatMoney(doc.openAmount, doc.currency)}</span>
+            <label htmlFor={id} className="grid min-w-0 flex-1 cursor-pointer grid-cols-[minmax(0,1fr)_auto] gap-x-2">
+              <span className="truncate text-sm font-medium">
+                {numberOf(doc, tl)}
+                <span className="ml-1.5 text-xs font-normal text-muted-foreground">{tl.types[doc.type]}</span>
               </span>
-              <span className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
-                <span className="truncate">{doc.contactName}</span>
-                {doc.dueDate ? (
-                  <span className="shrink-0 tabular-nums">{tl.due.replace('{date}', formatDate(doc.dueDate))}</span>
-                ) : null}
+              <span className="text-right text-sm tabular-nums">{formatMoney(doc.openAmount, doc.currency)}</span>
+              <span className="truncate text-xs text-muted-foreground">{doc.contactName}</span>
+              <span className="text-right text-xs tabular-nums text-muted-foreground">
+                {doc.dueDate ? tl.due.replace('{date}', formatDate(doc.dueDate)) : null}
               </span>
             </label>
           </li>

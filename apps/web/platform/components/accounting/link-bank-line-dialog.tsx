@@ -124,15 +124,11 @@ function LineOption({ line, id, formatted }: Readonly<{ line: CandidateBankLine;
   return (
     <li className="flex items-start gap-2 p-2">
       <RadioGroupItem id={id} value={line.id} className="mt-0.5" />
-      <label htmlFor={id} className="min-w-0 flex-1 cursor-pointer">
-        <span className="flex items-center justify-between gap-2">
-          <span className="truncate text-sm font-medium">{title}</span>
-          <span className="shrink-0 text-sm tabular-nums">{formatted.amount}</span>
-        </span>
-        <span className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
-          <span className="truncate">{detail}</span>
-          <span className="shrink-0 tabular-nums">{formatted.date}</span>
-        </span>
+      <label htmlFor={id} className="grid min-w-0 flex-1 cursor-pointer grid-cols-[minmax(0,1fr)_auto] gap-x-2">
+        <span className="truncate text-sm font-medium">{title}</span>
+        <span className="text-right text-sm tabular-nums">{formatted.amount}</span>
+        <span className="truncate text-xs text-muted-foreground">{detail}</span>
+        <span className="text-right text-xs tabular-nums text-muted-foreground">{formatted.date}</span>
       </label>
     </li>
   );
@@ -272,9 +268,7 @@ function LinkBankLineForm({ document, onDone }: Readonly<{ document: LinkableDoc
       />
 
       {line && gapCents === 0 ? (
-        <p className="text-sm" role="status">
-          {tl.paysInFull}
-        </p>
+        <output className="block text-sm">{tl.paysInFull}</output>
       ) : null}
       {line && gapCents !== 0 ? (
         <GapChoiceFieldset
