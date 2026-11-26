@@ -26,7 +26,10 @@ its justification change together. Chrome first, then Edge with the same zip
   extension against the Playwright fake server, on a made-up company's
   sign-in page. To regenerate them after a UI change, run
   `pnpm --filter weldpass-extension screenshots`
-  (`e2e/store-screenshots.ts`).
+  (`e2e/store-screenshots.ts`). The listing's 128×128 icon,
+  `screenshots/store-icon-128.png`, has the tile at 96×96 with transparent
+  space around it, as the store asks. It comes from `pnpm --filter
+  weldpass-extension icons`, together with the toolbar icons.
 
 ## Releasing a version
 

@@ -56,3 +56,13 @@ for (const size of SIZES) {
   await sharp(Buffer.from(icon), { density: 300 }).resize(size, size).png().toFile(file);
   process.stdout.write(`wrote ${path.relative(process.cwd(), file)}\n`);
 }
+
+// The store listing's icon: 128×128 with the tile at 96×96 and 16px of
+// transparent space around it, as the Chrome Web Store's image guidelines ask.
+const storeIcon = path.resolve(here, '../store/screenshots/store-icon-128.png');
+await sharp(Buffer.from(icon), { density: 300 })
+  .resize(96, 96)
+  .extend({ top: 16, bottom: 16, left: 16, right: 16, background: { r: 0, g: 0, b: 0, alpha: 0 } })
+  .png()
+  .toFile(storeIcon);
+process.stdout.write(`wrote ${path.relative(process.cwd(), storeIcon)}\n`);
