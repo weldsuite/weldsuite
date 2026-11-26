@@ -38,12 +38,6 @@
   "tabLogins": {
     "message": "Logins"
   },
-  "tabSave": {
-    "message": "Save"
-  },
-  "tabGenerator": {
-    "message": "Generator"
-  },
   "searchLabel": {
     "message": "Search logins"
   },
@@ -133,15 +127,6 @@
   },
   "fillFailed": {
     "message": "Couldn't reach the page. Reload it and try again."
-  },
-  "saveRead": {
-    "message": "Taken from the form on the page. Check it before saving."
-  },
-  "saveReadNothing": {
-    "message": "Nothing is typed in the page's login form yet. Enter the details here."
-  },
-  "saveNoPage": {
-    "message": "Open the site's login page to fill this in automatically."
   },
   "fieldTitle": {
     "message": "Title"
@@ -416,5 +401,176 @@
   },
   "workspaceLabel": {
     "message": "Workspace"
+  },
+  "sortButton": {
+    "message": "Sort"
+  },
+  "sortClear": {
+    "message": "Clear sort"
+  },
+  "filterButton": {
+    "message": "Filter"
+  },
+  "filterVault": {
+    "message": "Vault"
+  },
+  "filterTotp": {
+    "message": "2FA code"
+  },
+  "noFilterMatches": {
+    "message": "No logins match these filters."
+  },
+  "sortFieldName": {
+    "message": "Name"
+  },
+  "sortFieldUpdated": {
+    "message": "Last updated"
+  },
+  "sortAscending": {
+    "message": "Ascending"
+  },
+  "sortDescending": {
+    "message": "Descending"
+  },
+  "filterIs": {
+    "message": "is"
+  },
+  "filterIsNot": {
+    "message": "is not"
+  },
+  "filterSelectCondition": {
+    "message": "Select condition"
+  },
+  "filterYes": {
+    "message": "Yes"
+  },
+  "filterNo": {
+    "message": "No"
+  },
+  "filterRemove": {
+    "message": "Remove filter"
+  },
+  "toolsTitle": {
+    "message": "Tools"
+  },
+  "toolsBack": {
+    "message": "Back to tools"
+  },
+  "toolGenerator": {
+    "message": "Password generator"
+  },
+  "toolGeneratorBody": {
+    "message": "Make a strong password and fill it in."
+  },
+  "toolHealth": {
+    "message": "Password health"
+  },
+  "toolHealthBody": {
+    "message": "Weak, reused and old passwords across your vaults."
+  },
+  "toolBreach": {
+    "message": "Data breach scanner"
+  },
+  "toolBreachBody": {
+    "message": "See whether your logins turned up in a data breach."
+  },
+  "comingSoon": {
+    "message": "Coming soon"
+  },
+  "healthChecked": {
+    "message": "Checked"
+  },
+  "healthHealthy": {
+    "message": "Healthy"
+  },
+  "healthWeak": {
+    "message": "Weak"
+  },
+  "healthReused": {
+    "message": "Reused"
+  },
+  "healthOld": {
+    "message": "Old"
+  },
+  "healthReusedOn": {
+    "message": "Reused on $1 logins"
+  },
+  "healthAttention": {
+    "message": "Needs attention"
+  },
+  "healthAllHealthy": {
+    "message": "All passwords look healthy."
+  },
+  "healthEmpty": {
+    "message": "Add logins with a password and they will be checked here."
+  },
+  "healthFixInWebApp": {
+    "message": "Fix in WeldSuite"
+  },
+  "notificationsTitle": {
+    "message": "Notifications"
+  },
+  "notificationsUnread": {
+    "message": "Notifications, $1 unread"
+  },
+  "notificationsMarkAllRead": {
+    "message": "Mark all as read"
+  },
+  "notificationsEmpty": {
+    "message": "You're all caught up."
+  },
+  "notificationsNew": {
+    "message": "New"
+  },
+  "justNow": {
+    "message": "Just now"
+  },
+  "backToLogins": {
+    "message": "Back to logins"
+  },
+  "detailsTab": {
+    "message": "Details"
+  },
+  "historyTab": {
+    "message": "History"
+  },
+  "openLogin": {
+    "message": "Open $1"
+  },
+  "detailsUpdated": {
+    "message": "Last updated"
+  },
+  "detailsPasswordChanged": {
+    "message": "Password changed"
+  },
+  "showCode": {
+    "message": "Show code"
+  },
+  "historyEmpty": {
+    "message": "No earlier versions."
+  },
+  "historyCurrent": {
+    "message": "current"
+  },
+  "historyCreated": {
+    "message": "Created"
+  },
+  "historyUpdated": {
+    "message": "Updated"
+  },
+  "historyRestored": {
+    "message": "Restored"
+  },
+  "historyDeleted": {
+    "message": "Deleted"
+  },
+  "historyVersion": {
+    "message": "Version $1"
+  },
+  "workspaceCurrent": {
+    "message": "Workspace: $1"
+  },
+  "searchClear": {
+    "message": "Clear search"
   }
 }

@@ -1,41 +1,96 @@
 @import "tailwindcss";
+@import "tw-animate-css";
 @source "./**/*.{ts,tsx}";
+/* The shared components the popup's toolbar uses, as the platform draws them.
+   Listed one by one, so the CSS carries only their classes. */
+@source "../../../../packages/design/ui/src/components/alert.tsx";
+@source "../../../../packages/design/ui/src/components/avatar.tsx";
+@source "../../../../packages/design/ui/src/components/badge.tsx";
+@source "../../../../packages/design/ui/src/components/button.tsx";
+@source "../../../../packages/design/ui/src/components/checkbox.tsx";
+@source "../../../../packages/design/ui/src/components/dropdown-menu.tsx";
+@source "../../../../packages/design/ui/src/components/entity-detail-view.tsx";
+@source "../../../../packages/design/ui/src/components/filter-button.tsx";
+@source "../../../../packages/design/ui/src/components/input-group.tsx";
+@source "../../../../packages/design/ui/src/components/input.tsx";
+@source "../../../../packages/design/ui/src/components/label.tsx";
+@source "../../../../packages/design/ui/src/components/page-loader.tsx";
+@source "../../../../packages/design/ui/src/components/page-tabs.tsx";
+@source "../../../../packages/design/ui/src/components/popover.tsx";
+@source "../../../../packages/design/ui/src/components/property-row.tsx";
+@source "../../../../packages/design/ui/src/components/select.tsx";
+@source "../../../../packages/design/ui/src/components/slider.tsx";
+@source "../../../../packages/design/weldmeet-ui/src/components/entity-list/filter-pills.tsx";
 
-/* Light and dark follow the browser. No remote fonts: an extension page should
-   not call out to a font CDN every time it opens. */
+/* The platform's palette (apps/web/platform/app/globals.css), so the
+   extension looks like WeldSuite: neutral greys and a black primary in light
+   mode, the platform's dark theme (blue primary) in dark mode. Light and dark
+   follow the browser. No remote fonts: an extension page should not call out
+   to a font CDN every time it opens. */
 :root {
   color-scheme: light dark;
-  --background: oklch(0.99 0.003 270);
-  --foreground: oklch(0.21 0.02 270);
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
-  --muted: oklch(0.96 0.006 270);
-  --muted-foreground: oklch(0.5 0.02 270);
-  --primary: oklch(0.51 0.23 277);
-  --primary-foreground: oklch(0.99 0 0);
-  --accent: oklch(0.94 0.02 277);
-  --border: oklch(0.91 0.008 270);
-  --ring: oklch(0.6 0.2 277);
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: oklch(0.205 0 0);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.708 0 0);
+  /* Extension-only: the inline menu's icon tile. Neutral, like the rest. */
+  --brand-tint: oklch(0.97 0 0);
   --success: oklch(0.52 0.14 155);
   --warning: oklch(0.6 0.15 70);
-  --destructive: oklch(0.55 0.21 25);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: oklch(0.19 0.015 270);
-    --foreground: oklch(0.95 0.005 270);
-    --card: oklch(0.23 0.018 270);
-    --muted: oklch(0.27 0.018 270);
-    --muted-foreground: oklch(0.72 0.02 270);
-    --primary: oklch(0.67 0.19 277);
-    --primary-foreground: oklch(0.16 0.02 270);
-    --accent: oklch(0.31 0.05 277);
-    --border: oklch(0.33 0.02 270);
-    --ring: oklch(0.7 0.17 277);
-    --success: oklch(0.75 0.15 155);
-    --warning: oklch(0.8 0.14 80);
-    --destructive: oklch(0.72 0.17 25);
+    --background: #1c1d1f;
+    --foreground: #ffffff;
+    --card: #232529;
+    --card-foreground: #ffffff;
+    --popover: #232529;
+    --popover-foreground: #ffffff;
+    --primary: #266df0;
+    --primary-foreground: #ffffff;
+    --secondary: #2e3238;
+    --secondary-foreground: #edeff3;
+    --muted: #232529;
+    --muted-foreground: #b5bdc9;
+    --accent: #2e3238;
+    --accent-foreground: #edeff3;
+    --destructive: #ff5b59;
+    --border: #2e3238;
+    --input: #383e47;
+    --ring: #709ff5;
+    --brand-tint: #2e3238;
+    --success: #0fc27b;
+    --warning: #f5b900;
   }
+}
+
+/* No shadows in the extension's pages: fields, menus, the select list and the
+   slider sit flat, with their borders. (Focus rings are not shadows here and
+   stay. The inline menu over websites draws its own, in content/overlay.ts.) */
+@theme {
+  --shadow-2xs: 0 0 #0000;
+  --shadow-xs: 0 0 #0000;
+  --shadow-sm: 0 0 #0000;
+  --shadow: 0 0 #0000;
+  --shadow-md: 0 0 #0000;
+  --shadow-lg: 0 0 #0000;
+  --shadow-xl: 0 0 #0000;
+  --shadow-2xl: 0 0 #0000;
 }
 
 @theme inline {
@@ -49,6 +104,14 @@
   --color-primary: var(--primary);
   --color-primary-foreground: var(--primary-foreground);
   --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-brand-tint: var(--brand-tint);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-input: var(--input);
   --color-border: var(--border);
   --color-ring: var(--ring);
   --color-success: var(--success);

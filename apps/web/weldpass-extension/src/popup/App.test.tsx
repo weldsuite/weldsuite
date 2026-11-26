@@ -94,14 +94,6 @@ async function type(input: HTMLInputElement, value: string): Promise<void> {
   });
 }
 
-async function choose(select: HTMLSelectElement, value: string): Promise<void> {
-  await act(async () => {
-    select.value = value;
-    select.dispatchEvent(new Event('change', { bubbles: true }));
-  });
-  await settle();
-}
-
 function text(): string {
   return document.body.textContent ?? '';
 }
@@ -116,6 +108,40 @@ function button(name: string): HTMLButtonElement {
   );
   if (!found) throw new Error(`no button ${name}`);
   return found;
+}
+
+/** The header's workspace switch (a menu, shown with more than one workspace). */
+function workspaceSwitch(): HTMLButtonElement | null {
+  return document.querySelector<HTMLButtonElement>('button[data-workspace-switch]');
+}
+
+/** Opens the workspace menu from the keyboard and picks `name`. ArrowDown opens it; Enter would toggle. */
+async function pickWorkspace(name: string): Promise<void> {
+  const trigger = workspaceSwitch();
+  if (!trigger) throw new Error('no workspace switch');
+  // Let a previous close hand the focus back first, or that late focus counts
+  // as focus leaving the new menu, which closes it.
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  });
+  await act(async () => {
+    trigger.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+  });
+  await settle();
+  const item = Array.from(document.querySelectorAll('[role="menuitem"]')).find(
+    (candidate) => candidate.textContent === name,
+  );
+  if (!(item instanceof HTMLElement)) {
+    throw new Error(
+      `no workspace ${name} in the menu: expanded=${trigger.getAttribute('aria-expanded')}, items=[${Array.from(document.querySelectorAll('[role^="menuitem"]')).map((i) => i.textContent).join(', ')}]`,
+    );
+  }
+  await click(item);
+}
+
+/** Logins is the home page: the only one without a back button. */
+function onLogins(): boolean {
+  return document.querySelector('[aria-label^="Back to"]') === null;
 }
 
 function field(label: string): HTMLInputElement {
@@ -147,6 +173,15 @@ beforeEach(() => {
   sendMessage.mockClear();
   createTab.mockClear();
   listeners.clear();
+  // The library's menus (Radix) size themselves with ResizeObserver, which jsdom lacks.
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    },
+  );
   vi.stubGlobal('chrome', {
     runtime: {
       id: 'weldpass',
@@ -186,7 +221,8 @@ describe('App', () => {
     replies['state:get'] = () => ok(extensionState());
     await click(button('Try again'));
     expect(sent('state:get')).toHaveLength(2);
-    expect(button('Logins')).toBeTruthy();
+    expect(button('Tools')).toBeTruthy();
+    expect(onLogins()).toBe(true);
   });
 
   it('names a server it cannot use, with a retry and a way to another server', async () => {
@@ -298,7 +334,7 @@ describe('App', () => {
 
     replies['workspace:set'] = () => ok(extensionState({ workspaces: TWO_WORKSPACES, activeWorkspaceId: 'ws_2' }));
     await click(button('Globex'));
-    expect(document.querySelector('select')?.value).toBe('ws_2');
+    expect(workspaceSwitch()?.textContent).toBe('Globex');
   });
 
   it('reloads when the worker says the state changed, and only then', async () => {
@@ -323,18 +359,40 @@ describe('App', () => {
 });
 
 describe('Vault', () => {
-  it('shows the logins with tabs for saving and generating, and a way to settings', async () => {
+  it('shows the logins with a tab for saving, the tools, and settings under the avatar', async () => {
     await mount();
-    expect(button('Logins').getAttribute('aria-current')).toBe('page');
+    expect(onLogins()).toBe(true);
     expect(text()).toContain('No logins saved yet.');
     // One workspace: nothing to switch.
-    expect(document.querySelector('select')).toBeNull();
+    expect(workspaceSwitch()).toBeNull();
 
-    await click(button('Generator'));
-    expect(button('Generator').getAttribute('aria-current')).toBe('page');
+    // The generator is one of the tools now.
+    await click(button('Tools'));
+    // Off the home page the top bar goes; the page's own header leads back.
+    expect(onLogins()).toBe(false);
+    expect(document.querySelector('button[aria-label="Tools"]')).toBeNull();
+    expect(text()).toContain('Data breach scanner');
+    const generator = Array.from(document.querySelectorAll('button')).find((candidate) =>
+      candidate.textContent?.startsWith('Password generator'),
+    );
+    if (!generator) throw new Error('no generator tool');
+    await click(generator);
     expect(text()).toContain('Generated password');
+    await click(button('Back to tools'));
+    expect(text()).toContain('Password health');
+    await click(button('Back to logins'));
+    expect(onLogins()).toBe(true);
 
-    await click(button('Settings'));
+    // Settings sits in the avatar's menu.
+    await act(async () => {
+      button('Your account').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    });
+    await settle();
+    const settings = Array.from(document.querySelectorAll('[role="menuitem"]')).find(
+      (item) => item.textContent === 'Settings',
+    );
+    if (!(settings instanceof HTMLElement)) throw new Error('no Settings in the avatar menu');
+    await click(settings);
     expect(createTab).toHaveBeenCalledWith({ url: 'chrome-extension://weldpass/settings.html' });
   });
 
@@ -354,21 +412,23 @@ describe('Vault', () => {
         },
       ]);
     await mount();
+    // The header's + and the list's "Save login for this site" both open the form.
     await click(button('Save login for this site'));
-    expect(button('Save').getAttribute('aria-current')).toBe('page');
-    expect(text()).toContain("Open the site's login page to fill this in automatically.");
+    expect(onLogins()).toBe(false);
+    // No note above the form: it fills in what it can from the page.
+    expect(document.querySelector('form [data-slot="alert"]')).toBeNull();
 
     await click(button('Cancel'));
-    expect(button('Logins').getAttribute('aria-current')).toBe('page');
+    expect(onLogins()).toBe(true);
 
     replies['item:create'] = () => ok({ id: 'item_1' });
-    await click(button('Save'));
+    await click(button('Save login for this site'));
     await type(field('Title'), 'Example');
     await click(button('Save login'));
     expect(sent('item:create')).toEqual([
       expect.objectContaining({ type: 'item:create', vaultId: 'vault_1', input: expect.objectContaining({ title: 'Example' }) }),
     ]);
-    expect(button('Logins').getAttribute('aria-current')).toBe('page');
+    expect(onLogins()).toBe(true);
     expect(text()).toContain('Login saved.');
     // The lists reload after a save.
     expect(sent('items:list')).toHaveLength(2);
@@ -378,18 +438,17 @@ describe('Vault', () => {
     replies['state:get'] = () => ok(extensionState({ workspaces: TWO_WORKSPACES }));
     replies['workspace:set'] = () => failure;
     await mount();
-    const select = document.querySelector('select');
-    if (!select) throw new Error('no workspace select');
-    expect(select.value).toBe('ws_1');
-    expect(document.querySelector(`label[for="${select.id}"]`)?.textContent).toBe('Workspace');
+    expect(workspaceSwitch()?.textContent).toBe('Acme');
+    expect(workspaceSwitch()?.getAttribute('aria-label')).toBe('Workspace: Acme');
 
-    await choose(select, 'ws_2');
+    await pickWorkspace('Globex');
     expect(sent('workspace:set')).toEqual([{ type: 'workspace:set', workspaceId: 'ws_2' }]);
     expect(sent('items:list')).toHaveLength(1);
+    expect(workspaceSwitch()?.textContent).toBe('Acme');
 
     replies['workspace:set'] = () => ok(extensionState({ workspaces: TWO_WORKSPACES, activeWorkspaceId: 'ws_2' }));
-    await choose(select, 'ws_2');
-    expect(select.value).toBe('ws_2');
+    await pickWorkspace('Globex');
+    expect(workspaceSwitch()?.textContent).toBe('Globex');
     expect(sent('items:list')).toHaveLength(2);
   });
 });

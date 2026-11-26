@@ -93,14 +93,15 @@ export class FieldIcon extends Layer {
   constructor(label: string, onActivate: (keyboard: boolean) => void) {
     super('icon');
     const style = document.createElement('style');
+    // The platform's primary (near-black) and ring, as in the extension's pages.
     style.textContent = `
       button {
         all: initial; box-sizing: border-box; width: ${ICON_SIZE}px; height: ${ICON_SIZE}px;
         display: grid; place-items: center; border-radius: 6px; cursor: pointer;
-        color: #fff; background: oklch(0.51 0.23 277); box-shadow: 0 1px 2px rgb(0 0 0 / 0.25);
+        color: #fff; background: oklch(0.205 0 0); box-shadow: 0 1px 2px rgb(0 0 0 / 0.25);
       }
-      button:hover { background: oklch(0.45 0.23 277); }
-      button:focus-visible { outline: 2px solid oklch(0.6 0.2 277); outline-offset: 2px; }
+      button:hover { background: oklch(0.3 0 0); }
+      button:focus-visible { outline: 2px solid oklch(0.708 0 0); outline-offset: 2px; }
     `;
     this.button = document.createElement('button');
     this.button.type = 'button';

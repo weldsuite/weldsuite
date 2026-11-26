@@ -5,7 +5,9 @@ import { t, type MessageKey } from '../lib/i18n';
 import { request } from '../lib/messaging';
 import type { ExtensionState, SignInResult } from '../lib/protocol';
 import { openPage, useExtensionState } from './state';
-import { Button, Screen, Spinner } from './ui';
+import { Button } from '@weldsuite/ui/components/button';
+import { InlineSpinner } from '@weldsuite/ui/components/page-loader';
+import { Screen } from './ui';
 import { Vault } from './Vault';
 
 const PROBLEM: Record<NonNullable<ExtensionState['server']['problem']>, MessageKey> = {
@@ -25,7 +27,7 @@ const SIGN_IN_FAILED: Record<Exclude<SignInResult, { ok: true }>['reason'], Mess
 
 function OtherServer() {
   return (
-    <Button variant="ghost" onClick={() => openPage('settings.html#server')}>
+    <Button variant="ghost" size="sm" onClick={() => openPage('settings.html#server')}>
       <Settings className="size-3.5" aria-hidden />
       {t('serverChange')}
     </Button>
@@ -58,7 +60,7 @@ function SignedOut({ state }: Readonly<{ state: ExtensionState }>) {
       }
       action={
         <div className="flex flex-col items-center gap-2">
-          <Button variant="primary" autoFocus disabled={busy} onClick={signIn}>
+          <Button size="sm" autoFocus disabled={busy} onClick={signIn}>
             {busy ? t('signingIn') : t('signIn')}
           </Button>
           <OtherServer />
@@ -78,6 +80,8 @@ function WorkspacePicker({ state, onChosen }: Readonly<{ state: ExtensionState; 
           {state.workspaces.map((workspace) => (
             <li key={workspace.id}>
               <Button
+                variant="outline"
+                size="sm"
                 className="w-full justify-start"
                 disabled={busy}
                 onClick={async () => {
@@ -100,10 +104,10 @@ function WorkspacePicker({ state, onChosen }: Readonly<{ state: ExtensionState; 
 export function App() {
   const { state, reload, setState } = useExtensionState();
 
-  if (state === undefined) return <Screen title="WeldPass" body={<Spinner label={t('loading')} />} />;
+  if (state === undefined) return <Screen title="WeldPass" body={<InlineSpinner label={t('loading')} className="py-0" />} />;
   if (state === null) {
     return (
-      <Screen title={t('authFailedTitle')} body={t('errorServer')} action={<Button onClick={reload}>{t('retry')}</Button>} />
+      <Screen title={t('authFailedTitle')} body={t('errorServer')} action={<Button variant="outline" size="sm" onClick={reload}>{t('retry')}</Button>} />
     );
   }
 
@@ -116,11 +120,11 @@ export function App() {
         action={
           <div className="flex flex-col items-center gap-2">
             {server.problem === 'no-permission' ? (
-              <Button variant="primary" autoFocus onClick={() => openPage('settings.html#server')}>
+              <Button size="sm" autoFocus onClick={() => openPage('settings.html#server')}>
                 {t('serverGrant')}
               </Button>
             ) : (
-              <Button autoFocus onClick={reload}>
+              <Button variant="outline" size="sm" autoFocus onClick={reload}>
                 {t('retry')}
               </Button>
             )}
@@ -130,10 +134,10 @@ export function App() {
       />
     );
   }
-  if (!state.loaded) return <Screen title="WeldPass" body={<Spinner label={t('loading')} />} />;
+  if (!state.loaded) return <Screen title="WeldPass" body={<InlineSpinner label={t('loading')} className="py-0" />} />;
   if (!state.person) return <SignedOut state={state} />;
   if (!state.activeWorkspaceId && state.loadingWorkspaces) {
-    return <Screen title="WeldPass" body={<Spinner label={t('loadingWorkspaces')} />} />;
+    return <Screen title="WeldPass" body={<InlineSpinner label={t('loadingWorkspaces')} className="py-0" />} />;
   }
   if (state.workspaces.length === 0) {
     return (
@@ -141,7 +145,7 @@ export function App() {
         title={t('noWorkspaceTitle')}
         body={t('noWorkspaceBody')}
         action={
-          <Button variant="primary" autoFocus onClick={() => openTab(server.origin)}>
+          <Button size="sm" autoFocus onClick={() => openTab(server.origin)}>
             {t('openWebApp')}
           </Button>
         }

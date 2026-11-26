@@ -320,6 +320,38 @@ export const PanelModeStacked: Story = {
   },
 };
 
+/** The back button on its own row above the avatar, for a narrow host (the WeldPass popup). */
+export const PanelModeBackAbove: Story = {
+  render: () => {
+    return (
+      <div className="relative h-screen w-screen">
+        <StageBackground />
+        <EntityDetailView
+          defaultMode="panel"
+          isOpen
+          onBack={() => alert("back")}
+          backPlacement="above"
+          backRowActions={
+            <Button variant="ghost" size="icon" className="size-7" aria-label="Open in a new tab">
+              <MoreHorizontal className="size-4" />
+            </Button>
+          }
+          showCloseButton={false}
+          showExpandButton={false}
+          topOffset={0}
+          width={380}
+          avatar={<MockAvatar label="GH" />}
+          title="GitHub"
+          actions={<MockActions />}
+          tabs={<MockTabs items={["Details", "History"]} />}
+        >
+          <MockContent rows={6} />
+        </EntityDetailView>
+      </div>
+    );
+  },
+};
+
 export const PanelModeLoading: Story = {
   render: () => (
     <div className="relative h-screen w-screen">

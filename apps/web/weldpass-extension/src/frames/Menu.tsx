@@ -195,7 +195,7 @@ function ItemButton({
         disabled && 'cursor-default opacity-60',
       )}
     >
-      <span className="inline-flex size-7 shrink-0 items-center justify-center rounded-md bg-accent text-foreground">
+      <span className="inline-flex size-7 shrink-0 items-center justify-center rounded-md bg-brand-tint text-foreground">
         <Icon className="size-3.5" aria-hidden />
       </span>
       <span className="min-w-0 flex-1">

@@ -128,13 +128,18 @@ export function Screen({
   );
 }
 
+/**
+ * The popup's one status line ("Password copied", a fill that failed). It
+ * takes no room while empty; the live region itself stays in the page,
+ * visually hidden, so a screen reader still hears the next message.
+ */
 export function StatusBar({ status }: { status: Status | null }) {
   return (
     <div
       role="status"
       aria-live="polite"
       className={cx(
-        'min-h-8 border-t px-3 py-2 text-xs',
+        status ? 'min-h-8 border-t px-3 py-2 text-xs' : 'sr-only',
         status?.tone === 'error' ? 'text-destructive' : 'text-success',
       )}
     >

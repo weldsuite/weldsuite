@@ -15,12 +15,15 @@
  */
 
 import type {
+  WeldPassHealthReport,
   WeldPassItem,
   WeldPassItemInput,
+  WeldPassItemVersion,
   WeldPassRevealedItem,
   WeldPassTotpCode,
   WeldPassVault,
 } from '@weldsuite/app-api-client/domains/weldpass-passwords';
+import type { NotificationRow } from '@weldsuite/app-api-client/domains/notifications';
 import type { ServerProblem } from './server';
 import type { Settings } from './settings';
 
@@ -70,8 +73,16 @@ export type PageRequest =
   | { type: 'items:match'; url: string }
   | { type: 'items:list' }
   | { type: 'vaults:list' }
+  /** Weak, reused and old logins (titles and usernames only, never a password). */
+  | { type: 'health:get' }
+  /** The person's latest notifications and how many are unread (the popup's bell). */
+  | { type: 'notifications:list' }
+  | { type: 'notifications:read'; id: string }
+  | { type: 'notifications:read-all' }
   | { type: 'item:reveal'; vaultId: string; itemId: string }
   | { type: 'item:totp'; vaultId: string; itemId: string }
+  /** A login's versions (who changed it when; never a password), for its details page. */
+  | { type: 'item:versions'; vaultId: string; itemId: string }
   | { type: 'item:create'; vaultId: string; input: WeldPassItemInput };
 
 export interface PageResponses {
@@ -88,8 +99,13 @@ export interface PageResponses {
   'items:match': WeldPassItem[];
   'items:list': WeldPassItem[];
   'vaults:list': WeldPassVault[];
+  'health:get': WeldPassHealthReport;
+  'notifications:list': { items: NotificationRow[]; unread: number };
+  'notifications:read': NotificationRow;
+  'notifications:read-all': { updated: number };
   'item:reveal': WeldPassRevealedItem;
   'item:totp': WeldPassTotpCode;
+  'item:versions': WeldPassItemVersion[];
   'item:create': WeldPassItem;
 }
 

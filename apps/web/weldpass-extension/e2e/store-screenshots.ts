@@ -151,7 +151,7 @@ test.beforeAll(async () => {
 
   const popup = await openPopup();
   await popup.getByRole('button', { name: 'Sign in' }).click();
-  await expect(popup.getByRole('searchbox', { name: 'Search logins' })).toBeVisible();
+  await expect(popup.getByRole('button', { name: 'Search logins' })).toBeVisible();
   await popup.close();
 });
 
@@ -250,7 +250,9 @@ test('3: the save bar after signing in', async () => {
 
 test('4: the password generator', async () => {
   const popup = await openPopup();
-  await popup.getByRole('tab', { name: 'Generator' }).or(popup.getByRole('button', { name: 'Generator' })).first().click();
+  // The generator is one of the tools, behind the header's tools icon.
+  await popup.getByRole('button', { name: 'Tools' }).click();
+  await popup.getByRole('button', { name: /^Password generator/ }).click();
   await expect(popup.getByText('Generated password')).toBeVisible();
   const shot = await popup.screenshot();
   await popup.close();

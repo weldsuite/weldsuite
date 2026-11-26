@@ -15,7 +15,7 @@ import type {
 } from '@weldsuite/app-api-client/domains/weldpass-passwords';
 import { hostOf, itemInputSchema } from '@weldsuite/app-api-client/schemas/weldpass-passwords';
 import type { OidcMobileSession } from '@weldsuite/mobile-platform/oidc-session';
-import { createPasswordsApi } from '../lib/api';
+import { createPasswordsApi, type ExtensionApi } from '../lib/api';
 import { evaluateFill, pageContext } from '../lib/fill-policy';
 import type {
   ExtensionState,
@@ -122,7 +122,7 @@ export class WeldPassWorker {
   private session: OidcMobileSession | null = null;
   private sessionFor: string | null = null;
   private unsubscribe: (() => void) | null = null;
-  private api: WeldPassPasswordsApi | null = null;
+  private api: ExtensionApi | null = null;
   private refreshing: Promise<void> | null = null;
 
   constructor(private readonly env: WorkerEnv) {
@@ -341,7 +341,7 @@ export class WeldPassWorker {
   // ── the API, for the popup ──────────────────────────────────────────────
 
   /** The API, once someone is signed in and (header mode) has picked a workspace. */
-  async passwords(): Promise<WeldPassPasswordsApi> {
+  async passwords(): Promise<ExtensionApi> {
     await this.init();
     const snapshot = this.session?.getSnapshot();
     if (!this.api || !this.stored?.profile || this.problem) throw new WorkerError('no-server');

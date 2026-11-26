@@ -11,6 +11,9 @@
  * - `scripting`: the popup's Fill / Save / generator on the active tab, and
  *   bringing the content script into tabs that were open at install.
  * - `activeTab`: the URL of the tab the popup was opened on, without `tabs`.
+ * - `favicon`: each login's site icon in the popup, from the browser's own
+ *   favicon cache (`_favicon/`), so no request goes to the site or a third
+ *   party. Extension pages only: `_favicon/*` is not web accessible.
  * - host permissions: the default server and its sign-in server only. A
  *   self-hosted server is granted at run time (`optional_host_permissions`).
  * - the content script on every `https://` page and `http://localhost`, in
@@ -68,7 +71,7 @@ export interface ExtensionManifest {
 
 export const ICON_SIZES = [16, 32, 48, 128] as const;
 
-export const PERMISSIONS = ['activeTab', 'identity', 'scripting', 'storage'] as const;
+export const PERMISSIONS = ['activeTab', 'favicon', 'identity', 'scripting', 'storage'] as const;
 
 /** Where the content script runs, and where its framed pages may be shown. */
 export const PAGE_MATCHES = ['https://*/*', 'http://localhost/*'] as const;

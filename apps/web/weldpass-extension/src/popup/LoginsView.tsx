@@ -1,17 +1,24 @@
-import { useMemo, useState, type ReactNode } from 'react';
-import { Copy, ExternalLink, KeyRound, Plus, Search, ShieldCheck, User } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { Copy, KeyRound, Plus, ShieldCheck, User } from 'lucide-react';
 import type { WeldPassItem } from '@weldsuite/app-api-client/domains/weldpass-passwords';
+import type { FilterPill } from '@weldsuite/app-api-client/schemas/weldpass-items';
 import { fillLogin, revealPassword } from '../lib/actions';
 import { chromePage, openTab, type ActiveTab } from '../lib/chrome-page';
 import { errorMessageKey } from '../lib/errors';
 import { evaluateFill, pageContext } from '../lib/fill-policy';
+import { SquareArrowUpRightExit } from '../lib/icons';
 import { t } from '../lib/i18n';
+import { VAULT_FILTER, applyListView, isFiltered, type LoginSort } from '../lib/list-view';
 import { blockedMessageKey, fillMessageKey } from '../lib/messages';
 import { filterItems } from '../lib/search';
 import { safeExternalUrl } from '../lib/urls';
 import type { PopupApi } from './api';
 import { useAsync, type Notify } from './hooks';
-import { Button, IconButton, Notice, Spinner } from './ui';
+import { Empty, IconAction, LoadError, Padded, PopupAlert, Section, SiteIcon } from './list';
+import { LoginDetails } from './LoginDetails';
+import { LoginsToolbar } from './LoginsToolbar';
+import { Button } from '@weldsuite/ui/components/button';
+import { InlineSpinner } from '@weldsuite/ui/components/page-loader';
 
 interface Props {
   api: PopupApi;
@@ -33,17 +40,45 @@ export function LoginsView({ api, tab, notify, revision, onSave }: Props) {
     `${tab === undefined ? 'pending' : (origin ?? 'none')}|${revision}`,
   );
   const items = useAsync(async () => (await api.listItems({ type: 'login' })).data, `${revision}`);
+  const vaults = useAsync(async () => (await api.listVaults()).data, `${revision}`);
 
   const [query, setQuery] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
+  /** The login whose details page is open. */
+  const [opened, setOpened] = useState<WeldPassItem | null>(null);
+  const [sort, setSort] = useState<LoginSort | null>(null);
+  const [filters, setFilters] = useState<FilterPill[]>([]);
   const searching = query.trim() !== '';
+  const filtering = isFiltered(filters);
 
-  const siteItems = matches.data ?? [];
+  // A vault pill for a vault that is gone (another workspace, access removed) goes too.
+  useEffect(() => {
+    if (!vaults.data) return;
+    const known = new Set(vaults.data.map((vault) => vault.id));
+    setFilters((previous) => {
+      const kept = previous.filter(
+        (pill) => pill.field !== VAULT_FILTER || pill.value === '' || known.has(pill.value),
+      );
+      return kept.length === previous.length ? previous : kept;
+    });
+  }, [vaults.data]);
+
+  const siteItems = useMemo(
+    () => applyListView(matches.data ?? [], filters, sort),
+    [matches.data, filters, sort],
+  );
   const otherItems = useMemo(() => {
     const onSite = new Set((matches.data ?? []).map((item) => item.id));
-    return (items.data ?? []).filter((item) => !onSite.has(item.id));
-  }, [items.data, matches.data]);
-  const results = useMemo(() => filterItems(items.data ?? [], query), [items.data, query]);
+    return applyListView(
+      (items.data ?? []).filter((item) => !onSite.has(item.id)),
+      filters,
+      sort,
+    );
+  }, [items.data, matches.data, filters, sort]);
+  const results = useMemo(
+    () => applyListView(filterItems(items.data ?? [], query), filters, sort),
+    [items.data, query, filters, sort],
+  );
 
   /** One action at a time; an API failure becomes a status line, never an unhandled rejection. */
   async function act(item: WeldPassItem, action: () => Promise<void>) {
@@ -103,6 +138,7 @@ export function LoginsView({ api, tab, notify, revision, onSave }: Props) {
       onCopyUsername={() => copy(item.subtitle ?? '', t('usernameCopied'))}
       onCopyPassword={() => copyPassword(item)}
       onCopyTotp={() => copyTotp(item)}
+      onOpen={() => setOpened(item)}
     />
   );
 
@@ -110,114 +146,98 @@ export function LoginsView({ api, tab, notify, revision, onSave }: Props) {
     (item) => evaluateFill(item, tab?.url).ok,
   );
 
+  const openedVault = opened ? vaults.data?.find((vault) => vault.id === opened.vaultId) : undefined;
+
   return (
-    <div className="flex flex-col gap-3 p-3">
-      <label className="relative block">
-        <span className="sr-only">{t('searchLabel')}</span>
-        <Search
-          className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground"
-          aria-hidden
+    <div className="flex flex-col">
+      {opened && (
+        <LoginDetails
+          item={opened}
+          api={api}
+          vaultName={openedVault ? (openedVault.kind === 'personal' ? t('personalVault') : openedVault.name) : null}
+          canFill={evaluateFill(opened, tab?.url).ok}
+          onFill={() => void fill(opened)}
+          onClose={() => setOpened(null)}
+          notify={notify}
         />
-        <input
-          type="search"
-          autoFocus
-          value={query}
-          placeholder={t('searchLabel')}
-          onChange={(event) => setQuery(event.target.value)}
-          onKeyDown={(event) => {
-            // Enter fills the first login that belongs on this page.
-            if (event.key === 'Enter' && firstFillable) void fill(firstFillable);
-          }}
-          className="h-8 w-full rounded-md border bg-card pl-7 pr-2 text-[13px] placeholder:text-muted-foreground"
-        />
-      </label>
+      )}
+      <LoginsToolbar
+        query={query}
+        onQueryChange={setQuery}
+        onSubmit={() => {
+          if (firstFillable) void fill(firstFillable);
+        }}
+        sort={sort}
+        onSortChange={setSort}
+        filters={filters}
+        onFiltersChange={setFilters}
+        vaults={vaults.data ?? []}
+      />
 
       {searching ? (
-        <Section title={t('searchResults')}>
+        <Section title={t('searchResults')} count={items.data ? results.length : undefined}>
           {items.loading ? (
-            <Spinner label={t('loading')} />
+            <Padded>
+              <InlineSpinner label={t('loading')} className="py-0" />
+            </Padded>
           ) : items.error ? (
             <LoadError error={items.error} onRetry={items.reload} />
           ) : results.length === 0 ? (
-            <Empty>{t('noResults')}</Empty>
+            <Empty>{t(filtering ? 'noFilterMatches' : 'noResults')}</Empty>
           ) : (
-            <ul className="flex flex-col gap-1">{results.map(row)}</ul>
+            <ul>{results.map(row)}</ul>
           )}
         </Section>
       ) : (
         <>
           <Section
             title={page.ok ? t('forHost', page.host) : t('tabLogins')}
+            count={page.ok && matches.data ? siteItems.length : undefined}
             action={
-              <Button variant="ghost" onClick={onSave} className="-mr-1.5 h-6 px-1.5">
+              <Button variant="ghost" size="xs" onClick={onSave} className="-mr-1.5">
                 <Plus className="size-3.5" aria-hidden />
                 {t('saveForSite')}
               </Button>
             }
           >
             {tab === undefined || matches.loading ? (
-              <Spinner label={t('loading')} />
+              <Padded>
+                <InlineSpinner label={t('loading')} className="py-0" />
+              </Padded>
             ) : !page.ok ? (
-              <Notice tone={page.reason === 'insecure-page' ? 'warning' : 'info'}>
-                {t(blockedMessageKey(page.reason))}
-              </Notice>
+              <Padded>
+                <PopupAlert tone={page.reason === 'insecure-page' ? 'warning' : 'info'}>
+                  {t(blockedMessageKey(page.reason))}
+                </PopupAlert>
+              </Padded>
             ) : matches.error ? (
               <LoadError error={matches.error} onRetry={matches.reload} />
             ) : siteItems.length === 0 ? (
-              <Empty>{t('noMatches')}</Empty>
+              <Empty>
+                {t(filtering && (matches.data ?? []).length > 0 ? 'noFilterMatches' : 'noMatches')}
+              </Empty>
             ) : (
-              <ul className="flex flex-col gap-1">{siteItems.map(row)}</ul>
+              <ul>{siteItems.map(row)}</ul>
             )}
           </Section>
 
-          <Section title={t('allLogins')}>
+          <Section title={t('allLogins')} count={items.data ? otherItems.length : undefined}>
             {items.loading ? (
-              <Spinner label={t('loading')} />
+              <Padded>
+                <InlineSpinner label={t('loading')} className="py-0" />
+              </Padded>
             ) : items.error ? (
               <LoadError error={items.error} onRetry={items.reload} />
             ) : (items.data ?? []).length === 0 ? (
               <Empty>{t('noItems')}</Empty>
+            ) : filtering && otherItems.length === 0 ? (
+              <Empty>{t('noFilterMatches')}</Empty>
             ) : (
-              <ul className="flex flex-col gap-1">{otherItems.map(row)}</ul>
+              <ul>{otherItems.map(row)}</ul>
             )}
           </Section>
         </>
       )}
-    </div>
-  );
-}
-
-function Section({
-  title,
-  action,
-  children,
-}: {
-  title: string;
-  action?: ReactNode;
-  children: ReactNode;
-}) {
-  return (
-    <section className="flex flex-col gap-1.5">
-      <div className="flex min-h-6 items-center justify-between gap-2">
-        <h2 className="truncate text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-          {title}
-        </h2>
-        {action}
-      </div>
-      {children}
-    </section>
-  );
-}
-
-function Empty({ children }: { children: ReactNode }) {
-  return <p className="py-1 text-xs text-muted-foreground">{children}</p>;
-}
-
-function LoadError({ error, onRetry }: { error: unknown; onRetry: () => void }) {
-  return (
-    <div className="flex flex-col items-start gap-2">
-      <Notice tone="error">{t(errorMessageKey(error))}</Notice>
-      <Button onClick={onRetry}>{t('retry')}</Button>
     </div>
   );
 }
@@ -230,6 +250,7 @@ function ItemRow({
   onCopyUsername,
   onCopyPassword,
   onCopyTotp,
+  onOpen,
 }: {
   item: WeldPassItem;
   /** Whether this login may go into the current page — decided again when Fill is pressed. */
@@ -239,42 +260,62 @@ function ItemRow({
   onCopyUsername: () => void;
   onCopyPassword: () => void;
   onCopyTotp: () => void;
+  /** Opens the login's details page: a click anywhere on the row that isn't one of its buttons. */
+  onOpen: () => void;
 }) {
   const siteUrl = safeExternalUrl(item.url);
 
+  // A row in the platform's list style (EntityList): full width, a divider
+  // below, a light hover. The copy and open actions show on hover or keyboard
+  // focus, and always on touch screens; Fill stays visible. As in the
+  // platform's lists, a button stretched over the row opens its details; the
+  // row's own buttons sit above it.
   return (
-    <li className="flex items-center gap-1 rounded-md border bg-card px-2 py-1.5">
+    <li className="group relative flex cursor-pointer items-center gap-2.5 border-b border-border/70 px-3 py-2 transition-colors hover:bg-muted/40">
+      <button
+        type="button"
+        aria-label={t('openLogin', item.title)}
+        onClick={onOpen}
+        className="absolute inset-0 z-0 cursor-pointer focus-visible:outline-offset-[-2px]"
+      />
+      <SiteIcon url={item.url} />
       <div className="min-w-0 flex-1">
-        <div className="truncate font-medium">{item.title}</div>
+        <div className="flex min-w-0 items-center gap-1.5">
+          <span className="truncate font-medium">{item.title}</span>
+          {item.hasTotp && <ShieldCheck className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />}
+        </div>
         <div className="truncate text-xs text-muted-foreground">
           {item.subtitle || item.host || '—'}
         </div>
       </div>
 
-      {item.subtitle && (
-        <IconButton label={t('copyUsername')} disabled={disabled} onClick={onCopyUsername}>
-          <User className="size-3.5" aria-hidden />
-        </IconButton>
-      )}
-      <IconButton label={t('copyPassword')} disabled={disabled} onClick={onCopyPassword}>
-        <Copy className="size-3.5" aria-hidden />
-      </IconButton>
-      {item.hasTotp && (
-        <IconButton label={t('copyTotp')} disabled={disabled} onClick={onCopyTotp}>
-          <ShieldCheck className="size-3.5" aria-hidden />
-        </IconButton>
-      )}
-      {siteUrl && (
-        <IconButton label={t('openSite')} onClick={() => openTab(siteUrl)}>
-          <ExternalLink className="size-3.5" aria-hidden />
-        </IconButton>
-      )}
+      <div className="relative z-[1] flex shrink-0 items-center opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100">
+        {item.subtitle && (
+          <IconAction label={t('copyUsername')} disabled={disabled} onClick={onCopyUsername}>
+            <User className="size-3.5" aria-hidden />
+          </IconAction>
+        )}
+        <IconAction label={t('copyPassword')} disabled={disabled} onClick={onCopyPassword}>
+          <Copy className="size-3.5" aria-hidden />
+        </IconAction>
+        {item.hasTotp && (
+          <IconAction label={t('copyTotp')} disabled={disabled} onClick={onCopyTotp}>
+            <ShieldCheck className="size-3.5" aria-hidden />
+          </IconAction>
+        )}
+        {siteUrl && (
+          <IconAction label={t('openSite')} onClick={() => openTab(siteUrl)}>
+            <SquareArrowUpRightExit className="size-3.5" aria-hidden />
+          </IconAction>
+        )}
+      </div>
       {canFill && (
         <Button
-          variant="primary"
+          size="sm"
           disabled={disabled}
           onClick={onFill}
           aria-label={t('fillItem', item.title)}
+          className="relative z-[1] h-7 gap-1.5 px-2.5 text-xs"
         >
           <KeyRound className="size-3.5" aria-hidden />
           {t('fill')}
