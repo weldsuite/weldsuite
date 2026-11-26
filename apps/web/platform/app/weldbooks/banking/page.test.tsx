@@ -51,6 +51,7 @@ import {
   makeProvider,
   renderWithProviders,
 } from './feeds/test-support';
+import { addIsFilter } from '../payment-runs/test-utils';
 
 const TWO_PROVIDERS = {
   country: 'US',
@@ -111,6 +112,23 @@ describe('BankAccountsPage', () => {
 
     expect(await screen.findByRole('button', { name: 'Add your first bank account' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Connect bank' })).not.toBeInTheDocument();
+  });
+
+  it('narrows the accounts by bank', async () => {
+    const user = userEvent.setup();
+    routes({
+      accounts: [
+        makeBankAccount({ id: 'ba_1', name: 'Operating', bankName: 'Chase' }),
+        makeBankAccount({ id: 'ba_2', name: 'Payroll', bankName: 'Wells Fargo', currency: null }),
+      ],
+    });
+    renderWithProviders(<BankAccountsPage />);
+    expect(await screen.findByText('Payroll')).toBeInTheDocument();
+
+    await addIsFilter(user, 'Bank', 'Chase');
+
+    await waitFor(() => expect(screen.queryByText('Payroll')).not.toBeInTheDocument());
+    expect(screen.getByText('Operating')).toBeInTheDocument();
   });
 
   it('lists the accounts with the statement tools, and a one-line bank feed prompt above them', async () => {
