@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
-import { and, eq, getTableColumns, isNull, like, or, type SQL } from 'drizzle-orm';
+import { and, eq, getTableColumns, isNull, or, type SQL } from 'drizzle-orm';
 import { z } from 'zod';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import { omitSensitive, sensitiveColumnsOf } from '@weldsuite/db/lib/sensitive-columns';
@@ -14,6 +14,7 @@ import { requireScope } from '../../../lib/scopes';
 import { generateId } from '../../../lib/id';
 import { error, list, noContent, success, cursorPagination } from '../../../lib/response';
 import { listWithCursor } from '../../../lib/list-helpers';
+import { searchAny } from '../../../lib/search';
 
 const table = schema.parties;
 const app = new Hono<HonoEnv>();
@@ -56,10 +57,7 @@ app.get('/', requireScope('accounting_contacts:read'), zValidator('query', listQ
   const db = c.get('tenantDb');
   const q = c.req.valid('query');
   const where: (SQL | undefined)[] = [];
-  if (q.search) {
-    const term = `%${q.search}%`;
-    where.push(or(like(table.displayName, term), like(table.partyCode, term)));
-  }
+  if (q.search) where.push(searchAny(q.search, [table.displayName, table.partyCode]));
   if (q.role) where.push(eq(table.role, q.role));
   const result = await listWithCursor({
     db,

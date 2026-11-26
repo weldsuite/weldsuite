@@ -16,10 +16,10 @@ use weldsuite_schema::tenant::helpdesk_articles;
 
 use crate::ExternalApiState;
 use crate::crud::{
-    Answer, Caller, created, dates, get_live, like, no_content, now, ok, page, pick, soft_delete,
-    text, with_updated,
+    Answer, Caller, created, dates, get_live, no_content, now, ok, page, pick, soft_delete, text,
+    with_updated,
 };
-use crate::list::when;
+use crate::list::{search_any, when};
 use crate::schemas::LIST_ARTICLES;
 use crate::schemas_gen::{CREATE_ARTICLE, UPDATE_ARTICLE};
 use crate::session::{bad_request, not_found};
@@ -50,7 +50,7 @@ fn articles_list(f: &Value) -> Condition {
     Condition::all()
         .add(helpdesk_articles::Column::DeletedAt.is_null())
         .add_option(when(f, "search", |v| {
-            helpdesk_articles::Column::Title.like(v)
+            search_any(&[helpdesk_articles::Column::Title], &v)
         }))
         .add_option(when(f, "status", |v| {
             helpdesk_articles::Column::Status.eq(v)
@@ -92,7 +92,7 @@ fn derive_content(body: &Map<String, Value>) -> Option<String> {
 async fn list_articles(caller: Caller, RawQuery(raw): RawQuery) -> Answer {
     let q = zod::query(&LIST_ARTICLES, raw.as_deref())?;
     let filters = json!({
-        "search": like(&q, "search"),
+        "search": text(&q, "search"),
         "status": text(&q, "status"),
         "authorId": text(&q, "authorId"),
     });

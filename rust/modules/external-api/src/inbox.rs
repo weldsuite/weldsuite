@@ -37,10 +37,10 @@ use weldsuite_schema::tenant::{
 
 use crate::ExternalApiState;
 use crate::crud::{
-    Answer, Caller, Fail, created, dates, field, like, list_query, no_content, now, ok, page,
+    Answer, Caller, Fail, created, dates, field, list_query, no_content, now, ok, page,
     soft_delete, text, with_id, with_updated,
 };
-use crate::list::{always, like_any, when};
+use crate::list::{always, search_any, when};
 use crate::schemas::LIST_TICKET_MESSAGES;
 use crate::schemas_gen::{
     ADD_CONVERSATION_MESSAGE, CREATE_TICKET_MESSAGE, GET_CONVERSATION_QUERY,
@@ -459,7 +459,7 @@ fn tickets_list(f: &Value) -> Condition {
     Condition::all()
         .add(Column::DeletedAt.is_null())
         .add_option(when(f, "search", |v| {
-            like_any(
+            search_any(
                 &[
                     Column::Subject,
                     Column::CustomerEmail,
@@ -480,7 +480,7 @@ fn tickets_list(f: &Value) -> Condition {
 async fn list_tickets(caller: Caller, RawQuery(raw): RawQuery) -> Answer {
     let q = zod::query(&LIST_TICKETS, raw.as_deref())?;
     let filters = json!({
-        "search": like(&q, "search"),
+        "search": text(&q, "search"),
         "status": text(&q, "status"),
         "priority": text(&q, "priority"),
         "assigneeId": text(&q, "assigneeId"),

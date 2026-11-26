@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
-import { and, eq, gte, inArray, isNull, like, lte, or, sql, type SQL } from 'drizzle-orm';
+import { and, eq, gte, inArray, isNull, lte, or, sql, type SQL } from 'drizzle-orm';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import { softDeleteTaskTree } from '@weldsuite/flow-domain/task-tree';
 import { applyStatusChange } from '@weldsuite/flow-domain/task-stage';
@@ -18,6 +18,7 @@ import type { HonoEnv } from '../../../types';
 import { requireScope } from '../../../lib/scopes';
 import { error, list, noContent, success, cursorPagination } from '../../../lib/response';
 import { listWithCursor } from '../../../lib/list-helpers';
+import { searchAny } from '../../../lib/search';
 import {
   createTaskSchema,
   taskStatusAliases,
@@ -76,8 +77,7 @@ app.get('/', requireScope('tasks:read'), zValidator('query', listTasksQuery), as
   const q = c.req.valid('query');
   const where: (SQL | undefined)[] = [];
   if (q.search) {
-    const term = `%${q.search}%`;
-    const clauses = [like(table.title, term), like(table.description, term)];
+    const clauses = [searchAny(q.search, [table.title, table.description])];
     // Let callers find a task by its number: "TASK-1042", "#1042", or "1042".
     const numberMatch = q.search.trim().replace(/^#/, '').replace(/^task-/i, '');
     if (/^\d+$/.test(numberMatch)) clauses.push(eq(table.number, Number(numberMatch)));

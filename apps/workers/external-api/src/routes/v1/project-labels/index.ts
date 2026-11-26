@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
-import { and, eq, isNull, like, type SQL } from 'drizzle-orm';
+import { and, eq, isNull, type SQL } from 'drizzle-orm';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import { schema } from '../../../db';
 import type { HonoEnv } from '../../../types';
@@ -9,6 +9,7 @@ import { requireScope } from '../../../lib/scopes';
 import { generateId } from '../../../lib/id';
 import { error, list, noContent, success, cursorPagination } from '../../../lib/response';
 import { listWithCursor } from '../../../lib/list-helpers';
+import { searchAny } from '../../../lib/search';
 import {
   createProjectLabelSchema,
   updateProjectLabelSchema,
@@ -28,7 +29,7 @@ app.get('/', requireScope('project_labels:read'), zValidator('query', listProjec
   const db = c.get('tenantDb');
   const q = c.req.valid('query');
   const where: (SQL | undefined)[] = [];
-  if (q.search) where.push(like(table.name, `%${q.search}%`));
+  if (q.search) where.push(searchAny(q.search, [table.name]));
   if (q.projectId) where.push(eq(table.projectId, q.projectId));
   const result = await listWithCursor({ db, table, where, cursor: q.cursor, limit: q.limit });
   return list(c, result.data as Record<string, unknown>[], cursorPagination(result.totalCount, result.hasMore, result.cursor));

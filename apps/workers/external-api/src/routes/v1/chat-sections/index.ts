@@ -1,13 +1,14 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
-import { eq, like, type SQL } from 'drizzle-orm';
+import { eq, type SQL } from 'drizzle-orm';
 import { schema } from '../../../db';
 import type { HonoEnv } from '../../../types';
 import { requireScope } from '../../../lib/scopes';
 import { generateId } from '../../../lib/id';
 import { error, list, noContent, success, cursorPagination } from '../../../lib/response';
 import { listWithCursor } from '../../../lib/list-helpers';
+import { searchAny } from '../../../lib/search';
 import {
   createChatSectionSchema,
   updateChatSectionSchema,
@@ -28,7 +29,7 @@ app.get('/', requireScope('chat_sections:read'), zValidator('query', listChatSec
   const db = c.get('tenantDb');
   const q = c.req.valid('query');
   const where: (SQL | undefined)[] = [];
-  if (q.search) where.push(like(table.name, `%${q.search}%`));
+  if (q.search) where.push(searchAny(q.search, [table.name]));
   const result = await listWithCursor({ db, table, where, cursor: q.cursor, limit: q.limit });
   return list(c, result.data as Record<string, unknown>[], cursorPagination(result.totalCount, result.hasMore, result.cursor));
 });

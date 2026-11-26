@@ -219,14 +219,8 @@ pub(crate) async fn page(
     .await?)
 }
 
-/// `%term%` for a `like` filter, when the term is not empty (`if (q.search)`).
-pub(crate) fn like(parsed: &Parsed, key: &str) -> Value {
-    parsed
-        .text(key)
-        .map_or(Value::Null, |term| json!(format!("%{term}%")))
-}
-
-/// A text filter: set when not empty (`if (q.status)`).
+/// A text filter: set when not empty (`if (q.status)`). A `search` filter
+/// is one too, matched with [`crate::list::search_any`].
 pub(crate) fn text(parsed: &Parsed, key: &str) -> Value {
     parsed.text(key).map_or(Value::Null, |v| json!(v))
 }

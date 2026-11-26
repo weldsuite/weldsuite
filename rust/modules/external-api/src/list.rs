@@ -119,11 +119,33 @@ pub(crate) fn always<C: Into<Condition>>(
     param(filters, key).map_or_else(Condition::any, |value| test(value).into())
 }
 
-/// `t.<column> like $pattern or …`: the pattern on any of the columns.
-pub(crate) fn like_any<C: ColumnTrait>(columns: &[C], pattern: &str) -> Condition {
-    columns.iter().fold(Condition::any(), |any, column| {
-        any.add(column.like(pattern))
-    })
+/// A list's `search` (`searchAny` in `lib/search.ts`): every word of the
+/// text appears, in any case, in at least one of the columns:
+/// `(t.a ilike '%one%' or t.b ilike '%one%') and (t.a ilike '%two%' or …)`.
+/// So `password reset` finds "Resetting your password". `%`, `_` and `\`
+/// match themselves, and text without words matches every row.
+pub(crate) fn search_any<C: ColumnTrait>(columns: &[C], search: &str) -> Condition {
+    search
+        .split_whitespace()
+        .fold(Condition::all(), |all, word| {
+            let pattern = format!("%{}%", escape_like(word));
+            all.add(columns.iter().fold(Condition::any(), |any, column| {
+                any.add(column.ilike(pattern.as_str()))
+            }))
+        })
+}
+
+/// `escapeLike(value)`: `%`, `_` and the escape character itself, so a LIKE
+/// pattern matches the text literally.
+pub(crate) fn escape_like(value: &str) -> String {
+    let mut escaped = String::with_capacity(value.len());
+    for ch in value.chars() {
+        if matches!(ch, '\\' | '%' | '_') {
+            escaped.push('\\');
+        }
+        escaped.push(ch);
+    }
+    escaped
 }
 
 /// `t.<enum column>::text = $value`: an enum compared by its label, so a

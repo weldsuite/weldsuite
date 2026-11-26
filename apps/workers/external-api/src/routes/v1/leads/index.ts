@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
-import { and, eq, isNull, like, or, type SQL } from 'drizzle-orm';
+import { and, eq, isNull, type SQL } from 'drizzle-orm';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import { schema } from '../../../db';
 import type { HonoEnv } from '../../../types';
@@ -8,6 +8,7 @@ import { requireScope } from '../../../lib/scopes';
 import { generateId } from '../../../lib/id';
 import { error, list, noContent, success, cursorPagination } from '../../../lib/response';
 import { listWithCursor } from '../../../lib/list-helpers';
+import { searchAny } from '../../../lib/search';
 import {
   createLeadSchema,
   updateLeadSchema,
@@ -22,16 +23,7 @@ app.get('/', requireScope('leads:read'), zValidator('query', listLeadsQuery), as
   const q = c.req.valid('query');
   const where: (SQL | undefined)[] = [];
   if (q.search) {
-    const term = `%${q.search}%`;
-    where.push(
-      or(
-        like(table.email, term),
-        like(table.fullName, term),
-        like(table.companyName, term),
-        like(table.firstName, term),
-        like(table.lastName, term),
-      ),
-    );
+    where.push(searchAny(q.search, [table.email, table.fullName, table.companyName, table.firstName, table.lastName]));
   }
   if (q.status) where.push(eq(table.status, q.status));
   if (q.source) where.push(eq(table.source, q.source));

@@ -14,6 +14,12 @@ A history of notable changes to the WeldSuite External API. The API is served un
 
 The current stable version. All endpoints live under `https://api.weldsuite.org/v1`.
 
+### 2026-11-26: Search by words, in any case
+
+- **`search` on lists matches words.** Every word of `search` has to appear somewhere in the fields the list searches, in any case and any order. `search=password reset` now finds "Resetting your password", and `search=acme` finds "Acme Industries". Until now the whole text had to appear exactly as typed, capitals included.
+- **`%` and `_` match themselves.** They used to act as wildcards.
+- This covers the lists that search their own fields: CRM, tasks and projects, knowledge pages, articles, tickets, chat, calendars, files, domains, workflows and accounting contacts. Mail, boards, custom objects and WeldReach already searched their own way and are unchanged.
+
 ### 2026-11-10: OData feed for BI tools
 
 - **New feed**, [OData feed (BI)](/odata): a read-only OData 4.0 service at `/v1/odata` that Power BI and Excel read. Tables: Conversations, Messages, SlaClocks, Calls, Teams, TicketTypes, Agents, Problems, CatalogItems and Articles. It supports `$top`, `$skip`, `$select`, `$orderby`, `$filter` (a subset), `$count` and server paging with `@odata.nextLink`.

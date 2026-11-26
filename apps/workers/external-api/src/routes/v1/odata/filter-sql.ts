@@ -10,6 +10,7 @@
 
 import { sql, type SQL } from 'drizzle-orm';
 import { isPlainColumn, type EdmType, type ODataEntitySet, type ODataProperty } from '@weldsuite/desk-domain/odata-catalog';
+import { escapeLike } from '../../../lib/search';
 import type { CmpOp, FilterNode, Literal, TextFn } from './filter';
 
 const SQL_OPS: Record<Exclude<CmpOp, 'eq' | 'ne'>, SQL> = {
@@ -46,10 +47,7 @@ function param(type: EdmType, lit: Literal): SQL {
   }
 }
 
-/** `%`, `_` and the escape character itself, so a LIKE pattern matches the text literally. */
-export function escapeLike(value: string): string {
-  return value.replace(/[\\%_]/g, (ch) => `\\${ch}`);
-}
+export { escapeLike };
 
 const like = (expr: SQL, pattern: string): SQL => sql`COALESCE(${expr} LIKE ${pattern}::text ESCAPE '\\', false)`;
 

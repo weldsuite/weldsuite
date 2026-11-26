@@ -8,6 +8,7 @@ import { requireScope } from '../../../lib/scopes';
 import { generateId } from '../../../lib/id';
 import { error, list, noContent, success, cursorPagination } from '../../../lib/response';
 import { listWithCursor } from '../../../lib/list-helpers';
+import { searchAny } from '../../../lib/search';
 
 const createQuoteSchema = z.object({
   name: z.string().min(1).max(255),
@@ -37,7 +38,7 @@ app.get('/', requireScope('quotes:read'), zValidator('query', listQuoteQuery), a
   const db = c.get('tenantDb');
   const q = c.req.valid('query');
   const where: (ReturnType<typeof like> | undefined)[] = [];
-  if (q.search) where.push(like(table.name, `%${q.search}%`));
+  if (q.search) where.push(searchAny(q.search, [table.name]));
   const result = await listWithCursor({ db, table, where, cursor: q.cursor, limit: q.limit });
   return list(c, result.data as Record<string, unknown>[], cursorPagination(result.totalCount, result.hasMore, result.cursor));
 });

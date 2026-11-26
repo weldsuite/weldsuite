@@ -29,12 +29,11 @@ use weldsuite_schema::tenant::{
 
 use crate::ExternalApiState;
 use crate::crud::{
-    Answer, Caller, Fail, changes, created, dates, field, field_or, flag, get_live, like,
-    live_or_404, no_content, now, ok, page, pick, soft_delete, text, to_date, with_id,
-    with_updated,
+    Answer, Caller, Fail, changes, created, dates, field, field_or, flag, get_live, live_or_404,
+    no_content, now, ok, page, pick, soft_delete, text, to_date, with_id, with_updated,
 };
 use crate::custom_fields;
-use crate::list::{like_any, when, when_flag};
+use crate::list::{search_any, when, when_flag};
 use crate::schemas::{CREATE_QUOTE, LIST_QUOTES, UPDATE_QUOTE};
 use crate::schemas_gen::{
     CREATE_ACTIVITY, CREATE_COMPANY, CREATE_LEAD, CREATE_OPPORTUNITY, CREATE_PERSON,
@@ -221,7 +220,7 @@ fn people_list(f: &Value) -> Condition {
     Condition::all()
         .add(Column::DeletedAt.is_null())
         .add_option(when(f, "search", |v| {
-            like_any(
+            search_any(
                 &[
                     Column::DisplayName,
                     Column::FullName,
@@ -313,7 +312,7 @@ fn person_event(id: &str, row: &Value) -> Value {
 async fn list_people(caller: Caller, RawQuery(raw): RawQuery) -> Answer {
     let q = zod::query(&LIST_PEOPLE, raw.as_deref())?;
     let filters = json!({
-        "search": like(&q, "search"),
+        "search": text(&q, "search"),
         "status": text(&q, "status"),
         "ownerId": text(&q, "ownerId"),
         "isSupplier": flag(&q, "isSupplier"),
@@ -559,7 +558,7 @@ fn companies_list(f: &Value) -> Condition {
     Condition::all()
         .add(Column::DeletedAt.is_null())
         .add_option(when(f, "search", |v| {
-            like_any(
+            search_any(
                 &[
                     Column::DisplayName,
                     Column::Name,
@@ -599,7 +598,7 @@ fn company_event(id: &str, row: &Value) -> Value {
 async fn list_companies(caller: Caller, RawQuery(raw): RawQuery) -> Answer {
     let q = zod::query(&LIST_COMPANIES, raw.as_deref())?;
     let filters = json!({
-        "search": like(&q, "search"),
+        "search": text(&q, "search"),
         "status": text(&q, "status"),
         "ownerId": text(&q, "ownerId"),
         "industry": text(&q, "industry"),
@@ -756,7 +755,7 @@ fn leads_list(f: &Value) -> Condition {
     Condition::all()
         .add(Column::DeletedAt.is_null())
         .add_option(when(f, "search", |v| {
-            like_any(
+            search_any(
                 &[
                     Column::Email,
                     Column::FullName,
@@ -792,7 +791,7 @@ fn lead_event(id: &str, row: &Value) -> Value {
 async fn list_leads(caller: Caller, RawQuery(raw): RawQuery) -> Answer {
     let q = zod::query(&LIST_LEADS, raw.as_deref())?;
     let filters = json!({
-        "search": like(&q, "search"),
+        "search": text(&q, "search"),
         "status": text(&q, "status"),
         "source": text(&q, "source"),
         "rating": text(&q, "rating"),
@@ -917,7 +916,7 @@ fn opportunities_list(f: &Value) -> Condition {
     Condition::all()
         .add(Column::DeletedAt.is_null())
         .add_option(when(f, "search", |v| {
-            like_any(&[Column::Name, Column::CustomerName], &v)
+            search_any(&[Column::Name, Column::CustomerName], &v)
         }))
         .add_option(when(f, "status", |v| Column::Status.eq(v)))
         .add_option(when(f, "stage", |v| Column::Stage.eq(v)))
@@ -980,7 +979,7 @@ const OPPORTUNITY_UPDATE_KEYS: [&str; 7] = [
 async fn list_opportunities(caller: Caller, RawQuery(raw): RawQuery) -> Answer {
     let q = zod::query(&LIST_OPPORTUNITIES, raw.as_deref())?;
     let filters = json!({
-        "search": like(&q, "search"),
+        "search": text(&q, "search"),
         "status": text(&q, "status"),
         "stage": text(&q, "stage"),
         "pipeline": text(&q, "pipeline"),
@@ -1135,7 +1134,9 @@ async fn delete_opportunity(State(state): S, caller: Caller, Path(id): Path<Stri
 fn pipelines_list(f: &Value) -> Condition {
     Condition::all()
         .add(crm_pipelines::Column::DeletedAt.is_null())
-        .add_option(when(f, "search", |v| crm_pipelines::Column::Name.like(v)))
+        .add_option(when(f, "search", |v| {
+            search_any(&[crm_pipelines::Column::Name], &v)
+        }))
         .add_option(when_flag(f, "archived", |flag| {
             crm_pipelines::Column::IsArchived.eq(flag)
         }))
@@ -1148,7 +1149,7 @@ async fn list_pipelines(caller: Caller, RawQuery(raw): RawQuery) -> Answer {
         Some("archived") => json!(true),
         _ => Value::Null,
     };
-    let filters = json!({ "search": like(&q, "search"), "archived": archived });
+    let filters = json!({ "search": text(&q, "search"), "archived": archived });
     page(&caller.db, pipelines_list, &CRM_PIPELINES, &q, filters).await
 }
 
@@ -1312,7 +1313,7 @@ fn activities_list(f: &Value) -> Condition {
     Condition::all()
         .add(Column::DeletedAt.is_null())
         .add_option(when(f, "search", |v| {
-            like_any(&[Column::Subject, Column::Description], &v)
+            search_any(&[Column::Subject, Column::Description], &v)
         }))
         .add_option(when(f, "type", |v| Column::Type.eq(v)))
         .add_option(when(f, "status", |v| Column::Status.eq(v)))
@@ -1328,7 +1329,7 @@ const ACTIVITY_DATES: [&str; 4] = ["dueDate", "startTime", "endTime", "followUpD
 async fn list_activities(caller: Caller, RawQuery(raw): RawQuery) -> Answer {
     let q = zod::query(&LIST_ACTIVITIES, raw.as_deref())?;
     let filters = json!({
-        "search": like(&q, "search"),
+        "search": text(&q, "search"),
         "type": text(&q, "type"),
         "status": text(&q, "status"),
         "assignedToId": text(&q, "assignedToId"),
@@ -1484,12 +1485,14 @@ async fn delete_activity(State(state): S, caller: Caller, Path(id): Path<String>
 fn quotes_list(f: &Value) -> Condition {
     Condition::all()
         .add(crm_quotes::Column::DeletedAt.is_null())
-        .add_option(when(f, "search", |v| crm_quotes::Column::Name.like(v)))
+        .add_option(when(f, "search", |v| {
+            search_any(&[crm_quotes::Column::Name], &v)
+        }))
 }
 
 async fn list_quotes(caller: Caller, RawQuery(raw): RawQuery) -> Answer {
     let q = zod::query(&LIST_QUOTES, raw.as_deref())?;
-    let filters = json!({ "search": like(&q, "search") });
+    let filters = json!({ "search": text(&q, "search") });
     page(&caller.db, quotes_list, &CRM_QUOTES, &q, filters).await
 }
 

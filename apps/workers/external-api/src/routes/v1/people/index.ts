@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
-import { and, eq, inArray, isNull, like, or, type SQL } from 'drizzle-orm';
+import { and, eq, inArray, isNull, type SQL } from 'drizzle-orm';
 import { computeChanges, publishEntityEvent } from '@weldsuite/entity-events';
 import {
   getDefinitionsForEntityType,
@@ -13,6 +13,7 @@ import { requireScope } from '../../../lib/scopes';
 import { generateId } from '../../../lib/id';
 import { error, list, noContent, success, cursorPagination } from '../../../lib/response';
 import { listWithCursor } from '../../../lib/list-helpers';
+import { searchAny } from '../../../lib/search';
 import {
   customFieldProblems,
   customFieldsRefused,
@@ -50,16 +51,7 @@ app.get('/', requireScope('people:read'), zValidator('query', listPeopleQuery), 
   const q = c.req.valid('query');
   const where: (SQL | undefined)[] = [];
   if (q.search) {
-    const term = `%${q.search}%`;
-    where.push(
-      or(
-        like(table.displayName, term),
-        like(table.fullName, term),
-        like(table.firstName, term),
-        like(table.lastName, term),
-        like(table.email, term),
-      ),
-    );
+    where.push(searchAny(q.search, [table.displayName, table.fullName, table.firstName, table.lastName, table.email]));
   }
   if (q.status) where.push(eq(table.status, q.status));
   if (q.ownerId) where.push(eq(table.ownerId, q.ownerId));

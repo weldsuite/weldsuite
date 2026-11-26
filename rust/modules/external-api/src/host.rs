@@ -22,10 +22,10 @@ use weldsuite_schema::tenant::{dns_records, dns_zones, domains, reach_domains};
 
 use crate::ExternalApiState;
 use crate::crud::{
-    Answer, Caller, created, dates, field, like, list_query, no_content, now, ok, soft_delete,
+    Answer, Caller, created, dates, field, list_query, no_content, now, ok, soft_delete, text,
     with_id, with_updated,
 };
-use crate::list::{ListQuery, clamp_limit, label_eq, like_any, list_page_mapped, when};
+use crate::list::{ListQuery, clamp_limit, label_eq, list_page_mapped, search_any, when};
 use crate::schemas_gen::{
     CREATE_DNS_RECORD, CREATE_DNS_ZONE, CREATE_DOMAIN, LIST_DOMAINS, UPDATE_DNS_RECORD,
     UPDATE_DNS_ZONE, UPDATE_DOMAIN,
@@ -166,7 +166,7 @@ fn domains_list(f: &Value) -> Condition {
     Condition::all()
         .add(Column::DeletedAt.is_null())
         .add_option(when(f, "search", |v| {
-            like_any(&[Column::FullDomain, Column::Name], &v)
+            search_any(&[Column::FullDomain, Column::Name], &v)
         }))
         .add_option(when(f, "status", |v| label_eq(Column::Status, v)))
         .add(registration_is_not(
@@ -184,7 +184,7 @@ async fn list_domains(caller: Caller, RawQuery(raw): RawQuery) -> Answer {
         Some("all") | None => Value::Null,
         Some(status) => json!(status),
     };
-    let filters = json!({ "search": like(&q, "search"), "status": status });
+    let filters = json!({ "search": text(&q, "search"), "status": status });
     Ok(list_page_mapped(
         &caller.db,
         &DOMAINS.entity,

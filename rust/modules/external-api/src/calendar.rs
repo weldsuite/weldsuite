@@ -12,7 +12,7 @@ use weldsuite_schema::tenant::{calendar_events, calendars};
 
 use crate::ExternalApiState;
 use crate::crud::{Caller, Fail};
-use crate::list::when;
+use crate::list::{search_any, when};
 use crate::schemas::{LIST_CALENDAR_EVENTS, LIST_CALENDARS};
 use crate::schemas_gen::{
     CREATE_CALENDAR, CREATE_CALENDAR_EVENT, UPDATE_CALENDAR, UPDATE_CALENDAR_EVENT,
@@ -52,10 +52,12 @@ static CALENDAR_GROUP: Simple = Simple {
     filter: |f| {
         Condition::all()
             .add(calendars::Column::DeletedAt.is_null())
-            .add_option(when(f, "search", |v| calendars::Column::Name.like(v)))
+            .add_option(when(f, "search", |v| {
+                search_any(&[calendars::Column::Name], &v)
+            }))
             .add_option(when(f, "ownerId", |v| calendars::Column::OwnerId.eq(v)))
     },
-    filters: &[F::Like("search"), F::Eq("ownerId")],
+    filters: &[F::Search("search"), F::Eq("ownerId")],
     dates: &[],
     events: Some([CALENDAR_CREATED, CALENDAR_UPDATED, CALENDAR_DELETED]),
     data: &["name"],
@@ -104,13 +106,13 @@ static EVENTS: Simple = Simple {
         Condition::all()
             .add(calendar_events::Column::DeletedAt.is_null())
             .add_option(when(f, "search", |v| {
-                calendar_events::Column::Title.like(v)
+                search_any(&[calendar_events::Column::Title], &v)
             }))
             .add_option(when(f, "calendarId", |v| {
                 calendar_events::Column::CalendarId.eq(v)
             }))
     },
-    filters: &[F::Like("search"), F::Eq("calendarId")],
+    filters: &[F::Search("search"), F::Eq("calendarId")],
     dates: &["startTime", "endTime"],
     events: Some([
         CALENDAR_EVENT_CREATED,
