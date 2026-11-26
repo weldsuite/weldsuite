@@ -10,6 +10,10 @@ info:
     together, and see "Changing the contract" in apps/mobile-shared/README.md
     for what apps already on phones can read.
 
+    Checked against the server: rust/modules/pass/tests/openapi_contract.rs
+    sends every operation here through the WeldPass router and fails when
+    an answer doesn't fit (status, required fields, nulls, types, enums).
+
     Lists carry no secrets: a password only travels on `revealItem`.
 servers:
   - url: https://app.weldsuite.eu
