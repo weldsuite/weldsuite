@@ -19,7 +19,7 @@ describe('generateId', () => {
 
   it('fits the varchar(30) id columns with a prefix of up to 13 characters', () => {
     expect(generateId('ws').length).toBeLessThanOrEqual(30);
-    expect(generateId('a'.repeat(13)).length).toBe(30);
+    expect(generateId('a'.repeat(13))).toHaveLength(30);
   });
 
   it('sorts by creation time', () => {
