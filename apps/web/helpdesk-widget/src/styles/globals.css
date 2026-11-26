@@ -232,23 +232,23 @@ textarea {
   scrollbar-color: rgba(200, 200, 200, 0.5) transparent;
 }
 
-/* === Chat scrollbar === */
+/*
+ * === Messenger scrollbars (home, messages, chat): thin and light grey ===
+ * Standard properties only: they keep the platform's overlay scrollbar, which
+ * floats over the content. ::-webkit-scrollbar would allow a thinner bar but
+ * turns it into a classic one that takes its width from the content.
+ */
 .widget-scrollbar {
+  --scrollbar-thumb: #e5e7eb; /* gray-200 */
+  --scrollbar-track: transparent;
   scrollbar-width: thin;
-  scrollbar-color: rgba(156, 163, 175, 0.25) transparent;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
 }
-.widget-scrollbar::-webkit-scrollbar {
-  width: 4px;
-}
-.widget-scrollbar::-webkit-scrollbar-track {
-  background: transparent;
-}
-.widget-scrollbar::-webkit-scrollbar-thumb {
-  background-color: rgba(156, 163, 175, 0.25);
-  border-radius: 2px;
-}
-.widget-scrollbar::-webkit-scrollbar-thumb:hover {
-  background-color: rgba(156, 163, 175, 0.4);
+/* Visitors who ask for more contrast get a thumb they can actually see. */
+@media (prefers-contrast: more) {
+  .widget-scrollbar {
+    --scrollbar-thumb: #4b5563; /* gray-600 */
+  }
 }
 
 /* === View Transition Animations === */

@@ -22,7 +22,7 @@ export function RatingCard({ color, rating, onSubmit }: Readonly<RatingCardProps
 
   if (rating !== null) {
     return (
-      <div className="mx-4 my-2 rounded-2xl bg-gray-50 px-3.5 py-3 text-center" data-testid="rating-done">
+      <div className="mx-4 mt-3 mb-2 rounded-2xl bg-gray-50 px-3.5 py-3 text-center" data-testid="rating-done">
         <p className="text-[13px] font-semibold text-gray-900">{t.rating.thanks}</p>
         <p className="mt-0.5 text-xs text-gray-500">{fill(t.rating.rated, { rating })}</p>
       </div>
@@ -46,7 +46,7 @@ export function RatingCard({ color, rating, onSubmit }: Readonly<RatingCardProps
   return (
     <form
       onSubmit={submit}
-      className="mx-4 my-2 rounded-2xl border border-gray-200 bg-white p-3.5 shadow-sm text-center"
+      className="mx-4 mt-3 mb-2 rounded-2xl border border-gray-200 bg-white p-3.5 shadow-sm text-center"
       data-testid="rating-card"
     >
       <p className="text-[13px] font-semibold text-gray-900">{t.rating.prompt}</p>

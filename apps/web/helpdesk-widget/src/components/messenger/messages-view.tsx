@@ -1,8 +1,8 @@
 import type { ReactNode } from 'react';
-import { Loader2, MessageCircle, Send, X } from 'lucide-react';
+import { Loader2, MessageCircle, X } from 'lucide-react';
 import type { WidgetConfigResponse } from '@/lib/api/types';
 import type { Messenger } from '@/hooks/use-messenger';
-import { Avatar, readableOn, timeAgo } from './parts';
+import { Avatar, readableOn, SendArrowIcon, timeAgo } from './parts';
 
 interface MessagesViewProps {
   config: WidgetConfigResponse;
@@ -49,13 +49,13 @@ export function MessagesView({ config, messenger, onNewConversation, onOpenConve
                 <Avatar
                   name={conversation.assignee?.name ?? config.team[0]?.name ?? 'Support'}
                   src={conversation.assignee?.avatar ?? config.team[0]?.avatar}
-                  size={40}
+                  size={36}
                 />
                 <div className="min-w-0 flex-1">
                   <p className={`text-sm truncate ${unread ? 'font-semibold text-gray-900' : 'text-gray-800'}`}>
                     {conversation.lastMessagePreview || conversation.title || 'Conversation'}
                   </p>
-                  <p className="text-xs text-gray-500 truncate">
+                  <p className="text-sm text-gray-500 truncate">
                     {who} · {timeAgo(conversation.lastMessageAt ?? conversation.createdAt)}
                     {conversation.state === 'closed' && ' · Closed'}
                   </p>
@@ -79,24 +79,24 @@ export function MessagesView({ config, messenger, onNewConversation, onOpenConve
             onClick={onClose}
             aria-label="Close"
             data-testid="close-button"
-            className="absolute right-3 rounded-full p-1.5 text-gray-500 hover:bg-gray-100"
+            className="absolute right-3 rounded-xl p-1.5 text-gray-500 hover:bg-gray-100"
           >
             <X className="h-5 w-5" />
           </button>
         )}
       </header>
 
-      <div className="flex-1 min-h-0 overflow-y-auto">{body}</div>
+      <div className="widget-scrollbar flex-1 min-h-0 overflow-y-auto">{body}</div>
 
       <div className="flex justify-center py-3 flex-shrink-0">
         <button
           type="button"
           onClick={onNewConversation}
-          className="inline-flex items-center gap-2 rounded-full px-5 py-2.5 text-sm font-semibold shadow-md hover:shadow-lg transition"
+          className="inline-flex h-10 items-center gap-4 rounded-[11px] px-4 text-sm font-semibold leading-5 transition-opacity hover:opacity-90"
           style={{ backgroundColor: color, color: readableOn(color) }}
         >
           Send us a message
-          <Send className="h-4 w-4" />
+          <SendArrowIcon />
         </button>
       </div>
     </div>

@@ -55,7 +55,7 @@ export function Announcements({
               onClick={() => setDismissed(dismiss(widgetId, announcement.id))}
               aria-label={t.selfService.dismiss}
               title={t.selfService.dismiss}
-              className="-m-1 h-6 w-6 flex-shrink-0 rounded-full p-1 text-gray-500 transition hover:bg-black/5 hover:text-gray-700"
+              className="-m-1 h-6 w-6 flex-shrink-0 rounded-[10px] p-1 text-gray-500 transition hover:bg-black/5 hover:text-gray-700"
             >
               <X className="h-4 w-4" />
             </button>

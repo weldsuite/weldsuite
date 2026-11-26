@@ -29,10 +29,6 @@ export function timeAgo(iso: string | null | undefined): string {
   return new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
 }
 
-export function clockTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
-}
-
 const AVATAR_COLORS = ['#4F46E5', '#7C3AED', '#DB2777', '#EA580C', '#16A34A', '#0891B2', '#2563EB'];
 
 function colorFor(name: string): string {
@@ -91,6 +87,26 @@ export function AvatarStack({ team, size = 32, ring = '#ffffff' }: Readonly<{ te
         />
       ))}
     </div>
+  );
+}
+
+/** Solid notched arrow for the "Send us a message" actions; takes the colour of the text around it. */
+export function SendArrowIcon({ className, style }: Readonly<{ className?: string; style?: CSSProperties }>) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      width="16"
+      height="16"
+      aria-hidden="true"
+      className={cn('shrink-0 pointer-events-none', className)}
+      style={style}
+      fill="currentColor"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinejoin="round"
+    >
+      <path d="M2.6 1.8 13.6 8 2.6 14.2v-4L9.2 8 2.6 5.8Z" />
+    </svg>
   );
 }
 
