@@ -194,7 +194,9 @@ export abstract class CollabRoom<
   }
 
   /** Runs after each checkpoint and restore is in R2 (WeldBoard draws its thumbnail). */
-  protected async afterCheckpoint(_room: Core, _meta: Meta): Promise<void> {}
+  protected async afterCheckpoint(_room: Core, _meta: Meta): Promise<void> {
+    // Nothing by default.
+  }
 
   /**
    * Whether a checkpoint due at `at` sets the alarm, which is at `current`.
