@@ -70,6 +70,7 @@ weldsuite-flow = { path = "modules/flow" }
 weldsuite-flow-domain = { path = "crates/flow-domain" }
 weldsuite-forms = { path = "modules/forms" }
 weldsuite-forms-engine = { path = "crates/forms-engine" }
+weldsuite-global-import = { path = "crates/global-import" }
 weldsuite-host = { path = "modules/host" }
 weldsuite-hr = { path = "modules/hr" }
 weldsuite-integrations = { path = "modules/integrations" }

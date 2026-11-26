@@ -1,0 +1,33 @@
+[package]
+name = "weldsuite-global-import"
+description = "The move from Global (ADR OPS-025): Global's workspaces, members, tenant databases and files copied into a Kubernetes install"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+weldsuite-db = { workspace = true }
+weldsuite-kit = { workspace = true }
+weldsuite-migrations = { workspace = true }
+weldsuite-outside-eu = { workspace = true }
+weldsuite-ports = { workspace = true }
+weldsuite-schema = { workspace = true }
+futures-util = { workspace = true, features = ["std"] }
+reqwest = { workspace = true }
+sea-orm = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sqlx = { workspace = true }
+time = { workspace = true }
+tokio = { workspace = true, features = ["time"] }
+tracing = { workspace = true }
+
+[dev-dependencies]
+weldsuite-adapters-oss = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+
+[lints]
+workspace = true

@@ -633,6 +633,10 @@ rust/
                         the check every call path makes on the EU edition (`require` in routes, `allowed` in jobs;
                         installed from EDITION in main.rs, off in conformance builds); routes in
                         modules/core-platform (`/api/outside-eu-services`), staff command `weldsuite admin outside-eu`
+  crates/global-import/ the move from Global (ADR OPS-025): Global's master rows (`master::TABLES` says what moves and
+                        why the rest doesn't), each tenant database copied at Global's migration level then migrated,
+                        and its files; staff command `weldsuite admin import-global`; its database tests need
+                        `WELDSUITE_TEST_DATABASE_URL`
   crates/legal-entities/ legal entities (@weldsuite/core-domain/legal-entities): per-entity access, the
                         legal_entity_context layer and record guard for books and hr, the core service
                         (entities, registrations, bank accounts, access) and its request schemas
@@ -992,6 +996,20 @@ scripts and the self-hosted operator. The commands' rules and writes are in
   changes gets an audit row. It needs the server's `WELDPASS_ROOT_KEY` (and
   `_V2`), which a server pod has. `bins/weldsuite/src/admin_weldpass.rs`,
   `modules/pass/src/rotation.rs`.
+- **`import-global`**: the move from Global (ADR OPS-025, plan
+  `retire-global-edition.md`, phase 4), in steps that can each run again:
+  `check` (what moves, what stays, and what stops it; writes nothing),
+  `master` (the master rows in one transaction, plans mapped with
+  `--plan <global>=<install>`, then a billing account with no payment method
+  for each paid workspace), `tenants` (each database made on a shard at the
+  migration level Global's has, every row copied in one transaction,
+  migrated, its services outside the EU switched on and the workspace made
+  ready, recorded as an `import_global` row of `workspace_database_moves`),
+  `files --from <R2 bucket> --to <bucket>` (keys unchanged) and `verify`
+  (counts on both sides). It reads Global through `GLOBAL_DATABASE_URL_MASTER`
+  (read-only credentials), `GLOBAL_DATABASE_ENCRYPTION_KEY[_V2]`,
+  `GLOBAL_NEON_API_KEY` and `GLOBAL_S3_*`; `--help` lists them.
+  `crates/global-import`, `bins/weldsuite/src/admin_import_global.rs`.
 - Every change needs `--reason`, runs in one transaction with its row in
   `admin_audit_events` (`actor_user_id` `cli`), refusals included, and
   `--dry-run` shows it without writing. `--json` prints JSON.
