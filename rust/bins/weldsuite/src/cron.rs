@@ -203,56 +203,62 @@ impl weldsuite_forms::TenantResolver for WorkspaceTenants {
     }
 }
 
-const JOBS: &str = "jobs: sign-lifecycle, identity-sync, workspace-deletion, workspace-teardown, mail-outbound-ledgers, calendar-replan, flow-file-purge, flow-approval-due, flow-benefit-measure, flow-status-reports, flow-finance-snapshot, books-sweep, digipoort-status, domain-auto-renew, desk-sla-sweep, desk-report-sweep, asset-import-sweep, reach-send-sweep, reach-warmup-sweep, reach-slot-reconciliation, reach-warmup-dispatch, reach-warmup-plan, reach-warmup-daily, bank-feed-due, crm-due, ad-sync, workflow-polls, workflow-schedules, connector-catchup, moneybird-push, merge-digest-sweep, forms-reminders, forms-digest, weldagent-routines, sandbox-cleanup, billing-renewals, panel-usage, panel-maintenance, panel-schedule, stash-replenishment, storefront-hosts";
+/// Every job `weldsuite cron` runs: the usage text prints this list, and only
+/// these names reach the dispatch in [`main`]. A job with an arm there but no
+/// entry here never runs (its `CronJob` only prints the usage), so the tests
+/// check this list against the arms' job names and the chart's `cron.jobs`.
+const JOBS: &[&str] = &[
+    "sign-lifecycle",
+    "identity-sync",
+    "workspace-deletion",
+    "workspace-teardown",
+    "mail-outbound-ledgers",
+    "calendar-replan",
+    "flow-file-purge",
+    "flow-approval-due",
+    "flow-benefit-measure",
+    "flow-status-reports",
+    "flow-finance-snapshot",
+    "books-sweep",
+    "digipoort-status",
+    "domain-auto-renew",
+    "desk-sla-sweep",
+    "desk-report-sweep",
+    "asset-import-sweep",
+    "reach-send-sweep",
+    "reach-warmup-sweep",
+    "reach-slot-reconciliation",
+    "reach-warmup-dispatch",
+    "reach-warmup-plan",
+    "reach-warmup-daily",
+    "bank-feed-due",
+    "crm-due",
+    "ad-sync",
+    "workflow-polls",
+    "workflow-schedules",
+    "connector-catchup",
+    "moneybird-push",
+    "merge-digest-sweep",
+    "forms-reminders",
+    "forms-digest",
+    "weldagent-routines",
+    "sandbox-cleanup",
+    "billing-renewals",
+    "panel-usage",
+    "panel-maintenance",
+    "panel-schedule",
+    "stash-replenishment",
+    "stash-parcel-tracking",
+    "storefront-hosts",
+    "mail-attachment-scan",
+    "mail-threat-feeds",
+];
 
 /// `weldsuite cron <job>`.
 #[allow(clippy::too_many_lines)] // one arm per job
 pub(crate) fn main(job: Option<&str>) -> ExitCode {
-    let Some(
-        job @ ("sign-lifecycle"
-        | "identity-sync"
-        | "workspace-deletion"
-        | "workspace-teardown"
-        | "mail-outbound-ledgers"
-        | "calendar-replan"
-        | "flow-file-purge"
-        | "flow-approval-due"
-        | "flow-benefit-measure"
-        | "flow-status-reports"
-        | "flow-finance-snapshot"
-        | "books-sweep"
-        | "digipoort-status"
-        | "domain-auto-renew"
-        | "desk-sla-sweep"
-        | "desk-report-sweep"
-        | "asset-import-sweep"
-        | "reach-send-sweep"
-        | "reach-warmup-sweep"
-        | "reach-slot-reconciliation"
-        | "reach-warmup-dispatch"
-        | "reach-warmup-plan"
-        | "reach-warmup-daily"
-        | "bank-feed-due"
-        | "crm-due"
-        | "ad-sync"
-        | "connector-catchup"
-        | "moneybird-push"
-        | "workflow-polls"
-        | "workflow-schedules"
-        | "merge-digest-sweep"
-        | "forms-reminders"
-        | "forms-digest"
-        | "weldagent-routines"
-        | "sandbox-cleanup"
-        | "billing-renewals"
-        | "panel-usage"
-        | "panel-maintenance"
-        | "panel-schedule"
-        | "stash-replenishment"
-        | "storefront-hosts"),
-    ) = job
-    else {
-        eprintln!("usage: weldsuite cron <job>\n{JOBS}");
+    let Some(job) = job.filter(|job| JOBS.contains(job)) else {
+        eprintln!("usage: weldsuite cron <job>\njobs: {}", JOBS.join(", "));
         return ExitCode::from(2);
     };
     let config = match Config::from_env() {
@@ -318,7 +324,9 @@ pub(crate) fn main(job: Option<&str>) -> ExitCode {
             "storefront-hosts" => Box::pin(crate::storefront::sweep(config)).await,
             "mail-attachment-scan" => mail_attachment_scan(config).await,
             "mail-threat-feeds" => mail_threat_feeds(config).await,
-            _ => sign_lifecycle(config).await,
+            "sign-lifecycle" => sign_lifecycle(config).await,
+            // JOBS names a job no arm runs; the tests catch it first.
+            other => Err(format!("cron job {other} has no handler").into()),
         }
     };
     let code = match runtime.block_on(run) {
@@ -2475,4 +2483,82 @@ async fn workspace_teardown(config: Config) -> Result<(), Box<dyn std::error::Er
         serde_json::json!({ "job": "workspace-teardown", "result": result })
     );
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::JOBS;
+
+    /// The keys of a values file's `cron.jobs`: four spaces in, under
+    /// `  jobs:` under the top-level `cron:`.
+    fn values_jobs(values: &str) -> Vec<&str> {
+        let mut jobs = Vec::new();
+        let (mut in_cron, mut in_jobs) = (false, false);
+        for line in values.lines() {
+            let key = line.trim_start();
+            if key.is_empty() || key.starts_with('#') {
+                continue;
+            }
+            match line.len() - key.len() {
+                0 => (in_cron, in_jobs) = (key.starts_with("cron:"), false),
+                2 if in_cron => in_jobs = key.starts_with("jobs:"),
+                4 if in_jobs => jobs.extend(key.split_once(':').map(|(name, _)| name)),
+                _ => {}
+            }
+        }
+        jobs
+    }
+
+    /// The job names the dispatch in `main` has an arm for.
+    fn dispatched_jobs() -> Vec<&'static str> {
+        let source = include_str!("cron.rs");
+        let start = source.find("    let run = async {").expect("the dispatch");
+        let end = start
+            + source[start..]
+                .find("            other =>")
+                .expect("its last arm");
+        source[start..end]
+            .lines()
+            .filter_map(|line| line.split_once("=>").map(|(pattern, _)| pattern))
+            .flat_map(|pattern| pattern.split('"').skip(1).step_by(2))
+            .collect()
+    }
+
+    #[test]
+    fn every_listed_job_has_an_arm_and_every_arm_is_listed() {
+        let mut listed = JOBS.to_vec();
+        listed.sort_unstable();
+        let mut dispatched = dispatched_jobs();
+        dispatched.sort_unstable();
+        assert_eq!(listed, dispatched);
+    }
+
+    /// A `CronJob` runs `weldsuite cron <its cron.jobs key>`; one the binary
+    /// doesn't list fails on every run with the usage text.
+    #[test]
+    fn chart_jobs_are_known() {
+        for (file, values) in [
+            (
+                "helm/weldsuite/values.yaml",
+                include_str!("../../../deploy/helm/weldsuite/values.yaml"),
+            ),
+            (
+                "helm/weldsuite/ci/test-values.yaml",
+                include_str!("../../../deploy/helm/weldsuite/ci/test-values.yaml"),
+            ),
+            (
+                "flux/apps/eu/values/weldsuite.yaml",
+                include_str!("../../../deploy/flux/apps/eu/values/weldsuite.yaml"),
+            ),
+        ] {
+            let jobs = values_jobs(values);
+            assert!(!jobs.is_empty(), "{file}: no cron.jobs");
+            for job in jobs {
+                assert!(
+                    JOBS.contains(&job),
+                    "{file}: cron.jobs.{job} is not a `weldsuite cron` job (cron::JOBS)"
+                );
+            }
+        }
+    }
 }
