@@ -259,8 +259,8 @@ final class PassStore {
 
     func clear() {
         workspace = nil
-        vaults = Loadable()
-        items = Loadable()
+        serverVaults = Loadable()
+        serverItems = Loadable()
     }
 
     /// The generated request body. Unset fields stay out of the JSON.
