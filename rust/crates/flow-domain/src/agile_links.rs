@@ -75,7 +75,7 @@ pub type Sent<'a> = Field<&'a str>;
 
 /// A body field as [`Sent`]: `Absent` when the key is left out, `Set` for a
 /// non-empty string, `Null` for anything else (`null`, an empty string).
-pub fn sent_text<'a>(value: Option<&'a Value>) -> Sent<'a> {
+pub fn sent_text(value: Option<&Value>) -> Sent<'_> {
     match value {
         None => Field::Absent,
         Some(Value::String(text)) if !text.is_empty() => Field::Set(text.as_str()),
@@ -139,9 +139,11 @@ pub async fn patch_epic(
 
 /// The epic column a PATCH writes: `Set` to link, `Null` to unlink (an empty
 /// or null `epicId`, or a kept link the change breaks), `Absent` to leave it
-/// as it is.
+/// as it is. A broken link goes even when the body re-sends it (a client that
+/// echoes the whole task): [`patch_epic`] answers `Clear` only when `epicId`
+/// was left out or names the stored epic, as the platform's PATCH does.
 pub fn epic_write<'a>(sent_epic: &Sent<'a>, change: &EpicChange) -> Sent<'a> {
-    if sent_epic.is_absent() && *change == EpicChange::Clear {
+    if *change == EpicChange::Clear {
         Field::Null
     } else {
         sent_epic.clone()
@@ -236,10 +238,8 @@ mod tests {
             epic_write(&Field::Set("epic_1"), &keep),
             Field::Set("epic_1")
         );
-        assert_eq!(
-            epic_write(&Field::Set("epic_1"), &clear),
-            Field::Set("epic_1")
-        );
+        // The body re-sent the stored epic with a change that breaks it.
+        assert_eq!(epic_write(&Field::Set("epic_1"), &clear), Field::Null);
         assert_eq!(epic_write(&Field::Null, &keep), Field::Null);
         assert_eq!(epic_write(&Field::Absent, &keep), Field::Absent);
         assert_eq!(epic_write(&Field::Absent, &clear), Field::Null);
