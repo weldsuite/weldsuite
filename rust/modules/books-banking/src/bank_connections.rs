@@ -21,7 +21,7 @@ use axum::{Extension, Router};
 use http::{HeaderMap, StatusCode};
 use sea_orm::{EntityTrait, QuerySelect};
 use serde_json::{Map, Value, json};
-use weldsuite_auth::AuthContext;
+use weldsuite_auth::{AuthContext, StepUp, StepUpGuard};
 use weldsuite_books_domain::bank_feeds::connections::{
     self as feeds, LinkSessionArgs, Mapping, require_connection,
 };
@@ -295,18 +295,23 @@ fn read_link(issues: &mut Issues, body: &Map<String, Value>) -> Option<LinkBody>
 }
 
 // A second factor verified in the last 10 minutes, for every mode: a link
-// (new or renewed) opens the bank's data to this workspace. Clerk sign-in
-// only for now (`BooksState::second_factor_step_up`).
+// (new or renewed) opens the bank's data to this workspace. With Clerk
+// sign-in (`BooksState::second_factor_step_up`), as books-api does, and on
+// an install that asks for step-up (WeldID, ADR SEC-022).
 async fn link_session(
     caller: Caller,
     State(state): State<BooksState>,
     Extension(auth): Extension<AuthContext>,
+    step_up: StepUpGuard,
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    if state.second_factor_step_up
-        && let Err(refused) = weldsuite_auth::require_second_factor(&auth, 10)
-    {
+    let refused = if state.second_factor_step_up {
+        weldsuite_auth::require_second_factor(&auth, 10)
+    } else {
+        step_up.require(StepUp::SecondFactor)
+    };
+    if let Err(refused) = refused {
         return refused.into_response();
     }
     let input = match validate(&headers, &body, read_link) {

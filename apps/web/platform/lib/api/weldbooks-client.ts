@@ -8,7 +8,9 @@
  * in here by `ApiClientProvider` and `useCurrentAccountingEntity`.
  */
 
+import { sendWithStepUp } from '@weldsuite/api-client/step-up';
 import { apiUrl } from '@/lib/api/public-env';
+import { confirmStepUp } from '@/lib/api/step-up';
 import { getAuthToken } from '@/lib/auth';
 
 const API_PREFIX = '/api';
@@ -89,13 +91,18 @@ export function formatErrorMessage(body: unknown, status: number): string {
 }
 
 async function request<T>(method: string, path: string, data?: unknown): Promise<T> {
-  const headers = await getAuthHeaders();
-  const response = await fetch(apiUrl(`${API_PREFIX}${path}`), {
-    method,
-    headers,
-    cache: method === 'GET' ? 'no-store' : undefined,
-    body: data !== undefined ? JSON.stringify(data) : undefined,
-  });
+  // A sensitive action the API refuses until the person confirms their
+  // identity (bank accounts, bank links) goes out once more after they do.
+  const response = await sendWithStepUp(
+    async () =>
+      fetch(apiUrl(`${API_PREFIX}${path}`), {
+        method,
+        headers: await getAuthHeaders(),
+        cache: method === 'GET' ? 'no-store' : undefined,
+        body: data !== undefined ? JSON.stringify(data) : undefined,
+      }),
+    confirmStepUp,
+  );
 
   if (!response.ok) {
     const body = await response.json().catch(() => ({ error: 'Request failed' }));

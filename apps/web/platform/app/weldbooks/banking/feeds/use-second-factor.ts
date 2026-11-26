@@ -58,9 +58,11 @@ export function useWithSecondFactor<A extends unknown[], R>(call: (...args: A) =
 }
 
 /**
- * Other providers: step-up verification is the provider's (an `acr` /
- * `max_age` sign-in), not Clerk's dialog, so the call goes out as it is and a
- * refusal surfaces like any other books-api error.
+ * Other providers (OIDC): the WeldBooks client asks for step-up itself
+ * (`lib/api/step-up.ts`, the root's `StepUpDialogHost`: an `acr` / `max_age`
+ * sign-in at the provider) and sends the call once more, so it goes out as
+ * it is here. A refusal the person didn't confirm surfaces like any other
+ * books-api error.
  */
 function usePassThrough<A extends unknown[], R>(call: (...args: A) => Promise<R>): (...args: A) => Promise<R> {
   return call;

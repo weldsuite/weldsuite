@@ -210,6 +210,7 @@ export function createOidcAuth(config: OidcSessionConfig, options?: OidcSessionO
     signInWithBrowser: session.signsInThroughBrowser ? (opts) => session.signIn(opts) : undefined,
     cancelBrowserSignIn: session.signsInThroughBrowser ? () => session.cancelSignIn() : undefined,
     completeSignIn: () => session.completeSignIn(),
+    stepUp: (level) => session.stepUp(level),
     accountUrl: session.accountUrl,
     identityProvider: config.identityProvider ?? undefined,
     platformSignIn: config.signIn === 'platform',

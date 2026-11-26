@@ -22,6 +22,7 @@ use sea_orm::{
     QuerySelect, QueryTrait,
 };
 use serde_json::{Map, Value, json};
+use weldsuite_auth::{StepUp, StepUpGuard};
 use weldsuite_books_domain::bank_accounts::{
     BANK_ACCOUNT_TYPES, BankLedgerPlan, assert_ledger_account_fits, insert_ledger_account,
     is_valid_aba_routing, normalize_account_number, plan_bank_ledger_account,
@@ -441,6 +442,7 @@ async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
 async fn create(
     caller: Caller,
     State(state): State<BooksState>,
+    step_up: StepUpGuard,
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
@@ -448,6 +450,10 @@ async fn create(
         Ok(data) => data,
         Err(refusal) => return refusal.respond("Failed to create bank account"),
     };
+    // A new place for money to go: a fresh second factor (ADR SEC-022).
+    if let Err(refused) = step_up.require(StepUp::SecondFactor) {
+        return refused.into_response();
+    }
     reply(
         create_account(&caller, &state, data).await,
         "Failed to create bank account",
@@ -745,6 +751,7 @@ async fn bring_into_weldbooks(
 async fn update(
     caller: Caller,
     State(state): State<BooksState>,
+    step_up: StepUpGuard,
     Path(id): Path<String>,
     headers: HeaderMap,
     body: Bytes,
@@ -754,17 +761,52 @@ async fn update(
         Err(refusal) => return refusal.respond("Failed to update bank account"),
     };
     reply(
-        update_account(&caller, &state, &id, data).await,
+        update_account(&caller, &state, step_up, &id, data).await,
         "Failed to update bank account",
     )
 }
 
-async fn update_account(caller: &Caller, state: &BooksState, id: &str, data: Body) -> Reply {
+/// The fields besides the account number that say where an account's money
+/// goes.
+const PAYMENT_DETAILS: [&str; 4] = ["iban", "bic", "routingNumber", "accountHolderName"];
+
+/// Whether `data` changes where `account`'s money goes: a new account
+/// number, or an IBAN, BIC, routing number or holder other than the stored
+/// one. The form sends them all on every save, so only a real change counts
+/// (spaces and case aside).
+fn changes_payment_details(account: &Value, data: &Body) -> bool {
+    let plain = |value: &str| -> String {
+        value
+            .chars()
+            .filter(|c| !c.is_whitespace())
+            .flat_map(char::to_uppercase)
+            .collect()
+    };
+    matches!(&data.account_number, Field::Set(number) if !number.is_empty())
+        || PAYMENT_DETAILS.iter().any(|key| {
+            data.fields.get(*key).is_some_and(|given| {
+                plain(given.as_str().unwrap_or_default())
+                    != plain(text(account, key).unwrap_or_default())
+            })
+        })
+}
+
+async fn update_account(
+    caller: &Caller,
+    state: &BooksState,
+    step_up: StepUpGuard,
+    id: &str,
+    data: Body,
+) -> Reply {
     let Some(account) = BANK_ACCOUNTS.find_live(&caller.db, id).await? else {
         return Err(Refusal::not_found("Bank account", id));
     };
     if let Some(message) = bad_numbers(&data) {
         return Err(Refusal::bad_request(message));
+    }
+    // Redirecting the account's money: a fresh second factor (ADR SEC-022).
+    if changes_payment_details(&account, &data) {
+        step_up.require(StepUp::SecondFactor)?;
     }
     let fields = Value::Object(data.fields.clone());
     let mut patch = data.fields.clone();
@@ -857,9 +899,14 @@ async fn update_account(caller: &Caller, state: &BooksState, id: &str, data: Bod
 async fn reveal(
     caller: Caller,
     State(state): State<BooksState>,
+    step_up: StepUpGuard,
     Path(id): Path<String>,
     body: Bytes,
 ) -> Response {
+    // The full account number: a fresh second factor (ADR SEC-022).
+    if let Err(refused) = step_up.require(StepUp::SecondFactor) {
+        return refused.into_response();
+    }
     let result = async {
         let entity_id = resolve_entity_id(&caller).await?;
         let account = BANK_ACCOUNTS.find_live(&caller.db, &id).await?;

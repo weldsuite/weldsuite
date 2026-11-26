@@ -74,10 +74,11 @@ pub struct BooksState {
     /// `X-Forwarded-For`, counted from the right ([`Caller::client_ip`]).
     pub trusted_proxies: usize,
     /// Starting a bank link asks for a second factor verified in the last
-    /// 10 minutes (`requireSecondFactor`, from Clerk's `fva`). Off with OIDC
-    /// sign-in for now: Zitadel puts `auth_time` and `amr` only in the ID
-    /// token, never in the access token the platform sends, and the platform
-    /// has no step-up flow there yet, so every link would be refused.
+    /// 10 minutes (`requireSecondFactor`, from Clerk's `fva`). With OIDC
+    /// sign-in the request's `weldsuite_auth::StepUpGuard` decides instead:
+    /// on with WeldID, whose access tokens carry `auth_time` and `amr`; off
+    /// with Zitadel, which puts them only in the ID token, so every link
+    /// would be refused.
     pub second_factor_step_up: bool,
     /// The install's Digipoort connection (`DIGIPOORT_*`,
     /// `weldsuite_digipoort`): the BTW-aangifte, the Opgaaf ICP and the

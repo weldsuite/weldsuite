@@ -18,6 +18,7 @@
 
 import { createClientApi } from '@weldsuite/api-client/client';
 import { getApiOriginForPath } from '@/lib/api/public-env';
+import { confirmStepUp } from '@/lib/api/step-up';
 import { getAuthToken } from '@/lib/auth';
 
 let browserTokenGetter: (() => Promise<string | null>) | null = null;
@@ -46,4 +47,5 @@ export async function getBrowserAccessToken(): Promise<string | null> {
 export const appApi = createClientApi({
   getToken: getBrowserAccessToken,
   baseUrl: getApiOriginForPath,
+  onStepUp: confirmStepUp,
 });

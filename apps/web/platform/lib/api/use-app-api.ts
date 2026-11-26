@@ -104,6 +104,7 @@ import { createWeldHrPayrollApi } from '@weldsuite/app-api-client/domains/weldhr
 import { createMeetingSessionsApi } from '@weldsuite/app-api-client/domains/meeting-sessions';
 import { createWeldmeetRecordingsApi } from '@weldsuite/app-api-client/domains/weldmeet-recordings';
 import { getApiOriginForPath } from '@/lib/api/public-env';
+import { confirmStepUp } from '@/lib/api/step-up';
 import { hrLegalEntityHeaders } from '@/lib/api/legal-entity-scope';
 import { usePreviewMode } from '@/contexts/preview-mode-context';
 import { withWeldPanelSampleData } from '@/lib/dev/weldpanel-sample';
@@ -125,9 +126,12 @@ function useClientGetter(getExtraHeaders?: () => Record<string, string>) {
     if (token !== tokenRef.current || !clientRef.current) {
       tokenRef.current = token;
       clientRef.current = createClientApi({
-        getToken: () => Promise.resolve(token),
+        // Read per request (the provider caches it): a request sent again
+        // after a step-up must carry the new sign-in's token.
+        getToken: async () => previewToken ?? (await getToken()),
         baseUrl: getApiOriginForPath,
         getExtraHeaders,
+        onStepUp: confirmStepUp,
       });
     }
     return clientRef.current;

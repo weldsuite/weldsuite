@@ -7,11 +7,13 @@ use axum::response::{IntoResponse, Response};
 use http::request::Parts;
 use weldsuite_kit::ApiError;
 
-use crate::{AuthContext, SessionVerifier};
+use crate::{AuthContext, SessionVerifier, StepUpEnabled};
 
 /// Middleware: `axum::middleware::from_fn_with_state(verifier, clerk_auth)`.
 /// Verifies the bearer token and puts the [`AuthContext`] in the request
-/// extensions, or answers 401 as `clerkMiddleware` does.
+/// extensions, or answers 401 as `clerkMiddleware` does. With a verifier
+/// built [`with_step_up`](SessionVerifier::with_step_up), [`StepUpEnabled`]
+/// goes in too.
 pub async fn clerk_auth(
     State(verifier): State<Arc<SessionVerifier>>,
     mut request: Request,
@@ -27,6 +29,9 @@ pub async fn clerk_auth(
     match verifier.authenticate(authorization, now).await {
         Ok(context) => {
             request.extensions_mut().insert(context);
+            if verifier.step_up() {
+                request.extensions_mut().insert(StepUpEnabled);
+            }
             next.run(request).await
         }
         Err(error) => error.into_response(),

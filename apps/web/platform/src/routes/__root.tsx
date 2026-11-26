@@ -25,6 +25,7 @@ import { platformSyncMap } from '@/lib/realtime/sync-map';
 import { createBrowserCursorStore } from '@/lib/realtime/cursor-store';
 import { useDesktopAuthHandler } from '@/hooks/use-desktop-auth';
 import { DesktopSourcePicker } from '@/components/desktop/desktop-source-picker';
+import { StepUpDialogHost } from '@/components/auth/step-up-dialog';
 import { toast } from 'sonner';
 // Side-effect import: registers every object panel with the registry. Must
 // run before <ObjectPanelHost /> (mounted inside AppShellClient) renders.
@@ -124,6 +125,8 @@ function RootComponent() {
                               <Outlet />
                             </AppShellClient>
                             <Toaster />
+                            {/* "Confirm it's you" before sensitive actions (OIDC). */}
+                            <StepUpDialogHost />
                           </TeamMemberPanelProvider>
                         </PresenceProvider>
                       </PlatformPermissionProvider>

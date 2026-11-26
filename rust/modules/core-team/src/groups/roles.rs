@@ -31,6 +31,7 @@ use sea_orm::{
     ColumnTrait, Condition, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect, QueryTrait,
 };
 use serde_json::{Map, Value, json};
+use weldsuite_auth::{StepUp, StepUpGuard};
 use weldsuite_catalogs::permission_keys::{ROLES_CREATE, ROLES_DELETE, ROLES_READ, ROLES_UPDATE};
 use weldsuite_catalogs::{PermissionObject, permissions as catalog};
 use weldsuite_db::{PgPool, orm, utc_now};
@@ -614,11 +615,16 @@ fn refuse_ungrantable(caller: &Caller, requested: &[String], kept: &[String]) ->
 
 // ── POST / ──────────────────────────────────────────────────────────────────
 
-async fn create(caller: Caller, headers: HeaderMap, body: Bytes) -> Response {
-    answer(create_role(&caller, &headers, &body).await)
+async fn create(caller: Caller, step_up: StepUpGuard, headers: HeaderMap, body: Bytes) -> Response {
+    answer(create_role(&caller, step_up, &headers, &body).await)
 }
 
-async fn create_role(caller: &Caller, headers: &HeaderMap, body: &Bytes) -> TeamResult<Response> {
+async fn create_role(
+    caller: &Caller,
+    step_up: StepUpGuard,
+    headers: &HeaderMap,
+    body: &Bytes,
+) -> TeamResult<Response> {
     let input = validate(headers, body, read_create)?;
     let name = input.name.unwrap_or_default().trim().to_owned();
     let db = &caller.db;
@@ -639,6 +645,8 @@ async fn create_role(caller: &Caller, headers: &HeaderMap, body: &Bytes) -> Team
             }
         }
         refuse_ungrantable(caller, &permissions, &[])?;
+        // A new set of permissions: a fresh confirmation (ADR SEC-022).
+        step_up.require(StepUp::Recent)?;
 
         let id = generate_id("role");
         let stamp = utc_now().assume_utc();
@@ -674,15 +682,17 @@ fn internal_on_db(result: TeamResult<Response>, message: &'static str) -> TeamRe
 
 async fn update(
     caller: Caller,
+    step_up: StepUpGuard,
     Path(role_id): Path<String>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    answer(update_role(&caller, &role_id, &headers, &body).await)
+    answer(update_role(&caller, step_up, &role_id, &headers, &body).await)
 }
 
 async fn update_role(
     caller: &Caller,
+    step_up: StepUpGuard,
     role_id: &str,
     headers: &HeaderMap,
     body: &Bytes,
@@ -710,6 +720,10 @@ async fn update_role(
         };
         if let Some(permissions) = &input.permissions {
             refuse_ungrantable(caller, permissions, &existing.permissions())?;
+        }
+        // What the role's members may do: a fresh confirmation (ADR SEC-022).
+        if input.permissions.is_some() || input.apps.is_some() {
+            step_up.require(StepUp::Recent)?;
         }
         let mut write = roles::Entity::update_many().col_expr(
             roles::Column::UpdatedAt,
@@ -743,6 +757,7 @@ async fn update_role(
 async fn remove(
     State(state): State<CoreTeamState>,
     caller: Caller,
+    step_up: StepUpGuard,
     Path(role_id): Path<String>,
 ) -> Response {
     let result: TeamResult<Response> = async {
@@ -754,6 +769,7 @@ async fn remove(
                 .with_message("Cannot delete system roles")
                 .into());
         }
+        step_up.require(StepUp::Recent)?;
         let stamp = utc_now().assume_utc();
         roles::Entity::update_many()
             .col_expr(roles::Column::DeletedAt, Expr::value(stamp))

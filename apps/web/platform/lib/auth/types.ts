@@ -12,6 +12,7 @@
  */
 
 import type { ComponentType, ReactNode } from 'react';
+import type { StepUpLevel } from './oidc/step-up-error';
 
 export type AuthProviderName = 'clerk' | 'oidc';
 
@@ -179,6 +180,14 @@ export interface AuthImplementation {
   cancelBrowserSignIn?: () => void;
   /** Finish a sign-in redirect on `/auth/sso-callback`; resolves to where to go next. */
   completeSignIn?: () => Promise<string>;
+  /**
+   * Have the signed-in person confirm their identity again at the provider
+   * before a sensitive action (ADR SEC-022): a sign-in, or the second factor
+   * too. Call it from a click. Resolves once the new tokens are stored;
+   * rejects with `StepUpError`. OIDC only: on Clerk the bank-feed link keeps
+   * Clerk's own dialog (`useReverification`).
+   */
+  stepUp?: (level: StepUpLevel) => Promise<void>;
   /** Where the person manages their account (password, MFA) when WeldSuite doesn't. */
   accountUrl?: string;
   /**

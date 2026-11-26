@@ -13,8 +13,8 @@ use http_body_util::BodyExt;
 use serde_json::{Value, json};
 use tower::ServiceExt;
 use weldsuite_auth::{
-    AuthContext, OidcSettings, SessionVerifier, TokenError, WorkspaceSource, require_second_factor,
-    session_auth,
+    AuthContext, OidcSettings, SessionVerifier, StepUp, StepUpGuard, TokenError, WorkspaceSource,
+    require_second_factor, session_auth,
 };
 
 static FIXTURE: LazyLock<Value> = LazyLock::new(|| {
@@ -404,6 +404,41 @@ async fn the_middleware_puts_the_oidc_context_on_the_request() {
     let (status, body) = call(Some(format!("Bearer {}", token("expired")))).await;
     assert_eq!(status, 401);
     assert!(body.contains("Token verification failed"));
+}
+
+/// The install's step-up switch (ADR SEC-022): a verifier built with it
+/// marks every request it lets through, and a sensitive handler's guard then
+/// checks the session; without it the guard lets the request through.
+#[tokio::test]
+async fn the_middleware_switches_step_up_on_for_the_installs_that_ask() {
+    async fn sensitive(step_up: StepUpGuard) -> String {
+        match step_up.require(StepUp::Recent) {
+            Ok(()) => "allowed".to_owned(),
+            Err(refused) => refused.code().to_owned(),
+        }
+    }
+    let call = |step_up: bool| async move {
+        let verifier = Arc::new(verifier_with(settings(), "jwks").with_step_up(step_up));
+        let app = Router::new()
+            .route("/sensitive", get(sensitive))
+            .layer(axum::middleware::from_fn_with_state(verifier, session_auth));
+        let request = http::Request::builder()
+            .uri("/sensitive")
+            .header("authorization", format!("Bearer {}", token("longLived")))
+            .body(Body::empty())
+            .expect("request");
+        let response = app.oneshot(request).await.expect("response");
+        let body = response
+            .into_body()
+            .collect()
+            .await
+            .expect("body")
+            .to_bytes();
+        String::from_utf8(body.to_vec()).expect("utf-8")
+    };
+    // `longLived` was signed in long ago: too old for a sensitive action.
+    assert_eq!(call(true).await, "REVERIFICATION_REQUIRED");
+    assert_eq!(call(false).await, "allowed");
 }
 
 // ── against a real provider ──────────────────────────────────────────────────
