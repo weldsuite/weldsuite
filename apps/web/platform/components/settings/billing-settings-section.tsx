@@ -1848,7 +1848,7 @@ function BillingOverview({
   // billing country (and so the plan offer) changes. The plan offer is only
   // the fallback while that loads or when there is no subscription.
   const { data: subscriptionSeatPrice } = useSeatPrice(manageSeatsOpen && !!subscription);
-  let perSeatPrice = 0;
+  let perSeatPrice: number | null = null;
   let seatCurrency = currentPlanForSeats ? planCurrency(currentPlanForSeats) : 'USD';
   let seatInterval: 'month' | 'year' = subscription?.cycle === Billing.BillingCycle.Yearly ? 'year' : 'month';
   if (subscriptionSeatPrice) {

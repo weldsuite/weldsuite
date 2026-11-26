@@ -4,14 +4,17 @@
  * (`components/billing/manage-seats.tsx`).
  */
 
-/** What `hasPaidPlan` reads: Global's and Mollie's subscription both fit. */
+/** What `hasRunningPlan` reads: Global's and Mollie's subscription both fit. */
 export interface PlanOfSubscription {
   planId?: string | null;
   planSlug?: string | null;
   status?: string | null;
   /** `mollie` on a subscription billed through Mollie (the EU edition). */
   provider?: string | null;
-  /** Mollie only: cents per cycle, before VAT, while a paid period runs. */
+  /**
+   * Mollie only: cents per cycle, before VAT, while a paid period runs; 0
+   * when staff made the seats free.
+   */
   pricePerCycle?: number;
 }
 
@@ -19,15 +22,16 @@ export interface PlanOfSubscription {
 const PAID_STATUSES = new Set(['active', 'past_due']);
 
 /**
- * Whether a paid plan is running, with seats to change. Mollie's subscription
- * sends its price only while a paid period runs: a comp, a trial and a plan
- * that ended into its grace period have none, and changing their seats is
- * refused. Global sends no price, so there an active or past-due plan other
- * than Free counts.
+ * Whether a subscribed plan is running, with seats to change in place.
+ * Mollie's subscription sends its price only while a paid period runs, and
+ * the price may be 0: staff can make a workspace's seats free, and its seats
+ * still change (at no charge). A comp, a trial and a plan that ended into its
+ * grace period send none, and changing their seats is refused. Global sends
+ * no price, so there an active or past-due plan other than Free counts.
  */
-export function hasPaidPlan(subscription: PlanOfSubscription | null | undefined): boolean {
+export function hasRunningPlan(subscription: PlanOfSubscription | null | undefined): boolean {
   if (!subscription) return false;
-  if (subscription.provider === 'mollie') return (subscription.pricePerCycle ?? 0) > 0;
+  if (subscription.provider === 'mollie') return typeof subscription.pricePerCycle === 'number';
   return (
     !!subscription.planId &&
     (subscription.planSlug ?? 'free').toLowerCase() !== 'free' &&
