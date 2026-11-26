@@ -34,4 +34,6 @@ they were built with:
   don't know, and the whole response fails (Android reads it as null only
   where the field is nullable). Ship the apps that know the value first, then
   raise `mobile.minVersions` in `/config.json` before the server sends it.
+  The apps already obey `mobile.minVersions`; the Rust server doesn't send
+  it yet, so that has to be built before the first such change.
 - A field that becomes optional, or a type that changes, breaks both.
