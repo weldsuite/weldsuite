@@ -6,8 +6,9 @@ info:
     The WeldPass endpoints the native WeldPass app uses
     (`rust/modules/pass`). It grows with the app.
 
-    Hand-written. The Rust server is the source of truth; its tests check
-    real responses against this file. Change both together.
+    Hand-written. The Rust server is the source of truth: change both
+    together, and see "Changing the contract" in apps/mobile-shared/README.md
+    for what apps already on phones can read.
 
     Lists carry no secrets: a password only travels on `revealItem`.
 servers:
@@ -658,7 +659,10 @@ components:
           $ref: '#/components/schemas/ErrorBody'
     ErrorBody:
       type: object
-      required: [code, message]
+      description: |
+        Most errors carry `code` and `message`. A request body that fails
+        validation gets Zod's shape instead (`{ name, issues }`), so neither
+        is required.
       properties:
         code:
           type: string

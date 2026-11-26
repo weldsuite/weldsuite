@@ -6,8 +6,9 @@ info:
     The core endpoints every native WeldSuite app uses: the server's
     `/config.json` and the signed-in person's workspaces.
 
-    Hand-written. The Rust server is the source of truth; its tests check
-    real responses against this file. Change both together.
+    Hand-written. The Rust server is the source of truth: change both
+    together, and see "Changing the contract" in apps/mobile-shared/README.md
+    for what apps already on phones can read.
 
     Every `/api` request carries `Authorization: Bearer <WeldID access token>`
     and names its workspace in `X-Weld-Workspace` (`workspaces.id`), except
@@ -141,7 +142,10 @@ components:
           $ref: '#/components/schemas/ErrorBody'
     ErrorBody:
       type: object
-      required: [code, message]
+      description: |
+        Most errors carry `code` and `message`. A request body that fails
+        validation gets Zod's shape instead (`{ name, issues }`), so neither
+        is required.
       properties:
         code:
           type: string
