@@ -14,6 +14,11 @@ vi.mock('@/hooks/queries/use-github-queries', () => ({
   useLinkedRepos: () => ({ data: { data: [] } }),
 }));
 
+// jsdom has no layout, so ranges have no rectangles: the description's caret scrolling reads them.
+const NO_RECT = { x: 0, y: 0, top: 0, left: 0, bottom: 0, right: 0, width: 0, height: 0, toJSON: () => ({}) } as DOMRect;
+Range.prototype.getClientRects ??= () => [] as unknown as DOMRectList;
+Range.prototype.getBoundingClientRect ??= () => NO_RECT;
+
 type Props = ComponentProps<typeof TaskDialog>;
 
 const BASE: Omit<Props, 'onSave' | 'onUpdate'> = {
@@ -192,6 +197,12 @@ describe('TaskDialog properties', () => {
     await user.type(screen.getByPlaceholderText('Task name...'), 'Notes');
     const description = screen.getByRole('textbox', { name: 'Add description...' });
     description.innerHTML = 'Bring the slides';
+    // A caret in the text, as when typing: the field scrolls it into view.
+    const caret = document.createRange();
+    caret.selectNodeContents(description);
+    caret.collapse(false);
+    globalThis.getSelection()?.removeAllRanges();
+    globalThis.getSelection()?.addRange(caret);
     fireEvent.input(description);
     fireEvent.keyDown(description, { key: 'a' });
     await user.click(screen.getByRole('button', { name: /^Attachments/ }));
