@@ -72,6 +72,7 @@ struct ItemFormView: View {
                 }
             }
         }
+        .preventsScreenCapture()
         .task { await load() }
     }
 

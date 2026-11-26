@@ -99,6 +99,7 @@ struct ItemView: View {
                 shown = []
             }
         }
+        .preventsScreenCapture()
     }
 
     private func delete() {
