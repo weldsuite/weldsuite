@@ -7,6 +7,7 @@ import type { BoardAiResult, BoardSummary } from '@weldsuite/app-api-client/sche
 import { emptySnapshot, keysBetween, makeSticky, type BoardSnapshot } from '@weldsuite/board-engine';
 import type { Env, Variables } from '@weldsuite/board-domain/types';
 import { FakeBucket, liveRoomNamespace } from '@weldsuite/board-domain/test-support/fakes';
+import { BoardRoom } from '../../room';
 import boardRoutes from './index';
 
 let db: Database;
@@ -85,7 +86,7 @@ beforeEach(async () => {
   await db.delete(whiteboards);
   await db.delete(files);
   bucket = new FakeBucket();
-  live = liveRoomNamespace(env);
+  live = liveRoomNamespace(env, BoardRoom);
   answers.length = 0;
   generateObject.mockClear();
   chargeAiUsage.mockClear();

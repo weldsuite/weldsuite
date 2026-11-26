@@ -16,7 +16,7 @@ import type { Env, Variables } from '@weldsuite/board-domain/types';
 import boardRoutes from './routes/boards';
 import { connectToRoom, isConnectRequest } from '@weldsuite/board-domain/room/connect';
 
-export { BoardRoom } from '@weldsuite/board-domain/room/board-room';
+export { BoardRoom } from './room';
 export { BoardsInternal } from './internal';
 
 const app = createModuleApi<Env, Variables>({ service: 'board-api' });

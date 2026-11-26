@@ -9,6 +9,7 @@ import { emptySnapshot, makeSticky, type BoardElement, type BoardSnapshot } from
 import type { Env, Variables } from '@weldsuite/board-domain/types';
 import { readSnapshot } from '@weldsuite/board-domain/room/snapshot';
 import { FakeBucket, fakeRoomNamespace, liveRoomNamespace } from '@weldsuite/board-domain/test-support/fakes';
+import { BoardRoom } from '../../room';
 import { boardEngineNamespace } from '@weldsuite/board-domain/engine-ops';
 import { conformanceMasterDb, conformanceTenantDb } from '@weldsuite/worker-kit/testing/conformance';
 import { createMasterPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
@@ -108,7 +109,7 @@ beforeEach(async () => {
   await db.delete(projects);
   await db.delete(workspaceMembers);
   bucket = new FakeBucket();
-  live = liveRoomNamespace(env);
+  live = liveRoomNamespace(env, BoardRoom);
   sessions = fakeRoomNamespace();
   useLiveRooms = true;
 });

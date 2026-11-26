@@ -12,7 +12,7 @@ import type { Env, Variables } from '@weldsuite/docs-domain/types';
 import docsRoutes from './routes/docs';
 import { connectToRoom, isConnectRequest } from '@weldsuite/docs-domain/room/connect';
 
-export { DocRoom } from '@weldsuite/docs-domain/room/doc-room';
+export { DocRoom } from './room';
 
 const app = createModuleApi<Env, Variables>({ service: 'docs-api' });
 

@@ -5,11 +5,8 @@ const here = (path: string) => fileURLToPath(new URL(path, import.meta.url));
 
 export default defineConfig({
   resolve: {
-    // What build.mjs swaps in for the Workers-only modules.
-    alias: [
-      { find: /^cloudflare:workers$/, replacement: here('./src/runtime/cloudflare-workers.ts') },
-      { find: /^@weldsuite\/worker-kit\/db$/, replacement: here('./src/runtime/tenant-db.ts') },
-    ],
+    // What build.mjs swaps in for the Workers-only module.
+    alias: [{ find: /^cloudflare:workers$/, replacement: here('./src/runtime/cloudflare-workers.ts') }],
   },
   test: {
     environment: 'node',

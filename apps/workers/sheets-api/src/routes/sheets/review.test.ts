@@ -16,6 +16,7 @@ import { Engine, Sheet, Workbook, writeXlsx } from '@weldsuite/sheets-engine';
 import type { Env, Variables } from '@weldsuite/sheets-domain/types';
 import { conformanceTenantDb } from '@weldsuite/worker-kit/testing/conformance';
 import { FakeBucket, liveRoomNamespace } from '@weldsuite/sheets-domain/test-support/fakes';
+import { SheetRoom } from '../../room';
 import { sheetEngineNamespace } from '@weldsuite/sheets-domain/engine-ops';
 import { META_SHEET, type LegacyModel } from '@weldsuite/sheets-domain/services/legacy-project-sheet';
 import sheetRoutes from './index';
@@ -50,7 +51,7 @@ let bucket: FakeBucket;
 let publicBucket: FakeBucket;
 let rooms: ReturnType<typeof liveRoomNamespace>;
 
-const env = () => ({ PRIVATE_STORAGE: bucket.asBinding(), STORAGE: publicBucket.asBinding(), SHEET_ROOM: rooms.binding, SHEET_ENGINE: sheetEngineNamespace() }) as unknown as Env;
+const env = () => ({ PRIVATE_STORAGE: bucket.asBinding(), STORAGE: publicBucket.asBinding(), SHEET_ROOM: rooms.binding, SHEET_ENGINE: sheetEngineNamespace(async () => conformanceTenantDb(db)) }) as unknown as Env;
 
 function app(options: { userId?: string; keys?: string[] } = {}) {
   return createTestApp<Env, Variables>('/api/sheets', sheetRoutes, {
@@ -96,7 +97,7 @@ beforeEach(async () => {
   await db.delete(schema.projects);
   bucket = new FakeBucket();
   publicBucket = new FakeBucket();
-  rooms = liveRoomNamespace(env);
+  rooms = liveRoomNamespace(env, SheetRoom);
   agentReadOnly = false;
 });
 

@@ -10,14 +10,18 @@
  *     (snapshot.ts); the tenant DB's `docs` row records each checkpoint, and
  *     a `doc.updated` entity event reports the change.
  *   - Commenters (`canComment`) may only commit comment ops (comment-access.ts).
+ *
+ * The class is abstract over its tenant database: each host subclasses it
+ * with `tenantDb`. docs-api opens Neon through worker-kit (Global);
+ * collab-rooms opens CloudNativePG on Node (the Kubernetes editions). Nothing
+ * here imports worker-kit, which goes with the workers (ADR OPS-025).
  */
 
 import { CollabRoom, type AdmittedPeer, type AutoVersion, type CheckpointRecord, type RestoreOutcome, type VersionRestore } from '@weldsuite/collab/durable-room';
 import { RoomCore, type CommittedOp, type RoomOptions } from '@weldsuite/collab';
 import { DocModel, docsAdapter, type DocPresence, type DocSnapshot, type Op } from '@weldsuite/docs-engine';
-import { publishEntityEventRaw } from '@weldsuite/entity-events';
-import { getTenantDbForWorkspace } from '@weldsuite/worker-kit/db';
-import type { Env } from '../types';
+import { publishEntityEventRaw, type EntityEventPublisherEnv } from '@weldsuite/entity-events';
+import type { TenantDb } from '@weldsuite/db/lib/any-db';
 import { recordCheckpoint } from '../services/docs';
 import { insertVersion, versionKeyFor } from '../services/versions';
 import { readSnapshot, writeSnapshot } from './snapshot';
@@ -25,6 +29,12 @@ import { isCommentersOp } from './comment-access';
 
 export { replyCode } from '@weldsuite/collab/durable-room';
 export type { LiveSnapshot, RestoreOutcome, SavedVersion } from '@weldsuite/collab/durable-room';
+
+/** The bindings a room reads, whichever host runs it. */
+export interface DocRoomEnv extends EntityEventPublisherEnv {
+  /** Document checkpoints (private bucket, `workspaces/<org>/docs/<id>/…`). */
+  PRIVATE_STORAGE: R2Bucket;
+}
 
 /** Which document a room holds, and where its checkpoint is. */
 export interface RoomMeta {
@@ -52,10 +62,13 @@ export interface RestoreRequest extends VersionRestore {
 /** Shape checks only (ops and presence from a browser): the document does not matter here. */
 const shapeChecks = docsAdapter();
 
-export class DocRoom extends CollabRoom<Env, RoomMeta, DocModel, Op, DocSnapshot, DocPresence> {
+export abstract class DocRoom<E extends DocRoomEnv = DocRoomEnv> extends CollabRoom<E, RoomMeta, DocModel, Op, DocSnapshot, DocPresence> {
   protected readonly logPrefix = '[docs-api/room]';
   protected readonly noun = 'document';
   protected readonly shapeChecks = shapeChecks;
+
+  /** The tenant database of `workspaceId` (the room meta's, a Clerk org id or `workspaces.id`). */
+  protected abstract tenantDb(workspaceId: string): Promise<TenantDb>;
 
   /** Registers a ticket for one connection (RPC from the session route). */
   async admit(admission: Admission): Promise<string> {
@@ -103,12 +116,12 @@ export class DocRoom extends CollabRoom<Env, RoomMeta, DocModel, Op, DocSnapshot
   }
 
   protected async saveAutoVersion(meta: RoomMeta, version: AutoVersion): Promise<void> {
-    const db = await getTenantDbForWorkspace(this.env, meta.workspaceId);
+    const db = await this.tenantDb(meta.workspaceId);
     await insertVersion(db, { ...version, docId: meta.docId, name: null });
   }
 
   protected async recordCheckpoint(meta: RoomMeta, checkpoint: CheckpointRecord, announce: boolean): Promise<void> {
-    const db = await getTenantDbForWorkspace(this.env, meta.workspaceId);
+    const db = await this.tenantDb(meta.workspaceId);
     const doc = await recordCheckpoint(db, meta.docId, checkpoint);
     const editor = checkpoint.userId;
     if (!announce || !doc || !editor) return;

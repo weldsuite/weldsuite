@@ -4,8 +4,14 @@
  */
 
 import { FrameAssembler, decodeServer, type BoardServerMessage } from '@weldsuite/board-engine';
-import { BoardRoom as RoomClass, type Admission } from '../room/board-room';
+import type { Admission, BoardRoom } from '../room/board-room';
 import type { Env } from '../types';
+
+/**
+ * A concrete room class: the worker's (`src/room.ts`), which opens the
+ * tenant database its own way (worker-kit, mocked by the route tests).
+ */
+export type BoardRoomClass = new (ctx: DurableObjectState, env: Env) => BoardRoom<Env>;
 
 export type { BoardServerMessage };
 
@@ -129,8 +135,8 @@ export function fakeObjectState(id = 'a'.repeat(64)) {
  * BOARD_ROOM made of real rooms on fake storage (one per name), for route
  * tests that go through the room: snapshots, versions, server writes.
  */
-export function liveRoomNamespace(env: () => Env) {
-  const rooms = new Map<string, { room: RoomClass; state: ReturnType<typeof fakeObjectState> }>();
+export function liveRoomNamespace(env: () => Env, RoomClass: BoardRoomClass) {
+  const rooms = new Map<string, { room: BoardRoom<Env>; state: ReturnType<typeof fakeObjectState> }>();
   const roomFor = (name: string) => {
     let entry = rooms.get(name);
     if (!entry) {
@@ -149,7 +155,7 @@ export function liveRoomNamespace(env: () => Env) {
    * reaches through the bridge do.
    */
   const fork = (isolated: Record<string, unknown>) => {
-    const forked = new Map<string, RoomClass>();
+    const forked = new Map<string, BoardRoom<Env>>();
     const forkEnv = () => ({ ...env(), PRIVATE_STORAGE: isolated.PRIVATE_STORAGE }) as Env;
     return {
       idFromName: (name: string) => ({ name }),
@@ -174,7 +180,7 @@ export function liveRoomNamespace(env: () => Env) {
     get: (id: { name: string }) => roomFor(id.name).room,
     fork,
   };
-  return { rooms, roomFor, binding: binding as unknown as DurableObjectNamespace<RoomClass> };
+  return { rooms, roomFor, binding: binding as unknown as DurableObjectNamespace<BoardRoom> };
 }
 
 /** BOARD_ROOM for route tests that only open sessions: records admissions and hands out a fixed ticket. */
@@ -189,5 +195,5 @@ export function fakeRoomNamespace() {
       },
     }),
   };
-  return { admissions, binding: binding as unknown as DurableObjectNamespace<RoomClass> };
+  return { admissions, binding: binding as unknown as DurableObjectNamespace<BoardRoom> };
 }

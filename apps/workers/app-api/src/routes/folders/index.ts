@@ -33,6 +33,7 @@ import {
   type DriveAccessIndex,
   type DriveRole,
 } from '@weldsuite/core-domain/drive-access';
+import { loadAccountPictures } from '@weldsuite/worker-kit/account-pictures';
 import * as foldersService from '../../services/folders';
 import { DRIVE_VIEW_ONLY, driveAccess } from '../../lib/drive-access';
 
@@ -74,7 +75,7 @@ function checkDestination(c: FoldersContext, access: DriveAccessIndex, parentId:
 function folderSharing(c: FoldersContext, { row, access, role }: OpenedFolder) {
   return describeSharing(
     c.get('tenantDb'),
-    c.env,
+    (userIds) => loadAccountPictures(c.env, userIds),
     access,
     { kind: 'folder', id: row.id, ownerId: row.createdById, generalAccess: row.generalAccess, parentId: row.parentId },
     role,

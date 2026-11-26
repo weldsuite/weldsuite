@@ -5,7 +5,7 @@
  * table of this worker, because each form has its own columns.
  */
 
-import type { Database } from '@weldsuite/worker-kit/db';
+import type { TenantDb as Database } from '@weldsuite/db/lib/any-db';
 import type { SheetDataDefinition } from '@weldsuite/app-api-client/schemas/sheet-data';
 import {
   FormColumnError,

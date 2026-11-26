@@ -1,7 +1,7 @@
 /**
- * `@weldsuite/worker-kit/db` for the room classes on Node (the build aliases
- * the module here). On Global a room opens its workspace's database over
- * Neon's HTTP driver; on Kubernetes the databases are plain Postgres
+ * The rooms' tenant databases on Node (each room's `tenantDb`, src/app.ts).
+ * On Global a room opens its workspace's database over Neon's HTTP driver
+ * through worker-kit; on Kubernetes the databases are plain Postgres
  * (CloudNativePG), opened with postgres.js. The workspace's URL is read from
  * the master database and opened with the same keyring the Rust server and
  * the workers use (`DATABASE_ENCRYPTION_KEY`, `_V2`).

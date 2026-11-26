@@ -4,7 +4,14 @@
  */
 
 import { FrameAssembler, decodeServer, type ServerMessage } from '@weldsuite/sheets-engine';
-import { SheetRoom as RoomClass, type Admission, type ExportRequest, type ExportedFile, type RoomMeta } from '../room/sheet-room';
+import type { Admission, ExportRequest, ExportedFile, RoomMeta, SheetRoom } from '../room/sheet-room';
+import type { Env } from '../types';
+
+/**
+ * A concrete room class: the worker's (`src/room.ts`), which opens the
+ * tenant database its own way (worker-kit, mocked by the route tests).
+ */
+export type SheetRoomClass = new (ctx: DurableObjectState, env: Env) => SheetRoom<Env>;
 
 export class FakeBucket {
   readonly objects = new Map<string, Uint8Array>();
@@ -123,8 +130,8 @@ export function fakeObjectState(id = 'a'.repeat(64)) {
  * SHEET_ROOM made of real rooms on fake storage (one per name), for route
  * tests that go through the room: versions, connected tables, agent tools.
  */
-export function liveRoomNamespace(env: () => import('../types').Env) {
-  const rooms = new Map<string, { room: import('../room/sheet-room').SheetRoom; state: ReturnType<typeof fakeObjectState> }>();
+export function liveRoomNamespace(env: () => Env, RoomClass: SheetRoomClass) {
+  const rooms = new Map<string, { room: SheetRoom<Env>; state: ReturnType<typeof fakeObjectState> }>();
   const roomFor = (name: string) => {
     let entry = rooms.get(name);
     if (!entry) {
@@ -143,8 +150,8 @@ export function liveRoomNamespace(env: () => import('../types').Env) {
    * reaches through the bridge do.
    */
   const fork = (isolated: Record<string, unknown>) => {
-    const forked = new Map<string, import('../room/sheet-room').SheetRoom>();
-    const forkEnv = () => ({ ...env(), PRIVATE_STORAGE: isolated.PRIVATE_STORAGE, STORAGE: isolated.STORAGE }) as import('../types').Env;
+    const forked = new Map<string, SheetRoom<Env>>();
+    const forkEnv = () => ({ ...env(), PRIVATE_STORAGE: isolated.PRIVATE_STORAGE, STORAGE: isolated.STORAGE }) as Env;
     return {
       idFromName: (name: string) => ({ name }),
       get: (id: { name: string }) => {
@@ -168,7 +175,7 @@ export function liveRoomNamespace(env: () => import('../types').Env) {
     get: (id: { name: string }) => roomFor(id.name).room,
     fork,
   };
-  return { rooms, roomFor, binding: binding as unknown as DurableObjectNamespace<import('../room/sheet-room').SheetRoom> };
+  return { rooms, roomFor, binding: binding as unknown as DurableObjectNamespace<SheetRoom> };
 }
 
 /**
@@ -193,5 +200,5 @@ export function fakeRoomNamespace() {
       },
     }),
   };
-  return { admissions, exports, binding: binding as unknown as DurableObjectNamespace<import('../room/sheet-room').SheetRoom> };
+  return { admissions, exports, binding: binding as unknown as DurableObjectNamespace<SheetRoom> };
 }

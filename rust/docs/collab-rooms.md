@@ -13,11 +13,15 @@ checkpoint and takes server writes (the task cards). The engines
 (`@weldsuite/docs-engine`, `@weldsuite/sheets-engine`,
 `@weldsuite/board-engine`) are shared with the browser.
 
-The Kubernetes editions run those classes unchanged, in Node, beside the Rust
-server. No engine is rewritten. The classes, the services they call and the
-engine work live in the modules' domain packages, `packages/domains/docs`,
+The Kubernetes editions run those classes in Node, beside the Rust server. No
+engine is rewritten. The classes, the services they call and the engine work
+live in the modules' domain packages, `packages/domains/docs`,
 `packages/domains/sheets` and `packages/domains/board`, which the workers and
-collab-rooms both import.
+collab-rooms both import. A room is abstract over its tenant database
+(`tenantDb`): each worker subclasses it to open Neon through worker-kit, and
+collab-rooms to open CloudNativePG (`src/app.ts`). Nothing collab-rooms
+bundles may import `@weldsuite/worker-kit`, which goes with the workers
+(ADR OPS-025); its build refuses it.
 
 ## Shape
 
@@ -38,7 +42,8 @@ browser ──/api/{docs,sheets,boards}/*──▶ weldsuite serve (Rust: module
   waits for the writes issued before it) and per-socket input order;
   sockets are `ws` with attachments; alarms are timers, retried on failure;
   `PRIVATE_STORAGE` / `STORAGE` are the S3 buckets; the tenant database is
-  node-postgres, its URL opened from the master with the same keys as Rust;
+  postgres.js (`src/runtime/tenant-db.ts`), its URL opened from the master
+  with the same keys as Rust;
   `ENTITY_EVENTS.send` posts the hub message to Rust, which publishes it on
   its bus. Rooms stay in memory while a socket is open and are dropped
   after a checkpoint once idle (Durable Object hibernation, without the

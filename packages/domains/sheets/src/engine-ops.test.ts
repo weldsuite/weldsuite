@@ -1,14 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import { Sheet, Workbook, type WorkbookSnapshot } from '@weldsuite/sheets-engine';
 import type { DriveFileRef } from '@weldsuite/core-domain/drive-access';
-import type { Env } from './types';
+import type { TenantDb } from '@weldsuite/db/lib/any-db';
 import { checkpoint, sheetEngine, sheetEngineFor, sheetEngineNamespace, type DataTableSource } from './engine-ops';
 
 const refresh = vi.hoisted(() => ({ calls: [] as unknown[][] }));
-vi.mock('@weldsuite/worker-kit/db', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@weldsuite/worker-kit/db')>()),
-  getTenantDbForWorkspace: async (_env: unknown, workspaceId: string) => ({ workspaceId }),
-}));
 vi.mock('./services/data-sources/refresh', () => ({
   buildRefresh: async (...args: unknown[]) => {
     refresh.calls.push(args);
@@ -95,7 +91,13 @@ describe('sheetEngineFor', () => {
   it('lists a connected table from the workspace’s database', async () => {
     const source = { id: 'ds_1', objectType: 'companies', definition: {}, createdById: 'alice' } as unknown as DataTableSource;
     const file = { id: 'fil_1' } as DriveFileRef;
-    const listed = await sheetEngineFor({} as Env).listDataTable('org_1', source, file);
+    const opened: string[] = [];
+    const tenantDb = async (workspaceId: string) => {
+      opened.push(workspaceId);
+      return { workspaceId } as unknown as TenantDb;
+    };
+    const listed = await sheetEngineFor(tenantDb).listDataTable('org_1', source, file);
+    expect(opened).toEqual(['org_1']);
     expect(listed).toMatchObject({ ok: true, rowCount: 1 });
     expect(refresh.calls.at(-1)).toEqual([{ workspaceId: 'org_1' }, source, file]);
   });

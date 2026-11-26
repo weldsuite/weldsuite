@@ -1,26 +1,30 @@
 /**
  * The rooms this service hosts: the same classes the workers run as Durable
- * Objects, from the modules' domain packages, unchanged.
+ * Objects, from the modules' domain packages. A room is abstract over its
+ * tenant database, so each is subclassed here to open CloudNativePG through
+ * ./runtime/tenant-db (the workers open Neon through worker-kit).
  *
  *   DOC_ROOM    DocRoom   (@weldsuite/docs-domain/room/doc-room)
  *   DOC_ENGINE  docEngine (@weldsuite/docs-domain/engine-ops)
  *   SHEET_ROOM  SheetRoom (@weldsuite/sheets-domain/room/sheet-room)
- *   SHEET_ENGINE  sheetEngineFor(env) (@weldsuite/sheets-domain/engine-ops)
+ *   SHEET_ENGINE  sheetEngineFor(tenantDb) (@weldsuite/sheets-domain/engine-ops)
  *   BOARD_ROOM  BoardRoom (@weldsuite/board-domain/room/board-room)
  *   BOARD_ENGINE  boardEngine (@weldsuite/board-domain/engine-ops)
  *
  * The build bundles them with this service's runtime in place of
- * `cloudflare:workers` and Neon (build.mjs).
+ * `cloudflare:workers`, and refuses worker-kit, which goes with the workers
+ * (build.mjs).
  */
 
-import { DocRoom } from '@weldsuite/docs-domain/room/doc-room';
+import { DocRoom, type DocRoomEnv } from '@weldsuite/docs-domain/room/doc-room';
 import { docEngine } from '@weldsuite/docs-domain/engine-ops';
-import { SheetRoom } from '@weldsuite/sheets-domain/room/sheet-room';
+import { SheetRoom, type SheetRoomEnv } from '@weldsuite/sheets-domain/room/sheet-room';
 import { sheetEngineFor } from '@weldsuite/sheets-domain/engine-ops';
-import { BoardRoom } from '@weldsuite/board-domain/room/board-room';
+import { BoardRoom, type BoardRoomEnv } from '@weldsuite/board-domain/room/board-room';
 import { boardEngine } from '@weldsuite/board-domain/engine-ops';
 import { RoomNamespace, type RoomFactory } from './runtime/host';
 import { r2Bucket, type ObjectStore } from './runtime/objects';
+import { getTenantDbForWorkspace, type DbEnv } from './runtime/tenant-db';
 import { createCollabServer, type CollabServer } from './server';
 
 export interface CollabConfig {
@@ -37,6 +41,24 @@ export interface CollabConfig {
   idleMs?: number;
   sweepMs?: number;
   environment?: string;
+}
+
+class NodeDocRoom extends DocRoom<DocRoomEnv & DbEnv> {
+  protected tenantDb(workspaceId: string) {
+    return getTenantDbForWorkspace(this.env, workspaceId);
+  }
+}
+
+class NodeSheetRoom extends SheetRoom<SheetRoomEnv & DbEnv> {
+  protected tenantDb(workspaceId: string) {
+    return getTenantDbForWorkspace(this.env, workspaceId);
+  }
+}
+
+class NodeBoardRoom extends BoardRoom<BoardRoomEnv & DbEnv> {
+  protected tenantDb(workspaceId: string) {
+    return getTenantDbForWorkspace(this.env, workspaceId);
+  }
 }
 
 /** The `ENTITY_EVENTS` queue binding: each message goes to the Rust server's bus. */
@@ -76,13 +98,13 @@ export function createCollabApp(config: CollabConfig): CollabServer {
   const namespace = (binding: string, factory: RoomFactory) =>
     new RoomNamespace({ binding, factory, env, store: config.privateStore, idleMs: config.idleMs });
   const rooms = {
-    DOC_ROOM: namespace('DOC_ROOM', (ctx, roomEnv) => new DocRoom(ctx as DurableObjectState, roomEnv as never)),
-    SHEET_ROOM: namespace('SHEET_ROOM', (ctx, roomEnv) => new SheetRoom(ctx as DurableObjectState, roomEnv as never)),
-    BOARD_ROOM: namespace('BOARD_ROOM', (ctx, roomEnv) => new BoardRoom(ctx as DurableObjectState, roomEnv as never)),
+    DOC_ROOM: namespace('DOC_ROOM', (ctx, roomEnv) => new NodeDocRoom(ctx as DurableObjectState, roomEnv as never)),
+    SHEET_ROOM: namespace('SHEET_ROOM', (ctx, roomEnv) => new NodeSheetRoom(ctx as DurableObjectState, roomEnv as never)),
+    BOARD_ROOM: namespace('BOARD_ROOM', (ctx, roomEnv) => new NodeBoardRoom(ctx as DurableObjectState, roomEnv as never)),
   };
   return createCollabServer({
     rooms,
-    engines: { DOC_ENGINE: docEngine, SHEET_ENGINE: sheetEngineFor(env as never), BOARD_ENGINE: boardEngine },
+    engines: { DOC_ENGINE: docEngine, SHEET_ENGINE: sheetEngineFor((workspaceId) => getTenantDbForWorkspace(env as DbEnv, workspaceId)), BOARD_ENGINE: boardEngine },
     connectPaths: { '/api/docs/connect': 'DOC_ROOM', '/api/sheets/connect': 'SHEET_ROOM', '/api/boards/connect': 'BOARD_ROOM' },
     secret: config.secret,
     owns: config.owns,

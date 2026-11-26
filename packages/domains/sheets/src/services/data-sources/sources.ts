@@ -5,7 +5,8 @@
  */
 
 import { and, asc, eq, isNotNull, lte } from 'drizzle-orm';
-import { schema, type Database } from '@weldsuite/worker-kit/db';
+import * as schema from '@weldsuite/db/schema';
+import type { TenantDb as Database } from '@weldsuite/db/lib/any-db';
 import type { SheetDataSource } from '@weldsuite/app-api-client/schemas/sheets';
 import type { DataFor } from '@weldsuite/entity-events/events';
 

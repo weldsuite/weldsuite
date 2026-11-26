@@ -16,6 +16,11 @@
  *     client's and sent to everyone connected, so nobody races a checkpoint.
  *   - Commenters (`canComment`) may only commit comment pins, and nobody
  *     votes in another person's name (comment-access.ts).
+ *
+ * The class is abstract over its tenant database: each host subclasses it
+ * with `tenantDb`. board-api opens Neon through worker-kit (Global);
+ * collab-rooms opens CloudNativePG on Node (the Kubernetes editions). Nothing
+ * here imports worker-kit, which goes with the workers (ADR OPS-025).
  */
 
 import { CollabRoom, type AdmittedPeer, type AutoVersion, type CheckpointRecord, type RestoreOutcome, type VersionRestore } from '@weldsuite/collab/durable-room';
@@ -33,9 +38,8 @@ import {
   type Op,
 } from '@weldsuite/board-engine';
 import { CachedMeasurer, MetricsMeasurer } from '@weldsuite/docs-engine';
-import { publishEntityEventRaw } from '@weldsuite/entity-events';
-import { getTenantDbForWorkspace } from '@weldsuite/worker-kit/db';
-import type { Env } from '../types';
+import { publishEntityEventRaw, type EntityEventPublisherEnv } from '@weldsuite/entity-events';
+import type { TenantDb } from '@weldsuite/db/lib/any-db';
 import { recordCheckpoint } from '../services/boards';
 import { insertVersion, versionKeyFor } from '../services/versions';
 import { readSnapshot, writeSnapshot, writeThumbnail } from './snapshot';
@@ -45,6 +49,12 @@ export { replyCode } from '@weldsuite/collab/durable-room';
 export type { LiveSnapshot, RestoreOutcome, SavedVersion } from '@weldsuite/collab/durable-room';
 
 type BoardRoomCore = RoomCore<Board, Op, BoardSnapshot, BoardPresence>;
+
+/** The bindings a room reads, whichever host runs it. */
+export interface BoardRoomEnv extends EntityEventPublisherEnv {
+  /** Board checkpoints and thumbnails (private bucket, `workspaces/<org>/boards/<id>/…`). */
+  PRIVATE_STORAGE: R2Bucket;
+}
 
 /** Which board a room holds, and where its checkpoint is. */
 export interface RoomMeta {
@@ -83,10 +93,13 @@ const thumbnailMeasurer = new CachedMeasurer(new MetricsMeasurer(), 50_000);
 /** Shape checks only (ops and presence from a browser): the board does not matter here. */
 const shapeChecks = boardAdapter();
 
-export class BoardRoom extends CollabRoom<Env, RoomMeta, Board, Op, BoardSnapshot, BoardPresence> {
+export abstract class BoardRoom<E extends BoardRoomEnv = BoardRoomEnv> extends CollabRoom<E, RoomMeta, Board, Op, BoardSnapshot, BoardPresence> {
   protected readonly logPrefix = '[board-api/room]';
   protected readonly noun = 'board';
   protected readonly shapeChecks = shapeChecks;
+
+  /** The tenant database of `workspaceId` (the room meta's, a Clerk org id or `workspaces.id`). */
+  protected abstract tenantDb(workspaceId: string): Promise<TenantDb>;
 
   /** Registers a ticket for one connection (RPC from the session route). */
   async admit(admission: Admission): Promise<string> {
@@ -173,12 +186,12 @@ export class BoardRoom extends CollabRoom<Env, RoomMeta, Board, Op, BoardSnapsho
   }
 
   protected async saveAutoVersion(meta: RoomMeta, version: AutoVersion): Promise<void> {
-    const db = await getTenantDbForWorkspace(this.env, meta.workspaceId);
+    const db = await this.tenantDb(meta.workspaceId);
     await insertVersion(db, { ...version, boardId: meta.boardId, name: null });
   }
 
   protected async recordCheckpoint(meta: RoomMeta, checkpoint: CheckpointRecord, announce: boolean): Promise<void> {
-    const db = await getTenantDbForWorkspace(this.env, meta.workspaceId);
+    const db = await this.tenantDb(meta.workspaceId);
     const board = await recordCheckpoint(db, meta.boardId, checkpoint);
     const editor = checkpoint.userId;
     if (!announce || !board || !editor || editor.startsWith('server:')) return;

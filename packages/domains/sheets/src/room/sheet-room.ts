@@ -16,6 +16,11 @@
  *   - Server writes: connected tables' refreshes and agent tools commit ops
  *     through `commitServerOp`, like anyone's edit. Scheduled refreshes run on
  *     this object's alarm, which it shares with checkpoints.
+ *
+ * The class is abstract over its tenant database: each host subclasses it
+ * with `tenantDb`. sheets-api opens Neon through worker-kit (Global);
+ * collab-rooms opens CloudNativePG on Node (the Kubernetes editions). Nothing
+ * here imports worker-kit, which goes with the workers (ADR OPS-025).
  */
 
 import { CollabRoom, type AdmittedPeer, type AutoVersion, type CheckpointRecord, type RestoreOutcome, type VersionRestore } from '@weldsuite/collab/durable-room';
@@ -43,10 +48,9 @@ import {
   type ReadValues,
   type WorkbookSnapshot,
 } from '@weldsuite/sheets-engine';
-import { publishEntityEventRaw } from '@weldsuite/entity-events';
+import { publishEntityEventRaw, type EntityEventPublisherEnv } from '@weldsuite/entity-events';
 import type { DriveFileRef } from '@weldsuite/core-domain/drive-access';
-import { getTenantDbForWorkspace, type Database } from '@weldsuite/worker-kit/db';
-import type { Env } from '../types';
+import type { TenantDb } from '@weldsuite/db/lib/any-db';
 import { getSheet, recordCheckpoint } from '../services/sheets';
 import { insertVersion, versionKeyFor } from '../services/versions';
 import { buildRefresh } from '../services/data-sources/refresh';
@@ -56,6 +60,12 @@ import { isCommentersOp } from './comment-access';
 
 export { replyCode } from '@weldsuite/collab/durable-room';
 export type { LiveSnapshot, RestoreOutcome, SavedVersion } from '@weldsuite/collab/durable-room';
+
+/** The bindings a room reads, whichever host runs it. */
+export interface SheetRoomEnv extends EntityEventPublisherEnv {
+  /** Workbook checkpoints (private bucket, `workspaces/<org>/sheets/<id>/…`). */
+  PRIVATE_STORAGE: R2Bucket;
+}
 
 /** Which sheet a room holds, and where its checkpoint is. */
 export interface RoomMeta {
@@ -124,10 +134,13 @@ const MAX_READ_CELLS = 10_000;
 /** Shape checks only: engine options do not matter here. */
 const shapeChecks = sheetsAdapter();
 
-export class SheetRoom extends CollabRoom<Env, RoomMeta, Engine, Op, WorkbookSnapshot, Presence, RoomCore> {
+export abstract class SheetRoom<E extends SheetRoomEnv = SheetRoomEnv> extends CollabRoom<E, RoomMeta, Engine, Op, WorkbookSnapshot, Presence, RoomCore> {
   protected readonly logPrefix = '[sheets-api/room]';
   protected readonly noun = 'sheet';
   protected readonly shapeChecks = shapeChecks;
+
+  /** The tenant database of `workspaceId` (the room meta's, a Clerk org id or `workspaces.id`). */
+  protected abstract tenantDb(workspaceId: string): Promise<TenantDb>;
 
   /** Registers a ticket for one connection (RPC from the session route). */
   async admit(admission: Admission): Promise<string> {
@@ -256,12 +269,12 @@ export class SheetRoom extends CollabRoom<Env, RoomMeta, Engine, Op, WorkbookSna
   }
 
   protected async saveAutoVersion(meta: RoomMeta, version: AutoVersion): Promise<void> {
-    const db = await getTenantDbForWorkspace(this.env, meta.workspaceId);
+    const db = await this.tenantDb(meta.workspaceId);
     await insertVersion(db, { ...version, sheetId: meta.sheetId, name: null });
   }
 
   protected async recordCheckpoint(meta: RoomMeta, checkpoint: CheckpointRecord, announce: boolean): Promise<void> {
-    const db = await getTenantDbForWorkspace(this.env, meta.workspaceId);
+    const db = await this.tenantDb(meta.workspaceId);
     const sheet = await recordCheckpoint(db, meta.sheetId, checkpoint);
     const editor = checkpoint.userId;
     if (!announce || !sheet || !editor) return;
@@ -291,7 +304,7 @@ export class SheetRoom extends CollabRoom<Env, RoomMeta, Engine, Op, WorkbookSna
   private async refreshDue(): Promise<void> {
     const meta = this.meta;
     if (!meta) return;
-    const db = await getTenantDbForWorkspace(this.env, meta.workspaceId);
+    const db = await this.tenantDb(meta.workspaceId);
     const sheet = await getSheet(db, meta.sheetId);
     if (!sheet) {
       await this.ctx.storage.delete(REFRESH_AT);
@@ -311,7 +324,7 @@ export class SheetRoom extends CollabRoom<Env, RoomMeta, Engine, Op, WorkbookSna
   }
 
   /** Lists one connected table's records and writes them, recording how it went. */
-  private async refreshOne(db: Database, meta: RoomMeta, source: DataSourceRecord, file: DriveFileRef): Promise<void> {
+  private async refreshOne(db: TenantDb, meta: RoomMeta, source: DataSourceRecord, file: DriveFileRef): Promise<void> {
     const plan = await buildRefresh(db, source, file);
     let error = plan.ok ? null : plan.error;
     if (plan.ok) {
