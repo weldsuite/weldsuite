@@ -1081,23 +1081,20 @@ async fn update_task(
         update.insert("completedDate".into(), json!(now()));
         date_props.push("completedDate");
     }
-    match plan {
-        Some(plan) => {
-            let mut tx = caller.db.begin().await?;
-            let conn = OrmConn::new(&mut tx);
-            write_dependency_rows(&conn, &id, &plan, &now(), caller.session.actor()).await?;
-            TASKS
-                .patch_on(&conn, &id, &update, true, &date_props)
-                .await?;
-            set_epic(&conn, &id, &epic).await?;
-            tx.commit().await?;
-        }
-        None => {
-            TASKS
-                .patch(&caller.db, &id, &update, true, &date_props)
-                .await?;
-            set_epic(&orm(&caller.db), &id, &epic).await?;
-        }
+    if let Some(plan) = plan {
+        let mut tx = caller.db.begin().await?;
+        let conn = OrmConn::new(&mut tx);
+        write_dependency_rows(&conn, &id, &plan, &now(), caller.session.actor()).await?;
+        TASKS
+            .patch_on(&conn, &id, &update, true, &date_props)
+            .await?;
+        set_epic(&conn, &id, &epic).await?;
+        tx.commit().await?;
+    } else {
+        TASKS
+            .patch(&caller.db, &id, &update, true, &date_props)
+            .await?;
+        set_epic(&orm(&caller.db), &id, &epic).await?;
     }
     // An epic or feature that changed type lets go of what it can no longer
     // hold (FLOW-023).
