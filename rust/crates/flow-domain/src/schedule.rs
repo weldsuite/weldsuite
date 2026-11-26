@@ -4,7 +4,7 @@
 //! FLOW-015).
 //!
 //! A line-by-line port: the same fixtures
-//! (`packages/domains/flow/src/testing/schedule-fixtures.json`) run in both
+//! (`rust/crates/flow-domain/fixtures/schedule-fixtures.json`) run in both
 //! languages, so a change here is a change in `schedule.ts`.
 //!
 //! Everything is in working days of the project calendar. A task spans its
@@ -1068,8 +1068,7 @@ pub fn date_of(iso: &str) -> Option<String> {
 mod tests {
     use super::*;
 
-    const FIXTURES: &str =
-        include_str!("../../../../packages/domains/flow/src/testing/schedule-fixtures.json");
+    const FIXTURES: &str = include_str!("../fixtures/schedule-fixtures.json");
 
     fn fixtures() -> Value {
         serde_json::from_str(FIXTURES).expect("the shared fixtures are JSON")

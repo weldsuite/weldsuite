@@ -1,23 +1,24 @@
 /**
- * The rooms this service hosts: the workers' own classes, unchanged.
+ * The rooms this service hosts: the same classes the workers run as Durable
+ * Objects, from the modules' domain packages, unchanged.
  *
- *   DOC_ROOM    DocRoom   (apps/workers/docs-api/src/room/doc-room.ts)
- *   DOC_ENGINE  docEngine (apps/workers/docs-api/src/engine-ops.ts)
- *   SHEET_ROOM  SheetRoom (apps/workers/sheets-api/src/room/sheet-room.ts)
- *   SHEET_ENGINE  sheetEngineFor(env) (apps/workers/sheets-api/src/engine-ops.ts)
- *   BOARD_ROOM  BoardRoom (apps/workers/board-api/src/room/board-room.ts)
- *   BOARD_ENGINE  boardEngine (apps/workers/board-api/src/engine-ops.ts)
+ *   DOC_ROOM    DocRoom   (@weldsuite/docs-domain/room/doc-room)
+ *   DOC_ENGINE  docEngine (@weldsuite/docs-domain/engine-ops)
+ *   SHEET_ROOM  SheetRoom (@weldsuite/sheets-domain/room/sheet-room)
+ *   SHEET_ENGINE  sheetEngineFor(env) (@weldsuite/sheets-domain/engine-ops)
+ *   BOARD_ROOM  BoardRoom (@weldsuite/board-domain/room/board-room)
+ *   BOARD_ENGINE  boardEngine (@weldsuite/board-domain/engine-ops)
  *
- * They are imported by path: the build bundles them with this service's
- * runtime in place of `cloudflare:workers` and Neon (build.mjs).
+ * The build bundles them with this service's runtime in place of
+ * `cloudflare:workers` and Neon (build.mjs).
  */
 
-import { DocRoom } from '../../../workers/docs-api/src/room/doc-room';
-import { docEngine } from '../../../workers/docs-api/src/engine-ops';
-import { SheetRoom } from '../../../workers/sheets-api/src/room/sheet-room';
-import { sheetEngineFor } from '../../../workers/sheets-api/src/engine-ops';
-import { BoardRoom } from '../../../workers/board-api/src/room/board-room';
-import { boardEngine } from '../../../workers/board-api/src/engine-ops';
+import { DocRoom } from '@weldsuite/docs-domain/room/doc-room';
+import { docEngine } from '@weldsuite/docs-domain/engine-ops';
+import { SheetRoom } from '@weldsuite/sheets-domain/room/sheet-room';
+import { sheetEngineFor } from '@weldsuite/sheets-domain/engine-ops';
+import { BoardRoom } from '@weldsuite/board-domain/room/board-room';
+import { boardEngine } from '@weldsuite/board-domain/engine-ops';
 import { RoomNamespace, type RoomFactory } from './runtime/host';
 import { r2Bucket, type ObjectStore } from './runtime/objects';
 import { createCollabServer, type CollabServer } from './server';

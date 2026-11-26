@@ -20,6 +20,7 @@
     "@weldsuite/collab": "workspace:*",
     "@weldsuite/core-domain": "workspace:*",
     "@weldsuite/db": "workspace:*",
+    "@weldsuite/docs-domain": "workspace:*",
     "@weldsuite/docs-engine": "workspace:*",
     "@weldsuite/entity-events": "workspace:*",
     "@weldsuite/permissions": "workspace:*",

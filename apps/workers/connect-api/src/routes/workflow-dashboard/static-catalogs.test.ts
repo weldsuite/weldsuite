@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ENTITY_EVENTS as ENTITY_EVENT_CATALOG } from '@weldsuite/entity-events';
 import { validateWeldConnectWorkflow } from '../../services/weldconnect-mvp';
-import { ENTITY_EVENTS } from './static-catalogs';
+import { ENTITY_EVENTS } from '@weldsuite/connect-domain/workflow-dashboard/static-catalogs';
 
 const emailStep = {
   id: 'step-1',

@@ -78,8 +78,9 @@ RUN set -eux; \
     mv dist /helpdesk-widget
 
 # ── WeldDocs', WeldSheets' and WeldBoard's rooms (rust/docs/collab-rooms.md) ─
-# The workers' DocRoom, SheetRoom and BoardRoom with the Node runtime of
-# apps/tools/collab-rooms, bundled into one file by esbuild.
+# DocRoom, SheetRoom and BoardRoom (packages/domains/{docs,sheets,board})
+# with the Node runtime of apps/tools/collab-rooms, bundled into one file by
+# esbuild.
 FROM --platform=$BUILDPLATFORM node:${NODE_VERSION}-bookworm-slim AS collab-rooms-build
 ENV CI=true \
     PNPM_HOME=/pnpm
@@ -87,14 +88,11 @@ RUN corepack enable
 WORKDIR /repo
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
 COPY patches patches
-COPY --parents apps/tools/collab-rooms/package.json apps/workers/docs-api/package.json apps/workers/sheets-api/package.json apps/workers/board-api/package.json packages/*/*/package.json ./
+COPY --parents apps/tools/collab-rooms/package.json packages/*/*/package.json ./
 RUN --mount=type=cache,id=weldsuite-pnpm-store,target=/pnpm/store \
     pnpm install --frozen-lockfile --ignore-scripts --store-dir /pnpm/store \
-      --filter collab-rooms... --filter docs-api... --filter sheets-api... --filter board-api...
+      --filter collab-rooms...
 COPY packages packages
-COPY apps/workers/docs-api apps/workers/docs-api
-COPY apps/workers/sheets-api apps/workers/sheets-api
-COPY apps/workers/board-api apps/workers/board-api
 COPY apps/tools/collab-rooms apps/tools/collab-rooms
 RUN set -eux; \
     cd apps/tools/collab-rooms; \

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import fixtures from './testing/gate-fixtures.json';
+import fixtures from '../../../../rust/crates/flow-domain/fixtures/gate-fixtures.json';
 import {
   GATE_MESSAGES,
   checkGate,

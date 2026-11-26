@@ -4,7 +4,7 @@
  * in conformance mode, the Rust backend (rust/conformance/suites.json), so
  * every status code, message and event payload asserted here is the contract
  * of both. The calculation itself is covered by the shared fixtures of
- * packages/domains/flow/src/testing/schedule-fixtures.json.
+ * rust/crates/flow-domain/fixtures/schedule-fixtures.json.
  */
 
 import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest';

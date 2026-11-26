@@ -10,7 +10,7 @@
 
 import { WorkerEntrypoint } from 'cloudflare:workers';
 import { createModuleApi } from '@weldsuite/worker-kit';
-import type { Env, Variables } from './types';
+import type { Env, Variables } from '@weldsuite/board-domain/types';
 import internalRoutes from './routes/internal/boards';
 
 const internalApp = createModuleApi<Env, Variables>({ service: 'board-api' });

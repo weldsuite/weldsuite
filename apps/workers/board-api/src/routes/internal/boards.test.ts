@@ -5,8 +5,8 @@ import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import type { Database } from '@weldsuite/worker-kit';
 import { schema } from '@weldsuite/worker-kit/db';
 import type { BoardSnapshot } from '@weldsuite/board-engine';
-import type { Env, Variables } from '../../types';
-import { FakeBucket, liveRoomNamespace } from '../../test-support/fakes';
+import type { Env, Variables } from '@weldsuite/board-domain/types';
+import { FakeBucket, liveRoomNamespace } from '@weldsuite/board-domain/test-support/fakes';
 import internalRoutes from './boards';
 
 let db: Database;

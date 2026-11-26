@@ -66,7 +66,7 @@ import {
   type BoardTemplateCategory,
   type UpdateBoardInput,
 } from '@weldsuite/app-api-client/schemas/boards';
-import type { Env, Variables } from '../../types';
+import type { Env, Variables } from '@weldsuite/board-domain/types';
 import {
   convertLegacy,
   createBoard,
@@ -82,14 +82,14 @@ import {
   type BoardRecord,
   type BoardScope,
   type LiveBoardRecord,
-} from '../../services/boards';
-import { readThumbnail, writeSnapshot } from '../../room/snapshot';
+} from '@weldsuite/board-domain/services/boards';
+import { readThumbnail, writeSnapshot } from '@weldsuite/board-domain/room/snapshot';
 import { unfurl } from '../../services/unfurl';
 import { RECORD_PERMISSION, resolveRecords } from '../../services/records';
 import { BoardAiError, runBoardAi } from '../../services/ai';
 import { InsufficientAiCreditsError, resolveAiMetering } from '@weldsuite/core-domain/ai-billing';
-import { colorFor } from '../../room/people';
-import { boardEngine } from '../../engine-ops';
+import { colorFor } from '@weldsuite/board-domain/room/people';
+import { boardEngine } from '@weldsuite/board-domain/engine-ops';
 import {
   VIEW_ONLY,
   driveRole,

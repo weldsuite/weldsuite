@@ -8,9 +8,9 @@ import { hasContextPermission } from '@weldsuite/permissions/server';
 import type { DataFor } from '@weldsuite/entity-events/events';
 import { error } from '@weldsuite/worker-kit/response';
 import { canEdit, fileRole, loadDriveAccessForUser, type DriveRole } from '@weldsuite/core-domain/drive-access';
-import type { Env, Variables } from '../../types';
-import type { RoomMeta } from '../../room/doc-room';
-import { getDoc, snapshotKeyFor, type DocRecord } from '../../services/docs';
+import type { Env, Variables } from '@weldsuite/docs-domain/types';
+import type { RoomMeta } from '@weldsuite/docs-domain/room/doc-room';
+import { getDoc, snapshotKeyFor, type DocRecord } from '@weldsuite/docs-domain/services/docs';
 
 export type Ctx = Context<{ Bindings: Env; Variables: Variables }>;
 

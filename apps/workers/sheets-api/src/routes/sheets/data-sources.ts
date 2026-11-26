@@ -27,10 +27,10 @@ import {
   type SheetDataRefreshResult,
 } from '@weldsuite/app-api-client/schemas/sheets';
 import type { DataTablePlace } from '@weldsuite/sheets-engine';
-import type { Env, Variables } from '../../types';
-import { newTabId } from '../../room/people';
-import type { SheetRecord } from '../../services/sheets';
-import { buildRefresh } from '../../services/data-sources/refresh';
+import type { Env, Variables } from '@weldsuite/sheets-domain/types';
+import { newTabId } from '@weldsuite/sheets-domain/room/people';
+import type { SheetRecord } from '@weldsuite/sheets-domain/services/sheets';
+import { buildRefresh } from '@weldsuite/sheets-domain/services/data-sources/refresh';
 import {
   dataSourceEventData,
   deleteDataSource,
@@ -42,7 +42,7 @@ import {
   toDataSource,
   updateDataSource,
   type DataSourceRecord,
-} from '../../services/data-sources/sources';
+} from '@weldsuite/sheets-domain/services/data-sources/sources';
 import { editableSheet, findSheet, roomFor, roomMeta, type Ctx } from './access';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();

@@ -16,7 +16,7 @@ import {
   isPlainColumn,
   odataCatalogJson,
   type EdmType,
-} from '../routes/v1/odata/catalog';
+} from './odata-catalog';
 
 const tables = new Map<string, PgTable>();
 for (const value of Object.values(tenantSchema)) {

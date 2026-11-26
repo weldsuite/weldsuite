@@ -15,10 +15,10 @@ vi.mock('@weldsuite/worker-kit/db', async (importOriginal) => ({
 
 import { WELDDOC_MIME_TYPE, type DocSession, type DocSummary } from '@weldsuite/app-api-client/schemas/docs';
 import { DocModel, applyOp } from '@weldsuite/docs-engine';
-import type { Env, Variables } from '../../types';
-import { readSnapshot } from '../../room/snapshot';
-import { FakeBucket, fakeRoomNamespace } from '../../test-support/fakes';
-import { docEngineNamespace } from '../../engine-ops';
+import type { Env, Variables } from '@weldsuite/docs-domain/types';
+import { readSnapshot } from '@weldsuite/docs-domain/room/snapshot';
+import { FakeBucket, fakeRoomNamespace } from '@weldsuite/docs-domain/test-support/fakes';
+import { docEngineNamespace } from '@weldsuite/docs-domain/engine-ops';
 import docRoutes from './index';
 
 /** The docs engine, for the Rust backend in conformance mode (rust/docs/collab-rooms.md); the routes run it in process. */

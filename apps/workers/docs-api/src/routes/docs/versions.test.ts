@@ -6,11 +6,11 @@ import type { Database } from '@weldsuite/worker-kit';
 import { docVersions, docs, files } from '@weldsuite/db/schema';
 import type { DocRestoreResult, DocSummary, DocVersion } from '@weldsuite/app-api-client/schemas/docs';
 import { DocModel, applyOp } from '@weldsuite/docs-engine';
-import type { Env, Variables } from '../../types';
-import { writeSnapshot } from '../../room/snapshot';
-import { versionKeyFor } from '../../services/versions';
-import { FakeBucket, fakeRoomNamespace } from '../../test-support/fakes';
-import { docEngineNamespace } from '../../engine-ops';
+import type { Env, Variables } from '@weldsuite/docs-domain/types';
+import { writeSnapshot } from '@weldsuite/docs-domain/room/snapshot';
+import { versionKeyFor } from '@weldsuite/docs-domain/services/versions';
+import { FakeBucket, fakeRoomNamespace } from '@weldsuite/docs-domain/test-support/fakes';
+import { docEngineNamespace } from '@weldsuite/docs-domain/engine-ops';
 import docRoutes from './index';
 
 /** The docs engine, for the Rust backend in conformance mode (rust/docs/collab-rooms.md); the routes run it in process. */

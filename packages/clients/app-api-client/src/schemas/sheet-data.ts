@@ -5,7 +5,7 @@
  * A connected table fills a range of a sheet with records of one object
  * (companies, tickets, invoices, …): the chosen fields as columns, filtered,
  * sorted and capped. sheets-api maps every field key below to a column
- * (apps/workers/sheets-api/src/services/data-sources/catalog.ts, which fails to
+ * (packages/domains/sheets/src/services/data-sources/catalog.ts, which fails to
  * compile when the two drift apart) and lists the records with the access of
  * the person who connected the table.
  *

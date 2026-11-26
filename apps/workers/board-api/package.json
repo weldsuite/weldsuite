@@ -18,6 +18,7 @@
     "@weldsuite/ai": "workspace:*",
     "@weldsuite/api-modules": "workspace:*",
     "@weldsuite/app-api-client": "workspace:*",
+    "@weldsuite/board-domain": "workspace:*",
     "@weldsuite/board-engine": "workspace:*",
     "@weldsuite/collab": "workspace:*",
     "@weldsuite/core-domain": "workspace:*",

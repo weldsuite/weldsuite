@@ -5,7 +5,7 @@
  * in a request are only ever resolved against it (never put in SQL as text).
  *
  * Serialisable on purpose (no functions, no Drizzle objects): the Rust backend
- * reads the same catalogue as JSON (`odataCatalogJson`). `catalog.test.ts`
+ * reads the same catalogue as JSON (`odataCatalogJson`). `odata-catalog.test.ts`
  * checks every table and column against the Drizzle schema, so a renamed
  * column fails CI.
  *

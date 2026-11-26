@@ -1,8 +1,8 @@
 # Collaborative rooms on Kubernetes (WeldDocs, WeldSheets, WeldBoard)
 
 On Global every open document, spreadsheet or board is one Durable Object
-(`DocRoom` in `apps/workers/docs-api`, `SheetRoom` in
-`apps/workers/sheets-api`, `BoardRoom` in `apps/workers/board-api`): it orders the edits (`RoomCore` from
+(`DocRoom`, `SheetRoom` and `BoardRoom`, run by docs-api, sheets-api and
+board-api): it orders the edits (`RoomCore` from
 `@weldsuite/collab` on the engine's OT adapter), holds the sockets, logs every
 committed op in its own storage before the ack leaves, checkpoints the whole
 document to R2 (every 200 ops, 30 s after an edit, when the last person
@@ -14,7 +14,10 @@ checkpoint and takes server writes (the task cards). The engines
 `@weldsuite/board-engine`) are shared with the browser.
 
 The Kubernetes editions run those classes unchanged, in Node, beside the Rust
-server. No engine is rewritten.
+server. No engine is rewritten. The classes, the services they call and the
+engine work live in the modules' domain packages, `packages/domains/docs`,
+`packages/domains/sheets` and `packages/domains/board`, which the workers and
+collab-rooms both import.
 
 ## Shape
 
@@ -28,7 +31,7 @@ browser ──/api/{docs,sheets,boards}/*──▶ weldsuite serve (Rust: module
 ```
 
 - **`apps/tools/collab-rooms`** (image: `rust/Dockerfile --target collab-rooms`)
-  bundles `DocRoom`, `SheetRoom` and `BoardRoom` from the workers with a Durable Object
+  bundles `DocRoom`, `SheetRoom` and `BoardRoom` from the domain packages with a Durable Object
   runtime for Node (`src/runtime/`): `ctx.storage` is kept in memory and
   written through to S3, one object per key under
   `collab-rooms/<binding>/<room id>/`, with the output gate (a socket send
@@ -46,7 +49,7 @@ browser ──/api/{docs,sheets,boards}/*──▶ weldsuite serve (Rust: module
   values as `{ "$bytes": base64 }`. Bindings: `DOC_ROOM`, `SHEET_ROOM` (a
   method of the room named `name`, as `ns.get(ns.idFromName(name))`), and
   `DOC_ENGINE`, `SHEET_ENGINE`: engine work the REST routes need (a new
-  document's snapshot, imports, exports), the functions in each worker's
+  document's snapshot, imports, exports), the functions in each domain package's
   `src/engine-ops.ts`. Sockets: `GET /api/docs/connect?ticket=…`,
   `/api/sheets/connect`, as on Global.
 - **Room ids and sharding**: a room's id is `sha256("<binding>:<name>")` in
@@ -88,12 +91,12 @@ kind smoke test opens a room socket through the server.
 
 - WeldDocs: ported (`modules/docs`, suite `docs`).
 - WeldSheets: ported (`modules/sheets`, suite `sheets`). The REST routes
-  are Rust; the rooms are the worker's `SheetRoom` and the engine work its
+  are Rust; the rooms are `SheetRoom` and the engine work its
   routes do without a room is `SHEET_ENGINE`
-  (`apps/workers/sheets-api/src/engine-ops.ts`): `newSheet` (an empty
+  (`packages/domains/sheets/src/engine-ops.ts`): `newSheet` (an empty
   workbook, or a copy of another sheet's live JSON without its connected
   tables), `importFile`, `convertLegacy`, `exportWorkbook` and
-  `listDataTable` (a connected table's listing, the worker's
+  `listDataTable` (a connected table's listing, the package's
   `buildRefresh` with the workspace's database; scheduled refreshes run on
   the room's alarm). In conformance `review.test.ts` drives real rooms:
   its namespace forks (`fork(env)`: each room rebuilt from a copy of its

@@ -1,5 +1,5 @@
 // Bundles the service into one file, dist/server.mjs, for the image
-// (rust/Dockerfile --target collab-rooms): the room classes from the workers,
+// (rust/Dockerfile --target collab-rooms): the room classes from the domain packages,
 // with this service's runtime in place of the Workers-only modules.
 import { build } from 'esbuild';
 import { fileURLToPath } from 'node:url';

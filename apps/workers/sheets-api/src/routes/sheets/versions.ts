@@ -30,11 +30,11 @@ import {
   updateSheetVersionSchema,
   type SheetRestoreResult,
 } from '@weldsuite/app-api-client/schemas/sheets';
-import type { Env, Variables } from '../../types';
-import { getSheet } from '../../services/sheets';
-import { getVersion, insertVersion, listVersions, renameVersion, toVersion, versionEventData, versionKeyFor } from '../../services/versions';
-import { readSnapshot } from '../../room/snapshot';
-import { exportEngine } from '../../room/sheet-room';
+import type { Env, Variables } from '@weldsuite/sheets-domain/types';
+import { getSheet } from '@weldsuite/sheets-domain/services/sheets';
+import { getVersion, insertVersion, listVersions, renameVersion, toVersion, versionEventData, versionKeyFor } from '@weldsuite/sheets-domain/services/versions';
+import { readSnapshot } from '@weldsuite/sheets-domain/room/snapshot';
+import { exportEngine } from '@weldsuite/sheets-domain/room/sheet-room';
 import { attachment, XLSX_TYPE } from './download';
 import { editableSheet, eventData, findSheet, roomFor, roomMeta } from './access';
 

@@ -222,7 +222,7 @@ impl Caller {
         self.call(state, SHEET_ROOM, name, method, args).await
     }
 
-    /// The sheets engine's `method` (`apps/workers/sheets-api/src/engine-ops.ts`).
+    /// The sheets engine's `method` (`packages/domains/sheets/src/engine-ops.ts`).
     pub(crate) async fn engine(
         &self,
         state: &SheetsState,

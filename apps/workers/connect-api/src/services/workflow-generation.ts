@@ -34,7 +34,7 @@ import {
 import type { Env } from '../types';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { assertAiCredits, chargeAiUsage, type AiMetering } from '@weldsuite/core-domain/ai-billing';
-import { ACTION_TYPES, TRIGGER_TYPES, ENTITY_EVENTS } from '../routes/workflow-dashboard/static-catalogs';
+import { ACTION_TYPES, TRIGGER_TYPES, ENTITY_EVENTS } from '@weldsuite/connect-domain/workflow-dashboard/static-catalogs';
 import { asText } from '@weldsuite/text';
 
 export class WorkflowGenerationError extends Error {

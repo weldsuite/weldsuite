@@ -1,0 +1,47 @@
+{
+  "name": "@weldsuite/sheets-domain",
+  "license": "AGPL-3.0-only",
+  "version": "0.0.0",
+  "type": "module",
+  "private": true,
+  "exports": {
+    "./engine-ops": "./src/engine-ops.ts",
+    "./room/connect": "./src/room/connect.ts",
+    "./room/people": "./src/room/people.ts",
+    "./room/sheet-room": "./src/room/sheet-room.ts",
+    "./room/snapshot": "./src/room/snapshot.ts",
+    "./services/data-sources/refresh": "./src/services/data-sources/refresh.ts",
+    "./services/data-sources/sources": "./src/services/data-sources/sources.ts",
+    "./services/legacy-project-sheet": "./src/services/legacy-project-sheet.ts",
+    "./services/sheets": "./src/services/sheets.ts",
+    "./services/versions": "./src/services/versions.ts",
+    "./test-support/fakes": "./src/test-support/fakes.ts",
+    "./types": "./src/types.ts"
+  },
+  "scripts": {
+    "type-check": "tsc --noEmit",
+    "lint": "echo 'no lint configured'",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@weldsuite/app-api-client": "workspace:*",
+    "@weldsuite/core-domain": "workspace:*",
+    "@weldsuite/db": "workspace:*",
+    "@weldsuite/entity-events": "workspace:*",
+    "@weldsuite/forms-domain": "workspace:*",
+    "@weldsuite/forms-engine": "workspace:*",
+    "@weldsuite/permissions": "workspace:*",
+    "@weldsuite/sheets-engine": "workspace:*",
+    "@weldsuite/worker-kit": "workspace:*",
+    "drizzle-orm": "^0.45.2"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250110.0",
+    "@electric-sql/pglite": "^0.4.5",
+    "@types/node": "^20",
+    "@weldsuite/typescript-config": "workspace:*",
+    "typescript": "^5.9.2",
+    "vitest": "^4.1.12"
+  }
+}

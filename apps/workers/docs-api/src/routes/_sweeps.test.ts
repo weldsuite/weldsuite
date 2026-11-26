@@ -20,7 +20,7 @@ import {
   type ListSweepCase,
 } from '@weldsuite/worker-kit/testing/sweeps';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
-import type { Env, Variables } from '../types';
+import type { Env, Variables } from '@weldsuite/docs-domain/types';
 import docRoutes from './docs';
 
 const ROUTES_DIR = __dirname;

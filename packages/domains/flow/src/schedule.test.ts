@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import fixtures from './testing/schedule-fixtures.json';
+import fixtures from '../../../../rust/crates/flow-domain/fixtures/schedule-fixtures.json';
 import {
   computeSchedule,
   dateOf,

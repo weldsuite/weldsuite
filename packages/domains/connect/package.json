@@ -19,7 +19,8 @@
     "./connectors/webhooks": "./src/connectors/webhooks.ts",
     "./github/app-auth": "./src/github/app-auth.ts",
     "./github/install-state": "./src/github/install-state.ts",
-    "./github/user-installations": "./src/github/user-installations.ts"
+    "./github/user-installations": "./src/github/user-installations.ts",
+    "./workflow-dashboard/static-catalogs": "./src/workflow-dashboard/static-catalogs.ts"
   },
   "scripts": {
     "type-check": "tsc --noEmit",
@@ -34,6 +35,7 @@
     "@weldsuite/entity-events": "workspace:*",
     "@weldsuite/text": "workspace:*",
     "@weldsuite/worker-kit": "workspace:*",
+    "@weldsuite/workflow-integrations": "workspace:*",
     "drizzle-orm": "^0.45.2"
   },
   "devDependencies": {
