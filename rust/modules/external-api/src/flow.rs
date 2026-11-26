@@ -25,7 +25,11 @@ use weldsuite_catalogs::entity_events::{
     PROJECT_WHITEBOARD_UPDATED, TASK_COMMENT_CREATED, TASK_COMMENT_DELETED, TASK_COMMENT_UPDATED,
     TASK_TAG_CREATED, TASK_TAG_DELETED, TASK_TAG_UPDATED,
 };
-use weldsuite_db::{OrmConn, orm};
+use weldsuite_db::{OrmConn, PgPool, orm};
+use weldsuite_flow_domain::agile::LinkedItem;
+use weldsuite_flow_domain::agile_links::{
+    clear_members, epic_error, epic_ids, epic_write, patch_epic, sent_text, set_epic,
+};
 use weldsuite_flow_domain::stage::{apply_status_change, task_status_aliases};
 use weldsuite_flow_domain::stats::{
     milestone_refs, milestone_stats, project_stats, with_milestone_stats, with_project_stats,
@@ -629,6 +633,7 @@ fn tasks_list(f: &Value) -> Condition {
         .add_option(when(f, "sprintId", |v| Column::SprintId.eq(v)))
         .add_option(when(f, "milestoneId", |v| Column::MilestoneId.eq(v)))
         .add_option(when(f, "parentTaskId", |v| Column::ParentTaskId.eq(v)))
+        .add_option(when(f, "epicId", |v| Column::EpicId.eq(v)))
         .add_option(when(f, "assigneeId", |v| {
             Condition::any().add(Column::AssigneeId.eq(v.clone())).add(
                 sea_orm::sea_query::extension::postgres::PgExpr::contains(
@@ -687,15 +692,95 @@ async fn list_tasks(caller: Caller, RawQuery(raw): RawQuery) -> Answer {
         "sprintId": crate::crud::text(&q, "sprintId"),
         "milestoneId": crate::crud::text(&q, "milestoneId"),
         "parentTaskId": crate::crud::text(&q, "parentTaskId"),
+        "epicId": crate::crud::text(&q, "epicId"),
         "assigneeId": crate::crud::text(&q, "assigneeId"),
         "dueFrom": date_filter(&q, "dueDateFrom")?,
         "dueTo": date_filter(&q, "dueDateTo")?,
     });
-    crate::crud::page(&caller.db, tasks_list, &TASKS, &q, filters).await
+    let mut page = list_rows(
+        &caller.db,
+        &TASKS.entity,
+        tasks_list(&filters),
+        &list_query(&q),
+    )
+    .await?;
+    let rows: Vec<Value> = page.rows.into_iter().map(|row| TASKS.js(row)).collect();
+    page.rows = with_epics(&caller.db, rows).await?;
+    Ok(page.respond())
 }
 
 async fn get_task(caller: Caller, Path(id): Path<String>) -> Answer {
-    crate::crud::get_live(&caller.db, &TASKS, "Task", &id).await
+    let row = live_or_404(&caller.db, &TASKS, "Task", &id).await?;
+    ok(with_epic(&caller.db, row).await?)
+}
+
+// `tasks.epic_id` is Rust only (FLOW-023, `RUST_ONLY_COLUMNS` in
+// `tools/inventory.mts`): `TASKS` leaves it out, so the task routes read and
+// write it here. A row shows `epicId` only when it has one, which keeps every
+// answer about a task without an epic exactly Global's.
+
+/// `rows` with `epicId` on those that belong to an epic or a feature.
+async fn with_epics(db: &PgPool, mut rows: Vec<Value>) -> Result<Vec<Value>, Fail> {
+    let epics = {
+        let ids: Vec<&str> = rows
+            .iter()
+            .filter_map(|row| row.get("id").and_then(Value::as_str))
+            .collect();
+        epic_ids(db, &ids).await?
+    };
+    if epics.is_empty() {
+        return Ok(rows);
+    }
+    for row in &mut rows {
+        let epic = row
+            .get("id")
+            .and_then(Value::as_str)
+            .and_then(|id| epics.get(id))
+            .cloned();
+        if let (Some(epic), Value::Object(fields)) = (epic, row) {
+            fields.insert("epicId".into(), Value::String(epic));
+        }
+    }
+    Ok(rows)
+}
+
+/// `row` with `epicId` when it belongs to an epic or a feature.
+async fn with_epic(db: &PgPool, row: Value) -> Result<Value, Fail> {
+    Ok(with_epics(db, vec![row])
+        .await?
+        .pop()
+        .unwrap_or(Value::Null))
+}
+
+/// The epic a create body links the task to: `Err` with the 400's message
+/// when it may not (FLOW-023's rules, as the platform applies them).
+async fn create_epic(
+    db: &PgPool,
+    data: &Map<String, Value>,
+    project_id: Option<&str>,
+) -> Result<Result<(), String>, Fail> {
+    let Some(epic) = data
+        .get("epicId")
+        .and_then(Value::as_str)
+        .filter(|epic| !epic.is_empty())
+    else {
+        return Ok(Ok(()));
+    };
+    let text = |key: &str| {
+        data.get(key)
+            .and_then(Value::as_str)
+            .filter(|text| !text.is_empty())
+    };
+    let item = LinkedItem {
+        id: None,
+        project_id,
+        kind: Some(text("type").unwrap_or("task")),
+        parent_task_id: text("parentTaskId"),
+    };
+    Ok(match epic_error(db, &item, epic).await? {
+        Some(message) => Err(message),
+        None => Ok(()),
+    })
 }
 
 /// `dependsOn` / `blocks` as `createTask`'s callers pass them.
@@ -786,6 +871,9 @@ async fn create_task_route(
     {
         return Err(bad_request(message).into());
     }
+    if let Err(message) = create_epic(&caller.db, &data, project_id.as_deref()).await? {
+        return Err(bad_request(message).into());
+    }
     if has_links && let Some(failure) = check_new_task_links(&caller.db, &links).await? {
         return Err(bad_request(failure.message()).into());
     }
@@ -815,11 +903,14 @@ async fn create_task_route(
         }
     }
     caller.publish(&state.events, PROJECT_TASK_CREATED, &id, task_event(&row));
-    created(row)
+    created(with_epic(&caller.db, row).await?)
 }
 
-/// A task's project, parent, stage and status, as a PATCH checks them.
+/// A task's project, parent, stage, status, type and epic, as a PATCH
+/// checks them.
 type TaskState = (
+    Option<String>,
+    Option<String>,
     Option<String>,
     Option<String>,
     Option<String>,
@@ -898,11 +989,13 @@ async fn update_task(
             tasks::Column::ParentTaskId,
             tasks::Column::StageId,
             tasks::Column::Status,
+            tasks::Column::Type,
+            tasks::Column::EpicId,
         ])
         .into_tuple()
         .one(&orm(&caller.db))
         .await?;
-    let Some((project, parent_now, stage_now, status)) = existing else {
+    let Some((project, parent_now, stage_now, status, kind_now, epic_now)) = existing else {
         return Err(not_found("Task", &id).into());
     };
     let sent_project = body.get("projectId").map(Value::as_str);
@@ -917,6 +1010,29 @@ async fn update_task(
     {
         return Err(bad_request(message).into());
     }
+    // FLOW-023: a link the body sets must hold, and a kept link the change
+    // breaks (the task became an epic or a subtask) goes.
+    let stored = json!({
+        "id": id,
+        "projectId": project,
+        "type": kind_now,
+        "parentTaskId": parent_now,
+        "epicId": epic_now,
+    });
+    let sent_epic = sent_text(body.get("epicId"));
+    let epic_change = match patch_epic(
+        &caller.db,
+        &stored,
+        &sent_epic,
+        &sent_text(body.get("type")),
+        &sent_text(body.get("parentTaskId")),
+    )
+    .await?
+    {
+        Ok(change) => change,
+        Err(message) => return Err(bad_request(message).into()),
+    };
+    let epic = epic_write(&sent_epic, &epic_change);
     let plan = if body.contains_key("dependsOn") || body.contains_key("blocks") {
         match plan_dependency_update(&caller.db, &id, &link_input(body), &LinkAccess::Unchecked)
             .await?
@@ -973,20 +1089,27 @@ async fn update_task(
             TASKS
                 .patch_on(&conn, &id, &update, true, &date_props)
                 .await?;
+            set_epic(&conn, &id, &epic).await?;
             tx.commit().await?;
         }
         None => {
             TASKS
                 .patch(&caller.db, &id, &update, true, &date_props)
                 .await?;
+            set_epic(&orm(&caller.db), &id, &epic).await?;
         }
+    }
+    // An epic or feature that changed type lets go of what it can no longer
+    // hold (FLOW-023).
+    if let Some(Value::String(kind)) = body.get("type") {
+        clear_members(&caller.db, &id, kind_now.as_deref(), Some(kind.as_str())).await?;
     }
     let row = TASKS
         .find_any(&caller.db, &id)
         .await?
         .ok_or_else(|| not_found("Task", &id))?;
     caller.publish(&state.events, PROJECT_TASK_UPDATED, &id, task_event(&row));
-    ok(row)
+    ok(with_epic(&caller.db, row).await?)
 }
 
 async fn delete_task(State(state): S, caller: Caller, Path(id): Path<String>) -> Answer {
