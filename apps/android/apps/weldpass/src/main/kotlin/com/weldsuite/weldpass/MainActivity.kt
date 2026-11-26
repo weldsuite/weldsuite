@@ -5,8 +5,10 @@ import android.os.Bundle
 import android.view.WindowManager
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.fragment.app.FragmentActivity
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.weldsuite.weldpass.autofill.PendingSave
 import com.weldsuite.weldpass.ui.WeldPassApp
 import org.weldsuite.ui.AppBranding
@@ -35,12 +37,14 @@ class MainActivity : FragmentActivity() {
             logo = R.drawable.weldpass_logo,
         )
         setContent {
-            WeldTheme(brand = Tokens.Brand.weldpass) {
+            val appearance by application.appearance.value.collectAsStateWithLifecycle()
+            WeldTheme(brand = Tokens.Brand.weldpass, dark = appearance.isDark()) {
                 SessionGate(env = application.env, branding = branding) { ready ->
                     WeldPassApp(
                         env = application.env,
                         repository = application.passwords,
                         session = ready,
+                        appearance = application.appearance,
                         autofillSave = autofillSave.value,
                         onAutofillSaveTaken = { autofillSave.value = null },
                     )

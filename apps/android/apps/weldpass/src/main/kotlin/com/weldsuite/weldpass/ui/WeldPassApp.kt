@@ -34,6 +34,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import androidx.compose.ui.platform.LocalContext
+import com.weldsuite.weldpass.AppearancePreference
 import com.weldsuite.weldpass.ItemFormValues
 import com.weldsuite.weldpass.PassRepository
 import com.weldsuite.weldpass.R
@@ -60,6 +61,7 @@ fun WeldPassApp(
     env: AppEnvironment,
     repository: PassRepository,
     session: SessionState.Ready,
+    appearance: AppearancePreference,
     autofillSave: PendingSave.Values? = null,
     onAutofillSaveTaken: () -> Unit = {},
 ) {
@@ -155,7 +157,7 @@ fun WeldPassApp(
                     GeneratorScreen()
                 }
                 composable(Tab.Settings.route) {
-                    SettingsScreen(env, repository, session, onHealth = { nav.navigate("health") })
+                    SettingsScreen(env, repository, session, appearance, onHealth = { nav.navigate("health") })
                 }
                 composable("health") {
                     HealthScreen(repository, onBack = { nav.popBackStack() }, onOpen = openItem)

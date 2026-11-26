@@ -12,6 +12,9 @@ class WeldPassApplication : Application() {
     lateinit var passwords: PassRepository
         private set
 
+    lateinit var appearance: AppearancePreference
+        private set
+
     override fun onCreate() {
         super.onCreate()
         env = AppEnvironment(
@@ -30,5 +33,6 @@ class WeldPassApplication : Application() {
             lockRequired = true,
         )
         passwords = PassRepository(env, OfflineStore(this, env, BuildConfig.VERSION_NAME))
+        appearance = AppearancePreference(this)
     }
 }

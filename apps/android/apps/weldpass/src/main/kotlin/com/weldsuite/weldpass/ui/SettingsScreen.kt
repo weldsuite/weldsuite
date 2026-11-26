@@ -25,6 +25,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
+import com.weldsuite.weldpass.AppearancePreference
 import com.weldsuite.weldpass.BuildConfig
 import com.weldsuite.weldpass.PassRepository
 import com.weldsuite.weldpass.R
@@ -38,7 +39,13 @@ import org.weldsuite.ui.tagged
 /** The workspace, the server, the lock and the account. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(env: AppEnvironment, repository: PassRepository, session: SessionState.Ready, onHealth: () -> Unit) {
+fun SettingsScreen(
+    env: AppEnvironment,
+    repository: PassRepository,
+    session: SessionState.Ready,
+    appearance: AppearancePreference,
+    onHealth: () -> Unit,
+) {
     val scope = rememberCoroutineScope()
     var confirmSignOut by remember { mutableStateOf(false) }
     var switching by remember { mutableStateOf(false) }
@@ -74,6 +81,10 @@ fun SettingsScreen(env: AppEnvironment, repository: PassRepository, session: Ses
             Section(stringResource(R.string.weldpass_settings_offline))
             OfflineSettings(repository.offline)
             AutofillSettings(repository.offline)
+
+            Section(stringResource(R.string.weldpass_settings_appearance))
+            AppearanceSettings(appearance)
+            LanguageSettings()
 
             Section(stringResource(R.string.weldpass_settings_account))
             ListItem(

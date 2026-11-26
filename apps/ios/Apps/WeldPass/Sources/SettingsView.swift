@@ -12,6 +12,7 @@ struct SettingsView: View {
 
     @State private var confirmSignOut = false
     @State private var switching = false
+    @AppStorage(Appearance.storageKey) private var appearance = Appearance.system
 
     var body: some View {
         List {
@@ -44,6 +45,25 @@ struct SettingsView: View {
 
             OfflineSection(offline: store.offline, person: person, workspace: workspace)
             AutofillSection(offline: store.offline)
+
+            Section(PassStrings.settingsAppearance) {
+                Picker(PassStrings.settingsAppearance, selection: $appearance) {
+                    ForEach(Appearance.allCases) { option in Text(option.label).tag(option) }
+                }
+                .pickerStyle(.segmented)
+                .accessibilityIdentifier("appearance")
+                // The app's language is iOS's per-app setting, in the app's page in Settings.
+                Button {
+                    if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
+                } label: {
+                    LabeledContent(
+                        PassStrings.settingsLanguage,
+                        value: Locale.current.localizedString(forLanguageCode: Locale.current.language.languageCode?.identifier ?? "en")?
+                            .capitalized ?? ""
+                    )
+                }
+                .accessibilityIdentifier("language")
+            }
 
             Section(PassStrings.settingsAccount) {
                 VStack(alignment: .leading) {

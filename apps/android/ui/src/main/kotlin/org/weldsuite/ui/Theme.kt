@@ -20,8 +20,7 @@ data class DayNight(val light: Color, val dark: Color) {
  * Material's own scheme, so the app looks at home on Android.
  */
 @Composable
-fun WeldTheme(brand: DayNight, content: @Composable () -> Unit) {
-    val dark = isSystemInDarkTheme()
+fun WeldTheme(brand: DayNight, dark: Boolean = isSystemInDarkTheme(), content: @Composable () -> Unit) {
     val scheme = if (dark) {
         darkColorScheme(
             primary = brand.dark,

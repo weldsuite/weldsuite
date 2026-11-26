@@ -9,8 +9,10 @@
         android:fullBackupContent="false"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/weldpass_app_name"
+        android:localeConfig="@xml/locales_config"
         android:supportsRtl="true"
-        android:theme="@style/Theme.WeldPass">
+        android:theme="@style/Theme.WeldPass"
+        tools:targetApi="tiramisu">
 
         <activity
             android:name=".MainActivity"

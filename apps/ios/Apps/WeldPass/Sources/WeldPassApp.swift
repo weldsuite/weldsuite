@@ -8,6 +8,8 @@ struct WeldPassApp: App {
     @State private var store: PassStore
     @State private var toast = ToastCenter()
     @Environment(\.scenePhase) private var scenePhase
+    /// Light, dark, or the phone's setting (`system`).
+    @AppStorage(Appearance.storageKey) private var appearance = Appearance.system
 
     init() {
         let info = Bundle.main.infoDictionary ?? [:]
@@ -41,6 +43,7 @@ struct WeldPassApp: App {
                 ContentView(env: env, store: store, person: person, workspace: workspace, workspaces: workspaces)
             }
             .tint(Tokens.Brand.weldpass)
+            .preferredColorScheme(appearance.colorScheme)
             .environment(toast)
             .overlay(alignment: .bottom) { ToastView(center: toast) }
             // The app switcher shows a blur, never a vault.
@@ -64,6 +67,31 @@ struct WeldPassApp: App {
         .onChange(of: env.lock.isLocked) { _, locked in
             // Locked again: the copy and its key leave memory until the next unlock.
             if locked { store.offline.close() }
+        }
+    }
+}
+
+/// Light, dark, or the phone's setting.
+enum Appearance: String, CaseIterable, Identifiable {
+    case system, light, dark
+
+    static let storageKey = "weldpass.appearance"
+
+    var id: String { rawValue }
+
+    var colorScheme: ColorScheme? {
+        switch self {
+        case .system: nil
+        case .light: .light
+        case .dark: .dark
+        }
+    }
+
+    var label: String {
+        switch self {
+        case .system: PassStrings.settingsSystem
+        case .light: PassStrings.settingsLight
+        case .dark: PassStrings.settingsDark
         }
     }
 }
