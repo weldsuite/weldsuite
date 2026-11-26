@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>WeldSuite</title>
+  </head>
+  <body>
+    <main class="page">
+      <div class="logo" aria-hidden="true">
+        <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+          <path
+            d="M30 10 h40 a20 20 0 0 1 20 20 v20 h-30 v-20 h-30 a10 10 0 0 0 0 20 h30 v30 h-40 a20 20 0 0 1 -20 -20 v-20 h30 v20 h30 a10 10 0 0 0 0 -20 h-30 z"
+            fill="#3f72ff"
+          />
+        </svg>
+      </div>
+      <h1 id="heading">Can’t reach WeldSuite</h1>
+      <p class="lead" data-text="offlineBody">Check your internet connection. WeldSuite opens again as soon as you’re back online.</p>
+      <div class="actions">
+        <button type="button" id="change-server" class="button" data-text="offlineChangeServer" hidden>Change server…</button>
+        <button type="button" id="retry" class="button button--primary" data-text="offlineRetry">Try again</button>
+      </div>
+      <p id="detail" class="detail"></p>
+    </main>
+    <script type="module" src="./offline.ts"></script>
+  </body>
+</html>

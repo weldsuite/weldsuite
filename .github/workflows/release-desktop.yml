@@ -1,15 +1,22 @@
 name: Release Desktop
 
 # Builds the WeldSuite desktop app (Electron) for macOS and Windows, then
-# uploads installers + electron-updater manifests to the R2 bucket
-# `weldsuite-desktop-downloads` at https://downloads.weldsuite.org.
+# uploads installers + electron-updater manifests to the Hetzner Object
+# Storage bucket `weldsuite-desktop-downloads` (nbg1, a Hetzner project of
+# its own), which the EU cluster serves as https://downloads.weldsuite.eu.
+# The app opens WeldSuite EU by default (apps/desktop/README.md, "Servers").
 #
 # Not triggered by a push: bump apps/desktop/package.json, merge to main,
 # then run this workflow. Signing degrades to unsigned if certs are absent.
 #
 # The signing and upload secrets live on the GitHub Environment
 # `desktop-release` (main only), not on the deploy environment `production`,
-# which moves to the private deploy repo (ADR OPS-018).
+# which moves to the private deploy repo (ADR OPS-018). The upload keys,
+# EU_DOWNLOADS_S3_ACCESS_KEY_ID and EU_DOWNLOADS_S3_SECRET_ACCESS_KEY, belong
+# to the bucket's own project, so they reach no customer files.
+#
+# Until 0.3.0 releases went to Cloudflare R2 (https://downloads.weldsuite.org,
+# Global). That feed stays at 0.1.0; it isn't published to any more.
 
 on:
   workflow_dispatch:
@@ -25,7 +32,7 @@ on:
         type: choice
         options: [both, mac, win]
       publish:
-        description: 'Upload to R2. Unchecked = build + attach to this run only (safe dry run).'
+        description: 'Upload to downloads.weldsuite.eu. Unchecked = build + attach to this run only (safe dry run).'
         required: false
         default: false
         type: boolean
@@ -40,7 +47,8 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  R2_BUCKET: weldsuite-desktop-downloads
+  # Where installed apps and the marketing site read the releases.
+  DOWNLOADS_URL: https://downloads.weldsuite.eu
 
 jobs:
   prepare:
@@ -109,7 +117,7 @@ jobs:
             echo "| Ref | \`${{ steps.ctx.outputs.ref }}\` |"
             echo "| macOS | ${{ steps.ctx.outputs.build_mac }} |"
             echo "| Windows | ${{ steps.ctx.outputs.build_win }} |"
-            echo "| Upload to R2 | ${{ steps.ctx.outputs.publish }} |"
+            echo "| Upload to downloads.weldsuite.eu | ${{ steps.ctx.outputs.publish }} |"
             echo "| Update download/ aliases | ${{ steps.ctx.outputs.promote_latest }} |"
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -222,20 +230,27 @@ jobs:
           retention-days: 14
 
   publish:
-    name: Publish to R2
+    name: Publish to downloads.weldsuite.eu
     needs: [prepare, build]
     if: needs.prepare.outputs.publish == 'true' && !failure() && !cancelled()
     runs-on: ubuntu-latest
     environment:
       name: desktop-release
       deployment: false
+    env:
+      DOWNLOADS_S3_BUCKET: weldsuite-desktop-downloads
+      AWS_ENDPOINT_URL: https://nbg1.your-objectstorage.com
+      AWS_DEFAULT_REGION: nbg1
+      # The bucket's own Hetzner project: these keys reach this bucket only,
+      # never the install's files (weldsuite-deploy, eu/runbooks/PRODUCTION.md,
+      # "Desktop downloads").
+      AWS_ACCESS_KEY_ID: ${{ secrets.EU_DOWNLOADS_S3_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.EU_DOWNLOADS_S3_SECRET_ACCESS_KEY }}
+      # AWS CLI 2.23+ adds checksums Hetzner's S3 doesn't take; send them only
+      # where S3 requires one.
+      AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+      AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
     steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ needs.prepare.outputs.ref }}
-
-      - uses: ./.github/actions/setup-monorepo
-
       - name: Download built artifacts
         uses: actions/download-artifact@v4
         with:
@@ -246,6 +261,10 @@ jobs:
       - name: Verify payload before upload
         run: |
           set -euo pipefail
+          if [ -z "${AWS_ACCESS_KEY_ID:-}" ] || [ -z "${AWS_SECRET_ACCESS_KEY:-}" ]; then
+            echo "::error::The desktop-release environment has no EU_DOWNLOADS_S3_ACCESS_KEY_ID / EU_DOWNLOADS_S3_SECRET_ACCESS_KEY."
+            exit 1
+          fi
           cd _artifacts
           ls -la
           missing=0
@@ -274,69 +293,84 @@ jobs:
           [ "$missing" -eq 0 ] || exit 1
           echo "Manifest references all resolve."
 
-      - name: Upload versioned artifacts
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.R2_DOWNLOADS_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      - name: Upload versioned artifacts, then the update feed
         run: |
           set -euo pipefail
-          # Stay at the workspace root: `pnpm exec wrangler` resolves relative
-          # --file paths from the package that owns wrangler (repo root), not
-          # from a cd'd subdirectory — that's why a bare filename 404'd even
-          # though Verify had already confirmed the artifact exists.
           ARTIFACTS="$GITHUB_WORKSPACE/_artifacts"
-          put() {
-            local file="$1" key="$2" ct="$3"
-            echo "→ $key"
-            pnpm exec wrangler r2 object put "${{ env.R2_BUCKET }}/$key" \
-              --file "$file" --content-type "$ct" --remote
-          }
           content_type() {
             case "$1" in
               *.exe)      echo 'application/vnd.microsoft.portable-executable' ;;
               *.dmg)      echo 'application/x-apple-diskimage' ;;
               *.zip)      echo 'application/zip' ;;
               *.yml)      echo 'text/yaml; charset=utf-8' ;;
-              *.blockmap) echo 'application/octet-stream' ;;
               *)          echo 'application/octet-stream' ;;
             esac
           }
+          put() {
+            local file="$1" cache="$2" key
+            key="$(basename "$file")"
+            echo "→ $key"
+            aws s3 cp "$file" "s3://${DOWNLOADS_S3_BUCKET}/$key" --no-progress \
+              --content-type "$(content_type "$file")" --cache-control "$cache"
+          }
 
+          # Versioned files never change, so caches may keep them. The
+          # manifests go last: electron-updater must never read a version
+          # whose files aren't there yet.
           shopt -s nullglob
           for f in "$ARTIFACTS"/*.exe "$ARTIFACTS"/*.dmg "$ARTIFACTS"/*.zip "$ARTIFACTS"/*.blockmap; do
-            put "$f" "$(basename "$f")" "$(content_type "$f")"
+            put "$f" 'public, max-age=31536000, immutable'
           done
           for f in "$ARTIFACTS"/latest*.yml; do
-            put "$f" "$(basename "$f")" "$(content_type "$f")"
+            put "$f" 'no-cache'
           done
 
       - name: Promote stable download aliases
         if: needs.prepare.outputs.promote_latest == 'true'
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.R2_DOWNLOADS_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           set -euo pipefail
           ARTIFACTS="$GITHUB_WORKSPACE/_artifacts"
-          alias_put() {
+          # A copy inside the bucket: nothing is uploaded twice. The aliases
+          # change with every release, so caches keep them five minutes.
+          alias_copy() {
             local file="$1" key="$2" ct="$3"
             echo "→ $key  (from $(basename "$file"))"
-            pnpm exec wrangler r2 object put "${{ env.R2_BUCKET }}/$key" \
-              --file "$file" --content-type "$ct" --remote
+            aws s3 cp "s3://${DOWNLOADS_S3_BUCKET}/$(basename "$file")" "s3://${DOWNLOADS_S3_BUCKET}/$key" \
+              --no-progress --metadata-directive REPLACE \
+              --content-type "$ct" --cache-control 'public, max-age=300'
           }
 
           WIN_X64=$(ls "$ARTIFACTS"/*-win-x64.exe 2>/dev/null | head -1 || true)
-          [ -n "$WIN_X64" ] && alias_put "$WIN_X64" "download/WeldSuite-Setup.exe" \
+          [ -n "$WIN_X64" ] && alias_copy "$WIN_X64" "download/WeldSuite-Setup.exe" \
             'application/vnd.microsoft.portable-executable'
 
           MAC_DMG=$(ls "$ARTIFACTS"/*-mac-universal.dmg 2>/dev/null | head -1 || true)
-          [ -n "$MAC_DMG" ] && alias_put "$MAC_DMG" "download/WeldSuite.dmg" \
+          [ -n "$MAC_DMG" ] && alias_copy "$MAC_DMG" "download/WeldSuite.dmg" \
             'application/x-apple-diskimage'
 
           if [ -z "${WIN_X64:-}" ] && [ -z "${MAC_DMG:-}" ]; then
             echo "::error::promote_latest was requested but no aliasable artifact was found"
             exit 1
           fi
+
+      # What installed apps and the marketing site read, through the EU
+      # cluster's route to the bucket (weldsuite-deploy, eu/clusters/eu/downloads).
+      - name: Check the public feed
+        env:
+          V: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          ARTIFACTS="$GITHUB_WORKSPACE/_artifacts"
+          shopt -s nullglob
+          for f in "$ARTIFACTS"/latest*.yml; do
+            name="$(basename "$f")"
+            served=$(curl -fsS --retry 3 --retry-delay 5 -H 'Cache-Control: no-cache' "${DOWNLOADS_URL}/${name}" || true)
+            if ! grep -qE "^version: ['\"]?${V//./\.}['\"]?\s*$" <<< "$served"; then
+              echo "::error::${DOWNLOADS_URL}/${name} doesn't serve version ${V}. Is the downloads route live (weldsuite-deploy, eu/clusters/eu/downloads) and the bucket public-read?"
+              exit 1
+            fi
+            echo "${DOWNLOADS_URL}/${name}: ${V}"
+          done
 
       - name: Summarise release
         env:
@@ -346,12 +380,12 @@ jobs:
             echo "### Published desktop $V"
             echo ""
             echo "Update feed:"
-            echo "- https://downloads.weldsuite.org/latest.yml (Windows)"
-            echo "- https://downloads.weldsuite.org/latest-mac.yml (macOS)"
+            echo "- ${DOWNLOADS_URL}/latest.yml (Windows)"
+            echo "- ${DOWNLOADS_URL}/latest-mac.yml (macOS)"
             echo ""
             echo "Stable download links for the marketing site:"
-            echo "- https://downloads.weldsuite.org/download/WeldSuite-Setup.exe"
-            echo "- https://downloads.weldsuite.org/download/WeldSuite.dmg"
+            echo "- ${DOWNLOADS_URL}/download/WeldSuite-Setup.exe"
+            echo "- ${DOWNLOADS_URL}/download/WeldSuite.dmg"
             echo ""
             echo "Uploaded:"
             echo '```'

@@ -79,6 +79,8 @@ export interface WeldsuiteDesktopApi {
   /** Since 0.3.0. */
   oidcSignIn: OidcSignInApi;
   reloadApp(): Promise<boolean>;
+  /** Since 0.3.0: open the shell's "Change server…" window, where the person picks the server. */
+  openServerSettings(): Promise<boolean>;
   relaunch(): Promise<boolean>;
   settings: SettingsApi;
   onDeepLink(listener: (url: string) => void): () => void;
@@ -139,6 +141,7 @@ const api: WeldsuiteDesktopApi = {
     cancel: (id) => ipcRenderer.invoke('weldsuite:oidc-sign-in:cancel', id),
   },
   reloadApp: () => ipcRenderer.invoke('weldsuite:reload-app'),
+  openServerSettings: () => ipcRenderer.invoke('weldsuite:open-server-settings'),
   relaunch: () => ipcRenderer.invoke('weldsuite:relaunch'),
   settings: {
     get: () => ipcRenderer.invoke('weldsuite:settings:get'),

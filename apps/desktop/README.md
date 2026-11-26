@@ -6,33 +6,61 @@ OS notifications, deep links, auto-update, badge count).
 
 ## Stack
 
-- Electron 33 + electron-vite (dev loop) + electron-builder (packaging)
+- Electron 42 + electron-vite (dev loop) + electron-builder (packaging)
 - Ships Chromium → identical `getDisplayMedia` behavior across OS
-- Auto-update via `electron-updater` (generic provider, configurable in
-  `electron-builder.yml`)
+- Auto-update via `electron-updater` (generic provider at
+  `https://downloads.weldsuite.eu`, set in `electron-builder.yml`)
 - Deep-link scheme: `weldsuite://…`
+
+## Servers
+
+The shell opens **WeldSuite EU** (`https://app.weldsuite.eu`) unless someone
+picked another server (`src/main/server.ts`):
+
+1. `DESKTOP_APP_URL`, for development (any origin; the server can't be changed
+   in the app then);
+2. the server picked under **Change server…**, kept in `server.json` in the
+   user data folder;
+3. `http://localhost:3000` under `pnpm dev`;
+4. WeldSuite EU.
+
+**Change server…** is in the tray menu, the macOS app menu, Settings →
+Desktop in the platform (`openServerSettings` on the bridge) and on the
+can't-reach page. It opens a window of the shell's own (`src/renderer/server`,
+with its own preload) where a person picks WeldSuite EU or types another
+server's address: a self-hosted install or a test cluster. The shell keeps an
+address only after its `/config.json` answers with an OIDC issuer, which
+Global's app (`app.weldsuite.org`, being retired) doesn't, so it is refused.
+No page can change the server: the window's IPC answers that window only, and
+`server.json` is outside the settings the page writes.
+
+When the server doesn't answer (offline, DNS, TLS), the view shows
+`src/renderer/offline` instead of an empty window: **Try again**, **Change
+server…**, and a retry as soon as the machine is back online. Both pages are
+in English and Dutch, by the system language (`src/renderer/shared/strings.ts`;
+the tray's words are in `src/main/strings.ts`).
 
 ## Dev
 
 ```bash
 # Start platform (port 3000) in another shell:
-pnpm --filter @weldsuite/platform dev
+pnpm --filter platform dev
 
 # Start desktop shell pointing at localhost:3000
 pnpm --filter desktop dev
 ```
 
-Override the target URL with `DESKTOP_APP_URL`:
+Point it at another server with `DESKTOP_APP_URL`:
 
 ```bash
-DESKTOP_APP_URL=https://staging.weldsuite.com pnpm --filter desktop dev
+DESKTOP_APP_URL=https://app.test.weldsuite.eu pnpm --filter desktop dev
 ```
 
 ## Package
 
 ```bash
 pnpm --filter desktop package:win     # NSIS installer (x64 + arm64)
-pnpm --filter desktop package:mac     # DMG (x64 + arm64)
+pnpm --filter desktop package:mac     # DMG + zip (universal)
 pnpm --filter desktop package:linux   # AppImage + deb
 ```
 
@@ -116,7 +144,20 @@ persist across restarts.
 - **macOS**: set `CSC_LINK` + `CSC_KEY_PASSWORD` for the Developer ID cert, and
   `APPLE_ID` + `APPLE_APP_SPECIFIC_PASSWORD` + `APPLE_TEAM_ID` for notarization.
 
-## Auto-update
+## Releases and auto-update
 
-Publishes to `https://updates.weldsuite.com/desktop` (generic provider). Swap
-for S3/GitHub/Azure in `electron-builder.yml` when infra is ready.
+Every build, whatever server it opens, reads its updates from
+`https://downloads.weldsuite.eu` (`latest.yml`, `latest-mac.yml`), and the
+marketing site links the stable `download/WeldSuite-Setup.exe` and
+`download/WeldSuite.dmg` there. The host is the EU cluster's route to the
+Hetzner bucket `weldsuite-desktop-downloads`, which lives in a Hetzner project
+of its own so its upload keys reach nothing else.
+
+To release: bump `version` in `package.json`, merge, then run the
+**Release Desktop** workflow (`.github/workflows/release-desktop.yml`) with
+**publish** on. It builds macOS and Windows, uploads the versioned files, then
+the manifests, then the `download/` aliases, and checks the public feed serves
+the new version. Unchecked, it's a dry run whose files are attached to the run.
+
+Builds before 0.3.0 opened Global and read `https://downloads.weldsuite.org`
+(Cloudflare R2), which stays at 0.1.0.

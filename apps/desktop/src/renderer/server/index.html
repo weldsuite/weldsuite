@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>WeldSuite</title>
+  </head>
+  <body>
+    <main class="page">
+      <form id="server-form" aria-labelledby="heading" novalidate>
+        <header class="intro">
+          <h1 id="heading" data-text="serverHeading">Where do you use WeldSuite?</h1>
+          <p class="lead" data-text="serverLead">The app opens WeldSuite from this server. You sign in there.</p>
+        </header>
+
+        <fieldset class="choices">
+          <legend class="visually-hidden" data-text="serverLegend">Server</legend>
+          <div class="option">
+            <input type="radio" id="choice-default" name="choice" value="default" checked />
+            <label for="choice-default">
+              <span class="option__title" data-text="defaultTitle">WeldSuite EU</span>
+              <span class="option__detail" id="default-host">app.weldsuite.eu</span>
+            </label>
+          </div>
+          <div class="option">
+            <input type="radio" id="choice-other" name="choice" value="other" />
+            <label for="choice-other">
+              <span class="option__title" data-text="otherTitle">Another server</span>
+              <span class="option__detail" data-text="otherDetail">A self-hosted WeldSuite, or a test server</span>
+            </label>
+          </div>
+        </fieldset>
+
+        <div class="field">
+          <label for="address" data-text="addressLabel">Server address</label>
+          <input
+            id="address"
+            name="address"
+            type="text"
+            inputmode="url"
+            autocomplete="url"
+            autocapitalize="none"
+            autocorrect="off"
+            spellcheck="false"
+            enterkeyhint="go"
+            maxlength="2048"
+            aria-invalid="false"
+            aria-describedby="address-hint"
+            data-error="address-error"
+          />
+          <span id="address-hint" class="hint" data-text="addressHint">For example weldsuite.example.com</span>
+          <span id="address-error" class="error" hidden></span>
+        </div>
+
+        <p id="locked" class="note" hidden></p>
+        <output id="status" class="status"></output>
+
+        <div class="actions">
+          <button type="button" id="cancel" class="button" data-text="cancel">Cancel</button>
+          <button type="submit" id="connect" class="button button--primary" data-text="connect">Connect</button>
+        </div>
+      </form>
+    </main>
+    <script type="module" src="./server.ts"></script>
+  </body>
+</html>

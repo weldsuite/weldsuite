@@ -2,7 +2,7 @@ import { app, BrowserWindow, WebContentsView, Tray, Menu, ipcMain, shell, native
 import electronUpdater from 'electron-updater';
 const { autoUpdater } = electronUpdater;
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { loadSettings, saveSettings, loadSettingsSync, getSettings, applySettings, DEFAULT_SETTINGS, type DesktopSettings } from './settings';
 import {
   LoopbackSignIn,
@@ -11,6 +11,18 @@ import {
   readPageText,
   type LoopbackOutcome,
 } from './loopback-sign-in';
+import {
+  DEFAULT_SERVER,
+  checkServer,
+  readStoredServer,
+  resolveServer,
+  serverFilePath,
+  serverHost,
+  writeStoredServer,
+  type FetchLike,
+  type ServerChoice,
+} from './server';
+import { shellText, type ShellString } from './strings';
 
 process.on('uncaughtException', (err) => {
   console.error('[weldsuite-desktop] uncaughtException:', err);
@@ -34,10 +46,26 @@ try {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-const APP_URL = process.env.DESKTOP_APP_URL
-  ?? (process.env.NODE_ENV === 'development'
-    ? 'http://localhost:3000'
-    : 'https://app.weldsuite.org');
+// The server the app view loads (server.ts): WeldSuite EU unless "Change
+// server…" picked another, or DESKTOP_APP_URL names one. Read once the app is
+// ready (userData), then changed only by the "Change server…" window.
+let server: ServerChoice = { url: DEFAULT_SERVER, fromEnvironment: false };
+
+function appUrl(): string {
+  return server.url;
+}
+
+function readServerChoice(): ServerChoice {
+  return resolveServer({
+    environment: process.env.DESKTOP_APP_URL,
+    stored: readStoredServer(serverFilePath(app.getPath('userData'))),
+    development: process.env.NODE_ENV === 'development',
+  });
+}
+
+function text(key: ShellString, values?: Record<string, string>): string {
+  return shellText(app.getLocale(), key, values);
+}
 
 const DEEP_LINK_SCHEME = 'weldsuite';
 const TITLEBAR_HEIGHT = 32;
@@ -79,6 +107,7 @@ const CHROME_FG = '#e6e6ea';
 let mainWindow: BrowserWindow | null = null;
 let appView: WebContentsView | null = null;
 let tray: Tray | null = null;
+let serverWindow: BrowserWindow | null = null;
 let isQuitting = false;
 
 // Screen-share source picker state. `rendererPickerReady` tracks whether the
@@ -99,7 +128,7 @@ let browserSignInIssuer: string | null = null;
  */
 async function readIssuerOrigin(): Promise<string | null> {
   try {
-    const response = await net.fetch(new URL('/config.json', APP_URL).toString());
+    const response = await net.fetch(new URL('/config.json', appUrl()).toString());
     if (!response.ok) return null;
     return issuerFromRuntimeConfig(await response.json());
   } catch {
@@ -112,21 +141,62 @@ function appWebContents(): Electron.WebContents | null {
 }
 
 /**
- * The app's own page: the app view's main frame, on APP_URL's origin. A link
- * that took the view to another site keeps the preload, so the bridge alone
- * proves nothing; sign-in answers only this page.
+ * The app's own page: the app view's main frame, on the server's origin. A
+ * link that took the view to another site keeps the preload, so the bridge
+ * alone proves nothing; sign-in answers only this page.
  */
 function fromAppPage(event: Electron.IpcMainInvokeEvent): boolean {
   const wc = appWebContents();
   if (!wc || event.sender !== wc) return false;
   const frame = event.senderFrame;
   if (!frame || frame !== wc.mainFrame) return false;
+  return isServerUrl(frame.url);
+}
+
+/** From the app view's main frame, whatever it shows: the app, or the can't-reach page. */
+function fromAppView(event: Electron.IpcMainInvokeEvent): boolean {
+  const wc = appWebContents();
+  return !!wc && event.sender === wc && event.senderFrame === wc.mainFrame;
+}
+
+/**
+ * A page the shell ships (renderer/), by its folder: from Vite's dev server
+ * under `pnpm dev`, else from the app's files.
+ */
+function shellPageUrl(page: 'titlebar' | 'server' | 'offline', query: Record<string, string> = {}): string {
+  const url = process.env.ELECTRON_RENDERER_URL
+    ? new URL(`${process.env.ELECTRON_RENDERER_URL}/${page}/index.html`)
+    : pathToFileURL(path.join(__dirname, `../renderer/${page}/index.html`));
+  for (const [key, value] of Object.entries(query)) url.searchParams.set(key, value);
+  return url.toString();
+}
+
+/** Whether a URL is on the server's origin. */
+function isServerUrl(url: string): boolean {
   try {
-    return new URL(frame.url).origin === new URL(APP_URL).origin;
+    return new URL(url).origin === new URL(appUrl()).origin;
   } catch {
     return false;
   }
 }
+
+/** Whether a URL is the shell's can't-reach page. */
+function isOfflinePage(url: string): boolean {
+  try {
+    const page = new URL(shellPageUrl('offline'));
+    const candidate = new URL(url);
+    return candidate.origin === page.origin && candidate.pathname === page.pathname;
+  } catch {
+    return false;
+  }
+}
+
+// Electron's fetch for the server check: the session's proxy and certificates.
+// S5144 reviewed: the URL is `<origin>/config.json` for a server the person
+// typed into "Change server…" themselves (that's the feature), on their own
+// machine, and checkServer only passes an origin normaliseServerAddress
+// accepted: https, or http on a loopback host, no credentials, no redirects.
+const netFetch: FetchLike = (url, init) => net.fetch(url, init); // NOSONAR: S5144 reviewed, see above
 
 /** End the sign-in waiting in the browser: its page is gone, or another replaced it. */
 function cancelBrowserSignIn() {
@@ -244,10 +314,7 @@ function createMainWindow() {
   }
 
   // Titlebar HTML → BrowserWindow's own webContents.
-  const titlebarUrl = process.env.ELECTRON_RENDERER_URL
-    ? `${process.env.ELECTRON_RENDERER_URL}/titlebar/index.html`
-    : `file://${path.join(__dirname, '../renderer/titlebar/index.html')}`;
-  mainWindow.loadURL(titlebarUrl).catch((err) => {
+  mainWindow.loadURL(shellPageUrl('titlebar')).catch((err) => {
     console.error('[weldsuite-desktop] failed to load titlebar:', err);
   });
 
@@ -311,9 +378,15 @@ function createMainWindow() {
     mainWindow?.webContents.send('weldsuite:page-title', title);
   });
 
-  appView.webContents.on('did-fail-load', (_e, errorCode, errorDescription, validatedURL) => {
+  appView.webContents.on('did-fail-load', (_e, errorCode, errorDescription, validatedURL, isMainFrame) => {
+    // -3 (ERR_ABORTED): another navigation replaced this one.
     if (errorCode === -3) return;
     console.warn(`[weldsuite-desktop] failed to load ${validatedURL}: ${errorDescription} (${errorCode})`);
+    // The server didn't answer (offline, DNS, refused, a certificate error):
+    // say so, with a way to try again or pick another server, instead of an
+    // empty window. Only for the server's own pages: a link elsewhere that
+    // fails (mailto:, another site) leaves the app as it is.
+    if (isMainFrame && isServerUrl(validatedURL)) showOfflinePage(errorDescription);
   });
 
   mainWindow.on('close', (event) => {
@@ -363,7 +436,91 @@ function resizeAppView() {
 }
 
 function loadAppUrl() {
-  appView?.webContents.loadURL(APP_URL).catch(() => undefined);
+  appView?.webContents.loadURL(appUrl()).catch(() => undefined);
+}
+
+/** Reload what the app view shows; from the can't-reach page that means the server. */
+function reloadAppView() {
+  const wc = appWebContents();
+  if (!wc) return;
+  if (isOfflinePage(wc.getURL())) loadAppUrl();
+  else wc.reload();
+}
+
+/** The can't-reach page in the app view, naming the server and Chromium's error. */
+function showOfflinePage(error: string) {
+  appView?.webContents
+    .loadURL(shellPageUrl('offline', { host: serverHost(appUrl()), error }))
+    .catch(() => undefined);
+}
+
+/**
+ * Load another server: the choice "Change server…" made. The sign-in and
+ * screen-share requests waiting on the old page end with it.
+ */
+function applyServer(next: ServerChoice) {
+  const changed = next.url !== server.url;
+  server = next;
+  refreshMenus();
+  if (!changed) {
+    // Same server, perhaps after the can't-reach page: open it again.
+    if (isOfflinePage(appWebContents()?.getURL() ?? '')) loadAppUrl();
+    return;
+  }
+  cancelBrowserSignIn();
+  resetSourcePicker();
+  loadAppUrl();
+}
+
+/**
+ * "Change server…": a small window of the shell's own (renderer/server), so
+ * it works when the server doesn't. Over the main window, which comes forward
+ * first: a modal over a hidden window wouldn't show.
+ */
+function openServerWindow() {
+  if (serverWindow) {
+    serverWindow.focus();
+    return;
+  }
+  if (mainWindow && !mainWindow.isVisible()) focusMainWindow();
+  const parent = mainWindow ?? undefined;
+  const win = new BrowserWindow({
+    width: 480,
+    height: 520,
+    useContentSize: true,
+    resizable: false,
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    parent,
+    modal: !!parent,
+    show: false,
+    title: 'WeldSuite',
+    icon: getTrayIcon(),
+    autoHideMenuBar: true,
+    webPreferences: {
+      preload: path.join(__dirname, '../preload/server.cjs'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  });
+  serverWindow = win;
+  win.setMenu(null);
+  // The page is the shell's own and loads nothing else.
+  win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  win.webContents.on('will-navigate', (event) => event.preventDefault());
+  win.once('ready-to-show', () => win.show());
+  win.on('closed', () => {
+    if (serverWindow === win) serverWindow = null;
+  });
+  win.loadURL(shellPageUrl('server')).catch((err) => {
+    console.error('[weldsuite-desktop] failed to load the server window:', err);
+  });
+}
+
+function closeServerWindow() {
+  serverWindow?.close();
 }
 
 function getTrayIcon() {
@@ -371,17 +528,57 @@ function getTrayIcon() {
   return nativeImage.createFromPath(iconPath);
 }
 
+function trayMenu(): Menu {
+  return Menu.buildFromTemplate([
+    { label: text('open'), click: () => focusMainWindow() },
+    { label: text('reload'), click: () => reloadAppView() },
+    { type: 'separator' },
+    { label: text('server', { host: serverHost(appUrl()) }), enabled: false },
+    { label: text('changeServer'), click: () => openServerWindow() },
+    { type: 'separator' },
+    { label: text('checkForUpdates'), click: () => autoUpdater.checkForUpdatesAndNotify().catch(() => undefined) },
+    { type: 'separator' },
+    { label: text('quit'), click: () => { isQuitting = true; app.quit(); } },
+  ]);
+}
+
+/** macOS's menu bar: the app menu with "Change server…", then Edit and Window. */
+function applicationMenu(): Menu | null {
+  if (process.platform !== 'darwin') return null;
+  return Menu.buildFromTemplate([
+    {
+      label: app.name,
+      submenu: [
+        { role: 'about' },
+        { type: 'separator' },
+        { label: text('server', { host: serverHost(appUrl()) }), enabled: false },
+        { label: text('changeServer'), click: () => openServerWindow() },
+        { label: text('checkForUpdates'), click: () => autoUpdater.checkForUpdatesAndNotify().catch(() => undefined) },
+        { type: 'separator' },
+        { role: 'services' },
+        { type: 'separator' },
+        { role: 'hide' },
+        { role: 'hideOthers' },
+        { role: 'unhide' },
+        { type: 'separator' },
+        { role: 'quit' },
+      ],
+    },
+    { role: 'editMenu' },
+    { role: 'windowMenu' },
+  ]);
+}
+
+/** The tray and the macOS menu name the server, so they follow a change. */
+function refreshMenus() {
+  tray?.setContextMenu(trayMenu());
+  Menu.setApplicationMenu(applicationMenu());
+}
+
 function createTray() {
   tray = new Tray(getTrayIcon());
   tray.setToolTip('WeldSuite');
-  tray.setContextMenu(Menu.buildFromTemplate([
-    { label: 'Open WeldSuite', click: () => focusMainWindow() },
-    { label: 'Reload', click: () => appView?.webContents.reload() },
-    { type: 'separator' },
-    { label: 'Check for updates', click: () => autoUpdater.checkForUpdatesAndNotify().catch(() => undefined) },
-    { type: 'separator' },
-    { label: 'Quit', click: () => { isQuitting = true; app.quit(); } },
-  ]));
+  tray.setContextMenu(trayMenu());
   tray.on('click', () => focusMainWindow());
 }
 
@@ -464,12 +661,12 @@ function registerIpc() {
   ipcMain.handle('weldsuite:app-info', () => ({
     platform: process.platform,
     version: app.getVersion(),
-    appUrl: APP_URL,
+    appUrl: appUrl(),
     deepLinkScheme: DEEP_LINK_SCHEME,
   }));
 
   ipcMain.handle('weldsuite:sign-in-external', (_event, opts: { path?: string; returnTo?: string } = {}) => {
-    const appOrigin = new URL(APP_URL).origin;
+    const appOrigin = new URL(appUrl()).origin;
     const returnTo = `${DEEP_LINK_SCHEME}://auth`;
     const targetPath = opts.path ?? '/auth/login';
     const url = new URL(targetPath, appOrigin);
@@ -567,8 +764,50 @@ function registerIpc() {
   });
 
   ipcMain.handle('weldsuite:nav-reload', () => {
-    appView?.webContents.reload();
+    reloadAppView();
     return true;
+  });
+
+  // "Change server…" from the app (Settings → Desktop) or the can't-reach
+  // page. It only opens the shell's own window, where the person chooses.
+  ipcMain.handle('weldsuite:open-server-settings', (event) => {
+    if (!fromAppView(event)) return false;
+    openServerWindow();
+    return true;
+  });
+
+  // The "Change server…" window (renderer/server, preload/server.ts). Main
+  // answers that window only, and checks the server itself before keeping it.
+  const fromServerWindow = (event: Electron.IpcMainInvokeEvent | Electron.IpcMainEvent) =>
+    !!serverWindow && event.sender === serverWindow.webContents;
+
+  ipcMain.handle('weldsuite:server:get', (event) => {
+    if (!fromServerWindow(event)) return null;
+    const defaultUrl = resolveServer({ stored: null, development: process.env.NODE_ENV === 'development' }).url;
+    return { current: appUrl(), defaultUrl, fromEnvironment: server.fromEnvironment };
+  });
+
+  ipcMain.handle('weldsuite:server:use', async (event, address: unknown) => {
+    if (!fromServerWindow(event)) return { status: 'invalid' };
+    if (server.fromEnvironment) return { status: 'locked' };
+    const file = serverFilePath(app.getPath('userData'));
+    if (address === null) {
+      // Back to the default: WeldSuite EU.
+      await writeStoredServer(file, null);
+      applyServer(readServerChoice());
+      closeServerWindow();
+      return { status: 'ok' };
+    }
+    const result = await checkServer(address, netFetch);
+    if (result.status !== 'ok') return result;
+    await writeStoredServer(file, result.origin === DEFAULT_SERVER ? null : result.origin);
+    applyServer(readServerChoice());
+    closeServerWindow();
+    return { status: 'ok' };
+  });
+
+  ipcMain.on('weldsuite:server:close', (event) => {
+    if (fromServerWindow(event)) closeServerWindow();
   });
 
   ipcMain.handle('weldsuite:settings:get', async () => {
@@ -715,16 +954,9 @@ function checkForUpdatesInBackground(): void {
   autoUpdater.checkForUpdatesAndNotify().catch(() => undefined);
 }
 
-app.whenReady().then(async () => {
-  if (process.platform === 'darwin') {
-    Menu.setApplicationMenu(Menu.buildFromTemplate([
-      { role: 'appMenu' },
-      { role: 'editMenu' },
-      { role: 'windowMenu' },
-    ]));
-  } else {
-    Menu.setApplicationMenu(null);
-  }
+void app.whenReady().then(async () => {
+  server = readServerChoice();
+  Menu.setApplicationMenu(applicationMenu());
 
   // Load full settings async (re-validates file) and apply login-item / OS-level
   // preferences. Hardware-accel was already handled pre-ready using the sync load.
