@@ -169,16 +169,15 @@ test.describe('Chat Flow', () => {
       expect(api.sendRequests).toBe(1);
     });
 
-    test('should display timestamps on messages', async ({ widgetPage, page }) => {
+    test('should keep the send time in the message tooltip', async ({ widgetPage, page }) => {
       await setupMessengerApi(page);
       await widgetPage.openComposer();
       await widgetPage.sendMessage('Test message');
 
-      // Once delivered, the message shows its send time (HH:MM) and carries
-      // the full date in its tooltip
+      // No time is shown next to a delivered message; its tooltip carries the
+      // full date and time
       const bubble = widgetPage.messageList.getByText('Test message');
       await expect(bubble).toBeVisible();
-      await expect(bubble.locator('..').getByText(/^\d{1,2}:\d{2}/)).toBeVisible();
       await expect(bubble).toHaveAttribute('title', /\d{4}.*\d{1,2}:\d{2}/);
     });
 
