@@ -62,6 +62,7 @@ DESKTOP_APP_URL=https://app.test.weldsuite.eu pnpm --filter desktop dev
 pnpm --filter desktop package:win     # NSIS installer (x64 + arm64)
 pnpm --filter desktop package:mac     # DMG + zip (universal)
 pnpm --filter desktop package:linux   # AppImage + deb
+pnpm --filter desktop package:store   # Microsoft Store .appx (x64 + arm64), see below
 ```
 
 Artifacts land in `release/`.
@@ -75,6 +76,8 @@ Drop these before packaging:
 - `assets/icon.png` (Linux, 512×512)
 - `resources/trayTemplate.png` (tray; macOS expects a template image, black
   with alpha, `@2x` variant recommended)
+- `assets/appx/*` (the Microsoft Store package's tiles and logos), made from
+  `assets/icon.png` by `pnpm --filter desktop icons:store`
 
 ## Platform-side integration
 
@@ -161,3 +164,39 @@ the new version. Unchecked, it's a dry run whose files are attached to the run.
 
 Builds before 0.3.0 opened Global and read `https://downloads.weldsuite.org`
 (Cloudflare R2), which stays at 0.1.0.
+
+## Microsoft Store
+
+The Windows app is also in the Microsoft Store, which signs it, so it installs
+without a SmartScreen warning (ADR FE-023). The installer on
+downloads.weldsuite.eu stays unsigned.
+
+- **Package**: an MSIX/AppX made by the `appx` target (`electron-builder.yml`).
+  Microsoft signs it when it's submitted; the Store updates it, so a Store
+  install (`process.windowsStore`) doesn't read the update feed, has no
+  "Check for updates", and doesn't offer launch at login (Windows keeps an
+  MSIX package's login item in its manifest; the platform hides the setting,
+  from `getAppInfo().windowsStore`). The `weldsuite://` handler is in the
+  manifest.
+- **Identity**: Partner Center gives the app's package identity (the app's
+  Product identity page: Package/Identity/Name, Package/Identity/Publisher,
+  Package/Properties/PublisherDisplayName). Set them as the repository
+  variables `WINDOWS_STORE_IDENTITY_NAME`, `WINDOWS_STORE_PUBLISHER` and
+  `WINDOWS_STORE_PUBLISHER_DISPLAY_NAME`; Release Desktop's Windows build then
+  also makes the Store package, as the run's `microsoft-store` artifact.
+- **Submitting**: in Partner Center, a new submission for the app, the two
+  `.appx` (x64, arm64) under Packages, a listing in English and Dutch (the
+  package declares both). The first one also asks why the app needs
+  `runFullTrust` (it's a desktop app). Each submission needs a higher version
+  than the last.
+- **Locally**: `package:store` needs the identity on the command line and the
+  Windows SDK's tools, because the `makeappx` in electron-builder's own tool
+  bundles doesn't start on current Windows:
+
+  ```powershell
+  $env:ELECTRON_BUILDER_WINDOWS_KITS_PATH = 'C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x64'
+  pnpm --filter desktop package:store -c.appx.identityName=<name> -c.appx.publisher=<CN=…> -c.appx.publisherDisplayName=<name>
+  ```
+
+  Windows installs an unsigned package only with Developer Mode on; Partner
+  Center's own test flight is the other way to try one.

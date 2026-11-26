@@ -43,6 +43,27 @@ nsis:
   createStartMenuShortcut: true
   shortcutName: WeldSuite
 
+# The Microsoft Store package (ADR FE-023): `pnpm package:store`, not part of
+# `package:win`. Microsoft signs it when it's submitted and the Store updates
+# it; the app skips electron-updater there (process.windowsStore). Its
+# identity comes from Partner Center (the app's Product identity page) and is
+# passed in as -c.appx.identityName, -c.appx.publisher and
+# -c.appx.publisherDisplayName: the release workflow takes them from the
+# repository variables WINDOWS_STORE_IDENTITY_NAME, WINDOWS_STORE_PUBLISHER and
+# WINDOWS_STORE_PUBLISHER_DISPLAY_NAME. The tiles in assets/appx come from
+# scripts/generate-store-assets.mjs.
+appx:
+  applicationId: WeldSuite
+  displayName: WeldSuite
+  backgroundColor: transparent
+  # Partner Center asks for a Store listing in each of these.
+  languages: [en-US, nl-NL]
+  # Camera and microphone for WeldMeet (runFullTrust is always added).
+  capabilities: [internetClient, webcam, microphone]
+  # Windows 10 1809, as far back as Electron goes; tested on 11 24H2.
+  minVersion: 10.0.17763.0
+  maxVersionTested: 10.0.26100.0
+
 mac:
   target:
     # dmg = what a human downloads. zip = what electron-updater consumes:

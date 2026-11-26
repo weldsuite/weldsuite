@@ -17,6 +17,12 @@ name: Release Desktop
 #
 # Until 0.3.0 releases went to Cloudflare R2 (https://downloads.weldsuite.org,
 # Global). That feed stays at 0.1.0; it isn't published to any more.
+#
+# The Windows build also makes the Microsoft Store package (ADR FE-023) once
+# the repository variables WINDOWS_STORE_IDENTITY_NAME, WINDOWS_STORE_PUBLISHER
+# and WINDOWS_STORE_PUBLISHER_DISPLAY_NAME hold the app's identity from Partner
+# Center. It is this run's `microsoft-store` artifact, submitted in Partner
+# Center by hand (Microsoft signs it there); it never goes to the bucket.
 
 on:
   workflow_dispatch:
@@ -119,6 +125,7 @@ jobs:
             echo "| Windows | ${{ steps.ctx.outputs.build_win }} |"
             echo "| Upload to downloads.weldsuite.eu | ${{ steps.ctx.outputs.publish }} |"
             echo "| Update download/ aliases | ${{ steps.ctx.outputs.promote_latest }} |"
+            echo "| Microsoft Store package | ${{ vars.WINDOWS_STORE_IDENTITY_NAME != '' && steps.ctx.outputs.build_win == 'true' }} |"
           } >> "$GITHUB_STEP_SUMMARY"
 
   build:
@@ -228,6 +235,60 @@ jobs:
           path: _dist/
           if-no-files-found: error
           retention-days: 14
+
+      # The Microsoft Store package (ADR FE-023), after the installers are
+      # collected so nothing of it reaches the bucket. Its identity is Partner
+      # Center's (the app's Product identity page), from the repository
+      # variables. Unsigned: Microsoft signs it on submission. The runner's
+      # Windows SDK packs it: the makeappx in electron-builder's own tool
+      # bundles doesn't start on current Windows ("side-by-side configuration
+      # is incorrect").
+      - name: Package for the Microsoft Store
+        id: store
+        if: matrix.enabled == 'true' && runner.os == 'Windows' && vars.WINDOWS_STORE_IDENTITY_NAME != ''
+        working-directory: apps/desktop
+        shell: pwsh
+        env:
+          IDENTITY_NAME: ${{ vars.WINDOWS_STORE_IDENTITY_NAME }}
+          PUBLISHER: ${{ vars.WINDOWS_STORE_PUBLISHER }}
+          PUBLISHER_DISPLAY_NAME: ${{ vars.WINDOWS_STORE_PUBLISHER_DISPLAY_NAME }}
+        run: |
+          if (-not $env:PUBLISHER -or -not $env:PUBLISHER_DISPLAY_NAME) {
+            throw 'WINDOWS_STORE_IDENTITY_NAME is set, but WINDOWS_STORE_PUBLISHER or WINDOWS_STORE_PUBLISHER_DISPLAY_NAME is not'
+          }
+          $kit = Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\bin' -Directory |
+            Where-Object { Test-Path (Join-Path $_.FullName 'x64\makeappx.exe') } |
+            Sort-Object { [version]$_.Name } | Select-Object -Last 1
+          if (-not $kit) { throw 'No Windows SDK with makeappx.exe on this runner' }
+          $env:ELECTRON_BUILDER_WINDOWS_KITS_PATH = Join-Path $kit.FullName 'x64'
+          Write-Host "Windows SDK $($kit.Name)"
+          pnpm exec electron-builder --win appx --x64 --arm64 --publish never `
+            "-c.appx.identityName=$env:IDENTITY_NAME" `
+            "-c.appx.publisher=$env:PUBLISHER" `
+            "-c.appx.publisherDisplayName=$env:PUBLISHER_DISPLAY_NAME"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Get-ChildItem release -Filter *.appx | ForEach-Object { Write-Host "$($_.Name) $($_.Length) bytes" }
+
+      - name: Upload the Microsoft Store package
+        if: steps.store.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          # Not desktop-*: the publish job takes those to the bucket.
+          name: microsoft-store
+          path: apps/desktop/release/*.appx
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Say where the Store package is
+        if: steps.store.outcome == 'success'
+        shell: bash
+        run: |
+          {
+            echo "### Microsoft Store package"
+            echo ""
+            echo "This run's \`microsoft-store\` artifact holds the x64 and arm64 \`.appx\`."
+            echo "Submit both in Partner Center (the app's Packages page); Microsoft signs them."
+          } >> "$GITHUB_STEP_SUMMARY"
 
   publish:
     name: Publish to downloads.weldsuite.eu

@@ -70,6 +70,14 @@ function text(key: ShellString, values?: Record<string, string>): string {
 const DEEP_LINK_SCHEME = 'weldsuite';
 const TITLEBAR_HEIGHT = 32;
 
+/**
+ * Installed from the Microsoft Store (an MSIX package, ADR FE-023). The Store
+ * signs and updates it, so it doesn't read the update feed on
+ * downloads.weldsuite.eu, and its `weldsuite://` handler is in the package's
+ * manifest rather than the registry.
+ */
+const STORE_BUILD = process.windowsStore === true;
+
 // How long the app gets to answer a screen-share source request before we
 // deny it. Generous — the user is reading a grid of window thumbnails — but
 // bounded, so a wedged renderer can't leave the capture request hanging.
@@ -225,7 +233,7 @@ if (process.defaultApp) {
   if (process.argv.length >= 2) {
     app.setAsDefaultProtocolClient(DEEP_LINK_SCHEME, process.execPath, [path.resolve(process.argv[1]!)]);
   }
-} else {
+} else if (!STORE_BUILD) {
   app.setAsDefaultProtocolClient(DEEP_LINK_SCHEME);
 }
 
@@ -536,8 +544,13 @@ function trayMenu(): Menu {
     { label: text('server', { host: serverHost(appUrl()) }), enabled: false },
     { label: text('changeServer'), click: () => openServerWindow() },
     { type: 'separator' },
-    { label: text('checkForUpdates'), click: () => autoUpdater.checkForUpdatesAndNotify().catch(() => undefined) },
-    { type: 'separator' },
+    // The Store updates its installs itself.
+    ...(STORE_BUILD
+      ? []
+      : [
+          { label: text('checkForUpdates'), click: () => autoUpdater.checkForUpdatesAndNotify().catch(() => undefined) },
+          { type: 'separator' as const },
+        ]),
     { label: text('quit'), click: () => { isQuitting = true; app.quit(); } },
   ]);
 }
@@ -663,6 +676,8 @@ function registerIpc() {
     version: app.getVersion(),
     appUrl: appUrl(),
     deepLinkScheme: DEEP_LINK_SCHEME,
+    // The platform hides what a Store install can't do (launch at login).
+    windowsStore: STORE_BUILD,
   }));
 
   ipcMain.handle('weldsuite:sign-in-external', (_event, opts: { path?: string; returnTo?: string } = {}) => {
@@ -972,7 +987,7 @@ void app.whenReady().then(async () => {
   createMainWindow();
   createTray();
 
-  if (process.env.NODE_ENV !== 'development') {
+  if (process.env.NODE_ENV !== 'development' && !STORE_BUILD) {
     checkForUpdatesInBackground();
   }
 
