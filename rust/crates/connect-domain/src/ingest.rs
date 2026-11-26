@@ -11,12 +11,17 @@ use std::sync::atomic::{AtomicI64, Ordering};
 
 use sea_orm::sea_query::{Alias, Expr, Order, Query};
 use sea_orm::{
-    ActiveValue::Set, ColumnTrait, ConnectionTrait, DbBackend, DbErr, EntityTrait, PaginatorTrait,
-    QueryFilter, QueryOrder, QuerySelect,
+    ActiveValue::Set, ColumnTrait, Condition, ConnectionTrait, DbBackend, DbErr, EntityTrait,
+    PaginatorTrait, QueryFilter, QueryOrder, QuerySelect,
 };
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 use time::PrimitiveDateTime;
+use weldsuite_books_domain::bank_accounts::{
+    BankLedgerPlan, insert_ledger_account, plan_default_bank_ledger_account,
+    plan_own_bank_ledger_account,
+};
+use weldsuite_books_domain::entity_context::resolve_entity_base_currency;
 use weldsuite_books_domain::roles::{PromoteTo, promote_accounting_role};
 use weldsuite_books_domain::table::{Table, TableDb};
 use weldsuite_commerce_domain::channels::{Connector, ensure_connector};
@@ -26,17 +31,19 @@ use weldsuite_events::{EntityEvent, EntityEventPublisher, EventContext, EventSou
 use weldsuite_kit::generate_id;
 use weldsuite_ports::{DynFileStore, OutboundHttp, PutOptions};
 use weldsuite_schema::tenant::{
-    accounting_entity_settings, bill_items, bills, companies, entities,
-    integration_entity_mappings as mappings, integration_field_mappings, invoice_items, invoices,
-    orders, parties, people, product_sales_channels, product_variants, settings, warehouses,
+    accounting_bank_account_settings, accounting_entity_settings, bank_accounts, bill_items, bills,
+    companies, entities, integration_entity_mappings as mappings, integration_field_mappings,
+    invoice_items, invoices, orders, parties, people, product_sales_channels, product_variants,
+    settings, warehouses,
 };
 
 use crate::catalog::{get_connector, syncs};
 use crate::clients::as_text;
 use crate::js::{now_iso, number_text};
 use crate::mappers::{
-    DocumentLine, FieldMapping, INVALID_DATE, Links, Mapped, OrderLine, ProductVariant,
-    external_id_of, is_deleted_record, map_connector_record, map_with_field_mappings,
+    BankLedger, DocumentLine, FieldMapping, INVALID_DATE, Links, Mapped, OrderLine, ProductVariant,
+    bank_ledger_for, external_id_of, is_deleted_record, map_connector_record,
+    map_with_field_mappings,
 };
 use crate::moneybird::{AttachmentKind, Moneybird};
 use crate::stripe::Stripe;
@@ -2362,7 +2369,112 @@ async fn resolve_bank_account_id(
         &format!("stub:{financial_account}"),
     )
     .await?;
+    // A Moneybird stub's kind is unknown until its account syncs, which
+    // links it then.
+    if args.provider == "stripe" {
+        link_bank_ledger(args, &stub.internal_id, BankLedger::Own).await;
+    }
     Ok(stub.internal_id)
+}
+
+/// An imported bank account without a ledger account gets one, so WeldBooks
+/// can post payments on it: what WeldBooks gives a new bank account
+/// ([`BankLedger`]), in the bank account's own entity and its base currency.
+/// A ledger account a person chose is never replaced. Best effort: a failure
+/// is logged and the next sync tries again. Whether it linked one.
+async fn link_bank_ledger(args: &IngestArgs<'_>, bank_account_id: &str, kind: BankLedger) -> bool {
+    match try_link_bank_ledger(args, bank_account_id, kind).await {
+        Ok(linked) => linked,
+        Err(Failure(error)) => {
+            tracing::warn!(
+                %error,
+                bank_account_id,
+                "[connectors/ingest] linking the bank account's ledger account failed"
+            );
+            false
+        }
+    }
+}
+
+async fn try_link_bank_ledger(
+    args: &IngestArgs<'_>,
+    bank_account_id: &str,
+    kind: BankLedger,
+) -> Outcome<bool> {
+    use bank_accounts::Column;
+    let row: Option<(String, String, Option<String>)> = bank_accounts::Entity::find()
+        .select_only()
+        .columns([Column::EntityId, Column::Name, Column::LedgerAccountId])
+        .filter(Column::Id.eq(bank_account_id))
+        .filter(Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(args.db))
+        .await?;
+    let Some((entity_id, name, ledger)) = row else {
+        return Ok(false);
+    };
+    if ledger.is_some_and(|id| !id.is_empty()) {
+        return Ok(false);
+    }
+    let currency = resolve_entity_base_currency(args.db, &entity_id).await?;
+    let (ledger, new_ledger) = match kind {
+        BankLedger::Bank => {
+            match plan_default_bank_ledger_account(args.db, &entity_id, &name, None, &currency)
+                .await?
+            {
+                BankLedgerPlan::Existing(account) => (account.get("id").cloned(), None),
+                BankLedgerPlan::New(row) => (row.get("id").cloned(), Some(row)),
+            }
+        }
+        BankLedger::Own => {
+            let row = plan_own_bank_ledger_account(args.db, &entity_id, &name, &currency).await?;
+            (row.get("id").cloned(), Some(row))
+        }
+    };
+    let ledger_id = ledger.as_ref().and_then(Value::as_str).map(str::to_owned);
+    let Some(ledger_id) = ledger_id.filter(|id| !id.is_empty()) else {
+        return Ok(false);
+    };
+
+    let mut tx = args.db.begin().await?;
+    if let Some(row) = &new_ledger {
+        insert_ledger_account(&OrmConn::new(&mut tx), row).await?;
+    }
+    // Only while it is still unlinked: a person may have chosen one since.
+    let linked = bank_accounts::Entity::update_many()
+        .col_expr(Column::LedgerAccountId, Expr::value(ledger_id.clone()))
+        .col_expr(Column::UpdatedAt, Expr::value(utc_now()))
+        .filter(Column::Id.eq(bank_account_id))
+        .filter(
+            Condition::any()
+                .add(Column::LedgerAccountId.is_null())
+                .add(Column::LedgerAccountId.eq("")),
+        )
+        .exec(&OrmConn::new(&mut tx))
+        .await?;
+    if linked.rows_affected == 0 {
+        return Ok(false);
+    }
+    // WeldBooks' side of the account, when it has one, says the same.
+    {
+        use accounting_bank_account_settings::Column as Settings;
+        accounting_bank_account_settings::Entity::update_many()
+            .col_expr(Settings::LedgerAccountId, Expr::value(ledger_id.clone()))
+            .col_expr(Settings::UpdatedAt, Expr::value(utc_now()))
+            .filter(Settings::BankAccountId.eq(bank_account_id))
+            .filter(
+                Condition::any()
+                    .add(Settings::LedgerAccountId.is_null())
+                    .add(Settings::LedgerAccountId.eq("")),
+            )
+            .exec(&OrmConn::new(&mut tx))
+            .await?;
+    }
+    tx.commit().await?;
+    if new_ledger.is_some() {
+        publish(args, "account", "created", &ledger_id).await;
+    }
+    Ok(true)
 }
 
 /// `linkMoneybirdPayment(...)`: a Moneybird mutation names the bill (a
@@ -2505,7 +2617,17 @@ async fn ingest_bank_record(
             )
             .await?;
             tally(result, outcome.action);
-            publish_upsert(args, "bank_account", &outcome).await;
+            // Also for an unchanged record: an account imported before
+            // accounts were linked gets its ledger account on the next sync.
+            let linked = match bank_ledger_for(args.provider, record) {
+                Some(kind) => link_bank_ledger(args, &outcome.internal_id, kind).await,
+                None => false,
+            };
+            if linked && outcome.action == Action::Skipped {
+                publish(args, "bank_account", "updated", &outcome.internal_id).await;
+            } else {
+                publish_upsert(args, "bank_account", &outcome).await;
+            }
         }
         Mapped::BankTransaction {
             financial_account_external_id,

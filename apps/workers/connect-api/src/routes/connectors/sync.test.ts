@@ -418,9 +418,20 @@ beforeAll(async () => {
   );
 }, 60_000);
 
+/**
+ * Conformance: the Rust ingest gives an imported bank account a ledger account
+ * so WeldBooks can post on it, and publishes `account:created` for one it
+ * creates. This ingest, retired with Global (ADR OPS-025), doesn't, so those
+ * events are left out of both runs.
+ */
+function withoutLedgerAccounts<T extends { events: unknown[] }>(effects: T): T {
+  return { ...effects, events: effects.events.filter((event) => (event as { eventType?: unknown }).eventType !== 'account:created') };
+}
+
 function app(...granted: string[]) {
   return createTestApp<Env, Variables>('/api/connectors', connectorRoutes, {
     context: { tenantDb: db, permissions: permissions(...(granted.length ? granted : ['integrations:read', 'integrations:update'])) },
+    normalizeEffects: withoutLedgerAccounts,
   }).request;
 }
 
