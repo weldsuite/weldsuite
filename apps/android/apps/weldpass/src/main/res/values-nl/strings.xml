@@ -4,6 +4,11 @@
     <string name="weldpass_app_name">WeldPass</string>
     <string name="weldpass_auth_sign_in_title">Inloggen bij WeldPass</string>
     <string name="weldpass_auth_subtitle">De wachtwoorden van je team, op je telefoon</string>
+    <string name="weldpass_autofill_choose">Kies een login</string>
+    <string name="weldpass_autofill_empty">Geen logins in WeldPass.</string>
+    <string name="weldpass_autofill_fill_with">Invullen met WeldPass</string>
+    <string name="weldpass_autofill_no_copy">Open WeldPass en ontgrendel het één keer, dan kan het hier invullen.</string>
+    <string name="weldpass_autofill_unlock_reason">Ontgrendel WeldPass om in te vullen</string>
     <string name="weldpass_common_add">Toevoegen</string>
     <string name="weldpass_common_back">Terug</string>
     <string name="weldpass_common_cancel">Annuleren</string>

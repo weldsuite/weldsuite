@@ -160,10 +160,15 @@ final class OfflineStore {
             if reason == .revoked { defaults.set(ISO8601DateFormatter().string(from: Date()), forKey: revokedKey(session)) }
             close(disabled ? .disabled : .revoked, session: session, keepKey: true)
         case let .updated(next, _):
-            try files.write(session.workspaceID, CopyEnvelope.seal(JSONEncoder().encode(next), owner: owner, key: key))
+            try files.write(session.workspaceID, deviceID: device, CopyEnvelope.seal(JSONEncoder().encode(next), owner: owner, key: key))
             copy = next
             deviceID = device
             isOffline = false
+            // AutoFill's fills join the queue; its suggestions follow the copy.
+            for fill in files.takeFills(session.workspaceID) {
+                events.add(session.workspaceID, .init(vaultId: fill.vaultId, itemId: fill.itemId, action: .autofilled, at: fill.at))
+            }
+            await CredentialIdentities.replace(with: next)
             // Kept for the next sync when it fails.
             try? await events.flush(session.workspaceID) { batch in try await self.upload(batch, device: device, client: client) }
         }
@@ -265,6 +270,7 @@ final class OfflineStore {
             defaults.removeObject(forKey: key)
         }
         CopyKey.delete()
+        await CredentialIdentities.removeAll()
         close(.off, session: nil)
     }
 
@@ -272,6 +278,7 @@ final class OfflineStore {
         files.delete(session.workspaceID)
         if forgetDevice { defaults.removeObject(forKey: deviceKey(session)) }
         events.clear(session.workspaceID)
+        Task { await CredentialIdentities.removeAll() }
     }
 
     private func deviceKey(_ session: Session) -> String { "weldpass:device:\(session.key)" }

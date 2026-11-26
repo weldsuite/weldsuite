@@ -174,7 +174,7 @@ class OfflineStore(context: Context, private val env: AppEnvironment, private va
             }
             is SyncOutcome.Updated -> {
                 val json = WeldJson.encodeToString(OfflineCopy.serializer(), outcome.copy)
-                files.write(session.workspaceId, CopyEnvelope.seal(json, owner, cipher))
+                files.write(session.workspaceId, deviceId, CopyEnvelope.seal(json, owner, cipher))
                 state.value = OfflineState(status = OfflineStatus.READY, copy = outcome.copy, deviceId = deviceId)
                 // Kept for the next sync when it fails.
                 runCatching {

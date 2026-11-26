@@ -33,8 +33,11 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import androidx.compose.ui.platform.LocalContext
+import com.weldsuite.weldpass.ItemFormValues
 import com.weldsuite.weldpass.PassRepository
 import com.weldsuite.weldpass.R
+import com.weldsuite.weldpass.autofill.PendingSave
 import kotlinx.coroutines.launch
 import org.weldsuite.api.weldpass.models.Item
 import org.weldsuite.core.AppEnvironment
@@ -53,8 +56,23 @@ private enum class Tab(val route: String, val label: Int, val icon: ImageVector,
 
 /** WeldPass once signed in, in a workspace and unlocked. */
 @Composable
-fun WeldPassApp(env: AppEnvironment, repository: PassRepository, session: SessionState.Ready) {
+fun WeldPassApp(
+    env: AppEnvironment,
+    repository: PassRepository,
+    session: SessionState.Ready,
+    autofillSave: PendingSave.Values? = null,
+    onAutofillSaveTaken: () -> Unit = {},
+) {
     val nav = rememberNavController()
+    // A login autofill asked to save: the "New login" form, filled in with it.
+    var draft by remember { mutableStateOf<PendingSave.Values?>(null) }
+    LaunchedEffect(autofillSave) {
+        if (autofillSave != null) {
+            draft = autofillSave
+            onAutofillSaveTaken()
+            nav.navigate("item/new?type=${Item.Type.LOGIN.value}&vaultId=")
+        }
+    }
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val notify: (String) -> Unit = { message -> scope.launch { snackbar.showSnackbar(message) } }
@@ -96,13 +114,18 @@ fun WeldPassApp(env: AppEnvironment, repository: PassRepository, session: Sessio
                     ),
                 ) { entry ->
                     val typeValue = entry.arguments?.getString("type")
+                    val saved = draft
                     ItemFormScreen(
                         env = env,
                         repository = repository,
                         type = Item.Type.entries.firstOrNull { it.value == typeValue } ?: Item.Type.LOGIN,
                         vaultId = entry.arguments?.getString("vaultId")?.ifEmpty { null },
                         itemId = null,
-                        onDone = { nav.popBackStack() },
+                        onDone = {
+                            draft = null
+                            nav.popBackStack()
+                        },
+                        draft = saved?.let { autofillDraft(it, LocalContext.current) },
                     )
                 }
                 composable("item/{vaultId}/{itemId}") { entry ->
@@ -146,6 +169,27 @@ fun WeldPassApp(env: AppEnvironment, repository: PassRepository, session: Sessio
             }
         }
     }
+}
+
+/**
+ * The form's values for a login autofill asked to save: the page's domain as
+ * title and website, or the app's name with its package as the Android app
+ * the login belongs to.
+ */
+private fun autofillDraft(save: PendingSave.Values, context: android.content.Context): ItemFormValues {
+    val appName = runCatching {
+        val info = context.packageManager.getApplicationInfo(save.packageName, 0)
+        context.packageManager.getApplicationLabel(info).toString()
+    }.getOrNull()
+    return ItemFormValues(
+        type = Item.Type.LOGIN,
+        vaultId = "",
+        title = save.webDomain ?: appName ?: save.packageName,
+        url = save.webDomain.orEmpty(),
+        username = save.username,
+        password = save.password,
+        apps = if (save.webDomain == null) listOf(save.packageName) else emptyList(),
+    )
 }
 
 @Composable

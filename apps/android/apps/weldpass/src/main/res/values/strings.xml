@@ -4,6 +4,11 @@
     <string name="weldpass_app_name">WeldPass</string>
     <string name="weldpass_auth_sign_in_title">Sign in to WeldPass</string>
     <string name="weldpass_auth_subtitle">Your team’s passwords, on your phone</string>
+    <string name="weldpass_autofill_choose">Choose a login</string>
+    <string name="weldpass_autofill_empty">No logins in WeldPass.</string>
+    <string name="weldpass_autofill_fill_with">Fill with WeldPass</string>
+    <string name="weldpass_autofill_no_copy">Open WeldPass and unlock it once, then it can fill in here.</string>
+    <string name="weldpass_autofill_unlock_reason">Unlock WeldPass to fill in</string>
     <string name="weldpass_common_add">Add</string>
     <string name="weldpass_common_back">Back</string>
     <string name="weldpass_common_cancel">Cancel</string>

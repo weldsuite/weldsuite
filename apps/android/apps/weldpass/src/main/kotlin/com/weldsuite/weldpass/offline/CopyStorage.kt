@@ -159,31 +159,52 @@ class CopyKeyStore(context: Context) {
     }
 }
 
-/** The copies on the phone, one file per workspace, outside backups. */
+/**
+ * The copies on the phone, one file per workspace, outside backups, and an
+ * index naming each copy's workspace and device (ids only), which the
+ * autofill service needs to open them.
+ */
 class CopyFiles(context: Context) {
     private val directory = File(context.noBackupFilesDir, "weldpass-offline")
+    private val indexFile = File(directory, "index.json")
 
     private fun file(workspaceId: String): File =
         File(directory, "${workspaceId.replace(Regex("[^A-Za-z0-9_-]"), "_")}.wpo")
 
     fun read(workspaceId: String): ByteArray? = file(workspaceId).takeIf { it.exists() }?.readBytes()
 
-    fun write(workspaceId: String, bytes: ByteArray) {
+    fun write(workspaceId: String, deviceId: String, bytes: ByteArray) {
         directory.mkdirs()
-        val target = file(workspaceId)
+        replace(file(workspaceId), bytes)
+        writeIndex(index() + (workspaceId to deviceId))
+    }
+
+    fun delete(workspaceId: String) {
+        file(workspaceId).delete()
+        if (indexFile.exists()) writeIndex(index() - workspaceId)
+    }
+
+    fun deleteAll() {
+        directory.deleteRecursively()
+    }
+
+    /** Workspace id → the device id its copy was sealed for. */
+    fun index(): Map<String, String> = runCatching {
+        val json = org.json.JSONObject(indexFile.readText())
+        json.keys().asSequence().associateWith { json.getString(it) }
+    }.getOrDefault(emptyMap())
+
+    private fun writeIndex(entries: Map<String, String>) {
+        directory.mkdirs()
+        replace(indexFile, org.json.JSONObject(entries).toString().toByteArray(Charsets.UTF_8))
+    }
+
+    private fun replace(target: File, bytes: ByteArray) {
         val temporary = File(directory, "${target.name}.tmp")
         temporary.writeBytes(bytes)
         if (!temporary.renameTo(target)) {
             target.delete()
             temporary.renameTo(target)
         }
-    }
-
-    fun delete(workspaceId: String) {
-        file(workspaceId).delete()
-    }
-
-    fun deleteAll() {
-        directory.deleteRecursively()
     }
 }

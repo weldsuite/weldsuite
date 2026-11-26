@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <!-- No backup: the vaults stay on the server, the session keys in the Keystore. -->
     <application
@@ -21,5 +22,27 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- Autofill from the offline copy (ADR PASS-010). -->
+        <service
+            android:name=".autofill.WeldPassAutofillService"
+            android:exported="true"
+            android:label="@string/weldpass_app_name"
+            android:permission="android.permission.BIND_AUTOFILL_SERVICE"
+            tools:targetApi="o">
+            <intent-filter>
+                <action android:name="android.service.autofill.AutofillService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.autofill"
+                android:resource="@xml/autofill_service" />
+        </service>
+
+        <activity
+            android:name=".autofill.AutofillAuthActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:theme="@style/Theme.WeldPass"
+            tools:targetApi="o" />
     </application>
 </manifest>

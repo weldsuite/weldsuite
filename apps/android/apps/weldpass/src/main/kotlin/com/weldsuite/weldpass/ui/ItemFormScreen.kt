@@ -100,6 +100,8 @@ fun ItemFormScreen(
     vaultId: String?,
     itemId: String?,
     onDone: () -> Unit,
+    /** A new item's values to start from (a login autofill asked to save). */
+    draft: ItemFormValues? = null,
 ) {
     val context = LocalContext.current
     val activity = LocalActivity.current as FragmentActivity
@@ -118,7 +120,7 @@ fun ItemFormScreen(
         if (itemId == null) {
             val target = PassLogic.defaultCreateVaultId(vaults.data.orEmpty(), vaultId)
             if (vaults.data != null) {
-                values = target?.let { ItemFormValues(type = type, vaultId = it) }
+                values = target?.let { draft?.copy(vaultId = it) ?: ItemFormValues(type = type, vaultId = it) }
                 if (target == null) failed = R.string.weldpass_form_no_writable_vault
             }
             return@LaunchedEffect
@@ -138,6 +140,7 @@ fun ItemFormScreen(
 
     val title = when {
         itemId != null -> stringResource(R.string.weldpass_form_edit_title)
+        draft != null -> stringResource(R.string.weldpass_form_from_autofill)
         type == Item.Type.NOTE -> stringResource(R.string.weldpass_form_new_title_note)
         type == Item.Type.CARD -> stringResource(R.string.weldpass_form_new_title_card)
         else -> stringResource(R.string.weldpass_form_new_title_login)

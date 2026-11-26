@@ -73,6 +73,7 @@ fun SettingsScreen(env: AppEnvironment, repository: PassRepository, session: Ses
 
             Section(stringResource(R.string.weldpass_settings_offline))
             OfflineSettings(repository.offline)
+            AutofillSettings(repository.offline)
 
             Section(stringResource(R.string.weldpass_settings_account))
             ListItem(

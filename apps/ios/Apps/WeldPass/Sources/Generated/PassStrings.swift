@@ -9,6 +9,16 @@ enum PassStrings {
     static var authSignInTitle: String { tr("auth.signInTitle") }
     /// Your team’s passwords, on your phone
     static var authSubtitle: String { tr("auth.subtitle") }
+    /// Choose a login
+    static var autofillChoose: String { tr("autofill.choose") }
+    /// No logins in WeldPass.
+    static var autofillEmpty: String { tr("autofill.empty") }
+    /// Fill with WeldPass
+    static var autofillFillWith: String { tr("autofill.fillWith") }
+    /// Open WeldPass and unlock it once, then it can fill in here.
+    static var autofillNoCopy: String { tr("autofill.noCopy") }
+    /// Unlock WeldPass to fill in
+    static var autofillUnlockReason: String { tr("autofill.unlockReason") }
     /// Add
     static var commonAdd: String { tr("common.add") }
     /// Back

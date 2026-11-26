@@ -251,5 +251,12 @@
     "notFound": "Dit item of deze kluis bestaat niet meer.",
     "crypto": "WeldPass kan op deze server nu geen kluizen openen. Vraag je beheerder de WeldPass-sleutel te controleren.",
     "loadFailed": "Je kluizen konden niet worden geladen."
+  },
+  "autofill": {
+    "fillWith": "Invullen met WeldPass",
+    "unlockReason": "Ontgrendel WeldPass om in te vullen",
+    "choose": "Kies een login",
+    "empty": "Geen logins in WeldPass.",
+    "noCopy": "Open WeldPass en ontgrendel het één keer, dan kan het hier invullen."
   }
 }

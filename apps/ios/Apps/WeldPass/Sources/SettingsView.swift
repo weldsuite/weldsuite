@@ -43,6 +43,7 @@ struct SettingsView: View {
             }
 
             OfflineSection(offline: store.offline, person: person, workspace: workspace)
+            AutofillSection(offline: store.offline)
 
             Section(PassStrings.settingsAccount) {
                 VStack(alignment: .leading) {

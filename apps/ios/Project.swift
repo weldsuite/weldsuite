@@ -19,17 +19,28 @@ private func appSettings(base: SettingsDictionary) -> Settings {
     )
 }
 
+/// WeldPass's version, the same in the app and its extension.
+private let weldPassVersion: [String: Plist.Value] = [
+    // Above the React Native app's 1.x, which this replaces in the App Store.
+    "CFBundleShortVersionString": "2.0.0",
+    "CFBundleVersion": "200",
+]
+
+/// The offline copy (ADR PASS-010) is shared with the AutoFill extension: its
+/// files through the App Group container, its key through a Keychain group.
+private let weldPassSharing: [String: Plist.Value] = [
+    "com.apple.security.application-groups": ["group.com.weldsuite.weldpass"],
+    "keychain-access-groups": ["$(AppIdentifierPrefix)com.weldsuite.weldpass.shared"],
+]
+
 let weldPass: Target = .target(
     name: "WeldPass",
     destinations: [.iPhone, .iPad],
     product: .app,
     bundleId: "com.weldsuite.weldpass",
     deploymentTargets: .iOS("17.0"),
-    infoPlist: .extendingDefault(with: [
+    infoPlist: .extendingDefault(with: weldPassVersion.merging([
         "CFBundleDisplayName": "WeldPass",
-        // Above the React Native app's 1.x, which this replaces in the App Store.
-        "CFBundleShortVersionString": "2.0.0",
-        "CFBundleVersion": "200",
         "UILaunchScreen": ["UIColorName": ""],
         "NSFaceIDUsageDescription": "WeldPass uses Face ID to unlock your vaults and before it shows or copies a password.",
         "ITSAppUsesNonExemptEncryption": false,
@@ -37,6 +48,7 @@ let weldPass: Target = .target(
             ["CFBundleURLName": "com.weldsuite.weldpass", "CFBundleURLSchemes": ["weldpass"]],
         ],
         "WeldEUServerURL": "$(WELD_EU_SERVER_URL)",
+        "WeldPassKeychainGroup": "$(AppIdentifierPrefix)com.weldsuite.weldpass.shared",
         // Filled in with the App Store id at the first native release.
         "WeldAppStoreURL": "https://apps.apple.com",
         "UISupportedInterfaceOrientations": ["UIInterfaceOrientationPortrait"],
@@ -46,15 +58,46 @@ let weldPass: Target = .target(
             "UIInterfaceOrientationLandscapeLeft",
             "UIInterfaceOrientationLandscapeRight",
         ],
-    ]),
+    ]) { _, new in new }),
     sources: ["Apps/WeldPass/Sources/**"],
     resources: ["Apps/WeldPass/Resources/**"],
+    entitlements: .dictionary(weldPassSharing),
     dependencies: [
         .package(product: "WeldCore"),
         .package(product: "WeldUI"),
         .package(product: "WeldPassAPI"),
+        .target(name: "WeldPassAutofill"),
     ],
     settings: appSettings(base: [:])
+)
+
+/// WeldPass in Settings → Passwords → AutoFill: logins from the offline copy,
+/// with no network and no tokens.
+let weldPassAutofill: Target = .target(
+    name: "WeldPassAutofill",
+    destinations: [.iPhone, .iPad],
+    product: .appExtension,
+    bundleId: "com.weldsuite.weldpass.autofill",
+    deploymentTargets: .iOS("17.0"),
+    infoPlist: .extendingDefault(with: weldPassVersion.merging([
+        "CFBundleDisplayName": "WeldPass",
+        "NSExtension": [
+            "NSExtensionPointIdentifier": "com.apple.authentication-services-credential-provider-ui",
+            "NSExtensionPrincipalClass": "$(PRODUCT_MODULE_NAME).CredentialProviderViewController",
+            "NSExtensionAttributes": [
+                "ASCredentialProviderExtensionCapabilities": ["ProvidesPasswords": true],
+            ],
+        ],
+        "WeldPassKeychainGroup": "$(AppIdentifierPrefix)com.weldsuite.weldpass.shared",
+        "NSFaceIDUsageDescription": "WeldPass uses Face ID to fill in your passwords.",
+    ]) { _, new in new }),
+    // The app's generated strings, so the extension speaks English and Dutch too.
+    sources: ["Apps/WeldPassAutofill/Sources/**", "Apps/WeldPass/Sources/Generated/PassStrings.swift"],
+    resources: ["Apps/WeldPass/Resources/Localizable.xcstrings"],
+    entitlements: .dictionary(weldPassSharing.merging([
+        "com.apple.developer.authentication-services.autofill-credential-provider": true,
+    ]) { _, new in new }),
+    settings: .settings(base: ["SWIFT_VERSION": "5.0"])
 )
 
 let weldPassTests: Target = .target(
@@ -77,7 +120,7 @@ let project = Project(
         developmentRegion: "en"
     ),
     packages: [.local(path: "WeldKit")],
-    targets: [weldPass, weldPassTests],
+    targets: [weldPass, weldPassAutofill, weldPassTests],
     schemes: [
         .scheme(
             name: "WeldPass",

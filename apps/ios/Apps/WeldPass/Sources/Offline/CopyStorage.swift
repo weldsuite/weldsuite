@@ -31,10 +31,20 @@ enum CopyEnvelope {
 
 /// The copy's key: 32 random bytes in the Keychain, this device only, behind
 /// the passcode or biometrics (`userPresence`). Read with the context the app
-/// lock just authenticated, so one Face ID opens the app and the copy.
+/// lock just authenticated, so one Face ID opens the app and the copy. It
+/// lives in the Keychain group the AutoFill extension shares
+/// (`WeldPassKeychainGroup` in Info.plist), which reads it with its own prompt.
 enum CopyKey {
-    private static let service = "com.weldsuite.weldpass.offline"
-    private static let account = "key"
+    static let service = "com.weldsuite.weldpass.offline"
+    static let account = "key"
+
+    /// `$(AppIdentifierPrefix)com.weldsuite.weldpass.shared`, as Xcode expanded it.
+    static var accessGroup: String? {
+        guard let group = Bundle.main.object(forInfoDictionaryKey: "WeldPassKeychainGroup") as? String,
+              !group.isEmpty, !group.contains("$(")
+        else { return nil }
+        return group
+    }
 
     enum Problem: Error {
         /// The phone has no passcode: nothing to keep the key behind.
@@ -73,25 +83,43 @@ enum CopyKey {
         var item = base()
         item[kSecValueData as String] = key.withUnsafeBytes { Data($0) }
         item[kSecAttrAccessControl as String] = access
-        guard SecItemAdd(item as CFDictionary, nil) == errSecSuccess else { throw Problem.noPasscode }
+        var status = SecItemAdd(item as CFDictionary, nil)
+        if status == errSecMissingEntitlement {
+            // A build without the shared group (unsigned, the simulator in CI):
+            // keep the key in the app's own Keychain; AutoFill can't read it there.
+            item[kSecAttrAccessGroup as String] = nil
+            status = SecItemAdd(item as CFDictionary, nil)
+        }
+        guard status == errSecSuccess else { throw Problem.noPasscode }
         return key
     }
 
     private static func base() -> [String: Any] {
-        [
+        var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
         ]
+        if let accessGroup { query[kSecAttrAccessGroup as String] = accessGroup }
+        return query
     }
 }
 
-/// The copies on the phone, one file per workspace, outside backups.
+/// The copies on the phone, one file per workspace, outside backups, in the
+/// App Group container the AutoFill extension shares; with an index naming
+/// each copy's workspace and device (ids only), and the extension's queue of
+/// fills (`fills.json`).
 struct CopyFiles {
-    private var directory: URL {
-        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("weldpass-offline", isDirectory: true)
+    static let appGroup = "group.com.weldsuite.weldpass"
+
+    var directory: URL {
+        let root = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: Self.appGroup)
+            ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        return root.appendingPathComponent("weldpass-offline", isDirectory: true)
     }
+
+    private var indexFile: URL { directory.appendingPathComponent("index.json") }
+    private var fillsFile: URL { directory.appendingPathComponent("fills.json") }
 
     private func file(_ workspaceID: String) -> URL {
         let safe = workspaceID.replacingOccurrences(of: "[^A-Za-z0-9_-]", with: "_", options: .regularExpression)
@@ -102,21 +130,55 @@ struct CopyFiles {
         try? Data(contentsOf: file(workspaceID))
     }
 
-    func write(_ workspaceID: String, _ data: Data) throws {
+    func write(_ workspaceID: String, deviceID: String, _ data: Data) throws {
         var folder = directory
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         var values = URLResourceValues()
         values.isExcludedFromBackup = true
         try? folder.setResourceValues(values)
         try data.write(to: file(workspaceID), options: [.atomic, .completeFileProtection])
+        var entries = index()
+        entries[workspaceID] = deviceID
+        try? JSONEncoder().encode(entries).write(to: indexFile, options: .atomic)
     }
 
     func delete(_ workspaceID: String) {
         try? FileManager.default.removeItem(at: file(workspaceID))
+        var entries = index()
+        guard entries.removeValue(forKey: workspaceID) != nil else { return }
+        try? JSONEncoder().encode(entries).write(to: indexFile, options: .atomic)
     }
 
     func deleteAll() {
         try? FileManager.default.removeItem(at: directory)
+    }
+
+    /// Workspace id → the device id its copy was sealed for.
+    func index() -> [String: String] {
+        guard let data = try? Data(contentsOf: indexFile) else { return [:] }
+        return (try? JSONDecoder().decode([String: String].self, from: data)) ?? [:]
+    }
+
+    struct Fill: Codable {
+        let workspaceId: String
+        let vaultId: String
+        let itemId: String
+        let at: String
+    }
+
+    /// The extension's fills for one workspace, taken off the queue.
+    func takeFills(_ workspaceID: String) -> [Fill] {
+        guard let data = try? Data(contentsOf: fillsFile),
+              let fills = try? JSONDecoder().decode([Fill].self, from: data)
+        else { return [] }
+        let taken = fills.filter { $0.workspaceId == workspaceID }
+        let rest = fills.filter { $0.workspaceId != workspaceID }
+        if rest.isEmpty {
+            try? FileManager.default.removeItem(at: fillsFile)
+        } else {
+            try? JSONEncoder().encode(rest).write(to: fillsFile, options: .atomic)
+        }
+        return taken
     }
 }
 

@@ -251,5 +251,12 @@
     "notFound": "This item or vault no longer exists.",
     "crypto": "WeldPass can’t open vaults on this server right now. Ask your administrator to check the WeldPass key.",
     "loadFailed": "Couldn’t load your vaults."
+  },
+  "autofill": {
+    "fillWith": "Fill with WeldPass",
+    "unlockReason": "Unlock WeldPass to fill in",
+    "choose": "Choose a login",
+    "empty": "No logins in WeldPass.",
+    "noCopy": "Open WeldPass and unlock it once, then it can fill in here."
   }
 }

@@ -52,6 +52,91 @@
         }
       }
     },
+    "autofill.choose": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose a login"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kies een login"
+          }
+        }
+      }
+    },
+    "autofill.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No logins in WeldPass."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geen logins in WeldPass."
+          }
+        }
+      }
+    },
+    "autofill.fillWith": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fill with WeldPass"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invullen met WeldPass"
+          }
+        }
+      }
+    },
+    "autofill.noCopy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open WeldPass and unlock it once, then it can fill in here."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open WeldPass en ontgrendel het één keer, dan kan het hier invullen."
+          }
+        }
+      }
+    },
+    "autofill.unlockReason": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unlock WeldPass to fill in"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ontgrendel WeldPass om in te vullen"
+          }
+        }
+      }
+    },
     "common.add": {
       "extractionState": "manual",
       "localizations": {
