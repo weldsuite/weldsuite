@@ -13,11 +13,10 @@ import { Checkbox } from '@weldsuite/ui/components/checkbox';
 import { Input } from '@weldsuite/ui/components/input';
 import { Label } from '@weldsuite/ui/components/label';
 import { InlineSpinner } from '@weldsuite/ui/components/page-loader';
-import { RadioGroup, RadioGroupItem } from '@weldsuite/ui/components/radio-group';
 import { SearchInput } from '@weldsuite/ui/components/search-input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@weldsuite/ui/components/select';
 import { toast } from 'sonner';
 import { ledgerCategoryAccounts } from '@/components/accounting/categorize-bank-transaction-panel';
+import { GapChoiceFieldset } from '@/components/accounting/gap-choice-fieldset';
 import { useDebounce } from '@/hooks/use-debounce';
 import { useMatchBankLineToDocuments, useOpenDocumentsForLine } from '@/hooks/queries/use-weldbooks-banking-queries';
 import type { Account } from '@/lib/api/domains/weldbooks';
@@ -29,9 +28,12 @@ import {
   planMatch,
   toCents,
   type GapChoice,
+  type MatchPlan,
   type PlanProblem,
 } from '@/lib/weldbooks/bank-link-math';
 import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
+
+type Labels = ReturnType<typeof useI18n>['t']['accounting']['bankLinks'];
 
 interface Picked {
   doc: OpenDocument;
@@ -49,13 +51,164 @@ interface MatchDocumentsPanelProps {
   onMatched: () => void;
 }
 
-/** The text a problem shows, naming the document it is about. */
-function problemText(
-  problem: PlanProblem,
-  number: string,
-  labels: Readonly<Record<PlanProblem, string>>,
-): string {
-  return labels[problem].replace('{number}', number);
+/** A refused submit, and the document it is about. */
+interface Problem {
+  problem: PlanProblem;
+  id?: string;
+}
+
+function numberOf(doc: OpenDocument, tl: Labels): string {
+  return doc.number ?? tl.noNumber;
+}
+
+/** The message a refused submit shows, naming the document it is about. */
+function problemMessage(problem: Problem, picked: readonly Picked[], tl: Labels): string {
+  const doc = problem.id ? picked.find((p) => p.doc.id === problem.id)?.doc : undefined;
+  return tl.problems[problem.problem].replace('{number}', doc ? numberOf(doc, tl) : '');
+}
+
+/** The open documents found, each with a checkbox. */
+function OpenDocumentList({
+  idPrefix,
+  documents,
+  isLoading,
+  pickedIds,
+  readOnly,
+  onToggle,
+}: Readonly<{
+  idPrefix: string;
+  documents: OpenDocument[];
+  isLoading: boolean;
+  pickedIds: ReadonlySet<string>;
+  readOnly: boolean;
+  onToggle: (doc: OpenDocument, on: boolean) => void;
+}>) {
+  const { t } = useI18n();
+  const tl = t.accounting.bankLinks;
+  const { formatMoney, formatDate } = useWeldbooksFormat();
+  if (isLoading) return <InlineSpinner className="py-4" />;
+  if (documents.length === 0) return <p className="text-sm text-muted-foreground">{tl.noDocuments}</p>;
+  return (
+    <ul className="max-h-64 divide-y overflow-y-auto rounded-md border" data-testid="open-documents">
+      {documents.map((doc) => {
+        const id = `${idPrefix}-doc-${doc.id}`;
+        return (
+          <li key={doc.id} className="flex items-start gap-2 p-2">
+            <Checkbox
+              id={id}
+              className="mt-0.5"
+              checked={pickedIds.has(doc.id)}
+              disabled={readOnly}
+              onCheckedChange={(value) => onToggle(doc, value === true)}
+            />
+            <label htmlFor={id} className="min-w-0 flex-1 cursor-pointer">
+              <span className="flex items-center justify-between gap-2">
+                <span className="truncate text-sm font-medium">
+                  {numberOf(doc, tl)}
+                  <span className="ml-1.5 text-xs font-normal text-muted-foreground">{tl.types[doc.type]}</span>
+                </span>
+                <span className="shrink-0 text-sm tabular-nums">{formatMoney(doc.openAmount, doc.currency)}</span>
+              </span>
+              <span className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                <span className="truncate">{doc.contactName}</span>
+                {doc.dueDate ? (
+                  <span className="shrink-0 tabular-nums">{tl.due.replace('{date}', formatDate(doc.dueDate))}</span>
+                ) : null}
+              </span>
+            </label>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+/** What each picked document takes, editable. */
+function PickedAmounts({
+  idPrefix,
+  picked,
+  invalidId,
+  errorId,
+  onAmount,
+}: Readonly<{
+  idPrefix: string;
+  picked: readonly Picked[];
+  /** The document a refused submit is about. */
+  invalidId?: string;
+  errorId: string;
+  onAmount: (id: string, amount: string) => void;
+}>) {
+  const { t } = useI18n();
+  const tl = t.accounting.bankLinks;
+  return (
+    <ul className="space-y-2">
+      {picked.map((p) => {
+        const id = `${idPrefix}-amount-${p.doc.id}`;
+        const invalid = invalidId === p.doc.id;
+        return (
+          <li key={p.doc.id} className="flex items-center justify-between gap-2">
+            <Label htmlFor={id} className="min-w-0 flex-1 truncate font-normal">
+              {tl.amountLabel.replace('{number}', numberOf(p.doc, tl))}
+            </Label>
+            <Input
+              id={id}
+              name={`amount-${p.doc.id}`}
+              inputMode="decimal"
+              autoComplete="off"
+              className="h-8 w-28 text-right tabular-nums"
+              value={p.amount}
+              aria-invalid={invalid || undefined}
+              aria-describedby={invalid ? errorId : undefined}
+              onChange={(event) => onAmount(p.doc.id, event.target.value)}
+            />
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+/** The transaction, what is picked and the difference, announced as they change. */
+function MatchTotals({ plan, gapCents, money }: Readonly<{ plan: MatchPlan; gapCents: number; money: (cents: number) => string }>) {
+  const { t } = useI18n();
+  const tl = t.accounting.bankLinks;
+  return (
+    <dl className="grid grid-cols-[1fr_auto] gap-x-4 gap-y-0.5 text-sm" role="status" aria-live="polite">
+      <dt className="text-muted-foreground">{tl.transaction}</dt>
+      <dd className="text-right tabular-nums">{money(plan.paidCents)}</dd>
+      <dt className="text-muted-foreground">{tl.selected}</dt>
+      <dd className="text-right tabular-nums">{money(plan.allocatedCents)}</dd>
+      <dt className="font-medium">{tl.difference}</dt>
+      <dd className="text-right font-medium tabular-nums">{money(gapCents)}</dd>
+    </dl>
+  );
+}
+
+/** The picked documents after ticking (`on`) or unticking `doc`: a new one takes what is left of the transaction. */
+function togglePicked(current: Picked[], doc: OpenDocument, on: boolean, paidCents: number): Picked[] {
+  if (!on) return current.filter((p) => p.doc.id !== doc.id);
+  if (current.some((p) => p.doc.id === doc.id)) return current;
+  const others = current.reduce((sum, p) => sum + (toCents(p.amount) || 0), 0);
+  return [...current, { doc, amount: fromCents(defaultShare(paidCents, others, toCents(doc.openAmount))) }];
+}
+
+/** The wording of the gap choice: the legend and the two options. */
+function gapLabels(gapCents: number, lastPicked: Picked | undefined, money: (cents: number) => string, tl: Labels) {
+  const amount = money(gapCents);
+  if (gapCents > 0) {
+    return {
+      legend: tl.gapOverLegend.replace('{amount}', amount),
+      leave: lastPicked
+        ? tl.leavePartly.replace('{number}', numberOf(lastPicked.doc, tl)).replace('{amount}', amount)
+        : tl.keepCredit.replace('{amount}', amount),
+      account: tl.bookToAccount.replace('{amount}', amount),
+    };
+  }
+  return {
+    legend: tl.gapUnderLegend.replace('{amount}', amount),
+    leave: tl.keepCredit.replace('{amount}', amount),
+    account: tl.bookToAccount.replace('{amount}', amount),
+  };
 }
 
 export function MatchDocumentsPanel({
@@ -68,9 +221,10 @@ export function MatchDocumentsPanel({
 }: Readonly<MatchDocumentsPanelProps>) {
   const { t } = useI18n();
   const tl = t.accounting.bankLinks;
-  const { formatMoney, formatDate } = useWeldbooksFormat();
+  const { formatMoney } = useWeldbooksFormat();
   const ids = useId();
-  const moneyIn = Number(lineAmount) > 0;
+  const errorId = `${ids}-problem`;
+  const heading = Number(lineAmount) > 0 ? { title: tl.titleIn, hint: tl.hintIn } : { title: tl.titleOut, hint: tl.hintOut };
 
   const [search, setSearch] = useState('');
   const debounced = useDebounce(search.trim(), 300);
@@ -78,13 +232,11 @@ export function MatchDocumentsPanel({
   const [picked, setPicked] = useState<Picked[]>([]);
   const [choice, setChoice] = useState<GapChoice>('leave');
   const [accountId, setAccountId] = useState('');
-  const [problem, setProblem] = useState<{ problem: PlanProblem; id?: string } | null>(null);
+  const [problem, setProblem] = useState<Problem | null>(null);
   const match = useMatchBankLineToDocuments();
 
   const accounts = useMemo(() => ledgerCategoryAccounts(ledgerAccounts), [ledgerAccounts]);
   const paidCents = Math.abs(toCents(lineAmount));
-  const numberOf = (doc: OpenDocument) => doc.number ?? tl.noNumber;
-
   const plan = planMatch({
     transactionAmount: lineAmount,
     shares: picked.map((p) => ({
@@ -97,18 +249,13 @@ export function MatchDocumentsPanel({
     accountId,
     description: tl.differenceDescription,
   });
-  const gap = Number.isFinite(plan.gapCents) ? plan.gapCents : 0;
-  const lastPicked = picked.at(-1);
+  const gapCents = Number.isFinite(plan.gapCents) ? plan.gapCents : 0;
+  const money = (cents: number) => formatMoney(fromCents(Math.abs(cents)), currency);
+  const gap = gapLabels(gapCents, picked.at(-1), money, tl);
 
   const toggle = (doc: OpenDocument, on: boolean) => {
     setProblem(null);
-    setPicked((current) => {
-      if (!on) return current.filter((p) => p.doc.id !== doc.id);
-      if (current.some((p) => p.doc.id === doc.id)) return current;
-      const others = current.reduce((sum, p) => sum + (toCents(p.amount) || 0), 0);
-      const amount = defaultShare(paidCents, others, toCents(doc.openAmount));
-      return [...current, { doc, amount: fromCents(amount) }];
-    });
+    setPicked((current) => togglePicked(current, doc, on, paidCents));
   };
 
   const setAmount = (id: string, amount: string) => {
@@ -133,19 +280,15 @@ export function MatchDocumentsPanel({
     );
   };
 
-  const problemDoc = problem?.id ? picked.find((p) => p.doc.id === problem.id)?.doc : undefined;
-  const problemMessage = problem
-    ? problemText(problem.problem, problemDoc ? numberOf(problemDoc) : '', tl.problems)
-    : null;
-  const amountText = (cents: number) => formatMoney(fromCents(Math.abs(cents)), currency);
+  const message = problem ? problemMessage(problem, picked, tl) : (match.error as Error | null)?.message;
 
   return (
     <section aria-labelledby={`${ids}-title`} className="space-y-3 border-t pt-3">
       <div>
         <h3 id={`${ids}-title`} className="text-sm font-medium">
-          {moneyIn ? tl.titleIn : tl.titleOut}
+          {heading.title}
         </h3>
-        <p className="text-xs text-muted-foreground">{moneyIn ? tl.hintIn : tl.hintOut}</p>
+        <p className="text-xs text-muted-foreground">{heading.hint}</p>
       </div>
 
       <search className="space-y-1">
@@ -163,44 +306,14 @@ export function MatchDocumentsPanel({
         />
       </search>
 
-      {isLoading ? <InlineSpinner className="py-4" /> : null}
-      {!isLoading && documents.length === 0 ? (
-        <p className="text-sm text-muted-foreground">{tl.noDocuments}</p>
-      ) : null}
-      {!isLoading && documents.length > 0 ? (
-        <ul className="max-h-64 divide-y overflow-y-auto rounded-md border" data-testid="open-documents">
-          {documents.map((doc) => {
-            const id = `${ids}-doc-${doc.id}`;
-            const checked = picked.some((p) => p.doc.id === doc.id);
-            return (
-              <li key={doc.id} className="flex items-start gap-2 p-2">
-                <Checkbox
-                  id={id}
-                  className="mt-0.5"
-                  checked={checked}
-                  disabled={readOnly}
-                  onCheckedChange={(value) => toggle(doc, value === true)}
-                />
-                <label htmlFor={id} className="min-w-0 flex-1 cursor-pointer">
-                  <span className="flex items-center justify-between gap-2">
-                    <span className="truncate text-sm font-medium">
-                      {numberOf(doc)}
-                      <span className="ml-1.5 text-xs font-normal text-muted-foreground">{tl.types[doc.type]}</span>
-                    </span>
-                    <span className="shrink-0 text-sm tabular-nums">{formatMoney(doc.openAmount, doc.currency)}</span>
-                  </span>
-                  <span className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
-                    <span className="truncate">{doc.contactName}</span>
-                    {doc.dueDate ? (
-                      <span className="shrink-0 tabular-nums">{tl.due.replace('{date}', formatDate(doc.dueDate))}</span>
-                    ) : null}
-                  </span>
-                </label>
-              </li>
-            );
-          })}
-        </ul>
-      ) : null}
+      <OpenDocumentList
+        idPrefix={ids}
+        documents={documents}
+        isLoading={isLoading}
+        pickedIds={new Set(picked.map((p) => p.doc.id))}
+        readOnly={readOnly}
+        onToggle={toggle}
+      />
 
       {picked.length > 0 ? (
         <form
@@ -210,95 +323,30 @@ export function MatchDocumentsPanel({
           className="space-y-3 rounded-md bg-muted/40 p-3"
           data-testid="match-documents-form"
         >
-          <ul className="space-y-2">
-            {picked.map((p) => {
-              const id = `${ids}-amount-${p.doc.id}`;
-              const invalid = problem?.id === p.doc.id;
-              return (
-                <li key={p.doc.id} className="flex items-center justify-between gap-2">
-                  <Label htmlFor={id} className="min-w-0 flex-1 truncate font-normal">
-                    {tl.amountLabel.replace('{number}', numberOf(p.doc))}
-                  </Label>
-                  <Input
-                    id={id}
-                    name={`amount-${p.doc.id}`}
-                    inputMode="decimal"
-                    autoComplete="off"
-                    className="h-8 w-28 text-right tabular-nums"
-                    value={p.amount}
-                    aria-invalid={invalid || undefined}
-                    aria-describedby={invalid ? `${ids}-problem` : undefined}
-                    onChange={(event) => setAmount(p.doc.id, event.target.value)}
-                  />
-                </li>
-              );
-            })}
-          </ul>
+          <PickedAmounts idPrefix={ids} picked={picked} invalidId={problem?.id} errorId={errorId} onAmount={setAmount} />
+          <MatchTotals plan={plan} gapCents={gapCents} money={money} />
+          {gapCents === 0 ? null : (
+            <GapChoiceFieldset
+              idPrefix={ids}
+              legend={gap.legend}
+              leaveLabel={gap.leave}
+              accountChoiceLabel={gap.account}
+              choice={choice}
+              onChoiceChange={setChoice}
+              accounts={accounts}
+              accountId={accountId}
+              onAccountChange={(value) => {
+                setProblem(null);
+                setAccountId(value);
+              }}
+              labels={{ account: tl.accountLabel, accountPlaceholder: tl.accountPlaceholder }}
+              accountErrorId={problem?.problem === 'needsAccount' ? errorId : undefined}
+            />
+          )}
 
-          <dl className="grid grid-cols-[1fr_auto] gap-x-4 gap-y-0.5 text-sm" role="status" aria-live="polite">
-            <dt className="text-muted-foreground">{tl.transaction}</dt>
-            <dd className="text-right tabular-nums">{amountText(plan.paidCents)}</dd>
-            <dt className="text-muted-foreground">{tl.selected}</dt>
-            <dd className="text-right tabular-nums">{amountText(plan.allocatedCents)}</dd>
-            <dt className="font-medium">{tl.difference}</dt>
-            <dd className="text-right font-medium tabular-nums">{amountText(gap)}</dd>
-          </dl>
-
-          {gap !== 0 ? (
-            <fieldset className="space-y-2">
-              <legend className="mb-1 text-sm font-medium">
-                {(gap > 0 ? tl.gapOverLegend : tl.gapUnderLegend).replace('{amount}', amountText(gap))}
-              </legend>
-              <RadioGroup value={choice} onValueChange={(value) => setChoice(value as GapChoice)}>
-                <div className="flex items-center gap-2">
-                  <RadioGroupItem id={`${ids}-leave`} value="leave" />
-                  <Label htmlFor={`${ids}-leave`} className="font-normal">
-                    {gap > 0 && lastPicked
-                      ? tl.leavePartly.replace('{number}', numberOf(lastPicked.doc)).replace('{amount}', amountText(gap))
-                      : tl.keepCredit.replace('{amount}', amountText(gap))}
-                  </Label>
-                </div>
-                <div className="flex items-center gap-2">
-                  <RadioGroupItem id={`${ids}-account`} value="account" />
-                  <Label htmlFor={`${ids}-account`} className="font-normal">
-                    {tl.bookToAccount.replace('{amount}', amountText(gap))}
-                  </Label>
-                </div>
-              </RadioGroup>
-              {choice === 'account' ? (
-                <div className="space-y-1">
-                  <Label htmlFor={`${ids}-difference-account`}>{tl.accountLabel}</Label>
-                  <Select
-                    value={accountId}
-                    onValueChange={(value) => {
-                      setProblem(null);
-                      setAccountId(value);
-                    }}
-                  >
-                    <SelectTrigger
-                      id={`${ids}-difference-account`}
-                      className="w-full"
-                      aria-invalid={problem?.problem === 'needsAccount' || undefined}
-                      aria-describedby={problem?.problem === 'needsAccount' ? `${ids}-problem` : undefined}
-                    >
-                      <SelectValue placeholder={tl.accountPlaceholder} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {accounts.map((a) => (
-                        <SelectItem key={a.id} value={a.id}>
-                          {a.code} — {a.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              ) : null}
-            </fieldset>
-          ) : null}
-
-          {problemMessage || match.error ? (
-            <p id={`${ids}-problem`} className="text-sm text-destructive" role="alert" data-testid="match-documents-error">
-              {problemMessage ?? (match.error as Error).message}
+          {message ? (
+            <p id={errorId} className="text-sm text-destructive" role="alert" data-testid="match-documents-error">
+              {message}
             </p>
           ) : null}
 

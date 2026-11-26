@@ -21,16 +21,18 @@ import { Label } from '@weldsuite/ui/components/label';
 import { InlineSpinner } from '@weldsuite/ui/components/page-loader';
 import { RadioGroup, RadioGroupItem } from '@weldsuite/ui/components/radio-group';
 import { SearchInput } from '@weldsuite/ui/components/search-input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@weldsuite/ui/components/select';
 import { ledgerCategoryAccounts } from '@/components/accounting/categorize-bank-transaction-panel';
+import { GapChoiceFieldset } from '@/components/accounting/gap-choice-fieldset';
 import { useDebounce } from '@/hooks/use-debounce';
 import { useAccountingAccounts } from '@/hooks/queries/use-accounting-queries';
 import { useBankLinesForDocument, useMatchBankLineToDocuments } from '@/hooks/queries/use-weldbooks-banking-queries';
 import type { Account } from '@/lib/api/domains/weldbooks';
 import type { CandidateBankLine, OpenDocumentType } from '@/lib/api/domains/weldbooks-banking';
 import { useI18n } from '@/lib/i18n/provider';
-import { fromCents, planMatch, toCents, type GapChoice } from '@/lib/weldbooks/bank-link-math';
+import { fromCents, planMatch, toCents, type GapChoice, type MatchPlan } from '@/lib/weldbooks/bank-link-math';
 import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
+
+type Labels = ReturnType<typeof useI18n>['t']['accounting']['bankLinks'];
 
 export interface LinkableDocument {
   kind: OpenDocumentType;
@@ -44,6 +46,75 @@ interface LinkBankLineDialogProps {
   document: LinkableDocument;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+}
+
+function dialogDescription(kind: OpenDocumentType, tl: Labels): string {
+  if (kind === 'bill') return tl.dialogDescriptionBill;
+  if (kind === 'credit_note') return tl.dialogDescriptionCreditNote;
+  return tl.dialogDescriptionInvoice;
+}
+
+/**
+ * The request for linking `line` to the document, and the gap (open amount
+ * less the transaction, in cents). Less than open: leave the rest open (the
+ * line's amount) or settle in full and book the gap. More than open: settle
+ * in full; the rest stays as credit or goes to the account.
+ */
+function linkPlan(
+  document: LinkableDocument,
+  line: CandidateBankLine,
+  choice: GapChoice,
+  accountId: string,
+  description: string,
+): { plan: MatchPlan; gapCents: number } {
+  const openCents = toCents(document.openAmount);
+  const lineCents = Math.abs(toCents(line.amount));
+  const shareCents = lineCents < openCents && choice === 'leave' ? lineCents : openCents;
+  const plan = planMatch({
+    transactionAmount: line.amount,
+    shares: [
+      {
+        id: document.id,
+        type: document.kind === 'bill' ? 'bill' : 'invoice',
+        amount: fromCents(shareCents),
+        openAmount: document.openAmount,
+      },
+    ],
+    choice,
+    accountId,
+    description,
+  });
+  return { plan, gapCents: openCents - lineCents };
+}
+
+/** The wording of the gap choice: the legend and the two options. */
+function linkGapLabels(gapCents: number, money: (cents: number) => string, tl: Labels) {
+  const amount = money(gapCents);
+  if (gapCents > 0) {
+    return {
+      legend: tl.gapOverLegend.replace('{amount}', amount),
+      leave: tl.leaveOpen.replace('{amount}', amount),
+      account: tl.markPaidAndBook.replace('{amount}', amount),
+    };
+  }
+  return {
+    legend: tl.gapUnderLegend.replace('{amount}', amount),
+    leave: tl.keepCredit.replace('{amount}', amount),
+    account: tl.bookToAccount.replace('{amount}', amount),
+  };
+}
+
+/** Why a submit was refused, or why the server refused it. */
+function linkProblem(
+  shown: boolean,
+  picked: boolean,
+  needsAccount: boolean,
+  error: Error | null,
+  tl: Labels,
+): string | null {
+  if (shown && !picked) return tl.noLines;
+  if (needsAccount) return tl.problems.needsAccount;
+  return error?.message ?? null;
 }
 
 /** One unmatched transaction to pick. */
@@ -67,6 +138,51 @@ function LineOption({ line, id, formatted }: Readonly<{ line: CandidateBankLine;
   );
 }
 
+/** The unmatched transactions found, one to pick. */
+function CandidateLineList({
+  idPrefix,
+  lines,
+  isLoading,
+  lineId,
+  currency,
+  onPick,
+}: Readonly<{
+  idPrefix: string;
+  lines: CandidateBankLine[];
+  isLoading: boolean;
+  lineId: string;
+  currency: string | null;
+  onPick: (lineId: string) => void;
+}>) {
+  const { t } = useI18n();
+  const tl = t.accounting.bankLinks;
+  const { formatMoney, formatDate } = useWeldbooksFormat();
+  let body;
+  if (isLoading) body = <InlineSpinner className="py-4" />;
+  else if (lines.length === 0) body = <p className="text-sm text-muted-foreground">{tl.noLines}</p>;
+  else
+    body = (
+      <RadioGroup value={lineId} onValueChange={onPick} className="gap-0">
+        <ul className="max-h-72 divide-y overflow-y-auto rounded-md border" data-testid="candidate-lines">
+          {lines.map((l) => (
+            <LineOption
+              key={l.id}
+              line={l}
+              id={`${idPrefix}-line-${l.id}`}
+              formatted={{ amount: formatMoney(l.amount, l.currency ?? currency), date: formatDate(l.date) }}
+            />
+          ))}
+        </ul>
+      </RadioGroup>
+    );
+  return (
+    <fieldset className="space-y-1">
+      <legend className="text-sm font-medium">{tl.linesLegend}</legend>
+      {body}
+    </fieldset>
+  );
+}
+
 /** The ledger accounts a difference can go to. */
 function useDifferenceAccounts(): Account[] {
   const { data } = useAccountingAccounts();
@@ -76,12 +192,14 @@ function useDifferenceAccounts(): Account[] {
 function LinkBankLineForm({ document, onDone }: Readonly<{ document: LinkableDocument; onDone: () => void }>) {
   const { t } = useI18n();
   const tl = t.accounting.bankLinks;
-  const { formatMoney, formatDate } = useWeldbooksFormat();
+  const { formatMoney } = useWeldbooksFormat();
   const ids = useId();
+  const errorId = `${ids}-problem`;
   const [search, setSearch] = useState('');
   const debounced = useDebounce(search.trim(), 300);
-  const query = document.kind === 'bill' ? { billId: document.id, search: debounced } : { invoiceId: document.id, search: debounced };
-  const { data, isLoading } = useBankLinesForDocument(query);
+  const { data, isLoading } = useBankLinesForDocument(
+    document.kind === 'bill' ? { billId: document.id, search: debounced } : { invoiceId: document.id, search: debounced },
+  );
   const lines = data?.lines ?? [];
   const [lineId, setLineId] = useState('');
   const [choice, setChoice] = useState<GapChoice>('leave');
@@ -91,42 +209,18 @@ function LinkBankLineForm({ document, onDone }: Readonly<{ document: LinkableDoc
   const match = useMatchBankLineToDocuments();
 
   const line = lines.find((l) => l.id === lineId);
-  const openCents = toCents(document.openAmount);
-  const lineCents = line ? Math.abs(toCents(line.amount)) : 0;
-  // Less than open: leave the rest open (the line's amount) or settle in full and book the gap.
-  // More than open: settle in full; the rest stays as credit or goes to the account.
-  const shareCents = lineCents < openCents && choice === 'leave' ? lineCents : openCents;
-  const plan = line
-    ? planMatch({
-        transactionAmount: line.amount,
-        shares: [
-          {
-            id: document.id,
-            type: document.kind === 'bill' ? 'bill' : 'invoice',
-            amount: fromCents(shareCents),
-            openAmount: document.openAmount,
-          },
-        ],
-        choice,
-        accountId,
-        description: tl.differenceDescription,
-      })
-    : null;
-  const gapCents = line ? openCents - lineCents : 0;
+  const linked = line ? linkPlan(document, line, choice, accountId, tl.differenceDescription) : null;
+  const gapCents = linked?.gapCents ?? 0;
   const money = (cents: number) => formatMoney(fromCents(Math.abs(cents)), document.currency);
-
-  let description = tl.dialogDescriptionInvoice;
-  if (document.kind === 'bill') description = tl.dialogDescriptionBill;
-  else if (document.kind === 'credit_note') description = tl.dialogDescriptionCreditNote;
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    if (!line || !plan?.body || plan.problem) {
+    if (!line || !linked?.plan.body || linked.plan.problem) {
       setShowProblem(true);
       return;
     }
     match.mutate(
-      { lineId: line.id, data: plan.body },
+      { lineId: line.id, data: linked.plan.body },
       {
         onSuccess: () => {
           toast.success(tl.linked);
@@ -136,20 +230,17 @@ function LinkBankLineForm({ document, onDone }: Readonly<{ document: LinkableDoc
     );
   };
 
-  let problem: string | null = null;
-  if (showProblem && !line) problem = tl.noLines;
-  else if (showProblem && plan?.problem === 'needsAccount') problem = tl.problems.needsAccount;
-  else if (match.error) problem = (match.error as Error).message;
-
-  let gapText: string | null = null;
-  if (line && gapCents === 0) gapText = tl.paysInFull;
+  const needsAccount = showProblem && linked?.plan.problem === 'needsAccount';
+  const problem = linkProblem(showProblem, !!line, needsAccount, match.error as Error | null, tl);
+  const gap = linkGapLabels(gapCents, money, tl);
 
   return (
     <form onSubmit={submit} noValidate className="space-y-4" aria-describedby={`${ids}-description`}>
       <DialogHeader>
         <DialogTitle>{tl.dialogTitle}</DialogTitle>
         <DialogDescription id={`${ids}-description`}>
-          {description} {tl.stillOpen.replace('{amount}', formatMoney(document.openAmount, document.currency))}
+          {dialogDescription(document.kind, tl)}{' '}
+          {tl.stillOpen.replace('{amount}', formatMoney(document.openAmount, document.currency))}
         </DialogDescription>
       </DialogHeader>
 
@@ -168,90 +259,44 @@ function LinkBankLineForm({ document, onDone }: Readonly<{ document: LinkableDoc
         />
       </search>
 
-      <fieldset className="space-y-1">
-        <legend className="text-sm font-medium">{tl.linesLegend}</legend>
-        {isLoading ? <InlineSpinner className="py-4" /> : null}
-        {!isLoading && lines.length === 0 ? <p className="text-sm text-muted-foreground">{tl.noLines}</p> : null}
-        {!isLoading && lines.length > 0 ? (
-          <RadioGroup
-            value={lineId}
-            onValueChange={(value) => {
-              setShowProblem(false);
-              setLineId(value);
-            }}
-            className="gap-0"
-          >
-            <ul className="max-h-72 divide-y overflow-y-auto rounded-md border" data-testid="candidate-lines">
-              {lines.map((l) => (
-                <LineOption
-                  key={l.id}
-                  line={l}
-                  id={`${ids}-line-${l.id}`}
-                  formatted={{ amount: formatMoney(l.amount, l.currency ?? document.currency), date: formatDate(l.date) }}
-                />
-              ))}
-            </ul>
-          </RadioGroup>
-        ) : null}
-      </fieldset>
+      <CandidateLineList
+        idPrefix={ids}
+        lines={lines}
+        isLoading={isLoading}
+        lineId={lineId}
+        currency={document.currency}
+        onPick={(value) => {
+          setShowProblem(false);
+          setLineId(value);
+        }}
+      />
 
-      {gapText ? (
+      {line && gapCents === 0 ? (
         <p className="text-sm" role="status">
-          {gapText}
+          {tl.paysInFull}
         </p>
       ) : null}
       {line && gapCents !== 0 ? (
-        <fieldset className="space-y-2">
-          <legend className="mb-1 text-sm font-medium">
-            {(gapCents > 0 ? tl.gapOverLegend : tl.gapUnderLegend).replace('{amount}', money(gapCents))}
-          </legend>
-          <RadioGroup value={choice} onValueChange={(value) => setChoice(value as GapChoice)}>
-            <div className="flex items-center gap-2">
-              <RadioGroupItem id={`${ids}-leave`} value="leave" />
-              <Label htmlFor={`${ids}-leave`} className="font-normal">
-                {(gapCents > 0 ? tl.leaveOpen : tl.keepCredit).replace('{amount}', money(gapCents))}
-              </Label>
-            </div>
-            <div className="flex items-center gap-2">
-              <RadioGroupItem id={`${ids}-account`} value="account" />
-              <Label htmlFor={`${ids}-account`} className="font-normal">
-                {(gapCents > 0 ? tl.markPaidAndBook : tl.bookToAccount).replace('{amount}', money(gapCents))}
-              </Label>
-            </div>
-          </RadioGroup>
-          {choice === 'account' ? (
-            <div className="space-y-1">
-              <Label htmlFor={`${ids}-difference-account`}>{tl.accountLabel}</Label>
-              <Select
-                value={accountId}
-                onValueChange={(value) => {
-                  setShowProblem(false);
-                  setAccountId(value);
-                }}
-              >
-                <SelectTrigger
-                  id={`${ids}-difference-account`}
-                  className="w-full"
-                  aria-invalid={(showProblem && plan?.problem === 'needsAccount') || undefined}
-                  aria-describedby={problem ? `${ids}-problem` : undefined}
-                >
-                  <SelectValue placeholder={tl.accountPlaceholder} />
-                </SelectTrigger>
-                <SelectContent>
-                  {accounts.map((a) => (
-                    <SelectItem key={a.id} value={a.id}>
-                      {a.code} — {a.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          ) : null}
-        </fieldset>
+        <GapChoiceFieldset
+          idPrefix={ids}
+          legend={gap.legend}
+          leaveLabel={gap.leave}
+          accountChoiceLabel={gap.account}
+          choice={choice}
+          onChoiceChange={setChoice}
+          accounts={accounts}
+          accountId={accountId}
+          onAccountChange={(value) => {
+            setShowProblem(false);
+            setAccountId(value);
+          }}
+          labels={{ account: tl.accountLabel, accountPlaceholder: tl.accountPlaceholder }}
+          accountErrorId={needsAccount ? errorId : undefined}
+        />
       ) : null}
 
       {problem ? (
-        <p id={`${ids}-problem`} className="text-sm text-destructive" role="alert" data-testid="link-bank-line-error">
+        <p id={errorId} className="text-sm text-destructive" role="alert" data-testid="link-bank-line-error">
           {problem}
         </p>
       ) : null}
