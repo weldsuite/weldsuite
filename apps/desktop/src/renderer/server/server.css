@@ -109,6 +109,7 @@ form {
 }
 
 .status {
+  display: block;
   color: var(--muted);
 }
 

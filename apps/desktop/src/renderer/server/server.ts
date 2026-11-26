@@ -32,7 +32,7 @@ const defaultHost = document.querySelector<HTMLSpanElement>('#default-host')!;
 const address = document.querySelector<HTMLInputElement>('#address')!;
 const addressError = document.querySelector<HTMLSpanElement>('#address-error')!;
 const locked = document.querySelector<HTMLParagraphElement>('#locked')!;
-const status = document.querySelector<HTMLParagraphElement>('#status')!;
+const status = document.querySelector<HTMLOutputElement>('#status')!;
 const cancel = document.querySelector<HTMLButtonElement>('#cancel')!;
 const connect = document.querySelector<HTMLButtonElement>('#connect')!;
 

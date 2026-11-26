@@ -192,7 +192,11 @@ function isOfflinePage(url: string): boolean {
 }
 
 // Electron's fetch for the server check: the session's proxy and certificates.
-const netFetch: FetchLike = (url, init) => net.fetch(url, init);
+// S5144 reviewed: the URL is `<origin>/config.json` for a server the person
+// typed into "Change server…" themselves (that's the feature), on their own
+// machine, and checkServer only passes an origin normaliseServerAddress
+// accepted: https, or http on a loopback host, no credentials, no redirects.
+const netFetch: FetchLike = (url, init) => net.fetch(url, init); // NOSONAR: S5144 reviewed, see above
 
 /** End the sign-in waiting in the browser: its page is gone, or another replaced it. */
 function cancelBrowserSignIn() {
@@ -950,7 +954,7 @@ function checkForUpdatesInBackground(): void {
   autoUpdater.checkForUpdatesAndNotify().catch(() => undefined);
 }
 
-app.whenReady().then(async () => {
+void app.whenReady().then(async () => {
   server = readServerChoice();
   Menu.setApplicationMenu(applicationMenu());
 

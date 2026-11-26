@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src ws://localhost:*"
+      content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:"
     />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>WeldSuite</title>
@@ -19,11 +19,11 @@
           />
         </svg>
       </div>
-      <h1 id="heading"></h1>
-      <p class="lead" data-text="offlineBody"></p>
+      <h1 id="heading">Can’t reach WeldSuite</h1>
+      <p class="lead" data-text="offlineBody">Check your internet connection. WeldSuite opens again as soon as you’re back online.</p>
       <div class="actions">
-        <button type="button" id="change-server" class="button" data-text="offlineChangeServer" hidden></button>
-        <button type="button" id="retry" class="button button--primary" data-text="offlineRetry"></button>
+        <button type="button" id="change-server" class="button" data-text="offlineChangeServer" hidden>Change server…</button>
+        <button type="button" id="retry" class="button button--primary" data-text="offlineRetry">Try again</button>
       </div>
       <p id="detail" class="detail"></p>
     </main>
