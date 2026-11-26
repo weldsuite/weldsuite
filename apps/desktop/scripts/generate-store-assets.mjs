@@ -27,26 +27,30 @@ async function tile(file, width, height, size = Math.min(width, height)) {
 }
 
 await mkdir(OUT, { recursive: true });
-for (const file of await readdir(OUT)) await rm(path.join(OUT, file));
+await Promise.all((await readdir(OUT)).map((file) => rm(path.join(OUT, file))));
 
-for (const scale of [100, 200]) {
+const scaled = [100, 200].flatMap((scale) => {
   const s = scale / 100;
-  // The Store's own listing and the package's logo.
-  await tile(`StoreLogo.scale-${scale}.png`, 50 * s, 50 * s);
-  // Start menu, taskbar and the app list.
-  await tile(`Square44x44Logo.scale-${scale}.png`, 44 * s, 44 * s);
-  // Start tiles: medium, wide (the icon in the middle), small and large.
-  await tile(`Square150x150Logo.scale-${scale}.png`, 150 * s, 150 * s, 100 * s);
-  await tile(`Wide310x150Logo.scale-${scale}.png`, 310 * s, 150 * s, 100 * s);
-  await tile(`SmallTile.scale-${scale}.png`, 71 * s, 71 * s, 56 * s);
-  await tile(`LargeTile.scale-${scale}.png`, 310 * s, 310 * s, 200 * s);
-}
+  return [
+    // The Store's own listing and the package's logo.
+    tile(`StoreLogo.scale-${scale}.png`, 50 * s, 50 * s),
+    // Start menu, taskbar and the app list.
+    tile(`Square44x44Logo.scale-${scale}.png`, 44 * s, 44 * s),
+    // Start tiles: medium, wide (the icon in the middle), small and large.
+    tile(`Square150x150Logo.scale-${scale}.png`, 150 * s, 150 * s, 100 * s),
+    tile(`Wide310x150Logo.scale-${scale}.png`, 310 * s, 150 * s, 100 * s),
+    tile(`SmallTile.scale-${scale}.png`, 71 * s, 71 * s, 56 * s),
+    tile(`LargeTile.scale-${scale}.png`, 310 * s, 310 * s, 200 * s),
+  ];
+});
 
 // The taskbar and Explorer ask for exact pixel sizes; "unplated" draws the
 // icon without the tile behind it.
-for (const size of [16, 24, 32, 48, 256]) {
-  await tile(`Square44x44Logo.targetsize-${size}.png`, size, size);
-  await tile(`Square44x44Logo.targetsize-${size}_altform-unplated.png`, size, size);
-}
+const exact = [16, 24, 32, 48, 256].flatMap((size) => [
+  tile(`Square44x44Logo.targetsize-${size}.png`, size, size),
+  tile(`Square44x44Logo.targetsize-${size}_altform-unplated.png`, size, size),
+]);
+
+await Promise.all([...scaled, ...exact]);
 
 console.log(`wrote ${(await readdir(OUT)).length} images to assets/appx`);
