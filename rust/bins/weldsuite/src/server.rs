@@ -1122,6 +1122,45 @@ mod tests {
         assert_eq!(body["auth"]["extensionClientId"], "300000000000000600");
     }
 
+    /// `/config.json` as the native apps read it
+    /// (`apps/mobile-shared/openapi/core.yaml`, `getRuntimeConfig`): with
+    /// Clerk (no `auth`), with Zitadel (claim mode, no mobile client) and with
+    /// WeldID (header mode), as `main.rs` builds the `auth` block.
+    #[tokio::test]
+    async fn config_is_what_the_native_apps_read() {
+        use crate::public_auth::{OidcClients, oidc_public_auth};
+        use weldsuite_auth::{OidcSettings, WorkspaceSource};
+
+        let contract = weldsuite_kit::openapi_contract::Contract::load("core");
+        contract
+            .success(&router(state()), "getRuntimeConfig", &[], &[], None)
+            .await;
+        for (source, mobile, weldid) in [
+            (WorkspaceSource::Claim, None, false),
+            (WorkspaceSource::Header, Some("weldsuite-mobile"), true),
+        ] {
+            let settings = OidcSettings {
+                workspace_source: source,
+                ..OidcSettings::new("https://id.example.eu/", vec!["weldsuite-api".to_owned()])
+            };
+            let mut state = state();
+            state.public_auth = Some(Arc::new(oidc_public_auth(&OidcClients {
+                settings: &settings,
+                web_client_id: Some("weldsuite-web"),
+                mobile_client_id: mobile,
+                desktop_client_id: None,
+                extension_client_id: None,
+                platform_sign_in: true,
+                weldid,
+            })));
+            let body = contract
+                .success(&router(state), "getRuntimeConfig", &[], &[], None)
+                .await;
+            assert_eq!(body["auth"]["mobileClientId"], json!(mobile));
+        }
+        contract.finish_only(&["getRuntimeConfig"]);
+    }
+
     #[tokio::test]
     async fn unknown_paths_get_the_json_404() {
         let (status, _, body) = call(state(), get("/nope")).await;

@@ -556,7 +556,9 @@ rust/
   docs/spikes.md        the answers to spikes S3 (PgBouncer) and S4 (thousands of tenants)
   Dockerfile            the image (distroless, nonroot, cross-compiled for arm64) with the platform SPA; context is the repo root
   bins/weldsuite/       the one binary: `serve` (routes/, infra.rs, conformance.rs), `consume` (consume/), `cron <job>` (cron.rs), `migrate` (migrate.rs)
-  crates/kit/           envelope, errors, ids, CORS, request id, pagination, cursors, zod-shaped validation
+  crates/kit/           envelope, errors, ids, CORS, request id, pagination, cursors, zod-shaped validation;
+                        for tests (feature `openapi-contract`), the native apps' OpenAPI files checked
+                        against the routes (apps/mobile-shared/README.md)
   crates/catalogs/      entity events, permission keys, flags, API modules (+ Rust flag), origins
   crates/auth/          session tokens: Clerk's or an OIDC provider's (Zitadel; discovery, fetched JWKS), step-up second factor
   crates/permissions/   @weldsuite/permissions: matching, per-app checks, grants, resolution, route layer

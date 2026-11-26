@@ -1,0 +1,160 @@
+openapi: 3.0.3
+info:
+  title: WeldSuite core API (native apps)
+  version: 1.0.0
+  description: |
+    The core endpoints every native WeldSuite app uses: the server's
+    `/config.json` and the signed-in person's workspaces.
+
+    Hand-written. The Rust server is the source of truth: change both
+    together, and see "Changing the contract" in apps/mobile-shared/README.md
+    for what apps already on phones can read.
+
+    Checked against the server: `getRuntimeConfig` in
+    rust/bins/weldsuite/src/server.rs, `listWorkspaces` in
+    rust/modules/core-team/tests/openapi_contract.rs. They fail when an
+    answer doesn't fit (status, required fields, nulls, types, enums).
+
+    Every `/api` request carries `Authorization: Bearer <WeldID access token>`
+    and names its workspace in `X-Weld-Workspace` (`workspaces.id`), except
+    `GET /api/workspaces`, which lists them.
+servers:
+  - url: https://app.weldsuite.eu
+paths:
+  /config.json:
+    get:
+      operationId: getRuntimeConfig
+      summary: What the server tells its clients about itself.
+      security: []
+      responses:
+        '200':
+          description: The runtime configuration. Unknown fields are ignored by clients.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RuntimeConfig'
+  /api/workspaces:
+    get:
+      operationId: listWorkspaces
+      summary: The workspaces the signed-in person belongs to.
+      responses:
+        '200':
+          description: The workspace list.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkspaceList'
+        default:
+          $ref: '#/components/responses/Error'
+components:
+  securitySchemes:
+    bearer:
+      type: http
+      scheme: bearer
+  responses:
+    Error:
+      description: An error.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+  schemas:
+    RuntimeConfig:
+      type: object
+      properties:
+        backend:
+          type: string
+        version:
+          type: string
+        edition:
+          type: string
+        modules:
+          type: array
+          items:
+            type: string
+        unavailableFeatures:
+          type: array
+          items:
+            type: string
+        realtimeUrl:
+          type: string
+        auth:
+          $ref: '#/components/schemas/RuntimeAuth'
+        mobile:
+          $ref: '#/components/schemas/RuntimeMobile'
+    RuntimeMobile:
+      type: object
+      description: What the server asks of the native apps.
+      properties:
+        minVersions:
+          type: object
+          description: |
+            The oldest app version that still works with this server, per app
+            code (`{"weldpass": "2.0.0"}`). Older versions ask to be updated.
+          additionalProperties:
+            type: string
+    RuntimeAuth:
+      type: object
+      required: [provider]
+      properties:
+        provider:
+          type: string
+          description: '`oidc` on the Kubernetes editions.'
+        issuer:
+          type: string
+        mobileClientId:
+          type: string
+          nullable: true
+          description: The native apps' public client. Absent or null means the apps can't sign in here.
+        audience:
+          type: string
+          nullable: true
+        scopes:
+          type: array
+          items:
+            type: string
+        workspaceSource:
+          type: string
+          description: '`header` (WeldID: every request names its workspace) or `claim`.'
+        accountUrl:
+          type: string
+          nullable: true
+    WorkspaceList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Workspace'
+    Workspace:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: string
+          description: '`workspaces.id` (`ws_…`).'
+        name:
+          type: string
+        slug:
+          type: string
+          nullable: true
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          $ref: '#/components/schemas/ErrorBody'
+    ErrorBody:
+      type: object
+      description: |
+        Most errors carry `code` and `message`. A request body that fails
+        validation gets Zod's shape instead (`{ name, issues }`), so neither
+        is required.
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+security:
+  - bearer: []

@@ -14,6 +14,8 @@ pub mod cors;
 pub mod cursor;
 pub mod id;
 pub mod log_safe;
+#[cfg(feature = "openapi-contract")]
+pub mod openapi_contract;
 pub mod pagination;
 pub mod portal;
 pub mod request_env;

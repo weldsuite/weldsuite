@@ -1,0 +1,279 @@
+# Store builds of the native apps (apps/ios, apps/android), started by hand.
+# They replace the Expo apps one at a time (plan
+# weldsuite-documentation/plans/native-mobile-apps.md); "Mobile native build"
+# (mobile-build.yml) still builds the Expo apps through EAS.
+#
+# Signing happens here, not on EAS, with the secrets of the `mobile-release`
+# environment (limited to main):
+#   - iOS: an App Store Connect API key with the Admin role
+#     (APP_STORE_CONNECT_API_KEY, the .p8 file's contents;
+#     APP_STORE_CONNECT_API_KEY_ID; APP_STORE_CONNECT_API_ISSUER_ID) and
+#     APPLE_TEAM_ID. xcodebuild signs automatically with it: it registers the
+#     bundle ids, the App Group and the Keychain group, and makes the
+#     certificates and profiles it needs.
+#   - Android: the app's upload key (ANDROID_UPLOAD_KEYSTORE, the keystore
+#     base64-encoded; ANDROID_UPLOAD_KEYSTORE_PASSWORD; ANDROID_UPLOAD_KEY_ALIAS;
+#     ANDROID_UPLOAD_KEY_PASSWORD) and, to upload, a Google Play service
+#     account with release rights on the app (GOOGLE_PLAY_SERVICE_ACCOUNT_JSON).
+#
+# `upload` sends the build to TestFlight (iOS) and the Play internal testing
+# track (Android). Releasing to the public stays a manual step in App Store
+# Connect and Play Console. Once per app, before the first upload: create the
+# app in App Store Connect, and in Play Console upload one release by hand,
+# since the Play API refuses an app's very first upload (use the `.aab` this
+# workflow attaches when `upload` is off).
+#
+# The build number is 200 plus this workflow's run number, on both platforms,
+# so every run is higher than the last and above the Expo apps' 1.x builds.
+name: Mobile native release
+
+on:
+  workflow_dispatch:
+    inputs:
+      app:
+        description: 'App'
+        type: choice
+        required: true
+        default: weldpass
+        options: [weldpass]
+      platform:
+        description: 'Platforms'
+        type: choice
+        required: true
+        default: all
+        options: [all, android, ios]
+      upload:
+        description: 'Upload to TestFlight (iOS) and the Play internal testing track (Android). Off: build, sign and attach the binaries to the run.'
+        type: boolean
+        default: true
+
+concurrency:
+  group: mobile-native-release-${{ inputs.app }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  android:
+    name: Android ${{ inputs.app }}
+    if: inputs.platform != 'ios'
+    runs-on: ubuntu-24.04
+    environment:
+      name: mobile-release
+      deployment: false
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build number
+        run: echo "BUILD_NUMBER=$((200 + GITHUB_RUN_NUMBER))" >> "$GITHUB_ENV"
+
+      - name: Check the secrets
+        env:
+          KEYSTORE: ${{ secrets.ANDROID_UPLOAD_KEYSTORE }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_UPLOAD_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEY_PASSWORD }}
+          PLAY_JSON: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
+          UPLOAD: ${{ inputs.upload }}
+        run: |
+          set -euo pipefail
+          missing=()
+          [ -n "$KEYSTORE" ] || missing+=(ANDROID_UPLOAD_KEYSTORE)
+          [ -n "$KEYSTORE_PASSWORD" ] || missing+=(ANDROID_UPLOAD_KEYSTORE_PASSWORD)
+          [ -n "$KEY_ALIAS" ] || missing+=(ANDROID_UPLOAD_KEY_ALIAS)
+          [ -n "$KEY_PASSWORD" ] || missing+=(ANDROID_UPLOAD_KEY_PASSWORD)
+          if [ "$UPLOAD" = "true" ] && [ -z "$PLAY_JSON" ]; then missing+=(GOOGLE_PLAY_SERVICE_ACCOUNT_JSON); fi
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "::error title=Secrets missing::Add ${missing[*]} under Settings -> Environments -> mobile-release -> Secrets."
+            exit 1
+          fi
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Build and sign
+        working-directory: apps/android
+        env:
+          APP: ${{ inputs.app }}
+          KEYSTORE: ${{ secrets.ANDROID_UPLOAD_KEYSTORE }}
+          WELD_UPLOAD_KEYSTORE: ${{ runner.temp }}/upload.jks
+          WELD_UPLOAD_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_PASSWORD }}
+          WELD_UPLOAD_KEY_ALIAS: ${{ secrets.ANDROID_UPLOAD_KEY_ALIAS }}
+          WELD_UPLOAD_KEY_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$KEYSTORE" | base64 --decode > "$WELD_UPLOAD_KEYSTORE"
+          ./gradlew --no-daemon ":apps:$APP:bundleRelease" "-PweldVersionCode=$BUILD_NUMBER"
+          rm -f "$WELD_UPLOAD_KEYSTORE"
+          bundle="apps/$APP/build/outputs/bundle/release/$APP-release.aab"
+          # jarsigner exits 0 on an unsigned bundle too; its message tells them apart.
+          jarsigner -verify "$bundle" | grep -q "jar verified"
+          echo "BUNDLE=apps/android/$bundle" >> "$GITHUB_ENV"
+          echo "MAPPING=apps/android/apps/$APP/build/outputs/mapping/release/mapping.txt" >> "$GITHUB_ENV"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.app }}-android-${{ env.BUILD_NUMBER }}
+          path: |
+            ${{ env.BUNDLE }}
+            ${{ env.MAPPING }}
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload to the Play internal testing track
+        if: inputs.upload
+        uses: r0adkll/upload-google-play@e738b9dd8f2476ea806d921b64aacd24f34515a5 # v1.1.5
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName: com.weldsuite.${{ inputs.app }}
+          releaseFiles: ${{ env.BUNDLE }}
+          mappingFile: ${{ env.MAPPING }}
+          track: internal
+          status: completed
+
+      - name: Summary
+        env:
+          APP: ${{ inputs.app }}
+          UPLOAD: ${{ inputs.upload }}
+        run: |
+          {
+            echo "### $APP Android, version code $BUILD_NUMBER"
+            echo ""
+            echo "- The signed \`.aab\` and its R8 mapping are attached to this run."
+            if [ "$UPLOAD" = "true" ]; then
+              echo "- Uploaded to the Play **internal testing** track. Promoting it is a manual step in Play Console."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  ios:
+    name: iOS ${{ inputs.app }}
+    if: inputs.platform != 'android'
+    runs-on: macos-26
+    environment:
+      name: mobile-release
+      deployment: false
+    timeout-minutes: 60
+    # pipefail: xcodebuild's output goes through xcbeautify, which would
+    # otherwise hide xcodebuild's exit code.
+    defaults:
+      run:
+        shell: bash -eo pipefail {0}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build number
+        run: echo "BUILD_NUMBER=$((200 + GITHUB_RUN_NUMBER))" >> "$GITHUB_ENV"
+
+      - name: Check the secrets
+        env:
+          KEY: ${{ secrets.APP_STORE_CONNECT_API_KEY }}
+          KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
+          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          missing=()
+          [ -n "$KEY" ] || missing+=(APP_STORE_CONNECT_API_KEY)
+          [ -n "$KEY_ID" ] || missing+=(APP_STORE_CONNECT_API_KEY_ID)
+          [ -n "$ISSUER_ID" ] || missing+=(APP_STORE_CONNECT_API_ISSUER_ID)
+          [ -n "$TEAM_ID" ] || missing+=(APPLE_TEAM_ID)
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "::error title=Secrets missing::Add ${missing[*]} under Settings -> Environments -> mobile-release -> Secrets."
+            exit 1
+          fi
+
+      - uses: jdx/mise-action@v2
+        with:
+          working_directory: apps/ios
+
+      - name: Generate the Xcode project
+        working-directory: apps/ios
+        run: tuist generate --no-open
+
+      - name: Archive
+        working-directory: apps/ios
+        env:
+          APP: ${{ inputs.app }}
+          KEY: ${{ secrets.APP_STORE_CONNECT_API_KEY }}
+          KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
+          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          key_path="$RUNNER_TEMP/AuthKey_$KEY_ID.p8"
+          printf '%s' "$KEY" > "$key_path"
+          echo "KEY_PATH=$key_path" >> "$GITHUB_ENV"
+          # The scheme is the app's name with a capital, as Project.swift names it.
+          scheme="$(node -e 'const a=process.argv[1]; console.log("Weld"+a[4].toUpperCase()+a.slice(5))' "$APP")"
+          echo "SCHEME=$scheme" >> "$GITHUB_ENV"
+          xcodebuild archive \
+            -workspace WeldSuite.xcworkspace \
+            -scheme "$scheme" \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$RUNNER_TEMP/$scheme.xcarchive" \
+            -skipPackagePluginValidation -skipMacroValidation \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$key_path" \
+            -authenticationKeyID "$KEY_ID" \
+            -authenticationKeyIssuerID "$ISSUER_ID" \
+            DEVELOPMENT_TEAM="$TEAM_ID" \
+            CODE_SIGN_STYLE=Automatic \
+            CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
+            | xcbeautify --renderer github-actions
+
+      - name: Export${{ inputs.upload && ' and upload to TestFlight' || '' }}
+        working-directory: apps/ios
+        env:
+          KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
+          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          UPLOAD: ${{ inputs.upload }}
+        run: |
+          destination=export
+          if [ "$UPLOAD" = "true" ]; then destination=upload; fi
+          plist="$RUNNER_TEMP/ExportOptions.plist"
+          /usr/libexec/PlistBuddy -c "Add :method string app-store-connect" \
+            -c "Add :destination string $destination" \
+            -c "Add :signingStyle string automatic" \
+            -c "Add :teamID string $TEAM_ID" \
+            -c "Add :uploadSymbols bool true" \
+            -c "Add :manageAppVersionAndBuildNumber bool false" \
+            "$plist"
+          xcodebuild -exportArchive \
+            -archivePath "$RUNNER_TEMP/$SCHEME.xcarchive" \
+            -exportOptionsPlist "$plist" \
+            -exportPath "$RUNNER_TEMP/export" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$KEY_PATH" \
+            -authenticationKeyID "$KEY_ID" \
+            -authenticationKeyIssuerID "$ISSUER_ID" \
+            | xcbeautify --renderer github-actions
+          rm -f "$KEY_PATH"
+
+      - uses: actions/upload-artifact@v4
+        if: ${{ !inputs.upload }}
+        with:
+          name: ${{ inputs.app }}-ios-${{ env.BUILD_NUMBER }}
+          path: ${{ runner.temp }}/export/*.ipa
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Summary
+        env:
+          APP: ${{ inputs.app }}
+          UPLOAD: ${{ inputs.upload }}
+        run: |
+          {
+            echo "### $APP iOS, build $BUILD_NUMBER"
+            echo ""
+            if [ "$UPLOAD" = "true" ]; then
+              echo "- Uploaded to App Store Connect. It appears in TestFlight once Apple has processed it, usually within 15 minutes."
+              echo "- Submitting it for review is a manual step in App Store Connect."
+            else
+              echo "- The signed \`.ipa\` is attached to this run."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

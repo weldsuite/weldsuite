@@ -21,6 +21,12 @@ Read the root `AGENTS.md` first; this file adds what is specific to WeldPass.
 - Browser extension: `apps/web/weldpass-extension` (MV3, Chrome/Edge). It
   reuses the web app's session, has no always-on content script, and touches a
   page only on a click in its popup. Not deployed by CI.
+- Mobile apps: the native apps in `apps/ios` and `apps/android` call these
+  routes (on the Rust server, `rust/modules/pass`) through the contract in
+  `apps/mobile-shared/openapi/weldpass.yaml`. A change to an answer they read,
+  above all a new item type, vault kind or role, follows "Changing the
+  contract" in `apps/mobile-shared/README.md`: apps already on phones can't
+  read an enum value they don't know.
 
 ## Encryption
 
