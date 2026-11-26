@@ -27,7 +27,7 @@ import { useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { useAuth, useUser } from '@/lib/auth';
 import { toast } from 'sonner';
 import { getTranslations } from '@/lib/i18n';
-import { weldchatKeys } from '@/hooks/queries/use-weldchat-queries';
+import { useChannel, weldchatKeys } from '@/hooks/queries/use-weldchat-queries';
 import { useCallSwitchOptional, useRegisterActiveCall } from '@/contexts/active-call-context';
 import { rtkParticipantIds, useCallSupersededNotice } from '@/hooks/use-call-superseded-notice';
 import { chatCallLabel, type CallLabelRole } from '@/lib/call-switch-labels';
@@ -42,6 +42,7 @@ import { realtimeSocketUrl } from '@/lib/api/realtime-url';
 import { publicEnv } from '@/lib/runtime-config';
 import { isLiveKit, videoJoin } from '@/lib/video-provider';
 import { usersInCall, type CallParticipantEntry } from '@/app/weldchat/lib/call-peers';
+import { usePeerGoneHangUp } from '@/app/weldchat/hooks/use-peer-gone-hang-up';
 
 
 // RNNoise noise suppression flag. Default ON; set VITE_NOISE_SUPPRESSION=false
@@ -444,6 +445,9 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
   const [handRaised, setHandRaised] = useState(false);
   const [handRaisedParticipants, setHandRaisedParticipants] = useState<Set<string>>(new Set());
   const [meeting, setMeeting] = useState<RealtimeKitClient | null>(null);
+  // Our connection to the room dropped and is not back yet (the SDK is
+  // reconnecting, or rejoinCall is getting a new client in).
+  const [connectionDown, setConnectionDown] = useState(false);
   const [previewStream, setPreviewStream] = useState<MediaStream | null>(null);
   const [previewAudioEnabled, setPreviewAudioEnabled] = useState(true);
   const [previewVideoEnabled, setPreviewVideoEnabled] = useState(true);
@@ -995,6 +999,7 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
       // A join that lands after the user hung up: not a call to show.
       if (!stillWanted()) return;
       joined = true;
+      setConnectionDown(false);
       setStatus('connected');
       // The SDK (or rejoinCall) got back in after a dropped connection: no join chime.
       if (payload?.reconnected || rejoin) {
@@ -1025,6 +1030,7 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
       // back). Leaving here threw people out of the call on a short network
       // drop, and their /leave could end the call for everyone else.
       if (state === 'disconnected') {
+        setConnectionDown(true);
         // Kept in the console so a drop can be matched to what the tab was doing.
         console.warn(`[WeldChat:Call] Connection dropped (tab ${document.visibilityState}), reconnecting`);
         const notice = reconnectNoticeRef.current;
@@ -1042,6 +1048,7 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
       // the join itself failing, which its caller handles when join() rejects.
       if (state === 'failed') {
         if (!joined) return;
+        setConnectionDown(true);
         abandoned = true;
         void rejoinCallRef.current(cId, m);
         return;
@@ -1482,6 +1489,17 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
   useEffect(() => { meetingRef.current = meeting; }, [meeting]);
   const leaveCallRef = useRef(leaveCall);
   leaveCallRef.current = leaveCall;
+
+  // A 1:1 call hangs up once the other person has left, also while it is
+  // minimized or the user is elsewhere in the app (the room view is not mounted then).
+  const { data: callChannel } = useChannel(channelId ?? '');
+  usePeerGoneHangUp({
+    callId,
+    meeting,
+    isDirect: callChannel?.data?.type === 'dm',
+    inRoom: status === 'connected' && !connectionDown,
+    onHangUp: leaveCall,
+  });
   const cleanupRef = useRef(cleanup);
   cleanupRef.current = cleanup;
   const settleWaitersRef = useRef<Array<() => void>>([]);
