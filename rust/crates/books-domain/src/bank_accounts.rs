@@ -286,7 +286,6 @@ pub enum BankLedgerPlan {
 /// one (a child of Credit Card Payable for a card, a liability for a line of
 /// credit, an asset bank account for the rest), carrying its neighbours'
 /// income-tax line.
-#[allow(clippy::too_many_lines)] // mirrors planBankLedgerAccount step by step
 pub async fn plan_bank_ledger_account(
     db: &PgPool,
     entity_id: &str,
@@ -335,6 +334,38 @@ pub async fn plan_bank_ledger_account(
         }
     }
 
+    new_bank_ledger_account(db, entity_id, name, account_type, currency, &chart)
+        .await
+        .map(BankLedgerPlan::New)
+}
+
+/// A new ledger account for a bank account that gets one of its own: an asset
+/// bank account named after it, never a chart account to take over and never
+/// the jurisdiction template's main bank account. For money that is held
+/// apart from the bank (a payment provider's balance, a Moneybird account),
+/// whose balance must not mix with the bank's.
+pub async fn plan_own_bank_ledger_account(
+    db: &PgPool,
+    entity_id: &str,
+    name: &str,
+    currency: &str,
+) -> Result<Map<String, Value>, DbErr> {
+    let chart = load_chart(db, entity_id).await?;
+    new_bank_ledger_account(db, entity_id, name, "checking", currency, &chart).await
+}
+
+/// The second half of `planBankLedgerAccount`: the ledger account to insert
+/// when no chart account is reused.
+async fn new_bank_ledger_account(
+    db: &PgPool,
+    entity_id: &str,
+    name: &str,
+    account_type: &str,
+    currency: &str,
+    chart: &[Value],
+) -> Result<Map<String, Value>, DbErr> {
+    let liability = is_liability_account_type(Some(account_type));
+    let side = if liability { "liability" } else { "asset" };
     let accounts = load_entity_accounts(db, entity_id).await?;
     let parent = (account_type == "credit_card")
         .then(|| account_for_role(&accounts, "credit_card_payable", &[]))
@@ -401,7 +432,7 @@ pub async fn plan_bank_ledger_account(
     row.insert("currentBalance".to_owned(), json!("0"));
     row.insert("createdAt".to_owned(), json!(stamp));
     row.insert("updatedAt".to_owned(), json!(stamp));
-    Ok(BankLedgerPlan::New(row))
+    Ok(row)
 }
 
 /// `planDefaultBankLedgerAccount`: the ledger account for a new bank account

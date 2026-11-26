@@ -1684,6 +1684,39 @@ fn map_bank_account(record: &Value, external_id: &str) -> Mapped {
     }
 }
 
+/// Which ledger account WeldBooks posts an imported bank account's payments
+/// on, when nobody chose one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BankLedger {
+    /// A bank account: what WeldBooks gives a new one (the template's bank
+    /// account while no bank account sits on it, else one of its own).
+    Bank,
+    /// Money held apart from the bank (a Stripe balance, Moneybird's own
+    /// Betaalrekening and Online Betaalmethoden): always a ledger account of
+    /// its own, so it never takes the main bank's.
+    Own,
+}
+
+/// [`BankLedger`] for an imported bank account record, or `None` for one
+/// that is no money held at a bank or payment provider. Moneybird documents
+/// only `BankAccount` and `CreditCardAccount`; anything else (a
+/// `PrivateWithdrawalAccount`, the current account with the owner or
+/// director, sits on either side of the balance sheet; a credit card is a
+/// liability WeldBooks wants typed as a card) waits for a person to choose.
+pub fn bank_ledger_for(provider: &str, record: &Value) -> Option<BankLedger> {
+    match provider {
+        "stripe" => Some(BankLedger::Own),
+        "moneybird" => match record.get("type").and_then(Value::as_str) {
+            Some("BankAccount") if record.get("moneybird_account") == Some(&Value::Bool(true)) => {
+                Some(BankLedger::Own)
+            }
+            Some("BankAccount") => Some(BankLedger::Bank),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
 fn map_bank_transaction(record: &Value, external_id: &str) -> Option<Mapped> {
     let raw = ps(record, &["amount", "original_amount"])?;
     let amount = decimal_string(Some(&raw), "");
@@ -2756,6 +2789,39 @@ mod tests {
             "identifier": "NL91 ABNA 0417 1643 00",
         }));
         assert_eq!(bank["iban"], json!("NL91ABNA0417164300"));
+    }
+
+    #[test]
+    fn only_money_at_a_bank_or_provider_gets_a_ledger_account() {
+        let moneybird = |record: Value| bank_ledger_for("moneybird", &record);
+        assert_eq!(
+            moneybird(json!({ "type": "BankAccount", "moneybird_account": false })),
+            Some(BankLedger::Bank)
+        );
+        assert_eq!(
+            moneybird(json!({ "type": "BankAccount" })),
+            Some(BankLedger::Bank)
+        );
+        assert_eq!(
+            moneybird(json!({ "type": "BankAccount", "moneybird_account": true })),
+            Some(BankLedger::Own)
+        );
+        for kind in [
+            "PrivateWithdrawalAccount",
+            "CreditCardAccount",
+            "SomethingNew",
+        ] {
+            assert_eq!(moneybird(json!({ "type": kind })), None, "{kind}");
+        }
+        assert_eq!(moneybird(json!({})), None);
+        assert_eq!(
+            bank_ledger_for("stripe", &json!({ "currency": "eur" })),
+            Some(BankLedger::Own)
+        );
+        assert_eq!(
+            bank_ledger_for("woocommerce", &json!({ "type": "BankAccount" })),
+            None
+        );
     }
 
     #[test]

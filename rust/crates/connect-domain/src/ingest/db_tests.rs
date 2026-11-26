@@ -635,3 +635,194 @@ async fn moneybird_documents_without_fetched_files_are_a_backlog() {
     assert!(!backlog(Some("moneybird_sales_invoice")).await);
     assert!(!backlog(Some("moneybird_contact")).await);
 }
+
+// ── bank accounts get a ledger account ──────────────────────────────────────
+
+fn bank_account_sync(provider: &str) -> &'static Value {
+    syncs(get_connector(provider).unwrap())
+        .iter()
+        .find(|s| s["internalEntity"] == "bank_account")
+        .unwrap()
+}
+
+async fn ingest_bank_accounts(
+    db: &PgPool,
+    provider: &str,
+    connection_id: &str,
+    entity_id: &str,
+    records: Vec<Value>,
+) -> IngestResult {
+    let events = EntityEventPublisher::new(None, TaskTracker::new());
+    ingest_records(&IngestArgs {
+        db,
+        http: None,
+        events: &events,
+        connection_id,
+        provider,
+        display_name: Some("Books"),
+        store_url: None,
+        sync: bank_account_sync(provider),
+        records,
+        owner_id: "user_ingest_test",
+        workspace_id: "org_ingest_test",
+        entity_id: Some(entity_id),
+        force_deleted: false,
+        moneybird_files: None,
+        stripe_files: None,
+        skip_financial_account_ids: &[],
+    })
+    .await
+    .unwrap()
+}
+
+/// An NL book: the template's cash, bank and savings accounts.
+async fn nl_book(db: &PgPool, entity_id: &str) {
+    sqlx::query(
+        "insert into entities (id, name, jurisdiction_code, base_currency)
+         values ($1, 'Import BV', 'NL', 'EUR')",
+    )
+    .bind(entity_id)
+    .execute(db)
+    .await
+    .unwrap();
+    for (code, name, subtype) in [
+        ("1001", "Kas", "cash"),
+        ("1100", "Bank", "bank"),
+        ("1200", "Spaarrekening", "bank"),
+    ] {
+        sqlx::query(
+            "insert into accounts (id, entity_id, code, name, type, subtype, normal_side)
+             values ($1, $2, $3, $4, 'asset', $5, 'debit')",
+        )
+        .bind(format!("{entity_id}_{code}"))
+        .bind(entity_id)
+        .bind(code)
+        .bind(name)
+        .bind(subtype)
+        .execute(db)
+        .await
+        .unwrap();
+    }
+}
+
+/// `(bank account id, its ledger account as JSON)` of an imported account.
+async fn bank_ledger(
+    db: &PgPool,
+    connection_id: &str,
+    external_id: &str,
+) -> (String, Option<Value>) {
+    sqlx::query_as(
+        "select b.id, to_jsonb(a) from bank_accounts b
+           join integration_entity_mappings m on m.internal_entity_id = b.id
+           left join accounts a on a.id = b.ledger_account_id
+         where m.connection_id = $1 and m.external_entity_id = $2",
+    )
+    .bind(connection_id)
+    .bind(external_id)
+    .fetch_one(db)
+    .await
+    .unwrap()
+}
+
+async fn set_ledger(db: &PgPool, bank_account_id: &str, ledger: Option<&str>) {
+    sqlx::query("update bank_accounts set ledger_account_id = $2 where id = $1")
+        .bind(bank_account_id)
+        .bind(ledger)
+        .execute(db)
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn imported_moneybird_bank_accounts_get_a_ledger_account() {
+    let Some(db) = tenant().await else { return };
+    let sfx = suffix();
+    let connection_id = format!("ccn_mbba_{sfx}");
+    let entity_id = format!("ent_mbba_{sfx}");
+    nl_book(&db, &entity_id).await;
+    let online = json!({
+        "id": format!("{sfx}1"), "type": "BankAccount", "name": "Online Betaalmethoden rekening",
+        "identifier": "NL91ADYB2006011082", "currency": "EUR", "moneybird_account": true, "active": true,
+    });
+    let revolut = json!({
+        "id": format!("{sfx}2"), "type": "BankAccount", "name": "Revolut",
+        "identifier": "NL91 ABNA 0417 1643 00", "currency": "EUR", "moneybird_account": false, "active": true,
+    });
+    let director = json!({
+        "id": format!("{sfx}3"), "type": "PrivateWithdrawalAccount", "name": "Rekening courant directie",
+        "identifier": "G. Director", "currency": "EUR", "moneybird_account": false, "active": true,
+    });
+    let first = ingest_bank_accounts(
+        &db,
+        "moneybird",
+        &connection_id,
+        &entity_id,
+        vec![online.clone(), revolut.clone(), director.clone()],
+    )
+    .await;
+    assert_eq!(first.created, 3, "{:?}", first.error_samples);
+
+    // Moneybird's own account gets one of its own, even while 1100 is free.
+    let (online_id, ledger) = bank_ledger(&db, &connection_id, &format!("{sfx}1")).await;
+    let ledger = ledger.expect("Moneybird's own account is linked");
+    assert_eq!(ledger["code"], json!("1201"));
+    assert_eq!(ledger["name"], json!("Online Betaalmethoden rekening"));
+    assert_eq!(ledger["type"], json!("asset"));
+    assert_eq!(ledger["subtype"], json!("bank"));
+    assert_eq!(ledger["entity_id"], json!(entity_id));
+    assert_eq!(ledger["currency"], json!("EUR"));
+    // The bank account takes the template's 1100 Bank.
+    let (revolut_id, ledger) = bank_ledger(&db, &connection_id, &format!("{sfx}2")).await;
+    assert_eq!(
+        ledger.expect("the bank account is linked")["code"],
+        json!("1100")
+    );
+    // The current account with the director is left for a person.
+    let (_, ledger) = bank_ledger(&db, &connection_id, &format!("{sfx}3")).await;
+    assert!(ledger.is_none(), "{ledger:?}");
+
+    // A person's choice stands when the record changes; an account imported
+    // before accounts were linked gets one on the next sync, unchanged or not.
+    let savings = format!("{entity_id}_1200");
+    set_ledger(&db, &online_id, Some(&savings)).await;
+    set_ledger(&db, &revolut_id, None).await;
+    let mut renamed = online.clone();
+    renamed["name"] = json!("Online betaalmethoden");
+    let second = ingest_bank_accounts(
+        &db,
+        "moneybird",
+        &connection_id,
+        &entity_id,
+        vec![renamed, revolut, director],
+    )
+    .await;
+    assert_eq!((second.modified, second.skipped), (1, 2));
+    let (_, ledger) = bank_ledger(&db, &connection_id, &format!("{sfx}1")).await;
+    assert_eq!(ledger.unwrap()["id"], json!(savings));
+    let (_, ledger) = bank_ledger(&db, &connection_id, &format!("{sfx}2")).await;
+    assert_eq!(ledger.unwrap()["code"], json!("1100"));
+    let (_, ledger) = bank_ledger(&db, &connection_id, &format!("{sfx}3")).await;
+    assert!(ledger.is_none(), "{ledger:?}");
+}
+
+#[tokio::test]
+async fn a_stripe_balance_gets_a_ledger_account_of_its_own() {
+    let Some(db) = tenant().await else { return };
+    let sfx = suffix();
+    let connection_id = format!("ccn_stba_{sfx}");
+    let entity_id = format!("ent_stba_{sfx}");
+    nl_book(&db, &entity_id).await;
+    let result = ingest_bank_accounts(
+        &db,
+        "stripe",
+        &connection_id,
+        &entity_id,
+        vec![json!({ "id": format!("bal_{sfx}"), "currency": "eur", "available": 1000, "pending": 0 })],
+    )
+    .await;
+    assert_eq!(result.created, 1, "{:?}", result.error_samples);
+    let (_, ledger) = bank_ledger(&db, &connection_id, &format!("bal_{sfx}")).await;
+    let ledger = ledger.expect("the Stripe balance is linked");
+    assert_eq!(ledger["code"], json!("1201"));
+    assert_eq!(ledger["name"], json!("Stripe balance (EUR)"));
+}
