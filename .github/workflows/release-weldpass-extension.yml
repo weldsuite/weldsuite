@@ -1,13 +1,16 @@
 name: Release WeldPass extension
 
 # Builds the WeldPass browser extension's store zip (ADR PASS-009, plan
-# weldpass-eu.md phase 3) and attaches it to this run. Nothing is uploaded
-# to the Chrome Web Store or Edge Add-ons: a person uploads the zip
+# weldpass-eu.md phase 3), attaches it to this run and, on a tag, uploads it
+# to the Chrome Web Store and Edge Add-ons and submits it for review
+# (apps/web/weldpass-extension/scripts/store-publish.mjs). Each store's job
+# runs once its repository variables are set; until then, and for the first
+# version (neither store's API can create an item), a person uploads the zip
 # (apps/web/weldpass-extension/store/README.md).
 #
 # A tag starts it: bump apps/web/weldpass-extension/package.json, merge to
 # main, then push `weldpass-extension-v<that version>`. A manual run builds
-# any ref as a dry run.
+# any ref as a dry run and uploads nothing.
 
 on:
   push:
@@ -32,6 +35,8 @@ jobs:
     name: Build the store zip
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -90,7 +95,7 @@ jobs:
             echo "| SHA-256 | \`${SHA}\` |"
             echo "| Permissions | \`$(node -p "require('./apps/web/weldpass-extension/dist/manifest.json').permissions.join(', ')")\` |"
             echo ""
-            echo "Upload it by hand: apps/web/weldpass-extension/store/README.md."
+            echo "On a tag, the store jobs below upload it once their variables are set; otherwise upload it by hand: apps/web/weldpass-extension/store/README.md."
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Attach the zip to this run
@@ -111,3 +116,94 @@ jobs:
             apps/web/weldpass-extension/test-results
           if-no-files-found: ignore
           retention-days: 14
+
+  # Uploads the zip to the Chrome Web Store and submits it for review, on a
+  # tag, once the store item exists and its repository variables are set
+  # (store/README.md, "Uploads from CI"). Signs in as a Google service account
+  # through Workload Identity Federation: no key is stored anywhere.
+  chrome-web-store:
+    name: Submit to the Chrome Web Store
+    needs: zip
+    if: github.event_name == 'push' && vars.CHROME_WEB_STORE_ITEM_ID != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # No deployment record (see handoff.yml).
+    environment:
+      name: weldpass-extension-stores
+      deployment: false
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: apps/web/weldpass-extension
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Download the zip
+        uses: actions/download-artifact@v4
+        with:
+          name: weldpass-extension-${{ needs.zip.outputs.version }}
+          path: release
+
+      - name: Sign in to Google
+        id: google
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.CHROME_WEB_STORE_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.CHROME_WEB_STORE_SERVICE_ACCOUNT }}
+          token_format: access_token
+          access_token_scopes: https://www.googleapis.com/auth/chromewebstore
+          access_token_lifetime: 900s
+          create_credentials_file: false
+          export_environment_variables: false
+
+      - name: Upload and submit
+        env:
+          VERSION: ${{ needs.zip.outputs.version }}
+          CHROME_WEB_STORE_PUBLISHER_ID: ${{ vars.CHROME_WEB_STORE_PUBLISHER_ID }}
+          CHROME_WEB_STORE_ITEM_ID: ${{ vars.CHROME_WEB_STORE_ITEM_ID }}
+          CHROME_WEB_STORE_STAGED: ${{ vars.CHROME_WEB_STORE_STAGED }}
+          CHROME_WEB_STORE_TOKEN: ${{ steps.google.outputs.access_token }}
+        run: node apps/web/weldpass-extension/scripts/store-publish.mjs chrome "release/weldpass-extension-${VERSION}.zip"
+
+  # The same for Edge Add-ons, with a Partner Center API key (an environment
+  # secret of weldpass-extension-stores).
+  edge-add-ons:
+    name: Submit to Edge Add-ons
+    needs: zip
+    if: github.event_name == 'push' && vars.EDGE_ADDONS_PRODUCT_ID != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: weldpass-extension-stores
+      deployment: false
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: apps/web/weldpass-extension
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Download the zip
+        uses: actions/download-artifact@v4
+        with:
+          name: weldpass-extension-${{ needs.zip.outputs.version }}
+          path: release
+
+      - name: Upload and submit
+        env:
+          VERSION: ${{ needs.zip.outputs.version }}
+          EDGE_ADDONS_PRODUCT_ID: ${{ vars.EDGE_ADDONS_PRODUCT_ID }}
+          EDGE_ADDONS_CLIENT_ID: ${{ vars.EDGE_ADDONS_CLIENT_ID }}
+          EDGE_ADDONS_API_KEY: ${{ secrets.EDGE_ADDONS_API_KEY }}
+        run: node apps/web/weldpass-extension/scripts/store-publish.mjs edge "release/weldpass-extension-${VERSION}.zip"

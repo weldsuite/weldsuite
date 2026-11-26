@@ -145,8 +145,9 @@ on any change until PASS-009 is amended. The store wording is in
 - Unit (`pnpm --filter weldpass-extension test`, also on every PR in CI):
   form detection (`src/content/detect.test.ts`), the fill policy, the save
   queue, the worker against a fake server (`src/background/worker.test.ts`),
-  sender rules, the session adapters, server choice, settings and the
-  manifest. The shared session has its own tests in
+  sender rules, the session adapters, server choice, settings, the manifest
+  and the store upload script (`scripts/store-publish.test.mjs`, against fake
+  store APIs). The shared session has its own tests in
   `packages/clients/mobile-platform`.
 - Playwright (`pnpm --filter weldpass-extension test:e2e`, once
   `pnpm --filter weldpass-extension exec playwright install chromium`): loads
@@ -158,7 +159,9 @@ on any change until PASS-009 is amended. The store wording is in
 ## Release
 
 [`store/README.md`](store/README.md): a tag `weldpass-extension-v<version>`
-builds the store zip in CI; a person uploads it.
+builds the store zip in CI, then uploads it to the Chrome Web Store and Edge
+Add-ons and submits it for review, for each store set up for uploads from CI.
+The first version in each store is uploaded by hand.
 
 ## Icons
 
