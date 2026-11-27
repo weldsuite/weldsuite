@@ -46,7 +46,7 @@ const CLEANUP: &str = "
     delete from workspace_members where id like '%\\_dent\\_%';
 ";
 
-/// Two entities, the second restricted to u_dent_admin; inbox documents in
+/// Two entities, the second restricted to `u_dent_admin`; inbox documents in
 /// no entity, and one already filed under the restricted entity with a status
 /// no other test uses, so its count is this test's alone.
 const SEED: &str = "
