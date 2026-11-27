@@ -380,5 +380,54 @@ describe('WeldForms settings page', () => {
       expect(screen.queryByRole('button', { name: td.makePrimary })).toBeNull();
       expect(screen.queryByRole('button', { name: td.remove })).toBeNull();
     });
+
+    it('shows a loader while the domains load', () => {
+      m.domainsAvailable = true;
+      m.domains = { ...m.domains, isLoading: true };
+      render(<WeldFormsSettingsPage />);
+      expect(screen.getByText(td.title)).toBeTruthy();
+      expect(screen.queryByLabelText(td.addLabel)).toBeNull();
+    });
+
+    it('retries the config when it failed, and the domains when they failed', async () => {
+      m.domainsAvailable = true;
+      m.config = { ...m.config, data: undefined, error: new Error('x') };
+      const { unmount } = render(<WeldFormsSettingsPage />);
+      expect(screen.getByText(td.loadFailed)).toBeTruthy();
+      await userEvent.click(screen.getByRole('button', { name: en.common.actions.retry }));
+      expect(m.config.refetch).toHaveBeenCalled();
+      expect(m.domains.refetch).not.toHaveBeenCalled();
+      unmount();
+
+      m.config = { ...m.config, data: { available: true, cnameTarget: null, apexAddresses: ['203.0.113.10'], portalUrl: '', maxDomains: 3 }, error: null };
+      m.domains = { ...m.domains, error: new Error('x') };
+      render(<WeldFormsSettingsPage />);
+      await userEvent.click(screen.getByRole('button', { name: en.common.actions.retry }));
+      expect(m.domains.refetch).toHaveBeenCalled();
+    });
+
+    it('explains apex records and a missing target, and stops adding at the limit', () => {
+      m.domainsAvailable = true;
+      m.config = { ...m.config, data: { available: true, cnameTarget: null, apexAddresses: ['203.0.113.10'], portalUrl: '', maxDomains: 1 } };
+      m.domains = { ...m.domains, data: [domain] };
+      render(<WeldFormsSettingsPage />);
+      expect(screen.getByText(td.howToNoTarget)).toBeTruthy();
+      expect(screen.getByText(td.howToApex)).toBeTruthy();
+      expect(screen.getByRole('button', { name: td.add }).hasAttribute('disabled')).toBe(true);
+    });
+
+    it('toasts when checking or removing fails', async () => {
+      m.domainsAvailable = true;
+      m.domains = { ...m.domains, data: [domain] };
+      m.refreshDomain.mockRejectedValue({ code: 'FEATURE_UNAVAILABLE' });
+      m.removeDomain.mockRejectedValue({});
+      render(<WeldFormsSettingsPage />);
+      await userEvent.click(screen.getByRole('button', { name: td.checkNow }));
+      await waitFor(() => expect(m.toastError).toHaveBeenCalledWith(td.errorUnavailable));
+      await userEvent.click(screen.getByRole('button', { name: td.remove }));
+      const dialog = await screen.findByRole('dialog');
+      await userEvent.click(within(dialog).getByRole('button', { name: td.remove }));
+      await waitFor(() => expect(m.toastError).toHaveBeenCalledWith(td.errorGeneric));
+    });
   });
 });
