@@ -1880,8 +1880,8 @@ export async function runSearch(
     driveAccess: () => (driveAccess ??= loadDriveAccessForUser(db, userId)),
     readableEntities: async (permission) => {
       if (!params.entityAccess) return [];
-      const access = await (entityAccess ??= params.entityAccess());
-      return readableEntityIds(db, access, permission, inEntity);
+      entityAccess ??= params.entityAccess();
+      return readableEntityIds(db, await entityAccess, permission, inEntity);
     },
   };
   const groups = await Promise.all(
