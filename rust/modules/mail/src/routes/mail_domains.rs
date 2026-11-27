@@ -127,6 +127,7 @@ fn ownership_record(domain: &str, token: &str) -> DnsRecord {
         priority: None,
         purpose: "verification",
         verified: false,
+        detail: None,
     }
 }
 
@@ -1305,6 +1306,7 @@ mod tests {
                 priority: Some(10),
                 purpose: "mx",
                 verified,
+                detail: None,
             }],
             verified,
             dkim_selector: None,
@@ -1416,6 +1418,7 @@ mod db_tests {
                 priority: Some(10),
                 purpose: "mx",
                 verified,
+                detail: None,
             }],
             verified,
             dkim_selector: Some("ws1".to_owned()),

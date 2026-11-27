@@ -41,6 +41,7 @@ pub mod consumer;
 pub mod context;
 pub mod crm;
 pub mod deliver;
+pub mod dmarc;
 pub mod fanout;
 pub mod mime;
 pub mod parsed;

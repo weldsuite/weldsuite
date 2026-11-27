@@ -412,6 +412,7 @@ mod tests {
                 spf_include: Some("_spf.eu.weldsuite.test".to_owned()),
                 dkim: None,
                 dmarc: "v=DMARC1; p=none".to_owned(),
+                dmarc_report_address: None,
             },
             Arc::new(doh),
             "https://resolver.test/dns-query".to_owned(),

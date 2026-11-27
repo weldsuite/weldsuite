@@ -68,6 +68,7 @@ weldsuite-sheets = { workspace = true }
 weldsuite-board = { workspace = true }
 weldsuite-pass = { workspace = true }
 weldsuite-mail = { workspace = true }
+weldsuite-mail-dmarc = { workspace = true }
 weldsuite-mail-domain = { workspace = true }
 weldsuite-mail-inbound = { workspace = true }
 weldsuite-mta = { workspace = true }

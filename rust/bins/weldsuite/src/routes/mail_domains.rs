@@ -9,7 +9,8 @@
 //! | `MTA_API_URL`, `MTA_API_SECRET` | the EU edition's MTA: `RelayDomains` over [`MtaDomainApi`], per-domain DKIM. Unset: `ManualDomains` |
 //! | `MAIL_SPF_INCLUDE` | the SPF include customers publish (`_spf.<domain>`); unset: `mx` |
 //! | `MAIL_DKIM_SELECTOR`, `MAIL_DKIM_RECORD` | `ManualDomains` only: the relay's one DKIM key for every domain |
-//! | `MAIL_DMARC_RECORD` | the DMARC record suggested (default `v=DMARC1; p=none`) |
+//! | `MAIL_DMARC_REPORTS_ADDRESS` | where DMARC aggregate reports go (`dmarc@reports.<domain>`, ADR MAIL-015): added to the suggested record, and to a domain's own record |
+//! | `MAIL_DMARC_RECORD` | the DMARC record suggested for a domain without one (default `v=DMARC1; p=none`, with `rua=mailto:<MAIL_DMARC_REPORTS_ADDRESS>` when set) |
 //! | `MAIL_DNS_RESOLVER` | the DNS-over-HTTPS endpoint verification asks (default Cloudflare's, as the MX lookups) |
 
 use std::sync::{Arc, OnceLock};
@@ -29,6 +30,18 @@ use weldsuite_ports::OutboundHttp;
 pub(crate) fn offered(read: impl Fn(&str) -> Option<String>) -> bool {
     let set = |name: &str| read(name).is_some_and(|value| !value.trim().is_empty());
     set("MAIL_MX_HOST") && set("MTA_API_URL") == set("MTA_API_SECRET")
+}
+
+/// The install's DMARC report address (`MAIL_DMARC_REPORTS_ADDRESS`),
+/// lower-cased, when set to an address.
+pub(crate) fn dmarc_reports_address(read: &impl Fn(&str) -> Option<String>) -> Option<String> {
+    read("MAIL_DMARC_REPORTS_ADDRESS")
+        .map(|address| address.trim().to_ascii_lowercase())
+        .filter(|address| {
+            address
+                .split_once('@')
+                .is_some_and(|(local, domain)| !local.is_empty() && domain.contains('.'))
+        })
 }
 
 /// The process's adapter; conformance builds have none (their mail suites
@@ -70,12 +83,16 @@ fn from_env(
             None
         }
     };
+    let report_address = dmarc_reports_address(&read);
     let manual = ManualDomains::new(
         DomainRecordsConfig {
             mx_host,
             spf_include: read("MAIL_SPF_INCLUDE"),
             dkim,
-            dmarc: read("MAIL_DMARC_RECORD").unwrap_or_else(|| "v=DMARC1; p=none".to_owned()),
+            dmarc: read("MAIL_DMARC_RECORD").unwrap_or_else(|| {
+                weldsuite_mail_dmarc::record::suggested_new(report_address.as_deref())
+            }),
+            dmarc_report_address: report_address,
         },
         doh,
         read("MAIL_DNS_RESOLVER").unwrap_or_else(|| DOH_ENDPOINT.to_owned()),

@@ -56,6 +56,9 @@ pub struct DnsRecord {
     pub purpose: &'static str,
     /// Whether the lookup found it (false until verified).
     pub verified: bool,
+    /// What the lookup found beyond yes or no, kept with the record: for
+    /// DMARC, `{ state, found, policy, reportsToWeldSuite }` (ADR MAIL-015).
+    pub detail: Option<(&'static str, Value)>,
 }
 
 impl DnsRecord {
@@ -70,6 +73,9 @@ impl DnsRecord {
         });
         if let Some(priority) = self.priority {
             record["priority"] = json!(priority);
+        }
+        if let Some((key, detail)) = &self.detail {
+            record[*key] = detail.clone();
         }
         record
     }
@@ -151,8 +157,13 @@ pub struct DomainRecordsConfig {
     /// The relay's DKIM selector and TXT value (`v=DKIM1; k=rsa; p=…`), when
     /// the relay signs with one key for every domain.
     pub dkim: Option<(String, String)>,
-    /// The DMARC record suggested at `_dmarc.<domain>`.
+    /// The DMARC record suggested at `_dmarc.<domain>` for a domain without
+    /// one (`MAIL_DMARC_RECORD`, else `v=DMARC1; p=none` with the report
+    /// address).
     pub dmarc: String,
+    /// The install's DMARC report address (`MAIL_DMARC_REPORTS_ADDRESS`, ADR
+    /// MAIL-015): added to a domain's own record when it has one.
+    pub dmarc_report_address: Option<String>,
 }
 
 impl DomainRecordsConfig {
@@ -166,6 +177,7 @@ impl DomainRecordsConfig {
                 priority: Some(10),
                 purpose: "mx",
                 verified: false,
+                detail: None,
             },
             DnsRecord {
                 kind: "TXT",
@@ -177,6 +189,7 @@ impl DomainRecordsConfig {
                 priority: None,
                 purpose: "spf",
                 verified: false,
+                detail: None,
             },
         ];
         if let Some((selector, value)) = &self.dkim {
@@ -187,6 +200,7 @@ impl DomainRecordsConfig {
                 priority: None,
                 purpose: "dkim",
                 verified: false,
+                detail: None,
             });
         }
         records.push(DnsRecord {
@@ -196,6 +210,7 @@ impl DomainRecordsConfig {
             priority: None,
             purpose: "dmarc",
             verified: false,
+            detail: None,
         });
         records
     }
@@ -252,6 +267,40 @@ impl ManualDomains {
         let answers = self.lookup(&record.name, record.kind).await?;
         Ok(answers.iter().any(|data| record_matches(record, data)))
     }
+
+    /// Look `record` up and mark it. DMARC is more than found or not
+    /// (MAIL-015): exactly one usable record verifies, two void each other
+    /// (RFC 7489 §6.6.3), and the record to publish becomes the domain's own
+    /// with the report address added, its policy kept.
+    async fn check_into(&self, record: &mut DnsRecord) -> Result<(), DomainError> {
+        if record.purpose != "dmarc" {
+            record.verified = self.check(record).await?;
+            return Ok(());
+        }
+        let answers = self.lookup(&record.name, record.kind).await?;
+        let inspection = weldsuite_mail_dmarc::record::inspect(
+            &answers,
+            self.config.dmarc_report_address.as_deref(),
+            &self.config.dmarc,
+        );
+        record.verified = inspection.state == weldsuite_mail_dmarc::record::RecordState::Ok;
+        record.value.clone_from(&inspection.suggested);
+        record.detail = Some((
+            "dmarc",
+            json!({
+                "state": inspection.state,
+                "found": inspection.found,
+                "policy": inspection.policy,
+                "reportsToWeldSuite": inspection.reports_to_weldsuite,
+            }),
+        ));
+        Ok(())
+    }
+
+    /// The install's DMARC report address, when it has one.
+    pub fn dmarc_report_address(&self) -> Option<&str> {
+        self.config.dmarc_report_address.as_deref()
+    }
 }
 
 impl MailDomains for ManualDomains {
@@ -273,7 +322,7 @@ impl MailDomains for ManualDomains {
         Box::pin(async move {
             let mut records = self.config.records_for(domain);
             for record in &mut records {
-                record.verified = self.check(record).await?;
+                self.check_into(record).await?;
             }
             // DMARC is a suggestion: inbound and sending work without it.
             let verified = records
@@ -326,7 +375,7 @@ fn record_matches(record: &DnsRecord, data: &str) -> bool {
             };
             key(data).is_some() && key(data) == key(&record.value)
         }
-        "dmarc" => data.starts_with("v=DMARC1"),
+        "dmarc" => weldsuite_mail_dmarc::record::is_dmarc(data),
         "verification" => data == record.value,
         _ => false,
     }
@@ -421,6 +470,7 @@ impl RelayDomains {
                 priority: None,
                 purpose: "dkim",
                 verified: false,
+                detail: None,
             },
         );
         records
@@ -450,11 +500,11 @@ impl MailDomains for RelayDomains {
             let status = api.domain_status(domain).await?;
             let mut records = self.records(domain, &dkim);
             for record in &mut records {
-                record.verified = match (record.purpose, status) {
-                    ("spf", Some((spf_ok, _))) => spf_ok,
-                    ("dkim", Some((_, dkim_ok))) => dkim_ok,
-                    _ => self.dns.check(record).await?,
-                };
+                match (record.purpose, status) {
+                    ("spf", Some((spf_ok, _))) => record.verified = spf_ok,
+                    ("dkim", Some((_, dkim_ok))) => record.verified = dkim_ok,
+                    _ => self.dns.check_into(record).await?,
+                }
             }
             let verified = records
                 .iter()
@@ -521,7 +571,8 @@ mod tests {
             mx_host: "mx.eu.weldsuite.test".to_owned(),
             spf_include: Some("spf.relay.test".to_owned()),
             dkim: Some(("ws1".to_owned(), "v=DKIM1; k=rsa; p=ABC123".to_owned())),
-            dmarc: "v=DMARC1; p=none".to_owned(),
+            dmarc: "v=DMARC1; p=none; rua=mailto:dmarc@reports.weldsuite.test".to_owned(),
+            dmarc_report_address: Some("dmarc@reports.weldsuite.test".to_owned()),
         }
     }
 
@@ -547,8 +598,62 @@ mod tests {
                 { "type": "MX", "name": "acme.test", "value": "mx.eu.weldsuite.test", "priority": 10, "purpose": "mx", "verified": false },
                 { "type": "TXT", "name": "acme.test", "value": "v=spf1 include:spf.relay.test ~all", "purpose": "spf", "verified": false },
                 { "type": "TXT", "name": "ws1._domainkey.acme.test", "value": "v=DKIM1; k=rsa; p=ABC123", "purpose": "dkim", "verified": false },
-                { "type": "TXT", "name": "_dmarc.acme.test", "value": "v=DMARC1; p=none", "purpose": "dmarc", "verified": false },
+                { "type": "TXT", "name": "_dmarc.acme.test", "value": "v=DMARC1; p=none; rua=mailto:dmarc@reports.weldsuite.test", "purpose": "dmarc", "verified": false },
             ])
+        );
+    }
+
+    fn with_mail_records(doh: FakeDoh) -> FakeDoh {
+        doh.with("acme.test", "MX", &["10 mx.eu.weldsuite.test."])
+            .with(
+                "acme.test",
+                "TXT",
+                &["\"v=spf1 include:spf.relay.test ~all\""],
+            )
+            .with(
+                "ws1._domainkey.acme.test",
+                "TXT",
+                &["\"v=DKIM1; p=ABC123\""],
+            )
+    }
+
+    #[tokio::test]
+    async fn two_dmarc_records_are_not_verified() {
+        let doh = with_mail_records(FakeDoh::default()).with(
+            "_dmarc.acme.test",
+            "TXT",
+            &["\"v=DMARC1; p=reject\"", "\"v=DMARC1; p=none\""],
+        );
+        let setup = manual(doh).verify("acme.test").await.expect("domain setup");
+        assert!(setup.verified, "mail still flows");
+        assert!(!setup.dmarc_verified());
+        let dmarc = &setup.records_json()[3];
+        assert_eq!(dmarc["dmarc"]["state"], "multiple");
+        assert_eq!(
+            dmarc["value"],
+            "v=DMARC1; p=reject; rua=mailto:dmarc@reports.weldsuite.test"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_existing_dmarc_record_keeps_its_policy() {
+        let doh = with_mail_records(FakeDoh::default()).with(
+            "_dmarc.acme.test",
+            "TXT",
+            &[
+                "\"v=DMARC1; p=quarantine; rua=mailto:x@vendor.test\"",
+                "\"unrelated\"",
+            ],
+        );
+        let setup = manual(doh).verify("acme.test").await.expect("domain setup");
+        assert!(setup.dmarc_verified());
+        let dmarc = &setup.records_json()[3];
+        assert_eq!(dmarc["dmarc"]["state"], "ok");
+        assert_eq!(dmarc["dmarc"]["policy"]["p"], "quarantine");
+        assert_eq!(dmarc["dmarc"]["reportsToWeldSuite"], false);
+        assert_eq!(
+            dmarc["value"],
+            "v=DMARC1; p=quarantine; rua=mailto:x@vendor.test,mailto:dmarc@reports.weldsuite.test"
         );
     }
 
@@ -607,6 +712,7 @@ mod tests {
             priority: None,
             purpose: "verification",
             verified: false,
+            detail: None,
         };
         let check = |value: &'static str| {
             let adapter = &adapter;
