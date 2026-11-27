@@ -28,8 +28,10 @@
 //! What it does not do: drain mailboxes kept in Durable Objects, flush the
 //! collaborative documents or recreate sleeping Cloudflare Workflows (all on
 //! Global's side, before the copy), import the people into `WeldID`
-//! (`weldid admin user import`), or reindex search with the install's
-//! embeddings (`POST /api/search/reindex` per workspace).
+//! (`weldid admin user import`), reindex search with the install's
+//! embeddings (`POST /api/search/reindex` per workspace), or file the
+//! verified mail domains for DMARC reports (`weldsuite mail
+//! backfill-domain-registry`, once, after the tenants step).
 
 pub mod check;
 #[cfg(test)]

@@ -169,6 +169,20 @@ pub const TABLES: &[Table] = &[
     stays("iceberg_tables", LAKEHOUSE),
     moves("mail_account_registry", WORKSPACE),
     stays(
+        "mail_dmarc_pool_daily",
+        "this install's own sending addresses in DMARC reports (MAIL-015): Global has none",
+    ),
+    stays(
+        "mail_dmarc_report_log",
+        "the DMARC reports this install received (MAIL-015): Global has none",
+    ),
+    stays(
+        "mail_domain_registry",
+        "Global has none (MAIL-015 came after the flip): `weldsuite mail \
+         backfill-domain-registry` files the moved workspaces' verified domains \
+         after the tenants step",
+    ),
+    stays(
         "mail_threat_indicators",
         "Global's shared threat list; this install keeps its own",
     ),
