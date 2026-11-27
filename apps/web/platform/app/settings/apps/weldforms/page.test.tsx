@@ -14,6 +14,14 @@ const m = vi.hoisted(() => ({
   updateSettings: vi.fn(),
   toastSuccess: vi.fn(),
   toastError: vi.fn(),
+  domainsAvailable: false,
+  config: { data: undefined as unknown, isLoading: false, error: null as unknown, refetch: vi.fn() },
+  domains: { data: [] as unknown[], isLoading: false, error: null as unknown, refetch: vi.fn() },
+  addDomain: vi.fn(),
+  refreshDomain: vi.fn(),
+  makePrimary: vi.fn(),
+  updateDomain: vi.fn(),
+  removeDomain: vi.fn(),
 }));
 
 vi.mock('sonner', () => ({ toast: { success: m.toastSuccess, error: m.toastError } }));
@@ -31,7 +39,17 @@ vi.mock('@/hooks/queries/use-weldforms-queries', () => ({
   useUpdateFormTheme: () => ({ mutate: m.updateTheme, mutateAsync: m.updateTheme, isPending: false }),
   useDeleteFormTheme: () => ({ mutateAsync: m.deleteTheme, isPending: false }),
   useUpdateFormsSettings: () => ({ mutateAsync: m.updateSettings, isPending: false }),
+  useFormDomainsConfig: () => m.config,
+  useFormDomains: () => m.domains,
+  useForms: () => ({ forms: [{ id: 'f_1', title: 'Contact', publicId: 'pub1' }, { id: 'f_2', title: 'Draft only', publicId: null }] }),
+  useAddFormDomain: () => ({ mutateAsync: m.addDomain, isPending: false }),
+  useRefreshFormDomain: () => ({ mutateAsync: m.refreshDomain, isPending: false }),
+  useMakeFormDomainPrimary: () => ({ mutateAsync: m.makePrimary, isPending: false }),
+  useUpdateFormDomain: () => ({ mutateAsync: m.updateDomain, isPending: false }),
+  useRemoveFormDomain: () => ({ mutateAsync: m.removeDomain, isPending: false }),
+  formDomainErrorCode: (err: unknown) => (err as { code?: string }).code ?? null,
 }));
+vi.mock('@/lib/edition', () => ({ isFeatureAvailable: () => m.domainsAvailable }));
 vi.mock('@/app/weldforms/components/form-preview', () => ({ FormPreview: () => <div>form preview</div> }));
 vi.mock('@/app/weldforms/components/theme-tokens-editor', () => ({
   ThemeSwatch: () => <span>swatch</span>,
@@ -65,6 +83,10 @@ const themeList = [
 
 describe('WeldForms settings page', () => {
   beforeEach(() => {
+    // jsdom lacks the pointer and scroll APIs Radix Select calls.
+    Element.prototype.hasPointerCapture ??= () => false;
+    Element.prototype.releasePointerCapture ??= () => undefined;
+    Element.prototype.scrollIntoView ??= () => undefined;
     vi.clearAllMocks();
     m.canManage = true;
     m.settings = { data: { ...baseSettings }, isLoading: false, error: null, refetch: vi.fn() };
@@ -74,6 +96,19 @@ describe('WeldForms settings page', () => {
     m.updateTheme.mockResolvedValue({});
     m.deleteTheme.mockResolvedValue(undefined);
     m.updateSettings.mockResolvedValue({});
+    m.domainsAvailable = false;
+    m.config = {
+      data: { available: true, cnameTarget: 'edge.weldsuite.org', apexAddresses: [], portalUrl: 'https://forms.weldsuite.org', maxDomains: 3 },
+      isLoading: false,
+      error: null,
+      refetch: vi.fn(),
+    };
+    m.domains = { data: [], isLoading: false, error: null, refetch: vi.fn() };
+    m.addDomain.mockResolvedValue({});
+    m.refreshDomain.mockResolvedValue({});
+    m.makePrimary.mockResolvedValue({});
+    m.updateDomain.mockResolvedValue({});
+    m.removeDomain.mockResolvedValue(undefined);
   });
 
   it('shows a loader while loading', () => {
@@ -245,5 +280,105 @@ describe('WeldForms settings page', () => {
     render(<WeldFormsSettingsPage />);
     expect(screen.getByText('7, no limit')).toBeTruthy();
     expect(screen.queryByRole('progressbar')).toBeNull();
+  });
+
+  describe('custom domains', () => {
+    const td = en.weldforms.workspaceSettings.domains;
+    const domain = {
+      id: 'fd_1',
+      hostname: 'forms.acme.com',
+      isPrimary: false,
+      status: 'pending',
+      sslStatus: null,
+      lastError: 'CNAME not found',
+      lastCheckedAt: null,
+      verifiedAt: null,
+      homeFormPublicId: null,
+      url: 'https://forms.acme.com',
+      dnsRecords: [
+        { type: 'TXT', name: '_weld-verify.forms.acme.com', value: 'weld-verify=abc', purpose: 'ownership', satisfied: true },
+        { type: 'CNAME', name: 'forms.acme.com', value: 'edge.weldsuite.org', purpose: 'routing', satisfied: false },
+      ],
+      createdAt: '2026-11-20T00:00:00Z',
+    };
+
+    it('is hidden when the edition does not offer custom domains', () => {
+      render(<WeldFormsSettingsPage />);
+      expect(screen.queryByText(td.title)).toBeNull();
+    });
+
+    it('says so when the install has custom domains switched off', () => {
+      m.domainsAvailable = true;
+      m.config = { ...m.config, data: { available: false, cnameTarget: null, apexAddresses: [], portalUrl: '', maxDomains: 0 } };
+      render(<WeldFormsSettingsPage />);
+      expect(screen.getByText(td.unavailable)).toBeTruthy();
+      expect(screen.queryByRole('button', { name: td.add })).toBeNull();
+    });
+
+    it('renders domains with status, last error and DNS records', () => {
+      m.domainsAvailable = true;
+      m.domains = { ...m.domains, data: [domain] };
+      render(<WeldFormsSettingsPage />);
+      expect(screen.getByRole('heading', { name: 'forms.acme.com' })).toBeTruthy();
+      expect(screen.getByText(td.statusPending)).toBeTruthy();
+      expect(screen.getByText('CNAME not found')).toBeTruthy();
+      expect(screen.getByRole('table', { name: 'DNS records to add for forms.acme.com' })).toBeTruthy();
+      expect(screen.getByText('weld-verify=abc')).toBeTruthy();
+      expect(screen.getAllByText('edge.weldsuite.org').length).toBeGreaterThan(0);
+      expect(screen.getByText(td.satisfied)).toBeTruthy();
+      expect(screen.getByText(td.notSatisfied)).toBeTruthy();
+      // Not active, so it cannot be made primary yet.
+      expect(screen.queryByRole('button', { name: td.makePrimary })).toBeNull();
+    });
+
+    it('adds a domain through the client', async () => {
+      m.domainsAvailable = true;
+      render(<WeldFormsSettingsPage />);
+      await userEvent.type(screen.getByLabelText(td.addLabel), ' Forms.Acme.com ');
+      await userEvent.click(screen.getByRole('button', { name: td.add }));
+      await waitFor(() => expect(m.addDomain).toHaveBeenCalledWith({ hostname: 'forms.acme.com' }));
+      expect(m.toastSuccess).toHaveBeenCalledWith(td.added);
+    });
+
+    it('maps a server error code to a message', async () => {
+      m.domainsAvailable = true;
+      m.addDomain.mockRejectedValue({ code: 'HOST_TAKEN' });
+      render(<WeldFormsSettingsPage />);
+      await userEvent.type(screen.getByLabelText(td.addLabel), 'forms.acme.com');
+      await userEvent.click(screen.getByRole('button', { name: td.add }));
+      await waitFor(() => expect(m.toastError).toHaveBeenCalledWith(td.errorHostTaken));
+    });
+
+    it('checks, makes primary, sets the home form and removes after confirming', async () => {
+      m.domainsAvailable = true;
+      m.domains = { ...m.domains, data: [{ ...domain, status: 'active', sslStatus: 'active', lastError: null }] };
+      render(<WeldFormsSettingsPage />);
+      await userEvent.click(screen.getByRole('button', { name: td.checkNow }));
+      await waitFor(() => expect(m.refreshDomain).toHaveBeenCalledWith('fd_1'));
+      await userEvent.click(screen.getByRole('button', { name: td.makePrimary }));
+      await waitFor(() => expect(m.makePrimary).toHaveBeenCalledWith('fd_1'));
+
+      await userEvent.click(screen.getByRole('combobox'));
+      await userEvent.click(await screen.findByRole('option', { name: 'Contact' }));
+      await waitFor(() => expect(m.updateDomain).toHaveBeenCalledWith({ id: 'fd_1', homeFormPublicId: 'pub1' }));
+      expect(screen.queryByRole('option', { name: 'Draft only' })).toBeNull();
+
+      await userEvent.click(screen.getByRole('button', { name: td.remove }));
+      const dialog = await screen.findByRole('dialog');
+      await userEvent.click(within(dialog).getByRole('button', { name: td.remove }));
+      await waitFor(() => expect(m.removeDomain).toHaveBeenCalledWith('fd_1'));
+    });
+
+    it('hides the controls from read-only members', () => {
+      m.domainsAvailable = true;
+      m.canManage = false;
+      m.domains = { ...m.domains, data: [{ ...domain, status: 'active' }] };
+      render(<WeldFormsSettingsPage />);
+      expect(screen.getByRole('heading', { name: 'forms.acme.com' })).toBeTruthy();
+      expect(screen.queryByRole('button', { name: td.add })).toBeNull();
+      expect(screen.queryByRole('button', { name: td.checkNow })).toBeNull();
+      expect(screen.queryByRole('button', { name: td.makePrimary })).toBeNull();
+      expect(screen.queryByRole('button', { name: td.remove })).toBeNull();
+    });
   });
 });

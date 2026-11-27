@@ -19,6 +19,7 @@ import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClie
 import { isApiError } from '@weldsuite/api-client';
 import { useAppApi } from '@/lib/api/use-app-api';
 import type {
+  AddFormDomainInput,
   CreateFormFolderInput,
   CreateFormInput,
   CreateFormThemeInput,
@@ -29,6 +30,7 @@ import type {
   ListFormsQuery,
   SetFormAccessInput,
   SuggestBlocksInput,
+  UpdateFormDomainInput,
   UpdateFormFolderInput,
   UpdateFormInput,
   UpdateFormsWorkspaceSettingsInput,
@@ -57,6 +59,8 @@ export const weldformsKeys = {
   themes: () => [...weldformsKeys.all, 'themes'] as const,
   settings: () => [...weldformsKeys.all, 'settings'] as const,
   usage: () => [...weldformsKeys.all, 'usage'] as const,
+  domains: () => [...weldformsKeys.all, 'domains'] as const,
+  domainsConfig: () => [...weldformsKeys.domains(), 'config'] as const,
 };
 
 const PAGE_SIZE = 50;
@@ -397,4 +401,89 @@ export function useSuggestFormBlocks() {
   return useMutation({
     mutationFn: async (input: SuggestBlocksInput) => (await weldforms.suggestBlocks(input)).data,
   });
+}
+
+// ---------------------------------------------------------------------------
+// Custom domains (EU and self-hosted editions)
+// ---------------------------------------------------------------------------
+
+export function useFormDomainsConfig(enabled = true) {
+  const { weldforms } = useAppApi();
+  return useQuery({
+    queryKey: weldformsKeys.domainsConfig(),
+    queryFn: () => weldforms.domainsConfig(),
+    select: (res) => res.data,
+    enabled,
+  });
+}
+
+export function useFormDomains(enabled = true) {
+  const { weldforms } = useAppApi();
+  return useQuery({
+    queryKey: weldformsKeys.domains(),
+    queryFn: () => weldforms.domains(),
+    select: (res) => res.data,
+    enabled,
+  });
+}
+
+/** A domain changes what `form.publicUrl` says, so every change refreshes the forms too. */
+function useInvalidateDomains() {
+  const queryClient = useQueryClient();
+  return () => {
+    void queryClient.invalidateQueries({ queryKey: weldformsKeys.domains() });
+    void queryClient.invalidateQueries({ queryKey: weldformsKeys.lists() });
+  };
+}
+
+export function useAddFormDomain() {
+  const { weldforms } = useAppApi();
+  const invalidate = useInvalidateDomains();
+  return useMutation({
+    mutationFn: (input: AddFormDomainInput) => weldforms.addDomain(input),
+    onSuccess: invalidate,
+  });
+}
+
+export function useRefreshFormDomain() {
+  const { weldforms } = useAppApi();
+  const invalidate = useInvalidateDomains();
+  return useMutation({
+    mutationFn: (id: string) => weldforms.refreshDomain(id),
+    onSuccess: invalidate,
+  });
+}
+
+export function useMakeFormDomainPrimary() {
+  const { weldforms } = useAppApi();
+  const invalidate = useInvalidateDomains();
+  return useMutation({
+    mutationFn: (id: string) => weldforms.makeDomainPrimary(id),
+    onSuccess: invalidate,
+  });
+}
+
+export function useUpdateFormDomain() {
+  const { weldforms } = useAppApi();
+  const invalidate = useInvalidateDomains();
+  return useMutation({
+    mutationFn: ({ id, ...input }: { id: string } & UpdateFormDomainInput) => weldforms.updateDomain(id, input),
+    onSuccess: invalidate,
+  });
+}
+
+export function useRemoveFormDomain() {
+  const { weldforms } = useAppApi();
+  const invalidate = useInvalidateDomains();
+  return useMutation({
+    mutationFn: (id: string) => weldforms.removeDomain(id),
+    onSuccess: invalidate,
+  });
+}
+
+/** The server's error code (`HOST_TAKEN`, `HOST_RESERVED`, `TOO_MANY_DOMAINS`, `DOMAIN_NOT_ACTIVE`, `VALIDATION_ERROR`, `FEATURE_UNAVAILABLE`), when it sent one. */
+export function formDomainErrorCode(err: unknown): string | null {
+  if (!isApiError(err)) return null;
+  const body = err.body as { error?: { code?: string } } | undefined;
+  return body?.error?.code ?? null;
 }

@@ -11,6 +11,7 @@
 import type { ClientApi, DataResponse, ListResponse } from '../types';
 import { buildQueryString } from '../types';
 import type {
+  AddFormDomainInput,
   BulkDeleteFormResponsesInput,
   CreateAiSummaryInput,
   CreateFormFolderInput,
@@ -25,6 +26,8 @@ import type {
   FormAccessEntry,
   FormAiSummary,
   FormDetail,
+  FormDomain,
+  FormDomainsConfig,
   FormFolder,
   FormInsights,
   FormIntegration,
@@ -61,6 +64,7 @@ import type {
   SubmitSessionResult,
   SuggestBlocksInput,
   SuggestBlocksResult,
+  UpdateFormDomainInput,
   UpdateFormFolderInput,
   UpdateFormInput,
   UpdateFormIntegrationInput,
@@ -263,6 +267,31 @@ export function createWeldFormsApi(api: ClientApi) {
     },
     usage(): Promise<DataResponse<FormsUsage>> {
       return api.get('/forms/usage');
+    },
+
+    // ── Custom domains (EU and self-hosted) ────────────────────────────
+    domainsConfig(): Promise<DataResponse<FormDomainsConfig>> {
+      return api.get('/forms/domains/config');
+    },
+    domains(): Promise<DataResponse<FormDomain[]>> {
+      return api.get('/forms/domains');
+    },
+    addDomain(input: AddFormDomainInput): Promise<DataResponse<FormDomain>> {
+      return api.post('/forms/domains', input);
+    },
+    /** Re-checks DNS and the certificate now. */
+    refreshDomain(id: string): Promise<DataResponse<FormDomain>> {
+      return api.post(`/forms/domains/${id}/refresh`);
+    },
+    /** 409 `DOMAIN_NOT_ACTIVE` unless the domain is active. */
+    makeDomainPrimary(id: string): Promise<DataResponse<FormDomain>> {
+      return api.post(`/forms/domains/${id}/primary`);
+    },
+    updateDomain(id: string, input: UpdateFormDomainInput): Promise<DataResponse<FormDomain>> {
+      return api.patch(`/forms/domains/${id}`, input);
+    },
+    removeDomain(id: string): Promise<void> {
+      return api.delete(`/forms/domains/${id}`);
     },
 
     // ── Members-only forms ─────────────────────────────────────────────
