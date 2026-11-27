@@ -24,7 +24,7 @@ const ICONS: Record<CopyState, typeof Copy> = { idle: Copy, copied: Check, faile
 
 /**
  * An icon button that copies `value` with the Async Clipboard API. The
- * confirmation bubble is a sibling `role="status"` live region (a button's
+ * confirmation bubble is a sibling `<output>` (role status, a live region; a button's
  * children are presentational, so a region inside it is not reliably
  * announced). It shows both outcomes, fades with opacity so it stays in the
  * accessibility tree, and the button is never disabled while feedback shows.
@@ -67,15 +67,14 @@ export function CopyButton({ value, label, copiedLabel, failedLabel, className, 
       <Button type="button" variant="ghost" size="icon-xs" className="min-h-6 min-w-6" aria-label={label} onClick={() => void copy()}>
         <Icon aria-hidden="true" />
       </Button>
-      <span
-        role="status"
+      <output
         className={cn(
           'pointer-events-none absolute end-0 top-full z-10 mt-1 whitespace-nowrap rounded-md border bg-popover px-2 py-1 text-xs text-popover-foreground shadow-md transition-opacity motion-reduce:transition-none',
           state === 'idle' ? 'opacity-0' : 'opacity-100',
         )}
       >
         {message}
-      </span>
+      </output>
     </span>
   );
 }

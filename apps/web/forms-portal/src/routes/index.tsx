@@ -12,7 +12,7 @@ import { formHeadMeta, formMeta } from '@/lib/seo'
 export const Route = createFileRoute('/')({
   loader: () => getHomePage(),
   head: ({ loaderData }) => {
-    if (!loaderData || loaderData.kind !== 'ready') return { meta: [{ name: 'robots', content: 'noindex' }] }
+    if (loaderData?.kind !== 'ready') return { meta: [{ name: 'robots', content: 'noindex' }] }
     const { form, strings } = loaderData
     return { meta: [...formHeadMeta(formMeta(form), null, form.branding.workspaceName || strings.meta.landingTitle), { name: 'robots', content: 'noindex, nofollow' }] }
   },
