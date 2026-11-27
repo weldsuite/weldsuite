@@ -1,3 +1,4 @@
+import { useObjectPanelUrlSyncHere } from '@/components/object-panel';
 import { useState } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@weldsuite/ui/components/tabs';
 import { useI18n } from '@/lib/i18n/provider';
@@ -11,6 +12,8 @@ type ReportTab = 'liability' | 'salesSummary' | 'exceptions' | 'providerReconcil
 
 /** The sales tax reports: liability, sales summary, exceptions and the provider reconciliation. */
 export default function SalesTaxReportsPage() {
+  // Documents stack as panels, synced to `?stack=`.
+  useObjectPanelUrlSyncHere();
   const { t } = useI18n();
   const tr = t.weldbooksUs.salesTax.center.reports;
   const [tab, setTab] = useState<ReportTab>('liability');

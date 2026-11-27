@@ -100,7 +100,7 @@ describe('ExceptionsCard', () => {
     renderWithProviders(<ExceptionsCard ret={filed} canCarryForward canAmend />);
 
     const row = await screen.findByTestId('exception-row');
-    expect(within(row).getByRole('link', { name: 'CM-0001' })).toHaveAttribute('href', '/weldbooks/invoices/cn_1');
+    expect(within(row).getByRole('link', { name: 'CM-0001' })).toHaveAttribute('href', expect.stringContaining('stack=invoice%3Acn_1'));
     expect(row).toHaveTextContent('Acme Corp');
     expect(row).toHaveTextContent('$-43.75');
     expect(row).toHaveTextContent('Open');

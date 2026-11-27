@@ -10,6 +10,7 @@
 
 import type { ReactNode } from 'react';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
+import { RecordLink } from '@/components/object-panel/record-link';
 import { cn } from '@/lib/utils';
 
 export type ChipTone = 'gray' | 'blue' | 'green' | 'amber' | 'red' | 'purple' | 'indigo';
@@ -173,13 +174,31 @@ export function RowAvatar({ name, src, icon }: Readonly<{ name: string; src?: st
   );
 }
 
-/** A person or company: avatar, then the name. A dash when unknown. */
-export function ContactCell({ name, src }: Readonly<{ name?: string | null; src?: string | null }>) {
+/**
+ * A person or company: avatar, then the name. A dash when unknown. With the
+ * contact's id the name is a chip that stacks the contact's panel (a click on
+ * it does not open the row).
+ */
+export function ContactCell({
+  name,
+  src,
+  contactId,
+}: Readonly<{ name?: string | null; src?: string | null; contactId?: string | null }>) {
   if (!name) return <EmptyCell />;
   return (
     <>
       <RowAvatar name={name} src={src} />
-      <span className="ml-1.5 truncate text-sm text-gray-600 dark:text-muted-foreground">{name}</span>
+      {contactId ? (
+        <RecordLink
+          type="weldbooks_contact"
+          id={contactId}
+          label={name}
+          icon={null}
+          className="ml-1 min-h-6 border-transparent bg-transparent px-1 text-sm font-normal text-gray-600 dark:text-muted-foreground"
+        />
+      ) : (
+        <span className="ml-1.5 truncate text-sm text-gray-600 dark:text-muted-foreground">{name}</span>
+      )}
     </>
   );
 }

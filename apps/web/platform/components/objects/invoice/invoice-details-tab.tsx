@@ -18,12 +18,14 @@ import {
   MapPin,
   Repeat,
   Scale,
+  ShoppingCart,
   Truck,
   User,
   Wallet,
 } from 'lucide-react';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { Button } from '@weldsuite/ui/components/button';
+import { RecordLink } from '@/components/object-panel/record-link';
 import { PropertyRow } from '@/components/objects/_shared/property-row';
 import { PanelSection } from '@/components/objects/_shared/record-panel-parts';
 import { formatPostalAddressLines } from '@/components/address/postal-address';
@@ -196,7 +198,31 @@ export function InvoiceDetailsTab({
             readOnly
             renderValue={(status) => <InvoiceStatusChip status={status ?? ''} />}
           />
-          <PropertyRow icon={User} label={ti.contact} value={invoice.contactName} placeholder={EMPTY} readOnly />
+          <PropertyRow
+            icon={User}
+            label={ti.contact}
+            value={invoice.contactName}
+            placeholder={EMPTY}
+            readOnly
+            renderValue={(name) =>
+              invoice.contactId ? (
+                <RecordLink type="weldbooks_contact" id={invoice.contactId} label={name ?? ''} />
+              ) : (
+                <span>{name}</span>
+              )
+            }
+          />
+          {invoice.commerceOrderId ? (
+            <PropertyRow
+              icon={ShoppingCart}
+              label={t.accounting.recordLinks.commerceOrderField}
+              value={invoice.commerceOrderId}
+              readOnly
+              renderValue={(orderId) => (
+                <RecordLink type="order" id={orderId ?? ''} label={t.accounting.recordLinks.orderFallback} />
+              )}
+            />
+          ) : null}
           <PropertyRow
             icon={Mail}
             label={st('sweep.entities.fieldEmail')}

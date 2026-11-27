@@ -11,7 +11,7 @@
  * Tabs: Details · Transactions · Bank feed · History.
  */
 
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { Link } from '@tanstack/react-router';
 import {
   Banknote,
@@ -41,7 +41,6 @@ import { usePermissions } from '@weldsuite/permissions/react';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Button } from '@weldsuite/ui/components/button';
 import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
-import { DrawerFieldSettings } from '@weldsuite/ui/components/drawer-field-settings';
 import { EntityDetailView } from '@weldsuite/ui/components/entity-detail-view';
 import {
   DropdownMenu,
@@ -57,12 +56,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@weldsuite/ui/components/select';
-import {
-  ObjectPanelTabs,
-  useObjectPanelShell,
-  useObjectPanelTabConfig,
-  type ObjectPanelComponentProps,
-} from '@/components/object-panel';
+import { useObjectPanel, useObjectPanelShell, type ObjectPanelComponentProps } from '@/components/object-panel';
+import { RecordLink } from '@/components/object-panel/record-link';
+import { ConfigurablePanelTabs } from '@/components/objects/_shared/configurable-panel-tabs';
 import { EntityAuditPanel } from '@/components/entity-audit-panel';
 import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { PropertyRow } from '@/components/objects/_shared/property-row';
@@ -186,72 +182,6 @@ function BankAccountActions({
   );
 }
 
-// ─── Tab bar ───────────────────────────────────────────────────────────────
-
-function BankAccountTabsBar({
-  tabs,
-  activeTab,
-  setActiveTab,
-  mode,
-}: Readonly<{
-  tabs: BankAccountTab[];
-  activeTab: BankAccountTab['id'];
-  setActiveTab: (id: BankAccountTab['id']) => void;
-  mode: 'panel' | 'fullscreen';
-}>) {
-  const st = useTranslations();
-  const configEntries = useMemo(
-    () =>
-      tabs.map((tab) => ({
-        id: tab.id,
-        label: tab.label,
-        required: tab.required,
-        defaultVisible:
-          mode === 'panel' ? (tab.defaultVisibleInPanel ?? false) : (tab.defaultVisibleInFullscreen ?? false),
-      })),
-    [tabs, mode],
-  );
-
-  const { visibility, isVisible, toggle, resetToDefaults } = useObjectPanelTabConfig({
-    objectType: 'bank_account',
-    mode,
-    tabs: configEntries,
-  });
-
-  useEffect(() => {
-    if (isVisible(activeTab)) return;
-    const fallback = tabs.find((tab) => isVisible(tab.id));
-    if (fallback && fallback.id !== activeTab) setActiveTab(fallback.id);
-  }, [activeTab, isVisible, setActiveTab, tabs]);
-
-  const visibleTabs = useMemo(
-    () =>
-      tabs
-        .filter((tab) => isVisible(tab.id))
-        .map((tab) => ({ id: tab.id, label: tab.label, icon: tab.icon, count: tab.count })),
-    [tabs, isVisible],
-  );
-
-  return (
-    <div className="group/tabs-header relative">
-      <ObjectPanelTabs
-        tabs={visibleTabs}
-        activeTab={activeTab}
-        onChange={(id) => setActiveTab(id as BankAccountTab['id'])}
-      />
-      <div className="absolute top-0 right-2 h-full flex items-center opacity-0 group-hover/tabs-header:opacity-100 focus-within:opacity-100 transition-opacity">
-        <DrawerFieldSettings
-          fields={configEntries}
-          fieldVisibility={visibility}
-          onToggle={toggle}
-          onReset={resetToDefaults}
-          label={st('sweep.entities.visibleTabs')}
-        />
-      </div>
-    </div>
-  );
-}
-
 // ─── Details tab ───────────────────────────────────────────────────────────
 
 /** The US account facts: its type, routing and account (or card) number, and next check number. */
@@ -320,9 +250,11 @@ function BankAccountDetailsTab({
   const ledgerAccount = account.ledgerAccountId
     ? ledgerAccountsRes?.data?.find((candidate) => candidate.id === account.ledgerAccountId)
     : undefined;
+  const ledgerAccountId = account.ledgerAccountId ?? null;
   let ledgerLabel: string | null = null;
-  if (!account.ledgerAccountId) ledgerLabel = st('sweep.weldbooks.records.notLinked');
+  if (!ledgerAccountId) ledgerLabel = st('sweep.weldbooks.records.notLinked');
   else if (ledgerAccount) ledgerLabel = `${ledgerAccount.code} — ${ledgerAccount.name}`;
+  else ledgerLabel = t.accounting.recordLinks.accountFallback;
 
   return (
     <div className="@container p-4 space-y-4">
@@ -340,7 +272,18 @@ function BankAccountDetailsTab({
           readOnly
           renderValue={(value) => (
             <span>
-              {value}{' '}
+              {Number(value) > 0 ? (
+                <Link
+                  to="/weldbooks/banking/reconciliation"
+                  search={{ accountId: account.id }}
+                  className="text-primary hover:underline"
+                  data-testid="unreconciled-link"
+                >
+                  {value}
+                </Link>
+              ) : (
+                value
+              )}{' '}
               <span className="text-muted-foreground">
                 {tbp.ofTransactions.replace('{total}', String(totalTransactions))}
               </span>
@@ -369,9 +312,13 @@ function BankAccountDetailsTab({
           label={st('sweep.weldbooks.records.ledgerAccount')}
           value={ledgerLabel}
           readOnly
-          renderValue={(value) => (
-            <span className={cn(!account.ledgerAccountId && 'text-amber-700 dark:text-amber-400')}>{value}</span>
-          )}
+          renderValue={(value) =>
+            ledgerAccountId ? (
+              <RecordLink type="ledger_account" id={ledgerAccountId} label={value ?? ''} />
+            ) : (
+              <span className="text-amber-700 dark:text-amber-400">{value}</span>
+            )
+          }
         />
         {isUs ? (
           <UsAccountRows account={account} t={t} />
@@ -419,11 +366,12 @@ const LINE_STATUS_VARIANT: Record<string, 'default' | 'secondary' | 'outline'> =
 
 function TransactionRow({ line, currency }: Readonly<{ line: BankLine; currency: string | undefined }>) {
   const st = useTranslations();
+  const { open } = useObjectPanel();
   const { formatDate, formatMoney } = useWeldbooksFormat();
   const isPositive = (Number(line.amount) || 0) >= 0;
   const title = line.description || line.counterpartyName || '—';
   return (
-    <TabListRow label={title}>
+    <TabListRow label={title} onOpen={() => open({ type: 'bank_transaction', id: line.id, stack: true })}>
       <span className="w-[92px] flex-shrink-0 whitespace-nowrap text-sm tabular-nums">
         {formatDate(line.date)}
       </span>
@@ -529,6 +477,12 @@ function BankAccountTransactionsTab({
           >
             <RefreshCw className={cn('h-4 w-4', autoReconcile.isPending && 'animate-spin')} />
             {tbp.autoReconcile}
+          </Button>
+          <Button variant="outline" size="sm" asChild>
+            <Link to="/weldbooks/banking/reconciliation" search={{ accountId: id }} data-testid="reconcile-account">
+              <ListChecks className="h-4 w-4" />
+              {t.accounting.bankAccountPanel.reconcile}
+            </Link>
           </Button>
           {isUs ? (
             <>
@@ -655,7 +609,8 @@ export function BankAccountPanel(props: Readonly<ObjectPanelComponentProps>) {
           />
         }
         tabs={
-          <BankAccountTabsBar
+          <ConfigurablePanelTabs
+            objectType="bank_account"
             tabs={tabs}
             activeTab={activeTab}
             setActiveTab={setActiveTab}

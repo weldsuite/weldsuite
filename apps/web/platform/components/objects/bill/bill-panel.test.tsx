@@ -49,6 +49,7 @@ vi.mock('@weldsuite/ui/components/entity-detail-view', () => ({
   ),
 }));
 vi.mock('@/components/object-panel', () => ({
+  useObjectPanel: () => ({ stack: [], open: vi.fn() }),
   useObjectPanelShell: () => ({ mode: 'fullscreen', setMode: vi.fn(), entityDetailViewProps: {} }),
   useObjectPanelTabConfig: () => ({
     visibility: {},

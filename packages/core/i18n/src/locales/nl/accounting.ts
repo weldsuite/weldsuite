@@ -1974,6 +1974,124 @@ export const accounting = {
       deleted: 'Betaling verwijderd',
     },
 
+    // Het banktransactiepaneel (objecttype `bank_transaction`): één bankregel en waar die aan gekoppeld is
+    bankTransactionPanel: {
+      rowLabel: 'Banktransactie',
+      notFound: 'Banktransactie niet gevonden.',
+      processedAs: {
+        payment: 'Gekoppeld',
+        deposit: 'Gestort',
+        category: 'Geboekt',
+        excluded: 'Genegeerd',
+        unprocessed: 'Te verwerken',
+      },
+      fields: {
+        counterparty: 'Tegenpartij',
+        date: 'Datum',
+        bankAccount: 'Bankrekening',
+        reference: 'Kenmerk',
+        description: 'Omschrijving',
+        counterpartyAccount: 'Rekening tegenpartij',
+        source: 'Bron',
+        notes: 'Notities',
+      },
+      sources: {
+        import: 'Afschriftimport',
+        feed: 'Bankkoppeling',
+        manual: 'Handmatig ingevoerd',
+      },
+      detailsTitle: 'Details',
+      connections: {
+        title: 'Koppelingen',
+        none: 'Aan deze transactie is nog niets gekoppeld.',
+        payment: 'Betaling',
+        journalEntry: 'Journaalpost',
+        category: 'Categorie',
+        vatRate: 'Btw-tarief',
+        deposit: 'Storting',
+        contact: 'Contact',
+        documents: 'Documenten',
+        invoiceFallback: 'Factuur',
+        billFallback: 'Inkoopfactuur',
+        accountFallback: 'Grootboekrekening',
+        contactFallback: 'Contact',
+      },
+      actions: {
+        match: 'Koppelen',
+        ignore: 'Negeren',
+        undo: 'Ongedaan maken',
+        openDetails: 'Details openen',
+      },
+      confirmUndo: {
+        title: 'Deze transactie ongedaan maken?',
+        description:
+          'De transactie gaat terug naar Te verwerken. Een betaling of journaalpost die ze aanmaakte wordt teruggedraaid en de documenten die ze betaalde staan weer open.',
+        confirm: 'Ongedaan maken',
+      },
+      confirmIgnore: {
+        title: 'Deze transactie negeren?',
+        description: 'Ze verdwijnt uit Te verwerken en boekt niets. Je kunt dit later ongedaan maken vanuit de transactie.',
+        confirm: 'Negeren',
+      },
+      toasts: {
+        undone: 'Transactie staat weer bij Te verwerken',
+        ignored: 'Transactie genegeerd',
+        failed: 'Die actie is niet gelukt',
+      },
+    },
+
+    // De lijst met nog te verwerken regels op het afstemscherm
+    bankReconcileList: {
+      searchLabel: 'Transacties zoeken',
+      searchPlaceholder: 'Naam, omschrijving of kenmerk',
+      noSearchResults: 'Geen transacties gevonden voor je zoekopdracht.',
+      shownOfTotal: '{shown} van {total} getoond',
+      loadMore: 'Meer laden',
+    },
+
+    // Extra acties van het bankrekeningpaneel
+    bankAccountPanel: {
+      reconcile: 'Afstemmen',
+    },
+
+    // Chips die het ene WeldBooks-record aan het andere koppelen
+    recordLinks: {
+      // Wat een journaalpost boekte (zijn `sourceType`)
+      journalSources: {
+        manual: 'Handmatige boeking',
+        invoice: 'Factuur',
+        credit_note: 'Creditnota',
+        bill: 'Inkoopfactuur',
+        bill_credit_note: 'Inkoopcreditnota',
+        payment: 'Betaling',
+        unapplied_payment: 'Niet toegewezen betaling',
+        payment_fx_adjustment: 'Koersverschil',
+        bank_transaction: 'Banktransactie',
+        bank_deposit: 'Storting',
+        bank_reconciliation: 'Bankafstemming',
+        fixed_asset: 'Vaste activa',
+        fixed_asset_depreciation: 'Afschrijving',
+        payroll: 'Salarisverwerking',
+        tax_return: 'Btw-aangifte',
+        pick_list: 'Pickbon',
+        transfer: 'Voorraadverplaatsing',
+        purchase_order: 'Inkooporder',
+        write_off: 'Afschrijving op debiteur',
+        write_off_recovery: 'Terugname afschrijving',
+        bad_debt: 'Oninbare vordering',
+        other: 'Overig',
+      },
+      invoiceFallback: 'Factuur',
+      billFallback: 'Inkoopfactuur',
+      contactFallback: 'Contact',
+      accountFallback: 'Grootboekrekening',
+      commerceOrderField: 'Webshopbestelling',
+      inboxDocument: 'Inboxdocument',
+      linkedTo: 'Gekoppeld aan',
+      orderFallback: 'Bestelling',
+      paymentBankLine: 'Banktransactie',
+    },
+
     // Banking pages
     bankingPages: {
       accountCreated: 'Bankrekening aangemaakt',

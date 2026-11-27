@@ -90,7 +90,7 @@ describe('PayrollRunPanel', () => {
     expect(screen.getByText('2026-01-01 – 2026-01-15')).toBeInTheDocument();
     expect(screen.getByText('january.csv')).toBeInTheDocument();
     expect(screen.getByText('2026-02-01')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'View journal entry' })).toHaveAttribute('href', '/weldbooks/journal/je_1');
+    expect(screen.getByRole('link', { name: 'View journal entry' })).toHaveAttribute('href', expect.stringContaining('stack=journal_entry%3Aje_1'));
   });
 
   it('shows the totals, leaving out the zero ones', () => {
@@ -105,8 +105,8 @@ describe('PayrollRunPanel', () => {
     renderPanel();
     await user.click(screen.getByRole('tab', { name: 'Journal entry' }));
 
-    expect(screen.getByRole('link', { name: '6000 — Wages' })).toHaveAttribute('href', '/weldbooks/accounts/acc_wages');
-    expect(screen.getByRole('link', { name: '1000 — Checking' })).toHaveAttribute('href', '/weldbooks/accounts/acc_bank');
+    expect(screen.getByRole('link', { name: '6000 — Wages' })).toHaveAttribute('href', expect.stringContaining('stack=ledger_account%3Aacc_wages'));
+    expect(screen.getByRole('link', { name: '1000 — Checking' })).toHaveAttribute('href', expect.stringContaining('stack=ledger_account%3Aacc_bank'));
     expect(screen.getByText('Payroll 2026-01-15: Net pay')).toBeInTheDocument();
     const total = screen.getByText('Total').parentElement as HTMLElement;
     expect(total).toHaveTextContent('$10000.00$10000.00');

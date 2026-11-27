@@ -23,6 +23,7 @@ interface BillRow {
   id: string;
   billNumber: string | null;
   contactName: string | null;
+  contactId?: string | null;
   issueDate: string | null;
   dueDate: string | null;
   totalAmount: number | null;
@@ -77,7 +78,7 @@ export default function BillsPage() {
       id: 'supplier',
       header: tbp.colSupplier,
       width: 'hidden shrink-0 @4xl/list:flex w-[200px]',
-      render: (bill) => <ContactCell name={bill.contactName} />,
+      render: (bill) => <ContactCell name={bill.contactName} contactId={bill.contactId} />,
     },
     {
       id: 'issueDate',

@@ -28,6 +28,7 @@ import './bill';
 import './recurring-invoice';
 import './domain';
 import './bank-account';
+import './bank-transaction';
 import './journal-entry';
 import './deposit';
 import './fixed-asset';

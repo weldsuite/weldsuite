@@ -12,7 +12,6 @@
  */
 
 import { useMemo, useState } from 'react';
-import { Link } from '@tanstack/react-router';
 import {
   BadgeCheck,
   CalendarClock,
@@ -43,6 +42,7 @@ import {
 } from '@weldsuite/ui/components/dropdown-menu';
 import { EntityDetailView } from '@weldsuite/ui/components/entity-detail-view';
 import { useObjectPanelShell, type ObjectPanelComponentProps } from '@/components/object-panel';
+import { RecordLink } from '@/components/object-panel/record-link';
 import { EntityAuditPanel } from '@/components/entity-audit-panel';
 import { StatusChip } from '@/components/accounting/weldbooks-row-cells';
 import { ConfigurablePanelTabs } from '@/components/objects/_shared/configurable-panel-tabs';
@@ -55,7 +55,8 @@ import {
 import { SalesTaxPanelGate } from '@/components/objects/_shared/sales-tax-panel-gate';
 import { tabBodyClassName } from '@/components/objects/_shared/tab-empty-state';
 import { TabListRow, TabListScope } from '@/components/objects/_shared/tab-list-row';
-import { useAccountingInvoice } from '@/hooks/queries/use-accounting-queries';
+import { useAccountingCustomer, useAccountingInvoice } from '@/hooks/queries/use-accounting-queries';
+import { useI18n } from '@/lib/i18n/provider';
 import {
   useAccountingDocument,
   useDeleteExemptionCertificate,
@@ -187,13 +188,24 @@ function CertificateActions({
 
 // ─── Details tab ───────────────────────────────────────────────────────────
 
+/** The invoice an exemption covers, as a chip that stacks its panel. */
 function InvoiceLink({ invoiceId }: Readonly<{ invoiceId: string }>) {
+  const { t: tr } = useI18n();
   const invoice = useAccountingInvoice(invoiceId);
   const number = invoice.data?.data?.invoiceNumber;
+  return <RecordLink type="invoice" id={invoiceId} label={number ?? tr.accounting.recordLinks.invoiceFallback} />;
+}
+
+/** The customer of an exemption, as a chip that stacks the contact's panel. */
+function CustomerLink({ partyId }: Readonly<{ partyId: string }>) {
+  const { t: tr } = useI18n();
+  const customer = useAccountingCustomer(partyId);
   return (
-    <Link to="/weldbooks/invoices/$id" params={{ id: invoiceId }} className="text-primary underline-offset-4 hover:underline">
-      {number ?? invoiceId}
-    </Link>
+    <RecordLink
+      type="weldbooks_contact"
+      id={partyId}
+      label={customer.data?.data?.name ?? tr.accounting.recordLinks.contactFallback}
+    />
   );
 }
 
@@ -210,15 +222,7 @@ function CertificateDetailsTab({ certificate }: Readonly<{ certificate: Exemptio
           icon={User}
           label={td.fields.customer}
           value={certificate.partyId}
-          renderValue={(partyId) => (
-            <Link
-              to="/weldbooks/customers/$id"
-              params={{ id: partyId ?? '' }}
-              className="text-primary underline-offset-4 hover:underline"
-            >
-              <CustomerName partyId={certificate.partyId} />
-            </Link>
-          )}
+          renderValue={(partyId) => <CustomerLink partyId={partyId ?? ''} />}
         />
         <PanelRow icon={Tag} label={td.fields.reason} value={t.certificates.reasons[certificate.reason]} />
         <PanelRow icon={FileText} label={td.fields.form} value={t.certificates.forms[certificate.form]} />

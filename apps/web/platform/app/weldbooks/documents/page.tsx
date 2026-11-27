@@ -1,6 +1,9 @@
-import { useCallback, useRef, useState } from 'react';
-import { useNavigate } from '@tanstack/react-router';
-import { accountingKeys } from '@/hooks/queries/use-accounting-queries';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { useNavigate, useSearch } from '@tanstack/react-router';
+import { RecordChip } from '@weldsuite/ui/components/record-chip';
+import { useObjectPanelUrlSync } from '@/components/object-panel';
+import { useRecordLink } from '@/components/object-panel/record-link';
+import { accountingKeys, useAccountingBill, useAccountingInvoice } from '@/hooks/queries/use-accounting-queries';
 import { useFileUpload } from '@/hooks/use-file-upload';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Button } from '@weldsuite/ui/components/button';
@@ -139,6 +142,9 @@ interface DocumentRow {
   matchedContactId?: string | null;
   mimeType?: string | null;
   ocrResult?: OcrResult | null;
+  /** The record the document became (`bill`, `invoice`, `journal_entry`, `expense`), once it is linked. */
+  linkedEntityType?: string | null;
+  linkedEntityId?: string | null;
 }
 
 /** Inbox statuses whose chip tone differs from the shared default mapping. */
@@ -221,6 +227,22 @@ export default function DocumentInboxPage() {
   });
 
   const [selectedDoc, setSelectedDoc] = useState<DocumentRow | null>(null);
+  // A bill or invoice the document became stacks as a panel, synced to `?stack=`.
+  useObjectPanelUrlSync('/weldbooks/documents');
+  // `?document=<id>` (a link from a bill or a bank transaction) opens that document's dialog.
+  const { document: documentParam } = useSearch({ strict: false }) as { document?: string };
+  const openedParam = useRef<string | null>(null);
+  useEffect(() => {
+    if (!documentParam || openedParam.current === documentParam) return;
+    openedParam.current = documentParam;
+    accountingApi
+      .getDocument(documentParam)
+      .then((full) => {
+        if (full?.data) setSelectedDoc(full.data as unknown as DocumentRow);
+      })
+      // A document that cannot be read leaves the list as it is.
+      .catch(() => {});
+  }, [documentParam]);
   const [supplierDialog, setSupplierDialog] = useState<DocumentRow | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<DocumentRow | null>(null);
   const [uploadQueue, setUploadQueue] = useState<Array<{ id: string; name: string; phase: 'uploading' | 'processing' | 'done' | 'failed'; error?: string; docId?: string }>>([]);
@@ -582,6 +604,7 @@ export default function DocumentInboxPage() {
               {selectedDoc?.ocrResult ? `${td.ocrResult} — ` : ''}{selectedDoc?.fileName}
             </DialogTitle>
           </DialogHeader>
+          {selectedDoc && <LinkedRecordChip doc={selectedDoc} onBeforeOpen={() => setSelectedDoc(null)} />}
           {selectedDoc && <DocumentDialogBody doc={selectedDoc} ocrAvailable={ocrAvailable} td={td} />}
           {selectedDoc?.fileKey && isImageDocument(selectedDoc) && (
             <img
@@ -699,6 +722,43 @@ function createBillLabel(state: DocumentState, td: DocumentsTranslations): strin
 }
 
 /** The OCR result of the document, or why there is none and what to do instead. */
+/**
+ * A linked document shows the record it became (a bill or an invoice) as a chip.
+ * The dialog closes first: it is modal and would cover the panel the chip stacks.
+ */
+function LinkedRecordChip({
+  doc,
+  onBeforeOpen,
+}: Readonly<{ doc: DocumentRow; onBeforeOpen: () => void }>) {
+  const { t } = useI18n();
+  const tl = t.accounting.recordLinks;
+  const link = useRecordLink();
+  const isBill = doc.linkedEntityType === 'bill';
+  const isInvoice = doc.linkedEntityType === 'invoice';
+  const linkedId = doc.linkedEntityId ?? '';
+  const bill = useAccountingBill(isBill ? linkedId : '').data?.data;
+  const invoice = useAccountingInvoice(isInvoice ? linkedId : '').data?.data;
+  if (!linkedId || (!isBill && !isInvoice)) return null;
+  const target = link({ type: isBill ? 'bill' : 'invoice', id: linkedId });
+  const label = isBill
+    ? (bill?.billNumber ?? tl.billFallback)
+    : (invoice?.invoiceNumber ?? tl.invoiceFallback);
+  return (
+    <div className="flex flex-wrap items-center gap-2 text-sm">
+      <span className="text-muted-foreground">{tl.linkedTo}</span>
+      <RecordChip
+        label={label}
+        icon={Receipt}
+        href={target.href}
+        onOpen={() => {
+          onBeforeOpen();
+          target.onOpen();
+        }}
+      />
+    </div>
+  );
+}
+
 function DocumentDialogBody({
   doc,
   ocrAvailable,

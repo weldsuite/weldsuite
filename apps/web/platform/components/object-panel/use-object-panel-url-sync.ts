@@ -20,6 +20,15 @@ import { useObjectPanel } from './use-object-panel';
 import { serializeStack, parseStack, stacksEqual } from './stack-url';
 import { withQuery } from '@/lib/with-query';
 
+/**
+ * `useObjectPanelUrlSync` for the page the hook is mounted on, whatever its path.
+ * For pages whose address has a parameter (`/returns/ret_1`) or that only host
+ * record chips, where there is no fixed base path to spell out.
+ */
+export function useObjectPanelUrlSyncHere() {
+  useObjectPanelUrlSync(usePathname());
+}
+
 export function useObjectPanelUrlSync(basePath: string) {
   const router = useRouter();
   const searchParams = useSearchParams();

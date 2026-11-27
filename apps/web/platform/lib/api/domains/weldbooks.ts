@@ -481,6 +481,8 @@ export interface Invoice {
   total: string | null;
   amountPaid: string | null;
   balanceDue: string | null;
+  /** The WeldCommerce order the invoice was made from, when it came from one. */
+  commerceOrderId?: string | null;
   reference: string | null;
   notes: string | null;
   internalNotes: string | null;
@@ -541,6 +543,8 @@ export interface Bill {
   amountPaid: string | null;
   balanceDue: string | null;
   externalReference: string | null;
+  /** The inbox document the bill was created from, when it came from one. */
+  sourceDocumentId?: string | null;
   approvalStatus: string | null;
   notes: string | null;
   internalNotes: string | null;

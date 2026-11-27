@@ -1,5 +1,5 @@
 import { History, LayoutGrid, ListOrdered } from 'lucide-react';
-import type { ObjectPanelTabDescriptor } from '@/components/object-panel';
+import type { ConfigurablePanelTab } from '@/components/objects/_shared/configurable-panel-tabs';
 
 /**
  * Tab descriptors for the journal entry panel. Every tab is backed by a real
@@ -9,12 +9,7 @@ import type { ObjectPanelTabDescriptor } from '@/components/object-panel';
  *   lines    → `/journal-entries/:id` → `lines`  (the debit and credit lines)
  *   history  → `/api/audit-logs?entityType=journal_entry`
  */
-export interface JournalEntryTab extends ObjectPanelTabDescriptor {
-  id: 'overview' | 'lines' | 'history';
-  defaultVisibleInPanel?: boolean;
-  defaultVisibleInFullscreen?: boolean;
-  required?: boolean;
-}
+export type JournalEntryTab = ConfigurablePanelTab<'overview' | 'lines' | 'history'>;
 
 export function getJournalEntryTabs(labels: {
   details: string;
@@ -43,6 +38,7 @@ export function getJournalEntryTabs(labels: {
       id: 'history',
       label: labels.history,
       icon: History,
+      defaultVisibleInPanel: true,
       defaultVisibleInFullscreen: true,
     },
   ];

@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 
 const api = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), patch: vi.fn(), delete: vi.fn() }));
 vi.mock('@/lib/api/weldbooks-client', () => ({ weldbooksApi: api, setWeldbooksEntityId: vi.fn() }));
+vi.mock('@/components/object-panel', () => import('@/components/objects/_shared/object-panel-test-mock'));
 vi.mock('@tanstack/react-router', () => ({
   Link: ({ to, params, children }: { to: string; params?: Record<string, string>; children: React.ReactNode }) => (
     <a href={params ? to.replace('$id', params.id ?? '') : to}>{children}</a>
@@ -301,7 +302,7 @@ describe('Exceptions report', () => {
 
     await user.click(await screen.findByRole('tab', { name: 'Exceptions' }));
     const [first, , third] = await screen.findAllByTestId('exception-row');
-    expect(within(first!).getByRole('link', { name: 'INV-1' })).toHaveAttribute('href', '/weldbooks/invoices/inv_1');
+    expect(within(first!).getByRole('link', { name: 'INV-1' })).toHaveAttribute('href', expect.stringContaining('stack=invoice%3Ainv_1'));
     expect(first).toHaveTextContent('so the tax cannot be sourced');
     // A message that names something specific (a user's reason) is shown as the server wrote it.
     expect(third).toHaveTextContent('Tax set by hand on "Widget": rounding.');

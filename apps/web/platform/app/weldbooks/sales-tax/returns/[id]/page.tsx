@@ -1,3 +1,4 @@
+import { useObjectPanelUrlSyncHere } from '@/components/object-panel';
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from '@tanstack/react-router';
 import { ArrowLeft, Download, ExternalLink, FileX, Loader2, Trash2 } from 'lucide-react';
@@ -363,6 +364,8 @@ function ReturnContent({ id }: Readonly<{ id: string }>) {
 
 /** One return of the Sales Tax Center: the worksheet and the flow from calculation to payment. */
 export default function SalesTaxReturnPage() {
+  // Documents stack as panels, synced to `?stack=`.
+  useObjectPanelUrlSyncHere();
   const { id } = useParams({ strict: false }) as { id: string };
   return (
     <SalesTaxGate>

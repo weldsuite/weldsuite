@@ -1939,6 +1939,124 @@ export const accounting = {
       deleted: 'Payment deleted',
     },
 
+    // The bank transaction panel (object type `bank_transaction`): one bank line and what it is connected to
+    bankTransactionPanel: {
+      rowLabel: 'Bank transaction',
+      notFound: 'Bank transaction not found.',
+      processedAs: {
+        payment: 'Matched',
+        deposit: 'Deposited',
+        category: 'Booked',
+        excluded: 'Ignored',
+        unprocessed: 'To process',
+      },
+      fields: {
+        counterparty: 'Counterparty',
+        date: 'Date',
+        bankAccount: 'Bank account',
+        reference: 'Reference',
+        description: 'Description',
+        counterpartyAccount: 'Counterparty account',
+        source: 'Source',
+        notes: 'Notes',
+      },
+      sources: {
+        import: 'Statement import',
+        feed: 'Bank feed',
+        manual: 'Entered by hand',
+      },
+      detailsTitle: 'Details',
+      connections: {
+        title: 'Connections',
+        none: 'Nothing is connected to this transaction yet.',
+        payment: 'Payment',
+        journalEntry: 'Journal entry',
+        category: 'Category',
+        vatRate: 'VAT rate',
+        deposit: 'Deposit',
+        contact: 'Contact',
+        documents: 'Documents',
+        invoiceFallback: 'Invoice',
+        billFallback: 'Bill',
+        accountFallback: 'Ledger account',
+        contactFallback: 'Contact',
+      },
+      actions: {
+        match: 'Match',
+        ignore: 'Ignore',
+        undo: 'Undo',
+        openDetails: 'Open details',
+      },
+      confirmUndo: {
+        title: 'Undo this transaction?',
+        description:
+          'The transaction goes back to To process. A payment or journal entry it created is reversed, and the documents it paid are open again.',
+        confirm: 'Undo',
+      },
+      confirmIgnore: {
+        title: 'Ignore this transaction?',
+        description: 'It leaves To process and books nothing. You can undo this later from the transaction.',
+        confirm: 'Ignore',
+      },
+      toasts: {
+        undone: 'Transaction is back in To process',
+        ignored: 'Transaction ignored',
+        failed: 'Could not complete that action',
+      },
+    },
+
+    // The reconcile screen's list of lines still to process
+    bankReconcileList: {
+      searchLabel: 'Search transactions',
+      searchPlaceholder: 'Name, description or reference',
+      noSearchResults: 'No transactions match your search.',
+      shownOfTotal: '{shown} of {total} shown',
+      loadMore: 'Load more',
+    },
+
+    // Extra actions of the bank account panel
+    bankAccountPanel: {
+      reconcile: 'Reconcile',
+    },
+
+    // Chips that link one WeldBooks record to another
+    recordLinks: {
+      // What posted a journal entry (its `sourceType`)
+      journalSources: {
+        manual: 'Manual entry',
+        invoice: 'Invoice',
+        credit_note: 'Credit note',
+        bill: 'Bill',
+        bill_credit_note: 'Bill credit note',
+        payment: 'Payment',
+        unapplied_payment: 'Unapplied payment',
+        payment_fx_adjustment: 'Exchange difference',
+        bank_transaction: 'Bank transaction',
+        bank_deposit: 'Deposit',
+        bank_reconciliation: 'Bank reconciliation',
+        fixed_asset: 'Fixed asset',
+        fixed_asset_depreciation: 'Depreciation',
+        payroll: 'Payroll',
+        tax_return: 'VAT return',
+        pick_list: 'Pick list',
+        transfer: 'Stock transfer',
+        purchase_order: 'Purchase order',
+        write_off: 'Write-off',
+        write_off_recovery: 'Write-off recovery',
+        bad_debt: 'Bad debt',
+        other: 'Other',
+      },
+      invoiceFallback: 'Invoice',
+      billFallback: 'Bill',
+      contactFallback: 'Contact',
+      accountFallback: 'Ledger account',
+      commerceOrderField: 'Online order',
+      inboxDocument: 'Inbox document',
+      linkedTo: 'Linked to',
+      orderFallback: 'Order',
+      paymentBankLine: 'Bank transaction',
+    },
+
     // Banking pages
     bankingPages: {
       accountCreated: 'Bank account created',

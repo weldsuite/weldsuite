@@ -70,4 +70,5 @@ export function useObjectPanel() {
 }
 
 export const useObjectPanelUrlSync = vi.fn();
+export const useObjectPanelUrlSyncHere = vi.fn();
 export const registerObjectPanel = vi.fn();

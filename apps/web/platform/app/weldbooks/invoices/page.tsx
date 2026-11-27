@@ -18,6 +18,7 @@ interface InvoiceRow {
   id: string;
   invoiceNumber: string | null;
   contactName: string | null;
+  contactId?: string | null;
   issueDate: string | null;
   dueDate: string | null;
   totalAmount: number | null;
@@ -84,7 +85,7 @@ export default function InvoicesPage() {
       id: 'contact',
       header: tip.colContact,
       width: 'hidden shrink-0 @4xl/list:flex w-[200px]',
-      render: (inv) => <ContactCell name={inv.contactName} />,
+      render: (inv) => <ContactCell name={inv.contactName} contactId={inv.contactId} />,
     },
     {
       id: 'issueDate',

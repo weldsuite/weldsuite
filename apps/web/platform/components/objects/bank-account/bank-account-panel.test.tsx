@@ -1,10 +1,13 @@
 import type { ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 
 const env = vi.hoisted(() => ({
   account: null as Record<string, unknown> | null,
   ledgerAccounts: [] as Array<{ id: string; code: string; name: string }>,
+  unreconciled: 0,
+  jurisdiction: 'NL' as string,
 }));
 
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
@@ -37,9 +40,12 @@ vi.mock('@/hooks/queries/use-accounting-queries', () => ({
 }));
 vi.mock('@/hooks/queries/use-weldbooks-banking-queries', () => ({
   useBankAccount: () => ({ data: env.account ? { data: env.account } : undefined, isLoading: false, isError: false }),
-  useBankLines: () => ({ data: { data: [], pagination: { totalCount: 0 } }, isLoading: false }),
+  useBankLines: (filters?: { status?: string }) => ({
+    data: { data: [], pagination: { totalCount: filters?.status === 'unreconciled' ? env.unreconciled : 0 } },
+    isLoading: false,
+  }),
 }));
-vi.mock('@/lib/weldbooks/use-jurisdiction', () => ({ useCurrentJurisdiction: () => ({ code: 'NL' }) }));
+vi.mock('@/lib/weldbooks/use-jurisdiction', () => ({ useCurrentJurisdiction: () => ({ code: env.jurisdiction }) }));
 vi.mock('@/lib/weldbooks/use-weldbooks-format', () => ({
   useWeldbooksFormat: () => ({
     currency: 'EUR',
@@ -49,6 +55,8 @@ vi.mock('@/lib/weldbooks/use-weldbooks-format', () => ({
 }));
 
 import { BankAccountPanel } from './bank-account-panel';
+import { getBankAccountTabs } from './bank-account-tabs';
+import { panelOpen } from '@/components/objects/_shared/object-panel-test-mock';
 import { renderWithProviders } from '@/app/weldbooks/invoices/components/test-utils';
 
 function account(overrides: Record<string, unknown> = {}) {
@@ -73,6 +81,9 @@ function renderPanel() {
 describe('BankAccountPanel ledger account', () => {
   beforeEach(() => {
     env.account = account();
+    env.unreconciled = 0;
+    env.jurisdiction = 'NL';
+    panelOpen.mockReset();
     env.ledgerAccounts = [
       { id: 'acc_1100', code: '1100', name: 'Bank' },
       { id: 'acc_1200', code: '1200', name: 'Savings' },
@@ -83,6 +94,12 @@ describe('BankAccountPanel ledger account', () => {
     renderPanel();
     expect(screen.getByText('Ledger account')).toBeInTheDocument();
     expect(screen.getByText('1100 — Bank')).toBeInTheDocument();
+  });
+
+  it('shows the ledger account as a chip that stacks its panel', async () => {
+    renderPanel();
+    await userEvent.click(screen.getByRole('link', { name: '1100 — Bank' }));
+    expect(panelOpen).toHaveBeenCalledWith({ type: 'ledger_account', id: 'acc_1100', stack: true });
   });
 
   it('says so when the bank account is not linked to a ledger account', () => {
@@ -97,5 +114,47 @@ describe('BankAccountPanel ledger account', () => {
     renderPanel();
     expect(screen.queryByText('Not linked')).not.toBeInTheDocument();
     expect(screen.queryByText('1100 — Bank')).not.toBeInTheDocument();
+  });
+});
+
+describe('BankAccountPanel reconciling', () => {
+  beforeEach(() => {
+    env.account = account();
+    env.unreconciled = 0;
+    env.jurisdiction = 'NL';
+    env.ledgerAccounts = [{ id: 'acc_1100', code: '1100', name: 'Bank' }];
+  });
+
+  it('links the unreconciled count to the reconcile screen of this account', () => {
+    env.unreconciled = 7;
+    renderPanel();
+    const link = screen.getByTestId('unreconciled-link');
+    expect(link).toHaveTextContent('7');
+    expect(link.getAttribute('href')).toBe('/weldbooks/banking/reconciliation');
+  });
+
+  it('shows no link when nothing is left to reconcile', () => {
+    renderPanel();
+    expect(screen.queryByTestId('unreconciled-link')).not.toBeInTheDocument();
+  });
+
+  it.each(['NL', 'US', 'DE'])('offers Reconcile on the Transactions tab for a %s entity', async (code) => {
+    env.jurisdiction = code;
+    const user = userEvent.setup();
+    renderPanel();
+    await user.click(screen.getByRole('tab', { name: /Transactions/ }));
+    const reconcile = screen.getByTestId('reconcile-account');
+    expect(reconcile).toHaveTextContent('Reconcile');
+    expect(reconcile.getAttribute('href')).toBe('/weldbooks/banking/reconciliation');
+  });
+});
+
+describe('getBankAccountTabs', () => {
+  it('shows History in the side panel as well as fullscreen', () => {
+    const history = getBankAccountTabs({ details: 'Details', transactions: 'Transactions', feeds: 'Feed', history: 'History' }).find(
+      (tab) => tab.id === 'history',
+    );
+    expect(history?.defaultVisibleInPanel).toBe(true);
+    expect(history?.defaultVisibleInFullscreen).toBe(true);
   });
 });

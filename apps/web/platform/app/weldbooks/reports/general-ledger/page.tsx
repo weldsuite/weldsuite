@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Link, useSearch } from '@tanstack/react-router';
+import { useSearch } from '@tanstack/react-router';
 import { Button } from '@weldsuite/ui/components/button';
 import { Card, CardContent } from '@weldsuite/ui/components/card';
 import { Label } from '@weldsuite/ui/components/label';
@@ -11,6 +11,8 @@ import {
   SelectValue,
 } from '@weldsuite/ui/components/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@weldsuite/ui/components/table';
+import { RecordLink } from '@/components/object-panel/record-link';
+import { useObjectPanelUrlSync } from '@/components/object-panel';
 import { useAccountingAccounts, useGeneralLedgerReport } from '@/hooks/queries/use-accounting-queries';
 import { useI18n } from '@/lib/i18n/provider';
 import { cn } from '@/lib/utils';
@@ -30,6 +32,8 @@ export default function GeneralLedgerReportPage() {
   const tb = t.accounting.reports;
   const { formatMoney, formatDate } = useWeldbooksFormat();
   const search = useSearch({ from: '/weldbooks/reports/general-ledger/' });
+  // A line's journal entry stacks as a panel, synced to `?stack=`.
+  useObjectPanelUrlSync('/weldbooks/reports/general-ledger');
   const { params, update, query } = useReportParams({ from: search.from ?? '', to: search.to ?? '' });
   const [accountId, setAccountId] = useState(search.accountId ?? '');
   const [page, setPage] = useState(1);
@@ -153,13 +157,7 @@ export default function GeneralLedgerReportPage() {
                     <TableCell className="whitespace-nowrap tabular-nums">{formatDate(line.entryDate)}</TableCell>
                     <TableCell className="whitespace-nowrap">
                       {line.journalEntryId && line.entryNumber ? (
-                        <Link
-                          to="/weldbooks/journal/$id"
-                          params={{ id: line.journalEntryId }}
-                          className="hover:underline"
-                        >
-                          {line.entryNumber}
-                        </Link>
+                        <RecordLink type="journal_entry" id={line.journalEntryId} label={line.entryNumber} />
                       ) : (
                         (line.entryNumber ?? '-')
                       )}

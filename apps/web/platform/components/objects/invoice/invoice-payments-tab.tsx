@@ -6,53 +6,13 @@
  * deletes a payment no bank transaction confirms.
  */
 
-import type { ReactNode } from 'react';
 import { Banknote } from 'lucide-react';
 import { usePaymentBankActions } from '@/components/accounting/payment-bank-actions';
+import { PaymentRow } from '@/components/accounting/payment-row';
 import { TabEmptyIllustration, TabEmptyState } from '@/components/objects/_shared/tab-empty-state';
-import { TabListRow, TabListScope } from '@/components/objects/_shared/tab-list-row';
+import { TabListScope } from '@/components/objects/_shared/tab-list-row';
 import type { InvoiceWithTax } from '@/lib/api/domains/weldbooks-sales-tax-preview';
 import { useI18n } from '@/lib/i18n/provider';
-import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
-
-type InvoicePayment = InvoiceWithTax['payments'][number];
-
-function PaymentRow({
-  payment,
-  currency,
-  methodLabels,
-  bankLabel,
-  menuLabel,
-  menu,
-}: Readonly<{
-  payment: InvoicePayment;
-  currency: string | null;
-  methodLabels: Record<string, string>;
-  /** Shown when a bank transaction confirms the payment. */
-  bankLabel: string;
-  menuLabel: string;
-  menu?: ReactNode;
-}>) {
-  const { formatDate, formatMoney } = useWeldbooksFormat();
-  const method = payment.paymentMethod ? (methodLabels[payment.paymentMethod] ?? payment.paymentMethod) : '—';
-  const detail = [payment.checkNumber, payment.reference, payment.bankTransactionId ? bankLabel : null]
-    .filter(Boolean)
-    .join(' · ');
-  return (
-    <TabListRow label={method} menu={menu} menuLabel={menuLabel}>
-      <span className="w-[92px] flex-shrink-0 whitespace-nowrap text-sm tabular-nums">
-        {formatDate(payment.date)}
-      </span>
-      <div className="min-w-0 flex-1">
-        <div className="truncate text-sm">{method}</div>
-        {detail ? <div className="truncate text-xs text-muted-foreground">{detail}</div> : null}
-      </div>
-      <span className="flex-shrink-0 text-right text-sm font-medium tabular-nums">
-        {formatMoney(payment.amount, currency)}
-      </span>
-    </TabListRow>
-  );
-}
 
 export function InvoicePaymentsTab({
   invoice,
@@ -66,7 +26,6 @@ export function InvoicePaymentsTab({
 }>) {
   const { t } = useI18n();
   const tp = t.accounting.invoiceDetail.panel;
-  const tl = t.accounting.bankLinks;
   const payments = invoice.payments ?? [];
   const bank = usePaymentBankActions(
     {
@@ -108,9 +67,6 @@ export function InvoicePaymentsTab({
             key={payment.id}
             payment={payment}
             currency={invoice.currency}
-            methodLabels={t.accounting.paymentMethods as Record<string, string>}
-            bankLabel={tl.matchedToBank}
-            menuLabel={tl.rowMenu}
             menu={bank.menuFor(payment)}
           />
         ))}

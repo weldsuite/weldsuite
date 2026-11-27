@@ -6,6 +6,8 @@ interface GeneralLedgerSearch {
   accountId?: string;
   from?: string;
   to?: string;
+  /** The object panel stack (`?stack=type:id`), kept in the URL by `useObjectPanelUrlSync`. */
+  stack?: string;
 }
 
 const text = (value: unknown): string | undefined => (typeof value === 'string' && value ? value : undefined);
@@ -15,6 +17,7 @@ export const Route = createFileRoute('/weldbooks/reports/general-ledger/')({
     accountId: text(search.accountId),
     from: text(search.from),
     to: text(search.to),
+    stack: text(search.stack),
   }),
   component: GeneralLedgerPage,
 });

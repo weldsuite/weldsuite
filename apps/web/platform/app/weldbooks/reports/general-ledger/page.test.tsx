@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   exportQueries: [] as Array<Record<string, unknown>>,
 }));
 
+vi.mock('@/components/object-panel', () => import('@/components/objects/_shared/object-panel-test-mock'));
 vi.mock('@tanstack/react-router', () => ({
   useSearch: () => mocks.search,
   Link: ({ children, to, params, ...rest }: { children: React.ReactNode; to: string; params?: Record<string, string> }) => (
@@ -131,7 +132,7 @@ describe('GeneralLedgerReportPage', () => {
 
     const first = within(rows[2]).getAllByRole('cell').map((c) => c.textContent);
     expect(first).toEqual(['2026-02-03', 'JE-0001', 'Customer payment', '$300.00', '-', '$400.00']);
-    expect(within(rows[2]).getByRole('link', { name: 'JE-0001' })).toHaveAttribute('href', '/weldbooks/journal/je_1');
+    expect(within(rows[2]).getByRole('link', { name: 'JE-0001' })).toHaveAttribute('href', expect.stringContaining('stack=journal_entry%3Aje_1'));
 
     const second = within(rows[3]).getAllByRole('cell').map((c) => c.textContent);
     expect(second).toEqual(['2026-03-04', '-', '-', '-', '$420.00', '-$20.00']);

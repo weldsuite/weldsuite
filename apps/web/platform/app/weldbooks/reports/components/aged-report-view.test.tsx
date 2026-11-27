@@ -101,7 +101,7 @@ describe('AgedReportView', () => {
     expect(within(middle).getByText('1 document')).toBeInTheDocument();
     // Payables name the counterparty with the jurisdiction's word and link to bills.
     expect(screen.getAllByText('Vendor').length).toBeGreaterThan(0);
-    expect(screen.getByRole('link', { name: 'INV-1' })).toHaveAttribute('href', '/weldbooks/bills/doc_1');
+    expect(screen.getByRole('link', { name: 'INV-1' })).toHaveAttribute('href', expect.stringContaining('stack=bill%3Adoc_1'));
   });
 
   it('lists the buckets per contact with a total row, and the documents with their days past due', () => {
@@ -123,7 +123,7 @@ describe('AgedReportView', () => {
 
     const docs = screen.getByRole('table', { name: 'Open documents' });
     const overdue = within(docs).getByRole('row', { name: /INV-1/ });
-    expect(within(overdue).getByRole('link', { name: 'INV-1' })).toHaveAttribute('href', '/weldbooks/invoices/doc_1');
+    expect(within(overdue).getByRole('link', { name: 'INV-1' })).toHaveAttribute('href', expect.stringContaining('stack=invoice%3Adoc_1'));
     expect(within(overdue).getAllByRole('cell').map((c) => c.textContent)).toContain('37');
     // Not due yet is not "overdue by -24 days".
     const notDue = within(docs).getByRole('row', { name: /INV-2/ });

@@ -21,10 +21,13 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslations } from '@weldsuite/i18n/client';
+import { InboxDocumentChip } from '@/components/accounting/inbox-document-chip';
+import { RecordLink } from '@/components/object-panel/record-link';
 import { PropertyRow } from '@/components/objects/_shared/property-row';
 import { TabListRow, TabListScope } from '@/components/objects/_shared/tab-list-row';
 import { countryName } from '@/components/address/countries';
 import { formatPostalAddressLines } from '@/components/address/postal-address';
+import { useAccountingDocument } from '@/hooks/queries/use-weldbooks-sales-tax-setup-queries';
 import { accountingApi } from '@/lib/api/domains/weldbooks';
 import type { BillWithTax } from '@/lib/api/domains/weldbooks-sales-tax-preview';
 import { useI18n } from '@/lib/i18n/provider';
@@ -41,6 +44,18 @@ const EMPTY = '—';
 function renderLines(lines: readonly string[]) {
   return (
     <span className="min-w-0 whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{lines.join('\n')}</span>
+  );
+}
+
+/** The inbox document the bill was created from, as a chip that opens it. */
+function SourceDocument({ documentId }: Readonly<{ documentId: string }>) {
+  const { t } = useI18n();
+  const document = useAccountingDocument(documentId).data;
+  return (
+    <div className="flex flex-wrap items-center gap-2 text-sm">
+      <span className="text-muted-foreground">{t.accounting.recordLinks.inboxDocument}</span>
+      <InboxDocumentChip id={documentId} fileName={document?.fileName ?? t.accounting.recordLinks.inboxDocument} />
+    </div>
   );
 }
 
@@ -130,7 +145,20 @@ export function BillDetailsTab({ bill }: Readonly<{ bill: BillWithTax }>) {
           readOnly
           renderValue={(value) => <span className={cn(balanceOverdue && 'text-destructive')}>{value}</span>}
         />
-        <PropertyRow icon={Building2} label={st('sweep.entities.fieldSupplier')} value={bill.contactName} placeholder={EMPTY} readOnly />
+        <PropertyRow
+          icon={Building2}
+          label={st('sweep.entities.fieldSupplier')}
+          value={bill.contactName}
+          placeholder={EMPTY}
+          readOnly
+          renderValue={(name) =>
+            bill.contactId ? (
+              <RecordLink type="weldbooks_contact" id={bill.contactId} label={name ?? ''} />
+            ) : (
+              <span>{name}</span>
+            )
+          }
+        />
         {vendorAddressLines.length > 0 ? (
           <PropertyRow
             icon={MapPin}
@@ -186,6 +214,7 @@ export function BillDetailsTab({ bill }: Readonly<{ bill: BillWithTax }>) {
         ) : null}
       </div>
 
+      {bill.sourceDocumentId ? <SourceDocument documentId={bill.sourceDocumentId} /> : null}
       {attachments.length > 0 ? <OriginalDocuments billId={bill.id} keys={attachments} /> : null}
     </div>
   );

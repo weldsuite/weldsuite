@@ -96,7 +96,7 @@ describe('TaxExemptionCertificatePanel', () => {
     expect(screen.getByText('date:2026-09-15')).toBeInTheDocument();
     expect(await screen.findByText('resale-2026.pdf')).toBeInTheDocument();
     expect(screen.getByText('Original in the filing cabinet')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Acme Corp' })).toHaveAttribute('href', '/weldbooks/customers/prt_1');
+    expect(screen.getByRole('link', { name: 'Acme Corp' })).toHaveAttribute('href', expect.stringContaining('stack=weldbooks_contact%3Aprt_1'));
   });
 
   it('shows the last valid day per state and which states have lapsed', async () => {
@@ -129,7 +129,7 @@ describe('TaxExemptionCertificatePanel', () => {
     renderPanel();
 
     const link = await screen.findByRole('link', { name: 'INV-0042' });
-    expect(link).toHaveAttribute('href', '/weldbooks/invoices/inv_1');
+    expect(link).toHaveAttribute('href', expect.stringContaining('stack=invoice%3Ainv_1'));
     expect(screen.getByText('Single purchase')).toBeInTheDocument();
   });
 

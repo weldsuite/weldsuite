@@ -1,3 +1,4 @@
+import { useObjectPanelUrlSync } from '@/components/object-panel';
 import { useAgedReceivablesReport } from '@/hooks/queries/use-accounting-queries';
 import { useI18n } from '@/lib/i18n/provider';
 import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
@@ -11,6 +12,8 @@ export default function AgedReceivablesReportPage() {
   const { t } = useI18n();
   const tr = t.weldbooksUs.reports;
   const { formatDate } = useWeldbooksFormat();
+  // A document or contact stacks as a panel, synced to `?stack=`.
+  useObjectPanelUrlSync('/weldbooks/reports/aged-receivables');
   const { params, update, query } = useReportParams();
   const reportQuery = useAgedReceivablesReport(query);
   const report = reportQuery.data;

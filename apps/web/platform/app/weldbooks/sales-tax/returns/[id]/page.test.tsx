@@ -5,6 +5,7 @@ import userEvent from '@testing-library/user-event';
 const api = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), patch: vi.fn(), delete: vi.fn(), getBlob: vi.fn() }));
 vi.mock('@/lib/api/weldbooks-client', () => ({ weldbooksApi: api, setWeldbooksEntityId: vi.fn() }));
 const navigate = vi.hoisted(() => vi.fn());
+vi.mock('@/components/object-panel', () => import('@/components/objects/_shared/object-panel-test-mock'));
 vi.mock('@tanstack/react-router', () => ({
   Link: ({ to, params, children }: { to: string; params?: Record<string, string>; children: React.ReactNode }) => (
     <a href={params ? to.replace('$id', params.id ?? '') : to}>{children}</a>
