@@ -693,9 +693,9 @@ paths:
             type: string
         - name: filter
           in: query
+          description: '`following` (the default), `unread`, `mentions` or `all`. A string, not an enum, so the Kotlin client sends it as written.'
           schema:
             type: string
-            enum: [following, unread, mentions, all]
         - name: search
           in: query
           schema:
@@ -929,9 +929,9 @@ paths:
       parameters:
         - name: memberType
           in: query
+          description: '`INTERNAL` (the default), `EXTERNAL_GUEST`, `EMPLOYEE` or `all`. A string, not an enum, so the Kotlin client sends it as written.'
           schema:
             type: string
-            enum: [INTERNAL, EXTERNAL_GUEST, EMPLOYEE, all]
         - name: limit
           in: query
           schema:
