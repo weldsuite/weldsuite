@@ -76,16 +76,7 @@ usage: weldsuite <command>
 commands:
   serve      run the HTTP API (configured by environment variables)
   consume    run the entity-event subscribers on NATS JetStream
-  cron <job> run one scheduled job and exit: sign-lifecycle, identity-sync,
-             workspace-deletion, workspace-teardown, mail-outbound-ledgers,
-             calendar-replan, flow-file-purge, flow-approval-due, flow-benefit-measure,
-             flow-status-reports, flow-finance-snapshot, books-sweep, digipoort-status, domain-auto-renew,
-             desk-sla-sweep, desk-report-sweep, asset-import-sweep,
-             reach-send-sweep, reach-warmup-sweep, reach-slot-reconciliation,
-             reach-warmup-dispatch, reach-warmup-plan, reach-warmup-daily, bank-feed-due,
-             crm-due, ad-sync, workflow-polls, workflow-schedules, connector-catchup,
-             moneybird-push, merge-digest-sweep, forms-reminders, forms-digest,
-             sandbox-cleanup, billing-renewals
+  cron <job> run one scheduled job and exit (weldsuite cron lists the jobs)
   migrate    apply the database migrations to the master and every tenant
              database (weldsuite migrate --help)
   mta        WeldSuite's own MTA on the mail nodes, and its domain and queue
