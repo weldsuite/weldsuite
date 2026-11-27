@@ -86,20 +86,33 @@ class WeldSocket(
         }
     }
 
-    init {
-        scope.launch { ProcessLifecycleOwner.get().lifecycle.addObserver(lifecycle) }
-    }
+    private var observing = false
 
     /** Open the socket and keep it open. */
     fun start() {
         wanted = true
+        follow(true)
         if (socket == null && retry == null && connecting == null) connect()
     }
 
-    /** Close it and stop reconnecting. */
+    /** Close it and stop reconnecting. A stopped socket holds on to nothing, so a room's can just be dropped. */
     fun stop() {
         wanted = false
+        follow(false)
         close()
+    }
+
+    /**
+     * Follow the app's foreground state only while started: the process
+     * lifecycle would otherwise keep every socket ever made (each room's) alive.
+     */
+    private fun follow(on: Boolean) {
+        if (observing == on) return
+        observing = on
+        scope.launch {
+            val process = ProcessLifecycleOwner.get().lifecycle
+            if (on) process.addObserver(lifecycle) else process.removeObserver(lifecycle)
+        }
     }
 
     /** Close and open again at once: after a workspace switch or a new sign-in. */
