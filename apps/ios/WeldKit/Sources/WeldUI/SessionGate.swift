@@ -55,7 +55,7 @@ public struct SessionGate<Content: View>: View {
             case let .choosingWorkspace(_, loading, workspaces):
                 WorkspaceChoiceView(env: env, loading: loading, workspaces: workspaces)
             case let .ready(person, workspace, workspaces):
-                if !env.lock.hasScreenLock {
+                if env.lock.isRequired, !env.lock.hasScreenLock {
                     MessageView(
                         title: CoreStrings.lockNoScreenLockTitle,
                         message: CoreStrings.lockNoScreenLockDescription(app: branding.name),
@@ -67,6 +67,7 @@ public struct SessionGate<Content: View>: View {
                     LockView(lock: env.lock, branding: branding)
                 } else {
                     content(person, workspace, workspaces)
+                        .task(id: workspace.id) { await env.didEnterWorkspace(workspace.id) }
                 }
             }
         }

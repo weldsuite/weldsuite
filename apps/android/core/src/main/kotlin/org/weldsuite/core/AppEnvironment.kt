@@ -30,6 +30,11 @@ import org.weldsuite.core.auth.SignInOutcome
 import org.weldsuite.core.auth.WorkspaceRef
 import org.weldsuite.core.auth.storageIdFor
 import org.weldsuite.core.lock.AppLock
+import org.weldsuite.core.push.PushPayload
+import org.weldsuite.core.push.PushProvider
+import org.weldsuite.core.push.PushTokens
+import org.weldsuite.core.realtime.RealtimeClient
+import org.weldsuite.core.realtime.realtimeBase
 import org.weldsuite.core.server.ConfigResult
 import org.weldsuite.core.server.Result
 import org.weldsuite.core.server.ServerConfigLoader
@@ -58,11 +63,21 @@ sealed interface SessionState {
 }
 
 /**
- * One per app process: the server, the session, the API client and the lock.
- * Built in the app's `Application.onCreate`.
+ * One per app process: the server, the session, the API client, the lock,
+ * the realtime socket and push. Built in the app's `Application.onCreate`.
+ *
+ * @param lockRequired the app can't be used without biometrics or the passcode (WeldPass).
+ * @param optionalLock the person can turn the app lock on in the app's settings.
+ * @param usesPush register this device for push once in a workspace (the `:push` module sets [pushProvider]).
  */
 @OptIn(ExperimentalCoroutinesApi::class)
-class AppEnvironment(context: Context, val app: AppIdentity, lockRequired: Boolean) {
+class AppEnvironment(
+    context: Context,
+    val app: AppIdentity,
+    lockRequired: Boolean,
+    optionalLock: Boolean = false,
+    val usesPush: Boolean = false,
+) {
     private val appContext = context.applicationContext
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     val http: OkHttpClient = OkHttpClient.Builder()
@@ -73,7 +88,23 @@ class AppEnvironment(context: Context, val app: AppIdentity, lockRequired: Boole
     private val secure = SecureStore(appContext)
     private val configLoader = ServerConfigLoader(http, cache)
 
-    val lock = AppLock(appContext, required = lockRequired)
+    val lock = AppLock(appContext, required = lockRequired, optionalKey = if (optionalLock) "${app.code}.appLock" else null)
+
+    /** The workspace hub, once the server has booted (`realtimeUrl` in `/config.json`). */
+    var realtime: RealtimeClient? = null
+        private set
+
+    /** This device's push tokens on the server, for an app that uses push. */
+    var pushTokens: PushTokens? = null
+        private set
+
+    /** Where the push token comes from; set by the `:push` module. */
+    var pushProvider: PushProvider? = null
+
+    private var realtimeWorkspace: String? = null
+
+    /** Whether the server offers a feature (`unavailableFeatures` in `/config.json` doesn't name it). */
+    fun isAvailable(feature: String): Boolean = feature !in unavailableFeatures
 
     /** The server this build starts on. A self-hosted choice comes later (plan native-mobile-apps.md). */
     val serverOrigin: String = app.euServerUrl.trimEnd('/')
@@ -131,7 +162,18 @@ class AppEnvironment(context: Context, val app: AppIdentity, lockRequired: Boole
                                     loadWorkspaces = ::loadWorkspaces,
                                     scope = scope,
                                 )
-                                api = ApiClient(serverOrigin, app.code, sessionAuth(session), http)
+                                val auth = sessionAuth(session)
+                                api = ApiClient(serverOrigin, app.code, auth, http)
+                                realtime = RealtimeClient(
+                                    http = http,
+                                    scope = scope,
+                                    baseUrl = realtimeBase(result.config.realtimeUrl, serverOrigin),
+                                    token = { session.getToken() },
+                                    workspace = { session.activeWorkspaceId },
+                                )
+                                if (usesPush) {
+                                    pushTokens = PushTokens(serverOrigin, app, auth, http, cache, storageIdFor(serverOrigin))
+                                }
                                 session.init()
                                 sessionFlow.value = session
                             }
@@ -162,8 +204,40 @@ class AppEnvironment(context: Context, val app: AppIdentity, lockRequired: Boole
     }
 
     suspend fun signOut() {
+        // While the token still works: no more pushes to this device.
+        pushTokens?.unregisterEverywhere()
+        realtime?.stop()
+        realtimeWorkspace = null
         sessionFlow.value?.signOut()
         lock.lockNow()
+    }
+
+    /**
+     * The person is in [workspace] (`SessionGate` calls this): the realtime
+     * socket follows the workspace, and an app with push registers this
+     * device there.
+     */
+    suspend fun didEnterWorkspace(workspace: String) {
+        if (realtimeWorkspace != workspace) {
+            realtimeWorkspace = workspace
+            realtime?.restart()
+        }
+        val tokens = pushTokens ?: return
+        val token = pushProvider?.token() ?: return
+        tokens.registerFcm(token, workspace)
+    }
+
+    /** A new FCM token (the `:push` module's service): register it in the active workspace. */
+    fun pushTokenChanged(token: String) {
+        val workspace = sessionFlow.value?.activeWorkspaceId ?: return
+        val tokens = pushTokens ?: return
+        scope.launch { tokens.registerFcm(token, workspace) }
+    }
+
+    /** Whether a push came from this server (`data.server`); one from a server the app no longer uses is ignored. */
+    fun acceptsPush(payload: PushPayload): Boolean {
+        val server = payload.server ?: return true
+        return server.trimEnd('/').substringAfter("://") == serverOrigin.substringAfter("://")
     }
 
     private suspend fun loadWorkspaces(token: String): List<WorkspaceRef>? {

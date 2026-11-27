@@ -15,6 +15,14 @@
 #     base64-encoded; ANDROID_UPLOAD_KEYSTORE_PASSWORD; ANDROID_UPLOAD_KEY_ALIAS;
 #     ANDROID_UPLOAD_KEY_PASSWORD) and, to upload, a Google Play service
 #     account with release rights on the app (GOOGLE_PLAY_SERVICE_ACCOUNT_JSON).
+#     An app already in Play keeps the upload key EAS made for it: set the
+#     four ANDROID_UPLOAD_* secrets once more with the app code appended
+#     (ANDROID_UPLOAD_KEYSTORE_WELDCHAT, …); those win over the shared ones.
+#   - Push on Android: the Firebase project the apps share, as variables of
+#     the environment (FCM_PROJECT_ID, FCM_API_KEY, FCM_SENDER_ID) and the
+#     app's own Firebase app id (FCM_APP_ID_WELDCHAT, …). Without them the
+#     app is built without push. iOS needs nothing here: automatic signing
+#     adds the push entitlement.
 #
 # `upload` sends the build to TestFlight (iOS) and the Play internal testing
 # track (Android). Releasing to the public stays a manual step in App Store
@@ -35,7 +43,7 @@ on:
         type: choice
         required: true
         default: weldpass
-        options: [weldpass]
+        options: [weldpass, weldbooks, weldmail, weldcalendar, weldchat, welddesk, weldhr]
       platform:
         description: 'Platforms'
         type: choice
@@ -69,12 +77,14 @@ jobs:
       - name: Build number
         run: echo "BUILD_NUMBER=$((200 + GITHUB_RUN_NUMBER))" >> "$GITHUB_ENV"
 
+      # The app's own upload key (ANDROID_UPLOAD_KEYSTORE_<APP>, …) when it has
+      # one, else the shared one. Secret names don't care about case.
       - name: Check the secrets
         env:
-          KEYSTORE: ${{ secrets.ANDROID_UPLOAD_KEYSTORE }}
-          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.ANDROID_UPLOAD_KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEY_PASSWORD }}
+          KEYSTORE: ${{ secrets[format('ANDROID_UPLOAD_KEYSTORE_{0}', inputs.app)] || secrets.ANDROID_UPLOAD_KEYSTORE }}
+          KEYSTORE_PASSWORD: ${{ secrets[format('ANDROID_UPLOAD_KEYSTORE_PASSWORD_{0}', inputs.app)] || secrets.ANDROID_UPLOAD_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets[format('ANDROID_UPLOAD_KEY_ALIAS_{0}', inputs.app)] || secrets.ANDROID_UPLOAD_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets[format('ANDROID_UPLOAD_KEY_PASSWORD_{0}', inputs.app)] || secrets.ANDROID_UPLOAD_KEY_PASSWORD }}
           PLAY_JSON: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
           UPLOAD: ${{ inputs.upload }}
         run: |
@@ -100,13 +110,19 @@ jobs:
         working-directory: apps/android
         env:
           APP: ${{ inputs.app }}
-          KEYSTORE: ${{ secrets.ANDROID_UPLOAD_KEYSTORE }}
+          KEYSTORE: ${{ secrets[format('ANDROID_UPLOAD_KEYSTORE_{0}', inputs.app)] || secrets.ANDROID_UPLOAD_KEYSTORE }}
           WELD_UPLOAD_KEYSTORE: ${{ runner.temp }}/upload.jks
-          WELD_UPLOAD_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_PASSWORD }}
-          WELD_UPLOAD_KEY_ALIAS: ${{ secrets.ANDROID_UPLOAD_KEY_ALIAS }}
-          WELD_UPLOAD_KEY_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEY_PASSWORD }}
+          WELD_UPLOAD_KEYSTORE_PASSWORD: ${{ secrets[format('ANDROID_UPLOAD_KEYSTORE_PASSWORD_{0}', inputs.app)] || secrets.ANDROID_UPLOAD_KEYSTORE_PASSWORD }}
+          WELD_UPLOAD_KEY_ALIAS: ${{ secrets[format('ANDROID_UPLOAD_KEY_ALIAS_{0}', inputs.app)] || secrets.ANDROID_UPLOAD_KEY_ALIAS }}
+          WELD_UPLOAD_KEY_PASSWORD: ${{ secrets[format('ANDROID_UPLOAD_KEY_PASSWORD_{0}', inputs.app)] || secrets.ANDROID_UPLOAD_KEY_PASSWORD }}
+          WELD_FCM_PROJECT_ID: ${{ vars.FCM_PROJECT_ID }}
+          WELD_FCM_API_KEY: ${{ vars.FCM_API_KEY }}
+          WELD_FCM_SENDER_ID: ${{ vars.FCM_SENDER_ID }}
+          FCM_APP_ID: ${{ vars[format('FCM_APP_ID_{0}', inputs.app)] }}
         run: |
           set -euo pipefail
+          # The build reads the app's Firebase id as WELD_FCM_APP_ID_<APP>.
+          export "WELD_FCM_APP_ID_$(printf '%s' "$APP" | tr '[:lower:]' '[:upper:]')=$FCM_APP_ID"
           printf '%s' "$KEYSTORE" | base64 --decode > "$WELD_UPLOAD_KEYSTORE"
           ./gradlew --no-daemon ":apps:$APP:bundleRelease" "-PweldVersionCode=$BUILD_NUMBER"
           rm -f "$WELD_UPLOAD_KEYSTORE"
@@ -206,8 +222,17 @@ jobs:
           key_path="$RUNNER_TEMP/AuthKey_$KEY_ID.p8"
           printf '%s' "$KEY" > "$key_path"
           echo "KEY_PATH=$key_path" >> "$GITHUB_ENV"
-          # The scheme is the app's name with a capital, as Project.swift names it.
-          scheme="$(node -e 'const a=process.argv[1]; console.log("Weld"+a[4].toUpperCase()+a.slice(5))' "$APP")"
+          # The scheme, as Project.swift names it.
+          case "$APP" in
+            weldpass) scheme=WeldPass ;;
+            weldbooks) scheme=WeldBooks ;;
+            weldmail) scheme=WeldMail ;;
+            weldcalendar) scheme=WeldCalendar ;;
+            weldchat) scheme=WeldChat ;;
+            welddesk) scheme=WeldDesk ;;
+            weldhr) scheme=WeldHR ;;
+            *) echo "::error::No iOS scheme for $APP"; exit 1 ;;
+          esac
           echo "SCHEME=$scheme" >> "$GITHUB_ENV"
           xcodebuild archive \
             -workspace WeldSuite.xcworkspace \

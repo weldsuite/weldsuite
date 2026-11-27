@@ -15,6 +15,8 @@ browser = "1.8.0"
 openapi-generator = "7.13.0"
 junit = "4.13.2"
 desugar = "2.1.5"
+firebase-bom = "33.7.0"
+coil = "2.7.0"
 
 [libraries]
 kotlinx-coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "coroutines" }
@@ -40,6 +42,9 @@ biometric = { module = "androidx.biometric:biometric", version.ref = "biometric"
 browser = { module = "androidx.browser:browser", version.ref = "browser" }
 junit = { module = "junit:junit", version.ref = "junit" }
 desugar-jdk-libs = { module = "com.android.tools:desugar_jdk_libs", version.ref = "desugar" }
+firebase-bom = { module = "com.google.firebase:firebase-bom", version.ref = "firebase-bom" }
+firebase-messaging = { module = "com.google.firebase:firebase-messaging" }
+coil-compose = { module = "io.coil-kt:coil-compose", version.ref = "coil" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

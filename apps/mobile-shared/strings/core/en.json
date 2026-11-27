@@ -4,7 +4,18 @@
     "tryAgain": "Try again",
     "continue": "Continue",
     "signOut": "Sign out",
-    "loading": "Loading…"
+    "loading": "Loading…",
+    "save": "Save",
+    "delete": "Delete",
+    "edit": "Edit",
+    "done": "Done",
+    "close": "Close",
+    "add": "Add",
+    "search": "Search",
+    "today": "Today",
+    "yesterday": "Yesterday",
+    "tomorrow": "Tomorrow",
+    "none": "None"
   },
   "signIn": {
     "button": "Sign in",
@@ -37,5 +48,36 @@
     "title": "Update {app}",
     "description": "This version of {app} no longer works with your server. Update it to carry on.",
     "button": "Open the store"
+  },
+  "errors": {
+    "generic": "Something went wrong. Try again.",
+    "offline": "You’re offline. Connect to the internet and try again.",
+    "forbidden": "You don’t have access to this. Ask a workspace admin.",
+    "notFound": "This doesn’t exist any more.",
+    "loadFailed": "This couldn’t be loaded."
+  },
+  "settings": {
+    "title": "Settings",
+    "account": "Account",
+    "workspace": "Workspace",
+    "switchWorkspace": "Switch workspace",
+    "server": "Server",
+    "security": "Security",
+    "lock": "Lock with {method}",
+    "lockDescription": "{app} asks for {method} when you open it, and again after a minute in the background.",
+    "passcode": "Passcode",
+    "appearance": "Appearance",
+    "system": "System",
+    "light": "Light",
+    "dark": "Dark",
+    "language": "Language",
+    "notifications": "Notifications",
+    "notificationsOn": "On",
+    "notificationsOff": "Notifications are off for {app}. Turn them on in your phone’s settings.",
+    "openSettings": "Open settings",
+    "signOut": "Sign out",
+    "signOutTitle": "Sign out of {app}?",
+    "signOutMessage": "You’ll need to sign in again to use {app} on this phone.",
+    "version": "Version {version}"
   }
 }

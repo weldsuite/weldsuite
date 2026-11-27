@@ -604,7 +604,7 @@ jobs:
     needs: [changes]
     if: ${{ !cancelled() && needs.changes.outputs.native != 'false' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -621,12 +621,18 @@ jobs:
         working-directory: apps/android
         run: ./gradlew --no-daemon testDebugUnitTest lintDebug assembleDebug
 
+  # One job per app, so each app's build shows on its own; WeldPass's also
+  # runs WeldKit's tests.
   native-ios:
-    name: Native · iOS
+    name: Native · iOS (${{ matrix.scheme }})
     needs: [changes]
     if: ${{ !cancelled() && needs.changes.outputs.native != 'false' }}
     runs-on: macos-26
-    timeout-minutes: 45
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        scheme: [WeldPass, WeldBooks, WeldMail, WeldCalendar, WeldChat, WeldDesk, WeldHR]
     # pipefail: xcodebuild's output goes through xcbeautify, which would
     # otherwise hide xcodebuild's exit code.
     defaults:
@@ -651,6 +657,7 @@ jobs:
                        if(!phone){process.exit(1)} console.log(phone.udid)')
           echo "SIMULATOR=$udid" >> "$GITHUB_ENV"
       - name: WeldKit tests
+        if: matrix.scheme == 'WeldPass'
         working-directory: apps/ios/WeldKit
         run: |
           xcodebuild test -scheme WeldKit-Package -destination "id=$SIMULATOR" \
@@ -658,10 +665,12 @@ jobs:
       - name: Generate the Xcode project
         working-directory: apps/ios
         run: tuist generate --no-open
-      - name: WeldPass tests and build
+      - name: ${{ matrix.scheme }} tests and build
         working-directory: apps/ios
+        env:
+          SCHEME: ${{ matrix.scheme }}
         run: |
-          xcodebuild test -workspace WeldSuite.xcworkspace -scheme WeldPass -destination "id=$SIMULATOR" \
+          xcodebuild test -workspace WeldSuite.xcworkspace -scheme "$SCHEME" -destination "id=$SIMULATOR" \
             -skipPackagePluginValidation -skipMacroValidation CODE_SIGNING_ALLOWED=NO \
             | xcbeautify --renderer github-actions
 

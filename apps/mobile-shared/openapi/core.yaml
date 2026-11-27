@@ -4,15 +4,16 @@ info:
   version: 1.0.0
   description: |
     The core endpoints every native WeldSuite app uses: the server's
-    `/config.json` and the signed-in person's workspaces.
+    `/config.json`, the signed-in person's workspaces and the device's push
+    tokens.
 
     Hand-written. The Rust server is the source of truth: change both
     together, and see "Changing the contract" in apps/mobile-shared/README.md
     for what apps already on phones can read.
 
     Checked against the server: `getRuntimeConfig` in
-    rust/bins/weldsuite/src/server.rs, `listWorkspaces` in
-    rust/modules/core-team/tests/openapi_contract.rs. They fail when an
+    rust/bins/weldsuite/src/server.rs, `listWorkspaces` and the push token
+    operations in rust/modules/core-team/tests/openapi_contract.rs. They fail when an
     answer doesn't fit (status, required fields, nulls, types, enums).
 
     Every `/api` request carries `Authorization: Bearer <WeldID access token>`
@@ -44,6 +45,49 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/WorkspaceList'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/push-tokens:
+    post:
+      operationId: registerPushToken
+      summary: Register this device's push token for the signed-in person in the active workspace.
+      description: |
+        Upserted on (person, device, app): registering again replaces the
+        token and re-activates one the server had deactivated. A native app
+        sends its raw APNs token (hex, `apns`) or FCM token (`fcm`); WeldChat
+        also registers a call token under `<deviceId>:call` (`voip` on iOS,
+        `fcm_call` on Android).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PushTokenRegistration'
+      responses:
+        '200':
+          description: Registered.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PushTokenRegistered'
+        default:
+          $ref: '#/components/responses/Error'
+    delete:
+      operationId: unregisterPushToken
+      summary: Stop pushes to this device (its push and call tokens), after a sign-out or a workspace switch.
+      parameters:
+        - name: deviceId
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Unregistered.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PushTokenUnregistered'
         default:
           $ref: '#/components/responses/Error'
 components:
@@ -139,6 +183,56 @@ components:
         slug:
           type: string
           nullable: true
+    PushTokenRegistration:
+      type: object
+      required: [token, platform, deviceId, tokenType, appCode]
+      properties:
+        token:
+          type: string
+        platform:
+          type: string
+          enum: [ios, android]
+        deviceId:
+          type: string
+          description: Stable per install; a call token uses `<deviceId>:call`.
+        tokenType:
+          type: string
+          enum: [apns, fcm, voip, fcm_call]
+        appCode:
+          type: string
+          description: The app (`weldchat`, …); pushes go to the apps of a notification's category.
+        deviceModel:
+          type: string
+        osVersion:
+          type: string
+        appVersion:
+          type: string
+    PushTokenRegistered:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          required: [deviceId, registered]
+          properties:
+            deviceId:
+              type: string
+            platform:
+              type: string
+            registered:
+              type: boolean
+    PushTokenUnregistered:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          required: [deviceId, unregistered]
+          properties:
+            deviceId:
+              type: string
+            unregistered:
+              type: boolean
     ErrorResponse:
       type: object
       required: [error]

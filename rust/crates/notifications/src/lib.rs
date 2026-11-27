@@ -1,8 +1,11 @@
 //! Notifications (`@weldsuite/notifications`): a `notifications` row, then
 //! delivery on every channel the recipient's preferences allow: in-app over
-//! the realtime port (`notification.<userId>`), push through Expo (and the
-//! native call ring for an incoming call: Apple's `VoIP` push, Expo data
-//! messages). Each channel's failure is logged and never reaches the caller.
+//! the realtime port (`notification.<userId>`), push through Expo for the
+//! React Native apps and straight to APNs and FCM for the native apps'
+//! `apns` and `fcm` tokens ([`set_native_push`]), and the native call ring
+//! for an incoming call (Apple's `VoIP` push, a data-only FCM message, Expo
+//! data messages). Each channel's failure is logged and never reaches the
+//! caller.
 //!
 //! Email follows the TypeScript gate: only for a recipient who is away
 //! ([`resolve_email_presence`]: their chosen status, and their live
@@ -39,7 +42,9 @@ use weldsuite_schema::tenant::{chat_user_status, notification_preferences, notif
 
 pub use preview::{notification_preview, strip_markdown};
 pub use push::{
-    ApnsConfig, CallCancelReason, ExpoResult, cancel_incoming_call_push, send_expo_push,
+    ApnsConfig, CALL_TOKEN_TYPES, CallCancelReason, ExpoResult, FcmConfig, NativeAlert,
+    NativeOutcome, NativePush, cancel_incoming_call_push, is_call_token_type, is_native_token_type,
+    native_push, send_expo_push, send_native_alert, set_native_push,
 };
 
 /// `pool` as a SeaORM connection, on its own connections (what
@@ -100,8 +105,10 @@ pub fn platform_origin(lookup: impl Fn(&str) -> Option<String>) -> Option<String
 
 /// Where notifications go out (`NotificationEnv`): the realtime port (in-app;
 /// `REALTIME`), live presence for the email gate, system mail
-/// (`SEND_EMAIL`), outbound HTTP (Expo, APNs) and the APNs key, each
-/// optional as the bindings are in a worker.
+/// (`SEND_EMAIL`), outbound HTTP (Expo, APNs, FCM) and the APNs key, each
+/// optional as the bindings are in a worker. Without its own HTTP client or
+/// APNs key, the native senders use [`set_native_push`]'s; FCM's service
+/// account only comes from there.
 #[derive(Clone, Default)]
 pub struct Notifier {
     pub realtime: Option<Arc<dyn DynRealtimePublisher>>,

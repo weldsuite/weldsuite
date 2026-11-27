@@ -8569,6 +8569,7 @@ dependencies = [
  "weldsuite-events",
  "weldsuite-kit",
  "weldsuite-legal-entities",
+ "weldsuite-notifications",
  "weldsuite-permissions",
  "weldsuite-ports",
  "weldsuite-schema",

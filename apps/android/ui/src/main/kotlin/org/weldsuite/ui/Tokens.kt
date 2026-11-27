@@ -8,6 +8,12 @@ import androidx.compose.ui.unit.dp
 object Tokens {
     object Brand {
         val weldpass = DayNight(Color(0xFF4F46E5), Color(0xFF818CF8))
+        val weldbooks = DayNight(Color(0xFF0E9F6E), Color(0xFF34D399))
+        val weldmail = DayNight(Color(0xFFE4572E), Color(0xFFFB8A6B))
+        val weldcalendar = DayNight(Color(0xFFE5375E), Color(0xFFFF7A98))
+        val weldchat = DayNight(Color(0xFF00A35A), Color(0xFF3DD68C))
+        val welddesk = DayNight(Color(0xFF1D7FE0), Color(0xFF60A5FA))
+        val weldhr = DayNight(Color(0xFF0F8A80), Color(0xFF2DD4BF))
     }
     object Status {
         val danger = DayNight(Color(0xFFDC2626), Color(0xFFF87171))

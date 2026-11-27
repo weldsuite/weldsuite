@@ -1,0 +1,44 @@
+openapi: 3.0.3
+info:
+  title: WeldMail API (native apps)
+  version: 1.0.0
+  description: |
+    What the native WeldMail apps call. Hand-written; the Rust server is the
+    source of truth: change both together, and see "Changing the contract"
+    in apps/mobile-shared/README.md for what apps already on phones can read.
+
+    Checked against the server in rust/modules/mail/tests/openapi_contract.rs.
+
+    Every request carries `Authorization: Bearer <WeldID access token>` and
+    names its workspace in `X-Weld-Workspace`.
+servers:
+  - url: https://app.weldsuite.eu
+paths: {}
+components:
+  securitySchemes:
+    bearer:
+      type: http
+      scheme: bearer
+  responses:
+    Error:
+      description: An error.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+  schemas:
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          $ref: '#/components/schemas/ErrorBody'
+    ErrorBody:
+      type: object
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+security:
+  - bearer: []
