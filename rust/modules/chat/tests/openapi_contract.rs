@@ -21,8 +21,8 @@
 )]
 
 use std::collections::HashMap;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::{Arc, LazyLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use axum::Router;
@@ -35,6 +35,7 @@ use weldsuite_auth::AuthContext;
 use weldsuite_chat::ChatState;
 use weldsuite_db::{PgPool, Tenant, WorkspaceRestrictions, master_pool};
 use weldsuite_events::{EntityEventPublisher, TaskTracker};
+use weldsuite_kit::generate_id;
 use weldsuite_kit::openapi_contract::{Contract, Endpoint};
 use weldsuite_permissions::{
     MemberRow, PermissionGate, PermissionQueries, Permissions, ResolvedPermissions,
@@ -53,7 +54,8 @@ const OTHER: &str = "user_openapi_contract_chat_b";
 /// The record the record-chat operations follow (a domain: any live one is
 /// visible with `domains:read`, and it has a detail).
 const DOMAIN: &str = "dom_openapi_contract_chat";
-const RING_SECRET: &str = "openapi-contract-ring-secret";
+/// The test's `CALL_RING_SECRET`: made for each run, never a fixed key.
+static RING_SECRET: LazyLock<String> = LazyLock::new(|| generate_id("ring"));
 
 /// The caller with a name and an email, the other person with neither an
 /// email nor a picture; the domain; the caller's chosen status.
@@ -181,7 +183,7 @@ fn state() -> ChatState {
         presence: None,
         env: Arc::new(HashMap::from([(
             "CALL_RING_SECRET".to_owned(),
-            RING_SECRET.to_owned(),
+            RING_SECRET.clone(),
         )])),
         video: Some(Arc::new(FakeRooms {
             next: AtomicU32::new(1),

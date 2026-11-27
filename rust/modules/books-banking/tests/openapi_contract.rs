@@ -230,7 +230,7 @@ async fn books_banking_answers_what_the_native_apps_read() {
     let accounts = contract
         .success(&app, "listBankAccounts", &[], &[], None)
         .await;
-    assert_eq!(ids(&accounts).len(), 2, "{accounts}");
+    assert_eq!(ids(&accounts).len(), 2, "the two fixture bank accounts");
     for account in [id("ba1"), id("ba2")] {
         contract
             .success(
