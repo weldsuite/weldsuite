@@ -1,5 +1,5 @@
 {
-  "id": "9f46111a-0c98-4ec1-87da-81d985092387",
+  "id": "daa567fe-9a00-404e-8484-654c6a6a472d",
   "prevId": "66108359-ef69-4538-b042-6a2844520bc0",
   "version": "7",
   "dialect": "postgresql",
@@ -43671,6 +43671,12 @@
           "type": "varchar(50)",
           "primaryKey": false,
           "notNull": false
+        },
+        "source_key": {
+          "name": "source_key",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true
         },
         "count": {
           "name": "count",

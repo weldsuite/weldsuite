@@ -128,6 +128,13 @@ fn at(seconds: i64) -> OffsetDateTime {
     OffsetDateTime::from_unix_timestamp(seconds).unwrap_or(OffsetDateTime::UNIX_EPOCH)
 }
 
+/// Text cut to a `varchar(255)` column: a report may hold longer values
+/// (the parser keeps 1024 characters), and a refused insert would retry the
+/// message instead of filing it.
+fn column(text: &str) -> String {
+    text.chars().take(255).collect()
+}
+
 fn count(value: u64) -> i32 {
     i32::try_from(value).unwrap_or(i32::MAX)
 }
@@ -163,14 +170,14 @@ pub(super) async fn write_tenant(
     let inserted = mail_dmarc_reports::Entity::insert(mail_dmarc_reports::ActiveModel {
         id: Set(report_row_id.clone()),
         mail_domain_id: Set(target.mail_domain_id.clone()),
-        domain_name: Set(target.domain.clone()),
-        reporter_org: Set(report.org_name.clone()),
-        reporter_email: Set(report.email.clone()),
-        reporter_domain: Set(report.reporter_domain()),
-        report_id: Set(report.report_id.clone()),
+        domain_name: Set(column(&target.domain)),
+        reporter_org: Set(column(&report.org_name)),
+        reporter_email: Set(column(&report.email)),
+        reporter_domain: Set(column(&report.reporter_domain())),
+        report_id: Set(column(&report.report_id)),
         period_start: Set(at(report.begin)),
         period_end: Set(period_end),
-        policy_domain: Set(report.policy.domain.clone()),
+        policy_domain: Set(column(&report.policy.domain)),
         policy: Set(serde_json::to_value(&report.policy).ok()),
         authenticated: Set(authenticated),
         messages: Set(count(messages)),
@@ -203,6 +210,11 @@ pub(super) async fn write_tenant(
                 source_ip: Set(row.source_ip.chars().take(45).collect()),
                 source_name: Set(sourced.name.clone()),
                 weldsuite_pool: Set(sourced.pool.clone()),
+                source_key: Set(column(&sources::key(
+                    sourced.pool.as_deref(),
+                    sourced.name.as_deref(),
+                    &row.source_ip,
+                ))),
                 count: Set(count(u64::from(row.count))),
                 disposition: Set(row.disposition.chars().take(20).collect()),
                 dkim_aligned: Set(row.dkim_aligned()),
@@ -248,7 +260,7 @@ struct RollupCounts {
 /// WeldSuite's own rows of a report, summed per rollup row.
 fn rollup(report: &Report, rows: &[Sourced<'_>]) -> BTreeMap<RollupKey, RollupCounts> {
     let day = at(report.end).date();
-    let reporter = report.reporter_domain();
+    let reporter = column(&report.reporter_domain());
     let mut rollup: BTreeMap<RollupKey, RollupCounts> = BTreeMap::new();
     for sourced in rows {
         let Some(pool) = &sourced.pool else { continue };
@@ -294,9 +306,9 @@ pub(super) async fn log_and_roll_up(
     let conn = OrmConn::new(&mut tx);
     let logged = mail_dmarc_report_log::Entity::insert(mail_dmarc_report_log::ActiveModel {
         id: Set(generate_id("dmlog")),
-        reporter_domain: Set(report.reporter_domain()),
-        report_id: Set(report.report_id.clone()),
-        policy_domain: Set(report.policy.domain.clone()),
+        reporter_domain: Set(column(&report.reporter_domain())),
+        report_id: Set(column(&report.report_id)),
+        policy_domain: Set(column(&report.policy.domain)),
         messages: Set(count(report.messages())),
         outcome: Set(outcome.to_owned()),
         received_at: Set(now),

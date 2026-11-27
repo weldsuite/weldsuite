@@ -57,6 +57,15 @@ pub fn is_weldsuite(key: &str) -> bool {
     key.starts_with("weldsuite:")
 }
 
+/// The key of the sources beyond the ones listed one by one, summed: they
+/// count toward the pass rate, never as one failing source.
+pub const REST_KEY: &str = "rest:other";
+
+/// Whether a key is [`REST_KEY`].
+pub fn is_rest(key: &str) -> bool {
+    key.starts_with("rest:")
+}
+
 /// Whether `domain` is `parent` or one of its subdomains.
 pub fn within(domain: &str, parent: &str) -> bool {
     let domain = domain.trim_end_matches('.').to_ascii_lowercase();

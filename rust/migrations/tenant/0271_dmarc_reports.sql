@@ -6,6 +6,7 @@ CREATE TABLE "mail_dmarc_records" (
 	"source_ip" varchar(45) NOT NULL,
 	"source_name" varchar(255),
 	"weldsuite_pool" varchar(50),
+	"source_key" varchar(255) NOT NULL,
 	"count" integer NOT NULL,
 	"disposition" varchar(20) NOT NULL,
 	"dkim_aligned" boolean NOT NULL,

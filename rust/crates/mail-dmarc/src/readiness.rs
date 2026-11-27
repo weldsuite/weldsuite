@@ -240,7 +240,9 @@ fn window_blockers(window: &Window) -> Vec<Blocker> {
         let mut failing: Vec<&SourceStat> = window
             .sources
             .iter()
-            .filter(|s| s.mark.is_none() && !sources::is_weldsuite(&s.key))
+            .filter(|s| {
+                s.mark.is_none() && !sources::is_weldsuite(&s.key) && !sources::is_rest(&s.key)
+            })
             .filter(|s| permille(s.messages, total) >= SOURCE_SHARE_PERMILLE)
             .filter(|s| permille(s.passed, s.messages) < MIN_PASS_PERMILLE)
             .collect();

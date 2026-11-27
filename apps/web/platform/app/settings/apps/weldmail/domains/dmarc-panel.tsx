@@ -310,13 +310,10 @@ function SourcesTable({
     setPendingKey(source.key);
     try {
       await mark.mutateAsync({ key: source.key, mark: next });
-      toast.success(
-        next === 'mine'
-          ? dl.sources.markedMine
-          : next === 'not_mine'
-            ? dl.sources.markedNotMine
-            : dl.sources.markCleared,
-      );
+      let message = dl.sources.markCleared;
+      if (next === 'mine') message = dl.sources.markedMine;
+      else if (next === 'not_mine') message = dl.sources.markedNotMine;
+      toast.success(message);
     } catch {
       toast.error(dl.sources.markFailed);
     } finally {

@@ -24,8 +24,8 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, patch};
 use sea_orm::sea_query::{Expr, OnConflict};
 use sea_orm::{
-    ActiveValue::Set, ColumnTrait, DbErr, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder,
-    QuerySelect,
+    ActiveValue::Set, ColumnTrait, ConnectionTrait, DbErr, EntityTrait, Order, PaginatorTrait,
+    QueryFilter, QueryOrder, QuerySelect,
 };
 use serde_json::{Value, json};
 use time::{Duration, OffsetDateTime};
@@ -46,7 +46,7 @@ use crate::util::{MailError, MailResult, answer, query_map};
 use crate::{Caller, MailState};
 
 /// Failing groups listed at most.
-const MAX_FAILURES: usize = 20;
+const MAX_FAILURES: u64 = 20;
 /// Addresses listed per source at most.
 const MAX_SOURCE_IPS: usize = 20;
 /// How far back the policy history goes for the `reject` step.
@@ -118,36 +118,8 @@ fn record_view(row: &mail_domains::Model, address: Option<&str>) -> (Value, Insp
     (view, inspection)
 }
 
-/// One record row of the window.
-#[derive(Debug, Clone)]
-struct RowView {
-    report_id: String,
-    source_ip: String,
-    source_name: Option<String>,
-    pool: Option<String>,
-    count: u64,
-    dkim: bool,
-    spf: bool,
-    header_from: String,
-    dkim_results: Option<Value>,
-    spf_results: Option<Value>,
-}
-
-impl RowView {
-    fn passed(&self) -> bool {
-        self.dkim || self.spf
-    }
-
-    fn key(&self) -> String {
-        sources::key(
-            self.pool.as_deref(),
-            self.source_name.as_deref(),
-            &self.source_ip,
-        )
-    }
-}
-
-#[derive(Debug, Default, Clone)]
+/// Messages, DMARC passes and aligned identifiers, summed.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 struct Tally {
     messages: u64,
     passed: u64,
@@ -156,39 +128,188 @@ struct Tally {
 }
 
 impl Tally {
-    fn add(&mut self, row: &RowView) {
-        self.messages += row.count;
-        self.passed += if row.passed() { row.count } else { 0 };
-        self.dkim += if row.dkim { row.count } else { 0 };
-        self.spf += if row.spf { row.count } else { 0 };
+    fn from_sums(messages: i64, passed: i64, dkim: i64, spf: i64) -> Self {
+        let n = |v: i64| u64::try_from(v).unwrap_or_default();
+        Self {
+            messages: n(messages),
+            passed: n(passed),
+            dkim: n(dkim),
+            spf: n(spf),
+        }
+    }
+
+    fn minus(self, other: Self) -> Self {
+        Self {
+            messages: self.messages.saturating_sub(other.messages),
+            passed: self.passed.saturating_sub(other.passed),
+            dkim: self.dkim.saturating_sub(other.dkim),
+            spf: self.spf.saturating_sub(other.spf),
+        }
     }
 }
 
-async fn window_rows(
-    caller: &Caller,
+/// One sending source over the window.
+#[derive(Debug, Clone)]
+struct SourceSums {
+    key: String,
+    pool: Option<String>,
+    ips: Vec<String>,
+    tally: Tally,
+}
+
+/// Sources listed on the page at most.
+const MAX_SOURCES: u64 = 200;
+/// Sources the readiness looks at one by one; the rest are summed.
+const MAX_ADVICE_SOURCES: u64 = 500;
+
+const SUM_MESSAGES: &str = "coalesce(sum(count), 0)::bigint";
+const SUM_PASSED: &str =
+    "coalesce(sum(case when dkim_aligned or spf_aligned then count else 0 end), 0)::bigint";
+const SUM_DKIM: &str = "coalesce(sum(case when dkim_aligned then count else 0 end), 0)::bigint";
+const SUM_SPF: &str = "coalesce(sum(case when spf_aligned then count else 0 end), 0)::bigint";
+
+/// The domain's rows of the window, optionally of some reports only.
+fn window_rows(
     id: &str,
     from: OffsetDateTime,
-) -> Result<Vec<RowView>, DbErr> {
-    let rows = mail_dmarc_records::Entity::find()
+    reports: Option<&[String]>,
+) -> sea_orm::Select<mail_dmarc_records::Entity> {
+    let mut find = mail_dmarc_records::Entity::find()
         .filter(mail_dmarc_records::Column::MailDomainId.eq(id))
-        .filter(mail_dmarc_records::Column::PeriodEnd.gte(from))
-        .all(&orm(&caller.db))
+        .filter(mail_dmarc_records::Column::PeriodEnd.gte(from));
+    if let Some(ids) = reports {
+        find = find.filter(mail_dmarc_records::Column::ReportId.is_in(ids.iter().cloned()));
+    }
+    find
+}
+
+/// The window's sums, in SQL: a busy domain's reports hold many rows.
+async fn totals(
+    db: &impl ConnectionTrait,
+    id: &str,
+    from: OffsetDateTime,
+    reports: Option<&[String]>,
+) -> Result<Tally, DbErr> {
+    let sums: Option<(i64, i64, i64, i64)> = window_rows(id, from, reports)
+        .select_only()
+        .column_as(Expr::cust(SUM_MESSAGES), "messages")
+        .column_as(Expr::cust(SUM_PASSED), "passed")
+        .column_as(Expr::cust(SUM_DKIM), "dkim")
+        .column_as(Expr::cust(SUM_SPF), "spf")
+        .into_tuple()
+        .one(db)
+        .await?;
+    Ok(sums.map_or_else(Tally::default, |(m, p, d, s)| Tally::from_sums(m, p, d, s)))
+}
+
+/// The busiest `limit` sources of the window, grouped in SQL.
+async fn source_sums(
+    db: &impl ConnectionTrait,
+    id: &str,
+    from: OffsetDateTime,
+    reports: Option<&[String]>,
+    limit: u64,
+) -> Result<Vec<SourceSums>, DbErr> {
+    type Row = (String, Option<String>, Option<String>, i64, i64, i64, i64);
+    let rows: Vec<Row> = window_rows(id, from, reports)
+        .select_only()
+        .column(mail_dmarc_records::Column::SourceKey)
+        .column_as(Expr::cust("max(weldsuite_pool)"), "pool")
+        .column_as(
+            Expr::cust(format!(
+                "array_to_string((array_agg(distinct source_ip))[1:{MAX_SOURCE_IPS}], ',')"
+            )),
+            "ips",
+        )
+        .column_as(Expr::cust(SUM_MESSAGES), "messages")
+        .column_as(Expr::cust(SUM_PASSED), "passed")
+        .column_as(Expr::cust(SUM_DKIM), "dkim")
+        .column_as(Expr::cust(SUM_SPF), "spf")
+        .group_by(mail_dmarc_records::Column::SourceKey)
+        .order_by(Expr::cust("coalesce(sum(count), 0)"), Order::Desc)
+        .order_by(mail_dmarc_records::Column::SourceKey, Order::Asc)
+        .limit(limit)
+        .into_tuple()
+        .all(db)
         .await?;
     Ok(rows
         .into_iter()
-        .map(|row| RowView {
-            report_id: row.report_id,
-            source_ip: row.source_ip,
-            source_name: row.source_name,
-            pool: row.weldsuite_pool,
-            count: u64::try_from(row.count).unwrap_or_default(),
-            dkim: row.dkim_aligned,
-            spf: row.spf_aligned,
-            header_from: row.header_from,
-            dkim_results: row.dkim_results,
-            spf_results: row.spf_results,
+        .map(|(key, pool, ips, m, p, d, s)| SourceSums {
+            key,
+            pool,
+            ips: ips
+                .unwrap_or_default()
+                .split(',')
+                .filter(|ip| !ip.is_empty())
+                .map(str::to_owned)
+                .collect(),
+            tally: Tally::from_sums(m, p, d, s),
         })
         .collect())
+}
+
+/// The failing rows, grouped by source and From domain, the largest first,
+/// in SQL; one row's DKIM and SPF results stand for the group.
+async fn failures(
+    db: &impl ConnectionTrait,
+    id: &str,
+    from: OffsetDateTime,
+) -> Result<Vec<Value>, DbErr> {
+    type Row = (String, String, i64, Option<String>, Option<String>);
+    let rows: Vec<Row> = window_rows(id, from, None)
+        .filter(mail_dmarc_records::Column::DkimAligned.eq(false))
+        .filter(mail_dmarc_records::Column::SpfAligned.eq(false))
+        .select_only()
+        .column(mail_dmarc_records::Column::SourceKey)
+        .column(mail_dmarc_records::Column::HeaderFrom)
+        .column_as(Expr::cust(SUM_MESSAGES), "messages")
+        .column_as(Expr::cust("min(dkim_results::text)"), "dkim_results")
+        .column_as(Expr::cust("min(spf_results::text)"), "spf_results")
+        .group_by(mail_dmarc_records::Column::SourceKey)
+        .group_by(mail_dmarc_records::Column::HeaderFrom)
+        .order_by(Expr::cust("coalesce(sum(count), 0)"), Order::Desc)
+        .limit(MAX_FAILURES)
+        .into_tuple()
+        .all(db)
+        .await?;
+    Ok(rows
+        .into_iter()
+        .map(|(key, from, messages, dkim, spf)| failure_json(&key, &from, messages, dkim, spf))
+        .collect())
+}
+
+/// One failing group as the page shows it.
+fn failure_json(
+    key: &str,
+    from: &str,
+    messages: i64,
+    dkim_results: Option<String>,
+    spf_results: Option<String>,
+) -> Value {
+    let parsed = |text: Option<String>| {
+        text.and_then(|t| serde_json::from_str::<Value>(&t).ok())
+            .and_then(|v| v.as_array().cloned())
+            .unwrap_or_default()
+    };
+    let dkim_domains: BTreeSet<String> = parsed(dkim_results)
+        .iter()
+        .filter_map(|r| r["domain"].as_str())
+        .map(str::to_owned)
+        .collect();
+    let spf_domain = parsed(spf_results)
+        .first()
+        .and_then(|r| r["domain"].as_str())
+        .map(str::to_owned);
+    json!({
+        "sourceKey": key,
+        "sourceName": sources::label(key),
+        "headerFrom": from,
+        "dkimAligned": false,
+        "spfAligned": false,
+        "dkimDomains": dkim_domains,
+        "spfDomain": spf_domain,
+        "messages": messages,
+    })
 }
 
 /// `GET /mail-domains/:id/dmarc`.
@@ -212,6 +333,8 @@ async fn summary(
         let (record_view, inspection) = record_view(&row, address);
         let now = OffsetDateTime::now_utc();
         let from = now - Duration::days(days);
+        let db = orm(&caller.db);
+        // A domain gets a few reports a day per receiver: these are few.
         let reports = mail_dmarc_reports::Entity::find()
             .filter(mail_dmarc_reports::Column::MailDomainId.eq(&id))
             .filter(
@@ -219,7 +342,7 @@ async fn summary(
                     .gte(now - Duration::days(POLICY_HISTORY_DAYS.max(days))),
             )
             .order_by_desc(mail_dmarc_reports::Column::PeriodEnd)
-            .all(&orm(&caller.db))
+            .all(&db)
             .await?;
         let last_report_at = mail_dmarc_reports::Entity::find()
             .select_only()
@@ -227,18 +350,28 @@ async fn summary(
             .filter(mail_dmarc_reports::Column::MailDomainId.eq(&id))
             .order_by_desc(mail_dmarc_reports::Column::ReceivedAt)
             .into_tuple::<OffsetDateTime>()
-            .one(&orm(&caller.db))
+            .one(&db)
             .await?;
-        let rows = window_rows(&caller, &id, from).await?;
         let marks: HashMap<String, Mark> = mail_dmarc_sources::Entity::find()
             .filter(mail_dmarc_sources::Column::MailDomainId.eq(&id))
-            .all(&orm(&caller.db))
+            .all(&db)
             .await?
             .into_iter()
             .filter_map(|m| Mark::parse(&m.mark).map(|mark| (m.source_key, mark)))
             .collect();
         let in_window: Vec<&mail_dmarc_reports::Model> =
             reports.iter().filter(|r| r.period_end >= from).collect();
+        let authenticated: Vec<String> = in_window
+            .iter()
+            .filter(|r| r.authenticated)
+            .map(|r| r.id.clone())
+            .collect();
+        // The rows themselves can be many: everything below is summed in SQL.
+        let all = totals(&db, &id, from, None).await?;
+        let listed = source_sums(&db, &id, from, None, MAX_SOURCES).await?;
+        let trusted_total = totals(&db, &id, from, Some(&authenticated)).await?;
+        let trusted = source_sums(&db, &id, from, Some(&authenticated), MAX_ADVICE_SOURCES).await?;
+        let failing = failures(&db, &id, from).await?;
         let body = build_summary(&SummaryInput {
             row: &row,
             address,
@@ -249,7 +382,11 @@ async fn summary(
             now,
             reports: &reports,
             in_window: &in_window,
-            rows: &rows,
+            totals: all,
+            sources: &listed,
+            trusted: &trusted,
+            trusted_total,
+            failures: failing,
             marks: &marks,
             last_report_at,
         });
@@ -270,58 +407,39 @@ struct SummaryInput<'a> {
     /// The policy history's reports, newest first.
     reports: &'a [mail_dmarc_reports::Model],
     in_window: &'a [&'a mail_dmarc_reports::Model],
-    rows: &'a [RowView],
+    totals: Tally,
+    /// The busiest sources, all reports.
+    sources: &'a [SourceSums],
+    /// The busiest sources of the authenticated reports, and their total.
+    trusted: &'a [SourceSums],
+    trusted_total: Tally,
+    failures: Vec<Value>,
     marks: &'a HashMap<String, Mark>,
     last_report_at: Option<OffsetDateTime>,
 }
 
 fn build_summary(input: &SummaryInput<'_>) -> Value {
-    let authenticated: BTreeSet<&str> = input
-        .in_window
+    let sources_json: Vec<Value> = input
+        .sources
         .iter()
-        .filter(|r| r.authenticated)
-        .map(|r| r.id.as_str())
-        .collect();
-    let mut totals = Tally::default();
-    let mut by_source: BTreeMap<String, (Tally, BTreeSet<String>, Option<String>)> =
-        BTreeMap::new();
-    let mut trusted: BTreeMap<String, Tally> = BTreeMap::new();
-    for row in input.rows {
-        totals.add(row);
-        let key = row.key();
-        let entry = by_source.entry(key.clone()).or_default();
-        entry.0.add(row);
-        if entry.1.len() < MAX_SOURCE_IPS {
-            entry.1.insert(row.source_ip.clone());
-        }
-        entry.2.clone_from(&row.pool);
-        if authenticated.contains(row.report_id.as_str()) {
-            trusted.entry(key).or_default().add(row);
-        }
-    }
-    let mut sources: Vec<(String, Tally, BTreeSet<String>, Option<String>)> = by_source
-        .into_iter()
-        .map(|(key, (tally, ips, pool))| (key, tally, ips, pool))
-        .collect();
-    sources.sort_by(|a, b| b.1.messages.cmp(&a.1.messages).then_with(|| a.0.cmp(&b.0)));
-    let sources_json: Vec<Value> = sources
-        .iter()
-        .map(|(key, tally, ips, pool)| {
+        .map(|source| {
+            let key = source.key.as_str();
             let kind = key.split_once(':').map_or("ip", |(kind, _)| kind);
             json!({
                 "key": key,
                 "kind": kind,
-                "name": pool.clone().unwrap_or_else(|| sources::label(key).to_owned()),
-                "ips": ips,
-                "messages": tally.messages,
-                "passed": tally.passed,
-                "dkimAligned": tally.dkim,
-                "spfAligned": tally.spf,
+                "name": source.pool.clone().unwrap_or_else(|| sources::label(key).to_owned()),
+                "ips": source.ips,
+                "messages": source.tally.messages,
+                "passed": source.tally.passed,
+                "dkimAligned": source.tally.dkim,
+                "spfAligned": source.tally.spf,
                 "mark": input.marks.get(key).map(|m| m.as_str()),
             })
         })
         .collect();
-    let advice = readiness::advise(input.inspection, &window(input, &trusted));
+    let advice = readiness::advise(input.inspection, &window(input));
+    let totals = input.totals;
     json!({
         "domainId": input.row.id,
         "domainName": input.row.domain_name,
@@ -338,18 +456,20 @@ fn build_summary(input: &SummaryInput<'_>) -> Value {
             "dkimAligned": totals.dkim,
             "spfAligned": totals.spf,
             "reports": input.in_window.len(),
-            "authenticatedReports": authenticated.len(),
+            "authenticatedReports": input.in_window.iter().filter(|r| r.authenticated).count(),
             "lastReportAt": input.last_report_at.map(iso_timestamp),
         },
         "sources": sources_json,
         "reporters": reporters(input.in_window),
-        "failures": failures(input.rows),
+        "failures": input.failures,
         "advice": advice,
     })
 }
 
-/// The readiness window: authenticated reports only.
-fn window(input: &SummaryInput<'_>, trusted: &BTreeMap<String, Tally>) -> Window {
+/// The readiness window: authenticated reports only. Sources beyond the
+/// busiest are one summed source ([`sources::REST_KEY`]): they count toward
+/// the pass rate, never as one failing source.
+fn window(input: &SummaryInput<'_>) -> Window {
     let authenticated: Vec<&&mail_dmarc_reports::Model> =
         input.in_window.iter().filter(|r| r.authenticated).collect();
     let days: BTreeSet<time::Date> = authenticated.iter().map(|r| r.period_end.date()).collect();
@@ -357,15 +477,30 @@ fn window(input: &SummaryInput<'_>, trusted: &BTreeMap<String, Tally>) -> Window
         .iter()
         .map(|r| r.reporter_domain.as_str())
         .collect();
-    let sources = trusted
+    let mut listed = Tally::default();
+    let mut sources: Vec<SourceStat> = input
+        .trusted
         .iter()
-        .map(|(key, tally)| SourceStat {
-            key: key.clone(),
-            messages: tally.messages,
-            passed: tally.passed,
-            mark: input.marks.get(key).copied(),
+        .map(|source| {
+            listed.messages += source.tally.messages;
+            listed.passed += source.tally.passed;
+            SourceStat {
+                key: source.key.clone(),
+                messages: source.tally.messages,
+                passed: source.tally.passed,
+                mark: input.marks.get(&source.key).copied(),
+            }
         })
         .collect();
+    let rest = input.trusted_total.minus(listed);
+    if rest.messages > 0 {
+        sources.push(SourceStat {
+            key: sources::REST_KEY.to_owned(),
+            messages: rest.messages,
+            passed: rest.passed,
+            mark: None,
+        });
+    }
     Window {
         days_with_reports: u32::try_from(days.len()).unwrap_or(u32::MAX),
         reporters: u32::try_from(reporters.len()).unwrap_or(u32::MAX),
@@ -417,71 +552,6 @@ fn reporters(reports: &[&mail_dmarc_reports::Model]) -> Vec<Value> {
         .collect();
     out.sort_by(|a, b| b["messages"].as_u64().cmp(&a["messages"].as_u64()));
     out
-}
-
-/// The failing rows, grouped by source, From domain and which identifier
-/// failed, the largest first.
-fn failures(rows: &[RowView]) -> Vec<Value> {
-    type Group = (String, String, bool, bool, BTreeSet<String>, Option<String>);
-    let mut groups: BTreeMap<(String, String, bool, bool), (Group, u64)> = BTreeMap::new();
-    for row in rows.iter().filter(|row| !row.passed()) {
-        let key = row.key();
-        let dkim_domains: BTreeSet<String> = row
-            .dkim_results
-            .as_ref()
-            .and_then(Value::as_array)
-            .map(|results| {
-                results
-                    .iter()
-                    .filter_map(|r| r["domain"].as_str())
-                    .map(str::to_owned)
-                    .collect()
-            })
-            .unwrap_or_default();
-        let spf_domain = row
-            .spf_results
-            .as_ref()
-            .and_then(Value::as_array)
-            .and_then(|results| results.first())
-            .and_then(|r| r["domain"].as_str())
-            .map(str::to_owned);
-        let entry = groups
-            .entry((key.clone(), row.header_from.clone(), row.dkim, row.spf))
-            .or_insert_with(|| {
-                (
-                    (
-                        key,
-                        row.header_from.clone(),
-                        row.dkim,
-                        row.spf,
-                        BTreeSet::new(),
-                        spf_domain.clone(),
-                    ),
-                    0,
-                )
-            });
-        entry.0.4.extend(dkim_domains);
-        entry.1 += row.count;
-    }
-    let mut out: Vec<(Group, u64)> = groups.into_values().collect();
-    out.sort_by_key(|group| std::cmp::Reverse(group.1));
-    out.into_iter()
-        .take(MAX_FAILURES)
-        .map(
-            |((key, from, dkim, spf, dkim_domains, spf_domain), messages)| {
-                json!({
-                    "sourceKey": key,
-                    "sourceName": sources::label(&key),
-                    "headerFrom": from,
-                    "dkimAligned": dkim,
-                    "spfAligned": spf,
-                    "dkimDomains": dkim_domains,
-                    "spfDomain": spf_domain,
-                    "messages": messages,
-                })
-            },
-        )
-        .collect()
 }
 
 /// `GET /mail-domains/:id/dmarc/reports?limit=&cursor=`: newest first; the
@@ -642,35 +712,28 @@ async fn mark_source(
 mod tests {
     use super::*;
 
-    fn row(ip: &str, pool: Option<&str>, name: Option<&str>, count: u64, dkim: bool) -> RowView {
-        RowView {
-            report_id: "r1".to_owned(),
-            source_ip: ip.to_owned(),
-            source_name: name.map(str::to_owned),
-            pool: pool.map(str::to_owned),
-            count,
-            dkim,
-            spf: false,
-            header_from: "acme.test".to_owned(),
-            dkim_results: Some(
-                json!([{ "domain": "acme.test", "result": if dkim { "pass" } else { "fail" } }]),
-            ),
-            spf_results: Some(json!([{ "domain": "bounces.weldsuite.test", "result": "pass" }])),
-        }
+    #[test]
+    fn a_failing_group_names_its_dkim_and_spf_domains() {
+        let failure = failure_json(
+            "name:mailer.test",
+            "acme.test",
+            5,
+            Some(r#"[{"domain":"acme.test","result":"fail"},{"domain":"mailer.test","result":"pass"}]"#.to_owned()),
+            Some(r#"[{"domain":"bounces.mailer.test","result":"pass"}]"#.to_owned()),
+        );
+        assert_eq!(failure["sourceName"], "mailer.test");
+        assert_eq!(failure["messages"], 5);
+        assert_eq!(failure["dkimDomains"], json!(["acme.test", "mailer.test"]));
+        assert_eq!(failure["spfDomain"], "bounces.mailer.test");
+        let bare = failure_json("ip:203.0.113.9", "acme.test", 1, None, None);
+        assert_eq!(bare["dkimDomains"], json!([]));
+        assert_eq!(bare["spfDomain"], Value::Null);
     }
 
     #[test]
-    fn failures_group_by_source_and_outcome() {
-        let rows = vec![
-            row("198.51.100.7", Some("customer"), None, 10, true),
-            row("203.0.113.9", None, Some("a.mailer.test"), 3, false),
-            row("203.0.113.10", None, Some("b.mailer.test"), 2, false),
-        ];
-        let failures = failures(&rows);
-        assert_eq!(failures.len(), 1);
-        assert_eq!(failures[0]["sourceName"], "mailer.test");
-        assert_eq!(failures[0]["messages"], 5);
-        assert_eq!(failures[0]["dkimDomains"], json!(["acme.test"]));
-        assert_eq!(failures[0]["spfDomain"], "bounces.weldsuite.test");
+    fn tallies_subtract_without_going_below_zero() {
+        let all = Tally::from_sums(10, 8, 7, 1);
+        let listed = Tally::from_sums(12, 5, 7, 0);
+        assert_eq!(all.minus(listed), Tally::from_sums(0, 3, 0, 1));
     }
 }

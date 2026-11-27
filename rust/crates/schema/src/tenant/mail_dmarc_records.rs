@@ -40,6 +40,11 @@ pub struct Model {
     #[sea_orm(column_type = "String(StringLen::N(50))")]
     #[serde(rename = "weldsuitePool")]
     pub weldsuite_pool: Option<String>,
+    /// The sending source (`weldsuite_mail_dmarc::sources::key`), so the
+    /// summary groups in SQL.
+    #[sea_orm(column_type = "String(StringLen::N(255))")]
+    #[serde(rename = "sourceKey")]
+    pub source_key: String,
     #[serde(rename = "count")]
     pub count: i32,
     #[sea_orm(column_type = "String(StringLen::N(20))")]
