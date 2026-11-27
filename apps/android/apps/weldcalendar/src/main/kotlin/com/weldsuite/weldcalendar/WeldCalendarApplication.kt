@@ -16,6 +16,9 @@ class WeldCalendarApplication : Application() {
     lateinit var appearance: AppearancePreference
         private set
 
+    lateinit var calendars: CalendarRepository
+        private set
+
     override fun onCreate() {
         super.onCreate()
         env = AppEnvironment(
@@ -34,6 +37,7 @@ class WeldCalendarApplication : Application() {
             usesPush = true,
         )
         appearance = AppearancePreference(this, "weldcalendar")
+        calendars = CalendarRepository(env, this)
         WeldPush.init(
             context = this,
             env = env,

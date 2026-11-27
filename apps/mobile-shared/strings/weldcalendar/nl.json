@@ -2,5 +2,211 @@
   "appName": "WeldCalendar",
   "auth": {
     "subtitle": "Je agenda, waar je ook bent"
+  },
+  "common": {
+    "create": "Aanmaken",
+    "notSet": "Niet ingesteld",
+    "dash": "—"
+  },
+  "eventType": {
+    "meeting": "Vergadering",
+    "call": "Telefoongesprek",
+    "appointment": "Afspraak",
+    "event": "Evenement",
+    "reminder": "Herinnering",
+    "other": "Overig"
+  },
+  "status": {
+    "confirmed": "Bevestigd",
+    "tentative": "Onder voorbehoud",
+    "cancelled": "Geannuleerd"
+  },
+  "priority": {
+    "low": "Laag",
+    "normal": "Normaal",
+    "high": "Hoog",
+    "urgent": "Urgent"
+  },
+  "permission": {
+    "view": "Mag bekijken",
+    "edit": "Mag bewerken",
+    "manage": "Mag beheren"
+  },
+  "response": {
+    "accepted": "Komt",
+    "declined": "Komt niet",
+    "tentative": "Misschien",
+    "pending": "Nog geen antwoord"
+  },
+  "tabs": {
+    "agenda": "Agenda",
+    "month": "Maand",
+    "calendars": "Agenda’s",
+    "more": "Meer"
+  },
+  "agenda": {
+    "title": "Agenda",
+    "today": "Vandaag",
+    "next7Days": "Komende 7 dagen",
+    "newEvent": "Nieuw item",
+    "emptyTitle": "Niets gepland",
+    "emptyDescription": "Items van de komende twee weken verschijnen hier.",
+    "allDay": "Hele dag",
+    "now": "Nu",
+    "eventCount": {
+      "one": "{count} item",
+      "other": "{count} items"
+    },
+    "calendarCount": {
+      "one": "{count} agenda",
+      "other": "{count} agenda’s"
+    }
+  },
+  "month": {
+    "previousMonth": "Vorige maand",
+    "nextMonth": "Volgende maand",
+    "noEventsTitle": "Niets op deze dag",
+    "noEventsDescription": "Tik op de plus om een item toe te voegen."
+  },
+  "calendars": {
+    "title": "Agenda’s",
+    "workspace": "Werkruimte",
+    "shared": "Met mij gedeeld",
+    "newCalendar": "Nieuwe agenda",
+    "nameLabel": "Naam",
+    "namePlaceholder": "Naam van de agenda",
+    "descriptionLabel": "Omschrijving",
+    "descriptionPlaceholder": "Waar is deze agenda voor? (optioneel)",
+    "colorLabel": "Kleur",
+    "colorOption": "Kleur {number}",
+    "nameRequired": "Een naam is verplicht",
+    "createFailed": "Kon de agenda niet aanmaken",
+    "defaultBadge": "Standaard",
+    "visibilityHint": "Verborgen agenda’s blijven buiten de agenda en het maandoverzicht.",
+    "show": "{name} tonen",
+    "emptyTitle": "Nog geen agenda’s",
+    "emptyDescription": "Maak er een aan om te beginnen met plannen.",
+    "ensureFailed": "Kon je standaardagenda niet instellen"
+  },
+  "event": {
+    "detailTitle": "Item",
+    "notFound": "Dit item bestaat niet meer.",
+    "edit": "Item bewerken",
+    "deleteFailed": "Kon het item niet verwijderen",
+    "deleteTitle": "Dit item verwijderen?",
+    "deleteMessage": "Dit kan niet ongedaan worden gemaakt.",
+    "deleteAttendeesMessage": "Dit kan niet ongedaan worden gemaakt. Wil je de gasten mailen dat het niet doorgaat?",
+    "deleteAndNotify": "Verwijderen en gasten mailen",
+    "deleteQuietly": "Verwijderen zonder mail",
+    "details": "Details",
+    "description": "Omschrijving",
+    "notes": "Notities",
+    "timezone": "Tijdzone",
+    "timezoneShown": "Gepland in {zone}. Tijden staan in de tijdzone van je telefoon.",
+    "when": "Wanneer",
+    "calendar": "Agenda",
+    "location": "Locatie",
+    "meetingLink": "Vergaderlink",
+    "joinMeeting": "Deelnemen",
+    "repeats": "Herhaalt",
+    "attendeeCount": {
+      "one": "{count} gast",
+      "other": "{count} gasten"
+    },
+    "attendeeAnswers": "Komen: {acceptedCount}, misschien: {tentativeCount}, komen niet: {declinedCount}, geen antwoord: {pendingCount}",
+    "task": "Taak",
+    "taskClosed": "Afgesloten",
+    "autoScheduled": "Automatisch ingepland",
+    "autoScheduledHint": "Door WeldSuite geplaatst vanuit een gekoppelde taak of activiteit.",
+    "readOnly": "Alleen lezen",
+    "readOnlyHint": "Deze agenda is met je gedeeld om te bekijken.",
+    "durationHoursMinutes": "{hourCount} u {minuteCount} min",
+    "durationHours": "{hourCount} u",
+    "durationMinutes": "{minuteCount} min"
+  },
+  "eventForm": {
+    "newTitle": "Nieuw item",
+    "editTitle": "Item bewerken",
+    "titleLabel": "Titel",
+    "titlePlaceholder": "Waar gaat het over?",
+    "titleRequired": "Een titel is verplicht",
+    "descriptionLabel": "Omschrijving",
+    "descriptionPlaceholder": "Voeg meer detail toe (optioneel)",
+    "calendarLabel": "Agenda",
+    "typeLabel": "Type",
+    "allDayLabel": "Hele dag",
+    "startsLabel": "Begint",
+    "endsLabel": "Eindigt",
+    "timeZoneNote": "Tijden staan in de tijdzone van je telefoon ({zone}).",
+    "locationLabel": "Locatie",
+    "locationPlaceholder": "Waar? (optioneel)",
+    "meetingUrlLabel": "Vergaderlink",
+    "meetingUrlPlaceholder": "https://…",
+    "meetingUrlInvalid": "Vul een link in die begint met http:// of https://",
+    "statusLabel": "Status",
+    "priorityLabel": "Prioriteit",
+    "repeatLabel": "Herhalen",
+    "attendeesLabel": "Gasten",
+    "attendeesHint": "Gasten krijgen een uitnodiging per e-mail.",
+    "attendeeEmailPlaceholder": "E-mailadres",
+    "addAttendee": "Gast toevoegen",
+    "removeAttendee": "{name} verwijderen",
+    "attendeeInvalid": "Vul een geldig e-mailadres in",
+    "attendeeDuplicate": "Die gast staat al op de lijst",
+    "attendeeLimit": "Een item kan hooguit 100 gasten hebben",
+    "notifyLabel": "Gasten per e-mail informeren over deze wijziging",
+    "submitCreate": "Item aanmaken",
+    "submitSave": "Wijzigingen opslaan",
+    "noWritableCalendar": "Je hebt een agenda nodig die je mag bewerken voordat je items toevoegt.",
+    "endBeforeStart": "De eindtijd moet na de begintijd liggen.",
+    "pickDate": "Kies een datum",
+    "pickTime": "Kies een tijd",
+    "createFailed": "Kon het item niet aanmaken",
+    "updateFailed": "Kon het item niet opslaan"
+  },
+  "repeat": {
+    "none": "Herhaalt niet",
+    "daily": "Elke dag",
+    "weekdays": "Elke werkdag",
+    "weekly": "Elke week",
+    "monthly": "Elke maand",
+    "yearly": "Elk jaar",
+    "everyDays": {
+      "one": "Elke dag",
+      "other": "Elke {count} dagen"
+    },
+    "everyWeeks": {
+      "one": "Elke week",
+      "other": "Elke {count} weken"
+    },
+    "everyMonths": {
+      "one": "Elke maand",
+      "other": "Elke {count} maanden"
+    },
+    "everyYears": {
+      "one": "Elk jaar",
+      "other": "Elke {count} jaar"
+    },
+    "onDays": "{rule} op {days}",
+    "until": "{rule}, tot {date}",
+    "times": {
+      "one": "één keer",
+      "other": "{count} keer"
+    },
+    "withLimit": "{rule}, {limit}",
+    "custom": "Herhaalt volgens een eigen schema",
+    "keepCustom": "Huidig schema behouden"
+  },
+  "settings": {
+    "title": "Meer",
+    "privacy": "Privacy",
+    "privacyPolicy": "Privacybeleid",
+    "terms": "Gebruiksvoorwaarden",
+    "contactSupport": "Contact met support",
+    "deleteAccount": "Account verwijderen",
+    "deleteAccountTitle": "Je account verwijderen?",
+    "deleteAccountMessage": "Je account, je profiel en je toegang tot alle werkruimtes worden definitief verwijderd. Je rondt dit af op je accountpagina.",
+    "deleteAccountContinue": "Naar mijn account",
+    "deleteAccountUnavailable": "Mail privacy@weldsuite.com om je account te laten verwijderen."
   }
 }

@@ -23,6 +23,37 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!-- weldcalendar://event/<id>, …/event/new, …/month and the other tabs, as the Expo app's router answered. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="weldcalendar" />
+                <data android:host="event" />
+                <data android:host="agenda" />
+                <data android:host="month" />
+                <data android:host="calendars" />
+                <data android:host="more" />
+                <data android:host="settings" />
+            </intent-filter>
+        </activity>
+
+        <!--
+            AppAuth's redirect activity claims the whole weldcalendar:// scheme; narrowed
+            to its own weldcalendar://sso-callback so the links above open the app, not a chooser.
+        -->
+        <activity
+            android:name="net.openid.appauth.RedirectUriReceiverActivity"
+            android:exported="true"
+            tools:node="replace">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:host="sso-callback"
+                    android:scheme="weldcalendar" />
+            </intent-filter>
         </activity>
 
         <meta-data

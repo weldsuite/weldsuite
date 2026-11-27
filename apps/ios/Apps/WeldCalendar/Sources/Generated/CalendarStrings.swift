@@ -3,10 +3,318 @@
 import Foundation
 
 enum CalendarStrings {
+    /// All day
+    static var agendaAllDay: String { tr("agenda.allDay") }
+    /// {count} calendars
+    static func agendaCalendarCount(_ count: Int) -> String { tr("agenda.calendarCount", count) }
+    /// Events from the next two weeks will show up here.
+    static var agendaEmptyDescription: String { tr("agenda.emptyDescription") }
+    /// Nothing scheduled
+    static var agendaEmptyTitle: String { tr("agenda.emptyTitle") }
+    /// {count} events
+    static func agendaEventCount(_ count: Int) -> String { tr("agenda.eventCount", count) }
+    /// New event
+    static var agendaNewEvent: String { tr("agenda.newEvent") }
+    /// Next 7 days
+    static var agendaNext7Days: String { tr("agenda.next7Days") }
+    /// Now
+    static var agendaNow: String { tr("agenda.now") }
+    /// Agenda
+    static var agendaTitle: String { tr("agenda.title") }
+    /// Today
+    static var agendaToday: String { tr("agenda.today") }
     /// WeldCalendar
     static var appName: String { tr("appName") }
     /// Your calendar, wherever you are
     static var authSubtitle: String { tr("auth.subtitle") }
+    /// Colour
+    static var calendarsColorLabel: String { tr("calendars.colorLabel") }
+    /// Colour {number}
+    static func calendarsColorOption(number: String) -> String { tr("calendars.colorOption", number) }
+    /// Couldn’t create the calendar
+    static var calendarsCreateFailed: String { tr("calendars.createFailed") }
+    /// Default
+    static var calendarsDefaultBadge: String { tr("calendars.defaultBadge") }
+    /// Description
+    static var calendarsDescriptionLabel: String { tr("calendars.descriptionLabel") }
+    /// What is this calendar for? (optional)
+    static var calendarsDescriptionPlaceholder: String { tr("calendars.descriptionPlaceholder") }
+    /// Create one to start scheduling.
+    static var calendarsEmptyDescription: String { tr("calendars.emptyDescription") }
+    /// No calendars yet
+    static var calendarsEmptyTitle: String { tr("calendars.emptyTitle") }
+    /// Couldn’t set up your default calendar
+    static var calendarsEnsureFailed: String { tr("calendars.ensureFailed") }
+    /// Name
+    static var calendarsNameLabel: String { tr("calendars.nameLabel") }
+    /// Calendar name
+    static var calendarsNamePlaceholder: String { tr("calendars.namePlaceholder") }
+    /// A name is required
+    static var calendarsNameRequired: String { tr("calendars.nameRequired") }
+    /// New calendar
+    static var calendarsNewCalendar: String { tr("calendars.newCalendar") }
+    /// Shared with me
+    static var calendarsShared: String { tr("calendars.shared") }
+    /// Show {name}
+    static func calendarsShow(name: String) -> String { tr("calendars.show", name) }
+    /// Calendars
+    static var calendarsTitle: String { tr("calendars.title") }
+    /// Hidden calendars stay out of the agenda and the month grid.
+    static var calendarsVisibilityHint: String { tr("calendars.visibilityHint") }
+    /// Workspace
+    static var calendarsWorkspace: String { tr("calendars.workspace") }
+    /// Create
+    static var commonCreate: String { tr("common.create") }
+    /// —
+    static var commonDash: String { tr("common.dash") }
+    /// Not set
+    static var commonNotSet: String { tr("common.notSet") }
+    /// Going: {acceptedCount}, maybe: {tentativeCount}, not going: {declinedCount}, not answered: {pendingCount}
+    static func eventAttendeeAnswers(acceptedCount: Int, tentativeCount: Int, declinedCount: Int, pendingCount: Int) -> String { tr("event.attendeeAnswers", acceptedCount, tentativeCount, declinedCount, pendingCount) }
+    /// {count} guests
+    static func eventAttendeeCount(_ count: Int) -> String { tr("event.attendeeCount", count) }
+    /// Scheduled automatically
+    static var eventAutoScheduled: String { tr("event.autoScheduled") }
+    /// Placed by WeldSuite from a linked task or activity.
+    static var eventAutoScheduledHint: String { tr("event.autoScheduledHint") }
+    /// Calendar
+    static var eventCalendar: String { tr("event.calendar") }
+    /// Delete and email guests
+    static var eventDeleteAndNotify: String { tr("event.deleteAndNotify") }
+    /// This can’t be undone. Do you want to email the guests that it’s off?
+    static var eventDeleteAttendeesMessage: String { tr("event.deleteAttendeesMessage") }
+    /// Couldn’t delete the event
+    static var eventDeleteFailed: String { tr("event.deleteFailed") }
+    /// This can’t be undone.
+    static var eventDeleteMessage: String { tr("event.deleteMessage") }
+    /// Delete without emailing
+    static var eventDeleteQuietly: String { tr("event.deleteQuietly") }
+    /// Delete this event?
+    static var eventDeleteTitle: String { tr("event.deleteTitle") }
+    /// Description
+    static var eventDescription: String { tr("event.description") }
+    /// Event
+    static var eventDetailTitle: String { tr("event.detailTitle") }
+    /// Details
+    static var eventDetails: String { tr("event.details") }
+    /// {hourCount}h
+    static func eventDurationHours(hourCount: Int) -> String { tr("event.durationHours", hourCount) }
+    /// {hourCount}h {minuteCount}m
+    static func eventDurationHoursMinutes(hourCount: Int, minuteCount: Int) -> String { tr("event.durationHoursMinutes", hourCount, minuteCount) }
+    /// {minuteCount}m
+    static func eventDurationMinutes(minuteCount: Int) -> String { tr("event.durationMinutes", minuteCount) }
+    /// Edit event
+    static var eventEdit: String { tr("event.edit") }
+    /// Join meeting
+    static var eventJoinMeeting: String { tr("event.joinMeeting") }
+    /// Location
+    static var eventLocation: String { tr("event.location") }
+    /// Meeting link
+    static var eventMeetingLink: String { tr("event.meetingLink") }
+    /// That event no longer exists.
+    static var eventNotFound: String { tr("event.notFound") }
+    /// Notes
+    static var eventNotes: String { tr("event.notes") }
+    /// View only
+    static var eventReadOnly: String { tr("event.readOnly") }
+    /// This calendar is shared with you for viewing.
+    static var eventReadOnlyHint: String { tr("event.readOnlyHint") }
+    /// Repeats
+    static var eventRepeats: String { tr("event.repeats") }
+    /// Task
+    static var eventTask: String { tr("event.task") }
+    /// Closed
+    static var eventTaskClosed: String { tr("event.taskClosed") }
+    /// Time zone
+    static var eventTimezone: String { tr("event.timezone") }
+    /// Scheduled in {zone}. Times show in your phone’s time zone.
+    static func eventTimezoneShown(zone: String) -> String { tr("event.timezoneShown", zone) }
+    /// When
+    static var eventWhen: String { tr("event.when") }
+    /// Add guest
+    static var eventFormAddAttendee: String { tr("eventForm.addAttendee") }
+    /// All day
+    static var eventFormAllDayLabel: String { tr("eventForm.allDayLabel") }
+    /// That guest is already on the list
+    static var eventFormAttendeeDuplicate: String { tr("eventForm.attendeeDuplicate") }
+    /// Email address
+    static var eventFormAttendeeEmailPlaceholder: String { tr("eventForm.attendeeEmailPlaceholder") }
+    /// Enter a valid email address
+    static var eventFormAttendeeInvalid: String { tr("eventForm.attendeeInvalid") }
+    /// An event can have at most 100 guests
+    static var eventFormAttendeeLimit: String { tr("eventForm.attendeeLimit") }
+    /// Guests get an email invitation.
+    static var eventFormAttendeesHint: String { tr("eventForm.attendeesHint") }
+    /// Guests
+    static var eventFormAttendeesLabel: String { tr("eventForm.attendeesLabel") }
+    /// Calendar
+    static var eventFormCalendarLabel: String { tr("eventForm.calendarLabel") }
+    /// Couldn’t create the event
+    static var eventFormCreateFailed: String { tr("eventForm.createFailed") }
+    /// Description
+    static var eventFormDescriptionLabel: String { tr("eventForm.descriptionLabel") }
+    /// Add more detail (optional)
+    static var eventFormDescriptionPlaceholder: String { tr("eventForm.descriptionPlaceholder") }
+    /// Edit event
+    static var eventFormEditTitle: String { tr("eventForm.editTitle") }
+    /// The end time must be after the start time.
+    static var eventFormEndBeforeStart: String { tr("eventForm.endBeforeStart") }
+    /// Ends
+    static var eventFormEndsLabel: String { tr("eventForm.endsLabel") }
+    /// Location
+    static var eventFormLocationLabel: String { tr("eventForm.locationLabel") }
+    /// Where? (optional)
+    static var eventFormLocationPlaceholder: String { tr("eventForm.locationPlaceholder") }
+    /// Enter a link that starts with http:// or https://
+    static var eventFormMeetingUrlInvalid: String { tr("eventForm.meetingUrlInvalid") }
+    /// Meeting link
+    static var eventFormMeetingUrlLabel: String { tr("eventForm.meetingUrlLabel") }
+    /// https://…
+    static var eventFormMeetingUrlPlaceholder: String { tr("eventForm.meetingUrlPlaceholder") }
+    /// New event
+    static var eventFormNewTitle: String { tr("eventForm.newTitle") }
+    /// You need a calendar you can edit before adding events.
+    static var eventFormNoWritableCalendar: String { tr("eventForm.noWritableCalendar") }
+    /// Email guests about this change
+    static var eventFormNotifyLabel: String { tr("eventForm.notifyLabel") }
+    /// Pick a date
+    static var eventFormPickDate: String { tr("eventForm.pickDate") }
+    /// Pick a time
+    static var eventFormPickTime: String { tr("eventForm.pickTime") }
+    /// Priority
+    static var eventFormPriorityLabel: String { tr("eventForm.priorityLabel") }
+    /// Remove {name}
+    static func eventFormRemoveAttendee(name: String) -> String { tr("eventForm.removeAttendee", name) }
+    /// Repeat
+    static var eventFormRepeatLabel: String { tr("eventForm.repeatLabel") }
+    /// Starts
+    static var eventFormStartsLabel: String { tr("eventForm.startsLabel") }
+    /// Status
+    static var eventFormStatusLabel: String { tr("eventForm.statusLabel") }
+    /// Create event
+    static var eventFormSubmitCreate: String { tr("eventForm.submitCreate") }
+    /// Save changes
+    static var eventFormSubmitSave: String { tr("eventForm.submitSave") }
+    /// Times are in your phone’s time zone ({zone}).
+    static func eventFormTimeZoneNote(zone: String) -> String { tr("eventForm.timeZoneNote", zone) }
+    /// Title
+    static var eventFormTitleLabel: String { tr("eventForm.titleLabel") }
+    /// What is it?
+    static var eventFormTitlePlaceholder: String { tr("eventForm.titlePlaceholder") }
+    /// A title is required
+    static var eventFormTitleRequired: String { tr("eventForm.titleRequired") }
+    /// Type
+    static var eventFormTypeLabel: String { tr("eventForm.typeLabel") }
+    /// Couldn’t save the event
+    static var eventFormUpdateFailed: String { tr("eventForm.updateFailed") }
+    /// Appointment
+    static var eventTypeAppointment: String { tr("eventType.appointment") }
+    /// Call
+    static var eventTypeCall: String { tr("eventType.call") }
+    /// Event
+    static var eventTypeEvent: String { tr("eventType.event") }
+    /// Meeting
+    static var eventTypeMeeting: String { tr("eventType.meeting") }
+    /// Other
+    static var eventTypeOther: String { tr("eventType.other") }
+    /// Reminder
+    static var eventTypeReminder: String { tr("eventType.reminder") }
+    /// Next month
+    static var monthNextMonth: String { tr("month.nextMonth") }
+    /// Tap the plus to add an event.
+    static var monthNoEventsDescription: String { tr("month.noEventsDescription") }
+    /// Nothing on this day
+    static var monthNoEventsTitle: String { tr("month.noEventsTitle") }
+    /// Previous month
+    static var monthPreviousMonth: String { tr("month.previousMonth") }
+    /// Can edit
+    static var permissionEdit: String { tr("permission.edit") }
+    /// Can manage
+    static var permissionManage: String { tr("permission.manage") }
+    /// Can view
+    static var permissionView: String { tr("permission.view") }
+    /// High
+    static var priorityHigh: String { tr("priority.high") }
+    /// Low
+    static var priorityLow: String { tr("priority.low") }
+    /// Normal
+    static var priorityNormal: String { tr("priority.normal") }
+    /// Urgent
+    static var priorityUrgent: String { tr("priority.urgent") }
+    /// Repeats on a custom schedule
+    static var repeatCustom: String { tr("repeat.custom") }
+    /// Every day
+    static var repeatDaily: String { tr("repeat.daily") }
+    /// Every {count} days
+    static func repeatEveryDays(_ count: Int) -> String { tr("repeat.everyDays", count) }
+    /// Every {count} months
+    static func repeatEveryMonths(_ count: Int) -> String { tr("repeat.everyMonths", count) }
+    /// Every {count} weeks
+    static func repeatEveryWeeks(_ count: Int) -> String { tr("repeat.everyWeeks", count) }
+    /// Every {count} years
+    static func repeatEveryYears(_ count: Int) -> String { tr("repeat.everyYears", count) }
+    /// Keep the current schedule
+    static var repeatKeepCustom: String { tr("repeat.keepCustom") }
+    /// Every month
+    static var repeatMonthly: String { tr("repeat.monthly") }
+    /// Doesn’t repeat
+    static var repeatNone: String { tr("repeat.none") }
+    /// {rule} on {days}
+    static func repeatOnDays(rule: String, days: String) -> String { tr("repeat.onDays", rule, days) }
+    /// {count} times
+    static func repeatTimes(_ count: Int) -> String { tr("repeat.times", count) }
+    /// {rule}, until {date}
+    static func repeatUntil(rule: String, date: String) -> String { tr("repeat.until", rule, date) }
+    /// Every weekday
+    static var repeatWeekdays: String { tr("repeat.weekdays") }
+    /// Every week
+    static var repeatWeekly: String { tr("repeat.weekly") }
+    /// {rule}, {limit}
+    static func repeatWithLimit(rule: String, limit: String) -> String { tr("repeat.withLimit", rule, limit) }
+    /// Every year
+    static var repeatYearly: String { tr("repeat.yearly") }
+    /// Going
+    static var responseAccepted: String { tr("response.accepted") }
+    /// Not going
+    static var responseDeclined: String { tr("response.declined") }
+    /// Not answered
+    static var responsePending: String { tr("response.pending") }
+    /// Maybe
+    static var responseTentative: String { tr("response.tentative") }
+    /// Contact support
+    static var settingsContactSupport: String { tr("settings.contactSupport") }
+    /// Delete account
+    static var settingsDeleteAccount: String { tr("settings.deleteAccount") }
+    /// Go to my account
+    static var settingsDeleteAccountContinue: String { tr("settings.deleteAccountContinue") }
+    /// Your account, profile and access to every workspace are removed for good. You finish this on your account page.
+    static var settingsDeleteAccountMessage: String { tr("settings.deleteAccountMessage") }
+    /// Delete your account?
+    static var settingsDeleteAccountTitle: String { tr("settings.deleteAccountTitle") }
+    /// Email privacy@weldsuite.com to have your account deleted.
+    static var settingsDeleteAccountUnavailable: String { tr("settings.deleteAccountUnavailable") }
+    /// Privacy
+    static var settingsPrivacy: String { tr("settings.privacy") }
+    /// Privacy policy
+    static var settingsPrivacyPolicy: String { tr("settings.privacyPolicy") }
+    /// Terms of service
+    static var settingsTerms: String { tr("settings.terms") }
+    /// More
+    static var settingsTitle: String { tr("settings.title") }
+    /// Cancelled
+    static var statusCancelled: String { tr("status.cancelled") }
+    /// Confirmed
+    static var statusConfirmed: String { tr("status.confirmed") }
+    /// Tentative
+    static var statusTentative: String { tr("status.tentative") }
+    /// Agenda
+    static var tabsAgenda: String { tr("tabs.agenda") }
+    /// Calendars
+    static var tabsCalendars: String { tr("tabs.calendars") }
+    /// Month
+    static var tabsMonth: String { tr("tabs.month") }
+    /// More
+    static var tabsMore: String { tr("tabs.more") }
 
     private static func tr(_ key: String, _ args: CVarArg...) -> String {
         let format = NSLocalizedString(key, bundle: Bundle.main, comment: "")

@@ -1,0 +1,35 @@
+appId: ${APP_ID || "com.weldsuite.weldcalendar.dev"}
+name: Agenda and tabs load
+tags: [smoke]
+---
+- runFlow: ../subflows/login.yaml
+- assertVisible:
+    id: kpi-today
+- assertVisible: "Next 7 days"
+# Month: the grid, a step forward and back, and today again.
+- tapOn:
+    id: tab-month
+- assertVisible:
+    id: month-grid
+- tapOn:
+    id: month-next
+- tapOn:
+    id: month-previous
+- assertVisible: "Today"
+# Calendars: the person's own calendars and the visibility hint.
+- tapOn:
+    id: tab-calendars
+- extendedWaitUntil:
+    visible: "Hidden calendars stay out of the agenda and the month grid."
+    timeout: 15000
+# More: the privacy links and the shared settings with sign-out.
+- tapOn:
+    id: tab-more
+- assertVisible:
+    id: privacy-policy
+- scrollUntilVisible:
+    element:
+      id: sign-out
+- tapOn:
+    id: tab-agenda
+- assertVisible: "Next 7 days"
