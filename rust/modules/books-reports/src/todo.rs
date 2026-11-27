@@ -200,6 +200,13 @@ fn duplicates_cond(ctx: &Ctx) -> Condition {
     bank_lines_cond(ctx).add(bank_transactions::Column::PossibleDuplicateOfId.is_not_null())
 }
 
+/// The `bank_lines` kind: lines to book that aren't flagged as a possible
+/// duplicate. A flagged line is under `duplicates` only, so the total counts
+/// every line once.
+fn to_book_cond(ctx: &Ctx) -> Condition {
+    bank_lines_cond(ctx).add(bank_transactions::Column::PossibleDuplicateOfId.is_null())
+}
+
 /// Inbox documents still to process; those with no entity count for the
 /// default entity only.
 fn documents_cond(ctx: &Ctx) -> Condition {
@@ -378,7 +385,7 @@ async fn tally(kind: Kind, ctx: &Ctx) -> Result<Tally, DbErr> {
     match kind {
         Kind::BankLines | Kind::Duplicates => {
             let cond = if kind == Kind::BankLines {
-                bank_lines_cond(ctx)
+                to_book_cond(ctx)
             } else {
                 duplicates_cond(ctx)
             };
@@ -655,7 +662,7 @@ async fn items(kind: Kind, ctx: &Ctx, offset: u64, limit: u64) -> Result<Vec<Ite
             let cond = if duplicates {
                 duplicates_cond(ctx)
             } else {
-                bank_lines_cond(ctx)
+                to_book_cond(ctx)
             };
             let rows = bank_transactions::Entity::find()
                 .filter(cond)
@@ -1384,7 +1391,8 @@ mod db_tests {
         connection(db, &b, "error", None, true).await;
         payment(db, &b, &party, "100", None, None, false).await;
 
-        // Bank lines: a good match, a plain one and a flagged duplicate count;
+        // Bank lines: a good match and a plain one count; a flagged duplicate
+        // counts under duplicates only;
         // booked and excluded ones do not; a USD line counts, outside the sum.
         let eur = bank_account(db, &a, "EUR").await;
         let usd = bank_account(db, &a, "USD").await;
@@ -1528,7 +1536,7 @@ mod db_tests {
 
         let summary = summary_of(&caller(&db, &a, &ALL)).await;
         for (kind, n) in [
-            ("bank_lines", 4),
+            ("bank_lines", 3),
             ("documents", 4),
             ("bills_to_approve", 2),
             ("bills_due", 2),
@@ -1540,11 +1548,11 @@ mod db_tests {
         ] {
             assert_eq!(count(&summary, kind), n, "{kind}: {summary}");
         }
-        assert_eq!(summary["total"], 20);
+        assert_eq!(summary["total"], 19);
         assert_eq!(summary["currency"], "EUR");
         let amount = |kind: &str| summary["kinds"][kind]["amount"].clone();
         // The USD line is left out of the sum and flagged.
-        assert_eq!(amount("bank_lines"), "221.00");
+        assert_eq!(amount("bank_lines"), "171.00");
         assert_eq!(summary["kinds"]["bank_lines"]["mixedCurrency"], true);
         assert_eq!(amount("duplicates"), "50.00");
         assert_eq!(summary["kinds"]["duplicates"]["mixedCurrency"], false);
@@ -1647,7 +1655,7 @@ mod db_tests {
             kind_names(&banking),
             ["bank_feeds", "bank_lines", "duplicates", "unapplied_credit"]
         );
-        assert_eq!(banking["total"], 4 + 2 + 1 + 2);
+        assert_eq!(banking["total"], 3 + 2 + 1 + 2);
         let bills = summary_of(&caller(&db, &a, &["bills:read"])).await;
         assert_eq!(kind_names(&bills), ["bills_due", "bills_to_approve"]);
         let invoices = summary_of(&caller(&db, &a, &["invoices:read"])).await;
@@ -1696,7 +1704,7 @@ mod db_tests {
         let own = |a: &str, b: &str, c: &str| (a.to_owned(), b.to_owned(), c.to_owned());
 
         let lines = items("bank_lines").await;
-        assert_eq!(lines.len(), 4);
+        assert_eq!(lines.len(), 3);
         let matched: Vec<&Value> = lines
             .iter()
             .filter(|i| i["hint"] == "possible_match")
@@ -1788,7 +1796,7 @@ mod db_tests {
             };
             let (status, list) = list_of(&caller, &query).await;
             assert_eq!(status, 200, "{list}");
-            assert_eq!(list["pagination"]["totalCount"], 20);
+            assert_eq!(list["pagination"]["totalCount"], 19);
             let page = list["data"].as_array().cloned().unwrap_or_default();
             assert!(page.len() <= 4);
             seen.extend(page.iter().map(|i| {
@@ -1806,9 +1814,9 @@ mod db_tests {
             }
             assert!(pages < 20, "paging does not end");
         }
-        assert_eq!(seen.len(), 20);
+        assert_eq!(seen.len(), 19);
         let unique: BTreeSet<&(String, String)> = seen.iter().collect();
-        assert_eq!(unique.len(), 20, "an item came twice: {seen:?}");
+        assert_eq!(unique.len(), 19, "an item came twice: {seen:?}");
         // Kinds come in order of urgency.
         let order: Vec<&str> = KINDS.iter().map(|k| k.as_str()).collect();
         let positions: Vec<usize> = seen
