@@ -56,6 +56,7 @@ import type { JournalEntryDetail, JournalLine } from '@/lib/api/domains/weldbook
 import { useI18n } from '@/lib/i18n/provider';
 import { cn } from '@/lib/utils';
 import { journalSourceRecord } from '@/lib/weldbooks/record-links';
+import { journalSourceLabel } from '@/lib/weldbooks/journal-source';
 import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
 import { useDocumentTexts } from '@/lib/weldbooks/use-document-texts';
 import { getJournalEntryTabs, type JournalEntryTab } from './journal-entry-tabs';
@@ -201,9 +202,7 @@ function JournalEntryDetailsTab({ entry, t }: Readonly<{ entry: JournalEntryDeta
   const st = useTranslations();
   const { formatMoney, formatDate } = useWeldbooksFormat();
   const tj = t.accounting.journalEntry;
-  const sources = t.accounting.recordLinks.journalSources as Record<string, string>;
-  const sourceType = entry.sourceType || 'manual';
-  const source = sources[sourceType] ?? sources.other;
+  const source = journalSourceLabel(entry.sourceType, t.accounting.statusLabels.journalEntrySource);
   // The record that posted the entry opens as a stacked panel when it has one.
   const sourceRecord = journalSourceRecord(entry.sourceType, entry.sourceId);
 

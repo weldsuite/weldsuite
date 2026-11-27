@@ -2040,31 +2040,6 @@ export const accounting = {
 
     // Chips that link one WeldBooks record to another
     recordLinks: {
-      // What posted a journal entry (its `sourceType`)
-      journalSources: {
-        manual: 'Manual entry',
-        invoice: 'Invoice',
-        credit_note: 'Credit note',
-        bill: 'Bill',
-        bill_credit_note: 'Bill credit note',
-        payment: 'Payment',
-        unapplied_payment: 'Unapplied payment',
-        payment_fx_adjustment: 'Exchange difference',
-        bank_transaction: 'Bank transaction',
-        bank_deposit: 'Deposit',
-        bank_reconciliation: 'Bank reconciliation',
-        fixed_asset: 'Fixed asset',
-        fixed_asset_depreciation: 'Depreciation',
-        payroll: 'Payroll',
-        tax_return: 'VAT return',
-        pick_list: 'Pick list',
-        transfer: 'Stock transfer',
-        purchase_order: 'Purchase order',
-        write_off: 'Write-off',
-        write_off_recovery: 'Write-off recovery',
-        bad_debt: 'Bad debt',
-        other: 'Other',
-      },
       invoiceFallback: 'Invoice',
       billFallback: 'Bill',
       contactFallback: 'Contact',
@@ -3479,7 +3454,7 @@ export const accounting = {
       },
       // Where a journal entry came from (journal_entries.source_type)
       journalEntrySource: {
-        manual: 'Manual',
+        manual: 'Manual entry',
         invoice: 'Invoice',
         credit_note: 'Credit note',
         bill: 'Bill',
@@ -3500,6 +3475,8 @@ export const accounting = {
         transfer: 'Transfer',
         purchase_order: 'Purchase order',
         pick_list: 'Pick list',
+        bill_credit_note: 'Bill credit note',
+        bad_debt: 'Bad debt',
       },
       // VAT return statuses not already covered by vat.statuses
       vatReturn: {

@@ -2076,30 +2076,6 @@ export const accounting = {
     // Chips die het ene WeldBooks-record aan het andere koppelen
     recordLinks: {
       // Wat een journaalpost boekte (zijn `sourceType`)
-      journalSources: {
-        manual: 'Handmatige boeking',
-        invoice: 'Factuur',
-        credit_note: 'Creditnota',
-        bill: 'Inkoopfactuur',
-        bill_credit_note: 'Inkoopcreditnota',
-        payment: 'Betaling',
-        unapplied_payment: 'Niet toegewezen betaling',
-        payment_fx_adjustment: 'Koersverschil',
-        bank_transaction: 'Banktransactie',
-        bank_deposit: 'Storting',
-        bank_reconciliation: 'Bankafstemming',
-        fixed_asset: 'Vaste activa',
-        fixed_asset_depreciation: 'Afschrijving',
-        payroll: 'Salarisverwerking',
-        tax_return: 'Btw-aangifte',
-        pick_list: 'Pickbon',
-        transfer: 'Voorraadverplaatsing',
-        purchase_order: 'Inkooporder',
-        write_off: 'Afschrijving op debiteur',
-        write_off_recovery: 'Terugname afschrijving',
-        bad_debt: 'Oninbare vordering',
-        other: 'Overig',
-      },
       invoiceFallback: 'Factuur',
       billFallback: 'Inkoopfactuur',
       contactFallback: 'Contact',
@@ -3513,7 +3489,7 @@ export const accounting = {
       },
       // Waar een journaalpost vandaan komt (journal_entries.source_type)
       journalEntrySource: {
-        manual: 'Handmatig',
+        manual: 'Handmatige boeking',
         invoice: 'Factuur',
         credit_note: 'Creditnota',
         bill: 'Inkoopfactuur',
@@ -3534,6 +3510,8 @@ export const accounting = {
         transfer: 'Overboeking',
         purchase_order: 'Inkooporder',
         pick_list: 'Pickbon',
+        bill_credit_note: 'Inkoopcreditnota',
+        bad_debt: 'Oninbare vordering',
       },
       // BTW-aangiftestatussen die nog niet gedekt worden door vat.statuses
       vatReturn: {

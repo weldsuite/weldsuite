@@ -184,8 +184,8 @@ describe('JournalEntryPanel', () => {
     expect(screen.getByText('2026-02-03')).toBeInTheDocument();
     expect(screen.getByText('Opening balance')).toBeInTheDocument();
     // A source without a panel (or an unknown one) is translated text, not a raw value.
-    expect(screen.getByText('Other')).toBeInTheDocument();
-    expect(screen.queryByRole('link', { name: 'Other' })).not.toBeInTheDocument();
+    expect(screen.getByText('bank import')).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'bank import' })).not.toBeInTheDocument();
     expect(screen.getByText('Auto-generated')).toBeInTheDocument();
   });
 

@@ -12,8 +12,8 @@ describe('journalSourceLabel', () => {
   });
 
   it('calls an entry without a source manual', () => {
-    expect(journalSourceLabel(null, labels)).toBe('Manual');
-    expect(journalSourceLabel('', labels)).toBe('Manual');
+    expect(journalSourceLabel(null, labels)).toBe('Manual entry');
+    expect(journalSourceLabel('', labels)).toBe('Manual entry');
   });
 
   it('shows a source the dictionary does not know yet as plain words, never as the code', () => {
