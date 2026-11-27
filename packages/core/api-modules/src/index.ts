@@ -159,6 +159,13 @@ export const GLOBAL_UNAVAILABLE_FEATURES: readonly string[] = [
   // WeldBooks: processing bank lines (split categories, transfers, private,
   // one undo, rule suggestions, differences, unapplied credit).
   'books-bank-processing',
+  // WeldBooks: the inbox per legal entity, OCR on arrival, booking a document
+  // (bill, receipt, credit note) in one call, bank line candidates, duplicate
+  // checks and a supplier's booking defaults.
+  'books-receipts',
+  // WeldBooks: paying approved bills with a SEPA credit-transfer file
+  // (`/api/payment-batches`).
+  'books-sepa-batches',
 ];
 
 const mod = (
@@ -397,6 +404,9 @@ export const API_MODULES: readonly ApiModule[] = [
     '/api/fixed-assets',
     '/api/form-1099',
     '/api/payment-runs',
+    // SEPA credit-transfer batches for supplier bills, served by the Rust backend only
+    // (rust/modules/books-purchases).
+    '/api/payment-batches',
     '/api/payroll',
     '/api/sales-tax',
     '/api/sales-tax-agencies',

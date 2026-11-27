@@ -11,10 +11,17 @@
 mod accounting_contacts;
 mod accounting_documents;
 mod bills;
+mod booking_defaults;
+#[cfg(test)]
+mod booking_tests;
+mod document_booking;
 mod ocr;
+mod ocr_arrival;
 mod payment_runs;
 mod public_w9;
 mod rows;
+#[cfg(test)]
+mod test_support;
 mod w9_requests;
 
 use std::sync::Arc;
@@ -24,6 +31,7 @@ use weldsuite_books_domain::http::BooksState;
 use weldsuite_legal_entities::{LegalEntityApp, LegalEntityContextOptions, legal_entity_context};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 
+pub use ocr_arrival::{BOOKS_OCR_TOPICS, OcrOnArrivalSubscriber};
 pub use public_w9::public_router;
 
 /// The routers, by `/api` prefix (`app.route(prefix, routes)` in
@@ -56,6 +64,11 @@ where
         ),
         ("/bills", bills::router(state.clone(), gate)),
         ("/payment-runs", payment_runs::router(state.clone(), gate)),
+        // Rust only (edition feature `books-sepa-batches`).
+        (
+            "/payment-batches",
+            payment_runs::batches_router(state.clone(), gate),
+        ),
         ("/w9-requests", w9_requests::router(state.clone(), gate)),
     ]
     .into_iter()

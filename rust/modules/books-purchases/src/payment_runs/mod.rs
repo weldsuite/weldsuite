@@ -18,6 +18,7 @@ mod holds;
 mod nacha;
 mod positive_pay;
 mod runs;
+mod sepa;
 mod settings;
 
 use std::sync::Arc;
@@ -622,6 +623,38 @@ where
             EntityRecordGuard::table(EntityTable::new("bank_accounts"), "Bank account")
                 .prefix("/settings")
                 .layer(),
+        )
+        .with_state(state)
+}
+
+/// `/api/payment-batches` (Rust only, edition feature `books-sepa-batches`):
+/// SEPA credit-transfer batches for supplier bills ([`sepa`]). Reading needs
+/// `bills:read`, making and cancelling one `banking:create`, and the file
+/// `banking:manage`, as the payment runs' files do.
+pub(crate) fn batches_router<S, Q>(state: BooksState, gate: &Arc<PermissionGate<Q>>) -> Router<S>
+where
+    S: Clone + Send + Sync + 'static,
+    Q: PermissionQueries + 'static,
+{
+    let need = |key: &str| gate.require([key.to_owned()]);
+    Router::new()
+        .route("/", get(sepa::list).route_layer(need("bills:read")))
+        .route("/", post(sepa::create).route_layer(need("banking:create")))
+        .route(
+            "/pending-bills",
+            get(sepa::pending_bills).route_layer(need("bills:read")),
+        )
+        .route("/{id}", get(sepa::detail).route_layer(need("bills:read")))
+        .route(
+            "/{id}/file",
+            get(sepa::file).route_layer(need("banking:manage")),
+        )
+        .route(
+            "/{id}/cancel",
+            post(sepa::cancel).route_layer(need("banking:create")),
+        )
+        .route_layer(
+            EntityRecordGuard::table(EntityTable::new("payment_runs"), "Payment batch").layer(),
         )
         .with_state(state)
 }

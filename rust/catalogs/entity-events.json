@@ -19,7 +19,8 @@
   "accounting_document": [
     "created",
     "updated",
-    "deleted"
+    "deleted",
+    "booked"
   ],
   "accounting_entity": [
     "created",
@@ -1097,6 +1098,10 @@
     "created",
     "updated",
     "deleted"
+  ],
+  "payment_batch": [
+    "created",
+    "cancelled"
   ],
   "payment_run": [
     "created",

@@ -280,6 +280,7 @@
       "/api/fixed-assets",
       "/api/form-1099",
       "/api/payment-runs",
+      "/api/payment-batches",
       "/api/payroll",
       "/api/sales-tax",
       "/api/sales-tax-agencies",

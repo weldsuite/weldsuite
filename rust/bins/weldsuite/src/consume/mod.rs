@@ -93,11 +93,11 @@ use weldsuite_subscribers::{
     filter_subject, run_webhook_retry_sweep, subscriber,
 };
 
-pub(crate) use config::{ConsumeConfig, MailInboundConfig};
 use config::{
-    MAIL_INBOUND, MAIL_SENDING_EVENTS, MONEYBIRD_SYNC, MailSendingEventsConfig, PANEL_STATE,
-    PANEL_WRITER, REACH_SEND, REACH_WARMUP_ENGAGE, REACH_WARMUP_SEND,
+    BOOKS_OCR, MAIL_INBOUND, MAIL_SENDING_EVENTS, MONEYBIRD_SYNC, MailSendingEventsConfig,
+    PANEL_STATE, PANEL_WRITER, REACH_SEND, REACH_WARMUP_ENGAGE, REACH_WARMUP_SEND,
 };
+pub(crate) use config::{ConsumeConfig, MailInboundConfig};
 
 type Error = Box<dyn std::error::Error>;
 
@@ -235,6 +235,91 @@ fn moneybird_sync_handler(
         weldsuite_core_integrations::MONEYBIRD_SYNC_TOPICS,
         Arc::new(subscriber),
     ))
+}
+
+/// How the `books-ocr` consumer reads the hub (WeldBooks, Rust only): new
+/// `accounting_document:created` events only (a first start scans no old
+/// document), two workers (a read takes a model call), and a long
+/// acknowledgement window.
+pub(crate) fn books_ocr_spec(config: &ConsumeConfig) -> ConsumerSpec {
+    ConsumerSpec {
+        stream: config.stream.clone(),
+        durable: BOOKS_OCR.to_owned(),
+        description: "WeldBooks OCR on arrival (Rust only)".to_owned(),
+        filter_subject: filter_subject(
+            weldsuite_books_purchases::BOOKS_OCR_TOPICS,
+            &config.subject_prefix,
+        ),
+        deliver_new_only: true,
+        max_retries: 3,
+        max_deferrals: 0,
+        retry_backoff: RETRY_BACKOFF.to_vec(),
+        ack_wait: Duration::from_secs(600),
+        batch_size: 2,
+        batch_wait: Duration::from_secs(2),
+        workers: 2,
+        dead_letter_subject: format!("{}-dlq.{BOOKS_OCR}", config.subject_prefix),
+        dedupe_capacity: DEDUPE_CAPACITY,
+    }
+}
+
+/// The `books-ocr` consumer, narrowed to its topic. `None` (and why, in the
+/// log) without AI or without the file buckets: it could read nothing.
+fn books_ocr_handler(
+    config: &ConsumeConfig,
+    tenants: &Arc<dyn Tenants>,
+    master: &PgPool,
+    services: &Services,
+) -> Option<Arc<dyn BatchHandler>> {
+    let Some(ai) = services.ai.clone() else {
+        tracing::info!("books-ocr: AI is off; documents are not read on arrival");
+        return None;
+    };
+    let Some(files) = &config.files else {
+        tracing::info!(
+            "books-ocr: S3_ENDPOINT and the file buckets are not set; documents are not read on arrival"
+        );
+        return None;
+    };
+    let stores = reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(120))
+        .build()
+        .ok()
+        .and_then(|client| {
+            let private =
+                weldsuite_adapters_oss::S3FileStore::new(&files.private, client.clone()).ok()?;
+            let public = files.public().and_then(|options| {
+                weldsuite_adapters_oss::S3FileStore::new(&options, client).ok()
+            });
+            Some(weldsuite_ports::FileStores {
+                private: Arc::new(private) as Arc<dyn DynFileStore>,
+                public: public.map(|store| Arc::new(store) as Arc<dyn DynFileStore>),
+            })
+        });
+    let Some(stores) = stores else {
+        tracing::warn!(
+            "books-ocr: the file store could not be built; documents are not read on arrival"
+        );
+        return None;
+    };
+    let bus: Arc<dyn weldsuite_ports::DynEventBus> = Arc::new(services.bus.clone());
+    let events = weldsuite_events::EntityEventPublisher::new(
+        Some(bus),
+        weldsuite_events::TaskTracker::new(),
+    )
+    .with_subject_prefix(&config.subject_prefix);
+    let mut books = weldsuite_books_domain::http::BooksState::new(events);
+    books.files = Some(stores);
+    books.master = Some(master.clone());
+    books.ai = Some(ai);
+    books.keyring = config.keyring.clone();
+    let subscriber =
+        weldsuite_books_purchases::OcrOnArrivalSubscriber::new(Arc::clone(tenants), books);
+    Some(Arc::new(Routed::new(
+        weldsuite_books_purchases::BOOKS_OCR_TOPICS,
+        Arc::new(subscriber),
+    )))
 }
 
 /// How the `mail-inbound` subscriber consumes its stream: one message at a
@@ -1010,6 +1095,13 @@ async fn consume(config: ConsumeConfig) -> Result<(), Error> {
                 moneybird_sync_handler(&config, &tenants, &master, &services),
             )
         });
+    let books_ocr = config
+        .subscribers
+        .iter()
+        .any(|s| s == BOOKS_OCR)
+        .then(|| books_ocr_handler(&config, &tenants, &master, &services))
+        .flatten()
+        .map(|handler| (books_ocr_spec(&config), handler));
     let mail_sending_events = if config.subscribers.iter().any(|s| s == MAIL_SENDING_EVENTS) {
         Some((
             mail_sending_events_spec(&config.mail_sending_events),
@@ -1133,6 +1225,24 @@ async fn consume(config: ConsumeConfig) -> Result<(), Error> {
             "consume: consuming"
         );
         names.push(MONEYBIRD_SYNC.to_owned());
+        tasks.push(tokio::spawn(run_consumer(
+            bus.context().clone(),
+            consumer,
+            Arc::new(spec),
+            handler,
+            stopping.clone(),
+        )));
+    }
+    if let Some((spec, handler)) = books_ocr {
+        let consumer = ensure_consumer(bus.context(), &spec).await?;
+        tracing::info!(
+            consumer = spec.durable,
+            filter = spec.filter_subject,
+            max_deliver = spec.max_deliver(),
+            workers = spec.workers,
+            "consume: consuming"
+        );
+        names.push(BOOKS_OCR.to_owned());
         tasks.push(tokio::spawn(run_consumer(
             bus.context().clone(),
             consumer,

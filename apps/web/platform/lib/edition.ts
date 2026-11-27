@@ -314,6 +314,22 @@ export const EDITION_FEATURES = [
    * and Global keeps today's reconcile screen.
    */
   'books-bank-processing',
+  /**
+   * WeldBooks "inbox and receipts": an inbox address per legal entity, OCR
+   * when a document arrives, booking a document as a bill, receipt or credit
+   * note (paid with a bank line, cash or privately) in one call, the bank
+   * lines that could have paid it, duplicate checks, a supplier's usual
+   * category and VAT rate, and the missing-receipts list. Built only in Rust,
+   * so it is in `GLOBAL_UNAVAILABLE_FEATURES`.
+   */
+  'books-receipts',
+  /**
+   * WeldBooks "pay bills": a SEPA credit-transfer file (pain.001) for
+   * approved supplier bills, which show "payment pending" until their bank
+   * lines arrive. Built only in Rust, so it is in
+   * `GLOBAL_UNAVAILABLE_FEATURES`.
+   */
+  'books-sepa-batches',
 ] as const;
 
 export type EditionFeature = (typeof EDITION_FEATURES)[number];

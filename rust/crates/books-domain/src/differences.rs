@@ -116,6 +116,33 @@ pub async fn load(db: &PgPool, entity_id: &str) -> Result<Differences, DbErr> {
     Ok(Differences::of(settings.flatten().as_ref()))
 }
 
+/// The `differences` object stored in the entity's `jurisdiction_settings`,
+/// as it is (`None` when there is none).
+pub async fn stored(db: &PgPool, entity_id: &str) -> Result<Option<Value>, DbErr> {
+    let settings: Option<Option<Value>> = entities::Entity::find_by_id(entity_id.to_owned())
+        .filter(entities::Column::DeletedAt.is_null())
+        .one(&orm(db))
+        .await?
+        .map(|row| row.jurisdiction_settings);
+    Ok(settings
+        .flatten()
+        .and_then(|all| all.get(KEY).filter(|v| v.is_object()).cloned()))
+}
+
+/// `settings` (an entity update's new `jurisdictionSettings`) with the
+/// stored `differences` carried over, unless the update names its own: the
+/// per-jurisdiction normalisers (BR, IN) and a body that replaces the whole
+/// object would otherwise drop the key phase 2 keeps there.
+pub fn keep_stored(settings: Value, stored: Option<&Value>) -> Value {
+    let (Value::Object(mut all), Some(stored)) = (settings.clone(), stored) else {
+        return settings;
+    };
+    if !all.contains_key(KEY) {
+        all.insert(KEY.to_owned(), stored.clone());
+    }
+    Value::Object(all)
+}
+
 /// The entity's differences and its rounding account to use, in one read.
 pub async fn load_with_rounding(
     db: &PgPool,
@@ -209,6 +236,24 @@ mod tests {
             ..Differences::default()
         };
         assert!(!none.within_cap(0.01));
+    }
+
+    #[test]
+    fn an_update_keeps_the_stored_differences() {
+        let stored = json!({ "roundingCap": "2.00" });
+        // The new settings do not mention them: they stay.
+        let kept = keep_stored(json!({ "stateCode": "KA" }), Some(&stored));
+        assert_eq!(kept["stateCode"], json!("KA"));
+        assert_eq!(kept["differences"], stored);
+        // An update that names its own wins.
+        let own = keep_stored(
+            json!({ "differences": { "roundingCap": "5.00" } }),
+            Some(&stored),
+        );
+        assert_eq!(own["differences"]["roundingCap"], json!("5.00"));
+        // Nothing stored, or settings that are not an object: unchanged.
+        assert_eq!(keep_stored(json!({ "a": 1 }), None), json!({ "a": 1 }));
+        assert_eq!(keep_stored(Value::Null, Some(&stored)), Value::Null);
     }
 
     #[test]

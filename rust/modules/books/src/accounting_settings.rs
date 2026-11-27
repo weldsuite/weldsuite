@@ -648,6 +648,215 @@ async fn inbox(
     reply(result, "Failed to register accounting inbox")
 }
 
+// ── GET|POST /api/accounting-entities/:id/inbox ─────────────────────────────
+
+/// Rust only (edition feature `books-receipts`): one inbox address per legal
+/// entity. The address is registered like the workspace's (the registry maps
+/// it to the workspace, and the inbound fan-out opens its tenant database),
+/// and the entity it books into is kept in the workspace settings,
+/// `emailSettings.entityInboxes` (`{ <entityId>: <address> }`), which the
+/// fan-out reads: nothing in the master schema changes, and the account id
+/// (`acct_inbox_<workspace>`, 30 characters at most) cannot hold an entity id
+/// as well. The workspace's own address (`POST /inbox`) keeps working and
+/// books into the default entity.
+pub(crate) const ENTITY_INBOXES: &str = "entityInboxes";
+
+/// The address an entity's documents arrive on: its own, else (for the
+/// default entity) the workspace's.
+async fn entity_inbox_view(caller: &Caller, entity_id: &str) -> Result<Value, DbErr> {
+    let current = find(caller).await?;
+    let email_settings = current
+        .as_ref()
+        .and_then(|row| row.get("emailSettings"))
+        .filter(|v| v.is_object())
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+    let own = email_settings
+        .get(ENTITY_INBOXES)
+        .and_then(|all| all.get(entity_id))
+        .and_then(Value::as_str)
+        .map(str::to_owned);
+    let default = weldsuite_legal_entities::default_entity_id_for(
+        &caller.db,
+        Some(weldsuite_legal_entities::LegalEntityApp::Weldbooks),
+    )
+    .await?;
+    let is_default = default.as_deref() == Some(entity_id);
+    let workspace = email_settings
+        .get("inboxAddress")
+        .and_then(Value::as_str)
+        .map(str::to_owned);
+    let (email, shared) = match (own, is_default.then_some(workspace).flatten()) {
+        (Some(own), _) => (Some(own), false),
+        (None, Some(workspace)) => (Some(workspace), true),
+        (None, None) => (None, false),
+    };
+    Ok(json!({
+        "entityId": entity_id,
+        "email": email,
+        // The address is the workspace's, which books into the default entity.
+        "workspaceAddress": shared,
+        "autoScanEnabled": email_settings.get("autoScanEnabled").and_then(Value::as_bool).unwrap_or(false),
+    }))
+}
+
+pub(crate) async fn entity_inbox(caller: Caller, Path(entity_id): Path<String>) -> Response {
+    let result = async {
+        if crate::accounting_entities::find_active(&caller, &entity_id)
+            .await?
+            .is_none()
+        {
+            return Err(Refusal::not_found("Entity", &entity_id));
+        }
+        Ok(ok(entity_inbox_view(&caller, &entity_id).await?))
+    }
+    .await;
+    reply(result, "Failed to fetch the accounting inbox")
+}
+
+#[allow(clippy::too_many_lines)] // register, keep, retire the old address, audit
+pub(crate) async fn register_entity_inbox(
+    caller: Caller,
+    State(state): State<BooksState>,
+    Path(entity_id): Path<String>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    let email = match validate(&headers, &body, |issues, fields| {
+        issues
+            .text_with(
+                fields,
+                "email",
+                Presence::Required,
+                Text {
+                    format: Some(Format::Email),
+                    ..Text::default()
+                },
+            )
+            .into_option()
+    }) {
+        Ok(email) => email.unwrap_or_default().to_lowercase(),
+        Err(refusal) => return refusal.respond("Failed to register the accounting inbox"),
+    };
+    let result = async {
+        if crate::accounting_entities::find_active(&caller, &entity_id)
+            .await?
+            .is_none()
+        {
+            return Err(Refusal::not_found("Entity", &entity_id));
+        }
+        let Some(master) = caller.master(&state) else {
+            return Err(Refusal::Internal("no master database".to_owned()));
+        };
+        let workspace_id = caller.workspace_id.clone();
+        // The settings row (made when there is none): where the entity is kept.
+        let current = if let Some(row) = find(&caller).await? {
+            row
+        } else {
+            let at = now();
+            let settings = json!({ "id": generate_id("acs"), "createdAt": at, "updatedAt": at });
+            T.insert_raw(
+                &caller.db,
+                T.values(settings.as_object().unwrap_or(&Map::new())),
+            )
+            .await?;
+            settings.as_object().cloned().unwrap_or_default()
+        };
+        let id = current["id"].as_str().unwrap_or_default().to_owned();
+        let old = current
+            .get("emailSettings")
+            .filter(|v| v.is_object())
+            .cloned()
+            .unwrap_or_else(|| json!({}));
+        let mut next = old.as_object().cloned().unwrap_or_default();
+        let mut inboxes = next
+            .get(ENTITY_INBOXES)
+            .and_then(Value::as_object)
+            .cloned()
+            .unwrap_or_default();
+        // An address books into one entity.
+        if let Some((other, _)) = inboxes.iter().find(|(other, address)| {
+            other.as_str() != entity_id && address.as_str() == Some(&email)
+        }) {
+            return Err(Refusal::conflict(format!(
+                "That address is already the inbox of another legal entity ({other})."
+            )));
+        }
+        let previous = inboxes
+            .insert(entity_id.clone(), json!(email))
+            .and_then(|v| v.as_str().map(str::to_owned));
+        next.insert(ENTITY_INBOXES.to_owned(), Value::Object(inboxes));
+        next.insert("autoScanEnabled".to_owned(), json!(true));
+        let account_id = format!("acct_inbox_{workspace_id}");
+        let at = weldsuite_db::utc_now();
+        mail_account_registry::Entity::insert(mail_account_registry::ActiveModel {
+            id: Set(generate_id("mar")),
+            email: Set(email.clone()),
+            workspace_id: Set(Some(workspace_id.clone())),
+            account_id: Set(account_id.clone()),
+            is_active: Set(true),
+            created_at: Set(at),
+            updated_at: Set(at),
+            ..Default::default()
+        })
+        .on_conflict(
+            OnConflict::column(mail_account_registry::Column::Email)
+                .update_columns([
+                    mail_account_registry::Column::WorkspaceId,
+                    mail_account_registry::Column::AccountId,
+                    mail_account_registry::Column::IsActive,
+                    mail_account_registry::Column::UpdatedAt,
+                ])
+                .to_owned(),
+        )
+        .exec_without_returning(&orm(&master))
+        .await?;
+        // The address this entity had stops receiving.
+        if let Some(previous) = previous.filter(|p| *p != email) {
+            mail_account_registry::Entity::update_many()
+                .col_expr(mail_account_registry::Column::IsActive, Expr::value(false))
+                .col_expr(mail_account_registry::Column::UpdatedAt, Expr::value(at))
+                .filter(mail_account_registry::Column::Email.eq(previous))
+                .filter(mail_account_registry::Column::WorkspaceId.eq(workspace_id.as_str()))
+                .filter(mail_account_registry::Column::AccountId.eq(account_id.as_str()))
+                .exec(&orm(&master))
+                .await?;
+        }
+        settings::Entity::update_many()
+            .col_expr(
+                settings::Column::EmailSettings,
+                Expr::value(Value::Object(next.clone())),
+            )
+            .col_expr(settings::Column::UpdatedAt, Expr::value(at))
+            .filter(settings::Column::Id.eq(id.as_str()))
+            .exec(&orm(&caller.db))
+            .await?;
+        let mut changes = Map::new();
+        changes.insert("emailSettings".to_owned(), change(old, Value::Object(next)));
+        write_accounting_audit(
+            &caller,
+            &caller.db,
+            AuditInput {
+                accounting_entity_id: Some(&entity_id),
+                entity_type: "accounting_settings",
+                entity_id: &id,
+                action: "updated",
+                changes: Some(changes),
+            },
+        )
+        .await;
+        caller.publish(
+            &state,
+            ACCOUNTING_SETTINGS_UPDATED,
+            &id,
+            json!({ "id": id, "entityId": entity_id, "inboxAddress": email }),
+        );
+        Ok(ok(entity_inbox_view(&caller, &entity_id).await?))
+    }
+    .await;
+    reply(result, "Failed to register the accounting inbox")
+}
+
 // ── POST /seed-workflows ────────────────────────────────────────────────────
 
 /// The finance workflow templates (ported verbatim from the worker, Dutch
@@ -695,4 +904,234 @@ async fn seed_workflows(caller: Caller) -> Response {
     }
     .await;
     reply(result, "Failed to seed accounting workflow templates")
+}
+
+/// The per-entity inbox on the real schema (`WELDSUITE_TEST_TENANT_URL` and
+/// `WELDSUITE_TEST_MASTER_URL`; the test returns early without them).
+#[cfg(test)]
+#[allow(
+    clippy::disallowed_methods,
+    clippy::unwrap_used,
+    clippy::too_many_lines,
+    reason = "test fixtures are written in SQL; one scenario read top to bottom"
+)]
+mod tests {
+    use std::sync::Arc;
+
+    use axum::http::HeaderValue;
+    use weldsuite_events::{EntityEventPublisher, TaskTracker};
+    use weldsuite_ports::{DynEventBus, RecordingEventBus};
+
+    use super::*;
+
+    async fn answer(response: Response) -> (u16, Value) {
+        let status = response.status().as_u16();
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        (
+            status,
+            serde_json::from_slice(&bytes).unwrap_or(Value::Null),
+        )
+    }
+
+    fn json_headers() -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            http::header::CONTENT_TYPE,
+            HeaderValue::from_static("application/json"),
+        );
+        headers
+    }
+
+    async fn entity(db: &sqlx::PgPool, default: bool) -> String {
+        let id = generate_id("ent");
+        sqlx::query(
+            "insert into entities (id, name, jurisdiction_code, base_currency, is_active, is_default) \
+             values ($1, 'Inbox test', 'NL', 'EUR', true, $2)",
+        )
+        .bind(&id)
+        .bind(default)
+        .execute(db)
+        .await
+        .unwrap();
+        sqlx::query("insert into accounting_entity_settings (entity_id) values ($1)")
+            .bind(&id)
+            .execute(db)
+            .await
+            .unwrap();
+        id
+    }
+
+    #[tokio::test]
+    async fn an_entity_registers_its_own_inbox_address() {
+        let (Ok(tenant_url), Ok(master_url)) = (
+            std::env::var("WELDSUITE_TEST_TENANT_URL"),
+            std::env::var("WELDSUITE_TEST_MASTER_URL"),
+        ) else {
+            eprintln!(
+                "WELDSUITE_TEST_TENANT_URL / WELDSUITE_TEST_MASTER_URL are not set; skipping"
+            );
+            return;
+        };
+        let db = weldsuite_db::master_pool(&tenant_url, 2).unwrap();
+        let master = weldsuite_db::master_pool(&master_url, 2).unwrap();
+        sqlx::query("delete from mail_account_registry where workspace_id = 'ws_p3_inbox'")
+            .execute(&master)
+            .await
+            .unwrap();
+        sqlx::query("delete from workspaces where id = 'ws_p3_inbox'")
+            .execute(&master)
+            .await
+            .unwrap();
+        sqlx::query("insert into workspaces (id, name, slug, clerk_org_id) values ('ws_p3_inbox', 'Inbox', 'p3-inbox', 'org_p3_inbox')")
+            .execute(&master)
+            .await
+            .unwrap();
+        sqlx::query("delete from settings")
+            .execute(&db)
+            .await
+            .unwrap();
+        sqlx::query("update entities set is_default = false where is_default")
+            .execute(&db)
+            .await
+            .unwrap();
+        let (a, b) = (entity(&db, true).await, entity(&db, false).await);
+        let bus = Arc::new(RecordingEventBus::new());
+        let mut state = BooksState::new(EntityEventPublisher::new(
+            Some(Arc::clone(&bus) as Arc<dyn DynEventBus>),
+            TaskTracker::new(),
+        ));
+        state.master = Some(master.clone());
+        let caller = |entity: &str| {
+            Caller::in_process(
+                db.clone(),
+                "ws_p3_inbox",
+                "org_p3_inbox",
+                "user_p3",
+                entity,
+                None,
+            )
+        };
+        let register = |entity: &str, email: &str| {
+            let (caller, state) = (caller(entity), state.clone());
+            let (entity, body) = (
+                entity.to_owned(),
+                axum::body::Bytes::from(json!({ "email": email }).to_string()),
+            );
+            async move {
+                answer(
+                    register_entity_inbox(caller, State(state), Path(entity), json_headers(), body)
+                        .await,
+                )
+                .await
+            }
+        };
+
+        // Nothing registered yet.
+        let (status, out) = answer(entity_inbox(caller(&a), Path(a.clone())).await).await;
+        assert_eq!(status, 200, "{out}");
+        assert!(out["data"]["email"].is_null());
+
+        let (status, out) = register(&a, "Books-A@Inbox-P3.test").await;
+        assert_eq!(status, 200, "{out}");
+        assert_eq!(out["data"]["email"], json!("books-a@inbox-p3.test"));
+        assert_eq!(out["data"]["workspaceAddress"], json!(false));
+        assert_eq!(out["data"]["autoScanEnabled"], json!(true));
+        let (_, out) = answer(entity_inbox(caller(&a), Path(a.clone())).await).await;
+        assert_eq!(out["data"]["email"], json!("books-a@inbox-p3.test"));
+        // Kept on the settings, and registered to the workspace in the master.
+        let kept: Value = sqlx::query_scalar("select email_settings from settings")
+            .fetch_one(&db)
+            .await
+            .unwrap();
+        assert_eq!(kept[ENTITY_INBOXES][&a], json!("books-a@inbox-p3.test"));
+        let registry: (String, bool) = sqlx::query_as(
+            "select account_id, is_active from mail_account_registry where email = 'books-a@inbox-p3.test'",
+        )
+        .fetch_one(&master)
+        .await
+        .unwrap();
+        assert_eq!(registry, ("acct_inbox_ws_p3_inbox".to_owned(), true));
+        for _ in 0..200 {
+            tokio::task::yield_now().await;
+        }
+        assert!(bus.payloads().iter().any(|p| {
+            p["entityType"] == json!("accounting_settings") && p["data"]["entityId"] == json!(a)
+        }));
+
+        // Another entity gets its own address; the same one is refused.
+        let (status, out) = register(&b, "books-b@inbox-p3.test").await;
+        assert_eq!(status, 200, "{out}");
+        let (status, out) = register(&b, "books-a@inbox-p3.test").await;
+        assert_eq!(status, 409, "{out}");
+        // A new address replaces the entity's old one, which stops receiving.
+        let (status, _) = register(&a, "books-a2@inbox-p3.test").await;
+        assert_eq!(status, 200);
+        let old: bool = sqlx::query_scalar(
+            "select is_active from mail_account_registry where email = 'books-a@inbox-p3.test'",
+        )
+        .fetch_one(&master)
+        .await
+        .unwrap();
+        assert!(!old);
+        let kept: Value = sqlx::query_scalar("select email_settings from settings")
+            .fetch_one(&db)
+            .await
+            .unwrap();
+        assert_eq!(kept[ENTITY_INBOXES][&a], json!("books-a2@inbox-p3.test"));
+        assert_eq!(kept[ENTITY_INBOXES][&b], json!("books-b@inbox-p3.test"));
+
+        // The workspace's own address is the default entity's, until it has its own.
+        sqlx::query("update settings set email_settings = jsonb_set(email_settings, '{inboxAddress}', '\"books@inbox-p3.test\"')")
+            .execute(&db)
+            .await
+            .unwrap();
+        let (_, out) = answer(entity_inbox(caller(&b), Path(b.clone())).await).await;
+        assert_eq!(
+            out["data"]["email"],
+            json!("books-b@inbox-p3.test"),
+            "its own wins"
+        );
+        let c = entity(&db, false).await;
+        let (_, out) = answer(entity_inbox(caller(&c), Path(c.clone())).await).await;
+        assert!(
+            out["data"]["email"].is_null(),
+            "a non-default entity without its own has none"
+        );
+        sqlx::query("update entities set is_default = false where id = $1")
+            .bind(&a)
+            .execute(&db)
+            .await
+            .unwrap();
+        sqlx::query("update entities set is_default = true where id = $1")
+            .bind(&a)
+            .execute(&db)
+            .await
+            .unwrap();
+        let (_, out) = answer(entity_inbox(caller(&a), Path(a.clone())).await).await;
+        assert_eq!(out["data"]["email"], json!("books-a2@inbox-p3.test"));
+        sqlx::query("update settings set email_settings = email_settings - 'entityInboxes'")
+            .execute(&db)
+            .await
+            .unwrap();
+        let (_, out) = answer(entity_inbox(caller(&a), Path(a.clone())).await).await;
+        assert_eq!(out["data"]["email"], json!("books@inbox-p3.test"));
+        assert_eq!(out["data"]["workspaceAddress"], json!(true));
+
+        // An entity that is not there, and an address that is not one.
+        let (status, _) = register("ent_missing", "x@inbox-p3.test").await;
+        assert_eq!(status, 404);
+        let (status, _) = register(&a, "not an address").await;
+        assert_eq!(status, 400);
+        sqlx::query("delete from settings")
+            .execute(&db)
+            .await
+            .unwrap();
+        sqlx::query("update entities set is_default = false where id = $1")
+            .bind(&a)
+            .execute(&db)
+            .await
+            .unwrap();
+    }
 }

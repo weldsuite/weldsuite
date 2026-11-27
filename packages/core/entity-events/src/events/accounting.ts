@@ -7,7 +7,9 @@
 export const ACCOUNTING_ENTITY_EVENTS = {
   account: ['created', 'updated', 'deleted', 'archived'],
   accounting_contact: ['created', 'updated', 'deleted', 'archived'],
-  accounting_document: ['created', 'updated', 'deleted'],
+  // `booked`: the document became a bill, receipt or credit note (Rust backend only,
+  // edition feature `books-receipts`).
+  accounting_document: ['created', 'updated', 'deleted', 'booked'],
   accounting_settings: ['updated'],
   bank_account: ['created', 'updated', 'deleted'],
   // `processed` carries `how` (category, transfer, private, ignore, rule, auto, link);
@@ -41,6 +43,9 @@ export const ACCOUNTING_ENTITY_EVENTS = {
   bank_deposit: ['created', 'updated', 'deleted'],
   bank_reconciliation: ['created', 'updated', 'deleted', 'completed', 'undone'],
   payment_run: ['created', 'updated', 'deleted', 'approved', 'exported'],
+  // A SEPA credit-transfer batch for supplier bills (Rust backend only, edition feature
+  // `books-sepa-batches`).
+  payment_batch: ['created', 'cancelled'],
   w9_request: ['created', 'updated', 'deleted', 'completed'],
   fixed_asset: ['created', 'updated', 'deleted', 'disposed'],
   accounting_dimension: ['created', 'updated', 'deleted'],

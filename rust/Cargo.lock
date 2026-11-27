@@ -7908,6 +7908,7 @@ dependencies = [
  "base64 0.22.1",
  "http",
  "jiff",
+ "quick-xml 0.42.0",
  "sea-orm",
  "serde_json",
  "sqlx",
@@ -7925,6 +7926,7 @@ dependencies = [
  "weldsuite-permissions",
  "weldsuite-ports",
  "weldsuite-schema",
+ "weldsuite-subscribers",
 ]
 
 [[package]]
@@ -9310,6 +9312,7 @@ dependencies = [
  "weldsuite-desk-domain",
  "weldsuite-events",
  "weldsuite-kit",
+ "weldsuite-legal-entities",
  "weldsuite-mail-dmarc",
  "weldsuite-mail-domain",
  "weldsuite-notifications",

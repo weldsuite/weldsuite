@@ -168,6 +168,7 @@
   "bank_deposit",
   "bank_reconciliation",
   "payment_run",
+  "payment_batch",
   "w9_request",
   "fixed_asset",
   "accounting_dimension",

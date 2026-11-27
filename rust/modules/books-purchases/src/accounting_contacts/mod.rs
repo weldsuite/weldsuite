@@ -98,6 +98,12 @@ where
         // Rust only (edition feature `books-bank-processing`): payments of
         // the contact with credit left to apply (`POST /api/payments/:id/apply`).
         .route("/{id}/credits", get(credits).route_layer(read()))
+        // Rust only (edition feature `books-receipts`): what the supplier's
+        // last posted bills book to.
+        .route(
+            "/{id}/booking-defaults",
+            get(booking_defaults_route).route_layer(read()),
+        )
         .route(
             "/{id}/archive",
             post(archive).route_layer(need(&["customers:update", "suppliers:update"])),
@@ -575,6 +581,23 @@ async fn credits(caller: Caller, Path(id): Path<String>) -> Response {
     }
     .await;
     reply(result, "Failed to fetch contact credits")
+}
+
+/// `GET /:id/booking-defaults`: the supplier's usual expense account, VAT
+/// rate and project with counts, from its last ten posted bills in the
+/// request's entity (`crate::booking_defaults`).
+async fn booking_defaults_route(caller: Caller, Path(id): Path<String>) -> Response {
+    let result: Reply = async {
+        let entity_id = resolve_entity_id(&caller).await?;
+        match crate::booking_defaults::booking_defaults(&caller.db, entity_id.as_deref(), &id)
+            .await?
+        {
+            Some(defaults) => Ok(ok(defaults)),
+            None => Err(Refusal::not_found("Contact", &id)),
+        }
+    }
+    .await;
+    reply(result, "Failed to fetch the booking defaults")
 }
 
 async fn import_from_crm() -> Response {

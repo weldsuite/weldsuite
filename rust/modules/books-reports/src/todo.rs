@@ -78,9 +78,13 @@ enum Kind {
     Duplicates,
     BankLines,
     UnappliedCredit,
+    /// Accountant-facing (Rust only, edition feature `books-receipts`):
+    /// bank lines booked to an expense with VAT and no receipt. Not part of
+    /// the owner's total or of the list with no `kind`.
+    MissingReceipts,
 }
 
-const KINDS: [Kind; 9] = [
+const KINDS: [Kind; 10] = [
     Kind::VatReturn,
     Kind::BankFeeds,
     Kind::InvoicesOverdue,
@@ -90,6 +94,7 @@ const KINDS: [Kind; 9] = [
     Kind::Duplicates,
     Kind::BankLines,
     Kind::UnappliedCredit,
+    Kind::MissingReceipts,
 ];
 
 impl Kind {
@@ -104,7 +109,15 @@ impl Kind {
             Self::Duplicates => "duplicates",
             Self::BankLines => "bank_lines",
             Self::UnappliedCredit => "unapplied_credit",
+            Self::MissingReceipts => "missing_receipts",
         }
+    }
+
+    /// Whether the kind is part of the owner's "to process" (the summary's
+    /// `total` and the list with no `kind`). Missing receipts are the
+    /// accountant's question, asked for by name.
+    fn is_owner_work(self) -> bool {
+        self != Self::MissingReceipts
     }
 
     fn parse(name: &str) -> Option<Self> {
@@ -115,7 +128,7 @@ impl Kind {
     /// that lists those records).
     fn permission(self) -> &'static str {
         match self {
-            Self::VatReturn => "reports:read",
+            Self::VatReturn | Self::MissingReceipts => "reports:read",
             Self::BankFeeds | Self::Duplicates | Self::BankLines | Self::UnappliedCredit => {
                 "banking:read"
             }
@@ -326,6 +339,38 @@ fn unapplied_credit_cond(ctx: &Ctx) -> Condition {
         ))
 }
 
+/// Bank lines booked to an expense with VAT claimed, by hand or by a rule,
+/// money out, with no document attached to the line and no bill behind the
+/// payment (a line settled through a bill's payment has its receipt there).
+/// Three `EXISTS` on indexed ids keep the count cheap; nothing is scored.
+fn missing_receipts_cond(ctx: &Ctx) -> Condition {
+    use bank_transactions::Column as C;
+    Condition::all()
+        .add(C::EntityId.eq(ctx.entity_id.as_str()))
+        .add(C::DeletedAt.is_null())
+        .add(C::Status.eq("reconciled"))
+        .add(C::ReconciliationType.is_in(["manual", "auto"]))
+        .add(C::JournalEntryId.is_not_null())
+        .add(C::ReconciledPaymentId.is_null())
+        .add(C::ReconciledBillId.is_null())
+        .add(C::ReconciledInvoiceId.is_null())
+        .add(C::DepositId.is_null())
+        .add(Expr::cust("bank_transactions.amount < 0"))
+        .add(Expr::cust(
+            "EXISTS (SELECT 1 FROM tax_lines t WHERE t.journal_entry_id = bank_transactions.journal_entry_id \
+             AND t.direction = 'purchase' AND t.tax_amount > 0)",
+        ))
+        .add(Expr::cust(
+            "EXISTS (SELECT 1 FROM journal_lines l JOIN accounts a ON a.id = l.account_id \
+             WHERE l.journal_entry_id = bank_transactions.journal_entry_id AND l.deleted_at IS NULL \
+             AND a.type = 'expense')",
+        ))
+        .add(Expr::cust(
+            "NOT EXISTS (SELECT 1 FROM documents d WHERE d.deleted_at IS NULL \
+             AND d.linked_entity_type = 'bank_transaction' AND d.linked_entity_id = bank_transactions.id)",
+        ))
+}
+
 // ── Counts and sums ─────────────────────────────────────────────────────────
 
 /// A kind's count and sum, for the summary.
@@ -484,6 +529,27 @@ async fn tally(kind: Kind, ctx: &Ctx) -> Result<Tally, DbErr> {
             )
             .await
         }
+        Kind::MissingReceipts => {
+            let account_currency = "COALESCE((SELECT b.currency FROM bank_accounts b \
+                 WHERE b.id = bank_transactions.bank_account_id), $1)";
+            let amount = Expr::cust_with_values(
+                format!(
+                    "CASE WHEN {account_currency} IN ($1, $2) THEN ABS(bank_transactions.amount) END"
+                ),
+                ["", ctx.base.as_str()],
+            );
+            let foreign = Expr::cust_with_values(
+                format!("CASE WHEN {account_currency} NOT IN ($1, $2) THEN 1 END"),
+                ["", ctx.base.as_str()],
+            );
+            aggregate(
+                orm,
+                bank_transactions::Entity::find().filter(missing_receipts_cond(ctx)),
+                Some(amount),
+                Some(foreign),
+            )
+            .await
+        }
     }
 }
 
@@ -514,7 +580,9 @@ async fn build_summary(caller: &Caller) -> Reply {
     let mut kinds = serde_json::Map::new();
     for kind in readable(caller) {
         let tally = tally(kind, &ctx).await?;
-        total += tally.count;
+        if kind.is_owner_work() {
+            total += tally.count;
+        }
         let mut entry = json!({
             "count": tally.count,
             "amount": amount_text(tally.amount.as_ref()),
@@ -907,6 +975,23 @@ async fn items(kind: Kind, ctx: &Ctx, offset: u64, limit: u64) -> Result<Vec<Ite
                 })
                 .collect())
         }
+        Kind::MissingReceipts => {
+            use bank_transactions::Column as C;
+            let rows = bank_transactions::Entity::find()
+                .filter(missing_receipts_cond(ctx))
+                .order_by_desc(C::Date)
+                .order_by_asc(C::Id)
+                .offset(offset)
+                .limit(limit)
+                .all(orm)
+                .await?;
+            let rows = js_rows!(rows)?;
+            let accounts = account_names(ctx).await?;
+            Ok(rows
+                .iter()
+                .map(|row| bank_line_item(row, &accounts, Some("missing_receipt"), "info"))
+                .collect())
+        }
         Kind::UnappliedCredit => {
             use payments::Column as C;
             let rows = payments::Entity::find()
@@ -996,7 +1081,10 @@ async fn list_items(caller: &Caller, q: &Query) -> Reply {
     let ctx = Ctx::load(caller).await?;
     let kinds: Vec<Kind> = match only {
         Some(kind) => vec![kind],
-        None => readable(caller),
+        None => readable(caller)
+            .into_iter()
+            .filter(|kind| kind.is_owner_work())
+            .collect(),
     };
     let mut total = 0_i64;
     for kind in &kinds {
@@ -1661,7 +1749,7 @@ mod db_tests {
         let invoices = summary_of(&caller(&db, &a, &["invoices:read"])).await;
         assert_eq!(kind_names(&invoices), ["documents", "invoices_overdue"]);
         let reports = summary_of(&caller(&db, &a, &["reports:read"])).await;
-        assert_eq!(kind_names(&reports), ["vat_return"]);
+        assert_eq!(kind_names(&reports), ["missing_receipts", "vat_return"]);
         let nothing = summary_of(&caller(&db, &a, &[])).await;
         assert_eq!(nothing["total"], 0);
         assert_eq!(kind_names(&nothing), Vec::<String>::new());
@@ -1827,6 +1915,226 @@ mod db_tests {
         // A bad cursor is refused.
         let (status, _) = list_of(&caller, "cursor=nope").await;
         assert_eq!(status, 400);
+    }
+
+    /// An entity with a bank account on a ledger account, an expense account
+    /// and a 21% input VAT rate: (entity, bank account, expense, rate).
+    async fn bookable(db: &PgPool) -> (String, String, String, String) {
+        let entity = entity(db, "NL").await;
+        let account = |code: &'static str,
+                       kind: &'static str,
+                       side: &'static str,
+                       role: Option<&'static str>| {
+            let (db, entity) = (db.clone(), entity.clone());
+            async move {
+                let id = generate_id("acc");
+                sqlx::query(
+                    "insert into accounts (id, entity_id, code, name, type, normal_side, metadata) \
+                     values ($1, $2, $3, $3, $4, $5, case when $6::text is null then null else jsonb_build_object('systemRole', $6::text) end)",
+                )
+                .bind(&id)
+                .bind(&entity)
+                .bind(code)
+                .bind(kind)
+                .bind(side)
+                .bind(role)
+                .execute(&db)
+                .await
+                .expect("account");
+                id
+            }
+        };
+        account("1600", "liability", "credit", None).await;
+        let ledger = account("1100", "asset", "debit", None).await;
+        let input = account("1730", "asset", "debit", Some("tax_input")).await;
+        let expense = account("4300", "expense", "debit", None).await;
+        let rate = generate_id("tax");
+        sqlx::query(
+            "insert into tax_rates (id, entity_id, jurisdiction_code, name, rate, type, ledger_account_id) \
+             values ($1, $2, 'NL', 'VAT 21%', 21, 'purchase', $3)",
+        )
+        .bind(&rate)
+        .bind(&entity)
+        .bind(&input)
+        .execute(db)
+        .await
+        .expect("rate");
+        let bank = generate_id("bac");
+        sqlx::query(
+            "insert into bank_accounts (id, entity_id, name, currency, ledger_account_id) \
+             values ($1, $2, 'Bank', 'EUR', $3)",
+        )
+        .bind(&bank)
+        .bind(&entity)
+        .bind(&ledger)
+        .execute(db)
+        .await
+        .expect("bank");
+        (entity, bank, expense, rate)
+    }
+
+    /// Book the line to `expense`, with `rate` when there is one.
+    async fn book(db: &PgPool, line: &str, expense: &str, rate: Option<&str>, amount: f64) {
+        use weldsuite_books_domain::bank_split::{Split, SplitLine, book_split};
+        let txn = weldsuite_books_domain::tables::BANK_TRANSACTIONS
+            .find_live(db, line)
+            .await
+            .expect("read")
+            .expect("line");
+        book_split(
+            db,
+            &txn,
+            Split {
+                lines: &[SplitLine {
+                    account_id: expense.to_owned(),
+                    tax_rate_id: rate.map(str::to_owned),
+                    contact_id: None,
+                    project_id: None,
+                    amount,
+                    description: None,
+                }],
+                kind: "manual",
+                user_id: Some("user_todo"),
+            },
+        )
+        .await
+        .expect("booked");
+    }
+
+    #[tokio::test]
+    async fn missing_receipts_are_lines_booked_to_an_expense_with_vat_and_no_document() {
+        let Some(db) = pool() else { return };
+        let (a, bank, expense, rate) = bookable(&db).await;
+        let (b, bank_b, expense_b, rate_b) = bookable(&db).await;
+        let missing = line(
+            &db,
+            &a,
+            &bank,
+            "-121.00",
+            "Hardware store",
+            "unreconciled",
+            None,
+        )
+        .await;
+        book(&db, &missing, &expense, Some(&rate), 121.0).await;
+        let covered = line(&db, &a, &bank, "-60.50", "Printer", "unreconciled", None).await;
+        book(&db, &covered, &expense, Some(&rate), 60.5).await;
+        // A receipt attached to the line (the phase 2 bridge) covers it.
+        sqlx::query(
+            "insert into documents (id, entity_id, type, file_name, file_key, source, status, \
+               linked_entity_type, linked_entity_id) \
+             values ($1, $2, 'receipt', 'bon.pdf', 'key', 'upload', 'linked', 'bank_transaction', $3)",
+        )
+        .bind(generate_id("doc"))
+        .bind(&a)
+        .bind(&covered)
+        .execute(&db)
+        .await
+        .expect("document");
+        // No VAT on it, still to book, money in: none of them is missing a receipt.
+        let no_vat = line(&db, &a, &bank, "-30.00", "Stamps", "unreconciled", None).await;
+        book(&db, &no_vat, &expense, None, 30.0).await;
+        line(
+            &db,
+            &a,
+            &bank,
+            "-40.00",
+            "Not booked yet",
+            "unreconciled",
+            None,
+        )
+        .await;
+        // The other entity has one of its own.
+        let theirs = line(
+            &db,
+            &b,
+            &bank_b,
+            "-12.10",
+            "Their shop",
+            "unreconciled",
+            None,
+        )
+        .await;
+        book(&db, &theirs, &expense_b, Some(&rate_b), 12.1).await;
+
+        let accountant = summary_of(&caller(&db, &a, &ALL)).await;
+        assert_eq!(count(&accountant, "missing_receipts"), 1);
+        assert_eq!(accountant["kinds"]["missing_receipts"]["amount"], "121.00");
+        assert_eq!(accountant["kinds"]["missing_receipts"]["currency"], "EUR");
+        assert_eq!(
+            count(
+                &summary_of(&caller(&db, &b, &ALL)).await,
+                "missing_receipts"
+            ),
+            1,
+            "each entity counts its own"
+        );
+
+        // The owner's total is what it was: this is the accountant's question.
+        let owner_total: i64 = [
+            "bank_lines",
+            "documents",
+            "bills_to_approve",
+            "bills_due",
+            "invoices_overdue",
+            "vat_return",
+            "bank_feeds",
+            "duplicates",
+            "unapplied_credit",
+        ]
+        .iter()
+        .map(|kind| count(&accountant, kind).max(0))
+        .sum();
+        assert_eq!(accountant["total"], owner_total);
+
+        // Asked for by name: the line, with why. Not in the list with no kind.
+        let (status, list) = list_of(&caller(&db, &a, &ALL), "kind=missing_receipts").await;
+        assert_eq!(status, 200, "{list}");
+        let items = list["data"].as_array().expect("items");
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0]["objectType"], "bank_transaction");
+        assert_eq!(items[0]["objectId"], json!(missing));
+        assert_eq!(items[0]["hint"], "missing_receipt");
+        assert_eq!(items[0]["kind"], "missing_receipts");
+        let (_, everything) = list_of(&caller(&db, &a, &ALL), "limit=100").await;
+        assert!(
+            everything["data"]
+                .as_array()
+                .expect("items")
+                .iter()
+                .all(|item| item["kind"] != "missing_receipts")
+        );
+        // It takes reports:read.
+        let banker = summary_of(&caller(
+            &db,
+            &a,
+            &["banking:read", "bills:read", "invoices:read"],
+        ))
+        .await;
+        assert!(banker["kinds"].get("missing_receipts").is_none());
+        let (status, _) =
+            list_of(&caller(&db, &a, &["banking:read"]), "kind=missing_receipts").await;
+        assert_eq!(status, 403);
+
+        // Once its receipt is attached, it is no longer missing.
+        sqlx::query(
+            "insert into documents (id, entity_id, type, file_name, file_key, source, status, \
+               linked_entity_type, linked_entity_id) \
+             values ($1, $2, 'receipt', 'bon2.pdf', 'key', 'upload', 'linked', 'bank_transaction', $3)",
+        )
+        .bind(generate_id("doc"))
+        .bind(&a)
+        .bind(&missing)
+        .execute(&db)
+        .await
+        .expect("document");
+        assert_eq!(
+            count(
+                &summary_of(&caller(&db, &a, &ALL)).await,
+                "missing_receipts"
+            ),
+            0
+        );
     }
 }
 

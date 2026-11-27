@@ -20,7 +20,9 @@ use weldsuite_notifications::{NewNotification, Notifier, create_and_deliver};
 use weldsuite_ports::{PutOptions, RealtimeMessage};
 use weldsuite_schema::master::{mail_account_registry as registry, workspaces};
 use weldsuite_schema::tenant::enums::MailAccountStatus;
-use weldsuite_schema::tenant::{documents, mail_accounts, workspace_members};
+use weldsuite_schema::tenant::{
+    documents, mail_accounts, settings as tenant_settings, workspace_members,
+};
 
 use crate::context::InboundContext;
 use crate::deliver::upsert_contacts;
@@ -887,9 +889,77 @@ pub fn accounting_attachment_type(content_type: &str, file_name: &str) -> Option
     None
 }
 
+/// The legal entity a message to one of `recipients` books into: the entity
+/// whose own inbox address it was sent to (`emailSettings.entityInboxes`,
+/// `POST /api/accounting-entities/:id/inbox`), else the default entity (the
+/// workspace's own address, which keeps working). `None` when there is no
+/// default either: such a document counts for the default entity once there
+/// is one.
+pub async fn inbox_entity(db: &PgPool, recipients: &[String]) -> Result<Option<String>, DbErr> {
+    let settings: Option<Option<Value>> = tenant_settings::Entity::find()
+        .select_only()
+        .column(tenant_settings::Column::EmailSettings)
+        .filter(tenant_settings::Column::DeletedAt.is_null())
+        .into_tuple()
+        .one(&orm(db))
+        .await?;
+    if let Some(Value::Object(inboxes)) = settings
+        .flatten()
+        .as_ref()
+        .and_then(|email| email.get("entityInboxes"))
+    {
+        let mut owners: Vec<(&String, &str)> = inboxes
+            .iter()
+            .filter_map(|(entity, address)| Some((entity, address.as_str()?)))
+            .collect();
+        owners.sort();
+        for (entity, address) in owners {
+            if recipients.iter().any(|r| r.eq_ignore_ascii_case(address)) {
+                return Ok(Some(entity.clone()));
+            }
+        }
+    }
+    weldsuite_legal_entities::default_entity_id_for(
+        db,
+        Some(weldsuite_legal_entities::LegalEntityApp::Weldbooks),
+    )
+    .await
+}
+
+/// One WeldBooks entity event to the hub as `system`, so the OCR on arrival
+/// and the rest of the event consumers see the document (the row a manual
+/// upload announces).
+async fn publish_document_created(ctx: &InboundContext, workspace_id: &str, row: Value) {
+    match EventType::catalog("accounting_document", "created") {
+        Ok(event) => {
+            let context = EventContext::new(workspace_id, "system", EventSource::System);
+            let id = row["id"].as_str().unwrap_or_default().to_owned();
+            ctx.events
+                .publish_and_wait(&context, EntityEvent::new(event, id, row))
+                .await;
+        }
+        Err(error) => tracing::error!(%error, "[AccountingInbox] unknown entity event"),
+    }
+}
+
+/// An accounting document row's id, as the worker mints it.
+fn document_id() -> String {
+    format!(
+        "doc_{}",
+        weldsuite_kit::random_string(
+            21,
+            "useandom-26T198340PX75pxJACKVERYMINDBUSHWOLF_GQZbfghjklqvwyzrict",
+        )
+    )
+}
+
 /// `processAccountingInboxEmail`: a WeldBooks `documents` row per PDF or
-/// image (or one for an attachment-less HTML invoice). Runs only once the
-/// edition serves WeldBooks; until then a no-op.
+/// image, booked into the legal entity the address belongs to ([`inbox_entity`]),
+/// and one for an attachment-less HTML invoice, whose body is stored as the
+/// file the row points at. A message whose HTML cannot be stored makes no
+/// document (it would point at nothing). Each document is announced as
+/// `accounting_document:created`. Runs only once the edition serves
+/// WeldBooks; until then a no-op.
 #[allow(clippy::too_many_lines)] // the worker's function, step by step
 pub async fn process_accounting_inbox(
     ctx: &InboundContext,
@@ -901,12 +971,16 @@ pub async fn process_accounting_inbox(
     }
     let recipients = collect_recipient_emails(email);
     // `email = any('{}')` matches nothing.
-    let rows: Vec<(String, Option<String>)> = if recipients.is_empty() {
+    let rows: Vec<(String, String, Option<String>)> = if recipients.is_empty() {
         Vec::new()
     } else {
         registry::Entity::find()
             .select_only()
-            .columns([registry::Column::AccountId, registry::Column::WorkspaceId])
+            .columns([
+                registry::Column::Email,
+                registry::Column::AccountId,
+                registry::Column::WorkspaceId,
+            ])
             .filter(registry::Column::Email.is_in(recipients))
             .filter(registry::Column::IsActive.eq(true))
             .into_tuple()
@@ -914,13 +988,15 @@ pub async fn process_accounting_inbox(
             .await?
     };
     let mut ids = Vec::new();
-    for (account_id, workspace_id) in rows {
+    for (address, account_id, workspace_id) in rows {
         let Some(workspace_id) = workspace_id.filter(|_| account_id.starts_with("acct_inbox_"))
         else {
             continue;
         };
         let result = async {
-            let db = orm(&ctx.tenants.tenant_db(&workspace_id).await?);
+            let pool = ctx.tenants.tenant_db(&workspace_id).await?;
+            let db = orm(&pool);
+            let entity_id = inbox_entity(&pool, std::slice::from_ref(&address)).await?;
             let now = crate::store::timestamp(weldsuite_mail_domain::outbound::clock::now_ms());
             for att in attachments {
                 let Some(mime) = accounting_attachment_type(&att.content_type, &att.file_name)
@@ -943,26 +1019,22 @@ pub async fn process_accounting_inbox(
                     tracing::error!(%error, file = %att.file_name, "[AccountingInbox] Failed to upload attachment");
                     continue;
                 }
-                let id = format!(
-                    "doc_{}",
-                    weldsuite_kit::random_string(
-                        21,
-                        "useandom-26T198340PX75pxJACKVERYMINDBUSHWOLF_GQZbfghjklqvwyzrict",
-                    )
-                );
+                let id = document_id();
                 let kind = if mime == "application/pdf" {
                     "purchase_invoice"
                 } else {
                     "receipt"
                 };
+                let size = i32::try_from(att.content.len()).unwrap_or(i32::MAX);
                 documents::Entity::insert(documents::ActiveModel {
                     id: Set(id.clone()),
+                    entity_id: Set(entity_id.clone()),
                     type_: Set(kind.to_owned()),
                     file_name: Set(att.file_name.clone()),
                     original_file_name: Set(Some(att.file_name.clone())),
-                    file_key: Set(key),
-                    file_size: Set(Some(i32::try_from(att.content.len()).unwrap_or(i32::MAX))),
-                    mime_type: Set(Some(mime)),
+                    file_key: Set(key.clone()),
+                    file_size: Set(Some(size)),
+                    mime_type: Set(Some(mime.clone())),
                     source: Set("email".to_owned()),
                     status: Set("pending".to_owned()),
                     email_from: Set(Some(email.from.email.clone())),
@@ -973,42 +1045,99 @@ pub async fn process_accounting_inbox(
                 })
                 .exec_without_returning(&db)
                 .await?;
+                publish_document_created(
+                    ctx,
+                    &workspace_id,
+                    json!({
+                        "id": id,
+                        "entityId": entity_id,
+                        "type": kind,
+                        "fileName": att.file_name,
+                        "fileKey": key,
+                        "fileSize": size,
+                        "mimeType": mime,
+                        "source": "email",
+                        "status": "pending",
+                        "emailFrom": email.from.email,
+                        "emailSubject": email.subject,
+                    }),
+                )
+                .await;
                 ids.push(id);
             }
-            if attachments.is_empty() && email.html_body.is_some() {
-                let id = format!(
-                    "doc_{}",
-                    weldsuite_kit::random_string(
-                        21,
-                        "useandom-26T198340PX75pxJACKVERYMINDBUSHWOLF_GQZbfghjklqvwyzrict",
-                    )
-                );
+            if attachments.is_empty()
+                && let Some(html) = &email.html_body
+            {
+                let id = document_id();
                 let subject = if email.subject.is_empty() {
                     "email"
                 } else {
                     email.subject.as_str()
                 };
-                documents::Entity::insert(documents::ActiveModel {
-                    id: Set(id.clone()),
-                    type_: Set("purchase_invoice".to_owned()),
-                    file_name: Set(format!("email-{}.html", email.email_id)),
-                    original_file_name: Set(Some(format!("{subject}.html"))),
-                    file_key: Set(format!(
-                        "workspaces/{workspace_id}/accounting/inbox/{}/email.html",
-                        email.email_id
-                    )),
-                    mime_type: Set(Some("text/html".to_owned())),
-                    source: Set("email".to_owned()),
-                    status: Set("pending".to_owned()),
-                    email_from: Set(Some(email.from.email.clone())),
-                    email_subject: Set(Some(email.subject.clone())),
-                    created_at: Set(now),
-                    updated_at: Set(now),
-                    ..Default::default()
-                })
-                .exec_without_returning(&db)
-                .await?;
-                ids.push(id);
+                let key = format!(
+                    "workspaces/{workspace_id}/accounting/inbox/{}/email.html",
+                    email.email_id
+                );
+                // The row points at this file: no file, no row.
+                let stored = if let Some(storage) = &ctx.storage {
+                    storage
+                        .put_boxed(
+                            &key,
+                            html.clone().into_bytes(),
+                            &PutOptions::content_type("text/html".to_owned()),
+                        )
+                        .await
+                        .map_err(|error| {
+                            tracing::error!(%error, "[AccountingInbox] Failed to upload the e-mail body");
+                        })
+                        .is_ok()
+                } else {
+                    tracing::warn!(
+                        "[AccountingInbox] No storage: an e-mail without attachments makes no document"
+                    );
+                    false
+                };
+                if stored {
+                    let size = i32::try_from(html.len()).unwrap_or(i32::MAX);
+                    documents::Entity::insert(documents::ActiveModel {
+                        id: Set(id.clone()),
+                        entity_id: Set(entity_id.clone()),
+                        type_: Set("purchase_invoice".to_owned()),
+                        file_name: Set(format!("email-{}.html", email.email_id)),
+                        original_file_name: Set(Some(format!("{subject}.html"))),
+                        file_key: Set(key.clone()),
+                        file_size: Set(Some(size)),
+                        mime_type: Set(Some("text/html".to_owned())),
+                        source: Set("email".to_owned()),
+                        status: Set("pending".to_owned()),
+                        email_from: Set(Some(email.from.email.clone())),
+                        email_subject: Set(Some(email.subject.clone())),
+                        created_at: Set(now),
+                        updated_at: Set(now),
+                        ..Default::default()
+                    })
+                    .exec_without_returning(&db)
+                    .await?;
+                    publish_document_created(
+                        ctx,
+                        &workspace_id,
+                        json!({
+                            "id": id,
+                            "entityId": entity_id,
+                            "type": "purchase_invoice",
+                            "fileName": format!("email-{}.html", email.email_id),
+                            "fileKey": key,
+                            "fileSize": size,
+                            "mimeType": "text/html",
+                            "source": "email",
+                            "status": "pending",
+                            "emailFrom": email.from.email,
+                            "emailSubject": email.subject,
+                        }),
+                    )
+                    .await;
+                    ids.push(id);
+                }
             }
             Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
         };

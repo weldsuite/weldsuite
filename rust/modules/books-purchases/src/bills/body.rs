@@ -51,6 +51,9 @@ pub(crate) struct BillBody {
     pub delivery_address: Field<Value>,
     pub fiscal_data: Field<Value>,
     pub source_document_id: Option<String>,
+    /// Rust only: `receipt` or `credit_note` (booking an inbox document);
+    /// the routes' body never sets it, so a bill is `standard`.
+    pub bill_type: Option<String>,
     /// `[]` on create when left out; `None` on an update that sends none.
     pub items: Option<Vec<BillLine>>,
 }

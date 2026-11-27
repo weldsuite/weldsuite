@@ -151,6 +151,9 @@ pub struct RecordPaymentInput {
     pub reconciliation_type: Option<String>,
     pub payment_run_id: Option<String>,
     pub backup_withholding_amount: Option<f64>,
+    /// Rust only: the ledger account the money moved through instead of a
+    /// bank account (a bill paid privately, out of the owner's own money).
+    pub money_account_id: Option<String>,
     pub allocations: Vec<AllocationInput>,
     /// A gap between the money and the allocations, booked to an account
     /// (Rust only; see [`PaymentDifference`]).
@@ -906,8 +909,10 @@ pub async fn record_payment(
     // With no bank account given, the money went through the entity's default
     // one (see `resolve_money_account`): keep it on the payment.
     let mut bank_account_id = input.bank_account_id.clone().filter(|id| !id.is_empty());
+    let money_override = input.money_account_id.clone().filter(|id| !id.is_empty());
     if bank_account_id.is_none()
         && !to_undeposited
+        && money_override.is_none()
         && !(payment_method == Some("cash") && accounts.by_subtype("cash").is_some())
         && let Some((default_id, ledger)) = find_default_bank_account(db, &input.entity_id).await?
         && accounts.by_id(ledger.as_deref()).is_some()
@@ -929,7 +934,7 @@ pub async fn record_payment(
             money_account_id: if to_undeposited {
                 undeposited_funds.clone()
             } else {
-                None
+                money_override
             },
             backup_withholding_amount: (withheld > 0.0).then_some(withheld),
             difference: difference.clone(),
