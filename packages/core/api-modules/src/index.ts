@@ -154,6 +154,8 @@ export const GLOBAL_UNAVAILABLE_FEATURES: readonly string[] = [
   // WeldBooks: matching bank transactions and documents either way round
   // (several documents per transaction, search, booking the difference).
   'books-bank-links',
+  // WeldBooks: the "to process" list and its counts (`/api/accounting-todo`).
+  'books-todo',
 ];
 
 const mod = (
@@ -363,6 +365,9 @@ export const API_MODULES: readonly ApiModule[] = [
     '/api/accounting-exports',
     '/api/accounting-reports',
     '/api/accounting-settings',
+    // The "to process" list and its counts, served by the Rust backend only
+    // (rust/modules/books-reports).
+    '/api/accounting-todo',
     // The KvK jaarrekening, served by the Rust backend only (rust/modules/books-reports).
     '/api/annual-reports',
     '/api/bank-accounts',

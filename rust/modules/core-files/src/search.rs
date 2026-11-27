@@ -22,21 +22,23 @@ use weldsuite_core_domain::drive_access::{
 use weldsuite_db::{PgPool, orm};
 use weldsuite_kit::ApiError;
 use weldsuite_kit::validation::{Issues, Number, Presence, Text};
-use weldsuite_permissions::has_any_app_permission;
+use weldsuite_legal_entities::EntityScopeCondition;
+use weldsuite_permissions::{Permissions, has_any_app_permission};
 use weldsuite_ports::DynCache;
 use weldsuite_schema::tenant::enums::{HostDomainRegistrationStatus, HostDomainStatus};
 use weldsuite_schema::tenant::{
-    bills, chat_channel_members, chat_channels, companies, crm_leads, crm_opportunities,
-    desk_conversations, docs, domains, files, form_access, forms, helpdesk_articles,
-    helpdesk_tickets, invoices, knowledge_pages, knowledge_spaces, meetings, merge_issues,
-    merge_pull_requests, merge_repositories, merge_teams, orders, panel_projects, people, products,
-    projects, reach_campaigns, sheets, sign_envelopes, sign_recipients, tasks, warehouses,
-    weldagent_agent_members, weldagent_agents, welddata_lists, whiteboards, workflows,
-    workspace_installed_apps, workspace_members,
+    bank_transactions, bills, chat_channel_members, chat_channels, companies, crm_leads,
+    crm_opportunities, desk_conversations, docs, documents, domains, files, form_access, forms,
+    helpdesk_articles, helpdesk_tickets, invoices, knowledge_pages, knowledge_spaces, meetings,
+    merge_issues, merge_pull_requests, merge_repositories, merge_teams, orders, panel_projects,
+    parties, people, products, projects, reach_campaigns, sheets, sign_envelopes, sign_recipients,
+    tasks, warehouses, weldagent_agent_members, weldagent_agents, welddata_lists, whiteboards,
+    workflows, workspace_installed_apps, workspace_members,
 };
 use weldsuite_subscribers::search::ai::{WorkspaceEmbeddings, index_model};
 use weldsuite_subscribers::search::backfill::{BackfillCursor, backfill_batch};
 
+use crate::search_scope::entity_scope;
 use crate::understanding::{ModelTier, apply_permitted_types, understand_query_with};
 use crate::{Caller, CoreFilesState, answer, encode_uri_component, json_response, validate};
 
@@ -75,6 +77,10 @@ pub(crate) enum SearchType {
     Workflow,
     Agent,
     Domain,
+    // WeldBooks records, searched only when asked for by name (`OPT_IN`).
+    BankTransaction,
+    AccountingContact,
+    AccountingDocument,
 }
 
 /// Every type with the permission that lets a caller search it
@@ -150,8 +156,31 @@ const REGISTRY: [(SearchType, &str, &str); 31] = [
     (SearchType::Domain, "domain", "domains:read"),
 ];
 
-/// `SEARCH_ENTITY_TYPES`: the names `types` accepts, in the schema's own
-/// order (the enum's message lists them so), which is not the canonical one.
+/// Types that are searched only when the client names them in `types`: a
+/// default search (no `types`) and `permittedTypes` stay what the TypeScript
+/// search answers (which does not know them). Entity-owned WeldBooks records,
+/// each scoped to the legal entities the caller sees (`search_scope`).
+const OPT_IN: [(SearchType, &str, &str); 3] = [
+    (
+        SearchType::BankTransaction,
+        "bank_transaction",
+        "banking:read",
+    ),
+    (
+        SearchType::AccountingContact,
+        "accounting_contact",
+        "invoices:read",
+    ),
+    (
+        SearchType::AccountingDocument,
+        "accounting_document",
+        "invoices:read",
+    ),
+];
+
+/// `SEARCH_ENTITY_TYPES` of the types a default search covers: the names
+/// `types` accepts, in the schema's own order (the enum's message lists them
+/// so), which is not the canonical one.
 pub(crate) const ENTITY_TYPES: [&str; 31] = [
     "contact",
     "customer",
@@ -186,26 +215,73 @@ pub(crate) const ENTITY_TYPES: [&str; 31] = [
     "panel_project",
 ];
 
+/// The names `types` accepts: [`ENTITY_TYPES`], then the opt-in ones (the
+/// shared schema lists them last).
+const INPUT_TYPES: [&str; 34] = [
+    "contact",
+    "customer",
+    "lead",
+    "opportunity",
+    "ticket",
+    "article",
+    "knowledge_page",
+    "product",
+    "order",
+    "invoice",
+    "bill",
+    "project",
+    "task",
+    "sheet",
+    "board",
+    "domain",
+    "merge_issue",
+    "merge_pull_request",
+    "document",
+    "form",
+    "drive_file",
+    "conversation",
+    "meeting",
+    "sign_envelope",
+    "warehouse",
+    "workflow",
+    "agent",
+    "reach_campaign",
+    "chat_channel",
+    "data_list",
+    "panel_project",
+    "bank_transaction",
+    "accounting_contact",
+    "accounting_document",
+];
+
 impl SearchType {
-    pub(crate) fn as_str(self) -> &'static str {
+    fn registration(self) -> Option<&'static (SearchType, &'static str, &'static str)> {
         REGISTRY
             .iter()
+            .chain(OPT_IN.iter())
             .find(|(t, _, _)| *t == self)
-            .map_or("", |(_, name, _)| name)
+    }
+
+    pub(crate) fn as_str(self) -> &'static str {
+        self.registration().map_or("", |(_, name, _)| name)
     }
 
     fn permission(self) -> &'static str {
-        REGISTRY
-            .iter()
-            .find(|(t, _, _)| *t == self)
+        self.registration()
             .map_or("", |(_, _, permission)| permission)
     }
 
     pub(crate) fn parse(name: &str) -> Option<Self> {
         REGISTRY
             .iter()
+            .chain(OPT_IN.iter())
             .find(|(_, n, _)| *n == name)
             .map(|(t, _, _)| *t)
+    }
+
+    /// Searched only when named in `types` ([`OPT_IN`]).
+    fn is_opt_in(self) -> bool {
+        OPT_IN.iter().any(|(t, _, _)| *t == self)
     }
 
     fn all() -> impl Iterator<Item = Self> {
@@ -259,6 +335,15 @@ pub(crate) fn build_result_url_for(kind: SearchType, id: &str, commerce: bool) -
         SearchType::ChatChannel => format!("/weldchat/{id}"),
         SearchType::DataList => format!("/welddata/lists/{id}"),
         SearchType::PanelProject => format!("/weldpanel/projects/{id}"),
+        SearchType::BankTransaction => {
+            format!("/weldbooks/banking?stack=bank_transaction:{encoded}")
+        }
+        SearchType::AccountingContact => {
+            format!("/weldbooks/customers?stack=accounting_contact:{encoded}")
+        }
+        SearchType::AccountingDocument => {
+            format!("/weldbooks/documents?stack=accounting_document:{encoded}")
+        }
     }
 }
 
@@ -603,6 +688,107 @@ async fn search_bills(db: &PgPool, term: &Term) -> Result<Vec<Value>, DbErr> {
         .filter(C::DeletedAt.is_null())
         .filter(any_like(&columns, &term.contains));
     let then = [col(C::UpdatedAt), col(C::Id)];
+    ranked(db, rows, best_score(&columns, term), then, term.limit).await
+}
+
+/// Bank lines of the entities the caller sees, by counterparty, description,
+/// reference or amount (as text).
+async fn search_bank_transactions(
+    db: &PgPool,
+    term: &Term,
+    scope: &EntityScopeCondition,
+) -> Result<Vec<Value>, DbErr> {
+    use bank_transactions::Column as C;
+    let amount = || Func::cast_as(col(C::Amount), "text").into();
+    let columns = [
+        (col(C::CounterpartyName), Scored::Text),
+        (col(C::Description), Scored::Text),
+        (col(C::Reference), Scored::Text),
+        (amount(), Scored::Text),
+    ];
+    let rows = bank_transactions::Entity::find()
+        .select_only()
+        .column_as(C::Id, "id")
+        .expr_as(Func::cast_as(col(C::Date), "text"), "date")
+        .expr_as(amount(), "amount")
+        .column_as(C::CounterpartyName, "counterpartyName")
+        .column_as(C::Description, "description")
+        .column_as(C::Reference, "reference")
+        .column_as(C::Status, "status")
+        .filter(C::DeletedAt.is_null())
+        .filter(scope.condition(C::EntityId))
+        .filter(any_like(&columns, &term.contains));
+    let then = [col(C::Date), col(C::Id)];
+    ranked(db, rows, best_score(&columns, term), then, term.limit).await
+}
+
+/// WeldBooks contacts (`parties`) by name, e-mail, VAT number or `KvK` number.
+/// Contacts belong to the workspace, not to an entity, as in the contacts list.
+async fn search_accounting_contacts(db: &PgPool, term: &Term) -> Result<Vec<Value>, DbErr> {
+    use parties::Column as C;
+    let columns = [
+        (col(C::DisplayName), Scored::Text),
+        (col(companies::Column::Email), Scored::Email),
+        (col(people::Column::Email), Scored::Email),
+        (col(companies::Column::VatNumber), Scored::Text),
+        (col(companies::Column::RegistrationNumber), Scored::Text),
+    ];
+    let rows = parties::Entity::find()
+        .select_only()
+        .column_as(C::Id, "id")
+        .column_as(C::DisplayName, "displayName")
+        .column_as(C::Role, "role")
+        .join(
+            JoinType::LeftJoin,
+            parties::Entity::belongs_to(companies::Entity)
+                .from(C::CompanyId)
+                .to(companies::Column::Id)
+                .into(),
+        )
+        .join(
+            JoinType::LeftJoin,
+            parties::Entity::belongs_to(people::Entity)
+                .from(C::PersonId)
+                .to(people::Column::Id)
+                .into(),
+        )
+        .filter(C::DeletedAt.is_null())
+        .filter(C::ArchivedAt.is_null())
+        .filter(any_like(&columns, &term.contains));
+    let then = [col(C::UpdatedAt), col(C::Id)];
+    ranked(db, rows, best_score(&columns, term), then, term.limit).await
+}
+
+/// Inbox documents of the entities the caller sees (those with no entity
+/// count for the default one), by file name and the OCR's vendor and invoice
+/// number.
+async fn search_accounting_documents(
+    db: &PgPool,
+    term: &Term,
+    scope: &EntityScopeCondition,
+) -> Result<Vec<Value>, DbErr> {
+    use documents::Column as C;
+    let columns = [
+        (col(C::FileName), Scored::Text),
+        (
+            Expr::cust("documents.ocr_result -> 'vendor' ->> 'name'"),
+            Scored::Text,
+        ),
+        (
+            Expr::cust("documents.ocr_result ->> 'invoiceNumber'"),
+            Scored::Text,
+        ),
+    ];
+    let rows = documents::Entity::find()
+        .select_only()
+        .column_as(C::Id, "id")
+        .column_as(C::FileName, "fileName")
+        .column_as(C::Type, "type")
+        .column_as(C::Status, "status")
+        .filter(C::DeletedAt.is_null())
+        .filter(scope.condition(C::EntityId))
+        .filter(any_like(&columns, &term.contains));
+    let then = [col(C::CreatedAt), col(C::Id)];
     ranked(db, rows, best_score(&columns, term), then, term.limit).await
 }
 
@@ -1003,6 +1189,31 @@ fn describe(kind: SearchType, row: &Value) -> (String, Option<String>) {
             first(&[s("name")]).unwrap_or("Project").to_owned(),
             Some(with_suffix(s("kind").unwrap_or_default(), s("status"))),
         ),
+        // Data, not sentences: the platform words them.
+        SearchType::BankTransaction => (
+            first(&[s("counterpartyName"), s("description"), s("reference")])
+                .unwrap_or("Bank transaction")
+                .to_owned(),
+            Some(
+                [
+                    s("date").map(|date| date.chars().take(10).collect::<String>()),
+                    s("amount").map(str::to_owned),
+                    s("status").map(str::to_owned),
+                ]
+                .into_iter()
+                .flatten()
+                .collect::<Vec<_>>()
+                .join(" · "),
+            ),
+        ),
+        SearchType::AccountingContact => (
+            first(&[s("displayName")]).unwrap_or("Contact").to_owned(),
+            owned(first(&[s("role")])),
+        ),
+        SearchType::AccountingDocument => (
+            first(&[s("fileName")]).unwrap_or("Document").to_owned(),
+            Some(with_suffix(s("type").unwrap_or_default(), s("status"))),
+        ),
         SearchType::MergeIssue => {
             let key = s("key").unwrap_or("null");
             (
@@ -1082,8 +1293,12 @@ fn group(kind: SearchType, rows: &[Value], limit: usize, commerce: bool) -> Valu
 /// WeldDrive visibility, loaded once for every Drive-backed type of a search.
 struct Searcher<'a> {
     user_id: Option<&'a str>,
+    /// The caller's workspace permissions, for the entities they see.
+    permissions: Option<&'a Permissions>,
     can: &'a (dyn Fn(&str) -> bool + Sync),
     drive: Drive,
+    /// The legal entities whose records the caller may see, loaded once.
+    entities: Option<EntityScopeCondition>,
 }
 
 /// The caller's WeldDrive visibility, as far as it has been loaded.
@@ -1095,6 +1310,18 @@ enum Drive {
 }
 
 impl Searcher<'_> {
+    /// Which legal entities' records this caller may be shown, for any
+    /// entity-owned type (`search_scope::entity_scope`).
+    async fn entity_scope(&mut self, db: &PgPool) -> Result<EntityScopeCondition, DbErr> {
+        if self.entities.is_none() {
+            self.entities = Some(entity_scope(db, self.user_id, self.permissions).await?);
+        }
+        Ok(self
+            .entities
+            .clone()
+            .unwrap_or(EntityScopeCondition::Nothing))
+    }
+
     /// `visibleFilesCondition` for this caller (`None`: an admin sees every file).
     async fn visible_files(&mut self, db: &PgPool) -> Result<Option<VisibleFiles>, DbErr> {
         if matches!(self.drive, Drive::Unloaded) {
@@ -1190,6 +1417,17 @@ async fn search_rows(
         SearchType::SignEnvelope => search_sign_envelopes(db, q, limit, who).await,
         SearchType::ChatChannel => search_chat_channels(db, q, limit, who).await,
         SearchType::Agent => search_agents(db, q, limit, who).await,
+        SearchType::BankTransaction => {
+            let scope = who.entity_scope(db).await?;
+            search_bank_transactions(db, &escaped_term(q, limit), &scope).await
+        }
+        SearchType::AccountingContact => {
+            search_accounting_contacts(db, &escaped_term(q, limit)).await
+        }
+        SearchType::AccountingDocument => {
+            let scope = who.entity_scope(db).await?;
+            search_accounting_documents(db, &escaped_term(q, limit), &scope).await
+        }
     }
 }
 
@@ -1729,7 +1967,7 @@ fn read_input(issues: &mut Issues, body: &Map<String, Value>) -> SearchInput {
         )
         .into_option()
         .unwrap_or_default();
-    let names: Vec<&str> = ENTITY_TYPES.to_vec();
+    let names: Vec<&str> = INPUT_TYPES.to_vec();
     let types = issues
         .list(
             body,
@@ -1808,11 +2046,27 @@ pub(crate) async fn search(
                 Some(types) if !types.is_empty() => types.clone(),
                 _ => apply_permitted_types(&parsed, &permitted),
             };
-            let filtered: Vec<SearchType> = permitted
+            let mut filtered: Vec<SearchType> = permitted
                 .iter()
                 .copied()
                 .filter(|t| scoped.contains(t))
                 .collect();
+            // The WeldBooks record types a client asked for by name, after the
+            // others (never part of a default search or `permittedTypes`).
+            filtered.extend(
+                input
+                    .types
+                    .iter()
+                    .flatten()
+                    .copied()
+                    .filter(|t| t.is_opt_in() && allowed(*t))
+                    .fold(Vec::new(), |mut unique, t| {
+                        if !unique.contains(&t) {
+                            unique.push(t);
+                        }
+                        unique
+                    }),
+            );
             let term = match parsed.lexical_term.trim() {
                 "" => input.q.as_str(),
                 term => term,
@@ -1826,8 +2080,10 @@ pub(crate) async fn search(
             };
             let mut who = Searcher {
                 user_id: caller.user_id.as_deref().filter(|id| !id.is_empty()),
+                permissions: caller.permissions.as_ref(),
                 can: &can,
                 drive: Drive::Unloaded,
+                entities: None,
             };
             for kind in &filtered {
                 let rows = search_rows(&caller.db, *kind, term, input.limit, &mut who).await?;
@@ -1873,7 +2129,7 @@ fn read_reindex(issues: &mut Issues, body: &Map<String, Value>) -> Option<Backfi
     issues
         .nested(body, "cursor", Presence::Nullish, |issues, fields| {
             let entity_type = issues
-                .choice(fields, "entityType", Presence::Required, &ENTITY_TYPES)
+                .choice(fields, "entityType", Presence::Required, &INPUT_TYPES)
                 .into_option();
             let after_id = issues
                 .text(fields, "afterId", Presence::Nullable, None, None)
@@ -2178,5 +2434,461 @@ mod tests {
         assert_eq!(pull_request_number("1234567890"), None);
         assert_eq!(pull_request_number("#"), None);
         assert_eq!(pull_request_number("chore/"), None);
+    }
+}
+
+/// The WeldBooks types against the real tenant schema (built from the
+/// journaled migrations by `scripts/rust-test-db.ts`): what each one matches
+/// and returns, and that bank lines and inbox documents come only from the
+/// legal entities the caller sees (ADR SEC-015).
+///
+/// Runs when `WELDSUITE_TEST_TENANT_URL` is set; otherwise it returns early.
+#[cfg(test)]
+#[allow(
+    clippy::disallowed_methods,
+    clippy::too_many_lines,
+    reason = "test fixtures are written in SQL, one scenario per test"
+)]
+mod books_tests {
+    use std::collections::BTreeSet;
+
+    use weldsuite_kit::generate_id;
+    use weldsuite_permissions::ResolvedPermissions;
+
+    use super::*;
+
+    fn pool() -> Option<PgPool> {
+        let Ok(url) = std::env::var("WELDSUITE_TEST_TENANT_URL") else {
+            eprintln!("WELDSUITE_TEST_TENANT_URL not set; skipping");
+            return None;
+        };
+        Some(weldsuite_db::master_pool(&url, 2).expect("tenant pool"))
+    }
+
+    async fn run(db: &PgPool, sql: &'static str, binds: &[&str]) {
+        let mut query = sqlx::query(sql);
+        for bind in binds {
+            query = query.bind(*bind);
+        }
+        query.execute(db).await.expect(sql);
+    }
+
+    async fn entity(db: &PgPool, restricted: bool) -> String {
+        let id = generate_id("ent");
+        sqlx::query(
+            "insert into entities (id, name, jurisdiction_code, base_currency, is_active, access_restricted) \
+             values ($1, 'Search test', 'NL', 'EUR', true, $2)",
+        )
+        .bind(&id)
+        .bind(restricted)
+        .execute(db)
+        .await
+        .expect("entity");
+        id
+    }
+
+    async fn member(db: &PgPool, entity: &str, user: &str) {
+        run(
+            db,
+            "insert into legal_entity_members (id, entity_id, user_id) values ($1, $2, $3)",
+            &[&generate_id("lem"), entity, user],
+        )
+        .await;
+    }
+
+    async fn line(db: &PgPool, entity: &str, counterparty: &str, amount: &str) -> String {
+        let id = generate_id("btx");
+        let bank = generate_id("bac");
+        run(
+            db,
+            "insert into bank_accounts (id, entity_id, name, currency) values ($1, $2, 'Account', 'EUR')",
+            &[&bank, entity],
+        )
+        .await;
+        sqlx::query(
+            "insert into bank_transactions (id, entity_id, bank_account_id, date, amount, description, \
+               counterparty_name, reference, status) \
+             values ($1, $2, $3, '2026-11-02', $4::numeric, 'Invoice settlement', $5, 'REF-77', 'unreconciled')",
+        )
+        .bind(&id)
+        .bind(entity)
+        .bind(&bank)
+        .bind(amount)
+        .bind(counterparty)
+        .execute(db)
+        .await
+        .expect("bank line");
+        id
+    }
+
+    async fn document(
+        db: &PgPool,
+        entity: Option<&str>,
+        file_name: &str,
+        ocr: Option<&str>,
+    ) -> String {
+        let id = generate_id("doc");
+        sqlx::query(
+            "insert into documents (id, entity_id, type, file_name, file_key, source, status, ocr_result) \
+             values ($1, $2, 'purchase_invoice', $3, 'key', 'upload', 'processed', $4::jsonb)",
+        )
+        .bind(&id)
+        .bind(entity)
+        .bind(file_name)
+        .bind(ocr)
+        .execute(db)
+        .await
+        .expect("document");
+        id
+    }
+
+    fn permissions(owner: bool, user: &str) -> Permissions {
+        Permissions::new(
+            ResolvedPermissions {
+                is_owner: owner,
+                ..ResolvedPermissions::default()
+            },
+            None,
+            false,
+            user.to_owned(),
+        )
+    }
+
+    /// The legal entities `user` sees, as a searcher loads them.
+    async fn scope_of(
+        db: &PgPool,
+        user: Option<&str>,
+        permissions: Option<&Permissions>,
+    ) -> EntityScopeCondition {
+        let can = |_: &str| true;
+        let mut who = Searcher {
+            user_id: user,
+            permissions,
+            can: &can,
+            drive: Drive::Unloaded,
+            entities: None,
+        };
+        who.entity_scope(db).await.expect("scope")
+    }
+
+    fn ids(rows: &[Value]) -> BTreeSet<String> {
+        rows.iter()
+            .filter_map(|r| r["row"]["id"].as_str().map(str::to_owned))
+            .collect()
+    }
+
+    fn set<const N: usize>(values: [&String; N]) -> BTreeSet<String> {
+        values.into_iter().cloned().collect()
+    }
+
+    #[tokio::test]
+    async fn bank_lines_and_documents_come_only_from_visible_entities() {
+        let Some(db) = pool() else { return };
+        let marker = generate_id("zq").replace('_', "");
+        let (open, secret, shared) = (
+            entity(&db, false).await,
+            entity(&db, true).await,
+            entity(&db, true).await,
+        );
+        member(&db, &shared, "user_listed").await;
+        let lines = [
+            line(&db, &open, &marker, "10.00").await,
+            line(&db, &secret, &marker, "10.00").await,
+            line(&db, &shared, &marker, "10.00").await,
+        ];
+        let docs = [
+            document(&db, Some(&open), &format!("{marker}-open.pdf"), None).await,
+            document(&db, Some(&secret), &format!("{marker}-secret.pdf"), None).await,
+            document(&db, Some(&shared), &format!("{marker}-shared.pdf"), None).await,
+        ];
+        let term = escaped_term(&marker, 20);
+        let found = |scope: EntityScopeCondition| {
+            let (db, term) = (&db, &term);
+            async move {
+                let lines = search_bank_transactions(db, term, &scope)
+                    .await
+                    .expect("lines");
+                let docs = search_accounting_documents(db, term, &scope)
+                    .await
+                    .expect("docs");
+                (ids(&lines), ids(&docs))
+            }
+        };
+
+        // A member with workspace-wide read: the open entity, and the restricted one they are listed on.
+        let plain = permissions(false, "user_listed");
+        let listed = found(scope_of(&db, Some("user_listed"), Some(&plain)).await).await;
+        assert_eq!(listed.0, set([&lines[0], &lines[2]]));
+        assert_eq!(listed.1, set([&docs[0], &docs[2]]));
+
+        // Not listed anywhere: the open entity only.
+        let other = permissions(false, "user_other");
+        let unlisted = found(scope_of(&db, Some("user_other"), Some(&other)).await).await;
+        assert_eq!(unlisted.0, set([&lines[0]]));
+        assert_eq!(unlisted.1, set([&docs[0]]));
+
+        // The owner sees every entity.
+        let owner = permissions(true, "user_owner");
+        let all = found(scope_of(&db, Some("user_owner"), Some(&owner)).await).await;
+        assert_eq!(all.0, set([&lines[0], &lines[1], &lines[2]]));
+        assert_eq!(all.1, set([&docs[0], &docs[1], &docs[2]]));
+
+        // No one: nothing.
+        let nobody = found(scope_of(&db, None, None).await).await;
+        assert!(nobody.0.is_empty() && nobody.1.is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_document_with_no_entity_is_the_default_entitys() {
+        let Some(db) = pool() else { return };
+        let marker = generate_id("zq").replace('_', "");
+        let (default, secret) = (entity(&db, false).await, entity(&db, true).await);
+        run(
+            &db,
+            "update entities set is_default = false where is_default",
+            &[],
+        )
+        .await;
+        run(
+            &db,
+            "update entities set is_default = true where id = $1",
+            &[&default],
+        )
+        .await;
+        run(
+            &db,
+            "insert into accounting_entity_settings (entity_id) values ($1)",
+            &[&default],
+        )
+        .await;
+        let unassigned = document(&db, None, &format!("{marker}.pdf"), None).await;
+        let term = escaped_term(&marker, 20);
+        let plain = permissions(false, "user_plain");
+        let scope = scope_of(&db, Some("user_plain"), Some(&plain)).await;
+        let rows = search_accounting_documents(&db, &term, &scope)
+            .await
+            .expect("docs");
+        assert_eq!(ids(&rows), set([&unassigned]));
+
+        // The default entity is restricted to others: its unassigned rows go with it.
+        run(
+            &db,
+            "update entities set access_restricted = true where id = $1",
+            &[&default],
+        )
+        .await;
+        let scope = scope_of(&db, Some("user_plain"), Some(&plain)).await;
+        let rows = search_accounting_documents(&db, &term, &scope)
+            .await
+            .expect("docs");
+        assert!(rows.is_empty(), "{rows:?}");
+        run(
+            &db,
+            "update entities set is_default = false where id = $1",
+            &[&default],
+        )
+        .await;
+        let _ = secret;
+    }
+
+    #[tokio::test]
+    async fn bank_lines_match_on_counterparty_description_reference_and_amount() {
+        let Some(db) = pool() else { return };
+        let marker = generate_id("zq").replace('_', "");
+        let open = entity(&db, false).await;
+        let id = line(&db, &open, &format!("Vendor {marker} BV"), "1234.50").await;
+        let gone = line(&db, &open, &format!("Vendor {marker} Deleted"), "1.00").await;
+        run(
+            &db,
+            "update bank_transactions set deleted_at = now() where id = $1",
+            &[&gone],
+        )
+        .await;
+        let scope = EntityScopeCondition::All;
+        let search = |q: String| {
+            let (db, scope) = (&db, &scope);
+            async move {
+                let rows = search_bank_transactions(db, &escaped_term(&q, 20), scope)
+                    .await
+                    .expect("search");
+                ids(&rows)
+            }
+        };
+        assert_eq!(search(marker.clone()).await, set([&id]), "counterparty");
+        assert_eq!(search(format!("{marker} bv")).await, set([&id]));
+        assert!(search("zznomatch".into()).await.is_empty());
+        for q in ["settlement", "ref-77", "1234.50"] {
+            assert!(search(q.into()).await.contains(&id), "{q}");
+        }
+
+        let rows = search_bank_transactions(&db, &escaped_term(&marker, 20), &scope)
+            .await
+            .expect("search");
+        let row = &rows[0]["row"];
+        assert_eq!(row["id"], id.as_str());
+        assert_eq!(row["amount"], "1234.50");
+        assert_eq!(row["status"], "unreconciled");
+        assert_eq!(
+            row["counterpartyName"],
+            format!("Vendor {marker} BV").as_str()
+        );
+        let g = group(SearchType::BankTransaction, &rows, 5, false);
+        let item = &g["items"][0];
+        assert_eq!(item["type"], "bank_transaction");
+        assert_eq!(item["title"], format!("Vendor {marker} BV").as_str());
+        assert_eq!(item["subtitle"], "2026-11-02 · 1234.50 · unreconciled");
+        assert_eq!(
+            item["url"],
+            format!("/weldbooks/banking?stack=bank_transaction:{id}").as_str()
+        );
+    }
+
+    #[tokio::test]
+    async fn contacts_match_on_name_email_vat_and_kvk() {
+        let Some(db) = pool() else { return };
+        let marker = generate_id("zq").replace('_', "");
+        let company = generate_id("cmp");
+        sqlx::query(
+            "insert into companies (id, name, display_name, email, vat_number, registration_number) \
+             values ($1, $2, $2, $3, $4, $5)",
+        )
+        .bind(&company)
+        .bind(format!("Acme {marker}"))
+        .bind(format!("books@{marker}.example"))
+        .bind(format!("NL{marker}B01"))
+        .bind(format!("KVK{marker}"))
+        .execute(&db)
+        .await
+        .expect("company");
+        let person = generate_id("per");
+        sqlx::query("insert into people (id, display_name, email) values ($1, $2, $3)")
+            .bind(&person)
+            .bind(format!("Jane {marker}"))
+            .bind(format!("jane@{marker}-person.example"))
+            .execute(&db)
+            .await
+            .expect("person");
+        let by_company = generate_id("acn");
+        let by_person = generate_id("acn");
+        let archived = generate_id("acn");
+        sqlx::query(
+            "insert into parties (id, kind, display_name, role, company_id) values ($1, 'company', $2, 'supplier', $3)",
+        )
+        .bind(&by_company)
+        .bind(format!("Acme {marker} BV"))
+        .bind(&company)
+        .execute(&db)
+        .await
+        .expect("party");
+        sqlx::query(
+            "insert into parties (id, kind, display_name, role, person_id) values ($1, 'person', $2, 'customer', $3)",
+        )
+        .bind(&by_person)
+        .bind(format!("J. {marker}"))
+        .bind(&person)
+        .execute(&db)
+        .await
+        .expect("party");
+        sqlx::query(
+            "insert into parties (id, kind, display_name, role, archived_at) values ($1, 'company', $2, 'none', now())",
+        )
+        .bind(&archived)
+        .bind(format!("Old {marker}"))
+        .execute(&db)
+        .await
+        .expect("party");
+
+        let search = |q: String| {
+            let db = &db;
+            async move {
+                let rows = search_accounting_contacts(db, &escaped_term(&q, 20))
+                    .await
+                    .expect("search");
+                ids(&rows)
+            }
+        };
+        // The name (the archived one stays out), the company's e-mail, VAT and KvK, the person's e-mail.
+        assert_eq!(search(marker.clone()).await, set([&by_company, &by_person]));
+        assert_eq!(search(format!("books@{marker}")).await, set([&by_company]));
+        assert_eq!(search(format!("nl{marker}b01")).await, set([&by_company]));
+        assert_eq!(search(format!("kvk{marker}")).await, set([&by_company]));
+        assert_eq!(search(format!("jane@{marker}")).await, set([&by_person]));
+        assert!(search("zznomatch".into()).await.is_empty());
+
+        let rows = search_accounting_contacts(&db, &escaped_term(&format!("kvk{marker}"), 20))
+            .await
+            .expect("search");
+        let g = group(SearchType::AccountingContact, &rows, 5, false);
+        assert_eq!(g["items"][0]["title"], format!("Acme {marker} BV").as_str());
+        assert_eq!(g["items"][0]["subtitle"], "supplier");
+        assert_eq!(g["items"][0]["type"], "accounting_contact");
+    }
+
+    #[tokio::test]
+    async fn documents_match_on_file_name_and_ocr_vendor_and_invoice_number() {
+        let Some(db) = pool() else { return };
+        let marker = generate_id("zq").replace('_', "");
+        let open = entity(&db, false).await;
+        let by_name = document(&db, Some(&open), &format!("{marker}-scan.pdf"), None).await;
+        let by_vendor = document(
+            &db,
+            Some(&open),
+            "a.pdf",
+            Some(&format!(
+                r#"{{"vendor": {{"name": "Vendor {marker}"}}, "invoiceNumber": "F-1"}}"#
+            )),
+        )
+        .await;
+        let by_number = document(
+            &db,
+            Some(&open),
+            "b.pdf",
+            Some(&format!(
+                r#"{{"vendor": {{"name": null}}, "invoiceNumber": "{marker}-INV"}}"#
+            )),
+        )
+        .await;
+        let gone = document(&db, Some(&open), &format!("{marker}-deleted.pdf"), None).await;
+        run(
+            &db,
+            "update documents set deleted_at = now() where id = $1",
+            &[&gone],
+        )
+        .await;
+        let scope = EntityScopeCondition::All;
+        let rows = search_accounting_documents(&db, &escaped_term(&marker, 20), &scope)
+            .await
+            .expect("search");
+        assert_eq!(ids(&rows), set([&by_name, &by_vendor, &by_number]));
+        let g = group(SearchType::AccountingDocument, &rows, 5, false);
+        let first = g["items"]
+            .as_array()
+            .and_then(|items| items.iter().find(|i| i["id"] == by_name.as_str()))
+            .expect("the file name's hit")
+            .clone();
+        assert_eq!(first["title"], format!("{marker}-scan.pdf").as_str());
+        assert_eq!(first["subtitle"], "purchase_invoice · processed");
+        assert_eq!(first["type"], "accounting_document");
+        let none = search_accounting_documents(&db, &escaped_term("zznomatch", 20), &scope)
+            .await
+            .expect("search");
+        assert_eq!(none, Vec::<Value>::new());
+    }
+
+    #[test]
+    fn the_books_types_are_opt_in() {
+        // A default search and `permittedTypes` stay what TypeScript answers.
+        assert!(SearchType::all().all(|t| !t.is_opt_in()));
+        assert_eq!(SearchType::all().count(), ENTITY_TYPES.len());
+        for (kind, name, permission) in OPT_IN {
+            assert!(kind.is_opt_in());
+            assert_eq!(SearchType::parse(name), Some(kind));
+            assert_eq!(kind.as_str(), name);
+            assert_eq!(kind.permission(), permission);
+            assert!(INPUT_TYPES.contains(&name), "{name}");
+        }
+        // The schema's list: the older types in their order, then these.
+        assert_eq!(INPUT_TYPES[..ENTITY_TYPES.len()], ENTITY_TYPES);
+        assert_eq!(INPUT_TYPES.len(), ENTITY_TYPES.len() + OPT_IN.len());
     }
 }

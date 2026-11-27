@@ -294,6 +294,16 @@ export const EDITION_FEATURES = [
    * `GLOBAL_UNAVAILABLE_FEATURES` and Global keeps the suggestions only.
    */
   'books-bank-links',
+  /**
+   * WeldBooks "to process": one list and one set of counts for everything that
+   * needs the bookkeeper's attention (bank lines to book, documents to
+   * process, bills to approve or pay, overdue invoices, a VAT return to file,
+   * bank connections to renew, duplicates, unapplied credit):
+   * `/api/accounting-todo` and `/api/accounting-todo/summary`. Built only in
+   * Rust, so it is in `GLOBAL_UNAVAILABLE_FEATURES` and Global keeps the
+   * dashboard's own counts.
+   */
+  'books-todo',
 ] as const;
 
 export type EditionFeature = (typeof EDITION_FEATURES)[number];

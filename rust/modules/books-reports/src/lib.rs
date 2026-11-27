@@ -17,6 +17,7 @@ mod ordered;
 mod payroll;
 mod reports;
 mod rows;
+mod todo;
 
 use std::sync::Arc;
 
@@ -61,6 +62,8 @@ where
             dashboard::router(state.clone(), gate),
         ),
         ("/accounting-exports", exports::router(state.clone(), gate)),
+        // Rust only (edition feature `books-todo`): what needs processing.
+        ("/accounting-todo", todo::router(state.clone(), gate)),
         ("/fixed-assets", fixed_assets::router(state.clone(), gate)),
         ("/form-1099", form_1099::router(state.clone(), gate)),
         ("/payroll", payroll::router(state.clone(), gate)),

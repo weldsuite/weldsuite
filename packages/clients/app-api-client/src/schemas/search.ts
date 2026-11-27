@@ -36,6 +36,12 @@ export const SEARCH_ENTITY_TYPES = [
   'chat_channel',
   'data_list',
   'panel_project',
+  // WeldBooks records, in the Rust backend only: searched only when `types`
+  // names them, each scoped to the legal entities the caller may see
+  // (`/api/search`, EU and self-hosted). The TypeScript search never returns them.
+  'bank_transaction',
+  'accounting_contact',
+  'accounting_document',
 ] as const;
 
 /**

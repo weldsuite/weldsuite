@@ -1022,7 +1022,10 @@ export const sweep = {
         "panel_project": "Analytics projects",
         "workflow": "Workflows",
         "agent": "Agents",
-        "domain": "Domains"
+        "domain": "Domains",
+        "bank_transaction": "Bank transactions",
+        "accounting_contact": "Accounting contacts",
+        "accounting_document": "Inbox documents"
       }
     },
     "recent": "Recent",

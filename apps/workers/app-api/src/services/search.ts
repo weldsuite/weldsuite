@@ -209,6 +209,14 @@ export function buildResultUrl(type: SearchEntityType, id: string): string {
     // this search never returns them, the case keeps the type list complete.
     case 'order':
       return `/weldcommerce/orders?stack=order:${encodeURIComponent(id)}`;
+    // The WeldBooks types are searched by the Rust backend only (EU edition),
+    // and only when asked for; the cases keep the type list complete.
+    case 'bank_transaction':
+      return `/weldbooks/banking?stack=bank_transaction:${encodeURIComponent(id)}`;
+    case 'accounting_contact':
+      return `/weldbooks/customers?stack=accounting_contact:${encodeURIComponent(id)}`;
+    case 'accounting_document':
+      return `/weldbooks/documents?stack=accounting_document:${encodeURIComponent(id)}`;
   }
 }
 
