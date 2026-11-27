@@ -28,6 +28,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.edit
@@ -208,7 +209,9 @@ private fun LookSettings(env: AppEnvironment, appName: String, appearance: Appea
 @Composable
 private fun AccountSettings(env: AppEnvironment, appName: String, person: Person) {
     val scope = rememberCoroutineScope()
+    val uri = LocalUriHandler.current
     var confirm by remember { mutableStateOf(false) }
+    var deleting by remember { mutableStateOf(false) }
     SettingsHeader(stringResource(R.string.core_settings_account))
     ListItem(
         headlineContent = { Text(person.name ?: person.email.orEmpty()) },
@@ -225,6 +228,11 @@ private fun AccountSettings(env: AppEnvironment, appName: String, person: Person
     ListItem(
         headlineContent = { Text(stringResource(R.string.core_settings_sign_out), color = MaterialTheme.colorScheme.error) },
         modifier = Modifier.clickable { confirm = true }.tagged("sign-out"),
+    )
+    // Account deletion in the app, finished on the sign-in provider's account page.
+    ListItem(
+        headlineContent = { Text(stringResource(R.string.core_settings_delete_account), color = MaterialTheme.colorScheme.error) },
+        modifier = Modifier.clickable { deleting = true }.tagged("delete-account"),
     )
     HorizontalDivider()
     Text(
@@ -248,6 +256,32 @@ private fun AccountSettings(env: AppEnvironment, appName: String, person: Person
                 ) { Text(stringResource(R.string.core_settings_sign_out), color = MaterialTheme.colorScheme.error) }
             },
             dismissButton = { TextButton(onClick = { confirm = false }) { Text(stringResource(R.string.core_common_cancel)) } },
+        )
+    }
+    if (deleting) {
+        val page = env.accountUrl
+        AlertDialog(
+            onDismissRequest = { deleting = false },
+            title = { Text(stringResource(R.string.core_settings_delete_account_title)) },
+            text = {
+                Text(
+                    stringResource(
+                        if (page != null) R.string.core_settings_delete_account_message else R.string.core_settings_delete_account_unavailable,
+                    ),
+                )
+            },
+            confirmButton = {
+                if (page != null) {
+                    TextButton(
+                        onClick = {
+                            deleting = false
+                            runCatching { uri.openUri(page) }
+                        },
+                        modifier = Modifier.tagged("delete-account-continue"),
+                    ) { Text(stringResource(R.string.core_settings_delete_account_continue), color = MaterialTheme.colorScheme.error) }
+                }
+            },
+            dismissButton = { TextButton(onClick = { deleting = false }) { Text(stringResource(R.string.core_common_cancel)) } },
         )
     }
 }

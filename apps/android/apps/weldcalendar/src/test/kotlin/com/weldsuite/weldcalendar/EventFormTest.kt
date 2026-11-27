@@ -237,15 +237,4 @@ class EventFormTest {
         assertEquals(EventStatus.TENTATIVE, draft.status)
         assertEquals(EventPriority.NORMAL, draft.priority)
     }
-
-    @Test
-    fun theAccountPageComesFromTheServersConfig() {
-        assertEquals(
-            "https://id.example.test/account",
-            AccountLink.accountUrlOf("""{"auth":{"provider":"oidc","accountUrl":"https://id.example.test/account"}}"""),
-        )
-        assertNull(AccountLink.accountUrlOf("""{"auth":{"provider":"oidc","accountUrl":null}}"""))
-        assertNull(AccountLink.accountUrlOf("""{"auth":{"accountUrl":"javascript:alert(1)"}}"""))
-        assertNull(AccountLink.accountUrlOf("not json"))
-    }
 }

@@ -25,6 +25,15 @@ class SharedLogicTest {
     }
 
     @Test
+    fun theAccountPageIsAnHttpsLinkOnly() {
+        assertEquals("https://id.example.test/account", accountPage("https://id.example.test/account"))
+        assertEquals("https://id.example.test/account", accountPage(" https://id.example.test/account "))
+        assertNull(accountPage(null))
+        assertNull(accountPage("javascript:alert(1)"))
+        assertNull(accountPage("http://id.example.test/account"))
+    }
+
+    @Test
     fun aTopicMatchesItselfAndItsChildren() {
         assertTrue(realtimeTopicMatches("ticket", "ticket"))
         assertTrue(realtimeTopicMatches("ticket.tkt_1", "ticket"))

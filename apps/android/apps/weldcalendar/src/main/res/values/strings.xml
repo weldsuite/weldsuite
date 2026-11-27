@@ -165,11 +165,6 @@
     <string name="weldcalendar_response_pending">Not answered</string>
     <string name="weldcalendar_response_tentative">Maybe</string>
     <string name="weldcalendar_settings_contact_support">Contact support</string>
-    <string name="weldcalendar_settings_delete_account">Delete account</string>
-    <string name="weldcalendar_settings_delete_account_continue">Go to my account</string>
-    <string name="weldcalendar_settings_delete_account_message">Your account, profile and access to every workspace are removed for good. You finish this on your account page.</string>
-    <string name="weldcalendar_settings_delete_account_title">Delete your account?</string>
-    <string name="weldcalendar_settings_delete_account_unavailable">Email privacy@weldsuite.com to have your account deleted.</string>
     <string name="weldcalendar_settings_privacy">Privacy</string>
     <string name="weldcalendar_settings_privacy_policy">Privacy policy</string>
     <string name="weldcalendar_settings_terms">Terms of service</string>

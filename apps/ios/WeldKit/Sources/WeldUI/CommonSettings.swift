@@ -42,7 +42,9 @@ public struct CommonSettingsSections: View {
     @Binding var appearance: AppAppearance
 
     @State private var confirmSignOut = false
+    @State private var confirmDelete = false
     @State private var notificationsAllowed: Bool?
+    @Environment(\.openURL) private var openURL
 
     public init(
         env: AppEnvironment,
@@ -130,6 +132,10 @@ public struct CommonSettingsSections: View {
             LabeledContent(CoreStrings.settingsServer, value: env.serverName)
             Button(CoreStrings.settingsSignOut, role: .destructive) { confirmSignOut = true }
                 .accessibilityIdentifier("sign-out")
+            // In-app account deletion (App Store guideline 5.1.1(v)): finished on
+            // the sign-in provider's account page.
+            Button(CoreStrings.settingsDeleteAccount, role: .destructive) { confirmDelete = true }
+                .accessibilityIdentifier("delete-account")
         } header: {
             Text(CoreStrings.settingsAccount)
         } footer: {
@@ -140,6 +146,15 @@ public struct CommonSettingsSections: View {
                 .accessibilityIdentifier("confirm-sign-out")
         } message: {
             Text(CoreStrings.settingsSignOutMessage(app: appName))
+        }
+        .alert(CoreStrings.settingsDeleteAccountTitle, isPresented: $confirmDelete) {
+            if let page = env.accountURL {
+                Button(CoreStrings.settingsDeleteAccountContinue, role: .destructive) { openURL(page) }
+                    .accessibilityIdentifier("delete-account-continue")
+            }
+            Button(CoreStrings.commonCancel, role: .cancel) {}
+        } message: {
+            Text(env.accountURL != nil ? CoreStrings.settingsDeleteAccountMessage : CoreStrings.settingsDeleteAccountUnavailable)
         }
     }
 

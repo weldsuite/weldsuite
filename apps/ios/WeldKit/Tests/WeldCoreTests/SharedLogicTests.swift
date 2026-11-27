@@ -11,6 +11,14 @@ final class SharedLogicTests: XCTestCase {
         XCTAssertEqual(realtimeBase("  ", server: server).absoluteString, "wss://app.weldsuite.eu")
     }
 
+    func testTheAccountPageIsAnHttpsLinkOnly() {
+        XCTAssertEqual(accountPage("https://id.example.test/account"), URL(string: "https://id.example.test/account"))
+        XCTAssertEqual(accountPage(" https://id.example.test/account "), URL(string: "https://id.example.test/account"))
+        XCTAssertNil(accountPage(nil))
+        XCTAssertNil(accountPage("javascript:alert(1)"))
+        XCTAssertNil(accountPage("http://id.example.test/account"))
+    }
+
     func testATopicMatchesItselfAndItsChildren() {
         XCTAssertTrue(realtimeTopic("ticket", matches: "ticket"))
         XCTAssertTrue(realtimeTopic("ticket.tkt_1", matches: "ticket"))

@@ -26,6 +26,8 @@ public final class AppEnvironment {
     public private(set) var api: APIConfiguration?
     /// What the server says it doesn't offer (`unavailableFeatures` in `/config.json`).
     public private(set) var unavailableFeatures: Set<String> = []
+    /// The sign-in provider's account page, where a person deletes their account (`auth.accountUrl`).
+    public private(set) var accountURL: URL?
     /// The workspace hub, once the server has booted (`realtimeUrl` in `/config.json`).
     public private(set) var realtime: RealtimeClient?
     /// This device's push tokens on the server, for an app that uses push.
@@ -81,6 +83,7 @@ public final class AppEnvironment {
             boot = .failed(problem)
         case let .loaded(config, _):
             unavailableFeatures = Set(config.unavailableFeatures ?? [])
+            accountURL = accountPage(config.auth?.accountUrl)
             let minimum = config.mobile?.minVersions?.additionalProperties[app.code]
             if isBelowMinimumVersion(app.version, minimum: minimum) {
                 boot = .outdated
@@ -187,6 +190,12 @@ public final class AppEnvironment {
         case outdated
         case ready
     }
+}
+
+/// The account page from `/config.json`, when it is an https link.
+func accountPage(_ text: String?) -> URL? {
+    guard let text = text?.trimmingCharacters(in: .whitespaces), text.hasPrefix("https://") else { return nil }
+    return URL(string: text)
 }
 
 /// The realtime service's base URL: the server's `realtimeUrl` without a

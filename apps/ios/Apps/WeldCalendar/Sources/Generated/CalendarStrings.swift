@@ -283,16 +283,6 @@ enum CalendarStrings {
     static var responseTentative: String { tr("response.tentative") }
     /// Contact support
     static var settingsContactSupport: String { tr("settings.contactSupport") }
-    /// Delete account
-    static var settingsDeleteAccount: String { tr("settings.deleteAccount") }
-    /// Go to my account
-    static var settingsDeleteAccountContinue: String { tr("settings.deleteAccountContinue") }
-    /// Your account, profile and access to every workspace are removed for good. You finish this on your account page.
-    static var settingsDeleteAccountMessage: String { tr("settings.deleteAccountMessage") }
-    /// Delete your account?
-    static var settingsDeleteAccountTitle: String { tr("settings.deleteAccountTitle") }
-    /// Email privacy@weldsuite.com to have your account deleted.
-    static var settingsDeleteAccountUnavailable: String { tr("settings.deleteAccountUnavailable") }
     /// Privacy
     static var settingsPrivacy: String { tr("settings.privacy") }
     /// Privacy policy

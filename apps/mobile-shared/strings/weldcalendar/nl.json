@@ -202,11 +202,6 @@
     "privacy": "Privacy",
     "privacyPolicy": "Privacybeleid",
     "terms": "Gebruiksvoorwaarden",
-    "contactSupport": "Contact met support",
-    "deleteAccount": "Account verwijderen",
-    "deleteAccountTitle": "Je account verwijderen?",
-    "deleteAccountMessage": "Je account, je profiel en je toegang tot alle werkruimtes worden definitief verwijderd. Je rondt dit af op je accountpagina.",
-    "deleteAccountContinue": "Naar mijn account",
-    "deleteAccountUnavailable": "Mail privacy@weldsuite.com om je account te laten verwijderen."
+    "contactSupport": "Contact met support"
   }
 }

@@ -201,14 +201,4 @@ final class EventFormTests: XCTestCase {
         XCTAssertEqual(draft.status, .tentative)
         XCTAssertEqual(draft.priority, .normal)
     }
-
-    func testTheAccountPageComesFromTheServersConfig() {
-        XCTAssertEqual(
-            AccountLink.accountURL(fromConfig: Data(#"{"auth":{"provider":"oidc","accountUrl":"https://id.example.test/account"}}"#.utf8)),
-            URL(string: "https://id.example.test/account")
-        )
-        XCTAssertNil(AccountLink.accountURL(fromConfig: Data(#"{"auth":{"accountUrl":null}}"#.utf8)))
-        XCTAssertNil(AccountLink.accountURL(fromConfig: Data(#"{"auth":{"accountUrl":"javascript:alert(1)"}}"#.utf8)))
-        XCTAssertNil(AccountLink.accountURL(fromConfig: Data("not json".utf8)))
-    }
 }

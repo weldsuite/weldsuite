@@ -46,6 +46,9 @@ import org.weldsuite.core.storage.SecureStore
 import java.util.Locale
 import java.util.concurrent.TimeUnit
 
+/** The account page from `/config.json`, when it is an https link. */
+fun accountPage(text: String?): String? = text?.trim()?.takeIf { it.startsWith("https://") }
+
 /** Where the app is, from the server down to the workspace. The app shows one screen per state. */
 sealed interface SessionState {
     data object Booting : SessionState
@@ -120,6 +123,10 @@ class AppEnvironment(
     var unavailableFeatures: Set<String> = emptySet()
         private set
 
+    /** The sign-in provider's account page, where a person deletes their account (`auth.accountUrl`). */
+    var accountUrl: String? = null
+        private set
+
     val state: StateFlow<SessionState> = combine(
         boot,
         sessionFlow.flatMapLatest { it?.snapshot ?: flowOf(AuthSnapshot()) },
@@ -142,6 +149,7 @@ class AppEnvironment(
                 is ConfigResult.Problem -> boot.value = Boot.Failed(result.problem)
                 is ConfigResult.Loaded -> {
                     unavailableFeatures = result.config.unavailableFeatures.orEmpty().toSet()
+                    accountUrl = accountPage(result.config.auth?.accountUrl)
                     val minimum = result.config.mobile?.minVersions?.get(app.code)
                     if (isBelowMinimumVersion(app.versionName, minimum)) {
                         boot.value = Boot.Outdated

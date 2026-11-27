@@ -9,9 +9,9 @@ private enum PrivacyLinks {
     static let support = URL(string: "mailto:privacy@weldsuite.com?subject=Privacy%20Inquiry")
 }
 
-/// The More tab: the app's own privacy links and account deletion first,
-/// then the settings every app shares (workspace, lock, notifications,
-/// appearance, language, account and sign-out).
+/// The More tab: the app's own privacy links first, then the settings every
+/// app shares (workspace, lock, notifications, appearance, language, and the
+/// account with sign-out and account deletion).
 struct SettingsView: View {
     let env: AppEnvironment
     let person: Person
@@ -20,8 +20,6 @@ struct SettingsView: View {
     @Binding var appearance: AppAppearance
 
     @Environment(\.openURL) private var openURL
-    @State private var confirmDelete = false
-    @State private var accountURL: URL?
 
     var body: some View {
         Form {
@@ -29,8 +27,6 @@ struct SettingsView: View {
                 link(CalendarStrings.settingsPrivacyPolicy, PrivacyLinks.policy, id: "privacy-policy")
                 link(CalendarStrings.settingsTerms, PrivacyLinks.terms, id: "terms")
                 link(CalendarStrings.settingsContactSupport, PrivacyLinks.support, id: "contact-support")
-                Button(CalendarStrings.settingsDeleteAccount, role: .destructive) { confirmDelete = true }
-                    .accessibilityIdentifier("delete-account")
             }
             CommonSettingsSections(
                 env: env,
@@ -42,18 +38,6 @@ struct SettingsView: View {
             )
         }
         .navigationTitle(CalendarStrings.settingsTitle)
-        .task { accountURL = await AccountLink.accountURL(server: env.serverURL) }
-        .alert(CalendarStrings.settingsDeleteAccountTitle, isPresented: $confirmDelete) {
-            if let accountURL {
-                Button(CalendarStrings.settingsDeleteAccountContinue, role: .destructive) { openURL(accountURL) }
-                    .accessibilityIdentifier("delete-account-continue")
-            } else if let support = PrivacyLinks.support {
-                Button(CalendarStrings.settingsContactSupport) { openURL(support) }
-            }
-            Button(CoreStrings.commonCancel, role: .cancel) {}
-        } message: {
-            Text(accountURL != nil ? CalendarStrings.settingsDeleteAccountMessage : CalendarStrings.settingsDeleteAccountUnavailable)
-        }
     }
 
     @ViewBuilder private func link(_ title: String, _ url: URL?, id: String) -> some View {

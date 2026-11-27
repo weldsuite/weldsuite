@@ -202,11 +202,6 @@
     "privacy": "Privacy",
     "privacyPolicy": "Privacy policy",
     "terms": "Terms of service",
-    "contactSupport": "Contact support",
-    "deleteAccount": "Delete account",
-    "deleteAccountTitle": "Delete your account?",
-    "deleteAccountMessage": "Your account, profile and access to every workspace are removed for good. You finish this on your account page.",
-    "deleteAccountContinue": "Go to my account",
-    "deleteAccountUnavailable": "Email privacy@weldsuite.com to have your account deleted."
+    "contactSupport": "Contact support"
   }
 }

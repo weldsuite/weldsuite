@@ -69,6 +69,16 @@ public enum CoreStrings {
     public static var settingsAppearance: String { tr("settings.appearance") }
     /// Dark
     public static var settingsDark: String { tr("settings.dark") }
+    /// Delete account
+    public static var settingsDeleteAccount: String { tr("settings.deleteAccount") }
+    /// Go to my account
+    public static var settingsDeleteAccountContinue: String { tr("settings.deleteAccountContinue") }
+    /// Your account, profile and access to every workspace are removed for good. You finish this on your account page.
+    public static var settingsDeleteAccountMessage: String { tr("settings.deleteAccountMessage") }
+    /// Delete your account?
+    public static var settingsDeleteAccountTitle: String { tr("settings.deleteAccountTitle") }
+    /// Your server doesn’t offer this in the app. Ask its administrator to delete your account.
+    public static var settingsDeleteAccountUnavailable: String { tr("settings.deleteAccountUnavailable") }
     /// Language
     public static var settingsLanguage: String { tr("settings.language") }
     /// Light

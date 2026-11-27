@@ -383,7 +383,8 @@ function outputs(only) {
   files.set('apps/ios/WeldKit/Sources/WeldUI/Generated/Tokens.swift', tokensSwift(tokens));
   files.set('apps/android/ui/src/main/kotlin/org/weldsuite/ui/Tokens.kt', tokensKotlin(tokens));
   for (const copy of OPENAPI_COPIES.filter((entry) => !only || entry.source === only)) {
-    files.set(copy.to, readFileSync(join(SHARED, copy.from), 'utf8'));
+    // LF whatever the checkout has, so --check agrees on Windows (autocrlf) and Linux.
+    files.set(copy.to, normalise(readFileSync(join(SHARED, copy.from), 'utf8')));
   }
   return files;
 }

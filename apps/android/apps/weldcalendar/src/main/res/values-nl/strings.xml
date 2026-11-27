@@ -165,11 +165,6 @@
     <string name="weldcalendar_response_pending">Nog geen antwoord</string>
     <string name="weldcalendar_response_tentative">Misschien</string>
     <string name="weldcalendar_settings_contact_support">Contact met support</string>
-    <string name="weldcalendar_settings_delete_account">Account verwijderen</string>
-    <string name="weldcalendar_settings_delete_account_continue">Naar mijn account</string>
-    <string name="weldcalendar_settings_delete_account_message">Je account, je profiel en je toegang tot alle werkruimtes worden definitief verwijderd. Je rondt dit af op je accountpagina.</string>
-    <string name="weldcalendar_settings_delete_account_title">Je account verwijderen?</string>
-    <string name="weldcalendar_settings_delete_account_unavailable">Mail privacy@weldsuite.com om je account te laten verwijderen.</string>
     <string name="weldcalendar_settings_privacy">Privacy</string>
     <string name="weldcalendar_settings_privacy_policy">Privacybeleid</string>
     <string name="weldcalendar_settings_terms">Gebruiksvoorwaarden</string>

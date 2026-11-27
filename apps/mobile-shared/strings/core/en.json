@@ -78,6 +78,11 @@
     "signOut": "Sign out",
     "signOutTitle": "Sign out of {app}?",
     "signOutMessage": "You’ll need to sign in again to use {app} on this phone.",
-    "version": "Version {version}"
+    "version": "Version {version}",
+    "deleteAccount": "Delete account",
+    "deleteAccountTitle": "Delete your account?",
+    "deleteAccountMessage": "Your account, profile and access to every workspace are removed for good. You finish this on your account page.",
+    "deleteAccountContinue": "Go to my account",
+    "deleteAccountUnavailable": "Your server doesn’t offer this in the app. Ask its administrator to delete your account."
   }
 }

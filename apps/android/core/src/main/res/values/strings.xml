@@ -34,6 +34,11 @@
     <string name="core_settings_account">Account</string>
     <string name="core_settings_appearance">Appearance</string>
     <string name="core_settings_dark">Dark</string>
+    <string name="core_settings_delete_account">Delete account</string>
+    <string name="core_settings_delete_account_continue">Go to my account</string>
+    <string name="core_settings_delete_account_message">Your account, profile and access to every workspace are removed for good. You finish this on your account page.</string>
+    <string name="core_settings_delete_account_title">Delete your account?</string>
+    <string name="core_settings_delete_account_unavailable">Your server doesn’t offer this in the app. Ask its administrator to delete your account.</string>
     <string name="core_settings_language">Language</string>
     <string name="core_settings_light">Light</string>
     <string name="core_settings_lock">Lock with %1$s</string>

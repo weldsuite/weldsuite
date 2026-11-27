@@ -78,6 +78,11 @@
     "signOut": "Uitloggen",
     "signOutTitle": "Uitloggen bij {app}?",
     "signOutMessage": "Je moet opnieuw inloggen om {app} op deze telefoon te gebruiken.",
-    "version": "Versie {version}"
+    "version": "Versie {version}",
+    "deleteAccount": "Account verwijderen",
+    "deleteAccountTitle": "Je account verwijderen?",
+    "deleteAccountMessage": "Je account, je profiel en je toegang tot alle werkruimtes worden definitief verwijderd. Je rondt dit af op je accountpagina.",
+    "deleteAccountContinue": "Naar mijn account",
+    "deleteAccountUnavailable": "Je server biedt dit niet in de app. Vraag de beheerder om je account te verwijderen."
   }
 }
