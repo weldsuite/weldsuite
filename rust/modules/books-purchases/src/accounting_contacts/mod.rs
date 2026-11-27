@@ -95,6 +95,9 @@ where
         .route("/{id}/invoices", get(invoices).route_layer(read()))
         .route("/{id}/bills", get(bills).route_layer(read()))
         .route("/{id}/balance", get(balance).route_layer(read()))
+        // Rust only (edition feature `books-bank-processing`): payments of
+        // the contact with credit left to apply (`POST /api/payments/:id/apply`).
+        .route("/{id}/credits", get(credits).route_layer(read()))
         .route(
             "/{id}/archive",
             post(archive).route_layer(need(&["customers:update", "suppliers:update"])),
@@ -546,6 +549,32 @@ async fn balance(caller: Caller, Path(id): Path<String>) -> Response {
     }
     .await;
     reply(result, "Failed to fetch contact balance")
+}
+
+/// `GET /:id/credits`: the contact's payments (in the request's entity) with
+/// an unallocated remainder, newest first: `paymentId`, `type`, `date`,
+/// `currency`, `reference`, `amount`, `unallocatedAmount`, `bankTransactionId`.
+/// The contact's `/balance` is left as it was.
+async fn credits(caller: Caller, Path(id): Path<String>) -> Response {
+    let result: Reply = async {
+        if PARTIES.find_live(&caller.db, &id).await?.is_none() {
+            return Err(Refusal::not_found("Contact", &id));
+        }
+        let Some(entity_id) = resolve_entity_id(&caller).await? else {
+            return Ok(ok(Value::Array(Vec::new())));
+        };
+        let credits = weldsuite_books_domain::unapplied_credit::credits_of_contact(
+            &caller.db, &entity_id, &id,
+        )
+        .await
+        .map_err(|error| match error {
+            weldsuite_books_domain::posting::PostError::Database(error) => Refusal::Database(error),
+            other => Refusal::Internal(other.to_string()),
+        })?;
+        Ok(ok(Value::Array(credits)))
+    }
+    .await;
+    reply(result, "Failed to fetch contact credits")
 }
 
 async fn import_from_crm() -> Response {

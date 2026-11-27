@@ -10,7 +10,9 @@ export const ACCOUNTING_ENTITY_EVENTS = {
   accounting_document: ['created', 'updated', 'deleted'],
   accounting_settings: ['updated'],
   bank_account: ['created', 'updated', 'deleted'],
-  bank_transaction: ['created', 'updated', 'deleted', 'apply_reconciliation_rules'],
+  // `processed` carries `how` (category, transfer, private, ignore, rule, auto, link);
+  // `unprocessed` is the undo. Both Rust backend only (edition feature `books-bank-processing`).
+  bank_transaction: ['created', 'updated', 'deleted', 'apply_reconciliation_rules', 'processed', 'unprocessed'],
   bill: ['created', 'updated', 'deleted', 'approved', 'rejected', 'paid'],
   invoice: ['created', 'updated', 'deleted', 'paid', 'overdue', 'sent'],
   journal_entry: ['created', 'updated', 'deleted'],

@@ -221,6 +221,14 @@
       "normalSide": "debit"
      },
      {
+      "code": "1250",
+      "name": "Kruisposten",
+      "type": "asset",
+      "subtype": "current_assets",
+      "normalSide": "debit",
+      "systemRole": "transfers_in_transit"
+     },
+     {
       "code": "1300",
       "name": "Debiteuren",
       "type": "asset",
@@ -341,6 +349,14 @@
       "normalSide": "credit"
      },
      {
+      "code": "1960",
+      "name": "Rekening-courant DGA",
+      "type": "liability",
+      "subtype": "accounts_payable",
+      "normalSide": "credit",
+      "systemRole": "director_current_account"
+     },
+     {
       "code": "2000",
       "name": "Langlopende leningen",
       "type": "liability",
@@ -382,7 +398,8 @@
       "name": "Privé",
       "type": "equity",
       "subtype": "capital",
-      "normalSide": "debit"
+      "normalSide": "debit",
+      "systemRole": "private"
      },
      {
       "code": "8000",
@@ -637,6 +654,14 @@
       "normalSide": "debit"
      },
      {
+      "code": "4660",
+      "name": "Afrondingsverschillen",
+      "type": "expense",
+      "subtype": "operating_expense",
+      "normalSide": "debit",
+      "systemRole": "rounding"
+     },
+     {
       "code": "4690",
       "name": "Oninbare debiteuren",
       "type": "expense",
@@ -711,6 +736,14 @@
       "type": "asset",
       "subtype": "bank",
       "normalSide": "debit"
+     },
+     {
+      "code": "1250",
+      "name": "Transfers in transit",
+      "type": "asset",
+      "subtype": "current_assets",
+      "normalSide": "debit",
+      "systemRole": "transfers_in_transit"
      },
      {
       "code": "1300",
@@ -849,6 +882,14 @@
       "normalSide": "credit"
      },
      {
+      "code": "1950",
+      "name": "Director's loan account",
+      "type": "liability",
+      "subtype": "accounts_payable",
+      "normalSide": "credit",
+      "systemRole": "director_current_account"
+     },
+     {
       "code": "2000",
       "name": "Long-term loans",
       "type": "liability",
@@ -883,7 +924,8 @@
       "name": "Drawings",
       "type": "equity",
       "subtype": "capital",
-      "normalSide": "debit"
+      "normalSide": "debit",
+      "systemRole": "private"
      },
      {
       "code": "8000",
@@ -1082,6 +1124,16 @@
       "subtype": "current_asset",
       "normalSide": "debit",
       "systemRole": "undeposited_funds",
+      "isSystemAccount": true,
+      "taxLine": "bs_cash"
+     },
+     {
+      "code": "1060",
+      "name": "Transfers in transit",
+      "type": "asset",
+      "subtype": "current_asset",
+      "normalSide": "debit",
+      "systemRole": "transfers_in_transit",
       "isSystemAccount": true,
       "taxLine": "bs_cash"
      },
@@ -1900,6 +1952,16 @@
       "subtype": "current_asset",
       "normalSide": "debit",
       "systemRole": "undeposited_funds",
+      "isSystemAccount": true,
+      "taxLine": "bs_cash"
+     },
+     {
+      "code": "1060",
+      "name": "Transfers in transit",
+      "type": "asset",
+      "subtype": "current_asset",
+      "normalSide": "debit",
+      "systemRole": "transfers_in_transit",
       "isSystemAccount": true,
       "taxLine": "bs_cash"
      },
@@ -2756,6 +2818,16 @@
       "taxLine": "bs_cash"
      },
      {
+      "code": "1060",
+      "name": "Transfers in transit",
+      "type": "asset",
+      "subtype": "current_asset",
+      "normalSide": "debit",
+      "systemRole": "transfers_in_transit",
+      "isSystemAccount": true,
+      "taxLine": "bs_cash"
+     },
+     {
       "code": "1100",
       "name": "Accounts receivable",
       "type": "asset",
@@ -3574,6 +3646,16 @@
       "subtype": "current_asset",
       "normalSide": "debit",
       "systemRole": "undeposited_funds",
+      "isSystemAccount": true,
+      "taxLine": "bs_cash"
+     },
+     {
+      "code": "1060",
+      "name": "Transfers in transit",
+      "type": "asset",
+      "subtype": "current_asset",
+      "normalSide": "debit",
+      "systemRole": "transfers_in_transit",
       "isSystemAccount": true,
       "taxLine": "bs_cash"
      },
@@ -4420,6 +4502,16 @@
       "subtype": "current_asset",
       "normalSide": "debit",
       "systemRole": "undeposited_funds",
+      "isSystemAccount": true,
+      "taxLine": "bs_cash"
+     },
+     {
+      "code": "1060",
+      "name": "Transfers in transit",
+      "type": "asset",
+      "subtype": "current_asset",
+      "normalSide": "debit",
+      "systemRole": "transfers_in_transit",
       "isSystemAccount": true,
       "taxLine": "bs_cash"
      },
@@ -5310,6 +5402,15 @@
       "normalSide": "debit",
       "isSystemAccount": true,
       "systemRole": "undeposited_funds"
+     },
+     {
+      "code": "1.1.1.05",
+      "name": "Transferências em trânsito",
+      "type": "asset",
+      "subtype": "current_assets",
+      "normalSide": "debit",
+      "isSystemAccount": true,
+      "systemRole": "transfers_in_transit"
      },
      {
       "code": "1.1.2.01",

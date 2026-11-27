@@ -15,6 +15,7 @@ use axum::response::Response;
 use sea_orm::{ColumnTrait, Condition, DbErr, EntityTrait, QueryFilter, QueryOrder};
 use serde_json::{Value, json};
 use sqlx::PgPool;
+use weldsuite_books_domain::bank_processing::{automatic_reason, booked_counterpart};
 use weldsuite_books_domain::http::{Caller, Refusal, ok, reply};
 use weldsuite_db::orm;
 use weldsuite_schema::tenant::{
@@ -269,7 +270,11 @@ async fn deposit_of(db: &PgPool, txn: &Value, entity: &str) -> Result<Option<Val
 
 /// The account and tax rate a categorized line was booked to.
 async fn category_of(db: &PgPool, txn: &Value, entity: &str) -> Result<Option<Value>, DbErr> {
-    if text(txn, "reconciliationType") != Some("manual") {
+    if !matches!(
+        text(txn, "reconciliationType"),
+        Some("manual" | "auto" | "transfer" | "private")
+    ) || filled(txn, "reconciledPaymentId").is_some()
+    {
         return Ok(None);
     }
     let Some(account_id) = filled(txn, "categoryAccountId") else {
@@ -392,12 +397,19 @@ fn processed_as(txn: &Value, payment: bool, deposit: bool, category: bool) -> &'
         Some("excluded") => "excluded",
         Some("reconciled") if deposit => "deposit",
         Some("reconciled") if payment => "payment",
+        Some("reconciled") if category && text(txn, "reconciliationType") == Some("transfer") => {
+            "transfer"
+        }
+        Some("reconciled") if category && text(txn, "reconciliationType") == Some("private") => {
+            "private"
+        }
         Some("reconciled") if category => "category",
         _ => "unprocessed",
     }
 }
 
 /// The whole answer for one line.
+#[allow(clippy::too_many_lines)] // one read per connection, in the answer's order
 pub(crate) async fn build(db: &PgPool, txn: &Value) -> Result<Value, DbErr> {
     let entity = text(txn, "entityId").unwrap_or_default();
     let payment = payment_of(db, txn, entity).await?;
@@ -450,12 +462,41 @@ pub(crate) async fn build(db: &PgPool, txn: &Value) -> Result<Value, DbErr> {
     let category = category_of(db, txn, entity).await?;
     let contact = contact_of(db, txn, payment.as_ref(), &allocations).await?;
     let documents = inbox_documents(db, txn, &bill_rows, entity).await?;
-    let processed = processed_as(
+    let mut processed = processed_as(
         txn,
         payment.is_some() || !allocations.is_empty(),
         deposit.is_some() && text(txn, "status") == Some("reconciled"),
         category.is_some(),
     );
+    // Why the matcher booked it, when it did (`document_match`,
+    // `own_account_transfer`, `tax_authority`, `rule`), derived from the
+    // line's own columns.
+    let automatic = automatic_reason(db, txn)
+        .await
+        .map_err(|error| DbErr::Custom(error.to_string()))?;
+    let reason = automatic
+        .as_ref()
+        .and_then(|a| a.get("reason"))
+        .and_then(Value::as_str);
+    if reason == Some("own_account_transfer") {
+        processed = "transfer";
+    }
+    // The other half of a transfer, once it is booked too.
+    let transfer = if processed == "transfer" {
+        let transit = filled(txn, "categoryAccountId").unwrap_or_default();
+        let counterpart = booked_counterpart(db, txn, transit).await?.map(|line| {
+            json!({
+                "id": field(&line, "id"),
+                "bankAccountId": field(&line, "bankAccountId"),
+                "date": field(&line, "date"),
+                "amount": field(&line, "amount"),
+                "description": field(&line, "description"),
+            })
+        });
+        Some(json!({ "counterpart": counterpart }))
+    } else {
+        None
+    };
     Ok(json!({
         "transaction": txn,
         "processedAs": processed,
@@ -475,6 +516,14 @@ pub(crate) async fn build(db: &PgPool, txn: &Value) -> Result<Value, DbErr> {
         "category": category,
         "contact": contact,
         "documents": documents,
+        "automatic": automatic.is_some(),
+        "reason": reason,
+        "rule": automatic.as_ref().and_then(|a| {
+            a.get("ruleId")
+                .filter(|id| !id.is_null())
+                .map(|id| json!({ "id": id, "name": a.get("ruleName") }))
+        }),
+        "transfer": transfer,
     }))
 }
 

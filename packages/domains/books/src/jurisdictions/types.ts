@@ -49,6 +49,14 @@ export type SystemAccountRole =
   | 'realized_fx_gain'
   | 'realized_fx_loss'
   | 'rounding'
+  // Bank lines: a clearing account for money moving between the entity's own
+  // accounts (NL: kruisposten), and where money paid privately is booked
+  // (NL sole trader / VOF: privé; IN and US owner's drawings).
+  | 'transfers_in_transit'
+  | 'private'
+  // The same for a company: a current account with the director-shareholder
+  // (NL BV / NV: rekening-courant DGA; IN: director's loan account).
+  | 'director_current_account'
   // US (and any jurisdiction that wants them)
   | 'undeposited_funds'
   | 'sales_tax_payable'

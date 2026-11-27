@@ -12,6 +12,7 @@ export const inChartOfAccounts: ChartOfAccountsTemplateRow[] = [
   { code: '1000', name: 'Fixed assets', type: 'asset', subtype: 'fixed_assets', normalSide: 'debit' },
   { code: '1100', name: 'Cash', type: 'asset', subtype: 'cash', normalSide: 'debit' },
   { code: '1200', name: 'Bank', type: 'asset', subtype: 'bank', normalSide: 'debit' },
+  { code: '1250', name: 'Transfers in transit', type: 'asset', subtype: 'current_assets', normalSide: 'debit', systemRole: 'transfers_in_transit' },
   {
     code: '1300',
     name: 'Accounts receivable',
@@ -126,6 +127,7 @@ export const inChartOfAccounts: ChartOfAccountsTemplateRow[] = [
   },
   { code: '1800', name: 'TDS payable', type: 'liability', subtype: 'tax', normalSide: 'credit' },
   { code: '1900', name: 'Accrued expenses', type: 'liability', subtype: 'accounts_payable', normalSide: 'credit' },
+  { code: '1950', name: "Director's loan account", type: 'liability', subtype: 'accounts_payable', normalSide: 'credit', systemRole: 'director_current_account' },
   { code: '2000', name: 'Long-term loans', type: 'liability', subtype: 'accounts_payable', normalSide: 'credit' },
 
   // Equity
@@ -140,7 +142,7 @@ export const inChartOfAccounts: ChartOfAccountsTemplateRow[] = [
     isSystemAccount: true,
     systemRole: 'retained_earnings',
   },
-  { code: '0540', name: 'Drawings', type: 'equity', subtype: 'capital', normalSide: 'debit' },
+  { code: '0540', name: 'Drawings', type: 'equity', subtype: 'capital', normalSide: 'debit', systemRole: 'private' },
 
   // Revenue. Operating revenue carries a sales / service_revenue subtype; only 8100 and 8400
   // are `other_income`, which the profit & loss shows below the operating line.

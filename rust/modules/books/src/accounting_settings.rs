@@ -57,6 +57,18 @@ where
             "/exchange-rate/{from}/{to}",
             get(exchange_rate).route_layer(need("accounts:read")),
         )
+        // Rust only (edition feature `books-bank-processing`): the entity's
+        // default accounts for bank costs, payment discount and rounding.
+        .route(
+            "/differences",
+            get(read_differences).route_layer(need("accounts:read")),
+        )
+        .route(
+            "/differences",
+            axum::routing::put(update_differences)
+                .patch(update_differences)
+                .route_layer(need("accounts:update")),
+        )
         .route("/inbox", post(inbox).route_layer(need("accounts:update")))
         .route(
             "/seed-workflows",
@@ -337,6 +349,163 @@ async fn update_settings(caller: &Caller, state: &BooksState, data: Map<String, 
         Value::Object(merged.clone()),
     );
     Ok(ok(Value::Object(merged)))
+}
+
+// ── GET|PUT|PATCH /differences ──────────────────────────────────────────────
+
+/// The entity's differences settings and the rounding account in use.
+async fn differences_answer(caller: &Caller, entity_id: &str) -> Reply {
+    let (differences, rounding) =
+        weldsuite_books_domain::differences::load_with_rounding(&caller.db, entity_id).await?;
+    let mut answer = differences.to_json();
+    answer["effectiveRoundingAccountId"] = json!(rounding);
+    Ok(ok(answer))
+}
+
+async fn read_differences(caller: Caller) -> Response {
+    reply(
+        async {
+            let Some(entity_id) = resolve_entity_id(&caller).await? else {
+                return Err(Refusal::bad_request("No accounting entity resolved"));
+            };
+            differences_answer(&caller, &entity_id).await
+        }
+        .await,
+        "Failed to fetch the differences settings",
+    )
+}
+
+/// `{ bankCostsAccountId?, paymentDiscountAccountId?, roundingAccountId?,
+/// roundingCap? }`: a key set to `null` goes back to the default.
+fn read_differences_body(issues: &mut Issues, body: &Map<String, Value>) -> Map<String, Value> {
+    let mut out = Map::new();
+    for key in [
+        "bankCostsAccountId",
+        "paymentDiscountAccountId",
+        "roundingAccountId",
+    ] {
+        keep(
+            &mut out,
+            key,
+            issues.text(body, key, Presence::Nullish, Some(1), Some(30)),
+        );
+    }
+    let cap = issues.number(
+        body,
+        "roundingCap",
+        Presence::Nullish,
+        Number {
+            coerce: true,
+            min: Some(0.0),
+            ..Number::default()
+        },
+    );
+    match cap {
+        Field::Set(cap) => {
+            out.insert(
+                "roundingCap".to_owned(),
+                json!(weldsuite_books_domain::js::to_fixed(cap, 2)),
+            );
+        }
+        Field::Null => {
+            out.insert("roundingCap".to_owned(), Value::Null);
+        }
+        Field::Absent => {}
+    }
+    out
+}
+
+async fn update_differences(
+    caller: Caller,
+    State(state): State<BooksState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    let data = match validate(&headers, &body, read_differences_body) {
+        Ok(data) => data,
+        Err(refusal) => return refusal.respond("Failed to update the differences settings"),
+    };
+    reply(
+        async {
+            let Some(entity_id) = resolve_entity_id(&caller).await? else {
+                return Err(Refusal::bad_request("No accounting entity resolved"));
+            };
+            // The accounts must be this entity's.
+            let accounts =
+                weldsuite_books_domain::posting::load_entity_accounts(&caller.db, &entity_id)
+                    .await?;
+            for key in [
+                "bankCostsAccountId",
+                "paymentDiscountAccountId",
+                "roundingAccountId",
+            ] {
+                if let Some(account) = data.get(key).and_then(Value::as_str)
+                    && accounts.by_id(Some(account)).is_none()
+                {
+                    return Err(Refusal::bad_request(format!(
+                        "Account {account} does not belong to this accounting entity"
+                    )));
+                }
+            }
+            let entity =
+                weldsuite_books_domain::document_posting::load_entity(&caller.db, &entity_id)
+                    .await
+                    .map_err(|error| Refusal::Internal(error.to_string()))?;
+            let before = weldsuite_books_domain::differences::Differences::of(
+                entity.get("jurisdictionSettings"),
+            );
+            let next = weldsuite_books_domain::differences::merged(
+                entity.get("jurisdictionSettings"),
+                &data,
+            );
+            weldsuite_books_domain::differences::store(&caller.db, &entity_id, &next).await?;
+            let after = weldsuite_books_domain::differences::Differences::of(Some(&next));
+            let changes: Map<String, Value> = [
+                (
+                    "bankCostsAccountId",
+                    json!(before.bank_costs_account_id),
+                    json!(after.bank_costs_account_id),
+                ),
+                (
+                    "paymentDiscountAccountId",
+                    json!(before.payment_discount_account_id),
+                    json!(after.payment_discount_account_id),
+                ),
+                (
+                    "roundingAccountId",
+                    json!(before.rounding_account_id),
+                    json!(after.rounding_account_id),
+                ),
+                (
+                    "roundingCap",
+                    json!(before.rounding_cap),
+                    json!(after.rounding_cap),
+                ),
+            ]
+            .into_iter()
+            .filter(|(_, old, new)| old != new)
+            .map(|(key, old, new)| (key.to_owned(), change(old, new)))
+            .collect();
+            write_accounting_audit(
+                &caller,
+                &caller.db,
+                AuditInput {
+                    accounting_entity_id: Some(&entity_id),
+                    entity_type: "accounting_settings",
+                    entity_id: &entity_id,
+                    action: "updated",
+                    changes: Some(changes),
+                },
+            )
+            .await;
+            let mut event = after.to_json();
+            event["entityId"] = json!(entity_id);
+            caller.publish(&state, ACCOUNTING_SETTINGS_UPDATED, &entity_id, event);
+            differences_answer(&caller, &entity_id).await
+        }
+        .await,
+        "Failed to update the differences settings",
+    )
 }
 
 // ── exchange rates ──────────────────────────────────────────────────────────

@@ -156,6 +156,9 @@ export const GLOBAL_UNAVAILABLE_FEATURES: readonly string[] = [
   'books-bank-links',
   // WeldBooks: the "to process" list and its counts (`/api/accounting-todo`).
   'books-todo',
+  // WeldBooks: processing bank lines (split categories, transfers, private,
+  // one undo, rule suggestions, differences, unapplied credit).
+  'books-bank-processing',
 ];
 
 const mod = (

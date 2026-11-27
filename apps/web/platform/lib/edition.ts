@@ -304,6 +304,16 @@ export const EDITION_FEATURES = [
    * dashboard's own counts.
    */
   'books-todo',
+  /**
+   * WeldBooks "processing bank lines": book a line to one or several
+   * categories, mark a transfer between own accounts or a private payment,
+   * attach a receipt, one undo for every kind of processing, rule
+   * suggestions, lines booked automatically with the reason, differences
+   * (bank costs, discount, rounding) and applying a contact's unapplied
+   * credit. Built only in Rust, so it is in `GLOBAL_UNAVAILABLE_FEATURES`
+   * and Global keeps today's reconcile screen.
+   */
+  'books-bank-processing',
 ] as const;
 
 export type EditionFeature = (typeof EDITION_FEATURES)[number];

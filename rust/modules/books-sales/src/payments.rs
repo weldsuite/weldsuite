@@ -28,7 +28,10 @@ use weldsuite_books_domain::payments::{
     AllocationInput, RecordPaymentInput, record_payment, void_payment,
 };
 use weldsuite_books_domain::posting::PostError;
-use weldsuite_catalogs::entity_events::{PAYMENT_CREATED, PAYMENT_DELETED};
+use weldsuite_books_domain::unapplied_credit::{Target, apply_credit};
+use weldsuite_catalogs::entity_events::{
+    BILL_UPDATED, INVOICE_UPDATED, PAYMENT_CREATED, PAYMENT_DELETED, PAYMENT_UPDATED,
+};
 use weldsuite_db::orm;
 use weldsuite_kit::ApiError;
 use weldsuite_kit::validation::{Issues, Presence};
@@ -48,6 +51,12 @@ where
     Router::new()
         .route("/", get(list).route_layer(need("banking:read")))
         .route("/", post(create).route_layer(need("banking:create")))
+        // Rust only (edition feature `books-bank-processing`): apply credit a
+        // payment left on a contact to an open document of that contact.
+        .route(
+            "/{id}/apply",
+            post(apply).route_layer(need("banking:update")),
+        )
         .route("/{id}", get(detail).route_layer(need("banking:read")))
         .route(
             "/{id}",
@@ -477,6 +486,120 @@ async fn create_payment(caller: &Caller, state: &BooksState, data: CreateInput) 
         "journalEntryId": result.journal_entry_id,
         "undeposited": result.undeposited,
     })))
+}
+
+// ── POST /:id/apply ─────────────────────────────────────────────────────────
+
+/// `{ invoiceId | billId, amount }`.
+struct ApplyBody {
+    invoice_id: Option<String>,
+    bill_id: Option<String>,
+    amount: f64,
+}
+
+fn read_apply(issues: &mut Issues, body: &Map<String, Value>) -> ApplyBody {
+    let mut optional = |key: &str| {
+        issues
+            .text(body, key, Presence::Nullish, None, Some(30))
+            .into_option()
+            .filter(|v| !v.is_empty())
+    };
+    let invoice_id = optional("invoiceId");
+    let bill_id = optional("billId");
+    let amount = issues.number(
+        body,
+        "amount",
+        Presence::Required,
+        weldsuite_kit::validation::Number {
+            coerce: true,
+            ..weldsuite_kit::validation::Number::default()
+        },
+    );
+    ApplyBody {
+        invoice_id,
+        bill_id,
+        amount: amount.into_option().unwrap_or(0.0),
+    }
+}
+
+async fn apply(
+    caller: Caller,
+    State(state): State<BooksState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    let data = match validate(&headers, &body, read_apply) {
+        Ok(data) => data,
+        Err(refusal) => return refusal.respond("Failed to apply the credit"),
+    };
+    reply(
+        apply_to_document(&caller, &state, &id, data).await,
+        "Failed to apply the credit",
+    )
+}
+
+async fn apply_to_document(
+    caller: &Caller,
+    state: &BooksState,
+    id: &str,
+    data: ApplyBody,
+) -> Reply {
+    let target = match (data.invoice_id, data.bill_id) {
+        (Some(invoice), None) => Target::Invoice(invoice),
+        (None, Some(bill)) => Target::Bill(bill),
+        _ => {
+            return Err(Refusal::bad_request(
+                "Pick an invoice or a bill (one of them) to apply the credit to",
+            ));
+        }
+    };
+    let (invoice, document_id) = match &target {
+        Target::Invoice(document) => (true, document.clone()),
+        Target::Bill(document) => (false, document.clone()),
+    };
+    let applied = match apply_credit(&caller.db, id, &target, data.amount).await {
+        Ok(applied) => applied,
+        Err(PostError::Posting(message)) if message == "Payment not found" => {
+            return Err(Refusal::not_found("Payment", id));
+        }
+        Err(error) => return Err(posting_refusal(error)),
+    };
+    let amount = js::to_fixed(applied.amount, 2);
+    let unapplied = js::to_fixed(applied.remaining, 2);
+    let key = if invoice { "invoiceId" } else { "billId" };
+    let mut allocation = json!({ "amount": amount });
+    allocation[key] = json!(document_id);
+    let mut changes = Map::new();
+    changes.insert("allocation".into(), change(Value::Null, allocation));
+    write_accounting_audit(
+        caller,
+        &caller.db,
+        AuditInput {
+            accounting_entity_id: applied.payment["entityId"].as_str(),
+            entity_type: "payment",
+            entity_id: id,
+            action: "credit_applied",
+            changes: Some(changes),
+        },
+    )
+    .await;
+    let mut event = json!({ "id": id, "amount": amount, "unallocatedAmount": unapplied });
+    event[key] = json!(document_id);
+    caller.publish(state, PAYMENT_UPDATED, id, event);
+    caller.publish(
+        state,
+        if invoice {
+            INVOICE_UPDATED
+        } else {
+            BILL_UPDATED
+        },
+        &document_id,
+        json!({ "id": document_id, "paymentId": id }),
+    );
+    let mut answer = json!({ "paymentId": id, "amount": amount, "unallocatedAmount": unapplied });
+    answer[key] = json!(document_id);
+    Ok(ok(answer))
 }
 
 async fn remove(

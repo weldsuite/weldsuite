@@ -3934,6 +3934,8 @@
     "bank_transaction.updated",
     "bank_transaction.deleted",
     "bank_transaction.apply_reconciliation_rules",
+    "bank_transaction.processed",
+    "bank_transaction.unprocessed",
     "bill.created",
     "bill.updated",
     "bill.deleted",

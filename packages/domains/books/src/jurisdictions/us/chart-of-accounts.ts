@@ -70,6 +70,7 @@ export const US_REQUIRED_SYSTEM_ROLES: readonly SystemAccountRole[] = [
   'realized_fx_loss',
   'rounding',
   'undeposited_funds',
+  'transfers_in_transit',
   'sales_tax_payable',
   'use_tax_payable',
   'opening_balance_equity',
@@ -97,6 +98,7 @@ export const usBaseChartOfAccounts: Row[] = [
   row('1010', 'Savings', 'asset', 'bank', { taxLine: 'bs_cash' }),
   row('1020', 'Petty cash', 'asset', 'cash', { taxLine: 'bs_cash' }),
   row('1050', 'Undeposited funds', 'asset', 'current_asset', { systemRole: 'undeposited_funds', taxLine: 'bs_cash' }),
+  row('1060', 'Transfers in transit', 'asset', 'current_asset', { systemRole: 'transfers_in_transit', taxLine: 'bs_cash' }),
   row('1100', 'Accounts receivable', 'asset', 'accounts_receivable', {
     systemRole: 'accounts_receivable',
     taxLine: 'bs_receivables',

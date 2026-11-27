@@ -108,7 +108,9 @@
     "created",
     "updated",
     "deleted",
-    "apply_reconciliation_rules"
+    "apply_reconciliation_rules",
+    "processed",
+    "unprocessed"
   ],
   "bill": [
     "created",

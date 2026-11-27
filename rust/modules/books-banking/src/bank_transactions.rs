@@ -14,7 +14,7 @@ use axum::body::Bytes;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use axum::routing::{delete, get, post};
+use axum::routing::{delete, get, patch, post};
 use http::HeaderMap;
 use sea_orm::sea_query::{Expr, Func};
 use sea_orm::{
@@ -54,15 +54,18 @@ use weldsuite_schema::tenant::{bank_accounts, bank_import_batches, bank_transact
 
 use crate::bank_line_links;
 use crate::bank_links;
+use crate::bank_processing;
 use crate::common::{changes, field, find_transaction, posting_refusal, text};
 use crate::csv_format;
 use crate::import::{
     DeleteScope, count_duplicates, delete_lines, import_transactions, line_delete_blocker,
 };
 use crate::parsers::{CsvFormatRequired, ParseOptions, ParseResult, parse_bank_file};
+use crate::rule_suggestions;
 
 const FILE_FORMATS: [&str; 7] = ["mt940", "camt053", "csv", "ofx", "qfx", "qbo", "bai2"];
 
+#[allow(clippy::too_many_lines)] // one line per route
 pub(crate) fn router<S, Q>(state: BooksState, gate: &Arc<PermissionGate<Q>>) -> Router<S>
 where
     S: Clone + Send + Sync + 'static,
@@ -103,6 +106,37 @@ where
         .route(
             "/{id}/links",
             get(bank_line_links::links).route_layer(need("banking:read")),
+        )
+        // Rust only (edition feature `books-bank-processing`): processing a
+        // line (split categories, transfer, private, receipt, notes, one undo)
+        // and the rule its booking suggests.
+        .route(
+            "/{id}/categorize",
+            post(bank_processing::categorize).route_layer(need("banking:update")),
+        )
+        .route(
+            "/{id}/transfer",
+            post(bank_processing::transfer).route_layer(need("banking:update")),
+        )
+        .route(
+            "/{id}/private",
+            post(bank_processing::private).route_layer(need("banking:update")),
+        )
+        .route(
+            "/{id}/attach-document",
+            post(bank_processing::attach_document).route_layer(need("banking:update")),
+        )
+        .route(
+            "/{id}/undo",
+            post(bank_processing::undo).route_layer(need("banking:update")),
+        )
+        .route(
+            "/{id}/rule-suggestion",
+            get(rule_suggestions::rule_suggestion).route_layer(need("banking:read")),
+        )
+        .route(
+            "/{id}",
+            patch(bank_processing::patch_notes).route_layer(need("banking:update")),
         )
         .route("/{id}", get(detail).route_layer(need("banking:read")))
         .route(
@@ -180,6 +214,9 @@ struct LineFilters<'a> {
     from: Option<String>,
     to: Option<String>,
     search: Option<&'a str>,
+    /// `processedAutomatically=true` (Rust only): the lines the automatic
+    /// matcher or a rule booked (`reconciliation_type = 'auto'`).
+    automatic: bool,
 }
 
 impl LineFilters<'_> {
@@ -199,6 +236,11 @@ impl LineFilters<'_> {
         query = equal(query, Column::CheckNumber, self.check_number);
         query = equal(query, Column::Source, self.source);
         query = equal(query, Column::DepositId, self.deposit);
+        if self.automatic {
+            query = query
+                .filter(Column::Status.eq("reconciled"))
+                .filter(Column::ReconciliationType.eq("auto"));
+        }
         query
             .apply_if(self.from.as_deref(), |q, from| {
                 q.filter(sea_orm::ExprTrait::gte(
@@ -261,6 +303,7 @@ async fn list_lines(caller: &Caller) -> Reply {
         from: date_bound("from")?,
         to: date_bound("to")?,
         search: q.present("search"),
+        automatic: q.present("processedAutomatically") == Some("true"),
     };
     let db = orm(&caller.db);
     let rows = filters
