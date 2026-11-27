@@ -670,7 +670,8 @@ export interface BankTransaction {
 }
 
 export interface ReconciliationRuleCondition {
-  field: 'description' | 'counterpartyName' | 'counterpartyIban' | 'amount' | 'reference';
+  /** `direction` and `bankAccountId` are Rust only (`books-bank-processing`). */
+  field: 'description' | 'counterpartyName' | 'counterpartyIban' | 'amount' | 'reference' | 'direction' | 'bankAccountId';
   operator: 'contains' | 'equals' | 'starts_with' | 'ends_with' | 'greater_than' | 'less_than' | 'between';
   value: string | number;
   value2?: number;

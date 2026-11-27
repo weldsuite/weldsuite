@@ -18,6 +18,7 @@ const env = vi.hoisted(() => ({
   refetch: vi.fn(),
   panel: { open: vi.fn(), sync: vi.fn() },
   push: vi.fn(),
+  fetchPayment: vi.fn(),
 }));
 
 vi.mock('@/lib/i18n/provider', async () => {
@@ -32,6 +33,13 @@ vi.mock('@/lib/router', () => ({
     </a>
   ),
   useRouter: () => ({ push: env.push }),
+}));
+vi.mock('@tanstack/react-query', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@tanstack/react-query')>()),
+  useQueryClient: () => ({}),
+}));
+vi.mock('@/hooks/queries/use-weldbooks-processing-queries', () => ({
+  fetchCreditPayment: (...args: unknown[]) => env.fetchPayment(...args),
 }));
 vi.mock('@/components/object-panel', () => ({
   useObjectPanel: () => ({ stack: [], open: env.panel.open }),
@@ -100,6 +108,7 @@ beforeEach(() => {
   env.panel.open.mockReset();
   env.panel.sync.mockReset();
   env.push.mockReset();
+  env.fetchPayment.mockReset();
   env.summary = summary({
     vat_return: { count: 1, amount: null },
     invoices_overdue: { count: 4, amount: '221.00', currency: 'EUR', mixedCurrency: true },
@@ -257,17 +266,22 @@ describe('ToProcessPage', () => {
     expect(env.panel.open).not.toHaveBeenCalled();
   });
 
-  it('shows a payment without a link, and gives unapplied credit no action', () => {
+  it('opens the contact of an unapplied-credit payment on its Credit tab, and gives the card no action', async () => {
+    const user = userEvent.setup();
+    env.fetchPayment.mockResolvedValue({ id: 'pay_1', contactId: 'prt_9' });
     env.summary = summary({ unapplied_credit: { count: 1, amount: '40.00', currency: 'EUR', mixedCurrency: false } });
     env.top = {
       unapplied_credit: [item('unapplied_credit', { objectType: 'payment', objectId: 'pay_1', title: 'Globex', hint: 'unapplied_credit' })],
     };
     render(<ToProcessPage />);
     const row = within(card('unapplied_credit')).getByTestId('todo-item');
-    expect(within(row).getByText('Globex')).toBeInTheDocument();
     expect(within(row).getByText('Unapplied credit')).toBeInTheDocument();
-    expect(within(row).queryByRole('link')).not.toBeInTheDocument();
     expect(within(card('unapplied_credit')).queryByRole('link')).not.toBeInTheDocument();
+    await user.click(within(row).getByRole('button', { name: /Globex/ }));
+    await vi.waitFor(() =>
+      expect(env.panel.open).toHaveBeenCalledWith({ type: 'weldbooks_contact', id: 'prt_9', initialTab: 'credit', stack: true }),
+    );
+    expect(env.fetchPayment).toHaveBeenCalledWith(expect.anything(), 'pay_1');
   });
 
   it('offers Show all only for a kind with more than its top three, and pages through the rest with the cursor', async () => {

@@ -21,7 +21,7 @@ import { GapChoiceFieldset } from '@/components/accounting/gap-choice-fieldset';
 import { useDebounce } from '@/hooks/use-debounce';
 import { useMatchBankLineToDocuments, useOpenDocumentsForLine } from '@/hooks/queries/use-weldbooks-banking-queries';
 import type { Account } from '@/lib/api/domains/weldbooks';
-import type { OpenDocument } from '@/lib/api/domains/weldbooks-banking';
+import type { MatchDocumentsResult, OpenDocument } from '@/lib/api/domains/weldbooks-banking';
 import { useI18n } from '@/lib/i18n/provider';
 import {
   defaultShare,
@@ -49,7 +49,8 @@ interface MatchDocumentsPanelProps {
   currency: string;
   ledgerAccounts: Account[];
   readOnly: boolean;
-  onMatched: () => void;
+  /** Called with the server's answer, which names a rounding difference it booked on its own. */
+  onMatched: (result: MatchDocumentsResult) => void;
 }
 
 /** A refused submit, and the document it is about. */
@@ -283,9 +284,9 @@ export function MatchDocumentsPanel({
     match.mutate(
       { lineId, data: plan.body },
       {
-        onSuccess: () => {
+        onSuccess: (result) => {
           toast.success(tl.matched);
-          onMatched();
+          onMatched(result.data);
         },
       },
     );

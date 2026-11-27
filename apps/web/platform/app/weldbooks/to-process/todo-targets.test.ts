@@ -1,10 +1,17 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { en } from '@weldsuite/i18n/locales/en';
 import { nl } from '@weldsuite/i18n/locales/nl';
 import { TODO_KINDS } from '@/lib/api/domains/weldbooks';
 import { todoHintLabel, todoItemTarget, todoKindAction, todoKindTitle } from './todo-targets';
 
+const edition = vi.hoisted(() => ({ processing: false }));
+vi.mock('@/lib/edition', () => ({ isFeatureAvailable: () => edition.processing }));
+
 const copy = en.weldbooksConnected.todo;
+
+beforeEach(() => {
+  edition.processing = false;
+});
 
 describe('todoItemTarget', () => {
   it.each(['bank_transaction', 'invoice', 'bill', 'vat_return', 'bank_account'])('opens a %s as a stacked panel', (objectType) => {
@@ -18,8 +25,8 @@ describe('todoItemTarget', () => {
     });
   });
 
-  it('has no link for a payment (it has no panel until credit can be applied) or an unknown type', () => {
-    expect(todoItemTarget({ objectType: 'payment', objectId: 'pay_1' })).toEqual({ kind: 'none' });
+  it('opens a payment (unapplied credit) through its contact, and has no link for an unknown type', () => {
+    expect(todoItemTarget({ objectType: 'payment', objectId: 'pay_1' })).toEqual({ kind: 'credit', paymentId: 'pay_1' });
     expect(todoItemTarget({ objectType: 'spaceship', objectId: 's_1' })).toEqual({ kind: 'none' });
   });
 });
@@ -31,6 +38,11 @@ describe('todoKindAction', () => {
   it('processes bank lines on the reconcile screen, with the count in the label', () => {
     expect(action('bank_lines', 12)).toEqual({ label: 'Process 12 lines', href: '/weldbooks/banking/reconciliation' });
     expect(action('bank_lines', 1)?.label).toBe('Process 1 line');
+  });
+
+  it('processes bank lines in the processing view where the edition has it', () => {
+    edition.processing = true;
+    expect(action('bank_lines', 12)).toEqual({ label: 'Process 12 lines', href: '/weldbooks/banking/process' });
   });
 
   it('checks documents on the documents page', () => {

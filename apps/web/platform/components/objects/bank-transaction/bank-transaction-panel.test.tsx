@@ -6,6 +6,11 @@ import type { BankLine, BankLineLinks } from '@/lib/api/domains/weldbooks-bankin
 
 const env = vi.hoisted(() => ({
   expanded: true,
+  processing: false,
+  undo: vi.fn(),
+  saveNotes: vi.fn(),
+  transfer: vi.fn(),
+  markPrivate: vi.fn(),
   links: undefined as unknown,
   line: undefined as unknown,
   linksEnabled: [] as boolean[],
@@ -51,7 +56,15 @@ vi.mock('@/components/entity-audit-panel', () => ({
     <div data-testid="audit" data-entity-type={entityType} data-entity-id={entityId} />
   ),
 }));
-vi.mock('@/lib/edition', () => ({ isFeatureAvailable: () => env.expanded }));
+vi.mock('@/lib/edition', () => ({
+  isFeatureAvailable: (feature: string) => (feature === 'books-bank-processing' ? env.processing : env.expanded),
+}));
+vi.mock('@/hooks/queries/use-weldbooks-processing-queries', () => ({
+  useUndoBankLine: () => ({ mutateAsync: env.undo, isPending: false }),
+  useUpdateBankLineNotes: () => ({ mutate: env.saveNotes, isPending: false }),
+  useTransferBankLine: () => ({ mutateAsync: env.transfer, isPending: false }),
+  usePrivateBankLine: () => ({ mutateAsync: env.markPrivate, isPending: false }),
+}));
 vi.mock('@/lib/router', () => ({ useRouter: () => ({ push: env.push }) }));
 vi.mock('@/lib/weldbooks/use-weldbooks-format', () => ({
   useWeldbooksFormat: () => ({
@@ -136,6 +149,11 @@ function renderPanel() {
 describe('BankTransactionPanel', () => {
   beforeEach(() => {
     env.expanded = true;
+    env.processing = false;
+    env.undo.mockReset().mockResolvedValue({});
+    env.saveNotes.mockReset();
+    env.transfer.mockReset().mockResolvedValue({});
+    env.markPrivate.mockReset().mockResolvedValue({});
     env.links = links();
     env.line = undefined;
     env.linksEnabled.length = 0;
@@ -359,5 +377,150 @@ describe('BankTransactionPanel', () => {
       expect(screen.queryByTestId('match-bank-transaction')).not.toBeInTheDocument();
       expect(screen.queryByTestId('ignore-bank-transaction')).not.toBeInTheDocument();
     });
+  });
+  describe('where the edition has the processing view', () => {
+    const unprocessed = () =>
+      links({
+        transaction: line({ status: 'unreconciled' }),
+        processedAs: 'unprocessed',
+        payment: null,
+        allocations: [],
+        journalEntry: null,
+        contact: null,
+        documents: [],
+      });
+
+    beforeEach(() => {
+      env.processing = true;
+    });
+
+    it('undoes through the one undo route, not the old unreconcile', async () => {
+      const user = userEvent.setup();
+      renderPanel();
+      await user.click(screen.getByTestId('undo-bank-transaction'));
+      await user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Undo' }));
+      await waitFor(() => expect(env.undo).toHaveBeenCalledWith('bt_1'));
+      expect(env.unreconcile).not.toHaveBeenCalled();
+    });
+
+    it('edits the notes and saves them', async () => {
+      const user = userEvent.setup();
+      renderPanel();
+      await user.click(screen.getByTestId('edit-notes'));
+      const field = screen.getByRole('textbox', { name: 'Notes' });
+      await user.clear(field);
+      await user.type(field, 'Checked with the bank');
+      await user.click(screen.getByTestId('save-notes'));
+      expect(env.saveNotes).toHaveBeenCalledWith({ lineId: 'bt_1', notes: 'Checked with the bank' }, expect.anything());
+    });
+
+    it('clears the notes when the text is emptied', async () => {
+      const user = userEvent.setup();
+      renderPanel();
+      await user.click(screen.getByTestId('edit-notes'));
+      await user.clear(screen.getByRole('textbox', { name: 'Notes' }));
+      await user.click(screen.getByTestId('save-notes'));
+      expect(env.saveNotes).toHaveBeenCalledWith({ lineId: 'bt_1', notes: null }, expect.anything());
+    });
+
+    it('cannot edit the notes without banking:update', () => {
+      env.permissions = new Set();
+      renderPanel();
+      expect(screen.queryByTestId('edit-notes')).not.toBeInTheDocument();
+      expect(screen.getByText('Paid after reminder')).toBeInTheDocument();
+    });
+
+    it('shows the other side of a transfer as a chip, and says when it has not arrived', async () => {
+      const user = userEvent.setup();
+      env.links = links({
+        processedAs: 'transfer',
+        payment: null,
+        allocations: [],
+        journalEntry: null,
+        contact: null,
+        documents: [],
+        transfer: { counterpart: { id: 'bt_9', bankAccountId: 'ba_2', date: '2026-03-03', amount: '150.00', description: null } },
+      });
+      const view = renderPanel();
+      expect(screen.getByTestId('title')).toHaveTextContent('Transfer');
+      await user.click(screen.getByRole('link', { name: /€150.00/ }));
+      expect(panelOpen).toHaveBeenLastCalledWith({ type: 'bank_transaction', id: 'bt_9', stack: true });
+      view.unmount();
+
+      env.links = links({
+        processedAs: 'transfer',
+        payment: null,
+        allocations: [],
+        journalEntry: null,
+        contact: null,
+        documents: [],
+        transfer: { counterpart: null },
+      });
+      renderPanel();
+      expect(screen.getByText('The matching line on the other account has not arrived yet.')).toBeInTheDocument();
+    });
+
+    it('names a line booked privately', () => {
+      env.links = links({ processedAs: 'private', payment: null, allocations: [], journalEntry: null, contact: null, documents: [] });
+      renderPanel();
+      expect(screen.getByTestId('title')).toHaveTextContent('Private');
+    });
+
+    it('shows why a line was booked automatically, with the rule as a chip', () => {
+      env.links = links({
+        processedAs: 'category',
+        payment: null,
+        allocations: [],
+        journalEntry: null,
+        contact: null,
+        documents: [],
+        automatic: true,
+        reason: 'rule',
+        rule: { id: 'rul_1', name: 'Telnet monthly' },
+      });
+      renderPanel();
+      expect(screen.getByTestId('automatic-reason')).toHaveTextContent('Rule: Telnet monthly');
+      expect(screen.getByRole('link', { name: 'Telnet monthly' })).toBeInTheDocument();
+    });
+
+    it('opens the processing view on this line from Process', async () => {
+      const user = userEvent.setup();
+      env.links = unprocessed();
+      renderPanel();
+      await user.click(screen.getByTestId('match-bank-transaction'));
+      expect(env.push).toHaveBeenCalledWith('/weldbooks/banking/process?accountId=ba_1&lineId=bt_1');
+    });
+
+    it('offers the processing actions in a menu: category and receipt open the view, private books at once', async () => {
+      const user = userEvent.setup();
+      env.links = unprocessed();
+      renderPanel();
+
+      await user.click(screen.getByRole('button', { name: /more actions/i }));
+      await user.click(await screen.findByRole('menuitem', { name: 'Book to a category' }));
+      expect(env.push).toHaveBeenLastCalledWith('/weldbooks/banking/process?accountId=ba_1&lineId=bt_1&action=category');
+
+      await user.click(screen.getByRole('button', { name: /more actions/i }));
+      await user.click(await screen.findByRole('menuitem', { name: 'Add a receipt' }));
+      expect(env.push).toHaveBeenLastCalledWith('/weldbooks/banking/process?accountId=ba_1&lineId=bt_1&action=receipt');
+
+      await user.click(screen.getByRole('button', { name: /more actions/i }));
+      await user.click(await screen.findByRole('menuitem', { name: 'Paid privately' }));
+      await waitFor(() => expect(env.markPrivate).toHaveBeenCalledWith('bt_1'));
+      expect(env.toast.success).toHaveBeenCalledWith('Booked as paid privately');
+
+      await user.click(screen.getByRole('button', { name: /more actions/i }));
+      await user.click(await screen.findByRole('menuitem', { name: 'Transfer between accounts' }));
+      await waitFor(() => expect(env.transfer).toHaveBeenCalledWith({ lineId: 'bt_1' }));
+    });
+  });
+
+  it('leaves the notes read-only and the menu plain where the edition lacks the processing view', async () => {
+    const user = userEvent.setup();
+    env.links = links({ transaction: line({ status: 'unreconciled' }), processedAs: 'unprocessed', payment: null, allocations: [], journalEntry: null, contact: null, documents: [] });
+    renderPanel();
+    expect(screen.queryByTestId('edit-notes')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /more actions/i }));
+    expect(screen.queryByRole('menuitem', { name: 'Paid privately' })).not.toBeInTheDocument();
   });
 });

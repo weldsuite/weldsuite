@@ -8,6 +8,7 @@ import type { TodoItem, TodoKind } from '@/lib/api/domains/weldbooks';
 import { getLocale } from '@/lib/i18n';
 import { plural } from '@/lib/i18n/plural';
 import type { TranslationsType } from '@/lib/i18n/types';
+import { isFeatureAvailable } from '@/lib/edition';
 import { withQuery } from '@/lib/with-query';
 
 type TodoCopy = TranslationsType['weldbooksConnected']['todo'];
@@ -18,18 +19,21 @@ const PANEL_TYPES: ReadonlySet<string> = new Set(['bank_transaction', 'invoice',
 export type TodoItemTarget =
   | { kind: 'panel'; type: string; id: string }
   | { kind: 'page'; href: string }
+  /** Unapplied credit: the payment's contact opens on its Credit tab, where the credit is applied. */
+  | { kind: 'credit'; paymentId: string }
   | { kind: 'none' };
 
 /**
  * How an item opens. Records with a panel stack it; an inbox document opens
- * its dialog on the documents page (`?document=`); a payment has no panel yet
- * (applying credit comes with the processing view) and is shown without a link.
+ * its dialog on the documents page (`?document=`); a payment (unapplied credit)
+ * opens its contact on the Credit tab, where it is applied.
  */
 export function todoItemTarget(item: Pick<TodoItem, 'objectType' | 'objectId'>): TodoItemTarget {
   if (PANEL_TYPES.has(item.objectType)) return { kind: 'panel', type: item.objectType, id: item.objectId };
   if (item.objectType === 'accounting_document') {
     return { kind: 'page', href: withQuery('/weldbooks/documents', `document=${encodeURIComponent(item.objectId)}`) };
   }
+  if (item.objectType === 'payment') return { kind: 'credit', paymentId: item.objectId };
   return { kind: 'none' };
 }
 
@@ -40,7 +44,7 @@ export interface TodoKindAction {
 
 /**
  * The one primary action of a kind's card, or null where there is none yet
- * (unapplied credit is applied in a later phase). A VAT return that is the only
+ * (unapplied credit is applied from each item). A VAT return that is the only
  * one to file opens its panel on the returns page; several go to the list.
  */
 export function todoKindAction(
@@ -53,8 +57,11 @@ export function todoKindAction(
     typeof action === 'string' ? action : plural(count, action, getLocale());
   switch (kind) {
     case 'bank_lines':
-      // Phase 2 replaces the reconcile screen with the processing view.
-      return { label: label(copy.kinds.bank_lines.action), href: '/weldbooks/banking/reconciliation' };
+      // The processing view where the edition has it; Global keeps the reconcile screen.
+      return {
+        label: label(copy.kinds.bank_lines.action),
+        href: isFeatureAvailable('books-bank-processing') ? '/weldbooks/banking/process' : '/weldbooks/banking/reconciliation',
+      };
     case 'documents':
       return { label: label(copy.kinds.documents.action), href: '/weldbooks/documents' };
     case 'bills_to_approve':

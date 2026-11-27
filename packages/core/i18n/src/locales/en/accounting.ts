@@ -1970,6 +1970,8 @@ export const accounting = {
         category: 'Booked',
         excluded: 'Ignored',
         unprocessed: 'To process',
+        transfer: 'Transfer',
+        private: 'Private',
       },
       fields: {
         counterparty: 'Counterparty',

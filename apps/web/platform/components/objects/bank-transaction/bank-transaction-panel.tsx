@@ -28,6 +28,7 @@ import {
   FileText,
   Layers,
   Link as LinkIcon,
+  Pencil,
   Percent,
   PiggyBank,
   Receipt,
@@ -35,17 +36,20 @@ import {
   Tag,
   Undo2,
   User,
+  Wand2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { usePermissions } from '@weldsuite/permissions/react';
 import { Button } from '@weldsuite/ui/components/button';
+import { Textarea } from '@weldsuite/ui/components/textarea';
 import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { EntityDetailView } from '@weldsuite/ui/components/entity-detail-view';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@weldsuite/ui/components/dropdown-menu';
 import { RecordChip, type RecordChipTone } from '@weldsuite/ui/components/record-chip';
@@ -56,12 +60,20 @@ import { EntityAuditPanel } from '@/components/entity-audit-panel';
 import { ConfigurablePanelTabs } from '@/components/objects/_shared/configurable-panel-tabs';
 import { PanelRow, PanelSection, useCopyPanelLink } from '@/components/objects/_shared/record-panel-parts';
 import { useBankAccount, useExcludeBankLine, useUnreconcileBankLine } from '@/hooks/queries/use-weldbooks-banking-queries';
+import {
+  usePrivateBankLine,
+  useTransferBankLine,
+  useUndoBankLine,
+  useUpdateBankLineNotes,
+} from '@/hooks/queries/use-weldbooks-processing-queries';
+import { isFeatureAvailable } from '@/lib/edition';
 import { useRouter } from '@/lib/router';
 import type { BankLineLinks, BankLineProcessedAs } from '@/lib/api/domains/weldbooks-banking';
 import { useI18n } from '@/lib/i18n/provider';
 import { cn } from '@/lib/utils';
 import { withQuery } from '@/lib/with-query';
 import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
+import { automaticReasonLabel } from '@/app/weldbooks/banking/process/process-model';
 import { getBankTransactionTabs, type BankTransactionTab } from './bank-transaction-tabs';
 import { useBankTransactionLinks } from './use-bank-transaction-links';
 
@@ -79,6 +91,8 @@ const PROCESSED_PILL: Record<BankLineProcessedAs, string> = {
   payment: PILL_GREEN,
   deposit: PILL_GREEN,
   category: PILL_GREEN,
+  transfer: PILL_GREEN,
+  private: PILL_GREEN,
   excluded: PILL_GRAY,
   unprocessed: PILL_AMBER,
 };
@@ -125,22 +139,33 @@ function Title({
 function Actions({
   links,
   canEdit,
+  processing,
   onUndo,
   onIgnore,
   onMatch,
+  onProcess,
+  onTransfer,
+  onPrivate,
   t,
 }: Readonly<{
   links?: BankLineLinks;
   canEdit: boolean;
+  /** The edition has the processing view (`books-bank-processing`). */
+  processing: boolean;
   onUndo: () => void;
   onIgnore: () => void;
   onMatch: () => void;
+  /** Opens the processing view on this line, with a form open. */
+  onProcess: (action?: 'category' | 'receipt') => void;
+  onTransfer: () => void;
+  onPrivate: () => void;
   t: Translations;
 }>) {
   const st = useTranslations();
   const copyLink = useCopyPanelLink('/weldbooks/banking/transactions', OBJECT_TYPE, links?.transaction.id ?? '');
   if (!links) return null;
   const tp = t.accounting.bankTransactionPanel;
+  const tpc = t.weldbooksConnected.panel;
   const toProcess = isUnprocessed(links.processedAs);
 
   return (
@@ -149,7 +174,7 @@ function Actions({
         <>
           <Button size="sm" onClick={onMatch} data-testid="match-bank-transaction">
             <ArrowLeftRight className="h-4 w-4" />
-            {tp.actions.match}
+            {processing ? tpc.process : tp.actions.match}
           </Button>
           <Button variant="outline" size="sm" onClick={onIgnore} data-testid="ignore-bank-transaction">
             {tp.actions.ignore}
@@ -174,6 +199,27 @@ function Actions({
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
+          {processing && canEdit && toProcess ? (
+            <>
+              <DropdownMenuItem onClick={() => onProcess('category')}>
+                <Tag />
+                {tpc.categoryAction}
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => onProcess('receipt')}>
+                <Receipt />
+                {tpc.receiptAction}
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={onTransfer}>
+                <ArrowLeftRight />
+                {tpc.transferAction}
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={onPrivate}>
+                <User />
+                {tpc.privateAction}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+            </>
+          ) : null}
           <DropdownMenuItem onClick={() => void copyLink()}>
             <LinkIcon />
             {st('sweep.entities.copyLink')}
@@ -219,8 +265,18 @@ function Connections({ links, currency, t }: Readonly<{ links: BankLineLinks; cu
   const methods = t.accounting.paymentMethods as Record<string, string>;
 
   const { payment, allocations, journalEntry, category, deposit, contact, documents } = links;
+  const counterpart = links.transfer?.counterpart ?? null;
+  const tpc = t.weldbooksConnected.panel;
+  const router = useRouter();
   const empty =
-    !payment && allocations.length === 0 && !journalEntry && !category && !deposit && !contact && documents.length === 0;
+    !payment &&
+    allocations.length === 0 &&
+    !journalEntry &&
+    !category &&
+    !deposit &&
+    !contact &&
+    documents.length === 0 &&
+    !links.transfer;
 
   const documentLabel = (type: 'invoice' | 'bill', number: string | null) =>
     number ?? (type === 'invoice' ? tc.invoiceFallback : tc.billFallback);
@@ -313,6 +369,37 @@ function Connections({ links, currency, t }: Readonly<{ links: BankLineLinks; cu
           </ConnectionRow>
         ) : null}
 
+        {links.transfer ? (
+          <ConnectionRow icon={ArrowLeftRight} label={tpc.transferCounterpart}>
+            {counterpart ? (
+              <RecordLink
+                type="bank_transaction"
+                id={counterpart.id}
+                label={formatMoney(counterpart.amount, currency)}
+                secondary={formatDate(counterpart.date)}
+              />
+            ) : (
+              <span className="text-muted-foreground">{tpc.transferWaiting}</span>
+            )}
+          </ConnectionRow>
+        ) : null}
+
+        {links.automatic ? (
+          <ConnectionRow icon={Wand2} label={tpc.automaticReason}>
+            <span className={cn(PILL, PILL_GRAY)} data-testid="automatic-reason">
+              {automaticReasonLabel(links.reason, links.rule ?? null, t.weldbooksConnected.automatic.reasons)}
+            </span>
+            {links.rule ? (
+              <RecordChip
+                icon={Wand2}
+                label={links.rule.name}
+                href="/weldbooks/banking/rules"
+                onOpen={() => router.push('/weldbooks/banking/rules')}
+              />
+            ) : null}
+          </ConnectionRow>
+        ) : null}
+
         {documents.length > 0 ? (
           <ConnectionRow icon={Layers} label={tc.documents}>
             {documents.map((document) => (
@@ -355,9 +442,104 @@ function Summary({
   );
 }
 
-function Facts({ links, t }: Readonly<{ links: BankLineLinks; t: Translations }>) {
+/** The notes of a line, with an editor where the edition can save them (`PATCH /bank-transactions/:id`). */
+function NotesRow({
+  lineId,
+  notes,
+  canEdit,
+  t,
+}: Readonly<{ lineId: string; notes: string | null | undefined; canEdit: boolean; t: Translations }>) {
+  const tp = t.accounting.bankTransactionPanel;
+  const tpc = t.weldbooksConnected.panel;
+  const save = useUpdateBankLineNotes();
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(notes ?? '');
+
+  if (!canEdit) {
+    return (
+      <PanelRow
+        icon={StickyNote}
+        label={tp.fields.notes}
+        value={notes}
+        renderValue={(value) => (
+          <span className="min-w-0 whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{value}</span>
+        )}
+      />
+    );
+  }
+
+  if (!editing) {
+    return (
+      <div className="flex items-start gap-3 py-1.5">
+        <span className="flex w-[8.5rem] flex-shrink-0 items-center gap-2 pt-0.5 text-sm text-muted-foreground">
+          <StickyNote className="h-4 w-4 flex-shrink-0" aria-hidden="true" />
+          <span className="truncate">{tp.fields.notes}</span>
+        </span>
+        <div className="flex min-w-0 flex-1 items-start gap-2 text-sm">
+          <span className="min-w-0 flex-1 whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
+            {notes || <span className="text-muted-foreground">—</span>}
+          </span>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="size-6"
+            aria-label={tpc.notesEdit}
+            data-testid="edit-notes"
+            onClick={() => {
+              setDraft(notes ?? '');
+              setEditing(true);
+            }}
+          >
+            <Pencil className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  const submit = () => {
+    const next = draft.trim();
+    save.mutate(
+      { lineId, notes: next === '' ? null : next },
+      {
+        onSuccess: () => {
+          toast.success(tpc.notesSaved);
+          setEditing(false);
+        },
+        onError: (error) => toast.error(tpc.notesFailed, { description: messageOf(error) || undefined }),
+      },
+    );
+  };
+
+  return (
+    <div className="space-y-2 py-1.5" data-testid="notes-editor">
+      <label className="text-sm text-muted-foreground" htmlFor={`notes-${lineId}`}>
+        {tpc.notesLabel}
+      </label>
+      <Textarea
+        id={`notes-${lineId}`}
+        value={draft}
+        onChange={(event) => setDraft(event.target.value)}
+        placeholder={tpc.notesPlaceholder}
+        rows={3}
+        autoFocus
+      />
+      <div className="flex items-center gap-2">
+        <Button size="sm" onClick={submit} disabled={save.isPending} data-testid="save-notes">
+          {tpc.notesSave}
+        </Button>
+        <Button size="sm" variant="ghost" onClick={() => setEditing(false)} disabled={save.isPending}>
+          {tpc.notesCancel}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function Facts({ links, canEditNotes, t }: Readonly<{ links: BankLineLinks; canEditNotes: boolean; t: Translations }>) {
   const st = useTranslations();
   const tp = t.accounting.bankTransactionPanel;
+  const tpc = t.weldbooksConnected.panel;
   const txn = links.transaction;
   const source = txn.source ? (tp.sources[txn.source] ?? txn.source) : null;
   return (
@@ -376,14 +558,14 @@ function Facts({ links, t }: Readonly<{ links: BankLineLinks; t: Translations }>
           renderValue={(value) => <span className="font-mono">{value}</span>}
         />
         <PanelRow icon={Layers} label={tp.fields.source} value={source} />
-        <PanelRow
-          icon={StickyNote}
-          label={tp.fields.notes}
-          value={txn.notes}
-          renderValue={(value) => (
-            <span className="min-w-0 whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{value}</span>
-          )}
-        />
+        {links.automatic ? (
+          <PanelRow
+            icon={Wand2}
+            label={tpc.automatic}
+            value={automaticReasonLabel(links.reason, links.rule ?? null, t.weldbooksConnected.automatic.reasons)}
+          />
+        ) : null}
+        <NotesRow lineId={txn.id} notes={txn.notes} canEdit={canEditNotes} t={t} />
       </div>
     </PanelSection>
   );
@@ -404,8 +586,13 @@ export function BankTransactionPanel(props: Readonly<ObjectPanelComponentProps>)
   const account = useBankAccount(links?.transaction.bankAccountId).data?.data;
   const currency = account?.currency ?? entityCurrency;
 
+  // Where the edition has the processing view, one Undo covers every way a line was processed.
+  const processing = isFeatureAvailable('books-bank-processing');
   const unreconcile = useUnreconcileBankLine();
+  const undoLine = useUndoBankLine();
   const exclude = useExcludeBankLine();
+  const transfer = useTransferBankLine();
+  const markPrivate = usePrivateBankLine();
   const [confirm, setConfirm] = useState<'undo' | 'ignore' | null>(null);
 
   const shell = useObjectPanelShell({
@@ -425,16 +612,27 @@ export function BankTransactionPanel(props: Readonly<ObjectPanelComponentProps>)
   );
   const [activeTab, setActiveTab] = useState<BankTransactionTab['id']>(initial);
 
-  const handleMatch = () => {
+  const openProcessing = (action?: 'category' | 'receipt') => {
     if (!links) return;
     const query = new URLSearchParams({ accountId: links.transaction.bankAccountId, lineId: links.transaction.id });
-    router.push(withQuery('/weldbooks/banking/reconciliation', query.toString()));
+    if (processing && action) query.set('action', action);
+    router.push(withQuery(processing ? '/weldbooks/banking/process' : '/weldbooks/banking/reconciliation', query.toString()));
+  };
+  const handleMatch = () => openProcessing();
+
+  const runDirect = async (run: () => Promise<unknown>, success: string) => {
+    try {
+      await run();
+      toast.success(success);
+    } catch (error) {
+      toast.error(tp.toasts.failed, { description: messageOf(error) || undefined });
+    }
   };
 
   const runConfirmed = async () => {
     try {
       if (confirm === 'undo') {
-        await unreconcile.mutateAsync(id);
+        await (processing ? undoLine : unreconcile).mutateAsync(id);
         toast.success(tp.toasts.undone);
       } else if (confirm === 'ignore') {
         await exclude.mutateAsync(id);
@@ -457,9 +655,15 @@ export function BankTransactionPanel(props: Readonly<ObjectPanelComponentProps>)
           <Actions
             links={links}
             canEdit={can('banking:update')}
+            processing={processing}
             onUndo={() => setConfirm('undo')}
             onIgnore={() => setConfirm('ignore')}
             onMatch={handleMatch}
+            onProcess={openProcessing}
+            onTransfer={() =>
+              void runDirect(() => transfer.mutateAsync({ lineId: id }), t.weldbooksConnected.panel.booked.transfer)
+            }
+            onPrivate={() => void runDirect(() => markPrivate.mutateAsync(id), t.weldbooksConnected.panel.booked.private)}
             t={t}
           />
         }
@@ -474,7 +678,7 @@ export function BankTransactionPanel(props: Readonly<ObjectPanelComponentProps>)
           <div className="@container space-y-6 p-4">
             <Summary links={links} accountName={account?.name ?? null} t={t} />
             <Connections links={links} currency={currency} t={t} />
-            <Facts links={links} t={t} />
+            <Facts links={links} canEditNotes={processing && can('banking:update')} t={t} />
           </div>
         )}
         {links && activeTab === 'history' && <EntityAuditPanel entityType={OBJECT_TYPE} entityId={links.transaction.id} />}
@@ -489,7 +693,7 @@ export function BankTransactionPanel(props: Readonly<ObjectPanelComponentProps>)
         description={confirmTexts.description}
         confirmLabel={confirmTexts.confirm}
         variant={confirm === 'undo' ? 'destructive' : 'default'}
-        loading={unreconcile.isPending || exclude.isPending}
+        loading={unreconcile.isPending || undoLine.isPending || exclude.isPending}
         onConfirm={runConfirmed}
       />
     </>

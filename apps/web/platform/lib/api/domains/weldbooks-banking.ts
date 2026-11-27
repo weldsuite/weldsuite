@@ -260,6 +260,8 @@ export interface BankLineFilters {
   checkNumber?: string;
   source?: BankLineSource;
   depositId?: string;
+  /** Rust only (`books-bank-processing`): lines a rule or auto-link booked (`true`). */
+  processedAutomatically?: boolean;
   page?: number;
   pageSize?: number;
 }
@@ -267,7 +269,17 @@ export interface BankLineFilters {
 export type BankLinePage = CursorPage<BankLine>;
 
 /** How a bank line was processed (`GET /bank-transactions/:id/links` → `processedAs`). */
-export type BankLineProcessedAs = 'payment' | 'deposit' | 'category' | 'excluded' | 'unprocessed';
+export type BankLineProcessedAs =
+  | 'payment'
+  | 'deposit'
+  | 'category'
+  | 'transfer'
+  | 'private'
+  | 'excluded'
+  | 'unprocessed';
+
+/** Why a line was booked automatically (`books-bank-processing`). */
+export type BankLineAutoReason = 'document_match' | 'own_account_transfer' | 'tax_authority' | 'rule';
 
 /**
  * What one bank line is connected to, everything expanded
@@ -315,6 +327,21 @@ export interface BankLineLinks {
   } | null;
   contact: { id: string; name: string | null } | null;
   documents: Array<{ id: string; fileName: string; type: string | null; status: string | null }>;
+  /** Rust only (`books-bank-processing`): booked without a person. Absent elsewhere. */
+  automatic?: boolean;
+  reason?: BankLineAutoReason | null;
+  /** The rule that booked it, when `reason` is `rule`. */
+  rule?: { id: string; name: string } | null;
+  /** A transfer between own accounts: the line on the other account, once it has arrived. */
+  transfer?: {
+    counterpart: {
+      id: string;
+      bankAccountId: string;
+      date: string;
+      amount: string;
+      description: string | null;
+    } | null;
+  } | null;
 }
 
 export type SuggestionType = 'invoice' | 'bill' | 'payment' | 'deposit' | 'rule';
@@ -371,6 +398,8 @@ export interface MatchDocumentsResult {
   status: string;
   paymentId: string;
   journalEntryId: string | null;
+  /** Rust only: a gap within the entity's rounding cap was booked to the rounding account. */
+  roundingDifference?: { accountId: string; amount: string } | null;
 }
 
 /** An unmatched bank line that could have paid a document (`GET /bank-transactions/for-document`). */

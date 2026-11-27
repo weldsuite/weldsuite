@@ -79,6 +79,8 @@ import { cn } from '@/lib/utils';
 import { normalizeAccountingAddress } from '@/lib/weldbooks/address';
 import { contactIdLabels } from '@/lib/weldbooks/contact-id-labels';
 import { useJurisdictionLabels } from '@/lib/weldbooks/use-jurisdiction';
+import { useContactCredits } from '@/hooks/queries/use-weldbooks-processing-queries';
+import { ContactCreditTab } from './weldbooks-contact-credit-tab';
 import { ContactBillsTab, ContactInvoicesTab } from './weldbooks-contact-documents-tab';
 import {
   contactDocumentTabs,
@@ -891,6 +893,9 @@ export function WeldbooksContactPanel(props: Readonly<ObjectPanelComponentProps>
   // A customer has invoices, a supplier bills, a contact that is both has both.
   const documentTabs = contactDocumentTabs(contact?.role);
   const showDocumentTabs = Boolean(contact);
+  // Credit left on a payment that no document took yet (Rust only): a tab while there is any.
+  const credits = useContactCredits(contact?.id);
+  const showCredit = (credits.data?.length ?? 0) > 0;
 
   const tabs = useMemo(
     () =>
@@ -900,11 +905,13 @@ export function WeldbooksContactPanel(props: Readonly<ObjectPanelComponentProps>
         bills: t.accounting.contacts.connected.tabBills,
         exemptions: t.weldbooksUs.salesTax.setup.exemptions.tabExemptions,
         history: st('sweep.entities.auditLogTab'),
+        credit: t.weldbooksConnected.credit.tab,
+        showCredit,
         showInvoices: showDocumentTabs && documentTabs.invoices,
         showBills: showDocumentTabs && documentTabs.bills,
         showExemptions,
       }),
-    [st, t, showExemptions, showDocumentTabs, documentTabs.invoices, documentTabs.bills],
+    [st, t, showExemptions, showCredit, showDocumentTabs, documentTabs.invoices, documentTabs.bills],
   );
 
   // A deep-linked tab that only appears once the record is loaded is applied when it does.
@@ -958,6 +965,7 @@ export function WeldbooksContactPanel(props: Readonly<ObjectPanelComponentProps>
         )}
         {contact && activeTab === 'invoices' && <ContactInvoicesTab contactId={contact.id} />}
         {contact && activeTab === 'bills' && <ContactBillsTab contactId={contact.id} />}
+        {contact && activeTab === 'credit' && <ContactCreditTab contactId={contact.id} />}
         {contact && activeTab === 'exemptions' && (
           <div className="p-4">
             <CustomerExemptionsTab

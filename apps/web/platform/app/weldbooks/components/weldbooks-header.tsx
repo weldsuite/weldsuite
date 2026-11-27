@@ -88,6 +88,7 @@ export function WeldbooksHeader({
     dimensions: th.dimensions,
     'received-nfe': t.navigation.moduleSidebar.weldbooks.receivedNfe,
     'to-process': t.weldbooksConnected.todo.title,
+    process: t.weldbooksConnected.processing.tabs.toProcess,
     builder: th.builder,
     'invoice-templates': th.invoiceTemplates,
     callback: th.callback,

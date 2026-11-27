@@ -260,8 +260,14 @@ describe('WeldBooks commands', () => {
     const commands = weldbooksTodoCommands(en, books);
     expect(commands.map((command) => [command.title, command.href])).toEqual([
       ['To process', '/weldbooks/to-process'],
-      ['Process bank lines', '/weldbooks/banking/reconciliation'],
+      ['Process bank lines', '/weldbooks/banking/process'],
     ]);
+    setRuntimeConfig({ backend: 'rust', modules: ['core', 'books'], unavailableFeatures: ['books-bank-processing'] });
+    expect(weldbooksTodoCommands(en, books).map((command) => command.href)).toEqual([
+      '/weldbooks/to-process',
+      '/weldbooks/banking/reconciliation',
+    ]);
+    setRuntimeConfig({ backend: 'rust', modules: ['core', 'books'], unavailableFeatures: [] });
     // They also run through actionCommands, so the palette lists them.
     expect(actionCommands(en, 'light', books).map((command) => command.id)).toEqual(
       expect.arrayContaining(['action:weldbooks-to-process', 'action:weldbooks-process-bank-lines']),

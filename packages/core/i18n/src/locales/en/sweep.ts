@@ -290,7 +290,9 @@ export const sweep = {
         "counterpartyName": "Counterparty name",
         "counterpartyIban": "Counterparty IBAN",
         "reference": "Reference",
-        "amount": "Amount"
+        "amount": "Amount",
+        "direction": "Direction",
+        "bankAccountId": "Bank account"
       },
       "operator": {
         "contains": "contains",
@@ -302,6 +304,9 @@ export const sweep = {
         "between": "between"
       },
       "valuePlaceholder": "value",
+      "directionIn": "Money in",
+      "directionOut": "Money out",
+      "chooseValuePlaceholder": "Choose…",
       "andPlaceholder": "and",
       "addCondition": "Add condition",
       "actionsLabel": "Actions",

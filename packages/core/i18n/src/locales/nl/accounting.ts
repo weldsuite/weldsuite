@@ -2005,6 +2005,8 @@ export const accounting = {
         category: 'Geboekt',
         excluded: 'Genegeerd',
         unprocessed: 'Te verwerken',
+        transfer: 'Overboeking',
+        private: 'Privé',
       },
       fields: {
         counterparty: 'Tegenpartij',

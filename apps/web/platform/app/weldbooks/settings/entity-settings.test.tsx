@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { NO_JURISDICTION_FEATURES } from '@/lib/weldbooks/jurisdiction';
 
 const mocks = vi.hoisted(() => ({
+  processing: false,
   selected: null as string | null,
   setEntityId: vi.fn(),
   setWeldbooksEntityId: vi.fn(),
@@ -25,6 +26,8 @@ vi.mock('@/hooks/queries/use-accounting-queries', () => ({
   useAccountingSettings: () => ({ data: { data: { emailSettings: {} } }, isLoading: false }),
   resetEntityScopedAccountingQueries: mocks.resetQueries,
 }));
+vi.mock('@/lib/edition', () => ({ isFeatureAvailable: () => mocks.processing }));
+vi.mock('./components/differences-card', () => ({ DifferencesCard: () => <div data-testid="differences-card" /> }));
 vi.mock('@/lib/api/weldbooks-client', () => ({ setWeldbooksEntityId: mocks.setWeldbooksEntityId }));
 vi.mock('@/lib/api/domains/weldbooks', () => ({ accountingApi: {} }));
 vi.mock('./components/ledger-catch-up-card', () => ({ LedgerCatchUpCard: () => <div data-testid="ledger-catch-up" /> }));
@@ -50,6 +53,7 @@ function renderSettings(features = NO_JURISDICTION_FEATURES) {
 
 describe('WeldbooksEntitySettings', () => {
   beforeEach(() => {
+    mocks.processing = false;
     mocks.selected = 'ent_b';
     mocks.entities = [{ id: 'ent_b' }];
     mocks.setEntityId.mockReset();
@@ -101,5 +105,14 @@ describe('WeldbooksEntitySettings', () => {
     renderSettings({ ...NO_JURISDICTION_FEATURES, xafExport: true, fiscalDocuments: true });
     expect(screen.getByText('Auditfile (XAF 4.0)')).toBeInTheDocument();
     expect(screen.getByTestId('fiscal-settings')).toBeInTheDocument();
+  });
+
+  it('shows the payment differences card only where the edition has bank processing', () => {
+    const { unmount } = renderSettings();
+    expect(screen.queryByTestId('differences-card')).not.toBeInTheDocument();
+    unmount();
+    mocks.processing = true;
+    renderSettings();
+    expect(screen.getByTestId('differences-card')).toBeInTheDocument();
   });
 });

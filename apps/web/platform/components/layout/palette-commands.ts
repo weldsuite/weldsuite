@@ -482,8 +482,8 @@ export function weldbooksTodoCommands(t: TranslationsType, access: CommandAccess
       keywords: `${copy.bankLinesKeywords} weldbooks`,
       group: 'actions',
       showWhenEmpty: here,
-      // Phase 2 replaces the reconcile screen with the processing view.
-      href: '/weldbooks/banking/reconciliation',
+      // The processing view where the edition has it; the reconcile screen otherwise.
+      href: isFeatureAvailable('books-bank-processing') ? '/weldbooks/banking/process' : '/weldbooks/banking/reconciliation',
       icon: Landmark,
     });
   }

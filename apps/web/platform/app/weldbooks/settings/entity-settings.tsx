@@ -17,9 +17,11 @@ import { PageLoader } from '@weldsuite/ui/components/page-loader';
 import { Link as HrefLink } from '@/lib/router';
 import { useAccountingSettings } from '@/hooks/queries/use-accounting-queries';
 import { useAccountingEntities } from '@/hooks/use-current-entity-currency';
+import { isFeatureAvailable } from '@/lib/edition';
 import { accountingApi, type AccountingEntity } from '@/lib/api/domains/weldbooks';
 import type { JurisdictionFeatures } from '@/lib/weldbooks/jurisdiction';
 import { useI18n } from '@/lib/i18n/provider';
+import { DifferencesCard } from './components/differences-card';
 import { LedgerCatchUpCard } from './components/ledger-catch-up-card';
 import { FiscalSettingsCard } from './components/fiscal-settings-card';
 import { useSelectWeldbooksEntity } from './entity-scope';
@@ -282,6 +284,9 @@ export function WeldbooksEntitySettings({
       />
 
       <LedgerCatchUpCard />
+
+      {/* Rust only: the Global backend has no payment-difference settings. */}
+      {isFeatureAvailable('books-bank-processing') && <DifferencesCard />}
 
       <EmailInboxCard emailSettings={emailSettings} />
 

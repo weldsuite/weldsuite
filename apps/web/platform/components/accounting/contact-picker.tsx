@@ -28,6 +28,8 @@ export interface ContactPickerProps {
   searchPlaceholder: string;
   invalid?: boolean;
   disabled?: boolean;
+  /** The contact may be left empty: the picked one can be cleared (a bank line booked to a category). */
+  optional?: boolean;
   'aria-describedby'?: string;
 }
 
@@ -50,6 +52,7 @@ export function ContactPicker({
   searchPlaceholder,
   invalid,
   disabled,
+  optional = false,
   'aria-describedby': describedBy,
 }: Readonly<ContactPickerProps>) {
   const { t } = useI18n();
@@ -69,13 +72,13 @@ export function ContactPicker({
       id={id}
       value={value}
       // Choosing the picked contact again would clear it; a document always has its contact.
-      onValueChange={(next) => next && onChange(next)}
+      onValueChange={(next) => (optional ? onChange(next) : next && onChange(next))}
       onSearch={search}
       selectedOption={selectedOption}
       // An empty search lists the first contacts as soon as the list opens.
       minSearchLength={0}
       debounceMs={250}
-      clearable={false}
+      clearable={optional}
       placeholder={placeholder}
       searchPlaceholder={searchPlaceholder}
       searchingText={tc.pickerSearching}

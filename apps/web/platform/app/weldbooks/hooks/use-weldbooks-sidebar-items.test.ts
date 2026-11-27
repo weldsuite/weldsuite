@@ -1,5 +1,5 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { renderHook } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi, beforeEach } from 'vitest';
+import { act, renderHook } from '@testing-library/react';
 import { en } from '@weldsuite/i18n/locales/en';
 import type { MenuGroupProps } from '@/components/app-sidebar-layout';
 import { MODULE_CONFIGS } from '@/components/layout/module-sidebar-configs';
@@ -23,6 +23,15 @@ const route = vi.hoisted(() => ({ pathname: '/weldbooks', search: '' }));
 vi.mock('@/lib/router', () => ({
   usePathname: () => route.pathname,
   useSearchParams: () => new URLSearchParams(route.search),
+}));
+
+const access = vi.hoisted(() => ({ accountant: true, processing: false }));
+vi.mock('@weldsuite/permissions/react', () => ({
+  usePermissions: () => ({ can: (permission: string) => (permission === 'journal:create' ? access.accountant : true) }),
+}));
+vi.mock('@/lib/edition', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/edition')>()),
+  isFeatureAvailable: (feature: string) => feature === 'books-bank-processing' && access.processing,
 }));
 
 const todo = vi.hoisted(() => ({ summary: undefined as unknown, enabledSeen: [] as boolean[] }));
@@ -60,6 +69,9 @@ describe('useWeldbooksSidebarItems', () => {
   beforeEach(() => {
     route.pathname = '/weldbooks';
     route.search = '';
+    access.accountant = true;
+    access.processing = false;
+    localStorage.clear();
     todo.summary = undefined;
     todo.enabledSeen = [];
     jurisdiction = { features: NO_JURISDICTION_FEATURES, terminology: DEFAULT_TERMINOLOGY, isResolved: false, isError: false };
@@ -211,6 +223,103 @@ describe('the owner-first menu', () => {
     route.pathname = '/weldbooks/customers/add';
     route.search = 'role=supplier';
     expect(contacts()?.isActive).toBe(true);
+  });
+});
+
+describe('the Accountant group', () => {
+  const accountantGroup = () => adjust().find((g) => g.group === en.navigation.moduleSidebar.groups.accountant);
+
+  beforeEach(() => {
+    route.pathname = '/weldbooks';
+    route.search = '';
+    access.accountant = true;
+    localStorage.clear();
+    jurisdiction = known();
+  });
+
+  it('is open for a member who books journal entries', () => {
+    const group = accountantGroup();
+    expect(group?.collapsed).toBe(false);
+    expect(group?.items.length).toBeGreaterThan(1);
+    expect(group?.onToggleCollapse).toBeTypeOf('function');
+  });
+
+  it('is collapsed by default for an owner without accountant permissions', () => {
+    access.accountant = false;
+    const group = accountantGroup();
+    expect(group?.collapsed).toBe(true);
+    expect(group?.items).toEqual([]);
+    expect(group?.onToggleCollapse).toBeTypeOf('function');
+  });
+
+  it('keeps the item of the page the person is on while collapsed', () => {
+    access.accountant = false;
+    route.pathname = '/weldbooks/fiscal-periods';
+    expect(accountantGroup()?.items.map((i) => i.href)).toEqual(['/weldbooks/fiscal-periods']);
+  });
+
+  it('opens on toggle and remembers the choice', () => {
+    access.accountant = false;
+    const { result } = renderHook(() => useWeldbooksSidebarItems(true));
+    const find = () =>
+      result.current.adjust(MENU()).find((g) => g.group === en.navigation.moduleSidebar.groups.accountant)!;
+    expect(find().collapsed).toBe(true);
+    act(() => find().onToggleCollapse?.());
+    expect(find().collapsed).toBe(false);
+    expect(find().items.length).toBeGreaterThan(1);
+    expect(localStorage.getItem('weldbooks:sidebar:accountant-collapsed')).toBe('0');
+  });
+
+  it('starts from the remembered choice, whatever the permissions say', () => {
+    localStorage.setItem('weldbooks:sidebar:accountant-collapsed', '1');
+    expect(accountantGroup()?.collapsed).toBe(true);
+    access.accountant = false;
+    localStorage.setItem('weldbooks:sidebar:accountant-collapsed', '0');
+    expect(accountantGroup()?.collapsed).toBe(false);
+  });
+
+  it('still works when storage throws', () => {
+    const spy = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new Error('blocked');
+    });
+    access.accountant = false;
+    expect(accountantGroup()?.collapsed).toBe(true);
+    spy.mockRestore();
+  });
+});
+
+describe('the processing view in the menu', () => {
+  afterEach(() => {
+    access.processing = false;
+  });
+
+  const bank = () => adjust().find((g) => g.group === en.navigation.moduleSidebar.groups.bank)!;
+
+  beforeEach(() => {
+    route.pathname = '/weldbooks';
+    route.search = '';
+    access.accountant = true;
+    jurisdiction = known();
+  });
+
+  it('keeps the transaction list and the reconcile screen where the edition lacks the processing view', () => {
+    access.processing = false;
+    expect(bank().items.map((i) => i.href)).toContain('/weldbooks/banking/transactions');
+    expect(bank().items.map((i) => i.href)).toContain('/weldbooks/banking/reconciliation');
+  });
+
+  it('opens the processing view from Transactions, active on both pages, and drops the reconcile item', () => {
+    access.processing = true;
+    const hrefs = bank().items.map((i) => i.href);
+    expect(hrefs).toContain('/weldbooks/banking/process');
+    expect(hrefs).not.toContain('/weldbooks/banking/transactions');
+    expect(hrefs).not.toContain('/weldbooks/banking/reconciliation');
+    const item = () => bank().items.find((i) => i.href === '/weldbooks/banking/process');
+    expect(item()?.isActive).toBe(false);
+    route.pathname = '/weldbooks/banking/process';
+    expect(item()?.isActive).toBe(true);
+    route.pathname = '/weldbooks/banking/transactions';
+    expect(item()?.isActive).toBe(true);
   });
 });
 

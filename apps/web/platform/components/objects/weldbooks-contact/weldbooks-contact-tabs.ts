@@ -1,4 +1,4 @@
-import { FileCheck2, FileText, History, LayoutGrid, Receipt } from 'lucide-react';
+import { FileCheck2, FileText, History, LayoutGrid, Receipt, Wallet } from 'lucide-react';
 import type { ConfigurablePanelTab } from '@/components/objects/_shared/configurable-panel-tabs';
 
 /**
@@ -9,9 +9,10 @@ import type { ConfigurablePanelTab } from '@/components/objects/_shared/configur
  *   invoices    → `/invoices?contactId=`              (customers, and contacts that are both)
  *   bills       → `/bills?contactId=`                 (suppliers, and contacts that are both)
  *   exemptions  → `/exemption-certificates?partyId=`  (US sales tax only)
+ *   credit      → `/accounting-contacts/:id/credits`  (Rust only; shown while the contact has unapplied credit)
  *   history     → `/api/audit-logs?entityType=accounting_contact`
  */
-export type WeldbooksContactTabId = 'overview' | 'invoices' | 'bills' | 'exemptions' | 'history';
+export type WeldbooksContactTabId = 'overview' | 'invoices' | 'bills' | 'credit' | 'exemptions' | 'history';
 
 export type WeldbooksContactTab = ConfigurablePanelTab<WeldbooksContactTabId>;
 
@@ -26,6 +27,10 @@ export function getWeldbooksContactTabs(labels: {
   bills: string;
   exemptions: string;
   history: string;
+  /** Label of the Credit tab. */
+  credit?: string;
+  /** The contact has credit left to apply (`books-bank-processing`). */
+  showCredit?: boolean;
   /** The contact is a customer (or both): it has invoices. */
   showInvoices: boolean;
   /** The contact is a supplier (or both): it has bills. */
@@ -57,6 +62,15 @@ export function getWeldbooksContactTabs(labels: {
       id: 'bills',
       label: labels.bills,
       icon: FileText,
+      defaultVisibleInPanel: true,
+      defaultVisibleInFullscreen: true,
+    });
+  }
+  if (labels.showCredit && labels.credit) {
+    tabs.push({
+      id: 'credit',
+      label: labels.credit,
+      icon: Wallet,
       defaultVisibleInPanel: true,
       defaultVisibleInFullscreen: true,
     });

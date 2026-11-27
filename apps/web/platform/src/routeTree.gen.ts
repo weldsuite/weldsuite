@@ -470,6 +470,7 @@ import { Route as WeldbooksBankingTransactionsIndexRouteImport } from './routes/
 import { Route as WeldbooksBankingStatementsIndexRouteImport } from './routes/weldbooks/banking/statements/index'
 import { Route as WeldbooksBankingRulesIndexRouteImport } from './routes/weldbooks/banking/rules/index'
 import { Route as WeldbooksBankingReconciliationIndexRouteImport } from './routes/weldbooks/banking/reconciliation/index'
+import { Route as WeldbooksBankingProcessIndexRouteImport } from './routes/weldbooks/banking/process/index'
 import { Route as WeldbooksBankingImportIndexRouteImport } from './routes/weldbooks/banking/import/index'
 import { Route as WeldbooksBankingFeedsIndexRouteImport } from './routes/weldbooks/banking/feeds/index'
 import { Route as WeldbooksBankingIdIndexRouteImport } from './routes/weldbooks/banking/$id/index'
@@ -3106,6 +3107,12 @@ const WeldbooksBankingReconciliationIndexRoute =
     path: '/banking/reconciliation/',
     getParentRoute: () => WeldbooksRouteRoute,
   } as any)
+const WeldbooksBankingProcessIndexRoute =
+  WeldbooksBankingProcessIndexRouteImport.update({
+    id: '/banking/process/',
+    path: '/banking/process/',
+    getParentRoute: () => WeldbooksRouteRoute,
+  } as any)
 const WeldbooksBankingImportIndexRoute =
   WeldbooksBankingImportIndexRouteImport.update({
     id: '/banking/import/',
@@ -4684,6 +4691,7 @@ export interface FileRoutesByFullPath {
   '/weldbooks/banking/$id/': typeof WeldbooksBankingIdIndexRoute
   '/weldbooks/banking/feeds/': typeof WeldbooksBankingFeedsIndexRoute
   '/weldbooks/banking/import/': typeof WeldbooksBankingImportIndexRoute
+  '/weldbooks/banking/process/': typeof WeldbooksBankingProcessIndexRoute
   '/weldbooks/banking/reconciliation/': typeof WeldbooksBankingReconciliationIndexRoute
   '/weldbooks/banking/rules/': typeof WeldbooksBankingRulesIndexRoute
   '/weldbooks/banking/statements/': typeof WeldbooksBankingStatementsIndexRoute
@@ -5279,6 +5287,7 @@ export interface FileRoutesByTo {
   '/weldbooks/banking/$id': typeof WeldbooksBankingIdIndexRoute
   '/weldbooks/banking/feeds': typeof WeldbooksBankingFeedsIndexRoute
   '/weldbooks/banking/import': typeof WeldbooksBankingImportIndexRoute
+  '/weldbooks/banking/process': typeof WeldbooksBankingProcessIndexRoute
   '/weldbooks/banking/reconciliation': typeof WeldbooksBankingReconciliationIndexRoute
   '/weldbooks/banking/rules': typeof WeldbooksBankingRulesIndexRoute
   '/weldbooks/banking/statements': typeof WeldbooksBankingStatementsIndexRoute
@@ -5934,6 +5943,7 @@ export interface FileRoutesById {
   '/weldbooks/banking/$id/': typeof WeldbooksBankingIdIndexRoute
   '/weldbooks/banking/feeds/': typeof WeldbooksBankingFeedsIndexRoute
   '/weldbooks/banking/import/': typeof WeldbooksBankingImportIndexRoute
+  '/weldbooks/banking/process/': typeof WeldbooksBankingProcessIndexRoute
   '/weldbooks/banking/reconciliation/': typeof WeldbooksBankingReconciliationIndexRoute
   '/weldbooks/banking/rules/': typeof WeldbooksBankingRulesIndexRoute
   '/weldbooks/banking/statements/': typeof WeldbooksBankingStatementsIndexRoute
@@ -6591,6 +6601,7 @@ export interface FileRouteTypes {
     | '/weldbooks/banking/$id/'
     | '/weldbooks/banking/feeds/'
     | '/weldbooks/banking/import/'
+    | '/weldbooks/banking/process/'
     | '/weldbooks/banking/reconciliation/'
     | '/weldbooks/banking/rules/'
     | '/weldbooks/banking/statements/'
@@ -7186,6 +7197,7 @@ export interface FileRouteTypes {
     | '/weldbooks/banking/$id'
     | '/weldbooks/banking/feeds'
     | '/weldbooks/banking/import'
+    | '/weldbooks/banking/process'
     | '/weldbooks/banking/reconciliation'
     | '/weldbooks/banking/rules'
     | '/weldbooks/banking/statements'
@@ -7840,6 +7852,7 @@ export interface FileRouteTypes {
     | '/weldbooks/banking/$id/'
     | '/weldbooks/banking/feeds/'
     | '/weldbooks/banking/import/'
+    | '/weldbooks/banking/process/'
     | '/weldbooks/banking/reconciliation/'
     | '/weldbooks/banking/rules/'
     | '/weldbooks/banking/statements/'
@@ -11367,6 +11380,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WeldbooksBankingReconciliationIndexRouteImport
       parentRoute: typeof WeldbooksRouteRoute
     }
+    '/weldbooks/banking/process/': {
+      id: '/weldbooks/banking/process/'
+      path: '/banking/process'
+      fullPath: '/weldbooks/banking/process/'
+      preLoaderRoute: typeof WeldbooksBankingProcessIndexRouteImport
+      parentRoute: typeof WeldbooksRouteRoute
+    }
     '/weldbooks/banking/import/': {
       id: '/weldbooks/banking/import/'
       path: '/banking/import'
@@ -13096,6 +13116,7 @@ interface WeldbooksRouteRouteChildren {
   WeldbooksBankingIdIndexRoute: typeof WeldbooksBankingIdIndexRoute
   WeldbooksBankingFeedsIndexRoute: typeof WeldbooksBankingFeedsIndexRoute
   WeldbooksBankingImportIndexRoute: typeof WeldbooksBankingImportIndexRoute
+  WeldbooksBankingProcessIndexRoute: typeof WeldbooksBankingProcessIndexRoute
   WeldbooksBankingReconciliationIndexRoute: typeof WeldbooksBankingReconciliationIndexRoute
   WeldbooksBankingRulesIndexRoute: typeof WeldbooksBankingRulesIndexRoute
   WeldbooksBankingStatementsIndexRoute: typeof WeldbooksBankingStatementsIndexRoute
@@ -13194,6 +13215,7 @@ const WeldbooksRouteRouteChildren: WeldbooksRouteRouteChildren = {
   WeldbooksBankingIdIndexRoute: WeldbooksBankingIdIndexRoute,
   WeldbooksBankingFeedsIndexRoute: WeldbooksBankingFeedsIndexRoute,
   WeldbooksBankingImportIndexRoute: WeldbooksBankingImportIndexRoute,
+  WeldbooksBankingProcessIndexRoute: WeldbooksBankingProcessIndexRoute,
   WeldbooksBankingReconciliationIndexRoute:
     WeldbooksBankingReconciliationIndexRoute,
   WeldbooksBankingRulesIndexRoute: WeldbooksBankingRulesIndexRoute,

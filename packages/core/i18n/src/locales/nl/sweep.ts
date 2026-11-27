@@ -290,7 +290,9 @@ export const sweep = {
         "counterpartyName": "Naam tegenpartij",
         "counterpartyIban": "IBAN tegenpartij",
         "reference": "Referentie",
-        "amount": "Bedrag"
+        "amount": "Bedrag",
+        "direction": "Richting",
+        "bankAccountId": "Bankrekening"
       },
       "operator": {
         "contains": "bevat",
@@ -302,6 +304,9 @@ export const sweep = {
         "between": "tussen"
       },
       "valuePlaceholder": "waarde",
+      "directionIn": "Geld erbij",
+      "directionOut": "Geld eraf",
+      "chooseValuePlaceholder": "Kies…",
       "andPlaceholder": "en",
       "addCondition": "Voorwaarde toevoegen",
       "actionsLabel": "Acties",

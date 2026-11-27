@@ -107,8 +107,10 @@ describe('MatchDocumentsPanel', () => {
       },
       expect.anything(),
     );
-    env.mutate.mock.calls[0][1].onSuccess();
-    expect(onMatched).toHaveBeenCalled();
+    const result = { id: 'btx_1', status: 'reconciled', paymentId: 'pay_1', journalEntryId: null, roundingDifference: { accountId: 'acc_r', amount: '0.50' } };
+    env.mutate.mock.calls[0][1].onSuccess({ data: result });
+    // The server's answer is passed on: it names the rounding it booked on its own.
+    expect(onMatched).toHaveBeenCalledWith(result);
   });
 
   it('books a shortfall to the account picked, and asks for one first', async () => {

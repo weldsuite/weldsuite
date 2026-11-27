@@ -5,13 +5,16 @@
  */
 
 import { useState } from 'react';
-import { FileSearch } from 'lucide-react';
+import { Banknote, FileSearch } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
 import { Button } from '@weldsuite/ui/components/button';
 import { Card, CardContent, CardFooter, CardHeader } from '@weldsuite/ui/components/card';
 import { RecordChip, type RecordChipTone } from '@weldsuite/ui/components/record-chip';
 import { ErrorState } from '@weldsuite/ui/components/error-banner';
 import { InlineSpinner } from '@weldsuite/ui/components/page-loader';
+import { useObjectPanel } from '@/components/object-panel';
 import { RecordLink } from '@/components/object-panel/record-link';
+import { fetchCreditPayment } from '@/hooks/queries/use-weldbooks-processing-queries';
 import {
   TODO_TOP_LIMIT,
   useInfiniteTodoItems,
@@ -36,6 +39,33 @@ const HINT_CLASS: Record<TodoSeverity, string> = {
   warning: 'text-amber-700 dark:text-amber-400',
   danger: 'text-destructive',
 };
+
+/** An unapplied-credit item: a chip that opens the payment's contact on its Credit tab. */
+function CreditItemChip({
+  paymentId,
+  label,
+  secondary,
+  tone,
+  statusLabel,
+}: Readonly<{ paymentId: string; label: string; secondary?: string; tone: RecordChipTone; statusLabel: string }>) {
+  const { t } = useI18n();
+  const qc = useQueryClient();
+  const { open } = useObjectPanel();
+  return (
+    <RecordChip
+      label={label}
+      secondary={secondary ?? t.weldbooksConnected.credit.todoLink}
+      icon={Banknote}
+      tone={tone}
+      statusLabel={statusLabel}
+      onOpen={() => {
+        void fetchCreditPayment(qc, paymentId).then((payment) => {
+          if (payment?.contactId) open({ type: 'weldbooks_contact', id: payment.contactId, initialTab: 'credit', stack: true });
+        });
+      }}
+    />
+  );
+}
 
 /** One item: a chip that opens its record, the hint in words, the amount and the date. */
 export function TodoItemRow({ item }: Readonly<{ item: TodoItem }>) {
@@ -70,8 +100,18 @@ export function TodoItemRow({ item }: Readonly<{ item: TodoItem }>) {
         onOpen={() => router.push(target.href)}
       />
     );
+  } else if (target.kind === 'credit') {
+    chip = (
+      <CreditItemChip
+        paymentId={target.paymentId}
+        label={label}
+        secondary={secondary}
+        tone={tone}
+        statusLabel={statusLabel}
+      />
+    );
   } else {
-    // No panel yet (a payment): the item is shown, without a link.
+    // Nothing to open: the item is shown, without a link.
     chip = (
       <span className="inline-flex min-w-0 items-center gap-1.5 text-[13px]">
         <span className="truncate font-medium">{label}</span>

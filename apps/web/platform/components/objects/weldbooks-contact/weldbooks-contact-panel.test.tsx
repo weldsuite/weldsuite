@@ -25,6 +25,15 @@ vi.mock('@tanstack/react-router', () => ({
   useNavigate: () => vi.fn(),
 }));
 const permissions = vi.hoisted(() => ({ allowed: new Set<string>() }));
+const edition = vi.hoisted(() => ({ processing: false }));
+vi.mock('@/lib/edition', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/edition')>();
+  return {
+    ...actual,
+    isFeatureAvailable: (feature: Parameters<typeof actual.isFeatureAvailable>[0]) =>
+      feature === 'books-bank-processing' ? edition.processing : actual.isFeatureAvailable(feature),
+  };
+});
 vi.mock('@weldsuite/permissions/react', () => ({
   usePermissions: () => ({ can: (permission: string) => permissions.allowed.has(permission) }),
 }));
@@ -83,9 +92,10 @@ function page<T>(rows: T[]) {
 function serve(
   contact: Record<string, unknown>,
   certificates: unknown[] = [],
-  documents: { balance?: unknown; invoices?: unknown[]; bills?: unknown[] } = {},
+  documents: { balance?: unknown; invoices?: unknown[]; bills?: unknown[]; credits?: unknown[] } = {},
 ) {
   api.get.mockImplementation(async (path: string) => {
+    if (path.endsWith('/credits')) return { data: documents.credits ?? [] };
     if (path.startsWith('/exemption-certificates')) return { data: certificates };
     if (path.endsWith('/balance')) return { data: documents.balance ?? noBalance };
     if (path.startsWith('/invoices')) return page(documents.invoices ?? []);
@@ -99,9 +109,9 @@ const customer = { id: 'prt_1', name: 'Acme Corp', role: 'customer', email: 'ap@
 
 const onClose = vi.fn();
 
-function renderPanel(mode: 'panel' | 'fullscreen' = 'fullscreen') {
+function renderPanel(mode: 'panel' | 'fullscreen' = 'fullscreen', initialTab?: string) {
   return renderWithProviders(
-    <WeldbooksContactPanel id="prt_1" isOpen onClose={onClose} mode={mode} onModeChange={vi.fn()} />,
+    <WeldbooksContactPanel id="prt_1" isOpen onClose={onClose} mode={mode} onModeChange={vi.fn()} initialTab={initialTab} />,
   );
 }
 
@@ -118,6 +128,8 @@ beforeEach(() => {
   toast.success.mockReset();
   toast.error.mockReset();
   jurisdiction.salesTax = true;
+  edition.processing = false;
+  api.post.mockReset();
   permissions.allowed = new Set(['taxes:read', 'taxes:create']);
 });
 
@@ -583,5 +595,134 @@ describe('WeldBooks contact panel: connected documents', () => {
 
     await screen.findByText('ap@acme.test');
     expect(screen.queryByRole('link', { name: cn.newInvoice })).not.toBeInTheDocument();
+  });
+
+  describe('unapplied credit', () => {
+    const credit = {
+      paymentId: 'pay_1',
+      type: 'received',
+      date: '2026-10-02',
+      currency: 'USD',
+      reference: 'Prepayment',
+      amount: '100.00',
+      unallocatedAmount: '40.00',
+      bankTransactionId: 'bt_1',
+    };
+    const openInvoice = {
+      id: 'inv_7',
+      invoiceNumber: 'INV-0007',
+      type: 'standard',
+      status: 'sent',
+      issueDate: '2026-10-01',
+      total: '120.00',
+      balanceDue: '90.00',
+      currency: 'USD',
+    };
+    const paidInvoice = { ...openInvoice, id: 'inv_8', invoiceNumber: 'INV-0008', status: 'paid', balanceDue: '0.00' };
+
+    async function openCreditTab(user: ReturnType<typeof userEvent.setup>) {
+      await screen.findByText('ap@acme.test');
+      await user.click(await screen.findByRole('tab', { name: en.weldbooksConnected.credit.tab }));
+    }
+
+    it('has no Credit tab, and never asks for credit, where the edition lacks bank processing', async () => {
+      jurisdiction.salesTax = false;
+      serve(customer, [], { credits: [credit] });
+      renderPanel();
+      await screen.findByText('ap@acme.test');
+      expect(screen.queryByRole('tab', { name: en.weldbooksConnected.credit.tab })).not.toBeInTheDocument();
+      expect(api.get.mock.calls.some(([path]) => String(path).endsWith('/credits'))).toBe(false);
+    });
+
+    it('has no Credit tab while the contact has no credit', async () => {
+      edition.processing = true;
+      jurisdiction.salesTax = false;
+      serve(customer, [], { credits: [] });
+      renderPanel();
+      await screen.findByText('ap@acme.test');
+      await vi.waitFor(() => expect(api.get.mock.calls.some(([path]) => String(path).endsWith('/credits'))).toBe(true));
+      expect(screen.queryByRole('tab', { name: en.weldbooksConnected.credit.tab })).not.toBeInTheDocument();
+    });
+
+    it('shows a Credit tab with the credit that is left, and opens on it when asked for', async () => {
+      edition.processing = true;
+      jurisdiction.salesTax = false;
+      serve(customer, [], { credits: [credit] });
+      renderPanel('fullscreen', 'credit');
+      const rows = await screen.findByTestId('credit-rows');
+      expect(within(rows).getByText('Prepayment')).toBeInTheDocument();
+      expect(within(rows).getByText(/\$40.00 left of \$100.00/)).toBeInTheDocument();
+    });
+
+    it('applies credit to an open invoice of the contact, by default the smaller of credit and balance', async () => {
+      const user = userEvent.setup();
+      edition.processing = true;
+      jurisdiction.salesTax = false;
+      permissions.allowed.add('banking:update');
+      serve(customer, [], { credits: [credit], invoices: [openInvoice, paidInvoice] });
+      api.post.mockResolvedValue({ data: { paymentId: 'pay_1', invoiceId: 'inv_7', amount: '40.00', unallocatedAmount: '0.00' } });
+      renderPanel();
+      await openCreditTab(user);
+
+      await user.click(await screen.findByTestId('apply-credit-pay_1'));
+      const dialog = await screen.findByTestId('apply-credit-dialog');
+      // Nothing to apply until a document is picked.
+      expect(within(dialog).getByTestId('apply-credit-submit')).toBeDisabled();
+      await user.click(await within(dialog).findByRole('combobox', { name: 'Open document' }));
+      // The paid invoice is not offered.
+      expect(screen.queryByRole('option', { name: /INV-0008/ })).not.toBeInTheDocument();
+      await user.click(await screen.findByRole('option', { name: /Invoice INV-0007/ }));
+      expect(within(dialog).getByLabelText('Amount')).toHaveValue('40.00');
+
+      await user.click(within(dialog).getByTestId('apply-credit-submit'));
+      await vi.waitFor(() =>
+        expect(api.post).toHaveBeenCalledWith('/payments/pay_1/apply', { invoiceId: 'inv_7', amount: '40.00' }),
+      );
+      expect(toast.success).toHaveBeenCalledWith('Credit applied');
+    });
+
+    it('will not apply more than the credit or the balance', async () => {
+      const user = userEvent.setup();
+      edition.processing = true;
+      jurisdiction.salesTax = false;
+      permissions.allowed.add('banking:update');
+      serve(customer, [], { credits: [credit], invoices: [openInvoice] });
+      renderPanel();
+      await openCreditTab(user);
+      await user.click(await screen.findByTestId('apply-credit-pay_1'));
+      const dialog = await screen.findByTestId('apply-credit-dialog');
+      await user.click(await within(dialog).findByRole('combobox', { name: 'Open document' }));
+      await user.click(await screen.findByRole('option', { name: /Invoice INV-0007/ }));
+      const amount = within(dialog).getByLabelText('Amount');
+      await user.clear(amount);
+      await user.type(amount, '50');
+      expect(within(dialog).getByTestId('apply-credit-submit')).toBeDisabled();
+      await user.clear(amount);
+      await user.type(amount, '25.50');
+      expect(within(dialog).getByTestId('apply-credit-submit')).toBeEnabled();
+    });
+
+    it('says so when the contact has nothing open to apply credit to', async () => {
+      const user = userEvent.setup();
+      edition.processing = true;
+      jurisdiction.salesTax = false;
+      permissions.allowed.add('banking:update');
+      serve(customer, [], { credits: [credit], invoices: [] });
+      renderPanel();
+      await openCreditTab(user);
+      await user.click(await screen.findByTestId('apply-credit-pay_1'));
+      expect(await screen.findByTestId('no-open-documents')).toBeInTheDocument();
+    });
+
+    it('offers no Apply without banking:update', async () => {
+      const user = userEvent.setup();
+      edition.processing = true;
+      jurisdiction.salesTax = false;
+      serve(customer, [], { credits: [credit] });
+      renderPanel();
+      await openCreditTab(user);
+      await screen.findByTestId('credit-rows');
+      expect(screen.queryByTestId('apply-credit-pay_1')).not.toBeInTheDocument();
+    });
   });
 });
