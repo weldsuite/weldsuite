@@ -8,6 +8,7 @@ import { Button } from '@weldsuite/ui/components/button';
 import { InfoBanner } from '@weldsuite/ui/components/info-banner';
 import { isTodoAvailable, useTodoSummary } from '@/hooks/queries/use-weldbooks-todo-queries';
 import { useI18n } from '@/lib/i18n/provider';
+import { getLocale } from '@/lib/i18n';
 import { plural } from '@/lib/i18n/plural';
 import { Link } from '@/lib/router';
 
@@ -21,7 +22,7 @@ export function TodoCallout() {
   return (
     <InfoBanner
       variant="info"
-      title={plural(data.total, copy.calloutTitle)}
+      title={plural(data.total, copy.calloutTitle, getLocale())}
       action={
         <Button asChild size="sm" variant="outline">
           <Link href={TO_PROCESS_HREF}>{copy.calloutAction}</Link>

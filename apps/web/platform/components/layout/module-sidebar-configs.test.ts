@@ -67,11 +67,11 @@ describe('the WeldBooks menu', () => {
 
   it('names the Dutch menu in the glossary words', async () => {
     const { nl } = await import('@weldsuite/i18n/locales/nl');
-    const titles = MODULE_CONFIGS.weldbooks!.getMenuItems(nl as typeof en).flatMap((group) => group.items.map((item) => item.title));
+    const titles = MODULE_CONFIGS.weldbooks!.getMenuItems(nl as unknown as typeof en).flatMap((group) => group.items.map((item) => item.title));
     for (const word of ['Te verwerken', 'Inbox', 'Inkoopfacturen en bonnen', 'Contacten', 'Grootboekrekeningen', 'Memoriaal']) {
       expect(titles).toContain(word);
     }
-    const dutchGroups = MODULE_CONFIGS.weldbooks!.getMenuItems(nl as typeof en).map((group) => group.group);
+    const dutchGroups = MODULE_CONFIGS.weldbooks!.getMenuItems(nl as unknown as typeof en).map((group) => group.group);
     expect(dutchGroups).toContain('Bank');
     expect(dutchGroups).toContain('Boekhouder');
   });

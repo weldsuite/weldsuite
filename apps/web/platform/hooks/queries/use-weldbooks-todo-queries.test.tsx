@@ -140,7 +140,7 @@ describe('useInvalidateTodoWithAccounting', () => {
   }
 
   const todoInvalidations = (spy: ReturnType<typeof vi.spyOn>) =>
-    spy.mock.calls.filter(([filters]) => JSON.stringify((filters as { queryKey?: unknown })?.queryKey) === JSON.stringify(todoKeys.all));
+    spy.mock.calls.filter((call: unknown[]) => JSON.stringify((call[0] as { queryKey?: unknown } | undefined)?.queryKey) === JSON.stringify(todoKeys.all));
 
   it.each(sources)('refreshes the to-process queries when %s are invalidated', async (source) => {
     const { client, invalidate } = await mounted();

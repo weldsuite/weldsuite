@@ -239,7 +239,7 @@ describe('WeldBooks commands', () => {
   });
 
   it('says them in Dutch and finds them by the Dutch words', () => {
-    const commands = createCommands(nl, books);
+    const commands = createCommands(nl as unknown as typeof en, books);
     expect(commands.find((command) => command.id === 'create:contact')?.title).toBe('Nieuw contact');
     expect(commands.find((command) => command.id === 'create:upload-document')?.title).toBe('Document uploaden');
     expect(titles(visibleCommands(commands, 'leverancier'))).toContain('Nieuw contact');
@@ -285,7 +285,7 @@ describe('WeldBooks commands', () => {
 
   it('says them in Dutch', () => {
     setRuntimeConfig({ backend: 'rust', modules: ['core', 'books'], unavailableFeatures: [] });
-    expect(titles(weldbooksTodoCommands(nl, books))).toEqual(['Te verwerken', 'Bankregels verwerken']);
+    expect(titles(weldbooksTodoCommands(nl as unknown as typeof en, books))).toEqual(['Te verwerken', 'Bankregels verwerken']);
   });
 });
 

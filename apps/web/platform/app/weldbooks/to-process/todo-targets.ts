@@ -5,6 +5,7 @@
  */
 
 import type { TodoItem, TodoKind } from '@/lib/api/domains/weldbooks';
+import { getLocale } from '@/lib/i18n';
 import { plural } from '@/lib/i18n/plural';
 import type { TranslationsType } from '@/lib/i18n/types';
 import { withQuery } from '@/lib/with-query';
@@ -49,7 +50,7 @@ export function todoKindAction(
   copy: TodoCopy,
 ): TodoKindAction | null {
   const label = (action: string | { one: string; other: string }) =>
-    typeof action === 'string' ? action : plural(count, action);
+    typeof action === 'string' ? action : plural(count, action, getLocale());
   switch (kind) {
     case 'bank_lines':
       // Phase 2 replaces the reconcile screen with the processing view.
