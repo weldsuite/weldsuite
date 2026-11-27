@@ -78,12 +78,17 @@ export async function saveSettings(partial: Partial<DesktopSettings>): Promise<D
 export function applySettings(settings: DesktopSettings): Array<keyof DesktopSettings> {
   const restartRequired: Array<keyof DesktopSettings> = [];
 
-  // Auto-launch — effective immediately via OS login items.
-  app.setLoginItemSettings({
-    openAtLogin: settings.autoLaunch,
-    openAsHidden: settings.autoLaunch && settings.startMinimized,
-    // On Windows you can pass a path + args; defaults work for the packaged app.
-  });
+  // Auto-launch — effective immediately via OS login items. Not for a
+  // Microsoft Store install: Windows keeps an MSIX package's login item in its
+  // manifest, out of reach of setLoginItemSettings, so the platform hides the
+  // setting there (getAppInfo's `windowsStore`).
+  if (!process.windowsStore) {
+    app.setLoginItemSettings({
+      openAtLogin: settings.autoLaunch,
+      openAsHidden: settings.autoLaunch && settings.startMinimized,
+      // On Windows you can pass a path + args; defaults work for the packaged app.
+    });
+  }
 
   // Hardware acceleration — must be set before app.whenReady(). If we're
   // past that point, changes require a restart.

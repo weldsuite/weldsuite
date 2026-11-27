@@ -66,7 +66,8 @@ export interface OidcSignInApi {
 export interface WeldsuiteDesktopApi {
   readonly isDesktop: true;
   readonly platform: NodeJS.Platform;
-  getAppInfo(): Promise<{ platform: NodeJS.Platform; version: string; appUrl: string; deepLinkScheme: string }>;
+  /** `windowsStore`: installed from the Microsoft Store (shells 0.4.0 and later). */
+  getAppInfo(): Promise<{ platform: NodeJS.Platform; version: string; appUrl: string; deepLinkScheme: string; windowsStore?: boolean }>;
   getDesktopSources(opts?: {
     types?: Array<'screen' | 'window'>;
     thumbnailSize?: { width: number; height: number };

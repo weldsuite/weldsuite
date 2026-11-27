@@ -1,7 +1,7 @@
 {
   "name": "desktop",
   "license": "AGPL-3.0-only",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "description": "WeldSuite desktop app — Electron shell around the platform SPA with native screen share, tray, notifications, and deep links.",
   "author": "Weld Corporation <info@weldsuite.org>",
@@ -15,10 +15,12 @@
     "test": "vitest run",
     "lint": "tsc --noEmit",
     "icons": "node scripts/generate-icons.mjs",
+    "icons:store": "node scripts/generate-store-assets.mjs",
     "package": "electron-vite build && electron-builder",
     "package:win": "electron-vite build && electron-builder --win",
     "package:mac": "electron-vite build && electron-builder --mac",
-    "package:linux": "electron-vite build && electron-builder --linux"
+    "package:linux": "electron-vite build && electron-builder --linux",
+    "package:store": "electron-vite build && electron-builder --win appx --x64 --arm64 --publish never"
   },
   "dependencies": {
     "electron-updater": "^6.3.9"

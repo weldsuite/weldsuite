@@ -25,12 +25,36 @@ const ROWS: Row[] = [
   { key: 'hardwareAcceleration', copy: 'hardwareAcceleration', restartRequired: true },
 ];
 
+type AppInfo = Awaited<ReturnType<NonNullable<ReturnType<typeof getDesktop>>['getAppInfo']>>;
+
 function hostOf(url: string): string | null {
   try {
     return new URL(url).host;
   } catch {
     return null;
   }
+}
+
+/** What the shell says about itself; null outside the shell or until it answers. */
+function useDesktopAppInfo(): AppInfo | null {
+  const desktop = getDesktop();
+  const [info, setInfo] = useState<AppInfo | null>(null);
+
+  useEffect(() => {
+    if (!desktop) return;
+    let cancelled = false;
+    desktop
+      .getAppInfo()
+      .then((next) => {
+        if (!cancelled) setInfo(next);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [desktop]);
+
+  return info;
 }
 
 /**
@@ -41,21 +65,8 @@ export function DesktopServerRow() {
   const { t, format } = useI18n();
   const ts = t.common.desktop.settings.server;
   const desktop = getDesktop();
-  const [host, setHost] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!desktop) return;
-    let cancelled = false;
-    desktop
-      .getAppInfo()
-      .then((info) => {
-        if (!cancelled) setHost(hostOf(info.appUrl));
-      })
-      .catch(() => undefined);
-    return () => {
-      cancelled = true;
-    };
-  }, [desktop]);
+  const info = useDesktopAppInfo();
+  const host = info ? hostOf(info.appUrl) : null;
 
   if (!desktop || !host) return null;
 
@@ -82,6 +93,10 @@ export function DesktopSettingsPanel() {
   const { t } = useI18n();
   const ts = t.common.desktop.settings;
   const { settings, loading, update, restartRequired, relaunch } = useDesktopSettings();
+  const info = useDesktopAppInfo();
+  // A Microsoft Store install can't launch at login: Windows keeps that in
+  // the package's manifest, out of the shell's reach.
+  const rows = info?.windowsStore ? ROWS.filter((row) => row.key !== 'autoLaunch') : ROWS;
 
   if (!isDesktop()) return null;
 
@@ -114,7 +129,7 @@ export function DesktopSettingsPanel() {
         {settings && (
           <div className="divide-y">
             <DesktopServerRow />
-            {ROWS.map((row) => (
+            {rows.map((row) => (
               <div key={row.key} className="flex items-start justify-between gap-6 py-4">
                 <div className="space-y-1">
                   <Label htmlFor={`desktop-setting-${row.key}`} className="font-medium">
