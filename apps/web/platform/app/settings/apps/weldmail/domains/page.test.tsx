@@ -433,6 +433,128 @@ describe('MailDomainsSettingsPage DMARC', () => {
     expect(screen.getByText(/r-abc@dmarc\.weldsuite\.eu/)).toBeInTheDocument();
   });
 
+  it('names every other blocker', () => {
+    verifiedSettings();
+    withSummary(
+      summary({
+        advice: {
+          current: 'quarantine',
+          next: 'reject',
+          ready: false,
+          suggestedRecord: null,
+          blockers: [
+            { code: 'recordProblem', state: 'multiple' },
+            { code: 'noReports' },
+            { code: 'tooFewReporters', have: 1, need: 2 },
+            { code: 'weldsuiteFailing', permille: 950, need: 995 },
+            { code: 'tooSoon', days: 12, need: 30 },
+          ],
+        },
+      }),
+    );
+    render(<MailDomainsSettingsPage />);
+    fireEvent.click(screen.getByRole('button', { name: td.dmarc.title }));
+    expect(
+      screen.getByText('Your DMARC record is present more than once. Fix that first.'),
+    ).toBeInTheDocument();
+    expect(screen.getByText(td.dmarc.advice.blockers.noReports)).toBeInTheDocument();
+    expect(
+      screen.getByText('Reports came from 1 receivers; at least 2 are needed.'),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'Only 95.0% of the mail sent through WeldSuite passes DMARC; at least 99.5% is needed.',
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText('Wait a little longer: 12 of the 30 days that are needed have passed.'),
+    ).toBeInTheDocument();
+  });
+
+  it('lists the failing mail and the reporting receivers', () => {
+    verifiedSettings();
+    withSummary(
+      summary({
+        failures: [
+          {
+            sourceKey: 'ip:203.0.113.9',
+            sourceName: '203.0.113.9',
+            headerFrom: 'news.acme.nl',
+            dkimAligned: false,
+            spfAligned: false,
+            dkimDomains: ['spoof.example'],
+            spfDomain: 'bounce.spoof.example',
+            messages: 3,
+          },
+        ],
+        reporters: [{ domain: 'google.com', org: 'google.com', reports: 4, messages: 200 }],
+      }),
+    );
+    render(<MailDomainsSettingsPage />);
+    fireEvent.click(screen.getByRole('button', { name: td.dmarc.title }));
+    expect(screen.getByText(td.dmarc.failures.title)).toBeInTheDocument();
+    expect(screen.getByText('news.acme.nl')).toBeInTheDocument();
+    expect(screen.getByText('DKIM: spoof.example')).toBeInTheDocument();
+    expect(screen.getByText('SPF: bounce.spoof.example')).toBeInTheDocument();
+    expect(screen.getByText(td.dmarc.reporters.title)).toBeInTheDocument();
+    expect(screen.getAllByText('google.com').length).toBeGreaterThan(0);
+  });
+
+  it('copies the suggested record', async () => {
+    verifiedSettings();
+    const record = 'v=DMARC1; p=reject';
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    withSummary(
+      summary({
+        advice: {
+          current: 'quarantine',
+          next: 'reject',
+          ready: true,
+          suggestedRecord: record,
+          blockers: [],
+        },
+      }),
+    );
+    render(<MailDomainsSettingsPage />);
+    fireEvent.click(screen.getByRole('button', { name: td.dmarc.title }));
+    fireEvent.click(screen.getByRole('button', { name: td.copy }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(record));
+    expect(state.toast.success).toHaveBeenCalled();
+  });
+
+  it('clears a not-mine mark, and says when a mark fails', async () => {
+    verifiedSettings();
+    const source = {
+      key: 'name:crm.example',
+      kind: 'name' as const,
+      name: 'crm.example',
+      ips: ['203.0.113.9'],
+      messages: 50,
+      passed: 5,
+      dkimAligned: 5,
+      spfAligned: 0,
+      mark: 'not_mine' as const,
+    };
+    withSummary(summary({ sources: [source] }));
+    state.mark.mockResolvedValueOnce({ data: { key: source.key, mark: null } });
+    render(<MailDomainsSettingsPage />);
+    fireEvent.click(screen.getByRole('button', { name: td.dmarc.title }));
+    fireEvent.click(screen.getByRole('button', { name: td.dmarc.sources.notMine }));
+    await waitFor(() =>
+      expect(state.mark).toHaveBeenCalledWith({ key: source.key, mark: null }),
+    );
+    await waitFor(() =>
+      expect(state.toast.success).toHaveBeenCalledWith(td.dmarc.sources.markCleared),
+    );
+
+    state.mark.mockRejectedValueOnce(new Error('403'));
+    fireEvent.click(screen.getByRole('button', { name: td.dmarc.sources.mine }));
+    await waitFor(() =>
+      expect(state.toast.error).toHaveBeenCalledWith(td.dmarc.sources.markFailed),
+    );
+  });
+
   it('marks a source as mine', async () => {
     verifiedSettings();
     state.mark.mockResolvedValue({

@@ -874,9 +874,7 @@ export function useMarkDmarcSource(id: string) {
       assertFeature('mail-dmarc-reports');
       return mailDomains.markDmarcSource(id, data);
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: mailKeys.dmarcAll(id) });
-    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: mailKeys.dmarcAll(id) }),
   });
 }
 // =============================================================================

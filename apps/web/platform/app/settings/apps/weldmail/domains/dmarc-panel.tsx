@@ -360,11 +360,10 @@ function SourcesTable({
                     {source.kind === 'weldsuite' ? (
                       <SoftBadge tone="success">{dl.sources.weldsuite}</SoftBadge>
                     ) : (
-                      <div
-                        className="flex flex-wrap gap-1"
-                        role="group"
-                        aria-label={fill(dl.sources.markLabel, { name })}
-                      >
+                      <fieldset className="m-0 flex min-w-0 flex-wrap gap-1 border-0 p-0">
+                        <legend className="sr-only">
+                          {fill(dl.sources.markLabel, { name })}
+                        </legend>
                         <Button
                           type="button"
                           size="sm"
@@ -387,7 +386,7 @@ function SourcesTable({
                         >
                           {dl.sources.notMine}
                         </Button>
-                      </div>
+                      </fieldset>
                     )}
                   </TableCell>
                 </TableRow>
