@@ -238,8 +238,8 @@ final class HRStore {
         }
     }
 
-    private static func failure(_ status: Int, _ response: Components.Responses.Error) -> HRFailure {
-        let body = try? response.body.json.error
+    /// A failed call, from its status and the `{ error }` body when it decodes.
+    private static func failure(_ status: Int, _ body: Components.Schemas.ErrorBody?) -> HRFailure {
         return HRFailure(api: APIError(status: status, code: body?.code), message: body?.message)
     }
 
@@ -248,7 +248,7 @@ final class HRStore {
         try await write {
             switch try await client().clockMe(body: .json(.init(action: action, shiftId: shiftId, location: location))) {
             case .ok: return
-            case let .default(status, response): throw Self.failure(status, response)
+            case let .default(status, response): throw Self.failure(status, try? response.body.json.error)
             }
         }
     }
@@ -258,7 +258,7 @@ final class HRStore {
         try await write {
             switch try await client().requestLeave(body: .json(.init(leaveTypeId: typeId, startDate: startDate, endDate: endDate, reason: reason))) {
             case let .created(created): return try created.body.json.data.status
-            case let .default(status, response): throw Self.failure(status, response)
+            case let .default(status, response): throw Self.failure(status, try? response.body.json.error)
             }
         }
     }
@@ -267,7 +267,7 @@ final class HRStore {
         try await write {
             switch try await client().cancelMyLeave(path: .init(id: id)) {
             case .ok: return
-            case let .default(status, response): throw Self.failure(status, response)
+            case let .default(status, response): throw Self.failure(status, try? response.body.json.error)
             }
         }
     }
@@ -276,7 +276,7 @@ final class HRStore {
         try await write {
             switch try await client().requestShift(body: .json(.init(startsAt: startsAt, endsAt: endsAt, workType: workType, note: note))) {
             case .created: return
-            case let .default(status, response): throw Self.failure(status, response)
+            case let .default(status, response): throw Self.failure(status, try? response.body.json.error)
             }
         }
     }
@@ -285,7 +285,7 @@ final class HRStore {
         try await write {
             switch try await client().cancelMyShiftRequest(path: .init(id: id)) {
             case .ok: return
-            case let .default(status, response): throw Self.failure(status, response)
+            case let .default(status, response): throw Self.failure(status, try? response.body.json.error)
             }
         }
     }
@@ -294,7 +294,7 @@ final class HRStore {
         try await write {
             switch try await client().signUpForOpenShift(path: .init(id: openShiftId), body: .json(.init(note: note))) {
             case .created: return
-            case let .default(status, response): throw Self.failure(status, response)
+            case let .default(status, response): throw Self.failure(status, try? response.body.json.error)
             }
         }
     }
@@ -303,7 +303,7 @@ final class HRStore {
         try await write {
             switch try await client().markAnnouncementRead(path: .init(id: id)) {
             case .ok: return
-            case let .default(status, response): throw Self.failure(status, response)
+            case let .default(status, response): throw Self.failure(status, try? response.body.json.error)
             }
         }
     }
@@ -312,7 +312,7 @@ final class HRStore {
         try await write {
             switch try await client().reportSick(body: .json(.init(startDate: startDate, firstDay: firstDay, note: note))) {
             case .created: return
-            case let .default(status, response): throw Self.failure(status, response)
+            case let .default(status, response): throw Self.failure(status, try? response.body.json.error)
             }
         }
     }
@@ -321,7 +321,7 @@ final class HRStore {
         try await write {
             switch try await client().reportRecovered(path: .init(id: id), body: .json(.init(endDate: endDate))) {
             case .ok: return
-            case let .default(status, response): throw Self.failure(status, response)
+            case let .default(status, response): throw Self.failure(status, try? response.body.json.error)
             }
         }
     }
@@ -334,7 +334,7 @@ final class HRStore {
             let id: String
             switch try await client().createDeclaration(body: .json(input)) {
             case let .created(created): id = try created.body.json.data.id
-            case let .default(status, response): throw Self.failure(status, response)
+            case let .default(status, response): throw Self.failure(status, try? response.body.json.error)
             }
             guard let receipt else { return true }
             do {
@@ -350,7 +350,7 @@ final class HRStore {
         try await write {
             switch try await client().cancelMyDeclaration(path: .init(id: id)) {
             case .ok: return
-            case let .default(status, response): throw Self.failure(status, response)
+            case let .default(status, response): throw Self.failure(status, try? response.body.json.error)
             }
         }
     }
@@ -360,7 +360,7 @@ final class HRStore {
         try await write {
             switch try await client().completeMyTask(path: .init(id: id), query: .init(undo: done ? nil : "true")) {
             case let .ok(ok): return try ok.body.json.data.checklistCompleted
-            case let .default(status, response): throw Self.failure(status, response)
+            case let .default(status, response): throw Self.failure(status, try? response.body.json.error)
             }
         }
     }
@@ -370,12 +370,12 @@ final class HRStore {
             if coaching {
                 switch try await client().acknowledgeCoaching(path: .init(id: id), body: .json(.init(comment: comment))) {
                 case .ok: return
-                case let .default(status, response): throw Self.failure(status, response)
+                case let .default(status, response): throw Self.failure(status, try? response.body.json.error)
                 }
             } else {
                 switch try await client().acknowledgeEvaluation(path: .init(id: id), body: .json(.init(comment: comment))) {
                 case .ok: return
-                case let .default(status, response): throw Self.failure(status, response)
+                case let .default(status, response): throw Self.failure(status, try? response.body.json.error)
                 }
             }
         }
@@ -385,7 +385,7 @@ final class HRStore {
         try await write {
             switch try await client().reviewLeaveRequest(path: .init(id: id), body: .json(.init(decision: approve ? "approved" : "rejected", note: note))) {
             case .ok: return
-            case let .default(status, response): throw Self.failure(status, response)
+            case let .default(status, response): throw Self.failure(status, try? response.body.json.error)
             }
         }
     }
@@ -394,7 +394,7 @@ final class HRStore {
         try await write {
             switch try await client().reviewDeclaration(path: .init(id: id), body: .json(.init(decision: approve ? "approved" : "rejected", note: note))) {
             case .ok: return
-            case let .default(status, response): throw Self.failure(status, response)
+            case let .default(status, response): throw Self.failure(status, try? response.body.json.error)
             }
         }
     }
@@ -403,7 +403,7 @@ final class HRStore {
         try await write {
             switch try await client().createAnnouncement(body: .json(.init(title: title, body: body, pinned: pinned, notify: notify))) {
             case .created: return
-            case let .default(status, response): throw Self.failure(status, response)
+            case let .default(status, response): throw Self.failure(status, try? response.body.json.error)
             }
         }
     }
@@ -438,7 +438,7 @@ final class HRStore {
                     declarations: features.declarations
                 )
             )
-        case let .default(status, response): throw Self.failure(status, response)
+        case let .default(status, response): throw Self.failure(status, try? response.body.json.error)
         }
     }
 
@@ -456,7 +456,7 @@ final class HRStore {
                 openShifts: data.openShifts,
                 unreadAnnouncements: data.unreadAnnouncements
             )
-        case let .default(status, response): throw Self.failure(status, response)
+        case let .default(status, response): throw Self.failure(status, try? response.body.json.error)
         }
     }
 
@@ -514,7 +514,7 @@ final class HRStore {
                     )
                 }
             )
-        case let .default(status, response): throw Self.failure(status, response)
+        case let .default(status, response): throw Self.failure(status, try? response.body.json.error)
         }
     }
 
@@ -556,7 +556,7 @@ final class HRStore {
                     )
                 }
             )
-        case let .default(status, response): throw Self.failure(status, response)
+        case let .default(status, response): throw Self.failure(status, try? response.body.json.error)
         }
     }
 
@@ -565,7 +565,7 @@ final class HRStore {
         case let .ok(ok):
             let data = try ok.body.json.data
             return HRAbsences(current: data.current.map { Self.absence($0.value1) }, history: data.history.map(Self.absence))
-        case let .default(status, response): throw Self.failure(status, response)
+        case let .default(status, response): throw Self.failure(status, try? response.body.json.error)
         }
     }
 
@@ -591,7 +591,7 @@ final class HRStore {
             }
             // The server's open totals, worked out the same way from the rows (HRLogic.openAmounts).
             return HRDeclarations(declarations: rows, open: openAmounts(rows))
-        case let .default(status, response): throw Self.failure(status, response)
+        case let .default(status, response): throw Self.failure(status, try? response.body.json.error)
         }
     }
 
@@ -605,7 +605,7 @@ final class HRStore {
                 },
                 unread: data.unread
             )
-        case let .default(status, response): throw Self.failure(status, response)
+        case let .default(status, response): throw Self.failure(status, try? response.body.json.error)
         }
     }
 
@@ -628,7 +628,7 @@ final class HRStore {
                     myRequest: shift.myRequest.map { HROpenShiftRequest(id: $0.value1.id, status: $0.value1.status, reviewNote: $0.value1.reviewNote) }
                 )
             }
-        case let .default(status, response): throw Self.failure(status, response)
+        case let .default(status, response): throw Self.failure(status, try? response.body.json.error)
         }
     }
 
@@ -638,7 +638,7 @@ final class HRStore {
             return try ok.body.json.data.map {
                 HRTask(id: $0.id, title: $0.title, description: $0.description, dueDate: $0.dueDate, assigneeRole: $0.assigneeRole, completedAt: $0.completedAt, canComplete: $0.canComplete, checklistName: $0.checklistName)
             }
-        case let .default(status, response): throw Self.failure(status, response)
+        case let .default(status, response): throw Self.failure(status, try? response.body.json.error)
         }
     }
 
@@ -659,7 +659,7 @@ final class HRStore {
                     employeeComment: log.employeeComment
                 )
             }
-        case let .default(status, response): throw Self.failure(status, response)
+        case let .default(status, response): throw Self.failure(status, try? response.body.json.error)
         }
     }
 
@@ -681,7 +681,7 @@ final class HRStore {
                     employeeComment: row.employeeComment
                 )
             }
-        case let .default(status, response): throw Self.failure(status, response)
+        case let .default(status, response): throw Self.failure(status, try? response.body.json.error)
         }
     }
 
@@ -705,7 +705,7 @@ final class HRStore {
         case let .default(status, response):
             // 404 while the `weldhr-payroll` flag is off: the Pay screen says so instead of an error.
             if status == 404 { return .off }
-            throw Self.failure(status, response)
+            throw Self.failure(status, try? response.body.json.error)
         }
     }
 
@@ -715,7 +715,7 @@ final class HRStore {
             return try ok.body.json.data.map { HRAnnualStatement(year: $0.year, employerId: $0.employerId, employerName: $0.employerName, kind: $0.kind) }
         case let .default(status, response):
             if status == 404 { return [] }
-            throw Self.failure(status, response)
+            throw Self.failure(status, try? response.body.json.error)
         }
     }
 
@@ -737,7 +737,7 @@ final class HRStore {
                     employeeName: request.employeeName
                 )
             }
-        case let .default(status, response): throw Self.failure(status, response)
+        case let .default(status, response): throw Self.failure(status, try? response.body.json.error)
         }
     }
 
@@ -758,7 +758,7 @@ final class HRStore {
                     employeeName: row.employeeName
                 )
             }
-        case let .default(status, response): throw Self.failure(status, response)
+        case let .default(status, response): throw Self.failure(status, try? response.body.json.error)
         }
     }
 
@@ -778,7 +778,7 @@ final class HRStore {
                     employeeName: row.employeeName
                 )
             }
-        case let .default(status, response): throw Self.failure(status, response)
+        case let .default(status, response): throw Self.failure(status, try? response.body.json.error)
         }
     }
 
@@ -801,7 +801,7 @@ final class HRStore {
                     employeeName: shift.employeeName
                 )
             }
-        case let .default(status, response): throw Self.failure(status, response)
+        case let .default(status, response): throw Self.failure(status, try? response.body.json.error)
         }
     }
 
@@ -829,7 +829,7 @@ final class HRStore {
                     employeeName: record.employeeName
                 )
             }
-        case let .default(status, response): throw Self.failure(status, response)
+        case let .default(status, response): throw Self.failure(status, try? response.body.json.error)
         }
     }
 
@@ -843,7 +843,7 @@ final class HRStore {
             return try ok.body.json.data.map {
                 HRColleague(id: $0.id, displayName: $0.displayName, email: $0.email, avatarUrl: $0.avatarUrl, jobTitle: $0.jobTitle, departmentName: $0.departmentName)
             }
-        case let .default(status, response): throw Self.failure(status, response)
+        case let .default(status, response): throw Self.failure(status, try? response.body.json.error)
         }
     }
 
@@ -868,7 +868,7 @@ final class HRStore {
                     HRColleague(id: $0.id, displayName: $0.displayName, email: nil, avatarUrl: $0.avatarUrl, jobTitle: $0.jobTitle, departmentName: nil)
                 }
             )
-        case let .default(status, response): throw Self.failure(status, response)
+        case let .default(status, response): throw Self.failure(status, try? response.body.json.error)
         }
     }
 
