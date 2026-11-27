@@ -3,6 +3,7 @@ import PhotosUI
 import SwiftUI
 import UniformTypeIdentifiers
 import WeldCore
+import WeldUI
 
 /// A file picked to send with a message, copied into the app's temporary folder.
 struct PendingFile: Identifiable, Equatable {

@@ -1107,6 +1107,9 @@ async fn weldchat_answers_what_the_native_apps_read() {
         "{dms:?}"
     );
 
+    // Leave nothing behind: other crates' tests clear these tables whole, and a
+    // read receipt left here would block their delete of `chat_messages`.
+    clean(&db).await;
     contract.finish_only(CHAT_OPERATIONS);
 }
 
