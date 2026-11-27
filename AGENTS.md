@@ -427,7 +427,6 @@ code: the user doesn't have to ask for it, and you don't ask whether to.
 
 ### Kept in lockstep
 
-Change both sides in the
 Change both sides in the same PR:
 
 - `packages/sdk/helpdesk-widget-sdk/src/core/IframeManager.ts` and
