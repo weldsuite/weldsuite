@@ -11,6 +11,15 @@
 //! unknown document, a tax form) and answers 503 `ai_unavailable` where it
 //! would call the model. Matching a stored OCR result to a contact
 //! (`/rematch`) needs no AI.
+//!
+//! Per-entity access (ADR SEC-015): a document is filed under the entity of
+//! the bill, invoice or journal entry it is linked to (`PATCH /:id/link`,
+//! and `POST /api/bills` with `sourceDocumentId`). An upload or an emailed
+//! document is not filed under one: it waits in the workspace's inbox,
+//! listed in every entity, until it is linked. The list and the counts hold
+//! the documents of the entities the request may list rows of, and the
+//! unfiled ones ([`inbox_scope`]); a filed document of an entity the request
+//! may not touch answers 404 by id (the router's [`EntityRecordGuard`]).
 
 use std::sync::Arc;
 
@@ -27,6 +36,7 @@ use sea_orm::{
 };
 use serde_json::{Map, Value, json};
 use weldsuite_ai::{Ai, AiCall, AiError, Feature, Task, Tier};
+use weldsuite_books_domain::entity_context::{records_in_entity, request_entity};
 use weldsuite_books_domain::guards::{AuditInput, write_accounting_audit};
 use weldsuite_books_domain::http::{
     BooksState, Caller, Query, Refusal, Reply, created, no_content, now, ok, reply, validate,
@@ -38,9 +48,14 @@ use weldsuite_catalogs::entity_events::{
 use weldsuite_db::{PgPool, orm, utc_now};
 use weldsuite_kit::validation::{Field, Number, Presence};
 use weldsuite_kit::{ApiError, generate_id};
-use weldsuite_legal_entities::{EntityRecordGuard, EntityTable};
+use weldsuite_legal_entities::{
+    EntityRecordGuard, EntityScopeCondition, EntityTable, entity_scope_condition,
+    request_entity_scope,
+};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
-use weldsuite_schema::tenant::{documents, exemption_certificates, parties};
+use weldsuite_schema::tenant::{
+    bills, documents, exemption_certificates, invoices, journal_entries, parties,
+};
 
 use crate::ocr::{OCR_OP, OcrFailure, load_ocr_file, match_vendor_to_contact, read_document};
 use crate::rows::{js, js_rows};
@@ -135,10 +150,30 @@ fn is_workspace_object_key(key: &str, org: Option<&str>) -> bool {
 
 // ── GET /, GET /stats, GET /:id ─────────────────────────────────────────────
 
+/// Which documents the inbox lists and counts (`inboxScope`): the ones filed
+/// under an entity the request may list rows of ([`request_entity_scope`]),
+/// and the unfiled ones, which wait in the workspace's inbox in every entity.
+/// A request that names an entity it may not see lists nothing.
+async fn inbox_scope(caller: &Caller) -> Result<EntityScopeCondition, DbErr> {
+    let request = request_entity(caller).await?;
+    Ok(
+        match entity_scope_condition(request_entity_scope(&request).as_deref(), None) {
+            EntityScopeCondition::In { ids, .. } => EntityScopeCondition::In {
+                ids,
+                include_unassigned: true,
+            },
+            scope => scope,
+        },
+    )
+}
+
 async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
     let q = Query::parse(raw.as_deref());
     let result: Reply = async {
-        let mut listed = documents::Entity::find().filter(documents::Column::DeletedAt.is_null());
+        let scope = inbox_scope(&caller).await?;
+        let mut listed = documents::Entity::find()
+            .filter(documents::Column::DeletedAt.is_null())
+            .filter(scope.condition(documents::Column::EntityId));
         if let Some(status) = q.present("status") {
             listed = listed.filter(documents::Column::Status.eq(status));
         }
@@ -162,6 +197,7 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
 async fn stats(caller: Caller) -> Response {
     use sea_orm::ExprTrait as _;
     let result: Reply = async {
+        let scope = inbox_scope(&caller).await?;
         let rows: Vec<(Option<String>, i32)> = documents::Entity::find()
             .select_only()
             .column(documents::Column::Status)
@@ -170,6 +206,7 @@ async fn stats(caller: Caller) -> Response {
                 "count",
             )
             .filter(documents::Column::DeletedAt.is_null())
+            .filter(scope.condition(documents::Column::EntityId))
             .group_by(documents::Column::Status)
             .into_tuple()
             .all(&orm(&caller.db))
@@ -508,6 +545,54 @@ fn change(old: Option<&Value>, new: &Value) -> Value {
     json!({ "old": old.cloned().unwrap_or(Value::Null), "new": new })
 }
 
+/// The table and the 404 label of a record a document is linked to
+/// (`LINKED_RECORDS`); an `expense` names no table, so it files nothing.
+fn linked_table(kind: &str) -> Option<(EntityTable, &'static str)> {
+    match kind {
+        "bill" => Some((EntityTable::new("bills"), "Bill")),
+        "invoice" => Some((EntityTable::new("invoices"), "Invoice")),
+        "journal_entry" => Some((EntityTable::new("journal_entries"), "Journal entry")),
+        _ => None,
+    }
+}
+
+/// The entity of the bill, invoice or journal entry `target`
+/// (`linkedRecordEntityId`): the one the linked document is filed under.
+/// `None` for an expense or an id that names no record.
+async fn linked_entity_id(db: &PgPool, kind: &str, target: &str) -> Result<Option<String>, DbErr> {
+    let db = orm(db);
+    match kind {
+        "bill" => {
+            bills::Entity::find()
+                .select_only()
+                .column(bills::Column::EntityId)
+                .filter(bills::Column::Id.eq(target))
+                .into_tuple()
+                .one(&db)
+                .await
+        }
+        "invoice" => {
+            invoices::Entity::find()
+                .select_only()
+                .column(invoices::Column::EntityId)
+                .filter(invoices::Column::Id.eq(target))
+                .into_tuple()
+                .one(&db)
+                .await
+        }
+        "journal_entry" => {
+            journal_entries::Entity::find()
+                .select_only()
+                .column(journal_entries::Column::EntityId)
+                .filter(journal_entries::Column::Id.eq(target))
+                .into_tuple()
+                .one(&db)
+                .await
+        }
+        _ => Ok(None),
+    }
+}
+
 async fn link(
     caller: Caller,
     State(state): State<BooksState>,
@@ -533,22 +618,30 @@ async fn link(
         let Some(doc) = find_document(db, &id).await? else {
             return Err(Refusal::not_found("Document", &id));
         };
-        update_document(
-            db,
-            &id,
-            &[
-                (
-                    documents::Column::LinkedEntityType,
-                    Expr::value(kind.as_str()),
-                ),
-                (
-                    documents::Column::LinkedEntityId,
-                    Expr::value(target.as_str()),
-                ),
-                (documents::Column::Status, Expr::value("linked")),
-            ],
-        )
-        .await?;
+        // The record must be one the request may touch, or a document could
+        // be filed under an entity the member does not see.
+        if let Some((table, label)) = linked_table(&kind)
+            && !records_in_entity(&caller, &table, &[target.as_str()]).await?
+        {
+            return Err(Refusal::not_found(label, &target));
+        }
+        // Filed under the linked record's entity (per-entity access).
+        let filed = linked_entity_id(db, &kind, &target).await?;
+        let mut set = vec![
+            (
+                documents::Column::LinkedEntityType,
+                Expr::value(kind.as_str()),
+            ),
+            (
+                documents::Column::LinkedEntityId,
+                Expr::value(target.as_str()),
+            ),
+            (documents::Column::Status, Expr::value("linked")),
+        ];
+        if let Some(entity) = &filed {
+            set.push((documents::Column::EntityId, Expr::value(entity.as_str())));
+        }
+        update_document(db, &id, &set).await?;
         let mut changes = Map::new();
         changes.insert("status".into(), change(doc.get("status"), &json!("linked")));
         changes.insert(
@@ -559,7 +652,16 @@ async fn link(
             "linkedEntityId".into(),
             change(doc.get("linkedEntityId"), &json!(target)),
         );
-        write_accounting_audit(&caller, db, audit(&doc, &id, "linked", Some(changes))).await;
+        let entity_id = filed.as_deref().or_else(|| text(&doc, "entityId"));
+        if entity_id != text(&doc, "entityId") {
+            changes.insert(
+                "entityId".into(),
+                change(doc.get("entityId"), &json!(entity_id)),
+            );
+        }
+        let mut audit = audit(&doc, &id, "linked", Some(changes));
+        audit.accounting_entity_id = entity_id;
+        write_accounting_audit(&caller, db, audit).await;
         caller.publish(
             &state,
             ACCOUNTING_DOCUMENT_UPDATED,

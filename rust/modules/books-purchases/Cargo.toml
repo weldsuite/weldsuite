@@ -31,7 +31,10 @@ weldsuite-schema = { workspace = true }
 time = { workspace = true, features = ["macros", "parsing", "formatting"] }
 
 [dev-dependencies]
+http-body-util = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt"] }
+tower = { workspace = true, features = ["util"] }
+weldsuite-auth = { workspace = true }
 
 [lints]
 workspace = true

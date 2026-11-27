@@ -8,17 +8,27 @@
  * Every state change on a document is written to the accounting audit log
  * (administratieplicht) in addition to the platform entity-event fan-out.
  *
+ * Per-entity access (ADR SEC-015): a document is filed under the entity of the
+ * bill, invoice or journal entry it is linked to (PATCH /:id/link, and
+ * POST /api/bills with `sourceDocumentId`). An upload or an emailed document is
+ * not filed under one: it waits in the workspace's inbox, listed in every
+ * entity, until it is linked. The list and the counts hold the documents of the
+ * entities the request may list rows of, and the unfiled ones (`inboxScope`); a
+ * filed document of an entity the request may not touch answers 404 by id
+ * (`guardEntityRecords`).
+ *
  * Permissions: invoices:read | invoices:create | invoices:update | invoices:delete.
  */
 
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { and, desc, eq, isNull, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, or, sql, type SQL } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import type { Env, Variables } from '../../types';
-import { guardEntityRecords } from '../../lib/entity-access';
+import { guardEntityRecords, recordsInEntity } from '../../lib/entity-access';
+import { requestEntityScope } from '@weldsuite/core-domain/legal-entities';
 import { error, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { isWorkspaceObjectKey } from '@weldsuite/worker-kit/storage';
@@ -40,6 +50,39 @@ guardEntityRecords(app, schema.documents, { label: 'Document' });
 const t = schema.documents;
 
 type DocumentRow = typeof t.$inferSelect;
+
+/**
+ * Which documents the inbox lists and counts: the ones filed under an entity
+ * the request may list rows of (`requestEntityScope`), and the unfiled ones,
+ * which wait in the workspace's inbox in every entity. A request that names an
+ * entity it may not see lists nothing. Undefined = no filter.
+ */
+async function inboxScope(c: Context): Promise<SQL | undefined> {
+  const scope = await requestEntityScope(c);
+  if (scope === null) return undefined;
+  if (scope.length === 0) return sql`false`;
+  return or(inArray(t.entityId, scope), isNull(t.entityId));
+}
+
+/** The records a document is linked to that belong to an entity; an `expense` names none, so it files nothing. */
+const LINKED_RECORDS = {
+  bill: { table: schema.bills, label: 'Bill' },
+  invoice: { table: schema.invoices, label: 'Invoice' },
+  journal_entry: { table: schema.journalEntries, label: 'Journal entry' },
+} as const;
+
+type LinkedEntityType = 'bill' | 'invoice' | 'journal_entry' | 'expense';
+
+/**
+ * The entity of the bill, invoice or journal entry `id`: the one the linked
+ * document is filed under. Null for an expense or an id that names no record.
+ */
+async function linkedRecordEntityId(db: Database, type: LinkedEntityType, id: string): Promise<string | null> {
+  if (type === 'expense') return null;
+  const { table } = LINKED_RECORDS[type];
+  const [row] = await db.select({ entityId: table.entityId }).from(table).where(eq(table.id, id)).limit(1);
+  return row?.entityId ?? null;
+}
 
 /**
  * Tax forms (W-9s, exemption certificates) carry TINs and SSNs, which must
@@ -87,6 +130,8 @@ app.get('/', requirePermission('invoices:read'), async (c) => {
   const db = c.get('tenantDb');
   try {
     const conditions = [isNull(t.deletedAt)];
+    const scope = await inboxScope(c);
+    if (scope) conditions.push(scope);
 
     const statusFilter = c.req.query('status');
     if (statusFilter) conditions.push(eq(t.status, statusFilter));
@@ -118,7 +163,7 @@ app.get('/stats', requirePermission('invoices:read'), async (c) => {
         count: sql<number>`count(*)::int`,
       })
       .from(t)
-      .where(isNull(t.deletedAt))
+      .where(and(isNull(t.deletedAt), await inboxScope(c)))
       .groupBy(t.status);
 
     return success(c, stats);
@@ -309,16 +354,28 @@ app.patch('/:id/link', requirePermission('invoices:update'), zValidator('json', 
   try {
     const [doc] = await db.select().from(t).where(and(eq(t.id, id), isNull(t.deletedAt))).limit(1);
     if (!doc) return error.notFound(c, 'Document', id);
+    // The record must be one the request may touch, or a document could be
+    // filed under an entity the member does not see.
+    if (data.linkedEntityType !== 'expense') {
+      const linked = LINKED_RECORDS[data.linkedEntityType];
+      if (!(await recordsInEntity(c, linked.table, [data.linkedEntityId]))) {
+        return error.notFound(c, linked.label, data.linkedEntityId);
+      }
+    }
+    // Filed under the linked record's entity (per-entity access).
+    const filed = await linkedRecordEntityId(db, data.linkedEntityType, data.linkedEntityId);
 
     await db.update(t).set({
       linkedEntityType: data.linkedEntityType,
       linkedEntityId: data.linkedEntityId,
       status: 'linked',
+      ...(filed ? { entityId: filed } : {}),
       updatedAt: new Date(),
     }).where(eq(t.id, id));
 
+    const entityId = filed ?? doc.entityId;
     await writeAccountingAudit(c, db, {
-      accountingEntityId: doc.entityId,
+      accountingEntityId: entityId,
       entityType: 'accounting_document',
       entityId: id,
       action: 'linked',
@@ -326,6 +383,7 @@ app.patch('/:id/link', requirePermission('invoices:update'), zValidator('json', 
         status: { old: doc.status, new: 'linked' },
         linkedEntityType: { old: doc.linkedEntityType, new: data.linkedEntityType },
         linkedEntityId: { old: doc.linkedEntityId, new: data.linkedEntityId },
+        ...(entityId !== doc.entityId ? { entityId: { old: doc.entityId, new: entityId } } : {}),
       },
     });
     publishEntityEvent({

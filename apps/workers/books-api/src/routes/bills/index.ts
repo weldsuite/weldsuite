@@ -28,7 +28,7 @@ import { and, desc, eq, gte, inArray, isNull, like, lte, or, sql } from 'drizzle
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import type { Env, Variables } from '../../types';
-import { guardEntityRecords } from '../../lib/entity-access';
+import { guardEntityRecords, recordsInEntity } from '../../lib/entity-access';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
@@ -493,6 +493,11 @@ app.post('/', requirePermission('bills:create'), zValidator('json', createBillSc
           : 'No accounting entity resolved — set X-Accounting-Entity-Id or configure a default entity.',
       );
     }
+    // The bill files its source document under the bill's entity: it must be a
+    // document the request may touch (per-entity access).
+    if (data.sourceDocumentId && !(await recordsInEntity(c, schema.documents, [data.sourceDocumentId]))) {
+      return error.notFound(c, 'Document', data.sourceDocumentId);
+    }
     const billNumber = data.billNumber ?? (await nextEntityNumber(db, entityId, 'bill')).formatted;
     const baseCurrency = await resolveEntityBaseCurrency(db, entityId);
     const currency = data.currency || baseCurrency;
@@ -572,13 +577,15 @@ app.post('/', requirePermission('bills:create'), zValidator('json', createBillSc
       await db.insert(billItems).values(itemRecords);
     }
 
-    // Link source document (from OCR flow) to the newly created bill
+    // Link source document (from OCR flow) to the newly created bill, and file
+    // it under the bill's entity.
     if (data.sourceDocumentId) {
       const { documents } = schema;
       await db.update(documents).set({
         status: 'linked',
         linkedEntityType: 'bill',
         linkedEntityId: billId,
+        entityId,
         updatedAt: new Date(),
       }).where(eq(documents.id, data.sourceDocumentId));
     }

@@ -27,8 +27,8 @@ use weldsuite_books_domain::document_posting::{
     post_bill, resolve_bill_default_expense_account, update_with_entry,
 };
 use weldsuite_books_domain::entity_context::{
-    SequenceType, next_entity_number, resolve_entity_base_currency, resolve_entity_id,
-    resolve_requested_entity_id,
+    SequenceType, next_entity_number, records_in_entity, resolve_entity_base_currency,
+    resolve_entity_id, resolve_requested_entity_id,
 };
 use weldsuite_books_domain::fx::{RateQuery, draft_rate};
 use weldsuite_books_domain::guards::{AuditInput, PostingLockKind, write_accounting_audit};
@@ -753,6 +753,13 @@ async fn create_bill(caller: &Caller, state: &BooksState, data: BillBody) -> Rep
             None => "No accounting entity resolved — set X-Accounting-Entity-Id or configure a default entity.".to_owned(),
         }));
     };
+    // The bill files its source document under the bill's entity: it must be
+    // a document the request may touch (per-entity access).
+    if let Some(document_id) = data.source_document_id.as_deref().filter(|d| !d.is_empty())
+        && !records_in_entity(caller, &EntityTable::new("documents"), &[document_id]).await?
+    {
+        return Err(Refusal::not_found("Document", document_id));
+    }
     let bill_number = match &data.bill_number {
         Some(number) => number.clone(),
         None => {
@@ -889,6 +896,7 @@ async fn create_bill(caller: &Caller, state: &BooksState, data: BillBody) -> Rep
         }
     }
     if let Some(document_id) = data.source_document_id.as_deref().filter(|d| !d.is_empty()) {
+        // Linked, and filed under the bill's entity.
         documents::Entity::update_many()
             .col_expr(documents::Column::Status, Expr::value("linked"))
             .col_expr(documents::Column::LinkedEntityType, Expr::value("bill"))
@@ -896,6 +904,7 @@ async fn create_bill(caller: &Caller, state: &BooksState, data: BillBody) -> Rep
                 documents::Column::LinkedEntityId,
                 Expr::value(bill_id.as_str()),
             )
+            .col_expr(documents::Column::EntityId, Expr::value(entity_id.as_str()))
             .col_expr(documents::Column::UpdatedAt, Expr::value(utc_now()))
             .filter(documents::Column::Id.eq(document_id))
             .exec(&orm(db))
