@@ -14,6 +14,7 @@ use axum::routing::{get, post};
 use http::HeaderMap;
 use sea_orm::{
     ColumnTrait, Condition, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect,
+    QueryTrait,
 };
 use serde_json::{Map, Value, json};
 use time::PrimitiveDateTime;
@@ -82,6 +83,9 @@ struct PaymentFilters<'a> {
     payment_method: Option<&'a str>,
     check_status: Option<&'a str>,
     bank_account_id: Option<&'a str>,
+    invoice_id: Option<&'a str>,
+    bill_id: Option<&'a str>,
+    bank_transaction_id: Option<&'a str>,
     deposited: Option<bool>,
     term: Option<&'a str>,
     from: Option<PrimitiveDateTime>,
@@ -98,6 +102,10 @@ impl PaymentFilters<'_> {
             (payments::Column::PaymentMethod, self.payment_method),
             (payments::Column::CheckStatus, self.check_status),
             (payments::Column::BankAccountId, self.bank_account_id),
+            (
+                payments::Column::BankTransactionId,
+                self.bank_transaction_id,
+            ),
         ];
         let mut condition = Condition::all()
             .add(payments::Column::DeletedAt.is_null())
@@ -105,6 +113,33 @@ impl PaymentFilters<'_> {
         for (column, value) in equal {
             if let Some(value) = value {
                 condition = condition.add(column.eq(value));
+            }
+        }
+        // A document's payments: its own single link, or an allocation.
+        for (direct, allocated, document) in [
+            (
+                payments::Column::InvoiceId,
+                payment_allocations::Column::InvoiceId,
+                self.invoice_id,
+            ),
+            (
+                payments::Column::BillId,
+                payment_allocations::Column::BillId,
+                self.bill_id,
+            ),
+        ] {
+            if let Some(document) = document {
+                let allocations = payment_allocations::Entity::find()
+                    .select_only()
+                    .column(payment_allocations::Column::PaymentId)
+                    .filter(allocated.eq(document))
+                    .filter(payment_allocations::Column::DeletedAt.is_null())
+                    .into_query();
+                condition = condition.add(
+                    Condition::any()
+                        .add(direct.eq(document))
+                        .add(payments::Column::Id.in_subquery(allocations)),
+                );
             }
         }
         match self.deposited {
@@ -161,6 +196,9 @@ async fn list_payments(caller: &Caller) -> Reply {
         payment_method: q.present("paymentMethod"),
         check_status: q.present("checkStatus"),
         bank_account_id: q.present("bankAccountId"),
+        invoice_id: q.present("invoiceId"),
+        bill_id: q.present("billId"),
+        bank_transaction_id: q.present("bankTransactionId"),
         deposited,
         term: term.as_deref(),
         from,
@@ -490,4 +528,161 @@ async fn remove(
         .await,
         "Failed to delete payment",
     )
+}
+
+/// Against the real tenant schema (`WELDSUITE_TEST_TENANT_URL`, built by
+/// `scripts/rust-test-db.ts`); each test returns early without it. Rows
+/// carry a fresh id, so runs share the database with other tests.
+#[cfg(test)]
+#[allow(
+    clippy::disallowed_methods,
+    clippy::unwrap_used,
+    reason = "test fixtures are written in SQL"
+)]
+mod db_tests {
+    use sea_orm::{EntityTrait, QueryFilter};
+    use sqlx::PgPool;
+    use weldsuite_db::orm;
+    use weldsuite_kit::generate_id;
+    use weldsuite_schema::tenant::payments;
+
+    use super::PaymentFilters;
+
+    async fn tenant() -> Option<PgPool> {
+        let Ok(url) = std::env::var("WELDSUITE_TEST_TENANT_URL") else {
+            eprintln!("WELDSUITE_TEST_TENANT_URL is not set; skipping");
+            return None;
+        };
+        Some(
+            sqlx::postgres::PgPoolOptions::new()
+                .max_connections(2)
+                .connect(&url)
+                .await
+                .unwrap(),
+        )
+    }
+
+    async fn payment(db: &PgPool, entity: &str, columns: &str, values: &[&str]) -> String {
+        let id = generate_id("pay_");
+        let marks: Vec<String> = (0..values.len()).map(|i| format!("${}", i + 4)).collect();
+        let sql = format!(
+            "insert into payments (id, entity_id, type, amount, date, contact_id{comma}{columns}) \
+             values ($1, $2, 'received', 10, now(), $3{comma}{marks})",
+            comma = if columns.is_empty() { "" } else { ", " },
+            marks = marks.join(", "),
+        );
+        let mut query = sqlx::query(sqlx::AssertSqlSafe(sql))
+            .bind(&id)
+            .bind(entity)
+            .bind("party_x");
+        for value in values {
+            query = query.bind(*value);
+        }
+        query.execute(db).await.unwrap();
+        id
+    }
+
+    async fn allocate(db: &PgPool, entity: &str, payment: &str, column: &str, document: &str) {
+        let sql = format!(
+            "insert into payment_allocations (id, entity_id, payment_id, {column}, amount) \
+             values ($1, $2, $3, $4, 5)"
+        );
+        sqlx::query(sqlx::AssertSqlSafe(sql))
+            .bind(generate_id("pal_"))
+            .bind(entity)
+            .bind(payment)
+            .bind(document)
+            .execute(db)
+            .await
+            .unwrap();
+    }
+
+    fn filters(entity: &str) -> PaymentFilters<'_> {
+        PaymentFilters {
+            entity_id: entity,
+            kind: None,
+            contact_id: None,
+            check_number: None,
+            payment_method: None,
+            check_status: None,
+            bank_account_id: None,
+            invoice_id: None,
+            bill_id: None,
+            bank_transaction_id: None,
+            deposited: None,
+            term: None,
+            from: None,
+            to: None,
+        }
+    }
+
+    async fn ids(db: &PgPool, filters: &PaymentFilters<'_>) -> Vec<String> {
+        let mut ids: Vec<String> = payments::Entity::find()
+            .filter(filters.condition())
+            .all(&orm(db))
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|payment| payment.id)
+            .collect();
+        ids.sort();
+        ids
+    }
+
+    fn sorted(mut ids: Vec<String>) -> Vec<String> {
+        ids.sort();
+        ids
+    }
+
+    #[tokio::test]
+    async fn invoice_and_bill_filters_match_the_direct_link_or_an_allocation() {
+        let Some(db) = tenant().await else { return };
+        let entity = generate_id("ent_");
+        let invoice = generate_id("inv_");
+        let bill = generate_id("bill_");
+        // Paid through the old single link, through an allocation, to
+        // another invoice, and to the bill.
+        let direct = payment(&db, &entity, "invoice_id", &[&invoice]).await;
+        let allocated = payment(&db, &entity, "", &[]).await;
+        allocate(&db, &entity, &allocated, "invoice_id", &invoice).await;
+        let other = payment(&db, &entity, "invoice_id", &["inv_other"]).await;
+        let bill_payment = payment(&db, &entity, "", &[]).await;
+        allocate(&db, &entity, &bill_payment, "bill_id", &bill).await;
+        let direct_bill = payment(&db, &entity, "bill_id", &[&bill]).await;
+
+        let mut by_invoice = filters(&entity);
+        by_invoice.invoice_id = Some(&invoice);
+        assert_eq!(
+            ids(&db, &by_invoice).await,
+            sorted(vec![direct.clone(), allocated.clone()])
+        );
+        let mut by_bill = filters(&entity);
+        by_bill.bill_id = Some(&bill);
+        assert_eq!(
+            ids(&db, &by_bill).await,
+            sorted(vec![bill_payment.clone(), direct_bill.clone()])
+        );
+        // No filter: every payment of the entity, as before.
+        assert_eq!(
+            ids(&db, &filters(&entity)).await,
+            sorted(vec![direct, allocated, other, bill_payment, direct_bill])
+        );
+        // The same ids under another entity match nothing.
+        let mut foreign = filters("ent_elsewhere");
+        foreign.invoice_id = Some(&invoice);
+        assert_eq!(ids(&db, &foreign).await, Vec::<String>::new());
+    }
+
+    #[tokio::test]
+    async fn the_bank_transaction_filter_matches_the_payment_of_that_line() {
+        let Some(db) = tenant().await else { return };
+        let entity = generate_id("ent_");
+        let line = generate_id("btx_");
+        let paid = payment(&db, &entity, "bank_transaction_id", &[&line]).await;
+        payment(&db, &entity, "bank_transaction_id", &["btx_other"]).await;
+        payment(&db, &entity, "", &[]).await;
+        let mut by_line = filters(&entity);
+        by_line.bank_transaction_id = Some(&line);
+        assert_eq!(ids(&db, &by_line).await, vec![paid]);
+    }
 }

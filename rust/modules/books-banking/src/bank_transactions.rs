@@ -52,6 +52,7 @@ use weldsuite_legal_entities::{EntityRecordGuard, EntityTable};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 use weldsuite_schema::tenant::{bank_accounts, bank_import_batches, bank_transactions};
 
+use crate::bank_line_links;
 use crate::bank_links;
 use crate::common::{changes, field, find_transaction, posting_refusal, text};
 use crate::csv_format;
@@ -97,6 +98,11 @@ where
         .route(
             "/{id}/match-documents",
             post(bank_links::match_documents).route_layer(need("banking:update")),
+        )
+        // Rust only: everything one line is connected to, expanded.
+        .route(
+            "/{id}/links",
+            get(bank_line_links::links).route_layer(need("banking:read")),
         )
         .route("/{id}", get(detail).route_layer(need("banking:read")))
         .route(

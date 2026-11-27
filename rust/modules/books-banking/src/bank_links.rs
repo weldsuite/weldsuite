@@ -55,7 +55,7 @@ const OPEN_BILL: [&str; 3] = ["approved", "partial", "overdue"];
 
 /// A row that would not serialize, as a database error.
 #[allow(clippy::needless_pass_by_value)] // the shape `map_err` hands over
-fn json_error(error: serde_json::Error) -> DbErr {
+pub(crate) fn json_error(error: serde_json::Error) -> DbErr {
     DbErr::Json(error.to_string())
 }
 
@@ -78,7 +78,7 @@ fn like_pattern(term: &str) -> String {
 }
 
 /// The contacts (`id → (name, iban)`) of `rows`.
-async fn contacts_of(
+pub(crate) async fn contacts_of(
     db: &PgPool,
     rows: &[Value],
 ) -> Result<HashMap<String, (Option<String>, Option<String>)>, DbErr> {
