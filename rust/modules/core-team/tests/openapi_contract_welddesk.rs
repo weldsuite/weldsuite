@@ -110,7 +110,11 @@ async fn team_members_are_what_the_welddesk_apps_read() {
             &app(&tenant),
             "listTeamMembers",
             &[],
-            &[("memberType", "INTERNAL"), ("status", "ACTIVE"), ("limit", "100")],
+            &[
+                ("memberType", "INTERNAL"),
+                ("status", "ACTIVE"),
+                ("limit", "100"),
+            ],
             None,
         )
         .await;

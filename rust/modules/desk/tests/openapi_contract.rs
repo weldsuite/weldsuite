@@ -199,7 +199,11 @@ async fn the_inbox_answers_what_the_native_apps_read() {
             &app,
             "listDeskConversations",
             &[],
-            &[("state", "open"), ("sort", "waiting_longest"), ("limit", "1")],
+            &[
+                ("state", "open"),
+                ("sort", "waiting_longest"),
+                ("limit", "1"),
+            ],
             None,
         )
         .await;
@@ -213,7 +217,12 @@ async fn the_inbox_answers_what_the_native_apps_read() {
             &app,
             "listDeskConversations",
             &[],
-            &[("state", "open"), ("sort", "waiting_longest"), ("limit", "1"), ("cursor", &cursor)],
+            &[
+                ("state", "open"),
+                ("sort", "waiting_longest"),
+                ("limit", "1"),
+                ("cursor", &cursor),
+            ],
             None,
         )
         .await;
@@ -222,7 +231,11 @@ async fn the_inbox_answers_what_the_native_apps_read() {
             &app,
             "listDeskConversations",
             &[],
-            &[("state", "closed"), ("assigneeId", USER), ("sort", "oldest")],
+            &[
+                ("state", "closed"),
+                ("assigneeId", USER),
+                ("sort", "oldest"),
+            ],
             None,
         )
         .await;
@@ -232,7 +245,12 @@ async fn the_inbox_answers_what_the_native_apps_read() {
             &app,
             "listDeskConversations",
             &[],
-            &[("state", "open"), ("unassigned", "true"), ("q", "990001"), ("sort", "newest")],
+            &[
+                ("state", "open"),
+                ("unassigned", "true"),
+                ("q", "990001"),
+                ("sort", "newest"),
+            ],
             None,
         )
         .await;
@@ -303,7 +321,10 @@ async fn the_inbox_answers_what_the_native_apps_read() {
             Some(&json!({ "action": "assign", "assigneeId": USER })),
         )
         .await;
-    assert_eq!(assigned["data"]["conversation"]["assigneeId"], USER, "{assigned}");
+    assert_eq!(
+        assigned["data"]["conversation"]["assigneeId"], USER,
+        "{assigned}"
+    );
     let unassigned = contract
         .success(
             &app,
@@ -327,7 +348,10 @@ async fn the_inbox_answers_what_the_native_apps_read() {
             Some(&json!({ "action": "close" })),
         )
         .await;
-    assert_eq!(closed["data"]["conversation"]["state"], "closed", "{closed}");
+    assert_eq!(
+        closed["data"]["conversation"]["state"], "closed",
+        "{closed}"
+    );
     contract
         .success(
             &app,
