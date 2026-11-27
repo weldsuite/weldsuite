@@ -10,17 +10,28 @@
  *
  * Ported from apps/core-api/src/routes/search.ts + services/search*.ts during the
  * core-api → app-api migration. Result-URL mapping is folded in below.
+ *
+ * WeldBooks' invoices and bills belong to a legal entity, and are found only in
+ * the entities the caller may read them in (ADR SEC-015, `readableEntityIds`).
  */
 
-import { and, desc, eq, isNotNull, isNull, ne, or, sql, type SQL } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNotNull, isNull, ne, or, sql, type SQL } from 'drizzle-orm';
 import type { Database } from '@weldsuite/worker-kit/db';
 import { schema } from '@weldsuite/worker-kit/db';
+import { hasAnyAppPermission } from '@weldsuite/permissions';
+import type { ResolvedPermissions } from '@weldsuite/permissions/types';
 import {
   loadDriveAccessForUser,
   visibleFilesCondition,
   type DriveAccessIndex,
 } from '@weldsuite/core-domain/drive-access';
 import { agentVisibleTo } from '@weldsuite/core-domain/agent-access';
+import {
+  canSeeEntity,
+  entityRoleId,
+  permissionsInEntity,
+  type EntityAccess,
+} from '@weldsuite/core-domain/legal-entities';
 import {
   type SearchEntityType,
   type SearchResultGroup,
@@ -60,6 +71,12 @@ export interface RunSearchParams {
    * through `perms`.
    */
   userId?: string | null;
+  /**
+   * The caller's per-entity access (`getEntityAccess(c)`), loaded once when a
+   * WeldBooks type is searched. Without it no legal entity is readable, so
+   * invoices and bills return nothing.
+   */
+  entityAccess?: () => Promise<EntityAccess>;
 }
 
 /**
@@ -74,6 +91,51 @@ export interface SearchCaller {
   can: (permission: string) => boolean;
   /** The caller's WeldDrive access, loaded once for every Drive-backed type of one search. */
   driveAccess?: () => Promise<DriveAccessIndex>;
+  /**
+   * The legal entities whose records the caller may find with `permission`
+   * (`readableEntityIds`); null when that is every entity.
+   */
+  readableEntities: (permission: string) => Promise<string[] | null>;
+}
+
+/**
+ * The legal entities whose records the caller may find with `permission`
+ * (WeldBooks' invoices and bills): the entities they see (`canSeeEntity`: the
+ * open ones, the restricted ones they are listed on, every one for the
+ * owner), each with the role they act with there (`permissionsInEntity`:
+ * their entity role, or the workspace role). Null when that is every entity,
+ * so no filter is needed. `inEntity` keeps each entity role's permissions
+ * for the rest of the search.
+ */
+export async function readableEntityIds(
+  db: Database,
+  access: EntityAccess,
+  permission: string,
+  inEntity: Map<string, Promise<ResolvedPermissions>> = new Map(),
+): Promise<string[] | null> {
+  // The same access in every entity: the workspace role, which let the type
+  // through, applies everywhere.
+  if (access.uniform) return null;
+  const readable: string[] = [];
+  let hidden = false;
+  for (const id of access.entities.keys()) {
+    let reads = canSeeEntity(access, id);
+    if (reads) {
+      let permissions = access.workspacePermissions;
+      if (entityRoleId(access, id)) {
+        let pending = inEntity.get(id);
+        if (!pending) {
+          pending = permissionsInEntity(db, access, id);
+          inEntity.set(id, pending);
+        }
+        permissions = await pending;
+      }
+      reads = hasAnyAppPermission(permissions, [permission], null);
+    }
+    if (reads) readable.push(id);
+    else hidden = true;
+  }
+  return hidden ? readable : null;
 }
 
 interface EntityRegistration {
@@ -714,8 +776,11 @@ export async function searchInvoices(
   _workspaceId: string,
   q: string,
   limit: number,
+  caller: SearchCaller,
 ): Promise<SearchResultGroup> {
   const { invoices } = schema;
+  const entities = await caller.readableEntities('invoices:read');
+  if (entities?.length === 0) return { type: 'invoice', items: [], totalCount: 0, hasMore: false };
   const term = `%${q.toLowerCase()}%`;
   const score = sql<number>`GREATEST(
     ${scoreColumn(invoices.invoiceNumber, q)},
@@ -736,6 +801,7 @@ export async function searchInvoices(
     .where(
       and(
         isNull(invoices.deletedAt),
+        entities ? inArray(invoices.entityId, entities) : undefined,
         or(
           sql`lower(${invoices.invoiceNumber}) LIKE ${term}`,
           sql`lower(${invoices.contactName}) LIKE ${term}`,
@@ -764,8 +830,11 @@ export async function searchBills(
   _workspaceId: string,
   q: string,
   limit: number,
+  caller: SearchCaller,
 ): Promise<SearchResultGroup> {
   const { bills } = schema;
+  const entities = await caller.readableEntities('bills:read');
+  if (entities?.length === 0) return { type: 'bill', items: [], totalCount: 0, hasMore: false };
   const term = `%${q.toLowerCase()}%`;
   const score = sql<number>`GREATEST(
     ${scoreColumn(bills.billNumber, q)},
@@ -785,6 +854,7 @@ export async function searchBills(
     .where(
       and(
         isNull(bills.deletedAt),
+        entities ? inArray(bills.entityId, entities) : undefined,
         or(
           sql`lower(${bills.billNumber}) LIKE ${term}`,
           sql`lower(${bills.contactName}) LIKE ${term}`,
@@ -1802,10 +1872,17 @@ export async function runSearch(
 
   const userId = params.userId ?? null;
   let driveAccess: Promise<DriveAccessIndex> | undefined;
+  let entityAccess: Promise<EntityAccess> | undefined;
+  const inEntity = new Map<string, Promise<ResolvedPermissions>>();
   const caller: SearchCaller = {
     userId,
     can: (permission) => params.perms.hasAny([permission]),
     driveAccess: () => (driveAccess ??= loadDriveAccessForUser(db, userId)),
+    readableEntities: async (permission) => {
+      if (!params.entityAccess) return [];
+      const access = await (entityAccess ??= params.entityAccess());
+      return readableEntityIds(db, access, permission, inEntity);
+    },
   };
   const groups = await Promise.all(
     filtered.map((r) => r.search(db, workspaceId, term, params.limit, caller)),
