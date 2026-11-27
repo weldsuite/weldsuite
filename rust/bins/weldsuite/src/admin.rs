@@ -90,6 +90,9 @@ without writing.
         after WELDPASS_ROOT_KEY_V2 is set on the server
   weldpass backfill-checksums [<workspace>] --reason <text>
         rewrites the secrets' pre-HMAC checksums as keyed ones
+  import-global check|master|tenants|files|verify [options]
+        the move from Global (ADR OPS-025): weldsuite admin import-global
+        --help lists the steps and the settings they read
 
 <workspace> is its id, slug or organization id. --app defaults to weldreach.
 
@@ -386,6 +389,9 @@ fn env(name: &str) -> Option<String> {
 }
 
 pub(crate) fn run(args: &[String]) -> ExitCode {
+    if args.first().map(String::as_str) == Some("import-global") {
+        return crate::admin_import_global::run(&args[1..]);
+    }
     let options = match parse(args, env("WELDSUITE_ACTOR")) {
         Ok(Parsed::Run(options)) => options,
         Ok(Parsed::Help) => {

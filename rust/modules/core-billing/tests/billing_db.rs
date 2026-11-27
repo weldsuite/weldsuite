@@ -24,13 +24,14 @@ use sqlx::PgPool;
 use time::OffsetDateTime;
 use time::macros::datetime;
 use weldsuite_core_billing::engine::{self, Actor, CheckoutAnswer, CheckoutInput};
+use weldsuite_core_billing::moved::open_account;
 use weldsuite_core_billing::period::Cycle;
 use weldsuite_core_billing::renewals::run_renewals;
 use weldsuite_core_billing::{
     AddonSource, BillingError, BillingMail, BillingMailKind, BillingMailer, BillingSettings,
     BillingState, InboxCharge, InvoiceIssuer, InvoiceMail, IssueRequest, IssuedInvoice, Language,
-    Line, LineKind, Settled, TopUpRequest, Treatment, charge_inbox_added, inbox_line, quote_top_up,
-    settle_payment,
+    Line, LineKind, MovedAccount, Settled, TopUpRequest, Treatment, charge_inbox_added, inbox_line,
+    quote_top_up, settle_payment,
 };
 use weldsuite_ports::{
     BoxFuture, DynOutboundHttp, HttpRequest, HttpResponse, OutboundHttp, PortError,
@@ -850,13 +851,26 @@ async fn a_workspace_moved_from_global_adds_a_payment_method() {
         &[MOVED, PLAN],
     )
     .await;
-    exec(
-        &master,
-        "insert into billing_accounts (id, workspace_id, provider, unit_amount, anchor_day, next_charge_at)
-         values ('bac_billingdb2', $1, 'mollie', 2500, 14, '2026-12-14 10:00:00')",
-        &[MOVED],
-    )
-    .await;
+    // The move opens its billing account: the plan's seat price, renewing
+    // when Global's period ends, nothing to charge it on.
+    let opened = open_account(&master, MOVED, datetime!(2026-11-20 12:00:00 UTC))
+        .await
+        .expect("open the account");
+    assert_eq!(
+        opened,
+        MovedAccount::Opened {
+            unit_amount: 2500,
+            next_charge_at: datetime!(2026-12-14 10:00:00 UTC),
+        }
+    );
+    let again = open_account(&master, MOVED, datetime!(2026-11-21 12:00:00 UTC))
+        .await
+        .expect("open it again");
+    assert_eq!(again, opened, "a second run sets the same account");
+    let acc = account_of(&master, MOVED).await;
+    assert_eq!(acc["anchor_day"], 14);
+    assert_eq!(acc["customer_id"], Value::Null);
+    assert_eq!(acc["mandate_id"], Value::Null);
     let mollie = Arc::new(FakeMollie::default());
     *mollie.recurring_status.lock().expect("lock") = "paid".to_owned();
     let issuer = Arc::new(CountingIssuer::default());

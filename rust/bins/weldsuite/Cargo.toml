@@ -75,6 +75,7 @@ weldsuite-mta = { workspace = true }
 weldsuite-meet = { workspace = true }
 weldsuite-merge = { workspace = true }
 weldsuite-forms = { workspace = true }
+weldsuite-global-import = { workspace = true }
 weldsuite-notifications = { workspace = true }
 weldsuite-panel = { workspace = true }
 weldsuite-migrations = { workspace = true }
